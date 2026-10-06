@@ -1,6 +1,6 @@
 # A timing family for the logged synchronous engine — a registration
 
-Date: 2026-10-06 · **Frozen by the amendment at the end of this page, before the pilot of section 5 was run.** It was frozen by a commit named in an amendment **before** the pilot of section 5 is run, and changed after that only by dated amendments. **No card is bought by this page until section 6's condition is met and the user approves the purchase.**
+Date: 2026-10-06 · **Frozen by the amendment at the end of this page, before the pilot of section 5 was run,** and changed after that only by dated amendments. **No card is bought by this page until section 6's condition is met and the user approves the purchase.**
 
 **Why it exists.** The instrument-validation study (`2026-10-05-can-the-stock-engine-time-an-iteration-instrument-validation.md` and its sessions) asked whether the stock engine's iteration log times an iteration **of the engine that runs without it**. Its I1 gate failed in session 5 and stays failed (`2026-10-06-instrument-validation-session-5.md`). No session 6 is bought, and nothing here re-asks that question.
 
