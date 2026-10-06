@@ -26,3 +26,24 @@ Session 4's result says its first cell's overhead was 548 s and that a longer de
 ## 3. Who decided what
 
 The staggered first cell is astra's proposal; my own was to split the blocks over two cards, which would have put I5's endpoints on different cards. Raising the deadline within the credential limit is astra's correction of my claim that it could not help. Both are adopted together, which leaves about 17 minutes at the first boundary rather than either's six or nine.
+
+## Result, 2026-10-06 — complete; the verdict is FAIL on I1 alone, and the frozen clock predicts every setting within 2%
+
+The session launched at `2b4dcad` at about 07:28 KST, passed its first deadline boundary after the staggered first cell, and completed all 18 cells at about 14:57 KST with no refusal; the instance was confirmed terminated. `instrument_gates.py` at the launch commit was run once on hack/m5c-20261005-222736:
+
+| Gate | Result |
+|---|---|
+| W and S | every cell passes, warm-up and measured |
+| I1, pooled intervals | serial TTFT +0.14% [+0.11, +0.18]; burst TTFT −0.16% [−1.01, +0.31]; staggered TTFT +0.17% [−0.02, +0.37], prefill alone +0.27% [−0.55, +1.15]; inter-token time within +0.33% everywhere — all inside ±2% |
+| **I1, each setting within ±5%** | **fails**: burst (64, 256, 64) rank 2 at −21.8%, staggered (1, 256, 256) prefill at +5.7% |
+| I2 | passes |
+| **I3, frozen clock** | **passes**: the median error of every one of the 27 serial settings, held-out lengths 768, 3,072 and 6,144 included, lies within ±2% with its bootstrap interval inside ±5%; the largest single error of 486 requests is 2.9% |
+| I3, decode clock | passes |
+| I5 | passes, worst drift 0.61% |
+| I4 (published) | +5.0%, +15.6% and +55.3% at 1, 4 and 16 decoders |
+
+**The registered verdict is FAIL: I1.** As registered, the timing fit refuses (its prerequisite is a passing instrument), no simulator study is bought on these records, and nothing is re-bought to make I1 pass.
+
+**Diagnostics, after the verdict and not part of it.** Sixteen of the 127 burst settings exceed 5%, all of them ranks of the 64-request, 256-token burst, and each by one block alone (rank 2: −2.3%, +0.4%, −63.5% across the blocks): sixty-four simultaneous requests are scheduled in eight 2,048-token chunks, and a rank whose requests fall in a different chunk from one run to the next moves its TTFT by a chunk's time. That is a property of ranking within the largest burst, not of the logging, whose pooled burst effect is −0.16%. One staggered setting exceeds it, the 256-token prefill behind one decoder, positive in all three blocks (+3.4%, +4.9%, +8.8%) — a cost of a few milliseconds on the shortest requests that the logging may really impose. Every serial setting is within ±0.5%.
+
+**What stands.** The stock engine's iteration log, with the clock frozen from session 1, predicts a request's TTFT within 2% at every serial setting including lengths it had never seen, and its decode clock is stable; the instrument's own accounting held over 18 cells. What did not pass is the claim that turning the log on changes no single setting by more than 5%.
