@@ -12,7 +12,7 @@ set -uo pipefail
 
 cd "$(dirname "$0")/.."
 export PATH="$PWD/bin:$PATH"
-export GOTOOLCHAIN=go1.26.0
+export GOTOOLCHAIN=go1.26.6
 
 # Overridable, because they were not and an attempt to run this against a throwaway cluster silently went to
 # `platform` anyway and overwrote the committed evidence log. A plain assignment ignores the environment

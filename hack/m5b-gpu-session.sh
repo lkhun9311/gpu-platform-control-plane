@@ -19,7 +19,7 @@
 set -uo pipefail
 
 cd "$(dirname "$0")/.." || exit 1
-export GOTOOLCHAIN=go1.26.0
+export GOTOOLCHAIN=go1.26.6
 
 NS="${NS:-m5b}"
 KCTX="${KCTX:-$(kubectl config current-context 2>/dev/null)}"
