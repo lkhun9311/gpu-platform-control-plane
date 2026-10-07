@@ -31,6 +31,11 @@ type ReproductionFacts struct {
 	Seed            int64
 	LongThreshold   int
 
+	// MatchTolerance and PrimaryEndpoint are the judging contract, required in every manifest, so they are
+	// compared as plain values (2026-10-07 registration, amendment). They were outside the comparison before.
+	MatchTolerance  string
+	PrimaryEndpoint string
+
 	// TokenizerRev and PromptLenChars are absent from manifests written before those fields existed.
 	//
 	// An absent field is NOT a match. See ReproductionRefusal: it is reported as UNKNOWN and refuses, because
@@ -111,6 +116,8 @@ func ReproductionFactsFromArchive(dir string) (map[string]ReproductionFacts, err
 			TimeoutMs:       m.TimeoutMs,
 			Seed:            m.Seed,
 			LongThreshold:   m.LongThreshold,
+			MatchTolerance:  m.MatchTolerance,
+			PrimaryEndpoint: m.PrimaryEndpoint,
 			TokenizerRev:    m.TokenizerRev,
 			PromptLenChars:  m.PromptLenChars,
 			GatewaySHA:      m.GatewaySHA,
@@ -153,6 +160,8 @@ func ReproductionFactsOf(m RunManifest) ReproductionFacts {
 		TimeoutMs:       m.TimeoutMs,
 		Seed:            m.Seed,
 		LongThreshold:   m.LongThreshold,
+		MatchTolerance:  m.MatchTolerance,
+		PrimaryEndpoint: m.PrimaryEndpoint,
 		TokenizerRev:    m.TokenizerRev,
 		PromptLenChars:  m.PromptLenChars,
 		GatewaySHA:      m.GatewaySHA,
@@ -180,6 +189,10 @@ func factsDiffer(a, b ReproductionFacts) string {
 		return "seed"
 	case a.LongThreshold != b.LongThreshold:
 		return "longThreshold"
+	case a.MatchTolerance != b.MatchTolerance:
+		return "matchTolerance"
+	case a.PrimaryEndpoint != b.PrimaryEndpoint:
+		return "primaryEndpoint"
 	// The provenance fields are compared here too, and leaving them out was a defect.
 	//
 	// This function decides whether an archive's repetitions describe ONE run. It omitted tokenizerRev,
@@ -281,6 +294,8 @@ func ReproductionRefusal(target, planned map[string]ReproductionFacts) error {
 			{"timeoutMs", fmt.Sprint(t.TimeoutMs), fmt.Sprint(p.TimeoutMs), "a different timeout censors the tail differently"},
 			{"seed", fmt.Sprint(t.Seed), fmt.Sprint(p.Seed), "a different seed is a different arrival schedule"},
 			{"longThreshold", fmt.Sprint(t.LongThreshold), fmt.Sprint(p.LongThreshold), "a different eligible population is gated"},
+			{"matchTolerance", t.MatchTolerance, p.MatchTolerance, "the same admitted work is judged a match by a different tolerance"},
+			{"primaryEndpoint", t.PrimaryEndpoint, p.PrimaryEndpoint, "a different metric is the one the run is judged by"},
 		} {
 			if c.tv != c.pv {
 				return fmt.Errorf("arm %s: %s is %s in the target run and %s in this plan -- %s. Fix the load, or stop calling this a reproduction",

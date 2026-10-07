@@ -21,6 +21,8 @@ func facts(arm string) ReproductionFacts {
 		TimeoutMs:       60000,
 		Seed:            11,
 		LongThreshold:   4096,
+		MatchTolerance:  "0.05",
+		PrimaryEndpoint: "ttft_p99",
 		TokenizerRev:    "aa8e72537993ba99e69dfaafa59ed015b17504d1",
 		PromptLenChars:  map[string]int{PremiumTenant: 1174, NoisyTenant: 42579},
 		GatewaySHA:      "b97d88ebfb97bf1b8cced34ceae5c4b5c4388270",
@@ -64,6 +66,8 @@ func TestReproductionRefusalNamesTheFieldAndBothValues(t *testing.T) {
 		{"corpus", func(f *ReproductionFacts) { f.PromptCorpusSHA = "0000" }, []string{"promptCorpusSHA", "different corpus"}},
 		{"study", func(f *ReproductionFacts) { f.Study = StudyThroughputLadder }, []string{"study"}},
 		{"threshold", func(f *ReproductionFacts) { f.LongThreshold = 2048 }, []string{"longThreshold", "4096", "2048"}},
+		{"tolerance", func(f *ReproductionFacts) { f.MatchTolerance = "0.10" }, []string{"matchTolerance", "0.05", "0.10", "different tolerance"}},
+		{"endpoint", func(f *ReproductionFacts) { f.PrimaryEndpoint = "ttft_p50" }, []string{"primaryEndpoint", "ttft_p99", "ttft_p50"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			tgt := set(facts(ArmShared))
@@ -215,6 +219,8 @@ func TestFactsDifferSeesTheProvenanceFields(t *testing.T) {
 		{"gateway", func(f *ReproductionFacts) { f.GatewaySHA = "1111" }, "gatewaySHA"},
 		{"image", func(f *ReproductionFacts) { f.ImageDigests = map[string]string{"engine": "other"} }, "imageDigests"},
 		{"prompt length", func(f *ReproductionFacts) { f.PromptLenChars = map[string]int{PremiumTenant: 200} }, "promptLenChars"},
+		{"tolerance", func(f *ReproductionFacts) { f.MatchTolerance = "0.10" }, "matchTolerance"},
+		{"endpoint", func(f *ReproductionFacts) { f.PrimaryEndpoint = "ttft_p50" }, "primaryEndpoint"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			a := facts(ArmShared)
