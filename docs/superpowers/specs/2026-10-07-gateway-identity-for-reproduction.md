@@ -63,3 +63,16 @@ The tests must turn red in each of these cases:
 - It does not certify any existing archive. None recorded the two facts, and none can now.
 - It does not make the image reproducible, only its content comparable.
 - It says nothing about the driver version, `matchTolerance` or `primaryEndpoint`, which the comparison has never covered (2026-09-10 registration, its correction).
+
+## Amendment, 2026-10-07 — the judging contract is compared too
+
+The 2026-09-10 registration's correction records that `ReproductionFacts` had no `matchTolerance` or `primaryEndpoint`. So a plan judging the same traffic by another tolerance or another primary metric was accepted as a reproduction; codex `gpt-6-astra` raised it again while reviewing this page's issue.
+
+Both fields are now compared, and so are their recordings across one archive's repetitions.
+- Every manifest records them: `validateFields` in `internal/bench/manifest.go` requires both.
+- So they are compared as plain values, like `timeoutMs`, with no UNKNOWN class.
+
+The driver version stays outside the comparison, for a reason the plan check cannot get around:
+- The plan check runs before purchase, and the driver is known only once the instance has booted (`preflight-nvidia-smi.csv`).
+- Comparing it would have to happen after the money is spent. That is a different check and is not registered here.
+- A reproduction's write-up must still say that the driver was not compared.
