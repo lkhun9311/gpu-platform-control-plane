@@ -86,3 +86,33 @@ A pass licenses registering a confirmation on fresh cells with the predictor fro
 
 - **Purchase:** one session for the kernel times and one evaluation. Re-buying needs another note and the owner's approval.
 - **Expected cost:** the second grid's 72 shapes took 14.5 minutes, nearly all of it the image pull. 900 compositions add a few minutes of timing, so about 20 minutes and about $0.15, estimated.
+
+## Result, 2026-10-07 — no candidate passes, by one setting at −10.7%
+
+**The session.**
+- **Commit and instance:** the frozen commit `9993d4d`; i-0b2728214c512549b (g5.xlarge Spot, A10G, FA version 2).
+- **Time and cost:** launched 15:06:12 KST, termination requested 15:19:42 and confirmed, about 13.5 minutes; an estimated $0.1 that is not yet in Cost Explorer.
+- **Output:** all 900 compositions timed by graph replay, kept as `data/2026-10-07-attention-kernel-compositions-times.json`.
+
+`step_family_operator.py` at `9993d4d` was then run once, on a clean tree. It exited 3. Its output is `data/2026-10-07-operator-model-tournament.txt`.
+
+| | Judged | Failing | Worst late-prefill | Attention coefficient | Verdict |
+|---|---:|---:|---:|---:|---|
+| O1 | 114 | 2 | (1, 256, 256) −10.7% | 1, fixed | FAIL |
+| O2 | 114 | 2 | (1, 256, 256) −10.2% | α = 0.954 | FAIL |
+
+**SELECTED: none.** By section 6, no confirmation is proposed on this result, and the bounds are not moved after seeing it.
+
+What the run shows:
+- **Both failing endpoints are the same 21 steps.** These are the mixed and the late-prefill phase of one setting: one 256-token late prefill joining one 256-token decoder. O1 under-predicts them by 10.7%, 0.7 points beyond the bound.
+- **Every long-context endpoint passes.** Those are the ones every earlier family missed by 15% to 50%, and O1's worst decode endpoint is −3.9%.
+- **The data agree with the GPU measurement.** Left free, the archive's own fit puts the attention coefficient at 0.954, against the 1 that O1 takes from the GPU unfitted.
+- The three 512-token serial endpoints are unsupported, as before, and 3 endpoints are under the 10-step floor (5.0% not judged).
+
+**What this establishes, within the archive's fourth use.**
+- Measured attention, taken as it is, carries the mixed-step cost that no fitted attention term could.
+- What remains is a short, one-decoder mixed step about 4.8 ms slower than the non-attention terms and the kernel together predict (45.15 against 40.31 ms).
+
+It is not a held-out result. It is not a simulator-ready model either: the P → A wait and the inter-step gap are still outside it.
+
+**What it does not license.** A confirmation purchase. Section 6 makes that conditional on a pass, and this is a near miss, not a pass.
