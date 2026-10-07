@@ -83,3 +83,16 @@ The step-boundary session (`2026-10-06-where-the-late-prefill-waits-step-boundar
 - These misses are systematic: the three blocks agree to within 0.1 points.
 
 Item 2 stays closed and item 3 stays unbuyable. No purchase is proposed.
+
+## Update, 2026-10-07 — a development step-time model passes; item 2 waits on its confirmation
+
+After the development study above, the cause was narrowed in five steps:
+- diagnostic tables;
+- a decoder-waves tournament;
+- three attention-kernel sessions, about 40 minutes of g5.xlarge in all;
+- an operator model;
+- a staged residual diagnosis.
+
+The result is `2026-10-07-graph-and-eager-mixed-steps.md`'s S1. It is non-attention terms fitted on the step-boundary archive, plus 36 layers × the attention kernel time measured on an A10G for each step's exact composition. It passed every judged endpoint of the registered test, worst −4.3%.
+
+It is development, the archive's fifth use. Item 2 stays closed until S1 is confirmed, frozen, on fresh cells. That confirmation is a purchase and needs the owner's approval.
