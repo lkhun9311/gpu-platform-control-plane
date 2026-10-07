@@ -1,0 +1,28 @@
+# gitleaks over the whole history (.github/workflows/secret-scan.yml), with the default rules.
+#
+# The first full-history run on 2026-10-07 (1,376 commits) found 20 matches and no secret:
+# - generic-api-key on the pinned model revision (40 hex) and the tokenizer files' sha256 (64 hex), both public;
+# - curl-auth-header on four fixed keys the local gateway checks accept, named as not real.
+# Each allowance below is narrowed to its rule and to exactly what was found, so a real key on another line,
+# or another value on these lines, is still reported.
+# What the first allowance cannot see: a generic-shaped key written onto a tokenizer-revision line. Other rules
+# still apply there; a seeded GitHub token on such a line was reported on 2026-10-07.
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "the model's public revision and its tokenizer files' digests"
+targetRules = ["generic-api-key"]
+regexTarget = "line"
+regexes = [
+  '''(?i)tokenizer_?rev(ision)?["']?\s*[:=]''',
+  '''InputLengthTokenizer(Revision|FilesSHA256)\s*=''',
+  '''"tokenizer(_config)?\.json":''',
+]
+
+[[allowlists]]
+description = "fixed keys the local gateway checks send; none is a credential anywhere"
+targetRules = ["curl-auth-header"]
+regexes = [
+  '''^(premium-key|standard-key|gate-probe-not-a-real-key|runbook-probe-not-a-real-key)$''',
+]

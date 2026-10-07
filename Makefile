@@ -123,6 +123,12 @@ cleanup-test-e2e: ## Tear down the Kind cluster used for e2e tests
 lint: golangci-lint ## Run golangci-lint linter
 	"$(GOLANGCI_LINT)" run
 
+.PHONY: vulncheck
+vulncheck: ## Fail on any known Go vulnerability the code can reach (text mode: JSON and SARIF exit 0 on findings)
+# Text output on purpose: govulncheck's -format json and sarif succeed even when they report a reachable
+# vulnerability, so a gate written with them could never fail. Exit 3 is "your code is affected".
+	go run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
+
 .PHONY: lint-fix
 lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes
 	"$(GOLANGCI_LINT)" run --fix
@@ -287,6 +293,7 @@ ENVTEST_K8S_VERSION ?= $(shell v='$(call gomodver,k8s.io/api)'; \
   printf '%s\n' "$$v" | sed -E 's/^v?[0-9]+\.([0-9]+).*/1.\1/')
 
 GOLANGCI_LINT_VERSION ?= v2.11.4
+GOVULNCHECK_VERSION ?= v1.8.0
 # Kept equal to TF_VERSION in the infra workflows on purpose, and TestTerraformVersionAgreesEverywhere fails
 # when it drifts. It drifted once already: this line sat at 1.9.8 while the roots moved to
 # `required_version = ">= 1.10"` for use_lockfile, and `make infra-validate` refused every root in CI.
