@@ -51,3 +51,25 @@ Nothing in O1's result changes: it stays FAIL, and the archive stays development
 codex `gpt-6-astra`'s bare review of the draft found the contradiction. To show it, the review ran the script on the archive and reported the three bins' values. So I saw those three numbers before this page was frozen.
 
 The correction only makes the sign match the words "under-predicted" that the draft already had; no threshold or bin moved. That the values were seen is recorded here rather than hidden.
+
+## Result, 2026-10-07 (stage 1)
+
+`operator_residuals.py` at the freezing commit `c57bfe6` was run once. Its output is `data/2026-10-07-o1-residual-tables.txt`.
+
+| Hypothesis | Reading | Verdict |
+|---|---|---|
+| H-shared | (n, 256, 256) late prefills are under-predicted by +4.846, +4.417 and +4.164 ms at n = 1, 4 and 16 (+10.7%, +9.6%, +8.5%); they lie within 0.681 ms | **standing** |
+| H-cpu | sched + update at most 0.365 ms | **falsified** |
+| H-floor | mixed steps with T > 128: +8.6% under 60 ms predicted (105 steps), +0.1% at 60–150 ms (119), −1.6% above 150 ms (4,235) | **standing** |
+
+So the 4.8 ms is not a cost peculiar to one decoder. It is a cost every short eager mixed step pays, about 4.2 to 4.8 ms, and n = 1 failed only because its step is the shortest, so the same milliseconds are the largest fraction.
+
+**Outside the registered readings, as an observation for stage 2.** Mixed steps within the captured sizes (T ≤ 128, 138 steps) are over-predicted, by 3.674 ms or 10.8% of their occupancy.
+
+O1 has one mixed-step surcharge, `u`, fitted at 4.32 ms across all mixed steps. The tables read as if two fixed costs were averaged into it:
+- a larger one for an eager mixed step (T > 128);
+- a smaller one for a mixed step replayed as a piecewise CUDA graph (T ≤ 128).
+
+Which mechanism (graph replay against eager launch) is not established here.
+
+**What stage 2 may register.** H-shared and H-floor stand, so the candidates that may enter are those that give eager and graph-run mixed steps separate fixed costs. H-cpu does not enter. Stage 2 would be the archive's fifth development use. It fits nothing until registered.
