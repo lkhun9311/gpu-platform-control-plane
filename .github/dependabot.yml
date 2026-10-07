@@ -1,0 +1,35 @@
+# Keeps the pinned versions moving on purpose.
+#
+# Go modules, the Dockerfiles' digest-pinned bases and the SHA-pinned actions each get at most one grouped PR a
+# week, against dev (feat/* -> dev -> main). Grouped and weekly because a pipeline that opens its own PRs on
+# every change is one this repository has already had to stop.
+# govulncheck and the image scan in CI are the gates; this file only proposes the upgrades they would ask for.
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    target-branch: dev
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 1
+    groups:
+      go-modules:
+        patterns: ["*"]
+  - package-ecosystem: docker
+    directory: /
+    target-branch: dev
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 1
+    groups:
+      base-images:
+        patterns: ["*"]
+  - package-ecosystem: github-actions
+    directory: /
+    target-branch: dev
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 1
+    groups:
+      actions:
+        patterns: ["*"]
