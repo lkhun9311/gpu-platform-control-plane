@@ -34,10 +34,10 @@ def composition(s, adds):
     return pre, dec
 
 
-def steps_with_compositions(run):
-    """(setting, block, step features, composition) for every measured step, in step_family_dev.load's population."""
+def steps_with_compositions(run, cells=None):
+    """(setting, block, step features, composition) for every measured step of cells, step_family_dev.load's by default."""
     out = []
-    for arm, b in dev.CELLS:
+    for arm, b in (cells or dev.CELLS):
         kind = arm.split("-")[0]
         adds, sched, _, _, _ = sb.step_records(run, arm, b)
         by_t0 = {s["t0"]: s for s in sched}
@@ -50,8 +50,16 @@ def steps_with_compositions(run):
     return out
 
 
+# The S1 confirmation's nine cells (docs/superpowers/specs/2026-10-07-confirming-s1-on-unseen-settings-design.md).
+CONFIRM_CELLS = [(f"{k}-step", b) for k in ("serial", "burst", "stagger") for b in (1, 2, 3)]
+
+
 def main():
-    rows = steps_with_compositions(sys.argv[1])
+    # --confirm reads the confirmation's cells; it prints compositions only, never an occupancy, so the manifest
+    # can be fixed and timed before anyone sees how the steps went.
+    confirm = "--confirm" in sys.argv[1:]
+    args = [a for a in sys.argv[1:] if a != "--confirm"]
+    rows = steps_with_compositions(args[0], CONFIRM_CELLS if confirm else None)
     counts = {}
     for _, _, _, comp in rows:
         counts[comp] = counts.get(comp, 0) + 1

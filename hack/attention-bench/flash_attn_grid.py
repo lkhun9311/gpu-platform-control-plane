@@ -40,6 +40,7 @@ STUB = os.environ.get("BENCH_STUB") == "1"
 # the default, so its frozen result can be reproduced; 2 adds the prefill's computed tokens c,
 # docs/superpowers/specs/2026-10-07-the-prefills-own-context-and-decoder-waves.md.
 GRID = os.environ.get("BENCH_GRID", "1")
+COMPOSITIONS_PATH = os.environ.get("BENCH_COMPOSITIONS", "/b/compositions.json")
 
 
 def grid():
@@ -76,7 +77,7 @@ def cases():
     (q, c) and each decoder's K, exactly as a step held them.
     """
     if GRID == "3":
-        comps = json.load(open(os.environ.get("BENCH_COMPOSITIONS", "/b/compositions.json")))["compositions"]
+        comps = json.load(open(COMPOSITIONS_PATH))["compositions"]
         for comp in comps:
             pre, dec = comp["prefills"], comp["decoders"]
             yield (dict(id=comp["id"]), [q for q, _ in pre] + [1] * len(dec),
@@ -118,7 +119,10 @@ def main():
         device = "cuda"
         sync = torch.cuda.synchronize
     torch.manual_seed(0)
-    out = {"grid": GRID, "fa_version": fa_version, "signature": signature, "device": None if STUB else torch.cuda.get_device_name(0),
+    # Grid 3's times are bound to the exact manifest they timed, so an evaluator can refuse times for another one.
+    import hashlib
+    comp_sha = hashlib.sha256(open(COMPOSITIONS_PATH, "rb").read()).hexdigest() if GRID == "3" else None
+    out = {"grid": GRID, "compositions_sha256": comp_sha, "fa_version": fa_version, "signature": signature, "device": None if STUB else torch.cuda.get_device_name(0),
            "torch": torch.__version__, "layers": LAYERS, "rows": []}
     for label, qlens, klens in cases():
         blocks = [math.ceil(x / BLOCK) for x in klens]
