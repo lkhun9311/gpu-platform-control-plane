@@ -184,7 +184,18 @@ type episodeDesign struct {
 	// warmupConditioning is how many unscored drained 2,048/16 requests the warm-up places between its cycle and its two verification requests.
 	// Zero adds no episode and so no draw, which is what keeps the warm-ups of sessions 2 and 3 byte-identical.
 	warmupConditioning int
+	// burstSettings and staggerSettings list a design's settings explicitly, in enumeration order.
+	// Nil keeps the package's factorial levels (burstSizes x burstLengths plus the wide burst, and
+	// staggerDecoders x staggerContexts x staggerPrefills), which is what keeps every earlier study's traces byte-identical.
+	burstSettings   []burstSetting
+	staggerSettings []staggerSetting
 }
+
+// burstSetting is n concurrent requests of one prompt length.
+type burstSetting struct{ n, tokens int }
+
+// staggerSetting is n decoders of one prompt length and the late prefill that joins them.
+type staggerSetting struct{ n, context, prefill int }
 
 var designS1 = episodeDesign{
 	study:            StudyInstrumentValidation,
@@ -265,6 +276,36 @@ func (d episodeDesign) staggerBaseLagMs(n, c int) int64 {
 	return (d.staggerLagTenths*est+5)/10 + staggerLagMs
 }
 
+// bursts is the design's burst settings: its explicit list, or the factorial levels and the wide burst, in that order.
+func (d episodeDesign) bursts() []burstSetting {
+	if d.burstSettings != nil {
+		return d.burstSettings
+	}
+	var out []burstSetting
+	for _, n := range burstSizes {
+		for _, l := range burstLengths {
+			out = append(out, burstSetting{n, l})
+		}
+	}
+	return append(out, burstSetting{burstWideSize, burstWideLength})
+}
+
+// staggers is the design's stagger settings: its explicit list, or the factorial levels in their nested order.
+func (d episodeDesign) staggers() []staggerSetting {
+	if d.staggerSettings != nil {
+		return d.staggerSettings
+	}
+	var out []staggerSetting
+	for _, n := range staggerDecoders {
+		for _, c := range staggerContexts {
+			for _, p := range staggerPrefills {
+				out = append(out, staggerSetting{n, c, p})
+			}
+		}
+	}
+	return out
+}
+
 // fullCycle lists one cycle's settings in a fixed enumeration order, before the seeded permutation.
 func (d episodeDesign) fullCycle(t EpisodeType) ([]episodeSpec, error) {
 	var out []episodeSpec
@@ -276,24 +317,17 @@ func (d episodeDesign) fullCycle(t EpisodeType) ([]episodeSpec, error) {
 			}
 		}
 	case EpisodeBurst:
-		for _, n := range burstSizes {
-			for _, l := range burstLengths {
-				out = append(out, homogeneous(n, l, burstCap))
-			}
+		for _, b := range d.bursts() {
+			out = append(out, homogeneous(b.n, b.tokens, burstCap))
 		}
-		out = append(out, homogeneous(burstWideSize, burstWideLength, burstCap))
 	case EpisodeStagger:
-		for _, n := range staggerDecoders {
-			for _, c := range staggerContexts {
-				for _, p := range staggerPrefills {
-					e := homogeneous(n, c, d.staggerDecodeCap)
-					for i := range e {
-						e[i].minOut = d.staggerDecodeMin
-					}
-					// The prefill waits for the decoders' own prefill to finish, by the same pessimistic chunk estimate, so it meets them decoding rather than queued.
-					out = append(out, append(e, episodeRequest{tokens: p, cap: staggerPrefillCap, atMs: d.staggerBaseLagMs(n, c)}))
-				}
+		for _, st := range d.staggers() {
+			e := homogeneous(st.n, st.context, d.staggerDecodeCap)
+			for i := range e {
+				e[i].minOut = d.staggerDecodeMin
 			}
+			// The prefill waits for the decoders' own prefill to finish, by the same pessimistic chunk estimate, so it meets them decoding rather than queued.
+			out = append(out, append(e, episodeRequest{tokens: st.prefill, cap: staggerPrefillCap, atMs: d.staggerBaseLagMs(st.n, st.context)}))
 		}
 	default:
 		return nil, fmt.Errorf("episode type %q is not registered; the registered types are %v", t, EpisodeTypes)
