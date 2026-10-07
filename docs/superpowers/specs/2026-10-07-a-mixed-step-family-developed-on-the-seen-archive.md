@@ -178,7 +178,7 @@ What the run shows, without a claim about why:
 - **C's added column changed no printed endpoint.** Its worst lines and failures equal B's to the printed precision.
 - **The misses are systematic, not noise.** Every late-prefill endpoint's three block errors agree to within 0.1 percentage points; for example B's (1, 8,192, 256) is −20.3%, −20.3% and −20.4%. More blocks of the same cells would not move these numbers; a different family would have to.
 - **D's table fails most:**
-  - it cannot reach several held-out compositions at all (unsupported bins in 7 endpoints);
+  - it cannot reach several held-out compositions at all (unsupported bins in 8 endpoints);
   - it misses others by up to 45%.
 
 What would change this:
