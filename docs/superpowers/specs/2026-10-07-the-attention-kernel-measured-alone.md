@@ -69,3 +69,32 @@ A step's attention time is the kernel time × 36 layers. Each reading compares t
 
 - **Purchase:** one session, and one evaluation of what it returns. A failure of the session itself (no `DONE` marker, an exception in the script) is reported. Re-buying it needs a new note saying what changed.
 - **Expected cost:** about 30 minutes of a g5.xlarge Spot instance, under $1, most of it the image pull.
+
+## Result, 2026-10-07 — waves confirmed; the small and large chunks are not explained by this grid
+
+**The session.**
+- **Commit and instance:** the frozen commit `c160b45`; i-022feff80e3806ccd (g5.xlarge Spot, NVIDIA A10G, driver 595.91.07).
+- **Time and cost:** launched 12:55:35 KST, termination requested 13:07:29 and confirmed, about 12 minutes. At these days' Spot rates that is about $0.1, an estimate that is not yet in Cost Explorer.
+- **Output:** all 278 shapes, FA version 2, torch 2.13.0+cu130, every row timed by CUDA-graph replay. The grid is kept as `data/2026-10-07-attention-kernel-grid.json`.
+
+| Reading | Kernel × 36 layers | Archive | Verdict |
+|---|---:|---:|---|
+| R1, q = 256: δ(1), δ(4), δ(16) | 13.653, 13.551, 54.279 ms | 13.27, 13.64, 55.03 ms | **holds**: +2.9%, −0.7%, −1.4%. The ratio δ(16)/δ(1) is 3.98 (archive 4.15) |
+| R2: q = 4 with n = 1, q = 16 with n = 4 | 13.437, 13.859 ms | 0.09, 0.37 ms | **fails**: the bound was 2 ms |
+| R3: q = 2,048, n = 1 | 11.595 ms | 5.70 ms | **fails**: +103% |
+| R4: q = 64, n = 16 (reported only) | 54.105 ms | 41.76 ms | — |
+
+**What the grid shows.** These are the per-layer increments, K = 8,192 minus K = 256, in µs:
+- With a prefill beside them (any q from 4 to 2,048), decoders cost about 370 µs at n ≤ 5, 750 at n = 8 and 1,500 at n = 16. That is ⌈n/5⌉ waves, and five decoders per wave is the A10G's 80 SMs over 16 query heads.
+- With no prefill (q = 0, a single-token query), the same increment is 28 µs at n = 1 and 264 µs at n = 16: the kernel's decode path.
+
+**Why R2 and R3 fail, found after the readings and so not a registered result.** The grid's prefill has no earlier context, and the archive's does not match that. Read from the archive's step records:
+- **The q = 4, 16 and 64 steps:** their prefill had already computed 8,188, 8,176 and 8,128 tokens. It was the last chunk of an 8,192-token prompt, so its own query rows walk about 8,192 keys too.
+- **The q = 256 steps:** the prefill had computed 0 tokens, as in the grid. R1 matched them to within 3%.
+- **The q = 2,047, n = 1 steps:** the prefill had computed between 0 and 6,141 tokens.
+
+This reads as follows: a decoder's long walk costs extra only beyond the walk the prefill's own blocks already make in the same wave. So it is hidden behind a last chunk with long context, and partly hidden behind a mixture.
+
+That is an explanation of these numbers, not a tested result. The grid did not vary the prefill's context, and this page's rule is that nothing is built on the grid while R2 and R3 fail.
+
+**What would test it.** A second grid that adds the prefill's computed tokens c ∈ {0, 2,048, 4,096, 8,188}, registered with the prediction above before it is bought. This page does not authorise re-buying, so it needs the owner's approval. The same lifecycle would take about 15 minutes.
