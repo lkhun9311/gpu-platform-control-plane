@@ -81,7 +81,7 @@ The kernel grids are fresh data, so the archive's attention component is then pr
 
 **What is established.** Measured on fresh data, the attention kernel alone reproduces the archive's mixed-step increments:
 - at a 256-token chunk with no context (the first grid, within 3%);
-- at the three small last chunks (this grid, within 0.17 ms);
+- at the three small last chunks (this grid, within 0.17 ms of the two near-zero increments and 0.66 ms, 1.6%, of the 41.76 ms one);
 - at the large chunk's four positions on average (+23%).
 
 The archive's misses were attention. The families failed because the cost depends on (q, n, K, c) together, not because of anything outside the kernel.
