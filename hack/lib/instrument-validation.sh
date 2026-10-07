@@ -31,6 +31,21 @@ IV_S4_STUDY=instrument-validation-s4-2026-10-06
 # The step-boundary session (docs/superpowers/specs/2026-10-06-where-the-late-prefill-waits-step-boundary-session.md):
 # session 4's episodes, warm-ups and pins, with -step arms that load hack/vllm-plugins/step_logging_scheduler.py.
 IV_STEP_STUDY=step-boundary-2026-10-06
+# The confirmation of the step-time model S1 on unseen settings
+# (docs/superpowers/specs/2026-10-07-confirming-s1-on-unseen-settings-design.md): the step-boundary study's engine,
+# instrument, warm-up rules and pins, a new episode design, and only its three -step arms, in every block.
+IV_CONFIRM_STUDY=step-confirm-2026-10-07
+# Its trace lengths, read off the generator's spans at its registered seed 47 on 2026-10-07 (855,120, 263,520 and
+# 3,825,263 ms measured; 150,520, 73,880 and 553,220 ms for the warm-ups, conditioning request included) and set above them.
+IV_CONFIRM_DURATION_MS_SERIAL=870000
+IV_CONFIRM_DURATION_MS_BURST=270000
+IV_CONFIRM_DURATION_MS_STAGGER=3840000
+IV_CONFIRM_WARMUP_SPAN_MS_SERIAL=150520
+IV_CONFIRM_WARMUP_SPAN_MS_BURST=73880
+IV_CONFIRM_WARMUP_SPAN_MS_STAGGER=553220
+IV_CONFIRM_WARMUP_DURATION_MS_SERIAL=160000
+IV_CONFIRM_WARMUP_DURATION_MS_BURST=80000
+IV_CONFIRM_WARMUP_DURATION_MS_STAGGER=560000
 # The instrument as the -step arms load it: the ConfigMap the matrix creates from it, the class vLLM imports, and
 # where the log is written inside the engine container, on an emptyDir the matrix reads before the cell ends.
 IV_STEP_PLUGIN=hack/vllm-plugins/step_logging_scheduler.py
@@ -70,33 +85,33 @@ IV_S2_WARM_TTFT_TOL_PERMILLE=50
 IV_S2_WARM_PAIR_TOL_PERMILLE=20
 IV_S2_WARM_TOKENS=2048
 
-iv_is_study() { [ "${1:-}" = "$IV_STUDY" ] || [ "${1:-}" = "$IV_S2_STUDY" ] || [ "${1:-}" = "$IV_S3_STUDY" ] || [ "${1:-}" = "$IV_S4_STUDY" ] || [ "${1:-}" = "$IV_STEP_STUDY" ]; }
+iv_is_study() { [ "${1:-}" = "$IV_STUDY" ] || [ "${1:-}" = "$IV_S2_STUDY" ] || [ "${1:-}" = "$IV_S3_STUDY" ] || [ "${1:-}" = "$IV_S4_STUDY" ] || [ "${1:-}" = "$IV_STEP_STUDY" ] || [ "${1:-}" = "$IV_CONFIRM_STUDY" ]; }
 
 # Sessions 2 to 4 warm the engine before their measured replay; session 1 measured request 0 cold.
-iv_has_warmup() { [ "${1:-}" = "$IV_S2_STUDY" ] || [ "${1:-}" = "$IV_S3_STUDY" ] || [ "${1:-}" = "$IV_S4_STUDY" ] || [ "${1:-}" = "$IV_STEP_STUDY" ]; }
+iv_has_warmup() { [ "${1:-}" = "$IV_S2_STUDY" ] || [ "${1:-}" = "$IV_S3_STUDY" ] || [ "${1:-}" = "$IV_S4_STUDY" ] || [ "${1:-}" = "$IV_STEP_STUDY" ] || [ "${1:-}" = "$IV_CONFIRM_STUDY" ]; }
 
 # Only sessions 3 and 4 pin the model revision on the engine's command line and demand the engine report it back.
 #
 # Adding the flags to sessions 1 or 2 would change the engine their archives measured.
-iv_pins_revision() { [ "${1:-}" = "$IV_S3_STUDY" ] || [ "${1:-}" = "$IV_S4_STUDY" ] || [ "${1:-}" = "$IV_STEP_STUDY" ]; }
+iv_pins_revision() { [ "${1:-}" = "$IV_S3_STUDY" ] || [ "${1:-}" = "$IV_S4_STUDY" ] || [ "${1:-}" = "$IV_STEP_STUDY" ] || [ "${1:-}" = "$IV_CONFIRM_STUDY" ]; }
 
 # Only sessions 3 and 4's staggered decoders carry min_tokens = max_tokens = 512, so only there must each produce 512.
 #
 # Session 2's decoders could stop at end-of-sequence, and demanding 512 of them would refuse what it registered.
-iv_fixes_decoder_length() { [ "${1:-}" = "$IV_S3_STUDY" ] || [ "${1:-}" = "$IV_S4_STUDY" ] || [ "${1:-}" = "$IV_STEP_STUDY" ]; }
+iv_fixes_decoder_length() { [ "${1:-}" = "$IV_S3_STUDY" ] || [ "${1:-}" = "$IV_S4_STUDY" ] || [ "${1:-}" = "$IV_STEP_STUDY" ] || [ "${1:-}" = "$IV_CONFIRM_STUDY" ]; }
 
 # Only session 4's warm-up ends with a conditioning request before its two verification requests.
 #
 # Gate S on the warm-up drops one more tail request for it, and an earlier session's cycle would lose its last prefill.
 # The step-boundary study buys session 4's warm-ups, conditioning request included (found by review: without it here
 # gate S read the conditioner as a decoder episode with no prefill and refused the first staggered warm-up).
-iv_conditions_warmup() { [ "${1:-}" = "$IV_S4_STUDY" ] || [ "${1:-}" = "$IV_STEP_STUDY" ]; }
+iv_conditions_warmup() { [ "${1:-}" = "$IV_S4_STUDY" ] || [ "${1:-}" = "$IV_STEP_STUDY" ] || [ "${1:-}" = "$IV_CONFIRM_STUDY" ]; }
 
 # Only session 4 keeps the engine log of a cell refused at its warm-up.
 #
 # Session 3's refused cell had none, so the transient W caught could not be read from the engine's side.
 # Sessions 2 and 3 stop exactly as their archives show.
-iv_keeps_warmup_refusal_log() { [ "${1:-}" = "$IV_S4_STUDY" ] || [ "${1:-}" = "$IV_STEP_STUDY" ]; }
+iv_keeps_warmup_refusal_log() { [ "${1:-}" = "$IV_S4_STUDY" ] || [ "${1:-}" = "$IV_STEP_STUDY" ] || [ "${1:-}" = "$IV_CONFIRM_STUDY" ]; }
 
 # The directory of instrument_gates.py, resolved once when sourced so a caller that changes directory still finds it.
 #
@@ -117,6 +132,14 @@ iv_arm_refusal() {
   iv_is_study "$study" || {
     echo "study ${study@Q} is none of $IV_STUDY, $IV_S2_STUDY, $IV_S3_STUDY and $IV_S4_STUDY, so this file has nothing registered for it"
     return 1; }
+  # The confirmation has three -step arms and nothing else.
+  if [ "$study" = "$IV_CONFIRM_STUDY" ]; then
+    case "$arm" in
+      serial-step | burst-step | stagger-step) return 0 ;;
+    esac
+    echo "arm ${arm@Q} is not one of study $study's three arms (serial-step, burst-step, stagger-step)"
+    return 1
+  fi
   # The step-boundary study has its own five arms, and no other study admits a -step arm.
   if [ "$study" = "$IV_STEP_STUDY" ]; then
     case "$arm" in
@@ -148,6 +171,14 @@ iv_duration_ms() {
     esac
     return 0
   fi
+  if [ "$study" = "$IV_CONFIRM_STUDY" ]; then
+    case "$arm" in
+      serial-*) echo "$IV_CONFIRM_DURATION_MS_SERIAL" ;;
+      burst-*) echo "$IV_CONFIRM_DURATION_MS_BURST" ;;
+      stagger-*) echo "$IV_CONFIRM_DURATION_MS_STAGGER" ;;
+    esac
+    return 0
+  fi
   case "$arm" in
     serial-*) v="$IV_S2_DURATION_MS_SERIAL" ;;
     burst-*) v="$IV_S2_DURATION_MS_BURST" ;;
@@ -171,6 +202,19 @@ iv_warmup_duration_ms() {
     burst-*) v="$IV_S2_WARMUP_DURATION_MS_BURST" ;;
     stagger-*) v="$IV_S2_WARMUP_DURATION_MS_STAGGER" ;;
   esac
+  # The confirmation's warm-ups are one cycle of its own, longer settings, with their own bounds and spans.
+  if [ "$study" = "$IV_CONFIRM_STUDY" ]; then
+    case "$arm" in
+      serial-*) v="$IV_CONFIRM_WARMUP_DURATION_MS_SERIAL"; s="$IV_CONFIRM_WARMUP_SPAN_MS_SERIAL" ;;
+      burst-*) v="$IV_CONFIRM_WARMUP_DURATION_MS_BURST"; s="$IV_CONFIRM_WARMUP_SPAN_MS_BURST" ;;
+      stagger-*) v="$IV_CONFIRM_WARMUP_DURATION_MS_STAGGER"; s="$IV_CONFIRM_WARMUP_SPAN_MS_STAGGER" ;;
+    esac
+    [ "$v" -gt "$s" ] || {
+      echo "study $study's warm-up length for $arm is $v ms and its warm-up spans $s ms, so the bound does not hold the conditioning request"
+      return 1; }
+    echo "$v"
+    return 0
+  fi
   case "$v" in
     '' | *[!0-9]*)
       echo "study $study's warm-up length for $arm is still ${v@Q} in hack/lib/instrument-validation.sh; fill IV_S2_WARMUP_DURATION_MS_SERIAL, _BURST and _STAGGER from the generator's warm-up spans before any plan can pass"
@@ -292,7 +336,7 @@ iv_arm_in_block() {
 # warm-up's ids cannot collide with the measured replay's.
 iv_request_id_flag() {
   local study="$1" arm="$2" rep="$3" phase="$4"
-  [ "$study" = "$IV_STEP_STUDY" ] || return 0
+  [ "$study" = "$IV_STEP_STUDY" ] || [ "$study" = "$IV_CONFIRM_STUDY" ] || return 0
   case "$phase" in warmup | measured) ;; *) echo "phase ${phase@Q} is neither warmup nor measured" >&2; return 1 ;; esac
   printf -- '--request-id-prefix=%s-%s-%s\n' "$arm" "$rep" "$phase"
 }

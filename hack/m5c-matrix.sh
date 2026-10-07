@@ -215,8 +215,8 @@ fi
 if [ -z "$LADDER" ]; then
   STUDY="${STUDY:-sharing-matrix-2026-09-10}"
   case "$STUDY" in
-    sharing-matrix-2026-09-10|tail-crossing-lc256-2026-10-04|tail-crossing-lc2048-2026-10-05|tail-crossing-lc8192-2026-10-04|instrument-validation-2026-10-05|instrument-validation-s2-2026-10-05|instrument-validation-s3-2026-10-06|instrument-validation-s4-2026-10-06|step-boundary-2026-10-06) ;;
-    *) fail "STUDY is ${STUDY@Q}; the non-ladder matrix files evidence under sharing-matrix-2026-09-10, tail-crossing-lc256-2026-10-04, tail-crossing-lc2048-2026-10-05, tail-crossing-lc8192-2026-10-04, instrument-validation-2026-10-05, instrument-validation-s2-2026-10-05, instrument-validation-s3-2026-10-06, instrument-validation-s4-2026-10-06 or step-boundary-2026-10-06. An unregistered id is not refused by gen-trace -- it writes a manifest for any string -- so this refusal is the one that stops it before anything is rented" ;;
+    sharing-matrix-2026-09-10|tail-crossing-lc256-2026-10-04|tail-crossing-lc2048-2026-10-05|tail-crossing-lc8192-2026-10-04|instrument-validation-2026-10-05|instrument-validation-s2-2026-10-05|instrument-validation-s3-2026-10-06|instrument-validation-s4-2026-10-06|step-boundary-2026-10-06|step-confirm-2026-10-07) ;;
+    *) fail "STUDY is ${STUDY@Q}; the non-ladder matrix files evidence under sharing-matrix-2026-09-10, tail-crossing-lc256-2026-10-04, tail-crossing-lc2048-2026-10-05, tail-crossing-lc8192-2026-10-04, instrument-validation-2026-10-05, instrument-validation-s2-2026-10-05, instrument-validation-s3-2026-10-06, instrument-validation-s4-2026-10-06 or step-boundary-2026-10-06, step-confirm-2026-10-07. An unregistered id is not refused by gen-trace -- it writes a manifest for any string -- so this refusal is the one that stops it before anything is rented" ;;
   esac
 fi
 
@@ -806,7 +806,7 @@ else
         # minute); finishing the longest cell first leaves less work to carry the 20% headroom. The other cells and
         # blocks keep their hash order, and session 5's registration records the rule before purchase.
         printf '%s R1|%s|%s|%s|%s|0\n' "$(printf '%s/%s' "$rep" "$arm" | sha256sum | cut -c1-16)" "$arm" "$rep" "$RATE" "$NOISY_WEIGHT"
-      done | LC_ALL=C sort | if [ "$rep" = 1 ] && { [ "$STUDY" = "$IV_S4_STUDY" ] || [ "$STUDY" = "$IV_STEP_STUDY" ]; }; then
+      done | LC_ALL=C sort | if [ "$rep" = 1 ] && { [ "$STUDY" = "$IV_S4_STUDY" ] || [ "$STUDY" = "$IV_STEP_STUDY" ] || [ "$STUDY" = "$IV_CONFIRM_STUDY" ]; }; then
         # Only the first staggered cell in hash order is moved to the front; the other five keep their order.
         awk '!moved && $2 ~ /^R1\|stagger-/ {first = $0; moved = 1; next} {rest[++n] = $0}
              END {if (first != "") print first; for (i = 1; i <= n; i++) print rest[i]}'

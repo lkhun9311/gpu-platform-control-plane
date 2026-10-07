@@ -470,6 +470,23 @@ plan_case "a reproduction plan with no gateway binary to name" "REPRODUCES needs
 plan_case "a reproduction plan shipping the target's gateway binary" ok "${rp_env[@]}" GATEWAY_BIN="$GW_FAKE_A"
 plan_case "a reproduction plan shipping another gateway binary" "gatewayBinarySHA256" "${rp_env[@]}" GATEWAY_BIN="$GW_FAKE_B"
 
+say "9h. does the S1 confirmation's registered plan generate and score, nine cells at seed 47?"
+# Its trace lengths in hack/lib/instrument-validation.sh were read off the generator's spans; a span that outgrew them
+# is a gen-trace refusal here, before purchase, rather than on the card.
+# An episode study takes no load variables, so this calls the matrix without plan_case's PREMIUM_WEIGHT.
+set +e
+confirm_out=$(env TMPDIR="$WORK/tmp" PLAN_ONLY=1 PLATFORM=kind KCTX=none BENCHHARNESS_BIN="$WORK/benchharness" \
+  OUT="$WORK/out-confirm" STUDY=step-confirm-2026-10-07 ARMS="serial-step burst-step stagger-step" REPS=3 SEEDS=47 \
+  bash hack/m5c-matrix.sh 2>&1)
+confirm_code=$?
+set -e
+[ "$confirm_code" = 0 ] && printf '%s' "$confirm_out" | grep -q 'PLAN OK under study step-confirm-2026-10-07' \
+  && ok "the confirmation's nine cells generate and score" \
+  || bad "the confirmation's plan was refused (exit $confirm_code): $(printf '%s' "$confirm_out" | grep -E 'REFUSED|FAILED' | head -1)"
+printf '%s' "$confirm_out" | grep -q 'plan: 9 cell(s): stagger-step' \
+  && ok "and its first cell is a staggered one, the longest, as the step-boundary session's was" \
+  || bad "the confirmation's plan does not start with its staggered cell: $(printf '%s' "$confirm_out" | grep 'plan:')"
+
 say "10b. does the run record WHERE each load value came from?"
 # The refusal compares the EFFECTIVE value, so a wrong default is caught. What it cannot tell a later reader
 # is whether the value was declared or inherited -- and that is the question the 2026-10-02 archive could not

@@ -1376,6 +1376,32 @@ iv_arm_in_block "$IVS" serial-step 3 && ! iv_arm_in_block "$IVS" serial-log 2 &&
 	&& [ -z "$(iv_request_id_flag "$IV4" stagger-log 3 measured)" ] \
 	&& ok "only the step-boundary study tags its requests with X-Request-Id" || bad "request-id flags are wrong"
 
+IVC=step-confirm-2026-10-07
+say "23. the S1 confirmation keeps the step study's warm-up rules, has three -step arms, and buys them in every block"
+iv_is_study "$IVC" && iv_has_warmup "$IVC" && iv_pins_revision "$IVC" && iv_fixes_decoder_length "$IVC" \
+	&& iv_conditions_warmup "$IVC" && iv_keeps_warmup_refusal_log "$IVC" \
+	&& ok "the confirmation is warmed, pinned, fixed-decoder and conditioned like the step-boundary study" \
+	|| bad "the confirmation lacks one of the step-boundary study's warm-up rules"
+out=$(iv_arm_refusal "$IVC" serial-log) && bad "the confirmation admitted serial-log" \
+	|| ok "the confirmation refuses an arm outside its three: $out"
+for a in serial-step burst-step stagger-step; do
+	iv_arm_refusal "$IVC" "$a" >/dev/null || bad "the confirmation refused its own arm $a"
+done
+lens="" wlens=""
+for a in serial burst stagger; do
+	lens="$lens $(iv_duration_ms "$IVC" "$a-step")"
+	wlens="$wlens $(iv_warmup_duration_ms "$IVC" "$a-step")"
+done
+[ "$lens" = " 870000 270000 3840000" ] && [ "$wlens" = " 160000 80000 560000" ] \
+	&& ok "its trace and warm-up lengths are its own:$lens /$wlens ms" || bad "its lengths are${lens} /${wlens}"
+iv_arm_in_block "$IVC" serial-step 2 && iv_arm_in_block "$IVC" stagger-step 2 && iv_arm_in_block "$IVC" burst-step 3 \
+	&& ok "every arm is bought in every block" || bad "iv_arm_in_block skips a confirmation cell"
+[ "$(iv_request_id_flag "$IVC" burst-step 2 warmup)" = "--request-id-prefix=burst-step-2-warmup" ] \
+	&& ok "its requests are tagged with X-Request-Id, as the instrument's join needs" || bad "the confirmation's request-id flag is wrong"
+args=$(iv_engine_args "$IVC" stagger-step aa8e72537993ba99e69dfaafa59ed015b17504d1 | tr '\n' ' ')
+[ "$args" = "$(iv_engine_args "$IVS" stagger-step aa8e72537993ba99e69dfaafa59ed015b17504d1 | tr '\n' ' ')" ] \
+	&& ok "its engine arguments are the step-boundary study's: $args" || bad "its engine arguments differ: $args"
+
 echo
 if [ "$failures" = 0 ]; then
 	echo "check-instrument-validation-harness: every check passed"
