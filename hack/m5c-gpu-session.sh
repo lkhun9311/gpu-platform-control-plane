@@ -878,10 +878,18 @@ chmod +x /usr/local/bin/kubectl
 # container that nobody passes that variable to, so the mount is how it ends up with the card. The first
 # session to get this far had the setting and not the mount, which is half a recipe: the node saw no devices
 # and the plugin advertised zero.
+# The kubelet's container-log rotation is raised from its 10 MiB default, because an engine log longer than that
+# was rotated and `kubectl logs` returns only the newest file: the S1 confirmation's staggered cells wrote about
+# 11.4 MiB and lost their first 38,000 iterations (docs/superpowers/specs/2026-10-07-confirming-s1-on-unseen-settings.md).
 cat > /tmp/kind.yaml <<'KINDEOF'
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 name: m5cgpu
+kubeadmConfigPatches:
+  - |
+    kind: KubeletConfiguration
+    containerLogMaxSize: 200Mi
+    containerLogMaxFiles: 2
 nodes:
   - role: control-plane
   - role: worker

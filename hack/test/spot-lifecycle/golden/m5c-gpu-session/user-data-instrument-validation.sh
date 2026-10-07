@@ -79,6 +79,11 @@ cat > /tmp/kind.yaml <<'KINDEOF'
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 name: m5cgpu
+kubeadmConfigPatches:
+  - |
+    kind: KubeletConfiguration
+    containerLogMaxSize: 200Mi
+    containerLogMaxFiles: 2
 nodes:
   - role: control-plane
   - role: worker

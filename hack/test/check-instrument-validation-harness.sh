@@ -271,6 +271,9 @@ expect_log stagger-async "$ITER" "0 " "holds 1 Iteration( line(s)"
 expect_log serial-log "$ITER" "1 " "restart counts read 1"
 expect_log serial-log "$ITER" "0 0 " "restart counts read 0 0"
 STUB_LOGS_FAIL=1 expect_log serial-log "$ITER" "0 " "could not read the engine log"
+# A rotated log keeps only its tail, so its first iteration is not 0; the real line format is Iteration(<n>):.
+expect_log stagger-step "(APIServer pid=1) INFO [loggers.py:182] Engine 000: Iteration(38573): 1 context requests" "0 " \
+	"starts at iteration 38573, not 0"
 # The run_cell call site, read as text: judged before the hook and refused after it.
 body=$(extract run_cell)
 j=$(printf '%s\n' "$body" | grep -n 'capture_engine_log "\$label" "\$rep"' | cut -d: -f1)

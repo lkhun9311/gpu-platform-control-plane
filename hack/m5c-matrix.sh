@@ -3001,6 +3001,17 @@ capture_engine_log() {
     return 1
   fi
   rm -f "$err"
+  # A logged engine's first iteration is 0, because the container was started by this cell.
+  # A later first index means the kubelet rotated the log and `kubectl logs` returned only its newest file: the
+  # S1 confirmation's staggered cells reached 11.4 MiB against the 10 MiB default and were judged only at the
+  # evaluator, after 5.3 hours (docs/superpowers/specs/2026-10-07-confirming-s1-on-unseen-settings.md).
+  # Refusing here stops a session at its first such cell.
+  local first
+  first=$(grep -m1 -oE 'Iteration\([0-9]+\)' "$dest" | tr -dc '0-9')
+  if [ -n "$first" ] && [ "$first" != 0 ]; then
+    echo "the engine log for $label rep $rep starts at iteration $first, not 0: the container's log was rotated, so the cell's earlier iterations are not in it"
+    return 1
+  fi
   iv_engine_log_refusal "$STUDY" "$label" "$dest"
 }
 
