@@ -64,3 +64,36 @@ The kernel grids are fresh data, so the archive's attention component is then pr
 
 - **Purchase:** one session and one evaluation. Re-buying needs another note and the owner's approval.
 - **Expected cost:** the first session took 12 minutes. This grid is about a quarter of its size, so cost is again about $0.1, most of it the image pull.
+
+## Result, 2026-10-07 — the archive's chunks are reproduced; the one-wave law is not
+
+**The session.**
+- **Commit and instance:** the frozen commit `f412d13`; i-0823cc311034d629f (g5.xlarge Spot, A10G, FA version 2).
+- **Time and cost:** launched 14:02:28 KST, termination requested 14:16:56 and confirmed, about 14.5 minutes; an estimated $0.1 that is not yet in Cost Explorer.
+- **Output:** all 72 shapes timed by CUDA-graph replay.
+- **Files:** the grid is `data/2026-10-07-attention-kernel-grid-2.json`, and the readings, computed by the definitions above, are `data/2026-10-07-attention-kernel-grid-2-readings.txt`.
+
+| Reading | Result | Verdict |
+|---|---|---|
+| H1, a last chunk absorbs one wave | 6 of 10 within ±0.25 w. Outside: (q 16, n 5) 387.2 µs against 0; (q 256, n 4) 369.9 against 0; (q 256, n 5) 367.9 against 0; (q 256, n 8) 730.0 against 376.3 | **fails** |
+| H3, the archive's small chunks, 36 × Δ | (4, 1, 8,188) −0.060 ms against 0.09; (16, 4, 8,176) 0.206 against 0.37; (64, 16, 8,128) 41.100 against 41.76 | **holds** |
+| H4, the large chunk, mean over its four c | 11.586, 8.983, 5.832 and 1.699 ms; mean 7.025 against 5.70, +23.2% | **holds** (bound ±25%) |
+
+**What is established.** Measured on fresh data, the attention kernel alone reproduces the archive's mixed-step increments:
+- at a 256-token chunk with no context (the first grid, within 3%);
+- at the three small last chunks (this grid, within 0.17 ms);
+- at the large chunk's four positions on average (+23%).
+
+The archive's misses were attention. The families failed because the cost depends on (q, n, K, c) together, not because of anything outside the kernel.
+
+**What is not.** The one-wave law fails.
+- A last chunk absorbs every decoder up to n = 4 beside a 16-token chunk, and only one beside a 256-token chunk.
+- With c = 4,096 the decoders are partly hidden: 193 µs for one decoder against 376 with no context.
+
+So the hiding is not "one wave", and this page does not establish a law for it.
+
+**Observed after the readings, not registered.** Suppose a prefill of q tokens occupies ⌈q/64⌉ of the five per-wave slots (each slot one sequence's 16 head-blocks). Then every last-chunk row of set A fits ⌈(⌈q/64⌉ + n)/5⌉ − 1 waves: 0, 0, 1, 1 and 3 at q = 16, and 0, 1, 1, 2 and 3 at q = 256. The 64-token query block is an inference from these numbers, not read from the kernel. A law built on it would need a third grid registered with it, and it is not proposed here.
+
+**What follows.** By the rule above, H1 failing means nothing is built on the hiding explanation, and no law is claimed.
+
+The finding that does stand needs no law: a model that reads the measured kernel time directly, interpolated in (q, n, K, c), would predict the archive's attention component from fresh data. Registering that operator model is the next free step. It would not be bought; it needs the grids to cover the archive's shapes, which the two grids cover only in part.
