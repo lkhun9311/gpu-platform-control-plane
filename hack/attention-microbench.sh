@@ -24,6 +24,8 @@ MAX_SPOT_PRICE="${MAX_SPOT_PRICE:-0.80}"
 # 90 minutes of instance life is about three times the measurement, and the cheapest possible protection
 # against a hung run: a Spot g5.xlarge left running for a day would cost more than every paid session so far.
 BACKSTOP_SECONDS="${BACKSTOP_SECONDS:-3600}"
+# The registered grid to time; 1 is the first session's, 2 adds the prefill's own context.
+BENCH_GRID="${BENCH_GRID:-1}"
 OUT="${OUT:-hack/attention-bench-$(date -u +%Y%m%d-%H%M%S)}"
 STACK="attention-microbench"
 # Every object this run writes lives under its own prefix, and the completion marker is one of them.
@@ -57,6 +59,7 @@ RUN_ID="$(basename "$OUT")-${LAUNCH_IDENTITY:0:12}"
 
 say()  { printf '== %s\n' "$*"; }
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
+case "$BENCH_GRID" in 1|2) ;; *) fail "BENCH_GRID=$BENCH_GRID is not a registered grid" ;; esac
 
 # The EC2 lifecycle is shared with the price-of-protection runner and lives in its own file.
 #
@@ -146,7 +149,7 @@ upload /tmp/gpu.csv gpu.csv
 docker pull "$IMAGE"
 
 rc=0
-docker run --rm --gpus all --entrypoint python3 -v /usr/local/bin/bench:/b:ro "$IMAGE" /b/flash_attn_grid.py \
+docker run --rm --gpus all --entrypoint python3 -e BENCH_GRID=BENCH_GRID_PLACEHOLDER -v /usr/local/bin/bench:/b:ro "$IMAGE" /b/flash_attn_grid.py \
   > /tmp/results.json 2>/tmp/bench.err || rc=$?
 upload /tmp/results.json results.json
 upload /tmp/bench.err stderr.txt
@@ -176,6 +179,7 @@ UD=$(mktemp)
   echo "MEASUREEOF"
   sed -e "s|BACKSTOP_SECONDS_PLACEHOLDER|$BACKSTOP_SECONDS|" \
       -e "s|RUN_ID_PLACEHOLDER|$RUN_ID|" \
+      -e "s|BENCH_GRID_PLACEHOLDER|$BENCH_GRID|" \
       -e "s|ENGINE_IMAGE_PLACEHOLDER|$ENGINE_IMAGE|" \
       -e "s|BUCKET_PLACEHOLDER|$BUCKET|" "$RUNSCRIPT" | tail -n +2
 } > "$UD"

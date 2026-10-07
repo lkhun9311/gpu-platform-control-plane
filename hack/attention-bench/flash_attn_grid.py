@@ -36,13 +36,33 @@ WARMUP, BATCHES, PER_BATCH = 10, 10, 20
 STUB = os.environ.get("BENCH_STUB") == "1"
 
 
+# BENCH_GRID selects the registered grid. 1 is the first session's (prefills with no earlier context) and stays
+# the default, so its frozen result can be reproduced; 2 adds the prefill's computed tokens c,
+# docs/superpowers/specs/2026-10-07-the-prefills-own-context-and-decoder-waves.md.
+GRID = os.environ.get("BENCH_GRID", "1")
+
+
 def grid():
-    for q, n, k, s in itertools.product(QS, NS, KS, SPLITS):
-        if q == 0 and n == 0:
-            continue
-        if n == 0 and k != KS[0]:
-            continue  # K is a decoder context; with no decoder only one K is needed
-        yield q, n, k, s
+    """(q, n, K, splits, c): a prefill of q tokens after c computed ones, beside n decoders of context K."""
+    if GRID == "1":
+        for q, n, k, s in itertools.product(QS, NS, KS, SPLITS):
+            if q == 0 and n == 0:
+                continue
+            if n == 0 and k != KS[0]:
+                continue  # K is a decoder context; with no decoder only one K is needed
+            yield q, n, k, s, 0
+    elif GRID == "2":
+        # Set A: the hiding law, at a short and a medium chunk, with no context, half, and a last chunk.
+        for q, n, k in itertools.product((16, 256), (1, 4, 5, 8, 16), (256, 8192)):
+            for c in (0, 4096, 8192 - q):
+                yield q, n, k, 0, c
+        # Set B: the archive's other small- and large-chunk shapes; its (16, 4, 8176) is already in set A.
+        for q, n, c in ((4, 1, 8188), (64, 16, 8128),
+                        (2047, 1, 0), (2047, 1, 2047), (2047, 1, 4094), (2047, 1, 6141)):
+            for k in (256, 8192):
+                yield q, n, k, 0, c
+    else:
+        raise SystemExit(f"BENCH_GRID={GRID!r} is not a registered grid")
 
 
 def main():
@@ -71,11 +91,15 @@ def main():
         device = "cuda"
         sync = torch.cuda.synchronize
     torch.manual_seed(0)
-    out = {"fa_version": fa_version, "signature": signature, "device": None if STUB else torch.cuda.get_device_name(0),
+    out = {"grid": GRID, "fa_version": fa_version, "signature": signature, "device": None if STUB else torch.cuda.get_device_name(0),
            "torch": torch.__version__, "layers": LAYERS, "rows": []}
-    for q, n, k, s in grid():
+    shapes = list(grid())
+    if len(set(shapes)) != len(shapes):
+        raise SystemExit("the grid repeats a shape")
+    for q, n, k, s, c in shapes:
         qlens = ([q] if q else []) + [1] * n
-        klens = ([q] if q else []) + [k] * n
+        # A prefill after c computed tokens attends to c + q keys, its queries the last q of them.
+        klens = ([c + q] if q else []) + [k] * n
         blocks = [math.ceil(x / BLOCK) for x in klens]
         nblocks = sum(blocks) + 1
         dt = torch.float16 if not STUB else torch.float32
@@ -136,7 +160,7 @@ def main():
                 b.record()
                 b.synchronize()
                 times.append(a.elapsed_time(b) * 1e3 / PER_BATCH)
-        out["rows"].append(dict(q=q, n=n, k=k, splits=s, T=sum(qlens), timing=method, us_median=statistics.median(times),
+        out["rows"].append(dict(q=q, n=n, k=k, c=c, splits=s, T=sum(qlens), timing=method, us_median=statistics.median(times),
                                 us_p10=sorted(times)[len(times) // 10], us_p90=sorted(times)[len(times) * 9 // 10]))
     json.dump(out, sys.stdout)
     sys.stdout.write("\n")
