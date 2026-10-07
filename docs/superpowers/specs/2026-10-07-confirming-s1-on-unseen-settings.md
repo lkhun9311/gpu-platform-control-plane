@@ -146,3 +146,22 @@ The instrument's own logs are whole: 51,680 steps each. But gate 1 (the warm-up 
 - The confirmation has no verdict. No prediction, residual or occupancy was computed, and none will be under this registration.
 - Not tested before purchase: no earlier cell's engine log had reached 10 MiB, and none of the pre-purchase checks ran a trace this long.
 - Re-buying needs another note and the owner's approval.
+
+## Re-purchase, 2026-10-08 — the same nine cells, with the log rotation fixed
+
+**Approval.** The owner approved re-buying the whole session on 2026-10-08, the option recommended after the refusal above. The other two options were rejected:
+- re-buying the staggered cells alone, which would need a rule for joining two archives;
+- weakening gate 1 to the engine logs' surviving tail.
+
+**What changed since the first purchase (`1a35d61`), and only this:**
+- the session's kind cluster raises the kubelet's `containerLogMaxSize` to 200 MiB, verified on a kind node with a 13.8 MiB log read back whole from iteration 0;
+- the matrix refuses a cell whose captured engine log does not start at iteration 0, so a rotation stops the session at that cell.
+
+**What did not change:**
+- the study, design, seed 47, cells and S1's literal;
+- `s1_confirm.py`, the composition extraction and the kernel method. `git diff 47b4951 HEAD` over `hack/tail-crossing-model`, `hack/attention-bench`, `internal` and `cmd` is empty;
+- the verdict rules and the procedure above.
+
+The first session's composition manifest and kernel times stay in `data/` as the record of that refusal. A new manifest is extracted from the new archive and timed in a new kernel session.
+
+**Launch,** at the commit that adds this note, with the same command as above.
