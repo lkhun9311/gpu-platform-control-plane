@@ -53,3 +53,40 @@ They are the first development study's, unchanged:
   - n between 5 and 15 beside long contexts. The archive holds those only inside burst-16 episodes.
 
 This archive has now been used by three registrations. Nothing it gives is a held-out result.
+
+## Result, 2026-10-07 — no wave candidate passes
+
+`step_family_waves.py` at the freezing commit `511474a` was run once, on a clean tree. It exited 3. Its output is `data/2026-10-07-decoder-waves-tournament.txt`.
+
+| | Judged | Not judged (unsupported + thin) | Failing | Worst late-prefill | Verdict |
+|---|---:|---:|---:|---:|---|
+| B (reference) | 114 | 3 + 3 | 3 | (1, 8,192, 256) −20.3% | FAIL |
+| W4 | 114 | 3 + 3 | 4 | (16, 8,192, 256) −19.9% | FAIL |
+| W5 | 114 | 3 + 3 | 3 | (16, 8,192, 256) −18.2% | FAIL |
+| W4g | 114 | 3 + 3 | 3 | (16, 8,192, 256) −18.6% | FAIL |
+| W5g | 114 | 3 + 3 | 3 | (1, 8,192, 256) −17.8% | FAIL |
+
+**SELECTED: none.**
+- The support rule removed the three 512-token serial endpoints from judgement, as the diagnostic tables predicted.
+- Every remaining failure, in every candidate, is a short (256-token) late prefill joining long-context decoders: (1, 8,192, 256), and (16, 8,192, 256), and once (4, 8,192, 256). All are under-predicted, by 10.1% to 20.3%.
+- In every wave candidate's all-data fit, `k_mixed` (the ΣK term in mixed steps) went to 0 or near it: the wave column took its place, as the diagnostic tables' falsification of H-sum implied.
+
+**Why, read from the diagnostic tables' own numbers.** These are not a new fit. Dividing each long-context increment by ⌈n/4⌉ × K_max gives a cost per wave-token, by the prefill chunk q in the step:
+
+| q | n | Increment (ms) | Per wave-token (µs) |
+|---:|---:|---:|---:|
+| 4 | 1 | 0.09 | 0.010 |
+| 16 | 4 | 0.37 | 0.044 |
+| 64 | 16 | 41.76 | 1.239 |
+| 256 | 1 | 13.27 | 1.612 |
+| 256 | 4 | 13.64 | 1.646 |
+| 256 | 16 | 55.03 | 1.633 |
+| 2,032 | 16 | 52.64 | 1.562 |
+| 2,047 | 1 | 5.70 | 0.696 |
+
+- At q = 256 the wave shape holds exactly: 1.61 to 1.65 µs per wave-token at n = 1, 4 and 16.
+- But the cost per wave depends on the prefill chunk beside it. It is nearly zero for chunks of 4 or 16 tokens, about 1.6 µs from 256 to 2,032, and less than half that, 0.70, for one decoder beside a full 2,047-token chunk.
+- One wave coefficient fits the average, about 1.15 µs, and so under-predicts every q = 256 step.
+- This reads like a decoder's attention work being partly hidden behind a large prefill's own work, and fully exposed beside a medium one. That is a description of these numbers, not an established mechanism.
+
+**What follows.** A fourth family on this archive would be fitted to a shape read off this table, and would test nothing. The mechanism can be checked on fresh data directly and cheaply: time the attention kernel alone, on one A10G, over a grid of (q, n, K_max) chosen before measuring. That is the operator-level approach of Vidur (arXiv 2405.05465), which models prefill and decode attention separately. It needs a short paid session and the owner's approval.
