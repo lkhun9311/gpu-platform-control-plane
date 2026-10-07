@@ -73,16 +73,39 @@ const (
 const InputLengthServingImage = "vllm/vllm-openai@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967"
 
 // resolvedInputLengths is the measured table. Every entry came from a sweep; none was computed.
+// The lengths other than the first nine were swept on 2026-10-07 for the S1 confirmation's settings
+// (docs/superpowers/specs/2026-10-07-confirming-s1-on-unseen-settings-design.md), at the same tokenizer,
+// template, corpus and image, which the resolver checked against the earlier sweep before they were merged.
 var resolvedInputLengths = map[int]ResolvedInputLength{
-	256:  {Chars: 1174, Matches: 8},
-	512:  {Chars: 2506, Matches: 7},
-	768:  {Chars: 3845, Matches: 3},
-	1024: {Chars: 5183, Matches: 8},
-	2048: {Chars: 10532, Matches: 5},
-	3072: {Chars: 15876, Matches: 7},
-	4096: {Chars: 21201, Matches: 6},
-	6144: {Chars: 31894, Matches: 5},
-	8192: {Chars: 42579, Matches: 3},
+	32:    {Chars: 8, Matches: 7},
+	119:   {Chars: 448, Matches: 9},
+	120:   {Chars: 458, Matches: 4},
+	121:   {Chars: 461, Matches: 5},
+	128:   {Chars: 497, Matches: 5},
+	129:   {Chars: 501, Matches: 9},
+	255:   {Chars: 1167, Matches: 8},
+	256:   {Chars: 1174, Matches: 8},
+	257:   {Chars: 1183, Matches: 6},
+	384:   {Chars: 1854, Matches: 5},
+	511:   {Chars: 2492, Matches: 10},
+	512:   {Chars: 2506, Matches: 7},
+	513:   {Chars: 2513, Matches: 6},
+	768:   {Chars: 3845, Matches: 3},
+	1023:  {Chars: 5182, Matches: 1},
+	1024:  {Chars: 5183, Matches: 8},
+	1025:  {Chars: 5189, Matches: 7},
+	1536:  {Chars: 7854, Matches: 8},
+	2047:  {Chars: 10530, Matches: 3},
+	2048:  {Chars: 10532, Matches: 5},
+	2049:  {Chars: 10539, Matches: 4},
+	3072:  {Chars: 15876, Matches: 7},
+	4096:  {Chars: 21201, Matches: 6},
+	4200:  {Chars: 21755, Matches: 6},
+	4201:  {Chars: 21764, Matches: 4},
+	4608:  {Chars: 23896, Matches: 7},
+	6144:  {Chars: 31894, Matches: 5},
+	8192:  {Chars: 42579, Matches: 3},
+	12288: {Chars: 63959, Matches: 7},
 }
 
 // ResolveInputTokens returns the measured character length for a declared token count.
