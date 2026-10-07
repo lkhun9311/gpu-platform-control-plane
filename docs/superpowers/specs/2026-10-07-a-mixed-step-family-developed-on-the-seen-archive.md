@@ -155,3 +155,32 @@ I checked its point about the loss against the code: `step_boundary.q3` weights 
 - the 10-step floor and the 15% step-error bound;
 - the 10% unjudged limit;
 - the selection rule.
+
+## Result, 2026-10-07 — no candidate passes; item 2 stays closed
+
+`step_family_dev.py` at the freezing commit `d1c66c5` was run once on the archive, on a clean tree, in 4 seconds. It exited 3. Its whole output is kept as `data/2026-10-07-mixed-step-family-development.txt`.
+
+| | Folds refused | Endpoints judged | Failing | Worst late-prefill | Verdict |
+|---|---:|---:|---:|---:|---|
+| A, the registered family | 0 | 117 | 10 | (16, 8,192, 256) −50.6% | FAIL |
+| B, split context cost and a mixed surcharge | 0 | 117 | 6 | (1, 8,192, 256) −20.3% | FAIL |
+| C, B and a per-decoder surcharge | 0 | 117 | 6 | (1, 8,192, 256) −20.3% | FAIL |
+| D, the table | 0 | 109 | 32 | (1, 8,192, 256) −45.4% | FAIL |
+
+28 folds over 49 settings. 3 endpoints of 120 are under the 10-step floor (2.5%), and none of them decided a verdict.
+
+**SELECTED: none.** By section 5, this study fails, item 2 of the successor ranking stays closed, and no confirmatory purchase is proposed on its account.
+
+What the run shows, without a claim about why:
+- **B and C halve the failure, but not to 10%.**
+  - B's failures are the three 512-token serial prefills (−13.3%) and three short-late-prefill endpoints: (1, 8,192, 256) mixed and late-prefill at −20.3%, and (16, 8,192, 256) late-prefill at −18.0%.
+  - A's ten failures include all six short late prefills, at −17.1% to −50.6%.
+- **C's added column changed no printed endpoint.** Its worst lines and failures equal B's to the printed precision.
+- **The misses are systematic, not noise.** Every late-prefill endpoint's three block errors agree to within 0.1 percentage points; for example B's (1, 8,192, 256) is −20.3%, −20.3% and −20.4%. More blocks of the same cells would not move these numbers; a different family would have to.
+- **D's table fails most:**
+  - it cannot reach several held-out compositions at all (unsupported bins in 7 endpoints);
+  - it misses others by up to 45%.
+
+What would change this:
+- another candidate family, which is a new registration on data this page has now also used;
+- or a decision that the successor's feasibility does not need a per-step model, which is a decision for the owner, not a result.

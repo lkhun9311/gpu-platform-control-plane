@@ -75,3 +75,11 @@ Item 3 cannot be bought before item 2: without a step-time model, nothing predic
 The step-boundary session (`2026-10-06-where-the-late-prefill-waits-step-boundary-session.md`) measured mixed steps directly and fitted the family on measured occupancy, and Q3 failed on 13 of the 14 phases the pilot's nominal fit failed, and on no other. So the computational feasibility check still has no model to run on, and item 3 of the ranking stays unbuyable. What the session adds:
 - where a late prefill's extra wait sits, the frontend-to-scheduler hop, and how long it is, measured though not its cause;
 - an instrument a future family can be fitted and tested with.
+
+## Update, 2026-10-07 — a development study found no mixed-step family within 10%
+
+`2026-10-07-a-mixed-step-family-developed-on-the-seen-archive.md` registered four candidates and ran them once on the step-boundary archive, holding out one composition at a time. None passed.
+- The best, a split context cost with a mixed-step surcharge, still missed one short late prefill by 20.3% and the 512-token serial prefills by 13.3%.
+- These misses are systematic: the three blocks agree to within 0.1 points.
+
+Item 2 stays closed and item 3 stays unbuyable. No purchase is proposed.
