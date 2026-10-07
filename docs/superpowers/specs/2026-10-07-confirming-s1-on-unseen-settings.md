@@ -109,3 +109,40 @@ codex `gpt-6-astra`'s bare review of the stage-3 code found three defects. Each 
 - `instrument_gates.study_of` opened the serial-log cell unconditionally, which this study does not record, so every confirmation archive would have failed before any gate. It now falls back to the serial-step cell. Archives with a serial-log cell read exactly as before.
 - A required phase with no step dropped out of judgement silently; required phases are now enumerated and refuse.
 - Kernel times from any GPU and FlashAttention version passed; the evaluator now demands the A10G and FA2.
+
+## Result, 2026-10-08 — REFUSED at gate 1: the staggered cells' engine logs were rotated
+
+**The sessions.**
+
+| Session | Instance | Time (KST) | Outcome |
+|---|---|---|---|
+| Engine, from `47b4951` | i-0d83b74a7f5b0435b, g5.2xlarge Spot | launched 18:28:35 on 2026-10-07, terminated 23:48:11, about 5.3 hours | all 9 cells `completed` (staggered 4,816, 4,527 and 4,527 s; serial 1,197, 1,188 and 1,188 s; burst 516 s each), SESSION DONE |
+| Kernel | i-0dda0eaaaaad95155, g5.xlarge Spot | 23:54:22 to 00:08:50 | 1,712 compositions, FA 2 on an A10G, all by graph replay |
+
+The engine session's script printed "TERMINATION UNCONFIRMED" because shutting-down outlasted its polls. The instance was confirmed `terminated` by hand afterwards. Cost is not yet in Cost Explorer.
+
+**Procedure followed.**
+- The composition manifest was extracted and committed (`aecb0c5`, sha256 `b19b1b92…`) before anything was timed or judged: 166,830 steps, 1,712 compositions.
+- The evaluator then ran once at the frozen code. Its whole output is `data/2026-10-07-confirm-evaluation.txt`, and the kernel times are `data/2026-10-07-confirm-kernel-times.json`.
+
+**The refusal.** `REFUSED: stagger-step-1: the captured log starts at iteration 38573, not 0, so part of the warm-up is missing from it.`
+
+| Cell | Engine log | Iteration lines | First | Instrument steps |
+|---|---:|---:|---|---:|
+| stagger-step-1 | 3,037,464 bytes | 13,107 | 38,573 | 51,680 |
+| stagger-step-2 | 3,028,843 bytes | 13,068 | 38,612 | 51,680 |
+| stagger-step-3 | 3,076,843 bytes | 13,275 | 38,405 | 51,680 |
+| serial-step-1 | 2,181,373 bytes | 9,304 | 0 | 9,304 |
+| burst-step-1 | 818,255 bytes | 3,222 | 0 | 3,222 |
+
+The kubelet rotates a container's log at its default `containerLogMaxSize` of 10 MiB, and `kubectl logs` returns only the newest file.
+- The step-boundary session's staggered logs were 8.4 MiB (37,960 iterations) and stayed whole.
+- This study's longer staggered traces would have made about 11.4 MiB (232 bytes per iteration line × 51,680).
+- So only their tail was captured.
+
+The instrument's own logs are whole: 51,680 steps each. But gate 1 (the warm-up boundary inside the engine log) and gate 2 (the one-to-one reconciliation of instrument steps with the engine's iteration lines) cannot be checked for the rotated part.
+
+**What follows from the registration.**
+- The confirmation has no verdict. No prediction, residual or occupancy was computed, and none will be under this registration.
+- Not tested before purchase: no earlier cell's engine log had reached 10 MiB, and none of the pre-purchase checks ran a trace this long.
+- Re-buying needs another note and the owner's approval.
