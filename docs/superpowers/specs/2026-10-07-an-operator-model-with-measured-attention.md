@@ -101,7 +101,7 @@ A pass licenses registering a confirmation on fresh cells with the predictor fro
 | O1 | 114 | 2 | (1, 256, 256) −10.7% | 1, fixed | FAIL |
 | O2 | 114 | 2 | (1, 256, 256) −10.2% | α = 0.954 | FAIL |
 
-**SELECTED: none.** By section 6, no confirmation is proposed on this result, and the bounds are not moved after seeing it.
+**SELECTED: none.** By "What a selection licenses" above, no confirmation is proposed on this result, and the bounds are not moved after seeing it.
 
 What the run shows:
 - **Both failing endpoints are the same 21 steps.** These are the mixed and the late-prefill phase of one setting: one 256-token late prefill joining one 256-token decoder. O1 under-predicts them by 10.7%, 0.7 points beyond the bound.
@@ -115,4 +115,4 @@ What the run shows:
 
 It is not a held-out result. It is not a simulator-ready model either: the P → A wait and the inter-step gap are still outside it.
 
-**What it does not license.** A confirmation purchase. Section 6 makes that conditional on a pass, and this is a near miss, not a pass.
+**What it does not license.** A confirmation purchase. "What a selection licenses" makes that conditional on a pass, and this is a near miss, not a pass.
