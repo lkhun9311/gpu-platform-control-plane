@@ -241,6 +241,19 @@ def run_with_harness():
     lines = sb.q3_verdict("unused", fit=refusing)
     assert lines == ["Q3: REFUSED -- the column-normalised design has condition number 412.0"], lines
     print("ok: a Q3 refusal becomes Q3's verdict line instead of ending the evaluation")
+    # The exit status carries Q3: the session's own analysis exited 0 with Q3 FAIL before this.
+    # Mutation that turns this red: return 0 whenever the gates pass.
+    pre = ["Q3: condition 13.7, 37 training settings, 49 held-out or staggered settings, 13 phase(s) outside 10%"]
+    for gates_ok, last, want in ((False, "Q3: PASS", 1), (True, "Q3: PASS", 0), (True, "Q3: FAIL", 3),
+                                 (True, "Q3: REFUSED -- condition 412.0", 3)):
+        got = sb.exit_status(gates_ok, pre + [last])
+        assert got == want, (gates_ok, last, got)
+    try:
+        sb.exit_status(True, pre)
+        raise AssertionError("an evaluation with no Q3 verdict line got a status")
+    except Refusal as e:
+        assert "0 Q3 verdict lines" in str(e), e
+    print("ok: the exit status is 0 only with the gates and Q3 passing, 3 for a Q3 that did not, 1 for a failed gate")
 
 
 if __name__ == "__main__":

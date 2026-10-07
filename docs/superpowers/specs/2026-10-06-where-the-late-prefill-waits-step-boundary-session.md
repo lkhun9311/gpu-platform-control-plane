@@ -281,3 +281,5 @@ The same review found three latent evaluator defects, none present in this archi
 - the clock-offset spread was computed and dropped.
 
 At `5dc9732` the evaluator's output on this archive is byte-identical to the kept file.
+
+A later review found the evaluator's exit status was the overhead gate's alone, so this analysis exited 0 with Q3 FAIL. It now exits 3 when the gates pass and Q3 does not (fixed in the commit after `6377bcc`). The printed output is unchanged.

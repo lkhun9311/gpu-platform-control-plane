@@ -587,6 +587,21 @@ def evaluate(run, harness):
     return ok, lines
 
 
+def exit_status(gates_ok, lines):
+    """0 only when the overhead gate and Q3 both pass; 1 for a failed gate; 3 for passed gates and a Q3 that did not.
+
+    The exit status used to be the overhead gate's alone, so the session's analysis exited 0 with Q3 FAIL and a
+    wrapper reading the status would have taken the study for a pass (found by review). Q1 is a reported
+    prediction, not a verdict, and does not enter the status.
+    """
+    if not gates_ok:
+        return 1
+    q3 = [l for l in lines if l.startswith("Q3: ") and l.split()[1] in ("PASS", "FAIL", "REFUSED")]
+    if len(q3) != 1:
+        raise Refusal(f"the evaluation printed {len(q3)} Q3 verdict lines, not one, so its status cannot be read")
+    return 0 if q3[0] == "Q3: PASS" else 3
+
+
 def q3_verdict(run, fit=None):
     """Q3's lines. A refusal (rank, condition) is Q3's verdict, not the evaluator's: everything before it stands."""
     try:
@@ -607,7 +622,7 @@ if __name__ == "__main__":
                 raise Refusal("set BENCHHARNESS to a built cmd/benchharness: the archive is checked before any gate")
             ok, lines = evaluate(sys.argv[1], harness)
             print("\n".join(lines))
-            sys.exit(0 if ok else 1)
+            sys.exit(exit_status(ok, lines))
         else:
             sys.exit(__doc__)
     except Refusal as e:
