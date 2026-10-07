@@ -263,6 +263,12 @@ const (
 	// A study of its own because its engine carries a new instrument (hack/vllm-plugins/step_logging_scheduler.py),
 	// so nothing it measures is pooled with the instrument-validation sessions; its episodes are session 4's.
 	StudyStepBoundary = "step-boundary-2026-10-06"
+	// StudyStepConfirm confirms the step-time model S1 on settings it never saw, designed in
+	// docs/superpowers/specs/2026-10-07-confirming-s1-on-unseen-settings-design.md.
+	//
+	// A study of its own because its episodes are new settings: the step-boundary study's engine and instrument, a
+	// different design, and only the instrumented arms, since the instrument's overhead was established there.
+	StudyStepConfirm = "step-confirm-2026-10-07"
 )
 
 // The engine modes the instrument-validation study crosses with its episode types.
@@ -295,6 +301,15 @@ func instrumentValidationArms() []string {
 // stepBoundaryArms lists the step-boundary session's five arms: serial and burst as logged/instrumented pairs,
 // whose difference is the instrument's overhead, and staggered instrumented alone, since that comparison could not
 // be powered and the registration declares its staggered results to concern the instrumented engine only.
+// stepConfirmArms lists the confirmation's three arms, one per episode type, all instrumented.
+func stepConfirmArms() []string {
+	return []string{
+		InstrumentValidationArm(EpisodeSerial, instrumentModeStep),
+		InstrumentValidationArm(EpisodeBurst, instrumentModeStep),
+		InstrumentValidationArm(EpisodeStagger, instrumentModeStep),
+	}
+}
+
 func stepBoundaryArms() []string {
 	return []string{
 		InstrumentValidationArm(EpisodeSerial, instrumentModeLog), InstrumentValidationArm(EpisodeSerial, instrumentModeStep),
@@ -672,6 +687,13 @@ var studies = map[string]Study{
 	StudyStepBoundary: {
 		ID:                     StudyStepBoundary,
 		Arms:                   stepBoundaryArms(),
+		Arrivals:               ArrivalsEpisodes,
+		TracesVaryByRepetition: false,
+	},
+	// One seed in every block, as the step-boundary study: the settings are what is new, and the blocks replicate.
+	StudyStepConfirm: {
+		ID:                     StudyStepConfirm,
+		Arms:                   stepConfirmArms(),
 		Arrivals:               ArrivalsEpisodes,
 		TracesVaryByRepetition: false,
 	},

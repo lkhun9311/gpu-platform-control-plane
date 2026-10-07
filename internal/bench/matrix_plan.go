@@ -76,6 +76,10 @@ func instrumentValidationArmSetRefusal(s Study, arms []string) error {
 	}
 	// The step-boundary session pairs logged with instrumented cells, and its staggered arm stands alone by
 	// registration, so its pairs are checked on its own terms.
+	// The confirmation buys instrumented arms only and pairs nothing, so admission is its whole check.
+	if s.ID == StudyStepConfirm {
+		return nil
+	}
 	if s.ID == StudyStepBoundary {
 		for _, t := range []EpisodeType{EpisodeSerial, EpisodeBurst} {
 			logged := slices.Contains(arms, InstrumentValidationArm(t, instrumentModeLog))

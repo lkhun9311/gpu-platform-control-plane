@@ -252,6 +252,27 @@ var designStepBoundary = func() episodeDesign {
 	return d
 }()
 
+// designStepConfirm is the step-boundary design with new settings, from
+// docs/superpowers/specs/2026-10-07-confirming-s1-on-unseen-settings-design.md: every setting either straddles a
+// boundary S1 was fitted across (the 128-token graph limit, the f(P) knots) or sits where the archive had none
+// (n between 5 and 15, several prefills in one step), with two of the archive's settings as controls.
+// The engine, the instrument, the decoders' minimum and cap, the lag, the jitter and the warm-up's conditioning
+// are the step-boundary study's.
+var designStepConfirm = func() episodeDesign {
+	d := designStepBoundary
+	d.study = StudyStepConfirm
+	d.serialLengths = []int{128, 129, 255, 257, 384, 511, 512, 513, 1023, 1025, 1536, 2047, 2048, 2049, 4608, 12288}
+	d.burstSettings = []burstSetting{{4, 32}, {5, 32}, {5, 384}, {8, 384}, {15, 384}, {8, 1536}, {15, 1536}, {8, 6144}, {64, 256}}
+	d.staggerSettings = []staggerSetting{
+		{8, 6144, 119}, {8, 6144, 120}, {8, 6144, 121}, {8, 6144, 4200}, {8, 6144, 4201},
+		{5, 6144, 384}, {5, 6144, 1536}, {15, 6144, 384}, {15, 6144, 1536}, {8, 1024, 384},
+		{1, 256, 256}, {16, 8192, 8192},
+	}
+	d.serialCycles, d.burstCycles, d.staggerCycles = 6, 4, 7
+	d.staggerShortCycles = 0
+	return d
+}()
+
 // designFor returns the episode design a study registers, and false for a study that replays no episodes.
 func designFor(study string) (episodeDesign, bool) {
 	switch study {
@@ -265,6 +286,8 @@ func designFor(study string) (episodeDesign, bool) {
 		return designS4, true
 	case StudyStepBoundary:
 		return designStepBoundary, true
+	case StudyStepConfirm:
+		return designStepConfirm, true
 	}
 	return episodeDesign{}, false
 }
