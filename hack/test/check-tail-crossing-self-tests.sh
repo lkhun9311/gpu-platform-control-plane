@@ -26,7 +26,7 @@ trap 'rm -f "$log"; rm -rf "$bin"' EXIT
 # step_boundary's seed check regenerates traces with the real generator, so its self-test needs a built harness.
 ( cd ../.. && go build -o "$bin/benchharness" ./cmd/benchharness ) || { echo "FAIL: could not build benchharness" >&2; exit 1; }
 export BENCHHARNESS="$bin/benchharness"
-for m in iterlog instrument_gates timing_fit step_boundary step_family_dev step_diagnostics step_family_waves; do
+for m in iterlog instrument_gates timing_fit step_boundary step_family_dev step_diagnostics step_family_waves step_family_operator; do
 	if ! python3 "$m.py" --self-test >"$log" 2>&1; then
 		echo "FAIL: $m.py --self-test exited non-zero:" >&2
 		tail -5 "$log" >&2

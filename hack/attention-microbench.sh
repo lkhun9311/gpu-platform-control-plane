@@ -27,7 +27,10 @@ BACKSTOP_SECONDS="${BACKSTOP_SECONDS:-3600}"
 # The registered grid to time; 1 is the first session's, 2 adds the prefill's own context.
 BENCH_GRID="${BENCH_GRID:-1}"
 OUT="${OUT:-hack/attention-bench-$(date -u +%Y%m%d-%H%M%S)}"
-STACK="attention-microbench"
+# The role reads as well as writes, because grid 3's compositions (117 KB) do not fit in the 16 KB of user-data
+# and are fetched from this run's prefix. A new name, because spot_ensure_profile leaves an existing role's policy
+# as it found it, and the first two sessions' role could only write.
+STACK="attention-microbench-rw"
 # Every object this run writes lives under its own prefix, and the completion marker is one of them.
 #
 # The keys used to be fixed at the bucket root -- results.json, DONE -- against a bucket that keeps
@@ -59,7 +62,9 @@ RUN_ID="$(basename "$OUT")-${LAUNCH_IDENTITY:0:12}"
 
 say()  { printf '== %s\n' "$*"; }
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
-case "$BENCH_GRID" in 1|2) ;; *) fail "BENCH_GRID=$BENCH_GRID is not a registered grid" ;; esac
+case "$BENCH_GRID" in 1|2|3) ;; *) fail "BENCH_GRID=$BENCH_GRID is not a registered grid" ;; esac
+COMPOSITIONS="${COMPOSITIONS:-docs/superpowers/specs/data/2026-10-07-archive-attention-compositions.json}"
+[ "$BENCH_GRID" != 3 ] || [ -s "$COMPOSITIONS" ] || fail "grid 3 needs the archive's compositions; $COMPOSITIONS is missing"
 
 # The EC2 lifecycle is shared with the price-of-protection runner and lives in its own file.
 #
@@ -95,7 +100,7 @@ spot_ensure_bucket "$BUCKET" "$REGION" 30 || fail "could not prepare the results
 # This measurement only ever writes. A runner that also ships a binary to the instance needs GetObject, and
 # passing the policy in is what lets the two differ without the library knowing about either.
 spot_ensure_profile "$STACK" \
-  "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":[\"s3:PutObject\"],\"Resource\":\"arn:aws:s3:::$BUCKET/*\"}]}" \
+  "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":[\"s3:PutObject\",\"s3:GetObject\"],\"Resource\":\"arn:aws:s3:::$BUCKET/*\"}]}" \
   20 || fail "could not prepare the instance profile $STACK"
 
 # ---------------------------------------------------------------- placement
@@ -147,6 +152,10 @@ trap 'upload /var/log/attention-bench.log log.txt; shutdown -h now' EXIT
 nvidia-smi --query-gpu=name,driver_version,memory.total,clocks.max.sm --format=csv > /tmp/gpu.csv 2>&1
 upload /tmp/gpu.csv gpu.csv
 docker pull "$IMAGE"
+# Grid 3 times the archive's compositions, uploaded beside this run's results; a failed fetch is a failed run.
+if [ "BENCH_GRID_PLACEHOLDER" = 3 ]; then
+  aws s3 cp "s3://$BUCKET/$PREFIX/compositions.json" /usr/local/bin/bench/compositions.json || exit 1
+fi
 
 rc=0
 docker run --rm --gpus all --entrypoint python3 -e BENCH_GRID=BENCH_GRID_PLACEHOLDER -v /usr/local/bin/bench:/b:ro "$IMAGE" /b/flash_attn_grid.py \
@@ -204,6 +213,11 @@ if [ "${DRY_RUN:-0}" = 1 ]; then
   trap - EXIT; rm -f "${RUNSCRIPT:-}" "${UD:-}" "${MEASURE:-}"
   say "DRY_RUN: nothing launched; the user-data and the measurement are in $OUT"
   exit 0
+fi
+if [ "$BENCH_GRID" = 3 ]; then
+  cp "$COMPOSITIONS" "$OUT/compositions.json"
+  aws s3 cp "$COMPOSITIONS" "s3://$BUCKET/$RUN_ID/compositions.json" >/dev/null \
+    || fail "could not upload the compositions grid 3 times; nothing was launched"
 fi
 
 say "launching $INSTANCE_TYPE spot (max \$$MAX_SPOT_PRICE/h)"

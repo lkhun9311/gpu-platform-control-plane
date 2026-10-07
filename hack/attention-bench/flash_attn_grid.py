@@ -61,8 +61,35 @@ def grid():
                         (2047, 1, 0), (2047, 1, 2047), (2047, 1, 4094), (2047, 1, 6141)):
             for k in (256, 8192):
                 yield q, n, k, 0, c
+    elif GRID == "3":
+        return  # grid 3 is a list of compositions, not (q, n, K, splits, c); see cases()
     else:
         raise SystemExit(f"BENCH_GRID={GRID!r} is not a registered grid")
+
+
+def cases():
+    """(label, query lengths, key lengths) for every shape of the selected grid.
+
+    Grids 1 and 2 are a prefill of q tokens after c computed ones beside n decoders of one context K. Grid 3 is the
+    archive's own compositions, read from BENCH_COMPOSITIONS
+    (docs/superpowers/specs/2026-10-07-an-operator-model-with-measured-attention.md): each prefilling request's
+    (q, c) and each decoder's K, exactly as a step held them.
+    """
+    if GRID == "3":
+        comps = json.load(open(os.environ.get("BENCH_COMPOSITIONS", "/b/compositions.json")))["compositions"]
+        for comp in comps:
+            pre, dec = comp["prefills"], comp["decoders"]
+            yield (dict(id=comp["id"]), [q for q, _ in pre] + [1] * len(dec),
+                   [c + q for q, c in pre] + list(dec))
+        return
+    shapes = list(grid())
+    if len(set(shapes)) != len(shapes):
+        raise SystemExit("the grid repeats a shape")
+    for q, n, k, s_, c in shapes:
+        if s_ != 0:
+            raise SystemExit("only num_splits 0 is the engine's path on FA2")
+        # A prefill after c computed tokens attends to c + q keys, its queries the last q of them.
+        yield dict(q=q, n=n, k=k, c=c, splits=s_), ([q] if q else []) + [1] * n, ([c + q] if q else []) + [k] * n
 
 
 def main():
@@ -93,13 +120,7 @@ def main():
     torch.manual_seed(0)
     out = {"grid": GRID, "fa_version": fa_version, "signature": signature, "device": None if STUB else torch.cuda.get_device_name(0),
            "torch": torch.__version__, "layers": LAYERS, "rows": []}
-    shapes = list(grid())
-    if len(set(shapes)) != len(shapes):
-        raise SystemExit("the grid repeats a shape")
-    for q, n, k, s, c in shapes:
-        qlens = ([q] if q else []) + [1] * n
-        # A prefill after c computed tokens attends to c + q keys, its queries the last q of them.
-        klens = ([c + q] if q else []) + [k] * n
+    for label, qlens, klens in cases():
         blocks = [math.ceil(x / BLOCK) for x in klens]
         nblocks = sum(blocks) + 1
         dt = torch.float16 if not STUB else torch.float32
@@ -122,7 +143,7 @@ def main():
                   seqused_k=torch.tensor(klens, dtype=torch.int32, device=device), max_seqlen_k=max(klens),
                   softmax_scale=HEAD_DIM ** -0.5, causal=True, alibi_slopes=None, window_size=None,
                   block_table=table.to(device), softcap=0.0, scheduler_metadata=None, fa_version=fa_version,
-                  num_splits=s)
+                  num_splits=0)
         for _ in range(WARMUP):
             kernel(**kw)
         sync()
@@ -160,7 +181,7 @@ def main():
                 b.record()
                 b.synchronize()
                 times.append(a.elapsed_time(b) * 1e3 / PER_BATCH)
-        out["rows"].append(dict(q=q, n=n, k=k, c=c, splits=s, T=sum(qlens), timing=method, us_median=statistics.median(times),
+        out["rows"].append(dict(label, T=sum(qlens), timing=method, us_median=statistics.median(times),
                                 us_p10=sorted(times)[len(times) // 10], us_p90=sorted(times)[len(times) * 9 // 10]))
     json.dump(out, sys.stdout)
     sys.stdout.write("\n")
