@@ -36,6 +36,7 @@ CELLS = sorted(ac.CONFIRM_CELLS)
 S1 = (("c", 15.4473), ("f[0-256]", 0.0786395), ("f[256-512]", 0.0897957), ("f[512-1024]", 0.0958142),
       ("f[1024-2048]", 0.0937947), ("d1", 0.111382), ("d2", 0.0), ("u_graph", 1.46159), ("u_eager", 7.28906))
 LAYERS = 36
+DEVICE, FA_VERSION = "NVIDIA A10G", 2
 TOL, STEP_TOL, MIN_STEPS, MAX_UNJUDGED = 0.10, 0.15, 10, 0.10
 # The coverage the design was built to test; each must be judged, or the confirmation cannot speak.
 COVERAGE = (("graph-run mixed steps (T <= 128)", lambda st: st["P"] > 0 and st["n"] > 0 and st["P"] + st["n"] <= 128),
@@ -79,8 +80,11 @@ def check_kernel(raw, kernel, fresh):
     listed = {(tuple(tuple(p) for p in c["prefills"]), tuple(c["decoders"])): c for c in manifest["compositions"]}
     if set(listed) != set(fresh) or any(listed[k]["steps"] != v for k, v in fresh.items()):
         raise Refusal("the composition manifest is not what this archive's steps hold")
-    if kernel.get("grid") != "3" or kernel.get("fa_version") == "stub" or not kernel.get("device"):
-        raise Refusal(f"the kernel times are not grid 3 on a GPU (grid {kernel.get('grid')!r}, device {kernel.get('device')!r})")
+    # The GPU and FlashAttention version S1's attention term was measured with, not merely some GPU (found by review:
+    # an H100's FA3 times would have passed and changed every prediction).
+    if kernel.get("grid") != "3" or kernel.get("device") != DEVICE or kernel.get("fa_version") != FA_VERSION:
+        raise Refusal(f"the kernel times are grid {kernel.get('grid')!r} on {kernel.get('device')!r} with FA "
+                      f"{kernel.get('fa_version')!r}, not grid 3 on {DEVICE} with FA {FA_VERSION}")
     us = {}
     for r in kernel["rows"]:
         if r.get("timing") != "graph":
@@ -115,11 +119,29 @@ def endpoint(rows):
     return pred / obs - 1, step, blocks
 
 
+def required_phases(setting):
+    """The phases a setting must show, from its shape alone, so a phase with no step refuses rather than vanishes.
+
+    A serial request with one output token never decodes; every other request does. A burst begins with a step of
+    prefills alone. A staggered episode always has decoders running when its late prefill arrives.
+    """
+    kind = setting[0]
+    if kind == "serial":
+        return {"prefill-only"} | ({"decode"} if setting[2] > 1 else set())
+    if kind == "burst":
+        return {"prefill-only", "decode"}
+    if kind == "stagger":
+        return {"decode", "mixed", "late-prefill"}
+    raise Refusal(f"setting {setting} is of no registered episode type")
+
+
 def judge(rows, expected_settings):
     """rows: (setting, block, step, prediction). Returns (passed, lines); refuses when the test cannot speak."""
-    missing = sorted(set(expected_settings) - {s for s, _, _, _ in rows}, key=str)
+    observed = {(s, ph) for s, _, st, _ in rows for ph in dev.phases_judged(st)}
+    missing = sorted({(s, ph) for s in expected_settings for ph in required_phases(s)} - observed, key=str)
     if missing:
-        raise Refusal(f"{len(missing)} registered setting(s) have no measured step, first {missing[0]}")
+        raise Refusal(f"{len(missing)} required endpoint(s) have no measured step, first {missing[0]} "
+                      f"(found by review: a missing phase used to vanish rather than refuse)")
     lines, failures, judged, unjudged = [], [], 0, 0
     by = {}
     for s, b, st, p in rows:
@@ -187,11 +209,14 @@ def self_test():
                            dict(P=0, n=n, K=n * 6144, H=0, late=False, attn=0.3 * n, prefills=0, occ=0.0)):
                     st["occ"] = truth(st) * (1 + rng.gauss(0, 0.01))
                     rows.append((s, b, st, predict(st)))
-            st = dict(P=64, n=8, K=8 * 384, H=0, late=False, attn=1.0, prefills=2, occ=0.0)
-            for _ in range(4):
-                st2 = dict(st, occ=truth(st) * (1 + rng.gauss(0, 0.01)))
-                rows.append((("burst", 8, 384), b, st2, predict(st2)))
-        expected.add(("burst", 8, 384))
+            # A burst's first step of prefills alone, its several-prefill mixed steps, and its decode steps.
+            for st in (dict(P=1536, n=0, K=0, H=0, late=False, attn=1.5, prefills=4, occ=0.0),
+                       dict(P=64, n=8, K=8 * 384, H=0, late=False, attn=1.0, prefills=2, occ=0.0),
+                       dict(P=0, n=8, K=8 * 400, H=0, late=False, attn=0.4, prefills=0, occ=0.0)):
+                for _ in range(4):
+                    st2 = dict(st, occ=truth(st) * (1 + rng.gauss(0, 0.01)))
+                    rows.append((("burst", 8, 384, 64), b, st2, predict(st2)))
+        expected.add(("burst", 8, 384, 64))
     passed, lines = judge(rows, expected)
     assert passed, "\n".join(lines)
     print("ok: steps that S1 predicts pass, with every coverage judged and per-block errors published")
@@ -201,7 +226,7 @@ def self_test():
     print("ok: late prefills 20% slower than S1 predicts fail the confirmation")
     try:
         # The burst setting holds every several-prefill step, so it leaves the expected set with them.
-        judge([r for r in rows if not (r[2]["prefills"] >= 2)], expected - {("burst", 8, 384)})
+        judge([r for r in rows if r[0] != ("burst", 8, 384, 64)], expected - {("burst", 8, 384, 64)})
         raise AssertionError("a confirmation with no several-prefill step was judged")
     except Refusal as e:
         assert "several prefills" in str(e), e
@@ -211,8 +236,25 @@ def self_test():
         raise AssertionError("a registered setting with no step was judged")
     except Refusal as e:
         print(f"ok: a registered setting with no measured step refuses -- {e}")
+    # A required phase with no step refuses: serial at cap 64 whose steps never decoded.
+    serial = [(("serial", 512, 64), b, dict(P=512, n=0, K=0, H=0, late=False, attn=0.5, prefills=1, occ=0.0), 0.0)
+              for b in (1, 2, 3) for _ in range(5)]
+    serial = [(s, b, dict(st, occ=predict(st)), predict(st)) for s, b, st, _ in serial]
+    try:
+        judge(rows + serial, expected | {("serial", 512, 64)})
+        raise AssertionError("a serial setting with no decode step was judged")
+    except Refusal as e:
+        assert "('serial', 512, 64), 'decode'" in str(e), e
+        print(f"ok: a required phase with no step refuses -- {str(e)[:90]}")
     # The kernel binding: a good file passes, and each way a file can be wrong refuses.
     # Mutation that turns this red: drop any one check in check_kernel.
+    # A -step-only archive names its study from its serial-step cell (found by review: serial-log was assumed).
+    import tempfile
+    import instrument_gates
+    with tempfile.TemporaryDirectory() as d:
+        open(os.path.join(d, "raw-serial-step-1.jsonl"), "w").write(json.dumps({"study": STUDY}) + "\n")
+        assert instrument_gates.study_of(d) == STUDY
+    print("ok: an archive with only -step cells is read as its study")
     comp = ((((120, 0),), (6160,) * 8), 3)
     raw = json.dumps({"compositions": [{"id": 0, "prefills": [[120, 0]], "decoders": [6160] * 8, "steps": 3}]}).encode()
     good = {"grid": "3", "fa_version": 2, "device": "NVIDIA A10G", "compositions_sha256": hashlib.sha256(raw).hexdigest(),
@@ -223,7 +265,8 @@ def self_test():
                              ("a manifest the archive does not hold", good, {comp[0]: 4}),
                              ("a NaN time", dict(good, rows=[{"id": 0, "timing": "graph", "us_median": float("nan")}]), fresh),
                              ("an eager time", dict(good, rows=[{"id": 0, "timing": "eager", "us_median": 1.0}]), fresh),
-                             ("a stub", dict(good, fa_version="stub", device=None), fresh)):
+                             ("a stub", dict(good, fa_version="stub", device=None), fresh),
+                             ("another GPU's FA3 times", dict(good, fa_version=3, device="NVIDIA H100 80GB HBM3"), fresh)):
         try:
             check_kernel(raw, kernel, fr)
             raise AssertionError(f"{what} was accepted")

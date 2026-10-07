@@ -53,9 +53,18 @@ S_END_MARGIN_MS = 1.0
 
 
 def study_of(run):
-    """The study the serial-log rows of block 1 were recorded under; every row of a cell carries it."""
-    with open(os.path.join(run, "raw-serial-log-1.jsonl")) as f:
-        return json.loads(f.readline()).get("study", "")
+    """The study the serial rows of block 1 were recorded under; every row of a cell carries it.
+
+    The serial-log cell when the archive has one, as every archive before the S1 confirmation did, so their reading
+    is unchanged; otherwise the serial-step cell, since the confirmation buys -step arms only (found by review: the
+    function opened serial-log unconditionally and would have refused every confirmation archive).
+    """
+    for name in ("raw-serial-log-1.jsonl", "raw-serial-step-1.jsonl"):
+        path = os.path.join(run, name)
+        if os.path.exists(path):
+            with open(path) as f:
+                return json.loads(f.readline()).get("study", "")
+    raise Refusal(f"{run} has neither raw-serial-log-1.jsonl nor raw-serial-step-1.jsonl, so its study cannot be read")
 
 
 def load_cell(run, arm, rep, warmup=False):
