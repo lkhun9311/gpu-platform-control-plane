@@ -66,3 +66,21 @@ Only which hypotheses may enter the next candidate registration.
 - A standing one may, with its feature defined from these records.
 
 No verdict, threshold or result of the development study changes. The archive stays development data and nothing here is a held-out result.
+
+## Result, 2026-10-07
+
+`step_diagnostics.py` at the freezing commit `14c11a3` was run once, on a clean tree. Its output is `data/2026-10-07-mixed-step-diagnostic-tables.txt`.
+
+| Hypothesis | Reading | Verdict |
+|---|---|---|
+| H-cpu | sched + update is at most 0.398 ms in any failing endpoint | **falsified** |
+| H-sum | at q = 256 the long-context increment is 13.267 ms at n = 1, 13.640 at n = 4 and 55.025 at n = 16; ratio 4.15 | **falsified** (below 8) |
+| H-max | the same ratio, 4.15 | **falsified** (above 2) |
+| H-wave | ratio 4.15 = ⌈16/w⌉ for w about 3.9: one wave at n = 1 and n = 4, four at n = 16 | **standing** |
+| H-support | the (256, 512] prefill-only segment has 0 training steps outside the 512-token serial composition | **standing** |
+| H-graph | 138 mixed steps ran within the captured sizes, at a mean occupancy of 35.5 ms for 39 tokens. Pure decode at similar sizes takes 16 to 25 ms. | **standing**: a mixed step costs about 15 ms more than a pure-decode step even inside the captured sizes. Candidate B's `u` already carries that. Not "the graph" itself, which both use. |
+
+What the tables also show, outside the registered readings, so as observations for the next registration and not as verdicts:
+- **The long-context increment depends on the prefill chunk's size.** At q = 4 and q = 16 it is 0.09 and 0.37 ms. At q = 64 it is 41.8 ms with 16 decoders, and at q = 256 it is 13.3 to 55.0 ms. A late prefill's final 4-token chunk pays almost nothing for long-context decoders.
+- **Later prefill chunks cost more per token than first chunks:** 0.1285 against 0.1078 ms per token at 2,048, and 0.1235 against 0.1113 at 1,024. The family's `h·H` term is for this.
+- The 512-token miss cannot be judged by leave-one-composition-out on this archive: no other composition puts a prefill-only step in its segment.
