@@ -505,7 +505,10 @@ case "$svc $op" in
             for stub_arm in $STUB_EVIDENCE_ARMS; do
               # A row the caller can judge, not just a filename it can glob. The session asks whether any
               # row was answered, so the stub writes what the real replay writes: an httpStatus.
-              printf '{"arm":"%s","httpStatus":200}\n' "$stub_arm" > "$local_tmp/m5c-run/raw-$stub_arm-1.jsonl"
+              # STUB_EVIDENCE_REPS repetitions of each, because the session refuses an arm missing a planned one.
+              for stub_rep in $(seq 1 "${STUB_EVIDENCE_REPS:-1}"); do
+                printf '{"arm":"%s","httpStatus":200}\n' "$stub_arm" > "$local_tmp/m5c-run/raw-$stub_arm-$stub_rep.jsonl"
+              done
             done
             tar -czf "$dest" -C "$local_tmp" m5c-run
           else

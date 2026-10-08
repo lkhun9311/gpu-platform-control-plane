@@ -592,6 +592,21 @@ scenarios_m5c_gpu_session() {
     STUB_PRESENT_KEYS="evidence.tgz log.txt commit.txt nodes.txt preflight-nvidia-smi.csv preflight-node-cards.txt" \
     run_scenario instrument-validation bash "$TARGET"
 
+  # The prospective-admission pilot's stage A: its rates and stage reach the instance, and no RATE or ARMS does.
+  # The matrix on the instance refuses a weighted RATE or a caller's ARMS beside the pilot, so a default leaking
+  # into user-data would be refused only after the card was rented.
+  REPS=3 REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 \
+    STUDY=prospective-pilot-2026-10-08 PILOT_STAGE=A PREMIUM_RATE=9.25 PILOT_NOISY_RATE=0.5 SEEDS="11 12 13" \
+    PREMIUM_PROMPT_CHARS=200 NOISY_PROMPT_CHARS=40000 REQUEST_TIMEOUT_MS=30000 PREMIUM_OUTPUT_TOKENS=64 NOISY_OUTPUT_TOKENS=16 \
+    STUB_EVIDENCE_ARMS="R1 off prospective" STUB_EVIDENCE_REPS=3 \
+    STUB_PRESENT_KEYS="evidence.tgz log.txt commit.txt nodes.txt preflight-nvidia-smi.csv preflight-node-cards.txt" \
+    run_scenario prospective-pilot-stage-a bash "$TARGET"
+
+  # Stage B without the R stage A fitted: refused before anything is rented.
+  REPS=3 REQUIRE_CLEAN_TREE=0 \
+    STUDY=prospective-pilot-2026-10-08 PILOT_STAGE=B PREMIUM_RATE=9.25 PILOT_NOISY_RATE=0.5 SEEDS="11 12 13" \
+    run_scenario prospective-pilot-stage-b-without-r bash "$TARGET"
+
   # A fresh account: the bucket and the profile are created, and the profile must carry GetObject because
   # this instance downloads the source archive and both binaries it was sent.
   REPS=1 REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=0 STUB_PROFILE_EXISTS=0 STUB_DONE_AFTER=2 \

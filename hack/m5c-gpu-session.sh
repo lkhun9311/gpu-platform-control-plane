@@ -210,6 +210,24 @@ if [ -n "$SWEEP" ]; then
   # will actually buy rather than the four default topologies.
   ARMS="R1"; _l=0
   for _ in $SWEEP; do _l=$(( _l + 1 )); ARMS="$ARMS $(printf 'be%02d-shared' "$_l")"; done
+elif [ -n "${PILOT_STAGE:-}" ]; then
+  # The prospective-admission pilot (docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md,
+  # "The measurement pilot"): two tenants at fixed independent rates, one stage per session, its arms the stage's.
+  [ "${STUDY:-}" = prospective-pilot-2026-10-08 ] || fail "PILOT_STAGE is set and STUDY is ${STUDY@Q}; the pilot files its evidence under prospective-pilot-2026-10-08"
+  [ -z "$LADDER" ]           || fail "PILOT_STAGE and LADDER are both set"
+  [ -z "${RATE:-}" ]         || fail "RATE and PILOT_STAGE are both set; the pilot's rates are PREMIUM_RATE and PILOT_NOISY_RATE"
+  [ -z "${NOISY_WEIGHT:-}" ] || fail "NOISY_WEIGHT and PILOT_STAGE are both set; the pilot's rates are absolute"
+  [ -z "$ARMS_FROM_CALLER" ] || fail "ARMS and PILOT_STAGE are both set; the pilot's arms are its stage's"
+  [ -n "$PREMIUM_RATE" ] && [ -n "${PILOT_NOISY_RATE:-}" ] || fail "the pilot needs PREMIUM_RATE and PILOT_NOISY_RATE"
+  case "$PREMIUM_RATE ${PILOT_NOISY_RATE} ${PILOT_STATIC_RATE:-0}" in *[!0-9.\ ]*) fail "the pilot's rates carry only decimals" ;; esac
+  case "$PILOT_STAGE" in A) ;; B) [ -n "${PILOT_STATIC_RATE:-}" ] || fail "stage B needs PILOT_STATIC_RATE, the R fitted in stage A" ;;
+    *) fail "PILOT_STAGE is ${PILOT_STAGE@Q}; the pilot has stages A and B" ;; esac
+  # The stage's arms, as the sweep's are built above: the cost projection counts them and the end-of-session
+  # check expects each, and the default topologies here would fail a complete pilot after it was paid for.
+  # shellcheck source=hack/lib/prospective-pilot.sh
+  . "$(dirname "${BASH_SOURCE[0]}")/lib/prospective-pilot.sh" || fail "could not source hack/lib/prospective-pilot.sh"
+  ARMS=$(pp_stage_arms "$PILOT_STAGE" | tr '\n' ' ') || fail "no arms for stage $PILOT_STAGE"
+  ARMS="${ARMS% }"
 elif [ -n "$PREMIUM_RATE" ]; then
   fail "PREMIUM_RATE is set without SWEEP. It is the held latency-critical rate of a sweep, and on its own it would be ignored."
 fi
@@ -387,7 +405,7 @@ if [ -z "$LADDER" ] && iv_is_study "${STUDY:-}"; then
   IV_NO_LOAD=1
 fi
 if [ -n "$IV_NO_LOAD" ]; then RATE=""; PREMIUM_WEIGHT=""; NOISY_WEIGHT=""; PROBE_WEIGHT=""
-elif [ -n "$LADDER" ] || [ -n "$SWEEP" ]; then RATE=""; NOISY_WEIGHT=""; else
+elif [ -n "$LADDER" ] || [ -n "$SWEEP" ] || [ -n "${PILOT_STAGE:-}" ]; then RATE=""; NOISY_WEIGHT=""; else
 RATE="${RATE:-9.85}"
 PREMIUM_WEIGHT="${PREMIUM_WEIGHT:-1}"
 NOISY_WEIGHT="${NOISY_WEIGHT:-0.054}"
@@ -433,6 +451,9 @@ if [ -n "$LADDER" ]; then
 elif [ -n "$SWEEP" ]; then
   say "load   a sweep, ${DURATION_MS}ms per cell: latency-critical held at ${PREMIUM_RATE}/s, best-effort at $SWEEP /s"
   say "       independent arrivals, so each repetition offers the latency-critical tenant one schedule at every level"
+elif [ -n "${PILOT_STAGE:-}" ]; then
+  say "load   the pilot's stage ${PILOT_STAGE}, ${DURATION_MS}ms per cell: premium ${PREMIUM_RATE}/s, contender ${PILOT_NOISY_RATE}/s, independent"
+  [ -z "${PILOT_STATIC_RATE:-}" ] || say "       the static arm at R=${PILOT_STATIC_RATE}"
 elif iv_is_study "${STUDY:-}"; then
   say "load   none -- registered episodes, one tenant; the trace length per arm ($(for _a in $ARMS; do printf '%s=%sms ' "$_a" "$(iv_duration_ms "$STUDY" "$_a")"; done))"
 else
@@ -745,6 +766,10 @@ LADDER_STUDY="LADDER_STUDY_PLACEHOLDER"
 SWEEP="SWEEP_PLACEHOLDER"
 # Not PREMIUM_RATE_PLACEHOLDER: the RATE substitution runs first and matches inside that name.
 PREMIUM_RATE="HELD_LC_PER_SEC_PLACEHOLDER"
+# The pilot's stage, contender rate and static rate R. Named so no earlier substitution matches inside them.
+PILOT_STAGE="PILOT_STAGE_PLACEHOLDER"
+PILOT_NOISY_RATE="PILOT_CONTENDER_PER_SEC_PLACEHOLDER"
+PILOT_STATIC_RATE="PILOT_STATIC_R_PLACEHOLDER"
 # The rest of the load, which used to stay on the laptop.
 #
 # The ninth pilot's user-data carries no PREMIUM_PROMPT_CHARS, no MODEL_REVISION and no REQUEST_TIMEOUT_MS
@@ -983,6 +1008,11 @@ elif [ -n "$SWEEP" ]; then
   # The matrix builds a sweep's arms from SWEEP and refuses an ARMS beside it, for the reason given above.
   unset RATE NOISY_WEIGHT ARMS
   export PREMIUM_WEIGHT PROBE_WEIGHT DURATION_MS REPS SWEEP PREMIUM_RATE
+elif [ -n "$PILOT_STAGE" ]; then
+  # The pilot's arms are its stage's, and the matrix refuses an ARMS or a weighted RATE beside it.
+  unset RATE NOISY_WEIGHT ARMS
+  export PREMIUM_WEIGHT PROBE_WEIGHT DURATION_MS REPS PREMIUM_RATE PILOT_STAGE PILOT_NOISY_RATE
+  if [ -n "$PILOT_STATIC_RATE" ]; then export PILOT_STATIC_RATE; fi
 else
   export RATE PREMIUM_WEIGHT NOISY_WEIGHT PROBE_WEIGHT DURATION_MS REPS ARMS
 fi
@@ -1158,6 +1188,9 @@ UD="$(mktemp)"
       -e "s|LADDER_STUDY_PLACEHOLDER|${LADDER_STUDY:-}|" \
       -e "s|SWEEP_PLACEHOLDER|${SWEEP:-}|" \
       -e "s|HELD_LC_PER_SEC_PLACEHOLDER|${PREMIUM_RATE:-}|" \
+      -e "s|PILOT_STAGE_PLACEHOLDER|${PILOT_STAGE:-}|" \
+      -e "s|PILOT_CONTENDER_PER_SEC_PLACEHOLDER|${PILOT_NOISY_RATE:-}|" \
+      -e "s|PILOT_STATIC_R_PLACEHOLDER|${PILOT_STATIC_RATE:-}|" \
       -e "s|PREMIUM_PROMPT_CHARS_PLACEHOLDER|${PREMIUM_PROMPT_CHARS:-}|" \
       -e "s|NOISY_PROMPT_CHARS_PLACEHOLDER|${NOISY_PROMPT_CHARS:-}|" \
       -e "s|REQUEST_TIMEOUT_MS_PLACEHOLDER|${REQUEST_TIMEOUT_MS:-}|" \
@@ -1236,6 +1269,10 @@ if [ -n "$LADDER" ]; then
   plan_env+=(LADDER="$LADDER" LADDER_STUDY="${LADDER_STUDY:-}")
 elif [ -n "$SWEEP" ]; then
   plan_env+=(REPS="$REPS" SWEEP="$SWEEP" PREMIUM_RATE="$PREMIUM_RATE")
+  [ -z "${SEEDS:-}" ] || plan_env+=(SEEDS="$SEEDS")
+elif [ -n "${PILOT_STAGE:-}" ]; then
+  plan_env+=(REPS="$REPS" PREMIUM_RATE="$PREMIUM_RATE" PILOT_STAGE="$PILOT_STAGE" PILOT_NOISY_RATE="$PILOT_NOISY_RATE")
+  [ -z "${PILOT_STATIC_RATE:-}" ] || plan_env+=(PILOT_STATIC_RATE="$PILOT_STATIC_RATE")
   [ -z "${SEEDS:-}" ] || plan_env+=(SEEDS="$SEEDS")
 else
   plan_env+=(ARMS="$ARMS" REPS="$REPS" RATE="$RATE" NOISY_WEIGHT="$NOISY_WEIGHT")

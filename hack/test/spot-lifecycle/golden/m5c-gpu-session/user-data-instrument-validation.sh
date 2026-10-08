@@ -19,6 +19,9 @@ LADDER=""
 LADDER_STUDY=""
 SWEEP=""
 PREMIUM_RATE=""
+PILOT_STAGE=""
+PILOT_NOISY_RATE=""
+PILOT_STATIC_RATE=""
 PREMIUM_PROMPT_CHARS=""
 NOISY_PROMPT_CHARS=""
 REQUEST_TIMEOUT_MS=""
@@ -135,6 +138,11 @@ elif [ -n "$SWEEP" ]; then
   # The matrix builds a sweep's arms from SWEEP and refuses an ARMS beside it, for the reason given above.
   unset RATE NOISY_WEIGHT ARMS
   export PREMIUM_WEIGHT PROBE_WEIGHT DURATION_MS REPS SWEEP PREMIUM_RATE
+elif [ -n "$PILOT_STAGE" ]; then
+  # The pilot's arms are its stage's, and the matrix refuses an ARMS or a weighted RATE beside it.
+  unset RATE NOISY_WEIGHT ARMS
+  export PREMIUM_WEIGHT PROBE_WEIGHT DURATION_MS REPS PREMIUM_RATE PILOT_STAGE PILOT_NOISY_RATE
+  if [ -n "$PILOT_STATIC_RATE" ]; then export PILOT_STATIC_RATE; fi
 else
   export RATE PREMIUM_WEIGHT NOISY_WEIGHT PROBE_WEIGHT DURATION_MS REPS ARMS
 fi
