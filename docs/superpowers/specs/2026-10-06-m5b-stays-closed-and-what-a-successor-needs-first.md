@@ -96,3 +96,11 @@ After the development study above, the cause was narrowed in five steps:
 The result is `2026-10-07-graph-and-eager-mixed-steps.md`'s S1. It is non-attention terms fitted on the step-boundary archive, plus 36 layers × the attention kernel time measured on an A10G for each step's exact composition. It passed every judged endpoint of the registered test, worst −4.3%.
 
 It is development, the archive's fifth use. Item 2 stays closed until S1 is confirmed, frozen, on fresh cells. That confirmation is a purchase and needs the owner's approval.
+
+## Update, 2026-10-08 — S1's confirmation failed on short prefill-only steps
+
+The confirmation on unseen settings (`2026-10-07-confirming-s1-on-unseen-settings.md`) ran nine fresh cells.
+- Frozen S1 passed every mixed, late-prefill and decode endpoint and all three coverage endpoints.
+- It failed 12 of 158 endpoints, all short prefill-only steps at the 128/129-token graph boundary and just past the 256-token knot, plus one 160-token mixed burst step.
+
+S1 is not confirmed, and item 2 stays closed.

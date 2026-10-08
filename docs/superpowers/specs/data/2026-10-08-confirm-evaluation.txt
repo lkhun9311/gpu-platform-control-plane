@@ -1,0 +1,175 @@
+Design: all 9 traces are the matrix step-confirm-2026-10-07 registers (matrix-plan-check)
+Design: all 9 warm-up traces are what gen-trace --warmup makes from their recorded seeds
+Seed: all 18 measured and warm-up traces are seed 47's, byte for byte
+Provenance: 9 cells ran sha256:0a51ea5b4ae2, revision aa8e72537993, with their registered flags
+Engine: all 9 cells ran the registered configuration; every -step cell ran this tree's instrument
+W, S and I2: all 9 registered cells pass
+burst-step-1: steps: 3222 recorded, 3222 logged by the engine, tokens equal at every step; instrument cost per step: median 0.07546%, worst 0.49550% of occupancy; clock anchors: 3886, bracket median 490.0 ns, worst 26620 ns; requests: 664 joined to client ids, every one scheduled prompt + output - 1 tokens
+burst-step-2: steps: 3222 recorded, 3222 logged by the engine, tokens equal at every step; instrument cost per step: median 0.07622%, worst 0.39105% of occupancy; clock anchors: 3886, bracket median 380.0 ns, worst 12081 ns; requests: 664 joined to client ids, every one scheduled prompt + output - 1 tokens
+burst-step-3: steps: 3222 recorded, 3222 logged by the engine, tokens equal at every step; instrument cost per step: median 0.07920%, worst 0.38046% of occupancy; clock anchors: 3886, bracket median 390.0 ns, worst 1610 ns; requests: 664 joined to client ids, every one scheduled prompt + output - 1 tokens
+serial-step-1: steps: 9304 recorded, 9304 logged by the engine, tokens equal at every step; instrument cost per step: median 0.06511%, worst 0.48562% of occupancy; clock anchors: 9644, bracket median 400.0 ns, worst 33781 ns; requests: 340 joined to client ids, every one scheduled prompt + output - 1 tokens
+serial-step-2: steps: 9304 recorded, 9304 logged by the engine, tokens equal at every step; instrument cost per step: median 0.06564%, worst 0.44053% of occupancy; clock anchors: 9644, bracket median 310.0 ns, worst 30971 ns; requests: 340 joined to client ids, every one scheduled prompt + output - 1 tokens
+serial-step-3: steps: 9304 recorded, 9304 logged by the engine, tokens equal at every step; instrument cost per step: median 0.06612%, worst 0.53040% of occupancy; clock anchors: 9644, bracket median 300.0 ns, worst 34281 ns; requests: 340 joined to client ids, every one scheduled prompt + output - 1 tokens
+stagger-step-1: steps: 51680 recorded, 51680 logged by the engine, tokens equal at every step; instrument cost per step: median 0.06540%, worst 0.40903% of occupancy; clock anchors: 52620, bracket median 410.0 ns, worst 33480 ns; requests: 940 joined to client ids, every one scheduled prompt + output - 1 tokens
+stagger-step-2: steps: 51680 recorded, 51680 logged by the engine, tokens equal at every step; instrument cost per step: median 0.06119%, worst 0.46054% of occupancy; clock anchors: 52620, bracket median 310.0 ns, worst 52411 ns; requests: 940 joined to client ids, every one scheduled prompt + output - 1 tokens
+stagger-step-3: steps: 51680 recorded, 51680 logged by the engine, tokens equal at every step; instrument cost per step: median 0.06806%, worst 0.46312% of occupancy; clock anchors: 52620, bracket median 400.0 ns, worst 38840 ns; requests: 940 joined to client ids, every one scheduled prompt + output - 1 tokens
+S1 frozen at b57c104, nothing fitted: 158 endpoints judged, 0 under the floor, 12 outside +-10% on the mean or 15% on |step|
+  ('burst', 15, 1536, 64) decode: 756 steps, mean +0.3%, |step| 1.1%, blocks 1 +0.3%, 2 +0.3%, 3 +0.2%
+  ('burst', 15, 1536, 64) mixed: 132 steps, mean +2.3%, |step| 2.4%, blocks 1 +2.3%, 2 +2.3%, 3 +2.4%
+  ('burst', 15, 1536, 64) prefill-only: 12 steps, mean +5.1%, |step| 5.1%, blocks 1 +5.1%, 2 +5.1%, 3 +5.1%
+  ('burst', 15, 384, 64) decode: 756 steps, mean +0.6%, |step| 1.1%, blocks 1 +0.5%, 2 +0.5%, 3 +0.6%
+  ('burst', 15, 384, 64) mixed: 36 steps, mean +1.8%, |step| 1.7%, blocks 1 +1.8%, 2 +1.8%, 3 +1.8%
+  ('burst', 15, 384, 64) prefill-only: 12 steps, mean -1.5%, |step| 1.5%, blocks 1 -1.3%, 2 -1.6%, 3 -1.7%
+  ('burst', 4, 32, 64) decode: 756 steps, mean -4.3%, |step| 4.3%, blocks 1 -4.3%, 2 -4.3%, 3 -4.3%
+  ('burst', 4, 32, 64) mixed: 12 steps, mean +7.4%, |step| 7.4%, blocks 1 +7.5%, 2 +7.7%, 3 +6.9%
+  ('burst', 4, 32, 64) prefill-only: 12 steps, mean -10.0%, |step| 10.0%, blocks 1 -10.2%, 2 -10.0%, 3 -9.8%  OUTSIDE
+  ('burst', 5, 32, 64) decode: 738 steps, mean -4.0%, |step| 4.0%, blocks 1 -4.1%, 2 -3.7%, 3 -4.2%
+  ('burst', 5, 32, 64) mixed: 12 steps, mean +12.9%, |step| 12.9%, blocks 1 +12.8%, 2 +13.1%, 3 +12.8%  OUTSIDE
+  ('burst', 5, 32, 64) prefill-only: 12 steps, mean -11.0%, |step| 10.9%, blocks 1 -11.0%, 2 -10.8%, 3 -11.1%  OUTSIDE
+  ('burst', 5, 384, 64) decode: 756 steps, mean -3.4%, |step| 3.4%, blocks 1 -3.3%, 2 -3.6%, 3 -3.3%
+  ('burst', 5, 384, 64) mixed: 12 steps, mean +3.4%, |step| 3.4%, blocks 1 +3.4%, 2 +3.4%, 3 +3.4%
+  ('burst', 5, 384, 64) prefill-only: 12 steps, mean -1.3%, |step| 1.3%, blocks 1 -1.0%, 2 -2.1%, 3 -0.8%
+  ('burst', 64, 256, 64) decode: 756 steps, mean +0.0%, |step| 0.8%, blocks 1 +0.1%, 2 -0.0%, 3 -0.1%
+  ('burst', 64, 256, 64) mixed: 96 steps, mean +1.5%, |step| 1.7%, blocks 1 +1.5%, 2 +1.5%, 3 +1.7%
+  ('burst', 64, 256, 64) prefill-only: 12 steps, mean -3.7%, |step| 3.5%, blocks 1 -3.0%, 2 -1.9%, 3 -6.6%
+  ('burst', 8, 1536, 64) decode: 756 steps, mean -1.2%, |step| 1.2%, blocks 1 -1.2%, 2 -1.2%, 3 -1.3%
+  ('burst', 8, 1536, 64) mixed: 72 steps, mean +2.4%, |step| 2.7%, blocks 1 +2.4%, 2 +2.4%, 3 +2.4%
+  ('burst', 8, 1536, 64) prefill-only: 12 steps, mean +5.1%, |step| 5.1%, blocks 1 +5.2%, 2 +5.1%, 3 +5.1%
+  ('burst', 8, 384, 64) decode: 756 steps, mean -2.5%, |step| 2.5%, blocks 1 -2.5%, 2 -2.6%, 3 -2.5%
+  ('burst', 8, 384, 64) mixed: 24 steps, mean +0.2%, |step| 3.5%, blocks 1 +0.2%, 2 +0.3%, 3 +0.2%
+  ('burst', 8, 384, 64) prefill-only: 12 steps, mean -0.8%, |step| 0.8%, blocks 1 -0.7%, 2 -0.8%, 3 -0.8%
+  ('burst', 8, 6144, 64) decode: 756 steps, mean -1.2%, |step| 1.3%, blocks 1 -1.3%, 2 -1.2%, 3 -1.1%
+  ('burst', 8, 6144, 64) mixed: 264 steps, mean +2.5%, |step| 2.5%, blocks 1 +2.5%, 2 +2.5%, 3 +2.5%
+  ('burst', 8, 6144, 64) prefill-only: 36 steps, mean -0.8%, |step| 0.8%, blocks 1 -0.8%, 2 -0.8%, 3 -0.8%
+  ('serial', 1023, 1) prefill-only: 18 steps, mean -1.8%, |step| 1.8%, blocks 1 -1.7%, 2 -1.8%, 3 -1.7%
+  ('serial', 1023, 16) decode: 270 steps, mean +0.4%, |step| 0.8%, blocks 1 +0.5%, 2 +0.2%, 3 +0.5%
+  ('serial', 1023, 16) prefill-only: 18 steps, mean -1.7%, |step| 1.7%, blocks 1 -1.7%, 2 -1.8%, 3 -1.7%
+  ('serial', 1023, 64) decode: 1134 steps, mean +0.6%, |step| 0.9%, blocks 1 +0.5%, 2 +0.7%, 3 +0.6%
+  ('serial', 1023, 64) prefill-only: 18 steps, mean -1.7%, |step| 1.7%, blocks 1 -1.8%, 2 -1.7%, 3 -1.6%
+  ('serial', 1025, 1) prefill-only: 18 steps, mean -5.6%, |step| 5.6%, blocks 1 -5.6%, 2 -5.6%, 3 -5.6%
+  ('serial', 1025, 16) decode: 270 steps, mean +0.5%, |step| 0.9%, blocks 1 +0.4%, 2 +0.5%, 3 +0.6%
+  ('serial', 1025, 16) prefill-only: 18 steps, mean -5.5%, |step| 5.5%, blocks 1 -5.6%, 2 -5.5%, 3 -5.5%
+  ('serial', 1025, 64) decode: 1134 steps, mean +0.5%, |step| 0.9%, blocks 1 +0.5%, 2 +0.6%, 3 +0.5%
+  ('serial', 1025, 64) prefill-only: 18 steps, mean -5.5%, |step| 5.5%, blocks 1 -5.5%, 2 -5.5%, 3 -5.5%
+  ('serial', 12288, 1) prefill-only: 108 steps, mean -0.6%, |step| 0.6%, blocks 1 -0.6%, 2 -0.6%, 3 -0.6%
+  ('serial', 12288, 16) decode: 270 steps, mean +1.4%, |step| 1.7%, blocks 1 +1.5%, 2 +1.4%, 3 +1.4%
+  ('serial', 12288, 16) prefill-only: 108 steps, mean -0.5%, |step| 0.6%, blocks 1 -0.6%, 2 -0.5%, 3 -0.5%
+  ('serial', 12288, 64) decode: 1134 steps, mean +1.7%, |step| 1.8%, blocks 1 +1.7%, 2 +1.6%, 3 +1.8%
+  ('serial', 12288, 64) prefill-only: 108 steps, mean -0.5%, |step| 0.6%, blocks 1 -0.5%, 2 -0.5%, 3 -0.5%
+  ('serial', 128, 1) prefill-only: 18 steps, mean +13.8%, |step| 13.8%, blocks 1 +13.9%, 2 +13.8%, 3 +13.8%  OUTSIDE
+  ('serial', 128, 16) decode: 270 steps, mean +0.1%, |step| 0.7%, blocks 1 -0.1%, 2 +0.4%, 3 +0.2%
+  ('serial', 128, 16) prefill-only: 18 steps, mean +13.9%, |step| 13.9%, blocks 1 +14.1%, 2 +13.9%, 3 +13.8%  OUTSIDE
+  ('serial', 128, 64) decode: 1134 steps, mean +0.3%, |step| 0.7%, blocks 1 +0.3%, 2 +0.3%, 3 +0.3%
+  ('serial', 128, 64) prefill-only: 18 steps, mean +13.9%, |step| 13.9%, blocks 1 +13.9%, 2 +13.9%, 3 +13.9%  OUTSIDE
+  ('serial', 129, 1) prefill-only: 18 steps, mean -11.7%, |step| 11.6%, blocks 1 -11.5%, 2 -11.8%, 3 -11.6%  OUTSIDE
+  ('serial', 129, 16) decode: 270 steps, mean +0.3%, |step| 0.7%, blocks 1 +0.3%, 2 +0.3%, 3 +0.3%
+  ('serial', 129, 16) prefill-only: 18 steps, mean -11.7%, |step| 11.7%, blocks 1 -11.6%, 2 -11.8%, 3 -11.7%  OUTSIDE
+  ('serial', 129, 64) decode: 1134 steps, mean +0.3%, |step| 0.7%, blocks 1 +0.3%, 2 +0.4%, 3 +0.2%
+  ('serial', 129, 64) prefill-only: 18 steps, mean -11.6%, |step| 11.6%, blocks 1 -11.7%, 2 -11.6%, 3 -11.4%  OUTSIDE
+  ('serial', 1536, 1) prefill-only: 18 steps, mean +5.3%, |step| 5.3%, blocks 1 +5.2%, 2 +5.3%, 3 +5.3%
+  ('serial', 1536, 16) decode: 270 steps, mean +0.4%, |step| 1.0%, blocks 1 +0.6%, 2 +0.2%, 3 +0.4%
+  ('serial', 1536, 16) prefill-only: 18 steps, mean +5.3%, |step| 5.3%, blocks 1 +5.3%, 2 +5.3%, 3 +5.4%
+  ('serial', 1536, 64) decode: 1134 steps, mean +0.5%, |step| 0.9%, blocks 1 +0.6%, 2 +0.5%, 3 +0.5%
+  ('serial', 1536, 64) prefill-only: 18 steps, mean +5.3%, |step| 5.3%, blocks 1 +5.3%, 2 +5.3%, 3 +5.3%
+  ('serial', 2047, 1) prefill-only: 18 steps, mean -1.1%, |step| 1.1%, blocks 1 -1.1%, 2 -1.1%, 3 -1.1%
+  ('serial', 2047, 16) decode: 270 steps, mean +0.4%, |step| 0.9%, blocks 1 +0.3%, 2 +0.4%, 3 +0.5%
+  ('serial', 2047, 16) prefill-only: 18 steps, mean -1.1%, |step| 1.1%, blocks 1 -1.1%, 2 -1.1%, 3 -1.1%
+  ('serial', 2047, 64) decode: 1134 steps, mean +0.5%, |step| 0.8%, blocks 1 +0.4%, 2 +0.6%, 3 +0.4%
+  ('serial', 2047, 64) prefill-only: 18 steps, mean -1.1%, |step| 1.1%, blocks 1 -1.1%, 2 -1.1%, 3 -1.1%
+  ('serial', 2048, 1) prefill-only: 18 steps, mean -1.1%, |step| 1.1%, blocks 1 -1.1%, 2 -1.1%, 3 -1.1%
+  ('serial', 2048, 16) decode: 270 steps, mean +0.4%, |step| 1.0%, blocks 1 +0.5%, 2 +0.2%, 3 +0.6%
+  ('serial', 2048, 16) prefill-only: 18 steps, mean -1.0%, |step| 1.0%, blocks 1 -1.0%, 2 -1.1%, 3 -1.0%
+  ('serial', 2048, 64) decode: 1134 steps, mean +0.5%, |step| 0.9%, blocks 1 +0.4%, 2 +0.5%, 3 +0.6%
+  ('serial', 2048, 64) prefill-only: 18 steps, mean -1.0%, |step| 1.0%, blocks 1 -1.1%, 2 -1.0%, 3 -1.0%
+  ('serial', 2049, 1) prefill-only: 36 steps, mean -1.2%, |step| 2.1%, blocks 1 -1.2%, 2 -1.2%, 3 -1.2%
+  ('serial', 2049, 16) decode: 270 steps, mean +0.3%, |step| 0.8%, blocks 1 +0.5%, 2 +0.2%, 3 +0.3%
+  ('serial', 2049, 16) prefill-only: 36 steps, mean -1.2%, |step| 2.1%, blocks 1 -1.2%, 2 -1.2%, 3 -1.2%
+  ('serial', 2049, 64) decode: 1134 steps, mean +0.6%, |step| 0.9%, blocks 1 +0.6%, 2 +0.7%, 3 +0.4%
+  ('serial', 2049, 64) prefill-only: 36 steps, mean -1.2%, |step| 1.9%, blocks 1 -1.2%, 2 -1.1%, 3 -1.2%
+  ('serial', 255, 1) prefill-only: 18 steps, mean +1.9%, |step| 1.9%, blocks 1 +2.0%, 2 +1.8%, 3 +1.8%
+  ('serial', 255, 16) decode: 270 steps, mean +0.3%, |step| 0.8%, blocks 1 +0.3%, 2 +0.3%, 3 +0.3%
+  ('serial', 255, 16) prefill-only: 18 steps, mean +2.0%, |step| 2.0%, blocks 1 +2.0%, 2 +1.9%, 3 +2.2%
+  ('serial', 255, 64) decode: 1134 steps, mean +0.4%, |step| 0.8%, blocks 1 +0.2%, 2 +0.4%, 3 +0.6%
+  ('serial', 255, 64) prefill-only: 18 steps, mean +1.9%, |step| 1.9%, blocks 1 +2.0%, 2 +2.1%, 3 +1.8%
+  ('serial', 257, 1) prefill-only: 18 steps, mean -19.2%, |step| 19.2%, blocks 1 -19.2%, 2 -19.1%, 3 -19.2%  OUTSIDE
+  ('serial', 257, 16) decode: 270 steps, mean +0.3%, |step| 0.8%, blocks 1 +0.4%, 2 +0.3%, 3 +0.3%
+  ('serial', 257, 16) prefill-only: 18 steps, mean -19.1%, |step| 19.1%, blocks 1 -19.2%, 2 -19.1%, 3 -19.1%  OUTSIDE
+  ('serial', 257, 64) decode: 1134 steps, mean +0.4%, |step| 0.8%, blocks 1 +0.5%, 2 +0.4%, 3 +0.2%
+  ('serial', 257, 64) prefill-only: 18 steps, mean -19.2%, |step| 19.2%, blocks 1 -19.2%, 2 -19.1%, 3 -19.2%  OUTSIDE
+  ('serial', 384, 1) prefill-only: 18 steps, mean +1.2%, |step| 1.2%, blocks 1 +1.2%, 2 +1.2%, 3 +1.3%
+  ('serial', 384, 16) decode: 270 steps, mean +0.1%, |step| 0.7%, blocks 1 +0.2%, 2 +0.1%, 3 +0.1%
+  ('serial', 384, 16) prefill-only: 18 steps, mean +1.3%, |step| 1.3%, blocks 1 +1.2%, 2 +1.5%, 3 +1.2%
+  ('serial', 384, 64) decode: 1134 steps, mean +0.4%, |step| 0.8%, blocks 1 +0.5%, 2 +0.5%, 3 +0.4%
+  ('serial', 384, 64) prefill-only: 18 steps, mean +1.2%, |step| 1.2%, blocks 1 +1.2%, 2 +1.2%, 3 +1.3%
+  ('serial', 4608, 1) prefill-only: 54 steps, mean -0.7%, |step| 0.6%, blocks 1 -0.7%, 2 -0.7%, 3 -0.7%
+  ('serial', 4608, 16) decode: 270 steps, mean +0.2%, |step| 0.8%, blocks 1 +0.0%, 2 +0.3%, 3 +0.3%
+  ('serial', 4608, 16) prefill-only: 54 steps, mean -0.7%, |step| 0.6%, blocks 1 -0.7%, 2 -0.7%, 3 -0.7%
+  ('serial', 4608, 64) decode: 1134 steps, mean +0.4%, |step| 0.8%, blocks 1 +0.4%, 2 +0.4%, 3 +0.6%
+  ('serial', 4608, 64) prefill-only: 54 steps, mean -0.7%, |step| 0.6%, blocks 1 -0.7%, 2 -0.7%, 3 -0.7%
+  ('serial', 511, 1) prefill-only: 18 steps, mean -1.2%, |step| 1.2%, blocks 1 -1.2%, 2 -1.2%, 3 -1.2%
+  ('serial', 511, 16) decode: 270 steps, mean +0.5%, |step| 0.8%, blocks 1 +0.5%, 2 +0.5%, 3 +0.4%
+  ('serial', 511, 16) prefill-only: 18 steps, mean -1.2%, |step| 1.2%, blocks 1 -1.2%, 2 -1.2%, 3 -1.2%
+  ('serial', 511, 64) decode: 1134 steps, mean +0.3%, |step| 0.8%, blocks 1 +0.1%, 2 +0.5%, 3 +0.4%
+  ('serial', 511, 64) prefill-only: 18 steps, mean -1.2%, |step| 1.2%, blocks 1 -1.2%, 2 -1.1%, 3 -1.1%
+  ('serial', 512, 1) prefill-only: 18 steps, mean -1.1%, |step| 1.1%, blocks 1 -1.1%, 2 -1.1%, 3 -1.1%
+  ('serial', 512, 16) decode: 270 steps, mean +0.5%, |step| 0.8%, blocks 1 +0.4%, 2 +0.4%, 3 +0.7%
+  ('serial', 512, 16) prefill-only: 18 steps, mean -1.1%, |step| 1.1%, blocks 1 -1.1%, 2 -1.1%, 3 -1.0%
+  ('serial', 512, 64) decode: 1134 steps, mean +0.3%, |step| 0.8%, blocks 1 +0.2%, 2 +0.3%, 3 +0.4%
+  ('serial', 512, 64) prefill-only: 18 steps, mean -1.1%, |step| 1.1%, blocks 1 -1.1%, 2 -1.1%, 3 -1.0%
+  ('serial', 513, 1) prefill-only: 18 steps, mean -9.5%, |step| 9.5%, blocks 1 -9.5%, 2 -9.5%, 3 -9.6%
+  ('serial', 513, 16) decode: 270 steps, mean +0.3%, |step| 0.7%, blocks 1 +0.3%, 2 +0.4%, 3 +0.2%
+  ('serial', 513, 16) prefill-only: 18 steps, mean -9.5%, |step| 9.5%, blocks 1 -9.5%, 2 -9.5%, 3 -9.5%
+  ('serial', 513, 64) decode: 1134 steps, mean +0.4%, |step| 0.8%, blocks 1 +0.3%, 2 +0.4%, 3 +0.4%
+  ('serial', 513, 64) prefill-only: 18 steps, mean -9.5%, |step| 9.5%, blocks 1 -9.5%, 2 -9.5%, 3 -9.6%
+  ('stagger', 1, 256, 256) decode: 10710 steps, mean +0.2%, |step| 0.8%, blocks 1 +0.2%, 2 +0.3%, 3 +0.2%
+  ('stagger', 1, 256, 256) late-prefill: 21 steps, mean -3.1%, |step| 3.1%, blocks 1 -3.2%, 2 -3.0%, 3 -3.2%
+  ('stagger', 1, 256, 256) mixed: 21 steps, mean -3.1%, |step| 3.1%, blocks 1 -3.2%, 2 -3.0%, 3 -3.2%
+  ('stagger', 1, 256, 256) prefill-only: 21 steps, mean +1.6%, |step| 1.6%, blocks 1 +1.4%, 2 +1.6%, 3 +1.8%
+  ('stagger', 15, 6144, 1536) decode: 10710 steps, mean +0.0%, |step| 0.8%, blocks 1 +0.1%, 2 +0.0%, 3 -0.0%
+  ('stagger', 15, 6144, 1536) late-prefill: 21 steps, mean +3.7%, |step| 3.7%, blocks 1 +3.7%, 2 +3.8%, 3 +3.7%
+  ('stagger', 15, 6144, 1536) mixed: 924 steps, mean +2.4%, |step| 2.4%, blocks 1 +2.4%, 2 +2.4%, 3 +2.4%
+  ('stagger', 15, 6144, 1536) prefill-only: 63 steps, mean -0.8%, |step| 0.8%, blocks 1 -0.8%, 2 -0.8%, 3 -0.8%
+  ('stagger', 15, 6144, 384) decode: 10710 steps, mean +0.0%, |step| 0.8%, blocks 1 +0.0%, 2 -0.0%, 3 +0.0%
+  ('stagger', 15, 6144, 384) late-prefill: 21 steps, mean -0.5%, |step| 0.5%, blocks 1 -0.4%, 2 -0.6%, 3 -0.5%
+  ('stagger', 15, 6144, 384) mixed: 924 steps, mean +2.3%, |step| 2.3%, blocks 1 +2.3%, 2 +2.3%, 3 +2.3%
+  ('stagger', 15, 6144, 384) prefill-only: 63 steps, mean -0.8%, |step| 0.8%, blocks 1 -0.8%, 2 -0.8%, 3 -0.8%
+  ('stagger', 16, 8192, 8192) decode: 10626 steps, mean +0.1%, |step| 1.5%, blocks 1 +0.1%, 2 +0.1%, 3 +0.2%
+  ('stagger', 16, 8192, 8192) late-prefill: 105 steps, mean +2.5%, |step| 2.3%, blocks 1 +2.4%, 2 +2.5%, 3 +2.5%
+  ('stagger', 16, 8192, 8192) mixed: 1386 steps, mean +2.4%, |step| 2.4%, blocks 1 +2.4%, 2 +2.4%, 3 +2.5%
+  ('stagger', 16, 8192, 8192) prefill-only: 84 steps, mean -0.8%, |step| 0.8%, blocks 1 -0.8%, 2 -0.8%, 3 -0.7%
+  ('stagger', 5, 6144, 1536) decode: 10710 steps, mean -4.7%, |step| 4.7%, blocks 1 -4.7%, 2 -4.7%, 3 -4.8%
+  ('stagger', 5, 6144, 1536) late-prefill: 21 steps, mean +2.9%, |step| 2.9%, blocks 1 +3.0%, 2 +2.9%, 3 +2.8%
+  ('stagger', 5, 6144, 1536) mixed: 294 steps, mean +2.5%, |step| 2.5%, blocks 1 +2.5%, 2 +2.5%, 3 +2.5%
+  ('stagger', 5, 6144, 1536) prefill-only: 63 steps, mean -0.8%, |step| 0.8%, blocks 1 -0.8%, 2 -0.8%, 3 -0.8%
+  ('stagger', 5, 6144, 384) decode: 10710 steps, mean -4.7%, |step| 4.7%, blocks 1 -4.7%, 2 -4.8%, 3 -4.7%
+  ('stagger', 5, 6144, 384) late-prefill: 21 steps, mean -1.2%, |step| 1.2%, blocks 1 -1.2%, 2 -1.3%, 3 -1.2%
+  ('stagger', 5, 6144, 384) mixed: 294 steps, mean +2.4%, |step| 2.3%, blocks 1 +2.4%, 2 +2.4%, 3 +2.4%
+  ('stagger', 5, 6144, 384) prefill-only: 63 steps, mean -0.8%, |step| 0.8%, blocks 1 -0.8%, 2 -0.8%, 3 -0.8%
+  ('stagger', 8, 1024, 384) decode: 10710 steps, mean -1.1%, |step| 1.1%, blocks 1 -1.1%, 2 -1.0%, 3 -1.1%
+  ('stagger', 8, 1024, 384) late-prefill: 21 steps, mean -0.2%, |step| 0.2%, blocks 1 -0.3%, 2 -0.0%, 3 -0.2%
+  ('stagger', 8, 1024, 384) mixed: 105 steps, mean +1.8%, |step| 1.5%, blocks 1 +1.8%, 2 +1.8%, 3 +1.8%
+  ('stagger', 8, 1024, 384) prefill-only: 21 steps, mean -2.2%, |step| 2.2%, blocks 1 -2.2%, 2 -2.2%, 3 -2.1%
+  ('stagger', 8, 6144, 119) decode: 10710 steps, mean -0.2%, |step| 0.8%, blocks 1 -0.2%, 2 -0.3%, 3 -0.2%
+  ('stagger', 8, 6144, 119) late-prefill: 21 steps, mean +9.5%, |step| 9.5%, blocks 1 +9.7%, 2 +9.5%, 3 +9.4%
+  ('stagger', 8, 6144, 119) mixed: 483 steps, mean +2.5%, |step| 2.8%, blocks 1 +2.5%, 2 +2.5%, 3 +2.5%
+  ('stagger', 8, 6144, 119) prefill-only: 63 steps, mean -0.8%, |step| 0.8%, blocks 1 -0.8%, 2 -0.8%, 3 -0.8%
+  ('stagger', 8, 6144, 120) decode: 10710 steps, mean -0.3%, |step| 0.9%, blocks 1 -0.2%, 2 -0.3%, 3 -0.3%
+  ('stagger', 8, 6144, 120) late-prefill: 21 steps, mean +9.6%, |step| 9.6%, blocks 1 +9.5%, 2 +9.7%, 3 +9.6%
+  ('stagger', 8, 6144, 120) mixed: 483 steps, mean +2.5%, |step| 2.8%, blocks 1 +2.5%, 2 +2.5%, 3 +2.5%
+  ('stagger', 8, 6144, 120) prefill-only: 63 steps, mean -0.8%, |step| 0.8%, blocks 1 -0.8%, 2 -0.8%, 3 -0.8%
+  ('stagger', 8, 6144, 121) decode: 10710 steps, mean -0.3%, |step| 0.8%, blocks 1 -0.2%, 2 -0.3%, 3 -0.3%
+  ('stagger', 8, 6144, 121) late-prefill: 21 steps, mean +7.0%, |step| 7.0%, blocks 1 +7.2%, 2 +7.0%, 3 +6.8%
+  ('stagger', 8, 6144, 121) mixed: 483 steps, mean +2.5%, |step| 2.7%, blocks 1 +2.5%, 2 +2.5%, 3 +2.5%
+  ('stagger', 8, 6144, 121) prefill-only: 63 steps, mean -0.8%, |step| 0.8%, blocks 1 -0.8%, 2 -0.8%, 3 -0.8%
+  ('stagger', 8, 6144, 4200) decode: 10668 steps, mean -0.5%, |step| 1.0%, blocks 1 -0.4%, 2 -0.5%, 3 -0.5%
+  ('stagger', 8, 6144, 4200) late-prefill: 63 steps, mean +3.2%, |step| 5.3%, blocks 1 +3.2%, 2 +3.2%, 3 +3.2%
+  ('stagger', 8, 6144, 4200) mixed: 525 steps, mean +2.5%, |step| 2.8%, blocks 1 +2.5%, 2 +2.5%, 3 +2.6%
+  ('stagger', 8, 6144, 4200) prefill-only: 63 steps, mean -0.8%, |step| 0.8%, blocks 1 -0.8%, 2 -0.8%, 3 -0.8%
+  ('stagger', 8, 6144, 4201) decode: 10668 steps, mean -0.5%, |step| 1.0%, blocks 1 -0.4%, 2 -0.5%, 3 -0.5%
+  ('stagger', 8, 6144, 4201) late-prefill: 63 steps, mean +3.1%, |step| 4.4%, blocks 1 +3.0%, 2 +3.0%, 3 +3.1%
+  ('stagger', 8, 6144, 4201) mixed: 525 steps, mean +2.5%, |step| 2.7%, blocks 1 +2.5%, 2 +2.5%, 3 +2.5%
+  ('stagger', 8, 6144, 4201) prefill-only: 63 steps, mean -0.8%, |step| 0.8%, blocks 1 -0.8%, 2 -0.8%, 3 -0.8%
+  coverage graph-run mixed steps (T <= 128): 255 steps, mean +4.7%, |step| 4.8%, blocks 1 +4.7%, 2 +4.8%, 3 +4.7%
+  coverage eager mixed steps (T > 128): 6852 steps, mean +2.4%, |step| 2.5%, blocks 1 +2.4%, 2 +2.4%, 3 +2.4%
+  coverage mixed steps with several prefills: 2124 steps, mean +1.9%, |step| 2.1%, blocks 1 +1.9%, 2 +1.9%, 3 +1.9%
+CONFIRMATION: FAIL

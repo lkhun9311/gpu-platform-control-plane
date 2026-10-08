@@ -165,3 +165,54 @@ The instrument's own logs are whole: 51,680 steps each. But gate 1 (the warm-up 
 The first session's composition manifest and kernel times stay in `data/` as the record of that refusal. A new manifest is extracted from the new archive and timed in a new kernel session.
 
 **Launch,** at the commit that adds this note, with the same command as above.
+
+## Result of the re-purchase, 2026-10-08 — FAIL: S1 misses short prefill-only steps at the boundaries
+
+**Sessions.**
+
+| Session | Instance | Time (KST) | Outcome |
+|---|---|---|---|
+| Engine, from `d28a57d` | i-03a9f438a5a937e49 | 08:06:31 to 13:25:57, about 5.3 hours, terminated | all 9 cells `completed`; every engine log starts at iteration 0 and matches its instrument step for step (9,304, 3,222 and 51,680 per serial, burst and staggered cell) |
+| Kernel | i-08282daacabd124ba | 13:31:51 to 13:45:49, terminated | 1,663 compositions timed, FA 2 on an A10G |
+
+- The manifest was committed before timing or judging: `0f4c931`, sha256 `d6cf4238…`, 166,830 steps, 1,663 compositions.
+- `s1_confirm.py` ran once and exited 3. Its output is `data/2026-10-08-confirm-evaluation.txt`, and the kernel times are `data/2026-10-08-confirm-kernel-times.json`.
+
+**The verdict: CONFIRMATION FAIL.** 158 endpoints were judged and none was under the floor. 12 were outside ±10% on the mean or 15% on |step|.
+
+| Type and phase | Judged | Outside | Worst passing |
+|---|---:|---:|---:|
+| serial prefill-only | 48 | 9 | −9.5% |
+| burst prefill-only | 9 | 2 | +5.1% |
+| burst mixed | 9 | 1 | +7.4% |
+| serial decode | 32 | 0 | +1.7% |
+| burst decode | 9 | 0 | −4.3% |
+| stagger prefill-only, mixed, decode, late-prefill | 12 each | 0 | −2.2%, −3.1%, −4.7%, +9.6% |
+| coverage: graph-run mixed (255 steps), eager mixed (6,852), several prefills (2,124) | 3 | 0 | +4.7%, +2.4%, +1.9% |
+
+The twelve failures:
+- serial 128 tokens at every cap: +13.8% to +13.9% (over-predicted);
+- serial 129: −11.6% to −11.7%;
+- serial 257: −19.1% to −19.2%;
+- burst (4, 32) and (5, 32) prefill-only: −10.0% and −11.0%;
+- burst (5, 32) mixed: +12.9%.
+
+Every one has its three blocks within 0.3 points of each other.
+
+**What it establishes.** On settings it never saw, frozen S1 predicted every mixed, late-prefill and decode endpoint and all three coverage endpoints within the bounds. That covers:
+- both sides of the 128-token graph boundary for mixed steps;
+- 5 to 15 decoders;
+- several prefills per step.
+
+It failed on short prefill-only steps at two boundaries, 128/129 tokens and 257, and on one 160-token mixed burst step. By the registration, that is a fail.
+
+**Read after the verdict, as an observation and not a result:**
+- S1 separates graph-run from eager cost only for mixed steps. The prefill-only failures fit a prefill-only step of at most 128 tokens running in a captured graph (faster, so over-predicted) and of 129 running eagerly (under-predicted).
+- Stage 2's S2, which added an eager prefill-only term, was refused for conditioning.
+- 257 tokens is one past f(P)'s 256 knot, where a linear segment cannot hold a step.
+
+None of this is tested here, and nothing is refitted.
+
+**What follows.**
+- S1 is not confirmed. Item 2 of M5-b's successor ranking stays closed.
+- Any model with a prefill-only boundary term would be a new development registration. Its confirmation would need fresh cells again.
