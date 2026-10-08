@@ -204,7 +204,7 @@ Every one has its three blocks within 0.3 points of each other.
 - 5 to 15 decoders;
 - several prefills per step.
 
-It failed on short prefill-only steps at two boundaries, 128/129 tokens and 257, and on one 160-token mixed burst step. By the registration, that is a fail.
+It failed on short prefill-only steps at two boundaries, 128/129 tokens and 257, and on the 32-token bursts, whose failing steps were a P = 32 prefill-only step and a 129-token mixed step (corrected on 2026-10-08 from "160-token": the step records show the burst's first request scheduled alone). By the registration, that is a fail.
 
 **Read after the verdict, as an observation and not a result:**
 - S1 separates graph-run from eager cost only for mixed steps. The prefill-only failures fit a prefill-only step of at most 128 tokens running in a captured graph (faster, so over-predicted) and of 129 running eagerly (under-predicted).

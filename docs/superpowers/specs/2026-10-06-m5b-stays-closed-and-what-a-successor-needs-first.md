@@ -101,6 +101,15 @@ It is development, the archive's fifth use. Item 2 stays closed until S1 is conf
 
 The confirmation on unseen settings (`2026-10-07-confirming-s1-on-unseen-settings.md`) ran nine fresh cells.
 - Frozen S1 passed every mixed, late-prefill and decode endpoint and all three coverage endpoints.
-- It failed 12 of 158 endpoints, all short prefill-only steps at the 128/129-token graph boundary and just past the 256-token knot, plus one 160-token mixed burst step.
+- It failed 12 of 158 endpoints, all short prefill-only steps at the 128/129-token graph boundary and just past the 256-token knot, plus the 32-token bursts (a P = 32 prefill-only step and a 129-token mixed step).
 
 S1 is not confirmed, and item 2 stays closed.
+
+## Update, 2026-10-08 — item 2 stays closed: S1 is not enough for it
+
+`2026-10-08-is-s1-enough-for-the-feasibility-check.md` asked whether item 2 could run on S1 restricted to the domain its confirmation passed. The answer is no:
+- a frozen load does not fix the step sizes a simulator meets (P = 1 remainder chunks, P = 32 single requests, P = 512 or 768 when several premiums are admitted together);
+- the confirmation's per-setting averages do not cover the successor's arrival pattern;
+- item 2 also needs P → A waits, inter-step gaps and the gateway's admission unit, which S1 does not give.
+
+Its recommendation is that the owner decide whether the successor's question is answered more directly by item 3, measured with its own registration.
