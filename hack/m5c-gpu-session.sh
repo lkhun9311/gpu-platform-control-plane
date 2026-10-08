@@ -1117,7 +1117,7 @@ send "$out/ineligible-$arm-$rep.txt" "ineligible-$arm-$rep.txt"
 # cell-uploads.tsv are the pilot's; cell-uploads.tsv gains each cell's line after its own hook, so this cell's
 # hook carries the previous cell's line, and the last line goes with the final archive.
 for f in cell-environment.tsv cell-timings.tsv cell-judgements.tsv applied-values.tsv load-source.txt \
-         phases.tsv cell-uploads.tsv calibration.txt; do
+         phases.tsv cell-uploads.tsv calibration.txt sidecar-uploads.tsv; do
   send "$out/$f" "$f"
 done
 # A refusal or an invalidation is per ARM, so it appears partway through a run and must travel too.
@@ -1137,6 +1137,33 @@ CELLHOOK
 sed -i "s|__BUCKET__|$BUCKET|; s|__PREFIX__|$PREFIX|" /usr/local/bin/m5c-cell-done
 chmod +x /usr/local/bin/m5c-cell-done
 export CELL_DONE_HOOK=/usr/local/bin/m5c-cell-done
+
+# The pilot's evidence sidecar (hack/lib/prospective-pilot.sh, pp_sidecar_start): during each replay the matrix
+# hands it the live rows and the gateway's record every 30 s, and at once when the Spot notice below appears.
+# They go under live/, apart from the per-cell uploads, so a later complete file is never overwritten by a live one.
+if [ -n "$PILOT_STAGE" ]; then
+  cat > /usr/local/bin/m5c-sidecar <<'SIDECAR'
+#!/bin/bash
+for f in "$1" "$2"; do
+  [ -f "$f" ] && aws s3 cp --only-show-errors "$f" "s3://__BUCKET__/__PREFIX__/live/$(basename "$f")" || exit 1
+done
+SIDECAR
+  sed -i "s|__BUCKET__|$BUCKET|; s|__PREFIX__|$PREFIX|" /usr/local/bin/m5c-sidecar
+  chmod +x /usr/local/bin/m5c-sidecar
+  export CELL_SIDECAR_HOOK=/usr/local/bin/m5c-sidecar
+  # The Spot notice, polled from the metadata service every 5 s with an IMDSv2 token. The two-minute warning is far
+  # longer than one upload, so the sidecar's flush on it can finish.
+  export PP_SPOT_NOTICE_FILE=/tmp/spot-notice
+  (
+    while :; do
+      imds_token=$(curl -s -X PUT -H "X-aws-ec2-metadata-token-ttl-seconds: 300" http://169.254.169.254/latest/api/token)
+      code=$(curl -s -o /tmp/spot-instance-action -w '%{http_code}' -H "X-aws-ec2-metadata-token: $imds_token" \
+        http://169.254.169.254/latest/meta-data/spot/instance-action)
+      if [ "$code" = 200 ]; then cp /tmp/spot-instance-action "$PP_SPOT_NOTICE_FILE"; break; fi
+      sleep 5
+    done
+  ) &
+fi
 
 # The commit this session shipped, which the matrix cannot work out for itself here.
 #

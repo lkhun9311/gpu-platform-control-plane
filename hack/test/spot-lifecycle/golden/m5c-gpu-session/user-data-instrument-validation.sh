@@ -188,7 +188,7 @@ send "$out/raw-$arm-$rep.jsonl.sender.json" "raw-$arm-$rep.jsonl.sender.json"
 send "$out/fence-$arm-$rep.json" "fence-$arm-$rep.json"
 send "$out/ineligible-$arm-$rep.txt" "ineligible-$arm-$rep.txt"
 for f in cell-environment.tsv cell-timings.tsv cell-judgements.tsv applied-values.tsv load-source.txt \
-         phases.tsv cell-uploads.tsv calibration.txt; do
+         phases.tsv cell-uploads.tsv calibration.txt sidecar-uploads.tsv; do
   send "$out/$f" "$f"
 done
 for f in "$out"/refused-*.txt "$out"/invalid-*.txt "$out"/cell-refused-*.txt; do
@@ -205,6 +205,28 @@ CELLHOOK
 sed -i "s|__BUCKET__|$BUCKET|; s|__PREFIX__|$PREFIX|" /usr/local/bin/m5c-cell-done
 chmod +x /usr/local/bin/m5c-cell-done
 export CELL_DONE_HOOK=/usr/local/bin/m5c-cell-done
+if [ -n "$PILOT_STAGE" ]; then
+  cat > /usr/local/bin/m5c-sidecar <<'SIDECAR'
+for f in "$1" "$2"; do
+  [ -f "$f" ] && aws s3 cp --only-show-errors "$f" "s3://__BUCKET__/__PREFIX__/live/$(basename "$f")" || exit 1
+done
+SIDECAR
+  sed -i "s|__BUCKET__|$BUCKET|; s|__PREFIX__|$PREFIX|" /usr/local/bin/m5c-sidecar
+  chmod +x /usr/local/bin/m5c-sidecar
+  export CELL_SIDECAR_HOOK=/usr/local/bin/m5c-sidecar
+  # The Spot notice, polled from the metadata service every 5 s with an IMDSv2 token. The two-minute warning is far
+  # longer than one upload, so the sidecar's flush on it can finish.
+  export PP_SPOT_NOTICE_FILE=/tmp/spot-notice
+  (
+    while :; do
+      imds_token=$(curl -s -X PUT -H "X-aws-ec2-metadata-token-ttl-seconds: 300" http://169.254.169.254/latest/api/token)
+      code=$(curl -s -o /tmp/spot-instance-action -w '%{http_code}' -H "X-aws-ec2-metadata-token: $imds_token" \
+        http://169.254.169.254/latest/meta-data/spot/instance-action)
+      if [ "$code" = 200 ]; then cp /tmp/spot-instance-action "$PP_SPOT_NOTICE_FILE"; break; fi
+      sleep 5
+    done
+  ) &
+fi
 export SOURCE_COMMIT="$COMMIT"
 if [ -n "$PILOT_MATRIX_DEADLINE" ]; then
   matrix_left=$(( PILOT_MATRIX_DEADLINE - $(date +%s) ))
