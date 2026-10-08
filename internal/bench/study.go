@@ -269,7 +269,16 @@ const (
 	// A study of its own because its episodes are new settings: the step-boundary study's engine and instrument, a
 	// different design, and only the instrumented arms, since the instrument's overhead was established there.
 	StudyStepConfirm = "step-confirm-2026-10-07"
+	// StudyProspectivePilot is the measurement pilot of prospective admission, scoped in
+	// docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md ("The measurement pilot").
+	//
+	// A study of its own because it measures the apparatus, not the mechanism: it produces no verdict about P
+	// against S, and the main study's data are never pooled with it.
+	StudyProspectivePilot = "prospective-pilot-2026-10-08"
 )
+
+// ArmProspective is the prospective-admission arm; the pilot's other arms reuse the M5-b names.
+const ArmProspective = "prospective"
 
 // The engine modes the instrument-validation study crosses with its episode types.
 // The on and off arms are I1's paired controls, and the async arm is the published-only control the registration says is never used to fit anything.
@@ -696,6 +705,24 @@ var studies = map[string]Study{
 		Arms:                   stepConfirmArms(),
 		Arrivals:               ArrivalsEpisodes,
 		TracesVaryByRepetition: false,
+	},
+	// Isolation, unshed, static and prospective, in the order the design names them (I, O, S, P).
+	// Its prompts are frozen in characters; their exact tokens come from the calibration epoch, so no token count
+	// is declared here and Drift has nothing to compare.
+	StudyProspectivePilot: {
+		ID:       StudyProspectivePilot,
+		Arms:     []string{ArmR1, "off", "static-cap", ArmProspective},
+		Arrivals: ArrivalsIndependent,
+		Frozen: &FrozenTuple{
+			PremiumPromptChars:    200,
+			ContenderPromptChars:  40000,
+			TimeoutMs:             30000,
+			PremiumOutputTokens:   64,
+			ContenderOutputTokens: 16,
+		},
+		// Three blocks per stage, as the scope fixes: the main endpoint pools three, and pooling is not linear in
+		// the number of blocks. No interval is published, since the pilot judges nothing.
+		MinRepetitions: 3,
 	},
 	StudyThroughputLadder: {
 		ID:       StudyThroughputLadder,
