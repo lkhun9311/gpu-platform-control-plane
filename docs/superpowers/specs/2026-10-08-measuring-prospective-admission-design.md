@@ -1,4 +1,4 @@
-# Measuring prospective admission directly (item 3): the design, v8
+# Measuring prospective admission directly (item 3): the design, v9
 
 *Drafted 2026-10-08 for the owner's approval before anything is built. The owner approved paid runs for this direction on 2026-10-08, and asked for the design to be attacked as hard as possible before money is spent. Nothing is bought until a registration built from this design is frozen.*
 
@@ -13,7 +13,8 @@
 | v5 | 9b67732 | astra's review of v4 | 4 blockers, 4 majors |
 | v6 | 412ba53 | astra's review of v5 | 3 blockers, 5 majors |
 | v7 | 18a9b48 | astra's review of v6 | 2 blockers, 6 majors |
-| v8 | this page | astra's review of v7 | 2 blockers, 5 majors |
+| v8 | 9a8c358 | astra's review of v7 | 2 blockers, 5 majors |
+| v9 | this page | astra's review of v8 | 2 blockers, 4 majors, 1 minor |
 
 **Who established what.**
 - astra read the code and found the defects. Each round was given only the page and the repository, never told where to look.
@@ -24,7 +25,7 @@
   - v6's validity-survival table;
   - every cost figure.
 
-  Round 7 also re-derived v7's survival table and 15-minute allowance. Its objection was to what the survival table meant, not to its arithmetic. v8's new figures (the money-at-risk table) are mine, and the next round is asked to re-derive them.
+  Round 7 also re-derived v7's survival table and 15-minute allowance. Its objection was to what the survival table meant, not to its arithmetic. Round 8 re-derived the power table (1,000,000 studies per row), the money-at-risk table and every cost figure, and agreed with each. Its findings were about meaning and evidence, not arithmetic.
 - **Prices:**
   - $1.10 is the runner's own Spot cap.
   - The public IPv4 charge of $0.005 per hour is AWS's published rate.
@@ -93,16 +94,19 @@ Same instance and same trace within a block, with the arm order randomised per b
 | Case | Meaning | Treatment |
 |---|---|---|
 | Client row and gateway record | the normal case | joined |
-| Client row, no gateway record | the request never reached the gateway (a connection failure before it) | not completed. For validity: **forwarded in S, not forwarded in P**, so it can never favour P |
+| Client row, no gateway record | unknown at the gateway: a pre-gateway failure, or a lost log line | its completion is read from the client row itself, as for every request; it carries no arrival or release instant |
 | Gateway record, no client row | a harness defect | the run refuses |
 | A client row with an empty ID, or any duplicate ID | a harness defect | the run refuses |
 
-No gate requires every client row to find a gateway record. A complete-join requirement would put an untested whole-study gate on pre-gateway failures, as round 7 showed.
+**No validity quantity depends on the gateway's record** (round 8, findings 1 and 3).
+- v8 inferred "forwarded" work from it and scored a client row with no record as forwarded in S and not completed. A successful S request whose record was lost then became an S failure, which helped P pass.
+- An admitted decision also cannot say whether a request reached the engine. Priority rewriting and backend connection both come after admission (`server.go:492`, `:542`, `:577`).
 
-**The record is used for:**
+**The record is used only for:**
 - the arrival instants `sim-cap` replays;
-- the release instants stage A's timing gate reads;
-- the forwarded work that validity reads (next section).
+- the release instants stage A's timing gate reads.
+
+**Exact-token stamping goes directly to the engine's port, never through the gateway.** So its probe requests leave no gateway record that has no client row (round 8, finding 4). The stamper's requests use their own ID prefix, and any gateway record carrying it refuses the run.
 
 ## The comparator completes no more contender work than P, on every instance
 
@@ -112,24 +116,33 @@ No gate requires every client row to find a gateway record. A complete-join requ
 
 **Completed work alone is not enough** (round 7, finding 4). Failures in S lower c_S and so help P pass. If S admits 480 contenders and 60 fail after prefill, while P admits 450 and all complete, then c_S = 0.70 ≤ c_P = 0.75. Yet S **processed** 230,850 more prefill tokens, which can inflate its own premium tail. v7's claim that no failure "can favour P" was false.
 
-**So validity has two parts, and both must hold:**
-- **f** = exact input tokens of contender requests the gateway forwarded / offered exact contender input tokens. This is what reached the engine, from the gateway's record, with the conservative rule above for requests that never reached the gateway.
-- **c** = exact input tokens of contender requests that completed with their full output / offered exact contender input tokens.
+**Nor is forwarding, as v8 tried** (round 8, finding 2). Ordering forwarded work above and completed work below does not bound what the engine **processed** between them.
+- P's lost requests can cancel before prefill, while S's fail after it.
+- The proxy cannot tell these apart (`proxy.go:760`).
+- Round 8's example passes every v8 gate while S prefills 230,850 more tokens.
 
-Both are per instance, over its three blocks. A request's tier is its tenant's tier in the frozen trace, and a tier in the gateway's record or a response header must agree, or the run refuses.
+**So validity reads the engine's own account of processed work.** The step-logging plugin, loaded in every arm, records in each step the tokens the scheduler gave each request (`hack/vllm-plugins/step_logging_scheduler.py`, the `sched` record's `tokens`).
 
-**Validity: f_S ≤ f_P and c_S ≤ c_P on every contributing instance.**
-- **S forwards no more work to the engine than P,** so S's tail cannot be inflated by extra processing.
-- **S completes no more work than P,** so P cannot win by losing admitted work (round 6, finding 2).
+**Two quantities, both per instance over its three blocks:**
+- **p** = contender prefill tokens the scheduler actually scheduled, summed over the step records / offered exact contender input tokens. This counts what the engine processed, whether or not the request later completed.
+- **c** = exact input tokens of contender requests whose client row shows completion with full engine-reported output / offered exact contender input tokens. This is read from the client row alone, so a lost gateway record cannot change it.
+
+**Joining step records to client rows** uses the client-generated request ID. The plugin records vLLM's request ID. That vLLM v0.27.1 derives it from `X-Request-Id` is my reading of the server, not yet verified. Build item 21 verifies it on kind and, if it does not hold, makes the plugin record the header itself. A scheduled request with no client match refuses the run.
+
+A request's tier is its tenant's tier in the frozen trace, and a tier in the gateway's record or a response header must agree, or the run refuses.
+
+**Validity: p_S ≤ p_P and c_S ≤ c_P on every contributing instance.**
+- **S processes no more contender work than P,** so S's tail cannot be inflated by extra processing, whatever happened to the requests afterwards.
+- **S completes no more contender work than P,** so P cannot win by losing work it processed (round 6, finding 2).
 - One violation of either makes the outcome "invalid". It is read after each instance, and a violation stops further purchase.
 
-**R's fitting target is m = 0.05:** S forwards about five points less contender work than P in `sim-cap`. That is a target on the fitting instance, not a property the population is known to have (round 7, finding 3). Nothing measured before the main study establishes the population's margin, so v8 does not print a probability that validity survives.
+**R's fitting target is m = 0.05:** S admits about five points less contender work than P in `sim-cap`, which predicts admission only. Processing and completion follow admission when nothing fails, which stage B checks. That is a target on the fitting instance, not a property the population is known to have (round 7, finding 3). Nothing measured before the main study establishes the population's margin, so v8 does not print a probability that validity survives.
 - v7's survival table followed from a Gaussian model of d, not from the moments it named. A two-point distribution with the same mean, SD and correlation survives 6.9% of the time, not 55.6% (round 7, finding 2).
 - **What v8 relies on instead is sequential purchase,** under Money at risk below: validity is read after every instance, so an invalid study is discovered, and stops buying, at the first instance that shows it.
 
-**Stage B checks the margin on fresh traces.** Each of its two blocks must show f_P − f_S ≥ 0.03 and c_P − c_S ≥ 0.03, or the design returns to review.
+**Stage B checks the margin on fresh traces.** Each of its two blocks must show p_P − p_S ≥ 0.03 and c_P − c_S ≥ 0.03, or the design returns to review.
 
-**A purchase-stop rule, not a verdict:** if any of the first three main instances shows f_P − f_S < 0.02 or c_P − c_S < 0.02, no further instance is bought. The outcome is "stopped: margin too thin", and nothing is judged.
+**A purchase-stop rule, not a verdict:** if any of the first three main instances shows p_P − p_S < 0.02 or c_P − c_S < 0.02, no further instance is bought. The outcome is "stopped: margin too thin", and nothing is judged.
 - The rule reads only S's and P's contender work, never a tail.
 - It ends a study whose population margin is visibly below the fitting target before most of its cost is spent.
 
@@ -137,10 +150,11 @@ Both are per instance, over its three blocks. A request's tier is its tenant's t
 
 **Fitting R.**
 - In stage A, `sim-cap` replays the three P traces at the gateway's recorded arrival instants, with threshold 1, burst 30,000 and the premium tenants named.
-- It predicts S's forwarding. With P's own observed forwarding, R is the largest integer in 1…20,000 with predicted f_S ≤ f_P − 0.05 on every trace.
+- It predicts S's admissions. With P's admissions from the gateway's record, R is the largest integer in 1…20,000 with predicted admitted contender work a_S ≤ a_P − 0.05 on every trace.
+- a is used only to fit R, never to judge validity.
 - That R is final. Stage B checks it, and is never used to re-fit it.
 
-**Informative bound.** If stage B's mean f_P − f_S exceeds 0.10, the design returns to review rather than run against a crippled control.
+**Informative bound.** If stage B's mean p_P − p_S exceeds 0.10, the design returns to review rather than run against a crippled control.
 
 **No interval is computed for f or c.** The rules are point rules on counts, and the counts are published.
 
@@ -161,7 +175,7 @@ Frozen, independent Poisson arrivals:
 
 **Output is fixed.** The Poisson generator populates `MinOutputTokens` (build item 3), and a completion with fewer engine-reported output tokens than its cap is a failure.
 
-**Exact tokens are stamped, in one fixed order, before any manifest exists** (build item 18). f, c and R's fit are defined in exact tokens, but today:
+**Exact tokens are stamped, in one fixed order, before any manifest exists** (build item 18). p, c and R's fit are defined in exact tokens, but today:
 - the Poisson generator leaves `ExactInputTokens` zero (`trace.go:296`);
 - the matrix generates a fresh trace and its manifest just before replay (`m5c-matrix.sh:3304`);
 - the replay does not ask for the existing `--require-exact-tokens` refusal (`main.go:628`).
@@ -200,9 +214,9 @@ Stamping after the manifest changes the trace's checksum, and regenerating after
 
 **Per-instance gates.** Each is a point rule, and any failure makes the outcome "invalid":
 - premium loss under 1% in every arm;
-- f_S ≤ f_P and c_S ≤ c_P.
+- p_S ≤ p_P and c_S ≤ c_P.
 
-**What the validity gate does and does not establish.** It establishes that S neither forwards nor completes more contender work than P on any instance, and that is the whole of the deletion safeguard.
+**What the validity gate does and does not establish.** It establishes that S neither processes nor completes more contender work than P on any instance, and that is the whole of the deletion safeguard.
 - It does not establish that O's contenders complete. O is only P/O's denominator, so O has no contender gate in the main study.
 - v6's per-arm 99% gate on O was what nearly no main study would survive (round 6, findings 4 and 5).
 
@@ -251,7 +265,12 @@ At the expected rate, the pilot costs $2.73 and each main instance about $1.88:
 | main instance 6 (the futility look) | $13.99 |
 | main instance 12 | $25.25 |
 
-**The registration asks the owner to accept this table, not a probability.** It is what a failure costs at each point, and the stop rules keep the common failures, a thin margin or a lossy configuration, near its top rows.
+**The registration asks the owner to accept this table, not a probability.** It shows what a failure costs at the point where it is found.
+- **It does not say where failures will land.** v8 claimed the stop rules keep common failures near the top rows, and round 8 (finding 6) showed that does not follow.
+- **Round 8's example:** one instance in ten violates the loss gate, and every pilot passes.
+  - An invalid study is then found after instance 3 in 62% of the cases where it is found at all.
+  - The expected spend is about $16.20, 2.7296 + 7.18 × 1.8766.
+- Sequential reading bounds the cost of a failure by when it appears. It does not make failures appear early.
 
 **Outcomes, named in advance:**
 - invalid;
@@ -278,8 +297,8 @@ Then stage A fits R.
 
 **Stage B: one instance, two full four-arm blocks** with R final. It establishes:
 - every arm's loss under 0.5%;
-- validity, with f_P − f_S ≥ 0.03 and c_P − c_S ≥ 0.03 in each of its two blocks;
-- the informative bound, mean f_P − f_S ≤ 0.10;
+- validity, with p_P − p_S ≥ 0.03 and c_P − c_S ≥ 0.03 in each of its two blocks;
+- the informative bound, mean p_P − p_S ≤ 0.10;
 - the whole four-arm cycle at full duration on the GPU.
 
 **Every gate refuses the main purchase if unmet. None reads P against S's tail.**
@@ -322,7 +341,10 @@ Today the hook uploads only after a replay and its log capture (`m5c-matrix.sh:3
 3. **The Poisson generator populates `MinOutputTokens`.**
 4. **Mandatory client-generated request IDs,** unique across the study, and **the gateway's per-request record** (arrival, tenant, tier, decision, release) keyed by them. The join is checked both ways, a duplicate refuses, and `sim-cap` replays the arrival instants.
 5. **The engine-arguments validator compares the whole line,** mutation-tested key by key.
-6. **The matrix deploys admission per arm** (`m5c-matrix.sh:2187`), and step-log capture waits for the last forwarded request (`:3032`).
+6. **The matrix deploys admission per arm** (`m5c-matrix.sh:2187`). **Step-log capture ends on quiescence, not on a request's ID** (round 8, finding 5).
+   - After the replay returns, capture waits until the engine reports no running and no waiting requests, then takes the plugin's closing flush.
+   - A request that reached the gateway but never the scheduler is a request with zero processed tokens, not a missing marker.
+   - Today capture waits for the last trace request's ID (`:3032`). A forwarded request can fail in the engine's frontend before the scheduler sees it, so that ID may never appear.
 7. **Study-wide seed uniqueness and hashed arm order.**
 8. **Incremental rows, the 30-second evidence sidecar with a Spot-notice flush, and reconstruction.**
 9. **The Spot interruption recorder.**
@@ -347,14 +369,21 @@ Today the hook uploads only after a replay and its log capture (`m5c-matrix.sh:3
 17. **The reserving spend ledger.**
 18. **The exact-token order:** generate, stamp, derive, checksum, manifest, then replay with `--require-exact-tokens`. Tested by a rehearsal whose stamp is deliberately missing, which must refuse before the first request.
 19. **TPOT on engine tokens and the last content frame,** beside the existing figure, which stays for the studies it has already judged.
+21. **The step-record join and processed work.**
+    - Verify on kind that the plugin's request ID carries the client's `X-Request-Id`, and if not, make the plugin record it.
+    - Compute p from the `sched` records.
+    - Refuse on a scheduled request with no client match.
+    - (Numbered 21 so that references to 20 stay stable.)
 20. **Rehearsals on kind with the stub engine:**
     - a whole replay-to-verdict run;
     - c_S > c_P on one instance;
     - a lost refusal;
     - an admitted contender failing after admission;
     - a request whose response never arrived, joined to the gateway's record by its client ID;
-    - a request that never reached the gateway, which must count as forwarded in S and not in P;
-    - an admitted contender failing after prefill in S, which must not help P pass;
+    - a request that never reached the gateway, and an S success whose gateway line is deleted, which must still count as completed;
+    - an admitted contender failing after prefill in S, whose processed tokens must count in p_S;
+    - a forwarded request refused by the engine's frontend before scheduling, which capture must not wait for;
+    - an exact-token stamp sent through the gateway by mistake, which must refuse;
     - a pre-header timeout;
     - a header tier different from the trace's;
     - a censored tail;
@@ -394,7 +423,7 @@ The AWS SSO session lasts at most 12 hours from a login.
 | Main, each | about 2.75 | 3 h 30 | 3 h 40 | 3 h 50 |
 
 **The reserved lifetime is the deadline plus 15 minutes:** 185 minutes for a pilot session, 245 for a main one.
-- The 15 minutes cover one sweep interval and the exercise's 12-minute pass limit, with three to spare.
+- The 15 minutes are the exercise's 12-minute pass limit, measured from the deadline and so already including the wait for a sweep, plus 3 to spare.
 - AWS documents delivery delays and retries for both EventBridge and Lambda, so no interval is a guarantee.
 - The exercise establishes that the sweeper works, not a maximum latency (round 6, finding 8).
 
@@ -431,6 +460,18 @@ The AWS SSO session lasts at most 12 hours from a login.
 - The ledger limits what the study starts. It cannot stop an instance already running, which is the terminators' job.
 - After the session it records launch and termination times from EC2 and CloudTrail.
 - Billed amounts come from Cost Explorer when it settles, and are published beside the estimate.
+
+## What v9 changed, against the review of v8
+
+| v8 finding | Change |
+|---|---|
+| 1: a missing gateway record erased S's successes | completion is read from the client row alone; no validity quantity depends on the gateway's record |
+| 2: forwarding and completion do not bound processing | validity reads processed work from the engine's step records: p_S ≤ p_P and c_S ≤ c_P |
+| 3: the gateway record cannot say what reached the engine | it is no longer asked to; it serves only arrival and release timing |
+| 4: stamping through the gateway breaks the join | stamping goes directly to the engine, under its own ID prefix |
+| 5: capture waits for an ID that may never appear | capture ends on engine quiescence |
+| 6: the money-at-risk table implied early discovery | said not to; round 8's $16.20 example printed |
+| 7: the 15-minute explanation double-counted | corrected |
 
 ## What v8 changed, against the review of v7
 
