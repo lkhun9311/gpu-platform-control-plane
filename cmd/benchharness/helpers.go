@@ -671,7 +671,9 @@ func stubMux(profile stubProfile, stats *stubStats) *http.ServeMux {
 			label = prio.Priority.String()
 		}
 		stats.notePriority(label)
-		if profile.usage {
+		// The pilot's step log records each request's prompt whether or not usage is reported, so it needs the
+		// count too; without it a length outside the frozen table logged a zero-token prompt (review of 60f3674).
+		if profile.usage || profile.pilot != nil {
 			var body struct {
 				Messages []struct {
 					Content string `json:"content"`

@@ -128,3 +128,38 @@ func TestStubPilotModeWritesAlignedEvidence(t *testing.T) {
 		}
 	}
 }
+
+// With usage reporting off, a prompt outside the frozen table still logs its fallback count, not zero.
+//
+// Mutation that turns it red: compute prompt counts only when usage is reported (the review of 60f3674).
+func TestStubPilotModeCountsPromptsWithoutUsage(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "step.jsonl")
+	pl, err := openStubPilotLog(path, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(stubMux(stubProfile{tokens: 1, pilot: pl}, newStubStats()))
+	defer srv.Close()
+	body := `{"model":"m","messages":[{"role":"user","content":"` + strings.Repeat("a", 100) + `"}],"max_tokens":1,"stream":true}`
+	resp, err := http.Post(srv.URL+"/v1/chat/completions", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, line := range strings.Split(strings.TrimSpace(string(b)), "\n") {
+		var m map[string]any
+		_ = json.Unmarshal([]byte(line), &m)
+		if m["ev"] == "add" {
+			if got := int(m["prompt"].(float64)); got != stubPromptTokens(100) {
+				t.Fatalf("a 100-character prompt logged %d prompt tokens, want %d", got, stubPromptTokens(100))
+			}
+			return
+		}
+	}
+	t.Fatal("no add record")
+}
