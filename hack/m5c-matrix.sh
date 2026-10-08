@@ -2497,11 +2497,16 @@ expected_outputs() {
   # refuses rather than lets complete without them.
   # The warm-up's four files are written only under sessions 2 and 3 and the same holds: run_warmup ends the run
   # rather than let a cell go on without them.
+  # The prospective-admission pilot's capture files (hack/lib/prospective-pilot.sh) are written only under that
+  # study, and a cell it could not capture says so in ineligible-<cell>.txt rather than by a missing file.
   cond=$(find "$OUT" -maxdepth 1 \( -name 'mps-compute-apps-*.csv' -o -name 'mps-compute-apps-*.err' \
     -o -name 'mps-pod-lookup.err' -o -name 'ladder-verdict-rung*.txt' \
     -o -name 'applied-values.tsv' -o -name 'cell-environment.tsv' -o -name 'engine-log-*.txt' \
     -o -name 'raw-warmup-*.jsonl' -o -name 'warmup-boundary-*.txt' -o -name 'warmup-trace-*.jsonl' \
-    -o -name 'warmup-manifest-*.yaml' -o -name 'step-log-*.jsonl' -o -name 'step-plugin-*.sha256' \) 2>/dev/null | wc -l)
+    -o -name 'warmup-manifest-*.yaml' -o -name 'step-log-*.jsonl' -o -name 'step-plugin-*.sha256' \
+    -o -name 'fence-*.json' -o -name 'fence-forward-*.log' -o -name 'gateway-record-*.jsonl' -o -name 'raw-*.jsonl.sender.json' \
+    -o -name 'ineligible-*.txt' -o -name 'phases.tsv' -o -name 'cell-uploads.tsv' -o -name 'calibration.txt' \
+    -o -name 'calibration-forward.log' \) 2>/dev/null | wc -l)
   # The engine-metrics files are in the total as whatever is there, like the conditional outputs above.
   #
   # How many a cell owes depends on its topology -- one engine or two -- which this count cannot see, so
@@ -2662,7 +2667,10 @@ EOF
     -o -name 'mps-pod-lookup.err' -o -name 'ladder-verdict-rung*.txt' \
     -o -name 'applied-values.tsv' -o -name 'cell-environment.tsv' -o -name 'engine-log-*.txt' \
     -o -name 'raw-warmup-*.jsonl' -o -name 'warmup-boundary-*.txt' -o -name 'warmup-trace-*.jsonl' \
-    -o -name 'warmup-manifest-*.yaml' -o -name 'step-log-*.jsonl' -o -name 'step-plugin-*.sha256' \) 2>/dev/null | wc -l)
+    -o -name 'warmup-manifest-*.yaml' -o -name 'step-log-*.jsonl' -o -name 'step-plugin-*.sha256' \
+    -o -name 'fence-*.json' -o -name 'fence-forward-*.log' -o -name 'gateway-record-*.jsonl' -o -name 'raw-*.jsonl.sender.json' \
+    -o -name 'ineligible-*.txt' -o -name 'phases.tsv' -o -name 'cell-uploads.tsv' -o -name 'calibration.txt' \
+    -o -name 'calibration-forward.log' \) 2>/dev/null | wc -l)
   unattr=0
   for f in "$OUT"/*; do
     [ -f "$f" ] || continue
@@ -2676,6 +2684,8 @@ EOF
       mps-compute-apps-*.csv | mps-compute-apps-*.err | mps-pod-lookup.err | ladder-verdict-rung*.txt) ;;
       applied-values.tsv | cell-environment.tsv | engine-log-*.txt) ;;
       step-log-*.jsonl | step-plugin-*.sha256) ;;
+      fence-*.json | fence-forward-*.log | gateway-record-*.jsonl | raw-*.jsonl.sender.json | ineligible-*.txt) ;;
+      phases.tsv | cell-uploads.tsv | calibration.txt | calibration-forward.log) ;;
       *) unattr=$(( unattr + 1 )) ;;
     esac
   done
