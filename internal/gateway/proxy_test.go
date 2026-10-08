@@ -872,6 +872,8 @@ var _ = Describe("readRequestMeta", func() {
 		// The pilot fixes output at its cap; any other minimum changes the work asked for without the cap saying so.
 		Entry("a min_tokens below max_tokens",
 			`{"model":"llama-3","messages":[{"role":"user","content":"hi"}],"max_tokens":4,"min_tokens":3,"stream":true,"stream_options":{"include_usage":true}}`),
+		Entry("an explicit null min_tokens, which a pointer would read as absent (review of dcc3ce1)",
+			`{"model":"llama-3","messages":[{"role":"user","content":"hi"}],"max_tokens":4,"min_tokens":null,"stream":true,"stream_options":{"include_usage":true}}`),
 		Entry("a min_tokens of zero, which is not the same as none",
 			`{"model":"llama-3","messages":[{"role":"user","content":"hi"}],"max_tokens":4,"min_tokens":0,"stream":true,"stream_options":{"include_usage":true}}`),
 	)

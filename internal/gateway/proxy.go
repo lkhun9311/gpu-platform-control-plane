@@ -822,9 +822,10 @@ type benchmarkRequest struct {
 		Content string `json:"content"`
 	} `json:"messages"`
 	MaxTokens int `json:"max_tokens"`
-	// MinTokens is a pointer so that its absence, which every M5-b request has, is told apart from an explicit 0.
-	MinTokens     *int `json:"min_tokens"`
-	Stream        bool `json:"stream"`
+	// MinTokens is kept raw so that its absence, which every M5-b request has, is told apart from any value it
+	// carries, an explicit null and an explicit 0 included: a pointer decodes null as if the field were absent.
+	MinTokens     json.RawMessage `json:"min_tokens"`
+	Stream        bool            `json:"stream"`
 	StreamOptions struct {
 		IncludeUsage bool `json:"include_usage"`
 	} `json:"stream_options"`
@@ -868,9 +869,14 @@ func checkBenchmarkProfile(buf []byte) error {
 	if req.MaxTokens <= 0 {
 		return fmt.Errorf("%w: max_tokens must be positive, got %d", ErrProfileViolation, req.MaxTokens)
 	}
-	if req.MinTokens != nil && *req.MinTokens != req.MaxTokens {
-		return fmt.Errorf("%w: min_tokens is accepted only equal to max_tokens, got %d against %d",
-			ErrProfileViolation, *req.MinTokens, req.MaxTokens)
+	if req.MinTokens != nil {
+		// An explicit null decodes to 0 here, and max_tokens is already known to be positive, so null is refused
+		// by the comparison; it needs no case of its own.
+		var minTokens int
+		if err := json.Unmarshal(req.MinTokens, &minTokens); err != nil || minTokens != req.MaxTokens {
+			return fmt.Errorf("%w: min_tokens is accepted only equal to max_tokens, got %s against %d",
+				ErrProfileViolation, req.MinTokens, req.MaxTokens)
+		}
 	}
 	if !req.Stream || !req.StreamOptions.IncludeUsage {
 		return fmt.Errorf("%w: the profile streams with usage reporting, got stream=%v include_usage=%v",
