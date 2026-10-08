@@ -63,6 +63,8 @@ type Server struct {
 	// Off by default because it only means anything to an engine started with priority scheduling, and an
 	// experiment that did not register it must not have its traffic reordered under it.
 	bindPriority bool
+	// recorder writes the per-request record the measurement pilot reads; nil, the default, records nothing.
+	recorder *RequestRecorder
 	// metricsTokenDigest is the SHA-256 of the bearer token /metrics demands, or nil for no authentication.
 	//
 	// Nil is the default so an existing deployment that sets no flag keeps scraping exactly as before.
@@ -179,6 +181,9 @@ func (s *Server) EnforceBenchmarkProfile(on bool) { s.enforceBenchmarkProfile = 
 
 // BindPriority turns on binding the engine's priority to the tenant's tier (see bindEnginePriority).
 func (s *Server) BindPriority(on bool) { s.bindPriority = on }
+
+// RecordRequests makes the gateway write its per-request record to r; nil turns it off.
+func (s *Server) RecordRequests(r *RequestRecorder) { s.recorder = r }
 
 func (s *Server) SetAdmitter(mode AdmissionMode, a Admitter) {
 	s.mode = mode
@@ -327,6 +332,8 @@ func (s *Server) resolveBackend(ctx context.Context, policy *platformv1.GPUQuota
 // So rejections happen before that cost is paid.
 func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+	tr, w := s.startTrace(w)
+	defer tr.finish()
 
 	// 1. request id: reuse a caller-supplied id when present.
 	//
@@ -344,6 +351,7 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	// Response-only leaves the request unfindable in upstream logs, and request-only leaves the client unable to quote its own id.
 	w.Header().Set("X-Request-Id", rid)
 	r.Header.Set("X-Request-Id", rid)
+	tr.identify(rid)
 
 	// 2. Resolve the API key to a tenant.
 	tenant, ok, err := s.resolveTenant(ctx, r)
@@ -359,6 +367,7 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, "", "", http.StatusUnauthorized)
 		return
 	}
+	tr.tenant(tenant)
 
 	// 3. Find the tenant's GPUQuotaPolicy.
 	//
@@ -432,6 +441,13 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	r.GetBody = body
 	// The factory reads from a buffer already in memory, so it has no failure mode and there is no error path to take here.
 	r.Body, _ = r.GetBody()
+	// The arrival record is synced before admission, so a request the gateway goes on to admit always has one.
+	// A record that cannot be written refuses the request: serving it would leave work the measurement cannot see.
+	if err := tr.arrived(); err != nil {
+		log.FromContext(ctx).Error(err, "cannot write the request record", "request_id", rid)
+		s.fail(w, tenant, meta.Model, http.StatusServiceUnavailable)
+		return
+	}
 
 	// 6. Resolve the model to a backend.
 	targets, err := s.resolveBackend(ctx, policy, meta.Model)
@@ -497,6 +513,7 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	if !admit {
 		decision = "reject"
 	}
+	tr.decided(tier, decision, reason)
 	// The reason travels on every decision, not only refusals.
 	//
 	// An admit had none, so four different facts about arm C arrived as one: a backend the guard never
@@ -545,11 +562,12 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		w.Header().Set(HeaderEnginePriority, strconv.Itoa(p))
+		tr.priority(p)
 	}
 
 	// 8. From here the response is the upstream's, passed through rather than composed.
 	start := time.Now()
-	rec := &statusRecorder{ResponseWriter: w, code: http.StatusOK, onFirstBody: res.PrefillDone}
+	rec := &statusRecorder{ResponseWriter: w, code: http.StatusOK, onFirstBody: tr.release(res.PrefillDone), onBody: tr.body}
 	// Each candidate is tried until one answers, and the two conditions below are what make that safe rather
 	// than merely useful.
 	//
@@ -574,6 +592,7 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	// "yes, the serving stack was asked" regardless of how the attempt turns out. A counter incremented on the
 	// way out would miss a panic or a cancelled request and quietly shrink the denominator it exists to be.
 	backendAttempts.WithLabelValues(tenant, meta.Model).Inc()
+	tr.forwarded()
 	advanced := tryBackends(rec, r, urls, s.sharedTransport(), func(code int, final bool) {
 		upstreamErrors.WithLabelValues(tenant, meta.Model).Inc()
 		lastFailure = code

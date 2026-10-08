@@ -217,6 +217,9 @@ type statusRecorder struct {
 	// engine having finished that request's prompt.
 	onFirstBody func()
 	bodySeen    bool
+	// onBody sees every body chunk the client was sent, for the request record's first-content stamp; nil when
+	// the gateway records nothing.
+	onBody func([]byte)
 }
 
 // WriteHeader records the status code and forwards it to the wrapped writer.
@@ -248,6 +251,9 @@ func (rec *statusRecorder) Write(b []byte) (int, error) {
 		if rec.onFirstBody != nil {
 			rec.onFirstBody()
 		}
+	}
+	if n > 0 && rec.onBody != nil {
+		rec.onBody(b[:n])
 	}
 	return n, err
 }

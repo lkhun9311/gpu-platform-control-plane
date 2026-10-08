@@ -94,6 +94,8 @@ func main() {
 		enforceBenchmarkProfile bool
 		// bindPriority reorders traffic on a priority-scheduling engine, so it too stays off unless asked for.
 		bindPriority bool
+		// requestRecordPath is empty by default, and an empty path records nothing.
+		requestRecordPath string
 		// metricsBearerTokenFile is empty by default so a deployment that sets nothing keeps an open /metrics.
 		metricsBearerTokenFile string
 
@@ -124,6 +126,10 @@ func main() {
 	flag.BoolVar(&bindPriority, "bind-priority", false,
 		"write the tenant tier's engine priority into every forwarded request (premium 0, standard 1), overwriting "+
 			"any priority the caller sent. Only meaningful for an engine started with --scheduling-policy=priority.")
+	flag.StringVar(&requestRecordPath, "request-record-path", "",
+		"append the gateway's per-request record (arrival, decision, forward, release, first content) to this file "+
+			"as JSON lines. For the benchmark only: each arrival is synced to disk before admission, which costs "+
+			"latency an ordinary deployment has no reason to pay.")
 	flag.BoolVar(&admissionReportBackendState, "admission-report-backend-state", false,
 		"report the pressure reading each admission decision was made from, on the response. "+
 			"For the benchmark only: a caller has no business knowing how full the engine's KV cache is.")
@@ -249,6 +255,16 @@ func main() {
 	s.ReportBackendState(admissionReportBackendState)
 	s.EnforceBenchmarkProfile(enforceBenchmarkProfile)
 	s.BindPriority(bindPriority)
+	if requestRecordPath != "" {
+		rec, err := gateway.OpenRequestRecorder(requestRecordPath)
+		if err != nil {
+			log.Error(err, "cannot open the request record")
+			os.Exit(1)
+		}
+		// Closed on exit so the last done lines reach the file; the arrive lines are already synced.
+		defer func() { _ = rec.Close() }()
+		s.RecordRequests(rec)
+	}
 
 	// Start the cache and flip readiness once it has synced.
 	go func() {
