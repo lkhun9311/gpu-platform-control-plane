@@ -30,6 +30,7 @@ aws s3 cp s3://stub-bucket/run-<NONCE>/preflight-nvidia-smi.csv <OUT>/preflight-
 aws s3 cp s3://stub-bucket/run-<NONCE>/preflight-node-cards.txt <OUT>/preflight-node-cards.txt
 aws s3 cp s3://stub-bucket/run-<NONCE>/matrix-returned.txt <OUT>/matrix-returned.txt
 aws s3api list-objects-v2 --bucket stub-bucket --prefix run-<NONCE>/cells/ --query Contents[].Key --output text
+aws s3api list-objects-v2 --bucket stub-bucket --prefix run-<NONCE>/live/ --query Contents[].Key --output text
 harness checksum: user-data matches the uploaded binary
 gateway checksum: user-data matches the uploaded binary
 --- exit 0
@@ -45,7 +46,7 @@ gateway checksum: user-data matches the uploaded binary
 ==   gateway <SHA12>, benchharness <SHA12>
 == uploading the source and the binaries
 == g5.2xlarge is offered in: ap-northeast-2a ap-northeast-2c
-== user-data: 15740 of 25600 encoded bytes
+== user-data: 16356 of 25600 encoded bytes
 == checking the purchase plan locally, before anything is rented
 == plan: 9 cell(s): off prospective R1 off R1 prospective off prospective R1 
 == load matches study prospective-pilot-2026-10-08's frozen tuple (five quantities)

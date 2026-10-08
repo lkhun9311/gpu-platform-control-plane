@@ -218,11 +218,18 @@ SIDECAR
   # longer than one upload, so the sidecar's flush on it can finish.
   export PP_SPOT_NOTICE_FILE=/tmp/spot-notice
   (
+    # Each request bounded at 2 s, so a stalled metadata call cannot use up the two-minute warning (review of c4eef3d).
     while :; do
-      imds_token=$(curl -s -X PUT -H "X-aws-ec2-metadata-token-ttl-seconds: 300" http://169.254.169.254/latest/api/token)
-      code=$(curl -s -o /tmp/spot-instance-action -w '%{http_code}' -H "X-aws-ec2-metadata-token: $imds_token" \
-        http://169.254.169.254/latest/meta-data/spot/instance-action)
-      if [ "$code" = 200 ]; then cp /tmp/spot-instance-action "$PP_SPOT_NOTICE_FILE"; break; fi
+      imds_token=$(curl -s --connect-timeout 1 --max-time 2 -X PUT -H "X-aws-ec2-metadata-token-ttl-seconds: 300" \
+        http://169.254.169.254/latest/api/token || true)
+      code=$(curl -s --connect-timeout 1 --max-time 2 -o /tmp/spot-instance-action -w '%{http_code}' \
+        -H "X-aws-ec2-metadata-token: $imds_token" http://169.254.169.254/latest/meta-data/spot/instance-action || true)
+      if [ "$code" = 200 ]; then
+        cp /tmp/spot-instance-action "$PP_SPOT_NOTICE_FILE"
+        # The notice itself leaves the instance, beside the live snapshots, as the evidence of the interruption.
+        aws s3 cp --only-show-errors /tmp/spot-instance-action "s3://$BUCKET/$PREFIX/live/spot-notice.json" || true
+        break
+      fi
       sleep 5
     done
   ) &
