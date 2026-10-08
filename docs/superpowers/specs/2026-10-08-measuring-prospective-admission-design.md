@@ -807,42 +807,56 @@ Since round 12, every round has been about one question: what the decision may t
 - **stage A:** one instance, three blocks of I, O and P;
 - **stage B:** one instance, two four-arm blocks, with R fitted on stage A.
 
-Each is one session in one login, at about 2.1 and 1.9 hours. Expected cost is about $2.73, and at most $6.98 at the runner's caps and deadlines.
+Each is one session in one login, at about 2.1 and 1.9 hours. Expected cost is about $2.73. The $6.98 maximum holds only with the termination sweeper exercised (see below). Without it, the retained runner does not bound the pilot's lifetime (pilot review, finding 2).
 
-**What it measures, per arm and per block, all published:**
+**What it measures, per arm and per block:**
 
-| Quantity | Why the main design needs it |
-|---|---|
-| Dispatch lag (gateway arrival minus scheduled instant): full distribution, maximum, and count above 5, 25 and 50 ms | the ceiling and uncertainty rules, and round 21's finding 4 |
-| Gateway-internal delays: arrival → admission decision → backend forward → first-content forward | round 21's finding 1: what happens after the arrival stamp |
-| Client-side stamps beside the gateway's: send, written, first content | how far each stamp sits from the gateway's |
-| Missing gateway records; scheduler records with no gateway record | the record rules |
-| Premium p99 on TTFT-scheduled and TTFT-arrival, with the uncertain set at 0 and at +∞, **pooled over the stage's blocks** | round 21's findings 2 and 3: the box's width as the endpoint pools it, including y_lo |
-| O/I contention, P/O on the crossed bounds (stage A) | the contention and P/O screens |
-| Contender p, q and c per arm; sim-cap's predicted admission against the observed (stage B) | the margin and the R fit |
-| Release-to-first-content gap per contender; restart and capture times; step-log completeness checks | operational premises |
+| Quantity | Why the main design needs it | Published in stage B? |
+|---|---|---|
+| Dispatch lag (gateway arrival minus scheduled instant): full distribution, maximum, and count above 5, 25 and 50 ms | the ceiling and uncertainty rules, and round 21's finding 4 | yes |
+| Gateway-internal delays: arrival → durable record written → admission decision → backend forward → first-content forward | round 21's finding 1: what happens after the arrival stamp, including the durable write | yes, except arrival → first-content forward, which is a TTFT |
+| Client-side stamps beside the gateway's: send and first content | how far each client stamp sits from the gateway's | send only |
+| Missing gateway records; scheduler records with no gateway record | the record rules | yes |
+| Premium p99 on TTFT-scheduled and TTFT-arrival, with the uncertain set at 0 and at +∞, **pooled over the stage's blocks** | round 21's findings 2 and 3: the box's width as the endpoint pools it, including y_lo | **sealed** (see below) |
+| O/I contention, P/O on the crossed bounds (stage A) | the contention and P/O screens | stage A only |
+| Contender p, q and c per arm; sim-cap's predicted admission against the observed (stage B) | the margin and the R fit | yes: these are work, not tail |
+| Release-to-first-content gap per contender; restart and capture times; step-log completeness checks | operational premises | yes |
+| The evidence sidecar's uploads: their instants, and the dispatch lag of requests within a second of each | pilot review, finding 3: whether the main apparatus's evidence path disturbs timing | yes |
 
-**Blindness in stage B.** The report prints:
-- **P/S box widths;**
-- **S's own quantities.**
+**v1 of this scope dropped the client's "written" stamp** (pilot review, finding 4). Nothing implements it, and the decision no longer uses it.
 
-It never prints **P/S ratios.** The analysis script computes the widths without writing the ratios to its output, and the rehearsal checks its output for any P/S ratio.
+**Blindness in stage B: premium tail quantities are sealed, not printed.** The first version printed widths and S's own p99s. The pilot review (finding 1) showed P's p99, and so P/S, then follows by algebra from the width and S's two p99s.
+- So **every stage B quantity derived from premium TTFT** is computed, written to a sealed file, and published only as a SHA-256 commitment. That covers p99s in any arm, box ends and widths, and gateway arrival → first-content forward.
+- The report prints one bit per block:
+  - whether the P/S box half-width is at most 0.043, the screen the main design uses;
+  - whether the infinite-end rule would fire.
+- The sealed file is opened only:
+  - after the main study's verdict;
+  - or when the owner decides not to buy the main study.
+- Stage A has no S, so its quantities are printed in full.
 
 **What must be built for the pilot.** A subset of the build list:
-- items 1, 2, 3, 4, 5, 6, 7, 10, 11, 12, 13, 14, 18, 21, 22, 24, 25 and 27;
-- the gateway's own delay stamps;
-- a measurement report in place of item 15's decision machinery.
+- items 1, 2, 3, 4, 5, 6, 7, **8**, 10, 11, 12, 13, 14, **16**, 18, 21, 22, 24, 25 and 27;
+- the gateway's own delay stamps, including the durable write;
+- a measurement report with the sealing, in place of item 15's decision machinery;
+- **an elapsed-time hard stop:** the runner's poll checks a wall-clock deadline, not a count of attempts. Today `spot_wait_for_marker` counts attempts, each costing 30 s plus two API calls (`spot-run.sh:374`), so a 150-minute setting can run to about 250 minutes.
 
-**Deferred to the main study,** each because the pilot's money is small and its loss acceptable:
-- **item 8,** the evidence sidecar: a Spot interruption costs the pilot's evidence, at most $6.98;
-- **item 9,** the interruption recorder;
-- **item 16,** the sweeper: the runner's existing backstop, hard stop and operator watch, which every earlier session used, bound the pilot;
-- **item 17,** the ledger;
+**Brought into the pilot after its review:**
+- **item 8,** incremental rows and the evidence sidecar. They are part of the apparatus whose timing the pilot measures, not only a backup (pilot review, finding 3).
+- **item 16,** the sweeper. It needs the owner's approval of its `terraform apply` as its own step, and its exercise must pass before the pilot is launched (pilot review, finding 2).
+
+**Still deferred to the main study:**
+- **item 9,** the interruption recorder. A Spot interruption costs the pilot's evidence, and nothing else.
+- **item 17,** the ledger. The pilot is two sessions under the sweeper's deadlines.
 - **item 19,** TPOT.
 
-The credential check (item 13) is not deferred, because it guards the launch itself.
-
-**Rehearsal before purchase:** a full stage A and stage B on kind with the stub engine, end to end through the measurement report.
+**Rehearsals before purchase:**
+- **on kind with the stub engine,** a full stage A and stage B end to end through the measurement report, including the sealing. The stub is extended to honour each request's own output cap.
+- **on CPU with real vLLM,** through `hack/vllm-plugins/validate-on-cpu.sh` extended to run the new path on a short trace. The stub has no scheduler (`cmd/benchharness/helpers.go:339`), so it cannot exercise the scheduler-side path (pilot review, finding 5). The CPU run must show:
+  - the plugin's sequence numbers, sentinel and terminal record;
+  - the request-ID join from client to vLLM's scheduler;
+  - the scheduler-side priority;
+  - the prefill and decode split.
 
 ## What v21 changed, against the review of v20
 
