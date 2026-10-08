@@ -338,11 +338,22 @@ var contentKey = []byte(`"content"`)
 // whitespace cannot grow it without limit.
 const maxContentTail = 256
 
-// contentWatcher finds the first non-empty content delta in a streamed response, across chunk boundaries.
+// contentWatcher finds the first COMPLETE server-sent event carrying a non-empty content delta, across chunks.
+//
+// Recognising the content's first byte is not enough: a frame cut after `"content":"x` and finished a second
+// later would be stamped at the cut (pilot scope review 11, finding 1). So once the content is found, the
+// watcher waits for the blank line that ends the event before it reports.
 type contentWatcher struct {
 	tail []byte
 	seen bool
+	// inFrame is set once non-empty content has been found and its event has not yet ended.
+	inFrame bool
+	// frameTail carries the last byte of a chunk, so an event end split across two chunks is still found.
+	frameTail []byte
 }
+
+// eventEnd is the blank line that ends a server-sent event.
+var eventEnd = []byte("\n\n")
 
 // valueStarts reports, for the bytes after a content key, whether they begin a non-empty string value.
 // complete is false when the bytes run out before that can be decided.
@@ -376,10 +387,13 @@ func valueStarts(rest []byte) (nonEmpty, complete bool) {
 	return rest[i] != '"', true
 }
 
-// observe reports whether b completes the first non-empty content delta of the stream.
+// observe reports whether b completes the event carrying the stream's first non-empty content delta.
 func (c *contentWatcher) observe(b []byte) bool {
 	if c.seen {
 		return false
+	}
+	if c.inFrame {
+		return c.endOf(b)
 	}
 	buf := append(c.tail, b...)
 	c.tail = nil
@@ -398,8 +412,8 @@ func (c *contentWatcher) observe(b []byte) bool {
 			return false
 		}
 		if nonEmpty {
-			c.seen = true
-			return true
+			c.inFrame = true
+			return c.endOf(buf[start:])
 		}
 		i = start + len(contentKey)
 	}
@@ -409,5 +423,18 @@ func (c *contentWatcher) observe(b []byte) bool {
 		keep = len(buf)
 	}
 	c.tail = append([]byte(nil), buf[len(buf)-keep:]...)
+	return false
+}
+
+// endOf reports whether b, following the content found, ends its event.
+func (c *contentWatcher) endOf(b []byte) bool {
+	buf := append(c.frameTail, b...)
+	if bytes.Contains(buf, eventEnd) {
+		c.seen, c.inFrame, c.frameTail = true, false, nil
+		return true
+	}
+	if len(buf) > 0 {
+		c.frameTail = []byte{buf[len(buf)-1]}
+	}
 	return false
 }

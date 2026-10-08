@@ -8,6 +8,10 @@
 # Sourced by the matrix; it defines functions and constants and runs nothing.
 
 PP_STUDY=prospective-pilot-2026-10-08
+# The registered model and its snapshot. The validator compares the engine against these and not against the
+# caller's MODEL_REVISION, which would set both sides of the comparison (pilot review 11, finding 3).
+PP_MODEL="Qwen/Qwen2.5-3B-Instruct"
+PP_MODEL_REVISION=aa8e72537993ba99e69dfaafa59ed015b17504d1
 # The pilot's own step logger: the frozen step_logging_scheduler.py is pinned by the archived studies' hashes.
 PP_PLUGIN=hack/vllm-plugins/pilot_step_logger.py
 PP_CLASS=pilot_step_logger.PilotStepLoggingScheduler
@@ -151,7 +155,11 @@ pp_request_id_flag() {
 # (design page, build item 5): a validator that read a subset passed an engine with prefix caching on, bfloat16
 # and one sequence. The model and port are positional or infrastructure, and are compared for presence only.
 pp_expected_args() {
-  local rev="$1"
+  local rev="$PP_MODEL_REVISION"
+  cat <<EOF
+model_tag='$PP_MODEL'
+model='$PP_MODEL'
+EOF
   cat <<EOF
 dtype='half'
 max_model_len=16384
@@ -174,11 +182,14 @@ EOF
 # a value cannot be matched by a prefix. Keys allowed to differ in value only: model_tag and model (the model),
 # port and host.
 pp_process_args_refusal() {
-  local line="$1" rev="$2" expected
-  expected=$(pp_expected_args "$rev")
-  python3 - "$line" "$expected" <<'PY'
+  local line="$1" expected
+  expected=$(pp_expected_args)
+  # A rehearsal's stub serves no model and calls itself 'stub'; only a run that waived the engine pin, which no
+  # paid run may carry, is excused the model keys' values. Their presence is still required.
+  local waive_model="${ENGINE_PIN_WAIVED:-}"
+  python3 - "$line" "$expected" "$waive_model" <<'PY'
 import ast, sys
-line, expected = sys.argv[1], sys.argv[2]
+line, expected, waive_model = sys.argv[1], sys.argv[2], sys.argv[3] == "1"
 start = line.find("{")
 if not line.startswith("non-default args:") and "non-default args:" not in line or start < 0:
     print("the engine printed no non-default args line, so its configuration is unknown"); sys.exit(1)
@@ -190,15 +201,17 @@ want = {}
 for kv in expected.strip().splitlines():
     k, v = kv.split("=", 1)
     want[k] = ast.literal_eval(v)
-presence_only = {"model_tag", "model", "port", "host"}
+# Port and host are infrastructure and may appear or not. The model keys must appear, with the registered model,
+# unless the engine pin was waived for a rehearsal.
+optional = {"port", "host"}
 problems = []
 for k, v in want.items():
     if k not in got:
         problems.append("%s is missing" % k)
-    elif got[k] != v:
+    elif got[k] != v and not (waive_model and k in ("model_tag", "model")):
         problems.append("%s is %r, registered %r" % (k, got[k], v))
 for k in got:
-    if k not in want and k not in presence_only:
+    if k not in want and k not in optional:
         problems.append("%s=%r is not in the registration" % (k, got[k]))
 if problems:
     print("the engine is not the registered apparatus: " + "; ".join(sorted(problems))); sys.exit(1)
@@ -230,7 +243,8 @@ pp_phase() {
 #   4. The priority witness: every request the scheduler received at its tier's priority.
 pp_capture() {
   local label="$1" rep="$2" deadline pod gwpod node uid pf code why=""
-  deadline=$(( $(date +%s) + PP_CAPTURE_BOUND_S ))
+  # $3 is when the replay returned; the bound runs from there, not from when capture starts.
+  deadline=$(( ${3:-$(date +%s)} + PP_CAPTURE_BOUND_S ))
   # Every blocking command runs under the time left, so a stalled exec, log read or node read cannot outlast the
   # bound; the deadline is otherwise only checked between iterations (review of 20cbf33).
   left() { local l=$(( deadline - $(date +%s) )); [ "$l" -gt 0 ] && echo "$l" || echo 1; }

@@ -193,13 +193,32 @@ var _ = Describe("the request record in the pipeline", func() {
 		Expect(d).NotTo(HaveKey("firstContentAtEnd"))
 	})
 
+	// Mutation that turns this red: report content at its first byte rather than at its event's end.
+	It("stamps a content frame at the flush that completes it, not at one that sent only its start", func() {
+		rec, err := OpenRequestRecorder(path)
+		Expect(err).NotTo(HaveOccurred())
+		s := &Server{recorder: rec}
+		tr, _ := s.startTrace(httptest.NewRecorder())
+		tr.identify("split-frame-1")
+		tr.body([]byte(`data: {"choices":[{"delta":{"content":"x`))
+		tr.flushed()
+		cut := time.Now()
+		time.Sleep(50 * time.Millisecond)
+		tr.body([]byte(`yz"}}]}` + "\n\n"))
+		tr.flushed()
+		tr.finish()
+		Expect(rec.Close()).To(Succeed())
+		d := readRecord(path)[0]
+		Expect(int64(d["firstContentUnixNanos"].(float64))).To(BeNumerically(">=", cut.Add(50*time.Millisecond).UnixNano()))
+	})
+
 	It("stamps first content at the handler's end, and says so, when it was never flushed", func() {
 		rec, err := OpenRequestRecorder(path)
 		Expect(err).NotTo(HaveOccurred())
 		s := &Server{recorder: rec}
 		tr, _ := s.startTrace(httptest.NewRecorder())
 		tr.identify("never-flushed-1")
-		tr.body([]byte(`{"delta":{"content":"Hi"}}`))
+		tr.body([]byte(`data: {"delta":{"content":"Hi"}}` + "\n\n"))
 		tr.finish()
 		Expect(rec.Close()).To(Succeed())
 		d := readRecord(path)[0]

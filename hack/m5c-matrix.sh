@@ -369,6 +369,11 @@ if [ -z "$LADDER" ] && pp_is_study "$STUDY"; then
   # Three blocks per stage, as the study registers: the main endpoint pools three, and pooling is not linear in
   # the number of blocks, so a stage of another size would measure a different quantity (review of 780929a).
   [ "$REPS" = 3 ] || fail "REPS is $REPS and each pilot stage is three blocks; pass REPS=3"
+  # The engine's revision and model are the registration's, not the caller's: the validator compares the engine
+  # against these, and a caller-supplied value would set both sides of that comparison (pilot review 11).
+  [ "$MODEL_REVISION" = "$PP_MODEL_REVISION" ] \
+    || fail "MODEL_REVISION is $MODEL_REVISION and the pilot registered $PP_MODEL_REVISION"
+  [ "$MODEL" = "$PP_MODEL" ] || fail "MODEL is $MODEL and the pilot registered $PP_MODEL"
   [ "${PILOT_STAGE:-}" != B ] || pp_gateway_args static-cap "${PILOT_STATIC_RATE:-}" >/dev/null \
     || fail "stage B runs the static arm at the rate R fitted in stage A; set PILOT_STATIC_RATE"
   RATE=0 NOISY_WEIGHT=0
@@ -2110,7 +2115,7 @@ deploy_arm() {
           || cell_refused_stop "$label" "${rep:-unknown}" before-replay "REFUSED $label before replay: $why"
       elif pp_is_study "${STUDY:-}" && [ -z "${LADDER:-}" ]; then
         # An engine that is not the registered apparatus stops the pilot: its measurements would be of another one.
-        why=$(pp_process_args_refusal "$ENGINE_PROCESS_ARGS" "$MODEL_REVISION") \
+        why=$(pp_process_args_refusal "$ENGINE_PROCESS_ARGS") \
           || cell_refused_stop "$label" "${rep:-unknown}" before-replay "REFUSED $label before replay: $why"
       fi
       routing_record "$NS_A" vllm-qwen25-3b
@@ -2782,20 +2787,14 @@ cell_deadline_check() {
 
 cell_deadline_check_inner() {
   local remain per projected floor warm_pair
-  # The pilot has no projection stop (design page, build item 10). Its projection would include the cold first
-  # cell and multiply by 1.2, which refuses every pilot session after its first cell. Its cell count is the
-  # registration's, its deadlines are sized from that count, and the hard stop and the sweeper bound its time.
-  # What stays is the floor no projection is needed for: a cell does not start with under 15 minutes left,
-  # because its 7-minute replay, restart and capture cannot fit.
+  # The pilot has no projection stop and no forecast floor (design page, build item 10; pilot review 11, finding
+  # 4). Its projection would include the cold first cell and multiply by 1.2, which refuses every pilot session
+  # after its first cell, and no minimum cell time is established. Its cell count is the registration's, its
+  # deadlines are sized from that count, and the hard stop and the sweeper bound its time; a cell cut short is
+  # an ineligible cell, which the report says.
   if [ -z "${LADDER:-}" ] && pp_is_study "${STUDY:-}"; then
-    JUDGE_BASIS="pilot: projection disabled, 15-minute floor"
-    remain=$(deadline_remaining_minutes 2>/dev/null) || return 0
-    [ -n "$remain" ] || return 0
-    JUDGE_REMAIN="$remain"
-    if [ "$remain" -lt 15 ]; then
-      echo "STOPPING: the deadline fires in ${remain} min, and no pilot cell fits in under 15" >&2
-      return 1
-    fi
+    JUDGE_BASIS="pilot: no projection stop"
+    JUDGE_REMAIN=$(deadline_remaining_minutes 2>/dev/null || true)
     return 0
   fi
   # BEFORE the first cell there is no measured rate to project from -- but there is still a deadline, and
@@ -3404,6 +3403,9 @@ run_cell() {
     --api-keys "premium-1=premium-key,standard-noisy=standard-key" \
     --raw-out "$OUT/raw-$label-$rep.jsonl" || fail "replay $label"
   [ -s "$OUT/raw-$label-$rep.jsonl" ] || fail "no raw evidence for $label rep $rep"
+  # The pilot's capture bound runs from the replay's return, before anything else is done (pilot review 11).
+  local replay_done_epoch
+  replay_done_epoch=$(date +%s)
   scrape_engine_metrics "$arm" "$label" "$rep" after
   # The pilot's capture: fence, terminal record, logs, the gateway's record and the priority witness. An
   # ineligible cell goes on to the next arm; an apparatus that was not the registered one stops the pilot below.
@@ -3411,7 +3413,7 @@ run_cell() {
   if [ -z "${LADDER:-}" ] && pp_is_study "${STUDY:-}"; then
     pp_phase "$label" "$rep" replay-done
     local pc_out pc_rc
-    pc_out=$(pp_capture "$label" "$rep") && pc_rc=0 || pc_rc=$?
+    pc_out=$(pp_capture "$label" "$rep" "$replay_done_epoch") && pc_rc=0 || pc_rc=$?
     [ -z "$pc_out" ] || printf '%s\n' "$pc_out" | tee -a "$LOG"
     [ "$pc_rc" != 3 ] || pilot_stop="the engine was not the registered apparatus: $pc_out"
     if [ -z "$pilot_stop" ] && [ -z "${PP_CALIBRATED:-}" ]; then

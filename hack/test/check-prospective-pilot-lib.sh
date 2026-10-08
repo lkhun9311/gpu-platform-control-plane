@@ -17,7 +17,7 @@ ok() { echo "ok: $*"; }
 bad() { echo "FAIL: $*"; fails=$(( fails + 1 )); }
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
-rev=$(printf 'b%.0s' $(seq 1 40))
+rev="$PP_MODEL_REVISION"
 
 # The renderer: four changes to the real base manifest, and refusal on a base without its anchors.
 if out=$(pp_render_manifest config/vllm/deployment.yaml "$work/engine.yaml" "$rev"); then
@@ -54,10 +54,13 @@ fi
 
 # The validator, on a line shaped like the real one, and on astra's specimen from the design's round 4.
 good="non-default args: {'model_tag': 'Qwen/Qwen2.5-3B-Instruct', 'model': 'Qwen/Qwen2.5-3B-Instruct', 'dtype': 'half', 'max_model_len': 16384, 'gpu_memory_utilization': 0.9, 'enable_prefix_caching': False, 'enable_logging_iteration_details': True, 'max_num_batched_tokens': 512, 'max_num_seqs': 64, 'scheduling_policy': 'priority', 'scheduler_cls': 'pilot_step_logger.PilotStepLoggingScheduler', 'async_scheduling': False, 'revision': '$rev', 'tokenizer_revision': '$rev'}"
-if out=$(pp_process_args_refusal "$good" "$rev"); then ok "the registered engine passes"; else bad "the registered engine was refused: $out"; fi
+if out=$(pp_process_args_refusal "$good"); then ok "the registered engine passes"; else bad "the registered engine was refused: $out"; fi
 check_refused() {
   local name="$1" line="$2" out
-  if out=$(pp_process_args_refusal "$line" "$rev"); then bad "$name passed"; else ok "$name refuses: $out"; fi
+  # A refusal must say why: a validator that crashed also exits non-zero, with nothing on stdout.
+  if out=$(pp_process_args_refusal "$line"); then bad "$name passed"
+  elif [ -z "$out" ]; then bad "$name was refused without a reason, which is what a crash looks like"
+  else ok "$name refuses: $out"; fi
 }
 check_refused "prefix caching on, bfloat16, one sequence, context 8192, memory 0.5" "$(printf '%s' "$good" | sed \
   -e "s/'enable_prefix_caching': False/'enable_prefix_caching': True/" -e "s/'dtype': 'half'/'dtype': 'bfloat16'/" \
@@ -69,6 +72,13 @@ check_refused "iteration logging left off" "$(printf '%s' "$good" | sed "s/, 'en
 check_refused "the frozen instrument instead of the pilot's" "$(printf '%s' "$good" | sed "s/pilot_step_logger.PilotStepLoggingScheduler/step_logging_scheduler.StepLoggingScheduler/")"
 check_refused "an unregistered non-default key" "$(printf '%s' "$good" | sed "s/}\$/, 'max_loras': 4}/")"
 check_refused "no args line at all" "INFO started"
+# The revision and model are the registration's, whatever the caller passes (pilot review 11, finding 3).
+check_refused "an unregistered revision" "$(printf '%s' "$good" | sed "s/$rev/$(printf 'd%.0s' $(seq 1 40))/g")"
+check_refused "a different model" "$(printf '%s' "$good" | sed "s#Qwen/Qwen2.5-3B-Instruct#Qwen/Qwen2.5-7B-Instruct#g")"
+check_refused "the model keys absent" "$(printf '%s' "$good" | sed "s#'model_tag': 'Qwen/Qwen2.5-3B-Instruct', 'model': 'Qwen/Qwen2.5-3B-Instruct', ##")"
+stub_line=$(printf '%s' "$good" | sed "s#'model_tag': 'Qwen/Qwen2.5-3B-Instruct', 'model': 'Qwen/Qwen2.5-3B-Instruct'#'model_tag': 'stub', 'model': 'stub'#")
+if ENGINE_PIN_WAIVED=1 pp_process_args_refusal "$stub_line" >/dev/null; then ok "a rehearsal with the pin waived excuses the stub's model name"; else bad "a waived rehearsal's stub was refused"; fi
+check_refused "the stub's model name without the waiver" "$stub_line"
 
 # The gateway: every arm binds, enforces and records; only admission differs; the static arm needs its rate.
 for arm in R1 off static-cap prospective; do
