@@ -23,9 +23,10 @@ import (
 const (
 	pilotStaticBurst     = 30000
 	pilotStaticThreshold = 1
-	pilotFitMargin       = 0.05
-	pilotFitMaxRate      = 20000
-	pilotPremiumTenant   = "premium-1"
+	// pilotFitMarginParts is the margin's denominator: a_S <= a_P - 1/20, compared in integers by withinMargin.
+	pilotFitMarginParts = 20
+	pilotFitMaxRate     = 20000
+	pilotPremiumTenant  = "premium-1"
 	// pilotFitBlocks is stage A's three P blocks; the rule holds "on every trace", so a fit on fewer is a fit on
 	// a different set of traces.
 	pilotFitBlocks = 3
@@ -50,8 +51,10 @@ type fitContender struct {
 // fitCell is one stage A P block, joined from its client rows and its gateway record.
 type fitCell struct {
 	name        string
+	block       string
 	contenders  []fitContender
 	offeredExct int64
+	admittedP   int64
 	aP          float64
 }
 
@@ -79,6 +82,7 @@ func fitPilotRate(args []string, stdout io.Writer) error {
 		return fmt.Errorf("the fit is registered on stage A's %d P blocks and was given %d", pilotFitBlocks, len(cells))
 	}
 	var fit []fitCell
+	seen := map[string]bool{}
 	for _, c := range cells {
 		raw, record, ok := strings.Cut(c, ":")
 		if !ok || raw == "" || record == "" {
@@ -88,14 +92,25 @@ func fitPilotRate(args []string, stdout io.Writer) error {
 		if err != nil {
 			return err
 		}
+		// Each registered block once: the same evidence passed three times, under one path or several, would fit R
+		// on one trace and print it as holding on all three (review of 1f2522e).
+		if seen[fc.block] {
+			return fmt.Errorf("%s is block %s again; the fit needs stage A's three P blocks, each once", raw, fc.block)
+		}
+		seen[fc.block] = true
 		fit = append(fit, fc)
+	}
+	for b := 1; b <= pilotFitBlocks; b++ {
+		if want := fmt.Sprintf("pp-A-prospective-%d", b); !seen[want] {
+			return fmt.Errorf("no -cell is block %s; the fit is registered on stage A's P blocks 1 to %d", want, pilotFitBlocks)
+		}
 	}
 
 	best := 0
 	for r := 1; r <= pilotFitMaxRate; r++ {
 		ok := true
 		for i := range fit {
-			if simulateStatic(fit[i].contenders, float64(r)) > fit[i].aP-pilotFitMargin {
+			if !withinMargin(simulateStaticAdmitted(fit[i].contenders, float64(r)), fit[i].admittedP, fit[i].offeredExct) {
 				ok = false
 				break
 			}
@@ -112,28 +127,42 @@ func fitPilotRate(args []string, stdout io.Writer) error {
 		_, _ = fmt.Fprintln(stdout, line)
 	}
 	if best == 0 {
-		return fmt.Errorf("no R in 1..%d gives a_S <= a_P - %.2f on every block; the outcome is \"stage B not acquired; R unavailable\"",
-			pilotFitMaxRate, pilotFitMargin)
+		return fmt.Errorf("no R in 1..%d gives a_S <= a_P - 1/%d on every block; the outcome is \"stage B not acquired; R unavailable\"",
+			pilotFitMaxRate, pilotFitMarginParts)
 	}
 	_, _ = fmt.Fprintf(stdout, "R=%d\n", best)
 	return nil
 }
 
-// simulateStatic returns the fraction of the contenders' exact tokens a fresh static bucket at rate r admits,
-// driven by their recorded arrival instants.
+// withinMargin reports a_S <= a_P - 0.05 in integers: 20 a_S_tokens <= 20 a_P_tokens - offered. In floating point
+// the boundary itself fails, since 0.7 - 0.05 is slightly below 0.65, and rejects a valid R (review of 1f2522e).
+func withinMargin(admittedS, admittedP, offered int64) bool {
+	return pilotFitMarginParts*admittedS <= pilotFitMarginParts*admittedP-offered
+}
+
+// simulateStatic returns the fraction of the contenders' exact tokens a fresh static bucket at rate r admits.
 func simulateStatic(cs []fitContender, r float64) float64 {
+	var offered int64
+	for _, c := range cs {
+		offered += int64(c.exact)
+	}
+	return float64(simulateStaticAdmitted(cs, r)) / float64(offered)
+}
+
+// simulateStaticAdmitted returns the exact tokens a fresh static bucket at rate r admits, driven by the contenders'
+// recorded arrival instants.
+func simulateStaticAdmitted(cs []fitContender, r float64) int64 {
 	var at time.Time
 	adm := gateway.NewStaticCapAdmitterAtClock(r, pilotStaticBurst, pilotStaticThreshold, func() time.Time { return at })
 	backend := &gateway.BackendRef{Namespace: "sim", Name: "engine", Port: 8000, URL: &url.URL{Scheme: "http", Host: "sim"}}
-	var offered, admitted int64
+	var admitted int64
 	for _, c := range cs {
 		at = time.Unix(0, c.arrived)
-		offered += int64(c.exact)
 		if ok, _ := adm.Admit(context.Background(), gateway.RequestMeta{Model: "sim", EstInputTokens: c.est}, backend, "", "standard"); ok {
 			admitted += int64(c.exact)
 		}
 	}
-	return float64(admitted) / float64(offered)
+	return admitted
 }
 
 // loadFitCell joins a P cell's contender rows to its gateway record.
@@ -187,6 +216,12 @@ func loadFitCell(rawPath, recordPath string) (fitCell, error) {
 			undecided = append(undecided, row.RequestID)
 			return nil
 		}
+		block := row.RequestID[:strings.LastIndex(row.RequestID, "-")]
+		if fc.block == "" {
+			fc.block = block
+		} else if block != fc.block {
+			return fmt.Errorf("its contenders come from two blocks, %s and %s", fc.block, block)
+		}
 		fc.contenders = append(fc.contenders, fitContender{id: row.RequestID, arrived: g.ArrivedUnixNanos,
 			est: bench.EstInputTokensForChars(row.PromptLenChars), exact: row.ExactInputTokens, admitted: g.Decision == "admit"})
 		return nil
@@ -206,14 +241,13 @@ func loadFitCell(rawPath, recordPath string) (fitCell, error) {
 		}
 		return fc.contenders[i].id < fc.contenders[j].id
 	})
-	var admitted int64
 	for _, c := range fc.contenders {
 		fc.offeredExct += int64(c.exact)
 		if c.admitted {
-			admitted += int64(c.exact)
+			fc.admittedP += int64(c.exact)
 		}
 	}
-	fc.aP = float64(admitted) / float64(fc.offeredExct)
+	fc.aP = float64(fc.admittedP) / float64(fc.offeredExct)
 	return fc, nil
 }
 
