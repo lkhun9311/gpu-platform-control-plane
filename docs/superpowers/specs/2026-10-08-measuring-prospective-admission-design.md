@@ -862,7 +862,16 @@ Blindness was meant to prevent one harm: a designer who has seen the P/S effect 
 - **the lag ceiling** = max(50 ms, 2 × the largest dispatch lag observed in either stage);
 - **the uncertainty cap** stays 0.1%. If any arm's uncertain fraction at the new L exceeds 0.05% in the pilot, the design returns to review instead;
 - **the width screen** stays at a half-width of 0.043, fixed;
-- **durations and deadlines** = the measured session and arm times plus 25%.
+- **durations and deadlines,** from `cell-timings.tsv`, which the runner already writes per cell (`m5c-matrix.sh:2281`):
+  - **arm time** = the largest `elapsed_s` of any arm in either stage;
+  - **bring-up** = the larger of the two stages' times from launch to the first cell's start;
+  - **main session length** = bring-up + 12 × arm time, × 1.25;
+  - **hard stop** = the main session length;
+  - **acquisition deadline** = hard stop − 6 min;
+  - **backstop** = hard stop + 10 min;
+  - **`study-deadline`** = hard stop + 20 min, with the reserved lifetime at deadline + 15 min, as now.
+
+  Maximum, not mean, so that a repeat of the slowest arm fits (pilot review 6, finding 3). If the formula gives a main session over 4 h 20, three sessions no longer fit one login, and the cost and login plan are recomputed in the next design, not chosen.
 
 **The formulas run only on timing evidence that is complete, unambiguous and witnessed.** v4 and v5 of this scope listed the cases that make evidence unusable, and each review found one more:
 - a served request without a record (pilot review 4, finding 1);
@@ -872,8 +881,12 @@ Blindness was meant to prevent one harm: a designer who has seen the P/S effect 
 
 v6 states the condition positively instead. **An arm's timing evidence is eligible only if all of these hold:**
 1. **Every client row has exactly one gateway record, and every gateway record exactly one client row,** joined by an ID that occurs once. Refusals are included: a refused request is recorded at its arrival, before admission, like any other.
-2. **The only exception is a request with no gateway record that failed before any response.** Even then, it counts only if the arm's step log is complete and has no record of it. Without a complete log, it is not known whether the request reached the engine, and the arm is ineligible.
-3. **The arm's step log is complete** by the counts under build item 6, so its priority witness covers every request that reached the scheduler.
+2. **There is no exception for a request with no gateway record.** v6 excused one that failed before any response and had no scheduler record. Pilot review 6 (finding 1) showed a request can be admitted, stall before the scheduler, time out, and lose its record, and the exception would accept it. The durable write is intended, not proof that an absent record never existed.
+3. **The arm's step log is complete** by the counts under build item 6, and **its coverage reaches the window end, on an independent clock** (pilot review 6, finding 2).
+   - vLLM's own iteration log lines carry a timestamp. On the committed CPU fixture: `INFO 10-06 13:07:23 [loggers.py:182] Engine 000: Iteration(0)`.
+   - So every iteration whose logged time is at least 2 s before the plugin's terminal record must correspond to a plugin step.
+   - An iteration earlier than that, beyond the plugin's last step, means the plugin stopped recording while the engine ran on. The arm is ineligible.
+   - Build item 6's rule, which compares only up to the plugin's last step and treats the rest as post-window, is tightened this way for the main study too. Without it, a plugin that stopped after step 70 while the engine logged 100 more steps before the window end would hide about 51,200 prefill tokens, 3.2 points of p, more than the margin the pilot measures.
 
 The formulas read only eligible arms, and **they need every arm of both stages to be eligible.** Otherwise their outputs are **unavailable**, and the design returns to review.
 - Thirteen 900 ms requests without records among 12,285 turn a true ceiling of 1,800 ms into 50 ms.
