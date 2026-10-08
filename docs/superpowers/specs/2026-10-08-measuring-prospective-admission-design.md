@@ -1,4 +1,4 @@
-# Measuring prospective admission directly (item 3): the design, v18
+# Measuring prospective admission directly (item 3): the design, v19
 
 *Drafted 2026-10-08 for the owner's approval before anything is built. The owner approved paid runs for this direction on 2026-10-08, and asked for the design to be attacked as hard as possible before money is spent. Nothing is bought until a registration built from this design is frozen.*
 
@@ -23,7 +23,8 @@
 | v15 | f750185 | astra's review of v14 | 2 blockers, 1 minor |
 | v16 | ed0a06a | astra's review of v15 | 2 blockers, 1 minor |
 | v17 | 46353cc | astra's review of v16 | 2 blockers, 1 major |
-| v18 | this page | astra's review of v17 | 2 blockers, 2 majors |
+| v18 | 92c2c16 | astra's review of v17 | 2 blockers, 2 majors |
+| v19 | this page | astra's review of v18 | 3 blockers, 2 majors, 1 minor |
 
 **Who established what.**
 - astra read the code and found the defects. Each round was given only the page and the repository, never told where to look.
@@ -286,9 +287,15 @@ Rounds 12 to 17 each found a delay that defeated the latest timing rule.
 - An uncertain request's TTFT is not used as a value. Like a missing record, it is **bounded over 0 to +∞** (see "Uncertain requests and the decision" below), and the decision must hold whatever it was.
 - **More than 0.1% uncertain premium requests in an arm makes the outcome "invalid".** Stage A refuses if more than 0.05% of its requests have lag above L, so a main study is not bought onto a harness that cannot keep up.
 
-**What remains trusted, and its bound.** Every other request was dispatched within 5 ms of its scheduled instant. That lag is in its TTFT-scheduled, so it can move any p99 by at most 5 ms.
-- The bias this can put into P/S is at most 5 ms over S's p99. It is computed and published per instance.
-- Stage A reports O's p99, so the size of that bound is known before purchase. At a p99 of 1 s it is 0.5%.
+**Trusted lag is not merely published: it is in the decision's bounds.** v18 published the 5 ms bias beside the result. Round 18 (finding 3) showed what that allowed: a 1.5 ms lag on S turned a true ratio of 0.99 into 0.92, a pass. v19 takes each arm's TTFT in the definition conservative for the side being bounded (see "The interval for each instance's y" below). So every dispatch lag, trusted or not, can only move the decisive bound against P.
+
+**What lag can do to other requests, and its rule.** A request's lag also changes when its load arrives, and so what other requests meet. Bounding a late request's own TTFT does not bound that (round 18, finding 2): two contenders per replay delayed 900 ms can move which premium requests meet a prefill, while every premium request is on time.
+- **The contender lag rule:** every contender in an arm must have lag at most 50 ms, or the outcome is "invalid". Stage A refuses if any contender's lag exceeds 25 ms, so the main study starts with headroom.
+- **The premium lag rule is the 0.1% uncertainty cap,** with the p99 and p99.9 rules above.
+- **What remains, stated in the claim:** load shifted by up to 50 ms per contender, and 5 ms per trusted premium request, can change which premium requests meet contention.
+  - Its effect on the tail is not bounded by any measurement in this design.
+  - A contender's prefill takes on the order of seconds at a 512-token budget, so a 50 ms shift moves its contention by a small fraction of its length.
+  - That is an argument, not a bound, and the page says so.
 
 **Arm-blindness is kept as an integrity check, not as the defence** (build item 26). Round 17 (finding 4) showed literal argument equality cannot work on this runner: the manifest, raw output path and request-ID prefix legitimately differ per arm (`m5c-matrix.sh:3323`). The check compares the **resolved sending configuration**, normalised for those three:
 - timeout;
@@ -303,11 +310,11 @@ Rounds 12 to 17 each found a delay that defeated the latest timing rule.
 - **The end is a server-side stamp,** so a delay in the client's reading or parsing of the response is not in it (round 15, finding 1). The client's first-content stamp follows its own read and parse (`httpsender.go:415`, `:507`). The gateway's existing first-byte stamp closes on the response headers, not the first token (`proxy.go:208`).
 - **The start is the scheduled instant,** the open-loop convention. Any delay before the request lands is charged to that request, so it can never shorten one. A late-delivered request cannot skip a queue it was scheduled into (round 15, finding 2).
 
-**A consistency check, not a second test.** TTFT-arrival, measured from the gateway's arrival stamp to the same end, is computed too. Benefit additionally requires the **mean** of ln(P/S) on TTFT-arrival to be below 0 at every vertex of its uncertainty box.
-- This catches a gross discordance, such as a benefit present only in scheduled time, which would mean S's requests waited before the gateway rather than inside it.
-- A point check costs little power: at a true P/S of 0.80, the arrival mean sits near ln 0.8 with SE σ/√12.
+**TTFT-arrival is measured too,** from the gateway's arrival stamp to the same end. A request's two TTFTs differ by exactly its dispatch lag:
+- TTFT-scheduled includes any wait before the request landed;
+- TTFT-arrival excludes it.
 
-Both definitions' results are published.
+The decision's bounds use whichever is conservative (next section), so v18's separate consistency check is no longer needed. Both definitions' results are published.
 
 **A premium request whose response arrived but whose gateway record is missing has no forwarding stamp.** It is uncertain, like a late one, and counts toward the same 0.1% cap.
 
@@ -321,20 +328,28 @@ Both definitions' results are published.
 **Uncertain requests and the decision** (round 16, finding 2; round 17, findings 1 and 3). v16 set a missing P value to +∞, believing that could only hurt P. But the t bound is not monotone in one observation: raising one instance's y from −2 to −0.11 shrank the SD enough to turn U = +0.026 into U = −0.099, a pass. So the uncertain values are bounded rather than imputed.
 
 **The interval for each instance's y.** p99 rises with any one value, so the ratio's extremes come from opposite assignments in the two arms:
-- **y_lo** = ln(p99_P with P's uncertain values at 0 / p99_S with S's uncertain values at +∞);
-- **y_hi** = ln(p99_P with P's at +∞ / p99_S with S's at 0).
+- **y_hi** = ln(p99 of P's **TTFT-scheduled**, with P's uncertain values at +∞ / p99 of S's **TTFT-arrival**, with S's uncertain values at 0);
+- **y_lo** = ln(p99 of P's **TTFT-arrival**, with P's uncertain values at 0 / p99 of S's **TTFT-scheduled**, with S's uncertain values at +∞).
+
+**Why the definitions cross.** On y_hi, the bound the benefit decision must clear:
+- P carries every wait it had before landing;
+- S is credited with none of its own.
+
+So no dispatch lag in either arm, trusted or uncertain, can move y_hi in P's favour. Round 18's example (finding 3), a true 0.99 shown as 0.92 by 1.5 ms of S lag, gives y_hi = ln(19.8 / 20) = −0.010, above ln 0.95, and fails. I re-computed it.
 
 v17 set both arms to 0 and then both to +∞. That is not the extremes. Round 17 (finding 1) built a case where both settings gave 0.792 while the true ratio could be 0.99, and the false benefit passed. Under the corrected interval, that case gives a maximum U of +0.021, a fail, which I re-computed.
 
 **The decision over the box.**
 - The upper bound U = mean + t·sd/√n is convex in the vector of y's: a linear mean plus a norm. A convex function's maximum over a box is at one of its vertices.
-- **So benefit requires U < ln 0.95 at every vertex,** each instance at y_lo or y_hi, at most 2¹² = 4,096 combinations. The same applies to P/O.
+- **So benefit requires U < ln 0.95 at every vertex,** each instance at y_lo or y_hi, at most 2¹² = 4,096 combinations.
+- **P/O is bounded the same way,** with O in S's place, and requires U < 0 at every vertex. Its threshold is 0, not ln 0.95 (round 18, finding 6).
 - I checked convexity numerically: 400,000 random interior points never exceeded their box's vertex maximum.
 
 **Infinite ends.**
 - If p99_P is +∞ at y_hi (failures plus uncertain values above the rank), then y_hi = +∞, U = +∞ at that vertex, and benefit fails. Round 17 (finding 3) showed 116 failures plus 11 uncertain values can do this while both caps pass.
-- If p99_S is +∞ at y_lo, then y_lo = −∞. This can only make P look better, and so it never decides a benefit: the decision reads the y_hi side at the vertex that defeats it.
+- If p99_S is +∞ at y_lo, then y_lo = −∞, and **benefit fails as well.** v18 said this end could only help P, and round 18 (finding 1) showed otherwise. As one observation goes to −∞, the SD grows faster than the mean falls: with eleven at a and one at a − d, U = a + 0.796 d / 12, which goes to +∞. So the vertex at y_lo defeats the decision. I re-computed this: d = 10 gives U = 0.563, and d = 1,000 gives 66.2.
 - If both p99s are infinite at the same vertex, that instance's y is undefined there, and benefit fails.
+- **So any infinite end on any instance fails benefit.** The futility look still reads y_lo, and treats −∞ as continuing.
 
 **The futility look uses y_lo, the end most favourable to P.** It stops only if even that end's mean is at or above 0. Stopping for futility cannot raise the false-benefit rate, and this choice makes the stop deterministic (round 17, finding 3).
 
@@ -351,7 +366,7 @@ v17 set both arms to 0 and then both to +∞. That is not the extremes. Round 17
 
 **Decision: a futility look, then one test.**
 - **At 6 contributing instances:** if the mean of y_lo is at or above ln 1.0, stop with outcome "no demonstrated benefit".
-- **At 12 contributing instances:** benefit if the one-sided 95% t upper bound of mean y is below ln 0.95, and the one-sided 95% t upper bound of mean ln(P/O) is below 0.
+- **At 12 contributing instances:** benefit if, at every vertex of the box, the one-sided 95% t upper bound of mean y is below ln 0.95, and that of mean ln(P/O) is below 0.
 - **Launches exhausted (14) with fewer than 12 contributing:** the outcome is "insufficient".
   - v12 tested 6 to 11 instances here, and round 12 (finding 4) showed that branch unreachable: only Spot interruptions leave a launch uncounted without making the study invalid, and more than two of them already give "insufficient".
   - So 14 launches with at most two interrupted always yield 12 contributing instances.
@@ -362,7 +377,7 @@ v17 set both arms to 0 and then both to +∞. That is not the extremes. Round 17
 - the instance log-ratios are approximately normal;
 - they are independent;
 - **Spot interruptions are unrelated to how an instance would have performed** (round 11, finding 3);
-- **dispatch lag of at most 5 ms on a trusted request does not matter beyond the published bound** (see "Late requests are not trusted, they are bounded"). This is a measured quantity, not an assumption about the harness's intent.
+- **load shifted by permitted lag does not change which premium requests meet contention enough to matter.** That is at most 50 ms per contender and 5 ms per trusted premium request (see "What lag can do to other requests"). A request's own lag is in the decision's bounds; its effect on others is not, and is not measured.
 
 Recording `StateReason` establishes an interruption's cause, not its independence. If the worst tenth of launches were the ones interrupted, round 11's simulation gives 15% false benefit at the null.
 
@@ -381,6 +396,16 @@ Recording `StateReason` establishes an interruption's cause, not its independenc
 | 0.30 | 59% | 58.48% |
 
 **Error at a true P/S of 0.95:** 4.9% to 5.1% (mine) and 4.98% (astra's).
+
+**The table assumes complete, lag-free observation, and the registered decision is never more powerful than it** (round 18, finding 5).
+- The decision reads y_hi, which is y moved against P by uncertain values and by every dispatch lag. So the decision's power is at most the table's, and can be much less.
+- **Round 18's example:** 9 uncertain P values sitting just below the p99 rank, 0.077% of the arm and inside the cap, move y_hi from ln 0.8 to ln 10.
+- How much power is lost depends on how many requests are uncertain and how the latencies are spaced around each p99. Neither is known before stage A.
+- **Stage A measures and publishes both:**
+  - the uncertain fraction per arm;
+  - the gap y_hi − y on its own P/O, which needs no S.
+
+  If that gap's mean exceeds 0.05, half the distance from ln 0.95 to ln 0.8, the design returns to review rather than buying a study the bounds would starve.
 
 **This is the primary's power alone.** v8 prints no joint feasibility figure.
 - The two whole-study gates, validity and premium loss, have survival probabilities nothing before the main study measures.
@@ -561,7 +586,9 @@ Today the hook uploads only after a replay and its log capture (`m5c-matrix.sh:3
     - one whose `Send` sleeps 300 ms before its HTTP write;
     - one that holds every S request in a transport wrapper for 200 ms after `WroteRequest` and before the flush. That is round 13's case, which v13's stamp would not see.
 24. **A terminal timestamp on every outcome.** Every row carries `EndUnixNanos`: the instant the sender returned, for timeouts, transport errors and non-200 responses too. Today those three return without one (`httpsender.go:346`, `:366`). The window end needs it (see the comparator), and a row without one refuses the run.
-25. **TTFT from the scheduled instant to the gateway's first-content forward.**
+25. **TTFT-scheduled and TTFT-arrival, both ending at the gateway's first-content forward,** crossed in the bounds: y_hi is P-scheduled over S-arrival, and y_lo is P-arrival over S-scheduled. Any infinite end fails benefit. P/O has its own threshold, 0. Tested on:
+    - round 18's 1.5 ms S-lag example, which must fail;
+    - round 18's −∞ example, which must fail.
     - The gateway stamps the instant it forwards the first content frame, which needs it to recognise the first non-empty content delta in the stream.
     - TTFT-arrival is computed beside it for the consistency check.
     - Uncertain requests (lag above 5 ms, or no gateway record) are bounded over the corrected box, with P and S at opposite ends, under the 0.1% cap.
@@ -569,6 +596,8 @@ Today the hook uploads only after a replay and its log capture (`m5c-matrix.sh:3
     - Tested on round 17's 0.792 example, which must fail.
     - Tested on round 16's example, which must fail at its −2 vertex.
     - The client-stamp TTFT is published as well.
+27. **One connection pool per block.** Today the pooled sender sizes its pool from each arm's own trace (`httpsender.go:100`, `:147`). I, with no contenders, would get about 278 connections against the others' 293 (round 18, finding 4). The pool is computed once from the block's full trace and passed to every arm, I included.
+28. **The contender lag rule:** at most 50 ms in the main study, 25 ms in stage A.
 26. **An arm-blind harness, checked on the resolved sending configuration,** with the manifest, raw output path and ID prefix normalised:
     - The harness writes its resolved sending configuration into each raw file: timeout, pool, concurrency, stream options and sender settings. The analysis refuses a block whose arms differ in any of them. The binary's hash must match across arms.
     - The ID prefix must differ per arm and per block, for study-wide uniqueness, and the analysis checks that it does.
@@ -682,6 +711,21 @@ The AWS SSO session lasts at most 12 hours from a login.
 - The ledger limits what the study starts. It cannot stop an instance already running, which is the terminators' job.
 - After the session it records launch and termination times from EC2 and CloudTrail.
 - Billed amounts come from Cost Explorer when it settles, and are published beside the estimate.
+
+## What v19 changed, against the review of v18
+
+| v18 finding | Change |
+|---|---|
+| 1: the −∞ end was dismissed but defeats the decision | any infinite end fails benefit; re-computed (U → +∞ as one y → −∞) |
+| 2: a late contender shifts what others meet | a contender lag rule, 50 ms main and 25 ms stage A; the residual load-shift effect stated in the claim as unmeasured |
+| 3: trusted lag was published, not applied | the bounds cross definitions: y_hi = P-scheduled over S-arrival, so no lag can favour P; round 18's 0.99-as-0.92 example now fails |
+| 4: per-arm pools differ for I | one pool per block, from the full trace (build item 27) |
+| 5: the power table ignores the bounds | stated as an upper bound on the decision's power; stage A measures the uncertain fraction and the y_hi gap, with a stop above 0.05 |
+| 6: P/O's threshold was ambiguous | P/O requires U < 0 at every vertex |
+
+**A correction to v18's own claim.** v18 said bounding late requests closed the timing attacks. It closed attacks on a late request's own TTFT. It did not close a late request's effect on others, which v19 bounds by the contender lag rule and states as unmeasured beyond that.
+
+Round 18 re-derived the power table and every cost figure, and agreed with each. No cost figure changed in v19.
 
 ## What v18 changed, against the review of v17
 
