@@ -1003,11 +1003,14 @@ A step log that fails its completeness check does not stop the next arm. It make
 
 **Measured on kind, not on the card.** Dispatch lag p50 is about 0.9 ms, but p99.9 is about 102 ms in every arm. That is the client's port-forward, so on kind every width is infinite at L = 5 ms. The card's lag is what stage A measures.
 
-**Not built yet, and each blocks purchase:**
-- item 16, the sweeper, and its exercise; its `terraform apply` is the owner's step;
-- item 8, the evidence sidecar;
-- the rehearsal's two injected ineligible arms (a stopped step log and a deleted gateway record);
-- the CPU rehearsal with real vLLM.
+**Built later the same day:**
+- Item 16: `infra/aws/bootstrap/sweeper.tf` and `sweeper/sweeper.py`, which terminates any live instance whose `study-deadline` tag has passed, or cannot be read as a zoned time. The pilot's launch carries the tag at hard stop + 20 min. `hack/sweeper-exercise.sh` is the exercise. Validated with `terraform validate`; not applied and not exercised.
+- Item 8: the harness appends each row durably to `live-raw-<cell>.jsonl` as its request ends. During each replay a sidecar hands those rows and a fresh gateway record to S3 every 30 s, and at once on a Spot notice polled from the metadata service. Each upload is logged in `sidecar-uploads.tsv`, and the report gives the lag of requests that met an upload apart. Reconstruction against the block plan is not built; a pilot cell cut short is ineligible anyway.
+- Item 13: for the pilot, the credential check refuses an expiry it cannot establish, an active role sts cannot name, and a cache entry naming only an account.
+- The rehearsal's two injected ineligible arms: stage A's `off-2` with its step log stopped mid-cell by the stub, and stage B's `R1-3` with one request's gateway record deleted. The report must mark exactly those two ineligible, for those reasons.
+- The CPU run with real vLLM v0.27.1 (`hack/vllm-plugins/validate-pilot-on-cpu.sh`) passed: terminal record, ID join, scheduler-side priority, alignment through the fence, and every request's prefill equal to its prompt and its decode to its output less one, including 1,230-token prompts chunked under the 512 budget. Evidence: `data/2026-10-08-pilot-cpu-validation/`.
+
+**Still before purchase, each the owner's step:** an SSO login to gpu-lab; `terraform apply` of the bootstrap stack there; the sweeper exercise passing.
 
 ## What v21 changed, against the review of v20
 
