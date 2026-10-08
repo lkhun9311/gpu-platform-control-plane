@@ -353,8 +353,10 @@ func stubWithArgs(line string, args []stubArg, noPrefixCaching bool) string {
 	return body + "}"
 }
 
+// It names the model under both 'model_tag' and 'model', as the archived vLLM lines do, because the pilot's engine
+// validator requires the 'model' key and refused a rehearsal whose stub printed only the first.
 func stubNonDefaultArgs(port int, noAsync, iterDetails bool) string {
-	s := fmt.Sprintf("non-default args: {'model_tag': 'stub', 'port': %d", port)
+	s := fmt.Sprintf("non-default args: {'model_tag': 'stub', 'model': 'stub', 'port': %d", port)
 	if noAsync {
 		s += ", 'async_scheduling': False"
 	}
