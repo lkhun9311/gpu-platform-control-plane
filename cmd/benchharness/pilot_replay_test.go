@@ -78,7 +78,7 @@ func TestPilotReplayFixesItsSenderAndRecordsIt(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		live, err := os.ReadFile(raw + ".live.jsonl")
+		live, err := os.ReadFile(filepath.Join(dir, "live-raw-"+arm+".jsonl"))
 		if err != nil {
 			t.Fatalf("no live rows for %s: %v", arm, err)
 		}

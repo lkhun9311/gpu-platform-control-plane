@@ -733,7 +733,8 @@ func replay(args []string) error {
 	if recordTiming {
 		// Each row is appended durably as its request ends, so the evidence sidecar can carry it off the instance
 		// while the replay is still running (design page, build item 8).
-		if live, err = openLiveRows(*rawOut + ".live.jsonl"); err != nil {
+		// Named live-raw-*, not raw-*.live.jsonl: every reader of raw-*.jsonl would count it as a cell's rows.
+		if live, err = openLiveRows(filepath.Join(filepath.Dir(*rawOut), "live-"+filepath.Base(*rawOut))); err != nil {
 			return err
 		}
 	}
