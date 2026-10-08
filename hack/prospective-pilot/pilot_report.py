@@ -159,6 +159,12 @@ def cell_report(stage_dir, arm, rep):
             problems.append("the gateway recorded %s twice" % rid)
             break
 
+    # The sidecar's uploads during this cell, so the lag of requests that met one can be reported apart: classified
+    # by the scheduled instant or the scheduled-to-arrival interval, not by the send, which an upload may have held
+    # back past its own end (design page, the measurement table's sidecar row).
+    uploads = [u for u in (read_tsv(os.path.join(stage_dir, "sidecar-uploads.tsv")) or []) if u["cell"] == tag]
+    spans = [(int(u["start_unix_ns"]), int(u["end_unix_ns"])) for u in uploads]
+    lag_during_upload = []
     lags, delays, ttft_sched, ttft_arr = [], {"record": [], "decide": [], "handoff": [], "content": []}, [], []
     client_gaps = {"send_to_arrival": [], "flush_to_client_first": []}
     missing, incomplete, no_arrival, no_return, no_flush = 0, 0, 0, 0, 0
@@ -185,6 +191,8 @@ def cell_report(stage_dir, arm, rep):
             continue
         lag = ms(d["arrivedUnixNanos"] - sched_ns)
         lags.append(lag)
+        if any(sched_ns <= e and d["arrivedUnixNanos"] >= b for b, e in spans):
+            lag_during_upload.append(lag)
         client_gaps["send_to_arrival"].append(ms(d["arrivedUnixNanos"] - r["sendUnixNanos"]))
         for key, a, b in (("record", "arrivedUnixNanos", "recordedUnixNanos"), ("decide", "recordedUnixNanos", "decidedUnixNanos"),
                           ("handoff", "decidedUnixNanos", "handoffUnixNanos"), ("content", "handoffUnixNanos", "firstContentUnixNanos")):
@@ -284,6 +292,9 @@ def cell_report(stage_dir, arm, rep):
             "client_gap_ms": {k: summary(v) for k, v in client_gaps.items()},
             "premium": {"uncertain": premium_unc, "failed": premium_fail, "n": len(ttft_sched)},
             "contender_release_gap_ms": summary(release_gap),
+            "sidecar": {"uploads": len(uploads), "failed": sum(1 for u in uploads if u["hook_rc"] != "0"),
+                        "upload_ms": summary([ms(e - b) for b, e in spans]),
+                        "lag_ms_overlapping_an_upload": summary(lag_during_upload)},
             "work": work,
             "_ttft": {"sched": ttft_sched, "arr": ttft_arr}, "_lags": lags}
 

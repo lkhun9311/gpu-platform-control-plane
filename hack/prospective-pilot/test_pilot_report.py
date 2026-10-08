@@ -280,6 +280,21 @@ class PilotReportReviewTest(unittest.TestCase):
         self.assertTrue(any("no return stamp" in p for p in c["problems"]), c["problems"])
         self.assertIsNone(c["work"]["p"])
 
+    # A request is classified as meeting an upload by its scheduled instant or its scheduled-to-arrival interval.
+    # Here the premium is scheduled at the origin and arrives 0.6 ms later, and the contender 1 ms later: an upload
+    # from 0.2 to 0.4 ms meets only the first. Mutation that turns it red: classify by the send instead.
+    def test_lag_is_reported_apart_for_requests_that_met_an_upload(self):
+        cell = Cell(self.d)
+        cell.save()
+        with open(os.path.join(self.d, "sidecar-uploads.tsv"), "w") as f:
+            f.write("cell\ttrigger\tstart_unix_ns\tend_unix_ns\thook_rc\tbytes\n")
+            f.write("off-1\tinterval\t%d\t%d\t0\t100\n" % (ORIGIN + 200_000, ORIGIN + 400_000))
+            f.write("off-2\tinterval\t%d\t%d\t0\t100\n" % (ORIGIN, ORIGIN + 10_000_000))
+        c = pr.cell_report(self.d, "off", 1)
+        self.assertEqual(c["sidecar"]["uploads"], 1)
+        self.assertEqual(c["sidecar"]["lag_ms_overlapping_an_upload"]["n"], 1)
+        self.assertAlmostEqual(c["sidecar"]["lag_ms_overlapping_an_upload"]["max"], 0.6, places=6)
+
     # Finding 8.
     def test_an_infinite_comparator_bound_keeps_its_infinity(self):
         self.assertEqual(pr.crossed_log_ratio(20.0, math.inf), -math.inf)
