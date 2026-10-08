@@ -1,4 +1,4 @@
-# Measuring prospective admission directly (item 3): the design, v13
+# Measuring prospective admission directly (item 3): the design, v14
 
 *Drafted 2026-10-08 for the owner's approval before anything is built. The owner approved paid runs for this direction on 2026-10-08, and asked for the design to be attacked as hard as possible before money is spent. Nothing is bought until a registration built from this design is frozen.*
 
@@ -18,7 +18,8 @@
 | v10 | c397e48 | astra's review of v9 | 2 blockers, 3 majors |
 | v11 | 20172ae | astra's review of v10 | 1 blocker, 2 majors |
 | v12 | bcbe0d8 | astra's review of v11 | 2 blockers, 1 major |
-| v13 | this page | astra's review of v12 | 2 blockers, 1 major, 3 minors |
+| v13 | 3e4a6c9 | astra's review of v12 | 2 blockers, 1 major, 3 minors |
+| v14 | this page | astra's review of v13 | 2 blockers, 2 majors |
 
 **Who established what.**
 - astra read the code and found the defects. Each round was given only the page and the repository, never told where to look.
@@ -111,7 +112,7 @@ Same instance and same trace within a block, with the arm order randomised per b
 **The record is used only for:**
 - the arrival instants `sim-cap` replays;
 - the release instants stage A's timing gate reads;
-- the second dispatch-lag reading (see Dispatch fidelity), where a record exists.
+- the dispatch-lag reading (see Dispatch fidelity), which comes from this record alone.
 
 **Exact-token stamping is done once, in its own epoch, and its counts are frozen** (round 8, finding 4; round 9, finding 4).
 - At the start of pilot stage A, before any arm, the engine is started and the stamper sends one probe per distinct prompt length directly to the engine's port, never through the gateway.
@@ -154,7 +155,9 @@ Preemption recomputation, if it happens, is counted as processing in the arm whe
 
 p and q count what the engine processed whether or not the request later completed.
 
-**The window.** p and q count only steps whose start (`t0`, converted to wall time by the plugin's own anchors, as `step_boundary.py:293` already does) is before the arm's **window end**: the latest end instant among its premium requests, from the client rows.
+**The window.** p and q count only steps whose start (`t0`, converted to wall time by the plugin's own anchors, as `step_boundary.py:293` already does) is before the arm's **window end**: the latest end instant among **all** its premium requests, failures included, from the client rows.
+- Every row carries an end instant on every outcome (build item 24). Today timeouts, transport errors and non-200 responses carry none. A window taken over successes alone could end 30 s early, before a final premium timeout, and drop exactly the contender work that preceded it (round 13, finding 2).
+- A premium row without an end instant refuses the run.
 - Validity protects S's premium tail from inflation by extra contender processing. A step that starts after the last premium request has finished cannot inflate any premium TTFT in that arm.
 - That makes the window the quantity validity needs, and it is the quantity a terminal record written after the replay can prove complete (round 12, finding 2).
 - The harness and the engine run on one host, with one kernel clock, so the comparison needs no cross-host synchronisation.
@@ -233,14 +236,25 @@ Stamping after the manifest changes the trace's checksum, and regenerating after
 
 **A frozen trace is only a frozen load if it is sent on time** (round 11, finding 1). The harness stamps each send inside its goroutine, after any scheduling delay (`replay.go:305`), and TTFT and the timeout both start from that stamp. So a replay that falls behind sends less load per second without any measurement noticing. A P arm stretched to twice its duration halves its offered rate and passes every work gate.
 
+**Lag is measured where the request lands, not where it leaves.** Two rounds placed the stamp on the client, and each time a delay could hide after it:
+- v12's send stamp precedes prompt construction and the HTTP write (round 12, finding 1);
+- v13's `httptrace` `WroteRequest` fires when `Request.write` returns, before the transport flushes its buffer, so a small request can be stamped before it is written (round 13, finding 1; Go 1.26.6 `request.go`, `transport.go`).
+
+Any client-side stamp has some later point a delay can sit behind. So the stamp moves to the receiving side.
+
 **The rule.**
 - The replay persists its origin instant in the raw file (build item 22).
-- Each request's **dispatch lag** is its **written** instant minus (origin + scheduled offset). The rows already carry the offset (`replay.go:44`).
-- The written instant is when the HTTP client finished writing the request to the connection, from Go's `net/http/httptrace` `WroteRequest` hook.
-  - The existing send stamp is taken before prompt construction, encoding and the HTTP write (`replay.go:307`; `httpsender.go:317`, `:346`). A delay inside `Send` would leave it at zero (round 12, finding 1).
-  - A request that never reaches the write (a connection failure) has no written instant, and counts as a lag above 250 ms.
-- **The gateway's arrival instant gives a second reading** in the main study too, where a record exists. On one host clock, it must lie within 250 ms after the written instant.
-- An arm whose p99 dispatch lag exceeds **20 ms**, or whose largest lag exceeds **250 ms**, makes the outcome "invalid". This is a harness failure, not a property of the arm.
+- **The gateway stamps its arrival instant at the moment it has finished reading the request body,** which is just before its admission decision. That is after every client-side delay, header and body alike. A stamp at handler entry would precede a body the client is still writing (round 13, finding 3).
+- Each request's **dispatch lag** is that arrival instant minus (origin + scheduled offset), on the one host clock the harness and the gateway share. The rows already carry the offset (`replay.go:44`).
+- **Per arm,** the invalid outcome follows if any of these holds:
+  - the p99 lag exceeds 20 ms;
+  - the p99.9 lag exceeds 100 ms;
+  - the mean lags of P and S differ by more than 2 ms.
+
+  This is a harness failure, not a property of the arm.
+- **No maximum-lag rule.** v13's maximum of 250 ms, with every pre-write connection failure counted as a violation, made a single TCP retransmission anywhere in some 582,000 requests invalidate the study (round 13, finding 4). The p99.9 and mean-difference rules bound a systematic delay without a zero-failure requirement.
+- **A request with no gateway record never reached the gateway.** It is not a lag observation: it is a failure, and the loss and completion rules govern it. A premium one counts at +∞, and a contender one is not completed.
+- **What remains possible, stated.** A delay applied to fewer than 0.1% of one arm's requests, a few per replay, is not caught. It can move a p99 resting on about 39 requests per replay only slightly, and the p99.9 rule caps its size.
 - Each arm's lag distribution is published.
 - The pilot measures it first: stage A refuses at the same limits.
 
@@ -481,9 +495,11 @@ Today the hook uploads only after a replay and its log capture (`m5c-matrix.sh:3
     - Refuse on a scheduled request with no client match, and on a `calib-` ID inside an arm.
     - Test round 9's reversal example: raw sums put S below P while prefill puts S above, and the analysis must call it "invalid".
     - (Numbered 21 so that references to 20 stay stable.)
-22. **The replay origin persisted, the written instant from `httptrace`, and the dispatch-lag gate.** Tested by two rehearsals, each of which must make the outcome "invalid":
+22. **The replay origin persisted, the gateway's arrival stamp after the body is read, and the dispatch-lag gate.** Tested by three rehearsals, each of which must make the outcome "invalid":
     - one whose replay loop sleeps before dispatch;
-    - one whose `Send` sleeps 300 ms before its HTTP write, which today's stamp would not see.
+    - one whose `Send` sleeps 300 ms before its HTTP write;
+    - one that holds every S request in a transport wrapper for 200 ms after `WroteRequest` and before the flush. That is round 13's case, which v13's stamp would not see.
+24. **A terminal timestamp on every outcome.** Every row carries `EndUnixNanos`: the instant the sender returned, for timeouts, transport errors and non-200 responses too. Today those three return without one (`httpsender.go:346`, `:366`). The window end needs it (see the comparator), and a row without one refuses the run.
 23. **The windowed p and q, and the short capture:** sentinel, terminal record, step log, then iteration log, with the gateway's final records exported before teardown.
 20. **Rehearsals on kind with the stub engine:**
     - a whole replay-to-verdict run;
@@ -497,7 +513,9 @@ Today the hook uploads only after a replay and its log capture (`m5c-matrix.sh:3
     - a final batch held back from the writer when the sentinel arrives, which must make the terminal record report it and capture refuse after 60 s;
     - a request held upstream of the scheduler and released after the terminal record, whose work must fall outside the window and must not change p or q;
     - a step starting just before the window end, which must count;
-    - a replay that falls 300 ms behind once, which must be "invalid";
+    - a replay that falls 300 ms behind for 1% of an arm's requests, which must be "invalid" by p99.9;
+    - one transport failure among an arm's requests, which must not be a lag violation;
+    - a final premium request that times out before headers, whose end instant must extend the window;
     - three interrupted launches, which must give "insufficient";
     - a complete log, which must pass the step-to-iteration match; the committed CPU fixture is the first test, at 70 steps against iterations 0 to 69;
     - a step whose token total differs from its iteration's, which must refuse;
@@ -585,6 +603,17 @@ The AWS SSO session lasts at most 12 hours from a login.
 - The ledger limits what the study starts. It cannot stop an instance already running, which is the terminators' job.
 - After the session it records launch and termination times from EC2 and CloudTrail.
 - Billed amounts come from Cost Explorer when it settles, and are published beside the estimate.
+
+## What v14 changed, against the review of v13
+
+| v13 finding | Change |
+|---|---|
+| 1: `WroteRequest` fires before the flush | lag is measured at the gateway, after it has read the body, against the scheduled instant |
+| 2: the window needs end instants that failures lack | every outcome carries an end instant (build item 24); the window covers all premium requests; a missing end refuses |
+| 3: arrival before `WroteRequest` is legitimate | the client-versus-gateway ordering rule is gone |
+| 4: a zero-connection-failure requirement | no maximum-lag rule; quantile and mean-difference rules; a missing gateway record is a failure governed by loss and completion, not a lag violation |
+
+Round 13 re-derived the power table (2,000,000 studies per row) and every cost figure, and agreed with each. No cost figure changed in v14.
 
 ## What v13 changed, against the review of v12
 
