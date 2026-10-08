@@ -729,6 +729,14 @@ func replay(args []string) error {
 			return err
 		}
 	}
+	var live *liveRows
+	if recordTiming {
+		// Each row is appended durably as its request ends, so the evidence sidecar can carry it off the instance
+		// while the replay is still running (design page, build item 8).
+		if live, err = openLiveRows(*rawOut + ".live.jsonl"); err != nil {
+			return err
+		}
+	}
 	raw := bench.Replay(context.Background(), sender, rows, bench.ReplayOptions{
 		Study:           m.Study,
 		Arm:             m.Arm,
@@ -738,7 +746,15 @@ func replay(args []string) error {
 		LongThreshold:   m.LongThreshold,
 		MatchTolerance:  tol,
 		RecordTiming:    recordTiming,
+		OnRow:           live.write,
 	})
+	if live != nil {
+		// A live file that failed is reported, not fatal: the complete rows are written below either way, and the
+		// live file only matters to an instance that dies before they are.
+		if n, first := live.close(); n > 0 {
+			fmt.Fprintf(os.Stderr, "WARNING: %d row(s) could not be appended to the live file; the first error: %v\n", n, first)
+		}
+	}
 
 	f, err := os.Create(*rawOut)
 	if err != nil {

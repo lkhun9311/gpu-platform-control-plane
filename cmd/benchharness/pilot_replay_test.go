@@ -72,6 +72,19 @@ func TestPilotReplayFixesItsSenderAndRecordsIt(t *testing.T) {
 			t.Fatalf("%s: incomplete sender configuration %+v", arm, c)
 		}
 		pools[arm] = c.MaxIdleConnsPerHost
+		// The live file holds every row the raw file does, each appended as its request ended.
+		// Mutation that turns it red: drop OnRow from the replay's options.
+		whole, err := os.ReadFile(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		live, err := os.ReadFile(raw + ".live.jsonl")
+		if err != nil {
+			t.Fatalf("no live rows for %s: %v", arm, err)
+		}
+		if n, want := strings.Count(string(live), "\n"), strings.Count(string(whole), "\n"); n != want || n == 0 {
+			t.Fatalf("%s: %d live rows for %d raw rows", arm, n, want)
+		}
 	}
 	if pools["off"] != 600 || pools[bench.ArmR1] != 600 {
 		t.Fatalf("pools differ from the study's 600: %v", pools)

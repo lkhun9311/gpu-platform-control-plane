@@ -278,6 +278,10 @@ type ReplayOptions struct {
 	EstInputTokens func(promptLenChars int) int
 	// RecordTiming stamps ReplayOriginUnixNanos and ReturnedUnixNanos on every row.
 	RecordTiming bool
+	// OnRow, when set, is given each row as soon as its request ends, one call at a time, so the row can leave
+	// the instance before the replay does (design page, "Rows leave the instance as they are written"). It runs
+	// after the row's stamps are taken, so it cannot move any of them.
+	OnRow func(RawRow)
 	// clock and sleepUntil are injected only by tests; production uses the wall clock.
 	clock      func() time.Time
 	sleepUntil func(ctx context.Context, t time.Time)
@@ -304,6 +308,7 @@ func Replay(ctx context.Context, sender Sender, trace []TraceRow, opts ReplayOpt
 
 	rows := make([]RawRow, len(trace))
 	var wg sync.WaitGroup
+	var onRowMu sync.Mutex
 	start := clock()
 
 	for i, tr := range trace {
@@ -354,6 +359,11 @@ func Replay(ctx context.Context, sender Sender, trace []TraceRow, opts ReplayOpt
 				TraceChecksum:         opts.TraceChecksum,
 				LongThreshold:         opts.LongThreshold,
 				MatchTolerance:        opts.MatchTolerance,
+			}
+			if opts.OnRow != nil {
+				onRowMu.Lock()
+				opts.OnRow(rows[i])
+				onRowMu.Unlock()
 			}
 		}(i, tr)
 	}
