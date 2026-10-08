@@ -862,16 +862,18 @@ Blindness was meant to prevent one harm: a designer who has seen the P/S effect 
 - **the lag ceiling** = max(50 ms, 2 × the largest dispatch lag observed in either stage);
 - **the uncertainty cap** stays 0.1%. If any arm's uncertain fraction at the new L exceeds 0.05% in the pilot, the design returns to review instead;
 - **the width screen** stays at a half-width of 0.043, fixed;
-- **durations and deadlines,** from `cell-timings.tsv`, which the runner already writes per cell (`m5c-matrix.sh:2281`):
+- **durations and deadlines,** from `cell-timings.tsv` (`m5c-matrix.sh:2281`) and the phase stamps below:
   - **arm time** = the largest `elapsed_s` of any arm in either stage;
-  - **bring-up** = the larger of the two stages' times from launch to the first cell's start;
+  - **bring-up** = the larger of the two stages' times from the instance's EC2 `LaunchTime` to the first cell's start;
   - **main session length** = bring-up + 12 × arm time, × 1.25;
   - **hard stop** = the main session length;
   - **acquisition deadline** = hard stop − 6 min;
   - **backstop** = hard stop + 10 min;
   - **`study-deadline`** = hard stop + 20 min, with the reserved lifetime at deadline + 15 min, as now.
 
-  Maximum, not mean, so that a repeat of the slowest arm fits (pilot review 6, finding 3). If the formula gives a main session over 4 h 20, three sessions no longer fit one login, and the cost and login plan are recomputed in the next design, not chosen.
+  Maximum, not mean, so that a repeat of the slowest arm fits (pilot review 6, finding 3).
+  - **Sessions per login are derived, not thresholded** (pilot review 7, finding 4). With hard stop H, the k-th session of a login starts no earlier than (k − 1) × H. It needs credentials until its start + H + 20 min + 30 min.
+  - So k sessions fit one 12-hour login only while k × H + 50 min ≤ 12 h. The next design's login plan and cost are computed from that, and each launch still checks its own remaining expiry.
 
 **The formulas run only on timing evidence that is complete, unambiguous and witnessed.** v4 and v5 of this scope listed the cases that make evidence unusable, and each review found one more:
 - a served request without a record (pilot review 4, finding 1);
@@ -885,6 +887,7 @@ v6 states the condition positively instead. **An arm's timing evidence is eligib
 3. **The arm's step log is complete** by the counts under build item 6, and **its coverage reaches the window end, on an independent clock** (pilot review 6, finding 2).
    - vLLM's own iteration log lines carry a timestamp. On the committed CPU fixture: `INFO 10-06 13:07:23 [loggers.py:182] Engine 000: Iteration(0)`.
    - So every iteration whose logged time is at least 2 s before the plugin's terminal record must correspond to a plugin step.
+   - **And the terminal record must be at least 3 s after the window end:** capture writes its sentinel no earlier than that. Then the 2 s cutoff falls after the window, and every iteration inside the window is covered. v7 required only that the terminal follow the window end. Pilot review 7 (finding 1) showed, on the committed fixture, seven window-time iterations falling between the cutoff and the window end, unchecked.
    - An iteration earlier than that, beyond the plugin's last step, means the plugin stopped recording while the engine ran on. The arm is ineligible.
    - Build item 6's rule, which compares only up to the plugin's last step and treats the rest as post-window, is tightened this way for the main study too. Without it, a plugin that stopped after step 70 while the engine logged 100 more steps before the window end would hide about 51,200 prefill tokens, 3.2 points of p, more than the margin the pilot measures.
 
@@ -935,6 +938,9 @@ A step log that fails its completeness check does not stop the next arm. It make
     Today a marker arriving just before the deadline leads to downloads before cleanup's termination (`m5c-gpu-session.sh:1488`, `:1497`), and the termination call has no outer timeout (`spot-run.sh:203`).
 
   Today `spot_wait_for_marker` counts attempts at 30 s plus two API calls each (`spot-run.sh:374`), so a 150-minute setting can run to about 250 minutes. Its caller also downloads before terminating (`m5c-gpu-session.sh:1482`, `:1497`, `:1335`).
+- **phase timestamps per cell** (pilot review 7, finding 2): deploy start, engine ready, replay start and end, sentinel, terminal record, capture end, and upload start and end, each in UTC.
+  - Today `cell-timings.tsv` has only a cell's start, end and total, and the runner's messages carry no timestamps (`m5c-matrix.sh:161`). So 180 s of restart and 0 s of capture cannot be told from 120 s and 60 s.
+- **the instance's EC2 `LaunchTime`,** read by the runner after launch and written with the session's evidence, for the bring-up formula. It is not left to the deferred ledger.
 - **synthetic step-log support in the stub engine** (review 2, finding 3). For each request it emits plugin-format `add` and `sched` records with request IDs, anchors and sequence numbers, and on the sentinel a terminal record. So the kind rehearsal exercises items 6 and 21 rather than refusing or bypassing them. The CPU run with real vLLM remains the check on vLLM's own behaviour.
 
 **Brought into the pilot after its review:**
@@ -947,7 +953,10 @@ A step log that fails its completeness check does not stop the next arm. It make
 - **item 19,** TPOT.
 
 **Rehearsals before purchase:**
-- **on kind with the stub engine,** a full stage A and stage B end to end through the measurement report. The stub is extended to honour each request's own output cap and to emit the synthetic step log.
+- **on kind with the stub engine,** a full stage A and stage B end to end through the measurement report. The stub is extended to honour each request's own output cap and to emit the synthetic step log. Its iteration lines gain vLLM's timestamp format; today they print `INFO stub` with no time (`helpers.go:354`). The rehearsal must show:
+- **eligible arms,** not merely a report;
+- one arm made ineligible by a stopped step log;
+- one arm made ineligible by a deleted gateway record.
 - **on CPU with real vLLM,** through `hack/vllm-plugins/validate-on-cpu.sh` extended to run the new path on a short trace. The stub has no scheduler (`cmd/benchharness/helpers.go:339`), so it cannot exercise the scheduler-side path (pilot review, finding 5). The CPU run must show:
   - the plugin's sequence numbers, sentinel and terminal record;
   - the request-ID join from client to vLLM's scheduler;
