@@ -278,7 +278,7 @@ pp_capture() {
   timeout "$(left)" kubectl --context "$KCTX" logs -n "$NS_A" "$pod" > "$OUT/engine-log-$label-$rep.txt" 2>/dev/null \
     || why="${why:+$why; }the engine's own log could not be read"
 
-  if ! node=$(pp_read_gateway_record "$OUT/gateway-record-$label-$rep.jsonl" "$(left)"); then
+  if ! node=$(pp_read_gateway_record "$OUT/gateway-record-$label-$rep.jsonl" "$deadline"); then
     why="${why:+$why; }the gateway's record could not be read from node ${node:-unknown}"
   fi
   pp_phase "$label" "$rep" capture-done
@@ -302,15 +302,18 @@ pp_capture() {
   return 0
 }
 
-# pp_read_gateway_record copies the gateway's record to dest, each call bounded by limit seconds, and prints the node.
+# pp_read_gateway_record copies the gateway's record to dest before the epoch deadline, and prints the node.
+# Each call is bounded by the time left when it starts, so the four together cannot outlast the deadline; a duration
+# passed once was spent four times over (review of a0602d0).
 # The gateway image has no shell, so its emptyDir is read from the node, by the pod's UID.
 pp_read_gateway_record() {
-  local dest="$1" limit="$2" gwpod node uid
-  gwpod=$(timeout "$limit" kubectl --context "$KCTX" get pods -n "$NS_A" -l app=m5c-gateway -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
-  node=$(timeout "$limit" kubectl --context "$KCTX" get pod -n "$NS_A" "$gwpod" -o jsonpath='{.spec.nodeName}' 2>/dev/null)
-  uid=$(timeout "$limit" kubectl --context "$KCTX" get pod -n "$NS_A" "$gwpod" -o jsonpath='{.metadata.uid}' 2>/dev/null)
+  local dest="$1" deadline="$2" gwpod node uid
+  _gl() { local l=$(( deadline - $(date +%s) )); [ "$l" -gt 0 ] && echo "$l" || echo 1; }
+  gwpod=$(timeout "$(_gl)" kubectl --context "$KCTX" get pods -n "$NS_A" -l app=m5c-gateway -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+  node=$(timeout "$(_gl)" kubectl --context "$KCTX" get pod -n "$NS_A" "$gwpod" -o jsonpath='{.spec.nodeName}' 2>/dev/null)
+  uid=$(timeout "$(_gl)" kubectl --context "$KCTX" get pod -n "$NS_A" "$gwpod" -o jsonpath='{.metadata.uid}' 2>/dev/null)
   printf '%s' "$node"
-  [ -n "$node" ] && [ -n "$uid" ] && timeout "$limit" docker exec "$node" cat \
+  [ -n "$node" ] && [ -n "$uid" ] && timeout "$(_gl)" docker exec "$node" cat \
     "/var/lib/kubelet/pods/$uid/volumes/kubernetes.io~empty-dir/gwrecord/$(basename "$PP_GATEWAY_RECORD")" > "$dest" 2>/dev/null
 }
 
@@ -325,7 +328,7 @@ pp_sidecar_upload() {
   local label="$1" rep="$2" trigger="$3" t0 t1 rc bytes
   local raw="$OUT/live-raw-$label-$rep.jsonl" gw="$OUT/live-gateway-record-$label-$rep.jsonl"
   t0=$(date +%s%N)
-  pp_read_gateway_record "$gw" 10 >/dev/null || true
+  pp_read_gateway_record "$gw" $(( $(date +%s) + 10 )) >/dev/null || true
   timeout "$PP_SIDECAR_HOOK_TIMEOUT_S" "$CELL_SIDECAR_HOOK" "$raw" "$gw" "$label" "$rep" >/dev/null 2>&1 && rc=0 || rc=$?
   t1=$(date +%s%N)
   bytes=$(( $(stat -c %s "$raw" 2>/dev/null || echo 0) + $(stat -c %s "$gw" 2>/dev/null || echo 0) ))
@@ -337,10 +340,12 @@ pp_sidecar_start() {
   local label="$1" rep="$2" parent=$$
   PP_SIDECAR_PID=""
   [ -n "${CELL_SIDECAR_HOOK:-}" ] || return 0
+  # In WORK, not OUT: the matrix counts every file in OUT, dotfiles included.
+  PP_SIDECAR_STOP="${WORK:-$OUT}/sidecar-stop-$label-$rep"
+  rm -f "$PP_SIDECAR_STOP"
   (
-    trap 'exit 0' TERM
     next=$(( $(date +%s) + PP_SIDECAR_INTERVAL_S )); noticed=""
-    while kill -0 "$parent" 2>/dev/null; do
+    while kill -0 "$parent" 2>/dev/null && [ ! -e "$PP_SIDECAR_STOP" ]; do
       if [ -z "$noticed" ] && [ -n "${PP_SPOT_NOTICE_FILE:-}" ] && [ -e "$PP_SPOT_NOTICE_FILE" ]; then
         noticed=1
         pp_sidecar_upload "$label" "$rep" spot-notice
@@ -353,11 +358,12 @@ pp_sidecar_start() {
   ) &
   PP_SIDECAR_PID=$!
 }
-# Stopped without waiting at the replay's return, so an upload in flight cannot eat into the capture's bound; the
-# per-cell hook sends the complete files after the capture.
+# Stopped by a flag the loop reads between uploads, without waiting, so an upload in flight neither eats into the
+# capture's bound nor loses its row: a TERM deferred until the hook returned exited before the row was written
+# (review of a0602d0). The per-cell hook sends the complete files after the capture.
 pp_sidecar_stop() {
   [ -n "${PP_SIDECAR_PID:-}" ] || return 0
-  kill "$PP_SIDECAR_PID" 2>/dev/null || true
+  : > "$PP_SIDECAR_STOP"
   PP_SIDECAR_PID=""
 }
 

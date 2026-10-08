@@ -156,6 +156,14 @@ sidecar_run notice 100 1 2.5
   && ! grep -q $'\tinterval\t' "$work/side-notice/sidecar-uploads.tsv" \
   && ok "a Spot notice triggers one upload at once, long before the interval" \
   || bad "the sidecar's notice upload: $(cat "$work/side-notice/sidecar-uploads.tsv" 2>&1)"
+# Stopped while an upload is in flight, the sidecar still records it (review of a0602d0).
+( OUT="$work/side-inflight"; WORK="$work"; mkdir -p "$OUT"; bin="$work/sbin"
+  printf '#!/usr/bin/env bash\nsleep 2\n' > "$bin/slowhook"; chmod +x "$bin/slowhook"
+  PATH="$bin:$PATH" KCTX=x NS_A=ns CELL_SIDECAR_HOOK="$bin/slowhook" PP_SIDECAR_INTERVAL_S=1
+  pp_sidecar_start off 1; sleep 1.6; pp_sidecar_stop; sleep 3.5 )
+[ "$(grep -c $'\tinterval\t' "$work/side-inflight/sidecar-uploads.tsv" 2>/dev/null)" = 1 ] \
+  && ok "an upload in flight when the sidecar is stopped still leaves its row, and no further upload starts" \
+  || bad "the in-flight upload: $(cat "$work/side-inflight/sidecar-uploads.tsv" 2>&1)"
 ( OUT="$work/side-none"; mkdir -p "$OUT"; unset CELL_SIDECAR_HOOK; pp_sidecar_start off 1; [ -z "$PP_SIDECAR_PID" ] ) \
   && ok "without a hook the sidecar starts nothing" || bad "the sidecar started without a hook"
 
