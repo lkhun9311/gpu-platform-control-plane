@@ -258,6 +258,12 @@ esac
 # volume mounted and declared. The model is not passed positionally, because the stub's flag parser stops at the
 # first positional argument.
 PILOT_UNDER_TEST="${PILOT:-}"
+# The two ineligible arms the rehearsal must show (design page, "Rehearsals before purchase"): stage A's off-2 has
+# its step log stopped mid-cell by the stub, and stage B's R1-3 has one request's gateway record deleted after the
+# run. Request 40 is past the cell's start, so the log stops with records before it, as a plugin that died would.
+PILOT_STOP_AT="pp-A-off-2-40"
+PILOT_STOP_CELL="A off-2"
+PILOT_DELETE_CELL="B R1-3"
 stub_pilot_engine_manifest() {
   local out="$1"
   cat > "$out" <<EOF
@@ -286,6 +292,7 @@ spec:
             - --no-enable-prefix-caching
             - --max-num-batched-tokens=2048
             - --port=8000
+            - --stub-stop-step-log-at=$PILOT_STOP_AT
           ports: [{containerPort: 8000, name: http}]
           resources:
             limits:
@@ -601,10 +608,42 @@ if [ -n "$PILOT_UNDER_TEST" ]; then
         || fail "stage $stage cell $cell: the step log is not complete"
       grep -q '"ev":"arrive"' "$d/gateway-record-$cell.jsonl" && grep -q '"ev":"done"' "$d/gateway-record-$cell.jsonl" \
         || fail "stage $stage cell $cell: the gateway record lacks arrive or done lines"
-      grep -q 'fence-' "$d/step-log-$cell.jsonl" || fail "stage $stage cell $cell: the fence is not in the step log"
+      if [ "$stage $cell" = "$PILOT_STOP_CELL" ]; then
+        ! grep -q 'fence-' "$d/step-log-$cell.jsonl" || fail "stage $stage cell $cell: the stub was told to stop its step log and the fence is in it"
+      else
+        grep -q 'fence-' "$d/step-log-$cell.jsonl" || fail "stage $stage cell $cell: the fence is not in the step log"
+      fi
     done
   done
-  say "PILOT REHEARSAL: both stages, every cell captured complete, fenced, calibrated and timed"
+  # The deleted record: both lines of one request, after the run, as a lost record would look.
+  read -r del_stage del_cell <<<"$PILOT_DELETE_CELL"
+  del_rec="$OUT_DIR-$del_stage/gateway-record-$del_cell.jsonl"
+  del_id=$(sed -n 's/.*"ev":"done","requestId":"\([^"]*\)".*/\1/p' "$del_rec" | head -1)
+  [ -n "$del_id" ] || fail "no done line to delete in $del_rec"
+  grep -v "\"requestId\":\"$del_id\"" "$del_rec" > "$del_rec.tmp" && mv "$del_rec.tmp" "$del_rec"
+  # The report must mark exactly the two injected cells ineligible, for their own reasons, and the formulas must
+  # then be unavailable.
+  python3 - "$ROOT/hack/prospective-pilot" "$OUT_DIR-A" "$OUT_DIR-B" "$PILOT_STOP_CELL" "$PILOT_DELETE_CELL" <<'PY' || fail "the report did not mark the injected arms as registered"
+import sys
+sys.path.insert(0, sys.argv[1])
+import pilot_report as pr
+dirs = {"A": sys.argv[2], "B": sys.argv[3]}
+want = {tuple(sys.argv[4].split()): "fence", tuple(sys.argv[5].split()): "no gateway record"}
+bad = {}
+for st, d in dirs.items():
+    rep = pr.stage_report(d, st)
+    assert not rep["missing_cells"], rep["missing_cells"]
+    for c in rep["cells"]:
+        if not c["eligible"]:
+            bad[(st, "%s-%d" % (c["arm"], c["rep"]))] = c["problems"]
+assert set(bad) == set(want), "ineligible: %s, want %s" % (bad, list(want))
+for k, why in want.items():
+    assert any(why in p for p in bad[k]), "%s ineligible for %s, want %r" % (k, bad[k], why)
+f = pr.formulas(dirs["A"], dirs["B"])
+assert not f["available"], f
+print("injected: %s" % {k: v for k, v in bad.items()})
+PY
+  say "PILOT REHEARSAL: both stages, every other cell captured complete, fenced, calibrated and timed; the stopped step log and the deleted record each made their arm ineligible, and the formulas unavailable"
   exit 0
 fi
 if [ -n "$IV_UNDER_TEST" ]; then
