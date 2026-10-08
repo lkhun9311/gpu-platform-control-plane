@@ -366,6 +366,9 @@ if [ -z "$LADDER" ] && pp_is_study "$STUDY"; then
   [ -z "${RATE:-}" ] || fail "RATE is ${RATE@Q} and the pilot's arrivals are independent; pass PREMIUM_RATE and PILOT_NOISY_RATE"
   [ -z "$ARMS_FROM_CALLER" ] || fail "ARMS is set and the pilot's arms are its stage's (PILOT_STAGE); unset it"
   _pp_arms=$(pp_stage_arms "${PILOT_STAGE:-}" 2>&1) || fail "$_pp_arms"
+  # Three blocks per stage, as the study registers: the main endpoint pools three, and pooling is not linear in
+  # the number of blocks, so a stage of another size would measure a different quantity (review of 780929a).
+  [ "$REPS" = 3 ] || fail "REPS is $REPS and each pilot stage is three blocks; pass REPS=3"
   [ "${PILOT_STAGE:-}" != B ] || pp_gateway_args static-cap "${PILOT_STATIC_RATE:-}" >/dev/null \
     || fail "stage B runs the static arm at the rate R fitted in stage A; set PILOT_STATIC_RATE"
   RATE=0 NOISY_WEIGHT=0
