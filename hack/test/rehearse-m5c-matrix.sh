@@ -635,7 +635,9 @@ if [ -n "$PILOT_UNDER_TEST" ]; then
   # The deleted record: both lines of one request, after the run, as a lost record would look.
   read -r del_stage del_cell <<<"$PILOT_DELETE_CELL"
   del_rec="$OUT_DIR-$del_stage/gateway-record-$del_cell.jsonl"
-  del_id=$(sed -n 's/.*"ev":"done","requestId":"\([^"]*\)".*/\1/p' "$del_rec" | head -1)
+  # sed quits at its first match rather than feeding head, whose early close is a SIGPIPE that pipefail turns into
+  # a failed rehearsal once the record is long enough (review of 547434d).
+  del_id=$(sed -n 's/.*"ev":"done","requestId":"\([^"]*\)".*/\1/p;T;q' "$del_rec")
   [ -n "$del_id" ] || fail "no done line to delete in $del_rec"
   grep -v "\"requestId\":\"$del_id\"" "$del_rec" > "$del_rec.tmp" && mv "$del_rec.tmp" "$del_rec"
   # The report must mark exactly the two injected cells ineligible, for their own reasons, and the formulas must
