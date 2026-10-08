@@ -1,4 +1,4 @@
-# Measuring prospective admission directly (item 3): the design, v16
+# Measuring prospective admission directly (item 3): the design, v17
 
 *Drafted 2026-10-08 for the owner's approval before anything is built. The owner approved paid runs for this direction on 2026-10-08, and asked for the design to be attacked as hard as possible before money is spent. Nothing is bought until a registration built from this design is frozen.*
 
@@ -21,7 +21,8 @@
 | v13 | 3e4a6c9 | astra's review of v12 | 2 blockers, 1 major, 3 minors |
 | v14 | c42efd8 | astra's review of v13 | 2 blockers, 2 majors |
 | v15 | f750185 | astra's review of v14 | 2 blockers, 1 minor |
-| v16 | this page | astra's review of v15 | 2 blockers, 1 minor |
+| v16 | ed0a06a | astra's review of v15 | 2 blockers, 1 minor |
+| v17 | this page | astra's review of v16 | 2 blockers, 1 major |
 
 **Who established what.**
 - astra read the code and found the defects. Each round was given only the page and the repository, never told where to look.
@@ -103,7 +104,7 @@ Same instance and same trace within a block, with the arm order randomised per b
 | Case | Meaning | Treatment |
 |---|---|---|
 | Client row and gateway record | the normal case | joined |
-| Client row, no gateway record | unknown at the gateway: a pre-gateway failure, or a lost log line | its completion is read from the client row itself, as for every request. It carries no arrival instant, so a premium one's TTFT follows the rule under Endpoints: +∞ in P, 0 in S and O |
+| Client row, no gateway record | unknown at the gateway: a pre-gateway failure, or a lost log line | its completion is read from the client row itself, as for every request. It carries no forwarding stamp, so a premium one's TTFT is bounded, not imputed: the decision must hold at both 0 and +∞ (see "Missing records and the decision") |
 | Gateway record, no client row | a harness defect | the run refuses |
 | A client row with an empty ID, or any duplicate ID | a harness defect | the run refuses |
 
@@ -256,11 +257,7 @@ Any client-side stamp has some later point a delay can sit behind. So the stamp 
   This is a harness failure, not a property of the arm.
 - **No maximum-lag rule.** v13's maximum of 250 ms, with every pre-write connection failure counted as a violation, made a single TCP retransmission anywhere in some 582,000 requests invalidate the study (round 13, finding 4). The p99.9 and mean-difference rules bound a systematic delay without a zero-failure requirement.
 - **A request with no gateway record is not a lag observation.** Its completion is read from its client row, as for every request (see the join). Its TTFT is governed by the rule under Endpoints. v14 called it a failure, which contradicted the join and let 12 lost S records move S's p99 tenfold (round 14, finding 1).
-- **These rules bound when load arrives, not any one request's TTFT.** v14 claimed a sparse delay could move a p99 "only slightly". It cannot be caught by any aggregate rule, and round 14 (finding 2) showed four delayed requests per replay moving S's p99 from 100 to 1,000 ms. The answer is in the endpoint, not the gate. **Benefit must hold on two TTFT definitions at once** (see Endpoints):
-- one counts every pre-arrival delay;
-- the other counts none.
-
-A selective delay fakes a benefit on one of them only.
+- **These rules bound when load arrives, not any one request's TTFT.** v14 claimed a sparse delay could move a p99 "only slightly". It cannot be caught by any aggregate rule, and round 14 (finding 2) showed four delayed requests per replay moving S's p99 from 100 to 1,000 ms. No aggregate rule can catch a delay applied to a few requests chosen by outcome. The study rests on the harness being arm-blind, which makes such a choice impossible (see "The threat model for timing" under Endpoints).
 - Each arm's lag distribution is published.
 - The pilot measures it first: stage A refuses at the p99 and p99.9 limits, and stage B at all three.
 
@@ -277,39 +274,54 @@ A selective delay fakes a benefit on one of them only.
 
 ## Endpoints and decision: one ratio per instance
 
-**Premium TTFT has two registered definitions, and benefit must hold on both.** Both end at the same point: **the gateway's stamp when it forwards the first content frame to the client.** That is a server-side stamp, so a delay in the client's reading or parsing of the response is in neither (round 15, finding 1). v15 ended TTFT at the client's first-content stamp, which follows the client's read and parse (`httpsender.go:415`, `:507`). The gateway's existing first-byte stamp will not do: it closes on the response headers, not the first token (`proxy.go:208`).
+### The threat model for timing, stated rather than chased
 
-They differ in where they start:
+Rounds 12 to 16 each found a delay that defeated the latest timing rule. In every case after round 13, the delay was applied to **requests chosen by their outcome**:
+- the slow ones in P, the fast ones in S;
+- in round 16, both at once, which defeated v16's two-definition conjunction too.
 
-| Definition | Starts at | What a client-side delay can do to it |
-|---|---|---|
-| **TTFT-scheduled** | the scheduled instant: origin + offset | a delay before arrival is **added** to the request's TTFT. So delaying **S**'s requests could fake a benefit (round 14, finding 2) |
-| **TTFT-arrival** | the gateway's arrival stamp | a delay before arrival is **excluded**, but a late request meets a different queue. So delivering **P**'s requests late could fake a benefit (round 15, finding 2) |
+Round 16 also showed the conjunction's price: if the two definitions vary independently, power at σ = 0.30 falls to about 6% (round 16, finding 3).
 
-**Why the conjunction closes both.**
-- A delay that fakes a benefit on one definition does so by changing the other arm's numbers in the opposite direction.
-  - Delaying S raises S's TTFT-scheduled, but leaves S's TTFT-arrival as it was, so TTFT-arrival shows no benefit.
-  - Delivering P late lowers P's TTFT-arrival, but leaves P's TTFT-scheduled including the wait, so TTFT-scheduled shows no benefit.
-- A real effect of admission happens after arrival, inside the gateway and the engine. So it appears in both.
-- The dispatch-lag rules keep the two definitions close for nearly every request: they differ by each request's dispatch lag, whose p99 is at most 20 ms.
-- Requiring both costs power only to the extent the two p99s differ. That is not measured yet. Stage A measures it, and publishes it beside the power table, which is for one definition.
+**v17 states what the harness is assumed to be, and enforces it, rather than adding a sixth rule.**
+- **The harness is arm-blind.** One binary and one flag set serve every arm, differing only in the arm's label and the trace file. The label is written into rows but read by no code path that sends, waits or stamps. Build item 26 enforces this:
+  - the manifest records the binary's hash and its full argument list, and refuses a pair that differs by anything but those two;
+  - a test asserts that the sender package's dispatch path does not read the arm.
+- **An arm-blind open-loop harness cannot choose requests by outcome.** Each request is dispatched at its scheduled instant, before its outcome exists, by code that does not know the arm.
+- **What remains is delay that is not outcome-selective,** such as client CPU contention. It falls on both arms under the same loads, and the dispatch-lag rules bound its size and any asymmetry in its mean.
+- **The assumption goes in the claim** beside normality, independence and non-informative interruption: an outcome-selective, arm-specific harness delay is outside what the study can detect.
 
-**The decision uses y_i = the larger of the two definitions' log-ratios, per instance.** It is the less favourable to P. The primary test, the futility look and P/O all use it. Each definition's own result is published.
+### TTFT
 
-**A premium request whose response arrived but whose gateway record is missing has no arrival or forwarding stamp.** It is assigned the value that cannot favour P:
-- **+∞ in P;**
-- **0 ms in S, O and I.**
+**Premium TTFT is measured from the request's scheduled instant (origin + offset) to the gateway's stamp when it forwards the first content frame to the client.**
+- **The end is a server-side stamp,** so a delay in the client's reading or parsing of the response is not in it (round 15, finding 1). The client's first-content stamp follows its own read and parse (`httpsender.go:415`, `:507`). The gateway's existing first-byte stamp closes on the response headers, not the first token (`proxy.go:208`).
+- **The start is the scheduled instant,** the open-loop convention. Any delay before the request lands is charged to that request, so it can never shorten one. A late-delivered request cannot skip a queue it was scheduled into (round 15, finding 2).
 
-For I, 0 makes P/I less favourable to P (round 15, finding 3).
+**A consistency check, not a second test.** TTFT-arrival, measured from the gateway's arrival stamp to the same end, is computed too. Benefit additionally requires the **point estimate** of mean ln(P/S) on TTFT-arrival to be below 0.
+- This catches a gross discordance, such as a benefit present only in scheduled time, which would mean S's requests waited before the gateway rather than inside it.
+- A point check costs little power: at a true P/S of 0.80, the arrival mean sits near ln 0.8 with SE σ/√12.
 
-More than 0.1% of an arm's premium requests with no record makes the outcome "invalid". So lost records can only hurt P's chance of a benefit verdict, and they cannot be numerous.
+Both definitions' results are published.
+
+**A premium request whose response arrived but whose gateway record is missing has no forwarding stamp.**
+- More than 0.1% of an arm's premium requests with no record makes the outcome "invalid".
+- Below that, the value is not imputed in P's favour or against it: it is bounded. See "Missing records and the decision" below.
 
 **Per instance and arm:**
 - The pooled premium TTFT p99 over the instance's three blocks.
 - Every premium failure (timeout, error, short completion, or unserved because the launch ended early) counts at +∞.
 - About 11,600 premium requests per arm.
 
-**y_i** = max over the two definitions of ln(p99_P / p99_S); likewise for ln(p99_P / p99_O).
+**y_i** = ln(p99_P / p99_S) on TTFT-scheduled; likewise ln(p99_P / p99_O).
+
+**Missing records and the decision** (round 16, finding 2). v16 set a missing P value to +∞, believing that could only hurt P. But the t bound is not monotone in one observation: raising one instance's y from −2 to −0.11 shrank the SD enough to turn U = +0.026 into U = −0.099, a pass. So v17 bounds the missing values rather than imputing them.
+- For each instance with any missing record, y_i is computed twice:
+  - with every missing value in every arm at 0;
+  - with every missing value at +∞.
+
+  This gives the interval y_i can occupy.
+- The decision's upper bound U = mean + t·sd/√n is convex in the vector of y's: a linear mean plus a norm. A convex function's maximum over a box is at one of its vertices.
+- **So benefit requires U < ln 0.95 at every vertex:** each such instance at either end of its interval, at most 2¹² = 4,096 combinations. The same applies to P/O.
+- I checked the convexity claim numerically: 400,000 random interior points never exceeded their box's vertex maximum. Round 16's example fails under this rule, at its −2 vertex.
 
 **Per-instance gates.** Each is a point rule, and any failure makes the outcome "invalid":
 - premium loss under 1% in every arm;
@@ -331,10 +343,11 @@ More than 0.1% of an arm's premium requests with no record makes the outcome "in
 
 **Precedence:** invalid, then stopped, then insufficient, then the decision. So identical evidence gives one verdict.
 
-**Assumptions, stated in the claim.** The 5% error rate holds if three things are true, none of which can be checked with 12 instances:
+**Assumptions, stated in the claim.** The 5% error rate holds if four things are true. The first three cannot be checked with 12 instances, and the fourth is enforced by construction, not measured:
 - the instance log-ratios are approximately normal;
 - they are independent;
-- **Spot interruptions are unrelated to how an instance would have performed** (round 11, finding 3).
+- **Spot interruptions are unrelated to how an instance would have performed** (round 11, finding 3);
+- **the harness applies no outcome-selective, arm-specific delay** (see the threat model above).
 
 Recording `StateReason` establishes an interruption's cause, not its independence. If the worst tenth of launches were the ones interrupted, round 11's simulation gives 15% false benefit at the null.
 
@@ -533,12 +546,15 @@ Today the hook uploads only after a replay and its log capture (`m5c-matrix.sh:3
     - one whose `Send` sleeps 300 ms before its HTTP write;
     - one that holds every S request in a transport wrapper for 200 ms after `WroteRequest` and before the flush. That is round 13's case, which v13's stamp would not see.
 24. **A terminal timestamp on every outcome.** Every row carries `EndUnixNanos`: the instant the sender returned, for timeouts, transport errors and non-200 responses too. Today those three return without one (`httpsender.go:346`, `:366`). The window end needs it (see the comparator), and a row without one refuses the run.
-25. **The two TTFT definitions and their conjunction.**
+25. **TTFT from the scheduled instant to the gateway's first-content forward.**
     - The gateway stamps the instant it forwards the first content frame, which needs it to recognise the first non-empty content delta in the stream.
-    - TTFT-scheduled and TTFT-arrival are computed from that stamp.
-    - Per instance, y is the larger of the two log-ratios.
-    - The missing-record rule (+∞ in P, 0 in S, O and I) and its 0.1% cap apply.
-    - The client-stamp TTFT stays beside them.
+    - TTFT-arrival is computed beside it for the consistency check.
+    - Missing records are bounded at every vertex of the imputation box, under the 0.1% cap.
+    - Tested on round 16's example, which must fail at its −2 vertex.
+    - The client-stamp TTFT is published as well.
+26. **An arm-blind harness, enforced.**
+    - The manifest records the harness binary's hash and full argument list per arm, and refuses a block whose arms differ in anything but the arm label and the trace path.
+    - A test asserts that no sending, waiting or stamping code reads the arm.
 23. **The windowed p and q, and the short capture:** sentinel, terminal record, step log, then iteration log, with the gateway's final records exported before teardown.
 20. **Rehearsals on kind with the stub engine:**
     - a whole replay-to-verdict run;
@@ -547,10 +563,10 @@ Today the hook uploads only after a replay and its log capture (`m5c-matrix.sh:3
     - an admitted contender failing after admission;
     - a request whose response never arrived, joined to the gateway's record by its client ID;
     - a request that never reached the gateway, and an S success whose gateway line is deleted, which must still count as completed;
-    - round 14's 12 deleted fast S records, which must not raise S's p99 (they enter at 0 ms);
-    - round 14's four S premium requests delayed by 1 s inside `Send`, which must leave TTFT-arrival unchanged and fail the conjunction;
-    - round 15's three P premium requests delivered 900 ms late, which must leave TTFT-scheduled showing no benefit and fail the conjunction;
-    - round 15's four S responses read 900 ms late by the client, which must change neither definition;
+    - round 14's 12 deleted fast S records, which the vertex rule must bound rather than impute;
+    - round 15's three P premium requests delivered 900 ms late, which must leave their TTFT-scheduled including the wait;
+    - round 15's four S responses read 900 ms late by the client, which must not change TTFT;
+    - a harness invocation for one arm with an extra flag, which the manifest must refuse;
     - an admitted contender failing after prefill in S, whose processed tokens must count in p_S;
     - a forwarded request refused by the engine's frontend before scheduling, which capture must not wait for;
     - a final batch held back from the writer when the sentinel arrives, which must make the terminal record report it and capture refuse after 60 s;
@@ -646,6 +662,18 @@ The AWS SSO session lasts at most 12 hours from a login.
 - The ledger limits what the study starts. It cannot stop an instance already running, which is the terminators' job.
 - After the session it records launch and termination times from EC2 and CloudTrail.
 - Billed amounts come from Cost Explorer when it settles, and are published beside the estimate.
+
+## What v17 changed, against the review of v16
+
+| v16 finding | Change |
+|---|---|
+| 1: combining the two delay attacks defeats the conjunction | the timing threat model is stated: an arm-blind harness, enforced by the manifest and a test, cannot choose requests by outcome. One primary, TTFT-scheduled, ending at the gateway's first-content forward; TTFT-arrival is a point consistency check |
+| 2: +∞ for a missing P value can lower the t bound | missing values are bounded, not imputed; benefit must hold at every vertex of the imputation box, which is exact because the bound is convex |
+| 3: the max-of-two primary had no power basis | the conjunction is gone; the power table again describes the primary |
+
+**Why v17 stops adding timing rules.** Every timing counterexample since round 13 delays requests chosen by their outcome, and v16's two-definition rule fell to the two attacks combined. Rules of that kind can always be met by a cleverer selection. An arm-blind open-loop harness cannot make the selection at all, so v17 enforces that property and names it in the claim.
+
+Round 16 re-derived the power table and every cost figure, and agreed with each. I reproduced its two U values, +0.026015 and −0.099337, before writing the vertex rule. No cost figure changed in v17.
 
 ## What v16 changed, against the review of v15
 
