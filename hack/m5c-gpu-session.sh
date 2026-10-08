@@ -1146,7 +1146,18 @@ export CELL_DONE_HOOK=/usr/local/bin/m5c-cell-done
 # past a --require-provenance that only refused an EMPTY value. The commit was known here all along.
 export SOURCE_COMMIT="$COMMIT"
 
-bash hack/m5c-matrix.sh; matrix_rc=$?
+# The pilot's matrix is ended at its absolute deadline, because nothing inside it stops for time: the pilot has no
+# projection stop, so DEADLINE_EPOCH alone bounded nothing, and the matrix could run into the tail reserve until
+# the wrapper terminated the instance, archive and all (review of 9496808). A cell cut here is lost; the archive,
+# the per-cell uploads already made and the marker's absence say so. At least 1 s, since timeout reads 0 as no limit.
+if [ -n "$PILOT_MATRIX_DEADLINE" ]; then
+  matrix_left=$(( PILOT_MATRIX_DEADLINE - $(date +%s) ))
+  [ "$matrix_left" -ge 1 ] || matrix_left=1
+  timeout --kill-after=30 "$matrix_left" bash hack/m5c-matrix.sh; matrix_rc=$?
+  [ "$matrix_rc" != 124 ] || echo "matrix stopped at the pilot's deadline, $(date -u -d "@$PILOT_MATRIX_DEADLINE" +%H:%M:%SZ)"
+else
+  bash hack/m5c-matrix.sh; matrix_rc=$?
+fi
 echo "matrix exited $matrix_rc"
 # When the matrix returned, so the session tail -- from here to the marker's upload -- can be measured.
 date +%s > /tmp/matrix-returned.txt

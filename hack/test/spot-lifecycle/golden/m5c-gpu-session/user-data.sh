@@ -206,7 +206,14 @@ sed -i "s|__BUCKET__|$BUCKET|; s|__PREFIX__|$PREFIX|" /usr/local/bin/m5c-cell-do
 chmod +x /usr/local/bin/m5c-cell-done
 export CELL_DONE_HOOK=/usr/local/bin/m5c-cell-done
 export SOURCE_COMMIT="$COMMIT"
-bash hack/m5c-matrix.sh; matrix_rc=$?
+if [ -n "$PILOT_MATRIX_DEADLINE" ]; then
+  matrix_left=$(( PILOT_MATRIX_DEADLINE - $(date +%s) ))
+  [ "$matrix_left" -ge 1 ] || matrix_left=1
+  timeout --kill-after=30 "$matrix_left" bash hack/m5c-matrix.sh; matrix_rc=$?
+  [ "$matrix_rc" != 124 ] || echo "matrix stopped at the pilot's deadline, $(date -u -d "@$PILOT_MATRIX_DEADLINE" +%H:%M:%SZ)"
+else
+  bash hack/m5c-matrix.sh; matrix_rc=$?
+fi
 echo "matrix exited $matrix_rc"
 date +%s > /tmp/matrix-returned.txt
 upload /tmp/matrix-returned.txt matrix-returned.txt

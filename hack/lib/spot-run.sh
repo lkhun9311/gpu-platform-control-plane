@@ -403,7 +403,13 @@ spot_wait_for_marker_until() {
     if timeout "$left" aws s3api head-object --bucket "$bucket" --key "$key" >/dev/null 2>&1; then
       return 0
     fi
-    state=$(spot_instance_state "$region" "$instance_id")
+    # The probe is bounded as a whole by the time left, not only per attempt by the CLI's own timeouts, which a
+    # retrying call can repeat past the deadline (review of 9496808).
+    left=$(( deadline - $(date +%s) ))
+    [ "$left" -gt 0 ] || return 3
+    state=$(timeout "$left" aws ec2 describe-instances --region "$region" --instance-ids "$instance_id" \
+      --cli-connect-timeout 5 --cli-read-timeout 10 \
+      --query 'Reservations[0].Instances[0].State.Name' --output text 2>/dev/null || echo unknown)
     case "$state" in
       terminated|shutting-down) printf '%s' "$state"; return 2 ;;
     esac
