@@ -102,6 +102,8 @@ func main() {
 		err = compilePlan(os.Args[2:])
 	case "sim-cap":
 		err = simCap(os.Args[2:])
+	case "fit-pilot-rate":
+		err = fitPilotRate(os.Args[2:], os.Stdout)
 	case "stub-serve":
 		err = stubServe(os.Args[2:])
 	default:
