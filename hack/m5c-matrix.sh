@@ -3197,7 +3197,7 @@ run_warmup() {
 # Session 3's refused cell had no engine log, and fail reaches only the end-of-run archive, which a stopped instance never writes.
 # A log that could not be kept is named in the message rather than ending the stop early, because the refusal is the finding.
 cell_refused_stop() {
-  local label="$1" rep="$2" stage="$3" msg="$4" t1 kept=0 why
+  local label="$1" rep="$2" stage="$3" msg="$4" upload="${5:-}" t1 kept=0 why
   if [ "$stage" = at-warmup ] && iv_keeps_warmup_refusal_log "${STUDY:-}"; then
     kept=1
     why=$(warmup_refusal_log "$label" "$rep") || msg="$msg [engine log: ${why:-warmup_refusal_log failed without saying why}]"
@@ -3210,9 +3210,10 @@ cell_refused_stop() {
   cell_timing_record "$label" "$rep" "refused-$stage" "${CELL_T0:-}" "$t1" || true
   # After the timing row, so the upload carries the row that names this cell's outcome.
   # The raw path is the measured one the hook expects; it does not exist yet, and the hook sends only what does.
-  if [ "$kept" = 1 ] && [ -n "${CELL_DONE_HOOK:-}" ]; then
+  # A fifth argument "upload" asks for the same, for a refusal after the cell's evidence was captured.
+  if { [ "$kept" = 1 ] || [ "$upload" = upload ]; } && [ -n "${CELL_DONE_HOOK:-}" ]; then
     OUT="$OUT" timeout "${CELL_DONE_HOOK_TIMEOUT:-120}" "$CELL_DONE_HOOK" "$OUT/raw-$label-$rep.jsonl" "$label" "$rep" \
-      || say "  WARNING: CELL_DONE_HOOK failed or timed out for $label rep $rep's refused warm-up; its files are still on local disk"
+      || say "  WARNING: CELL_DONE_HOOK failed or timed out for $label rep $rep's refused cell; its files are still on local disk"
   fi
   fail "$msg"
 }
@@ -3478,9 +3479,12 @@ run_cell() {
   # before could not include its end.
   local pilot_timed=""
   if [ -z "${LADDER:-}" ] && pp_is_study "${STUDY:-}"; then
-    # A cell already known to stop the pilot is not recorded as completed: cell_refused_stop records its one
-    # outcome below, and a second row would count the cell twice (review of 20cbf33).
-    [ -n "$pilot_stop" ] || cell_timing_record "$label" "$rep" completed "$CELL_T0" "$(date +%s)" || true
+    # A cell already known to stop the pilot is recorded once, as refused, and uploaded with that row: written
+    # after the hook, the row stayed on an instance that might not survive to the final archive (review of ffe3047),
+    # and written beside a completed row it counted the cell twice (review of 20cbf33).
+    [ -z "$pilot_stop" ] \
+      || cell_refused_stop "$label" "$rep" after-replay "REFUSED $label rep $rep after its capture: $pilot_stop" upload
+    cell_timing_record "$label" "$rep" completed "$CELL_T0" "$(date +%s)" || true
     pilot_timed=1
   fi
   local hook_t0
@@ -3508,8 +3512,6 @@ run_cell() {
   fi
   [ -z "$engine_log_refusal" ] \
     || cell_refused_stop "$label" "$rep" after-replay "REFUSED $label rep $rep after replay: $engine_log_refusal"
-  [ -z "$pilot_stop" ] \
-    || cell_refused_stop "$label" "$rep" after-replay "REFUSED $label rep $rep after its capture: $pilot_stop"
   CELL_T1=$(date +%s)
   cell_secs=$(( cell_secs + CELL_T1 - CELL_T0 ))
   cells_done=$(( cells_done + 1 ))
