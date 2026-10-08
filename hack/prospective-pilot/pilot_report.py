@@ -1,6 +1,7 @@
 """The prospective-admission pilot's measurement report.
 
-    python3 pilot_report.py stage DIR            one stage's measurements, as JSON, to stdout
+    python3 pilot_report.py stage DIR [A|B]      one stage's measurements, as JSON, to stdout; with the stage named,
+                                                 its missing cells are listed
     python3 pilot_report.py formulas DIR_A DIR_B  the frozen calibration formulas' outputs, or why they are unavailable
 
 docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md, "The measurement pilot". It judges
@@ -9,6 +10,7 @@ formulas that were frozen before the pilot. It prints no P/S ratio; widths are p
 their sum (design page, "Stage B is not blind").
 """
 
+import csv
 import glob
 import json
 import math
@@ -16,7 +18,14 @@ import os
 import re
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import pilot_evidence  # noqa: E402
+
 PREMIUM = "premium-1"
+# Each stage's registered arms, three blocks each. The formulas need every one of them, so the inventory is
+# checked against this rather than read from whatever raw files exist (review of 97ae105, finding 3).
+STAGE_ARMS = {"A": ("R1", "off", "prospective"), "B": ("R1", "off", "static-cap", "prospective")}
+BLOCKS = 3
 CONTENDER = "standard-noisy"
 L_MS_FLOOR = 5.0
 CEILING_MS_FLOOR = 50.0
@@ -152,15 +161,18 @@ def cell_report(stage_dir, arm, rep):
 
     lags, delays, ttft_sched, ttft_arr = [], {"record": [], "decide": [], "handoff": [], "content": []}, [], []
     client_gaps = {"send_to_arrival": [], "flush_to_client_first": []}
-    missing, incomplete, no_arrival = 0, 0, 0
+    missing, incomplete, no_arrival, no_return, no_flush = 0, 0, 0, 0, 0
     premium_unc, premium_fail = 0, 0
     release_gap = []
     window_end = 0
     for r in rows:
         e = gw.get(r.get("requestId"))
         sched_ns = r.get("replayOriginUnixNanos", 0) + r["scheduledOffsetMs"] * 1_000_000
-        if r.get("tenant") == PREMIUM and r.get("returnedUnixNanos"):
-            window_end = max(window_end, r["returnedUnixNanos"])
+        if r.get("tenant") == PREMIUM:
+            if r.get("returnedUnixNanos"):
+                window_end = max(window_end, r["returnedUnixNanos"])
+            else:
+                no_return += 1
         if e is None:
             missing += 1
             continue
@@ -182,6 +194,8 @@ def cell_report(stage_dir, arm, rep):
             cap = 64
             uncertain = lag > L_MS_FLOOR
             premium_unc += uncertain
+            if full_output(r, cap) and not d.get("firstContentUnixNanos"):
+                no_flush += 1
             if full_output(r, cap) and d.get("firstContentUnixNanos"):
                 s, a = ms(d["firstContentUnixNanos"] - sched_ns), ms(d["firstContentUnixNanos"] - d["arrivedUnixNanos"])
                 if r.get("firstTokenUnixNanos"):
@@ -200,13 +214,29 @@ def cell_report(stage_dir, arm, rep):
         problems.append("%d gateway record(s) lack their arrive or done line" % incomplete)
     if no_arrival:
         problems.append("%d request(s) were refused before their body was read, so their lag is unknown" % no_arrival)
+    # A premium success must carry its flushed first-content stamp; one without it is not a failure but missing
+    # evidence (design page, eligibility condition 1; review of 97ae105, finding 4).
+    if no_flush:
+        problems.append("%d premium success(es) have no flushed first-content stamp" % no_flush)
+    # The window ends at the last premium return, so every premium row must carry one: a missing one could be the
+    # last, and the window would end early (review of 97ae105, finding 6).
+    if no_return:
+        problems.append("%d premium row(s) have no return stamp, so the window's end is unknown" % no_return)
+        window_end = 0
 
     # Step-log completeness and its alignment with the engine's own iterations, up to the fence.
-    complete = any(r.get("ev") == "terminal" and r["seq_written"] == r["seq_produced"] and r["buffered"] == 0 for r in steps)
+    # The capture's own completeness check, with its sequence, count and overflow rules, rather than a terminal
+    # record's declaration alone (review of 97ae105, finding 5).
+    complete, why = pilot_evidence.terminal(os.path.join(stage_dir, "step-log-%s.jsonl" % tag)) if steps else (None, "there is no step log")
     if not complete:
-        problems.append("the step log has no complete terminal record")
+        problems.append("the step log is not complete: " + why)
+    fence_add = any(r.get("ev") == "add" and "fence-" in r.get("id", "") for r in steps)
+    if steps and not fence_add:
+        problems.append("the fence's add record is not in the step log")
     elog = os.path.join(stage_dir, "engine-log-%s.txt" % tag)
-    if os.path.exists(elog) and steps:
+    if not os.path.exists(elog):
+        problems.append("there is no engine log to align the step log against")
+    elif steps:
         ok, why = step_alignment(steps, iteration_totals(elog))
         if not ok:
             problems.append("step log against the engine's iterations: " + why)
@@ -216,6 +246,7 @@ def cell_report(stage_dir, arm, rep):
     offered = [r for r in rows if r.get("tenant") == CONTENDER]
     tenant_of = {r["requestId"]: r["tenant"] for r in rows}
     prefill = decode = 0
+    unannounced = set()
     for s in steps:
         if s.get("ev") != "sched":
             continue
@@ -227,16 +258,23 @@ def cell_report(stage_dir, arm, rep):
             client = match_client(rid, client_ids)
             if client is None or tenant_of.get(client) != CONTENDER:
                 continue
-            prompt = adds.get(rid, {}).get("prompt", 0)
+            if rid not in adds:
+                # Without its add record the prompt length is unknown, and its prefill would be counted as decode.
+                unannounced.add(rid)
+                continue
+            prompt = adds[rid].get("prompt", 0)
             before = s["computed"].get(rid, 0)
             pf = min(n, max(prompt - before, 0))
             prefill += pf
             decode += n - pf
+    if unannounced:
+        problems.append("%d contender(s) were scheduled with no add record, so their prefill cannot be split from decode" % len(unannounced))
     exact = sum(r.get("exactInputTokens", 0) for r in offered)
     completed = sum(r.get("exactInputTokens", 0) for r in offered if full_output(r, 16))
+    # p and q are within the window, so without its end they are not reported rather than counted to the log's end.
     work = {"offered": len(offered),
-            "p": prefill / exact if exact else None,
-            "q": decode / (len(offered) * 16) if offered else None,
+            "p": prefill / exact if exact and window_end else None,
+            "q": decode / (len(offered) * 16) if offered and window_end else None,
             "c": completed / exact if exact else None}
 
     return {"arm": arm, "rep": rep, "eligible": not problems, "problems": problems,
@@ -247,7 +285,7 @@ def cell_report(stage_dir, arm, rep):
             "premium": {"uncertain": premium_unc, "failed": premium_fail, "n": len(ttft_sched)},
             "contender_release_gap_ms": summary(release_gap),
             "work": work,
-            "_ttft": {"sched": ttft_sched, "arr": ttft_arr}}
+            "_ttft": {"sched": ttft_sched, "arr": ttft_arr}, "_lags": lags}
 
 
 def pooled_p99(values, uncertain_at):
@@ -265,56 +303,128 @@ def width(lo, hi):
     return math.log(hi / lo)
 
 
-def stage_report(stage_dir):
+def crossed_log_ratio(num, den):
+    """ln(num/den) for a crossed bound, keeping its infinities: an infinite numerator is +inf and an infinite
+    denominator -inf, which is what a failure-heavy arm makes them (review of 97ae105, finding 8)."""
+    if num is None or den is None or den <= 0 and not math.isinf(den):
+        return None
+    if math.isinf(num):
+        return math.inf
+    if math.isinf(den):
+        return -math.inf
+    if num <= 0:
+        return None
+    return math.log(num / den)
+
+
+def missing_cells(stage_dir, stage):
+    """The registered (arm, block) pairs of a stage with no raw rows."""
+    have = set(cells(stage_dir))
+    return [(a, r) for a in STAGE_ARMS[stage] for r in range(1, BLOCKS + 1) if (a, r) not in have]
+
+
+def stage_report(stage_dir, stage=None):
     cs = [cell_report(stage_dir, a, r) for a, r in cells(stage_dir)]
     arms = {}
     for c in cs:
         arms.setdefault(c["arm"], []).append(c)
-    out = {"stage_dir": stage_dir, "cells": [], "arms": {}}
+    out = {"stage_dir": stage_dir, "stage": stage, "cells": [], "arms": {}}
+    if stage is not None:
+        out["missing_cells"] = missing_cells(stage_dir, stage)
     pooled = {}
     for arm, group in sorted(arms.items()):
         sched = [x for c in group for x in c["_ttft"]["sched"]]
         arr = [x for c in group for x in c["_ttft"]["arr"]]
+        lags = [x for c in group for x in c["_lags"]]
         p = {"sched_lo": pooled_p99(sched, 0.0), "sched_hi": pooled_p99(sched, math.inf),
              "arr_lo": pooled_p99(arr, 0.0), "arr_hi": pooled_p99(arr, math.inf)}
         pooled[arm] = p
+        # The box an arm contributes to the crossed P/S bounds runs from its arrival p99 with the uncertain at 0 to
+        # its scheduled p99 with them at +inf: y_hi - y_lo = ln(P_sched_hi/P_arr_lo) + ln(S_sched_hi/S_arr_lo)
+        # (design page, y_hi and y_lo; review of 97ae105, finding 1). The two within-definition widths are kept
+        # as diagnostics; neither alone is the box.
         out["arms"][arm] = {"eligible": all(c["eligible"] for c in group),
                             "blocks": len(group),
+                            "pooled_p99_ms": p,
+                            "width_box": width(p["arr_lo"], p["sched_hi"]),
                             "width_sched": width(p["sched_lo"], p["sched_hi"]),
-                            "width_arr": width(p["arr_lo"], p["arr_hi"])}
+                            "width_arr": width(p["arr_lo"], p["arr_hi"]),
+                            "lag_ms_pooled": summary(lags)}
     # Contention and P/O are about O and P against each other and I, never S.
     if "off" in pooled and "R1" in pooled and pooled["R1"]["sched_hi"]:
         out["contention_o_over_i"] = pooled["off"]["sched_hi"] / pooled["R1"]["sched_hi"] if not math.isinf(pooled["off"]["sched_hi"]) else None
     if "prospective" in pooled and "off" in pooled:
-        num, den = pooled["prospective"]["sched_hi"], pooled["off"]["arr_lo"]
-        out["p_over_o_y_hi"] = math.log(num / den) if num and den and not math.isinf(num) and den > 0 else None
-    # The pooled P/S width, as the sum of the two arms' widths: no ratio of P to S is formed.
+        out["p_over_o_y_hi"] = crossed_log_ratio(pooled["prospective"]["sched_hi"], pooled["off"]["arr_lo"])
+    # The pooled P/S half-width, from the two arms' boxes: no ratio of P to S is formed.
     if "prospective" in out["arms"] and "static-cap" in out["arms"]:
-        wp, ws = out["arms"]["prospective"]["width_sched"], out["arms"]["static-cap"]["width_arr"]
+        wp, ws = out["arms"]["prospective"]["width_box"], out["arms"]["static-cap"]["width_box"]
         out["ps_half_width"] = (wp + ws) / 2 if wp is not None and ws is not None else None
     for c in cs:
         c = dict(c)
         c.pop("_ttft")
+        c.pop("_lags")
         out["cells"].append(c)
     return out
 
 
+def read_tsv(path):
+    if not os.path.exists(path):
+        return None
+    with open(path, newline="") as f:
+        return list(csv.DictReader(f, delimiter="\t"))
+
+
+def arm_time(stage_dir, stage):
+    """(seconds, why): the largest complete cell time of the stage, its preliminary elapsed_s plus its upload hook's
+    duration; None with the reason when any registered cell lacks either record (design page, condition 4)."""
+    timings, uploads = read_tsv(os.path.join(stage_dir, "cell-timings.tsv")), read_tsv(os.path.join(stage_dir, "cell-uploads.tsv"))
+    if timings is None or uploads is None:
+        return None, "%s lacks cell-timings.tsv or cell-uploads.tsv" % stage_dir
+    worst, why = 0, []
+    for a in STAGE_ARMS[stage]:
+        for r in range(1, BLOCKS + 1):
+            t = [x for x in timings if x["arm"] == a and x["rep"] == str(r)]
+            u = [x for x in uploads if x["arm"] == a and x["rep"] == str(r)]
+            if len(t) != 1 or t[0]["outcome"] != "completed" or len(u) != 1:
+                why.append("%s-%d has %d timing row(s) (%s) and %d upload row(s)" % (a, r, len(t), t[0]["outcome"] if t else "none", len(u)))
+                continue
+            worst = max(worst, int(t[0]["elapsed_s"]) + int(u[0]["hook_s"]))
+    if why:
+        return None, "; ".join(why)
+    return worst, ""
+
+
 def formulas(dir_a, dir_b):
-    """The frozen formulas, from timing alone, when every arm of both stages is eligible."""
-    reports = [stage_report(dir_a), stage_report(dir_b)]
-    bad = [(r["stage_dir"], c["arm"], c["rep"], c["problems"]) for r in reports for c in r["cells"] if not c["eligible"]]
+    """The frozen formulas, from timing alone, when every registered arm of both stages is present and eligible."""
+    reports = [stage_report(dir_a, "A"), stage_report(dir_b, "B")]
+    absent = [(r["stage"], m) for r in reports for m in r["missing_cells"]]
+    if absent:
+        return {"available": False, "why": "registered cells with no evidence: %s" % absent}
+    bad = [(r["stage"], c["arm"], c["rep"], c["problems"]) for r in reports for c in r["cells"] if not c["eligible"]]
     if bad:
         return {"available": False, "why": "ineligible cells: %s" % bad}
-    p999 = max(c["lag_ms"].get("p999", 0) or 0 for r in reports for c in r["cells"])
-    lmax = max(c["lag_ms"].get("max", 0) or 0 for r in reports for c in r["cells"])
-    L = max(L_MS_FLOOR, math.ceil(2 * p999))
-    ceiling = max(CEILING_MS_FLOOR, 2 * lmax)
-    return {"available": True, "L_ms": L, "ceiling_ms": ceiling, "p999_lag_ms_max": p999, "lag_ms_max": lmax}
+    # L reads each arm's lags pooled over its stage's blocks, as the endpoint pools them, not the worst single
+    # block's: the two differ whenever a block's tail is not the arm's (review of 97ae105, finding 2).
+    p999 = max(a["lag_ms_pooled"].get("p999", 0) or 0 for r in reports for a in r["arms"].values())
+    lmax = max(a["lag_ms_pooled"].get("max", 0) or 0 for r in reports for a in r["arms"].values())
+    out = {"available": True, "L_ms": max(L_MS_FLOOR, math.ceil(2 * p999)), "ceiling_ms": max(CEILING_MS_FLOOR, 2 * lmax),
+           "p999_lag_ms_max_pooled_arm": p999, "lag_ms_max": lmax}
+    times = [arm_time(dir_a, "A"), arm_time(dir_b, "B")]
+    if any(t is None for t, _ in times):
+        out["arm_time_s"] = None
+        out["arm_time_why"] = "; ".join(w for t, w in times if t is None)
+    else:
+        out["arm_time_s"] = max(t for t, _ in times)
+    # Bring-up and session tail are read from the session's own stamps, which this runner does not record yet, so
+    # the session length and its deadlines are reported unavailable rather than estimated.
+    out["main_session_length_s"] = None
+    out["main_session_length_why"] = "bring-up (EC2 LaunchTime to first cell) and session tail are not recorded by the session runner yet"
+    return out
 
 
 def main(argv):
-    if len(argv) == 3 and argv[1] == "stage":
-        json.dump(stage_report(argv[2]), sys.stdout, indent=1, default=str)
+    if len(argv) in (3, 4) and argv[1] == "stage" and (len(argv) == 3 or argv[3] in STAGE_ARMS):
+        json.dump(stage_report(argv[2], argv[3] if len(argv) == 4 else None), sys.stdout, indent=1, default=str)
         print()
         return 0
     if len(argv) == 4 and argv[1] == "formulas":

@@ -129,5 +129,134 @@ class PilotReportTest(unittest.TestCase):
         self.assertTrue(math.isinf(pr.width(10.0, math.inf)))
 
 
+def add_premium(cell, n, lag_ns=500_000, ttft_ns=20_000_000, start=10):
+    """n more premium rows, each arriving lag_ns after its scheduled instant and answered ttft_ns after arrival."""
+    for i in range(start, start + n):
+        rid = "pp-A-%s-%d" % (cell.tag, i)
+        sched = ORIGIN + i * 1_000_000
+        cell.rows.append({"requestId": rid, "tenant": "premium-1", "scheduledOffsetMs": i, "replayOriginUnixNanos": ORIGIN,
+                          "sendUnixNanos": sched, "firstTokenUnixNanos": sched + lag_ns + ttft_ns + 1000,
+                          "returnedUnixNanos": ORIGIN + 50_000_000, "httpStatus": 200, "engineOutputTokens": 64, "exactInputTokens": 68})
+        arr = sched + lag_ns
+        cell.gw.append({"ev": "arrive", "requestId": rid, "arrivedUnixNanos": arr})
+        cell.gw.append({"ev": "done", "requestId": rid, "arrivedUnixNanos": arr, "recordedUnixNanos": arr + 1000, "decidedUnixNanos": arr + 2000,
+                        "handoffUnixNanos": arr + 3000, "firstContentUnixNanos": arr + ttft_ns, "endedUnixNanos": arr + ttft_ns})
+
+
+def full_stage(d, stage, tweak=None):
+    """Every registered cell of a stage, with both timing records; tweak(cell) may bend any cell before it is saved."""
+    os.makedirs(d, exist_ok=True)
+    t = ["cell\tarm\trep\toutcome\tstart_utc\tend_utc\telapsed_s\tcum_s\tcells_done"]
+    u = ["cell\tarm\trep\thook_start_utc\thook_end_utc\thook_s"]
+    n = 0
+    for arm in pr.STAGE_ARMS[stage]:
+        for rep in range(1, pr.BLOCKS + 1):
+            n += 1
+            c = Cell(d, arm, rep)
+            if tweak:
+                tweak(c)
+            c.save()
+            t.append("%d\t%s\t%d\tcompleted\ta\tb\t%d\t0\t%d" % (n, arm, rep, 400 + n, n))
+            u.append("%d\t%s\t%d\ta\tb\t%d" % (n, arm, rep, 10))
+    for name, lines in (("cell-timings.tsv", t), ("cell-uploads.tsv", u)):
+        with open(os.path.join(d, name), "w") as f:
+            f.write("\n".join(lines) + "\n")
+
+
+class PilotReportReviewTest(unittest.TestCase):
+    """The review of 97ae105's eight findings, each pinned."""
+
+    def setUp(self):
+        self.d = tempfile.mkdtemp()
+
+    # Finding 1. Mutation that turns it red: take P's scheduled width and S's arrival width instead of each box.
+    def test_each_arm_contributes_its_crossed_box(self):
+        for arm in ("prospective", "static-cap"):
+            c = Cell(self.d, arm, 1)
+            add_premium(c, 200, lag_ns=4_000_000, ttft_ns=16_000_000)
+            c.save()
+        rep = pr.stage_report(self.d)
+        box = rep["arms"]["prospective"]["width_box"]
+        # Arrival p99 16 ms with nothing uncertain at 4 ms of lag; scheduled p99 20 ms: ln(20/16).
+        self.assertAlmostEqual(box, math.log(20 / 16), places=2)
+        self.assertEqual(rep["arms"]["prospective"]["width_sched"], 0.0)
+        self.assertAlmostEqual(rep["ps_half_width"], math.log(20 / 16), places=2)
+
+    # Finding 2. Mutation that turns it red: read the worst cell's p99.9 instead of the arm's pooled one.
+    def test_lag_quantiles_pool_an_arms_blocks(self):
+        def tweak(c):
+            add_premium(c, 1000)
+            if c.tag == "off-2":
+                for g in c.gw[-4:]:
+                    g["arrivedUnixNanos"] += 100_000_000
+        full_stage(os.path.join(self.d, "A"), "A", tweak)
+        full_stage(os.path.join(self.d, "B"), "B", lambda c: add_premium(c, 1000))
+        f = pr.formulas(os.path.join(self.d, "A"), os.path.join(self.d, "B"))
+        self.assertTrue(f["available"], f.get("why"))
+        cell_p999 = max(c["lag_ms"]["p999"] for c in pr.stage_report(os.path.join(self.d, "A"))["cells"])
+        self.assertGreater(cell_p999, 100)
+        self.assertLess(f["p999_lag_ms_max_pooled_arm"], 5)
+        self.assertEqual(f["L_ms"], 5.0)
+        self.assertEqual(f["arm_time_s"], 400 + 12 + 10)
+
+    # Finding 3. Mutation that turns it red: read the inventory from the raw files that exist.
+    def test_a_missing_registered_cell_makes_the_formulas_unavailable(self):
+        full_stage(os.path.join(self.d, "A"), "A")
+        full_stage(os.path.join(self.d, "B"), "B")
+        os.remove(os.path.join(self.d, "B", "raw-static-cap-3.jsonl"))
+        f = pr.formulas(os.path.join(self.d, "A"), os.path.join(self.d, "B"))
+        self.assertFalse(f["available"])
+        self.assertIn("static-cap", f["why"])
+
+    def test_a_missing_upload_row_makes_the_arm_time_unavailable(self):
+        full_stage(os.path.join(self.d, "A"), "A")
+        full_stage(os.path.join(self.d, "B"), "B")
+        path = os.path.join(self.d, "B", "cell-uploads.tsv")
+        with open(path) as f:
+            lines = f.read().splitlines()
+        with open(path, "w") as f:
+            f.write("\n".join(lines[:-1]) + "\n")
+        f = pr.formulas(os.path.join(self.d, "A"), os.path.join(self.d, "B"))
+        self.assertIsNone(f["arm_time_s"])
+        self.assertIn("prospective-3", f["arm_time_why"])
+
+    # Finding 4.
+    def test_a_premium_success_without_its_flush_stamp_is_ineligible(self):
+        cell = Cell(self.d)
+        del cell.gw[1]["firstContentUnixNanos"]
+        c = cell.save()
+        self.assertTrue(any("flushed first-content" in p for p in c["problems"]), c["problems"])
+
+    # Finding 5.
+    def test_a_missing_engine_log_is_ineligible(self):
+        cell = Cell(self.d)
+        cell.save()
+        os.remove(os.path.join(self.d, "engine-log-off-1.txt"))
+        c = pr.cell_report(self.d, "off", 1)
+        self.assertTrue(any("no engine log" in p for p in c["problems"]), c["problems"])
+
+    def test_a_contender_scheduled_without_its_add_record_is_ineligible(self):
+        cell = Cell(self.d)
+        cell.steps = [s for s in cell.steps if not (s.get("ev") == "add" and "off-1-1" in s["id"])]
+        for i, s in enumerate(cell.steps[:-1], 1):
+            s["seq"] = i
+        cell.steps[-1].update(seq_written=len(cell.steps) - 1, seq_produced=len(cell.steps) - 1)
+        c = cell.save()
+        self.assertTrue(any("no add record" in p for p in c["problems"]), c["problems"])
+
+    # Finding 6.
+    def test_a_premium_row_without_its_return_stamp_is_ineligible(self):
+        cell = Cell(self.d)
+        del cell.rows[0]["returnedUnixNanos"]
+        c = cell.save()
+        self.assertTrue(any("no return stamp" in p for p in c["problems"]), c["problems"])
+        self.assertIsNone(c["work"]["p"])
+
+    # Finding 8.
+    def test_an_infinite_comparator_bound_keeps_its_infinity(self):
+        self.assertEqual(pr.crossed_log_ratio(20.0, math.inf), -math.inf)
+        self.assertEqual(pr.crossed_log_ratio(math.inf, 20.0), math.inf)
+
+
 if __name__ == "__main__":
     unittest.main()
