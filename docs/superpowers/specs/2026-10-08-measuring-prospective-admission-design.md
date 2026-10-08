@@ -794,6 +794,56 @@ Since round 12, every round has been about one question: what the decision may t
 - **(b) Keep iterating** with astra until a round finds no blocker, accepting that the timing rules may not converge.
 - **(c) Shelve item 3,** recording what the 21 rounds established.
 
+**The owner chose (a)** on 2026-10-08.
+
+## The measurement pilot
+
+**What it is for.** It measures the quantities the timing rules depend on, on the real apparatus, so the main study's rules can be set from numbers rather than argued against constructions.
+- **It produces no verdict about P against S.**
+- **It is not a gate the main study inherits.** Its numbers feed the next design round, which is attacked again before any main purchase.
+- Its purchase needs the owner's approval once it is built, like any purchase.
+
+**Sessions.** The two stages already designed:
+- **stage A:** one instance, three blocks of I, O and P;
+- **stage B:** one instance, two four-arm blocks, with R fitted on stage A.
+
+Each is one session in one login, at about 2.1 and 1.9 hours. Expected cost is about $2.73, and at most $6.98 at the runner's caps and deadlines.
+
+**What it measures, per arm and per block, all published:**
+
+| Quantity | Why the main design needs it |
+|---|---|
+| Dispatch lag (gateway arrival minus scheduled instant): full distribution, maximum, and count above 5, 25 and 50 ms | the ceiling and uncertainty rules, and round 21's finding 4 |
+| Gateway-internal delays: arrival → admission decision → backend forward → first-content forward | round 21's finding 1: what happens after the arrival stamp |
+| Client-side stamps beside the gateway's: send, written, first content | how far each stamp sits from the gateway's |
+| Missing gateway records; scheduler records with no gateway record | the record rules |
+| Premium p99 on TTFT-scheduled and TTFT-arrival, with the uncertain set at 0 and at +∞, **pooled over the stage's blocks** | round 21's findings 2 and 3: the box's width as the endpoint pools it, including y_lo |
+| O/I contention, P/O on the crossed bounds (stage A) | the contention and P/O screens |
+| Contender p, q and c per arm; sim-cap's predicted admission against the observed (stage B) | the margin and the R fit |
+| Release-to-first-content gap per contender; restart and capture times; step-log completeness checks | operational premises |
+
+**Blindness in stage B.** The report prints:
+- **P/S box widths;**
+- **S's own quantities.**
+
+It never prints **P/S ratios.** The analysis script computes the widths without writing the ratios to its output, and the rehearsal checks its output for any P/S ratio.
+
+**What must be built for the pilot.** A subset of the build list:
+- items 1, 2, 3, 4, 5, 6, 7, 10, 11, 12, 13, 14, 18, 21, 22, 24, 25 and 27;
+- the gateway's own delay stamps;
+- a measurement report in place of item 15's decision machinery.
+
+**Deferred to the main study,** each because the pilot's money is small and its loss acceptable:
+- **item 8,** the evidence sidecar: a Spot interruption costs the pilot's evidence, at most $6.98;
+- **item 9,** the interruption recorder;
+- **item 16,** the sweeper: the runner's existing backstop, hard stop and operator watch, which every earlier session used, bound the pilot;
+- **item 17,** the ledger;
+- **item 19,** TPOT.
+
+The credential check (item 13) is not deferred, because it guards the launch itself.
+
+**Rehearsal before purchase:** a full stage A and stage B on kind with the stub engine, end to end through the measurement report.
+
 ## What v21 changed, against the review of v20
 
 | v20 finding | Change |
