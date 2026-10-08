@@ -821,7 +821,9 @@ type benchmarkRequest struct {
 		Role    string `json:"role"`
 		Content string `json:"content"`
 	} `json:"messages"`
-	MaxTokens     int  `json:"max_tokens"`
+	MaxTokens int `json:"max_tokens"`
+	// MinTokens is a pointer so that its absence, which every M5-b request has, is told apart from an explicit 0.
+	MinTokens     *int `json:"min_tokens"`
 	Stream        bool `json:"stream"`
 	StreamOptions struct {
 		IncludeUsage bool `json:"include_usage"`
@@ -832,8 +834,12 @@ type benchmarkRequest struct {
 //
 // The fields accepted here mirror internal/bench's sender, except the two it omits unless a study asks for them. `priority` is NOT among them: it belongs to
 // a separately specified experiment, and a run that carried it would be measuring a different treatment under
-// this one's name. `min_tokens` is not among them for the same reason: only the instrument-validation session 3
-// sends it, and a profile-enforcing gateway is meant to refuse that traffic rather than score it as M5-b.
+// this one's name.
+//
+// `min_tokens` is accepted only when it equals `max_tokens`. The prospective-admission pilot fixes every output
+// at its cap, so that a short completion is a failure rather than silently deleted work (design page, "Load"),
+// and the gateway must not refuse that traffic. Any other value would change how much output a request asks for
+// without the cap saying so, which is the treatment change this profile exists to refuse.
 //
 // A string `content` is required rather than the multimodal array the OpenAI schema also allows, because the
 // input estimate cannot read a token cost off a non-text part -- the shape that made NonTextContent necessary
@@ -861,6 +867,10 @@ func checkBenchmarkProfile(buf []byte) error {
 	}
 	if req.MaxTokens <= 0 {
 		return fmt.Errorf("%w: max_tokens must be positive, got %d", ErrProfileViolation, req.MaxTokens)
+	}
+	if req.MinTokens != nil && *req.MinTokens != req.MaxTokens {
+		return fmt.Errorf("%w: min_tokens is accepted only equal to max_tokens, got %d against %d",
+			ErrProfileViolation, *req.MinTokens, req.MaxTokens)
 	}
 	if !req.Stream || !req.StreamOptions.IncludeUsage {
 		return fmt.Errorf("%w: the profile streams with usage reporting, got stream=%v include_usage=%v",
