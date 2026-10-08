@@ -250,3 +250,6 @@ custom-gcl
 # `docs/*` above would otherwise swallow it.
 !docs/evidence/
 !docs/evidence/**
+
+# The sweeper Lambda package terraform builds in infra/aws/bootstrap (sweeper.tf); rebuilt on every plan.
+infra/aws/bootstrap/.build/
