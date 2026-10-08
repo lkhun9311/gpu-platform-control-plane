@@ -91,6 +91,9 @@ case "$svc $op" in
 
   "s3api head-object")
     key=$(arg_after --key "$@" || true)
+    # A metadata read of an object that exists -- the pilot asks when the marker was uploaded -- is answered
+    # without counting as a poll, so it cannot move the scenario's marker timeline.
+    case " $* " in *" --query LastModified "*) printf '2026-10-08T12:00:00+00:00\n'; exit 0 ;; esac
     n=$(bump head-object)
     # The stale-marker scenario models a marker left at the BUCKET ROOT by an earlier run, which is
     # where the fixed keys used to put it. It is deliberately key-aware: a run that polls its own
@@ -358,6 +361,8 @@ case "$svc $op" in
       printf 'filtered describe: %d instance(s) matched the filter\n' "$matched" >> "$STUB_TRANSCRIPT"
       exit 0
     fi
+    # The pilot asks for the launch time; answered without counting as a state read, as above.
+    case " $* " in *"LaunchTime"*) printf '2026-10-08T09:00:00+00:00\n'; exit 0 ;; esac
     n=$(bump describe-instances)
     dead="${STUB_TERMINATED_AFTER:--1}"
     # A terminate call that was accepted wins over the call counter: after it, the instance is gone.

@@ -187,12 +187,15 @@ run_scenario() {
     # `echo "$RUN_NONCE" > /tmp/DONE` is what the runner reads back to prove the evidence is this
     # launch's (hack/m5c-gpu-session.sh:836), so the value is per-run and the line it sits on is unique.
     #
+    # The pilot's matrix deadline is an absolute epoch the wrapper computes at run time, so it is elided the same way.
+    #
     # The comment that says this was briefly INSIDE the sed arguments, where `#` starts an argument
     # rather than a comment. `bash -n` passed it, because it is syntactically fine and semantically wrong.
     sed -i -e 's/SOURCE_SHA="[0-9a-f]\{64\}"/SOURCE_SHA="<SHA256>"/' \
            -e 's/COMMIT="[0-9a-f]\{40\}"/COMMIT="<COMMIT>"/' \
            -e 's/PREFIX="\([A-Za-z0-9_-]*\)-[0-9a-f]\{8\}"/PREFIX="\1-<NONCE>"/' \
            -e 's#echo "[0-9a-f]\{8\}" > /tmp/DONE#echo "<NONCE>" > /tmp/DONE#' \
+           -e 's/^PILOT_MATRIX_DEADLINE="[0-9]\{10\}"$/PILOT_MATRIX_DEADLINE="<EPOCH>"/' \
            "$out/user-data.sh"
   fi
 
@@ -599,7 +602,7 @@ scenarios_m5c_gpu_session() {
     STUDY=prospective-pilot-2026-10-08 PILOT_STAGE=A PREMIUM_RATE=9.25 PILOT_NOISY_RATE=0.5 SEEDS="11 12 13" \
     PREMIUM_PROMPT_CHARS=200 NOISY_PROMPT_CHARS=40000 REQUEST_TIMEOUT_MS=30000 PREMIUM_OUTPUT_TOKENS=64 NOISY_OUTPUT_TOKENS=16 \
     STUB_EVIDENCE_ARMS="R1 off prospective" STUB_EVIDENCE_REPS=3 \
-    STUB_PRESENT_KEYS="evidence.tgz log.txt commit.txt nodes.txt preflight-nvidia-smi.csv preflight-node-cards.txt" \
+    STUB_PRESENT_KEYS="evidence.tgz log.txt commit.txt nodes.txt preflight-nvidia-smi.csv preflight-node-cards.txt matrix-returned.txt" \
     run_scenario prospective-pilot-stage-a bash "$TARGET"
 
   # Stage B without the R stage A fitted: refused before anything is rented.

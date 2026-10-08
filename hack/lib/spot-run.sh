@@ -386,3 +386,30 @@ spot_wait_for_marker() {
   done
   return 3
 }
+
+# spot_wait_for_marker_until is spot_wait_for_marker against a wall-clock deadline, not a count of attempts.
+#
+# Every AWS call runs under `timeout` with the seconds left, never fewer than 1: GNU timeout reads 0 as no limit,
+# so a timeout "equal to the time remaining" would be unbounded exactly at the deadline. The state probe keeps its
+# own per-call CLI timeouts. max_attempts still caps the loop, because under a stubbed sleep no time passes and a
+# deadline alone would never be reached. Endings and statuses are spot_wait_for_marker's: 0, 2 with the state,
+# and 3 when the deadline or the cap came first.
+spot_wait_for_marker_until() {
+  local region="$1" bucket="$2" key="$3" instance_id="$4" deadline="$5" interval="$6" max_attempts="$7"
+  local n left state
+  for n in $(seq 1 "$max_attempts"); do
+    left=$(( deadline - $(date +%s) ))
+    [ "$left" -gt 0 ] || return 3
+    if timeout "$left" aws s3api head-object --bucket "$bucket" --key "$key" >/dev/null 2>&1; then
+      return 0
+    fi
+    state=$(spot_instance_state "$region" "$instance_id")
+    case "$state" in
+      terminated|shutting-down) printf '%s' "$state"; return 2 ;;
+    esac
+    left=$(( deadline - $(date +%s) ))
+    [ "$left" -gt 0 ] || return 3
+    sleep "$(( interval < left ? interval : left ))"
+  done
+  return 3
+}

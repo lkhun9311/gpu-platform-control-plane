@@ -34,6 +34,8 @@ SEEDS=""
 BENCHMARK_CR_SHA256=""
 BENCHMARK_CR_TOKENIZER_REV=""
 DEADLINE_EPOCH=$(( $(date +%s) + 16800 ))
+PILOT_MATRIX_DEADLINE=""
+[ -z "$PILOT_MATRIX_DEADLINE" ] || DEADLINE_EPOCH="$PILOT_MATRIX_DEADLINE"
 upload() { aws s3 cp "$1" "s3://$BUCKET/$PREFIX/$2" || true; }
 trap 'upload /var/log/m5c.log log.txt; shutdown -h now' EXIT
 aws s3 cp "s3://$BUCKET/$PREFIX/src/source.tgz" /tmp/source.tgz
@@ -206,6 +208,8 @@ export CELL_DONE_HOOK=/usr/local/bin/m5c-cell-done
 export SOURCE_COMMIT="$COMMIT"
 bash hack/m5c-matrix.sh; matrix_rc=$?
 echo "matrix exited $matrix_rc"
+date +%s > /tmp/matrix-returned.txt
+upload /tmp/matrix-returned.txt matrix-returned.txt
 if [ -d /src/m5c-run ]; then
   tar -czf /tmp/m5c-evidence.tgz -C /src m5c-run
   upload /tmp/m5c-evidence.tgz evidence.tgz

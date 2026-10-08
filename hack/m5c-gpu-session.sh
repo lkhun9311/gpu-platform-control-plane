@@ -145,6 +145,8 @@ MAX_SPOT_PRICE="${MAX_SPOT_PRICE:-1.10}"
 # The ordering was VERIFIED rather than assumed on 2026-10-01: both timers start inside the instance's own
 # user-data, the backstop where it is armed and DEADLINE_EPOCH some forty lines below it, and between the
 # two there is nothing but variable assignment. So the ten-minute lead survives intact.
+# Whether the caller set the limits, for the pilot, whose limits are registered and not the caller's to move.
+LIMITS_FROM_CALLER="${BACKSTOP_SECONDS+set}${HARD_STOP_SECONDS+set}"
 BACKSTOP_SECONDS="${BACKSTOP_SECONDS:-17400}"
 HARD_STOP_SECONDS="${HARD_STOP_SECONDS:-16800}"
 # The same arms, in the same order, as hack/m5c-matrix.sh's own default.
@@ -228,6 +230,10 @@ elif [ -n "${PILOT_STAGE:-}" ]; then
   . "$(dirname "${BASH_SOURCE[0]}")/lib/prospective-pilot.sh" || fail "could not source hack/lib/prospective-pilot.sh"
   ARMS=$(pp_stage_arms "$PILOT_STAGE" | tr '\n' ' ') || fail "no arms for stage $PILOT_STAGE"
   ARMS="${ARMS% }"
+  # The registered limits (design page, "Deadlines"): stage A's hard stop is 2 h 30 and its backstop 2 h 40;
+  # stage B is the size of a main session, 3 h 30 and 3 h 40. They size the allowance, so a caller cannot move them.
+  [ -z "$LIMITS_FROM_CALLER" ] || fail "HARD_STOP_SECONDS or BACKSTOP_SECONDS is set, and the pilot's limits are registered per stage; unset them"
+  case "$PILOT_STAGE" in A) HARD_STOP_SECONDS=9000; BACKSTOP_SECONDS=9600 ;; B) HARD_STOP_SECONDS=12600; BACKSTOP_SECONDS=13200 ;; esac
 elif [ -n "$PREMIUM_RATE" ]; then
   fail "PREMIUM_RATE is set without SWEEP. It is the held latency-critical rate of a sweep, and on its own it would be ignored."
 fi
@@ -817,6 +823,11 @@ BENCHMARK_CR_TOKENIZER_REV="BENCHMARK_CR_TOKENIZER_REV_PLACEHOLDER"
 # not the wrapper: the wrapper then terminates mid-cell, and because the evidence is archived only after the
 # matrix RETURNS, every cell completed before that point leaves with the instance.
 DEADLINE_EPOCH=$(( $(date +%s) + HARD_STOP_SECONDS_PLACEHOLDER ))
+# The pilot's matrix stops at an absolute instant the wrapper chose before launch: its acquisition deadline less
+# the session tail's reserve. Counted from this boot instead, it ran about the bring-up's 25 minutes past the
+# moment the wrapper terminates the instance.
+PILOT_MATRIX_DEADLINE="PILOT_MATRIX_DEADLINE_PLACEHOLDER"
+[ -z "$PILOT_MATRIX_DEADLINE" ] || DEADLINE_EPOCH="$PILOT_MATRIX_DEADLINE"
 
 upload() { aws s3 cp "$1" "s3://$BUCKET/$PREFIX/$2" || true; }
 trap 'upload /var/log/m5c.log log.txt; shutdown -h now' EXIT
@@ -1137,6 +1148,9 @@ export SOURCE_COMMIT="$COMMIT"
 
 bash hack/m5c-matrix.sh; matrix_rc=$?
 echo "matrix exited $matrix_rc"
+# When the matrix returned, so the session tail -- from here to the marker's upload -- can be measured.
+date +%s > /tmp/matrix-returned.txt
+upload /tmp/matrix-returned.txt matrix-returned.txt
 
 # The evidence goes up whatever happened. A matrix that stopped on a cell boundary still bought every cell
 # before it, and those are the cells a partial answer is made of.
@@ -1154,6 +1168,19 @@ if [ "$matrix_rc" = "0" ]; then
   aws s3 cp /tmp/DONE "s3://$BUCKET/$PREFIX/DONE"
 fi
 USERDATA
+
+# The pilot's two deadlines (design page, "a hard stop that is a deadline, not a count"), from a clock started
+# before the launch, so both fall no later than they would counted from the launch itself.
+# The acquisition deadline leaves the 6-minute termination reserve before the hard stop. The matrix on the
+# instance stops a further PILOT_TAIL_RESERVE_S earlier, so its archive and marker can be up before the wrapper
+# stops waiting; the pilot measures that tail, and 10 minutes is the reserve until it has.
+PILOT_ACQ_DEADLINE=""
+PILOT_MATRIX_DEADLINE=""
+PILOT_TAIL_RESERVE_S=600
+if [ -n "${PILOT_STAGE:-}" ]; then
+  PILOT_ACQ_DEADLINE=$(( $(date +%s) + HARD_STOP_SECONDS - 360 ))
+  PILOT_MATRIX_DEADLINE=$(( PILOT_ACQ_DEADLINE - PILOT_TAIL_RESERVE_S ))
+fi
 
 UD="$(mktemp)"
 {
@@ -1191,6 +1218,7 @@ UD="$(mktemp)"
       -e "s|PILOT_STAGE_PLACEHOLDER|${PILOT_STAGE:-}|" \
       -e "s|PILOT_CONTENDER_PER_SEC_PLACEHOLDER|${PILOT_NOISY_RATE:-}|" \
       -e "s|PILOT_STATIC_R_PLACEHOLDER|${PILOT_STATIC_RATE:-}|" \
+      -e "s|PILOT_MATRIX_DEADLINE_PLACEHOLDER|${PILOT_MATRIX_DEADLINE:-}|" \
       -e "s|PREMIUM_PROMPT_CHARS_PLACEHOLDER|${PREMIUM_PROMPT_CHARS:-}|" \
       -e "s|NOISY_PROMPT_CHARS_PLACEHOLDER|${NOISY_PROMPT_CHARS:-}|" \
       -e "s|REQUEST_TIMEOUT_MS_PLACEHOLDER|${REQUEST_TIMEOUT_MS:-}|" \
@@ -1379,7 +1407,9 @@ cleanup() {
     }
     LAUNCH_UNCERTAIN=""
   fi
-  if spot_terminate "$REGION" "$IID"; then
+  if [ -n "${TERMINATED_FIRST:-}" ]; then
+    : # the pilot terminated it before its downloads, and recorded that
+  elif spot_terminate "$REGION" "$IID"; then
     printf 'terminated %s\n' "${IID:-<none>}" >"${OUT:-.}/termination.txt" 2>/dev/null || true
   else
     printf 'TERMINATION UNCONFIRMED for %s -- check the console before the next paid run\n' \
@@ -1524,15 +1554,28 @@ say "waiting for results (driver, toolkit, cluster and preflight come first; abo
 done_seen=0
 ended_early=""
 marker_rc=0
-ended_early=$(spot_wait_for_marker "$REGION" "$BUCKET" "$RUN_ID/DONE" "$IID" \
-              "$((HARD_STOP_SECONDS / 30))" 30) || marker_rc=$?
+if [ -n "$PILOT_ACQ_DEADLINE" ]; then
+  ended_early=$(spot_wait_for_marker_until "$REGION" "$BUCKET" "$RUN_ID/DONE" "$IID" \
+                "$PILOT_ACQ_DEADLINE" 30 "$((HARD_STOP_SECONDS / 30))") || marker_rc=$?
+else
+  ended_early=$(spot_wait_for_marker "$REGION" "$BUCKET" "$RUN_ID/DONE" "$IID" \
+                "$((HARD_STOP_SECONDS / 30))" 30) || marker_rc=$?
+fi
 case "$marker_rc" in
   0)
     # The marker must carry THIS launch's nonce. The prefix already does, so a stale marker can only appear
     # if a nonce is reused or a prefix is hand-edited -- and both are exactly the case this verification is
     # for. Reading it is one S3 GET and it is the difference between "the records are up" and "some records
     # are up".
-    marker_says=$(aws s3 cp "s3://$BUCKET/$RUN_ID/DONE" - 2>/dev/null | tr -d '[:space:]')
+    # The pilot's acquisition deadline still holds here: the read runs under the time left, at least 1 s.
+    _left=1
+    [ -z "$PILOT_ACQ_DEADLINE" ] || _left=$(( PILOT_ACQ_DEADLINE - $(date +%s) ))
+    [ "$_left" -ge 1 ] || _left=1
+    if [ -n "$PILOT_ACQ_DEADLINE" ]; then
+      marker_says=$(timeout "$_left" aws s3 cp "s3://$BUCKET/$RUN_ID/DONE" - 2>/dev/null | tr -d '[:space:]')
+    else
+      marker_says=$(aws s3 cp "s3://$BUCKET/$RUN_ID/DONE" - 2>/dev/null | tr -d '[:space:]')
+    fi
     if [ "$marker_says" != "$RUN_NONCE" ]; then
       fail "the completion marker at s3://$BUCKET/$RUN_ID/DONE says ${marker_says@Q} and this launch's nonce is ${RUN_NONCE@Q}. That is another session's record, and the evidence under this prefix is not this run's. Nothing has been downloaded"
     fi
@@ -1541,7 +1584,30 @@ case "$marker_rc" in
   2) say "instance ended before writing DONE" ;;
 esac
 
-for k in evidence.tgz log.txt commit.txt nodes.txt preflight-nvidia-smi.csv preflight-node-cards.txt; do
+# The pilot terminates its instance FIRST, before any evidence is downloaded, whether the marker came or not
+# (design page, "on reaching the acquisition deadline, the runner terminates the instance first"). The evidence
+# is in the bucket, so the download no longer needs the card, and a slow download no longer bills one.
+# The call runs under its own fixed 5 minutes, the reserve the acquisition deadline left before the hard stop.
+TERMINATED_FIRST=""
+if [ -n "$PILOT_ACQ_DEADLINE" ]; then
+  if timeout 300 bash -c '. "$1"; spot_terminate "$2" "$3"' _ "$(dirname "${BASH_SOURCE[0]}")/lib/spot-run.sh" "$REGION" "$IID"; then
+    TERMINATED_FIRST=1
+    printf 'terminated %s before any download\n' "$IID" >"$OUT/termination.txt"
+  else
+    fail "the instance $IID could not be confirmed terminated within 5 minutes; nothing has been downloaded, and the exit trap tries once more"
+  fi
+  # The session's own timing, for the pilot's duration formulas: the instance's EC2 LaunchTime, and the marker's
+  # upload time. Asked after termination, which leaves both answerable.
+  timeout 30 aws ec2 describe-instances --region "$REGION" --instance-ids "$IID" \
+    --query 'Reservations[0].Instances[0].LaunchTime' --output text > "$OUT/launch-time.txt" 2>/dev/null || true
+  if [ "$done_seen" = 1 ]; then
+    timeout 30 aws s3api head-object --bucket "$BUCKET" --key "$RUN_ID/DONE" \
+      --query LastModified --output text > "$OUT/marker-uploaded.txt" 2>/dev/null || true
+  fi
+fi
+
+for k in evidence.tgz log.txt commit.txt nodes.txt preflight-nvidia-smi.csv preflight-node-cards.txt \
+         ${PILOT_ACQ_DEADLINE:+matrix-returned.txt}; do
   aws s3 cp "s3://$BUCKET/$RUN_ID/$k" "$OUT/$k" >/dev/null 2>&1 || true
 done
 # Whether the preflight files arrived is CHECKED, not merely attempted.
@@ -1561,6 +1627,14 @@ done
 if [ -s "$OUT/evidence.tgz" ]; then
   tar -xzf "$OUT/evidence.tgz" -C "$OUT" || fail "the evidence archive came back and could not be unpacked; $OUT/evidence.tgz is whatever arrived"
   say "evidence unpacked to $OUT/m5c-run"
+fi
+# The pilot's session stamps, beside the cells they time: bring-up is LaunchTime to the first cell's start, and the
+# session tail is the matrix's return to the marker's upload. An empty field is a stamp that did not arrive.
+if [ -n "$PILOT_ACQ_DEADLINE" ]; then
+  mkdir -p "$OUT/m5c-run"
+  printf 'launch_time_utc\tmatrix_returned_epoch\tmarker_uploaded_utc\n%s\t%s\t%s\n' \
+    "$(tr -d '[:space:]' < "$OUT/launch-time.txt" 2>/dev/null)" "$(tr -d '[:space:]' < "$OUT/matrix-returned.txt" 2>/dev/null)" \
+    "$(tr -d '[:space:]' < "$OUT/marker-uploaded.txt" 2>/dev/null)" > "$OUT/m5c-run/session-timing.tsv"
 fi
 
 # The cells are pulled whenever the ARCHIVE did not arrive, marker or no marker.
