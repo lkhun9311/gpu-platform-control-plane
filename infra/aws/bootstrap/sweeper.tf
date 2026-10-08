@@ -25,12 +25,9 @@ data "aws_iam_policy_document" "sweeper_assume" {
       identifiers = ["lambda.amazonaws.com"]
     }
 
-    # The confused-deputy guard ttl.tf uses for the same reason.
-    condition {
-      test     = "StringEquals"
-      variable = "aws:SourceAccount"
-      values   = [data.aws_caller_identity.current.account_id]
-    }
+    # No aws:SourceAccount condition, unlike ttl.tf's: Lambda does not supply it when assuming an execution role, so
+    # the condition would deny every assumption and the function could not be created (review of c4d6a2c). The
+    # invocation is the part another account could reach, and aws_lambda_permission below limits it to this rule.
   }
 }
 
