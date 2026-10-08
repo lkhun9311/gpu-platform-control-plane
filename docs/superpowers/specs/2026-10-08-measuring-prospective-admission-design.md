@@ -119,3 +119,13 @@ Instance-to-instance variation is then visible rather than confounded with block
 - log rotation on long cells, `2026-10-07-confirming-s1-on-unseen-settings.md`.
 
 Each needs a check before purchase.
+
+## Credential windows (added on the owner's question, 2026-10-08)
+
+The AWS SSO session lasts at most 12 hours from a login, and every runner refuses to rent when the credentials it would use expire before its estimate plus headroom (`hack/m5c-gpu-session.sh`, "credentials expire in … min"). So no purchase spans more than one login.
+- **The pilot:** one session of at most 2 hours.
+- **The main measurement:** four sessions, each one instance carrying five blocks, about 4 to 4.5 hours each, so at most two of them consecutively per login.
+- The runner checks the credential window before each session.
+- The owner is asked to log in immediately before each purchase.
+
+The owner approved this design, with these windows, on 2026-10-08.
