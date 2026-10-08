@@ -661,6 +661,13 @@ func replay(args []string) error {
 	if err != nil {
 		return err
 	}
+	study, studyKnown := bench.LookupStudy(m.Study)
+	if studyKnown && study.SenderPoolSize > 0 {
+		if *connMode != bench.SenderModePooled {
+			return fmt.Errorf("study %s fixes a pooled sender of %d connections, and --conn-mode is %q", study.ID, study.SenderPoolSize, *connMode)
+		}
+		conn.MaxIdleConnsPerHost = study.SenderPoolSize
+	}
 	// Printed, not just applied: which client a run used is part of what its raw evidence means, and this
 	// line is what puts it in the evidence log beside the numbers it produced.
 	fmt.Printf("client connection mode: %s (MaxIdleConnsPerHost=%d, drain=%t) for %d rows at timeout %s\n",
@@ -688,13 +695,21 @@ func replay(args []string) error {
 		return fmt.Errorf("manifest matchTolerance %q is not a number: %w", m.MatchTolerance, err)
 	}
 	recordTiming := false
-	if st, ok := bench.LookupStudy(m.Study); ok && st.RecordsReplayTiming {
+	if studyKnown && study.RecordsReplayTiming {
 		// Refused before the first request: rows without IDs cannot be joined to the gateway's record, and the
 		// pilot's every timing measurement is that join.
 		if *requestIDPrefix == "" {
-			return fmt.Errorf("study %s joins its rows to the gateway's record by request ID, and no --request-id-prefix was given", st.ID)
+			return fmt.Errorf("study %s joins its rows to the gateway's record by request ID, and no --request-id-prefix was given", study.ID)
 		}
 		recordTiming = true
+		if err := writeSenderConfig(*rawOut+".sender.json", senderConfig{
+			Study: m.Study, Arm: m.Arm, ConnMode: *connMode,
+			MaxIdleConnsPerHost: conn.MaxIdleConnsPerHost, DrainForReuse: conn.DrainForReuse,
+			TimeoutMs: m.TimeoutMs, Model: m.Model, Target: url, Priorities: prio,
+			RequestIDPrefix: *requestIDPrefix,
+		}); err != nil {
+			return err
+		}
 	}
 	raw := bench.Replay(context.Background(), sender, rows, bench.ReplayOptions{
 		Study:           m.Study,

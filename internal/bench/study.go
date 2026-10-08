@@ -63,6 +63,15 @@ type Study struct {
 	// dispatch lag and the processing window from these stamps.
 	RecordsReplayTiming bool
 
+	// SenderPoolSize, when set, replaces the pool PoolSizeForTrace derives from each arm's own trace, and the
+	// replay refuses any connection mode but pooled.
+	//
+	// A derived pool differs between a block's arms: the isolation arm's trace has no contenders, so at the
+	// pilot's rates it gets about 278 idle connections against the others' 293. The pilot compares its arms'
+	// sender configurations and refuses a difference (design page, build item 26), so its pool is one number
+	// for every arm, at least the open-loop ceiling of rate × timeout.
+	SenderPoolSize int
+
 	// MinRepetitions is the fewest repetitions per arm this study's registration permits, or 0 where it
 	// registered none.
 	//
@@ -738,6 +747,8 @@ var studies = map[string]Study{
 		MinRepetitions:      3,
 		FixesOutputAtCap:    true,
 		RecordsReplayTiming: true,
+		// 600, the gateway's own outbound pool, above the pilot's ceiling of 9.75/s × 30 s ≈ 293.
+		SenderPoolSize: 600,
 	},
 	StudyThroughputLadder: {
 		ID:       StudyThroughputLadder,
