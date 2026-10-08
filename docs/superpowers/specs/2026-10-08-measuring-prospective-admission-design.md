@@ -1,4 +1,4 @@
-# Measuring prospective admission directly (item 3): the design, v14
+# Measuring prospective admission directly (item 3): the design, v15
 
 *Drafted 2026-10-08 for the owner's approval before anything is built. The owner approved paid runs for this direction on 2026-10-08, and asked for the design to be attacked as hard as possible before money is spent. Nothing is bought until a registration built from this design is frozen.*
 
@@ -19,7 +19,8 @@
 | v11 | 20172ae | astra's review of v10 | 1 blocker, 2 majors |
 | v12 | bcbe0d8 | astra's review of v11 | 2 blockers, 1 major |
 | v13 | 3e4a6c9 | astra's review of v12 | 2 blockers, 1 major, 3 minors |
-| v14 | this page | astra's review of v13 | 2 blockers, 2 majors |
+| v14 | c42efd8 | astra's review of v13 | 2 blockers, 2 majors |
+| v15 | this page | astra's review of v14 | 2 blockers, 1 minor |
 
 **Who established what.**
 - astra read the code and found the defects. Each round was given only the page and the repository, never told where to look.
@@ -101,7 +102,7 @@ Same instance and same trace within a block, with the arm order randomised per b
 | Case | Meaning | Treatment |
 |---|---|---|
 | Client row and gateway record | the normal case | joined |
-| Client row, no gateway record | unknown at the gateway: a pre-gateway failure, or a lost log line | its completion is read from the client row itself, as for every request; it carries no arrival or release instant |
+| Client row, no gateway record | unknown at the gateway: a pre-gateway failure, or a lost log line | its completion is read from the client row itself, as for every request. It carries no arrival instant, so a premium one's TTFT follows the rule under Endpoints: +∞ in P, 0 in S and O |
 | Gateway record, no client row | a harness defect | the run refuses |
 | A client row with an empty ID, or any duplicate ID | a harness defect | the run refuses |
 
@@ -249,14 +250,14 @@ Any client-side stamp has some later point a delay can sit behind. So the stamp 
 - **Per arm,** the invalid outcome follows if any of these holds:
   - the p99 lag exceeds 20 ms;
   - the p99.9 lag exceeds 100 ms;
-  - the mean lags of P and S differ by more than 2 ms.
+  - the mean lags of P and S differ by more than 2 ms. This rule applies from stage B on, since stage A has no S arm (round 14, finding 3).
 
   This is a harness failure, not a property of the arm.
 - **No maximum-lag rule.** v13's maximum of 250 ms, with every pre-write connection failure counted as a violation, made a single TCP retransmission anywhere in some 582,000 requests invalidate the study (round 13, finding 4). The p99.9 and mean-difference rules bound a systematic delay without a zero-failure requirement.
-- **A request with no gateway record never reached the gateway.** It is not a lag observation: it is a failure, and the loss and completion rules govern it. A premium one counts at +∞, and a contender one is not completed.
-- **What remains possible, stated.** A delay applied to fewer than 0.1% of one arm's requests, a few per replay, is not caught. It can move a p99 resting on about 39 requests per replay only slightly, and the p99.9 rule caps its size.
+- **A request with no gateway record is not a lag observation.** Its completion is read from its client row, as for every request (see the join). Its TTFT is governed by the rule under Endpoints. v14 called it a failure, which contradicted the join and let 12 lost S records move S's p99 tenfold (round 14, finding 1).
+- **These rules bound when load arrives, not any one request's TTFT.** v14 claimed a sparse delay could move a p99 "only slightly". It cannot be caught by any aggregate rule, and round 14 (finding 2) showed four delayed requests per replay moving S's p99 from 100 to 1,000 ms. The answer is in the endpoint, not the gate: **TTFT is measured from the gateway's arrival instant** (see Endpoints), so a delay before arrival is not part of any TTFT. What a sparse delay can still do is move a few requests' load slightly later, which these rules bound.
 - Each arm's lag distribution is published.
-- The pilot measures it first: stage A refuses at the same limits.
+- The pilot measures it first: stage A refuses at the p99 and p99.9 limits, and stage B at all three.
 
 ## Sampling
 
@@ -270,6 +271,17 @@ Any client-side stamp has some later point a delay can sit behind. So the stamp 
 **Arm order.** Each block's arm order is a permutation drawn from a hash of the registration's seed, the launch index and the block index. Today the generic matrix runs a fixed order (`m5c-matrix.sh:822`).
 
 ## Endpoints and decision: one ratio per instance
+
+**Premium TTFT is measured from the gateway's arrival instant:** the client's first-content instant minus the gateway's arrival stamp, on the one host clock both share.
+- The existing TTFT starts at the client's send stamp, before `Send` builds and writes the request (`replay.go:307`, `:180`). Any delay inside the client therefore enters TTFT, and four delayed requests per replay can multiply a p99 tenfold (round 14, finding 2).
+- From the arrival instant, only what the gateway and the engine do enters TTFT: the treatment and the system it runs on.
+- The client-stamp TTFT is published beside it.
+
+**A premium request whose response arrived but whose gateway record is missing has no measurable TTFT.** It is assigned the value that cannot favour P:
+- **+∞ in P;**
+- **0 ms in S and O.**
+
+More than 0.1% of an arm's premium requests with no record makes the outcome "invalid". So lost records can only hurt P's chance of a benefit verdict, and they cannot be numerous.
 
 **Per instance and arm:**
 - The pooled premium TTFT p99 over the instance's three blocks.
@@ -500,6 +512,7 @@ Today the hook uploads only after a replay and its log capture (`m5c-matrix.sh:3
     - one whose `Send` sleeps 300 ms before its HTTP write;
     - one that holds every S request in a transport wrapper for 200 ms after `WroteRequest` and before the flush. That is round 13's case, which v13's stamp would not see.
 24. **A terminal timestamp on every outcome.** Every row carries `EndUnixNanos`: the instant the sender returned, for timeouts, transport errors and non-200 responses too. Today those three return without one (`httpsender.go:346`, `:366`). The window end needs it (see the comparator), and a row without one refuses the run.
+25. **Premium TTFT from the gateway's arrival instant,** joined by request ID, with the missing-record rule (+∞ in P, 0 in S and O) and its 0.1% cap. The client-stamp TTFT stays beside it.
 23. **The windowed p and q, and the short capture:** sentinel, terminal record, step log, then iteration log, with the gateway's final records exported before teardown.
 20. **Rehearsals on kind with the stub engine:**
     - a whole replay-to-verdict run;
@@ -508,6 +521,8 @@ Today the hook uploads only after a replay and its log capture (`m5c-matrix.sh:3
     - an admitted contender failing after admission;
     - a request whose response never arrived, joined to the gateway's record by its client ID;
     - a request that never reached the gateway, and an S success whose gateway line is deleted, which must still count as completed;
+    - round 14's 12 deleted fast S records, which must not raise S's p99 (they enter at 0 ms);
+    - round 14's four S premium requests delayed by 1 s inside `Send`, whose TTFT from arrival must be unchanged;
     - an admitted contender failing after prefill in S, whose processed tokens must count in p_S;
     - a forwarded request refused by the engine's frontend before scheduling, which capture must not wait for;
     - a final batch held back from the writer when the sentinel arrives, which must make the terminal record report it and capture refuse after 60 s;
@@ -603,6 +618,18 @@ The AWS SSO session lasts at most 12 hours from a login.
 - The ledger limits what the study starts. It cannot stop an instance already running, which is the terminators' job.
 - After the session it records launch and termination times from EC2 and CloudTrail.
 - Billed amounts come from Cost Explorer when it settles, and are published beside the estimate.
+
+## What v15 changed, against the review of v14
+
+| v14 finding | Change |
+|---|---|
+| 1: a missing record as failure contradicted the join | the record's absence no longer means failure; a premium TTFT without a record is +∞ in P and 0 in S and O; at most 0.1% per arm |
+| 2: sparse delays pass every lag rule and move p99 tenfold | premium TTFT is measured from the gateway's arrival instant, so a client-side delay is in no TTFT; the lag rules now only bound load timing |
+| 3: stage A cannot compare P's and S's lag | that rule applies from stage B |
+
+**Why the endpoint moved rather than the gate.** Three rounds (12, 13 and 14) each found a way to delay a request that the latest lag stamp or rule could not see. Any aggregate rule misses a few delays, and any client-side stamp has a later point to hide behind. Measuring TTFT from where the request lands makes a client-side delay irrelevant to the tail, rather than trying to catch every one.
+
+Round 14 re-derived the power table and every cost figure, and agreed with each. No cost figure changed in v15.
 
 ## What v14 changed, against the review of v13
 
