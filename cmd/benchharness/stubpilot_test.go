@@ -163,3 +163,35 @@ func TestStubPilotModeCountsPromptsWithoutUsage(t *testing.T) {
 	}
 	t.Fatal("no add record")
 }
+
+// A stopped step log records nothing from the named request on, still answers the sentinel complete for what it
+// recorded, and leaves the engine's iteration lines going: the shape only the fence and the alignment can catch.
+//
+// Mutation that turns it red: keep writing after the stop.
+func TestStubPilotLogStopsRecordingAtTheNamedRequest(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "step.jsonl")
+	var iters bytes.Buffer
+	pl, err := openStubPilotLog(path, &iters)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pl.stopAt = "pp-A-off-2-"
+	p := 0
+	pl.add("chatcmpl-pp-A-off-2-0", &p, 68)
+	pl.stepFor("chatcmpl-pp-A-off-2-0", 68, 0, true)
+	pl.add("chatcmpl-fence-off-2", &p, 1)
+	pl.stepFor("chatcmpl-fence-off-2", 1, 0, true)
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(b) != 0 {
+		t.Fatalf("the stopped log recorded:\n%s", b)
+	}
+	if n := strings.Count(iters.String(), "Iteration("); n != 2 {
+		t.Fatalf("the engine printed %d iteration lines, want 2", n)
+	}
+	if pl.seq != 0 {
+		t.Fatalf("the stopped log counted %d records it did not write", pl.seq)
+	}
+}

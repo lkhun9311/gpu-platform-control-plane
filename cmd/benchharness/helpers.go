@@ -557,6 +557,7 @@ func stubServe(args []string) error {
 		pilotArgs = append(pilotArgs, stubArg{key: f.key, kind: f.kind, val: fs.String(f.name, "", "vLLM's flag; reported in the non-default args line")})
 	}
 	noPrefixCaching := fs.Bool("no-enable-prefix-caching", false, "vLLM's flag; reported as enable_prefix_caching False")
+	stopStepLogAt := fs.String("stub-stop-step-log-at", "", "pilot mode: stop the step log at the first request whose ID contains this, to rehearse an ineligible arm")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -594,6 +595,7 @@ func stubServe(args []string) error {
 			if err != nil {
 				return err
 			}
+			pl.stopAt = *stopStepLogAt
 			profile.pilot = pl
 			// The pilot's own log carries the iteration lines, with timestamps; the session-era log is not printed too.
 			profile.iterLog = nil

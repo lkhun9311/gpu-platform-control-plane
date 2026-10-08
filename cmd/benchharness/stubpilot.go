@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"sync"
 	"time"
 )
@@ -26,6 +27,12 @@ type stubPilotLog struct {
 	seq      int
 	step     int
 	sentinel int64
+	// stopAt, when set, makes the log stop recording at the first request whose ID contains it, while the
+	// "engine" goes on printing iteration lines and the sentinel is still answered for what was recorded. That
+	// is a plugin that stopped recording, which only the fence and the alignment with the engine's own log can
+	// catch; the rehearsal injects it into one cell (design page, "Rehearsals before purchase").
+	stopAt  string
+	stopped bool
 }
 
 // openStubPilotLog appends to the step log at path, and prints iteration lines to iters.
@@ -39,6 +46,9 @@ func openStubPilotLog(path string, iters io.Writer) (*stubPilotLog, error) {
 
 // write appends one record with the next sequence number; the caller holds the lock.
 func (l *stubPilotLog) write(rec map[string]any) {
+	if l.stopped {
+		return
+	}
 	l.seq++
 	rec["seq"] = l.seq
 	b, _ := json.Marshal(rec)
@@ -49,6 +59,9 @@ func (l *stubPilotLog) write(rec map[string]any) {
 func (l *stubPilotLog) add(id string, priority *int, prompt int) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if l.stopAt != "" && strings.Contains(id, l.stopAt) {
+		l.stopped = true
+	}
 	first := l.seq + 1
 	var p any
 	if priority != nil {
@@ -82,6 +95,9 @@ func (l *stubPilotLog) stepFor(id string, n, computed int, prefill bool) {
 
 // flushRecord closes the records from first to the current sequence number, as the plugin's writer does.
 func (l *stubPilotLog) flushRecord(first int) {
+	if l.stopped {
+		return
+	}
 	b, _ := json.Marshal(map[string]any{"ev": "flush", "records": l.seq - first + 1, "first_seq": first, "last_seq": l.seq})
 	_, _ = l.steps.Write(append(b, '\n'))
 }
