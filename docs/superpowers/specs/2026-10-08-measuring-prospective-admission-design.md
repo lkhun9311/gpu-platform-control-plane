@@ -1,4 +1,4 @@
-# Measuring prospective admission directly (item 3): the design, v20
+# Measuring prospective admission directly (item 3): the design, v21
 
 *Drafted 2026-10-08 for the owner's approval before anything is built. The owner approved paid runs for this direction on 2026-10-08, and asked for the design to be attacked as hard as possible before money is spent. Nothing is bought until a registration built from this design is frozen.*
 
@@ -25,7 +25,8 @@
 | v17 | 46353cc | astra's review of v16 | 2 blockers, 1 major |
 | v18 | 92c2c16 | astra's review of v17 | 2 blockers, 2 majors |
 | v19 | e7a9896 | astra's review of v18 | 3 blockers, 2 majors, 1 minor |
-| v20 | this page | astra's review of v19 | 2 blockers, 2 majors, 1 minor |
+| v20 | 2d8ec3d | astra's review of v19 | 2 blockers, 2 majors, 1 minor |
+| v21 | this page | astra's review of v20 | 2 blockers, 1 major |
 
 **Who established what.**
 - astra read the code and found the defects. Each round was given only the page and the repository, never told where to look.
@@ -107,7 +108,8 @@ Same instance and same trace within a block, with the arm order randomised per b
 | Case | Meaning | Treatment |
 |---|---|---|
 | Client row and gateway record | the normal case | joined |
-| Client row, no gateway record, **the request failed before a response** | it never reached the gateway, or reached it without a record | a failure: premium counts at +∞ and toward loss; a contender is not completed |
+| Client row, no gateway record, **the request failed before a response, and no scheduler record carries its ID** | it never finished arriving at the gateway: the record is written durably at the arrival stamp, before admission, so a request the gateway read always has one | a failure: premium counts at +∞ and toward loss; a contender is not completed |
+| **A scheduler record whose ID has no gateway record** | the engine processed a request the gateway has no arrival for | **the outcome is "invalid"** (round 20, finding 1). Its lag cannot be bounded, and "no response" does not show it never arrived: a header timeout is consistent with the engine already generating (`proxy.go:594`) |
 | Client row, no gateway record, **the request succeeded** | the gateway served it and its record was lost | **the outcome is "invalid"** (round 19, finding 1). A served request without a record has no lag, so neither its own timing nor its load's displacement of others can be bounded |
 | Gateway record, no client row | a harness defect | the run refuses |
 | A client row with an empty ID, or any duplicate ID | a harness defect | the run refuses |
@@ -259,11 +261,17 @@ Any client-side stamp has some later point a delay can sit behind. So the stamp 
   - the mean lags of P and S differ by more than 2 ms. This rule applies from stage B on, since stage A has no S arm (round 14, finding 3).
 
   This is a harness failure, not a property of the arm.
-- **No maximum-lag rule.** v13's maximum of 250 ms, with every pre-write connection failure counted as a violation, made a single TCP retransmission anywhere in some 582,000 requests invalidate the study (round 13, finding 4). The p99.9 and mean-difference rules bound a systematic delay without a zero-failure requirement.
-- **A served request with no gateway record makes the outcome "invalid"** (see the join). v19 excluded such requests from every lag statistic, so two late contenders whose records were lost escaped the contender lag rule entirely (round 19, finding 1).
-  - The gateway writes its records durably, so a lost one is a defect, not noise.
+- **A 50 ms maximum-lag ceiling also applies** (see "What lag can do to other requests" below). It is a zero-tolerance rule, and the page does not pretend otherwise.
+  - v13 dropped a 250 ms maximum because one TCP retransmission anywhere in some 582,000 requests would invalidate the study (round 13, finding 4).
+  - v20 reinstated a maximum because without one, a late request's displaced load cannot be bounded (round 19, finding 2). Round 20 (finding 3) pointed out the conflict: at one 60 ms delay per 100,000 requests, both pilots pass 50% of the time while the main study survives 0.3%.
+  - **Both findings are right, and no rule satisfies both.** v21 keeps the ceiling, because an unbounded displacement would let the result be produced by the harness. It does not claim the ceiling will survive.
+  - **The ceiling is read after every instance, like every whole-study gate,** and its first violation stops further purchase. So its cost is bounded by when it fails (see Money at risk).
+  - **The pilots measure the harness's lag tail and publish it.** Zero exceedances above 25 ms in some 68,000 pilot requests cannot establish a rate as low as 95% main-study survival would need, one in about 11 million. The page says that instead of implying it.
+- **A served request with no gateway record makes the outcome "invalid"** (see the join). v19 excluded such requests from every lag statistic, so two late contenders whose records were lost escaped the lag rules entirely (round 19, finding 1).
+  - The gateway writes its record durably at the arrival stamp, before admission, so a lost one is a defect, not noise.
   - Stage A refuses on any lost record.
-- A request that failed before any response is a failure under the loss and completion rules, as in v14.
+- **A scheduler record with no gateway record also makes the outcome "invalid"** (round 20, finding 1).
+- A request with neither record, which failed before any response, never finished arriving. It is a failure under the loss and completion rules.
 - **These rules bound when load arrives, not any one request's TTFT.** v14 claimed a sparse delay could move a p99 "only slightly". It cannot be caught by any aggregate rule, and round 14 (finding 2) showed four delayed requests per replay moving S's p99 from 100 to 1,000 ms. No aggregate rule can catch a few delayed requests. So the decision does not trust them: any request with lag above 5 ms is uncertain and bounded (see "Late requests are not trusted, they are bounded" under Endpoints).
 - Each arm's lag distribution is published.
 - The pilot measures it first: stage A refuses at the p99 and p99.9 limits, and stage B at all three.
@@ -432,7 +440,14 @@ Recording `StateReason` establishes an interruption's cause, not its independenc
 
 ## Money at risk, because survival cannot be known in advance
 
-**Every whole-study gate is read after each main instance, and a failure stops further purchase.** So the money an invalid or stopped study costs is bounded by when it is discovered, whatever the survival probability.
+**Every whole-study gate is read after each main instance, and a failure stops further purchase.** So the money an invalid or stopped study costs is bounded by when it is discovered, whatever the survival probability. The gates are:
+- validity;
+- premium loss;
+- the 50 ms lag ceiling;
+- the record rules;
+- an infinite end.
+
+**The lag ceiling is the gate most likely to end the study, and the least predictable.** Its survival depends on a per-request reliability the pilots cannot measure (see Dispatch fidelity).
 
 At the expected rate, the pilot costs $2.73 and each main instance about $1.88 (durations under Cost):
 
@@ -466,7 +481,9 @@ v5's "benefit that fails safeguards" is gone with the t-bounded safeguards: a sa
 - **contention:** O's pooled premium TTFT p99 ≥ 1.5 × I's;
 - **loss:** every arm, P included, under 0.5% premium loss, and O completes ≥ 95% of contender requests (so the engine is not overloaded);
 - **engagement:** P refuses 5% to 30% of contender requests;
-- **P/O:** P's pooled premium p99 is at most 0.85 × O's, so that P/O's gate is not hopeless;
+- **P/O, on the final decision's own bound:** P/O's crossed upper end, ln(P's TTFT-scheduled p99, with uncertain values at +∞ / O's TTFT-arrival p99, with uncertain values at 0), is at most ln 0.85 on stage A's pooled blocks.
+  - v20 screened the ordinary P/O ratio at 0.85 and dropped v19's gap screen. Round 20 (finding 2) showed a 4 ms lag in O that passes 0.85 while the crossed bound is +0.005, so the final P/O test could never pass, and all twelve instances would be bought.
+  - This reads P against O, never against S.
 - **release timing:** in P, at least 95% of admitted contenders have 50 ms or less between the gateway's release instant and the first content byte;
 - **restart:** an engine restart between arms reuses host-path weights and takes under 3 minutes;
 - **dispatch fidelity:** every arm within the lag limits;
@@ -523,7 +540,14 @@ Today the hook uploads only after a replay and its log capture (`m5c-matrix.sh:3
 1. **A new study, `prospective-admission`,** with its arms, a frozen manifest and readings (`study.go:529` permits `kv-aware` only).
 2. **The benchmark profile accepts `min_tokens` only when equal to `max_tokens`,** with a test that any other value is still refused.
 3. **The Poisson generator populates `MinOutputTokens`.**
-4. **Mandatory client-generated request IDs,** unique across the study, and **the gateway's per-request record** (arrival, tenant, tier, decision, release) keyed by them. A gateway record with no client row refuses, as does a duplicate. A client row with no record is allowed in the main study and refused in the pilot. `sim-cap` replays the arrival instants.
+4. **Mandatory client-generated request IDs,** unique across the study, and **the gateway's per-request record** (arrival, tenant, tier, decision, release) keyed by them. The record is written durably at the arrival stamp, before admission.
+   - The following refuse the run:
+     - a gateway record with no client row;
+     - a duplicate;
+     - a served request with no record;
+     - a scheduler record with no gateway record.
+   - A failed request with neither record is a failure.
+   - `sim-cap` replays the arrival instants.
 5. **The engine-arguments validator compares the whole line,** mutation-tested key by key.
 6. **The matrix deploys admission per arm** (`m5c-matrix.sh:2187`). **Step-log capture is proved complete by counts, not inferred from a marker** (round 8, finding 5; round 9, finding 1).
    - **Waiting for an ID fails:** today capture waits for the last trace request's ID (`:3032`). A forwarded request can fail in the engine's frontend before the scheduler sees it, so that ID may never appear.
@@ -610,7 +634,7 @@ Today the hook uploads only after a replay and its log capture (`m5c-matrix.sh:3
     - round 18's −∞ example, which must fail.
     - The gateway stamps the instant it forwards the first content frame, which needs it to recognise the first non-empty content delta in the stream.
     - TTFT-arrival is computed beside it, for the crossed bounds.
-    - Uncertain requests (lag above 5 ms, or no gateway record) are bounded over the corrected box, with P and S at opposite ends, under the 0.1% cap.
+    - Uncertain requests (lag above 5 ms and at most 50 ms) are bounded over the corrected box, with P and S at opposite ends, under the 0.1% cap.
     - The infinite-end rules and the y_lo futility look apply.
     - Tested on round 17's 0.792 example, which must fail.
     - Tested on round 16's example, which must fail at its −2 vertex.
@@ -630,6 +654,9 @@ Today the hook uploads only after a replay and its log capture (`m5c-matrix.sh:3
     - a request whose response never arrived, joined to the gateway's record by its client ID;
     - a request that never reached the gateway, which must count as a failure;
     - an S success whose gateway line is deleted, which must make the outcome "invalid";
+    - round 20's two late S contenders with deleted gateway lines and lost responses, whose scheduler records must make the outcome "invalid";
+    - round 20's 4 ms O lag, which stage A's crossed P/O screen must refuse;
+    - one 60 ms request on the first main instance, which must stop further purchase;
     - round 19's two late contenders with deleted records, which must make the outcome "invalid";
     - a premium request delayed 60 ms, which must make the outcome "invalid";
     - an infinite end on the first main instance, which must stop further purchase;
@@ -733,6 +760,16 @@ The AWS SSO session lasts at most 12 hours from a login.
 - The ledger limits what the study starts. It cannot stop an instance already running, which is the terminators' job.
 - After the session it records launch and termination times from EC2 and CloudTrail.
 - Billed amounts come from Cost Explorer when it settles, and are published beside the estimate.
+
+## What v21 changed, against the review of v20
+
+| v20 finding | Change |
+|---|---|
+| 1: a failed request without a gateway record can still have reached the engine | the record is written durably at arrival; a scheduler record with no gateway record makes the outcome "invalid"; the two stale permissions are removed |
+| 2: the P/O screen was dropped while P/O stays a final test | stage A screens P/O's crossed upper end at ln 0.85 |
+| 3: the 50 ms ceiling is a zero-outlier rule again | kept, with the conflict stated: no rule satisfies both round 13's finding and round 19's. It is read after every instance and stops purchase; the pilots cannot establish its survival, and the page says so |
+
+Round 20 re-derived the power table and every cost figure, and agreed with each. No cost figure changed in v21.
 
 ## What v20 changed, against the review of v19
 
