@@ -156,7 +156,7 @@ def full_stage(d, stage, tweak=None):
             if tweak:
                 tweak(c)
             c.save()
-            t.append("%d\t%s\t%d\tcompleted\ta\tb\t%d\t0\t%d" % (n, arm, rep, 400 + n, n))
+            t.append("%d\t%s\t%d\tcompleted\t2026-10-08T09:%02d:00Z\tb\t%d\t0\t%d" % (n, arm, rep, 25 + n, 400 + n, n))
             u.append("%d\t%s\t%d\ta\tb\t%d" % (n, arm, rep, 10))
     for name, lines in (("cell-timings.tsv", t), ("cell-uploads.tsv", u)):
         with open(os.path.join(d, name), "w") as f:
@@ -198,6 +198,34 @@ class PilotReportReviewTest(unittest.TestCase):
         self.assertLess(f["p999_lag_ms_max_pooled_arm"], 5)
         self.assertEqual(f["L_ms"], 5.0)
         self.assertEqual(f["arm_time_s"], 400 + 12 + 10)
+
+    # Bring-up is LaunchTime to the first cell's start, 09:00 to 09:26 in the earlier stage and 25 minutes in the
+    # other; the tail is the matrix's return to the marker's upload. The larger of each is taken.
+    # Mutation that turns it red: take the smaller stage's bring-up, or drop the 1.25.
+    def test_the_session_length_and_its_deadlines_follow_the_frozen_formula(self):
+        full_stage(os.path.join(self.d, "A"), "A")
+        full_stage(os.path.join(self.d, "B"), "B")
+        for st, launch, tail in (("A", "2026-10-08T09:00:00+00:00", 120), ("B", "2026-10-08T09:01:00+00:00", 90)):
+            ret = int(pr.utc_epoch("2026-10-08T12:00:00Z"))
+            with open(os.path.join(self.d, st, "session-timing.tsv"), "w") as f:
+                f.write("launch_time_utc\tmatrix_returned_epoch\tmarker_uploaded_utc\n%s\t%d\t2026-10-08T12:%02d:%02d+00:00\n"
+                        % (launch, ret, tail // 60, tail % 60))
+        f = pr.formulas(os.path.join(self.d, "A"), os.path.join(self.d, "B"))
+        # A's first cell starts 09:26 after a 09:00 launch: 1,560 s. B's starts 09:26 after 09:01: 1,500 s.
+        self.assertEqual(f["bring_up_s"], 1560)
+        self.assertEqual(f["session_tail_s"], 120)
+        # The largest complete cell is B's twelfth: 412 s plus a 10 s upload.
+        self.assertEqual(f["arm_time_s"], 422)
+        self.assertEqual(f["main_session_length_s"], math.ceil((1560 + 12 * 422 + 120) * 1.25))
+        self.assertEqual(f["acquisition_deadline_s"], f["hard_stop_s"] - 360)
+        self.assertEqual(f["study_deadline_s"], f["hard_stop_s"] + 1200)
+
+    def test_a_missing_session_stamp_makes_the_session_length_unavailable(self):
+        full_stage(os.path.join(self.d, "A"), "A")
+        full_stage(os.path.join(self.d, "B"), "B")
+        f = pr.formulas(os.path.join(self.d, "A"), os.path.join(self.d, "B"))
+        self.assertIsNone(f["main_session_length_s"])
+        self.assertIn("session-timing.tsv", f["main_session_length_why"])
 
     # Finding 3. Mutation that turns it red: read the inventory from the raw files that exist.
     def test_a_missing_registered_cell_makes_the_formulas_unavailable(self):

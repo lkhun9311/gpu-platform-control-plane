@@ -415,11 +415,42 @@ def formulas(dir_a, dir_b):
         out["arm_time_why"] = "; ".join(w for t, w in times if t is None)
     else:
         out["arm_time_s"] = max(t for t, _ in times)
-    # Bring-up and session tail are read from the session's own stamps, which this runner does not record yet, so
-    # the session length and its deadlines are reported unavailable rather than estimated.
-    out["main_session_length_s"] = None
-    out["main_session_length_why"] = "bring-up (EC2 LaunchTime to first cell) and session tail are not recorded by the session runner yet"
+    # Bring-up and the session tail come from each stage's session stamps (hack/m5c-gpu-session.sh writes
+    # session-timing.tsv beside the cells); the larger of the two stages is taken, like the arm time.
+    stamps = [session_stamps(dir_a), session_stamps(dir_b)]
+    missing = [w for st, w in stamps if st is None]
+    if missing or out["arm_time_s"] is None:
+        out["main_session_length_s"] = None
+        out["main_session_length_why"] = "; ".join(missing + ([out["arm_time_why"]] if out["arm_time_s"] is None else []))
+        return out
+    bring_up = max(st["bring_up_s"] for st, _ in stamps)
+    tail = max(st["tail_s"] for st, _ in stamps)
+    length = math.ceil((bring_up + 12 * out["arm_time_s"] + tail) * 1.25)
+    out.update({"bring_up_s": bring_up, "session_tail_s": tail, "main_session_length_s": length,
+                "hard_stop_s": length, "acquisition_deadline_s": length - 360, "backstop_s": length + 600,
+                "study_deadline_s": length + 1200})
     return out
+
+
+def utc_epoch(text):
+    """Seconds since the epoch for an ISO-8601 UTC time as AWS and the matrix print it."""
+    from datetime import datetime
+    return datetime.fromisoformat(text.replace("Z", "+00:00")).timestamp()
+
+
+def session_stamps(stage_dir):
+    """({bring_up_s, tail_s}, "") from a stage's session stamps and first cell, or (None, why)."""
+    rows = read_tsv(os.path.join(stage_dir, "session-timing.tsv"))
+    timings = read_tsv(os.path.join(stage_dir, "cell-timings.tsv"))
+    if not rows or not timings:
+        return None, "%s lacks session-timing.tsv or cell-timings.tsv" % stage_dir
+    st = rows[0]
+    empty = [k for k in ("launch_time_utc", "matrix_returned_epoch", "marker_uploaded_utc") if not st.get(k)]
+    if empty:
+        return None, "%s's session stamps lack %s" % (stage_dir, ", ".join(empty))
+    first = min(utc_epoch(t["start_utc"]) for t in timings)
+    return {"bring_up_s": first - utc_epoch(st["launch_time_utc"]),
+            "tail_s": utc_epoch(st["marker_uploaded_utc"]) - int(st["matrix_returned_epoch"])}, ""
 
 
 def main(argv):
