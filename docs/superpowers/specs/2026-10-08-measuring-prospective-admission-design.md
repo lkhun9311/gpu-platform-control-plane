@@ -807,39 +807,69 @@ Since round 12, every round has been about one question: what the decision may t
 - **stage A:** one instance, three blocks of I, O and P;
 - **stage B:** one instance, two four-arm blocks, with R fitted on stage A.
 
-Each is one session in one login, at about 2.1 and 1.9 hours. Expected cost is about $2.73. The $6.98 maximum holds only with the termination sweeper exercised (see below). Without it, the retained runner does not bound the pilot's lifetime (pilot review, finding 2).
+Each is one session in one login, at about 2.1 and 1.9 hours. Expected cost is about $2.73.
 
-**What it measures, per arm and per block:**
+**$6.98 is an operating allowance, not a maximum** (pilot review 2, finding 5). It is 2 × 185 min at the $1.1324 cap. It holds if, on each session, one of three terminators acts within the reserved lifetime:
+- the sweeper;
+- the in-instance backstop;
+- the deadline-bounded hard stop.
 
-| Quantity | Why the main design needs it | Published in stage B? |
-|---|---|---|
-| Dispatch lag (gateway arrival minus scheduled instant): full distribution, maximum, and count above 5, 25 and 50 ms | the ceiling and uncertainty rules, and round 21's finding 4 | yes |
-| Gateway-internal delays: arrival → durable record written → admission decision → backend forward → first-content forward | round 21's finding 1: what happens after the arrival stamp, including the durable write | yes, except arrival → first-content forward, which is a TTFT |
-| Client-side stamps beside the gateway's: send and first content | how far each client stamp sits from the gateway's | send only |
-| Missing gateway records; scheduler records with no gateway record | the record rules | yes |
-| Premium p99 on TTFT-scheduled and TTFT-arrival, with the uncertain set at 0 and at +∞, **pooled over the stage's blocks** | round 21's findings 2 and 3: the box's width as the endpoint pools it, including y_lo | **sealed** (see below) |
-| O/I contention, P/O on the crossed bounds (stage A) | the contention and P/O screens | stage A only |
-| Contender p, q and c per arm; sim-cap's predicted admission against the observed (stage B) | the margin and the R fit | yes: these are work, not tail |
-| Release-to-first-content gap per contender; restart and capture times; step-log completeness checks | operational premises | yes |
-| The evidence sidecar's uploads: their instants, and the dispatch lag of requests within a second of each | pilot review, finding 3: whether the main apparatus's evidence path disturbs timing | yes |
+An exercised sweeper shows it works, not how long it takes. If all three fail, spending continues at up to $1.1324 per hour until a person notices.
+
+**What it measures, per arm and per block, and pooled over each stage's blocks as the main endpoint pools:**
+
+| Quantity | Why the main design needs it |
+|---|---|
+| Dispatch lag (gateway arrival minus scheduled instant): full distribution, maximum, and count above 5, 25 and 50 ms | the ceiling and uncertainty rules, and round 21's finding 4 |
+| Gateway-internal delays: arrival → durable record written → admission decision → backend forward → first-content forward | round 21's finding 1: what happens after the arrival stamp, including the durable write |
+| Client-side stamps beside the gateway's: send and first content | how far each client stamp sits from the gateway's |
+| Missing gateway records; scheduler records with no gateway record | the record rules |
+| Each arm's premium p99 on TTFT-scheduled and TTFT-arrival, with the uncertain set at 0 and at +∞, pooled; and each arm's **box width** ln(hi/lo) | round 21's findings 2 and 3, and pilot review 2's finding 1. The pooled P/S width is the sum of the two arms' widths, so pooling is measured, not inferred from blocks |
+| O/I contention, P/O on the crossed bounds | the contention and P/O screens |
+| Contender p, q and c per arm; sim-cap's predicted admission against the observed (stage B) | the margin and the R fit |
+| Release-to-first-content gap per contender; restart and capture times; step-log completeness checks | operational premises |
+| The evidence sidecar's uploads as intervals (start, end, retries, bytes), and the dispatch lag of requests dispatched during each | pilot review, findings 3 and 6. An upload lasting 20 s can disturb a dispatch in its middle, which a window around its instants would miss |
 
 **v1 of this scope dropped the client's "written" stamp** (pilot review, finding 4). Nothing implements it, and the decision no longer uses it.
 
-**Blindness in stage B: premium tail quantities are sealed, not printed.** The first version printed widths and S's own p99s. The pilot review (finding 1) showed P's p99, and so P/S, then follows by algebra from the width and S's two p99s.
-- So **every stage B quantity derived from premium TTFT** is computed, written to a sealed file, and published only as a SHA-256 commitment. That covers p99s in any arm, box ends and widths, and gateway arrival → first-content forward.
-- The report prints one bit per block:
-  - whether the P/S box half-width is at most 0.043, the screen the main design uses;
-  - whether the infinite-end rule would fire.
-- The sealed file is opened only:
-  - after the main study's verdict;
-  - or when the owner decides not to buy the main study.
-- Stage A has no S, so its quantities are printed in full.
+**Stage B is not blind, and the page says so instead of sealing.** v2 of this scope sealed stage B's premium-tail quantities. Pilot review 2 (findings 1 and 2) showed that cannot work:
+- The raw rows and the gateway's records are uploaded and downloaded whole (`m5c-gpu-session.sh:1040`, `:1103`, `:1539`).
+- The published delay chain sums back to TTFT.
+- Sealing withheld the pooled widths the next design round needs.
+
+Blindness was meant to prevent one harm: a designer who has seen the P/S effect tuning the main study to favour it. v3 meets that harm directly.
+
+**Frozen now, before the pilot, and not open to change by anything stage B shows:**
+- the primary threshold, ln 0.95;
+- the endpoint definitions;
+- the arms and their configurations, except R;
+- the load;
+- the number of instances and blocks;
+- the futility look;
+- the decision procedure.
+
+**What the next design round may change:** only measurement rules, each justified in writing by a named pilot measurement:
+- the lag thresholds;
+- the uncertainty cap;
+- the width screens;
+- durations;
+- operational limits.
+
+**Separation:**
+- Stage B's data never enter the main analysis.
+- The published stage B report prints widths and S's and P's own work and timing quantities, not a P/S ratio. The raw evidence is not concealed.
 
 **What must be built for the pilot.** A subset of the build list:
 - items 1, 2, 3, 4, 5, 6, 7, **8**, 10, 11, 12, 13, 14, **16**, 18, 21, 22, 24, 25 and 27;
 - the gateway's own delay stamps, including the durable write;
-- a measurement report with the sealing, in place of item 15's decision machinery;
-- **an elapsed-time hard stop:** the runner's poll checks a wall-clock deadline, not a count of attempts. Today `spot_wait_for_marker` counts attempts, each costing 30 s plus two API calls (`spot-run.sh:374`), so a 150-minute setting can run to about 250 minutes.
+- a measurement report, in place of item 15's decision machinery;
+- **a hard stop that is a deadline, not a count** (pilot review, finding 2; review 2, finding 4):
+  - every AWS call in the wait is run under `timeout` with the time remaining;
+  - the loop checks a wall-clock deadline, not a count of attempts;
+  - **on reaching the deadline, the runner terminates the instance first,** and only then downloads evidence.
+
+  Today `spot_wait_for_marker` counts attempts at 30 s plus two API calls each (`spot-run.sh:374`), so a 150-minute setting can run to about 250 minutes. Its caller also downloads before terminating (`m5c-gpu-session.sh:1482`, `:1497`, `:1335`).
+- **synthetic step-log support in the stub engine** (review 2, finding 3). For each request it emits plugin-format `add` and `sched` records with request IDs, anchors and sequence numbers, and on the sentinel a terminal record. So the kind rehearsal exercises items 6 and 21 rather than refusing or bypassing them. The CPU run with real vLLM remains the check on vLLM's own behaviour.
 
 **Brought into the pilot after its review:**
 - **item 8,** incremental rows and the evidence sidecar. They are part of the apparatus whose timing the pilot measures, not only a backup (pilot review, finding 3).
@@ -851,7 +881,7 @@ Each is one session in one login, at about 2.1 and 1.9 hours. Expected cost is a
 - **item 19,** TPOT.
 
 **Rehearsals before purchase:**
-- **on kind with the stub engine,** a full stage A and stage B end to end through the measurement report, including the sealing. The stub is extended to honour each request's own output cap.
+- **on kind with the stub engine,** a full stage A and stage B end to end through the measurement report. The stub is extended to honour each request's own output cap and to emit the synthetic step log.
 - **on CPU with real vLLM,** through `hack/vllm-plugins/validate-on-cpu.sh` extended to run the new path on a short trace. The stub has no scheduler (`cmd/benchharness/helpers.go:339`), so it cannot exercise the scheduler-side path (pilot review, finding 5). The CPU run must show:
   - the plugin's sequence numbers, sentinel and terminal record;
   - the request-ID join from client to vLLM's scheduler;
