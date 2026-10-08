@@ -761,6 +761,39 @@ The AWS SSO session lasts at most 12 hours from a login.
 - After the session it records launch and termination times from EC2 and CloudTrail.
 - Billed amounts come from Cost Explorer when it settles, and are published beside the estimate.
 
+## Open after round 21: not answered, awaiting the owner's direction
+
+Round 21 found 2 blockers and 2 majors in v21. I checked each against the page and agree with all four. They are recorded here rather than answered with a v22, because what they show is a decision for the owner, not another rule.
+
+| Finding | What it shows |
+|---|---|
+| 1 (blocker): the durable arrival write v21 added is an unbounded delay after the arrival stamp | a contender can arrive at 1 ms lag and enter admission 900 ms later; my own v21 fix created it |
+| 2 (blocker): stage A's P/O screen reads y_hi only | a far y_lo in O makes U = +0.082 at a mixed vertex, so benefit is impossible while every purchase gate passes |
+| 3 (major): stage B screens per-block box width, but the endpoint pools blocks | two blocks of zero width pool to a half-width of 2.41 against the 0.043 limit |
+| 4 (major): the lag ceiling's survival cannot be established | 95% main-study survival needs an exceedance rate near 8.8 × 10⁻⁸. Showing that from zero events needs about 34 million requests, against the pilots' 68,565 |
+
+**What 21 rounds have shown.** The study design settled early:
+- arms;
+- validity on processed and completed work;
+- per-instance t with futility;
+- sequential purchase.
+
+Since round 12, every round has been about one question: what the decision may trust about request timing and observation.
+- Each rule that closed a hole opened an edge in the next round: bounds, then crossed bounds, then a vertex rule, then ceilings, then screens.
+- Several of those edges were in my own previous fix.
+- Finding 4 is different in kind. As registered, the main study most likely cannot finish, whatever the pilot shows.
+
+**The choice, set out for the owner:**
+- **(a) Measure before designing further.** Stop adding rules. Buy only the pilot, about $2.73 expected and $6.98 at most, as a measurement of the harness and the apparatus rather than a gate:
+  - the lag tail;
+  - the uncertain fraction;
+  - the pooled box widths;
+  - P/O's crossed bounds.
+
+  Then decide the timing rules from real numbers, and attack that design again before any main purchase.
+- **(b) Keep iterating** with astra until a round finds no blocker, accepting that the timing rules may not converge.
+- **(c) Shelve item 3,** recording what the 21 rounds established.
+
 ## What v21 changed, against the review of v20
 
 | v20 finding | Change |
