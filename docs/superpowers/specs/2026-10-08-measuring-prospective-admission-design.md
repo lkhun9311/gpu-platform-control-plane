@@ -1,4 +1,4 @@
-# Measuring prospective admission directly (item 3): the design, v10
+# Measuring prospective admission directly (item 3): the design, v11
 
 *Drafted 2026-10-08 for the owner's approval before anything is built. The owner approved paid runs for this direction on 2026-10-08, and asked for the design to be attacked as hard as possible before money is spent. Nothing is bought until a registration built from this design is frozen.*
 
@@ -15,7 +15,8 @@
 | v7 | 18a9b48 | astra's review of v6 | 2 blockers, 6 majors |
 | v8 | 9a8c358 | astra's review of v7 | 2 blockers, 5 majors |
 | v9 | 192aa03 | astra's review of v8 | 2 blockers, 4 majors, 1 minor |
-| v10 | this page | astra's review of v9 | 2 blockers, 3 majors |
+| v10 | c397e48 | astra's review of v9 | 2 blockers, 3 majors |
+| v11 | this page | astra's review of v10 | 1 blocker, 2 majors |
 
 **Who established what.**
 - astra read the code and found the defects. Each round was given only the page and the repository, never told where to look.
@@ -72,12 +73,14 @@ Same instance and same trace within a block, with the arm order randomised per b
 - `--scheduling-policy=priority`.
 - The image pinned by digest.
 - The step-logging scheduler plugin, with `--no-async-scheduling`.
+- `--enable-logging-iteration-details`, which defaults to off in vLLM v0.27.1 and which the plugin does not turn on. The instrument studies add it separately (`instrument-validation.sh:278`). It is the independent witness the step-log completeness check reads (round 10, finding 3).
 
 **Proof, read at every engine start.**
 - The whole non-default-arguments line is compared with the registration (build item 5):
   - every registered key must appear with its registered value;
   - any unregistered non-default key refuses the engine;
-  - the check is mutation-tested with the specimen astra passed through today's validator (prefix caching on, bfloat16, one sequence, context 8,192, memory 0.5).
+  - the check is mutation-tested with the specimen astra passed through today's validator (prefix caching on, bfloat16, one sequence, context 8,192, memory 0.5), and with iteration logging left off;
+  - it is run on the engine configuration as actually rendered into the deployment, not on the registration's own list.
 - The plugin records the priority each request reached the scheduler with. Every premium request must show 0 and every standard one 1.
 
 ## The gateway's own decision record
@@ -372,17 +375,31 @@ Today the hook uploads only after a replay and its log capture (`m5c-matrix.sh:3
    - **Waiting for an ID fails:** today capture waits for the last trace request's ID (`:3032`). A forwarded request can fail in the engine's frontend before the scheduler sees it, so that ID may never appear.
    - **Waiting for quiescence fails too:** the plugin hands batches to a background writer, so an empty scheduler and a file ending in a flush can coexist with an unwritten final batch. astra reproduced exactly that with the real plugin.
    - **So the plugin numbers every record.** Each flush record carries its first and last sequence numbers, and an overflow record already exists when its buffer fills (`step_logging_scheduler.py:70`).
-   - **At the end of each arm,** after the replay returns and the engine is idle, the engine is stopped gracefully. It restarts for the next arm anyway. On shutdown the plugin:
-     - flushes its buffer;
-     - waits for its writer queue to drain;
-     - writes a terminal record with its last sequence number and last step index.
+   - **At the end of each arm the engine is not stopped.** v10 stopped it, and round 10 (finding 2) showed the terminal record would then be unreachable:
+     - capture reads the log by `kubectl exec` into the engine container (`:3037`);
+     - the log lives in the Pod's `emptyDir`;
+     - the next arm deletes the namespace.
+   - **Instead, a sentinel triggers the terminal record.** After the replay returns and the engine reports no running or waiting requests, capture writes a sentinel file beside the log, by `kubectl exec`. The plugin's writer thread, its only consumer, waits on its queue with a one-second timeout and checks for the sentinel. When it finds it, it:
+     - drains its queue;
+     - reads the scheduler thread's record counter and buffer length;
+     - writes a terminal record holding its last written sequence number, that counter, that buffer length and the last step index.
+
+     If the buffer is not empty or the counter is ahead of what was written, the terminal record says so, and capture retries for up to 60 s before refusing. The scheduler thread already flushes its buffer whenever the engine is idle (`step_logging_scheduler.py:144`).
+   - **Capture then reads the file as it does today,** still inside the running container, and archives it before the namespace is deleted.
    - **The arm's step log is complete only if:**
-     - the terminal record is present;
+     - the terminal record is present, with an empty buffer and the counter equal to the last written sequence number;
      - the sequence numbers run without a gap from 1 to the terminal's;
      - there is no overflow record;
-     - the last step index equals the last `Iteration(n)` in the engine's own iteration log.
+     - **the plugin's steps match the engine's own iterations one to one.**
 
-     That log is written by vLLM independently of the plugin, and the instrument studies already read it.
+   **The step match, made exact** (round 10, finding 1). The plugin numbers its steps from 1, incrementing before it records (`step_logging_scheduler.py:122`). vLLM numbers its iterations from 0, as the runner already checks (`m5c-matrix.sh:3004`). So the rule is:
+     - plugin step k corresponds to `Iteration(k − 1)`;
+     - the count of plugin steps equals the count of iteration lines;
+     - each step's total scheduled tokens equals that iteration's total, the per-step comparison the existing instrument checker already makes.
+
+     v10's rule ("the last step index equals the last iteration") rejected a complete log. On the committed CPU fixture: 70 steps numbered 1 to 70, against 70 iterations numbered 0 to 69.
+
+   The iteration log is written by vLLM independently of the plugin, and needs `--enable-logging-iteration-details`, which is now in the frozen apparatus.
    - A request that reached the gateway but never the scheduler simply has zero processed tokens.
    - An incomplete step log makes the outcome "invalid", like any non-Spot early end.
    - `check_step_log.py` is not reused as is: it requires every client request to be scheduled and assumes complete output accounting (`:139`, `:144`), which refusals and partial failures here violate. A checker for this study is written instead.
@@ -427,7 +444,9 @@ Today the hook uploads only after a replay and its log capture (`m5c-matrix.sh:3
     - a request that never reached the gateway, and an S success whose gateway line is deleted, which must still count as completed;
     - an admitted contender failing after prefill in S, whose processed tokens must count in p_S;
     - a forwarded request refused by the engine's frontend before scheduling, which capture must not wait for;
-    - a final batch held back from the writer at shutdown, which must make the log incomplete;
+    - a final batch held back from the writer when the sentinel arrives, which must make the terminal record report it and capture refuse after 60 s;
+    - a complete log, which must pass the step-to-iteration match; the committed CPU fixture is the first test, at 70 steps against iterations 0 to 69;
+    - a step whose token total differs from its iteration's, which must refuse;
     - S's failed contenders decoding 15 tokens against P's one, which must fail q;
     - an exact-token stamp sent through the gateway by mistake, which must refuse;
     - a pre-header timeout;
@@ -506,6 +525,16 @@ The AWS SSO session lasts at most 12 hours from a login.
 - The ledger limits what the study starts. It cannot stop an instance already running, which is the terminators' job.
 - After the session it records launch and termination times from EC2 and CloudTrail.
 - Billed amounts come from Cost Explorer when it settles, and are published beside the estimate.
+
+## What v11 changed, against the review of v10
+
+| v10 finding | Change |
+|---|---|
+| 1: last step against last iteration is off by one | plugin step k matches `Iteration(k − 1)`, with equal counts and per-step token totals; the CPU fixture is the first test |
+| 2: stopping the engine makes the terminal record unreachable | the engine is not stopped: a sentinel triggers the writer's terminal record, and capture reads it in the running container |
+| 3: iteration logging is not in the frozen apparatus | `--enable-logging-iteration-details` frozen; the validator runs on the rendered configuration |
+
+Round 10 re-derived the power table (2,000,000 studies per row), the null rate and every cost figure, and agreed with each.
 
 ## What v10 changed, against the review of v9
 
