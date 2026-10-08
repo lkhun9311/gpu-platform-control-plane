@@ -685,25 +685,28 @@ func stubMux(profile stubProfile, stats *stubStats) *http.ServeMux {
 				promptTokens += stubPromptTokens(len([]rune(m.Content)))
 			}
 		}
+		if profile.pilot != nil {
+			// The pilot's traces carry its frozen counts and each session checks them against its engine, so the
+			// stub reports those counts for the frozen lengths, as the engine they were measured on does.
+			var body struct {
+				Messages []struct {
+					Content string `json:"content"`
+				} `json:"messages"`
+			}
+			if json.Unmarshal(raw, &body) == nil && len(body.Messages) == 1 {
+				if st, ok := bench.LookupStudy(bench.StudyProspectivePilot); ok {
+					if n, ok := st.FrozenExactTokens[len([]rune(body.Messages[0].Content))]; ok {
+						promptTokens = n
+					}
+				}
+			}
+		}
 		tokens := profile.tokens
 		if profile.pilot != nil {
 			var pr stubPilotRequest
 			_ = json.Unmarshal(raw, &pr)
 			if pr.MaxTokens > 0 {
 				tokens = pr.MaxTokens
-			}
-			if !profile.usage {
-				promptTokens = 0
-				var body struct {
-					Messages []struct {
-						Content string `json:"content"`
-					} `json:"messages"`
-				}
-				if json.Unmarshal(raw, &body) == nil {
-					for _, m := range body.Messages {
-						promptTokens += stubPromptTokens(len([]rune(m.Content)))
-					}
-				}
 			}
 			id := "chatcmpl-" + r.Header.Get("X-Request-Id")
 			profile.pilot.add(id, pr.Priority, promptTokens)

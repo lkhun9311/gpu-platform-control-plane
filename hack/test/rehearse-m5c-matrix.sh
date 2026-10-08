@@ -250,7 +250,67 @@ case "$IV_UNDER_TEST" in
   4) IV_STUDY=instrument-validation-s4-2026-10-06 ;;
   *) IV_STUDY=instrument-validation-2026-10-05 ;;
 esac
-stub_engine_manifest vllm-qwen25-3b "$SRC/config/vllm/deployment.yaml"
+# PILOT=1 rehearses the prospective-admission pilot's two stages (docs/superpowers/specs/
+# 2026-10-08-measuring-prospective-admission-design.md, "Rehearsals before purchase").
+#
+# Its stub manifest has the real manifest's shape, which the pilot's renderer proves it changed in exactly four
+# places: the engine flags as one list, the 2048 budget and the port each on their own line, and the hf-cache
+# volume mounted and declared. The model is not passed positionally, because the stub's flag parser stops at the
+# first positional argument.
+PILOT_UNDER_TEST="${PILOT:-}"
+stub_pilot_engine_manifest() {
+  local out="$1"
+  cat > "$out" <<EOF
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm-qwen25-3b
+  labels: {app.kubernetes.io/component: vllm}
+spec:
+  replicas: 1
+  selector: {matchLabels: {engine: vllm-qwen25-3b}}
+  template:
+    metadata:
+      labels: {engine: vllm-qwen25-3b, app.kubernetes.io/component: vllm}
+    spec:
+      containers:
+        - name: vllm
+          image: $STUB_IMAGE
+          imagePullPolicy: IfNotPresent
+          args:
+            - --metrics
+            - --dtype=half
+            - --max-model-len=16384
+            - --max-num-seqs=64
+            - --gpu-memory-utilization=0.90
+            - --no-enable-prefix-caching
+            - --max-num-batched-tokens=2048
+            - --port=8000
+          ports: [{containerPort: 8000, name: http}]
+          resources:
+            limits:
+              nvidia.com/gpu: 1
+          volumeMounts:
+            - name: hf-cache
+              mountPath: /root/.cache/huggingface
+      volumes:
+        - name: hf-cache
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vllm-qwen25-3b
+spec:
+  selector: {engine: vllm-qwen25-3b}
+  ports: [{name: http, port: 8000, targetPort: http}]
+EOF
+}
+if [ -n "$PILOT_UNDER_TEST" ]; then
+  stub_pilot_engine_manifest "$SRC/config/vllm/deployment.yaml"
+else
+  stub_engine_manifest vllm-qwen25-3b "$SRC/config/vllm/deployment.yaml"
+fi
 : > "$SRC/config/vllm/service.yaml"   # the Service is in the file above; this one must stay applyable
 printf 'apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: m5c-rehearse-noop\ndata: {}\n' > "$SRC/config/vllm/service.yaml"
 stub_engine_manifest vllm-shared-a "$SRC/config/vllm-shared/engine-a.yaml"
@@ -424,7 +484,28 @@ SHIM
   BH_FOR_MATRIX="$WORK/bh-shim"
 fi
 
-if [ -n "$IV_UNDER_TEST" ]; then
+if [ -n "$PILOT_UNDER_TEST" ]; then
+  # Stage A, then stage B at a rate R chosen for the stub. The frozen tuple fixes the prompts, caps and timeout;
+  # the trace length is not frozen, so the rehearsal runs 20-second cells.
+  pilot_rc=0
+  for stage in A B; do
+    ( cd "$SRC" && PLATFORM=kind KCTX="$KCTX" GPU_NODE="$GPU_NODE" \
+        DEADLINE_EPOCH=$(( $(date +%s) + 7200 )) \
+        GATEWAY_BIN="$WORK/gateway" BENCHHARNESS_BIN="$WORK/benchharness" \
+        ENGINE_PIN_WAIVED=1 STUDY=prospective-pilot-2026-10-08 PILOT_STAGE="$stage" PILOT_STATIC_RATE=2000 \
+        MODEL_REVISION=$(printf 'c%.0s' $(seq 1 40)) \
+        REPS=3 SEEDS="$([ "$stage" = A ] && echo '301 302 303' || echo '311 312 313')" \
+        PREMIUM_RATE=9.25 PILOT_NOISY_RATE=0.5 PREMIUM_WEIGHT=1 PROBE_WEIGHT=0 DURATION_MS="${PILOT_DURATION_MS:-20000}" \
+        PREMIUM_PROMPT_CHARS=200 NOISY_PROMPT_CHARS=40000 REQUEST_TIMEOUT_MS=30000 \
+        PREMIUM_OUTPUT_TOKENS=64 NOISY_OUTPUT_TOKENS=16 OUT="$OUT_DIR-$stage" \
+        CELL_DONE_HOOK="$WORK/cell-hook" CELL_HOOK_LOG="$CELL_HOOK_LOG" \
+        bash hack/m5c-matrix.sh ) 2>&1 | tee "$WORK/matrix-$stage.log"
+    pilot_rc=${PIPESTATUS[0]}
+    [ "$pilot_rc" = 0 ] || break
+  done
+  cp "$WORK/matrix-${stage}.log" "$WORK/matrix.log"
+  ( exit "$pilot_rc" )
+elif [ -n "$IV_UNDER_TEST" ]; then
   # No load and no DURATION_MS: the study refuses both, and each arm's trace length is its own.
   # Three serial arms, one of each engine mode, because the modes are what this path changes per cell; burst and
   # stagger differ only in trace length, and rehearsing them would cost an hour and cover nothing new.
@@ -488,6 +569,28 @@ set -e
 # The checks below this block are the sharing studies': two tenants, an R1 arm, readings. This study has none
 # of them, and what it adds -- a per-arm engine and a per-cell engine log -- is checked from the files the
 # matrix wrote, not from its exit status alone, because the matrix refusing nothing is what is under test.
+if [ -n "$PILOT_UNDER_TEST" ]; then
+  say "check what the pilot's cells wrote"
+  for stage in A B; do
+    d="$OUT_DIR-$stage"
+    [ -s "$d/calibration.txt" ] || fail "stage $stage: no calibration record"
+    [ -s "$d/phases.tsv" ] && [ -s "$d/cell-uploads.tsv" ] || fail "stage $stage: no phase or upload timing record"
+    for f in "$d"/raw-*-[123].jsonl; do
+      cell=$(basename "$f" .jsonl); cell=${cell#raw-}
+      for need in "step-log-$cell.jsonl" "engine-log-$cell.txt" "gateway-record-$cell.jsonl" "raw-$cell.jsonl.sender.json"; do
+        [ -s "$d/$need" ] || fail "stage $stage cell $cell: no $need"
+      done
+      [ ! -e "$d/ineligible-$cell.txt" ] || fail "stage $stage cell $cell is ineligible: $(cat "$d/ineligible-$cell.txt")"
+      python3 "$ROOT/hack/prospective-pilot/pilot_evidence.py" terminal "$d/step-log-$cell.jsonl" \
+        || fail "stage $stage cell $cell: the step log is not complete"
+      grep -q '"ev":"arrive"' "$d/gateway-record-$cell.jsonl" && grep -q '"ev":"done"' "$d/gateway-record-$cell.jsonl" \
+        || fail "stage $stage cell $cell: the gateway record lacks arrive or done lines"
+      grep -q 'fence-' "$d/step-log-$cell.jsonl" || fail "stage $stage cell $cell: the fence is not in the step log"
+    done
+  done
+  say "PILOT REHEARSAL: both stages, every cell captured complete, fenced, calibrated and timed"
+  exit 0
+fi
 if [ -n "$IV_UNDER_TEST" ]; then
   say "check what the instrument-validation cells wrote"
   for arm in serial-log serial-nolog serial-async; do
