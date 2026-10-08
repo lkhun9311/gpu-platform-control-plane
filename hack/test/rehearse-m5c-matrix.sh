@@ -470,6 +470,16 @@ for f in cell-environment.tsv cell-timings.tsv cell-judgements.tsv applied-value
 done
 HOOK
 chmod +x "$WORK/cell-hook"
+# The pilot's evidence sidecar, recorded rather than uploaded: each call copies what it was handed, so the check
+# below can see that live rows and a live gateway record left during the replay.
+mkdir -p "$WORK/sidecar"
+cat > "$WORK/sidecar-hook" <<'HOOK'
+#!/bin/bash
+# Kept per stage, by the run directory the files came from, so one stage's copies cannot stand in for the other's.
+d="$(dirname "$0")/sidecar/$(basename "$(dirname "$1")")"
+mkdir -p "$d" && cp "$1" "$2" "$d/"
+HOOK
+chmod +x "$WORK/sidecar-hook"
 export CELL_HOOK_LOG="$WORK/cells-seen.txt"
 : > "$CELL_HOOK_LOG"
 export CELL_FILES_LOG="$WORK/cell-files-seen.txt"
@@ -517,6 +527,7 @@ if [ -n "$PILOT_UNDER_TEST" ]; then
         PREMIUM_PROMPT_CHARS=200 NOISY_PROMPT_CHARS=40000 REQUEST_TIMEOUT_MS=30000 \
         PREMIUM_OUTPUT_TOKENS=64 NOISY_OUTPUT_TOKENS=16 OUT="$OUT_DIR-$stage" \
         CELL_DONE_HOOK="$WORK/cell-hook" CELL_HOOK_LOG="$CELL_HOOK_LOG" \
+        CELL_SIDECAR_HOOK="$WORK/sidecar-hook" PP_SIDECAR_INTERVAL_S=5 \
         bash hack/m5c-matrix.sh ) 2>&1 | tee "$WORK/matrix-$stage.log"
     pilot_rc=${PIPESTATUS[0]}
     [ "$pilot_rc" = 0 ] || break
@@ -600,6 +611,12 @@ if [ -n "$PILOT_UNDER_TEST" ]; then
     [ "$n_raw" = $(( $(printf '%s\n' $stage_arms | wc -l) * 3 )) ] || fail "stage $stage holds $n_raw raw files for arms [$stage_arms] x 3 blocks"
     for cell in $(for a in $stage_arms; do printf '%s-1 %s-2 %s-3 ' "$a" "$a" "$a"; done); do
       [ -s "$d/raw-$cell.jsonl" ] || fail "stage $stage cell $cell: no raw rows"
+      # The sidecar ran during the replay: at a 5 s interval a 20 s replay uploads at least twice, every time
+      # successfully, and the live rows it carried are this cell's.
+      n_up=$(awk -F'\t' -v c="$cell" '$1 == c && $5 == 0' "$d/sidecar-uploads.tsv" 2>/dev/null | wc -l)
+      [ "$n_up" -ge 2 ] || fail "stage $stage cell $cell: $n_up successful sidecar upload(s) during its replay"
+      [ -s "$WORK/sidecar/$(basename "$d")/live-raw-$cell.jsonl" ] && [ -s "$WORK/sidecar/$(basename "$d")/live-gateway-record-$cell.jsonl" ] \
+        || fail "stage $stage cell $cell: the sidecar never carried its live rows and gateway record"
       for need in "step-log-$cell.jsonl" "engine-log-$cell.txt" "gateway-record-$cell.jsonl" "raw-$cell.jsonl.sender.json"; do
         [ -s "$d/$need" ] || fail "stage $stage cell $cell: no $need"
       done
