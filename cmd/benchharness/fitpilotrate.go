@@ -216,7 +216,11 @@ func loadFitCell(rawPath, recordPath string) (fitCell, error) {
 			undecided = append(undecided, row.RequestID)
 			return nil
 		}
-		block := row.RequestID[:strings.LastIndex(row.RequestID, "-")]
+		cut := strings.LastIndex(row.RequestID, "-")
+		if cut <= 0 {
+			return fmt.Errorf("contender request ID %q has no block prefix", row.RequestID)
+		}
+		block := row.RequestID[:cut]
 		if fc.block == "" {
 			fc.block = block
 		} else if block != fc.block {

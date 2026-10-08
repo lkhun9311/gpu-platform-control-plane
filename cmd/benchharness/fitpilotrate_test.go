@@ -186,3 +186,16 @@ func TestFitPilotRateRefusesOtherThanThreeBlocks(t *testing.T) {
 		t.Fatalf("two blocks were not refused: %v", err)
 	}
 }
+
+// A contender ID with no block prefix is refused, not sliced at -1 (review of 27bed2d).
+func TestFitPilotRateRefusesAnIDWithoutABlock(t *testing.T) {
+	dir := t.TempDir()
+	raw := filepath.Join(dir, "raw.jsonl")
+	rec := filepath.Join(dir, "rec.jsonl")
+	_ = os.WriteFile(raw, []byte(`{"index":1,"requestId":"req1","tenant":"standard-noisy","promptLenChars":40000,"exactInputTokens":7695}`+"\n"), 0o644)
+	_ = os.WriteFile(rec, []byte(`{"ev":"done","requestId":"req1","decision":"admit","arrivedUnixNanos":5}`+"\n"), 0o644)
+	c := raw + ":" + rec
+	if err := fitPilotRate(fitArgs(c, c, c), &bytes.Buffer{}); err == nil || !strings.Contains(err.Error(), "no block prefix") {
+		t.Fatalf("want a refusal, got %v", err)
+	}
+}
