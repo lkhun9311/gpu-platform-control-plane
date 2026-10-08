@@ -231,7 +231,11 @@ pp_phase() {
 pp_capture() {
   local label="$1" rep="$2" deadline pod gwpod node uid pf code why=""
   deadline=$(( $(date +%s) + PP_CAPTURE_BOUND_S ))
-  pod=$(k get pods -n "$NS_A" -l app.kubernetes.io/component=vllm -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+  # Every blocking command runs under the time left, so a stalled exec, log read or node read cannot outlast the
+  # bound; the deadline is otherwise only checked between iterations (review of 20cbf33).
+  left() { local l=$(( deadline - $(date +%s) )); [ "$l" -gt 0 ] && echo "$l" || echo 1; }
+  expired() { [ "$(date +%s)" -ge "$deadline" ]; }
+  pod=$(timeout "$(left)" kubectl --context "$KCTX" get pods -n "$NS_A" -l app.kubernetes.io/component=vllm -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
   [ -n "$pod" ] || { pp_ineligible "$label" "$rep" "no engine pod to capture from"; return 1; }
 
   kubectl --context "$KCTX" port-forward -n "$NS_A" "pod/$pod" "$PP_FENCE_PORT:8000" >"$OUT/fence-forward-$label-$rep.log" 2>&1 &
@@ -251,19 +255,19 @@ pp_capture() {
 
   local term=2
   while [ "$(date +%s)" -lt "$deadline" ]; do
-    k exec -n "$NS_A" "$pod" -- touch "$PP_STEP_LOG.sentinel" >/dev/null 2>&1 || true
+    timeout "$(left)" kubectl --context "$KCTX" exec -n "$NS_A" "$pod" -- touch "$PP_STEP_LOG.sentinel" >/dev/null 2>&1 || true
     sleep 2
-    k exec -n "$NS_A" "$pod" -- cat "$PP_STEP_LOG" > "$OUT/step-log-$label-$rep.jsonl" 2>/dev/null || true
+    timeout "$(left)" kubectl --context "$KCTX" exec -n "$NS_A" "$pod" -- cat "$PP_STEP_LOG" > "$OUT/step-log-$label-$rep.jsonl" 2>/dev/null || true
     if why=$(python3 "$PP_EVIDENCE" terminal "$OUT/step-log-$label-$rep.jsonl"); then term=0; break; fi
   done
   pp_phase "$label" "$rep" terminal-read
-  k logs -n "$NS_A" "$pod" > "$OUT/engine-log-$label-$rep.txt" 2>/dev/null \
+  timeout "$(left)" kubectl --context "$KCTX" logs -n "$NS_A" "$pod" > "$OUT/engine-log-$label-$rep.txt" 2>/dev/null \
     || why="${why:+$why; }the engine's own log could not be read"
 
-  gwpod=$(k get pods -n "$NS_A" -l app=m5c-gateway -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
-  node=$(k get pod -n "$NS_A" "$gwpod" -o jsonpath='{.spec.nodeName}' 2>/dev/null)
-  uid=$(k get pod -n "$NS_A" "$gwpod" -o jsonpath='{.metadata.uid}' 2>/dev/null)
-  if [ -n "$node" ] && [ -n "$uid" ] && docker exec "$node" cat \
+  gwpod=$(timeout "$(left)" kubectl --context "$KCTX" get pods -n "$NS_A" -l app=m5c-gateway -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+  node=$(timeout "$(left)" kubectl --context "$KCTX" get pod -n "$NS_A" "$gwpod" -o jsonpath='{.spec.nodeName}' 2>/dev/null)
+  uid=$(timeout "$(left)" kubectl --context "$KCTX" get pod -n "$NS_A" "$gwpod" -o jsonpath='{.metadata.uid}' 2>/dev/null)
+  if [ -n "$node" ] && [ -n "$uid" ] && timeout "$(left)" docker exec "$node" cat \
        "/var/lib/kubelet/pods/$uid/volumes/kubernetes.io~empty-dir/gwrecord/$(basename "$PP_GATEWAY_RECORD")" \
        > "$OUT/gateway-record-$label-$rep.jsonl" 2>/dev/null; then
     :
@@ -271,6 +275,10 @@ pp_capture() {
     why="${why:+$why; }the gateway's record could not be read from node ${node:-unknown}"
   fi
   pp_phase "$label" "$rep" capture-done
+  if expired; then
+    pp_ineligible "$label" "$rep" "the capture did not finish within ${PP_CAPTURE_BOUND_S}s of the replay's return${why:+: $why}"
+    return 1
+  fi
 
   if [ "$term" != 0 ]; then pp_ineligible "$label" "$rep" "${why:-the step log never showed a complete terminal record}"; return 1; fi
   local prio prc

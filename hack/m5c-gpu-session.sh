@@ -1065,8 +1065,18 @@ send "$out/raw-warmup-$arm-$rep.jsonl" "raw-warmup-$arm-$rep.jsonl"
 send "$out/warmup-boundary-$arm-$rep.txt" "warmup-boundary-$arm-$rep.txt"
 send "$out/warmup-trace-$arm-$rep.jsonl" "warmup-trace-$arm-$rep.jsonl"
 send "$out/warmup-manifest-$arm-$rep.yaml" "warmup-manifest-$arm-$rep.yaml"
-# The run-wide records, refreshed so the newest surviving copy is the newest one written.
-for f in cell-environment.tsv cell-timings.tsv cell-judgements.tsv applied-values.tsv load-source.txt; do
+# The prospective-admission pilot's per-cell evidence: the gateway's own record, the sender's configuration, the
+# fence's answer and an ineligibility reason, each absent for every other study. Without them a cell that survives
+# the instance has rows nothing can time or join (review of 20cbf33).
+send "$out/gateway-record-$arm-$rep.jsonl" "gateway-record-$arm-$rep.jsonl"
+send "$out/raw-$arm-$rep.jsonl.sender.json" "raw-$arm-$rep.jsonl.sender.json"
+send "$out/fence-$arm-$rep.json" "fence-$arm-$rep.json"
+send "$out/ineligible-$arm-$rep.txt" "ineligible-$arm-$rep.txt"
+# The run-wide records, refreshed so the newest surviving copy is the newest one written. phases.tsv and
+# cell-uploads.tsv are the pilot's; cell-uploads.tsv gains each cell's line after its own hook, so this cell's
+# hook carries the previous cell's line, and the last line goes with the final archive.
+for f in cell-environment.tsv cell-timings.tsv cell-judgements.tsv applied-values.tsv load-source.txt \
+         phases.tsv cell-uploads.tsv calibration.txt; do
   send "$out/$f" "$f"
 done
 # A refusal or an invalidation is per ARM, so it appears partway through a run and must travel too.

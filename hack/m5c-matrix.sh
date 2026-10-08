@@ -3466,7 +3466,9 @@ run_cell() {
   # before could not include its end.
   local pilot_timed=""
   if [ -z "${LADDER:-}" ] && pp_is_study "${STUDY:-}"; then
-    cell_timing_record "$label" "$rep" completed "$CELL_T0" "$(date +%s)" || true
+    # A cell already known to stop the pilot is not recorded as completed: cell_refused_stop records its one
+    # outcome below, and a second row would count the cell twice (review of 20cbf33).
+    [ -n "$pilot_stop" ] || cell_timing_record "$label" "$rep" completed "$CELL_T0" "$(date +%s)" || true
     pilot_timed=1
   fi
   local hook_t0
