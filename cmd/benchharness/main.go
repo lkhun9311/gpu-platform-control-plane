@@ -80,6 +80,8 @@ func main() {
 		err = power(os.Args[2:])
 	case "stamp-exact-tokens":
 		err = stampExactTokens(os.Args[2:])
+	case "verify-exact-tokens":
+		err = verifyExactTokens(os.Args[2:])
 	case "prepare-traces":
 		err = prepareTraces(os.Args[2:])
 	case "check-replay":
@@ -113,7 +115,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: benchharness <gen-trace|prepare-traces|replay|report|ladder-verdict|ladder-plan-check|matrix-plan-check|study-arrivals|study-frozen-tuple|print-prompt|check-replay|stamp-exact-tokens|compile-plan|sim-cap|power|stub-serve> [flags]")
+	fmt.Fprintln(os.Stderr, "usage: benchharness <gen-trace|prepare-traces|replay|report|ladder-verdict|ladder-plan-check|matrix-plan-check|study-arrivals|study-frozen-tuple|print-prompt|check-replay|stamp-exact-tokens|verify-exact-tokens|compile-plan|sim-cap|power|stub-serve> [flags]")
 }
 
 // arrivalFlags are gen-trace's load flags, gathered so the choice between the two arrival models lives in one place.
@@ -435,6 +437,11 @@ func genTrace(args []string) error {
 			return fmt.Errorf("study %s fixes output at its cap: %w", st.ID, err)
 		}
 	}
+	if st, ok := bench.LookupStudy(*study); ok && st.FrozenExactTokens != nil {
+		if err := bench.StampFrozenExactTokens(rows, st.FrozenExactTokens); err != nil {
+			return fmt.Errorf("study %s froze its exact token counts: %w", st.ID, err)
+		}
+	}
 
 	// R1 is the uncontended premium baseline.
 	//
@@ -693,6 +700,15 @@ func replay(args []string) error {
 	tol, err := strconv.ParseFloat(m.MatchTolerance, 64)
 	if err != nil {
 		return fmt.Errorf("manifest matchTolerance %q is not a number: %w", m.MatchTolerance, err)
+	}
+	if studyKnown && study.FrozenExactTokens != nil {
+		// Refused before the first request: a row whose count is not the frozen one was not generated for this study.
+		for _, r := range rows {
+			if want := study.FrozenExactTokens[r.PromptLenChars]; want <= 0 || r.ExactInputTokens != want {
+				return fmt.Errorf("row %d of %s carries %d exact input tokens for a %d-character prompt, and study %s froze %d",
+					r.Index, m.TracePath, r.ExactInputTokens, r.PromptLenChars, study.ID, want)
+			}
+		}
 	}
 	recordTiming := false
 	if studyKnown && study.RecordsReplayTiming {

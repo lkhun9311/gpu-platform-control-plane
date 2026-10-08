@@ -3411,6 +3411,11 @@ run_cell() {
     pc_out=$(pp_capture "$label" "$rep") && pc_rc=0 || pc_rc=$?
     [ -z "$pc_out" ] || printf '%s\n' "$pc_out" | tee -a "$LOG"
     [ "$pc_rc" != 3 ] || pilot_stop="the engine was not the registered apparatus: $pc_out"
+    if [ -z "$pilot_stop" ] && [ -z "${PP_CALIBRATED:-}" ]; then
+      local cal_out
+      cal_out=$(pp_calibrate) || pilot_stop="the engine does not count the frozen exact tokens: $cal_out"
+      PP_CALIBRATED=1
+    fi
   fi
   say "  $(wc -l < "$OUT/raw-$label-$rep.jsonl") rows"
   # The engine's own log for this cell, judged before the cell is handed over and refused after it is.

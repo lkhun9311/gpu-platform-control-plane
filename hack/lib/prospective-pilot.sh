@@ -290,3 +290,21 @@ pp_ineligible() {
   printf '%s\n' "$3" > "$OUT/ineligible-$1-$2.txt"
   say "  $1 rep $2 is ineligible for calibration: $3"
 }
+
+# Checks the study's frozen exact token counts against this session's engine, once, after the first cell's
+# evidence is captured, so its calib- requests appear in no arm's step log (design page, build item 18).
+# Exit 0 when the engine counts what was frozen; otherwise prints why, and the pilot stops: every trace was
+# stamped from those counts, so an engine that disagrees is not the apparatus they describe.
+pp_calibrate() {
+  local pod pf out rc
+  pod=$(k get pods -n "$NS_A" -l app.kubernetes.io/component=vllm -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+  [ -n "$pod" ] || { echo "no engine pod to calibrate against"; return 1; }
+  kubectl --context "$KCTX" port-forward -n "$NS_A" "pod/$pod" "$PP_FENCE_PORT:8000" >"$OUT/calibration-forward.log" 2>&1 &
+  pf=$!
+  sleep 2
+  out=$("$WORK/benchharness" verify-exact-tokens --study "$STUDY" --engine-url "http://127.0.0.1:$PP_FENCE_PORT" --model "$MODEL" 2>&1) \
+    && rc=0 || rc=$?
+  kill "$pf" 2>/dev/null || true; wait "$pf" 2>/dev/null || true
+  printf '%s\n' "$out" > "$OUT/calibration.txt"
+  [ "$rc" = 0 ] || { printf '%s\n' "$out" | tail -1; return 1; }
+}

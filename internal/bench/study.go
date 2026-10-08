@@ -72,6 +72,12 @@ type Study struct {
 	// for every arm, at least the open-loop ceiling of rate × timeout.
 	SenderPoolSize int
 
+	// FrozenExactTokens maps each prompt length the study sends, in characters, to the engine's own input-token
+	// count for it. gen-trace stamps every row from it and the replay refuses a row that disagrees, so no arm sends
+	// a calibration probe; hack/m5c-matrix.sh checks it against the live engine once per session, after the first
+	// cell's step log is captured, with requests whose IDs every measurement excludes (design page, build item 18).
+	FrozenExactTokens map[int]int
+
 	// MinRepetitions is the fewest repetitions per arm this study's registration permits, or 0 where it
 	// registered none.
 	//
@@ -751,6 +757,8 @@ var studies = map[string]Study{
 		TracesVaryByRepetition: true,
 		// 600, the gateway's own outbound pool, above the pilot's ceiling of 9.75/s × 30 s ≈ 293.
 		SenderPoolSize: 600,
+		// The committed calibration's counts (inputlengths.go): 68 tokens for 200 characters, 7,695 for 40,000.
+		FrozenExactTokens: map[int]int{200: 68, 40000: 7695},
 	},
 	StudyThroughputLadder: {
 		ID:       StudyThroughputLadder,

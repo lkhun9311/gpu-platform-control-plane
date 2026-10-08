@@ -84,6 +84,21 @@ func FixOutputAtCap(rows []TraceRow) error {
 	return nil
 }
 
+// StampFrozenExactTokens sets every row's ExactInputTokens from frozen, keyed by prompt length in characters.
+//
+// A length the table does not carry is refused: a row stamped with zero would read as "not measured", and one
+// stamped with a guess would be the estimate this field exists to replace.
+func StampFrozenExactTokens(rows []TraceRow, frozen map[int]int) error {
+	for i := range rows {
+		n, ok := frozen[rows[i].PromptLenChars]
+		if !ok || n <= 0 {
+			return fmt.Errorf("row %d is a %d-character prompt and no exact token count is frozen for that length", rows[i].Index, rows[i].PromptLenChars)
+		}
+		rows[i].ExactInputTokens = n
+	}
+	return nil
+}
+
 // TenantSpec describes one tenant's share of a trace and the shape of its requests.
 // PromptLenCharsByTenant reports the prompt length each tenant's rows carry, in characters.
 //
