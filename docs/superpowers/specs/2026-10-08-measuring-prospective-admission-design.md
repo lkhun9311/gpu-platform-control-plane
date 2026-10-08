@@ -1,4 +1,4 @@
-# Measuring prospective admission directly (item 3): the design, v12
+# Measuring prospective admission directly (item 3): the design, v13
 
 *Drafted 2026-10-08 for the owner's approval before anything is built. The owner approved paid runs for this direction on 2026-10-08, and asked for the design to be attacked as hard as possible before money is spent. Nothing is bought until a registration built from this design is frozen.*
 
@@ -17,7 +17,8 @@
 | v9 | 192aa03 | astra's review of v8 | 2 blockers, 4 majors, 1 minor |
 | v10 | c397e48 | astra's review of v9 | 2 blockers, 3 majors |
 | v11 | 20172ae | astra's review of v10 | 1 blocker, 2 majors |
-| v12 | this page | astra's review of v11 | 2 blockers, 1 major |
+| v12 | bcbe0d8 | astra's review of v11 | 2 blockers, 1 major |
+| v13 | this page | astra's review of v12 | 2 blockers, 1 major, 3 minors |
 
 **Who established what.**
 - astra read the code and found the defects. Each round was given only the page and the repository, never told where to look.
@@ -109,7 +110,8 @@ Same instance and same trace within a block, with the arm order randomised per b
 
 **The record is used only for:**
 - the arrival instants `sim-cap` replays;
-- the release instants stage A's timing gate reads.
+- the release instants stage A's timing gate reads;
+- the second dispatch-lag reading (see Dispatch fidelity), where a record exists.
 
 **Exact-token stamping is done once, in its own epoch, and its counts are frozen** (round 8, finding 4; round 9, finding 4).
 - At the start of pilot stage A, before any arm, the engine is started and the stamper sends one probe per distinct prompt length directly to the engine's port, never through the gateway.
@@ -151,6 +153,12 @@ Preemption recomputation, if it happens, is counted as processing in the arm whe
 - **c** = exact input tokens of contender requests whose client row shows completion with full engine-reported output / offered exact contender input tokens. This is read from the client row alone, so a lost gateway record cannot change it.
 
 p and q count what the engine processed whether or not the request later completed.
+
+**The window.** p and q count only steps whose start (`t0`, converted to wall time by the plugin's own anchors, as `step_boundary.py:293` already does) is before the arm's **window end**: the latest end instant among its premium requests, from the client rows.
+- Validity protects S's premium tail from inflation by extra contender processing. A step that starts after the last premium request has finished cannot inflate any premium TTFT in that arm.
+- That makes the window the quantity validity needs, and it is the quantity a terminal record written after the replay can prove complete (round 12, finding 2).
+- The harness and the engine run on one host, with one kernel clock, so the comparison needs no cross-host synchronisation.
+- c is not windowed: completion is read from the client rows, whenever it happened.
 
 **Why q too.** Prefill alone does not bound processing (round 9, finding 2). Failed S contenders can decode for 15 tokens each against long contexts while P's fail after one, and that passes p and c with S executing 4,600 more decode tokens.
 
@@ -213,7 +221,7 @@ Stamping after the manifest changes the trace's checksum, and regenerating after
 
 **The order is:**
 1. generate the canonical trace;
-2. stamp exact tokens against the running engine;
+2. stamp exact tokens from the counts frozen in the calibration epoch, never by a live probe in an arm (round 12, finding 6);
 3. derive each arm's trace from the stamped one;
 4. checksum;
 5. write the manifest;
@@ -227,7 +235,11 @@ Stamping after the manifest changes the trace's checksum, and regenerating after
 
 **The rule.**
 - The replay persists its origin instant in the raw file (build item 22).
-- Each request's **dispatch lag** is its send stamp minus (origin + scheduled offset). The rows already carry the offset (`replay.go:44`).
+- Each request's **dispatch lag** is its **written** instant minus (origin + scheduled offset). The rows already carry the offset (`replay.go:44`).
+- The written instant is when the HTTP client finished writing the request to the connection, from Go's `net/http/httptrace` `WroteRequest` hook.
+  - The existing send stamp is taken before prompt construction, encoding and the HTTP write (`replay.go:307`; `httpsender.go:317`, `:346`). A delay inside `Send` would leave it at zero (round 12, finding 1).
+  - A request that never reaches the write (a connection failure) has no written instant, and counts as a lag above 250 ms.
+- **The gateway's arrival instant gives a second reading** in the main study too, where a record exists. On one host clock, it must lie within 250 ms after the written instant.
 - An arm whose p99 dispatch lag exceeds **20 ms**, or whose largest lag exceeds **250 ms**, makes the outcome "invalid". This is a harness failure, not a property of the arm.
 - Each arm's lag distribution is published.
 - The pilot measures it first: stage A refuses at the same limits.
@@ -266,7 +278,9 @@ Stamping after the manifest changes the trace's checksum, and regenerating after
 **Decision: a futility look, then one test.**
 - **At 6 contributing instances:** if the mean of y is at or above ln 1.0, stop with outcome "no demonstrated benefit".
 - **At 12 contributing instances:** benefit if the one-sided 95% t upper bound of mean y is below ln 0.95, and the one-sided 95% t upper bound of mean ln(P/O) is below 0.
-- **Launches exhausted (14) with fewer than 12 contributing:** the test runs on what exists if there are at least 6; with fewer, the outcome is "insufficient".
+- **Launches exhausted (14) with fewer than 12 contributing:** the outcome is "insufficient".
+  - v12 tested 6 to 11 instances here, and round 12 (finding 4) showed that branch unreachable: only Spot interruptions leave a launch uncounted without making the study invalid, and more than two of them already give "insufficient".
+  - So 14 launches with at most two interrupted always yield 12 contributing instances.
 
 **Precedence:** invalid, then stopped, then insufficient, then the decision. So identical evidence gives one verdict.
 
@@ -303,21 +317,21 @@ Recording `StateReason` establishes an interruption's cause, not its independenc
 
 **Every whole-study gate is read after each main instance, and a failure stops further purchase.** So the money an invalid or stopped study costs is bounded by when it is discovered, whatever the survival probability.
 
-At the expected rate, the pilot costs $3.12 and each main instance about $2.15 (durations under Cost):
+At the expected rate, the pilot costs $2.73 and each main instance about $1.88 (durations under Cost):
 
 | Discovered after | Spent, expected |
 |---|---:|
-| the pilot (any pilot gate) | $3.12 |
-| main instance 1 | $5.27 |
-| main instance 3 (the margin stop's last reading) | $9.56 |
-| main instance 6 (the futility look) | $16.01 |
-| main instance 12 | $28.91 |
+| the pilot (any pilot gate) | $2.73 |
+| main instance 1 | $4.61 |
+| main instance 3 (the margin stop's last reading) | $8.36 |
+| main instance 6 (the futility look) | $13.99 |
+| main instance 12 | $25.25 |
 
 **The registration asks the owner to accept this table, not a probability.** It shows what a failure costs at the point where it is found.
 - **It does not say where failures will land.** v8 claimed the stop rules keep common failures near the top rows, and round 8 (finding 6) showed that does not follow.
 - **Round 8's example:** one instance in ten violates the loss gate, and every pilot passes.
   - An invalid study is then found after instance 3 in 62% of the cases where it is found at all.
-  - The expected spend is about $18.54: 3.12 + 7.18 × 2.15, at v12's durations. Round 8 computed $16.20 at the earlier durations.
+  - The expected spend is about $16.20: 2.7296 + 7.18 × 1.8766, as rounds 8 to 11 each re-derived.
 - Sequential reading bounds the cost of a failure by when it appears. It does not make failures appear early.
 
 **Outcomes, named in advance:**
@@ -339,7 +353,7 @@ v5's "benefit that fails safeguards" is gone with the t-bounded safeguards: a sa
 - **release timing:** in P, at least 95% of admitted contenders have 50 ms or less between the gateway's release instant and the first content byte;
 - **restart:** an engine restart between arms reuses host-path weights and takes under 3 minutes;
 - **dispatch fidelity:** every arm within the lag limits;
-- **the capture barrier:** it completes in every arm, measured, so that the 2 minutes per arm assumed under Cost is checked before any main session is sized on it.
+- **capture:** it completes in every arm, with every terminal record after its window end.
 
 The P/O screen reads P against O, never against S.
 
@@ -406,28 +420,28 @@ Today the hook uploads only after a replay and its log capture (`m5c-matrix.sh:3
      - writes a terminal record holding its last written sequence number, that counter, that buffer length and the last step index.
 
      If the buffer is not empty or the counter is ahead of what was written, the terminal record says so, and capture retries for up to 60 s before refusing. The scheduler thread already flushes its buffer whenever the engine is idle (`step_logging_scheduler.py:144`).
-   - **The sentinel alone proves only a completed prefix** (round 11, finding 2). A request whose client timed out can still sit upstream of the scheduler, in the engine's frontend or input queue, and do work after the terminal record. The plugin sees a request only from `add_request`.
-   - **So capture first closes ingress, then proves the engine is quiet,** in this order:
+   - **The sentinel proves a completed prefix, and v13 needs no more than that.** Rounds 11 and 12 showed that no quiet interval proves the engine has finished. A request whose client timed out can sit upstream of the scheduler and do work later, and vLLM's abort is an unacknowledged message (round 12, finding 2). v12 tried to fence that with a gateway scale-down and two snapshots; round 12 showed the fence was not one.
+   - **v13 changes what p and q count instead** (see "The window" under the comparator): only steps that began before the arm's **window end**, the instant its last premium request finished.
+     - Work the engine does after that instant cannot touch any premium TTFT in that arm, so it is irrelevant to what validity protects.
+     - And a terminal record written after the replay returns, which is after the window end, proves every step before the window end was written.
+   - **So capture is short:**
      1. The replay returns.
-     2. **The gateway is scaled to zero.** Its connections to the engine close, so no live client connection remains for any request still upstream. vLLM aborts a request whose connection has closed.
-     3. Capture waits until the engine's own metrics show no running and no waiting requests.
-     4. It writes the sentinel and reads terminal record A.
-     5. It waits 60 s, twice the request timeout, writes the sentinel again, and reads terminal record B.
-     6. **A and B must be identical:** same sequence number, same step index, an empty buffer. Any record written in between means work arrived after the first snapshot, and capture repeats from step 3, up to five times before refusing.
-     7. **Only then** are the engine's iteration log and the step log captured, both after terminal B, so they are judged against the same barrier.
+     2. Capture writes the sentinel and reads the terminal record, retrying for up to 60 s until the buffer is empty.
+     3. It captures the step log, then the engine's iteration log.
 
-     Today the engine log is captured before the step log is waited for (`m5c-matrix.sh:3341`). That order could accept two matching old prefixes, or reject a complete later log.
+     **The gateway is not scaled down,** so its records are not lost to a Pod deletion (round 12, finding 3). Its final records are exported with the arm's evidence before the namespace is deleted, and the export is checked against the sidecar's last upload.
    - Capture reads the file inside the running engine container and archives it before the namespace is deleted.
    - **The arm's step log is complete only if:**
      - the terminal record is present, with an empty buffer and the counter equal to the last written sequence number;
      - the sequence numbers run without a gap from 1 to the terminal's;
      - there is no overflow record;
-     - **the plugin's steps match the engine's own iterations one to one.**
+     - the terminal record's wall time is after the window end;
+     - **the plugin's steps match the engine's own iterations one to one, as far as the plugin's last step.**
 
    **The step match, made exact** (round 10, finding 1). The plugin numbers its steps from 1, incrementing before it records (`step_logging_scheduler.py:122`). vLLM numbers its iterations from 0, as the runner already checks (`m5c-matrix.sh:3004`). So the rule is:
      - plugin step k corresponds to `Iteration(k − 1)`;
-     - the count of plugin steps equals the count of iteration lines;
-     - each step's total scheduled tokens equals that iteration's total, the per-step comparison the existing instrument checker already makes.
+     - the iteration log, captured after the step log, holds at least as many iterations as the plugin has steps. Any extra iterations are post-window work and are not compared;
+     - each plugin step's total scheduled tokens equals its iteration's total, the per-step comparison the existing instrument checker already makes.
 
      v10's rule ("the last step index equals the last iteration") rejected a complete log. On the committed CPU fixture: 70 steps numbered 1 to 70, against 70 iterations numbered 0 to 69.
 
@@ -467,8 +481,10 @@ Today the hook uploads only after a replay and its log capture (`m5c-matrix.sh:3
     - Refuse on a scheduled request with no client match, and on a `calib-` ID inside an arm.
     - Test round 9's reversal example: raw sums put S below P while prefill puts S above, and the analysis must call it "invalid".
     - (Numbered 21 so that references to 20 stay stable.)
-22. **The replay origin persisted, and the dispatch-lag gate.** Tested by a rehearsal whose sender sleeps before dispatch, which must make the outcome "invalid".
-23. **The capture barrier:** gateway scaled to zero, engine metrics quiet, two identical terminal records 60 s apart, then both logs captured.
+22. **The replay origin persisted, the written instant from `httptrace`, and the dispatch-lag gate.** Tested by two rehearsals, each of which must make the outcome "invalid":
+    - one whose replay loop sleeps before dispatch;
+    - one whose `Send` sleeps 300 ms before its HTTP write, which today's stamp would not see.
+23. **The windowed p and q, and the short capture:** sentinel, terminal record, step log, then iteration log, with the gateway's final records exported before teardown.
 20. **Rehearsals on kind with the stub engine:**
     - a whole replay-to-verdict run;
     - c_S > c_P on one instance;
@@ -479,7 +495,8 @@ Today the hook uploads only after a replay and its log capture (`m5c-matrix.sh:3
     - an admitted contender failing after prefill in S, whose processed tokens must count in p_S;
     - a forwarded request refused by the engine's frontend before scheduling, which capture must not wait for;
     - a final batch held back from the writer when the sentinel arrives, which must make the terminal record report it and capture refuse after 60 s;
-    - a request held upstream of the scheduler and released after the first terminal record, which must make A and B differ;
+    - a request held upstream of the scheduler and released after the terminal record, whose work must fall outside the window and must not change p or q;
+    - a step starting just before the window end, which must count;
     - a replay that falls 300 ms behind once, which must be "invalid";
     - three interrupted launches, which must give "insufficient";
     - a complete log, which must pass the step-to-iteration match; the committed CPU fixture is the first test, at 70 steps against iterations 0 to 69;
@@ -500,7 +517,10 @@ The AWS SSO session lasts at most 12 hours from a login.
 - Each session is one instance.
 - The owner logs in immediately before each login's first session.
 - No launch proceeds unless the expiry, established under build item 13, exceeds the session's termination deadline plus 30 minutes.
-- With main deadlines of 4 h 20, each main session needs 4 h 50 of credential, so at most two main sessions fit one login. Twelve main instances need six logins; the pilot needs one more.
+- With main deadlines of 3 h 50, a session launched at hour t needs credentials until t + 4 h 20.
+  - At the expected 2.75 hours each, sessions start at hours 0, 2.75 and 5.5, and the third needs credentials until 9 h 50, inside 12 hours. A fourth, at 8.25, would need 12 h 35, and is refused.
+  - **Whether a third fits is decided at its launch by the remaining expiry, not planned in advance.** v12 said "at most two" by counting the headroom as time used (round 12, finding 5).
+  - Twelve main instances need four to six logins, and the pilot one more.
 
 ## Cost
 
@@ -520,14 +540,14 @@ The AWS SSO session lasts at most 12 hours from a login.
 
 **Deadlines:**
 
-**Session lengths include the capture barrier,** about 2 minutes per arm: the gateway scaled down, the quiet check, and the 60 s between terminal records. That is 18 minutes for pilot A's 9 arms, 16 for pilot B's 8, and 24 for a main session's 12.
+**Session lengths.** v12's capture barrier added about 2 minutes per arm, and v13 removes it. Capture is now a sentinel, a terminal record and two file reads, as the earlier versions' per-block estimate assumed. Stage A measures the real capture time.
 
 | Session | Expected hours | Hard stop | Backstop | `study-deadline` after launch |
 |---|---:|---:|---:|---:|
-| Pilot A, B | about 2.40 and 2.17 | 3 h 00 | 3 h 10 | 3 h 20 |
-| Main, each | about 3.15 | 4 h 00 | 4 h 10 | 4 h 20 |
+| Pilot A, B | about 2.1 and 1.9 | 2 h 30 | 2 h 40 | 2 h 50 |
+| Main, each | about 2.75 | 3 h 30 | 3 h 40 | 3 h 50 |
 
-**The reserved lifetime is the deadline plus 15 minutes:** 215 minutes for a pilot session, 275 for a main one.
+**The reserved lifetime is the deadline plus 15 minutes:** 185 minutes for a pilot session, 245 for a main one.
 - The 15 minutes are the exercise's 12-minute pass limit, measured from the deadline and so already including the wait for a sweep, plus 3 to spare.
 - AWS documents delivery delays and retries for both EventBridge and Lambda, so no interval is a guarantee.
 - The exercise establishes that the sweeper works, not a maximum latency (round 6, finding 8).
@@ -541,7 +561,7 @@ The AWS SSO session lasts at most 12 hours from a login.
 | Public IPv4 | 0.005 |
 | **Total** | **1.1324** |
 
-**The allowance, at the reserved lifetimes:** (2 × 215 + 14 × 275) min = 71.33 h, × $1.1324 = **$80.78**. The pilot alone is **$8.12**.
+**The allowance, at the reserved lifetimes:** (2 × 185 + 14 × 245) min = 63.33 h, × $1.1324 = **$71.72**. The pilot alone is **$6.98**.
 
 **This is an operational allowance, not an enforced ceiling.**
 - It holds if, on every launch, at least one of the three terminators works within its time: the sweeper, the in-instance backstop, or the operator's hard stop.
@@ -554,17 +574,32 @@ The AWS SSO session lasts at most 12 hours from a login.
 - S3 evidence storage.
 
 **Expected,** at about $0.6824 per hour (Spot about $0.65, plus the volume and address):
-- about **$28.91** for 12 instances;
-- about **$16.01** if the futility look stops at 6;
-- about **$3.12** for the pilot alone;
-- plus about **$2.15** for each Spot replacement, which the expected figures exclude.
+- about **$25.25** for 12 instances;
+- about **$13.99** if the futility look stops at 6;
+- about **$2.73** for the pilot alone;
+- plus about **$1.88** for each Spot replacement, which the expected figures exclude.
 
 **The ledger reserves before it records.**
 - Each launch first appends its reserved lifetime × $1.1324 as a reservation.
-- It refuses if the reservations and recorded sessions together would exceed **$85**.
+- It refuses if the reservations and recorded sessions together would exceed **$75**.
 - The ledger limits what the study starts. It cannot stop an instance already running, which is the terminators' job.
 - After the session it records launch and termination times from EC2 and CloudTrail.
 - Billed amounts come from Cost Explorer when it settles, and are published beside the estimate.
+
+## What v13 changed, against the review of v12
+
+| v12 finding | Change |
+|---|---|
+| 1: the send stamp misses delay inside `Send` | lag from the `httptrace` written instant, with the gateway's arrival as a second reading; a rehearsal sleeping inside `Send` |
+| 2: two quiet snapshots are not a fence | **no fence is needed:** p and q count only steps before the window end, after which no work can touch the arm's premium tail, and a terminal record written after the replay proves that window complete |
+| 3: scaling the gateway down loses its last records | the gateway is not scaled down; its final records are exported before teardown |
+| 4: the 6-to-11-instance fallback is unreachable | removed: fewer than 12 contributing instances after 14 launches is "insufficient" |
+| 5: "at most two sessions per login" was wrong | decided at each launch by remaining expiry; up to three fit at expected durations |
+| 6: two stamping instructions contradicted | the order now stamps from the frozen counts |
+
+**Removing the barrier restores v11's durations and cost:** main sessions about 2.75 h, $25.25 expected for 12 instances, a $71.72 allowance, and a $75 ledger ceiling.
+
+Round 12 re-derived the power table and every v12 cost figure, and agreed with each.
 
 ## What v12 changed, against the review of v11
 
