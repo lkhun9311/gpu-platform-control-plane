@@ -736,7 +736,7 @@ The AWS SSO session lasts at most 12 hours from a login.
 | Public IPv4 | 0.005 |
 | **Total** | **1.1324** |
 
-**The allowance, at the reserved lifetimes:** (2 × 185 + 14 × 245) min = 63.33 h, × $1.1324 = **$71.72**. The pilot alone is **$6.98**.
+**The allowance, at the reserved lifetimes:** (2 × 185 + 14 × 245) min = 63.33 h, × $1.1324 = **$71.72**. The pilot alone is **$6.98**, superseded by the measurement pilot's three-block stage B: $8.12 allowance and $3.31 expected (see "The measurement pilot").
 
 **This is an operational allowance, not an enforced ceiling.**
 - It holds if, on every launch, at least one of the three terminators works within its time: the sweeper, the in-instance backstop, or the operator's hard stop.
@@ -805,11 +805,13 @@ Since round 12, every round has been about one question: what the decision may t
 
 **Sessions.** The two stages already designed:
 - **stage A:** one instance, three blocks of I, O and P;
-- **stage B:** one instance, two four-arm blocks, with R fitted on stage A.
+- **stage B:** one instance, **three** four-arm blocks, with R fitted on stage A.
 
-Each is one session in one login, at about 2.1 and 1.9 hours. Expected cost is about $2.73.
+Stage B has three blocks because the main endpoint pools three, and pooling is not linear in the number of blocks (pilot review 3, finding 3). Three blocks, each zero-width alone, can pool to a half-width of 2.30 where two of them pool to 0. Stage B is therefore the size of a main session: about 2.75 hours, under the main session's deadlines.
 
-**$6.98 is an operating allowance, not a maximum** (pilot review 2, finding 5). It is 2 × 185 min at the $1.1324 cap. It holds if, on each session, one of three terminators acts within the reserved lifetime:
+**Cost.** Both stages run as two sessions in one login, about 2.1 and 2.75 hours. Expected cost is about **$3.31**: 4.85 h at $0.6824.
+
+**$8.12 is an operating allowance, not a maximum** (pilot review 2, finding 5). It is (185 + 245) min at the $1.1324 cap. It holds if, on each session, one of three terminators acts within the reserved lifetime:
 - the sweeper;
 - the in-instance backstop;
 - the deadline-bounded hard stop.
@@ -828,7 +830,7 @@ An exercised sweeper shows it works, not how long it takes. If all three fail, s
 | O/I contention, P/O on the crossed bounds | the contention and P/O screens |
 | Contender p, q and c per arm; sim-cap's predicted admission against the observed (stage B) | the margin and the R fit |
 | Release-to-first-content gap per contender; restart and capture times; step-log completeness checks | operational premises |
-| The evidence sidecar's uploads as intervals (start, end, retries, bytes), and the dispatch lag of requests dispatched during each | pilot review, findings 3 and 6. An upload lasting 20 s can disturb a dispatch in its middle, which a window around its instants would miss |
+| The evidence sidecar's uploads as intervals (start, end, retries, bytes), and the dispatch lag of every request whose **scheduled instant, or whose scheduled-to-arrival interval,** overlaps an upload | pilot review, findings 3 and 6, and review 3, finding 4. Classifying by actual dispatch would drop exactly the requests an upload held back past its end |
 
 **v1 of this scope dropped the client's "written" stamp** (pilot review, finding 4). Nothing implements it, and the decision no longer uses it.
 
@@ -848,12 +850,26 @@ Blindness was meant to prevent one harm: a designer who has seen the P/S effect 
 - the futility look;
 - the decision procedure.
 
-**What the next design round may change:** only measurement rules, each justified in writing by a named pilot measurement:
-- the lag thresholds;
-- the uncertainty cap;
-- the width screens;
-- durations;
-- operational limits.
+**What the next design round may change, and how: by formulas fixed now.** v2 of this scope allowed measurement rules to change "justified by a named measurement". Pilot review 3 (finding 2) showed that still permits tuning after seeing the effect: moving L from 5 to 15 ms alone moved a decisive bound from 0 to −0.22. So each rule is set now, by a formula that reads only harness-side timing, never a TTFT:
+- **L** (the trusted lag limit) = max(5 ms, 2 × the largest per-arm pooled p99.9 dispatch lag over both stages), rounded up to whole milliseconds;
+- **the lag ceiling** = max(50 ms, 2 × the largest dispatch lag observed in either stage);
+- **the uncertainty cap** stays 0.1%. If any arm's uncertain fraction at the new L exceeds 0.05% in the pilot, the design returns to review instead;
+- **the width screen** stays at a half-width of 0.043, fixed;
+- **durations and deadlines** = the measured session and arm times plus 25%.
+
+**Any change outside these formulas is a new design.** It is registered, attacked again, and states in its own page that its author had seen stage B.
+
+**The execution contract: in the pilot, no gate stops acquisition except those that make its measurements meaningless** (pilot review 3, finding 1). The build items it reuses (4, 22, 25) carry the main study's gates, which turn violations into "invalid". In the pilot those gates are **evaluated and reported, never acted on**: each is reported as "would have fired" or "would not".
+
+**What does stop the pilot** is anything that makes the apparatus different from the one registered:
+- the engine-arguments validator;
+- the image digest;
+- a missing exact-token stamp;
+- a premium request reaching the scheduler at any priority but 0;
+- the credential check;
+- the deadline.
+
+A step log that fails its completeness check annotates that arm's processed-work figures as unusable, and does not stop the next arm.
 
 **Separation:**
 - Stage B's data never enter the main analysis.
@@ -866,7 +882,12 @@ Blindness was meant to prevent one harm: a designer who has seen the P/S effect 
 - **a hard stop that is a deadline, not a count** (pilot review, finding 2; review 2, finding 4):
   - every AWS call in the wait is run under `timeout` with the time remaining;
   - the loop checks a wall-clock deadline, not a count of attempts;
-  - **on reaching the deadline, the runner terminates the instance first,** and only then downloads evidence.
+  - **on reaching the deadline, the runner terminates the instance first,** and only then downloads evidence;
+  - **the deadline stays active after the marker arrives** (pilot review 3, finding 5):
+    - the marker download and the termination call each run under `timeout` with the time remaining;
+    - the instance is terminated before any evidence download, whether the marker came or not.
+
+    Today a marker arriving just before the deadline leads to downloads before cleanup's termination (`m5c-gpu-session.sh:1488`, `:1497`), and the termination call has no outer timeout (`spot-run.sh:203`).
 
   Today `spot_wait_for_marker` counts attempts at 30 s plus two API calls each (`spot-run.sh:374`), so a 150-minute setting can run to about 250 minutes. Its caller also downloads before terminating (`m5c-gpu-session.sh:1482`, `:1497`, `:1335`).
 - **synthetic step-log support in the stub engine** (review 2, finding 3). For each request it emits plugin-format `add` and `sched` records with request IDs, anchors and sequence numbers, and on the sentinel a terminal record. So the kind rehearsal exercises items 6 and 21 rather than refusing or bypassing them. The CPU run with real vLLM remains the check on vLLM's own behaviour.
