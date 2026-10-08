@@ -1010,6 +1010,8 @@ A step log that fails its completeness check does not stop the next arm. It make
 - The rehearsal's two injected ineligible arms: stage A's `off-2` with its step log stopped mid-cell by the stub, and stage B's `R1-3` with one request's gateway record deleted. The report must mark exactly those two ineligible, for those reasons.
 - The CPU run with real vLLM v0.27.1 (`hack/vllm-plugins/validate-pilot-on-cpu.sh`) passed: terminal record, ID join, scheduler-side priority, alignment through the fence, and every request's prefill equal to its prompt and its decode to its output less one, including 1,230-token prompts chunked under the 512 budget. Evidence: `data/2026-10-08-pilot-cpu-validation/`.
 
+**The pilot's seeds, frozen before its first purchase:** stage A's blocks 1 to 3 replay seeds 801, 802 and 803; stage B's, 811, 812 and 813. They are distinct from the kind rehearsal's (301 to 313) and the matrix default (11), and the main study's list must not reuse them.
+
 **Still before purchase, each the owner's step:** an SSO login to gpu-lab; `terraform apply` of the bootstrap stack there; the sweeper exercise passing.
 
 ## What v21 changed, against the review of v20
