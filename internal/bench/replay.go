@@ -51,6 +51,17 @@ type RawRow struct {
 	FirstTokenUnixNanos int64 `json:"firstTokenUnixNanos,omitempty"`
 	// EndUnixNanos is when the response finished; zero if the request never completed.
 	EndUnixNanos int64 `json:"endUnixNanos,omitempty"`
+	// ReplayOriginUnixNanos is the instant the replay's schedule is offset from, so the dispatch lag of this row
+	// (the gateway's arrival minus origin plus ScheduledOffsetMs) can be computed after the run.
+	//
+	// ReturnedUnixNanos is when the sender returned, on EVERY outcome: a timeout, a transport error and a
+	// refusal included. EndUnixNanos stays zero for those, because the report reads it as "completed"; the
+	// pilot's processing window needs an end for all of them, or a final premium timeout would end the window
+	// 30 s early (design page, "The window").
+	//
+	// Both are written only for a study that records replay timing, so every other study's rows keep their bytes.
+	ReplayOriginUnixNanos int64 `json:"replayOriginUnixNanos,omitempty"`
+	ReturnedUnixNanos     int64 `json:"returnedUnixNanos,omitempty"`
 	// PromptLenChars is the prompt size in characters this request was generated at.
 	//
 	// It is on the ROW for the reason Study gives below: the report, the gates and the published documents
@@ -265,6 +276,8 @@ type ReplayOptions struct {
 	MatchTolerance float64
 	// EstInputTokens estimates a prompt's input tokens the same way the gateway does, so admitted-work can be measured; when nil, a default ceiling-of-chars/4 estimate is used.
 	EstInputTokens func(promptLenChars int) int
+	// RecordTiming stamps ReplayOriginUnixNanos and ReturnedUnixNanos on every row.
+	RecordTiming bool
 	// clock and sleepUntil are injected only by tests; production uses the wall clock.
 	clock      func() time.Time
 	sleepUntil func(ctx context.Context, t time.Time)
@@ -306,35 +319,41 @@ func Replay(ctx context.Context, sender Sender, trace []TraceRow, opts ReplayOpt
 			defer wg.Done()
 			sendNanos := clock().UnixNano()
 			res := sender.Send(ctx, tr, sendNanos)
+			var origin, returned int64
+			if opts.RecordTiming {
+				origin, returned = start.UnixNano(), clock().UnixNano()
+			}
 			rows[i] = RawRow{
-				Index:               tr.Index,
-				Study:               opts.Study,
-				Arm:                 opts.Arm,
-				Priority:            priorityFor(opts.Priorities, tr.Tenant),
-				RequestID:           RequestIDFor(opts.RequestIDPrefix, tr.Index),
-				Tenant:              tr.Tenant,
-				IsNoisy:             tr.IsNoisy,
-				ScheduledOffsetMs:   tr.OffsetMs,
-				SendUnixNanos:       sendNanos,
-				FirstTokenUnixNanos: res.FirstTokenUnixNanos,
-				EndUnixNanos:        res.EndUnixNanos,
-				PromptLenChars:      tr.PromptLenChars,
-				EstInputTokens:      estInput(tr.PromptLenChars),
-				ExactInputTokens:    tr.ExactInputTokens,
-				EngineInputTokens:   res.PromptTokens,
-				EngineOutputTokens:  res.EngineOutputTokens,
-				FinishReason:        res.FinishReason,
-				BackendState:        res.BackendState,
-				OutputTokens:        res.OutputTokens,
-				HTTPStatus:          res.HTTPStatus,
-				ErrorKind:           res.ErrorKind,
-				StreamTerminated:    res.StreamTerminated,
-				StreamError:         res.StreamError,
-				Tier:                res.Tier,
-				AdmissionReason:     res.AdmissionReason,
-				TraceChecksum:       opts.TraceChecksum,
-				LongThreshold:       opts.LongThreshold,
-				MatchTolerance:      opts.MatchTolerance,
+				ReplayOriginUnixNanos: origin,
+				ReturnedUnixNanos:     returned,
+				Index:                 tr.Index,
+				Study:                 opts.Study,
+				Arm:                   opts.Arm,
+				Priority:              priorityFor(opts.Priorities, tr.Tenant),
+				RequestID:             RequestIDFor(opts.RequestIDPrefix, tr.Index),
+				Tenant:                tr.Tenant,
+				IsNoisy:               tr.IsNoisy,
+				ScheduledOffsetMs:     tr.OffsetMs,
+				SendUnixNanos:         sendNanos,
+				FirstTokenUnixNanos:   res.FirstTokenUnixNanos,
+				EndUnixNanos:          res.EndUnixNanos,
+				PromptLenChars:        tr.PromptLenChars,
+				EstInputTokens:        estInput(tr.PromptLenChars),
+				ExactInputTokens:      tr.ExactInputTokens,
+				EngineInputTokens:     res.PromptTokens,
+				EngineOutputTokens:    res.EngineOutputTokens,
+				FinishReason:          res.FinishReason,
+				BackendState:          res.BackendState,
+				OutputTokens:          res.OutputTokens,
+				HTTPStatus:            res.HTTPStatus,
+				ErrorKind:             res.ErrorKind,
+				StreamTerminated:      res.StreamTerminated,
+				StreamError:           res.StreamError,
+				Tier:                  res.Tier,
+				AdmissionReason:       res.AdmissionReason,
+				TraceChecksum:         opts.TraceChecksum,
+				LongThreshold:         opts.LongThreshold,
+				MatchTolerance:        opts.MatchTolerance,
 			}
 		}(i, tr)
 	}

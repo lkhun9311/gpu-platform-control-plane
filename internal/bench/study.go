@@ -58,6 +58,11 @@ type Study struct {
 	// cannot be generated without it.
 	FixesOutputAtCap bool
 
+	// RecordsReplayTiming makes the replay stamp its origin and each request's return on every row, and refuse
+	// to run without a request-ID prefix: the pilot joins its rows to the gateway's record by ID, and computes
+	// dispatch lag and the processing window from these stamps.
+	RecordsReplayTiming bool
+
 	// MinRepetitions is the fewest repetitions per arm this study's registration permits, or 0 where it
 	// registered none.
 	//
@@ -730,8 +735,9 @@ var studies = map[string]Study{
 		},
 		// Three blocks per stage, as the scope fixes: the main endpoint pools three, and pooling is not linear in
 		// the number of blocks. No interval is published, since the pilot judges nothing.
-		MinRepetitions:   3,
-		FixesOutputAtCap: true,
+		MinRepetitions:      3,
+		FixesOutputAtCap:    true,
+		RecordsReplayTiming: true,
 	},
 	StudyThroughputLadder: {
 		ID:       StudyThroughputLadder,

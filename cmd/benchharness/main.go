@@ -687,6 +687,15 @@ func replay(args []string) error {
 	if err != nil {
 		return fmt.Errorf("manifest matchTolerance %q is not a number: %w", m.MatchTolerance, err)
 	}
+	recordTiming := false
+	if st, ok := bench.LookupStudy(m.Study); ok && st.RecordsReplayTiming {
+		// Refused before the first request: rows without IDs cannot be joined to the gateway's record, and the
+		// pilot's every timing measurement is that join.
+		if *requestIDPrefix == "" {
+			return fmt.Errorf("study %s joins its rows to the gateway's record by request ID, and no --request-id-prefix was given", st.ID)
+		}
+		recordTiming = true
+	}
 	raw := bench.Replay(context.Background(), sender, rows, bench.ReplayOptions{
 		Study:           m.Study,
 		Arm:             m.Arm,
@@ -695,6 +704,7 @@ func replay(args []string) error {
 		TraceChecksum:   m.TraceChecksum,
 		LongThreshold:   m.LongThreshold,
 		MatchTolerance:  tol,
+		RecordTiming:    recordTiming,
 	})
 
 	f, err := os.Create(*rawOut)
