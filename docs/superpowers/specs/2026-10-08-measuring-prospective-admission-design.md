@@ -1,37 +1,33 @@
-# Measuring prospective admission directly (item 3): the design, v3
+# Measuring prospective admission directly (item 3): the design, v4
 
 *Drafted 2026-10-08 for the owner's approval before anything is built. The owner approved paid runs for this direction on 2026-10-08, and asked for the design to be attacked as hard as possible before money is spent. Nothing is bought until a registration built from this design is frozen.*
 
 ## History of this page
 
-- **v1** (dcc58b0): proposed by codex `gpt-6-astra` (independent design), amended by me.
-- **v2** (8154cbe): answered astra's first adversarial review (4 blockers, 10 majors).
-- **v3** (this page): answers astra's second review of v2 (5 blockers, 11 majors), every code claim of which I re-read and found to hold. Two of its findings I had reached independently before it returned:
-  - contender input is 75.9% of all tokens, so v2's aggregate gate at 0.95 allowed P to shed at most 6.6% of contender work;
-  - two pilot instances give one degree of freedom for the between-instance variance.
+| Version | Commit | Answered | Review findings |
+|---|---|---|---|
+| v1 | dcc58b0 | proposed by codex `gpt-6-astra`, amended by me | — |
+| v2 | 8154cbe | astra's review of v1 | 4 blockers, 10 majors |
+| v3 | 29ed20b | astra's review of v2 | 5 blockers, 11 majors |
+| v4 | this page | astra's review of v3 | 4 blockers, 6 majors, 1 minor |
 
-**What the two rounds established, and by whom.**
-- astra read the code and found the defects.
-- I re-derived the arithmetic and re-read every cited line:
-  - `cmd/benchharness/simcap.go:74` uses scheduled offsets;
-  - `internal/bench/report.go:594` drops premium timeouts;
-  - `internal/bench/estimand.go:309` resamples blocks;
-  - `hack/lib/instrument-validation.sh` checks only the revision among the frozen engine settings;
-  - `hack/m5c-matrix.sh:3032` waits for the last offered request;
-  - `hack/m5c-gpu-session.sh` trusts every cache entry when sts names no role;
-  - `config/vllm/deployment.yaml` mounts the model cache as `emptyDir` with budget 2,048.
-- astra also reported running the process-arguments validator with `fcfs` and budget 2,048 and getting success. I did not rerun it, but I read that the validator has no check for either key.
+**Who established what.**
+- astra read the code and found the defects. Each round was given only the page and the repository, never told where to look.
+- I re-read every line it cited before accepting a finding, and re-derived every figure on this page.
+- The power figures below are mine, by simulation. astra has not checked them, and the next round is asked to.
+
+**What v3 said wrongly about the existing validator.** It said `hack/lib/instrument-validation.sh` checks only the revision. In fact it also checks synchronous scheduling, the scheduler class and iteration logging. What it does not check is the scheduling policy and the batch budget (round 3, finding 11).
 
 ## The question
 
-> Does **prospective** admission protect the premium TTFT tail better than pressure-blind shedding **that rejects the same contender work**, on an engine whose priority is bound to the tenant's tier and whose batch budget is fixed in advance?
+> Does **prospective** admission protect the premium TTFT tail better than pressure-blind shedding **that rejects at least as much contender work**, on an engine whose priority is bound to the tenant's tier and whose batch budget is fixed in advance?
 
 **The claim is narrow:**
-- relative TTFT-tail protection against a matched static control;
+- relative TTFT-tail protection against a static control that deletes at least as much;
 - for clients that do not retry;
-- on vLLM with synchronous scheduling (see Engine).
+- on vLLM with synchronous scheduling.
 
-Premium TPOT and P/I are published beside it, so poor absolute service cannot hide behind a relative win.
+Premium TPOT and P/I are published beside it.
 
 ## Arms
 
@@ -41,10 +37,10 @@ Same instance and same trace within a block, with the arm order randomised per b
 |---|---|---|
 | I, isolation | off; premium requests only | premium-only reference, published, not gated |
 | O, unshed | off | proof the contention exists; P/O is a secondary endpoint |
-| S, static | `static-cap`, long threshold 1, burst 30,000 estimated units, rate R | pressure-blind shedding, matched to P |
+| S, static | `static-cap`, long threshold 1, burst 30,000 estimated units, rate R | pressure-blind shedding that deletes at least as much as P |
 | P, prospective | `prospective`, 30,000 estimated units (about 23,000 exact tokens, three contenders) and 4 streams | the arm under test |
 
-**Gateway, every arm:** `--bind-priority --enforce-benchmark-profile`, and the harness sends no priority.
+**Gateway, every arm:** `--bind-priority --enforce-benchmark-profile`, and the harness sends no priority. The benchmark profile is extended to accept `min_tokens` equal to `max_tokens` and nothing else (build item 2). Today it rejects the field with a 422 before admission (round 3, finding 1).
 
 ## Engine, every arm, proved rather than asserted
 
@@ -56,34 +52,38 @@ Same instance and same trace within a block, with the arm order randomised per b
 - The image pinned by digest.
 - The step-logging scheduler plugin, with `--no-async-scheduling`.
 
-**Synchronous scheduling is part of the apparatus, in every arm.** The plugin subclasses the synchronous scheduler, so it cannot run under async scheduling. Every arm shares the setting. Whether vLLM v0.27.1 would choose async for this model by default is not established here, so the claim says synchronous.
+**Synchronous scheduling is part of the apparatus.** The plugin subclasses the synchronous scheduler, every arm shares the setting, and the claim says synchronous.
 
 **Proof, read at every engine start:**
-- The engine's non-default-arguments line shows the policy, the budget, the revision and the async setting. The existing validator checks only the revision, so it is extended (build item 4).
+- The non-default-arguments line is validated. The existing validator already checks the revision, synchronous scheduling, the scheduler class and logging. It gains the policy and the budget (build item 5), mutation-tested with `fcfs` and with 2,048.
 - The plugin records the priority each request reached the scheduler with. Every premium request must show 0 and every standard one 1.
 
-## Matching S to P
+## The comparator deletes at least as much as P
 
-**The quantity is the rejected fraction, compared absolutely.** v2 compared admitted fractions relatively. Under that rule, P rejecting 5% and S 0.5% still passed: 4.7% relative. So v3 matches on the rejected fraction instead:
-- r = refused exact standard input tokens / offered exact standard input tokens, pooled over the requests concerned;
-- standard requests are identified by tenant;
-- a row with no tier refuses the run rather than counting as standard;
-- "refused" means the gateway answered with an admission refusal;
-- a request the gateway forwarded is admitted, even if it later timed out.
+v3 let P reject one percentage point more than S, and round 3 showed two problems with that:
+- **Finding 6:** extra deletion alone can move a p99. If 1.2% of premium requests are slow under S and 0.9% under P, the p99 falls from the slow value to the fast one.
+- **Finding 7:** at r_S = 0.81 and r_P = 0.82, the contender safeguards are 18/19 = 0.947, below their 0.95 margin at any sample size.
 
-**Fitting R happens in pilot stage A, which has no S arm** (see Pilot).
-- `sim-cap` replays stage A's three P traces at each request's **recorded gateway arrival time**. Recording that time and teaching `sim-cap` to read it is build item 3.
-- It uses threshold 1, burst 30,000, and the premium tenants named explicitly.
-- R is the integer in 1…20,000 minimising |r_S − r_P|, ties to the lower R.
-- R is committed before stage B begins.
+**v4 removes the allowance in P's favour. Validity requires S to reject at least as much contender work as P,** so extra deletion can only help the control.
 
-**Validity, read on every set of blocks** (stage B, after the first main session, and at the end), pooled:
-- r_P − r_S ≤ **0.01**, so P may reject at most one percentage point more contender work than S;
-- |r_P − r_S| ≤ 0.02.
+- **r** = refused exact standard input tokens / offered exact standard input tokens, pooled.
+  - Standard requests are identified by tenant.
+  - A row with no tier refuses the run.
+  - "Refused" means the gateway answered with an admission refusal.
+- **Valid:** r_S ≥ r_P, pooled over all main blocks. Also checked after the first look (see Decision). A failure there stops the purchase, and the outcome is "invalid".
+- **Informative:** r_S − r_P ≤ 0.03, so the control is not crippled. Above it, the outcome is still judged, but published as "against a control that deleted N points more".
+- **Engagement bound:** P refuses at least 5% and at most 30% of contender requests in pilot stage A.
 
-If either fails in stage B, nothing is bought: the design returns to review, and R is never re-tuned on main data. If either fails after the first main session, no further session is bought, and the study's outcome is "invalid".
+**Under validity, the safeguards' true values are at least 1** whenever admitted work completes: (1 − r_P)/(1 − r_S) ≥ 1. That answers finding 7 rather than tuning around it.
 
-**Deliberately no confidence interval for r.** Admission outcomes share reservations and streams, so they are not independent trials, and a binomial interval would have unknown coverage (review finding 16). The gate is a pre-registered point rule on pooled counts, and the counts are published.
+**Fitting R, in pilot stage A, which has no S arm:**
+- `sim-cap` replays stage A's three P traces at each request's **recorded gateway arrival time** (build item 4).
+- It uses threshold 1, burst 30,000 and the premium tenants named explicitly.
+- R is the largest integer in 1…20,000 with r_S ≥ r_P + 0.01 on every one of the three traces. The margin absorbs the difference between simulation and reality.
+- If no such R gives r_S − r_P ≤ 0.03 on the pooled traces, the design returns to review.
+- R is committed before stage B.
+
+**No interval is computed for r.** Admission outcomes share reservations and streams, so they are not independent trials. The rule is a point rule on pooled counts, and the counts are published.
 
 ## Load
 
@@ -100,53 +100,58 @@ Frozen, independent Poisson arrivals:
 - no retries;
 - about 3,885 premium and 210 contender requests.
 
-**Output is fixed, so it cannot be deleted silently.** `MinOutputTokens` equals the cap for both tenants, and the field already exists. A clean completion therefore has exactly its cap in engine-reported output tokens. Any shorter completion is counted as a failure, not a completion.
+**Output is fixed by `min_tokens` equal to the cap.**
+- The Poisson generator populates it (build item 3); today it does not.
+- A completion with fewer engine-reported output tokens than its cap is a failure, not a completion.
 
-v2's aggregate-token safeguard let premium output fall by 37.5% and still pass (review finding 7). Fixed output removes that freedom instead of trying to detect it.
+## Endpoints and decision: one ratio per instance
 
-## Endpoints, decision and power
+v3's request-level bootstrap over instances had two defects:
+- with 8 to 12 instances it gives an interval of unknown coverage;
+- one heavy-loss instance drawn twice makes ∞/∞, which happens in 26% of resamples in round 3's finding 3 example.
 
-**Censoring, with no request or repetition dropped.**
-- In the summary, a premium request that timed out, failed, or completed short counts at +∞ in its arm's pooled TTFT p99, even if its first content arrived.
-- So selective loss can only make an arm look worse.
-- No repetition is removed for loss: a dropped repetition would be selection by outcome.
-- If any arm's pooled premium loss reaches 1%, the study's outcome is "invalid".
+v3's power simulation also could not be built from the pilot it described (findings 2 and 5). So v4 analyses each instance as one unit.
 
-The existing summary drops timeouts (`report.go:594`), so this is build item 5.
+**Per instance and arm:**
+- The pooled premium TTFT p99 over that instance's completed blocks, with every premium failure (timeout, error, short completion, or unserved because a block ended early) at +∞.
+- About 11,600 premium requests per arm over three blocks, so each instance's p99 rests on about 116 requests above it.
 
-**Primary: P/S**, the ratio of pooled premium TTFT p99. Success requires its one-sided 95% upper bound below **0.95**.
+**Loss.** If any arm on any contributing instance has 1% or more premium loss, the study's outcome is **invalid**.
+- The rule is whole-study, so no instance is dropped by outcome.
+- It also guarantees every per-instance p99 is finite.
 
-**Secondary, also required:** P/O's upper bound below 1.0.
+**Per instance:** y_i = ln(p99_P / p99_S); likewise ln(p99_P / p99_O) and the safeguards' log ratios.
 
-**Safeguards, P against S,** each a one-sided 95% lower bound, and each true at about 1.0 when the match holds:
-- contender completed exact input tokens, P/S ≥ 0.95;
-- contender completed requests, P/S ≥ 0.95;
-- premium completed requests, P/S ≥ 0.99.
+**Decision: two looks, a one-sided t-interval across instances.**
+- **Look 1, at 6 contributing instances.**
+  - Benefit if the upper 99% bound of mean y is below ln 0.95.
+  - Futility if the mean of y is at or above ln 1.0 (P/S ≥ 1): stop, with outcome "no demonstrated benefit".
+  - Otherwise continue.
+- **Look 2, at 12 contributing instances, or when launches are exhausted.** Benefit if the upper 96% bound of mean y is below ln 0.95.
 
-**Why S and not O.** v2 compared against O, which forbade the shedding both arms are built to do. As review finding 1 showed, that made 80% joint power impossible at any size, since a safeguard whose true value is 0.90 cannot clear a 0.95 bound. Deletion relative to O is published, not gated, because it is the treatment's own definition.
+The two levels sum to 0.05, so the overall error is at most 5% by the union bound. In simulation at a true P/S of 0.95 it was 4.4% to 4.7%, for σ from 0.05 to 0.30.
 
-**Interval.**
-- The bootstrap resamples **instances**, with blocks nested inside.
-- It recomputes each arm's pooled request-level p99 on every replicate, never a function of block ratios: per-block ratios do not determine the pooled ratio (review finding 3's counter-example).
-- It is build item 6; `estimand.go` today resamples blocks.
+**"Benefit" also requires, at the same look and level:**
+- P/O's upper bound below ln 1.0;
+- each safeguard, P against S, with its lower bound above ln 0.95:
+  - contender completed exact input tokens;
+  - contender completed requests;
+  - premium completed requests.
 
-**Sizing the main purchase, by an executable rule:**
-1. **Between-instance SD.** σ_b is the larger of:
-   - the pilot's estimate, which has one degree of freedom;
-   - the between-instance SD of the premium TTFT p99 log-ratio in the archived multi-instance M5 sessions, each source named in the registration.
+**Power of the primary,** at a true P/S of 0.80. σ is the SD of y across instances, between- and within-instance together. My simulation (20,000 studies per row):
 
-   If no archived session qualifies, σ_b is twice the pilot's estimate. Whether one qualifies is not yet checked. Using the pilot alone would size the purchase on one contrast.
-2. **Synthetic studies.** For each of 2,000, build each simulated instance i with u_i ~ N(0, σ_b), and each of its three blocks as follows:
-   - draw pilot stage-B blocks k and k′ independently;
-   - S is block k's S request rows;
-   - O is block k's O request rows;
-   - P is block k′'s S request rows, with every TTFT multiplied by 0.80 · exp(u_i).
+| σ | Benefit at look 1 | Benefit overall |
+|---:|---:|---:|
+| 0.10 | 76% | 100% |
+| 0.15 | 39% | 97% |
+| 0.20 | 23% | 85% |
+| 0.30 | 10% | 54% |
 
-   The work safeguards are drawn from the stage-B blocks' own P and S completion counts. Every synthetic study is then judged by the registered estimator and rules.
-3. **Power** is the fraction of synthetic studies that reach "benefit" (the joint verdict).
-   - Buy the smallest number of instances, at least 8, with power at least 80%.
-   - Report power at 2σ_b beside it.
-   - If more than 12 instances are needed, do not buy, and report the study as unaffordable.
+**The purchase does not depend on estimating σ beforehand.**
+- The t-interval reads σ from the instances themselves, which the pilot could not do (finding 2).
+- The registration publishes this table. The owner accepts it as the risk: at σ = 0.30, half the time the study ends without a verdict.
+- The safeguards and P/O enter the joint verdict, and the table is for the primary alone.
+- Under validity the safeguards' true values are at least 1, so they cost little power. P/O's cost depends on the true P/O, which only stage A will suggest.
 
 **Outcomes, named in advance:**
 - invalid;
@@ -154,109 +159,115 @@ The existing summary drops timeouts (`report.go:594`), so this is build item 5.
 - benefit that fails safeguards;
 - no demonstrated benefit.
 
-## Pilot, in two stages, neither included in the main analysis
+## Pilot, in two stages, neither in the main analysis
 
-**Stage A: one instance, three blocks of I, O and P** (randomised order, no S, since R does not yet exist). It establishes:
+**Stage A: one instance, three blocks of I, O and P** (randomised order). It establishes:
 - **contention:** O's pooled premium TTFT p99 ≥ 1.5 × I's;
 - **no overload:** O completes ≥ 99% of premium and ≥ 95% of contender requests;
-- **engagement:** P refuses at least 5% of contender requests;
-- **release timing:** in P, at least 95% of admitted contenders have a gap of 50 ms or less between the gateway's release instant and the first content byte;
+- **engagement:** P refuses 5% to 30% of contender requests;
+- **release timing:** in P, at least 95% of admitted contenders have 50 ms or less between the gateway's release instant (build item 6) and the first content byte;
 - **restart:** an engine restart between arms reuses host-path weights and takes under 3 minutes.
 
-Recording the release instant is build item 7. The existing first-byte stamp includes the headers, and the release callback records no time. The release timing must hold per contender, not as a pooled median: v2's pooled median could pass with every contender violating it, since contenders are 5% of requests. Stage A then fits R.
+Then it fits R.
 
-**Stage B: a second instance, two full four-arm blocks** with R frozen. It establishes:
-- the match validity rule;
-- the request rows the power simulation resamples;
-- a second instance for σ_b.
+**Stage B: one instance, two full four-arm blocks with R frozen.** It establishes:
+- validity, r_S ≥ r_P, on fresh traces;
+- the whole four-arm cycle at full duration on the GPU.
 
-**Every gate in both stages refuses the main purchase if unmet. None reads P against S's tail.**
+**Every gate refuses the main purchase if unmet. None reads P against S's tail.**
+
+## Evidence that survives an early end
+
+**Raw rows are written incrementally,** one durable line per finished or failed request (build item 8). Today `cmd/benchharness` writes the file only after the whole replay returns, and a cancellation drops unsent rows (round 3, finding 8).
+
+**Reconstruction against the frozen block plan.** Every planned request either has a row or is counted as a failure. An arm with no raw file at all counts every one of its premium requests as lost.
+
+**Spot interruptions are evidenced, not inferred.** Today the runner reads only an S3 marker and the EC2 state, and `terminated` looks the same whatever caused it (finding 9). Build item 9 records them:
+- the instance polls the metadata service's `spot/instance-action` and uploads a notice marker;
+- the runner records the instance's `StateReason`.
+
+A block cut short by an evidenced Spot interruption is dropped whole. Anything else ending a block early drops nothing: reconstruction applies.
+
+**Counting instances (finding 10):**
+- An instance **contributes** if it completed at least one block.
+- Looks count contributing instances, not launches.
+- Main launches are capped at **14** in total, replacements included.
+- If 14 launches yield fewer than 12 contributing instances, look 2 uses what exists, and the publication states the reduced count.
 
 ## What must be built before any purchase
 
-1. **A new study, `prospective-admission`,** with its arms, a frozen manifest and readings. Today M5-b's study permits `kv-aware`, not `prospective` (`study.go:529`), and unknown studies are refused.
-2. **The matrix deploys admission per arm.** Today it deploys admission off (`m5c-matrix.sh:2187`).
-3. **The gateway records each request's arrival instant,** the raw rows carry it, and `sim-cap` replays it.
-4. **The process-arguments validator checks the policy, the budget and the async setting for this study,** and is mutation-tested with `fcfs` and budget 2,048.
-5. **A censoring-aware summary,** as above, beside the existing one, which stays for the studies it has already judged.
-6. **The instance-clustered pooled bootstrap,** tested with review finding 3's counter-example.
-7. **The gateway records the release instant per request.**
-8. **Step-log capture waits for the last forwarded request,** not the last offered one. Today a correctly refused final contender would make capture refuse a good arm (`m5c-matrix.sh:3032`).
-9. **The plugin records the scheduler-side priority.**
-10. **The model cache moves to a host path,** for this study's engine, in place of `emptyDir`.
-11. **The credential check refuses when:**
+1. **A new study, `prospective-admission`,** with its arms, a frozen manifest and readings. M5-b's study permits `kv-aware`, not `prospective` (`study.go:529`).
+2. **The benchmark profile accepts `min_tokens` only when equal to `max_tokens`,** with a test that any other value is still refused.
+3. **The Poisson generator populates `MinOutputTokens`.**
+4. **The gateway records each request's arrival instant,** the raw rows carry it, and `sim-cap` replays it. Today it replays scheduled offsets (`simcap.go:74`).
+5. **The validator checks the policy and the budget,** mutation-tested.
+6. **The gateway records each request's release instant.**
+7. **The matrix deploys admission per arm** (today it deploys admission off, `m5c-matrix.sh:2187`), and step-log capture waits for the last **forwarded** request (`m5c-matrix.sh:3032`).
+8. **Incremental raw rows, and reconstruction against the block plan.**
+9. **The Spot interruption recorder.**
+10. **The plugin records the scheduler-side priority.**
+11. **The model cache on a host path** for this study's engine, in place of `emptyDir`.
+12. **The credential check refuses when:**
     - it cannot establish an expiry;
     - sts cannot name the active role;
-    - a cache entry carries only an account, rather than the exact role path.
-
-    Today the first two warn and proceed, and the third borrows another role's expiry.
-12. **A study-wide spend ledger** that each launch reads, described under Cost.
-13. **The power simulation,** running the registered estimator end to end.
-14. **Rehearsals on kind with the stub engine:**
+    - a cache entry carries only an account rather than the exact role path.
+13. **The per-instance censored p99, the two-look t decision and the joint verdict,** tested on hand-built evidence that includes a censored instance and a loss at exactly 1%.
+14. **The reserving spend ledger** (see Cost).
+15. **Rehearsals on kind with the stub engine:**
     - a whole replay-to-verdict run;
-    - a deliberate r mismatch;
+    - r_S < r_P;
     - a missing tier;
     - a censored tail;
     - a short completion;
     - a refused final contender;
+    - the harness killed mid-replay;
     - an interrupted upload;
-    - a full-duration arm cycle with engine restart and log capture.
-
-## Interruptions
-
-**A Spot interruption** is evidenced by the interruption notice the runner records.
-- The interrupted block is dropped whole.
-- The instance keeps its completed blocks, and an instance with fewer than three still counts as one cluster.
-- A replacement instance takes the next pre-registered seeds, and counts toward the 12-instance cap and the spend ceiling.
-
-**Anything else that ends a block early** (engine failure, gateway failure, a runner fault) does not drop it.
-- Its requests not served count as failures, and censoring applies.
-- If that makes an arm's loss reach 1%, the outcome is "invalid".
-
-Dropping such blocks would remove exactly the blocks where an arm behaves badly (review finding 15).
+    - a full-duration four-arm cycle with engine restart and log capture.
 
 ## Credential windows
 
 The AWS SSO session lasts at most 12 hours from a login.
 - Each session is one instance.
 - The owner logs in immediately before each login's first session.
-- No launch proceeds unless the credential expiry, established under build item 11, exceeds the session's hard stop plus 30 minutes.
+- No launch proceeds unless the expiry, established under build item 12, exceeds the session's backstop plus 30 minutes.
 
 ## Cost
 
-**Durations,** from v1's measurement of about 15 minutes of bring-up and about 50 minutes per four-arm block:
+**Every session sets its own deadlines, overriding the runner's defaults** (16,800 s hard stop, 17,400 s backstop):
 
-| Session | Hours | Expected at about $0.65/h | Worst case: hard stop × $1.10 cap |
+| Session | Expected hours | Hard stop | Backstop |
 |---|---:|---:|---:|
-| Pilot A: 3 blocks of 3 arms | about 2.1 | about $1.40 | 2.5 h → $2.75 |
-| Pilot B: 2 blocks | about 1.9 | about $1.25 | 2.5 h → $2.75 |
-| Main, each: 3 blocks | about 2.75 | about $1.80 | 3.5 h → $3.85 |
+| Pilot A, B | about 2.1 and 1.9 | 2.5 h | 2 h 40 min |
+| Main, each | about 2.75 | 3.5 h | 3 h 40 min |
 
-**Totals:**
-- Expected, at 8 to 12 main instances: about $17 to $24.
-- Worst case, at 12 main instances plus two replacements at every session's hard stop: $5.50 + 14 × $3.85 = **$59.40**.
+**Worst case.** Every launch runs to its backstop at the $1.10 Spot cap, plus 200 GB of gp3 at about $0.022 per hour: (2 × 2.67 h + 14 × 3.67 h) × $1.122 = **$63.58**.
 
-**The ledger enforces the ceiling.** It records each finished session's billed hours from CloudTrail. Every launch refuses if the ledger's total plus that launch's worst case would exceed the frozen ceiling of **$60**. The runner's per-session $1.10 cap and hard stop stay as they are, and the ledger is what connects them to the study.
+**Expected:**
+- about $14 if look 1 decides at 6 instances;
+- about $25 at 12 instances.
 
-**The pilot alone is about $2.65 expected and at most $5.50.** It can stop the study before any main purchase.
+Both are at about $0.65 per hour plus the volume.
 
-## What v3 changed, against the review of v2
+**The ledger reserves before it records.**
+- Each launch first appends its worst case (backstop × cap, plus the volume) as a reservation.
+- It refuses if the reservations and recorded sessions together would exceed **$65**.
+- After the session it records the instance's launch and termination times, from EC2 and CloudTrail. Those are times, not a bill.
+- Billed amounts come from Cost Explorer when it settles, and are published beside the estimate. They do not drive the gate.
 
-| v2 finding | Change |
+**The pilot alone is about $2.70 expected and at most $6.** It can stop the study before any main purchase.
+
+## What v4 changed, against the review of v3
+
+| v3 finding | Change |
 |---|---|
-| 1: safeguards at 0.90 against 0.95 bounds | safeguards compare P to S, true at about 1.0 under the match |
-| 2: S has no rate during the pilot | two-stage pilot: R fitted in stage A, frozen before stage B |
-| 3: the power simulation was not executable; ratios ≠ pooled ratio | request-level synthetic studies through the registered estimator; σ_b from archives when larger |
-| 4: no recorded gateway arrival | build item 3 |
-| 5: the build list was missing | restored and extended, items 1–14 |
-| 6: the validator ignores policy and budget | build item 4, mutation-tested |
-| 7: output deletion passed | output fixed at the cap; short completions are failures |
-| 8: the aggregate gate demanded 93.4% retention | removed |
-| 9: relative match let P reject ten times more | absolute rejected-fraction match, P at most 1 point more |
-| 10: async scheduling unfrozen | synchronous in every arm, registered, and in the claim |
-| 11: capture expects the last offered request | build item 8 |
-| 12: the release-timing median, and no timestamp | per-contender 95% rule; build item 7 |
-| 13: `emptyDir` | build item 10 |
-| 14: the credential identity hole | build item 11 |
-| 15: interruptions and budget | Spot-only drop; everything else censored; ledger with $60 ceiling |
-| 16: binomial interval | removed; a point rule on published counts |
+| 1: the profile rejects `min_tokens`; the generator never sets it | build items 2 and 3 |
+| 2: the pilot cannot estimate between-instance variance | no pre-estimate: per-instance t-interval reads σ from the instances, with a published power table |
+| 3: ∞/∞ in the bootstrap | the bootstrap is removed; whole-study invalidity at 1% loss on any instance keeps every per-instance p99 finite |
+| 4: the ceiling was not bounded | explicit deadlines per session; EBS counted; a reserving ledger; $65 |
+| 5: the simulation was inconsistent | removed; power by t-simulation on y |
+| 6: extra deletion can make the benefit | S must delete at least as much: r_S ≥ r_P |
+| 7: the safeguards were infeasible under the match | under r_S ≥ r_P their true values are at least 1 |
+| 8: evidence lost on an early end | incremental rows; reconstruction against the plan |
+| 9: no Spot notice recorder | build item 9 |
+| 10: instance accounting | contributing instances; 14 launches including replacements |
+| 11: the validator's scope misstated | corrected in History |
