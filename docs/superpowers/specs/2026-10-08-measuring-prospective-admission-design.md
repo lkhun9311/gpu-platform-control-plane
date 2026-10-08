@@ -1,4 +1,4 @@
-# Measuring prospective admission directly (item 3): the design, v9
+# Measuring prospective admission directly (item 3): the design, v10
 
 *Drafted 2026-10-08 for the owner's approval before anything is built. The owner approved paid runs for this direction on 2026-10-08, and asked for the design to be attacked as hard as possible before money is spent. Nothing is bought until a registration built from this design is frozen.*
 
@@ -14,7 +14,8 @@
 | v6 | 412ba53 | astra's review of v5 | 3 blockers, 5 majors |
 | v7 | 18a9b48 | astra's review of v6 | 2 blockers, 6 majors |
 | v8 | 9a8c358 | astra's review of v7 | 2 blockers, 5 majors |
-| v9 | this page | astra's review of v8 | 2 blockers, 4 majors, 1 minor |
+| v9 | 192aa03 | astra's review of v8 | 2 blockers, 4 majors, 1 minor |
+| v10 | this page | astra's review of v9 | 2 blockers, 3 majors |
 
 **Who established what.**
 - astra read the code and found the defects. Each round was given only the page and the repository, never told where to look.
@@ -106,7 +107,18 @@ Same instance and same trace within a block, with the arm order randomised per b
 - the arrival instants `sim-cap` replays;
 - the release instants stage A's timing gate reads.
 
-**Exact-token stamping goes directly to the engine's port, never through the gateway.** So its probe requests leave no gateway record that has no client row (round 8, finding 4). The stamper's requests use their own ID prefix, and any gateway record carrying it refuses the run.
+**Exact-token stamping is done once, in its own epoch, and its counts are frozen** (round 8, finding 4; round 9, finding 4).
+- At the start of pilot stage A, before any arm, the engine is started and the stamper sends one probe per distinct prompt length directly to the engine's port, never through the gateway.
+- Each probe has its own ID, `calib-<prompt length>`, rather than the index −1 the stamper uses today.
+- The engine is then stopped, and that epoch's step log is archived as calibration, outside every arm's evidence. The first arm starts on a fresh engine, as every arm does anyway.
+- The two counts are frozen into the registration. Every later trace, pilot and main, is stamped from that table, so no main session sends a probe.
+- A scheduler record or gateway record carrying a `calib-` ID inside an arm's evidence refuses the run.
+
+Tokenisation of a fixed prompt does not change between instances of one pinned image and revision. Stage B re-stamps its traces live in a calibration epoch and refuses if either count differs.
+
+**Missing gateway records in the pilot refuse** (round 9, finding 5). The main study tolerates a missing record, because no validity quantity reads it. The pilot's R fit and release-timing gate do read it:
+- in stage A, a P contender with no gateway record makes the stage fail;
+- stage A is bought again only by the owner's decision, never automatically.
 
 ## The comparator completes no more contender work than P, on every instance
 
@@ -121,18 +133,31 @@ Same instance and same trace within a block, with the arm order randomised per b
 - The proxy cannot tell these apart (`proxy.go:760`).
 - Round 8's example passes every v8 gate while S prefills 230,850 more tokens.
 
-**So validity reads the engine's own account of processed work.** The step-logging plugin, loaded in every arm, records in each step the tokens the scheduler gave each request (`hack/vllm-plugins/step_logging_scheduler.py`, the `sched` record's `tokens`).
+**So validity reads the engine's own account of processed work.** The step-logging plugin, loaded in every arm, records in each step the tokens the scheduler gave each request (`hack/vllm-plugins/step_logging_scheduler.py`, the `sched` record's `tokens`, with `computed` before the step and the request's `prompt` from its `add` record).
 
-**Two quantities, both per instance over its three blocks:**
-- **p** = contender prefill tokens the scheduler actually scheduled, summed over the step records / offered exact contender input tokens. This counts what the engine processed, whether or not the request later completed.
+**That field is all scheduled tokens, prefill and decode together.** The committed CPU fixture's 80-token prompt totals 87 = 80 + 8 − 1 (round 9, finding 3). So v10 splits each step's tokens for each request explicitly:
+- **prefill tokens** = min(scheduled, max(prompt − computed before, 0));
+- **decode tokens** = scheduled − prefill tokens.
+
+Preemption recomputation, if it happens, is counted as processing in the arm where it happens: it is work the engine did.
+
+**Three quantities, all per instance over its three blocks:**
+- **p** = contender prefill tokens, summed over the step records / offered exact contender input tokens.
+- **q** = contender decode tokens, summed over the step records / (offered contender requests × the 16-token cap).
 - **c** = exact input tokens of contender requests whose client row shows completion with full engine-reported output / offered exact contender input tokens. This is read from the client row alone, so a lost gateway record cannot change it.
+
+p and q count what the engine processed whether or not the request later completed.
+
+**Why q too.** Prefill alone does not bound processing (round 9, finding 2). Failed S contenders can decode for 15 tokens each against long contexts while P's fail after one, and that passes p and c with S executing 4,600 more decode tokens.
+
+**What remains unbounded, stated.** Tokens are counted, not weighted by cost. A decode token against a 7,695-token context costs more than one against a short context, and that is not measured. Both arms' contenders have the same prompt length, so the per-token cost is comparable between them.
 
 **Joining step records to client rows** uses the client-generated request ID. The plugin records vLLM's request ID. That vLLM v0.27.1 derives it from `X-Request-Id` is my reading of the server, not yet verified. Build item 21 verifies it on kind and, if it does not hold, makes the plugin record the header itself. A scheduled request with no client match refuses the run.
 
 A request's tier is its tenant's tier in the frozen trace, and a tier in the gateway's record or a response header must agree, or the run refuses.
 
-**Validity: p_S ≤ p_P and c_S ≤ c_P on every contributing instance.**
-- **S processes no more contender work than P,** so S's tail cannot be inflated by extra processing, whatever happened to the requests afterwards.
+**Validity: p_S ≤ p_P, q_S ≤ q_P and c_S ≤ c_P on every contributing instance.**
+- **S prefills and decodes no more contender tokens than P,** so S's tail cannot be inflated by extra contender tokens, whatever happened to the requests afterwards.
 - **S completes no more contender work than P,** so P cannot win by losing work it processed (round 6, finding 2).
 - One violation of either makes the outcome "invalid". It is read after each instance, and a violation stops further purchase.
 
@@ -140,9 +165,9 @@ A request's tier is its tenant's tier in the frozen trace, and a tier in the gat
 - v7's survival table followed from a Gaussian model of d, not from the moments it named. A two-point distribution with the same mean, SD and correlation survives 6.9% of the time, not 55.6% (round 7, finding 2).
 - **What v8 relies on instead is sequential purchase,** under Money at risk below: validity is read after every instance, so an invalid study is discovered, and stops buying, at the first instance that shows it.
 
-**Stage B checks the margin on fresh traces.** Each of its two blocks must show p_P − p_S ≥ 0.03 and c_P − c_S ≥ 0.03, or the design returns to review.
+**Stage B checks the margin on fresh traces.** Each of its two blocks must show p_P − p_S ≥ 0.03, q_P − q_S ≥ 0.03 and c_P − c_S ≥ 0.03, or the design returns to review.
 
-**A purchase-stop rule, not a verdict:** if any of the first three main instances shows p_P − p_S < 0.02 or c_P − c_S < 0.02, no further instance is bought. The outcome is "stopped: margin too thin", and nothing is judged.
+**A purchase-stop rule, not a verdict:** if any of the first three main instances shows p_P − p_S, q_P − q_S or c_P − c_S below 0.02, no further instance is bought. The outcome is "stopped: margin too thin", and nothing is judged.
 - The rule reads only S's and P's contender work, never a tail.
 - It ends a study whose population margin is visibly below the fitting target before most of its cost is spent.
 
@@ -175,7 +200,7 @@ Frozen, independent Poisson arrivals:
 
 **Output is fixed.** The Poisson generator populates `MinOutputTokens` (build item 3), and a completion with fewer engine-reported output tokens than its cap is a failure.
 
-**Exact tokens are stamped, in one fixed order, before any manifest exists** (build item 18). p, c and R's fit are defined in exact tokens, but today:
+**Exact tokens are stamped, in one fixed order, before any manifest exists** (build item 18). p, q, c and R's fit are defined in exact tokens, but today:
 - the Poisson generator leaves `ExactInputTokens` zero (`trace.go:296`);
 - the matrix generates a fresh trace and its manifest just before replay (`m5c-matrix.sh:3304`);
 - the replay does not ask for the existing `--require-exact-tokens` refusal (`main.go:628`).
@@ -214,7 +239,8 @@ Stamping after the manifest changes the trace's checksum, and regenerating after
 
 **Per-instance gates.** Each is a point rule, and any failure makes the outcome "invalid":
 - premium loss under 1% in every arm;
-- p_S ≤ p_P and c_S ≤ c_P.
+- p_S ≤ p_P, q_S ≤ q_P and c_S ≤ c_P;
+- the arm's step log complete (see Evidence).
 
 **What the validity gate does and does not establish.** It establishes that S neither processes nor completes more contender work than P on any instance, and that is the whole of the deletion safeguard.
 - It does not establish that O's contenders complete. O is only P/O's denominator, so O has no contender gate in the main study.
@@ -297,7 +323,8 @@ Then stage A fits R.
 
 **Stage B: one instance, two full four-arm blocks** with R final. It establishes:
 - every arm's loss under 0.5%;
-- validity, with p_P − p_S ≥ 0.03 and c_P − c_S ≥ 0.03 in each of its two blocks;
+- validity, with p_P − p_S, q_P − q_S and c_P − c_S each at least 0.03 in each of its two blocks;
+- the live re-stamp equal to the frozen counts;
 - the informative bound, mean p_P − p_S ≤ 0.10;
 - the whole four-arm cycle at full duration on the GPU.
 
@@ -339,12 +366,26 @@ Today the hook uploads only after a replay and its log capture (`m5c-matrix.sh:3
 1. **A new study, `prospective-admission`,** with its arms, a frozen manifest and readings (`study.go:529` permits `kv-aware` only).
 2. **The benchmark profile accepts `min_tokens` only when equal to `max_tokens`,** with a test that any other value is still refused.
 3. **The Poisson generator populates `MinOutputTokens`.**
-4. **Mandatory client-generated request IDs,** unique across the study, and **the gateway's per-request record** (arrival, tenant, tier, decision, release) keyed by them. The join is checked both ways, a duplicate refuses, and `sim-cap` replays the arrival instants.
+4. **Mandatory client-generated request IDs,** unique across the study, and **the gateway's per-request record** (arrival, tenant, tier, decision, release) keyed by them. A gateway record with no client row refuses, as does a duplicate. A client row with no record is allowed in the main study and refused in the pilot. `sim-cap` replays the arrival instants.
 5. **The engine-arguments validator compares the whole line,** mutation-tested key by key.
-6. **The matrix deploys admission per arm** (`m5c-matrix.sh:2187`). **Step-log capture ends on quiescence, not on a request's ID** (round 8, finding 5).
-   - After the replay returns, capture waits until the engine reports no running and no waiting requests, then takes the plugin's closing flush.
-   - A request that reached the gateway but never the scheduler is a request with zero processed tokens, not a missing marker.
-   - Today capture waits for the last trace request's ID (`:3032`). A forwarded request can fail in the engine's frontend before the scheduler sees it, so that ID may never appear.
+6. **The matrix deploys admission per arm** (`m5c-matrix.sh:2187`). **Step-log capture is proved complete by counts, not inferred from a marker** (round 8, finding 5; round 9, finding 1).
+   - **Waiting for an ID fails:** today capture waits for the last trace request's ID (`:3032`). A forwarded request can fail in the engine's frontend before the scheduler sees it, so that ID may never appear.
+   - **Waiting for quiescence fails too:** the plugin hands batches to a background writer, so an empty scheduler and a file ending in a flush can coexist with an unwritten final batch. astra reproduced exactly that with the real plugin.
+   - **So the plugin numbers every record.** Each flush record carries its first and last sequence numbers, and an overflow record already exists when its buffer fills (`step_logging_scheduler.py:70`).
+   - **At the end of each arm,** after the replay returns and the engine is idle, the engine is stopped gracefully. It restarts for the next arm anyway. On shutdown the plugin:
+     - flushes its buffer;
+     - waits for its writer queue to drain;
+     - writes a terminal record with its last sequence number and last step index.
+   - **The arm's step log is complete only if:**
+     - the terminal record is present;
+     - the sequence numbers run without a gap from 1 to the terminal's;
+     - there is no overflow record;
+     - the last step index equals the last `Iteration(n)` in the engine's own iteration log.
+
+     That log is written by vLLM independently of the plugin, and the instrument studies already read it.
+   - A request that reached the gateway but never the scheduler simply has zero processed tokens.
+   - An incomplete step log makes the outcome "invalid", like any non-Spot early end.
+   - `check_step_log.py` is not reused as is: it requires every client request to be scheduled and assumes complete output accounting (`:139`, `:144`), which refusals and partial failures here violate. A checker for this study is written instead.
 7. **Study-wide seed uniqueness and hashed arm order.**
 8. **Incremental rows, the 30-second evidence sidecar with a Spot-notice flush, and reconstruction.**
 9. **The Spot interruption recorder.**
@@ -356,7 +397,7 @@ Today the hook uploads only after a replay and its log capture (`m5c-matrix.sh:3
     - sts cannot name the active role;
     - a cache entry carries only an account rather than the exact role path.
 14. **Tier from the trace,** with a mismatch against the gateway's record refused.
-15. **The analysis:** per-instance censored p99, the two per-instance gates, the futility look and the t test, precedence and every named outcome. It is tested on hand-built evidence including:
+15. **The analysis:** per-instance censored p99, the per-instance gates, the futility look and the t test, precedence and every named outcome. It is tested on hand-built evidence including:
     - round 4's six-instance deletion example, which must be "invalid";
     - round 5's lost-refusal example, which must be "invalid";
     - round 6's five post-admission losses, which must be "invalid";
@@ -367,12 +408,15 @@ Today the hook uploads only after a replay and its log capture (`m5c-matrix.sh:3
     - fewer than 6 contributing instances.
 16. **A termination sweeper that exists before any launch** (see Cost).
 17. **The reserving spend ledger.**
-18. **The exact-token order:** generate, stamp, derive, checksum, manifest, then replay with `--require-exact-tokens`. Tested by a rehearsal whose stamp is deliberately missing, which must refuse before the first request.
+18. **The exact-token order:** generate, stamp from the frozen counts, derive, checksum, manifest, then replay with `--require-exact-tokens`.
+    - The live stamp runs only in calibration epochs, with `calib-` IDs, directly against the engine.
+    - Tested by a rehearsal whose stamp is deliberately missing, which must refuse before the first request.
 19. **TPOT on engine tokens and the last content frame,** beside the existing figure, which stays for the studies it has already judged.
 21. **The step-record join and processed work.**
     - Verify on kind that the plugin's request ID carries the client's `X-Request-Id`, and if not, make the plugin record it.
-    - Compute p from the `sched` records.
-    - Refuse on a scheduled request with no client match.
+    - Compute p and q from the `sched` records by the registered split, tested on the committed CPU fixture: its 80-token prompt must give 80 prefill and 7 decode tokens.
+    - Refuse on a scheduled request with no client match, and on a `calib-` ID inside an arm.
+    - Test round 9's reversal example: raw sums put S below P while prefill puts S above, and the analysis must call it "invalid".
     - (Numbered 21 so that references to 20 stay stable.)
 20. **Rehearsals on kind with the stub engine:**
     - a whole replay-to-verdict run;
@@ -383,6 +427,8 @@ Today the hook uploads only after a replay and its log capture (`m5c-matrix.sh:3
     - a request that never reached the gateway, and an S success whose gateway line is deleted, which must still count as completed;
     - an admitted contender failing after prefill in S, whose processed tokens must count in p_S;
     - a forwarded request refused by the engine's frontend before scheduling, which capture must not wait for;
+    - a final batch held back from the writer at shutdown, which must make the log incomplete;
+    - S's failed contenders decoding 15 tokens against P's one, which must fail q;
     - an exact-token stamp sent through the gateway by mistake, which must refuse;
     - a pre-header timeout;
     - a header tier different from the trace's;
@@ -460,6 +506,16 @@ The AWS SSO session lasts at most 12 hours from a login.
 - The ledger limits what the study starts. It cannot stop an instance already running, which is the terminators' job.
 - After the session it records launch and termination times from EC2 and CloudTrail.
 - Billed amounts come from Cost Explorer when it settles, and are published beside the estimate.
+
+## What v10 changed, against the review of v9
+
+| v9 finding | Change |
+|---|---|
+| 1: quiescence does not prove the writer drained | numbered records; a terminal record at a graceful stop; reconciliation with vLLM's own iteration log; a checker for this study |
+| 2: prefill and completion leave decode unbounded | q, contender decode tokens, added to validity; cost-weighting stated as unmeasured |
+| 3: `tokens` is all scheduled tokens | an explicit per-step prefill and decode split, tested on the committed fixture |
+| 4: stamping probes reach the instrumented scheduler | one calibration epoch, `calib-` IDs, frozen counts; no main-session probe |
+| 5: missing gateway records in the pilot | the pilot refuses them |
 
 ## What v9 changed, against the review of v8
 
