@@ -507,8 +507,9 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 	res, admit, reason := decideAdmission(ctx, admitter, meta, targets, tenant, tier)
 	// Released on every way out from here: a refusal holds nothing, and an admitted request that errors, is
-	// cancelled or completes gives back whatever it still holds.
-	defer res.Done()
+	// cancelled or completes gives back whatever it still holds. The trace stamps the prefill release here when
+	// no body byte released it first.
+	defer tr.releaseAtEnd(res)()
 	decision := "admit"
 	if !admit {
 		decision = "reject"
@@ -567,7 +568,7 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 
 	// 8. From here the response is the upstream's, passed through rather than composed.
 	start := time.Now()
-	rec := &statusRecorder{ResponseWriter: w, code: http.StatusOK, onFirstBody: tr.release(res.PrefillDone), onBody: tr.body}
+	rec := &statusRecorder{ResponseWriter: w, code: http.StatusOK, onFirstBody: tr.release(res), onBody: tr.body}
 	// Each candidate is tried until one answers, and the two conditions below are what make that safe rather
 	// than merely useful.
 	//
@@ -601,6 +602,7 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 		}
 	})
 	rec.code = publishedCode(rec.answered, rec.code, lastFailure)
+	tr.outcome(rec.code, rec.answered)
 	if servedByFallback(advanced, rec.code) {
 		backendFallbacks.WithLabelValues(tenant, meta.Model).Inc()
 	}

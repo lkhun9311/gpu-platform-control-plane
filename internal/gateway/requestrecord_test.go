@@ -35,6 +35,20 @@ var _ = Describe("contentWatcher", func() {
 		}
 	})
 
+	// Mutation that turns this red: match the compact form "content":" only (commit review of d463287).
+	It("finds content written with JSON whitespace around the colon, across every split", func() {
+		frame := `data: {"choices": [{"delta": {"content" :  "x"}}]}` + "\n\n"
+		for i := 1; i < len(frame); i++ {
+			var c contentWatcher
+			first := c.observe([]byte(frame[:i]))
+			second := c.observe([]byte(frame[i:]))
+			Expect(first || second).To(BeTrue(), "split at %d", i)
+		}
+		var c contentWatcher
+		Expect(c.observe([]byte(`{"delta": {"role": "assistant", "content": ""}}`))).To(BeFalse())
+		Expect(c.observe([]byte(`{"delta": {"content": null}}`))).To(BeFalse())
+	})
+
 	It("does not count an empty content split exactly after the marker", func() {
 		var c contentWatcher
 		Expect(c.observe([]byte(`{"delta":{"content":"`))).To(BeFalse())
@@ -117,6 +131,62 @@ var _ = Describe("the request record in the pipeline", func() {
 		Expect(d["arrivedUnixNanos"]).To(Equal(lines[0]["arrivedUnixNanos"]))
 		// The release is at the role frame, the first content at the next frame: the two must be distinguishable.
 		Expect(d["firstContentUnixNanos"].(float64)).To(BeNumerically(">=", d["releasedUnixNanos"].(float64)))
+	})
+
+	record := func(s *Server) func() []map[string]any {
+		rec, err := OpenRequestRecorder(path)
+		Expect(err).NotTo(HaveOccurred())
+		s.RecordRequests(rec)
+		return func() []map[string]any {
+			Expect(rec.Close()).To(Succeed())
+			return readRecord(path)
+		}
+	}
+
+	// Mutation that turns this red: go back to `defer res.Done()` without the trace's cleanup wrapper.
+	It("stamps a release made at cleanup when no body byte released the prefill, and says so", func() {
+		up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusNoContent)
+		}))
+		defer up.Close()
+		s := newAdmissionServer(up.URL, tierStandard, AdmissionProspective, newProspectiveAdmitter(100000, 4))
+		read := record(s)
+		rr := httptest.NewRecorder()
+		s.Handler().ServeHTTP(rr, authedRequest(body))
+		d := read()[1]
+		Expect(d["releasedUnixNanos"]).NotTo(BeNil())
+		Expect(d["releasedAtEnd"]).To(BeTrue())
+	})
+
+	// Mutation that turns this red: drop the nil-reservation guard in tr.release or tr.releaseAtEnd.
+	It("stamps no release in an arm whose admitter holds no reservation", func() {
+		up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "text/event-stream")
+			_, _ = w.Write([]byte(`data: {"choices":[{"delta":{"content":"Hi"}}]}` + "\n\n"))
+		}))
+		defer up.Close()
+		s := newAdmissionServer(up.URL, tierStandard, AdmissionOff, offAdmitter{})
+		read := record(s)
+		rr := httptest.NewRecorder()
+		s.Handler().ServeHTTP(rr, authedRequest(body))
+		d := read()[1]
+		Expect(d).NotTo(HaveKey("releasedUnixNanos"))
+		Expect(d).To(HaveKey("firstContentUnixNanos"))
+	})
+
+	// Mutation that turns this red: drop the tr.final override in finish.
+	It("records the status the proxy stage resolved, not the writer's default", func() {
+		rec, err := OpenRequestRecorder(path)
+		Expect(err).NotTo(HaveOccurred())
+		s := &Server{recorder: rec}
+		tr, _ := s.startTrace(httptest.NewRecorder())
+		tr.identify("unanswered-1")
+		tr.outcome(http.StatusBadGateway, false)
+		tr.finish()
+		Expect(rec.Close()).To(Succeed())
+		d := readRecord(path)[0]
+		Expect(d["status"]).To(BeEquivalentTo(502))
+		Expect(d["answered"]).To(BeFalse())
 	})
 
 	// Mutation that turns this red: move startTrace after the authentication step.

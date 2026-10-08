@@ -83,10 +83,17 @@ type doneLine struct {
 	ArrivedUnixNanos int64 `json:"arrivedUnixNanos,omitempty"`
 	// RecordedUnixNanos is when the arrive line had been synced, so the cost of the durable write is measured,
 	// not assumed: an unbounded delay there would sit after the arrival stamp (review round 21, finding 1).
-	RecordedUnixNanos     int64 `json:"recordedUnixNanos,omitempty"`
-	DecidedUnixNanos      int64 `json:"decidedUnixNanos,omitempty"`
-	ForwardedUnixNanos    int64 `json:"forwardedUnixNanos,omitempty"`
-	ReleasedUnixNanos     int64 `json:"releasedUnixNanos,omitempty"`
+	RecordedUnixNanos  int64 `json:"recordedUnixNanos,omitempty"`
+	DecidedUnixNanos   int64 `json:"decidedUnixNanos,omitempty"`
+	ForwardedUnixNanos int64 `json:"forwardedUnixNanos,omitempty"`
+	// ReleasedUnixNanos is when the admitter's prefill reservation was released. ReleasedAtEnd says the release
+	// came from the request's cleanup rather than from the first body byte: a request that never sent a body
+	// still gives its reservation back, and the record must not read as if it had kept it.
+	ReleasedUnixNanos int64 `json:"releasedUnixNanos,omitempty"`
+	ReleasedAtEnd     bool  `json:"releasedAtEnd,omitempty"`
+	// Answered says whether anything reached the client from a backend; Status is then the status the gateway
+	// counted, which for an unanswered request is the last failure rather than the writer's default 200.
+	Answered              bool  `json:"answered"`
 	FirstContentUnixNanos int64 `json:"firstContentUnixNanos,omitempty"`
 	EndedUnixNanos        int64 `json:"endedUnixNanos"`
 }
@@ -135,6 +142,9 @@ type requestTrace struct {
 	content  contentWatcher
 	status   *codeWriter
 	released bool
+	// final is the status the proxy stage resolved, or 0 when the request never reached it.
+	final    int
+	answered bool
 }
 
 // startTrace begins a trace at handler entry and returns the writer the handler must use from then on.
@@ -191,16 +201,42 @@ func (tr *requestTrace) forwarded() {
 }
 
 // release wraps the admitter's prefill release so the instant it ran is recorded beside it.
-func (tr *requestTrace) release(done func()) func() {
-	if tr == nil {
-		return done
+func (tr *requestTrace) release(res *reservation) func() {
+	if tr == nil || res == nil {
+		// No reservation is held in the arms whose admitter does not reserve, so there is nothing to stamp.
+		return res.PrefillDone
 	}
+	done := res.PrefillDone
 	return func() {
 		if !tr.released {
 			tr.released = true
 			tr.t.released = time.Now()
 		}
 		done()
+	}
+}
+
+// releaseAtEnd wraps the request's final cleanup: if the prefill was not already released at the first body
+// byte, this is where it is released, and the record says so.
+func (tr *requestTrace) releaseAtEnd(res *reservation) func() {
+	if tr == nil || res == nil {
+		return res.Done
+	}
+	done := res.Done
+	return func() {
+		if !tr.released {
+			tr.released = true
+			tr.t.released = time.Now()
+			tr.line.ReleasedAtEnd = true
+		}
+		done()
+	}
+}
+
+// outcome records the status the proxy stage resolved and whether any backend answered.
+func (tr *requestTrace) outcome(code int, answered bool) {
+	if tr != nil {
+		tr.final, tr.answered = code, answered
 	}
 }
 
@@ -220,6 +256,12 @@ func (tr *requestTrace) finish() {
 	l := tr.line
 	l.Ev = "done"
 	l.Status = tr.status.code
+	if tr.final != 0 {
+		// The proxy stage's resolved status, not the writer's: when no backend answered, nothing was written
+		// and the writer still holds its default 200.
+		l.Status = tr.final
+	}
+	l.Answered = tr.answered || tr.status.wrote
 	l.EnteredUnixNanos = nanos(tr.t.entered)
 	l.ArrivedUnixNanos = nanos(tr.t.arrived)
 	l.RecordedUnixNanos = nanos(tr.t.recorded)
@@ -238,12 +280,19 @@ func (tr *requestTrace) finish() {
 // It forwards Flush and Unwrap, because the proxy stream depends on reaching the underlying Flusher.
 type codeWriter struct {
 	http.ResponseWriter
-	code int
+	code  int
+	wrote bool
 }
 
 func (c *codeWriter) WriteHeader(code int) {
 	c.code = code
+	c.wrote = true
 	c.ResponseWriter.WriteHeader(code)
+}
+
+func (c *codeWriter) Write(b []byte) (int, error) {
+	c.wrote = true
+	return c.ResponseWriter.Write(b)
 }
 
 func (c *codeWriter) Flush() {
@@ -254,14 +303,53 @@ func (c *codeWriter) Flush() {
 
 func (c *codeWriter) Unwrap() http.ResponseWriter { return c.ResponseWriter }
 
-// contentMarker is the start of a non-empty chat-completion content delta; the role frame's empty content
-// ("content":"") does not match, because the byte after the marker must not be the closing quote.
-var contentMarker = []byte(`"content":"`)
+// contentKey is the JSON key of a chat-completion content delta.
+//
+// The value after it is matched allowing JSON whitespace around the colon, because a serializer that spaces its
+// output is still emitting content (commit review of d463287). The role frame's empty content ("") does not
+// count: the byte after the opening quote must not be the closing quote.
+var contentKey = []byte(`"content"`)
+
+// maxContentTail bounds what is carried between chunks while a key's value is still incomplete, so a stream of
+// whitespace cannot grow it without limit.
+const maxContentTail = 256
 
 // contentWatcher finds the first non-empty content delta in a streamed response, across chunk boundaries.
 type contentWatcher struct {
 	tail []byte
 	seen bool
+}
+
+// valueStarts reports, for the bytes after a content key, whether they begin a non-empty string value.
+// complete is false when the bytes run out before that can be decided.
+func valueStarts(rest []byte) (nonEmpty, complete bool) {
+	i := 0
+	skip := func() {
+		for i < len(rest) && (rest[i] == ' ' || rest[i] == '\t' || rest[i] == '\n' || rest[i] == '\r') {
+			i++
+		}
+	}
+	skip()
+	if i >= len(rest) {
+		return false, false
+	}
+	if rest[i] != ':' {
+		return false, true
+	}
+	i++
+	skip()
+	if i >= len(rest) {
+		return false, false
+	}
+	if rest[i] != '"' {
+		// null or another non-string value: no content here.
+		return false, true
+	}
+	i++
+	if i >= len(rest) {
+		return false, false
+	}
+	return rest[i] != '"', true
 }
 
 // observe reports whether b completes the first non-empty content delta of the stream.
@@ -270,26 +358,29 @@ func (c *contentWatcher) observe(b []byte) bool {
 		return false
 	}
 	buf := append(c.tail, b...)
+	c.tail = nil
 	for i := 0; ; {
-		j := bytes.Index(buf[i:], contentMarker)
+		j := bytes.Index(buf[i:], contentKey)
 		if j < 0 {
 			break
 		}
-		k := i + j + len(contentMarker)
-		if k >= len(buf) {
-			// The marker ends the chunk, so the next byte decides; keep the marker for the next call.
-			c.tail = append([]byte(nil), buf[i+j:]...)
+		start := i + j
+		nonEmpty, complete := valueStarts(buf[start+len(contentKey):])
+		if !complete {
+			// The key's value continues in the next chunk; carry the key and what follows it.
+			if len(buf)-start <= maxContentTail {
+				c.tail = append([]byte(nil), buf[start:]...)
+			}
 			return false
 		}
-		if buf[k] != '"' {
+		if nonEmpty {
 			c.seen = true
-			c.tail = nil
 			return true
 		}
-		i = k
+		i = start + len(contentKey)
 	}
-	// Keep only what could be the start of a marker split across chunks.
-	keep := len(contentMarker) - 1
+	// Keep only what could be the start of a key split across chunks.
+	keep := len(contentKey) - 1
 	if len(buf) < keep {
 		keep = len(buf)
 	}
