@@ -485,14 +485,25 @@ SHIM
 fi
 
 if [ -n "$PILOT_UNDER_TEST" ]; then
-  # Stage A, then stage B at a rate R chosen for the stub. The frozen tuple fixes the prompts, caps and timeout;
-  # the trace length is not frozen, so the rehearsal runs 20-second cells.
+  # Stage A, then stage B at the rate R that benchharness fit-pilot-rate fits on stage A's P blocks, as the paid
+  # pilot does between its sessions. The frozen tuple fixes the prompts, caps and timeout; the trace length is not
+  # frozen, so the rehearsal runs 20-second cells.
   pilot_rc=0
+  PILOT_R=""
   for stage in A B; do
+    if [ "$stage" = B ]; then
+      fit_args=()
+      for b in 1 2 3; do fit_args+=(-cell "$OUT_DIR-A/raw-prospective-$b.jsonl:$OUT_DIR-A/gateway-record-prospective-$b.jsonl"); done
+      fit=$("$WORK/benchharness" fit-pilot-rate "${fit_args[@]}" 2>&1) || { printf '%s\n' "$fit"; fail "R could not be fitted on stage A"; }
+      printf '%s\n' "$fit"
+      PILOT_R=$(printf '%s\n' "$fit" | sed -n 's/^R=\([0-9][0-9]*\)$/\1/p')
+      [ -n "$PILOT_R" ] || fail "fit-pilot-rate printed no R"
+      say "stage B runs the static arm at the fitted R=$PILOT_R"
+    fi
     ( cd "$SRC" && PLATFORM=kind KCTX="$KCTX" GPU_NODE="$GPU_NODE" \
         DEADLINE_EPOCH=$(( $(date +%s) + 7200 )) \
         GATEWAY_BIN="$WORK/gateway" BENCHHARNESS_BIN="$WORK/benchharness" \
-        ENGINE_PIN_WAIVED=1 STUDY=prospective-pilot-2026-10-08 PILOT_STAGE="$stage" PILOT_STATIC_RATE=2000 \
+        ENGINE_PIN_WAIVED=1 STUDY=prospective-pilot-2026-10-08 PILOT_STAGE="$stage" PILOT_STATIC_RATE="$PILOT_R" \
         MODEL_REVISION=aa8e72537993ba99e69dfaafa59ed015b17504d1 \
         REPS=3 SEEDS="$([ "$stage" = A ] && echo '301 302 303' || echo '311 312 313')" \
         PREMIUM_RATE=9.25 PILOT_NOISY_RATE=0.5 PREMIUM_WEIGHT=1 PROBE_WEIGHT=0 DURATION_MS="${PILOT_DURATION_MS:-20000}" \
