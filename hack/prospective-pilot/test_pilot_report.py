@@ -284,6 +284,7 @@ class PilotReportReviewTest(unittest.TestCase):
     def test_an_infinite_comparator_bound_keeps_its_infinity(self):
         self.assertEqual(pr.crossed_log_ratio(20.0, math.inf), -math.inf)
         self.assertEqual(pr.crossed_log_ratio(math.inf, 20.0), math.inf)
+        self.assertIsNone(pr.crossed_log_ratio(math.inf, math.inf))
 
 
 if __name__ == "__main__":

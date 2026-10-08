@@ -308,6 +308,10 @@ def crossed_log_ratio(num, den):
     denominator -inf, which is what a failure-heavy arm makes them (review of 97ae105, finding 8)."""
     if num is None or den is None or den <= 0 and not math.isinf(den):
         return None
+    # Both infinite is undefined, not either infinity (design page, "If both p99s are infinite at the same vertex";
+    # review of 9b10925).
+    if math.isinf(num) and math.isinf(den):
+        return None
     if math.isinf(num):
         return math.inf
     if math.isinf(den):
