@@ -1394,6 +1394,28 @@ for stage in engines-ready refused; do
 	fi
 done
 
+# A pilot cell stopped after its capture: one refused row, written before its upload, and its upload's timing
+# after it, so the stopped cell's time is whole (reviews of ffe3047 and bdb92fa). Driven through the real
+# cell_refused_stop with its exit caught.
+say "a pilot cell stopped after its capture leaves one refused row and one upload row"
+OUT="$WORK/out-pilot-stop"
+mkdir -p "$OUT"
+printf '#!/usr/bin/env bash\n[ -s "$OUT/cell-timings.tsv" ] && grep -q refused-after-replay "$OUT/cell-timings.tsv" && echo seen > "$OUT/hook-saw-row"\n' > "$WORK/hook"
+chmod +x "$WORK/hook"
+(
+	# shellcheck disable=SC1091
+	. "$WORK/recorders.sh"
+	eval "$(extract cell_refused_stop)"
+	say() { :; }; fail() { exit 1; }; iv_keeps_warmup_refusal_log() { return 1; }
+	OUT="$OUT" CELL_DONE_HOOK="$WORK/hook" STUDY=x
+	cell_n=4 cell_secs=0 cells_done=3 CELL_T0=1000
+	cell_refused_stop prospective 2 after-replay "REFUSED prospective rep 2 after its capture: test" upload
+) || true
+[ "$(grep -c 'refused-after-replay' "$OUT/cell-timings.tsv" 2>/dev/null)" = 1 ] && ok "one refused row" || bad "the refused rows: $(cat "$OUT/cell-timings.tsv" 2>/dev/null)"
+[ -f "$OUT/hook-saw-row" ] && ok "the upload hook ran after the row, so the row left with the cell" || bad "the hook did not see the refused row"
+[ "$(awk -F'\t' '$1 == 4 && $2 == "prospective" && $3 == 2' "$OUT/cell-uploads.tsv" 2>/dev/null | wc -l)" = 1 ] \
+	&& ok "the stopped cell's upload timing is recorded" || bad "no upload row for the stopped cell: $(cat "$OUT/cell-uploads.tsv" 2>/dev/null)"
+
 echo
 if [ "$failures" = "0" ]; then
 	say "CELL TIMING AND JUDGEMENT RECORDS PRODUCE ROWS: both outcomes, one header, stable columns under a bad timestamp, and every boundary including the ones that continued."

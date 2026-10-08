@@ -3212,8 +3212,17 @@ cell_refused_stop() {
   # The raw path is the measured one the hook expects; it does not exist yet, and the hook sends only what does.
   # A fifth argument "upload" asks for the same, for a refusal after the cell's evidence was captured.
   if { [ "$kept" = 1 ] || [ "$upload" = upload ]; } && [ -n "${CELL_DONE_HOOK:-}" ]; then
+    local hook_t0
+    hook_t0=$(date +%s)
     OUT="$OUT" timeout "${CELL_DONE_HOOK_TIMEOUT:-120}" "$CELL_DONE_HOOK" "$OUT/raw-$label-$rep.jsonl" "$label" "$rep" \
       || say "  WARNING: CELL_DONE_HOOK failed or timed out for $label rep $rep's refused cell; its files are still on local disk"
+    # The pilot's upload record, as a completed cell writes it after its hook, so the stopped cell's time is
+    # whole in the final archive (review of bdb92fa).
+    if [ "$upload" = upload ]; then
+      [ -s "$OUT/cell-uploads.tsv" ] || printf 'cell\tarm\trep\thook_start_utc\thook_end_utc\thook_s\n' > "$OUT/cell-uploads.tsv"
+      printf '%s\t%s\t%s\t%s\t%s\t%s\n' "${cell_n:-}" "$label" "$rep" "$(date -u -d "@$hook_t0" +%Y-%m-%dT%H:%M:%SZ)" \
+        "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(( $(date +%s) - hook_t0 ))" >> "$OUT/cell-uploads.tsv"
+    fi
   fi
   fail "$msg"
 }
