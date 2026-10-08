@@ -866,7 +866,8 @@ Blindness was meant to prevent one harm: a designer who has seen the P/S effect 
 - **durations and deadlines,** from `cell-timings.tsv` (`m5c-matrix.sh:2281`) and the phase stamps below:
   - **arm time** = the largest `elapsed_s` of any arm in either stage;
   - **bring-up** = the larger of the two stages' times from the instance's EC2 `LaunchTime` to the first cell's start;
-  - **main session length** = bring-up + 12 × arm time, × 1.25;
+  - **session tail** = the larger of the two stages' times from the matrix's return to the `DONE` marker's upload: the archive, the node evidence and the marker (`m5c-gpu-session.sh:1098` to `:1114`). Measured, not left to the margin (pilot review 9, finding 3);
+  - **main session length** = (bring-up + 12 × arm time + session tail) × 1.25;
   - **hard stop** = the main session length;
   - **acquisition deadline** = hard stop − 6 min;
   - **backstop** = hard stop + 10 min;
@@ -886,21 +887,29 @@ Blindness was meant to prevent one harm: a designer who has seen the P/S effect 
 v6 states the condition positively instead. **An arm's timing evidence is eligible only if all of these hold:**
 1. **Every client row has exactly one gateway record, and every gateway record exactly one client row,** joined by an ID that occurs once. Refusals are included: a refused request is recorded at its arrival, before admission, like any other.
 2. **There is no exception for a request with no gateway record.** v6 excused one that failed before any response and had no scheduler record. Pilot review 6 (finding 1) showed a request can be admitted, stall before the scheduler, time out, and lose its record, and the exception would accept it. The durable write is intended, not proof that an absent record never existed.
-3. **The arm's step log is complete** by the counts under build item 6, and **its coverage reaches the window end, on an independent clock** (pilot review 6, finding 2).
-   - vLLM's own iteration log lines carry a timestamp. On the committed CPU fixture: `INFO 10-06 13:07:23 [loggers.py:182] Engine 000: Iteration(0)`.
-   - So every iteration whose logged time is at least 2 s before the plugin's terminal record must correspond to a plugin step.
-   - **An iteration line is logged when its step ends, not when it starts.** On the committed fixture, step 1 started at 13:06:42.54 and its line is stamped 13:07:23 (pilot review 8, finding 1). So a log time cannot say whether a step began inside the window, and no fixed padding fixes that.
-   - **So capture writes its sentinel only after a quiet barrier, which makes the check a proof:**
-     1. The replay has returned, so the window has ended.
-     2. Capture then waits until the engine's own iteration log has had **no new line for 3 s** and the engine's metrics show nothing running or waiting.
-     3. Only then does it write the sentinel.
+3. **The arm's step log is complete** by the counts under build item 6, and **its coverage reaches past the window end, proved by an acknowledged fence** (pilot review 9, finding 1).
+   - **Three earlier versions tried passive signals, and each failed:**
+     - v7: the terminal record's time (pilot review 7, finding 1);
+     - v8: 3 s of padding on the iteration log's timestamps, which are stamped when a step **ends** (pilot review 8, finding 1);
+     - v9: a quiet barrier of 3 s without an iteration line plus idle metrics. One step can run 40 s without a line, and vLLM's running/waiting gauges are snapshots published from completed outputs, not an acknowledgement (pilot review 9, finding 1).
+   - **The fence.** After the replay returns, so after the window end, capture sends one request with the ID `fence-<cell>` directly to the engine's port: a one-token prompt and a one-token cap.
+     - Synchronous scheduling runs one step at a time. So when the fence's response completes, every step that started before the window end has already executed, and its iteration line has already been logged.
+     - The fence's completion is acknowledged to the capture client by the engine itself, not by the plugin.
+   - **The check, after the fence completes:** capture writes the sentinel, reads the terminal record, then captures the step log and the iteration log.
+     - The arm is eligible only if the plugin's log contains the fence's `add` and `sched` records.
+     - Let k_f be the plugin step of the fence's last `sched` record. The iteration log must hold at least k_f iterations, and plugin steps 1 to k_f must match iterations 0 to k_f − 1 one to one, in token totals.
+     - A plugin that stopped recording before the fence lacks the fence's records. A plugin that skipped a step misaligns the token totals from that step on.
+   - **The fence is outside every measurement.** Its ID prefix is excluded from p, q, c and the join, like `calib-`. A `fence-` record elsewhere refuses the run.
+   - **The whole barrier is bounded** (pilot review 9, finding 4). Fence, sentinel, terminal record and both captures together must finish within 5 minutes of the replay's return. Otherwise the arm is marked ineligible, and the next arm starts on its fresh engine as usual.
+   - Build item 6's rule for the main study changes the same way. Without it, a plugin that stopped after step 70 while the engine ran 100 more steps inside the window would hide about 51,200 prefill tokens, 3.2 points of p.
 
-     Every step that began before the window end has by then finished and been logged at least 3 s before the sentinel, so it falls before the 2 s cutoff and must match a plugin step. A step still running keeps the log from going quiet. A request that arrives after the barrier starts after the window and is outside it by definition.
-   - **Superseded:** v7 required only that the terminal follow the window end (pilot review 7, finding 1), and v8 added 3 s of padding (pilot review 8, finding 1).
-   - An iteration earlier than that, beyond the plugin's last step, means the plugin stopped recording while the engine ran on. The arm is ineligible.
-   - Build item 6's rule, which compares only up to the plugin's last step and treats the rest as post-window, is tightened this way for the main study too. Without it, a plugin that stopped after step 70 while the engine logged 100 more steps before the window end would hide about 51,200 prefill tokens, 3.2 points of p, more than the margin the pilot measures.
+4. **The arm's timing is complete, in two records** (pilot review 8, finding 2; pilot review 9, finding 2). A row written before the upload hook cannot contain the upload's end, so the timing is split:
+   - **`cell-timings.tsv`,** written before the hook, with every phase stamp up to the hook's start;
+   - **`cell-uploads.tsv`,** appended after the hook with that hook's start and end. It is carried by the **next** cell's upload. The last cell's line goes with the session's final archive, and if that archive is lost the last line is missing.
+   - A cell's complete time is its preliminary `elapsed_s` plus its upload's duration.
+   - Calibration needs both records for every cell. A missing one makes the duration formula's output unavailable, as with any ineligible evidence.
 
-4. **The arm's timing row is complete:** every phase stamp, and its `elapsed_s`. The runner writes the row **before** the cell's upload hook, so the row leaves the instance with the cell (pilot review 8, finding 2). Today the row is written after the hook (`m5c-matrix.sh:3387`, `:3397`), so the last cell's duration survives only if the whole-session archive does. A missing final duration of 15 minutes against 10-minute cells would understate the main session's allowance by 75 minutes.
+   Today the row is written after the hook (`m5c-matrix.sh:3387`, `:3397`), so the last cell's duration survives only if the whole-session archive does.
 
 The formulas read only eligible arms, and **they need every arm of both stages to be eligible.** Otherwise their outputs are **unavailable**, and the design returns to review.
 - Thirteen 900 ms requests without records among 12,285 turn a true ceiling of 1,800 ms into 50 ms.
@@ -949,8 +958,8 @@ A step log that fails its completeness check does not stop the next arm. It make
     Today a marker arriving just before the deadline leads to downloads before cleanup's termination (`m5c-gpu-session.sh:1488`, `:1497`), and the termination call has no outer timeout (`spot-run.sh:203`).
 
   Today `spot_wait_for_marker` counts attempts at 30 s plus two API calls each (`spot-run.sh:374`), so a 150-minute setting can run to about 250 minutes. Its caller also downloads before terminating (`m5c-gpu-session.sh:1482`, `:1497`, `:1335`).
-- **the quiet barrier before the sentinel:** 3 s without an iteration line, and the engine idle;
-- **the timing row written before the upload hook;**
+- **the fence before the sentinel,** sent directly to the engine with a `fence-` ID, and the 5-minute bound on the whole barrier;
+- **the two timing records,** preliminary before the hook and upload after it, and a stamp for the session tail;
 - **phase timestamps per cell** (pilot review 7, finding 2): deploy start, engine ready, replay start and end, sentinel, terminal record, capture end, and upload start and end, each in UTC.
   - Today `cell-timings.tsv` has only a cell's start, end and total, and the runner's messages carry no timestamps (`m5c-matrix.sh:161`). So 180 s of restart and 0 s of capture cannot be told from 120 s and 60 s.
 - **the instance's EC2 `LaunchTime`,** read by the runner after launch and written with the session's evidence, for the bring-up formula. It is not left to the deferred ledger.
