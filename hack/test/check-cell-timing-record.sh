@@ -303,13 +303,15 @@ esac
 # --- 5. the matrix actually calls them --------------------------------------------------------------------
 #
 # Read as text. Executing the call sites needs a cell, and a cell needs a card.
-say "5. the call sites exist in the matrix, on the completed path, the refused path and cell_refused_stop"
+say "5. the call sites exist in the matrix, on the completed path, the refused path, cell_refused_stop and the pilot's"
 # The third is cell_refused_stop, through which every instrument-validation cell refusal records its outcome.
+# The fourth is the prospective-admission pilot's, which writes the row before the upload hook rather than after.
 calls=$(grep -c 'cell_timing_record "\$label" "\$rep"' "$SRC" || true)
-if [ "$calls" = 3 ]; then
-	ok "three cell_timing_record call sites"
+pilot=$(grep -c 'cell_timing_record "\$label" "\$rep" completed "\$CELL_T0" "\$(date +%s)"' "$SRC" || true)
+if [ "$calls" = 4 ] && [ "$pilot" = 1 ]; then
+	ok "four cell_timing_record call sites, one of them the pilot's before the hook"
 else
-	bad "found $calls cell_timing_record call sites, want 3 (completed, refused and cell_refused_stop)"
+	bad "found $calls cell_timing_record call sites ($pilot of them the pilot's), want 4 (completed, refused, cell_refused_stop and the pilot's)"
 fi
 grep -q 'cell_timing_record "\$label" "\$rep" "refused-\$stage"' "$SRC" \
 	&& ok "cell_refused_stop records its stage as the outcome" || bad "cell_refused_stop does not record the cell's outcome"

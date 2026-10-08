@@ -380,9 +380,11 @@ printf '%s' "$dur" | grep -q ' serial-log/1=180000' && printf '%s' "$dur" | grep
 	&& ok "load-source.txt records each cell's duration: $(printf '%s' "$dur" | cut -c1-80)..." \
 	|| bad "load-source.txt carries no per-cell duration line: ${dur@Q}"
 # The topology column is not in the plan line, so the two CELLS builders are read as text.
+# A third builder is the prospective-admission pilot's, which deploys the same topology for every arm.
 r1=$(awk "index(\$0, \"printf '%s R1|%s|\") {c++} END {print c+0}" "$SRC")
-[ "$r1" = 2 ] && ok "both of the study's cell builders deploy the one-engine topology" \
-	|| bad "$r1 of the study's two cell builders use the R1 topology"
+pilot_r1=$(grep -c 'pp_stage_arms "\$PILOT_STAGE" | while read -r arm; do' "$SRC" || true)
+[ "$r1" = 3 ] && [ "$pilot_r1" = 1 ] && ok "both of the study's cell builders, and the pilot's, deploy the one-engine topology" \
+	|| bad "$r1 cell builders use the R1 topology ($pilot_r1 of them the pilot's), want the study's two and the pilot's one"
 # And an existing study writes no duration line, so its record is as before.
 out=$(env -u DURATION_MS TMPDIR="$WORK/tmp" PLAN_ONLY=1 PLATFORM=kind KCTX=none BENCHHARNESS_BIN="$WORK/bh" \
 	RATE=1 PREMIUM_WEIGHT=1 NOISY_WEIGHT=0.054 PROBE_WEIGHT=0 DURATION_MS=420000 REPS=1 ARMS="R1 shared" \

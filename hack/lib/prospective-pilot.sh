@@ -204,3 +204,89 @@ if problems:
     print("the engine is not the registered apparatus: " + "; ".join(sorted(problems))); sys.exit(1)
 PY
 }
+
+PP_EVIDENCE=hack/prospective-pilot/pilot_evidence.py
+# The whole barrier and capture after a replay, bounded (design page, "The fence" and pilot review 9, finding 4).
+PP_CAPTURE_BOUND_S="${PP_CAPTURE_BOUND_S:-300}"
+PP_FENCE_PORT="${PP_FENCE_PORT:-18081}"
+
+# Appends one phase stamp, in UTC, to the cell's phase record.
+pp_phase() {
+  local label="$1" rep="$2" phase="$3"
+  printf '%s\t%s\t%s\t%s\n' "$label" "$rep" "$phase" "$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)" >> "$OUT/phases.tsv"
+}
+
+# Captures one pilot cell's evidence after its replay returned, within PP_CAPTURE_BOUND_S seconds.
+#
+# Exit 0: the cell's evidence is complete. Exit 1: the arm is ineligible for calibration (the reason is written
+# to ineligible-<label>-<rep>.txt) and acquisition goes on. Exit 3: the apparatus was not the registered one, and
+# the pilot stops; the reason is printed.
+#
+#   1. The fence: one request straight to the engine, after the window. Synchronous scheduling runs one step at a
+#      time, so its completion means every step that began before the window end has run and been logged.
+#   2. The sentinel, rewritten until the step logger's terminal record says everything produced was written.
+#   3. The step log, the engine's own iteration log, and the gateway's record. The gateway image has no shell, so
+#      its emptyDir is read from the node, by the pod's UID, before the namespace is deleted.
+#   4. The priority witness: every request the scheduler received at its tier's priority.
+pp_capture() {
+  local label="$1" rep="$2" deadline pod gwpod node uid pf code why=""
+  deadline=$(( $(date +%s) + PP_CAPTURE_BOUND_S ))
+  pod=$(k get pods -n "$NS_A" -l app.kubernetes.io/component=vllm -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+  [ -n "$pod" ] || { pp_ineligible "$label" "$rep" "no engine pod to capture from"; return 1; }
+
+  kubectl --context "$KCTX" port-forward -n "$NS_A" "pod/$pod" "$PP_FENCE_PORT:8000" >"$OUT/fence-forward-$label-$rep.log" 2>&1 &
+  pf=$!
+  code=000
+  while [ "$(date +%s)" -lt "$deadline" ]; do
+    code=$(curl -sS -o "$OUT/fence-$label-$rep.json" -w '%{http_code}' --max-time $(( deadline - $(date +%s) )) \
+      -H 'Content-Type: application/json' -H "X-Request-Id: fence-$label-$rep" \
+      -d "{\"model\":\"$MODEL\",\"messages\":[{\"role\":\"user\",\"content\":\"x\"}],\"max_tokens\":1}" \
+      "http://127.0.0.1:$PP_FENCE_PORT/v1/chat/completions" 2>/dev/null) || code=000
+    [ "$code" = 200 ] && break
+    sleep 1
+  done
+  kill "$pf" 2>/dev/null || true; wait "$pf" 2>/dev/null || true
+  [ "$code" = 200 ] || { pp_ineligible "$label" "$rep" "the fence did not complete within the bound (last status $code)"; return 1; }
+  pp_phase "$label" "$rep" fence-done
+
+  local term=2
+  while [ "$(date +%s)" -lt "$deadline" ]; do
+    k exec -n "$NS_A" "$pod" -- touch "$PP_STEP_LOG.sentinel" >/dev/null 2>&1 || true
+    sleep 2
+    k exec -n "$NS_A" "$pod" -- cat "$PP_STEP_LOG" > "$OUT/step-log-$label-$rep.jsonl" 2>/dev/null || true
+    if why=$(python3 "$PP_EVIDENCE" terminal "$OUT/step-log-$label-$rep.jsonl"); then term=0; break; fi
+  done
+  pp_phase "$label" "$rep" terminal-read
+  k logs -n "$NS_A" "$pod" > "$OUT/engine-log-$label-$rep.txt" 2>/dev/null \
+    || why="${why:+$why; }the engine's own log could not be read"
+
+  gwpod=$(k get pods -n "$NS_A" -l app=m5c-gateway -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+  node=$(k get pod -n "$NS_A" "$gwpod" -o jsonpath='{.spec.nodeName}' 2>/dev/null)
+  uid=$(k get pod -n "$NS_A" "$gwpod" -o jsonpath='{.metadata.uid}' 2>/dev/null)
+  if [ -n "$node" ] && [ -n "$uid" ] && docker exec "$node" cat \
+       "/var/lib/kubelet/pods/$uid/volumes/kubernetes.io~empty-dir/gwrecord/$(basename "$PP_GATEWAY_RECORD")" \
+       > "$OUT/gateway-record-$label-$rep.jsonl" 2>/dev/null; then
+    :
+  else
+    why="${why:+$why; }the gateway's record could not be read from node ${node:-unknown}"
+  fi
+  pp_phase "$label" "$rep" capture-done
+
+  if [ "$term" != 0 ]; then pp_ineligible "$label" "$rep" "${why:-the step log never showed a complete terminal record}"; return 1; fi
+  local prio prc
+  # The status is taken beside the call: inside `if ! cmd`, $? is the negation's, which is always 0.
+  prio=$(python3 "$PP_EVIDENCE" priority "$OUT/step-log-$label-$rep.jsonl" "$OUT/raw-$label-$rep.jsonl") && prc=0 || prc=$?
+  case "$prc" in
+    0) ;;
+    1) echo "$prio"; return 3 ;;
+    *) pp_ineligible "$label" "$rep" "$prio"; return 1 ;;
+  esac
+  [ -z "$why" ] || { pp_ineligible "$label" "$rep" "$why"; return 1; }
+  return 0
+}
+
+# Records why a cell is ineligible for calibration; the cell's measurements are still reported.
+pp_ineligible() {
+  printf '%s\n' "$3" > "$OUT/ineligible-$1-$2.txt"
+  say "  $1 rep $2 is ineligible for calibration: $3"
+}

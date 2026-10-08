@@ -2078,6 +2078,15 @@ deploy_arm() {
         why=$(iv_render_manifest "$STUDY" "$label" config/vllm/deployment.yaml "$engine_manifest" "$MODEL_REVISION") \
           || fail "could not render the engine manifest for $label: $why"
         engine_source="config/vllm/deployment.yaml+$label"
+      elif pp_is_study "${STUDY:-}" && [ -z "${LADDER:-}" ]; then
+        # Every pilot arm runs the same engine: priority policy, budget 512, the pilot's step logger and the
+        # weights on a host path, so the restart between arms reuses them.
+        engine_manifest="$WORK/engine-$label.yaml"
+        why=$(pp_render_manifest config/vllm/deployment.yaml "$engine_manifest" "$MODEL_REVISION") \
+          || fail "could not render the pilot engine for $label: $why"
+        engine_source="config/vllm/deployment.yaml+pilot"
+        k create configmap "$PP_CONFIGMAP" -n "$NS_A" --from-file="pilot_step_logger.py=$PP_PLUGIN" \
+          --dry-run=client -o yaml | k apply -f - >/dev/null || fail "create the pilot step logger's ConfigMap for $label"
       fi
       # A -step engine imports the instrument from a ConfigMap of the checked-in file, created beside it.
       case "$label" in
@@ -2095,6 +2104,10 @@ deploy_arm() {
       if iv_is_study "${STUDY:-}" && [ -z "${LADDER:-}" ]; then
         # $rep is run_cell's local, which bash's dynamic scope makes visible here.
         why=$(iv_process_args_refusal "$STUDY" "$label" "$ENGINE_PROCESS_ARGS" "$MODEL_REVISION") \
+          || cell_refused_stop "$label" "${rep:-unknown}" before-replay "REFUSED $label before replay: $why"
+      elif pp_is_study "${STUDY:-}" && [ -z "${LADDER:-}" ]; then
+        # An engine that is not the registered apparatus stops the pilot: its measurements would be of another one.
+        why=$(pp_process_args_refusal "$ENGINE_PROCESS_ARGS" "$MODEL_REVISION") \
           || cell_refused_stop "$label" "${rep:-unknown}" before-replay "REFUSED $label before replay: $why"
       fi
       routing_record "$NS_A" vllm-qwen25-3b
@@ -2195,6 +2208,16 @@ EOF
 
   # Admission OFF in both arms. The matrix varies the TOPOLOGY; leaving the guard on would vary two things
   # and hand the difference to whichever one the reader already believed.
+  #
+  # The prospective-admission pilot is the exception: its arms ARE the admission modes, on one topology, and every
+  # one of them binds priority, enforces the benchmark profile and writes the per-request record to a volume
+  # capture reads before the namespace is deleted.
+  local gw_args='["-admission-mode=off"]' gw_mounts="" gw_volumes=""
+  if pp_is_study "${STUDY:-}" && [ -z "${LADDER:-}" ]; then
+    gw_args=$(pp_gateway_args_yaml "$label" "${PILOT_STATIC_RATE:-}" 2>&1) || fail "gateway arguments for $label: $gw_args"
+    gw_mounts="volumeMounts: [{name: gwrecord, mountPath: $(dirname "$PP_GATEWAY_RECORD")}]"
+    gw_volumes="volumes: [{name: gwrecord, emptyDir: {}}]"
+  fi
   k apply -f - >/dev/null <<EOF || fail "gateway for $arm"
 apiVersion: apps/v1
 kind: Deployment
@@ -2211,11 +2234,12 @@ spec:
       containers:
         - name: gateway
           image: $GW_IMAGE
-          args: ["-admission-mode=off"]
+          args: $gw_args
           env:
             - {name: GATEWAY_NAMESPACE, value: $NS_A}
             - {name: GATEWAY_API_KEY_SECRET, value: gateway-api-keys}
           ports: [{containerPort: 8080, name: http}]
+          $gw_mounts
           # A READINESS PROBE, because without one "rollout status" means only that the container started.
           #
           # Quoted with "" and not with backticks, which is not a style note: this heredoc is unquoted so
@@ -2240,6 +2264,7 @@ spec:
             httpGet: {path: /readyz, port: http}
             periodSeconds: 2
             failureThreshold: 60
+      $gw_volumes
 EOF
   k rollout status deploy/gateway -n "$NS_A" --timeout=180s >/dev/null || fail "gateway never became ready for $arm"
 }
@@ -2754,6 +2779,22 @@ cell_deadline_check() {
 
 cell_deadline_check_inner() {
   local remain per projected floor warm_pair
+  # The pilot has no projection stop (design page, build item 10). Its projection would include the cold first
+  # cell and multiply by 1.2, which refuses every pilot session after its first cell. Its cell count is the
+  # registration's, its deadlines are sized from that count, and the hard stop and the sweeper bound its time.
+  # What stays is the floor no projection is needed for: a cell does not start with under 15 minutes left,
+  # because its 7-minute replay, restart and capture cannot fit.
+  if [ -z "${LADDER:-}" ] && pp_is_study "${STUDY:-}"; then
+    JUDGE_BASIS="pilot: projection disabled, 15-minute floor"
+    remain=$(deadline_remaining_minutes 2>/dev/null) || return 0
+    [ -n "$remain" ] || return 0
+    JUDGE_REMAIN="$remain"
+    if [ "$remain" -lt 15 ]; then
+      echo "STOPPING: the deadline fires in ${remain} min, and no pilot cell fits in under 15" >&2
+      return 1
+    fi
+    return 0
+  fi
   # BEFORE the first cell there is no measured rate to project from -- but there is still a deadline, and
   # "no projection" is not "enough time".
   #
@@ -3350,6 +3391,9 @@ run_cell() {
   local idflag=""
   if [ -z "${LADDER:-}" ] && iv_is_study "${STUDY:-}"; then
     idflag=$(iv_request_id_flag "$STUDY" "$label" "$rep" measured) || fail "request ids for $label"
+  elif [ -z "${LADDER:-}" ] && pp_is_study "${STUDY:-}"; then
+    idflag=$(pp_request_id_flag "$PILOT_STAGE" "$label" "$rep") || fail "request ids for $label"
+    pp_phase "$label" "$rep" replay-start
   fi
   "$WORK/benchharness" replay --manifest "$OUT/manifest-$label-$rep.yaml" \
     $PROVENANCE_FLAG ${idflag:+"$idflag"} \
@@ -3358,6 +3402,16 @@ run_cell() {
     --raw-out "$OUT/raw-$label-$rep.jsonl" || fail "replay $label"
   [ -s "$OUT/raw-$label-$rep.jsonl" ] || fail "no raw evidence for $label rep $rep"
   scrape_engine_metrics "$arm" "$label" "$rep" after
+  # The pilot's capture: fence, terminal record, logs, the gateway's record and the priority witness. An
+  # ineligible cell goes on to the next arm; an apparatus that was not the registered one stops the pilot below.
+  local pilot_stop=""
+  if [ -z "${LADDER:-}" ] && pp_is_study "${STUDY:-}"; then
+    pp_phase "$label" "$rep" replay-done
+    local pc_out pc_rc
+    pc_out=$(pp_capture "$label" "$rep") && pc_rc=0 || pc_rc=$?
+    [ -z "$pc_out" ] || printf '%s\n' "$pc_out" | tee -a "$LOG"
+    [ "$pc_rc" != 3 ] || pilot_stop="the engine was not the registered apparatus: $pc_out"
+  fi
   say "  $(wc -l < "$OUT/raw-$label-$rep.jsonl") rows"
   # The engine's own log for this cell, judged before the cell is handed over and refused after it is.
   #
@@ -3398,6 +3452,17 @@ run_cell() {
   # rehearsals where there is no bucket and nothing to upload to. Unset, nothing happens and the behaviour
   # is exactly what it was. A failing hook does NOT fail the cell: the evidence is already on disk, and a
   # transient S3 error is not a reason to throw away a measurement that was paid for.
+  # The pilot writes its timing row BEFORE the hook, so the row leaves the instance with the cell, and the hook's
+  # own start and end AFTER it, in cell-uploads.tsv, which the next cell's hook carries (design page, "The arm's
+  # timing is complete, in two records"). A row written after the hook could not include the hook, and one written
+  # before could not include its end.
+  local pilot_timed=""
+  if [ -z "${LADDER:-}" ] && pp_is_study "${STUDY:-}"; then
+    cell_timing_record "$label" "$rep" completed "$CELL_T0" "$(date +%s)" || true
+    pilot_timed=1
+  fi
+  local hook_t0
+  hook_t0=$(date +%s)
   if [ -n "${CELL_DONE_HOOK:-}" ]; then
     # BOUNDED, because a hook that hangs costs card time the cell budget has already promised elsewhere.
     #
@@ -3414,14 +3479,21 @@ run_cell() {
     OUT="$OUT" timeout "${CELL_DONE_HOOK_TIMEOUT:-120}" "$CELL_DONE_HOOK" "$OUT/raw-$label-$rep.jsonl" "$label" "$rep" \
       || say "  WARNING: CELL_DONE_HOOK failed or timed out for $label rep $rep; the cell is still on local disk and will go up with the rest"
   fi
+  if [ -n "$pilot_timed" ]; then
+    [ -s "$OUT/cell-uploads.tsv" ] || printf 'cell\tarm\trep\thook_start_utc\thook_end_utc\thook_s\n' > "$OUT/cell-uploads.tsv"
+    printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$cell_n" "$label" "$rep" "$(date -u -d "@$hook_t0" +%Y-%m-%dT%H:%M:%SZ)" \
+      "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(( $(date +%s) - hook_t0 ))" >> "$OUT/cell-uploads.tsv"
+  fi
   [ -z "$engine_log_refusal" ] \
     || cell_refused_stop "$label" "$rep" after-replay "REFUSED $label rep $rep after replay: $engine_log_refusal"
+  [ -z "$pilot_stop" ] \
+    || cell_refused_stop "$label" "$rep" after-replay "REFUSED $label rep $rep after its capture: $pilot_stop"
   CELL_T1=$(date +%s)
   cell_secs=$(( cell_secs + CELL_T1 - CELL_T0 ))
   cells_done=$(( cells_done + 1 ))
   # Flushed per cell rather than assembled at the end: a matrix that stops on a boundary, or is cut
   # mid-cell, is exactly the run whose per-cell times someone will want afterwards.
-  cell_timing_record "$label" "$rep" completed "$CELL_T0" "$CELL_T1" || true
+  [ -n "$pilot_timed" ] || cell_timing_record "$label" "$rep" completed "$CELL_T0" "$CELL_T1" || true
 }
 
 for spec in "${CELLS[@]}"; do
