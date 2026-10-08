@@ -511,8 +511,15 @@ print(int((e-datetime.datetime.now(datetime.timezone.utc)).total_seconds()//60))
   fi
   say "the CLI could not export the active credential's expiry; falling back to scanning the credential cache"
 
+  # The pilot refuses where other sessions skip or trust (design page, build item 13): an expiry it cannot establish,
+  # an active role sts cannot name, and a cache entry that names only an account rather than the exact role.
+  # Each of those is a session that could outlive its credentials, and the pilot's terminate-first rule needs them.
+  local strict="${PILOT_STAGE:+1}"
   cache="${AWS_CLI_CACHE_DIR:-$HOME/.aws/cli/cache}"
-  [ -d "$cache" ] || { say "no CLI credential cache at $cache; skipping the expiry check"; return 0; }
+  if [ ! -d "$cache" ]; then
+    [ -z "$strict" ] || fail "the active credential's expiry could not be exported and there is no CLI cache at $cache, so the pilot cannot establish when its credentials end"
+    say "no CLI credential cache at $cache; skipping the expiry check"; return 0
+  fi
   # The LATEST live expiry, not the earliest. Taking min() across every file in the cache reads a stale
   # entry from another profile as this session's, which is how a fresh twelve-hour login was once reported
   # as expired.
@@ -547,7 +554,7 @@ print(int((e-datetime.datetime.now(datetime.timezone.utc)).total_seconds()//60))
     [ -f "$f" ] || continue
     expiry=$(python3 -c "
 import json,sys
-want, want_account = sys.argv[2], sys.argv[3]
+want, want_account, strict = sys.argv[2], sys.argv[3], sys.argv[4] == '1'
 try:
     d=json.load(open(sys.argv[1]))
     c=d.get('Credentials',{})
@@ -566,20 +573,27 @@ try:
     elif who:
         print(c.get('Expiration','') if '/'.join(who.split('/')[:2]) == want else '')
     elif acct:
-        print(c.get('Expiration','') if acct == want_account else '')
+        # An account alone may be another role's entry in the same account; the pilot does not take it.
+        print(c.get('Expiration','') if acct == want_account and not strict else '')
     else:
         print('')                              # carries no identity at all
 except Exception:
     print('')
-" "$f" "$arn" "$account" 2>/dev/null)
+" "$f" "$arn" "$account" "$strict" 2>/dev/null)
     [ -n "$expiry" ] || continue
     if [ -z "$newest" ] || [[ "$expiry" > "$newest" ]]; then newest="$expiry"; fi
   done
+  if [ -z "$arn" ] && [ -n "$strict" ]; then
+    fail "sts could not name the active role, so no cache entry can be matched to it and the pilot cannot establish when its credentials end"
+  fi
   if [ -z "$arn" ] && [ -z "$account" ]; then
     say "WARNING: sts could not say which role is active, so every cache entry is being trusted and the"
     say "  expiry below may belong to a different profile. This session will be launched on that basis."
   fi
-  [ -n "$newest" ] || { say "no expiry found in $cache; skipping the check"; return 0; }
+  if [ -z "$newest" ]; then
+    [ -z "$strict" ] || fail "no entry in $cache names the active role ${arn:-?} with an expiry, so the pilot cannot establish when its credentials end; re-authenticate with aws sso login --profile <yours>"
+    say "no expiry found in $cache; skipping the check"; return 0
+  fi
   left=$(python3 -c "
 import datetime,sys
 e=datetime.datetime.fromisoformat(sys.argv[1].replace('Z','+00:00'))

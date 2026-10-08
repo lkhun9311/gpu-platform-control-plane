@@ -608,6 +608,13 @@ scenarios_m5c_gpu_session() {
     STUB_PRESENT_KEYS="evidence.tgz log.txt commit.txt nodes.txt preflight-nvidia-smi.csv preflight-node-cards.txt matrix-returned.txt" \
     run_scenario prospective-pilot-stage-a bash "$TARGET"
 
+  # The pilot's strict credential check: with no exportable expiry, the only cache entry names just an account, which
+  # another session takes and the pilot refuses (design page, build item 13).
+  REPS=3 REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_CREDENTIALS_EXPIRE_IN_MIN= \
+    STUDY=prospective-pilot-2026-10-08 PILOT_STAGE=A PREMIUM_RATE=9.25 PILOT_NOISY_RATE=0.5 SEEDS="11 12 13" \
+    PREMIUM_PROMPT_CHARS=200 NOISY_PROMPT_CHARS=40000 REQUEST_TIMEOUT_MS=30000 PREMIUM_OUTPUT_TOKENS=64 NOISY_OUTPUT_TOKENS=16 \
+    run_scenario prospective-pilot-account-only-credential bash "$TARGET"
+
   # Stage B without the R stage A fitted: refused before anything is rented.
   REPS=3 REQUIRE_CLEAN_TREE=0 \
     STUDY=prospective-pilot-2026-10-08 PILOT_STAGE=B PREMIUM_RATE=9.25 PILOT_NOISY_RATE=0.5 SEEDS="11 12 13" \
