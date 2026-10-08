@@ -1174,12 +1174,17 @@ USERDATA
 # The acquisition deadline leaves the 6-minute termination reserve before the hard stop. The matrix on the
 # instance stops a further PILOT_TAIL_RESERVE_S earlier, so its archive and marker can be up before the wrapper
 # stops waiting; the pilot measures that tail, and 10 minutes is the reserve until it has.
+# The study-deadline tag the sweeper reads (infra/aws/bootstrap/sweeper.tf) is the hard stop plus 20 minutes, set
+# in the launch's own tag specifications so it exists the moment the instance does.
 PILOT_ACQ_DEADLINE=""
 PILOT_MATRIX_DEADLINE=""
+PILOT_STUDY_DEADLINE=""
 PILOT_TAIL_RESERVE_S=600
 if [ -n "${PILOT_STAGE:-}" ]; then
-  PILOT_ACQ_DEADLINE=$(( $(date +%s) + HARD_STOP_SECONDS - 360 ))
+  _t0=$(date +%s)
+  PILOT_ACQ_DEADLINE=$(( _t0 + HARD_STOP_SECONDS - 360 ))
   PILOT_MATRIX_DEADLINE=$(( PILOT_ACQ_DEADLINE - PILOT_TAIL_RESERVE_S ))
+  PILOT_STUDY_DEADLINE=$(date -u -d "@$(( _t0 + HARD_STOP_SECONDS + 1200 ))" +%Y-%m-%dT%H:%M:%SZ)
 fi
 
 UD="$(mktemp)"
@@ -1341,7 +1346,7 @@ say "launching $INSTANCE_TYPE spot (max \$$MAX_SPOT_PRICE/h)"
 # It is a LABEL, not an authorisation. Deciding what to terminate is done from the client token, which is
 # unique to one launch attempt; RUN_NONCE is 32 bits with a seconds-based fallback and must never be given
 # deletion authority on its own.
-TAGS="ResourceType=instance,Tags=[{Key=Name,Value=$STACK},{Key=purpose,Value=m5c-sharing-matrix},{Key=run,Value=$RUN_NONCE}]"
+TAGS="ResourceType=instance,Tags=[{Key=Name,Value=$STACK},{Key=purpose,Value=m5c-sharing-matrix},{Key=run,Value=$RUN_NONCE}${PILOT_STUDY_DEADLINE:+,{Key=study-deadline,Value=$PILOT_STUDY_DEADLINE\}}]"
 # The trap is armed BEFORE the launch loop, not after it.
 #
 # It used to sit below the line that prints the instance id, which left a window in which run-instances had

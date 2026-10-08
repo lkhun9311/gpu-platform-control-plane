@@ -236,6 +236,7 @@ run_scenario() {
       -e "s#reconciling the launch token [A-Za-z0-9]*-[0-9a-f]\{8,\}-#reconciling the launch token <TOKEN>-#g" \
       -e "s#UNRESOLVED for token [A-Za-z0-9]*-[0-9a-f]\{8,\}-#UNRESOLVED for token <TOKEN>-#g" \
       -e "s#Values=\([A-Za-z0-9]*\)-[0-9a-f]\{8,\}-#Values=\1-<RUN>-#g" \
+      -e "s#Key=study-deadline,Value=[0-9T:-]*Z#Key=study-deadline,Value=<DEADLINE>#g" \
       -e "s#${TMPDIR:-/tmp}/tmp\.[A-Za-z0-9]*#<TMP>#g" \
       -e "s#/tmp/tmp\.[A-Za-z0-9]*#<TMP>#g" \
       -e "s#harness sha256 [0-9a-f]\{64\}#harness sha256 <SHA256>#g" \
@@ -254,7 +255,9 @@ run_scenario() {
     # Normalizing user-data.sh alone left `s3://stub-bucket/run-ee4ef574/src/source.tgz` against
     # `run-4b77cdbb` on the next run, so the suite failed twice with the same COUNT and I read that as
     # determinism restored. Two runs failing identically for different nonces is not two runs agreeing.
-    sed -e "s#run-[0-9a-f]\{8\}#run-<NONCE>#g" "$STUB_TRANSCRIPT" \
+    # The pilot's study-deadline tag is a wall-clock time, and it sits in the launch call.
+    sed -e "s#run-[0-9a-f]\{8\}#run-<NONCE>#g" \
+        -e "s#Key=study-deadline,Value=[0-9T:-]*Z#Key=study-deadline,Value=<DEADLINE>#g" "$STUB_TRANSCRIPT" \
       | python3 "$ROOT/$HERE/collapse.py"
     printf -- '--- exit %s\n' "$rc"
     printf -- '--- messages\n'
