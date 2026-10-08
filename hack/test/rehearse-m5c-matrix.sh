@@ -575,8 +575,13 @@ if [ -n "$PILOT_UNDER_TEST" ]; then
     d="$OUT_DIR-$stage"
     [ -s "$d/calibration.txt" ] || fail "stage $stage: no calibration record"
     [ -s "$d/phases.tsv" ] && [ -s "$d/cell-uploads.tsv" ] || fail "stage $stage: no phase or upload timing record"
-    for f in "$d"/raw-*-[123].jsonl; do
-      cell=$(basename "$f" .jsonl); cell=${cell#raw-}
+    # The stage's arms crossed with blocks 1 to 3, not the raw files that happen to exist: a cell the matrix never
+    # ran has no file to check, so a loop over files passed with an arm or a block missing (review of 60f3674).
+    stage_arms=$(. "$ROOT/hack/lib/prospective-pilot.sh" && pp_stage_arms "$stage") || fail "no arms for stage $stage"
+    n_raw=$(find "$d" -maxdepth 1 -name 'raw-*-[0-9].jsonl' ! -name 'raw-warmup-*' | wc -l)
+    [ "$n_raw" = $(( $(printf '%s\n' $stage_arms | wc -l) * 3 )) ] || fail "stage $stage holds $n_raw raw files for arms [$stage_arms] x 3 blocks"
+    for cell in $(for a in $stage_arms; do printf '%s-1 %s-2 %s-3 ' "$a" "$a" "$a"; done); do
+      [ -s "$d/raw-$cell.jsonl" ] || fail "stage $stage cell $cell: no raw rows"
       for need in "step-log-$cell.jsonl" "engine-log-$cell.txt" "gateway-record-$cell.jsonl" "raw-$cell.jsonl.sender.json"; do
         [ -s "$d/$need" ] || fail "stage $stage cell $cell: no $need"
       done
