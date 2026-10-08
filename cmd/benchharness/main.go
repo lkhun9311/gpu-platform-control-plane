@@ -430,6 +430,11 @@ func genTrace(args []string) error {
 	if err != nil {
 		return fmt.Errorf("generate trace: %w", err)
 	}
+	if st, ok := bench.LookupStudy(*study); ok && st.FixesOutputAtCap {
+		if err := bench.FixOutputAtCap(rows); err != nil {
+			return fmt.Errorf("study %s fixes output at its cap: %w", st.ID, err)
+		}
+	}
 
 	// R1 is the uncontended premium baseline.
 	//

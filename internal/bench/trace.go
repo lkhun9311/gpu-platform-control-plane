@@ -71,6 +71,19 @@ type TraceRow struct {
 	MinOutputTokens int `json:"minOutputTokens,omitempty"`
 }
 
+// FixOutputAtCap sets every row's minimum output to its cap, so the engine cannot stop a request early.
+//
+// A row with no cap is refused rather than given a minimum of zero, which would mean "no minimum" on the wire.
+func FixOutputAtCap(rows []TraceRow) error {
+	for i := range rows {
+		if rows[i].MaxOutputTokens <= 0 {
+			return fmt.Errorf("row %d has no output cap, so its output cannot be fixed at one", rows[i].Index)
+		}
+		rows[i].MinOutputTokens = rows[i].MaxOutputTokens
+	}
+	return nil
+}
+
 // TenantSpec describes one tenant's share of a trace and the shape of its requests.
 // PromptLenCharsByTenant reports the prompt length each tenant's rows carry, in characters.
 //

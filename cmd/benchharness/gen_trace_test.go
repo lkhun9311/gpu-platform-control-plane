@@ -351,3 +351,38 @@ func TestTheOutputCapFlagsReachTheRows(t *testing.T) {
 		}
 	}
 }
+
+// The pilot's rows ask for exactly their cap, and every other study's ask for no minimum.
+//
+// Mutation that turns this red: drop the FixesOutputAtCap branch from genTrace.
+func TestGenTraceFixesOutputAtCapOnlyForTheStudyThatRegisteredIt(t *testing.T) {
+	args := []string{"--seed", "11", "--duration-ms", "60000", "--premium-rate", "9.25", "--noisy-rate", "0.5", "--probe-rate", "0",
+		"--premium-prompt-chars", "200", "--noisy-prompt-chars", "40000", "--premium-output-tokens", "64", "--noisy-output-tokens", "16"}
+	pilot, err := runGenTrace(t, append([]string{"--study", bench.StudyProspectivePilot, "--arm", "off"}, args...)...)
+	if err != nil {
+		t.Fatalf("gen-trace for the pilot: %v", err)
+	}
+	if len(pilot) == 0 {
+		t.Fatal("no rows, so the check below is vacuous")
+	}
+	sawContender := false
+	for _, r := range pilot {
+		if r.MinOutputTokens != r.MaxOutputTokens {
+			t.Fatalf("row %d asks for at least %d of %d output tokens", r.Index, r.MinOutputTokens, r.MaxOutputTokens)
+		}
+		sawContender = sawContender || r.IsNoisy
+	}
+	if !sawContender {
+		t.Fatal("no contender row, so the contender's cap was never checked")
+	}
+
+	other, err := runGenTrace(t, args...)
+	if err != nil {
+		t.Fatalf("gen-trace with no study: %v", err)
+	}
+	for _, r := range other {
+		if r.MinOutputTokens != 0 {
+			t.Fatalf("row %d of a study that fixed nothing carries a minimum of %d", r.Index, r.MinOutputTokens)
+		}
+	}
+}

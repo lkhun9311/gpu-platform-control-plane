@@ -50,6 +50,14 @@ type Study struct {
 	// the resolver last returned". FrozenTuple.Drift compares the two and reports the difference instead.
 	Frozen *FrozenTuple
 
+	// FixesOutputAtCap says every request of the study must produce exactly its output cap.
+	//
+	// The prospective-admission pilot needs it so that a short completion is a failure rather than output
+	// silently deleted (design page, "Load"); gen-trace sets each row's MinOutputTokens to its cap, which
+	// the trace's checksum then covers. It is a study property rather than a flag, so a trace of that study
+	// cannot be generated without it.
+	FixesOutputAtCap bool
+
 	// MinRepetitions is the fewest repetitions per arm this study's registration permits, or 0 where it
 	// registered none.
 	//
@@ -722,7 +730,8 @@ var studies = map[string]Study{
 		},
 		// Three blocks per stage, as the scope fixes: the main endpoint pools three, and pooling is not linear in
 		// the number of blocks. No interval is published, since the pilot judges nothing.
-		MinRepetitions: 3,
+		MinRepetitions:   3,
+		FixesOutputAtCap: true,
 	},
 	StudyThroughputLadder: {
 		ID:       StudyThroughputLadder,
