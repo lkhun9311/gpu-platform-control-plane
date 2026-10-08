@@ -864,10 +864,24 @@ Blindness was meant to prevent one harm: a designer who has seen the P/S effect 
 - **the width screen** stays at a half-width of 0.043, fixed;
 - **durations and deadlines** = the measured session and arm times plus 25%.
 
-**The formulas run only on complete timing evidence** (pilot review 4, finding 1). They read dispatch lag from the gateway's arrival stamps. A served request with no gateway record, or a scheduler record with no gateway record, is a request whose lag is unknown, and the client's stamps cannot recover it.
-- In either stage, any such request makes the formulas' outputs **unavailable**, and the design returns to review rather than calibrate on the observed subset.
-- Thirteen 900 ms requests without records among 12,285 would otherwise turn a true ceiling of 1,800 ms into 50 ms.
-- The other measurements are still reported, each marked with the records it lacks.
+**The formulas run only on timing evidence that is complete, unambiguous and witnessed.** v4 and v5 of this scope listed the cases that make evidence unusable, and each review found one more:
+- a served request without a record (pilot review 4, finding 1);
+- a refused request without one (pilot review 5, finding 1);
+- an incomplete step log hiding the witnesses (review 5, finding 2);
+- duplicate IDs (review 5, finding 3).
+
+v6 states the condition positively instead. **An arm's timing evidence is eligible only if all of these hold:**
+1. **Every client row has exactly one gateway record, and every gateway record exactly one client row,** joined by an ID that occurs once. Refusals are included: a refused request is recorded at its arrival, before admission, like any other.
+2. **The only exception is a request with no gateway record that failed before any response.** Even then, it counts only if the arm's step log is complete and has no record of it. Without a complete log, it is not known whether the request reached the engine, and the arm is ineligible.
+3. **The arm's step log is complete** by the counts under build item 6, so its priority witness covers every request that reached the scheduler.
+
+The formulas read only eligible arms, and **they need every arm of both stages to be eligible.** Otherwise their outputs are **unavailable**, and the design returns to review.
+- Thirteen 900 ms requests without records among 12,285 turn a true ceiling of 1,800 ms into 50 ms.
+- Two records sharing an ID can give a ceiling of 2,002 or 3,800 ms depending on which is which.
+
+Neither may calibrate anything.
+
+**Acquisition still continues through ineligible arms,** and every measurement is reported. Each is marked eligible or not, and with the records it lacks. The priority check on an arm whose step log is incomplete is reported as **unknown, not passed**. That arm cannot show it ran the registered apparatus.
 
 **Any change outside these formulas is a new design.** It is registered, attacked again, and states in its own page that its author had seen stage B.
 
@@ -882,7 +896,7 @@ Blindness was meant to prevent one harm: a designer who has seen the P/S effect 
 - the credential check;
 - the deadline.
 
-A step log that fails its completeness check annotates that arm's processed-work figures as unusable, and does not stop the next arm.
+A step log that fails its completeness check does not stop the next arm. It makes that arm ineligible for calibration as a whole, not only its processed-work figures, because the log is also the priority witness and the engine-reach witness (pilot review 5, finding 2).
 
 **Separation:**
 - Stage B's data never enter the main analysis.
