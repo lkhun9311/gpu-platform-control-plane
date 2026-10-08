@@ -831,7 +831,7 @@ An exercised sweeper shows it works, not how long it takes. If all three fail, s
 | Quantity | Why the main design needs it |
 |---|---|
 | Dispatch lag (gateway arrival minus scheduled instant): full distribution, maximum, and count above 5, 25 and 50 ms | the ceiling and uncertainty rules, and round 21's finding 4 |
-| Gateway-internal delays: arrival → durable record written → admission decision → backend forward → first-content forward | round 21's finding 1: what happens after the arrival stamp, including the durable write |
+| Gateway-internal delays: arrival → durable record written → admission decision → proxy handoff → first content **flushed** to the client | round 21's finding 1: what happens after the arrival stamp, including the durable write. "Proxy handoff" is when the request enters the reverse proxy; connection setup and transmission to the engine come after it (pilot review 10, finding 4). First content is stamped at the flush that sends it, not at the write into the server's buffer (pilot review 10, finding 1) |
 | Client-side stamps beside the gateway's: send and first content | how far each client stamp sits from the gateway's |
 | Missing gateway records; scheduler records with no gateway record | the record rules |
 | Each arm's premium p99 on TTFT-scheduled and TTFT-arrival, with the uncertain set at 0 and at +∞, pooled; and each arm's **box width** ln(hi/lo) | round 21's findings 2 and 3, and pilot review 2's finding 1. The pooled P/S width is the sum of the two arms' widths, so pooling is measured, not inferred from blocks |
@@ -864,7 +864,7 @@ Blindness was meant to prevent one harm: a designer who has seen the P/S effect 
 - **the uncertainty cap** stays 0.1%. If any arm's uncertain fraction at the new L exceeds 0.05% in the pilot, the design returns to review instead;
 - **the width screen** stays at a half-width of 0.043, fixed;
 - **durations and deadlines,** from `cell-timings.tsv` (`m5c-matrix.sh:2281`) and the phase stamps below:
-  - **arm time** = the largest `elapsed_s` of any arm in either stage;
+  - **arm time** = the largest **complete** cell time of any arm in either stage: its preliminary `elapsed_s` plus its upload hook's duration from `cell-uploads.tsv`. The preliminary row alone excludes the upload, so the formula would fall short by up to the hook's 120 s per cell (pilot review 10, finding 3);
   - **bring-up** = the larger of the two stages' times from the instance's EC2 `LaunchTime` to the first cell's start;
   - **session tail** = the larger of the two stages' times from the matrix's return to the `DONE` marker's upload: the archive, the node evidence and the marker (`m5c-gpu-session.sh:1098` to `:1114`). Measured, not left to the margin (pilot review 9, finding 3);
   - **main session length** = (bring-up + 12 × arm time + session tail) × 1.25;
@@ -885,7 +885,11 @@ Blindness was meant to prevent one harm: a designer who has seen the P/S effect 
 - duplicate IDs (review 5, finding 3).
 
 v6 states the condition positively instead. **An arm's timing evidence is eligible only if all of these hold:**
-1. **Every client row has exactly one gateway record, and every gateway record exactly one client row,** joined by an ID that occurs once. Refusals are included: a refused request is recorded at its arrival, before admission, like any other.
+1. **Every client row has exactly one gateway record, and every gateway record exactly one client row,** joined by an ID that occurs once.
+   - **A gateway record is one request's `arrive` line and `done` line, joined by ID.** A `done` with no `arrive`, or an `arrive` with no `done`, is an incomplete record.
+   - **And the record must carry every stamp its use needs** (pilot review 10, finding 2): an arrival stamp for every request, and a flushed first-content stamp for every premium success.
+   - A request refused before its body was read has a `done` line and no arrival. That happens to authentication, policy and rate-limit refusals, which come before the body (`server.go:356` to `:401`). Its lag is unknown, so the arm is ineligible.
+   - The pilot's tenants are configured so that none of those refusals should occur. The report counts them if they do.
 2. **There is no exception for a request with no gateway record.** v6 excused one that failed before any response and had no scheduler record. Pilot review 6 (finding 1) showed a request can be admitted, stall before the scheduler, time out, and lose its record, and the exception would accept it. The durable write is intended, not proof that an absent record never existed.
 3. **The arm's step log is complete** by the counts under build item 6, and **its coverage reaches past the window end, proved by an acknowledged fence** (pilot review 9, finding 1).
    - **Three earlier versions tried passive signals, and each failed:**
