@@ -1,0 +1,130 @@
+package main
+
+import (
+	"bufio"
+	"bytes"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strconv"
+	"strings"
+	"testing"
+	"time"
+)
+
+// The pilot's stub writes a step log and iteration lines that agree step for step, honours each request's cap,
+// and answers the sentinel with a complete terminal record: the evidence the pilot's eligibility rules read.
+//
+// Mutation that turns it red: print the iteration line with a different index from the sched record, or drop
+// the per-request cap.
+func TestStubPilotModeWritesAlignedEvidence(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "step.jsonl")
+	var iters bytes.Buffer
+	pl, err := openStubPilotLog(path, &iters)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stop := make(chan struct{})
+	defer close(stop)
+	go pl.watchSentinel(stop)
+	srv := httptest.NewServer(stubMux(stubProfile{tokens: 8, pilot: pl, usage: true}, newStubStats()))
+	defer srv.Close()
+
+	send := func(id string, prio, cap int) int {
+		body := `{"model":"m","messages":[{"role":"user","content":"` + strings.Repeat("a", 200) + `"}],"max_tokens":` +
+			strconv.Itoa(cap) + `,"min_tokens":` + strconv.Itoa(cap) + `,"priority":` + strconv.Itoa(prio) + `,"stream":true}`
+		req, _ := http.NewRequest(http.MethodPost, srv.URL+"/v1/chat/completions", strings.NewReader(body))
+		req.Header.Set("X-Request-Id", id)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, _ := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		return strings.Count(string(b), `"content":"x"`)
+	}
+	if n := send("pp-A-off-1-0", 0, 4); n != 4 {
+		t.Fatalf("a request capped at 4 produced %d tokens", n)
+	}
+	if n := send("pp-A-off-1-1", 1, 2); n != 2 {
+		t.Fatalf("a request capped at 2 produced %d tokens", n)
+	}
+	if err := os.WriteFile(path+".sentinel", nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var recs []map[string]any
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		recs = nil
+		f, _ := os.Open(path)
+		sc := bufio.NewScanner(f)
+		for sc.Scan() {
+			var m map[string]any
+			_ = json.Unmarshal(sc.Bytes(), &m)
+			recs = append(recs, m)
+		}
+		_ = f.Close()
+		if len(recs) > 0 && recs[len(recs)-1]["ev"] == "terminal" {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if len(recs) == 0 || recs[len(recs)-1]["ev"] != "terminal" {
+		t.Fatal("no terminal record after the sentinel")
+	}
+
+	var seqs []int
+	var sched []map[string]any
+	prio := map[string]any{}
+	for _, r := range recs {
+		if s, ok := r["seq"].(float64); ok {
+			seqs = append(seqs, int(s))
+		}
+		switch r["ev"] {
+		case "sched":
+			sched = append(sched, r)
+		case "add":
+			prio[r["id"].(string)] = r["priority"]
+		}
+	}
+	for i, s := range seqs {
+		if s != i+1 {
+			t.Fatalf("sequence numbers are not 1..n without a gap: %v", seqs)
+		}
+	}
+	term := recs[len(recs)-1]
+	if int(term["seq_produced"].(float64)) != len(seqs) || term["buffered"].(float64) != 0 {
+		t.Fatalf("the terminal record is not complete: %v", term)
+	}
+	if prio["chatcmpl-pp-A-off-1-0"] != float64(0) || prio["chatcmpl-pp-A-off-1-1"] != float64(1) {
+		t.Fatalf("the add records do not carry the requests' priorities: %v", prio)
+	}
+
+	lines := strings.Split(strings.TrimSpace(iters.String()), "\n")
+	if len(lines) != len(sched) || len(sched) != 1+3+1+1 {
+		t.Fatalf("%d iteration lines for %d steps, want 6 of each (a prefill and cap-1 decodes per request)", len(lines), len(sched))
+	}
+	re := regexp.MustCompile(`^\(APIServer pid=1\) INFO \d\d-\d\d \d\d:\d\d:\d\d \[loggers\.py:182\] Engine 000: Iteration\((\d+)\): \d+ context requests, (\d+) context tokens, \d+ generation requests, (\d+) generation tokens`)
+	for k, line := range lines {
+		m := re.FindStringSubmatch(line)
+		if m == nil {
+			t.Fatalf("iteration line %d is not in vLLM's form: %s", k, line)
+		}
+		idx, _ := strconv.Atoi(m[1])
+		ctx, _ := strconv.Atoi(m[2])
+		gen, _ := strconv.Atoi(m[3])
+		step := int(sched[k]["step"].(float64))
+		total := 0
+		for _, v := range sched[k]["tokens"].(map[string]any) {
+			total += int(v.(float64))
+		}
+		if idx != step-1 || ctx+gen != total {
+			t.Fatalf("iteration %d (tokens %d) does not match plugin step %d (tokens %d)", idx, ctx+gen, step, total)
+		}
+	}
+}

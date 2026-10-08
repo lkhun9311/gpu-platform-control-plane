@@ -266,6 +266,9 @@ func (s *stubStats) reset() {
 
 // stubProfile is the response shape the stub emits.
 type stubProfile struct {
+	// pilot, when set, makes each response produce exactly the request's own output cap and writes the
+	// prospective-admission pilot's step log (stubpilot.go); nil for every other caller.
+	pilot  *stubPilotLog
 	tokens int
 	ttft   time.Duration
 	itl    time.Duration
@@ -321,6 +324,31 @@ func stubWithRevisions(line, revision, tokenizerRevision string) string {
 	}
 	if tokenizerRevision != "" {
 		body += fmt.Sprintf(", 'tokenizer_revision': '%s'", tokenizerRevision)
+	}
+	return body + "}"
+}
+
+// stubArg is one of the pilot's vLLM flags the stub accepts, with the Python type vLLM prints its value in.
+type stubArg struct {
+	key, kind string
+	val       *string
+}
+
+// stubWithArgs adds the pilot's flags that were set to a non-default args line, in vLLM's repr.
+func stubWithArgs(line string, args []stubArg, noPrefixCaching bool) string {
+	body := strings.TrimSuffix(line, "}")
+	if noPrefixCaching {
+		body += ", 'enable_prefix_caching': False"
+	}
+	for _, a := range args {
+		if *a.val == "" {
+			continue
+		}
+		if a.kind == "str" {
+			body += fmt.Sprintf(", '%s': '%s'", a.key, *a.val)
+		} else {
+			body += fmt.Sprintf(", '%s': %s", a.key, *a.val)
+		}
 	}
 	return body + "}"
 }
@@ -514,12 +542,25 @@ func stubServe(args []string) error {
 	// not report them, so the stub accepts both and reports them in vLLM's form.
 	revision := fs.String("revision", "", "vLLM's model revision flag; reported in the non-default args line")
 	tokenizerRevision := fs.String("tokenizer-revision", "", "vLLM's tokenizer revision flag; reported likewise")
+	// The prospective-admission pilot's engine flags, accepted and reported in vLLM's form, so the pilot's
+	// whole-line engine validator meets the line it reads on the card. --scheduler-cls naming the pilot's step
+	// logger switches on pilot mode: the step log at STEP_LOG_PATH, and output fixed at each request's own cap.
+	var pilotArgs []stubArg
+	for _, f := range []struct{ name, key, kind string }{
+		{"dtype", "dtype", "str"}, {"max-model-len", "max_model_len", "int"}, {"max-num-seqs", "max_num_seqs", "int"},
+		{"gpu-memory-utilization", "gpu_memory_utilization", "float"},
+		{"max-num-batched-tokens", "max_num_batched_tokens", "int"}, {"scheduling-policy", "scheduling_policy", "str"},
+		{"scheduler-cls", "scheduler_cls", "str"},
+	} {
+		pilotArgs = append(pilotArgs, stubArg{key: f.key, kind: f.kind, val: fs.String(f.name, "", "vLLM's flag; reported in the non-default args line")})
+	}
+	noPrefixCaching := fs.Bool("no-enable-prefix-caching", false, "vLLM's flag; reported as enable_prefix_caching False")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if *port > 0 {
 		*addr = fmt.Sprintf(":%d", *port)
-		fmt.Println(stubWithRevisions(stubNonDefaultArgs(*port, *noAsync, *iterDetails), *revision, *tokenizerRevision))
+		fmt.Println(stubWithRevisions(stubWithArgs(stubNonDefaultArgs(*port, *noAsync, *iterDetails), pilotArgs, *noPrefixCaching), *revision, *tokenizerRevision))
 	}
 
 	profile := stubProfile{
@@ -540,6 +581,22 @@ func stubServe(args []string) error {
 	stats := newStubStats()
 	if *iterDetails {
 		profile.iterLog = &stubIterLog{out: os.Stdout}
+	}
+	for _, a := range pilotArgs {
+		if a.key == "scheduler_cls" && *a.val == "pilot_step_logger.PilotStepLoggingScheduler" {
+			path := os.Getenv("STEP_LOG_PATH")
+			if path == "" {
+				return fmt.Errorf("the pilot's step logger was asked for and STEP_LOG_PATH is unset")
+			}
+			pl, err := openStubPilotLog(path, os.Stdout)
+			if err != nil {
+				return err
+			}
+			profile.pilot = pl
+			// The pilot's own log carries the iteration lines, with timestamps; the session-era log is not printed too.
+			profile.iterLog = nil
+			go pl.watchSentinel(make(chan struct{}))
+		}
 	}
 	profile.usage = *port > 0
 	mux := stubMux(profile, stats)
@@ -628,6 +685,30 @@ func stubMux(profile stubProfile, stats *stubStats) *http.ServeMux {
 				promptTokens += stubPromptTokens(len([]rune(m.Content)))
 			}
 		}
+		tokens := profile.tokens
+		if profile.pilot != nil {
+			var pr stubPilotRequest
+			_ = json.Unmarshal(raw, &pr)
+			if pr.MaxTokens > 0 {
+				tokens = pr.MaxTokens
+			}
+			if !profile.usage {
+				promptTokens = 0
+				var body struct {
+					Messages []struct {
+						Content string `json:"content"`
+					} `json:"messages"`
+				}
+				if json.Unmarshal(raw, &body) == nil {
+					for _, m := range body.Messages {
+						promptTokens += stubPromptTokens(len([]rune(m.Content)))
+					}
+				}
+			}
+			id := "chatcmpl-" + r.Header.Get("X-Request-Id")
+			profile.pilot.add(id, pr.Priority, promptTokens)
+			profile.pilot.stepFor(id, max(promptTokens, 1), 0, true)
+		}
 		if !wait(profile.ttft) {
 			return
 		}
@@ -641,16 +722,21 @@ func stubMux(profile stubProfile, stats *stubStats) *http.ServeMux {
 			}
 			profile.iterLog.request(prompt, profile.tokens)
 		}
-		for i := range profile.tokens {
+		for i := range tokens {
 			if i > 0 && !wait(profile.itl) {
 				return
+			}
+			// Each decode step is recorded before its token is sent, so a step is never logged after the response
+			// that depended on it has reached the client.
+			if i > 0 && profile.pilot != nil {
+				profile.pilot.stepFor("chatcmpl-"+r.Header.Get("X-Request-Id"), 1, promptTokens+i, false)
 			}
 			if !emit("data: {\"choices\":[{\"delta\":{\"content\":\"x\"}}]}\n\n") {
 				return
 			}
 		}
 		if profile.usage && !emit(fmt.Sprintf("data: {\"choices\":[],\"usage\":{\"prompt_tokens\":%d,\"completion_tokens\":%d}}\n\n",
-			promptTokens, profile.tokens)) {
+			promptTokens, tokens)) {
 			return
 		}
 		_ = emit("data: [DONE]\n\n")
