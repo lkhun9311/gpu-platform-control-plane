@@ -217,9 +217,10 @@ type statusRecorder struct {
 	// engine having finished that request's prompt.
 	onFirstBody func()
 	bodySeen    bool
-	// onBody sees every body chunk the client was sent, for the request record's first-content stamp; nil when
-	// the gateway records nothing.
-	onBody func([]byte)
+	// onBody sees every body chunk written toward the client, and onFlush runs after each flush, for the request
+	// record's first-content stamp; both nil when the gateway records nothing.
+	onBody  func([]byte)
+	onFlush func()
 }
 
 // WriteHeader records the status code and forwards it to the wrapped writer.
@@ -268,6 +269,9 @@ func (rec *statusRecorder) Write(b []byte) (int, error) {
 func (rec *statusRecorder) Flush() {
 	if f, ok := rec.ResponseWriter.(http.Flusher); ok {
 		f.Flush()
+	}
+	if rec.onFlush != nil {
+		rec.onFlush()
 	}
 }
 

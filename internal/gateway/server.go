@@ -568,7 +568,7 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 
 	// 8. From here the response is the upstream's, passed through rather than composed.
 	start := time.Now()
-	rec := &statusRecorder{ResponseWriter: w, code: http.StatusOK, onFirstBody: tr.release(res), onBody: tr.body}
+	rec := &statusRecorder{ResponseWriter: w, code: http.StatusOK, onFirstBody: tr.release(res), onBody: tr.body, onFlush: tr.flushed}
 	// Each candidate is tried until one answers, and the two conditions below are what make that safe rather
 	// than merely useful.
 	//
@@ -593,7 +593,7 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	// "yes, the serving stack was asked" regardless of how the attempt turns out. A counter incremented on the
 	// way out would miss a panic or a cancelled request and quietly shrink the denominator it exists to be.
 	backendAttempts.WithLabelValues(tenant, meta.Model).Inc()
-	tr.forwarded()
+	tr.handedOff()
 	advanced := tryBackends(rec, r, urls, s.sharedTransport(), func(code int, final bool) {
 		upstreamErrors.WithLabelValues(tenant, meta.Model).Inc()
 		lastFailure = code

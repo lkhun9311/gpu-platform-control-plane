@@ -60,7 +60,7 @@ type requestTimes struct {
 	arrived      time.Time
 	recorded     time.Time
 	decided      time.Time
-	forwarded    time.Time
+	handoff      time.Time
 	released     time.Time
 	firstContent time.Time
 	ended        time.Time
@@ -83,9 +83,12 @@ type doneLine struct {
 	ArrivedUnixNanos int64 `json:"arrivedUnixNanos,omitempty"`
 	// RecordedUnixNanos is when the arrive line had been synced, so the cost of the durable write is measured,
 	// not assumed: an unbounded delay there would sit after the arrival stamp (review round 21, finding 1).
-	RecordedUnixNanos  int64 `json:"recordedUnixNanos,omitempty"`
-	DecidedUnixNanos   int64 `json:"decidedUnixNanos,omitempty"`
-	ForwardedUnixNanos int64 `json:"forwardedUnixNanos,omitempty"`
+	RecordedUnixNanos int64 `json:"recordedUnixNanos,omitempty"`
+	DecidedUnixNanos  int64 `json:"decidedUnixNanos,omitempty"`
+	// HandoffUnixNanos is when the request was handed to the reverse proxy. Connection acquisition, dialling and
+	// sending the request to the backend all come after it, so the segment from here to first content holds
+	// gateway transport time as well as the engine's (review of the pilot scope, round 10, finding 4).
+	HandoffUnixNanos int64 `json:"handoffUnixNanos,omitempty"`
 	// ReleasedUnixNanos is when the admitter's prefill reservation was released. ReleasedAtEnd says the release
 	// came from the request's cleanup rather than from the first body byte: a request that never sent a body
 	// still gives its reservation back, and the record must not read as if it had kept it.
@@ -95,7 +98,10 @@ type doneLine struct {
 	// counted, which for an unanswered request is the last failure rather than the writer's default 200.
 	Answered              bool  `json:"answered"`
 	FirstContentUnixNanos int64 `json:"firstContentUnixNanos,omitempty"`
-	EndedUnixNanos        int64 `json:"endedUnixNanos"`
+	// FirstContentAtEnd says the first content was never flushed before the handler returned, so its stamp is
+	// the handler's end, the latest instant it can have reached the client by.
+	FirstContentAtEnd bool  `json:"firstContentAtEnd,omitempty"`
+	EndedUnixNanos    int64 `json:"endedUnixNanos"`
 }
 
 // nanos keeps an unreached stage at zero rather than at the zero Time's large negative Unix value.
@@ -145,6 +151,8 @@ type requestTrace struct {
 	// final is the status the proxy stage resolved, or 0 when the request never reached it.
 	final    int
 	answered bool
+	// contentPending is set when the first content has been written but not yet flushed.
+	contentPending bool
 }
 
 // startTrace begins a trace at handler entry and returns the writer the handler must use from then on.
@@ -194,9 +202,9 @@ func (tr *requestTrace) priority(p int) {
 	}
 }
 
-func (tr *requestTrace) forwarded() {
+func (tr *requestTrace) handedOff() {
 	if tr != nil {
-		tr.t.forwarded = time.Now()
+		tr.t.handoff = time.Now()
 	}
 }
 
@@ -240,10 +248,21 @@ func (tr *requestTrace) outcome(code int, answered bool) {
 	}
 }
 
-// body watches the bytes forwarded to the client for the first non-empty content delta.
+// body watches the bytes written toward the client for the first non-empty content delta.
+//
+// It does not stamp: a write lands in the server's buffer, and the client receives nothing until the flush.
+// The stamp is taken at the next flush (pilot scope review 10, finding 1).
 func (tr *requestTrace) body(b []byte) {
 	if tr != nil && tr.content.observe(b) {
+		tr.contentPending = true
+	}
+}
+
+// flushed stamps first content when the flush that sends it has returned.
+func (tr *requestTrace) flushed() {
+	if tr != nil && tr.contentPending && tr.t.firstContent.IsZero() {
 		tr.t.firstContent = time.Now()
+		tr.contentPending = false
 	}
 }
 
@@ -253,6 +272,11 @@ func (tr *requestTrace) finish() {
 		return
 	}
 	tr.t.ended = time.Now()
+	if tr.contentPending && tr.t.firstContent.IsZero() {
+		// Written and never flushed: it reached the client only when the handler returned and the server flushed.
+		tr.t.firstContent = tr.t.ended
+		tr.line.FirstContentAtEnd = true
+	}
 	l := tr.line
 	l.Ev = "done"
 	l.Status = tr.status.code
@@ -266,7 +290,7 @@ func (tr *requestTrace) finish() {
 	l.ArrivedUnixNanos = nanos(tr.t.arrived)
 	l.RecordedUnixNanos = nanos(tr.t.recorded)
 	l.DecidedUnixNanos = nanos(tr.t.decided)
-	l.ForwardedUnixNanos = nanos(tr.t.forwarded)
+	l.HandoffUnixNanos = nanos(tr.t.handoff)
 	l.ReleasedUnixNanos = nanos(tr.t.released)
 	l.FirstContentUnixNanos = nanos(tr.t.firstContent)
 	l.EndedUnixNanos = nanos(tr.t.ended)

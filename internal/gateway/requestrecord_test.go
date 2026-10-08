@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -78,7 +79,7 @@ var _ = Describe("the request record in the pipeline", func() {
 		path = filepath.Join(GinkgoT().TempDir(), "record.jsonl")
 	})
 
-	// Mutation that turns this red: remove tr.arrived(), tr.forwarded() or the onBody hook from the handler.
+	// Mutation that turns this red: remove tr.arrived(), tr.handedOff() or the onBody hook from the handler.
 	It("stamps arrival, decision, forward, release and first content for a served stream, in order", func() {
 		up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.Header().Set("Content-Type", "text/event-stream")
@@ -120,7 +121,7 @@ var _ = Describe("the request record in the pipeline", func() {
 		Expect(d["priority"]).To(BeEquivalentTo(1))
 		Expect(d["status"]).To(BeEquivalentTo(200))
 		order := []string{"enteredUnixNanos", "arrivedUnixNanos", "recordedUnixNanos", "decidedUnixNanos",
-			"forwardedUnixNanos", "releasedUnixNanos", "firstContentUnixNanos", "endedUnixNanos"}
+			"handoffUnixNanos", "releasedUnixNanos", "firstContentUnixNanos", "endedUnixNanos"}
 		prev := 0.0
 		for _, k := range order {
 			v, ok := d[k].(float64)
@@ -172,6 +173,38 @@ var _ = Describe("the request record in the pipeline", func() {
 		d := read()[1]
 		Expect(d).NotTo(HaveKey("releasedUnixNanos"))
 		Expect(d).To(HaveKey("firstContentUnixNanos"))
+	})
+
+	// Mutation that turns this red: stamp first content in body() rather than in flushed().
+	It("stamps first content when it is flushed, not when it is written to the buffer", func() {
+		rec, err := OpenRequestRecorder(path)
+		Expect(err).NotTo(HaveOccurred())
+		s := &Server{recorder: rec}
+		tr, _ := s.startTrace(httptest.NewRecorder())
+		tr.identify("delayed-flush-1")
+		tr.body([]byte(`data: {"choices":[{"delta":{"content":"Hi"}}]}` + "\n\n"))
+		written := time.Now()
+		time.Sleep(50 * time.Millisecond)
+		tr.flushed()
+		tr.finish()
+		Expect(rec.Close()).To(Succeed())
+		d := readRecord(path)[0]
+		Expect(int64(d["firstContentUnixNanos"].(float64))).To(BeNumerically(">=", written.Add(50*time.Millisecond).UnixNano()))
+		Expect(d).NotTo(HaveKey("firstContentAtEnd"))
+	})
+
+	It("stamps first content at the handler's end, and says so, when it was never flushed", func() {
+		rec, err := OpenRequestRecorder(path)
+		Expect(err).NotTo(HaveOccurred())
+		s := &Server{recorder: rec}
+		tr, _ := s.startTrace(httptest.NewRecorder())
+		tr.identify("never-flushed-1")
+		tr.body([]byte(`{"delta":{"content":"Hi"}}`))
+		tr.finish()
+		Expect(rec.Close()).To(Succeed())
+		d := readRecord(path)[0]
+		Expect(d["firstContentAtEnd"]).To(BeTrue())
+		Expect(d["firstContentUnixNanos"]).To(Equal(d["endedUnixNanos"]))
 	})
 
 	// Mutation that turns this red: drop the tr.final override in finish.
