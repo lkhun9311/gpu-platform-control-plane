@@ -807,6 +807,13 @@ Since round 12, every round has been about one question: what the decision may t
 - **stage A:** one instance, three blocks of I, O and P;
 - **stage B:** one instance, **three** four-arm blocks, with R fitted on stage A.
 
+**Stage B is bought only if R can be fitted** (pilot review 4, finding 2). Stage A ends in one of three ways:
+- **R fitted.** Stage B is bought, with the owner's approval of that session.
+- **No R satisfies the fitting rule on every trace.** The static bucket starts full, so a 30,000-unit burst admits at least three 10,000-unit contenders before its rate matters (`admission.go:236`). A P that admits few contenders can leave no positive R with S at least five points below it.
+- **The fit is unidentifiable,** because a P contender has no gateway record.
+
+In the last two cases the outcome is "stage B not acquired; R unavailable". Stage A's measurements are reported, and the design returns to review. No control is improvised after stage A.
+
 Stage B has three blocks because the main endpoint pools three, and pooling is not linear in the number of blocks (pilot review 3, finding 3). Three blocks, each zero-width alone, can pool to a half-width of 2.30 where two of them pool to 0. Stage B is therefore the size of a main session: about 2.75 hours, under the main session's deadlines.
 
 **Cost.** Both stages run as two sessions in one login, about 2.1 and 2.75 hours. Expected cost is about **$3.31**: 4.85 h at $0.6824.
@@ -857,6 +864,11 @@ Blindness was meant to prevent one harm: a designer who has seen the P/S effect 
 - **the width screen** stays at a half-width of 0.043, fixed;
 - **durations and deadlines** = the measured session and arm times plus 25%.
 
+**The formulas run only on complete timing evidence** (pilot review 4, finding 1). They read dispatch lag from the gateway's arrival stamps. A served request with no gateway record, or a scheduler record with no gateway record, is a request whose lag is unknown, and the client's stamps cannot recover it.
+- In either stage, any such request makes the formulas' outputs **unavailable**, and the design returns to review rather than calibrate on the observed subset.
+- Thirteen 900 ms requests without records among 12,285 would otherwise turn a true ceiling of 1,800 ms into 50 ms.
+- The other measurements are still reported, each marked with the records it lacks.
+
 **Any change outside these formulas is a new design.** It is registered, attacked again, and states in its own page that its author had seen stage B.
 
 **The execution contract: in the pilot, no gate stops acquisition except those that make its measurements meaningless** (pilot review 3, finding 1). The build items it reuses (4, 22, 25) carry the main study's gates, which turn violations into "invalid". In the pilot those gates are **evaluated and reported, never acted on**: each is reported as "would have fired" or "would not".
@@ -865,7 +877,8 @@ Blindness was meant to prevent one harm: a designer who has seen the P/S effect 
 - the engine-arguments validator;
 - the image digest;
 - a missing exact-token stamp;
-- a premium request reaching the scheduler at any priority but 0;
+- a premium request reaching the scheduler at any priority but 0, **or a standard request at any priority but 1**. An omitted priority defaults to 0 for both tiers (`priority.go:30`), so a missing binding passes a premium-only check (pilot review 4, finding 3);
+- a sender configuration that differs between a block's arms (item 26);
 - the credential check;
 - the deadline.
 
@@ -876,15 +889,20 @@ A step log that fails its completeness check annotates that arm's processed-work
 - The published stage B report prints widths and S's and P's own work and timing quantities, not a P/S ratio. The raw evidence is not concealed.
 
 **What must be built for the pilot.** A subset of the build list:
-- items 1, 2, 3, 4, 5, 6, 7, **8**, 10, 11, 12, 13, 14, **16**, 18, 21, 22, 24, 25 and 27;
+- items 1, 2, 3, 4, 5, 6, 7, **8**, 10, 11, 12, 13, 14, **16**, 18, 21, 22, 24, 25, **26** and 27. Item 26 records and compares the resolved sender configuration, including connection mode. Without it, an arm-dependent sender difference would pass into the lag distribution and from there into the formulas (pilot review 4, finding 5);
 - the gateway's own delay stamps, including the durable write;
 - a measurement report, in place of item 15's decision machinery;
 - **a hard stop that is a deadline, not a count** (pilot review, finding 2; review 2, finding 4):
   - every AWS call in the wait is run under `timeout` with the time remaining;
   - the loop checks a wall-clock deadline, not a count of attempts;
-  - **on reaching the deadline, the runner terminates the instance first,** and only then downloads evidence;
-  - **the deadline stays active after the marker arrives** (pilot review 3, finding 5):
-    - the marker download and the termination call each run under `timeout` with the time remaining;
+  - **two deadlines, not one** (pilot review 4, finding 4):
+    - the **acquisition deadline** is the hard stop minus a 6-minute termination reserve;
+    - the termination call runs under its own fixed 5-minute `timeout`, the same reserve the existing helper uses (`spot-run.sh:195`).
+
+    A timeout "equal to the time remaining" is zero at the deadline, and GNU `timeout` treats 0 as no limit at all.
+  - **on reaching the acquisition deadline, the runner terminates the instance first,** and only then downloads evidence;
+  - **the acquisition deadline stays active after the marker arrives** (pilot review 3, finding 5):
+    - the marker download runs under `timeout` with the acquisition time remaining, at least 1 s;
     - the instance is terminated before any evidence download, whether the marker came or not.
 
     Today a marker arriving just before the deadline leads to downloads before cleanup's termination (`m5c-gpu-session.sh:1488`, `:1497`), and the termination call has no outer timeout (`spot-run.sh:203`).
