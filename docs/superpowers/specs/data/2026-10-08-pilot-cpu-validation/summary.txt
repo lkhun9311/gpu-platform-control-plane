@@ -1,0 +1,8 @@
+fence-off-1 prefill=30 decode=0 prompt=30 output=1
+pp-A-off-1-0 prefill=1230 decode=15 prompt=1230 output=16
+pp-A-off-1-1 prefill=70 decode=7 prompt=70 output=8
+pp-A-off-1-2 prefill=1230 decode=15 prompt=1230 output=16
+pp-A-off-1-3 prefill=70 decode=7 prompt=70 output=8
+pp-A-off-1-4 prefill=1230 decode=15 prompt=1230 output=16
+pp-A-off-1-5 prefill=70 decode=7 prompt=70 output=8
+aligned through the fence; every request's prefill is its prompt and its decode its output less one

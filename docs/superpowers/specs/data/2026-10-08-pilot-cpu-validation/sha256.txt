@@ -1,0 +1,3 @@
+d8cb6e4443df232927765ec39bd7c2b3630c107f9519b68bd7c2e285cd17c518  hack/vllm-plugins/pilot_step_logger.py
+32888f1b050e2bc0d14b919aba9b7ea881dd8b644648880fa35c58dbdbc33cd8  hack/prospective-pilot/pilot_evidence.py
+d5a92307be056a23af4129f61d2959165f6e4f7c75e849bdd0539111e61f7e93  hack/prospective-pilot/pilot_report.py
