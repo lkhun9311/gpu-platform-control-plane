@@ -747,6 +747,8 @@ var studies = map[string]Study{
 		MinRepetitions:      3,
 		FixesOutputAtCap:    true,
 		RecordsReplayTiming: true,
+		// Each block replays its own trace, from a seed in the registration's frozen list (build item 7).
+		TracesVaryByRepetition: true,
 		// 600, the gateway's own outbound pool, above the pilot's ceiling of 9.75/s × 30 s ≈ 293.
 		SenderPoolSize: 600,
 	},

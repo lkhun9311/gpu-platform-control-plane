@@ -39,6 +39,8 @@ export GOTOOLCHAIN=go1.26.6
 # margin, and two copies of a duration table are two answers to one question.
 # shellcheck source=hack/lib/instrument-validation.sh
 . hack/lib/instrument-validation.sh || { echo "MATRIX FAILED: could not source hack/lib/instrument-validation.sh" >&2; exit 1; }
+# shellcheck source=hack/lib/prospective-pilot.sh
+. hack/lib/prospective-pilot.sh || { echo "MATRIX FAILED: could not source hack/lib/prospective-pilot.sh" >&2; exit 1; }
 
 # Where the card comes from, which is the only thing about this matrix that is not the experiment.
 #
@@ -215,8 +217,8 @@ fi
 if [ -z "$LADDER" ]; then
   STUDY="${STUDY:-sharing-matrix-2026-09-10}"
   case "$STUDY" in
-    sharing-matrix-2026-09-10|tail-crossing-lc256-2026-10-04|tail-crossing-lc2048-2026-10-05|tail-crossing-lc8192-2026-10-04|instrument-validation-2026-10-05|instrument-validation-s2-2026-10-05|instrument-validation-s3-2026-10-06|instrument-validation-s4-2026-10-06|step-boundary-2026-10-06|step-confirm-2026-10-07) ;;
-    *) fail "STUDY is ${STUDY@Q}; the non-ladder matrix files evidence under sharing-matrix-2026-09-10, tail-crossing-lc256-2026-10-04, tail-crossing-lc2048-2026-10-05, tail-crossing-lc8192-2026-10-04, instrument-validation-2026-10-05, instrument-validation-s2-2026-10-05, instrument-validation-s3-2026-10-06, instrument-validation-s4-2026-10-06 or step-boundary-2026-10-06, step-confirm-2026-10-07. An unregistered id is not refused by gen-trace -- it writes a manifest for any string -- so this refusal is the one that stops it before anything is rented" ;;
+    sharing-matrix-2026-09-10|tail-crossing-lc256-2026-10-04|tail-crossing-lc2048-2026-10-05|tail-crossing-lc8192-2026-10-04|instrument-validation-2026-10-05|instrument-validation-s2-2026-10-05|instrument-validation-s3-2026-10-06|instrument-validation-s4-2026-10-06|step-boundary-2026-10-06|step-confirm-2026-10-07|prospective-pilot-2026-10-08) ;;
+    *) fail "STUDY is ${STUDY@Q}; the non-ladder matrix files evidence under sharing-matrix-2026-09-10, tail-crossing-lc256-2026-10-04, tail-crossing-lc2048-2026-10-05, tail-crossing-lc8192-2026-10-04, instrument-validation-2026-10-05, instrument-validation-s2-2026-10-05, instrument-validation-s3-2026-10-06, instrument-validation-s4-2026-10-06 or step-boundary-2026-10-06, step-confirm-2026-10-07, prospective-pilot-2026-10-08. An unregistered id is not refused by gen-trace -- it writes a manifest for any string -- so this refusal is the one that stops it before anything is rented" ;;
   esac
 fi
 
@@ -271,7 +273,7 @@ if [ -n "$SWEEP" ]; then
     || fail "SWEEP repeats a rate ($SWEEP); two levels at one rate are one condition under two names"
   ARMS="R1"
   for i in $(seq 1 "$sweep_n"); do ARMS="$ARMS $(printf 'be%02d-shared' "$i")"; done
-elif [ -n "$PREMIUM_RATE" ]; then
+elif [ -n "$PREMIUM_RATE" ] && ! pp_is_study "${STUDY:-}"; then
   fail "PREMIUM_RATE is set without SWEEP. It is the held latency-critical rate of a sweep, and on its own it would be ignored."
 fi
 
@@ -356,6 +358,18 @@ if [ -z "$LADDER" ] && iv_is_study "$STUDY"; then
     || fail "${SHAPE_FROM_CALLER# } set, and study $STUDY's lengths and output caps are the registration's, varying by row. Unset them"
   RATE=0 PREMIUM_WEIGHT=0 NOISY_WEIGHT=0 PROBE_WEIGHT=0
 fi
+# The prospective-admission pilot: two tenants at fixed independent rates, one block of its stage's arms per
+# repetition (docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md, "The measurement pilot").
+# Its load is the registration's and is required whole; a weighted RATE or a sweep would describe another load.
+if [ -z "$LADDER" ] && pp_is_study "$STUDY"; then
+  [ -z "${SWEEP:-}" ] || fail "SWEEP is set and the pilot is not a sweep; its contender rate is PILOT_NOISY_RATE"
+  [ -z "${RATE:-}" ] || fail "RATE is ${RATE@Q} and the pilot's arrivals are independent; pass PREMIUM_RATE and PILOT_NOISY_RATE"
+  [ -z "$ARMS_FROM_CALLER" ] || fail "ARMS is set and the pilot's arms are its stage's (PILOT_STAGE); unset it"
+  _pp_arms=$(pp_stage_arms "${PILOT_STAGE:-}" 2>&1) || fail "$_pp_arms"
+  [ "${PILOT_STAGE:-}" != B ] || pp_gateway_args static-cap "${PILOT_STATIC_RATE:-}" >/dev/null \
+    || fail "stage B runs the static arm at the rate R fitted in stage A; set PILOT_STATIC_RATE"
+  RATE=0 NOISY_WEIGHT=0
+fi
 [ -n "${RATE:-}" ] || [ -n "$LADDER" ] || [ -n "$SWEEP" ] || fail "RATE is unset. Measure it from a single contender prefill on THIS card, the way hack/m5b-gpu-session.sh does; the harness default of 20/s demands 3.8x an A10G's theoretical peak and would censor every arm."
 
 # The whole load, passed rather than defaulted -- and RATE alone was never enough.
@@ -394,6 +408,7 @@ fi
 # Nor does it have a load to require: its traces are episodes the generator lays out, and gen-trace refuses every
 # rate, weight and prompt flag for it, so demanding them here would demand values that are then thrown away.
 if [ -z "$LADDER" ] && iv_is_study "$STUDY"; then REQUIRED_LOAD_VARS=""; fi
+if [ -z "$LADDER" ] && pp_is_study "$STUDY"; then REQUIRED_LOAD_VARS="PREMIUM_RATE PILOT_NOISY_RATE PREMIUM_WEIGHT PROBE_WEIGHT DURATION_MS"; fi
 for v in $REQUIRED_LOAD_VARS; do
   [ -n "${!v:-}" ] || fail "$v is unset. RATE alone does not describe this load: gen-trace's default mix puts the 40,000-character contender at 45% of arrivals, which is four to five times an A10G's prefill capacity at any rate this study could use, and lowering RATE to compensate starves the premium tail below the MinTailSamples floor. Derive the mix on the card and pass all four. hack/m5b-price-of-protection.sh measured RATE=9.85 PREMIUM_WEIGHT=1 NOISY_WEIGHT=0.054 PROBE_WEIGHT=0.0054 DURATION_MS=420000 for ONE engine with the whole card; this run gives each engine half of one, so it is a starting point and not an answer."
 done
@@ -476,7 +491,7 @@ resolve_arrivals() {
   fi
   if [ -z "$LADDER" ]; then
     # A study whose arrivals are independent is run as a sweep and only as a sweep, and the reverse.
-    if [ "$ARRIVALS" = independent ] && [ -z "$SWEEP" ]; then
+    if [ "$ARRIVALS" = independent ] && [ -z "$SWEEP" ] && ! pp_is_study "$STUDY"; then
       fail "study $STUDY registers independent arrivals, so it is run as a SWEEP of BE rates with PREMIUM_RATE held; RATE and NOISY_WEIGHT describe a weighted mix it does not draw"
     fi
     if [ "$ARRIVALS" != independent ] && [ -n "$SWEEP" ]; then
@@ -779,6 +794,18 @@ else
       done < <(for spec in "${block[@]}"; do
         label=$(printf '%s' "$spec" | cut -d'|' -f2)
         printf '%s %s\n' "$(printf '%s/%s' "${block_seed:-11}" "$label" | sha256sum | cut -c1-16)" "$spec"
+      done | LC_ALL=C sort | cut -d' ' -f2-)
+    done
+  elif pp_is_study "$STUDY"; then
+    # One block per repetition: every arm of the stage, on the single-engine topology, in an order drawn from a
+    # hash of the block's seed, the stage and the block, so no arm is always first (design page, build item 7).
+    for rep in $(seq 1 "$REPS"); do
+      block_seed=$(printf '%s\n' $SEEDS | sed -n "${rep}p")
+      while IFS= read -r spec; do
+        CELLS+=("$spec")
+      done < <(pp_stage_arms "$PILOT_STAGE" | while read -r arm; do
+        printf '%s R1|%s|%s|%s|%s|0\n' "$(printf '%s/%s/%s/%s' "${block_seed:-11}" "$PILOT_STAGE" "$rep" "$arm" | sha256sum | cut -c1-16)" \
+          "$arm" "$rep" "$PREMIUM_RATE" "$PILOT_NOISY_RATE"
       done | LC_ALL=C sort | cut -d' ' -f2-)
     done
   elif iv_is_study "$STUDY"; then
