@@ -348,12 +348,11 @@ type contentWatcher struct {
 	seen bool
 	// inFrame is set once non-empty content has been found and its event has not yet ended.
 	inFrame bool
-	// frameTail carries the last byte of a chunk, so an event end split across two chunks is still found.
-	frameTail []byte
+	// atLineStart and pendingCR carry the line-ending state across chunks, so an event end split between two
+	// chunks is still found: atLineStart is set when a line has just ended, pendingCR when it ended in a CR that
+	// a following LF would complete.
+	atLineStart, pendingCR bool
 }
-
-// eventEnd is the blank line that ends a server-sent event.
-var eventEnd = []byte("\n\n")
 
 // valueStarts reports, for the bytes after a content key, whether they begin a non-empty string value.
 // complete is false when the bytes run out before that can be decided.
@@ -427,14 +426,28 @@ func (c *contentWatcher) observe(b []byte) bool {
 }
 
 // endOf reports whether b, following the content found, ends its event.
+//
+// An event ends at a blank line, and a server-sent event's lines may end in CRLF, LF or CR, so the end is any
+// two line endings in a row with nothing between them, a CRLF counting as one. Matching only "\n\n" missed
+// every CRLF-delimited stream, which the client reads and counts (review of 71086d8).
 func (c *contentWatcher) endOf(b []byte) bool {
-	buf := append(c.frameTail, b...)
-	if bytes.Contains(buf, eventEnd) {
-		c.seen, c.inFrame, c.frameTail = true, false, nil
-		return true
-	}
-	if len(buf) > 0 {
-		c.frameTail = []byte{buf[len(buf)-1]}
+	for _, ch := range b {
+		if c.pendingCR {
+			c.pendingCR = false
+			if ch == '\n' {
+				continue
+			}
+		}
+		switch ch {
+		case '\r', '\n':
+			if c.atLineStart {
+				c.seen, c.inFrame = true, false
+				return true
+			}
+			c.atLineStart, c.pendingCR = true, ch == '\r'
+		default:
+			c.atLineStart = false
+		}
 	}
 	return false
 }

@@ -50,6 +50,30 @@ var _ = Describe("contentWatcher", func() {
 		Expect(c.observe([]byte(`{"delta": {"content": null}}`))).To(BeFalse())
 	})
 
+	// A server-sent event's lines may end in CRLF, LF or CR, and the event at a blank line in any of them.
+	// Mutation that turns this red: look only for "\n\n" (review of 71086d8).
+	It("finds the end of an event under every line ending, at every split point", func() {
+		for _, end := range []string{"\r\n\r\n", "\r\r", "\r\n\n", "\n\r\n"} {
+			frame := `data: {"choices":[{"delta":{"content":"x"}}]}` + end
+			for i := 1; i < len(frame); i++ {
+				var c contentWatcher
+				first := c.observe([]byte(frame[:i]))
+				second := c.observe([]byte(frame[i:]))
+				Expect(first || second).To(BeTrue(), "ending %q split at %d", end, i)
+				Expect(first && second).To(BeFalse(), "ending %q split at %d", end, i)
+			}
+		}
+	})
+
+	// One line ending is the end of a line, not of the event: the frame may go on with another field.
+	It("does not end the event at a single line ending", func() {
+		for _, end := range []string{"\r\n", "\n", "\r"} {
+			var c contentWatcher
+			Expect(c.observe([]byte(`data: {"choices":[{"delta":{"content":"x"}}]}`+end))).To(BeFalse(), "ending %q", end)
+			Expect(c.observe([]byte(`id: 7`+end+end))).To(BeTrue(), "ending %q", end)
+		}
+	})
+
 	It("does not count an empty content split exactly after the marker", func() {
 		var c contentWatcher
 		Expect(c.observe([]byte(`{"delta":{"content":"`))).To(BeFalse())
