@@ -959,13 +959,13 @@ A step log that fails its completeness check does not stop the next arm. It make
     - the marker download runs under `timeout` with the acquisition time remaining, at least 1 s;
     - the instance is terminated before any evidence download, whether the marker came or not.
 
-    Today a marker arriving just before the deadline leads to downloads before cleanup's termination (`m5c-gpu-session.sh:1488`, `:1497`), and the termination call has no outer timeout (`spot-run.sh:203`).
+    Before 9496808 a marker arriving just before the deadline led to downloads before cleanup's termination, and the termination call had no outer timeout (`spot-run.sh:203`). Both are fixed for the pilot; see "Build status" below.
 
-  Today `spot_wait_for_marker` counts attempts at 30 s plus two API calls each (`spot-run.sh:374`), so a 150-minute setting can run to about 250 minutes. Its caller also downloads before terminating (`m5c-gpu-session.sh:1482`, `:1497`, `:1335`).
+  `spot_wait_for_marker` counts attempts at 30 s plus two API calls each (`spot-run.sh:374`), so a 150-minute setting can run to about 250 minutes. The pilot uses `spot_wait_for_marker_until` instead, which reads the wall clock.
 - **the fence before the sentinel,** sent directly to the engine with a `fence-` ID, and the 5-minute bound on the whole barrier;
 - **the two timing records,** preliminary before the hook and upload after it, and a stamp for the session tail;
 - **phase timestamps per cell** (pilot review 7, finding 2): deploy start, engine ready, replay start and end, sentinel, terminal record, capture end, and upload start and end, each in UTC.
-  - Today `cell-timings.tsv` has only a cell's start, end and total, and the runner's messages carry no timestamps (`m5c-matrix.sh:161`). So 180 s of restart and 0 s of capture cannot be told from 120 s and 60 s.
+  - `cell-timings.tsv` has only a cell's start, end and total, and the runner's messages carry no timestamps (`m5c-matrix.sh:161`). So 180 s of restart and 0 s of capture cannot be told from 120 s and 60 s. The pilot writes `phases.tsv` for this.
 - **the instance's EC2 `LaunchTime`,** read by the runner after launch and written with the session's evidence, for the bring-up formula. It is not left to the deferred ledger.
 - **synthetic step-log support in the stub engine** (review 2, finding 3). For each request it emits plugin-format `add` and `sched` records with request IDs, anchors and sequence numbers, and on the sentinel a terminal record. So the kind rehearsal exercises items 6 and 21 rather than refusing or bypassing them. The CPU run with real vLLM remains the check on vLLM's own behaviour.
 
@@ -988,6 +988,26 @@ A step log that fails its completeness check does not stop the next arm. It make
   - the request-ID join from client to vLLM's scheduler;
   - the scheduler-side priority;
   - the prefill and decode split.
+
+### Build status, 2026-10-08
+
+**Built, tested, and rehearsed on kind.** The kind rehearsal (`PILOT=1 hack/test/rehearse-m5c-matrix.sh`) ran both stages end to end at 31ea216: 21 cells, every one captured, fenced, calibrated and timed, with the matrix's file accounting exact (120 of 120 and 156 of 156).
+- The four review-11 fixes: first content is stamped only for a complete SSE event; the capture bound runs from the replay's return and bounds every call; the engine validator takes the model and revision from the registration and requires the model keys; the 15-minute forecast stop is gone.
+- `benchharness fit-pilot-rate` fits R by "Fitting R" above. It replays each P block's contenders at their gateway-recorded arrival instants through the gateway's own static-cap admitter, at threshold 1 and burst 30,000. It tries every R from 1 to 20,000, because admitted work need not be monotone in R. It refuses an incomplete join as "unidentifiable" and reports "R unavailable" when no R holds on all three blocks. The rehearsal now fits R on stage A and runs stage B at it.
+- `hack/prospective-pilot/pilot_report.py` reports each arm's box as ln(sched_hi / arr_lo), the arm's contribution to y_hi − y_lo. Before 9b10925 it summed P's scheduled width and S's arrival width instead, which reads zero when trusted lag is non-zero. It now also pools lag per arm before taking p99.9, requires all registered cells of both stages, and requires the engine log, the fence's add record, a return stamp on every premium row and a flush stamp on every premium success.
+- The duration formulas are computed: arm time from both timing records, bring-up from the instance's `LaunchTime` to the first cell's start, the session tail from the matrix's return to the marker's upload, and from them the session length and its four deadlines. A missing record makes the output unavailable.
+- The session runner carries the stage, the rates and the stage's arms to the instance. It holds the registered limits (stage A 2 h 30 / 2 h 40, stage B 3 h 30 / 3 h 40) and refuses a caller's. It waits on a wall-clock acquisition deadline, terminates under a fixed 5 minutes before any download, and records the three session stamps.
+- The instance's matrix stops at an absolute deadline the wrapper sets: the acquisition deadline less a 10-minute tail reserve. Counted from the instance's boot, as other studies still do, it would run about the bring-up's 25 minutes past the wrapper's termination. The 10 minutes are a reserve until stage A measures the tail.
+
+**q's ceiling is 15/16, not 1.** A 16-token output takes one prefill step, which samples the first token, and 15 decode steps; the registered CPU fixture says the same (80 prefill and 7 decode tokens for 8 outputs). The margins compare differences, so this changes no rule, but a reader of q = 0.9375 should not read lost work.
+
+**Measured on kind, not on the card.** Dispatch lag p50 is about 0.9 ms, but p99.9 is about 102 ms in every arm. That is the client's port-forward, so on kind every width is infinite at L = 5 ms. The card's lag is what stage A measures.
+
+**Not built yet, and each blocks purchase:**
+- item 16, the sweeper, and its exercise; its `terraform apply` is the owner's step;
+- item 8, the evidence sidecar;
+- the rehearsal's two injected ineligible arms (a stopped step log and a deleted gateway record);
+- the CPU rehearsal with real vLLM.
 
 ## What v21 changed, against the review of v20
 
