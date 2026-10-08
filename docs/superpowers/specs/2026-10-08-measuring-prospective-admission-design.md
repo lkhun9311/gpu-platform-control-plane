@@ -807,8 +807,9 @@ Since round 12, every round has been about one question: what the decision may t
 - **stage A:** one instance, three blocks of I, O and P;
 - **stage B:** one instance, **three** four-arm blocks, with R fitted on stage A.
 
-**Stage B is bought only if R can be fitted** (pilot review 4, finding 2). Stage A ends in one of three ways:
-- **R fitted.** Stage B is bought, with the owner's approval of that session.
+**Stage B is bought only if R can be fitted and stage A left calibration possible** (pilot review 4, finding 2; pilot review 8, finding 3). Stage A ends in one of four ways:
+- **R fitted, and every stage A arm eligible.** Stage B is bought, with the owner's approval of that session.
+- **R fitted, but some stage A arm ineligible.** No stage B result can restore the formulas, since they need every arm of both stages. Stage B would buy descriptive measurements only, about $1.88 expected. That is a reduced deliverable and the owner's decision, not this branch's default. The default is "stage B not acquired".
 - **No R satisfies the fitting rule on every trace.** The static bucket starts full, so a 30,000-unit burst admits at least three 10,000-unit contenders before its rate matters (`admission.go:236`). A P that admits few contenders can leave no positive R with S at least five points below it.
 - **The fit is unidentifiable,** because a P contender has no gateway record.
 
@@ -872,8 +873,9 @@ Blindness was meant to prevent one harm: a designer who has seen the P/S effect 
   - **`study-deadline`** = hard stop + 20 min, with the reserved lifetime at deadline + 15 min, as now.
 
   Maximum, not mean, so that a repeat of the slowest arm fits (pilot review 6, finding 3).
-  - **Sessions per login are derived, not thresholded** (pilot review 7, finding 4). With hard stop H, the k-th session of a login starts no earlier than (k − 1) × H. It needs credentials until its start + H + 20 min + 30 min.
-  - So k sessions fit one 12-hour login only while k × H + 50 min ≤ 12 h. The next design's login plan and cost are computed from that, and each launch still checks its own remaining expiry.
+  - **Sessions per login are planned conservatively; each launch decides** (pilot review 7, finding 4; pilot review 8, finding 4). A session ends when its marker arrives, usually well before its hard stop H. The k-th session in a login needs credentials until its start + H + 50 min.
+  - **For planning,** the next design allocates k sessions to a login only while k × H + 50 min ≤ 12 h. That assumes each session runs to its hard stop. It is an allocation, not a count of what fits: shorter sessions may let more fit, and gaps between sessions let fewer.
+  - **The binding rule is the launch-time check** of the remaining expiry.
 
 **The formulas run only on timing evidence that is complete, unambiguous and witnessed.** v4 and v5 of this scope listed the cases that make evidence unusable, and each review found one more:
 - a served request without a record (pilot review 4, finding 1);
@@ -887,9 +889,18 @@ v6 states the condition positively instead. **An arm's timing evidence is eligib
 3. **The arm's step log is complete** by the counts under build item 6, and **its coverage reaches the window end, on an independent clock** (pilot review 6, finding 2).
    - vLLM's own iteration log lines carry a timestamp. On the committed CPU fixture: `INFO 10-06 13:07:23 [loggers.py:182] Engine 000: Iteration(0)`.
    - So every iteration whose logged time is at least 2 s before the plugin's terminal record must correspond to a plugin step.
-   - **And the terminal record must be at least 3 s after the window end:** capture writes its sentinel no earlier than that. Then the 2 s cutoff falls after the window, and every iteration inside the window is covered. v7 required only that the terminal follow the window end. Pilot review 7 (finding 1) showed, on the committed fixture, seven window-time iterations falling between the cutoff and the window end, unchecked.
+   - **An iteration line is logged when its step ends, not when it starts.** On the committed fixture, step 1 started at 13:06:42.54 and its line is stamped 13:07:23 (pilot review 8, finding 1). So a log time cannot say whether a step began inside the window, and no fixed padding fixes that.
+   - **So capture writes its sentinel only after a quiet barrier, which makes the check a proof:**
+     1. The replay has returned, so the window has ended.
+     2. Capture then waits until the engine's own iteration log has had **no new line for 3 s** and the engine's metrics show nothing running or waiting.
+     3. Only then does it write the sentinel.
+
+     Every step that began before the window end has by then finished and been logged at least 3 s before the sentinel, so it falls before the 2 s cutoff and must match a plugin step. A step still running keeps the log from going quiet. A request that arrives after the barrier starts after the window and is outside it by definition.
+   - **Superseded:** v7 required only that the terminal follow the window end (pilot review 7, finding 1), and v8 added 3 s of padding (pilot review 8, finding 1).
    - An iteration earlier than that, beyond the plugin's last step, means the plugin stopped recording while the engine ran on. The arm is ineligible.
    - Build item 6's rule, which compares only up to the plugin's last step and treats the rest as post-window, is tightened this way for the main study too. Without it, a plugin that stopped after step 70 while the engine logged 100 more steps before the window end would hide about 51,200 prefill tokens, 3.2 points of p, more than the margin the pilot measures.
+
+4. **The arm's timing row is complete:** every phase stamp, and its `elapsed_s`. The runner writes the row **before** the cell's upload hook, so the row leaves the instance with the cell (pilot review 8, finding 2). Today the row is written after the hook (`m5c-matrix.sh:3387`, `:3397`), so the last cell's duration survives only if the whole-session archive does. A missing final duration of 15 minutes against 10-minute cells would understate the main session's allowance by 75 minutes.
 
 The formulas read only eligible arms, and **they need every arm of both stages to be eligible.** Otherwise their outputs are **unavailable**, and the design returns to review.
 - Thirteen 900 ms requests without records among 12,285 turn a true ceiling of 1,800 ms into 50 ms.
@@ -938,6 +949,8 @@ A step log that fails its completeness check does not stop the next arm. It make
     Today a marker arriving just before the deadline leads to downloads before cleanup's termination (`m5c-gpu-session.sh:1488`, `:1497`), and the termination call has no outer timeout (`spot-run.sh:203`).
 
   Today `spot_wait_for_marker` counts attempts at 30 s plus two API calls each (`spot-run.sh:374`), so a 150-minute setting can run to about 250 minutes. Its caller also downloads before terminating (`m5c-gpu-session.sh:1482`, `:1497`, `:1335`).
+- **the quiet barrier before the sentinel:** 3 s without an iteration line, and the engine idle;
+- **the timing row written before the upload hook;**
 - **phase timestamps per cell** (pilot review 7, finding 2): deploy start, engine ready, replay start and end, sentinel, terminal record, capture end, and upload start and end, each in UTC.
   - Today `cell-timings.tsv` has only a cell's start, end and total, and the runner's messages carry no timestamps (`m5c-matrix.sh:161`). So 180 s of restart and 0 s of capture cannot be told from 120 s and 60 s.
 - **the instance's EC2 `LaunchTime`,** read by the runner after launch and written with the session's evidence, for the bring-up formula. It is not left to the deferred ledger.
