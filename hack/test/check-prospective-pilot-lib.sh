@@ -130,6 +130,35 @@ rc=$(capture_with 0)
   && ok "a correct priority under an expired bound is ineligible, for the bound" \
   || bad "a correct priority under an expired bound returned $rc: $(cat "$work/out-0/ineligible-off-1.txt" 2>/dev/null)"
 
+# The sidecar, against stubbed kubectl and docker and a hook that records what it was handed: on its interval it
+# uploads the live rows and a fresh gateway record and logs each upload, and a Spot notice triggers one at once.
+sidecar_run() {
+  local name="$1" interval="$2" notice="$3" wait_s="$4" bin="$work/sbin"
+  mkdir -p "$bin"
+  OUT="$work/side-$name"; mkdir -p "$OUT"
+  printf '{"requestId":"x"}\n' > "$OUT/live-raw-off-1.jsonl"
+  printf '#!/usr/bin/env bash\necho x\n' > "$bin/kubectl"
+  printf '#!/usr/bin/env bash\necho "{\\"ev\\":\\"arrive\\"}"\n' > "$bin/docker"
+  printf '#!/usr/bin/env bash\nprintf "%%s|%%s\\n" "$(basename "$1")" "$(cat "$2")" >> "%s/hook.log"\n' "$OUT" > "$bin/hook"
+  chmod +x "$bin"/*
+  [ "$notice" = 1 ] && : > "$OUT/notice"
+  ( PATH="$bin:$PATH" KCTX=x NS_A=ns CELL_SIDECAR_HOOK="$bin/hook" PP_SIDECAR_INTERVAL_S="$interval" \
+      PP_SPOT_NOTICE_FILE="$OUT/notice"
+    pp_sidecar_start off 1; sleep "$wait_s"; pp_sidecar_stop; sleep 1 )
+}
+sidecar_run interval 1 0 3.5
+n=$(grep -c $'\tinterval\t' "$work/side-interval/sidecar-uploads.tsv" 2>/dev/null)
+[ "${n:-0}" -ge 2 ] && grep -q '^live-raw-off-1.jsonl|{"ev":"arrive"}$' "$work/side-interval/hook.log" \
+  && ok "the sidecar uploads the live rows and a fresh gateway record on its interval, and logs each upload ($n)" \
+  || bad "the sidecar's interval uploads: $(cat "$work/side-interval/sidecar-uploads.tsv" "$work/side-interval/hook.log" 2>&1)"
+sidecar_run notice 100 1 2.5
+[ "$(grep -c $'\tspot-notice\t' "$work/side-notice/sidecar-uploads.tsv" 2>/dev/null)" = 1 ] \
+  && ! grep -q $'\tinterval\t' "$work/side-notice/sidecar-uploads.tsv" \
+  && ok "a Spot notice triggers one upload at once, long before the interval" \
+  || bad "the sidecar's notice upload: $(cat "$work/side-notice/sidecar-uploads.tsv" 2>&1)"
+( OUT="$work/side-none"; mkdir -p "$OUT"; unset CELL_SIDECAR_HOOK; pp_sidecar_start off 1; [ -z "$PP_SIDECAR_PID" ] ) \
+  && ok "without a hook the sidecar starts nothing" || bad "the sidecar started without a hook"
+
 echo
 [ "$fails" = 0 ] && { echo "PASS"; exit 0; }
 echo "$fails check(s) failed"; exit 1

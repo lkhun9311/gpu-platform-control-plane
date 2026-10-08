@@ -2506,7 +2506,8 @@ expected_outputs() {
     -o -name 'warmup-manifest-*.yaml' -o -name 'step-log-*.jsonl' -o -name 'step-plugin-*.sha256' \
     -o -name 'fence-*.json' -o -name 'fence-forward-*.log' -o -name 'gateway-record-*.jsonl' -o -name 'raw-*.jsonl.sender.json' \
     -o -name 'ineligible-*.txt' -o -name 'phases.tsv' -o -name 'cell-uploads.tsv' -o -name 'calibration.txt' \
-    -o -name 'calibration-forward.log' \) 2>/dev/null | wc -l)
+    -o -name 'calibration-forward.log' -o -name 'live-raw-*.jsonl' -o -name 'live-gateway-record-*.jsonl' \
+    -o -name 'sidecar-uploads.tsv' \) 2>/dev/null | wc -l)
   # The engine-metrics files are in the total as whatever is there, like the conditional outputs above.
   #
   # How many a cell owes depends on its topology -- one engine or two -- which this count cannot see, so
@@ -2670,7 +2671,8 @@ EOF
     -o -name 'warmup-manifest-*.yaml' -o -name 'step-log-*.jsonl' -o -name 'step-plugin-*.sha256' \
     -o -name 'fence-*.json' -o -name 'fence-forward-*.log' -o -name 'gateway-record-*.jsonl' -o -name 'raw-*.jsonl.sender.json' \
     -o -name 'ineligible-*.txt' -o -name 'phases.tsv' -o -name 'cell-uploads.tsv' -o -name 'calibration.txt' \
-    -o -name 'calibration-forward.log' \) 2>/dev/null | wc -l)
+    -o -name 'calibration-forward.log' -o -name 'live-raw-*.jsonl' -o -name 'live-gateway-record-*.jsonl' \
+    -o -name 'sidecar-uploads.tsv' \) 2>/dev/null | wc -l)
   unattr=0
   for f in "$OUT"/*; do
     [ -f "$f" ] || continue
@@ -2686,6 +2688,7 @@ EOF
       step-log-*.jsonl | step-plugin-*.sha256) ;;
       fence-*.json | fence-forward-*.log | gateway-record-*.jsonl | raw-*.jsonl.sender.json | ineligible-*.txt) ;;
       phases.tsv | cell-uploads.tsv | calibration.txt | calibration-forward.log) ;;
+      live-raw-*.jsonl | live-gateway-record-*.jsonl | sidecar-uploads.tsv) ;;
       *) unattr=$(( unattr + 1 )) ;;
     esac
   done
@@ -3416,6 +3419,7 @@ run_cell() {
   elif [ -z "${LADDER:-}" ] && pp_is_study "${STUDY:-}"; then
     idflag=$(pp_request_id_flag "$PILOT_STAGE" "$label" "$rep") || fail "request ids for $label"
     pp_phase "$label" "$rep" replay-start
+    pp_sidecar_start "$label" "$rep"
   fi
   "$WORK/benchharness" replay --manifest "$OUT/manifest-$label-$rep.yaml" \
     $PROVENANCE_FLAG ${idflag:+"$idflag"} \
@@ -3426,6 +3430,7 @@ run_cell() {
   # The pilot's capture bound runs from the replay's return, before anything else is done (pilot review 11).
   local replay_done_epoch
   replay_done_epoch=$(date +%s)
+  pp_sidecar_stop
   scrape_engine_metrics "$arm" "$label" "$rep" after
   # The pilot's capture: fence, terminal record, logs, the gateway's record and the priority witness. An
   # ineligible cell goes on to the next arm; an apparatus that was not the registered one stops the pilot below.

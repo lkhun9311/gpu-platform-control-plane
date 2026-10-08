@@ -667,16 +667,19 @@ mism=$(printf '%s\n' "$after" | awk '$2 != $3')
 	|| bad "conditional before ${before@Q} after ${after@Q}"
 [ "$(printf '%s\n' "$after" | grep '^stray-cell-outputs')" = "stray-cell-outputs 0 0" ] && [ "$(printf '%s\n' "$after" | grep '^unattributed')" = "unattributed 0 0" ] \
 	&& ok "raw-warmup-* is not read as a stray cell output" || bad "stray or unattributed moved: $after"
-# The prospective-admission pilot's capture files: four per cell, four once per stage, and an ineligible note.
+# The prospective-admission pilot's capture files: four per cell, four once per stage, and an ineligible note; and
+# the sidecar's live rows, live gateway record and upload log, named live-* so no raw-* or gateway-record-* glob
+# reads them as a cell's.
 # The kind rehearsal of both stages reported unattributed(0!=40) and (0!=52) before these were named.
 for f in fence-serial-log-1.json fence-forward-serial-log-1.log gateway-record-serial-log-1.jsonl \
 	raw-serial-log-1.jsonl.sender.json ineligible-serial-log-1.txt phases.tsv cell-uploads.tsv calibration.txt \
-	calibration-forward.log; do : > "$A/$f"; done
+	calibration-forward.log live-raw-serial-log-1.jsonl live-gateway-record-serial-log-1.jsonl sidecar-uploads.tsv; do : > "$A/$f"; done
 pilot=$(account "$A")
 mism=$(printf '%s\n' "$pilot" | awk '$2 != $3')
 [ -z "$mism" ] && [ "$(printf '%s\n' "$pilot" | grep '^unattributed')" = "unattributed 0 0" ] \
-	&& [ "$(printf '%s\n' "$pilot" | grep '^conditional')" = "conditional 16 16" ] \
-	&& ok "the pilot's nine capture files are conditional (7 -> 16), not unattributed" || bad "the pilot's files: $pilot"
+	&& [ "$(printf '%s\n' "$pilot" | grep '^conditional')" = "conditional 19 19" ] \
+	&& [ "$(printf '%s\n' "$pilot" | grep '^stray-cell-outputs')" = "stray-cell-outputs 0 0" ] \
+	&& ok "the pilot's nine capture files and three sidecar files are conditional (7 -> 19), not strays or unattributed" || bad "the pilot's files: $pilot"
 
 # --- 12. the projections charge the warm-up ------------------------------------------------------------
 say "12. session 2's deadline projections charge each cell its warm-up's span"

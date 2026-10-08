@@ -278,14 +278,7 @@ pp_capture() {
   timeout "$(left)" kubectl --context "$KCTX" logs -n "$NS_A" "$pod" > "$OUT/engine-log-$label-$rep.txt" 2>/dev/null \
     || why="${why:+$why; }the engine's own log could not be read"
 
-  gwpod=$(timeout "$(left)" kubectl --context "$KCTX" get pods -n "$NS_A" -l app=m5c-gateway -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
-  node=$(timeout "$(left)" kubectl --context "$KCTX" get pod -n "$NS_A" "$gwpod" -o jsonpath='{.spec.nodeName}' 2>/dev/null)
-  uid=$(timeout "$(left)" kubectl --context "$KCTX" get pod -n "$NS_A" "$gwpod" -o jsonpath='{.metadata.uid}' 2>/dev/null)
-  if [ -n "$node" ] && [ -n "$uid" ] && timeout "$(left)" docker exec "$node" cat \
-       "/var/lib/kubelet/pods/$uid/volumes/kubernetes.io~empty-dir/gwrecord/$(basename "$PP_GATEWAY_RECORD")" \
-       > "$OUT/gateway-record-$label-$rep.jsonl" 2>/dev/null; then
-    :
-  else
+  if ! node=$(pp_read_gateway_record "$OUT/gateway-record-$label-$rep.jsonl" "$(left)"); then
     why="${why:+$why; }the gateway's record could not be read from node ${node:-unknown}"
   fi
   pp_phase "$label" "$rep" capture-done
@@ -307,6 +300,65 @@ pp_capture() {
   [ "$prc" = 0 ] || { pp_ineligible "$label" "$rep" "$prio"; return 1; }
   [ -z "$why" ] || { pp_ineligible "$label" "$rep" "$why"; return 1; }
   return 0
+}
+
+# pp_read_gateway_record copies the gateway's record to dest, each call bounded by limit seconds, and prints the node.
+# The gateway image has no shell, so its emptyDir is read from the node, by the pod's UID.
+pp_read_gateway_record() {
+  local dest="$1" limit="$2" gwpod node uid
+  gwpod=$(timeout "$limit" kubectl --context "$KCTX" get pods -n "$NS_A" -l app=m5c-gateway -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+  node=$(timeout "$limit" kubectl --context "$KCTX" get pod -n "$NS_A" "$gwpod" -o jsonpath='{.spec.nodeName}' 2>/dev/null)
+  uid=$(timeout "$limit" kubectl --context "$KCTX" get pod -n "$NS_A" "$gwpod" -o jsonpath='{.metadata.uid}' 2>/dev/null)
+  printf '%s' "$node"
+  [ -n "$node" ] && [ -n "$uid" ] && timeout "$limit" docker exec "$node" cat \
+    "/var/lib/kubelet/pods/$uid/volumes/kubernetes.io~empty-dir/gwrecord/$(basename "$PP_GATEWAY_RECORD")" > "$dest" 2>/dev/null
+}
+
+# The evidence sidecar (design page, "Rows leave the instance as they are written", build item 8): during a replay,
+# every PP_SIDECAR_INTERVAL_S seconds, and at once when PP_SPOT_NOTICE_FILE appears, it hands the live rows and a
+# fresh copy of the gateway's record to CELL_SIDECAR_HOOK, which the paid session points at S3. Each upload's
+# interval goes to sidecar-uploads.tsv, because an upload is part of the apparatus whose timing the pilot measures.
+# Without a hook it does nothing, as on kind unless the rehearsal gives one.
+PP_SIDECAR_INTERVAL_S="${PP_SIDECAR_INTERVAL_S:-30}"
+PP_SIDECAR_HOOK_TIMEOUT_S=25
+pp_sidecar_upload() {
+  local label="$1" rep="$2" trigger="$3" t0 t1 rc bytes
+  local raw="$OUT/live-raw-$label-$rep.jsonl" gw="$OUT/live-gateway-record-$label-$rep.jsonl"
+  t0=$(date +%s%N)
+  pp_read_gateway_record "$gw" 10 >/dev/null || true
+  timeout "$PP_SIDECAR_HOOK_TIMEOUT_S" "$CELL_SIDECAR_HOOK" "$raw" "$gw" "$label" "$rep" >/dev/null 2>&1 && rc=0 || rc=$?
+  t1=$(date +%s%N)
+  bytes=$(( $(stat -c %s "$raw" 2>/dev/null || echo 0) + $(stat -c %s "$gw" 2>/dev/null || echo 0) ))
+  [ -s "$OUT/sidecar-uploads.tsv" ] || printf 'cell\ttrigger\tstart_unix_ns\tend_unix_ns\thook_rc\tbytes\n' > "$OUT/sidecar-uploads.tsv"
+  printf '%s-%s\t%s\t%s\t%s\t%s\t%s\n' "$label" "$rep" "$trigger" "$t0" "$t1" "$rc" "$bytes" >> "$OUT/sidecar-uploads.tsv"
+}
+# Started at the replay's start, in the background; it ends itself when the matrix that started it is gone.
+pp_sidecar_start() {
+  local label="$1" rep="$2" parent=$$
+  PP_SIDECAR_PID=""
+  [ -n "${CELL_SIDECAR_HOOK:-}" ] || return 0
+  (
+    trap 'exit 0' TERM
+    next=$(( $(date +%s) + PP_SIDECAR_INTERVAL_S )); noticed=""
+    while kill -0 "$parent" 2>/dev/null; do
+      if [ -z "$noticed" ] && [ -n "${PP_SPOT_NOTICE_FILE:-}" ] && [ -e "$PP_SPOT_NOTICE_FILE" ]; then
+        noticed=1
+        pp_sidecar_upload "$label" "$rep" spot-notice
+      elif [ "$(date +%s)" -ge "$next" ]; then
+        pp_sidecar_upload "$label" "$rep" interval
+        next=$(( $(date +%s) + PP_SIDECAR_INTERVAL_S ))
+      fi
+      sleep 1
+    done
+  ) &
+  PP_SIDECAR_PID=$!
+}
+# Stopped without waiting at the replay's return, so an upload in flight cannot eat into the capture's bound; the
+# per-cell hook sends the complete files after the capture.
+pp_sidecar_stop() {
+  [ -n "${PP_SIDECAR_PID:-}" ] || return 0
+  kill "$PP_SIDECAR_PID" 2>/dev/null || true
+  PP_SIDECAR_PID=""
 }
 
 # Records why a cell is ineligible for calibration; the cell's measurements are still reported.
