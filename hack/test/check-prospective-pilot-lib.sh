@@ -93,6 +93,43 @@ if pp_gateway_args static-cap "" >/dev/null 2>&1; then bad "the static arm ran w
 [ "$(pp_request_id_flag B prospective 2)" = "--request-id-prefix=pp-B-prospective-2" ] && ok "request IDs name stage, arm and block" || bad "the request-ID prefix is not pp-<stage>-<arm>-<block>"
 if pp_stage_arms A | grep -qx static-cap; then bad "stage A buys a static arm before its rate exists"; else ok "stage A has no static arm"; fi
 
+# The capture, against stubbed kubectl, curl and docker on PATH: the cluster calls answer at once, except the
+# gateway record's node read, which sleeps past the bound.
+# A complete step log showing a request at the wrong priority must still stop the pilot (exit 3), because that is
+# an apparatus fault; the read running out of time is not allowed to demote it to ineligibility (review of ffe3047).
+capture_with() {
+  local prio_premium="$1" bin="$work/bin" rc
+  mkdir -p "$bin"
+  OUT="$work/out-$prio_premium"; mkdir -p "$OUT"
+  printf '%s\n' '{"requestId":"pp-A-off-1-0","tenant":"premium-1"}' > "$OUT/raw-off-1.jsonl"
+  printf '%s\n' \
+    "{\"ev\":\"add\",\"id\":\"chatcmpl-pp-A-off-1-0\",\"priority\":$prio_premium,\"prompt\":68,\"seq\":1}" \
+    '{"ev":"terminal","seq_written":1,"seq_produced":1,"buffered":0}' > "$work/step-$prio_premium.jsonl"
+  cat > "$bin/kubectl" <<EOF
+#!/usr/bin/env bash
+case "\$*" in
+  *port-forward*) exec sleep 30 ;;
+  *"-- cat"*) cat "$work/step-$prio_premium.jsonl" ;;
+  *" logs "*) echo "INFO engine log" ;;
+  *jsonpath*) echo "x" ;;
+esac
+EOF
+  printf '#!/usr/bin/env bash\n[[ "$*" == *http_code* ]] && printf 200\nexit 0\n' > "$bin/curl"
+  printf '#!/usr/bin/env bash\nsleep 30\n' > "$bin/docker"
+  chmod +x "$bin"/*
+  ( PATH="$bin:$PATH" KCTX=x NS_A=ns MODEL=m PP_CAPTURE_BOUND_S=4
+    say() { :; }
+    pp_capture off 1 "$(date +%s)" >/dev/null ) && rc=0 || rc=$?
+  echo "$rc"
+}
+rc=$(capture_with 1)
+[ "$rc" = 3 ] && ok "a witnessed wrong priority stops the pilot even when a later read outruns the bound" \
+  || bad "a witnessed wrong priority under an expired bound returned $rc, not 3"
+rc=$(capture_with 0)
+[ "$rc" = 1 ] && grep -q "did not finish within" "$work/out-0/ineligible-off-1.txt" 2>/dev/null \
+  && ok "a correct priority under an expired bound is ineligible, for the bound" \
+  || bad "a correct priority under an expired bound returned $rc: $(cat "$work/out-0/ineligible-off-1.txt" 2>/dev/null)"
+
 echo
 [ "$fails" = 0 ] && { echo "PASS"; exit 0; }
 echo "$fails check(s) failed"; exit 1

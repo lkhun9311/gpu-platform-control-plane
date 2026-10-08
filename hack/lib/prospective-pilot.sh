@@ -289,20 +289,22 @@ pp_capture() {
     why="${why:+$why; }the gateway's record could not be read from node ${node:-unknown}"
   fi
   pp_phase "$label" "$rep" capture-done
+
+  # The priority witness runs before the bound is judged: a complete step log that shows a request at the wrong
+  # priority is an apparatus fault, and a later read running out of time must not demote it to ineligibility
+  # (review of ffe3047).
+  local prio prc=2
+  if [ "$term" = 0 ]; then
+    # The status is taken beside the call: inside `if ! cmd`, $? is the negation's, which is always 0.
+    prio=$(python3 "$PP_EVIDENCE" priority "$OUT/step-log-$label-$rep.jsonl" "$OUT/raw-$label-$rep.jsonl") && prc=0 || prc=$?
+    [ "$prc" != 1 ] || { echo "$prio"; return 3; }
+  fi
   if expired; then
     pp_ineligible "$label" "$rep" "the capture did not finish within ${PP_CAPTURE_BOUND_S}s of the replay's return${why:+: $why}"
     return 1
   fi
-
   if [ "$term" != 0 ]; then pp_ineligible "$label" "$rep" "${why:-the step log never showed a complete terminal record}"; return 1; fi
-  local prio prc
-  # The status is taken beside the call: inside `if ! cmd`, $? is the negation's, which is always 0.
-  prio=$(python3 "$PP_EVIDENCE" priority "$OUT/step-log-$label-$rep.jsonl" "$OUT/raw-$label-$rep.jsonl") && prc=0 || prc=$?
-  case "$prc" in
-    0) ;;
-    1) echo "$prio"; return 3 ;;
-    *) pp_ineligible "$label" "$rep" "$prio"; return 1 ;;
-  esac
+  [ "$prc" = 0 ] || { pp_ineligible "$label" "$rep" "$prio"; return 1; }
   [ -z "$why" ] || { pp_ineligible "$label" "$rep" "$why"; return 1; }
   return 0
 }
@@ -323,7 +325,19 @@ pp_calibrate() {
   [ -n "$pod" ] || { echo "no engine pod to calibrate against"; return 1; }
   kubectl --context "$KCTX" port-forward -n "$NS_A" "pod/$pod" "$PP_FENCE_PORT:8000" >"$OUT/calibration-forward.log" 2>&1 &
   pf=$!
-  sleep 2
+  # Wait for the tunnel rather than a fixed two seconds: a probe sent before it listens fails as a connection
+  # error, and verify-exact-tokens does not retry, so a slow tunnel read as a token mismatch (review of bc74ce0).
+  local i ready=""
+  for i in $(seq 1 60); do
+    kill -0 "$pf" 2>/dev/null || break
+    if curl -sS -o /dev/null --max-time 2 "http://127.0.0.1:$PP_FENCE_PORT/v1/models" 2>/dev/null; then ready=1; break; fi
+    sleep 1
+  done
+  if [ -z "$ready" ]; then
+    kill "$pf" 2>/dev/null || true; wait "$pf" 2>/dev/null || true
+    echo "the calibration tunnel to $pod never answered within 60s, so the engine's counts were not checked: $(tail -1 "$OUT/calibration-forward.log" 2>/dev/null)"
+    return 1
+  fi
   out=$("$WORK/benchharness" verify-exact-tokens --study "$STUDY" --engine-url "http://127.0.0.1:$PP_FENCE_PORT" --model "$MODEL" 2>&1) \
     && rc=0 || rc=$?
   kill "$pf" 2>/dev/null || true; wait "$pf" 2>/dev/null || true
