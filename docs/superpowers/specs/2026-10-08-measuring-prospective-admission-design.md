@@ -1,4 +1,4 @@
-# Measuring prospective admission directly (item 3): the design, v19
+# Measuring prospective admission directly (item 3): the design, v20
 
 *Drafted 2026-10-08 for the owner's approval before anything is built. The owner approved paid runs for this direction on 2026-10-08, and asked for the design to be attacked as hard as possible before money is spent. Nothing is bought until a registration built from this design is frozen.*
 
@@ -24,7 +24,8 @@
 | v16 | ed0a06a | astra's review of v15 | 2 blockers, 1 minor |
 | v17 | 46353cc | astra's review of v16 | 2 blockers, 1 major |
 | v18 | 92c2c16 | astra's review of v17 | 2 blockers, 2 majors |
-| v19 | this page | astra's review of v18 | 3 blockers, 2 majors, 1 minor |
+| v19 | e7a9896 | astra's review of v18 | 3 blockers, 2 majors, 1 minor |
+| v20 | this page | astra's review of v19 | 2 blockers, 2 majors, 1 minor |
 
 **Who established what.**
 - astra read the code and found the defects. Each round was given only the page and the repository, never told where to look.
@@ -106,7 +107,8 @@ Same instance and same trace within a block, with the arm order randomised per b
 | Case | Meaning | Treatment |
 |---|---|---|
 | Client row and gateway record | the normal case | joined |
-| Client row, no gateway record | unknown at the gateway: a pre-gateway failure, or a lost log line | its completion is read from the client row itself, as for every request. It carries no forwarding stamp, so a premium one's TTFT is bounded, not imputed: the decision must hold at both 0 and +∞ (see "Uncertain requests and the decision") |
+| Client row, no gateway record, **the request failed before a response** | it never reached the gateway, or reached it without a record | a failure: premium counts at +∞ and toward loss; a contender is not completed |
+| Client row, no gateway record, **the request succeeded** | the gateway served it and its record was lost | **the outcome is "invalid"** (round 19, finding 1). A served request without a record has no lag, so neither its own timing nor its load's displacement of others can be bounded |
 | Gateway record, no client row | a harness defect | the run refuses |
 | A client row with an empty ID, or any duplicate ID | a harness defect | the run refuses |
 
@@ -128,7 +130,7 @@ Same instance and same trace within a block, with the arm order randomised per b
 
 Tokenisation of a fixed prompt does not change between instances of one pinned image and revision. Stage B re-stamps its traces live in a calibration epoch and refuses if either count differs.
 
-**Missing gateway records in the pilot refuse** (round 9, finding 5). The main study tolerates a missing record, because no validity quantity reads it. The pilot's R fit and release-timing gate do read it:
+**Missing gateway records refuse in the pilot, as in the main study** (round 9, finding 5; round 19, finding 1). In the main study, a served request with no record makes the outcome "invalid" (see the join). The pilot's R fit and release-timing gate also read the record:
 - in stage A, a P contender with no gateway record makes the stage fail;
 - stage A is bought again only by the owner's decision, never automatically.
 
@@ -258,7 +260,10 @@ Any client-side stamp has some later point a delay can sit behind. So the stamp 
 
   This is a harness failure, not a property of the arm.
 - **No maximum-lag rule.** v13's maximum of 250 ms, with every pre-write connection failure counted as a violation, made a single TCP retransmission anywhere in some 582,000 requests invalidate the study (round 13, finding 4). The p99.9 and mean-difference rules bound a systematic delay without a zero-failure requirement.
-- **A request with no gateway record is not a lag observation.** Its completion is read from its client row, as for every request (see the join). Its TTFT is governed by the rule under Endpoints. v14 called it a failure, which contradicted the join and let 12 lost S records move S's p99 tenfold (round 14, finding 1).
+- **A served request with no gateway record makes the outcome "invalid"** (see the join). v19 excluded such requests from every lag statistic, so two late contenders whose records were lost escaped the contender lag rule entirely (round 19, finding 1).
+  - The gateway writes its records durably, so a lost one is a defect, not noise.
+  - Stage A refuses on any lost record.
+- A request that failed before any response is a failure under the loss and completion rules, as in v14.
 - **These rules bound when load arrives, not any one request's TTFT.** v14 claimed a sparse delay could move a p99 "only slightly". It cannot be caught by any aggregate rule, and round 14 (finding 2) showed four delayed requests per replay moving S's p99 from 100 to 1,000 ms. No aggregate rule can catch a few delayed requests. So the decision does not trust them: any request with lag above 5 ms is uncertain and bounded (see "Late requests are not trusted, they are bounded" under Endpoints).
 - Each arm's lag distribution is published.
 - The pilot measures it first: stage A refuses at the p99 and p99.9 limits, and stage B at all three.
@@ -283,16 +288,19 @@ Rounds 12 to 17 each found a delay that defeated the latest timing rule.
 - What every one of those attacks needed was a **late** request whose TTFT the decision then trusted.
 
 **So v18 trusts no late request.**
-- **A request is uncertain** if its dispatch lag exceeds **L = 5 ms**, or if its gateway record is missing.
-- An uncertain request's TTFT is not used as a value. Like a missing record, it is **bounded over 0 to +∞** (see "Uncertain requests and the decision" below), and the decision must hold whatever it was.
+- **A request is uncertain** if its dispatch lag exceeds **L = 5 ms**.
+- An uncertain request's TTFT is not used as a value. It is **bounded over 0 to +∞** (see "Uncertain requests and the decision" below), and the decision must hold whatever it was.
 - **More than 0.1% uncertain premium requests in an arm makes the outcome "invalid".** Stage A refuses if more than 0.05% of its requests have lag above L, so a main study is not bought onto a harness that cannot keep up.
 
 **Trusted lag is not merely published: it is in the decision's bounds.** v18 published the 5 ms bias beside the result. Round 18 (finding 3) showed what that allowed: a 1.5 ms lag on S turned a true ratio of 0.99 into 0.92, a pass. v19 takes each arm's TTFT in the definition conservative for the side being bounded (see "The interval for each instance's y" below). So every dispatch lag, trusted or not, can only move the decisive bound against P.
 
 **What lag can do to other requests, and its rule.** A request's lag also changes when its load arrives, and so what other requests meet. Bounding a late request's own TTFT does not bound that (round 18, finding 2): two contenders per replay delayed 900 ms can move which premium requests meet a prefill, while every premium request is on time.
-- **The contender lag rule:** every contender in an arm must have lag at most 50 ms, or the outcome is "invalid". Stage A refuses if any contender's lag exceeds 25 ms, so the main study starts with headroom.
-- **The premium lag rule is the 0.1% uncertainty cap,** with the p99 and p99.9 rules above.
-- **What remains, stated in the claim:** load shifted by up to 50 ms per contender, and 5 ms per trusted premium request, can change which premium requests meet contention.
+- **The lag ceiling, for every request:** every request in an arm, contender or premium, must have lag at most **50 ms**, or the outcome is "invalid". Stage A refuses if any request's lag exceeds 25 ms, so the main study starts with headroom.
+  - v19 applied it to contenders only, and left uncertain premium requests without a maximum. Round 19 (finding 2) showed three premium requests delayed 900 ms could, by displacing their own high-priority work, move six other P requests out of the tail, with both bounds equal.
+- **Within the ceiling:**
+  - a premium request with lag between 5 and 50 ms is uncertain for its own TTFT, under the 0.1% cap;
+  - one at 5 ms or less is trusted.
+- **What remains, stated in the claim:** any request's load can be displaced by up to 50 ms, and that can change which premium requests meet contention.
   - Its effect on the tail is not bounded by any measurement in this design.
   - A contender's prefill takes on the order of seconds at a 512-token budget, so a 50 ms shift moves its contention by a small fraction of its length.
   - That is an argument, not a bound, and the page says so.
@@ -316,7 +324,7 @@ Rounds 12 to 17 each found a delay that defeated the latest timing rule.
 
 The decision's bounds use whichever is conservative (next section), so v18's separate consistency check is no longer needed. Both definitions' results are published.
 
-**A premium request whose response arrived but whose gateway record is missing has no forwarding stamp.** It is uncertain, like a late one, and counts toward the same 0.1% cap.
+**A premium request whose response arrived but whose gateway record is missing** makes the outcome "invalid" (see the join).
 
 **Per instance and arm:**
 - The pooled premium TTFT p99 over the instance's three blocks.
@@ -365,6 +373,8 @@ v17 set both arms to 0 and then both to +∞. That is not the extremes. Round 17
 **Why no t-bounded safeguards.** A t-bound on ratios that are each at least 1 can still fail on one extreme instance: 11 at 1.0 and one at 3.0 gives a lower bound of 0.93 (round 5, finding 6). P against S contender completion is published.
 
 **Decision: a futility look, then one test.**
+- **After every instance:** if any instance has an infinite end, benefit is already impossible. No further instance is bought, and the outcome is "no demonstrated benefit" (round 19, finding 4).
+  - v19 let the futility look read −∞ as "continue". That could buy eleven more instances, about $20.64, after the verdict was fixed.
 - **At 6 contributing instances:** if the mean of y_lo is at or above ln 1.0, stop with outcome "no demonstrated benefit".
 - **At 12 contributing instances:** benefit if, at every vertex of the box, the one-sided 95% t upper bound of mean y is below ln 0.95, and that of mean ln(P/O) is below 0.
 - **Launches exhausted (14) with fewer than 12 contributing:** the outcome is "insufficient".
@@ -373,11 +383,11 @@ v17 set both arms to 0 and then both to +∞. That is not the extremes. Round 17
 
 **Precedence:** invalid, then stopped, then insufficient, then the decision. So identical evidence gives one verdict.
 
-**Assumptions, stated in the claim.** The 5% error rate holds if four things are true. The first three cannot be checked with 12 instances, and the fourth is enforced by construction, not measured:
+**Assumptions, stated in the claim.** The 5% error rate holds if four things are true. The first three cannot be checked with 12 instances. The fourth is bounded by the 50 ms lag ceiling, but its effect within that ceiling is not measured:
 - the instance log-ratios are approximately normal;
 - they are independent;
 - **Spot interruptions are unrelated to how an instance would have performed** (round 11, finding 3);
-- **load shifted by permitted lag does not change which premium requests meet contention enough to matter.** That is at most 50 ms per contender and 5 ms per trusted premium request (see "What lag can do to other requests"). A request's own lag is in the decision's bounds; its effect on others is not, and is not measured.
+- **load shifted by permitted lag does not change which premium requests meet contention enough to matter.** That is at most 50 ms for any request (see "What lag can do to other requests"). A request's own lag is in the decision's bounds; its effect on others is not, and is not measured.
 
 Recording `StateReason` establishes an interruption's cause, not its independence. If the worst tenth of launches were the ones interrupted, round 11's simulation gives 15% false benefit at the null.
 
@@ -397,15 +407,22 @@ Recording `StateReason` establishes an interruption's cause, not its independenc
 
 **Error at a true P/S of 0.95:** 4.9% to 5.1% (mine) and 4.98% (astra's).
 
-**The table assumes complete, lag-free observation, and the registered decision is never more powerful than it** (round 18, finding 5).
-- The decision reads y_hi, which is y moved against P by uncertain values and by every dispatch lag. So the decision's power is at most the table's, and can be much less.
-- **Round 18's example:** 9 uncertain P values sitting just below the p99 rank, 0.077% of the arm and inside the cap, move y_hi from ln 0.8 to ln 10.
-- How much power is lost depends on how many requests are uncertain and how the latencies are spaced around each p99. Neither is known before stage A.
-- **Stage A measures and publishes both:**
-  - the uncertain fraction per arm;
-  - the gap y_hi − y on its own P/O, which needs no S.
+**The table describes an ideal process, not the registered one** (round 18, finding 5; round 19, finding 5).
+- The table assumes complete, lag-free observation, with futility read on y itself.
+- The registered procedure differs in two ways:
+  - its decision reads the box, which moves y against P by uncertain values and dispatch lag;
+  - its futility look reads y_lo.
+- v19 said the registered procedure is never more powerful than the table. Round 19 built a sequence where the table stops for futility and the registered procedure continues and passes, so that claim is withdrawn.
+- The registered procedure's power is **not established** by this page.
+- **Round 18's example of how much it can lose:** 9 uncertain P values sitting just below the p99 rank, 0.077% of the arm and inside the cap, move y_hi from ln 0.8 to ln 10.
 
-  If that gap's mean exceeds 0.05, half the distance from ln 0.95 to ln 0.8, the design returns to review rather than buying a study the bounds would starve.
+**The pilot screens the box's width on the primary itself** (round 19, finding 3). v19 screened only P/O's gap in stage A. Round 19 showed a case that passes that screen while the primary's upper end sits at 0, so benefit is impossible: arrival p99s of 16 and 20 ms against a uniform 4 ms lag.
+- **The screen reads the width, not the ratio.** In stage B, for each of its two blocks, the half-width (y_hi − y_lo) / 2 of the P/S box is computed.
+  - This reads how far the bounds spread around the ratio, not which arm is better. The rule that no pilot gate reads P against S's tail stands.
+- If either block's half-width exceeds **0.043**, the design returns to review. That is half of 0.0859, which is half the distance from ln 0.8 to ln 0.95.
+  - At that width, a true ratio of 0.80 leaves y_hi at most halfway to the threshold.
+  - v19 called 0.05 "half the distance", which was wrong: half the distance is 0.0859 (round 19, finding 3).
+- Stage A still publishes the uncertain fraction per arm and P/O's gap.
 
 **This is the primary's power alone.** v8 prints no joint feasibility figure.
 - The two whole-study gates, validity and premium loss, have survival probabilities nothing before the main study measures.
@@ -464,6 +481,8 @@ Then stage A fits R.
 - validity, with p_P − p_S, q_P − q_S and c_P − c_S each at least 0.03 in each of its two blocks;
 - the live re-stamp equal to the frozen counts;
 - the informative bound, mean p_P − p_S ≤ 0.10;
+- the P/S box half-width at most 0.043 in each block (see Endpoints);
+- no served request without a gateway record, and no request beyond the lag ceiling;
 - the whole four-arm cycle at full duration on the GPU.
 
 **Every gate refuses the main purchase if unmet. None reads P against S's tail.**
@@ -590,14 +609,14 @@ Today the hook uploads only after a replay and its log capture (`m5c-matrix.sh:3
     - round 18's 1.5 ms S-lag example, which must fail;
     - round 18's −∞ example, which must fail.
     - The gateway stamps the instant it forwards the first content frame, which needs it to recognise the first non-empty content delta in the stream.
-    - TTFT-arrival is computed beside it for the consistency check.
+    - TTFT-arrival is computed beside it, for the crossed bounds.
     - Uncertain requests (lag above 5 ms, or no gateway record) are bounded over the corrected box, with P and S at opposite ends, under the 0.1% cap.
     - The infinite-end rules and the y_lo futility look apply.
     - Tested on round 17's 0.792 example, which must fail.
     - Tested on round 16's example, which must fail at its −2 vertex.
     - The client-stamp TTFT is published as well.
 27. **One connection pool per block.** Today the pooled sender sizes its pool from each arm's own trace (`httpsender.go:100`, `:147`). I, with no contenders, would get about 278 connections against the others' 293 (round 18, finding 4). The pool is computed once from the block's full trace and passed to every arm, I included.
-28. **The contender lag rule:** at most 50 ms in the main study, 25 ms in stage A.
+28. **The lag ceiling for every request:** at most 50 ms in the main study, 25 ms in stage A. A served request with no gateway record makes the outcome "invalid". Any infinite end stops further purchase. The P/S box half-width is screened in stage B.
 26. **An arm-blind harness, checked on the resolved sending configuration,** with the manifest, raw output path and ID prefix normalised:
     - The harness writes its resolved sending configuration into each raw file: timeout, pool, concurrency, stream options and sender settings. The analysis refuses a block whose arms differ in any of them. The binary's hash must match across arms.
     - The ID prefix must differ per arm and per block, for study-wide uniqueness, and the analysis checks that it does.
@@ -609,8 +628,11 @@ Today the hook uploads only after a replay and its log capture (`m5c-matrix.sh:3
     - a lost refusal;
     - an admitted contender failing after admission;
     - a request whose response never arrived, joined to the gateway's record by its client ID;
-    - a request that never reached the gateway, and an S success whose gateway line is deleted, which must still count as completed;
-    - round 14's 12 deleted fast S records, which the vertex rule must bound rather than impute;
+    - a request that never reached the gateway, which must count as a failure;
+    - an S success whose gateway line is deleted, which must make the outcome "invalid";
+    - round 19's two late contenders with deleted records, which must make the outcome "invalid";
+    - a premium request delayed 60 ms, which must make the outcome "invalid";
+    - an infinite end on the first main instance, which must stop further purchase;
     - round 15's three P premium requests delivered 900 ms late, which must leave their TTFT-scheduled including the wait;
     - round 15's four S responses read 900 ms late by the client, which must not change TTFT;
     - one arm run with a different timeout, which the analysis must refuse;
@@ -711,6 +733,18 @@ The AWS SSO session lasts at most 12 hours from a login.
 - The ledger limits what the study starts. It cannot stop an instance already running, which is the terminators' job.
 - After the session it records launch and termination times from EC2 and CloudTrail.
 - Billed amounts come from Cost Explorer when it settles, and are published beside the estimate.
+
+## What v20 changed, against the review of v19
+
+| v19 finding | Change |
+|---|---|
+| 1: contenders without gateway records escaped the lag rule | a served request with no gateway record makes the outcome "invalid"; a request that failed before any response stays a failure |
+| 2: uncertain premium requests had no maximum delay | a 50 ms lag ceiling for every request, premium and contender; within it, premium lag of 5 to 50 ms is uncertain for its own TTFT; the remaining displacement effect is a stated assumption, no longer called "enforced by construction" |
+| 3: the pilot screen did not test the primary; "half the distance" was wrong | stage B screens the P/S box's half-width, which reads the bounds' spread and not the ratio, at 0.043; half the distance is 0.0859 |
+| 4: purchase continued after benefit was impossible | any infinite end stops further purchase |
+| 5: "never more powerful than the table" does not hold | withdrawn; the registered procedure's power is stated as not established |
+
+Round 19 re-derived the power table (1,000,000 studies per row) and every cost figure, and agreed with each. No cost figure changed in v20.
 
 ## What v19 changed, against the review of v18
 
