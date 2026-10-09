@@ -1036,7 +1036,16 @@ Both stages were bought in gpu-lab on one g5.2xlarge Spot each: stage A `i-0ad29
 - the width screen, half-width at most 0.043: 0.0056 pooled. Would not have fired.
 - **the uncertainty cap at the new L: fires.** At L = 13 ms, stage A's uncertain premium fraction is 0.060% for R1 and 0.052% for off and prospective, above 0.05%; stage B's is 0.034% in every arm. By the rule above, the design returns to review.
 
-**What the cap is made of.** Every premium lag above 13 ms is near a multiple of 100 ms: 102.8 to 104.5 ms in stage A, and 103 to 104 or 204 ms in stage B. There are one or two per cell, in every arm, including R1, which has no contender. The kind rehearsal showed the same 102 ms. So it is a property of the apparatus, not of contention. The replay reaches the gateway through `kubectl port-forward` on 127.0.0.1:18080 on the instance as on kind, and that is the first suspect; it is not established. The next design round should find the cause before it sets L, because the formula's L and ceiling are set by these stalls rather than by dispatch.
+**What the cap is made of.** Every premium lag above 13 ms is near a multiple of 100 ms: 102.8 to 104.5 ms in stage A, and 103 to 104 or 204 ms in stage B. There are one or two per cell, in every arm, including R1, which has no contender. The kind rehearsal showed the same 102 ms. So it is a property of the apparatus, not of contention.
+
+**The cause, found 2026-10-09: the gateway reported ready before it had cached what its requests read.** It is not the port-forward, which this page first suspected.
+- All 35 are the first one or two requests of a cell. Their delay lies between the gateway's handler entry and its arrival stamp, 100.2 to 202.1 ms, while send to entry is 2.0 to 2.4 ms (astra's decomposition of the archives, re-checked: send minus scheduled is 0.1 to 1.1 ms for every one).
+- The gateway's cache registered only the InferenceDeployment informer before start. Secret and GPUQuotaPolicy, both read before the arrival stamp, started on the first request, and each first read waited for its informer to sync, which client-go polls every 100 ms. Readiness waited only for the informers that existed, so the matrix's probe passed with neither cached.
+- A fresh port-forward's first requests took 2 to 9 ms in a local test, so the tunnel does not produce it.
+- Fixed in ab7f0f5: both informers are registered before start, so readiness waits for them. An envtest test fails on the old code for exactly those two kinds. The kind rehearsal at that commit has no lag above 2.5 ms in any of its 21 cells, where every cell before had about 102 ms.
+- This is a gateway defect, not only a measurement one: every rollout's first requests waited the same way.
+
+**What it did to the formulas.** The stalls set the ceiling (409 ms), and they shift the rank of p99.9, so they also moved L. As a diagnostic only, without them L would be 11 ms and the ceiling 50 ms. Deleting rows is not a corrected pilot.
 
 **Not judged here.** P's tail beside S's is printed in the table because the report prints each arm's own quantities; the pilot reaches no verdict about P against S.
 
