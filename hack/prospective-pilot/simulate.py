@@ -4,6 +4,7 @@
     python3 simulate.py screen DIR [DIR ...]      replay every off cell's arrivals under each candidate rule
     python3 simulate.py threshold DIR [DIR ...]   replay them under vLLM's long_prefill_token_threshold instead
     python3 simulate.py combine DIR [DIR ...]     the threshold together with the one-prefill gateway rules
+    python3 simulate.py control DIR [DIR ...]     hold-cap against a fixed-spacing static control at several spacings
 
 It models vLLM v0.27.1's V1 scheduler as the pilot's step logs show it working (design page, "Where the premium tail's
 1.5 s goes"): each step has a 512-token budget and at most 64 running requests; running requests are scheduled first,
@@ -196,6 +197,8 @@ def simulate(reqs, coef, rule, forward_ns, deliver_ns, long_prefill=0, step_scal
     eng = Engine(coef, long_prefill, step_scale)
     eng.now = reqs[0]["gw_arrived"]
     gw = {"in_prefill": set(), "outstanding": set(), "premium_waiting": set()}
+    # For time-based rules: the instant being decided at, and when the last contender was forwarded.
+    gw["now"], gw["last_forward"] = None, None
     held, i, notices = [], 0, []
 
     def decide(r, at):
@@ -206,8 +209,13 @@ def simulate(reqs, coef, rule, forward_ns, deliver_ns, long_prefill=0, step_scal
         if at - r["gw_arrived"] > HOLD_NS:
             r["refused"] = r["hold_timeout"] = True
             return True
+        gw["now"] = at
         d = rule(gw, r)
+        if isinstance(d, tuple):
+            # A rule that knows when it would have forwarded, between two decision points: a fixed spacing.
+            d, at = d[0], max(r["gw_arrived"], min(d[1], at))
         if d == "forward":
+            gw["last_forward"] = at
             eng.add(r, at + forward_ns)
             gw["in_prefill"].add(id(r))
             gw["outstanding"].add(id(r))
@@ -245,12 +253,12 @@ def simulate(reqs, coef, rule, forward_ns, deliver_ns, long_prefill=0, step_scal
         for w in [w for w in eng.waiting if eng.now - w[2]["sched"] > TIMEOUT_NS]:
             eng.waiting.remove(w)
             w[2]["expired"] = True
-            for k in gw:
+            for k in ("in_prefill", "outstanding", "premium_waiting"):
                 gw[k].discard(id(w[2]))
         for r in [r for r in eng.running if eng.now - r["sched"] > TIMEOUT_NS]:
             eng.running.remove(r)
             r["expired"] = True
-            for k in gw:
+            for k in ("in_prefill", "outstanding", "premium_waiting"):
                 gw[k].discard(id(r))
         # A cancellation can clear the state a held contender waits on, as a delivered notice can, so the held are
         # reconsidered here too (review of 7caa759).
@@ -312,6 +320,17 @@ RULES = {
 }
 
 
+def hold_spacing(spacing_ns):
+    """The static control: a contender is forwarded no sooner than spacing_ns after the previous one, held until then,
+    with no signal from the engine. It asks whether hold-cap's use of the first-token signal beats fixed pacing."""
+    def rule(gw, r):
+        last = gw["last_forward"]
+        if last is None or gw["now"] - last >= spacing_ns:
+            return ("forward", gw["now"] if last is None else max(last + spacing_ns, r["gw_arrived"]))
+        return "hold"
+    return rule
+
+
 # ---------------------------------------------------------------- commands
 
 
@@ -333,7 +352,7 @@ def offsets(cells):
 
 
 def main(argv):
-    if len(argv) < 3 or argv[1] not in ("validate", "screen", "threshold", "combine"):
+    if len(argv) < 3 or argv[1] not in ("validate", "screen", "threshold", "combine", "control"):
         print(__doc__)
         return 64
     loaded = {(d, a, r): load_cell(d, a, r) for d, a, r in stage_dirs(argv[2:])}
@@ -348,6 +367,39 @@ def main(argv):
             print("%s %-12s %d measured p99 %7.1f  simulated p99 %7.1f  (p50 %6.1f / %6.1f)" % (
                 os.path.basename(os.path.dirname(d)), arm, rep, pr.nearest_rank(measured, 0.99), sim["premium_p99_ms"],
                 pr.nearest_rank(measured, 0.5), sim["premium_p50_ms"]))
+        return 0
+    if argv[1] == "control":
+        # hold-cap against the static control, fixed spacing with the same 384 cap, at several spacings, with the whole
+        # trade, on every off cell: does the first-token signal buy anything over fixed pacing?
+        print("cell rule | premium p99 ratio_to_off | contenders completed/offered expired refused | completion p50 p95 ms | hold max ms")
+        for (d, arm, rep), (reqs, _, _) in sorted(loaded.items()):
+            if arm != "off":
+                continue
+            base = summarize(simulate(reqs, coef, RULES["off"], fwd, deliver))["premium_p99_ms"]
+            rules = [("hold-cap", RULES["hold-one-prefill"])] + [("spacing-%.1fs" % (t / 1e9), hold_spacing(t))
+                                                                 for t in (1.0e9, 1.5e9, 1.6e9, 1.7e9, 1.8e9, 1.9e9, 2.0e9, 2.5e9, 3.0e9)]
+            for name, rule in rules:
+                x = summarize(simulate(reqs, coef, rule, fwd, deliver, long_prefill=384))
+                f = lambda v: "inf" if v is None or (isinstance(v, float) and math.isinf(v)) else str(round(v))
+                print("%s-off-%d %s | %s %.3f | %d/%d %d %d | %s %s | %s" % (
+                    os.path.basename(os.path.dirname(d))[-6:], rep, name, f(x["premium_p99_ms"]), x["premium_p99_ms"] / base,
+                    x["contender_completed"], x["contender_offered"], x["contender_expired"], x["contender_refused"],
+                    f(x["contender_completion_p50_ms"]), f(x["contender_completion_p95_ms"]), f(x["contender_hold_max_ms"])))
+        # A spacing tuned at the fitted step times is then run 10% faster and slower, as a card or a later block may be:
+        # feedback follows the engine's pace, a fixed spacing does not, and this is where the two should part.
+        print("\ndrift: scale cell rule | premium p99 ratio_to_off at that scale | contenders completed/offered refused | completion p50 p95 ms")
+        for scale in (0.9, 1.1):
+            for (d, arm, rep), (reqs, _, _) in sorted(loaded.items()):
+                if arm != "off":
+                    continue
+                base = summarize(simulate(reqs, coef, RULES["off"], fwd, deliver, step_scale=scale))["premium_p99_ms"]
+                for name, rule in (("hold-cap", RULES["hold-one-prefill"]), ("spacing-1.7s", hold_spacing(1.7e9))):
+                    x = summarize(simulate(reqs, coef, rule, fwd, deliver, long_prefill=384, step_scale=scale))
+                    f = lambda v: "inf" if v is None or (isinstance(v, float) and math.isinf(v)) else str(round(v))
+                    print("%.1f %s-off-%d %s | %.3f | %d/%d %d | %s %s" % (
+                        scale, os.path.basename(os.path.dirname(d))[-6:], rep, name, x["premium_p99_ms"] / base,
+                        x["contender_completed"], x["contender_offered"], x["contender_refused"],
+                        f(x["contender_completion_p50_ms"]), f(x["contender_completion_p95_ms"])))
         return 0
     if argv[1] == "combine":
         # The engine's threshold together with the gateway rules, at the fitted step times and 10% slower, with the

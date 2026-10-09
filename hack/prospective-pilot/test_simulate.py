@@ -133,5 +133,16 @@ class CancelTest(unittest.TestCase):
         self.assertLessEqual(by["c2"]["forwarded"], 120 * MS)
 
 
+class SpacingTest(unittest.TestCase):
+    # Two contenders arriving together under a 100 ms spacing: the second goes exactly 100 ms after the first, with no
+    # signal from the engine. Mutation that turns it red: forward at the decision point instead of the spacing's end.
+    def test_the_static_control_forwards_at_its_spacing(self):
+        out = sim.simulate([req("c1", pr.CONTENDER, 0, 7695), req("c2", pr.CONTENDER, 0, 7695)], FLAT,
+                           sim.hold_spacing(100 * MS), 0, 0)
+        by = {r["id"]: r for r in out}
+        self.assertEqual(by["c1"]["forwarded"], 0)
+        self.assertEqual(by["c2"]["forwarded"], 100 * MS)
+
+
 if __name__ == "__main__":
     unittest.main()

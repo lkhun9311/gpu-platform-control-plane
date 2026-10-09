@@ -1,0 +1,88 @@
+{"step_model_ms": [15.3639, 0.0966, 0.0959, 0.9292, 3.0468], "fitted_steps": 282897, "forward_ms": 3.912577}
+cell rule | premium p99 ratio_to_off | contenders completed/offered expired refused | completion p50 p95 ms | hold max ms
+pilotA-off-1 hold-cap | 452 0.309 | 206/206 0 0 | 3946 8090 | 6893
+pilotA-off-1 spacing-1.0s | 1739 1.189 | 206/206 0 0 | 3804 7283 | 2731
+pilotA-off-1 spacing-1.5s | 1015 0.694 | 206/206 0 0 | 3978 7394 | 6231
+pilotA-off-1 spacing-1.6s | 599 0.410 | 206/206 0 0 | 3983 7740 | 6931
+pilotA-off-1 spacing-1.7s | 425 0.290 | 206/206 0 0 | 4682 9075 | 8438
+pilotA-off-1 spacing-1.8s | 395 0.270 | 206/206 0 0 | 5023 11202 | 13164
+pilotA-off-1 spacing-1.9s | 316 0.216 | 206/206 0 0 | 5769 16016 | 18864
+pilotA-off-1 spacing-2.0s | 304 0.208 | 205/206 0 1 | 8500 20888 | 23642
+pilotA-off-1 spacing-2.5s | 260 0.178 | 177/206 0 29 | 22416 inf | 24966
+pilotA-off-1 spacing-3.0s | 246 0.168 | 148/206 0 58 | 25623 inf | 24977
+pilotA-off-2 hold-cap | 400 0.273 | 197/197 0 0 | 3726 11217 | 11741
+pilotA-off-2 spacing-1.0s | 1622 1.107 | 197/197 0 0 | 3422 9868 | 4018
+pilotA-off-2 spacing-1.5s | 1494 1.019 | 197/197 0 0 | 3553 10013 | 8964
+pilotA-off-2 spacing-1.6s | 480 0.327 | 197/197 0 0 | 3693 10528 | 10777
+pilotA-off-2 spacing-1.7s | 354 0.241 | 197/197 0 0 | 4322 12689 | 13206
+pilotA-off-2 spacing-1.8s | 316 0.216 | 197/197 0 0 | 5185 14889 | 15706
+pilotA-off-2 spacing-1.9s | 285 0.195 | 197/197 0 0 | 6266 18111 | 18206
+pilotA-off-2 spacing-2.0s | 287 0.196 | 197/197 0 0 | 9591 23150 | 23304
+pilotA-off-2 spacing-2.5s | 261 0.178 | 172/197 0 25 | 23223 inf | 24986
+pilotA-off-2 spacing-3.0s | 243 0.165 | 146/197 0 51 | 25566 inf | 24986
+pilotA-off-3 hold-cap | 456 0.311 | 212/212 0 0 | 4538 14292 | 13537
+pilotA-off-3 spacing-1.0s | 1763 1.201 | 212/212 0 0 | 4300 13350 | 4018
+pilotA-off-3 spacing-1.5s | 1645 1.120 | 212/212 0 0 | 4407 13350 | 10148
+pilotA-off-3 spacing-1.6s | 467 0.318 | 212/212 0 0 | 4685 13808 | 12748
+pilotA-off-3 spacing-1.7s | 392 0.267 | 212/212 0 0 | 5160 15517 | 15348
+pilotA-off-3 spacing-1.8s | 339 0.231 | 212/212 0 0 | 6433 17748 | 17948
+pilotA-off-3 spacing-1.9s | 314 0.214 | 212/212 0 0 | 9510 20875 | 21103
+pilotA-off-3 spacing-2.0s | 317 0.216 | 212/212 0 0 | 14612 24781 | 24503
+pilotA-off-3 spacing-2.5s | 301 0.205 | 173/212 0 39 | 24350 inf | 24989
+pilotA-off-3 spacing-3.0s | 274 0.187 | 146/212 0 66 | 25314 inf | 24989
+pilotB-off-1 hold-cap | 517 0.349 | 207/207 0 0 | 6076 14638 | 14871
+pilotB-off-1 spacing-1.0s | 1847 1.248 | 207/207 0 0 | 5564 13743 | 4838
+pilotB-off-1 spacing-1.5s | 1727 1.168 | 207/207 0 0 | 5635 13250 | 9838
+pilotB-off-1 spacing-1.6s | 1504 1.017 | 207/207 0 0 | 5922 14122 | 12641
+pilotB-off-1 spacing-1.7s | 560 0.379 | 207/207 0 0 | 6734 16260 | 16566
+pilotB-off-1 spacing-1.8s | 450 0.304 | 207/207 0 0 | 7586 19518 | 20566
+pilotB-off-1 spacing-1.9s | 386 0.261 | 206/207 0 1 | 9837 22770 | 24225
+pilotB-off-1 spacing-2.0s | 335 0.227 | 202/207 0 5 | 11411 25440 | 24583
+pilotB-off-1 spacing-2.5s | 291 0.197 | 174/207 0 33 | 23049 inf | 24798
+pilotB-off-1 spacing-3.0s | 268 0.182 | 146/207 0 61 | 25636 inf | 24978
+pilotB-off-2 hold-cap | 524 0.357 | 204/204 0 0 | 4044 9352 | 8965
+pilotB-off-2 spacing-1.0s | 1813 1.235 | 204/204 0 0 | 3818 8872 | 2084
+pilotB-off-2 spacing-1.5s | 1611 1.098 | 204/204 0 0 | 3998 9030 | 6467
+pilotB-off-2 spacing-1.6s | 876 0.597 | 204/204 0 0 | 4122 9409 | 8017
+pilotB-off-2 spacing-1.7s | 404 0.276 | 204/204 0 0 | 4738 10822 | 11117
+pilotB-off-2 spacing-1.8s | 382 0.260 | 204/204 0 0 | 5362 14578 | 14779
+pilotB-off-2 spacing-1.9s | 358 0.244 | 204/204 0 0 | 6508 19350 | 20766
+pilotB-off-2 spacing-2.0s | 313 0.213 | 201/204 0 3 | 8286 24451 | 24820
+pilotB-off-2 spacing-2.5s | 256 0.174 | 176/204 0 28 | 21580 inf | 24956
+pilotB-off-2 spacing-3.0s | 245 0.167 | 148/204 0 56 | 25179 inf | 24985
+pilotB-off-3 hold-cap | 460 0.313 | 239/239 0 0 | 6820 24067 | 23849
+pilotB-off-3 spacing-1.0s | 1819 1.236 | 239/239 0 0 | 6365 22285 | 5045
+pilotB-off-3 spacing-1.5s | 1807 1.229 | 239/239 0 0 | 6555 21774 | 17121
+pilotB-off-3 spacing-1.6s | 858 0.583 | 239/239 0 0 | 6986 22176 | 21444
+pilotB-off-3 spacing-1.7s | 403 0.274 | 237/239 0 2 | 7510 24810 | 24687
+pilotB-off-3 spacing-1.8s | 356 0.242 | 234/239 0 5 | 12137 26437 | 24762
+pilotB-off-3 spacing-1.9s | 304 0.207 | 225/239 0 14 | 16727 inf | 24863
+pilotB-off-3 spacing-2.0s | 303 0.206 | 214/239 0 25 | 21642 inf | 24963
+pilotB-off-3 spacing-2.5s | 249 0.169 | 173/239 0 66 | 25157 inf | 24988
+pilotB-off-3 spacing-3.0s | 238 0.162 | 145/239 0 94 | 26267 inf | 24983
+
+drift: scale cell rule | premium p99 ratio_to_off at that scale | contenders completed/offered refused | completion p50 p95 ms
+0.9 pilotA-off-1 hold-cap | 0.264 | 206/206 0 | 2846 5703
+0.9 pilotA-off-1 spacing-1.7s | 0.195 | 206/206 0 | 3813 8083
+0.9 pilotA-off-2 hold-cap | 0.216 | 197/197 0 | 2417 7030
+0.9 pilotA-off-2 spacing-1.7s | 0.184 | 197/197 0 | 3626 11759
+0.9 pilotA-off-3 hold-cap | 0.273 | 212/212 0 | 3352 10124
+0.9 pilotA-off-3 spacing-1.7s | 0.191 | 212/212 0 | 4391 14711
+0.9 pilotB-off-1 hold-cap | 0.291 | 207/207 0 | 3636 8719
+0.9 pilotB-off-1 spacing-1.7s | 0.205 | 207/207 0 | 5899 15473
+0.9 pilotB-off-2 hold-cap | 0.267 | 204/204 0 | 2905 5882
+0.9 pilotB-off-2 spacing-1.7s | 0.194 | 204/204 0 | 3920 10067
+0.9 pilotB-off-3 hold-cap | 0.232 | 239/239 0 | 4469 14817
+0.9 pilotB-off-3 spacing-1.7s | 0.188 | 237/239 2 | 6697 23945
+1.1 pilotA-off-1 hold-cap | 0.425 | 206/206 0 | 6279 15583
+1.1 pilotA-off-1 spacing-1.7s | 1.187 | 206/206 0 | 6066 15101
+1.1 pilotA-off-2 hold-cap | 0.331 | 197/197 0 | 6286 16807
+1.1 pilotA-off-2 spacing-1.7s | 1.184 | 197/197 0 | 5911 15918
+1.1 pilotA-off-3 hold-cap | 0.368 | 212/212 0 | 8541 19641
+1.1 pilotA-off-3 spacing-1.7s | 1.165 | 212/212 0 | 7472 18486
+1.1 pilotB-off-1 hold-cap | 0.442 | 207/207 0 | 10243 22294
+1.1 pilotB-off-1 spacing-1.7s | 1.268 | 207/207 0 | 9368 21890
+1.1 pilotB-off-2 hold-cap | 0.414 | 204/204 0 | 6516 17218
+1.1 pilotB-off-2 spacing-1.7s | 1.191 | 204/204 0 | 6243 15811
+1.1 pilotB-off-3 hold-cap | 0.383 | 230/239 9 | 14132 27742
+1.1 pilotB-off-3 spacing-1.7s | 1.240 | 227/239 2 | 13248 inf
