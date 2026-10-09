@@ -28,8 +28,14 @@ PP_PROSPECTIVE_PREFILL=30000
 PP_PROSPECTIVE_STREAMS=4
 PP_STATIC_BURST=30000
 PP_STATIC_THRESHOLD=1
+# The admission diagnostic's two treatments (design page, "v25"): the engine's per-step prefill cap and the
+# gateway's serial-prefill hold.
+PP_DIAG_PREFILL_CAP=384
+PP_DIAG_MAX_HOLD=25s
+PP_DIAG_STUDY=admission-diagnostic-2026-10-10
 
-pp_is_study() { [ "${1:-}" = "$PP_STUDY" ]; }
+# The pilot and the admission diagnostic share this apparatus: its capture, sidecar, sampler and calibration.
+pp_is_study() { [ "${1:-}" = "$PP_STUDY" ] || [ "${1:-}" = "$PP_DIAG_STUDY" ]; }
 
 # The arms a stage buys, in the design's order: stage A has no static control, because its rate R is fitted
 # from stage A's prospective arm.
@@ -37,18 +43,28 @@ pp_stage_arms() {
   case "${1:-}" in
     A) printf '%s\n' R1 off prospective ;;
     B) printf '%s\n' R1 off static-cap prospective ;;
-    *) echo "PILOT_STAGE is ${1@Q}; the pilot has stages A and B" >&2; return 1 ;;
+    # The diagnostic: R1 once, then off, hold, cap and hold-cap in each block (design page, "v25").
+    D) printf '%s\n' R1 off hold cap hold-cap ;;
+    *) echo "PILOT_STAGE is ${1@Q}; the pilot has stages A and B, and the diagnostic stage D" >&2; return 1 ;;
   esac
 }
 
-# The arguments every pilot engine adds to the base manifest, one per line, in the order they are inserted.
+# The engine's per-step prefill cap for an arm: the diagnostic's cap and hold-cap arms run with it, every other arm
+# with none.
+pp_arm_prefill_cap() {
+  case "${1:-}" in cap | hold-cap) echo "$PP_DIAG_PREFILL_CAP" ;; *) echo 0 ;; esac
+}
+
+# The arguments every pilot engine adds to the base manifest, one per line, in the order they are inserted; $2 is the
+# arm's prefill cap, 0 for none.
 pp_engine_args() {
-  local rev="${1:-}"
+  local rev="${1:-}" cap="${2:-0}"
   [[ "$rev" =~ ^[0-9a-f]{40}$ ]] || {
     echo "the pilot pins the engine's model and tokenizer revision and was given ${rev@Q}, which is not a 40-character commit SHA"
     return 1; }
   printf '%s\n' --scheduling-policy=priority --no-async-scheduling --enable-logging-iteration-details \
     "--scheduler-cls=$PP_CLASS" "--revision=$rev" "--tokenizer-revision=$rev"
+  [ "$cap" = 0 ] || printf '%s\n' "--long-prefill-token-threshold=$cap"
 }
 
 # Writes the pilot engine's manifest to $2 from the base manifest $1, pinning revision $3.
@@ -61,8 +77,8 @@ pp_engine_args() {
 #   volumes lines;
 #   the hf-cache volume's emptyDir becomes a hostPath, so weights survive the engine's restart between arms.
 pp_render_manifest() {
-  local base="$1" dest="$2" rev="${3:-}" extra anchor n removed added
-  extra=$(pp_engine_args "$rev") || { echo "$extra"; return 1; }
+  local base="$1" dest="$2" rev="${3:-}" cap="${4:-0}" extra anchor n removed added want_added
+  extra=$(pp_engine_args "$rev" "$cap") || { echo "$extra"; return 1; }
   for anchor in '^[[:space:]]*- --port=8000[[:space:]]*$' "^[[:space:]]*- --max-num-batched-tokens=$PP_BASE_BUDGET[[:space:]]*\$" \
                 '^[[:space:]]*image: ' '^[[:space:]]*volumeMounts:[[:space:]]*$' '^[[:space:]]*volumes:[[:space:]]*$'; do
     n=$(grep -cE "$anchor" "$base") || true
@@ -105,8 +121,10 @@ pp_render_manifest() {
   # five mount, five volume and three hostPath lines added.
   removed=$(diff "$base" "$dest" | grep -c '^<') || true
   added=$(diff "$base" "$dest" | grep -c '^>') || true
-  [ "$removed" = 2 ] && [ "$added" = 25 ] \
-    || { echo "rendering the pilot engine changed $base by $removed removed and $added added lines, not 2 and 25"; return 1; }
+  want_added=25
+  [ "$cap" = 0 ] || want_added=26
+  [ "$removed" = 2 ] && [ "$added" = "$want_added" ] \
+    || { echo "rendering the pilot engine changed $base by $removed removed and $added added lines, not 2 and $want_added"; return 1; }
   grep -qxE "[[:space:]]*- --max-num-batched-tokens=$PP_BUDGET" "$dest" \
     || { echo "the rendered manifest does not carry the registered budget of $PP_BUDGET"; return 1; }
   grep -qE "^[[:space:]]*path: $PP_CACHE_HOSTPATH\$" "$dest" \
@@ -121,7 +139,9 @@ pp_gateway_args() {
   local arm="$1" rate="${2:-}"
   printf '%s\n' -bind-priority -enforce-benchmark-profile "-request-record-path=$PP_GATEWAY_RECORD"
   case "$arm" in
-    R1 | off) printf '%s\n' -admission-mode=off ;;
+    # The diagnostic's cap arm differs from off only in the engine.
+    R1 | off | cap) printf '%s\n' -admission-mode=off ;;
+    hold | hold-cap) printf '%s\n' -admission-mode=serial-prefill "-admission-serial-prefill-max-hold=$PP_DIAG_MAX_HOLD" ;;
     static-cap)
       [[ "$rate" =~ ^[1-9][0-9]*$ ]] || {
         echo "the static arm runs at the rate R fitted in stage A, and PILOT_STATIC_RATE is ${rate@Q}, which is not a positive integer" >&2
@@ -155,7 +175,7 @@ pp_request_id_flag() {
 # (design page, build item 5): a validator that read a subset passed an engine with prefix caching on, bfloat16
 # and one sequence. The model and port are positional or infrastructure, and are compared for presence only.
 pp_expected_args() {
-  local rev="$PP_MODEL_REVISION"
+  local rev="$PP_MODEL_REVISION" cap="${1:-0}"
   cat <<EOF
 model_tag='$PP_MODEL'
 model='$PP_MODEL'
@@ -174,6 +194,8 @@ scheduler_cls='$PP_CLASS'
 revision='$rev'
 tokenizer_revision='$rev'
 EOF
+  # The prefill cap is registered only where the arm runs it; anywhere else it is an unregistered key.
+  [ "$cap" = 0 ] || echo "long_prefill_token_threshold=$cap"
 }
 
 # Refuses an engine whose `non-default args: {...}` line ($1) is not exactly the registered configuration.
@@ -182,8 +204,8 @@ EOF
 # a value cannot be matched by a prefix. Keys allowed to differ in value only: model_tag and model (the model),
 # port and host.
 pp_process_args_refusal() {
-  local line="$1" expected
-  expected=$(pp_expected_args)
+  local line="$1" cap="${2:-0}" expected
+  expected=$(pp_expected_args "$cap")
   # A rehearsal's stub serves no model and calls itself 'stub'; only a run that waived the engine pin, which no
   # paid run may carry, is excused the model keys' values. Their presence is still required.
   local waive_model="${ENGINE_PIN_WAIVED:-}"

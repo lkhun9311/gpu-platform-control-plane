@@ -366,6 +366,12 @@ if [ -z "$LADDER" ] && pp_is_study "$STUDY"; then
   [ -z "${RATE:-}" ] || fail "RATE is ${RATE@Q} and the pilot's arrivals are independent; pass PREMIUM_RATE and PILOT_NOISY_RATE"
   [ -z "$ARMS_FROM_CALLER" ] || fail "ARMS is set and the pilot's arms are its stage's (PILOT_STAGE); unset it"
   _pp_arms=$(pp_stage_arms "${PILOT_STAGE:-}" 2>&1) || fail "$_pp_arms"
+  # Stage D is the diagnostic's and A and B the pilot's: evidence filed under the other study would be scored by
+  # rules it was not bought under.
+  case "${PILOT_STAGE}:${STUDY}" in
+    D:"$PP_DIAG_STUDY" | A:"$PP_STUDY" | B:"$PP_STUDY") ;;
+    *) fail "PILOT_STAGE ${PILOT_STAGE} does not belong to study $STUDY: stage D is $PP_DIAG_STUDY's, stages A and B $PP_STUDY's" ;;
+  esac
   # Three blocks per stage, as the study registers: the main endpoint pools three, and pooling is not linear in
   # the number of blocks, so a stage of another size would measure a different quantity (review of 780929a).
   [ "$REPS" = 3 ] || fail "REPS is $REPS and each pilot stage is three blocks; pass REPS=3"
@@ -807,11 +813,16 @@ else
   elif pp_is_study "$STUDY"; then
     # One block per repetition: every arm of the stage, on the single-engine topology, in an order drawn from a
     # hash of the block's seed, the stage and the block, so no arm is always first (design page, build item 7).
+    # The diagnostic's stage D runs R1 once, first, as the isolated anchor, and its blocks hold the other four arms
+    # (design page, "v25").
+    if [ "$PILOT_STAGE" = D ]; then
+      CELLS+=("R1|R1|1|$PREMIUM_RATE|$PILOT_NOISY_RATE|0")
+    fi
     for rep in $(seq 1 "$REPS"); do
       block_seed=$(printf '%s\n' $SEEDS | sed -n "${rep}p")
       while IFS= read -r spec; do
         CELLS+=("$spec")
-      done < <(pp_stage_arms "$PILOT_STAGE" | while read -r arm; do
+      done < <(pp_stage_arms "$PILOT_STAGE" | { if [ "$PILOT_STAGE" = D ]; then grep -vx R1; else cat; fi; } | while read -r arm; do
         printf '%s R1|%s|%s|%s|%s|0\n' "$(printf '%s/%s/%s/%s' "${block_seed:-11}" "$PILOT_STAGE" "$rep" "$arm" | sha256sum | cut -c1-16)" \
           "$arm" "$rep" "$PREMIUM_RATE" "$PILOT_NOISY_RATE"
       done | LC_ALL=C sort | cut -d' ' -f2-)
@@ -2090,7 +2101,7 @@ deploy_arm() {
         # Every pilot arm runs the same engine: priority policy, budget 512, the pilot's step logger and the
         # weights on a host path, so the restart between arms reuses them.
         engine_manifest="$WORK/engine-$label.yaml"
-        why=$(pp_render_manifest config/vllm/deployment.yaml "$engine_manifest" "$MODEL_REVISION") \
+        why=$(pp_render_manifest config/vllm/deployment.yaml "$engine_manifest" "$MODEL_REVISION" "$(pp_arm_prefill_cap "$label")") \
           || fail "could not render the pilot engine for $label: $why"
         engine_source="config/vllm/deployment.yaml+pilot"
         k create configmap "$PP_CONFIGMAP" -n "$NS_A" --from-file="pilot_step_logger.py=$PP_PLUGIN" \
@@ -2115,7 +2126,7 @@ deploy_arm() {
           || cell_refused_stop "$label" "${rep:-unknown}" before-replay "REFUSED $label before replay: $why"
       elif pp_is_study "${STUDY:-}" && [ -z "${LADDER:-}" ]; then
         # An engine that is not the registered apparatus stops the pilot: its measurements would be of another one.
-        why=$(pp_process_args_refusal "$ENGINE_PROCESS_ARGS") \
+        why=$(pp_process_args_refusal "$ENGINE_PROCESS_ARGS" "$(pp_arm_prefill_cap "$label")") \
           || cell_refused_stop "$label" "${rep:-unknown}" before-replay "REFUSED $label before replay: $why"
       fi
       routing_record "$NS_A" vllm-qwen25-3b

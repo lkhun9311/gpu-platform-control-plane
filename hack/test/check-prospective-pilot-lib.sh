@@ -56,9 +56,9 @@ fi
 good="non-default args: {'model_tag': 'Qwen/Qwen2.5-3B-Instruct', 'model': 'Qwen/Qwen2.5-3B-Instruct', 'dtype': 'half', 'max_model_len': 16384, 'gpu_memory_utilization': 0.9, 'enable_prefix_caching': False, 'enable_logging_iteration_details': True, 'max_num_batched_tokens': 512, 'max_num_seqs': 64, 'scheduling_policy': 'priority', 'scheduler_cls': 'pilot_step_logger.PilotStepLoggingScheduler', 'async_scheduling': False, 'revision': '$rev', 'tokenizer_revision': '$rev'}"
 if out=$(pp_process_args_refusal "$good"); then ok "the registered engine passes"; else bad "the registered engine was refused: $out"; fi
 check_refused() {
-  local name="$1" line="$2" out
+  local name="$1" line="$2" cap="${3:-0}" out
   # A refusal must say why: a validator that crashed also exits non-zero, with nothing on stdout.
-  if out=$(pp_process_args_refusal "$line"); then bad "$name passed"
+  if out=$(pp_process_args_refusal "$line" "$cap"); then bad "$name passed"
   elif [ -z "$out" ]; then bad "$name was refused without a reason, which is what a crash looks like"
   else ok "$name refuses: $out"; fi
 }
@@ -92,6 +92,27 @@ pp_gateway_args prospective | grep -qx -- -admission-prospective-prefill-tokens=
 if pp_gateway_args static-cap "" >/dev/null 2>&1; then bad "the static arm ran without a rate"; else ok "the static arm refuses without a rate"; fi
 [ "$(pp_request_id_flag B prospective 2)" = "--request-id-prefix=pp-B-prospective-2" ] && ok "request IDs name stage, arm and block" || bad "the request-ID prefix is not pp-<stage>-<arm>-<block>"
 if pp_stage_arms A | grep -qx static-cap; then bad "stage A buys a static arm before its rate exists"; else ok "stage A has no static arm"; fi
+
+# The admission diagnostic's stage D: its arms, the engine's prefill cap only where the arm runs it, and the
+# gateway's serial-prefill hold on hold and hold-cap (design page, "v25").
+[ "$(pp_stage_arms D | tr '\n' ' ')" = "R1 off hold cap hold-cap " ] && ok "stage D's arms are R1, off, hold, cap and hold-cap" \
+  || bad "stage D's arms: $(pp_stage_arms D | tr '\n' ' ')"
+pp_gateway_args hold | grep -qx -- -admission-mode=serial-prefill && pp_gateway_args hold-cap | grep -qx -- "-admission-serial-prefill-max-hold=25s" \
+  && pp_gateway_args cap | grep -qx -- -admission-mode=off \
+  && ok "hold and hold-cap run serial-prefill with a 25 s hold; cap runs admission off" || bad "the diagnostic's gateway arguments"
+if pp_render_manifest config/vllm/deployment.yaml "$work/cap.yaml" "$rev" 384 >/dev/null \
+   && grep -qx -- "[[:space:]]*- --long-prefill-token-threshold=384" "$work/cap.yaml" \
+   && pp_render_manifest config/vllm/deployment.yaml "$work/nocap.yaml" "$rev" 0 >/dev/null \
+   && ! grep -q long-prefill "$work/nocap.yaml"; then
+  ok "the engine carries the 384 prefill cap only when the arm runs it"
+else
+  bad "the rendered prefill cap"
+fi
+capline=$(printf '%s' "$good" | sed "s/}\$/, 'long_prefill_token_threshold': 384}/")
+if out=$(pp_process_args_refusal "$capline" 384); then ok "a cap arm's engine with the cap passes"; else bad "a cap arm's engine was refused: $out"; fi
+check_refused "a cap arm's engine without the cap" "$good" 384
+check_refused "the cap on an arm that does not run it" "$capline"
+[ "$(pp_arm_prefill_cap hold)" = 0 ] && [ "$(pp_arm_prefill_cap hold-cap)" = 384 ] && ok "only cap and hold-cap run the prefill cap" || bad "pp_arm_prefill_cap"
 
 # The capture, against stubbed kubectl, curl and docker on PATH: the cluster calls answer at once, except the
 # gateway record's node read, which sleeps past the bound.

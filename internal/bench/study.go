@@ -303,6 +303,11 @@ const (
 	// A study of its own because it measures the apparatus, not the mechanism: it produces no verdict about P
 	// against S, and the main study's data are never pooled with it.
 	StudyProspectivePilot = "prospective-pilot-2026-10-08"
+
+	// StudyAdmissionDiagnostic is the diagnostic of the engine's per-step prefill cap with the gateway's
+	// serial-prefill hold, docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md, "v25". It
+	// shares the pilot's load, lengths, engine and capture, and adds the hold, cap and hold-cap arms.
+	StudyAdmissionDiagnostic = "admission-diagnostic-2026-10-10"
 )
 
 // ArmProspective is the prospective-admission arm; the pilot's other arms reuse the M5-b names.
@@ -759,6 +764,25 @@ var studies = map[string]Study{
 		SenderPoolSize: 600,
 		// The committed calibration's counts (inputlengths.go): 68 tokens for 200 characters, 7,695 for 40,000.
 		FrozenExactTokens: map[int]int{200: 68, 40000: 7695},
+	},
+	// R1 once as the isolated anchor, then off, hold, cap and hold-cap in each of three blocks.
+	StudyAdmissionDiagnostic: {
+		ID:       StudyAdmissionDiagnostic,
+		Arms:     []string{ArmR1, "off", "hold", "cap", "hold-cap"},
+		Arrivals: ArrivalsIndependent,
+		Frozen: &FrozenTuple{
+			PremiumPromptChars:    200,
+			ContenderPromptChars:  40000,
+			TimeoutMs:             30000,
+			PremiumOutputTokens:   64,
+			ContenderOutputTokens: 16,
+		},
+		MinRepetitions:         1,
+		FixesOutputAtCap:       true,
+		RecordsReplayTiming:    true,
+		TracesVaryByRepetition: true,
+		SenderPoolSize:         600,
+		FrozenExactTokens:      map[int]int{200: 68, 40000: 7695},
 	},
 	StudyThroughputLadder: {
 		ID:       StudyThroughputLadder,
