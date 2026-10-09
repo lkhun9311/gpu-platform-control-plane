@@ -1103,6 +1103,20 @@ The pilot's gates fired, so by its own rule the design returned here. A v22 was 
 
 **No rule reaches 0.85 and keeps the contender's work, and the one that comes near refuses 31 to 39%, outside the 5 to 30% the design allows.** The floor is one prefill's duration, about 1.2 to 1.3 s: while more than 1% of premium requests arrive during some contender's prefill, the p99 is that prefill. Serialising prefills removes only the overlap of two. These are screening results from a model, not measurements.
 
+**v23 direction, not yet attacked: the engine's prefill cap together with a one-prefill gateway rule** (2026-10-09).
+- vLLM v0.27.1's V1 scheduler has `long_prefill_token_threshold`: when positive, no prefill takes more than that many tokens in a step, running or new (`v1/core/sched/scheduler.py:521` and `:899` in the image). With it at 256 against a 512 budget, a step always leaves room for a short waiting request.
+- **On the real engine (CPU, free):** with no threshold, 7 of the 8 premium requests that arrived during a 3,030-token prefill were first scheduled only after it ended, 1 to 4 steps later; the eighth fit in the last chunk's leftover. With 256, all 12 were scheduled while it still ran, beside its 256-token chunk, after 0 or 1 step. `hack/vllm-plugins/prefill-block-on-cpu.sh`; evidence in `data/2026-10-09-prefill-block-cpu/`.
+- **The threshold alone makes the tail worse in the replay**, 1.15 to 1.74 times off's p99: slower prefills overlap more, and two contenders in prefill take the whole budget between them. It works only with at most one contender in prefill, which is a gateway rule.
+- **In the replay, after the fixes its review asked for** (timeouts cancel in the engine, decode adds context, a request still in flight cannot block a ready one, the gateway sees a token only once delivered; the six off cells; every arm reproduced to −3.4% to +6%):
+
+| Engine threshold + gateway rule | Premium p99, against off's | Contenders completed | Contender TTFT p50 |
+|---|---|---|---|
+| 384 + hold while another contender is in prefill | 0.25 to 0.35 | all, in every cell | 3.1 to 6.1 s |
+| 256 + hold while another contender is in prefill | 0.10 | all in five cells, 206 of 239 in one | 6.1 to 18.3 s |
+| 256 + refuse while another contender is in prefill | 0.09 to 0.10 | 51 to 58% | 1.7 s |
+
+- The cost moves from the premium tail to the contender's own latency, as time held at the gateway. That trade is the study's question now, and it is a different treatment from the registered P: an engine setting plus a rule P does not implement.
+
 **The cheapest deciding experiments, in order** (astra's list, which I adopt): a scheduler replay on the archives to screen candidate admission rules with their retained contender work; a CPU test that injects a premium request at known chunks of a running prefill, and with all 64 slots full; a kind test of the chosen rule's fidelity; and only then one targeted GPU session comparing off, current P and the best candidate. An engine-side change, letting waiting premium work into the budget at chunk boundaries, is a different treatment and would be a different study.
 
 ## What v21 changed, against the review of v20

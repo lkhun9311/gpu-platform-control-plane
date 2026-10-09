@@ -3,6 +3,7 @@
     python3 simulate.py validate DIR [DIR ...]   fit the step model and reproduce each archived arm's premium p99
     python3 simulate.py screen DIR [DIR ...]      replay every off cell's arrivals under each candidate rule
     python3 simulate.py threshold DIR [DIR ...]   replay them under vLLM's long_prefill_token_threshold instead
+    python3 simulate.py combine DIR [DIR ...]     the threshold together with the one-prefill gateway rules
 
 It models vLLM v0.27.1's V1 scheduler as the pilot's step logs show it working (design page, "Where the premium tail's
 1.5 s goes"): each step has a 512-token budget and at most 64 running requests; running requests are scheduled first,
@@ -134,9 +135,13 @@ class Engine:
             n = min(self._cap(r["prompt"] - r["computed"]), budget) if r["computed"] < r["prompt"] else 1
             tokens[id(r)] = (r, n)
             budget -= n
-        self.waiting.sort(key=lambda w: (w[0], w[1]))
-        while self.waiting and budget > 0 and len(self.running) < MAX_SEQS and self.waiting[0][1] <= self.now:
-            _, _, r = self.waiting.pop(0)
+        # Only requests that have reached the engine compete; one still in flight must not block those behind it
+        # (simulator review, finding 3).
+        ready = sorted((w for w in self.waiting if w[1] <= self.now), key=lambda w: (w[0], w[1]))
+        while ready and budget > 0 and len(self.running) < MAX_SEQS:
+            w = ready.pop(0)
+            self.waiting.remove(w)
+            _, _, r = w
             n = min(self._cap(r["prompt"]), budget)
             self.running.append(r)
             tokens[id(r)] = (r, n)
@@ -161,6 +166,8 @@ class Engine:
                     r["first_token"] = end
                     first.append(r)
             else:
+                # A decode step adds its token to the context, which the step-time model reads (review, finding 2).
+                r["computed"] += n
                 r["out"] += 1
             if r["out"] >= CAP[r["tenant"]]:
                 r["finished"] = end
@@ -184,7 +191,7 @@ def simulate(reqs, coef, rule, forward_ns, deliver_ns, long_prefill=0):
     eng = Engine(coef, long_prefill)
     eng.now = reqs[0]["gw_arrived"]
     gw = {"in_prefill": set(), "outstanding": set(), "premium_waiting": set()}
-    held, i = [], 0
+    held, i, notices = [], 0, []
     while True:
         while i < len(reqs) and reqs[i]["gw_arrived"] <= eng.now:
             r = reqs[i]
@@ -210,20 +217,36 @@ def simulate(reqs, coef, rule, forward_ns, deliver_ns, long_prefill=0):
             else:
                 keep.append(r)
         held = keep
+        # Cancel what has passed its 30-second deadline, waiting or running, and release the gateway's state for it,
+        # so a late contender stops taking engine tokens (simulator review, finding 1).
+        for w in [w for w in eng.waiting if eng.now - w[2]["sched"] > TIMEOUT_NS]:
+            eng.waiting.remove(w)
+            w[2]["expired"] = True
+            for k in gw:
+                gw[k].discard(id(w[2]))
+        for r in [r for r in eng.running if eng.now - r["sched"] > TIMEOUT_NS]:
+            eng.running.remove(r)
+            r["expired"] = True
+            for k in gw:
+                gw[k].discard(id(r))
+        # The gateway learns of a first token or a finish only when it is delivered (review, finding 4).
+        for ev in [ev for ev in notices if ev[0] <= eng.now]:
+            notices.remove(ev)
+            for k in ev[1]:
+                gw[k].discard(ev[2])
         out = eng.step()
         if out is None:
             nxt = [reqs[i]["gw_arrived"]] if i < len(reqs) else []
-            nxt += [w[1] for w in eng.waiting]
+            nxt += [w[1] for w in eng.waiting if w[1] > eng.now] + [ev[0] for ev in notices]
             if not nxt and not held:
                 break
             eng.now = max(eng.now + 1_000_000, min(nxt)) if nxt else eng.now + 10_000_000
             continue
         first, done = out
         for r in first:
-            gw["in_prefill"].discard(id(r))
-            gw["premium_waiting"].discard(id(r))
+            notices.append((r["first_token"] + deliver_ns, ("in_prefill", "premium_waiting"), id(r)))
         for r in done:
-            gw["outstanding"].discard(id(r))
+            notices.append((r["finished"] + deliver_ns, ("outstanding",), id(r)))
     for r in reqs:
         if "first_token" in r:
             r["ttft_ms"] = (r["first_token"] + deliver_ns - r["sched"]) / 1e6
@@ -274,7 +297,7 @@ def offsets(cells):
 
 
 def main(argv):
-    if len(argv) < 3 or argv[1] not in ("validate", "screen", "threshold"):
+    if len(argv) < 3 or argv[1] not in ("validate", "screen", "threshold", "combine"):
         print(__doc__)
         return 64
     loaded = {(d, a, r): load_cell(d, a, r) for d, a, r in stage_dirs(argv[2:])}
@@ -289,6 +312,22 @@ def main(argv):
             print("%s %-12s %d measured p99 %7.1f  simulated p99 %7.1f  (p50 %6.1f / %6.1f)" % (
                 os.path.basename(os.path.dirname(d)), arm, rep, pr.nearest_rank(measured, 0.99), sim["premium_p99_ms"],
                 pr.nearest_rank(measured, 0.5), sim["premium_p50_ms"]))
+        return 0
+    if argv[1] == "combine":
+        # The engine's threshold together with a gateway rule that keeps one contender prefill at a time.
+        for (d, arm, rep), (reqs, _, _) in sorted(loaded.items()):
+            if arm != "off":
+                continue
+            base = summarize(simulate(reqs, coef, RULES["off"], fwd, deliver))["premium_p99_ms"]
+            for rule in ("off", "hold-one-prefill", "refuse-one-prefill"):
+                for t in (0, 384, 256):
+                    out = simulate(reqs, coef, RULES[rule], fwd, deliver, long_prefill=t)
+                    s_ = summarize(out)
+                    ct = sorted((r["first_token"] + deliver - r["sched"]) / 1e6 for r in out
+                                if r["tenant"] == pr.CONTENDER and "first_token" in r and not r.get("expired"))
+                    print("%s off-%d %-18s threshold %3d  premium p99 %7.1f (%.3f of off)  contenders %d/%d  contender TTFT p50 %s" % (
+                        os.path.basename(os.path.dirname(d)), rep, rule, t, s_["premium_p99_ms"], s_["premium_p99_ms"] / base,
+                        s_["contender_completed"], s_["contender_offered"], None if not ct else round(pr.nearest_rank(ct, 0.5))))
         return 0
     if argv[1] == "threshold":
         # The engine-side setting, with no admission rule: every contender forwarded, as off.

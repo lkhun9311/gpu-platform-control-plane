@@ -47,5 +47,35 @@ class EngineTest(unittest.TestCase):
         self.assertGreaterEqual(by["c2"]["forwarded"], by["c1"]["first_token"])
 
 
+class ReviewTest(unittest.TestCase):
+    # A request still in flight to the engine does not block one already there (review of d75156c, finding 3).
+    def test_a_future_arrival_does_not_block_a_ready_request(self):
+        eng = sim.Engine(FLAT)
+        eng.now = 0
+        c, p = req("c", pr.CONTENDER, 0, 100), req("p", pr.PREMIUM, 0, 100)
+        eng.add(c, 0)
+        eng.add(p, 5 * MS)
+        self.assertIsNotNone(eng.step())
+        self.assertIn(c, eng.running)
+
+    # The gateway sees a first token only when it is delivered, so the hold rule waits for that (finding 4).
+    def test_the_hold_rule_waits_for_the_delivered_first_token(self):
+        out = sim.simulate([req("c1", pr.CONTENDER, 0, 1024), req("c2", pr.CONTENDER, 0, 1024)], FLAT,
+                           sim.RULES["hold-one-prefill"], 0, 50 * MS)
+        by = {r["id"]: r for r in out}
+        self.assertGreaterEqual(by["c2"]["forwarded"], by["c1"]["first_token"] + 50 * MS)
+
+    # A request past its deadline stops taking engine tokens (finding 1).
+    def test_an_expired_request_is_cancelled_in_the_engine(self):
+        old = sim.TIMEOUT_NS
+        sim.TIMEOUT_NS = 100 * MS
+        try:
+            out = sim.simulate([req("c", pr.CONTENDER, 0, 7695)], FLAT, sim.RULES["off"], 0, 0)
+        finally:
+            sim.TIMEOUT_NS = old
+        self.assertTrue(out[0].get("expired"))
+        self.assertNotIn("first_token", out[0])
+
+
 if __name__ == "__main__":
     unittest.main()
