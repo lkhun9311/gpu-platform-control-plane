@@ -755,6 +755,17 @@ func NewCache(ctx context.Context, cfg *rest.Config, scheme *runtime.Scheme, nam
 	}); err != nil {
 		return nil, nil, fmt.Errorf("index %s: %w", ModelNameIndex, err)
 	}
+	// Every kind the request path reads is registered here, before Start, so it starts with the cache and
+	// WaitForCacheSync, which flips readiness, waits for it.
+	// The index above registered InferenceDeployment; Secret and GPUQuotaPolicy were left to their first read, so the
+	// gateway reported ready with neither cached and its first requests each waited for an informer to start and sync,
+	// about one 100 ms sync poll per kind. The pilot measured that as 103 and 204 ms of dispatch lag on the first one
+	// or two requests of every cell (design page, "Pilot results, 2026-10-09").
+	for _, o := range []client.Object{&corev1.Secret{}, &platformv1.GPUQuotaPolicy{}} {
+		if _, err := ca.GetInformer(ctx, o); err != nil {
+			return nil, nil, fmt.Errorf("register the %T informer before start: %w", o, err)
+		}
+	}
 	cl, err := client.New(cfg, client.Options{Scheme: scheme, Cache: &client.CacheOptions{Reader: ca}})
 	if err != nil {
 		return nil, nil, fmt.Errorf("new delegating client: %w", err)
