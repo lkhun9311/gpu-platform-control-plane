@@ -1121,6 +1121,33 @@ The pilot's gates fired, so by its own rule the design returned here. A v22 was 
 
 **What is left free, and what a paid session must measure.** Free: the CPU experiment measured to prompt completion and first content, warmed, at 384, with all 64 slots occupied and with sustained arrivals; and a kind test of a gateway hold rule's fidelity: release on delivered first content, concurrent arrivals and cancellation. Then, with acceptance limits frozen before purchase (premium p99 ratio, contender completion, completion latency and longest hold), one GPU session comparing off, current P, hold only, cap only and the combination, measuring capped step durations, premium TTFT and inter-token latency, contender completion with timeouts counted, throughput, 64-slot occupancy, KV usage and preemption, and the gateway's release timing.
 
+### v24: the diagnostic session, drafted 2026-10-09, not yet attacked
+
+**Its question.** On the A10G, under the pilot's frozen load, does the engine's prefill cap at 384 together with the gateway's serial-prefill hold cut the premium tail, at a contender cost inside limits frozen here, before any card time? It is a feasibility measurement of one candidate, not the main study: it answers whether a main study of this treatment is worth designing.
+
+**Arms, each on its own fresh engine as in the pilot:**
+- **off:** admission off, no cap (the pilot's O);
+- **P:** the pilot's prospective admission, no cap;
+- **hold:** serial-prefill (`--admission-mode serial-prefill`, longest hold 25 s), no cap;
+- **cap:** admission off, `--long-prefill-token-threshold 384`;
+- **hold+cap:** both.
+
+Hold alone and cap alone are there so the combination's effect is not confounded (v23 review): the replay says each alone does little or harm, and the session measures that rather than assumes it.
+
+**Size.** Two blocks of the five arms, in a hashed order per block, on the pilot's load and lengths, under the pilot's capture and eligibility rules; 10 cells, about 1 h 50 m at the pilot's cell times. Seeds, frozen now: 841 and 842.
+
+**Acceptance, frozen before purchase; hold+cap passes only if every line holds, pooled over its two blocks:**
+- premium TTFT p99 on the crossed upper end, ln(hold+cap scheduled hi / off arrival lo), at most ln 0.85;
+- contender completion, with timeouts and refusals counted as failures, at least 95%;
+- contender completion latency p50 at most twice off's;
+- longest gateway hold under 25 s, so no contender is refused for waiting;
+- premium inter-token p99 at most 1.25 times off's, so the cap's extra steps do not move the cost into decode;
+- no preemption in any hold+cap cell, the condition the hold rule's guarantee rests on.
+
+**Measured beside them, published whatever the outcome:** step durations by chunk size (the capped regime the archives lack), 64-slot occupancy, KV usage, the gateway's hold and release times, throughput, and the same for every arm.
+
+**What it does not decide.** A pass makes a main study of hold+cap against a static control worth designing; it is not that study's result. A failure on a contender line with the premium line passing says the trade is real but too costly at 384, and 256 is not tried in this session.
+
 **The cheapest deciding experiments, in order** (astra's list, which I adopt): a scheduler replay on the archives to screen candidate admission rules with their retained contender work; a CPU test that injects a premium request at known chunks of a running prefill, and with all 64 slots full; a kind test of the chosen rule's fidelity; and only then one targeted GPU session comparing off, current P and the best candidate. An engine-side change, letting waiting premium work into the budget at chunk boundaries, is a different treatment and would be a different study.
 
 ## What v21 changed, against the review of v20
