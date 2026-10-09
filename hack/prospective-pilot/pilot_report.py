@@ -149,7 +149,13 @@ def cell_report(stage_dir, arm, rep, L=L_MS_FLOOR):
     steps = jsonl(os.path.join(stage_dir, "step-log-%s.jsonl" % tag))
     problems = []
     if os.path.exists(os.path.join(stage_dir, "ineligible-%s.txt" % tag)):
-        problems.append("capture: " + open(os.path.join(stage_dir, "ineligible-%s.txt" % tag)).read().strip())
+        with open(os.path.join(stage_dir, "ineligible-%s.txt" % tag)) as f:
+            problems.append("capture: " + f.read().strip())
+    # A cell the matrix refused, for an engine or a priority that was not the registered apparatus, measured something
+    # else, whatever its files hold (final review, finding 1).
+    if os.path.exists(os.path.join(stage_dir, "cell-refused-%s.txt" % tag)):
+        with open(os.path.join(stage_dir, "cell-refused-%s.txt" % tag)) as f:
+            problems.append("refused by the matrix: " + f.read().strip())
 
     ids = [r.get("requestId") for r in rows]
     if any(not i for i in ids) or len(set(ids)) != len(ids):
@@ -633,14 +639,21 @@ def contender_outcomes(stage_dir, tag):
     """
     rows = jsonl(os.path.join(stage_dir, "raw-%s.jsonl" % tag))
     gw = gateway_records(os.path.join(stage_dir, "gateway-record-%s.jsonl" % tag))
-    lat, done, offered, hold_timeouts = [], 0, 0, 0
+    lat, done, offered, hold_timeouts, untimed = [], 0, 0, 0, 0
     for r in rows:
         if r.get("tenant") != CONTENDER:
             continue
         offered += 1
         sched = r.get("replayOriginUnixNanos", 0) + r["scheduledOffsetMs"] * 1_000_000
-        end = r.get("returnedUnixNanos")
-        ok = full_output(r, 16) and end and end - sched <= 30_000_000_000
+        # The last content frame's arrival, from the first and every gap after it: the spec's endpoint is the client's
+        # last token, not the replay's return, which also waits for [DONE] and the connection's drain (final review,
+        # finding 3). A success without its gaps cannot be timed, and is counted apart.
+        gaps = r.get("contentGapsMicros")
+        if full_output(r, 16) and r.get("firstTokenUnixNanos") and gaps is None:
+            untimed += 1
+            continue
+        end = r["firstTokenUnixNanos"] + sum(gaps) * 1000 if full_output(r, 16) and r.get("firstTokenUnixNanos") else None
+        ok = end is not None and end - sched <= 30_000_000_000
         if ok:
             done += 1
             lat.append(ms(end - sched))
@@ -648,7 +661,14 @@ def contender_outcomes(stage_dir, tag):
             lat.append(math.inf)
         d = (gw.get(r.get("requestId")) or {}).get("done") or {}
         hold_timeouts += d.get("reason") == "serial_prefill_hold_timeout"
-    return done, offered, sorted(lat), hold_timeouts
+    return done, offered, sorted(lat), hold_timeouts, untimed
+
+
+DIAG_CELLS = ["R1-1"] + ["%s-%d" % (a, b) for b in (1, 2, 3) for a in ("off", "hold", "cap", "hold-cap")]
+# The lines a single cell observes directly, which an invalid block cannot excuse: a refusal for waiting and a
+# preemption happened whatever the comparison's validity. Every other line compares against off, and an invalid
+# block leaves it unscored rather than failed (final review, finding 2).
+DIAG_DIRECT_LINES = ("hold-timeout refusals", "preemptions in hold-cap")
 
 
 def diagnostic(stage_dir):
@@ -683,11 +703,13 @@ def diagnostic(stage_dir):
             absent = c["premium_gap_evidence"]["absent"]
             check(validity, "%s premium successes without gap evidence" % a, absent, "0", absent == 0)
         if "off" in cr:
-            o_done, o_off, o_lat, _ = contender_outcomes(stage_dir, tags["off"])
+            o_done, o_off, o_lat, _, o_untimed = contender_outcomes(stage_dir, tags["off"])
+            check(validity, "off contenders completed without timing evidence", o_untimed, "0", o_untimed == 0)
             check(validity, "off contender completion", o_done / o_off if o_off else None, ">= 0.95", (o_done / o_off >= 0.95) if o_off else None)
         if "hold-cap" in cr:
             pre = preemptions(stage_dir, tags["hold-cap"])
-            h_done, h_off, h_lat, h_hold = contender_outcomes(stage_dir, tags["hold-cap"])
+            h_done, h_off, h_lat, h_hold, h_untimed = contender_outcomes(stage_dir, tags["hold-cap"])
+            check(validity, "hold-cap contenders completed without timing evidence", h_untimed, "0", h_untimed == 0)
             # The lines hold-cap carries alone are scored even when off's cell is missing, so an observed violation
             # in an incomplete block is still reported (review of 46de41a).
             check(lines, "contender completion", h_done / h_off if h_off else None, ">= 0.95", (h_done / h_off >= 0.95) if h_off else None)
@@ -720,12 +742,21 @@ def diagnostic(stage_dir):
         unscorable = [x["line"] for x in lines if x["state"] == "unscorable"]
         if bad_validity or unscorable:
             inconclusive.append("block %d: %s" % (b, ", ".join(bad_validity + ["%s unscorable" % u for u in unscorable])))
-        fails = [x["line"] for x in lines if x["state"] == "fails"]
+        fails = [x["line"] for x in lines if x["state"] == "fails" and (not bad_validity or x["line"] in DIAG_DIRECT_LINES)]
         if fails and first_fail is None:
             first_fail = "block %d: %s" % (b, fails[0])
         blocks.append({"block": b, "complete": all(present.values()), "validity": validity, "lines": lines})
+    # The whole acquisition, every one of the thirteen cells, not only the pairs scored: a verdict on six cells is
+    # not the registered diagnostic (final review, finding 4). Live snapshots of a cell the final archive lacks are
+    # named, because an interrupted replay's rows are there and nowhere else.
+    missing = [c for c in DIAG_CELLS if not os.path.exists(os.path.join(stage_dir, "raw-%s.jsonl" % c))]
+    if missing:
+        live = os.path.join(os.path.dirname(os.path.abspath(stage_dir)), "live")
+        snap = [c for c in missing if os.path.exists(os.path.join(live, "live-raw-%s.jsonl" % c))]
+        inconclusive.append("cells not acquired: %s%s" % (", ".join(missing),
+                            "; live snapshots exist for %s" % ", ".join(snap) if snap else ""))
     # Precedence (v25 review, finding 6): a measured failure is reported whatever else happened; a positive verdict
-    # needs all three blocks complete, valid and every line scored; anything short of that is inconclusive.
+    # needs all thirteen cells, three valid blocks and every line scored; anything short of that is inconclusive.
     if first_fail:
         verdict = "not met: " + first_fail
     elif inconclusive:

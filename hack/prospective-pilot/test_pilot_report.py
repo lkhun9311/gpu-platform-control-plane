@@ -349,19 +349,24 @@ class PilotReportReviewTest(unittest.TestCase):
 
 
 def diag_block(d, rep, hold_ttft_ns=20_000_000, prom=True, blocks=(1, 2, 3)):
-    """off and hold-cap cells for the given blocks; hold-cap's premium first content at hold_ttft_ns after arrival."""
-    for b in blocks:
-        for arm, ttft in (("off", 20_000_000), ("hold-cap", hold_ttft_ns)):
-            c = Cell(d, arm, b)
-            c.rows[0]["contentGapsMicros"] = [10_000] * 63
-            for g in c.gw:
-                if g["ev"] == "done" and g["requestId"] == "pp-A-off-1-0":
-                    g["firstContentUnixNanos"] = g["arrivedUnixNanos"] + ttft
-            c.save()
-            if prom:
-                for phase in ("before", "after"):
-                    with open(os.path.join(d, "engine-metrics-%s-%d-%s.prom" % (arm, b, phase)), "w") as f:
-                        f.write('vllm:num_preemptions_total{engine="0"} 0.0\n')
+    """Every diagnostic cell of the given blocks, R1 once; hold-cap's premium first content at hold_ttft_ns after
+    arrival, every other arm's at 20 ms. Contenders carry their first token and fifteen gaps, so they can be timed."""
+    cells = [("R1", 1, 20_000_000)] if 1 in blocks else []
+    cells += [(arm, b, hold_ttft_ns if arm == "hold-cap" else 20_000_000)
+              for b in blocks for arm in ("off", "hold", "cap", "hold-cap")]
+    for arm, b, ttft in cells:
+        c = Cell(d, arm, b)
+        c.rows[0]["contentGapsMicros"] = [10_000] * 63
+        c.rows[1]["firstTokenUnixNanos"] = ORIGIN + 30_000_000
+        c.rows[1]["contentGapsMicros"] = [500] * 15
+        for g in c.gw:
+            if g["ev"] == "done" and g["requestId"] == "pp-A-off-1-0":
+                g["firstContentUnixNanos"] = g["arrivedUnixNanos"] + ttft
+        c.save()
+        if prom:
+            for phase in ("before", "after"):
+                with open(os.path.join(d, "engine-metrics-%s-%d-%s.prom" % (arm, b, phase)), "w") as f:
+                    f.write('vllm:num_preemptions_total{engine="0"} 0.0\n')
 
 
 class DiagnosticTest(unittest.TestCase):
@@ -415,6 +420,47 @@ class DiagnosticTest(unittest.TestCase):
         write(path, rows)
         v = pr.diagnostic(self.d)
         self.assertTrue(v["verdict"].startswith("inconclusive") and "without gap evidence" in v["verdict"], v["verdict"])
+
+    # A cell the matrix refused is not scored as passing, whatever its files hold (final review, finding 1).
+    def test_a_refused_cell_is_not_scored_as_passing(self):
+        diag_block(self.d, 1, hold_ttft_ns=10_000_000)
+        with open(os.path.join(self.d, "cell-refused-hold-cap-3.txt"), "w") as f:
+            f.write("REFUSED hold-cap rep 3 after its capture: a request reached the scheduler at priority 99\n")
+        v = pr.diagnostic(self.d)
+        self.assertTrue(v["verdict"].startswith("inconclusive") and "hold-cap eligible" in v["verdict"], v["verdict"])
+
+    # An invalid block leaves its comparisons unscored rather than failed: a 60 ms dispatch lag on hold-cap's premium
+    # request breaks the ceiling, and must not read as the treatment failing (final review, finding 2).
+    def test_an_invalid_block_does_not_fail_the_treatment(self):
+        diag_block(self.d, 1, hold_ttft_ns=10_000_000)
+        path = os.path.join(self.d, "gateway-record-hold-cap-2.jsonl")
+        recs = pr.jsonl(path)
+        for r in recs:
+            if r["requestId"] == "pp-A-off-1-0":
+                r["arrivedUnixNanos"] += 60_000_000
+        write(path, recs)
+        v = pr.diagnostic(self.d)
+        self.assertTrue(v["verdict"].startswith("inconclusive"), v["verdict"])
+
+    # Completion is timed at the last content, not the replay's return: a contender whose last token came at 31 ms
+    # and whose return waited 31 s for [DONE] still completed (final review, finding 3).
+    def test_completion_is_timed_at_the_last_content(self):
+        diag_block(self.d, 1, hold_ttft_ns=10_000_000)
+        path = os.path.join(self.d, "raw-hold-cap-1.jsonl")
+        rows = pr.jsonl(path)
+        rows[1]["returnedUnixNanos"] = ORIGIN + 31_000_000_000
+        write(path, rows)
+        done, offered, lat, _, _ = pr.contender_outcomes(self.d, "hold-cap-1")
+        self.assertEqual((done, offered), (1, 1))
+        self.assertLess(lat[0], 100)
+
+    # Six cells are not the diagnostic: R1, hold and cap missing make it inconclusive (final review, finding 4).
+    def test_the_pairs_alone_are_not_the_diagnostic(self):
+        diag_block(self.d, 1, hold_ttft_ns=10_000_000)
+        for c in ["R1-1"] + ["%s-%d" % (a, b) for b in (1, 2, 3) for a in ("hold", "cap")]:
+            os.remove(os.path.join(self.d, "raw-%s.jsonl" % c))
+        v = pr.diagnostic(self.d)
+        self.assertTrue(v["verdict"].startswith("inconclusive: cells not acquired: R1-1"), v["verdict"])
 
     # The diagnostic scores uncertainty at its own L of 13 ms: a 6 ms lag is trusted there and not at the pilot's 5.
     def test_the_diagnostic_scores_uncertainty_at_13_ms(self):
