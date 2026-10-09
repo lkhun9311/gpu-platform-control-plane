@@ -5,7 +5,9 @@
     python3 simulate.py threshold DIR [DIR ...]   replay them under vLLM's long_prefill_token_threshold instead
     python3 simulate.py combine DIR [DIR ...]     the threshold together with the one-prefill gateway rules
     python3 simulate.py control DIR [DIR ...]     hold-cap against a fixed-spacing static control at several spacings
-    python3 simulate.py feasible DIR [DIR ...]    which spacings, 10 ms apart, meet the owner's contender limits beside hold-cap
+    python3 simulate.py feasible [--scale K] DIR [DIR ...]
+                                                  which spacings, 10 ms apart, meet the owner's contender limits beside
+                                                  hold-cap, at K times the fitted step time, and the pooled premium p99
     python3 simulate.py pace DIR [DIR ...] [-- DIR ...]   each cell's measured step time against the model fitted
                                                   before the --, and why a fixed spacing fails when the pace slows
 
@@ -381,6 +383,12 @@ def main(argv):
     if len(argv) < 3 or argv[1] not in ("validate", "screen", "threshold", "combine", "control", "pace", "feasible"):
         print(__doc__)
         return 64
+    # A card's pace against the fitted model, as the main study's calibration cell measures it (v26).
+    scale = 1.0
+    if "--scale" in argv:
+        k = argv.index("--scale")
+        scale = float(argv[k + 1])
+        argv = argv[:k] + argv[k + 2:]
     # Directories after a -- are only measured against the model, never fitted to it: a held-out card.
     held_out = argv[argv.index("--") + 1:] if "--" in argv else []
     fit_dirs = argv[2:argv.index("--")] if "--" in argv else argv[2:]
@@ -447,21 +455,39 @@ def main(argv):
     if argv[1] == "feasible":
         # The control's spacing is a free parameter; the owner's limits are what make one choice admissible. Every
         # spacing from 1.50 to 1.80 s in 10 ms steps, judged by them, beside hold-cap judged the same way.
+        print("step scale %.4f" % scale)
         print("cell rule | premium p99 ratio_to_off | contender completion p50 ratio_to_off, p95 ms, hold refusals | owner's limits")
+        spacings = list(range(1500, 1801, 10))
+        admissible, pooled = set(spacings), {}
         for (d, arm, rep), (reqs, _, _) in sorted(loaded.items()):
             if arm != "off":
                 continue
-            off = summarize(simulate(reqs, coef, RULES["off"], fwd, deliver))
-            rules = [("hold-cap", RULES["hold-one-prefill"])] + [("spacing-%.2fs" % (t / 1000), hold_spacing(t * 1_000_000))
-                                                                 for t in range(1500, 1801, 10)]
-            for name, rule in rules:
-                x = summarize(simulate(reqs, coef, rule, fwd, deliver, long_prefill=384))
+            base = simulate(reqs, coef, RULES["off"], fwd, deliver, step_scale=scale)
+            off = summarize(base)
+            pooled.setdefault("off", []).append(base)
+            rules = [("hold-cap", RULES["hold-one-prefill"], None)] + [
+                ("spacing-%.2fs" % (t / 1000), hold_spacing(t * 1_000_000), t) for t in spacings]
+            for name, rule, t in rules:
+                out = simulate(reqs, coef, rule, fwd, deliver, long_prefill=384, step_scale=scale)
+                pooled.setdefault(name, []).append(out)
+                x = summarize(out)
                 fail = owner_limits(x, off)
+                if fail is not None and t is not None:
+                    admissible.discard(t)
                 print("%s-off-%d %s | %.3f | %.2f %s %d | %s" % (
                     os.path.basename(os.path.dirname(d))[-6:], rep, name, x["premium_p99_ms"] / off["premium_p99_ms"],
                     x["contender_completion_p50_ms"] / off["contender_completion_p50_ms"],
                     "inf" if math.isinf(x["contender_completion_p95_ms"]) else round(x["contender_completion_p95_ms"]),
                     x["contender_hold_timeouts"], "met" if fail is None else "fails: " + fail))
+        # The registered rule picks the widest spacing meeting the limits in every cell; the endpoint pools every
+        # premium request of the arm across cells, as the main study pools its blocks (v26).
+        if not admissible:
+            print("\nno spacing meets the owner's limits in every cell")
+            return 0
+        widest = "spacing-%.2fs" % (max(admissible) / 1000)
+        p99 = {n: summarize([r for out in pooled[n] for r in out])["premium_p99_ms"] for n in ("off", "hold-cap", widest)}
+        print("\nwidest admissible: %s | pooled premium p99 ms: off %.0f, hold-cap %.0f, %s %.0f | hold-cap over it %.3f" % (
+            widest, p99["off"], p99["hold-cap"], widest, p99[widest], p99["hold-cap"] / p99[widest]))
         return 0
     if argv[1] == "control":
         # hold-cap against the static control, fixed spacing with the same 384 cap, at several spacings, with the whole

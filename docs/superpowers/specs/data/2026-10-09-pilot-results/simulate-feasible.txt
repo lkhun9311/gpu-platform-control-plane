@@ -1,4 +1,5 @@
 {"step_model_ms": [15.3639, 0.0966, 0.0959, 0.9292, 3.0468], "fitted_steps": 282897, "forward_ms": 3.912577}
+step scale 1.0000
 cell rule | premium p99 ratio_to_off | contender completion p50 ratio_to_off, p95 ms, hold refusals | owner's limits
 pilotA-off-1 hold-cap | 0.309 | 1.18 8090 0 | met
 pilotA-off-1 spacing-1.50s | 0.694 | 1.19 7394 0 | met
@@ -192,3 +193,5 @@ pilotB-off-3 spacing-1.77s | 0.272 | 1.74 26066 4 | fails: completion p50 above 
 pilotB-off-3 spacing-1.78s | 0.238 | 1.80 25355 5 | fails: completion p50 above 1.5x off's
 pilotB-off-3 spacing-1.79s | 0.255 | 1.89 25841 5 | fails: completion p50 above 1.5x off's
 pilotB-off-3 spacing-1.80s | 0.242 | 2.00 26437 5 | fails: completion p50 above 1.5x off's
+
+widest admissible: spacing-1.66s | pooled premium p99 ms: off 1469, hold-cap 469, spacing-1.66s 615 | hold-cap over it 0.763
