@@ -143,6 +143,32 @@ class SpacingTest(unittest.TestCase):
         self.assertEqual(by["c1"]["forwarded"], 0)
         self.assertEqual(by["c2"]["forwarded"], 100 * MS)
 
+    # The engine goes idle while the second contender waits out its spacing, and the next arrival is 10 s away: the
+    # replay must wake at the spacing's end, not jump to that arrival (review of 3cb7e05).
+    # Mutation that turns it red: leave the spacing's release time out of the idle engine's next event.
+    def test_an_idle_engine_wakes_at_the_spacing_end(self):
+        out = sim.simulate([req("c1", pr.CONTENDER, 0, 512), req("c2", pr.CONTENDER, 0, 512),
+                            req("p", pr.PREMIUM, 10_000, 68)], FLAT, sim.hold_spacing(1000 * MS), 0, 0)
+        by = {r["id"]: r for r in out}
+        self.assertEqual(by["c2"]["forwarded"], 1000 * MS)
+        self.assertEqual(by["c2"]["first_token"], 1010 * MS)
+
+
+
+class OwnerLimitsTest(unittest.TestCase):
+    # Each of the owner's four contender limits refuses on its own; the boundaries are inclusive as the owner froze them.
+    # Mutation that turns it red: drop any one line of owner_limits, or make a boundary strict.
+    def test_each_limit_refuses_on_its_own(self):
+        off = {"contender_completion_p50_ms": 4000}
+        ok = {"contender_completed": 95, "contender_offered": 100, "contender_completion_p50_ms": 6000,
+              "contender_completion_p95_ms": 25_000, "contender_hold_timeouts": 0}
+        self.assertIsNone(sim.owner_limits(ok, off))
+        for key, value, line in (("contender_completed", 94, "completion below 95%"),
+                                 ("contender_completion_p50_ms", 6001, "completion p50 above 1.5x off's"),
+                                 ("contender_completion_p95_ms", 25_001, "completion p95 above 25 s"),
+                                 ("contender_hold_timeouts", 1, "a hold refusal")):
+            self.assertEqual(sim.owner_limits(dict(ok, **{key: value}), off), line)
+
 
 if __name__ == "__main__":
     unittest.main()

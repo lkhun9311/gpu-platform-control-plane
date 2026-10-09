@@ -5,6 +5,7 @@
     python3 simulate.py threshold DIR [DIR ...]   replay them under vLLM's long_prefill_token_threshold instead
     python3 simulate.py combine DIR [DIR ...]     the threshold together with the one-prefill gateway rules
     python3 simulate.py control DIR [DIR ...]     hold-cap against a fixed-spacing static control at several spacings
+    python3 simulate.py feasible DIR [DIR ...]    which spacings, 10 ms apart, meet the owner's contender limits beside hold-cap
     python3 simulate.py pace DIR [DIR ...] [-- DIR ...]   each cell's measured step time against the model fitted
                                                   before the --, and why a fixed spacing fails when the pace slows
 
@@ -203,6 +204,8 @@ def simulate(reqs, coef, rule, forward_ns, deliver_ns, long_prefill=0, step_scal
     gw = {"in_prefill": set(), "outstanding": set(), "premium_waiting": set()}
     # For time-based rules: the instant being decided at, and when the last contender was forwarded.
     gw["now"], gw["last_forward"] = None, None
+    # When a time-based rule will next forward a held contender without any other event; None for the others.
+    gw["wake"] = None
     held, i, notices = [], 0, []
 
     def decide(r, at):
@@ -271,6 +274,10 @@ def simulate(reqs, coef, rule, forward_ns, deliver_ns, long_prefill=0, step_scal
         if out is None:
             nxt = [reqs[i]["gw_arrived"]] if i < len(reqs) else []
             nxt += [w[1] for w in eng.waiting if w[1] > eng.now] + [ev[0] for ev in notices]
+            # An idle engine must not jump past a spacing's end to the next arrival, or the held contender is forwarded
+            # late with a backdated time, and its prefill runs after that arrival (review of 3cb7e05).
+            if held and gw["wake"] is not None and gw["wake"] > eng.now:
+                nxt.append(gw["wake"])
             if not nxt and not held:
                 break
             eng.now = max(eng.now + 1_000_000, min(nxt)) if nxt else eng.now + 10_000_000
@@ -331,8 +338,23 @@ def hold_spacing(spacing_ns):
         last = gw["last_forward"]
         if last is None or gw["now"] - last >= spacing_ns:
             return ("forward", gw["now"] if last is None else max(last + spacing_ns, r["gw_arrived"]))
+        gw["wake"] = last + spacing_ns
         return "hold"
     return rule
+
+
+def owner_limits(x, off):
+    """The contender limits the owner froze for the diagnostic, applied to summary x against off's summary; returns the
+    first line it fails, or None. A control that breaks them is not a candidate the owner accepted (review of b916a9f)."""
+    if x["contender_completed"] < 0.95 * x["contender_offered"]:
+        return "completion below 95%"
+    if x["contender_completion_p50_ms"] > 1.5 * off["contender_completion_p50_ms"]:
+        return "completion p50 above 1.5x off's"
+    if x["contender_completion_p95_ms"] > 25_000:
+        return "completion p95 above 25 s"
+    if x["contender_hold_timeouts"] > 0:
+        return "a hold refusal"
+    return None
 
 
 # ---------------------------------------------------------------- commands
@@ -356,7 +378,7 @@ def offsets(cells):
 
 
 def main(argv):
-    if len(argv) < 3 or argv[1] not in ("validate", "screen", "threshold", "combine", "control", "pace"):
+    if len(argv) < 3 or argv[1] not in ("validate", "screen", "threshold", "combine", "control", "pace", "feasible"):
         print(__doc__)
         return 64
     # Directories after a -- are only measured against the model, never fitted to it: a held-out card.
@@ -421,6 +443,25 @@ def main(argv):
                     last = t
                 print("%.1f %s | prefill p50 %.0f p95 %.0f ms | at most %d in prefill at once | share of the span with two or more %.2f" % (
                     scale, name, pr.nearest_rank(dur, 0.5), pr.nearest_rank(dur, 0.95), most, overlap / (events[-1][0] - events[0][0])))
+        return 0
+    if argv[1] == "feasible":
+        # The control's spacing is a free parameter; the owner's limits are what make one choice admissible. Every
+        # spacing from 1.50 to 1.80 s in 10 ms steps, judged by them, beside hold-cap judged the same way.
+        print("cell rule | premium p99 ratio_to_off | contender completion p50 ratio_to_off, p95 ms, hold refusals | owner's limits")
+        for (d, arm, rep), (reqs, _, _) in sorted(loaded.items()):
+            if arm != "off":
+                continue
+            off = summarize(simulate(reqs, coef, RULES["off"], fwd, deliver))
+            rules = [("hold-cap", RULES["hold-one-prefill"])] + [("spacing-%.2fs" % (t / 1000), hold_spacing(t * 1_000_000))
+                                                                 for t in range(1500, 1801, 10)]
+            for name, rule in rules:
+                x = summarize(simulate(reqs, coef, rule, fwd, deliver, long_prefill=384))
+                fail = owner_limits(x, off)
+                print("%s-off-%d %s | %.3f | %.2f %s %d | %s" % (
+                    os.path.basename(os.path.dirname(d))[-6:], rep, name, x["premium_p99_ms"] / off["premium_p99_ms"],
+                    x["contender_completion_p50_ms"] / off["contender_completion_p50_ms"],
+                    "inf" if math.isinf(x["contender_completion_p95_ms"]) else round(x["contender_completion_p95_ms"]),
+                    x["contender_hold_timeouts"], "met" if fail is None else "fails: " + fail))
         return 0
     if argv[1] == "control":
         # hold-cap against the static control, fixed spacing with the same 384 cap, at several spacings, with the whole
