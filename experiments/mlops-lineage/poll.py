@@ -44,6 +44,9 @@ def main():
         t.start()
         threads.append(t)
         i += 1
+    # The coverage window ends when scheduling stops, before the drain: waiting for slow answers sends nothing,
+    # and counting that wait as window would read latency as missing requests.
+    wall_end = time.time()
     for t in threads:
         t.join()
     with open(out, "w") as f:
@@ -51,11 +54,11 @@ def main():
         for sent, done, status, version in sorted(rows):
             f.write(f"{sent:.3f}\t{done:.3f}\t{status}\t{version}\n")
     # The start time on the wall clock, so the runner's own event times can be placed on this file's axis.
-    # Wall-clock start and end, so the runner's event times can be placed on this file's axis and the scorer can
+    # Wall-clock start and scheduling end, so the runner's event times can be placed on this file's axis and the scorer can
     # check coverage against a window the rows themselves cannot shrink.
     wall_now, mono_now = time.time(), time.monotonic()
     print(json.dumps({"sent": i, "recorded": len(rows), "rate": rate,
-                      "wall_start": wall_now - (mono_now - start), "wall_end": wall_now}))
+                      "wall_start": wall_now - (mono_now - start), "wall_end": wall_end}))
 
 
 if __name__ == "__main__":

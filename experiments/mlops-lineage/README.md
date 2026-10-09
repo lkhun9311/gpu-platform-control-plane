@@ -88,6 +88,11 @@ this record.
 | 4. rollback ×3 | **0 non-200** in 921, 946 and 938 requests; the last v2 answer **completed** 11.82, 12.00 and 11.95 s after the rollback edit, the first v1 answer 10.87, 11.10 and 11.00 s after it |
 | 5. alias trap | **1,202 of 1,202 answers over 60 s were still v1** after the alias moved to v2; v2 after a restart |
 
+A second review then found the new window ended after the poller had drained its outstanding answers, so a slow
+backend would have voided a complete run; it now ends when sending stops. Checked against a server answering in
+2 s: the old poller reported a 5.00 s window and failed 61 complete requests, the fixed one 3.00 s and passed them.
+The run above passed under the stricter, earlier window, so it stands.
+
 The slowest answer in the rollback polls took 6 ms, so on this cluster send time and completion time differ by
 less than the reported precision and the first run's step-4 figures were not wrong in practice — they were
 measured on the wrong clock, and a slower backend would have made that matter. The findings below were written
