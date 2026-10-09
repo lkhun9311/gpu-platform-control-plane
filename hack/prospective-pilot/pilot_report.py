@@ -141,7 +141,7 @@ def match_client(engine_id, ids):
     return hits[0] if len(hits) == 1 else None
 
 
-def cell_report(stage_dir, arm, rep):
+def cell_report(stage_dir, arm, rep, L=L_MS_FLOOR):
     """Everything one cell measured, and whether it is eligible for calibration and why not."""
     tag = "%s-%d" % (arm, rep)
     rows = jsonl(os.path.join(stage_dir, "raw-%s.jsonl" % tag))
@@ -221,7 +221,8 @@ def cell_report(stage_dir, arm, rep):
                 delays[key].append(ms(d[b] - d[a]))
         if r.get("tenant") == PREMIUM:
             cap = 64
-            uncertain = lag > L_MS_FLOOR
+            # The trusted-lag limit the caller scores under: the pilot's 5 ms, or the diagnostic's 13 ms.
+            uncertain = lag > L
             premium_unc += uncertain
             if full_output(r, cap) and not d.get("firstContentUnixNanos"):
                 no_flush += 1
@@ -651,67 +652,80 @@ def contender_outcomes(stage_dir, tag):
 
 
 def diagnostic(stage_dir):
-    """The admission diagnostic's verdict, its validity and every acceptance line, per block."""
+    """The admission diagnostic's verdict, its validity and every acceptance line, per block.
+
+    A line whose evidence is missing is "unscorable", never a failure: only a measured violation can make the verdict
+    "not met", and anything unmeasured or invalid makes it "inconclusive" (review of 46de41a).
+    """
     blocks, first_fail, inconclusive = [], None, []
     for b in DIAG_BLOCKS:
         tags = {"off": "off-%d" % b, "hold-cap": "hold-cap-%d" % b}
-        if not all(os.path.exists(os.path.join(stage_dir, "raw-%s.jsonl" % t)) for t in tags.values()):
-            inconclusive.append("block %d is incomplete" % b)
-            blocks.append({"block": b, "complete": False})
-            continue
-        cr = {a: cell_report(stage_dir, *t.rsplit("-", 1)[:1], int(t.rsplit("-", 1)[1])) for a, t in tags.items()}
+        present = {a: os.path.exists(os.path.join(stage_dir, "raw-%s.jsonl" % t)) for a, t in tags.items()}
         validity, lines = [], []
 
         def check(collection, name, value, rule, ok):
-            collection.append({"line": name, "value": value, "rule": rule, "holds": bool(ok)})
+            state = "unscorable" if ok is None else ("holds" if ok else "fails")
+            collection.append({"line": name, "value": value, "rule": rule, "state": state})
 
-        for a in ("off", "hold-cap"):
-            c = cr[a]
+        cr = {a: cell_report(stage_dir, *tags[a].rsplit("-", 1)[:1], int(tags[a].rsplit("-", 1)[1]), L=DIAG_L_MS)
+              for a in tags if present[a]}
+        if not all(present.values()):
+            inconclusive.append("block %d is incomplete" % b)
+        for a, c in cr.items():
             check(validity, "%s eligible" % a, c["eligible"], "true", c["eligible"])
-            loss = c["premium"]["failed"] / c["premium"]["n"] if c["premium"]["n"] else math.inf
-            check(validity, "%s premium loss" % a, loss, "< 0.005", loss < 0.005)
-            lmax = c["lag_ms"].get("max", math.inf)
-            check(validity, "%s largest dispatch lag" % a, lmax, "<= %g ms" % DIAG_CEILING_MS, lmax <= DIAG_CEILING_MS)
+            loss = c["premium"]["failed"] / c["premium"]["n"] if c["premium"]["n"] else None
+            check(validity, "%s premium loss" % a, loss, "< 0.005", None if loss is None else loss < 0.005)
+            lmax = c["lag_ms"].get("max")
+            check(validity, "%s largest dispatch lag" % a, lmax, "<= %g ms" % DIAG_CEILING_MS, None if lmax is None else lmax <= DIAG_CEILING_MS)
             n, d, _ = uncertain_fraction([c], DIAG_L_MS)
-            check(validity, "%s premium lag above L=%g ms" % (a, DIAG_L_MS), n / d if d else math.inf, "<= 0.001",
-                  d and n / d <= 0.001)
-        o_done, o_off, o_lat, _ = contender_outcomes(stage_dir, tags["off"])
-        check(validity, "off contender completion", o_done / o_off if o_off else 0, ">= 0.95", o_off and o_done / o_off >= 0.95)
-        pre = preemptions(stage_dir, tags["hold-cap"])
-        check(validity, "hold-cap preemption counter read", pre is not None, "both scrapes", pre is not None)
+            check(validity, "%s premium lag above L=%g ms" % (a, DIAG_L_MS), n / d if d else None, "<= 0.001", (n / d <= 0.001) if d else None)
+            # A premium success with no gaps at all is unobserved, so the gap line cannot be scored on the rest.
+            absent = c["premium_gap_evidence"]["absent"]
+            check(validity, "%s premium successes without gap evidence" % a, absent, "0", absent == 0)
+        if "off" in cr:
+            o_done, o_off, o_lat, _ = contender_outcomes(stage_dir, tags["off"])
+            check(validity, "off contender completion", o_done / o_off if o_off else None, ">= 0.95", (o_done / o_off >= 0.95) if o_off else None)
+        if "hold-cap" in cr:
+            pre = preemptions(stage_dir, tags["hold-cap"])
+            h_done, h_off, h_lat, h_hold = contender_outcomes(stage_dir, tags["hold-cap"])
+            # The lines hold-cap carries alone are scored even when off's cell is missing, so an observed violation
+            # in an incomplete block is still reported (review of 46de41a).
+            check(lines, "contender completion", h_done / h_off if h_off else None, ">= 0.95", (h_done / h_off >= 0.95) if h_off else None)
+            p95h = nearest_rank(h_lat, 0.95)
+            check(lines, "contender completion latency p95", p95h, "<= 25,000 ms", None if p95h is None else p95h <= 25_000)
+            check(lines, "hold-timeout refusals", h_hold, "0", h_hold == 0)
+            check(lines, "preemptions in hold-cap", pre, "0", None if pre is None else pre == 0)
+        if len(cr) == 2:
+            o_hi, o_arr_lo, _, _ = _box([cr["off"]])
+            h_hi, _, _, _ = _box([cr["hold-cap"]])
+            finite = o_arr_lo is not None and not math.isinf(o_arr_lo)
+            check(validity, "off's crossed denominator finite", o_arr_lo, "finite", finite)
+            ratio = crossed_log_ratio(h_hi, o_arr_lo) if finite else None
+            check(lines, "premium p99, crossed upper end against off", ratio, "<= %.4f" % math.log(0.85),
+                  None if ratio is None else ratio <= math.log(0.85))
+            p50o, p50h = nearest_rank(o_lat, 0.5), nearest_rank(h_lat, 0.5)
+            scorable = p50o is not None and p50h is not None and not math.isinf(p50o)
+            check(lines, "contender completion latency p50 against off's", (p50h, p50o), "<= 1.5 x off's",
+                  (p50h <= 1.5 * p50o) if scorable else None)
+            for k in ("p_shared_window", "q_shared_window"):
+                o_w, h_w = cr["off"]["work"][k], cr["hold-cap"]["work"][k]
+                check(lines, "contender work in the shared window (%s) against off's" % k[0], (h_w, o_w), ">= 0.9 x off's",
+                      None if o_w is None or h_w is None else h_w >= 0.9 * o_w)
+            go = nearest_rank(cr["off"]["_premium_gaps"], 0.99)
+            gh = nearest_rank(cr["hold-cap"]["_premium_gaps"], 0.99)
+            check(lines, "premium inter-token gap p99 against off's", (gh, go), "<= 1.25 x off's",
+                  None if go is None or gh is None else gh <= 1.25 * go)
 
-        o_hi, o_arr_lo, _, _ = _box([cr["off"]])
-        h_hi, _, _, _ = _box([cr["hold-cap"]])
-        ratio = crossed_log_ratio(h_hi, o_arr_lo)
-        check(validity, "off's crossed denominator finite", o_arr_lo, "finite", o_arr_lo is not None and not math.isinf(o_arr_lo))
-        check(lines, "premium p99, crossed upper end against off", ratio, "<= %.4f" % math.log(0.85),
-              ratio is not None and ratio <= math.log(0.85))
-        h_done, h_off, h_lat, h_hold = contender_outcomes(stage_dir, tags["hold-cap"])
-        check(lines, "contender completion", h_done / h_off if h_off else 0, ">= 0.95", h_off and h_done / h_off >= 0.95)
-        p50o, p50h, p95h = nearest_rank(o_lat, 0.5), nearest_rank(h_lat, 0.5), nearest_rank(h_lat, 0.95)
-        check(lines, "contender completion latency p50 against off's", (p50h, p50o), "<= 1.5 x off's",
-              p50o is not None and p50h is not None and p50h <= 1.5 * p50o)
-        check(lines, "contender completion latency p95", p95h, "<= 25,000 ms", p95h is not None and p95h <= 25_000)
-        for k in ("p_shared_window", "q_shared_window"):
-            o_w, h_w = cr["off"]["work"][k], cr["hold-cap"]["work"][k]
-            check(lines, "contender work in the shared window (%s) against off's" % k[0], (h_w, o_w), ">= 0.9 x off's",
-                  o_w is not None and h_w is not None and h_w >= 0.9 * o_w)
-        check(lines, "hold-timeout refusals", h_hold, "0", h_hold == 0)
-        go = nearest_rank(cr["off"]["_premium_gaps"], 0.99)
-        gh = nearest_rank(cr["hold-cap"]["_premium_gaps"], 0.99)
-        check(lines, "premium inter-token gap p99 against off's", (gh, go), "<= 1.25 x off's",
-              go is not None and gh is not None and gh <= 1.25 * go)
-        check(lines, "preemptions in hold-cap", pre, "0", pre == 0)
-
-        bad_validity = [v["line"] for v in validity if not v["holds"]]
-        if bad_validity:
-            inconclusive.append("block %d: %s" % (b, ", ".join(bad_validity)))
-        fails = [x["line"] for x in lines if not x["holds"]]
+        bad_validity = [v["line"] for v in validity if v["state"] != "holds"]
+        unscorable = [x["line"] for x in lines if x["state"] == "unscorable"]
+        if bad_validity or unscorable:
+            inconclusive.append("block %d: %s" % (b, ", ".join(bad_validity + ["%s unscorable" % u for u in unscorable])))
+        fails = [x["line"] for x in lines if x["state"] == "fails"]
         if fails and first_fail is None:
             first_fail = "block %d: %s" % (b, fails[0])
-        blocks.append({"block": b, "complete": True, "validity": validity, "lines": lines})
-    # Precedence (v25 review, finding 6): an observed failure is reported whatever else happened; a positive verdict
-    # needs all three blocks complete and valid; anything short of that is inconclusive.
+        blocks.append({"block": b, "complete": all(present.values()), "validity": validity, "lines": lines})
+    # Precedence (v25 review, finding 6): a measured failure is reported whatever else happened; a positive verdict
+    # needs all three blocks complete, valid and every line scored; anything short of that is inconclusive.
     if first_fail:
         verdict = "not met: " + first_fail
     elif inconclusive:

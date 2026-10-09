@@ -386,11 +386,45 @@ class DiagnosticTest(unittest.TestCase):
         v = pr.diagnostic(self.d)
         self.assertTrue(v["verdict"].startswith("inconclusive: block 3 is incomplete"), v["verdict"])
 
-    # An unread preemption counter makes the block unscorable, not passing (v24 review, finding 9).
-    def test_a_missing_preemption_read_is_inconclusive_not_a_pass(self):
+    # An unread preemption counter makes the block unscorable: inconclusive, neither a pass nor a measured failure
+    # (v24 review, finding 9; review of 46de41a).
+    def test_a_missing_preemption_read_is_inconclusive_not_a_failure(self):
         diag_block(self.d, 1, hold_ttft_ns=10_000_000, prom=False)
         v = pr.diagnostic(self.d)
-        self.assertFalse(v["verdict"].startswith("observed"), v["verdict"])
+        self.assertTrue(v["verdict"].startswith("inconclusive"), v["verdict"])
+
+    # A hold-timeout refusal observed in a block whose off cell never ran is still a failure (review of 46de41a).
+    def test_an_observed_failure_survives_a_missing_companion(self):
+        diag_block(self.d, 1, hold_ttft_ns=10_000_000)
+        os.remove(os.path.join(self.d, "raw-off-2.jsonl"))
+        path = os.path.join(self.d, "gateway-record-hold-cap-2.jsonl")
+        recs = pr.jsonl(path)
+        for r in recs:
+            if r["ev"] == "done" and r["requestId"] == "pp-A-off-1-1":
+                r["reason"] = "serial_prefill_hold_timeout"
+        write(path, recs)
+        v = pr.diagnostic(self.d)
+        self.assertEqual(v["verdict"], "not met: block 2: hold-timeout refusals")
+
+    # A premium success with no gap evidence at all makes the block inconclusive, not scored on the others.
+    def test_absent_gap_evidence_is_inconclusive(self):
+        diag_block(self.d, 1, hold_ttft_ns=10_000_000)
+        path = os.path.join(self.d, "raw-hold-cap-1.jsonl")
+        rows = pr.jsonl(path)
+        rows[0].pop("contentGapsMicros")
+        write(path, rows)
+        v = pr.diagnostic(self.d)
+        self.assertTrue(v["verdict"].startswith("inconclusive") and "without gap evidence" in v["verdict"], v["verdict"])
+
+    # The diagnostic scores uncertainty at its own L of 13 ms: a 6 ms lag is trusted there and not at the pilot's 5.
+    def test_the_diagnostic_scores_uncertainty_at_13_ms(self):
+        cell = Cell(self.d)
+        for g in cell.gw:
+            if g["requestId"] == "pp-A-off-1-0":
+                g["arrivedUnixNanos"] += 6_000_000
+        cell.save()
+        self.assertEqual(pr.cell_report(self.d, "off", 1)["premium"]["uncertain"], 1)
+        self.assertEqual(pr.cell_report(self.d, "off", 1, L=pr.DIAG_L_MS)["premium"]["uncertain"], 0)
 
 
 if __name__ == "__main__":
