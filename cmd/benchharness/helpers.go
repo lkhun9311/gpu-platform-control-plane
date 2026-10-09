@@ -553,6 +553,9 @@ func stubServe(args []string) error {
 		{"gpu-memory-utilization", "gpu_memory_utilization", "float"},
 		{"max-num-batched-tokens", "max_num_batched_tokens", "int"}, {"scheduling-policy", "scheduling_policy", "str"},
 		{"scheduler-cls", "scheduler_cls", "str"},
+		// The admission diagnostic's per-step prefill cap. The stub has no scheduler to apply it to; it only reports
+		// it, so the validator sees what the card's engine prints.
+		{"long-prefill-token-threshold", "long_prefill_token_threshold", "int"},
 	} {
 		pilotArgs = append(pilotArgs, stubArg{key: f.key, kind: f.kind, val: fs.String(f.name, "", "vLLM's flag; reported in the non-default args line")})
 	}

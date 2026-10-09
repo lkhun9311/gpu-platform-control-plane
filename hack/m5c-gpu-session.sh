@@ -215,15 +215,20 @@ if [ -n "$SWEEP" ]; then
 elif [ -n "${PILOT_STAGE:-}" ]; then
   # The prospective-admission pilot (docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md,
   # "The measurement pilot"): two tenants at fixed independent rates, one stage per session, its arms the stage's.
-  [ "${STUDY:-}" = prospective-pilot-2026-10-08 ] || fail "PILOT_STAGE is set and STUDY is ${STUDY@Q}; the pilot files its evidence under prospective-pilot-2026-10-08"
+  # Stages A and B are the pilot's, stage D the admission diagnostic's (design page, "v25").
+  case "$PILOT_STAGE:${STUDY:-}" in
+    A:prospective-pilot-2026-10-08 | B:prospective-pilot-2026-10-08 | D:admission-diagnostic-2026-10-10) ;;
+    *) fail "PILOT_STAGE ${PILOT_STAGE@Q} and STUDY ${STUDY@Q} do not go together: stages A and B are prospective-pilot-2026-10-08's, stage D admission-diagnostic-2026-10-10's" ;;
+  esac
   [ -z "$LADDER" ]           || fail "PILOT_STAGE and LADDER are both set"
   [ -z "${RATE:-}" ]         || fail "RATE and PILOT_STAGE are both set; the pilot's rates are PREMIUM_RATE and PILOT_NOISY_RATE"
   [ -z "${NOISY_WEIGHT:-}" ] || fail "NOISY_WEIGHT and PILOT_STAGE are both set; the pilot's rates are absolute"
   [ -z "$ARMS_FROM_CALLER" ] || fail "ARMS and PILOT_STAGE are both set; the pilot's arms are its stage's"
   [ -n "$PREMIUM_RATE" ] && [ -n "${PILOT_NOISY_RATE:-}" ] || fail "the pilot needs PREMIUM_RATE and PILOT_NOISY_RATE"
   case "$PREMIUM_RATE ${PILOT_NOISY_RATE} ${PILOT_STATIC_RATE:-0}" in *[!0-9.\ ]*) fail "the pilot's rates carry only decimals" ;; esac
-  case "$PILOT_STAGE" in A) ;; B) [ -n "${PILOT_STATIC_RATE:-}" ] || fail "stage B needs PILOT_STATIC_RATE, the R fitted in stage A" ;;
-    *) fail "PILOT_STAGE is ${PILOT_STAGE@Q}; the pilot has stages A and B" ;; esac
+  case "$PILOT_STAGE" in A | D) ;; B) [ -n "${PILOT_STATIC_RATE:-}" ] || fail "stage B needs PILOT_STATIC_RATE, the R fitted in stage A" ;;
+    *) fail "PILOT_STAGE is ${PILOT_STAGE@Q}; the pilot has stages A and B, the diagnostic stage D" ;; esac
+  [ "$PILOT_STAGE" != D ] || [ -z "${PILOT_STATIC_RATE:-}" ] || fail "PILOT_STATIC_RATE is set and stage D has no static arm"
   # The stage's arms, as the sweep's are built above: the cost projection counts them and the end-of-session
   # check expects each, and the default topologies here would fail a complete pilot after it was paid for.
   # shellcheck source=hack/lib/prospective-pilot.sh
@@ -233,7 +238,10 @@ elif [ -n "${PILOT_STAGE:-}" ]; then
   # The registered limits (design page, "Deadlines"): stage A's hard stop is 2 h 30 and its backstop 2 h 40;
   # stage B is the size of a main session, 3 h 30 and 3 h 40. They size the allowance, so a caller cannot move them.
   [ -z "$LIMITS_FROM_CALLER" ] || fail "HARD_STOP_SECONDS or BACKSTOP_SECONDS is set, and the pilot's limits are registered per stage; unset them"
-  case "$PILOT_STAGE" in A) HARD_STOP_SECONDS=9000; BACKSTOP_SECONDS=9600 ;; B) HARD_STOP_SECONDS=12600; BACKSTOP_SECONDS=13200 ;; esac
+  # Stage D, the diagnostic's 13 cells, by the pilot's allowance method: 1.25 x (200 + 13 x 920 + 12) = 15,215 s,
+  # rounded up to 4 h 14 m, and its backstop 10 minutes later (design page, "v25").
+  case "$PILOT_STAGE" in A) HARD_STOP_SECONDS=9000; BACKSTOP_SECONDS=9600 ;; B) HARD_STOP_SECONDS=12600; BACKSTOP_SECONDS=13200 ;;
+    D) HARD_STOP_SECONDS=15240; BACKSTOP_SECONDS=15840 ;; esac
 elif [ -n "$PREMIUM_RATE" ]; then
   fail "PREMIUM_RATE is set without SWEEP. It is the held latency-critical rate of a sweep, and on its own it would be ignored."
 fi
@@ -1904,6 +1912,8 @@ for arm in $expected_arms; do
     # The instrument-validation study buys each async arm once, as hack/m5c-matrix.sh plans it.
     _arm_reps="${REPS:-1}"
     if iv_is_study "${STUDY:-}"; then case "$arm" in *-async) _arm_reps=1 ;; esac; fi
+    # The diagnostic's stage D runs R1 once, as its isolated anchor.
+    if [ "${PILOT_STAGE:-}" = D ] && [ "$arm" = R1 ]; then _arm_reps=1; fi
     _rep=1
     while [ "$_rep" -le "$_arm_reps" ]; do
       # A block the study does not buy this arm in owes no file (the step-boundary session's serial and staggered

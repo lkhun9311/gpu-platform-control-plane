@@ -217,8 +217,8 @@ fi
 if [ -z "$LADDER" ]; then
   STUDY="${STUDY:-sharing-matrix-2026-09-10}"
   case "$STUDY" in
-    sharing-matrix-2026-09-10|tail-crossing-lc256-2026-10-04|tail-crossing-lc2048-2026-10-05|tail-crossing-lc8192-2026-10-04|instrument-validation-2026-10-05|instrument-validation-s2-2026-10-05|instrument-validation-s3-2026-10-06|instrument-validation-s4-2026-10-06|step-boundary-2026-10-06|step-confirm-2026-10-07|prospective-pilot-2026-10-08) ;;
-    *) fail "STUDY is ${STUDY@Q}; the non-ladder matrix files evidence under sharing-matrix-2026-09-10, tail-crossing-lc256-2026-10-04, tail-crossing-lc2048-2026-10-05, tail-crossing-lc8192-2026-10-04, instrument-validation-2026-10-05, instrument-validation-s2-2026-10-05, instrument-validation-s3-2026-10-06, instrument-validation-s4-2026-10-06 or step-boundary-2026-10-06, step-confirm-2026-10-07, prospective-pilot-2026-10-08. An unregistered id is not refused by gen-trace -- it writes a manifest for any string -- so this refusal is the one that stops it before anything is rented" ;;
+    sharing-matrix-2026-09-10|tail-crossing-lc256-2026-10-04|tail-crossing-lc2048-2026-10-05|tail-crossing-lc8192-2026-10-04|instrument-validation-2026-10-05|instrument-validation-s2-2026-10-05|instrument-validation-s3-2026-10-06|instrument-validation-s4-2026-10-06|step-boundary-2026-10-06|step-confirm-2026-10-07|prospective-pilot-2026-10-08|admission-diagnostic-2026-10-10) ;;
+    *) fail "STUDY is ${STUDY@Q}; the non-ladder matrix files evidence under sharing-matrix-2026-09-10, tail-crossing-lc256-2026-10-04, tail-crossing-lc2048-2026-10-05, tail-crossing-lc8192-2026-10-04, instrument-validation-2026-10-05, instrument-validation-s2-2026-10-05, instrument-validation-s3-2026-10-06, instrument-validation-s4-2026-10-06 or step-boundary-2026-10-06, step-confirm-2026-10-07, prospective-pilot-2026-10-08, admission-diagnostic-2026-10-10. An unregistered id is not refused by gen-trace -- it writes a manifest for any string -- so this refusal is the one that stops it before anything is rented" ;;
   esac
 fi
 
