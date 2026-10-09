@@ -110,8 +110,10 @@ def solve(a, b):
 class Engine:
     """The scheduler, stepped by the simulation; times in nanoseconds."""
 
-    def __init__(self, coef, long_prefill=0):
+    def __init__(self, coef, long_prefill=0, step_scale=1.0):
         self.coef = coef
+        # Every step's modelled duration is multiplied by this, to test how much a conclusion leans on the fit.
+        self.step_scale = step_scale
         # vLLM's long_prefill_token_threshold: when positive, no prefill takes more than this many tokens in a step,
         # running or newly scheduled (v1/core/sched/scheduler.py, the two places that read it).
         self.long_prefill = long_prefill
@@ -155,7 +157,7 @@ class Engine:
             ctx += r["computed"] + n
             att += f * (r["computed"] + f / 2)
         x = [1.0, pf, len(tokens), ctx / 1000.0, att / 1e6]
-        dur = max(1.0, sum(c * v for c, v in zip(self.coef, x))) * 1e6
+        dur = max(1.0, sum(c * v for c, v in zip(self.coef, x))) * 1e6 * self.step_scale
         end = self.now + dur
         first, done = [], []
         for r, n in tokens.values():
@@ -180,7 +182,7 @@ class Engine:
 # ---------------------------------------------------------------- the gateway's rules
 
 
-def simulate(reqs, coef, rule, forward_ns, deliver_ns, long_prefill=0):
+def simulate(reqs, coef, rule, forward_ns, deliver_ns, long_prefill=0, step_scale=1.0):
     """Replay the requests' gateway arrivals under rule; every request gets first_token, finished, or refused/expired.
 
     rule(gateway, req) is asked at each step boundary for every held contender, and returns "forward", "hold" or
@@ -188,11 +190,18 @@ def simulate(reqs, coef, rule, forward_ns, deliver_ns, long_prefill=0):
     """
     reqs = [dict(r) for r in reqs if r["gw_arrived"] is not None]
     reqs.sort(key=lambda r: r["gw_arrived"])
-    eng = Engine(coef, long_prefill)
+    eng = Engine(coef, long_prefill, step_scale)
     eng.now = reqs[0]["gw_arrived"]
     gw = {"in_prefill": set(), "outstanding": set(), "premium_waiting": set()}
-    held, i, notices = [], 0, []
+    held, i, notices, last_change = [], 0, [], None
     while True:
+        # Delivered notices first, so a decision at this boundary sees every token already delivered; the time of
+        # the latest is when a held contender's condition cleared (v23 review, finding 2).
+        for ev in sorted([ev for ev in notices if ev[0] <= eng.now]):
+            notices.remove(ev)
+            for k in ev[1]:
+                gw[k].discard(ev[2])
+            last_change = ev[0]
         while i < len(reqs) and reqs[i]["gw_arrived"] <= eng.now:
             r = reqs[i]
             i += 1
@@ -208,13 +217,19 @@ def simulate(reqs, coef, rule, forward_ns, deliver_ns, long_prefill=0):
                 continue
             d = rule(gw, r)
             if d == "forward":
-                eng.add(r, eng.now + forward_ns)
+                # Forwarded when its condition cleared, not at the engine's step boundary: a gateway has no step clock.
+                if r.get("was_held"):
+                    at = max(r["gw_arrived"], last_change if last_change is not None else r["gw_arrived"])
+                else:
+                    at = r["gw_arrived"]
+                eng.add(r, at + forward_ns)
                 gw["in_prefill"].add(id(r))
                 gw["outstanding"].add(id(r))
-                r["forwarded"] = eng.now
+                r["forwarded"] = at
             elif d == "refuse":
                 r["refused"] = True
             else:
+                r["was_held"] = True
                 keep.append(r)
         held = keep
         # Cancel what has passed its 30-second deadline, waiting or running, and release the gateway's state for it,
@@ -229,11 +244,6 @@ def simulate(reqs, coef, rule, forward_ns, deliver_ns, long_prefill=0):
             r["expired"] = True
             for k in gw:
                 gw[k].discard(id(r))
-        # The gateway learns of a first token or a finish only when it is delivered (review, finding 4).
-        for ev in [ev for ev in notices if ev[0] <= eng.now]:
-            notices.remove(ev)
-            for k in ev[1]:
-                gw[k].discard(ev[2])
         out = eng.step()
         if out is None:
             nxt = [reqs[i]["gw_arrived"]] if i < len(reqs) else []
@@ -258,8 +268,14 @@ def summarize(reqs):
     cont = [r for r in reqs if r["tenant"] == pr.CONTENDER]
     completed = [r for r in cont if "finished" in r and r["finished"] - r["sched"] <= TIMEOUT_NS]
     delays = sorted((r["forwarded"] - r["gw_arrived"]) / 1e6 for r in cont if "forwarded" in r)
+    # Completion latency includes every contender: one that expired or was refused counts as never completing.
+    lat = sorted([(r["finished"] - r["sched"]) / 1e6 for r in completed] + [math.inf] * (len(cont) - len(completed)))
+    last_premium = max((r.get("finished", 0) for r in reqs if r["tenant"] == pr.PREMIUM), default=0)
     return {"premium_p99_ms": pr.nearest_rank(prem, 0.99), "premium_p50_ms": pr.nearest_rank(prem, 0.5),
             "contender_completed": len(completed), "contender_offered": len(cont),
+            "contender_expired": sum(1 for r in cont if r.get("expired")), "contender_refused": sum(1 for r in cont if r.get("refused")),
+            "contender_completion_p50_ms": pr.nearest_rank(lat, 0.5), "contender_completion_p95_ms": pr.nearest_rank(lat, 0.95),
+            "contender_finished_after_last_premium": sum(1 for r in completed if r["finished"] > last_premium),
             "contender_hold_p50_ms": pr.nearest_rank(delays, 0.5), "contender_hold_max_ms": delays[-1] if delays else None}
 
 
@@ -314,20 +330,24 @@ def main(argv):
                 pr.nearest_rank(measured, 0.5), sim["premium_p50_ms"]))
         return 0
     if argv[1] == "combine":
-        # The engine's threshold together with a gateway rule that keeps one contender prefill at a time.
+        # The engine's threshold together with the gateway rules, at the fitted step times and 10% slower, with the
+        # whole trade: the contender's completions, expiries, refusals, completion latency and hold (v23 review).
+        print("cell rule threshold scale | premium p99 ratio_to_off | contenders completed/offered expired refused | "
+              "completion p50 p95 ms | hold p50 max ms | finished after last premium")
         for (d, arm, rep), (reqs, _, _) in sorted(loaded.items()):
             if arm != "off":
                 continue
-            base = summarize(simulate(reqs, coef, RULES["off"], fwd, deliver))["premium_p99_ms"]
-            for rule in ("off", "hold-one-prefill", "refuse-one-prefill"):
-                for t in (0, 384, 256):
-                    out = simulate(reqs, coef, RULES[rule], fwd, deliver, long_prefill=t)
-                    s_ = summarize(out)
-                    ct = sorted((r["first_token"] + deliver - r["sched"]) / 1e6 for r in out
-                                if r["tenant"] == pr.CONTENDER and "first_token" in r and not r.get("expired"))
-                    print("%s off-%d %-18s threshold %3d  premium p99 %7.1f (%.3f of off)  contenders %d/%d  contender TTFT p50 %s" % (
-                        os.path.basename(os.path.dirname(d)), rep, rule, t, s_["premium_p99_ms"], s_["premium_p99_ms"] / base,
-                        s_["contender_completed"], s_["contender_offered"], None if not ct else round(pr.nearest_rank(ct, 0.5))))
+            for scale in (1.0, 1.1):
+                base = summarize(simulate(reqs, coef, RULES["off"], fwd, deliver, step_scale=scale))["premium_p99_ms"]
+                for rule, t in (("off", 0), ("off", 384), ("hold-one-prefill", 0), ("hold-one-prefill", 384),
+                                ("hold-one-prefill", 256), ("refuse-one-prefill", 256)):
+                    x = summarize(simulate(reqs, coef, RULES[rule], fwd, deliver, long_prefill=t, step_scale=scale))
+                    f = lambda v: "inf" if v is None or (isinstance(v, float) and math.isinf(v)) else str(round(v))
+                    print("%s-off-%d %s %d %.1f | %s %.3f | %d/%d %d %d | %s %s | %s %s | %d" % (
+                        os.path.basename(os.path.dirname(d))[-6:], rep, rule, t, scale, f(x["premium_p99_ms"]),
+                        x["premium_p99_ms"] / base, x["contender_completed"], x["contender_offered"], x["contender_expired"],
+                        x["contender_refused"], f(x["contender_completion_p50_ms"]), f(x["contender_completion_p95_ms"]),
+                        f(x["contender_hold_p50_ms"]), f(x["contender_hold_max_ms"]), x["contender_finished_after_last_premium"]))
         return 0
     if argv[1] == "threshold":
         # The engine-side setting, with no admission rule: every contender forwarded, as off.
