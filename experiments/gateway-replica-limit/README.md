@@ -111,6 +111,11 @@ to N, and whether that shows depends on how clients hold connections.** The ways
 bucket to shared state (Redis, or a token service), dividing each Pod's budget by the replica count, or keeping
 `replicas: 1` and accepting the restart outage below; this experiment measured the problem and chose none.
 
+A review after the run found two ways the tooling could certify what it had not measured: the scorer passed a
+run with arms missing (a header-only `arms.tsv` printed `VALID`), and a failed per-Pod scrape was recorded as
+zero. Both are fixed and both fixes were checked by feeding them the failure. The recorded run is unaffected:
+its log holds no scrape error, and in every arm the per-Pod increments sum exactly to the client's `200` count.
+
 From the void first run (Amendment 1), as observation only: deleting the single replica cost about 4.5 s with
 no answer and 41 to 52 failed requests at 10 per second.
 

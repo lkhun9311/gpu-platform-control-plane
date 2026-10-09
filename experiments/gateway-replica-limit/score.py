@@ -14,6 +14,9 @@ import sys
 
 RATE = 1.0   # tokens per second: requestsPerMinute 60 / 60
 BURST = 5
+# The registration's arms and repetitions; a run missing any of them is incomplete, not a smaller result.
+REGISTERED_ARMS = ("R1-fresh", "R2-fresh", "R2-pinned")
+REGISTERED_REPS = 3
 
 
 def read_rows(path):
@@ -49,6 +52,12 @@ def main():
         arms = list(csv.DictReader(f, delimiter="\t"))
 
     valid = True
+    present = {(a["arm"], a["rep"]) for a in arms}
+    missing = [f"{arm}-{rep}" for arm in REGISTERED_ARMS for rep in map(str, range(1, REGISTERED_REPS + 1))
+               if (arm, rep) not in present]
+    if missing:
+        print(f"INVALID: the run is missing registered arms {', '.join(missing)}")
+        valid = False
     print("arm\trep\tT_s\tadmitted\tbound\tratio\tlimited\tother\tstub_served\tmax_ok_1s\tpods_serving")
     for a in arms:
         rows = read_rows(os.path.join(run, f"{a['arm']}-{a['rep']}.tsv"))

@@ -168,12 +168,19 @@ scale() {
   die "service has $n ready endpoints, wanted $1"
 }
 # Per-Pod 200 counts read through the API server's Pod proxy, so each replica is asked separately.
+# A failed scrape must stop the arm: read as zero, it would credit a Pod's whole lifetime to one arm or hide it.
 pod_oks() {
-  for p in $(k -n "$NS" get pods -l app.kubernetes.io/component=gateway --field-selector=status.phase=Running -o name); do
-    c=$(k get --raw "/api/v1/namespaces/$NS/pods/${p#pod/}:8081/proxy/metrics" 2>>"$LOG" |
-      awk '/^gpuaas_gateway_requests_total\{/ && /tenant="tenant-a"/ && /code="200"/ {s+=$NF} END {print s+0}')
-    echo "${p#pod/}=$c"
-  done | sort | tr '\n' ' '
+  local pods p m c out=""
+  pods=$(k -n "$NS" get pods -l app.kubernetes.io/component=gateway --field-selector=status.phase=Running -o name 2>>"$LOG") || return 1
+  [ -n "$pods" ] || return 1
+  for p in $pods; do
+    m=$(k get --raw "/api/v1/namespaces/$NS/pods/${p#pod/}:8081/proxy/metrics" 2>>"$LOG") || return 1
+    # Any gateway series proves this is the gateway's exposition; a Pod that has served nobody yet legitimately has no tenant-a series.
+    grep -q '^gpuaas_gateway_' <<<"$m" || return 1
+    c=$(awk '/^gpuaas_gateway_requests_total\{/ && /tenant="tenant-a"/ && /code="200"/ {s+=$NF} END {print s+0}' <<<"$m")
+    out+="${p#pod/}=$c"$'\n'
+  done
+  sort <<<"$out" | tr '\n' ' '
 }
 
 printf 'arm\trep\tstub_served\tdelete_s\tpods_before\tpods_after\n' >"$OUT/arms.tsv"
@@ -184,7 +191,7 @@ arm() {
   sleep 10
   curl -sS -X POST --max-time 5 "http://127.0.0.1:$STUB_PORT/stats/reset" >/dev/null || die "stub reset"
   local before after delete_s="" t0
-  before=$(pod_oks)
+  before=$(pod_oks) || die "per-Pod counters before $name-$rep"
   t0=$(date +%s.%N)
   "$WORK/loadgen" -url "$URL" -key key-a -model stub -rate $RATE -duration $DURATION -pinned="$pinned" \
     -out "$OUT/$name-$rep.tsv" >"$OUT/$name-$rep.summary" 2>>"$LOG" &
@@ -195,7 +202,7 @@ arm() {
     run k -n "$NS" delete pod -l app.kubernetes.io/component=gateway --wait=false || die "delete gateway pod"
   fi
   wait "$lg" || die "loadgen $name-$rep"
-  after=$(pod_oks)
+  after=$(pod_oks) || die "per-Pod counters after $name-$rep"
   served=$(curl -sS --max-time 5 "http://127.0.0.1:$STUB_PORT/stats" | jq -r '.requestsServed') || die "stub stats"
   [[ "$served" =~ ^[0-9]+$ ]] || die "stub stats returned '$served'"
   log "$name rep $rep: $(cat "$OUT/$name-$rep.summary") stub=$served pods before [$before] after [$after]"
