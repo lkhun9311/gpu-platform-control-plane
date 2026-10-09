@@ -1,0 +1,24 @@
+threshold 0: contender prompt 3030 in 6 chunks [512, 512, 512, 512, 512, 470]
+   chatcmpl-premium-0-bff4e15c arrived mid-prefill: waited 3 step(s); first scheduled beside 470 contender tokens (prefill still running)
+   chatcmpl-premium-1-b805495d arrived mid-prefill: waited 4 step(s); first scheduled beside 1 contender tokens (prefill done)
+   chatcmpl-premium-2-b392065d arrived mid-prefill: waited 3 step(s); first scheduled beside 1 contender tokens (prefill done)
+   chatcmpl-premium-3-bc53bb9c arrived mid-prefill: waited 3 step(s); first scheduled beside 1 contender tokens (prefill done)
+   chatcmpl-premium-4-9b0f47d4 arrived mid-prefill: waited 2 step(s); first scheduled beside 1 contender tokens (prefill done)
+   chatcmpl-premium-5-b0ffe267 arrived mid-prefill: waited 2 step(s); first scheduled beside 1 contender tokens (prefill done)
+   chatcmpl-premium-6-8b4353d8 arrived mid-prefill: waited 1 step(s); first scheduled beside 1 contender tokens (prefill done)
+   chatcmpl-premium-7-a6f297e1 arrived mid-prefill: waited 1 step(s); first scheduled beside 1 contender tokens (prefill done)
+   8 premium request(s) arrived mid-prefill
+threshold 256: contender prompt 3030 in 12 chunks [256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 214]
+   chatcmpl-premium-0-9a29b610 arrived mid-prefill: waited 0 step(s); first scheduled beside 256 contender tokens (prefill still running)
+   chatcmpl-premium-1-ab21d442 arrived mid-prefill: waited 0 step(s); first scheduled beside 256 contender tokens (prefill still running)
+   chatcmpl-premium-2-b0a97032 arrived mid-prefill: waited 0 step(s); first scheduled beside 256 contender tokens (prefill still running)
+   chatcmpl-premium-3-b64923e9 arrived mid-prefill: waited 0 step(s); first scheduled beside 256 contender tokens (prefill still running)
+   chatcmpl-premium-4-94ed5093 arrived mid-prefill: waited 0 step(s); first scheduled beside 256 contender tokens (prefill still running)
+   chatcmpl-premium-5-a8905e76 arrived mid-prefill: waited 0 step(s); first scheduled beside 256 contender tokens (prefill still running)
+   chatcmpl-premium-6-9a14450d arrived mid-prefill: waited 1 step(s); first scheduled beside 256 contender tokens (prefill still running)
+   chatcmpl-premium-7-9019d8d4 arrived mid-prefill: waited 1 step(s); first scheduled beside 256 contender tokens (prefill still running)
+   chatcmpl-premium-8-9298c934 arrived mid-prefill: waited 0 step(s); first scheduled beside 256 contender tokens (prefill still running)
+   chatcmpl-premium-9-b2f8612c arrived mid-prefill: waited 0 step(s); first scheduled beside 256 contender tokens (prefill still running)
+   chatcmpl-premium-10-a830d58c arrived mid-prefill: waited 0 step(s); first scheduled beside 256 contender tokens (prefill still running)
+   chatcmpl-premium-11-b18926a2 arrived mid-prefill: waited 0 step(s); first scheduled beside 256 contender tokens (prefill still running)
+   12 premium request(s) arrived mid-prefill

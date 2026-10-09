@@ -2,6 +2,7 @@
 
     python3 simulate.py validate DIR [DIR ...]   fit the step model and reproduce each archived arm's premium p99
     python3 simulate.py screen DIR [DIR ...]      replay every off cell's arrivals under each candidate rule
+    python3 simulate.py threshold DIR [DIR ...]   replay them under vLLM's long_prefill_token_threshold instead
 
 It models vLLM v0.27.1's V1 scheduler as the pilot's step logs show it working (design page, "Where the premium tail's
 1.5 s goes"): each step has a 512-token budget and at most 64 running requests; running requests are scheduled first,
@@ -108,8 +109,11 @@ def solve(a, b):
 class Engine:
     """The scheduler, stepped by the simulation; times in nanoseconds."""
 
-    def __init__(self, coef):
+    def __init__(self, coef, long_prefill=0):
         self.coef = coef
+        # vLLM's long_prefill_token_threshold: when positive, no prefill takes more than this many tokens in a step,
+        # running or newly scheduled (v1/core/sched/scheduler.py, the two places that read it).
+        self.long_prefill = long_prefill
         self.waiting = []   # [priority, arrival, req]
         self.running = []   # req, in the order it started running
         self.now = None
@@ -118,19 +122,22 @@ class Engine:
         req["computed"], req["out"] = 0, 0
         self.waiting.append([PRIORITY[req["tenant"]], t, req])
 
+    def _cap(self, n):
+        return min(n, self.long_prefill) if self.long_prefill > 0 else n
+
     def step(self):
         """Run one step from self.now; returns the requests whose first token it sampled and those it finished."""
         budget, tokens = BUDGET, {}
         for r in self.running:
             if budget == 0:
                 break
-            n = min(r["prompt"] - r["computed"], budget) if r["computed"] < r["prompt"] else 1
+            n = min(self._cap(r["prompt"] - r["computed"]), budget) if r["computed"] < r["prompt"] else 1
             tokens[id(r)] = (r, n)
             budget -= n
         self.waiting.sort(key=lambda w: (w[0], w[1]))
         while self.waiting and budget > 0 and len(self.running) < MAX_SEQS and self.waiting[0][1] <= self.now:
             _, _, r = self.waiting.pop(0)
-            n = min(r["prompt"], budget)
+            n = min(self._cap(r["prompt"]), budget)
             self.running.append(r)
             tokens[id(r)] = (r, n)
             budget -= n
@@ -166,7 +173,7 @@ class Engine:
 # ---------------------------------------------------------------- the gateway's rules
 
 
-def simulate(reqs, coef, rule, forward_ns, deliver_ns):
+def simulate(reqs, coef, rule, forward_ns, deliver_ns, long_prefill=0):
     """Replay the requests' gateway arrivals under rule; every request gets first_token, finished, or refused/expired.
 
     rule(gateway, req) is asked at each step boundary for every held contender, and returns "forward", "hold" or
@@ -174,7 +181,7 @@ def simulate(reqs, coef, rule, forward_ns, deliver_ns):
     """
     reqs = [dict(r) for r in reqs if r["gw_arrived"] is not None]
     reqs.sort(key=lambda r: r["gw_arrived"])
-    eng = Engine(coef)
+    eng = Engine(coef, long_prefill)
     eng.now = reqs[0]["gw_arrived"]
     gw = {"in_prefill": set(), "outstanding": set(), "premium_waiting": set()}
     held, i = [], 0
@@ -267,7 +274,7 @@ def offsets(cells):
 
 
 def main(argv):
-    if len(argv) < 3 or argv[1] not in ("validate", "screen"):
+    if len(argv) < 3 or argv[1] not in ("validate", "screen", "threshold"):
         print(__doc__)
         return 64
     loaded = {(d, a, r): load_cell(d, a, r) for d, a, r in stage_dirs(argv[2:])}
@@ -282,6 +289,19 @@ def main(argv):
             print("%s %-12s %d measured p99 %7.1f  simulated p99 %7.1f  (p50 %6.1f / %6.1f)" % (
                 os.path.basename(os.path.dirname(d)), arm, rep, pr.nearest_rank(measured, 0.99), sim["premium_p99_ms"],
                 pr.nearest_rank(measured, 0.5), sim["premium_p50_ms"]))
+        return 0
+    if argv[1] == "threshold":
+        # The engine-side setting, with no admission rule: every contender forwarded, as off.
+        for (d, arm, rep), (reqs, _, _) in sorted(loaded.items()):
+            if arm != "off":
+                continue
+            base = summarize(simulate(reqs, coef, RULES["off"], fwd, deliver))
+            for t in (0, 384, 256, 128, 64):
+                s_ = summarize(simulate(reqs, coef, RULES["off"], fwd, deliver, long_prefill=t))
+                cont = sorted((r["first_token"] - r["sched"]) / 1e6 for r in simulate(reqs, coef, RULES["off"], fwd, deliver, long_prefill=t) if r["tenant"] == pr.CONTENDER and "first_token" in r)
+                print("%s off-%d threshold %3d  premium p99 %7.1f (%.3f of off)  p50 %6.1f  contenders %d/%d  contender TTFT p50 %7.1f" % (
+                    os.path.basename(os.path.dirname(d)), rep, t, s_["premium_p99_ms"], s_["premium_p99_ms"] / base["premium_p99_ms"],
+                    s_["premium_p50_ms"], s_["contender_completed"], s_["contender_offered"], pr.nearest_rank(cont, 0.5)))
         return 0
     for (d, arm, rep), (reqs, _, _) in sorted(loaded.items()):
         if arm != "off":
