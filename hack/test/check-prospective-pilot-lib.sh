@@ -180,6 +180,19 @@ n_run=$(awk -F'\t' '$2 == "vllm:num_requests_running" && $3 == "5.0"' "$f" 2>/de
 [ "$n_run" -ge 2 ] && ! grep -q "vllm:other" "$f" && awk -F'\t' 'NR > 1 && NF != 3 {bad=1} END {exit bad}' "$f" \
   && ok "the engine sampler writes each gauge per sample ($n_run samples) and nothing else" \
   || bad "the engine samples: $(cat "$f" 2>&1 | head -6)"
+# Milliseconds, thirteen digits: this machine's date prints nine digits for %3N, which once made every sleep zero.
+awk -F'\t' 'NR > 1 && length($1) != 13 {bad=1} END {exit bad}' "$f" && [ "$n_run" -le 5 ] \
+  && ok "the samples are stamped in milliseconds and kept to their interval ($n_run in 1.8 s at 0.5 s)" \
+  || bad "the sample stamps or cadence: $n_run samples, first stamps $(awk -F'\t' 'NR > 1 {print $1}' "$f" | head -2 | tr '\n' ' ')"
+# A read that fails leaves a row saying so, so a gap in the series is visible.
+( OUT="$work/sampler-fail"; WORK="$work"; mkdir -p "$OUT"; bin="$work/smbin2"; mkdir -p "$bin"
+  printf '#!/usr/bin/env bash\nexec sleep 30\n' > "$bin/kubectl"
+  printf '#!/usr/bin/env bash\nexit 22\n' > "$bin/curl"
+  chmod +x "$bin"/*
+  PATH="$bin:$PATH" KCTX=x NS_A=ns PP_SAMPLE_INTERVAL_S=0.5
+  pp_sampler_start off 1; sleep 1.2; pp_sampler_stop; sleep 1 )
+grep -q $'\tscrape-failed\t' "$work/sampler-fail/engine-samples-off-1.tsv" \
+  && ok "a failed engine read leaves a scrape-failed row" || bad "no scrape-failed row: $(cat "$work/sampler-fail/engine-samples-off-1.tsv")"
 
 echo
 [ "$fails" = 0 ] && { echo "PASS"; exit 0; }

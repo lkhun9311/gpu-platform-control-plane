@@ -368,9 +368,11 @@ pp_sidecar_stop() {
 }
 
 # The engine sampler: during a replay, every PP_SAMPLE_INTERVAL_S seconds, the engine's running and waiting requests,
-# KV-cache usage and preemption count, into engine-samples-<cell>.tsv. The before-and-after scrapes cannot show a peak
-# or the time spent with every slot taken (v24 review, finding 9). vLLM publishes these gauges from finished steps, so
-# a sample is the state at the last step's end, not an instant inside one. Its own port-forward, on its own port.
+# KV-cache usage and preemption count, into engine-samples-<cell>.tsv. These are SAMPLES: a peak or a stretch with every
+# slot taken can fall between two of them, so they are published as sampled observations and never as a maximum or a
+# duration (v25 review, finding 7). vLLM publishes the gauges from finished steps, so a sample is the state at the last
+# step's end. A read that fails leaves a "scrape-failed" row, so a gap in the series is visible as one. The cadence is
+# held to the interval from each sample's start, not stretched by the read. Its own port-forward, on its own port.
 PP_SAMPLE_INTERVAL_S="${PP_SAMPLE_INTERVAL_S:-1}"
 PP_SAMPLE_PORT="${PP_SAMPLE_PORT:-18083}"
 pp_sampler_start() {
@@ -384,11 +386,17 @@ pp_sampler_start() {
     pf=$!
     trap 'kill $pf 2>/dev/null' EXIT
     while kill -0 "$parent" 2>/dev/null && [ ! -e "$PP_SAMPLER_STOP" ]; do
-      now=$(date +%s%3N)
-      curl -s --max-time 1 "http://127.0.0.1:$PP_SAMPLE_PORT/metrics" 2>/dev/null \
-        | awk -v t="$now" '/^vllm:(num_requests_running|num_requests_waiting|kv_cache_usage_perc|num_preemptions_total)\{/ {
+      # Milliseconds from nanoseconds: this date prints all nine digits for %3N, so the width is not trusted.
+      now=$(( $(date +%s%N) / 1000000 ))
+      if page=$(curl -sf --max-time 1 "http://127.0.0.1:$PP_SAMPLE_PORT/metrics" 2>/dev/null); then
+        printf '%s\n' "$page" | awk -v t="$now" '/^vllm:(num_requests_running|num_requests_waiting|kv_cache_usage_perc|num_preemptions_total)\{/ {
             name = $1; sub(/\{.*/, "", name); printf "%s\t%s\t%s\n", t, name, $NF }' >> "$out"
-      sleep "$PP_SAMPLE_INTERVAL_S"
+      else
+        printf '%s\tscrape-failed\t\n' "$now" >> "$out"
+      fi
+      # Sleep what is left of the interval after the read, so a slow read does not stretch the cadence.
+      left=$(awk -v i="$PP_SAMPLE_INTERVAL_S" -v t0="$now" -v t1="$(( $(date +%s%N) / 1000000 ))" 'BEGIN { d = i - (t1 - t0) / 1000; print (d > 0 ? d : 0) }')
+      sleep "$left"
     done
   ) &
   PP_SAMPLER_PID=$!
