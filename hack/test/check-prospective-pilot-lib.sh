@@ -112,6 +112,10 @@ capline=$(printf '%s' "$good" | sed "s/}\$/, 'long_prefill_token_threshold': 384
 if out=$(pp_process_args_refusal "$capline" 384); then ok "a cap arm's engine with the cap passes"; else bad "a cap arm's engine was refused: $out"; fi
 check_refused "a cap arm's engine without the cap" "$good" 384
 check_refused "the cap on an arm that does not run it" "$capline"
+# Stage D's cells are named by their stage like the pilot's; the first rehearsal of stage D stopped at its first cell
+# because only A and B were accepted here.
+[ "$(pp_request_id_flag D hold-cap 2)" = "--request-id-prefix=pp-D-hold-cap-2" ] && ok "stage D's request IDs name its stage, arm and block" \
+  || bad "stage D's request-ID prefix"
 [ "$(pp_arm_prefill_cap hold)" = 0 ] && [ "$(pp_arm_prefill_cap hold-cap)" = 384 ] && ok "only cap and hold-cap run the prefill cap" || bad "pp_arm_prefill_cap"
 
 # The capture, against stubbed kubectl, curl and docker on PATH: the cluster calls answer at once, except the

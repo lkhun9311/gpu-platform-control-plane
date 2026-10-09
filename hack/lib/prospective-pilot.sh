@@ -165,7 +165,7 @@ pp_gateway_args_yaml() {
 # The replay's request-ID prefix: stage, arm and block, so every ID is unique across the whole pilot.
 pp_request_id_flag() {
   local stage="$1" arm="$2" rep="$3"
-  case "$stage" in A | B) ;; *) echo "PILOT_STAGE is ${stage@Q}" >&2; return 1 ;; esac
+  case "$stage" in A | B | D) ;; *) echo "PILOT_STAGE is ${stage@Q}" >&2; return 1 ;; esac
   printf -- '--request-id-prefix=pp-%s-%s-%s\n' "$stage" "$arm" "$rep"
 }
 
