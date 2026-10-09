@@ -5,6 +5,8 @@
     python3 simulate.py threshold DIR [DIR ...]   replay them under vLLM's long_prefill_token_threshold instead
     python3 simulate.py combine DIR [DIR ...]     the threshold together with the one-prefill gateway rules
     python3 simulate.py control DIR [DIR ...]     hold-cap against a fixed-spacing static control at several spacings
+    python3 simulate.py pace DIR [DIR ...] [-- DIR ...]   each cell's measured step time against the model fitted
+                                                  before the --, and why a fixed spacing fails when the pace slows
 
 It models vLLM v0.27.1's V1 scheduler as the pilot's step logs show it working (design page, "Where the premium tail's
 1.5 s goes"): each step has a 512-token budget and at most 64 running requests; running requests are scheduled first,
@@ -127,6 +129,8 @@ class Engine:
 
     def add(self, req, t):
         req["computed"], req["out"] = 0, 0
+        # When it reached the engine, so that a contender's capped prefill can be timed from here to its first token.
+        req["engaged"] = t
         self.waiting.append([PRIORITY[req["tenant"]], t, req])
 
     def _cap(self, n):
@@ -352,10 +356,13 @@ def offsets(cells):
 
 
 def main(argv):
-    if len(argv) < 3 or argv[1] not in ("validate", "screen", "threshold", "combine", "control"):
+    if len(argv) < 3 or argv[1] not in ("validate", "screen", "threshold", "combine", "control", "pace"):
         print(__doc__)
         return 64
-    loaded = {(d, a, r): load_cell(d, a, r) for d, a, r in stage_dirs(argv[2:])}
+    # Directories after a -- are only measured against the model, never fitted to it: a held-out card.
+    held_out = argv[argv.index("--") + 1:] if "--" in argv else []
+    fit_dirs = argv[2:argv.index("--")] if "--" in argv else argv[2:]
+    loaded = {(d, a, r): load_cell(d, a, r) for d, a, r in stage_dirs(fit_dirs)}
     coef, n = fit_step_model(list(loaded.values()))
     fwd = offsets(list(loaded.values()))
     deliver = 8_000_000
@@ -367,6 +374,53 @@ def main(argv):
             print("%s %-12s %d measured p99 %7.1f  simulated p99 %7.1f  (p50 %6.1f / %6.1f)" % (
                 os.path.basename(os.path.dirname(d)), arm, rep, pr.nearest_rank(measured, 0.99), sim["premium_p99_ms"],
                 pr.nearest_rank(measured, 0.5), sim["premium_p50_ms"]))
+        return 0
+    if argv[1] == "pace":
+        # How far each cell's engine ran from the model's pace, as total measured step time over total predicted:
+        # a fixed spacing tuned at one pace is only as good as the next card's agreement with it.
+        for d, arm, rep in [(d, a, r) for d, a, r in stage_dirs(fit_dirs)] + list(stage_dirs(held_out)):
+            _, steps, adds = loaded.get((d, arm, rep)) or load_cell(d, arm, rep)
+            sched = [s for s in steps if s.get("ev") == "sched"]
+            meas = pred = 0.0
+            for a, b in zip(sched, sched[1:]):
+                period = (b["t0"] - a["t0"]) / 1e6
+                if period > 500:
+                    continue
+                meas += period
+                pred += sum(c * v for c, v in zip(coef, step_features(a, adds)))
+            # A contender's measured prefill, from reaching the engine to the end of the step that took its last prompt
+            # token: what a fixed spacing must outlast, and what hold-cap waits for without being told.
+            ends, done = {}, {s["step"]: s["t2"] for s in steps if s.get("ev") == "done"}
+            for s in sched:
+                for e, n in s["tokens"].items():
+                    if e in adds and adds[e]["prompt"] > 1000 and e not in ends and s["computed"].get(e, 0) + n >= adds[e]["prompt"]:
+                        ends[e] = done[s["step"]]
+            dur = sorted((ends[e] - adds[e]["mono"]) / 1e6 for e in ends)
+            # R1 has no contenders, so nothing to time.
+            prefill = "p50 %.0f p95 %.0f max %.0f ms" % (pr.nearest_rank(dur, 0.5), pr.nearest_rank(dur, 0.95), dur[-1]) if dur else "none"
+            print("%s %s %d | measured/predicted step time %.4f | contender prefill %s%s" % (
+                os.path.basename(os.path.dirname(d)), arm, rep, meas / pred, prefill, "" if (d, arm, rep) in loaded else " (held out)"))
+        # The mechanism, on the first off cell: a contender's capped prefill against the 1.7 s spacing, and how often
+        # two or more overlap, at the fitted pace and 10% slower.
+        first = sorted(k for k in loaded if k[1] == "off")[0]
+        reqs = loaded[first][0]
+        print("\nmechanism on %s off-%d: capped contender prefill, engine arrival to first token" % (os.path.basename(os.path.dirname(first[0])), first[2]))
+        for scale in (1.0, 1.1):
+            for name, rule in (("hold-cap", RULES["hold-one-prefill"]), ("spacing-1.7s", hold_spacing(1.7e9))):
+                out = [r for r in simulate(reqs, coef, rule, fwd, deliver, long_prefill=384, step_scale=scale)
+                       if r["tenant"] == pr.CONTENDER and "first_token" in r]
+                dur = sorted((r["first_token"] - r["engaged"]) / 1e6 for r in out)
+                events = sorted([(r["engaged"], 1) for r in out] + [(r["first_token"], -1) for r in out])
+                cur = most = 0
+                overlap, last = 0, None
+                for t, k in events:
+                    if last is not None and cur >= 2:
+                        overlap += t - last
+                    cur += k
+                    most = max(most, cur)
+                    last = t
+                print("%.1f %s | prefill p50 %.0f p95 %.0f ms | at most %d in prefill at once | share of the span with two or more %.2f" % (
+                    scale, name, pr.nearest_rank(dur, 0.5), pr.nearest_rank(dur, 0.95), most, overlap / (events[-1][0] - events[0][0])))
         return 0
     if argv[1] == "control":
         # hold-cap against the static control, fixed spacing with the same 384 cap, at several spacings, with the whole
