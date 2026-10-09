@@ -1166,7 +1166,7 @@ Each line says which v24 finding it answers.
 **Acceptance for hold+cap, every line in every complete block** (findings 4, 7, 8). The cost lines are set by what the contender tenant can bear, not by the replay's outputs: the contender is a long batch-like request whose client times out at 30 s, so it must still complete in time, and twice off's latency is the most a batch client can absorb without its own timeouts moving.
 - premium TTFT p99, crossed upper end against off, at most ln 0.85;
 - contender completion, timeouts, refusals and late finishes counted as failures, at least 95%;
-- contender completion latency from its scheduled instant, failures at +inf: p50 at most 2 × off's and p95 at most 2 × off's;
+- contender completion latency from its scheduled instant to the client's last token, failures at +inf: p50 at most 1.5 × off's, and p95 at most 25 s, 5 s inside the client's 30 s timeout. **These two limits and the 95% are the owner's decision (2026-10-09)**, chosen from three offered with off's and the replay's numbers beside them: the contender keeps a service close to what off gives it. The replay puts hold+cap's p95 at 8.1 to 24.1 s, so the p95 line may fail on the card;
 - contender work processed within the premium window (p and q, as the pilot defines them) at least 0.9 × off's, so the cost cannot be moved into the drain after the premium load ends;
 - **zero** `serial_prefill_hold_timeout` refusals; holds are measured from the admission decision's start to its end (`admission_wait_seconds` and the record's decided stamp), over every held request including those refused;
 - premium inter-token gap p99, pooled over every client-visible gap of every premium success, at most 1.25 × off's (finding 2);
@@ -1183,7 +1183,7 @@ Each line says which v24 finding it answers.
 | Finding | Done |
 |---|---|
 | 1 (blocker) missing gap evidence read as fast gaps; an unterminated stream counted as a success | A success now needs `[DONE]`; a premium success whose gaps number other than its frames less one is a problem that makes the cell ineligible, and rows with no gaps at all are counted apart (7764c53) |
-| 2 the cost limits are asserted, not derived; p95 within 2× off can exceed the 30 s timeout | **Open, and the owner's to decide**: what the contender tenant can bear is a service policy, not a fact the evidence holds. Off's health is added to validity: off must complete at least 95% of contenders, or the block is inconclusive |
+| 2 the cost limits are asserted, not derived; p95 within 2× off can exceed the 30 s timeout | **Decided by the owner**: completion at least 95%, p50 at most 1.5 × off's, p95 at most 25 s, no hold refusal. Off's health is added to validity: off must complete at least 95% of contenders, or the block is inconclusive |
 | 3 the pilot's window ends at each arm's last premium return, which a worse treatment lengthens | Retained work is also measured over a window shared by every arm, ending at the block's last scheduled instant (7764c53); the acceptance line uses that one |
 | 4 no replay of the exact policy | The replay now refuses a contender held 25 s from its arrival and times completion at delivery (b805a95). Hold+cap at 384: fitted, every contender completes in all six cells with no hold refusal; 10% slower, five cells the same and the sixth 230 of 239 with 9 hold refusals, where off completes 226 |
 | 5 one request's hold cannot be reconstructed | The record now has the decision's start, so decided minus deciding is each request's hold, refused or admitted (5f38f72) |
