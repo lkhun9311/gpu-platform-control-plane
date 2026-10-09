@@ -1,74 +1,74 @@
 {"step_model_ms": [15.3639, 0.0966, 0.0959, 0.9292, 3.0468], "fitted_steps": 282897, "forward_ms": 3.912577}
 cell rule threshold scale | premium p99 ratio_to_off | contenders completed/offered expired refused | completion p50 p95 ms | hold p50 max ms | finished after last premium
-pilotA-off-1 off 0 1.0 | 1463 1.000 | 206/206 0 0 | 3343 6831 | 0 0 | 0
-pilotA-off-1 off 384 1.0 | 1823 1.246 | 206/206 0 0 | 3726 7359 | 0 0 | 0
-pilotA-off-1 hold-one-prefill 0 1.0 | 1454 0.994 | 206/206 0 0 | 3353 6860 | 769 6062 | 0
-pilotA-off-1 hold-one-prefill 384 1.0 | 452 0.309 | 206/206 0 0 | 3938 8082 | 1320 6893 | 0
-pilotA-off-1 hold-one-prefill 256 1.0 | 154 0.105 | 206/206 0 0 | 6220 16005 | 3338 18203 | 2
-pilotA-off-1 refuse-one-prefill 256 1.0 | 139 0.095 | 117/206 0 89 | 2239 inf | 0 0 | 0
-pilotA-off-1 off 0 1.1 | 1617 1.000 | 206/206 0 0 | 5351 12243 | 0 0 | 0
-pilotA-off-1 off 384 1.1 | 2026 1.254 | 206/206 0 0 | 5979 15188 | 0 0 | 0
-pilotA-off-1 hold-one-prefill 0 1.1 | 1616 1.000 | 206/206 0 0 | 5349 12248 | 2620 13938 | 0
-pilotA-off-1 hold-one-prefill 384 1.1 | 687 0.425 | 206/206 0 0 | 6271 15575 | 3340 17391 | 1
-pilotA-off-1 hold-one-prefill 256 1.1 | 181 0.112 | 198/206 8 0 | 15060 28573 | 11938 29757 | 8
-pilotA-off-1 refuse-one-prefill 256 1.1 | 155 0.096 | 114/206 0 92 | 2609 inf | 0 0 | 0
-pilotA-off-2 off 0 1.0 | 1466 1.000 | 197/197 0 0 | 3029 9241 | 0 0 | 0
-pilotA-off-2 off 384 1.0 | 1657 1.130 | 197/197 0 0 | 3342 10508 | 0 0 | 0
-pilotA-off-2 hold-one-prefill 0 1.0 | 1440 0.983 | 197/197 0 0 | 3020 9228 | 497 9639 | 0
-pilotA-off-2 hold-one-prefill 384 1.0 | 400 0.273 | 197/197 0 0 | 3718 11209 | 1080 11741 | 0
-pilotA-off-2 hold-one-prefill 256 1.0 | 152 0.104 | 197/197 0 0 | 6247 17753 | 3538 17453 | 0
-pilotA-off-2 refuse-one-prefill 256 1.0 | 141 0.096 | 116/197 0 81 | 2244 inf | 0 0 | 0
-pilotA-off-2 off 0 1.1 | 1640 1.000 | 197/197 0 0 | 5383 15192 | 0 0 | 0
-pilotA-off-2 off 384 1.1 | 1956 1.193 | 197/197 0 0 | 5689 16258 | 0 0 | 0
-pilotA-off-2 hold-one-prefill 0 1.1 | 1624 0.990 | 197/197 0 0 | 5354 15137 | 2221 15212 | 0
-pilotA-off-2 hold-one-prefill 384 1.1 | 544 0.331 | 197/197 0 0 | 6278 16799 | 3121 16736 | 0
-pilotA-off-2 hold-one-prefill 256 1.1 | 171 0.104 | 187/197 10 0 | 17298 inf | 14139 29381 | 0
-pilotA-off-2 refuse-one-prefill 256 1.1 | 158 0.096 | 111/197 0 86 | 2571 inf | 0 0 | 0
-pilotA-off-3 off 0 1.0 | 1468 1.000 | 212/212 0 0 | 3932 12418 | 0 0 | 0
-pilotA-off-3 off 384 1.0 | 1783 1.214 | 212/212 0 0 | 4277 13424 | 0 0 | 0
-pilotA-off-3 hold-one-prefill 0 1.0 | 1476 1.005 | 212/212 0 0 | 3944 12469 | 1524 11444 | 1
-pilotA-off-3 hold-one-prefill 384 1.0 | 456 0.311 | 212/212 0 0 | 4530 14284 | 2090 13537 | 3
-pilotA-off-3 hold-one-prefill 256 1.0 | 156 0.107 | 212/212 0 0 | 9179 20040 | 6409 19774 | 7
-pilotA-off-3 refuse-one-prefill 256 1.0 | 139 0.095 | 110/212 0 102 | 2428 inf | 0 0 | 0
-pilotA-off-3 off 0 1.1 | 1641 1.000 | 212/212 0 0 | 6068 17657 | 0 0 | 3
-pilotA-off-3 off 384 1.1 | 2082 1.269 | 212/212 0 0 | 7388 18979 | 0 0 | 3
-pilotA-off-3 hold-one-prefill 0 1.1 | 1637 0.997 | 212/212 0 0 | 6031 17505 | 3124 16307 | 4
-pilotA-off-3 hold-one-prefill 384 1.1 | 603 0.368 | 212/212 0 0 | 8533 19633 | 5435 18763 | 6
-pilotA-off-3 hold-one-prefill 256 1.1 | 175 0.107 | 191/212 21 0 | 23466 inf | 20218 29882 | 7
-pilotA-off-3 refuse-one-prefill 256 1.1 | 155 0.094 | 106/212 0 106 | 3157 inf | 0 0 | 0
-pilotB-off-1 off 0 1.0 | 1479 1.000 | 207/207 0 0 | 4900 12013 | 0 0 | 2
-pilotB-off-1 off 384 1.0 | 1800 1.217 | 207/207 0 0 | 5517 13705 | 0 0 | 4
-pilotB-off-1 hold-one-prefill 0 1.0 | 1463 0.989 | 207/207 0 0 | 4929 11770 | 2287 12972 | 3
-pilotB-off-1 hold-one-prefill 384 1.0 | 517 0.349 | 207/207 0 0 | 6068 14630 | 3352 14871 | 5
-pilotB-off-1 hold-one-prefill 256 1.0 | 160 0.108 | 207/207 0 0 | 10629 22380 | 7827 24858 | 9
-pilotB-off-1 refuse-one-prefill 256 1.0 | 143 0.096 | 106/207 0 101 | 2493 inf | 0 0 | 0
-pilotB-off-1 off 0 1.1 | 1650 1.000 | 207/207 0 0 | 7983 19705 | 0 0 | 6
-pilotB-off-1 off 384 1.1 | 2090 1.267 | 207/207 0 0 | 9393 21865 | 0 0 | 8
-pilotB-off-1 hold-one-prefill 0 1.1 | 1636 0.992 | 207/207 0 0 | 8120 19738 | 5206 19980 | 7
-pilotB-off-1 hold-one-prefill 384 1.1 | 730 0.442 | 207/207 0 0 | 10235 22286 | 7135 23535 | 8
-pilotB-off-1 hold-one-prefill 256 1.1 | 208 0.126 | 198/207 9 0 | 16692 28921 | 13606 29988 | 12
-pilotB-off-1 refuse-one-prefill 256 1.1 | 160 0.097 | 104/207 0 103 | 2893 inf | 0 0 | 0
-pilotB-off-2 off 0 1.0 | 1467 1.000 | 204/204 0 0 | 3398 8023 | 0 0 | 0
-pilotB-off-2 off 384 1.0 | 1843 1.256 | 204/204 0 0 | 3815 8809 | 0 0 | 0
-pilotB-off-2 hold-one-prefill 0 1.0 | 1446 0.985 | 204/204 0 0 | 3394 7998 | 924 7560 | 0
-pilotB-off-2 hold-one-prefill 384 1.0 | 524 0.357 | 204/204 0 0 | 4036 9344 | 1400 8965 | 0
-pilotB-off-2 hold-one-prefill 256 1.0 | 154 0.105 | 204/204 0 0 | 6819 18024 | 4368 18351 | 3
-pilotB-off-2 refuse-one-prefill 256 1.0 | 139 0.095 | 107/204 0 97 | 2361 inf | 0 0 | 0
-pilotB-off-2 off 0 1.1 | 1626 1.000 | 204/204 0 0 | 5483 13941 | 0 0 | 0
-pilotB-off-2 off 384 1.1 | 1994 1.226 | 204/204 0 0 | 6218 15872 | 0 0 | 0
-pilotB-off-2 hold-one-prefill 0 1.1 | 1626 1.000 | 204/204 0 0 | 5547 13919 | 2596 13218 | 0
-pilotB-off-2 hold-one-prefill 384 1.1 | 672 0.414 | 204/204 0 0 | 6508 17210 | 3533 16747 | 1
-pilotB-off-2 hold-one-prefill 256 1.1 | 183 0.112 | 186/204 18 0 | 13329 inf | 10148 29990 | 9
-pilotB-off-2 refuse-one-prefill 256 1.1 | 154 0.095 | 104/204 0 100 | 2627 inf | 0 0 | 0
-pilotB-off-3 off 0 1.0 | 1471 1.000 | 239/239 0 0 | 6061 20086 | 0 0 | 0
-pilotB-off-3 off 384 1.0 | 1839 1.250 | 239/239 0 0 | 6328 22069 | 0 0 | 0
-pilotB-off-3 hold-one-prefill 0 1.0 | 1468 0.998 | 239/239 0 0 | 6036 20158 | 3238 20195 | 0
-pilotB-off-3 hold-one-prefill 384 1.0 | 460 0.313 | 239/239 0 0 | 6812 24059 | 4095 23849 | 2
-pilotB-off-3 hold-one-prefill 256 1.0 | 152 0.104 | 214/239 25 0 | 16870 inf | 13957 29821 | 6
-pilotB-off-3 refuse-one-prefill 256 1.0 | 140 0.095 | 120/239 0 119 | 2542 inf | 0 0 | 0
-pilotB-off-3 off 0 1.1 | 1644 1.000 | 226/239 13 0 | 10666 inf | 0 0 | 5
-pilotB-off-3 off 384 1.1 | 2071 1.259 | 224/239 15 0 | 13598 inf | 0 0 | 5
-pilotB-off-3 hold-one-prefill 0 1.1 | 1641 0.998 | 227/239 12 0 | 10760 inf | 7638 29838 | 5
-pilotB-off-3 hold-one-prefill 384 1.1 | 630 0.383 | 215/239 24 0 | 15235 inf | 11980 29852 | 5
-pilotB-off-3 hold-one-prefill 256 1.1 | 171 0.104 | 159/239 80 0 | 27481 inf | 24466 29977 | 6
-pilotB-off-3 refuse-one-prefill 256 1.1 | 155 0.094 | 115/239 0 124 | inf inf | 0 0 | 0
+pilotA-off-1 off 0 1.0 | 1463 1.000 | 206/206 0 0 hold-timeouts 0 | 3351 6839 | 0 0 | 0
+pilotA-off-1 off 384 1.0 | 1823 1.246 | 206/206 0 0 hold-timeouts 0 | 3734 7367 | 0 0 | 0
+pilotA-off-1 hold-one-prefill 0 1.0 | 1454 0.994 | 206/206 0 0 hold-timeouts 0 | 3361 6868 | 769 6062 | 0
+pilotA-off-1 hold-one-prefill 384 1.0 | 452 0.309 | 206/206 0 0 hold-timeouts 0 | 3946 8090 | 1320 6893 | 0
+pilotA-off-1 hold-one-prefill 256 1.0 | 154 0.105 | 206/206 0 0 hold-timeouts 0 | 6228 16013 | 3338 18203 | 2
+pilotA-off-1 refuse-one-prefill 256 1.0 | 139 0.095 | 117/206 0 89 hold-timeouts 0 | 2247 inf | 0 0 | 0
+pilotA-off-1 off 0 1.1 | 1617 1.000 | 206/206 0 0 hold-timeouts 0 | 5359 12251 | 0 0 | 0
+pilotA-off-1 off 384 1.1 | 2026 1.254 | 206/206 0 0 hold-timeouts 0 | 5987 15196 | 0 0 | 0
+pilotA-off-1 hold-one-prefill 0 1.1 | 1616 1.000 | 206/206 0 0 hold-timeouts 0 | 5357 12256 | 2620 13938 | 0
+pilotA-off-1 hold-one-prefill 384 1.1 | 687 0.425 | 206/206 0 0 hold-timeouts 0 | 6279 15583 | 3340 17391 | 1
+pilotA-off-1 hold-one-prefill 256 1.1 | 182 0.113 | 201/206 0 5 hold-timeouts 5 | 11999 25707 | 8859 24657 | 5
+pilotA-off-1 refuse-one-prefill 256 1.1 | 155 0.096 | 114/206 0 92 hold-timeouts 0 | 2617 inf | 0 0 | 0
+pilotA-off-2 off 0 1.0 | 1466 1.000 | 197/197 0 0 hold-timeouts 0 | 3037 9249 | 0 0 | 0
+pilotA-off-2 off 384 1.0 | 1657 1.130 | 197/197 0 0 hold-timeouts 0 | 3350 10516 | 0 0 | 0
+pilotA-off-2 hold-one-prefill 0 1.0 | 1440 0.983 | 197/197 0 0 hold-timeouts 0 | 3028 9236 | 497 9639 | 0
+pilotA-off-2 hold-one-prefill 384 1.0 | 400 0.273 | 197/197 0 0 hold-timeouts 0 | 3726 11217 | 1080 11741 | 0
+pilotA-off-2 hold-one-prefill 256 1.0 | 152 0.104 | 197/197 0 0 hold-timeouts 0 | 6255 17761 | 3538 17453 | 0
+pilotA-off-2 refuse-one-prefill 256 1.0 | 141 0.096 | 116/197 0 81 hold-timeouts 0 | 2252 inf | 0 0 | 0
+pilotA-off-2 off 0 1.1 | 1640 1.000 | 197/197 0 0 hold-timeouts 0 | 5391 15200 | 0 0 | 0
+pilotA-off-2 off 384 1.1 | 1956 1.193 | 197/197 0 0 hold-timeouts 0 | 5697 16266 | 0 0 | 0
+pilotA-off-2 hold-one-prefill 0 1.1 | 1624 0.990 | 197/197 0 0 hold-timeouts 0 | 5362 15145 | 2221 15212 | 0
+pilotA-off-2 hold-one-prefill 384 1.1 | 544 0.331 | 197/197 0 0 hold-timeouts 0 | 6286 16807 | 3121 16736 | 0
+pilotA-off-2 hold-one-prefill 256 1.1 | 172 0.105 | 194/197 0 3 hold-timeouts 3 | 14125 26831 | 10582 24732 | 0
+pilotA-off-2 refuse-one-prefill 256 1.1 | 158 0.096 | 111/197 0 86 hold-timeouts 0 | 2579 inf | 0 0 | 0
+pilotA-off-3 off 0 1.0 | 1468 1.000 | 212/212 0 0 hold-timeouts 0 | 3940 12426 | 0 0 | 0
+pilotA-off-3 off 384 1.0 | 1783 1.214 | 212/212 0 0 hold-timeouts 0 | 4285 13432 | 0 0 | 0
+pilotA-off-3 hold-one-prefill 0 1.0 | 1476 1.005 | 212/212 0 0 hold-timeouts 0 | 3952 12477 | 1524 11444 | 1
+pilotA-off-3 hold-one-prefill 384 1.0 | 456 0.311 | 212/212 0 0 hold-timeouts 0 | 4538 14292 | 2090 13537 | 3
+pilotA-off-3 hold-one-prefill 256 1.0 | 156 0.107 | 212/212 0 0 hold-timeouts 0 | 9187 20048 | 6409 19774 | 7
+pilotA-off-3 refuse-one-prefill 256 1.0 | 139 0.095 | 110/212 0 102 hold-timeouts 0 | 2436 inf | 0 0 | 0
+pilotA-off-3 off 0 1.1 | 1641 1.000 | 212/212 0 0 hold-timeouts 0 | 6076 17665 | 0 0 | 3
+pilotA-off-3 off 384 1.1 | 2082 1.269 | 212/212 0 0 hold-timeouts 0 | 7396 18987 | 0 0 | 3
+pilotA-off-3 hold-one-prefill 0 1.1 | 1637 0.997 | 212/212 0 0 hold-timeouts 0 | 6039 17513 | 3124 16307 | 4
+pilotA-off-3 hold-one-prefill 384 1.1 | 603 0.368 | 212/212 0 0 hold-timeouts 0 | 8541 19641 | 5435 18763 | 6
+pilotA-off-3 hold-one-prefill 256 1.1 | 180 0.110 | 203/212 0 9 hold-timeouts 9 | 20122 27509 | 16606 24765 | 9
+pilotA-off-3 refuse-one-prefill 256 1.1 | 155 0.094 | 106/212 0 106 hold-timeouts 0 | 3165 inf | 0 0 | 0
+pilotB-off-1 off 0 1.0 | 1479 1.000 | 207/207 0 0 hold-timeouts 0 | 4908 12021 | 0 0 | 2
+pilotB-off-1 off 384 1.0 | 1800 1.217 | 207/207 0 0 hold-timeouts 0 | 5525 13713 | 0 0 | 4
+pilotB-off-1 hold-one-prefill 0 1.0 | 1463 0.989 | 207/207 0 0 hold-timeouts 0 | 4937 11778 | 2287 12972 | 3
+pilotB-off-1 hold-one-prefill 384 1.0 | 517 0.349 | 207/207 0 0 hold-timeouts 0 | 6076 14638 | 3352 14871 | 5
+pilotB-off-1 hold-one-prefill 256 1.0 | 160 0.108 | 207/207 0 0 hold-timeouts 0 | 10637 22388 | 7827 24858 | 9
+pilotB-off-1 refuse-one-prefill 256 1.0 | 143 0.096 | 106/207 0 101 hold-timeouts 0 | 2501 inf | 0 0 | 0
+pilotB-off-1 off 0 1.1 | 1650 1.000 | 207/207 0 0 hold-timeouts 0 | 7991 19713 | 0 0 | 6
+pilotB-off-1 off 384 1.1 | 2090 1.267 | 207/207 0 0 hold-timeouts 0 | 9401 21873 | 0 0 | 8
+pilotB-off-1 hold-one-prefill 0 1.1 | 1636 0.992 | 207/207 0 0 hold-timeouts 0 | 8128 19746 | 5206 19980 | 7
+pilotB-off-1 hold-one-prefill 384 1.1 | 730 0.442 | 207/207 0 0 hold-timeouts 0 | 10243 22294 | 7135 23535 | 8
+pilotB-off-1 hold-one-prefill 256 1.1 | 207 0.126 | 199/207 0 8 hold-timeouts 8 | 14698 27805 | 10781 24894 | 11
+pilotB-off-1 refuse-one-prefill 256 1.1 | 160 0.097 | 104/207 0 103 hold-timeouts 0 | 2901 inf | 0 0 | 0
+pilotB-off-2 off 0 1.0 | 1467 1.000 | 204/204 0 0 hold-timeouts 0 | 3406 8031 | 0 0 | 0
+pilotB-off-2 off 384 1.0 | 1843 1.256 | 204/204 0 0 hold-timeouts 0 | 3823 8817 | 0 0 | 0
+pilotB-off-2 hold-one-prefill 0 1.0 | 1446 0.985 | 204/204 0 0 hold-timeouts 0 | 3402 8006 | 924 7560 | 0
+pilotB-off-2 hold-one-prefill 384 1.0 | 524 0.357 | 204/204 0 0 hold-timeouts 0 | 4044 9352 | 1400 8965 | 0
+pilotB-off-2 hold-one-prefill 256 1.0 | 154 0.105 | 204/204 0 0 hold-timeouts 0 | 6827 18032 | 4368 18351 | 3
+pilotB-off-2 refuse-one-prefill 256 1.0 | 139 0.095 | 107/204 0 97 hold-timeouts 0 | 2369 inf | 0 0 | 0
+pilotB-off-2 off 0 1.1 | 1626 1.000 | 204/204 0 0 hold-timeouts 0 | 5491 13949 | 0 0 | 0
+pilotB-off-2 off 384 1.1 | 1994 1.226 | 204/204 0 0 hold-timeouts 0 | 6226 15880 | 0 0 | 0
+pilotB-off-2 hold-one-prefill 0 1.1 | 1626 1.000 | 204/204 0 0 hold-timeouts 0 | 5555 13927 | 2596 13218 | 0
+pilotB-off-2 hold-one-prefill 384 1.1 | 672 0.414 | 204/204 0 0 hold-timeouts 0 | 6516 17218 | 3533 16747 | 1
+pilotB-off-2 hold-one-prefill 256 1.1 | 185 0.114 | 196/204 0 8 hold-timeouts 8 | 13337 27468 | 9776 24547 | 7
+pilotB-off-2 refuse-one-prefill 256 1.1 | 154 0.095 | 104/204 0 100 hold-timeouts 0 | 2635 inf | 0 0 | 0
+pilotB-off-3 off 0 1.0 | 1471 1.000 | 239/239 0 0 hold-timeouts 0 | 6069 20094 | 0 0 | 0
+pilotB-off-3 off 384 1.0 | 1839 1.250 | 239/239 0 0 hold-timeouts 0 | 6336 22077 | 0 0 | 0
+pilotB-off-3 hold-one-prefill 0 1.0 | 1468 0.998 | 239/239 0 0 hold-timeouts 0 | 6044 20166 | 3238 20195 | 0
+pilotB-off-3 hold-one-prefill 384 1.0 | 460 0.313 | 239/239 0 0 hold-timeouts 0 | 6820 24067 | 4095 23849 | 2
+pilotB-off-3 hold-one-prefill 256 1.0 | 153 0.104 | 228/239 0 11 hold-timeouts 11 | 15352 27702 | 12361 24962 | 4
+pilotB-off-3 refuse-one-prefill 256 1.0 | 140 0.095 | 120/239 0 119 hold-timeouts 0 | 2550 inf | 0 0 | 0
+pilotB-off-3 off 0 1.1 | 1644 1.000 | 226/239 13 0 hold-timeouts 0 | 10674 inf | 0 0 | 5
+pilotB-off-3 off 384 1.1 | 2071 1.259 | 224/239 15 0 hold-timeouts 0 | 13606 inf | 0 0 | 5
+pilotB-off-3 hold-one-prefill 0 1.1 | 1641 0.998 | 234/239 0 5 hold-timeouts 5 | 10768 26381 | 7476 24810 | 2
+pilotB-off-3 hold-one-prefill 384 1.1 | 630 0.383 | 230/239 0 9 hold-timeouts 9 | 14132 27742 | 10766 24986 | 3
+pilotB-off-3 hold-one-prefill 256 1.1 | 178 0.108 | 204/239 0 35 hold-timeouts 35 | 24179 inf | 20149 24926 | 4
+pilotB-off-3 refuse-one-prefill 256 1.1 | 155 0.094 | 115/239 0 124 hold-timeouts 0 | inf inf | 0 0 | 0

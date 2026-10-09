@@ -1178,6 +1178,19 @@ Each line says which v24 finding it answers.
 
 **Built for it so far:** serial-prefill released at the first content event (64188a2), hold time in the latency metrics and as `admission_wait_seconds` (e7e7874), every client-visible inter-token gap (9b7dc1a), the 1 s engine sampler (6a6b538). **Still to build:** the study's registration, arms and engine arguments in the matrix, the validator's acceptance of the threshold, the gateway arguments per arm, the session's limits, the report's scoring of every line above, and a kind rehearsal of the whole.
 
+**astra's attack on v25** (`data/2026-10-09-pilot-results/astra-v25-attack.md`): 1 blocker, 6 majors, 1 minor; verdict "reject v25 as freeze-ready and purchase-ready". I agree with all eight. What was done about each, the same day:
+
+| Finding | Done |
+|---|---|
+| 1 (blocker) missing gap evidence read as fast gaps; an unterminated stream counted as a success | A success now needs `[DONE]`; a premium success whose gaps number other than its frames less one is a problem that makes the cell ineligible, and rows with no gaps at all are counted apart (7764c53) |
+| 2 the cost limits are asserted, not derived; p95 within 2× off can exceed the 30 s timeout | **Open, and the owner's to decide**: what the contender tenant can bear is a service policy, not a fact the evidence holds. Off's health is added to validity: off must complete at least 95% of contenders, or the block is inconclusive |
+| 3 the pilot's window ends at each arm's last premium return, which a worse treatment lengthens | Retained work is also measured over a window shared by every arm, ending at the block's last scheduled instant (7764c53); the acceptance line uses that one |
+| 4 no replay of the exact policy | The replay now refuses a contender held 25 s from its arrival and times completion at delivery (b805a95). Hold+cap at 384: fitted, every contender completes in all six cells with no hold refusal; 10% slower, five cells the same and the sixth 230 of 239 with 9 hold refusals, where off completes 226 |
+| 5 one request's hold cannot be reconstructed | The record now has the decision's start, so decided minus deciding is each request's hold, refused or admitted (5f38f72) |
+| 6 a block cut by the deadline has no outcome | Precedence: a positive verdict needs all three blocks complete and eligible; fewer is "inconclusive", and any failure observed in an incomplete block is still reported |
+| 7 one-second samples cannot show a peak or a saturated stretch | The samples are published as sampled observations only, never as a maximum or a duration; a failed read leaves a row; the cadence is held. Their stamps were nanoseconds labelled milliseconds, which this machine's `date +%s%3N` produced, and a check now pins milliseconds (4394227) |
+| 8 an auxiliary arm's harm can make the candidate's block inconclusive | Validity reads off and hold+cap only; hold and cap are reported, and their own loss does not void the block. The nine-cell design (one five-arm block, then two off and hold+cap pairs) is the cheaper alternative, which loses the repeated ablation |
+
 The draft as written, kept for the record:
 
 **Its question.** On the A10G, under the pilot's frozen load, does the engine's prefill cap at 384 together with the gateway's serial-prefill hold cut the premium tail, at a contender cost inside limits frozen here, before any card time? It is a feasibility measurement of one candidate, not the main study: it answers whether a main study of this treatment is worth designing.
