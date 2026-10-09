@@ -1030,11 +1030,28 @@ Both stages were bought in gpu-lab on one g5.2xlarge Spot each: stage A `i-0ad29
 
 **The frozen formulas' outputs:** L = 13 ms, lag ceiling 409 ms, arm time 920 s (the cold first cell), bring-up 200 s, session tail 12 s, main session length and hard stop 14,065 s (3 h 54), acquisition deadline 13,705 s, backstop 14,665 s, `study-deadline` 15,265 s.
 
-**The gates, evaluated and not acted on, as the execution contract says:**
-- stage B's margin, p_P − p_S, q_P − q_S and c_P − c_S at least 0.03 in each block: p 0.068, 0.074, 0.080; q 0.063, 0.069, 0.075; c as p. Would not have fired.
-- the informative bound, mean p_P − p_S at most 0.10: 0.074. Would not have fired.
-- the width screen, half-width at most 0.043: 0.0056 pooled. Would not have fired.
-- **the uncertainty cap at the new L: fires.** At L = 13 ms, stage A's uncertain premium fraction is 0.060% for R1 and 0.052% for off and prospective, above 0.05%; stage B's is 0.034% in every arm. By the rule above, the design returns to review.
+**The gates, evaluated and not acted on, as the execution contract says.** The first version of this list gave four and left out the P/O screen, which fires; astra's review of v22 (finding 3) found the omission. Every registered gate is now computed by `pilot_report.py gates` and archived as `data/2026-10-09-pilot-results/gates.json`. Uncertainty is counted as premium requests with lag above L over the arm's premium requests, pooled over the stage's blocks (v22 review, finding 4).
+
+| Gate | Value | Rule | Fires |
+|---|---:|---|---|
+| A contention, O/I premium p99 | 23.6 | ≥ 1.5 | no |
+| A loss, every arm's premium | 0 of 11,645 | < 0.5% | no |
+| A loss, O's contender completion | 615 of 615 | ≥ 95% | no |
+| A engagement, P's contender refusals | 6.5% (575 of 615 admitted) | 5% to 30% | no |
+| **A P/O, crossed upper end** | **−0.0054** | **≤ ln 0.85 = −0.1625** | **yes** |
+| A release timing, P within 50 ms | 100% of 575 | ≥ 95% | no |
+| A restart under 3 minutes | not measured | < 180 s | — |
+| **A dispatch fidelity, largest lag** | **104.5 ms** | **≤ 25 ms** | **yes** |
+| **A uncertain at L = 5 ms**: R1, off, P | **8, 19, 14 of 11,645** | ≤ 0.05% | **yes** |
+| **A uncertain at L = 13 ms**: R1, off, P | **7, 6, 6 of 11,645** | ≤ 0.05% | **yes** |
+| A capture, every cell eligible | 9 of 9 | all | no |
+| B loss, every arm's premium | 0 of 11,728 | < 0.5% | no |
+| B width, per block | 0.0036, 0.0050, 0.0053 | ≤ 0.043 | no |
+| B margin p, q, c (smallest block) | 0.068, 0.063, 0.068 | ≥ 0.03 | no |
+| B informative bound | 0.074 | ≤ 0.10 | no |
+| B re-stamp | 68 and 7,695 | equal | no |
+
+**The P/O screen is the one the fix does not touch.** P's premium p99 is 0.995 of O's: under this load, prospective admission refused 6.5% of contender requests and left the premium tail where it was. The 100 ms stalls were the first one or two requests of each cell and cannot move a p99 of 1.5 s. This screen exists to stop the main purchase in exactly this case.
 
 **What the cap is made of.** Every premium lag above 13 ms is near a multiple of 100 ms: 102.8 to 104.5 ms in stage A, and 103 to 104 or 204 ms in stage B. There are one or two per cell, in every arm, including R1, which has no contender. The kind rehearsal showed the same 102 ms. So it is a property of the apparatus, not of contention.
 
@@ -1049,17 +1066,21 @@ Both stages were bought in gpu-lab on one g5.2xlarge Spot each: stage A `i-0ad29
 
 **Not judged here.** P's tail beside S's is printed in the table because the report prints each arm's own quantities; the pilot reaches no verdict about P against S.
 
-### v22 proposal, after the pilot (not yet attacked)
+### v22 proposal, and astra's attack on it
 
-The pilot's uncertainty cap fired, so by its own rule the design returns here. Everything below is a change outside the frozen formulas, written by an author who has seen stage B.
+The pilot's gates fired, so by its own rule the design returned here. A v22 was written (4325bcc) by an author who had seen stage B, and astra attacked it: two blockers, two majors and two minors, verdict "reject v22 as written". I checked each and agree with all six. The attack is archived as `data/2026-10-09-pilot-results/astra-v22-attack.md`.
 
-1. **The gateway fix stands as apparatus, not as a formula change** (ab7f0f5). It moves the informers' start into readiness, where the matrix already waits. It sends no warm-up request, spends no admission budget and warms neither the engine nor the sender's pool. Deployment-to-readiness time is still recorded per cell in `phases.tsv`, so the cost is moved, not hidden.
-2. **The pilot is bought again, both stages, on the fixed gateway, as "pilot 2".** Its formulas need every arm of both stages, and both stages' lags carry the stalls, so no subset of the first pilot can stand in. New seeds, frozen now: stage A 821, 822, 823; stage B 831, 832, 833. Same load, arms, blocks, limits and formulas as pilot 1. The first pilot's numbers stay published as they are.
-3. **R is fitted again on pilot 2's stage A**, by the same rule. Pilot 1's R (5,318) was fitted on evidence whose first requests were delayed, and P's admissions in those requests may differ.
-4. **The dispatch-lag population for L, the ceiling and the uncertainty cap becomes premium requests only.** The uncertain set is defined on premium TTFT, and a contender's lag includes parsing its 40,000-character body before the arrival stamp (median 0.9 ms, maximum 4.1 ms in pilot 1), which says nothing about whether a premium request's scheduled instant can be trusted. Pilot 1's report pooled every request.
-5. **What does not change, and why.**
-   - The arrival stamp stays where it is, after authentication, policy lookup and the body's parse. Moving it to handler entry would let a slow body upload look like no lag at all. Moving the body read ahead of authentication is a larger change to the gateway's exposure, and premium entry-to-arrival is 0.1 ms at the median and 2.9 ms at most. The lag is therefore described as "to the gateway's arrival stamp, including its pre-admission processing", never as transport delay.
-   - The sender does not pre-open connections. The first requests of a cell pay about 1.7 ms more to open them (2.4 against 0.6 ms send to entry), and that cost is real for any client.
+| v22 item, or finding | Outcome |
+|---|---|
+| The gateway fix (ab7f0f5) | Kept as apparatus. The gateway now also refuses a read of any kind not registered before start (80d15ea), and its test reads through the client, because asking for an informer would create a missing one and race it (finding 6). |
+| Premium-only lag for L, the ceiling and the cap (finding 1, blocker) | **Withdrawn.** The ceiling is for every request because a late contender moves what other requests meet; a premium-only ceiling would drop that protection. L, the ceiling and the cap keep the all-request population; premium lag is reported beside them. |
+| The durable arrival write leaves post-arrival delay unbounded (finding 2, blocker) | Not new: it is round 21's open blocker 1. The gateway fix does not close it, and a main study needs a rule for it. |
+| The P/O screen was left out of the results (finding 3, major) | Corrected above. It fires, and it is the gate the fix does not touch. |
+| The cap was not computed at the calibrated L (finding 4, major) | `pilot_report.py gates` now computes every gate at L = 5 ms and at the formula's L, with the population written down. |
+| `phases.tsv` was said to record deployment-to-readiness (finding 5, minor) | It does not: its first pilot stamp is `replay-start`. The restart gate is reported as not measured. |
+| Pilot 2, both stages, on new seeds | **Not bought.** Astra's point stands: the P/O screen fired for a reason the fix does not address, so a second full pilot would buy the same answer to the question that matters. |
+
+**What the evidence now says, and what is the owner's to decide.** Under this load prospective admission refused 6.5% of contender requests and left the premium p99 at 0.995 of off's, against the 0.85 the main study needs. Whether that is the treatment's limit or this configuration's (30,000 prefill units, 4 streams, a 512-token budget) is not established. Free diagnosis on the archived step logs can say where the premium tail's 1.5 s goes before any further purchase.
 
 ## What v21 changed, against the review of v20
 

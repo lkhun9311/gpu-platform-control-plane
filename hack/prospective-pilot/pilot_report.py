@@ -3,6 +3,7 @@
     python3 pilot_report.py stage DIR [A|B]      one stage's measurements, as JSON, to stdout; with the stage named,
                                                  its missing cells are listed
     python3 pilot_report.py formulas DIR_A DIR_B  the frozen calibration formulas' outputs, or why they are unavailable
+    python3 pilot_report.py gates DIR_A DIR_B     every registered pilot gate, with its value and whether it would fire
 
 docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md, "The measurement pilot". It judges
 nothing about P against S: it reports measurements, marks each arm eligible or not for calibration, and computes the
@@ -168,6 +169,8 @@ def cell_report(stage_dir, arm, rep):
     lags, delays, ttft_sched, ttft_arr = [], {"record": [], "decide": [], "handoff": [], "content": []}, [], []
     client_gaps = {"send_to_arrival": [], "flush_to_client_first": []}
     missing, incomplete, no_arrival, no_return, no_flush = 0, 0, 0, 0, 0
+    contender_admitted = 0
+    premium_lags = []
     premium_unc, premium_fail = 0, 0
     release_gap = []
     window_end = 0
@@ -191,6 +194,8 @@ def cell_report(stage_dir, arm, rep):
             continue
         lag = ms(d["arrivedUnixNanos"] - sched_ns)
         lags.append(lag)
+        if r.get("tenant") == PREMIUM:
+            premium_lags.append(lag)
         if any(sched_ns <= e and d["arrivedUnixNanos"] >= b for b, e in spans):
             lag_during_upload.append(lag)
         client_gaps["send_to_arrival"].append(ms(d["arrivedUnixNanos"] - r["sendUnixNanos"]))
@@ -216,6 +221,8 @@ def cell_report(stage_dir, arm, rep):
                 ttft_arr.append((math.inf, uncertain))
         elif r.get("tenant") == CONTENDER and d.get("releasedUnixNanos") and d.get("firstContentUnixNanos"):
             release_gap.append(ms(d["firstContentUnixNanos"] - d["releasedUnixNanos"]))
+        if r.get("tenant") == CONTENDER:
+            contender_admitted += d.get("decision") == "admit"
     if missing:
         problems.append("%d client row(s) have no gateway record" % missing)
     if incomplete:
@@ -292,6 +299,9 @@ def cell_report(stage_dir, arm, rep):
             "client_gap_ms": {k: summary(v) for k, v in client_gaps.items()},
             "premium": {"uncertain": premium_unc, "failed": premium_fail, "n": len(ttft_sched)},
             "contender_release_gap_ms": summary(release_gap),
+            "contender_admitted": contender_admitted,
+            "contender_completed": sum(1 for r in rows if r.get("tenant") == CONTENDER and full_output(r, 16)),
+            "_release_gaps": release_gap, "_premium_lags": premium_lags,
             "sidecar": {"uploads": len(uploads), "failed": sum(1 for u in uploads if u["hook_rc"] != "0"),
                         "upload_ms": summary([ms(e - b) for b, e in spans]),
                         "lag_ms_overlapping_an_upload": summary(lag_during_upload)},
@@ -376,8 +386,8 @@ def stage_report(stage_dir, stage=None):
         out["ps_half_width"] = (wp + ws) / 2 if wp is not None and ws is not None else None
     for c in cs:
         c = dict(c)
-        c.pop("_ttft")
-        c.pop("_lags")
+        for k in [k for k in c if k.startswith("_")]:
+            c.pop(k)
         out["cells"].append(c)
     return out
 
@@ -468,9 +478,102 @@ def session_stamps(stage_dir):
             "tail_s": utc_epoch(st["marker_uploaded_utc"]) - int(st["matrix_returned_epoch"])}, ""
 
 
+def _gate(name, value, rule, fires, **detail):
+    """One gate, with its value, its rule and whether it would have fired; None for fires means not measured."""
+    return dict(gate=name, value=value, rule=rule, would_fire=fires, **detail)
+
+
+def _cells_by_arm(stage_dir):
+    out = {}
+    for arm, rep in cells(stage_dir):
+        out.setdefault(arm, {})[rep] = cell_report(stage_dir, arm, rep)
+    return out
+
+
+def _box(cs):
+    """(sched_hi, arr_lo) pooled over the given cells' premium TTFTs."""
+    sched = [x for c in cs for x in c["_ttft"]["sched"]]
+    arr = [x for c in cs for x in c["_ttft"]["arr"]]
+    return pooled_p99(sched, math.inf), pooled_p99(arr, 0.0), pooled_p99(sched, 0.0), pooled_p99(arr, math.inf)
+
+
+def uncertain_fraction(cs, L):
+    """Premium requests with lag above L over the arm's premium requests with a lag, pooled over the given cells.
+
+    Frozen here because the page left it open (v22 review, finding 4): numerator and denominator are both premium
+    requests, pooled over the stage's blocks, one arm at a time. The all-request denominator is printed beside it.
+    """
+    prem = [l for c in cs for l in c["_premium_lags"]]
+    allr = sum(len(c["_lags"]) for c in cs)
+    n = sum(1 for l in prem if l > L)
+    return n, len(prem), allr
+
+
+def gates(dir_a, dir_b, L_formula):
+    """Every registered pilot gate (design page, "Pilot, in two stages"), evaluated and reported, never acted on."""
+    A, B = _cells_by_arm(dir_a), _cells_by_arm(dir_b)
+    out = []
+    # Stage A.
+    i_hi = _box(A["R1"].values())[0]
+    o_hi, o_arr_lo, _, _ = _box(A["off"].values())
+    p_hi = _box(A["prospective"].values())[0]
+    out.append(_gate("A contention: O's premium p99 >= 1.5 x I's (scheduled, uncertain at +inf)", o_hi / i_hi, ">= 1.5", not o_hi / i_hi >= 1.5))
+    for arm, cs in A.items():
+        n = sum(c["premium"]["n"] for c in cs.values()); f = sum(c["premium"]["failed"] for c in cs.values())
+        out.append(_gate("A loss: %s premium loss < 0.5%%" % arm, f / n, "< 0.005", not f / n < 0.005, failed=f, of=n))
+    off_c = sum(c["contender_completed"] for c in A["off"].values()); off_n = sum(c["work"]["offered"] for c in A["off"].values())
+    out.append(_gate("A loss: O completes >= 95% of contender requests", off_c / off_n, ">= 0.95", not off_c / off_n >= 0.95, completed=off_c, of=off_n))
+    p_adm = sum(c["contender_admitted"] for c in A["prospective"].values()); p_n = sum(c["work"]["offered"] for c in A["prospective"].values())
+    refused = 1 - p_adm / p_n
+    out.append(_gate("A engagement: P refuses 5% to 30% of contender requests", refused, "0.05..0.30", not 0.05 <= refused <= 0.30, admitted=p_adm, of=p_n))
+    po = crossed_log_ratio(p_hi, o_arr_lo)
+    out.append(_gate("A P/O: ln(P scheduled p99 hi / O arrival p99 lo) <= ln 0.85", po, "<= %.6f" % math.log(0.85), po is None or not po <= math.log(0.85)))
+    gaps = [g for c in A["prospective"].values() for g in c["_release_gaps"]]
+    within = sum(1 for g in gaps if g <= 50) / len(gaps) if gaps else None
+    out.append(_gate("A release timing: >= 95% of P's admitted contenders within 50 ms of release", within, ">= 0.95", None if within is None else not within >= 0.95, measured=len(gaps)))
+    out.append(_gate("A restart: an engine restart under 3 minutes", None, "< 180 s", None, why="no deployment or readiness stamp is recorded per cell"))
+    lmax = max(max(c["_lags"]) for cs in A.values() for c in cs.values())
+    out.append(_gate("A dispatch fidelity: no request's lag above 25 ms", lmax, "<= 25 ms", not lmax <= 25))
+    for L in (L_MS_FLOOR, L_formula):
+        for arm, cs in A.items():
+            n, d, allr = uncertain_fraction(cs.values(), L)
+            out.append(_gate("A dispatch fidelity: %s premium lag above L=%g ms <= 0.05%%" % (arm, L), n / d, "<= 0.0005", not n / d <= 0.0005, uncertain=n, premium=d, all_requests=allr))
+    out.append(_gate("A capture: every cell eligible", all(c["eligible"] for cs in A.values() for c in cs.values()), "true",
+                     not all(c["eligible"] for cs in A.values() for c in cs.values())))
+    # Stage B.
+    for arm, cs in B.items():
+        n = sum(c["premium"]["n"] for c in cs.values()); f = sum(c["premium"]["failed"] for c in cs.values())
+        out.append(_gate("B loss: %s premium loss < 0.5%%" % arm, f / n, "< 0.005", not f / n < 0.005, failed=f, of=n))
+    diffs = {k: [] for k in "pqc"}
+    for rep in sorted(B["prospective"]):
+        P, S_ = B["prospective"][rep], B["static-cap"][rep]
+        for k in "pqc":
+            diffs[k].append(P["work"][k] - S_["work"][k])
+        ph, _, _, _ = _box([P]); _, sa, _, _ = _box([S_])
+        # Per block, as the page's width screen reads it: (y_hi - y_lo) / 2 from that block's two boxes.
+        wp = width(_box([P])[1], ph); ws = width(sa, _box([S_])[0])
+        hw = (wp + ws) / 2 if wp is not None and ws is not None else None
+        out.append(_gate("B width: block %d P/S half-width <= 0.043" % rep, hw, "<= 0.043", hw is None or not hw <= 0.043))
+    for k in "pqc":
+        out.append(_gate("B margin: %s_P - %s_S >= 0.03 in every block" % (k, k), min(diffs[k]), ">= 0.03", not min(diffs[k]) >= 0.03, per_block=diffs[k]))
+    mean_p = sum(diffs["p"]) / len(diffs["p"])
+    out.append(_gate("B informative bound: mean p_P - p_S <= 0.10", mean_p, "<= 0.10", not mean_p <= 0.10))
+    cal = open(os.path.join(dir_b, "calibration.txt")).read() if os.path.exists(os.path.join(dir_b, "calibration.txt")) else ""
+    restamp = bool(re.search(r"engine 68 tokens, frozen 68", cal)) and bool(re.search(r"engine 7695 tokens, frozen 7695", cal))
+    out.append(_gate("B re-stamp: the engine's counts equal the frozen ones", restamp, "true", not restamp))
+    return out
+
+
 def main(argv):
     if len(argv) in (3, 4) and argv[1] == "stage" and (len(argv) == 3 or argv[3] in STAGE_ARMS):
         json.dump(stage_report(argv[2], argv[3] if len(argv) == 4 else None), sys.stdout, indent=1, default=str)
+        print()
+        return 0
+    if len(argv) == 4 and argv[1] == "gates":
+        f = formulas(argv[2], argv[3])
+        if not f.get("available"):
+            print(json.dumps(f)); return 1
+        json.dump({"L_ms": f["L_ms"], "gates": gates(argv[2], argv[3], f["L_ms"])}, sys.stdout, indent=1, default=str)
         print()
         return 0
     if len(argv) == 4 and argv[1] == "formulas":
