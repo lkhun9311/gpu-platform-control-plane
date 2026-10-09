@@ -1014,6 +1014,32 @@ A step log that fails its completeness check does not stop the next arm. It make
 
 **Still before purchase, each the owner's step:** an SSO login to gpu-lab; `terraform apply` of the bootstrap stack there; the sweeper exercise passing.
 
+### Pilot results, 2026-10-09
+
+Both stages were bought in gpu-lab on one g5.2xlarge Spot each: stage A `i-0ad29d4db683ecf44` (launch 23:51:06Z, marker 01:24:15Z), stage B `i-052798b9bc6192973` (launch 01:37:15Z, marker 03:39:36Z), both terminated before download. Reports, timings and calibration are in `data/2026-10-09-pilot-results/`, scored by `pilot_report.py` at the commit named there. The sweeper exercise passed first: a t3.nano terminated 178 s after its deadline.
+
+**Every cell of both stages is eligible: 9 and 12.** The engine counted the frozen 68 and 7,695 tokens in both. R was fitted on stage A at 5,318.
+
+| | Stage A | Stage B |
+|---|---|---|
+| Premium p99 TTFT, scheduled, R1 | 63 ms | 63 ms |
+| off / prospective / static-cap | 1,498 / 1,479 / — ms | 1,510 / 1,488 / 1,451 ms |
+| Box width per arm | 0.024, 0.007, 0.006 | 0.024, 0.002, 0.005, 0.007 |
+| Pooled P/S half-width | — | 0.0056 |
+| Contender p: off / P / S | 1.00 / 0.92–0.94 / — | 0.99–1.00 / 0.87–0.94 / 0.79–0.86 |
+
+**The frozen formulas' outputs:** L = 13 ms, lag ceiling 409 ms, arm time 920 s (the cold first cell), bring-up 200 s, session tail 12 s, main session length and hard stop 14,065 s (3 h 54), acquisition deadline 13,705 s, backstop 14,665 s, `study-deadline` 15,265 s.
+
+**The gates, evaluated and not acted on, as the execution contract says:**
+- stage B's margin, p_P − p_S, q_P − q_S and c_P − c_S at least 0.03 in each block: p 0.068, 0.074, 0.080; q 0.063, 0.069, 0.075; c as p. Would not have fired.
+- the informative bound, mean p_P − p_S at most 0.10: 0.074. Would not have fired.
+- the width screen, half-width at most 0.043: 0.0056 pooled. Would not have fired.
+- **the uncertainty cap at the new L: fires.** At L = 13 ms, stage A's uncertain premium fraction is 0.060% for R1 and 0.052% for off and prospective, above 0.05%; stage B's is 0.034% in every arm. By the rule above, the design returns to review.
+
+**What the cap is made of.** Every premium lag above 13 ms is near a multiple of 100 ms: 102.8 to 104.5 ms in stage A, and 103 to 104 or 204 ms in stage B. There are one or two per cell, in every arm, including R1, which has no contender. The kind rehearsal showed the same 102 ms. So it is a property of the apparatus, not of contention. The replay reaches the gateway through `kubectl port-forward` on 127.0.0.1:18080 on the instance as on kind, and that is the first suspect; it is not established. The next design round should find the cause before it sets L, because the formula's L and ceiling are set by these stalls rather than by dispatch.
+
+**Not judged here.** P's tail beside S's is printed in the table because the report prints each arm's own quantities; the pilot reaches no verdict about P against S.
+
 ## What v21 changed, against the review of v20
 
 | v20 finding | Change |
