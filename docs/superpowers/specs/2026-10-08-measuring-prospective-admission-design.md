@@ -1232,7 +1232,7 @@ Bought in gpu-lab on one g5.2xlarge Spot, `i-0bed746c2078352f1`, launched 12:25:
 
 **So the main study is not drafted yet.** Its shape is now clear: off, hold-cap, and a fixed spacing with the same cap, calibrated on the running card by a frozen rule against the owner's limits, compared on a registered pooled or worst-block premium endpoint with the contender limits as constraints. Drafting it needs the owner's choice of endpoint. A robustness study, which lengthens the capped prefill with longer contender prompts, is a separate design; if it is chosen, its control should include a spacing that scales with the prompt's work, or the comparison only tests that the control ignores request size.
 
-### v26: hold-cap against a frontier of fixed spacings, drafted 2026-10-10, not yet attacked
+### v26: hold-cap against a frontier of fixed spacings, drafted 2026-10-10, attacked once and revised
 
 The owner chose the endpoint: premium TTFT p99 pooled across blocks.
 
@@ -1249,22 +1249,43 @@ The grid is frozen now. It spans the replay's widest admissible spacing at every
 
 **Limits,** by the pilot's allowance method with the diagnostic's arm time kept at 920 s: 1.25 × (200 + 19 × 920 + 12) = 22,115 s. Hard stop 6 h 9 m (22,140 s), acquisition deadline 6 minutes before it, backstop 10 minutes after, `study-deadline` 20 minutes after. The diagnostic's measured cells took 537 to 559 s after its cold first cell (881 s), so 19 cells are expected near 3 h 10 m, well inside the hard stop. One session, in one login, under the 12 h rule.
 
-**Admissible, per arm, in every complete block:** the owner's four contender limits, as frozen for the diagnostic: completion at least 95%, completion p50 at most 1.5 times that block's off, p95 at most 25 s, no hold refusal.
+**Admissible, per arm, in every complete block, the same lines for hold-cap and every fixed arm:**
+- the owner's four contender limits, as frozen for the diagnostic: completion at least 95%, completion p50 at most 1.5 times that block's off, p95 at most 25 s, no hold refusal;
+- the diagnostic's three further safeguards, kept binding so that a pass cannot come from lost work or moved cost (v26 review, finding 4): no preemption in the cell, contender work in the shared window at least 0.9 of off's for both p and q, and premium inter-token gap p99 at most 1.25 times off's.
+
+A cancelled or failed contender also releases a serial-prefill reservation without first content; such contenders are failures in the completion line, so their number is bounded by it, and it is published per cell.
+
+**Validity, for every arm, kept apart from outcomes (v26 review, finding 7).** A validity line asks whether the evidence can be trusted; an outcome line asks what the arm did. Validity, in any cell of any arm: the cell is present, not refused and eligible; its largest dispatch lag is at most 50 ms and at most 0.1% of premium requests lag above 13 ms; no premium success lacks gap evidence and no contender success lacks complete gaps; and the gateway's own delay after its arrival stamp, the durable record and the decision, has p99 at most 13 ms and maximum at most 50 ms (v26 review, finding 3; on the diagnostic's card it measured p99 4.98 to 5.68 ms and maximum 7.74 to 12.51 ms in every cell). Off's premium loss under 0.5% stays a validity line, since off is the reference. In a treatment arm, a premium request that the apparatus recorded whole and that failed or timed out is an outcome: it enters that arm's pooled p99 at +inf, and so an overloaded fixed arm loses on the endpoint instead of voiding the study.
 
 **The endpoint:** each arm's premium TTFT p99, pooled over its three cells, taken from the scheduled start; for a comparison between two arms, the crossed upper end ln(A's pooled p99 scheduled hi / B's pooled p99 arrival lo), as the diagnostic's crossed box.
 
 **Verdict, frozen before purchase, read in this order:**
-1. **inconclusive: <reason>** when any validity line fails: a refused or ineligible cell, a missing cell, fewer than three complete blocks, a priority or dispatch failure, as the diagnostic's scorer refuses now.
+1. **inconclusive: <reason>** when any validity line above fails in any cell, a cell is missing, or fewer than three blocks are complete.
 2. **not met: hold-cap broke the owner's limits** when hold-cap is not admissible.
 3. **observed on these traces: hold-cap met the limits and no fixed spacing in the grid did** when no fixed arm is admissible.
 4. **observed on these traces: hold-cap beat every admissible fixed spacing** when, for every admissible fixed arm F, ln(hold-cap scheduled hi / F arrival lo) is at most ln 0.85.
-5. **not met: fixed-<s> matched or beat hold-cap**, naming the admissible fixed arm with the lowest pooled p99, otherwise.
+5. **observed on these traces: fixed-<s> beat hold-cap** when the admissible fixed arm with the lowest pooled p99, F, has ln(F scheduled hi / hold-cap arrival lo) at most ln 0.85.
+6. **not established: neither hold-cap nor fixed-<s> was 15% below the other**, naming that F, otherwise. A ratio of 0.90 is this verdict, not a fixed-arm win (v26 review, finding 5).
 
 **Published whatever the outcome:** every arm's pooled and per-block premium p99, contender completion, p50, p95 and hold refusals, each fixed arm's admissibility by block, the measured capped prefill per cell, and each cell's pace against the replay's model.
 
-**What the replay predicts, and why it is worth buying.** At the fitted pace, fixed-1.62 and fixed-1.66 are admissible and fixed-1.70 and fixed-1.74 fail pilot B's third trace; at a pace of 1.020, only fixed-1.62 survives. The pooled comparison goes either way within the 2% to 3% the replay is known to miss on capped steps: the point ratio against the widest admissible spacing is above 0.85 up to a pace of 0.990 (0.875), verdict 5, and below it from 0.995 (0.812), where verdict 4 still needs the crossed bounds inside ln 0.85. That is a question the replay cannot answer and the card can.
+**What the replay predicts.** `simulate.py frontier` replays the registered decision itself, every grid arm judged and hold-cap compared against every admissible one, with each of the six archived off cells standing for a block, at paces 0.950 to 1.100 (`simulate-frontier-pace-grid.txt`). It models the owner's four limits on point estimates, not the crossed bounds, the three further safeguards or validity, and it replays six old traces, not the three new seeds. It predicts verdict 6, not established, from 0.950 to 0.990: the best admissible spacing, fixed-1.62 up to 0.965 and fixed-1.66 from 0.970, stays within 15% of hold-cap either way. It predicts verdict 4 from 0.995 to 1.005, hold-cap's pooled p99 0.81 to 0.72 of fixed-1.66's. From 1.010 up, it predicts verdict 2: hold-cap itself breaks the owner's limits, always in pilot B's third trace, the heaviest of the six with 239 contenders, mostly at the 25 s p95, which it misses by 17 ms at 1.010. The diagnostic's own traces kept hold-cap's p95 at 9.6 to 16.8 s on a card whose hold-cap cells ran at 1.0205 to 1.0275 of the model. So the verdict on the card turns on two things the replay cannot settle: the card's pace on capped steps, and whether the new seeds' traces are as heavy as pilot B's third. That is why it is a measurement and not a foregone result; it is also why the seeds' traces should be replayed before purchase (below).
+
+**Before purchase: replay the frozen seeds.** The traces for seeds 861 to 863 are generated, not drawn, so they exist before the card runs them. The build generates them and replays them through `frontier` at the fitted pace and at the diagnostic card's 1.0205 to 1.0275, and the page records the predicted verdict for each, before any spend. A seed is not swapped for a lighter one if its trace is heavy: the seeds are frozen here, and replacing one after seeing its prediction would select the traces for the verdict.
 
 **What it would not show.** One card, one load, three traces: a verdict here describes these traces on this card, not g5 cards or other loads. A fixed spacing tuned on this card's own measured prefill, between the grid's points, could do better than the grid's best. And the robustness question, a load whose prefill lengthens, is not asked.
+
+**What the first attack on v26 changed.** Astra attacked the draft cold (`astra-v26-attack.txt`); bare reviews of the replay's two commits found nothing further. Each change below was re-derived or re-run by me.
+
+| v26 finding | Change |
+|---|---|
+| 1: the replay refused a held contender at the step boundary past 25 s although its spacing had ended inside it | the deadline is judged at the instant the rule would forward; pinned by a test that fails on the old order and on the old sweep alone. It moved four printed figures in `simulate-control.txt`, none quoted on this page, and no admissibility on the pace grid |
+| 2: a contender with fewer gaps than frames was timed early | it is untimed, as a premium success is; pinned by a test. The diagnostic rescored identically: it had no such contender |
+| 3: the gateway's own delay after its arrival stamp was reported but not bounded | a validity line for every cell, p99 at most 13 ms and maximum at most 50 ms, against 4.98 to 5.68 and 7.74 to 12.51 ms measured on the diagnostic's card |
+| 4: the diagnostic's preemption, work and gap safeguards were not carried over | binding, for hold-cap and every fixed arm alike |
+| 5: verdict 5 called a 0.90 ratio a fixed-arm win | a fixed-arm win needs its own 15%; otherwise "not established" |
+| 6: the replay compared only the widest spacing, not the registered decision | `simulate.py frontier` replays the decision; its prediction replaces the earlier one, and adds that hold-cap breaks the limits from a pace of 1.010 on one heavy trace |
+| 7: validity's scope across arms was ambiguous | apparatus lines bind every arm; a treatment arm's failed premium request is an outcome at +inf, so an overloaded fixed arm loses instead of voiding the study |
 
 The draft as written, kept for the record:
 
