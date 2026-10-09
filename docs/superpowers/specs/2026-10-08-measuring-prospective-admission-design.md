@@ -1232,6 +1232,40 @@ Bought in gpu-lab on one g5.2xlarge Spot, `i-0bed746c2078352f1`, launched 12:25:
 
 **So the main study is not drafted yet.** Its shape is now clear: off, hold-cap, and a fixed spacing with the same cap, calibrated on the running card by a frozen rule against the owner's limits, compared on a registered pooled or worst-block premium endpoint with the contender limits as constraints. Drafting it needs the owner's choice of endpoint. A robustness study, which lengthens the capped prefill with longer contender prompts, is a separate design; if it is chosen, its control should include a spacing that scales with the prompt's work, or the comparison only tests that the control ignores request size.
 
+### v26: hold-cap against a frontier of fixed spacings, drafted 2026-10-10, not yet attacked
+
+The owner chose the endpoint: premium TTFT p99 pooled across blocks.
+
+**Why the control is a frontier, not one calibrated spacing.** The pooled endpoint needs the control's spacing fixed before the card runs it, and the replay cannot fix it. Scanned at step-time scales from 0.950 to 1.100 in steps of 0.005 (`simulate-feasible-pace-grid.txt`), the widest spacing meeting the owner's limits in all six archived cells moves from 1.62 s at 0.950 to 1.66 s from 0.970 to 1.015, back to 1.64 s at 1.025, and then disappears: from 1.030 up, no spacing meets them, because pilot B's third trace pushes every spacing past the 25 s p95 or into a hold refusal. Over the same range, hold-cap's pooled premium p99 over that widest spacing's goes from 1.102 at 0.950, the spacing ahead, through 0.967 at 0.985, to 0.473 at 1.025. The diagnostic's card ran its hold-cap cells at 1.0205 to 1.0275 of the model and its off cells at 0.9952 to 1.0023. So the replay's error on capped steps is about the size of the swing, and a spacing calibrated through the replay would let that error decide the outcome. Instead, the card runs a frozen grid of spacings, and the owner's limits judge each one on the card.
+
+**Arms, each on a fresh engine, all with `--long-prefill-token-threshold 384` except off:**
+- **off:** admission off, no cap;
+- **hold-cap:** serial-prefill, longest hold 25 s, cap 384, as in the diagnostic;
+- **fixed-1.62, fixed-1.66, fixed-1.70, fixed-1.74:** the gateway forwards a contender no sooner than that many seconds after it forwarded the previous one, in arrival order, with the same 25 s longest hold, and nothing from the engine.
+
+The grid is frozen now. It spans the replay's widest admissible spacing at every pace where one exists, 1.62 to 1.66 s, and the card's measured hold-cap prefill, p50 1,637 to 1,665 ms and p95 1,706 to 1,733 ms. Its 40 ms step can miss the best fixed spacing between two points; that bias favours hold-cap, and the page states it beside the verdict.
+
+**Blocks:** three blocks of the six arms, each in a hashed order, plus R1 once at the start: 19 cells. Seeds, frozen now: 861, 862, 863.
+
+**Limits,** by the pilot's allowance method with the diagnostic's arm time kept at 920 s: 1.25 × (200 + 19 × 920 + 12) = 22,115 s. Hard stop 6 h 9 m (22,140 s), acquisition deadline 6 minutes before it, backstop 10 minutes after, `study-deadline` 20 minutes after. The diagnostic's measured cells took 537 to 559 s after its cold first cell (881 s), so 19 cells are expected near 3 h 10 m, well inside the hard stop. One session, in one login, under the 12 h rule.
+
+**Admissible, per arm, in every complete block:** the owner's four contender limits, as frozen for the diagnostic: completion at least 95%, completion p50 at most 1.5 times that block's off, p95 at most 25 s, no hold refusal.
+
+**The endpoint:** each arm's premium TTFT p99, pooled over its three cells, taken from the scheduled start; for a comparison between two arms, the crossed upper end ln(A's pooled p99 scheduled hi / B's pooled p99 arrival lo), as the diagnostic's crossed box.
+
+**Verdict, frozen before purchase, read in this order:**
+1. **inconclusive: <reason>** when any validity line fails: a refused or ineligible cell, a missing cell, fewer than three complete blocks, a priority or dispatch failure, as the diagnostic's scorer refuses now.
+2. **not met: hold-cap broke the owner's limits** when hold-cap is not admissible.
+3. **observed on these traces: hold-cap met the limits and no fixed spacing in the grid did** when no fixed arm is admissible.
+4. **observed on these traces: hold-cap beat every admissible fixed spacing** when, for every admissible fixed arm F, ln(hold-cap scheduled hi / F arrival lo) is at most ln 0.85.
+5. **not met: fixed-<s> matched or beat hold-cap**, naming the admissible fixed arm with the lowest pooled p99, otherwise.
+
+**Published whatever the outcome:** every arm's pooled and per-block premium p99, contender completion, p50, p95 and hold refusals, each fixed arm's admissibility by block, the measured capped prefill per cell, and each cell's pace against the replay's model.
+
+**What the replay predicts, and why it is worth buying.** At the fitted pace, fixed-1.62 and fixed-1.66 are admissible and fixed-1.70 and fixed-1.74 fail pilot B's third trace; at a pace of 1.020, only fixed-1.62 survives. The pooled comparison goes either way within the 2% to 3% the replay is known to miss on capped steps: the point ratio against the widest admissible spacing is above 0.85 up to a pace of 0.990 (0.875), verdict 5, and below it from 0.995 (0.812), where verdict 4 still needs the crossed bounds inside ln 0.85. That is a question the replay cannot answer and the card can.
+
+**What it would not show.** One card, one load, three traces: a verdict here describes these traces on this card, not g5 cards or other loads. A fixed spacing tuned on this card's own measured prefill, between the grid's points, could do better than the grid's best. And the robustness question, a load whose prefill lengthens, is not asked.
+
 The draft as written, kept for the record:
 
 **Its question.** On the A10G, under the pilot's frozen load, does the engine's prefill cap at 384 together with the gateway's serial-prefill hold cut the premium tail, at a contender cost inside limits frozen here, before any card time? It is a feasibility measurement of one candidate, not the main study: it answers whether a main study of this treatment is worth designing.
