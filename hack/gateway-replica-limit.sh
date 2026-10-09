@@ -31,13 +31,19 @@ run()  { echo "+ $*" >>"$LOG"; "$@" >>"$LOG" 2>&1; }
 k()    { kubectl --context "$KCTX" "$@"; }
 teardown() {
   rm -rf "$WORK"
-  if [ "${KEEP:-0}" != 1 ] && kind get clusters 2>/dev/null | grep -qx "$CLUSTER"; then
-    kind delete cluster --name "$CLUSTER" >>"$LOG" 2>&1
+  # The cluster list's stderr goes to the log: a sibling runner skipped its delete with nothing recorded about why.
+  if [ "${KEEP:-0}" != 1 ] && grep -qx "$CLUSTER" <<<"$(kind get clusters 2>>"$LOG")"; then
+    kind delete cluster --name "$CLUSTER" >>"$LOG" 2>&1 || echo "teardown: kind delete failed" >>"$LOG"
   fi
 }
 # Every failure exits non-zero and names its step, so a broken setup cannot pass for a run with no breach.
 die() { log "FAILED at: $*"; tail -20 "$LOG" >&2; teardown; exit 1; }
-trap 'teardown' INT TERM
+# A cancelled run stops here: a handler that only cleaned up let the loop carry on against a deleted cluster.
+trap 'teardown; exit 130' INT
+trap 'teardown; exit 143' TERM
+# The registration fixes three repetitions and the scorer checks exactly three, so any other count is refused
+# before a cluster is built rather than ending VOID, or VALID while ignoring the extra repetitions.
+[ "$REPS" = 3 ] || die "REPS=$REPS, but the registered protocol is three repetitions"
 
 export PATH="$PWD/bin:$PATH"
 # A fresh worktree has no bin/, so the pinned kustomize is fetched rather than whatever the host might carry.
@@ -54,7 +60,7 @@ run make docker-build-gateway GATEWAY_IMG=gateway:$TAG || die "gateway image"
 run make docker-build-benchharness BENCHHARNESS_IMG="$STUB_IMG" || die "stub image"
 
 log "== cluster $CLUSTER"
-kind get clusters 2>/dev/null | grep -qx "$CLUSTER" && run kind delete cluster --name "$CLUSTER"
+grep -qx "$CLUSTER" <<<"$(kind get clusters 2>>"$LOG")" && run kind delete cluster --name "$CLUSTER"
 cat >"$WORK/kind.yaml" <<EOF
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
