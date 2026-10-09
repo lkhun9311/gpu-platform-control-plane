@@ -43,12 +43,19 @@ die() {
   log "FAILED at: $*"
   # The cluster is deleted next, so what it looked like at the failure is written down first.
   { k get pods -A -o wide; k get events -A --sort-by=.lastTimestamp | tail -40; } >>"$OUT/failure-state.txt" 2>&1
-  touch "$OUT/stop-pinned" "$OUT/stop-alias"
+  stop_pollers
   cleanup
   exit 1
 }
-trap 'cleanup; exit 130' INT
-trap 'cleanup; exit 143' TERM
+# Pollers run in the background until a stop file appears, so a cancelled run must stop them before it leaves.
+stop_pollers() {
+  touch "$OUT/stop-pinned" "$OUT/stop-alias"
+  [ -n "${pp:-}" ] && wait "$pp" 2>/dev/null
+  [ -n "${pa:-}" ] && wait "$pa" 2>/dev/null
+  return 0
+}
+trap 'stop_pollers; cleanup; exit 130' INT
+trap 'stop_pollers; cleanup; exit 143' TERM
 retry() {
   for _ in $(seq 1 20); do "$@" && return 0; sleep 3; done
   return 1

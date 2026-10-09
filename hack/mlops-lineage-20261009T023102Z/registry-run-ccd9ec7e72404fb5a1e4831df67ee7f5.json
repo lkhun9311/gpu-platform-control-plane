@@ -1,0 +1,83 @@
+{
+  "run": {
+    "info": {
+      "run_uuid": "ccd9ec7e72404fb5a1e4831df67ee7f5",
+      "experiment_id": "1",
+      "run_name": "thoughtful-asp-406",
+      "user_id": "root",
+      "status": "FINISHED",
+      "start_time": 1791513163542,
+      "end_time": 1791513163597,
+      "artifact_uri": "mlflow-artifacts:/1/ccd9ec7e72404fb5a1e4831df67ee7f5/artifacts",
+      "lifecycle_stage": "active",
+      "run_id": "ccd9ec7e72404fb5a1e4831df67ee7f5"
+    },
+    "data": {
+      "metrics": [
+        {
+          "key": "eval_accuracy",
+          "value": 0.6150000095367432,
+          "timestamp": 1791513163566,
+          "step": 0
+        }
+      ],
+      "params": [
+        {
+          "key": "variant",
+          "value": "noisy"
+        },
+        {
+          "key": "data_seed",
+          "value": "7"
+        },
+        {
+          "key": "epochs",
+          "value": "300"
+        },
+        {
+          "key": "lr",
+          "value": "0.5"
+        }
+      ],
+      "tags": [
+        {
+          "key": "mlflow.user",
+          "value": "root"
+        },
+        {
+          "key": "mlflow.source.name",
+          "value": "/work/train.py"
+        },
+        {
+          "key": "mlflow.source.type",
+          "value": "LOCAL"
+        },
+        {
+          "key": "mlflow.runName",
+          "value": "thoughtful-asp-406"
+        },
+        {
+          "key": "git_commit",
+          "value": "db20793255390b4fb5612485186c8e8378159650"
+        },
+        {
+          "key": "code_sha256",
+          "value": "aaa2ace150b444737c6b47807a52620d3e2aeed57775a924dd9cf575425f69a6"
+        },
+        {
+          "key": "train_data_sha256",
+          "value": "6e150b342315b4ebaa8675710187e7bfb19e491a5fd0cb0aca0f107ebc6fca5b"
+        },
+        {
+          "key": "artifact_sha256",
+          "value": "b5cadd4102edb458fce846e3d93eecb03c37b94a9445eb06959a182961eacd30"
+        },
+        {
+          "key": "trained_in_pod",
+          "value": "train-v2-vwcsz"
+        }
+      ]
+    },
+    "inputs": {}
+  }
+}

@@ -61,7 +61,39 @@ than fixes.
   but no Git repository or Argo CD is in the loop.
 - Rollback with more than one replica, or under load heavier than 20 requests a second.
 
-## Result (2026-10-09): VALID, every reading as registered
+## Amendment 1 (2026-10-09, after the first run and before the second)
+
+A review of the committed code found that the first run's numbers could not carry two of their claims:
+- **Step 4's times were send times.** `poll.py` stamped each request when it was sent, so "the last v2 answer"
+  was the last request *sent* that came back v2; one sent before the rollback and answered after it was
+  invisible. The poller now records completion time as well, and step 4 reads completion times.
+- **Validity check 2 compared the rows with a window derived from the same rows**, so rows lost from either end
+  shrank the window and passed. It now requires every sent request to be recorded and the sent count to reach 90%
+  of the poller's own wall-clock window at its rate.
+
+Nothing else changes. The whole experiment is re-run under these two corrections, and the section below is
+replaced by that run's result; the first run's directory is kept as `hack/mlops-lineage-20261009T022150Z`.
+
+## Result (2026-10-09, under Amendment 1): VALID, every reading as registered
+
+Run `hack/mlops-lineage-20261009T023102Z`, scored by `score.py`, which printed `VALID`. The tree was `db20793` plus
+the Amendment 1 changes to `poll.py`, `score.py`, `hack/mlops-lineage.sh` and this page, committed unchanged with
+this record.
+
+| step | result |
+|---|---|
+| 1. train | v1 0.995, v2 0.615 — the same accuracies, and the same v1 weights hash `00e666…`, as the first run |
+| 2. gate | v1 promoted; **v2 refused**, alias unmoved |
+| 3. lineage | all seven links held |
+| 4. rollback ×3 | **0 non-200** in 921, 946 and 938 requests; the last v2 answer **completed** 11.82, 12.00 and 11.95 s after the rollback edit, the first v1 answer 10.87, 11.10 and 11.00 s after it |
+| 5. alias trap | **1,202 of 1,202 answers over 60 s were still v1** after the alias moved to v2; v2 after a restart |
+
+The slowest answer in the rollback polls took 6 ms, so on this cluster send time and completion time differ by
+less than the reported precision and the first run's step-4 figures were not wrong in practice — they were
+measured on the wrong clock, and a slower backend would have made that matter. The findings below were written
+from the first run and hold for this one unchanged.
+
+## Result of the first run (2026-10-09), superseded by Amendment 1
 
 Run `hack/mlops-lineage-20261009T022150Z`, scored by `score.py`, which printed `VALID`. The tree was `1240e34`
 plus this experiment's own files, uncommitted at run time and committed unchanged in `598611c`.

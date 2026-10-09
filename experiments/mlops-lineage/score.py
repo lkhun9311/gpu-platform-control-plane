@@ -12,7 +12,6 @@ import json
 import os
 import sys
 
-RATE = 20.0
 CYCLES = 3
 
 
@@ -23,9 +22,17 @@ def load(run, name):
 
 def poll(run, stem):
     with open(os.path.join(run, stem + ".tsv"), newline="") as f:
-        rows = [(float(r["t_s"]), int(r["status"]), r["version"]) for r in csv.DictReader(f, delimiter="\t")]
+        rows = [(float(r["t_s"]), float(r["done_s"]), int(r["status"]), r["version"])
+                for r in csv.DictReader(f, delimiter="\t")]
     meta = load(run, stem + ".meta")
     return rows, meta
+
+
+def coverage_ok(rows, meta):
+    # Checked against the poller's own count and its wall-clock window, never against the rows alone: rows lost
+    # from either end would shrink a window derived from them and pass.
+    window = meta["wall_end"] - meta["wall_start"]
+    return len(rows) == meta["sent"] and meta["sent"] >= 0.9 * window * meta["rate"], window
 
 
 def main():
@@ -93,27 +100,28 @@ def main():
         except OSError:
             void(f"cycle {c} poll file is missing")
             continue
-        span = rows[-1][0] - rows[0][0] if rows else 0
-        if len(rows) < 0.9 * (span * RATE + 1):
-            void(f"cycle {c} recorded {len(rows)} answers over {span:.1f} s, under 90% of {RATE}/s")
+        ok, window = coverage_ok(rows, meta)
+        if not ok:
+            void(f"cycle {c} recorded {len(rows)} of {meta['sent']} sent over a {window:.1f} s window at {meta['rate']}/s")
         back = events[f"cycle{c}-rollback-v1"] - meta["wall_start"]
-        non200 = sum(1 for _, s, _ in rows if s != 200)
-        last_v2 = max((t for t, s, v in rows if v == "2"), default=None)
-        first_v1 = min((t for t, s, v in rows if v == "1" and t > back), default=None)
+        non200 = sum(1 for _, _, s, _ in rows if s != 200)
+        # Completion times: the question is when users stopped receiving v2, not when the last request was sent.
+        last_v2 = max((d for _, d, s, v in rows if v == "2"), default=None)
+        first_v1 = min((d for _, d, s, v in rows if v == "1" and d > back), default=None)
         fmt = lambda x: f"{x - back:.2f}" if x is not None else "-"
         print(f"{c}\t{meta['sent']}\t{len(rows)}\t{non200}\t{fmt(last_v2)}\t{fmt(first_v1)}")
 
     # Reading, step 5: the alias trap.
     try:
         rows, meta = poll(run, "poll-alias")
-        span = rows[-1][0] - rows[0][0] if rows else 0
-        if len(rows) < 0.9 * (span * RATE + 1):
-            void(f"the alias poll recorded {len(rows)} answers over {span:.1f} s, under 90% of {RATE}/s")
+        ok, window = coverage_ok(rows, meta)
+        if not ok:
+            void(f"the alias poll recorded {len(rows)} of {meta['sent']} sent over a {window:.1f} s window")
         forced = events["alias-forced-v2"] - meta["wall_start"]
         restart = events["alias-restart"] - meta["wall_start"]
-        during = [v for t, s, v in rows if forced < t < restart and s == 200]
+        during = [v for t, _, s, v in rows if forced < t < restart and s == 200]
         share_v1 = sum(v == "1" for v in during) / len(during) if during else float("nan")
-        final = rows[-1][2] if rows else ""
+        final = max(rows, key=lambda r: r[1])[3] if rows else ""
         print(f"alias: {len(during)} answers while the alias said v2, {share_v1:.1%} of them v1; last answer v{final}"
               f" -> {'as registered' if share_v1 == 1.0 and final == '2' else 'MISSED'}")
     except (OSError, KeyError) as err:

@@ -3,7 +3,9 @@
 
 Usage: poll.py URL OUT_TSV STOP_FILE [RATE]
 
-One row per request: seconds since start, HTTP status (0 for no answer), and the model version answered.
+One row per request: seconds since start when it was sent and when its answer completed, HTTP status (0 for no
+answer), and the model version answered. Readings about when a version stopped answering use the completion time:
+a request sent before a rollback can still come back with the old version after it.
 Open loop, one thread per request, so a slow answer cannot lower the rate and hide an outage.
 """
 import json
@@ -31,8 +33,9 @@ def main():
             status = err.code
         except Exception:
             pass
+        done = time.monotonic() - start
         with lock:
-            rows.append((sent, status, version))
+            rows.append((sent, done, status, version))
 
     i = 0
     while not os.path.exists(stop):
@@ -44,11 +47,15 @@ def main():
     for t in threads:
         t.join()
     with open(out, "w") as f:
-        f.write("t_s\tstatus\tversion\n")
-        for sent, status, version in sorted(rows):
-            f.write(f"{sent:.3f}\t{status}\t{version}\n")
+        f.write("t_s\tdone_s\tstatus\tversion\n")
+        for sent, done, status, version in sorted(rows):
+            f.write(f"{sent:.3f}\t{done:.3f}\t{status}\t{version}\n")
     # The start time on the wall clock, so the runner's own event times can be placed on this file's axis.
-    print(json.dumps({"sent": i, "recorded": len(rows), "wall_start": time.time() - (time.monotonic() - start)}))
+    # Wall-clock start and end, so the runner's event times can be placed on this file's axis and the scorer can
+    # check coverage against a window the rows themselves cannot shrink.
+    wall_now, mono_now = time.time(), time.monotonic()
+    print(json.dumps({"sent": i, "recorded": len(rows), "rate": rate,
+                      "wall_start": wall_now - (mono_now - start), "wall_end": wall_now}))
 
 
 if __name__ == "__main__":
