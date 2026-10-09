@@ -579,6 +579,11 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	// 8. From here the response is the upstream's, passed through rather than composed.
 	onFirstBody, onBody := tr.release(res), tr.body
 	if res != nil && res.onContent {
+		// The watcher reads the body as it passes, so it must be plain text. A client that asks for gzip itself would
+		// get a compressed stream the watcher cannot read, and the hold would last the whole response (review of
+		// 64188a2). Without the client's header, Go's transport negotiates compression on its own and hands the
+		// proxy a decoded body.
+		r.Header.Del("Accept-Encoding")
 		// Released at the first complete content event instead, seen by a watcher of its own because the trace's
 		// exists only when requests are recorded.
 		var cw contentWatcher

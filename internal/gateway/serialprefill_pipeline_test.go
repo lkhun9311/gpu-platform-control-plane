@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"compress/gzip"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -109,5 +110,60 @@ var _ = Describe("the serial-prefill admitter in the pipeline", func() {
 		// Both requests took at least 300 ms end to end, the first waiting for its body and the second held, so
 		// neither may be filed at 0.25 s or less; the first request's own duration cannot stand in for the second's.
 		Consistently(func() uint64 { return histogramAtMost(requestDuration, 0.25, testTenant, testModel) - fastBefore }, "100ms").Should(BeZero())
+	})
+
+	// A client that asks for gzip itself, to an upstream that compresses when asked: the first content is still seen,
+	// so the next contender goes while the first stream is open (review of 64188a2).
+	// Mutation that turns this red: stop removing the client's Accept-Encoding before forwarding.
+	It("releases on the first content of a compressed response", func() {
+		var reached atomic.Int32
+		finish := make(chan struct{})
+		var once sync.Once
+		end := func() { once.Do(func() { close(finish) }) }
+		up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			n := reached.Add(1)
+			w.Header().Set("Content-Type", "text/event-stream")
+			var out io.Writer = w
+			var gz *gzip.Writer
+			if strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
+				w.Header().Set("Content-Encoding", "gzip")
+				gz = gzip.NewWriter(w)
+				out = gz
+			}
+			w.WriteHeader(http.StatusOK)
+			_, _ = out.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"x\"}}]}\n\n"))
+			if gz != nil {
+				_ = gz.Flush()
+			}
+			w.(http.Flusher).Flush()
+			if n == 1 {
+				<-finish
+			}
+			if gz != nil {
+				_ = gz.Close()
+			}
+		}))
+		defer up.Close()
+		defer end()
+		s := newSerialPrefillAdmitter(10e9)
+		gw := httptest.NewServer(newAdmissionServer(up.URL, tierStandard, AdmissionSerialPrefill, s).Handler())
+		defer gw.Close()
+		send := func() *http.Response {
+			req, _ := http.NewRequest(http.MethodPost, gw.URL+"/v1/chat/completions", strings.NewReader(body))
+			req.Header.Set("Authorization", "Bearer "+testKey)
+			req.Header.Set("Accept-Encoding", "gzip")
+			resp, err := http.DefaultClient.Do(req)
+			Expect(err).NotTo(HaveOccurred())
+			return resp
+		}
+		first := send()
+		defer func() { _ = first.Body.Close() }()
+		done := make(chan *http.Response, 1)
+		go func() { done <- send() }()
+		Eventually(func() int32 { return reached.Load() }, "2s").Should(Equal(int32(2)),
+			"the second contender waited for the first's whole response: its compressed content was never seen")
+		end()
+		second := <-done
+		_ = second.Body.Close()
 	})
 })

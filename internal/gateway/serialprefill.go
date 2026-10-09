@@ -19,7 +19,9 @@ import (
 // maxHold is refused, so a held request cannot outlive its client's timeout at the gateway.
 // "In prefill" ends when the response's first complete content event reaches the gateway, the nearest point it can
 // see to the engine finishing the prompt; not its first body byte, which may be a frame without content (v24 review,
-// finding 3). On vLLM v0.27.1 the two coincide: the role frame is sent in the same write as the first token. That holds only while the engine does not preempt: a preempted request recomputes its
+// finding 3). On vLLM v0.27.1 the two coincide: the role frame is sent in the same write as the first token.
+// Only a content delta releases: a stream that generates only tool calls or reasoning holds its turn to its end. The
+// diagnostic enforces the benchmark profile, whose requests produce neither. That holds only while the engine does not preempt: a preempted request recomputes its
 // prompt after its first byte, when this rule already counts it as done.
 const AdmissionSerialPrefill AdmissionMode = "serial-prefill"
 
