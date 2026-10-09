@@ -367,6 +367,38 @@ pp_sidecar_stop() {
   PP_SIDECAR_PID=""
 }
 
+# The engine sampler: during a replay, every PP_SAMPLE_INTERVAL_S seconds, the engine's running and waiting requests,
+# KV-cache usage and preemption count, into engine-samples-<cell>.tsv. The before-and-after scrapes cannot show a peak
+# or the time spent with every slot taken (v24 review, finding 9). vLLM publishes these gauges from finished steps, so
+# a sample is the state at the last step's end, not an instant inside one. Its own port-forward, on its own port.
+PP_SAMPLE_INTERVAL_S="${PP_SAMPLE_INTERVAL_S:-1}"
+PP_SAMPLE_PORT="${PP_SAMPLE_PORT:-18083}"
+pp_sampler_start() {
+  local label="$1" rep="$2" parent=$$ out="$OUT/engine-samples-$1-$2.tsv"
+  PP_SAMPLER_STOP="${WORK:-$OUT}/sampler-stop-$label-$rep"
+  rm -f "$PP_SAMPLER_STOP"
+  printf 'unix_ms\tmetric\tvalue\n' > "$out"
+  (
+    kubectl --context "$KCTX" port-forward -n "$NS_A" deploy/vllm-qwen25-3b "$PP_SAMPLE_PORT:8000" \
+      > "${WORK:-$OUT}/sampler-pf-$label-$rep.log" 2>&1 &
+    pf=$!
+    trap 'kill $pf 2>/dev/null' EXIT
+    while kill -0 "$parent" 2>/dev/null && [ ! -e "$PP_SAMPLER_STOP" ]; do
+      now=$(date +%s%3N)
+      curl -s --max-time 1 "http://127.0.0.1:$PP_SAMPLE_PORT/metrics" 2>/dev/null \
+        | awk -v t="$now" '/^vllm:(num_requests_running|num_requests_waiting|kv_cache_usage_perc|num_preemptions_total)\{/ {
+            name = $1; sub(/\{.*/, "", name); printf "%s\t%s\t%s\n", t, name, $NF }' >> "$out"
+      sleep "$PP_SAMPLE_INTERVAL_S"
+    done
+  ) &
+  PP_SAMPLER_PID=$!
+}
+pp_sampler_stop() {
+  [ -n "${PP_SAMPLER_PID:-}" ] || return 0
+  : > "$PP_SAMPLER_STOP"
+  PP_SAMPLER_PID=""
+}
+
 # Records why a cell is ineligible for calibration; the cell's measurements are still reported.
 pp_ineligible() {
   printf '%s\n' "$3" > "$OUT/ineligible-$1-$2.txt"

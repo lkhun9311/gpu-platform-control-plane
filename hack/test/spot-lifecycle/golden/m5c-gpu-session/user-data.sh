@@ -187,6 +187,7 @@ send "$out/gateway-record-$arm-$rep.jsonl" "gateway-record-$arm-$rep.jsonl"
 send "$out/raw-$arm-$rep.jsonl.sender.json" "raw-$arm-$rep.jsonl.sender.json"
 send "$out/fence-$arm-$rep.json" "fence-$arm-$rep.json"
 send "$out/ineligible-$arm-$rep.txt" "ineligible-$arm-$rep.txt"
+send "$out/engine-samples-$arm-$rep.tsv" "engine-samples-$arm-$rep.tsv"
 for f in cell-environment.tsv cell-timings.tsv cell-judgements.tsv applied-values.tsv load-source.txt \
          phases.tsv cell-uploads.tsv calibration.txt sidecar-uploads.tsv; do
   send "$out/$f" "$f"

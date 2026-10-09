@@ -1127,6 +1127,8 @@ send "$out/gateway-record-$arm-$rep.jsonl" "gateway-record-$arm-$rep.jsonl"
 send "$out/raw-$arm-$rep.jsonl.sender.json" "raw-$arm-$rep.jsonl.sender.json"
 send "$out/fence-$arm-$rep.json" "fence-$arm-$rep.json"
 send "$out/ineligible-$arm-$rep.txt" "ineligible-$arm-$rep.txt"
+# Its engine samples during the replay: running and waiting requests, KV usage and preemptions, one line a second.
+send "$out/engine-samples-$arm-$rep.tsv" "engine-samples-$arm-$rep.tsv"
 # The run-wide records, refreshed so the newest surviving copy is the newest one written. phases.tsv and
 # cell-uploads.tsv are the pilot's; cell-uploads.tsv gains each cell's line after its own hook, so this cell's
 # hook carries the previous cell's line, and the last line goes with the final archive.

@@ -167,6 +167,20 @@ sidecar_run notice 100 1 2.5
 ( OUT="$work/side-none"; mkdir -p "$OUT"; unset CELL_SIDECAR_HOOK; pp_sidecar_start off 1; [ -z "$PP_SIDECAR_PID" ] ) \
   && ok "without a hook the sidecar starts nothing" || bad "the sidecar started without a hook"
 
+# The engine sampler, against a stubbed kubectl and a curl that serves vLLM's gauges: one line per gauge per sample,
+# and nothing else from the page.
+( OUT="$work/sampler"; WORK="$work"; mkdir -p "$OUT"; bin="$work/smbin"; mkdir -p "$bin"
+  printf '#!/usr/bin/env bash\nexec sleep 30\n' > "$bin/kubectl"
+  printf '#!/usr/bin/env bash\nprintf "%%s\\n" "vllm:num_requests_running{engine=\\"0\\"} 5.0" "vllm:num_requests_waiting{engine=\\"0\\"} 2.0" "vllm:kv_cache_usage_perc{engine=\\"0\\"} 0.25" "vllm:num_preemptions_total{engine=\\"0\\"} 0.0" "vllm:other 9"\n' > "$bin/curl"
+  chmod +x "$bin"/*
+  PATH="$bin:$PATH" KCTX=x NS_A=ns PP_SAMPLE_INTERVAL_S=0.5
+  pp_sampler_start off 1; sleep 1.8; pp_sampler_stop; sleep 1 )
+f="$work/sampler/engine-samples-off-1.tsv"
+n_run=$(awk -F'\t' '$2 == "vllm:num_requests_running" && $3 == "5.0"' "$f" 2>/dev/null | wc -l)
+[ "$n_run" -ge 2 ] && ! grep -q "vllm:other" "$f" && awk -F'\t' 'NR > 1 && NF != 3 {bad=1} END {exit bad}' "$f" \
+  && ok "the engine sampler writes each gauge per sample ($n_run samples) and nothing else" \
+  || bad "the engine samples: $(cat "$f" 2>&1 | head -6)"
+
 echo
 [ "$fails" = 0 ] && { echo "PASS"; exit 0; }
 echo "$fails check(s) failed"; exit 1
