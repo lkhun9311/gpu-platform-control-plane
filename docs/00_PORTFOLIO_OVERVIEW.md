@@ -11,20 +11,24 @@
 > premium-tail target, and the harness declared the run invalid rather than reporting a protection claim.
 > **Built, and run for real on kind:** failure & recovery (M7) — a `WorkloadRun` CRD, a controller and a
 > driver, with a recorded run in which deleting a serving Pod produced a recovery trail nobody wrote by
-> hand. **Type and CRD built, never run:** `GpuSharingBenchmark` / performance isolation — the API type, the
+> hand. **Type and CRD built, and has declared a paid run's load:** `GpuSharingBenchmark` / performance isolation — the API type, the
 > generated CRD and 33 envtest specs exist. The spec is immutable once created — a protocol change is a new
 > registration — and the CRD also refuses a retry, a two-model shared instance, one tenant on both sides of
 > the comparison, a closed-loop arrival mode, a qps that is not a positive plain decimal, sample sizes below
 > the registered floors, and a status that claims `Completed` without naming a report. Each of those rules was
-> deleted in turn to check which specs it holds. There is no status writer and no measured result; its sizing
-> arithmetic and run script already existed. **Partly built, and projected for the first time on 2026-09-30:** the SQLite ledger and the
-> `platformctl` CLI — storage, projector and reader for 2 of 6 tables, with no run yet projected outside a
-> test. **Applied and destroyed in one cycle, not
+> deleted in turn to check which specs it holds. Since 2026-10-01 `cmd/benchharness` compiles a CR into the
+> paid runner's load (`cmd/benchharness/compileplan.go:78`), and two paid runs that day logged "load compiled
+> from a GpuSharingBenchmark" (`hack/m5c-20261001-*/log.txt:312`). There is still no status writer, so the
+> result is the harness's and not the CR's. **Partly built, and projected for the first time on 2026-09-30:** the SQLite ledger and the
+> `platformctl` CLI — storage, projector and reader for 2 of 6 tables, projected from a cluster once outside a
+> test (`hack/ledger-first-projection.md`). **Applied and destroyed twice, not
 > applied now:** the `cluster` half of the AWS hosting path — its first apply, on 2026-08-31, failed on all
 > four node groups against an SCP deny; on 2026-09-18 a full apply of 96 resources succeeded and a
 > hand-dispatched teardown removed all 96, verified by resource ID
-> (`hack/eks-cluster-cycle-20260918.md`). That cluster carried no GPU node, no load balancer and no Argo CD,
-> so the teardown's hard cases are still untested. **Withdrawn once,
+> (`hack/eks-cluster-cycle-20260918.md`). That cluster carried no GPU node, no load balancer and no Argo CD.
+> The second cycle, on 2026-09-25, carried Argo CD and was torn down and checked by hand per service
+> (`docs/superpowers/specs/2026-09-25-gitops-rehearsal-on-clean-kind.md`); its "What this licenses"
+> section excludes GPU scheduling, LoadBalancer and EBS behaviour, so those teardown cases remain untested. **Withdrawn once,
 > then re-measured, then observed on hardware:** the queuelab reclaim result. Twelve runs on a kind cluster
 > carried the banner `device: NOT OBSERVED`; a $3.90 session then reproduced it on four A10Gs, eight runs
 > accepted by `-require-device`, and the banner is gone. Owner wait separates by 28.8 s there against 29.0 s
@@ -35,7 +39,7 @@
 > clusters is still simulated by a fake device plugin, and those runs are still reservation.
 >
 > **Built, and the reason the paid numbers are worth reading:** a characterization harness that pins what
-> each GPU-renting script does before it may be run against a card. Four runners, 45 recorded cases, each
+> each GPU-renting script does before it may be run against a card. Four runners, 68 recorded cases (2026-10-09), each
 > driving the real script with recording stubs and diffing the AWS calls, the exit status, what the operator
 > was told and what the run directory held. It fixes the host side only, which is stated where it is used
 > rather than left to be assumed.
@@ -50,10 +54,10 @@ This project is **not** a vLLM demo. It treats GPU inference workloads as declar
 |----------------------|----------------------------------------------------------------------------------------------|
 | **What this is**     | A Kubernetes-native GPUaaS control plane                                                     |
 | **What this is not** | An LLM demo, a data platform, a full MLOps stack, or a scene-retrieval/vector-index platform |
-| **Killer feature**   | A GPU control-plane prototype and a contention **measurement** lab. Performance isolation is what the lab measures, not what this platform delivers — and the one protection claim it tested failed, at 83.7x against a pre-registered 1.25x bar. What the lab *did* produce, under the frozen execution contract: the victim's TTFT p99 is **23.0x** its isolated value when one competing tenant joins the engine (five repetitions, 2026-10-01, 23,274 of 23,275 premium requests completed, no interval published). **Splitting the card** was measured only by an earlier three-arm pilot at a different prompt length and timeout — 27.2x shared against 14.5x split, two repetitions — and the two loads must not be combined ([findings](11_WHAT_THIS_MEASURED.md)) |
+| **Killer feature**   | A GPU control-plane prototype and a contention **measurement** lab. Performance isolation is what the lab measures, not what this platform delivers — and the one protection claim it tested failed, at 83.7x against a pre-registered 1.25x bar. What the lab *did* produce, under the frozen execution contract: the victim's TTFT p99 is **23.0x** its isolated value when one competing tenant joins the engine (five repetitions, 2026-10-01, 23,274 of 23,275 premium requests completed, no interval published). **Splitting the card** was measured by an earlier three-arm pilot at a shorter prompt and timeout — 27.2x shared against 14.5x split, two repetitions — and reversed by a fifteen-cell rerun on 2026-10-02 at the longer prompt, `timeSlicing` 14,868 ms against `shared`'s 4,001, answer INCONCLUSIVE; the loads must not be combined ([findings](11_WHAT_THIS_MEASURED.md)) |
 | **The missing integration** | `InferenceDeployment` cannot describe the engine the benchmark measures. Its spec carries no args and no volumes, so the chain test registers a **zero-replica no-op image** purely to give the gateway a route to resolve, and vLLM is deployed beside it by a shell script. This is a gap in the declarative surface the project is named for, not an incidental limitation — stated here rather than left in a table row further down, because a reader deciding whether the control plane controls anything should meet it early |
 | **Core demo**        | Separately tested components, not one chain. `InferenceDeploymentSpec` carries no args and no volumes, so it cannot describe the vLLM engine the benchmark measures — `hack/m5b-chain-live.sh` registers a zero-replica no-op image purely so the gateway can resolve a route, and vLLM is deployed beside it. The honest sequence is: quota admission (tested), gateway identity and limits (tested), contention measured by a separate harness, recovery recorded by `WorkloadRun` |
-| **Evidence**         | CRDs, controllers and the gateway (code and unit tests) exist. So do a benchmark write-up (`hack/m5d-writeup.md`), a Grafana dashboard (`config/prometheus/operator_dashboard.json`) and three failure reports (`hack/chaos-fr*.md`). The **operations ledger** is partly built — storage, projector, reader and `cmd/platformctl` for 2 of its 6 tables, with nothing yet projected outside a test. ⚠️ Two earlier versions of this row were wrong in opposite directions. It once called all four "planned evidence types, not yet produced", which was false of the repository. It then said `evidence/` "holds five `.gitkeep` files and nothing else", which stopped being true when `evidence/README.md` was committed — that file is now the only tracked thing under `evidence/`, and it exists to say the tree is empty on purpose and to point at `docs/captures/`, `experiments/*/README.md` and `hack/*.log`, which is where the evidence actually lives |
+| **Evidence**         | CRDs, controllers and the gateway (code and unit tests) exist. So do a benchmark write-up (`hack/m5d-writeup.md`), a Grafana dashboard (`config/prometheus/operator_dashboard.json`) and three failure reports (`hack/chaos-fr*.md`). The **operations ledger** is partly built — storage, projector, reader and `cmd/platformctl` for 2 of its 6 tables, projected from a cluster once outside a test on 2026-09-30. ⚠️ Two earlier versions of this row were wrong in opposite directions. It once called all four "planned evidence types, not yet produced", which was false of the repository. It then said `evidence/` "holds five `.gitkeep` files and nothing else", which stopped being true when `evidence/README.md` was committed — that file is now the only tracked thing under `evidence/`, and it exists to say the tree is empty on purpose and to point at `docs/captures/`, `experiments/*/README.md` and `hack/*.log`, which is where the evidence actually lives |
 
 ## The main contribution
 
@@ -72,7 +76,7 @@ A multi-tenant GPUaaS control plane that:
 | `InferenceDeployment` | declare a model-serving intent               | type + serving reconciler (Deployment/Service, phase ladder) — M4-a merged                                           |
 | `GPUQuotaPolicy`      | per-tenant GPU quota / rate limit            | type + reconciler (ResourceQuota sync, drift recovery) — M3 merged; `rateLimit` feeds the M4-b gateway — **M4-b merged, gateway built, unit-tested, deployed on kind, and reached on EKS only to the point of authentication** (2026-09-25, `403 no_policy`) |
 | `NodeHealth`          | GPU node intake and operational state        | type + reconciler (observe + taint, finalizer, drift recovery) — M2/M3 merged; **no GPU fault signal reaches it** — nothing Xid or ECC exists, and the DCGM code that does exist reads utilisation for the queuelab rather than health for this controller |
-| `GpuSharingBenchmark` | declare a noisy-neighbor / sharing benchmark | type + CRD + 33 envtest specs, per spec `2026-07-04-gpusharingbenchmark-crd-design.md` and its 2026-09-30 amendment; the spec is immutable once created. `CompilePlan` (`internal/bench/plan.go`) compiles a spec into the harness invocation or refuses it with a reason per unsupported value — **called only from tests**, so the CR has never driven a run. The committed sample is one of the specs it refuses. No status writer, no measured result through this path (M5) |
+| `GpuSharingBenchmark` | declare a noisy-neighbor / sharing benchmark | type + CRD + 33 envtest specs, per spec `2026-07-04-gpusharingbenchmark-crd-design.md` and its 2026-09-30 amendment; the spec is immutable once created. `CompilePlan` (`internal/bench/plan.go`) compiles a spec into the harness invocation or refuses it with a reason per unsupported value — called from `cmd/benchharness` since 2026-10-01, and two paid runs that day took their load from a CR. The committed sample is one of the specs it refuses. No status writer, so no result is recorded through this path (M5) |
 | `WorkloadRun`         | record a workload execution                  | type + reconciler + driver — `internal/controller/workloadrun_controller.go` (320 lines). A Pod kill was recorded automatically as `Ready → Pending → Ready` with recovery at 20 s on kind (`hack/m7-evidence-trail.log`). It is not a general-purpose ledger |
 | `MLTrainingJob`       | Kueue-admitted training job                  | type + full reconciler — translates to a `batch/v1` Job admitted through Kueue, two-tenant cohort borrowing/reclaim preemption, run end-to-end on kind (`hack/m6-kind-e2e.md`) — **M6 merged and built**. It is not the only milestone with a live run record: M7 (`hack/m7-evidence-trail.log`), the gateway chain and the three chaos scenarios have theirs |
 
