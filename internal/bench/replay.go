@@ -62,6 +62,10 @@ type RawRow struct {
 	// Both are written only for a study that records replay timing, so every other study's rows keep their bytes.
 	ReplayOriginUnixNanos int64 `json:"replayOriginUnixNanos,omitempty"`
 	ReturnedUnixNanos     int64 `json:"returnedUnixNanos,omitempty"`
+	// ContentGapsMicros is the gap before each content frame after the first, in microseconds, as the client saw
+	// them; set only when the replay records timing. A p99 over these is an inter-token p99 of individual gaps, which
+	// a per-request average (end minus first, over frames minus one) cannot give.
+	ContentGapsMicros []int64 `json:"contentGapsMicros,omitempty"`
 	// PromptLenChars is the prompt size in characters this request was generated at.
 	//
 	// It is on the ROW for the reason Study gives below: the report, the gates and the published documents
@@ -209,6 +213,8 @@ type SendResult struct {
 	FirstTokenUnixNanos int64
 	// EndUnixNanos is when the response finished; zero if it never did.
 	EndUnixNanos int64
+	// ContentUnixNanos is every content frame's arrival time, kept only when the sender was asked to.
+	ContentUnixNanos []int64
 	// OutputTokens is the response length in tokens.
 	OutputTokens int
 	// PromptTokens is the engine's own count of the prompt, zero when it reported none.
@@ -325,12 +331,17 @@ func Replay(ctx context.Context, sender Sender, trace []TraceRow, opts ReplayOpt
 			sendNanos := clock().UnixNano()
 			res := sender.Send(ctx, tr, sendNanos)
 			var origin, returned int64
+			var gaps []int64
 			if opts.RecordTiming {
 				origin, returned = start.UnixNano(), clock().UnixNano()
+				for k := 1; k < len(res.ContentUnixNanos); k++ {
+					gaps = append(gaps, (res.ContentUnixNanos[k]-res.ContentUnixNanos[k-1])/1000)
+				}
 			}
 			rows[i] = RawRow{
 				ReplayOriginUnixNanos: origin,
 				ReturnedUnixNanos:     returned,
+				ContentGapsMicros:     gaps,
 				Index:                 tr.Index,
 				Study:                 opts.Study,
 				Arm:                   opts.Arm,

@@ -308,6 +308,16 @@ class PilotReportReviewTest(unittest.TestCase):
         restart = [g for g in pr.gates(os.path.join(self.d, "A"), os.path.join(self.d, "B"), 13) if g["gate"].startswith("A restart")][0]
         self.assertIsNone(restart["would_fire"])
 
+    # Each premium inter-token gap is pooled as recorded, so one long gap among short ones sets the p99.
+    def test_premium_inter_token_gaps_are_pooled_one_by_one(self):
+        cell = Cell(self.d)
+        cell.rows[0]["contentGapsMicros"] = [10_000] * 62 + [160_000]
+        cell.save()
+        rep = pr.stage_report(self.d)
+        g = rep["arms"]["off"]["premium_inter_token_gap_ms"]
+        self.assertEqual(g["n"], 63)
+        self.assertEqual(g["max"], 160.0)
+
     # Finding 8.
     def test_an_infinite_comparator_bound_keeps_its_infinity(self):
         self.assertEqual(pr.crossed_log_ratio(20.0, math.inf), -math.inf)

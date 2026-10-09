@@ -37,9 +37,11 @@ import (
 //
 // It records first-token and end timestamps on the client's own clock, which is the only honest source for TTFT because the gateway's request histogram does not start until the proxy handoff.
 type HTTPSender struct {
-	client     *http.Client
-	gatewayURL string
-	model      string
+	// recordContentTimes keeps every content frame's arrival time (SetRecordContentTimes).
+	recordContentTimes bool
+	client             *http.Client
+	gatewayURL         string
+	model              string
 	// apiKeys maps a trace tenant to the API key the gateway resolves it from, so one sender can drive premium and standard tenants through the real identity chain.
 	apiKeys map[string]string
 	// priorities maps a trace tenant to the scheduling priority sent with its requests; absent means none.
@@ -169,6 +171,10 @@ func (h *HTTPSender) SetPriorities(p map[string]int) { h.priorities = p }
 
 // SetRequestIDPrefix makes each request carry X-Request-Id, built by RequestIDFor.
 func (h *HTTPSender) SetRequestIDPrefix(p string) { h.requestIDPrefix = p }
+
+// SetRecordContentTimes makes the sender keep the arrival time of every content frame, so inter-token gaps can be
+// reported one by one: an average per request hides one long gap among many short ones.
+func (h *HTTPSender) SetRecordContentTimes(on bool) { h.recordContentTimes = on }
 
 // RequestIDFor is the X-Request-Id a row is sent with, and the one its raw row records: the two must agree, so
 // both are built here. The gateway forwards it and vLLM makes it the engine's id, as "chatcmpl-<id>-<8 random>".
@@ -503,8 +509,12 @@ func (h *HTTPSender) readStream(ctx context.Context, resp *http.Response) SendRe
 			res.FinishReason = chunk.Choices[0].FinishReason
 		}
 		if len(chunk.Choices) > 0 && chunk.Choices[0].Delta.Content != "" {
+			now := h.now().UnixNano()
 			if res.FirstTokenUnixNanos == 0 {
-				res.FirstTokenUnixNanos = h.now().UnixNano()
+				res.FirstTokenUnixNanos = now
+			}
+			if h.recordContentTimes {
+				res.ContentUnixNanos = append(res.ContentUnixNanos, now)
 			}
 			res.OutputTokens++
 		}

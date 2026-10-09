@@ -720,6 +720,7 @@ func replay(args []string) error {
 			return fmt.Errorf("study %s joins its rows to the gateway's record by request ID, and no --request-id-prefix was given", study.ID)
 		}
 		recordTiming = true
+		sender.SetRecordContentTimes(true)
 		if err := writeSenderConfig(*rawOut+".sender.json", senderConfig{
 			Study: m.Study, Arm: m.Arm, ConnMode: *connMode,
 			MaxIdleConnsPerHost: conn.MaxIdleConnsPerHost, DrainForReuse: conn.DrainForReuse,

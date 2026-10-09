@@ -171,6 +171,7 @@ def cell_report(stage_dir, arm, rep):
     missing, incomplete, no_arrival, no_return, no_flush = 0, 0, 0, 0, 0
     contender_admitted = 0
     premium_lags = []
+    premium_gaps = []
     premium_unc, premium_fail = 0, 0
     release_gap = []
     window_end = 0
@@ -196,6 +197,8 @@ def cell_report(stage_dir, arm, rep):
         lags.append(lag)
         if r.get("tenant") == PREMIUM:
             premium_lags.append(lag)
+            if full_output(r, 64):
+                premium_gaps.extend(g / 1000.0 for g in r.get("contentGapsMicros") or [])
         if any(sched_ns <= e and d["arrivedUnixNanos"] >= b for b, e in spans):
             lag_during_upload.append(lag)
         client_gaps["send_to_arrival"].append(ms(d["arrivedUnixNanos"] - r["sendUnixNanos"]))
@@ -301,7 +304,7 @@ def cell_report(stage_dir, arm, rep):
             "contender_release_gap_ms": summary(release_gap),
             "contender_admitted": contender_admitted,
             "contender_completed": sum(1 for r in rows if r.get("tenant") == CONTENDER and full_output(r, 16)),
-            "_release_gaps": release_gap, "_premium_lags": premium_lags,
+            "_release_gaps": release_gap, "_premium_lags": premium_lags, "_premium_gaps": premium_gaps,
             "sidecar": {"uploads": len(uploads), "failed": sum(1 for u in uploads if u["hook_rc"] != "0"),
                         "upload_ms": summary([ms(e - b) for b, e in spans]),
                         "lag_ms_overlapping_an_upload": summary(lag_during_upload)},
@@ -374,7 +377,10 @@ def stage_report(stage_dir, stage=None):
                             "width_box": width(p["arr_lo"], p["sched_hi"]),
                             "width_sched": width(p["sched_lo"], p["sched_hi"]),
                             "width_arr": width(p["arr_lo"], p["arr_hi"]),
-                            "lag_ms_pooled": summary(lags)}
+                            "lag_ms_pooled": summary(lags),
+                            # Each client-visible gap between premium content frames, pooled: a per-request average
+                            # would hide one long gap among short ones (v24 review, finding 2).
+                            "premium_inter_token_gap_ms": summary([x for c in group for x in c["_premium_gaps"]])}
     # Contention and P/O are about O and P against each other and I, never S.
     if "off" in pooled and "R1" in pooled and pooled["R1"]["sched_hi"]:
         out["contention_o_over_i"] = pooled["off"]["sched_hi"] / pooled["R1"]["sched_hi"] if not math.isinf(pooled["off"]["sched_hi"]) else None
