@@ -1049,6 +1049,18 @@ Both stages were bought in gpu-lab on one g5.2xlarge Spot each: stage A `i-0ad29
 
 **Not judged here.** P's tail beside S's is printed in the table because the report prints each arm's own quantities; the pilot reaches no verdict about P against S.
 
+### v22 proposal, after the pilot (not yet attacked)
+
+The pilot's uncertainty cap fired, so by its own rule the design returns here. Everything below is a change outside the frozen formulas, written by an author who has seen stage B.
+
+1. **The gateway fix stands as apparatus, not as a formula change** (ab7f0f5). It moves the informers' start into readiness, where the matrix already waits. It sends no warm-up request, spends no admission budget and warms neither the engine nor the sender's pool. Deployment-to-readiness time is still recorded per cell in `phases.tsv`, so the cost is moved, not hidden.
+2. **The pilot is bought again, both stages, on the fixed gateway, as "pilot 2".** Its formulas need every arm of both stages, and both stages' lags carry the stalls, so no subset of the first pilot can stand in. New seeds, frozen now: stage A 821, 822, 823; stage B 831, 832, 833. Same load, arms, blocks, limits and formulas as pilot 1. The first pilot's numbers stay published as they are.
+3. **R is fitted again on pilot 2's stage A**, by the same rule. Pilot 1's R (5,318) was fitted on evidence whose first requests were delayed, and P's admissions in those requests may differ.
+4. **The dispatch-lag population for L, the ceiling and the uncertainty cap becomes premium requests only.** The uncertain set is defined on premium TTFT, and a contender's lag includes parsing its 40,000-character body before the arrival stamp (median 0.9 ms, maximum 4.1 ms in pilot 1), which says nothing about whether a premium request's scheduled instant can be trusted. Pilot 1's report pooled every request.
+5. **What does not change, and why.**
+   - The arrival stamp stays where it is, after authentication, policy lookup and the body's parse. Moving it to handler entry would let a slow body upload look like no lag at all. Moving the body read ahead of authentication is a larger change to the gateway's exposure, and premium entry-to-arrival is 0.1 ms at the median and 2.9 ms at most. The lag is therefore described as "to the gateway's arrival stamp, including its pre-admission processing", never as transport delay.
+   - The sender does not pre-open connections. The first requests of a cell pay about 1.7 ms more to open them (2.4 against 0.6 ms send to entry), and that cost is real for any client.
+
 ## What v21 changed, against the review of v20
 
 | v20 finding | Change |
