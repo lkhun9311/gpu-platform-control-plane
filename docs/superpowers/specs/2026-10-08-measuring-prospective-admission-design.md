@@ -1193,6 +1193,26 @@ Each line says which v24 finding it answers.
 
 **astra's final attack before purchase** (`data/2026-10-09-pilot-results/astra-final-attack.md`): 1 blocker, 3 majors, 1 minor; "not ready". I agree with all five and fixed them the same day: a cell the matrix refused is invalid in the scorer; a block whose validity fails leaves its comparisons unscored, and only what a cell observes directly (a hold refusal, a preemption) can still fail it; completion is timed at the last content frame, not the replay's return; a positive verdict needs all thirteen cells, and live snapshots of a missing cell are named (d0da162); the instance's tail reserve is 2 minutes, not 10 (this commit). The rehearsal accepts any of the three verdicts, since the stub models no scheduler; the verdict's distinctions are pinned by the report's tests.
 
+### The diagnostic's result, 2026-10-09
+
+Bought in gpu-lab on one g5.2xlarge Spot, `i-0bed746c2078352f1`, launched 12:25:20Z, marker 14:37:59Z, terminated before download; 13 cells, every one eligible, no refusal, the engine counting the frozen 68 and 7,695 tokens. Scored by `pilot_report.py diagnostic` at the commit in `data/2026-10-09-diagnostic-results/`.
+
+**Verdict: observed on these traces: hold-cap met every limit in all three blocks.**
+
+| Arm | Premium TTFT p99, scheduled, blocks 1 / 2 / 3 | Contenders completed | Contender completion p50 | p95 | Premium inter-token gap p99 |
+|---|---|---|---|---|---|
+| R1 | 63.5 ms | — | — | — | 31.7 ms |
+| off | 1,470 / 1,516 / 1,486 ms | all | 3.2 / 5.2 / 3.2 s | 13.5 / 11.7 / 7.9 s | 91–93 ms |
+| hold | 1,453 / 1,511 / 1,477 ms | all | 3.2 / 5.3 / 3.2 s | 13.6 / 12.0 / 8.0 s | 91–93 ms |
+| cap | 1,742 / 1,752 / 1,626 ms | all | 3.5 / 5.6 / 3.5 s | 13.7 / 12.0 / 8.4 s | 90–91 ms |
+| **hold-cap** | **423 / 479 / 452 ms** | **all** | **4.0 / 7.2 / 4.0 s** | **16.8 / 16.0 / 9.6 s** | **88–89 ms** |
+
+- **Premium p99, crossed upper end against off:** ln 0.288, 0.316, 0.304, each far below ln 0.85.
+- **Contender cost, against the owner's limits:** completion 100%; p50 1.26, 1.38 and 1.25 times off's (limit 1.5); p95 16.8, 16.0 and 9.6 s (limit 25 s); no hold refusal; no preemption; work in the shared window 0.99 to 1.00 of off's for p and 0.99 for q.
+- **Each part alone did what the replay said it would:** the hold alone left the tail at about 0.99 of off's, the cap alone made it worse, 1.09 to 1.19 times, and together they cut it to about 0.30. The replay had predicted 0.95 to 0.97, 1.15 to 1.27, and 0.27 to 0.36.
+
+**What it licenses.** By the protocol's own reading, three blocks of one card: designing a main study of hold-cap against a static control is warranted; this is not that study's result. Three passing blocks bound the block success rate above 37% at 95%. Hold-cap still sits about seven times above isolated service (452 against 63.5 ms), and the contender pays about 25 to 38% in median completion.
+
 The draft as written, kept for the record:
 
 **Its question.** On the A10G, under the pilot's frozen load, does the engine's prefill cap at 384 together with the gateway's serial-prefill hold cut the premium tail, at a contender cost inside limits frozen here, before any card time? It is a feasibility measurement of one candidate, not the main study: it answers whether a main study of this treatment is worth designing.

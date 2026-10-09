@@ -1,0 +1,13 @@
+R1        1 premium p99    63.5 ms | contenders 0/0 p50 None p95 None ms | gap p99 31.699 | eligible True
+off       1 premium p99  1469.8 ms | contenders 186/186 p50 3202 p95 13511 ms | gap p99 91.104 | eligible True
+off       2 premium p99  1516.2 ms | contenders 232/232 p50 5215 p95 11710 ms | gap p99 92.528 | eligible True
+off       3 premium p99  1485.8 ms | contenders 185/185 p50 3210 p95 7933 ms | gap p99 91.469 | eligible True
+hold      1 premium p99  1453.4 ms | contenders 186/186 p50 3241 p95 13631 ms | gap p99 91.098 | eligible True
+hold      2 premium p99  1510.9 ms | contenders 232/232 p50 5313 p95 11979 ms | gap p99 92.725 | eligible True
+hold      3 premium p99  1477.2 ms | contenders 185/185 p50 3210 p95 7960 ms | gap p99 91.697 | eligible True
+cap       1 premium p99  1742.3 ms | contenders 186/186 p50 3531 p95 13721 ms | gap p99 90.06 | eligible True
+cap       2 premium p99  1751.6 ms | contenders 232/232 p50 5588 p95 11953 ms | gap p99 91.181 | eligible True
+cap       3 premium p99  1626.0 ms | contenders 185/185 p50 3523 p95 8399 ms | gap p99 90.288 | eligible True
+hold-cap  1 premium p99   423.4 ms | contenders 186/186 p50 4032 p95 16849 ms | gap p99 88.373 | eligible True
+hold-cap  2 premium p99   478.7 ms | contenders 232/232 p50 7178 p95 15984 ms | gap p99 89.288 | eligible True
+hold-cap  3 premium p99   451.6 ms | contenders 185/185 p50 4006 p95 9590 ms | gap p99 88.527 | eligible True
