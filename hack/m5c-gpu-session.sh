@@ -1242,13 +1242,15 @@ USERDATA
 # before the launch, so both fall no later than they would counted from the launch itself.
 # The acquisition deadline leaves the 6-minute termination reserve before the hard stop. The matrix on the
 # instance stops a further PILOT_TAIL_RESERVE_S earlier, so its archive and marker can be up before the wrapper
-# stops waiting; the pilot measures that tail, and 10 minutes is the reserve until it has.
+# stops waiting. The pilot measured that tail at 12 s in both stages (design page, "Pilot results"), so the reserve
+# is 2 minutes, ten times it; at 10 minutes it cut 8 minutes off the diagnostic's registered acquisition window
+# (final review, finding 5).
 # The study-deadline tag the sweeper reads (infra/aws/bootstrap/sweeper.tf) is the hard stop plus 20 minutes, set
 # in the launch's own tag specifications so it exists the moment the instance does.
 PILOT_ACQ_DEADLINE=""
 PILOT_MATRIX_DEADLINE=""
 PILOT_STUDY_DEADLINE=""
-PILOT_TAIL_RESERVE_S=600
+PILOT_TAIL_RESERVE_S=120
 if [ -n "${PILOT_STAGE:-}" ]; then
   _t0=$(date +%s)
   PILOT_ACQ_DEADLINE=$(( _t0 + HARD_STOP_SECONDS - 360 ))

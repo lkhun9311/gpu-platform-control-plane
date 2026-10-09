@@ -997,7 +997,7 @@ A step log that fails its completeness check does not stop the next arm. It make
 - `hack/prospective-pilot/pilot_report.py` reports each arm's box as ln(sched_hi / arr_lo), the arm's contribution to y_hi − y_lo. Before 9b10925 it summed P's scheduled width and S's arrival width instead, which reads zero when trusted lag is non-zero. It now also pools lag per arm before taking p99.9, requires all registered cells of both stages, and requires the engine log, the fence's add record, a return stamp on every premium row and a flush stamp on every premium success.
 - The duration formulas are computed: arm time from both timing records, bring-up from the instance's `LaunchTime` to the first cell's start, the session tail from the matrix's return to the marker's upload, and from them the session length and its four deadlines. A missing record makes the output unavailable.
 - The session runner carries the stage, the rates and the stage's arms to the instance. It holds the registered limits (stage A 2 h 30 / 2 h 40, stage B 3 h 30 / 3 h 40) and refuses a caller's. It waits on a wall-clock acquisition deadline, terminates under a fixed 5 minutes before any download, and records the three session stamps.
-- The instance's matrix stops at an absolute deadline the wrapper sets: the acquisition deadline less a 10-minute tail reserve. Counted from the instance's boot, as other studies still do, it would run about the bring-up's 25 minutes past the wrapper's termination. The 10 minutes are a reserve until stage A measures the tail.
+- The instance's matrix stops at an absolute deadline the wrapper sets: the acquisition deadline less a 10-minute tail reserve. Counted from the instance's boot, as other studies still do, it would run about the bring-up's 25 minutes past the wrapper's termination. The 10 minutes were a reserve until stage A measured the tail; it measured 12 s in both stages, and the reserve is now 2 minutes.
 
 **q's ceiling is 15/16, not 1.** A 16-token output takes one prefill step, which samples the first token, and 15 decode steps; the registered CPU fixture says the same (80 prefill and 7 decode tokens for 8 outputs). The margins compare differences, so this changes no rule, but a reader of q = 0.9375 should not read lost work.
 
@@ -1155,7 +1155,7 @@ Each line says which v24 finding it answers.
 
 **Blocks** (finding 5): three blocks of off, hold, cap and hold+cap, each in a hashed order, plus R1 once at the start: 13 cells. Seeds, frozen now: 851, 852, 853.
 
-**Limits** (finding 11), by the pilot's own allowance method with its measured arm time: 1.25 × (200 + 13 × 920 + 12) = 15,215 s. Hard stop 4 h 14 m (15,240 s), acquisition deadline 6 min before it, backstop 10 min after, `study-deadline` 20 min after. A block cut by the deadline is reported and not scored; the verdict reads complete blocks only.
+**Limits** (finding 11), by the pilot's own allowance method with its measured arm time: 1.25 × (200 + 13 × 920 + 12) = 15,215 s. Hard stop 4 h 14 m (15,240 s), acquisition deadline 6 min before it, backstop 10 min after, `study-deadline` 20 min after. The matrix on the instance stops 2 minutes before the acquisition deadline, so its archive and marker are up first; the pilot measured that tail at 12 s. A block cut by the deadline is reported and not scored; the verdict reads complete blocks only.
 
 **Validity, or the verdict is "inconclusive"** (finding 6), checked per block:
 - every arm's premium loss under 0.5%, and off's crossed denominator finite;
@@ -1190,6 +1190,8 @@ Each line says which v24 finding it answers.
 | 6 a block cut by the deadline has no outcome | Precedence: a positive verdict needs all three blocks complete and eligible; fewer is "inconclusive", and any failure observed in an incomplete block is still reported |
 | 7 one-second samples cannot show a peak or a saturated stretch | The samples are published as sampled observations only, never as a maximum or a duration; a failed read leaves a row; the cadence is held. Their stamps were nanoseconds labelled milliseconds, which this machine's `date +%s%3N` produced, and a check now pins milliseconds (4394227) |
 | 8 an auxiliary arm's harm can make the candidate's block inconclusive | Validity reads off and hold+cap only; hold and cap are reported, and their own loss does not void the block. The nine-cell design (one five-arm block, then two off and hold+cap pairs) is the cheaper alternative, which loses the repeated ablation |
+
+**astra's final attack before purchase** (`data/2026-10-09-pilot-results/astra-final-attack.md`): 1 blocker, 3 majors, 1 minor; "not ready". I agree with all five and fixed them the same day: a cell the matrix refused is invalid in the scorer; a block whose validity fails leaves its comparisons unscored, and only what a cell observes directly (a hold refusal, a preemption) can still fail it; completion is timed at the last content frame, not the replay's return; a positive verdict needs all thirteen cells, and live snapshots of a missing cell are named (d0da162); the instance's tail reserve is 2 minutes, not 10 (this commit). The rehearsal accepts any of the three verdicts, since the stub models no scheduler; the verdict's distinctions are pinned by the report's tests.
 
 The draft as written, kept for the record:
 
