@@ -1080,7 +1080,19 @@ The pilot's gates fired, so by its own rule the design returned here. A v22 was 
 | `phases.tsv` was said to record deployment-to-readiness (finding 5, minor) | It does not: its first pilot stamp is `replay-start`. The restart gate is reported as not measured. |
 | Pilot 2, both stages, on new seeds | **Not bought.** Astra's point stands: the P/O screen fired for a reason the fix does not address, so a second full pilot would buy the same answer to the question that matters. |
 
-**What the evidence now says, and what is the owner's to decide.** Under this load prospective admission refused 6.5% of contender requests and left the premium p99 at 0.995 of off's, against the 0.85 the main study needs. Whether that is the treatment's limit or this configuration's (30,000 prefill units, 4 streams, a 512-token budget) is not established. Free diagnosis on the archived step logs can say where the premium tail's 1.5 s goes before any further purchase.
+**Where the premium tail's 1.5 s goes** (2026-10-09; my reading of the step logs and astra's, done independently and in agreement; astra's is archived as `data/2026-10-09-pilot-results/astra-po-investigation.md`):
+- In every contended arm, a request above the p99 spends about 1.35 s between the scheduler's `add` and its first scheduled step, and its own prefill step takes about 80 ms. The gateway, the durable write and delivery together take under 20 ms.
+- That wait is one contender's prefill. Its 7,695 tokens run in 512-token chunks over 16 to 18 steps of about 80 ms. Every one of the 517 tail requests met exactly one contender in prefill; 505 waited through nothing else. In `pp-A-off-3-750`'s 16 blocked steps, 7,463 tokens went to that prefill and none to the new premium request, and no other premium prefill started either.
+- The cause is the scheduler's order, as vLLM v0.27.1 implements it: running requests are scheduled first, and waiting requests only take what budget is left. Priority orders the waiting queue; it does not let a new premium request displace a running prefill at the next chunk boundary. No preemption occurred in any cell.
+- A second, smaller tail is sequence capacity: with all 64 slots occupied, mostly by running premium decodes, new requests wait without any contender prefill.
+
+**What this does to the premise.**
+- The design assumed the 512-token budget bounds a premium request's wait to about one step. It bounds the step's work, not the wait.
+- Prospective admission as built counts outstanding input and streams. It admits premium unconditionally and never looks at the premium queue or at a prefill's progress, so three outstanding contender prefills are allowed, and one is enough to produce the tail.
+- What admission can still reach: it decides whether the blocking state forms. In off, premium requests that entered with exactly one contender in the engine had a p99 about 16 to 19% below off's; that is a selected observation, not a policy's measured effect. Refusing every contender approaches R1's 63 ms but is not a work-preserving policy.
+- Repeating the pilot would not answer this, so pilot 2 stays unbought.
+
+**The cheapest deciding experiments, in order** (astra's list, which I adopt): a scheduler replay on the archives to screen candidate admission rules with their retained contender work; a CPU test that injects a premium request at known chunks of a running prefill, and with all 64 slots full; a kind test of the chosen rule's fidelity; and only then one targeted GPU session comparing off, current P and the best candidate. An engine-side change, letting waiting premium work into the budget at chunk boundaries, is a different treatment and would be a different study.
 
 ## What v21 changed, against the review of v20
 
