@@ -1092,6 +1092,17 @@ The pilot's gates fired, so by its own rule the design returned here. A v22 was 
 - What admission can still reach: it decides whether the blocking state forms. In off, premium requests that entered with exactly one contender in the engine had a p99 about 16 to 19% below off's; that is a selected observation, not a policy's measured effect. Refusing every contender approaches R1's 63 ms but is not a work-preserving policy.
 - Repeating the pilot would not answer this, so pilot 2 stays unbought.
 
+**The scheduler replay, first of the free experiments (2026-10-09; the owner chose to redesign the admission rule).** `hack/prospective-pilot/simulate.py` models the scheduler as the step logs show it, running requests first and then waiting ones by priority, with a 512-token budget and 64 slots, and a step time fitted on 282,897 archived steps. It reproduces every archived arm's premium p99 to within −6% to +6% (R1 +2 to +6%; contended arms −6% to 0%, a little low). It then replays each off cell's arrivals under candidate gateway rules that use only what a gateway can see, whether a contender's first token has come back:
+
+| Rule, on the six off cells | Premium p99, simulated, against off's | Contenders completed | Contender held at the gateway |
+|---|---|---|---|
+| hold a contender while another's prefill runs | 0.99 | all | median 0.4 to 2.9 s, up to 18 s |
+| hold while a prefill runs or a premium request waits | 0.95 | all | up to 20 s |
+| at most one contender outstanding, holding the rest | 0.88 to 0.90 | all but 8 of 239 in one cell | median 2.7 to 8.1 s, up to 30 s |
+| refuse a contender while another's prefill runs | 0.84 to 0.88 | 61 to 69% | — |
+
+**No rule reaches 0.85 and keeps the contender's work, and the one that comes near refuses 31 to 39%, outside the 5 to 30% the design allows.** The floor is one prefill's duration, about 1.2 to 1.3 s: while more than 1% of premium requests arrive during some contender's prefill, the p99 is that prefill. Serialising prefills removes only the overlap of two. These are screening results from a model, not measurements.
+
 **The cheapest deciding experiments, in order** (astra's list, which I adopt): a scheduler replay on the archives to screen candidate admission rules with their retained contender work; a CPU test that injects a premium request at known chunks of a running prefill, and with all 64 slots full; a kind test of the chosen rule's fidelity; and only then one targeted GPU session comparing off, current P and the best candidate. An engine-side change, letting waiting premium work into the budget at chunk boundaries, is a different treatment and would be a different study.
 
 ## What v21 changed, against the review of v20
