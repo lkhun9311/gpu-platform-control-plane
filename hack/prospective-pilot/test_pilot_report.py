@@ -30,10 +30,10 @@ class Cell:
         self.rows = [
             {"requestId": "pp-A-off-1-0", "tenant": "premium-1", "scheduledOffsetMs": 0, "replayOriginUnixNanos": ORIGIN,
              "sendUnixNanos": ORIGIN + 100_000, "firstTokenUnixNanos": ORIGIN + 30_000_000, "returnedUnixNanos": ORIGIN + 50_000_000,
-             "httpStatus": 200, "engineOutputTokens": 64, "exactInputTokens": 68},
+             "httpStatus": 200, "engineOutputTokens": 64, "outputTokens": 64, "streamTerminated": True, "exactInputTokens": 68},
             {"requestId": "pp-A-off-1-1", "tenant": "standard-noisy", "scheduledOffsetMs": 1, "replayOriginUnixNanos": ORIGIN,
              "sendUnixNanos": ORIGIN + 1_100_000, "returnedUnixNanos": ORIGIN + 40_000_000,
-             "httpStatus": 200, "engineOutputTokens": 16, "exactInputTokens": 100},
+             "httpStatus": 200, "engineOutputTokens": 16, "outputTokens": 16, "streamTerminated": True, "exactInputTokens": 100},
         ]
         self.gw = []
         for r in self.rows:
@@ -136,7 +136,8 @@ def add_premium(cell, n, lag_ns=500_000, ttft_ns=20_000_000, start=10):
         sched = ORIGIN + i * 1_000_000
         cell.rows.append({"requestId": rid, "tenant": "premium-1", "scheduledOffsetMs": i, "replayOriginUnixNanos": ORIGIN,
                           "sendUnixNanos": sched, "firstTokenUnixNanos": sched + lag_ns + ttft_ns + 1000,
-                          "returnedUnixNanos": ORIGIN + 50_000_000, "httpStatus": 200, "engineOutputTokens": 64, "exactInputTokens": 68})
+                          "returnedUnixNanos": ORIGIN + 50_000_000, "httpStatus": 200, "engineOutputTokens": 64, "outputTokens": 64,
+                          "streamTerminated": True, "exactInputTokens": 68})
         arr = sched + lag_ns
         cell.gw.append({"ev": "arrive", "requestId": rid, "arrivedUnixNanos": arr})
         cell.gw.append({"ev": "done", "requestId": rid, "arrivedUnixNanos": arr, "recordedUnixNanos": arr + 1000, "decidedUnixNanos": arr + 2000,
@@ -317,6 +318,28 @@ class PilotReportReviewTest(unittest.TestCase):
         g = rep["arms"]["off"]["premium_inter_token_gap_ms"]
         self.assertEqual(g["n"], 63)
         self.assertEqual(g["max"], 160.0)
+
+    # A stream that ended without [DONE] is not a success (v25 review, finding 1).
+    def test_an_unterminated_stream_is_not_a_success(self):
+        row = {"httpStatus": 200, "engineOutputTokens": 64, "streamTerminated": False}
+        self.assertFalse(pr.full_output(row, 64))
+
+    # A premium success with fewer gaps than frames less one is missing evidence, not fast gaps.
+    def test_short_gap_evidence_is_a_problem_not_a_fast_gap(self):
+        cell = Cell(self.d)
+        cell.rows[0]["contentGapsMicros"] = [10_000] * 10
+        c = cell.save()
+        self.assertTrue(any("fewer inter-token gaps" in p for p in c["problems"]), c["problems"])
+        self.assertEqual(c["premium_gap_evidence"]["short"], 1)
+
+    # The shared window ends at the last scheduled instant, not the arm's last premium return. In the fixture the last
+    # request is scheduled at 1 ms and the contender's prefill step starts at 1 ms, so it falls outside the shared
+    # window, while the arm's own window, to the premium's return at 50 ms, counts it (v25 review, finding 3).
+    # Mutation that turns it red: end the shared window at the last premium return.
+    def test_retained_work_has_a_window_shared_by_every_arm(self):
+        c = Cell(self.d).save()
+        self.assertEqual(c["work"]["p_shared_window"], 0.0)
+        self.assertEqual(c["work"]["p"], 1.0)
 
     # Finding 8.
     def test_an_infinite_comparator_bound_keeps_its_infinity(self):

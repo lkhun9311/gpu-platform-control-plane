@@ -85,7 +85,9 @@ def gateway_records(path):
 
 
 def is_success(row):
-    return not row.get("errorKind") and row.get("httpStatus") == 200
+    # A stream that ended without [DONE] is not a success, even with status 200 and no error: a clean EOF can cut a
+    # response short (v25 review, finding 1).
+    return not row.get("errorKind") and row.get("httpStatus") == 200 and row.get("streamTerminated") is True
 
 
 def full_output(row, cap):
@@ -172,6 +174,7 @@ def cell_report(stage_dir, arm, rep):
     contender_admitted = 0
     premium_lags = []
     premium_gaps = []
+    gaps_absent = gaps_short = 0
     premium_unc, premium_fail = 0, 0
     release_gap = []
     window_end = 0
@@ -198,7 +201,16 @@ def cell_report(stage_dir, arm, rep):
         if r.get("tenant") == PREMIUM:
             premium_lags.append(lag)
             if full_output(r, 64):
-                premium_gaps.extend(g / 1000.0 for g in r.get("contentGapsMicros") or [])
+                # Every content frame after the first leaves one gap; a success whose gaps are missing or short is
+                # missing evidence, not a set of fast gaps (v25 review, finding 1). Rows recorded before gaps were
+                # kept carry none at all, and are counted apart.
+                g = r.get("contentGapsMicros")
+                if g is None:
+                    gaps_absent += 1
+                elif len(g) != r.get("outputTokens", 0) - 1:
+                    gaps_short += 1
+                else:
+                    premium_gaps.extend(x / 1000.0 for x in g)
         if any(sched_ns <= e and d["arrivedUnixNanos"] >= b for b, e in spans):
             lag_during_upload.append(lag)
         client_gaps["send_to_arrival"].append(ms(d["arrivedUnixNanos"] - r["sendUnixNanos"]))
@@ -234,6 +246,8 @@ def cell_report(stage_dir, arm, rep):
         problems.append("%d request(s) were refused before their body was read, so their lag is unknown" % no_arrival)
     # A premium success must carry its flushed first-content stamp; one without it is not a failure but missing
     # evidence (design page, eligibility condition 1; review of 97ae105, finding 4).
+    if gaps_short:
+        problems.append("%d premium success(es) have fewer inter-token gaps than content frames less one" % gaps_short)
     if no_flush:
         problems.append("%d premium success(es) have no flushed first-content stamp" % no_flush)
     # The window ends at the last premium return, so every premium row must carry one: a missing one could be the
@@ -264,13 +278,20 @@ def cell_report(stage_dir, arm, rep):
     offered = [r for r in rows if r.get("tenant") == CONTENDER]
     tenant_of = {r["requestId"]: r["tenant"] for r in rows}
     prefill = decode = 0
+    # The shared window ends at the block's last scheduled instant, the same for every arm replaying that trace, so
+    # a treatment that delays its own last premium request cannot lengthen the time its contender work is counted in
+    # (v25 review, finding 3). The arm's own window, to its last premium return, is kept beside it.
+    shared_end = max((r.get("replayOriginUnixNanos", 0) + r["scheduledOffsetMs"] * 1_000_000 for r in rows), default=0)
+    prefill_shared = decode_shared = 0
     unannounced = set()
     for s in steps:
         if s.get("ev") != "sched":
             continue
         a = s.get("anchor") or [0, 0, 0]
         wall_t0 = s["t0"] + (a[1] - (a[0] + a[2]) / 2)
-        if window_end and wall_t0 >= window_end:
+        in_own = not (window_end and wall_t0 >= window_end)
+        in_shared = bool(shared_end) and wall_t0 < shared_end
+        if not in_own and not in_shared:
             continue
         for rid, n in s["tokens"].items():
             client = match_client(rid, client_ids)
@@ -283,8 +304,12 @@ def cell_report(stage_dir, arm, rep):
             prompt = adds[rid].get("prompt", 0)
             before = s["computed"].get(rid, 0)
             pf = min(n, max(prompt - before, 0))
-            prefill += pf
-            decode += n - pf
+            if in_own:
+                prefill += pf
+                decode += n - pf
+            if in_shared:
+                prefill_shared += pf
+                decode_shared += n - pf
     if unannounced:
         problems.append("%d contender(s) were scheduled with no add record, so their prefill cannot be split from decode" % len(unannounced))
     exact = sum(r.get("exactInputTokens", 0) for r in offered)
@@ -293,7 +318,9 @@ def cell_report(stage_dir, arm, rep):
     work = {"offered": len(offered),
             "p": prefill / exact if exact and window_end else None,
             "q": decode / (len(offered) * 16) if offered and window_end else None,
-            "c": completed / exact if exact else None}
+            "c": completed / exact if exact else None,
+            "p_shared_window": prefill_shared / exact if exact and shared_end else None,
+            "q_shared_window": decode_shared / (len(offered) * 16) if offered and shared_end else None}
 
     return {"arm": arm, "rep": rep, "eligible": not problems, "problems": problems,
             "rows": len(rows), "lag_ms": summary(lags),
@@ -305,6 +332,7 @@ def cell_report(stage_dir, arm, rep):
             "contender_admitted": contender_admitted,
             "contender_completed": sum(1 for r in rows if r.get("tenant") == CONTENDER and full_output(r, 16)),
             "_release_gaps": release_gap, "_premium_lags": premium_lags, "_premium_gaps": premium_gaps,
+            "premium_gap_evidence": {"absent": gaps_absent, "short": gaps_short},
             "sidecar": {"uploads": len(uploads), "failed": sum(1 for u in uploads if u["hook_rc"] != "0"),
                         "upload_ms": summary([ms(e - b) for b, e in spans]),
                         "lag_ms_overlapping_an_upload": summary(lag_during_upload)},
