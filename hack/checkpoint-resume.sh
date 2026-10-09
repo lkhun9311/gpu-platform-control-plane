@@ -54,7 +54,12 @@ die() {
   cleanup
   exit 1
 }
-trap 'cleanup' INT TERM
+# A cancelled run stops here: a handler that only cleaned up let the loop carry on against a deleted cluster.
+trap 'cleanup; exit 130' INT
+trap 'cleanup; exit 143' TERM
+# The registration fixes three repetitions and the scorer checks exactly three, so any other count is refused
+# before a cluster is built rather than ending VOID, or VALID while ignoring the extra repetitions.
+[ "$REPS" = 3 ] || die "REPS=$REPS, but the registered protocol is three repetitions"
 
 export PATH="$PWD/bin:$PATH"
 # A fresh worktree has no bin/, so the pinned kustomize is fetched rather than whatever the host might carry.
