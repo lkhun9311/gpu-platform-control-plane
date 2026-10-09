@@ -17,8 +17,9 @@ import (
 //
 // It holds rather than refuses, so the contender's work is kept and its cost is time. A request held longer than
 // maxHold is refused, so a held request cannot outlive its client's timeout at the gateway.
-// "In prefill" ends when the response's first body byte reaches the gateway, the nearest point it can see to the
-// engine finishing the prompt. That holds only while the engine does not preempt: a preempted request recomputes its
+// "In prefill" ends when the response's first complete content event reaches the gateway, the nearest point it can
+// see to the engine finishing the prompt; not its first body byte, which may be a frame without content (v24 review,
+// finding 3). On vLLM v0.27.1 the two coincide: the role frame is sent in the same write as the first token. That holds only while the engine does not preempt: a preempted request recomputes its
 // prompt after its first byte, when this rule already counts it as done.
 const AdmissionSerialPrefill AdmissionMode = "serial-prefill"
 
@@ -89,7 +90,7 @@ func (s *serialPrefillAdmitter) Reserve(ctx context.Context, _ RequestMeta, back
 
 // hold is the reservation for an admitted standard request: its prefill release hands the backend to the next waiter.
 func (s *serialPrefillAdmitter) hold(key string) *reservation {
-	return &reservation{releasePrefill: func() { s.next(key) }}
+	return &reservation{releasePrefill: func() { s.next(key) }, onContent: true}
 }
 
 // next passes the backend to the longest waiter, or marks it free; the turn is handed over under the lock, so no

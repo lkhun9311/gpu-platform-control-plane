@@ -62,6 +62,9 @@ type reservation struct {
 	prefillOnce, doneOnce sync.Once
 	releasePrefill        func()
 	releaseStream         func()
+	// onContent releases the prefill at the first complete content event rather than the first body byte: an
+	// engine may send a frame with no content, such as the role frame, before the prompt is done.
+	onContent bool
 }
 
 // PrefillDone releases the request's input-work reservation.

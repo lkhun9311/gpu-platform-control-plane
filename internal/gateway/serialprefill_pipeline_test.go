@@ -49,10 +49,10 @@ func histogramSum(h *prometheus.HistogramVec, labels ...string) float64 {
 var _ = Describe("the serial-prefill admitter in the pipeline", func() {
 	body := `{"model":"` + testModel + `","messages":[{"role":"user","content":"hello"}],"stream":true}`
 
-	// The second standard request reaches the engine only once the first one's response has sent a body byte, the
-	// gateway's sign that its prefill is done.
-	// Mutation that turns this red: release the prefill on the status line instead of the first body byte.
-	It("forwards the next standard request only after the previous one's first body byte", func() {
+	// The second standard request reaches the engine only once the first one's response has sent its first content,
+	// the gateway's sign that its prefill is done; a frame without content does not count (v24 review, finding 3).
+	// Mutation that turns this red: release on the first body byte, or on the status line.
+	It("forwards the next standard request only after the previous one's first content", func() {
 		var reached atomic.Int32
 		release := make(chan struct{})
 		var once sync.Once
@@ -63,6 +63,9 @@ var _ = Describe("the serial-prefill admitter in the pipeline", func() {
 			w.WriteHeader(http.StatusOK)
 			w.(http.Flusher).Flush()
 			if n == 1 {
+				// A frame with no content first, as an engine may send before the prompt is done: it must not release.
+				_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"role\":\"assistant\",\"content\":\"\"}}]}\n\n"))
+				w.(http.Flusher).Flush()
 				<-release
 			}
 			_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"x\"}}]}\n\n"))
@@ -90,7 +93,7 @@ var _ = Describe("the serial-prefill admitter in the pipeline", func() {
 		done := make(chan *http.Response, 1)
 		go func() { done <- send() }()
 		Consistently(func() int32 { return reached.Load() }, "200ms").Should(Equal(int32(1)),
-			"the second standard request reached the engine while the first had sent only its status line")
+			"the second standard request reached the engine while the first had sent only a frame without content")
 		time.Sleep(100 * time.Millisecond)
 
 		open()
