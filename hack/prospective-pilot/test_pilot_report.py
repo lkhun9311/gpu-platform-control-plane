@@ -454,6 +454,18 @@ class DiagnosticTest(unittest.TestCase):
         self.assertEqual((done, offered), (1, 1))
         self.assertLess(lat[0], 100)
 
+    # A contender whose gaps are fewer than its frames cannot be timed at its last content: summing what is there would
+    # end it early, so it is untimed, as a premium success with short gaps is (v26 review, finding 2).
+    # Mutation that turns it red: drop the length check on the contender's gaps.
+    def test_a_contender_with_short_gaps_is_untimed(self):
+        diag_block(self.d, 1, hold_ttft_ns=10_000_000)
+        path = os.path.join(self.d, "raw-hold-cap-1.jsonl")
+        rows = pr.jsonl(path)
+        rows[1]["contentGapsMicros"] = rows[1]["contentGapsMicros"][:3]
+        write(path, rows)
+        done, offered, _, _, untimed = pr.contender_outcomes(self.d, "hold-cap-1")
+        self.assertEqual((done, offered, untimed), (0, 1, 1))
+
     # Six cells are not the diagnostic: R1, hold and cap missing make it inconclusive (final review, finding 4).
     def test_the_pairs_alone_are_not_the_diagnostic(self):
         diag_block(self.d, 1, hold_ttft_ns=10_000_000)

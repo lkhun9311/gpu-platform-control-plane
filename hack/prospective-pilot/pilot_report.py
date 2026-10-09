@@ -649,7 +649,8 @@ def contender_outcomes(stage_dir, tag):
         # last token, not the replay's return, which also waits for [DONE] and the connection's drain (final review,
         # finding 3). A success without its gaps cannot be timed, and is counted apart.
         gaps = r.get("contentGapsMicros")
-        if full_output(r, 16) and r.get("firstTokenUnixNanos") and gaps is None:
+        # Short gaps are as untimed as absent ones: their sum would end the stream early (v26 review, finding 2).
+        if full_output(r, 16) and r.get("firstTokenUnixNanos") and (gaps is None or len(gaps) != r.get("outputTokens", 0) - 1):
             untimed += 1
             continue
         end = r["firstTokenUnixNanos"] + sum(gaps) * 1000 if full_output(r, 16) and r.get("firstTokenUnixNanos") else None
