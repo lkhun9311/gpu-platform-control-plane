@@ -100,5 +100,21 @@ class OrderTest(unittest.TestCase):
         self.assertEqual(sim.summarize(reqs)["premium_p99_ms"], float("inf"))
 
 
+class HoldTimeoutTest(unittest.TestCase):
+    # A contender held past the longest hold, counted from its arrival, is refused as the gateway refuses it.
+    # Mutation that turns it red: drop the hold deadline, leaving only the 30-second request timeout.
+    def test_a_contender_held_past_the_longest_hold_is_refused(self):
+        old = sim.HOLD_NS
+        sim.HOLD_NS = 50 * MS
+        try:
+            out = sim.simulate([req("c1", pr.CONTENDER, 0, 7695), req("c2", pr.CONTENDER, 1, 7695)], FLAT,
+                               sim.RULES["hold-one-prefill"], 0, 0)
+        finally:
+            sim.HOLD_NS = old
+        by = {r["id"]: r for r in out}
+        self.assertTrue(by["c2"].get("hold_timeout"))
+        self.assertNotIn("forwarded", by["c2"])
+
+
 if __name__ == "__main__":
     unittest.main()

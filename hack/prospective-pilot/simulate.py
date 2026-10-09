@@ -28,6 +28,9 @@ MAX_SEQS = 64
 CAP = {pr.PREMIUM: 64, pr.CONTENDER: 16}
 PRIORITY = {pr.PREMIUM: 0, pr.CONTENDER: 1}
 TIMEOUT_NS = 30_000_000_000
+# serial-prefill's longest hold (internal/gateway/serialprefill.go), counted from the request's place in the queue,
+# which is its gateway arrival here; a contender held past it is refused, as the gateway refuses it.
+HOLD_NS = 25_000_000_000
 
 
 # ---------------------------------------------------------------- the archive
@@ -200,6 +203,9 @@ def simulate(reqs, coef, rule, forward_ns, deliver_ns, long_prefill=0, step_scal
         if at - r["sched"] > TIMEOUT_NS:
             r["expired"] = True
             return True
+        if at - r["gw_arrived"] > HOLD_NS:
+            r["refused"] = r["hold_timeout"] = True
+            return True
         d = rule(gw, r)
         if d == "forward":
             eng.add(r, at + forward_ns)
@@ -232,6 +238,8 @@ def simulate(reqs, coef, rule, forward_ns, deliver_ns, long_prefill=0, step_scal
             elif held or not decide(x, t):
                 held.append(x)
         held = [r for r in held if not (eng.now - r["sched"] > TIMEOUT_NS and r.setdefault("expired", True))]
+        held = [r for r in held if not (eng.now - r["gw_arrived"] > HOLD_NS
+                                        and r.setdefault("refused", True) and r.setdefault("hold_timeout", True))]
         # Cancel what has passed its 30-second deadline, waiting or running, and release the gateway's state for it,
         # so a late contender stops taking engine tokens (simulator review, finding 1).
         for w in [w for w in eng.waiting if eng.now - w[2]["sched"] > TIMEOUT_NS]:
@@ -260,6 +268,9 @@ def simulate(reqs, coef, rule, forward_ns, deliver_ns, long_prefill=0, step_scal
     for r in reqs:
         if "first_token" in r:
             r["ttft_ms"] = (r["first_token"] + deliver_ns - r["sched"]) / 1e6
+        if "finished" in r:
+            # Completion is when the client has the last token, not when the engine produced it (v25 review, finding 4).
+            r["finished"] += deliver_ns
     return reqs
 
 
@@ -279,6 +290,7 @@ def summarize(reqs):
             # Every contender that neither completed in time nor was refused, a late finish included (review of f2e0c8a).
             "contender_expired": len(cont) - len(completed) - sum(1 for r in cont if r.get("refused")),
             "contender_refused": sum(1 for r in cont if r.get("refused")),
+            "contender_hold_timeouts": sum(1 for r in cont if r.get("hold_timeout")),
             "contender_completion_p50_ms": pr.nearest_rank(lat, 0.5), "contender_completion_p95_ms": pr.nearest_rank(lat, 0.95),
             "contender_finished_after_last_premium": sum(1 for r in completed if r["finished"] > last_premium),
             "contender_hold_p50_ms": pr.nearest_rank(delays, 0.5), "contender_hold_max_ms": delays[-1] if delays else None}
@@ -348,10 +360,10 @@ def main(argv):
                                 ("hold-one-prefill", 256), ("refuse-one-prefill", 256)):
                     x = summarize(simulate(reqs, coef, RULES[rule], fwd, deliver, long_prefill=t, step_scale=scale))
                     f = lambda v: "inf" if v is None or (isinstance(v, float) and math.isinf(v)) else str(round(v))
-                    print("%s-off-%d %s %d %.1f | %s %.3f | %d/%d %d %d | %s %s | %s %s | %d" % (
+                    print("%s-off-%d %s %d %.1f | %s %.3f | %d/%d %d %d hold-timeouts %d | %s %s | %s %s | %d" % (
                         os.path.basename(os.path.dirname(d))[-6:], rep, rule, t, scale, f(x["premium_p99_ms"]),
                         x["premium_p99_ms"] / base, x["contender_completed"], x["contender_offered"], x["contender_expired"],
-                        x["contender_refused"], f(x["contender_completion_p50_ms"]), f(x["contender_completion_p95_ms"]),
+                        x["contender_refused"], x["contender_hold_timeouts"], f(x["contender_completion_p50_ms"]), f(x["contender_completion_p95_ms"]),
                         f(x["contender_hold_p50_ms"]), f(x["contender_hold_max_ms"]), x["contender_finished_after_last_premium"]))
         return 0
     if argv[1] == "threshold":
