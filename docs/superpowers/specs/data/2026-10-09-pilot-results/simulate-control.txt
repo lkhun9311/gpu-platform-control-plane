@@ -8,7 +8,7 @@ pilotA-off-1 spacing-1.7s | 425 0.290 | 206/206 0 0 | 4682 9075 | 8438
 pilotA-off-1 spacing-1.8s | 395 0.270 | 206/206 0 0 | 5023 11202 | 13164
 pilotA-off-1 spacing-1.9s | 316 0.216 | 206/206 0 0 | 5769 16016 | 18864
 pilotA-off-1 spacing-2.0s | 304 0.208 | 205/206 0 1 | 8499 20888 | 23642
-pilotA-off-1 spacing-2.5s | 260 0.178 | 177/206 0 29 | 22416 inf | 24966
+pilotA-off-1 spacing-2.5s | 260 0.178 | 177/206 0 29 | 22416 inf | 24997
 pilotA-off-1 spacing-3.0s | 246 0.168 | 148/206 0 58 | 25623 inf | 24977
 pilotA-off-2 hold-cap | 400 0.273 | 197/197 0 0 | 3726 11217 | 11741
 pilotA-off-2 spacing-1.0s | 1622 1.107 | 197/197 0 0 | 3422 9868 | 4018
@@ -49,16 +49,16 @@ pilotB-off-2 spacing-1.8s | 382 0.260 | 204/204 0 0 | 5362 14578 | 14779
 pilotB-off-2 spacing-1.9s | 358 0.244 | 204/204 0 0 | 6508 19350 | 20766
 pilotB-off-2 spacing-2.0s | 313 0.213 | 201/204 0 3 | 8286 24451 | 24820
 pilotB-off-2 spacing-2.5s | 256 0.174 | 176/204 0 28 | 21580 inf | 24956
-pilotB-off-2 spacing-3.0s | 245 0.167 | 148/204 0 56 | 25179 inf | 24985
+pilotB-off-2 spacing-3.0s | 245 0.167 | 148/204 0 56 | 25179 inf | 24991
 pilotB-off-3 hold-cap | 460 0.313 | 239/239 0 0 | 6820 24067 | 23849
 pilotB-off-3 spacing-1.0s | 1819 1.236 | 239/239 0 0 | 6365 22285 | 5045
 pilotB-off-3 spacing-1.5s | 1807 1.229 | 239/239 0 0 | 6555 21774 | 17121
 pilotB-off-3 spacing-1.6s | 858 0.583 | 239/239 0 0 | 6986 22176 | 21444
 pilotB-off-3 spacing-1.7s | 403 0.274 | 237/239 0 2 | 7510 24810 | 24687
-pilotB-off-3 spacing-1.8s | 356 0.242 | 234/239 0 5 | 12137 26437 | 24762
+pilotB-off-3 spacing-1.8s | 356 0.242 | 234/239 0 5 | 12137 26437 | 24997
 pilotB-off-3 spacing-1.9s | 304 0.207 | 225/239 0 14 | 16727 inf | 24863
 pilotB-off-3 spacing-2.0s | 303 0.206 | 214/239 0 25 | 21642 inf | 24963
-pilotB-off-3 spacing-2.5s | 249 0.169 | 173/239 0 66 | 25157 inf | 24988
+pilotB-off-3 spacing-2.5s | 249 0.169 | 173/239 0 66 | 25280 inf | 25000
 pilotB-off-3 spacing-3.0s | 238 0.162 | 145/239 0 94 | 26267 inf | 24983
 
 drift: scale cell rule | premium p99 ratio_to_off at that scale | contenders completed/offered refused | completion p50 p95 ms

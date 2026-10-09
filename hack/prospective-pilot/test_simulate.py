@@ -153,6 +153,18 @@ class SpacingTest(unittest.TestCase):
         self.assertEqual(by["c2"]["forwarded"], 1000 * MS)
         self.assertEqual(by["c2"]["first_token"], 1010 * MS)
 
+    # A spacing that ends at 24.99 s of waiting, inside a step that ends at 25.04 s: the gateway's timer would have
+    # forwarded it before its 25 s, so it is forwarded, not refused (v26 review, finding 1).
+    # Mutation that turns it red: judge the hold deadline before asking the rule, or restore the sweep that refuses
+    # every held contender past 25 s at the step boundary.
+    def test_a_spacing_ending_inside_the_hold_is_not_refused(self):
+        steps_80 = [80.0, 0.0, 0.0, 0.0, 0.0]
+        out = sim.simulate([req("c1", pr.CONTENDER, 0, 200_000), req("c2", pr.CONTENDER, 0, 512)], steps_80,
+                           sim.hold_spacing(24_990 * MS), 0, 0)
+        by = {r["id"]: r for r in out}
+        self.assertFalse(by["c2"].get("refused"), by["c2"])
+        self.assertEqual(by["c2"]["forwarded"], 24_990 * MS)
+
 
 
 class OwnerLimitsTest(unittest.TestCase):
@@ -168,6 +180,26 @@ class OwnerLimitsTest(unittest.TestCase):
                                  ("contender_completion_p95_ms", 25_001, "completion p95 above 25 s"),
                                  ("contender_hold_timeouts", 1, "a hold refusal")):
             self.assertEqual(sim.owner_limits(dict(ok, **{key: value}), off), line)
+
+
+
+class FrontierVerdictTest(unittest.TestCase):
+    # v26's verdicts on point estimates; a 0.90 ratio is neither arm 15% ahead, not the fixed arm matching or beating
+    # hold-cap (v26 review, finding 5). Mutation that turns it red: fall through to a fixed-arm win when hold-cap's
+    # ratio misses 0.85, or compare against the widest admissible arm instead of every one.
+    def test_each_verdict(self):
+        adm = {"hold-cap": True, "fixed-1.62": True, "fixed-1.66": True}
+        self.assertEqual(sim.frontier_verdict(dict(adm, **{"hold-cap": False}), {}), "not met: hold-cap broke the owner's limits")
+        self.assertEqual(sim.frontier_verdict({"hold-cap": True, "fixed-1.62": False}, {}),
+                         "observed: hold-cap met the limits and no fixed spacing in the grid did")
+        self.assertEqual(sim.frontier_verdict(adm, {"hold-cap": 400, "fixed-1.62": 1000, "fixed-1.66": 500}),
+                         "observed: hold-cap beat every admissible fixed spacing")
+        self.assertEqual(sim.frontier_verdict(adm, {"hold-cap": 400, "fixed-1.62": 460, "fixed-1.66": 1000}),
+                         "not established: neither hold-cap nor fixed-1.62 was 15% below the other")
+        self.assertEqual(sim.frontier_verdict(adm, {"hold-cap": 900, "fixed-1.62": 1000, "fixed-1.66": 2000}),
+                         "not established: neither hold-cap nor fixed-1.62 was 15% below the other")
+        self.assertEqual(sim.frontier_verdict(adm, {"hold-cap": 1000, "fixed-1.62": 800, "fixed-1.66": 2000}),
+                         "observed: fixed-1.62 beat hold-cap")
 
 
 if __name__ == "__main__":

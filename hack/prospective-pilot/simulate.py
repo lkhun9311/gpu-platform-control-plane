@@ -8,6 +8,9 @@
     python3 simulate.py feasible [--scale K] DIR [DIR ...]
                                                   which spacings, 10 ms apart, meet the owner's contender limits beside
                                                   hold-cap, at K times the fitted step time, and the pooled premium p99
+    python3 simulate.py frontier [--scale K] DIR [DIR ...]
+                                                  v26's registered decision on the archived traces: each grid arm's
+                                                  admissibility, every arm's pooled premium p99, and the verdict
     python3 simulate.py pace DIR [DIR ...] [-- DIR ...]   each cell's measured step time against the model fitted
                                                   before the --, and why a fixed spacing fails when the pace slows
 
@@ -215,14 +218,16 @@ def simulate(reqs, coef, rule, forward_ns, deliver_ns, long_prefill=0, step_scal
         if at - r["sched"] > TIMEOUT_NS:
             r["expired"] = True
             return True
-        if at - r["gw_arrived"] > HOLD_NS:
-            r["refused"] = r["hold_timeout"] = True
-            return True
         gw["now"] = at
         d = rule(gw, r)
         if isinstance(d, tuple):
             # A rule that knows when it would have forwarded, between two decision points: a fixed spacing.
             d, at = d[0], max(r["gw_arrived"], min(d[1], at))
+        # The hold deadline is judged at the instant the rule would have forwarded, not at the step boundary that
+        # found it: a spacing that ended inside the 25 s is a forward, not a refusal (v26 review, finding 1).
+        if at - r["gw_arrived"] > HOLD_NS:
+            r["refused"] = r["hold_timeout"] = True
+            return True
         if d == "forward":
             gw["last_forward"] = at
             eng.add(r, at + forward_ns)
@@ -255,8 +260,8 @@ def simulate(reqs, coef, rule, forward_ns, deliver_ns, long_prefill=0, step_scal
             elif held or not decide(x, t):
                 held.append(x)
         held = [r for r in held if not (eng.now - r["sched"] > TIMEOUT_NS and r.setdefault("expired", True))]
-        held = [r for r in held if not (eng.now - r["gw_arrived"] > HOLD_NS
-                                        and r.setdefault("refused", True) and r.setdefault("hold_timeout", True))]
+        # A held contender past its 25 s is refused by decide below, which first asks whether the rule would have
+        # forwarded it in time; a sweep here refused it before that question (v26 review, finding 1).
         # Cancel what has passed its 30-second deadline, waiting or running, and release the gateway's state for it,
         # so a late contender stops taking engine tokens (simulator review, finding 1).
         for w in [w for w in eng.waiting if eng.now - w[2]["sched"] > TIMEOUT_NS]:
@@ -359,6 +364,25 @@ def owner_limits(x, off):
     return None
 
 
+V26_GRID_MS = (1620, 1660, 1700, 1740)
+
+
+def frontier_verdict(admissible, p99):
+    """v26's verdicts 2 to 6 on point estimates: admissible maps each arm to whether it met the owner's limits in every
+    block, p99 maps it to its pooled premium p99; the crossed bounds of the real scorer are not modelled here."""
+    if not admissible["hold-cap"]:
+        return "not met: hold-cap broke the owner's limits"
+    fixed = [a for a in admissible if a != "hold-cap" and admissible[a]]
+    if not fixed:
+        return "observed: hold-cap met the limits and no fixed spacing in the grid did"
+    if all(p99["hold-cap"] <= 0.85 * p99[a] for a in fixed):
+        return "observed: hold-cap beat every admissible fixed spacing"
+    best = min(fixed, key=lambda a: p99[a])
+    if p99[best] <= 0.85 * p99["hold-cap"]:
+        return "observed: %s beat hold-cap" % best
+    return "not established: neither hold-cap nor %s was 15%% below the other" % best
+
+
 # ---------------------------------------------------------------- commands
 
 
@@ -380,7 +404,7 @@ def offsets(cells):
 
 
 def main(argv):
-    if len(argv) < 3 or argv[1] not in ("validate", "screen", "threshold", "combine", "control", "pace", "feasible"):
+    if len(argv) < 3 or argv[1] not in ("validate", "screen", "threshold", "combine", "control", "pace", "feasible", "frontier"):
         print(__doc__)
         return 64
     # A card's pace against the fitted model, as the main study's calibration cell measures it (v26).
@@ -451,6 +475,30 @@ def main(argv):
                     last = t
                 print("%.1f %s | prefill p50 %.0f p95 %.0f ms | at most %d in prefill at once | share of the span with two or more %.2f" % (
                     scale, name, pr.nearest_rank(dur, 0.5), pr.nearest_rank(dur, 0.95), most, overlap / (events[-1][0] - events[0][0])))
+        return 0
+    if argv[1] == "frontier":
+        # The registered decision, not the widest spacing alone: every grid arm is judged, and hold-cap must beat every
+        # admissible one (v26 review, finding 6). Each archived off cell stands in for a block; these are six old
+        # traces, not the three new seeds, and the scorer's validity, preemption, work and gap lines are not modelled.
+        arms = [("hold-cap", RULES["hold-one-prefill"])] + [("fixed-%.2f" % (t / 1000), hold_spacing(t * 1_000_000)) for t in V26_GRID_MS]
+        admissible, pooled = {a: True for a, _ in arms}, {a: [] for a, _ in arms}
+        print("step scale %.4f" % scale)
+        print("cell arm | premium p99 ratio_to_off | owner's limits")
+        for (d, arm, rep), (reqs, _, _) in sorted(loaded.items()):
+            if arm != "off":
+                continue
+            off = summarize(simulate(reqs, coef, RULES["off"], fwd, deliver, step_scale=scale))
+            for name, rule in arms:
+                out = simulate(reqs, coef, rule, fwd, deliver, long_prefill=384, step_scale=scale)
+                pooled[name].extend(out)
+                x = summarize(out)
+                fail = owner_limits(x, off)
+                admissible[name] = admissible[name] and fail is None
+                print("%s-off-%d %s | %.3f | %s" % (os.path.basename(os.path.dirname(d))[-6:], rep, name,
+                                                   x["premium_p99_ms"] / off["premium_p99_ms"], "met" if fail is None else "fails: " + fail))
+        p99 = {a: summarize(pooled[a])["premium_p99_ms"] for a, _ in arms}
+        print("\npooled premium p99 ms: " + ", ".join("%s %.0f%s" % (a, p99[a], "" if admissible[a] else " (inadmissible)") for a, _ in arms))
+        print("verdict: " + frontier_verdict(admissible, p99))
         return 0
     if argv[1] == "feasible":
         # The control's spacing is a free parameter; the owner's limits are what make one choice admissible. Every
