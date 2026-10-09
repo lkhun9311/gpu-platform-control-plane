@@ -193,45 +193,45 @@ def simulate(reqs, coef, rule, forward_ns, deliver_ns, long_prefill=0, step_scal
     eng = Engine(coef, long_prefill, step_scale)
     eng.now = reqs[0]["gw_arrived"]
     gw = {"in_prefill": set(), "outstanding": set(), "premium_waiting": set()}
-    held, i, notices, last_change = [], 0, [], None
+    held, i, notices = [], 0, []
+
+    def decide(r, at):
+        """The rule's answer for contender r at time at; True when it is settled (forwarded, refused or expired)."""
+        if at - r["sched"] > TIMEOUT_NS:
+            r["expired"] = True
+            return True
+        d = rule(gw, r)
+        if d == "forward":
+            eng.add(r, at + forward_ns)
+            gw["in_prefill"].add(id(r))
+            gw["outstanding"].add(id(r))
+            r["forwarded"] = at
+            return True
+        if d == "refuse":
+            r["refused"] = True
+            return True
+        return False
+
     while True:
-        # Delivered notices first, so a decision at this boundary sees every token already delivered; the time of
-        # the latest is when a held contender's condition cleared (v23 review, finding 2).
-        for ev in sorted([ev for ev in notices if ev[0] <= eng.now]):
-            notices.remove(ev)
-            for k in ev[1]:
-                gw[k].discard(ev[2])
-            last_change = ev[0]
+        # Arrivals and delivered notices up to now, in the order they happened, each decided with the gateway's state
+        # at its own instant; a held contender is reconsidered at the instant a notice changes that state, in arrival
+        # order (simulator reviews of e51e8e6 and f2e0c8a).
+        events = [(ev[0], 0, ev) for ev in notices if ev[0] <= eng.now]
         while i < len(reqs) and reqs[i]["gw_arrived"] <= eng.now:
-            r = reqs[i]
+            events.append((reqs[i]["gw_arrived"], 1, reqs[i]))
             i += 1
-            if r["tenant"] == pr.PREMIUM:
-                eng.add(r, r["gw_arrived"] + forward_ns)
-                gw["premium_waiting"].add(id(r))
-            else:
-                held.append(r)
-        keep = []
-        for r in held:
-            if eng.now - r["sched"] > TIMEOUT_NS:
-                r["expired"] = True
-                continue
-            d = rule(gw, r)
-            if d == "forward":
-                # Forwarded when its condition cleared, not at the engine's step boundary: a gateway has no step clock.
-                if r.get("was_held"):
-                    at = max(r["gw_arrived"], last_change if last_change is not None else r["gw_arrived"])
-                else:
-                    at = r["gw_arrived"]
-                eng.add(r, at + forward_ns)
-                gw["in_prefill"].add(id(r))
-                gw["outstanding"].add(id(r))
-                r["forwarded"] = at
-            elif d == "refuse":
-                r["refused"] = True
-            else:
-                r["was_held"] = True
-                keep.append(r)
-        held = keep
+        for t, kind, x in sorted(events, key=lambda e: (e[0], e[1])):
+            if kind == 0:
+                notices.remove(x)
+                for k in x[1]:
+                    gw[k].discard(x[2])
+                held = [r for r in held if not decide(r, t)]
+            elif x["tenant"] == pr.PREMIUM:
+                eng.add(x, t + forward_ns)
+                gw["premium_waiting"].add(id(x))
+            elif held or not decide(x, t):
+                held.append(x)
+        held = [r for r in held if not (eng.now - r["sched"] > TIMEOUT_NS and r.setdefault("expired", True))]
         # Cancel what has passed its 30-second deadline, waiting or running, and release the gateway's state for it,
         # so a late contender stops taking engine tokens (simulator review, finding 1).
         for w in [w for w in eng.waiting if eng.now - w[2]["sched"] > TIMEOUT_NS]:
@@ -264,7 +264,10 @@ def simulate(reqs, coef, rule, forward_ns, deliver_ns, long_prefill=0, step_scal
 
 
 def summarize(reqs):
-    prem = sorted(r["ttft_ms"] for r in reqs if r["tenant"] == pr.PREMIUM and "ttft_ms" in r)
+    # Every premium request counts: one that expired or never got a token is a failure at +inf, not a dropped sample
+    # (simulator review of e51e8e6).
+    prem = sorted(r["ttft_ms"] if "ttft_ms" in r and not r.get("expired") else math.inf
+                  for r in reqs if r["tenant"] == pr.PREMIUM)
     cont = [r for r in reqs if r["tenant"] == pr.CONTENDER]
     completed = [r for r in cont if "finished" in r and r["finished"] - r["sched"] <= TIMEOUT_NS]
     delays = sorted((r["forwarded"] - r["gw_arrived"]) / 1e6 for r in cont if "forwarded" in r)
@@ -273,7 +276,9 @@ def summarize(reqs):
     last_premium = max((r.get("finished", 0) for r in reqs if r["tenant"] == pr.PREMIUM), default=0)
     return {"premium_p99_ms": pr.nearest_rank(prem, 0.99), "premium_p50_ms": pr.nearest_rank(prem, 0.5),
             "contender_completed": len(completed), "contender_offered": len(cont),
-            "contender_expired": sum(1 for r in cont if r.get("expired")), "contender_refused": sum(1 for r in cont if r.get("refused")),
+            # Every contender that neither completed in time nor was refused, a late finish included (review of f2e0c8a).
+            "contender_expired": len(cont) - len(completed) - sum(1 for r in cont if r.get("refused")),
+            "contender_refused": sum(1 for r in cont if r.get("refused")),
             "contender_completion_p50_ms": pr.nearest_rank(lat, 0.5), "contender_completion_p95_ms": pr.nearest_rank(lat, 0.95),
             "contender_finished_after_last_premium": sum(1 for r in completed if r["finished"] > last_premium),
             "contender_hold_p50_ms": pr.nearest_rank(delays, 0.5), "contender_hold_max_ms": delays[-1] if delays else None}

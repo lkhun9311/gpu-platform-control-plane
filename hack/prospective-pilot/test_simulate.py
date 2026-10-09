@@ -77,5 +77,28 @@ class ReviewTest(unittest.TestCase):
         self.assertNotIn("first_token", out[0])
 
 
+class OrderTest(unittest.TestCase):
+    # A contender arriving at 15 ms, before the first one's token is delivered at 18 ms, is decided with the state at
+    # 15 ms: refuse-one-prefill refuses it (review of f2e0c8a, its example).
+    def test_an_arrival_is_decided_with_the_state_at_its_own_instant(self):
+        out = sim.simulate([req("c1", pr.CONTENDER, 0, 512), req("c2", pr.CONTENDER, 15, 512)], FLAT,
+                           sim.RULES["refuse-one-prefill"], 0, 8 * MS)
+        by = {r["id"]: r for r in out}
+        self.assertTrue(by["c2"].get("refused"))
+
+    # And one arriving at 20 ms, after the token was delivered at 18 ms, is forwarded (review of e51e8e6, its example).
+    def test_a_delivered_token_frees_the_rule_before_a_later_arrival(self):
+        out = sim.simulate([req("c1", pr.CONTENDER, 0, 512), req("c2", pr.CONTENDER, 20, 512)], FLAT,
+                           sim.RULES["refuse-one-prefill"], 0, 8 * MS)
+        by = {r["id"]: r for r in out}
+        self.assertNotIn("refused", by["c2"])
+        self.assertEqual(by["c2"]["forwarded"], 20 * MS)
+
+    # A premium request that never gets a token counts in the p99 as a failure, not as a dropped sample.
+    def test_a_premium_failure_is_in_the_p99(self):
+        reqs = [{"tenant": pr.PREMIUM, "ttft_ms": 10.0}] * 50 + [{"tenant": pr.PREMIUM, "expired": True}] * 2
+        self.assertEqual(sim.summarize(reqs)["premium_p99_ms"], float("inf"))
+
+
 if __name__ == "__main__":
     unittest.main()
