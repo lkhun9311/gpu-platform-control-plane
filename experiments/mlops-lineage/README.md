@@ -60,3 +60,31 @@ than fixes.
 - GitOps: step 4's rollback is an edit to the `InferenceDeployment`, which is what an Argo CD sync would apply,
   but no Git repository or Argo CD is in the loop.
 - Rollback with more than one replica, or under load heavier than 20 requests a second.
+
+## Result (2026-10-09): VALID, every reading as registered
+
+Run `hack/mlops-lineage-20261009T022150Z`, scored by `score.py`, which printed `VALID`. The tree was `1240e34`
+plus this experiment's own files, uncommitted at run time and committed unchanged in `598611c`.
+
+| step | result |
+|---|---|
+| 1. train | v1 0.995, v2 0.615 held-out accuracy, both registered through `MLTrainingJob` |
+| 2. gate | v1 promoted; **v2 refused** (0.38 below the champion against a 0.02 allowance), alias unmoved |
+| 3. lineage | the served answer named version 1, its run, and weights `00e666…`; that run carries the trainer's data hash, code hash and commit, and the weights hash matches — all seven links held |
+| 4. rollback ×3 | **0 non-200** in 938, 938 and 929 requests; the last v2 answer came 12.06, 12.19 and 11.63 s after the rollback edit, the first v1 answer 11.11, 11.29 and 10.98 s after it |
+| 5. alias trap | after the alias was forced to v2, **1,202 of 1,202 answers over 60 s were still v1**; after a restart, v2 |
+
+- **A served answer can be walked back to the bytes it was trained on**, and the serving side refuses weights
+  that do not match what was registered — the rehearsal showed it exits rather than serves.
+- **The gate stopped the bad model; nothing stopped an operator.** Editing `storageUri` put v2 in front of users
+  with no check at all, and the rollback was the same edit in reverse. The rule exists only where something calls it.
+- **Rollback cost no errors, and about 11 to 12 seconds.** For roughly one second in each cycle both versions
+  answered: the rolling update starts the new Pod before it removes the old one, so "rolled back" is a window,
+  not an instant.
+- **The registry and the cluster disagreed for as long as nobody restarted the Pod.** Moving `champion` to v2 is
+  what most MLflow workflows call "deploying", and it deployed nothing: the server resolves the alias once at
+  start-up. Pinning a version in the manifest is what made step 4's rollback an auditable edit.
+
+Before this run, two launches stopped while loading images, before any step ran: `kind load` could not import the
+MLflow image, first as pulled and then rebuilt `FROM` it, so the node now pulls the pinned tag itself. Neither
+launch directory is kept.
