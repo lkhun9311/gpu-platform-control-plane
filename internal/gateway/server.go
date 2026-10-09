@@ -711,6 +711,9 @@ func NewCache(ctx context.Context, cfg *rest.Config, scheme *runtime.Scheme, nam
 	ca, err := cache.New(cfg, cache.Options{
 		Scheme:           scheme,
 		DefaultTransform: cache.TransformStripManagedFields(),
+		// A read of a kind not registered below fails rather than starting an informer and waiting for it, so a
+		// new read on the request path cannot quietly bring the first-request stall back (v22 review, finding 6).
+		ReaderFailOnMissingInformer: true,
 		// Watch Secrets only in the namespace the gateway runs in.
 		//
 		// Why the scope matters (it is what the design spec's Components section means by "scoped cache").
