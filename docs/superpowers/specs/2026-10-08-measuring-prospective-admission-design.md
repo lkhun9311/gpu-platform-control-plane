@@ -1119,9 +1119,33 @@ The pilot's gates fired, so by its own rule the design returned here. A v22 was 
 - **The cost is not only time held at the gateway** (finding 4): a 7,695-token prompt needs at least 21 steps at 384 and 31 at 256 instead of 16, each with its overhead, and the contender's prefill stays resident longer.
 - **The rule's guarantee holds only without preemption** (finding 6): a preempted contender recomputes its prompt after its first token, when the gateway already counts it as done. No preemption occurred in any pilot cell, and the KV cache had about 387,000 tokens against peaks near 19,000 in the replay; the guarantee is stated with that condition, and a GPU session must measure it.
 
+**The CPU experiment, redone to prompt completion and first content** (2026-10-09; 64 slots, warmed, 64-token premium outputs, `data/2026-10-09-prefill-block-cpu/`, step logs gzipped). Premium requests that arrived during a 3,030-token prefill:
+
+| Regime | Threshold | Steps from the scheduler's add to prompt completion, median / max | Client send to first content, median / max |
+|---|---|---|---|
+| light | 0 | 3.5 / 6 | 1,138 / 1,665 ms |
+| light | 384 | 1 / 1 | 393 / 544 ms |
+| light | 256 | 1 / 1 | 298 / 422 ms |
+| 60 of 64 slots held by decoders | 0 | 67 / 129 | 5,991 / 10,679 ms |
+| 60 of 64 slots held by decoders | 384 | 63 / 125 | 5,698 / 10,224 ms |
+| 60 of 64 slots held by decoders | 256 | 61.5 / 134 | 5,710 / 10,890 ms |
+
+With room in the engine the cap does what the replay assumed: the prompt completes in the step after the add. With the slots full it does nothing, because the wait is for a slot, not for budget (v23 review, finding 3). So the candidate's effect depends on how often the slots fill under the real load; the pilot's archives have 1,836 steps at 64 requests.
+
 **What is left free, and what a paid session must measure.** Free: the CPU experiment measured to prompt completion and first content, warmed, at 384, with all 64 slots occupied and with sustained arrivals; and a kind test of a gateway hold rule's fidelity: release on delivered first content, concurrent arrivals and cancellation. Then, with acceptance limits frozen before purchase (premium p99 ratio, contender completion, completion latency and longest hold), one GPU session comparing off, current P, hold only, cap only and the combination, measuring capped step durations, premium TTFT and inter-token latency, contender completion with timeouts counted, throughput, 64-slot occupancy, KV usage and preemption, and the gateway's release timing.
 
-### v24: the diagnostic session, drafted 2026-10-09, not yet attacked
+### v24: the diagnostic session, drafted 2026-10-09, and rejected as not purchase-ready
+
+astra attacked the draft below: 3 blockers, 6 majors, 2 minors; verdict "reject v24 as purchase-ready; retain 384+serial-prefill as a candidate requiring an executable, rehearsed protocol". I checked them and agree; the attack is `data/2026-10-09-pilot-results/astra-v24-attack.md`. In short:
+- **The apparatus cannot run it** (blocker): the matrix, the study registry, the engine validator, the gateway arguments and the report accept only the pilot's stages, arms and three blocks.
+- **Premium inter-token latency is undefined and not captured** (blocker): a p99 of individual gaps and of per-request averages differ by up to 16 times on a 64-token response, and the sender keeps no per-token timestamps.
+- **The rule releases on the first body byte, the replay on delivered first content** (blocker): an SSE frame without content would release the next contender. Equivalence on the pinned engine must be shown, or the two made the same.
+- **The cost limits sit just above the replay's favourable outputs** (25 s against a 23.8 s longest hold) without a rationale of their own; p95 completion latency and windowed contender work are unbounded; "longest hold" excludes the requests refused for waiting.
+- **Two blocks cannot carry a pass or fail**: two of two successes bound block success only above 22%. The verdict has to be "observed on these traces", with an inconclusive outcome.
+- **Validity gates are missing**: premium loss, off's health, an infinite denominator, which L and ceiling apply.
+- **Peak KV and slot occupancy are not captured** by before-and-after scrapes; P has no decision role and R1 is missing; 10 cells by the pilot's own allowance method need 3 h 16 m, not 1 h 50 m.
+
+The draft as written, kept for the record:
 
 **Its question.** On the A10G, under the pilot's frozen load, does the engine's prefill cap at 384 together with the gateway's serial-prefill hold cut the premium tail, at a contender cost inside limits frozen here, before any card time? It is a feasibility measurement of one candidate, not the main study: it answers whether a main study of this treatment is worth designing.
 
