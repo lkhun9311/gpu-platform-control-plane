@@ -1145,6 +1145,39 @@ astra attacked the draft below: 3 blockers, 6 majors, 2 minors; verdict "reject 
 - **Validity gates are missing**: premium loss, off's health, an infinite denominator, which L and ceiling apply.
 - **Peak KV and slot occupancy are not captured** by before-and-after scrapes; P has no decision role and R1 is missing; 10 cells by the pilot's own allowance method need 3 h 16 m, not 1 h 50 m.
 
+### v25: the diagnostic protocol, revised against the v24 attack (2026-10-09, not yet attacked)
+
+Each line says which v24 finding it answers.
+
+**Study** `admission-diagnostic-2026-10-10`, one g5.2xlarge session in gpu-lab, the pilot's load, lengths, engine and capture.
+
+**Arms** (finding 10): **R1** (isolated, once), **off**, **hold** (serial-prefill, longest hold 25 s, released at the first content event), **cap** (off with `--long-prefill-token-threshold 384`), **hold+cap**. P is dropped: the pilot measured it at 0.995 of off and it decides nothing here. R1 is the isolated anchor every ratio is read beside.
+
+**Blocks** (finding 5): three blocks of off, hold, cap and hold+cap, each in a hashed order, plus R1 once at the start: 13 cells. Seeds, frozen now: 851, 852, 853.
+
+**Limits** (finding 11), by the pilot's own allowance method with its measured arm time: 1.25 × (200 + 13 × 920 + 12) = 15,215 s. Hard stop 4 h 14 m (15,240 s), acquisition deadline 6 min before it, backstop 10 min after, `study-deadline` 20 min after. A block cut by the deadline is reported and not scored; the verdict reads complete blocks only.
+
+**Validity, or the verdict is "inconclusive"** (finding 6), checked per block:
+- every arm's premium loss under 0.5%, and off's crossed denominator finite;
+- every request's dispatch lag at most 50 ms, and at most 0.1% of each arm's premium requests above L = 13 ms (pilot 1's L; its stall-inflated 409 ms ceiling is not used, because the stall it measured is fixed);
+- capture and eligibility as in the pilot;
+- the preemption counter read before and after every hold+cap cell; a missing or failed read makes that cell unscorable, not passing (finding 9).
+
+**Acceptance for hold+cap, every line in every complete block** (findings 4, 7, 8). The cost lines are set by what the contender tenant can bear, not by the replay's outputs: the contender is a long batch-like request whose client times out at 30 s, so it must still complete in time, and twice off's latency is the most a batch client can absorb without its own timeouts moving.
+- premium TTFT p99, crossed upper end against off, at most ln 0.85;
+- contender completion, timeouts, refusals and late finishes counted as failures, at least 95%;
+- contender completion latency from its scheduled instant, failures at +inf: p50 at most 2 × off's and p95 at most 2 × off's;
+- contender work processed within the premium window (p and q, as the pilot defines them) at least 0.9 × off's, so the cost cannot be moved into the drain after the premium load ends;
+- **zero** `serial_prefill_hold_timeout` refusals; holds are measured from the admission decision's start to its end (`admission_wait_seconds` and the record's decided stamp), over every held request including those refused;
+- premium inter-token gap p99, pooled over every client-visible gap of every premium success, at most 1.25 × off's (finding 2);
+- zero preemptions.
+
+**Verdict** (finding 5): "**observed on these traces**: hold+cap met every limit in all three blocks", or "**not met**: <the first failing line and block>", or "**inconclusive**: <the failed validity check>". Three blocks of one card cannot carry more: three successes of three bound the block success rate above 37% at 95%, so a pass licenses designing a main study, not concluding one.
+
+**Measured and published whatever the verdict:** each arm's premium p50 and p99 beside R1's; step durations by chunk size; running, waiting, KV usage and preemptions from the 1 s engine samples; gateway holds; throughput.
+
+**Built for it so far:** serial-prefill released at the first content event (64188a2), hold time in the latency metrics and as `admission_wait_seconds` (e7e7874), every client-visible inter-token gap (9b7dc1a), the 1 s engine sampler (6a6b538). **Still to build:** the study's registration, arms and engine arguments in the matrix, the validator's acceptance of the threshold, the gateway arguments per arm, the session's limits, the report's scoring of every line above, and a kind rehearsal of the whole.
+
 The draft as written, kept for the record:
 
 **Its question.** On the A10G, under the pilot's frozen load, does the engine's prefill cap at 384 together with the gateway's serial-prefill hold cut the premium tail, at a contender cost inside limits frozen here, before any card time? It is a feasibility measurement of one candidate, not the main study: it answers whether a main study of this treatment is worth designing.
