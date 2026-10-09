@@ -90,3 +90,16 @@ func TestNewAdmitterUnknownMode(t *testing.T) {
 	// shutdown-time call never nil-derefs.
 	stop()
 }
+
+// serial-prefill builds with a positive longest hold and refuses to start without one: a zero hold would refuse every
+// request that ever had to wait.
+func TestNewAdmitterSerialPrefill(t *testing.T) {
+	if _, _, err := newAdmitter(gateway.AdmissionSerialPrefill, admitterFlags{}); err == nil {
+		t.Fatal("serial-prefill started without a longest hold")
+	}
+	a, stop, err := newAdmitter(gateway.AdmissionSerialPrefill, admitterFlags{serialMaxHold: 25 * time.Second})
+	if err != nil || a == nil {
+		t.Fatalf("serial-prefill with a hold: %v", err)
+	}
+	stop()
+}
