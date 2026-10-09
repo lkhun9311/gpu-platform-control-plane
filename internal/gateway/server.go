@@ -505,7 +505,16 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	if mode == "" {
 		mode = AdmissionOff
 	}
+	// The latency metrics start here, before admission, because an admitter may hold the request: serial-prefill
+	// queues a standard request for its turn, and a timer started after it would report a request held 20 s before a
+	// fast backend as fast (review of 197bd12). The hold itself is observed on its own as admission_wait_seconds.
+	start := time.Now()
 	res, admit, reason := decideAdmission(ctx, admitter, meta, targets, tenant, tier)
+	admissionOutcome := "admit"
+	if !admit {
+		admissionOutcome = "refuse"
+	}
+	admissionWait.WithLabelValues(tenant, admissionOutcome).Observe(time.Since(start).Seconds())
 	// Released on every way out from here: a refusal holds nothing, and an admitted request that errors, is
 	// cancelled or completes gives back whatever it still holds. The trace stamps the prefill release here when
 	// no body byte released it first.
@@ -567,7 +576,6 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 8. From here the response is the upstream's, passed through rather than composed.
-	start := time.Now()
 	rec := &statusRecorder{ResponseWriter: w, code: http.StatusOK, onFirstBody: tr.release(res), onBody: tr.body, onFlush: tr.flushed}
 	// Each candidate is tried until one answers, and the two conditions below are what make that safe rather
 	// than merely useful.
