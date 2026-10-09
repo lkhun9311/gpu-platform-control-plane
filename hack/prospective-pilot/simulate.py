@@ -252,6 +252,9 @@ def simulate(reqs, coef, rule, forward_ns, deliver_ns, long_prefill=0, step_scal
             r["expired"] = True
             for k in gw:
                 gw[k].discard(id(r))
+        # A cancellation can clear the state a held contender waits on, as a delivered notice can, so the held are
+        # reconsidered here too (review of 7caa759).
+        held = [r for r in held if not decide(r, eng.now)]
         out = eng.step()
         if out is None:
             nxt = [reqs[i]["gw_arrived"]] if i < len(reqs) else []

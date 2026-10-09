@@ -116,5 +116,22 @@ class HoldTimeoutTest(unittest.TestCase):
         self.assertNotIn("forwarded", by["c2"])
 
 
+class CancelTest(unittest.TestCase):
+    # A contender that expires in prefill frees the rule for the one held behind it, which then runs and completes
+    # instead of waiting to its own deadline (review of 7caa759).
+    def test_a_cancellation_frees_a_held_contender(self):
+        old = sim.TIMEOUT_NS
+        sim.TIMEOUT_NS = 100 * MS
+        try:
+            out = sim.simulate([req("c1", pr.CONTENDER, 0, 7695 * 4), req("c2", pr.CONTENDER, 90, 512)], FLAT,
+                               sim.RULES["hold-one-prefill"], 0, 0)
+        finally:
+            sim.TIMEOUT_NS = old
+        by = {r["id"]: r for r in out}
+        self.assertTrue(by["c1"].get("expired"))
+        self.assertIn("forwarded", by["c2"])
+        self.assertLessEqual(by["c2"]["forwarded"], 120 * MS)
+
+
 if __name__ == "__main__":
     unittest.main()
