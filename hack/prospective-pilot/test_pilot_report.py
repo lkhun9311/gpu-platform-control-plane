@@ -348,5 +348,50 @@ class PilotReportReviewTest(unittest.TestCase):
         self.assertIsNone(pr.crossed_log_ratio(math.inf, math.inf))
 
 
+def diag_block(d, rep, hold_ttft_ns=20_000_000, prom=True, blocks=(1, 2, 3)):
+    """off and hold-cap cells for the given blocks; hold-cap's premium first content at hold_ttft_ns after arrival."""
+    for b in blocks:
+        for arm, ttft in (("off", 20_000_000), ("hold-cap", hold_ttft_ns)):
+            c = Cell(d, arm, b)
+            c.rows[0]["contentGapsMicros"] = [10_000] * 63
+            for g in c.gw:
+                if g["ev"] == "done" and g["requestId"] == "pp-A-off-1-0":
+                    g["firstContentUnixNanos"] = g["arrivedUnixNanos"] + ttft
+            c.save()
+            if prom:
+                for phase in ("before", "after"):
+                    with open(os.path.join(d, "engine-metrics-%s-%d-%s.prom" % (arm, b, phase)), "w") as f:
+                        f.write('vllm:num_preemptions_total{engine="0"} 0.0\n')
+
+
+class DiagnosticTest(unittest.TestCase):
+    def setUp(self):
+        self.d = tempfile.mkdtemp()
+
+    # Every line holds in all three blocks: hold-cap's premium tail at half of off's.
+    # Mutation that turns it red: require two blocks instead of three, or drop a line.
+    def test_a_candidate_meeting_every_limit_in_three_blocks_is_observed(self):
+        diag_block(self.d, 1, hold_ttft_ns=10_000_000)
+        v = pr.diagnostic(self.d)
+        self.assertTrue(v["verdict"].startswith("observed on these traces"), v["verdict"])
+
+    def test_a_tail_no_better_than_off_is_not_met(self):
+        diag_block(self.d, 1)
+        v = pr.diagnostic(self.d)
+        self.assertTrue(v["verdict"].startswith("not met: block 1: premium p99"), v["verdict"])
+
+    # A missing block is inconclusive, never a pass (v25 review, finding 6).
+    def test_a_missing_block_is_inconclusive(self):
+        diag_block(self.d, 1, hold_ttft_ns=10_000_000, blocks=(1, 2))
+        v = pr.diagnostic(self.d)
+        self.assertTrue(v["verdict"].startswith("inconclusive: block 3 is incomplete"), v["verdict"])
+
+    # An unread preemption counter makes the block unscorable, not passing (v24 review, finding 9).
+    def test_a_missing_preemption_read_is_inconclusive_not_a_pass(self):
+        diag_block(self.d, 1, hold_ttft_ns=10_000_000, prom=False)
+        v = pr.diagnostic(self.d)
+        self.assertFalse(v["verdict"].startswith("observed"), v["verdict"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -4,6 +4,7 @@
                                                  its missing cells are listed
     python3 pilot_report.py formulas DIR_A DIR_B  the frozen calibration formulas' outputs, or why they are unavailable
     python3 pilot_report.py gates DIR_A DIR_B     every registered pilot gate, with its value and whether it would fire
+    python3 pilot_report.py diagnostic DIR        the admission diagnostic's verdict, validity and lines, per block
 
 docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md, "The measurement pilot". It judges
 nothing about P against S: it reports measurements, marks each arm eligible or not for calibration, and computes the
@@ -598,9 +599,135 @@ def gates(dir_a, dir_b, L_formula):
     return out
 
 
+# ---------------------------------------------------------------- the admission diagnostic (design page, "v25")
+
+DIAG_L_MS = 13.0
+DIAG_CEILING_MS = 50.0
+DIAG_BLOCKS = (1, 2, 3)
+
+
+def preemptions(stage_dir, tag):
+    """The engine's preemption count over the cell, from its before and after scrapes; None when either is missing."""
+    vals = []
+    for phase in ("before", "after"):
+        path = os.path.join(stage_dir, "engine-metrics-%s-%s.prom" % (tag, phase))
+        if not os.path.exists(path):
+            return None
+        found = None
+        with open(path) as f:
+            for line in f:
+                if line.startswith("vllm:num_preemptions_total{"):
+                    found = float(line.split()[-1])
+        if found is None:
+            return None
+        vals.append(found)
+    return vals[1] - vals[0]
+
+
+def contender_outcomes(stage_dir, tag):
+    """(completed, offered, latencies in ms with failures at +inf, hold-timeout refusals) for a cell's contenders.
+
+    A contender completes when its stream is whole and terminated and its last token reached the client within the
+    30 s timeout of its scheduled instant; anything else, a refusal included, is a failure.
+    """
+    rows = jsonl(os.path.join(stage_dir, "raw-%s.jsonl" % tag))
+    gw = gateway_records(os.path.join(stage_dir, "gateway-record-%s.jsonl" % tag))
+    lat, done, offered, hold_timeouts = [], 0, 0, 0
+    for r in rows:
+        if r.get("tenant") != CONTENDER:
+            continue
+        offered += 1
+        sched = r.get("replayOriginUnixNanos", 0) + r["scheduledOffsetMs"] * 1_000_000
+        end = r.get("returnedUnixNanos")
+        ok = full_output(r, 16) and end and end - sched <= 30_000_000_000
+        if ok:
+            done += 1
+            lat.append(ms(end - sched))
+        else:
+            lat.append(math.inf)
+        d = (gw.get(r.get("requestId")) or {}).get("done") or {}
+        hold_timeouts += d.get("reason") == "serial_prefill_hold_timeout"
+    return done, offered, sorted(lat), hold_timeouts
+
+
+def diagnostic(stage_dir):
+    """The admission diagnostic's verdict, its validity and every acceptance line, per block."""
+    blocks, first_fail, inconclusive = [], None, []
+    for b in DIAG_BLOCKS:
+        tags = {"off": "off-%d" % b, "hold-cap": "hold-cap-%d" % b}
+        if not all(os.path.exists(os.path.join(stage_dir, "raw-%s.jsonl" % t)) for t in tags.values()):
+            inconclusive.append("block %d is incomplete" % b)
+            blocks.append({"block": b, "complete": False})
+            continue
+        cr = {a: cell_report(stage_dir, *t.rsplit("-", 1)[:1], int(t.rsplit("-", 1)[1])) for a, t in tags.items()}
+        validity, lines = [], []
+
+        def check(collection, name, value, rule, ok):
+            collection.append({"line": name, "value": value, "rule": rule, "holds": bool(ok)})
+
+        for a in ("off", "hold-cap"):
+            c = cr[a]
+            check(validity, "%s eligible" % a, c["eligible"], "true", c["eligible"])
+            loss = c["premium"]["failed"] / c["premium"]["n"] if c["premium"]["n"] else math.inf
+            check(validity, "%s premium loss" % a, loss, "< 0.005", loss < 0.005)
+            lmax = c["lag_ms"].get("max", math.inf)
+            check(validity, "%s largest dispatch lag" % a, lmax, "<= %g ms" % DIAG_CEILING_MS, lmax <= DIAG_CEILING_MS)
+            n, d, _ = uncertain_fraction([c], DIAG_L_MS)
+            check(validity, "%s premium lag above L=%g ms" % (a, DIAG_L_MS), n / d if d else math.inf, "<= 0.001",
+                  d and n / d <= 0.001)
+        o_done, o_off, o_lat, _ = contender_outcomes(stage_dir, tags["off"])
+        check(validity, "off contender completion", o_done / o_off if o_off else 0, ">= 0.95", o_off and o_done / o_off >= 0.95)
+        pre = preemptions(stage_dir, tags["hold-cap"])
+        check(validity, "hold-cap preemption counter read", pre is not None, "both scrapes", pre is not None)
+
+        o_hi, o_arr_lo, _, _ = _box([cr["off"]])
+        h_hi, _, _, _ = _box([cr["hold-cap"]])
+        ratio = crossed_log_ratio(h_hi, o_arr_lo)
+        check(validity, "off's crossed denominator finite", o_arr_lo, "finite", o_arr_lo is not None and not math.isinf(o_arr_lo))
+        check(lines, "premium p99, crossed upper end against off", ratio, "<= %.4f" % math.log(0.85),
+              ratio is not None and ratio <= math.log(0.85))
+        h_done, h_off, h_lat, h_hold = contender_outcomes(stage_dir, tags["hold-cap"])
+        check(lines, "contender completion", h_done / h_off if h_off else 0, ">= 0.95", h_off and h_done / h_off >= 0.95)
+        p50o, p50h, p95h = nearest_rank(o_lat, 0.5), nearest_rank(h_lat, 0.5), nearest_rank(h_lat, 0.95)
+        check(lines, "contender completion latency p50 against off's", (p50h, p50o), "<= 1.5 x off's",
+              p50o is not None and p50h is not None and p50h <= 1.5 * p50o)
+        check(lines, "contender completion latency p95", p95h, "<= 25,000 ms", p95h is not None and p95h <= 25_000)
+        for k in ("p_shared_window", "q_shared_window"):
+            o_w, h_w = cr["off"]["work"][k], cr["hold-cap"]["work"][k]
+            check(lines, "contender work in the shared window (%s) against off's" % k[0], (h_w, o_w), ">= 0.9 x off's",
+                  o_w is not None and h_w is not None and h_w >= 0.9 * o_w)
+        check(lines, "hold-timeout refusals", h_hold, "0", h_hold == 0)
+        go = nearest_rank(cr["off"]["_premium_gaps"], 0.99)
+        gh = nearest_rank(cr["hold-cap"]["_premium_gaps"], 0.99)
+        check(lines, "premium inter-token gap p99 against off's", (gh, go), "<= 1.25 x off's",
+              go is not None and gh is not None and gh <= 1.25 * go)
+        check(lines, "preemptions in hold-cap", pre, "0", pre == 0)
+
+        bad_validity = [v["line"] for v in validity if not v["holds"]]
+        if bad_validity:
+            inconclusive.append("block %d: %s" % (b, ", ".join(bad_validity)))
+        fails = [x["line"] for x in lines if not x["holds"]]
+        if fails and first_fail is None:
+            first_fail = "block %d: %s" % (b, fails[0])
+        blocks.append({"block": b, "complete": True, "validity": validity, "lines": lines})
+    # Precedence (v25 review, finding 6): an observed failure is reported whatever else happened; a positive verdict
+    # needs all three blocks complete and valid; anything short of that is inconclusive.
+    if first_fail:
+        verdict = "not met: " + first_fail
+    elif inconclusive:
+        verdict = "inconclusive: " + "; ".join(inconclusive)
+    else:
+        verdict = "observed on these traces: hold-cap met every limit in all three blocks"
+    return {"verdict": verdict, "blocks": blocks}
+
+
 def main(argv):
     if len(argv) in (3, 4) and argv[1] == "stage" and (len(argv) == 3 or argv[3] in STAGE_ARMS):
         json.dump(stage_report(argv[2], argv[3] if len(argv) == 4 else None), sys.stdout, indent=1, default=str)
+        print()
+        return 0
+    if len(argv) == 3 and argv[1] == "diagnostic":
+        json.dump(diagnostic(argv[2]), sys.stdout, indent=1, default=str)
         print()
         return 0
     if len(argv) == 4 and argv[1] == "gates":
