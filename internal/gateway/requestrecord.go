@@ -60,6 +60,7 @@ type requestTimes struct {
 	arrived      time.Time
 	recorded     time.Time
 	decided      time.Time
+	deciding     time.Time
 	handoff      time.Time
 	released     time.Time
 	firstContent time.Time
@@ -85,6 +86,10 @@ type doneLine struct {
 	// not assumed: an unbounded delay there would sit after the arrival stamp (review round 21, finding 1).
 	RecordedUnixNanos int64 `json:"recordedUnixNanos,omitempty"`
 	DecidedUnixNanos  int64 `json:"decidedUnixNanos,omitempty"`
+	// DecidingUnixNanos is when the admission decision began, so decided minus deciding is the request's own hold
+	// in a holding admitter, refused or admitted; the histogram of holds cannot give one request's (v25 review,
+	// finding 5).
+	DecidingUnixNanos int64 `json:"decidingUnixNanos,omitempty"`
 	// HandoffUnixNanos is when the request was handed to the reverse proxy. Connection acquisition, dialling and
 	// sending the request to the backend all come after it, so the segment from here to first content holds
 	// gateway transport time as well as the engine's (review of the pilot scope, round 10, finding 4).
@@ -189,6 +194,13 @@ func (tr *requestTrace) arrived() error {
 	return nil
 }
 
+// deciding stamps the start of the admission decision, which is where a holding admitter's wait begins.
+func (tr *requestTrace) deciding(at time.Time) {
+	if tr != nil {
+		tr.t.deciding = at
+	}
+}
+
 func (tr *requestTrace) decided(tier, decision, reason string) {
 	if tr != nil {
 		tr.t.decided = time.Now()
@@ -290,6 +302,7 @@ func (tr *requestTrace) finish() {
 	l.ArrivedUnixNanos = nanos(tr.t.arrived)
 	l.RecordedUnixNanos = nanos(tr.t.recorded)
 	l.DecidedUnixNanos = nanos(tr.t.decided)
+	l.DecidingUnixNanos = nanos(tr.t.deciding)
 	l.HandoffUnixNanos = nanos(tr.t.handoff)
 	l.ReleasedUnixNanos = nanos(tr.t.released)
 	l.FirstContentUnixNanos = nanos(tr.t.firstContent)

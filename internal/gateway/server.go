@@ -509,6 +509,7 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	// queues a standard request for its turn, and a timer started after it would report a request held 20 s before a
 	// fast backend as fast (review of 197bd12). The hold itself is observed on its own as admission_wait_seconds.
 	start := time.Now()
+	tr.deciding(start)
 	res, admit, reason := decideAdmission(ctx, admitter, meta, targets, tenant, tier)
 	admissionOutcome := "admit"
 	if !admit {

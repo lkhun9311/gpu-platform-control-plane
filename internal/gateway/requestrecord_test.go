@@ -144,7 +144,7 @@ var _ = Describe("the request record in the pipeline", func() {
 		Expect(d["tier"]).To(Equal(tierStandard))
 		Expect(d["priority"]).To(BeEquivalentTo(1))
 		Expect(d["status"]).To(BeEquivalentTo(200))
-		order := []string{"enteredUnixNanos", "arrivedUnixNanos", "recordedUnixNanos", "decidedUnixNanos",
+		order := []string{"enteredUnixNanos", "arrivedUnixNanos", "recordedUnixNanos", "decidingUnixNanos", "decidedUnixNanos",
 			"handoffUnixNanos", "releasedUnixNanos", "firstContentUnixNanos", "endedUnixNanos"}
 		prev := 0.0
 		for _, k := range order {
