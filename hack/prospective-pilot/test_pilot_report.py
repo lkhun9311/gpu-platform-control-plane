@@ -295,6 +295,19 @@ class PilotReportReviewTest(unittest.TestCase):
         self.assertEqual(c["sidecar"]["lag_ms_overlapping_an_upload"]["n"], 1)
         self.assertAlmostEqual(c["sidecar"]["lag_ms_overlapping_an_upload"]["max"], 0.6, places=6)
 
+    # Every registered gate is evaluated and none is dropped: the first published list left out the P/O screen.
+    # Mutation that turns it red: drop the P/O gate from gates().
+    def test_every_registered_gate_is_evaluated(self):
+        full_stage(os.path.join(self.d, "A"), "A")
+        full_stage(os.path.join(self.d, "B"), "B")
+        names = [g["gate"] for g in pr.gates(os.path.join(self.d, "A"), os.path.join(self.d, "B"), 13)]
+        for want in ("A contention", "A loss", "A engagement", "A P/O", "A release timing", "A restart",
+                     "A dispatch fidelity", "A capture", "B loss", "B width", "B margin", "B informative bound", "B re-stamp"):
+            self.assertTrue(any(n.startswith(want) for n in names), want)
+        # A gate the evidence cannot evaluate says so rather than passing.
+        restart = [g for g in pr.gates(os.path.join(self.d, "A"), os.path.join(self.d, "B"), 13) if g["gate"].startswith("A restart")][0]
+        self.assertIsNone(restart["would_fire"])
+
     # Finding 8.
     def test_an_infinite_comparator_bound_keeps_its_infinity(self):
         self.assertEqual(pr.crossed_log_ratio(20.0, math.inf), -math.inf)
