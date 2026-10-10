@@ -1457,6 +1457,18 @@ Seed 882 carries 234 contenders a cell against 202 and 216 for the other two, ab
 
 **So the main study, as drafted, is not bought.** Its predicted verdict is rule 2: hold-cap is not operationally robust at the long length on a heavier trace. Seed 882 is a draw at the registered load, not an outlier selected against it. That is itself the robustness question's first answer, at this load: lengthening the contender's prompt by 6.5% moves hold-cap's contender p95 to the owner's 25 s limit on a heavy trace, while the fixed spacing loses the premium tail entirely. What to do with it is the owner's choice, and it changes the registration.
 
+**The owner's choice, 2026-10-10: record and stop.** The main study is not bought, and nothing further is registered under v27. What stands, sorted by its evidence:
+
+| Claim | Evidence | Status |
+|---|---|---|
+| At the frozen load, hold-cap cuts the premium tail to about 0.30 of off's within the owner's contender limits | the diagnostic, three blocks on one card | measured |
+| At that load, a fixed spacing of 1,740 ms matched hold-cap's premium tail within 15%, at a somewhat higher contender cost | v26, three blocks on one card | measured; "not established" |
+| Lengthening the contender's prompt by 6.5% lengthens the capped prefill past 1,740 ms (1,772 against 1,652 ms), and hold-cap stays admissible and protective at all three lengths on seed 871 | the calibration, one block on one card | measured |
+| At that longer prompt the 1,740 ms spacing collapses to a premium tail worse than off's | the replay, on frozen seeds at the card's pace | predicted, not measured; the replay matched every measured prefill within 3% |
+| On a heavier trace at that longer prompt, hold-cap's contender p95 reaches the owner's 25 s limit | the replay on seed 882; pilot B's third trace showed the same at the reference length | predicted, not measured; the replay has understated contender cost by 3% to 7% |
+
+So feedback's advantage over a tuned fixed spacing, at this load on this card, is that it does not need the tuning: a spacing tuned to one prompt length fails when the prompt grows by a few percent, and hold-cap does not. Hold-cap's limit is the contender's cost on heavy traces, which the owner's 25 s p95 bounds. A study that measures both at once needs a load with more headroom for the contender, and that would be a new registration starting from a new calibration.
+
 The draft as written, kept for the record:
 
 **Its question.** On the A10G, under the pilot's frozen load, does the engine's prefill cap at 384 together with the gateway's serial-prefill hold cut the premium tail, at a contender cost inside limits frozen here, before any card time? It is a feasibility measurement of one candidate, not the main study: it answers whether a main study of this treatment is worth designing.
