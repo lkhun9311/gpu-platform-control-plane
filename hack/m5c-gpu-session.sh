@@ -1749,12 +1749,18 @@ esac
 # is in the bucket, so the download no longer needs the card, and a slow download no longer bills one.
 # The call runs under its own fixed 5 minutes, the reserve the acquisition deadline left before the hard stop.
 TERMINATED_FIRST=""
+TERMINATION_PENDING=""
 if [ -n "$PILOT_ACQ_DEADLINE" ]; then
   if timeout 300 bash -c '. "$1"; spot_terminate "$2" "$3"' _ "$(dirname "${BASH_SOURCE[0]}")/lib/spot-run.sh" "$REGION" "$IID"; then
     TERMINATED_FIRST=1
     printf 'terminated %s before any download\n' "$IID" >"$OUT/termination.txt"
   else
-    fail "the instance $IID could not be confirmed terminated within 5 minutes; nothing has been downloaded, and the exit trap tries once more"
+    # The termination was requested and not yet confirmed. The evidence is in the bucket and its download does not
+    # need the instance, so it is downloaded now and termination is asked again before the session is judged; failing
+    # here left a finished session's evidence in the bucket (v26's result, apparatus note).
+    TERMINATION_PENDING=1
+    printf 'TERMINATION REQUESTED, NOT YET CONFIRMED for %s; downloading the evidence first\n' "$IID" >"$OUT/termination.txt"
+    say "the instance $IID was not confirmed terminated within 5 minutes; downloading the evidence first, then asking again"
   fi
   # The session's own timing, for the pilot's duration formulas: the instance's EC2 LaunchTime, and the marker's
   # upload time. Asked after termination, which leaves both answerable.
@@ -1897,6 +1903,16 @@ refused=""
 # baseline cell, because which rung that belongs to depends on where the stopping rule fired, which this
 # script cannot know without reading the evidence it is checking. The baseline is checked separately below,
 # by existence rather than by name.
+# A termination the first call could not confirm is asked again, bounded as before, now that the evidence is down.
+if [ -n "$TERMINATION_PENDING" ]; then
+  if timeout 300 bash -c '. "$1"; spot_terminate "$2" "$3"' _ "$(dirname "${BASH_SOURCE[0]}")/lib/spot-run.sh" "$REGION" "$IID"; then
+    TERMINATED_FIRST=1
+    printf 'terminated %s after the download; the first confirmation took longer than 5 minutes\n' "$IID" >"$OUT/termination.txt"
+    say "the instance $IID is now confirmed terminated"
+  else
+    fail "the instance $IID could still not be confirmed terminated after the evidence was downloaded into $OUT; the exit trap tries once more -- check the console"
+  fi
+fi
 # The refusals deferred above, now that every cell the bucket holds has been recovered.
 [ -z "${deferred_fail:-}" ] || fail "$deferred_fail (the per-cell uploads were recovered first, into $OUT/m5c-run and $OUT/live)"
 expected_arms=""

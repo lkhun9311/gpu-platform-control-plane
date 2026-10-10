@@ -293,7 +293,10 @@ case "$svc $op" in
     if [ "${STUB_TERMINATE_LINGERS:-0}" != "1" ]; then
       printf 'yes\n' > "${STUB_STATE:-/tmp}/terminate-accepted"
       # When the call was accepted is what makes `shutting-down` a phase rather than a constant.
-      cat "${STUB_STATE:-/tmp}/count-describe-instances" 2>/dev/null > "${STUB_STATE:-/tmp}/terminate-accepted-at" || printf '0\n' > "${STUB_STATE:-/tmp}/terminate-accepted-at"
+      # Only the first accepted call starts the shutdown: EC2 does not restart a shutdown when termination is asked again.
+      [ -f "${STUB_STATE:-/tmp}/terminate-accepted-at" ] \
+        || cat "${STUB_STATE:-/tmp}/count-describe-instances" 2>/dev/null > "${STUB_STATE:-/tmp}/terminate-accepted-at" \
+        || printf '0\n' > "${STUB_STATE:-/tmp}/terminate-accepted-at"
     fi
     printf '{}\n'
     ;;

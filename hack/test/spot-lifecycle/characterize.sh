@@ -632,6 +632,15 @@ scenarios_m5c_gpu_session() {
     STUB_PRESENT_KEYS="evidence.tgz log.txt commit.txt nodes.txt preflight-nvidia-smi.csv preflight-node-cards.txt matrix-returned.txt" \
     run_scenario admission-frontier-stage-e bash "$TARGET"
 
+  # Stage E whose instance stays shutting-down past the first terminate-first call: the evidence is still downloaded
+  # and judged, and the termination confirmed by a second bounded call (v26's result, apparatus note).
+  REPS=3 REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 STUB_SHUTTING_DOWN_FOR=70 \
+    STUDY=admission-frontier-2026-10-10 PILOT_STAGE=E PREMIUM_RATE=9.25 PILOT_NOISY_RATE=0.5 SEEDS="861 862 863" \
+    PREMIUM_PROMPT_CHARS=200 NOISY_PROMPT_CHARS=40000 REQUEST_TIMEOUT_MS=30000 PREMIUM_OUTPUT_TOKENS=64 NOISY_OUTPUT_TOKENS=16 \
+    STUB_EVIDENCE_ARMS="R1 off hold-cap fixed-1.62 fixed-1.66 fixed-1.70 fixed-1.74" STUB_EVIDENCE_REPS=3 STUB_EVIDENCE_R1_ONCE=1 STUB_EVIDENCE_RECORDS=1 \
+    STUB_PRESENT_KEYS="evidence.tgz log.txt commit.txt nodes.txt preflight-nvidia-smi.csv preflight-node-cards.txt matrix-returned.txt" \
+    run_scenario admission-frontier-slow-termination bash "$TARGET"
+
   # Stage B without the R stage A fitted: refused before anything is rented.
   REPS=3 REQUIRE_CLEAN_TREE=0 \
     STUDY=prospective-pilot-2026-10-08 PILOT_STAGE=B PREMIUM_RATE=9.25 PILOT_NOISY_RATE=0.5 SEEDS="11 12 13" \
