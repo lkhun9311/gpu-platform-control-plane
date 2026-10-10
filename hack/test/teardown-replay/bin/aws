@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+#
+# Recording stub for the teardown replay. The scenario directory decides what each service answers.
+#
+# SYNTHETIC, not recorded: no response here came from AWS. Each file exists to exercise one branch of the
+# classifier in hack/eks-gitops-session.sh.
+#
+# ORDER MATTERS. `case` takes the FIRST matching branch, and four of these calls are `aws ec2 ...` --
+# describe-instances, describe-nat-gateways, describe-addresses and describe-volumes. The patterns below are
+# specific enough that order does not currently decide anything, but a shorter pattern added above a longer
+# one would silently capture it. Keep each pattern as the full subcommand.
+#
+# The labels must match the ones hack/eks-gitops-session.sh passes to still(): eks ec2 nat eip ebs asg elb.
+# An unknown label falls through to an empty response, which the classifier reads as "nothing left" -- a
+# false pass on the one question this replay answers. replay.sh asserts the branches cover every label.
+svc="unknown"
+case " $* " in
+  *" eks list-clusters "*)          svc=eks ;;
+  *" describe-instances "*)         svc=ec2 ;;
+  *" describe-nat-gateways "*)      svc=nat ;;
+  *" describe-addresses "*)         svc=eip ;;
+  *" describe-volumes "*)           svc=ebs ;;
+  *" describe-auto-scaling-groups "*) svc=asg ;;
+  *" describe-load-balancers "*)    svc=elb ;;
+  # The tagged-resource query, driven by tagcheck-replay.sh rather than by still(). It is answered TWICE in
+  # one session -- before the destroy and after it -- and the two answers are the whole point of that check,
+  # so one response file cannot serve both. The stub picks by call order, recorded in the scenario directory.
+  *" resourcegroupstaggingapi get-resources "*)
+    # The call counter lives in EXDIR, never in SCENARIO_DIR. The scenario directories are committed
+    # fixtures, and a stub that writes into them makes the second run of the suite differ from the first --
+    # the failure mode where a test passes only because an earlier test left something behind.
+    if [ -f "${EXDIR:?tags branch needs EXDIR}/.tags-called" ]; then
+      svc=tags-after
+    else
+      : >"$EXDIR/.tags-called"
+      svc=tags-before
+    fi
+    ;;
+esac
+f="$SCENARIO_DIR/$svc"
+[ -f "$f.out" ] && cat "$f.out"
+[ -f "$f.err" ] && cat "$f.err" >&2
+[ -f "$f.rc" ] && exit "$(cat "$f.rc")"
+exit 0

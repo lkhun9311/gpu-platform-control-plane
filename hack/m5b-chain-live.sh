@@ -18,7 +18,7 @@
 set -uo pipefail
 
 cd "$(dirname "$0")/.." || exit 1
-export GOTOOLCHAIN=go1.26.0
+export GOTOOLCHAIN=go1.26.9
 
 NS=m5b-chain
 KCTX="${KCTX:-kind-platform}"

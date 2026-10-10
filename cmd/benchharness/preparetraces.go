@@ -63,6 +63,13 @@ func prepareTraces(args []string) error {
 	gatewaySHA := fs.String("gateway-sha", "", "gateway build the manifests record")
 	gatewayImage := fs.String("gateway-image", "", "gateway image reference, digest-pinned")
 	engineImage := fs.String("engine-image", "", "engine image reference, digest-pinned")
+	// The tokenizer revision, needed here for the same reason as in gen-trace.
+	//
+	// There are TWO paths that write a manifest -- gen-trace and this one -- and RequireProvenance now demands
+	// the revision from both. Adding the flag to only one would leave m5b refused at its first replay, with
+	// both engines already up, which is the most expensive place in this project to learn anything.
+	tokenizerRev := fs.String("tokenizer-rev", "",
+		"revision of the served model whose tokenizer the estimate was calibrated against (40 lowercase hex)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -120,6 +127,11 @@ func prepareTraces(args []string) error {
 	// comparison -- so they share one file and one checksum. R1 gets its own because its population is a
 	// subset, and `report` refuses repetitions whose checksums differ, which is what would catch a slip here.
 	tracePathFor := map[string]string{}
+	// Kept per arm, because the manifest loop below needs the ROWS and not only the path.
+	//
+	// The isolated baseline's rows are a subset -- premium only -- so a manifest built from the canonical
+	// trace would claim a contender prompt length for an arm that was never sent one.
+	rowsFor := map[string][]bench.TraceRow{}
 	for _, arm := range armList {
 		out := filepath.Join(*outDir, "trace-"+arm+".jsonl")
 		armRows := rows
@@ -140,6 +152,7 @@ func prepareTraces(args []string) error {
 			return err
 		}
 		tracePathFor[arm] = out
+		rowsFor[arm] = armRows
 		fmt.Printf("%-12s %6d rows -> %s\n", arm, len(armRows), out)
 	}
 
@@ -161,11 +174,14 @@ func prepareTraces(args []string) error {
 				TraceChecksum:   sum,
 				Model:           *model,
 				TimeoutMs:       *timeoutMs,
+				TimeoutScope:    bench.TimeoutScopeWholeRequest,
 				Seed:            *seed,
 				PrimaryEndpoint: "ttft_p99",
 				MatchTolerance:  *matchTol,
 				LongThreshold:   *longThreshold,
 				GatewaySHA:      *gatewaySHA,
+				TokenizerRev:    *tokenizerRev,
+				PromptLenChars:  bench.PromptLenCharsByTenant(rowsFor[arm]),
 			}
 			for role, ref := range map[string]string{"gateway": *gatewayImage, "engine": *engineImage} {
 				if ref == "" {

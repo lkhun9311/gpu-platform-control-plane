@@ -231,16 +231,63 @@ var _ = Describe("GpuSharingBenchmark", func() {
 			Expect(err.Error()).To(ContainSubstring("non-empty status.result.reportUri"))
 		})
 
-		It("accepts Completed once a report is named, and accepts Running without one", func() {
-			b := newStanding("gsb-done-ok")
-			b.Status.Phase = "Running"
-			Expect(k8sClient.Status().Update(ctx, b)).To(Succeed())
-
+		// Each of the three refusals above now has TWO reasons to fire: no reportUri and no ratio interval.
+		// Asserting only on the reportUri half would let the rule keep passing if the reportUri clause were
+		// deleted, because the ratio clause would refuse the same objects and produce a message the test never
+		// reads. So the two clauses get one spec each where the OTHER field is supplied, and the assertion
+		// names the half under test.
+		It("refuses Completed with a report but no ratio interval", func() {
+			b := newStanding("gsb-done-noratioci")
 			b.Status.Phase = "Completed"
 			b.Status.Result = &platformv1.BenchmarkResult{
 				BaselineP99Ms: 100, ColocatedP99Ms: 900,
 				InterferenceRatio: "9.0", P99CI95: "820-980",
 				ReportURI: "s3://reports/premium-vs-longcontext-shared",
+			}
+			err := k8sClient.Status().Update(ctx, b)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("non-empty status.result.interferenceRatioCI95"))
+		})
+
+		It("refuses Completed with an empty ratio interval", func() {
+			b := newStanding("gsb-done-emptyratioci")
+			b.Status.Phase = "Completed"
+			b.Status.Result = &platformv1.BenchmarkResult{
+				InterferenceRatioCI95: "",
+				ReportURI:             "s3://reports/premium-vs-longcontext-shared",
+			}
+			err := k8sClient.Status().Update(ctx, b)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("non-empty status.result.interferenceRatioCI95"))
+		})
+
+		It("refuses Completed with a ratio interval but no report", func() {
+			b := newStanding("gsb-done-ci-no-uri")
+			b.Status.Phase = "Completed"
+			b.Status.Result = &platformv1.BenchmarkResult{
+				BaselineP99Ms: 100, ColocatedP99Ms: 900,
+				InterferenceRatio: "9.0", InterferenceRatioCI95: "8.1-9.9",
+			}
+			err := k8sClient.Status().Update(ctx, b)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("non-empty status.result.reportUri"))
+		})
+
+		It("accepts Completed once a report and a ratio interval are named, and accepts Running without either", func() {
+			b := newStanding("gsb-done-ok")
+			b.Status.Phase = "Running"
+			Expect(k8sClient.Status().Update(ctx, b)).To(Succeed())
+
+			// The values are the shape the third amendment registered: both latency fields are medians of
+			// per-repetition p99s, p99CI95 is the colocated median interval in milliseconds, and
+			// interferenceRatioCI95 is the paired bootstrap interval on the ratio -- dimensionless, and
+			// bracketing 9.0 rather than the milliseconds beside it.
+			b.Status.Phase = "Completed"
+			b.Status.Result = &platformv1.BenchmarkResult{
+				BaselineP99Ms: 100, ColocatedP99Ms: 900,
+				InterferenceRatio: "9.0", P99CI95: "820-980",
+				InterferenceRatioCI95: "8.1-9.9",
+				ReportURI:             "s3://reports/premium-vs-longcontext-shared",
 			}
 			Expect(k8sClient.Status().Update(ctx, b)).To(Succeed())
 		})

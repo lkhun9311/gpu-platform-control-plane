@@ -91,6 +91,9 @@ case "$svc $op" in
 
   "s3api head-object")
     key=$(arg_after --key "$@" || true)
+    # A metadata read of an object that exists -- the pilot asks when the marker was uploaded -- is answered
+    # without counting as a poll, so it cannot move the scenario's marker timeline.
+    case " $* " in *" --query LastModified "*) printf '2026-10-08T12:00:00+00:00\n'; exit 0 ;; esac
     n=$(bump head-object)
     # The stale-marker scenario models a marker left at the BUCKET ROOT by an earlier run, which is
     # where the fixed keys used to put it. It is deliberately key-aware: a run that polls its own
@@ -290,7 +293,10 @@ case "$svc $op" in
     if [ "${STUB_TERMINATE_LINGERS:-0}" != "1" ]; then
       printf 'yes\n' > "${STUB_STATE:-/tmp}/terminate-accepted"
       # When the call was accepted is what makes `shutting-down` a phase rather than a constant.
-      cat "${STUB_STATE:-/tmp}/count-describe-instances" 2>/dev/null > "${STUB_STATE:-/tmp}/terminate-accepted-at" || printf '0\n' > "${STUB_STATE:-/tmp}/terminate-accepted-at"
+      # Only the first accepted call starts the shutdown: EC2 does not restart a shutdown when termination is asked again.
+      [ -f "${STUB_STATE:-/tmp}/terminate-accepted-at" ] \
+        || cat "${STUB_STATE:-/tmp}/count-describe-instances" 2>/dev/null > "${STUB_STATE:-/tmp}/terminate-accepted-at" \
+        || printf '0\n' > "${STUB_STATE:-/tmp}/terminate-accepted-at"
     fi
     printf '{}\n'
     ;;
@@ -358,6 +364,8 @@ case "$svc $op" in
       printf 'filtered describe: %d instance(s) matched the filter\n' "$matched" >> "$STUB_TRANSCRIPT"
       exit 0
     fi
+    # The pilot asks for the launch time; answered without counting as a state read, as above.
+    case " $* " in *"LaunchTime"*) printf '2026-10-08T09:00:00+00:00\n'; exit 0 ;; esac
     n=$(bump describe-instances)
     dead="${STUB_TERMINATED_AFTER:--1}"
     # A terminate call that was accepted wins over the call counter: after it, the instance is gone.
@@ -505,7 +513,19 @@ case "$svc $op" in
             for stub_arm in $STUB_EVIDENCE_ARMS; do
               # A row the caller can judge, not just a filename it can glob. The session asks whether any
               # row was answered, so the stub writes what the real replay writes: an httpStatus.
-              printf '{"arm":"%s","httpStatus":200}\n' "$stub_arm" > "$local_tmp/m5c-run/raw-$stub_arm-1.jsonl"
+              # STUB_EVIDENCE_REPS repetitions of each, because the session refuses an arm missing a planned one.
+              # The admission stages D and E run R1 once, and their archives hold each cell's gateway record, step
+              # log and manifest, which the session's inventory requires; the stub writes what that archive holds.
+              stub_n="${STUB_EVIDENCE_REPS:-1}"
+              [ "${STUB_EVIDENCE_R1_ONCE:-0}" = 1 ] && [ "$stub_arm" = R1 ] && stub_n=1
+              for stub_rep in $(seq 1 "$stub_n"); do
+                printf '{"arm":"%s","httpStatus":200}\n' "$stub_arm" > "$local_tmp/m5c-run/raw-$stub_arm-$stub_rep.jsonl"
+                if [ "${STUB_EVIDENCE_RECORDS:-0}" = 1 ]; then
+                  printf '{"ev":"done"}\n' > "$local_tmp/m5c-run/gateway-record-$stub_arm-$stub_rep.jsonl"
+                  printf '{"ev":"terminal"}\n' > "$local_tmp/m5c-run/step-log-$stub_arm-$stub_rep.jsonl"
+                  printf 'arm: %s\n' "$stub_arm" > "$local_tmp/m5c-run/manifest-$stub_arm-$stub_rep.yaml"
+                fi
+              done
             done
             tar -czf "$dest" -C "$local_tmp" m5c-run
           else

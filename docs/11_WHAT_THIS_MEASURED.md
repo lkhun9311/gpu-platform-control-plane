@@ -1,13 +1,16 @@
 # What This Measured
 
-> **Status (2026-09-23).** The findings, separated from the apparatus that produced them.
+> **Status (2026-10-10).** The findings, separated from the apparatus that produced them.
 >
 > `docs/10_WHAT_I_GOT_WRONG.md` records the mistakes. This records what survived them. Every number below
 > cites the pre-registration or result page it came from, and every claim is bounded by what the measurement
 > could actually see.
 
-The control plane is not the result. It is the instrument. The results are seven findings that could not be
+The control plane is not the result. It is the instrument. The results are nine findings that could not be
 asked without it, and four claims this project is **not** entitled to make.
+
+(Nine, counted from the headings below. This line once said seven while the page carried eight, which is the
+kind of drift that makes a reader stop trusting the arithmetic in the findings themselves.)
 
 ---
 
@@ -17,8 +20,9 @@ asked without it, and four claims this project is **not** entitled to make.
 
 Reservation cannot see use (1). The scheduler cannot see whether a device is real (2). A tail metric cannot
 see the work that was refused (4). A quota system cannot see whether the workload honours a signal (5).
-Finding 3 is the exception, and it is the mechanism for why one of those blind spots cannot be closed by
-sharing the card.
+Finding 3 is the exception, and it is the mechanism for why sharing the card did not close one of those blind
+spots **at the loads measured** — the same arm closes it at lower ones, which is the whole point of stating a
+load with a claim.
 
 Finding 8 is the other exception, and it points the other way: the blind spot in 6 has a cause that can be
 moved. Where the scheduler puts the *first* small pod decides whether a later large one has anywhere to go,
@@ -74,13 +78,107 @@ interconnect. For those the fake device is not merely weaker evidence; it is no 
 
 ## Finding 3 — splitting a card does not divide the machine
 
-Time-slicing one A10G between two engines, against an isolated single-tenant baseline (`R1`):
+Time-slicing one A10G between two engines, against an isolated single-tenant baseline (`R1`). These are the
+**ninth paid pilot's** numbers (2026-09-13, `hack/m5c-20260913-011031`, commit `85ae2fa`): three arms, two
+repetitions each, six cells, 75 minutes, $0.85.
+
+**The load this pilot ran, stated because a later run changed it.** Premium prompts of **200 characters** —
+the trace generator's flag default, which the served tokenizer counts as **68 tokens** and which
+corresponds to no `inputTokens` declaration at all — contender prompts of 40,000 characters, `timeoutMs`
+**30,000**, two repetitions. The input-length resolution table that makes `baseline.inputTokens: 256`
+executable did not exist yet. The design spec's seventh 2026-10-01 amendment froze the contract afterwards,
+so this table and the ten-cell table below are **different loads and cannot be combined**.
 
 | arm | premium TTFT p99 | /R1 | premium TPOT p99 | /R1 | contender served | timeouts |
 |---|---:|---:|---:|---:|---:|---:|
 | `R1` | 69.5 ms | 1.0x | 18.2 ms | 1.0x | — | 0 |
 | `shared` | 1,892.2 ms | 27.2x | 89.1 ms | 4.9x | 278/278 | 0 |
 | `timeSlicing` | **1,007.5 ms** | **14.5x** | 44.1 ms | 2.42x | 278/278 | 0 |
+
+⚠️ **The `timeSlicing` row reversed when the same three arms were bought at the longer prompt.** On
+2026-10-02, fifteen cells (`hack/m5c-20261002-014903`, commit `b97d88e`, five repetitions) measured
+`R1` <!-- claim: m5c-15cell-r1-premium-ttft-p99 median -->174.268<!-- /claim --> ms, `shared` <!-- claim: m5c-15cell-shared-premium-ttft-p99 median -->4,000.579<!-- /claim --> ms and `timeSlicing` **<!-- claim: m5c-15cell-timeslicing-premium-ttft-p99 median -->14,868.019<!-- /claim --> ms** — the split card 3.7x *worse* than
+the single shared engine, where here it is 1.9x better. The registered answer went from `5 (timeSlicing)` to
+**`3`, INCONCLUSIVE**: the best sharing arm improved the control by 0.0 ms against a 3.9 ms spread.
+
+The same explanation this page gives below for the baseline applies to it — the premium prompt is 68 tokens
+here and 256 there, by the engine's own report on every premium row of both archives — and it is not
+established, because the timeout moved from 30s to 60s in the same step.
+Each run is tight against itself — on 2026-10-02 `R1`'s five repetitions span
+<!-- claim: m5c-15cell-r1-premium-ttft-p99 min -->171.882<!-- /claim --> to
+<!-- claim: m5c-15cell-r1-premium-ttft-p99 max -->175.269<!-- /claim --> ms, a width of
+**<!-- claim: m5c-15cell-r1-premium-ttft-p99 width dp=1 -->3.4<!-- /claim --> ms**, and the control
+`shared` spans <!-- claim: m5c-15cell-shared-premium-ttft-p99 width dp=1 -->3.9<!-- /claim --> ms — so the
+two runs disagree rather than either being noisy. An earlier version of this sentence said 0.8 ms, which was the row's first and last value rather than
+its extremes. **The row above is this load's result.** Published in full, including the
+disagreement, under the pre-registration's 2026-10-02 amendment.
+
+### Why these ratios are a paired comparison, and what their narrowness does not say
+
+**Every arm is offered the same premium requests, and that is now measured rather than assumed.** `gen-trace`
+builds the isolated baseline by filtering the contending tenant out of the SAME trace, so `R1`, `shared` and
+`timeSlicing` receive identical premium arrivals — same offsets, same prompt lengths, same output caps, in the
+same order. Fingerprinting every offered premium row of the 2026-10-02 archive gives **one digest across all
+three arms and all five repetitions**, `443db0939d9846de`, at 4,655 requests per cell. The 2026-09-13 pilot
+likewise gives one digest across its three arms and two repetitions.
+
+That is what makes a per-repetition ratio a *paired* quantity: the two arms differ in the contending tenant's
+139 requests and in nothing else. And the pairing survives into the completed rows — across the fifteen cells,
+**69,825 premium requests were offered and 69,825 completed, with zero timeouts**, so no arm is being compared
+on a different subset of the traffic it was given.
+
+`internal/bench/paired_premise_test.go` pins the premise. It was written because "true by construction" is the
+kind of claim this repository has been wrong about: the construction can change, and arms offered different
+premium traffic would still produce a ratio that looks fine. Four mutations of the check go red — dropping the
+arrival offset or the request index from the fingerprint, narrowing the comparison to within one arm, and
+disabling the repetition comparison — each caught by a synthetic violation, because the real archives satisfy
+the premise and therefore prove nothing about the check.
+
+**Three things the paired ratios do not establish.**
+
+| | |
+|---|---|
+| The two runs cannot be combined | The 2026-10-02 archive's offered-traffic digest is `443db0939d9846de` and the ninth pilot's is `52df4f52668151e2`. Different offered traffic, so their ratios are not repetitions of one experiment |
+| The narrow spread is the machine's, not the GPU's | On 2026-10-02 the five `shared`/`R1` ratios span **<!-- claim: ratio m5c-15cell-shared-premium-ttft-p99 / m5c-15cell-r1-premium-ttft-p99 width dp=3 -->0.458<!-- /claim -->** (<!-- claim: ratio m5c-15cell-shared-premium-ttft-p99 / m5c-15cell-r1-premium-ttft-p99 min dp=3 -->22.827<!-- /claim --> to <!-- claim: ratio m5c-15cell-shared-premium-ttft-p99 / m5c-15cell-r1-premium-ttft-p99 max dp=3 -->23.284<!-- /claim -->) and the five `timeSlicing`/`shared` ratios span **<!-- claim: ratio m5c-15cell-timeslicing-premium-ttft-p99 / m5c-15cell-shared-premium-ttft-p99 width dp=3 -->0.181<!-- /claim -->**. Identical offered traffic means that spread is one card, one instance, one session replaying one trace — it is not variation over loads, seeds, cards or sessions |
+| It is a range, not an interval | Five values of a statistic are an observed range. No confidence interval is published for this study; `RegisteredEstimand.RatioCI` is computed and withheld until a dated amendment settles the replicate-rounding convention |
+
+### Finding 3b: under the frozen contract, one competing tenant costs 23.0x — and this run bought no split-card arm
+
+Ten cells, five repetitions of `R1` and `shared`, 2026-10-01, $1.44. Premium prompts of **1,174
+characters**, which the engine's own tokenizer counted as **256 tokens** on all 46,549 premium rows —
+exactly what `baseline.inputTokens` declares — contender 42,579 characters at **8,192 tokens**,
+`timeoutMs` 60,000.
+
+| arm | premium TTFT p99 (median of 5) | /R1 | p50 | p95 | premium completed | timeouts |
+|---|---:|---:|---:|---:|---:|---:|
+| `R1` | 174 ms | 1.0x | 87.8 ms | 143.4 ms | 23,275 / 23,275 | 0 |
+| `shared` | 3,998 ms | **23.0x** | 161.3 ms | 2,349.1 ms | 23,274 / 23,275 | 0 |
+
+**The isolated baseline is not the same number as the pilot's, and that is the first thing to say.** `R1` is
+69.5 ms in the table above and 174 ms here, on the same card and the same engine. The runs differ in how much
+prefill each victim request carries — the pilot's premium prompts were 200 characters and this run's are
+1,174 — so the baseline moves with the load, which is why a ratio against one run's baseline cannot be read
+against the other's. This page does not claim the length is the *whole* reason: the repetition count differs
+too, and nothing isolated them. The timeout is a **weaker** candidate rather than an eliminated one, and an
+earlier version of this sentence eliminated it: the longest request either run completed is under the pilot's
+own 30 s ceiling, so raising it to 60 s **censored nothing**, which is measured. What that does not cover is
+the timeout's other effect — `PoolSizeForTrace` sizes the idle connection pool as
+`ceil(rate × timeout_seconds)` (`internal/bench/httpsender.go`), so the two runs replayed through clients of
+different sizes. Ruling the timeout out entirely needs a comparison that holds the client fixed, and no run
+has done that.
+
+Total output throughput was level — 589.2 against 589.3 tok/s — and the latency cost was **not confined to
+the tail**: p50 rose 1.84x, p95 16.4x, p99 23.0x. The five per-repetition ratios were
+22.96 · 23.01 · 22.95 · 22.93 · 22.97, an **observed range and not a confidence interval**: this run
+replayed one trace five times, so its narrowness shows repetition stability under one fixed load rather
+than variation over loads, seeds or machines. Under the registered rounding rule the medians give
+3998/174 = **22.977**; at raw precision the same medians give 22.969, and the pooled-request ratio 22.972.
+
+**What this run cannot say.** It bought no `timeSlicing` arm, so it makes no claim about splitting the card
+under this contract. The one premium request that did not complete was an **HTTP 502** in `shared`
+repetition 3, with no trace in the instance log — "no timeouts" is not a success rate. And the gap between
+27.2x and 23.0x is not evidence about the calibration: the prompt length and the repetition count both
+differ. The timeout differs too, and for the reason given above it is a weaker candidate, not an eliminated one.
 
 The improvement is real: **884.6 ms**, against a control whose two repetitions differed by **1.375 ms**.
 That is a range check and nothing more. An earlier draft of the source spec expressed the same comparison as
@@ -98,14 +196,30 @@ mechanism at every load.
 
 **The mechanism, which is the actual finding.** A contending prompt occupies the engine for about **1.03 s**.
 The premium tail budget is a tenth of that. When the latency target is shorter than one contending request's
-service time, no sharing mode reaches it, because the unit that must be divided is not the card — it is a
-request already in flight.
+service time, **neither of the two sharing modes measured here reaches it at the loads measured here**,
+because the unit that must be divided is not the card — it is a request already in flight.
+
+The bound matters and this sentence did not carry it. It read "no sharing mode reaches it", which is a
+statement about every sharing mode at every load, and the paragraphs above it say the opposite: the same
+`timeSlicing` arm passes at 1.16 and 2.31 requests a second. What was measured is `shared` and `timeSlicing`
+on one card at the loads listed, and the service-time argument explains those observations rather than
+proving a universal. An external review caught the mismatch between this sentence and its own page.
 
 **What it does not say.** Nothing about MIG. Neither card this account may launch supports it — the
 register that reads DCGM labels records exactly that: *"correct for T4 and A10G, neither of which supports
 MIG"* (`hack/queuelab-refusal-register.md:65`). MIG is not absent because it was judged and rejected; it is
 absent because the instance-family policy permits no card that has it. Nothing here about larger cards, and
 nothing about different prompt-length distributions.
+
+**A later run under the CRD contract did not replace these numbers.** On 2026-10-01 a
+`GpuSharingBenchmark` compiled into the paid runner's whole configuration for the first time — the instance
+logged the CR's digest, and cell 1 of 10 produced 4,655 rows whose manifest names the study, the tokenizer
+revision and the engine digest. It then stopped itself on a cell boundary: a cell took 15.7 minutes against
+the runner's assumed 10, and its log projects the nine cells left at about 167 minutes against 142 before the
+deadline (the run's own log, archive m5c-20261001-002751). One cell is not a comparison, and that run bought the
+provenance chain rather than a result. The ten-cell run that completed that afternoon (Finding 3b) bought no
+split arm either. **The table above remains the ninth pilot's**, and nothing in the 2026-10-01 runs
+retroactively confirms it.
 
 *(`docs/superpowers/specs/2026-09-10-does-splitting-the-card-buy-protection.md:529`, `:561`;
 `docs/superpowers/specs/2026-09-15-a-ladder-whose-contender-holds-still.md:82`, `:115`;
@@ -115,8 +229,11 @@ nothing about different prompt-length distributions.
 
 ## Finding 4 — a tail-only reading reports the arm that did no work as the winner
 
-The three-arm admission guard was declared **INVALID** by its own pre-registered checks: it held the premium
-tail at 83.7x an uncontended baseline against a 1.25x target, so no protection claim was made.
+The three-arm admission guard was declared **INVALID** by its own pre-registered checks, and the word covers
+two different things. Two of the three checks were void: arm B admitted nothing, so it was not a control
+(`hack/m5d-writeup.md:94`). The third, the absolute check, compared what it was meant to compare and
+**failed**: the guarded premium tail was 83.7x an uncontended baseline against a 1.25x target. So the
+protection did not merely go unmeasured; where it was measured, it failed, and no protection claim was made.
 
 Re-scoring the same evidence later, at no further spend, found something worse. The arm whose tail *matched
 isolation* — the apparent winner on the headline metric — had admitted **none** of the contending tenant's
@@ -272,15 +389,40 @@ symmetric layout the two candidate nodes tie.
 
 ---
 
+## Finding 9 — one admission rule protects the premium tail, and a tuned clock matches it until the load moves
+
+Finding 3 left a shared engine 23x slower for its premium tenant than isolation. The cause, read off the engine's own step log, is that vLLM serves a running request before a waiting one: a contender's 7,695-token prompt holds every new premium request for about 1.35 s, and priority only reorders the queue. The question was which gateway admission rule removes that, at what cost to the contender, and whether the engine's first-token signal is what makes it work.
+
+Measured on one A10G at a time, the frozen load and three registered blocks each:
+
+| study | what was compared | result |
+|---|---|---|
+| diagnostic (2026-10-09) | off, a hold of one contender prefill at a time, the engine's per-step prefill cap of 384, and both together (hold-cap) | **hold-cap cut the premium TTFT p99 to about 0.30 of off's** in all three blocks (block 3: 452 against 1,486 ms), inside the owner's frozen contender limits: every contender completed, median 1.25 to 1.38 times off's, p95 at most 16.8 s, no refusal, no preemption. Hold alone left the tail at 0.99 of off's, and the cap alone made it worse, 1.09 to 1.19 |
+| v26 (2026-10-10) | hold-cap against four fixed spacings with the same cap, 1.62 to 1.74 s, each judged on the card by the same limits | **not established**: the 1.74 s spacing matched hold-cap's pooled premium p99 within 15% (446 against 455 ms) at a higher contender median, 1.32 to 1.39 times off's against 1.27 to 1.28. At 1.70 s its tail was 516 ms, still within 15%; 80 ms narrower, at 1.66 s, it was 1,122 ms; at 1.62 s it was no better than off. No spacing wider than 1.74 s was measured |
+| v27 calibration (2026-10-10) | off and hold-cap at contender prompts of 6,144, 7,695 and 8,192 tokens | **feasible**: the 8,192-token prompt lengthened the capped prefill past the tuned 1.74 s (1,772 against 1,652 ms), while hold-cap stayed protective and inside every limit at all three lengths |
+
+What was not measured, and stands only as the replay's prediction — a scheduler model fitted on 282,897 archived steps, which matched every measured prefill median within 3%: that at 8,192 tokens the 1.74 s spacing loses the premium tail entirely, and that on a heavier trace hold-cap's contender p95 reaches the 25 s limit. The main study that would have measured both was stopped at its own purchase gate, because the replay predicted the second.
+
+**Why it matters.** The rule that works is a combination neither half of which works alone, and its advantage over a fixed clock is not a lower tail but that it needs no tuning: at the load it was tuned for, a well-chosen spacing does as well, and 80 ms narrower than that choice its tail is more than twice hold-cap's.
+Only narrower spacings were measured, so how a wider one fares is not known.
+
+**What it does not say.** Not that hold-cap beats a fixed spacing — v26 measured a tie within the registered 15%, not a win. Not that the fixed spacing fails when the prompt grows — that is predicted, not measured. And not anything beyond one A10G, one engine version, one load and the traces each study froze.
+
+The evidence re-derives: `hack/verify-admission-evidence.sh` downloads the raw cells of all three paid sessions from the release `evidence-admission-2026-10-10`, checks them against the committed checksums, re-scores them with this checkout's scorer and fails on any difference from the published verdicts.
+
+*(`docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md`, from "The diagnostic's result"; `internal/gateway/serialprefill.go`, `internal/gateway/fixedspacing.go`, `hack/prospective-pilot/`)*
+
+---
+
 ## What this project is not entitled to claim
 
 Stated first, because the findings above are only believable if the refusals are published with them.
 
 | claim | what is actually true |
 |---|---|
-| **"I operated a GPU platform"** | No. The gateway has never been deployed to EKS or through the GitOps path (`README.md:22`). The cluster was applied once on 2026-09-18 — 96 resources, no GPU instance — and destroyed in the same cycle. Argo CD has been run on kind, and **auto-sync was deliberately removed before applying** (`hack/argocd-kind.md:24`), so seven Applications resolving with no error is evidence that the manifests build and the destination resolves — **not** that drift is repaired. Self-heal has now been exercised, but narrowly: a separate Application in its own project and namespace, bootstrapped by `kubectl`, repaired six of six injected drifts (`experiments/argocd-selfheal/`). The seven platform Applications were left with automation off and are unchanged. So the GitOps *mechanism* is demonstrated on this cluster; the *platform* running under it is not. |
-| **"The admission guard protects the premium tier"** | Rejected. 83.7x against a 1.25x target across four paid repetitions; the run was declared invalid by its own checks and no protection claim was made. |
-| **"Sharing a card substitutes for isolation"** | Rejected as stated. 14.5x with time-slicing and 20.7x with the engine's own scheduler, both against a 2x bar — at the load those studies used. A later ladder found time-slicing **meeting** a 139 ms premium target at 1.16 and 2.31 req/s and breaching at 4.61. So the honest refusal is narrower than "sharing does not substitute": the claim fails because it was made without naming a load. |
+| **"I operated a GPU platform"** | No. The cluster was applied twice — 2026-09-18 (96 resources, no GPU instance, no Argo CD) and 2026-09-25 — and destroyed in the same cycle each time. On 2026-09-25 the gateway was deployed to EKS through the GitOps path: eight automated Applications `Synced/Healthy`, `/readyz` 200, a bad key 401 and the seeded key 403 `no_policy` (`docs/superpowers/specs/2026-09-25-gitops-rehearsal-on-clean-kind.md`). That reaches authentication and the key store, not serving: no backend was deployed, and the device-plugin, observability and samples Applications stayed manual and `OutOfSync`. On kind, Argo CD was run earlier and **auto-sync was deliberately removed before applying** (`hack/argocd-kind.md:24`), so seven Applications resolving with no error is evidence that the manifests build and the destination resolves — **not** that drift is repaired. Self-heal has now been exercised, but narrowly: a separate Application in its own project and namespace, bootstrapped by `kubectl`, repaired six of six injected drifts (`experiments/argocd-selfheal/`). On kind the seven platform Applications were left with automation off. So the GitOps *mechanism* is demonstrated, and the platform's automated baseline has come up under it once on EKS; a GPU workload served under it has not. |
+| **"The admission guard protects the premium tier"** | Rejected, for the guard that was measured: 83.7x against a 1.25x target across four paid repetitions; the run was declared invalid by its own checks and no protection claim was made. A different rule, hold-cap, has since protected the premium tail at one load (Finding 9), and that is a claim about hold-cap at that load, not about the guard. |
+| **"Sharing a card substitutes for isolation"** | Rejected as stated. 14.5x with time-slicing and 20.7x with the engine's own scheduler, both against a 2x bar — at the load those studies used. ⚠️ **The 14.5x is the pre-freeze load's, and its ANSWER is withheld by reading `4e`.** At the frozen load the fifteen-cell run of 2026-10-02 bought `timeSlicing`, and it was worse than the shared engine it was meant to improve: median p99 14,868 ms against 4,001 ms shared and 174 ms isolated, 3.72x the shared arm. Its registered answer is INCONCLUSIVE, because the evaluator floors the best improvement at zero. The ten-cell run under the frozen contract bought no `timeSlicing` arm, so it adds nothing to this refusal: its 23.0x is one shared engine against isolation, and reading it as a statement about splitting would be the comparison reading `4d` exists to block. A later ladder found time-slicing **meeting** a 139 ms premium target at 1.16 and 2.31 req/s and breaching at 4.61. So the honest refusal is narrower than "sharing does not substitute": the claim fails because it was made without naming a load. |
 | **"I built a training platform"** | The `MLTrainingJob` CRD exists and admits through Kueue. Its samples are worse than that: the two tenant samples run `busybox` (`config/samples/platform_v1_mltrainingjob_tenant_b.yaml:16`), and the default one names `pytorch/pytorch:2.3.0-cuda12.1-cudnn8-runtime` with `command: [python, train.py]` (`config/samples/platform_v1_mltrainingjob.yaml:13`) — but **that image contains no `train.py` and nothing puts one there**, so the one sample that looks like training cannot run at all. (A `train.py` does exist in this repository now — `experiments/cpu-ddp/train.py`, added after this row was written — but it is built into its own image by `experiments/cpu-ddp/Dockerfile` and is not the file the sample names. The sample is still broken; only the sentence's "anywhere in this repository" was.) The queuelab trace is not — it runs `python:3.12-slim` and launches a PTX kernel through the CUDA driver API (`internal/queuelab/submit.go:44`) — but that is a synthetic accumulator, not a model. **Distributed training has since run, narrowly**: two gloo ranks inside one Pod, admitted through this CRD and Kueue, with gradient averaging verified by hand-checkable arithmetic and a control that fails (`experiments/cpu-ddp/`). Still no NCCL, no GPU, no multi-Pod rendezvous and no checkpoint resume — and `parallelism: 2` would not provide them, since the operator sets no `completionMode`, no `subdomain` and creates no headless Service. |
 
 Two of these are rejected hypotheses, which is a result. Two are gaps, which are not.
@@ -297,3 +439,4 @@ Two of these are rejected hypotheses, which is a result. Two are gaps, which are
 | 4 — tail-only readings | nothing; the mechanism is established and the fix is a reading, not a run |
 | 5 — preemption that did not | already closed: the termination contract is now an arm of the protocol |
 | 8 — configuration removes stranding | a second layout, and a demand mix where packing should *lose*. Both arms ran on one shape; the campaign cannot cancel a drift over time, because both arms render the same cluster name and must run in sequence |
+| 9 — hold-cap protects, a tuned clock ties | the robustness study v27 stopped: a load with headroom for the contender, so a fixed spacing tuned at one prompt length can be measured failing at another while hold-cap stays inside its limits; and a second card model |

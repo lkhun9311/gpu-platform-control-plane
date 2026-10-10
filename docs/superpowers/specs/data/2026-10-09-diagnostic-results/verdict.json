@@ -1,0 +1,479 @@
+{
+ "verdict": "observed on these traces: hold-cap met every limit in all three blocks",
+ "blocks": [
+  {
+   "block": 1,
+   "complete": true,
+   "validity": [
+    {
+     "line": "off eligible",
+     "value": true,
+     "rule": "true",
+     "state": "holds"
+    },
+    {
+     "line": "off premium loss",
+     "value": 0.0,
+     "rule": "< 0.005",
+     "state": "holds"
+    },
+    {
+     "line": "off largest dispatch lag",
+     "value": 10.546532,
+     "rule": "<= 50 ms",
+     "state": "holds"
+    },
+    {
+     "line": "off premium lag above L=13 ms",
+     "value": 0.0,
+     "rule": "<= 0.001",
+     "state": "holds"
+    },
+    {
+     "line": "off premium successes without gap evidence",
+     "value": 0,
+     "rule": "0",
+     "state": "holds"
+    },
+    {
+     "line": "hold-cap eligible",
+     "value": true,
+     "rule": "true",
+     "state": "holds"
+    },
+    {
+     "line": "hold-cap premium loss",
+     "value": 0.0,
+     "rule": "< 0.005",
+     "state": "holds"
+    },
+    {
+     "line": "hold-cap largest dispatch lag",
+     "value": 7.305448,
+     "rule": "<= 50 ms",
+     "state": "holds"
+    },
+    {
+     "line": "hold-cap premium lag above L=13 ms",
+     "value": 0.0,
+     "rule": "<= 0.001",
+     "state": "holds"
+    },
+    {
+     "line": "hold-cap premium successes without gap evidence",
+     "value": 0,
+     "rule": "0",
+     "state": "holds"
+    },
+    {
+     "line": "off contenders completed without timing evidence",
+     "value": 0,
+     "rule": "0",
+     "state": "holds"
+    },
+    {
+     "line": "off contender completion",
+     "value": 1.0,
+     "rule": ">= 0.95",
+     "state": "holds"
+    },
+    {
+     "line": "hold-cap contenders completed without timing evidence",
+     "value": 0,
+     "rule": "0",
+     "state": "holds"
+    },
+    {
+     "line": "off's crossed denominator finite",
+     "value": 1468.077015,
+     "rule": "finite",
+     "state": "holds"
+    }
+   ],
+   "lines": [
+    {
+     "line": "contender completion",
+     "value": 1.0,
+     "rule": ">= 0.95",
+     "state": "holds"
+    },
+    {
+     "line": "contender completion latency p95",
+     "value": 16848.732353,
+     "rule": "<= 25,000 ms",
+     "state": "holds"
+    },
+    {
+     "line": "hold-timeout refusals",
+     "value": 0,
+     "rule": "0",
+     "state": "holds"
+    },
+    {
+     "line": "preemptions in hold-cap",
+     "value": 0.0,
+     "rule": "0",
+     "state": "holds"
+    },
+    {
+     "line": "premium p99, crossed upper end against off",
+     "value": -1.243417908584302,
+     "rule": "<= -0.1625",
+     "state": "holds"
+    },
+    {
+     "line": "contender completion latency p50 against off's",
+     "value": [
+      4032.083635,
+      3201.819457
+     ],
+     "rule": "<= 1.5 x off's",
+     "state": "holds"
+    },
+    {
+     "line": "contender work in the shared window (p) against off's",
+     "value": [
+      1.0,
+      1.0
+     ],
+     "rule": ">= 0.9 x off's",
+     "state": "holds"
+    },
+    {
+     "line": "contender work in the shared window (q) against off's",
+     "value": [
+      0.9375,
+      0.9375
+     ],
+     "rule": ">= 0.9 x off's",
+     "state": "holds"
+    },
+    {
+     "line": "premium inter-token gap p99 against off's",
+     "value": [
+      88.373,
+      91.104
+     ],
+     "rule": "<= 1.25 x off's",
+     "state": "holds"
+    }
+   ]
+  },
+  {
+   "block": 2,
+   "complete": true,
+   "validity": [
+    {
+     "line": "off eligible",
+     "value": true,
+     "rule": "true",
+     "state": "holds"
+    },
+    {
+     "line": "off premium loss",
+     "value": 0.0,
+     "rule": "< 0.005",
+     "state": "holds"
+    },
+    {
+     "line": "off largest dispatch lag",
+     "value": 6.464038,
+     "rule": "<= 50 ms",
+     "state": "holds"
+    },
+    {
+     "line": "off premium lag above L=13 ms",
+     "value": 0.0,
+     "rule": "<= 0.001",
+     "state": "holds"
+    },
+    {
+     "line": "off premium successes without gap evidence",
+     "value": 0,
+     "rule": "0",
+     "state": "holds"
+    },
+    {
+     "line": "hold-cap eligible",
+     "value": true,
+     "rule": "true",
+     "state": "holds"
+    },
+    {
+     "line": "hold-cap premium loss",
+     "value": 0.0,
+     "rule": "< 0.005",
+     "state": "holds"
+    },
+    {
+     "line": "hold-cap largest dispatch lag",
+     "value": 6.087734,
+     "rule": "<= 50 ms",
+     "state": "holds"
+    },
+    {
+     "line": "hold-cap premium lag above L=13 ms",
+     "value": 0.0,
+     "rule": "<= 0.001",
+     "state": "holds"
+    },
+    {
+     "line": "hold-cap premium successes without gap evidence",
+     "value": 0,
+     "rule": "0",
+     "state": "holds"
+    },
+    {
+     "line": "off contenders completed without timing evidence",
+     "value": 0,
+     "rule": "0",
+     "state": "holds"
+    },
+    {
+     "line": "off contender completion",
+     "value": 1.0,
+     "rule": ">= 0.95",
+     "state": "holds"
+    },
+    {
+     "line": "hold-cap contenders completed without timing evidence",
+     "value": 0,
+     "rule": "0",
+     "state": "holds"
+    },
+    {
+     "line": "off's crossed denominator finite",
+     "value": 1514.965172,
+     "rule": "finite",
+     "state": "holds"
+    }
+   ],
+   "lines": [
+    {
+     "line": "contender completion",
+     "value": 1.0,
+     "rule": ">= 0.95",
+     "state": "holds"
+    },
+    {
+     "line": "contender completion latency p95",
+     "value": 15984.018421,
+     "rule": "<= 25,000 ms",
+     "state": "holds"
+    },
+    {
+     "line": "hold-timeout refusals",
+     "value": 0,
+     "rule": "0",
+     "state": "holds"
+    },
+    {
+     "line": "preemptions in hold-cap",
+     "value": 0.0,
+     "rule": "0",
+     "state": "holds"
+    },
+    {
+     "line": "premium p99, crossed upper end against off",
+     "value": -1.152126278550289,
+     "rule": "<= -0.1625",
+     "state": "holds"
+    },
+    {
+     "line": "contender completion latency p50 against off's",
+     "value": [
+      7177.790031,
+      5214.971532
+     ],
+     "rule": "<= 1.5 x off's",
+     "state": "holds"
+    },
+    {
+     "line": "contender work in the shared window (p) against off's",
+     "value": [
+      0.9596928144115077,
+      0.9713450292397661
+     ],
+     "rule": ">= 0.9 x off's",
+     "state": "holds"
+    },
+    {
+     "line": "contender work in the shared window (q) against off's",
+     "value": [
+      0.8970905172413793,
+      0.9073275862068966
+     ],
+     "rule": ">= 0.9 x off's",
+     "state": "holds"
+    },
+    {
+     "line": "premium inter-token gap p99 against off's",
+     "value": [
+      89.288,
+      92.528
+     ],
+     "rule": "<= 1.25 x off's",
+     "state": "holds"
+    }
+   ]
+  },
+  {
+   "block": 3,
+   "complete": true,
+   "validity": [
+    {
+     "line": "off eligible",
+     "value": true,
+     "rule": "true",
+     "state": "holds"
+    },
+    {
+     "line": "off premium loss",
+     "value": 0.0,
+     "rule": "< 0.005",
+     "state": "holds"
+    },
+    {
+     "line": "off largest dispatch lag",
+     "value": 7.612858,
+     "rule": "<= 50 ms",
+     "state": "holds"
+    },
+    {
+     "line": "off premium lag above L=13 ms",
+     "value": 0.0,
+     "rule": "<= 0.001",
+     "state": "holds"
+    },
+    {
+     "line": "off premium successes without gap evidence",
+     "value": 0,
+     "rule": "0",
+     "state": "holds"
+    },
+    {
+     "line": "hold-cap eligible",
+     "value": true,
+     "rule": "true",
+     "state": "holds"
+    },
+    {
+     "line": "hold-cap premium loss",
+     "value": 0.0,
+     "rule": "< 0.005",
+     "state": "holds"
+    },
+    {
+     "line": "hold-cap largest dispatch lag",
+     "value": 6.521561,
+     "rule": "<= 50 ms",
+     "state": "holds"
+    },
+    {
+     "line": "hold-cap premium lag above L=13 ms",
+     "value": 0.0,
+     "rule": "<= 0.001",
+     "state": "holds"
+    },
+    {
+     "line": "hold-cap premium successes without gap evidence",
+     "value": 0,
+     "rule": "0",
+     "state": "holds"
+    },
+    {
+     "line": "off contenders completed without timing evidence",
+     "value": 0,
+     "rule": "0",
+     "state": "holds"
+    },
+    {
+     "line": "off contender completion",
+     "value": 1.0,
+     "rule": ">= 0.95",
+     "state": "holds"
+    },
+    {
+     "line": "hold-cap contenders completed without timing evidence",
+     "value": 0,
+     "rule": "0",
+     "state": "holds"
+    },
+    {
+     "line": "off's crossed denominator finite",
+     "value": 1484.393072,
+     "rule": "finite",
+     "state": "holds"
+    }
+   ],
+   "lines": [
+    {
+     "line": "contender completion",
+     "value": 1.0,
+     "rule": ">= 0.95",
+     "state": "holds"
+    },
+    {
+     "line": "contender completion latency p95",
+     "value": 9590.068637,
+     "rule": "<= 25,000 ms",
+     "state": "holds"
+    },
+    {
+     "line": "hold-timeout refusals",
+     "value": 0,
+     "rule": "0",
+     "state": "holds"
+    },
+    {
+     "line": "preemptions in hold-cap",
+     "value": 0.0,
+     "rule": "0",
+     "state": "holds"
+    },
+    {
+     "line": "premium p99, crossed upper end against off",
+     "value": -1.1899193044947045,
+     "rule": "<= -0.1625",
+     "state": "holds"
+    },
+    {
+     "line": "contender completion latency p50 against off's",
+     "value": [
+      4006.024734,
+      3210.361268
+     ],
+     "rule": "<= 1.5 x off's",
+     "state": "holds"
+    },
+    {
+     "line": "contender work in the shared window (p) against off's",
+     "value": [
+      0.9945945945945946,
+      0.9945945945945946
+     ],
+     "rule": ">= 0.9 x off's",
+     "state": "holds"
+    },
+    {
+     "line": "contender work in the shared window (q) against off's",
+     "value": [
+      0.9283783783783783,
+      0.9310810810810811
+     ],
+     "rule": ">= 0.9 x off's",
+     "state": "holds"
+    },
+    {
+     "line": "premium inter-token gap p99 against off's",
+     "value": [
+      88.527,
+      91.469
+     ],
+     "rule": "<= 1.25 x off's",
+     "state": "holds"
+    }
+   ]
+  }
+ ]
+}

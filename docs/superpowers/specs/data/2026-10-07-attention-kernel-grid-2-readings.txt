@@ -1,0 +1,19 @@
+grid 2 2 NVIDIA A10G Counter({'graph': 72})
+H1 -- a last chunk absorbs one wave (per-layer us; tolerance 0.25*w)
+  q 16 n  1: c=0   375.6  c=4096   193.2  last     3.4  predicted     0.0  ok (w 375.6)
+  q 16 n  4: c=0   385.4  c=4096   203.7  last     5.7  predicted     0.0  ok (w 375.6)
+  q 16 n  5: c=0   369.1  c=4096   570.6  last   387.2  predicted     0.0  OUT (w 375.6)
+  q 16 n  8: c=0   753.2  c=4096   573.3  last   389.0  predicted   375.6  ok (w 375.6)
+  q 16 n 16: c=0  1502.3  c=4096  1329.7  last  1140.1  predicted  1126.9  ok (w 375.6)
+  q 256 n  1: c=0   376.3  c=4096   186.6  last     7.9  predicted     0.0  ok (w 376.3)
+  q 256 n  4: c=0   375.5  c=4096   554.9  last   369.9  predicted     0.0  OUT (w 376.3)
+  q 256 n  5: c=0   408.1  c=4096   555.8  last   367.9  predicted     0.0  OUT (w 376.3)
+  q 256 n  8: c=0   744.3  c=4096   740.9  last   730.0  predicted   376.3  OUT (w 376.3)
+  q 256 n 16: c=0  1506.4  c=4096  1291.2  last  1084.1  predicted  1129.0  ok (w 376.3)
+  H1 fails
+H3 -- the archive's small chunks (36 x delta, ms)
+  (4, 1, 8188): -0.060 ms vs archive 0.09 -> ok
+  (16, 4, 8176): 0.206 ms vs archive 0.37 -> ok
+  (64, 16, 8128): 41.100 ms vs archive 41.76 -> ok
+  H3 holds
+H4 -- large chunk: c 0: 11.586, c 2047: 8.983, c 4094: 5.832, c 6141: 1.699; mean 7.025 ms vs archive 5.70 (+23.2%) -> holds

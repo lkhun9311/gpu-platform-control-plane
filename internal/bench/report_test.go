@@ -18,6 +18,7 @@ package bench
 
 import (
 	"strings"
+	"testing"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -796,14 +797,18 @@ var _ = Describe("an eligible request that never got an admission verdict", func
 })
 
 var _ = Describe("the incremental check when the repetition ratios scatter", func() {
-	// The percentile bootstrap over four values is anti-conservative once the per-repetition ratios spread
-	// out: simulated against this package's own BootstrapCI, a true ratio of 1.00 -- no effect whatsoever --
-	// clears the gate 10.2% of the time at a coefficient of variation of 0.20, against a nominal 5%.
+	// ⚠️ The 10.2%-at-CV-0.20 figure was measured against BootstrapCI, which bootstraps the MEAN of the
+	// per-repetition ratios. The 2026-10-01 amendment to the M5-b registration replaced the incremental
+	// interval with a paired BLOCK bootstrap of the pooled p99 ratio, and no coverage has been measured for
+	// that estimator at any scatter. So this bound is retained as a provisional refusal and NOT as a
+	// validity boundary for the interval the gate now reads -- an earlier version of this comment presented
+	// the old measurement as the reason for the current refusal, which is the claim the amendment withdrew.
 	//
-	// So the interval is only worth reading while the ratios are tight. The 2026-09-03 pilot measured 0.001
-	// for the contended arms and 0.056 for the isolation-like ones, well inside that, but a run is not
-	// entitled to assume it stayed there. This refuses rather than reports, because the direction matters:
-	// the failure mode is a gate that passes when it should not.
+	// What survives is narrow and still worth having: with everything else fixed, the runs that pass with
+	// this rule are a subset of those that pass without it, so it cannot raise the rate of a false PASS on
+	// one fixed experiment. The 2026-09-03 pilot measured 0.001 for the contended arms and 0.056 for the
+	// isolation-like ones, so it is not expected to bind; it exists because the failure mode is a gate that
+	// passes when it should not.
 	It("is refused when the ratios are too scattered for the interval to mean anything", func() {
 		Expect(RatioScatterTooHigh([]float64{0.9, 0.9, 0.9, 0.9})).To(BeFalse())
 		Expect(RatioScatterTooHigh([]float64{0.6, 0.9, 1.2, 1.5})).To(BeTrue())
@@ -819,7 +824,7 @@ var _ = Describe("the incremental check when the repetition ratios scatter", fun
 var _ = Describe("the admitted-work fraction over exact tokens", func() {
 	// The design defines the admission-match criterion over EXACT target-tokenizer input tokens. Every run so
 	// far computed it over ceil(chars/4), which this project's own calibration records as 36% low on a
-	// 200-character prompt and 23% high on a 40,000-character one. The pre-registered criterion has therefore
+	// 200-character prompt and 30% high on a 40,000-character one (10,000 estimated against 7,695 measured). The pre-registered criterion has therefore
 	// never been evaluated -- a proxy for it has.
 	//
 	// Falling back to the estimate is exactly how that happened, so a report with no exact counts refuses the
@@ -932,3 +937,102 @@ var _ = Describe("what protection costs", func() {
 		Expect(s.OutputTokensByTenant["premium-1"]).To(Equal(int64(10)))
 	})
 })
+
+// The offered-load line must name EVERY tenant, including one the isolated arm does not have.
+//
+// Mutation that turns this red: make formatOfferedLoad stop at the first arm carrying the map. R1 sorts
+// first and has no contender, so the line printed the premium length alone while the contender's 10,645
+// estimated tokens -- half the prefill work on the card -- were missing from a line whose whole job is to
+// say what load was offered. Measured against two real paid runs before this test existed.
+func TestTheOfferedLoadLineNamesEveryTenant(t *testing.T) {
+	r1 := ArmSummary{
+		Arm: ArmR1, TailSampleSize: 500,
+		EstInputTokensByTenant: map[string]int64{PremiumTenant: 1368570},
+		DispositionByTenant:    map[string]Disposition{PremiumTenant: {Offered: 4655}},
+	}
+	shared := ArmSummary{
+		Arm: ArmShared, TailSampleSize: 500,
+		EstInputTokensByTenant: map[string]int64{PremiumTenant: 1368570, NoisyTenant: 1479655},
+		DispositionByTenant: map[string]Disposition{
+			PremiumTenant: {Offered: 4655},
+			NoisyTenant:   {Offered: 139},
+		},
+	}
+	out := FormatReport([]ArmSummary{r1, shared}, &Checks{}, 0.05)
+	for _, want := range []string{"offered prompt length", PremiumTenant + " 294 tok", NoisyTenant + " 10645 tok"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the report does not say %q, so a reader cannot tell this load from another:\n%s", want, out)
+		}
+	}
+}
+
+// Arms that disagree on a tenant's prompt length are SHOWN disagreeing, not averaged into one number.
+//
+// Every arm of a frozen matrix replays the same trace, so a disagreement means the freeze did not hold --
+// which is the thing this line exists to surface rather than smooth over.
+//
+// Mutation that turns this red: average the per-arm means instead of printing their range.
+func TestArmsThatDisagreeOnPromptLengthAreShownDisagreeing(t *testing.T) {
+	a := ArmSummary{
+		Arm: ArmR1, TailSampleSize: 500,
+		EstInputTokensByTenant: map[string]int64{PremiumTenant: 232750}, // 50 tok
+		DispositionByTenant:    map[string]Disposition{PremiumTenant: {Offered: 4655}},
+	}
+	b := ArmSummary{
+		Arm: ArmShared, TailSampleSize: 500,
+		EstInputTokensByTenant: map[string]int64{PremiumTenant: 1368570}, // 294 tok
+		DispositionByTenant:    map[string]Disposition{PremiumTenant: {Offered: 4655}},
+	}
+	out := FormatReport([]ArmSummary{a, b}, &Checks{}, 0.05)
+	if !strings.Contains(out, "ARMS DISAGREE") {
+		t.Errorf("two arms offered 50 and 294 estimated tokens and the report did not say so:\n%s", out)
+	}
+	if !strings.Contains(out, "50-294 tok") {
+		t.Errorf("the report does not show the range the arms spanned:\n%s", out)
+	}
+}
+
+// The report publishes EVERY per-repetition p99, because the registration requires it by name.
+//
+// The design spec's third 2026-09-30 amendment fixes the reported object as a ratio of median
+// per-repetition p99s and says the report "must publish every per-repetition p99 so a reader can see the
+// sample it came from". The values were filled and read only by a range check, so nothing printed them:
+// a reader saw one tail per arm and could not tell five tight repetitions from five scattered ones.
+//
+// Mutation that turns this red: delete the per-repetition block from FormatReport.
+func TestTheReportPublishesEveryPerRepetitionP99(t *testing.T) {
+	s := ArmSummary{
+		Arm: ArmShared, TailSampleSize: 500, RepetitionCount: 5,
+		RepetitionTTFTMsP99: []float64{3996.117, 4000.349, 4000.510, 3998.338, 3997.887},
+	}
+	out := FormatReport([]ArmSummary{s}, &Checks{}, 0.05)
+	for _, want := range []string{"3996.117", "4000.349", "4000.510", "3998.338", "3997.887"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the report hides repetition %s, so a reader cannot see the sample:\n%s", want, out)
+		}
+	}
+	if !strings.Contains(out, "median 3998.338") {
+		t.Errorf("the report does not name the median this arm's point estimate comes from:\n%s", out)
+	}
+	if !strings.Contains(out, "OBSERVED RANGE") {
+		t.Errorf("the report prints a spread without saying it is not an interval:\n%s", out)
+	}
+}
+
+// The median convention is the registered one: the mean of the two central order statistics.
+//
+// Frozen by the third amendment "because it makes B and C continuous in the observations; taking the lower
+// of the two would bias both arms downward by an amount that depends on the spread".
+//
+// Mutation that turns this red: return s[n/2-1] for an even count.
+func TestTheMedianConventionIsTheRegisteredOne(t *testing.T) {
+	if got := medianOf([]float64{10, 20, 30, 40}); got != 25 {
+		t.Errorf("median of 10,20,30,40 = %v, want the registered 25 (mean of the two central values)", got)
+	}
+	if got := medianOf([]float64{174.034, 173.832, 174.297, 174.387, 174.078}); got != 174.078 {
+		t.Errorf("median of the five measured R1 repetitions = %v, want 174.078", got)
+	}
+	if got := medianOf(nil); got != 0 {
+		t.Errorf("median of no repetitions = %v, want 0", got)
+	}
+}

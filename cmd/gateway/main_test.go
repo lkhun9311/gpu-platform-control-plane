@@ -90,3 +90,31 @@ func TestNewAdmitterUnknownMode(t *testing.T) {
 	// shutdown-time call never nil-derefs.
 	stop()
 }
+
+// serial-prefill builds with a positive longest hold and refuses to start without one: a zero hold would refuse every
+// request that ever had to wait.
+func TestNewAdmitterSerialPrefill(t *testing.T) {
+	if _, _, err := newAdmitter(gateway.AdmissionSerialPrefill, admitterFlags{}); err == nil {
+		t.Fatal("serial-prefill started without a longest hold")
+	}
+	a, stop, err := newAdmitter(gateway.AdmissionSerialPrefill, admitterFlags{serialMaxHold: 25 * time.Second})
+	if err != nil || a == nil {
+		t.Fatalf("serial-prefill with a hold: %v", err)
+	}
+	stop()
+}
+
+// fixed-spacing refuses to start without a spacing or without a longest hold: either zero would be a rule that does
+// nothing or refuses everyone while looking like a control.
+func TestNewAdmitterFixedSpacing(t *testing.T) {
+	for _, f := range []admitterFlags{{}, {fixedSpacing: time.Second}, {fixedMaxHold: 25 * time.Second}} {
+		if _, _, err := newAdmitter(gateway.AdmissionFixedSpacing, f); err == nil {
+			t.Fatalf("fixed-spacing started with %+v", f)
+		}
+	}
+	a, stop, err := newAdmitter(gateway.AdmissionFixedSpacing, admitterFlags{fixedSpacing: 1660 * time.Millisecond, fixedMaxHold: 25 * time.Second})
+	if err != nil || a == nil {
+		t.Fatalf("fixed-spacing with both: %v", err)
+	}
+	stop()
+}

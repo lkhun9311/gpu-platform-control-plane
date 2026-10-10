@@ -18,8 +18,10 @@ package main
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -412,5 +414,83 @@ func TestTheStubIsReadyImmediatelyWhenNoDelayIsAsked(t *testing.T) {
 	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("a stub with no readiness delay answered %d; every other caller expects it ready at once", resp.StatusCode)
+	}
+}
+
+// The stub serves /metrics only when asked, and then in vLLM's names, so the m5c rehearsal can drive the
+// engine-metrics scrape down the path a real engine takes: a page with vllm: series, read before and after
+// a replay, whose completed-request counter moves by the requests the replay sent.
+//
+// Off by default because the gateway's admission guard also reads an engine's /metrics. Every other
+// rehearsal has always met a stub that answered 404 there, and a page with different series would change
+// what the guard records for them.
+func TestTheStubServesVLLMNamedMetricsOnlyWhenAsked(t *testing.T) {
+	off := httptest.NewServer(stubMux(stubProfile{tokens: 1}, newStubStats()))
+	defer off.Close()
+	resp, err := http.Get(off.URL + "/metrics")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("a stub not asked for metrics answered /metrics with %d; the admission guard's rehearsals depend on 404", resp.StatusCode)
+	}
+
+	on := httptest.NewServer(stubMux(stubProfile{tokens: 1, metrics: true}, newStubStats()))
+	defer on.Close()
+	read := func() string {
+		r, err := http.Get(on.URL + "/metrics")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = r.Body.Close() }()
+		b, _ := io.ReadAll(r.Body)
+		return string(b)
+	}
+	before := read()
+	if !strings.Contains(before, "vllm:request_success_total 0") {
+		t.Fatalf("before any request the counter is not zero, or not in vLLM's name:\n%s", before)
+	}
+	for range 3 {
+		r, err := http.Post(on.URL+"/v1/chat/completions", "application/json", strings.NewReader(`{}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _ = io.Copy(io.Discard, r.Body)
+		_ = r.Body.Close()
+	}
+	if after := read(); !strings.Contains(after, "vllm:request_success_total 3") {
+		t.Errorf("after three requests the counter did not read 3:\n%s", after)
+	}
+}
+
+// TestStubCountsTheForwardedPriority pins what a rehearsal of the gateway's priority binding reads: each chat
+// request counted under the priority its body carried, "none" when it carried none, and the count cleared by a
+// reset. Mutation that turns this red: count every request as "none".
+func TestStubCountsTheForwardedPriority(t *testing.T) {
+	stats := newStubStats()
+	srv := httptest.NewServer(stubMux(stubProfile{tokens: 1}, stats))
+	defer srv.Close()
+	for _, body := range []string{`{"priority":0}`, `{"priority":1}`, `{"priority":1}`, `{"model":"m"}`} {
+		resp, err := http.Post(srv.URL+"/v1/chat/completions", "application/json", strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _ = io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+	}
+	got := stats.snapshot().RequestsByPriority
+	want := map[string]int64{"0": 1, "1": 2, "none": 1}
+	if len(got) != len(want) {
+		t.Fatalf("requestsByPriority = %v, want %v", got, want)
+	}
+	for k, v := range want {
+		if got[k] != v {
+			t.Fatalf("requestsByPriority = %v, want %v", got, want)
+		}
+	}
+	stats.reset()
+	if n := len(stats.snapshot().RequestsByPriority); n != 0 {
+		t.Fatalf("a reset left %d priority counts behind", n)
 	}
 }

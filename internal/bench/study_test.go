@@ -83,6 +83,79 @@ var _ = Describe("the study registry", func() {
 		})
 	})
 
+	Describe("the repetition floor each registration fixed", func() {
+		It("carries the number each pre-registration states, as a literal", func() {
+			// Pinned literally for the reason the arm names above are: a table built from the production
+			// values proves the registry is consistent with itself. These numbers decide how many paid cells
+			// a study needs, so changing one has to be a deliberate edit here.
+			//
+			// Zero means "this registration fixed no floor", which is a value and not an omission -- the same
+			// distinction a nil Frozen draws. A refusal reading zero declines to judge rather than treating
+			// it as a floor of none.
+			for _, c := range []struct {
+				id       string
+				minReps  int
+				interval bool
+			}{
+				{StudyM5BGateway, 5, true},
+				{StudySharingMatrix, 5, true},
+				{StudyTailCrossingShortLC, 2, false},
+				{StudyTailCrossingMidLC, 2, false},
+				{StudyTailCrossingLongLC, 2, false},
+				{StudyPriceOfProtection, 0, false},
+				{StudyThroughputLadder, 0, false},
+				{StudyThroughputLadderDown, 0, false},
+				{StudyThroughputLadderIndependent, 0, false},
+				{StudyInstrumentValidation, 0, false},
+				{StudyInstrumentValidationS2, 0, false},
+			} {
+				s, ok := LookupStudy(c.id)
+				Expect(ok).To(BeTrue(), c.id)
+				Expect(s.MinRepetitions).To(Equal(c.minReps), fmt.Sprintf("%s's repetition floor", c.id))
+				Expect(s.PublishesInterval).To(Equal(c.interval), fmt.Sprintf("%s's interval promise", c.id))
+			}
+		})
+
+		It("never promises an interval on fewer than three repetitions", func() {
+			// The pair has to be read together, and this is the disagreement worth refusing. Measured
+			// 2026-10-04 by calling the interval functions with two values: BootstrapCI returned
+			// Lo=3998.000 Hi=4001.000 and PairedRatioCI returned Lo=22.8629 Hi=22.9770, both with an EMPTY
+			// InvalidReason -- each declines only at n==1. A two-point bootstrap has four distinct
+			// resamples, so those bounds ARE the two observations, which this project's own report calls an
+			// OBSERVED RANGE rather than an interval.
+			//
+			// Three rather than five, because what is being excluded is the degenerate case the functions
+			// cannot detect. Whether five is required is a question for each registration, and the literal
+			// table above is where that answer lives.
+			for _, id := range KnownStudyIDs() {
+				s, _ := LookupStudy(id)
+				if !s.PublishesInterval || s.MinRepetitions == 0 {
+					continue
+				}
+				Expect(s.MinRepetitions).To(BeNumerically(">=", 3),
+					fmt.Sprintf("%s publishes an interval on %d repetitions, whose bounds would be the observations themselves", id, s.MinRepetitions))
+			}
+		})
+
+		It("fixes a floor for every study that froze a load", func() {
+			// A study with a frozen tuple is one a paid run can be bought for, and the cell count follows
+			// from the floor. Nothing else makes a new entry declare one: the registry's size is pinned
+			// nowhere, so an eighth study added with both fields omitted would read as zero -- "no
+			// registration said" -- on a study whose registration certainly has to.
+			//
+			// Tied to Frozen rather than to a list of ids so that the next frozen study inherits the demand
+			// instead of being added to a literal somebody has to remember to extend.
+			for _, id := range KnownStudyIDs() {
+				s, _ := LookupStudy(id)
+				if s.Frozen == nil {
+					continue
+				}
+				Expect(s.MinRepetitions).To(BeNumerically(">=", 1),
+					fmt.Sprintf("%s freezes a load but fixes no repetition floor, so nothing says how many cells its question costs", id))
+			}
+		})
+	})
+
 	Describe("the report's arm column", func() {
 		It("is wide enough for the longest arm any study defines", func() {
 			// This was the literal 12, sized for M5-b's four names. "mbt-0512-priority" is 17, so every

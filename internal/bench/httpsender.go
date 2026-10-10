@@ -26,6 +26,7 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -36,13 +37,17 @@ import (
 //
 // It records first-token and end timestamps on the client's own clock, which is the only honest source for TTFT because the gateway's request histogram does not start until the proxy handoff.
 type HTTPSender struct {
-	client     *http.Client
-	gatewayURL string
-	model      string
+	// recordContentTimes keeps every content frame's arrival time (SetRecordContentTimes).
+	recordContentTimes bool
+	client             *http.Client
+	gatewayURL         string
+	model              string
 	// apiKeys maps a trace tenant to the API key the gateway resolves it from, so one sender can drive premium and standard tenants through the real identity chain.
 	apiKeys map[string]string
 	// priorities maps a trace tenant to the scheduling priority sent with its requests; absent means none.
 	priorities map[string]int
+	// requestIDPrefix makes every request carry X-Request-Id; empty sends none, which is every run before it existed.
+	requestIDPrefix string
 	// timeout bounds a single request; on expiry the row is recorded as a timeout rather than dropped.
 	timeout time.Duration
 	// drain reports whether the unread tail of each response is consumed so its connection can be pooled.
@@ -164,6 +169,23 @@ func PoolSizeForTrace(trace []TraceRow, timeout time.Duration) int {
 // would ship. A tenant absent from the map sends no priority field at all.
 func (h *HTTPSender) SetPriorities(p map[string]int) { h.priorities = p }
 
+// SetRequestIDPrefix makes each request carry X-Request-Id, built by RequestIDFor.
+func (h *HTTPSender) SetRequestIDPrefix(p string) { h.requestIDPrefix = p }
+
+// SetRecordContentTimes makes the sender keep the arrival time of every content frame, so inter-token gaps can be
+// reported one by one: an average per request hides one long gap among many short ones.
+func (h *HTTPSender) SetRecordContentTimes(on bool) { h.recordContentTimes = on }
+
+// RequestIDFor is the X-Request-Id a row is sent with, and the one its raw row records: the two must agree, so
+// both are built here. The gateway forwards it and vLLM makes it the engine's id, as "chatcmpl-<id>-<8 random>".
+// The prefix must be unique per cell and phase, because a trace index alone repeats in every cell.
+func RequestIDFor(prefix string, index int) string {
+	if prefix == "" {
+		return ""
+	}
+	return prefix + "-" + strconv.Itoa(index)
+}
+
 func NewHTTPSender(gatewayURL, model string, apiKeys map[string]string, timeout time.Duration, conn SenderConn) *HTTPSender {
 	return &HTTPSender{
 		client: &http.Client{
@@ -184,6 +206,10 @@ func NewHTTPSender(gatewayURL, model string, apiKeys map[string]string, timeout 
 //
 // After "data: [DONE]" only the stream terminator remains, so the normal case is a handful of bytes; the
 // bound is what stops a server that keeps writing from holding the sender open on a body nobody wants.
+// errorKindStream is the ErrorKind of a response whose stream broke after it started, one word of the closed
+// vocabulary replay.go documents; named once because three call sites spell it.
+const errorKindStream = "stream"
+
 const maxDrainBytes = 8 << 10 // 8KB
 
 // drainForReuse reads whatever is left of a response body so its connection can return to the idle pool.
@@ -252,7 +278,12 @@ type chatRequest struct {
 	Model     string       `json:"model"`
 	Messages  []chatReqMsg `json:"messages"`
 	MaxTokens int          `json:"max_tokens"`
-	Stream    bool         `json:"stream"`
+	// MinTokens is vLLM's minimum output before end-of-sequence may stop the request.
+	//
+	// Omitted when zero, so that every request of every earlier study is the body it always was.
+	// An explicit 0 would ask the engine for its default anyway, but a changed body is a changed treatment until shown otherwise.
+	MinTokens int  `json:"min_tokens,omitempty"`
+	Stream    bool `json:"stream"`
 	// StreamOptions asks the engine to append a usage chunk carrying its own count of the prompt.
 	//
 	// That count is the served tokenizer's, which is the unit the design's admission-match criterion is
@@ -293,6 +324,7 @@ func (h *HTTPSender) Send(ctx context.Context, row TraceRow, sendUnixNanos int64
 		Model:         h.model,
 		Messages:      []chatReqMsg{{Role: "user", Content: PromptText(row.PromptLenChars)}},
 		MaxTokens:     row.MaxOutputTokens,
+		MinTokens:     row.MinOutputTokens,
 		Stream:        true,
 		StreamOptions: streamOptions{IncludeUsage: true},
 	}
@@ -312,6 +344,9 @@ func (h *HTTPSender) Send(ctx context.Context, row TraceRow, sendUnixNanos int64
 	req.Header.Set("Accept", "text/event-stream")
 	if key := h.apiKeys[row.Tenant]; key != "" {
 		req.Header.Set("Authorization", "Bearer "+key)
+	}
+	if id := RequestIDFor(h.requestIDPrefix, row.Index); id != "" {
+		req.Header.Set("X-Request-Id", id)
 	}
 
 	resp, err := h.client.Do(req)
@@ -390,6 +425,15 @@ func (h *HTTPSender) readStream(ctx context.Context, resp *http.Response) SendRe
 		}
 		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
 		if data == "[DONE]" {
+			// RECORDED, not merely used to leave the loop.
+			//
+			// Measured 2026-10-04 by calling this function with three bodies: a clean stream, one cut off
+			// before [DONE], and one carrying an SSE error object. All three returned ErrorKind "", one
+			// output token and a stamped first-token time -- indistinguishable, and all three therefore
+			// counted as completed requests whose TTFT entered the tail. A truncated response is not a
+			// completed one, and a report that cannot tell them apart reports a completion rate that is
+			// partly invention.
+			res.StreamTerminated = true
 			break
 		}
 
@@ -398,6 +442,15 @@ func (h *HTTPSender) readStream(ctx context.Context, resp *http.Response) SendRe
 				Delta struct {
 					Content string `json:"content"`
 				} `json:"delta"`
+				// Why the engine stopped generating, which it sends and this struct used to discard.
+				//
+				// vLLM puts null on every content chunk and the reason on the last one: "length" when the
+				// output cap cut it, "stop" when the model ended on its own. Without it, a cap that
+				// truncated every response and a model that finished early are the same row -- and the
+				// output cap is a load variable this study freezes, so "the cap was not reached" is a
+				// claim the evidence could not support either way. The value is in
+				// internal/bench/testdata/vllm_sse_stream.txt, so it was arriving all along.
+				FinishReason string `json:"finish_reason"`
 			} `json:"choices"`
 			// The usage chunk arrives last, with an empty choices list, so it contributes no output token.
 			Usage *struct {
@@ -412,10 +465,33 @@ func (h *HTTPSender) readStream(ctx context.Context, resp *http.Response) SendRe
 				// count was arriving and being discarded.
 				CompletionTokens int `json:"completion_tokens"`
 			} `json:"usage"`
+			// The engine's own in-band failure, which this struct used to have no field for.
+			//
+			// An SSE frame carrying {"error": {...}} is valid JSON, so Unmarshal succeeded, no declared
+			// field matched, and the frame was dropped silently -- the request then finished as an ordinary
+			// success. Reproduced: a stream of one content chunk, an error object and [DONE] came back with
+			// ErrorKind "" and a first token stamped. The HTTP status is 200 in this case because the
+			// headers were already sent when the engine failed, so status cannot carry it either.
+			Error *struct {
+				Message string `json:"message"`
+				Type    string `json:"type"`
+			} `json:"error"`
 		}
 		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
 			// A malformed chunk mid-stream is a stream error, but any first token already observed still stands.
-			res.ErrorKind = "stream"
+			res.ErrorKind = errorKindStream
+			res.EndUnixNanos = h.now().UnixNano()
+			return res
+		}
+		// An in-band error ends the stream and is kept verbatim, because the vocabulary is the engine's.
+		//
+		// ErrorKind stays a small closed set the report buckets by, so the engine's own words go in their
+		// own field rather than widening that set. The first token, if one arrived, still stands: it was
+		// observed, and a response that produced tokens and then failed is a different fact from one that
+		// never started.
+		if chunk.Error != nil {
+			res.ErrorKind = errorKindStream
+			res.StreamError = strings.TrimSpace(chunk.Error.Type + ": " + chunk.Error.Message)
 			res.EndUnixNanos = h.now().UnixNano()
 			return res
 		}
@@ -427,9 +503,18 @@ func (h *HTTPSender) readStream(ctx context.Context, resp *http.Response) SendRe
 				res.EngineOutputTokens = chunk.Usage.CompletionTokens
 			}
 		}
+		// The LAST non-empty reason wins, because every content chunk carries null and only the final one
+		// carries the reason. Taking the first would record "" for every request that produced any output.
+		if len(chunk.Choices) > 0 && chunk.Choices[0].FinishReason != "" {
+			res.FinishReason = chunk.Choices[0].FinishReason
+		}
 		if len(chunk.Choices) > 0 && chunk.Choices[0].Delta.Content != "" {
+			now := h.now().UnixNano()
 			if res.FirstTokenUnixNanos == 0 {
-				res.FirstTokenUnixNanos = h.now().UnixNano()
+				res.FirstTokenUnixNanos = now
+			}
+			if h.recordContentTimes {
+				res.ContentUnixNanos = append(res.ContentUnixNanos, now)
 			}
 			res.OutputTokens++
 		}
@@ -438,7 +523,7 @@ func (h *HTTPSender) readStream(ctx context.Context, resp *http.Response) SendRe
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			res.ErrorKind = "timeout"
 		} else {
-			res.ErrorKind = "stream"
+			res.ErrorKind = errorKindStream
 		}
 	}
 	res.EndUnixNanos = h.now().UnixNano()

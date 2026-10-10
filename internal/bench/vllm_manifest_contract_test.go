@@ -1077,16 +1077,25 @@ func TestEveryGeneratedTenantIsProvisioned(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read generator: %v", err)
 	}
-	// The generator names some tenants as literals and the rest through the constants below, so the
-	// constants are resolved here rather than matched as text. NoisyTenant joined them when the
-	// price-of-protection readings started comparing that tenant's output share and the name became
-	// load-bearing in two packages; resolving it is strictly better than matching a string that can move.
-	generated := map[string]bool{ProbeUnderTenant: true, ProbeOverTenant: true, NoisyTenant: true}
+	// Every tenant the generator builds is now named through a constant, so the names are resolved here
+	// rather than matched as text -- matching a string that can move was always the weaker half of this test,
+	// and PremiumTenant was the last literal to go.
+	//
+	// ⚠️ Resolving all four means `len(generated) < 4` can no longer detect a drifted pattern: the map is
+	// populated by this file rather than by reading the generator. So the drift check moved to what it was
+	// really about -- that the generator still ASSEMBLES four tenants. It is counted from the source by the
+	// `Tenant:` field of the TenantSpec literals, whatever each one's value is written as, and the count is
+	// asserted rather than the spelling.
+	generated := map[string]bool{
+		PremiumTenant: true, NoisyTenant: true, ProbeUnderTenant: true, ProbeOverTenant: true,
+	}
+	assembled := regexp.MustCompile(`TenantSpec\{Tenant: `).FindAll(genSrc, -1)
+	if len(assembled) != len(generated) {
+		t.Fatalf("the generator assembles %d TenantSpec values and this test knows %d tenant names; one of the two has drifted",
+			len(assembled), len(generated))
+	}
 	for _, m := range regexp.MustCompile(`\{Tenant: "([^"]+)"`).FindAllSubmatch(genSrc, -1) {
 		generated[string(m[1])] = true
-	}
-	if len(generated) < 4 {
-		t.Fatalf("found only %d tenants in the generator; the pattern this test reads it with has drifted", len(generated))
 	}
 
 	runner, err := os.ReadFile("../../hack/m5b-arms.sh")
@@ -1355,7 +1364,7 @@ func TestTheEngineAndModelAreReadFromTheCluster(t *testing.T) {
 //
 // The design defines the admission-match criterion over the served tokenizer's input-token count. Three paid
 // runs scored it over ceil(chars/4) instead, which this repository's calibration measures at 36 percent low
-// on a 200-character prompt and 23 percent high on a 40,000-character one -- so what was reported was a proxy
+// on a 200-character prompt and 30 percent high on a 40,000-character one (10,000 estimated against 7,695 measured) -- so what was reported was a proxy
 // nobody had pre-registered, and nothing said so.
 func TestTheTraceIsStampedWithExactTokens(t *testing.T) {
 	runner, err := os.ReadFile(filepath.Join("..", "..", "hack", "m5b-arms.sh"))

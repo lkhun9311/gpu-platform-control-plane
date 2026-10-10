@@ -127,3 +127,57 @@ the session fails if termination cannot be confirmed.
 
 That MPS can be made to engage on this card, with two clients attached, under this repository's own
 manifests. It licenses a **later** performance study; it is not one.
+
+## Amendment, 2026-10-03: this page named the wrong failure, in the wrong arm, from the wrong pilot — and the real cause was fixed the day before it was written
+
+**No card has been bought for this page.** This is a pre-purchase revision, not a post-hoc one, and it is
+dated here rather than edited into the body above so a reader can see which text predates it.
+
+**The misattribution.** The section above says the eighth pilot's Pods came back with `Allocate failed due to
+no healthy devices present; cannot allocate unhealthy devices nvidia.com/gpu`. Measured today against the
+archives: that string appears in **one** archive, `hack/m5c-20260911-235956` — the **fourth** pilot — and the
+two events name `vllm-shared-a` Pods, which is the **shared** arm, not the MPS arm. The eighth pilot's
+archive (`hack/m5c-20260912-084918`) contains **zero** occurrences of it. What that archive holds instead is
+
+```
+nvidia-device-plugin-mps-g5s4h   0/1   CrashLoopBackOff   6 (4m10s ago)
+node m5cgpu-worker allocatable nvidia.com/gpu=0 capacity=0
+```
+
+So the failure this page was built around — advertise two, kubelet declines — is a failure mode **this study
+has never observed in the arm it is about**. The plugin advertised **0**, because it was not running.
+
+**What that does to the bars.** B1 reads "allocatable is exactly 2" and B2 "the kubelet will allocate them".
+Both presuppose that the plugin got far enough to advertise. A crash-looping plugin advertises 0, and 0 is
+equally consistent with a plugin that ignored its config, a kubelet that has not re-registered, and a plugin
+that died before registering. The bars are **not renumbered or relaxed** here; one predecessor condition is
+added, because without it B1 cannot distinguish those cases:
+
+| # | Bar | Passes when |
+|---|---|---|
+| B0 | the plugin is alive to be believed | the MPS device-plugin Pod is `Running` with 0 restarts when the advertisement is read, and the control daemon Pod likewise |
+
+**The real cause was already named, by the session that died.** `config/nvidia-device-plugin-mps/daemonset.yaml`
+quotes it in its own comment: `error starting plugins: unable to validate flags: using MPS requires
+--mps-root to be specified`. `git log -S'--mps-root'` dates the fix to `72bfed3`, **2026-09-24 21:22 +0900** —
+twelve days after the eighth pilot, **one day before this page was written**, and the **only** commit to touch
+that directory after the pilot. This page therefore registered a capability question whose known blocker had
+been removed the previous day, and did not say so.
+
+**The honest status is "fixed and never retested", not "MPS does not engage on this card".** Three documents
+carry the second sentence. The next paid cell is MPS's **first** test since the fix.
+
+**One instrument gap is closed today.** `plugin_diagnosis` in `hack/m5c-matrix.sh` captured only the current
+container's log, and a crash-looping pod's current attempt has not yet reached its failure — which is exactly
+why the eighth pilot's archive holds startup noise (`ERROR: driverInitFileInfo 578 result=11`, a message that
+also appears in containers using no MPS at all) and not the line that mattered. `--previous` is added, the way
+the engine diagnosis beside it already did it.
+
+**What is deliberately NOT changed.** The manifest differs from the official v0.16.2 Helm chart in three
+places: no `${mps.root}/shm` → `/dev/shm` mount, no `NVIDIA_VISIBLE_DEVICES=all` or
+`NVIDIA_DRIVER_CAPABILITIES=compute,utility`, and a `hostIPC: true` the chart does not set. None of them is
+supported by evidence as a cause here, and changing them in the same step as the `--mps-root` fix would mean a
+successful next run could not say which change bought the success. If B0–B2 fail again, the `[previous]` log
+is what selects the next change. Separately, `mps.enableHostPID` — which the project's own values file
+explains the MPS server needs to find its PID through `/proc/self` — arrived in **v0.18.0**, after the pinned
+`v0.16.2`; raising the pin is a candidate this page does not take today.

@@ -138,3 +138,70 @@ The GPU-free build is complete and merge-ready; the whole-branch review's two me
 - **Minor (b)** `parseUsage` validates the aggregated max, not each series (a negative series only lowers the max, so benign).
 - **Minor (c)** output-token count is the SSE delta count, not a tokenizer count; keep it labelled approximate (it feeds only secondary metrics; the primary TTFT endpoint is unaffected).
 - **Golden fixture** replace `internal/gateway/testdata/vllm_metrics_golden.txt` with a capture from the digest-pinned vLLM image before relying on the parser against the real engine.
+
+## Amendment, 2026-10-01: the C/B estimand and its interval, specified after the fact
+
+**The original registration did not specify how to aggregate across repetitions.** `:96` fixed the
+endpoint (premium TTFT p99), the threshold (C/B ≤ 0.90 with the bootstrap CI upper bound below 1.0) and
+`:99` fixed the resampling unit (repetition/block-aware, never a naive bootstrap over pooled requests).
+It did not say whether C/B is the ratio of each arm's **pooled** p99 or the ratio of their **per-repetition
+medians**. That is a gap, not a contradiction, and the implementation filled it in two different ways
+without saying so: the point estimate was the ratio of pooled p99s (`internal/bench/report.go:818`) while
+the interval bootstrapped the **mean of per-repetition ratios** (`:624`), and the gate read both together
+(`:822`).
+
+**This amendment is a choice made after seeing the evidence and the reports. It does not claim to recover
+the original registration's single meaning.** The 2026-09-03 run already published
+`C/B = 84.760 CI[80.670, 88.211] FAIL`, so what follows is a re-analysis of existing evidence under a
+method fixed afterwards, not the method that produced that line. The run directory itself is untracked
+(`.gitignore` excludes `hack/m5b-run-*/`), so the figure is cited from the write-up that is committed:
+`hack/m5d-writeup.md` records the same three checks and the same values.
+
+**C/B** is the ratio of each arm's nearest-rank p99 over **all eligible premium completions pooled across
+its repetitions**. This is a choice that weights repetitions by how many requests they completed, and it is
+a different quantity from the ratio of per-repetition p99 medians.
+
+**The interval** is computed over **blocks paired by the repetition identity the runner recorded**. From n
+paired blocks, draw n with replacement; apply the same index to both arms; include each selected block's
+requests as many times as it was drawn; recompute each arm's pooled p99 and their ratio on every replicate.
+Requests are never resampled individually.
+
+**Resampling settings** stay M5-b's existing ones and are adopted explicitly rather than inherited:
+**2,000 replicates, seed 1, two-sided 95% percentile interval**. M5-c's 10,000 replicates and seed 11
+belong to a different study and are not inherited here. Both the point estimate and every replicate use
+values **before** millisecond rounding, and p99 and the interval quantiles use the existing nearest-rank
+rule.
+
+**Refusals, which this amendment decides rather than inherits:**
+
+- If **any** original B or C repetition is censored, the interval is refused and the reason is named.
+  Censored means **at least 1%** of that repetition's premium requests ended in a timeout or another
+  transport/stream error — the existing `internal/bench/report.go:546` boundary, which is `>= 0.01` and so
+  refuses exactly 1% as well. The numerator is **not** "every request that did not complete": requests shed
+  by admission are excluded (`internal/bench/report.go:476`), because a shed request is a decision the guard
+  made rather than a tail this benchmark failed to measure. The first draft of this clause wrote ">1%" and
+  `>= 0.01` in one sentence, which cannot both be true. The existing
+  gate checked only pooled censoring (`internal/bench/report.go:790` reads `s.Censored`), so a run whose pooled rate is
+  0.49% while one repetition is at 1.96% passed. It would not pass under this amendment, and that is a
+  narrowing of what is accepted, not a neutral change of estimator.
+- Mismatched identity sets, too few repetitions, and an undefined denominator refuse the interval rather
+  than degenerating to a point. A replicate that cannot be computed is never silently dropped and the
+  remainder reported as a valid interval.
+- The existing per-repetition ratio scatter refusal (`MaxRatioScatter = 0.15`) is **retained as a
+  provisional refusal**, and what it may be claimed to do is narrower than it reads. With the data, the
+  estimator and the remaining rules fixed, the runs that pass with this rule are a subset of those that pass
+  without it, so it cannot raise the rate of a false PASS on one fixed experiment. That subset argument is
+  the whole claim.
+  It is **not** a validity boundary for the interval above: a coefficient of variation over 0.15 does not
+  make the paired-block interval invalid, and one under it does not establish 95% coverage. The 0.15 was
+  placed between measured false-PASS rates of 1.8% at CV 0.10 and 10.2% at CV 0.20 — both measured against
+  the **mean of per-repetition ratios** (`cmd/benchharness/power.go:63`), which is the statistic this
+  amendment replaces. Any wording presenting that as a justification of the new interval is withdrawn here.
+  Retiring the rule would change the acceptance conditions for evidence already collected, so it stays until
+  a separate dated decision. Whether to keep, change or demote it to a diagnostic is to be decided from a
+  model that generates raw blocks and evaluates coverage, false PASS, power and refusal rate for the new
+  estimator and the whole verdict procedure together — not from the existing `power` output.
+
+**Existing evidence** is re-scored under this method and labelled as a re-analysis; the original reports are
+preserved as written. For any later run, this amendment and the analysis version are pinned before evidence
+is collected.

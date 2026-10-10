@@ -1,0 +1,33 @@
+# for k in 0.950 0.955 ... 1.100: python3 hack/prospective-pilot/simulate.py feasible --scale k hack/m5c-20261008-235046-pilotA/m5c-run hack/m5c-20261009-013656-pilotB/m5c-run
+# the last line of each run, at the commit that adds this file
+0.950 | widest admissible: spacing-1.62s | pooled premium p99 ms: off 1390, hold-cap 385, spacing-1.62s 349 | hold-cap over it 1.102
+0.955 | widest admissible: spacing-1.62s | pooled premium p99 ms: off 1395, hold-cap 389, spacing-1.62s 366 | hold-cap over it 1.065
+0.960 | widest admissible: spacing-1.63s | pooled premium p99 ms: off 1409, hold-cap 408, spacing-1.63s 370 | hold-cap over it 1.104
+0.965 | widest admissible: spacing-1.64s | pooled premium p99 ms: off 1415, hold-cap 416, spacing-1.64s 382 | hold-cap over it 1.086
+0.970 | widest admissible: spacing-1.66s | pooled premium p99 ms: off 1415, hold-cap 404, spacing-1.66s 389 | hold-cap over it 1.039
+0.975 | widest admissible: spacing-1.66s | pooled premium p99 ms: off 1430, hold-cap 430, spacing-1.66s 408 | hold-cap over it 1.054
+0.980 | widest admissible: spacing-1.66s | pooled premium p99 ms: off 1437, hold-cap 441, spacing-1.66s 423 | hold-cap over it 1.043
+0.985 | widest admissible: spacing-1.66s | pooled premium p99 ms: off 1450, hold-cap 446, spacing-1.66s 461 | hold-cap over it 0.967
+0.990 | widest admissible: spacing-1.66s | pooled premium p99 ms: off 1458, hold-cap 448, spacing-1.66s 512 | hold-cap over it 0.875
+0.995 | widest admissible: spacing-1.66s | pooled premium p99 ms: off 1469, hold-cap 454, spacing-1.66s 559 | hold-cap over it 0.812
+1.000 | widest admissible: spacing-1.66s | pooled premium p99 ms: off 1469, hold-cap 469, spacing-1.66s 615 | hold-cap over it 0.763
+1.005 | widest admissible: spacing-1.66s | pooled premium p99 ms: off 1485, hold-cap 485, spacing-1.66s 670 | hold-cap over it 0.725
+1.010 | widest admissible: spacing-1.66s | pooled premium p99 ms: off 1487, hold-cap 500, spacing-1.66s 740 | hold-cap over it 0.675
+1.015 | widest admissible: spacing-1.66s | pooled premium p99 ms: off 1500, hold-cap 500, spacing-1.66s 802 | hold-cap over it 0.624
+1.020 | widest admissible: spacing-1.65s | pooled premium p99 ms: off 1506, hold-cap 507, spacing-1.65s 868 | hold-cap over it 0.584
+1.025 | widest admissible: spacing-1.64s | pooled premium p99 ms: off 1513, hold-cap 512, spacing-1.64s 1083 | hold-cap over it 0.473
+1.030 | no spacing meets the owner's limits in every cell
+1.035 | no spacing meets the owner's limits in every cell
+1.040 | no spacing meets the owner's limits in every cell
+1.045 | no spacing meets the owner's limits in every cell
+1.050 | no spacing meets the owner's limits in every cell
+1.055 | no spacing meets the owner's limits in every cell
+1.060 | no spacing meets the owner's limits in every cell
+1.065 | no spacing meets the owner's limits in every cell
+1.070 | no spacing meets the owner's limits in every cell
+1.075 | no spacing meets the owner's limits in every cell
+1.080 | no spacing meets the owner's limits in every cell
+1.085 | no spacing meets the owner's limits in every cell
+1.090 | no spacing meets the owner's limits in every cell
+1.095 | no spacing meets the owner's limits in every cell
+1.100 | no spacing meets the owner's limits in every cell

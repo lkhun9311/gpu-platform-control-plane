@@ -1,0 +1,99 @@
+# A GpuSharingBenchmark this harness can actually execute.
+#
+# WHY A SECOND SAMPLE, beside platform_v1_gpusharingbenchmark.yaml.
+#
+# The first sample is the schema as it was designed, and `CompilePlan` refuses it -- six values in it name
+# things this harness does not do: two tenant identities the generator never writes, a model nothing serves
+# (twice), a warmup phase that does not exist, and a generator that is not installed. It was eight until
+# outputTokens became a value the plan carries; eleven is a different number, the count of unsupported values
+# that have a case of their own in a test, and this comment used to print that one instead.
+# `TestTheCommittedSampleCannotBeExecuted` keeps that refusal true rather than
+# quietly fixing the sample, because the gap between the declared protocol and the built one is a fact about
+# this project and not a typo.
+#
+# This file is the other half of that fact: the same schema, filled with the values the harness can honour,
+# so that one CR can supply the configuration of a paid run. Every value below is what it is because
+# `CompilePlan` refuses the alternative, and each refusal names its own reason.
+#
+# WHAT THIS CR CANNOT SAY, and therefore what the run still takes from outside it:
+#
+#   - the trace's DURATION. The spec has no field for it. `minRequestsPerRun` does not imply one either:
+#     1,000 requests at the premium rate below is 109 s, and the registered load runs 505 s.
+#   - the study identifier the evidence is filed under (`sharing-matrix-2026-09-10`).
+#   - the resolved prompt lengths in characters. Those are in the plan, not the CR, deliberately: the CR
+#     declares tokens, and how many characters produce that token count is a property of one tokenizer.
+#
+# So a run driven by this file is one whose LOAD and PROTOCOL came from the CR, not one a Kubernetes
+# controller reconciled. That distinction is the honest claim and it is the one the evidence supports.
+apiVersion: platform.lkhun9311.github.io/v1
+kind: GpuSharingBenchmark
+metadata:
+  labels:
+    app.kubernetes.io/name: gpu-platform-control-plane
+    app.kubernetes.io/managed-by: kustomize
+  name: premium-vs-longcontext-shared-executable
+spec:
+  gpuClass: a10g
+  # sharedInstance is the only mode whose ratio holds everything else still: R1 and shared are the SAME
+  # single whole-card engine and differ only in whether the contender's rows are in the trace. timeSlicing
+  # and mps put two engines on half a card each, so their ratio against R1 carries the topology change as
+  # well -- a different registered question, which is why one CR compiles to two arms and not to four.
+  sharingMode: sharedInstance
+  # The victim whose p99 the experiment reports.
+  #
+  # The identities are fixed: the trace generator writes `premium-1` and `standard-noisy` into every row and
+  # nothing passes another, so a CR naming other tenants would produce rows the run never sent.
+  baseline:
+    tenant: premium-1
+    # The served model, by name. The gateway answers ErrNoRoute for anything else once the engines are up.
+    model: Qwen/Qwen2.5-3B-Instruct
+    # This qps and the contender's are the registered tuple written in the units the CR has.
+    #
+    # 9.166179337 + 0.238320663 = 9.404500 exactly, and 0.238320663 / 9.166179337 = 0.026000000026 -- the
+    # registered total rate and contender weight. The arrival model of this study is weighted: one stream of
+    # gaps at the total rate, each arrival assigned a tenant by weight. So a pair of per-tenant rates is the
+    # same load, and the compiler translates it back.
+    #
+    # Nine decimal places is not decoration. At six the sum still reads 9.404500 but the quotient comes out
+    # 0.026000037747, and the runner would print a weight no pre-registration records -- the same load under a
+    # spelling nobody could grep for. Nine is the first width at which both halves round-trip.
+    #
+    # Passing these to gen-trace AS RATES would not be this load. That selects the independent arrival model,
+    # where each tenant has its own process, and the same seed draws a different schedule -- measured here,
+    # 4,751/133 offers against this load's 4,655/139.
+    qps: "9.166179337"
+    # 256 tokens. The resolution table carries 256 and 8192 and nothing else, because those are the two
+    # lengths whose character counts were measured against the served tokenizer rather than estimated.
+    inputTokens: 256
+    # An upper bound on generation, not a length: the sender puts this value in the request's max_tokens
+    # (internal/bench/httpsender.go). 64 is what every committed run was generated with and what the
+    # generator defaults to, but since 2026-10-01 the value travels from here rather than being fixed --
+    # this comment used to claim the old restriction after the restriction was gone.
+    outputTokens: 64
+  # The long-context noisy neighbour.
+  contender:
+    tenant: standard-noisy
+    model: Qwen/Qwen2.5-3B-Instruct
+    qps: "0.238320663"
+    inputTokens: 8192
+    outputTokens: 16
+  # The CRD floor is 5, and the reason is in the readings: an improvement is judged against the control's
+  # own repetition-to-repetition spread, and one repetition has none.
+  repetitions: 5
+  # The harness has no warmup phase and no exclusion boundary, so a positive value could not be honoured.
+  # Dropping rows after the fact is not the same thing and would not be what this field says.
+  warmupRequests: 0
+  # Above the harness floor of 100. Below it a nearest-rank p99 is just the slowest request.
+  minRequestsPerRun: 1000
+  load:
+    # Replay dispatches each request at its scheduled offset without waiting for earlier responses.
+    mode: openLoop
+    # The tool that actually produces the traffic. The first sample says genai-perf, which is not installed
+    # here and has never driven a run; a manifest naming it would be provenance for the wrong tool.
+    generator: benchharness-replay
+    # The sender reads server-sent events to time the first token. Without streaming there is no
+    # first-token time to measure, and TTFT is the endpoint this whole experiment reports.
+    streaming: true
+    timeoutMs: 60000
+    retries: 0
+# status.result is written only by a real-GPU run. Nothing writes it today.

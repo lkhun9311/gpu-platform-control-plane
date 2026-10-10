@@ -1,0 +1,28 @@
+121814 measured steps; attention measured on NVIDIA A10G (FA 2) for 900 compositions; the non-attention terms are fitted on this archive
+candidate O1: 8 fitted columns plus measured attention at coefficient 1, all-data condition 5.8
+  28 folds; 114 endpoints judged, 6 not (5.0%: 3 unsupported, 3 under 10 steps); 2 failing; 0 refused
+  worst decode: ('stagger', 4, 256, 8192) -3.9%
+  worst late-prefill: ('stagger', 1, 256, 256) -10.7%
+  worst mixed: ('stagger', 1, 256, 256) -10.7%
+  worst prefill-only: ('serial', 256, 16) +4.7%
+  outside: ('stagger', 1, 256, 256) mixed: predicted 40.306 ms against 45.151 ms, -10.7%; mean |step error| 10.7%; 21 steps
+  outside: ('stagger', 1, 256, 256) late-prefill: predicted 40.306 ms against 45.151 ms, -10.7%; mean |step error| 10.7%; 21 steps
+  unsupported (not judged): ('serial', 512, 1) prefill-only
+  unsupported (not judged): ('serial', 512, 16) prefill-only
+  unsupported (not judged): ('serial', 512, 64) prefill-only
+  all-data model: c 15.4122, f[0-256] 0.0799117, f[256-512] 0.0895643, f[512-1024] 0.0965395, f[1024-2048] 0.0941374, d1 0.112965, d2 0, u 4.31802
+  candidate O1: FAIL
+candidate O2: 9 fitted columns, all-data condition 6.6
+  28 folds; 114 endpoints judged, 6 not (5.0%: 3 unsupported, 3 under 10 steps); 2 failing; 0 refused
+  worst decode: ('stagger', 4, 256, 8192) -3.8%
+  worst late-prefill: ('stagger', 1, 256, 256) -10.2%
+  worst mixed: ('stagger', 1, 256, 256) -10.2%
+  worst prefill-only: ('serial', 256, 16) +4.6%
+  outside: ('stagger', 1, 256, 256) mixed: predicted 40.529 ms against 45.151 ms, -10.2%; mean |step error| 10.2%; 21 steps
+  outside: ('stagger', 1, 256, 256) late-prefill: predicted 40.529 ms against 45.151 ms, -10.2%; mean |step error| 10.2%; 21 steps
+  unsupported (not judged): ('serial', 512, 1) prefill-only
+  unsupported (not judged): ('serial', 512, 16) prefill-only
+  unsupported (not judged): ('serial', 512, 64) prefill-only
+  all-data model: c 15.4613, f[0-256] 0.0797922, f[256-512] 0.0896503, f[512-1024] 0.0969373, f[1024-2048] 0.0952726, d1 0.115878, d2 0, u 4.61419, alpha 0.954383
+  candidate O2: FAIL
+SELECTED: none -- no operator candidate passes

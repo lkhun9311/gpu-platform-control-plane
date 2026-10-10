@@ -70,6 +70,32 @@ for b in kind kubectl docker go; do
 done
 docker info >/dev/null 2>&1 || fail "the docker daemon is not reachable"
 
+# BENCHMARK_CR rehearses the path where a GpuSharingBenchmark supplies the load instead of the environment.
+#
+# WHY IT HAS TO BE REHEARSED HERE. The runner's compiled-CR block reads environment variables and refuses
+# when they disagree with the CR, and this script passed RATE, the weights, REPS and ARMS by hand -- so the
+# block was skipped on every rehearsal and would first execute on a rented card. Three guards in this
+# repository have already been written in a place nothing could reach; a fourth bought with a GPU is not a
+# discovery anyone needs to make twice.
+#
+# The compiled block is SOURCED rather than parsed, because that is exactly what an operator does with it.
+BENCHMARK_CR="${BENCHMARK_CR:-}"
+if [ -n "$BENCHMARK_CR" ]; then
+  [ -f "$BENCHMARK_CR" ] || fail "BENCHMARK_CR=$BENCHMARK_CR does not exist"
+  [ -z "${ARMS:-}" ] || fail "ARMS and BENCHMARK_CR are both set. The CR compiles to its own arm list, and passing one here would rehearse the disagreement the runner refuses instead of the path it allows."
+  [ -z "${REPS:-}" ] || fail "REPS and BENCHMARK_CR are both set. The CR declares its repetition count."
+  CGO_ENABLED=0 go build -o "$WORK/bh-compile" ./cmd/benchharness || fail "build benchharness to compile the CR"
+  "$WORK/bh-compile" compile-plan --cr "$BENCHMARK_CR" --duration-ms "$DURATION_MS" --study sharing-matrix-2026-09-10 > "$WORK/plan.env" \
+    || fail "the CR did not compile; the refusal above names every unsupported value"
+  # Sourced into THIS shell so the checks below see the same arms the runner will.
+  set -a
+  # shellcheck disable=SC1090
+  . "$WORK/plan.env" || fail "could not source the compiled plan"
+  set +a
+  [ -n "${BENCHMARK_CR_SHA256:-}" ] || fail "the compiled block carries no BENCHMARK_CR_SHA256, so the runner's compiled-CR guard would not engage and this rehearsal would prove nothing"
+  say "load compiled from $BENCHMARK_CR: arms [$ARMS], ${REPS} repetition(s), rate $RATE, noisy weight $NOISY_WEIGHT"
+fi
+
 cleanup() {
   if [ "$KEEP" = "1" ]; then
     say "KEEP=1: cluster $CLUSTER and $WORK left in place"
@@ -130,6 +156,36 @@ mkdir -p "$SRC"
 cp -r hack config "$SRC/" || fail "copy the tree"
 
 # The engines. Same names, same Service names, same nvidia.com/gpu request, a stub behind them.
+# The stub engine's args, in the one form each mode needs.
+#
+# IV=1 rehearses the instrument-validation study, whose harness inserts the arm's vLLM flags after the
+# manifest's `- --port=8000` line and refuses a manifest without exactly one; a flow-style list has none.
+# So that mode writes the list one item per line with the port, and stub-serve answers --port the way vLLM
+# does, by printing its non-default args. Every other mode keeps the flow-style list it always had.
+stub_engine_args() {
+  if [ -n "${IV_UNDER_TEST:-}" ]; then
+    printf '\n            - --addr=:8000\n            - --metrics'
+    # IV=2 rehearses session 2, whose warm-up refuses a cell unless its verification requests take 231 ms +/- 5%.
+    # The stub answers every request in that time, so the rehearsal drives W's passing path rather than its refusal.
+    case "${IV_UNDER_TEST:-}" in 2 | 3 | 4) printf '\n            - --ttft-ms=231' ;; esac
+    printf '\n            - --port=8000'
+  else
+    printf '["--addr=:8000", "--metrics"]'
+  fi
+}
+# The component label each stub engine carries.
+#
+# Each stub carries the label its real manifest carries, so a selector that would miss on a GPU misses here too.
+# config/vllm/deployment.yaml labels the exclusive engine `vllm` and config/vllm-shared/engine-{a,b}.yaml label theirs `vllm-shared`.
+# The stub once labelled every engine `vllm-shared`, which hid that the instrument-validation path finds the exclusive pod by `vllm` until its first rehearsal cell refused.
+# A stub that matched selectors the real engine would not would rehearse a harness that cannot run.
+stub_engine_component() {
+  if [ "$1" = vllm-qwen25-3b ]; then
+    printf vllm
+  else
+    printf vllm-shared
+  fi
+}
 stub_engine_manifest() {
   local name="$1" out="$2"
   cat > "$out" <<EOF
@@ -137,13 +193,13 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: $name
-  labels: {app.kubernetes.io/component: vllm-shared}
+  labels: {app.kubernetes.io/component: $(stub_engine_component "$name")}
 spec:
   replicas: 1
   selector: {matchLabels: {engine: $name}}
   template:
     metadata:
-      labels: {engine: $name, app.kubernetes.io/component: vllm-shared}
+      labels: {engine: $name, app.kubernetes.io/component: $(stub_engine_component "$name")}
     spec:
       # The shared IPC namespace, for the same reason the pipe directory below is here.
       #
@@ -157,7 +213,10 @@ spec:
         - name: vllm
           image: $STUB_IMAGE
           imagePullPolicy: IfNotPresent
-          args: ["--addr=:8000"]
+          # --metrics, so the matrix's engine-metrics scrape meets a page in vLLM's names and its .prom path
+          # runs here; without it every phase was an .err and only the failure path had ever executed. The
+          # matrix runs its gateway with admission off, so no guard reads this page during a cell.
+          args: $(stub_engine_args)
           # The marker the matrix's MPS client check looks for, on a directory that exists.
           #
           # The real plugin sets this on a client container at allocation. The simulator does not, so without
@@ -180,7 +239,87 @@ spec:
   ports: [{name: http, port: 8000, targetPort: http}]
 EOF
 }
-stub_engine_manifest vllm-qwen25-3b "$SRC/config/vllm/deployment.yaml"
+# Set before the manifests are written, because stub_engine_args reads it; empty in every other mode.
+IV_UNDER_TEST="${IV:-}"
+case "$IV_UNDER_TEST" in
+  '') ;;
+  2) IV_STUDY=instrument-validation-s2-2026-10-05 ;;
+  # Session 3: session 2's path with the revision pins, which the stub reports back as vLLM does.
+  3) IV_STUDY=instrument-validation-s3-2026-10-06 ;;
+  # Session 4: session 3's path with a conditioning request closing every warm-up.
+  4) IV_STUDY=instrument-validation-s4-2026-10-06 ;;
+  *) IV_STUDY=instrument-validation-2026-10-05 ;;
+esac
+# PILOT=1 rehearses the prospective-admission pilot's two stages (docs/superpowers/specs/
+# 2026-10-08-measuring-prospective-admission-design.md, "Rehearsals before purchase").
+#
+# Its stub manifest has the real manifest's shape, which the pilot's renderer proves it changed in exactly four
+# places: the engine flags as one list, the 2048 budget and the port each on their own line, and the hf-cache
+# volume mounted and declared. The model is not passed positionally, because the stub's flag parser stops at the
+# first positional argument.
+PILOT_UNDER_TEST="${PILOT:-}"
+# Any other value rehearsed stages A and B while its name suggested something else (v26 review, C37).
+case "$PILOT_UNDER_TEST" in "" | 1 | D | E | F) ;; *) echo "PILOT is ${PILOT_UNDER_TEST@Q}; it is 1 for stages A and B, D, E or F" >&2; exit 2 ;; esac
+# The two ineligible arms the rehearsal must show (design page, "Rehearsals before purchase"): stage A's off-2 has
+# its step log stopped mid-cell by the stub, and stage B's R1-3 has one request's gateway record deleted after the
+# run. Request 40 is past the cell's start, so the log stops with records before it, as a plugin that died would.
+PILOT_STOP_AT="pp-A-off-2-40"
+PILOT_STOP_CELL="A off-2"
+PILOT_DELETE_CELL="B R1-3"
+stub_pilot_engine_manifest() {
+  local out="$1"
+  cat > "$out" <<EOF
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm-qwen25-3b
+  labels: {app.kubernetes.io/component: vllm}
+spec:
+  replicas: 1
+  selector: {matchLabels: {engine: vllm-qwen25-3b}}
+  template:
+    metadata:
+      labels: {engine: vllm-qwen25-3b, app.kubernetes.io/component: vllm}
+    spec:
+      containers:
+        - name: vllm
+          image: $STUB_IMAGE
+          imagePullPolicy: IfNotPresent
+          args:
+            - --metrics
+            - --dtype=half
+            - --max-model-len=16384
+            - --max-num-seqs=64
+            - --gpu-memory-utilization=0.90
+            - --no-enable-prefix-caching
+            - --max-num-batched-tokens=2048
+            - --port=8000
+            - --stub-stop-step-log-at=$PILOT_STOP_AT
+          ports: [{containerPort: 8000, name: http}]
+          resources:
+            limits:
+              nvidia.com/gpu: 1
+          volumeMounts:
+            - name: hf-cache
+              mountPath: /root/.cache/huggingface
+      volumes:
+        - name: hf-cache
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vllm-qwen25-3b
+spec:
+  selector: {engine: vllm-qwen25-3b}
+  ports: [{name: http, port: 8000, targetPort: http}]
+EOF
+}
+if [ -n "$PILOT_UNDER_TEST" ]; then
+  stub_pilot_engine_manifest "$SRC/config/vllm/deployment.yaml"
+else
+  stub_engine_manifest vllm-qwen25-3b "$SRC/config/vllm/deployment.yaml"
+fi
 : > "$SRC/config/vllm/service.yaml"   # the Service is in the file above; this one must stay applyable
 printf 'apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: m5c-rehearse-noop\ndata: {}\n' > "$SRC/config/vllm/service.yaml"
 stub_engine_manifest vllm-shared-a "$SRC/config/vllm-shared/engine-a.yaml"
@@ -252,6 +391,23 @@ OUT_DIR="$WORK/run"
 # One variable decides what the matrix runs AND what this script expects, so the two cannot disagree.
 ARMS_UNDER_TEST="${ARMS:-R1 shared timeSlicing mps}"
 
+# SWEEP rehearses the tail-crossing BE sweep: the latency-critical rate held, one be<NN>-shared arm per BE
+# rate, independent arrivals and a seed per repetition.
+#
+# It exists because the sweep's first version passed every plan check and then died on the real path's load
+# banner with "RATE: unbound variable" -- after the cluster and the images were built. PLAN_ONLY exits
+# before that line, so only a run of the real path could find it, and an independent review found it instead.
+# The rates are this rehearsal's, not the registration's: a stub cell must reach the 100-completion tail floor
+# in DURATION_MS, which the registered 0.2864 req/s does not in forty seconds.
+SWEEP_UNDER_TEST="${SWEEP:-}"
+if [ -n "$SWEEP_UNDER_TEST" ]; then
+  [ -z "${ARMS:-}" ] || fail "ARMS and SWEEP are both set. A sweep's arms are built from SWEEP, and passing an arm list would rehearse the refusal instead of the path."
+  ARMS_UNDER_TEST="R1"; _l=0
+  for _ in $SWEEP_UNDER_TEST; do _l=$(( _l + 1 )); ARMS_UNDER_TEST="$ARMS_UNDER_TEST $(printf 'be%02d-shared' "$_l")"; done
+  SWEEP_PREMIUM_RATE="${PREMIUM_RATE:-4}"
+  SWEEP_SEEDS=$(seq 11 $(( 10 + ${REPS:-1} )) | tr '\n' ' ')
+fi
+
 # LADDER rehearses the capacity ladder instead of the frozen matrix, on the same cluster.
 #
 # It is the same script under test either way. What differs is the plan it builds -- rungs of different
@@ -292,13 +448,44 @@ fi
 # On the instance this hook copies each cell's raw file to the bucket the moment the cell completes, which
 # is what stops a Spot interruption taking every cell before it. Unset it and the matrix behaves exactly as
 # it did; that is deliberate and it is also how a hook quietly stops being called. This proves it is.
+# It records WHICH FILES the hook could send, not only that it was called.
+#
+# The first version wrote one line per call naming the raw file, and that is the whole cell check: a hook
+# that uploaded the raw file and nothing else passed it. Measured on the 2026-10-02 run's own bucket --
+# `cells/` held 15 objects, every one a `raw-*.jsonl`, while the manifest, the trace, the port-forward log
+# and every accumulating TSV existed only inside the end-of-run archive. An instance that went away mid-run
+# left rows with nothing to place them against. So the recorder now lists what the real hook would copy,
+# and the assertion below holds the per-cell set.
+#
+# $OUT is read from the environment because that is how the matrix passes it, and reading it here is what
+# makes this stub exercise the same contract the instance's hook does.
 cat > "$WORK/cell-hook" <<'HOOK'
 #!/bin/bash
 printf '%s %s %s\n' "$2" "$3" "$(basename "$1")" >> "$CELL_HOOK_LOG"
+out="${OUT:-$(dirname "$1")}"
+for f in "$out/raw-$2-$3.jsonl" "$out/trace-$2-$3.jsonl" "$out/manifest-$2-$3.yaml" \
+         "$out/port-forward-$2-$3.log"; do
+  [ -f "$f" ] && printf '%s %s %s\n' "$2" "$3" "$(basename "$f")" >> "$CELL_FILES_LOG"
+done
+for f in cell-environment.tsv cell-timings.tsv cell-judgements.tsv applied-values.tsv load-source.txt; do
+  [ -f "$out/$f" ] && printf 'run - %s\n' "$f" >> "$CELL_FILES_LOG"
+done
 HOOK
 chmod +x "$WORK/cell-hook"
+# The pilot's evidence sidecar, recorded rather than uploaded: each call copies what it was handed, so the check
+# below can see that live rows and a live gateway record left during the replay.
+mkdir -p "$WORK/sidecar"
+cat > "$WORK/sidecar-hook" <<'HOOK'
+#!/bin/bash
+# Kept per stage, by the run directory the files came from, so one stage's copies cannot stand in for the other's.
+d="$(dirname "$0")/sidecar/$(basename "$(dirname "$1")")"
+mkdir -p "$d" && cp "$1" "$2" "$d/"
+HOOK
+chmod +x "$WORK/sidecar-hook"
 export CELL_HOOK_LOG="$WORK/cells-seen.txt"
 : > "$CELL_HOOK_LOG"
+export CELL_FILES_LOG="$WORK/cell-files-seen.txt"
+: > "$CELL_FILES_LOG"
 
 set +e
 BH_FOR_MATRIX="$WORK/benchharness"
@@ -316,7 +503,58 @@ SHIM
   BH_FOR_MATRIX="$WORK/bh-shim"
 fi
 
-if [ -n "$LADDER_UNDER_TEST" ]; then
+if [ -n "$PILOT_UNDER_TEST" ]; then
+  # Stage A, then stage B at the rate R that benchharness fit-pilot-rate fits on stage A's P blocks, as the paid
+  # pilot does between its sessions. The frozen tuple fixes the prompts, caps and timeout; the trace length is not
+  # frozen, so the rehearsal runs 20-second cells.
+  pilot_rc=0
+  PILOT_R=""
+  # PILOT=D rehearses the admission diagnostic's stage D alone, under its own study (design page, "v25").
+  pilot_stages="A B"; pilot_study=prospective-pilot-2026-10-08
+  if [ "$PILOT_UNDER_TEST" = D ]; then pilot_stages=D; pilot_study=admission-diagnostic-2026-10-10; fi
+  # PILOT=E rehearses v26's stage E, at its frozen seeds, which the matrix requires (design page, "v26").
+  if [ "$PILOT_UNDER_TEST" = E ]; then pilot_stages=E; pilot_study=admission-frontier-2026-10-10; fi
+  # PILOT=F rehearses v27's calibration stage F, one block at its frozen seed (design page, "v27").
+  if [ "$PILOT_UNDER_TEST" = F ]; then pilot_stages=F; pilot_study=admission-length-calibration-2026-10-10; fi
+  for stage in $pilot_stages; do
+    if [ "$stage" = B ]; then
+      fit_args=()
+      for b in 1 2 3; do fit_args+=(-cell "$OUT_DIR-A/raw-prospective-$b.jsonl:$OUT_DIR-A/gateway-record-prospective-$b.jsonl"); done
+      fit=$("$WORK/benchharness" fit-pilot-rate "${fit_args[@]}" 2>&1) || { printf '%s\n' "$fit"; fail "R could not be fitted on stage A"; }
+      printf '%s\n' "$fit"
+      PILOT_R=$(printf '%s\n' "$fit" | sed -n 's/^R=\([0-9][0-9]*\)$/\1/p')
+      [ -n "$PILOT_R" ] || fail "fit-pilot-rate printed no R"
+      say "stage B runs the static arm at the fitted R=$PILOT_R"
+    fi
+    ( cd "$SRC" && PLATFORM=kind KCTX="$KCTX" GPU_NODE="$GPU_NODE" \
+        DEADLINE_EPOCH=$(( $(date +%s) + 7200 )) \
+        GATEWAY_BIN="$WORK/gateway" BENCHHARNESS_BIN="$WORK/benchharness" \
+        ENGINE_PIN_WAIVED=1 STUDY="$pilot_study" PILOT_STAGE="$stage" PILOT_STATIC_RATE="$PILOT_R" \
+        MODEL_REVISION=aa8e72537993ba99e69dfaafa59ed015b17504d1 \
+        REPS="$( [ "$stage" = F ] && echo 1 || echo 3)" SEEDS="$(case "$stage" in A) echo '301 302 303' ;; B) echo '311 312 313' ;; D) echo '321 322 323' ;; E) echo '861 862 863' ;; F) echo 871 ;; esac)" \
+        PREMIUM_RATE=9.25 PILOT_NOISY_RATE=0.5 PREMIUM_WEIGHT=1 PROBE_WEIGHT=0 DURATION_MS="${PILOT_DURATION_MS:-20000}" \
+        PREMIUM_PROMPT_CHARS=200 NOISY_PROMPT_CHARS=40000 REQUEST_TIMEOUT_MS=30000 \
+        PREMIUM_OUTPUT_TOKENS=64 NOISY_OUTPUT_TOKENS=16 OUT="$OUT_DIR-$stage" \
+        CELL_DONE_HOOK="$WORK/cell-hook" CELL_HOOK_LOG="$CELL_HOOK_LOG" \
+        CELL_SIDECAR_HOOK="$WORK/sidecar-hook" PP_SIDECAR_INTERVAL_S=5 \
+        bash hack/m5c-matrix.sh ) 2>&1 | tee "$WORK/matrix-$stage.log"
+    pilot_rc=${PIPESTATUS[0]}
+    [ "$pilot_rc" = 0 ] || break
+  done
+  cp "$WORK/matrix-${stage}.log" "$WORK/matrix.log"
+  ( exit "$pilot_rc" )
+elif [ -n "$IV_UNDER_TEST" ]; then
+  # No load and no DURATION_MS: the study refuses both, and each arm's trace length is its own.
+  # Three serial arms, one of each engine mode, because the modes are what this path changes per cell; burst and
+  # stagger differ only in trace length, and rehearsing them would cost an hour and cover nothing new.
+  ( cd "$SRC" && PLATFORM=kind KCTX="$KCTX" GPU_NODE="$GPU_NODE" \
+      DEADLINE_EPOCH=$(( $(date +%s) + 3600 )) \
+      GATEWAY_BIN="$WORK/gateway" BENCHHARNESS_BIN="$WORK/benchharness" \
+      ENGINE_PIN_WAIVED=1 STUDY="$IV_STUDY" \
+      REPS=1 ARMS="serial-log serial-nolog serial-async" OUT="$OUT_DIR" \
+      CELL_DONE_HOOK="$WORK/cell-hook" CELL_HOOK_LOG="$CELL_HOOK_LOG" \
+      bash hack/m5c-matrix.sh ) 2>&1 | tee "$WORK/matrix.log"
+elif [ -n "$LADDER_UNDER_TEST" ]; then
   # RATE, ARMS, REPS and NOISY_WEIGHT are deliberately NOT passed: the script refuses a run that was given
   # both a ladder and a single load, and passing them here would rehearse a refusal instead of a ladder.
   ( cd "$SRC" && PLATFORM=kind KCTX="$KCTX" GPU_NODE="$GPU_NODE" \
@@ -325,6 +563,29 @@ if [ -n "$LADDER_UNDER_TEST" ]; then
       ENGINE_PIN_WAIVED=1 \
       DURATION_MS="$DURATION_MS" PREMIUM_WEIGHT=1 PROBE_WEIGHT=0 \
       LADDER="$LADDER_UNDER_TEST" LADDER_STUDY="${LADDER_STUDY:-}" OUT="$OUT_DIR" \
+      CELL_DONE_HOOK="$WORK/cell-hook" CELL_HOOK_LOG="$CELL_HOOK_LOG" \
+      bash hack/m5c-matrix.sh ) 2>&1 | tee "$WORK/matrix.log"
+elif [ -n "$SWEEP_UNDER_TEST" ]; then
+  # RATE, NOISY_WEIGHT and ARMS are deliberately NOT passed: the runner refuses each of them beside a sweep.
+  ( cd "$SRC" && PLATFORM=kind KCTX="$KCTX" GPU_NODE="$GPU_NODE" \
+      DEADLINE_EPOCH=$(( $(date +%s) + 3600 )) \
+      GATEWAY_BIN="$WORK/gateway" BENCHHARNESS_BIN="$WORK/benchharness" \
+      ENGINE_PIN_WAIVED=1 STUDY=tail-crossing-lc256-2026-10-04 \
+      DURATION_MS="$DURATION_MS" PREMIUM_WEIGHT=1 PROBE_WEIGHT=0 \
+      PREMIUM_RATE="$SWEEP_PREMIUM_RATE" SWEEP="$SWEEP_UNDER_TEST" SEEDS="$SWEEP_SEEDS" \
+      REPS="${REPS:-1}" OUT="$OUT_DIR" \
+      CELL_DONE_HOOK="$WORK/cell-hook" CELL_HOOK_LOG="$CELL_HOOK_LOG" \
+      bash hack/m5c-matrix.sh ) 2>&1 | tee "$WORK/matrix.log"
+elif [ -n "$BENCHMARK_CR" ]; then
+  # The load is NOT passed here. Every one of RATE, the weights, REPS, ARMS, the prompt lengths and the
+  # tokenizer revision is already exported from the compiled block, and passing any of them again would be
+  # the second source the runner exists to refuse -- so a rehearsal that passed them would be rehearsing the
+  # refusal rather than the path. DURATION_MS and STUDY come from the block too, having been given to
+  # compile-plan as the two values the CR cannot carry.
+  ( cd "$SRC" && PLATFORM=kind KCTX="$KCTX" GPU_NODE="$GPU_NODE" \
+      DEADLINE_EPOCH=$(( $(date +%s) + 3600 )) \
+      GATEWAY_BIN="$WORK/gateway" BENCHHARNESS_BIN="$WORK/benchharness" \
+      ENGINE_PIN_WAIVED=1 OUT="$OUT_DIR" \
       CELL_DONE_HOOK="$WORK/cell-hook" CELL_HOOK_LOG="$CELL_HOOK_LOG" \
       bash hack/m5c-matrix.sh ) 2>&1 | tee "$WORK/matrix.log"
 else
@@ -340,6 +601,183 @@ fi
 rc=${PIPESTATUS[0]}
 set -e
 [ "$rc" = "0" ] || { tail -25 "$WORK/matrix.log"; fail "the matrix exited $rc -- the log above is what it said"; }
+
+# The instrument-validation path is checked on its own terms and ends here.
+#
+# The checks below this block are the sharing studies': two tenants, an R1 arm, readings. This study has none
+# of them, and what it adds -- a per-arm engine and a per-cell engine log -- is checked from the files the
+# matrix wrote, not from its exit status alone, because the matrix refusing nothing is what is under test.
+if [ -n "$PILOT_UNDER_TEST" ]; then
+  if [ "$PILOT_UNDER_TEST" = D ] || [ "$PILOT_UNDER_TEST" = E ] || [ "$PILOT_UNDER_TEST" = F ]; then
+    st="$PILOT_UNDER_TEST"
+    say "check what stage $st's cells wrote"
+    d="$OUT_DIR-$st"
+    st_arms=$(. "$ROOT/hack/lib/prospective-pilot.sh" && pp_stage_arms "$st" | grep -vx R1 | tr '\n' ' ') || fail "no arms for stage $st"
+    st_reps="1 2 3"; [ "$st" = F ] && st_reps=1
+    cells="R1-1"; for a in $st_arms; do for r in $st_reps; do cells="$cells $a-$r"; done; done
+    want_n=$(( 1 + $(echo $st_reps | wc -w) * $(echo $st_arms | wc -w) ))
+    n_raw=$(find "$d" -maxdepth 1 -name 'raw-*-[0-9].jsonl' | wc -l)
+    [ "$n_raw" = "$want_n" ] || fail "stage $st holds $n_raw raw files, not R1 once and [$st_arms] in three blocks"
+    for cell in $cells; do
+      arm=${cell%-*}; rep=${cell##*-}
+      for need in "raw-$cell.jsonl" "step-log-$cell.jsonl" "gateway-record-$cell.jsonl" "engine-samples-$cell.tsv"; do
+        [ -s "$d/$need" ] || fail "stage $st cell $cell: no $need"
+      done
+      # Every cell eligible, not merely scored: an inconclusive verdict over ineligible cells is a broken capture
+      # that the verdict's prefix alone accepted (v26 review, C38).
+      [ ! -e "$d/ineligible-$cell.txt" ] || fail "stage $st cell $cell is ineligible: $(cat "$d/ineligible-$cell.txt")"
+      grep -q 'fence-' "$d/step-log-$cell.jsonl" || fail "stage $st cell $cell: the fence is not in the step log"
+      # Each arm decided every contender through its own mode, and no other.
+      case "$arm" in
+        hold | hold-cap | hold-cap-*) grep -q '"reason":"serial_prefill_' "$d/gateway-record-$cell.jsonl" \
+          || fail "stage $st cell $cell: no serial-prefill decision in its gateway record" ;;
+        fixed-*) grep -q '"reason":"fixed_spacing_' "$d/gateway-record-$cell.jsonl" \
+          || fail "stage $st cell $cell: no fixed-spacing decision in its gateway record" ;;
+        *) ! grep -qE '"reason":"(serial_prefill|fixed_spacing)_' "$d/gateway-record-$cell.jsonl" \
+          || fail "stage $st cell $cell: a held decision in an arm without a hold" ;;
+      esac
+      # The cap is checked cell by cell, through the cell's own index, not as one record somewhere in the arm
+      # (v26 review, C40).
+      idx=$(awk -F'\t' -v a="$arm" -v r="$rep" '$2 == a && $3 == r {print $1}' "$d/cell-timings.tsv")
+      [ -n "$idx" ] || fail "stage $st cell $cell: not in cell-timings.tsv"
+      cap_seen=$(awk -F'\t' -v i="$idx" '$1 == i && $4 == "process"' "$d/applied-values.tsv" | grep -c "long_prefill_token_threshold': 384" || true)
+      want_cap=$(. "$ROOT/hack/lib/prospective-pilot.sh" && pp_arm_prefill_cap "$arm") || fail "no cap registered for $arm"
+      if [ "$want_cap" = 384 ]; then [ "$cap_seen" -ge 1 ] || fail "stage $st cell $cell: its engine did not report the 384 prefill cap"
+      else [ "$cap_seen" = 0 ] || fail "stage $st cell $cell: an engine without the cap reported it"; fi
+    done
+    if [ "$st" = D ]; then
+      verdict=$(python3 "$ROOT/hack/prospective-pilot/pilot_report.py" diagnostic "$d" | python3 -c 'import json,sys; print(json.load(sys.stdin)["verdict"])') \
+        || fail "the report could not score the diagnostic"
+      case "$verdict" in "observed on these traces"* | "not met: "* | "inconclusive: "*) ;; *) fail "the diagnostic's verdict is not one of the three: $verdict" ;; esac
+    else
+      sc=$([ "$st" = F ] && echo calibration || echo frontier)
+      # The rehearsal's 20-second traces are not the frozen ones, so each cell's provenance line fails by design;
+      # every other validity line must hold, or the purchase would be inconclusive for an apparatus reason.
+      verdict=$(python3 "$ROOT/hack/prospective-pilot/pilot_report.py" "$sc" "$d" | python3 -c '
+import json, sys
+v = json.load(sys.stdin)
+bad = [x["line"] + " " + str(x["value"])[:80] for x in v["validity"] if x["state"] != "holds" and not x["line"].endswith("is the registered cell")]
+if bad:
+    print("validity failed beyond provenance: " + "; ".join(bad[:6]))
+    sys.exit(1)
+print(v["verdict"][:200])') || fail "stage $st: $verdict"
+    fi
+    say "the stub's verdict, which says nothing about the card: $verdict"
+    say "STAGE $st REHEARSAL: R1 once and [$st_arms] in three blocks, each arm's mode and cap cell by cell, every cell eligible, scored"
+    exit 0
+  fi
+  say "check what the pilot's cells wrote"
+  for stage in A B; do
+    d="$OUT_DIR-$stage"
+    [ -s "$d/calibration.txt" ] || fail "stage $stage: no calibration record"
+    [ -s "$d/phases.tsv" ] && [ -s "$d/cell-uploads.tsv" ] || fail "stage $stage: no phase or upload timing record"
+    # The stage's arms crossed with blocks 1 to 3, not the raw files that happen to exist: a cell the matrix never
+    # ran has no file to check, so a loop over files passed with an arm or a block missing (review of 60f3674).
+    stage_arms=$(. "$ROOT/hack/lib/prospective-pilot.sh" && pp_stage_arms "$stage") || fail "no arms for stage $stage"
+    n_raw=$(find "$d" -maxdepth 1 -name 'raw-*-[0-9].jsonl' ! -name 'raw-warmup-*' | wc -l)
+    [ "$n_raw" = $(( $(printf '%s\n' $stage_arms | wc -l) * 3 )) ] || fail "stage $stage holds $n_raw raw files for arms [$stage_arms] x 3 blocks"
+    for cell in $(for a in $stage_arms; do printf '%s-1 %s-2 %s-3 ' "$a" "$a" "$a"; done); do
+      [ -s "$d/raw-$cell.jsonl" ] || fail "stage $stage cell $cell: no raw rows"
+      # The sidecar ran during the replay: at a 5 s interval a 20 s replay uploads at least twice, every time
+      # successfully, and the live rows it carried are this cell's.
+      n_up=$(awk -F'\t' -v c="$cell" '$1 == c && $5 == 0' "$d/sidecar-uploads.tsv" 2>/dev/null | wc -l)
+      [ "$n_up" -ge 2 ] || fail "stage $stage cell $cell: $n_up successful sidecar upload(s) during its replay"
+      [ -s "$WORK/sidecar/$(basename "$d")/live-raw-$cell.jsonl" ] && [ -s "$WORK/sidecar/$(basename "$d")/live-gateway-record-$cell.jsonl" ] \
+        || fail "stage $stage cell $cell: the sidecar never carried its live rows and gateway record"
+      for need in "step-log-$cell.jsonl" "engine-log-$cell.txt" "gateway-record-$cell.jsonl" "raw-$cell.jsonl.sender.json"; do
+        [ -s "$d/$need" ] || fail "stage $stage cell $cell: no $need"
+      done
+      [ ! -e "$d/ineligible-$cell.txt" ] || fail "stage $stage cell $cell is ineligible: $(cat "$d/ineligible-$cell.txt")"
+      python3 "$ROOT/hack/prospective-pilot/pilot_evidence.py" terminal "$d/step-log-$cell.jsonl" \
+        || fail "stage $stage cell $cell: the step log is not complete"
+      grep -q '"ev":"arrive"' "$d/gateway-record-$cell.jsonl" && grep -q '"ev":"done"' "$d/gateway-record-$cell.jsonl" \
+        || fail "stage $stage cell $cell: the gateway record lacks arrive or done lines"
+      if [ "$stage $cell" = "$PILOT_STOP_CELL" ]; then
+        ! grep -q 'fence-' "$d/step-log-$cell.jsonl" || fail "stage $stage cell $cell: the stub was told to stop its step log and the fence is in it"
+      else
+        grep -q 'fence-' "$d/step-log-$cell.jsonl" || fail "stage $stage cell $cell: the fence is not in the step log"
+      fi
+    done
+  done
+  # The deleted record: both lines of one request, after the run, as a lost record would look.
+  read -r del_stage del_cell <<<"$PILOT_DELETE_CELL"
+  del_rec="$OUT_DIR-$del_stage/gateway-record-$del_cell.jsonl"
+  # sed quits at its first match rather than feeding head, whose early close is a SIGPIPE that pipefail turns into
+  # a failed rehearsal once the record is long enough (review of 547434d).
+  del_id=$(sed -n 's/.*"ev":"done","requestId":"\([^"]*\)".*/\1/p;T;q' "$del_rec")
+  [ -n "$del_id" ] || fail "no done line to delete in $del_rec"
+  grep -v "\"requestId\":\"$del_id\"" "$del_rec" > "$del_rec.tmp" && mv "$del_rec.tmp" "$del_rec"
+  # The report must mark exactly the two injected cells ineligible, for their own reasons, and the formulas must
+  # then be unavailable.
+  python3 - "$ROOT/hack/prospective-pilot" "$OUT_DIR-A" "$OUT_DIR-B" "$PILOT_STOP_CELL" "$PILOT_DELETE_CELL" <<'PY' || fail "the report did not mark the injected arms as registered"
+import sys
+sys.path.insert(0, sys.argv[1])
+import pilot_report as pr
+dirs = {"A": sys.argv[2], "B": sys.argv[3]}
+want = {tuple(sys.argv[4].split()): "fence", tuple(sys.argv[5].split()): "no gateway record"}
+bad = {}
+for st, d in dirs.items():
+    rep = pr.stage_report(d, st)
+    assert not rep["missing_cells"], rep["missing_cells"]
+    for c in rep["cells"]:
+        if not c["eligible"]:
+            bad[(st, "%s-%d" % (c["arm"], c["rep"]))] = c["problems"]
+assert set(bad) == set(want), "ineligible: %s, want %s" % (bad, list(want))
+for k, why in want.items():
+    assert any(why in p for p in bad[k]), "%s ineligible for %s, want %r" % (k, bad[k], why)
+f = pr.formulas(dirs["A"], dirs["B"])
+assert not f["available"], f
+print("injected: %s" % {k: v for k, v in bad.items()})
+PY
+  say "PILOT REHEARSAL: both stages, every other cell captured complete, fenced, calibrated and timed; the stopped step log and the deleted record each made their arm ineligible, and the formulas unavailable"
+  exit 0
+fi
+if [ -n "$IV_UNDER_TEST" ]; then
+  say "check what the instrument-validation cells wrote"
+  for arm in serial-log serial-nolog serial-async; do
+    log="$OUT_DIR/engine-log-$arm-1.txt"
+    [ -s "$log" ] || fail "$arm: no engine log at $log"
+    n=$(awk 'index($0, "Iteration(") {c++} END {print c+0}' "$log")
+    proc=$(awk -F'\t' -v a="$arm" '$2 == a && $4 == "process" {print $6}' "$OUT_DIR/applied-values.tsv")
+    case "$arm" in
+      serial-log)
+        [ "$n" -gt 0 ] || fail "$arm: its engine log holds no Iteration( line"
+        python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import iterlog; iterlog.check_indices(iterlog.parse(open(sys.argv[2])))' \
+          "$ROOT/hack/tail-crossing-model" "$log" || fail "$arm: the evaluator refused its engine log"
+        ;;
+      *) [ "$n" = 0 ] || fail "$arm: its engine log holds $n Iteration( line(s)" ;;
+    esac
+    case "$arm:$proc" in
+      serial-log:*"'async_scheduling': False"*"'enable_logging_iteration_details': True"*) ;;
+      serial-nolog:*"'async_scheduling': False"*) case "$proc" in *enable_logging_iteration_details*) fail "$arm: $proc" ;; esac ;;
+      serial-async:*"non-default args:"*) case "$proc" in *async_scheduling*|*enable_logging_iteration_details*) fail "$arm: $proc" ;; esac ;;
+      *) fail "$arm: the recorded process line does not show the arm's engine: ${proc:-nothing}" ;;
+    esac
+    [ -s "$OUT_DIR/raw-$arm-1.jsonl" ] || fail "$arm: no raw rows"
+    if [ "$IV_UNDER_TEST" = 3 ] || [ "$IV_UNDER_TEST" = 4 ]; then
+      case "$proc" in
+        *"'revision': '"*"'tokenizer_revision': '"*) ;;
+        *) fail "$arm: session 3 pins the revision and the recorded process line does not report it: ${proc:-nothing}" ;;
+      esac
+    fi
+    if [ "$IV_UNDER_TEST" = 2 ] || [ "$IV_UNDER_TEST" = 3 ] || [ "$IV_UNDER_TEST" = 4 ]; then
+      # Session 2's warm-up, read by the evaluator's own functions: W on the verification requests, and the boundary
+      # that separates warm-up iterations from measured ones in a logged cell.
+      [ -s "$OUT_DIR/raw-warmup-$arm-1.jsonl" ] || fail "$arm: no warm-up rows"
+      [ -s "$OUT_DIR/warmup-boundary-$arm-1.txt" ] || fail "$arm: no warm-up boundary"
+      python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import instrument_gates as g
+g.check_warmup(sys.argv[2], sys.argv[3], 1)
+if sys.argv[3].endswith("-log"):
+    m = g.measured_iters(sys.argv[2], sys.argv[3], 1, True)
+    print("measured iterations after the boundary:", len(m))' "$ROOT/hack/tail-crossing-model" "$OUT_DIR" "$arm" \
+        || fail "$arm: the evaluator refused its warm-up or boundary"
+    fi
+    say "  $arm: engine log with $n iteration line(s); process line ${proc:0:120}"
+  done
+  say "REHEARSAL PASSED: the instrument-validation study ran serial-log, serial-nolog and serial-async end to end, each on its own engine."
+  say "What this did NOT cover: the burst and stagger arms' lengths, any number, and real vLLM's own output."
+  exit 0
+fi
 
 # ---------------------------------------------------------------- what the run must have produced
 #
@@ -521,10 +959,58 @@ if [ "$want_cells" != "$seen_cells" ]; then
 fi
 say "  every cell was handed over as it completed, by (arm, repetition): $(printf '%s' "$seen_cells" | tr '\n' ';')"
 
+# AND EACH HANDOVER CARRIED THE CELL, not just its rows.
+#
+# A raw file alone cannot be placed after the instance is gone: nothing says what load produced it, nothing
+# records the card it ran on, and nothing can check it against the trace it replayed. This asserts the four
+# per-cell artefacts were all present and visible to the hook at the moment it fired, which is the property
+# the instance's uploader depends on -- it copies what exists when it is called.
+#
+# Derived from the cells the hook actually saw rather than from a list, for the reason want_cells is: a
+# hard-coded set cannot rehearse a run with different arms, and a set derived from the files being checked
+# cannot fail.
+missing_artefacts=""
+while read -r f_arm f_rep _; do
+  [ -n "$f_arm" ] || continue
+  for want in "raw-$f_arm-$f_rep.jsonl" "trace-$f_arm-$f_rep.jsonl" \
+              "manifest-$f_arm-$f_rep.yaml" "port-forward-$f_arm-$f_rep.log"; do
+    grep -qx "$f_arm $f_rep $want" "$CELL_FILES_LOG" \
+      || missing_artefacts="$missing_artefacts $want"
+  done
+done <<EOF
+$seen_cells
+EOF
+[ -z "$missing_artefacts" ] || fail "the per-cell handover did not carry everything the cell is made of:$missing_artefacts.
+  On the instance the hook copies what exists when it fires, so a file absent here is a file a Spot
+  interruption takes with the card -- and rows whose manifest and trace are gone cannot be placed."
+# The run-wide records travel too: they are rewritten as the run proceeds and the copy that matters is the
+# last one that got off the machine.
+for want in cell-timings.tsv cell-judgements.tsv load-source.txt; do
+  grep -qx "run - $want" "$CELL_FILES_LOG" \
+    || fail "$want was never present when a cell completed, so no interrupted run would carry it. It is written per cell precisely so an interruption cannot take it."
+done
+say "  and each handover carried its manifest, trace and port-forward log, with the run records beside them"
+
+# Every manifest the run wrote names its gateway by content, one binary and the pinned base (issue 323).
+# Only a run reaches the measured gen-trace calls, so this is the one place their flags are checked executing.
+want_base=$(sed -n 's/^GW_BASE="\(.*\)"$/\1/p' hack/m5c-matrix.sh)
+[ -n "$want_base" ] || fail "hack/m5c-matrix.sh defines no GW_BASE, so the gateway's base cannot be checked"
+gw_ids=$(for m in "$OUT_DIR"/manifest-*.yaml "$OUT_DIR"/warmup-manifest-*.yaml; do
+  [ -f "$m" ] || continue
+  printf '%s %s\n' "$(sed -n 's/^gatewayBinarySHA256: //p' "$m")" "$(sed -n 's/^gatewayBase: //p' "$m")"
+done | sort | uniq -c)
+[ "$(printf '%s\n' "$gw_ids" | grep -c .)" = 1 ] \
+  && printf '%s\n' "$gw_ids" | grep -qE "^ *[0-9]+ [0-9a-f]{64} ${want_base//./\\.}$" \
+  || fail "the run's manifests do not all name one gateway binary on $want_base:
+$gw_ids"
+say "  and every manifest names the gateway by its binary hash and the pinned base: $(printf '%s' "$gw_ids" | awk '{print $1" manifest(s), "substr($2,1,12)}')"
+
 # The contended cell these two checks read: the matrix's `shared` arm, or the ladder's first rung.
 if [ -n "$LADDER_UNDER_TEST" ]; then
   # The FIRST rung this ladder bought, which is not rung 1 when the ladder is skip-led.
   CONTENDED_CELL="raw-$(printf 'rung%02d' "$reh_first")-shared-1.jsonl"
+elif [ -n "$SWEEP_UNDER_TEST" ]; then
+  CONTENDED_CELL="raw-be01-shared-1.jsonl"
 else
   CONTENDED_CELL="raw-shared-1.jsonl"
 fi
@@ -557,6 +1043,49 @@ say "evaluate the pre-registered readings over the evidence the matrix wrote"
 args=()
 for f in "$OUT_DIR"/raw-*.jsonl; do args+=(--raw "$f"); done
 
+if [ -n "$SWEEP_UNDER_TEST" ]; then
+  # The tail-crossing studies have no implemented readings yet -- the pooled estimand is the registration's
+  # precondition 5 -- so what is asserted is that the report READS the sweep's evidence: every level is a
+  # row, the per-repetition pairing holds, and nothing is refused. Then the engine-metrics files, which only
+  # a real cell writes.
+  set +e
+  go run ./cmd/benchharness report "${args[@]}" > "$WORK/report.txt" 2>"$WORK/report.err"
+  report_rc=$?
+  set -e
+  [ "$report_rc" = "0" ] || { tail -20 "$WORK/report.txt"; cat "$WORK/report.err"; fail "the report exited $report_rc over the sweep's own evidence"; }
+  for arm in $ARMS_UNDER_TEST; do
+    grep -qE "^ *$arm " "$WORK/report.txt" || { cat "$WORK/report.txt"; fail "the report has no row for $arm"; }
+  done
+  # The readings block, with every level read rather than refused: a stub's tail is short and uncensored,
+  # so a refusal here means the instrument, not the evidence.
+  grep -q "TAIL-CROSSING READINGS (tail-crossing-lc256-2026-10-04)" "$WORK/report.txt" \
+    || { tail -20 "$WORK/report.txt"; fail "the report printed no tail-crossing readings over the sweep's own evidence"; }
+  if sed -n '/TAIL-CROSSING READINGS/,$p' "$WORK/report.txt" | grep -q 'NOT READ'; then
+    sed -n '/TAIL-CROSSING READINGS/,$p' "$WORK/report.txt"
+    fail "a level of the rehearsal's own sweep was not read"
+  fi
+  sed -n '/TAIL-CROSSING READINGS/,$p' "$WORK/report.txt" | sed 's/^/  /'
+  # Every phase a .prom, and the stub's completed-request counter higher after the replay than before it:
+  # the pair a real cell's decomposition is computed from, read the way the analysis will read it.
+  for arm in $ARMS_UNDER_TEST; do
+    for rep in $(seq 1 "${REPS:-1}"); do
+      for phase in before after; do
+        f="$OUT_DIR/engine-metrics-$arm-$rep-$phase.prom"
+        [ -f "$f" ] || fail "cell $arm rep $rep has no $phase .prom: $(cat "$OUT_DIR/engine-metrics-$arm-$rep-$phase.err" 2>/dev/null | head -3 | tr '\n' ' ')"
+      done
+      b=$(awk '$1 == "vllm:request_success_total" {print $2}' "$OUT_DIR/engine-metrics-$arm-$rep-before.prom")
+      a=$(awk '$1 == "vllm:request_success_total" {print $2}' "$OUT_DIR/engine-metrics-$arm-$rep-after.prom")
+      raw=$(wc -l < "$OUT_DIR/raw-$arm-$rep.jsonl")
+      { [ -n "$b" ] && [ -n "$a" ] && [ "$a" -gt "$b" ]; } \
+        || fail "cell $arm rep $rep: the engine's counter read ${b:-absent} before and ${a:-absent} after a replay of $raw rows"
+      say "  $arm rep $rep: engine counter $b -> $a across a replay of $raw rows"
+    done
+  done
+  grep -q '^sweep: ' "$OUT_DIR/load-source.txt" || fail "load-source.txt does not record the sweep"
+  say "REHEARSAL PASSED: the real script ran a sweep of [$ARMS_UNDER_TEST] end to end, the report read it, and every cell phase left an engine-metrics file."
+  say "What this did NOT cover: every number, and whether the stub's /metrics resembles vLLM's -- the files above say what it answered."
+  exit 0
+fi
 if [ -n "$LADDER_UNDER_TEST" ]; then
   # The ladder's readings are its own, and what a stub produces is knowable in advance: it answers in
   # milliseconds, so every rung meets the target, no bracket is closed, and the registered outcome is L6 --

@@ -126,7 +126,17 @@ type BenchmarkWorkload struct {
 	// +required
 	InputTokens int32 `json:"inputTokens"`
 
-	// outputTokens is the generation length per request.
+	// outputTokens is the requested generation CEILING per request, not a guaranteed length.
+	//
+	// The load generator sends it as the engine's max_tokens, which is an upper bound: a response that hits a
+	// stop condition earlier is shorter, and nothing makes the engine emit this many. So a run whose
+	// responses average well under this value has not violated the protocol, and a reading that assumed this
+	// many tokens per response would be wrong about the work the card did.
+	//
+	// This comment said "the generation length per request" until 2026-09-30, which is a promise the sender
+	// does not keep -- and field comments are copied into the generated CRD description, so it was a promise
+	// shipped to operators. Recorded here rather than silently corrected because the wording is what a reader
+	// would have relied on.
 	// +kubebuilder:validation:Minimum=1
 	// +required
 	OutputTokens int32 `json:"outputTokens"`
@@ -186,7 +196,11 @@ type LoadSpec struct {
 // quote (U+201D), and a curly quote inside a CEL expression is a broken expression. gofmt offered that edit,
 // I applied it without reading the bytes, and the generated CRD only stayed correct because it had been
 // written before. Avoiding the literal avoids the rewrite; no apostrophe pair belongs in these comments.
-// +kubebuilder:validation:XValidation:rule="!has(self.phase) || self.phase != 'Completed' || (has(self.result) && has(self.result.reportUri) && size(self.result.reportUri) > 0)",message="phase Completed requires a non-empty status.result.reportUri"
+// The invariant demands the ratio interval too, because the third amendment of 2026-09-30 made it the
+// primary reported object. A field nothing requires gets omitted in silence, and then a benchmark reaches
+// Completed carrying a point ratio with no spread -- which is the shape this rule was written to refuse in
+// the first place, one field over.
+// +kubebuilder:validation:XValidation:rule="!has(self.phase) || self.phase != 'Completed' || (has(self.result) && has(self.result.reportUri) && size(self.result.reportUri) > 0 && has(self.result.interferenceRatioCI95) && size(self.result.interferenceRatioCI95) > 0)",message="phase Completed requires a non-empty status.result.reportUri and a non-empty status.result.interferenceRatioCI95"
 type GpuSharingBenchmarkStatus struct {
 	// phase is the high-level state of the experiment.
 	//
@@ -215,11 +229,15 @@ type GpuSharingBenchmarkStatus struct {
 
 // BenchmarkResult is what a measured run recorded.
 type BenchmarkResult struct {
-	// baselineP99Ms is the victim's p99 with the contender absent.
+	// baselineP99Ms is the MEDIAN of the per-repetition victim TTFT p99s with the contender absent.
+	//
+	// A median of repetition-level tails, not a p99 pooled over every request of every repetition. Pooling
+	// re-weights repetitions by how many requests each happened to complete, which answers a different
+	// question from the one this type registered by giving repetitions equal standing.
 	// +optional
 	BaselineP99Ms int64 `json:"baselineP99Ms,omitempty"`
 
-	// colocatedP99Ms is the victim's p99 with the contender present.
+	// colocatedP99Ms is the same median with the contender present.
 	// +optional
 	ColocatedP99Ms int64 `json:"colocatedP99Ms,omitempty"`
 
@@ -227,12 +245,34 @@ type BenchmarkResult struct {
 	// +optional
 	InterferenceRatio string `json:"interferenceRatio,omitempty"`
 
-	// p99CI95 is the bootstrap 95% interval for the colocated p99, e.g. "2210-2440".
+	// p99CI95 is the nominal bootstrap 95% interval for the colocated median p99, in milliseconds,
+	// e.g. "2210-2440".
 	//
 	// Recorded beside the ratio because a ratio without a spread invites a reader to treat run-to-run
-	// variation as an effect.
+	// variation as an effect. It is NOT the interval for the ratio: this one carries no uncertainty from the
+	// denominator, so it cannot bound the quantity the experiment reports. That is interferenceRatioCI95.
+	// The units stay milliseconds for exactly this reason -- redefining this field as a dimensionless ratio
+	// would silently change the meaning of a field whose description ships to operators in the CRD.
 	// +optional
 	P99CI95 string `json:"p99CI95,omitempty"`
+
+	// interferenceRatioCI95 is the nominal bootstrap 95% interval for interferenceRatio, e.g. "1.82-2.31".
+	//
+	// This is the primary reported object of the experiment, fixed by the design spec third amendment of
+	// 2026-09-30 before any result existed that could influence the choice. The baseline is measured rather
+	// than known, so an interval on the colocated tail alone cannot bound the relative interference the
+	// benchmark exists to report.
+	//
+	// It comes from a PAIRED repetition bootstrap: complete (baseline, colocated) repetition blocks are
+	// resampled with replacement, both medians and their ratio recomputed, and the 2.5th and 97.5th
+	// percentiles taken. Pairing is by the repetition identity the run schedule records, never inferred from
+	// two arrays having equal length.
+	//
+	// NOMINAL, and the word is load-bearing. Five repetitions are enough to compute this interval and not
+	// enough to establish 95% coverage, and more bootstrap draws do not create more repetitions. The report
+	// this points at must publish every per-repetition p99 so a reader can see the sample it came from.
+	// +optional
+	InterferenceRatioCI95 string `json:"interferenceRatioCI95,omitempty"`
 
 	// reportUri points at the committed report and its raw data.
 	// +optional

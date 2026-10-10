@@ -1,0 +1,8 @@
+cell	arm	rep	outcome	start_utc	end_utc	elapsed_s	cum_s	cells_done
+1	R1	1	completed	2026-10-10T08:04:06Z	2026-10-10T08:18:36Z	870	0	0
+2	off-short	1	completed	2026-10-10T08:18:56Z	2026-10-10T08:28:14Z	558	890	1
+3	hold-cap-short	1	completed	2026-10-10T08:28:35Z	2026-10-10T08:37:42Z	547	1469	2
+4	hold-cap-long	1	completed	2026-10-10T08:38:02Z	2026-10-10T08:47:12Z	550	2036	3
+5	off-long	1	completed	2026-10-10T08:47:33Z	2026-10-10T08:56:42Z	549	2607	4
+6	hold-cap-ref	1	completed	2026-10-10T08:57:03Z	2026-10-10T09:06:12Z	549	3177	5
+7	off-ref	1	completed	2026-10-10T09:06:33Z	2026-10-10T09:15:42Z	549	3747	6

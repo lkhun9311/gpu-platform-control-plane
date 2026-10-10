@@ -132,6 +132,10 @@ done
 say "ami $AMI in $SUBNET"
 
 RUNSCRIPT=$(mktemp)
+# Armed at the first mktemp so a refusal before `trap cleanup EXIT` cannot leave these files in tmpfs.
+# `trap cleanup EXIT` replaces it later, and cleanup removes the same files.
+# Bash runs an EXIT trap on INT, TERM and HUP as well, measured 2026-10-04, so this also covers a signal in the window.
+trap 'rm -f "${RUNSCRIPT:-}" "${UD:-}" "${MEASURE:-}"' EXIT
 cat > "$RUNSCRIPT" <<'USERDATA'
 #!/bin/bash
 exec > >(tee /var/log/microtest.log) 2>&1
@@ -335,10 +339,9 @@ cleanup() {
   # /tmp, which is tmpfs here, so they are RAM rather than disk. Driving the four runners through the
   # golden suite a few times put 6167 of them there. ${VAR:-} because cleanup can run before they are set.
   #
-  # NOT every path: these files are created before `trap cleanup EXIT` is armed, so a run that refuses
-  # before the launch -- an unset REPS, a dirty tree, credentials too short -- still leaves them. Measured
-  # after this change: four full suites, 59 scenarios, leave 2. Moving the trap earlier would close that,
-  # and moving a trap changes what happens on a signal, which is not this commit's subject.
+  # These files are created before `trap cleanup EXIT` is armed, so a run that refuses before the launch --
+  # an unset REPS, a dirty tree, credentials too short -- used to leave them: four full suites, 59 scenarios,
+  # left 2. An EXIT trap armed at the first mktemp now removes them on that path, and this one replaces it.
   rm -f "${RUNSCRIPT:-}" "${UD:-}" "${MEASURE:-}" "${attempt_err:-}"
   # An unresolved launch is settled FIRST, because it is the instance nobody knows the id of.
   #

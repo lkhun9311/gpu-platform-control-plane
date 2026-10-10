@@ -33,7 +33,14 @@
 set -uo pipefail
 
 cd "$(dirname "$0")/.." || exit 1
-export GOTOOLCHAIN=go1.26.0
+export GOTOOLCHAIN=go1.26.9
+# The instrument-validation study's per-arm durations, engine arguments and refusals.
+# Sourced rather than restated because hack/m5c-gpu-session.sh needs the same durations for its credential
+# margin, and two copies of a duration table are two answers to one question.
+# shellcheck source=hack/lib/instrument-validation.sh
+. hack/lib/instrument-validation.sh || { echo "MATRIX FAILED: could not source hack/lib/instrument-validation.sh" >&2; exit 1; }
+# shellcheck source=hack/lib/prospective-pilot.sh
+. hack/lib/prospective-pilot.sh || { echo "MATRIX FAILED: could not source hack/lib/prospective-pilot.sh" >&2; exit 1; }
 
 # Where the card comes from, which is the only thing about this matrix that is not the experiment.
 #
@@ -53,6 +60,61 @@ KCTX="${KCTX:-$(kubectl config current-context 2>/dev/null)}"
 NS_A="${NS_A:-m5c-a}"
 NS_B="${NS_B:-m5c-b}"
 MODEL="Qwen/Qwen2.5-3B-Instruct"
+# The revision of that model, beside the name, because the two are one fact.
+#
+# RunManifest.TokenizerRev was declared for this and filled by nothing, and replay --require-provenance now
+# refuses a manifest without it. The value is the upstream repository revision, measured 2026-09-30 and
+# recorded with the tokenizer file hashes in internal/bench/testdata/tokenizer_calibration.json: a reader can
+# fetch this revision and recompute those hashes.
+#
+# Overridable, because a run that serves a different revision must be able to say so -- and NOT defaulted to
+# anything derived, because a wrong revision recorded confidently is worse than none.
+# Whether the CALLER set each compiled value, snapshotted BEFORE the defaults below answer for them.
+#
+# The compiled-CR block further down asks "is this variable unset?" -- and by the time it asks, every
+# one of them has been defaulted, so a block that omitted PREMIUM_OUTPUT_TOKENS passed the check with
+# the generator's old literal 64 silently in its place. An external review built that case from the two
+# statements alone. The emptiness test could never have caught it: the question is not whether the
+# variable has a value, it is whether the COMPILED BLOCK supplied it.
+#
+# ARMS_FROM_CALLER below is the same device for the same reason, and its comment says so. This is that
+# device applied to the six values the plan compiles, and it has to stay above the defaults.
+PREMIUM_PROMPT_CHARS_FROM_CALLER="${PREMIUM_PROMPT_CHARS+set}"
+NOISY_PROMPT_CHARS_FROM_CALLER="${NOISY_PROMPT_CHARS+set}"
+REQUEST_TIMEOUT_MS_FROM_CALLER="${REQUEST_TIMEOUT_MS+set}"
+MODEL_REVISION_FROM_CALLER="${MODEL_REVISION+set}"
+PREMIUM_OUTPUT_TOKENS_FROM_CALLER="${PREMIUM_OUTPUT_TOKENS+set}"
+NOISY_OUTPUT_TOKENS_FROM_CALLER="${NOISY_OUTPUT_TOKENS+set}"
+MODEL_REVISION="${MODEL_REVISION:-aa8e72537993ba99e69dfaafa59ed015b17504d1}"
+# The RESOLVED prompt lengths, in characters, and the per-request timeout.
+#
+# These were defaulted by gen-trace and never passed, so every paid run used 200 and 40,000 characters and a
+# 30-second timeout -- whatever the registration said. An external review found it after the resolution
+# table was measured: the table says 256 tokens is 1,174 characters and 8,192 is 42,579, and none of that
+# reached the runner. A compiler that resolves a length and a runner that ignores it is the wrong-experiment
+# failure the compiler exists to prevent, one layer down.
+#
+# Overridable, because a study that registers other lengths must be able to pass them, and NOT derived from
+# anything here: the only source is hack/input-length-resolution.json, measured against the served tokenizer.
+#
+# Which of the four the CALLER set is captured before the defaults fill them, because the instrument-validation
+# study refuses a caller's value and a defaulted one is indistinguishable from it afterwards.
+SHAPE_FROM_CALLER=""
+for _v in PREMIUM_PROMPT_CHARS NOISY_PROMPT_CHARS PREMIUM_OUTPUT_TOKENS NOISY_OUTPUT_TOKENS; do
+  [ -z "${!_v:-}" ] || SHAPE_FROM_CALLER="$SHAPE_FROM_CALLER $_v=${!_v}"
+done
+PREMIUM_PROMPT_CHARS="${PREMIUM_PROMPT_CHARS:-1174}"
+NOISY_PROMPT_CHARS="${NOISY_PROMPT_CHARS:-42579}"
+REQUEST_TIMEOUT_MS="${REQUEST_TIMEOUT_MS:-60000}"
+# The output caps, for the same reason and with the same hazard as the lengths above.
+#
+# gen-trace held these as the literals 64 and 16 until 2026-10-01, so CompilePlan refused any other
+# declared value instead of carrying it. It carries them now, which means the value has to REACH the
+# generator -- and the paragraph above is about exactly the failure of resolving a value and then not
+# passing it. BOTH gen-trace call sites take them: the offline plan-check and the real run. Passing only
+# one would make the check a check of a different load than the card buys.
+PREMIUM_OUTPUT_TOKENS="${PREMIUM_OUTPUT_TOKENS:-64}"
+NOISY_OUTPUT_TOKENS="${NOISY_OUTPUT_TOKENS:-16}"
 OUT="${OUT:-hack/m5c-run-$(date +%Y%m%d-%H%M%S)}"
 LOG="$OUT/evidence.log"
 GW_IMAGE="${GW_IMAGE:-gateway:m5c}"
@@ -74,6 +136,13 @@ REPS_FROM_CALLER="${REPS+set}"
 # Below four the incremental interval is a bootstrap over very few blocks. Two is a floor the report will
 # tolerate, not a target anything argued for.
 REPS="${REPS:-4}"
+# One trace seed per repetition, space-separated, or empty for the one seed every archive before 2026-10-04
+# replayed in every repetition (11).
+#
+# Which of the two a run may use is the STUDY's to say, read through `benchharness study-traces` by
+# resolve_seeds: a study registering a trace per repetition is refused without REPS distinct seeds here,
+# before anything is rented, rather than by the report after every cell is paid for.
+SEEDS="${SEEDS:-}"
 # The arms, in the order they are run.
 #
 # R1 FIRST, and it is not a formality: it is the isolated baseline both bars are ratios against, so a run
@@ -126,7 +195,209 @@ if [ -n "$LADDER" ]; then
   [ -z "$REPS_FROM_CALLER" ] || fail "REPS and LADDER are both set. Ladder rungs are different loads rather than repetitions of one, and pooling two of them would report a p99 for a load that was never offered."
 fi
 
-[ -n "${RATE:-}" ] || [ -n "$LADDER" ] || fail "RATE is unset. Measure it from a single contender prefill on THIS card, the way hack/m5b-gpu-session.sh does; the harness default of 20/s demands 3.8x an A10G's theoretical peak and would censor every arm."
+# WHICH STUDY THE NON-LADDER PATH FILES ITS EVIDENCE UNDER, decided here rather than three hundred lines down.
+#
+# This used to be `STUDY=sharing-matrix-2026-09-10`, an unconditional assignment in the matrix branch that
+# read nothing from the environment. Measured on 2026-10-04: passing STUDY=tail-crossing-lc256-2026-10-04
+# with the frozen five produced "PLAN OK: every planned cell generates a trace the readings can score" and
+# the requested study appeared NOWHERE in the output -- the plan stood under sharing-matrix-2026-09-10. The
+# two tail-crossing studies freeze the same five load quantities as the sharing matrix at the short level,
+# so `refuse_unfrozen_load` compared against the overwritten study and passed as well. A check that cannot
+# tell "ran under the study I asked for" from "ran under a different one" is this repository's commonest
+# defect, and it was sitting on the last gate before a purchase.
+#
+# Decided BEFORE the compiled-CR block, which is what makes the STUDY_FROM_CR comparison below possible at
+# all: that guard had to compare against a literal because $STUDY did not exist yet when it ran. Placing it
+# here costs nothing -- `[ -n "$LADDER" ] && fail` inside that block already refuses a ladder beside a CR, so
+# the ladder's own study assignment cannot collide with this one.
+#
+# The allow-list follows the ladder's precedent at LADDER_STUDY rather than inventing a second shape, and for
+# the reason that refusal gives: gen-trace does NOT check the arm against the study, so an unregistered id
+# travels as far as replay's manifest validation -- which fires on the rented card after the engines are up.
+if [ -z "$LADDER" ]; then
+  STUDY="${STUDY:-sharing-matrix-2026-09-10}"
+  case "$STUDY" in
+    sharing-matrix-2026-09-10|tail-crossing-lc256-2026-10-04|tail-crossing-lc2048-2026-10-05|tail-crossing-lc8192-2026-10-04|instrument-validation-2026-10-05|instrument-validation-s2-2026-10-05|instrument-validation-s3-2026-10-06|instrument-validation-s4-2026-10-06|step-boundary-2026-10-06|step-confirm-2026-10-07|prospective-pilot-2026-10-08|admission-diagnostic-2026-10-10|admission-frontier-2026-10-10|admission-length-calibration-2026-10-10) ;;
+    *) fail "STUDY is ${STUDY@Q}; the non-ladder matrix files evidence under sharing-matrix-2026-09-10, tail-crossing-lc256-2026-10-04, tail-crossing-lc2048-2026-10-05, tail-crossing-lc8192-2026-10-04, instrument-validation-2026-10-05, instrument-validation-s2-2026-10-05, instrument-validation-s3-2026-10-06, instrument-validation-s4-2026-10-06 or step-boundary-2026-10-06, step-confirm-2026-10-07, prospective-pilot-2026-10-08, admission-diagnostic-2026-10-10, admission-frontier-2026-10-10, admission-length-calibration-2026-10-10. An unregistered id is not refused by gen-trace -- it writes a manifest for any string -- so this refusal is the one that stops it before anything is rented" ;;
+  esac
+fi
+
+# The instrument-validation study carries its trace length in the arm, so a run-wide one is refused.
+#
+# Each of its traces is three complete cycles of one episode type and gen-trace refuses a duration shorter
+# than the trace, so a single DURATION_MS would be wrong for two of the three episode types.
+# Refused rather than ignored, because an operator who set it believes it was used.
+# A sweep beside it is refused for the same reason: the sweep builds be<NN>-shared arms this study does not
+# have, and its load is two tenants where this study registers one.
+if [ -z "$LADDER" ] && iv_is_study "$STUDY"; then
+  [ -z "${DURATION_MS:-}" ] \
+    || fail "DURATION_MS is ${DURATION_MS@Q} and study $STUDY sets the trace length per arm ($(iv_duration_summary "$STUDY")). A single value would be shorter than some arm's trace, and gen-trace refuses that; unset it"
+  [ -z "${SWEEP:-}" ] \
+    || fail "SWEEP is set and study $STUDY registers no best-effort sweep; its arms are {serial,burst,stagger}-{log,nolog,async}"
+  [ -n "$ARMS_FROM_CALLER" ] \
+    || fail "ARMS is unset and study $STUDY has none of the default topologies; name its arms, e.g. ARMS=\"serial-log serial-nolog burst-log burst-nolog stagger-log stagger-nolog serial-async burst-async stagger-async\""
+  for _arm in $ARMS; do
+    _why=$(iv_duration_ms "$STUDY" "$_arm") || fail "$_why"
+  done
+fi
+
+# A best-effort SWEEP: the latency-critical rate held at PREMIUM_RATE, the BE rate stepped through SWEEP.
+#
+# The 2026-10-04 model-first registration crosses LC length with BE load, holding the LC request rate, and
+# each BE rate is its own arm (be01-shared, be02-shared, ...) so two loads cannot pool into one p99. A
+# weighted RATE and NOISY_WEIGHT describe one mix of both tenants and cannot hold one tenant still, so they
+# are refused beside a sweep rather than reconciled with it. Whether the study wants a sweep is checked
+# against its registered arrival model once the binary exists (resolve_arrivals).
+SWEEP="${SWEEP:-}"
+PREMIUM_RATE="${PREMIUM_RATE:-}"
+if [ -n "$SWEEP" ]; then
+  [ -z "$LADDER" ] || fail "SWEEP and LADDER are both set. The ladder climbs the premium rate and the sweep holds it; one run is one of the two."
+  [ -z "${RATE:-}" ] || fail "RATE and SWEEP are both set. A sweep holds PREMIUM_RATE and steps the BE rate; a total RATE describes a weighted mix this sweep does not draw."
+  [ -z "${NOISY_WEIGHT:-}" ] || fail "NOISY_WEIGHT and SWEEP are both set. The sweep's BE rates are absolute, one per level, so a weight would be ignored."
+  [ -z "$ARMS_FROM_CALLER" ] || fail "ARMS and SWEEP are both set. A sweep's arms are R1 and one be<NN>-shared per SWEEP entry, built from SWEEP so the name and the rate cannot disagree."
+  [ -z "${BENCHMARK_CR_SHA256:-}" ] || fail "SWEEP and BENCHMARK_CR_SHA256 are both set. A CR compiles one weighted load, and the swept studies are not compiled from one."
+  [ -n "$PREMIUM_RATE" ] || fail "SWEEP is set and PREMIUM_RATE is not. The sweep holds the latency-critical rate fixed, so it has to be named."
+  for w in $PREMIUM_RATE $SWEEP; do
+    case "$w" in
+      *[!0-9.]* | *.*.* | . | '') fail "SWEEP/PREMIUM_RATE entry ${w@Q} is not a plain positive decimal" ;;
+    esac
+    awk -v x="$w" 'BEGIN {exit !(x > 0)}' || fail "SWEEP/PREMIUM_RATE entry ${w@Q} is not positive"
+  done
+  sweep_n=$(printf '%s\n' $SWEEP | awk 'NF {c++} END {print c+0}')
+  # internal/bench admits be01-shared .. be06-shared; a seventh level would be named and then refused by the
+  # report as an arm the study does not have.
+  [ "$sweep_n" -le 6 ] || fail "SWEEP names $sweep_n BE rates and the tail-crossing studies admit six levels"
+  # Compared as NUMBERS: 0.0286 and 0.02860 are one rate, and as strings they passed as two levels -- found
+  # by an independent review, which bought the same condition twice under two names in a plan check.
+  [ "$(printf '%s\n' $SWEEP | awk 'NF { k = sprintf("%.12g", $1 + 0); if (!seen[k]++) c++ } END {print c+0}')" = "$sweep_n" ] \
+    || fail "SWEEP repeats a rate ($SWEEP); two levels at one rate are one condition under two names"
+  ARMS="R1"
+  for i in $(seq 1 "$sweep_n"); do ARMS="$ARMS $(printf 'be%02d-shared' "$i")"; done
+elif [ -n "$PREMIUM_RATE" ] && ! pp_is_study "${STUDY:-}"; then
+  fail "PREMIUM_RATE is set without SWEEP. It is the held latency-critical rate of a sweep, and on its own it would be ignored."
+fi
+
+# A compiled CR owns the load, and the environment may not quietly disagree with it.
+#
+# `benchharness compile-plan` turns a GpuSharingBenchmark into exactly the exports below and sets
+# BENCHMARK_CR_SHA256 beside them. Everything this script reads is an environment variable, so an operator
+# who sourced that block and then also exported RATE by hand would run one load while the evidence named
+# another -- and the CR's digest in the manifest would point at a file that does not describe the run.
+#
+# So the digest's presence is the switch: with it, these variables must come from the compiled block and a
+# second source is a refusal; without it, nothing changes and every existing caller keeps working. The
+# refusal cannot tell WHICH assignment came from the block, so it asks the operator to drop the extra one
+# rather than guessing -- a guard that picks a winner silently is the thing being prevented.
+if [ -n "${BENCHMARK_CR_SHA256:-}" ]; then
+  case "$BENCHMARK_CR_SHA256" in
+    *[!0-9a-f]* | "") fail "BENCHMARK_CR_SHA256 is ${BENCHMARK_CR_SHA256@Q}, which is not a sha256; it is written by benchharness compile-plan and should be sourced, not typed" ;;
+  esac
+  [ ${#BENCHMARK_CR_SHA256} -eq 64 ] || fail "BENCHMARK_CR_SHA256 is ${#BENCHMARK_CR_SHA256} characters; a sha256 is 64"
+  [ -n "$LADDER" ] && fail "LADDER and BENCHMARK_CR_SHA256 are both set. A CR declares one load and the ladder is a sequence of different ones, so the compiled plan would be ignored for every rung."
+  # STUDY is not on this list: compile-plan is told which study the evidence is filed under, because the CR
+  # has no field for it, and it prints that value into the same block. It is passed, not compiled.
+  # RATE and the three weights have NO default in this script, so emptiness is the right test for them.
+  for v in RATE PREMIUM_WEIGHT NOISY_WEIGHT PROBE_WEIGHT; do
+    [ -n "${!v:-}" ] || fail "$v is unset although BENCHMARK_CR_SHA256 is set. Source the whole block benchharness compile-plan prints; a partial one leaves this script defaulting a value the CR declared."
+  done
+  # The six that DO have defaults are checked by their snapshots instead.
+  #
+  # Emptiness cannot see them: they were defaulted a hundred lines above this block, so a compiled block
+  # missing PREMIUM_OUTPUT_TOKENS reached here holding 64 and passed. The snapshot records whether the
+  # caller supplied the value, which is the question this check is actually asking.
+  for v in PREMIUM_PROMPT_CHARS NOISY_PROMPT_CHARS REQUEST_TIMEOUT_MS MODEL_REVISION \
+           PREMIUM_OUTPUT_TOKENS NOISY_OUTPUT_TOKENS; do
+    snap="${v}_FROM_CALLER"
+    [ -n "${!snap}" ] || fail "$v was not supplied although BENCHMARK_CR_SHA256 is set, so this run would use this script's own default while the CR declared a value. Source the whole block benchharness compile-plan prints."
+  done
+  # ARMS and REPS are checked through the FROM_CALLER flags and not for emptiness, because by this line they
+  # are never empty: both were defaulted above, ARMS to all four topologies. A run that sourced a compiled
+  # block without them would therefore have passed this guard and then bought FOUR arms for a CR that
+  # compiled to two -- which is exactly the disagreement this block exists to refuse. Measured: dropping
+  # ARMS from the block left the run reporting "load compiled from a GpuSharingBenchmark" and nothing else.
+  [ -n "$ARMS_FROM_CALLER" ] || fail "ARMS is unset although BENCHMARK_CR_SHA256 is set, so this run would take the default of all four topologies while the CR compiled to a different set. Source the whole block benchharness compile-plan prints."
+  [ -n "$REPS_FROM_CALLER" ] || fail "REPS is unset although BENCHMARK_CR_SHA256 is set, so this run would take the default repetition count rather than the one the CR declares. Source the whole block benchharness compile-plan prints."
+  # MODEL_REVISION is the third defaulted one, and absence is the wrong test for it for the same reason:
+  # line 65 fills it before this block runs, so a block missing that line produces a run at the default and
+  # nothing looks wrong. It is compared instead, against the revision the plan resolved the prompt lengths
+  # against -- which also refuses a revision overridden by hand, a case absence could never have caught.
+  [ -n "${BENCHMARK_CR_TOKENIZER_REV:-}" ] \
+    || fail "BENCHMARK_CR_TOKENIZER_REV is unset although BENCHMARK_CR_SHA256 is set. Source the whole block benchharness compile-plan prints; without it MODEL_REVISION cannot be checked against the plan and would silently take this script's default."
+  [ "$MODEL_REVISION" = "$BENCHMARK_CR_TOKENIZER_REV" ] \
+    || fail "MODEL_REVISION is $MODEL_REVISION but the compiled plan resolved its prompt lengths against $BENCHMARK_CR_TOKENIZER_REV. The character counts in this run were measured under one tokenizer and the manifest would name another."
+  # The study the CR was compiled FOR, against the study this run files its evidence under.
+  #
+  # The frozen matrix sets STUDY itself a few hundred lines below, and compile-plan was told a study when it
+  # translated the CR's two per-tenant rates into a total rate and a weight -- a translation that is only
+  # this load under a weighted arrival model. If the two disagree, the trace was built for one experiment
+  # and the evidence would be filed under another.
+  #
+  # Carried under its own name because the two arrive by different routes: compile-plan prints both STUDY and
+  # STUDY_FROM_CR, and hack/m5c-gpu-session.sh bakes only the latter into the instance. Comparing them is what
+  # catches a block compiled for one experiment sourced into a run filing evidence under another.
+  #
+  # Compared against $STUDY rather than against a literal, now that the block above has decided $STUDY before
+  # this line runs. The literal was not a style choice -- $STUDY genuinely did not exist here -- and it meant
+  # this guard could only ever defend one study. It now defends whichever the run declared.
+  if [ -n "${STUDY_FROM_CR:-}" ] && [ -z "$LADDER" ] && [ "$STUDY_FROM_CR" != "$STUDY" ]; then
+    fail "the plan was compiled for study $STUDY_FROM_CR but this run files its evidence under $STUDY. The arrival model the rates were translated under belongs to the compiled study, so the trace would not be the load this study registered."
+  fi
+  say "load compiled from a GpuSharingBenchmark, sha256 $BENCHMARK_CR_SHA256"
+fi
+
+# The instrument-validation study has no load to set: its episodes are laid out by the generator.
+# A caller's load variable is refused rather than ignored, because a value that was set and silently unused
+# reads, in load-source.txt, like the load the cells ran at; the cell specs then carry zeros, which nothing reads.
+if [ -z "$LADDER" ] && iv_is_study "$STUDY"; then
+  for v in RATE PREMIUM_WEIGHT NOISY_WEIGHT PROBE_WEIGHT PREMIUM_RATE; do
+    [ -z "${!v:-}" ] || fail "$v is ${!v@Q} and study $STUDY takes no load; its episodes are the registration's. Unset it"
+  done
+  # The prompt shape as well: its lengths and caps vary by row, and a caller's value would be dropped before
+  # gen-trace while load-source.txt recorded it as declared (found by review, reproduced with PLAN_ONLY).
+  [ -z "$SHAPE_FROM_CALLER" ] \
+    || fail "${SHAPE_FROM_CALLER# } set, and study $STUDY's lengths and output caps are the registration's, varying by row. Unset them"
+  RATE=0 PREMIUM_WEIGHT=0 NOISY_WEIGHT=0 PROBE_WEIGHT=0
+fi
+# The prospective-admission pilot: two tenants at fixed independent rates, one block of its stage's arms per
+# repetition (docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md, "The measurement pilot").
+# Its load is the registration's and is required whole; a weighted RATE or a sweep would describe another load.
+if [ -z "$LADDER" ] && pp_is_study "$STUDY"; then
+  [ -z "${SWEEP:-}" ] || fail "SWEEP is set and the pilot is not a sweep; its contender rate is PILOT_NOISY_RATE"
+  [ -z "${RATE:-}" ] || fail "RATE is ${RATE@Q} and the pilot's arrivals are independent; pass PREMIUM_RATE and PILOT_NOISY_RATE"
+  [ -z "$ARMS_FROM_CALLER" ] || fail "ARMS is set and the pilot's arms are its stage's (PILOT_STAGE); unset it"
+  _pp_arms=$(pp_stage_arms "${PILOT_STAGE:-}" 2>&1) || fail "$_pp_arms"
+  # Each stage belongs to one study: evidence filed under another would be scored by rules it was not bought under.
+  _pp_study=$(pp_stage_study "$PILOT_STAGE" 2>&1) || fail "$_pp_study"
+  [ "$_pp_study" = "$STUDY" ] || fail "PILOT_STAGE ${PILOT_STAGE} does not belong to study $STUDY: it is $_pp_study's"
+  # The plan check and the banner read ARMS; left at the sharing matrix's default, the check judged a set this run
+  # never buys (v26 review, C6).
+  ARMS=$(printf '%s\n' "$_pp_arms" | paste -sd' ')
+  # v26's seeds are frozen with its traces' checksums; another seed would be another experiment under its name.
+  # v27's calibration seed is frozen with its traces' checksums, as v26's are.
+  if [ "$STUDY" = "$PP_LENCAL_STUDY" ]; then
+    [ "$(printf '%s ' $SEEDS)" = "$PP_LENCAL_SEEDS " ] || fail "SEEDS is ${SEEDS@Q} and v27's calibration froze $PP_LENCAL_SEEDS"
+  fi
+  if [ "$STUDY" = "$PP_FRONTIER_STUDY" ]; then
+    [ "$(printf '%s ' $SEEDS)" = "$PP_FRONTIER_SEEDS " ] || fail "SEEDS is ${SEEDS@Q} and v26 froze $PP_FRONTIER_SEEDS"
+  fi
+  # Three blocks per stage, as the study registers: the main endpoint pools three, and pooling is not linear in
+  # the number of blocks, so a stage of another size would measure a different quantity (review of 780929a).
+  # v27's calibration stage F is one block; every other stage is three.
+  if [ "$PILOT_STAGE" = F ]; then
+    [ "$REPS" = 1 ] || fail "REPS is $REPS and v27's calibration stage F is one block; pass REPS=1"
+  else
+    [ "$REPS" = 3 ] || fail "REPS is $REPS and each pilot stage is three blocks; pass REPS=3"
+  fi
+  # The engine's revision and model are the registration's, not the caller's: the validator compares the engine
+  # against these, and a caller-supplied value would set both sides of that comparison (pilot review 11).
+  [ "$MODEL_REVISION" = "$PP_MODEL_REVISION" ] \
+    || fail "MODEL_REVISION is $MODEL_REVISION and the pilot registered $PP_MODEL_REVISION"
+  [ "$MODEL" = "$PP_MODEL" ] || fail "MODEL is $MODEL and the pilot registered $PP_MODEL"
+  [ "${PILOT_STAGE:-}" != B ] || pp_gateway_args static-cap "${PILOT_STATIC_RATE:-}" >/dev/null \
+    || fail "stage B runs the static arm at the rate R fitted in stage A; set PILOT_STATIC_RATE"
+  RATE=0 NOISY_WEIGHT=0
+fi
+[ -n "${RATE:-}" ] || [ -n "$LADDER" ] || [ -n "$SWEEP" ] || fail "RATE is unset. Measure it from a single contender prefill on THIS card, the way hack/m5b-gpu-session.sh does; the harness default of 20/s demands 3.8x an A10G's theoretical peak and would censor every arm."
 
 # The whole load, passed rather than defaulted -- and RATE alone was never enough.
 #
@@ -156,6 +427,15 @@ if [ -n "$LADDER" ]; then
   [ -z "${NOISY_WEIGHT:-}" ] || fail "NOISY_WEIGHT and LADDER are both set. The ladder carries the contender's load per rung -- a weight, or a rate under a study registered with independent arrivals -- and that is how it holds the contender fixed in absolute terms while the premium rate climbs, so a single weight here would be ignored."
   REQUIRED_LOAD_VARS="PREMIUM_WEIGHT PROBE_WEIGHT DURATION_MS"
 fi
+# A sweep carries the BE rate per level, as the ladder carries it per rung, and NOISY_WEIGHT was refused
+# beside it above. PREMIUM_WEIGHT and PROBE_WEIGHT stay required: resolve_arrivals insists on 1 and 0 under
+# independent arrivals, so a run says it has no probes rather than inheriting a weight that would be ignored.
+[ -z "$SWEEP" ] || REQUIRED_LOAD_VARS="PREMIUM_WEIGHT PROBE_WEIGHT DURATION_MS"
+# The instrument-validation study's duration comes from each arm, and a run-wide one was refused above.
+# Nor does it have a load to require: its traces are episodes the generator lays out, and gen-trace refuses every
+# rate, weight and prompt flag for it, so demanding them here would demand values that are then thrown away.
+if [ -z "$LADDER" ] && iv_is_study "$STUDY"; then REQUIRED_LOAD_VARS=""; fi
+if [ -z "$LADDER" ] && pp_is_study "$STUDY"; then REQUIRED_LOAD_VARS="PREMIUM_RATE PILOT_NOISY_RATE PREMIUM_WEIGHT PROBE_WEIGHT DURATION_MS"; fi
 for v in $REQUIRED_LOAD_VARS; do
   [ -n "${!v:-}" ] || fail "$v is unset. RATE alone does not describe this load: gen-trace's default mix puts the 40,000-character contender at 45% of arrivals, which is four to five times an A10G's prefill capacity at any rate this study could use, and lowering RATE to compensate starves the premium tail below the MinTailSamples floor. Derive the mix on the card and pass all four. hack/m5b-price-of-protection.sh measured RATE=9.85 PREMIUM_WEIGHT=1 NOISY_WEIGHT=0.054 PROBE_WEIGHT=0.0054 DURATION_MS=420000 for ONE engine with the whole card; this run gives each engine half of one, so it is a starting point and not an answer."
 done
@@ -207,10 +487,13 @@ if [ -z "${ENGINE_PIN_WAIVED:-}" ]; then
       || fail "$m pins ${other:-no engine image} and config/vllm/deployment.yaml pins $ENGINE_IMAGE. Two topologies on two engine builds is not a comparison of topologies"
   done
 fi
-# The gateway's identity is the COMMIT this tree is at. Its image is not digest-pinned -- the matrix builds
-# a binary and loads it into the node -- so --gateway-image is deliberately not passed rather than filled
-# with something that looks like a digest and is not one.
+# The gateway's build is named three ways: the COMMIT this tree is at, the image ID the build below prints,
+# and the gateway's content -- the binary's sha256 and the base it sits on.
+# The image ID changes with every build of the same binary on the same base, so a reproduction compares the
+# content instead (docs/superpowers/specs/2026-10-07-gateway-identity-for-reproduction.md).
 SOURCE_COMMIT="${SOURCE_COMMIT:-$(git rev-parse HEAD 2>/dev/null || echo unknown)}"
+# Pinned by digest: the tag this replaced could put two builds of one commit on two different bases.
+GW_BASE="gcr.io/distroless/static@sha256:e2e927ec666bae08560abb3c55d0659eceabb657f56b6782ab500a9fc7f555e3"
 
 # The arrival model this run's study registered, and the gen-trace load flags for one cell under it.
 #
@@ -220,23 +503,261 @@ SOURCE_COMMIT="${SOURCE_COMMIT:-$(git rev-parse HEAD 2>/dev/null || echo unknown
 # generation instead of reaching a replay. Resolved once the binary exists, which is later on each path.
 ARRIVALS=""
 resolve_arrivals() {
-  # The frozen sharing matrix registered no arrival model. It has only ever been generated weighted, and this
-  # keeps it so rather than asking a registry that has no answer for it.
-  if [ -z "$LADDER" ]; then ARRIVALS=weighted; return; fi
-  ARRIVALS=$("$WORK/benchharness" study-arrivals --study "$STUDY") \
-    || fail "could not read study $STUDY's arrival model from the registry"
+  local out
+  # Every study is asked now. The frozen sharing matrix registers no arrival model and has only ever been
+  # generated weighted, so "registered no arrival model" -- and nothing else -- falls back to weighted; the
+  # tail-crossing studies register independent arrivals since 2026-10-04, which the shell used to override
+  # by hard-coding weighted on this path without asking.
+  if out=$("$WORK/benchharness" study-arrivals --study "$STUDY" 2>&1); then
+    ARRIVALS="$out"
+  else
+    case "$out" in
+      *"registered no arrival model"*) ARRIVALS=weighted ;;
+      *) fail "could not read study $STUDY's arrival model from the registry: $out" ;;
+    esac
+  fi
+  if [ -z "$LADDER" ]; then
+    # A study whose arrivals are independent is run as a sweep and only as a sweep, and the reverse.
+    if [ "$ARRIVALS" = independent ] && [ -z "$SWEEP" ] && ! pp_is_study "$STUDY"; then
+      fail "study $STUDY registers independent arrivals, so it is run as a SWEEP of BE rates with PREMIUM_RATE held; RATE and NOISY_WEIGHT describe a weighted mix it does not draw"
+    fi
+    if [ "$ARRIVALS" != independent ] && [ -n "$SWEEP" ]; then
+      fail "study $STUDY registers $ARRIVALS arrivals, so a SWEEP of absolute BE rates is not its load; a sweep needs a study registered with independent arrivals"
+    fi
+  fi
   # Independent arrivals have no mix to weight and this ladder has no probes, so the two weights the load
   # still requires must say exactly that rather than describe a mix that would be ignored.
   if [ "$ARRIVALS" = independent ] && { [ "$PREMIUM_WEIGHT" != 1 ] || [ "$PROBE_WEIGHT" != 0 ]; }; then
     fail "study $STUDY registered independent arrivals, where each rung carries the premium and contender RATES and the probes are off; PREMIUM_WEIGHT=$PREMIUM_WEIGHT PROBE_WEIGHT=$PROBE_WEIGHT describe a weighted mix that would be ignored, so pass 1 and 0"
   fi
 }
+# The trace policy this run's study registered, and the seed list checked against it.
+#
+# A per-repetition study replaying one seed is the defect the 2026-10-04 registration found in every
+# archive: five repetitions of one draw of the arrival process. The report refuses that evidence, and this
+# refuses the run that would produce it while refusing is still free.
+TRACE_POLICY=""
+resolve_seeds() {
+  local n distinct w
+  TRACE_POLICY=$("$WORK/benchharness" study-traces --study "$STUDY") \
+    || fail "could not read study $STUDY's trace policy from the registry"
+  for w in $SEEDS; do
+    case "$w" in
+      '' | *[!0-9]*) fail "SEEDS entry ${w@Q} is not a non-negative integer" ;;
+      # Canonical spelling only. gen-trace reads 07 as 7, so "7 07" passed the distinctness test below as
+      # two strings and generated one trace twice -- found by an independent review.
+      0?*) fail "SEEDS entry ${w@Q} has a leading zero; write it as $((10#$w)) so two spellings of one seed cannot pass as two seeds" ;;
+    esac
+  done
+  # awk, not grep: with SEEDS empty `grep .` exits 1, and under pipefail that assignment ended the whole script
+  # with no message -- measured, on the first run of this function, while refuse_unfrozen_load was still
+  # switching errexit on for everything after it.
+  n=$(printf '%s\n' $SEEDS | awk 'NF {c++} END {print c+0}')
+  distinct=$(printf '%s\n' $SEEDS | awk 'NF && !seen[$1]++ {c++} END {print c+0}')
+  case "$TRACE_POLICY" in
+    one)
+      [ "$distinct" -le 1 ] \
+        || fail "study $STUDY replays one trace in every repetition, and SEEDS names $distinct different seeds; its report refuses an arm whose repetitions came from different traces"
+      ;;
+    per-repetition)
+      [ "$n" -gt 0 ] \
+        || fail "study $STUDY registers a trace per repetition, so SEEDS must name one seed for each of the $REPS repetitions; the default would replay seed 11 $REPS times, one draw of the arrival process measured again"
+      [ "$n" = "$REPS" ] || fail "SEEDS names $n seed(s) and REPS is $REPS; study $STUDY needs exactly one per repetition"
+      [ "$distinct" = "$n" ] || fail "SEEDS repeats a seed ($SEEDS); two repetitions of study $STUDY would replay one trace"
+      ;;
+    *) fail "study $STUDY's trace policy is ${TRACE_POLICY@Q}, which this script does not know" ;;
+  esac
+}
+# seed_for_rep prints the seed repetition $1 is generated from.
+seed_for_rep() {
+  if [ -z "$SEEDS" ]; then
+    echo 11
+  elif [ "$TRACE_POLICY" = per-repetition ]; then
+    printf '%s\n' $SEEDS | sed -n "${1}p"
+  else
+    printf '%s\n' $SEEDS | sed -n 1p
+  fi
+}
+# load_banner says what this run offers, in the terms of its mode.
+#
+# A function at column zero so a harness can run THIS code under `set -u`. RATE and NOISY_WEIGHT do not
+# exist in ladder or sweep mode, and naming them here is not cosmetic: the first ladder rehearsal died on
+# this line with "RATE: unbound variable" after building the cluster and both images, and the sweep's first
+# version reached it the same way -- PLAN_ONLY never runs it, so an independent review found it, not a test.
+load_banner() {
+  if [ -n "$LADDER" ]; then
+    say "load: a ladder of $(printf '%s\n' $LADDER | wc -l | tr -d ' ') rungs, ${DURATION_MS}ms per cell, weights premium=$PREMIUM_WEIGHT probe=$PROBE_WEIGHT"
+    say "      rungs: $LADDER (read under study $STUDY's registered arrival model)"
+    say "run:  the two contended topologies at every rung, counterbalanced, plus one isolated baseline cell, on $PLATFORM, output $OUT"
+  elif [ -n "$SWEEP" ]; then
+    say "load: a sweep, ${DURATION_MS}ms per cell, latency-critical held at ${PREMIUM_RATE}/s, best-effort at $SWEEP /s, seeds ${SEEDS:-11 in every repetition}"
+    say "run:  ${REPS} repetitions of [$ARMS] on $PLATFORM, output $OUT"
+  elif iv_is_study "$STUDY"; then
+    # DURATION_MS is refused for this study, so naming it here would die on `set -u`.
+    say "load: none -- registered episodes, one tenant; the trace length per arm ($(for a in $ARMS; do printf '%s=%sms ' "$a" "$(iv_duration_ms "$STUDY" "$a")"; done))"
+    say "run:  ${REPS} block(s) of the synchronous arms in [$ARMS], each block in its own order, then the async arms once, on $PLATFORM, output $OUT"
+  else
+    say "load: rate ${RATE}/s, ${DURATION_MS}ms per arm, weights premium=$PREMIUM_WEIGHT noisy=$NOISY_WEIGHT probe=$PROBE_WEIGHT"
+    say "run:  ${REPS} repetitions of [$ARMS] on $PLATFORM, output $OUT"
+  fi
+}
+# refuse_unfrozen_load compares the load this run will OFFER against the tuple its study froze.
+#
+# The registration froze five quantities on 2026-10-01 -- premium and contender prompt characters, the
+# timeout, and both output caps -- and nothing compared them. Measured on 2026-10-02: every one of them
+# could be overridden on the command line and the pre-purchase plan check passed unchanged, and the CR path
+# enforced only the two lengths because compile-plan resolves those from the measured table while the
+# timeout and the caps come straight from the CR with no comparison at all.
+#
+# FIVE, not four. The output caps are two fields; counting them as one is how a check gets written for four
+# of them.
+#
+# The five variables compared here are the SAME variables both gen-trace calls read ($PREMIUM_PROMPT_CHARS
+# and friends, at the two call sites), and they are assigned once each where their defaults are declared.
+# So "the value checked" and "the value consumed" are the same shell variable rather than two copies that
+# could drift -- which is the thing a check like this most easily gets wrong.
+#
+# Studies that froze nothing are not exempted by silence: `study-frozen-tuple` REFUSES for them, and this
+# function treats that refusal as "no frozen tuple to enforce" only for a study that is registered. The
+# ladder reaches here with its own study id and its own lengths -- the down ladder registers a 40,000-char
+# contender against the matrix's 42,579 -- so enforcing the matrix tuple on the common path would wrongly
+# block a ladder that has never been bought.
+refuse_unfrozen_load() {
+  local out rc
+  # The status is taken WITHOUT touching the shell's options. This read `set +e; out=$(...); rc=$?; set -e`,
+  # and the `set -e` turned ON an errexit this script never had (line 33 is `set -uo pipefail`), for every
+  # line after the first call. Its first casualty was the gateway forward's `kill; wait` at the start of the
+  # second cell: `wait` returns the killed forward's status, errexit ended the matrix with no message, and
+  # both the kind rehearsal and the 2026-10-04 calibration on a rented card stopped there -- the "cell 2,
+  # cause unidentified" failure recorded since 2026-10-03.
+  if out=$("$WORK/benchharness" study-frozen-tuple --study "$STUDY" 2>&1); then rc=0; else rc=$?; fi
+  if [ "$rc" != 0 ]; then
+    # "froze no load tuple" is the only non-zero this may continue past, and only for a study the registry
+    # knows. Any other failure -- an unregistered study, a drift between the frozen characters and the
+    # resolution table, a binary that could not run -- is a refusal, because recovering to the defaults is
+    # exactly how an unchecked load reached a rented card.
+    case "$out" in
+      *"froze no load tuple"*)
+        say "study $STUDY froze no load tuple; the five load quantities are not compared for it"
+        return 0 ;;
+      *) fail "could not read study $STUDY's frozen load tuple: $out" ;;
+    esac
+  fi
+  # Sourced into locals rather than the global namespace, so a FROZEN_* name cannot be mistaken later for
+  # the value the run is actually offering.
+  local FROZEN_PREMIUM_PROMPT_CHARS="" FROZEN_NOISY_PROMPT_CHARS="" FROZEN_REQUEST_TIMEOUT_MS=""
+  local FROZEN_PREMIUM_OUTPUT_TOKENS="" FROZEN_NOISY_OUTPUT_TOKENS=""
+  eval "$(printf '%s\n' "$out" | grep -E '^FROZEN_[A-Z_]+=[0-9]+$' || true)"
+  local mismatch=0
+  for pair in \
+    "premium prompt characters|PREMIUM_PROMPT_CHARS|$PREMIUM_PROMPT_CHARS|$FROZEN_PREMIUM_PROMPT_CHARS" \
+    "contender prompt characters|NOISY_PROMPT_CHARS|$NOISY_PROMPT_CHARS|$FROZEN_NOISY_PROMPT_CHARS" \
+    "request timeout in ms|REQUEST_TIMEOUT_MS|$REQUEST_TIMEOUT_MS|$FROZEN_REQUEST_TIMEOUT_MS" \
+    "premium output cap|PREMIUM_OUTPUT_TOKENS|$PREMIUM_OUTPUT_TOKENS|$FROZEN_PREMIUM_OUTPUT_TOKENS" \
+    "contender output cap|NOISY_OUTPUT_TOKENS|$NOISY_OUTPUT_TOKENS|$FROZEN_NOISY_OUTPUT_TOKENS"; do
+    IFS='|' read -r label var have want <<<"$pair"
+    # An empty expectation means the lookup printed fewer than five assignments. That is a MISSING FIELD and
+    # not a pass: a comparison against "" would succeed for any value and report the load as frozen.
+    [ -n "$want" ] || fail "study $STUDY's frozen tuple did not carry the $label, so this run's $var could not be compared against it. The lookup printed: $out"
+    if [ "$have" != "$want" ]; then
+      echo "FROZEN LOAD MISMATCH: $label ($var) is $have and study $STUDY froze $want" >&2
+      mismatch=$(( mismatch + 1 ))
+    fi
+  done
+  [ "$mismatch" = 0 ] \
+    || fail "$mismatch of the five frozen load quantities differ from what study $STUDY registered, so this run would offer a load that study did not freeze and file the evidence under it anyway. Change the load back, or register a different study with a dated amendment."
+  say "load matches study $STUDY's frozen tuple (five quantities)"
+}
+# The trace length one cell is generated at, in ms.
+#
+# Every study but one has a single DURATION_MS and gets it back unchanged here.
+# The instrument-validation study's length is its arm's, because each trace is three complete cycles of one
+# episode type; both gen-trace calls, the deadline projection and load-source.txt read it from here so the
+# four cannot disagree about one cell.
+cell_duration_ms() {
+  if [ -z "${LADDER:-}" ] && iv_is_study "${STUDY:-}"; then
+    iv_duration_ms "$STUDY" "$1"
+  else
+    echo "$DURATION_MS"
+  fi
+}
+# The card time one cell is charged in the deadline projections, in ms: its trace length plus its warm-up's.
+#
+# Separate from cell_duration_ms because that one is passed to gen-trace as --duration-ms, and the warm-up
+# must not lengthen the measured trace.
+# Every study without a warm-up is charged exactly its trace length, so its projections are as before.
+cell_charge_ms() {
+  local ms warm
+  ms=$(cell_duration_ms "$1") || { echo "$ms"; return 1; }
+  if [ -z "${LADDER:-}" ] && iv_has_warmup "${STUDY:-}"; then
+    warm=$(warmup_span_ms "$1" "$2") || { echo "$warm"; return 1; }
+    ms=$(( ms + warm ))
+  fi
+  echo "$ms"
+}
+# Generates one cell's warm-up trace: the arm's own gen-trace call, plus --warmup.
+#
+# The same seed, study, arm and flags as the measured trace, so the warm-up's unscored cycle is drawn from
+# the cell's own episode type and the generator, not this file, decides what the warm-up holds.
+# Only --duration-ms differs: the warm-up is one cycle and has its own registered bound.
+# Arguments after the four paths are passed through, for the provenance flags only a real cell has.
+# LOAD_FLAGS is empty under the episode arrivals these studies resolve to, and may not exist yet when a
+# projection runs before the first cell, so it is expanded only if set.
+warmup_gen_trace() {
+  local label="$1" rep="$2" trace="$3" manifest="$4" dur
+  shift 4
+  dur=$(iv_warmup_duration_ms "$STUDY" "$label") || { echo "$dur"; return 1; }
+  "$WORK/benchharness" gen-trace --warmup --seed "$(seed_for_rep "$rep")" --duration-ms "$dur" \
+    ${LOAD_FLAGS[@]+"${LOAD_FLAGS[@]}"} \
+    --study "$STUDY" --arm "$label" --model "$MODEL" --gateway-url "http://127.0.0.1:18080" \
+    "$@" ${PROMPT_FLAGS[@]+"${PROMPT_FLAGS[@]}"} \
+    --timeout-ms "$REQUEST_TIMEOUT_MS" \
+    --trace-out "$trace" --manifest-out "$manifest"
+}
+# The warm-up's own span in ms, as iv_trace_span_ms reads it off the cell's generated warm-up trace.
+#
+# Read from the generated trace rather than estimated, because the warm-up holds one whole cycle of the
+# cell's episode type and only the generator knows how long that is.
+# The trace is generated once per cell into $WORK and reused, so a projection asked before every cell does
+# not run gen-trace twenty-one times each time.
+warmup_span_ms() {
+  local label="$1" rep="$2" t="$WORK/warmup-plan-$1-$2.jsonl" out
+  if [ ! -s "$t" ]; then
+    out=$(warmup_gen_trace "$label" "$rep" "$t" "$WORK/warmup-plan-$1-$2.yaml" 2>&1) \
+      || { echo "gen-trace --warmup could not build $label rep $rep's warm-up trace: $(printf '%s' "$out" | tail -2 | tr '\n' ' ')"; return 1; }
+  fi
+  iv_trace_span_ms "$t"
+}
 set_load_flags() {
   case "$ARRIVALS" in
     weighted)    LOAD_FLAGS=(--rate "$1" --premium-weight "$PREMIUM_WEIGHT" --noisy-weight "$2" --probe-weight "$PROBE_WEIGHT") ;;
     independent) LOAD_FLAGS=(--premium-rate "$1" --noisy-rate "$2" --probe-rate 0) ;;
+    # The episode generator takes no load: lengths, caps and spacing are the registration's, not the caller's.
+    episodes)    LOAD_FLAGS=() ;;
     *) fail "no arrival model was resolved for study $STUDY before generating a trace" ;;
   esac
+}
+
+# The prompt and output flags both gen-trace calls pass, held once so the plan and the run cannot differ.
+#
+# The instrument-validation study passes none: its lengths and caps vary by row and are the registration's, and
+# gen-trace refuses these flags for it rather than let one value pretend to describe every row.
+if [ -z "$LADDER" ] && iv_is_study "$STUDY"; then
+  PROMPT_FLAGS=()
+else
+  PROMPT_FLAGS=(--premium-prompt-chars "$PREMIUM_PROMPT_CHARS" --noisy-prompt-chars "$NOISY_PROMPT_CHARS"
+    --premium-output-tokens "$PREMIUM_OUTPUT_TOKENS" --noisy-output-tokens "$NOISY_OUTPUT_TOKENS")
+fi
+
+# A cell's prompt flags: the run's, except that v27's calibration arms replay the contender length their name carries.
+# Printed one word per flag or value; none carries a space.
+cell_prompt_flags() {
+  local f
+  for f in ${PROMPT_FLAGS[@]+"${PROMPT_FLAGS[@]}"}; do printf '%s\n' "$f"; done | {
+    if [ -z "$LADDER" ] && [ "${STUDY:-}" = "$PP_LENCAL_STUDY" ]; then
+      awk -v c="$(pp_arm_contender_chars "$1" "$NOISY_PROMPT_CHARS")" 'prev == "--noisy-prompt-chars" { $0 = c } { print; prev = $0 }'
+    else cat; fi
+  } | paste -sd' '
 }
 
 CELLS=()
@@ -281,12 +802,99 @@ if [ -n "$LADDER" ]; then
   # stops on. It is counted here so the deadline projection does not discover it at the end.
   cells_total=$(( ${#CELLS[@]} + 1 ))
 else
-  STUDY=sharing-matrix-2026-09-10
-  for rep in $(seq 1 "$REPS"); do
-    for arm in $ARMS; do
-      CELLS+=("$arm|$arm|$rep|$RATE|$NOISY_WEIGHT|0")
+  # STUDY was decided above, before the compiled-CR block, so that the STUDY_FROM_CR comparison could use it.
+  # The unconditional assignment that used to sit on this line discarded whatever the caller asked for.
+  if [ -n "$SWEEP" ]; then
+    # One baseline and one cell per BE level, per repetition. The rate field carries PREMIUM_RATE and the
+    # weight field the level's absolute BE rate, which set_load_flags passes as --premium-rate and
+    # --noisy-rate under independent arrivals. The baseline is generated at the first level's rate and has
+    # its contender filtered out; independent arrivals make its LC rows the same at any level.
+    #
+    # The order WITHIN each repetition is randomised, and the order of the repetitions is not. A fixed order
+    # puts the same level in the same slot of every block, so a drift in the card or the engine over a
+    # session would be read as an effect of the level; the 2026-10-04 registration cites setup randomisation
+    # (Mytkowicz et al., ASPLOS'09) for exactly this. The permutation is the sort of sha256("<the block's
+    # trace seed>/<label>"), so it is reproducible from the seeds the archive already records, differs from
+    # block to block, and needs no random-number generator whose output depends on which awk is installed.
+    # What it costs: the baseline is no longer bought first, so a run cut short may hold a level with no
+    # denominator -- the registration chose randomisation over that.
+    sweep_first=$(printf '%s\n' $SWEEP | awk 'NF {print; exit}')
+    for rep in $(seq 1 "$REPS"); do
+      block_seed=$(printf '%s\n' $SEEDS | sed -n "${rep}p")
+      block=("R1|R1|$rep|$PREMIUM_RATE|$sweep_first|0")
+      sweep_level=0
+      for be in $SWEEP; do
+        sweep_level=$(( sweep_level + 1 ))
+        block+=("shared|$(printf 'be%02d-shared' "$sweep_level")|$rep|$PREMIUM_RATE|$be|0")
+      done
+      while IFS= read -r spec; do
+        CELLS+=("$spec")
+      done < <(for spec in "${block[@]}"; do
+        label=$(printf '%s' "$spec" | cut -d'|' -f2)
+        printf '%s %s\n' "$(printf '%s/%s' "${block_seed:-11}" "$label" | sha256sum | cut -c1-16)" "$spec"
+      done | LC_ALL=C sort | cut -d' ' -f2-)
     done
-  done
+  elif pp_is_study "$STUDY"; then
+    # One block per repetition: every arm of the stage, on the single-engine topology, in an order drawn from a
+    # hash of the block's seed, the stage and the block, so no arm is always first (design page, build item 7).
+    # The diagnostic's stage D and v26's stage E run R1 once, first, as the isolated anchor, and their blocks hold the
+    # other arms (design page, "v25" and "v26").
+    if [ "$PILOT_STAGE" = D ] || [ "$PILOT_STAGE" = E ] || [ "$PILOT_STAGE" = F ]; then
+      CELLS+=("R1|R1|1|$PREMIUM_RATE|$PILOT_NOISY_RATE|0")
+    fi
+    for rep in $(seq 1 "$REPS"); do
+      block_seed=$(printf '%s\n' $SEEDS | sed -n "${rep}p")
+      while IFS= read -r spec; do
+        CELLS+=("$spec")
+      done < <(pp_stage_arms "$PILOT_STAGE" | { if [ "$PILOT_STAGE" = D ] || [ "$PILOT_STAGE" = E ] || [ "$PILOT_STAGE" = F ]; then grep -vx R1; else cat; fi; } | while read -r arm; do
+        printf '%s R1|%s|%s|%s|%s|0\n' "$(printf '%s/%s/%s/%s' "${block_seed:-11}" "$PILOT_STAGE" "$rep" "$arm" | sha256sum | cut -c1-16)" \
+          "$arm" "$rep" "$PREMIUM_RATE" "$PILOT_NOISY_RATE"
+      done | LC_ALL=C sort | cut -d' ' -f2-)
+    done
+  elif iv_is_study "$STUDY"; then
+    # The instrument-validation study's blocks, as its registration lays them out (section 4).
+    #
+    # REPS blocks of the synchronous arms, each block in its own order, then every async arm once: the async
+    # control is "bought once, published, and never used to fit or correct anything", so repeating it would
+    # buy cells the registration has no use for.
+    # The order inside a block is the sort of sha256("<block>/<label>"), the sweep's device below, so it is
+    # reproducible from the archive and differs between blocks without a random-number generator.
+    #
+    # The topology is R1 for every arm: one engine, the whole card, one tenant.
+    # The arm name rides in the label, which is what gen-trace, the engine arguments and the readings key on.
+    for rep in $(seq 1 "$REPS"); do
+      while IFS= read -r spec; do
+        CELLS+=("$spec")
+      done < <(for arm in $ARMS; do
+        case "$arm" in *-async) continue ;; esac
+        # The step-boundary session buys serial and staggered cells in blocks 1, 3 and 5 only, spread over the
+        # session rather than front-loaded, and burst cells in all six (its registration, section 2).
+        iv_arm_in_block "$STUDY" "$arm" "$rep" || continue
+        # Study s4's block 1 starts with a staggered cell, which of the two still chosen by the hash.
+        # The matrix stops when the remaining cells, each charged the observed overhead so far, outrun the deadline,
+        # and after a cold serial first cell that projection exceeded what the credentials allow (session 4, by one
+        # minute); finishing the longest cell first leaves less work to carry the 20% headroom. The other cells and
+        # blocks keep their hash order, and session 5's registration records the rule before purchase.
+        printf '%s R1|%s|%s|%s|%s|0\n' "$(printf '%s/%s' "$rep" "$arm" | sha256sum | cut -c1-16)" "$arm" "$rep" "$RATE" "$NOISY_WEIGHT"
+      done | LC_ALL=C sort | if [ "$rep" = 1 ] && { [ "$STUDY" = "$IV_S4_STUDY" ] || [ "$STUDY" = "$IV_STEP_STUDY" ] || [ "$STUDY" = "$IV_CONFIRM_STUDY" ]; }; then
+        # Only the first staggered cell in hash order is moved to the front; the other five keep their order.
+        awk '!moved && $2 ~ /^R1\|stagger-/ {first = $0; moved = 1; next} {rest[++n] = $0}
+             END {if (first != "") print first; for (i = 1; i <= n; i++) print rest[i]}'
+      else cat; fi | cut -d' ' -f2-)
+    done
+    while IFS= read -r spec; do
+      CELLS+=("$spec")
+    done < <(for arm in $ARMS; do
+      case "$arm" in *-async) ;; *) continue ;; esac
+      printf '%s R1|%s|1|%s|%s|0\n' "$(printf 'async/%s' "$arm" | sha256sum | cut -c1-16)" "$arm" "$RATE" "$NOISY_WEIGHT"
+    done | LC_ALL=C sort | cut -d' ' -f2-)
+  else
+    for rep in $(seq 1 "$REPS"); do
+      for arm in $ARMS; do
+        CELLS+=("$arm|$arm|$rep|$RATE|$NOISY_WEIGHT|0")
+      done
+    done
+  fi
   cells_total=${#CELLS[@]}
 fi
 
@@ -304,6 +912,39 @@ say "plan: $cells_total cell(s): $(for c in "${CELLS[@]}"; do printf '%s ' "${c#
   || fail "REGISTRY is unset. EKS nodes cannot side-load an image, so the gateway must be pushed where they can pull it."
 
 mkdir -p "$OUT" || fail "cannot create $OUT"
+# WHERE EACH LOAD VALUE CAME FROM, beside the values themselves.
+#
+# refuse_unfrozen_load compares the EFFECTIVE value against the study's frozen tuple, so a wrong default is
+# caught as surely as a wrong override. What the comparison cannot tell a later reader is whether the value
+# was DECLARED or inherited from this script's default -- and that distinction is what made the 2026-10-02
+# run hard to audit: its user-data set all five to empty, the wrapper exports only non-empty ones, so the
+# matrix received none of them and used its own defaults. The manifest recorded 1174 and nothing recorded
+# that 1174 was a default rather than a declaration.
+#
+# The *_FROM_CALLER snapshots already answer it; they were taken before the defaults were applied and were
+# only ever read by the compiled-CR guard. Written here, next to $OUT's creation, because this is the first
+# line at which both the effective values and the output directory exist.
+{
+  printf 'study: %s\n' "${STUDY:-<unset at this point>}"
+  # The sweep's whole load, because a cell's manifest carries only its own level and seed.
+  [ -z "$SWEEP" ] || printf 'sweep: best-effort %s /s with latency-critical held at %s /s\n' "$SWEEP" "$PREMIUM_RATE"
+  # The order the cells will be bought in, which a randomised sweep makes a fact worth recording.
+  printf 'order:'; for c in "${CELLS[@]}"; do printf ' %s/%s' "$(printf '%s' "$c" | cut -d'|' -f2)" "$(printf '%s' "$c" | cut -d'|' -f3)"; done; printf '\n'
+  printf 'seeds: %s\n' "${SEEDS:-11 in every repetition}"
+  # Each cell's trace length, for the one study whose length differs by arm.
+  # Every other study's single DURATION_MS is in its manifests and its banner, so its record is unchanged.
+  if [ -z "$LADDER" ] && iv_is_study "$STUDY"; then
+    printf 'duration_ms:'; for c in "${CELLS[@]}"; do
+      IFS='|' read -r _ _dl _dr _ <<<"$c"
+      printf ' %s/%s=%s' "$_dl" "$_dr" "$(cell_duration_ms "$_dl")"
+    done; printf '\n'
+  fi
+  for v in PREMIUM_PROMPT_CHARS NOISY_PROMPT_CHARS REQUEST_TIMEOUT_MS \
+           PREMIUM_OUTPUT_TOKENS NOISY_OUTPUT_TOKENS MODEL_REVISION; do
+    snap="${v}_FROM_CALLER"
+    printf '%s: %s (%s)\n' "$v" "${!v}" "$([ -n "${!snap:-}" ] && echo declared || echo "default of hack/m5c-matrix.sh")"
+  done
+} > "$OUT/load-source.txt"
 : > "$LOG"
 
 WORK="$(mktemp -d)"
@@ -328,7 +969,12 @@ NODEGROUP=""
 # floors is restated in this file. What it cannot check is anything that depends on results: whether an
 # engine starts, whether the card fits two of them, or what any latency will be.
 if [ -n "${PLAN_ONLY:-}" ]; then
-  [ -n "$LADDER" ] || fail "PLAN_ONLY is only implemented for a ladder; the frozen matrix's plan is its arm list"
+  # It used to refuse everything but a ladder, and that refusal was the gap.
+  #
+  # The frozen matrix's CELLS are built from ARMS x REPS and carry the same six fields a rung's do, so the
+  # loop below already worked for them; only this line stopped it. Meanwhile the wrapper ran the check only
+  # when LADDER was set, so a frozen run had no pre-purchase plan check at all and DRY_RUN's success -- which
+  # checks the user-data and not the plan -- was the only thing that looked like one.
   if [ -n "${BENCHHARNESS_BIN:-}" ]; then
     [ -x "$BENCHHARNESS_BIN" ] || fail "BENCHHARNESS_BIN=$BENCHHARNESS_BIN is not an executable file"
     cp "$BENCHHARNESS_BIN" "$WORK/benchharness" || fail "could not take the shipped benchharness binary"
@@ -337,6 +983,24 @@ if [ -n "${PLAN_ONLY:-}" ]; then
     go build -o "$WORK/benchharness" ./cmd/benchharness || fail "build benchharness"
   fi
   resolve_arrivals
+  # The same check both paths run, before either generates a trace.
+  #
+  # PLAN_ONLY exists so a purchase can be refused before anything is rented, and a load that does not match
+  # the registration is exactly such a refusal. Running it only on the real path would mean the dry run
+  # approved a plan the real run then rejected -- or worse, approved one the real run also accepted.
+  refuse_unfrozen_load
+  resolve_seeds
+  # A reproduction's plan carries the provenance its target recorded, or the comparison could only refuse it.
+  # Only then: a plan that claims nothing invokes gen-trace exactly as before, so recorded plan calls still match.
+  # The image ID is not among them -- it does not exist until the build after purchase -- and the gateway's
+  # content stands in for it.
+  plan_provenance=()
+  if [ -n "${REPRODUCES:-}" ]; then
+    [ -n "${GATEWAY_BIN:-}" ] && [ -x "$GATEWAY_BIN" ] \
+      || fail "REPRODUCES needs GATEWAY_BIN, the gateway binary this run will ship, so the plan can name it by content"
+    plan_provenance=(--gateway-sha "$SOURCE_COMMIT" --engine-image "$ENGINE_IMAGE" --tokenizer-rev "$MODEL_REVISION"
+                     --gateway-binary-sha256 "$(sha256sum "$GATEWAY_BIN" | cut -c1-64)" --gateway-base "$GW_BASE")
+  fi
   plan_top=0
   for spec in "${CELLS[@]}"; do
     IFS='|' read -r _ _ _ _ _ cell_rung <<<"$spec"
@@ -345,23 +1009,86 @@ if [ -n "${PLAN_ONLY:-}" ]; then
   plan_failures=0
   # The baseline is checked too, at the rung the ladder would end on if it ran every rung. That is the
   # latest it can be bought, and the earliest this file can name it.
-  for spec in "${CELLS[@]}" "BASELINE"; do
+  #
+  # ONLY the ladder has a cell its rung list does not describe. The frozen matrix buys R1 as an arm like any
+  # other, so synthesising one here would check a cell called rung00-R1 -- a name the sharing study does not
+  # admit -- and the whole frozen plan would be refused for a cell the run never intended to buy.
+  plan_specs=("${CELLS[@]}")
+  [ -z "$LADDER" ] || plan_specs+=("BASELINE")
+  for spec in "${plan_specs[@]}"; do
     if [ "$spec" = BASELINE ]; then
       for s2 in "${CELLS[@]}"; do
         IFS='|' read -r _ _ _ cell_rate cell_weight cell_rung <<<"$s2"
         [ "$cell_rung" = "$plan_top" ] || continue
-        cell_topology=R1; cell_label="$(printf 'rung%02d' "$plan_top")-R1"
+        cell_topology=R1; cell_label="$(printf 'rung%02d' "$plan_top")-R1"; cell_rep=1
         break
       done
     else
-      IFS='|' read -r cell_topology cell_label _ cell_rate cell_weight cell_rung <<<"$spec"
+      IFS='|' read -r cell_topology cell_label cell_rep cell_rate cell_weight cell_rung <<<"$spec"
     fi
+    # Each repetition's own seed, so a per-repetition study has every trace it will buy checked here -- the
+    # floors below are per trace, and one seed passing them says nothing about another.
+    plan_seed=$(seed_for_rep "${cell_rep:-1}")
+    plan_name="$cell_label-${cell_rep:-1}"
     set_load_flags "$cell_rate" "$cell_weight"
-    "$WORK/benchharness" gen-trace --seed 11 --duration-ms "$DURATION_MS" "${LOAD_FLAGS[@]}" \
+    plan_duration=$(cell_duration_ms "$cell_label") || fail "$plan_duration"
+    "$WORK/benchharness" gen-trace --seed "$plan_seed" --duration-ms "$plan_duration" "${LOAD_FLAGS[@]}" \
       --study "$STUDY" --arm "$cell_label" --model "$MODEL" --gateway-url "http://127.0.0.1:18080" \
-      --trace-out "$WORK/plan-$cell_label.jsonl" --manifest-out "$WORK/plan-$cell_label.yaml" >/dev/null \
+      $(cell_prompt_flags "$cell_label") ${plan_provenance[@]+"${plan_provenance[@]}"} \
+      --timeout-ms "$REQUEST_TIMEOUT_MS" \
+      --trace-out "$WORK/plan-$plan_name.jsonl" --manifest-out "$WORK/plan-$plan_name.yaml" >/dev/null \
       || { echo "PLAN REFUSED: gen-trace could not build $cell_label's trace" >&2; plan_failures=$(( plan_failures + 1 )); continue; }
-    if ! out=$("$WORK/benchharness" ladder-plan-check --trace "$WORK/plan-$cell_label.jsonl" --study "$STUDY" --arm "$cell_label" 2>&1); then
+    # v26's traces are frozen by checksum: a seed, rate, duration or prompt that differs from the registration's
+    # changes it, so the plan cannot buy a lighter load under the study's name (v26 review, B6 and C5).
+    if [ -z "$LADDER" ] && { [ "$STUDY" = "$PP_FRONTIER_STUDY" ] || [ "$STUDY" = "$PP_LENCAL_STUDY" ]; }; then
+      if [ "$STUDY" = "$PP_LENCAL_STUDY" ]; then plan_sum=pp_lencal_checksum; else plan_sum=pp_frontier_checksum; fi
+      plan_want=$("$plan_sum" "$plan_seed" "$cell_label" 2>&1) \
+        || { echo "PLAN REFUSED: $plan_want" >&2; plan_failures=$(( plan_failures + 1 )); continue; }
+      plan_got=$(awk '/^traceChecksum:/ {print $2}' "$WORK/plan-$plan_name.yaml")
+      [ "$plan_got" = "$plan_want" ] \
+        || { echo "PLAN REFUSED: $plan_name's trace has checksum ${plan_got:-none}, and the study froze $plan_want for seed $plan_seed" >&2; plan_failures=$(( plan_failures + 1 )); continue; }
+    fi
+    # A pilot cell's engine manifest and gateway arguments are rendered here too, so an arm the helpers do not
+    # know, or a manifest anchor that moved, refuses before anything is rented (v26 review, C8).
+    if [ -z "$LADDER" ] && pp_is_study "$STUDY"; then
+      plan_cap=$(pp_arm_prefill_cap "$cell_label" 2>&1) \
+        && plan_render=$(pp_render_manifest config/vllm/deployment.yaml "$WORK/plan-engine-$plan_name.yaml" "$MODEL_REVISION" "$plan_cap" 2>&1) \
+        && plan_gw=$(pp_gateway_args "$cell_label" "${PILOT_STATIC_RATE:-}" 2>&1) \
+        || { echo "PLAN REFUSED: $plan_name's engine or gateway could not be rendered: ${plan_render:-}${plan_gw:-}${plan_cap:-}" >&2; plan_failures=$(( plan_failures + 1 )); continue; }
+    fi
+    # A study that warms each engine first has its warm-up trace generated here too, by the cell's own call.
+    # A warm-up gen-trace refuses would otherwise first refuse on the rented card, after the engine was up.
+    if [ -z "$LADDER" ] && iv_has_warmup "$STUDY"; then
+      if ! plan_warm=$(warmup_span_ms "$cell_label" "${cell_rep:-1}"); then
+        echo "PLAN REFUSED: $plan_warm" >&2
+        plan_failures=$(( plan_failures + 1 ))
+        continue
+      fi
+      say "  $plan_name: warm-up span ${plan_warm} ms, its last request's offset plus 30 s"
+    fi
+    # The two experiments ask DIFFERENT questions of the same artefact, and their floors differ.
+    #
+    # The ladder holds the contender at a fixed count across rungs and needs 500 premium offers; asking that
+    # of a frozen cell refuses it for "varying two things at once", which it is not doing. The frozen matrix
+    # varies the topology at one load and needs MinTailSamples per REPETITION, because a cell is a repetition
+    # and RegisteredEstimandFor refuses an arm whose smallest repetition tail falls below that floor.
+    #
+    # --arms carries the whole plan on every cell, because "is the isolated baseline in this run at all" is a
+    # question about the SET and no single cell's trace can answer it.
+    if [ -n "$LADDER" ]; then
+      plan_cmd=(ladder-plan-check --trace "$WORK/plan-$plan_name.jsonl" --study "$STUDY" --arm "$cell_label")
+    else
+      plan_cmd=(matrix-plan-check --trace "$WORK/plan-$plan_name.jsonl" --study "$STUDY" --arm "$cell_label" --arms "$ARMS"
+                --manifest "$WORK/plan-$plan_name.yaml")
+      # REPRODUCES names the archive this run claims to repeat, and is absent for a run that claims nothing.
+      #
+      # Appended rather than always passed, so a run making no claim invokes exactly the command it did
+      # before this existed. The 2026-10-02 run was registered as a reproduction of the 2026-09-13 pilot and
+      # offered a 294-token premium prompt against that pilot's 50; every check here passed it, because they
+      # ask whether a cell is scorable and not whether it is the same load as a named prior run.
+      [ -z "${REPRODUCES:-}" ] || plan_cmd+=(--reproduces "$REPRODUCES")
+    fi
+    if ! out=$("$WORK/benchharness" "${plan_cmd[@]}" 2>&1); then
       echo "PLAN REFUSED: $out" >&2
       plan_failures=$(( plan_failures + 1 ))
       continue
@@ -370,7 +1097,10 @@ if [ -n "${PLAN_ONLY:-}" ]; then
   done
   [ "$plan_failures" = 0 ] \
     || fail "$plan_failures planned cell(s) could not be scored as specified. Nothing was rented. Fix the load or the study and re-check -- this is the refusal that used to arrive after a bring-up"
-  say "PLAN OK: every planned cell generates a trace the readings can score. Nothing was rented."
+  # The study is named in the verdict, because a reader of "PLAN OK" cannot otherwise tell which experiment
+  # was planned. On 2026-10-04 this line printed a pass for a plan standing under a study the caller had not
+  # asked for, and nothing in the output contradicted them.
+  say "PLAN OK under study $STUDY: every planned cell generates a trace the readings can score. Nothing was rented."
   exit 0
 fi
 
@@ -476,6 +1206,89 @@ gpu_scale_down() {
   fi
 }
 
+# The expected-versus-actual comparison, written from cleanup so that a run which DIED still carries it.
+#
+# It lived at the end of the script, after README.txt. That is the one path where the comparison is least
+# interesting: a run that reaches the end has the files it owed. The runs worth comparing are the ones that
+# stopped at a deadline boundary or hit `fail` -- money already spent, archive short -- and those exit
+# through cleanup and never reached the old location. An external review named it, and the comment above the
+# old block had already claimed the opposite ("a run that ends holding fewer files than it owed ... must not
+# go unremarked"), so the code contradicted its own stated reason for existing.
+#
+# Recorded, never enforced. Failing here would stop the archive coming home, and the archive is the only
+# record of what the money bought.
+record_expected_files() {
+  local pair actual self classes mismatched
+  [ -d "$OUT" ] || return 0
+  # cleanup is trapped at line 787 and expected_outputs is defined around 1746, with forty `fail` calls in
+  # between. A run that dies acquiring the card or building an image therefore reaches this function before
+  # the one it calls exists, and `command not found` would leave a file whose basis field was simply empty.
+  # Said as a word instead, because "the count could not be computed" and "the count is zero" are the
+  # distinction this whole file is about.
+  if ! declare -F expected_outputs >/dev/null 2>&1; then
+    {
+      printf 'expected\tnot-computed\n'
+      printf 'basis\tdied-before-expected_outputs-was-defined\n'
+      printf 'actual\t%s\n' "$(find "$OUT" -maxdepth 1 -type f 2>/dev/null | wc -l)"
+      printf 'agree\tnot-evaluable -- this run ended before the counting function existed, so there is no expectation to compare against\n'
+    } > "$OUT/expected-files.txt"
+    return 0
+  fi
+  pair=$(expected_outputs)
+  # Counted BEFORE this file is written, and expected_outputs counts it as present, because by the time
+  # anyone reads the archive it is there. Off-by-one in the other direction otherwise.
+  #
+  # `self` is 0 when a previous run already left the file in this directory -- hack/test/rehearse-m5c-matrix.sh
+  # passes one OUT_DIR to three invocations and never empties it, so the unconditional +1 counted the file
+  # twice from the second run on and could cancel out a genuinely missing file into `agree=yes`.
+  self=1
+  [ -f "$OUT/expected-files.txt" ] && self=0
+  actual=$(( $(find "$OUT" -maxdepth 1 -type f 2>/dev/null | wc -l) + self ))
+  # Per-class rows beside the total, and the verdict is theirs rather than the total's.
+  #
+  # The total agreeing means only that the errors summed to zero. Three rounds of review found three
+  # different pairs that did exactly that, so `agree` is now yes only when EVERY class matches, and the
+  # classes that did not are named in the line.
+  # Its absence makes the verdict NOT-EVALUABLE, never yes.
+  #
+  # cleanup is trapped before either counting function is defined, so a signal arriving between the two
+  # definitions leaves only the total. Writing `class none` beside `agree yes` then claimed a per-class
+  # comparison that never ran -- the guard protected the total and left the verdict unguarded.
+  classes=""
+  mismatched=""
+  if declare -F expected_outputs_by_class >/dev/null 2>&1; then
+    classes=$(expected_outputs_by_class)
+    mismatched=$(printf '%s\n' "$classes" | awk 'NF == 3 && $2 != $3 {printf "%s(%s!=%s) ", $1, $2, $3}')
+  else
+    mismatched="class-comparison-did-not-run"
+  fi
+  {
+    printf 'expected\t%s\n' "${pair%% *}"
+    printf 'basis\t%s\n' "${pair#* }"
+    printf 'actual\t%s\n' "$actual"
+    if [ -n "$classes" ]; then
+      printf '%s\n' "$classes" | while read -r cname cexp cact; do
+        printf 'class\t%s\texpected %s\tactual %s\n' "$cname" "$cexp" "$cact"
+      done
+    else
+      printf 'class\tnone\texpected -\tactual -\n'
+    fi
+    case "${pair%% *}" in
+      [0-9]*)
+        if [ -n "$mismatched" ]; then
+          printf 'agree\tno -- these classes disagree: %s\n' "$mismatched"
+        elif [ "${pair%% *}" = "$actual" ]; then
+          printf 'agree\tyes\n'
+        else
+          printf 'agree\tno -- the archive holds %s of the %s files this run owed it, with every class matching, so the totals disagree for a reason no class names\n' "$actual" "${pair%% *}"
+        fi
+        ;;
+      *) printf 'agree\tnot-evaluable -- no expected count was produced, so this is not a comparison\n' ;;
+    esac
+  } > "$OUT/expected-files.txt"
+  echo "expected-files.txt: expected=${pair%% *} actual=$actual basis=${pair#* } mismatched=${mismatched:-none}" >&2
+}
+
 # A signal must also END the script, and these traps did not.
 #
 # `trap cleanup INT` runs cleanup and then RESUMES where the signal arrived. During the ten-minute wait for
@@ -490,6 +1303,7 @@ CLEANED=0
 cleanup() {
   [ "$CLEANED" = "1" ] && return 0
   CLEANED=1
+  record_expected_files
   [ -n "$PF_PID" ] && kill "$PF_PID" 2>/dev/null
   k delete namespace "$NS_A" "$NS_B" --wait=false >/dev/null 2>&1
   k delete gpuquotapolicy m5c-premium m5c-standard >/dev/null 2>&1
@@ -745,6 +1559,14 @@ plugin_diagnosis() {
   k get ds "$ds" -n "$PLUGIN_NS" -o wide 2>&1 | sed 's/^/  /' | tee -a "$LOG" >&2
   k get pods -n "$PLUGIN_NS" -o wide 2>&1 | sed 's/^/  /' | tee -a "$LOG" >&2
   k logs -n "$PLUGIN_NS" "ds/$ds" --tail=40 2>&1 | sed 's/^/  /' | tee -a "$LOG" >&2
+  # The PREVIOUS container's log, because the pod this diagnosis runs against is usually in CrashLoopBackOff.
+  #
+  # Measured on the eighth pilot's archive: the plugin was 0/1 with 6 restarts, and the log captured here was
+  # the CURRENT attempt -- which had not yet reached the failure. The line that actually named the cause
+  # ("using MPS requires --mps-root to be specified") lived in a terminated container nothing read. The engine
+  # diagnosis below already does this; the plugin diagnosis did not, and the plugin is the one that crashes.
+  k logs -n "$PLUGIN_NS" "ds/$ds" --tail=40 --previous 2>/dev/null \
+    | sed 's/^/  [previous] /' | tee -a "$LOG" >&2
   k get events -n "$PLUGIN_NS" --sort-by=.lastTimestamp 2>&1 | tail -20 | sed 's/^/  /' | tee -a "$LOG" >&2
   k get nodes -l 'platform.lkhun9311.github.io/gpu-sharing=true' \
     -o jsonpath='{range .items[*]}  node {.metadata.name} allocatable nvidia.com/gpu={.status.allocatable.nvidia\.com/gpu} capacity={.status.capacity.nvidia\.com/gpu}{"\n"}{end}' 2>&1 \
@@ -840,6 +1662,8 @@ else
   command -v go >/dev/null || fail "no Go toolchain and GATEWAY_BIN is unset. On a rented GPU instance there is no compiler: build the binaries on the machine that has one and pass GATEWAY_BIN and BENCHHARNESS_BIN."
   CGO_ENABLED=0 GOOS=linux go build -o "$WORK/gateway" ./cmd/gateway || fail "build gateway"
 fi
+# The gateway by content, for the manifests: the image built below gets a new ID on every build of this binary.
+GW_BINARY_SHA=$(sha256sum "$WORK/gateway" | cut -c1-64) || fail "hash the gateway binary"
 if [ -n "${BENCHHARNESS_BIN:-}" ]; then
   [ -x "$BENCHHARNESS_BIN" ] || fail "BENCHHARNESS_BIN=$BENCHHARNESS_BIN is not an executable file"
   cp "$BENCHHARNESS_BIN" "$WORK/benchharness" || fail "could not take the shipped benchharness binary"
@@ -848,8 +1672,16 @@ else
   go build -o "$WORK/benchharness" ./cmd/benchharness || fail "build benchharness"
 fi
 resolve_arrivals
-printf 'FROM gcr.io/distroless/static:nonroot\nCOPY gateway /gateway\nUSER 65532:65532\nENTRYPOINT ["/gateway"]\n' > "$WORK/Dockerfile"
-# The image ID is CAPTURED, because it is the only thing that can name the gateway build in the record.
+# Before the first billable action, which is the docker build below.
+#
+# The binaries are ready on the line above and nothing has been created yet, so a mismatched load costs
+# nothing to refuse here. Placing it after the image build would make the refusal true and late.
+# The seeds are resolved first so the frozen-load refusal stays the line immediately ahead of the build.
+resolve_seeds
+refuse_unfrozen_load
+printf 'FROM %s\nCOPY gateway /gateway\nUSER 65532:65532\nENTRYPOINT ["/gateway"]\n' "$GW_BASE" > "$WORK/Dockerfile"
+# The image ID is CAPTURED, because it is the only thing that names this one build in the record.
+# It does not name the gateway across builds -- that is the binary hash above and the pinned base.
 #
 # `docker build -q` prints sha256:<64 hex> -- the digest of the image's own config, which covers its layers
 # and therefore the base it was built on as well as the binary copied into it. It went to /dev/null, and the
@@ -1078,6 +1910,142 @@ arm_invalid() {
   say "  recorded in $OUT/invalid-$arm.txt; the session fails on it rather than reporting it as an outcome"
 }
 
+# The same quantity at three stages, in one file, so "declared = applied = in effect" is machine-readable.
+#
+# WHY THIS EXISTS
+#
+# Two of the three stages were already recoverable and that was easy to miss. The DECLARED values are in
+# config/vllm/deployment.yaml (0.90, 64) and config/vllm-shared/engine-{a,b}.yaml (0.475, 32). The values
+# the engine ACTUALLY RAN WITH are in log.txt, because the launcher ships the whole instance log: vLLM
+# prints `non-default args: {... 'gpu_memory_utilization': 0.9, 'max_num_seqs': 64}` at startup. I was about
+# to record that the process stage was missing, on the strength of this function using `echo` rather than
+# `say` -- wrong, and the archive says so.
+#
+# What was genuinely absent is the middle stage and the comparison. Nothing read the POD's own args: the
+# jsonpath queries in this file ask for hostIPC and nodeName and nothing else. So a Deployment whose args
+# were mutated by an admission webhook, or a Pod left from an earlier arm, matched the YAML on paper and
+# ran something else. And with the three values in a YAML, a Pod and a log, checking them against each
+# other was a human reading three places.
+#
+# ONE FILE PER RUN, not per cell, and that is deliberate: the output accounting expects exactly four files
+# per completed cell, pinned in two places in this script and ten assertions in its gate. A fifth per-cell
+# file would move all of them. This appends rows instead, and is counted as a conditional output -- present
+# on runs that deploy an engine, absent under PLAN_ONLY and on an arm refused before rollout.
+#
+# EMPTY IS NEVER A VALUE. A pod that is not there, a query that failed and a log with no matching line are
+# three different facts and each gets its own word.
+# cell_environment_record writes the environment facts no later reader can recover, once per cell boundary.
+#
+# WHY PER CELL AND NOT ONCE BEFORE THE FIRST ONE
+#
+# hack/m5c-gpu-session.sh already runs `nvidia-smi --query-gpu=index,name,memory.total,driver_version` before
+# any cell and uploads it as preflight-nvidia-smi.csv. That answers "what card did this instance have"; it
+# cannot answer "what was resident on the card while THIS cell ran", which is the question a reader asks when
+# one cell's tail differs from its neighbour's. The MPS block below already makes the same argument for
+# --query-compute-apps: collected at preflight it "would have returned an empty table before any engine
+# existed and satisfied the bar with a file, which is worse than not asking".
+#
+# THREE OUTCOMES, THREE WORDS. nvidia-smi missing, nvidia-smi failing, and nvidia-smi returning an empty
+# table are different facts, and one empty field for all three would make a card whose driver could not be
+# read indistinguishable from one nobody asked about. An empty PROCESS table in particular is a measurement
+# rather than a failure -- at a cell boundary nothing should hold the card yet -- so it gets its own word.
+#
+# Every value is flattened to one line before it is written. A multi-GPU host returns one row per card, and a
+# newline inside a field would move the columns of a TSV whose column count is asserted by
+# hack/test/check-cell-timing-record.sh.
+cell_environment_record() {
+  local label="$1" stage="$2" out
+  [ -s "$OUT/cell-environment.tsv" ] \
+    || printf 'cell\tarm\tstage\tfact\tvalue\n' > "$OUT/cell-environment.tsv"
+
+  if ! command -v nvidia-smi >/dev/null 2>&1; then
+    printf '%s\t%s\t%s\tgpu\tno-nvidia-smi-on-this-host\n' "$cell_n" "$label" "$stage" \
+      >> "$OUT/cell-environment.tsv"
+    printf '%s\t%s\t%s\tprocesses\tno-nvidia-smi-on-this-host\n' "$cell_n" "$label" "$stage" \
+      >> "$OUT/cell-environment.tsv"
+    return 0
+  fi
+
+  # Driver and UUID come from ONE query. Two calls could straddle a driver reload and record a pair that
+  # never co-existed, which is the same class of defect as reading a figure from two runs.
+  if out=$(nvidia-smi --query-gpu=index,uuid,driver_version --format=csv,noheader 2>&1); then
+    out=$(printf '%s' "$out" | tr '\n\t' '; ')
+    printf '%s\t%s\t%s\tgpu\t%s\n' "$cell_n" "$label" "$stage" \
+      "${out:-query-gpu-returned-no-rows}" >> "$OUT/cell-environment.tsv"
+  else
+    printf '%s\t%s\t%s\tgpu\tquery-gpu-failed: %s\n' "$cell_n" "$label" "$stage" \
+      "$(printf '%s' "$out" | tr '\n\t' '; ' | cut -c1-120)" >> "$OUT/cell-environment.tsv"
+  fi
+
+  if out=$(nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv,noheader 2>&1); then
+    out=$(printf '%s' "$out" | tr '\n\t' '; ')
+    printf '%s\t%s\t%s\tprocesses\t%s\n' "$cell_n" "$label" "$stage" \
+      "${out:-no-resident-compute-process}" >> "$OUT/cell-environment.tsv"
+  else
+    printf '%s\t%s\t%s\tprocesses\tquery-compute-apps-failed: %s\n' "$cell_n" "$label" "$stage" \
+      "$(printf '%s' "$out" | tr '\n\t' '; ' | cut -c1-120)" >> "$OUT/cell-environment.tsv"
+  fi
+}
+
+# ENGINE_PROCESS_ARGS holds the last process-stage value recorded, so a caller can judge the line it wrote.
+ENGINE_PROCESS_ARGS=""
+engine_applied_record() {
+  # source names the manifest in the record; it differs from manifest only when the file read is a rendered
+  # copy in $WORK, whose temporary path would tell a later reader nothing.
+  local ns="$1" deploy="$2" manifest="$3" label="$4" source="${5:-$3}" args declared process
+  [ -s "$OUT/applied-values.tsv" ] \
+    || printf 'cell\tarm\tdeploy\tstage\tsource\tvalue\n' > "$OUT/applied-values.tsv"
+
+  # Stage 1: what the manifest asks for. Only `- --flag=value` lines, because the same numbers appear in
+  # this repository's comments explaining them -- engine-a.yaml mentions 0.475 four times and declares it
+  # once, and grepping the file would have recorded the explanation as a second declaration.
+  #
+  # The instrument-validation study also records bare flags, because the arguments its arms vary are bare
+  # (--no-async-scheduling) and the `=` pattern would leave them out of the very row meant to show them.
+  # Every other study keeps the pattern it always had, so their rows read exactly as before.
+  if iv_is_study "${STUDY:-}"; then
+    declared=$(grep -E '^[[:space:]]*- --' "$manifest" 2>/dev/null \
+      | grep -oE -- '--[a-z-]+(=[0-9A-Za-z./-]*)?' | tr '\n' ' ')
+  else
+    declared=$(grep -E '^[[:space:]]*- --' "$manifest" 2>/dev/null \
+      | grep -o -- '--[a-z-]*=[0-9A-Za-z./-]*' | tr '\n' ' ')
+  fi
+  printf '%s\t%s\t%s\tdeclared\t%s\t%s\n' \
+    "$cell_n" "$label" "$deploy" "$source" "${declared:-no-flag-lines-in-manifest}" \
+    >> "$OUT/applied-values.tsv"
+
+  # Stage 2: what the cluster actually holds, read off the DEPLOYMENT and not off a Pod.
+  #
+  # The first version of this selected a Pod by `app.kubernetes.io/name=$deploy`, which is wrong twice over,
+  # and the live cluster said so: that label is `gpu-platform-control-plane` on every object here, and
+  # `component` is `vllm-shared` for engine-a AND engine-b, so no label distinguishes the two engines whose
+  # args this is meant to compare. The only thing that does is the Deployment name.
+  #
+  # So the applied template is the middle stage. It is the object the API server stored after any admission
+  # webhook had its turn, which is exactly the difference from stage 1, and it needs no guess about which
+  # Pod belongs to which Deployment. engine_diagnosis above already reads deployments and `deploy/<name>`
+  # logs the same way.
+  args=$(k get deploy -n "$ns" "$deploy" \
+    -o jsonpath='{.spec.template.spec.containers[0].args}' 2>/dev/null) || args=""
+  printf '%s\t%s\t%s\tapplied\tdeploy/%s\t%s\n' \
+    "$cell_n" "$label" "$deploy" "$deploy" "${args:-no-deployment-or-query-failed}" \
+    >> "$OUT/applied-values.tsv"
+
+  # Stage 3: what the engine says it is running with, from its own startup line.
+  #
+  # The whole log for the instrument-validation study, because its -log arms print a line per iteration and
+  # warm-up alone could push the startup line out of the last 400 -- which would refuse a correctly
+  # configured cell as though the engine had not said what it ran.
+  local tail_flag=(--tail=400)
+  if iv_is_study "${STUDY:-}"; then tail_flag=(); fi
+  process=$(k logs -n "$ns" "deploy/$deploy" "${tail_flag[@]}" 2>/dev/null \
+    | grep -o "non-default args: {.*}" | tail -1)
+  ENGINE_PROCESS_ARGS="${process:-no-non-default-args-line}"
+  printf '%s\t%s\t%s\tprocess\t%s\t%s\n' \
+    "$cell_n" "$label" "$deploy" "deploy/$deploy" "$ENGINE_PROCESS_ARGS" \
+    >> "$OUT/applied-values.tsv"
+}
+
 engine_kv_report() {
   local ns="$1" deploy="$2"
   echo "--- $ns/$deploy: what the engine says it allocated ---"
@@ -1140,7 +2108,13 @@ deploy_arm() {
   # The paid run of 2026-09-11 did not reach this: its engine b timed out first, one step earlier in this
   # same function. hack/test/rehearse-m5c-matrix.sh found it on a kind cluster for nothing.
   k delete gpuquotapolicy m5c-premium m5c-standard --ignore-not-found --wait=true >/dev/null 2>&1
-  k create ns "$NS_A" >/dev/null; k create ns "$NS_B" >/dev/null
+  # Every cell needs a fresh engine. A deletion that failed left the previous one running, and `create` then
+  # answered AlreadyExists, which this ignored, so the next cell inherited the last engine (v26 review, C26).
+  local _ns
+  for _ns in "$NS_A" "$NS_B"; do
+    ! k get namespace "$_ns" >/dev/null 2>&1 || fail "namespace $_ns survived its deletion, so this cell would inherit the previous cell's engine"
+    k create ns "$_ns" >/dev/null || fail "namespace $_ns could not be created for this cell"
+  done
   case "$arm" in
     R1|shared)
       # One engine with the whole card. Both policies point at the same namespace, so both tenants resolve
@@ -1160,11 +2134,49 @@ deploy_arm() {
       # config/nvidia-device-plugin-whole-card existed nothing advertised one on this node -- so the arm
       # either timed out Pending or inherited the previous arm's split card.
       apply_device_plugin shared "$label"
-      k apply -f config/vllm/deployment.yaml -n "$NS_A" >/dev/null || fail "apply the exclusive engine"
+      # The manifest this cell applies, which is the checked-in file for every study but one.
+      #
+      # The instrument-validation study's arms append engine arguments, and this is where they are applied:
+      # deploy_arm deletes both namespaces at its top, so every cell starts a new engine from this manifest.
+      # The copy lives in $WORK because it is a derivation; applied-values.tsv names the source and the arm.
+      local engine_manifest=config/vllm/deployment.yaml engine_source=config/vllm/deployment.yaml why
+      if iv_is_study "${STUDY:-}" && [ -z "${LADDER:-}" ]; then
+        engine_manifest="$WORK/engine-$label.yaml"
+        why=$(iv_render_manifest "$STUDY" "$label" config/vllm/deployment.yaml "$engine_manifest" "$MODEL_REVISION") \
+          || fail "could not render the engine manifest for $label: $why"
+        engine_source="config/vllm/deployment.yaml+$label"
+      elif pp_is_study "${STUDY:-}" && [ -z "${LADDER:-}" ]; then
+        # Every pilot arm runs the same engine: priority policy, budget 512, the pilot's step logger and the
+        # weights on a host path, so the restart between arms reuses them.
+        engine_manifest="$WORK/engine-$label.yaml"
+        why=$(pp_render_manifest config/vllm/deployment.yaml "$engine_manifest" "$MODEL_REVISION" "$(pp_arm_prefill_cap "$label")") \
+          || fail "could not render the pilot engine for $label: $why"
+        engine_source="config/vllm/deployment.yaml+pilot"
+        k create configmap "$PP_CONFIGMAP" -n "$NS_A" --from-file="pilot_step_logger.py=$PP_PLUGIN" \
+          --dry-run=client -o yaml | k apply -f - >/dev/null || fail "create the pilot step logger's ConfigMap for $label"
+      fi
+      # A -step engine imports the instrument from a ConfigMap of the checked-in file, created beside it.
+      case "$label" in
+        *-step)
+          k create configmap "$IV_STEP_CONFIGMAP" -n "$NS_A" --from-file="step_logging_scheduler.py=$IV_STEP_PLUGIN" \
+            --dry-run=client -o yaml | k apply -f - >/dev/null || fail "create the instrument's ConfigMap for $label" ;;
+      esac
+      k apply -f "$engine_manifest" -n "$NS_A" >/dev/null || fail "apply the exclusive engine"
       k apply -f config/vllm/service.yaml -n "$NS_A" >/dev/null || fail "apply the exclusive service"
       k rollout status deploy/vllm-qwen25-3b -n "$NS_A" --timeout=900s >/dev/null \
         || { engine_diagnosis "$NS_A" vllm-qwen25-3b; fail "the exclusive engine never became ready -- the diagnosis above says what it was doing"; }
       engine_kv_report "$NS_A" vllm-qwen25-3b
+      engine_applied_record "$NS_A" vllm-qwen25-3b "$engine_manifest" "$label" "$engine_source"
+      # Before any request: an engine that is not the arm's configuration would measure another arm.
+      if iv_is_study "${STUDY:-}" && [ -z "${LADDER:-}" ]; then
+        # $rep is run_cell's local, which bash's dynamic scope makes visible here.
+        why=$(iv_process_args_refusal "$STUDY" "$label" "$ENGINE_PROCESS_ARGS" "$MODEL_REVISION") \
+          || cell_refused_stop "$label" "${rep:-unknown}" before-replay "REFUSED $label before replay: $why"
+      elif pp_is_study "${STUDY:-}" && [ -z "${LADDER:-}" ]; then
+        # An engine that is not the registered apparatus stops the pilot: its measurements would be of another one.
+        why=$(pp_process_args_refusal "$ENGINE_PROCESS_ARGS" "$(pp_arm_prefill_cap "$label")") \
+          || cell_refused_stop "$label" "${rep:-unknown}" before-replay "REFUSED $label before replay: $why"
+      fi
       routing_record "$NS_A" vllm-qwen25-3b
       PREMIUM_NS="$NS_A"; STANDARD_NS="$NS_A"
       ;;
@@ -1220,6 +2232,8 @@ deploy_arm() {
       fi
       engine_kv_report "$NS_A" vllm-shared-a
       engine_kv_report "$NS_B" vllm-shared-b
+      engine_applied_record "$NS_A" vllm-shared-a config/vllm-shared/engine-a.yaml "$label"
+      engine_applied_record "$NS_B" vllm-shared-b config/vllm-shared/engine-b.yaml "$label"
       routing_record "$NS_A" vllm-shared-a
       routing_record "$NS_B" vllm-shared-b
       PREMIUM_NS="$NS_A"; STANDARD_NS="$NS_B"
@@ -1261,6 +2275,16 @@ EOF
 
   # Admission OFF in both arms. The matrix varies the TOPOLOGY; leaving the guard on would vary two things
   # and hand the difference to whichever one the reader already believed.
+  #
+  # The prospective-admission pilot is the exception: its arms ARE the admission modes, on one topology, and every
+  # one of them binds priority, enforces the benchmark profile and writes the per-request record to a volume
+  # capture reads before the namespace is deleted.
+  local gw_args='["-admission-mode=off"]' gw_mounts="" gw_volumes=""
+  if pp_is_study "${STUDY:-}" && [ -z "${LADDER:-}" ]; then
+    gw_args=$(pp_gateway_args_yaml "$label" "${PILOT_STATIC_RATE:-}" 2>&1) || fail "gateway arguments for $label: $gw_args"
+    gw_mounts="volumeMounts: [{name: gwrecord, mountPath: $(dirname "$PP_GATEWAY_RECORD")}]"
+    gw_volumes="volumes: [{name: gwrecord, emptyDir: {}}]"
+  fi
   k apply -f - >/dev/null <<EOF || fail "gateway for $arm"
 apiVersion: apps/v1
 kind: Deployment
@@ -1277,11 +2301,12 @@ spec:
       containers:
         - name: gateway
           image: $GW_IMAGE
-          args: ["-admission-mode=off"]
+          args: $gw_args
           env:
             - {name: GATEWAY_NAMESPACE, value: $NS_A}
             - {name: GATEWAY_API_KEY_SECRET, value: gateway-api-keys}
           ports: [{containerPort: 8080, name: http}]
+          $gw_mounts
           # A READINESS PROBE, because without one "rollout status" means only that the container started.
           #
           # Quoted with "" and not with backticks, which is not a style note: this heredoc is unquoted so
@@ -1306,6 +2331,7 @@ spec:
             httpGet: {path: /readyz, port: http}
             periodSeconds: 2
             failureThreshold: 60
+      $gw_volumes
 EOF
   k rollout status deploy/gateway -n "$NS_A" --timeout=180s >/dev/null || fail "gateway never became ready for $arm"
 }
@@ -1316,17 +2342,7 @@ EOF
 # This line used to recompute DURATION_MS as 500/(RATE/2), which silently overwrote whatever was passed --
 # so a caller that had derived a trace length on the card would have had it replaced by an arithmetic that
 # assumes an even tenant split.
-if [ -n "$LADDER" ]; then
-  # RATE and NOISY_WEIGHT do not exist in ladder mode -- they are per rung, and the refusals above make sure
-  # nobody passed one. Under `set -u` naming them here is not a cosmetic difference: the first ladder
-  # rehearsal died on this line with "RATE: unbound variable", after building the cluster and both images.
-  say "load: a ladder of $(printf '%s\n' $LADDER | wc -l | tr -d ' ') rungs, ${DURATION_MS}ms per cell, weights premium=$PREMIUM_WEIGHT probe=$PROBE_WEIGHT"
-  say "      rungs: $LADDER (read under study $STUDY's registered arrival model)"
-  say "run:  the two contended topologies at every rung, counterbalanced, plus one isolated baseline cell, on $PLATFORM, output $OUT"
-else
-  say "load: rate ${RATE}/s, ${DURATION_MS}ms per arm, weights premium=$PREMIUM_WEIGHT noisy=$NOISY_WEIGHT probe=$PROBE_WEIGHT"
-  say "run:  ${REPS} repetitions of [$ARMS] on $PLATFORM, output $OUT"
-fi
+load_banner
 
 # Measured, like the M6 wrapper's: after the first cell, the elapsed time IS the budget, and it knows the
 # node's real speed and how long the rollouts actually took rather than how long they were allowed to take.
@@ -1338,8 +2354,534 @@ fi
 # The plan the projection divides by is built much further up, before the card is touched; the comment that
 # described it used to sit here, orphaned above these counters, describing a block that had moved.
 cell_secs=0; cells_done=0; cell_n=0
+
+# Every cell's own elapsed time, and every boundary judgement, written where a reader can find them.
+#
+# WHY: the fifteen-cell run's per-cell duration is NOWHERE in its archive. The 11.61 min/cell figure this
+# repository published was BACK-COMPUTED from raw request timestamps, because `cell_secs` is a running total
+# used for the projection and nothing wrote the parts. So "did the stop/continue judgement use a sane
+# number" could not be answered after the fact at all -- which is the ninth of the nine questions the next
+# run has to answer about itself.
+#
+# TWO call sites, and both are required. A refused cell consumes card time and increments both counters
+# (`:1691` records what went wrong when it did not), so a timing file written only on the completed path
+# would disagree with the projection that drove the stop decision -- and the disagreement would look like a
+# measurement error rather than a missing row.
+#
+# Append, with a header written once. The file has to survive the run being cut mid-cell, so it is flushed
+# per cell rather than assembled at the end: a matrix that stops on a boundary is the case this record is
+# most needed for.
+# FAIL-SAFE, deliberately. A recorder that can damage a paid cell is worse than no recorder.
+#
+# `date -u -d "@$t0"` is loud rather than silent on bad input: it prints `date: invalid date '@'` and exits
+# 1. This script runs under `set -uo pipefail` and NOT `set -e` -- measured, line 33 -- so that failure
+# would not abort the run today. What it WOULD do is put an empty string in the middle of a tab-separated
+# row, shifting every column after it, and a timing file whose columns move is worse than one that is
+# missing: the first is read, the second is noticed.
+#
+# So each conversion falls back to the raw epoch. The `|| true` at the call sites is for the same reason one
+# step out, and it costs nothing if `set -e` is ever added above.
+cell_timing_record() {
+  local label="$1" rep="$2" outcome="$3" t0="$4" t1="$5" s0 s1 el
+  s0=$(date -u -d "@${t0:-0}" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || printf 'epoch:%s' "${t0:-?}")
+  s1=$(date -u -d "@${t1:-0}" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || printf 'epoch:%s' "${t1:-?}")
+  # The SUBTRACTION needs the same guard the dates got, and the first version did not have it.
+  #
+  # `$(( t1 - t0 ))` on a non-numeric t0 is an arithmetic error, and bash returns non-zero from the whole
+  # function at that point -- so the row was never printed at all. The synthetic harness found it: the
+  # column count came back EMPTY rather than wrong, because there was no second line to count. A recorder
+  # whose failure mode is "no row" is the one shape this file was written to stop, and I had guarded the
+  # dates and left the arithmetic open.
+  if [ -n "${t0//[0-9]/}" ] || [ -n "${t1//[0-9]/}" ] || [ -z "$t0" ] || [ -z "$t1" ]; then
+    el='?'
+  else
+    el=$(( t1 - t0 ))
+  fi
+  [ -s "$OUT/cell-timings.tsv" ] || printf 'cell\tarm\trep\toutcome\tstart_utc\tend_utc\telapsed_s\tcum_s\tcells_done\n' > "$OUT/cell-timings.tsv"
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    "$cell_n" "$label" "$rep" "$outcome" "$s0" "$s1" "$el" "$cell_secs" "$cells_done" \
+    >> "$OUT/cell-timings.tsv"
+}
+
+# The judgement itself, not just its inputs, and on EVERY boundary including the ones that continued.
+#
+# An external review of the projection asked for exactly this: record the judgement at the boundaries that
+# continued too. Recording only the stops makes the continues invisible, and afterwards "the projection was
+# wrong" and "the projection was never consulted" read identically.
+#
+# WRITTEN BY A WRAPPER, not by each branch. cell_deadline_check has SEVEN exits -- two refusals and five
+# returns, several of them early bail-outs when the deadline cannot be read -- and a record placed in each
+# is a record that the eighth branch will silently not have. The wrapper runs the real check, keeps its
+# status, and writes one row whatever path it took. Same shape as the declared-load gate attached on both of
+# its caller's exits, and for the same reason.
+#
+# JUDGE_* are set by the inner function where the values are computed. They are globals rather than returns
+# because the shell has one return value and it is already carrying the decision.
+JUDGE_REMAIN=""; JUDGE_BASIS=""; JUDGE_PROJECTED=""; JUDGE_WARM_N=""; JUDGE_WARM_PER=""
+cell_judgement_record() {
+  local decision="$1"
+  [ -s "$OUT/cell-judgements.tsv" ] || printf 'at_utc\tcell\tcells_done\tcells_total\tremain_min\tbasis\tprojected_min\tdecision\twarm_n\twarm_per\n' > "$OUT/cell-judgements.tsv"
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || printf 'unknown')" \
+    "$cell_n" "$cells_done" "${cells_total:-?}" \
+    "${JUDGE_REMAIN:-unreadable}" "${JUDGE_BASIS:-none}" "${JUDGE_PROJECTED:-none}" "$decision" \
+    "${JUDGE_WARM_N:-unmeasured}" "${JUDGE_WARM_PER:-unmeasured}" \
+    >> "$OUT/cell-judgements.tsv"
+}
+
+# How many files this run OWED its archive, counted from what the cells actually did.
+#
+# WHY A COUNT AT ALL
+#
+# The published digest lists are verified against their own line count: `verify-published-evidence.sh` reads
+# `n_want` out of the SHA256SUMS it was handed. That catches a file that changed or went missing AFTER the
+# list was made, and it cannot catch a file that was never written -- the list was made from the directory,
+# so a run that wrote fourteen files when it owed fifteen produces a fifteen-line... no, a fourteen-line list
+# that verifies perfectly. The expected number has to come from the PLAN and the OUTCOMES, not from the
+# directory being checked.
+#
+# THE ARITHMETIC
+#
+#   completed cells x 4   trace-, raw-, manifest-, port-forward- per cell
+#   + refused arms        refused-<arm>.txt, ONE per arm and not per repetition: arm_refused takes $arm
+#                         alone, so five refused repetitions of one arm overwrite one file
+#   + invalid arms        invalid-<arm>.txt, same shape. An invalid arm still ships its archive: arm_invalid
+#                         writes the file and returns 1, and what fails the session is the LAUNCHER reading
+#                         that file after the evidence is home (hack/m5c-gpu-session.sh:1454)
+#   + the fixed files     ENUMERATED below with their conditions, not added as a constant
+#
+# ⚠️ THE CONSTANT WAS WRONG, AND THE FOUR ARCHIVES DID NOT CATCH IT
+#
+# This started as `+ 2` for evidence.log and README.txt, "checked against four real archives":
+#
+#   m5c-20260912-084918   3x4 + 1 + 0 + 2 = 15   archive holds 15
+#   m5c-20260913-011031   6x4 + 0 + 0 + 2 = 26   archive holds 26
+#   m5c-20261001-023515  10x4 + 0 + 0 + 2 = 42   archive holds 42
+#   m5c-20261002-014903  15x4 + 0 + 0 + 2 = 62   archive holds 62
+#
+# Four for four, and it was not evidence that the formula was right. Those archives predate three files
+# this script now always writes -- load-source.txt (line 501, unconditional) and the two cell-*.tsv
+# recorders added 2026-10-03 -- and all three are absent from every one of them. So the agreement measured
+# what those runs happened to contain, and the NEXT run would have reported `agree=no` on a complete
+# archive. An external review found it; the synthetic gate, which pinned the same four numbers, could not.
+#
+# The fixed files are therefore enumerated with the condition each one appears under:
+#
+#   evidence.log         always: LOG is $OUT/evidence.log and it is truncated right after mkdir
+#   load-source.txt      always: written at line 501, before any cell
+#   expected-files.txt   always: this comparison's own output, which is in the archive it counts
+#   cell-timings.tsv     once any cell has reported an outcome
+#   cell-judgements.tsv  once any deadline boundary has been judged
+#   README.txt           only on a run that reached the end
+#
+# (The tarballs list one more entry each: the `m5c-run/` directory itself.)
+#
+# WHAT IT REFUSES TO COUNT
+#
+# The ladder. Its cell structure is different -- `cells_total` is the rungs plus one isolated baseline, and
+# it writes ladder-verdict-rung<N>.txt per rung besides -- so the matrix arithmetic above is not its
+# arithmetic. A number produced by the wrong formula is worse here than no number, so the ladder gets
+# `ladder-not-expressed` and whoever buys a ladder run reads that instead of a figure that looks checked.
+#
+# Prints "<expected> <basis>". The basis words are deliberately not numbers, for the same reason the warm
+# estimate's are: an aggregation that could not run must not be readable as a count.
+expected_outputs() {
+  local completed refused invalid orphan fixed cond metrics
+  if [ -n "${LADDER:-}" ]; then
+    printf 'ladder-not-expressed ladder-cells-are-not-matrix-cells'
+    return 0
+  fi
+  if [ ! -s "$OUT/cell-timings.tsv" ]; then
+    printf 'no-file no-timings-file'
+    return 0
+  fi
+  completed=$(awk -F'\t' '$4 == "completed" {c++} END {print c+0}' "$OUT/cell-timings.tsv") || {
+    printf 'unreadable aggregation-failed'
+    return 0
+  }
+  # Refused arms come from the TIMING ROWS, not from the files, so a row with no file is a disagreement.
+  #
+  # Counting `refused-*.txt` made the expectation and the actual count move together: an arm that was
+  # refused and whose file was never written lowered both sides by one and agreed. The rows are per cell and
+  # the file is per arm, so the unique arm is what matches the file -- `sort -u` on the label column.
+  #
+  # The label column IS the arm here because the matrix builds every cell as `arm|arm|rep|...`. Under the
+  # ladder the label is `rung03-shared` and this equality breaks, which is one more reason the ladder is
+  # refused above rather than approximated.
+  # Refusal and invalidity are NOT exclusive, and the arm is the wrong unit to exclude by.
+  #
+  # mps_clients_connected calls arm_invalid and returns 1 from inside deploy_arm; the caller's
+  # `if ! deploy_arm` then writes a `refused` timing row. So a refused row can belong to an invalid arm, and
+  # the first attempt at this excluded the whole arm whenever invalid-<arm>.txt existed. CELLS is built
+  # repetition-major (`for rep; for arm`), so one arm is deployed again on every repetition and can be
+  # refused on one and invalid on another -- leaving BOTH files. Excluding the arm then under-expected by
+  # one, and an external review showed the worse half: with cell-judgements.tsv also missing, the
+  # under-expectation and the shortfall cancelled into `agree=yes`. Two gaps hid each other.
+  #
+  # So each file is counted as itself, and the timing rows add only what no file accounts for.
+  refused=$(find "$OUT" -maxdepth 1 -name 'refused-*.txt' 2>/dev/null | wc -l)
+  invalid=$(find "$OUT" -maxdepth 1 -name 'invalid-*.txt' 2>/dev/null | wc -l)
+  # An arm with a refused row and NEITHER file: the one case the files cannot show, because what is missing
+  # is the file itself. Expecting it is what makes "the refusal was never written down" a shortfall rather
+  # than a quiet agreement between two counts that moved together.
+  orphan=$(awk -F'\t' 'NR > 1 && $4 == "refused" {print $2}' "$OUT/cell-timings.tsv" | sort -u | while read -r a; do
+    [ -f "$OUT/refused-$a.txt" ] || [ -f "$OUT/invalid-$a.txt" ] || echo "$a"
+  done | wc -l)
+  # The fixed files, each counted only under the condition it appears under.
+  # `-f`, not `-s`: an empty file is in the archive and `find -type f` counts it.
+  #
+  # This was `-s` and the gate caught it. A README.txt or cell-judgements.tsv that exists and is empty was
+  # then missing from the expectation and present in the actual count, so a complete archive reported a
+  # permanent one-file shortfall -- the two sides were asking different questions about the same file.
+  # cell-judgements.tsv is expected UNCONDITIONALLY once any cell exists, and that matters.
+  #
+  # cell_deadline_check is the first line of run_cell (1956) and its wrapper writes a row on every one of
+  # the inner check's seven exits (1828). So a timings file with any row means a judgements file too, and
+  # testing for the file would make the expectation fall with the actual count -- the same defect as
+  # counting the refusal files, which is what an external review found here.
+  fixed=4 # evidence.log, load-source.txt, expected-files.txt, cell-judgements.tsv
+  fixed=$(( fixed + 1 )) # cell-timings.tsv, which the -s test above already proved is there
+  # README.txt only on a run that reached the end, and `-f` is right for it: its absence is a FACT about the
+  # run, not a missing file. A stopped run owes no README.txt and must still be able to agree.
+  [ -f "$OUT/README.txt" ] && fixed=$(( fixed + 1 ))
+  # The conditional outputs belong in the total too, and leaving them out made a normal MPS run disagree.
+  #
+  # mps-compute-apps-<ns>.{csv,err}, mps-pod-lookup.err and ladder-verdict-rung<N>.txt are written only on
+  # paths a given run may not take, so whatever is there is expected. They were counted in the per-class
+  # rows and NOT here, which meant one mps-pod-lookup.err on an otherwise complete archive produced
+  # `expected=9 actual=10` with every class matching -- a disagreement no class could explain.
+  # engine-log-<cell>.txt is written only under the instrument-validation study, and a completed cell of that
+  # study without one cannot exist: capture_engine_log refuses the run when the log cannot be saved.
+  # step-log-<cell>.jsonl and step-plugin-<cell>.sha256 are written only by a -step cell, which capture_step_log
+  # refuses rather than lets complete without them.
+  # The warm-up's four files are written only under sessions 2 and 3 and the same holds: run_warmup ends the run
+  # rather than let a cell go on without them.
+  # The prospective-admission pilot's capture files (hack/lib/prospective-pilot.sh) are written only under that
+  # study, and a cell it could not capture says so in ineligible-<cell>.txt rather than by a missing file.
+  cond=$(find "$OUT" -maxdepth 1 \( -name 'mps-compute-apps-*.csv' -o -name 'mps-compute-apps-*.err' \
+    -o -name 'mps-pod-lookup.err' -o -name 'ladder-verdict-rung*.txt' \
+    -o -name 'applied-values.tsv' -o -name 'cell-environment.tsv' -o -name 'engine-log-*.txt' \
+    -o -name 'raw-warmup-*.jsonl' -o -name 'warmup-boundary-*.txt' -o -name 'warmup-trace-*.jsonl' \
+    -o -name 'warmup-manifest-*.yaml' -o -name 'step-log-*.jsonl' -o -name 'step-plugin-*.sha256' \
+    -o -name 'fence-*.json' -o -name 'fence-forward-*.log' -o -name 'gateway-record-*.jsonl' -o -name 'raw-*.jsonl.sender.json' \
+    -o -name 'ineligible-*.txt' -o -name 'phases.tsv' -o -name 'cell-uploads.tsv' -o -name 'calibration.txt' \
+    -o -name 'calibration-forward.log' -o -name 'live-raw-*.jsonl' -o -name 'live-gateway-record-*.jsonl' \
+    -o -name 'sidecar-uploads.tsv' -o -name 'engine-samples-*.tsv' \) 2>/dev/null | wc -l)
+  # The engine-metrics files are in the total as whatever is there, like the conditional outputs above.
+  #
+  # How many a cell owes depends on its topology -- one engine or two -- which this count cannot see, so
+  # whether every completed cell has them is the per-class row's job, not this sum's.
+  metrics=$(find "$OUT" -maxdepth 1 \( -name 'engine-metrics-*.prom' -o -name 'engine-metrics-*.err' \) 2>/dev/null | wc -l)
+  # A cell cell_refused_stop ended the run on owes, from its row, its cell-refused file and what it left on disk.
+  #
+  # Expected from the rows rather than the files, so a refusal whose file was never written is a shortfall.
+  # Its metrics files are in the count above with every other cell's.
+  # Named in the basis only when there is one, so a run without such a refusal reads exactly as it did.
+  local cellref cellref_basis=""
+  cellref=$(cell_refusal_rows | awk -F'\t' '
+    { n++ } $1 == "refused-at-warmup" { n += 1 } $1 == "refused-after-replay" { n += 4 } END { print n + 0 }')
+  [ "$cellref" = 0 ] || cellref_basis="+cell-refusals-$cellref"
+  printf '%s completed-%sx4+refused-%s+invalid-%s+unwritten-%s+conditional-%s+metrics-%s%s+fixed-%s' \
+    $(( completed * 4 + refused + invalid + orphan + cond + metrics + cellref + fixed )) \
+    "$completed" "$refused" "$invalid" "$orphan" "$cond" "$metrics" "$cellref_basis" "$fixed"
+}
+
+# One "<outcome>\t<label>-<rep>" line per cell that cell_refused_stop recorded, each cell once.
+cell_refusal_rows() {
+  awk -F'\t' 'NR > 1 && $4 ~ /^refused-(before-replay|at-warmup|after-replay)$/ && !seen[$2 "-" $3]++ {
+    print $4 "\t" $2 "-" $3 }' "$OUT/cell-timings.tsv"
+}
+
+# The same accounting, PER CLASS, because one total has one degree of freedom.
+#
+# WHY THIS EXISTS BESIDE THE TOTAL
+#
+# The total was corrected three times and an external review found a different cancelling pair each time:
+# an arm excluded from the refusal expectation beside a missing judgements file; a refusal file never
+# written beside an invalid file that silenced the expectation; an unwritten refusal beside the
+# port-forward log of a cell that died before replay. None of those are arithmetic slips. Comparing two
+# scalars cannot distinguish "no errors" from "two errors of opposite sign", so any fix to one combination
+# leaves the structure that produced it.
+#
+# Per class, the same two gaps land in two different rows and neither can pay for the other. The total
+# stays, because the file's existing readers parse it and because a reader wants one line first.
+#
+# Prints one "<class> <expected> <actual>" per line. Classes:
+#
+#   cell-outputs    four per completed cell: trace-, raw-, manifest-, port-forward-
+#   engine-metrics  two phases per completed cell, before and after the replay, each holding at least one
+#                   engine-metrics-<cell>-<phase>[-a|-b].{prom,err}; strays go to stray-cell-outputs
+#   refusal-files   one per arm with a refused ROW -- the row is the claim, the file is the evidence, and
+#                   counting files here is what let a never-written refusal agree with itself
+#   invalid-files   counted from the files: an invalid arm's row is indistinguishable from a refused one,
+#                   so a missing invalid-<arm>.txt is NOT detectable. Stated, not hidden.
+#   fixed-files     the unconditional ones, plus README.txt only on a run that reached the end
+#   conditional     mps-compute-apps-<ns>.{csv,err}, mps-pod-lookup.err, ladder-verdict-rung<N>.txt --
+#                   written only on paths this run may not have taken, so whatever is there is expected
+#   unattributed    anything matching no known name. Expected ZERO always: a file nobody can account for is
+#                   its own finding, never change for another class's shortfall.
+expected_outputs_by_class() {
+  local completed refused invalid cell_expected cell_actual stray fixed_expected fixed_actual cond unattr f base cellname
+  local metrics_expected metrics_actual metrics_owned metrics_all phase
+  local outcome owed phases cref_expected cref_actual cref_all
+  if [ -n "${LADDER:-}" ]; then
+    printf 'all-classes not-expressed ladder-cells-are-not-matrix-cells\n'
+    return 0
+  fi
+  if [ ! -s "$OUT/cell-timings.tsv" ]; then
+    printf 'all-classes no-file no-timings-file\n'
+    return 0
+  fi
+  completed=$(awk -F'\t' '$4 == "completed" {c++} END {print c+0}' "$OUT/cell-timings.tsv") || {
+    printf 'all-classes unreadable aggregation-failed\n'
+    return 0
+  }
+  # The refusal expectation skips arms that are INVALID, exactly as the total does.
+  #
+  # mps_clients_connected calls arm_invalid from inside deploy_arm and returns 1, and the caller writes a
+  # `refused` timing row. Such an arm owes invalid-<arm>.txt and NOT refused-<arm>.txt. The total already
+  # subtracted them; this function did not, so a complete INVALID run was reported as one whose refusal
+  # evidence was missing -- the exclusion existed in one of the two places that needed it.
+  # EXCLUDING BY ARM IS WRONG IN BOTH DIRECTIONS, and I got it wrong once each way.
+  #
+  # Expecting a refusal file for every arm with a refused row reports a complete INVALID run as missing
+  # evidence. Excluding the arm whenever invalid-<arm>.txt exists reports an arm that was refused on one
+  # repetition and invalid on another -- both files rightly present -- as carrying a surplus. The arm is not
+  # the unit; the FILE is. So a file that exists is expected, and a refused row with neither file is the
+  # only thing the files cannot show.
+  refused=$(find "$OUT" -maxdepth 1 -name 'refused-*.txt' 2>/dev/null | wc -l)
+  # Per CELL, not one sum over the directory, because a sum cancels inside its own class.
+  #
+  # `cell-outputs 4 4` was reached by a completed cell missing its raw-*.jsonl beside the port-forward log
+  # of a different cell that died before replay: four owed, four present, two defects. So each completed
+  # cell's four files are counted by NAME, and any cell output that belongs to no completed cell is its own
+  # row (`stray-cell-outputs`) rather than credit against the expectation.
+  cell_expected=0
+  cell_actual=0
+  metrics_expected=0
+  metrics_actual=0
+  metrics_owned=0
+  cref_expected=0
+  cref_actual=0
+  # A cell cell_refused_stop ended the run on owes what its stage left on disk, so its outputs are not strays.
+  #
+  # Session 2's refused staggered cell had no row at all, and its six files read as stray-cell-outputs 0 != 6.
+  # after-replay ran everything a completed cell runs; at-warmup had opened only its port-forward log;
+  # before-replay had written no cell output.
+  while read -r outcome cellname; do
+    [ -n "$cellname" ] || continue
+    owed=()
+    phases=""
+    case "$outcome" in
+      completed | refused-after-replay)
+        owed=("trace-$cellname.jsonl" "raw-$cellname.jsonl" "manifest-$cellname.yaml" "port-forward-$cellname.log")
+        phases="before after" ;;
+      refused-at-warmup) owed=("port-forward-$cellname.log") ;;
+    esac
+    case "$outcome" in
+      refused-*)
+        cref_expected=$(( cref_expected + 1 ))
+        [ -f "$OUT/cell-refused-$cellname.txt" ] && cref_actual=$(( cref_actual + 1 )) ;;
+    esac
+    # `sort -u` above: one cell counted twice owes eight files and holds its four twice over, so a
+    # duplicate row cancelled a set of outputs belonging to no completed cell. A cell is a cell once.
+    cell_expected=$(( cell_expected + ${#owed[@]} ))
+    for base in "${owed[@]}"; do
+      [ -f "$OUT/$base" ] && cell_actual=$(( cell_actual + 1 ))
+    done
+    # Two phases per completed cell, each owing at least one file: a .prom per engine, or an .err saying
+    # why not. Counted per PHASE, because a split topology writes two files per phase and a count of files
+    # would let one engine's surplus pay for another phase's absence.
+    for phase in $phases; do
+      metrics_expected=$(( metrics_expected + 1 ))
+      if compgen -G "$OUT/engine-metrics-$cellname-$phase*.prom" >/dev/null || compgen -G "$OUT/engine-metrics-$cellname-$phase*.err" >/dev/null; then
+        metrics_actual=$(( metrics_actual + 1 ))
+      fi
+      metrics_owned=$(( metrics_owned + $(find "$OUT" -maxdepth 1 \( -name "engine-metrics-$cellname-$phase*.prom" -o -name "engine-metrics-$cellname-$phase*.err" \) 2>/dev/null | wc -l) ))
+    done
+  done <<EOF
+$(awk -F'\t' 'NR > 1 && $4 == "completed" {print "completed " $2 "-" $3}' "$OUT/cell-timings.tsv" | sort -u)
+$(cell_refusal_rows | tr '\t' ' ')
+EOF
+  # raw-warmup-* matches raw-*, and is a warm-up's rows rather than a cell's, so it is the conditional row's.
+  stray=$(( $(find "$OUT" -maxdepth 1 \( -name 'trace-*.jsonl' -o \( -name 'raw-*.jsonl' ! -name 'raw-warmup-*' \) \
+    -o -name 'manifest-*.yaml' -o -name 'port-forward-*.log' \) 2>/dev/null | wc -l) - cell_actual ))
+  # A metrics file whose cell did not complete -- a cell that died after its `before` scrape -- is a stray
+  # like that cell's port-forward log, not credit for a completed cell's missing phase.
+  metrics_all=$(find "$OUT" -maxdepth 1 \( -name 'engine-metrics-*.prom' -o -name 'engine-metrics-*.err' \) 2>/dev/null | wc -l)
+  stray=$(( stray + metrics_all - metrics_owned ))
+  # A cell-refused file with no refusal row is a stray too, rather than credit for a row whose file is missing.
+  cref_all=$(find "$OUT" -maxdepth 1 -name 'cell-refused-*.txt' 2>/dev/null | wc -l)
+  stray=$(( stray + cref_all - cref_actual ))
+  invalid=$(find "$OUT" -maxdepth 1 -name 'invalid-*.txt' 2>/dev/null | wc -l)
+  fixed_expected=5 # evidence.log, load-source.txt, expected-files.txt, cell-timings.tsv, cell-judgements.tsv
+  [ -f "$OUT/README.txt" ] && fixed_expected=$(( fixed_expected + 1 ))
+  fixed_actual=0
+  for base in evidence.log load-source.txt cell-timings.tsv cell-judgements.tsv README.txt; do
+    [ -f "$OUT/$base" ] && fixed_actual=$(( fixed_actual + 1 ))
+  done
+  # expected-files.txt counts as present whether or not it is on disk yet: this runs before it is written,
+  # and by the time anyone reads the archive it is there.
+  fixed_actual=$(( fixed_actual + 1 ))
+  cond=$(find "$OUT" -maxdepth 1 \( -name 'mps-compute-apps-*.csv' -o -name 'mps-compute-apps-*.err' \
+    -o -name 'mps-pod-lookup.err' -o -name 'ladder-verdict-rung*.txt' \
+    -o -name 'applied-values.tsv' -o -name 'cell-environment.tsv' -o -name 'engine-log-*.txt' \
+    -o -name 'raw-warmup-*.jsonl' -o -name 'warmup-boundary-*.txt' -o -name 'warmup-trace-*.jsonl' \
+    -o -name 'warmup-manifest-*.yaml' -o -name 'step-log-*.jsonl' -o -name 'step-plugin-*.sha256' \
+    -o -name 'fence-*.json' -o -name 'fence-forward-*.log' -o -name 'gateway-record-*.jsonl' -o -name 'raw-*.jsonl.sender.json' \
+    -o -name 'ineligible-*.txt' -o -name 'phases.tsv' -o -name 'cell-uploads.tsv' -o -name 'calibration.txt' \
+    -o -name 'calibration-forward.log' -o -name 'live-raw-*.jsonl' -o -name 'live-gateway-record-*.jsonl' \
+    -o -name 'sidecar-uploads.tsv' -o -name 'engine-samples-*.tsv' \) 2>/dev/null | wc -l)
+  unattr=0
+  for f in "$OUT"/*; do
+    [ -f "$f" ] || continue
+    base=${f##*/}
+    case "$base" in
+      raw-warmup-*.jsonl | warmup-boundary-*.txt | warmup-trace-*.jsonl | warmup-manifest-*.yaml) ;;
+      trace-*.jsonl | raw-*.jsonl | manifest-*.yaml | port-forward-*.log) ;;
+      engine-metrics-*.prom | engine-metrics-*.err) ;;
+      refused-*.txt | invalid-*.txt | cell-refused-*.txt) ;;
+      evidence.log | load-source.txt | cell-timings.tsv | cell-judgements.tsv | expected-files.txt | README.txt) ;;
+      mps-compute-apps-*.csv | mps-compute-apps-*.err | mps-pod-lookup.err | ladder-verdict-rung*.txt) ;;
+      applied-values.tsv | cell-environment.tsv | engine-log-*.txt) ;;
+      step-log-*.jsonl | step-plugin-*.sha256) ;;
+      fence-*.json | fence-forward-*.log | gateway-record-*.jsonl | raw-*.jsonl.sender.json | ineligible-*.txt) ;;
+      phases.tsv | cell-uploads.tsv | calibration.txt | calibration-forward.log) ;;
+      live-raw-*.jsonl | live-gateway-record-*.jsonl | sidecar-uploads.tsv | engine-samples-*.tsv) ;;
+      *) unattr=$(( unattr + 1 )) ;;
+    esac
+  done
+  printf 'cell-outputs %s %s\n' "$cell_expected" "$cell_actual"
+  # A cell output belonging to no completed cell: the leftovers of a cell that died mid-way. Expected zero,
+  # like unattributed, so it is reported rather than spent on another class's shortfall.
+  printf 'stray-cell-outputs 0 %s\n' "$stray"
+  printf 'engine-metrics %s %s\n' "$metrics_expected" "$metrics_actual"
+  printf 'refusal-files %s %s\n' "$refused" "$refused"
+  printf 'invalid-files %s %s\n' "$invalid" "$invalid"
+  # The one thing the two rows above cannot show, because what is missing is the file itself: an arm whose
+  # refused row has neither a refusal nor an invalid file. Expected zero; anything here is a refusal nobody
+  # wrote down.
+  printf 'unwritten-refusals 0 %s\n' "$(awk -F'\t' 'NR > 1 && $4 == "refused" {print $2}' "$OUT/cell-timings.tsv" | sort -u | while read -r a; do
+    [ -f "$OUT/refused-$a.txt" ] || [ -f "$OUT/invalid-$a.txt" ] || echo "$a"
+  done | wc -l)"
+  # One per cell cell_refused_stop recorded, printed only when there is one so other runs read as before.
+  if [ "$cref_expected" != 0 ] || [ "$cref_all" != 0 ]; then
+    printf 'cell-refusal-files %s %s\n' "$cref_expected" "$cref_actual"
+  fi
+  printf 'fixed-files %s %s\n' "$fixed_expected" "$fixed_actual"
+  # An admission study's completed cell owes its step log, gateway record and sender record; counted from the cells
+  # that completed, not from the files that survived, so a lost record shows as a shortfall (v26 review, C25).
+  if [ -z "${LADDER:-}" ] && pp_is_study "${STUDY:-}"; then
+    pr_expected=0 pr_actual=0
+    while IFS=$'\t' read -r _ c_arm c_rep c_outcome _; do
+      [ "$c_outcome" = completed ] || continue
+      for f in "step-log-$c_arm-$c_rep.jsonl" "gateway-record-$c_arm-$c_rep.jsonl" "raw-$c_arm-$c_rep.jsonl.sender.json"; do
+        pr_expected=$(( pr_expected + 1 ))
+        [ -s "$OUT/$f" ] && pr_actual=$(( pr_actual + 1 ))
+      done
+    done < <(tail -n +2 "$OUT/cell-timings.tsv" 2>/dev/null)
+    printf 'pilot-records %s %s\n' "$pr_expected" "$pr_actual"
+  fi
+  printf 'conditional %s %s\n' "$cond" "$cond"
+  printf 'unattributed 0 %s\n' "$unattr"
+}
+
+# The parallel warm-cell estimate, in a function of its own so a test can run THIS code.
+#
+# It was eleven lines inside cell_deadline_check_inner, and the gate that claimed to cover it had copied the
+# case statement into itself: changing `none-completed` to anything at all, or putting the refused cell back
+# into the average, left that gate green on the real script. An instruction-free external review found it.
+# The repair is the move this file already made for the two recorders -- one function at column zero, which
+# the gate extracts and drives for real.
+#
+# Prints "<n> <per>", space-separated because neither field ever contains a space.
+#
+# The failure words are deliberately not numbers. An aggregation that could not run is a different fact from
+# a run that found no completed cell, and `[ -s ]` cannot tell them apart: a file with size and no read
+# permission passes `-s`, fails awk, and the previous `|| echo 0` printed `none-completed` for a file
+# holding two completed cells. "Did not run" must not be readable as a measurement of zero.
+warm_cell_estimate() {
+  local warm_n
+  if [ ! -s "$OUT/cell-timings.tsv" ]; then
+    printf 'no-file no-timings-file'
+    return 0
+  fi
+  warm_n=$(awk -F'\t' '$4 == "completed" {c++} END {print c+0}' "$OUT/cell-timings.tsv") || {
+    printf 'unreadable aggregation-failed'
+    return 0
+  }
+  # Zero and one are reported as themselves rather than smoothed into a number.
+  #
+  # A mean over no cells is not a long estimate, it is no estimate, and a mean over one is a single
+  # observation wearing an average's name. Printing "none" and naming the single value keeps a reader from
+  # reading either as a rate.
+  case "$warm_n" in
+    0) printf '0 none-completed' ;;
+    1) printf '1 single-observation-%ss' "$(awk -F'\t' '$4 == "completed" {print $7; exit}' "$OUT/cell-timings.tsv")" ;;
+    *) printf '%s %ss' "$warm_n" "$(awk -F'\t' '$4 == "completed" {s += $7; c++} END {if (c > 0) printf "%d", (s + c - 1) / c}' "$OUT/cell-timings.tsv")" ;;
+  esac
+}
+
+# The two projections for cells of different lengths, as functions so a harness can drive them.
+#
+# iv_cold_projection_min prints the whole run in minutes before any cell: 8 min beyond each cell's replay
+# floor, plus a fifth.
+# The 8 is the measured cold cell (16 min) less the replay floor of the 420 s trace it was measured on.
+# Both charge a cell cell_charge_ms, which is its trace length and, for a study that warms up, its warm-up.
+iv_cold_projection_min() {
+  local c lbl ms sum=0
+  for c in "${CELLS[@]}"; do
+    lbl=$(printf '%s' "$c" | cut -d'|' -f2)
+    ms=$(cell_charge_ms "$lbl" "$(printf '%s' "$c" | cut -d'|' -f3)") || return 1
+    sum=$(( sum + 8 + (ms + 59999) / 60000 + 1 ))
+  done
+  echo $(( sum * 12 / 10 ))
+}
+# iv_remaining_projection prints "<projected min> <mean remaining cell s> <mean overhead s>" mid-run.
+#
+# The overhead is the time the done cells took beyond their replays; CELLS[cells_done..] are the cells left,
+# because the matrix runs CELLS in order and counts every cell it starts, refused or not.
+# Overhead is floored at zero so a run whose replays somehow outran the clock cannot charge negative time.
+iv_remaining_projection() {
+  local i lbl ms done_ms=0 left_s=0 left_n=0 over
+  [ "$cells_done" -gt 0 ] || return 1
+  for (( i = 0; i < cells_done && i < ${#CELLS[@]}; i++ )); do
+    lbl=$(printf '%s' "${CELLS[$i]}" | cut -d'|' -f2)
+    ms=$(cell_charge_ms "$lbl" "$(printf '%s' "${CELLS[$i]}" | cut -d'|' -f3)") || return 1
+    done_ms=$(( done_ms + ms ))
+  done
+  over=$(( (cell_secs - done_ms / 1000 + cells_done - 1) / cells_done ))
+  [ "$over" -ge 0 ] || over=0
+  for (( i = cells_done; i < ${#CELLS[@]}; i++ )); do
+    lbl=$(printf '%s' "${CELLS[$i]}" | cut -d'|' -f2)
+    ms=$(cell_charge_ms "$lbl" "$(printf '%s' "${CELLS[$i]}" | cut -d'|' -f3)") || return 1
+    left_s=$(( left_s + over + ms / 1000 ))
+    left_n=$(( left_n + 1 ))
+  done
+  [ "$left_n" -gt 0 ] || { echo "0 0 $over"; return 0; }
+  echo "$(( (left_s * 12 / 10 + 59) / 60 )) $(( left_s / left_n )) $over"
+}
+
 cell_deadline_check() {
-  local remain per projected floor
+  JUDGE_REMAIN=""; JUDGE_BASIS=""; JUDGE_PROJECTED=""; JUDGE_WARM_N=""; JUDGE_WARM_PER=""
+  local rc=0
+  cell_deadline_check_inner || rc=$?
+  cell_judgement_record "$([ "$rc" = 0 ] && echo continue || echo stop)" || true
+  return "$rc"
+}
+
+cell_deadline_check_inner() {
+  local remain per projected floor warm_pair
+  # The pilot has no projection stop and no forecast floor (design page, build item 10; pilot review 11, finding
+  # 4). Its projection would include the cold first cell and multiply by 1.2, which refuses every pilot session
+  # after its first cell, and no minimum cell time is established. Its cell count is the registration's, its
+  # deadlines are sized from that count, and the hard stop and the sweeper bound its time; a cell cut short is
+  # an ineligible cell, which the report says.
+  if [ -z "${LADDER:-}" ] && pp_is_study "${STUDY:-}"; then
+    JUDGE_BASIS="pilot: no projection stop"
+    JUDGE_REMAIN=$(deadline_remaining_minutes 2>/dev/null || true)
+    return 0
+  fi
   # BEFORE the first cell there is no measured rate to project from -- but there is still a deadline, and
   # "no projection" is not "enough time".
   #
@@ -1349,12 +2891,56 @@ cell_deadline_check() {
   if [ "$cells_done" -eq 0 ]; then
     remain=$(deadline_remaining_minutes 2>/dev/null) || return 0
     [ -n "$remain" ] || return 0
-    floor=$(( (DURATION_MS + 59999) / 60000 + 1 ))
+    # The FIRST cell's own length, which is DURATION_MS for every study whose cells share one.
+    # Its warm-up too, for a study that has one, since the replay floor is then two replays.
+    first_ms=$(cell_charge_ms "$(printf '%s' "${CELLS[0]:-}" | cut -d'|' -f2)" "$(printf '%s' "${CELLS[0]:-}" | cut -d'|' -f3)") || first_ms="${DURATION_MS:-0}"
+    floor=$(( (first_ms + 59999) / 60000 + 1 ))
+    # And the WHOLE matrix, projected by the same conservative rule the mid-run check uses.
+    #
+    # The floor above refuses a deadline that cannot fit one cell's replay. It says nothing about the other
+    # nine, so a run with time for exactly one cell started, bought it, and stopped on the boundary -- which
+    # is what happened on 2026-10-01 morning for $0.25. The stop was correct and the SURPRISE was the
+    # defect: the same arithmetic was available before anything was rolled out.
+    #
+    # The per-cell figure is the measured cold first cell, not the steady one, and that is deliberate. Cell
+    # 1 downloads the model weights: 15.58 min against the steady 11.34 over nine cells on 2026-10-01. An
+    # external review put the choice plainly -- the projection should err toward OVER-estimating, because
+    # this is the judgement that stops spending, and a replay lower bound is "it cannot finish sooner"
+    # rather than "it will finish by then". So one cold cell is charged for every cell. On a ten-cell run
+    # that asks for about 65% more than the steady rate would, and the alternative is discovering the
+    # shortfall after the card is rented.
+    #
+    # It WARNS and does not refuse. The deadline is a cap on spending rather than a promise of completion,
+    # and a matrix that completes six of ten cells has bought six comparable cells. Refusing here would
+    # turn a conservative estimate into a veto over runs that would have finished.
+    cold_cell_min=16
+    whole=$(( cells_total * cold_cell_min * 12 / 10 ))
+    JUDGE_REMAIN="$remain"; JUDGE_BASIS="cold-${cold_cell_min}min-per-cell"; JUDGE_PROJECTED="$whole"
+    # Cells of different lengths, charged each at its own length.
+    #
+    # The 16 min was measured on cells whose replay floor is 8 min (420 s), so 8 is what a cell costs beyond
+    # its replay, and a cell of another length is charged that plus its own floor.
+    # At 420 s this is exactly the 16 above; a stagger cell at 630 s is charged 20 and a serial one 12.
+    if [ -z "${LADDER:-}" ] && iv_is_study "${STUDY:-}"; then
+      whole=$(iv_cold_projection_min) || whole=$(( cells_total * cold_cell_min * 12 / 10 ))
+      JUDGE_BASIS="cold-overhead-8min-plus-each-cells-replay"; JUDGE_PROJECTED="$whole"
+    fi
+    if [ "$remain" -lt "$whole" ]; then
+      echo >&2
+      echo "NOTE before the first cell: ${cells_total} cells at a cold-start ${cold_cell_min} min each plus a fifth" >&2
+      echo "  of headroom is about ${whole} min, and the deadline fires in ${remain} min. This run is likely to stop" >&2
+      echo "  on a boundary before finishing the matrix. That is not a failure -- completed cells are kept and" >&2
+      echo "  uploaded -- but if a COMPLETE matrix is what this run is for, raise the deadline now rather than" >&2
+      echo "  after the card is paid for. The 16 min is the measured FIRST cell (weights download); steady" >&2
+      echo "  cells measured 11.34, so this is deliberately pessimistic." >&2
+      echo >&2
+    fi
     if [ "$remain" -lt "$floor" ]; then
       echo >&2
       echo "STOPPING before the first cell: the deadline fires in ${remain} min and one cell's replay alone" >&2
-      echo "  is ${floor} min. Nothing has been rolled out, so nothing is half-bought. Re-arm with a longer" >&2
-      echo "  TTL_MINUTES." >&2
+      echo "  is ${floor} min. Nothing has been rolled out, so nothing is half-bought. Give the run a longer" >&2
+      echo "  deadline: TTL_MINUTES on EKS, or HARD_STOP_SECONDS (and BACKSTOP_SECONDS above it) on a rented" >&2
+      echo "  instance -- hack/m5c-gpu-session.sh has no TTL_MINUTES at all." >&2
       return 1
     fi
     return 0
@@ -1362,15 +2948,72 @@ cell_deadline_check() {
   remain=$(deadline_remaining_minutes 2>/dev/null) || return 0
   [ -n "$remain" ] || return 0
   per=$(( (cell_secs + cells_done - 1) / cells_done ))
-  # A fifth of headroom, because cells differ by arm -- the sharing arms roll out two engines and the
-  # exclusive arm rolls out one -- and a projection that only just fits is one slow cell from being cut.
+  # A SECOND estimate, recorded beside the judgement and never used to make it.
+  #
+  # `per` above is the mean over every cell that consumed time, refusals included. That is correct for
+  # "how much card time has this bought", and it is the wrong sample for "how long does a cell take": a
+  # refused mps arm spent ten minutes waiting for a device count before declining, which is most of a cell
+  # and none of a measurement.
+  #
+  # An external review named three sample boundaries `cells_done` cannot express -- zero valid warm cells,
+  # exactly one, and zero cells for a particular arm -- and the same review was explicit that changing the
+  # STOPPING rule is a policy choice about acceptable loss that today's data does not get to make. The
+  # 2026-10-02 decision was to leave the rule alone and record a parallel figure instead, so that is what
+  # this is: written to cell-judgements.tsv, read by nobody at run time, and comparable afterwards against
+  # what actually happened.
+  #
+  # It is computed from cell-timings.tsv rather than a new counter, because that file already separates
+  # `completed` from `refused` -- the recorder added earlier today is what makes this possible at all.
+  # Both fields come from one call, so the printed sample size is the one the average was taken over.
+  # Splitting them across two aggregations is how a count and a mean drift apart.
+  warm_pair=$(warm_cell_estimate)
+  JUDGE_WARM_N=${warm_pair%% *}
+  JUDGE_WARM_PER=${warm_pair#* }
+  # A fifth of headroom, because cells differ by arm, and a projection that only just fits is one slow
+  # cell from being cut.
+  #
+  # This comment used to say "the sharing arms roll out two engines and the exclusive arm rolls out one",
+  # which puts `shared` on the wrong side: deploy_arm groups R1|shared together and the device plugin asks
+  # want=1 for both of them (see the arm cases above), while timeSlicing and mps are the want=2 arms. The
+  # wrong half of that sentence was then quoted into a deadline argument and used to predict a 22.9-minute
+  # shared cell; ten measured cells put it at 11.31, against R1's 11.19. The arms DO differ -- the plateau
+  # intervals do not overlap -- by 7.2 seconds, and what causes those seconds was never measured. The real
+  # spread is the FIRST cell of a run, which downloads the model weights: 15.58 minutes against 11.34.
+  #
+  # `per` is the average over completed cells, so after cell 1 it IS the cold cell and the projection runs
+  # about 37% high. That is left as it is, on purpose, and an external review confirmed the direction:
+  # removing the over-estimate trades it for an UNDER-estimate, and this judgement stops spending. Excluding
+  # cell 1 would also need evidence that the cold start is always cell 1 -- two runs is not that evidence --
+  # and would have to separate download and setup time from replay time, which nothing measures yet.
   projected=$(( ((cells_total - cells_done) * per * 12 / 10 + 59) / 60 ))
+  JUDGE_REMAIN="$remain"; JUDGE_BASIS="mean-of-${cells_done}-completed-cells-${per}s"; JUDGE_PROJECTED="$projected"
+  # A mean cell is the wrong unit when the cells left are longer than the cells done.
+  #
+  # The instrument-validation study's stagger cells replay 630 s against a serial cell's 180, so a mean taken
+  # over a block that happened to start serial would under-project every stagger cell still to come.
+  # What is averaged instead is the time a cell spent beyond its own replay, and each remaining cell is
+  # charged that plus its own length, with the same fifth of headroom.
+  if [ -z "${LADDER:-}" ] && iv_is_study "${STUDY:-}"; then
+    local iv_triple iv_over
+    if iv_triple=$(iv_remaining_projection); then
+      read -r projected per iv_over <<<"$iv_triple"
+      JUDGE_BASIS="overhead-mean-of-${cells_done}-cells-${iv_over}s-plus-each-cells-replay"; JUDGE_PROJECTED="$projected"
+    fi
+  fi
   if [ "$projected" -ge "$remain" ]; then
     echo >&2
     echo "STOPPING: $(( cells_total - cells_done )) cells left at ~$(( per / 60 )) min each needs about ${projected} min," >&2
     echo "  and the deadline fires in ${remain} min. Being cut mid-cell would waste that cell's rollouts and" >&2
     echo "  leave a matrix missing one of the topologies it exists to compare, so it stops on a boundary." >&2
-    echo "  ${cells_done} of ${cells_total} cells are complete. Re-arm with a longer TTL_MINUTES to continue." >&2
+    # The knob depends on who armed the deadline, and naming only one of them sent an operator to a
+    # variable their path does not read.
+    #
+    # Measured 2026-10-01: a spot-instance run stopped here after cell 1 of 10 and said "Re-arm with a
+    # longer TTL_MINUTES". hack/m5c-gpu-session.sh contains that name ZERO times -- it derives
+    # DEADLINE_EPOCH from HARD_STOP_SECONDS -- so following the advice would have changed nothing and
+    # bought the same first cell again.
+    echo "  ${cells_done} of ${cells_total} cells are complete. To continue, give the run a longer deadline:" >&2
+    echo "  TTL_MINUTES on EKS, or HARD_STOP_SECONDS (with BACKSTOP_SECONDS above it) on a rented instance." >&2
     return 1
   fi
   return 0
@@ -1383,6 +3026,307 @@ cell_deadline_check() {
 # It is a function rather than the inside of a loop because the ladder calls it from two places -- the rungs
 # it climbs, and the single isolated-baseline cell it buys at whichever rung it stopped on. A second copy of
 # this body for the second caller is the failure this repository has paid for more than once.
+# Reads each engine's /metrics for one cell phase, so the cell's TTFT can be split into waiting and prefill.
+#
+# The 2026-10-04 model-first registration found that a mechanism model explains between a fifth and two
+# thirds of the shared tail the fifteen-cell run measured, and the archive cannot say where the rest went:
+# every timestamp in it is the client's. The engine's own counters, read before and after the replay, are
+# the one level deeper that run never recorded.
+#
+# It never fails the cell. A paid cell lost to secondary evidence is the worse outcome, so a scrape that
+# cannot complete writes an .err naming why instead -- never nothing, because a phase with no file would
+# read later as "this run did not measure it" rather than "it tried and the engine did not answer".
+#
+# The forward is started on kubectl itself, not on `k`, for the reason the gateway's forward in run_cell
+# gives: `&` on a function backgrounds a subshell, and killing that pid leaves kubectl holding the port.
+#
+# Usage: scrape_engine_metrics <topology> <label> <rep> <before|after>
+scrape_engine_metrics() {
+  local topology="$1" label="$2" rep="$3" phase="$4" targets t ns deploy suffix base pf tries port i reason bound
+  tries="${METRICS_SCRAPE_TRIES:-15}"
+  port="${METRICS_PORT:-18081}"
+  case "$topology" in
+    R1 | shared) targets="$NS_A|vllm-qwen25-3b|" ;;
+    timeSlicing | mps) targets="$NS_A|vllm-shared-a|-a $NS_B|vllm-shared-b|-b" ;;
+    *)
+      printf 'no engine is known for topology %s, so nothing was scraped\n' "$topology" \
+        > "$OUT/engine-metrics-$label-$rep-$phase.err"
+      return 0 ;;
+  esac
+  for t in $targets; do
+    IFS='|' read -r ns deploy suffix <<<"$t"
+    base="$OUT/engine-metrics-$label-$rep-$phase$suffix"
+    # The forward's log goes to $WORK and not into $OUT: its content belongs in the .err when the scrape
+    # fails, and a third file per phase would be one more output for the accounting to explain.
+    pf="$WORK/engine-metrics-pf.log"
+    # A page read from a port this forward does not own would be another engine's counters filed under this
+    # cell's name, so ownership is proved twice: the port is free before the forward starts, and kubectl has
+    # said it bound the port before anything is read. A live kubectl pid alone proves neither -- an external
+    # review showed the first curl can succeed against a leftover forward while the new kubectl is still
+    # resolving its target and has not tried to bind yet.
+    if (exec 3<>"/dev/tcp/127.0.0.1/$port") 2>/dev/null; then
+      printf '%s was already held before this forward started, so a page read from it would belong to whatever held it\n' "$port" > "$base.err"
+      continue
+    fi
+    kubectl --context "$KCTX" port-forward -n "$ns" "deploy/$deploy" "$port:8000" >"$pf" 2>&1 &
+    local pf_pid=$!
+    reason="the engine did not answer /metrics within $tries attempts"
+    bound=0
+    for i in $(seq 1 "$tries"); do
+      if [ "$bound" = 0 ]; then
+        # kubectl prints this line only after its listener is up, so it is the forward's own claim of the port.
+        if grep -q "Forwarding from 127.0.0.1:$port" "$pf" 2>/dev/null; then
+          bound=1
+        elif ! kill -0 "$pf_pid" 2>/dev/null; then
+          reason="the port-forward to deploy/$deploy in $ns exited before it bound $port"
+          break
+        else
+          sleep 1
+          continue
+        fi
+      fi
+      if curl -fsS --max-time 5 -o "$base.prom.part" "http://127.0.0.1:$port/metrics" 2>"$WORK/engine-metrics-curl.err"; then
+        # The forward bound the port, but it can still have died since; then the page came from whatever
+        # took the port after it.
+        if ! kill -0 "$pf_pid" 2>/dev/null; then
+          reason="the port-forward to deploy/$deploy in $ns had exited, so the page on $port was not this engine's"
+        # And whether it was the engine at all, because a forward that landed on the wrong pod still serves
+        # a /metrics page.
+        elif grep -q '^vllm:' "$base.prom.part"; then
+          mv "$base.prom.part" "$base.prom"
+          reason=""
+        else
+          reason="$port answered /metrics with no vllm: series, so it was not the engine"
+        fi
+        break
+      fi
+      if ! kill -0 "$pf_pid" 2>/dev/null; then
+        reason="the port-forward to deploy/$deploy in $ns exited before /metrics answered"
+        break
+      fi
+      sleep 1
+    done
+    [ "$bound" = 1 ] || [ "$reason" != "the engine did not answer /metrics within $tries attempts" ] \
+      || reason="the port-forward to deploy/$deploy in $ns never reported binding $port within $tries attempts"
+    # curl's own last word, because "did not answer" and "answered 404" are different findings: the first
+    # is a network or a process, the second an engine that has no /metrics. The first rehearsal of this
+    # scrape recorded every phase as not answering while the stub was answering 404 each time.
+    if [ "$bound" = 1 ] && [ "$reason" = "the engine did not answer /metrics within $tries attempts" ]; then
+      reason="$reason; curl's last error: $(tail -n 1 "$WORK/engine-metrics-curl.err" 2>/dev/null)"
+    fi
+    rm -f "$WORK/engine-metrics-curl.err"
+    # A forward that already exited makes `kill` fail and the killed one makes `wait` fail; neither may end
+    # the run. See the gateway forward's kill in run_cell.
+    kill "$pf_pid" 2>/dev/null || true
+    wait "$pf_pid" 2>/dev/null || true
+    rm -f "$base.prom.part"
+    if [ -n "$reason" ]; then
+      { echo "$reason"; echo "-- port-forward log:"; tail -n 5 "$pf" 2>/dev/null; } > "$base.err"
+    fi
+    rm -f "$pf"
+  done
+  return 0
+}
+
+# Saves the engine's log for one cell to $OUT/engine-log-<label>-<rep>.txt and judges it against the arm.
+#
+# The log is the cell's lifetime and no more because deploy_arm deletes the engine's namespace at the top of
+# every cell, so the container read here was started by this cell.
+# A restarted container breaks that: `kubectl logs` returns only the newest instance, so a log that looks
+# whole would be missing the part before the restart, and the cell refuses rather than judge a fragment.
+#
+# Prints the refusal and returns 1; prints nothing and returns 0 for a log that agrees with its arm.
+# Only the instrument-validation study calls this, and it runs only the one-engine topology.
+capture_engine_log() {
+  local label="$1" rep="$2" dest restarts err
+  dest="$OUT/engine-log-$label-$rep.txt"
+  err="$WORK/engine-log-$label-$rep.err"
+  if ! restarts=$(k get pods -n "$NS_A" -l app.kubernetes.io/component=vllm \
+    -o jsonpath='{range .items[*]}{.status.containerStatuses[0].restartCount}{" "}{end}' 2>"$err"); then
+    echo "could not read the engine pod's restart count, so whether its log covers the whole cell is unknown: $(tr '\n' ' ' <"$err" | cut -c1-200)"
+    return 1
+  fi
+  # Exactly one pod that never restarted; two pods would be two KV pools and two logs, and this reads one.
+  [ "$restarts" = "0 " ] || {
+    echo "the engine pod's restart counts read ${restarts:-nothing}, not one pod at 0, so its log would not cover the whole cell"
+    return 1
+  }
+  if ! k logs -n "$NS_A" deploy/vllm-qwen25-3b >"$dest" 2>"$err"; then
+    echo "could not read the engine log for $label rep $rep: $(tr '\n' ' ' <"$err" | cut -c1-200)"
+    return 1
+  fi
+  rm -f "$err"
+  # A logged engine's first iteration is 0, because the container was started by this cell.
+  # A later first index means the kubelet rotated the log and `kubectl logs` returned only its newest file: the
+  # S1 confirmation's staggered cells reached 11.4 MiB against the 10 MiB default and were judged only at the
+  # evaluator, after 5.3 hours (docs/superpowers/specs/2026-10-07-confirming-s1-on-unseen-settings.md).
+  # Refusing here stops a session at its first such cell.
+  local first
+  first=$(grep -m1 -oE 'Iteration\([0-9]+\)' "$dest" | tr -dc '0-9')
+  if [ -n "$first" ] && [ "$first" != 0 ]; then
+    echo "the engine log for $label rep $rep starts at iteration $first, not 0: the container's log was rotated, so the cell's earlier iterations are not in it"
+    return 1
+  fi
+  iv_engine_log_refusal "$STUDY" "$label" "$dest"
+}
+
+# Saves a -step cell's instrument log to $OUT/step-log-<label>-<rep>.jsonl and proves the engine ran the checked-in file.
+#
+# The instrument writes on a thread after each drain, so the log is read only once it ends on a flush record
+# that follows the cell's last request; reading earlier would save a log missing its last batch, which
+# check_step_log.py would refuse after the money was spent. The plugin's sha256 inside the pod is compared with
+# the file in this tree, so the instrument the cell measured with is the one the commit names.
+capture_step_log() {
+  local label="$1" rep="$2" dest pod want got last
+  dest="$OUT/step-log-$label-$rep.jsonl"
+  pod=$(k get pods -n "$NS_A" -l app.kubernetes.io/component=vllm -o jsonpath='{.items[0].metadata.name}' 2>/dev/null) \
+    || { echo "could not find the engine pod to read the instrument log from"; return 1; }
+  want=$(sha256sum "$IV_STEP_PLUGIN" | cut -c1-64)
+  got=$(k exec -n "$NS_A" "$pod" -- sha256sum /opt/step-plugin/step_logging_scheduler.py 2>/dev/null | cut -c1-64)
+  [ "$got" = "$want" ] || { echo "the engine loaded an instrument with sha256 ${got:-unreadable}, not this tree's $want"; return 1; }
+  # The cell's LAST measured request, by trace index, must be in the log before its closing flush: any earlier
+  # request followed by a flush is an earlier episode's batch, and accepting it saved a truncated log (found by review).
+  last=$(awk -F'"index":' 'NF > 1 {split($2, a, /[,}]/); if (a[1] + 0 > m) m = a[1] + 0} END {print m + 0}' \
+    "$OUT/trace-$label-$rep.jsonl") || { echo "could not read the last index of trace-$label-$rep.jsonl"; return 1; }
+  for _ in $(seq 1 60); do
+    k exec -n "$NS_A" "$pod" -- cat "$IV_STEP_LOG" > "$dest" 2>/dev/null || true
+    if [ -s "$dest" ] && tail -1 "$dest" | grep -q '"ev":"flush"' \
+       && grep -q "\"id\":\"chatcmpl-$label-$rep-measured-$last-" "$dest"; then
+      printf '%s  %s\n' "$want" "$IV_STEP_PLUGIN" > "$OUT/step-plugin-$label-$rep.sha256"
+      return 0
+    fi
+    sleep 1
+  done
+  echo "the instrument log for $label rep $rep did not end on a flush after the measured requests within 60 s"
+  return 1
+}
+
+# Writes $OUT/warmup-boundary-<label>-<rep>.txt: the last warm-up iteration index, or `none`.
+#
+# Read from the engine log as it stands after the warm-up replay, because the measured replay has not sent
+# anything yet, so every Iteration line in it so far belongs to the warm-up.
+# Only a -log arm prints iteration lines, so only a -log arm reads the log at all.
+# Prints the refusal and returns 1 with no file written; returns 0 once the file holds the boundary.
+warmup_boundary_record() {
+  local label="$1" rep="$2" log="" err boundary
+  case "$label" in
+    *-log | *-step)
+      log="$WORK/warmup-log-$label-$rep.txt"
+      err="$WORK/warmup-log-$label-$rep.err"
+      if ! k logs -n "$NS_A" deploy/vllm-qwen25-3b >"$log" 2>"$err"; then
+        echo "could not read the engine log after $label rep $rep's warm-up: $(tr '\n' ' ' <"$err" | cut -c1-200)"
+        return 1
+      fi ;;
+  esac
+  boundary=$(iv_warmup_boundary "$STUDY" "$label" "$log") || { echo "$boundary"; return 1; }
+  printf '%s\n' "$boundary" > "$OUT/warmup-boundary-$label-$rep.txt" \
+    || { echo "could not write $OUT/warmup-boundary-$label-$rep.txt"; return 1; }
+}
+
+# Warms one cell's fresh engine and proves it warm before the measured replay (section 2 of session 2).
+#
+# The warm-up trace and manifest go to $OUT beside its rows, so what was replayed is in the archive and the
+# rows can be checked against the trace they came from.
+# Its replay takes the measured replay's flags, so the warm-up passes through the same gateway, keys and
+# provenance demand the measured requests will.
+# Every failure here ends the run: the registration stops the session on a W refusal and never repeats a
+# warm-up until it passes, and a cell measured on an engine not proved warm is not a cell it registers.
+run_warmup() {
+  local label="$1" rep="$2" why
+  say "  warm-up for $label rep $rep, excluded from the measurement"
+  warmup_gen_trace "$label" "$rep" "$OUT/warmup-trace-$label-$rep.jsonl" "$OUT/warmup-manifest-$label-$rep.yaml" \
+    --engine-image "$ENGINE_IMAGE" --gateway-image "$GATEWAY_IMAGE_REF" --gateway-sha "$SOURCE_COMMIT" \
+    --gateway-binary-sha256 "$GW_BINARY_SHA" --gateway-base "$GW_BASE" \
+    --tokenizer-rev "$MODEL_REVISION" || fail "gen-trace --warmup $label"
+  local idflag
+  idflag=$(iv_request_id_flag "$STUDY" "$label" "$rep" warmup) || fail "request ids for $label warm-up"
+  "$WORK/benchharness" replay --manifest "$OUT/warmup-manifest-$label-$rep.yaml" \
+    $PROVENANCE_FLAG ${idflag:+"$idflag"} \
+    --target "http://127.0.0.1:18080" \
+    --api-keys "premium-1=premium-key,standard-noisy=standard-key" \
+    --raw-out "$OUT/raw-warmup-$label-$rep.jsonl" || fail "warm-up replay $label"
+  why=$(warmup_boundary_record "$label" "$rep") \
+    || cell_refused_stop "$label" "$rep" at-warmup "REFUSED $label rep $rep at its warm-up boundary: $why"
+  why=$(iv_warmup_refusal "$OUT/raw-warmup-$label-$rep.jsonl") \
+    || cell_refused_stop "$label" "$rep" at-warmup "W REFUSED $label rep $rep: $why"
+  # Gate S on the warm-up's own staggered cycle, before the measured replay is bought.
+  #
+  # Session 2's warm-up violated S too, so a measured replay after it would buy a cell that S then refuses.
+  if [[ "$label" == stagger-* ]]; then
+    why=$(iv_stagger_refusal "$STUDY" "$label" "$OUT" "$rep" warmup) \
+      || cell_refused_stop "$label" "$rep" at-warmup "REFUSED $label rep $rep at its warm-up: gate S: $why"
+  fi
+  say "  warm-up passed W; last warm-up iteration $(cat "$OUT/warmup-boundary-$label-$rep.txt")"
+}
+
+# Records a refused instrument-validation cell as an outcome, then ends the run with $4 as its message.
+#
+# The run stops on every one of these refusals, and session 2's stopped before its refused cell had a timing row,
+# so the accounting read that cell's outputs as strays (stray-cell-outputs 0 != 6) instead of as a refused cell.
+# $3 is where the cell was refused, because what it leaves on disk differs: before-replay leaves no cell output,
+# at-warmup leaves its port-forward log, and after-replay leaves all four and both metrics phases.
+# cell-refused-<label>-<rep>.txt is per cell and not refused-<arm>.txt, because benchharness report reads the
+# latter as a sharing arm's registered refusal, and these end the session rather than stand beside other arms.
+#
+# Session 4 also keeps the engine log of a cell refused at its warm-up and hands the cell to the per-cell upload.
+# Session 3's refused cell had no engine log, and fail reaches only the end-of-run archive, which a stopped instance never writes.
+# A log that could not be kept is named in the message rather than ending the stop early, because the refusal is the finding.
+cell_refused_stop() {
+  local label="$1" rep="$2" stage="$3" msg="$4" upload="${5:-}" t1 kept=0 why
+  if [ "$stage" = at-warmup ] && iv_keeps_warmup_refusal_log "${STUDY:-}"; then
+    kept=1
+    why=$(warmup_refusal_log "$label" "$rep") || msg="$msg [engine log: ${why:-warmup_refusal_log failed without saying why}]"
+  fi
+  printf '%s\n' "$msg" > "$OUT/cell-refused-$label-$rep.txt" \
+    || say "  WARNING: could not write $OUT/cell-refused-$label-$rep.txt"
+  t1=$(date +%s)
+  cell_secs=$(( cell_secs + t1 - ${CELL_T0:-$t1} ))
+  cells_done=$(( cells_done + 1 ))
+  cell_timing_record "$label" "$rep" "refused-$stage" "${CELL_T0:-}" "$t1" || true
+  # After the timing row, so the upload carries the row that names this cell's outcome.
+  # The raw path is the measured one the hook expects; it does not exist yet, and the hook sends only what does.
+  # A fifth argument "upload" asks for the same, for a refusal after the cell's evidence was captured.
+  if { [ "$kept" = 1 ] || [ "$upload" = upload ]; } && [ -n "${CELL_DONE_HOOK:-}" ]; then
+    local hook_t0
+    hook_t0=$(date +%s)
+    OUT="$OUT" timeout "${CELL_DONE_HOOK_TIMEOUT:-120}" "$CELL_DONE_HOOK" "$OUT/raw-$label-$rep.jsonl" "$label" "$rep" \
+      || say "  WARNING: CELL_DONE_HOOK failed or timed out for $label rep $rep's refused cell; its files are still on local disk"
+    # The pilot's upload record, as a completed cell writes it after its hook, so the stopped cell's time is
+    # whole in the final archive (review of bdb92fa).
+    if [ "$upload" = upload ]; then
+      [ -s "$OUT/cell-uploads.tsv" ] || printf 'cell\tarm\trep\thook_start_utc\thook_end_utc\thook_s\n' > "$OUT/cell-uploads.tsv"
+      printf '%s\t%s\t%s\t%s\t%s\t%s\n' "${cell_n:-}" "$label" "$rep" "$(date -u -d "@$hook_t0" +%Y-%m-%dT%H:%M:%SZ)" \
+        "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(( $(date +%s) - hook_t0 ))" >> "$OUT/cell-uploads.tsv"
+    fi
+  fi
+  fail "$msg"
+}
+
+# Saves the engine log of a cell refused at its warm-up to $OUT/engine-log-<label>-<rep>.txt, unjudged.
+#
+# The cell is already refused, so the log is evidence for the refusal rather than a measurement to accept or refuse.
+# A restarted container is named but its log is still kept: `kubectl logs` then returns the newest instance only.
+# Prints why and returns 1 when the log is missing or partial; prints nothing and returns 0 when it was kept whole.
+warmup_refusal_log() {
+  local label="$1" rep="$2" dest err restarts
+  dest="$OUT/engine-log-$label-$rep.txt"
+  err="$WORK/engine-log-$label-$rep.err"
+  if ! k logs -n "$NS_A" deploy/vllm-qwen25-3b >"$dest" 2>"$err"; then
+    rm -f "$dest"
+    echo "could not read the engine log for $label rep $rep: $(tr '\n' ' ' <"$err" | cut -c1-200)"
+    return 1
+  fi
+  if ! restarts=$(k get pods -n "$NS_A" -l app.kubernetes.io/component=vllm \
+    -o jsonpath='{range .items[*]}{.status.containerStatuses[0].restartCount}{" "}{end}' 2>"$err"); then
+    echo "kept $dest, but the engine pod's restart count could not be read, so whether it covers the whole cell is unknown: $(tr '\n' ' ' <"$err" | cut -c1-200)"
+    return 1
+  fi
+  [ "$restarts" = "0 " ] || {
+    echo "kept $dest, but the engine pod's restart counts read ${restarts:-nothing}, not one pod at 0, so it covers the newest container only"
+    return 1; }
+  rm -f "$err"
+}
+
 run_cell() {
   local arm="$1" label="$2" rep="$3" RATE_CELL="$4" NOISY_CELL="$5"
   cell_n=$(( cell_n + 1 ))
@@ -1397,8 +3341,23 @@ run_cell() {
     # that included cells which contributed none of it -- and the projection for the cells still to come
     # came out low. A refusal is not free: the mps arm spent ten minutes waiting for a device count before
     # declining, which is most of a cell.
-    cell_secs=$(( cell_secs + $(date +%s) - CELL_T0 ))
+    CELL_T1=$(date +%s)
+    cell_secs=$(( cell_secs + CELL_T1 - CELL_T0 ))
     cells_done=$(( cells_done + 1 ))
+    # The refused cell goes in the timing record TOO, and that is the half a one-sided recorder would miss.
+    #
+    # It consumed card time and it incremented both counters, so a file written only on the completed path
+    # would disagree with the projection that drove the next stop decision -- and the disagreement would
+    # read as a measurement error rather than a missing row.
+    cell_timing_record "$label" "$rep" refused "$CELL_T0" "$CELL_T1" || true
+    # A REFUSED cell gets its environment recorded too, under its own stage word.
+    #
+    # The first version of this skipped it, on the reasoning that a refused arm never had engines so its
+    # environment says nothing. That reasoning is wrong in the direction that matters: what was resident on
+    # the card when the arm was refused is a candidate EXPLANATION for the refusal -- a previous cell's
+    # process still holding memory is exactly the shape of "the plugin advertised and the kubelet would not
+    # allocate". The stage word differs from the completed path's so the two cannot be read as one.
+    cell_environment_record "$label" refused
     # `return`, not `continue`: this is a function body and the loop is at the call site.
     #
     # bash prints "continue: only meaningful in a for, while, or until loop" and then CARRIES ON with the
@@ -1407,6 +3366,12 @@ run_cell() {
     # minimally before changing this: the line after `continue` ran, and so did the rest of the function.
     return 0
   fi
+  # The card's state for THIS cell, recorded once the engines are up and before any request goes through.
+  #
+  # Here and not inside deploy_arm, because deploy_arm places one engine on the exclusive branch and two on
+  # the split branch: a call in there would leave one row per ENGINE and the per-cell row count would differ
+  # by arm. run_cell calls deploy_arm exactly once per cell, so this is the only place that is per cell.
+  cell_environment_record "$label" engines-ready
   # The tunnel every request of this cell goes through, replaced between cells and then PROVED.
   #
   # This was `kill $PF_PID` followed immediately by a new port-forward and `sleep 3`. kill does not wait,
@@ -1432,8 +3397,11 @@ run_cell() {
   # had passed on earlier runs because the old forward usually dies on its own when its target pod is
   # replaced -- usually, which is the word that makes it a race rather than a bug that shows up.
   if [ -n "$PF_PID" ]; then
-    kill "$PF_PID" 2>/dev/null
-    wait "$PF_PID" 2>/dev/null
+    # `wait` returns the killed forward's own status, which is never 0 here, and `kill` fails on a forward
+    # that already exited. `|| true` on both so that an errexit switched on anywhere above -- as
+    # refuse_unfrozen_load once did -- cannot end the run on these lines.
+    kill "$PF_PID" 2>/dev/null || true
+    wait "$PF_PID" 2>/dev/null || true
   fi
   # Then PROVE the port is free, rather than assuming the kill above was enough.
   #
@@ -1492,9 +3460,19 @@ run_cell() {
   # in the tenant's target namespace. The routing records this script writes serve Qwen2.5-3B, so every
   # request of every arm would have come back ErrNoRoute -- after both engines had loaded.
   set_load_flags "$RATE_CELL" "$NOISY_CELL"
-  "$WORK/benchharness" gen-trace --seed 11 --duration-ms "$DURATION_MS" "${LOAD_FLAGS[@]}" \
+  cell_duration=$(cell_duration_ms "$label") || fail "$cell_duration"
+  # The warm-up, after deploy_arm proved the engine is the arm's and before anything measured is sent.
+  # Before the `before` metrics scrape as well, so the engine's counters around the replay cover only it.
+  if [ -z "${LADDER:-}" ] && iv_has_warmup "${STUDY:-}"; then
+    run_warmup "$label" "$rep"
+  fi
+  "$WORK/benchharness" gen-trace --seed "$(seed_for_rep "$rep")" --duration-ms "$cell_duration" "${LOAD_FLAGS[@]}" \
     --study "$STUDY" --arm "$label" --model "$MODEL" --gateway-url "http://127.0.0.1:18080" \
     --engine-image "$ENGINE_IMAGE" --gateway-image "$GATEWAY_IMAGE_REF" --gateway-sha "$SOURCE_COMMIT" \
+    --gateway-binary-sha256 "$GW_BINARY_SHA" --gateway-base "$GW_BASE" \
+    --tokenizer-rev "$MODEL_REVISION" \
+    $(cell_prompt_flags "$label") \
+    --timeout-ms "$REQUEST_TIMEOUT_MS" \
     --trace-out "$OUT/trace-$label-$rep.jsonl" --manifest-out "$OUT/manifest-$label-$rep.yaml" || fail "gen-trace $label"
   # --require-provenance, now that there is provenance to require.
   #
@@ -1506,13 +3484,72 @@ run_cell() {
   # tree whose engine cannot be digest-pinned, and demanding provenance from it would be demanding that the
   # rehearsal fail. The waiver cannot reach a paid run -- hack/m5c-gpu-session.sh refuses to pass it -- so
   # the demand is on wherever it matters.
+  scrape_engine_metrics "$arm" "$label" "$rep" before
+  local idflag=""
+  if [ -z "${LADDER:-}" ] && iv_is_study "${STUDY:-}"; then
+    idflag=$(iv_request_id_flag "$STUDY" "$label" "$rep" measured) || fail "request ids for $label"
+  elif [ -z "${LADDER:-}" ] && pp_is_study "${STUDY:-}"; then
+    idflag=$(pp_request_id_flag "$PILOT_STAGE" "$label" "$rep") || fail "request ids for $label"
+    pp_phase "$label" "$rep" replay-start
+    pp_sidecar_start "$label" "$rep"
+    pp_sampler_start "$label" "$rep"
+  fi
   "$WORK/benchharness" replay --manifest "$OUT/manifest-$label-$rep.yaml" \
-    $PROVENANCE_FLAG \
+    $PROVENANCE_FLAG ${idflag:+"$idflag"} \
     --target "http://127.0.0.1:18080" \
     --api-keys "premium-1=premium-key,standard-noisy=standard-key" \
     --raw-out "$OUT/raw-$label-$rep.jsonl" || fail "replay $label"
   [ -s "$OUT/raw-$label-$rep.jsonl" ] || fail "no raw evidence for $label rep $rep"
+  # The pilot's capture bound runs from the replay's return, before anything else is done (pilot review 11).
+  local replay_done_epoch
+  replay_done_epoch=$(date +%s)
+  pp_sidecar_stop
+  pp_sampler_stop
+  scrape_engine_metrics "$arm" "$label" "$rep" after
+  # The pilot's capture: fence, terminal record, logs, the gateway's record and the priority witness. An
+  # ineligible cell goes on to the next arm; an apparatus that was not the registered one stops the pilot below.
+  local pilot_stop=""
+  if [ -z "${LADDER:-}" ] && pp_is_study "${STUDY:-}"; then
+    pp_phase "$label" "$rep" replay-done
+    local pc_out pc_rc
+    pc_out=$(pp_capture "$label" "$rep" "$replay_done_epoch") && pc_rc=0 || pc_rc=$?
+    [ -z "$pc_out" ] || printf '%s\n' "$pc_out" | tee -a "$LOG"
+    [ "$pc_rc" != 3 ] || pilot_stop="the engine was not the registered apparatus: $pc_out"
+    if [ -z "$pilot_stop" ] && [ -z "${PP_CALIBRATED:-}" ]; then
+      local cal_out
+      cal_out=$(pp_calibrate) || pilot_stop="the engine does not count the frozen exact tokens: $cal_out"
+      PP_CALIBRATED=1
+    fi
+  fi
   say "  $(wc -l < "$OUT/raw-$label-$rep.jsonl") rows"
+  # The engine's own log for this cell, judged before the cell is handed over and refused after it is.
+  #
+  # Judged here because the hook below uploads what exists, and a refused cell's log is the evidence for the
+  # refusal; failing first would leave it on a disk the instance takes with it.
+  engine_log_refusal=""
+  if [ -z "${LADDER:-}" ] && iv_is_study "${STUDY:-}"; then
+    engine_log_refusal=$(capture_engine_log "$label" "$rep") || {
+      [ -n "$engine_log_refusal" ] || engine_log_refusal="capture_engine_log refused without saying why"
+    }
+    # A -step cell without its instrument log measured nothing this study bought it for.
+    if [ -z "$engine_log_refusal" ] && [[ "$label" == *-step ]]; then
+      engine_log_refusal=$(capture_step_log "$label" "$rep") && engine_log_refusal="" || {
+        [ -n "$engine_log_refusal" ] || engine_log_refusal="capture_step_log refused without saying why"
+      }
+    fi
+  fi
+  # Session 2's gate S, on this cell, before the next one is bought.
+  #
+  # A staggered episode whose prefill arrived before every decoder's first token, or after one had finished, is
+  # not the registered composition, and the registration stops acquisition on it. The evaluator's own function
+  # judges it, so the cell is refused by exactly the rule the verdict will apply; it ran only after the session
+  # until a review found that a violation would otherwise have bought every remaining cell.
+  # Session 3 also refuses a decoder that did not produce its 512 tokens; iv_stagger_refusal says which.
+  if [ -z "$engine_log_refusal" ] && [ -z "${LADDER:-}" ] && iv_has_warmup "${STUDY:-}" && [[ "$label" == stagger-* ]]; then
+    if ! s_out=$(iv_stagger_refusal "$STUDY" "$label" "$OUT" "$rep" measured); then
+      engine_log_refusal="gate S: ${s_out:-the staggered composition check failed without saying why}"
+    fi
+  fi
   # This cell is BOUGHT. Hand it to the caller now rather than at the end of the matrix.
   #
   # Everything this script writes goes up as one archive after the whole matrix returns, which is fine for
@@ -1524,17 +3561,51 @@ run_cell() {
   # rehearsals where there is no bucket and nothing to upload to. Unset, nothing happens and the behaviour
   # is exactly what it was. A failing hook does NOT fail the cell: the evidence is already on disk, and a
   # transient S3 error is not a reason to throw away a measurement that was paid for.
+  # The pilot writes its timing row BEFORE the hook, so the row leaves the instance with the cell, and the hook's
+  # own start and end AFTER it, in cell-uploads.tsv, which the next cell's hook carries (design page, "The arm's
+  # timing is complete, in two records"). A row written after the hook could not include the hook, and one written
+  # before could not include its end.
+  local pilot_timed=""
+  if [ -z "${LADDER:-}" ] && pp_is_study "${STUDY:-}"; then
+    # A cell already known to stop the pilot is recorded once, as refused, and uploaded with that row: written
+    # after the hook, the row stayed on an instance that might not survive to the final archive (review of ffe3047),
+    # and written beside a completed row it counted the cell twice (review of 20cbf33).
+    [ -z "$pilot_stop" ] \
+      || cell_refused_stop "$label" "$rep" after-replay "REFUSED $label rep $rep after its capture: $pilot_stop" upload
+    cell_timing_record "$label" "$rep" completed "$CELL_T0" "$(date +%s)" || true
+    pilot_timed=1
+  fi
+  local hook_t0
+  hook_t0=$(date +%s)
   if [ -n "${CELL_DONE_HOOK:-}" ]; then
     # BOUNDED, because a hook that hangs costs card time the cell budget has already promised elsewhere.
     #
     # It cannot fail the cell -- the evidence is on local disk either way -- but without a limit a stalled
     # upload blocks every cell behind it until the hard stop, and a merely slow one inflates the next
     # cell's projection and can stop the matrix on a boundary it would otherwise have cleared.
-    timeout "${CELL_DONE_HOOK_TIMEOUT:-120}" "$CELL_DONE_HOOK" "$OUT/raw-$label-$rep.jsonl" "$label" "$rep" \
+    # OUT travels in the ENVIRONMENT rather than as a fourth argument.
+    #
+    # The hook needs the output directory to find the cell's manifest and trace and the run's accumulating
+    # TSVs, and it could derive it from the raw file's dirname -- but a hook that is handed the directory
+    # cannot disagree with the one the matrix is writing to. A fourth positional argument would have been
+    # the obvious way and it breaks the recorder in hack/test/rehearse-m5c-matrix.sh, which reads exactly
+    # $1 $2 $3; an environment variable leaves every existing hook working unchanged.
+    OUT="$OUT" timeout "${CELL_DONE_HOOK_TIMEOUT:-120}" "$CELL_DONE_HOOK" "$OUT/raw-$label-$rep.jsonl" "$label" "$rep" \
       || say "  WARNING: CELL_DONE_HOOK failed or timed out for $label rep $rep; the cell is still on local disk and will go up with the rest"
   fi
-  cell_secs=$(( cell_secs + $(date +%s) - CELL_T0 ))
+  if [ -n "$pilot_timed" ]; then
+    [ -s "$OUT/cell-uploads.tsv" ] || printf 'cell\tarm\trep\thook_start_utc\thook_end_utc\thook_s\n' > "$OUT/cell-uploads.tsv"
+    printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$cell_n" "$label" "$rep" "$(date -u -d "@$hook_t0" +%Y-%m-%dT%H:%M:%SZ)" \
+      "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(( $(date +%s) - hook_t0 ))" >> "$OUT/cell-uploads.tsv"
+  fi
+  [ -z "$engine_log_refusal" ] \
+    || cell_refused_stop "$label" "$rep" after-replay "REFUSED $label rep $rep after replay: $engine_log_refusal"
+  CELL_T1=$(date +%s)
+  cell_secs=$(( cell_secs + CELL_T1 - CELL_T0 ))
   cells_done=$(( cells_done + 1 ))
+  # Flushed per cell rather than assembled at the end: a matrix that stops on a boundary, or is cut
+  # mid-cell, is exactly the run whose per-cell times someone will want afterwards.
+  [ -n "$pilot_timed" ] || cell_timing_record "$label" "$rep" completed "$CELL_T0" "$CELL_T1" || true
 }
 
 for spec in "${CELLS[@]}"; do
@@ -1624,6 +3695,23 @@ fi
 # with --arm off, because the harness's arm vocabulary is the ADMISSION arms and the sharing mode is this
 # run's variable; feeding both files to `benchharness report` would pool them into one arm and produce a
 # number for a comparison that was never made.
+# Every sidecar and sampler has finished writing before the archive's last files are written (v26 review, C30).
+if [ -z "${LADDER:-}" ] && pp_is_study "${STUDY:-}"; then pp_wait_background; fi
+# The admission studies' archives say which study they are and which scorer judges them; the sharing matrix's text
+# below names another question (v26 review, C45).
+if [ -z "${LADDER:-}" ] && pp_is_study "${STUDY:-}"; then
+  _pp_cmd=$(case "$PILOT_STAGE" in F) echo calibration ;; E) echo frontier ;; D) echo diagnostic ;; *) echo stage ;; esac)
+  cat > "$OUT/README.txt" <<EOF
+Raw evidence for study $STUDY, stage $PILOT_STAGE (docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md).
+
+Its arms are admission and engine settings, named in each cell's files: $ARMS.
+It is judged by its registered scorer and by nothing else:
+
+  python3 hack/prospective-pilot/pilot_report.py $_pp_cmd <this directory>
+
+Do not pass these files to benchharness report: that evaluates the sharing matrix's readings, another question.
+EOF
+else
 cat > "$OUT/README.txt" <<EOF
 Raw evidence from the M5-c sharing matrix.
 
@@ -1641,8 +3729,56 @@ person is not the instrument the pre-registration describes.
 
 This file used to say the opposite -- that these files must never be passed to \`benchharness report\` --
 because every arm was replayed as "off" and pooling would have collapsed three topologies into one row.
-EOF
 
+EACH ROW NOW CARRIES WHY THE ENGINE STOPPED, and the silences are not pooled.
+
+  finishReason   the engine's own word: "length" when the output cap cut the response, "stop" when the
+                 model ended on its own. Added 2026-10-03, and added because it was being DISCARDED: the
+                 engine had been sending it on the final SSE frame all along and the parser declared only
+                 the content delta, so a run whose cap truncated every answer and one whose model finished
+                 early left identical rows. The output cap is one of the five load quantities this study
+                 freezes, which made "the cap was not reached" unsupportable in either direction.
+
+Read the absence of the field as its own fact. The report counts three things separately and they license
+different sentences: rows that named a reason, rows that answered 200 and named none (a gap in the
+instrument), and rows with no successful response at all (unobservable). An empty reason is NOT a stop.
+
+WHAT THE TIMEOUT BOUNDS, and how to tell its two expiries apart in these rows.
+
+The manifest now carries timeoutScope beside timeoutMs. The budget covers the WHOLE request -- connection,
+TLS, headers and the entire stream -- so timeoutMs is not a first-token budget, and a response that starts
+in time and then stalls expires as well. Both expiries write errorKind "timeout", and one field separates
+them:
+
+  firstTokenUnixNanos = 0   nothing arrived before the deadline; httpStatus is 0 too
+  firstTokenUnixNanos > 0   the stream stalled mid-response, and the token that did arrive is kept
+
+So "no request was censored by the timeout" needs both the count of timeout rows AND the scope named. An
+empty timeoutScope means the manifest predates the field, which is not the same as having no scope.
+
+TWO FILES BESIDE THE ROWS ANSWER "was the budget judgement made on a sane number".
+
+  cell-timings.tsv     one row per cell, completed AND refused, with its own elapsed seconds
+  cell-judgements.tsv  one row per deadline boundary, including the ones that CONTINUED
+
+Added 2026-10-03, and added because they were missing: the fifteen-cell run's per-cell duration is nowhere
+in its archive, so the 11.61 min/cell figure this project published had to be back-computed from raw request
+timestamps. cell_secs is a running total for the projection and nothing wrote the parts.
+
+Read them together. A judgement row carries the remaining minutes, the basis it projected from, the
+projected figure and the decision, so a stop can be re-examined against the cell times that produced it.
+A refused cell is in the timing file too: it consumed card time and the projection counted it, so a file
+that omitted refusals would disagree with the arithmetic that drove the next decision.
+
+Neither file says the judgement was CORRECT. It says the judgement can now be re-examined.
+EOF
+fi
+
+# The expected-versus-actual comparison is NOT written here any more.
+#
+# record_expected_files runs from cleanup, which every exit passes through -- the deadline stop, `fail`, and
+# the signals. Writing it here as well would count a file that the cleanup pass then rewrites, and would
+# leave the short runs, the only ones where the comparison means anything, without one.
 say "MATRIX DONE. Raw evidence in $OUT (see its README.txt before analysing)."
 say "The comparison is premium TTFT p99 across the sharing modes at equal offered load."
 say "Per-engine GPU utilisation is deliberately absent: under time-slicing nothing can attribute it."

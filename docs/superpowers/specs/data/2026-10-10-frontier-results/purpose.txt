@@ -1,0 +1,3 @@
+purpose: new-measurement
+hypothesis: hold-cap's first-token release beats every fixed spacing that meets the owner's contender limits, its pooled premium TTFT p99 at least 15% below each on the crossed bound, without losing contender work
+stoppingRule: R1 once, then three blocks of off, hold-cap and the four fixed spacings, then stop; or stop at the acquisition deadline (hard stop 6h09 less 6 min) or on an apparatus mismatch

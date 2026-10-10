@@ -123,6 +123,12 @@ cleanup-test-e2e: ## Tear down the Kind cluster used for e2e tests
 lint: golangci-lint ## Run golangci-lint linter
 	"$(GOLANGCI_LINT)" run
 
+.PHONY: vulncheck
+vulncheck: ## Fail on any known Go vulnerability the code can reach (text mode: JSON and SARIF exit 0 on findings)
+# Text output on purpose: govulncheck's -format json and sarif succeed even when they report a reachable
+# vulnerability, so a gate written with them could never fail. Exit 3 is "your code is affected".
+	go run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
+
 .PHONY: lint-fix
 lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes
 	"$(GOLANGCI_LINT)" run --fix
@@ -287,6 +293,7 @@ ENVTEST_K8S_VERSION ?= $(shell v='$(call gomodver,k8s.io/api)'; \
   printf '%s\n' "$$v" | sed -E 's/^v?[0-9]+\.([0-9]+).*/1.\1/')
 
 GOLANGCI_LINT_VERSION ?= v2.11.4
+GOVULNCHECK_VERSION ?= v1.8.0
 # Kept equal to TF_VERSION in the infra workflows on purpose, and TestTerraformVersionAgreesEverywhere fails
 # when it drifts. It drifted once already: this line sat at 1.9.8 while the roots moved to
 # `required_version = ">= 1.10"` for use_lockfile, and `make infra-validate` refused every root in CI.
@@ -406,9 +413,15 @@ shell-check: ## Parse every shell script under hack/ and .githooks/.
 	@# A golden that no longer parses means the next paid run boots a machine that dies in cloud-init, and
 	@# nothing here would have said so. collapse.py is checked too -- the harness shells out to it for every
 	@# transcript, so a syntax error there fails every suite for a reason that looks like a behaviour change.
+	@# hack/test/teardown-replay/ is named because the glob stops at hack/test/*.sh and that directory is one
+	@# level deeper. Proved by breaking replay.sh deliberately on 2026-09-30: the gate stayed green, so the
+	@# tool written to verify the teardown classifier was itself unverified. Its aws stub is named for the same
+	@# reason hack/test/spot-lifecycle/bin/aws is -- a stub with a syntax error answers nothing and every
+	@# scenario then reads as "no residue", which is a false pass on the one question the replay asks.
 	@fail=0; for f in hack/*.sh hack/lib/*.sh hack/test/*.sh hack/test/spot-lifecycle/*.sh \
 		hack/test/spot-lifecycle/bin/aws hack/test/spot-lifecycle/bin/sleep \
 		hack/test/spot-lifecycle/golden/*/user-data*.sh \
+		hack/test/teardown-replay/*.sh hack/test/teardown-replay/bin/aws \
 		.githooks/*.sh .githooks/commit-msg .githooks/pre-push; do \
 		[ -f "$$f" ] || continue; \
 		bash -n "$$f" || { echo "shell-check: $$f does not parse" >&2; fail=1; }; \
@@ -455,9 +468,13 @@ harness-check: ## Run the self-contained test harnesses under hack/test/ that ne
 	@# driver. README.md rests its claim of coverage on two of them, so the repository's own account of what
 	@# it checks depended on scripts no gate executed -- the same shape `make spot-lifecycle` was added to close.
 	@#
-	@# Only the two that are genuinely self-contained are here. Both lay out a repository shape in a mktemp
-	@# directory and clean it up, need no cluster, no card, no credentials and no third-party Python, and
-	@# finish in about two seconds together.
+	@# Only the ones that are genuinely self-contained are here. Each lays out its own state in a mktemp
+	@# directory and cleans it up, and needs no cluster, no card, no credentials and no third-party Python.
+	@#
+	@# The first two finish in about two seconds together. check-matrix-plan-refusals.sh is slower -- it
+	@# builds cmd/benchharness and then generates every planned cell's trace for five plans -- and that is
+	@# stated rather than hidden, because the thing it pins is a refusal that must arrive before a paid run
+	@# and the alternative was no gate at all. It is bounded: no network, no retries, no waiting on a port.
 	@#
 	@# check-ladder-refusals.sh is NOT here, and the reason is worth writing down rather than calling it slow:
 	@# it passes 28 checks and then stops at step 9, which runs `benchharness replay --target
@@ -465,8 +482,8 @@ harness-check: ## Run the self-contained test harnesses under hack/test/ that ne
 	@# computing anything. Its header's "no cluster and no card" is true; its runtime is unbounded. Putting it
 	@# in a CI gate would hang the build, and a gate that hangs gets deleted rather than fixed.
 	@#
-	@# The three rehearse-* scripts build a real kind cluster and do not belong in a CI gate at all.
-	@fail=0; for t in hack/test/capture-evidence-test.sh hack/test/plot-device-observation-test.sh; do \
+	@# The rehearse-* scripts build a real kind cluster and do not belong in a CI gate at all.
+	@fail=0; for t in hack/test/capture-evidence-test.sh hack/test/plot-device-observation-test.sh hack/test/check-matrix-plan-refusals.sh hack/test/check-token-unit-labels.sh hack/test/check-published-spreads.sh hack/test/check-cell-timing-record.sh hack/test/check-engine-metrics-scrape.sh hack/test/check-instrument-validation-harness.sh hack/test/check-tail-crossing-self-tests.sh; do \
 		bash "$$t" || { echo "harness-check: $$t failed" >&2; fail=1; }; \
 	done; \
 	if [ "$$fail" != "0" ]; then exit 1; fi

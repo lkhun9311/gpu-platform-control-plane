@@ -187,12 +187,16 @@ run_scenario() {
     # `echo "$RUN_NONCE" > /tmp/DONE` is what the runner reads back to prove the evidence is this
     # launch's (hack/m5c-gpu-session.sh:836), so the value is per-run and the line it sits on is unique.
     #
+    # The pilot's matrix deadline is an absolute epoch the wrapper computes at run time, so it is elided the same way.
+    #
     # The comment that says this was briefly INSIDE the sed arguments, where `#` starts an argument
     # rather than a comment. `bash -n` passed it, because it is syntactically fine and semantically wrong.
     sed -i -e 's/SOURCE_SHA="[0-9a-f]\{64\}"/SOURCE_SHA="<SHA256>"/' \
            -e 's/COMMIT="[0-9a-f]\{40\}"/COMMIT="<COMMIT>"/' \
            -e 's/PREFIX="\([A-Za-z0-9_-]*\)-[0-9a-f]\{8\}"/PREFIX="\1-<NONCE>"/' \
            -e 's#echo "[0-9a-f]\{8\}" > /tmp/DONE#echo "<NONCE>" > /tmp/DONE#' \
+           -e 's/^PILOT_MATRIX_DEADLINE="[0-9]\{10\}"$/PILOT_MATRIX_DEADLINE="<EPOCH>"/' \
+           -e 's/^PILOT_BACKSTOP_EPOCH="[0-9]\{10\}"$/PILOT_BACKSTOP_EPOCH="<EPOCH>"/' \
            "$out/user-data.sh"
   fi
 
@@ -233,6 +237,7 @@ run_scenario() {
       -e "s#reconciling the launch token [A-Za-z0-9]*-[0-9a-f]\{8,\}-#reconciling the launch token <TOKEN>-#g" \
       -e "s#UNRESOLVED for token [A-Za-z0-9]*-[0-9a-f]\{8,\}-#UNRESOLVED for token <TOKEN>-#g" \
       -e "s#Values=\([A-Za-z0-9]*\)-[0-9a-f]\{8,\}-#Values=\1-<RUN>-#g" \
+      -e "s#Key=study-deadline,Value=[0-9T:-]*Z#Key=study-deadline,Value=<DEADLINE>#g" \
       -e "s#${TMPDIR:-/tmp}/tmp\.[A-Za-z0-9]*#<TMP>#g" \
       -e "s#/tmp/tmp\.[A-Za-z0-9]*#<TMP>#g" \
       -e "s#harness sha256 [0-9a-f]\{64\}#harness sha256 <SHA256>#g" \
@@ -251,7 +256,9 @@ run_scenario() {
     # Normalizing user-data.sh alone left `s3://stub-bucket/run-ee4ef574/src/source.tgz` against
     # `run-4b77cdbb` on the next run, so the suite failed twice with the same COUNT and I read that as
     # determinism restored. Two runs failing identically for different nonces is not two runs agreeing.
-    sed -e "s#run-[0-9a-f]\{8\}#run-<NONCE>#g" "$STUB_TRANSCRIPT" \
+    # The pilot's study-deadline tag is a wall-clock time, and it sits in the launch call.
+    sed -e "s#run-[0-9a-f]\{8\}#run-<NONCE>#g" \
+        -e "s#Key=study-deadline,Value=[0-9T:-]*Z#Key=study-deadline,Value=<DEADLINE>#g" "$STUB_TRANSCRIPT" \
       | python3 "$ROOT/$HERE/collapse.py"
     printf -- '--- exit %s\n' "$rc"
     printf -- '--- messages\n'
@@ -542,6 +549,16 @@ scenarios_m5c_gpu_session() {
   # The commit the session will ship, so its evidence-identity check has something that matches.
   STUB_COMMIT=$(git -C "$ROOT" rev-parse HEAD); export STUB_COMMIT
 
+  # The purchase purpose, exported ONCE rather than repeated on every scenario.
+  #
+  # REPS is per-scenario because `no-reps` captures its refusal and every other scenario has to carry it.
+  # PURPOSE is the same kind of mandatory variable, but there are nineteen scenarios here and exactly one is
+  # about the refusal -- so it is exported and that one CLEARS it. Same coverage, eighteen fewer places to
+  # forget it, and the refusal is still exercised rather than assumed.
+  export PURPOSE=new-measurement
+  export HYPOTHESIS="characterization run: no question is asked of a card"
+  export STOPPING_RULE="the stubs answer immediately and nothing is rented"
+
   # This runner rents ONE card and builds a kind cluster on it, so its scenarios are about the lifecycle
   # around that: what it refuses before spending, and what it does when the instance does not come back.
   #
@@ -549,6 +566,13 @@ scenarios_m5c_gpu_session() {
   # confirmatory run is three, and neither is a thing to arrive at by forgetting a variable. The refusal
   # itself is the first scenario, because it is the only guard that runs before AWS is touched at all.
   run_scenario no-reps bash "$TARGET"
+
+  # The purchase-purpose refusal, which runs after REPS and before AWS is touched.
+  #
+  # It is the guard the 2026-10-02 registration asked for and nothing implemented: a purchase has to declare
+  # a reproduction attempt or a new measurement, and the run that spent $2.16 under a name it did not match
+  # would have been stopped here.
+  REPS=1 PURPOSE= run_scenario no-purpose bash "$TARGET"
 
   # The provenance guard, made to fire rather than assumed to. A probe file makes the tree dirty and is
   # removed whatever happens; without it this scenario means nothing on a clean checkout.
@@ -562,6 +586,73 @@ scenarios_m5c_gpu_session() {
   REPS=1 REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 \
     STUB_PRESENT_KEYS="evidence.tgz log.txt commit.txt nodes.txt preflight-nvidia-smi.csv preflight-node-cards.txt" \
     run_scenario pilot bash "$TARGET"
+
+  # The instrument-validation study end to end: no load variable reaches the instance, and every arm comes back.
+  #
+  # The plan check calls the matrix directly, so it never saw this script's load defaults; a RATE of 9.85
+  # written into user-data would have been refused by the matrix on the paid instance. Pinned here, where the
+  # user-data the instance would receive is recorded.
+  REPS=1 REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 \
+    STUDY=instrument-validation-2026-10-05 \
+    ARMS="serial-log serial-nolog burst-log burst-nolog stagger-log stagger-nolog serial-async burst-async stagger-async" \
+    STUB_EVIDENCE_ARMS="serial-log serial-nolog burst-log burst-nolog stagger-log stagger-nolog serial-async burst-async stagger-async" \
+    STUB_PRESENT_KEYS="evidence.tgz log.txt commit.txt nodes.txt preflight-nvidia-smi.csv preflight-node-cards.txt" \
+    run_scenario instrument-validation bash "$TARGET"
+
+  # The prospective-admission pilot's stage A: its rates and stage reach the instance, and no RATE or ARMS does.
+  # The matrix on the instance refuses a weighted RATE or a caller's ARMS beside the pilot, so a default leaking
+  # into user-data would be refused only after the card was rented.
+  REPS=3 REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 \
+    STUDY=prospective-pilot-2026-10-08 PILOT_STAGE=A PREMIUM_RATE=9.25 PILOT_NOISY_RATE=0.5 SEEDS="11 12 13" \
+    PREMIUM_PROMPT_CHARS=200 NOISY_PROMPT_CHARS=40000 REQUEST_TIMEOUT_MS=30000 PREMIUM_OUTPUT_TOKENS=64 NOISY_OUTPUT_TOKENS=16 \
+    STUB_EVIDENCE_ARMS="R1 off prospective" STUB_EVIDENCE_REPS=3 STUB_EVIDENCE_RECORDS=1 \
+    STUB_PRESENT_KEYS="evidence.tgz log.txt commit.txt nodes.txt preflight-nvidia-smi.csv preflight-node-cards.txt matrix-returned.txt" \
+    run_scenario prospective-pilot-stage-a bash "$TARGET"
+
+  # The pilot's strict credential check: with no exportable expiry, the only cache entry names just an account, which
+  # another session takes and the pilot refuses (design page, build item 13).
+  REPS=3 REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_CREDENTIALS_EXPIRE_IN_MIN= \
+    STUDY=prospective-pilot-2026-10-08 PILOT_STAGE=A PREMIUM_RATE=9.25 PILOT_NOISY_RATE=0.5 SEEDS="11 12 13" \
+    PREMIUM_PROMPT_CHARS=200 NOISY_PROMPT_CHARS=40000 REQUEST_TIMEOUT_MS=30000 PREMIUM_OUTPUT_TOKENS=64 NOISY_OUTPUT_TOKENS=16 \
+    run_scenario prospective-pilot-account-only-credential bash "$TARGET"
+
+  # The admission diagnostic's stage D: its own study, its five arms, R1 once, and its 4 h 14 m limits.
+  REPS=3 REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 \
+    STUDY=admission-diagnostic-2026-10-10 PILOT_STAGE=D PREMIUM_RATE=9.25 PILOT_NOISY_RATE=0.5 SEEDS="851 852 853" \
+    PREMIUM_PROMPT_CHARS=200 NOISY_PROMPT_CHARS=40000 REQUEST_TIMEOUT_MS=30000 PREMIUM_OUTPUT_TOKENS=64 NOISY_OUTPUT_TOKENS=16 \
+    STUB_EVIDENCE_ARMS="R1 off hold cap hold-cap" STUB_EVIDENCE_REPS=3 STUB_EVIDENCE_R1_ONCE=1 STUB_EVIDENCE_RECORDS=1 \
+    STUB_PRESENT_KEYS="evidence.tgz log.txt commit.txt nodes.txt preflight-nvidia-smi.csv preflight-node-cards.txt matrix-returned.txt" \
+    run_scenario admission-diagnostic-stage-d bash "$TARGET"
+
+  # v26's stage E: its own study, R1 and six arms in three blocks, its frozen seeds, and its 6 h 9 m limits.
+  REPS=3 REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 \
+    STUDY=admission-frontier-2026-10-10 PILOT_STAGE=E PREMIUM_RATE=9.25 PILOT_NOISY_RATE=0.5 SEEDS="861 862 863" \
+    PREMIUM_PROMPT_CHARS=200 NOISY_PROMPT_CHARS=40000 REQUEST_TIMEOUT_MS=30000 PREMIUM_OUTPUT_TOKENS=64 NOISY_OUTPUT_TOKENS=16 \
+    STUB_EVIDENCE_ARMS="R1 off hold-cap fixed-1.62 fixed-1.66 fixed-1.70 fixed-1.74" STUB_EVIDENCE_REPS=3 STUB_EVIDENCE_R1_ONCE=1 STUB_EVIDENCE_RECORDS=1 \
+    STUB_PRESENT_KEYS="evidence.tgz log.txt commit.txt nodes.txt preflight-nvidia-smi.csv preflight-node-cards.txt matrix-returned.txt" \
+    run_scenario admission-frontier-stage-e bash "$TARGET"
+
+  # Stage E whose instance stays shutting-down past the first terminate-first call: the evidence is still downloaded
+  # and judged, and the termination confirmed by a second bounded call (v26's result, apparatus note).
+  REPS=3 REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 STUB_SHUTTING_DOWN_FOR=70 \
+    STUDY=admission-frontier-2026-10-10 PILOT_STAGE=E PREMIUM_RATE=9.25 PILOT_NOISY_RATE=0.5 SEEDS="861 862 863" \
+    PREMIUM_PROMPT_CHARS=200 NOISY_PROMPT_CHARS=40000 REQUEST_TIMEOUT_MS=30000 PREMIUM_OUTPUT_TOKENS=64 NOISY_OUTPUT_TOKENS=16 \
+    STUB_EVIDENCE_ARMS="R1 off hold-cap fixed-1.62 fixed-1.66 fixed-1.70 fixed-1.74" STUB_EVIDENCE_REPS=3 STUB_EVIDENCE_R1_ONCE=1 STUB_EVIDENCE_RECORDS=1 \
+    STUB_PRESENT_KEYS="evidence.tgz log.txt commit.txt nodes.txt preflight-nvidia-smi.csv preflight-node-cards.txt matrix-returned.txt" \
+    run_scenario admission-frontier-slow-termination bash "$TARGET"
+
+  # v27's calibration stage F: its own study, one block, R1 and six arms at three lengths, and its 2 h 19 m limits.
+  REPS=1 REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 \
+    STUDY=admission-length-calibration-2026-10-10 PILOT_STAGE=F PREMIUM_RATE=9.25 PILOT_NOISY_RATE=0.5 SEEDS=871 \
+    PREMIUM_PROMPT_CHARS=200 NOISY_PROMPT_CHARS=40000 REQUEST_TIMEOUT_MS=30000 PREMIUM_OUTPUT_TOKENS=64 NOISY_OUTPUT_TOKENS=16 \
+    STUB_EVIDENCE_ARMS="R1 off-short off-ref off-long hold-cap-short hold-cap-ref hold-cap-long" STUB_EVIDENCE_REPS=1 STUB_EVIDENCE_R1_ONCE=1 STUB_EVIDENCE_RECORDS=1 \
+    STUB_PRESENT_KEYS="evidence.tgz log.txt commit.txt nodes.txt preflight-nvidia-smi.csv preflight-node-cards.txt matrix-returned.txt" \
+    run_scenario length-calibration-stage-f bash "$TARGET"
+
+  # Stage B without the R stage A fitted: refused before anything is rented.
+  REPS=3 REQUIRE_CLEAN_TREE=0 \
+    STUDY=prospective-pilot-2026-10-08 PILOT_STAGE=B PREMIUM_RATE=9.25 PILOT_NOISY_RATE=0.5 SEEDS="11 12 13" \
+    run_scenario prospective-pilot-stage-b-without-r bash "$TARGET"
 
   # A fresh account: the bucket and the profile are created, and the profile must carry GetObject because
   # this instance downloads the source archive and both binaries it was sent.

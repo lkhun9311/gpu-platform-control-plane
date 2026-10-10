@@ -13,7 +13,7 @@
 set -uo pipefail
 
 cd "$(dirname "$0")/.." || exit 1
-export GOTOOLCHAIN=go1.26.0
+export GOTOOLCHAIN=go1.26.9
 
 NS="${NS:-m5b}"
 KCTX="${KCTX:-$(kubectl config current-context 2>/dev/null)}"
@@ -159,6 +159,24 @@ case "${RATE:-}" in
 esac
 [ -n "${RATE:-}" ] || fail "RATE is unset. It must come from hack/m5b-gpu-session.sh's prefill measurement on THIS card, not from a default: the harness default of 20/s demands 3.8x an A10G's theoretical peak, and 7.3x a T4's, and a run at it censors every arm's tail and is disqualified by EvaluateChecks after the card has been paid for."
 
+# MODEL_REVISION is REQUIRED, has no fallback, and is checked HERE rather than beside GW_SHA.
+#
+# Beside GW_SHA is line 450-odd, which is after go build, docker build, the ECR login and the image push.
+# A refusal there has already spent build time and a registry round trip. This is the pre-spend block -- the
+# same place RATE is refused, and for the same reason -- so the refusal costs nothing.
+#
+# It was written in the wrong place first, and three attempts to trip it all stopped on an earlier guard
+# instead: RATE, then the TTL deadline, then REGISTRY. A control run that supplied the value stopped on the
+# same line, which is what showed the guard had never executed at all.
+#
+# This script reads the served model from the cluster rather than holding it as a constant, and nothing in a
+# Kubernetes object carries the revision -- the engine Deployment passes the model by name. So there is
+# nothing to derive it from, and deriving it would mean guessing.
+#
+# The `|| echo unknown` shape GW_SHA uses is deliberately NOT copied. That fallback already cost this project
+# seven paid manifests recording the literal string "unknown", past a guard that refused only an empty value.
+[ -n "${MODEL_REVISION:-}" ] || fail "MODEL_REVISION is unset. The manifests must name the revision of the model whose tokenizer scored their input counts, and this script reads the model from the cluster, which does not carry one. Pass the upstream repository revision (40 lowercase hex); internal/bench/testdata/tokenizer_calibration.json records the one this repository calibrated against"
+
 mkdir -p "$OUT" || fail "cannot create $OUT"
 : > "$LOG"
 say "rate ${RATE}/s, ${REPS} repetitions, output $OUT"
@@ -189,8 +207,35 @@ trap 'cleanup; exit 130' INT
 trap 'cleanup; exit 143' TERM
 trap 'cleanup; exit 129' HUP
 
-go build -o "$WORK/benchharness" ./cmd/benchharness || fail "build benchharness"
-CGO_ENABLED=0 GOOS=linux go build -o "$WORK/gateway" ./cmd/gateway || fail "build gateway"
+# Built here, or shipped in. The GPU AMI carries a driver, not a toolchain.
+#
+# This block built unconditionally, and that is a paid-run defect rather than an inconvenience:
+# `go build` on a rented instance fails with `go: command not found`, and it fails AFTER the driver, the
+# cluster and the device plugin have been paid for. hack/m5c-matrix.sh answers this at its line 845 and
+# hack/queuelab-gpu-session.sh answers it by building on the laptop and shipping the binary; this script had
+# neither, so it was the one runner that could only work where a compiler happens to be.
+#
+# Building stays the default, so a run driven from a development machine needs nothing extra.
+#
+# Found by hack/test/rehearse-m5b-arms.sh on its first execution -- the rehearsal drives this script from a
+# throwaway copy of hack/ and config/, which has no go.mod, and the run died here. That is the class of
+# finding the rehearsal exists for, and it cost nothing.
+if [ -n "${BENCHHARNESS_BIN:-}" ]; then
+  [ -x "$BENCHHARNESS_BIN" ] || fail "BENCHHARNESS_BIN=$BENCHHARNESS_BIN is not an executable file"
+  cp "$BENCHHARNESS_BIN" "$WORK/benchharness" || fail "could not take the shipped benchharness binary"
+  say "  benchharness: shipped, $(sha256sum "$WORK/benchharness" | cut -c1-12)"
+else
+  command -v go >/dev/null || fail "no Go toolchain and BENCHHARNESS_BIN is unset. On a rented GPU instance there is no compiler: build the binaries on the machine that has one and pass BENCHHARNESS_BIN and GATEWAY_BIN."
+  go build -o "$WORK/benchharness" ./cmd/benchharness || fail "build benchharness"
+fi
+if [ -n "${GATEWAY_BIN:-}" ]; then
+  [ -x "$GATEWAY_BIN" ] || fail "GATEWAY_BIN=$GATEWAY_BIN is not an executable file"
+  cp "$GATEWAY_BIN" "$WORK/gateway" || fail "could not take the shipped gateway binary"
+  say "  gateway: shipped, $(sha256sum "$WORK/gateway" | cut -c1-12)"
+else
+  command -v go >/dev/null || fail "no Go toolchain and GATEWAY_BIN is unset. Build on the machine that has a compiler and pass GATEWAY_BIN and BENCHHARNESS_BIN."
+  CGO_ENABLED=0 GOOS=linux go build -o "$WORK/gateway" ./cmd/gateway || fail "build gateway"
+fi
 
 # Duration is derived from the rate so each arm reaches a tail worth reporting. MinTailSamples is 100:
 # below it a nearest-rank p99 is just the slowest request, and the report disqualifies the run. 500 premium
@@ -504,6 +549,7 @@ say "generate the shared trace once"
 "$WORK/benchharness" gen-trace --seed 7 --duration-ms "$DURATION_MS" --rate "$RATE" \
   --model "$MODEL" --arm off --gateway-url "http://127.0.0.1:18080" \
   --gateway-sha "$GW_SHA" --gateway-image "$GW_IMAGE" --engine-image "$ENGINE_IMAGE" \
+  --tokenizer-rev "$MODEL_REVISION" \
   --trace-out "$OUT/trace.jsonl" --manifest-out "$OUT/manifest-off.yaml" || fail "gen-trace"
 
 # The trace is what actually names the tenants, so it is the authority the list above is checked against.
@@ -522,8 +568,8 @@ say "every tenant in the trace has a key and a policy"
 # The trace is stamped with the engine's own count for each distinct prompt length, before any arm runs.
 #
 # The design defines the admission-match criterion over the served tokenizer's input-token count, and three
-# paid runs scored it on ceil(chars/4) -- 36 percent low on a 200-character prompt, 23 percent high on a
-# 40,000-character one, per this repository's own calibration. The criterion has never been evaluated.
+# paid runs scored it on ceil(chars/4) -- 36 percent low on a 200-character prompt, 30 percent high on a
+# 40,000-character one (10,000 estimated against 7,695 measured), per this repository's own calibration. The criterion has never been evaluated.
 #
 # It has to be on the TRACE rather than only on responses, because a refused request never reaches the engine
 # and refused requests are the denominator of the fraction. The measurement uses the premium tenant, whose
@@ -548,6 +594,7 @@ say "every tenant in the trace has a key and a policy"
   -gateway-url "http://127.0.0.1:18080" -model "$MODEL" -timeout-ms 30000 -seed 7 \
   -match-tolerance 0.05 -long-threshold 4096 \
   -gateway-sha "$GW_SHA" -gateway-image "$GW_IMAGE" -engine-image "$ENGINE_IMAGE" \
+  -tokenizer-rev "$MODEL_REVISION" \
   || fail "the traces could not be prepared, so nothing was replayed"
 
 # A burst below the largest prompt makes arm B refuse every eligible request, which is not a tuning error

@@ -76,6 +76,25 @@ func TestOnlyTheWholeRunGatesTheExitStatus(t *testing.T) {
 			reading: bench.PoPReading{ID: "1", Name: "separation protects -- POSITIVE", NotEvaluable: true},
 			invalid: false,
 		},
+		{
+			// 4e fired: the engine reported a length the registration did not declare. Every reading under it
+			// is a statement about a load nobody can name, so the run does not stand.
+			name:    "4e fired: the measured load is not the declared load",
+			reading: bench.PoPReading{ID: "4e", Name: "the measured load is not the declared load -- INVALID", Fired: true},
+			invalid: true,
+		},
+		{
+			// 4e could not be computed: rows the engine never accounted for. "We did not check" and "we
+			// checked and it agreed" must not share an exit status -- that is the defect this gate is for.
+			name:    "4e could not be evaluated: rows carried no reported count",
+			reading: bench.PoPReading{ID: "4e", Name: "the measured load is not the declared load -- INVALID", NotEvaluable: true},
+			invalid: true,
+		},
+		{
+			name:    "4e did not fire: every row carried the declared length",
+			reading: bench.PoPReading{ID: "4e", Name: "the measured load is not the declared load -- INVALID"},
+			invalid: false,
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			err := sharingRunInvalid(bench.SharingResult{Readings: []bench.PoPReading{tc.reading}})
@@ -101,11 +120,17 @@ func TestOnlyTheWholeRunGatesTheExitStatus(t *testing.T) {
 // that contained one repetition.
 func TestTheSameReplayCannotBeCountedTwice(t *testing.T) {
 	dir := t.TempDir()
-	a := writeRepetition(t, dir, "a.jsonl", "R1", 200, 100, 150, 0)
+	a := writeRepetition(t, dir, "raw-R1-1.jsonl", "R1", 200, 100, 150, 0)
 
 	// A byte-for-byte copy under a different name is the case that matters: a second -raw of the SAME path
 	// could be caught by comparing paths, and that is not the defect.
-	b := filepath.Join(dir, "a-copy.jsonl")
+	//
+	// The copy carries a DIFFERENT repetition identity on purpose. Naming it raw-R1-1 as well would trip the
+	// duplicate-identity refusal in loadArmEvidence first, and this test would then pass while proving
+	// something else: that two files cannot claim one repetition number. The defect here is the opposite
+	// shape -- two legitimately numbered repetitions whose CONTENTS are one replay -- and only the send-time
+	// hash can see it. Keeping the identities distinct is what makes the two refusals testable apart.
+	b := filepath.Join(dir, "raw-R1-2.jsonl")
 	blob, err := os.ReadFile(a)
 	if err != nil {
 		t.Fatalf("read %s: %v", a, err)

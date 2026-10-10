@@ -869,7 +869,22 @@ var _ = Describe("readRequestMeta", func() {
 			`{"model":"llama-3","messages":[{"role":"user","content":"hi"}],"max_tokens":4,"stream_options":{"include_usage":true}}`),
 		Entry("streaming without usage reporting",
 			`{"model":"llama-3","messages":[{"role":"user","content":"hi"}],"max_tokens":4,"stream":true,"stream_options":{"include_usage":false}}`),
+		// The pilot fixes output at its cap; any other minimum changes the work asked for without the cap saying so.
+		Entry("a min_tokens below max_tokens",
+			`{"model":"llama-3","messages":[{"role":"user","content":"hi"}],"max_tokens":4,"min_tokens":3,"stream":true,"stream_options":{"include_usage":true}}`),
+		Entry("an explicit null min_tokens, which a pointer would read as absent (review of dcc3ce1)",
+			`{"model":"llama-3","messages":[{"role":"user","content":"hi"}],"max_tokens":4,"min_tokens":null,"stream":true,"stream_options":{"include_usage":true}}`),
+		Entry("a min_tokens of zero, which is not the same as none",
+			`{"model":"llama-3","messages":[{"role":"user","content":"hi"}],"max_tokens":4,"min_tokens":0,"stream":true,"stream_options":{"include_usage":true}}`),
 	)
+
+	// Mutation that turns this red: rename MinTokens's json tag, so DisallowUnknownFields refuses the real field.
+	It("accepts min_tokens equal to max_tokens, the pilot's fixed output", func() {
+		body := `{"model":"llama-3","messages":[{"role":"user","content":"hi"}],"max_tokens":4,"min_tokens":4,"stream":true,"stream_options":{"include_usage":true}}`
+		r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+		_, _, err := readRequestMeta(r, true)
+		Expect(err).NotTo(HaveOccurred())
+	})
 
 	// A trailing second document is NOT a profile violation, and finding that out is what this spec records.
 	//

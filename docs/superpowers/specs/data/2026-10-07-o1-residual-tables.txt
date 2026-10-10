@@ -1,0 +1,17 @@
+121814 steps, O1's held-out predictions (development data; nothing new fitted)
+R-T1 -- the short late prefills (residual = observed - predicted)
+  n  1: 21 steps, residual +4.846 ms (+10.7%), sched+update 0.194 ms, T 257
+  n  4: 21 steps, residual +4.417 ms (+9.6%), sched+update 0.243 ms, T 260
+  n 16: 21 steps, residual +4.164 ms (+8.5%), sched+update 0.365 ms, T 272
+  H-shared: standing (residuals within 0.681 ms; standing within 1.5)
+  H-cpu: falsified (largest sched+update 0.365 ms)
+R-T2 -- mixed steps by graph eligibility (T <= 128) and predicted occupancy
+  T <= 128: 138 steps, residual -3.674 ms (-10.8%)
+  T > 128, predicted under 60 ms: 105 steps, residual +4.381 ms (+8.6%)
+  T > 128, predicted 60 to 150 ms: 119 steps, residual -0.087 ms (+0.1%)
+  T > 128, predicted above 150 ms: 4235 steps, residual -4.445 ms (-1.6%)
+  H-floor: standing (the under-60 ms bin is the most under-predicted)
+R-T3 -- residual by exclusive phase
+  prefill-only: 1656 steps, residual +0.778 ms (+0.3%)
+  mixed: 4597 steps, residual -4.108 ms (-1.6%)
+  decode: 115561 steps, residual +0.086 ms (+0.5%)

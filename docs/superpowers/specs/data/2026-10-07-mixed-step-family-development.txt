@@ -1,0 +1,131 @@
+development data: 121814 measured steps in 12 cells, 49 settings (seen; no result here is a held-out pass)
+candidate A: 10 columns, all-data condition 7.0
+  28 folds over 49 settings; 117 endpoints judged, 3 below 10 steps (2.5%); 10 failing (mean beyond 10% or step error beyond 15%); 0 refused
+  worst decode: ('stagger', 16, 8192, 8192) +5.0%
+  worst late-prefill: ('stagger', 16, 8192, 256) -50.6%
+  worst mixed: ('stagger', 1, 8192, 256) -35.4%
+  worst prefill-only: ('serial', 256, 16) +8.4%
+  outside: ('burst', 64, 256, 64) mixed: predicted 276.290 ms against 214.463 ms, +28.8%; mean |step error| 28.5%; 145 steps
+  outside: ('stagger', 1, 256, 256) mixed: predicted 37.433 ms against 45.151 ms, -17.1%; mean |step error| 17.1%; 21 steps
+  outside: ('stagger', 1, 256, 256) late-prefill: predicted 37.433 ms against 45.151 ms, -17.1%; mean |step error| 17.1%; 21 steps
+  outside: ('stagger', 1, 8192, 256) mixed: predicted 37.737 ms against 58.409 ms, -35.4%; mean |step error| 35.4%; 21 steps
+  outside: ('stagger', 1, 8192, 256) late-prefill: predicted 37.737 ms against 58.409 ms, -35.4%; mean |step error| 35.4%; 21 steps
+  outside: ('stagger', 16, 256, 256) late-prefill: predicted 40.348 ms against 49.011 ms, -17.7%; mean |step error| 17.7%; 21 steps
+  outside: ('stagger', 16, 8192, 256) late-prefill: predicted 51.370 ms against 104.069 ms, -50.6%; mean |step error| 50.6%; 21 steps
+  outside: ('stagger', 16, 8192, 8192) late-prefill: predicted 227.206 ms against 265.749 ms, -14.5%; mean |step error| 20.4%; 45 steps
+  outside: ('stagger', 4, 256, 256) late-prefill: predicted 38.115 ms against 46.137 ms, -17.4%; mean |step error| 17.4%; 21 steps
+  outside: ('stagger', 4, 8192, 256) late-prefill: predicted 40.738 ms against 59.774 ms, -31.8%; mean |step error| 31.8%; 21 steps
+  late-prefill by block (published, not judged): ('stagger', 1, 256, 256): block 1 -17.1%, block 3 -17.2%, block 5 -17.0%
+  late-prefill by block (published, not judged): ('stagger', 1, 256, 8192): block 1 -0.5%, block 3 -0.5%, block 5 -0.5%
+  late-prefill by block (published, not judged): ('stagger', 1, 8192, 256): block 1 -35.4%, block 3 -35.4%, block 5 -35.4%
+  late-prefill by block (published, not judged): ('stagger', 1, 8192, 8192): block 1 -2.3%, block 3 -2.3%, block 5 -2.3%
+  late-prefill by block (published, not judged): ('stagger', 16, 256, 256): block 1 -17.6%, block 3 -17.7%, block 5 -17.7%
+  late-prefill by block (published, not judged): ('stagger', 16, 256, 8192): block 1 +1.0%, block 3 +1.0%, block 5 +1.0%
+  late-prefill by block (published, not judged): ('stagger', 16, 8192, 256): block 1 -50.6%, block 3 -50.6%, block 5 -50.7%
+  late-prefill by block (published, not judged): ('stagger', 16, 8192, 8192): block 1 -14.5%, block 3 -14.5%, block 5 -14.5%
+  late-prefill by block (published, not judged): ('stagger', 4, 256, 256): block 1 -17.3%, block 3 -17.4%, block 5 -17.4%
+  late-prefill by block (published, not judged): ('stagger', 4, 256, 8192): block 1 -0.3%, block 3 -0.3%, block 5 -0.3%
+  late-prefill by block (published, not judged): ('stagger', 4, 8192, 256): block 1 -31.8%, block 3 -31.7%, block 5 -32.0%
+  late-prefill by block (published, not judged): ('stagger', 4, 8192, 8192): block 1 -4.2%, block 3 -4.3%, block 5 -4.2%
+  candidate A: FAIL
+candidate B: 12 columns, all-data condition 7.2
+  28 folds over 49 settings; 117 endpoints judged, 3 below 10 steps (2.5%); 6 failing (mean beyond 10% or step error beyond 15%); 0 refused
+  worst decode: ('burst', 4, 256, 64) -3.5%
+  worst late-prefill: ('stagger', 1, 8192, 256) -20.3%
+  worst mixed: ('stagger', 1, 8192, 256) -20.3%
+  worst prefill-only: ('serial', 512, 1) -13.3%
+  outside: ('serial', 512, 1) prefill-only: predicted 52.884 ms against 60.996 ms, -13.3%; mean |step error| 13.3%; 18 steps
+  outside: ('serial', 512, 16) prefill-only: predicted 52.884 ms against 60.989 ms, -13.3%; mean |step error| 13.3%; 18 steps
+  outside: ('serial', 512, 64) prefill-only: predicted 52.884 ms against 60.977 ms, -13.3%; mean |step error| 13.3%; 18 steps
+  outside: ('stagger', 1, 8192, 256) mixed: predicted 46.535 ms against 58.409 ms, -20.3%; mean |step error| 20.3%; 21 steps
+  outside: ('stagger', 1, 8192, 256) late-prefill: predicted 46.535 ms against 58.409 ms, -20.3%; mean |step error| 20.3%; 21 steps
+  outside: ('stagger', 16, 8192, 256) late-prefill: predicted 85.346 ms against 104.069 ms, -18.0%; mean |step error| 18.0%; 21 steps
+  late-prefill by block (published, not judged): ('stagger', 1, 256, 256): block 1 +1.0%, block 3 +0.9%, block 5 +1.0%
+  late-prefill by block (published, not judged): ('stagger', 1, 256, 8192): block 1 +1.7%, block 3 +1.8%, block 5 +1.8%
+  late-prefill by block (published, not judged): ('stagger', 1, 8192, 256): block 1 -20.3%, block 3 -20.3%, block 5 -20.4%
+  late-prefill by block (published, not judged): ('stagger', 1, 8192, 8192): block 1 +0.8%, block 3 +0.8%, block 5 +0.8%
+  late-prefill by block (published, not judged): ('stagger', 16, 256, 256): block 1 -1.3%, block 3 -1.4%, block 5 -1.3%
+  late-prefill by block (published, not judged): ('stagger', 16, 256, 8192): block 1 +1.1%, block 3 +1.1%, block 5 +1.0%
+  late-prefill by block (published, not judged): ('stagger', 16, 8192, 256): block 1 -18.0%, block 3 -18.0%, block 5 -18.0%
+  late-prefill by block (published, not judged): ('stagger', 16, 8192, 8192): block 1 -4.1%, block 3 -4.1%, block 5 -4.2%
+  late-prefill by block (published, not judged): ('stagger', 4, 256, 256): block 1 +0.2%, block 3 +0.0%, block 5 -0.0%
+  late-prefill by block (published, not judged): ('stagger', 4, 256, 8192): block 1 +1.6%, block 3 +1.6%, block 5 +1.6%
+  late-prefill by block (published, not judged): ('stagger', 4, 8192, 256): block 1 -6.8%, block 3 -6.7%, block 5 -7.0%
+  late-prefill by block (published, not judged): ('stagger', 4, 8192, 8192): block 1 +1.1%, block 3 +1.0%, block 5 +1.1%
+  candidate B: FAIL
+candidate C: 13 columns, all-data condition 7.5
+  28 folds over 49 settings; 117 endpoints judged, 3 below 10 steps (2.5%); 6 failing (mean beyond 10% or step error beyond 15%); 0 refused
+  worst decode: ('burst', 4, 256, 64) -3.5%
+  worst late-prefill: ('stagger', 1, 8192, 256) -20.3%
+  worst mixed: ('stagger', 1, 8192, 256) -20.3%
+  worst prefill-only: ('serial', 512, 1) -13.3%
+  outside: ('serial', 512, 1) prefill-only: predicted 52.884 ms against 60.996 ms, -13.3%; mean |step error| 13.3%; 18 steps
+  outside: ('serial', 512, 16) prefill-only: predicted 52.884 ms against 60.989 ms, -13.3%; mean |step error| 13.3%; 18 steps
+  outside: ('serial', 512, 64) prefill-only: predicted 52.884 ms against 60.977 ms, -13.3%; mean |step error| 13.3%; 18 steps
+  outside: ('stagger', 1, 8192, 256) mixed: predicted 46.535 ms against 58.409 ms, -20.3%; mean |step error| 20.3%; 21 steps
+  outside: ('stagger', 1, 8192, 256) late-prefill: predicted 46.535 ms against 58.409 ms, -20.3%; mean |step error| 20.3%; 21 steps
+  outside: ('stagger', 16, 8192, 256) late-prefill: predicted 85.346 ms against 104.069 ms, -18.0%; mean |step error| 18.0%; 21 steps
+  late-prefill by block (published, not judged): ('stagger', 1, 256, 256): block 1 +1.0%, block 3 +0.9%, block 5 +1.0%
+  late-prefill by block (published, not judged): ('stagger', 1, 256, 8192): block 1 +1.7%, block 3 +1.8%, block 5 +1.8%
+  late-prefill by block (published, not judged): ('stagger', 1, 8192, 256): block 1 -20.3%, block 3 -20.3%, block 5 -20.4%
+  late-prefill by block (published, not judged): ('stagger', 1, 8192, 8192): block 1 +0.8%, block 3 +0.8%, block 5 +0.8%
+  late-prefill by block (published, not judged): ('stagger', 16, 256, 256): block 1 -1.3%, block 3 -1.4%, block 5 -1.3%
+  late-prefill by block (published, not judged): ('stagger', 16, 256, 8192): block 1 +1.1%, block 3 +1.1%, block 5 +1.0%
+  late-prefill by block (published, not judged): ('stagger', 16, 8192, 256): block 1 -18.0%, block 3 -18.0%, block 5 -18.0%
+  late-prefill by block (published, not judged): ('stagger', 16, 8192, 8192): block 1 -4.1%, block 3 -4.1%, block 5 -4.2%
+  late-prefill by block (published, not judged): ('stagger', 4, 256, 256): block 1 +0.2%, block 3 +0.0%, block 5 -0.0%
+  late-prefill by block (published, not judged): ('stagger', 4, 256, 8192): block 1 +1.6%, block 3 +1.6%, block 5 +1.6%
+  late-prefill by block (published, not judged): ('stagger', 4, 8192, 256): block 1 -6.8%, block 3 -6.7%, block 5 -7.0%
+  late-prefill by block (published, not judged): ('stagger', 4, 8192, 8192): block 1 +1.1%, block 3 +1.0%, block 5 +1.1%
+  candidate C: FAIL
+candidate D: a table of 35 supported bins
+  28 folds over 49 settings; 109 endpoints judged, 3 below 10 steps (2.7%); 32 failing (mean beyond 10% or step error beyond 15%); 0 refused
+  worst decode: ('burst', 64, 256, 64) -13.5%
+  worst late-prefill: ('stagger', 1, 8192, 256) -45.4%
+  worst mixed: ('stagger', 1, 8192, 256) -45.4%
+  worst prefill-only: ('serial', 768, 64) +38.4%
+  outside: ('burst', 16, 2048, 64) mixed: a step falls in a bin with fewer than 5 training steps
+  outside: ('burst', 4, 2048, 64) mixed: a step falls in a bin with fewer than 5 training steps
+  outside: ('burst', 64, 256, 64) mixed: a step falls in a bin with fewer than 5 training steps
+  outside: ('burst', 64, 256, 64) decode: predicted 20.781 ms against 24.037 ms, -13.5%; mean |step error| 13.7%; 1135 steps
+  outside: ('serial', 1024, 1) prefill-only: predicted 92.627 ms against 114.012 ms, -18.8%; mean |step error| 18.8%; 18 steps
+  outside: ('serial', 1024, 16) prefill-only: predicted 92.627 ms against 113.995 ms, -18.7%; mean |step error| 18.7%; 18 steps
+  outside: ('serial', 1024, 64) prefill-only: predicted 92.627 ms against 113.972 ms, -18.7%; mean |step error| 18.7%; 18 steps
+  outside: ('serial', 3072, 1) prefill-only: predicted 166.488 ms against 173.489 ms, -4.0%; mean |step error| 16.2%; 36 steps
+  outside: ('serial', 3072, 16) prefill-only: predicted 166.488 ms against 173.438 ms, -4.0%; mean |step error| 16.2%; 36 steps
+  outside: ('serial', 3072, 64) prefill-only: predicted 166.488 ms against 173.451 ms, -4.0%; mean |step error| 16.2%; 36 steps
+  outside: ('serial', 512, 1) prefill-only: a step falls in a bin with fewer than 5 training steps
+  outside: ('serial', 512, 16) prefill-only: a step falls in a bin with fewer than 5 training steps
+  outside: ('serial', 512, 64) prefill-only: a step falls in a bin with fewer than 5 training steps
+  outside: ('serial', 768, 1) prefill-only: predicted 117.585 ms against 85.034 ms, +38.3%; mean |step error| 38.3%; 18 steps
+  outside: ('serial', 768, 16) prefill-only: predicted 117.585 ms against 84.988 ms, +38.4%; mean |step error| 38.4%; 18 steps
+  outside: ('serial', 768, 64) prefill-only: predicted 117.585 ms against 84.948 ms, +38.4%; mean |step error| 38.4%; 18 steps
+  outside: ('stagger', 1, 256, 256) mixed: predicted 31.810 ms against 45.151 ms, -29.5%; mean |step error| 29.5%; 21 steps
+  outside: ('stagger', 1, 256, 256) late-prefill: predicted 31.810 ms against 45.151 ms, -29.5%; mean |step error| 29.5%; 21 steps
+  outside: ('stagger', 1, 256, 8192) mixed: predicted 176.337 ms against 210.639 ms, -16.3%; mean |step error| 22.2%; 45 steps
+  outside: ('stagger', 1, 256, 8192) late-prefill: predicted 176.337 ms against 210.639 ms, -16.3%; mean |step error| 22.2%; 45 steps
+  outside: ('stagger', 1, 8192, 256) mixed: predicted 31.887 ms against 58.409 ms, -45.4%; mean |step error| 45.4%; 21 steps
+  outside: ('stagger', 1, 8192, 256) late-prefill: predicted 31.887 ms against 58.409 ms, -45.4%; mean |step error| 45.4%; 21 steps
+  outside: ('stagger', 1, 8192, 8192) mixed: predicted 213.401 ms against 215.203 ms, -0.8%; mean |step error| 22.5%; 45 steps
+  outside: ('stagger', 1, 8192, 8192) late-prefill: predicted 213.401 ms against 215.203 ms, -0.8%; mean |step error| 22.5%; 45 steps
+  outside: ('stagger', 16, 256, 256) late-prefill: predicted 38.178 ms against 49.011 ms, -22.1%; mean |step error| 22.1%; 21 steps
+  outside: ('stagger', 16, 256, 8192) mixed: predicted 184.212 ms against 212.486 ms, -13.3%; mean |step error| 17.1%; 63 steps
+  outside: ('stagger', 16, 256, 8192) late-prefill: predicted 172.421 ms against 215.287 ms, -19.9%; mean |step error| 22.4%; 45 steps
+  outside: ('stagger', 16, 8192, 256) late-prefill: predicted 79.965 ms against 104.069 ms, -23.2%; mean |step error| 23.2%; 21 steps
+  outside: ('stagger', 4, 256, 256) late-prefill: predicted 33.433 ms against 46.137 ms, -27.5%; mean |step error| 27.5%; 21 steps
+  outside: ('stagger', 4, 256, 8192) mixed: a step falls in a bin with fewer than 5 training steps
+  outside: ('stagger', 4, 256, 8192) late-prefill: a step falls in a bin with fewer than 5 training steps
+  outside: ('stagger', 4, 8192, 256) late-prefill: predicted 33.454 ms against 59.774 ms, -44.0%; mean |step error| 44.0%; 21 steps
+  late-prefill by block (published, not judged): ('stagger', 1, 256, 256): block 1 -29.5%, block 3 -29.6%, block 5 -29.5%
+  late-prefill by block (published, not judged): ('stagger', 1, 256, 8192): block 1 -16.3%, block 3 -16.3%, block 5 -16.3%
+  late-prefill by block (published, not judged): ('stagger', 1, 8192, 256): block 1 -45.4%, block 3 -45.4%, block 5 -45.4%
+  late-prefill by block (published, not judged): ('stagger', 1, 8192, 8192): block 1 -0.8%, block 3 -0.8%, block 5 -0.8%
+  late-prefill by block (published, not judged): ('stagger', 16, 256, 256): block 1 -22.1%, block 3 -22.1%, block 5 -22.1%
+  late-prefill by block (published, not judged): ('stagger', 16, 256, 8192): block 1 -19.9%, block 3 -19.9%, block 5 -19.9%
+  late-prefill by block (published, not judged): ('stagger', 16, 8192, 256): block 1 -23.1%, block 3 -23.2%, block 5 -23.2%
+  late-prefill by block (published, not judged): ('stagger', 16, 8192, 8192): block 1 -6.0%, block 3 -6.0%, block 5 -6.0%
+  late-prefill by block (published, not judged): ('stagger', 4, 256, 256): block 1 -27.5%, block 3 -27.6%, block 5 -27.6%
+  late-prefill by block (published, not judged): ('stagger', 4, 8192, 256): block 1 -44.0%, block 3 -43.9%, block 5 -44.2%
+  late-prefill by block (published, not judged): ('stagger', 4, 8192, 8192): block 1 -1.4%, block 3 -1.4%, block 5 -1.4%
+  candidate D: FAIL
+SELECTED: none -- no candidate passes; item 2 stays closed and no confirmation is proposed

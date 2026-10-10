@@ -80,15 +80,27 @@ func main() {
 	ctx := ctrl.SetupSignalHandler()
 
 	var (
-		admissionModeFlag      string
-		admissionStaticRate    float64
-		admissionStaticBurst   int
-		admissionLongThreshold int
+		admissionModeFlag    string
+		admissionStaticRate  float64
+		admissionStaticBurst int
+		// The prospective mode's two caps have no default: they are a registration's choice, not this binary's.
+		admissionProspectivePrefill int
+		admissionProspectiveStreams int
+		admissionSerialMaxHold      time.Duration
+		admissionFixedSpacing       time.Duration
+		admissionFixedMaxHold       time.Duration
+		admissionLongThreshold      int
 		// admissionReportBackendState is the benchmark-only switch; see the flag description.
 		admissionReportBackendState bool
 		// enforceBenchmarkProfile is the other benchmark-only switch, and it refuses traffic rather than
 		// annotating it, so it stays off unless a run asks for it.
 		enforceBenchmarkProfile bool
+		// bindPriority reorders traffic on a priority-scheduling engine, so it too stays off unless asked for.
+		bindPriority bool
+		// requestRecordPath is empty by default, and an empty path records nothing.
+		requestRecordPath string
+		// metricsBearerTokenFile is empty by default so a deployment that sets nothing keeps an open /metrics.
+		metricsBearerTokenFile string
 
 		admissionKVEngageUsage    float64
 		admissionKVReleaseUsage   float64
@@ -100,7 +112,17 @@ func main() {
 		admissionKVIdleTimeout    time.Duration
 	)
 	flag.StringVar(&admissionModeFlag, "admission-mode", string(gateway.AdmissionOff),
-		"Admission control mode on the inference path: off, static-cap, or kv-aware.")
+		"Admission control mode on the inference path: off, static-cap, kv-aware, prospective, serial-prefill, or fixed-spacing.")
+	flag.IntVar(&admissionProspectivePrefill, "admission-prospective-prefill-tokens", 0,
+		"prospective mode: per-backend cap on standard-tier input tokens reserved and not yet answering. Required.")
+	flag.IntVar(&admissionProspectiveStreams, "admission-prospective-streams", 0,
+		"prospective mode: per-backend cap on running standard-tier requests. Required.")
+	flag.DurationVar(&admissionSerialMaxHold, "admission-serial-prefill-max-hold", 0,
+		"serial-prefill mode: the longest a standard request is held for its turn before it is refused. Required.")
+	flag.DurationVar(&admissionFixedSpacing, "admission-fixed-spacing", 0,
+		"fixed-spacing mode: the least time between two standard admissions on a backend. Required.")
+	flag.DurationVar(&admissionFixedMaxHold, "admission-fixed-spacing-max-hold", 0,
+		"fixed-spacing mode: the longest a standard request is held for its turn before it is refused. Required.")
 	flag.Float64Var(&admissionStaticRate, "admission-static-rate", defaultAdmissionStaticRate,
 		"static-cap mode: sustained per-backend input-token refill rate, in tokens/sec.")
 	flag.IntVar(&admissionStaticBurst, "admission-static-burst", defaultAdmissionStaticBurst,
@@ -110,6 +132,13 @@ func main() {
 			"Benchmark runs only: it rejects tools, functions, a top-level system, priority, multimodal content and "+
 			"any unknown field, none of which the input estimate counts, so a run that accepted them would report an "+
 			"admitted-work fraction over a population it never measured.")
+	flag.BoolVar(&bindPriority, "bind-priority", false,
+		"write the tenant tier's engine priority into every forwarded request (premium 0, standard 1), overwriting "+
+			"any priority the caller sent. Only meaningful for an engine started with --scheduling-policy=priority.")
+	flag.StringVar(&requestRecordPath, "request-record-path", "",
+		"append the gateway's per-request record (arrival, decision, forward, release, first content) to this file "+
+			"as JSON lines. For the benchmark only: each arrival is synced to disk before admission, which costs "+
+			"latency an ordinary deployment has no reason to pay.")
 	flag.BoolVar(&admissionReportBackendState, "admission-report-backend-state", false,
 		"report the pressure reading each admission decision was made from, on the response. "+
 			"For the benchmark only: a caller has no business knowing how full the engine's KV cache is.")
@@ -139,6 +168,9 @@ func main() {
 			"must be well above --admission-kv-scrape-interval")
 	flag.DurationVar(&admissionKVScrapeTimeout, "admission-kv-scrape-timeout", defaultAdmissionKVScrapeTimeout,
 		"kv-aware mode: HTTP timeout for a single /metrics scrape.")
+	flag.StringVar(&metricsBearerTokenFile, "metrics-bearer-token-file", "",
+		"path to a file holding the bearer token /metrics on :8081 requires. "+
+			"Empty leaves /metrics open; /readyz stays open either way because the kubelet probes it without credentials.")
 	flag.Parse()
 
 	// Register the core and platform types the gateway reads.
@@ -156,9 +188,14 @@ func main() {
 	// fast rather than after the gateway has already started reading Kubernetes.
 	admissionMode := gateway.AdmissionMode(admissionModeFlag)
 	admitter, stopAdmitter, err := newAdmitter(admissionMode, admitterFlags{
-		staticRate:    admissionStaticRate,
-		staticBurst:   admissionStaticBurst,
-		longThreshold: admissionLongThreshold,
+		staticRate:         admissionStaticRate,
+		staticBurst:        admissionStaticBurst,
+		longThreshold:      admissionLongThreshold,
+		prospectivePrefill: admissionProspectivePrefill,
+		prospectiveStreams: admissionProspectiveStreams,
+		serialMaxHold:      admissionSerialMaxHold,
+		fixedSpacing:       admissionFixedSpacing,
+		fixedMaxHold:       admissionFixedMaxHold,
 		kv: gateway.KVAwareConfig{
 			EngageUsage:    admissionKVEngageUsage,
 			ReleaseUsage:   admissionKVReleaseUsage,
@@ -206,6 +243,13 @@ func main() {
 		Namespace:    namespace,
 		APIKeySecret: envOr("GATEWAY_API_KEY_SECRET", "gateway-api-keys"),
 	}
+	// The token is loaded before anything listens, so a missing or empty file stops the process rather than leaving an open /metrics behind a flag that claims otherwise.
+	if metricsBearerTokenFile != "" {
+		if err := s.RequireMetricsBearerTokenFile(metricsBearerTokenFile); err != nil {
+			log.Error(err, "metrics authentication")
+			os.Exit(1)
+		}
+	}
 	// Turn on the per-tenant token bucket registry.
 	//
 	// It happens here rather than in the struct literal because bucketRegistry is unexported to the gateway package.
@@ -222,6 +266,17 @@ func main() {
 	s.SetAdmitter(admissionMode, admitter)
 	s.ReportBackendState(admissionReportBackendState)
 	s.EnforceBenchmarkProfile(enforceBenchmarkProfile)
+	s.BindPriority(bindPriority)
+	if requestRecordPath != "" {
+		rec, err := gateway.OpenRequestRecorder(requestRecordPath)
+		if err != nil {
+			log.Error(err, "cannot open the request record")
+			os.Exit(1)
+		}
+		// Closed on exit so the last done lines reach the file; the arrive lines are already synced.
+		defer func() { _ = rec.Close() }()
+		s.RecordRequests(rec)
+	}
 
 	// Start the cache and flip readiness once it has synced.
 	go func() {
@@ -301,6 +356,13 @@ type admitterFlags struct {
 	staticBurst   int
 	longThreshold int
 	kv            gateway.KVAwareConfig
+
+	prospectivePrefill int
+	prospectiveStreams int
+
+	serialMaxHold time.Duration
+	fixedSpacing  time.Duration
+	fixedMaxHold  time.Duration
 }
 
 // noopStop is the stop function newAdmitter returns for modes that start no background work.
@@ -325,6 +387,26 @@ func newAdmitter(mode gateway.AdmissionMode, f admitterFlags) (gateway.Admitter,
 	case gateway.AdmissionKVAware:
 		admitter, stop := gateway.NewKVAwareAdmitter(f.kv)
 		return admitter, stop, nil
+	case gateway.AdmissionProspective:
+		// A cap of zero would refuse every standard request and look like a guard working perfectly.
+		if f.prospectivePrefill <= 0 || f.prospectiveStreams <= 0 {
+			return nil, noopStop, fmt.Errorf("prospective mode needs --admission-prospective-prefill-tokens and "+
+				"--admission-prospective-streams above zero, got %d and %d", f.prospectivePrefill, f.prospectiveStreams)
+		}
+		return gateway.NewProspectiveAdmitter(f.prospectivePrefill, f.prospectiveStreams), noopStop, nil
+	case gateway.AdmissionSerialPrefill:
+		// No default hold: zero would refuse every request that ever had to wait, and look like a rule working.
+		if f.serialMaxHold <= 0 {
+			return nil, noopStop, fmt.Errorf("serial-prefill mode needs --admission-serial-prefill-max-hold above zero, got %s", f.serialMaxHold)
+		}
+		return gateway.NewSerialPrefillAdmitter(f.serialMaxHold), noopStop, nil
+	case gateway.AdmissionFixedSpacing:
+		// Neither has a default: a zero spacing is admission off under another name, and a zero hold refuses everyone.
+		if f.fixedSpacing <= 0 || f.fixedMaxHold <= 0 {
+			return nil, noopStop, fmt.Errorf("fixed-spacing mode needs --admission-fixed-spacing and "+
+				"--admission-fixed-spacing-max-hold above zero, got %s and %s", f.fixedSpacing, f.fixedMaxHold)
+		}
+		return gateway.NewFixedSpacingAdmitter(f.fixedSpacing, f.fixedMaxHold), noopStop, nil
 	default:
 		return nil, noopStop, fmt.Errorf("unknown admission mode %q", mode)
 	}

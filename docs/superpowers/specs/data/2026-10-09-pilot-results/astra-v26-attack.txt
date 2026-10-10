@@ -1,0 +1,50 @@
+**I found material problems. I would revise v26 before building or purchasing it.** Its headline ratios and deadline arithmetic largely check out; the replay’s boundary handling, verdict logic, and claimed mechanism do not yet support the proposed reading.
+
+1. **High — the replay can manufacture the hold refusal that excludes a fixed spacing.**  
+   `simulate()` checks the 25-second hold deadline before asking the spacing rule for its actual release time, and removes overdue held requests before reconsidering them. The spacing wake is handled explicitly only when the engine is idle. See [simulate.py:213](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/prospective-pilot/simulate.py:213), [simulate.py:257](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/prospective-pilot/simulate.py:257), and [simulate.py:274](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/prospective-pilot/simulate.py:274).
+
+   A concrete boundary case: a contender’s spacing expires at 24.99 seconds of waiting, during an engine step ending at 25.04 seconds. With no intervening processed notice, the replay refuses it before recovering its legitimate 24.99-second release. A real independent spacing timer could have forwarded it before the deadline. This matters directly to the reported frontier: 1.67 seconds becomes inadmissible through **one hold refusal** in [simulate-feasible.txt:182](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/data/2026-10-09-pilot-results/simulate-feasible.txt:182). The exact frontier needs rechecking after event ordering is corrected; I have not established how many archived results this changes.
+
+2. **High — contender completion can be scored from incomplete timing evidence.**  
+   The carried-over scorer reconstructs last-content time as first-token time plus the sum of `contentGapsMicros`. It rejects an absent array, but accepts a truncated or empty array without checking its length: [pilot_report.py:648](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/prospective-pilot/pilot_report.py:648). The corresponding length check exists **only for premium requests**, at [pilot_report.py:208](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/prospective-pilot/pilot_report.py:208).
+
+   Thus a contender reporting complete engine output and `[DONE]`, but missing some recorded gaps, can receive an artificially short completion time. An empty array makes completion equal first-token arrival even when multiple content frames were reported. This can change completion percentage, p50, p95, and therefore which fixed arms are admissible. Contender timing needs the same evidence-completeness check as premium timing.
+
+3. **High — the timing bounds still allow an apparatus delay to masquerade as the signal’s benefit.**  
+   Dispatch validity and uncertainty use scheduled-to-gateway-arrival lag, while the gateway performs a synchronous disk write **after** that arrival stamp. The scorer merely reports subsequent delays; it does not bound them. See [requestrecord.go:184](/home/lkhun9311/workspace/gpu-platform-control-plane/internal/gateway/requestrecord.go:184), [requestrecord.go:120](/home/lkhun9311/workspace/gpu-platform-control-plane/internal/gateway/requestrecord.go:120), and [pilot_report.py:224](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/prospective-pilot/pilot_report.py:224).
+
+   Consequently, a delay after arrival can inflate a fixed arm’s premium denominator or move contender work into a different contention pattern while every dispatch check passes. The crossed bounds do not remove it: both scheduled and arrival TTFT include that delay. This was already identified as unresolved at [design:770](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md:770). V26 supplies no new resolution. Its sensitivity to tens of milliseconds makes the missing fidelity check especially relevant.
+
+4. **High — v26 does not clearly retain the safeguards needed for its mechanistic interpretation.**  
+   Its explicit admissibility rule contains four contender limits, and its positive verdicts depend only on those limits and the fixed-arm TTFT comparison: [design:1252](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md:1252). The diagnostic additionally required zero preemptions, retained work in the shared window, and bounded premium inter-token gaps: [design:1170](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md:1170). Those are acceptance lines in the scorer, not safeguards automatically inherited by referencing its **validity** checks.
+
+   This has concrete consequences:
+   - Preemption permits a contender to resume prefill after its first token, invalidating the advertised one-prefill mechanism; the implementation explicitly states that qualification at [serialprefill.go:24](/home/lkhun9311/workspace/gpu-platform-control-plane/internal/gateway/serialprefill.go:24).
+   - Cancellation or error also releases the reservation, without first content: [server.go:519](/home/lkhun9311/workspace/gpu-platform-control-plane/internal/gateway/server.go:519). The four limits allow some such failures.
+   - A TTFT improvement can coexist with substantially worse premium streaming latency.
+
+   The literal grid comparison can remain useful, but a favorable verdict alone would not establish that first-token feedback preserved work and improved service through the named mechanism. Specify which diagnostic safeguards remain binding and which are deliberately relinquished.
+
+5. **Medium — verdict 5 falsely equates failure to establish a 15% improvement with “matched or beat.”**  
+   The transition from verdict 4 to verdict 5 is invalid at [design:1260](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md:1260). For example, with negligible uncertainty, hold-cap at 900 ms and the best fixed arm at 1,000 ms produces ratio 0.90. Verdict 4 fails, so verdict 5 announces that the **slower** fixed arm matched or beat hold-cap.
+
+   Crossing uncertainty can also prevent verdict 4 without establishing either ordering. The fallback should say the registered improvement was not established; matching or superiority requires a separate criterion.
+
+6. **Medium — the cited replay output does not predict the registered frontier verdict.**  
+   The feasibility command pools and compares only the **widest** admissible spacing, selected by `max(admissible)`: [simulate.py:482](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/prospective-pilot/simulate.py:482). V26 requires beating **every** admissible grid arm. Widest is not proven to mean lowest pooled premium p99; the underlying results are visibly nonmonotonic—for example, 1.62 seconds beats 1.66 seconds in pilot A’s second cell, at [simulate-feasible.txt:49](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/data/2026-10-09-pilot-results/simulate-feasible.txt:49).
+
+   Moreover:
+   - The scale-grid archive retains only each run’s last line, so it does not establish every grid arm’s admissibility or hold-cap’s own admissibility.
+   - At scale 1.020, its reported comparator is **1.65 seconds**, which v26 does not run: [pace-grid:17](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/data/2026-10-09-pilot-results/simulate-feasible-pace-grid.txt:17).
+   - These pooled results cover six old traces; the purchase covers three new seeds.
+
+   The numbers quoted at [design:1265](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md:1265) are legitimate sensitivity results, but not a replay of the registered decision procedure.
+
+7. **Medium — validity inheritance is ambiguous, and a losing control may veto the whole result.**  
+   V26 says any failed validity line makes the study inconclusive, “as the diagnostic’s scorer refuses now”: [design:1257](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md:1257). But that scorer checks validity only for off and hold-cap: [pilot_report.py:681](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/prospective-pilot/pilot_report.py:681).
+
+   Extending its premium-loss gate to all fixed arms means an overloaded, already inadmissible fixed arm can invalidate an otherwise decisive comparison. Keeping its present scope leaves fixed comparators without equivalent health checks. Freeze the distinction between missing/untrustworthy evidence and an observed policy failure, and state what happens to each affected comparator.
+
+**What checked out:** the quoted 1.102, 0.967, 0.473, 0.875 and 0.812 ratios match the archived scale summary; the diagnostic pace and prefill ranges match `simulate-pace.txt`. The allowance is correctly **22,115 seconds**, rounded to **22,140 seconds**; hard stop plus the stated 50-minute credential allowance fits within 12 hours. The diagnostic’s preliminary cell times exclude roughly 19–21 seconds of upload each, but including those still supports approximately 3 h 10 m. I found no deadline-arithmetic blocker. The acknowledged gaps between grid points remain a limitation, not a newly discovered defect.
+
+No files were edited, and no simulations, tests, clusters, or GPU sessions were launched.

@@ -1,0 +1,2308 @@
+{
+ "verdict": "not established: neither hold-cap nor fixed-1.74 was 15% below the other",
+ "validity": [
+  {
+   "line": "R1-1 is the registered cell",
+   "value": null,
+   "rule": "no difference",
+   "state": "holds"
+  },
+  {
+   "line": "R1-1 eligible",
+   "value": [],
+   "rule": "no problem",
+   "state": "holds"
+  },
+  {
+   "line": "R1-1 largest dispatch lag",
+   "value": 12.269601,
+   "rule": "<= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "R1-1 premium lag above 13 ms",
+   "value": 0.0,
+   "rule": "<= 0.001",
+   "state": "holds"
+  },
+  {
+   "line": "R1-1 premium successes without gap evidence",
+   "value": 0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "R1-1 contender successes without complete timing",
+   "value": 0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "R1-1 gateway arrival to record",
+   "value": [
+    5.069408,
+    9.018873
+   ],
+   "rule": "p99 <= 13 ms, max <= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "R1-1 gateway premium arrival to decision",
+   "value": [
+    5.11275,
+    9.081365
+   ],
+   "rule": "p99 <= 13 ms, max <= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "off-1 is the registered cell",
+   "value": null,
+   "rule": "no difference",
+   "state": "holds"
+  },
+  {
+   "line": "off-1 eligible",
+   "value": [],
+   "rule": "no problem",
+   "state": "holds"
+  },
+  {
+   "line": "off-1 largest dispatch lag",
+   "value": 6.191441,
+   "rule": "<= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "off-1 premium lag above 13 ms",
+   "value": 0.0,
+   "rule": "<= 0.001",
+   "state": "holds"
+  },
+  {
+   "line": "off-1 premium successes without gap evidence",
+   "value": 0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "off-1 contender successes without complete timing",
+   "value": 0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "off-1 gateway arrival to record",
+   "value": [
+    5.392771,
+    7.631436
+   ],
+   "rule": "p99 <= 13 ms, max <= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "off-1 gateway premium arrival to decision",
+   "value": [
+    5.538137,
+    7.665507
+   ],
+   "rule": "p99 <= 13 ms, max <= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "off-1 premium loss",
+   "value": 0.0,
+   "rule": "< 0.005",
+   "state": "holds"
+  },
+  {
+   "line": "off-1 contender completion",
+   "value": 1.0,
+   "rule": ">= 0.95",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap-1 is the registered cell",
+   "value": null,
+   "rule": "no difference",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap-1 eligible",
+   "value": [],
+   "rule": "no problem",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap-1 largest dispatch lag",
+   "value": 5.210267,
+   "rule": "<= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap-1 premium lag above 13 ms",
+   "value": 0.0,
+   "rule": "<= 0.001",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap-1 premium successes without gap evidence",
+   "value": 0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap-1 contender successes without complete timing",
+   "value": 0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap-1 gateway arrival to record",
+   "value": [
+    4.972795,
+    8.069592
+   ],
+   "rule": "p99 <= 13 ms, max <= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap-1 gateway premium arrival to decision",
+   "value": [
+    5.021817,
+    8.138995
+   ],
+   "rule": "p99 <= 13 ms, max <= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap-1 contender decisions by its admission mode",
+   "value": [
+    200,
+    200
+   ],
+   "rule": "all",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.62-1 is the registered cell",
+   "value": null,
+   "rule": "no difference",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.62-1 eligible",
+   "value": [],
+   "rule": "no problem",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.62-1 largest dispatch lag",
+   "value": 6.127372,
+   "rule": "<= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.62-1 premium lag above 13 ms",
+   "value": 0.0,
+   "rule": "<= 0.001",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.62-1 premium successes without gap evidence",
+   "value": 0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.62-1 contender successes without complete timing",
+   "value": 0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.62-1 gateway arrival to record",
+   "value": [
+    5.065567,
+    7.06551
+   ],
+   "rule": "p99 <= 13 ms, max <= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.62-1 gateway premium arrival to decision",
+   "value": [
+    5.12325,
+    7.104921
+   ],
+   "rule": "p99 <= 13 ms, max <= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.62-1 contender decisions by its admission mode",
+   "value": [
+    200,
+    200
+   ],
+   "rule": "all",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.62-1 admissions after the spacing",
+   "value": [
+    0.016767000000072585,
+    1.04424999999992
+   ],
+   "rule": "least >= -1 ms, p99 <= 13 ms",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.66-1 is the registered cell",
+   "value": null,
+   "rule": "no difference",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.66-1 eligible",
+   "value": [],
+   "rule": "no problem",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.66-1 largest dispatch lag",
+   "value": 8.146256,
+   "rule": "<= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.66-1 premium lag above 13 ms",
+   "value": 0.0,
+   "rule": "<= 0.001",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.66-1 premium successes without gap evidence",
+   "value": 0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.66-1 contender successes without complete timing",
+   "value": 0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.66-1 gateway arrival to record",
+   "value": [
+    5.002302,
+    8.599565
+   ],
+   "rule": "p99 <= 13 ms, max <= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.66-1 gateway premium arrival to decision",
+   "value": [
+    5.094106,
+    8.694279
+   ],
+   "rule": "p99 <= 13 ms, max <= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.66-1 contender decisions by its admission mode",
+   "value": [
+    200,
+    200
+   ],
+   "rule": "all",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.66-1 admissions after the spacing",
+   "value": [
+    -0.009747000000061234,
+    1.092971000000034
+   ],
+   "rule": "least >= -1 ms, p99 <= 13 ms",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.70-1 is the registered cell",
+   "value": null,
+   "rule": "no difference",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.70-1 eligible",
+   "value": [],
+   "rule": "no problem",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.70-1 largest dispatch lag",
+   "value": 5.558107,
+   "rule": "<= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.70-1 premium lag above 13 ms",
+   "value": 0.0,
+   "rule": "<= 0.001",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.70-1 premium successes without gap evidence",
+   "value": 0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.70-1 contender successes without complete timing",
+   "value": 0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.70-1 gateway arrival to record",
+   "value": [
+    5.040186,
+    7.400962
+   ],
+   "rule": "p99 <= 13 ms, max <= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.70-1 gateway premium arrival to decision",
+   "value": [
+    5.099838,
+    7.464655
+   ],
+   "rule": "p99 <= 13 ms, max <= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.70-1 contender decisions by its admission mode",
+   "value": [
+    200,
+    200
+   ],
+   "rule": "all",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.70-1 admissions after the spacing",
+   "value": [
+    -0.010700999999926353,
+    1.1105419999998958
+   ],
+   "rule": "least >= -1 ms, p99 <= 13 ms",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.74-1 is the registered cell",
+   "value": null,
+   "rule": "no difference",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.74-1 eligible",
+   "value": [],
+   "rule": "no problem",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.74-1 largest dispatch lag",
+   "value": 5.075273,
+   "rule": "<= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.74-1 premium lag above 13 ms",
+   "value": 0.0,
+   "rule": "<= 0.001",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.74-1 premium successes without gap evidence",
+   "value": 0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.74-1 contender successes without complete timing",
+   "value": 0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.74-1 gateway arrival to record",
+   "value": [
+    5.201165,
+    8.139305
+   ],
+   "rule": "p99 <= 13 ms, max <= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.74-1 gateway premium arrival to decision",
+   "value": [
+    5.227486,
+    6.661404
+   ],
+   "rule": "p99 <= 13 ms, max <= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.74-1 contender decisions by its admission mode",
+   "value": [
+    200,
+    200
+   ],
+   "rule": "all",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.74-1 admissions after the spacing",
+   "value": [
+    -0.006671999999980471,
+    1.054098999999951
+   ],
+   "rule": "least >= -1 ms, p99 <= 13 ms",
+   "state": "holds"
+  },
+  {
+   "line": "off-2 is the registered cell",
+   "value": null,
+   "rule": "no difference",
+   "state": "holds"
+  },
+  {
+   "line": "off-2 eligible",
+   "value": [],
+   "rule": "no problem",
+   "state": "holds"
+  },
+  {
+   "line": "off-2 largest dispatch lag",
+   "value": 8.020873,
+   "rule": "<= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "off-2 premium lag above 13 ms",
+   "value": 0.0,
+   "rule": "<= 0.001",
+   "state": "holds"
+  },
+  {
+   "line": "off-2 premium successes without gap evidence",
+   "value": 0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "off-2 contender successes without complete timing",
+   "value": 0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "off-2 gateway arrival to record",
+   "value": [
+    5.516178,
+    7.835953
+   ],
+   "rule": "p99 <= 13 ms, max <= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "off-2 gateway premium arrival to decision",
+   "value": [
+    5.165151,
+    7.883685
+   ],
+   "rule": "p99 <= 13 ms, max <= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "off-2 premium loss",
+   "value": 0.0,
+   "rule": "< 0.005",
+   "state": "holds"
+  },
+  {
+   "line": "off-2 contender completion",
+   "value": 1.0,
+   "rule": ">= 0.95",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap-2 is the registered cell",
+   "value": null,
+   "rule": "no difference",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap-2 eligible",
+   "value": [],
+   "rule": "no problem",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap-2 largest dispatch lag",
+   "value": 6.24167,
+   "rule": "<= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap-2 premium lag above 13 ms",
+   "value": 0.0,
+   "rule": "<= 0.001",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap-2 premium successes without gap evidence",
+   "value": 0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap-2 contender successes without complete timing",
+   "value": 0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap-2 gateway arrival to record",
+   "value": [
+    5.473016,
+    8.765133
+   ],
+   "rule": "p99 <= 13 ms, max <= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap-2 gateway premium arrival to decision",
+   "value": [
+    5.516697,
+    8.815485
+   ],
+   "rule": "p99 <= 13 ms, max <= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap-2 contender decisions by its admission mode",
+   "value": [
+    207,
+    207
+   ],
+   "rule": "all",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.62-2 is the registered cell",
+   "value": null,
+   "rule": "no difference",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.62-2 eligible",
+   "value": [],
+   "rule": "no problem",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.62-2 largest dispatch lag",
+   "value": 8.717902,
+   "rule": "<= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.62-2 premium lag above 13 ms",
+   "value": 0.0,
+   "rule": "<= 0.001",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.62-2 premium successes without gap evidence",
+   "value": 0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.62-2 contender successes without complete timing",
+   "value": 0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.62-2 gateway arrival to record",
+   "value": [
+    5.54955,
+    8.54418
+   ],
+   "rule": "p99 <= 13 ms, max <= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.62-2 gateway premium arrival to decision",
+   "value": [
+    5.582802,
+    8.576202
+   ],
+   "rule": "p99 <= 13 ms, max <= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.62-2 contender decisions by its admission mode",
+   "value": [
+    207,
+    207
+   ],
+   "rule": "all",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.62-2 admissions after the spacing",
+   "value": [
+    0.022036000000071,
+    1.0944280000001072
+   ],
+   "rule": "least >= -1 ms, p99 <= 13 ms",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.66-2 is the registered cell",
+   "value": null,
+   "rule": "no difference",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.66-2 eligible",
+   "value": [],
+   "rule": "no problem",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.66-2 largest dispatch lag",
+   "value": 5.653342,
+   "rule": "<= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.66-2 premium lag above 13 ms",
+   "value": 0.0,
+   "rule": "<= 0.001",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.66-2 premium successes without gap evidence",
+   "value": 0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.66-2 contender successes without complete timing",
+   "value": 0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.66-2 gateway arrival to record",
+   "value": [
+    5.663813,
+    8.766034
+   ],
+   "rule": "p99 <= 13 ms, max <= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.66-2 gateway premium arrival to decision",
+   "value": [
+    5.695847,
+    8.796145
+   ],
+   "rule": "p99 <= 13 ms, max <= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.66-2 contender decisions by its admission mode",
+   "value": [
+    207,
+    207
+   ],
+   "rule": "all",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.66-2 admissions after the spacing",
+   "value": [
+    0.023003000000016982,
+    1.093740999999909
+   ],
+   "rule": "least >= -1 ms, p99 <= 13 ms",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.70-2 is the registered cell",
+   "value": null,
+   "rule": "no difference",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.70-2 eligible",
+   "value": [],
+   "rule": "no problem",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.70-2 largest dispatch lag",
+   "value": 5.89844,
+   "rule": "<= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.70-2 premium lag above 13 ms",
+   "value": 0.0,
+   "rule": "<= 0.001",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.70-2 premium successes without gap evidence",
+   "value": 0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.70-2 contender successes without complete timing",
+   "value": 0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.70-2 gateway arrival to record",
+   "value": [
+    5.686795,
+    27.155304
+   ],
+   "rule": "p99 <= 13 ms, max <= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.70-2 gateway premium arrival to decision",
+   "value": [
+    5.725286,
+    27.210186
+   ],
+   "rule": "p99 <= 13 ms, max <= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.70-2 contender decisions by its admission mode",
+   "value": [
+    207,
+    207
+   ],
+   "rule": "all",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.70-2 admissions after the spacing",
+   "value": [
+    -0.00038999999992483936,
+    1.1422050000001036
+   ],
+   "rule": "least >= -1 ms, p99 <= 13 ms",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.74-2 is the registered cell",
+   "value": null,
+   "rule": "no difference",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.74-2 eligible",
+   "value": [],
+   "rule": "no problem",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.74-2 largest dispatch lag",
+   "value": 6.032029,
+   "rule": "<= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.74-2 premium lag above 13 ms",
+   "value": 0.0,
+   "rule": "<= 0.001",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.74-2 premium successes without gap evidence",
+   "value": 0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.74-2 contender successes without complete timing",
+   "value": 0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.74-2 gateway arrival to record",
+   "value": [
+    5.537346,
+    8.585299
+   ],
+   "rule": "p99 <= 13 ms, max <= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.74-2 gateway premium arrival to decision",
+   "value": [
+    5.537935,
+    8.643301
+   ],
+   "rule": "p99 <= 13 ms, max <= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.74-2 contender decisions by its admission mode",
+   "value": [
+    207,
+    207
+   ],
+   "rule": "all",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.74-2 admissions after the spacing",
+   "value": [
+    0.030385999999907654,
+    1.0841980000000149
+   ],
+   "rule": "least >= -1 ms, p99 <= 13 ms",
+   "state": "holds"
+  },
+  {
+   "line": "off-3 is the registered cell",
+   "value": null,
+   "rule": "no difference",
+   "state": "holds"
+  },
+  {
+   "line": "off-3 eligible",
+   "value": [],
+   "rule": "no problem",
+   "state": "holds"
+  },
+  {
+   "line": "off-3 largest dispatch lag",
+   "value": 7.479355,
+   "rule": "<= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "off-3 premium lag above 13 ms",
+   "value": 0.0,
+   "rule": "<= 0.001",
+   "state": "holds"
+  },
+  {
+   "line": "off-3 premium successes without gap evidence",
+   "value": 0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "off-3 contender successes without complete timing",
+   "value": 0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "off-3 gateway arrival to record",
+   "value": [
+    5.285579,
+    7.777122
+   ],
+   "rule": "p99 <= 13 ms, max <= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "off-3 gateway premium arrival to decision",
+   "value": [
+    5.37059,
+    7.805593
+   ],
+   "rule": "p99 <= 13 ms, max <= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "off-3 premium loss",
+   "value": 0.0,
+   "rule": "< 0.005",
+   "state": "holds"
+  },
+  {
+   "line": "off-3 contender completion",
+   "value": 1.0,
+   "rule": ">= 0.95",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap-3 is the registered cell",
+   "value": null,
+   "rule": "no difference",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap-3 eligible",
+   "value": [],
+   "rule": "no problem",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap-3 largest dispatch lag",
+   "value": 5.100694,
+   "rule": "<= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap-3 premium lag above 13 ms",
+   "value": 0.0,
+   "rule": "<= 0.001",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap-3 premium successes without gap evidence",
+   "value": 0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap-3 contender successes without complete timing",
+   "value": 0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap-3 gateway arrival to record",
+   "value": [
+    5.147924,
+    7.09529
+   ],
+   "rule": "p99 <= 13 ms, max <= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap-3 gateway premium arrival to decision",
+   "value": [
+    5.191186,
+    7.135672
+   ],
+   "rule": "p99 <= 13 ms, max <= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap-3 contender decisions by its admission mode",
+   "value": [
+    201,
+    201
+   ],
+   "rule": "all",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.62-3 is the registered cell",
+   "value": null,
+   "rule": "no difference",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.62-3 eligible",
+   "value": [],
+   "rule": "no problem",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.62-3 largest dispatch lag",
+   "value": 5.427968,
+   "rule": "<= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.62-3 premium lag above 13 ms",
+   "value": 0.0,
+   "rule": "<= 0.001",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.62-3 premium successes without gap evidence",
+   "value": 0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.62-3 contender successes without complete timing",
+   "value": 0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.62-3 gateway arrival to record",
+   "value": [
+    5.066098,
+    7.214067
+   ],
+   "rule": "p99 <= 13 ms, max <= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.62-3 gateway premium arrival to decision",
+   "value": [
+    5.173703,
+    7.253109
+   ],
+   "rule": "p99 <= 13 ms, max <= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.62-3 contender decisions by its admission mode",
+   "value": [
+    201,
+    201
+   ],
+   "rule": "all",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.62-3 admissions after the spacing",
+   "value": [
+    0.018951000000015483,
+    1.0721340000000055
+   ],
+   "rule": "least >= -1 ms, p99 <= 13 ms",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.66-3 is the registered cell",
+   "value": null,
+   "rule": "no difference",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.66-3 eligible",
+   "value": [],
+   "rule": "no problem",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.66-3 largest dispatch lag",
+   "value": 7.218836,
+   "rule": "<= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.66-3 premium lag above 13 ms",
+   "value": 0.0,
+   "rule": "<= 0.001",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.66-3 premium successes without gap evidence",
+   "value": 0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.66-3 contender successes without complete timing",
+   "value": 0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.66-3 gateway arrival to record",
+   "value": [
+    5.093529,
+    7.839252
+   ],
+   "rule": "p99 <= 13 ms, max <= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.66-3 gateway premium arrival to decision",
+   "value": [
+    5.112729,
+    7.868283
+   ],
+   "rule": "p99 <= 13 ms, max <= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.66-3 contender decisions by its admission mode",
+   "value": [
+    201,
+    201
+   ],
+   "rule": "all",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.66-3 admissions after the spacing",
+   "value": [
+    0.016536999999971158,
+    1.0765899999998965
+   ],
+   "rule": "least >= -1 ms, p99 <= 13 ms",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.70-3 is the registered cell",
+   "value": null,
+   "rule": "no difference",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.70-3 eligible",
+   "value": [],
+   "rule": "no problem",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.70-3 largest dispatch lag",
+   "value": 6.056584,
+   "rule": "<= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.70-3 premium lag above 13 ms",
+   "value": 0.0,
+   "rule": "<= 0.001",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.70-3 premium successes without gap evidence",
+   "value": 0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.70-3 contender successes without complete timing",
+   "value": 0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.70-3 gateway arrival to record",
+   "value": [
+    5.130303,
+    7.808718
+   ],
+   "rule": "p99 <= 13 ms, max <= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.70-3 gateway premium arrival to decision",
+   "value": [
+    5.160594,
+    7.884832
+   ],
+   "rule": "p99 <= 13 ms, max <= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.70-3 contender decisions by its admission mode",
+   "value": [
+    201,
+    201
+   ],
+   "rule": "all",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.70-3 admissions after the spacing",
+   "value": [
+    0.010727000000088083,
+    1.1001459999999952
+   ],
+   "rule": "least >= -1 ms, p99 <= 13 ms",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.74-3 is the registered cell",
+   "value": null,
+   "rule": "no difference",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.74-3 eligible",
+   "value": [],
+   "rule": "no problem",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.74-3 largest dispatch lag",
+   "value": 6.357228,
+   "rule": "<= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.74-3 premium lag above 13 ms",
+   "value": 0.0,
+   "rule": "<= 0.001",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.74-3 premium successes without gap evidence",
+   "value": 0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.74-3 contender successes without complete timing",
+   "value": 0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.74-3 gateway arrival to record",
+   "value": [
+    5.0949,
+    7.647424
+   ],
+   "rule": "p99 <= 13 ms, max <= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.74-3 gateway premium arrival to decision",
+   "value": [
+    5.241037,
+    7.700016
+   ],
+   "rule": "p99 <= 13 ms, max <= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.74-3 contender decisions by its admission mode",
+   "value": [
+    201,
+    201
+   ],
+   "rule": "all",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.74-3 admissions after the spacing",
+   "value": [
+    0.010706000000027416,
+    1.095299999999952
+   ],
+   "rule": "least >= -1 ms, p99 <= 13 ms",
+   "state": "holds"
+  }
+ ],
+ "lines": [
+  {
+   "line": "hold-cap block 1: contender completion",
+   "value": 1.0,
+   "rule": ">= 0.95",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap block 1: contender completion p50 against off's",
+   "value": [
+    4152.07744,
+    3259.243278
+   ],
+   "rule": "<= 1.5 x off's",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap block 1: contender completion p95",
+   "value": 8798.702869,
+   "rule": "<= 25,000 ms",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap block 1: hold refusals",
+   "value": 0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap block 1: preemptions",
+   "value": 0.0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap block 1: contender work in the shared window (p) against off's",
+   "value": [
+    1.0,
+    1.0
+   ],
+   "rule": ">= 0.9 x off's",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap block 1: contender work in the shared window (q) against off's",
+   "value": [
+    0.9328125,
+    0.9375
+   ],
+   "rule": ">= 0.9 x off's",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap block 1: premium inter-token gap p99 against off's",
+   "value": [
+    88.646,
+    91.316
+   ],
+   "rule": "<= 1.25 x off's",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.62 block 1: contender completion",
+   "value": 1.0,
+   "rule": ">= 0.95",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.62 block 1: contender completion p50 against off's",
+   "value": [
+    4068.505721,
+    3259.243278
+   ],
+   "rule": "<= 1.5 x off's",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.62 block 1: contender completion p95",
+   "value": 8328.5602,
+   "rule": "<= 25,000 ms",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.62 block 1: hold refusals",
+   "value": 0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.62 block 1: preemptions",
+   "value": 0.0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.62 block 1: contender work in the shared window (p) against off's",
+   "value": [
+    0.9999902534113061,
+    1.0
+   ],
+   "rule": ">= 0.9 x off's",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.62 block 1: contender work in the shared window (q) against off's",
+   "value": [
+    0.9328125,
+    0.9375
+   ],
+   "rule": ">= 0.9 x off's",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.62 block 1: premium inter-token gap p99 against off's",
+   "value": [
+    89.666,
+    91.316
+   ],
+   "rule": "<= 1.25 x off's",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.66 block 1: contender completion",
+   "value": 1.0,
+   "rule": ">= 0.95",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.66 block 1: contender completion p50 against off's",
+   "value": [
+    4084.248091,
+    3259.243278
+   ],
+   "rule": "<= 1.5 x off's",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.66 block 1: contender completion p95",
+   "value": 8745.163653,
+   "rule": "<= 25,000 ms",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.66 block 1: hold refusals",
+   "value": 0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.66 block 1: preemptions",
+   "value": 0.0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.66 block 1: contender work in the shared window (p) against off's",
+   "value": [
+    0.9997407407407407,
+    1.0
+   ],
+   "rule": ">= 0.9 x off's",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.66 block 1: contender work in the shared window (q) against off's",
+   "value": [
+    0.9328125,
+    0.9375
+   ],
+   "rule": ">= 0.9 x off's",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.66 block 1: premium inter-token gap p99 against off's",
+   "value": [
+    89.285,
+    91.316
+   ],
+   "rule": "<= 1.25 x off's",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.70 block 1: contender completion",
+   "value": 1.0,
+   "rule": ">= 0.95",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.70 block 1: contender completion p50 against off's",
+   "value": [
+    4264.963421,
+    3259.243278
+   ],
+   "rule": "<= 1.5 x off's",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.70 block 1: contender completion p95",
+   "value": 9152.631993,
+   "rule": "<= 25,000 ms",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.70 block 1: hold refusals",
+   "value": 0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.70 block 1: preemptions",
+   "value": 0.0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.70 block 1: contender work in the shared window (p) against off's",
+   "value": [
+    0.9994912280701754,
+    1.0
+   ],
+   "rule": ">= 0.9 x off's",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.70 block 1: contender work in the shared window (q) against off's",
+   "value": [
+    0.9328125,
+    0.9375
+   ],
+   "rule": ">= 0.9 x off's",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.70 block 1: premium inter-token gap p99 against off's",
+   "value": [
+    88.793,
+    91.316
+   ],
+   "rule": "<= 1.25 x off's",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.74 block 1: contender completion",
+   "value": 1.0,
+   "rule": ">= 0.95",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.74 block 1: contender completion p50 against off's",
+   "value": [
+    4515.673923,
+    3259.243278
+   ],
+   "rule": "<= 1.5 x off's",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.74 block 1: contender completion p95",
+   "value": 9534.158789,
+   "rule": "<= 25,000 ms",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.74 block 1: hold refusals",
+   "value": 0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.74 block 1: preemptions",
+   "value": 0.0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.74 block 1: contender work in the shared window (p) against off's",
+   "value": [
+    0.9992417153996102,
+    1.0
+   ],
+   "rule": ">= 0.9 x off's",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.74 block 1: contender work in the shared window (q) against off's",
+   "value": [
+    0.9328125,
+    0.9375
+   ],
+   "rule": ">= 0.9 x off's",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.74 block 1: premium inter-token gap p99 against off's",
+   "value": [
+    88.469,
+    91.316
+   ],
+   "rule": "<= 1.25 x off's",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap block 2: contender completion",
+   "value": 1.0,
+   "rule": ">= 0.95",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap block 2: contender completion p50 against off's",
+   "value": [
+    5389.696372,
+    4230.477895
+   ],
+   "rule": "<= 1.5 x off's",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap block 2: contender completion p95",
+   "value": 17301.057668,
+   "rule": "<= 25,000 ms",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap block 2: hold refusals",
+   "value": 0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap block 2: preemptions",
+   "value": 0.0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap block 2: contender work in the shared window (p) against off's",
+   "value": [
+    0.9956512322136527,
+    0.9992566852809246
+   ],
+   "rule": ">= 0.9 x off's",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap block 2: contender work in the shared window (q) against off's",
+   "value": [
+    0.9296497584541062,
+    0.9329710144927537
+   ],
+   "rule": ">= 0.9 x off's",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap block 2: premium inter-token gap p99 against off's",
+   "value": [
+    89.445,
+    92.713
+   ],
+   "rule": "<= 1.25 x off's",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.62 block 2: contender completion",
+   "value": 1.0,
+   "rule": ">= 0.95",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.62 block 2: contender completion p50 against off's",
+   "value": [
+    5182.157751,
+    4230.477895
+   ],
+   "rule": "<= 1.5 x off's",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.62 block 2: contender completion p95",
+   "value": 12666.368911,
+   "rule": "<= 25,000 ms",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.62 block 2: hold refusals",
+   "value": 0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.62 block 2: preemptions",
+   "value": 0.0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.62 block 2: contender work in the shared window (p) against off's",
+   "value": [
+    0.9985441327419461,
+    0.9992566852809246
+   ],
+   "rule": ">= 0.9 x off's",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.62 block 2: contender work in the shared window (q) against off's",
+   "value": [
+    0.9329710144927537,
+    0.9329710144927537
+   ],
+   "rule": ">= 0.9 x off's",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.62 block 2: premium inter-token gap p99 against off's",
+   "value": [
+    90.633,
+    92.713
+   ],
+   "rule": "<= 1.25 x off's",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.66 block 2: contender completion",
+   "value": 1.0,
+   "rule": ">= 0.95",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.66 block 2: contender completion p50 against off's",
+   "value": [
+    5391.610752,
+    4230.477895
+   ],
+   "rule": "<= 1.5 x off's",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.66 block 2: contender completion p95",
+   "value": 13036.92772,
+   "rule": "<= 25,000 ms",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.66 block 2: hold refusals",
+   "value": 0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.66 block 2: preemptions",
+   "value": 0.0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.66 block 2: contender work in the shared window (p) against off's",
+   "value": [
+    0.9985441327419461,
+    0.9992566852809246
+   ],
+   "rule": ">= 0.9 x off's",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.66 block 2: contender work in the shared window (q) against off's",
+   "value": [
+    0.9329710144927537,
+    0.9329710144927537
+   ],
+   "rule": ">= 0.9 x off's",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.66 block 2: premium inter-token gap p99 against off's",
+   "value": [
+    90.52,
+    92.713
+   ],
+   "rule": "<= 1.25 x off's",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.70 block 2: contender completion",
+   "value": 1.0,
+   "rule": ">= 0.95",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.70 block 2: contender completion p50 against off's",
+   "value": [
+    5563.604307,
+    4230.477895
+   ],
+   "rule": "<= 1.5 x off's",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.70 block 2: contender completion p95",
+   "value": 14682.363413,
+   "rule": "<= 25,000 ms",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.70 block 2: hold refusals",
+   "value": 0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.70 block 2: preemptions",
+   "value": 0.0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.70 block 2: contender work in the shared window (p) against off's",
+   "value": [
+    0.9985441327419461,
+    0.9992566852809246
+   ],
+   "rule": ">= 0.9 x off's",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.70 block 2: contender work in the shared window (q) against off's",
+   "value": [
+    0.9329710144927537,
+    0.9329710144927537
+   ],
+   "rule": ">= 0.9 x off's",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.70 block 2: premium inter-token gap p99 against off's",
+   "value": [
+    90.161,
+    92.713
+   ],
+   "rule": "<= 1.25 x off's",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.74 block 2: contender completion",
+   "value": 1.0,
+   "rule": ">= 0.95",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.74 block 2: contender completion p50 against off's",
+   "value": [
+    5580.936318,
+    4230.477895
+   ],
+   "rule": "<= 1.5 x off's",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.74 block 2: contender completion p95",
+   "value": 17008.64163,
+   "rule": "<= 25,000 ms",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.74 block 2: hold refusals",
+   "value": 0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.74 block 2: preemptions",
+   "value": 0.0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.74 block 2: contender work in the shared window (p) against off's",
+   "value": [
+    0.9973387575218239,
+    0.9992566852809246
+   ],
+   "rule": ">= 0.9 x off's",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.74 block 2: contender work in the shared window (q) against off's",
+   "value": [
+    0.9314613526570048,
+    0.9329710144927537
+   ],
+   "rule": ">= 0.9 x off's",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.74 block 2: premium inter-token gap p99 against off's",
+   "value": [
+    89.629,
+    92.713
+   ],
+   "rule": "<= 1.25 x off's",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap block 3: contender completion",
+   "value": 1.0,
+   "rule": ">= 0.95",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap block 3: contender completion p50 against off's",
+   "value": [
+    4312.056216,
+    3377.126178
+   ],
+   "rule": "<= 1.5 x off's",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap block 3: contender completion p95",
+   "value": 9899.202713,
+   "rule": "<= 25,000 ms",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap block 3: hold refusals",
+   "value": 0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap block 3: preemptions",
+   "value": 0.0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap block 3: contender work in the shared window (p) against off's",
+   "value": [
+    0.9890469678895969,
+    0.9934932226457058
+   ],
+   "rule": ">= 0.9 x off's",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap block 3: contender work in the shared window (q) against off's",
+   "value": [
+    0.9235074626865671,
+    0.9275497512437811
+   ],
+   "rule": ">= 0.9 x off's",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap block 3: premium inter-token gap p99 against off's",
+   "value": [
+    89.151,
+    91.669
+   ],
+   "rule": "<= 1.25 x off's",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.62 block 3: contender completion",
+   "value": 1.0,
+   "rule": ">= 0.95",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.62 block 3: contender completion p50 against off's",
+   "value": [
+    4179.352488,
+    3377.126178
+   ],
+   "rule": "<= 1.5 x off's",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.62 block 3: contender completion p95",
+   "value": 9347.795273,
+   "rule": "<= 25,000 ms",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.62 block 3: hold refusals",
+   "value": 0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.62 block 3: preemptions",
+   "value": 0.0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.62 block 3: contender work in the shared window (p) against off's",
+   "value": [
+    0.990029708507495,
+    0.9934932226457058
+   ],
+   "rule": ">= 0.9 x off's",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.62 block 3: contender work in the shared window (q) against off's",
+   "value": [
+    0.9235074626865671,
+    0.9275497512437811
+   ],
+   "rule": ">= 0.9 x off's",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.62 block 3: premium inter-token gap p99 against off's",
+   "value": [
+    90.204,
+    91.669
+   ],
+   "rule": "<= 1.25 x off's",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.66 block 3: contender completion",
+   "value": 1.0,
+   "rule": ">= 0.95",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.66 block 3: contender completion p50 against off's",
+   "value": [
+    4271.639639,
+    3377.126178
+   ],
+   "rule": "<= 1.5 x off's",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.66 block 3: contender completion p95",
+   "value": 9665.20407,
+   "rule": "<= 25,000 ms",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.66 block 3: hold refusals",
+   "value": 0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.66 block 3: preemptions",
+   "value": 0.0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.66 block 3: contender work in the shared window (p) against off's",
+   "value": [
+    0.9893217473386802,
+    0.9934932226457058
+   ],
+   "rule": ">= 0.9 x off's",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.66 block 3: contender work in the shared window (q) against off's",
+   "value": [
+    0.9235074626865671,
+    0.9275497512437811
+   ],
+   "rule": ">= 0.9 x off's",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.66 block 3: premium inter-token gap p99 against off's",
+   "value": [
+    89.839,
+    91.669
+   ],
+   "rule": "<= 1.25 x off's",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.70 block 3: contender completion",
+   "value": 1.0,
+   "rule": ">= 0.95",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.70 block 3: contender completion p50 against off's",
+   "value": [
+    4404.953575,
+    3377.126178
+   ],
+   "rule": "<= 1.5 x off's",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.70 block 3: contender completion p95",
+   "value": 9953.312485,
+   "rule": "<= 25,000 ms",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.70 block 3: hold refusals",
+   "value": 0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.70 block 3: preemptions",
+   "value": 0.0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.70 block 3: contender work in the shared window (p) against off's",
+   "value": [
+    0.9885504252616062,
+    0.9934932226457058
+   ],
+   "rule": ">= 0.9 x off's",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.70 block 3: contender work in the shared window (q) against off's",
+   "value": [
+    0.9231965174129353,
+    0.9275497512437811
+   ],
+   "rule": ">= 0.9 x off's",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.70 block 3: premium inter-token gap p99 against off's",
+   "value": [
+    89.562,
+    91.669
+   ],
+   "rule": "<= 1.25 x off's",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.74 block 3: contender completion",
+   "value": 1.0,
+   "rule": ">= 0.95",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.74 block 3: contender completion p50 against off's",
+   "value": [
+    4654.120239,
+    3377.126178
+   ],
+   "rule": "<= 1.5 x off's",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.74 block 3: contender completion p95",
+   "value": 10457.387201,
+   "rule": "<= 25,000 ms",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.74 block 3: hold refusals",
+   "value": 0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.74 block 3: preemptions",
+   "value": 0.0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.74 block 3: contender work in the shared window (p) against off's",
+   "value": [
+    0.9875573400056249,
+    0.9934932226457058
+   ],
+   "rule": ">= 0.9 x off's",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.74 block 3: contender work in the shared window (q) against off's",
+   "value": [
+    0.9225746268656716,
+    0.9275497512437811
+   ],
+   "rule": ">= 0.9 x off's",
+   "state": "holds"
+  },
+  {
+   "line": "fixed-1.74 block 3: premium inter-token gap p99 against off's",
+   "value": [
+    88.951,
+    91.669
+   ],
+   "rule": "<= 1.25 x off's",
+   "state": "holds"
+  }
+ ],
+ "pooled": {
+  "off": {
+   "premium_p99_sched_hi": 1490.468793,
+   "premium_p99_arr_lo": 1489.141584,
+   "premium_p99_sched_lo": 1490.468793,
+   "premium_p99_arr_hi": 1489.141584,
+   "contender_completion": 1.0,
+   "work": {
+    "p_shared_window": 0.9975833026422102,
+    "q_shared_window": 0.932673588578845
+   }
+  },
+  "hold-cap": {
+   "premium_p99_sched_hi": 454.742841,
+   "premium_p99_arr_lo": 453.116101,
+   "premium_p99_sched_lo": 454.742841,
+   "premium_p99_arr_hi": 453.116101,
+   "contender_completion": 1.0,
+   "work": {
+    "p_shared_window": 0.9948994000344165,
+    "q_shared_window": 0.9286565737135578
+   }
+  },
+  "fixed-1.62": {
+   "premium_p99_sched_hi": 1468.225001,
+   "premium_p99_arr_lo": 1467.285222,
+   "premium_p99_sched_lo": 1468.225001,
+   "premium_p99_arr_hi": 1467.285222,
+   "contender_completion": 1.0,
+   "work": {
+    "p_shared_window": 0.9961880315535824,
+    "q_shared_window": 0.9297636590597737
+   }
+  },
+  "fixed-1.66": {
+   "premium_p99_sched_hi": 1121.620575,
+   "premium_p99_arr_lo": 1119.952169,
+   "premium_p99_sched_lo": 1121.620575,
+   "premium_p99_arr_hi": 1119.952169,
+   "contender_completion": 1.0,
+   "work": {
+    "p_shared_window": 0.9958688736071224,
+    "q_shared_window": 0.9297636590597737
+   }
+  },
+  "fixed-1.70": {
+   "premium_p99_sched_hi": 515.451424,
+   "premium_p99_arr_lo": 513.6822,
+   "premium_p99_sched_lo": 515.451424,
+   "premium_p99_arr_hi": 513.6822,
+   "contender_completion": 1.0,
+   "work": {
+    "p_shared_window": 0.9955285953579093,
+    "q_shared_window": 0.9296600106352297
+   }
+  },
+  "fixed-1.74": {
+   "premium_p99_sched_hi": 445.916227,
+   "premium_p99_arr_lo": 444.535465,
+   "premium_p99_sched_lo": 445.916227,
+   "premium_p99_arr_hi": 444.535465,
+   "contender_completion": 1.0,
+   "work": {
+    "p_shared_window": 0.9947126043090196,
+    "q_shared_window": 0.9289494931742256
+   }
+  }
+ },
+ "admissible": {
+  "hold-cap": true,
+  "fixed-1.62": true,
+  "fixed-1.66": true,
+  "fixed-1.70": true,
+  "fixed-1.74": true
+ },
+ "first_failure": {
+  "hold-cap": null,
+  "fixed-1.62": null,
+  "fixed-1.66": null,
+  "fixed-1.70": null,
+  "fixed-1.74": null
+ },
+ "ratios_to_hold_cap": {
+  "fixed-1.62": 1.1756610816220405,
+  "fixed-1.66": 0.9063814741979253,
+  "fixed-1.70": 0.12889468192949444,
+  "fixed-1.74": -0.016017283704784408,
+  "off": 1.1906975893858913
+ },
+ "hold_cap_ratios": {
+  "fixed-1.62": -1.1714371100441585,
+  "fixed-1.66": -0.9013091825686663,
+  "fixed-1.70": -0.12187271174007613,
+  "fixed-1.74": 0.022702236510617008,
+  "off": -1.1862230402403513
+ }
+}

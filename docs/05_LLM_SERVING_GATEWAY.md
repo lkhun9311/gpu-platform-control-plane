@@ -14,7 +14,7 @@ The gateway is not the main feature; it is the runtime boundary that makes the G
 | model routing        | body `model` → `InferenceDeployment` with `spec.model.name == model` in the policy's `targetNamespace` (cache field index) → Service |
 | proxy                | `httputil.ReverseProxy`, streaming-safe (`FlushInterval`), 502/504 mapping, upstream 5xx passthrough                                 |
 | OpenAI compatibility | `POST /v1/chat/completions` only (ADR-3); `/v1/embeddings` deferred                                                                  |
-| metrics              | 4 `gpuaas_gateway_*` series on a separate `:8081`                                                                                    |
+| metrics              | 17 `gpuaas_gateway_*` series on a separate `:8081` (`internal/gateway/metrics.go`)                                                   |
 | audit                | structured logs with tenant, model, `request_id` (generated if absent, forwarded + echoed)                                           |
 
 ## Identity chain (canonical)
@@ -67,6 +67,19 @@ The two 429 sources are deliberately distinguishable — the M5 flagship's R3/R4
 
 The token bucket is static; it cannot protect a premium tenant's p99 from a *within-limit* long-context noisy neighbor on a shared vLLM instance. The guard scrapes the backend's KV-cache usage and waiting-queue depth (pinned vLLM image, golden `/metrics` fixture), and while pressure is engaged (hysteresis-guarded) selectively rejects standard-tier long-context requests. Design, thresholds, tier model, and pre-registered success criteria: the guard spec. Flagship experiment protocol: doc 04.
 
+## Admission modes and priority binding
+
+`--admission-mode` selects one admission control (`internal/gateway/admission.go`, `prospective.go`):
+
+- `off`, the default, admits everything that passed the token bucket.
+- `static-cap` is a pressure-blind input-token bucket per backend.
+- `kv-aware` is the guard above.
+- `prospective` reserves a standard-tier request's estimated input tokens and a stream slot per backend before forwarding. It releases the input at the first body byte the client receives and the stream when the request ends. Both caps (`--admission-prospective-prefill-tokens`, `--admission-prospective-streams`) are required and have no default, and a reserved request is never sent to a fallback backend.
+
+`--bind-priority` writes the tenant tier's engine priority into every forwarded body (premium 0, standard 1), overwriting any caller value, and reports it in `X-Engine-Priority`. It only matters to an engine started with `--scheduling-policy=priority`.
+
+Both are off by default. They are M5-b's successor mechanisms, shown correct on kind (`hack/test/rehearse-prospective-admission.sh`) and not measured for protection (`docs/superpowers/specs/2026-10-06-m5b-stays-closed-and-what-a-successor-needs-first.md`).
+
 ## Open WebUI principle
 
 > Open WebUI must not connect directly to vLLM. It always uses the gateway as its OpenAI-compatible base URL.
@@ -82,7 +95,7 @@ gpuaas_gateway_rate_limited_total{tenant}
 gpuaas_gateway_upstream_errors_total{tenant,model}
 ```
 
-M5 adds the guard series (`gpuaas_gateway_admission_decisions_total`, backend pressure gauges — guard spec).
+M5 adds the guard series (`gpuaas_gateway_admission_decisions_total`, backend pressure gauges — guard spec), and the prospective mode adds `gpuaas_gateway_admission_reserved_input_tokens` and `gpuaas_gateway_admission_running_standard_streams`, by backend.
 Every series this component exposes carries the `gpuaas_gateway_` prefix (`internal/gateway/metrics.go`); this
 line named it `admission_guard_decisions_total`, which matches nothing a scrape would return.
 
@@ -90,6 +103,9 @@ line named it `admission_guard_decisions_total`, which matches nothing a scrape 
 
 `config/gateway/`: Deployment `replicas: 1` (in-memory bucket — scaling multiplies limits; documented ADR), Service, ServiceAccount, minimal RBAC (`get;list;watch` on the two CRDs + the api-keys Secret). Definition of done for M4-b includes the Makefile target, a gateway Dockerfile, and these manifests — `go run` is not a deployment story.
 
+`--metrics-bearer-token-file` makes `/metrics` on `:8081` demand `Authorization: Bearer <token>` read from that file, answering 401 with no metric bytes otherwise; unset, `/metrics` stays open as before, and the gateway refuses to start if the flag names a missing or empty file (`internal/gateway/metricsauth.go`).
+`/readyz` on the same port stays open either way, because the kubelet's readiness and liveness probes call it without credentials; `config/prometheus/gateway_podmonitor.yaml` sends no token, so an operator who sets the flag also adds an `authorization` block referencing a Secret with the same token.
+
 ## Deferred
 
-`/v1/embeddings` · distributed token bucket (Redis) · per-model limits · Open WebUI wiring · `platformctl` · ServiceMonitor · auth on `/metrics`.
+`/v1/embeddings` · distributed token bucket (Redis) · per-model limits · Open WebUI wiring · `platformctl` · ServiceMonitor.

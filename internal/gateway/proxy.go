@@ -210,6 +210,17 @@ type statusRecorder struct {
 	// measures it; what this supports is the weaker, true statement that nothing had reached the client
 	// before this instant.
 	firstByteAt time.Time
+	// onFirstBody runs once, when the first byte of response BODY reaches the client.
+	//
+	// The status line does not count: for a stream it goes out before any token exists. The prospective
+	// admitter releases a request's prefill reservation here, as the nearest point the gateway can see to the
+	// engine having finished that request's prompt.
+	onFirstBody func()
+	bodySeen    bool
+	// onBody sees every body chunk written toward the client, and onFlush runs after each flush, for the request
+	// record's first-content stamp; both nil when the gateway records nothing.
+	onBody  func([]byte)
+	onFlush func()
 }
 
 // WriteHeader records the status code and forwards it to the wrapped writer.
@@ -235,7 +246,17 @@ func (rec *statusRecorder) markFirstByte() {
 func (rec *statusRecorder) Write(b []byte) (int, error) {
 	rec.answered = true
 	rec.markFirstByte()
-	return rec.ResponseWriter.Write(b)
+	n, err := rec.ResponseWriter.Write(b)
+	if n > 0 && !rec.bodySeen {
+		rec.bodySeen = true
+		if rec.onFirstBody != nil {
+			rec.onFirstBody()
+		}
+	}
+	if n > 0 && rec.onBody != nil {
+		rec.onBody(b[:n])
+	}
+	return n, err
 }
 
 // Flush forwards to the wrapped writer's Flusher when it has one.
@@ -248,6 +269,9 @@ func (rec *statusRecorder) Write(b []byte) (int, error) {
 func (rec *statusRecorder) Flush() {
 	if f, ok := rec.ResponseWriter.(http.Flusher); ok {
 		f.Flush()
+	}
+	if rec.onFlush != nil {
+		rec.onFlush()
 	}
 }
 
@@ -801,8 +825,11 @@ type benchmarkRequest struct {
 		Role    string `json:"role"`
 		Content string `json:"content"`
 	} `json:"messages"`
-	MaxTokens     int  `json:"max_tokens"`
-	Stream        bool `json:"stream"`
+	MaxTokens int `json:"max_tokens"`
+	// MinTokens is kept raw so that its absence, which every M5-b request has, is told apart from any value it
+	// carries, an explicit null and an explicit 0 included: a pointer decodes null as if the field were absent.
+	MinTokens     json.RawMessage `json:"min_tokens"`
+	Stream        bool            `json:"stream"`
 	StreamOptions struct {
 		IncludeUsage bool `json:"include_usage"`
 	} `json:"stream_options"`
@@ -810,9 +837,14 @@ type benchmarkRequest struct {
 
 // checkBenchmarkProfile refuses a body outside the registered text-only request shape.
 //
-// The fields accepted here mirror internal/bench's sender exactly. `priority` is NOT among them: it belongs to
+// The fields accepted here mirror internal/bench's sender, except the two it omits unless a study asks for them. `priority` is NOT among them: it belongs to
 // a separately specified experiment, and a run that carried it would be measuring a different treatment under
 // this one's name.
+//
+// `min_tokens` is accepted only when it equals `max_tokens`. The prospective-admission pilot fixes every output
+// at its cap, so that a short completion is a failure rather than silently deleted work (design page, "Load"),
+// and the gateway must not refuse that traffic. Any other value would change how much output a request asks for
+// without the cap saying so, which is the treatment change this profile exists to refuse.
 //
 // A string `content` is required rather than the multimodal array the OpenAI schema also allows, because the
 // input estimate cannot read a token cost off a non-text part -- the shape that made NonTextContent necessary
@@ -840,6 +872,15 @@ func checkBenchmarkProfile(buf []byte) error {
 	}
 	if req.MaxTokens <= 0 {
 		return fmt.Errorf("%w: max_tokens must be positive, got %d", ErrProfileViolation, req.MaxTokens)
+	}
+	if req.MinTokens != nil {
+		// An explicit null decodes to 0 here, and max_tokens is already known to be positive, so null is refused
+		// by the comparison; it needs no case of its own.
+		var minTokens int
+		if err := json.Unmarshal(req.MinTokens, &minTokens); err != nil || minTokens != req.MaxTokens {
+			return fmt.Errorf("%w: min_tokens is accepted only equal to max_tokens, got %s against %d",
+				ErrProfileViolation, req.MinTokens, req.MaxTokens)
+		}
 	}
 	if !req.Stream || !req.StreamOptions.IncludeUsage {
 		return fmt.Errorf("%w: the profile streams with usage reporting, got stream=%v include_usage=%v",

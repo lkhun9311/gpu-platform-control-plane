@@ -1,0 +1,488 @@
+package bench
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+
+	"sigs.k8s.io/yaml"
+)
+
+// ReproductionFacts is what a run has to match for a later run to be called a reproduction of it.
+//
+// It exists because a registration said "reproduction" and nothing checked it. On 2026-10-02 a paid run was
+// registered as a five-repetition reproduction of the 2026-09-13 pilot and offered a 294-token premium prompt
+// against that pilot's 50, with a 60-second timeout against its 30. The pre-purchase plan check passed it in
+// full: `MatrixPlanRefusal` asks whether a cell is SCORABLE -- study registered, arm admitted, per-repetition
+// tail floor -- and has no notion of "the same load as a named prior run".
+//
+// The fields here are the ones a frozen manifest records about the offered traffic and the judging contract.
+// They are deliberately NOT the whole manifest: GatewayURL and TracePath are where a run happened to put
+// things, and comparing them would refuse every reproduction for no reason.
+type ReproductionFacts struct {
+	Arm             string
+	Study           string
+	Model           string
+	PromptCorpusSHA string
+	TraceChecksum   string
+	TimeoutMs       int
+	Seed            int64
+	LongThreshold   int
+
+	// MatchTolerance and PrimaryEndpoint are the judging contract, required in every manifest, so they are
+	// compared as plain values (2026-10-07 registration, amendment). They were outside the comparison before.
+	MatchTolerance  string
+	PrimaryEndpoint string
+
+	// TokenizerRev and PromptLenChars are absent from manifests written before those fields existed.
+	//
+	// An absent field is NOT a match. See ReproductionRefusal: it is reported as UNKNOWN and refuses, because
+	// treating "not recorded" as "the same" is how the defect this file closes would recur.
+	TokenizerRev   string
+	PromptLenChars map[string]int
+
+	// GatewaySHA and ImageDigests say which build produced the numbers.
+	//
+	// The 2026-09-13 pilot has neither: the code that fills them landed on 2026-09-16. So a reproduction of
+	// that pilot cannot be certified on the environment, only on the offered traffic, and the refusal says so
+	// rather than passing quietly.
+	GatewaySHA   string
+	ImageDigests map[string]string
+
+	// GatewayBinarySHA256 and GatewayBase name the gateway by content (2026-10-07 registration).
+	//
+	// When both runs recorded them, they replace the gateway's image ID in the comparison, because that ID
+	// changes with every build of one binary on one base. Every run before that page recorded neither.
+	GatewayBinarySHA256 string
+	GatewayBase         string
+}
+
+// ReproductionFactsFromArchive reads one run's manifests out of an archive directory, keyed by arm.
+//
+// It does NOT use LoadManifest, and that is the whole reason this function exists. LoadManifest verifies
+// TraceChecksum against the file TracePath names, and every archive this project has records TracePath as
+// `/src/m5c-run/trace-<arm>-<rep>.jsonl` -- the path INSIDE the rented instance. That path does not exist in
+// a checkout, so LoadManifest fails on every archived manifest. The trace files are in the archive, beside
+// the manifests, so the checksum is verified against the copy that is actually there.
+//
+// Two repetitions of one arm must agree on every field. They replay the same trace by construction, so a
+// disagreement means the archive is not one run's and comparing against it would compare against a mixture.
+func ReproductionFactsFromArchive(dir string) (map[string]ReproductionFacts, error) {
+	paths, err := filepath.Glob(filepath.Join(dir, "manifest-*.yaml"))
+	if err != nil {
+		return nil, fmt.Errorf("list manifests in %s: %w", dir, err)
+	}
+	if len(paths) == 0 {
+		return nil, fmt.Errorf("no manifest-*.yaml in %s, so there is nothing to reproduce; point --reproduces at a run's m5c-run directory", dir)
+	}
+	sort.Strings(paths)
+
+	out := map[string]ReproductionFacts{}
+	for _, p := range paths {
+		data, err := os.ReadFile(p)
+		if err != nil {
+			return nil, fmt.Errorf("read %s: %w", p, err)
+		}
+		var m RunManifest
+		if err := yaml.Unmarshal(data, &m); err != nil {
+			return nil, fmt.Errorf("parse %s: %w", p, err)
+		}
+		if m.Arm == "" {
+			return nil, fmt.Errorf("%s names no arm, so its facts cannot be matched to a planned cell", p)
+		}
+
+		// The checksum is verified against the trace BESIDE the manifest, by base name.
+		//
+		// Without this the comparison would trust a number in a file it never checked, and an archive whose
+		// rows were edited after the fact would read as the run it claims to be.
+		trace := filepath.Join(filepath.Dir(p), filepath.Base(m.TracePath))
+		sum, err := ChecksumFile(trace)
+		if err != nil {
+			return nil, fmt.Errorf("read trace %s for %s: %w", trace, filepath.Base(p), err)
+		}
+		if sum != m.TraceChecksum {
+			return nil, fmt.Errorf("%s declares traceChecksum %s and %s hashes to %s, so this archive is not the run its manifests describe",
+				filepath.Base(p), m.TraceChecksum, filepath.Base(trace), sum)
+		}
+
+		f := ReproductionFacts{
+			Arm:             m.Arm,
+			Study:           m.Study,
+			Model:           m.Model,
+			PromptCorpusSHA: m.PromptCorpusSHA,
+			TraceChecksum:   m.TraceChecksum,
+			TimeoutMs:       m.TimeoutMs,
+			Seed:            m.Seed,
+			LongThreshold:   m.LongThreshold,
+			MatchTolerance:  m.MatchTolerance,
+			PrimaryEndpoint: m.PrimaryEndpoint,
+			TokenizerRev:    m.TokenizerRev,
+			PromptLenChars:  m.PromptLenChars,
+			GatewaySHA:      m.GatewaySHA,
+			ImageDigests:    m.ImageDigests,
+
+			GatewayBinarySHA256: m.GatewayBinarySHA256,
+			GatewayBase:         m.GatewayBase,
+		}
+		if err := GatewayIdentityRefusal(f.GatewayBinarySHA256, f.GatewayBase); err != nil {
+			return nil, fmt.Errorf("%s: %w", filepath.Base(p), err)
+		}
+		if prev, seen := out[m.Arm]; seen {
+			if diff := factsDiffer(prev, f); diff != "" {
+				return nil, fmt.Errorf("two manifests for arm %s in %s disagree on %s; an archive whose repetitions differ is not one run's evidence",
+					m.Arm, dir, diff)
+			}
+			continue
+		}
+		out[m.Arm] = f
+	}
+	return out, nil
+}
+
+// ReproductionFactsOf lifts a manifest the CURRENT run wrote into the facts a comparison reads.
+//
+// Separate from ReproductionFactsFromArchive because the two sides arrive differently: a planned cell's
+// manifest is on local disk beside its trace, so LoadManifest can read it and verify its checksum, while an
+// archived manifest records a path inside a rented instance and cannot.
+//
+// The asymmetry in what counts as UNKNOWN is deliberate and lives in ReproductionRefusal, not here: the
+// question is whether sameness with the TARGET can be established, so a plan manifest that carries no
+// imageDigests says nothing about that. A target that carries none defeats it.
+func ReproductionFactsOf(m RunManifest) ReproductionFacts {
+	return ReproductionFacts{
+		Arm:             m.Arm,
+		Study:           m.Study,
+		Model:           m.Model,
+		PromptCorpusSHA: m.PromptCorpusSHA,
+		TraceChecksum:   m.TraceChecksum,
+		TimeoutMs:       m.TimeoutMs,
+		Seed:            m.Seed,
+		LongThreshold:   m.LongThreshold,
+		MatchTolerance:  m.MatchTolerance,
+		PrimaryEndpoint: m.PrimaryEndpoint,
+		TokenizerRev:    m.TokenizerRev,
+		PromptLenChars:  m.PromptLenChars,
+		GatewaySHA:      m.GatewaySHA,
+		ImageDigests:    m.ImageDigests,
+
+		GatewayBinarySHA256: m.GatewayBinarySHA256,
+		GatewayBase:         m.GatewayBase,
+	}
+}
+
+// factsDiffer names the first comparable field on which two facts disagree, or "" when they agree.
+func factsDiffer(a, b ReproductionFacts) string {
+	switch {
+	case a.Study != b.Study:
+		return "study"
+	case a.Model != b.Model:
+		return "model"
+	case a.PromptCorpusSHA != b.PromptCorpusSHA:
+		return "promptCorpusSHA"
+	case a.TraceChecksum != b.TraceChecksum:
+		return "traceChecksum"
+	case a.TimeoutMs != b.TimeoutMs:
+		return "timeoutMs"
+	case a.Seed != b.Seed:
+		return "seed"
+	case a.LongThreshold != b.LongThreshold:
+		return "longThreshold"
+	case a.MatchTolerance != b.MatchTolerance:
+		return "matchTolerance"
+	case a.PrimaryEndpoint != b.PrimaryEndpoint:
+		return "primaryEndpoint"
+	// The provenance fields are compared here too, and leaving them out was a defect.
+	//
+	// This function decides whether an archive's repetitions describe ONE run. It omitted tokenizerRev,
+	// gatewaySHA, imageDigests and promptLenChars, so an archive assembled from two different builds -- or
+	// two different prompt lengths -- read as a single coherent target, and every refusal downstream then
+	// compared against a mixture. A review found it on 2026-10-02.
+	case a.TokenizerRev != b.TokenizerRev:
+		return "tokenizerRev"
+	case a.GatewaySHA != b.GatewaySHA:
+		return "gatewaySHA"
+	case digestsDiffer(a.ImageDigests, b.ImageDigests) != "":
+		return "imageDigests"
+	case a.GatewayBinarySHA256 != b.GatewayBinarySHA256:
+		return "gatewayBinarySHA256"
+	case a.GatewayBase != b.GatewayBase:
+		return "gatewayBase"
+	case promptLenDiffer(a.PromptLenChars, b.PromptLenChars) != "":
+		return "promptLenChars"
+	}
+	return ""
+}
+
+// digestsDiffer names the first image whose digest differs, or "" when both maps agree.
+//
+// Absence on one side counts as a difference: an archive that records an engine digest and a plan that does
+// not are not describing the same environment, and saying nothing differs would be the lie ReproductionRefusal
+// exists to stop.
+func digestsDiffer(target, planned map[string]string) string {
+	names := make([]string, 0, len(target)+len(planned))
+	seen := map[string]bool{}
+	for n := range target {
+		names = append(names, n)
+		seen[n] = true
+	}
+	for n := range planned {
+		if !seen[n] {
+			names = append(names, n)
+		}
+	}
+	sort.Strings(names)
+	for _, n := range names {
+		t, p := target[n], planned[n]
+		if t != p {
+			return fmt.Sprintf("%s is %q in the target run and %q in this plan", n, t, p)
+		}
+	}
+	return ""
+}
+
+// ReproductionRefusal says whether a planned run may be called a reproduction of a target run.
+//
+// It refuses for three different reasons and keeps them apart, because they call for different actions:
+//
+//   - A planned arm the target never measured. The plan is not a repeat of that run.
+//   - A comparable field that differs. The plan offers different traffic or judges it differently, and the
+//     message names the field with both values so the operator can fix the load or drop the word
+//     "reproduction".
+//   - A field the TARGET never recorded. Nothing can establish sameness there, so the reproduction cannot be
+//     certified -- and saying "no difference found" would be the lie this function exists to stop.
+//
+// The third case is why a reproduction of the 2026-09-13 pilot can never pass: that archive has no
+// tokenizerRev, no promptLenChars, no gatewaySHA and no imageDigests, and neither it nor any later run
+// recorded a driver version. The honest outcome is to measure at the load and not call it a reproduction.
+func ReproductionRefusal(target, planned map[string]ReproductionFacts) error {
+	if len(target) == 0 {
+		return fmt.Errorf("the target run has no arms, so there is nothing to reproduce")
+	}
+	if len(planned) == 0 {
+		return fmt.Errorf("the plan has no arms, so it reproduces nothing")
+	}
+
+	arms := make([]string, 0, len(planned))
+	for a := range planned {
+		arms = append(arms, a)
+	}
+	sort.Strings(arms)
+
+	for _, arm := range arms {
+		p := planned[arm]
+		t, ok := target[arm]
+		if !ok {
+			have := make([]string, 0, len(target))
+			for a := range target {
+				have = append(have, a)
+			}
+			sort.Strings(have)
+			return fmt.Errorf("the plan buys arm %q and the target run has no such arm (it measured %s), so this is not a reproduction of it",
+				arm, strings.Join(have, ", "))
+		}
+
+		for _, c := range []struct {
+			field       string
+			tv, pv      string
+			consequence string
+		}{
+			{"study", t.Study, p.Study, "a different study's readings would score it"},
+			{"model", t.Model, p.Model, "a different model answers a different question"},
+			{"promptCorpusSHA", t.PromptCorpusSHA, p.PromptCorpusSHA, "the prompt text is cut from a different corpus"},
+			{"timeoutMs", fmt.Sprint(t.TimeoutMs), fmt.Sprint(p.TimeoutMs), "a different timeout censors the tail differently"},
+			{"seed", fmt.Sprint(t.Seed), fmt.Sprint(p.Seed), "a different seed is a different arrival schedule"},
+			{"longThreshold", fmt.Sprint(t.LongThreshold), fmt.Sprint(p.LongThreshold), "a different eligible population is gated"},
+			{"matchTolerance", t.MatchTolerance, p.MatchTolerance, "the same admitted work is judged a match by a different tolerance"},
+			{"primaryEndpoint", t.PrimaryEndpoint, p.PrimaryEndpoint, "a different metric is the one the run is judged by"},
+		} {
+			if c.tv != c.pv {
+				return fmt.Errorf("arm %s: %s is %s in the target run and %s in this plan -- %s. Fix the load, or stop calling this a reproduction",
+					arm, c.field, c.tv, c.pv, c.consequence)
+			}
+		}
+
+		// The prompt length is compared BEFORE the checksum, and the order is the point.
+		//
+		// PromptLenCharsByTenant derives this from the trace rows, so for a trace gen-trace actually wrote,
+		// a different length always means a different checksum -- measured: 1174, 1175 and 200 characters
+		// give three different hashes. Comparing the checksum first would therefore refuse every
+		// prompt-length mismatch with "the offered traffic is not byte-identical", which is true and tells
+		// the operator nothing about WHAT to change. The 2026-10-02 run differed in exactly this field.
+		//
+		// The branch is still reachable on its own: a manifest edited by hand keeps its checksum while
+		// claiming a different length, and that is a target this function must refuse rather than trust.
+		if len(t.PromptLenChars) > 0 && len(p.PromptLenChars) > 0 {
+			if d := promptLenDiffer(t.PromptLenChars, p.PromptLenChars); d != "" {
+				return fmt.Errorf("arm %s: promptLenChars differ -- %s. The prompt length moves the headline number and the registration does not freeze it",
+					arm, d)
+			}
+		}
+
+		// The provenance fields are COMPARED when the target recorded them, and that was missing.
+		//
+		// A review found it on 2026-10-02: tokenizerRev, gatewaySHA and imageDigests were only ever read by
+		// unrecordedFields, which asks whether the TARGET recorded them. A plan running a different gateway
+		// build, a different engine image or a different tokenizer revision therefore passed, while the
+		// struct's own comment claimed these fields "say which build produced the numbers".
+		//
+		// Each field splits into the three classes this function keeps apart, and collapsing them is a defect
+		// of its own -- the first version of this block did, and three tests went red for exactly that:
+		//
+		//   target empty            -> UNKNOWN, left to unrecordedFields below. Not a difference: nothing can
+		//                              establish sameness, and "differs" would tell an operator to fix a load
+		//                              when the real answer is that the claim cannot be certified at all.
+		//   target set, plan empty  -> this RUN is failing to record what the comparison needs. Not a
+		//                              historical gap and not uncertifiable -- fixable here, before launch.
+		//   both set and unequal    -> a difference, named with both values.
+		for _, c := range []struct {
+			field, tv, pv, consequence string
+		}{
+			{"tokenizerRev", t.TokenizerRev, p.TokenizerRev, "a different tokenizer revision counts the same characters as a different number of tokens"},
+			{"gatewaySHA", t.GatewaySHA, p.GatewaySHA, "a different gateway build admits and routes differently"},
+		} {
+			switch {
+			case c.tv == "":
+				// UNKNOWN; reported below with every other unrecorded field.
+			case c.pv == "":
+				return fmt.Errorf("arm %s: the target run records %s and this plan records none, so sameness there cannot be checked. Record the field in this run's manifest, or stop calling this a reproduction",
+					arm, c.field)
+			case c.tv != c.pv:
+				return fmt.Errorf("arm %s: %s is %q in the target run and %q in this plan -- %s. Fix the plan, or stop calling this a reproduction",
+					arm, c.field, c.tv, c.pv, c.consequence)
+			}
+		}
+		// The gateway by content, when the target recorded it (2026-10-07 registration).
+		//
+		// Both-or-neither is checked on each side first, so "the target has a binary hash" means it has both
+		// facts. Then the same three classes as above, and when both sides have the facts the gateway's image ID
+		// leaves the image comparison: measured, one binary on one pinned base built twice gives two IDs.
+		for side, f := range map[string]ReproductionFacts{"target run": t, "plan": p} {
+			if err := GatewayIdentityRefusal(f.GatewayBinarySHA256, f.GatewayBase); err != nil {
+				return fmt.Errorf("arm %s: the %s's %w", arm, side, err)
+			}
+		}
+		byContent := t.GatewayBinarySHA256 != ""
+		if byContent {
+			switch {
+			case p.GatewayBinarySHA256 == "":
+				return fmt.Errorf("arm %s: the target run records the gateway's binary hash and base and this plan records neither, so sameness there cannot be checked. Record them in this run's manifest, or stop calling this a reproduction",
+					arm)
+			case t.GatewayBinarySHA256 != p.GatewayBinarySHA256:
+				return fmt.Errorf("arm %s: gatewayBinarySHA256 is %q in the target run and %q in this plan -- a different gateway binary admits and routes differently, whatever commit it names. Fix the plan, or stop calling this a reproduction",
+					arm, t.GatewayBinarySHA256, p.GatewayBinarySHA256)
+			case t.GatewayBase != p.GatewayBase:
+				return fmt.Errorf("arm %s: gatewayBase is %q in the target run and %q in this plan -- the gateway runs on a different base image. Fix the plan, or stop calling this a reproduction",
+					arm, t.GatewayBase, p.GatewayBase)
+			}
+		}
+		if len(t.ImageDigests) > 0 {
+			ti, pi := t.ImageDigests, p.ImageDigests
+			if byContent {
+				ti, pi = withoutRole(ti, "gateway"), withoutRole(pi, "gateway")
+			}
+			if len(pi) == 0 {
+				return fmt.Errorf("arm %s: the target run records imageDigests and this plan records none, so sameness there cannot be checked. Record them in this run's manifest, or stop calling this a reproduction",
+					arm)
+			}
+			if d := digestsDiffer(ti, pi); d != "" {
+				return fmt.Errorf("arm %s: imageDigests differ -- %s. A different image is a different instrument, and this plan does not repeat that run",
+					arm, d)
+			}
+		}
+
+		// The same three classes for the prompt length.
+		//
+		// promptLenDiffer above is guarded on both sides being present, because the target may predate the
+		// field. The reverse -- the target HAS it and the plan does not -- is this run failing to record
+		// something the comparison needs, and it must refuse rather than skip.
+		if len(t.PromptLenChars) > 0 && len(p.PromptLenChars) == 0 {
+			return fmt.Errorf("arm %s: the target run records promptLenChars and this plan records none, so the prompt length cannot be compared. Write the field, or stop calling this a reproduction",
+				arm)
+		}
+
+		// The checksum is the LAST net, because it cannot say what differs.
+		//
+		// Everything above names a field and both values. This one fires for any difference the fields above
+		// did not catch -- output tokens, arrival jitter, a tenant's weight -- and a reader who gets here
+		// knows only that the traffic is not the same bytes. That is worth refusing on and is the least
+		// useful message, so it goes after the specific ones.
+		if t.TraceChecksum != p.TraceChecksum {
+			return fmt.Errorf("arm %s: traceChecksum is %s in the target run and %s in this plan -- the offered traffic is not byte-identical, and the fields compared above all match, so the difference is in something they do not name. Fix the load, or stop calling this a reproduction",
+				arm, t.TraceChecksum, p.TraceChecksum)
+		}
+
+		if unknown := unrecordedFields(t); len(unknown) > 0 {
+			return fmt.Errorf("arm %s: the target run never recorded %s, so sameness there is UNKNOWN rather than established and this plan cannot be certified as reproducing it. Measure at the load and do not call it a reproduction",
+				arm, strings.Join(unknown, ", "))
+		}
+	}
+	return nil
+}
+
+// unrecordedFields lists the target's fields that carry no value, in a stable order.
+//
+// Returned as names rather than counted, because the refusal has to say WHICH facts are unavailable: a reader
+// deciding whether to rent a card needs to know it is the engine image rather than the timeout.
+func unrecordedFields(t ReproductionFacts) []string {
+	var out []string
+	if t.TokenizerRev == "" {
+		out = append(out, "tokenizerRev")
+	}
+	if len(t.PromptLenChars) == 0 {
+		out = append(out, "promptLenChars")
+	}
+	if t.GatewaySHA == "" {
+		out = append(out, "gatewaySHA")
+	}
+	// Each role on its own: any non-empty map used to count as recorded, so a target naming only its engine
+	// was never reported as UNKNOWN for its gateway (found in review, 2026-10-07).
+	for _, role := range ProvenanceRoles {
+		if strings.TrimSpace(t.ImageDigests[role]) == "" {
+			out = append(out, "imageDigests."+role)
+		}
+	}
+	return out
+}
+
+// withoutRole returns a copy of images without one role, leaving the caller's map untouched.
+func withoutRole(images map[string]string, role string) map[string]string {
+	out := make(map[string]string, len(images))
+	for k, v := range images {
+		if k != role {
+			out[k] = v
+		}
+	}
+	return out
+}
+
+// promptLenDiffer describes the first tenant whose prompt length differs, or "" when every tenant agrees.
+func promptLenDiffer(target, planned map[string]int) string {
+	tenants := make([]string, 0, len(target)+len(planned))
+	seen := map[string]bool{}
+	for t := range target {
+		if !seen[t] {
+			tenants, seen[t] = append(tenants, t), true
+		}
+	}
+	for t := range planned {
+		if !seen[t] {
+			tenants, seen[t] = append(tenants, t), true
+		}
+	}
+	sort.Strings(tenants)
+	for _, tenant := range tenants {
+		tv, tok := target[tenant]
+		pv, pok := planned[tenant]
+		switch {
+		case !tok:
+			return fmt.Sprintf("the plan sends %s %d characters and the target run sent it none", tenant, pv)
+		case !pok:
+			return fmt.Sprintf("the target run sent %s %d characters and the plan sends it none", tenant, tv)
+		case tv != pv:
+			return fmt.Sprintf("%s was %d characters and is now %d", tenant, tv, pv)
+		}
+	}
+	return ""
+}

@@ -1,7 +1,13 @@
 # Does splitting the card buy protection — pre-registration
 
-Date: 2026-09-10 · Pre-registered **before** any card time is bought for it. Nothing here may be edited from
-the moment its pilot is bought.
+Date: 2026-09-10 · Pre-registered **before** any card time is bought for it. The registered body is frozen
+from the moment its pilot is bought: later changes are **appended as dated amendments** and are never edited
+into it.
+
+⚠️ This header used to read "Nothing here may be edited from the moment its pilot is bought", and **that
+sentence became false** — seven dated amendments were written after paid runs. It is corrected rather than
+deleted, because a reader who finds seven amendments under a claim of immutability cannot tell which of them
+was registered. The eighth amendment at the end of this page is the account.
 
 ## Why this exists
 
@@ -257,7 +263,16 @@ search:
 
   **Per-repetition CENSORING was not fixed, and this line said it was.** A review checked and found the
   claim false: each repetition's `Censored` flag is still discarded when the summaries are built, and the
-  readings check the pooled one. Marking the second control repetition's 70 slowest premium responses as
+  readings check the pooled one.
+
+  ⚠️ **Corrected 2026-10-01: the sentence above is no longer true, and it was left standing after the code
+  changed.** `armEvidence.repCensored` records whether ANY repetition was censored, the summary carries it as
+  `ArmSummary.AnyRepetitionCensored`, and `censored()` in `internal/bench/sharing_matrix.go` is
+  `s.Censored || s.AnyRepetitionCensored` -- so readings 4, 4b and the scoring precondition all see a
+  repetition the pool hides. The reproduction in the next sentence (70 slowest responses in the second
+  control repetition) now refuses rather than firing. What the stale line cost was not a wrong number: it was
+  a registration asserting a gap the code had closed, which is the same defect in the other direction as a
+  document asserting an invariant the code does not hold. Marking the second control repetition's 70 slowest premium responses as
   timed out loses 1.50% of that repetition and 0.75% of the pool — the pool passes, both completion floors
   pass, and reading 5 fires on a censored control. Contender loss fractions have the same shape: 100/139
   and 139/139 clear both floors while the first repetition lost more than a quarter of its load.
@@ -520,9 +535,22 @@ ANSWER: 5 (timeSlicing)
 The ninth paid run is the first to produce one. Readings 4 and 4b stayed silent, 4c reported that `mps` was
 absent rather than refused — it was not in `ARMS`, and absence is not a refusal — and **reading 5 fired**:
 
+⚠️ **This block is the record of what was published on 2026-09-13, and it is left as written.** Re-scoring
+the same rows today withholds the answer: reading 4e, registered in the 2026-10-03 amendment, refuses a load
+measured before the tuple was frozen. The figures in this section still reproduce exactly; the verdict line
+does not. See "What it does to the ninth pilot" in that amendment for the measured basis. Rewriting this
+block instead of dating it would be the sin the unit amendment's "What is not repaired" section names.
+
 > `timeSlicing` improves the control's premium tail by **884.6 ms** against a **1.4 ms** spread, and misses
 > both bars: tail **14.5x** R1 against 2.0x, stream **2.42x** against 1.25x — a real improvement that does
 > not reach the bar, **with all 278 of the contender's requests served**.
+
+**This is the table to quote.** Two tables on this page carry the same three arms with values that differ in
+their last digit — the eighth pilot's, further up, reads 69.6 / 1,891.1 / 1,008.7 ms, and this one is the
+ninth pilot's. They are different runs, not two renderings of one: the eighth had `mps` refuse and no
+contender column, and the ninth is the run that produced a verdict. `README.md` and
+`docs/11_WHAT_THIS_MEASURED.md` quote these numbers. Anyone copying from this page should take them from
+here and say which pilot they came from.
 
 | arm | premium TTFT p99 | /R1 | premium TPOT p99 | /R1 | contender | timeouts |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -1103,3 +1131,640 @@ distinction is the whole value of a page like this, so it is worth being explici
 what a pre-registration is *supposed* to absorb — they were bought by reading and rehearsing rather than by
 a card, and they arrived while editing was still allowed. What may not happen after the pilot is bought is
 a change to the bars, the readings, or the order they are evaluated in.
+
+## Amendment, 2026-10-01: reading 4d, for a plan that cannot produce a verdict
+
+A run on 2026-10-01 completed ten cells on a rented A10G for $1.44, printed four readings as
+`N/E`, and **exited zero**. Its last line was "none of the readings fired. That is not a result; it is
+a gap in the outcome space" — which reads as an invitation to buy another run. It was not a gap.
+
+**What the evidence was.** A `GpuSharingBenchmark` declares one `sharingMode`, and `sharedInstance`
+compiles to the arm pair `{R1, shared}`. Both are ROLES in this study: R1 is the baseline both bars
+divide by, `shared` is the control every improvement is measured from. `scoreSharingArms` iterates the
+CANDIDATE slice, and that slice was empty. Readings 1, 2, 3 and 5 each came back `NotEvaluable` with
+"no sharing arm could be scored against the bars", and none of them is a gate, so the exit verdict —
+which only looked at 4 and 4b — returned nil.
+
+### 4d. The plan has no sharing candidate — INVALID
+
+Fires `NotEvaluable` when the candidate set is empty, from either route: a plan that never declared a
+candidate, or a plan whose only candidates were refused and filtered out upstream. It is a **gate**: it
+ends the process the way 4 and 4b do.
+
+It says something none of the existing readings can. 4 and 4b say the TRACE has to change. 4c says one
+ARM did not engage. 4d says **the PLAN cannot produce a verdict** — running it again, longer, or on a
+bigger card produces the same page.
+
+**A new id rather than reusing 4.** The exit verdict returns on its first matching reading, so a second
+reading with id "4" placed behind the one reading 4 already appends would never be reached. And 4d is
+appended AFTER readings 1, 2, 3 and 5 rather than short-circuiting before them, because a reader has to
+see WHICH readings were not evaluated; `TestNoSharingArmsMeansNoConclusionAboutThem` pins that they stay
+reported.
+
+**What it does not change.** No bar moved. 4c still invalidates one arm rather than the run — MPS has
+already been measured failing to engage on this AMI, and that is still the expected case rather than a
+corner. Readings 1, 2, 3 and 5 still report as ordinary non-findings when a candidate exists and misses
+the bars.
+
+**The ANSWER line changes with it.** When 4d is present the page says "none of the readings COULD fire"
+and names the reason, instead of the outcome-space sentence that sent this run's operator looking for a
+load to change.
+
+### Verified in three directions
+
+| direction | input | expected | measured |
+| --- | --- | --- | --- |
+| control | `internal/bench` and `cmd/benchharness` suites | green | green; the two tests this change could have broken pass (7/7 exit-status cases, and the no-candidate reporting test) |
+| mutation | the 2026-10-01 two-arm evidence, ten cells | exit ≠ 0, 4d present | **exit 1**, `[ N/E ] 4d`, ANSWER replaced |
+| reverse | the ninth pilot's three-arm evidence, six cells | exit 0, no 4d, reading 5 | **exit 0**, 4d absent, `ANSWER: 5 (timeSlicing)` — measured 2026-10-01 against the evaluator of that date. ⚠️ **No longer reproducible, and corrected rather than deleted.** Re-scoring the same archive on 2026-10-03 gives **exit 1** with `[FIRED] 4e` and `ANSWER: withheld`: reading 4e, registered in the 2026-10-03 amendment below, holds the engine's reported input-token count against the frozen tuple, and this pilot predates the freeze. The 4d finding this row was written to verify still stands — 4d is still absent from this evidence — but the row cannot be read as a current reproduction |
+
+The reverse direction matters as much as the mutation: a gate that refuses a run this study is designed
+to buy would be worse than the hole it closes. It also recomputed the published table from the committed
+raw rows — R1 69.5 ms, `shared` 1,892.2 ms (27.2x), `timeSlicing` 1,007.5 ms (14.5x), 9,588 of 9,588
+completed in every arm.
+
+**What this amendment cannot do.** It does not make a one-mode CR produce a scorable comparison. The
+readings need three arms, and a CR declares one `sharingMode`; `timeSlicing` alone yields a candidate
+with no control. That is an open question about the CRD's shape, not something a reading can fix.
+## Amendment, 2026-10-01: reading 4's aggregation was never specified, and this says so after the fact
+
+Reading 4 above says "if `shared`'s premium TTFT p99 is under 5x R1's". **It does not say whether that p99 is
+pooled over the arm's completed requests or the median of the per-repetition p99s.** The implementation uses
+the pooled one (`internal/bench/sharing_matrix.go`, `shared.TTFTMsP99 / r1.TTFTMsP99`), and the 23.0x this
+study published comes from that sentence's diagnostic text.
+
+**This amendment does not make that a pre-registered choice, and it is not written as one.** A number derived
+from the ambiguity has already been published, so choosing now is a POST-HOC analysis decision. What a dated
+amendment can honestly do is three things, and no more:
+
+1. **Record that the registration was silent**, rather than letting a later reader infer that pooled was
+   specified. It was not.
+2. **Record what the code did at the time** — pooled — so the published figure is attributable.
+3. **Fix the rule going forward**, which binds the next run and not this one.
+
+### The three values this evidence gives
+
+| quantity | value | what it is |
+| --- | ---: | --- |
+| pooled-request ratio | **22.972** | the quantity reading 4 actually computed |
+| ratio of raw per-repetition medians | **22.968637** | the third amendment's estimand at full precision |
+| ratio of rounded medians | **22.977** | that estimand under the registered rounding, `3998/174` |
+
+They agree to three significant figures and differ in the fourth, which is why "about 23.0x" is the only
+summary that does not depend on the choice. Publishing one of them without naming which it is would be the
+defect; publishing all three with their definitions is what this study can support.
+
+### Going forward
+
+The next run of this study reads reading 4 as the **median of the per-repetition p99s**, computed by
+`RegisteredEstimandFor` in `internal/bench/estimand.go`, for one reason: the third amendment to the
+`GpuSharingBenchmark` design already chose that estimand for `interferenceRatio`, and two readings of the same
+tails under two aggregation rules would make the gate and the published field disagree about one run.
+
+**The code is not being changed to match this paragraph today.** Changing the scorer would alter what reading
+4 reports about evidence already collected, which is the one thing a post-hoc note must not do. The change
+belongs with the next run that buys cells, and the open issue tracking it is
+`issues/open/2026-10-01-a-gate-pairs-a-pooled-point-estimate-with-a-per-repetition-interval/` in the sibling
+`storage` repository.
+
+### What this amendment cannot do
+
+It cannot make the published 23.0x a pre-registered median-of-medians. It cannot establish that the two
+aggregations would agree on a run with uneven repetition completions -- on this run they nearly do, and the
+reason is that the five repetitions completed 4,655 premium requests each within one request. On evidence
+where a repetition is thin, pooling re-weights by completion count and the two answers separate; that is the
+condition `MinRepetitionTail` exists to refuse, and the estimand refuses it as of 2026-10-01.
+
+## Amendment, 2026-10-02: reading 4 now divides the registered estimand, and here is what that changed
+
+The section above says **"The code is not being changed to match this paragraph today."** That sentence was
+true on 2026-10-01 and is no longer. It stays as written, because what it recorded — the reason for waiting
+— is part of why this change is safe to make now rather than evidence that it was never meant to happen.
+
+**What changed.** `sharingReadingFour` divided the arms' pooled premium TTFT p99s. It now divides
+`RegisteredEstimandFor`'s rounded medians, and the Detail line prints the same two integers it compared, so
+a reader dividing the printed numbers reproduces the number that decided the gate. Changing only the
+comparison would have re-created the original defect one line lower.
+
+**Why before the next paid run rather than after.** An external review put it this way: "오늘 변경하지
+않는다"는 문장은 과거 증거의 의미를 보존하려는 유보였지, 다음 실행도 pooled 규칙으로 채점하라는
+등록은 아닙니다. Scoring a run that buys cells under a rule this page already calls not-the-rule-going-
+forward is the shape this project treats as the one to avoid.
+
+**What it did to the published evidence.** Both archives were replayed through the old and the new scorer.
+One line changed in each, and nothing else:
+
+```
+ninth pilot, line 35
+- the control's premium TTFT p99 is 27.2x R1's (1892.2 ms against 69.5 ms), against an INVALID threshold of 5.0x
++ the control's premium TTFT p99 is 27.043x R1's (1893 ms against 70 ms, each the median of its arm's per-repetition p99s), …
+
+ten-cell run, line 32
+- the control's premium TTFT p99 is 23.0x R1's (3997.9 ms against 174.0 ms), against an INVALID threshold of 5.0x
++ the control's premium TTFT p99 is 22.977x R1's (3998 ms against 174 ms, each the median of its arm's per-repetition p99s), …
+```
+
+Reading 4 did not fire either way. `ANSWER: 5 (timeSlicing)` and exit 0 for the ninth pilot; `ANSWER: none of
+the readings COULD fire` and exit 1 for the ten-cell run.
+
+⚠️ **Corrected 2026-10-03 — the ninth pilot half no longer reproduces.** Both sentences were measured
+against the evaluator of 2026-10-02. The ten-cell half still holds exactly. The ninth pilot now gives
+**exit 1** and `ANSWER: withheld`, because reading 4e (registered in the 2026-10-03 amendment below) finds
+the engine reporting 68 premium and 7,695 contender input tokens where the frozen tuple declares 256 and
+8,192 — on every one of that archive's 28,486 rows. The pilot was measured before the freeze and published
+that difference itself; what has changed is that the evaluator now says so in the verdict rather than
+leaving it to the prose. The figures either side of this paragraph are unaffected.
+
+The `Registered estimand` block was already
+printing the median values, so it is byte-identical. The two ratios differ only because 27.2 and 23.0 were
+the pooled quotients and 27.043 and 22.977 are the registered ones — which is the whole point of the change,
+and the reason it is recorded here rather than left as a silent improvement.
+
+**The conditions this change had to meet, and how each was checked:**
+
+- *The comparison and the explanation use the same values.* Both come from `RegisteredEstimandFor`. A test
+  fails if the Detail prints the pooled operands while comparing the median ratio.
+- *Not computable is not low contention.* `Valid=false` sets `NotEvaluable` with the estimand's own reason.
+  The ladder runs reading 4b past an uncomputable gate and stops only at a fired one, so an overload still
+  gets diagnosed.
+- *Old evidence replayed under both versions.* Above.
+- *The analysis version is pinned before the next purchase.* `docs/12_EVIDENCE_CHECKSUMS.md` names
+  `cc920d34a574576eae320043dae90bdfcfff1fdd` as the version the published figures reproduce under. This
+  commit is a later analysis version, and a run scored by it is labelled as such rather than as a
+  reproduction of the release.
+
+**What is pinned by a test rather than by this page.** `TestReadingFourSeparatesPooledFromPerRepetitionMedian`
+carries a fixture where the two aggregations straddle the 5x bar — pooled 10.000, median 4.000 — and asserts
+the median behaviour. It was written before the change asserting the opposite, and inverting it was the
+deliberate act this paragraph records. The overlapping refusals left in `sharingReadingFour` are also
+deliberate: `RegisteredEstimandFor` would catch the same four conditions one call later, but its messages
+are about the median not being the registered B or C, while this reading's question is whether the load was
+too low.
+
+## Amendment, 2026-10-02: the stopping rule and the publication rule, fixed before the purchase
+
+The success criteria this page and the 3-arm design registered are **thresholds**. A threshold says what
+counts as a positive result; it does not say when collection stops, what happens to an incomplete cell, or
+whether an unwelcome outcome gets published. Those were unwritten, and an unwritten stopping rule is the one
+a result can change after the fact. This amendment fixes them before any card is rented.
+
+**This experiment was designed knowing the answer.** The ninth pilot published `ANSWER: 5 (timeSlicing)` on
+2026-09-13 and this plan was made afterwards. No sentence here turns that into a prior registration, and
+pretending otherwise would be the defect this page exists to avoid. What a registration can still do is close
+off the choices about data **not yet collected**, and state plainly that the design is prospective only with
+respect to those.
+
+### What is fixed
+
+| | |
+|---|---|
+| Arms and repetitions | `R1`, `shared`, `timeSlicing`, **5 repetitions each, 15 cells**, in one session. `mps` is excluded: it has failed to engage on this AMI three times and a fourth refusal costs a cell without adding one |
+| Load | `RATE=9.4045 PREMIUM_WEIGHT=1 NOISY_WEIGHT=0.0260 PROBE_WEIGHT=0 DURATION_MS=505000` — the tuple the 2026-10-01 ten-cell run used, read back from that archive's own `user-data.sh` |
+| Stopping | The plan completing, a **pre-named** operational failure, or `HARD_STOP_SECONDS=16800`. Nothing else. **No early stop because of what the numbers are doing, no added repetitions, no selective re-run of a failed cell** |
+| Incomplete data | The registered refusals apply as written. A cell below the per-repetition tail floor, a censored tail, or a missing arm makes the run `INVALID` or `NotEvaluable`; it is not dropped and the remainder is not re-scored as if it were complete |
+| Analysis version | This run is scored by the tree it is collected from, which is **a later analysis version than `cc920d34a574576eae320043dae90bdfcfff1fdd`**. Per `docs/12_EVIDENCE_CHECKSUMS.md` it is therefore labelled a later analysis and **not** a reproduction of the `evidence-m5c-2026-10-01` release |
+| Publication | **Every outcome** — agreement, disagreement, `INVALID`, `NotEvaluable`, and a matrix that did not finish — is published within **48 hours** of the session ending, with the raw rows and the reason any cell is missing. No further card is bought to obtain a different answer or a narrower interval |
+
+The 48 hours is an operational standard proposed here, not a methodological one.
+
+### What this purchase may and may not be called
+
+⚠️ **Added 2026-10-02, after the run: the name below is wrong, and the correction is in its own section.**
+This subsection calls the purchase a "five-repetition reproduction run". It was not a reproduction — the run
+offered a 294-token premium prompt against the ninth pilot's 50 — and the paragraphs here are left unedited on
+purpose, because a registration repaired after the fact is worse than one that is wrong in public. Read
+"Correction, 2026-10-02 (after the result)" below before relying on anything in this subsection.
+
+It is a **five-repetition reproduction run**. It is not a statistical confirmation, and three facts make that
+the honest name:
+
+- **Reading 5 is not an interval test.** It compares the best improvement over the control against the
+  control's own between-repetition spread (`bestImprovementOverShared`). The 3-arm design's "CI upper bound
+  below 1.0" belongs to M5-b's C/B estimand and must not be carried over to it.
+- **No interval is published.** `RegisteredEstimand.RatioCI` is computed and withheld: the seventh amendment
+  fixed the resample count, the seed and both conventions but not whether each replicate is rounded to
+  integer milliseconds, and at 174 ms a 1 ms quantisation is 0.6 percent — enough to move the bounds and to
+  place the point outside them. Until a dated amendment settles that, nothing publishes it.
+- **Five is a robustness judgement, not a power calculation.** The per-repetition median tolerates one extreme
+  value at three repetitions and two at five, and the paired-block bootstrap has 3, 10 and 126 unordered
+  resample compositions at 2, 3 and 5 blocks. None of that establishes that five reaches nominal coverage, and
+  five repetitions on one card in one session say nothing about reproducibility **across** cards.
+
+### The precondition that was withdrawn rather than met
+
+The consultation that produced these conditions also **withdrew one of its own**: "exactly fifteen cells must
+be visible in the plan" was a precondition for starting, and it is now a consequence of registering a
+reproduction run rather than a gate on it. The plan check that makes fifteen cells visible was still worth
+building — it refuses a below-floor plan before anything is rented, which is the failure it was asked to move
+off the card — but it is not evidence that five is the right number.
+
+## Correction, 2026-10-02 (after the result): this run was not a reproduction
+
+**Written after seeing the outcome, and marked as such.** The amendment above registered a "five-repetition
+reproduction run" of the ninth pilot. The run that followed did not reproduce the ninth pilot's conditions: it
+offered a premium prompt of 294 tokens against the pilot's 50, and a 60-second timeout against the pilot's
+30. The amendment fixed the arms, the repetitions, the arrival schedule, the stopping rule and the publication
+rule — and **did not fix the offered traffic against the run it named**. Nothing checked the reproduction
+premise, so nothing refused.
+
+This correction does not complete the pre-registration retroactively. The original paragraph stands above,
+unedited, because a registration that is quietly repaired after the fact is worse than one that is wrong in
+public.
+
+**Two defects, and they are different.**
+
+| | |
+|---|---|
+| Registration | The word "reproduction" named a comparison the amendment never specified. A registration that claims to repeat a prior run has to name the archive, the arms that correspond, the conditions that must match, and the differences it will tolerate. This one named none of those |
+| Check | `bench.MatrixPlanRefusal` asks whether a planned cell is scorable — study registered, arm admitted, per-repetition tail floor — and `MatrixPlanArmSetRefusal` asks whether the arm set can be scored at all. **Neither has any notion of "the same load as a named prior run."** The pre-purchase check that was built to stop a wasted run passed this one in full |
+
+**The accurate name for the 2026-10-02 run** is therefore: *a three-arm, five-repetition measurement under
+load conditions that differ from the ninth pilot's, INCONCLUSIVE under the registered readings.* The
+measurement stands and `ANSWER: 3` stands. It does not adjudicate the ninth pilot's result either way.
+
+**What the fix has to be, and what it cannot be.** The contract belongs in the registration and the
+enforcement belongs before the card is rented — both, not either. And it cannot be a single hash: the trace
+checksum would have refused this particular run, but a matching trace does not establish a matching run. The
+prompt bodies are synthesised at replay time, and the timeout, the model, the tokenizer revision and the
+per-arm engine settings are separate facts. Where a prior archive never recorded a field — the ninth pilot has
+no `promptLenChars`, no `imageDigests`, and neither run has a driver version — the comparison must report
+**UNKNOWN** rather than silently counting it as a match. Treating UNKNOWN as agreement is how this defect
+would recur, and a run whose environment cannot be compared cannot be certified as reproducing anything.
+
+## The result, 2026-10-02: a different load, and an INCONCLUSIVE answer
+
+Three arms, **five repetitions**, fifteen cells, collected at `b97d88e` on an A10G in ap-northeast-2d.
+3.09 hours, about **$2.16**, inside a spending ceiling of $5.13. Fifteen of fifteen cells completed with no
+shed requests and no timeouts.
+
+```
+ANSWER: 3        splitting the card changes nothing that matters -- INCONCLUSIVE
+```
+
+The ninth pilot's answer, which this page quotes above and which `README.md` and `docs/11` cite, is
+`ANSWER: 5 (timeSlicing)`. **This run did not repeat it** — and, as the correction above records, it did not
+offer the pilot's conditions either, so it cannot be read as a failed reproduction of it. Both archives were
+re-scored with the same binary, so the difference is not an analysis-version artefact.
+
+| | ninth pilot (2 reps, 6 cells) | this run (5 reps, 15 cells) |
+| --- | ---: | ---: |
+| `R1` median of per-repetition p99 | 69.540 ms | **<!-- claim: m5c-15cell-r1-premium-ttft-p99 median -->174.268<!-- /claim --> ms** |
+| `shared` | 1892.852 ms | **<!-- claim: m5c-15cell-shared-premium-ttft-p99 median -->4000.579<!-- /claim --> ms** |
+| `timeSlicing` | 1008.079 ms | **<!-- claim: m5c-15cell-timeslicing-premium-ttft-p99 median -->14868.019<!-- /claim --> ms** |
+| registered B / C | 70 / 1893 | 174 / 4001 |
+| registered ratio | 27.043 | 22.994 |
+| reading that fired | 5 | **3** |
+
+**The baseline itself moved.** All three arms are slower — `R1` by 2.5x, `shared` by 2.1x — so "time-slicing
+regressed" is the wrong sentence on its own. What is specific to `timeSlicing` is that it moved by **14.7x**,
+far beyond the common factor, and stopped improving on the control at all. Reading 3's detail says exactly
+that:
+
+> the best sharing arm improves the control's premium TTFT p99 by **0.0 ms** against a
+> repetition-to-repetition spread of 3.9 ms
+
+In the ninth pilot `timeSlicing` beat `shared` 1,008 against 1,893 ms, which is why reading 5 fired. Here it
+is 14,868 against 4,001 — **3.7x worse than the control it was supposed to improve on.**
+
+### Each run is internally consistent, so this is a between-run difference
+
+`R1`'s five repetitions span
+<!-- claim: m5c-15cell-r1-premium-ttft-p99 min -->171.882<!-- /claim -->–<!-- claim: m5c-15cell-r1-premium-ttft-p99 max -->175.269<!-- /claim --> ms,
+a width of <!-- claim: m5c-15cell-r1-premium-ttft-p99 width dp=1 -->3.4<!-- /claim --> ms, and the control
+`shared`'s span <!-- claim: m5c-15cell-shared-premium-ttft-p99 width dp=1 -->3.9<!-- /claim --> ms.
+`timeSlicing`'s span
+<!-- claim: m5c-15cell-timeslicing-premium-ttft-p99 min dp=0 -->14,351<!-- /claim -->–<!-- claim: m5c-15cell-timeslicing-premium-ttft-p99 max dp=0 -->15,078<!-- /claim --> ms.
+The ninth pilot's two repetitions were likewise tight. Neither run is
+noisy against itself; they disagree with each other. **Five repetitions is what makes that statement
+available** — two could not have supported it, which is the one thing the extra repetitions bought.
+
+⚠️ **Corrected 2026-10-02 — arithmetic, not judgement.** This paragraph first read "span 173.579–174.393 ms,
+a width of 0.8 ms". Those are the row's FIRST and LAST values, not its extremes: repetition 2 is 175.269 ms
+and repetition 3 is 171.882 ms, so the width is 3.387 ms. The reading engine's own "spread of 3.9 ms" quoted
+just above is the control's, computed correctly from the same archive — so the prose contradicted the tool
+inside one run. The conclusion stands and is weaker than it read: about 3.4 ms of repetition width against a
+between-run disagreement of 14,868 ms against 1,008 ms.
+
+### What is ruled out, and what cannot be compared
+
+**The loads are not the same, and the first draft of this section said they were.** The arrival schedule is
+identical — `RATE=9.4045`, weights `1 / 0.0260 / 0`, `DURATION_MS=505000`, seed 11 — which is why the plan
+check's predicted offer counts, 4,655 premium and 139 contender per cell, match both archives exactly. What
+each request carries does not:
+
+| | ninth pilot | this run |
+| --- | ---: | ---: |
+| premium prompt | **50 tok** (200 chars) | **294 tok** (1,174 chars) |
+| contender prompt | 10,000 tok | 10,645 tok |
+| `timeoutMs` | 30,000 | 60,000 |
+| `traceChecksum`, `R1` rep 1 | `98efa634…` | `1e91e051…` |
+| `traceChecksum`, `shared` rep 1 | `2e505da1…` | `499a5e4d…` |
+
+**That is the leading explanation and this page should say so rather than calling the difference
+unexplained.** `docs/11_WHAT_THIS_MEASURED.md` already attributes the baseline's move — 69.5 ms at 68 tokens,
+174 ms at 256 — to exactly this, and the same mechanism bears on `timeSlicing`: 3.8x the premium input tokens
+per request meeting a split engine whose KV cache is a quarter the size (93,200 against 369,680 tokens). It
+is not established. Writing "the load tuple is identical" after checking only the rate, the weights and the
+duration was the error this paragraph replaces.
+
+⚠️ **Corrected 2026-10-02, after a second review.** This paragraph first said "69.5 ms at 50 tokens, 174 ms
+at 294" and "a 6x heavier prefill", both in the gateway's `ceil(chars/4)` unit rather than the engine's; and
+it said the prompt length and the timeout "moved together and nothing here separates them". **The timeout
+cannot be a rival explanation**: the longest request any run completed is 17.932 s (pilot), 10.498 s
+(2026-10-01) and 19.752 s (this run), all under the pilot's own 30,000 ms, and the timeout is a client-side
+context deadline (`internal/bench/httpsender.go:289`) that never reaches the engine. The KV difference is
+also not a between-run change — it is 93,200 tokens in both runs that bought the split arm. What stays
+unseparated is the contender's own length
+(<!-- claim: contender-input-per-request-15cell-over-9th value dp=3 -->1.065<!-- /claim -->x per request,
+<!-- claim: cell-total-input-15cell-over-9th value dp=3 -->1.681<!-- /claim -->x of a cell's total input) and the
+environment the pilot did not record.
+
+Ruled out by measurement: the engine configuration is byte-identical in both runs (split engines at
+`gpu_memory_utilization 0.475`, `max_num_seqs 32`, KV 93,200 tokens; whole-card engines at `0.9`, `64`, KV
+369,680 tokens), the card model is identical (A10G, 23,028 MiB), and the prompt corpus is the same
+(`promptCorpusSHA dec102070158…`). The instance type is g5.2xlarge here, and was the default at the ninth
+pilot's collection commit with no override recorded, which is a weak exclusion rather than a measurement.
+
+Also different: the kernel, `6.8.0-1063-aws` against `6.8.0-1064-aws`. Its effect is not measured.
+
+**Two things cannot be compared at all, and both are recording gaps this page should own.** The ninth pilot's
+manifests carry no engine image digest, because the code that fills `imageDigests` landed on 2026-09-16 and
+that run was 2026-09-13. And neither run records a driver version, because the preflight asks
+`nvidia-smi --query-gpu=index,name,memory.total` and never requests `driver_version`. Those are the two
+candidates **behind** the prompt length, and they are the ones this project cannot rule in or out from its own
+archives at all — so even if the prefill explanation is right, nothing here measures how much of the 14.7x it
+accounts for.
+
+### What this run does NOT license
+
+It does not retract the ninth pilot. Two runs disagree; one of them is not thereby wrong, and this page will
+not pick the one it prefers. It also does not license buying a third run to break the tie: the 2026-10-02
+amendment forbids exactly that — "원하는 답이나 CI를 얻기 위한 추가 구매는 하지 않는다".
+
+**And it does not establish that `ANSWER: 5` is unstable.** An earlier version of this paragraph said exactly
+that — "`ANSWER: 5 (timeSlicing)` is not stable across runs on this card" — and it does not follow from two
+runs that offered different traffic. Instability is a claim about repeated measurement under the same
+conditions, and these conditions differ in at least two registered inputs. The review that caught it put it
+plainly: what is confirmed is a difference in outcome between two runs with different conditions, and the
+prefill explanation is a **hypothesis whose effect size is unmeasured**.
+
+What it does establish is narrower than that: at this load, with the registered readings, the answer is `3`.
+Any claim resting on `ANSWER: 5` has to say which pilot it came from and at what prompt length. The amendment
+required publication within 48 hours of the session ending (04:54Z 2026-10-02) whatever the outcome, and this
+section is that publication.
+
+## Amendment, 2026-10-02: what the NEXT purchase has to declare before it is made
+
+**Written because a purchase was made under a name that did not match it.** The 2026-10-02 run was registered
+as a five-repetition reproduction of the 2026-09-13 pilot and offered a 294-token premium prompt against that
+pilot's 50. The correction above records that; this amendment is the part that stops it recurring, and it is
+registered BEFORE the next card rather than after.
+
+### A purchase declares exactly one of two questions
+
+| | What it buys | What it must name |
+|---|---|---|
+| **A reproduction attempt** | Whether a NAMED prior run's result holds when its conditions are restored | The target archive, the arms that correspond, and every condition that must match. The run must pass `--reproduces <that archive>` to the pre-purchase plan check, which refuses before launch when the offered load differs -- and refuses as UNCERTIFIABLE when the target never recorded a field, which is the case for the 2026-09-13 pilot |
+| **A new measurement** | What happens at a load this study has not measured | The load tuple in full, the hypothesis it tests, and the stopping rule. It does NOT name a prior run as its target, and it does not claim any prior answer is confirmed or refuted |
+
+**A purchase that names neither is not authorised by this registration.** "Buy the matrix again" is not a
+question; it is a budget line.
+
+### The reproduction variant cannot currently be satisfied against the 2026-09-13 pilot
+
+Stated so nobody plans around it. That archive records no `promptLenChars`, no `tokenizerRev`, no
+`gatewaySHA` and no `imageDigests` -- the code that fills them landed on 2026-09-16 and the pilot ran on
+2026-09-13. `bench.ReproductionRefusal` reports those four as UNKNOWN and refuses, because treating "not
+recorded" as "the same" is the defect it exists to stop.
+
+⚠️ **Corrected 2026-10-02: this paragraph credited the function with more than it does.** It said the driver
+version was among the fields reported as UNKNOWN. It is not: `ReproductionFacts` has no driver field, and no
+`matchTolerance` or `primaryEndpoint` field either, so those three are outside the comparison entirely and a
+plan that differs in them is not refused. The driver gap is real and is tracked as a recording gap, but
+nothing in this code path asks about it. Naming a check that does not exist is the failure mode this
+registration is supposed to prevent, so the sentence is corrected rather than left standing.
+
+So a reproduction attempt against that pilot can restore the offered traffic and **cannot** certify the
+environment. If that is bought, it is bought as "the same offered load on an environment whose differences
+from the pilot's are unknown", and the write-up says exactly that.
+
+### What a new measurement may not say
+
+It may not report that it confirms or fails to reproduce a prior answer. The 2026-10-02 run is the worked
+example: `ANSWER: 3` at 294-token prompts does not adjudicate `ANSWER: 5` at 50-token prompts, and the
+difference between them is not an effect size anything here measured.
+
+### The prohibition this amendment does not relax
+
+The 2026-10-02 stopping-and-publication amendment forbids buying again to obtain a different answer or a
+narrower interval. **Renaming such a purchase as "a new measurement" is a way around that prohibition, not an
+exception to it.** The test is whether the declared question has an answer the project would act on either
+way; if the only outcome that changes anything is the one already hoped for, the purchase is the forbidden
+one wearing a new label.
+
+## Amendment, 2026-10-02: the unit a prompt size is published in
+
+**Written because every statement above comparing the two loads is in the wrong unit, and the right one was
+in the archives the whole time.** This fixes the unit and does not restate any result.
+
+### Two numbers, both recorded on every row
+
+| field | what it is | where it comes from |
+| --- | --- | --- |
+| `engineInputTokens` | what the engine itself reported for that request | `internal/bench/replay.go:100`, filled from the response's `PromptTokens` at `:255` |
+| `estInputTokens` | `ceil(chars/4)`, the score the gateway admits on | `internal/gateway/proxy.go:182`, whose own comment at `:76` calls it "never an exact count" |
+
+Measured across the raw rows of both archives, with no exceptions in either:
+
+| | ninth pilot, 2026-09-13 | fifteen-cell run, 2026-10-02 |
+| --- | --- | --- |
+| premium, engine-reported | **68** on 27,930 rows | **256** on 69,825 rows |
+| premium, gateway estimate | 50 | 294 |
+| contender, engine-reported | 7,695 on 556 rows | 8,192 on 1,390 rows |
+| contender, gateway estimate | 10,000 | 10,645 |
+
+### What this changes
+
+The sections above state the premium prompt as **294 tokens against the pilot's 50**, which makes the
+prefill increase <!-- claim: premium-prefill-multiplier-withdrawn value dp=1 -->5.9<!-- /claim -->x. The
+engine was given **256 against 68**, which is
+**<!-- claim: premium-input-per-request-15cell-over-9th value dp=1 -->3.8<!-- /claim -->x** — a count of input tokens
+per premium request, not a measure of prefill time or GPU work. The estimate exists to be compared against an
+admission threshold — it is the number the gateway gated on, and it is kept for that — but a claim about what
+a request carried is a claim about what the engine received. So:
+
+- **Prompt sizes are published in the engine's own count.** Where the gateway's estimate appears it is named
+  as the estimate on the same line.
+- The seventh amendment's `5.9x` (there, and in its frozen-tuple table's justification column) is **superseded
+  by 3.8x**, and that figure is **premium input tokens per request**. The other two multipliers this evidence
+  supports are different numbers and must be named when used: contender input per request **1.065x**, and a
+  contended cell's total offered input **1.681x**. The frozen quantity itself does not move: the premium
+  prompt is 1,174 characters either way.
+- The seventh amendment attributes the pilot's `68 / 7,695` to "the calibration". That is **weaker than the
+  evidence**: the pilot's own raw rows record both, by the same field as this run's.
+- `ANSWER: 3` was measured at a **256-token** premium prompt and `ANSWER: 5` at a **68-token** one. The
+  adjudication prohibition is unchanged; only the numbers naming the two loads are.
+
+### What is not repaired
+
+The paragraphs above keep their original wording, including the correction sections written on 2026-10-02
+that use 294 and 50. A registration rewritten after the fact is worse than one that is wrong in public, and
+this amendment is dated for the same reason. `hack/test/check-token-unit-labels.sh` enforces the rule on the
+published documents, excludes this file by name, and asserts that these preserved lines are still here.
+
+It also does not claim the unit was the cause of anything. Restating the premium input increase as 3.8x makes
+the leading explanation smaller than it was written, not better established. The timeout, which earlier
+paragraphs offered as the reason nothing could be separated, is **not** a candidate: no run came within
+10 seconds of the pilot's own 30,000 ms ceiling, and the timeout never reaches the engine. Removing a false
+rival does not promote the surviving one — the contender's length and the pilot's unrecorded environment are
+still uncontrolled.
+
+## Amendment, 2026-10-03: reading 4e, for evidence whose load is not the declared one
+
+The registration froze five load values on 2026-10-02 and nothing compared them against the rows. A run
+could carry any prompt length and every reading below would score it, because the readings ask what the load
+DID and none of them asked whether it was the load this page declared. The frozen tuple was enforced only
+before a card was rented, as a refusal in the runner; after the measurement it was never consulted again.
+
+**What the evidence already carried.** Every raw row records `engineInputTokens`, the engine's own
+`prompt_tokens` for that request. Across the fifteen-cell archive that is 256 on all 69,825 premium rows and
+8,192 on all 1,390 contender rows, with no exceptions. So the comparison this amendment registers needed no
+new measurement and no new purchase: the declared values were in `internal/bench/study.go` and the measured
+ones were on disk.
+
+### 4e. The measured load is not the declared load — INVALID
+
+Holds each row's engine-reported input-token count against the frozen tuple's `PremiumInputTokens` and
+`ContenderInputTokens`, keyed on the tenant the row names. Fires when any row reports a count that differs.
+It is a **gate**: it ends the process the way 4, 4b and 4d do.
+
+Its population is **every request the trace offered**, not the eligible population the admitted-work
+fractions use. That distinction is the reason this reading exists as its own code path rather than as a use
+of the existing exact-token counters: the gateway's eligibility rule is `tier == standard AND estimate >=
+threshold`, the premium tier's estimate is 294 against a 4,096 threshold, and so a check built on the
+eligible rows cannot see 69,825 of this archive's 71,215 requests — including every row of the tier that is
+the study's primary endpoint.
+
+It is placed **before** readings 4 and 4b, and attached on both of the dispatcher's exits. It is a premise,
+not a finding: 4 and 4b ask whether the load created contention, and neither means anything if the load was
+not the one declared. A gate that disappeared on the missing-baseline path would be absent exactly where the
+evidence is already in doubt.
+
+**Four outcomes, because three of them are silences and they are not the same fact.**
+
+| row | outcome | why |
+| --- | --- | --- |
+| reported a count that differs | **FIRED** | the frozen tuple is a claim this evidence contradicts |
+| answered (HTTP 200) and carried no count | **N/E** | a hole in the usage accounting, which no count of agreeing rows reads past |
+| reported a NEGATIVE count | **N/E** | not a length; evidence about the recorder, not about the load |
+| got no successful response | reported, **gates nothing** | it obtained no count, so its silence says nothing about what was sent |
+
+The last row is the one this amendment argues for hardest, and the first implementation got it wrong. The
+ten-cell archive has **one** row of 47,245 with HTTP 502 and no response body, and folding it in with the
+accounting holes made a single transport failure disqualify that run's whole load-fidelity claim. A failed
+request cannot carry `prompt_tokens`; nothing is wrong with the accounting.
+
+**What a pass is scoped to, and the bound it carries.** A pass says every request the engine ANSWERED
+carried the declared length — not every request. Where requests went unanswered the page also prints the
+maximum mismatch rate the evidence cannot rule out, `U/(agreed+U)`, and says in the same sentence that it is
+not a tolerance anything was held to. That bound is printed **only** in the passing outcome: an earlier
+version appended it everywhere, and an independent review built the counter-example — 100 agreeing rows, 10
+reported mismatches and one unanswered request printed "At most 1 of 101 scored requests could therefore
+disagree" beside a FIRED verdict that had already found ten.
+
+**This is a post-hoc check, and the output says so.** It was written after the evidence it first ran on, so
+it is a comparison against a pre-registered VALUE and not a pre-registered CHECK. A bar chosen after seeing
+the data is a bar that could have been chosen to pass; the declared values were fixed on 2026-10-02 and are
+read from the registry rather than recomputed from the rows, which is what keeps that from being true here.
+
+### What it does not establish
+
+Named in the output as well as here, because a reader who takes this gate for "the load was the declared
+load" has been misled by its name.
+
+| | |
+| --- | --- |
+| the engine's self-report is correct | a parser that substituted the declared value, or mismatched a response to a request, produces a false agreement |
+| the prompt TEXT was the frozen one | the same token count can come from different strings, token ids, meanings or order |
+| the tokenizer agreed with the declaration | revision, chat template, BOS/EOS and truncation all change what a count means |
+| the tokens were prefilled | a cache hit reports the same count for less work; this says nothing about GPU time |
+| the other three frozen values applied | prompt characters, the 60,000 ms timeout and the 64/16 output caps are not checked here |
+| the rows on disk are every request sent | a row that vanished is counted in no bucket at all |
+| the unanswered requests carried the declared length | they are where a prompt-correlated failure would hide, which is why the bound is printed |
+
+### What it does to the ninth pilot
+
+The pilot's rows report **68** premium and **7,695** contender input tokens against the declared 256 and
+8,192, on all 28,486 of them. So 4e fires, the run exits 1, and the ANSWER is withheld.
+
+That is not a retraction. The pilot was measured on 2026-09-13, before the freeze, and this page published
+the difference itself in the 2026-10-02 unit amendment. What has changed is that the evaluator now says it in
+the verdict instead of leaving it to the prose — and that two earlier "measured" rows on this page, in the 4d
+amendment's verification table and in the 2026-10-02 result section, no longer reproduce. Both are corrected
+in place rather than deleted, naming what they said and when they were true.
+
+`hack/verify-published-evidence.sh` asserted `exit 0` and `ANSWER: 5` for three-arm evidence and therefore
+reported **NOT VERIFIED** on a correct archive. Measured 2026-10-03 against the published ninth-pilot rows:
+three checks failed. It now expects `exit 1`, reading `4e` by id, and `ANSWER: withheld`, while still
+asserting the pilot's figures. A reproduction tool that fails on the evidence it was written for teaches a
+reader to distrust the archive, and the archive was not the problem.
+
+### Verified in three directions
+
+| direction | input | expected | measured |
+| --- | --- | --- | --- |
+| control | `internal/bench` and `cmd/benchharness` suites, `make lint` | green | green, 0 issues; two existing tests went red first and were fixed in the fixture rather than the gate — their rows carried no `engineInputTokens`, so they described a run with no usage accounting |
+| reverse | the fifteen-cell evidence, the run the frozen tuple describes | exit 0, 4e passes, `ANSWER: 3` unchanged | **exit 0**, 4e passes on 71,215 rows with 0 disagreeing and 0 answered-but-uncounted, `ANSWER: 3` |
+| mutation | eight mutations of the gate and its tally | each red | 6 of 8 red on the first attempt. **Narrowing the tally to the eligible population was GREEN**, as was deleting the negative-value branch and reordering it behind the status check — every test built its `ArmSummary` by hand and so never ran the aggregation. Three tests over `RawRow → Summarize` closed all three, and the mutations then produced 5, 4 and 4 failures |
+
+The mutation row is the useful one. The three that passed were the three that changed which rows the gate
+counts, which is the defect this reading was written to fix in the first place.
+
+## Amendment, 2026-10-03 (eighth): the header claimed a freeze this page stopped honouring
+
+The header said **"Nothing here may be edited from the moment its pilot is bought."** Seven dated amendments
+were written after paid runs, so that sentence was false for two days before anyone read it as one. It is
+corrected in the header rather than deleted: a reader who finds seven amendments under a claim of
+immutability cannot tell which of them was registered, and deleting the claim would hide that it was made.
+
+**What the practice actually is, and why it survives the correction.** Every amendment carries its own date,
+names what it replaces, and none has moved a threshold. The first 2026-10-01 amendment states in its own
+text that "this amendment does not make that a pre-registered choice, and it is not written as one", and
+reading 4e prints *"this is a post-hoc comparison against a pre-registered value, not a pre-registered
+check"* beside every verdict it reaches. The practice is dated revision; only the header was a false claim
+of immutability.
+
+**Two amendments are gates that judge evidence already collected.** Both intervals are measured here rather
+than asserted, because an earlier reading of this same comparison got one of them wrong.
+
+| gate | committed | the run it judges | interval | which way it cuts |
+| --- | --- | --- | ---: | --- |
+| 4d | 2026-10-01 14:40:50 +0900 (`0c01380`) | ten-cell, `20261001-023515` = 11:35:15 +0900 | **~3h 5m later** | makes that run *NotEvaluable* |
+| 4e | 2026-10-03 11:13:33 +0900 (`a23a21d`) | ninth pilot, `20260913-011031` = 10:10:31 +0900 | **20 days later** | **withdraws** its `ANSWER: 5` |
+
+Both cut against this page's own published conclusions, which is the direction that distinguishes a gate
+from a rationalisation. And 4e was applied to **both** archives rather than the one it convicts: it fires on
+the ninth pilot (exit 1, answer withheld) and passes on the fifteen-cell evidence (exit 0, 71,215 rows, 0
+disagreeing, `ANSWER: 3` unchanged). A retroactive criterion run only against the unfavourable archive would
+be selection; run against both, with one passing, it is a gate.
+
+**The interval arithmetic has a trap in it.** Archive directory names are **UTC** — `hack/m5c-gpu-session.sh`
+builds the default `OUT` with `date -u` — while git commit times in this repository are `+0900`. Comparing
+the two without converting reported 4d's interval as twelve hours instead of three, in the same session that
+wrote this amendment. The empty archive's own mtime is the control: `20260930-153404` was last touched at
+00:34 +0900, which *is* 15:34 UTC, so the name and the mtime are one moment.
+
+**Two of the fourteen `hack/m5c-2026*` directories did not buy a run**, and both were being counted as paid
+runs — by me and, independently, by an external sweep. `m5c-20260930-153404` holds **no files at all**: the
+session script creates `$OUT` 728 lines before `run-instances` and writes the declared purpose into it
+immediately afterwards, and not even that file exists, so the name was created and never used.
+`m5c-20261002-014656` holds only `plan-check/`, whose log ends **"Nothing was rented"**. Recorded outside
+this repository as `issues/open/2026-10-03-the-empty-archive-that-rented-nothing.md`.
+
+**What this amendment does not license.** The registered body still binds: the 2x TTFT and 1.25x TPOT bars
+are unchanged, they are carried forward rather than chosen, and `2026-09-09-what-would-have-to-change.md:53`
+still holds — a successor may set a different bar only from a stated service objective that does not read
+this run's results. **No such objective exists in this repository.** `2026-09-21-what-a-violation-would-have-to-mean.md`
+records that `docs/02_CONTROL_PLANE_API.md:75` advertises an `slo` surface that is empty, and that this
+project has no real users. A bar with no objective behind it is the reason the next purchase is registered as
+**exploratory** and publishes magnitudes and ordering rather than a pass or a failure.

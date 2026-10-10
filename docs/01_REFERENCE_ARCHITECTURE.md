@@ -1,13 +1,17 @@
 # Reference Architecture
 
-> **Status (2026-08-07).** This architecture diagram and boundary table mix built and designed-only pieces
+> **Status (2026-09-30).** This architecture diagram and boundary table mix built and designed-only pieces
 > in one picture; the execution-boundary table below is the accurate breakdown. In short: CRDs/controllers
 > for `InferenceDeployment`, `GPUQuotaPolicy`, and `NodeHealth` are **built**; `MLTrainingJob` + Kueue is
 > **built** (M6, run end-to-end on kind — and not the only milestone with a live run record: M7, the gateway
 > chain and the chaos scenarios have theirs under `hack/`); the gateway (routing, auth, rate limit,
 > proxy, metrics) is **built, unit-tested and deployed on kind but never on EKS**; the M5-b admission guard and benchmark
-> harness are **built, and MEASURED on a paid GPU**: four repetitions on 2026-09-03 and an engine-level scheduler microtest on 2026-09-04. The guard failed — 83.7x against a pre-registered 1.25x premium-tail target — and the harness declared the run invalid rather than reporting a protection claim; `GpuSharingBenchmark` and its "thin status
-> writer" are **designed only — no CRD, no code**. eBPF and Nsight are **not implemented at all**, and
+> harness are **built, and MEASURED on a paid GPU**: four repetitions on 2026-09-03 and an engine-level scheduler microtest on 2026-09-04. The guard failed — 83.7x against a pre-registered 1.25x premium-tail target — and the harness declared the run invalid rather than reporting a protection claim; `GpuSharingBenchmark` has a **type and a generated CRD** (2026-09-30) with 33
+> envtest specs and a spec that is immutable once created, and only its **thin status writer** is outstanding —
+> nothing has ever written `status.result`, so the type has never produced a number. This sentence read
+> "designed only — no CRD, no code" until 2026-09-30, while the execution-boundary list further down this same
+> document already said the type and CRD had landed; the 2026-09-30 correction pass edited that list and not
+> this paragraph. eBPF and Nsight are **not implemented at all**, and
 > neither is Xid or ECC fault detection. DCGM is a narrower case and the blanket claim about it was wrong:
 > a reader for `DCGM_FI_DEV_GPU_UTIL` exists (`internal/queuelab/dcgm.go`), fourteen Go files reference
 > DCGM, and `config/dcgm-exporter/` deploys the exporter. What does NOT exist is any GPU fault detection in

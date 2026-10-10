@@ -1,11 +1,11 @@
 # Control Plane API
 
-> **Status (2026-08-07).** Per CRD: `InferenceDeployment`, `GPUQuotaPolicy`, and `NodeHealth` are **built**
+> **Status (2026-09-30).** Per CRD: `InferenceDeployment`, `GPUQuotaPolicy`, and `NodeHealth` are **built**
 > (`NodeHealth` gets no GPU fault signal — nothing Xid or ECC exists, and the DCGM code that does exist is
 > a utilisation reader for the queuelab rather than a health input). `MLTrainingJob`
 > is **built** (M6, run end-to-end on kind — never on real hardware). M6 is not the only milestone with live
 > end-to-end evidence: M7, the gateway chain and the chaos scenarios all have run records under `hack/`.
-> `GpuSharingBenchmark` is **designed only — no CRD**, though its sizing arithmetic and run script exist.
+> `GpuSharingBenchmark` has a **type and a generated CRD** (2026-09-30) that treats the spec as an immutable registration and enforces the load protocol at admission, with 33 envtest specs; `CompilePlan` (`internal/bench/plan.go`, 2026-09-30) decides whether a declared protocol is one this harness can execute and names each reason it cannot, and it is **called only from tests** — so the compiler is built and tested, the published measurements came from the shell harness, and the execution integration is unfinished. With the **thin status writer** also outstanding, nothing has ever written `status.result` and no result has been recorded through it. Its sizing arithmetic and run script exist and the sharing matrix has run on rented cards. This line said "designed only — no CRD" until 2026-09-30, and the table below was dated 2026-07 and never re-read when the prose around it was corrected — so this document contradicted itself about two CRDs at once, and `make docs-check` cannot see that because it resolves names, not claims.
 > `WorkloadRun` is **built and has been run for real on kind** (M7): a CRD, a controller, a driver, and a
 > recorded run in which deleting a serving Pod produced a recovery trail nobody wrote by hand. The gateway
 > (Layer 4, M4-b) is **built, unit-tested and deployed on kind but never on EKS**. The M5 KV-cache-aware admission guard is
@@ -16,13 +16,13 @@ The control plane is a set of CRDs in API group `platform.lkhun9311.github.io/v1
 
 ## CRD family
 
-| CRD                   | Role                                                               | Tier                                       | Implemented today (2026-07)                                                                                                      |
+| CRD                   | Role                                                               | Tier                                       | Implemented today (2026-09-30)                                                                                                   |
 |-----------------------|--------------------------------------------------------------------|--------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------|
 | `InferenceDeployment` | model-serving intent → Deployment/Service/KEDA                     | Core                                       | type + serving reconciler (Deployment/Service, phase ladder) — M4-a merged                                                       |
 | `GPUQuotaPolicy`      | per-tenant GPU quota / rate limit → ResourceQuota + gateway config | Core                                       | type + reconciler (ResourceQuota sync, drift recovery) — M3 merged; `rateLimit` field consumed by the M4-b gateway — **M4-b merged, gateway built, unit-tested and deployed on kind, never on EKS** |
 | `NodeHealth`          | GPU node intake & operational state                                | Core                                       | type + reconciler (observe + taint, finalizer, drift recovery) — M2/M3 merged                                                    |
-| `GpuSharingBenchmark` | declarative noisy-neighbor / sharing benchmark                     | Core (killer feature)                      | designed — spec `2026-07-04-gpusharingbenchmark-crd-design.md`; no code yet (M5)                                                 |
-| `WorkloadRun`         | record a workload execution as evidence                            | Evidence / CRD-lite                        | sketched below only — no spec or code yet (M7)                                                                                   |
+| `GpuSharingBenchmark` | declarative noisy-neighbor / sharing benchmark                     | Core (killer feature)                      | type + generated CRD + 33 envtest specs, per spec `2026-07-04-gpusharingbenchmark-crd-design.md` and its 2026-09-30 amendment; the spec is immutable once created, so a protocol change is a new CR. **No status writer and no recorded result** (M5) — deliberately not a heavy reconciler, which is the spec's own scope decision, so the absent controller is registered design and not a gap |
+| `WorkloadRun`         | record a workload execution as evidence                            | Evidence / CRD-lite                        | type + reconciler, registered in `cmd/main.go`, and driven end to end on kind (M7): deleting a serving Pod produced a recovery trail nobody wrote by hand. This cell read "sketched below only — no spec or code yet" while the status block at the top of this same document said it was built and had been run for real |
 | `MLTrainingJob`       | Kueue-admitted training job                                        | **M6 (promoted from stretch, 2026-07-04)** | type + full reconciler — Job+Kueue Workload translation, two-tenant cohort borrowing/reclaim preemption, run end-to-end on kind — **M6 merged** (`hack/m6-kind-e2e.md`). Not the only milestone with a live run record; see `hack/m7-evidence-trail.log` and the chaos write-ups |
 
 `MLTrainingJob` was promoted from stretch to **M6** (2026-07-04): it shows the same `GPUQuotaPolicy` can extend from inference to training. The main narrative stays inference-first GPUaaS + performance isolation; M6 is the training-admission bridge, not a second flagship.
@@ -136,7 +136,63 @@ spec:
 # only by a real-GPU run — never placeholder numbers.
 ```
 
-Starts as CRD + sample + benchmark harness + a thin status writer; a deeper controller is optional. Status numbers come from a real-GPU run (doc 04); they are not invented locally.
+⚠️ **The YAML above is the registered schema, not a runnable request.** The committed sample carries these
+exact values (`config/samples/platform_v1_gpusharingbenchmark.yaml`), and `CompilePlan`
+(`internal/bench/plan.go`) refuses it: `TestTheCommittedSampleCannotBeExecuted` exists to keep that true
+rather than to hide it.
+
+**The runnable one is the second sample,** `config/samples/platform_v1_gpusharingbenchmark_executable.yaml`.
+That is the file to feed `benchharness compile-plan -cr`, and it is the file both paid runs of 2026-10-01 were
+compiled from. Its own header comment states what a CR still cannot declare — the trace duration, the study
+identifier, and the prompt lengths in characters — so a run driven by it is one whose load and protocol came
+from the CR, not one a controller reconciled.
+
+Three different counts describe the refusals, and this paragraph used to print one of them as if it were all
+three. `CompilePlan` has **thirteen** refusal sites, three of which fire once per arm; **eleven** distinct
+unsupported values each have their own case in `TestEachUnsupportedValueIsRefusedOnItsOwn`; and the committed
+sample itself receives **six** — `baseline.tenant`, `contender.tenant`, `baseline.model`, `contender.model`,
+`load.generator` and `warmupRequests`. It received eight until 2026-10-01, when `outputTokens` became a value
+the plan carries rather than one it refuses.
+
+The sentence here used to list "caps generation" among the reasons, and the first correction of it was wrong
+too: generation **is** still capped — `internal/bench/httpsender.go:295` puts the value in the request's
+`max_tokens`, as it always did. What disappeared is the *restriction to one fixed cap*. A limit the CR now
+chooses and a limit the generator hard-coded are both caps, and calling the second one's removal "no longer
+caps" describes neither.
+
+### Known limits of `GpuSharingBenchmark`, and the refusal that states each one
+
+These are the values the harness does not support. They are listed here so a reviewer reads them rather than
+discovering them at run time, and each one below is pre-refused at compile time instead of being honoured
+partially.
+
+⚠️ **Two fields are neither refused nor enforced, which is a third state this section used to hide.**
+`CompilePlan` stores `gpuClass` and `minRequestsPerRun` on the `Plan` (`internal/bench/plan.go:191-192`), and
+the `compile-plan` export block never prints them (`cmd/benchharness/compileplan.go:115-150`). So raising the
+executable sample's `minRequestsPerRun` from 1,000 to 1,000,000 changes the CR's sha256 and changes nothing
+else: the compiler checks only the floor, the runner is never told the number, and the analysis path reads the
+harness constant `MinTailSamples = 100` (`internal/bench/report.go:769`) rather than the CR's value. Keeping a
+declared value in a struct is not the same as carrying it to the run — that distinction is what the
+`outputTokens` work above was about, and these two fields are still on the wrong side of it. Verified by
+reading the code path, not by executing a changed CR.
+
+| Field | What is supported | Refused by, and why that is not a missing afternoon of work |
+|---|---|---|
+| `baseline.tenant`, `contender.tenant` | `premium-1`, `standard-noisy` | `plan.go:53,57`. The trace generator writes these two identities into every row. The names are not a string: one `TENANTS` list derives the API-key secret, the `api_keys` map, the premium tier list, the `GPUQuotaPolicy` and the vLLM priority map, across 12 files. A hand-kept copy is what cost the first paid run a quarter of every replay to 401s (two of four tenants missing from the key secret) and the second its two probe tenants to 403s (keyed but given no policy); a tenant missing from the priority map would fail more quietly still, replaying the control *without an error*. |
+| `baseline.model`, `contender.model` | `Qwen/Qwen2.5-3B-Instruct` | `plan.go:68`. The gateway answers `ErrNoRoute` for any other name once the engines are up. Parameterising it is possible, but the model binds the tokenizer, and the token-to-character resolution table below was measured against this one. |
+| `warmupRequests` | `0` | `plan.go:96`. There is no warmup phase and no exclusion boundary. Dropping rows after the fact is a different protocol from not sending them, so a positive value could not be honoured, only approximated. |
+| `load.generator` | `benchharness-replay` (the exact literal, `plan.go:275`) | `plan.go:118`. The registered sample names `genai-perf`, which never produced traffic here. The sample is deliberately **not** edited to match: a manifest naming a generator that did not send the requests is provenance for the wrong tool. |
+| `baseline/contender.inputTokens` | `256`, `8192` | `plan.go:152`. The generator is configured in characters; these are the two token counts whose character lengths were measured against the served tokenizer rather than estimated, and no formula inverts the count. |
+| `load.mode`, `load.retries`, `load.streaming`, `minRequestsPerRun`, `repetitions`, `sharingMode`, `outputTokens` | `openLoop`, `0`, `true`, **≥ 1000** (the CRD's own `Minimum`, `api/v1/gpusharingbenchmark_types.go:80` — the harness floor of 100 in `plan.go:102` is a different, lower bound and this row used to print it as the API's), ≥ 5, the modes the matrix deploys, any positive cap | The remaining sites in the same file. These constrain the measurement rather than the platform: a retry repairs the tail this benchmark exists to measure, and a non-streaming response has no first-token time. |
+
+What exists today: the CRD, the samples, the harness, the compiler that decides whether a spec is executable,
+and a command that calls it — `benchharness compile-plan` (`cmd/benchharness/compileplan.go:78`), which is how
+both paid runs of 2026-10-01 got their load. This paragraph used to say "anything that calls the compiler
+outside tests" does not exist, which contradicted the instruction six paragraphs above to run that very
+command. What does not exist is narrower and worth stating exactly: **no controller calls the compiler, and
+nothing writes `status.result`.** So the measured numbers in `README.md` came from the shell harness on a
+rented card, and no `status.result` has ever been written. Status numbers, when they come, come from a real-GPU run (doc 04); they are not
+invented locally.
 
 ## WorkloadRun (new, Evidence CRD-lite)
 

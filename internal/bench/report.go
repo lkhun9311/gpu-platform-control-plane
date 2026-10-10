@@ -45,6 +45,13 @@ const httpStatusProfileViolation = 422
 const (
 	httpStatusUnauthorized = 401
 	httpStatusForbidden    = 403
+	// httpStatusOK is "the engine answered this request", which is a different fact from "the guard allowed
+	// it" and is the one the token tallies need.
+	//
+	// Named rather than written as 200 in each place that asks. It was a literal in tallyDelivered and the
+	// declared-load tally needed the same test; two copies of one predicate is how a pair of checks drift
+	// into disagreeing about which rows they cover.
+	httpStatusOK = 200
 )
 
 // errKindTimeout is the RawRow.ErrorKind the replay client records when a request exceeds its deadline.
@@ -171,7 +178,7 @@ type ArmSummary struct {
 	// actually specifies: the served tokenizer's own count, not ceil(chars/4).
 	//
 	// The estimate is not a neutral stand-in. This project's calibration measures it 36 percent low on a
-	// 200-character prompt and 23 percent high on a 40,000-character one, so a fraction built from it weighs
+	// 200-character prompt and 30 percent high on a 40,000-character one (10,000 estimated against 7,695 measured), so a fraction built from it weighs
 	// the population differently than the criterion says to.
 	OfferedExactTokens  int64
 	AdmittedExactTokens int64
@@ -252,6 +259,10 @@ type ArmSummary struct {
 	// repetition-to-repetition spread, so without these the reading has no threshold and must decline to
 	// decide rather than report a cell as failing to beat noise nobody measured.
 	RepetitionTTFTMsP99 []float64
+	// RepetitionIDs are the repetitions this arm pooled, in the order RepetitionTTFTMsP99 lists them, attached
+	// by the caller that read them from the raw file names. A count cannot stand in for them: an independent
+	// review showed R1 holding repetitions 1 and 2 beside a level holding 1 and 3 read as a paired comparison.
+	RepetitionIDs []int
 	// DispositionByTenant is what happened to each tenant's offered requests, and it exists because a share
 	// alone cannot say why a share is small.
 	//
@@ -262,6 +273,118 @@ type ArmSummary struct {
 	// cannot separate them per tenant, so a reading built on those would be attributing a quantity to a cause
 	// its ledger does not establish -- which is the one thing this package's rules forbid outright.
 	DispositionByTenant map[string]Disposition
+	// EstInputTokensByTenant is the estimated input tokens each tenant was OFFERED, summed over its rows.
+	//
+	// It exists because two runs of the same study, at the same rate and the same seed, can send prompts of
+	// different length and nothing on the page says so. Measured 2026-10-01: the ninth pilot offered premium
+	// prompts of 50 estimated tokens and the CR-driven run offered 294, a 5.9x difference in prefill, and the
+	// two produced headline ratios of 27.2x and 23.0x. The registration freezes the rate, the weights, the
+	// duration and the seed -- not the prompt length.
+	//
+	// traceChecksum already made the difference DETECTABLE; it is the sha256 of the trace and the trace
+	// records lengths. What it cannot do is make it LEGIBLE: two opaque hashes disagreeing does not tell a
+	// reader the prompts grew. promptCorpusSHA cannot either, and is not meant to -- the corpus pins the
+	// TEXT, which was identical in both runs.
+	//
+	// Per tenant rather than per arm, because the premium and contender lengths move independently and the
+	// premium one is the study's primary endpoint. The divisor for a mean is DispositionByTenant[t].Offered.
+	EstInputTokensByTenant map[string]int64
+	// EngineInputTokensByTenant is, per tenant, how many rows reported each DISTINCT engine-reported input
+	// token count -- the engine's own prompt_tokens, not the gateway's ceil(chars/4) admission estimate.
+	//
+	// Kept as a distribution rather than a sum because the question it answers is "did every request carry
+	// the declared length", and a sum cannot tell 23,275 rows of 256 from 23,274 of 255 plus one of 23,531.
+	//
+	// Counted over EVERY offered row rather than the eligible population. The gateway's eligibility rule is
+	// tier == standard AND estimate >= threshold, which excludes the premium tier by construction: a check
+	// built on the eligible rows could not see 69,825 of the ninth pilot's 71,215 requests, and premium is
+	// the study's primary endpoint.
+	EngineInputTokensByTenant map[string]map[int]int
+	// PromptLenCharsByTenant is, per tenant, how many rows carried each DISTINCT prompt length in characters.
+	//
+	// A DISTRIBUTION and not one length per tenant, for the reason EngineInputTokensByTenant beside it is
+	// one: a study that varies the prompt length needs to know whether two conditions were pooled, and more
+	// than one key IS that fact. Storing a single length plus a -1 sentinel would put the same claim in two
+	// representations -- the length and the "they disagree" marker -- and this repository has been bitten by
+	// a claim carried in two places where only one of them was guarded.
+	//
+	// The trace-side PromptLenCharsByTenant keeps its -1 convention, and that is not a second vocabulary for
+	// the same thing: it reads what was GENERATED, this reads what was REPLAYED, and a study whose levels
+	// differ needs the second because the manifests are gone by the time anything scores the rows.
+	//
+	// Counted over EVERY offered row -- the tally runs before the loop's first `continue` -- because a
+	// request that failed still carries the length it was generated at. Reading only successful rows would
+	// miss a mixture whose second level is exactly the one that timed out.
+	PromptLenCharsByTenant map[string]map[int]int
+	// PromptLenUnreportedByTenant counts, per tenant, rows carrying NO prompt length at all.
+	//
+	// Those are rows written before RawRow.PromptLenChars existed, which the three committed archives are.
+	// Kept apart from the distribution because absence is not a length: folding it in would make
+	// "every row carried 1,174" and "the rows that carried anything carried 1,174" the same reading, and the
+	// second licenses nothing about the rows that said nothing.
+	//
+	// It is also not evidence of uniformity. A tenant whose distribution holds one key and whose unreported
+	// count is positive has rows that could have carried either level, and reading 4f says so rather than
+	// certifying the part it can see.
+	PromptLenUnreportedByTenant map[string]int
+	// PromptLenInvalidByTenant counts, per tenant, rows carrying a NEGATIVE prompt length.
+	//
+	// A negative cannot be a character count, so it is a defect in the recorder rather than evidence about
+	// the load -- the same distinction EngineInputTokensInvalidByTenant draws, and classified the same way:
+	// before anything else, so a negative on a failed row is not filed under the bucket that does not block.
+	PromptLenInvalidByTenant map[string]int
+	// EngineInputTokensUnreportedByTenant counts, per tenant, rows the engine ANSWERED that carried no input
+	// token count, so "every row agreed" and "no row said anything" cannot read the same.
+	//
+	// This is a gap in the instrument: a 200 response went through usage accounting and came back without a
+	// prompt-token count, which is the case a declared-load check cannot see past.
+	EngineInputTokensUnreportedByTenant map[string]int
+	// EngineInputTokensInvalidByTenant counts, per tenant, rows carrying a NEGATIVE reported count.
+	//
+	// A negative is not a silence and not a disagreement: it is a measurement that cannot be a length. It
+	// blocks, because the instrument said something impossible and a reading that scored the rest would be
+	// certifying a trace whose accounting is broken. It is NOT treated as a disagreement, because "the load
+	// was not the declared one" is a claim about the load, and a negative is evidence about the recorder.
+	//
+	// Classified BEFORE the response status is consulted. A negative on a failed row is still a broken
+	// value, and routing by status first would file it under the one bucket that does not block.
+	EngineInputTokensInvalidByTenant map[string]int
+	// FinishReasonByTenant is, per tenant, how many rows carried each DISTINCT engine finish reason.
+	//
+	// vLLM reports "length" when the output cap cut the response and "stop" when the model ended on its
+	// own. The two are different experiments: a run where the cap truncated every answer measured the cap,
+	// not the model, and the output cap is one of the five load quantities this study freezes. Kept as a
+	// distribution rather than a flag because "every row hit the cap" and "most did" license different
+	// sentences, and a boolean cannot tell them apart.
+	//
+	// Counted over EVERY offered row, for the same reason the engine input tokens are: the eligible
+	// population excludes the premium tier by construction, and premium is the study's primary endpoint.
+	FinishReasonByTenant map[string]map[string]int
+	// FinishReasonUnreportedByTenant counts, per tenant, rows the engine ANSWERED that named no reason.
+	//
+	// A gap in the instrument, not a normal stop. An engine that returned 200 and said nothing about why it
+	// stopped leaves "the cap was not reached" unsupported in either direction, and reading the silence as
+	// "stop" would turn a missing field into a measurement.
+	FinishReasonUnreportedByTenant map[string]int
+	// FinishReasonUnansweredByTenant counts, per tenant, rows with no successful response at all.
+	//
+	// Separate from Unreported because the two license different conclusions: a request that never got a
+	// response is unobservable here and says nothing about the engine's stopping behaviour, while a 200
+	// that carried no reason is an instrument gap in a request that did complete.
+	FinishReasonUnansweredByTenant map[string]int
+	// EngineInputTokensUnansweredByTenant counts, per tenant, rows where no successful response arrived at
+	// all, so the engine had no opportunity to report a count.
+	//
+	// Separate from Unreported because the two silences are not the same fact and must not carry the same
+	// verdict. Measured 2026-10-03: the ten-cell archive has ONE row of 47,245 with HTTP 502, errorKind
+	// "http" and no response body. Such a row cannot carry prompt_tokens -- nothing went wrong with the
+	// accounting, the request simply failed -- and folding it in with the instrument gaps let a single
+	// transport failure disqualify a run's whole load-fidelity claim.
+	//
+	// It is still COUNTED and still reported, because "the engine never answered 1 request" is a fact a
+	// reader of a load claim is entitled to, and because a check that drops rows it cannot score silently
+	// narrows its own population.
+	EngineInputTokensUnansweredByTenant map[string]int
 	// TTFTMsP50/P95/P99 are the time-to-first-token percentiles over COMPLETED requests, in ms.
 	TTFTMsP50 float64
 	TTFTMsP95 float64
@@ -347,6 +470,22 @@ const eligibleLongThreshold = 4096
 // The admitted-work fractions are measured over the eligible (standard-long) population, which is the contender the controls actually gate.
 func Summarize(arm string, rows []RawRow) ArmSummary {
 	s := ArmSummary{Arm: arm, Total: len(rows)}
+	// Made here rather than lazily inside the row loop, where the other per-tenant maps are made.
+	//
+	// That loop sits at the gocyclo ceiling: one more `if m == nil` in it took Summarize from 30 to 31 and
+	// turned `make lint` red. An empty map for an arm with no rows is harmless -- formatOfferedLoad tests
+	// len() -- and a nil map would panic on the first write, so the initialisation cannot simply be dropped.
+	s.EstInputTokensByTenant = map[string]int64{}
+	s.EngineInputTokensByTenant = map[string]map[int]int{}
+	s.EngineInputTokensUnreportedByTenant = map[string]int{}
+	s.EngineInputTokensUnansweredByTenant = map[string]int{}
+	s.EngineInputTokensInvalidByTenant = map[string]int{}
+	s.FinishReasonByTenant = map[string]map[string]int{}
+	s.FinishReasonUnreportedByTenant = map[string]int{}
+	s.FinishReasonUnansweredByTenant = map[string]int{}
+	s.PromptLenCharsByTenant = map[string]map[int]int{}
+	s.PromptLenUnreportedByTenant = map[string]int{}
+	s.PromptLenInvalidByTenant = map[string]int{}
 
 	// The eligible-population threshold comes from the manifest provenance stamped into the rows, so admitted-work is scored over the same population the guard gated even if the paid run tuned it.
 	threshold := eligibleLongThreshold
@@ -368,6 +507,12 @@ func Summarize(arm string, rows []RawRow) ArmSummary {
 			lastEnd = r.EndUnixNanos
 		}
 		tpot = s.tallyDelivered(r, tpot, tpotByTenant)
+		s.tallyPromptLen(r)
+		// The declared-load gate's population is every offered request, so this call carries no condition.
+		s.tallyEngineInputTokens(r)
+		// Same population and the same reason it carries no condition: the loop is at the gocyclo ceiling,
+		// so the three-way split lives inside the method rather than as an `if` here.
+		s.tallyFinishReasons(r)
 		// Admitted-work accounting covers the eligible population, for the admission-match check.
 		//
 		// The gateway gates on tier == standard AND EstInputTokens >= threshold, and this applies the same
@@ -416,6 +561,9 @@ func Summarize(arm string, rows []RawRow) ArmSummary {
 		if s.DispositionByTenant == nil {
 			s.DispositionByTenant = map[string]Disposition{}
 		}
+		// Summed over OFFERED rows, not completed ones: the load is what the trace asked for, and a run that
+		// lost requests still offered the prompts it was configured with.
+		s.EstInputTokensByTenant[r.Tenant] += int64(r.EstInputTokens)
 		d := s.DispositionByTenant[r.Tenant]
 		d.Offered++
 		switch {
@@ -612,7 +760,7 @@ func BootstrapCI(values []float64, iterations int, seed int64, alpha float64) CI
 // It used to divide the ESTIMATED totals while ArmSummary already carried the exact ones and the comment on
 // those fields already said they were "the admitted-work fraction in the units the design actually specifies".
 // The estimate is not a neutral stand-in -- this project's own calibration measures it 36 percent low on a
-// 200-character prompt and 23 percent high on a 40,000-character one -- so a fraction built from it weighs the
+// 200-character prompt and 30 percent high on a 40,000-character one (10,000 estimated against 7,695 measured) -- so a fraction built from it weighs the
 // population differently than the criterion says to. The values were collected, validated, and then discarded
 // by the one function that decided the verdict.
 //
@@ -682,15 +830,24 @@ func (c *Checks) invalidate(reason string) {
 // MaxRatioScatter is the per-repetition coefficient of variation past which the incremental interval stops
 // meaning what it says.
 //
-// A percentile bootstrap over a handful of values is anti-conservative once those values spread out. Against
-// this package's own BootstrapCI at four repetitions, a true ratio of 1.00 -- no effect at all -- clears the
-// pre-registered gate 10.2 percent of the time at a coefficient of variation of 0.20, and 1.8 percent at
-// 0.10, against a nominal 5. The bound sits between them.
+// ⚠️ It is RETAINED PROVISIONALLY and is not a validity boundary for the interval this gate now reads.
+//
+// The 0.15 was placed between false-PASS rates measured against this package's own BootstrapCI, which
+// bootstraps the MEAN of per-repetition ratios (cmd/benchharness/power.go:63). The 2026-10-01 amendment
+// replaced that with a paired BLOCK bootstrap of the pooled p99 ratio, and no coverage has been measured for
+// the new estimator at any scatter. So "benchharness power" output reproduces the REPLACED statistic and must
+// not be cited as validation of the current one.
+//
+// What still holds is narrow: with everything else fixed, the runs that pass with this rule are a subset of
+// those that pass without it, so it cannot raise the rate of a false PASS on one fixed experiment.
 //
 // The 2026-09-03 pilot measured 0.001 for the contended arms and 0.056 for the isolation-like ones, so this
 // is not expected to bind. It exists because the failure mode is a gate that PASSES when it should not, and
-// a run is not entitled to assume its variability stayed where the pilot's was. Reproduce the numbers with
-// "benchharness power".
+// a run is not entitled to assume its variability stayed where the pilot's was.
+//
+// The full argument, including which earlier claim the amendment withdrew, is beside the test that exercises
+// this function in report_test.go -- kept in one place on purpose, because the same correction was already
+// written there while this comment still asserted the old justification.
 const MaxRatioScatter = 0.15
 
 // RatioScatterTooHigh reports whether per-repetition ratios are too scattered for their bootstrap interval
@@ -870,6 +1027,110 @@ func (s *ArmSummary) tallyEligibleWork(r RawRow) {
 	}
 }
 
+// tallyEngineInputTokens records one row's engine-reported input-token count against its tenant.
+//
+// Unconditional, and deliberately OUTSIDE the eligible-population guard its caller applies to the
+// admitted-work tallies. This is the only tally whose population is every request the trace offered, and
+// that is the whole point: the eligible population is what the admission guard gated, and the declared load
+// is what the registration froze. Scoring the second over the first silently drops the premium tier.
+//
+// The nil-map checks live here rather than at the call site because Summarize's row loop sits at the
+// complexity ceiling -- one more `if` in it has already turned `make lint` red once.
+// tallyFinishReasons records why the engine stopped, keeping the three silences apart.
+//
+// The order matters and mirrors tallyEngineInputTokens: a reported reason is a reading, no reason on a
+// successful response is an instrument gap, and no successful response at all is unobservable. Collapsing
+// the last two would let a run whose requests never completed report the same thing as one whose engine
+// answered without saying why -- and reading either as "stop" would make a missing field into evidence that
+// the output cap was never reached.
+func (s *ArmSummary) tallyFinishReasons(r RawRow) {
+	if r.FinishReason != "" {
+		seen := s.FinishReasonByTenant[r.Tenant]
+		if seen == nil {
+			seen = map[string]int{}
+			s.FinishReasonByTenant[r.Tenant] = seen
+		}
+		seen[r.FinishReason]++
+		return
+	}
+	if r.HTTPStatus != httpStatusOK {
+		s.FinishReasonUnansweredByTenant[r.Tenant]++
+		return
+	}
+	s.FinishReasonUnreportedByTenant[r.Tenant]++
+}
+
+// tallyPromptLen files this row's generated prompt length as a length, an absence, or a broken value.
+//
+// The branching lives here and not in Summarize's row loop on purpose: that loop sits at the gocyclo
+// ceiling, and the comment on the initialisation block above records that one more `if` in it took
+// Summarize from 30 to 31 and turned `make lint` red. A method costs the loop one call.
+//
+// THREE DESTINATIONS, because an earlier version of this had one. It returned early on
+// `PromptLenChars <= 0`, which threw absences and negatives away together and left the distribution unable
+// to tell `[200, 200]` from `[200, absent]` -- so a reading built on it would have certified "one length"
+// over rows half of which said nothing. An external review derived that counter-example from the branch
+// itself, before any run. The negative is checked first for the reason the engine-token tally checks it
+// first: it is a defect in the recorder, and routing by anything else files it where it does not block.
+func (s *ArmSummary) tallyPromptLen(r RawRow) {
+	if r.PromptLenChars < 0 {
+		s.PromptLenInvalidByTenant[r.Tenant]++
+		return
+	}
+	if r.PromptLenChars == 0 {
+		s.PromptLenUnreportedByTenant[r.Tenant]++
+		return
+	}
+	seen := s.PromptLenCharsByTenant[r.Tenant]
+	if seen == nil {
+		seen = map[int]int{}
+		s.PromptLenCharsByTenant[r.Tenant] = seen
+	}
+	seen[r.PromptLenChars]++
+}
+
+func (s *ArmSummary) tallyEngineInputTokens(r RawRow) {
+	if r.EngineInputTokens > 0 {
+		seen := s.EngineInputTokensByTenant[r.Tenant]
+		if seen == nil {
+			seen = map[int]int{}
+			s.EngineInputTokensByTenant[r.Tenant] = seen
+		}
+		seen[r.EngineInputTokens]++
+		return
+	}
+	// A NEGATIVE count is neither silence nor disagreement, and it is classified before the status is read.
+	//
+	// It cannot be a prompt length, so scoring it against the declared value would be comparing the
+	// declaration to a defect in the recorder. Checked here rather than after the status, because a negative
+	// on a failed row is still a broken value and the failed-row bucket is the one that does not block.
+	//
+	// This branch exists because the predicate used to be `EngineInputTokens <= 0`, which swept negatives in
+	// with the silences. Narrowing it to `> 0` for the three-bucket split would have let a negative on a
+	// non-200 row pass without a word.
+	if r.EngineInputTokens < 0 {
+		s.EngineInputTokensInvalidByTenant[r.Tenant]++
+		return
+	}
+
+	// TWO silences, and only one of them is the instrument's fault.
+	//
+	// A row with no successful response obtained no count -- the ten-cell archive's one HTTP 502 of 47,245
+	// rows is exactly that, and the first version of this function made it disqualify the whole run. A row
+	// the engine ANSWERED and still did not count is a hole in the accounting, and that one a declared-load
+	// check genuinely cannot see past.
+	//
+	// Keyed on the response rather than on the error kind, because the kinds are open-ended: errKindTimeout
+	// and errKindRejected are named, "http" is not, and a predicate listing kinds would silently reclassify
+	// the first kind nobody thought of. admissionUnknown does not serve here -- it is HTTPStatus == 0 or a
+	// timeout, and a 502 is neither.
+	if r.HTTPStatus != httpStatusOK {
+		s.EngineInputTokensUnansweredByTenant[r.Tenant]++
+		return
+	}
+	s.EngineInputTokensUnreportedByTenant[r.Tenant]++
+}
+
 // tallyDelivered adds one row's delivered output to the arm's totals, appending its inter-token time.
 //
 // Split out of Summarize only to keep that function under the complexity limit; it is one step of the same
@@ -877,7 +1138,7 @@ func (s *ArmSummary) tallyEligibleWork(r RawRow) {
 func (s *ArmSummary) tallyDelivered(r RawRow, tpot []float64, byTenant map[string][]float64) []float64 {
 	// Tokens count only where a response actually produced them; a refusal carries none, and a stream that
 	// died partway delivered nothing the client could use.
-	if r.OutputTokens <= 0 || r.HTTPStatus != 200 {
+	if r.OutputTokens <= 0 || r.HTTPStatus != httpStatusOK {
 		return tpot
 	}
 	s.OutputTokens += int64(r.OutputTokens)
@@ -935,6 +1196,73 @@ func (s *ArmSummary) SetActiveSeconds(seconds float64) {
 // "VERDICT: not all checks passed". Nothing had been evaluated. The caller was careful and said so on
 // stderr, and the page still printed a verdict a skimming reader would take for the study's result.
 // A nil pointer cannot be mistaken for a run that failed everything.
+// medianOf is the registered median convention: the mean of the two central order statistics for an even
+// count, which the design spec's third 2026-09-30 amendment froze "because it makes B and C continuous in
+// the observations; taking the lower of the two would bias both arms downward by an amount that depends on
+// the spread".
+func medianOf(v []float64) float64 {
+	if len(v) == 0 {
+		return 0
+	}
+	s := append([]float64(nil), v...)
+	sort.Float64s(s)
+	n := len(s)
+	if n%2 == 1 {
+		return s[n/2]
+	}
+	return (s[n/2-1] + s[n/2]) / 2
+}
+
+// formatOfferedLoad renders the per-tenant offered prompt length, as a mean of the estimator's own unit.
+//
+// Over the UNION of tenants across arms, not the first arm that has any.
+//
+// The first version took the first arm carrying the map, on the argument that every arm of a frozen matrix
+// replays the same premium trace so one arm's figure is the run's. That argument is true for premium and
+// silently wrong for the contender: the ISOLATED arm has no contender at all, R1 sorts first, and the line
+// printed "premium-1 294 tok" while the contender's 10,645 -- half the prefill work on the card -- was
+// missing from a line whose whole job is to say what load was offered.
+//
+// A tenant whose arms disagree is shown as a RANGE rather than averaged away. Two arms of a frozen matrix
+// are supposed to offer the same prompts; if they did not, that is the thing this line exists to surface.
+func formatOfferedLoad(summaries []ArmSummary) string {
+	means := map[string][]int64{}
+	for _, s := range summaries {
+		for t, sum := range s.EstInputTokensByTenant {
+			if offered := s.DispositionByTenant[t].Offered; offered > 0 {
+				means[t] = append(means[t], sum/int64(offered))
+			}
+		}
+	}
+	if len(means) == 0 {
+		return ""
+	}
+	tenants := make([]string, 0, len(means))
+	for t := range means {
+		tenants = append(tenants, t)
+	}
+	sort.Strings(tenants)
+	parts := make([]string, 0, len(tenants))
+	for _, t := range tenants {
+		v := means[t]
+		lo, hi := v[0], v[0]
+		for _, x := range v {
+			if x < lo {
+				lo = x
+			}
+			if x > hi {
+				hi = x
+			}
+		}
+		if lo == hi {
+			parts = append(parts, fmt.Sprintf("%s %d tok", t, lo))
+			continue
+		}
+		parts = append(parts, fmt.Sprintf("%s %d-%d tok (ARMS DISAGREE)", t, lo, hi))
+	}
+	return "offered prompt length (estimated): " + strings.Join(parts, " / ") + "\n\n"
+}
+
 func FormatReport(summaries []ArmSummary, checks *Checks, matchTolerance float64) string {
 	var b strings.Builder
 	b.WriteString("M5-b benchmark report\n\n")
@@ -947,6 +1275,16 @@ func FormatReport(summaries []ArmSummary, checks *Checks, matchTolerance float64
 	//
 	// A reader who cannot see the block count has no way to tell those apart, which is the same defect the
 	// tailN column exists to prevent one level down.
+	// The LOAD, printed before the numbers it produced.
+	//
+	// Without this line two runs of this study are typographically identical on the page while having sent
+	// prompts 5.9x apart -- which is how a 27.2x and a 23.0x came to sit in two documents as though they
+	// were the same measurement. Estimated tokens rather than characters because the estimator
+	// (ceil(chars/4)) has no inverse: 294 tokens is what the arm actually offered, and it is what
+	// distinguishes the two runs.
+	if load := formatOfferedLoad(summaries); load != "" {
+		b.WriteString(load)
+	}
 	fmt.Fprintf(&b, "%-*s %8s %8s %8s %8s %8s %8s %8s %8s %8s\n", ArmColumnWidth, "arm", "total", "done", "shed", "timeout", "ttftP50", "ttftP95", "ttftP99", "tailN", "reps")
 	for _, s := range summaries {
 		censored := ""
@@ -967,6 +1305,46 @@ func FormatReport(summaries []ArmSummary, checks *Checks, matchTolerance float64
 	// Every check below is a TTFT ratio, and the paid run showed that is half an answer: the arm that held
 	// the tail best also served the fewest tokens, because it was discarding one tenant's work rather than
 	// making the engine efficient. An arm's throughput and its tenants' shares belong next to its tail.
+	// EVERY per-repetition p99, because the registration demands it and a pooled tail hides its sample.
+	//
+	// The design spec's third 2026-09-30 amendment fixes the reported object as the ratio of MEDIAN
+	// per-repetition victim TTFT p99s, and says of the interval: "The report this points at must publish
+	// every per-repetition p99 so a reader can see the sample it came from." Nothing printed them. The
+	// values existed -- RepetitionTTFTMsP99 is filled by the caller and read by repetitionSpread for a
+	// range check -- and went no further than that check.
+	//
+	// Without this block a reader sees one number per arm and cannot tell five tight repetitions from five
+	// scattered ones, which is the whole difference between a measurement and an anecdote. It also makes
+	// the registered estimand computable from the page: the median of this row IS baselineP99Ms.
+	if any := func() bool {
+		for _, s := range summaries {
+			if len(s.RepetitionTTFTMsP99) > 0 {
+				return true
+			}
+		}
+		return false
+	}(); any {
+		b.WriteString("\nPer-repetition premium TTFT p99 (ms) -- the sample behind each tail above\n")
+		for _, s := range summaries {
+			if len(s.RepetitionTTFTMsP99) == 0 {
+				continue
+			}
+			parts := make([]string, 0, len(s.RepetitionTTFTMsP99))
+			for _, v := range s.RepetitionTTFTMsP99 {
+				parts = append(parts, fmt.Sprintf("%.3f", v))
+			}
+			med := medianOf(s.RepetitionTTFTMsP99)
+			fmt.Fprintf(&b, "%-*s %s   median %.3f\n", ArmColumnWidth, s.Arm, strings.Join(parts, "  "), med)
+		}
+		b.WriteString("  The median of each row is this arm's registered point estimate. A ratio of two medians\n")
+		b.WriteString("  is the registered object; the spread of a row is an OBSERVED RANGE and not an interval.\n")
+	}
+
+	// B, C and R themselves, because the block above made them derivable and left the arithmetic to the
+	// reader. The amendment names the three fields it freezes, and a page that prints the sample but not the
+	// estimand still has nobody computing what the registration decided.
+	b.WriteString(FormatRegisteredEstimand(summaries))
+
 	b.WriteString("\nWhat it cost\n")
 	// premTPOT99 is printed beside the arm-wide figure because the pre-registered criterion is about the
 	// PROTECTED tenant's stream, and the arm-wide number pools every tenant. On the paid evidence they

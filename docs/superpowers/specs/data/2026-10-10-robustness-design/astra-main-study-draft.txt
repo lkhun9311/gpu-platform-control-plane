@@ -1,0 +1,224 @@
+I would register **five arms × three lengths × three blocks, with one complete block on each of three fresh A10G instances**. Retaining R1 once per instance makes this **48 purchased cells**, not 45.
+
+The claim would be deliberately narrow: whether changing contender length creates an advantage for hold-cap over the frozen 1.740 s spacing, and whether the calibration’s size-aware static rule removes that advantage. It would describe these workloads on these instances, without claiming population-level statistical significance.
+
+This is a protocol proposal. The current checkout is not purchase-ready for it: stage F and `calibration` implement the seven-cell calibration; `frontier` implements v26. The calibration’s referenced raw-results directory is absent here, so I relied on the recorded result rather than independently re-scoring it.
+
+**Arms and workload.** Register a new study, `admission-length-robustness-2026-10-10`, stage G:
+
+| Arm label prefix | Admission | Engine prefill cap |
+|---|---|---:|
+| `off` — O | Off | None |
+| `caponly` — C | Off | 384 |
+| `hold-cap` — H | Serial-prefill, maximum hold 25 s | 384 |
+| `fixed1740` — F | Fixed spacing 1,740 ms, maximum hold 25 s | 384 |
+| `sizeaware` — S | Frozen spacing selected by prompt length, maximum hold 25 s | 384 |
+
+Each prefix gets `-short`, `-ref`, or `-long`:
+
+| Length | Prompt characters | Exact engine tokens | S spacing |
+|---|---:|---:|---:|
+| Short | 31,894 | 6,144 | **1,256.9 ms** |
+| Reference | 40,000 | 7,695 | **1,740.0 ms** |
+| Long | 42,579 | 8,192 | **1,867.0 ms** |
+
+Use those published, rounded spacings literally. Do not recompute them from rounded medians, scale them to each new card, fit them to main-study outcomes, or substitute token-count ratios.
+
+For S, an admitted contender sets the earliest next admission to its admission time plus **the spacing for that admitted contender’s size**. Premium requests bypass the queue; contenders remain FIFO; an expired or abandoned waiter takes no new slot. Retain the existing backend reservation and cancellation semantics.
+
+Every cell here has one contender size. Consequently, S can use the existing fixed-spacing implementation with a different frozen scalar for each length; a new general-purpose size-aware gateway is unnecessary for this experiment. At reference, F and S are identical treatments, acquired separately as a useful check on run-to-run variation. This follows the clock semantics in [fixedspacing.go](/home/lkhun9311/workspace/gpu-platform-control-plane/internal/gateway/fixedspacing.go:10).
+
+Freeze the remaining apparatus to calibration’s: premium 9.25/s, contender 0.5/s, 420 s arrivals per cell, premium 200 characters/68 exact input tokens, output caps 64 and 16, and 30 s timeout. Retain the pinned model, tokenizer and serving image, synchronous priority scheduling, 512-token batch budget, 64 sequence slots, disabled prefix caching, and a fresh engine and gateway for every cell.
+
+**Blocks, seeds and acquisition.**
+
+- Block 1: seed **881**, fresh instance 1.
+- Block 2: seed **882**, fresh instance 2.
+- Block 3: seed **883**, fresh instance 3.
+- Each instance runs R1 first, then all 15 arm–length combinations. R1 is premium-only, uncapped, admission off, and never enters a treatment pool.
+- Within a block, all lengths share the same arrival schedule; only the contender prompt changes. All five arms at a length replay the identical trace.
+- Freeze order by sorting the first 16 hexadecimal characters of SHA-256 of `seed/G/global-block/arm-label`, with lexical arm-label tie-breaking. Global block numbers remain 1, 2, 3 even though each session runs one block.
+- Record instance identity and GPU UUID. Three launches do not, by themselves, establish three independent physical hosts.
+
+Freeze the nine full-trace hashes and three R1 hashes before purchase, along with exact cell inventory, rendered settings, source commit and binary/image hashes. Do not change seeds after replaying their predictions.
+
+Permit **at most one replacement launch**, only for a documented Spot interruption. Replace the entire interrupted block using its original seed and order; retain its partial evidence publicly but exclude it from the endpoint. No replacement for an inconvenient outcome, validity failure, ordinary crash or deadline overrun. Acquire all three complete blocks without efficacy peeking; an unrecoverable acquisition failure ends the study as inconclusive.
+
+**Endpoint and safeguards.** Preserve the implemented nearest-rank premium TTFT p99, pooling request observations over the three blocks **separately for each arm and length**. Never pool lengths, average cell p99s, or import the old v26/calibration observations.
+
+TTFT ends at the gateway’s first-content-forward stamp. Let:
+
+- \(T^+_{A,l}\): pooled scheduled-start p99, uncertain observations assigned \(+\infty\);
+- \(T^-_{A,l}\): pooled arrival-start p99, uncertain observations assigned zero;
+- \(U_l(A,B)=\ln(T^+_{A,l}/T^-_{B,l})\);
+- \(L_l(A,B)=\ln(T^-_{A,l}/T^+_{B,l})=-U_l(B,A)\).
+
+These are conservative measurement bounds, **not confidence intervals**. Recorded failures remain failures as in the existing scorer. An infinite winning numerator cannot establish benefit; two infinities do not order. See [_box and crossed_log_ratio](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/prospective-pilot/pilot_report.py:374).
+
+Call an arm admissible at a length only when **every block**, against its own same-length off cell, satisfies:
+
+| Quantity | Required inequality |
+|---|---|
+| Contender completion | \(\ge 0.95\) |
+| Contender completion p50 | \(\le 1.5\times\) off’s |
+| Contender completion p95 | \(\le 25{,}000\) ms |
+| Hold-timeout refusals | \(=0\) |
+| Preemptions | \(=0\) |
+| Shared-window prefill fraction \(p\) | \(\ge0.90p_O\) |
+| Shared-window decode fraction \(q\) | \(\ge0.90q_O\) |
+| Premium content-gap p99 | \(\le1.25\times\) off’s |
+
+Use the existing completion definition: complete 16-token stream with last content arriving within 30 s of the scheduled instant, including the scorer’s upward allowance for truncated microsecond gaps. Failures and refusals enter latency quantiles at infinity. The shared window ends at the trace’s last scheduled arrival. These definitions are already implemented in [admissibility_lines](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/prospective-pilot/pilot_report.py:979).
+
+Preserve all current cell-validity requirements, including provenance, complete and reconciled capture, prompt/token identity, admitted contenders present in the scheduler log, complete timing, dispatch maximum \(\le50\) ms, premium fraction above 13 ms \(\le0.001\), and gateway record/premium-decision delays with p99 \(\le13\) ms and maximum \(\le50\) ms. Off must have premium loss \(<0.005\) and contender completion \(\ge0.95\).
+
+Extend mode and spacing checks to the new arm names: held fixed admissions must have minimum spacing deviation \(\ge-1\) ms and p99 deviation \(\le13\) ms, using the appropriate frozen spacing. Current [score_cell](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/prospective-pilot/pilot_report.py:911) recognizes only the old fixed-arm names.
+
+For directional comparisons, define comparable retained work, \(K_l(A,B)\), by:
+
+\[
+c_{A,l}\ge c_{B,l}-0.01,\qquad
+\bar p_{A,l}\ge0.97\bar p_{B,l},\qquad
+\bar q_{A,l}\ge0.97\bar q_{B,l}.
+\]
+
+Here \(c\) is pooled completion and bars are arithmetic means of the three block fractions, matching `frontier`.
+
+Define:
+
+\[
+W_l(A,B):=\operatorname{admissible}(A,l)
+\land K_l(A,B)
+\land U_l(A,B)\le\ln(0.85).
+\]
+
+For “does as well,” register an explicit non-inferiority margin:
+
+\[
+N_l(A,B):=\operatorname{admissible}(A,l)
+\land K_l(A,B)
+\land U_l(A,B)\le\ln(1.15).
+\]
+
+Thus “as well” means no more than 15% worse on the premium endpoint, with comparable retained work. It does not mean equality or merely failure to establish superiority.
+
+**Ordered primary verdict.** Evaluate these rules in order, publishing every line regardless of which rule determines the verdict.
+
+1. **Inconclusive evidence.** Any missing/extra cell, failed validity requirement, or unscorable validity/admissibility input. A scored admissibility failure is not an evidence failure. Fully observed infinite outcomes are not missing data.
+
+2. **Hold-cap not operationally robust.** H is inadmissible at any length. Name every failing block and line.
+
+3. **Hold-cap protection not established.** At any length,
+   \[
+   U_l(H,O)>\ln(0.85),
+   \]
+   or the comparison cannot establish the inequality. Do not describe failure of an upper bound as proof that protection is absent.
+
+4. **Challenge not reproduced.** On **each card**, let \(d_{b,l}\) be H’s median engine prefill, scheduler add to the end of the step consuming the final prompt token. Include unfinished prefills at infinity. Require finite positive medians and:
+   \[
+   d_{b,\mathrm{ref}}\le1740,\qquad
+   d_{b,\mathrm{long}}>1740,\qquad
+   d_{b,\mathrm{long}}>1.05d_{b,\mathrm{ref}}.
+   \]
+   Missing/nonfinite medians become inconclusive only after rules 2–3 have been evaluated, preserving calibration’s precedence. Gateway admission-to-first-content is published alongside, not substituted.
+
+5. **Reference comparison not reproduced.** Require F admissible at reference, protective there,
+   \[
+   U_{\mathrm{ref}}(F,O)\le\ln(0.85),
+   \]
+   and \(N_{\mathrm{ref}}(F,H)\). Otherwise the study cannot claim that a previously adequate frozen control lost robustness specifically with length.
+
+6. **Length-dependent advantage over frozen spacing observed**, only if:
+   \[
+   I^+=U_{\mathrm{long}}(H,F)-L_{\mathrm{ref}}(H,F)
+   \le\ln(0.85),
+   \]
+   \(K_{\mathrm{long}}(H,F)\) holds, and either F is inadmissible at long or \(W_{\mathrm{long}}(H,F)\) holds.
+
+   This registers a multiplicative 15% improvement in H/F from reference to long. Crucially, it subtracts the **reference lower bound**, not another upper bound.
+
+7. Otherwise: **Length-dependent advantage not established**, identifying whether the interaction, long-length separation or retained-work comparison failed. Report any reverse win \(W_{\mathrm{long}}(F,H)\) explicitly.
+
+Rule 6 needs precise wording. If F violates an owner limit, say so. If F remains admissible and protective against off but H beats it, report a **relative tail advantage**, not “fixed spacing stopped protecting.” Establishing that F missed the 15% protection target requires:
+
+\[
+L_{\mathrm{long}}(F,O)>\ln(0.85).
+\]
+
+Failure of F’s upper-bound protection test alone does not establish that.
+
+**Ordered size-aware verdict.** Score this comparison separately, without allowing it to rescue a failed primary result:
+
+1. If S is inadmissible anywhere: **Frozen size-aware control broke the limits**, naming where.
+2. If S protects against off at every length and \(N_l(S,H)\) holds at every length: **Frozen size-aware control does as well within the registered margin**. Also report any \(W_l(S,H)\).
+3. Otherwise, if \(W_{\mathrm{long}}(H,S)\): **Hold-cap has a demonstrated long-length tail advantage over the frozen size-aware control**.
+4. Otherwise: **Size-aware comparison unresolved**. Report protection failures and directional results by length; do not convert “neither wins” into equivalence.
+
+Cap-only is an attribution control. If C protects at every length and \(N_l(C,H)\) holds throughout, label **cap-only sufficient within the registered margin**. A claim that feedback adds value beyond the cap needs a direct comparison, such as \(W_{\mathrm{long}}(H,C)\). Beating F alone cannot establish that.
+
+**What replay must establish before purchase.** Freeze its code/model version before screening seeds 881–883. Validate its reproduction of the available diagnostic, v26 and calibration evidence, including the new lengths; disclose errors rather than silently correcting predictions arm by arm.
+
+For the actual frozen main traces, publish:
+
+- All five arms at all three lengths, with the same pooling and interaction arithmetic.
+- Premium tails; engine-prefill medians/p95s; contender completion, median, p95 and refusal counts; shared-window work where the model supports it.
+- The predicted ordered verdict and distance to every decision boundary.
+- Results at the calibrated nominal pace and a frozen sensitivity grid, including the previously diagnostic 1.0205 and 1.0275 paces and a broader ±5% stress around the calibrated nominal pace.
+
+My purchase gate would require the nominal replay to predict H admissible/protective throughout, the challenge and reference conditions satisfied, and rule 6 achievable on these seeds. **It need not predict that H beats S:** static sufficiency is an equally useful answer.
+
+If that gate fails, stop purchase under this registration; do not choose lighter seeds or retune the spacings. Sensitivity failures remain disclosed risks, not reasons to select another nominal pace.
+
+The current simulator does not certify harness validity or measured crossed bounds. Any verdict prediction based on ideal timing must say so. The main-study predictions have **not** been produced in this review.
+
+**Session limits and cost.** With 16 cells per instance, the inherited sizing formula gives:
+
+\[
+1.25(200+16\times920+12)=18{,}665\text{ s}.
+\]
+
+Round the hard stop upward to 18,720 s:
+
+| Limit, relative to launch | Time |
+|---|---:|
+| Matrix stop | 5 h 04 m |
+| Acquisition deadline | 5 h 06 m |
+| Hard stop | **5 h 12 m** |
+| Instance backstop | 5 h 22 m |
+| Sweeper deadline | 5 h 32 m |
+| Reserved lifetime, including 15-minute allowance | **5 h 47 m** |
+
+Three hard stops total **15 h 36 m**. Credentials must extend at least to launch + **6 h 02 m**. Plan at most two sessions per 12-hour login, checking actual remaining expiry before each launch.
+
+Using the repository’s existing budgeting assumptions—not a fresh market quote—$1.10/h Spot cap plus storage/address allowance gives $1.1324/h:
+
+- Three reserved sessions: **$19.65**.
+- Four launches, allowing one complete Spot replacement: **$26.20**.
+- Proposed launch-reservation budget: **$27**, excluding small evidence-storage/service charges and the already purchased calibration.
+- At the historical $0.6824/h assumption and approximately 2 h 45 m per session, expected three-session spend is roughly **$5.63**, excluding replacement.
+
+The reservation budget limits purchases; it cannot enforce termination. Preserve the independent terminators, evidence sidecar, download/recovery path and confirmation of termination.
+
+Before purchase, the implementation must add stage G, global block/card accounting, frozen traces and arm mappings, the scorer above, and deadline/reservation handling. Rehearse the exact session shape and archive accounting; test verdict boundaries, infinities, wrong prompts, wrong spacing and interaction-bound direction. None of those readiness checks was executed here.
+
+**My ranked attack on this draft.**
+
+1. **Feasibility remains precarious.** Calibration’s long median cleared 1,740 ms by only about 32 ms. A modest pace change can erase the challenge or break H’s queue limits. Requiring the challenge on every card improves interpretation but makes an unanswered study quite plausible.
+
+2. **Three blocks provide weak replication for p99.** Thousands of requests do not create thousands of independent experimental units. Pooling can hide card-specific reversals, and one seed per card confounds seed variation with card variation. These rules establish observations, not a powered population claim.
+
+3. **The size-aware comparator is calibrated, not optimal.** It transfers one card’s median ratios while the endpoint depends on tails. S can lose because its safety margin transfers poorly; another fixed lookup table could win. Its short spacing is even slightly below calibration’s short prefill p95.
+
+4. **The experiment tests homogeneous workload shifts.** It does not test mixed prompt sizes, transitions during a cell or per-request adaptation under changing mixtures. Calling it general “size-aware robustness” would overstate the evidence.
+
+5. **A win can come from moving or losing work.** The admissibility safeguards permit 10% less shared-window work than off, while directional comparisons permit 3% less than the comparator and one percentage point less completion. Aggregate work equality also permits moving work away from the premium requests that determine p99.
+
+6. **The engine median is an imperfect challenge witness.** Fixed spacing acts at the gateway; transport variation, first-content delivery and rare long prefills determine overlap. Crossing a median threshold does not demonstrate the causal chain. Publish overlap episodes, admission gaps, prefill-tail distributions and premium-tail episodes together.
+
+7. **Order, thermal drift or gateway behaviour can mimic length effects.** Hashed order reduces systematic placement but does not balance every contrast across only three cards. F/S at reference is a valuable identical-treatment check, but cannot fully identify drift.
+
+8. **Cap-only may explain the useful protection.** H could beat an overaggressive fixed timer while adding little beyond the cap. That is why a successful F comparison must retain the cap-only attribution result rather than automatically becoming evidence for feedback.
+
+9. **The result is unusually sensitive to registered conventions.** A single hold refusal defeats admissibility; small p99 rank changes can move a 15% boundary; content-frame gaps are not literal engine-token gaps. Conversely, the 15% non-inferiority margin can label a meaningful slowdown “as well.” Publish raw quantities and boundary distances beside every verdict.
+
+No files were edited, and no study or infrastructure was launched.

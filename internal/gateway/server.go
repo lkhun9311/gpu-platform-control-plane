@@ -58,6 +58,17 @@ type Server struct {
 	// experiment imposing its scope on traffic it has no authority over. A benchmark run turns it on; nobody
 	// else does.
 	enforceBenchmarkProfile bool
+	// bindPriority writes the tenant tier's engine priority into every forwarded request.
+	//
+	// Off by default because it only means anything to an engine started with priority scheduling, and an
+	// experiment that did not register it must not have its traffic reordered under it.
+	bindPriority bool
+	// recorder writes the per-request record the measurement pilot reads; nil, the default, records nothing.
+	recorder *RequestRecorder
+	// metricsTokenDigest is the SHA-256 of the bearer token /metrics demands, or nil for no authentication.
+	//
+	// Nil is the default so an existing deployment that sets no flag keeps scraping exactly as before.
+	metricsTokenDigest []byte
 	// Namespace and APIKeySecret locate the api-keys Secret used to resolve tenants.
 	Namespace    string
 	APIKeySecret string
@@ -99,6 +110,9 @@ type Server struct {
 	//
 	// The hook returns a bare *url.URL rather than a *BackendRef, since tests only need the pipeline to reach an httptest server; resolveBackend wraps it into a BackendRef carrying just URL and Model.
 	backendOverride func(model string) *url.URL
+	// backendsOverride is backendOverride for a model with several candidates, so the fallback path can run
+	// through the whole pipeline in a test; nil in production, and it wins over backendOverride when set.
+	backendsOverride func(model string) []*url.URL
 	// responseHeaderTimeout bounds the wait for upstream response headers.
 	//
 	// Zero selects proxy.go's defaultResponseHeaderTimeout (30s), so production leaves it unset.
@@ -164,6 +178,12 @@ func (s *Server) ReportBackendState(on bool) { s.reportBackendState = on }
 // refused before the guard is consulted, and internal/bench/report.go reads that refusal as pre-admission so it
 // never enters either term of the admitted-work fraction.
 func (s *Server) EnforceBenchmarkProfile(on bool) { s.enforceBenchmarkProfile = on }
+
+// BindPriority turns on binding the engine's priority to the tenant's tier (see bindEnginePriority).
+func (s *Server) BindPriority(on bool) { s.bindPriority = on }
+
+// RecordRequests makes the gateway write its per-request record to r; nil turns it off.
+func (s *Server) RecordRequests(r *RequestRecorder) { s.recorder = r }
 
 func (s *Server) SetAdmitter(mode AdmissionMode, a Admitter) {
 	s.mode = mode
@@ -269,6 +289,14 @@ func (s *Server) failReason(w http.ResponseWriter, tenant, model string, code in
 //
 // It prefers the test hook over the real backendFor.
 func (s *Server) resolveBackend(ctx context.Context, policy *platformv1.GPUQuotaPolicy, model string) ([]*BackendRef, error) {
+	if s.backendsOverride != nil {
+		urls := s.backendsOverride(model)
+		refs := make([]*BackendRef, 0, len(urls))
+		for _, u := range urls {
+			refs = append(refs, &BackendRef{URL: u, Model: model})
+		}
+		return refs, nil
+	}
 	if s.backendOverride != nil {
 		// The hook only fabricates a URL; Namespace/Name/Port stay zero-valued, since tests using it only need the pipeline to reach an httptest server, not a real backend's identity.
 		return []*BackendRef{{URL: s.backendOverride(model), Model: model}}, nil
@@ -304,6 +332,8 @@ func (s *Server) resolveBackend(ctx context.Context, policy *platformv1.GPUQuota
 // So rejections happen before that cost is paid.
 func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+	tr, w := s.startTrace(w)
+	defer tr.finish()
 
 	// 1. request id: reuse a caller-supplied id when present.
 	//
@@ -321,6 +351,7 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	// Response-only leaves the request unfindable in upstream logs, and request-only leaves the client unable to quote its own id.
 	w.Header().Set("X-Request-Id", rid)
 	r.Header.Set("X-Request-Id", rid)
+	tr.identify(rid)
 
 	// 2. Resolve the API key to a tenant.
 	tenant, ok, err := s.resolveTenant(ctx, r)
@@ -336,6 +367,7 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, "", "", http.StatusUnauthorized)
 		return
 	}
+	tr.tenant(tenant)
 
 	// 3. Find the tenant's GPUQuotaPolicy.
 	//
@@ -409,6 +441,13 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	r.GetBody = body
 	// The factory reads from a buffer already in memory, so it has no failure mode and there is no error path to take here.
 	r.Body, _ = r.GetBody()
+	// The arrival record is synced before admission, so a request the gateway goes on to admit always has one.
+	// A record that cannot be written refuses the request: serving it would leave work the measurement cannot see.
+	if err := tr.arrived(); err != nil {
+		log.FromContext(ctx).Error(err, "cannot write the request record", "request_id", rid)
+		s.fail(w, tenant, meta.Model, http.StatusServiceUnavailable)
+		return
+	}
 
 	// 6. Resolve the model to a backend.
 	targets, err := s.resolveBackend(ctx, policy, meta.Model)
@@ -466,11 +505,26 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	if mode == "" {
 		mode = AdmissionOff
 	}
-	admit, reason := admitCandidates(ctx, admitter, meta, targets, tenant, tier)
+	// The latency metrics start here, before admission, because an admitter may hold the request: serial-prefill
+	// queues a standard request for its turn, and a timer started after it would report a request held 20 s before a
+	// fast backend as fast (review of 197bd12). The hold itself is observed on its own as admission_wait_seconds.
+	start := time.Now()
+	tr.deciding(start)
+	res, admit, reason := decideAdmission(ctx, admitter, meta, targets, tenant, tier)
+	admissionOutcome := "admit"
+	if !admit {
+		admissionOutcome = "refuse"
+	}
+	admissionWait.WithLabelValues(tenant, admissionOutcome).Observe(time.Since(start).Seconds())
+	// Released on every way out from here: a refusal holds nothing, and an admitted request that errors, is
+	// cancelled or completes gives back whatever it still holds. The trace stamps the prefill release here when
+	// no body byte released it first.
+	defer tr.releaseAtEnd(res)()
 	decision := "admit"
 	if !admit {
 		decision = "reject"
 	}
+	tr.decided(tier, decision, reason)
 	// The reason travels on every decision, not only refusals.
 	//
 	// An admit had none, so four different facts about arm C arrived as one: a backend the guard never
@@ -482,14 +536,7 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 	// The numbers the decision was made from, when the operator asked for them and the mode has any.
 	if s.reportBackendState {
-		if obs, ok := admitter.(admissionObserver); ok {
-			for _, b := range targets {
-				if st, has := obs.Observed(b); has {
-					w.Header().Set(HeaderBackendState, formatBackendState(st))
-					break
-				}
-			}
-		}
+		reportObserved(w, admitter, targets)
 	}
 	// Recorded for every request, admitted or not, so the admit rate and admitted-vs-offered token fraction can both be read straight off these two series without diffing against requests_total.
 	admissionDecisions.WithLabelValues(string(mode), tenant, meta.Model, decision, reason).Inc()
@@ -502,7 +549,7 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 		// The 413 does not go through failReason, so before the header above existed its reason reached
 		// nowhere a client could record it. That is why the 1,788 refusals in the 2026-09-03 run had to be
 		// explained months later by reading the runner's flags and the gateway's defaults.
-		if reason == reasonInputExceedsBurst {
+		if reason == reasonInputExceedsBurst || reason == reasonInputExceedsReservation {
 			s.fail(w, tenant, meta.Model, http.StatusRequestEntityTooLarge)
 			return
 		}
@@ -510,9 +557,21 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Bound only after admission, so a refused request is never rewritten, and before the handoff, so every
+	// attempt on every backend carries the same priority.
+	if s.bindPriority {
+		p, err := bindEnginePriority(r, tier)
+		if err != nil {
+			s.fail(w, tenant, meta.Model, http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set(HeaderEnginePriority, strconv.Itoa(p))
+		tr.priority(p)
+	}
+
 	// 8. From here the response is the upstream's, passed through rather than composed.
-	start := time.Now()
-	rec := &statusRecorder{ResponseWriter: w, code: http.StatusOK}
+	onFirstBody, onBody := responseHooks(r, tr, res)
+	rec := &statusRecorder{ResponseWriter: w, code: http.StatusOK, onFirstBody: onFirstBody, onBody: onBody, onFlush: tr.flushed}
 	// Each candidate is tried until one answers, and the two conditions below are what make that safe rather
 	// than merely useful.
 	//
@@ -528,6 +587,7 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	// on a final attempt, the guards inside tryBackends stopped the loop before any final attempt ran, and a
 	// request nobody served went into requests_total as a success.
 	lastFailure := 0
+	targets = forwardTargets(res, targets)
 	urls := make([]*url.URL, 0, len(targets))
 	for _, t := range targets {
 		urls = append(urls, t.URL)
@@ -536,6 +596,7 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	// "yes, the serving stack was asked" regardless of how the attempt turns out. A counter incremented on the
 	// way out would miss a panic or a cancelled request and quietly shrink the denominator it exists to be.
 	backendAttempts.WithLabelValues(tenant, meta.Model).Inc()
+	tr.handedOff()
 	advanced := tryBackends(rec, r, urls, s.sharedTransport(), func(code int, final bool) {
 		upstreamErrors.WithLabelValues(tenant, meta.Model).Inc()
 		lastFailure = code
@@ -544,6 +605,7 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 		}
 	})
 	rec.code = publishedCode(rec.answered, rec.code, lastFailure)
+	tr.outcome(rec.code, rec.answered)
 	if servedByFallback(advanced, rec.code) {
 		backendFallbacks.WithLabelValues(tenant, meta.Model).Inc()
 	}
@@ -586,6 +648,43 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 // The answered guard is load-bearing rather than defensive. A request whose first attempt failed and whose
 // retry SUCCEEDED also leaves lastFailure set, and without the guard that genuine 200 would be overwritten
 // by the failure it recovered from.
+// reportObserved sets the backend-state header from the first target the admitter has numbers for.
+func reportObserved(w http.ResponseWriter, admitter Admitter, targets []*BackendRef) {
+	obs, ok := admitter.(admissionObserver)
+	if !ok {
+		return
+	}
+	for _, b := range targets {
+		if st, has := obs.Observed(b); has {
+			w.Header().Set(HeaderBackendState, formatBackendState(st))
+			return
+		}
+	}
+}
+
+// responseHooks returns what releases the reservation as the response passes: at the first body byte, or, for a
+// reservation held until first content, at the first complete content event.
+func responseHooks(r *http.Request, tr *requestTrace, res *reservation) (func(), func([]byte)) {
+	if res == nil || !res.onContent {
+		return tr.release(res), tr.body
+	}
+	// The watcher reads the body as it passes, so it must be plain text. A client that asks for gzip itself would get
+	// a compressed stream the watcher cannot read, and the hold would last the whole response (review of 64188a2).
+	// Without the client's header, Go's transport negotiates compression on its own and hands the proxy a decoded
+	// body.
+	r.Header.Del("Accept-Encoding")
+	// Released at the first complete content event instead, seen by a watcher of its own because the trace's exists
+	// only when requests are recorded.
+	var cw contentWatcher
+	release := tr.release(res)
+	return nil, func(b []byte) {
+		tr.body(b)
+		if cw.observe(b) {
+			release()
+		}
+	}
+}
+
 func publishedCode(answered bool, code, lastFailure int) int {
 	if !answered && lastFailure != 0 {
 		return lastFailure
@@ -631,9 +730,16 @@ func (s *Server) Handler() http.Handler {
 // Per-tenant usage metrics would let a user infer other tenants' activity, so the split is mandatory.
 //
 // Both muxes serve /readyz so a probe on either port gets the same answer.
+//
+// Only /metrics is behind the optional bearer token.
+// /readyz stays open because the kubelet's readiness and liveness probes hit it on this port and send no credentials, so gating it would keep the Pod unready and then restart it.
 func (s *Server) MetricsHandler() http.Handler {
 	mux := http.NewServeMux()
-	mux.Handle("/metrics", metricsHTTPHandler())
+	metricsH := metricsHTTPHandler()
+	if s.metricsTokenDigest != nil {
+		metricsH = requireBearer(s.metricsTokenDigest, metricsH)
+	}
+	mux.Handle("/metrics", metricsH)
 	mux.HandleFunc("/readyz", s.readyz)
 	return mux
 }
@@ -645,6 +751,9 @@ func NewCache(ctx context.Context, cfg *rest.Config, scheme *runtime.Scheme, nam
 	ca, err := cache.New(cfg, cache.Options{
 		Scheme:           scheme,
 		DefaultTransform: cache.TransformStripManagedFields(),
+		// A read of a kind not registered below fails rather than starting an informer and waiting for it, so a
+		// new read on the request path cannot quietly bring the first-request stall back (v22 review, finding 6).
+		ReaderFailOnMissingInformer: true,
 		// Watch Secrets only in the namespace the gateway runs in.
 		//
 		// Why the scope matters (it is what the design spec's Components section means by "scoped cache").
@@ -689,6 +798,17 @@ func NewCache(ctx context.Context, cfg *rest.Config, scheme *runtime.Scheme, nam
 	}); err != nil {
 		return nil, nil, fmt.Errorf("index %s: %w", ModelNameIndex, err)
 	}
+	// Every kind the request path reads is registered here, before Start, so it starts with the cache and
+	// WaitForCacheSync, which flips readiness, waits for it.
+	// The index above registered InferenceDeployment; Secret and GPUQuotaPolicy were left to their first read, so the
+	// gateway reported ready with neither cached and its first requests each waited for an informer to start and sync,
+	// about one 100 ms sync poll per kind. The pilot measured that as 103 and 204 ms of dispatch lag on the first one
+	// or two requests of every cell (design page, "Pilot results, 2026-10-09").
+	for _, o := range []client.Object{&corev1.Secret{}, &platformv1.GPUQuotaPolicy{}} {
+		if _, err := ca.GetInformer(ctx, o); err != nil {
+			return nil, nil, fmt.Errorf("register the %T informer before start: %w", o, err)
+		}
+	}
 	cl, err := client.New(cfg, client.Options{Scheme: scheme, Cache: &client.CacheOptions{Reader: ca}})
 	if err != nil {
 		return nil, nil, fmt.Errorf("new delegating client: %w", err)
@@ -726,6 +846,31 @@ func NewCache(ctx context.Context, cfg *rest.Config, scheme *runtime.Scheme, nam
 // A STATEFUL admitter is still asked once, about the head. static-cap's Admit spends EstInputTokens from a
 // per-backend limiter, so asking it about each candidate would bill one request several times and the arm
 // would stop measuring offered load. One request, one charge, decided up front.
+// forwardTargets is the candidate list a request may be forwarded to.
+//
+// A request holding a reservation goes only to the backend it reserved on. Falling back to another would put its
+// work on a backend whose holds never counted it, and both caps could be exceeded there (found by review); a
+// request with nothing reserved keeps the fallback path.
+func forwardTargets(res *reservation, targets []*BackendRef) []*BackendRef {
+	if res != nil {
+		return targets[:1]
+	}
+	return targets
+}
+
+// decideAdmission asks a reserving admitter through Reserve, never Admit, so an admission always carries its
+// hold, and every other admitter through admitCandidates.
+//
+// The hold is on the first candidate, the backend the request is sent to unless that one fails.
+func decideAdmission(ctx context.Context, admitter Admitter, meta RequestMeta, targets []*BackendRef,
+	tenant, tier string) (*reservation, bool, string) {
+	if rv, ok := admitter.(reserver); ok {
+		return rv.Reserve(ctx, meta, targets[0], tenant, tier)
+	}
+	admit, reason := admitCandidates(ctx, admitter, meta, targets, tenant, tier)
+	return nil, admit, reason
+}
+
 func admitCandidates(ctx context.Context, admitter Admitter, meta RequestMeta,
 	targets []*BackendRef, tenant, tier string) (bool, string) {
 	if reg, ok := admitter.(backendRegistrar); ok {

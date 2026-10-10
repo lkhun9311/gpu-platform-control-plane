@@ -1,0 +1,12 @@
+# My main-study sketch, written before reading astra's main draft
+
+- Cards: three separate sessions, one card each, seeds 881, 882, 883 (one per card); length order rotated by card.
+- Per card, one block: R1 once; at each length L in {short, ref, long}: off-L, hold-cap-L, fixed-1.74-L; plus size-short (1,256.9 ms) and size-long (1,867.0 ms). At ref the size-aware spacing is 1,740 ms, so fixed-1.74-ref is both. 12 cells per card.
+- No cap-only arm: the diagnostic measured cap alone at 1.09 to 1.19 of off's tail, and every comparison here holds the cap fixed.
+- Endpoint: per length, premium TTFT p99 pooled over the three cards, crossed bounds as v26; admissibility per card against that card's off at the same length, v26's seven lines.
+- Primary verdict, the robustness claim: at long, hold-cap admissible on every card and its pooled tail at least 15% below fixed-1.74's on the crossed bound, AND at ref the two within 15% of each other either way (v26 reproduced), AND the long-over-ref interaction: (H_long / F_long) / (H_ref / F_ref) <= 0.85 on the unfavourable crossed ends.
+- Secondary: size-long against hold-cap at long: "size awareness sufficed" when size-long is admissible and within 15%; "feedback beat size awareness" when hold-cap wins by 15% with work kept.
+- Validity: v26's and the calibration's lines, including the engine-prefill measure published per cell.
+- Before purchase: replay the three frozen seeds at the calibration card's measured pace (engine prefill medians within 2-3% of the replay's), every arm, the registered decision.
+- Limits per card: 1.25 x (200 + 12 x 920 + 12) = 14,065 s, 3 h 54 m.
+- Weakest points: one seed per card confounds card and trace; the interaction needs three cards' worth of tail samples at each length; F-long may break so hard (off-level tail) that the 15% band is trivially met, which is the mechanism, but also could be confounded by queue growth that would hit any spacing at that load.
