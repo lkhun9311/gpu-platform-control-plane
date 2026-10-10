@@ -692,6 +692,16 @@ class FrontierTest(unittest.TestCase):
         write(path, rows)
         self.assertIn("hold-cap-2 is the registered cell", self.v())
 
+    # A row without an integer index is not the registered cell, and does not crash the report (review of 087cc3b).
+    # Mutation that turns it red: sort the indices without checking them.
+    def test_a_row_without_its_index_is_not_the_registered_cell(self):
+        frontier_block(self.d, ttft={"hold-cap": 10_000_000})
+        path = os.path.join(self.d, "raw-off-1.jsonl")
+        rows = pr.jsonl(path)
+        rows[0].pop("index")
+        write(path, rows)
+        self.assertIn("off-1 is the registered cell", self.v())
+
     # A trace that does not hash to the frozen checksum is not the registered trace, whatever its manifest says.
     # Mutation that turns it red: trust the manifest's checksum without hashing the trace.
     def test_a_trace_with_another_hash_is_not_the_registered_cell(self):

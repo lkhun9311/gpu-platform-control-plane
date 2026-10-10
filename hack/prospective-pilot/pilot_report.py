@@ -835,6 +835,9 @@ def provenance(stage_dir, arm, rep):
         return "its trace hashes to %s, registered %s" % (got, want)
     trace = {t["index"]: t for t in jsonl(tpath)}
     rows = jsonl(os.path.join(stage_dir, "raw-%s.jsonl" % tag))
+    # Checked before sorting: a missing or non-integer index raised a TypeError past the cell's guard (review of 087cc3b).
+    if any(type(r.get("index")) is not int for r in rows):
+        return "a row has no integer index"
     if sorted(r.get("index") for r in rows) != sorted(trace):
         return "its rows are not its trace's requests, one each"
     for r in rows:
