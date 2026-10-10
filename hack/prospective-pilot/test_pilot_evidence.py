@@ -61,6 +61,25 @@ class PilotEvidenceTest(unittest.TestCase):
         ok, _ = pe.priority(self.step, self.raw)
         self.assertIs(ok, False)
 
+    # A terminal record declaring 99 records over a log holding none is incomplete (v26 review, B21).
+    # Mutation that turns this red: skip the produced-count comparison when there are no sequenced records.
+    def test_a_terminal_record_over_an_empty_log_is_incomplete(self):
+        write(self.step, [{"ev": "terminal", "seq_written": 99, "seq_produced": 99, "buffered": 0, "last_step": 0}])
+        ok, _ = pe.terminal(self.step)
+        self.assertIs(ok, False)
+
+    # A request the scheduler ran with no add record ran at a priority nobody witnessed (v26 review, B9).
+    # Mutation that turns this red: read priorities from the add records alone.
+    def test_a_scheduled_request_without_its_add_cannot_be_witnessed(self):
+        recs = step_log([("chatcmpl-pp-A-off-1-1", 0)])
+        recs.insert(1, {"ev": "sched", "step": 1, "t0": 1, "tokens": {"chatcmpl-pp-A-off-1-2": 68}, "computed": {}, "seq": 2})
+        recs[2]["last_seq"] = 2
+        recs[-1].update({"seq_written": 2, "seq_produced": 2})
+        write(self.step, recs)
+        ok, why = pe.priority(self.step, self.raw)
+        self.assertIsNone(ok, why)
+        self.assertIn("no add record", why)
+
     # Mutation that turns this red: check priority before checking the log's completeness.
     def test_an_incomplete_log_cannot_witness_priority(self):
         write(self.step, step_log([("chatcmpl-pp-A-off-1-1", 0)], {"seq_produced": 5, "buffered": 4}))

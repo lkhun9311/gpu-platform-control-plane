@@ -45,9 +45,11 @@ def terminal(step_log):
     seqs = [r["seq"] for r in data]
     if seqs != list(range(1, len(seqs) + 1)):
         return False, "the step log's sequence numbers are not 1 to %d without a gap" % len(seqs)
-    if seqs and seqs[-1] != t["seq_produced"]:
+    # With no sequenced record at all, a terminal record declaring some produced is a log that lost them all: the
+    # check below was skipped for an empty log (v26 review, B21).
+    if (seqs[-1] if seqs else 0) != t["seq_produced"]:
         return False, "the log holds records up to %d and the terminal record says %d were produced" % (
-            seqs[-1], t["seq_produced"])
+            seqs[-1] if seqs else 0, t["seq_produced"])
     if any(r.get("ev") == "overflow" for r in recs):
         return False, "the step logger overflowed its buffer"
     return True, ""
@@ -91,7 +93,16 @@ def priority(step_log, raw_rows):
         return None, "the step log cannot witness the priorities: " + why
     tenants = client_tiers(raw_rows)
     bad = []
-    for r in records(step_log):
+    recs = records(step_log)
+    # Every request the scheduler ran must have its add record, which is where its priority is witnessed; one
+    # without it ran at a priority nobody saw (v26 review, B9).
+    added = {r["id"] for r in recs if r.get("ev") == "add"}
+    for r in recs:
+        if r.get("ev") == "sched":
+            for rid in r.get("tokens", {}):
+                if rid not in added and not any(p in rid for p in OWN_PREFIXES):
+                    return None, "the scheduler ran %s with no add record, so its priority cannot be witnessed" % rid
+    for r in recs:
         if r.get("ev") != "add":
             continue
         rid = r["id"]
