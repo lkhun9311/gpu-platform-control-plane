@@ -826,6 +826,32 @@ class CalibrationTest(unittest.TestCase):
         write(path, recs)
         self.assertEqual(self.v()["verdict"], "not feasible: hold-cap was not admissible at long: hold refusals")
 
+    # An admissibility failure at the long length outranks a protection failure at the short one (review of 25f989a).
+    # Mutation that turns it red: take the first failing length in length order.
+    def test_admissibility_outranks_protection_across_lengths(self):
+        lencal_block(self.d, ttft={"hold-cap-short": 20_000_000, "hold-cap-ref": 10_000_000, "hold-cap-long": 10_000_000},
+                     a2c={"short": 1300, "ref": 1600, "long": 1800})
+        path = os.path.join(self.d, "gateway-record-hold-cap-long-1.jsonl")
+        recs = pr.jsonl(path)
+        for r in recs:
+            if r["ev"] == "done" and r["requestId"] == "pp-A-off-1-1":
+                r["reason"] = "serial_prefill_hold_timeout"
+        write(path, recs)
+        self.assertEqual(self.v()["verdict"], "not feasible: hold-cap was not admissible at long: hold refusals")
+
+    # A contender success without its gateway first content cannot be timed: inconclusive, not a crash or a median
+    # over the rest (review of 25f989a).
+    # Mutation that turns it red: drop untimed contenders from the median silently.
+    def test_a_contender_without_gateway_timing_is_inconclusive(self):
+        lencal_block(self.d, ttft=self.protective, a2c={"short": 1300, "ref": 1600, "long": 1800})
+        path = os.path.join(self.d, "gateway-record-hold-cap-ref-1.jsonl")
+        recs = pr.jsonl(path)
+        for r in recs:
+            if r["ev"] == "done" and r["requestId"] == "pp-A-off-1-1":
+                r.pop("firstContentUnixNanos")
+        write(path, recs)
+        self.assertIn("hold-cap at ref: contender successes without gateway timing", self.v()["verdict"])
+
     def test_a_missing_cell_is_inconclusive(self):
         lencal_block(self.d, ttft=self.protective, skip=("off-long-1",))
         self.assertTrue(self.v()["verdict"].startswith("inconclusive: cells not acquired: off-long-1"), self.v()["verdict"])

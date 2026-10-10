@@ -1111,15 +1111,20 @@ V26_SPACING_MS = 1740.0
 
 
 def admission_to_content(stage_dir, tag):
-    """Each admitted contender's gateway decision to its first content, in ms: under serial-prefill, the capped prefill
-    as the gateway sees it, which is what a fixed spacing must outlast."""
-    rows = {r.get("requestId"): r.get("tenant") for r in jsonl(os.path.join(stage_dir, "raw-%s.jsonl" % tag))}
-    out = []
+    """(durations, untimed): each admitted contender's gateway decision to its first content, in ms, under
+    serial-prefill the capped prefill as the gateway sees it; and how many contender successes lack either stamp,
+    which would otherwise drop out of the median silently (review of 25f989a)."""
+    rows = {r.get("requestId"): r for r in jsonl(os.path.join(stage_dir, "raw-%s.jsonl" % tag))}
+    out, untimed = [], 0
     for rid, e in gateway_records(os.path.join(stage_dir, "gateway-record-%s.jsonl" % tag)).items():
-        d = e.get("done") or {}
-        if rows.get(rid) == CONTENDER and d.get("decision") == "admit" and d.get("decidedUnixNanos") and d.get("firstContentUnixNanos"):
+        d, r = e.get("done") or {}, rows.get(rid) or {}
+        if r.get("tenant") != CONTENDER or d.get("decision") != "admit":
+            continue
+        if d.get("decidedUnixNanos") and d.get("firstContentUnixNanos"):
             out.append(ms(d["firstContentUnixNanos"] - d["decidedUnixNanos"]))
-    return sorted(out)
+        elif full_output(r, 16):
+            untimed += 1
+    return sorted(out), untimed
 
 
 def calibration(stage_dir):
@@ -1166,7 +1171,8 @@ def calibration(stage_dir):
               None if r is None else r <= LN_085)
         if r is not None and r > LN_085 and length not in first_fail:
             first_fail[length] = "premium p99 crossed against off's"
-        a2c = admission_to_content(stage_dir, h)
+        a2c, a2c_untimed = admission_to_content(stage_dir, h)
+        check(validity, "hold-cap at %s: contender successes without gateway timing" % length, a2c_untimed, "0", a2c_untimed == 0)
         measured[length] = {"tokens": tokens, "admission_to_content_p50_ms": nearest_rank(a2c, 0.5),
                             "admission_to_content_p95_ms": nearest_rank(a2c, 0.95), "contenders_timed": len(a2c),
                             "premium_p99_sched_hi_ms": h_hi, "off_premium_p99_arr_lo_ms": o_lo, "ln_ratio_to_off": r}
@@ -1184,18 +1190,24 @@ def calibration(stage_dir):
         inconclusive.append("unscorable: " + ", ".join(unscorable[:5]))
     if not inconclusive and len(measured) != len(LENCAL_LENGTHS):
         inconclusive.append("a length has no scored pair")
+    if not inconclusive and not all((measured[l]["admission_to_content_p50_ms"] or 0) > 0 for l, _ in LENCAL_LENGTHS):
+        inconclusive.append("a length has no positive admission-to-first-content median")
 
     spacings = None
     if inconclusive:
         verdict = "inconclusive: " + "; ".join(inconclusive)
     else:
-        bad_len = [l for l, _ in LENCAL_LENGTHS if l in first_fail]
+        # Every admissibility failure, at any length, before any protection failure: the registered order (review of
+        # 25f989a).
+        prot = "premium p99 crossed against off's"
+        bad_len = ([l for l, _ in LENCAL_LENGTHS if l in first_fail and first_fail[l] != prot]
+                   + [l for l, _ in LENCAL_LENGTHS if first_fail.get(l) == prot])
         d_ref, d_long = measured["ref"]["admission_to_content_p50_ms"], measured["long"]["admission_to_content_p50_ms"]
         spacings = {l: round(V26_SPACING_MS * measured[l]["admission_to_content_p50_ms"] / d_ref, 1) for l, _ in LENCAL_LENGTHS}
         if bad_len:
             l = bad_len[0]
             verdict = ("not feasible: hold-cap did not protect the premium tail at %s" % l
-                       if first_fail[l] == "premium p99 crossed against off's"
+                       if first_fail[l] == prot
                        else "not feasible: hold-cap was not admissible at %s: %s" % (l, first_fail[l]))
         elif not (d_long > V26_SPACING_MS and d_long > 1.05 * d_ref):
             verdict = ("challenge not achieved: hold-cap's median admission-to-first-content at the long length, %.0f ms, "
