@@ -149,3 +149,18 @@ func TestFixedSpacingDropsAHeadPastItsHold(t *testing.T) {
 		t.Fatal("the next waiter was not admitted in its place")
 	}
 }
+
+// An admitted standard request is pinned to the backend its spacing was charged to: its reservation is not nil, so
+// the server does not keep the fallback backends (review of b80093c).
+// Mutation that turns it red: return a nil reservation on admission.
+func TestFixedSpacingPinsTheChargedBackend(t *testing.T) {
+	f := newFixedSpacingAdmitter(time.Millisecond, time.Second)
+	res, ok, _ := f.Reserve(context.Background(), RequestMeta{}, serialBackend(), "", tierStandard)
+	if !ok || res == nil {
+		t.Fatalf("an admitted standard request: ok %v, reservation %v", ok, res)
+	}
+	b2 := &BackendRef{URL: serialBackend().URL}
+	if got := forwardTargets(res, []*BackendRef{serialBackend(), b2}); len(got) != 1 {
+		t.Fatalf("the request may still go to %d backends", len(got))
+	}
+}

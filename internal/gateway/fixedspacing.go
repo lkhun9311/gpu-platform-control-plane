@@ -58,8 +58,10 @@ func (f *fixedSpacingAdmitter) Admit(context.Context, RequestMeta, *BackendRef, 
 }
 
 // Reserve admits a premium request at once, and a standard one when nobody waits ahead of it and a spacing has passed
-// since the backend's last standard admission; otherwise it waits its turn. It returns no reservation: nothing the
-// request does later releases anything.
+// since the backend's last standard admission; otherwise it waits its turn.
+// An admitted standard request carries an empty reservation: nothing it does later releases anything, but a
+// reservation is what keeps it on the backend whose clock it was charged to; without one the server kept the
+// fallback backends, which no spacing had been asked about (review of b80093c).
 func (f *fixedSpacingAdmitter) Reserve(ctx context.Context, _ RequestMeta, backend *BackendRef, _, tier string) (*reservation, bool, string) {
 	if tier == tierPremium {
 		return nil, true, reasonPremiumUnreserved
@@ -75,7 +77,7 @@ func (f *fixedSpacingAdmitter) Reserve(ctx context.Context, _ RequestMeta, backe
 	if len(l.waiters) == 0 && (l.last.IsZero() || now.Sub(l.last) >= f.spacing) {
 		l.last = now
 		f.mu.Unlock()
-		return nil, true, reasonFixedSpacingFree
+		return &reservation{}, true, reasonFixedSpacingFree
 	}
 	turn := make(chan struct{})
 	l.waiters = append(l.waiters, waiter{turn, now})
@@ -86,7 +88,7 @@ func (f *fixedSpacingAdmitter) Reserve(ctx context.Context, _ RequestMeta, backe
 	defer timer.Stop()
 	select {
 	case <-turn:
-		return nil, true, reasonFixedSpacingWaited
+		return &reservation{}, true, reasonFixedSpacingWaited
 	case <-timer.C:
 		f.leave(key, turn)
 		return nil, false, reasonFixedSpacingHoldTimeout
