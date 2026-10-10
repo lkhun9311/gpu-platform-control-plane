@@ -239,6 +239,32 @@ awk -F'\t' 'NR > 1 && length($1) != 13 {bad=1} END {exit bad}' "$f" && [ "$n_run
 grep -q $'\tscrape-failed\t' "$work/sampler-fail/engine-samples-off-1.tsv" \
   && ok "a failed engine read leaves a scrape-failed row" || bad "no scrape-failed row: $(cat "$work/sampler-fail/engine-samples-off-1.tsv")"
 
+# A port something already listens on is seen as taken, and a free one is not (v26 review, C27).
+port=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')
+python3 -c 'import socket,sys,time; s=socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1); s.bind(("127.0.0.1",int(sys.argv[1]))); s.listen(5); time.sleep(20)' "$port" &
+lpid=$!
+for _ in $(seq 1 50); do pp_port_taken "$port" && break; sleep 0.1; done
+if pp_port_taken "$port"; then ok "a port already listening is seen as taken"; else bad "a listening port read as free"; fi
+kill "$lpid" 2>/dev/null; wait "$lpid" 2>/dev/null
+if pp_port_taken "$port"; then bad "a free port read as taken"; else ok "a free port is not taken"; fi
+
+# A gateway-record read that fails leaves the last good copy in place, not an empty file (v26 review, C29).
+mkdir -p "$work/gwread/bin"
+printf '#!/bin/sh\ncase "$*" in *jsonpath=*nodeName*) echo node-a ;; *jsonpath=*uid*) echo uid-1 ;; *) echo gw-pod ;; esac\n' > "$work/gwread/bin/kubectl"
+printf '#!/bin/sh\nexit 1\n' > "$work/gwread/bin/docker"
+chmod +x "$work/gwread/bin/kubectl" "$work/gwread/bin/docker"
+echo '{"previous":"snapshot"}' > "$work/gwread/rec.jsonl"
+if PATH="$work/gwread/bin:$PATH" KCTX=x NS_A=y pp_read_gateway_record "$work/gwread/rec.jsonl" $(( $(date +%s) + 5 )) >/dev/null; then
+  bad "a failed read reported success"
+elif grep -q previous "$work/gwread/rec.jsonl" && [ ! -e "$work/gwread/rec.jsonl.tmp" ]; then
+  ok "a failed record read keeps the last good copy"
+else
+  bad "a failed record read replaced the last good copy: $(cat "$work/gwread/rec.jsonl")"
+fi
+printf '#!/bin/sh\necho "{\\"fresh\\":1}"\n' > "$work/gwread/bin/docker"
+PATH="$work/gwread/bin:$PATH" KCTX=x NS_A=y pp_read_gateway_record "$work/gwread/rec.jsonl" $(( $(date +%s) + 5 )) >/dev/null \
+  && grep -q fresh "$work/gwread/rec.jsonl" && ok "a successful record read replaces it" || bad "a successful read did not replace the copy: $(cat "$work/gwread/rec.jsonl")"
+
 echo
 [ "$fails" = 0 ] && { echo "PASS"; exit 0; }
 echo "$fails check(s) failed"; exit 1

@@ -2087,7 +2087,13 @@ deploy_arm() {
   # The paid run of 2026-09-11 did not reach this: its engine b timed out first, one step earlier in this
   # same function. hack/test/rehearse-m5c-matrix.sh found it on a kind cluster for nothing.
   k delete gpuquotapolicy m5c-premium m5c-standard --ignore-not-found --wait=true >/dev/null 2>&1
-  k create ns "$NS_A" >/dev/null; k create ns "$NS_B" >/dev/null
+  # Every cell needs a fresh engine. A deletion that failed left the previous one running, and `create` then
+  # answered AlreadyExists, which this ignored, so the next cell inherited the last engine (v26 review, C26).
+  local _ns
+  for _ns in "$NS_A" "$NS_B"; do
+    ! k get namespace "$_ns" >/dev/null 2>&1 || fail "namespace $_ns survived its deletion, so this cell would inherit the previous cell's engine"
+    k create ns "$_ns" >/dev/null || fail "namespace $_ns could not be created for this cell"
+  done
   case "$arm" in
     R1|shared)
       # One engine with the whole card. Both policies point at the same namespace, so both tenants resolve
@@ -2742,6 +2748,19 @@ EOF
     printf 'cell-refusal-files %s %s\n' "$cref_expected" "$cref_actual"
   fi
   printf 'fixed-files %s %s\n' "$fixed_expected" "$fixed_actual"
+  # An admission study's completed cell owes its step log, gateway record and sender record; counted from the cells
+  # that completed, not from the files that survived, so a lost record shows as a shortfall (v26 review, C25).
+  if [ -z "${LADDER:-}" ] && pp_is_study "${STUDY:-}"; then
+    pr_expected=0 pr_actual=0
+    while IFS=$'\t' read -r _ c_arm c_rep c_outcome _; do
+      [ "$c_outcome" = completed ] || continue
+      for f in "step-log-$c_arm-$c_rep.jsonl" "gateway-record-$c_arm-$c_rep.jsonl" "raw-$c_arm-$c_rep.jsonl.sender.json"; do
+        pr_expected=$(( pr_expected + 1 ))
+        [ -s "$OUT/$f" ] && pr_actual=$(( pr_actual + 1 ))
+      done
+    done < <(tail -n +2 "$OUT/cell-timings.tsv" 2>/dev/null)
+    printf 'pilot-records %s %s\n' "$pr_expected" "$pr_actual"
+  fi
   printf 'conditional %s %s\n' "$cond" "$cond"
   printf 'unattributed 0 %s\n' "$unattr"
 }
@@ -3655,6 +3674,23 @@ fi
 # with --arm off, because the harness's arm vocabulary is the ADMISSION arms and the sharing mode is this
 # run's variable; feeding both files to `benchharness report` would pool them into one arm and produce a
 # number for a comparison that was never made.
+# Every sidecar and sampler has finished writing before the archive's last files are written (v26 review, C30).
+if [ -z "${LADDER:-}" ] && pp_is_study "${STUDY:-}"; then pp_wait_background; fi
+# The admission studies' archives say which study they are and which scorer judges them; the sharing matrix's text
+# below names another question (v26 review, C45).
+if [ -z "${LADDER:-}" ] && pp_is_study "${STUDY:-}"; then
+  _pp_cmd=$(case "$PILOT_STAGE" in E) echo frontier ;; D) echo diagnostic ;; *) echo stage ;; esac)
+  cat > "$OUT/README.txt" <<EOF
+Raw evidence for study $STUDY, stage $PILOT_STAGE (docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md).
+
+Its arms are admission and engine settings, named in each cell's files: $ARMS.
+It is judged by its registered scorer and by nothing else:
+
+  python3 hack/prospective-pilot/pilot_report.py $_pp_cmd <this directory>
+
+Do not pass these files to benchharness report: that evaluates the sharing matrix's readings, another question.
+EOF
+else
 cat > "$OUT/README.txt" <<EOF
 Raw evidence from the M5-c sharing matrix.
 
@@ -3715,6 +3751,7 @@ that omitted refusals would disagree with the arithmetic that drove the next dec
 
 Neither file says the judgement was CORRECT. It says the judgement can now be re-examined.
 EOF
+fi
 
 # The expected-versus-actual comparison is NOT written here any more.
 #

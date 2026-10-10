@@ -312,6 +312,11 @@ pp_phase() {
 #   3. The step log, the engine's own iteration log, and the gateway's record. The gateway image has no shell, so
 #      its emptyDir is read from the node, by the pod's UID, before the namespace is deleted.
 #   4. The priority witness: every request the scheduler received at its tier's priority.
+# Whether something already listens on a local port. A helper's port-forward that lost the race for its port fails
+# quietly, and curl then reads whatever owns the port, a stale engine's metrics or a stale fence, as this cell's
+# (v26 review, C27).
+pp_port_taken() { (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; }
+
 pp_capture() {
   local label="$1" rep="$2" deadline pod gwpod node uid pf code why=""
   # $3 is when the replay returned; the bound runs from there, not from when capture starts.
@@ -323,11 +328,14 @@ pp_capture() {
   pod=$(timeout "$(left)" kubectl --context "$KCTX" get pods -n "$NS_A" -l app.kubernetes.io/component=vllm -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
   [ -n "$pod" ] || { pp_ineligible "$label" "$rep" "no engine pod to capture from"; return 1; }
 
+  ! pp_port_taken "$PP_FENCE_PORT" || { pp_ineligible "$label" "$rep" "port $PP_FENCE_PORT was already in use before the fence's forward"; return 1; }
   kubectl --context "$KCTX" port-forward -n "$NS_A" "pod/$pod" "$PP_FENCE_PORT:8000" >"$OUT/fence-forward-$label-$rep.log" 2>&1 &
   pf=$!
   code=000
   while [ "$(date +%s)" -lt "$deadline" ]; do
-    code=$(curl -sS -o "$OUT/fence-$label-$rep.json" -w '%{http_code}' --max-time $(( deadline - $(date +%s) )) \
+    # left() never answers below one second: a budget computed across the second's boundary was 0, which curl
+    # reads as no timeout at all (v26 review, C28).
+    code=$(curl -sS -o "$OUT/fence-$label-$rep.json" -w '%{http_code}' --max-time "$(left)" \
       -H 'Content-Type: application/json' -H "X-Request-Id: fence-$label-$rep" \
       -d "{\"model\":\"$MODEL\",\"messages\":[{\"role\":\"user\",\"content\":\"x\"}],\"max_tokens\":1}" \
       "http://127.0.0.1:$PP_FENCE_PORT/v1/chat/completions" 2>/dev/null) || code=000
@@ -384,8 +392,11 @@ pp_read_gateway_record() {
   node=$(timeout "$(_gl)" kubectl --context "$KCTX" get pod -n "$NS_A" "$gwpod" -o jsonpath='{.spec.nodeName}' 2>/dev/null)
   uid=$(timeout "$(_gl)" kubectl --context "$KCTX" get pod -n "$NS_A" "$gwpod" -o jsonpath='{.metadata.uid}' 2>/dev/null)
   printf '%s' "$node"
+  # Read to a temporary file and moved over dest only when the read succeeded with something in it: a failed read
+  # truncated dest, and the sidecar then uploaded the empty file over the last good snapshot (v26 review, C29).
   [ -n "$node" ] && [ -n "$uid" ] && timeout "$(_gl)" docker exec "$node" cat \
-    "/var/lib/kubelet/pods/$uid/volumes/kubernetes.io~empty-dir/gwrecord/$(basename "$PP_GATEWAY_RECORD")" > "$dest" 2>/dev/null
+    "/var/lib/kubelet/pods/$uid/volumes/kubernetes.io~empty-dir/gwrecord/$(basename "$PP_GATEWAY_RECORD")" > "$dest.tmp" 2>/dev/null \
+    && [ -s "$dest.tmp" ] && mv -f "$dest.tmp" "$dest" || { rm -f "$dest.tmp"; return 1; }
 }
 
 # The evidence sidecar (design page, "Rows leave the instance as they are written", build item 8): during a replay,
@@ -428,6 +439,7 @@ pp_sidecar_start() {
     done
   ) &
   PP_SIDECAR_PID=$!
+  PP_BACKGROUND_PIDS="${PP_BACKGROUND_PIDS:-} $!"
 }
 # Stopped by a flag the loop reads between uploads, without waiting, so an upload in flight neither eats into the
 # capture's bound nor loses its row: a TERM deferred until the hook returned exited before the row was written
@@ -451,6 +463,11 @@ pp_sampler_start() {
   PP_SAMPLER_STOP="${WORK:-$OUT}/sampler-stop-$label-$rep"
   rm -f "$PP_SAMPLER_STOP"
   printf 'unix_ms\tmetric\tvalue\n' > "$out"
+  if pp_port_taken "$PP_SAMPLE_PORT"; then
+    printf '%s\tport-taken\t\n' "$(( $(date +%s%N) / 1000000 ))" >> "$out"
+    PP_SAMPLER_PID=""
+    return 0
+  fi
   (
     kubectl --context "$KCTX" port-forward -n "$NS_A" deploy/vllm-qwen25-3b "$PP_SAMPLE_PORT:8000" \
       > "${WORK:-$OUT}/sampler-pf-$label-$rep.log" 2>&1 &
@@ -471,6 +488,20 @@ pp_sampler_start() {
     done
   ) &
   PP_SAMPLER_PID=$!
+  PP_BACKGROUND_PIDS="${PP_BACKGROUND_PIDS:-} $!"
+}
+
+# Waits, at most PP_BACKGROUND_WAIT_S, for every sidecar and sampler this matrix started, so the archive is not read
+# while one is still copying or appending its last row (v26 review, C30). The stops only set flags, so a capture's
+# bound is not spent here; this runs once, before the archive is closed.
+PP_BACKGROUND_WAIT_S="${PP_BACKGROUND_WAIT_S:-40}"
+pp_wait_background() {
+  local pid deadline=$(( $(date +%s) + PP_BACKGROUND_WAIT_S ))
+  for pid in ${PP_BACKGROUND_PIDS:-}; do
+    while kill -0 "$pid" 2>/dev/null && [ "$(date +%s)" -lt "$deadline" ]; do sleep 1; done
+    kill -0 "$pid" 2>/dev/null && { say "a background writer, pid $pid, was still running after ${PP_BACKGROUND_WAIT_S}s and was stopped"; kill "$pid" 2>/dev/null; }
+  done
+  PP_BACKGROUND_PIDS=""
 }
 pp_sampler_stop() {
   [ -n "${PP_SAMPLER_PID:-}" ] || return 0
@@ -492,6 +523,7 @@ pp_calibrate() {
   local pod pf out rc
   pod=$(k get pods -n "$NS_A" -l app.kubernetes.io/component=vllm -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
   [ -n "$pod" ] || { echo "no engine pod to calibrate against"; return 1; }
+  ! pp_port_taken "$PP_FENCE_PORT" || { echo "port $PP_FENCE_PORT was already in use before the calibration's forward, so its answers could be another engine's"; return 1; }
   kubectl --context "$KCTX" port-forward -n "$NS_A" "pod/$pod" "$PP_FENCE_PORT:8000" >"$OUT/calibration-forward.log" 2>&1 &
   pf=$!
   # Wait for the tunnel rather than a fixed two seconds: a probe sent before it listens fails as a connection
