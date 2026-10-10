@@ -2,11 +2,7 @@
 exec > >(tee /var/log/m5c.log) 2>&1
 set -x
 PILOT_BACKSTOP_EPOCH="<EPOCH>"
-if [ -n "$PILOT_BACKSTOP_EPOCH" ]; then
-  ( sleep $(( PILOT_BACKSTOP_EPOCH - $(date +%s) > 0 ? PILOT_BACKSTOP_EPOCH - $(date +%s) : 1 )); shutdown -h now ) &
-else
-  ( sleep 15840; shutdown -h now ) &
-fi
+( if [ -n "$PILOT_BACKSTOP_EPOCH" ]; then sleep $(( PILOT_BACKSTOP_EPOCH - $(date +%s) > 0 ? PILOT_BACKSTOP_EPOCH - $(date +%s) : 1 )); else sleep 15840; fi; shutdown -h now ) &
 BUCKET="stub-bucket"
 PREFIX="run-<NONCE>"
 SOURCE_SHA="<SHA256>"

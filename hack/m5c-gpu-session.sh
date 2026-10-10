@@ -808,13 +808,10 @@ cat > "$RUNSCRIPT" <<'USERDATA'
 exec > >(tee /var/log/m5c.log) 2>&1
 set -x
 # An admission session's backstop is an absolute instant the wrapper chose before launch, so a slow boot does not
-# move it later; other sessions count from this boot (v26 review, C16).
+# move it later; other sessions count from this boot (v26 review, C16). One line, with the choice inside its own
+# subshell, so nothing between the backstop and the deadline below can fail and arm only one of them.
 PILOT_BACKSTOP_EPOCH="PILOT_BACKSTOP_EPOCH_PLACEHOLDER"
-if [ -n "$PILOT_BACKSTOP_EPOCH" ]; then
-  ( sleep $(( PILOT_BACKSTOP_EPOCH - $(date +%s) > 0 ? PILOT_BACKSTOP_EPOCH - $(date +%s) : 1 )); shutdown -h now ) &
-else
-  ( sleep BACKSTOP_SECONDS_PLACEHOLDER; shutdown -h now ) &
-fi
+( if [ -n "$PILOT_BACKSTOP_EPOCH" ]; then sleep $(( PILOT_BACKSTOP_EPOCH - $(date +%s) > 0 ? PILOT_BACKSTOP_EPOCH - $(date +%s) : 1 )); else sleep BACKSTOP_SECONDS_PLACEHOLDER; fi; shutdown -h now ) &
 
 BUCKET="BUCKET_PLACEHOLDER"
 PREFIX="RUN_ID_PLACEHOLDER"
