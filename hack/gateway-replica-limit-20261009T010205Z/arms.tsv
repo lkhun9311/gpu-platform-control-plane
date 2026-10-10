@@ -1,0 +1,10 @@
+arm	rep	stub_served	delete_s	pods_before	pods_after
+R1-fresh	1	34		gateway-66fb87c49d-wsq6m=1 	gateway-66fb87c49d-wsq6m=35 
+R2-fresh	1	68		gateway-66fb87c49d-shw8s=0 gateway-66fb87c49d-wsq6m=35 	gateway-66fb87c49d-shw8s=34 gateway-66fb87c49d-wsq6m=69 
+R2-pinned	1	34		gateway-66fb87c49d-shw8s=34 gateway-66fb87c49d-wsq6m=69 	gateway-66fb87c49d-shw8s=68 gateway-66fb87c49d-wsq6m=69 
+R1-fresh	2	34		gateway-66fb87c49d-wsq6m=69 	gateway-66fb87c49d-wsq6m=103 
+R2-fresh	2	68		gateway-66fb87c49d-wsq6m=103 gateway-66fb87c49d-xk2k5=0 	gateway-66fb87c49d-wsq6m=137 gateway-66fb87c49d-xk2k5=34 
+R2-pinned	2	34		gateway-66fb87c49d-wsq6m=137 gateway-66fb87c49d-xk2k5=34 	gateway-66fb87c49d-wsq6m=171 gateway-66fb87c49d-xk2k5=34 
+R1-fresh	3	34		gateway-66fb87c49d-wsq6m=171 	gateway-66fb87c49d-wsq6m=205 
+R2-fresh	3	68		gateway-66fb87c49d-hw7ch=0 gateway-66fb87c49d-wsq6m=205 	gateway-66fb87c49d-hw7ch=34 gateway-66fb87c49d-wsq6m=239 
+R2-pinned	3	34		gateway-66fb87c49d-hw7ch=34 gateway-66fb87c49d-wsq6m=239 	gateway-66fb87c49d-hw7ch=34 gateway-66fb87c49d-wsq6m=273 

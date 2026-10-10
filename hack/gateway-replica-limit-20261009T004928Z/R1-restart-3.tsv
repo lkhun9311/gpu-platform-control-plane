@@ -1,0 +1,301 @@
+seq	sent_ms	status	error
+0	0.009	200	
+1	100.543	200	
+2	200.222	200	
+3	300.840	200	
+4	400.385	200	
+5	500.650	429	
+6	600.461	429	
+7	700.275	429	
+8	800.901	429	
+9	900.610	429	
+10	1000.474	200	
+11	1100.901	429	
+12	1200.630	429	
+13	1300.447	429	
+14	1400.038	429	
+15	1500.715	429	
+16	1600.491	429	
+17	1700.070	429	
+18	1800.973	429	
+19	1900.635	429	
+20	2000.327	200	
+21	2100.709	429	
+22	2200.516	429	
+23	2300.167	429	
+24	2400.801	429	
+25	2500.534	429	
+26	2600.311	429	
+27	2700.929	429	
+28	2800.672	429	
+29	2900.312	429	
+30	3000.906	200	
+31	3100.382	429	
+32	3200.231	429	
+33	3300.864	429	
+34	3400.831	429	
+35	3500.464	429	
+36	3600.082	429	
+37	3700.738	429	
+38	3800.483	429	
+39	3900.009	429	
+40	4000.629	200	
+41	4100.043	429	
+42	4200.859	429	
+43	4300.452	429	
+44	4401.040	429	
+45	4500.747	429	
+46	4600.530	429	
+47	4700.035	429	
+48	4800.724	429	
+49	4900.313	429	
+50	5001.003	200	
+51	5100.316	429	
+52	5200.052	429	
+53	5300.742	429	
+54	5400.534	429	
+55	5500.226	429	
+56	5600.959	429	
+57	5700.756	429	
+58	5800.398	429	
+59	5900.996	429	
+60	6000.594	200	
+61	6101.010	429	
+62	6200.680	429	
+63	6300.511	429	
+64	6400.153	429	
+65	6500.897	429	
+66	6600.559	429	
+67	6700.224	429	
+68	6800.902	429	
+69	6900.481	429	
+70	7000.024	200	
+71	7100.592	429	
+72	7200.301	429	
+73	7300.868	429	
+74	7400.550	429	
+75	7500.208	429	
+76	7600.927	429	
+77	7700.628	429	
+78	7800.409	429	
+79	7900.227	429	
+80	8000.054	200	
+81	8100.632	429	
+82	8200.385	429	
+83	8300.123	429	
+84	8400.927	429	
+85	8500.540	429	
+86	8600.150	429	
+87	8700.870	429	
+88	8800.414	429	
+89	8900.113	429	
+90	9000.943	200	
+91	9100.249	429	
+92	9200.991	429	
+93	9300.965	429	
+94	9400.592	429	
+95	9500.098	429	
+96	9600.777	429	
+97	9700.417	429	
+98	9800.073	429	
+99	9900.695	429	
+100	10000.271	200	
+101	10100.498	429	
+102	10200.171	429	
+103	10300.989	429	
+104	10400.639	429	
+105	10500.110	429	
+106	10600.843	429	
+107	10700.526	429	
+108	10800.200	429	
+109	10900.804	429	
+110	11000.517	200	
+111	11100.864	429	
+112	11200.615	429	
+113	11300.209	429	
+114	11400.818	429	
+115	11500.480	429	
+116	11600.246	429	
+117	11700.919	429	
+118	11800.615	429	
+119	11900.112	429	
+120	12000.780	200	
+121	12100.045	429	
+122	12200.768	429	
+123	12300.376	429	
+124	12401.008	429	
+125	12500.842	429	
+126	12600.580	429	
+127	12700.395	429	
+128	12801.046	429	
+129	12900.800	429	
+130	13000.425	200	
+131	13100.750	429	
+132	13200.435	429	
+133	13300.011	429	
+134	13400.592	429	
+135	13500.096	429	
+136	13600.912	429	
+137	13700.534	429	
+138	13800.249	429	
+139	13900.798	429	
+140	14000.396	200	
+141	14100.684	429	
+142	14200.331	429	
+143	14300.974	429	
+144	14400.684	429	
+145	14500.281	429	
+146	14600.918	429	
+147	14700.700	429	
+148	14800.387	429	
+149	14900.927	429	
+150	15000.599	200	
+151	15100.900	0	Post "http://127.0.0.1:31080/v1/chat/completions": read tcp 127.0.0.1:51954->127.0.0.1:31080: read: connection reset by peer
+152	15200.392	0	Post "http://127.0.0.1:31080/v1/chat/completions": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+153	15300.733	0	Post "http://127.0.0.1:31080/v1/chat/completions": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+154	15400.010	0	Post "http://127.0.0.1:31080/v1/chat/completions": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+155	15500.353	0	Post "http://127.0.0.1:31080/v1/chat/completions": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+156	15600.675	0	Post "http://127.0.0.1:31080/v1/chat/completions": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+157	15701.008	0	Post "http://127.0.0.1:31080/v1/chat/completions": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+158	15800.316	0	Post "http://127.0.0.1:31080/v1/chat/completions": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+159	15900.662	0	Post "http://127.0.0.1:31080/v1/chat/completions": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+160	16001.032	0	Post "http://127.0.0.1:31080/v1/chat/completions": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+161	16100.348	0	Post "http://127.0.0.1:31080/v1/chat/completions": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+162	16200.656	0	Post "http://127.0.0.1:31080/v1/chat/completions": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+163	16300.952	0	Post "http://127.0.0.1:31080/v1/chat/completions": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+164	16400.207	0	Post "http://127.0.0.1:31080/v1/chat/completions": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+165	16500.511	0	Post "http://127.0.0.1:31080/v1/chat/completions": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+166	16600.848	0	Post "http://127.0.0.1:31080/v1/chat/completions": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+167	16700.083	0	Post "http://127.0.0.1:31080/v1/chat/completions": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+168	16800.446	0	Post "http://127.0.0.1:31080/v1/chat/completions": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+169	16900.728	0	Post "http://127.0.0.1:31080/v1/chat/completions": read tcp 127.0.0.1:52086->127.0.0.1:31080: read: connection reset by peer
+170	17000.032	0	Post "http://127.0.0.1:31080/v1/chat/completions": read tcp 127.0.0.1:52096->127.0.0.1:31080: read: connection reset by peer
+171	17100.298	0	Post "http://127.0.0.1:31080/v1/chat/completions": read tcp 127.0.0.1:52102->127.0.0.1:31080: read: connection reset by peer
+172	17200.790	0	Post "http://127.0.0.1:31080/v1/chat/completions": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+173	17300.012	0	Post "http://127.0.0.1:31080/v1/chat/completions": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+174	17400.244	0	Post "http://127.0.0.1:31080/v1/chat/completions": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+175	17500.558	0	Post "http://127.0.0.1:31080/v1/chat/completions": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+176	17600.874	0	Post "http://127.0.0.1:31080/v1/chat/completions": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+177	17700.207	0	Post "http://127.0.0.1:31080/v1/chat/completions": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+178	17800.536	0	Post "http://127.0.0.1:31080/v1/chat/completions": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+179	17900.908	0	Post "http://127.0.0.1:31080/v1/chat/completions": read tcp 127.0.0.1:34950->127.0.0.1:31080: read: connection reset by peer
+180	18000.214	0	Post "http://127.0.0.1:31080/v1/chat/completions": read tcp 127.0.0.1:34954->127.0.0.1:31080: read: connection reset by peer
+181	18100.438	0	Post "http://127.0.0.1:31080/v1/chat/completions": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+182	18200.788	0	Post "http://127.0.0.1:31080/v1/chat/completions": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+183	18300.074	0	Post "http://127.0.0.1:31080/v1/chat/completions": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+184	18400.439	0	Post "http://127.0.0.1:31080/v1/chat/completions": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+185	18500.815	0	Post "http://127.0.0.1:31080/v1/chat/completions": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+186	18600.109	429	
+187	18700.480	429	
+188	18800.765	429	
+189	18901.064	429	
+190	19000.402	0	Post "http://127.0.0.1:31080/v1/chat/completions": read tcp 127.0.0.1:35020->127.0.0.1:31080: read: connection reset by peer
+191	19100.478	429	
+192	19200.803	429	
+193	19300.047	429	
+194	19400.476	429	
+195	19500.838	429	
+196	19600.098	429	
+197	19700.441	200	
+198	19800.798	429	
+199	19900.051	0	Post "http://127.0.0.1:31080/v1/chat/completions": read tcp 127.0.0.1:35134->127.0.0.1:31080: read: connection reset by peer
+200	20000.366	429	
+201	20100.502	429	
+202	20200.948	429	
+203	20300.303	429	
+204	20400.677	429	
+205	20501.020	429	
+206	20600.420	200	
+207	20700.781	429	
+208	20800.043	429	
+209	20900.374	429	
+210	21000.701	0	Post "http://127.0.0.1:31080/v1/chat/completions": read tcp 127.0.0.1:35236->127.0.0.1:31080: read: connection reset by peer
+211	21100.423	429	
+212	21200.755	429	
+213	21300.035	429	
+214	21400.346	429	
+215	21500.728	429	
+216	21601.065	200	
+217	21700.366	429	
+218	21800.711	429	
+219	21901.041	429	
+220	22000.314	0	Post "http://127.0.0.1:31080/v1/chat/completions": read tcp 127.0.0.1:35312->127.0.0.1:31080: read: connection reset by peer
+221	22100.416	429	
+222	22200.722	429	
+223	22301.035	429	
+224	22400.339	429	
+225	22500.644	429	
+226	22600.981	429	
+227	22700.273	429	
+228	22800.596	429	
+229	22900.949	429	
+230	23000.265	0	Post "http://127.0.0.1:31080/v1/chat/completions": read tcp 127.0.0.1:35396->127.0.0.1:31080: read: connection reset by peer
+231	23100.440	429	
+232	23200.722	429	
+233	23300.042	429	
+234	23400.389	429	
+235	23500.742	429	
+236	23600.082	429	
+237	23700.468	200	
+238	23800.733	200	
+239	23901.060	429	
+240	24000.366	429	
+241	24100.557	429	
+242	24200.897	429	
+243	24300.211	429	
+244	24400.553	429	
+245	24500.896	429	
+246	24600.265	429	
+247	24700.572	200	
+248	24800.975	429	
+249	24900.221	429	
+250	25000.552	429	
+251	25100.440	429	
+252	25200.784	429	
+253	25300.037	429	
+254	25400.467	429	
+255	25500.834	429	
+256	25600.117	429	
+257	25700.514	0	Post "http://127.0.0.1:31080/v1/chat/completions": read tcp 127.0.0.1:35678->127.0.0.1:31080: read: connection reset by peer
+258	25800.039	429	
+259	25900.048	429	
+260	26000.564	429	
+261	26100.640	429	
+262	26200.767	429	
+263	26300.687	429	
+264	26400.477	429	
+265	26500.525	429	
+266	26600.509	429	
+267	26700.588	429	
+268	26800.583	429	
+269	26900.147	429	
+270	27000.480	429	
+271	27100.028	429	
+272	27200.683	429	
+273	27300.547	429	
+274	27400.064	429	
+275	27500.529	429	
+276	27600.625	429	
+277	27700.714	429	
+278	27800.575	429	
+279	27900.163	200	
+280	28000.571	429	
+281	28100.095	429	
+282	28200.906	429	
+283	28300.566	429	
+284	28400.246	429	
+285	28501.000	429	
+286	28600.675	429	
+287	28700.286	429	
+288	28800.996	429	
+289	28900.495	200	
+290	29000.921	429	
+291	29100.515	429	
+292	29200.091	429	
+293	29300.936	429	
+294	29400.598	429	
+295	29500.233	429	
+296	29600.051	429	
+297	29700.812	429	
+298	29800.407	429	
+299	29900.013	200	
