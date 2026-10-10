@@ -1,15 +1,15 @@
 # What This Measured
 
-> **Status (2026-09-23).** The findings, separated from the apparatus that produced them.
+> **Status (2026-10-10).** The findings, separated from the apparatus that produced them.
 >
 > `docs/10_WHAT_I_GOT_WRONG.md` records the mistakes. This records what survived them. Every number below
 > cites the pre-registration or result page it came from, and every claim is bounded by what the measurement
 > could actually see.
 
-The control plane is not the result. It is the instrument. The results are eight findings that could not be
+The control plane is not the result. It is the instrument. The results are nine findings that could not be
 asked without it, and four claims this project is **not** entitled to make.
 
-(Eight, counted from the headings below. This line said seven while the page carried eight, which is the
+(Nine, counted from the headings below. This line once said seven while the page carried eight, which is the
 kind of drift that makes a reader stop trusting the arithmetic in the findings themselves.)
 
 ---
@@ -389,6 +389,30 @@ symmetric layout the two candidate nodes tie.
 
 ---
 
+## Finding 9 — one admission rule protects the premium tail, and a tuned clock matches it until the load moves
+
+Finding 3 left a shared engine 23x slower for its premium tenant than isolation. The cause, read off the engine's own step log, is that vLLM serves a running request before a waiting one: a contender's 7,695-token prompt holds every new premium request for about 1.35 s, and priority only reorders the queue. The question was which gateway admission rule removes that, at what cost to the contender, and whether the engine's first-token signal is what makes it work.
+
+Measured on one A10G at a time, the frozen load and three registered blocks each:
+
+| study | what was compared | result |
+|---|---|---|
+| diagnostic (2026-10-09) | off, a hold of one contender prefill at a time, the engine's per-step prefill cap of 384, and both together (hold-cap) | **hold-cap cut the premium TTFT p99 to about 0.30 of off's** in all three blocks (block 3: 452 against 1,486 ms), inside the owner's frozen contender limits: every contender completed, median 1.25 to 1.38 times off's, p95 at most 16.8 s, no refusal, no preemption. Hold alone left the tail at 0.99 of off's, and the cap alone made it worse, 1.09 to 1.19 |
+| v26 (2026-10-10) | hold-cap against four fixed spacings with the same cap, 1.62 to 1.74 s, each judged on the card by the same limits | **not established**: the 1.74 s spacing matched hold-cap's pooled premium p99 within 15% (446 against 455 ms) at a higher contender median, 1.32 to 1.39 times off's against 1.27 to 1.28. 40 ms narrower, at 1.66 s, its tail was 1,122 ms; at 1.62 s it was no better than off |
+| v27 calibration (2026-10-10) | off and hold-cap at contender prompts of 6,144, 7,695 and 8,192 tokens | **feasible**: the 8,192-token prompt lengthened the capped prefill past the tuned 1.74 s (1,772 against 1,652 ms), while hold-cap stayed protective and inside every limit at all three lengths |
+
+What was not measured, and stands only as the replay's prediction — a scheduler model fitted on 282,897 archived steps, which matched every measured prefill median within 3%: that at 8,192 tokens the 1.74 s spacing loses the premium tail entirely, and that on a heavier trace hold-cap's contender p95 reaches the 25 s limit. The main study that would have measured both was stopped at its own purchase gate, because the replay predicted the second.
+
+**Why it matters.** The rule that works is a combination neither half of which works alone, and its advantage over a fixed clock is not a lower tail but that it needs no tuning: at the load it was tuned for, a well-chosen spacing does as well, and 40 ms either side of that choice it does not.
+
+**What it does not say.** Not that hold-cap beats a fixed spacing — v26 measured a tie within the registered 15%, not a win. Not that the fixed spacing fails when the prompt grows — that is predicted, not measured. And not anything beyond one A10G, one engine version, one load and the traces each study froze.
+
+The evidence re-derives: `hack/verify-admission-evidence.sh` downloads the raw cells of all three paid sessions from the release `evidence-admission-2026-10-10`, checks them against the committed checksums, re-scores them with this checkout's scorer and fails on any difference from the published verdicts.
+
+*(`docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md`, from "The diagnostic's result"; `internal/gateway/serialprefill.go`, `internal/gateway/fixedspacing.go`, `hack/prospective-pilot/`)*
+
+---
+
 ## What this project is not entitled to claim
 
 Stated first, because the findings above are only believable if the refusals are published with them.
@@ -396,7 +420,7 @@ Stated first, because the findings above are only believable if the refusals are
 | claim | what is actually true |
 |---|---|
 | **"I operated a GPU platform"** | No. The cluster was applied twice — 2026-09-18 (96 resources, no GPU instance, no Argo CD) and 2026-09-25 — and destroyed in the same cycle each time. On 2026-09-25 the gateway was deployed to EKS through the GitOps path: eight automated Applications `Synced/Healthy`, `/readyz` 200, a bad key 401 and the seeded key 403 `no_policy` (`docs/superpowers/specs/2026-09-25-gitops-rehearsal-on-clean-kind.md`). That reaches authentication and the key store, not serving: no backend was deployed, and the device-plugin, observability and samples Applications stayed manual and `OutOfSync`. On kind, Argo CD was run earlier and **auto-sync was deliberately removed before applying** (`hack/argocd-kind.md:24`), so seven Applications resolving with no error is evidence that the manifests build and the destination resolves — **not** that drift is repaired. Self-heal has now been exercised, but narrowly: a separate Application in its own project and namespace, bootstrapped by `kubectl`, repaired six of six injected drifts (`experiments/argocd-selfheal/`). On kind the seven platform Applications were left with automation off. So the GitOps *mechanism* is demonstrated, and the platform's automated baseline has come up under it once on EKS; a GPU workload served under it has not. |
-| **"The admission guard protects the premium tier"** | Rejected. 83.7x against a 1.25x target across four paid repetitions; the run was declared invalid by its own checks and no protection claim was made. |
+| **"The admission guard protects the premium tier"** | Rejected, for the guard that was measured: 83.7x against a 1.25x target across four paid repetitions; the run was declared invalid by its own checks and no protection claim was made. A different rule, hold-cap, has since protected the premium tail at one load (Finding 9), and that is a claim about hold-cap at that load, not about the guard. |
 | **"Sharing a card substitutes for isolation"** | Rejected as stated. 14.5x with time-slicing and 20.7x with the engine's own scheduler, both against a 2x bar — at the load those studies used. ⚠️ **The 14.5x is the pre-freeze load's, and its ANSWER is withheld by reading `4e`.** At the frozen load the fifteen-cell run of 2026-10-02 bought `timeSlicing`, and it was worse than the shared engine it was meant to improve: median p99 14,868 ms against 4,001 ms shared and 174 ms isolated, 3.72x the shared arm. Its registered answer is INCONCLUSIVE, because the evaluator floors the best improvement at zero. The ten-cell run under the frozen contract bought no `timeSlicing` arm, so it adds nothing to this refusal: its 23.0x is one shared engine against isolation, and reading it as a statement about splitting would be the comparison reading `4d` exists to block. A later ladder found time-slicing **meeting** a 139 ms premium target at 1.16 and 2.31 req/s and breaching at 4.61. So the honest refusal is narrower than "sharing does not substitute": the claim fails because it was made without naming a load. |
 | **"I built a training platform"** | The `MLTrainingJob` CRD exists and admits through Kueue. Its samples are worse than that: the two tenant samples run `busybox` (`config/samples/platform_v1_mltrainingjob_tenant_b.yaml:16`), and the default one names `pytorch/pytorch:2.3.0-cuda12.1-cudnn8-runtime` with `command: [python, train.py]` (`config/samples/platform_v1_mltrainingjob.yaml:13`) — but **that image contains no `train.py` and nothing puts one there**, so the one sample that looks like training cannot run at all. (A `train.py` does exist in this repository now — `experiments/cpu-ddp/train.py`, added after this row was written — but it is built into its own image by `experiments/cpu-ddp/Dockerfile` and is not the file the sample names. The sample is still broken; only the sentence's "anywhere in this repository" was.) The queuelab trace is not — it runs `python:3.12-slim` and launches a PTX kernel through the CUDA driver API (`internal/queuelab/submit.go:44`) — but that is a synthetic accumulator, not a model. **Distributed training has since run, narrowly**: two gloo ranks inside one Pod, admitted through this CRD and Kueue, with gradient averaging verified by hand-checkable arithmetic and a control that fails (`experiments/cpu-ddp/`). Still no NCCL, no GPU, no multi-Pod rendezvous and no checkpoint resume — and `parallelism: 2` would not provide them, since the operator sets no `completionMode`, no `subdomain` and creates no headless Service. |
 
@@ -414,3 +438,4 @@ Two of these are rejected hypotheses, which is a result. Two are gaps, which are
 | 4 — tail-only readings | nothing; the mechanism is established and the fix is a reading, not a run |
 | 5 — preemption that did not | already closed: the termination contract is now an arm of the protocol |
 | 8 — configuration removes stranding | a second layout, and a demand mix where packing should *lose*. Both arms ran on one shape; the campaign cannot cancel a drift over time, because both arms render the same cluster name and must run in sequence |
+| 9 — hold-cap protects, a tuned clock ties | the robustness study v27 stopped: a load with headroom for the contender, so a fixed spacing tuned at one prompt length can be measured failing at another while hold-cap stays inside its limits; and a second card model |

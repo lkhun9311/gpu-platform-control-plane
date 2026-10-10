@@ -288,13 +288,15 @@ verdict from.
 The full account — five mistakes, what each one's evidence was, and what changed — is in
 [docs/10_WHAT_I_GOT_WRONG.md](docs/10_WHAT_I_GOT_WRONG.md).
 
-Its counterpart is [docs/11_WHAT_THIS_MEASURED.md](docs/11_WHAT_THIS_MEASURED.md) — **eight findings
+Its counterpart is [docs/11_WHAT_THIS_MEASURED.md](docs/11_WHAT_THIS_MEASURED.md) — **nine findings
 that survived**, each citing the pre-registration it was measured against, and a table of the four
 claims this project is **not** entitled to make. Among them: a 2-GPU job left Pending with 2 GPUs free
 while the platform reported it `Running` in 145 of 145 samples; an admission guard that measured 83.7x
-against its own 1.25x bar and was declared invalid; and a registered 6-cell campaign in which supplying
+against its own 1.25x bar and was declared invalid; a registered 6-cell campaign in which supplying
 a GPU-aware scheduler configuration stranded nothing in 3 of 3 runs while supplying none stranded in 2
-of 3. If you read one page in this repository, read that one.
+of 3; and a gateway admission rule that cut a premium tenant's TTFT p99 to about 0.30 of no admission on
+an A10G, which a fixed spacing tuned at the same load matched within 15%. If you read one page in this
+repository, read that one.
 
 ## Tech stack
 
