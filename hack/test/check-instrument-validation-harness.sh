@@ -103,6 +103,8 @@ k() {
 			[ "${STUB_LOGS_FAIL:-}" = 1 ] && { echo "error: stub logs refused" >&2; return 1; }
 			printf '%s\n' "$STUB_LOG"; return 0 ;;
 		"create secret"* | "create serviceaccount"* | "create clusterrolebinding"*) echo "kind: X"; return 0 ;;
+		# A namespace just deleted is gone, as kubectl reports NotFound; deploy_arm refuses one that survives.
+		"get namespace"*) return 1 ;;
 		*) return 0 ;;
 	esac
 }
