@@ -116,6 +116,17 @@ run with arms missing (a header-only `arms.tsv` printed `VALID`), and a failed p
 zero. Both are fixed and both fixes were checked by feeding them the failure. The recorded run is unaffected:
 its log holds no scrape error, and in every arm the per-Pod increments sum exactly to the client's `200` count.
 
+A third review (2026-10-11) found that `loadgen` stamped a request when it was dispatched, not when it was written.
+With one connection, a request queues inside the client until the previous answer arrives, so a backend slower
+than the 100 ms slot makes `T` short and the bound low. Against a local server answering in 110 ms, 30 pinned
+requests were dispatched over 2.90 s and written over 4.35 s. `loadgen` now records each write time, the scorer
+takes `T` from it, and an arm with a request written more than one slot after its dispatch is void; that 110 ms
+run is refused, and the same run against a 5 ms server, written within 0.2 ms of dispatch, passes.
+The recorded run has no write times, and it stands: queued writes can only lengthen the true `T` and raise the
+bound, so they could have produced a false breach in `R2-pinned`, and that arm read no breach. The fresh arms open
+a connection per request and never queue. The scorer now prints that caveat beside each pinned arm of a run
+without write times.
+
 From the void first run (Amendment 1), as observation only: deleting the single replica cost about 4.5 s with
 no answer and 41 to 52 failed requests at 10 per second.
 
