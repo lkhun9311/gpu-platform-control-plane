@@ -83,3 +83,9 @@ FailedScheduling	an upstream scheduler Event reason; the amendment DEMOTES it to
 # --- a run output the judge reads and no checkout contains, 2026-09-29 -----------------------------------
 record.json	the cell record hack/stranded-cell.sh WRITES for each attempt, under its evidence directory; check-cell reads it back. The frozen-protocol page names it because it is a real contract between the performer and the judge, and no checkout contains one -- run outputs are not committed, the same reason the five hack/ paid-run directories above are listed
 StartError	an upstream container state reason, not a name this repository defines. The frozen-protocol page cites it to record WHY submissions run registry.k8s.io/pause:3.10: a distroless image whose entrypoint exited died with StartError earlier in this study, held no devices, and the census was correctly reporting nothing. Listed for the same reason as FailedScheduling above
+
+# --- external names the prospective-admission design page cites, 2026-10-10 ------------------------------
+StateReason	the EC2 API's field on an instance recording why its state changed; the design page cites it to say that recording a Spot interruption's cause does not establish its independence
+WroteRequest	a net/http/httptrace hook in Go's standard library; the design page records that it fires when Request.write returns, before the transport has flushed the request, which is why the dispatch lag is not stamped from it
+request.go	a file of Go 1.26.6's net/http, cited with transport.go as the source of the WroteRequest timing above
+transport.go	a file of Go 1.26.6's net/http, cited with request.go as the source of the WroteRequest timing above
