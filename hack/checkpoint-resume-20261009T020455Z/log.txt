@@ -1,0 +1,358 @@
+02:04:55 commit 1240e3449a733dd0529022a8efdd63ea0b6a3873, dirty files: 2, context kind-ckpt
+02:04:55 == image
+DEPRECATED: The legacy builder is deprecated and will be removed in a future release.
+            Install the buildx component to build images with BuildKit:
+            https://docs.docker.com/go/buildx/
+
+sha256:e9b503b28f2f001e372b5bfc9bd8ac88c0c1eae2e6324c5065e6fbb263915c15
+02:04:55 image sha256:e9b503b28f2f001e372b5bfc9bd8ac88c0c1eae2e6324c5065e6fbb263915c15
+02:04:55 == cluster ckpt
+docker build -t controller:ckpt .
+DEPRECATED: The legacy builder is deprecated and will be removed in a future release.
+            Install the buildx component to build images with BuildKit:
+            https://docs.docker.com/go/buildx/
+
+Sending build context to Docker daemon  2.317MB
+Step 1/14 : FROM golang:1.26 AS builder
+ ---> eb36c1664dd9
+Step 2/14 : ARG TARGETOS
+ ---> Using cache
+ ---> a47aa834d9b9
+Step 3/14 : ARG TARGETARCH
+ ---> Using cache
+ ---> 670f98f0bfc0
+Step 4/14 : WORKDIR /workspace
+ ---> Using cache
+ ---> b46b7aa71548
+Step 5/14 : COPY go.mod go.mod
+ ---> Using cache
+ ---> 5292a71491b3
+Step 6/14 : COPY go.sum go.sum
+ ---> Using cache
+ ---> 7b68e32eb0eb
+Step 7/14 : RUN go mod download
+ ---> Using cache
+ ---> a0d132be0126
+Step 8/14 : COPY . .
+ ---> Using cache
+ ---> fb2e8666954d
+Step 9/14 : RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o manager cmd/main.go
+ ---> Using cache
+ ---> b755b4e18e9a
+Step 10/14 : FROM gcr.io/distroless/static:nonroot
+ ---> e2e927ec666b
+Step 11/14 : WORKDIR /
+ ---> Using cache
+ ---> cb52bf1ed03b
+Step 12/14 : COPY --from=builder /workspace/manager .
+ ---> Using cache
+ ---> 6cb50c862c01
+Step 13/14 : USER 65532:65532
+ ---> Using cache
+ ---> ccb53f3f7b44
+Step 14/14 : ENTRYPOINT ["/manager"]
+ ---> Using cache
+ ---> 47c859c433af
+Successfully built 47c859c433af
+Successfully tagged controller:ckpt
+docker build -t gpu-simulator:ckpt -f Dockerfile.gpu-simulator .
+DEPRECATED: The legacy builder is deprecated and will be removed in a future release.
+            Install the buildx component to build images with BuildKit:
+            https://docs.docker.com/go/buildx/
+
+Sending build context to Docker daemon  2.317MB
+Step 1/14 : FROM golang:1.26 AS builder
+ ---> eb36c1664dd9
+Step 2/14 : ARG TARGETOS
+ ---> Using cache
+ ---> a47aa834d9b9
+Step 3/14 : ARG TARGETARCH
+ ---> Using cache
+ ---> 670f98f0bfc0
+Step 4/14 : WORKDIR /workspace
+ ---> Using cache
+ ---> b46b7aa71548
+Step 5/14 : COPY go.mod go.mod
+ ---> Using cache
+ ---> 5292a71491b3
+Step 6/14 : COPY go.sum go.sum
+ ---> Using cache
+ ---> 7b68e32eb0eb
+Step 7/14 : RUN go mod download
+ ---> Using cache
+ ---> a0d132be0126
+Step 8/14 : COPY . .
+ ---> Using cache
+ ---> fb2e8666954d
+Step 9/14 : RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o gpu-simulator cmd/gpu-simulator/main.go
+ ---> Using cache
+ ---> 5b7b02cc3bc1
+Step 10/14 : FROM gcr.io/distroless/static:nonroot
+ ---> e2e927ec666b
+Step 11/14 : WORKDIR /
+ ---> Using cache
+ ---> cb52bf1ed03b
+Step 12/14 : COPY --from=builder /workspace/gpu-simulator .
+ ---> Using cache
+ ---> 3d72dc9fc25e
+Step 13/14 : USER 65532:65532
+ ---> Using cache
+ ---> 7407d1e2a180
+Step 14/14 : ENTRYPOINT ["/gpu-simulator"]
+ ---> Using cache
+ ---> ab8f8e51c646
+Successfully built ab8f8e51c646
+Successfully tagged gpu-simulator:ckpt
+Creating cluster "ckpt" ...
+ • Ensuring node image (kindest/node:v1.37.0) 🖼️  ...
+ ✓ Ensuring node image (kindest/node:v1.37.0) 🖼️
+ • Preparing nodes 📦 📦 📦   ...
+ ✓ Preparing nodes 📦 📦 📦 
+ • Writing configuration 📜  ...
+ ✓ Writing configuration 📜
+ • Starting control-plane 🕹️  ...
+ ✓ Starting control-plane 🕹️
+ • Installing CNI 🔌  ...
+ ✓ Installing CNI 🔌
+ • Installing StorageClass 💾  ...
+ ✓ Installing StorageClass 💾
+ • Joining worker nodes 🚜  ...
+ ✓ Joining worker nodes 🚜
+Set kubectl context to "kind-ckpt"
+You can now use your cluster with:
+
+kubectl cluster-info --context kind-ckpt
+
+Have a question, bug, or feature request? Let us know! https://kind.sigs.k8s.io/#community 🙂
+Image: "controller:ckpt" with ID "sha256:47c859c433afef2c862e790522ae646d76de87b9d3b99820a1c9ef94a3cb2cff" not yet present on node "ckpt-worker2", loading...
+Image: "controller:ckpt" with ID "sha256:47c859c433afef2c862e790522ae646d76de87b9d3b99820a1c9ef94a3cb2cff" not yet present on node "ckpt-worker", loading...
+Image: "controller:ckpt" with ID "sha256:47c859c433afef2c862e790522ae646d76de87b9d3b99820a1c9ef94a3cb2cff" not yet present on node "ckpt-control-plane", loading...
+Image: "gpu-simulator:ckpt" with ID "sha256:ab8f8e51c6469f09ecfa41d3516efdd07a903b06bcfaf765aeb6b9a655da33d7" not yet present on node "ckpt-worker2", loading...
+Image: "gpu-simulator:ckpt" with ID "sha256:ab8f8e51c6469f09ecfa41d3516efdd07a903b06bcfaf765aeb6b9a655da33d7" not yet present on node "ckpt-worker", loading...
+Image: "gpu-simulator:ckpt" with ID "sha256:ab8f8e51c6469f09ecfa41d3516efdd07a903b06bcfaf765aeb6b9a655da33d7" not yet present on node "ckpt-control-plane", loading...
+Image: "ckpt-resume:torch251" with ID "sha256:e9b503b28f2f001e372b5bfc9bd8ac88c0c1eae2e6324c5065e6fbb263915c15" not yet present on node "ckpt-worker2", loading...
+Image: "ckpt-resume:torch251" with ID "sha256:e9b503b28f2f001e372b5bfc9bd8ac88c0c1eae2e6324c5065e6fbb263915c15" not yet present on node "ckpt-worker", loading...
+Image: "ckpt-resume:torch251" with ID "sha256:e9b503b28f2f001e372b5bfc9bd8ac88c0c1eae2e6324c5065e6fbb263915c15" not yet present on node "ckpt-control-plane", loading...
+namespace/kueue-system serverside-applied
+customresourcedefinition.apiextensions.k8s.io/admissionchecks.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/clusterqueues.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/cohorts.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/localqueues.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/multikueueclusters.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/multikueueconfigs.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/provisioningrequestconfigs.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/resourceflavors.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/topologies.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/workloadpriorityclasses.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/workloads.kueue.x-k8s.io serverside-applied
+serviceaccount/kueue-controller-manager serverside-applied
+role.rbac.authorization.k8s.io/kueue-leader-election-role serverside-applied
+role.rbac.authorization.k8s.io/kueue-manager-clusterprofiles-role serverside-applied
+role.rbac.authorization.k8s.io/kueue-manager-secrets-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-batch-admin-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-batch-user-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-clusterqueue-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-clusterqueue-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-cohort-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-cohort-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-jaxjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-jaxjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-job-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-job-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-jobset-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-jobset-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-leaderworkerset-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-leaderworkerset-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-localqueue-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-localqueue-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-manager-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-metrics-auth-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-metrics-reader serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-mpijob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-mpijob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-paddlejob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-paddlejob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-pending-workloads-cq-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-pending-workloads-lq-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-pytorchjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-pytorchjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-raycluster-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-raycluster-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-rayjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-rayjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-rayservice-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-rayservice-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-resourceflavor-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-resourceflavor-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-sparkapplication-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-sparkapplication-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-tfjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-tfjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-topology-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-topology-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-trainjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-trainjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-workload-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-workload-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-xgboostjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-xgboostjob-viewer-role serverside-applied
+rolebinding.rbac.authorization.k8s.io/kueue-visibility-server-auth-reader serverside-applied
+rolebinding.rbac.authorization.k8s.io/kueue-leader-election-rolebinding serverside-applied
+rolebinding.rbac.authorization.k8s.io/kueue-manager-clusterprofiles-rolebinding serverside-applied
+rolebinding.rbac.authorization.k8s.io/kueue-manager-secrets-rolebinding serverside-applied
+clusterrolebinding.rbac.authorization.k8s.io/kueue-manager-rolebinding serverside-applied
+clusterrolebinding.rbac.authorization.k8s.io/kueue-metrics-auth-rolebinding serverside-applied
+configmap/kueue-manager-config serverside-applied
+secret/kueue-webhook-server-cert serverside-applied
+service/kueue-controller-manager-metrics-service serverside-applied
+service/kueue-visibility-server serverside-applied
+service/kueue-webhook-service serverside-applied
+deployment.apps/kueue-controller-manager serverside-applied
+apiservice.apiregistration.k8s.io/v1beta1.visibility.kueue.x-k8s.io serverside-applied
+apiservice.apiregistration.k8s.io/v1beta2.visibility.kueue.x-k8s.io serverside-applied
+mutatingwebhookconfiguration.admissionregistration.k8s.io/kueue-mutating-webhook-configuration serverside-applied
+validatingwebhookconfiguration.admissionregistration.k8s.io/kueue-validating-webhook-configuration serverside-applied
+deployment.apps/kueue-controller-manager condition met
+customresourcedefinition.apiextensions.k8s.io/gpuquotapolicies.platform.lkhun9311.github.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/gpusharingbenchmarks.platform.lkhun9311.github.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/inferencedeployments.platform.lkhun9311.github.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/mltrainingjobs.platform.lkhun9311.github.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/nodehealths.platform.lkhun9311.github.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/workloadruns.platform.lkhun9311.github.io serverside-applied
+namespace/gpu-platform-control-plane-system serverside-applied
+serviceaccount/gpu-platform-control-plane-controller-manager serverside-applied
+role.rbac.authorization.k8s.io/gpu-platform-control-plane-leader-election-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-gpuquotapolicy-admin-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-gpuquotapolicy-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-gpuquotapolicy-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-inferencedeployment-admin-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-inferencedeployment-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-inferencedeployment-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-manager-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-metrics-auth-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-metrics-reader serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-mltrainingjob-admin-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-mltrainingjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-mltrainingjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-nodehealth-admin-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-nodehealth-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-nodehealth-viewer-role serverside-applied
+rolebinding.rbac.authorization.k8s.io/gpu-platform-control-plane-leader-election-rolebinding serverside-applied
+clusterrolebinding.rbac.authorization.k8s.io/gpu-platform-control-plane-manager-rolebinding serverside-applied
+clusterrolebinding.rbac.authorization.k8s.io/gpu-platform-control-plane-metrics-auth-rolebinding serverside-applied
+deployment.apps/gpu-platform-control-plane-controller-manager serverside-applied
+deployment.apps/gpu-platform-control-plane-controller-manager image updated
+daemonset.apps/gpu-simulator created
+daemonset.apps/gpu-simulator image updated
+daemonset.apps/gpu-simulator patched
+daemonset.apps/gpu-simulator env updated
+Waiting for deployment "gpu-platform-control-plane-controller-manager" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "gpu-platform-control-plane-controller-manager" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "gpu-platform-control-plane-controller-manager" rollout to finish: 1 old replicas are pending termination...
+deployment "gpu-platform-control-plane-controller-manager" successfully rolled out
+daemon set "gpu-simulator" successfully rolled out
+Warning: This version is deprecated. Use v1beta2 instead.
+resourceflavor.kueue.x-k8s.io/gpu created
+02:05:49 allocatable nvidia.com/gpu per node: 2 2 2 
+02:05:49 == queue
+namespace/ckpt created
+Warning: This version is deprecated. Use v1beta2 instead.
+clusterqueue.kueue.x-k8s.io/ckpt created
+localqueue.kueue.x-k8s.io/ckpt created
+persistentvolumeclaim/uninterrupted-1 created
+mltrainingjob.platform.lkhun9311.github.io/uninterrupted-1 created
+02:05:49 operator mounts stateVolume: /state
+02:06:01 uninterrupted-1: phase Succeeded, 1 Pod(s), 80 step records
+mltrainingjob.platform.lkhun9311.github.io "uninterrupted-1" deleted from ckpt namespace
+persistentvolumeclaim "uninterrupted-1" deleted from ckpt namespace
+persistentvolumeclaim/restart-1 created
+mltrainingjob.platform.lkhun9311.github.io/restart-1 created
+02:06:26 restart-1: phase Succeeded, 2 Pod(s), 128 step records
+mltrainingjob.platform.lkhun9311.github.io "restart-1" deleted from ckpt namespace
+persistentvolumeclaim "restart-1" deleted from ckpt namespace
+persistentvolumeclaim/resume-1 created
+mltrainingjob.platform.lkhun9311.github.io/resume-1 created
+02:06:51 resume-1: phase Succeeded, 2 Pod(s), 80 step records
+mltrainingjob.platform.lkhun9311.github.io "resume-1" deleted from ckpt namespace
+persistentvolumeclaim "resume-1" deleted from ckpt namespace
+persistentvolumeclaim/resume-no-optimizer-1 created
+mltrainingjob.platform.lkhun9311.github.io/resume-no-optimizer-1 created
+02:07:12 resume-no-optimizer-1: phase Succeeded, 2 Pod(s), 80 step records
+mltrainingjob.platform.lkhun9311.github.io "resume-no-optimizer-1" deleted from ckpt namespace
+persistentvolumeclaim "resume-no-optimizer-1" deleted from ckpt namespace
+persistentvolumeclaim/resume-no-data-rng-1 created
+mltrainingjob.platform.lkhun9311.github.io/resume-no-data-rng-1 created
+02:07:37 resume-no-data-rng-1: phase Succeeded, 2 Pod(s), 80 step records
+mltrainingjob.platform.lkhun9311.github.io "resume-no-data-rng-1" deleted from ckpt namespace
+persistentvolumeclaim "resume-no-data-rng-1" deleted from ckpt namespace
+persistentvolumeclaim/uninterrupted-2 created
+mltrainingjob.platform.lkhun9311.github.io/uninterrupted-2 created
+02:07:46 uninterrupted-2: phase Succeeded, 1 Pod(s), 80 step records
+mltrainingjob.platform.lkhun9311.github.io "uninterrupted-2" deleted from ckpt namespace
+persistentvolumeclaim "uninterrupted-2" deleted from ckpt namespace
+persistentvolumeclaim/restart-2 created
+mltrainingjob.platform.lkhun9311.github.io/restart-2 created
+02:08:11 restart-2: phase Succeeded, 2 Pod(s), 128 step records
+mltrainingjob.platform.lkhun9311.github.io "restart-2" deleted from ckpt namespace
+persistentvolumeclaim "restart-2" deleted from ckpt namespace
+persistentvolumeclaim/resume-2 created
+mltrainingjob.platform.lkhun9311.github.io/resume-2 created
+02:08:32 resume-2: phase Succeeded, 2 Pod(s), 80 step records
+mltrainingjob.platform.lkhun9311.github.io "resume-2" deleted from ckpt namespace
+persistentvolumeclaim "resume-2" deleted from ckpt namespace
+persistentvolumeclaim/resume-no-optimizer-2 created
+mltrainingjob.platform.lkhun9311.github.io/resume-no-optimizer-2 created
+02:08:57 resume-no-optimizer-2: phase Succeeded, 2 Pod(s), 80 step records
+mltrainingjob.platform.lkhun9311.github.io "resume-no-optimizer-2" deleted from ckpt namespace
+persistentvolumeclaim "resume-no-optimizer-2" deleted from ckpt namespace
+persistentvolumeclaim/resume-no-data-rng-2 created
+mltrainingjob.platform.lkhun9311.github.io/resume-no-data-rng-2 created
+02:09:18 resume-no-data-rng-2: phase Succeeded, 2 Pod(s), 80 step records
+mltrainingjob.platform.lkhun9311.github.io "resume-no-data-rng-2" deleted from ckpt namespace
+persistentvolumeclaim "resume-no-data-rng-2" deleted from ckpt namespace
+persistentvolumeclaim/uninterrupted-3 created
+mltrainingjob.platform.lkhun9311.github.io/uninterrupted-3 created
+02:09:31 uninterrupted-3: phase Succeeded, 1 Pod(s), 80 step records
+mltrainingjob.platform.lkhun9311.github.io "uninterrupted-3" deleted from ckpt namespace
+persistentvolumeclaim "uninterrupted-3" deleted from ckpt namespace
+persistentvolumeclaim/restart-3 created
+mltrainingjob.platform.lkhun9311.github.io/restart-3 created
+02:09:52 restart-3: phase Succeeded, 2 Pod(s), 128 step records
+mltrainingjob.platform.lkhun9311.github.io "restart-3" deleted from ckpt namespace
+persistentvolumeclaim "restart-3" deleted from ckpt namespace
+persistentvolumeclaim/resume-3 created
+mltrainingjob.platform.lkhun9311.github.io/resume-3 created
+02:10:17 resume-3: phase Succeeded, 2 Pod(s), 80 step records
+mltrainingjob.platform.lkhun9311.github.io "resume-3" deleted from ckpt namespace
+persistentvolumeclaim "resume-3" deleted from ckpt namespace
+persistentvolumeclaim/resume-no-optimizer-3 created
+mltrainingjob.platform.lkhun9311.github.io/resume-no-optimizer-3 created
+02:10:39 resume-no-optimizer-3: phase Succeeded, 2 Pod(s), 80 step records
+mltrainingjob.platform.lkhun9311.github.io "resume-no-optimizer-3" deleted from ckpt namespace
+persistentvolumeclaim "resume-no-optimizer-3" deleted from ckpt namespace
+persistentvolumeclaim/resume-no-data-rng-3 created
+mltrainingjob.platform.lkhun9311.github.io/resume-no-data-rng-3 created
+02:11:00 resume-no-data-rng-3: phase Succeeded, 2 Pod(s), 80 step records
+mltrainingjob.platform.lkhun9311.github.io "resume-no-data-rng-3" deleted from ckpt namespace
+persistentvolumeclaim "resume-no-data-rng-3" deleted from ckpt namespace
+02:11:00 == score
+arm	rep	steps_run	resumed_from	diff	kill_to_restart_s	unparsed_lines
+uninterrupted	1	40	[0]	0		0
+restart	1	64	[0]	0	11.4	0
+resume	1	40	[0, 24]	0	12.0	0
+resume-no-optimizer	1	40	[0, 24]	0.358	11.4	0
+resume-no-data-rng	1	40	[0, 24]	0.245	11.7	0
+uninterrupted	2	40	[0]	0		0
+restart	2	64	[0]	0	11.7	0
+resume	2	40	[0, 24]	0	11.3	0
+resume-no-optimizer	2	40	[0, 24]	0.358	11.6	0
+resume-no-data-rng	2	40	[0, 24]	0.245	12.4	0
+uninterrupted	3	40	[0]	0		0
+restart	3	64	[0]	0	12.2	0
+resume	3	40	[0, 24]	0	11.4	0
+resume-no-optimizer	3	40	[0, 24]	0.358	11.6	0
+resume-no-data-rng	3	40	[0, 24]	0.245	11.3	0
+VALID
+Deleting cluster "ckpt" ...
+Deleted nodes: ["ckpt-worker2" "ckpt-worker" "ckpt-control-plane"]
+02:11:02 cleanup: deleted ckpt
