@@ -103,3 +103,18 @@ func TestNewAdmitterSerialPrefill(t *testing.T) {
 	}
 	stop()
 }
+
+// fixed-spacing refuses to start without a spacing or without a longest hold: either zero would be a rule that does
+// nothing or refuses everyone while looking like a control.
+func TestNewAdmitterFixedSpacing(t *testing.T) {
+	for _, f := range []admitterFlags{{}, {fixedSpacing: time.Second}, {fixedMaxHold: 25 * time.Second}} {
+		if _, _, err := newAdmitter(gateway.AdmissionFixedSpacing, f); err == nil {
+			t.Fatalf("fixed-spacing started with %+v", f)
+		}
+	}
+	a, stop, err := newAdmitter(gateway.AdmissionFixedSpacing, admitterFlags{fixedSpacing: 1660 * time.Millisecond, fixedMaxHold: 25 * time.Second})
+	if err != nil || a == nil {
+		t.Fatalf("fixed-spacing with both: %v", err)
+	}
+	stop()
+}

@@ -87,6 +87,8 @@ func main() {
 		admissionProspectivePrefill int
 		admissionProspectiveStreams int
 		admissionSerialMaxHold      time.Duration
+		admissionFixedSpacing       time.Duration
+		admissionFixedMaxHold       time.Duration
 		admissionLongThreshold      int
 		// admissionReportBackendState is the benchmark-only switch; see the flag description.
 		admissionReportBackendState bool
@@ -110,13 +112,17 @@ func main() {
 		admissionKVIdleTimeout    time.Duration
 	)
 	flag.StringVar(&admissionModeFlag, "admission-mode", string(gateway.AdmissionOff),
-		"Admission control mode on the inference path: off, static-cap, kv-aware, prospective, or serial-prefill.")
+		"Admission control mode on the inference path: off, static-cap, kv-aware, prospective, serial-prefill, or fixed-spacing.")
 	flag.IntVar(&admissionProspectivePrefill, "admission-prospective-prefill-tokens", 0,
 		"prospective mode: per-backend cap on standard-tier input tokens reserved and not yet answering. Required.")
 	flag.IntVar(&admissionProspectiveStreams, "admission-prospective-streams", 0,
 		"prospective mode: per-backend cap on running standard-tier requests. Required.")
 	flag.DurationVar(&admissionSerialMaxHold, "admission-serial-prefill-max-hold", 0,
 		"serial-prefill mode: the longest a standard request is held for its turn before it is refused. Required.")
+	flag.DurationVar(&admissionFixedSpacing, "admission-fixed-spacing", 0,
+		"fixed-spacing mode: the least time between two standard admissions on a backend. Required.")
+	flag.DurationVar(&admissionFixedMaxHold, "admission-fixed-spacing-max-hold", 0,
+		"fixed-spacing mode: the longest a standard request is held for its turn before it is refused. Required.")
 	flag.Float64Var(&admissionStaticRate, "admission-static-rate", defaultAdmissionStaticRate,
 		"static-cap mode: sustained per-backend input-token refill rate, in tokens/sec.")
 	flag.IntVar(&admissionStaticBurst, "admission-static-burst", defaultAdmissionStaticBurst,
@@ -188,6 +194,8 @@ func main() {
 		prospectivePrefill: admissionProspectivePrefill,
 		prospectiveStreams: admissionProspectiveStreams,
 		serialMaxHold:      admissionSerialMaxHold,
+		fixedSpacing:       admissionFixedSpacing,
+		fixedMaxHold:       admissionFixedMaxHold,
 		kv: gateway.KVAwareConfig{
 			EngageUsage:    admissionKVEngageUsage,
 			ReleaseUsage:   admissionKVReleaseUsage,
@@ -353,6 +361,8 @@ type admitterFlags struct {
 	prospectiveStreams int
 
 	serialMaxHold time.Duration
+	fixedSpacing  time.Duration
+	fixedMaxHold  time.Duration
 }
 
 // noopStop is the stop function newAdmitter returns for modes that start no background work.
@@ -390,6 +400,13 @@ func newAdmitter(mode gateway.AdmissionMode, f admitterFlags) (gateway.Admitter,
 			return nil, noopStop, fmt.Errorf("serial-prefill mode needs --admission-serial-prefill-max-hold above zero, got %s", f.serialMaxHold)
 		}
 		return gateway.NewSerialPrefillAdmitter(f.serialMaxHold), noopStop, nil
+	case gateway.AdmissionFixedSpacing:
+		// Neither has a default: a zero spacing is admission off under another name, and a zero hold refuses everyone.
+		if f.fixedSpacing <= 0 || f.fixedMaxHold <= 0 {
+			return nil, noopStop, fmt.Errorf("fixed-spacing mode needs --admission-fixed-spacing and "+
+				"--admission-fixed-spacing-max-hold above zero, got %s and %s", f.fixedSpacing, f.fixedMaxHold)
+		}
+		return gateway.NewFixedSpacingAdmitter(f.fixedSpacing, f.fixedMaxHold), noopStop, nil
 	default:
 		return nil, noopStop, fmt.Errorf("unknown admission mode %q", mode)
 	}
