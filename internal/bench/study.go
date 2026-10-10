@@ -308,6 +308,12 @@ const (
 	// serial-prefill hold, docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md, "v25". It
 	// shares the pilot's load, lengths, engine and capture, and adds the hold, cap and hold-cap arms.
 	StudyAdmissionDiagnostic = "admission-diagnostic-2026-10-10"
+
+	// StudyAdmissionFrontier is v26: hold-cap against a frozen frontier of fixed spacings, each judged on the card by
+	// the owner's contender limits, docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md,
+	// "v26". It shares the diagnostic's load, lengths, engine and capture; its controls are the gateway's
+	// fixed-spacing mode at four spacings, all capped at 384 as hold-cap is.
+	StudyAdmissionFrontier = "admission-frontier-2026-10-10"
 )
 
 // ArmProspective is the prospective-admission arm; the pilot's other arms reuse the M5-b names.
@@ -769,6 +775,25 @@ var studies = map[string]Study{
 	StudyAdmissionDiagnostic: {
 		ID:       StudyAdmissionDiagnostic,
 		Arms:     []string{ArmR1, "off", "hold", "cap", "hold-cap"},
+		Arrivals: ArrivalsIndependent,
+		Frozen: &FrozenTuple{
+			PremiumPromptChars:    200,
+			ContenderPromptChars:  40000,
+			TimeoutMs:             30000,
+			PremiumOutputTokens:   64,
+			ContenderOutputTokens: 16,
+		},
+		MinRepetitions:         1,
+		FixesOutputAtCap:       true,
+		RecordsReplayTiming:    true,
+		TracesVaryByRepetition: true,
+		SenderPoolSize:         600,
+		FrozenExactTokens:      map[int]int{200: 68, 40000: 7695},
+	},
+	// R1 once as the isolated anchor, then off, hold-cap and the four fixed spacings in each of three blocks.
+	StudyAdmissionFrontier: {
+		ID:       StudyAdmissionFrontier,
+		Arms:     []string{ArmR1, "off", "hold-cap", "fixed-1.62", "fixed-1.66", "fixed-1.70", "fixed-1.74"},
 		Arrivals: ArrivalsIndependent,
 		Frozen: &FrozenTuple{
 			PremiumPromptChars:    200,

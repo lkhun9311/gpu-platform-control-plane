@@ -101,3 +101,27 @@ func TestMatrixPlanArmSetRefusalChecksTheStudy(t *testing.T) {
 		t.Errorf("a mistyped study was accepted by the arm-set check: %v", err)
 	}
 }
+
+// The admission studies' arm sets: the sharing matrix's defaults are refused, a pilot stage may be a subset with R1
+// and off, and the diagnostic and v26 must plan exactly their registered arms (v26 review, C6).
+// Mutation that turns it red: require `shared` of these studies, or accept a subset for v26.
+func TestMatrixPlanArmSetRefusalForTheAdmissionStudies(t *testing.T) {
+	if err := MatrixPlanArmSetRefusal(StudyAdmissionFrontier, []string{"R1", "shared", "timeSlicing", "mps"}); err == nil {
+		t.Fatal("v26 accepted the sharing matrix's default arms")
+	}
+	if err := MatrixPlanArmSetRefusal(StudyAdmissionFrontier, []string{"R1", "off", "hold-cap", "fixed-1.62", "fixed-1.66", "fixed-1.70", "fixed-1.74"}); err != nil {
+		t.Fatalf("v26's registered arms were refused: %v", err)
+	}
+	if err := MatrixPlanArmSetRefusal(StudyAdmissionFrontier, []string{"R1", "off", "hold-cap", "fixed-1.62"}); err == nil {
+		t.Fatal("v26 accepted a plan missing three fixed arms")
+	}
+	if err := MatrixPlanArmSetRefusal(StudyAdmissionDiagnostic, []string{"R1", "off", "hold", "cap", "hold-cap"}); err != nil {
+		t.Fatalf("the diagnostic's registered arms were refused: %v", err)
+	}
+	if err := MatrixPlanArmSetRefusal(StudyProspectivePilot, []string{"R1", "off", "prospective"}); err != nil {
+		t.Fatalf("pilot stage A's arms were refused: %v", err)
+	}
+	if err := MatrixPlanArmSetRefusal(StudyProspectivePilot, []string{"R1", "prospective"}); err == nil {
+		t.Fatal("a pilot plan without off was accepted")
+	}
+}
