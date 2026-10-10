@@ -432,10 +432,7 @@ func (c *contentWatcher) observe(b []byte) bool {
 		i = start + len(contentKey)
 	}
 	// Keep only what could be the start of a key split across chunks.
-	keep := len(contentKey) - 1
-	if len(buf) < keep {
-		keep = len(buf)
-	}
+	keep := min(len(contentKey)-1, len(buf))
 	c.tail = append([]byte(nil), buf[len(buf)-keep:]...)
 	return false
 }

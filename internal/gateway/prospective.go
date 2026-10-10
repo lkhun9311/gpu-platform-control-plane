@@ -49,6 +49,10 @@ const (
 //
 // The server calls Reserve instead of Admit for such an admitter, so a request is never admitted without the
 // reservation that makes the admission mean anything.
+// reasonReservationRequired refuses a plain Admit on a reserving admitter: the server reaches one only through
+// Reserve, and an admission without its hold would be the rule bypassed.
+const reasonReservationRequired = "reservation_required"
+
 type reserver interface {
 	Reserve(ctx context.Context, meta RequestMeta, backend *BackendRef, tenant, tier string) (*reservation, bool, string)
 }
@@ -112,7 +116,7 @@ func newProspectiveAdmitter(prefillTokens, streams int) *prospectiveAdmitter {
 // Admit exists to satisfy Admitter; the server reaches this admitter only through Reserve, and an Admit that
 // admitted without reserving would be the guard bypassed, so it refuses.
 func (p *prospectiveAdmitter) Admit(context.Context, RequestMeta, *BackendRef, string, string) (bool, string) {
-	return false, "reservation_required"
+	return false, reasonReservationRequired
 }
 
 // Reserve admits a premium request without holding anything, and a standard one only if both its input and a

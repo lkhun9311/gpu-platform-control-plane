@@ -536,14 +536,7 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 	// The numbers the decision was made from, when the operator asked for them and the mode has any.
 	if s.reportBackendState {
-		if obs, ok := admitter.(admissionObserver); ok {
-			for _, b := range targets {
-				if st, has := obs.Observed(b); has {
-					w.Header().Set(HeaderBackendState, formatBackendState(st))
-					break
-				}
-			}
-		}
+		reportObserved(w, admitter, targets)
 	}
 	// Recorded for every request, admitted or not, so the admit rate and admitted-vs-offered token fraction can both be read straight off these two series without diffing against requests_total.
 	admissionDecisions.WithLabelValues(string(mode), tenant, meta.Model, decision, reason).Inc()
@@ -577,25 +570,7 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 8. From here the response is the upstream's, passed through rather than composed.
-	onFirstBody, onBody := tr.release(res), tr.body
-	if res != nil && res.onContent {
-		// The watcher reads the body as it passes, so it must be plain text. A client that asks for gzip itself would
-		// get a compressed stream the watcher cannot read, and the hold would last the whole response (review of
-		// 64188a2). Without the client's header, Go's transport negotiates compression on its own and hands the
-		// proxy a decoded body.
-		r.Header.Del("Accept-Encoding")
-		// Released at the first complete content event instead, seen by a watcher of its own because the trace's
-		// exists only when requests are recorded.
-		var cw contentWatcher
-		release := tr.release(res)
-		onFirstBody = nil
-		onBody = func(b []byte) {
-			tr.body(b)
-			if cw.observe(b) {
-				release()
-			}
-		}
-	}
+	onFirstBody, onBody := responseHooks(r, tr, res)
 	rec := &statusRecorder{ResponseWriter: w, code: http.StatusOK, onFirstBody: onFirstBody, onBody: onBody, onFlush: tr.flushed}
 	// Each candidate is tried until one answers, and the two conditions below are what make that safe rather
 	// than merely useful.
@@ -673,6 +648,43 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 // The answered guard is load-bearing rather than defensive. A request whose first attempt failed and whose
 // retry SUCCEEDED also leaves lastFailure set, and without the guard that genuine 200 would be overwritten
 // by the failure it recovered from.
+// reportObserved sets the backend-state header from the first target the admitter has numbers for.
+func reportObserved(w http.ResponseWriter, admitter Admitter, targets []*BackendRef) {
+	obs, ok := admitter.(admissionObserver)
+	if !ok {
+		return
+	}
+	for _, b := range targets {
+		if st, has := obs.Observed(b); has {
+			w.Header().Set(HeaderBackendState, formatBackendState(st))
+			return
+		}
+	}
+}
+
+// responseHooks returns what releases the reservation as the response passes: at the first body byte, or, for a
+// reservation held until first content, at the first complete content event.
+func responseHooks(r *http.Request, tr *requestTrace, res *reservation) (func(), func([]byte)) {
+	if res == nil || !res.onContent {
+		return tr.release(res), tr.body
+	}
+	// The watcher reads the body as it passes, so it must be plain text. A client that asks for gzip itself would get
+	// a compressed stream the watcher cannot read, and the hold would last the whole response (review of 64188a2).
+	// Without the client's header, Go's transport negotiates compression on its own and hands the proxy a decoded
+	// body.
+	r.Header.Del("Accept-Encoding")
+	// Released at the first complete content event instead, seen by a watcher of its own because the trace's exists
+	// only when requests are recorded.
+	var cw contentWatcher
+	release := tr.release(res)
+	return nil, func(b []byte) {
+		tr.body(b)
+		if cw.observe(b) {
+			release()
+		}
+	}
+}
+
 func publishedCode(answered bool, code, lastFailure int) int {
 	if !answered && lastFailure != 0 {
 		return lastFailure

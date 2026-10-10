@@ -54,7 +54,7 @@ func newFixedSpacingAdmitter(spacing, maxHold time.Duration) *fixedSpacingAdmitt
 
 // Admit refuses, as serial-prefill's does: the server reaches a reserving admitter only through Reserve.
 func (f *fixedSpacingAdmitter) Admit(context.Context, RequestMeta, *BackendRef, string, string) (bool, string) {
-	return false, "reservation_required"
+	return false, reasonReservationRequired
 }
 
 // Reserve admits a premium request at once, and a standard one when nobody waits ahead of it and a spacing has passed

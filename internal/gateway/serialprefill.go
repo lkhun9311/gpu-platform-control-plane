@@ -62,7 +62,7 @@ func newSerialPrefillAdmitter(maxHold time.Duration) *serialPrefillAdmitter {
 // Admit refuses, as the prospective admitter's does: the server reaches a reserving admitter only through Reserve,
 // and an admission without the hold would be the rule bypassed.
 func (s *serialPrefillAdmitter) Admit(context.Context, RequestMeta, *BackendRef, string, string) (bool, string) {
-	return false, "reservation_required"
+	return false, reasonReservationRequired
 }
 
 // Reserve admits a premium request at once, and a standard one when its backend has no standard request in prefill,
