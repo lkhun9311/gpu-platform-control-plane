@@ -9,7 +9,7 @@
 set -uo pipefail
 
 cd "$(dirname "$0")/.."
-export GOTOOLCHAIN=go1.26.6
+export GOTOOLCHAIN=go1.26.9
 
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"; [ -n "${STUB_PID:-}" ] && kill "$STUB_PID" 2>/dev/null' EXIT

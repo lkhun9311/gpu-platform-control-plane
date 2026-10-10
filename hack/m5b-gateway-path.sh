@@ -17,7 +17,7 @@ set -uo pipefail
 
 cd "$(dirname "$0")/.." || exit 1
 export PATH="$PWD/bin:$PATH"
-export GOTOOLCHAIN=go1.26.6
+export GOTOOLCHAIN=go1.26.9
 
 CLUSTER=platform
 KCTX=kind-$CLUSTER

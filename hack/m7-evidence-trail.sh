@@ -16,7 +16,7 @@
 set -uo pipefail
 
 cd "$(dirname "$0")/.." || exit 1
-export GOTOOLCHAIN=go1.26.6
+export GOTOOLCHAIN=go1.26.9
 
 # Two ways to run, and the difference is which cluster owns the risk.
 #

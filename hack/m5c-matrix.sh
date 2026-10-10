@@ -33,7 +33,7 @@
 set -uo pipefail
 
 cd "$(dirname "$0")/.." || exit 1
-export GOTOOLCHAIN=go1.26.6
+export GOTOOLCHAIN=go1.26.9
 # The instrument-validation study's per-arm durations, engine arguments and refusals.
 # Sourced rather than restated because hack/m5c-gpu-session.sh needs the same durations for its credential
 # margin, and two copies of a duration table are two answers to one question.
