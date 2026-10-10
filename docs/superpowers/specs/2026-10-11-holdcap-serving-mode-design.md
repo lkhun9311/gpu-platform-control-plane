@@ -127,7 +127,7 @@ value that decided the arguments.
 
 ### Status: the mode in force, not the mode asked for
 
-New status field `status.admission: {mode, observedGeneration}` and condition `AdmissionInForce`.
+New status field `status.admission: {mode, observedGeneration}` and a condition named AdmissionInForce.
 
 `status.admission.mode` is HoldCap only when all of these hold:
 
@@ -137,7 +137,7 @@ New status field `status.admission: {mode, observedGeneration}` and condition `A
 - updated, ready and desired replicas all equal 1;
 - no Pod of an older ReplicaSet remains.
 
-Otherwise it is Off, with the reason (`RolloutInProgress`, `ScaledToZero`, `NotRequested`).
+Otherwise it is Off, with a reason: RolloutInProgress, ScaledToZero or NotRequested.
 Turning HoldCap off is reported Off at once: holding an engine that is losing its cap is the case to avoid, while
 leaving a capped engine unheld costs only protection.
 
