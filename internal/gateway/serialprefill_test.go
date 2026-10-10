@@ -157,3 +157,24 @@ func TestSerialPrefillSkipsAWaiterPastItsHold(t *testing.T) {
 		t.Fatal("the turn did not pass to the next waiter")
 	}
 }
+
+// A waiter skipped for being past its hold was never handed the turn, so its own timeout must not pass the turn on:
+// that admitted a third request while the fresh holder was still in prefill (review of 0057699).
+// Mutation that turns it red: pass the turn on from leave whenever the waiter is no longer in the queue.
+func TestSerialPrefillASkippedWaiterDoesNotPassTheTurnOn(t *testing.T) {
+	s := newSerialPrefillAdmitter(time.Second)
+	key := serialBackend().URL.String()
+	late, fresh, third := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	s.busy[key] = true
+	s.waiters[key] = []waiter{{late, time.Now().Add(-2 * time.Second)}, {fresh, time.Now()}, {third, time.Now()}}
+	s.next(key) // skips late, hands the turn to fresh
+	s.leave(key, late)
+	select {
+	case <-third:
+		t.Fatal("the skipped waiter's timeout passed the turn to a third request while fresh held it")
+	default:
+	}
+	if busy, waiting := s.state(serialBackend()); !busy || waiting != 1 {
+		t.Fatalf("after the skipped waiter left: busy %v, %d waiting; want busy with the third still waiting", busy, waiting)
+	}
+}

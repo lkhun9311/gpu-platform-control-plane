@@ -122,6 +122,9 @@ func (s *serialPrefillAdmitter) next(key string) {
 
 // leave takes a waiter out of line; if its turn had already been handed to it as it gave up, it passes it on, so a
 // timed-out or abandoned waiter cannot keep the backend.
+// A waiter no longer in line was either handed the turn, whose channel is then closed, or skipped by next for being
+// past its hold, whose channel is not; only the first may pass the turn on, or a skipped waiter's timeout admits a
+// second request beside the holder (review of 0057699).
 func (s *serialPrefillAdmitter) leave(key string, turn chan struct{}) {
 	s.mu.Lock()
 	w := s.waiters[key]
@@ -133,7 +136,11 @@ func (s *serialPrefillAdmitter) leave(key string, turn chan struct{}) {
 		}
 	}
 	s.mu.Unlock()
-	s.next(key)
+	select {
+	case <-turn:
+		s.next(key)
+	default:
+	}
 }
 
 // state reports whether a backend has a standard request in prefill and how many wait, for tests.
