@@ -1413,6 +1413,24 @@ So the gate is predicted to read **feasible**, or **not feasible at the long len
 - **Evidence, for v27 and v26 alike (C2, C3, C8).** Every contender the gateway admitted must appear in the cell's step log, or the cell's work could read as zero on both sides of a comparison. Each row's prompt length and frozen token count, and the engine's count where it reported one, must equal its trace's. Malformed records make a cell untrusted rather than stopping the scorer. v26's result was rescored under these lines before this stage was scored.
 - **Recorded, not changed.** C7: the Go registration binds one study-wide token table rather than a length per arm. The matrix's plan and the scorer's trace hash enforce the per-arm length, so a standalone replay outside the matrix is the only path that could mislabel one. C10: the inherited v26 wording, superseded as stated above.
 
+### v27 calibration's result, 2026-10-10
+
+Bought in gpu-lab on one g5.2xlarge Spot with an A10G, `i-0431a075e1516df27`. It launched at 08:01:21Z at commit 74bc308, and the matrix returned at 09:16:03Z with all 7 cells completed in the registered order. The instance again took more than 5 minutes to reach `terminated`. This time the session downloaded the evidence first and confirmed the termination with its second call, as 90c4161 made it. Scored by `pilot_report.py calibration` at the commit in `data/2026-10-10-calibration-results/`, under the gate as revised above. The evidence was read only after that revision was committed.
+
+**Gate: feasible: hold-cap admissible and protective at every length, and the long length outlasts 1,740 ms.** Every validity line held in every cell.
+
+| Length | Engine prefill median, measured (predicted) | p95 | hold-cap premium p99, scheduled hi, against off's arrival lo | Contender median, times off's | p95 |
+|---|---|---|---|---|---|
+| short, 6,144 | 1,193 ms (1,216 to 1,229) | 1,262 ms | 295 against 1,072 ms | 1.10 | 5.6 s |
+| ref, 7,695 | 1,652 ms (1,660 to 1,672) | 1,731 ms | 553 against 1,475 ms | 1.31 | 9.5 s |
+| long, 8,192 | 1,772 ms (1,777 to 1,792) | 1,851 ms | 595 against 1,612 ms | 1.32 | 11.4 s |
+
+At every length hold-cap completed every contender, with no hold refusal and no preemption, and its premium inter-token gap p99 was within 1.2% of off's. The long length's prefill is 7.3% above the reference's and past 1,740 ms. The reference's, 1,652 ms, is inside it, so v26's tuned spacing covers the reference on this card and not the long length. The replay predicted each median within 2% to 3%, from below. The hold refusal it feared at the long length did not occur on this seed's trace.
+
+**The size-aware control's spacings, frozen for the main study** by the formula registered before purchase: short 1,256.9 ms, ref 1,740.0 ms, long 1,867.0 ms.
+
+**What it licenses.** A main study of the robustness question is a feasible test on this card: the challenge is real, and hold-cap meets the owner's limits at the lengths where the comparison is made. It says nothing yet about the fixed or size-aware controls, which were not in this stage.
+
 The draft as written, kept for the record:
 
 **Its question.** On the A10G, under the pilot's frozen load, does the engine's prefill cap at 384 together with the gateway's serial-prefill hold cut the premium tail, at a contender cost inside limits frozen here, before any card time? It is a feasibility measurement of one candidate, not the main study: it answers whether a main study of this treatment is worth designing.

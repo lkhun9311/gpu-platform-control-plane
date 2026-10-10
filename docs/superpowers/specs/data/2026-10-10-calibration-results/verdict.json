@@ -1,0 +1,771 @@
+{
+ "verdict": "feasible: hold-cap admissible and protective at every length, and the long length outlasts 1,740 ms",
+ "validity": [
+  {
+   "line": "R1-1 is the registered cell",
+   "value": null,
+   "rule": "no difference",
+   "state": "holds"
+  },
+  {
+   "line": "R1-1 eligible",
+   "value": [],
+   "rule": "no problem",
+   "state": "holds"
+  },
+  {
+   "line": "R1-1 largest dispatch lag",
+   "value": 11.65081,
+   "rule": "<= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "R1-1 premium lag above 13 ms",
+   "value": 0.0,
+   "rule": "<= 0.001",
+   "state": "holds"
+  },
+  {
+   "line": "R1-1 premium successes without gap evidence",
+   "value": 0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "R1-1 contender successes without complete timing",
+   "value": 0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "R1-1 gateway arrival to record",
+   "value": [
+    5.27891,
+    9.383818
+   ],
+   "rule": "p99 <= 13 ms, max <= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "R1-1 gateway premium arrival to decision",
+   "value": [
+    5.323041,
+    9.420699
+   ],
+   "rule": "p99 <= 13 ms, max <= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "R1-1 admitted contenders the step log scheduled",
+   "value": [
+    0,
+    0
+   ],
+   "rule": "all",
+   "state": "holds"
+  },
+  {
+   "line": "off-short-1 is the registered cell",
+   "value": null,
+   "rule": "no difference",
+   "state": "holds"
+  },
+  {
+   "line": "off-short-1 eligible",
+   "value": [],
+   "rule": "no problem",
+   "state": "holds"
+  },
+  {
+   "line": "off-short-1 largest dispatch lag",
+   "value": 15.773756,
+   "rule": "<= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "off-short-1 premium lag above 13 ms",
+   "value": 0.00026001040041601667,
+   "rule": "<= 0.001",
+   "state": "holds"
+  },
+  {
+   "line": "off-short-1 premium successes without gap evidence",
+   "value": 0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "off-short-1 contender successes without complete timing",
+   "value": 0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "off-short-1 gateway arrival to record",
+   "value": [
+    5.282131,
+    8.191102
+   ],
+   "rule": "p99 <= 13 ms, max <= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "off-short-1 gateway premium arrival to decision",
+   "value": [
+    5.216231,
+    8.238613
+   ],
+   "rule": "p99 <= 13 ms, max <= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "off-short-1 admitted contenders the step log scheduled",
+   "value": [
+    198,
+    198
+   ],
+   "rule": "all",
+   "state": "holds"
+  },
+  {
+   "line": "off-short-1 premium loss",
+   "value": 0.0,
+   "rule": "< 0.005",
+   "state": "holds"
+  },
+  {
+   "line": "off-short-1 contender completion",
+   "value": 1.0,
+   "rule": ">= 0.95",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap-short-1 is the registered cell",
+   "value": null,
+   "rule": "no difference",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap-short-1 eligible",
+   "value": [],
+   "rule": "no problem",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap-short-1 largest dispatch lag",
+   "value": 6.605718,
+   "rule": "<= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap-short-1 premium lag above 13 ms",
+   "value": 0.0,
+   "rule": "<= 0.001",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap-short-1 premium successes without gap evidence",
+   "value": 0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap-short-1 contender successes without complete timing",
+   "value": 0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap-short-1 gateway arrival to record",
+   "value": [
+    5.148969,
+    19.573198
+   ],
+   "rule": "p99 <= 13 ms, max <= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap-short-1 gateway premium arrival to decision",
+   "value": [
+    5.18585,
+    19.609219
+   ],
+   "rule": "p99 <= 13 ms, max <= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap-short-1 admitted contenders the step log scheduled",
+   "value": [
+    198,
+    198
+   ],
+   "rule": "all",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap-short-1 contender decisions by its admission mode",
+   "value": [
+    198,
+    198
+   ],
+   "rule": "all",
+   "state": "holds"
+  },
+  {
+   "line": "off-ref-1 is the registered cell",
+   "value": null,
+   "rule": "no difference",
+   "state": "holds"
+  },
+  {
+   "line": "off-ref-1 eligible",
+   "value": [],
+   "rule": "no problem",
+   "state": "holds"
+  },
+  {
+   "line": "off-ref-1 largest dispatch lag",
+   "value": 5.871775,
+   "rule": "<= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "off-ref-1 premium lag above 13 ms",
+   "value": 0.0,
+   "rule": "<= 0.001",
+   "state": "holds"
+  },
+  {
+   "line": "off-ref-1 premium successes without gap evidence",
+   "value": 0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "off-ref-1 contender successes without complete timing",
+   "value": 0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "off-ref-1 gateway arrival to record",
+   "value": [
+    5.663888,
+    9.153107
+   ],
+   "rule": "p99 <= 13 ms, max <= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "off-ref-1 gateway premium arrival to decision",
+   "value": [
+    5.725538,
+    9.188988
+   ],
+   "rule": "p99 <= 13 ms, max <= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "off-ref-1 admitted contenders the step log scheduled",
+   "value": [
+    198,
+    198
+   ],
+   "rule": "all",
+   "state": "holds"
+  },
+  {
+   "line": "off-ref-1 premium loss",
+   "value": 0.0,
+   "rule": "< 0.005",
+   "state": "holds"
+  },
+  {
+   "line": "off-ref-1 contender completion",
+   "value": 1.0,
+   "rule": ">= 0.95",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap-ref-1 is the registered cell",
+   "value": null,
+   "rule": "no difference",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap-ref-1 eligible",
+   "value": [],
+   "rule": "no problem",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap-ref-1 largest dispatch lag",
+   "value": 6.330037,
+   "rule": "<= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap-ref-1 premium lag above 13 ms",
+   "value": 0.0,
+   "rule": "<= 0.001",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap-ref-1 premium successes without gap evidence",
+   "value": 0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap-ref-1 contender successes without complete timing",
+   "value": 0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap-ref-1 gateway arrival to record",
+   "value": [
+    5.321661,
+    8.09288
+   ],
+   "rule": "p99 <= 13 ms, max <= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap-ref-1 gateway premium arrival to decision",
+   "value": [
+    5.2121,
+    8.132671
+   ],
+   "rule": "p99 <= 13 ms, max <= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap-ref-1 admitted contenders the step log scheduled",
+   "value": [
+    198,
+    198
+   ],
+   "rule": "all",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap-ref-1 contender decisions by its admission mode",
+   "value": [
+    198,
+    198
+   ],
+   "rule": "all",
+   "state": "holds"
+  },
+  {
+   "line": "off-long-1 is the registered cell",
+   "value": null,
+   "rule": "no difference",
+   "state": "holds"
+  },
+  {
+   "line": "off-long-1 eligible",
+   "value": [],
+   "rule": "no problem",
+   "state": "holds"
+  },
+  {
+   "line": "off-long-1 largest dispatch lag",
+   "value": 7.699347,
+   "rule": "<= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "off-long-1 premium lag above 13 ms",
+   "value": 0.0,
+   "rule": "<= 0.001",
+   "state": "holds"
+  },
+  {
+   "line": "off-long-1 premium successes without gap evidence",
+   "value": 0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "off-long-1 contender successes without complete timing",
+   "value": 0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "off-long-1 gateway arrival to record",
+   "value": [
+    5.634678,
+    9.098197
+   ],
+   "rule": "p99 <= 13 ms, max <= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "off-long-1 gateway premium arrival to decision",
+   "value": [
+    5.711499,
+    9.138108
+   ],
+   "rule": "p99 <= 13 ms, max <= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "off-long-1 admitted contenders the step log scheduled",
+   "value": [
+    198,
+    198
+   ],
+   "rule": "all",
+   "state": "holds"
+  },
+  {
+   "line": "off-long-1 premium loss",
+   "value": 0.0,
+   "rule": "< 0.005",
+   "state": "holds"
+  },
+  {
+   "line": "off-long-1 contender completion",
+   "value": 1.0,
+   "rule": ">= 0.95",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap-long-1 is the registered cell",
+   "value": null,
+   "rule": "no difference",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap-long-1 eligible",
+   "value": [],
+   "rule": "no problem",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap-long-1 largest dispatch lag",
+   "value": 7.382079,
+   "rule": "<= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap-long-1 premium lag above 13 ms",
+   "value": 0.0,
+   "rule": "<= 0.001",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap-long-1 premium successes without gap evidence",
+   "value": 0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap-long-1 contender successes without complete timing",
+   "value": 0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap-long-1 gateway arrival to record",
+   "value": [
+    5.654347,
+    9.388552
+   ],
+   "rule": "p99 <= 13 ms, max <= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap-long-1 gateway premium arrival to decision",
+   "value": [
+    5.708418,
+    9.421563
+   ],
+   "rule": "p99 <= 13 ms, max <= 50 ms",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap-long-1 admitted contenders the step log scheduled",
+   "value": [
+    198,
+    198
+   ],
+   "rule": "all",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap-long-1 contender decisions by its admission mode",
+   "value": [
+    198,
+    198
+   ],
+   "rule": "all",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap at short: contender successes without gateway timing",
+   "value": 0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap at ref: contender successes without gateway timing",
+   "value": 0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap at long: contender successes without gateway timing",
+   "value": 0,
+   "rule": "0",
+   "state": "holds"
+  }
+ ],
+ "lines": [
+  {
+   "line": "hold-cap at short: contender completion",
+   "value": 1.0,
+   "rule": ">= 0.95",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap at short: contender completion p50 against off's",
+   "value": [
+    2331.398714,
+    2123.94998
+   ],
+   "rule": "<= 1.5 x off's",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap at short: contender completion p95",
+   "value": 5575.974188,
+   "rule": "<= 25,000 ms",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap at short: hold refusals",
+   "value": 0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap at short: preemptions",
+   "value": 0.0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap at short: contender work in the shared window (p) against off's",
+   "value": [
+    0.9940025252525253,
+    0.9947135745475589
+   ],
+   "rule": ">= 0.9 x off's",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap at short: contender work in the shared window (q) against off's",
+   "value": [
+    0.928030303030303,
+    0.928030303030303
+   ],
+   "rule": ">= 0.9 x off's",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap at short: premium inter-token gap p99 against off's",
+   "value": [
+    84.794,
+    85.759
+   ],
+   "rule": "<= 1.25 x off's",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap at short: premium p99 crossed against off's",
+   "value": -1.2898357888743115,
+   "rule": "<= -0.1625",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap at ref: contender completion",
+   "value": 1.0,
+   "rule": ">= 0.95",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap at ref: contender completion p50 against off's",
+   "value": [
+    4516.525214,
+    3449.775631
+   ],
+   "rule": "<= 1.5 x off's",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap at ref: contender completion p95",
+   "value": 9478.259126,
+   "rule": "<= 25,000 ms",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap at ref: hold refusals",
+   "value": 0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap at ref: preemptions",
+   "value": 0.0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap at ref: contender work in the shared window (p) against off's",
+   "value": [
+    0.986864748853053,
+    0.9906839676820184
+   ],
+   "rule": ">= 0.9 x off's",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap at ref: contender work in the shared window (q) against off's",
+   "value": [
+    0.9214015151515151,
+    0.9245580808080808
+   ],
+   "rule": ">= 0.9 x off's",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap at ref: premium inter-token gap p99 against off's",
+   "value": [
+    88.927,
+    91.789
+   ],
+   "rule": "<= 1.25 x off's",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap at ref: premium p99 crossed against off's",
+   "value": -0.9805416511581918,
+   "rule": "<= -0.1625",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap at long: contender completion",
+   "value": 1.0,
+   "rule": ">= 0.95",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap at long: contender completion p50 against off's",
+   "value": [
+    5760.800272,
+    4376.324591
+   ],
+   "rule": "<= 1.5 x off's",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap at long: contender completion p95",
+   "value": 11372.742442,
+   "rule": "<= 25,000 ms",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap at long: hold refusals",
+   "value": 0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap at long: preemptions",
+   "value": 0.0,
+   "rule": "0",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap at long: contender work in the shared window (p) against off's",
+   "value": [
+    0.9847695707070707,
+    0.9883583145912247
+   ],
+   "rule": ">= 0.9 x off's",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap at long: contender work in the shared window (q) against off's",
+   "value": [
+    0.9185606060606061,
+    0.9232954545454546
+   ],
+   "rule": ">= 0.9 x off's",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap at long: premium inter-token gap p99 against off's",
+   "value": [
+    90.388,
+    93.741
+   ],
+   "rule": "<= 1.25 x off's",
+   "state": "holds"
+  },
+  {
+   "line": "hold-cap at long: premium p99 crossed against off's",
+   "value": -0.9972831183793761,
+   "rule": "<= -0.1625",
+   "state": "holds"
+  }
+ ],
+ "measured": {
+  "short": {
+   "tokens": 6144,
+   "engine_prefill_p50_ms": 1193.203282,
+   "engine_prefill_p95_ms": 1261.648411,
+   "engine_prefill_unfinished": 0,
+   "admission_to_content_p50_ms": 1231.386766,
+   "admission_to_content_p95_ms": 1298.401578,
+   "contenders_timed": 198,
+   "premium_p99_sched_hi_ms": 294.99177,
+   "off_premium_p99_arr_lo_ms": 1071.466175,
+   "ln_ratio_to_off": -1.2898357888743115
+  },
+  "ref": {
+   "tokens": 7695,
+   "engine_prefill_p50_ms": 1651.813815,
+   "engine_prefill_p95_ms": 1730.618046,
+   "engine_prefill_unfinished": 0,
+   "admission_to_content_p50_ms": 1697.71339,
+   "admission_to_content_p95_ms": 1772.904398,
+   "contenders_timed": 198,
+   "premium_p99_sched_hi_ms": 553.353555,
+   "off_premium_p99_arr_lo_ms": 1475.185153,
+   "ln_ratio_to_off": -0.9805416511581918
+  },
+  "long": {
+   "tokens": 8192,
+   "engine_prefill_p50_ms": 1772.338212,
+   "engine_prefill_p95_ms": 1851.084881,
+   "engine_prefill_unfinished": 0,
+   "admission_to_content_p50_ms": 1820.114981,
+   "admission_to_content_p95_ms": 1903.476853,
+   "contenders_timed": 198,
+   "premium_p99_sched_hi_ms": 594.572194,
+   "off_premium_p99_arr_lo_ms": 1611.829686,
+   "ln_ratio_to_off": -0.9972831183793761
+  }
+ },
+ "size_aware_spacings_ms": {
+  "short": 1256.9,
+  "ref": 1740.0,
+  "long": 1867.0
+ },
+ "first_failure": {}
+}
