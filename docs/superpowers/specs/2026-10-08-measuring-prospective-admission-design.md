@@ -1431,6 +1431,32 @@ At every length hold-cap completed every contender, with no hold refusal and no 
 
 **What it licenses.** A main study of the robustness question is a feasible test on this card: the challenge is real, and hold-cap meets the owner's limits at the lengths where the comparison is made. It says nothing yet about the fixed or size-aware controls, which were not in this stage.
 
+### v27 main study: drafted, and stopped at its purchase gate, 2026-10-10
+
+**Drafted in parallel.** astra drafted the main study independently from the calibration's result (`data/2026-10-10-robustness-design/astra-main-study-draft.txt`). I wrote my sketch before reading it (`mine-main-before-reading-astra.txt`). astra's is the stricter and is the one taken:
+- **Arms:** off, cap-only, hold-cap, fixed1740 and sizeaware at each of the three lengths, 15 cells plus R1 per card. The calibration's frozen spacings are 1,256.9, 1,740.0 and 1,867.0 ms. Cap-only is there to attribute any effect, and the size-aware arm also runs at ref, where it duplicates the fixed one, as a run-to-run check.
+- **Cards and seeds:** one block per card on three cards, seeds 881, 882 and 883.
+- **Verdicts:** in order:
+  1. evidence;
+  2. hold-cap operationally robust at every length;
+  3. hold-cap protective at every length;
+  4. the challenge reproduced on every card;
+  5. the reference comparison with v26 reproduced;
+  6. a length-dependent advantage over the frozen fixed spacing, by an interaction of at least 15% on the unfavourable crossed ends;
+  7. otherwise not established.
+
+  A separate verdict covers the size-aware control.
+- **Purchase gate:** the replay, on the frozen seeds at the nominal pace, must predict hold-cap admissible and protective at every length and the main comparison reachable. Otherwise the purchase stops under this registration, and no seed is swapped for a lighter one.
+
+**The gate's replay** (`predict-main.py` and its outputs). The nominal pace is the calibration card's: at 1.0205 the replay's reference engine prefill, 1,651 ms, matches the card's measured 1,652 ms. There:
+- at the long length, hold-cap's contender p95 exceeds 25 s on seed 882, so hold-cap is inadmissible;
+- fixed1740 collapses to a pooled premium p99 of 1,899 ms against off's 1,620 ms and also fails the p95;
+- at ref, fixed1740 and hold-cap are both admissible, 441 against 452 ms, so v26's tie reproduces.
+
+Seed 882 carries 234 contenders a cell against 202 and 216 for the other two, about as heavy as pilot B's third trace (239), where hold-cap's p95 also reached the 25 s limit in the replay. At 1.000, below the card's pace, hold-cap is admissible everywhere, and at 1.0275 and 1.07 it is not. The replay has understated the contender's cost by 3% to 7% against every card measured so far, so the prediction is, if anything, optimistic.
+
+**So the main study, as drafted, is not bought.** Its predicted verdict is rule 2: hold-cap is not operationally robust at the long length on a heavier trace. Seed 882 is a draw at the registered load, not an outlier selected against it. That is itself the robustness question's first answer, at this load: lengthening the contender's prompt by 6.5% moves hold-cap's contender p95 to the owner's 25 s limit on a heavy trace, while the fixed spacing loses the premium tail entirely. What to do with it is the owner's choice, and it changes the registration.
+
 The draft as written, kept for the record:
 
 **Its question.** On the A10G, under the pilot's frozen load, does the engine's prefill cap at 384 together with the gateway's serial-prefill hold cut the premium tail, at a contender cost inside limits frozen here, before any card time? It is a feasibility measurement of one candidate, not the main study: it answers whether a main study of this treatment is worth designing.
