@@ -641,6 +641,14 @@ scenarios_m5c_gpu_session() {
     STUB_PRESENT_KEYS="evidence.tgz log.txt commit.txt nodes.txt preflight-nvidia-smi.csv preflight-node-cards.txt matrix-returned.txt" \
     run_scenario admission-frontier-slow-termination bash "$TARGET"
 
+  # v27's calibration stage F: its own study, one block, R1 and six arms at three lengths, and its 2 h 19 m limits.
+  REPS=1 REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 \
+    STUDY=admission-length-calibration-2026-10-10 PILOT_STAGE=F PREMIUM_RATE=9.25 PILOT_NOISY_RATE=0.5 SEEDS=871 \
+    PREMIUM_PROMPT_CHARS=200 NOISY_PROMPT_CHARS=40000 REQUEST_TIMEOUT_MS=30000 PREMIUM_OUTPUT_TOKENS=64 NOISY_OUTPUT_TOKENS=16 \
+    STUB_EVIDENCE_ARMS="R1 off-short off-ref off-long hold-cap-short hold-cap-ref hold-cap-long" STUB_EVIDENCE_REPS=1 STUB_EVIDENCE_R1_ONCE=1 STUB_EVIDENCE_RECORDS=1 \
+    STUB_PRESENT_KEYS="evidence.tgz log.txt commit.txt nodes.txt preflight-nvidia-smi.csv preflight-node-cards.txt matrix-returned.txt" \
+    run_scenario length-calibration-stage-f bash "$TARGET"
+
   # Stage B without the R stage A fitted: refused before anything is rented.
   REPS=3 REQUIRE_CLEAN_TREE=0 \
     STUDY=prospective-pilot-2026-10-08 PILOT_STAGE=B PREMIUM_RATE=9.25 PILOT_NOISY_RATE=0.5 SEEDS="11 12 13" \

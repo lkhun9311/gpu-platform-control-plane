@@ -37,9 +37,12 @@ PP_DIAG_STUDY=admission-diagnostic-2026-10-10
 # spacings, held as long as serial-prefill holds.
 PP_FRONTIER_STUDY=admission-frontier-2026-10-10
 PP_FRONTIER_SEEDS="861 862 863"
+# v27's calibration stage (design page, "v27"): off and hold-cap at three contender lengths, one block.
+PP_LENCAL_STUDY=admission-length-calibration-2026-10-10
+PP_LENCAL_SEEDS="871"
 
 # The pilot, the admission diagnostic and v26 share this apparatus: its capture, sidecar, sampler and calibration.
-pp_is_study() { [ "${1:-}" = "$PP_STUDY" ] || [ "${1:-}" = "$PP_DIAG_STUDY" ] || [ "${1:-}" = "$PP_FRONTIER_STUDY" ]; }
+pp_is_study() { [ "${1:-}" = "$PP_STUDY" ] || [ "${1:-}" = "$PP_DIAG_STUDY" ] || [ "${1:-}" = "$PP_FRONTIER_STUDY" ] || [ "${1:-}" = "$PP_LENCAL_STUDY" ]; }
 
 # The study a stage belongs to; a stage filed under another study would be scored by rules it was not bought under.
 pp_stage_study() {
@@ -47,7 +50,8 @@ pp_stage_study() {
     A | B) echo "$PP_STUDY" ;;
     D) echo "$PP_DIAG_STUDY" ;;
     E) echo "$PP_FRONTIER_STUDY" ;;
-    *) echo "PILOT_STAGE is ${1@Q}; the stages are A, B, D and E" >&2; return 1 ;;
+    F) echo "$PP_LENCAL_STUDY" ;;
+    *) echo "PILOT_STAGE is ${1@Q}; the stages are A, B, D, E and F" >&2; return 1 ;;
   esac
 }
 
@@ -63,6 +67,28 @@ pp_frontier_checksum() {
     863:R1) echo f7cff96a1d35858b179245a0e470adac222fcc7869be5dbbd766697b8f0304e7 ;;
     863:*) echo 0bff6066f348a6168236be006a232d92a581d73fea81c56e45dbf0eaebc4ca4b ;;
     *) echo "seed ${1@Q} is not one of v26's frozen seeds ($PP_FRONTIER_SEEDS)" >&2; return 1 ;;
+  esac
+}
+
+# v27's calibration traces, by arm, for seed 871: one checksum per contender length, and R1's.
+pp_lencal_checksum() {
+  case "${1:-}:${2:-}" in
+    871:R1) echo a5b3aec4ecd11a0e697e3d65e1078560621b8907c6337a7dea6749910d9b256e ;;
+    871:*-short) echo 659b495a0617ccde5cb4181f191cfbec730ad28d2bd73d71f43ab59ecca924d1 ;;
+    871:*-ref) echo 6893b01697f8b74a3cc6f1eafb9fd5c5b72a4899beede49393bc4e1c0276b63e ;;
+    871:*-long) echo 7adef562cc0912646bdb1035e77162ff6cd6e14364558d96fb79f8fc105b39b3 ;;
+    *) echo "seed ${1@Q} and arm ${2@Q} are not one of v27's calibration traces" >&2; return 1 ;;
+  esac
+}
+
+# The contender prompt an arm replays, in characters: v27's calibration arms carry their length in their name;
+# every other arm replays its study's frozen length, given as $2.
+pp_arm_contender_chars() {
+  case "${1:-}" in
+    *-short) echo 31894 ;;
+    *-ref) echo 40000 ;;
+    *-long) echo 42579 ;;
+    *) echo "${2:?the frozen contender length of the study}" ;;
   esac
 }
 
@@ -84,7 +110,9 @@ pp_stage_arms() {
     D) printf '%s\n' R1 off hold cap hold-cap ;;
     # v26: R1 once, then off, hold-cap and the four fixed spacings in each block (design page, "v26").
     E) printf '%s\n' R1 off hold-cap fixed-1.62 fixed-1.66 fixed-1.70 fixed-1.74 ;;
-    *) echo "PILOT_STAGE is ${1@Q}; the pilot has stages A and B, the diagnostic stage D and v26 stage E" >&2; return 1 ;;
+    # v27's calibration: R1 once, then off and hold-cap at each length in one block (design page, "v27").
+    F) printf '%s\n' R1 off-short off-ref off-long hold-cap-short hold-cap-ref hold-cap-long ;;
+    *) echo "PILOT_STAGE is ${1@Q}; the pilot has stages A and B, the diagnostic D, v26 E and v27's calibration F" >&2; return 1 ;;
   esac
 }
 
@@ -93,8 +121,8 @@ pp_stage_arms() {
 # uncapped and the validator, reading the same answer, would approve it (v26 review, C2).
 pp_arm_prefill_cap() {
   case "${1:-}" in
-    cap | hold-cap | fixed-1.62 | fixed-1.66 | fixed-1.70 | fixed-1.74) echo "$PP_DIAG_PREFILL_CAP" ;;
-    R1 | off | hold | prospective | static-cap) echo 0 ;;
+    cap | hold-cap | fixed-1.62 | fixed-1.66 | fixed-1.70 | fixed-1.74 | hold-cap-short | hold-cap-ref | hold-cap-long) echo "$PP_DIAG_PREFILL_CAP" ;;
+    R1 | off | hold | prospective | static-cap | off-short | off-ref | off-long) echo 0 ;;
     *) echo "arm ${1@Q} has no registered prefill cap" >&2; return 1 ;;
   esac
 }
@@ -184,8 +212,8 @@ pp_gateway_args() {
   printf '%s\n' -bind-priority -enforce-benchmark-profile "-request-record-path=$PP_GATEWAY_RECORD"
   case "$arm" in
     # The diagnostic's cap arm differs from off only in the engine.
-    R1 | off | cap) printf '%s\n' -admission-mode=off ;;
-    hold | hold-cap) printf '%s\n' -admission-mode=serial-prefill "-admission-serial-prefill-max-hold=$PP_DIAG_MAX_HOLD" ;;
+    R1 | off | cap | off-short | off-ref | off-long) printf '%s\n' -admission-mode=off ;;
+    hold | hold-cap | hold-cap-short | hold-cap-ref | hold-cap-long) printf '%s\n' -admission-mode=serial-prefill "-admission-serial-prefill-max-hold=$PP_DIAG_MAX_HOLD" ;;
     # v26's controls: the same longest hold as serial-prefill, so the two differ only in what releases a contender.
     fixed-*)
       local spacing
@@ -214,7 +242,7 @@ pp_gateway_args_yaml() {
 # The replay's request-ID prefix: stage, arm and block, so every ID is unique across the whole pilot.
 pp_request_id_flag() {
   local stage="$1" arm="$2" rep="$3"
-  case "$stage" in A | B | D | E) ;; *) echo "PILOT_STAGE is ${stage@Q}" >&2; return 1 ;; esac
+  case "$stage" in A | B | D | E | F) ;; *) echo "PILOT_STAGE is ${stage@Q}" >&2; return 1 ;; esac
   printf -- '--request-id-prefix=pp-%s-%s-%s\n' "$stage" "$arm" "$rep"
 }
 

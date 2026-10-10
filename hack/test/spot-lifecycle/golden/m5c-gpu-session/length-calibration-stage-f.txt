@@ -1,0 +1,123 @@
+aws sts get-caller-identity --query Account --output text
+aws configure export-credentials --format process
+aws s3api head-bucket --bucket stub-bucket
+aws iam get-instance-profile --instance-profile-name m5c-gpu
+aws s3 cp <OUT>/source.tgz s3://stub-bucket/run-<NONCE>/src/source.tgz
+upload: <SIZE> bytes to stub-bucket/run-<NONCE>/src/source.tgz
+aws s3 cp <OUT>/gateway s3://stub-bucket/run-<NONCE>/bin/gateway
+upload: <SIZE> bytes to stub-bucket/run-<NONCE>/bin/gateway
+aws s3 cp <OUT>/benchharness s3://stub-bucket/run-<NONCE>/bin/benchharness
+upload: <SIZE> bytes to stub-bucket/run-<NONCE>/bin/benchharness
+aws ssm get-parameter --region ap-northeast-2 --name /aws/service/deeplearning/ami/x86_64/base-oss-nvidia-driver-gpu-ubuntu-22.04/latest/ami-id --query Parameter.Value --output text
+aws ec2 describe-instance-type-offerings --region ap-northeast-2 --location-type availability-zone --filters Name=instance-type,Values=g5.2xlarge --query InstanceTypeOfferings[].Location --output text
+aws configure export-credentials --format process
+aws ec2 describe-subnets --region ap-northeast-2 --filters Name=default-for-az,Values=true Name=map-public-ip-on-launch,Values=true Name=availability-zone,Values=ap-northeast-2a --query Subnets[0].SubnetId --output text
+aws ec2 run-instances --region ap-northeast-2 --image-id ami-0stubgpu --instance-type g5.2xlarge --subnet-id subnet-ap-northeast-2a --iam-instance-profile Name=m5c-gpu --instance-initiated-shutdown-behavior terminate --block-device-mappings [{"DeviceName":"/dev/sda1","Ebs":{"VolumeSize":200,"VolumeType":"gp3","DeleteOnTermination":true}}] --instance-market-options {"MarketType":"spot","SpotOptions":{"MaxPrice":"1.10","SpotInstanceType":"one-time"}} --user-data file://<USERDATA> --tag-specifications ResourceType=instance,Tags=[{Key=Name,Value=m5c-gpu},{Key=purpose,Value=m5c-sharing-matrix},{Key=run,Value=<NONCE>},{Key=study-deadline,Value=<DEADLINE>}] --client-token <RUN>-ap-northeast-2a --query Instances[0].InstanceId --output text
+user-data: matches the copy saved in the run directory
+aws s3api head-object --bucket stub-bucket --key run-<NONCE>/DONE
+aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0stub --cli-connect-timeout 5 --cli-read-timeout 10 --query Reservations[0].Instances[0].State.Name --output text
+sleep 30
+aws s3api head-object --bucket stub-bucket --key run-<NONCE>/DONE
+aws s3 cp s3://stub-bucket/run-<NONCE>/DONE -
+aws ec2 terminate-instances --region ap-northeast-2 --instance-ids i-0stub
+aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0stub --cli-connect-timeout 5 --cli-read-timeout 10 --query Reservations[0].Instances[0].State.Name --output text
+aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0stub --query Reservations[0].Instances[0].LaunchTime --output text
+aws s3api head-object --bucket stub-bucket --key run-<NONCE>/DONE --query LastModified --output text
+aws s3 cp s3://stub-bucket/run-<NONCE>/evidence.tgz <OUT>/evidence.tgz
+aws s3 cp s3://stub-bucket/run-<NONCE>/log.txt <OUT>/log.txt
+aws s3 cp s3://stub-bucket/run-<NONCE>/commit.txt <OUT>/commit.txt
+aws s3 cp s3://stub-bucket/run-<NONCE>/nodes.txt <OUT>/nodes.txt
+aws s3 cp s3://stub-bucket/run-<NONCE>/preflight-nvidia-smi.csv <OUT>/preflight-nvidia-smi.csv
+aws s3 cp s3://stub-bucket/run-<NONCE>/preflight-node-cards.txt <OUT>/preflight-node-cards.txt
+aws s3 cp s3://stub-bucket/run-<NONCE>/matrix-returned.txt <OUT>/matrix-returned.txt
+aws s3api list-objects-v2 --bucket stub-bucket --prefix run-<NONCE>/cells/ --query Contents[].Key --output text
+aws s3api list-objects-v2 --bucket stub-bucket --prefix run-<NONCE>/live/ --query Contents[].Key --output text
+harness checksum: user-data matches the uploaded binary
+gateway checksum: user-data matches the uploaded binary
+--- exit 0
+--- messages
+== purpose: new measurement -- hypothesis 'characterization run: no question is asked of a card', stopping rule 'the stubs answer immediately and nothing is rented'
+== study  admission-length-calibration-2026-10-10, stage F -- docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md
+== arms   [R1 off-short off-ref off-long hold-cap-short hold-cap-ref hold-cap-long], 1 repetition(s) each
+== output <OUT>
+== load   the pilot's stage F, 420000ms per cell: premium 9.25/s, contender 0.5/s, independent
+== credentials expire in 719 min (asked of the active provider); this session needs about 149 plus 40 of headroom
+== source <COMMIT> <TREE STATE>
+== building the gateway and the harness for the instance, which has no Go
+==   gateway <SHA12>, benchharness <SHA12>
+== uploading the source and the binaries
+== g5.2xlarge is offered in: ap-northeast-2a ap-northeast-2c
+== user-data: 13118 of 16384 raw bytes
+== checking the purchase plan locally, before anything is rented
+== plan: 7 cell(s): R1 off-short hold-cap-short hold-cap-long off-long hold-cap-ref off-ref 
+== load matches study admission-length-calibration-2026-10-10's frozen tuple (five quantities)
+==   R1: 3846 premium, 0 contender -- scorable
+==   off-short: 3846 premium, 198 contender -- scorable
+==   hold-cap-short: 3846 premium, 198 contender -- scorable
+==   hold-cap-long: 3846 premium, 198 contender -- scorable
+==   off-long: 3846 premium, 198 contender -- scorable
+==   hold-cap-ref: 3846 premium, 198 contender -- scorable
+==   off-ref: 3846 premium, 198 contender -- scorable
+== PLAN OK under study admission-length-calibration-2026-10-10: every planned cell generates a trace the readings can score. Nothing was rented.
+== launching g5.2xlarge spot (max $1.10/h)
+== credentials expire in 719 min (asked of the active provider); this session needs about 149 plus 40 of headroom
+== trying ap-northeast-2a (subnet-ap-northeast-2a)
+== instance i-0stub
+== waiting for results (driver, toolkit, cluster and preflight come first; about 25 minutes before the first cell)
+== records are up (marker carries this launch's nonce)
+== evidence unpacked to <OUT>/m5c-run
+== the archive holds exactly the 7 planned cells, each with its gateway record, step log and manifest
+== every arm in [R1 off-short off-ref off-long hold-cap-short hold-cap-ref hold-cap-long] returned raw evidence
+== SESSION DONE. Evidence in <OUT>/m5c-run
+== Score it with the registered gate:  python3 hack/prospective-pilot/pilot_report.py calibration <OUT>/m5c-run
+== terminating i-0stub
+== i-0stub is terminated
+--- files
+./benchharness
+./commit.txt
+./evidence.tgz
+./gateway
+./instance-id
+./launch-errors.txt
+./launch-time.txt
+./log.txt
+./m5c-run/gateway-record-R1-1.jsonl
+./m5c-run/gateway-record-hold-cap-long-1.jsonl
+./m5c-run/gateway-record-hold-cap-ref-1.jsonl
+./m5c-run/gateway-record-hold-cap-short-1.jsonl
+./m5c-run/gateway-record-off-long-1.jsonl
+./m5c-run/gateway-record-off-ref-1.jsonl
+./m5c-run/gateway-record-off-short-1.jsonl
+./m5c-run/manifest-R1-1.yaml
+./m5c-run/manifest-hold-cap-long-1.yaml
+./m5c-run/manifest-hold-cap-ref-1.yaml
+./m5c-run/manifest-hold-cap-short-1.yaml
+./m5c-run/manifest-off-long-1.yaml
+./m5c-run/manifest-off-ref-1.yaml
+./m5c-run/manifest-off-short-1.yaml
+./m5c-run/raw-R1-1.jsonl
+./m5c-run/raw-hold-cap-long-1.jsonl
+./m5c-run/raw-hold-cap-ref-1.jsonl
+./m5c-run/raw-hold-cap-short-1.jsonl
+./m5c-run/raw-off-long-1.jsonl
+./m5c-run/raw-off-ref-1.jsonl
+./m5c-run/raw-off-short-1.jsonl
+./m5c-run/session-timing.tsv
+./m5c-run/step-log-R1-1.jsonl
+./m5c-run/step-log-hold-cap-long-1.jsonl
+./m5c-run/step-log-hold-cap-ref-1.jsonl
+./m5c-run/step-log-hold-cap-short-1.jsonl
+./m5c-run/step-log-off-long-1.jsonl
+./m5c-run/step-log-off-ref-1.jsonl
+./m5c-run/step-log-off-short-1.jsonl
+./marker-uploaded.txt
+./matrix-returned.txt
+./nodes.txt
+./plan-check/evidence.log
+./plan-check/load-source.txt
+./preflight-node-cards.txt
+./preflight-nvidia-smi.csv
+./purpose.txt
+./source.tgz
+./termination.txt
+./user-data.sh

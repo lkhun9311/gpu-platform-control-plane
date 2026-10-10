@@ -217,8 +217,8 @@ fi
 if [ -z "$LADDER" ]; then
   STUDY="${STUDY:-sharing-matrix-2026-09-10}"
   case "$STUDY" in
-    sharing-matrix-2026-09-10|tail-crossing-lc256-2026-10-04|tail-crossing-lc2048-2026-10-05|tail-crossing-lc8192-2026-10-04|instrument-validation-2026-10-05|instrument-validation-s2-2026-10-05|instrument-validation-s3-2026-10-06|instrument-validation-s4-2026-10-06|step-boundary-2026-10-06|step-confirm-2026-10-07|prospective-pilot-2026-10-08|admission-diagnostic-2026-10-10|admission-frontier-2026-10-10) ;;
-    *) fail "STUDY is ${STUDY@Q}; the non-ladder matrix files evidence under sharing-matrix-2026-09-10, tail-crossing-lc256-2026-10-04, tail-crossing-lc2048-2026-10-05, tail-crossing-lc8192-2026-10-04, instrument-validation-2026-10-05, instrument-validation-s2-2026-10-05, instrument-validation-s3-2026-10-06, instrument-validation-s4-2026-10-06 or step-boundary-2026-10-06, step-confirm-2026-10-07, prospective-pilot-2026-10-08, admission-diagnostic-2026-10-10, admission-frontier-2026-10-10. An unregistered id is not refused by gen-trace -- it writes a manifest for any string -- so this refusal is the one that stops it before anything is rented" ;;
+    sharing-matrix-2026-09-10|tail-crossing-lc256-2026-10-04|tail-crossing-lc2048-2026-10-05|tail-crossing-lc8192-2026-10-04|instrument-validation-2026-10-05|instrument-validation-s2-2026-10-05|instrument-validation-s3-2026-10-06|instrument-validation-s4-2026-10-06|step-boundary-2026-10-06|step-confirm-2026-10-07|prospective-pilot-2026-10-08|admission-diagnostic-2026-10-10|admission-frontier-2026-10-10|admission-length-calibration-2026-10-10) ;;
+    *) fail "STUDY is ${STUDY@Q}; the non-ladder matrix files evidence under sharing-matrix-2026-09-10, tail-crossing-lc256-2026-10-04, tail-crossing-lc2048-2026-10-05, tail-crossing-lc8192-2026-10-04, instrument-validation-2026-10-05, instrument-validation-s2-2026-10-05, instrument-validation-s3-2026-10-06, instrument-validation-s4-2026-10-06 or step-boundary-2026-10-06, step-confirm-2026-10-07, prospective-pilot-2026-10-08, admission-diagnostic-2026-10-10, admission-frontier-2026-10-10, admission-length-calibration-2026-10-10. An unregistered id is not refused by gen-trace -- it writes a manifest for any string -- so this refusal is the one that stops it before anything is rented" ;;
   esac
 fi
 
@@ -373,12 +373,21 @@ if [ -z "$LADDER" ] && pp_is_study "$STUDY"; then
   # never buys (v26 review, C6).
   ARMS=$(printf '%s\n' "$_pp_arms" | paste -sd' ')
   # v26's seeds are frozen with its traces' checksums; another seed would be another experiment under its name.
+  # v27's calibration seed is frozen with its traces' checksums, as v26's are.
+  if [ "$STUDY" = "$PP_LENCAL_STUDY" ]; then
+    [ "$(printf '%s ' $SEEDS)" = "$PP_LENCAL_SEEDS " ] || fail "SEEDS is ${SEEDS@Q} and v27's calibration froze $PP_LENCAL_SEEDS"
+  fi
   if [ "$STUDY" = "$PP_FRONTIER_STUDY" ]; then
     [ "$(printf '%s ' $SEEDS)" = "$PP_FRONTIER_SEEDS " ] || fail "SEEDS is ${SEEDS@Q} and v26 froze $PP_FRONTIER_SEEDS"
   fi
   # Three blocks per stage, as the study registers: the main endpoint pools three, and pooling is not linear in
   # the number of blocks, so a stage of another size would measure a different quantity (review of 780929a).
-  [ "$REPS" = 3 ] || fail "REPS is $REPS and each pilot stage is three blocks; pass REPS=3"
+  # v27's calibration stage F is one block; every other stage is three.
+  if [ "$PILOT_STAGE" = F ]; then
+    [ "$REPS" = 1 ] || fail "REPS is $REPS and v27's calibration stage F is one block; pass REPS=1"
+  else
+    [ "$REPS" = 3 ] || fail "REPS is $REPS and each pilot stage is three blocks; pass REPS=3"
+  fi
   # The engine's revision and model are the registration's, not the caller's: the validator compares the engine
   # against these, and a caller-supplied value would set both sides of that comparison (pilot review 11).
   [ "$MODEL_REVISION" = "$PP_MODEL_REVISION" ] \
@@ -740,6 +749,17 @@ else
     --premium-output-tokens "$PREMIUM_OUTPUT_TOKENS" --noisy-output-tokens "$NOISY_OUTPUT_TOKENS")
 fi
 
+# A cell's prompt flags: the run's, except that v27's calibration arms replay the contender length their name carries.
+# Printed one word per flag or value; none carries a space.
+cell_prompt_flags() {
+  local f
+  for f in ${PROMPT_FLAGS[@]+"${PROMPT_FLAGS[@]}"}; do printf '%s\n' "$f"; done | {
+    if [ -z "$LADDER" ] && [ "${STUDY:-}" = "$PP_LENCAL_STUDY" ]; then
+      awk -v c="$(pp_arm_contender_chars "$1" "$NOISY_PROMPT_CHARS")" 'prev == "--noisy-prompt-chars" { $0 = c } { print; prev = $0 }'
+    else cat; fi
+  } | paste -sd' '
+}
+
 CELLS=()
 if [ -n "$LADDER" ]; then
   # Which ladder this is. They carry the same arm names and the same criterion and differ in where their rungs
@@ -819,14 +839,14 @@ else
     # hash of the block's seed, the stage and the block, so no arm is always first (design page, build item 7).
     # The diagnostic's stage D and v26's stage E run R1 once, first, as the isolated anchor, and their blocks hold the
     # other arms (design page, "v25" and "v26").
-    if [ "$PILOT_STAGE" = D ] || [ "$PILOT_STAGE" = E ]; then
+    if [ "$PILOT_STAGE" = D ] || [ "$PILOT_STAGE" = E ] || [ "$PILOT_STAGE" = F ]; then
       CELLS+=("R1|R1|1|$PREMIUM_RATE|$PILOT_NOISY_RATE|0")
     fi
     for rep in $(seq 1 "$REPS"); do
       block_seed=$(printf '%s\n' $SEEDS | sed -n "${rep}p")
       while IFS= read -r spec; do
         CELLS+=("$spec")
-      done < <(pp_stage_arms "$PILOT_STAGE" | { if [ "$PILOT_STAGE" = D ] || [ "$PILOT_STAGE" = E ]; then grep -vx R1; else cat; fi; } | while read -r arm; do
+      done < <(pp_stage_arms "$PILOT_STAGE" | { if [ "$PILOT_STAGE" = D ] || [ "$PILOT_STAGE" = E ] || [ "$PILOT_STAGE" = F ]; then grep -vx R1; else cat; fi; } | while read -r arm; do
         printf '%s R1|%s|%s|%s|%s|0\n' "$(printf '%s/%s/%s/%s' "${block_seed:-11}" "$PILOT_STAGE" "$rep" "$arm" | sha256sum | cut -c1-16)" \
           "$arm" "$rep" "$PREMIUM_RATE" "$PILOT_NOISY_RATE"
       done | LC_ALL=C sort | cut -d' ' -f2-)
@@ -1014,18 +1034,19 @@ if [ -n "${PLAN_ONLY:-}" ]; then
     plan_duration=$(cell_duration_ms "$cell_label") || fail "$plan_duration"
     "$WORK/benchharness" gen-trace --seed "$plan_seed" --duration-ms "$plan_duration" "${LOAD_FLAGS[@]}" \
       --study "$STUDY" --arm "$cell_label" --model "$MODEL" --gateway-url "http://127.0.0.1:18080" \
-      "${PROMPT_FLAGS[@]}" ${plan_provenance[@]+"${plan_provenance[@]}"} \
+      $(cell_prompt_flags "$cell_label") ${plan_provenance[@]+"${plan_provenance[@]}"} \
       --timeout-ms "$REQUEST_TIMEOUT_MS" \
       --trace-out "$WORK/plan-$plan_name.jsonl" --manifest-out "$WORK/plan-$plan_name.yaml" >/dev/null \
       || { echo "PLAN REFUSED: gen-trace could not build $cell_label's trace" >&2; plan_failures=$(( plan_failures + 1 )); continue; }
     # v26's traces are frozen by checksum: a seed, rate, duration or prompt that differs from the registration's
     # changes it, so the plan cannot buy a lighter load under the study's name (v26 review, B6 and C5).
-    if [ -z "$LADDER" ] && [ "$STUDY" = "$PP_FRONTIER_STUDY" ]; then
-      plan_want=$(pp_frontier_checksum "$plan_seed" "$cell_label" 2>&1) \
+    if [ -z "$LADDER" ] && { [ "$STUDY" = "$PP_FRONTIER_STUDY" ] || [ "$STUDY" = "$PP_LENCAL_STUDY" ]; }; then
+      if [ "$STUDY" = "$PP_LENCAL_STUDY" ]; then plan_sum=pp_lencal_checksum; else plan_sum=pp_frontier_checksum; fi
+      plan_want=$("$plan_sum" "$plan_seed" "$cell_label" 2>&1) \
         || { echo "PLAN REFUSED: $plan_want" >&2; plan_failures=$(( plan_failures + 1 )); continue; }
       plan_got=$(awk '/^traceChecksum:/ {print $2}' "$WORK/plan-$plan_name.yaml")
       [ "$plan_got" = "$plan_want" ] \
-        || { echo "PLAN REFUSED: $plan_name's trace has checksum ${plan_got:-none}, and v26 froze $plan_want for seed $plan_seed" >&2; plan_failures=$(( plan_failures + 1 )); continue; }
+        || { echo "PLAN REFUSED: $plan_name's trace has checksum ${plan_got:-none}, and the study froze $plan_want for seed $plan_seed" >&2; plan_failures=$(( plan_failures + 1 )); continue; }
     fi
     # A pilot cell's engine manifest and gateway arguments are rendered here too, so an arm the helpers do not
     # know, or a manifest anchor that moved, refuses before anything is rented (v26 review, C8).
@@ -3450,7 +3471,7 @@ run_cell() {
     --engine-image "$ENGINE_IMAGE" --gateway-image "$GATEWAY_IMAGE_REF" --gateway-sha "$SOURCE_COMMIT" \
     --gateway-binary-sha256 "$GW_BINARY_SHA" --gateway-base "$GW_BASE" \
     --tokenizer-rev "$MODEL_REVISION" \
-    "${PROMPT_FLAGS[@]}" \
+    $(cell_prompt_flags "$label") \
     --timeout-ms "$REQUEST_TIMEOUT_MS" \
     --trace-out "$OUT/trace-$label-$rep.jsonl" --manifest-out "$OUT/manifest-$label-$rep.yaml" || fail "gen-trace $label"
   # --require-provenance, now that there is provenance to require.
@@ -3679,7 +3700,7 @@ if [ -z "${LADDER:-}" ] && pp_is_study "${STUDY:-}"; then pp_wait_background; fi
 # The admission studies' archives say which study they are and which scorer judges them; the sharing matrix's text
 # below names another question (v26 review, C45).
 if [ -z "${LADDER:-}" ] && pp_is_study "${STUDY:-}"; then
-  _pp_cmd=$(case "$PILOT_STAGE" in E) echo frontier ;; D) echo diagnostic ;; *) echo stage ;; esac)
+  _pp_cmd=$(case "$PILOT_STAGE" in F) echo calibration ;; E) echo frontier ;; D) echo diagnostic ;; *) echo stage ;; esac)
   cat > "$OUT/README.txt" <<EOF
 Raw evidence for study $STUDY, stage $PILOT_STAGE (docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md).
 

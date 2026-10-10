@@ -259,7 +259,7 @@ esac
 # first positional argument.
 PILOT_UNDER_TEST="${PILOT:-}"
 # Any other value rehearsed stages A and B while its name suggested something else (v26 review, C37).
-case "$PILOT_UNDER_TEST" in "" | 1 | D | E) ;; *) echo "PILOT is ${PILOT_UNDER_TEST@Q}; it is 1 for stages A and B, D or E" >&2; exit 2 ;; esac
+case "$PILOT_UNDER_TEST" in "" | 1 | D | E | F) ;; *) echo "PILOT is ${PILOT_UNDER_TEST@Q}; it is 1 for stages A and B, D, E or F" >&2; exit 2 ;; esac
 # The two ineligible arms the rehearsal must show (design page, "Rehearsals before purchase"): stage A's off-2 has
 # its step log stopped mid-cell by the stub, and stage B's R1-3 has one request's gateway record deleted after the
 # run. Request 40 is past the cell's start, so the log stops with records before it, as a plugin that died would.
@@ -514,6 +514,8 @@ if [ -n "$PILOT_UNDER_TEST" ]; then
   if [ "$PILOT_UNDER_TEST" = D ]; then pilot_stages=D; pilot_study=admission-diagnostic-2026-10-10; fi
   # PILOT=E rehearses v26's stage E, at its frozen seeds, which the matrix requires (design page, "v26").
   if [ "$PILOT_UNDER_TEST" = E ]; then pilot_stages=E; pilot_study=admission-frontier-2026-10-10; fi
+  # PILOT=F rehearses v27's calibration stage F, one block at its frozen seed (design page, "v27").
+  if [ "$PILOT_UNDER_TEST" = F ]; then pilot_stages=F; pilot_study=admission-length-calibration-2026-10-10; fi
   for stage in $pilot_stages; do
     if [ "$stage" = B ]; then
       fit_args=()
@@ -529,7 +531,7 @@ if [ -n "$PILOT_UNDER_TEST" ]; then
         GATEWAY_BIN="$WORK/gateway" BENCHHARNESS_BIN="$WORK/benchharness" \
         ENGINE_PIN_WAIVED=1 STUDY="$pilot_study" PILOT_STAGE="$stage" PILOT_STATIC_RATE="$PILOT_R" \
         MODEL_REVISION=aa8e72537993ba99e69dfaafa59ed015b17504d1 \
-        REPS=3 SEEDS="$(case "$stage" in A) echo '301 302 303' ;; B) echo '311 312 313' ;; D) echo '321 322 323' ;; E) echo '861 862 863' ;; esac)" \
+        REPS="$( [ "$stage" = F ] && echo 1 || echo 3)" SEEDS="$(case "$stage" in A) echo '301 302 303' ;; B) echo '311 312 313' ;; D) echo '321 322 323' ;; E) echo '861 862 863' ;; F) echo 871 ;; esac)" \
         PREMIUM_RATE=9.25 PILOT_NOISY_RATE=0.5 PREMIUM_WEIGHT=1 PROBE_WEIGHT=0 DURATION_MS="${PILOT_DURATION_MS:-20000}" \
         PREMIUM_PROMPT_CHARS=200 NOISY_PROMPT_CHARS=40000 REQUEST_TIMEOUT_MS=30000 \
         PREMIUM_OUTPUT_TOKENS=64 NOISY_OUTPUT_TOKENS=16 OUT="$OUT_DIR-$stage" \
@@ -606,13 +608,14 @@ set -e
 # of them, and what it adds -- a per-arm engine and a per-cell engine log -- is checked from the files the
 # matrix wrote, not from its exit status alone, because the matrix refusing nothing is what is under test.
 if [ -n "$PILOT_UNDER_TEST" ]; then
-  if [ "$PILOT_UNDER_TEST" = D ] || [ "$PILOT_UNDER_TEST" = E ]; then
+  if [ "$PILOT_UNDER_TEST" = D ] || [ "$PILOT_UNDER_TEST" = E ] || [ "$PILOT_UNDER_TEST" = F ]; then
     st="$PILOT_UNDER_TEST"
     say "check what stage $st's cells wrote"
     d="$OUT_DIR-$st"
     st_arms=$(. "$ROOT/hack/lib/prospective-pilot.sh" && pp_stage_arms "$st" | grep -vx R1 | tr '\n' ' ') || fail "no arms for stage $st"
-    cells="R1-1"; for a in $st_arms; do cells="$cells $a-1 $a-2 $a-3"; done
-    want_n=$(( 1 + 3 * $(echo $st_arms | wc -w) ))
+    st_reps="1 2 3"; [ "$st" = F ] && st_reps=1
+    cells="R1-1"; for a in $st_arms; do for r in $st_reps; do cells="$cells $a-$r"; done; done
+    want_n=$(( 1 + $(echo $st_reps | wc -w) * $(echo $st_arms | wc -w) ))
     n_raw=$(find "$d" -maxdepth 1 -name 'raw-*-[0-9].jsonl' | wc -l)
     [ "$n_raw" = "$want_n" ] || fail "stage $st holds $n_raw raw files, not R1 once and [$st_arms] in three blocks"
     for cell in $cells; do
@@ -626,7 +629,7 @@ if [ -n "$PILOT_UNDER_TEST" ]; then
       grep -q 'fence-' "$d/step-log-$cell.jsonl" || fail "stage $st cell $cell: the fence is not in the step log"
       # Each arm decided every contender through its own mode, and no other.
       case "$arm" in
-        hold | hold-cap) grep -q '"reason":"serial_prefill_' "$d/gateway-record-$cell.jsonl" \
+        hold | hold-cap | hold-cap-*) grep -q '"reason":"serial_prefill_' "$d/gateway-record-$cell.jsonl" \
           || fail "stage $st cell $cell: no serial-prefill decision in its gateway record" ;;
         fixed-*) grep -q '"reason":"fixed_spacing_' "$d/gateway-record-$cell.jsonl" \
           || fail "stage $st cell $cell: no fixed-spacing decision in its gateway record" ;;
@@ -647,16 +650,17 @@ if [ -n "$PILOT_UNDER_TEST" ]; then
         || fail "the report could not score the diagnostic"
       case "$verdict" in "observed on these traces"* | "not met: "* | "inconclusive: "*) ;; *) fail "the diagnostic's verdict is not one of the three: $verdict" ;; esac
     else
+      sc=$([ "$st" = F ] && echo calibration || echo frontier)
       # The rehearsal's 20-second traces are not the frozen ones, so each cell's provenance line fails by design;
       # every other validity line must hold, or the purchase would be inconclusive for an apparatus reason.
-      verdict=$(python3 "$ROOT/hack/prospective-pilot/pilot_report.py" frontier "$d" | python3 -c '
+      verdict=$(python3 "$ROOT/hack/prospective-pilot/pilot_report.py" "$sc" "$d" | python3 -c '
 import json, sys
 v = json.load(sys.stdin)
 bad = [x["line"] + " " + str(x["value"])[:80] for x in v["validity"] if x["state"] != "holds" and not x["line"].endswith("is the registered cell")]
 if bad:
     print("validity failed beyond provenance: " + "; ".join(bad[:6]))
     sys.exit(1)
-print(v["verdict"][:200])') || fail "stage E: $verdict"
+print(v["verdict"][:200])') || fail "stage $st: $verdict"
     fi
     say "the stub's verdict, which says nothing about the card: $verdict"
     say "STAGE $st REHEARSAL: R1 once and [$st_arms] in three blocks, each arm's mode and cap cell by cell, every cell eligible, scored"

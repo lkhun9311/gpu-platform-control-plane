@@ -138,6 +138,17 @@ if pp_gateway_args fixed-1.80 >/dev/null 2>&1; then bad "an unregistered spacing
 if pp_frontier_checksum 851 off >/dev/null 2>&1; then bad "a seed outside v26's was given a checksum"; else ok "a seed outside v26's has no checksum"; fi
 [ "$(pp_request_id_flag E fixed-1.66 3)" = "--request-id-prefix=pp-E-fixed-1.66-3" ] && ok "stage E's request IDs name its stage, arm and block" || bad "stage E's request-ID prefix"
 
+# v27's calibration stage F: its arms, each arm's length, cap and mode, and its checksums.
+[ "$(pp_stage_arms F | tr '\n' ' ')" = "R1 off-short off-ref off-long hold-cap-short hold-cap-ref hold-cap-long " ] && [ "$(pp_stage_study F)" = "$PP_LENCAL_STUDY" ] \
+  && ok "stage F's arms and study" || bad "stage F's arms: $(pp_stage_arms F | tr '\n' ' ')"
+[ "$(pp_arm_contender_chars off-short)" = 31894 ] && [ "$(pp_arm_contender_chars hold-cap-ref)" = 40000 ] && [ "$(pp_arm_contender_chars hold-cap-long)" = 42579 ] \
+  && [ "$(pp_arm_contender_chars off 40000)" = 40000 ] && ok "each calibration arm replays its own contender length" || bad "pp_arm_contender_chars"
+[ "$(pp_arm_prefill_cap hold-cap-long)" = 384 ] && [ "$(pp_arm_prefill_cap off-long)" = 0 ] \
+  && pp_gateway_args hold-cap-short | grep -qx -- -admission-mode=serial-prefill && pp_gateway_args off-ref | grep -qx -- -admission-mode=off \
+  && ok "hold-cap runs the cap and serial-prefill at every length, off neither" || bad "stage F's caps or modes"
+[ "$(pp_lencal_checksum 871 off-long)" = "$(pp_lencal_checksum 871 hold-cap-long)" ] && [ "$(pp_lencal_checksum 871 off-long)" != "$(pp_lencal_checksum 871 off-ref)" ] \
+  && ok "a length's arms share one checksum and each length has its own" || bad "pp_lencal_checksum"
+
 # The capture, against stubbed kubectl, curl and docker on PATH: the cluster calls answer at once, except the
 # gateway record's node read, which sleeps past the bound.
 # A complete step log showing a request at the wrong priority must still stop the pilot (exit 3), because that is
