@@ -5,6 +5,7 @@
     python3 pilot_report.py formulas DIR_A DIR_B  the frozen calibration formulas' outputs, or why they are unavailable
     python3 pilot_report.py gates DIR_A DIR_B     every registered pilot gate, with its value and whether it would fire
     python3 pilot_report.py diagnostic DIR        the admission diagnostic's verdict, validity and lines, per block
+    python3 pilot_report.py frontier DIR          v26's verdict: hold-cap against the fixed spacings, with every line
 
 docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md, "The measurement pilot". It judges
 nothing about P against S: it reports measurements, marks each arm eligible or not for calibration, and computes the
@@ -292,10 +293,15 @@ def cell_report(stage_dir, arm, rep, L=L_MS_FLOOR):
     shared_end = max((r.get("replayOriginUnixNanos", 0) + r["scheduledOffsetMs"] * 1_000_000 for r in rows), default=0)
     prefill_shared = decode_shared = 0
     unannounced = set()
+    unanchored = sum(1 for s in steps if s.get("ev") == "sched" and not s.get("anchor"))
+    if unanchored:
+        # Without its anchor a step's monotonic time cannot be put on the wall clock; [0, 0, 0] compared it with Unix
+        # time and counted drain work inside the shared window (v26 review, B8).
+        problems.append("%d step(s) carry no clock anchor, so their work cannot be placed in the window" % unanchored)
     for s in steps:
-        if s.get("ev") != "sched":
+        if s.get("ev") != "sched" or not s.get("anchor"):
             continue
-        a = s.get("anchor") or [0, 0, 0]
+        a = s["anchor"]
         wall_t0 = s["t0"] + (a[1] - (a[0] + a[2]) / 2)
         in_own = not (window_end and wall_t0 >= window_end)
         in_shared = bool(shared_end) and wall_t0 < shared_end
@@ -649,11 +655,15 @@ def contender_outcomes(stage_dir, tag):
         # last token, not the replay's return, which also waits for [DONE] and the connection's drain (final review,
         # finding 3). A success without its gaps cannot be timed, and is counted apart.
         gaps = r.get("contentGapsMicros")
-        # Short gaps are as untimed as absent ones: their sum would end the stream early (v26 review, finding 2).
-        if full_output(r, 16) and r.get("firstTokenUnixNanos") and (gaps is None or len(gaps) != r.get("outputTokens", 0) - 1):
+        # Short gaps are as untimed as absent ones: their sum would end the stream early (v26 review, finding 2). A
+        # success with no first-token stamp has no time origin at all, and is untimed too, not a failure (v26 review,
+        # A12).
+        if full_output(r, 16) and (not r.get("firstTokenUnixNanos") or gaps is None or len(gaps) != r.get("outputTokens", 0) - 1):
             untimed += 1
             continue
-        end = r["firstTokenUnixNanos"] + sum(gaps) * 1000 if full_output(r, 16) and r.get("firstTokenUnixNanos") else None
+        # Each gap was truncated to whole microseconds, so the true end is up to one microsecond per gap later; the
+        # limit is judged at that later end, so truncation cannot carry a stream inside it (v26 review, A15).
+        end = r["firstTokenUnixNanos"] + (sum(gaps) + len(gaps)) * 1000 if full_output(r, 16) else None
         ok = end is not None and end - sched <= 30_000_000_000
         if ok:
             done += 1
@@ -767,9 +777,285 @@ def diagnostic(stage_dir):
     return {"verdict": verdict, "blocks": blocks}
 
 
+# ---------------------------------------------------------------- v26: hold-cap against a frontier of fixed spacings
+#
+# docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md, "v26", and the review that froze its
+# rules, docs/superpowers/specs/2026-10-10-v26-adversarial-review.md.
+
+FRONTIER_STUDY = "admission-frontier-2026-10-10"
+FRONTIER_FIXED = ("fixed-1.62", "fixed-1.66", "fixed-1.70", "fixed-1.74")
+FRONTIER_ARMS = ("off", "hold-cap") + FRONTIER_FIXED
+FRONTIER_SEEDS = {1: 861, 2: 862, 3: 863}
+# The frozen trace checksums, by seed: one for every arm replaying the whole trace and one for R1. The same table is
+# in hack/lib/prospective-pilot.sh, and test_pilot_report checks the two agree.
+FRONTIER_CHECKSUMS = {
+    861: ("ad83bde4313cf3ed6f4a52c7820271ca4689cb3b1d01f0dad0bd47aeeaf0f79a", "e9d7faf0b01e9daf95cdba101c6200fe43dd8cf0bf60c6f1c3903117517572c2"),
+    862: ("1ec48cb1c290367902b3665e6837b42582e4e4c8723fb0b8edf2fc71905d46b9", "1f4f471e058d7050b61fcbe8c5d240c9ccc8ef732adfb4d62498ea630e4f207c"),
+    863: ("0bff6066f348a6168236be006a232d92a581d73fea81c56e45dbf0eaebc4ca4b", "f7cff96a1d35858b179245a0e470adac222fcc7869be5dbbd766697b8f0304e7"),
+}
+FRONTIER_CELLS = ["R1-1"] + ["%s-%d" % (a, b) for b in (1, 2, 3) for a in FRONTIER_ARMS]
+HOLD_REFUSALS = ("serial_prefill_hold_timeout", "fixed_spacing_hold_timeout")
+LN_085 = math.log(0.85)
+
+
+def manifest_fields(path):
+    """The top-level scalar fields of a run manifest, as strings."""
+    out = {}
+    if not os.path.exists(path):
+        return None
+    with open(path) as f:
+        for line in f:
+            m = re.match(r'^([A-Za-z]+):\s*"?([^"]*)"?\s*$', line.rstrip("\n"))
+            if m:
+                out[m.group(1)] = m.group(2)
+    return out
+
+
+def provenance(stage_dir, arm, rep):
+    """Why a cell is not the registered one, or None: its manifest's study, arm, seed and trace checksum, and its
+    rows against its trace's (v26 review, B6 and B7)."""
+    tag = "%s-%d" % (arm, rep)
+    m = manifest_fields(os.path.join(stage_dir, "manifest-%s.yaml" % tag))
+    if m is None:
+        return "it has no manifest"
+    seed = FRONTIER_SEEDS[rep]
+    want = FRONTIER_CHECKSUMS[seed][1 if arm == "R1" else 0]
+    for key, value in (("study", FRONTIER_STUDY), ("arm", arm), ("seed", str(seed)), ("traceChecksum", want)):
+        if m.get(key) != value:
+            return "its manifest says %s %s, registered %s" % (key, m.get(key), value)
+    trace = jsonl(os.path.join(stage_dir, "trace-%s.jsonl" % tag))
+    rows = jsonl(os.path.join(stage_dir, "raw-%s.jsonl" % tag))
+    if len(rows) != len(trace):
+        return "it holds %d rows for a trace of %d requests" % (len(rows), len(trace))
+    return None
+
+
+def gateway_delay_lines(stage_dir, tag):
+    """(record p99, record max, premium decide p99, premium decide max, missing) in ms: the gateway's own delay after its
+    arrival stamp. The durable record is written for every request before admission, so arrival to record holds no
+    hold; premium requests are never held, so their arrival to decision is the whole decision path (v26 review, A1)."""
+    rows = {r.get("requestId"): r.get("tenant") for r in jsonl(os.path.join(stage_dir, "raw-%s.jsonl" % tag))}
+    rec, dec, missing = [], [], 0
+    for rid, e in gateway_records(os.path.join(stage_dir, "gateway-record-%s.jsonl" % tag)).items():
+        d = e.get("done") or {}
+        if not (d.get("arrivedUnixNanos") and d.get("recordedUnixNanos")):
+            missing += 1
+            continue
+        rec.append(ms(d["recordedUnixNanos"] - d["arrivedUnixNanos"]))
+        if rows.get(rid) == PREMIUM:
+            if not d.get("decidedUnixNanos"):
+                missing += 1
+                continue
+            dec.append(ms(d["decidedUnixNanos"] - d["arrivedUnixNanos"]))
+    return (nearest_rank(rec, 0.99), max(rec) if rec else None, nearest_rank(dec, 0.99), max(dec) if dec else None, missing)
+
+
+def spacing_deviation(stage_dir, tag, spacing_ms):
+    """(least, p99) in ms of how far each held contender's admission came after the previous admission plus the
+    spacing: never sooner, and at the spacing's end within the gateway's timer, as v26 registers (review, A8)."""
+    rows = {r.get("requestId"): r.get("tenant") for r in jsonl(os.path.join(stage_dir, "raw-%s.jsonl" % tag))}
+    adm = sorted((d["decidedUnixNanos"], d.get("reason")) for rid, e in gateway_records(
+        os.path.join(stage_dir, "gateway-record-%s.jsonl" % tag)).items()
+        for d in [e.get("done") or {}] if rows.get(rid) == CONTENDER and d.get("decision") == "admit" and d.get("decidedUnixNanos"))
+    dev = [ms(b[0] - a[0]) - spacing_ms for a, b in zip(adm, adm[1:]) if b[1] == "fixed_spacing_waited"]
+    return (min(dev) if dev else None, nearest_rank(dev, 0.99))
+
+
+def mode_reasons(stage_dir, tag, prefix):
+    """(contender decisions, those whose reason names the arm's admission mode): a cell whose gateway did not run its
+    registered mode would otherwise pass every line about holds vacuously."""
+    rows = {r.get("requestId"): r.get("tenant") for r in jsonl(os.path.join(stage_dir, "raw-%s.jsonl" % tag))}
+    ds = [(e.get("done") or {}).get("reason") or "" for rid, e in gateway_records(
+        os.path.join(stage_dir, "gateway-record-%s.jsonl" % tag)).items() if rows.get(rid) == CONTENDER]
+    return len(ds), sum(1 for r in ds if r.startswith(prefix))
+
+
+def hold_refusals(stage_dir, tag):
+    return sum(1 for e in gateway_records(os.path.join(stage_dir, "gateway-record-%s.jsonl" % tag)).values()
+               if (e.get("done") or {}).get("reason") in HOLD_REFUSALS)
+
+
+def frontier(stage_dir):
+    """v26's verdict, its validity, every admissibility line per block, and every pooled quantity.
+
+    The verdicts, in the registered order: inconclusive when any evidence cannot be trusted or any line is unscorable;
+    not met when hold-cap is not admissible or does not cut the premium tail 15% below off's; observed when hold-cap
+    is admissible and no fixed arm is, when it beats every admissible fixed arm, or when a fixed arm beats it; and not
+    established otherwise. A directional win needs the winner's contender completion within one point of the loser's
+    and its shared-window work at least 0.97 of the loser's (review, A2).
+    """
+    validity, lines, pooled = [], [], {}
+
+    def check(collection, name, value, rule, ok):
+        collection.append({"line": name, "value": value, "rule": rule,
+                           "state": "unscorable" if ok is None else ("holds" if ok else "fails")})
+
+    present = {c: os.path.exists(os.path.join(stage_dir, "raw-%s.jsonl" % c)) for c in FRONTIER_CELLS}
+    missing = [c for c in FRONTIER_CELLS if not present[c]]
+    extra = sorted(os.path.basename(f)[4:-6] for f in glob.glob(os.path.join(stage_dir, "raw-*.jsonl"))
+                   if os.path.basename(f)[4:-6] not in FRONTIER_CELLS and not os.path.basename(f).startswith("raw-warmup-"))
+    reports, outcomes = {}, {}
+    for c in FRONTIER_CELLS:
+        if not present[c]:
+            continue
+        arm, rep = c.rsplit("-", 1)[0], int(c.rsplit("-", 1)[1])
+        try:
+            reports[c] = cell_report(stage_dir, arm, rep, L=DIAG_L_MS)
+            outcomes[c] = contender_outcomes(stage_dir, c)
+        except (ValueError, KeyError) as e:
+            # A truncated or malformed record makes the cell's evidence untrustworthy, not the scorer's run (B11).
+            check(validity, "%s records readable" % c, str(e)[:120], "parseable", False)
+            continue
+        cr = reports[c]
+        why = provenance(stage_dir, arm, rep)
+        check(validity, "%s is the registered cell" % c, why, "no difference", why is None)
+        check(validity, "%s eligible" % c, cr["problems"][:3], "no problem", cr["eligible"])
+        lmax = cr["lag_ms"].get("max")
+        check(validity, "%s largest dispatch lag" % c, lmax, "<= 50 ms", None if lmax is None else lmax <= DIAG_CEILING_MS)
+        n, d, _ = uncertain_fraction([cr], DIAG_L_MS)
+        check(validity, "%s premium lag above 13 ms" % c, n / d if d else None, "<= 0.001", (n / d <= 0.001) if d else None)
+        absent = cr["premium_gap_evidence"]["absent"]
+        check(validity, "%s premium successes without gap evidence" % c, absent, "0", absent == 0)
+        untimed = outcomes[c][4]
+        check(validity, "%s contender successes without complete timing" % c, untimed, "0", untimed == 0)
+        rp99, rmax, dp99, dmax, gmiss = gateway_delay_lines(stage_dir, c)
+        check(validity, "%s gateway arrival to record" % c, (rp99, rmax), "p99 <= 13 ms, max <= 50 ms",
+              None if rp99 is None or gmiss else rp99 <= DIAG_L_MS and rmax <= DIAG_CEILING_MS)
+        check(validity, "%s gateway premium arrival to decision" % c, (dp99, dmax), "p99 <= 13 ms, max <= 50 ms",
+              None if dp99 is None or gmiss else dp99 <= DIAG_L_MS and dmax <= DIAG_CEILING_MS)
+        if arm in ("hold-cap",) + FRONTIER_FIXED:
+            n_dec, n_mode = mode_reasons(stage_dir, c, "serial_prefill_" if arm == "hold-cap" else "fixed_spacing_")
+            check(validity, "%s contender decisions by its admission mode" % c, (n_mode, n_dec), "all",
+                  None if n_dec == 0 else n_mode == n_dec)
+        if arm in FRONTIER_FIXED:
+            least, p99 = spacing_deviation(stage_dir, c, float(arm.split("-")[1]) * 1000)
+            # No held contender leaves nothing to time; the line above already shows the mode ran.
+            check(validity, "%s admissions after the spacing" % c, (least, p99), "least >= -1 ms, p99 <= 13 ms",
+                  True if least is None else least >= -1.0 and p99 <= DIAG_L_MS)
+        if arm == "off":
+            loss = cr["premium"]["failed"] / cr["premium"]["n"] if cr["premium"]["n"] else None
+            check(validity, "%s premium loss" % c, loss, "< 0.005", None if loss is None else loss < 0.005)
+            done, offered = outcomes[c][0], outcomes[c][1]
+            check(validity, "%s contender completion" % c, done / offered if offered else None, ">= 0.95",
+                  (done / offered >= 0.95) if offered else None)
+
+    # Admissibility, per treatment arm and block, against that block's off (v26 review, M14).
+    first_fail = {a: None for a in FRONTIER_ARMS[1:]}
+    for b in (1, 2, 3):
+        off = "off-%d" % b
+        if off not in reports:
+            continue
+        o_done, o_off, o_lat, _, _ = outcomes[off]
+        for arm in FRONTIER_ARMS[1:]:
+            c = "%s-%d" % (arm, b)
+            if c not in reports:
+                continue
+            done, offered, lat, _, _ = outcomes[c]
+            cr, ocr = reports[c], reports[off]
+            res = []
+            res.append(("contender completion", done / offered if offered else None, ">= 0.95",
+                        (done / offered >= 0.95) if offered else None))
+            p50, op50 = nearest_rank(lat, 0.5), nearest_rank(o_lat, 0.5)
+            res.append(("contender completion p50 against off's", (p50, op50), "<= 1.5 x off's",
+                        None if p50 is None or op50 is None or math.isinf(op50) else p50 <= 1.5 * op50))
+            p95 = nearest_rank(lat, 0.95)
+            res.append(("contender completion p95", p95, "<= 25,000 ms", None if p95 is None else p95 <= 25_000))
+            holds = hold_refusals(stage_dir, c)
+            res.append(("hold refusals", holds, "0", holds == 0))
+            pre = preemptions(stage_dir, c)
+            res.append(("preemptions", pre, "0", None if pre is None else pre == 0))
+            for k in ("p_shared_window", "q_shared_window"):
+                w, ow = cr["work"][k], ocr["work"][k]
+                res.append(("contender work in the shared window (%s) against off's" % k[0], (w, ow), ">= 0.9 x off's",
+                            None if w is None or ow is None else w >= 0.9 * ow))
+            g, og = nearest_rank(cr["_premium_gaps"], 0.99), nearest_rank(ocr["_premium_gaps"], 0.99)
+            # An arm whose every premium stream failed served nobody a stream, and fails this safeguard; one with no
+            # gaps for any other reason is unscorable (v26 review, A4).
+            all_failed = cr["premium"]["n"] > 0 and cr["premium"]["failed"] == cr["premium"]["n"]
+            res.append(("premium inter-token gap p99 against off's", (g, og), "<= 1.25 x off's",
+                        False if all_failed else (None if g is None or og is None else g <= 1.25 * og)))
+            for name, value, rule, ok in res:
+                check(lines, "%s block %d: %s" % (arm, b, name), value, rule, ok)
+                if ok is False and first_fail[arm] is None:
+                    first_fail[arm] = "block %d: %s" % (b, name)
+
+    # The pooled endpoint and the comparability quantities, per arm over its three cells.
+    for arm in FRONTIER_ARMS:
+        cs = [reports["%s-%d" % (arm, b)] for b in (1, 2, 3) if "%s-%d" % (arm, b) in reports]
+        if len(cs) != 3:
+            continue
+        sched_hi, arr_lo, sched_lo, arr_hi = _box(cs)
+        done = sum(outcomes["%s-%d" % (arm, b)][0] for b in (1, 2, 3))
+        offered = sum(outcomes["%s-%d" % (arm, b)][1] for b in (1, 2, 3))
+        work = {k: (sum(c["work"][k] for c in cs) / 3 if all(c["work"][k] is not None for c in cs) else None)
+                for k in ("p_shared_window", "q_shared_window")}
+        pooled[arm] = {"premium_p99_sched_hi": sched_hi, "premium_p99_arr_lo": arr_lo, "premium_p99_sched_lo": sched_lo,
+                       "premium_p99_arr_hi": arr_hi, "contender_completion": done / offered if offered else None,
+                       "work": work}
+
+    unscorable = [x["line"] for x in validity + lines if x["state"] == "unscorable"]
+    bad = [x["line"] for x in validity if x["state"] == "fails"]
+    inconclusive = []
+    if missing:
+        inconclusive.append("cells not acquired: " + ", ".join(missing))
+    if extra:
+        inconclusive.append("cells the plan did not buy: " + ", ".join(extra))
+    if bad:
+        inconclusive.append("evidence not trusted: " + ", ".join(bad[:5]))
+    if unscorable:
+        inconclusive.append("unscorable: " + ", ".join(unscorable[:5]))
+    if not inconclusive and len(pooled) != len(FRONTIER_ARMS):
+        inconclusive.append("an arm has fewer than three scored cells")
+
+    def ratio(a, b):
+        return crossed_log_ratio(pooled[a]["premium_p99_sched_hi"], pooled[b]["premium_p99_arr_lo"])
+
+    def wins(a, b):
+        r = ratio(a, b)
+        if r is None or r > LN_085:
+            return False
+        ca, cb = pooled[a]["contender_completion"], pooled[b]["contender_completion"]
+        if ca is None or cb is None or ca < cb - 0.01:
+            return False
+        return all(pooled[a]["work"][k] is not None and pooled[b]["work"][k] is not None
+                   and pooled[a]["work"][k] >= 0.97 * pooled[b]["work"][k] for k in ("p_shared_window", "q_shared_window"))
+
+    if inconclusive:
+        verdict = "inconclusive: " + "; ".join(inconclusive)
+    elif first_fail["hold-cap"] is not None:
+        verdict = "not met: hold-cap was not admissible: " + first_fail["hold-cap"]
+    elif not (ratio("hold-cap", "off") is not None and ratio("hold-cap", "off") <= LN_085):
+        verdict = "not met: hold-cap did not cut the premium tail 15% below off's"
+    else:
+        fixed = [a for a in FRONTIER_FIXED if first_fail[a] is None]
+        if not fixed:
+            verdict = "observed on these traces: hold-cap met the limits and no fixed spacing in the grid did"
+        elif all(wins("hold-cap", a) for a in fixed):
+            verdict = "observed on these traces: hold-cap beat every admissible fixed spacing"
+        else:
+            # Every admissible fixed arm is tested; the one named is the lowest scheduled upper end, ties to the
+            # narrower spacing (review, A6 and A16).
+            key = lambda a: (pooled[a]["premium_p99_sched_hi"], a)
+            winners = [a for a in fixed if wins(a, "hold-cap")]
+            if winners:
+                verdict = "observed on these traces: %s beat hold-cap" % min(winners, key=key)
+            else:
+                verdict = "not established: neither hold-cap nor %s was 15%% below the other" % min(fixed, key=key)
+    return {"verdict": verdict, "validity": validity, "lines": lines, "pooled": pooled,
+            "admissible": {a: first_fail[a] is None for a in first_fail}, "first_failure": first_fail,
+            "ratios_to_hold_cap": {a: (crossed_log_ratio(pooled[a]["premium_p99_sched_hi"], pooled["hold-cap"]["premium_p99_arr_lo"])
+                                       if a in pooled and "hold-cap" in pooled else None) for a in FRONTIER_FIXED + ("off",)},
+            "hold_cap_ratios": {a: (crossed_log_ratio(pooled["hold-cap"]["premium_p99_sched_hi"], pooled[a]["premium_p99_arr_lo"])
+                                    if a in pooled and "hold-cap" in pooled else None) for a in FRONTIER_FIXED + ("off",)}}
+
+
 def main(argv):
     if len(argv) in (3, 4) and argv[1] == "stage" and (len(argv) == 3 or argv[3] in STAGE_ARMS):
         json.dump(stage_report(argv[2], argv[3] if len(argv) == 4 else None), sys.stdout, indent=1, default=str)
+        print()
+        return 0
+    if len(argv) == 3 and argv[1] == "frontier":
+        json.dump(frontier(argv[2]), sys.stdout, indent=1, default=str)
         print()
         return 0
     if len(argv) == 3 and argv[1] == "diagnostic":

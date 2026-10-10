@@ -466,6 +466,34 @@ class DiagnosticTest(unittest.TestCase):
         done, offered, _, _, untimed = pr.contender_outcomes(self.d, "hold-cap-1")
         self.assertEqual((done, offered, untimed), (0, 1, 1))
 
+    # A contender success with no first-token stamp is untimed, not a failure (v26 review, A12).
+    # Mutation that turns it red: require the first-token stamp before counting a success as untimed.
+    def test_a_contender_without_its_first_token_is_untimed(self):
+        diag_block(self.d, 1, hold_ttft_ns=10_000_000)
+        path = os.path.join(self.d, "raw-hold-cap-1.jsonl")
+        rows = pr.jsonl(path)
+        rows[1].pop("firstTokenUnixNanos")
+        write(path, rows)
+        done, offered, lat, _, untimed = pr.contender_outcomes(self.d, "hold-cap-1")
+        self.assertEqual((done, offered, untimed, lat), (0, 1, 1, []))
+
+    # The truncated gaps are bounded upward: fifteen gaps add fifteen microseconds to the end (v26 review, A15).
+    # Mutation that turns it red: sum the gaps alone.
+    def test_truncated_gaps_are_bounded_upward(self):
+        diag_block(self.d, 1, hold_ttft_ns=10_000_000)
+        _, _, lat, _, _ = pr.contender_outcomes(self.d, "hold-cap-1")
+        # First token 29 ms after the scheduled instant (offset 1 ms), fifteen gaps of 500 µs, plus 15 µs.
+        self.assertAlmostEqual(lat[0], 29.0 + 7.5 + 0.015, places=6)
+
+    # A step with no clock anchor makes the cell ineligible rather than placing its work at time zero (v26 review, B8).
+    # Mutation that turns it red: default a missing anchor to [0, 0, 0] again.
+    def test_a_step_without_its_anchor_is_ineligible(self):
+        c = Cell(self.d)
+        del c.steps[2]["anchor"]
+        rep = c.save()
+        self.assertFalse(rep["eligible"])
+        self.assertTrue(any("clock anchor" in p for p in rep["problems"]), rep["problems"])
+
     # Six cells are not the diagnostic: R1, hold and cap missing make it inconclusive (final review, finding 4).
     def test_the_pairs_alone_are_not_the_diagnostic(self):
         diag_block(self.d, 1, hold_ttft_ns=10_000_000)
@@ -483,6 +511,171 @@ class DiagnosticTest(unittest.TestCase):
         cell.save()
         self.assertEqual(pr.cell_report(self.d, "off", 1)["premium"]["uncertain"], 1)
         self.assertEqual(pr.cell_report(self.d, "off", 1, L=pr.DIAG_L_MS)["premium"]["uncertain"], 0)
+
+
+def frontier_block(d, ttft=None, extra_decode=(), skip=()):
+    """Every v26 cell: manifests carrying the frozen study, seed and checksum, a trace of the cell's two rows, and each
+    contender decision under its arm's mode. ttft maps an arm to its premium first content after arrival, 20 ms by
+    default; extra_decode lists arms whose contenders get one more decode step in the shared window."""
+    ttft = ttft or {}
+    for c in pr.FRONTIER_CELLS:
+        if c in skip:
+            continue
+        arm, b = c.rsplit("-", 1)[0], int(c.rsplit("-", 1)[1])
+        cell = Cell(d, arm, b)
+        cell.rows[0]["contentGapsMicros"] = [10_000] * 63
+        cell.rows[1]["firstTokenUnixNanos"] = ORIGIN + 30_000_000
+        cell.rows[1]["contentGapsMicros"] = [500] * 15
+        reason = {"hold-cap": "serial_prefill_free", "off": "admission_off", "R1": "admission_off"}.get(arm, "fixed_spacing_free")
+        # The steps placed before the block's last scheduled instant, so their work falls in the shared window.
+        for r in cell.steps:
+            if r.get("anchor"):
+                r["anchor"] = [0, ORIGIN - 100_000_000, 0]
+        for g in cell.gw:
+            if g["ev"] == "done":
+                g["decision"], g["reason"] = "admit", reason
+                if g["requestId"] == "pp-A-off-1-0":
+                    g["firstContentUnixNanos"] = g["arrivedUnixNanos"] + ttft.get(arm, 20_000_000)
+        if arm in extra_decode:
+            # One more contender decode before the fence, with the engine's own log agreeing.
+            a = [0, ORIGIN - 100_000_000, 0]
+            cell.steps.insert(5, {"ev": "sched", "step": 4, "t0": 65_000_000, "anchor": a, "tokens": {"chatcmpl-pp-A-off-1-1": 1},
+                                  "computed": {"chatcmpl-pp-A-off-1-1": 102}})
+            seq = 0
+            for r in cell.steps:
+                if r["ev"] != "terminal":
+                    seq += 1
+                    r["seq"] = seq
+            cell.steps[-3]["step"], cell.steps[-2]["step"] = 4, 5
+            cell.steps[-1].update({"seq_written": seq, "seq_produced": seq})
+            cell.iters = [100, 69, 1, 1, 1]
+        cell.save()
+        seed = pr.FRONTIER_SEEDS[b]
+        with open(os.path.join(d, "manifest-%s.yaml" % c), "w") as f:
+            f.write('arm: "%s"\nseed: %d\nstudy: %s\ntraceChecksum: %s\n' % (arm, seed, pr.FRONTIER_STUDY,
+                                                                          pr.FRONTIER_CHECKSUMS[seed][1 if arm == "R1" else 0]))
+        write(os.path.join(d, "trace-%s.jsonl" % c), [{"index": 0}, {"index": 1}])
+        for phase in ("before", "after"):
+            with open(os.path.join(d, "engine-metrics-%s-%s.prom" % (c, phase)), "w") as f:
+                f.write('vllm:num_preemptions_total{engine="0"} 0.0\n')
+
+
+class FrontierTest(unittest.TestCase):
+    # v26's scorer on built cells (docs/superpowers/specs/2026-10-10-v26-adversarial-review.md).
+    def setUp(self):
+        self.d = tempfile.mkdtemp()
+
+    def v(self):
+        return pr.frontier(self.d)["verdict"]
+
+    # Hold-cap at 10 ms against 20 ms everywhere else: it beats every fixed arm and off by more than 15%.
+    # Mutation that turns it red: compare against the widest fixed arm only, or drop the off comparison.
+    def test_hold_cap_beating_every_fixed_arm(self):
+        frontier_block(self.d, ttft={"hold-cap": 10_000_000})
+        self.assertEqual(self.v(), "observed on these traces: hold-cap beat every admissible fixed spacing")
+
+    # Hold-cap admissible but no better than off: not met, whatever the fixed arms did (A5).
+    # Mutation that turns it red: drop the premium-against-off line.
+    def test_hold_cap_no_better_than_off_is_not_met(self):
+        frontier_block(self.d, ttft={a: 30_000_000 for a in pr.FRONTIER_FIXED})
+        self.assertEqual(self.v(), "not met: hold-cap did not cut the premium tail 15% below off's")
+
+    # One fixed arm at 5 ms beats hold-cap at 10 ms, and it is named (A6).
+    def test_a_fixed_arm_beating_hold_cap_is_named(self):
+        frontier_block(self.d, ttft={"hold-cap": 10_000_000, "fixed-1.70": 5_000_000})
+        self.assertEqual(self.v(), "observed on these traces: fixed-1.70 beat hold-cap")
+
+    # Within 15% either way is "not established", never a fixed-arm win (A5 of the earlier draft, finding 5).
+    def test_a_near_tie_is_not_established(self):
+        frontier_block(self.d, ttft={"hold-cap": 10_000_000, "fixed-1.62": 11_000_000, "fixed-1.66": 11_000_000,
+                                     "fixed-1.70": 11_000_000, "fixed-1.74": 11_000_000})
+        self.assertEqual(self.v(), "not established: neither hold-cap nor fixed-1.62 was 15% below the other")
+
+    # A hold refusal makes an arm inadmissible; with every fixed arm refused, hold-cap alone met the limits.
+    # Mutation that turns it red: ignore the fixed-spacing hold-timeout reason.
+    def test_no_admissible_fixed_arm(self):
+        frontier_block(self.d, ttft={"hold-cap": 10_000_000})
+        for arm in pr.FRONTIER_FIXED:
+            path = os.path.join(self.d, "gateway-record-%s-2.jsonl" % arm)
+            recs = pr.jsonl(path)
+            for r in recs:
+                if r["ev"] == "done" and r["requestId"] == "pp-A-off-1-1":
+                    r["reason"] = "fixed_spacing_hold_timeout"
+            write(path, recs)
+        self.assertEqual(self.v(), "observed on these traces: hold-cap met the limits and no fixed spacing in the grid did")
+
+    # Hold-cap's own refusal is verdict 2, naming the line (A19).
+    def test_hold_cap_not_admissible_names_its_line(self):
+        frontier_block(self.d, ttft={"hold-cap": 10_000_000})
+        path = os.path.join(self.d, "gateway-record-hold-cap-3.jsonl")
+        recs = pr.jsonl(path)
+        for r in recs:
+            if r["ev"] == "done" and r["requestId"] == "pp-A-off-1-1":
+                r["reason"] = "serial_prefill_hold_timeout"
+        write(path, recs)
+        self.assertEqual(self.v(), "not met: hold-cap was not admissible: block 3: hold refusals")
+
+    # A failed premium request in hold-cap is an outcome, not invalidity: here it is the cell's only premium stream,
+    # so hold-cap served none and fails the gap safeguard (A4, B4). The infinite-tail ordering is pinned in the replay's
+    # tests and by the crossed ratio's own (test_an_infinite_comparator_bound_keeps_its_infinity).
+    # Mutation that turns it red: count a treatment's premium failure as invalid evidence.
+    def test_a_failed_premium_in_hold_cap_is_an_outcome(self):
+        frontier_block(self.d, ttft={"hold-cap": 10_000_000})
+        path = os.path.join(self.d, "raw-hold-cap-2.jsonl")
+        rows = pr.jsonl(path)
+        rows[0].update({"httpStatus": 0, "errorKind": "timeout", "outputTokens": 3, "engineOutputTokens": 3, "streamTerminated": False})
+        rows[0].pop("contentGapsMicros")
+        write(path, rows)
+        self.assertEqual(self.v(), "not met: hold-cap was not admissible: block 2: premium inter-token gap p99 against off's")
+
+    # A cell whose manifest names another seed's trace is not the registered cell (B6, B7).
+    def test_a_cell_with_another_trace_is_inconclusive(self):
+        frontier_block(self.d, ttft={"hold-cap": 10_000_000})
+        with open(os.path.join(self.d, "manifest-fixed-1.66-2.yaml"), "a") as f:
+            f.write("traceChecksum: 0000\n")
+        v = self.v()
+        self.assertTrue(v.startswith("inconclusive: evidence not trusted: fixed-1.66-2 is the registered cell"), v)
+
+    # A missing cell and an extra one are both inconclusive (C23 on the scorer's side).
+    def test_missing_or_extra_cells_are_inconclusive(self):
+        frontier_block(self.d, ttft={"hold-cap": 10_000_000}, skip=("fixed-1.74-3",))
+        self.assertTrue(self.v().startswith("inconclusive: cells not acquired: fixed-1.74-3"), self.v())
+        frontier_block(self.d, ttft={"hold-cap": 10_000_000})
+        write(os.path.join(self.d, "raw-R1-2.jsonl"), [{"requestId": "x"}])
+        self.assertTrue(self.v().startswith("inconclusive: cells the plan did not buy: R1-2"), self.v())
+
+    # A gateway that did not run the arm's mode is not the registered apparatus.
+    # Mutation that turns it red: drop the mode-reason line.
+    def test_a_cell_whose_gateway_ran_another_mode_is_inconclusive(self):
+        frontier_block(self.d, ttft={"hold-cap": 10_000_000})
+        path = os.path.join(self.d, "gateway-record-fixed-1.62-1.jsonl")
+        recs = pr.jsonl(path)
+        for r in recs:
+            if r["ev"] == "done":
+                r["reason"] = "admission_off"
+        write(path, recs)
+        self.assertIn("fixed-1.62-1 contender decisions by its admission mode", self.v())
+
+    # A truncated record makes its cell untrusted rather than crashing the scorer (B11).
+    def test_a_truncated_record_is_inconclusive_not_a_crash(self):
+        frontier_block(self.d, ttft={"hold-cap": 10_000_000})
+        with open(os.path.join(self.d, "raw-off-2.jsonl"), "a") as f:
+            f.write('{"requestId": "pp-A-off-1-9", "tena')
+        self.assertIn("off-2 records readable", self.v())
+
+    # A win needs the winner to have kept the loser's work: hold-cap's tail is better, but every fixed arm decoded
+    # more of the contender's tokens in the shared window, so hold-cap does not win (A2).
+    # Mutation that turns it red: drop the work comparability from a win.
+    def test_a_win_by_less_work_is_not_a_win(self):
+        frontier_block(self.d, ttft={"hold-cap": 10_000_000}, extra_decode=pr.FRONTIER_FIXED)
+        self.assertEqual(self.v(), "not established: neither hold-cap nor fixed-1.62 was 15% below the other")
+
+    # The scorer's frozen checksums and the session library's are one table (a key assembled in two places).
+    def test_the_checksums_agree_with_the_session_library(self):
+        lib = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib", "prospective-pilot.sh")).read()
+        for seed, (whole, r1) in pr.FRONTIER_CHECKSUMS.items():
+            self.assertIn("%d:R1) echo %s" % (seed, r1), lib)
+            self.assertIn("%d:*) echo %s" % (seed, whole), lib)
 
 
 if __name__ == "__main__":
