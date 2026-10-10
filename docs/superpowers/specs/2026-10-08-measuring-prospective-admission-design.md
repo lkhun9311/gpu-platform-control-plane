@@ -1405,6 +1405,14 @@ Beside the verdict it publishes the size-aware control's spacings for the main s
 
 So the gate is predicted to read **feasible**, or **not feasible at the long length by a single hold refusal**, depending on a 0.7% difference in pace. That is the knife edge the stage exists to measure.
 
+**Revised before scoring, against astra's cold attack on the stage** (`data/2026-10-10-robustness-design/astra-attack-stage-f.txt`), while the card ran and before any of its evidence was read. Where this paragraph and the gate above differ, this paragraph governs; v27's gate text, not v26's rule 1, decides what is inconclusive.
+- **What is timed (C1, C4).** The challenge and the size-aware spacings use the **engine's** prefill: the time from the scheduler's add to the end of the step that took a contender's last prompt token. That is what a fixed spacing must outlast. The gateway's admission-to-first-content also carries the transport and the flush, so it is published beside it, not judged. The median is over every contender the scheduler received, and one whose prefill never finished counts as +inf.
+- **The reference must still fit (C6).** "Challenge not achieved" also when the reference's median engine prefill already exceeds 1,740 ms, since a failure at the long length would then not be the length's doing.
+- **Order (C5).** A scored admissibility failure is "not feasible" whatever was timed; a missing or infinite median is inconclusive only once hold-cap is admissible and protective at every length.
+- **Wording (C9).** Verdict 3 reads "hold-cap's 15% protection of the premium tail was not established at <length>". A failed crossed bound does not show protection absent.
+- **Evidence, for v27 and v26 alike (C2, C3, C8).** Every contender the gateway admitted must appear in the cell's step log, or the cell's work could read as zero on both sides of a comparison. Each row's prompt length and frozen token count, and the engine's count where it reported one, must equal its trace's. Malformed records make a cell untrusted rather than stopping the scorer. v26's result was rescored under these lines before this stage was scored.
+- **Recorded, not changed.** C7: the Go registration binds one study-wide token table rather than a length per arm. The matrix's plan and the scorer's trace hash enforce the per-arm length, so a standalone replay outside the matrix is the only path that could mislabel one. C10: the inherited v26 wording, superseded as stated above.
+
 The draft as written, kept for the record:
 
 **Its question.** On the A10G, under the pilot's frozen load, does the engine's prefill cap at 384 together with the gateway's serial-prefill hold cut the premium tail, at a contender cost inside limits frozen here, before any card time? It is a feasibility measurement of one candidate, not the main study: it answers whether a main study of this treatment is worth designing.
