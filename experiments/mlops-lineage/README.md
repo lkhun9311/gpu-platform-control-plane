@@ -86,12 +86,26 @@ this record.
 | 2. gate | v1 promoted; **v2 refused**, alias unmoved |
 | 3. lineage | all seven links held |
 | 4. rollback ×3 | **0 non-200** in 921, 946 and 938 requests; the last v2 answer **completed** 11.82, 12.00 and 11.95 s after the rollback edit, the first v1 answer 10.87, 11.10 and 11.00 s after it |
-| 5. alias trap | **1,202 of 1,202 answers over 60 s were still v1** after the alias moved to v2; v2 after a restart |
+| 5. alias trap | **every answer was still v1** after the alias was forced to v2, 1,202 of 1,202 (an upper bound on the count, see below); v2 after a restart |
 
 A second review then found the new window ended after the poller had drained its outstanding answers, so a slow
 backend would have voided a complete run; it now ends when sending stops. Checked against a server answering in
 2 s: the old poller reported a 5.00 s window and failed 61 complete requests, the fixed one 3.00 s and passed them.
 The run above passed under the stricter, earlier window, so it stands.
+
+A third review (2026-10-11) found three more places where the tooling could report what it had not measured.
+All three are fixed, and each fix was checked by feeding it the failure.
+
+- The poller kept a `200` whose body was then lost, as a `200` with no version; against a server that drops the
+  body after the headers the old poller recorded 21 such rows and the fixed one 21 failures. Neither run has a
+  `200` row without a version, so the `0 non-200` counts above stand.
+- A missing registry snapshot scored as a broken lineage link, `MISSED`, instead of as missing evidence; with the
+  snapshots removed from the second run the old scorer printed `VALID` and the fixed one `VOID`. Both runs hold
+  both snapshots.
+- The alias window was stamped before the gate, which reads the registry before it moves the alias. So the
+  1,202 answers include some sent while the alias still said v1, and how many is not recorded. Every one of them
+  was v1 either way, so the share is 100% of the true window as well; the count, and the window's 60 s, are upper
+  bounds. The stamp now follows the gate.
 
 The slowest answer in the rollback polls took 6 ms, so on this cluster send time and completion time differ by
 less than the reported precision and the first run's step-4 figures were not wrong in practice — they were
@@ -109,7 +123,7 @@ plus this experiment's own files, uncommitted at run time and committed unchange
 | 2. gate | v1 promoted; **v2 refused** (0.38 below the champion against a 0.02 allowance), alias unmoved |
 | 3. lineage | the served answer named version 1, its run, and weights `00e666…`; that run carries the trainer's data hash, code hash and commit, and the weights hash matches — all seven links held |
 | 4. rollback ×3 | **0 non-200** in 938, 938 and 929 requests; the last v2 answer came 12.06, 12.19 and 11.63 s after the rollback edit, the first v1 answer 11.11, 11.29 and 10.98 s after it |
-| 5. alias trap | after the alias was forced to v2, **1,202 of 1,202 answers over 60 s were still v1**; after a restart, v2 |
+| 5. alias trap | after the alias was forced to v2, **every answer was still v1**, 1,202 of 1,202 (an upper bound on the count, see below); after a restart, v2 |
 
 - **A served answer can be walked back to the bytes it was trained on**, and the serving side refuses weights
   that do not match what was registered — the rehearsal showed it exits rather than serves.
