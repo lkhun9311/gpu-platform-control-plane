@@ -88,8 +88,9 @@ resource "aws_lambda_function" "sweeper" {
   handler          = "sweeper.handler"
   filename         = data.archive_file.sweeper.output_path
   source_code_hash = data.archive_file.sweeper.output_base64sha256
-  timeout          = 60
-  tags             = var.tags
+  # Each EC2 call is bounded at about 40 s with its retries; 180 s covers the enumeration and a few terminations.
+  timeout = 180
+  tags    = var.tags
 
   depends_on = [aws_iam_role_policy.sweeper, aws_cloudwatch_log_group.sweeper]
 }

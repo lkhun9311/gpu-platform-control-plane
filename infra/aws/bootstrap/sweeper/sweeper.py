@@ -18,11 +18,13 @@ def parse_deadline(value):
     """The deadline as an aware UTC datetime, or None when the value is not an ISO-8601 time with a zone."""
     try:
         t = datetime.datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
-    except (AttributeError, ValueError):
+        if t.tzinfo is None:
+            return None
+        # Converting a time at the edge of the calendar can overflow; that raised past this handler and ended the
+        # whole sweep before any termination (v26 review, C31).
+        return t.astimezone(datetime.timezone.utc)
+    except (AttributeError, ValueError, OverflowError):
         return None
-    if t.tzinfo is None:
-        return None
-    return t.astimezone(datetime.timezone.utc)
 
 
 def decide(instances, now):
@@ -56,17 +58,31 @@ def tagged_instances(ec2):
     return out
 
 
-def handler(event, context):
-    import boto3  # imported here so the tests can run without it
+def sweep(ec2, now):
+    """Terminates every doomed instance, one call each, and returns which calls were accepted and which failed.
 
-    ec2 = boto3.client("ec2")
-    now = datetime.datetime.now(datetime.timezone.utc)
-    doomed = decide(tagged_instances(ec2), now)
-    for iid, why in doomed:
+    The result named every candidate as terminated, a refused call included (v26 review, C32). An accepted call is
+    named "termination requested": the instance's state is not observed here, and the next sweep finds it again if it
+    is still live.
+    """
+    requested, failed = [], []
+    for iid, why in decide(tagged_instances(ec2), now):
         # One call per instance, so one refusal does not spare the rest, and each outcome is logged by itself.
         try:
             ec2.terminate_instances(InstanceIds=[iid])
-            print(json.dumps({"terminated": iid, "why": why, "at": now.isoformat()}))
+            requested.append(iid)
+            print(json.dumps({"termination_requested": iid, "why": why, "at": now.isoformat()}))
         except Exception as e:  # noqa: BLE001 -- logged and the sweep continues
+            failed.append(iid)
             print(json.dumps({"failed": iid, "why": why, "error": str(e), "at": now.isoformat()}))
-    return {"checked_at": now.isoformat(), "terminated": [i for i, _ in doomed]}
+    return {"checked_at": now.isoformat(), "termination_requested": requested, "failed": failed}
+
+
+def handler(event, context):
+    import boto3  # imported here so the tests can run without it
+    from botocore.config import Config
+
+    # Every call is bounded, so one slow request cannot spend the invocation and spare the instances after it
+    # (v26 review, C33); the function's own limit in sweeper.tf leaves room for enumeration and every call.
+    ec2 = boto3.client("ec2", config=Config(connect_timeout=5, read_timeout=15, retries={"max_attempts": 2}))
+    return sweep(ec2, datetime.datetime.now(datetime.timezone.utc))

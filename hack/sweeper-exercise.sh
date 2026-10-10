@@ -19,7 +19,10 @@ FUNCTION=gpu-platform-study-sweeper
 LEAD_S=120
 PASS_LAG_S=720
 GIVE_UP_S=1200
-OUT="hack/sweeper-exercise-$(date -u +%Y%m%dT%H%M%SZ)"
+# A random suffix, so two exercises started in the same second share neither a directory nor a token (v26 review, C35).
+SUFFIX=$(openssl rand -hex 4 2>/dev/null || od -An -N4 -tx1 /dev/urandom | tr -d ' \n')
+[ -n "$SUFFIX" ] || { echo "no random suffix could be drawn" >&2; exit 1; }
+OUT="hack/sweeper-exercise-$(date -u +%Y%m%dT%H%M%SZ)-$SUFFIX"
 
 say() { printf '== %s\n' "$*"; }
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
@@ -40,25 +43,37 @@ subnet=$(aws ec2 describe-subnets --region "$REGION" --filters Name=default-for-
 
 deadline_epoch=$(( $(date +%s) + LEAD_S ))
 deadline=$(date -u -d "@$deadline_epoch" +%Y-%m-%dT%H:%M:%SZ)
-token="sweeper-exercise-$(date +%s)"
+token="sweeper-exercise-$(date +%s)-$SUFFIX"
 IID=""
 # Terminated here only if the sweeper has not, so a failed exercise does not leave the instance billing.
 # A launch whose answer was lost has no id here, so the client token is asked for one first (review of 3fb6af5).
 cleanup() {
-  if [ -z "$IID" ]; then
-    IID=$(aws ec2 describe-instances --region "$REGION" --filters "Name=client-token,Values=$token" \
-      "Name=instance-state-name,Values=pending,running,stopping,stopped" \
-      --query 'Reservations[].Instances[].InstanceId' --output text 2>/dev/null || echo UNKNOWN)
-    [ "$IID" = UNKNOWN ] && { printf 'COULD NOT ASK whether the launch under token %s exists; check the console\n' "$token" >&2; return 0; }
-    [ -n "$IID" ] && [ "$IID" != None ] || return 0
-    say "the launch under token $token did exist: $IID"
+  local ids="$IID" i state
+  if [ -z "$ids" ]; then
+    # Asked six times over a minute, because a launch's instance can take that long to be listed; one empty answer
+    # was read as nothing to clean (v26 review, C34). Every id found is terminated, not one quoted string.
+    for i in 1 2 3 4 5 6; do
+      ids=$(aws ec2 describe-instances --region "$REGION" --filters "Name=client-token,Values=$token" \
+        "Name=instance-state-name,Values=pending,running,stopping,stopped" \
+        --query 'Reservations[].Instances[].InstanceId' --output text 2>/dev/null || echo UNKNOWN)
+      [ "$ids" = UNKNOWN ] || { [ -n "$ids" ] && [ "$ids" != None ]; } && break
+      sleep 10
+    done
+    [ "$ids" = UNKNOWN ] && { printf 'COULD NOT ASK whether the launch under token %s exists; check the console\n' "$token" >&2; return 0; }
+    [ -n "$ids" ] && [ "$ids" != None ] || return 0
+    say "the launch under token $token did exist: $ids"
   fi
-  state=$(aws ec2 describe-instances --region "$REGION" --instance-ids "$IID" --query 'Reservations[0].Instances[0].State.Name' --output text 2>/dev/null || echo unknown)
-  case "$state" in
-    terminated|shutting-down) ;;
-    *) say "terminating $IID ($state) because the sweeper did not"
-       aws ec2 terminate-instances --region "$REGION" --instance-ids "$IID" >/dev/null || printf 'TERMINATE FAILED for %s\n' "$IID" >&2 ;;
-  esac
+  for i in $ids; do
+    state=$(aws ec2 describe-instances --region "$REGION" --instance-ids "$i" --query 'Reservations[0].Instances[0].State.Name' --output text 2>/dev/null || echo unknown)
+    case "$state" in
+      terminated) ;;
+      *) say "terminating $i ($state) because the sweeper did not"
+         aws ec2 terminate-instances --region "$REGION" --instance-ids "$i" >/dev/null || printf 'TERMINATE FAILED for %s\n' "$i" >&2
+         # Confirmed, not assumed: an accepted call is not a terminated instance (v26 review, C34).
+         timeout 600 aws ec2 wait instance-terminated --region "$REGION" --instance-ids "$i" \
+           || printf 'TERMINATION UNCONFIRMED for %s -- check the console\n' "$i" >&2 ;;
+    esac
+  done
 }
 trap cleanup EXIT
 trap 'exit 130' INT TERM
@@ -89,10 +104,11 @@ for _ in $(seq 1 20); do
   aws logs filter-log-events --region "$REGION" --log-group-name "/aws/lambda/$FUNCTION" \
     --start-time $(( (deadline_epoch - LEAD_S) * 1000 )) --filter-pattern "\"$IID\"" \
     --query 'events[].message' --output text > "$OUT/sweeper-log.txt" 2>&1 || true
-  grep -q "\"terminated\": \"$IID\"" "$OUT/sweeper-log.txt" && break
+  grep -q "\"termination_requested\": \"$IID\"" "$OUT/sweeper-log.txt" && break
   sleep 15
 done
-grep -q "\"terminated\": \"$IID\"" "$OUT/sweeper-log.txt" \
+grep -q "\"termination_requested\": \"$IID\"" "$OUT/sweeper-log.txt" \
   || fail "$IID ended $lag s after its deadline, but the sweeper's log does not name it; see $OUT/sweeper-log.txt"
 [ "$lag" -le "$PASS_LAG_S" ] || fail "the sweeper terminated $IID $lag s after its deadline, past the $PASS_LAG_S s the design allows"
-say "PASS: the sweeper terminated $IID $lag s after its deadline. Recorded in $OUT"
+# Inferred, not proved: the sweeper's accepted call and the later terminated state, in that order (v26 review, C36).
+say "PASS: the sweeper's call to terminate $IID was accepted and $IID was terminated $lag s after its deadline. Recorded in $OUT"
