@@ -1358,7 +1358,29 @@ Every arm completed every contender, with no hold refusal and no preemption, and
 
 **What it does not say.** One card, one load, three traces. It does not test the robustness question, a load whose capped prefill lengthens, where the replay predicts a fixed spacing tuned here would break and hold-cap would not.
 
-**Apparatus note.** The instance took longer than the 5 minutes the wrapper allows its terminate-first call to reach `terminated`, so the wrapper stopped before downloading anything; its exit trap then confirmed the termination. The records were already up under this launch's nonce, and the evidence was downloaded from them by hand with the session's own key list. The 5-minute bound and what follows it are a defect to fix before the next purchase: a slow shutdown should not leave the evidence in the bucket.
+**Apparatus note.** The instance took longer than the 5 minutes the wrapper allows its terminate-first call to reach `terminated`, so the wrapper stopped before downloading anything; its exit trap then confirmed the termination. The records were already up under this launch's nonce, and the evidence was downloaded from them by hand with the session's own key list. The 5-minute bound and what follows it are a defect to fix before the next purchase: a slow shutdown should not leave the evidence in the bucket. Fixed in 90c4161: a termination the first call cannot confirm is recorded, the evidence is downloaded and recovered, and a second bounded call confirms it before the session is judged; a characterisation scenario pins it.
+
+### v27 draft: the robustness question, 2026-10-10, not yet attacked
+
+**The question.** When the load changes so that a capped contender prefill takes a different time than at v26's load, does hold-cap keep protecting the premium tail within the owner's contender limits, while a fixed spacing tuned at v26's load does not? And does a static rule that knows each prompt's size do as well?
+
+**How it was drafted.** In parallel and independently: astra drafted a protocol cold (`data/2026-10-10-robustness-design/astra-independent-design.txt`); a Claude agent surveyed the levers the code offers; I sketched my own and ran the replay screen below. Every figure here is re-derived by me.
+
+| Choice | My sketch | astra's draft | Taken |
+|---|---|---|---|
+| What moves | contender prompt length, rates fixed | the same, at 6,144, 7,695 and 8,192 tokens, already resolved to 31,894, 40,000 and 42,579 characters in `inputlengths.go` | astra's three levels: the short level measures the cost of over-spacing |
+| Arms | off, hold-cap, fixed-1.74, size-scaled fixed | off, cap-only, hold-cap, fixed-1.74, and a size-aware static rule calibrated on hold-cap's measured prefill durations | astra's; its control is the stronger one |
+| Stages | one session | a 7-cell calibration session, then a 45-cell main study over three cards, bought only if calibration establishes a feasible test | astra's, for the reason the screen gives |
+| Endpoint | v26's pooled p99, crossed bounds | the same, per length, never pooled across lengths, with a registered interaction: hold-cap over fixed must improve from the reference to the long level by 15% | astra's |
+| A first verdict line | none | "challenge not achieved" when hold-cap's measured prefill at the long level does not exceed 1.74 s and 1.05 times the reference's | astra's |
+
+**The replay screen,** v26's frozen traces with the contender's 7,695 tokens replaced, at the diagnostic card's paces (`simulate-length-screen.txt`). These lengths lie outside the step model's fitted range, so this is an extrapolation, not a prediction the protocol may rest on:
+- at 8,192 tokens, every fixed spacing cascades above off's tail (1,754 to 1,917 ms against off's 1,612 to 1,629) while hold-cap holds at 514 to 519 ms; but at 1.0275 hold-cap itself records one hold refusal and becomes inadmissible;
+- at 6,144 tokens, fixed-1.66 to fixed-1.74 over-space and break the contender median limit, and fixed-1.62 beats hold-cap's tail (279 to 288 against 376 to 381 ms).
+
+So the separation the question asks about appears only 6.5% above v26's prompt, and in the same place hold-cap reaches the edge of the owner's limits. That is astra's first-ranked risk, a test with no jointly feasible separation, and the replay cannot settle it. Hence the calibration session first: R1 and off and hold-cap at each length on one card, seven cells, to measure the capped prefill and hold-cap's contender cost at the new lengths before anything larger is bought.
+
+**What building it needs** (the agent's survey, re-checked): a new study registration with the three lengths in its exact-token table; per-arm prompt lengths through gen-trace, the matrix and the frozen-tuple check, which today carry one contender length per study; arm names whose suffixes cannot collide in the archive's globs; verification of the two new exact counts in the serving image (`hack/resolve-input-lengths.sh`) and on the card (`verify-exact-tokens`); the size-aware gateway control for the main study; and the scorer. Not drafted further until the owner chooses the scale: calibration alone is about 2.3 h of session limit; the full main study is about 15 h more over three sessions.
 
 The draft as written, kept for the record:
 
