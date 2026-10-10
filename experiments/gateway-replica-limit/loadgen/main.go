@@ -73,7 +73,7 @@ func main() {
 	rows := make([]row, n)
 	var wg sync.WaitGroup
 	start := time.Now()
-	for i := 0; i < n; i++ {
+	for i := range n {
 		// Open loop: each send waits for its own slot, never for an earlier answer, so a slow or refused
 		// request cannot lower the offered rate and quietly keep the limiter unsaturated.
 		time.Sleep(time.Until(start.Add(time.Duration(i) * interval)))
@@ -86,7 +86,9 @@ func main() {
 			r := row{seq: i, sentMs: float64(sent.Microseconds()) / 1000, wroteMs: -1}
 			// The transport calls WroteRequest from its own write goroutine, which Do does not always wait for.
 			var wrote atomic.Int64
-			trace := &httptrace.ClientTrace{WroteRequest: func(httptrace.WroteRequestInfo) { wrote.Store(int64(time.Since(start))) }}
+			trace := &httptrace.ClientTrace{
+				WroteRequest: func(httptrace.WroteRequestInfo) { wrote.Store(int64(time.Since(start))) },
+			}
 			ctx := httptrace.WithClientTrace(context.Background(), trace)
 			req, err := http.NewRequestWithContext(ctx, http.MethodPost, *url, bytes.NewBufferString(body))
 			if err == nil {
@@ -117,10 +119,17 @@ func main() {
 		fmt.Fprintln(os.Stderr, "loadgen:", err)
 		os.Exit(1)
 	}
-	fmt.Fprintln(f, "seq\tsent_ms\twrote_ms\tstatus\terror")
+	// A short write would drop rows the scorer counts as requests never sent, so every write is checked.
+	if _, err := fmt.Fprintln(f, "seq\tsent_ms\twrote_ms\tstatus\terror"); err != nil {
+		fmt.Fprintln(os.Stderr, "loadgen:", err)
+		os.Exit(1)
+	}
 	counts := map[int]int{}
 	for _, r := range rows {
-		fmt.Fprintf(f, "%d\t%.3f\t%.3f\t%d\t%s\n", r.seq, r.sentMs, r.wroteMs, r.status, r.errMsg)
+		if _, err := fmt.Fprintf(f, "%d\t%.3f\t%.3f\t%d\t%s\n", r.seq, r.sentMs, r.wroteMs, r.status, r.errMsg); err != nil {
+			fmt.Fprintln(os.Stderr, "loadgen:", err)
+			os.Exit(1)
+		}
 		counts[r.status]++
 	}
 	if err := f.Close(); err != nil {
