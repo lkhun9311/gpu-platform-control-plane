@@ -1287,6 +1287,52 @@ A cancelled or failed contender also releases a serial-prefill reservation witho
 | 6: the replay compared only the widest spacing, not the registered decision | `simulate.py frontier` replays the decision; its prediction replaces the earlier one, and adds that hold-cap breaks the limits from a pace of 1.010 on one heavy trace |
 | 7: validity's scope across arms was ambiguous | apparatus lines bind every arm; a treatment arm's failed premium request is an outcome at +inf, so an overloaded fixed arm loses instead of voiding the study |
 
+### v26 as frozen for purchase, 2026-10-10
+
+Three further cold reviews by astra, of the protocol, the code that produces and judges its numbers, and the paid-session apparatus, found 89 defects and ambiguities; I wrote 14 of my own before reading them. They are reconciled row by row in `2026-10-10-v26-adversarial-review.md`. Where this section and the v26 text above differ, this section is the registration, and `pilot_report.py frontier` is its scorer.
+
+**Study and stage.** `admission-frontier-2026-10-10`, stage E, 19 cells: R1 once, uncapped, admission off, not pooled with anything; then three blocks of off, hold-cap, fixed-1.62, fixed-1.66, fixed-1.70 and fixed-1.74. The block orders, from the matrix's hash of seed, stage, block and arm, are frozen here:
+- block 1, seed 861: fixed-1.66, hold-cap, fixed-1.74, off, fixed-1.62, fixed-1.70;
+- block 2, seed 862: fixed-1.74, fixed-1.66, fixed-1.70, hold-cap, off, fixed-1.62;
+- block 3, seed 863: hold-cap, fixed-1.62, fixed-1.74, fixed-1.66, fixed-1.70, off.
+
+**The traces, frozen by checksum.** The load is the diagnostic's: premium 9.25/s, contender 0.5/s, 420 s per cell, the frozen tuple of 200 and 40,000 characters, 64 and 16 output tokens and a 30 s timeout. Each seed's trace has one checksum for every arm that replays it whole, and one for R1, which replays its premium rows; both are in `hack/lib/prospective-pilot.sh` and in the scorer, which a test keeps equal. The plan refuses a trace whose checksum differs, so a lighter seed, rate or duration cannot be bought under this name, and the scorer refuses a cell whose manifest names another study, arm, seed or checksum, or whose rows are not its trace's.
+
+**The fixed arms.** The gateway's `fixed-spacing` mode admits a contender when nobody waits ahead of it and the spacing has elapsed since the backend's last standard admission, by a timer set for that instant; only an admission moves the clock, so a refused or abandoned contender takes no slot. Its hold is counted from the gateway's reservation and refused at 25 s, as serial-prefill's is, and in both a turn is never handed to a request already past its hold. Each fixed cell must show that its gateway ran the mode: every contender decision carries a `fixed_spacing_` reason, and successive held admissions came no sooner than the spacing less 1 ms and, at p99, within 13 ms after it.
+
+**Validity, in every cell of every arm; any failure, or any unscorable line, is verdict 1:**
+- the cell is the registered one (provenance, above), present, not refused and eligible, with every scheduled request's add record and every step's clock anchor;
+- largest dispatch lag at most 50 ms, and at most 0.1% of premium requests above 13 ms;
+- no premium success without gap evidence, and no contender success without its first-token stamp and complete gaps;
+- the gateway's delay after its arrival stamp: arrival to durable record, for every request, p99 at most 13 ms and maximum at most 50 ms; arrival to decision, for premium requests, which are never held, the same. On the diagnostic's card the first measured p99 4.98 to 5.68 ms and maximum 7.74 to 12.51 ms;
+- hold-cap's cells decided every contender by serial-prefill, and each fixed cell by fixed-spacing;
+- off's premium loss under 0.5% and its contender completion at least 95%, because off is every block's reference.
+
+**Admissibility, for hold-cap and each fixed arm, in every block, against that block's off:** contender completion at least 95%; completion p50 at most 1.5 times off's; p95 at most 25 s, judged at the last content's time bounded upward by one microsecond per truncated gap; no hold refusal; no preemption; shared-window contender work p and q at least 0.9 of off's; premium inter-token gap p99 at most 1.25 times off's. An arm whose every premium stream in a cell failed served no stream, and fails the gap line rather than leaving it unscorable.
+
+**Verdict, in this order:**
+1. **inconclusive: <reason>** for a missing or extra cell, any failed or unscorable validity or admissibility line;
+2. **not met: hold-cap was not admissible: block <b>: <line>**;
+3. **not met: hold-cap did not cut the premium tail 15% below off's**, when ln(hold-cap scheduled hi / off arrival lo) exceeds ln 0.85;
+4. **observed on these traces: hold-cap met the limits and no fixed spacing in the grid did**;
+5. **observed on these traces: hold-cap beat every admissible fixed spacing**, when hold-cap wins against each;
+6. **observed on these traces: fixed-<s> beat hold-cap**, naming, among the admissible fixed arms that win against hold-cap, the lowest pooled scheduled upper end, ties to the narrower spacing;
+7. **not established: neither hold-cap nor fixed-<s> was 15% below the other**, otherwise, naming the admissible fixed arm with the lowest pooled scheduled upper end.
+
+A wins against B when ln(A's pooled scheduled hi / B's pooled arrival lo) is at most ln 0.85, A's pooled contender completion is at least B's less one point, and A's mean shared-window work p and q are each at least 0.97 of B's: a win that lost work is not a win. An infinite upper end never wins, and two infinities do not order.
+
+**The pre-purchase prediction, recorded before any spend.** The registered decision was replayed on the three frozen traces themselves, pooled as the endpoint pools them, every arm scaled alike (`data/2026-10-10-v26-adversarial-review/simulate-frontier-frozen-seeds.txt`; the traces are beside it). The replay first checked out of sample: on the diagnostic's own seeds, regenerated byte for byte, at 1.02 times the model, it put off's p99 within −0.6% to +0.1% of the card's, hold-cap's within −3% to +5%, and the contender's median and p95 3% to 7% below the card's. On the frozen seeds every arm met the owner's limits at every pace replayed, and the verdict it predicts is:
+
+| Pace against the model | Pooled premium p99, ms: off, hold-cap, best fixed | Predicted verdict |
+|---|---|---|
+| 0.980, 0.990 | 1,432 to 1,445, 421 to 430, fixed-1.74 334 to 349 | 6: fixed-1.74 beat hold-cap |
+| 1.000 | 1,464, 433, fixed-1.74 378 | 7: not established |
+| 1.0205, the diagnostic's hold-cap cells | 1,494, 469, fixed-1.74 433 | 7: not established |
+| 1.0275, the same | 1,509, 456, fixed-1.74 453 | 7: not established |
+| 1.040, 1.060 | 1,529 to 1,569, 471 to 494, fixed-1.74 595 to 1,704 | 5: hold-cap beat every fixed spacing |
+
+So at the pace the diagnostic's card ran, the replay predicts that fixed-1.74 matches hold-cap on the premium tail within 15%, and the study ends "not established". The replay understates the contender's cost by 3% to 7%, which could move fixed-1.74 out of admissibility on the median line, and then the prediction depends on the pace: at 1.0205 the next arm, fixed-1.70, is within 15% of hold-cap (481 against 469 ms), and the verdict stays "not established"; at 1.0275 fixed-1.70 is at 799 ms and fixed-1.62 and fixed-1.66 above 1,500, so hold-cap would beat every remaining fixed arm. A purchase is still informative: the card decides what the replay cannot, and "not established" against a frontier of fixed spacings is itself the answer to the owner's question at this load.
+
 The draft as written, kept for the record:
 
 **Its question.** On the A10G, under the pilot's frozen load, does the engine's prefill cap at 384 together with the gateway's serial-prefill hold cut the premium tail, at a contender cost inside limits frozen here, before any card time? It is a feasibility measurement of one candidate, not the main study: it answers whether a main study of this treatment is worth designing.
