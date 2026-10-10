@@ -27,16 +27,19 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptrace"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
 type row struct {
-	seq    int
-	sentMs float64
-	status int
-	errMsg string
+	seq     int
+	sentMs  float64
+	wroteMs float64
+	status  int
+	errMsg  string
 }
 
 func main() {
@@ -78,8 +81,14 @@ func main() {
 		go func(i int) {
 			defer wg.Done()
 			sent := time.Since(start)
-			r := row{seq: i, sentMs: float64(sent.Microseconds()) / 1000}
-			req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, *url, bytes.NewBufferString(body))
+			// -1 until the request is on the wire: a pinned client queues requests for its one connection inside
+			// client.Do, and the limiter sees the write, not the dispatch.
+			r := row{seq: i, sentMs: float64(sent.Microseconds()) / 1000, wroteMs: -1}
+			// The transport calls WroteRequest from its own write goroutine, which Do does not always wait for.
+			var wrote atomic.Int64
+			trace := &httptrace.ClientTrace{WroteRequest: func(httptrace.WroteRequestInfo) { wrote.Store(int64(time.Since(start))) }}
+			ctx := httptrace.WithClientTrace(context.Background(), trace)
+			req, err := http.NewRequestWithContext(ctx, http.MethodPost, *url, bytes.NewBufferString(body))
 			if err == nil {
 				req.Header.Set("Authorization", "Bearer "+*key)
 				req.Header.Set("Content-Type", "application/json")
@@ -95,6 +104,9 @@ func main() {
 			if err != nil {
 				r.errMsg = err.Error()
 			}
+			if w := time.Duration(wrote.Load()); w > 0 {
+				r.wroteMs = float64(w.Microseconds()) / 1000
+			}
 			rows[i] = r
 		}(i)
 	}
@@ -105,10 +117,10 @@ func main() {
 		fmt.Fprintln(os.Stderr, "loadgen:", err)
 		os.Exit(1)
 	}
-	fmt.Fprintln(f, "seq\tsent_ms\tstatus\terror")
+	fmt.Fprintln(f, "seq\tsent_ms\twrote_ms\tstatus\terror")
 	counts := map[int]int{}
 	for _, r := range rows {
-		fmt.Fprintf(f, "%d\t%.3f\t%d\t%s\n", r.seq, r.sentMs, r.status, r.errMsg)
+		fmt.Fprintf(f, "%d\t%.3f\t%.3f\t%d\t%s\n", r.seq, r.sentMs, r.wroteMs, r.status, r.errMsg)
 		counts[r.status]++
 	}
 	if err := f.Close(); err != nil {
