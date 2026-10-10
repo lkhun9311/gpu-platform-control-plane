@@ -314,6 +314,12 @@ const (
 	// "v26". It shares the diagnostic's load, lengths, engine and capture; its controls are the gateway's
 	// fixed-spacing mode at four spacings, all capped at 384 as hold-cap is.
 	StudyAdmissionFrontier = "admission-frontier-2026-10-10"
+
+	// StudyLengthCalibration is v27's calibration stage: off and hold-cap at three contender prompt lengths on one
+	// card, measuring the capped prefill and hold-cap's contender cost before the robustness study is bought,
+	// docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md, "v27". Its frozen tuple carries
+	// the reference length; the short and long arms replay 31,894 and 42,579 characters instead.
+	StudyLengthCalibration = "admission-length-calibration-2026-10-10"
 )
 
 // ArmProspective is the prospective-admission arm; the pilot's other arms reuse the M5-b names.
@@ -808,6 +814,27 @@ var studies = map[string]Study{
 		TracesVaryByRepetition: true,
 		SenderPoolSize:         600,
 		FrozenExactTokens:      map[int]int{200: 68, 40000: 7695},
+	},
+	// R1 once, then off and hold-cap at the short, reference and long lengths, in one block.
+	StudyLengthCalibration: {
+		ID:       StudyLengthCalibration,
+		Arms:     []string{ArmR1, "off-short", "off-ref", "off-long", "hold-cap-short", "hold-cap-ref", "hold-cap-long"},
+		Arrivals: ArrivalsIndependent,
+		Frozen: &FrozenTuple{
+			PremiumPromptChars:    200,
+			ContenderPromptChars:  40000,
+			TimeoutMs:             30000,
+			PremiumOutputTokens:   64,
+			ContenderOutputTokens: 16,
+		},
+		MinRepetitions:         1,
+		FixesOutputAtCap:       true,
+		RecordsReplayTiming:    true,
+		TracesVaryByRepetition: true,
+		SenderPoolSize:         600,
+		// The two new lengths are the resolver's measured entries (inputlengths.go: 6,144 and 8,192 tokens); the card
+		// re-checks every count before the first cell.
+		FrozenExactTokens: map[int]int{200: 68, 31894: 6144, 40000: 7695, 42579: 8192},
 	},
 	StudyThroughputLadder: {
 		ID:       StudyThroughputLadder,

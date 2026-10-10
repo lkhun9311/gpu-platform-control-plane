@@ -125,3 +125,15 @@ func TestMatrixPlanArmSetRefusalForTheAdmissionStudies(t *testing.T) {
 		t.Fatal("a pilot plan without off was accepted")
 	}
 }
+
+// The length calibration plans exactly its seven arms (v27).
+// Mutation that turns it red: let it fall through to the rule that requires a bare off.
+func TestMatrixPlanArmSetRefusalForTheLengthCalibration(t *testing.T) {
+	all := []string{"R1", "off-short", "off-ref", "off-long", "hold-cap-short", "hold-cap-ref", "hold-cap-long"}
+	if err := MatrixPlanArmSetRefusal(StudyLengthCalibration, all); err != nil {
+		t.Fatalf("the calibration's registered arms were refused: %v", err)
+	}
+	if err := MatrixPlanArmSetRefusal(StudyLengthCalibration, all[:6]); err == nil {
+		t.Fatal("a calibration plan without hold-cap-long was accepted")
+	}
+}

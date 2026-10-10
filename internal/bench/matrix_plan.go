@@ -123,6 +123,21 @@ func MatrixPlanArmSetRefusal(study string, arms []string) error {
 	// The admission pilot's family has no `shared`: its control is off. A pilot stage buys a subset of the pilot's
 	// arms with R1 and off in it; the diagnostic and v26 buy exactly their registered arms, which their scorers
 	// require cell by cell (v26 review, C6: the matrix had been passing the sharing matrix's default arms here).
+	// The length calibration has no bare off: its references are off at each length, and every registered arm is
+	// required, as its scorer requires each cell.
+	if s.ID == StudyLengthCalibration {
+		for _, a := range arms {
+			if !slices.Contains(s.Arms, a) {
+				return fmt.Errorf("the planned arm %s is not one of study %s's (%s)", a, s.ID, strings.Join(s.Arms, " "))
+			}
+		}
+		for _, a := range s.Arms {
+			if !slices.Contains(arms, a) {
+				return fmt.Errorf("the planned arms (%s) lack %s, and study %s's scorer requires every registered arm", strings.Join(arms, " "), a, s.ID)
+			}
+		}
+		return nil
+	}
 	switch s.ID {
 	case StudyProspectivePilot, StudyAdmissionDiagnostic, StudyAdmissionFrontier:
 		for _, a := range arms {
