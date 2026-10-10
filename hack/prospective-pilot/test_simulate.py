@@ -184,22 +184,77 @@ class OwnerLimitsTest(unittest.TestCase):
 
 
 class FrontierVerdictTest(unittest.TestCase):
-    # v26's verdicts on point estimates; a 0.90 ratio is neither arm 15% ahead, not the fixed arm matching or beating
-    # hold-cap (v26 review, finding 5). Mutation that turns it red: fall through to a fixed-arm win when hold-cap's
-    # ratio misses 0.85, or compare against the widest admissible arm instead of every one.
+    # v26's verdicts on point estimates (v26 review: A3, A5, A6, A16, A19 and A2's completion half).
+    # Mutations that turn it red: compare infinities with <=, skip the premium-against-off line, test only the fixed arm
+    # with the lowest p99, drop the completion comparability, or name a tie's wider spacing.
+    def setUp(self):
+        self.ok = {"hold-cap": None, "fixed-1.62": None, "fixed-1.66": None}
+        self.done = {"hold-cap": 1.0, "fixed-1.62": 1.0, "fixed-1.66": 1.0, "off": 1.0}
+
+    def v(self, p99, fail=None, done=None):
+        return sim.frontier_verdict(fail or self.ok, dict(p99, off=p99.get("off", 1500)), done or self.done)
+
     def test_each_verdict(self):
-        adm = {"hold-cap": True, "fixed-1.62": True, "fixed-1.66": True}
-        self.assertEqual(sim.frontier_verdict(dict(adm, **{"hold-cap": False}), {}), "not met: hold-cap broke the owner's limits")
-        self.assertEqual(sim.frontier_verdict({"hold-cap": True, "fixed-1.62": False}, {}),
+        self.assertEqual(self.v({}, fail=dict(self.ok, **{"hold-cap": "a hold refusal in t861"})),
+                         "not met: hold-cap was not admissible: a hold refusal in t861")
+        self.assertEqual(self.v({"hold-cap": 1400, "fixed-1.62": 2000, "fixed-1.66": 2000}),
+                         "not met: hold-cap did not cut the premium tail 15% below off's")
+        self.assertEqual(self.v({"hold-cap": 400}, fail={"hold-cap": None, "fixed-1.62": "x", "fixed-1.66": "y"}),
                          "observed: hold-cap met the limits and no fixed spacing in the grid did")
-        self.assertEqual(sim.frontier_verdict(adm, {"hold-cap": 400, "fixed-1.62": 1000, "fixed-1.66": 500}),
+        self.assertEqual(self.v({"hold-cap": 400, "fixed-1.62": 1000, "fixed-1.66": 500}),
                          "observed: hold-cap beat every admissible fixed spacing")
-        self.assertEqual(sim.frontier_verdict(adm, {"hold-cap": 400, "fixed-1.62": 460, "fixed-1.66": 1000}),
+        self.assertEqual(self.v({"hold-cap": 400, "fixed-1.62": 460, "fixed-1.66": 1000}),
                          "not established: neither hold-cap nor fixed-1.62 was 15% below the other")
-        self.assertEqual(sim.frontier_verdict(adm, {"hold-cap": 900, "fixed-1.62": 1000, "fixed-1.66": 2000}),
+        self.assertEqual(self.v({"hold-cap": 900, "fixed-1.62": 1000, "fixed-1.66": 2000}),
                          "not established: neither hold-cap nor fixed-1.62 was 15% below the other")
-        self.assertEqual(sim.frontier_verdict(adm, {"hold-cap": 1000, "fixed-1.62": 800, "fixed-1.66": 2000}),
+        self.assertEqual(self.v({"hold-cap": 1000, "fixed-1.62": 800, "fixed-1.66": 2000}),
                          "observed: fixed-1.62 beat hold-cap")
+
+    def test_two_infinite_tails_do_not_order(self):
+        inf = float("inf")
+        self.assertEqual(self.v({"hold-cap": inf, "fixed-1.62": inf, "fixed-1.66": inf}),
+                         "not met: hold-cap did not cut the premium tail 15% below off's")
+        self.assertFalse(sim.beats(inf, inf))
+        self.assertTrue(sim.beats(400, inf))
+
+    def test_every_admissible_fixed_arm_is_tested(self):
+        # fixed-1.62 has the lowest p99 but lost contender work, so it cannot win; fixed-1.70 is not the lowest and wins.
+        ok = dict(self.ok, **{"fixed-1.70": None})
+        done = dict(self.done, **{"fixed-1.62": 0.95, "fixed-1.70": 1.0})
+        self.assertEqual(sim.frontier_verdict(ok, {"off": 1500, "hold-cap": 1000, "fixed-1.62": 800, "fixed-1.66": 900,
+                                                  "fixed-1.70": 840}, done), "observed: fixed-1.70 beat hold-cap")
+
+    def test_a_tie_names_the_narrower_spacing(self):
+        self.assertEqual(self.v({"hold-cap": 1000, "fixed-1.62": 800, "fixed-1.66": 800}), "observed: fixed-1.62 beat hold-cap")
+
+    def test_a_win_by_lost_work_is_not_a_win(self):
+        done = dict(self.done, **{"hold-cap": 0.96})
+        self.assertEqual(self.v({"hold-cap": 400, "fixed-1.62": 1000, "fixed-1.66": 1000}, done=done),
+                         "not established: neither hold-cap nor fixed-1.62 was 15% below the other")
+
+
+class ReplayReviewTest(unittest.TestCase):
+    # A premium request whose stream ends past the 30 s timeout is a failure, whatever its first token (v26 review, A9).
+    # Mutation that turns it red: drop the completion-in-time condition from the premium p99.
+    def test_a_premium_finishing_late_is_a_failure(self):
+        r = req("p", pr.PREMIUM, 0, 68)
+        r.update({"ttft_ms": 400.0, "first_token": 400 * MS, "finished": 30_005 * MS})
+        self.assertEqual(sim.summarize([r])["premium_p99_ms"], float("inf"))
+        r["finished"] = 2_000 * MS
+        self.assertEqual(sim.summarize([r])["premium_p99_ms"], 400.0)
+
+    # A request without a gateway arrival is refused, not dropped (v26 review, A11).
+    def test_a_missing_arrival_is_refused(self):
+        r = req("c", pr.CONTENDER, 0, 512)
+        r["gw_arrived"] = None
+        with self.assertRaises(ValueError):
+            sim.simulate([req("p", pr.PREMIUM, 0, 68), r], FLAT, sim.RULES["off"], 0, 0)
+
+    # An idle engine waits for the next event, not a millisecond more: a request forwarded 0.1 ms after arrival on an
+    # idle engine with 10 ms steps has its first token at 10.1 ms (v26 review, B24).
+    def test_an_idle_engine_does_not_overshoot(self):
+        out = sim.simulate([req("p", pr.PREMIUM, 0, 68)], FLAT, sim.RULES["off"], 100_000, 0)
+        self.assertEqual(out[0]["first_token"], 10_100_000)
 
 
 if __name__ == "__main__":

@@ -8,7 +8,7 @@
     python3 simulate.py feasible [--scale K] DIR [DIR ...]
                                                   which spacings, 10 ms apart, meet the owner's contender limits beside
                                                   hold-cap, at K times the fitted step time, and the pooled premium p99
-    python3 simulate.py frontier [--scale K] DIR [DIR ...]
+    python3 simulate.py frontier [--scale K] [--traces T,T,...] DIR [DIR ...]
                                                   v26's registered decision on the archived traces: each grid arm's
                                                   admissibility, every arm's pooled premium p99, and the verdict
     python3 simulate.py pace DIR [DIR ...] [-- DIR ...]   each cell's measured step time against the model fitted
@@ -70,6 +70,24 @@ def load_cell(stage_dir, arm, rep):
             "admitted": d.get("decision") == "admit",
         })
     return reqs, steps, adds
+
+
+def load_trace(path, lag_ns):
+    """A generated trace's requests, before any card has run it: each reaches the gateway lag_ns after its scheduled
+    offset, the median dispatch lag of the archives, so a frozen seed can be replayed before purchase (v26)."""
+    reqs = []
+    for r in pr.jsonl(path):
+        sched = r["offsetMs"] * 1_000_000
+        reqs.append({"id": "%s-%d" % (os.path.basename(path), r["index"]), "tenant": r["tenant"], "sched": sched,
+                     "gw_arrived": sched + lag_ns, "engine_add": None, "prompt": r["exactInputTokens"],
+                     "first_content": None, "admitted": True})
+    return reqs
+
+
+def dispatch_lag(cells):
+    """The median scheduled-to-gateway-arrival lag of the archived requests, in nanoseconds."""
+    lag = sorted(r["gw_arrived"] - r["sched"] for reqs, _, _ in cells for r in reqs if r["gw_arrived"])
+    return lag[len(lag) // 2]
 
 
 def step_features(step, adds):
@@ -202,7 +220,12 @@ def simulate(reqs, coef, rule, forward_ns, deliver_ns, long_prefill=0, step_scal
     rule(gateway, req) is asked at each step boundary for every held contender, and returns "forward", "hold" or
     "refuse"; gateway is what a gateway can see: its forwarded contenders, and which have produced a first token.
     """
-    reqs = [dict(r) for r in reqs if r["gw_arrived"] is not None]
+    # A request with no gateway arrival is missing evidence; dropping it would print a completion over the survivors
+    # (v26 review, A11). No archived cell has one, so the replay refuses rather than guesses.
+    missing = [r["id"] for r in reqs if r["gw_arrived"] is None]
+    if missing:
+        raise ValueError("%d requests have no gateway arrival, the first %s" % (len(missing), missing[0]))
+    reqs = [dict(r) for r in reqs]
     reqs.sort(key=lambda r: r["gw_arrived"])
     eng = Engine(coef, long_prefill, step_scale)
     eng.now = reqs[0]["gw_arrived"]
@@ -287,7 +310,8 @@ def simulate(reqs, coef, rule, forward_ns, deliver_ns, long_prefill=0, step_scal
                 nxt.append(gw["wake"])
             if not nxt and not held:
                 break
-            eng.now = max(eng.now + 1_000_000, min(nxt)) if nxt else eng.now + 10_000_000
+            # One nanosecond is enough to guarantee progress; a whole millisecond delayed the next event (v26 review, B24).
+            eng.now = max(eng.now + 1, min(nxt)) if nxt else eng.now + 10_000_000
             continue
         first, done = out
         for r in first:
@@ -306,7 +330,10 @@ def simulate(reqs, coef, rule, forward_ns, deliver_ns, long_prefill=0, step_scal
 def summarize(reqs):
     # Every premium request counts: one that expired or never got a token is a failure at +inf, not a dropped sample
     # (simulator review of e51e8e6).
-    prem = sorted(r["ttft_ms"] if "ttft_ms" in r and not r.get("expired") else math.inf
+    # A premium request is a success only when its whole stream reached the client within the timeout, as the scorer
+    # requires full output; a first token in time with the end past 30 s is a failure (v26 review, A9).
+    prem = sorted(r["ttft_ms"] if "ttft_ms" in r and not r.get("expired") and "finished" in r
+                  and r["finished"] - r["sched"] <= TIMEOUT_NS else math.inf
                   for r in reqs if r["tenant"] == pr.PREMIUM)
     cont = [r for r in reqs if r["tenant"] == pr.CONTENDER]
     completed = [r for r in cont if "finished" in r and r["finished"] - r["sched"] <= TIMEOUT_NS]
@@ -367,19 +394,35 @@ def owner_limits(x, off):
 V26_GRID_MS = (1620, 1660, 1700, 1740)
 
 
-def frontier_verdict(admissible, p99):
-    """v26's verdicts 2 to 6 on point estimates: admissible maps each arm to whether it met the owner's limits in every
-    block, p99 maps it to its pooled premium p99; the crossed bounds of the real scorer are not modelled here."""
-    if not admissible["hold-cap"]:
-        return "not met: hold-cap broke the owner's limits"
-    fixed = [a for a in admissible if a != "hold-cap" and admissible[a]]
+def beats(a, b):
+    """Whether a pooled p99 of a is at least 15% below b's. An infinite tail never beats anything, and two infinite
+    tails do not order: in Python inf <= 0.85 * inf is true, which once declared a winner (v26 review, A3)."""
+    return not math.isinf(a) and (math.isinf(b) or a <= 0.85 * b)
+
+
+def frontier_verdict(fail, p99, done):
+    """v26's verdicts 2 to 7 on point estimates. fail maps each arm to its first failed admissibility line or None; p99
+    maps each arm and off to its pooled premium p99; done maps each arm to its contender completion fraction. The real
+    scorer's crossed bounds and its work and gap safeguards are not modelled here."""
+    if fail["hold-cap"] is not None:
+        return "not met: hold-cap was not admissible: " + fail["hold-cap"]
+    if not beats(p99["hold-cap"], p99["off"]):
+        return "not met: hold-cap did not cut the premium tail 15% below off's"
+    fixed = sorted(a for a in fail if a != "hold-cap" and fail[a] is None)
     if not fixed:
         return "observed: hold-cap met the limits and no fixed spacing in the grid did"
-    if all(p99["hold-cap"] <= 0.85 * p99[a] for a in fixed):
+
+    def wins(a, b):
+        # A directional win also needs the winner to have kept the loser's contender work, within one point (A2).
+        return beats(p99[a], p99[b]) and done[a] >= done[b] - 0.01
+    if all(wins("hold-cap", a) for a in fixed):
         return "observed: hold-cap beat every admissible fixed spacing"
-    best = min(fixed, key=lambda a: p99[a])
-    if p99[best] <= 0.85 * p99["hold-cap"]:
-        return "observed: %s beat hold-cap" % best
+    # Every admissible fixed arm is tested, not the one with the lowest point p99; ties go to the narrower spacing,
+    # which sorts first (A6, A16).
+    winners = [a for a in fixed if wins(a, "hold-cap")]
+    if winners:
+        return "observed: %s beat hold-cap" % min(winners, key=lambda a: (p99[a], a))
+    best = min(fixed, key=lambda a: (p99[a], a))
     return "not established: neither hold-cap nor %s was 15%% below the other" % best
 
 
@@ -412,6 +455,12 @@ def main(argv):
     if "--scale" in argv:
         k = argv.index("--scale")
         scale = float(argv[k + 1])
+        argv = argv[:k] + argv[k + 2:]
+    # Generated traces to replay in place of the archived off cells, after fitting on the archives (v26).
+    traces = []
+    if "--traces" in argv:
+        k = argv.index("--traces")
+        traces = argv[k + 1].split(",")
         argv = argv[:k] + argv[k + 2:]
     # Directories after a -- are only measured against the model, never fitted to it: a held-out card.
     held_out = argv[argv.index("--") + 1:] if "--" in argv else []
@@ -481,24 +530,36 @@ def main(argv):
         # admissible one (v26 review, finding 6). Each archived off cell stands in for a block; these are six old
         # traces, not the three new seeds, and the scorer's validity, preemption, work and gap lines are not modelled.
         arms = [("hold-cap", RULES["hold-one-prefill"])] + [("fixed-%.2f" % (t / 1000), hold_spacing(t * 1_000_000)) for t in V26_GRID_MS]
-        admissible, pooled = {a: True for a, _ in arms}, {a: [] for a, _ in arms}
+        first_fail = {a: None for a, _ in arms}
+        pooled = {a: [] for a in ["off"] + [n for n, _ in arms]}
         print("step scale %.4f" % scale)
+        if traces:
+            lag = dispatch_lag(list(loaded.values()))
+            print("generated traces, dispatch lag %.3f ms: %s" % (lag / 1e6, ", ".join(traces)))
+            cells = [(os.path.basename(t), load_trace(t, lag)) for t in traces]
+        else:
+            cells = [("%s-off-%d" % (os.path.basename(os.path.dirname(d))[-6:], rep), reqs)
+                     for (d, arm, rep), (reqs, _, _) in sorted(loaded.items()) if arm == "off"]
         print("cell arm | premium p99 ratio_to_off | owner's limits")
-        for (d, arm, rep), (reqs, _, _) in sorted(loaded.items()):
-            if arm != "off":
-                continue
-            off = summarize(simulate(reqs, coef, RULES["off"], fwd, deliver, step_scale=scale))
+        for label, reqs in cells:
+            base = simulate(reqs, coef, RULES["off"], fwd, deliver, step_scale=scale)
+            pooled["off"].extend(base)
+            off = summarize(base)
             for name, rule in arms:
                 out = simulate(reqs, coef, rule, fwd, deliver, long_prefill=384, step_scale=scale)
                 pooled[name].extend(out)
                 x = summarize(out)
                 fail = owner_limits(x, off)
-                admissible[name] = admissible[name] and fail is None
-                print("%s-off-%d %s | %.3f | %s" % (os.path.basename(os.path.dirname(d))[-6:], rep, name,
-                                                   x["premium_p99_ms"] / off["premium_p99_ms"], "met" if fail is None else "fails: " + fail))
-        p99 = {a: summarize(pooled[a])["premium_p99_ms"] for a, _ in arms}
-        print("\npooled premium p99 ms: " + ", ".join("%s %.0f%s" % (a, p99[a], "" if admissible[a] else " (inadmissible)") for a, _ in arms))
-        print("verdict: " + frontier_verdict(admissible, p99))
+                if first_fail[name] is None and fail is not None:
+                    first_fail[name] = "%s in %s" % (fail, label)
+                print("%s %s | %.3f | %s" % (label, name, x["premium_p99_ms"] / off["premium_p99_ms"],
+                                            "met" if fail is None else "fails: " + fail))
+        whole = {a: summarize(pooled[a]) for a in pooled}
+        p99 = {a: whole[a]["premium_p99_ms"] for a in pooled}
+        done = {a: whole[a]["contender_completed"] / whole[a]["contender_offered"] for a in pooled}
+        print("\npooled premium p99 ms: " + ", ".join("%s %.0f%s" % (a, p99[a], "" if a == "off" or first_fail[a] is None else " (inadmissible)")
+                                                      for a in pooled))
+        print("verdict: " + frontier_verdict(first_fail, p99, done))
         return 0
     if argv[1] == "feasible":
         # The control's spacing is a free parameter; the owner's limits are what make one choice admissible. Every
