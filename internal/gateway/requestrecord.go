@@ -222,7 +222,9 @@ func (tr *requestTrace) handedOff() {
 
 // release wraps the admitter's prefill release so the instant it ran is recorded beside it.
 func (tr *requestTrace) release(res *reservation) func() {
-	if tr == nil || res == nil {
+	// A reservation that releases nothing, the fixed-spacing admitter's, only pins the backend; stamping it would
+	// record a release that never happened (review of 918b69e).
+	if tr == nil || res == nil || res.releasePrefill == nil {
 		// No reservation is held in the arms whose admitter does not reserve, so there is nothing to stamp.
 		return res.PrefillDone
 	}
@@ -239,7 +241,7 @@ func (tr *requestTrace) release(res *reservation) func() {
 // releaseAtEnd wraps the request's final cleanup: if the prefill was not already released at the first body
 // byte, this is where it is released, and the record says so.
 func (tr *requestTrace) releaseAtEnd(res *reservation) func() {
-	if tr == nil || res == nil {
+	if tr == nil || res == nil || res.releasePrefill == nil && res.releaseStream == nil {
 		return res.Done
 	}
 	done := res.Done

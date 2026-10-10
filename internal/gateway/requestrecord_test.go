@@ -199,6 +199,25 @@ var _ = Describe("the request record in the pipeline", func() {
 		Expect(d).To(HaveKey("firstContentUnixNanos"))
 	})
 
+	// The fixed-spacing admitter's reservation only pins the backend and releases nothing, so the record stamps no
+	// release for it (review of 918b69e).
+	// Mutation that turns this red: guard the release stamps on a nil reservation alone.
+	It("stamps no release for a reservation that releases nothing", func() {
+		up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "text/event-stream")
+			_, _ = w.Write([]byte(`data: {"choices":[{"delta":{"content":"Hi"}}]}` + "\n\n"))
+		}))
+		defer up.Close()
+		s := newAdmissionServer(up.URL, tierStandard, AdmissionFixedSpacing, newFixedSpacingAdmitter(time.Millisecond, time.Second))
+		read := record(s)
+		rr := httptest.NewRecorder()
+		s.Handler().ServeHTTP(rr, authedRequest(body))
+		d := read()[1]
+		Expect(d["reason"]).To(Equal(reasonFixedSpacingFree))
+		Expect(d).NotTo(HaveKey("releasedUnixNanos"))
+		Expect(d).NotTo(HaveKey("releasedAtEnd"))
+	})
+
 	// Mutation that turns this red: stamp first content in body() rather than in flushed().
 	It("stamps first content when it is flushed, not when it is written to the buffer", func() {
 		rec, err := OpenRequestRecorder(path)
