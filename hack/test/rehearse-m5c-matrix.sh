@@ -258,6 +258,8 @@ esac
 # volume mounted and declared. The model is not passed positionally, because the stub's flag parser stops at the
 # first positional argument.
 PILOT_UNDER_TEST="${PILOT:-}"
+# Any other value rehearsed stages A and B while its name suggested something else (v26 review, C37).
+case "$PILOT_UNDER_TEST" in "" | 1 | D | E) ;; *) echo "PILOT is ${PILOT_UNDER_TEST@Q}; it is 1 for stages A and B, D or E" >&2; exit 2 ;; esac
 # The two ineligible arms the rehearsal must show (design page, "Rehearsals before purchase"): stage A's off-2 has
 # its step log stopped mid-cell by the stub, and stage B's R1-3 has one request's gateway record deleted after the
 # run. Request 40 is past the cell's start, so the log stops with records before it, as a plugin that died would.
@@ -510,6 +512,8 @@ if [ -n "$PILOT_UNDER_TEST" ]; then
   # PILOT=D rehearses the admission diagnostic's stage D alone, under its own study (design page, "v25").
   pilot_stages="A B"; pilot_study=prospective-pilot-2026-10-08
   if [ "$PILOT_UNDER_TEST" = D ]; then pilot_stages=D; pilot_study=admission-diagnostic-2026-10-10; fi
+  # PILOT=E rehearses v26's stage E, at its frozen seeds, which the matrix requires (design page, "v26").
+  if [ "$PILOT_UNDER_TEST" = E ]; then pilot_stages=E; pilot_study=admission-frontier-2026-10-10; fi
   for stage in $pilot_stages; do
     if [ "$stage" = B ]; then
       fit_args=()
@@ -525,7 +529,7 @@ if [ -n "$PILOT_UNDER_TEST" ]; then
         GATEWAY_BIN="$WORK/gateway" BENCHHARNESS_BIN="$WORK/benchharness" \
         ENGINE_PIN_WAIVED=1 STUDY="$pilot_study" PILOT_STAGE="$stage" PILOT_STATIC_RATE="$PILOT_R" \
         MODEL_REVISION=aa8e72537993ba99e69dfaafa59ed015b17504d1 \
-        REPS=3 SEEDS="$(case "$stage" in A) echo '301 302 303' ;; B) echo '311 312 313' ;; D) echo '321 322 323' ;; esac)" \
+        REPS=3 SEEDS="$(case "$stage" in A) echo '301 302 303' ;; B) echo '311 312 313' ;; D) echo '321 322 323' ;; E) echo '861 862 863' ;; esac)" \
         PREMIUM_RATE=9.25 PILOT_NOISY_RATE=0.5 PREMIUM_WEIGHT=1 PROBE_WEIGHT=0 DURATION_MS="${PILOT_DURATION_MS:-20000}" \
         PREMIUM_PROMPT_CHARS=200 NOISY_PROMPT_CHARS=40000 REQUEST_TIMEOUT_MS=30000 \
         PREMIUM_OUTPUT_TOKENS=64 NOISY_OUTPUT_TOKENS=16 OUT="$OUT_DIR-$stage" \
@@ -602,37 +606,60 @@ set -e
 # of them, and what it adds -- a per-arm engine and a per-cell engine log -- is checked from the files the
 # matrix wrote, not from its exit status alone, because the matrix refusing nothing is what is under test.
 if [ -n "$PILOT_UNDER_TEST" ]; then
-  if [ "$PILOT_UNDER_TEST" = D ]; then
-    say "check what the diagnostic's cells wrote"
-    d="$OUT_DIR-D"
-    cells="R1-1"; for a in off hold cap hold-cap; do cells="$cells $a-1 $a-2 $a-3"; done
+  if [ "$PILOT_UNDER_TEST" = D ] || [ "$PILOT_UNDER_TEST" = E ]; then
+    st="$PILOT_UNDER_TEST"
+    say "check what stage $st's cells wrote"
+    d="$OUT_DIR-$st"
+    st_arms=$(. "$ROOT/hack/lib/prospective-pilot.sh" && pp_stage_arms "$st" | grep -vx R1 | tr '\n' ' ') || fail "no arms for stage $st"
+    cells="R1-1"; for a in $st_arms; do cells="$cells $a-1 $a-2 $a-3"; done
+    want_n=$(( 1 + 3 * $(echo $st_arms | wc -w) ))
     n_raw=$(find "$d" -maxdepth 1 -name 'raw-*-[0-9].jsonl' | wc -l)
-    [ "$n_raw" = 13 ] || fail "stage D holds $n_raw raw files, not R1 once and four arms in three blocks"
+    [ "$n_raw" = "$want_n" ] || fail "stage $st holds $n_raw raw files, not R1 once and [$st_arms] in three blocks"
     for cell in $cells; do
-      arm=${cell%-*}
+      arm=${cell%-*}; rep=${cell##*-}
       for need in "raw-$cell.jsonl" "step-log-$cell.jsonl" "gateway-record-$cell.jsonl" "engine-samples-$cell.tsv"; do
-        [ -s "$d/$need" ] || fail "stage D cell $cell: no $need"
+        [ -s "$d/$need" ] || fail "stage $st cell $cell: no $need"
       done
-      grep -q 'fence-' "$d/step-log-$cell.jsonl" || fail "stage D cell $cell: the fence is not in the step log"
-      # The hold arms decided every contender through serial-prefill, the others admitted them with admission off.
+      # Every cell eligible, not merely scored: an inconclusive verdict over ineligible cells is a broken capture
+      # that the verdict's prefix alone accepted (v26 review, C38).
+      [ ! -e "$d/ineligible-$cell.txt" ] || fail "stage $st cell $cell is ineligible: $(cat "$d/ineligible-$cell.txt")"
+      grep -q 'fence-' "$d/step-log-$cell.jsonl" || fail "stage $st cell $cell: the fence is not in the step log"
+      # Each arm decided every contender through its own mode, and no other.
       case "$arm" in
         hold | hold-cap) grep -q '"reason":"serial_prefill_' "$d/gateway-record-$cell.jsonl" \
-          || fail "stage D cell $cell: no serial-prefill decision in its gateway record" ;;
-        *) ! grep -q '"reason":"serial_prefill_' "$d/gateway-record-$cell.jsonl" \
-          || fail "stage D cell $cell: a serial-prefill decision in an arm without the hold" ;;
+          || fail "stage $st cell $cell: no serial-prefill decision in its gateway record" ;;
+        fixed-*) grep -q '"reason":"fixed_spacing_' "$d/gateway-record-$cell.jsonl" \
+          || fail "stage $st cell $cell: no fixed-spacing decision in its gateway record" ;;
+        *) ! grep -qE '"reason":"(serial_prefill|fixed_spacing)_' "$d/gateway-record-$cell.jsonl" \
+          || fail "stage $st cell $cell: a held decision in an arm without a hold" ;;
       esac
-      # The cap arms' engines report the 384 cap, and the others none.
-      cap_seen=$(awk -F'\t' -v a="$arm" '$2 == a && $4 == "process"' "$d/applied-values.tsv" | grep -c "long_prefill_token_threshold': 384" || true)
-      case "$arm" in
-        cap | hold-cap) [ "$cap_seen" -ge 1 ] || fail "stage D cell $cell: its engine did not report the 384 prefill cap" ;;
-        *) [ "$cap_seen" = 0 ] || fail "stage D cell $cell: an engine without the cap reported it" ;;
-      esac
+      # The cap is checked cell by cell, through the cell's own index, not as one record somewhere in the arm
+      # (v26 review, C40).
+      idx=$(awk -F'\t' -v a="$arm" -v r="$rep" '$2 == a && $3 == r {print $1}' "$d/cell-timings.tsv")
+      [ -n "$idx" ] || fail "stage $st cell $cell: not in cell-timings.tsv"
+      cap_seen=$(awk -F'\t' -v i="$idx" '$1 == i && $4 == "process"' "$d/applied-values.tsv" | grep -c "long_prefill_token_threshold': 384" || true)
+      want_cap=$(. "$ROOT/hack/lib/prospective-pilot.sh" && pp_arm_prefill_cap "$arm") || fail "no cap registered for $arm"
+      if [ "$want_cap" = 384 ]; then [ "$cap_seen" -ge 1 ] || fail "stage $st cell $cell: its engine did not report the 384 prefill cap"
+      else [ "$cap_seen" = 0 ] || fail "stage $st cell $cell: an engine without the cap reported it"; fi
     done
-    verdict=$(python3 "$ROOT/hack/prospective-pilot/pilot_report.py" diagnostic "$d" | python3 -c 'import json,sys; print(json.load(sys.stdin)["verdict"])') \
-      || fail "the report could not score the diagnostic"
-    case "$verdict" in "observed on these traces"* | "not met: "* | "inconclusive: "*) ;; *) fail "the diagnostic's verdict is not one of the three: $verdict" ;; esac
+    if [ "$st" = D ]; then
+      verdict=$(python3 "$ROOT/hack/prospective-pilot/pilot_report.py" diagnostic "$d" | python3 -c 'import json,sys; print(json.load(sys.stdin)["verdict"])') \
+        || fail "the report could not score the diagnostic"
+      case "$verdict" in "observed on these traces"* | "not met: "* | "inconclusive: "*) ;; *) fail "the diagnostic's verdict is not one of the three: $verdict" ;; esac
+    else
+      # The rehearsal's 20-second traces are not the frozen ones, so each cell's provenance line fails by design;
+      # every other validity line must hold, or the purchase would be inconclusive for an apparatus reason.
+      verdict=$(python3 "$ROOT/hack/prospective-pilot/pilot_report.py" frontier "$d" | python3 -c '
+import json, sys
+v = json.load(sys.stdin)
+bad = [x["line"] + " " + str(x["value"])[:80] for x in v["validity"] if x["state"] != "holds" and not x["line"].endswith("is the registered cell")]
+if bad:
+    print("validity failed beyond provenance: " + "; ".join(bad[:6]))
+    sys.exit(1)
+print(v["verdict"][:200])') || fail "stage E: $verdict"
+    fi
     say "the stub's verdict, which says nothing about the card: $verdict"
-    say "DIAGNOSTIC REHEARSAL: R1 once and four arms in three blocks, the hold where it belongs, the cap where it belongs, scored"
+    say "STAGE $st REHEARSAL: R1 once and [$st_arms] in three blocks, each arm's mode and cap cell by cell, every cell eligible, scored"
     exit 0
   fi
   say "check what the pilot's cells wrote"
