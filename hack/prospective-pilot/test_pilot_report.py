@@ -516,7 +516,8 @@ class DiagnosticTest(unittest.TestCase):
 
 
 # Every fixture cell replays this two-request trace; the tests freeze its hash in place of the real seeds' checksums.
-FIXTURE_TRACE = [{"index": 0, "offsetMs": 0, "tenant": "premium-1"}, {"index": 1, "offsetMs": 1, "tenant": "standard-noisy"}]
+FIXTURE_TRACE = [{"index": 0, "offsetMs": 0, "tenant": "premium-1", "promptLenChars": 200, "exactInputTokens": 68},
+                 {"index": 1, "offsetMs": 1, "tenant": "standard-noisy", "promptLenChars": 400, "exactInputTokens": 100}]
 FIXTURE_HASH = hashlib.sha256("".join(json.dumps(r) + "\n" for r in FIXTURE_TRACE).encode()).hexdigest()
 
 
@@ -559,7 +560,8 @@ def frontier_block(d, ttft=None, extra_decode=(), skip=()):
         seed = pr.FRONTIER_SEEDS[b]
         want = pr.FRONTIER_CHECKSUMS[seed][1 if arm == "R1" else 0]
         for i, r in enumerate(cell.rows):
-            r.update({"index": i, "study": pr.FRONTIER_STUDY, "arm": arm, "traceChecksum": want})
+            r.update({"index": i, "study": pr.FRONTIER_STUDY, "arm": arm, "traceChecksum": want,
+                      "promptLenChars": FIXTURE_TRACE[i]["promptLenChars"]})
         cell.save()
         with open(os.path.join(d, "manifest-%s.yaml" % c), "w") as f:
             f.write('arm: "%s"\nseed: %d\nstudy: %s\ntraceChecksum: %s\n' % (arm, seed, pr.FRONTIER_STUDY, want))
@@ -739,7 +741,7 @@ class FrontierTest(unittest.TestCase):
             self.assertIn("%d:*) echo %s" % (seed, whole), lib)
 
 
-def lencal_block(d, ttft=None, a2c=None, skip=()):
+def lencal_block(d, ttft=None, a2c=None, skip=(), unfinished=()):
     """Every v27 calibration cell, as frontier_block builds v26's: ttft maps an arm to its premium first content after
     arrival (20 ms by default); a2c maps a length to hold-cap's contender decision-to-first-content in ms."""
     ttft, a2c = ttft or {}, a2c or {}
@@ -754,7 +756,8 @@ def lencal_block(d, ttft=None, a2c=None, skip=()):
         cell.rows[1]["contentGapsMicros"] = [500] * 15
         want = pr.LENCAL_CHECKSUMS["R1" if arm == "R1" else length]
         for i, r in enumerate(cell.rows):
-            r.update({"index": i, "study": pr.LENCAL_STUDY, "arm": arm, "traceChecksum": want})
+            r.update({"index": i, "study": pr.LENCAL_STUDY, "arm": arm, "traceChecksum": want,
+                      "promptLenChars": FIXTURE_TRACE[i]["promptLenChars"]})
         for r in cell.steps:
             if r.get("anchor"):
                 r["anchor"] = [0, ORIGIN - 100_000_000, 0]
@@ -766,6 +769,17 @@ def lencal_block(d, ttft=None, a2c=None, skip=()):
                     g["firstContentUnixNanos"] = g["arrivedUnixNanos"] + ttft.get(arm, 20_000_000)
                 elif arm.startswith("hold-cap"):
                     g["firstContentUnixNanos"] = g["decidedUnixNanos"] + int(a2c.get(length, 1600) * 1_000_000)
+        # The engine's view of the same prefill: the contender added at 0 and its one prefill step done at a2c ms,
+        # unless the length is listed in unfinished, whose prefill never completes.
+        cell.steps[0]["mono"] = 0
+        if not (length in unfinished and arm.startswith("hold-cap")):
+            cell.steps.insert(3, {"ev": "done", "step": 1, "t2": int(a2c.get(length, 1600) * 1_000_000)})
+        seq = 0
+        for r in cell.steps:
+            if r["ev"] != "terminal":
+                seq += 1
+                r["seq"] = seq
+        cell.steps[-1].update({"seq_written": seq, "seq_produced": seq})
         cell.save()
         with open(os.path.join(d, "manifest-%s-1.yaml" % arm), "w") as f:
             f.write('arm: "%s"\nseed: %d\nstudy: %s\ntraceChecksum: %s\n' % (arm, pr.LENCAL_SEED, pr.LENCAL_STUDY, want))
@@ -813,7 +827,7 @@ class CalibrationTest(unittest.TestCase):
     def test_hold_cap_not_protective_at_a_length(self):
         lencal_block(self.d, ttft={"hold-cap-short": 20_000_000, "hold-cap-ref": 10_000_000, "hold-cap-long": 10_000_000},
                      a2c={"short": 1300, "ref": 1600, "long": 1800})
-        self.assertEqual(self.v()["verdict"], "not feasible: hold-cap did not protect the premium tail at short")
+        self.assertEqual(self.v()["verdict"], "not feasible: hold-cap's 15% protection of the premium tail was not established at short")
 
     # A hold refusal at the long length makes hold-cap inadmissible there: the first-ranked risk, measured.
     def test_hold_cap_inadmissible_at_the_long_length(self):
@@ -838,6 +852,46 @@ class CalibrationTest(unittest.TestCase):
                 r["reason"] = "serial_prefill_hold_timeout"
         write(path, recs)
         self.assertEqual(self.v()["verdict"], "not feasible: hold-cap was not admissible at long: hold refusals")
+
+    # v26's spacing must still cover the reference's prefill on this card, or a long-length failure is not the length's
+    # doing (review of the v27 calibration, C6). Mutation that turns it red: drop the reference condition.
+    def test_a_reference_already_past_the_spacing_is_no_challenge(self):
+        lencal_block(self.d, ttft=self.protective, a2c={"short": 1500, "ref": 1760, "long": 1900})
+        self.assertTrue(self.v()["verdict"].startswith("challenge not achieved: the reference's median engine prefill"), self.v()["verdict"])
+
+    # The median is over every forwarded contender, an unfinished prefill counting as +inf, so dropping the unfinished
+    # cannot pull the median down (C4). Here the only contender never finishes, and the median is infinite: no finite
+    # median, inconclusive. Mutation that turns it red: leave unfinished prefills out of the median.
+    def test_an_unfinished_prefill_counts_as_infinite(self):
+        lencal_block(self.d, ttft=self.protective, a2c={"short": 1300, "ref": 1600, "long": 1800}, unfinished=("ref",))
+        v = self.v()
+        self.assertEqual(v["measured"]["ref"]["engine_prefill_unfinished"], 1)
+        self.assertTrue(v["verdict"].startswith("inconclusive: a length has no finite engine prefill median"), v["verdict"])
+
+    # A cell whose step log scheduled none of its contenders is another cell's log (C2).
+    # Mutation that turns it red: drop the step-log coverage line.
+    def test_a_step_log_without_this_cells_contenders_is_untrusted(self):
+        lencal_block(self.d, ttft=self.protective, a2c={"short": 1300, "ref": 1600, "long": 1800})
+        path = os.path.join(self.d, "step-log-off-long-1.jsonl")
+        recs = pr.jsonl(path)
+        for r in recs:
+            if r.get("ev") == "add" and r["id"] == "chatcmpl-pp-A-off-1-1":
+                r["id"] = "chatcmpl-pp-A-other-9-9"
+            for k in ("tokens", "computed"):
+                if "chatcmpl-pp-A-off-1-1" in r.get(k, {}):
+                    r[k]["chatcmpl-pp-A-other-9-9"] = r[k].pop("chatcmpl-pp-A-off-1-1")
+        write(path, recs)
+        self.assertIn("off-long-1 admitted contenders the step log scheduled", self.v()["verdict"])
+
+    # A row whose prompt is not its trace's replayed another workload (C3).
+    # Mutation that turns it red: drop the payload comparison from provenance.
+    def test_a_row_with_another_prompt_is_not_the_registered_cell(self):
+        lencal_block(self.d, ttft=self.protective, a2c={"short": 1300, "ref": 1600, "long": 1800})
+        path = os.path.join(self.d, "raw-hold-cap-long-1.jsonl")
+        rows = pr.jsonl(path)
+        rows[1]["exactInputTokens"] = 99
+        write(path, rows)
+        self.assertIn("hold-cap-long-1 is the registered cell", self.v()["verdict"])
 
     # A contender success without its gateway first content cannot be timed: inconclusive, not a crash or a median
     # over the rest (review of 25f989a).

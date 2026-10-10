@@ -848,6 +848,14 @@ def provenance(stage_dir, arm, rep, study=None, seed=None, want=None):
             return "row %s names study %s, arm %s, trace %s" % (r["index"], r.get("study"), r.get("arm"), r.get("traceChecksum"))
         if (r.get("scheduledOffsetMs"), r.get("tenant")) != (t.get("offsetMs"), t.get("tenant")):
             return "row %s is not its trace's request at that index" % r["index"]
+        # The payload too: a sender that sent another prompt replayed another workload under the right schedule
+        # (review of the v27 calibration, C3). The engine's own count is checked where the engine reported one.
+        if (r.get("promptLenChars"), r.get("exactInputTokens")) != (t.get("promptLenChars"), t.get("exactInputTokens")):
+            return "row %s sent %s characters for %s tokens, and its trace has %s for %s" % (
+                r["index"], r.get("promptLenChars"), r.get("exactInputTokens"), t.get("promptLenChars"), t.get("exactInputTokens"))
+        if r.get("engineInputTokens") and r.get("engineInputTokens") != t.get("exactInputTokens"):
+            return "row %s: the engine counted %s input tokens, and the trace froze %s" % (
+                r["index"], r.get("engineInputTokens"), t.get("exactInputTokens"))
     return None
 
 
@@ -909,7 +917,7 @@ def score_cell(stage_dir, c, prov, check, validity, reports, outcomes):
         outcomes[c] = contender_outcomes(stage_dir, c)
         # Inside the boundary too: a truncated trace crashed the whole report (review of fde74bb).
         why = prov(arm, rep)
-    except (ValueError, KeyError) as e:
+    except (ValueError, KeyError, TypeError, IndexError) as e:
         # A truncated or malformed record makes the cell's evidence untrustworthy, not the scorer's run (B11).
         reports.pop(c, None)
         outcomes.pop(c, None)
@@ -931,6 +939,12 @@ def score_cell(stage_dir, c, prov, check, validity, reports, outcomes):
           None if rp99 is None or gmiss else rp99 <= DIAG_L_MS and rmax <= DIAG_CEILING_MS)
     check(validity, "%s gateway premium arrival to decision" % c, (dp99, dmax), "p99 <= 13 ms, max <= 50 ms",
           None if dp99 is None or gmiss else dp99 <= DIAG_L_MS and dmax <= DIAG_CEILING_MS)
+    # Every contender the gateway admitted must have reached this cell's scheduler: a step log from another cell matches
+    # none of this cell's requests, and its work then reads as zero on both sides of every comparison (review of the
+    # v27 calibration, C2).
+    n_adm, n_seen = contenders_in_step_log(stage_dir, c)
+    check(validity, "%s admitted contenders the step log scheduled" % c, (n_seen, n_adm), "all",
+          True if n_adm == 0 and arm == "R1" else (n_adm > 0 and n_seen == n_adm))
     if arm.startswith("hold-cap") or arm in FRONTIER_FIXED:
         n_dec, n_mode = mode_reasons(stage_dir, c, "serial_prefill_" if arm.startswith("hold-cap") else "fixed_spacing_")
         check(validity, "%s contender decisions by its admission mode" % c, (n_mode, n_dec), "all",
@@ -946,6 +960,20 @@ def score_cell(stage_dir, c, prov, check, validity, reports, outcomes):
         done, offered = outcomes[c][0], outcomes[c][1]
         check(validity, "%s contender completion" % c, done / offered if offered else None, ">= 0.95",
               (done / offered >= 0.95) if offered else None)
+
+
+def contenders_in_step_log(stage_dir, tag):
+    """(contenders the gateway admitted, those of them with an add record in this cell's step log)."""
+    rows = {r.get("requestId"): r.get("tenant") for r in jsonl(os.path.join(stage_dir, "raw-%s.jsonl" % tag))}
+    admitted = [rid for rid, e in gateway_records(os.path.join(stage_dir, "gateway-record-%s.jsonl" % tag)).items()
+                if rows.get(rid) == CONTENDER and (e.get("done") or {}).get("decision") == "admit"]
+    added = set()
+    for st in jsonl(os.path.join(stage_dir, "step-log-%s.jsonl" % tag)):
+        if st.get("ev") == "add":
+            m = match_client(st.get("id", ""), admitted)
+            if m:
+                added.add(m)
+    return len(admitted), len(added)
 
 
 def admissibility_lines(stage_dir, c, off, reports, outcomes):
@@ -1127,14 +1155,37 @@ def admission_to_content(stage_dir, tag):
     return sorted(out), untimed
 
 
+def engine_prefill(stage_dir, tag):
+    """Each admitted contender's prefill as the engine ran it, in ms: from the scheduler's add to the end of the step
+    that took its last prompt token, the time a fixed spacing must outlast at the engine. A contender the scheduler
+    received and never finished prefilling counts as +inf, so the median is over every forwarded contender (review of
+    the v27 calibration, C1 and C4)."""
+    rows = {r.get("requestId"): r.get("tenant") for r in jsonl(os.path.join(stage_dir, "raw-%s.jsonl" % tag))}
+    admitted = [rid for rid, e in gateway_records(os.path.join(stage_dir, "gateway-record-%s.jsonl" % tag)).items()
+                if rows.get(rid) == CONTENDER and (e.get("done") or {}).get("decision") == "admit"]
+    steps = jsonl(os.path.join(stage_dir, "step-log-%s.jsonl" % tag))
+    done = {st["step"]: st["t2"] for st in steps if st.get("ev") == "done"}
+    adds = {st["id"]: st for st in steps if st.get("ev") == "add" and match_client(st.get("id", ""), admitted)}
+    ends = {}
+    for st in steps:
+        if st.get("ev") != "sched":
+            continue
+        for eid, n in st.get("tokens", {}).items():
+            a = adds.get(eid)
+            if a and eid not in ends and st.get("computed", {}).get(eid, 0) + n >= a["prompt"] and st["step"] in done:
+                ends[eid] = done[st["step"]]
+    return sorted(ms(ends[e] - a["mono"]) if e in ends else math.inf for e, a in adds.items())
+
+
 def calibration(stage_dir):
     """v27's calibration gate: whether hold-cap is admissible and protective at every length, and whether the long
     length lengthens the capped prefill past v26's fixed spacing, with every measurement it rests on.
 
-    The verdicts, in order: inconclusive; not feasible, hold-cap inadmissible at a length; not feasible, hold-cap
-    not protecting the premium tail at a length; challenge not achieved; feasible. Beside them it publishes the
-    size-aware control's spacings the main study would freeze, s(N) = 1,740 ms x d(N) / d(reference), with d the
-    median admission-to-first-content under hold-cap (design page, "v27").
+    The verdicts, in order: inconclusive; not feasible, hold-cap inadmissible at a length; not feasible, hold-cap's
+    protection not established at a length; challenge not achieved; feasible. Beside them it publishes the size-aware
+    control's spacings the main study would freeze, s(N) = 1,740 ms x d(N) / d(reference), with d the median engine
+    prefill under hold-cap over every forwarded contender; the gateway's admission-to-first-content is published
+    beside it (design page, "v27", and its review).
     """
     validity, lines = [], []
 
@@ -1173,7 +1224,11 @@ def calibration(stage_dir):
             first_fail[length] = "premium p99 crossed against off's"
         a2c, a2c_untimed = admission_to_content(stage_dir, h)
         check(validity, "hold-cap at %s: contender successes without gateway timing" % length, a2c_untimed, "0", a2c_untimed == 0)
-        measured[length] = {"tokens": tokens, "admission_to_content_p50_ms": nearest_rank(a2c, 0.5),
+        eng = engine_prefill(stage_dir, h)
+        measured[length] = {"tokens": tokens, "engine_prefill_p50_ms": nearest_rank(eng, 0.5),
+                            "engine_prefill_p95_ms": nearest_rank(eng, 0.95),
+                            "engine_prefill_unfinished": sum(1 for x in eng if math.isinf(x)),
+                            "admission_to_content_p50_ms": nearest_rank(a2c, 0.5),
                             "admission_to_content_p95_ms": nearest_rank(a2c, 0.95), "contenders_timed": len(a2c),
                             "premium_p99_sched_hi_ms": h_hi, "off_premium_p99_arr_lo_ms": o_lo, "ln_ratio_to_off": r}
 
@@ -1190,28 +1245,36 @@ def calibration(stage_dir):
         inconclusive.append("unscorable: " + ", ".join(unscorable[:5]))
     if not inconclusive and len(measured) != len(LENCAL_LENGTHS):
         inconclusive.append("a length has no scored pair")
-    if not inconclusive and not all((measured[l]["admission_to_content_p50_ms"] or 0) > 0 for l, _ in LENCAL_LENGTHS):
-        inconclusive.append("a length has no positive admission-to-first-content median")
+    # Every admissibility failure, at any length, before any protection failure: the registered order (review of
+    # 25f989a). A failed crossed bound does not show the absence of protection, only that it was not established (C9).
+    prot = "premium p99 crossed against off's"
+    bad_len = ([l for l, _ in LENCAL_LENGTHS if l in first_fail and first_fail[l] != prot]
+               + [l for l, _ in LENCAL_LENGTHS if first_fail.get(l) == prot])
+    # A missing median matters only once hold-cap is admissible and protective everywhere: a scored admissibility
+    # failure is "not feasible" whatever was timed (review of the v27 calibration, C5).
+    if not inconclusive and not bad_len and not all(
+            0 < (measured[l]["engine_prefill_p50_ms"] or 0) < math.inf for l, _ in LENCAL_LENGTHS):
+        inconclusive.append("a length has no finite engine prefill median")
 
     spacings = None
     if inconclusive:
         verdict = "inconclusive: " + "; ".join(inconclusive)
+    elif bad_len:
+        l = bad_len[0]
+        verdict = ("not feasible: hold-cap's 15%% protection of the premium tail was not established at %s" % l
+                   if first_fail[l] == prot else "not feasible: hold-cap was not admissible at %s: %s" % (l, first_fail[l]))
     else:
-        # Every admissibility failure, at any length, before any protection failure: the registered order (review of
-        # 25f989a).
-        prot = "premium p99 crossed against off's"
-        bad_len = ([l for l, _ in LENCAL_LENGTHS if l in first_fail and first_fail[l] != prot]
-                   + [l for l, _ in LENCAL_LENGTHS if first_fail.get(l) == prot])
-        d_ref, d_long = measured["ref"]["admission_to_content_p50_ms"], measured["long"]["admission_to_content_p50_ms"]
-        spacings = {l: round(V26_SPACING_MS * measured[l]["admission_to_content_p50_ms"] / d_ref, 1) for l, _ in LENCAL_LENGTHS}
-        if bad_len:
-            l = bad_len[0]
-            verdict = ("not feasible: hold-cap did not protect the premium tail at %s" % l
-                       if first_fail[l] == prot
-                       else "not feasible: hold-cap was not admissible at %s: %s" % (l, first_fail[l]))
+        # Judged on the engine's own prefill, which is what a fixed spacing must outlast; the gateway's view adds the
+        # transport and the flush (review of the v27 calibration, C1).
+        d_ref, d_long = measured["ref"]["engine_prefill_p50_ms"], measured["long"]["engine_prefill_p50_ms"]
+        spacings = {l: round(V26_SPACING_MS * measured[l]["engine_prefill_p50_ms"] / d_ref, 1) for l, _ in LENCAL_LENGTHS}
+        if d_ref > V26_SPACING_MS:
+            # v26's spacing must still cover the reference's prefill on this card, or a failure at the long length would
+            # not be the length's doing (C6).
+            verdict = "challenge not achieved: the reference's median engine prefill, %.0f ms, already exceeds 1,740 ms" % d_ref
         elif not (d_long > V26_SPACING_MS and d_long > 1.05 * d_ref):
-            verdict = ("challenge not achieved: hold-cap's median admission-to-first-content at the long length, %.0f ms, "
-                       "does not exceed both 1,740 ms and 1.05 times the reference's %.0f ms" % (d_long, d_ref))
+            verdict = ("challenge not achieved: hold-cap's median engine prefill at the long length, %.0f ms, does not exceed "
+                       "both 1,740 ms and 1.05 times the reference's %.0f ms" % (d_long, d_ref))
         else:
             verdict = "feasible: hold-cap admissible and protective at every length, and the long length outlasts 1,740 ms"
     return {"verdict": verdict, "validity": validity, "lines": lines, "measured": measured,
