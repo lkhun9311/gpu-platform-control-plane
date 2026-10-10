@@ -6,6 +6,7 @@
     python3 pilot_report.py gates DIR_A DIR_B     every registered pilot gate, with its value and whether it would fire
     python3 pilot_report.py diagnostic DIR        the admission diagnostic's verdict, validity and lines, per block
     python3 pilot_report.py frontier DIR          v26's verdict: hold-cap against the fixed spacings, with every line
+    python3 pilot_report.py calibration DIR       v27's calibration gate: hold-cap at three lengths, with every line
 
 docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md, "The measurement pilot". It judges
 nothing about P against S: it reports measurements, marks each arm eligible or not for calibration, and computes the
@@ -812,16 +813,17 @@ def manifest_fields(path):
     return out
 
 
-def provenance(stage_dir, arm, rep):
+def provenance(stage_dir, arm, rep, study=None, seed=None, want=None):
     """Why a cell is not the registered one, or None: its manifest's study, arm, seed and trace checksum, and its
-    rows against its trace's (v26 review, B6 and B7)."""
+    rows against its trace's (v26 review, B6 and B7). The study, seed and checksum default to v26's."""
     tag = "%s-%d" % (arm, rep)
     m = manifest_fields(os.path.join(stage_dir, "manifest-%s.yaml" % tag))
     if m is None:
         return "it has no manifest"
-    seed = FRONTIER_SEEDS[rep]
-    want = FRONTIER_CHECKSUMS[seed][1 if arm == "R1" else 0]
-    for key, value in (("study", FRONTIER_STUDY), ("arm", arm), ("seed", str(seed)), ("traceChecksum", want)):
+    study = study or FRONTIER_STUDY
+    seed = seed or FRONTIER_SEEDS[rep]
+    want = want or FRONTIER_CHECKSUMS[seed][1 if arm == "R1" else 0]
+    for key, value in (("study", study), ("arm", arm), ("seed", str(seed)), ("traceChecksum", want)):
         if m.get(key) != value:
             return "its manifest says %s %s, registered %s" % (key, m.get(key), value)
     # The trace itself, by its hash, and every row against it: equal counts let another run's rows pass beside the right
@@ -842,7 +844,7 @@ def provenance(stage_dir, arm, rep):
         return "its rows are not its trace's requests, one each"
     for r in rows:
         t = trace[r["index"]]
-        if (r.get("study"), r.get("arm"), r.get("traceChecksum")) != (FRONTIER_STUDY, arm, want):
+        if (r.get("study"), r.get("arm"), r.get("traceChecksum")) != (study, arm, want):
             return "row %s names study %s, arm %s, trace %s" % (r["index"], r.get("study"), r.get("arm"), r.get("traceChecksum"))
         if (r.get("scheduledOffsetMs"), r.get("tenant")) != (t.get("offsetMs"), t.get("tenant")):
             return "row %s is not its trace's request at that index" % r["index"]
@@ -898,6 +900,85 @@ def hold_refusals(stage_dir, tag):
                if (e.get("done") or {}).get("reason") in HOLD_REFUSALS)
 
 
+def score_cell(stage_dir, c, prov, check, validity, reports, outcomes):
+    """One cell's validity lines, shared by v26's and v27's scorers; prov(arm, rep) is the cell's provenance check.
+    Fills reports[c] and outcomes[c] when the cell's records are readable."""
+    arm, rep = c.rsplit("-", 1)[0], int(c.rsplit("-", 1)[1])
+    try:
+        reports[c] = cell_report(stage_dir, arm, rep, L=DIAG_L_MS)
+        outcomes[c] = contender_outcomes(stage_dir, c)
+        # Inside the boundary too: a truncated trace crashed the whole report (review of fde74bb).
+        why = prov(arm, rep)
+    except (ValueError, KeyError) as e:
+        # A truncated or malformed record makes the cell's evidence untrustworthy, not the scorer's run (B11).
+        reports.pop(c, None)
+        outcomes.pop(c, None)
+        check(validity, "%s records readable" % c, str(e)[:120], "parseable", False)
+        return
+    cr = reports[c]
+    check(validity, "%s is the registered cell" % c, why, "no difference", why is None)
+    check(validity, "%s eligible" % c, cr["problems"][:3], "no problem", cr["eligible"])
+    lmax = cr["lag_ms"].get("max")
+    check(validity, "%s largest dispatch lag" % c, lmax, "<= 50 ms", None if lmax is None else lmax <= DIAG_CEILING_MS)
+    n, d, _ = uncertain_fraction([cr], DIAG_L_MS)
+    check(validity, "%s premium lag above 13 ms" % c, n / d if d else None, "<= 0.001", (n / d <= 0.001) if d else None)
+    absent = cr["premium_gap_evidence"]["absent"]
+    check(validity, "%s premium successes without gap evidence" % c, absent, "0", absent == 0)
+    untimed = outcomes[c][4]
+    check(validity, "%s contender successes without complete timing" % c, untimed, "0", untimed == 0)
+    rp99, rmax, dp99, dmax, gmiss = gateway_delay_lines(stage_dir, c)
+    check(validity, "%s gateway arrival to record" % c, (rp99, rmax), "p99 <= 13 ms, max <= 50 ms",
+          None if rp99 is None or gmiss else rp99 <= DIAG_L_MS and rmax <= DIAG_CEILING_MS)
+    check(validity, "%s gateway premium arrival to decision" % c, (dp99, dmax), "p99 <= 13 ms, max <= 50 ms",
+          None if dp99 is None or gmiss else dp99 <= DIAG_L_MS and dmax <= DIAG_CEILING_MS)
+    if arm.startswith("hold-cap") or arm in FRONTIER_FIXED:
+        n_dec, n_mode = mode_reasons(stage_dir, c, "serial_prefill_" if arm.startswith("hold-cap") else "fixed_spacing_")
+        check(validity, "%s contender decisions by its admission mode" % c, (n_mode, n_dec), "all",
+              None if n_dec == 0 else n_mode == n_dec)
+    if arm in FRONTIER_FIXED:
+        least, p99 = spacing_deviation(stage_dir, c, float(arm.split("-")[1]) * 1000)
+        # No held contender leaves nothing to time; the line above already shows the mode ran.
+        check(validity, "%s admissions after the spacing" % c, (least, p99), "least >= -1 ms, p99 <= 13 ms",
+              None if least == "missing" else (True if least is None else least >= -1.0 and p99 <= DIAG_L_MS))
+    if arm == "off" or arm.startswith("off-"):
+        loss = cr["premium"]["failed"] / cr["premium"]["n"] if cr["premium"]["n"] else None
+        check(validity, "%s premium loss" % c, loss, "< 0.005", None if loss is None else loss < 0.005)
+        done, offered = outcomes[c][0], outcomes[c][1]
+        check(validity, "%s contender completion" % c, done / offered if offered else None, ">= 0.95",
+              (done / offered >= 0.95) if offered else None)
+
+
+def admissibility_lines(stage_dir, c, off, reports, outcomes):
+    """[(name, value, rule, ok)]: the owner's four contender limits and the three safeguards for treatment cell c
+    against its reference off cell, shared by v26's and v27's scorers."""
+    o_done, o_off, o_lat, _, _ = outcomes[off]
+    done, offered, lat, _, _ = outcomes[c]
+    cr, ocr = reports[c], reports[off]
+    res = []
+    res.append(("contender completion", done / offered if offered else None, ">= 0.95",
+                (done / offered >= 0.95) if offered else None))
+    p50, op50 = nearest_rank(lat, 0.5), nearest_rank(o_lat, 0.5)
+    res.append(("contender completion p50 against off's", (p50, op50), "<= 1.5 x off's",
+                None if p50 is None or op50 is None or math.isinf(op50) else p50 <= 1.5 * op50))
+    p95 = nearest_rank(lat, 0.95)
+    res.append(("contender completion p95", p95, "<= 25,000 ms", None if p95 is None else p95 <= 25_000))
+    holds = hold_refusals(stage_dir, c)
+    res.append(("hold refusals", holds, "0", holds == 0))
+    pre = preemptions(stage_dir, c)
+    res.append(("preemptions", pre, "0", None if pre is None else pre == 0))
+    for k in ("p_shared_window", "q_shared_window"):
+        w, ow = cr["work"][k], ocr["work"][k]
+        res.append(("contender work in the shared window (%s) against off's" % k[0], (w, ow), ">= 0.9 x off's",
+                    None if w is None or ow is None else w >= 0.9 * ow))
+    g, og = nearest_rank(cr["_premium_gaps"], 0.99), nearest_rank(ocr["_premium_gaps"], 0.99)
+    # An arm whose every premium stream failed served nobody a stream, and fails this safeguard; one with no
+    # gaps for any other reason is unscorable (v26 review, A4).
+    all_failed = cr["premium"]["n"] > 0 and cr["premium"]["failed"] == cr["premium"]["n"]
+    res.append(("premium inter-token gap p99 against off's", (g, og), "<= 1.25 x off's",
+                False if all_failed else (None if g is None or og is None else g <= 1.25 * og)))
+    return res
+
+
 def frontier(stage_dir):
     """v26's verdict, its validity, every admissibility line per block, and every pooled quantity.
 
@@ -921,49 +1002,7 @@ def frontier(stage_dir):
     for c in FRONTIER_CELLS:
         if not present[c]:
             continue
-        arm, rep = c.rsplit("-", 1)[0], int(c.rsplit("-", 1)[1])
-        try:
-            reports[c] = cell_report(stage_dir, arm, rep, L=DIAG_L_MS)
-            outcomes[c] = contender_outcomes(stage_dir, c)
-            # Inside the boundary too: a truncated trace crashed the whole report (review of fde74bb).
-            why = provenance(stage_dir, arm, rep)
-        except (ValueError, KeyError) as e:
-            # A truncated or malformed record makes the cell's evidence untrustworthy, not the scorer's run (B11).
-            reports.pop(c, None)
-            outcomes.pop(c, None)
-            check(validity, "%s records readable" % c, str(e)[:120], "parseable", False)
-            continue
-        cr = reports[c]
-        check(validity, "%s is the registered cell" % c, why, "no difference", why is None)
-        check(validity, "%s eligible" % c, cr["problems"][:3], "no problem", cr["eligible"])
-        lmax = cr["lag_ms"].get("max")
-        check(validity, "%s largest dispatch lag" % c, lmax, "<= 50 ms", None if lmax is None else lmax <= DIAG_CEILING_MS)
-        n, d, _ = uncertain_fraction([cr], DIAG_L_MS)
-        check(validity, "%s premium lag above 13 ms" % c, n / d if d else None, "<= 0.001", (n / d <= 0.001) if d else None)
-        absent = cr["premium_gap_evidence"]["absent"]
-        check(validity, "%s premium successes without gap evidence" % c, absent, "0", absent == 0)
-        untimed = outcomes[c][4]
-        check(validity, "%s contender successes without complete timing" % c, untimed, "0", untimed == 0)
-        rp99, rmax, dp99, dmax, gmiss = gateway_delay_lines(stage_dir, c)
-        check(validity, "%s gateway arrival to record" % c, (rp99, rmax), "p99 <= 13 ms, max <= 50 ms",
-              None if rp99 is None or gmiss else rp99 <= DIAG_L_MS and rmax <= DIAG_CEILING_MS)
-        check(validity, "%s gateway premium arrival to decision" % c, (dp99, dmax), "p99 <= 13 ms, max <= 50 ms",
-              None if dp99 is None or gmiss else dp99 <= DIAG_L_MS and dmax <= DIAG_CEILING_MS)
-        if arm in ("hold-cap",) + FRONTIER_FIXED:
-            n_dec, n_mode = mode_reasons(stage_dir, c, "serial_prefill_" if arm == "hold-cap" else "fixed_spacing_")
-            check(validity, "%s contender decisions by its admission mode" % c, (n_mode, n_dec), "all",
-                  None if n_dec == 0 else n_mode == n_dec)
-        if arm in FRONTIER_FIXED:
-            least, p99 = spacing_deviation(stage_dir, c, float(arm.split("-")[1]) * 1000)
-            # No held contender leaves nothing to time; the line above already shows the mode ran.
-            check(validity, "%s admissions after the spacing" % c, (least, p99), "least >= -1 ms, p99 <= 13 ms",
-                  None if least == "missing" else (True if least is None else least >= -1.0 and p99 <= DIAG_L_MS))
-        if arm == "off":
-            loss = cr["premium"]["failed"] / cr["premium"]["n"] if cr["premium"]["n"] else None
-            check(validity, "%s premium loss" % c, loss, "< 0.005", None if loss is None else loss < 0.005)
-            done, offered = outcomes[c][0], outcomes[c][1]
-            check(validity, "%s contender completion" % c, done / offered if offered else None, ">= 0.95",
-                  (done / offered >= 0.95) if offered else None)
+        score_cell(stage_dir, c, lambda arm, rep: provenance(stage_dir, arm, rep), check, validity, reports, outcomes)
 
     # Admissibility, per treatment arm and block, against that block's off (v26 review, M14).
     first_fail = {a: None for a in FRONTIER_ARMS[1:]}
@@ -971,35 +1010,11 @@ def frontier(stage_dir):
         off = "off-%d" % b
         if off not in reports:
             continue
-        o_done, o_off, o_lat, _, _ = outcomes[off]
         for arm in FRONTIER_ARMS[1:]:
             c = "%s-%d" % (arm, b)
             if c not in reports:
                 continue
-            done, offered, lat, _, _ = outcomes[c]
-            cr, ocr = reports[c], reports[off]
-            res = []
-            res.append(("contender completion", done / offered if offered else None, ">= 0.95",
-                        (done / offered >= 0.95) if offered else None))
-            p50, op50 = nearest_rank(lat, 0.5), nearest_rank(o_lat, 0.5)
-            res.append(("contender completion p50 against off's", (p50, op50), "<= 1.5 x off's",
-                        None if p50 is None or op50 is None or math.isinf(op50) else p50 <= 1.5 * op50))
-            p95 = nearest_rank(lat, 0.95)
-            res.append(("contender completion p95", p95, "<= 25,000 ms", None if p95 is None else p95 <= 25_000))
-            holds = hold_refusals(stage_dir, c)
-            res.append(("hold refusals", holds, "0", holds == 0))
-            pre = preemptions(stage_dir, c)
-            res.append(("preemptions", pre, "0", None if pre is None else pre == 0))
-            for k in ("p_shared_window", "q_shared_window"):
-                w, ow = cr["work"][k], ocr["work"][k]
-                res.append(("contender work in the shared window (%s) against off's" % k[0], (w, ow), ">= 0.9 x off's",
-                            None if w is None or ow is None else w >= 0.9 * ow))
-            g, og = nearest_rank(cr["_premium_gaps"], 0.99), nearest_rank(ocr["_premium_gaps"], 0.99)
-            # An arm whose every premium stream failed served nobody a stream, and fails this safeguard; one with no
-            # gaps for any other reason is unscorable (v26 review, A4).
-            all_failed = cr["premium"]["n"] > 0 and cr["premium"]["failed"] == cr["premium"]["n"]
-            res.append(("premium inter-token gap p99 against off's", (g, og), "<= 1.25 x off's",
-                        False if all_failed else (None if g is None or og is None else g <= 1.25 * og)))
+            res = admissibility_lines(stage_dir, c, off, reports, outcomes)
             for name, value, rule, ok in res:
                 check(lines, "%s block %d: %s" % (arm, b, name), value, rule, ok)
                 if ok is False and first_fail[arm] is None:
@@ -1075,9 +1090,129 @@ def frontier(stage_dir):
                                     if a in pooled and "hold-cap" in pooled else None) for a in FRONTIER_FIXED + ("off",)}}
 
 
+# ---------------------------------------------------------------- v27's calibration stage
+#
+# docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md, "v27": off and hold-cap at three
+# contender lengths, one block, to establish whether the robustness study is a feasible test before it is bought.
+
+LENCAL_STUDY = "admission-length-calibration-2026-10-10"
+LENCAL_SEED = 871
+LENCAL_LENGTHS = (("short", 6144), ("ref", 7695), ("long", 8192))
+# The frozen trace checksums, by length; R1's under "R1". The same table is in hack/lib/prospective-pilot.sh.
+LENCAL_CHECKSUMS = {
+    "R1": "a5b3aec4ecd11a0e697e3d65e1078560621b8907c6337a7dea6749910d9b256e",
+    "short": "659b495a0617ccde5cb4181f191cfbec730ad28d2bd73d71f43ab59ecca924d1",
+    "ref": "6893b01697f8b74a3cc6f1eafb9fd5c5b72a4899beede49393bc4e1c0276b63e",
+    "long": "7adef562cc0912646bdb1035e77162ff6cd6e14364558d96fb79f8fc105b39b3",
+}
+LENCAL_CELLS = ["R1-1"] + ["%s-%s-1" % (a, l) for l, _ in LENCAL_LENGTHS for a in ("off", "hold-cap")]
+# v26's fixed spacing, which the long level must outlast for the robustness study to test anything.
+V26_SPACING_MS = 1740.0
+
+
+def admission_to_content(stage_dir, tag):
+    """Each admitted contender's gateway decision to its first content, in ms: under serial-prefill, the capped prefill
+    as the gateway sees it, which is what a fixed spacing must outlast."""
+    rows = {r.get("requestId"): r.get("tenant") for r in jsonl(os.path.join(stage_dir, "raw-%s.jsonl" % tag))}
+    out = []
+    for rid, e in gateway_records(os.path.join(stage_dir, "gateway-record-%s.jsonl" % tag)).items():
+        d = e.get("done") or {}
+        if rows.get(rid) == CONTENDER and d.get("decision") == "admit" and d.get("decidedUnixNanos") and d.get("firstContentUnixNanos"):
+            out.append(ms(d["firstContentUnixNanos"] - d["decidedUnixNanos"]))
+    return sorted(out)
+
+
+def calibration(stage_dir):
+    """v27's calibration gate: whether hold-cap is admissible and protective at every length, and whether the long
+    length lengthens the capped prefill past v26's fixed spacing, with every measurement it rests on.
+
+    The verdicts, in order: inconclusive; not feasible, hold-cap inadmissible at a length; not feasible, hold-cap
+    not protecting the premium tail at a length; challenge not achieved; feasible. Beside them it publishes the
+    size-aware control's spacings the main study would freeze, s(N) = 1,740 ms x d(N) / d(reference), with d the
+    median admission-to-first-content under hold-cap (design page, "v27").
+    """
+    validity, lines = [], []
+
+    def check(collection, name, value, rule, ok):
+        collection.append({"line": name, "value": value, "rule": rule,
+                           "state": "unscorable" if ok is None else ("holds" if ok else "fails")})
+
+    def prov(arm, rep):
+        key = "R1" if arm == "R1" else arm.rsplit("-", 1)[1]
+        return provenance(stage_dir, arm, rep, study=LENCAL_STUDY, seed=LENCAL_SEED, want=LENCAL_CHECKSUMS[key])
+
+    present = {c: os.path.exists(os.path.join(stage_dir, "raw-%s.jsonl" % c)) for c in LENCAL_CELLS}
+    missing = [c for c in LENCAL_CELLS if not present[c]]
+    extra = sorted(os.path.basename(f)[4:-6] for f in glob.glob(os.path.join(stage_dir, "raw-*.jsonl"))
+                   if os.path.basename(f)[4:-6] not in LENCAL_CELLS and not os.path.basename(f).startswith("raw-warmup-"))
+    reports, outcomes = {}, {}
+    for c in LENCAL_CELLS:
+        if present[c]:
+            score_cell(stage_dir, c, prov, check, validity, reports, outcomes)
+
+    first_fail, measured = {}, {}
+    for length, tokens in LENCAL_LENGTHS:
+        h, o = "hold-cap-%s-1" % length, "off-%s-1" % length
+        if h not in reports or o not in reports:
+            continue
+        for name, value, rule, ok in admissibility_lines(stage_dir, h, o, reports, outcomes):
+            check(lines, "hold-cap at %s: %s" % (length, name), value, rule, ok)
+            if ok is False and length not in first_fail:
+                first_fail[length] = name
+        h_hi, _, _, _ = _box([reports[h]])
+        _, o_lo, _, _ = _box([reports[o]])
+        r = crossed_log_ratio(h_hi, o_lo)
+        check(lines, "hold-cap at %s: premium p99 crossed against off's" % length, r, "<= %.4f" % LN_085,
+              None if r is None else r <= LN_085)
+        if r is not None and r > LN_085 and length not in first_fail:
+            first_fail[length] = "premium p99 crossed against off's"
+        a2c = admission_to_content(stage_dir, h)
+        measured[length] = {"tokens": tokens, "admission_to_content_p50_ms": nearest_rank(a2c, 0.5),
+                            "admission_to_content_p95_ms": nearest_rank(a2c, 0.95), "contenders_timed": len(a2c),
+                            "premium_p99_sched_hi_ms": h_hi, "off_premium_p99_arr_lo_ms": o_lo, "ln_ratio_to_off": r}
+
+    unscorable = [x["line"] for x in validity + lines if x["state"] == "unscorable"]
+    bad = [x["line"] for x in validity if x["state"] == "fails"]
+    inconclusive = []
+    if missing:
+        inconclusive.append("cells not acquired: " + ", ".join(missing))
+    if extra:
+        inconclusive.append("cells the plan did not buy: " + ", ".join(extra))
+    if bad:
+        inconclusive.append("evidence not trusted: " + ", ".join(bad[:5]))
+    if unscorable:
+        inconclusive.append("unscorable: " + ", ".join(unscorable[:5]))
+    if not inconclusive and len(measured) != len(LENCAL_LENGTHS):
+        inconclusive.append("a length has no scored pair")
+
+    spacings = None
+    if inconclusive:
+        verdict = "inconclusive: " + "; ".join(inconclusive)
+    else:
+        bad_len = [l for l, _ in LENCAL_LENGTHS if l in first_fail]
+        d_ref, d_long = measured["ref"]["admission_to_content_p50_ms"], measured["long"]["admission_to_content_p50_ms"]
+        spacings = {l: round(V26_SPACING_MS * measured[l]["admission_to_content_p50_ms"] / d_ref, 1) for l, _ in LENCAL_LENGTHS}
+        if bad_len:
+            l = bad_len[0]
+            verdict = ("not feasible: hold-cap did not protect the premium tail at %s" % l
+                       if first_fail[l] == "premium p99 crossed against off's"
+                       else "not feasible: hold-cap was not admissible at %s: %s" % (l, first_fail[l]))
+        elif not (d_long > V26_SPACING_MS and d_long > 1.05 * d_ref):
+            verdict = ("challenge not achieved: hold-cap's median admission-to-first-content at the long length, %.0f ms, "
+                       "does not exceed both 1,740 ms and 1.05 times the reference's %.0f ms" % (d_long, d_ref))
+        else:
+            verdict = "feasible: hold-cap admissible and protective at every length, and the long length outlasts 1,740 ms"
+    return {"verdict": verdict, "validity": validity, "lines": lines, "measured": measured,
+            "size_aware_spacings_ms": spacings, "first_failure": first_fail}
+
+
 def main(argv):
     if len(argv) in (3, 4) and argv[1] == "stage" and (len(argv) == 3 or argv[3] in STAGE_ARMS):
         json.dump(stage_report(argv[2], argv[3] if len(argv) == 4 else None), sys.stdout, indent=1, default=str)
+        print()
+        return 0
+    if len(argv) == 3 and argv[1] == "calibration":
+        json.dump(calibration(argv[2]), sys.stdout, indent=1, default=str)
         print()
         return 0
     if len(argv) == 3 and argv[1] == "frontier":

@@ -739,5 +739,104 @@ class FrontierTest(unittest.TestCase):
             self.assertIn("%d:*) echo %s" % (seed, whole), lib)
 
 
+def lencal_block(d, ttft=None, a2c=None, skip=()):
+    """Every v27 calibration cell, as frontier_block builds v26's: ttft maps an arm to its premium first content after
+    arrival (20 ms by default); a2c maps a length to hold-cap's contender decision-to-first-content in ms."""
+    ttft, a2c = ttft or {}, a2c or {}
+    for c in pr.LENCAL_CELLS:
+        if c in skip:
+            continue
+        arm = c.rsplit("-", 1)[0]
+        length = None if arm == "R1" else arm.rsplit("-", 1)[1]
+        cell = Cell(d, arm, 1)
+        cell.rows[0]["contentGapsMicros"] = [10_000] * 63
+        cell.rows[1]["firstTokenUnixNanos"] = ORIGIN + 30_000_000
+        cell.rows[1]["contentGapsMicros"] = [500] * 15
+        want = pr.LENCAL_CHECKSUMS["R1" if arm == "R1" else length]
+        for i, r in enumerate(cell.rows):
+            r.update({"index": i, "study": pr.LENCAL_STUDY, "arm": arm, "traceChecksum": want})
+        for r in cell.steps:
+            if r.get("anchor"):
+                r["anchor"] = [0, ORIGIN - 100_000_000, 0]
+        reason = "serial_prefill_free" if arm.startswith("hold-cap") else "admission_off"
+        for g in cell.gw:
+            if g["ev"] == "done":
+                g["decision"], g["reason"] = "admit", reason
+                if g["requestId"] == "pp-A-off-1-0":
+                    g["firstContentUnixNanos"] = g["arrivedUnixNanos"] + ttft.get(arm, 20_000_000)
+                elif arm.startswith("hold-cap"):
+                    g["firstContentUnixNanos"] = g["decidedUnixNanos"] + int(a2c.get(length, 1600) * 1_000_000)
+        cell.save()
+        with open(os.path.join(d, "manifest-%s-1.yaml" % arm), "w") as f:
+            f.write('arm: "%s"\nseed: %d\nstudy: %s\ntraceChecksum: %s\n' % (arm, pr.LENCAL_SEED, pr.LENCAL_STUDY, want))
+        write(os.path.join(d, "trace-%s-1.jsonl" % arm), FIXTURE_TRACE)
+        for phase in ("before", "after"):
+            with open(os.path.join(d, "engine-metrics-%s-1-%s.prom" % (arm, phase)), "w") as f:
+                f.write('vllm:num_preemptions_total{engine="0"} 0.0\n')
+
+
+class CalibrationTest(unittest.TestCase):
+    # v27's calibration gate on built cells.
+    def setUp(self):
+        self.d = tempfile.mkdtemp()
+        patch = mock.patch.dict(pr.LENCAL_CHECKSUMS, {k: FIXTURE_HASH for k in pr.LENCAL_CHECKSUMS})
+        patch.start()
+        self.addCleanup(patch.stop)
+        self.protective = {"hold-cap-short": 10_000_000, "hold-cap-ref": 10_000_000, "hold-cap-long": 10_000_000}
+
+    def v(self):
+        return pr.calibration(self.d)
+
+    # Protective and admissible everywhere, and the long length's prefill past 1,740 ms and 5% above the reference's:
+    # feasible, with the size-aware spacings frozen from the medians.
+    # Mutation that turns it red: drop the 1.05 x reference condition, or scale the spacings by the long length.
+    def test_feasible_with_its_spacings(self):
+        lencal_block(self.d, ttft=self.protective, a2c={"short": 1300, "ref": 1600, "long": 1800})
+        v = self.v()
+        self.assertEqual(v["verdict"], "feasible: hold-cap admissible and protective at every length, and the long length outlasts 1,740 ms")
+        self.assertEqual(v["size_aware_spacings_ms"], {"short": round(1740 * 1300.002 / 1600.002, 1),
+                                                       "ref": 1740.0, "long": round(1740 * 1800.002 / 1600.002, 1)})
+
+    # The long length's prefill under 1,740 ms tests nothing about a fixed spacing tuned there.
+    def test_a_long_prefill_short_of_the_spacing_is_no_challenge(self):
+        lencal_block(self.d, ttft=self.protective, a2c={"short": 1300, "ref": 1600, "long": 1700})
+        self.assertTrue(self.v()["verdict"].startswith("challenge not achieved"), self.v()["verdict"])
+
+    # Past 1,740 ms but within 5% of the reference's is no challenge either.
+    # Mutation that turns it red: require only the 1,740 ms bound.
+    def test_a_long_prefill_within_five_percent_of_the_reference_is_no_challenge(self):
+        lencal_block(self.d, ttft=self.protective, a2c={"short": 1300, "ref": 1720, "long": 1760})
+        self.assertTrue(self.v()["verdict"].startswith("challenge not achieved"), self.v()["verdict"])
+
+    # Hold-cap no better than off at one length is not a feasible test of protection.
+    # Mutation that turns it red: drop the premium-against-off line.
+    def test_hold_cap_not_protective_at_a_length(self):
+        lencal_block(self.d, ttft={"hold-cap-short": 20_000_000, "hold-cap-ref": 10_000_000, "hold-cap-long": 10_000_000},
+                     a2c={"short": 1300, "ref": 1600, "long": 1800})
+        self.assertEqual(self.v()["verdict"], "not feasible: hold-cap did not protect the premium tail at short")
+
+    # A hold refusal at the long length makes hold-cap inadmissible there: the first-ranked risk, measured.
+    def test_hold_cap_inadmissible_at_the_long_length(self):
+        lencal_block(self.d, ttft=self.protective, a2c={"short": 1300, "ref": 1600, "long": 1800})
+        path = os.path.join(self.d, "gateway-record-hold-cap-long-1.jsonl")
+        recs = pr.jsonl(path)
+        for r in recs:
+            if r["ev"] == "done" and r["requestId"] == "pp-A-off-1-1":
+                r["reason"] = "serial_prefill_hold_timeout"
+        write(path, recs)
+        self.assertEqual(self.v()["verdict"], "not feasible: hold-cap was not admissible at long: hold refusals")
+
+    def test_a_missing_cell_is_inconclusive(self):
+        lencal_block(self.d, ttft=self.protective, skip=("off-long-1",))
+        self.assertTrue(self.v()["verdict"].startswith("inconclusive: cells not acquired: off-long-1"), self.v()["verdict"])
+
+    def test_the_checksums_agree_with_the_session_library(self):
+        mock.patch.stopall()
+        lib = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib", "prospective-pilot.sh")).read()
+        for key, want in pr.LENCAL_CHECKSUMS.items():
+            pat = "871:R1) echo %s" % want if key == "R1" else "871:*-%s) echo %s" % (key, want)
+            self.assertIn(pat, lib)
+
+
 if __name__ == "__main__":
     unittest.main()
