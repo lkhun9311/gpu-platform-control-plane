@@ -1391,7 +1391,7 @@ The owner chose the calibration stage first and approved its purchase. The main 
 **Validity** is v26's, cell by cell, through the same function: provenance by manifest, trace hash and row identity; eligibility; dispatch; the gateway's post-arrival delay; timing evidence; hold-cap's serial-prefill on every contender; and each off's premium loss and contender completion.
 
 **The gate, `pilot_report.py calibration`, in order:**
-1. **inconclusive** for any missing or extra cell, or any failed or unscorable validity or admissibility line;
+1. **inconclusive** for any missing or extra cell, any failed validity line, any unscorable validity or admissibility line, or any hold-cap contender success the gateway did not time; a scored admissibility failure is verdict 2, not this one;
 2. **not feasible: hold-cap was not admissible at <length>: <line>**, by v26's seven admissibility lines against off at the same length;
 3. **not feasible: hold-cap did not protect the premium tail at <length>**, when ln(hold-cap scheduled hi / off arrival lo) exceeds ln 0.85;
 4. **challenge not achieved**, when hold-cap's median gateway admission-to-first-content at the long length does not exceed both 1,740 ms and 1.05 times the reference's;
