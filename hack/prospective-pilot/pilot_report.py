@@ -15,6 +15,7 @@ their sum (design page, "Stage B is not blind").
 
 import csv
 import glob
+import hashlib
 import json
 import math
 import os
@@ -823,10 +824,25 @@ def provenance(stage_dir, arm, rep):
     for key, value in (("study", FRONTIER_STUDY), ("arm", arm), ("seed", str(seed)), ("traceChecksum", want)):
         if m.get(key) != value:
             return "its manifest says %s %s, registered %s" % (key, m.get(key), value)
-    trace = jsonl(os.path.join(stage_dir, "trace-%s.jsonl" % tag))
+    # The trace itself, by its hash, and every row against it: equal counts let another run's rows pass beside the right
+    # manifest (review of fde74bb).
+    tpath = os.path.join(stage_dir, "trace-%s.jsonl" % tag)
+    if not os.path.exists(tpath):
+        return "it has no trace"
+    with open(tpath, "rb") as f:
+        got = hashlib.sha256(f.read()).hexdigest()
+    if got != want:
+        return "its trace hashes to %s, registered %s" % (got, want)
+    trace = {t["index"]: t for t in jsonl(tpath)}
     rows = jsonl(os.path.join(stage_dir, "raw-%s.jsonl" % tag))
-    if len(rows) != len(trace):
-        return "it holds %d rows for a trace of %d requests" % (len(rows), len(trace))
+    if sorted(r.get("index") for r in rows) != sorted(trace):
+        return "its rows are not its trace's requests, one each"
+    for r in rows:
+        t = trace[r["index"]]
+        if (r.get("study"), r.get("arm"), r.get("traceChecksum")) != (FRONTIER_STUDY, arm, want):
+            return "row %s names study %s, arm %s, trace %s" % (r["index"], r.get("study"), r.get("arm"), r.get("traceChecksum"))
+        if (r.get("scheduledOffsetMs"), r.get("tenant")) != (t.get("offsetMs"), t.get("tenant")):
+            return "row %s is not its trace's request at that index" % r["index"]
     return None
 
 
@@ -854,9 +870,13 @@ def spacing_deviation(stage_dir, tag, spacing_ms):
     """(least, p99) in ms of how far each held contender's admission came after the previous admission plus the
     spacing: never sooner, and at the spacing's end within the gateway's timer, as v26 registers (review, A8)."""
     rows = {r.get("requestId"): r.get("tenant") for r in jsonl(os.path.join(stage_dir, "raw-%s.jsonl" % tag))}
-    adm = sorted((d["decidedUnixNanos"], d.get("reason")) for rid, e in gateway_records(
-        os.path.join(stage_dir, "gateway-record-%s.jsonl" % tag)).items()
-        for d in [e.get("done") or {}] if rows.get(rid) == CONTENDER and d.get("decision") == "admit" and d.get("decidedUnixNanos"))
+    admitted = [d for rid, e in gateway_records(os.path.join(stage_dir, "gateway-record-%s.jsonl" % tag)).items()
+                for d in [e.get("done") or {}] if rows.get(rid) == CONTENDER and d.get("decision") == "admit"]
+    # An admission without its decision time is missing evidence, not an admission with nothing to time: dropping it
+    # let the line hold vacuously (review of fde74bb).
+    if any(not d.get("decidedUnixNanos") for d in admitted):
+        return "missing", None
+    adm = sorted((d["decidedUnixNanos"], d.get("reason")) for d in admitted)
     dev = [ms(b[0] - a[0]) - spacing_ms for a, b in zip(adm, adm[1:]) if b[1] == "fixed_spacing_waited"]
     return (min(dev) if dev else None, nearest_rank(dev, 0.99))
 
@@ -902,12 +922,15 @@ def frontier(stage_dir):
         try:
             reports[c] = cell_report(stage_dir, arm, rep, L=DIAG_L_MS)
             outcomes[c] = contender_outcomes(stage_dir, c)
+            # Inside the boundary too: a truncated trace crashed the whole report (review of fde74bb).
+            why = provenance(stage_dir, arm, rep)
         except (ValueError, KeyError) as e:
             # A truncated or malformed record makes the cell's evidence untrustworthy, not the scorer's run (B11).
+            reports.pop(c, None)
+            outcomes.pop(c, None)
             check(validity, "%s records readable" % c, str(e)[:120], "parseable", False)
             continue
         cr = reports[c]
-        why = provenance(stage_dir, arm, rep)
         check(validity, "%s is the registered cell" % c, why, "no difference", why is None)
         check(validity, "%s eligible" % c, cr["problems"][:3], "no problem", cr["eligible"])
         lmax = cr["lag_ms"].get("max")
@@ -931,7 +954,7 @@ def frontier(stage_dir):
             least, p99 = spacing_deviation(stage_dir, c, float(arm.split("-")[1]) * 1000)
             # No held contender leaves nothing to time; the line above already shows the mode ran.
             check(validity, "%s admissions after the spacing" % c, (least, p99), "least >= -1 ms, p99 <= 13 ms",
-                  True if least is None else least >= -1.0 and p99 <= DIAG_L_MS)
+                  None if least == "missing" else (True if least is None else least >= -1.0 and p99 <= DIAG_L_MS))
         if arm == "off":
             loss = cr["premium"]["failed"] / cr["premium"]["n"] if cr["premium"]["n"] else None
             check(validity, "%s premium loss" % c, loss, "< 0.005", None if loss is None else loss < 0.005)

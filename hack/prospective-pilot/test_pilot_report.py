@@ -3,12 +3,14 @@
     python3 hack/prospective-pilot/test_pilot_report.py
 """
 
+import hashlib
 import json
 import math
 import os
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import pilot_report as pr  # noqa: E402
@@ -513,6 +515,11 @@ class DiagnosticTest(unittest.TestCase):
         self.assertEqual(pr.cell_report(self.d, "off", 1, L=pr.DIAG_L_MS)["premium"]["uncertain"], 0)
 
 
+# Every fixture cell replays this two-request trace; the tests freeze its hash in place of the real seeds' checksums.
+FIXTURE_TRACE = [{"index": 0, "offsetMs": 0, "tenant": "premium-1"}, {"index": 1, "offsetMs": 1, "tenant": "standard-noisy"}]
+FIXTURE_HASH = hashlib.sha256("".join(json.dumps(r) + "\n" for r in FIXTURE_TRACE).encode()).hexdigest()
+
+
 def frontier_block(d, ttft=None, extra_decode=(), skip=()):
     """Every v26 cell: manifests carrying the frozen study, seed and checksum, a trace of the cell's two rows, and each
     contender decision under its arm's mode. ttft maps an arm to its premium first content after arrival, 20 ms by
@@ -549,12 +556,14 @@ def frontier_block(d, ttft=None, extra_decode=(), skip=()):
             cell.steps[-3]["step"], cell.steps[-2]["step"] = 4, 5
             cell.steps[-1].update({"seq_written": seq, "seq_produced": seq})
             cell.iters = [100, 69, 1, 1, 1]
-        cell.save()
         seed = pr.FRONTIER_SEEDS[b]
+        want = pr.FRONTIER_CHECKSUMS[seed][1 if arm == "R1" else 0]
+        for i, r in enumerate(cell.rows):
+            r.update({"index": i, "study": pr.FRONTIER_STUDY, "arm": arm, "traceChecksum": want})
+        cell.save()
         with open(os.path.join(d, "manifest-%s.yaml" % c), "w") as f:
-            f.write('arm: "%s"\nseed: %d\nstudy: %s\ntraceChecksum: %s\n' % (arm, seed, pr.FRONTIER_STUDY,
-                                                                          pr.FRONTIER_CHECKSUMS[seed][1 if arm == "R1" else 0]))
-        write(os.path.join(d, "trace-%s.jsonl" % c), [{"index": 0}, {"index": 1}])
+            f.write('arm: "%s"\nseed: %d\nstudy: %s\ntraceChecksum: %s\n' % (arm, seed, pr.FRONTIER_STUDY, want))
+        write(os.path.join(d, "trace-%s.jsonl" % c), FIXTURE_TRACE)
         for phase in ("before", "after"):
             with open(os.path.join(d, "engine-metrics-%s-%s.prom" % (c, phase)), "w") as f:
                 f.write('vllm:num_preemptions_total{engine="0"} 0.0\n')
@@ -564,6 +573,9 @@ class FrontierTest(unittest.TestCase):
     # v26's scorer on built cells (docs/superpowers/specs/2026-10-10-v26-adversarial-review.md).
     def setUp(self):
         self.d = tempfile.mkdtemp()
+        patch = mock.patch.dict(pr.FRONTIER_CHECKSUMS, {s: (FIXTURE_HASH, FIXTURE_HASH) for s in pr.FRONTIER_CHECKSUMS})
+        patch.start()
+        self.addCleanup(patch.stop)
 
     def v(self):
         return pr.frontier(self.d)["verdict"]
@@ -670,8 +682,47 @@ class FrontierTest(unittest.TestCase):
         frontier_block(self.d, ttft={"hold-cap": 10_000_000}, extra_decode=pr.FRONTIER_FIXED)
         self.assertEqual(self.v(), "not established: neither hold-cap nor fixed-1.62 was 15% below the other")
 
+    # Rows from another run beside the right manifest and trace are not the registered cell (review of fde74bb).
+    # Mutation that turns it red: compare row counts only.
+    def test_rows_naming_another_study_are_not_the_registered_cell(self):
+        frontier_block(self.d, ttft={"hold-cap": 10_000_000})
+        path = os.path.join(self.d, "raw-hold-cap-2.jsonl")
+        rows = pr.jsonl(path)
+        rows[1]["study"] = "admission-diagnostic-2026-10-10"
+        write(path, rows)
+        self.assertIn("hold-cap-2 is the registered cell", self.v())
+
+    # A trace that does not hash to the frozen checksum is not the registered trace, whatever its manifest says.
+    # Mutation that turns it red: trust the manifest's checksum without hashing the trace.
+    def test_a_trace_with_another_hash_is_not_the_registered_cell(self):
+        frontier_block(self.d, ttft={"hold-cap": 10_000_000})
+        write(os.path.join(self.d, "trace-off-3.jsonl"), FIXTURE_TRACE[::-1])
+        self.assertIn("off-3 is the registered cell", self.v())
+
+    # A truncated trace makes its cell untrusted rather than crashing the report (review of fde74bb).
+    def test_a_truncated_trace_is_inconclusive_not_a_crash(self):
+        frontier_block(self.d, ttft={"hold-cap": 10_000_000})
+        with open(os.path.join(self.d, "trace-fixed-1.62-1.jsonl"), "a") as f:
+            f.write('{"index": 2, "off')
+        v = self.v()
+        # Its hash no longer matches, so provenance refuses it before anything parses it; either refusal names the cell.
+        self.assertTrue(v.startswith("inconclusive: evidence not trusted: fixed-1.62-1"), v)
+
+    # A fixed arm's admission without its decision time leaves the spacing line unscorable, not vacuously holding.
+    # Mutation that turns it red: drop admissions without a decision time from the timing.
+    def test_an_admission_without_its_time_is_unscorable(self):
+        frontier_block(self.d, ttft={"hold-cap": 10_000_000})
+        path = os.path.join(self.d, "gateway-record-fixed-1.70-2.jsonl")
+        recs = pr.jsonl(path)
+        for r in recs:
+            if r["ev"] == "done" and r["requestId"] == "pp-A-off-1-1":
+                r.pop("decidedUnixNanos")
+        write(path, recs)
+        self.assertIn("fixed-1.70-2 admissions after the spacing", self.v())
+
     # The scorer's frozen checksums and the session library's are one table (a key assembled in two places).
     def test_the_checksums_agree_with_the_session_library(self):
+        mock.patch.stopall()
         lib = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib", "prospective-pilot.sh")).read()
         for seed, (whole, r1) in pr.FRONTIER_CHECKSUMS.items():
             self.assertIn("%d:R1) echo %s" % (seed, r1), lib)
