@@ -293,8 +293,9 @@ python3 "$EXP/poll.py" "http://127.0.0.1:$ALIAS_PORT/predict" "$OUT/poll-alias.t
   >"$OUT/poll-alias.meta" 2>>"$LOG" &
 pa=$!
 sleep 5
-ev "alias-forced-v2"
 python3 "$EXP/gate.py" "$TRACK" clf 2 --force >"$OUT/gate-v2-forced.json" 2>>"$LOG" || die "force alias"
+# Stamped once the gate has returned: it reads the registry before moving the alias, and those answers are not "while v2".
+ev "alias-forced-v2"
 sleep "$ALIAS_WAIT"
 ev "alias-restart"
 k -n "$NS" rollout restart deploy/clf-alias >>"$LOG" 2>&1 || die "restart alias server"

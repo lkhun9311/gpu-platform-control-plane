@@ -79,6 +79,9 @@ def main():
     if run_files:
         with open(run_files[0]) as f:
             tags = {t["key"]: t["value"] for t in json.load(f)["run"]["data"].get("tags", [])}
+    else:
+        # A missing snapshot is missing evidence, not a broken chain: reading it as MISSED would report a result.
+        void(f"the registry snapshot of run {first.get('run_id')} is missing")
     links = {
         "answer names version 1": first.get("model_version") == "1",
         "answer's run is the v1 training run": first.get("run_id") == v1["run_id"],

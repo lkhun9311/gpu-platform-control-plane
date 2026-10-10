@@ -27,8 +27,9 @@ def main():
         status, version = 0, ""
         try:
             with urllib.request.urlopen(url, timeout=5) as resp:
-                status = resp.status
+                # The status is kept only once the body is read and parsed: a 200 whose answer was lost is an outage.
                 version = json.loads(resp.read()).get("model_version", "")
+                status = resp.status
         except urllib.error.HTTPError as err:
             status = err.code
         except Exception:
