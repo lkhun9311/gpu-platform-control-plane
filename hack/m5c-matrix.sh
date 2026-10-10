@@ -217,8 +217,8 @@ fi
 if [ -z "$LADDER" ]; then
   STUDY="${STUDY:-sharing-matrix-2026-09-10}"
   case "$STUDY" in
-    sharing-matrix-2026-09-10|tail-crossing-lc256-2026-10-04|tail-crossing-lc2048-2026-10-05|tail-crossing-lc8192-2026-10-04|instrument-validation-2026-10-05|instrument-validation-s2-2026-10-05|instrument-validation-s3-2026-10-06|instrument-validation-s4-2026-10-06|step-boundary-2026-10-06|step-confirm-2026-10-07|prospective-pilot-2026-10-08|admission-diagnostic-2026-10-10) ;;
-    *) fail "STUDY is ${STUDY@Q}; the non-ladder matrix files evidence under sharing-matrix-2026-09-10, tail-crossing-lc256-2026-10-04, tail-crossing-lc2048-2026-10-05, tail-crossing-lc8192-2026-10-04, instrument-validation-2026-10-05, instrument-validation-s2-2026-10-05, instrument-validation-s3-2026-10-06, instrument-validation-s4-2026-10-06 or step-boundary-2026-10-06, step-confirm-2026-10-07, prospective-pilot-2026-10-08, admission-diagnostic-2026-10-10. An unregistered id is not refused by gen-trace -- it writes a manifest for any string -- so this refusal is the one that stops it before anything is rented" ;;
+    sharing-matrix-2026-09-10|tail-crossing-lc256-2026-10-04|tail-crossing-lc2048-2026-10-05|tail-crossing-lc8192-2026-10-04|instrument-validation-2026-10-05|instrument-validation-s2-2026-10-05|instrument-validation-s3-2026-10-06|instrument-validation-s4-2026-10-06|step-boundary-2026-10-06|step-confirm-2026-10-07|prospective-pilot-2026-10-08|admission-diagnostic-2026-10-10|admission-frontier-2026-10-10) ;;
+    *) fail "STUDY is ${STUDY@Q}; the non-ladder matrix files evidence under sharing-matrix-2026-09-10, tail-crossing-lc256-2026-10-04, tail-crossing-lc2048-2026-10-05, tail-crossing-lc8192-2026-10-04, instrument-validation-2026-10-05, instrument-validation-s2-2026-10-05, instrument-validation-s3-2026-10-06, instrument-validation-s4-2026-10-06 or step-boundary-2026-10-06, step-confirm-2026-10-07, prospective-pilot-2026-10-08, admission-diagnostic-2026-10-10, admission-frontier-2026-10-10. An unregistered id is not refused by gen-trace -- it writes a manifest for any string -- so this refusal is the one that stops it before anything is rented" ;;
   esac
 fi
 
@@ -366,12 +366,16 @@ if [ -z "$LADDER" ] && pp_is_study "$STUDY"; then
   [ -z "${RATE:-}" ] || fail "RATE is ${RATE@Q} and the pilot's arrivals are independent; pass PREMIUM_RATE and PILOT_NOISY_RATE"
   [ -z "$ARMS_FROM_CALLER" ] || fail "ARMS is set and the pilot's arms are its stage's (PILOT_STAGE); unset it"
   _pp_arms=$(pp_stage_arms "${PILOT_STAGE:-}" 2>&1) || fail "$_pp_arms"
-  # Stage D is the diagnostic's and A and B the pilot's: evidence filed under the other study would be scored by
-  # rules it was not bought under.
-  case "${PILOT_STAGE}:${STUDY}" in
-    D:"$PP_DIAG_STUDY" | A:"$PP_STUDY" | B:"$PP_STUDY") ;;
-    *) fail "PILOT_STAGE ${PILOT_STAGE} does not belong to study $STUDY: stage D is $PP_DIAG_STUDY's, stages A and B $PP_STUDY's" ;;
-  esac
+  # Each stage belongs to one study: evidence filed under another would be scored by rules it was not bought under.
+  _pp_study=$(pp_stage_study "$PILOT_STAGE" 2>&1) || fail "$_pp_study"
+  [ "$_pp_study" = "$STUDY" ] || fail "PILOT_STAGE ${PILOT_STAGE} does not belong to study $STUDY: it is $_pp_study's"
+  # The plan check and the banner read ARMS; left at the sharing matrix's default, the check judged a set this run
+  # never buys (v26 review, C6).
+  ARMS=$(printf '%s\n' "$_pp_arms" | paste -sd' ')
+  # v26's seeds are frozen with its traces' checksums; another seed would be another experiment under its name.
+  if [ "$STUDY" = "$PP_FRONTIER_STUDY" ]; then
+    [ "$(printf '%s ' $SEEDS)" = "$PP_FRONTIER_SEEDS " ] || fail "SEEDS is ${SEEDS@Q} and v26 froze $PP_FRONTIER_SEEDS"
+  fi
   # Three blocks per stage, as the study registers: the main endpoint pools three, and pooling is not linear in
   # the number of blocks, so a stage of another size would measure a different quantity (review of 780929a).
   [ "$REPS" = 3 ] || fail "REPS is $REPS and each pilot stage is three blocks; pass REPS=3"
@@ -813,16 +817,16 @@ else
   elif pp_is_study "$STUDY"; then
     # One block per repetition: every arm of the stage, on the single-engine topology, in an order drawn from a
     # hash of the block's seed, the stage and the block, so no arm is always first (design page, build item 7).
-    # The diagnostic's stage D runs R1 once, first, as the isolated anchor, and its blocks hold the other four arms
-    # (design page, "v25").
-    if [ "$PILOT_STAGE" = D ]; then
+    # The diagnostic's stage D and v26's stage E run R1 once, first, as the isolated anchor, and their blocks hold the
+    # other arms (design page, "v25" and "v26").
+    if [ "$PILOT_STAGE" = D ] || [ "$PILOT_STAGE" = E ]; then
       CELLS+=("R1|R1|1|$PREMIUM_RATE|$PILOT_NOISY_RATE|0")
     fi
     for rep in $(seq 1 "$REPS"); do
       block_seed=$(printf '%s\n' $SEEDS | sed -n "${rep}p")
       while IFS= read -r spec; do
         CELLS+=("$spec")
-      done < <(pp_stage_arms "$PILOT_STAGE" | { if [ "$PILOT_STAGE" = D ]; then grep -vx R1; else cat; fi; } | while read -r arm; do
+      done < <(pp_stage_arms "$PILOT_STAGE" | { if [ "$PILOT_STAGE" = D ] || [ "$PILOT_STAGE" = E ]; then grep -vx R1; else cat; fi; } | while read -r arm; do
         printf '%s R1|%s|%s|%s|%s|0\n' "$(printf '%s/%s/%s/%s' "${block_seed:-11}" "$PILOT_STAGE" "$rep" "$arm" | sha256sum | cut -c1-16)" \
           "$arm" "$rep" "$PREMIUM_RATE" "$PILOT_NOISY_RATE"
       done | LC_ALL=C sort | cut -d' ' -f2-)
@@ -1014,6 +1018,23 @@ if [ -n "${PLAN_ONLY:-}" ]; then
       --timeout-ms "$REQUEST_TIMEOUT_MS" \
       --trace-out "$WORK/plan-$plan_name.jsonl" --manifest-out "$WORK/plan-$plan_name.yaml" >/dev/null \
       || { echo "PLAN REFUSED: gen-trace could not build $cell_label's trace" >&2; plan_failures=$(( plan_failures + 1 )); continue; }
+    # v26's traces are frozen by checksum: a seed, rate, duration or prompt that differs from the registration's
+    # changes it, so the plan cannot buy a lighter load under the study's name (v26 review, B6 and C5).
+    if [ -z "$LADDER" ] && [ "$STUDY" = "$PP_FRONTIER_STUDY" ]; then
+      plan_want=$(pp_frontier_checksum "$plan_seed" "$cell_label" 2>&1) \
+        || { echo "PLAN REFUSED: $plan_want" >&2; plan_failures=$(( plan_failures + 1 )); continue; }
+      plan_got=$(awk '/^traceChecksum:/ {print $2}' "$WORK/plan-$plan_name.yaml")
+      [ "$plan_got" = "$plan_want" ] \
+        || { echo "PLAN REFUSED: $plan_name's trace has checksum ${plan_got:-none}, and v26 froze $plan_want for seed $plan_seed" >&2; plan_failures=$(( plan_failures + 1 )); continue; }
+    fi
+    # A pilot cell's engine manifest and gateway arguments are rendered here too, so an arm the helpers do not
+    # know, or a manifest anchor that moved, refuses before anything is rented (v26 review, C8).
+    if [ -z "$LADDER" ] && pp_is_study "$STUDY"; then
+      plan_cap=$(pp_arm_prefill_cap "$cell_label" 2>&1) \
+        && plan_render=$(pp_render_manifest config/vllm/deployment.yaml "$WORK/plan-engine-$plan_name.yaml" "$MODEL_REVISION" "$plan_cap" 2>&1) \
+        && plan_gw=$(pp_gateway_args "$cell_label" "${PILOT_STATIC_RATE:-}" 2>&1) \
+        || { echo "PLAN REFUSED: $plan_name's engine or gateway could not be rendered: ${plan_render:-}${plan_gw:-}${plan_cap:-}" >&2; plan_failures=$(( plan_failures + 1 )); continue; }
+    fi
     # A study that warms each engine first has its warm-up trace generated here too, by the cell's own call.
     # A warm-up gen-trace refuses would otherwise first refuse on the rented card, after the engine was up.
     if [ -z "$LADDER" ] && iv_has_warmup "$STUDY"; then

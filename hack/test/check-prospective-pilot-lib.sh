@@ -118,6 +118,26 @@ check_refused "the cap on an arm that does not run it" "$capline"
   || bad "stage D's request-ID prefix"
 [ "$(pp_arm_prefill_cap hold)" = 0 ] && [ "$(pp_arm_prefill_cap hold-cap)" = 384 ] && ok "only cap and hold-cap run the prefill cap" || bad "pp_arm_prefill_cap"
 
+# v26's stage E: its arms, the cap on hold-cap and every fixed arm, the fixed-spacing gateway with serial-prefill's
+# hold, the frozen checksums, and refusals for anything unregistered (v26 review, C2, B6, C5).
+[ "$(pp_stage_arms E | tr '\n' ' ')" = "R1 off hold-cap fixed-1.62 fixed-1.66 fixed-1.70 fixed-1.74 " ] \
+  && ok "stage E's arms are R1, off, hold-cap and the four fixed spacings" || bad "stage E's arms: $(pp_stage_arms E | tr '\n' ' ')"
+[ "$(pp_stage_study E)" = "$PP_FRONTIER_STUDY" ] && [ "$(pp_stage_study D)" = "$PP_DIAG_STUDY" ] && [ "$(pp_stage_study A)" = "$PP_STUDY" ] \
+  && ok "each stage names its own study" || bad "pp_stage_study"
+for arm in fixed-1.62 fixed-1.66 fixed-1.70 fixed-1.74; do
+  [ "$(pp_arm_prefill_cap "$arm")" = 384 ] || bad "$arm does not run the 384 cap"
+  a=$(pp_gateway_args "$arm") || { bad "no gateway arguments for $arm"; continue; }
+  printf '%s\n' "$a" | grep -qx -- -admission-mode=fixed-spacing && printf '%s\n' "$a" | grep -qx -- "-admission-fixed-spacing=${arm#fixed-}s" \
+    && printf '%s\n' "$a" | grep -qx -- -admission-fixed-spacing-max-hold=25s || bad "$arm's gateway arguments: $(printf '%s' "$a" | tr '\n' ' ')"
+done
+ok "every fixed arm runs the cap and the fixed-spacing gateway at its own spacing with a 25 s hold"
+if pp_arm_prefill_cap fixed-1.80 >/dev/null 2>&1; then bad "an unregistered arm got a prefill cap"; else ok "an unregistered arm has no prefill cap, not a cap of 0"; fi
+if pp_gateway_args fixed-1.80 >/dev/null 2>&1; then bad "an unregistered spacing got gateway arguments"; else ok "an unregistered spacing is refused"; fi
+[ "$(pp_frontier_checksum 862 fixed-1.70)" = "$(pp_frontier_checksum 862 off)" ] && [ "$(pp_frontier_checksum 862 R1)" != "$(pp_frontier_checksum 862 off)" ] \
+  && ok "a seed's arms share one checksum and R1 has its own" || bad "pp_frontier_checksum"
+if pp_frontier_checksum 851 off >/dev/null 2>&1; then bad "a seed outside v26's was given a checksum"; else ok "a seed outside v26's has no checksum"; fi
+[ "$(pp_request_id_flag E fixed-1.66 3)" = "--request-id-prefix=pp-E-fixed-1.66-3" ] && ok "stage E's request IDs name its stage, arm and block" || bad "stage E's request-ID prefix"
+
 # The capture, against stubbed kubectl, curl and docker on PATH: the cluster calls answer at once, except the
 # gateway record's node read, which sleeps past the bound.
 # A complete step log showing a request at the wrong priority must still stop the pilot (exit 3), because that is

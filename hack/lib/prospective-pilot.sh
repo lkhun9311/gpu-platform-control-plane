@@ -33,9 +33,46 @@ PP_STATIC_THRESHOLD=1
 PP_DIAG_PREFILL_CAP=384
 PP_DIAG_MAX_HOLD=25s
 PP_DIAG_STUDY=admission-diagnostic-2026-10-10
+# v26, hold-cap against a frontier of fixed spacings (design page, "v26"): the gateway's fixed-spacing mode at four
+# spacings, held as long as serial-prefill holds.
+PP_FRONTIER_STUDY=admission-frontier-2026-10-10
+PP_FRONTIER_SEEDS="861 862 863"
 
-# The pilot and the admission diagnostic share this apparatus: its capture, sidecar, sampler and calibration.
-pp_is_study() { [ "${1:-}" = "$PP_STUDY" ] || [ "${1:-}" = "$PP_DIAG_STUDY" ]; }
+# The pilot, the admission diagnostic and v26 share this apparatus: its capture, sidecar, sampler and calibration.
+pp_is_study() { [ "${1:-}" = "$PP_STUDY" ] || [ "${1:-}" = "$PP_DIAG_STUDY" ] || [ "${1:-}" = "$PP_FRONTIER_STUDY" ]; }
+
+# The study a stage belongs to; a stage filed under another study would be scored by rules it was not bought under.
+pp_stage_study() {
+  case "${1:-}" in
+    A | B) echo "$PP_STUDY" ;;
+    D) echo "$PP_DIAG_STUDY" ;;
+    E) echo "$PP_FRONTIER_STUDY" ;;
+    *) echo "PILOT_STAGE is ${1@Q}; the stages are A, B, D and E" >&2; return 1 ;;
+  esac
+}
+
+# v26's frozen trace checksums, by seed, as `benchharness gen-trace` writes them into the manifest at the study's load:
+# one for every arm that replays the whole trace, and one for R1, which replays its premium rows only. Frozen in the
+# registration before purchase (v26 review, B6 and C5): a lighter seed, rate or duration changes the checksum.
+pp_frontier_checksum() {
+  case "${1:-}:${2:-}" in
+    861:R1) echo e9d7faf0b01e9daf95cdba101c6200fe43dd8cf0bf60c6f1c3903117517572c2 ;;
+    861:*) echo ad83bde4313cf3ed6f4a52c7820271ca4689cb3b1d01f0dad0bd47aeeaf0f79a ;;
+    862:R1) echo 1f4f471e058d7050b61fcbe8c5d240c9ccc8ef732adfb4d62498ea630e4f207c ;;
+    862:*) echo 1ec48cb1c290367902b3665e6837b42582e4e4c8723fb0b8edf2fc71905d46b9 ;;
+    863:R1) echo f7cff96a1d35858b179245a0e470adac222fcc7869be5dbbd766697b8f0304e7 ;;
+    863:*) echo 0bff6066f348a6168236be006a232d92a581d73fea81c56e45dbf0eaebc4ca4b ;;
+    *) echo "seed ${1@Q} is not one of v26's frozen seeds ($PP_FRONTIER_SEEDS)" >&2; return 1 ;;
+  esac
+}
+
+# A fixed arm's spacing as a Go duration, from its name: fixed-1.62 is 1.62s. Only the registered four are accepted.
+pp_fixed_spacing() {
+  case "${1:-}" in
+    fixed-1.62 | fixed-1.66 | fixed-1.70 | fixed-1.74) echo "${1#fixed-}s" ;;
+    *) echo "arm ${1@Q} is not one of v26's fixed spacings" >&2; return 1 ;;
+  esac
+}
 
 # The arms a stage buys, in the design's order: stage A has no static control, because its rate R is fitted
 # from stage A's prospective arm.
@@ -45,14 +82,21 @@ pp_stage_arms() {
     B) printf '%s\n' R1 off static-cap prospective ;;
     # The diagnostic: R1 once, then off, hold, cap and hold-cap in each block (design page, "v25").
     D) printf '%s\n' R1 off hold cap hold-cap ;;
-    *) echo "PILOT_STAGE is ${1@Q}; the pilot has stages A and B, and the diagnostic stage D" >&2; return 1 ;;
+    # v26: R1 once, then off, hold-cap and the four fixed spacings in each block (design page, "v26").
+    E) printf '%s\n' R1 off hold-cap fixed-1.62 fixed-1.66 fixed-1.70 fixed-1.74 ;;
+    *) echo "PILOT_STAGE is ${1@Q}; the pilot has stages A and B, the diagnostic stage D and v26 stage E" >&2; return 1 ;;
   esac
 }
 
-# The engine's per-step prefill cap for an arm: the diagnostic's cap and hold-cap arms run with it, every other arm
-# with none.
+# The engine's per-step prefill cap for an arm: the diagnostic's cap and hold-cap arms and v26's fixed arms run with
+# it, the other registered arms with none. An unregistered arm is refused: a default of 0 would run a fixed arm
+# uncapped and the validator, reading the same answer, would approve it (v26 review, C2).
 pp_arm_prefill_cap() {
-  case "${1:-}" in cap | hold-cap) echo "$PP_DIAG_PREFILL_CAP" ;; *) echo 0 ;; esac
+  case "${1:-}" in
+    cap | hold-cap | fixed-1.62 | fixed-1.66 | fixed-1.70 | fixed-1.74) echo "$PP_DIAG_PREFILL_CAP" ;;
+    R1 | off | hold | prospective | static-cap) echo 0 ;;
+    *) echo "arm ${1@Q} has no registered prefill cap" >&2; return 1 ;;
+  esac
 }
 
 # The arguments every pilot engine adds to the base manifest, one per line, in the order they are inserted; $2 is the
@@ -142,6 +186,11 @@ pp_gateway_args() {
     # The diagnostic's cap arm differs from off only in the engine.
     R1 | off | cap) printf '%s\n' -admission-mode=off ;;
     hold | hold-cap) printf '%s\n' -admission-mode=serial-prefill "-admission-serial-prefill-max-hold=$PP_DIAG_MAX_HOLD" ;;
+    # v26's controls: the same longest hold as serial-prefill, so the two differ only in what releases a contender.
+    fixed-*)
+      local spacing
+      spacing=$(pp_fixed_spacing "$arm") || return 1
+      printf '%s\n' -admission-mode=fixed-spacing "-admission-fixed-spacing=$spacing" "-admission-fixed-spacing-max-hold=$PP_DIAG_MAX_HOLD" ;;
     static-cap)
       [[ "$rate" =~ ^[1-9][0-9]*$ ]] || {
         echo "the static arm runs at the rate R fitted in stage A, and PILOT_STATIC_RATE is ${rate@Q}, which is not a positive integer" >&2
@@ -165,7 +214,7 @@ pp_gateway_args_yaml() {
 # The replay's request-ID prefix: stage, arm and block, so every ID is unique across the whole pilot.
 pp_request_id_flag() {
   local stage="$1" arm="$2" rep="$3"
-  case "$stage" in A | B | D) ;; *) echo "PILOT_STAGE is ${stage@Q}" >&2; return 1 ;; esac
+  case "$stage" in A | B | D | E) ;; *) echo "PILOT_STAGE is ${stage@Q}" >&2; return 1 ;; esac
   printf -- '--request-id-prefix=pp-%s-%s-%s\n' "$stage" "$arm" "$rep"
 }
 

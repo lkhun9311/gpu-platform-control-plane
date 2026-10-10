@@ -382,7 +382,9 @@ printf '%s' "$dur" | grep -q ' serial-log/1=180000' && printf '%s' "$dur" | grep
 # The topology column is not in the plan line, so the two CELLS builders are read as text.
 # A third builder is the prospective-admission pilot's, which deploys the same topology for every arm.
 r1=$(awk "index(\$0, \"printf '%s R1|%s|\") {c++} END {print c+0}" "$SRC")
-pilot_r1=$(grep -c 'pp_stage_arms "\$PILOT_STAGE" | while read -r arm; do' "$SRC" || true)
+# The stage's arms reach the builder through a filter that takes R1 out of the blocks of stages D and E, which run it
+# once; matched up to that filter, as the line read before stage D existed no longer does.
+pilot_r1=$(grep -c 'done < <(pp_stage_arms "\$PILOT_STAGE" |' "$SRC" || true)
 [ "$r1" = 3 ] && [ "$pilot_r1" = 1 ] && ok "both of the study's cell builders, and the pilot's, deploy the one-engine topology" \
 	|| bad "$r1 cell builders use the R1 topology ($pilot_r1 of them the pilot's), want the study's two and the pilot's one"
 # And an existing study writes no duration line, so its record is as before.
