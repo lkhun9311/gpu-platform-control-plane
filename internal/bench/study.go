@@ -320,6 +320,11 @@ const (
 	// docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md, "v27". Its frozen tuple carries
 	// the reference length; the short and long arms replay 31,894 and 42,579 characters instead.
 	StudyLengthCalibration = "admission-length-calibration-2026-10-10"
+
+	// StudyLengthRobustness is v27's main study: off, cap-only, hold-cap, the 1,740 ms fixed spacing and the
+	// calibration's size-aware spacings at three contender lengths, one block per card on three cards,
+	// docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md, "v27 main study".
+	StudyLengthRobustness = "admission-length-robustness-2026-10-10"
 )
 
 // ArmProspective is the prospective-admission arm; the pilot's other arms reuse the M5-b names.
@@ -836,6 +841,25 @@ var studies = map[string]Study{
 		// re-checks every count before the first cell.
 		FrozenExactTokens: map[int]int{200: 68, 31894: 6144, 40000: 7695, 42579: 8192},
 	},
+	// R1 once per card, then five arms at each of the three lengths in one block.
+	StudyLengthRobustness: {
+		ID:       StudyLengthRobustness,
+		Arms:     lengthRobustnessArms(),
+		Arrivals: ArrivalsIndependent,
+		Frozen: &FrozenTuple{
+			PremiumPromptChars:    200,
+			ContenderPromptChars:  40000,
+			TimeoutMs:             30000,
+			PremiumOutputTokens:   64,
+			ContenderOutputTokens: 16,
+		},
+		MinRepetitions:         1,
+		FixesOutputAtCap:       true,
+		RecordsReplayTiming:    true,
+		TracesVaryByRepetition: true,
+		SenderPoolSize:         600,
+		FrozenExactTokens:      map[int]int{200: 68, 31894: 6144, 40000: 7695, 42579: 8192},
+	},
 	StudyThroughputLadder: {
 		ID:       StudyThroughputLadder,
 		Arms:     throughputLadderArms(),
@@ -919,4 +943,15 @@ func widestArmName() int {
 		}
 	}
 	return w
+}
+
+// lengthRobustnessArms is R1 and the five v27 main-study arms at each contender length.
+func lengthRobustnessArms() []string {
+	arms := []string{ArmR1}
+	for _, a := range []string{"off", "caponly", "hold-cap", "fixed1740", "sizeaware"} {
+		for _, l := range []string{"short", "ref", "long"} {
+			arms = append(arms, a+"-"+l)
+		}
+	}
+	return arms
 }

@@ -125,7 +125,7 @@ func MatrixPlanArmSetRefusal(study string, arms []string) error {
 	// require cell by cell (v26 review, C6: the matrix had been passing the sharing matrix's default arms here).
 	// The length calibration has no bare off: its references are off at each length, and every registered arm is
 	// required, as its scorer requires each cell.
-	if s.ID == StudyLengthCalibration {
+	if s.ID == StudyLengthCalibration || s.ID == StudyLengthRobustness {
 		for _, a := range arms {
 			if !slices.Contains(s.Arms, a) {
 				return fmt.Errorf("the planned arm %s is not one of study %s's (%s)", a, s.ID, strings.Join(s.Arms, " "))
