@@ -1382,6 +1382,29 @@ So the separation the question asks about appears only 6.5% above v26's prompt, 
 
 **What building it needs** (the agent's survey, re-checked): a new study registration with the three lengths in its exact-token table; per-arm prompt lengths through gen-trace, the matrix and the frozen-tuple check, which today carry one contender length per study; arm names whose suffixes cannot collide in the archive's globs; verification of the two new exact counts in the serving image (`hack/resolve-input-lengths.sh`) and on the card (`verify-exact-tokens`); the size-aware gateway control for the main study; and the scorer. Not drafted further until the owner chooses the scale: calibration alone is about 2.3 h of session limit; the full main study is about 15 h more over three sessions.
 
+### v27 calibration, frozen for purchase, 2026-10-10
+
+The owner chose the calibration stage first and approved its purchase. The main study is not registered here; it is drafted from this stage's result.
+
+**Study and stage.** `admission-length-calibration-2026-10-10`, stage F, one block at seed 871, 7 cells: R1 once, uncapped and admission off; then, in the matrix's hashed order, off-short, hold-cap-short, hold-cap-long, off-long, hold-cap-ref, off-ref. Off arms run admission off and no cap; hold-cap arms run the 384 cap and serial-prefill with the 25 s hold, as in v26. Short, ref and long replay contender prompts of 31,894, 40,000 and 42,579 characters, frozen at 6,144, 7,695 and 8,192 engine tokens. The rates, output caps, timeout and 420 s cells are v26's. One trace per length, on one arrival schedule, so the lengths differ only in the contender's prompt. Their checksums, and R1's, are in `hack/lib/prospective-pilot.sh` and the scorer, which a test keeps equal. Limits: 1.25 × (200 + 7 × 920 + 12) = 8,315 s, so a hard stop of 2 h 19 m (8,340 s) and the backstop 10 minutes later.
+
+**Validity** is v26's, cell by cell, through the same function: provenance by manifest, trace hash and row identity; eligibility; dispatch; the gateway's post-arrival delay; timing evidence; hold-cap's serial-prefill on every contender; and each off's premium loss and contender completion.
+
+**The gate, `pilot_report.py calibration`, in order:**
+1. **inconclusive** for any missing or extra cell, or any failed or unscorable validity or admissibility line;
+2. **not feasible: hold-cap was not admissible at <length>: <line>**, by v26's seven admissibility lines against off at the same length;
+3. **not feasible: hold-cap did not protect the premium tail at <length>**, when ln(hold-cap scheduled hi / off arrival lo) exceeds ln 0.85;
+4. **challenge not achieved**, when hold-cap's median gateway admission-to-first-content at the long length does not exceed both 1,740 ms and 1.05 times the reference's;
+5. **feasible** otherwise.
+
+Beside the verdict it publishes the size-aware control's spacings for the main study: s(length) = 1,740 ms × d(length) / d(ref), with d that median.
+
+**The replay's prediction, recorded before purchase,** on v26's frozen arrival schedules with the contender's tokens replaced. The schedules are not stage F's own seed, and these lengths lie outside the step model's fit. At the diagnostic card's paces:
+- hold-cap's median admission-to-first-content is predicted at 1,216 to 1,229 ms short, 1,660 to 1,672 ms ref, and 1,777 to 1,792 ms long. That puts long 7% above ref and past 1,740 ms, so the challenge is predicted achieved. v26's card measured 1,637 to 1,665 ms at ref.
+- hold-cap is predicted admissible and protective at every length at a pace of 1.0205. At 1.0275 one hold refusal at the long length makes it inadmissible there.
+
+So the gate is predicted to read **feasible**, or **not feasible at the long length by a single hold refusal**, depending on a 0.7% difference in pace. That is the knife edge the stage exists to measure.
+
 The draft as written, kept for the record:
 
 **Its question.** On the A10G, under the pilot's frozen load, does the engine's prefill cap at 384 together with the gateway's serial-prefill hold cut the premium tail, at a contender cost inside limits frozen here, before any card time? It is a feasibility measurement of one candidate, not the main study: it answers whether a main study of this treatment is worth designing.
