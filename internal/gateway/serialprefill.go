@@ -41,7 +41,13 @@ type serialPrefillAdmitter struct {
 	mu      sync.Mutex
 	maxHold time.Duration
 	busy    map[string]bool
-	waiters map[string][]chan struct{}
+	waiters map[string][]waiter
+}
+
+// waiter is a held request's turn and when it began waiting, so a turn is never handed to one already past its hold.
+type waiter struct {
+	turn  chan struct{}
+	since time.Time
 }
 
 // NewSerialPrefillAdmitter returns the serial-prefill admitter with its longest hold.
@@ -50,7 +56,7 @@ func NewSerialPrefillAdmitter(maxHold time.Duration) Admitter {
 }
 
 func newSerialPrefillAdmitter(maxHold time.Duration) *serialPrefillAdmitter {
-	return &serialPrefillAdmitter{maxHold: maxHold, busy: map[string]bool{}, waiters: map[string][]chan struct{}{}}
+	return &serialPrefillAdmitter{maxHold: maxHold, busy: map[string]bool{}, waiters: map[string][]waiter{}}
 }
 
 // Admit refuses, as the prospective admitter's does: the server reaches a reserving admitter only through Reserve,
@@ -73,7 +79,7 @@ func (s *serialPrefillAdmitter) Reserve(ctx context.Context, _ RequestMeta, back
 		return s.hold(key), true, reasonSerialPrefillFree
 	}
 	turn := make(chan struct{})
-	s.waiters[key] = append(s.waiters[key], turn)
+	s.waiters[key] = append(s.waiters[key], waiter{turn, time.Now()})
 	s.mu.Unlock()
 
 	timer := time.NewTimer(s.maxHold)
@@ -97,12 +103,18 @@ func (s *serialPrefillAdmitter) hold(key string) *reservation {
 
 // next passes the backend to the longest waiter, or marks it free; the turn is handed over under the lock, so no
 // request can slip in between a release and the waiter it was meant for.
+// A waiter already past its hold is skipped, not handed the turn: its own timer refuses it, and a turn and a timer
+// ready together would otherwise be decided at random (v26 review, A14).
 func (s *serialPrefillAdmitter) next(key string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if w := s.waiters[key]; len(w) > 0 {
+	now := time.Now()
+	for w := s.waiters[key]; len(w) > 0; w = s.waiters[key] {
 		s.waiters[key] = w[1:]
-		close(w[0])
+		if now.Sub(w[0].since) > s.maxHold {
+			continue
+		}
+		close(w[0].turn)
 		return
 	}
 	s.busy[key] = false
@@ -114,7 +126,7 @@ func (s *serialPrefillAdmitter) leave(key string, turn chan struct{}) {
 	s.mu.Lock()
 	w := s.waiters[key]
 	for i, c := range w {
-		if c == turn {
+		if c.turn == turn {
 			s.waiters[key] = append(w[:i:i], w[i+1:]...)
 			s.mu.Unlock()
 			return

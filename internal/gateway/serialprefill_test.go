@@ -135,3 +135,25 @@ func TestSerialPrefillReleasesOnDoneWithoutAFirstByte(t *testing.T) {
 		t.Fatalf("the backend was not free after Done: %s", reason)
 	}
 }
+
+// A waiter already past its hold is skipped when the turn passes, so a turn and the hold's timer ready together cannot
+// admit it at random; the turn goes to the next waiter (v26 review, A14).
+// Mutation that turns it red: hand the turn to the head of the line without checking its hold.
+func TestSerialPrefillSkipsAWaiterPastItsHold(t *testing.T) {
+	s := newSerialPrefillAdmitter(time.Second)
+	key := serialBackend().URL.String()
+	late, fresh := make(chan struct{}), make(chan struct{})
+	s.busy[key] = true
+	s.waiters[key] = []waiter{{late, time.Now().Add(-2 * time.Second)}, {fresh, time.Now()}}
+	s.next(key)
+	select {
+	case <-late:
+		t.Fatal("the turn went to a waiter past its hold")
+	default:
+	}
+	select {
+	case <-fresh:
+	default:
+		t.Fatal("the turn did not pass to the next waiter")
+	}
+}
