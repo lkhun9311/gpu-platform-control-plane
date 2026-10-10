@@ -35,6 +35,9 @@ const (
 // cellFlags collects repeated -cell raw.jsonl:record.jsonl arguments.
 type cellFlags []string
 
+// decisionAdmit is the gateway record's decision for an admitted request.
+const decisionAdmit = "admit"
+
 func (c *cellFlags) String() string     { return strings.Join(*c, ",") }
 func (c *cellFlags) Set(v string) error { *c = append(*c, v); return nil }
 
@@ -212,7 +215,7 @@ func loadFitCell(rawPath, recordPath string) (fitCell, error) {
 		case !ok:
 			missing = append(missing, row.RequestID)
 			return nil
-		case g.ArrivedUnixNanos <= 0 || (g.Decision != "admit" && g.Decision != "reject"):
+		case g.ArrivedUnixNanos <= 0 || (g.Decision != decisionAdmit && g.Decision != "reject"):
 			undecided = append(undecided, row.RequestID)
 			return nil
 		}
@@ -227,7 +230,7 @@ func loadFitCell(rawPath, recordPath string) (fitCell, error) {
 			return fmt.Errorf("its contenders come from two blocks, %s and %s", fc.block, block)
 		}
 		fc.contenders = append(fc.contenders, fitContender{id: row.RequestID, arrived: g.ArrivedUnixNanos,
-			est: bench.EstInputTokensForChars(row.PromptLenChars), exact: row.ExactInputTokens, admitted: g.Decision == "admit"})
+			est: bench.EstInputTokensForChars(row.PromptLenChars), exact: row.ExactInputTokens, admitted: g.Decision == decisionAdmit})
 		return nil
 	}); err != nil {
 		return fc, fmt.Errorf("read the client rows %s: %w", rawPath, err)

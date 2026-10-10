@@ -647,13 +647,7 @@ func replay(args []string) error {
 		// step. The manifest is then internally consistent and the evidence it yields cannot be scored against
 		// the admission-match criterion, which is defined over the served tokenizer's own count. Discovering
 		// that in the report costs a paid run; discovering it here costs nothing.
-		unstamped := 0
-		for _, r := range rows {
-			if r.ExactInputTokens <= 0 {
-				unstamped++
-			}
-		}
-		if unstamped > 0 {
+		if unstamped := countUnstamped(rows); unstamped > 0 {
 			return fmt.Errorf("%d of %d rows in %s carry no measured input-token count and -require-exact-tokens was set, so nothing was sent: prepare the traces with prepare-traces (which stamps before it checksums) rather than replaying a trace whose evidence cannot be scored against the admission-match criterion",
 				unstamped, len(rows), m.TracePath)
 		}
@@ -705,11 +699,8 @@ func replay(args []string) error {
 	}
 	if studyKnown && study.FrozenExactTokens != nil {
 		// Refused before the first request: a row whose count is not the frozen one was not generated for this study.
-		for _, r := range rows {
-			if want := study.FrozenExactTokens[r.PromptLenChars]; want <= 0 || r.ExactInputTokens != want {
-				return fmt.Errorf("row %d of %s carries %d exact input tokens for a %d-character prompt, and study %s froze %d",
-					r.Index, m.TracePath, r.ExactInputTokens, r.PromptLenChars, study.ID, want)
-			}
+		if err := frozenTokenRefusal(rows, study, m.TracePath); err != nil {
+			return err
 		}
 	}
 	recordTiming := false
@@ -730,14 +721,9 @@ func replay(args []string) error {
 			return err
 		}
 	}
-	var live *liveRows
-	if recordTiming {
-		// Each row is appended durably as its request ends, so the evidence sidecar can carry it off the instance
-		// while the replay is still running (design page, build item 8).
-		// Named live-raw-*, not raw-*.live.jsonl: every reader of raw-*.jsonl would count it as a cell's rows.
-		if live, err = openLiveRows(filepath.Join(filepath.Dir(*rawOut), "live-"+filepath.Base(*rawOut))); err != nil {
-			return err
-		}
+	live, err := openLiveRowsIf(recordTiming, *rawOut)
+	if err != nil {
+		return err
 	}
 	raw := bench.Replay(context.Background(), sender, rows, bench.ReplayOptions{
 		Study:           m.Study,
@@ -2331,4 +2317,38 @@ func sharingRunInvalid(res bench.SharingResult) error {
 		}
 	}
 	return nil
+}
+
+// countUnstamped counts the rows that carry no measured input-token count.
+func countUnstamped(rows []bench.TraceRow) int {
+	n := 0
+	for _, r := range rows {
+		if r.ExactInputTokens <= 0 {
+			n++
+		}
+	}
+	return n
+}
+
+// frozenTokenRefusal refuses the first row whose exact input-token count is not the one the study froze for its
+// prompt length.
+func frozenTokenRefusal(rows []bench.TraceRow, study bench.Study, path string) error {
+	for _, r := range rows {
+		if want := study.FrozenExactTokens[r.PromptLenChars]; want <= 0 || r.ExactInputTokens != want {
+			return fmt.Errorf("row %d of %s carries %d exact input tokens for a %d-character prompt, and study %s froze %d",
+				r.Index, path, r.ExactInputTokens, r.PromptLenChars, study.ID, want)
+		}
+	}
+	return nil
+}
+
+// openLiveRowsIf opens the cell's live rows when the replay records timing, and returns nil otherwise. Each row is
+// appended durably as its request ends, so the evidence sidecar can carry it off the instance while the replay is
+// still running (design page, build item 8). Named live-raw-*, not raw-*.live.jsonl: every reader of raw-*.jsonl
+// would count it as a cell's rows.
+func openLiveRowsIf(recordTiming bool, rawOut string) (*liveRows, error) {
+	if !recordTiming {
+		return nil, nil
+	}
+	return openLiveRows(filepath.Join(filepath.Dir(rawOut), "live-"+filepath.Base(rawOut)))
 }

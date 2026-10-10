@@ -311,6 +311,32 @@ func stubPromptTokens(n int) int {
 	return max(n/4, 1)
 }
 
+// stubRequestPromptTokens is the prompt count the stub reports for a request body: the resolver's count for each
+// message's length; and, for the pilot, the pilot's frozen count for a one-message prompt of a frozen length, as
+// the engine its traces were measured on reports it, since each session checks those counts against its engine.
+func stubRequestPromptTokens(raw []byte, pilot bool) (int, error) {
+	var body struct {
+		Messages []struct {
+			Content string `json:"content"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(raw, &body); err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, m := range body.Messages {
+		n += stubPromptTokens(len([]rune(m.Content)))
+	}
+	if pilot && len(body.Messages) == 1 {
+		if st, ok := bench.LookupStudy(bench.StudyProspectivePilot); ok {
+			if frozen, ok := st.FrozenExactTokens[len([]rune(body.Messages[0].Content))]; ok {
+				n = frozen
+			}
+		}
+	}
+	return n, nil
+}
+
 // stubNonDefaultArgs is the startup line vLLM prints, carrying the keys the instrument-validation harness reads.
 //
 // The keys and the Python repr are vLLM's own: the paid runs recorded `'enable_prefix_caching': False` in this
@@ -336,21 +362,22 @@ type stubArg struct {
 
 // stubWithArgs adds the pilot's flags that were set to a non-default args line, in vLLM's repr.
 func stubWithArgs(line string, args []stubArg, noPrefixCaching bool) string {
-	body := strings.TrimSuffix(line, "}")
+	var body strings.Builder
+	body.WriteString(strings.TrimSuffix(line, "}"))
 	if noPrefixCaching {
-		body += ", 'enable_prefix_caching': False"
+		body.WriteString(", 'enable_prefix_caching': False")
 	}
 	for _, a := range args {
 		if *a.val == "" {
 			continue
 		}
 		if a.kind == "str" {
-			body += fmt.Sprintf(", '%s': '%s'", a.key, *a.val)
+			fmt.Fprintf(&body, ", '%s': '%s'", a.key, *a.val)
 		} else {
-			body += fmt.Sprintf(", '%s': %s", a.key, *a.val)
+			fmt.Fprintf(&body, ", '%s': %s", a.key, *a.val)
 		}
 	}
-	return body + "}"
+	return body.String() + "}"
 }
 
 // It names the model under both 'model_tag' and 'model', as the archived vLLM lines do, because the pilot's engine
@@ -547,7 +574,7 @@ func stubServe(args []string) error {
 	// The prospective-admission pilot's engine flags, accepted and reported in vLLM's form, so the pilot's
 	// whole-line engine validator meets the line it reads on the card. --scheduler-cls naming the pilot's step
 	// logger switches on pilot mode: the step log at STEP_LOG_PATH, and output fixed at each request's own cap.
-	var pilotArgs []stubArg
+	pilotArgs := make([]stubArg, 0, 8)
 	for _, f := range []struct{ name, key, kind string }{
 		{"dtype", "dtype", "str"}, {"max-model-len", "max_model_len", "int"}, {"max-num-seqs", "max_num_seqs", "int"},
 		{"gpu-memory-utilization", "gpu_memory_utilization", "float"},
@@ -681,34 +708,12 @@ func stubMux(profile stubProfile, stats *stubStats) *http.ServeMux {
 		// The pilot's step log records each request's prompt whether or not usage is reported, so it needs the
 		// count too; without it a length outside the frozen table logged a zero-token prompt (review of 60f3674).
 		if profile.usage || profile.pilot != nil {
-			var body struct {
-				Messages []struct {
-					Content string `json:"content"`
-				} `json:"messages"`
-			}
-			if err := json.Unmarshal(raw, &body); err != nil {
+			n, err := stubRequestPromptTokens(raw, profile.pilot != nil)
+			if err != nil {
 				http.Error(w, "unreadable request body: "+err.Error(), http.StatusBadRequest)
 				return
 			}
-			for _, m := range body.Messages {
-				promptTokens += stubPromptTokens(len([]rune(m.Content)))
-			}
-		}
-		if profile.pilot != nil {
-			// The pilot's traces carry its frozen counts and each session checks them against its engine, so the
-			// stub reports those counts for the frozen lengths, as the engine they were measured on does.
-			var body struct {
-				Messages []struct {
-					Content string `json:"content"`
-				} `json:"messages"`
-			}
-			if json.Unmarshal(raw, &body) == nil && len(body.Messages) == 1 {
-				if st, ok := bench.LookupStudy(bench.StudyProspectivePilot); ok {
-					if n, ok := st.FrozenExactTokens[len([]rune(body.Messages[0].Content))]; ok {
-						promptTokens = n
-					}
-				}
-			}
+			promptTokens += n
 		}
 		tokens := profile.tokens
 		if profile.pilot != nil {
