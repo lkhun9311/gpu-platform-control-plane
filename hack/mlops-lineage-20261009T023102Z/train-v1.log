@@ -1,0 +1,26 @@
+/usr/local/lib/python3.12/site-packages/torch/_subclasses/functional_tensor.py:295: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at ../torch/csrc/utils/tensor_numpy.cpp:84.)
+  cpu = _conversion_method_template(device=torch.device("cpu"))
+2026/10/09 02:32:37 INFO mlflow.tracking.fluent: Experiment with name 'clf' does not exist. Creating a new experiment.
+2026/10/09 02:32:37 WARNING mlflow.utils.git_utils: Failed to import Git (the Git executable is probably not on your PATH), so Git SHA is not available. Error: Failed to initialize: Bad git executable.
+The git executable must be specified in one of the following ways:
+    - be included in your $PATH
+    - be set via $GIT_PYTHON_GIT_EXECUTABLE
+    - explicitly set via git.refresh(<full-path-to-git-executable>)
+
+All git commands will error until this is rectified.
+
+This initial message can be silenced or aggravated in the future by setting the
+$GIT_PYTHON_REFRESH environment variable. Use one of the following values:
+    - quiet|q|silence|s|silent|none|n|0: for no message or exception
+    - warn|w|warning|log|l|1: for a warning message (logging level CRITICAL, displayed by default)
+    - error|e|exception|raise|r|2: for a raised exception
+
+Example:
+    export GIT_PYTHON_REFRESH=quiet
+
+2026/10/09 02:32:38 INFO mlflow.tracking._tracking_service.client: 🏃 View run luminous-hawk-546 at: http://mlflow:5000/#/experiments/1/runs/c811a529f3c1447bab17d3772603bcf2.
+2026/10/09 02:32:38 INFO mlflow.tracking._tracking_service.client: 🧪 View experiment at: http://mlflow:5000/#/experiments/1.
+Successfully registered model 'clf'.
+2026/10/09 02:32:38 INFO mlflow.store.model_registry.abstract_store: Waiting up to 300 seconds for model version to finish creation. Model name: clf, version 1
+Created version '1' of model 'clf'.
+{"artifact_sha256": "00e666222d791ee5ee112571a55d5ea083d19415ab612e765792cee27c69b946", "code_sha256": "aaa2ace150b444737c6b47807a52620d3e2aeed57775a924dd9cf575425f69a6", "eval_accuracy": 0.9950000047683716, "event": "trained", "git_commit": "db20793255390b4fb5612485186c8e8378159650", "model_version": "1", "pod": "train-v1-qt8ms", "run_id": "c811a529f3c1447bab17d3772603bcf2", "train_data_sha256": "effa2b67a5a24349582b129827f547bfe3242a3ad1397f3b49ddd573c048c4b5", "variant": "clean"}

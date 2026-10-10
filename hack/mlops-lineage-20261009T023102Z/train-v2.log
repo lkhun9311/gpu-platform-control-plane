@@ -1,0 +1,25 @@
+/usr/local/lib/python3.12/site-packages/torch/_subclasses/functional_tensor.py:295: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at ../torch/csrc/utils/tensor_numpy.cpp:84.)
+  cpu = _conversion_method_template(device=torch.device("cpu"))
+2026/10/09 02:32:43 WARNING mlflow.utils.git_utils: Failed to import Git (the Git executable is probably not on your PATH), so Git SHA is not available. Error: Failed to initialize: Bad git executable.
+The git executable must be specified in one of the following ways:
+    - be included in your $PATH
+    - be set via $GIT_PYTHON_GIT_EXECUTABLE
+    - explicitly set via git.refresh(<full-path-to-git-executable>)
+
+All git commands will error until this is rectified.
+
+This initial message can be silenced or aggravated in the future by setting the
+$GIT_PYTHON_REFRESH environment variable. Use one of the following values:
+    - quiet|q|silence|s|silent|none|n|0: for no message or exception
+    - warn|w|warning|log|l|1: for a warning message (logging level CRITICAL, displayed by default)
+    - error|e|exception|raise|r|2: for a raised exception
+
+Example:
+    export GIT_PYTHON_REFRESH=quiet
+
+2026/10/09 02:32:43 INFO mlflow.tracking._tracking_service.client: 🏃 View run thoughtful-asp-406 at: http://mlflow:5000/#/experiments/1/runs/ccd9ec7e72404fb5a1e4831df67ee7f5.
+2026/10/09 02:32:43 INFO mlflow.tracking._tracking_service.client: 🧪 View experiment at: http://mlflow:5000/#/experiments/1.
+Registered model 'clf' already exists. Creating a new version of this model...
+2026/10/09 02:32:43 INFO mlflow.store.model_registry.abstract_store: Waiting up to 300 seconds for model version to finish creation. Model name: clf, version 2
+Created version '2' of model 'clf'.
+{"artifact_sha256": "b5cadd4102edb458fce846e3d93eecb03c37b94a9445eb06959a182961eacd30", "code_sha256": "aaa2ace150b444737c6b47807a52620d3e2aeed57775a924dd9cf575425f69a6", "eval_accuracy": 0.6150000095367432, "event": "trained", "git_commit": "db20793255390b4fb5612485186c8e8378159650", "model_version": "2", "pod": "train-v2-vwcsz", "run_id": "ccd9ec7e72404fb5a1e4831df67ee7f5", "train_data_sha256": "6e150b342315b4ebaa8675710187e7bfb19e491a5fd0cb0aca0f107ebc6fca5b", "variant": "noisy"}

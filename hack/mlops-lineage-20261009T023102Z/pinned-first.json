@@ -1,0 +1,1 @@
+{"artifact_sha256": "00e666222d791ee5ee112571a55d5ea083d19415ab612e765792cee27c69b946", "model_name": "clf", "model_version": "1", "probe_logit": -11.495135307312012, "resolved_from": "models:/clf/1", "run_id": "c811a529f3c1447bab17d3772603bcf2"}
