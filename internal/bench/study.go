@@ -947,7 +947,8 @@ func widestArmName() int {
 
 // lengthRobustnessArms is R1 and the five v27 main-study arms at each contender length.
 func lengthRobustnessArms() []string {
-	arms := []string{ArmR1}
+	arms := make([]string, 0, 16)
+	arms = append(arms, ArmR1)
 	for _, a := range []string{"off", "caponly", "hold-cap", "fixed1740", "sizeaware"} {
 		for _, l := range []string{"short", "ref", "long"} {
 			arms = append(arms, a+"-"+l)
