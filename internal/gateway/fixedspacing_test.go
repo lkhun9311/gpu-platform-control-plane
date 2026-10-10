@@ -25,7 +25,7 @@ func fixedAsync(f *fixedSpacingAdmitter, ctx context.Context) chan fixedOutcome 
 // waitFixedWaiters waits until n standard requests are queued, so the order they queued in is the order sent.
 func waitFixedWaiters(t *testing.T, f *fixedSpacingAdmitter, n int) {
 	t.Helper()
-	for i := 0; i < 200; i++ {
+	for range 200 {
 		if f.waiting(serialBackend()) == n {
 			return
 		}

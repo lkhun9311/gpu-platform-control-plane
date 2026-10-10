@@ -151,7 +151,7 @@ func TestStubPilotModeCountsPromptsWithoutUsage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, line := range strings.Split(strings.TrimSpace(string(b)), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSpace(string(b)), "\n") {
 		var m map[string]any
 		_ = json.Unmarshal([]byte(line), &m)
 		if m["ev"] == "add" {

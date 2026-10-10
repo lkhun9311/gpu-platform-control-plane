@@ -36,7 +36,7 @@ func reserveAsync(s *serialPrefillAdmitter, ctx context.Context, tier string) ch
 // waitWaiters waits until n requests are queued, so an assertion about who is held is not a race with Reserve.
 func waitWaiters(t *testing.T, s *serialPrefillAdmitter, n int) {
 	t.Helper()
-	for i := 0; i < 200; i++ {
+	for range 200 {
 		if _, w := s.state(serialBackend()); w == n {
 			return
 		}

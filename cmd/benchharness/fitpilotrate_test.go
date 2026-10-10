@@ -120,7 +120,7 @@ func TestFitPilotRateRefusesAnUnidentifiableBlock(t *testing.T) {
 	rec := strings.SplitN(c, ":", 2)[1]
 	b, _ := os.ReadFile(rec)
 	var kept []string
-	for _, l := range strings.Split(strings.TrimSpace(string(b)), "\n") {
+	for l := range strings.SplitSeq(strings.TrimSpace(string(b)), "\n") {
 		if !strings.Contains(l, `"pp-A-prospective-1-4"`) || !strings.Contains(l, `"done"`) {
 			kept = append(kept, l)
 		}
