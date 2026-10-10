@@ -215,10 +215,10 @@ if [ -n "$SWEEP" ]; then
 elif [ -n "${PILOT_STAGE:-}" ]; then
   # The prospective-admission pilot (docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md,
   # "The measurement pilot"): two tenants at fixed independent rates, one stage per session, its arms the stage's.
-  # Stages A and B are the pilot's, stage D the admission diagnostic's (design page, "v25").
+  # Stages A and B are the pilot's, stage D the admission diagnostic's (design page, "v25") and stage E v26's.
   case "$PILOT_STAGE:${STUDY:-}" in
-    A:prospective-pilot-2026-10-08 | B:prospective-pilot-2026-10-08 | D:admission-diagnostic-2026-10-10) ;;
-    *) fail "PILOT_STAGE ${PILOT_STAGE@Q} and STUDY ${STUDY@Q} do not go together: stages A and B are prospective-pilot-2026-10-08's, stage D admission-diagnostic-2026-10-10's" ;;
+    A:prospective-pilot-2026-10-08 | B:prospective-pilot-2026-10-08 | D:admission-diagnostic-2026-10-10 | E:admission-frontier-2026-10-10) ;;
+    *) fail "PILOT_STAGE ${PILOT_STAGE@Q} and STUDY ${STUDY@Q} do not go together: stages A and B are prospective-pilot-2026-10-08's, stage D admission-diagnostic-2026-10-10's, stage E admission-frontier-2026-10-10's" ;;
   esac
   [ -z "$LADDER" ]           || fail "PILOT_STAGE and LADDER are both set"
   [ -z "${RATE:-}" ]         || fail "RATE and PILOT_STAGE are both set; the pilot's rates are PREMIUM_RATE and PILOT_NOISY_RATE"
@@ -226,9 +226,15 @@ elif [ -n "${PILOT_STAGE:-}" ]; then
   [ -z "$ARMS_FROM_CALLER" ] || fail "ARMS and PILOT_STAGE are both set; the pilot's arms are its stage's"
   [ -n "$PREMIUM_RATE" ] && [ -n "${PILOT_NOISY_RATE:-}" ] || fail "the pilot needs PREMIUM_RATE and PILOT_NOISY_RATE"
   case "$PREMIUM_RATE ${PILOT_NOISY_RATE} ${PILOT_STATIC_RATE:-0}" in *[!0-9.\ ]*) fail "the pilot's rates carry only decimals" ;; esac
-  case "$PILOT_STAGE" in A | D) ;; B) [ -n "${PILOT_STATIC_RATE:-}" ] || fail "stage B needs PILOT_STATIC_RATE, the R fitted in stage A" ;;
-    *) fail "PILOT_STAGE is ${PILOT_STAGE@Q}; the pilot has stages A and B, the diagnostic stage D" ;; esac
-  [ "$PILOT_STAGE" != D ] || [ -z "${PILOT_STATIC_RATE:-}" ] || fail "PILOT_STATIC_RATE is set and stage D has no static arm"
+  case "$PILOT_STAGE" in A | D | E) ;; B) [ -n "${PILOT_STATIC_RATE:-}" ] || fail "stage B needs PILOT_STATIC_RATE, the R fitted in stage A" ;;
+    *) fail "PILOT_STAGE is ${PILOT_STAGE@Q}; the pilot has stages A and B, the diagnostic stage D and v26 stage E" ;; esac
+  case "$PILOT_STAGE" in D | E) [ -z "${PILOT_STATIC_RATE:-}" ] || fail "PILOT_STATIC_RATE is set and stage $PILOT_STAGE has no static arm" ;; esac
+  # The admission studies were sized, priced and replayed on one A10G in the region whose sweeper reads their
+  # study-deadline tag; another type, a higher price ceiling or another region is another experiment, or one no
+  # sweeper is watching (v26 review, C10 and C15).
+  [ "$INSTANCE_TYPE" = g5.2xlarge ] || fail "INSTANCE_TYPE is $INSTANCE_TYPE and the admission studies are registered on g5.2xlarge"
+  [ "$REGION" = ap-northeast-2 ] || fail "the region is $REGION, and the sweeper that terminates an admission session past its deadline runs in ap-northeast-2"
+  [ "$MAX_SPOT_PRICE" = 1.10 ] || fail "MAX_SPOT_PRICE is $MAX_SPOT_PRICE, and an admission session's spending bound is registered at 1.10"
   # The stage's arms, as the sweep's are built above: the cost projection counts them and the end-of-session
   # check expects each, and the default topologies here would fail a complete pilot after it was paid for.
   # shellcheck source=hack/lib/prospective-pilot.sh
@@ -240,8 +246,10 @@ elif [ -n "${PILOT_STAGE:-}" ]; then
   [ -z "$LIMITS_FROM_CALLER" ] || fail "HARD_STOP_SECONDS or BACKSTOP_SECONDS is set, and the pilot's limits are registered per stage; unset them"
   # Stage D, the diagnostic's 13 cells, by the pilot's allowance method: 1.25 x (200 + 13 x 920 + 12) = 15,215 s,
   # rounded up to 4 h 14 m, and its backstop 10 minutes later (design page, "v25").
+  # Stage E, v26's 19 cells by the same method: 1.25 x (200 + 19 x 920 + 12) = 22,115 s, rounded up to 6 h 9 m
+  # (design page, "v26").
   case "$PILOT_STAGE" in A) HARD_STOP_SECONDS=9000; BACKSTOP_SECONDS=9600 ;; B) HARD_STOP_SECONDS=12600; BACKSTOP_SECONDS=13200 ;;
-    D) HARD_STOP_SECONDS=15240; BACKSTOP_SECONDS=15840 ;; esac
+    D) HARD_STOP_SECONDS=15240; BACKSTOP_SECONDS=15840 ;; E) HARD_STOP_SECONDS=22140; BACKSTOP_SECONDS=22740 ;; esac
 elif [ -n "$PREMIUM_RATE" ]; then
   fail "PREMIUM_RATE is set without SWEEP. It is the held latency-critical rate of a sweep, and on its own it would be ignored."
 fi
@@ -343,6 +351,16 @@ BUCKET="${BUCKET:-$STACK-$ACCOUNT}"
 #
 # openssl when it is there, the kernel's random pool when it is not, and the clock as a last resort -- this
 # must never be the thing that stops a launch.
+# The admission studies' records must be this session's and nobody else's (v26 review, C4, C20, C21): a caller's
+# nonce could match an old DONE; a reused OUT could lend a failed download an old archive; and OUT's name is
+# substituted into the instance's shell, so it carries only characters that mean nothing there.
+if [ -n "${PILOT_STAGE:-}" ]; then
+  [ -z "${RUN_NONCE+set}" ] || fail "RUN_NONCE is set, and an admission session draws its own: a chosen nonce can match an earlier session's records"
+  [[ "$(basename "$OUT")" =~ ^[A-Za-z0-9._-]+$ ]] || fail "OUT's name $(basename "$OUT") carries characters other than letters, digits, dot, underscore and hyphen, and it is written into the instance's shell"
+  if [ -e "$OUT" ] && [ -n "$(ls -A "$OUT" 2>/dev/null)" ]; then
+    fail "OUT $OUT already holds files, and an admission session's evidence must all be its own; name a new OUT"
+  fi
+fi
 RUN_NONCE="${RUN_NONCE:-$(openssl rand -hex 4 2>/dev/null \
   || head -c4 /dev/urandom 2>/dev/null | od -An -tx1 | tr -d ' \n' \
   || date +%s | tail -c 9)}"
@@ -385,7 +403,12 @@ mkdir -p "$OUT"
   esac
 } > "$OUT/purpose.txt"
 
-say "study  M5-c sharing matrix -- does giving each tenant its own engine on a shared card protect the tail"
+# The admission studies ask another question; the sharing matrix's banner named the wrong one (v26 review, C45).
+if [ -n "${PILOT_STAGE:-}" ]; then
+  say "study  $STUDY, stage $PILOT_STAGE -- docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md"
+else
+  say "study  M5-c sharing matrix -- does giving each tenant its own engine on a shared card protect the tail"
+fi
 # The arm list as it is, not "R1 plus" it. R1 is now IN the list, and the old wording printed it twice.
 if [ -n "$LADDER" ]; then
   say "arms   the two contended topologies at every rung, counterbalanced, plus one isolated baseline cell"
@@ -513,10 +536,18 @@ e=datetime.datetime.fromisoformat(sys.argv[1].replace('Z','+00:00'))
 print(int((e-datetime.datetime.now(datetime.timezone.utc)).total_seconds()//60))
 " "$active_expiry" 2>/dev/null || echo 0)
     local margin_active="${CREDENTIAL_MARGIN_MIN:-30}"
+    # The admission studies register H+50: the backstop's ten minutes and forty more, not overridable (v26 review, C14).
+    if [ -n "${PILOT_STAGE:-}" ]; then
+      [ -z "${CREDENTIAL_MARGIN_MIN:-}" ] || fail "CREDENTIAL_MARGIN_MIN is set, and an admission session's headroom is registered"
+      margin_active=40
+    fi
     say "credentials expire in ${left} min (asked of the active provider); this session needs about ${need_min} plus ${margin_active} of headroom"
     [ "$left" -ge $(( need_min + margin_active )) ] || fail "the credentials this session would actually use expire in ${left} minutes. It estimates ${need_min} and requires ${margin_active} of headroom on top, because the evidence download and the terminate call both come after the last cell. Re-authenticate first:  aws sso logout; aws sso login --profile <yours>"
     return 0
   fi
+  # The cache scan matches a role, not this session's own credentials, and can take another session's later expiry;
+  # an admission session does not launch on it (v26 review, C13).
+  [ -z "${PILOT_STAGE:-}" ] || fail "the CLI could not export the active credential's expiry, and an admission session does not estimate it from the cache. Update the AWS CLI (2.9 or later) or re-authenticate"
   say "the CLI could not export the active credential's expiry; falling back to scanning the credential cache"
 
   # The pilot refuses where other sessions skip or trust (design page, build item 13): an expiry it cannot establish,
@@ -774,7 +805,14 @@ cat > "$RUNSCRIPT" <<'USERDATA'
 #!/bin/bash
 exec > >(tee /var/log/m5c.log) 2>&1
 set -x
-( sleep BACKSTOP_SECONDS_PLACEHOLDER; shutdown -h now ) &
+# An admission session's backstop is an absolute instant the wrapper chose before launch, so a slow boot does not
+# move it later; other sessions count from this boot (v26 review, C16).
+PILOT_BACKSTOP_EPOCH="PILOT_BACKSTOP_EPOCH_PLACEHOLDER"
+if [ -n "$PILOT_BACKSTOP_EPOCH" ]; then
+  ( sleep $(( PILOT_BACKSTOP_EPOCH - $(date +%s) > 0 ? PILOT_BACKSTOP_EPOCH - $(date +%s) : 1 )); shutdown -h now ) &
+else
+  ( sleep BACKSTOP_SECONDS_PLACEHOLDER; shutdown -h now ) &
+fi
 
 BUCKET="BUCKET_PLACEHOLDER"
 PREFIX="RUN_ID_PLACEHOLDER"
@@ -861,7 +899,10 @@ got=$(sha256sum /tmp/source.tgz | cut -d' ' -f1)
 if [ "$got" != "$SOURCE_SHA" ]; then echo "source checksum mismatch: $SOURCE_SHA vs $got"; exit 1; fi
 mkdir -p /src && tar -xzf /tmp/source.tgz -C /src
 cd /src
-echo "$COMMIT" > /tmp/commit.txt && upload /tmp/commit.txt commit.txt
+# The first write is also the proof that this instance can write its evidence at all: a role that can read the
+# source and not write results would run every cell and lose them all at termination (v26 review, C3).
+echo "$COMMIT" > /tmp/commit.txt
+aws s3 cp /tmp/commit.txt "s3://$BUCKET/$PREFIX/commit.txt" || { echo "PREFLIGHT FAILED: cannot write evidence to s3://$BUCKET/$PREFIX"; exit 1; }
 
 mkdir -p /src/bin
 for b in gateway benchharness; do
@@ -889,6 +930,11 @@ upload /tmp/nvidia-smi.csv preflight-nvidia-smi.csv
 cards=$(tail -n +2 /tmp/nvidia-smi.csv | wc -l)
 if [ "$cards" -ne 1 ]; then
   echo "PREFLIGHT FAILED: $cards cards; this matrix splits ONE card and two engines on two cards are not sharing"
+  exit 1
+fi
+# The admission studies were sized and replayed on an A10G; another card is another experiment (v26 review, C10).
+if [ -n "$PILOT_STAGE" ] && ! tail -n +2 /tmp/nvidia-smi.csv | grep -q 'A10G'; then
+  echo "PREFLIGHT FAILED: the card is $(tail -n +2 /tmp/nvidia-smi.csv | cut -d, -f2), and the admission studies are registered on an A10G"
   exit 1
 fi
 
@@ -1223,16 +1269,21 @@ upload /tmp/matrix-returned.txt matrix-returned.txt
 
 # The evidence goes up whatever happened. A matrix that stopped on a cell boundary still bought every cell
 # before it, and those are the cells a partial answer is made of.
+# The archive's creation and upload are checked: DONE says the records are up, and it may not say so of an archive
+# that failed to build or to arrive (v26 review, C3).
+evidence_rc=0
 if [ -d /src/m5c-run ]; then
-  tar -czf /tmp/m5c-evidence.tgz -C /src m5c-run
-  upload /tmp/m5c-evidence.tgz evidence.tgz
+  tar -czf /tmp/m5c-evidence.tgz -C /src m5c-run || evidence_rc=$?
+  [ "$evidence_rc" != 0 ] || aws s3 cp /tmp/m5c-evidence.tgz "s3://$BUCKET/$PREFIX/evidence.tgz" || evidence_rc=$?
 fi
 kubectl get nodes -o wide > /tmp/nodes.txt 2>&1 || true
 upload /tmp/nodes.txt nodes.txt
+# The log before the marker: the wrapper terminates on DONE, and the exit trap's upload came too late (v26 review, C43).
+upload /var/log/m5c.log log.txt
 
 # The marker is written LAST and only on success, because it is what the waiting shell reads as "the records
 # are up". A marker written unconditionally would report a matrix that failed as a matrix that finished.
-if [ "$matrix_rc" = "0" ]; then
+if [ "$matrix_rc" = "0" ] && [ "$evidence_rc" = "0" ]; then
   echo "RUN_NONCE_PLACEHOLDER" > /tmp/DONE
   aws s3 cp /tmp/DONE "s3://$BUCKET/$PREFIX/DONE"
 fi
@@ -1250,12 +1301,20 @@ USERDATA
 PILOT_ACQ_DEADLINE=""
 PILOT_MATRIX_DEADLINE=""
 PILOT_STUDY_DEADLINE=""
+PILOT_BACKSTOP_EPOCH=""
 PILOT_TAIL_RESERVE_S=120
 if [ -n "${PILOT_STAGE:-}" ]; then
   _t0=$(date +%s)
   PILOT_ACQ_DEADLINE=$(( _t0 + HARD_STOP_SECONDS - 360 ))
   PILOT_MATRIX_DEADLINE=$(( PILOT_ACQ_DEADLINE - PILOT_TAIL_RESERVE_S ))
   PILOT_STUDY_DEADLINE=$(date -u -d "@$(( _t0 + HARD_STOP_SECONDS + 1200 ))" +%Y-%m-%dT%H:%M:%SZ)
+  PILOT_BACKSTOP_EPOCH=$(( _t0 + BACKSTOP_SECONDS ))
+  # Their order, asserted here because the goldens normalise absolute times away (v26 review, C39): the matrix stops
+  # before acquisition ends, acquisition before the hard stop, the hard stop before the backstop, and the backstop
+  # before the sweeper's tag.
+  [ "$PILOT_MATRIX_DEADLINE" -lt "$PILOT_ACQ_DEADLINE" ] && [ "$PILOT_ACQ_DEADLINE" -lt $(( _t0 + HARD_STOP_SECONDS )) ] \
+    && [ $(( _t0 + HARD_STOP_SECONDS )) -lt "$PILOT_BACKSTOP_EPOCH" ] && [ "$PILOT_BACKSTOP_EPOCH" -lt $(( _t0 + HARD_STOP_SECONDS + 1200 )) ] \
+    || fail "the session's deadlines are out of order: matrix $PILOT_MATRIX_DEADLINE, acquisition $PILOT_ACQ_DEADLINE, hard stop $(( _t0 + HARD_STOP_SECONDS )), backstop $PILOT_BACKSTOP_EPOCH, sweeper $(( _t0 + HARD_STOP_SECONDS + 1200 ))"
 fi
 
 UD="$(mktemp)"
@@ -1295,6 +1354,7 @@ UD="$(mktemp)"
       -e "s|PILOT_CONTENDER_PER_SEC_PLACEHOLDER|${PILOT_NOISY_RATE:-}|" \
       -e "s|PILOT_STATIC_R_PLACEHOLDER|${PILOT_STATIC_RATE:-}|" \
       -e "s|PILOT_MATRIX_DEADLINE_PLACEHOLDER|${PILOT_MATRIX_DEADLINE:-}|" \
+      -e "s|PILOT_BACKSTOP_EPOCH_PLACEHOLDER|${PILOT_BACKSTOP_EPOCH:-}|" \
       -e "s|PREMIUM_PROMPT_CHARS_PLACEHOLDER|${PREMIUM_PROMPT_CHARS:-}|" \
       -e "s|NOISY_PROMPT_CHARS_PLACEHOLDER|${NOISY_PROMPT_CHARS:-}|" \
       -e "s|REQUEST_TIMEOUT_MS_PLACEHOLDER|${REQUEST_TIMEOUT_MS:-}|" \
@@ -1331,12 +1391,14 @@ grep -q 'containerPath: /var/run/nvidia-container-devices/all' "$UD" \
 grep -q 'PLACEHOLDER' "$UD" \
   && fail "a placeholder survived substitution; the instance would run a script with a literal PLACEHOLDER in it. See $OUT/user-data.sh"
 
-UD_LIMIT="${UD_LIMIT:-25600}"
-UD_ENCODED=$(base64 -w0 "$UD" | wc -c)
-if [ "$UD_ENCODED" -gt "$UD_LIMIT" ]; then
-  fail "the user-data encodes to $UD_ENCODED bytes and EC2 accepts $UD_LIMIT. Nothing was launched. Move the bulk out of the heredoc rather than trimming prose: see $OUT/user-data.sh"
+# EC2's limit is 16 KB of user-data before encoding, not 25,600 encoded bytes, which admitted up to about 19 KB
+# raw (v26 review, C46).
+UD_LIMIT="${UD_LIMIT:-16384}"
+UD_RAW=$(wc -c < "$UD")
+if [ "$UD_RAW" -gt "$UD_LIMIT" ]; then
+  fail "the user-data is $UD_RAW bytes and EC2 accepts $UD_LIMIT before encoding. Nothing was launched. Move the bulk out of the heredoc rather than trimming prose: see $OUT/user-data.sh"
 fi
-say "user-data: $UD_ENCODED of $UD_LIMIT encoded bytes"
+say "user-data: $UD_RAW of $UD_LIMIT raw bytes"
 
 # THE PURCHASE PLAN IS CHECKED LOCALLY, BEFORE run-instances.
 #
@@ -1483,9 +1545,22 @@ cleanup() {
     }
     LAUNCH_UNCERTAIN=""
   fi
+  # A launch whose reconciliation failed is unconfirmed, not "terminated <none>": the token's instance may be billing
+  # (v26 review, C19).
+  if [ -n "${RECONCILE_FAILED:-}" ]; then
+    printf 'TERMINATION UNCONFIRMED for the launch under token %s -- check the console before the next paid run\n' \
+      "$RECONCILE_FAILED" >"${OUT:-.}/termination.txt" 2>/dev/null || true
+    exit 1
+  fi
+  # An admission session bounds this call as its terminate-first call is bounded, so cleanup cannot run past the
+  # hard stop on a hung API (v26 review, C18).
+  local terminate=(spot_terminate "$REGION" "$IID")
+  [ -z "${PILOT_STAGE:-}" ] || terminate=(timeout 300 bash -c '. "$1"; spot_terminate "$2" "$3"' _ "$(dirname "${BASH_SOURCE[0]}")/lib/spot-run.sh" "$REGION" "$IID")
   if [ -n "${TERMINATED_FIRST:-}" ]; then
     : # the pilot terminated it before its downloads, and recorded that
-  elif spot_terminate "$REGION" "$IID"; then
+  elif [ -z "$IID" ]; then
+    printf 'no instance was launched by this session\n' >"${OUT:-.}/termination.txt" 2>/dev/null || true
+  elif "${terminate[@]}"; then
     printf 'terminated %s\n' "${IID:-<none>}" >"${OUT:-.}/termination.txt" 2>/dev/null || true
   else
     printf 'TERMINATION UNCONFIRMED for %s -- check the console before the next paid run\n' \
@@ -1511,6 +1586,15 @@ IID=""
 trap cleanup EXIT
 trap 'cleanup; exit 130' INT
 trap 'cleanup; exit 143' TERM
+RECONCILE_FAILED=""
+# Immediately before the purchase, an admission session asks again whether its credentials outlast its backstop by
+# the registered forty minutes, and whether its acquisition deadline still admits a bring-up and a cell: the
+# planning above can take long enough for either to fail (v26 review, C12 and C17).
+if [ -n "${PILOT_STAGE:-}" ]; then
+  require_credential_margin $(( (PILOT_BACKSTOP_EPOCH - $(date +%s) + 59) / 60 ))
+  [ $(( $(date +%s) + 1800 )) -lt "$PILOT_MATRIX_DEADLINE" ] \
+    || fail "the matrix deadline is $(( (PILOT_MATRIX_DEADLINE - $(date +%s)) / 60 )) minutes away, too close for a bring-up and one cell. Nothing was launched."
+fi
 for z in $ZONES; do
   SUBNET=$(spot_subnet_in_zone "$REGION" "$z") || continue
   say "trying $z ($SUBNET)"
@@ -1574,7 +1658,7 @@ for z in $ZONES; do
       # re-enters cleanup, which would otherwise reconcile the same token a second time.
       LAUNCH_UNCERTAIN=""
       spot_reconcile_token "$REGION" "$LAUNCH_TOKEN" "$SUBNET" 6 \
-        || fail "a launch in $z was refused as a duplicate of an earlier request under the same token, so an instance exists, and AWS could not be asked which one. Nothing further is launched. See $OUT/launch-errors.txt"
+        || { RECONCILE_FAILED="$LAUNCH_TOKEN"; fail "a launch in $z was refused as a duplicate of an earlier request under the same token, so an instance exists, and AWS could not be asked which one. Nothing further is launched. See $OUT/launch-errors.txt"; }
       fail "a launch in $z was refused as a duplicate of an earlier request under the same token; whatever that earlier request created has been terminated. See $OUT/launch-errors.txt"
     fi
     if grep -qE 'UnauthorizedOperation|ValidationError|InvalidParameter|RequestLimitExceeded|InstanceLimitExceeded' \
@@ -1600,7 +1684,7 @@ for z in $ZONES; do
     # attempt had not yet recorded that it had happened.
     LAUNCH_UNCERTAIN=""
     spot_reconcile_token "$REGION" "$LAUNCH_TOKEN" "$SUBNET" 6 \
-      || fail "a launch in $z was neither confirmed nor refused, and AWS could not be asked what it created. Nothing further is launched, because a second zone would risk a second instance. See $OUT/launch-errors.txt"
+      || { RECONCILE_FAILED="$LAUNCH_TOKEN"; fail "a launch in $z was neither confirmed nor refused, and AWS could not be asked what it created. Nothing further is launched, because a second zone would risk a second instance. See $OUT/launch-errors.txt"; }
     fail "a launch in $z gave no classifiable answer after $attempt attempts; anything it created has been terminated. Re-run when the API is answering. See $OUT/launch-errors.txt"
   done
   rm -f "$attempt_err"
@@ -1696,13 +1780,17 @@ missing_preflight=""
 for k in preflight-nvidia-smi.csv preflight-node-cards.txt; do
   [ -s "$OUT/$k" ] || missing_preflight="$missing_preflight $k"
 done
+# An admission session records these refusals and goes on to recover its per-cell uploads first: failing here left
+# intact cells in the bucket unrecovered, exactly when they were needed (v26 review, C22).
+deferred_fail=""
+defer_or_fail() { if [ -n "${PILOT_STAGE:-}" ]; then deferred_fail="${deferred_fail:+$deferred_fail; }$1"; say "DEFERRED: $1"; else fail "$1"; fi; }
 [ -z "$missing_preflight" ] \
-  || fail "the instance finished and these preflight files never arrived:$missing_preflight. They identify the card and driver the numbers were taken on, and a measurement whose apparatus is unidentified is not one this study can report"
+  || defer_or_fail "the instance finished and these preflight files never arrived:$missing_preflight. They identify the card and driver the numbers were taken on, and a measurement whose apparatus is unidentified is not one this study can report"
 # Unpacked, and the unpacking is CHECKED. An `&&` chain that quietly does nothing is how a session ends by
 # naming an evidence directory it never created.
 if [ -s "$OUT/evidence.tgz" ]; then
-  tar -xzf "$OUT/evidence.tgz" -C "$OUT" || fail "the evidence archive came back and could not be unpacked; $OUT/evidence.tgz is whatever arrived"
-  say "evidence unpacked to $OUT/m5c-run"
+  if tar -xzf "$OUT/evidence.tgz" -C "$OUT"; then say "evidence unpacked to $OUT/m5c-run"
+  else defer_or_fail "the evidence archive came back and could not be unpacked; $OUT/evidence.tgz is whatever arrived"; fi
 fi
 # The pilot's session stamps, beside the cells they time: bring-up is LaunchTime to the first cell's start, and the
 # session tail is the matrix's return to the marker's upload. An empty field is a stamp that did not arrive.
@@ -1809,6 +1897,8 @@ refused=""
 # baseline cell, because which rung that belongs to depends on where the stopping rule fired, which this
 # script cannot know without reading the evidence it is checking. The baseline is checked separately below,
 # by existence rather than by name.
+# The refusals deferred above, now that every cell the bucket holds has been recovered.
+[ -z "${deferred_fail:-}" ] || fail "$deferred_fail (the per-cell uploads were recovered first, into $OUT/m5c-run and $OUT/live)"
 expected_arms=""
 if [ -n "$LADDER" ]; then
   _rung=0
@@ -1891,7 +1981,9 @@ for arm in $expected_arms; do
   # glob and neither is a measurement. Rows carry httpStatus (internal/bench/replay.go), so the rows are
   # counted and the answered ones counted separately.
   _rows=0 _answered=0 _completed=0
-  for _f in "$OUT/m5c-run/raw-$arm-"*.jsonl; do
+  # The repetition is matched as digits: raw-hold-* also matched raw-hold-cap-*, and lent one arm the other's
+  # rows (v26 review, C24).
+  for _f in "$OUT/m5c-run/raw-$arm-"[0-9]*.jsonl; do
     [ -f "$_f" ] || continue
     _rows=$(( _rows + $(grep -c . "$_f" 2>/dev/null || true) ))
     _answered=$(( _answered + $(grep -c '"httpStatus":[[:space:]]*[23][0-9][0-9]' "$_f" 2>/dev/null || true) ))
@@ -1915,7 +2007,7 @@ for arm in $expected_arms; do
     _arm_reps="${REPS:-1}"
     if iv_is_study "${STUDY:-}"; then case "$arm" in *-async) _arm_reps=1 ;; esac; fi
     # The diagnostic's stage D runs R1 once, as its isolated anchor.
-    if [ "${PILOT_STAGE:-}" = D ] && [ "$arm" = R1 ]; then _arm_reps=1; fi
+    case "${PILOT_STAGE:-}" in D | E) [ "$arm" != R1 ] || _arm_reps=1 ;; esac
     _rep=1
     while [ "$_rep" -le "$_arm_reps" ]; do
       # A block the study does not buy this arm in owes no file (the step-boundary session's serial and staggered
@@ -1928,6 +2020,10 @@ for arm in $expected_arms; do
   fi
   if [ "$_rows" -eq 0 ]; then
     missing="$missing $arm"
+  elif [ -n "${PILOT_STAGE:-}" ] && { [ "$_answered" -eq 0 ] || [ "$_completed" -eq 0 ]; }; then
+    # In the admission studies a treatment whose requests all failed, recorded whole, is an outcome its scorer
+    # judges, not an acquisition that failed; buying it again would buy the same answer (v26 review, C44).
+    say "arm $arm: $_rows row(s), $_answered answered, $_completed completed -- recorded as evidence for its scorer"
   elif [ "$_answered" -eq 0 ]; then
     fail "arm $arm came back with $_rows row(s) and not one carries a 2xx or 3xx httpStatus. The file exists, the replay never answered, and B5 asks for a replay that answered"
   elif [ "$_completed" -eq 0 ]; then
@@ -1940,12 +2036,36 @@ if [ -n "$LADDER" ]; then
     || fail "the ladder finished and bought no isolated baseline cell. Without it, 'the split ran out of capacity' and 'one engine of this model on this card ran out of capacity' are the same observation"
   say "the ladder reached rung $ladder_reached and bought its baseline: $(cd "$OUT/m5c-run" && ls raw-rung*-R1-*.jsonl | tr '\n' ' ')"
 fi
+# The admission studies' exact inventory: every planned cell with the records its scorer joins, and no cell the plan
+# did not buy; extra cells were accepted and missing records went unnoticed (v26 review, C23).
+if [ -n "${PILOT_STAGE:-}" ]; then
+  _want=$(for arm in $expected_arms; do
+    _n="${REPS:-1}"; case "$PILOT_STAGE" in D | E) [ "$arm" != R1 ] || _n=1 ;; esac
+    for _r in $(seq 1 "$_n"); do echo "$arm-$_r"; done
+  done | LC_ALL=C sort)
+  _got=$(cd "$OUT/m5c-run" && for _f in raw-*.jsonl; do case "$_f" in raw-warmup-*) continue ;; esac; _c=${_f#raw-}; echo "${_c%.jsonl}"; done | LC_ALL=C sort)
+  [ "$_want" = "$_got" ] || fail "the archive's cells are not the plan's: planned [$(echo $_want)], found [$(echo $_got)]"
+  for _c in $_want; do
+    for _rec in gateway-record step-log manifest; do
+      case "$_rec" in manifest) _p="$OUT/m5c-run/manifest-$_c.yaml" ;; *) _p="$OUT/m5c-run/$_rec-$_c.jsonl" ;; esac
+      [ -s "$_p" ] || fail "cell $_c has no $_rec, which its scorer joins every request to: $_p"
+    done
+  done
+  say "the archive holds exactly the $(echo "$_want" | wc -w) planned cells, each with its gateway record, step log and manifest"
+fi
 [ -z "$missing" ] \
   || fail "the run finished and these arms have no raw evidence and no recorded refusal either:$missing. The report would leave them out of its table rather than say they are absent, and any reading that divides by one of them would decline without naming it"
 [ -z "$refused" ] && say "every arm in [$expected_arms] returned raw evidence" \
   || say "arms refused as registered outcomes:$refused -- reading 4c will report them, and the arms beside them stand"
 
 say "SESSION DONE. Evidence in $OUT/m5c-run"
+# The admission studies have their own scorers; the sharing study's report below would judge another question
+# (v26 review, C45).
+case "${PILOT_STAGE:-}" in
+  E) say "Score it with the registered decision:  python3 hack/prospective-pilot/pilot_report.py frontier $OUT/m5c-run"; exit 0 ;;
+  D) say "Score it with the registered decision:  python3 hack/prospective-pilot/pilot_report.py diagnostic $OUT/m5c-run"; exit 0 ;;
+  A | B) say "Score it with:  python3 hack/prospective-pilot/pilot_report.py stage $OUT/m5c-run"; exit 0 ;;
+esac
 say "The readings are NOT evaluated here. Run them over the evidence:"
 # raw-warmup-* are the instrument-validation warm-ups, which no arm's statistic may include.
 say "  args=; for f in $OUT/m5c-run/raw-*.jsonl; do case \$f in */raw-warmup-*) continue ;; esac; args=\"\$args --raw \$f\"; done"

@@ -1,7 +1,12 @@
 #!/bin/bash
 exec > >(tee /var/log/m5c.log) 2>&1
 set -x
-( sleep 15840; shutdown -h now ) &
+PILOT_BACKSTOP_EPOCH="<EPOCH>"
+if [ -n "$PILOT_BACKSTOP_EPOCH" ]; then
+  ( sleep $(( PILOT_BACKSTOP_EPOCH - $(date +%s) > 0 ? PILOT_BACKSTOP_EPOCH - $(date +%s) : 1 )); shutdown -h now ) &
+else
+  ( sleep 15840; shutdown -h now ) &
+fi
 BUCKET="stub-bucket"
 PREFIX="run-<NONCE>"
 SOURCE_SHA="<SHA256>"
@@ -43,7 +48,8 @@ got=$(sha256sum /tmp/source.tgz | cut -d' ' -f1)
 if [ "$got" != "$SOURCE_SHA" ]; then echo "source checksum mismatch: $SOURCE_SHA vs $got"; exit 1; fi
 mkdir -p /src && tar -xzf /tmp/source.tgz -C /src
 cd /src
-echo "$COMMIT" > /tmp/commit.txt && upload /tmp/commit.txt commit.txt
+echo "$COMMIT" > /tmp/commit.txt
+aws s3 cp /tmp/commit.txt "s3://$BUCKET/$PREFIX/commit.txt" || { echo "PREFLIGHT FAILED: cannot write evidence to s3://$BUCKET/$PREFIX"; exit 1; }
 mkdir -p /src/bin
 for b in gateway benchharness; do
   aws s3 cp "s3://$BUCKET/$PREFIX/bin/$b" "/src/bin/$b"
@@ -58,6 +64,10 @@ upload /tmp/nvidia-smi.csv preflight-nvidia-smi.csv
 cards=$(tail -n +2 /tmp/nvidia-smi.csv | wc -l)
 if [ "$cards" -ne 1 ]; then
   echo "PREFLIGHT FAILED: $cards cards; this matrix splits ONE card and two engines on two cards are not sharing"
+  exit 1
+fi
+if [ -n "$PILOT_STAGE" ] && ! tail -n +2 /tmp/nvidia-smi.csv | grep -q 'A10G'; then
+  echo "PREFLIGHT FAILED: the card is $(tail -n +2 /tmp/nvidia-smi.csv | cut -d, -f2), and the admission studies are registered on an A10G"
   exit 1
 fi
 export DEBIAN_FRONTEND=noninteractive
@@ -247,13 +257,15 @@ fi
 echo "matrix exited $matrix_rc"
 date +%s > /tmp/matrix-returned.txt
 upload /tmp/matrix-returned.txt matrix-returned.txt
+evidence_rc=0
 if [ -d /src/m5c-run ]; then
-  tar -czf /tmp/m5c-evidence.tgz -C /src m5c-run
-  upload /tmp/m5c-evidence.tgz evidence.tgz
+  tar -czf /tmp/m5c-evidence.tgz -C /src m5c-run || evidence_rc=$?
+  [ "$evidence_rc" != 0 ] || aws s3 cp /tmp/m5c-evidence.tgz "s3://$BUCKET/$PREFIX/evidence.tgz" || evidence_rc=$?
 fi
 kubectl get nodes -o wide > /tmp/nodes.txt 2>&1 || true
 upload /tmp/nodes.txt nodes.txt
-if [ "$matrix_rc" = "0" ]; then
+upload /var/log/m5c.log log.txt
+if [ "$matrix_rc" = "0" ] && [ "$evidence_rc" = "0" ]; then
   echo "<NONCE>" > /tmp/DONE
   aws s3 cp /tmp/DONE "s3://$BUCKET/$PREFIX/DONE"
 fi

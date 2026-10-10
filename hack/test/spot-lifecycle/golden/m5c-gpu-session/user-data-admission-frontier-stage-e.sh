@@ -5,7 +5,7 @@ PILOT_BACKSTOP_EPOCH="<EPOCH>"
 if [ -n "$PILOT_BACKSTOP_EPOCH" ]; then
   ( sleep $(( PILOT_BACKSTOP_EPOCH - $(date +%s) > 0 ? PILOT_BACKSTOP_EPOCH - $(date +%s) : 1 )); shutdown -h now ) &
 else
-  ( sleep 9600; shutdown -h now ) &
+  ( sleep 22740; shutdown -h now ) &
 fi
 BUCKET="stub-bucket"
 PREFIX="run-<NONCE>"
@@ -14,7 +14,7 @@ GATEWAY_SHA="<SHA>"
 HARNESS_SHA="<SHA>"
 COMMIT="<COMMIT>"
 REPS="3"
-ARMS="R1 off prospective"
+ARMS="R1 off hold-cap fixed-1.62 fixed-1.66 fixed-1.70 fixed-1.74"
 RATE=""
 PREMIUM_WEIGHT="1"
 NOISY_WEIGHT=""
@@ -24,7 +24,7 @@ LADDER=""
 LADDER_STUDY=""
 SWEEP=""
 PREMIUM_RATE="9.25"
-PILOT_STAGE="A"
+PILOT_STAGE="E"
 PILOT_NOISY_RATE="0.5"
 PILOT_STATIC_RATE=""
 PREMIUM_PROMPT_CHARS="200"
@@ -33,12 +33,12 @@ REQUEST_TIMEOUT_MS="30000"
 PREMIUM_OUTPUT_TOKENS="64"
 NOISY_OUTPUT_TOKENS="16"
 MODEL_REVISION=""
-STUDY="prospective-pilot-2026-10-08"
-STUDY_FROM_CR="prospective-pilot-2026-10-08"
-SEEDS="11 12 13"
+STUDY="admission-frontier-2026-10-10"
+STUDY_FROM_CR="admission-frontier-2026-10-10"
+SEEDS="861 862 863"
 BENCHMARK_CR_SHA256=""
 BENCHMARK_CR_TOKENIZER_REV=""
-DEADLINE_EPOCH=$(( $(date +%s) + 9000 ))
+DEADLINE_EPOCH=$(( $(date +%s) + 22140 ))
 PILOT_MATRIX_DEADLINE="<EPOCH>"
 [ -z "$PILOT_MATRIX_DEADLINE" ] || DEADLINE_EPOCH="$PILOT_MATRIX_DEADLINE"
 upload() { aws s3 cp "$1" "s3://$BUCKET/$PREFIX/$2" || true; }

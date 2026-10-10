@@ -196,6 +196,7 @@ run_scenario() {
            -e 's/PREFIX="\([A-Za-z0-9_-]*\)-[0-9a-f]\{8\}"/PREFIX="\1-<NONCE>"/' \
            -e 's#echo "[0-9a-f]\{8\}" > /tmp/DONE#echo "<NONCE>" > /tmp/DONE#' \
            -e 's/^PILOT_MATRIX_DEADLINE="[0-9]\{10\}"$/PILOT_MATRIX_DEADLINE="<EPOCH>"/' \
+           -e 's/^PILOT_BACKSTOP_EPOCH="[0-9]\{10\}"$/PILOT_BACKSTOP_EPOCH="<EPOCH>"/' \
            "$out/user-data.sh"
   fi
 
@@ -604,7 +605,7 @@ scenarios_m5c_gpu_session() {
   REPS=3 REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 \
     STUDY=prospective-pilot-2026-10-08 PILOT_STAGE=A PREMIUM_RATE=9.25 PILOT_NOISY_RATE=0.5 SEEDS="11 12 13" \
     PREMIUM_PROMPT_CHARS=200 NOISY_PROMPT_CHARS=40000 REQUEST_TIMEOUT_MS=30000 PREMIUM_OUTPUT_TOKENS=64 NOISY_OUTPUT_TOKENS=16 \
-    STUB_EVIDENCE_ARMS="R1 off prospective" STUB_EVIDENCE_REPS=3 \
+    STUB_EVIDENCE_ARMS="R1 off prospective" STUB_EVIDENCE_REPS=3 STUB_EVIDENCE_RECORDS=1 \
     STUB_PRESENT_KEYS="evidence.tgz log.txt commit.txt nodes.txt preflight-nvidia-smi.csv preflight-node-cards.txt matrix-returned.txt" \
     run_scenario prospective-pilot-stage-a bash "$TARGET"
 
@@ -619,9 +620,17 @@ scenarios_m5c_gpu_session() {
   REPS=3 REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 \
     STUDY=admission-diagnostic-2026-10-10 PILOT_STAGE=D PREMIUM_RATE=9.25 PILOT_NOISY_RATE=0.5 SEEDS="851 852 853" \
     PREMIUM_PROMPT_CHARS=200 NOISY_PROMPT_CHARS=40000 REQUEST_TIMEOUT_MS=30000 PREMIUM_OUTPUT_TOKENS=64 NOISY_OUTPUT_TOKENS=16 \
-    STUB_EVIDENCE_ARMS="R1 off hold cap hold-cap" STUB_EVIDENCE_REPS=3 \
+    STUB_EVIDENCE_ARMS="R1 off hold cap hold-cap" STUB_EVIDENCE_REPS=3 STUB_EVIDENCE_R1_ONCE=1 STUB_EVIDENCE_RECORDS=1 \
     STUB_PRESENT_KEYS="evidence.tgz log.txt commit.txt nodes.txt preflight-nvidia-smi.csv preflight-node-cards.txt matrix-returned.txt" \
     run_scenario admission-diagnostic-stage-d bash "$TARGET"
+
+  # v26's stage E: its own study, R1 and six arms in three blocks, its frozen seeds, and its 6 h 9 m limits.
+  REPS=3 REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 \
+    STUDY=admission-frontier-2026-10-10 PILOT_STAGE=E PREMIUM_RATE=9.25 PILOT_NOISY_RATE=0.5 SEEDS="861 862 863" \
+    PREMIUM_PROMPT_CHARS=200 NOISY_PROMPT_CHARS=40000 REQUEST_TIMEOUT_MS=30000 PREMIUM_OUTPUT_TOKENS=64 NOISY_OUTPUT_TOKENS=16 \
+    STUB_EVIDENCE_ARMS="R1 off hold-cap fixed-1.62 fixed-1.66 fixed-1.70 fixed-1.74" STUB_EVIDENCE_REPS=3 STUB_EVIDENCE_R1_ONCE=1 STUB_EVIDENCE_RECORDS=1 \
+    STUB_PRESENT_KEYS="evidence.tgz log.txt commit.txt nodes.txt preflight-nvidia-smi.csv preflight-node-cards.txt matrix-returned.txt" \
+    run_scenario admission-frontier-stage-e bash "$TARGET"
 
   # Stage B without the R stage A fitted: refused before anything is rented.
   REPS=3 REQUIRE_CLEAN_TREE=0 \

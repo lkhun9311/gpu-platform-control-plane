@@ -511,8 +511,17 @@ case "$svc $op" in
               # A row the caller can judge, not just a filename it can glob. The session asks whether any
               # row was answered, so the stub writes what the real replay writes: an httpStatus.
               # STUB_EVIDENCE_REPS repetitions of each, because the session refuses an arm missing a planned one.
-              for stub_rep in $(seq 1 "${STUB_EVIDENCE_REPS:-1}"); do
+              # The admission stages D and E run R1 once, and their archives hold each cell's gateway record, step
+              # log and manifest, which the session's inventory requires; the stub writes what that archive holds.
+              stub_n="${STUB_EVIDENCE_REPS:-1}"
+              [ "${STUB_EVIDENCE_R1_ONCE:-0}" = 1 ] && [ "$stub_arm" = R1 ] && stub_n=1
+              for stub_rep in $(seq 1 "$stub_n"); do
                 printf '{"arm":"%s","httpStatus":200}\n' "$stub_arm" > "$local_tmp/m5c-run/raw-$stub_arm-$stub_rep.jsonl"
+                if [ "${STUB_EVIDENCE_RECORDS:-0}" = 1 ]; then
+                  printf '{"ev":"done"}\n' > "$local_tmp/m5c-run/gateway-record-$stub_arm-$stub_rep.jsonl"
+                  printf '{"ev":"terminal"}\n' > "$local_tmp/m5c-run/step-log-$stub_arm-$stub_rep.jsonl"
+                  printf 'arm: %s\n' "$stub_arm" > "$local_tmp/m5c-run/manifest-$stub_arm-$stub_rep.yaml"
+                fi
               done
             done
             tar -czf "$dest" -C "$local_tmp" m5c-run
