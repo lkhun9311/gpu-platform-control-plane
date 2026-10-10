@@ -19,12 +19,21 @@
 # What it cannot do: it re-scores rows collected once. It does not re-run an experiment or touch a GPU, and the
 # predicted claims on the design page come from the replay, not from this evidence.
 set -euo pipefail
+# A relative DIR names a place in the caller's directory, so it is resolved before moving to the repository root.
+if [ -n "${1:-}" ] && [ "$1" != --self-test ]; then
+  [ -d "$1" ] || { printf 'FAIL: %s is not a directory\n' "$1" >&2; exit 1; }
+  set -- "$(cd "$1" && pwd)"
+fi
 cd "$(dirname "$0")/.."
 
 TAG=evidence-admission-2026-10-10
 SUMS=docs/superpowers/specs/data/admission-evidence-SHA256SUMS
 say() { printf '== %s\n' "$*"; }
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
+# fail exits from inside verify, where a RETURN trap would not run, so every temporary directory is removed on exit.
+TMPS=()
+cleanup() { [ "${#TMPS[@]}" -eq 0 ] || rm -rf "${TMPS[@]}"; }
+trap cleanup EXIT
 
 verify() {
   local dir="$1" work
@@ -34,8 +43,7 @@ verify() {
     || fail "an asset in $dir is missing or does not match $SUMS"
   say "checksums match $SUMS"
   work=$(mktemp -d)
-  # shellcheck disable=SC2064 # expanded now, on purpose: the directory is this call's
-  trap "rm -rf '$work'" RETURN
+  TMPS+=("$work")
   local name study
   for name in admission-diagnostic-2026-10-09 admission-frontier-2026-10-10 admission-length-calibration-2026-10-10; do
     mkdir -p "$work/$name"
@@ -87,12 +95,11 @@ self_test() {
   # A checksum that does not match must fail, or a corrupted download would pass.
   local tmp
   tmp=$(mktemp -d)
-  # shellcheck disable=SC2064
-  trap "rm -rf '$tmp'" RETURN
+  TMPS+=("$tmp")
   printf 'not the archive\n' > "$tmp/admission-diagnostic-2026-10-09.tgz"
   : > "$tmp/admission-frontier-2026-10-10.tgz"
   : > "$tmp/admission-length-calibration-2026-10-10.tgz"
-  if (verify "$tmp") >/dev/null 2>&1; then fail "self-test: altered assets passed the checksum check"; fi
+  if (trap cleanup EXIT; verify "$tmp") >/dev/null 2>&1; then fail "self-test: altered assets passed the checksum check"; fi
   say "self-test: altered assets are refused -- the check can fail"
 }
 
@@ -100,7 +107,7 @@ case "${1:-}" in
   --self-test) self_test ;;
   "")
     dl=$(mktemp -d)
-    trap 'rm -rf "$dl"' EXIT
+    TMPS+=("$dl")
     gh release download "$TAG" --dir "$dl" --pattern '*.tgz' || fail "could not download the assets of $TAG"
     verify "$dl" ;;
   *) verify "$1" ;;
