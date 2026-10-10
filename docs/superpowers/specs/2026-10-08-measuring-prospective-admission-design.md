@@ -1335,6 +1335,31 @@ So at the pace the diagnostic's card ran, the replay predicts that fixed-1.74 ma
 
 **The kind rehearsals, twice, before purchase.** Stage E ran all 19 cells on kind at 6a21c4d and again at 4dcee2f, the second with nothing else running on the machine. Both times every cell was eligible, every arm decided its contenders by its own mode, every capped arm's engine reported the cap cell by cell, and the archive held 298 of 298 expected files. Both times the gateway's delay after its arrival stamp exceeded the 13 ms p99 bound in a few cells, different cells each time: 2 of 18 the first time, at 13.7 to 18.4 ms, and 3 of 18 the second, at 13.4 to 16.6 ms. On the diagnostic's card the same quantity was p99 4.98 to 5.68 ms in every cell. The bound is kept as registered. The owner chose to purchase with it, knowing that if the card exceeds it the verdict is inconclusive and the session's cost buys no answer. The rehearsals' traces are 20 s, not the frozen ones, so their provenance lines fail by design.
 
+### v26's result, 2026-10-10
+
+Bought in gpu-lab on one g5.2xlarge Spot with an A10G, `i-0ba933de8f969a248`, launched 02:45:07Z at commit 388fceb; the matrix returned at 05:50:15Z, 3 h 05 m, with all 19 cells completed in the registered order. Scored by `pilot_report.py frontier` at the commit in `data/2026-10-10-frontier-results/`.
+
+**Verdict: not established: neither hold-cap nor fixed-1.74 was 15% below the other.** It is the verdict the replay predicted before purchase at the card's measured pace.
+
+Every validity line held in every cell, the 13 ms bound included: the gateway's arrival-to-record p99 was 4.97 to 5.69 ms, as on the diagnostic's card. Every fixed arm released its held contenders on time, within 1.14 ms after the spacing at p99 and never early. Every treatment arm was admissible in all three blocks.
+
+| Arm | Pooled premium TTFT p99, scheduled hi | ln against hold-cap's arrival lo | Contender completion p50, times off's, blocks 1 / 2 / 3 | p95, s |
+|---|---|---|---|---|
+| off | 1,490.5 ms | 1.191 | — | — |
+| **hold-cap** | **454.7 ms** | — | **1.27 / 1.27 / 1.28** | **8.8 / 17.3 / 9.9** |
+| fixed-1.62 | 1,468.2 ms | 1.176 | 1.25 / 1.22 / 1.24 | 8.3 / 12.7 / 9.3 |
+| fixed-1.66 | 1,121.6 ms | 0.906 | 1.25 / 1.27 / 1.26 | 8.7 / 13.0 / 9.7 |
+| fixed-1.70 | 515.5 ms | 0.129 | 1.31 / 1.32 / 1.30 | 9.2 / 14.7 / 10.0 |
+| fixed-1.74 | 445.9 ms | −0.016 | 1.39 / 1.32 / 1.38 | 9.5 / 17.0 / 10.5 |
+
+Every arm completed every contender, with no hold refusal and no preemption, and kept its shared-window work within 0.5% of off's: p 0.9947 to 0.9962 against off's 0.9976, q 0.9287 to 0.9298 against 0.9327.
+
+**What it says.** On this card, at this load, on these three traces, the first-token signal did not establish a 15% advantage over the best fixed spacing. fixed-1.74 matched hold-cap's premium tail, 446 against 455 ms, at a contender median 1.32 to 1.39 times off's against hold-cap's 1.27 to 1.28. The fixed spacings show the knife edge the replay described: 40 ms separates fixed-1.70's tail of 516 ms from fixed-1.66's 1,122 ms and fixed-1.62's 1,468 ms, the last no better than off. Hold-cap reached the frontier's best tail without the spacing being tuned; that is an observation beside the verdict, not a registered result.
+
+**What it does not say.** One card, one load, three traces. It does not test the robustness question, a load whose capped prefill lengthens, where the replay predicts a fixed spacing tuned here would break and hold-cap would not.
+
+**Apparatus note.** The instance took longer than the 5 minutes the wrapper allows its terminate-first call to reach `terminated`, so the wrapper stopped before downloading anything; its exit trap then confirmed the termination. The records were already up under this launch's nonce, and the evidence was downloaded from them by hand with the session's own key list. The 5-minute bound and what follows it are a defect to fix before the next purchase: a slow shutdown should not leave the evidence in the bucket.
+
 The draft as written, kept for the record:
 
 **Its question.** On the A10G, under the pilot's frozen load, does the engine's prefill cap at 384 together with the gateway's serial-prefill hold cut the premium tail, at a contender cost inside limits frozen here, before any card time? It is a feasibility measurement of one candidate, not the main study: it answers whether a main study of this treatment is worth designing.

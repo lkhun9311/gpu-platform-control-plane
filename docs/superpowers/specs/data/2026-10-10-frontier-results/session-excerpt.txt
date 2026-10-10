@@ -1,0 +1,7 @@
+== launching g5.2xlarge spot (max $1.10/h)
+== instance i-0ba933de8f969a248
+== records are up (marker carries this launch's nonce)
+== terminating i-0ba933de8f969a248
+FAIL: the instance i-0ba933de8f969a248 could not be confirmed terminated within 5 minutes; nothing has been downloaded, and the exit trap tries once more
+== terminating i-0ba933de8f969a248
+== i-0ba933de8f969a248 is terminated
