@@ -1,6 +1,6 @@
 # hold-cap as a supported InferenceDeployment serving mode (design spec)
 
-Date: 2026-10-11 · Author: lkhun9311 · Status: approved in conversation, awaiting review of this page
+Date: 2026-10-11 · Author: lkhun9311 · Status: approved by the owner on 2026-10-11
 
 Designed twice, independently, and reconciled: once by me and once by codex `gpt-6-astra` (high), neither reading the
 other's draft first. Where a decision came from one side it says so. The owner chose the scope (the controller renders
