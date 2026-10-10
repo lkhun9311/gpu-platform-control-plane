@@ -99,7 +99,7 @@ All three are fixed, and each fix was checked by feeding it the failure.
 - The poller kept a `200` whose body was then lost, as a `200` with no version; against a server that drops the
   body after the headers the old poller recorded 21 such rows and the fixed one 21 failures. Neither run has a
   `200` row without a version, so the `0 non-200` counts above stand.
-- A missing registry snapshot scored as a broken lineage link, `MISSED`, instead of as missing evidence; with the
+- A missing registry snapshot scored as a broken lineage link, reported as missed, instead of as missing evidence; with the
   snapshots removed from the second run the old scorer printed `VALID` and the fixed one `VOID`. Both runs hold
   both snapshots.
 - The alias window was stamped before the gate, which reads the registry before it moves the alias. So the
