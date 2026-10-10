@@ -1,0 +1,83 @@
+{
+  "run": {
+    "info": {
+      "run_uuid": "9aa55a1959024dd293e02ca452097d64",
+      "experiment_id": "1",
+      "run_name": "silent-grouse-509",
+      "user_id": "root",
+      "status": "FINISHED",
+      "start_time": 1791512609350,
+      "end_time": 1791512609576,
+      "artifact_uri": "mlflow-artifacts:/1/9aa55a1959024dd293e02ca452097d64/artifacts",
+      "lifecycle_stage": "active",
+      "run_id": "9aa55a1959024dd293e02ca452097d64"
+    },
+    "data": {
+      "metrics": [
+        {
+          "key": "eval_accuracy",
+          "value": 0.6150000095367432,
+          "timestamp": 1791512609378,
+          "step": 0
+        }
+      ],
+      "params": [
+        {
+          "key": "variant",
+          "value": "noisy"
+        },
+        {
+          "key": "data_seed",
+          "value": "7"
+        },
+        {
+          "key": "epochs",
+          "value": "300"
+        },
+        {
+          "key": "lr",
+          "value": "0.5"
+        }
+      ],
+      "tags": [
+        {
+          "key": "mlflow.user",
+          "value": "root"
+        },
+        {
+          "key": "mlflow.source.name",
+          "value": "/work/train.py"
+        },
+        {
+          "key": "mlflow.source.type",
+          "value": "LOCAL"
+        },
+        {
+          "key": "mlflow.runName",
+          "value": "silent-grouse-509"
+        },
+        {
+          "key": "git_commit",
+          "value": "1240e3449a733dd0529022a8efdd63ea0b6a3873"
+        },
+        {
+          "key": "code_sha256",
+          "value": "aaa2ace150b444737c6b47807a52620d3e2aeed57775a924dd9cf575425f69a6"
+        },
+        {
+          "key": "train_data_sha256",
+          "value": "6e150b342315b4ebaa8675710187e7bfb19e491a5fd0cb0aca0f107ebc6fca5b"
+        },
+        {
+          "key": "artifact_sha256",
+          "value": "b5cadd4102edb458fce846e3d93eecb03c37b94a9445eb06959a182961eacd30"
+        },
+        {
+          "key": "trained_in_pod",
+          "value": "train-v2-8l6fd"
+        }
+      ]
+    },
+    "inputs": {}
+  }
+}

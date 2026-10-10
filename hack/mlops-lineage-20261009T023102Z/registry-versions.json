@@ -1,0 +1,40 @@
+{
+  "model_versions": [
+    {
+      "name": "clf",
+      "version": "2",
+      "creation_timestamp": 1791513163624,
+      "last_updated_timestamp": 1791513163624,
+      "current_stage": "None",
+      "description": "",
+      "source": "mlflow-artifacts:/1/ccd9ec7e72404fb5a1e4831df67ee7f5/artifacts/model",
+      "run_id": "ccd9ec7e72404fb5a1e4831df67ee7f5",
+      "status": "READY",
+      "tags": [
+        {
+          "key": "artifact_sha256",
+          "value": "b5cadd4102edb458fce846e3d93eecb03c37b94a9445eb06959a182961eacd30"
+        }
+      ],
+      "run_link": ""
+    },
+    {
+      "name": "clf",
+      "version": "1",
+      "creation_timestamp": 1791513158200,
+      "last_updated_timestamp": 1791513158200,
+      "current_stage": "None",
+      "description": "",
+      "source": "mlflow-artifacts:/1/c811a529f3c1447bab17d3772603bcf2/artifacts/model",
+      "run_id": "c811a529f3c1447bab17d3772603bcf2",
+      "status": "READY",
+      "tags": [
+        {
+          "key": "artifact_sha256",
+          "value": "00e666222d791ee5ee112571a55d5ea083d19415ab612e765792cee27c69b946"
+        }
+      ],
+      "run_link": ""
+    }
+  ]
+}
