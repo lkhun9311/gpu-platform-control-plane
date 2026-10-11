@@ -181,8 +181,9 @@ after the gateway acknowledges it, and a 503 when anything is uncertain. It is r
 ### What the evidence licenses (field comments and docs)
 
 The field comment ships in the CRD (`controller-gen` copies it), so it carries the envelope:
-measured on one A10G, one model (Qwen2.5-3B-Instruct), one load and three traces, against no admission at all.
-At that load, a fixed spacing tuned for it matched hold-cap's premium tail (v26).
+measured on one A10G, one engine version, one model (Qwen2.5-3B-Instruct) and one load, in three registered blocks, against no admission at all.
+At that load, a fixed spacing tuned for it tied with hold-cap's premium tail within the registered 15% (v26).
+(This read "three traces" and "matched" until implementation; Finding 9 says three registered blocks and a tie within 15%.)
 What hold-cap offers is protection that needs no tuning, not the lowest tail, and not an SLO.
 It raises standard-tier latency and can refuse a standard request after `maxHold`.
 The predictions that a longer prompt breaks the tuned spacing, and that heavy traces exhaust hold-cap's contender

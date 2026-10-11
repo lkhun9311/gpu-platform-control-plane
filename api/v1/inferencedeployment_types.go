@@ -123,9 +123,9 @@ type VLLMEngine struct {
 type InferenceAdmission struct {
 	// mode is Off or HoldCap.
 	// HoldCap pairs the gateway's serial-prefill admission with the engine's --long-prefill-token-threshold=384.
-	// It was measured on one A10G, one model (Qwen2.5-3B-Instruct), one load and three streaming traces, against no admission.
+	// It was measured on one A10G, one engine version, one model (Qwen2.5-3B-Instruct) and one streaming load, in three registered blocks, against no admission.
 	// There its premium-tier p99 time to first token was about 0.30 of no admission.
-	// A fixed spacing tuned for that load matched it, so HoldCap offers protection that needs no tuning, not the lowest tail and not an SLO.
+	// A fixed spacing tuned for that load tied with it within the registered 15%, so HoldCap offers protection that needs no tuning, not the lowest tail and not an SLO.
 	// It raises standard-tier latency, refuses a standard request held longer than maxHold, and refuses standard requests that do not stream or ask for more than one choice.
 	// +kubebuilder:validation:Enum=Off;HoldCap
 	// +required
