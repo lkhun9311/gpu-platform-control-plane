@@ -102,6 +102,10 @@ What the evidence licenses: HoldCap was measured on one A10G, one engine version
 A fixed spacing tuned for that load tied with it within the registered 15%, so HoldCap offers protection that needs no tuning, not the lowest tail and not an SLO.
 It raises standard-tier latency and refuses a standard request held longer than `maxHold`.
 
+The rendering itself was checked on a real engine on 2026-10-11 (`hack/holdcap-conformance/runs/20261011T030610Z/README.md`).
+The engine the controller started reported the measured arguments with the cap, status turned HoldCap only once that engine was ready and Off 0.1 s after HoldCap was turned off, and Recreate rolled to an engine without the cap.
+That session ran no gateway and measured no latency.
+
 Known gaps, none of which holds requests for an engine without the cap:
 
 - Editing the object, `maxHold` included, moves its generation, so the backend gets the process-wide mode until the controller reports HoldCap again.

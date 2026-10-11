@@ -2,6 +2,7 @@
 #
 # The first full-history run on 2026-10-07 (1,376 commits) found 20 matches and no secret:
 # - generic-api-key on the pinned model revision (40 hex) and the tokenizer files' sha256 (64 hex), both public;
+#   the revision also appears as a --tokenizer-revision= flag in rendered Deployments (hack/holdcap-conformance/runs/);
 # - curl-auth-header on four fixed keys the local gateway checks accept, named as not real.
 # Each allowance below is narrowed to its rule and to exactly what was found, so a real key on another line,
 # or another value on these lines, is still reported.
@@ -15,7 +16,7 @@ description = "the model's public revision and its tokenizer files' digests"
 targetRules = ["generic-api-key"]
 regexTarget = "line"
 regexes = [
-  '''(?i)tokenizer_?rev(ision)?["']?\s*[:=]''',
+  '''(?i)tokenizer[-_]?rev(ision)?["']?\s*[:=]''',
   '''InputLengthTokenizer(Revision|FilesSHA256)\s*=''',
   '''"tokenizer(_config)?\.json":''',
 ]

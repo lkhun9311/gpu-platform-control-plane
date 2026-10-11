@@ -28,6 +28,8 @@ docs/superpowers/*
 !/hack/chaos-fr004-degraded-node.md
 !/hack/observability-kind.md
 !/hack/chaos-fr002-serving-pod-killed.md
+# A paid session's record is evidence a reader must be able to check, so it is published with its files.
+!/hack/holdcap-conformance/runs/*/README.md
 !/hack/chaos-fr002b-backend-fallback.md
 !/hack/argocd-kind.md
 !/hack/kueue-deployment-integration.md

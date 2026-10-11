@@ -213,6 +213,10 @@ is committed.
 arguments ask for. A paid session could show it with the existing validator, which reads the engine's own
 `non-default args` line, but none is part of this work. It is proposed separately, and only the owner can approve it.
 
+Update, 2026-10-11: the owner approved one, and it ran (`hack/holdcap-conformance/runs/20261011T030610Z/README.md`).
+On one A10G the rendered engine's `non-default args` matched `pp_expected_args 384` less its two instrumentation keys, status reported HoldCap only after that engine was ready and Off 0.1 s after HoldCap was turned off, and Recreate rolled to an engine whose arguments matched `pp_expected_args 0`.
+It measured no latency and did not run the gateway; node selection was satisfied by labelling the kind worker by hand.
+
 ## Out of scope
 
 - Option B (per-revision Deployments and Services, gateway acknowledgement, fail-closed activation).
