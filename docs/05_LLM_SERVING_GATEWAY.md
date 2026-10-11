@@ -94,7 +94,7 @@ On a HoldCap backend:
 
 - every request carries its tier's engine priority, whether or not `--bind-priority` is set;
 - a request is never sent to another backend, premium included, and a fallback never enters a HoldCap backend;
-- a standard-tier request that does not stream, or asks for more than one choice, is refused with 400 (`holdcap_requires_stream`, `holdcap_single_choice`), because the hold is released by the first content event.
+- a standard-tier request that does not stream, or asks for other than one choice, is refused with 400 (`holdcap_requires_stream`, `holdcap_single_choice`), because the hold is released by the first content event.
 
 `gpuaas_gateway_backend_admission_mode{namespace,name,mode}` shows, per backend, whether it gets `hold-cap` or the process-wide mode (`gateway`).
 

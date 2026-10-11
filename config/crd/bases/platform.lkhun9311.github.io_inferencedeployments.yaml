@@ -70,7 +70,7 @@ spec:
                       It was measured on one A10G, one engine version, one model (Qwen2.5-3B-Instruct) and one streaming load, in three registered blocks, against no admission.
                       There its premium-tier p99 time to first token was about 0.30 of no admission.
                       A fixed spacing tuned for that load tied with it within the registered 15%, so HoldCap offers protection that needs no tuning, not the lowest tail and not an SLO.
-                      It raises standard-tier latency, refuses a standard request held longer than maxHold, and refuses standard requests that do not stream or ask for more than one choice.
+                      It raises standard-tier latency, refuses a standard request held longer than maxHold, and refuses standard requests that do not stream or ask for other than one choice.
                     enum:
                     - "Off"
                     - HoldCap
@@ -93,7 +93,8 @@ spec:
                     properties:
                       modelRevision:
                         description: modelRevision pins the model and tokenizer to
-                          a Hub commit, as every measured session did.
+                          a Hub commit, as the admission sessions' engine validator
+                          required.
                         pattern: ^[0-9a-f]{40}$
                         type: string
                       profile:
