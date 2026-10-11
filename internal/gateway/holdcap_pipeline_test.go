@@ -214,6 +214,10 @@ var _ = Describe("HoldCap backends in the pipeline", func() {
 		Entry("stream false", `,"stream":false`, reasonHoldCapRequiresStream),
 		Entry("two choices", `,"stream":true,"n":2`, reasonHoldCapSingleChoice),
 		Entry("an n it cannot read", `,"stream":true,"n":"2"`, reasonHoldCapSingleChoice),
+		// The engine reads only the lowercase keys, so a capitalised alias must not stand in for them.
+		// Mutation that must turn these red: read stream and n through struct fields, which match keys case-insensitively.
+		Entry("two choices behind an uppercase N", `,"stream":true,"n":2,"N":1`, reasonHoldCapSingleChoice),
+		Entry("stream false behind an uppercase Stream", `,"stream":false,"Stream":true`, reasonHoldCapRequiresStream),
 	)
 
 	It("serves those shapes to a premium tenant, which a HoldCap backend does not hold", func() {

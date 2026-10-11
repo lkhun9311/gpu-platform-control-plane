@@ -149,10 +149,8 @@ func readRequestMeta(r *http.Request, profile bool) (func() (io.ReadCloser, erro
 	}
 
 	var probe struct {
-		Model    string          `json:"model"`
-		Messages []chatMessage   `json:"messages"`
-		Stream   json.RawMessage `json:"stream"`
-		N        json.RawMessage `json:"n"`
+		Model    string        `json:"model"`
+		Messages []chatMessage `json:"messages"`
 	}
 	if err := json.Unmarshal(buf, &probe); err != nil {
 		return nil, RequestMeta{}, err
@@ -166,8 +164,14 @@ func readRequestMeta(r *http.Request, profile bool) (func() (io.ReadCloser, erro
 		}
 	}
 
-	// Both fields are read raw, so a body the engine would reject on its own is not refused here for a shape only the hold-cap rule cares about.
-	meta := RequestMeta{Model: probe.Model, Stream: string(probe.Stream) == "true", Choices: requestedChoices(probe.N)}
+	// stream and n are read by their exact keys, because a struct field would also take "N" or "Stream", which the engine ignores.
+	// A body carrying "n":2 and "N":1 would then read as one choice here and run as two there.
+	// Both are read raw, so a body the engine would reject on its own is not refused here for a shape only the hold-cap rule cares about.
+	var keys map[string]json.RawMessage
+	if err := json.Unmarshal(buf, &keys); err != nil {
+		return nil, RequestMeta{}, err
+	}
+	meta := RequestMeta{Model: probe.Model, Stream: string(keys["stream"]) == "true", Choices: requestedChoices(keys["n"])}
 	var totalChars int
 	for _, m := range probe.Messages {
 		// An absent content field, or an explicit JSON null, carries no text and is not a non-text part either.
