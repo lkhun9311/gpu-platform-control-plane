@@ -141,6 +141,11 @@ var _ = Describe("InferenceDeployment HoldCap validation", func() {
 		Expect(createSample("platform_v1_inferencedeployment.yaml", "legacy-sample")).To(Succeed())
 	})
 
+	// A sample the apiserver refuses is documentation that cannot be applied.
+	It("accepts the committed HoldCap sample", func() {
+		Expect(createSample("platform_v1_inferencedeployment_holdcap.yaml", "holdcap-sample")).To(Succeed())
+	})
+
 	// The digest lives in three places: the Go constant, the CEL literal and the hand-written manifest.
 	// The specs above pin the first two together; this pins the manifest to them.
 	It("pins the same digest the hand-written vLLM manifest runs", func() {

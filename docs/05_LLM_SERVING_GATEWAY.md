@@ -75,10 +75,39 @@ The token bucket is static; it cannot protect a premium tenant's p99 from a *wit
 - `static-cap` is a pressure-blind input-token bucket per backend.
 - `kv-aware` is the guard above.
 - `prospective` reserves a standard-tier request's estimated input tokens and a stream slot per backend before forwarding. It releases the input at the first body byte the client receives and the stream when the request ends. Both caps (`--admission-prospective-prefill-tokens`, `--admission-prospective-streams`) are required and have no default, and a reserved request is never sent to a fallback backend.
+- `serial-prefill` holds a standard-tier request until no other standard-tier request on its backend is in prefill, and refuses it with 429 after `--admission-serial-prefill-max-hold`.
+- `fixed-spacing` admits standard-tier requests to a backend no closer together than `--admission-fixed-spacing`, holding each for at most `--admission-fixed-spacing-max-hold`.
 
 `--bind-priority` writes the tenant tier's engine priority into every forwarded body (premium 0, standard 1), overwriting any caller value, and reports it in `X-Engine-Priority`. It only matters to an engine started with `--scheduling-policy=priority`.
 
 Both are off by default. They are M5-b's successor mechanisms, shown correct on kind (`hack/test/rehearse-prospective-admission.sh`) and not measured for protection (`docs/superpowers/specs/2026-10-06-m5b-stays-closed-and-what-a-successor-needs-first.md`).
+
+### Per-backend HoldCap
+
+An `InferenceDeployment` with `admission.mode: HoldCap` and an `engine` is admitted by serial-prefill with its own `admission.maxHold`, whatever `--admission-mode` says.
+The two never stack: the process-wide mode has no say over a HoldCap backend.
+The controller renders the measured vLLM engine for it, with `--long-prefill-token-threshold=384` (`internal/controller/inference_engine.go`).
+The gateway applies HoldCap only while the object's `status.admission` reports HoldCap for its current generation and its spec still asks for it (`backendAdmission` in `internal/gateway/router.go`).
+The controller reports HoldCap only once the capped engine is the only one serving.
+
+On a HoldCap backend:
+
+- every request carries its tier's engine priority, whether or not `--bind-priority` is set;
+- a request is never sent to another backend, premium included, and a fallback never enters a HoldCap backend;
+- a standard-tier request that does not stream, or asks for more than one choice, is refused with 400 (`holdcap_requires_stream`, `holdcap_single_choice`), because the hold is released by the first content event.
+
+`gpuaas_gateway_backend_admission_mode{namespace,name,mode}` shows, per backend, whether it gets `hold-cap` or the process-wide mode (`gateway`).
+
+What the evidence licenses: HoldCap was measured on one A10G, one engine version, one model (Qwen2.5-3B-Instruct) and one streaming load, in three registered blocks, against no admission (`docs/11_WHAT_THIS_MEASURED.md`, Finding 9).
+A fixed spacing tuned for that load tied with it within the registered 15%, so HoldCap offers protection that needs no tuning, not the lowest tail and not an SLO.
+It raises standard-tier latency and refuses a standard request held longer than `maxHold`.
+
+Known gaps, none of which holds requests for an engine without the cap:
+
+- Editing the object, `maxHold` included, moves its generation, so the backend gets the process-wide mode until the controller reports HoldCap again.
+- When HoldCap is turned off and the gateway's cache lags the new engine becoming ready, requests can be held briefly for the uncapped engine: no protection, and holds bounded by `maxHold`.
+- A plain deployment ahead of a HoldCap one for the same model no longer falls back into it, so if the plain one is down, its requests fail.
+- serial-prefill state lives in one gateway process. A gateway rollout under the default RollingUpdate briefly runs two, and each admits on its own.
 
 ## Open WebUI principle
 
