@@ -131,6 +131,8 @@ func (r *InferenceDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.
 	desired.ReadyReplicas = dep.Status.ReadyReplicas
 	desired.ObservedGeneration = infd.Generation
 	meta.SetStatusCondition(&desired.Conditions, cond)
+	mode, admitCond := admissionInForce(&infd, dep)
+	setAdmissionStatus(desired, &infd, mode, admitCond)
 
 	if !equality.Semantic.DeepEqual(infd.Status, *desired) {
 		infd.Status = *desired
@@ -356,6 +358,10 @@ func (r *InferenceDeploymentReconciler) markDegraded(ctx context.Context, infd *
 	desired.ObservedGeneration = infd.Generation
 	meta.SetStatusCondition(&desired.Conditions, metav1.Condition{
 		Type: infdCondAvailable, Status: metav1.ConditionFalse, Reason: reason, Message: msg, ObservedGeneration: infd.Generation,
+	})
+	// A Degraded object's engine is not one this controller rendered, so no HoldCap may stand at this generation.
+	setAdmissionStatus(desired, infd, platformv1.AdmissionModeOff, metav1.Condition{
+		Type: infdCondAdmissionInForce, Status: metav1.ConditionFalse, Reason: reason, Message: msg, ObservedGeneration: infd.Generation,
 	})
 	if !equality.Semantic.DeepEqual(infd.Status, *desired) {
 		infd.Status = *desired

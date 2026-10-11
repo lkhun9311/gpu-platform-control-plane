@@ -670,6 +670,76 @@ var _ = Describe("InferenceDeployment Controller", func() {
 			Expect(dep.Spec.Template.Spec.Affinity).To(BeNil())
 			Expect(dep.Spec.Template.Spec.Containers[0].Args).To(ContainElement("--model-path"))
 		})
+
+		It("reports HoldCap only after the capped rollout completes, and Off once it is turned off", func() {
+			Expect(k8sClient.Create(ctx, newEngineInfD(platformv1.AdmissionModeHoldCap))).To(Succeed())
+			r := reconciler()
+			reconcileOK(r)
+			Expect(mustGet(ctx, key).Status.Admission.Mode).To(Equal(platformv1.AdmissionModeOff))
+
+			markDeploymentObserved(1)
+			reconcileOK(r)
+			got := mustGet(ctx, key)
+			Expect(got.Status.Admission.Mode).To(Equal(platformv1.AdmissionModeHoldCap))
+			Expect(got.Status.Admission.ObservedGeneration).To(Equal(got.Generation))
+
+			got.Spec.Admission = &platformv1.InferenceAdmission{Mode: platformv1.AdmissionModeOff}
+			Expect(k8sClient.Update(ctx, got)).To(Succeed())
+			reconcileOK(r)
+			Expect(mustGet(ctx, key).Status.Admission.Mode).To(Equal(platformv1.AdmissionModeOff))
+		})
+
+		// A Deployment this controller does not own is not a capped engine.
+		It("reports Off when a foreign Deployment takes the name", func() {
+			Expect(k8sClient.Create(ctx, newEngineInfD(platformv1.AdmissionModeHoldCap))).To(Succeed())
+			r := reconciler()
+			reconcileOK(r)
+			markDeploymentObserved(1)
+			reconcileOK(r)
+			Expect(mustGet(ctx, key).Status.Admission.Mode).To(Equal(platformv1.AdmissionModeHoldCap))
+
+			dep := getDep()
+			dep.OwnerReferences = nil
+			Expect(k8sClient.Update(ctx, dep)).To(Succeed())
+			_, _ = r.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+			got := mustGet(ctx, key)
+			Expect(got.Status.Phase).To(Equal("Degraded"))
+			Expect(got.Status.Admission.Mode).To(Equal(platformv1.AdmissionModeOff))
+		})
+
+		// A cache still holding the capped Deployment from before an Off-and-back must not read as a completed capped rollout.
+		// The apiserver's copy is the one being rolled to the uncapped template, so only the rendered-generation fence can tell them apart.
+		It("does not report HoldCap from a stale cached Deployment after HoldCap is turned off and on again", func() {
+			Expect(k8sClient.Create(ctx, newEngineInfD(platformv1.AdmissionModeHoldCap))).To(Succeed())
+			r := reconciler()
+			reconcileOK(r)
+			markDeploymentObserved(1)
+			reconcileOK(r)
+			Expect(mustGet(ctx, key).Status.Admission.Mode).To(Equal(platformv1.AdmissionModeHoldCap))
+			stale := getDep()
+
+			infd := mustGet(ctx, key)
+			infd.Spec.Admission = &platformv1.InferenceAdmission{Mode: platformv1.AdmissionModeOff}
+			Expect(k8sClient.Update(ctx, infd)).To(Succeed())
+			reconcileOK(r)
+			infd = mustGet(ctx, key)
+			infd.Spec.Admission = &platformv1.InferenceAdmission{Mode: platformv1.AdmissionModeHoldCap, MaxHold: &metav1.Duration{Duration: 25 * time.Second}}
+			Expect(k8sClient.Update(ctx, infd)).To(Succeed())
+
+			direct, err := client.NewWithWatch(cfg, client.Options{Scheme: k8sClient.Scheme()})
+			Expect(err).NotTo(HaveOccurred())
+			lagging := interceptor.NewClient(direct, interceptor.Funcs{
+				Get: func(ctx context.Context, c client.WithWatch, k client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+					if d, ok := obj.(*appsv1.Deployment); ok && k == key {
+						stale.DeepCopyInto(d)
+						return nil
+					}
+					return c.Get(ctx, k, obj, opts...)
+				},
+			})
+			_, _ = (&InferenceDeploymentReconciler{Client: lagging, Scheme: k8sClient.Scheme()}).Reconcile(ctx, reconcile.Request{NamespacedName: key})
+			Expect(mustGet(ctx, key).Status.Admission.Mode).To(Equal(platformv1.AdmissionModeOff))
+		})
 	})
 })
 
