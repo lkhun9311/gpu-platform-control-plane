@@ -629,8 +629,12 @@ var _ = Describe("InferenceDeployment Controller", func() {
 			Expect(capArgs(c)).To(Equal(1))
 			terms := dep.Spec.Template.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms
 			Expect(terms).To(HaveLen(1))
-			Expect(terms[0].MatchExpressions[0].Key).To(Equal(corev1.LabelInstanceTypeStable))
-			Expect(terms[0].MatchExpressions[0].Values).To(ContainElement("g5.xlarge"))
+			Expect(terms[0].MatchExpressions).To(ConsistOf(
+				corev1.NodeSelectorRequirement{Key: corev1.LabelInstanceTypeStable, Operator: corev1.NodeSelectorOpIn,
+					Values: []string{"g5.xlarge", "g5.2xlarge", "g5.4xlarge", "g5.8xlarge", "g5.16xlarge"}},
+				// The sharing node group is an A10G too; only the exclusive groups carry this label.
+				corev1.NodeSelectorRequirement{Key: "platform.lkhun9311.github.io/gpu", Operator: corev1.NodeSelectorOpIn, Values: []string{"true"}},
+			))
 		})
 
 		It("drops the cap and the annotation follows when HoldCap is turned off", func() {

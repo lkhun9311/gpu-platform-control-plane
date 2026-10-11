@@ -26,6 +26,9 @@ const (
 
 	// holdCapPrefillThreshold is the only prefill cap measured; a field would ship an unmeasured setting.
 	holdCapPrefillThreshold = 384
+
+	// exclusiveGPULabel marks a node whose GPUs are not shared; see the node groups in infra/aws/cluster/eks.tf.
+	exclusiveGPULabel = "platform.lkhun9311.github.io/gpu"
 )
 
 // vllmProfile is one measured engine configuration.
@@ -134,9 +137,12 @@ func mutateEngineDeployment(infd *platformv1.InferenceDeployment, dep *appsv1.De
 	}}
 	dep.Spec.Template.Spec.Affinity = &corev1.Affinity{NodeAffinity: &corev1.NodeAffinity{
 		RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{NodeSelectorTerms: []corev1.NodeSelectorTerm{{
-			MatchExpressions: []corev1.NodeSelectorRequirement{{
-				Key: corev1.LabelInstanceTypeStable, Operator: corev1.NodeSelectorOpIn, Values: p.instanceTypes,
-			}},
+			MatchExpressions: []corev1.NodeSelectorRequirement{
+				{Key: corev1.LabelInstanceTypeStable, Operator: corev1.NodeSelectorOpIn, Values: p.instanceTypes},
+				// The sharing node group is the same A10G advertised as several nvidia.com/gpu, so one of them is not the whole card the profile's 0.90 memory share assumes.
+				// Only the exclusive GPU groups in infra/aws/cluster/eks.tf carry this label.
+				{Key: exclusiveGPULabel, Operator: corev1.NodeSelectorOpIn, Values: []string{"true"}},
+			},
 		}}},
 	}}
 	return true
