@@ -14,7 +14,7 @@ The gateway is not the main feature; it is the runtime boundary that makes the G
 | model routing        | body `model` → `InferenceDeployment` with `spec.model.name == model` in the policy's `targetNamespace` (cache field index) → Service |
 | proxy                | `httputil.ReverseProxy`, streaming-safe (`FlushInterval`), 502/504 mapping, upstream 5xx passthrough                                 |
 | OpenAI compatibility | `POST /v1/chat/completions` only (ADR-3); `/v1/embeddings` deferred                                                                  |
-| metrics              | 17 `gpuaas_gateway_*` series on a separate `:8081` (`internal/gateway/metrics.go`)                                                   |
+| metrics              | 19 `gpuaas_gateway_*` series on a separate `:8081` (`internal/gateway/metrics.go`, and `holdcap.go` for the per-backend mode)        |
 | audit                | structured logs with tenant, model, `request_id` (generated if absent, forwarded + echoed)                                           |
 
 ## Identity chain (canonical)

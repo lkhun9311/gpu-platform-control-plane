@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"net/url"
 	"slices"
+	"time"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -48,6 +49,25 @@ type BackendRef struct {
 	URL *url.URL
 	// Model is the requested model name, carried through for metric labels.
 	Model string
+	// Admission is AdmissionHoldCap when the controller reports the cap in force for this object's current generation.
+	// Empty means the gateway's process-wide mode applies, as it did before backends had a mode.
+	Admission AdmissionMode
+	// MaxHold is a HoldCap backend's hold, from its spec, and zero for any other.
+	MaxHold time.Duration
+}
+
+// backendAdmission reads the mode in force from status, never from the spec alone, because the spec says what was asked and only the controller knows when the capped engine is the one serving.
+// A spec still asking for HoldCap is required as well, so turning HoldCap off takes effect here before the controller catches up.
+// A status from an older generation is not trusted, so a maxHold edit leaves the backend on the process-wide mode until the controller reports HoldCap again; that loses protection for a moment and never holds requests for an engine without the cap.
+func backendAdmission(d *platformv1.InferenceDeployment) (AdmissionMode, time.Duration) {
+	a, st := d.Spec.Admission, d.Status.Admission
+	if a == nil || a.Mode != platformv1.AdmissionModeHoldCap || a.MaxHold == nil {
+		return "", 0
+	}
+	if st == nil || st.Mode != platformv1.AdmissionModeHoldCap || st.ObservedGeneration != d.Generation {
+		return "", 0
+	}
+	return AdmissionHoldCap, a.MaxHold.Duration
 }
 
 // servingPort returns the port the InferenceDeployment serves on.
@@ -133,7 +153,8 @@ func (s *Server) backendsFor(ctx context.Context, policy *platformv1.GPUQuotaPol
 		if err != nil {
 			return nil, fmt.Errorf("parse backend url: %w", err)
 		}
-		refs = append(refs, &BackendRef{Namespace: d.Namespace, Name: d.Name, Port: port, URL: u, Model: model})
+		mode, maxHold := backendAdmission(d)
+		refs = append(refs, &BackendRef{Namespace: d.Namespace, Name: d.Name, Port: port, URL: u, Model: model, Admission: mode, MaxHold: maxHold})
 	}
 	return refs, nil
 }

@@ -144,7 +144,7 @@ func TestSerialPrefillSkipsAWaiterPastItsHold(t *testing.T) {
 	key := serialBackend().URL.String()
 	late, fresh := make(chan struct{}), make(chan struct{})
 	s.busy[key] = true
-	s.waiters[key] = []waiter{{late, time.Now().Add(-2 * time.Second)}, {fresh, time.Now()}}
+	s.waiters[key] = []waiter{{turn: late, since: time.Now().Add(-2 * time.Second), maxHold: time.Second}, {turn: fresh, since: time.Now(), maxHold: time.Second}}
 	s.next(key)
 	select {
 	case <-late:
@@ -166,7 +166,7 @@ func TestSerialPrefillASkippedWaiterDoesNotPassTheTurnOn(t *testing.T) {
 	key := serialBackend().URL.String()
 	late, fresh, third := make(chan struct{}), make(chan struct{}), make(chan struct{})
 	s.busy[key] = true
-	s.waiters[key] = []waiter{{late, time.Now().Add(-2 * time.Second)}, {fresh, time.Now()}, {third, time.Now()}}
+	s.waiters[key] = []waiter{{turn: late, since: time.Now().Add(-2 * time.Second), maxHold: time.Second}, {turn: fresh, since: time.Now(), maxHold: time.Second}, {turn: third, since: time.Now(), maxHold: time.Second}}
 	s.next(key) // skips late, hands the turn to fresh
 	s.leave(key, late)
 	select {
@@ -176,5 +176,71 @@ func TestSerialPrefillASkippedWaiterDoesNotPassTheTurnOn(t *testing.T) {
 	}
 	if busy, waiting := s.state(serialBackend()); !busy || waiting != 1 {
 		t.Fatalf("after the skipped waiter left: busy %v, %d waiting; want busy with the third still waiting", busy, waiting)
+	}
+}
+
+// A waiter is refused by the hold it arrived under, not the admitter's, so one admitter can serve backends with different holds.
+// The admitter's own hold is long enough that the mutation fails by time, not by the test binary's timeout.
+// Mutation that turns it red: time the hold from the admitter's maxHold in reserve.
+func TestSerialPrefillRefusesByTheWaitersOwnHold(t *testing.T) {
+	s := newSerialPrefillAdmitter(5 * time.Second)
+	first, ok, _ := s.reserve(context.Background(), serialBackend(), tierStandard, 5*time.Second)
+	if !ok {
+		t.Fatal("the first request was not admitted on a free backend")
+	}
+	defer first.Done()
+	start := time.Now()
+	_, ok, reason := s.reserve(context.Background(), serialBackend(), tierStandard, 50*time.Millisecond)
+	if ok || reason != reasonSerialPrefillHoldTimeout {
+		t.Fatalf("a waiter with a 50ms hold: admitted %v, reason %s; want a hold timeout", ok, reason)
+	}
+	if took := time.Since(start); took >= time.Second {
+		t.Fatalf("the 50ms waiter was refused after %s, so the admitter's 5s hold timed it", took)
+	}
+}
+
+// next skips a waiter past its own hold even when the admitter's hold has not run out, or a short-hold waiter would be admitted after its client was told no.
+// Mutation that turns it red: compare against the admitter's maxHold in next.
+func TestSerialPrefillNextJudgesAWaiterByItsOwnHold(t *testing.T) {
+	s := newSerialPrefillAdmitter(time.Hour)
+	key := serialBackend().URL.String()
+	late := make(chan struct{})
+	s.busy[key] = true
+	s.waiters[key] = []waiter{{turn: late, since: time.Now().Add(-time.Second), maxHold: 50 * time.Millisecond}}
+	s.next(key)
+	select {
+	case <-late:
+		t.Fatal("the turn went to a waiter a second into a 50ms hold, because the admitter's hour was used")
+	default:
+	}
+	if busy, waiting := s.state(serialBackend()); busy || waiting != 0 {
+		t.Fatalf("after skipping the only waiter: busy %v, %d waiting; want free and empty", busy, waiting)
+	}
+}
+
+// Two HoldCap backends behind one admitter each refuse by their own hold, which is what lets one gateway carry deployments with different maxHold.
+// Mutation that turns it red: time the hold from the admitter's maxHold, which is zero for the hold-cap admitter.
+func TestHoldCapAdmitterHoldsEachBackendByItsOwnHold(t *testing.T) {
+	h := newHoldCapAdmitter()
+	short := &BackendRef{URL: &url.URL{Scheme: "http", Host: "short:8000"}, Admission: AdmissionHoldCap, MaxHold: 50 * time.Millisecond}
+	long := &BackendRef{URL: &url.URL{Scheme: "http", Host: "long:8000"}, Admission: AdmissionHoldCap, MaxHold: 5 * time.Second}
+	for _, b := range []*BackendRef{short, long} {
+		res, ok, _ := h.Reserve(context.Background(), RequestMeta{}, b, "", tierStandard)
+		if !ok {
+			t.Fatalf("the first request on %s was not admitted", b.URL.Host)
+		}
+		defer res.Done()
+	}
+	start := time.Now()
+	if _, ok, reason := h.Reserve(context.Background(), RequestMeta{}, short, "", tierStandard); ok || reason != reasonSerialPrefillHoldTimeout {
+		t.Fatalf("the short backend's waiter: admitted %v, reason %s; want a hold timeout", ok, reason)
+	}
+	if took := time.Since(start); took >= time.Second {
+		t.Fatalf("the short backend's waiter was refused after %s, not by its 50ms hold", took)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	if _, ok, reason := h.Reserve(ctx, RequestMeta{}, long, "", tierStandard); ok || reason != reasonSerialPrefillClientGone {
+		t.Fatalf("the long backend's waiter: admitted %v, reason %s; want it still held when its client left at 300ms", ok, reason)
 	}
 }

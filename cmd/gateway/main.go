@@ -264,6 +264,11 @@ func main() {
 	// InitRateLimiter is (admitter is unexported to the gateway package), and mode travels with it
 	// so the metrics label can never disagree with which Admitter is actually running.
 	s.SetAdmitter(admissionMode, admitter)
+	// A backend can choose its own admission, so the process-wide mode above no longer says what every request gets.
+	if err := s.RegisterBackendAdmissionMetric(); err != nil {
+		log.Error(err, "register the backend admission gauge")
+		os.Exit(1)
+	}
 	s.ReportBackendState(admissionReportBackendState)
 	s.EnforceBenchmarkProfile(enforceBenchmarkProfile)
 	s.BindPriority(bindPriority)
