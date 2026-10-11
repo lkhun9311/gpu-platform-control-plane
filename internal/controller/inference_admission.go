@@ -1,8 +1,6 @@
 package controller
 
 import (
-	"strconv"
-
 	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -32,10 +30,7 @@ func admissionInForce(infd *platformv1.InferenceDeployment, dep *appsv1.Deployme
 	if infd.Spec.Replicas == 0 {
 		return off(infdReasonScaledZero, "no engine is running")
 	}
-	// The Deployment was written for this generation by an Update the apiserver accepted, so it is not a stale cached copy.
-	if dep.Annotations[renderedGenerationAnnotation] != strconv.FormatInt(infd.Generation, 10) {
-		return off(infdReasonRollout, "the Deployment has not been rendered for this generation")
-	}
+	// dep is not a cached copy from before this generation: mutateEngineDeployment stamps every generation on it, so such a copy differs and its Update fails on resourceVersion.
 	if dep.Status.ObservedGeneration < dep.Generation {
 		return off(infdReasonRollout, "the Deployment has not observed its current template")
 	}

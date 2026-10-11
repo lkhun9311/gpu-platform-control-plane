@@ -708,7 +708,9 @@ var _ = Describe("InferenceDeployment Controller", func() {
 		})
 
 		// A cache still holding the capped Deployment from before an Off-and-back must not read as a completed capped rollout.
-		// The apiserver's copy is the one being rolled to the uncapped template, so only the rendered-generation fence can tell them apart.
+		// The apiserver's copy is the one being rolled to the uncapped template.
+		// The stale copy is built so that the generation stamp is its only difference from a fresh render: the rendering otherwise
+		// replaces whole containers and so differs from any cached copy anyway, which would let this pass with no fence at all.
 		It("does not report HoldCap from a stale cached Deployment after HoldCap is turned off and on again", func() {
 			Expect(k8sClient.Create(ctx, newEngineInfD(platformv1.AdmissionModeHoldCap))).To(Succeed())
 			r := reconciler()
@@ -717,6 +719,7 @@ var _ = Describe("InferenceDeployment Controller", func() {
 			reconcileOK(r)
 			Expect(mustGet(ctx, key).Status.Admission.Mode).To(Equal(platformv1.AdmissionModeHoldCap))
 			stale := getDep()
+			staleStamp := stale.Annotations[renderedGenerationAnnotation]
 
 			infd := mustGet(ctx, key)
 			infd.Spec.Admission = &platformv1.InferenceAdmission{Mode: platformv1.AdmissionModeOff}
@@ -725,6 +728,9 @@ var _ = Describe("InferenceDeployment Controller", func() {
 			infd = mustGet(ctx, key)
 			infd.Spec.Admission = &platformv1.InferenceAdmission{Mode: platformv1.AdmissionModeHoldCap, MaxHold: &metav1.Duration{Duration: 25 * time.Second}}
 			Expect(k8sClient.Update(ctx, infd)).To(Succeed())
+			infd = mustGet(ctx, key)
+			r.mutateDeployment(infd, stale, "")
+			stale.Annotations[renderedGenerationAnnotation] = staleStamp
 
 			direct, err := client.NewWithWatch(cfg, client.Options{Scheme: k8sClient.Scheme()})
 			Expect(err).NotTo(HaveOccurred())

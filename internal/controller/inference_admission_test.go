@@ -10,11 +10,10 @@ import (
 	platformv1 "github.com/lkhun9311/gpu-mlops-platform-control-plane/api/v1"
 )
 
-// rolledOut is a Deployment rendered for generation 5 whose HoldCap template has fully replaced every older Pod.
+// rolledOut is a Deployment whose HoldCap template has fully replaced every older Pod.
 func rolledOut() *appsv1.Deployment {
 	d := &appsv1.Deployment{}
 	d.Generation = 3
-	d.Annotations = map[string]string{renderedGenerationAnnotation: "5"}
 	d.Spec.Replicas = new(int32(1))
 	d.Spec.Template.Annotations = map[string]string{admissionAnnotation: platformv1.AdmissionModeHoldCap}
 	d.Status = appsv1.DeploymentStatus{ObservedGeneration: 3, Replicas: 1, UpdatedReplicas: 1, ReadyReplicas: 1, TerminatingReplicas: new(int32(0))}
@@ -41,8 +40,6 @@ func TestAdmissionInForceOnlyAfterACompleteRollout(t *testing.T) {
 		{"complete where terminating Pods are not reported", asked, func(d *appsv1.Deployment) { d.Status.TerminatingReplicas = nil },
 			platformv1.AdmissionModeHoldCap, infdReasonHoldCapInForce},
 		{"not asked", notAsked, func(*appsv1.Deployment) {}, platformv1.AdmissionModeOff, infdReasonNotRequested},
-		{"rendered for an older generation", asked, func(d *appsv1.Deployment) { d.Annotations[renderedGenerationAnnotation] = "4" },
-			platformv1.AdmissionModeOff, infdReasonRollout},
 		{"template not yet observed", asked, func(d *appsv1.Deployment) { d.Status.ObservedGeneration = 2 }, platformv1.AdmissionModeOff, infdReasonRollout},
 		{"template uncapped", asked, func(d *appsv1.Deployment) {
 			d.Spec.Template.Annotations[admissionAnnotation] = platformv1.AdmissionModeOff
