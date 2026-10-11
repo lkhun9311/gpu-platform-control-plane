@@ -38,12 +38,14 @@ STAMP=$(date -u +%Y%m%dT%H%M%SZ)
 NONCE=$(openssl rand -hex 6)
 RUN_ID="holdcap-conformance/$STAMP-$NONCE"
 OUT="${OUT:-$ROOT/../holdcap-conformance-$STAMP}"
+# A fresh directory only, so files a previous run left there can never stand in for this run's evidence.
+[ ! -e "$OUT" ] || fail "$OUT already exists; give each run its own OUT"
 mkdir -p "$OUT"
 COMMIT=$(git rev-parse HEAD)
 say "commit $COMMIT, run $RUN_ID, evidence in $OUT"
 
 say "building the manager and the source archive"
-CGO_ENABLED=0 GOFLAGS=-buildvcs=false go build -o "$OUT/manager" ./cmd
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GOFLAGS=-buildvcs=false go build -o "$OUT/manager" ./cmd
 git archive --format=tar.gz -o "$OUT/source.tgz" HEAD
 SOURCE_SHA=$(sha256sum "$OUT/source.tgz" | cut -d' ' -f1)
 MANAGER_SHA=$(sha256sum "$OUT/manager" | cut -d' ' -f1)
@@ -124,13 +126,32 @@ spot_terminate "$REGION" "$IID"
 IID=""
 
 E="$OUT/evidence/out"
-[ -f "$OUT/evidence/failed.txt" ] && say "the instance reported: $(cat "$OUT/evidence/failed.txt")"
+[ -f "$OUT/evidence/failed.txt" ] && fail "the instance reported: $(cat "$OUT/evidence/failed.txt"); read $OUT/evidence/log.txt"
 [ -f "$E/DONE" ] || fail "the session did not reach DONE; read $OUT/evidence/log.txt"
+[ "$(cat "$E/commit.txt" 2>/dev/null)" = "$COMMIT" ] || fail "the evidence names commit $(cat "$E/commit.txt" 2>/dev/null), not $COMMIT"
+
+# Every part of the claim is a check here, so a run that printed the wrong status cannot end in success.
 ok=0
-python3 hack/holdcap-conformance/check-engine-args.py "$E/args-holdcap.txt" 384 Qwen/Qwen2.5-3B-Instruct || ok=1
-python3 hack/holdcap-conformance/check-engine-args.py "$E/args-off.txt" 0 Qwen/Qwen2.5-3B-Instruct || ok=1
-say "status at create: $(jq -c '.status.admission' "$E/at-create-infd.json")"
-say "status after the capped rollout: $(jq -c '{admission: .status.admission, generation: .metadata.generation}' "$E/holdcap-infd.json")"
-say "status after turning off: $(cat "$E/off-status-latency.txt")"
-say "requests: priority 0 -> $(cat "$E/request-priority-0.code"), priority 1 -> $(cat "$E/request-priority-1.code")"
+check() { if eval "$2"; then say "PASS $1"; else say "FAIL $1"; ok=1; fi; }
+mode_gen() { jq -r '"\(.status.admission.mode // "none") \(.status.admission.observedGeneration // -1) \(.metadata.generation)"' "$1"; }
+in_force() { read -r m g gen <<<"$(mode_gen "$1")"; [ "$m" = "$2" ] && [ "$g" = "$gen" ]; }
+check "the capped engine runs the measured arguments with the cap" \
+  'python3 hack/holdcap-conformance/check-engine-args.py "$E/args-holdcap.txt" 384 Qwen/Qwen2.5-3B-Instruct'
+check "the engine after turning off runs the measured arguments without it" \
+  'python3 hack/holdcap-conformance/check-engine-args.py "$E/args-off.txt" 0 Qwen/Qwen2.5-3B-Instruct'
+check "status was not HoldCap before the engine was ready ($(mode_gen "$E/at-create-infd.json"))" \
+  '! in_force "$E/at-create-infd.json" HoldCap'
+check "status reported HoldCap for the current generation once the capped engine was ready ($(mode_gen "$E/holdcap-infd.json"))" \
+  'in_force "$E/holdcap-infd.json" HoldCap'
+check "status reported Off for the new generation right after turning off ($(cat "$E/off-status-latency.txt"))" \
+  'in_force "$E/off-immediate-infd.json" Off'
+check "status stayed Off after the uncapped rollout ($(mode_gen "$E/off-infd.json"))" \
+  'in_force "$E/off-infd.json" Off'
+check "the Deployment kept Recreate and its template says Off" \
+  '[ "$(jq -r ".spec.strategy.type" "$E/off-deployment.json")" = Recreate ] && [ "$(jq -r ".spec.template.metadata.annotations[\"platform.lkhun9311.github.io/admission\"]" "$E/off-deployment.json")" = Off ]'
+for p in 0 1; do
+  check "a streaming request at priority $p was answered 200 and completed" \
+    '[ "$(cat "$E/request-priority-$p.code")" = 200 ] && grep -q "data: \[DONE\]" "$E/request-priority-$p.txt"'
+done
+[ "$ok" = 0 ] && say "CONFORMANCE: every check passed" || say "CONFORMANCE: at least one check failed"
 exit "$ok"
