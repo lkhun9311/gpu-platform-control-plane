@@ -90,7 +90,13 @@ step "kueue CRDs, node labels and the exclusive device plugin"
 # Server-side, because the Workload CRD is larger than the last-applied annotation a client-side apply writes.
 k apply --server-side -f config/kueue-crds/ || fail "apply the Kueue CRDs"
 # The manager resolves these kinds once at start and exits if one is not yet served (rehearsed 2026-10-11).
-k wait --for condition=established --timeout=120s crd/workloads.kueue.x-k8s.io crd/inferencedeployments.platform.lkhun9311.github.io \
+# Polled rather than `kubectl wait`: the v1.31 kubectl the bring-up installs errors at once on a CRD whose status is still empty.
+established() { [ "$(k get crd "$1" -o jsonpath='{.status.conditions[?(@.type=="Established")].status}' 2>/dev/null)" = True ]; }
+for _ in $(seq 1 60); do
+  established workloads.kueue.x-k8s.io && established inferencedeployments.platform.lkhun9311.github.io && break
+  sleep 2
+done
+established workloads.kueue.x-k8s.io && established inferencedeployments.platform.lkhun9311.github.io \
   || fail "the CRDs were not established"
 # kind sets neither label; EKS sets the first and infra/aws/cluster/eks.tf the second on the exclusive GPU groups.
 # Set by hand here, so this session says nothing about node selection on EKS, only that the engine runs once selected.
@@ -120,7 +126,8 @@ args_line() { k -n "$NS" logs "deploy/$NAME" --tail=-1 | grep -o "non-default ar
 
 step "apply the HoldCap sample"
 k apply -n "$NS" -f config/samples/platform_v1_inferencedeployment_holdcap.yaml || fail "apply the sample"
-sleep 5
+for _ in $(seq 1 60); do k -n "$NS" get deploy "$NAME" >/dev/null 2>&1 && break; sleep 1; done
+k -n "$NS" get deploy "$NAME" >/dev/null || fail "the controller rendered no Deployment"
 snapshot at-create
 step "status at create: $(admission_mode)"
 
@@ -160,6 +167,13 @@ done
 echo "$(awk -v a="$(date +%s.%N)" -v b="$t0" 'BEGIN{printf "%.1f", a-b}')s $(admission_mode)" > /tmp/out/off-status-latency.txt
 snapshot off-immediate
 step "status after turning off: $(cat /tmp/out/off-status-latency.txt)"
+# rollout status read before the controller re-renders would report the capped rollout as done, so the Off template is waited for first.
+template_off() {
+  [ "$(k -n "$NS" get deploy "$NAME" -o jsonpath='{.spec.template.metadata.annotations.platform\.lkhun9311\.github\.io/admission}')" = Off ] &&
+    [ "$(k -n "$NS" get deploy "$NAME" -o jsonpath='{.status.observedGeneration}')" = "$(k -n "$NS" get deploy "$NAME" -o jsonpath='{.metadata.generation}')" ]
+}
+for _ in $(seq 1 60); do template_off && break; sleep 1; done
+template_off || fail "the Deployment never took the Off template"
 k -n "$NS" rollout status "deploy/$NAME" --timeout=900s || { snapshot off-rollout-failed; fail "the uncapped engine did not become ready"; }
 sleep 5
 snapshot off
