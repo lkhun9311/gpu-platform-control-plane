@@ -19,6 +19,8 @@ package controller
 import (
 	"context"
 	"fmt"
+	"strings"
+	"time"
 
 	"github.com/go-logr/logr/funcr"
 	. "github.com/onsi/ginkgo/v2"
@@ -583,6 +585,86 @@ var _ = Describe("InferenceDeployment Controller", func() {
 			_, hasLim := updated.Spec.Template.Spec.Containers[0].Resources.Limits[nvidiaGPUResource]
 			Expect(hasReq).To(BeFalse())
 			Expect(hasLim).To(BeFalse())
+		})
+
+		newEngineInfD := func(mode string) *platformv1.InferenceDeployment {
+			o := newInfD(1, 1)
+			o.Spec.Model.StorageURI = "hf://Qwen/Qwen2.5-3B-Instruct"
+			o.Spec.Image = platformv1.VLLMV0271Image
+			o.Spec.Engine = &platformv1.InferenceEngine{VLLM: &platformv1.VLLMEngine{
+				Profile: platformv1.VLLMProfileV0271A10G, ModelRevision: "aa8e72537993ba99e69dfaafa59ed015b17504d1"}}
+			if mode == platformv1.AdmissionModeHoldCap {
+				o.Spec.Admission = &platformv1.InferenceAdmission{Mode: mode, MaxHold: &metav1.Duration{Duration: 25 * time.Second}}
+			}
+			return o
+		}
+		capArgs := func(c corev1.Container) int {
+			n := 0
+			for _, a := range c.Args {
+				if strings.HasPrefix(a, "--long-prefill-token-threshold=") {
+					n++
+				}
+			}
+			return n
+		}
+		reconcileOK := func(r *InferenceDeploymentReconciler) {
+			_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+			Expect(err).NotTo(HaveOccurred())
+		}
+		getDep := func() *appsv1.Deployment {
+			dep := &appsv1.Deployment{}
+			Expect(k8sClient.Get(ctx, key, dep)).To(Succeed())
+			return dep
+		}
+
+		It("renders the capped engine with Recreate, on an A10G, with an annotation that matches its arguments", func() {
+			Expect(k8sClient.Create(ctx, newEngineInfD(platformv1.AdmissionModeHoldCap))).To(Succeed())
+			reconcileOK(reconciler())
+			dep := getDep()
+			Expect(dep.Spec.Strategy.Type).To(Equal(appsv1.RecreateDeploymentStrategyType))
+			Expect(dep.Spec.Template.Annotations).To(HaveKeyWithValue(admissionAnnotation, platformv1.AdmissionModeHoldCap))
+			Expect(dep.Annotations).To(HaveKeyWithValue(renderedGenerationAnnotation, fmt.Sprint(mustGet(ctx, key).Generation)))
+			c := dep.Spec.Template.Spec.Containers[0]
+			Expect(c.Image).To(Equal(platformv1.VLLMV0271Image))
+			Expect(capArgs(c)).To(Equal(1))
+			terms := dep.Spec.Template.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms
+			Expect(terms).To(HaveLen(1))
+			Expect(terms[0].MatchExpressions[0].Key).To(Equal(corev1.LabelInstanceTypeStable))
+			Expect(terms[0].MatchExpressions[0].Values).To(ContainElement("g5.xlarge"))
+		})
+
+		It("drops the cap and the annotation follows when HoldCap is turned off", func() {
+			Expect(k8sClient.Create(ctx, newEngineInfD(platformv1.AdmissionModeHoldCap))).To(Succeed())
+			r := reconciler()
+			reconcileOK(r)
+			infd := mustGet(ctx, key)
+			infd.Spec.Admission = nil
+			Expect(k8sClient.Update(ctx, infd)).To(Succeed())
+			reconcileOK(r)
+			dep := getDep()
+			Expect(capArgs(dep.Spec.Template.Spec.Containers[0])).To(Equal(0))
+			Expect(dep.Spec.Template.Annotations).To(HaveKeyWithValue(admissionAnnotation, platformv1.AdmissionModeOff))
+		})
+
+		// Going back to the generic container must not leave the engine's template behind.
+		It("returns to the generic container without the engine's residue when engine is removed", func() {
+			Expect(k8sClient.Create(ctx, newEngineInfD(platformv1.AdmissionModeOff))).To(Succeed())
+			r := reconciler()
+			reconcileOK(r)
+			Expect(getDep().Spec.Strategy.Type).To(Equal(appsv1.RecreateDeploymentStrategyType))
+			infd := mustGet(ctx, key)
+			infd.Spec.Engine = nil
+			infd.Spec.Image = "vllm/vllm-openai:test"
+			Expect(k8sClient.Update(ctx, infd)).To(Succeed())
+			reconcileOK(r)
+			dep := getDep()
+			Expect(dep.Spec.Template.Annotations).NotTo(HaveKey(admissionAnnotation))
+			Expect(dep.Annotations).NotTo(HaveKey(renderedGenerationAnnotation))
+			Expect(dep.Spec.Strategy.Type).To(Equal(appsv1.RollingUpdateDeploymentStrategyType))
+			Expect(dep.Spec.Template.Spec.Volumes).To(BeEmpty())
+			Expect(dep.Spec.Template.Spec.Tolerations).To(BeEmpty())
+			Expect(dep.Spec.Template.Spec.Affinity).To(BeNil())
+			Expect(dep.Spec.Template.Spec.Containers[0].Args).To(ContainElement("--model-path"))
 		})
 	})
 })

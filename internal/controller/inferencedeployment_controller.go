@@ -227,6 +227,15 @@ func (r *InferenceDeploymentReconciler) mutateDeployment(infd *platformv1.Infere
 	}
 	dep.Spec.Template.Labels = labels
 
+	if infd.Spec.Engine != nil {
+		// The enum admits only profiles with a rendering, so this is a code defect, and a panic is what a test sees.
+		if !mutateEngineDeployment(infd, dep) {
+			panic(fmt.Sprintf("vLLM profile %q passed the CRD enum and has no rendering", infd.Spec.Engine.VLLM.Profile))
+		}
+		return
+	}
+	clearEngineResidue(dep)
+
 	container := corev1.Container{
 		Name:  "server",
 		Image: infd.Spec.Image,
