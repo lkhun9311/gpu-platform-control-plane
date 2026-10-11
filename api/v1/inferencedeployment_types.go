@@ -29,6 +29,12 @@ import (
 // Any new fields you add must have json tags for the fields to be serialized.
 
 // InferenceDeploymentSpec defines the desired state of InferenceDeployment.
+// +kubebuilder:validation:XValidation:rule="!has(self.admission) || self.admission.mode != 'HoldCap' || has(self.engine)",message="admission.mode HoldCap requires spec.engine: the cap is guaranteed only on an engine this controller renders"
+// +kubebuilder:validation:XValidation:rule="!has(self.admission) || has(self.admission.maxHold) == (self.admission.mode == 'HoldCap')",message="admission.maxHold is set exactly when admission.mode is HoldCap"
+// +kubebuilder:validation:XValidation:rule="!has(self.admission) || self.admission.mode != 'HoldCap' || self.replicas <= 1",message="admission.mode HoldCap requires replicas at most 1: serial-prefill keys on the Service, so two engines behind it would be serialized as one"
+// +kubebuilder:validation:XValidation:rule="!has(self.engine) || self.gpuCount == 1",message="spec.engine requires gpuCount 1: its only profile is one engine on one A10G"
+// +kubebuilder:validation:XValidation:rule="!has(self.engine) || self.model.storageUri.matches('^hf://[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$')",message="spec.engine requires model.storageUri of the form hf://<org>/<repo>"
+// +kubebuilder:validation:XValidation:rule="!has(self.engine) || self.image.endsWith('@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967')",message="spec.engine requires spec.image pinned to the vLLM v0.27.1 digest the profile was measured on, from any registry"
 type InferenceDeploymentSpec struct {
 	// model is the model to serve.
 	// +required
@@ -64,6 +70,83 @@ type InferenceDeploymentSpec struct {
 	// +kubebuilder:default=8080
 	// +optional
 	Port int32 `json:"port,omitempty"`
+
+	// engine has the controller render an engine itself instead of the generic serving container.
+	// Absent keeps the generic container, unchanged.
+	// +optional
+	Engine *InferenceEngine `json:"engine,omitempty"`
+
+	// admission selects how the gateway admits requests to this deployment.
+	// Absent leaves the gateway's own process-wide mode in charge.
+	// +optional
+	Admission *InferenceAdmission `json:"admission,omitempty"`
+}
+
+// The admission modes an InferenceDeployment can ask for.
+const (
+	AdmissionModeOff     = "Off"
+	AdmissionModeHoldCap = "HoldCap"
+)
+
+// VLLMProfileV0271A10G is the engine configuration the admission study measured, and the only one offered.
+const VLLMProfileV0271A10G = "v0.27.1-a10g"
+
+// VLLMV0271Digest is the image digest config/vllm/deployment.yaml pins; the CEL rule on the spec repeats it.
+const VLLMV0271Digest = "sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967"
+
+// VLLMV0271Image is that digest on Docker Hub; a mirror of the same digest is accepted too.
+const VLLMV0271Image = "vllm/vllm-openai@" + VLLMV0271Digest
+
+// InferenceEngine selects an engine the controller renders.
+type InferenceEngine struct {
+	// vllm renders the pinned vLLM profile.
+	// +required
+	VLLM *VLLMEngine `json:"vllm"`
+}
+
+// VLLMEngine is a pinned vLLM configuration.
+// It has no free-form arguments: a list would let HoldCap run on an engine the evidence says nothing about.
+type VLLMEngine struct {
+	// profile is the engine configuration measured on one A10G with Qwen2.5-3B-Instruct; it is the only one offered.
+	// +kubebuilder:validation:Enum=v0.27.1-a10g
+	// +required
+	Profile string `json:"profile"`
+
+	// modelRevision pins the model and tokenizer to a Hub commit, as every measured session did.
+	// +kubebuilder:validation:Pattern=`^[0-9a-f]{40}$`
+	// +required
+	ModelRevision string `json:"modelRevision"`
+}
+
+// InferenceAdmission selects the gateway's admission for this deployment.
+// +kubebuilder:validation:XValidation:rule="!has(self.maxHold) || (duration(self.maxHold) >= duration('1s') && duration(self.maxHold) <= duration('25s'))",message="admission.maxHold must lie between 1s and 25s, the longest hold measured"
+type InferenceAdmission struct {
+	// mode is Off or HoldCap.
+	// HoldCap pairs the gateway's serial-prefill admission with the engine's --long-prefill-token-threshold=384.
+	// It was measured on one A10G, one model (Qwen2.5-3B-Instruct), one load and three streaming traces, against no admission.
+	// There its premium-tier p99 time to first token was about 0.30 of no admission.
+	// A fixed spacing tuned for that load matched it, so HoldCap offers protection that needs no tuning, not the lowest tail and not an SLO.
+	// It raises standard-tier latency, refuses a standard request held longer than maxHold, and refuses standard requests that do not stream or ask for more than one choice.
+	// +kubebuilder:validation:Enum=Off;HoldCap
+	// +required
+	Mode string `json:"mode"`
+
+	// maxHold is how long a standard request may wait for its turn before it is refused with 429.
+	// It has no default: zero would refuse every request that ever had to wait.
+	// +optional
+	MaxHold *metav1.Duration `json:"maxHold,omitempty"`
+}
+
+// InferenceAdmissionStatus is the admission in force, which is not always the admission asked for.
+type InferenceAdmissionStatus struct {
+	// mode is HoldCap only once a rollout of an engine rendered with the cap has completed; otherwise Off.
+	// +kubebuilder:validation:Enum=Off;HoldCap
+	// +required
+	Mode string `json:"mode"`
+
+	// observedGeneration is the generation this mode was decided for; the gateway trusts it only when it is current.
+	// +required
+	ObservedGeneration int64 `json:"observedGeneration"`
 }
 
 // InferenceModel identifies the model to serve.
@@ -95,6 +178,10 @@ type InferenceDeploymentStatus struct {
 	// lastTransitionTime is the time the phase last changed.
 	// +optional
 	LastTransitionTime *metav1.Time `json:"lastTransitionTime,omitempty"`
+
+	// admission is the admission in force for this deployment; absent when the spec asks for none.
+	// +optional
+	Admission *InferenceAdmissionStatus `json:"admission,omitempty"`
 
 	// conditions represent the current state of the InferenceDeployment resource.
 	//
