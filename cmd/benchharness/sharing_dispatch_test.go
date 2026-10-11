@@ -39,7 +39,9 @@ func TestTheSharingReadingsAreNotEvaluatedWithoutTheirDenominators(t *testing.T)
 	}
 	order := []bench.ArmSummary{full[bench.ArmR1], full[bench.ArmShared], full[bench.ArmTimeSlicing]}
 
-	if got := evaluateSharingMatrix(full, order, nil); got == nil {
+	// frozen is nil throughout: this test is about the arms that divide, not about the declared load, and a
+	// study that froze no tuple is the case reading 4e reports as uncomputable rather than silently skipping.
+	if got := evaluateSharingMatrix(full, order, nil, nil); got == nil {
 		t.Fatal("complete evidence produced no readings at all")
 	}
 
@@ -53,7 +55,7 @@ func TestTheSharingReadingsAreNotEvaluatedWithoutTheirDenominators(t *testing.T)
 			partial[name] = s
 			kept = append(kept, s)
 		}
-		got := evaluateSharingMatrix(partial, kept, nil)
+		got := evaluateSharingMatrix(partial, kept, nil, nil)
 		// AMENDED 2026-09-12. This used to require nil, and nil was worse than it looked: the caller only
 		// runs the verdict when this is non-nil, so `report` printed a stderr warning and exited ZERO --
 		// and the paid runner calls it as `... || fail`. The property worth holding is not "no result" but
@@ -62,18 +64,34 @@ func TestTheSharingReadingsAreNotEvaluatedWithoutTheirDenominators(t *testing.T)
 			t.Fatalf("evidence missing %s produced no result at all, so the verdict block never runs and the "+
 				"command exits zero on a run with no %s", missing, missing)
 		}
-		if len(got.Readings) != 1 {
-			t.Errorf("evidence missing %s produced %d readings; every ratio in them is built from a zero "+
-				"ArmSummary and would print as a measurement", missing, len(got.Readings))
+		// AMENDED 2026-10-03, from 1 to 2. The declared-load gate is prepended on BOTH of this wrapper's
+		// exits, deliberately: a check that vanishes on the path where the evidence is already in doubt is
+		// the shape this repository keeps finding in its own gates. Still an exact count rather than a
+		// minimum, because the property being held is that nothing is SCORED here -- a third reading would
+		// mean a ratio built from a zero ArmSummary had been computed after all.
+		if len(got.Readings) != 2 {
+			t.Errorf("evidence missing %s produced %d readings, want the declared-load gate plus one refusal; "+
+				"every ratio beyond those is built from a zero ArmSummary and would print as a measurement",
+				missing, len(got.Readings))
 		}
-		if len(got.Readings) > 0 {
-			r := got.Readings[0]
-			if !r.NotEvaluable || r.Fired {
-				t.Errorf("the single reading for evidence missing %s is not a refusal (fired=%v, n/e=%v): %s",
-					missing, r.Fired, r.NotEvaluable, r.Detail)
+		// Found by ID rather than by index. The refusal used to be Readings[0] and is now behind 4e, and an
+		// index would have gone on passing while asserting something about a different reading.
+		var refusal bench.PoPReading
+		for _, r := range got.Readings {
+			if r.ID == "4" {
+				refusal = r
 			}
-			if !strings.Contains(r.Detail, missing) {
-				t.Errorf("the refusal does not name the missing arm %s: %s", missing, r.Detail)
+		}
+		if refusal.ID == "" {
+			t.Errorf("evidence missing %s produced no reading 4 at all; the refusal that names the missing "+
+				"denominator is the one a reader needs", missing)
+		} else {
+			if !refusal.NotEvaluable || refusal.Fired {
+				t.Errorf("the reading for evidence missing %s is not a refusal (fired=%v, n/e=%v): %s",
+					missing, refusal.Fired, refusal.NotEvaluable, refusal.Detail)
+			}
+			if !strings.Contains(refusal.Detail, missing) {
+				t.Errorf("the refusal does not name the missing arm %s: %s", missing, refusal.Detail)
 			}
 		}
 		if got.Answer != "" {
@@ -83,6 +101,81 @@ func TestTheSharingReadingsAreNotEvaluatedWithoutTheirDenominators(t *testing.T)
 		if err := sharingRunInvalid(*got); err == nil {
 			t.Errorf("a run with no %s arm exits zero; `benchharness report ... || fail` would accept it", missing)
 		}
+	}
+}
+
+// The declared-load gate is on the page whatever else happened, and it is FIRST.
+//
+// sharingRunInvalid walks the readings and returns on the first one it recognises, so a gate that is absent
+// from the list is a gate that cannot fail -- "we never checked" and "we checked and it agreed" would share
+// an exit status and a printed page. That is the defect class this whole gate exists to close, and it would
+// be perfectly possible to reintroduce it here by attaching 4e on only the scored path.
+//
+// FIRST because it is a premise. Readings 4 and 4b ask whether the load created contention; a reader who
+// meets them above the gate is reading answers about a trace nobody has vouched for yet.
+func TestTheDeclaredLoadGateIsPresentOnEveryPathAndComesFirst(t *testing.T) {
+	complete := map[string]bench.ArmSummary{
+		bench.ArmR1:          {Arm: bench.ArmR1, TTFTMsP99: 67.3, TailSampleSize: 200},
+		bench.ArmShared:      {Arm: bench.ArmShared, TTFTMsP99: 1400, TailSampleSize: 200},
+		bench.ArmTimeSlicing: {Arm: bench.ArmTimeSlicing, TTFTMsP99: 900, TailSampleSize: 200},
+	}
+	for _, tc := range []struct {
+		name string
+		summ map[string]bench.ArmSummary
+	}{
+		{name: "the scored path", summ: complete},
+		{
+			name: "the missing-baseline refusal path",
+			summ: map[string]bench.ArmSummary{bench.ArmShared: complete[bench.ArmShared]},
+		},
+		{name: "no arms at all", summ: map[string]bench.ArmSummary{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var order []bench.ArmSummary
+			for _, s := range tc.summ {
+				order = append(order, s)
+			}
+			got := evaluateSharingMatrix(tc.summ, order, nil, nil)
+			if got == nil {
+				t.Fatal("no result at all, so neither the gate nor the verdict block runs")
+			}
+			if len(got.Readings) == 0 || got.Readings[0].ID != "4e" {
+				var ids []string
+				for _, r := range got.Readings {
+					ids = append(ids, r.ID)
+				}
+				t.Fatalf("the declared-load gate is not the first reading; the readings were %v", ids)
+			}
+			// And it must reach the exit status, which is what the paid runner reads.
+			if err := sharingRunInvalid(*got); err == nil {
+				t.Error("the gate came back uncomputable and the run exited zero; " +
+					"`benchharness report ... || fail` would accept a load nobody vouched for")
+			}
+		})
+	}
+}
+
+// A gate that speaks takes the ANSWER away, because a verdict printed beside a refusal is read as a verdict.
+func TestAnUnvouchedLoadWithholdsTheAnswer(t *testing.T) {
+	summ := map[string]bench.ArmSummary{
+		bench.ArmR1:          {Arm: bench.ArmR1, TTFTMsP99: 67.3, TailSampleSize: 200},
+		bench.ArmShared:      {Arm: bench.ArmShared, TTFTMsP99: 1400, TailSampleSize: 200},
+		bench.ArmTimeSlicing: {Arm: bench.ArmTimeSlicing, TTFTMsP99: 900, TailSampleSize: 200},
+	}
+	order := []bench.ArmSummary{summ[bench.ArmR1], summ[bench.ArmShared], summ[bench.ArmTimeSlicing]}
+
+	got := evaluateSharingMatrix(summ, order, nil, nil)
+	if got.Answer != "" {
+		t.Errorf("the declared-load gate could not be computed and the page still answered %q", got.Answer)
+	}
+	page := bench.FormatSharingMatrix(*got)
+	if !strings.Contains(page, "ANSWER: withheld") {
+		t.Errorf("the page does not say the answer was withheld, so a reader sees a blank where a reason "+
+			"belongs:\n%s", page)
+	}
+	if strings.Contains(page, "gap in the outcome space") {
+		t.Errorf("the page calls an unvouched load a gap in the outcome space, which invites another paid "+
+			"run to fill a gap that is not there:\n%s", page)
 	}
 }
 
@@ -98,7 +191,7 @@ func TestASubsetRunIsAMatrixWithFewerArmsRatherThanAFailedOne(t *testing.T) {
 	}
 	order := []bench.ArmSummary{summ[bench.ArmR1], summ[bench.ArmShared], summ[bench.ArmTimeSlicing]}
 
-	res := evaluateSharingMatrix(summ, order, nil)
+	res := evaluateSharingMatrix(summ, order, nil, nil)
 	if res == nil {
 		t.Fatal("a two-arm matrix produced no readings")
 	}

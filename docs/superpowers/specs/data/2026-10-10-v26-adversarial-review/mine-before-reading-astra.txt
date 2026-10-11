@@ -1,0 +1,18 @@
+# My own review, written before reading astra's A/B/C outputs
+
+| id | where | kind | issue | consequence | severity |
+|---|---|---|---|---|---|
+| M1 | internal/gateway (absent) | defect | the fixed-spacing admission mode does not exist; v26's four control arms cannot run | no study | blocker |
+| M2 | v26 text, simulate.hold_spacing | ambiguity | does the spacing count from the previous contender's forward, its decision, or its arrival at the engine; and does a refused or cancelled contender's forward still count | the card's control differs from the replayed one | major |
+| M3 | v26 text | ambiguity | the fixed arms' hold is counted from gateway arrival like serial-prefill's; not stated | a refusal line judged differently between arms | minor |
+| M4 | pilot_report.py | defect | the scorer judges only off and hold-cap; v26 needs every arm's validity, the six-verdict order, and pooled crossed bounds over three cells | no v26 verdict | blocker |
+| M5 | pilot_report.py | ambiguity | "pooled p99" with crossed bounds: _box over three cells' rows, or per cell then combined | different endpoint | major |
+| M6 | pilot_report.py | ambiguity | in a treatment arm a premium request recorded whole that failed enters at +inf; the scorer's existing premium-loss line is validity for every arm | an overloaded fixed arm voids the study | major |
+| M7 | pilot_report.py | defect | gateway post-arrival delay (arrived to deciding) is not a validity line yet | apparatus delay unbounded | major |
+| M8 | lib/prospective-pilot.sh | defect | arm list, cap 384 for fixed arms, gateway flags per fixed arm, request-id flag for the new stage | wrong engine or gateway for a fixed arm | blocker |
+| M9 | m5c-matrix.sh, m5c-gpu-session.sh | defect | 19-cell stage, hashed order of six arms, 22,140 s hard stop, study id and allow-lists, golden | session refuses or runs the wrong cells | blocker |
+| M10 | internal/bench/study.go | defect | no study registration for v26 (arms, seeds 861-863, frozen tuple) | gen-trace writes a manifest for any id; the matrix allow-list refuses | blocker |
+| M11 | replay prediction on seeds 861-863 | risk | at the card's measured pace the registered decision predicts "not established"; fixed-1.74 within 5% of hold-cap | a purchase likely ends without a directional verdict | decision for the record, not a defect |
+| M12 | replay | limitation | trace-mode replay underestimates contender median and p95 by 3-7% against the diagnostic's measured seeds | admissibility near the 25 s p95 could be optimistic | minor |
+| M13 | v26 text | ambiguity | "in every complete block" for admissibility, while verdicts need three complete blocks anyway | none in practice; wording | minor |
+| M14 | v26 text | ambiguity | which off is the reference for a fixed arm's work and gap safeguards: the same block's off | stated for p50 only | minor |

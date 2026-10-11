@@ -5,17 +5,17 @@ aws ssm get-parameter --region ap-northeast-2 --name /aws/service/deeplearning/a
 aws ec2 describe-instance-type-offerings --region ap-northeast-2 --location-type availability-zone --filters Name=instance-type,Values=g5.xlarge --query InstanceTypeOfferings[].Location --output text
 aws ec2 describe-subnets --region ap-northeast-2 --filters Name=default-for-az,Values=true Name=map-public-ip-on-launch,Values=true Name=availability-zone,Values=ap-northeast-2a --query Subnets[0].SubnetId --output text
 aws ec2 describe-subnets --region ap-northeast-2 --filters Name=default-for-az,Values=true Name=map-public-ip-on-launch,Values=true Name=availability-zone,Values=ap-northeast-2a --query Subnets[0].SubnetId --output text
-aws ec2 run-instances --region ap-northeast-2 --image-id ami-0stubgpu --instance-type g5.xlarge --subnet-id subnet-ap-northeast-2a --iam-instance-profile Name=m5b-microtest --instance-initiated-shutdown-behavior terminate --block-device-mappings [{"DeviceName":"/dev/sda1","Ebs":{"VolumeSize":150,"VolumeType":"gp3","DeleteOnTermination":true}}] --instance-market-options {"MarketType":"spot","SpotOptions":{"MaxPrice":"0.80","SpotInstanceType":"one-time"}} --user-data file://<USERDATA> --tag-specifications ResourceType=instance,Tags=[{Key=Name,Value=m5b-microtest},{Key=purpose,Value=m5b-scheduler-microtest}] --query Instances[0].InstanceId --output text
+aws ec2 run-instances --region ap-northeast-2 --image-id ami-0stubgpu --instance-type g5.xlarge --subnet-id subnet-ap-northeast-2a --iam-instance-profile Name=m5b-microtest --instance-initiated-shutdown-behavior terminate --block-device-mappings [{"DeviceName":"/dev/sda1","Ebs":{"VolumeSize":150,"VolumeType":"gp3","DeleteOnTermination":true}}] --instance-market-options {"MarketType":"spot","SpotOptions":{"MaxPrice":"0.80","SpotInstanceType":"one-time"}} --user-data file://<USERDATA> --tag-specifications ResourceType=instance,Tags=[{Key=Name,Value=m5b-microtest},{Key=purpose,Value=m5b-scheduler-microtest}] --client-token <RUN>-ap-northeast-2a --query Instances[0].InstanceId --output text
 user-data: matches the copy saved in the run directory
 aws s3api head-object --bucket stub-bucket --key run/DONE
-aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0stub --query Reservations[0].Instances[0].State.Name --output text
+aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0stub --cli-connect-timeout 5 --cli-read-timeout 10 --query Reservations[0].Instances[0].State.Name --output text
 sleep 30
 aws s3api head-object --bucket stub-bucket --key run/DONE
 aws s3 cp s3://stub-bucket/run/results.json <OUT>/results.json
 aws s3 cp s3://stub-bucket/run/log.txt <OUT>/log.txt
 aws s3 cp s3://stub-bucket/run/stderr.txt <OUT>/stderr.txt
 aws ec2 terminate-instances --region ap-northeast-2 --instance-ids i-0stub
-aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0stub --query Reservations[0].Instances[0].State.Name --output text
+aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0stub --cli-connect-timeout 5 --cli-read-timeout 10 --query Reservations[0].Instances[0].State.Name --output text
 sleep 5
 --- the 2 line(s) above repeat 12 times ---
 --- exit 1
@@ -37,6 +37,7 @@ sleep 5
 == terminating i-0stub
 TERMINATION UNCONFIRMED for i-0stub: still running after an accepted terminate call. Check it by hand:
   aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0stub
+TERMINATION UNCONFIRMED for i-0stub
 --- files
 ./instance-id
 ./launch-errors.txt
@@ -44,4 +45,5 @@ TERMINATION UNCONFIRMED for i-0stub: still running after an accepted terminate c
 ./microtest.py
 ./results.json
 ./stderr.txt
+./termination.txt
 ./user-data.sh

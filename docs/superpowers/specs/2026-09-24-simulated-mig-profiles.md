@@ -70,7 +70,9 @@ so a passing result is not mistaken for tenant-proof policy.
 
 The target is a plain `batch/v1` Job, not an `MLTrainingJob`, for a specific reason: Finding 6 showed the CR
 reports `Running` whenever `job.Status.Active > 0`, which counts pending Pods. Using the CR as the oracle
-here would import a known defect into a study about something else.
+here would import a known defect into a study about something else. (That defect was fixed on 2026-09-25 —
+the phase now reads `job.Status.Ready` — after this was registered. The choice of oracle stands: it was made
+while the defect was live, and a study should not change what it measures with because the code moved.)
 
 Reconfiguration cost — drain, re-advertise, converge — is an **exploratory appendix**, not a hypothesis. A
 sleep this study injects is not a measurement of what a real card takes to repartition.

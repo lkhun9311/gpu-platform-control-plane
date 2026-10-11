@@ -12,6 +12,11 @@ terraform {
       source  = "hashicorp/tls"
       version = "~> 4.0"
     }
+    # The sweeper's Lambda package (sweeper.tf).
+    archive = {
+      source  = "hashicorp/archive"
+      version = "~> 2.4"
+    }
   }
 }
 

@@ -1,0 +1,1 @@
+REFUSED: stagger-step-1: the captured log starts at iteration 38573, not 0, so part of the warm-up is missing from it

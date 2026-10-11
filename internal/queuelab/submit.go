@@ -137,6 +137,12 @@ state=sys.argv[4] if len(sys.argv)>4 and sys.argv[4] else None
 restore=len(sys.argv)>5 and sys.argv[5]=="resume"
 PERIOD=2.6
 n=0; kind="cpu-float"; dev="not-attempted"; x=1.0; acc=1.0; resumed=0; saved="not-attempted"
+# slept accumulates wall time spent INSIDE time.sleep, and t0 opens the window it is a fraction of.
+#
+# t0 is set before the restore below rather than at the loop, so the window covers everything this process did.
+# Neither is GPU utilisation and the complement of slept/window is not device compute time: it also holds
+# descheduling, sleep overrun, interpreter overhead and kernel-launch latency.
+slept=0.0; t0=time.monotonic()
 # Restore, and treat anything unreadable as a fresh start rather than as progress.
 #
 # A truncated or garbled file is not a smaller amount of work, it is an unknown amount, and resuming from a
@@ -213,7 +219,7 @@ ret;
 """
 try: tl=open("/dev/termination-log","w")
 except Exception: tl=None
-def msg(): return "iters=%d kind=%s dev=%s duty=%g acc=%.17g resumed=%d saved=%s"%(n,kind,dev,duty,acc,resumed,saved)
+def msg(): return "iters=%d kind=%s dev=%s duty=%g acc=%.17g resumed=%d saved=%s sleptns=%d windowns=%d"%(n,kind,dev,duty,acc,resumed,saved,int(slept*1e9),int((time.monotonic()-t0)*1e9))
 def mark():
     if tl is None: return
     tl.seek(0); tl.write(msg()); tl.truncate(); tl.flush()
@@ -286,7 +292,11 @@ while time.monotonic()<end:
         if t-last>0.5: last=t; mark(); print(msg(),flush=True)
     if duty<1.0:
         rest=end-time.monotonic()
-        if rest>0: time.sleep(min((1.0-duty)*PERIOD,rest))
+        # Measured around the call, never derived from duty. The argument is min((1-duty)*PERIOD,rest), so the
+        # final segment sleeps LESS than the expression, and summing the intention would overcount exactly at
+        # the boundary the old count-ratio guards could not see.
+        if rest>0:
+            s0=time.monotonic(); time.sleep(min((1.0-duty)*PERIOD,rest)); slept+=time.monotonic()-s0
 mark(); print("finished "+msg(),flush=True)`
 
 // localQueueName is the deterministic LocalQueue name a tenant's jobs are admitted through.

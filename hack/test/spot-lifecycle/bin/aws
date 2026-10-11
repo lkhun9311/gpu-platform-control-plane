@@ -26,10 +26,28 @@ bump() {
 }
 
 # Normalization. mktemp paths and the run directory differ every invocation and mean nothing.
+# The run nonce is per-run and must not reach a golden, or every scenario diverges from its own recording.
+#
+# It arrives twice: in the instance tag the session stamps, and inside the client token derived from it.
+# Recording either verbatim made two runs of ONE scenario disagree -- `{Key=run,Value=3a54050c}` against
+# `77f6b27a` -- so all fifteen m5c scenarios would have failed for ever, and re-recording would have hidden
+# that behind a golden that could never pass twice.
+#
+# Anchored to the strings that CARRY the nonce, never to its shape. A previous normalization matched any
+# 64 hex characters and erased the engine image digest -- the one string identifying what was measured --
+# out of a different suite. `[0-9a-f]{8}` would make exactly that mistake again: it is also the shape of an
+# instance id suffix, a commit prefix and a checksum fragment.
+#
+# What survives is what is worth pinning: that a `run` tag and a zone-scoped `--client-token` are sent at
+# all, and that both derive from the same value. That the value is THIS run's nonce is proved by calling the
+# stub directly, not by a transcript that cannot hold a changing string.
 normalize() {
   sed -e "s#file://${TMPDIR:-/tmp}/[^ \"]*#file://<USERDATA>#g" \
       -e "s#file:///tmp/[^ \"]*#file://<USERDATA>#g" \
-      -e "s#${STUB_OUT:-__no_out__}#<OUT>#g"
+      -e "s#${STUB_OUT:-__no_out__}#<OUT>#g" \
+      -e "s#{Key=run,Value=[^}]*}#{Key=run,Value=<NONCE>}#g" \
+      -e "s#--client-token [A-Za-z0-9]*-[0-9a-f]*-#--client-token <RUN>-#g" \
+      -e "s#Values=\([A-Za-z0-9]*\)-[0-9a-f]*-#Values=\1-<RUN>-#g"
 }
 
 printf '%s\n' "aws $*" | normalize >> "$STUB_TRANSCRIPT"
@@ -73,6 +91,9 @@ case "$svc $op" in
 
   "s3api head-object")
     key=$(arg_after --key "$@" || true)
+    # A metadata read of an object that exists -- the pilot asks when the marker was uploaded -- is answered
+    # without counting as a poll, so it cannot move the scenario's marker timeline.
+    case " $* " in *" --query LastModified "*) printf '2026-10-08T12:00:00+00:00\n'; exit 0 ;; esac
     n=$(bump head-object)
     # The stale-marker scenario models a marker left at the BUCKET ROOT by an earlier run, which is
     # where the fixed keys used to put it. It is deliberately key-aware: a run that polls its own
@@ -144,12 +165,106 @@ case "$svc $op" in
       case "${STUB_LAUNCH_FAILURE:-capacity}" in
         unauthorized)
           printf 'An error occurred (UnauthorizedOperation) when calling the RunInstances operation: not authorized to perform: ec2:RunInstances with an explicit deny in a service control policy: arn:aws:organizations::000000000000:policy/o-stub/service_control_policy/p-stub01\n' >&2 ;;
+        idempotent-mismatch)
+          # The refusal that means an instance ALREADY EXISTS under this token.
+          #
+          # AWS gives it when a token is reused with different parameters, which can only happen after an
+          # earlier request under that token succeeded. It reads like every other launch failure -- empty
+          # stdout, exit 254 -- so a runner that classifies it as a clean refusal walks away from a running
+          # instance. Without this case no scenario could tell the two readings apart.
+          # STUB_MISMATCH_LEAVES_INSTANCE decides whether the instance that earlier request created is
+          # DISCOVERABLE, and both answers are real.
+          #
+          # Unset, the token-filtered describe finds nothing and the runner must refuse without claiming
+          # nothing exists -- an eventually-consistent read that has not caught up yet. Set, the instance is
+          # there to be found and terminated, which is the outcome the error's own meaning implies. Only the
+          # second proves the recovery path runs to a termination; only the first proves the refusal is
+          # honest when it cannot. Default off, so no existing golden moves.
+          if [ "${STUB_MISMATCH_LEAVES_INSTANCE:-0}" = "1" ] && [ -n "$(arg_after --client-token "$@" || true)" ]; then
+            printf '%s\t%s\n' "$(arg_after --client-token "$@")" "${STUB_DUPLICATE_INSTANCE_ID:-i-0dup}" >> "$state/token-instances"
+          fi
+          printf 'An error occurred (IdempotentParameterMismatch) when calling the RunInstances operation: the client token %s was used with different parameters by a request that succeeded\n' "$(arg_after --client-token "$@" || echo unknown)" >&2 ;;
         *)
           printf 'An error occurred (InsufficientInstanceCapacity) launching in %s\n' "$az" >&2 ;;
       esac
       exit 254
     fi
+    # The launch AWS ACCEPTED and the caller never learned about.
+    #
+    # This is the expensive shape, and no scenario could express it before: run-instances creates the
+    # instance and the response is lost -- a dropped connection, a killed CLI, a timeout after the API
+    # committed. The caller sees an empty stdout and a non-zero exit, which is indistinguishable from
+    # "no instance was created", so the runner clears IID and tries the next zone while the instance it
+    # already owns keeps billing. Cleanup then terminates the one ID it retained, which is not this one.
+    #
+    # The instance id is written to the state directory rather than stdout, because that is exactly the
+    # asymmetry being modelled: AWS knows about it, the caller does not. A tag-filtered describe-instances
+    # can find it, which is what makes the orphan discoverable at all.
+    # --client-token is HONOURED, because without it this stub cannot tell the fix from the defect.
+    #
+    # EC2 applies idempotency per client token, and because --subnet-id pins a zone that idempotency is
+    # zonal (hack/lib/spot-run.sh:145). So an identical same-zone retry with the same token returns the
+    # instance that already exists rather than launching a second one. The first version of this stub
+    # appended a new id on every call, which made a correct idempotent retry indistinguishable from a
+    # runaway second launch -- the exact property the fix turns on, unobservable in the thing meant to
+    # observe it.
+    #
+    # Recorded as "token<TAB>instance" so a retry can be answered from the ledger rather than re-decided.
+    token=$(arg_after --client-token "$@" || true)
+    if [ -n "$token" ] && [ -f "$state/token-instances" ]; then
+      prior=$(awk -F'\t' -v t="$token" '$1==t {print $2; exit}' "$state/token-instances")
+      if [ -n "$prior" ]; then
+        # Whether the caller HEARS the answer is a separate question from whether AWS made an instance.
+        # A zone that keeps losing responses keeps losing them, and the instance stays the same one.
+        if in_list "$az" "${STUB_LAUNCH_ACCEPTED_BUT_SILENT_ZONES:-}" \
+           && [ "${STUB_SILENT_ZONE_RECOVERS_AFTER:--1}" -lt 0 ]; then
+          printf 'launch accepted in %s but the response was lost again (same token, same instance)\n' "$az" >&2
+          exit 254
+        fi
+        printf 'idempotent: token already launched %s\n' "$prior" >> "$STUB_TRANSCRIPT"
+        printf '%s\n' "$prior"
+        exit 0
+      fi
+    fi
+
+    if in_list "$az" "${STUB_LAUNCH_ACCEPTED_BUT_SILENT_ZONES:-}"; then
+      orphan="${STUB_ORPHAN_INSTANCE_ID:-i-0orphan}"
+      printf '%s\n' "$orphan" >> "$state/accepted-instances"
+      [ -n "$token" ] && printf '%s\t%s\n' "$token" "$orphan" >> "$state/token-instances"
+      # STUB_SECOND_ORPHAN_ID puts a SECOND instance under the same token.
+      #
+      # Not a shape AWS produces from one accepted request, and that is the point: the reconciler loops over
+      # every id the filter returns, and with one row that loop is indistinguishable from code that terminates
+      # only the first. An invariant nothing can violate is an invariant nothing tests.
+      if [ -n "${STUB_SECOND_ORPHAN_ID:-}" ] && [ -n "$token" ]; then
+        printf '%s\n' "$STUB_SECOND_ORPHAN_ID" >> "$state/accepted-instances"
+        printf '%s\t%s\n' "$token" "$STUB_SECOND_ORPHAN_ID" >> "$state/token-instances"
+      fi
+      printf 'launch accepted in %s but the response was lost\n' "$az" >&2
+      exit 254
+    fi
+    printf '%s\n' "${STUB_INSTANCE_ID:-i-0stub}" >> "$state/accepted-instances"
+    [ -n "$token" ] && printf '%s\t%s\n' "$token" "${STUB_INSTANCE_ID:-i-0stub}" >> "$state/token-instances"
     printf '%s\n' "${STUB_INSTANCE_ID:-i-0stub}"
+    ;;
+
+  "configure export-credentials")
+    # The expiry of the credentials the CLI would ACTUALLY use, which is what the wrapper asks for.
+    #
+    # hack/m5c-gpu-session.sh reads one field out of this -- `Expiration` -- and falls back to scanning the
+    # credential cache when the subcommand is missing. The stub had no arm for it, so every m5c scenario that
+    # reached the credential check diverged from goldens recorded before the call existed: 2 passed, 15 failed,
+    # for a reason that had nothing to do with what those scenarios test.
+    #
+    # STUB_CREDENTIALS_EXPIRE_IN_MIN sets how much life to report, and an empty value omits the field so the
+    # cache-scanning fallback is still reachable.
+    mins="${STUB_CREDENTIALS_EXPIRE_IN_MIN-720}"
+    if [ -z "$mins" ]; then
+      printf '{"Version":1}\n'
+    else
+      printf '{"Version":1,"AccessKeyId":"STUB","SecretAccessKey":"STUB","SessionToken":"STUB","Expiration":"%s"}\n' \
+        "$(date -u -d "+${mins} minutes" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v+"${mins}"M +%Y-%m-%dT%H:%M:%SZ)"
+    fi
     ;;
 
   "ec2 terminate-instances")
@@ -169,17 +284,111 @@ case "$svc $op" in
     #
     # STUB_TERMINATE_LINGERS keeps it running anyway, which is the case the polling exists for: the call was
     # accepted and the instance is still billing.
+    # Every terminated id is recorded, which is what keeps the "already terminated is not an orphan" guard
+    # in the filtered describe above from being dead code. It read that file and nothing ever wrote it, so
+    # the guard could not have fired and a re-terminated instance would have been reported as still stray.
+    for tid in $(arg_after --instance-ids "$@" || true); do
+      [ -n "$tid" ] && printf '%s\n' "$tid" >> "$state/terminated-instances"
+    done
     if [ "${STUB_TERMINATE_LINGERS:-0}" != "1" ]; then
       printf 'yes\n' > "${STUB_STATE:-/tmp}/terminate-accepted"
+      # When the call was accepted is what makes `shutting-down` a phase rather than a constant.
+      # Only the first accepted call starts the shutdown: EC2 does not restart a shutdown when termination is asked again.
+      [ -f "${STUB_STATE:-/tmp}/terminate-accepted-at" ] \
+        || cat "${STUB_STATE:-/tmp}/count-describe-instances" 2>/dev/null > "${STUB_STATE:-/tmp}/terminate-accepted-at" \
+        || printf '0\n' > "${STUB_STATE:-/tmp}/terminate-accepted-at"
     fi
     printf '{}\n'
     ;;
 
   "ec2 describe-instances")
+    # A tag-filtered read, which is how an orphan is found at all.
+    #
+    # Split off before the state machine below because the two questions are different. The existing arm
+    # answers "what state is the instance I am holding in?" and is always called with --instance-ids
+    # (hack/lib/spot-run.sh:272). This one answers "which instances carry this run's nonce?", which is the
+    # only question that can find a launch whose id the caller never received.
+    #
+    # Kept separate rather than folded in so the goldens recorded against --instance-ids cannot move: no
+    # existing scenario passes --filters, so no existing transcript enters this branch.
+    # EVERY value after --filters, not just the first.
+    #
+    # arg_after returns one argument, and the caller passes several: the token, the state list, and now the
+    # subnet. Checking only the first meant the stub could not see the narrowing filters at all, so a query
+    # that sent them and one that did not were indistinguishable -- a stub that cannot tell the fix from the
+    # defect, which is the reason this file exists.
+    filters=""
+    collecting=0
+    for a in "$@"; do
+      case "$a" in
+        --filters) collecting=1; continue ;;
+        --*) collecting=0 ;;
+      esac
+      [ "$collecting" = "1" ] && filters="$filters $a"
+    done
+    if [ -n "$filters" ]; then
+      bump describe-instances-filtered >/dev/null
+      # The filter's CONTENTS decide the answer, not its presence.
+      #
+      # The first version returned every recorded instance as soon as any --filters argument appeared, so a
+      # patch that filtered on the wrong thing -- the Name tag, a stale nonce, nothing at all -- would have
+      # been handed the orphan anyway and gone green. A stub that answers the question you meant instead of
+      # the one you asked cannot show a lookup is correct.
+      #
+      # Only a token this stub actually launched under matches. Anything else answers empty, which is what
+      # a real DescribeInstances does for a filter that names nothing.
+      matched=0
+      if [ -f "$state/token-instances" ]; then
+        while IFS="$(printf '\t')" read -r tok iid; do
+          [ -n "$tok" ] && [ -n "$iid" ] || continue
+          # The token AND the zonal boundary must both be named, and the state list must be there too.
+          #
+          # A substring match on the token alone accepted a query that asked about the whole region, which is
+          # the query this recovery path must never make: the token is the authority, and the subnet is what
+          # makes EC2's idempotency zonal, so a reconcile that omits it can match an instance in a zone the
+          # caller never launched into. Requiring it here is what makes the narrowed filter observable.
+          case "$filters" in *"Name=client-token,Values=$tok"*) ;; *) continue ;; esac
+          case "$filters" in *Name=instance-state-name,Values=*) ;; *) continue ;; esac
+          if [ "${STUB_REQUIRE_SUBNET_FILTER:-1}" = "1" ]; then
+            case "$filters" in
+              *Name=subnet-id,Values=*) ;;
+              *) printf 'filtered describe: REFUSED, no subnet filter -- a region-wide token query\n' >> "$STUB_TRANSCRIPT"; exit 0 ;;
+            esac
+          fi
+          # An instance the runner already terminated is not an orphan.
+          grep -qx "$iid" "$state/terminated-instances" 2>/dev/null && continue
+          printf '%s\n' "$iid"
+          matched=$((matched + 1))
+        done < "$state/token-instances"
+      fi
+      printf 'filtered describe: %d instance(s) matched the filter\n' "$matched" >> "$STUB_TRANSCRIPT"
+      exit 0
+    fi
+    # The pilot asks for the launch time; answered without counting as a state read, as above.
+    case " $* " in *"LaunchTime"*) printf '2026-10-08T09:00:00+00:00\n'; exit 0 ;; esac
     n=$(bump describe-instances)
     dead="${STUB_TERMINATED_AFTER:--1}"
     # A terminate call that was accepted wins over the call counter: after it, the instance is gone.
-    if [ -f "${STUB_STATE:-/tmp}/terminate-accepted" ]; then printf 'terminated\n'
+    # Three shapes a real termination takes, not one.
+    #
+    # The stub answered either "terminated at once" or "running for ever", so the caller's polling was only
+    # ever exercised against its two extremes. A real instance passes through `shutting-down`, and a session
+    # whose credentials lapse mid-poll gets neither state but an error the helper reports as `unknown`.
+    # STUB_SHUTTING_DOWN_FOR makes the first N reads after an accepted call say `shutting-down`, and
+    # STUB_STATE_UNKNOWN_AFTER makes every read from the Nth onwards fail the way an expired token does.
+    unknown_after="${STUB_STATE_UNKNOWN_AFTER:--1}"
+    if [ "$unknown_after" -ge 0 ] && [ "$n" -ge "$unknown_after" ]; then
+      echo "An error occurred (ExpiredToken) when calling the DescribeInstances operation: token expired" >&2
+      exit 254
+    fi
+    if [ -f "${STUB_STATE:-/tmp}/terminate-accepted" ]; then
+      accepted_at=$(cat "${STUB_STATE:-/tmp}/terminate-accepted-at" 2>/dev/null || echo 0)
+      linger="${STUB_SHUTTING_DOWN_FOR:-0}"
+      if [ "$linger" -gt 0 ] && [ "$((n - accepted_at))" -lt "$linger" ]; then
+        printf 'shutting-down\n'
+      else
+        printf 'terminated\n'
+      fi
     elif [ "$dead" -ge 0 ] && [ "$n" -ge "$dead" ]; then printf 'terminated\n'
     else printf 'running\n'; fi
     ;;
@@ -201,6 +410,28 @@ case "$svc $op" in
       exit 0
     fi
     src="${3:-}"; dest="${4:-}"
+    # A single object fetched to STDOUT, which is how the completion marker is read.
+    #
+    # hack/m5c-gpu-session.sh runs `aws s3 cp s3://<bucket>/<run-id>/DONE -` and compares the body against
+    # this launch's nonce, because a marker carrying another session's nonce means the evidence under that
+    # prefix is not this run's. The stub modelled --recursive downloads and uploads and had no branch for
+    # this, so the body came back empty, the comparison failed, and EVERY m5c scenario ended in the refusal
+    # that follows -- which is why that suite's goldens all recorded exit 1 and its "11 passed" meant
+    # "the failure reproduces", not "the session completes".
+    #
+    # The nonce is taken from the key the caller asked for, so the stub agrees with whatever RUN_ID the run
+    # generated. STUB_DONE_NONCE overrides it, which is what makes the mismatch path testable at all.
+    if [ "$dest" = "-" ]; then
+      case "$src" in
+        *"/DONE")
+          key="${src#s3://}"
+          prefix="${key%/DONE}"
+          prefix="${prefix##*/}"
+          printf '%s\n' "${STUB_DONE_NONCE:-${prefix##*-}}"
+          exit 0
+          ;;
+      esac
+    fi
     # An UPLOAD is the other direction and has to be modelled separately.
     #
     # A runner that ships a binary to the instance uploads before it launches, and the first version of this
@@ -280,7 +511,21 @@ case "$svc $op" in
             # that cannot produce what the real thing produces tests the caller against a fiction.
             mkdir -p "$local_tmp/m5c-run"
             for stub_arm in $STUB_EVIDENCE_ARMS; do
-              printf '{"arm":"%s"}\n' "$stub_arm" > "$local_tmp/m5c-run/raw-$stub_arm-1.jsonl"
+              # A row the caller can judge, not just a filename it can glob. The session asks whether any
+              # row was answered, so the stub writes what the real replay writes: an httpStatus.
+              # STUB_EVIDENCE_REPS repetitions of each, because the session refuses an arm missing a planned one.
+              # The admission stages D and E run R1 once, and their archives hold each cell's gateway record, step
+              # log and manifest, which the session's inventory requires; the stub writes what that archive holds.
+              stub_n="${STUB_EVIDENCE_REPS:-1}"
+              [ "${STUB_EVIDENCE_R1_ONCE:-0}" = 1 ] && [ "$stub_arm" = R1 ] && stub_n=1
+              for stub_rep in $(seq 1 "$stub_n"); do
+                printf '{"arm":"%s","httpStatus":200}\n' "$stub_arm" > "$local_tmp/m5c-run/raw-$stub_arm-$stub_rep.jsonl"
+                if [ "${STUB_EVIDENCE_RECORDS:-0}" = 1 ]; then
+                  printf '{"ev":"done"}\n' > "$local_tmp/m5c-run/gateway-record-$stub_arm-$stub_rep.jsonl"
+                  printf '{"ev":"terminal"}\n' > "$local_tmp/m5c-run/step-log-$stub_arm-$stub_rep.jsonl"
+                  printf 'arm: %s\n' "$stub_arm" > "$local_tmp/m5c-run/manifest-$stub_arm-$stub_rep.yaml"
+                fi
+              done
             done
             tar -czf "$dest" -C "$local_tmp" m5c-run
           else

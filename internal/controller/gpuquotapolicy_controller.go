@@ -58,12 +58,24 @@ const (
 	//
 	// Two facts, two conditions. Collapsing them means the only signal a reader has cannot distinguish a
 	// quota that exists from a quota that works.
+	//
+	// There is a third fact under this one, and it used to be collapsed too: whether the queue was ASKED.
+	// A ClusterQueue this controller could not read, and one that has not yet published an Active condition,
+	// both reported Admitting=False -- the same answer Kueue gives when the queue authoritatively admits
+	// nothing. An operator reading False cannot act on it without knowing which of the three happened, and
+	// "nobody could ask" is not a denial. Those two now report Unknown, which is what a condition's third
+	// status is for.
 	conditionAdmitting  = "Admitting"
 	reasonQueueActive   = "ClusterQueueActive"
 	reasonQueueInactive = "ClusterQueueInactive"
 	reasonQueueUnread   = "ClusterQueueUnreadable"
-	reasonQuotaSynced   = "QuotaSynced"
-	reasonQuotaConflict = "QuotaConflict"
+	// reasonQueueUnreported is a ClusterQueue that exists and has said nothing about admitting yet.
+	//
+	// Kueue writes Active on its own schedule, so this is the ordinary state between the queue being created
+	// and its first status pass. Reporting it as inactive turns a moment of not-yet into a verdict.
+	reasonQueueUnreported = "AwaitingQueueStatus"
+	reasonQuotaSynced     = "QuotaSynced"
+	reasonQuotaConflict   = "QuotaConflict"
 
 	// phaseSynced is set once the ResourceQuota matches the policy ceiling.
 	//
@@ -342,15 +354,18 @@ func (r *GPUQuotaPolicyReconciler) admittingCondition(ctx context.Context, polic
 	name := kueueQueueName(policy.Spec.Tenant)
 	var cq kueuev1beta1.ClusterQueue
 	if err := r.Get(ctx, types.NamespacedName{Name: name}, &cq); err != nil {
+		// Unknown, not False: this says the question could not be put, and False is an answer to it.
 		return metav1.Condition{
-			Type: conditionAdmitting, Status: metav1.ConditionFalse, Reason: reasonQueueUnread,
+			Type: conditionAdmitting, Status: metav1.ConditionUnknown, Reason: reasonQueueUnread,
 			Message: fmt.Sprintf("could not read ClusterQueue %s: %v", name, err),
 		}
 	}
 	active := meta.FindStatusCondition(cq.Status.Conditions, "Active")
 	if active == nil {
+		// Also Unknown, and for a different reason worth its own name: the queue is there and has not
+		// answered yet. Reported as ClusterQueueInactive it was indistinguishable from Kueue saying no.
 		return metav1.Condition{
-			Type: conditionAdmitting, Status: metav1.ConditionFalse, Reason: reasonQueueInactive,
+			Type: conditionAdmitting, Status: metav1.ConditionUnknown, Reason: reasonQueueUnreported,
 			Message: fmt.Sprintf("ClusterQueue %s has not reported whether it is active", name),
 		}
 	}

@@ -1,0 +1,14 @@
+2026-10-11T03:07:11Z fetch the source and the manager
+2026-10-11T03:07:15Z check the card
+2026-10-11T03:07:15Z host container toolkit
+2026-10-11T03:07:21Z kind bring-up, from the span the paid admission sessions ran
+2026-10-11T03:08:36Z kueue CRDs, node labels and the exclusive device plugin
+2026-10-11T03:08:54Z start the manager
+2026-10-11T03:08:56Z apply the HoldCap sample
+2026-10-11T03:08:57Z status at create: Off/1/1
+2026-10-11T03:08:57Z wait for the capped engine
+2026-10-11T03:18:27Z status after the rollout: HoldCap/1/1
+2026-10-11T03:18:27Z one streaming request per tier priority, straight to the engine
+2026-10-11T03:18:31Z turn HoldCap off
+2026-10-11T03:18:31Z status after turning off: 0.1s Off/2/2
+2026-10-11T03:21:21Z DONE

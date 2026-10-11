@@ -22,8 +22,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"maps"
+	"math"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -40,6 +42,24 @@ import (
 //
 // 1MB is far above a normal chat completions request (tens of KB) while keeping a single request unable to threaten the process.
 const maxBodyBytes = 1 << 20 // 1MB
+
+// ErrProfileViolation is the sentinel reported when a request carries something the benchmark profile forbids.
+//
+// It exists because the M5-b experiment is registered over a TEXT-ONLY request shape, and the gateway accepted
+// anything: `tools`, a top-level `system`, `functions`, unknown fields. None of it is counted by the input
+// estimate, so a caller could offer a megabyte of tool definitions and be admitted at near-zero cost -- and,
+// worse for a measurement artifact, the run would report an admitted-work fraction computed over a population
+// whose offered work it never saw.
+//
+// Refusing rather than counting is the choice the repository's own rule dictates for measurement code: an
+// error beats a figure the evidence does not support. Pricing the extra bytes was the other option and was
+// rejected on review -- it would change eligibility at the registered 4096 threshold, the bucket's
+// consumption and the reported weights at once, which is a different intervention rather than the same one
+// implemented correctly.
+//
+// It is OFF unless the profile is enabled, because this gateway is not only the experiment's: a general
+// caller sending tool definitions is making a legitimate request that this profile has no authority over.
+var ErrProfileViolation = errors.New("request does not match the benchmark request profile")
 
 // ErrNoModel is the sentinel reported when the body carries no model field.
 //
@@ -66,6 +86,11 @@ type RequestMeta struct {
 	//
 	// A true value means EstInputTokens is a known-approximate lower bound rather than a byte-accurate estimate, since a non-string part's true token cost cannot be read off its byte length.
 	NonTextContent bool
+	// Stream is true only when the body's stream field is the JSON literal true, the one form the gateway can be sure the engine reads as streaming.
+	Stream bool
+	// Choices is how many completions the request asks for: n when it is a whole JSON number, 1 when n is absent or null as the API defaults it.
+	// Any other n is 0, so a rule that must know the count refuses it instead of guessing.
+	Choices int
 }
 
 // chatMessage is the shape readRequestMeta needs from each entry in messages.
@@ -113,7 +138,7 @@ func newRequestID() string {
 // Only model and messages[].content are decoded.
 //
 // The gateway routes on model and estimates admission cost from content, and must forward everything else untouched; modelling the whole schema would mean editing the gateway whenever the OpenAI API grows a field, and would silently drop any field not yet declared.
-func readRequestMeta(r *http.Request) (func() (io.ReadCloser, error), RequestMeta, error) {
+func readRequestMeta(r *http.Request, profile bool) (func() (io.ReadCloser, error), RequestMeta, error) {
 	// The nil first argument means MaxBytesReader will not write a response itself; the caller owns the status code.
 	//
 	// Exceeding the cap surfaces as a read error, which the caller maps to 400.
@@ -133,8 +158,20 @@ func readRequestMeta(r *http.Request) (func() (io.ReadCloser, error), RequestMet
 	if probe.Model == "" {
 		return nil, RequestMeta{}, ErrNoModel
 	}
+	if profile {
+		if err := checkBenchmarkProfile(buf); err != nil {
+			return nil, RequestMeta{}, err
+		}
+	}
 
-	meta := RequestMeta{Model: probe.Model}
+	// stream and n are read by their exact keys, because a struct field would also take "N" or "Stream", which the engine ignores.
+	// A body carrying "n":2 and "N":1 would then read as one choice here and run as two there.
+	// Both are read raw, so a body the engine would reject on its own is not refused here for a shape only the hold-cap rule cares about.
+	var keys map[string]json.RawMessage
+	if err := json.Unmarshal(buf, &keys); err != nil {
+		return nil, RequestMeta{}, err
+	}
+	meta := RequestMeta{Model: probe.Model, Stream: string(keys["stream"]) == "true", Choices: requestedChoices(keys["n"])}
 	var totalChars int
 	for _, m := range probe.Messages {
 		// An absent content field, or an explicit JSON null, carries no text and is not a non-text part either.
@@ -163,6 +200,18 @@ func readRequestMeta(r *http.Request) (func() (io.ReadCloser, error), RequestMet
 	return func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(buf)), nil }, meta, nil
 }
 
+// requestedChoices reads n as RequestMeta.Choices defines it.
+func requestedChoices(raw json.RawMessage) int {
+	if len(raw) == 0 || string(raw) == "null" {
+		return 1
+	}
+	var n float64
+	if err := json.Unmarshal(raw, &n); err != nil || n != math.Trunc(n) || n < 0 || n > math.MaxInt32 {
+		return 0
+	}
+	return int(n)
+}
+
 // statusRecorder wraps a ResponseWriter to capture the status code the proxy actually wrote.
 //
 // http.ResponseWriter offers no way to read back the code, and metrics need it after the response is sent.
@@ -186,6 +235,17 @@ type statusRecorder struct {
 	// measures it; what this supports is the weaker, true statement that nothing had reached the client
 	// before this instant.
 	firstByteAt time.Time
+	// onFirstBody runs once, when the first byte of response BODY reaches the client.
+	//
+	// The status line does not count: for a stream it goes out before any token exists. The prospective
+	// admitter releases a request's prefill reservation here, as the nearest point the gateway can see to the
+	// engine having finished that request's prompt.
+	onFirstBody func()
+	bodySeen    bool
+	// onBody sees every body chunk written toward the client, and onFlush runs after each flush, for the request
+	// record's first-content stamp; both nil when the gateway records nothing.
+	onBody  func([]byte)
+	onFlush func()
 }
 
 // WriteHeader records the status code and forwards it to the wrapped writer.
@@ -211,7 +271,17 @@ func (rec *statusRecorder) markFirstByte() {
 func (rec *statusRecorder) Write(b []byte) (int, error) {
 	rec.answered = true
 	rec.markFirstByte()
-	return rec.ResponseWriter.Write(b)
+	n, err := rec.ResponseWriter.Write(b)
+	if n > 0 && !rec.bodySeen {
+		rec.bodySeen = true
+		if rec.onFirstBody != nil {
+			rec.onFirstBody()
+		}
+	}
+	if n > 0 && rec.onBody != nil {
+		rec.onBody(b[:n])
+	}
+	return n, err
 }
 
 // Flush forwards to the wrapped writer's Flusher when it has one.
@@ -224,6 +294,9 @@ func (rec *statusRecorder) Write(b []byte) (int, error) {
 func (rec *statusRecorder) Flush() {
 	if f, ok := rec.ResponseWriter.(http.Flusher); ok {
 		f.Flush()
+	}
+	if rec.onFlush != nil {
+		rec.onFlush()
 	}
 }
 
@@ -259,6 +332,12 @@ func errorCode(status int) string {
 		return "model_not_found"
 	case http.StatusTooManyRequests:
 		return "rate_limited"
+	case http.StatusUnprocessableEntity:
+		// A body that parses and is refused for its SHAPE, which is not the same as malformed JSON: the caller's
+		// fix is to stop sending a field, not to correct a syntax error. `invalid_request` is deliberately not
+		// reused here -- the design document promised that name for 400 and the code has always answered
+		// `bad_request`, so reviving it for a third meaning would make the record worse.
+		return "profile_violation"
 	case http.StatusRequestEntityTooLarge:
 		// Added with the two 413 paths and missed at the time, so both of them — an oversized body and an
 		// estimate larger than the bucket can ever hold — were answering internal_error. A client branching on
@@ -287,7 +366,7 @@ func writeJSONError(w http.ResponseWriter, status int, message string) {
 //
 // The admission guard is exactly that case (design spec Config and API section): static-cap and kv-aware both reject with 429, but carry different codes ("input_rate_limit" vs "kv_cache_pressure"), and errorCode's status-to-code mapping has room for only one string per status.
 //
-// failReason in server.go is the only caller today.
+// failReason in server.go and refuseHoldCapShape in holdcap.go are its callers.
 func writeJSONErrorCode(w http.ResponseWriter, status int, code, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -425,6 +504,38 @@ func newTransport(responseHeaderTimeout time.Duration) *http.Transport {
 // The ReverseProxy value itself is still built per request, and deliberately so: target differs per backend and onErr closes over that request's tenant and model labels, while transport is the one piece that must not be rebuilt.
 func newReverseProxy(target *url.URL, transport http.RoundTripper, onErr func(code int, err error)) *httputil.ReverseProxy {
 	p := httputil.NewSingleHostReverseProxy(target)
+
+	// The caller's credential stops here.
+	//
+	// Authorization carries the tenant's API key, and resolveTenant has already spent it: by this point the
+	// tenant is known and the key has no further job. Go's ReverseProxy copies request headers verbatim, so
+	// without this the key travelled on to whichever backend the request was routed to -- a backend that
+	// logs its request headers, or one that is compromised, then holds a credential it can replay against
+	// this gateway as that tenant. Nothing upstream authenticates, so nothing upstream needs it.
+	//
+	// A security review named this "inexpensive fix, embarrassing boundary mistake", which is the right
+	// weight: it does not hand over another tenant's identity, it hands over the caller's own.
+	//
+	// Director, deliberately, even though Go 1.26 deprecates it in favour of Rewrite.
+	//
+	// The obvious move was Rewrite, and it was tried and reverted, and the reason is in ServeHTTP rather than
+	// in this function. At most one of Rewrite or Director may be set, and taking the Rewrite branch also
+	// makes ReverseProxy delete Forwarded and every X-Forwarded-* header and run the outbound query through
+	// cleanQueryParams. Three fallback specs failed immediately -- the backend was never reached on a
+	// retryable status, and a trailer "never left the attempt's scratch headers" -- and the suite went from
+	// 1.3 s to 225 s, so something in the retry path was waiting on a timeout rather than merely disagreeing.
+	//
+	// Which of those differences does it is NOT established here, and the comment says so rather than
+	// guessing: the migration needs that answer, and the two-line security fix does not.
+	//
+	// So the deprecation is suppressed narrowly, at the two lines that earn it, with this note. The repository
+	// already suppresses gosec and errcheck where the reason is written down; what it does not do is suppress
+	// a finding to make a check quiet.
+	director := p.Director               //nolint:staticcheck // Rewrite breaks the fallback path; see the note above
+	p.Director = func(r *http.Request) { //nolint:staticcheck // same
+		director(r)
+		r.Header.Del("Authorization")
+	}
 
 	// FlushInterval = -1 means "flush immediately, never buffer".
 	//
@@ -726,4 +837,79 @@ func tryBackends(w http.ResponseWriter, r *http.Request, targets []*url.URL,
 		advanced = true
 	}
 	return advanced
+}
+
+// benchmarkRequest is the exact shape an M5-b run sends, and nothing else.
+//
+// Decoded with DisallowUnknownFields, so a field this struct does not name is a refusal rather than something
+// silently forwarded and uncounted. The estimator's own probe above deliberately does NOT do this: the proxy
+// must pass an unmodelled field through untouched, and only the experiment's profile has an opinion about it.
+type benchmarkRequest struct {
+	Model    string `json:"model"`
+	Messages []struct {
+		Role    string `json:"role"`
+		Content string `json:"content"`
+	} `json:"messages"`
+	MaxTokens int `json:"max_tokens"`
+	// MinTokens is kept raw so that its absence, which every M5-b request has, is told apart from any value it
+	// carries, an explicit null and an explicit 0 included: a pointer decodes null as if the field were absent.
+	MinTokens     json.RawMessage `json:"min_tokens"`
+	Stream        bool            `json:"stream"`
+	StreamOptions struct {
+		IncludeUsage bool `json:"include_usage"`
+	} `json:"stream_options"`
+}
+
+// checkBenchmarkProfile refuses a body outside the registered text-only request shape.
+//
+// The fields accepted here mirror internal/bench's sender, except the two it omits unless a study asks for them. `priority` is NOT among them: it belongs to
+// a separately specified experiment, and a run that carried it would be measuring a different treatment under
+// this one's name.
+//
+// `min_tokens` is accepted only when it equals `max_tokens`. The prospective-admission pilot fixes every output
+// at its cap, so that a short completion is a failure rather than silently deleted work (design page, "Load"),
+// and the gateway must not refuse that traffic. Any other value would change how much output a request asks for
+// without the cap saying so, which is the treatment change this profile exists to refuse.
+//
+// A string `content` is required rather than the multimodal array the OpenAI schema also allows, because the
+// input estimate cannot read a token cost off a non-text part -- the shape that made NonTextContent necessary
+// is exactly the shape this profile excludes.
+func checkBenchmarkProfile(buf []byte) error {
+	dec := json.NewDecoder(bytes.NewReader(buf))
+	dec.DisallowUnknownFields()
+	var req benchmarkRequest
+	if err := dec.Decode(&req); err != nil {
+		return fmt.Errorf("%w: %v", ErrProfileViolation, err)
+	}
+	// Trailing content after the object is a second document, not a longer one.
+	if dec.More() {
+		return fmt.Errorf("%w: the body carries more than one JSON document", ErrProfileViolation)
+	}
+	if len(req.Messages) != 1 {
+		return fmt.Errorf("%w: the profile sends exactly one message, got %d", ErrProfileViolation, len(req.Messages))
+	}
+	m := req.Messages[0]
+	if m.Role != "user" {
+		return fmt.Errorf("%w: the profile's only message has role \"user\", got %q", ErrProfileViolation, m.Role)
+	}
+	if m.Content == "" {
+		return fmt.Errorf("%w: the message carries no string content", ErrProfileViolation)
+	}
+	if req.MaxTokens <= 0 {
+		return fmt.Errorf("%w: max_tokens must be positive, got %d", ErrProfileViolation, req.MaxTokens)
+	}
+	if req.MinTokens != nil {
+		// An explicit null decodes to 0 here, and max_tokens is already known to be positive, so null is refused
+		// by the comparison; it needs no case of its own.
+		var minTokens int
+		if err := json.Unmarshal(req.MinTokens, &minTokens); err != nil || minTokens != req.MaxTokens {
+			return fmt.Errorf("%w: min_tokens is accepted only equal to max_tokens, got %s against %d",
+				ErrProfileViolation, req.MinTokens, req.MaxTokens)
+		}
+	}
+	if !req.Stream || !req.StreamOptions.IncludeUsage {
+		return fmt.Errorf("%w: the profile streams with usage reporting, got stream=%v include_usage=%v",
+			ErrProfileViolation, req.Stream, req.StreamOptions.IncludeUsage)
+	}
+	return nil
 }

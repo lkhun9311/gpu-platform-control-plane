@@ -1,0 +1,83 @@
+{
+  "run": {
+    "info": {
+      "run_uuid": "96d9df0a66ae4bcf9104eee73507f851",
+      "experiment_id": "1",
+      "run_name": "chill-sheep-887",
+      "user_id": "root",
+      "status": "FINISHED",
+      "start_time": 1791512603477,
+      "end_time": 1791512603532,
+      "artifact_uri": "mlflow-artifacts:/1/96d9df0a66ae4bcf9104eee73507f851/artifacts",
+      "lifecycle_stage": "active",
+      "run_id": "96d9df0a66ae4bcf9104eee73507f851"
+    },
+    "data": {
+      "metrics": [
+        {
+          "key": "eval_accuracy",
+          "value": 0.9950000047683716,
+          "timestamp": 1791512603503,
+          "step": 0
+        }
+      ],
+      "params": [
+        {
+          "key": "variant",
+          "value": "clean"
+        },
+        {
+          "key": "data_seed",
+          "value": "7"
+        },
+        {
+          "key": "epochs",
+          "value": "300"
+        },
+        {
+          "key": "lr",
+          "value": "0.5"
+        }
+      ],
+      "tags": [
+        {
+          "key": "mlflow.user",
+          "value": "root"
+        },
+        {
+          "key": "mlflow.source.name",
+          "value": "/work/train.py"
+        },
+        {
+          "key": "mlflow.source.type",
+          "value": "LOCAL"
+        },
+        {
+          "key": "mlflow.runName",
+          "value": "chill-sheep-887"
+        },
+        {
+          "key": "git_commit",
+          "value": "1240e3449a733dd0529022a8efdd63ea0b6a3873"
+        },
+        {
+          "key": "code_sha256",
+          "value": "aaa2ace150b444737c6b47807a52620d3e2aeed57775a924dd9cf575425f69a6"
+        },
+        {
+          "key": "train_data_sha256",
+          "value": "effa2b67a5a24349582b129827f547bfe3242a3ad1397f3b49ddd573c048c4b5"
+        },
+        {
+          "key": "artifact_sha256",
+          "value": "00e666222d791ee5ee112571a55d5ea083d19415ab612e765792cee27c69b946"
+        },
+        {
+          "key": "trained_in_pod",
+          "value": "train-v1-gdm89"
+        }
+      ]
+    },
+    "inputs": {}
+  }
+}

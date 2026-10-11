@@ -158,7 +158,7 @@ import (
 // A version-20 record carries no such field, which under 21 means what it meant under 20: that build's
 // workload always began at zero. So 20 is readable, on the same terms 19 and 18 are, and for the same reason
 // -- refusing them would orphan evidence this build reads correctly.
-const recordSchemaVersion = 22
+const recordSchemaVersion = 23
 
 // runRecord is what a non-preview invocation leaves behind.
 //
@@ -1622,12 +1622,12 @@ func encodeRecord(v any) ([]byte, error) {
 // A predicate rather than an expression inside decodeRunRecord, because that decoder sits at the complexity
 // limit this repository keeps on production code -- extracting it is how the same limit was met at 20.
 //
-// The `recordSchemaVersion == 22` clause is a TRIPWIRE and has fired three times now. Written as a
+// The `recordSchemaVersion == 23` clause is a TRIPWIRE and has fired four times now. Written as a
 // comparison against the constant, it withdraws every exception the moment the constant moves, which is what
 // forces a human to decide what an older document means under the new rules rather than letting the bump
 // carry the answer along by accident. Keep it on the next bump.
 func readableUnderCurrentSchema(r runRecord) bool {
-	if recordSchemaVersion != 22 {
+	if recordSchemaVersion != 23 {
 		return false
 	}
 	// A document carrying a field its own version could not produce is a relabelled newer record, not
@@ -1648,14 +1648,17 @@ func readableUnderCurrentSchema(r runRecord) bool {
 		// 18 without an observation is byte-identical in meaning under the split device question; with one it
 		// was judged by the collapsed question and is refused rather than reinterpreted.
 		return r.DeviceObservation == nil && !anyEventCarriesAccumulator(r.Events) &&
-			!anyEventCarriesResume(r.Events) && !anyEventCarriesSaveStatus(r.Events)
+			!anyEventCarriesResume(r.Events) && !anyEventCarriesSaveStatus(r.Events) &&
+			!anyEventCarriesSleepObservation(r.Events)
 	case 19:
 		return !anyEventCarriesAccumulator(r.Events) && !anyEventCarriesResume(r.Events) &&
-			!anyEventCarriesSaveStatus(r.Events)
+			!anyEventCarriesSaveStatus(r.Events) &&
+			!anyEventCarriesSleepObservation(r.Events)
 	case 20:
 		// The version that introduced the accumulator, so carrying one is what a 20 looks like. A resume
 		// point (21) or a save status (22) marks it as relabelled.
-		return !anyEventCarriesResume(r.Events) && !anyEventCarriesSaveStatus(r.Events)
+		return !anyEventCarriesResume(r.Events) && !anyEventCarriesSaveStatus(r.Events) &&
+			!anyEventCarriesSleepObservation(r.Events)
 	case 21:
 		// The version that introduced the resume point, so carrying one is what a 21 looks like. Only a save
 		// status, which arrived in 22, marks it as relabelled.
@@ -1663,7 +1666,15 @@ func readableUnderCurrentSchema(r runRecord) bool {
 		// Written as its own case rather than folded into 20, because collapsing them is the shape of the
 		// defect this switch already made once: asking every version the same question refused schema 20
 		// documents for carrying the very field 20 introduced.
-		return !anyEventCarriesSaveStatus(r.Events)
+		return !anyEventCarriesSaveStatus(r.Events) && !anyEventCarriesSleepObservation(r.Events)
+	case 22:
+		// The version that introduced the save status, so carrying one is what a 22 looks like. Only the sleep
+		// observation, which arrived in 23, marks it as relabelled.
+		//
+		// A 22 document carries no such observation, which under 23 means what it meant under 22: that build's
+		// workload measured how it spent its service not at all. There is no claim for the change to have
+		// changed, and the fields are pointers, so absence reads as absence rather than as a measured zero.
+		return !anyEventCarriesSleepObservation(r.Events)
 	default:
 		return false
 	}
@@ -1674,6 +1685,23 @@ func readableUnderCurrentSchema(r runRecord) bool {
 // Same argument as anyEventCarriesResume: DisallowUnknownFields does not enforce the premise, because
 // decoding uses today's struct and `saveStatus` is a known field at every version. A 22 record relabelled 21
 // would otherwise pass as evidence taken under rules where a failed checkpoint could not be seen at all.
+// anyEventCarriesSleepObservation reports whether the ledger holds a reading only a schema-23 build could take.
+//
+// Same argument as anyEventCarriesSaveStatus: DisallowUnknownFields does not enforce the premise, because
+// decoding uses today's struct and `sleptNs` is a known field at every version. A 23 record relabelled 22 would
+// otherwise pass as evidence taken under rules where how a workload spent its service could not be measured.
+//
+// Either field answers, because the parser refuses a message carrying one without the other -- so a document
+// holding just one of them was not written by this build either way.
+func anyEventCarriesSleepObservation(events []queuelab.LifecycleEvent) bool {
+	for i := range events {
+		if events[i].SleptNs != nil || events[i].WindowNs != nil {
+			return true
+		}
+	}
+	return false
+}
+
 func anyEventCarriesSaveStatus(events []queuelab.LifecycleEvent) bool {
 	for i := range events {
 		if events[i].SaveStatus != "" {

@@ -1,0 +1,26 @@
+121814 measured steps; attention measured, coefficient 1; the archive's fifth development use
+candidate S1: 9 fitted columns plus measured attention at coefficient 1, all-data condition 5.9
+  28 folds; 114 endpoints judged, 6 not (5.0%: 3 unsupported, 3 under 10 steps); 0 failing; 0 refused
+  worst decode: ('stagger', 4, 256, 8192) -3.7%
+  worst late-prefill: ('stagger', 1, 256, 256) -4.3%
+  worst mixed: ('stagger', 1, 256, 256) -4.3%
+  worst prefill-only: ('serial', 256, 16) +3.6%
+  unsupported (not judged): ('serial', 512, 1) prefill-only
+  unsupported (not judged): ('serial', 512, 16) prefill-only
+  unsupported (not judged): ('serial', 512, 64) prefill-only
+  all-data model: c 15.4473, f[0-256] 0.0786395, f[256-512] 0.0897957, f[512-1024] 0.0958142, f[1024-2048] 0.0937947, d1 0.111382, d2 0, u_graph 1.46159, u_eager 7.28906
+  candidate S1: PASS
+candidate S2: 10 fitted columns plus measured attention at coefficient 1, all-data condition 87.4
+  28 folds; 108 endpoints judged, 5 not (4.4%: 3 unsupported, 2 under 10 steps); 0 failing; 2 refused
+  worst decode: ('stagger', 4, 256, 8192) -3.7%
+  worst late-prefill: ('stagger', 1, 256, 256) -4.3%
+  worst mixed: ('stagger', 1, 256, 256) -4.3%
+  worst prefill-only: ('serial', 256, 16) +3.6%
+  refused: fold ('burst', 16, 2048): the column-normalised design has condition number 125.6, above 100: the coefficients trade off against each other and no one of them is determined
+  refused: fold ('stagger', 16, 256, 8192): the column-normalised design has condition number 104.6, above 100: the coefficients trade off against each other and no one of them is determined
+  unsupported (not judged): ('serial', 512, 1) prefill-only
+  unsupported (not judged): ('serial', 512, 16) prefill-only
+  unsupported (not judged): ('serial', 512, 64) prefill-only
+  all-data model: c 15.4441, f[0-256] 0.0388067, f[256-512] 0.0897553, f[512-1024] 0.0958165, f[1024-2048] 0.0937948, d1 0.112005, d2 0, u_graph 2.06765, u_eager 17.4897, e_prefill 10.2116
+  candidate S2: FAIL
+SELECTED: S1, to be frozen; a confirmation on fresh cells needs its own registration and the owner's approval

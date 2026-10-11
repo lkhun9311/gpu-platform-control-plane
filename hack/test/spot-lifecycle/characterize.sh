@@ -101,8 +101,19 @@ run_scenario() {
     # build Go binaries and the build cache lives under it.
     export AWS_CLI_CACHE_DIR="$work/awscache"
     mkdir -p "$AWS_CLI_CACHE_DIR"
-    printf '{"Credentials":{"Expiration":"%s"}}\n' \
-      "$(date -u -d '+12 hours' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v+12H +%Y-%m-%dT%H:%M:%SZ)" \
+    # The entry carries an AccountId, because an entry without one is deliberately not trusted.
+    #
+    # hack/m5c-gpu-session.sh skips cache entries that carry neither an assumed-role ARN nor an account id:
+    # this check exists for the moments when something about the account is wrong, and those are the moments
+    # an unidentified entry is most likely to be the wrong one. Planting an identity-less entry therefore
+    # made the fallback find nothing and RETURN SUCCESS -- the outcome that runner's own comment calls
+    # "worse than the hole it was closing: a guard that refuses to answer always passes". The id matches the
+    # stub's sts account so the fallback can actually evaluate what it found.
+    #
+    # STUB_CACHE_EXPIRES_IN sets that expiry, so a scenario can make the guard refuse rather than pass.
+    printf '{"Credentials":{"Expiration":"%s","AccountId":"%s"}}\n' \
+      "$(date -u -d "+${STUB_CACHE_EXPIRES_IN:-12 hours}" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v+12H +%Y-%m-%dT%H:%M:%SZ)" \
+      "${STUB_ACCOUNT:-000000000000}" \
       > "$AWS_CLI_CACHE_DIR/stub.json"
     "$@" >"$work/stdout.txt" 2>"$work/stderr.txt"
   ) || rc=$?
@@ -160,8 +171,33 @@ run_scenario() {
   # recorded them, so a clean checkout failed all nine scenarios twice over -- a golden that fails for a
   # reason unrelated to what it pins is one that gets regenerated without being read.
   if [ -f "$out/user-data.sh" ]; then
+    # PREFIX carries a per-run nonce, which is not behaviour and cannot be goldened.
+    #
+    # hack/m5c-gpu-session.sh builds RUN_ID as `basename $OUT`-`openssl rand -hex 4`, so the payload reads
+    # PREFIX="run-ec9f4b39" with eight fresh hex digits every time. A golden recorded from one run disagreed
+    # with the very next execution of the same scenario, which is how that suite stayed red after being
+    # re-recorded. What the golden should pin is that a prefix IS rendered, not which nonce it drew.
+    #
+    # LADDER is deliberately NOT normalized. It is empty or a fixed list per scenario, so a change to it is a
+    # change to the payload and belongs in the diff.
+    # The completion marker carries the same per-run nonce, bare, and is elided ANCHORED TO ITS LINE.
+    #
+    # Not to the shape of eight hex digits: an earlier normalization here matched any 64 hex characters
+    # and erased the engine image digest out of a log, the one string identifying what was measured.
+    # `echo "$RUN_NONCE" > /tmp/DONE` is what the runner reads back to prove the evidence is this
+    # launch's (hack/m5c-gpu-session.sh:836), so the value is per-run and the line it sits on is unique.
+    #
+    # The pilot's matrix deadline is an absolute epoch the wrapper computes at run time, so it is elided the same way.
+    #
+    # The comment that says this was briefly INSIDE the sed arguments, where `#` starts an argument
+    # rather than a comment. `bash -n` passed it, because it is syntactically fine and semantically wrong.
     sed -i -e 's/SOURCE_SHA="[0-9a-f]\{64\}"/SOURCE_SHA="<SHA256>"/' \
-           -e 's/COMMIT="[0-9a-f]\{40\}"/COMMIT="<COMMIT>"/' "$out/user-data.sh"
+           -e 's/COMMIT="[0-9a-f]\{40\}"/COMMIT="<COMMIT>"/' \
+           -e 's/PREFIX="\([A-Za-z0-9_-]*\)-[0-9a-f]\{8\}"/PREFIX="\1-<NONCE>"/' \
+           -e 's#echo "[0-9a-f]\{8\}" > /tmp/DONE#echo "<NONCE>" > /tmp/DONE#' \
+           -e 's/^PILOT_MATRIX_DEADLINE="[0-9]\{10\}"$/PILOT_MATRIX_DEADLINE="<EPOCH>"/' \
+           -e 's/^PILOT_BACKSTOP_EPOCH="[0-9]\{10\}"$/PILOT_BACKSTOP_EPOCH="<EPOCH>"/' \
+           "$out/user-data.sh"
   fi
 
   # What the script SAID is part of the golden, not only what it called and what it returned.
@@ -182,21 +218,48 @@ run_scenario() {
   # 64 hex characters and erased the engine image digest out of the microtest's messages, which is the one
   # string in that log identifying what was measured. The other suite failed immediately, which is the
   # harness catching an over-broad normalization in itself.
+  # The per-run nonce is not behaviour, and it reaches the messages as well as the payload.
+  # Go's module-download progress is a fact about this machine's cache, not about the runner's behaviour.
+  #
+  # The runners build their binaries here, and `go build` writes `go: downloading <module> <version>` to
+  # stderr for every module it has to fetch. A warm cache prints none of them; a cold one -- a fresh CI
+  # runner, or GOMODCACHE pointed somewhere empty -- printed 54 lines into the transcript and failed three
+  # suites' `pilot` on additions alone, with nothing removed. That is the golden depending on the machine.
+  #
+  # Anchored to `^go: downloading `, not to `go:`, because the same chain once matched any 64 hex characters
+  # and erased the engine image digest. A real build failure says `go: cannot find module` or `go: <pkg>:
+  # ...`, and those must still reach the transcript -- a session whose build broke is behaviour.
+  grep -v '^go: downloading ' "$work/stdout.txt" > "$work/stdout.clean" || true
+  grep -v '^go: downloading ' "$work/stderr.txt" > "$work/stderr.clean" || true
   sed -e "s#$out#<OUT>#g" \
+      -e "s#run-[0-9a-f]\{8\}#run-<NONCE>#g" \
+      -e "s#this launch's nonce is '[0-9a-f]\{8\}'#this launch's nonce is '<NONCE>'#g" \
+      -e "s#reconciling the launch token [A-Za-z0-9]*-[0-9a-f]\{8,\}-#reconciling the launch token <TOKEN>-#g" \
+      -e "s#UNRESOLVED for token [A-Za-z0-9]*-[0-9a-f]\{8,\}-#UNRESOLVED for token <TOKEN>-#g" \
+      -e "s#Values=\([A-Za-z0-9]*\)-[0-9a-f]\{8,\}-#Values=\1-<RUN>-#g" \
+      -e "s#Key=study-deadline,Value=[0-9T:-]*Z#Key=study-deadline,Value=<DEADLINE>#g" \
       -e "s#${TMPDIR:-/tmp}/tmp\.[A-Za-z0-9]*#<TMP>#g" \
       -e "s#/tmp/tmp\.[A-Za-z0-9]*#<TMP>#g" \
       -e "s#harness sha256 [0-9a-f]\{64\}#harness sha256 <SHA256>#g" \
       -e "s#^== queuelabrun .*, sha256 [0-9a-f]\{12\}\$#== queuelabrun <SIZE>, sha256 <SHA12>#" \
       -e "s#^==   gateway [0-9a-f]\{12\}, benchharness [0-9a-f]\{12\}\$#==   gateway <SHA12>, benchharness <SHA12>#" \
       -e "s#^== source [0-9a-f]\{40\}.*#== source <COMMIT> <TREE STATE>#" \
-      "$work/stdout.txt" "$work/stderr.txt" > "$work/messages.txt"
+      "$work/stdout.clean" "$work/stderr.clean" > "$work/messages.txt"
 
   # The transcript alone would hide a script that recorded every AWS call correctly and then exited
   # non-zero, or one that stopped writing its run directory. Both are behaviour.
   {
     # Repeating poll cycles are folded to one copy plus a count, so a 120-poll timeout is readable in
     # a diff without losing the count itself.
-    python3 "$ROOT/$HERE/collapse.py" < "$STUB_TRANSCRIPT"
+    # The nonce is elided from the CALLS too, which is where it actually sat.
+    #
+    # Normalizing user-data.sh alone left `s3://stub-bucket/run-ee4ef574/src/source.tgz` against
+    # `run-4b77cdbb` on the next run, so the suite failed twice with the same COUNT and I read that as
+    # determinism restored. Two runs failing identically for different nonces is not two runs agreeing.
+    # The pilot's study-deadline tag is a wall-clock time, and it sits in the launch call.
+    sed -e "s#run-[0-9a-f]\{8\}#run-<NONCE>#g" \
+        -e "s#Key=study-deadline,Value=[0-9T:-]*Z#Key=study-deadline,Value=<DEADLINE>#g" "$STUB_TRANSCRIPT" \
+      | python3 "$ROOT/$HERE/collapse.py"
     printf -- '--- exit %s\n' "$rc"
     printf -- '--- messages\n'
     cat "$work/messages.txt"
@@ -310,8 +373,29 @@ STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 \
 # reported as terminated. The polling that now follows an accepted call is only honest if this
 # path is executed.
 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 \
-  STUB_TERMINATE_LINGERS=1 STUB_PRESENT_KEYS="results.json log.txt stderr.txt" \
+  STUB_TERMINATE_LINGERS=1 SPOT_TERMINATE_TRIES=12 STUB_PRESENT_KEYS="results.json log.txt stderr.txt" \
   run_scenario terminate-accepted-but-still-running bash "$TARGET"
+
+# The instance is accepted, passes through `shutting-down`, and only then reaches `terminated`.
+#
+# This is the normal shape of a real terminate, and nothing executed it. `shutting-down` stopped counting
+# as done -- because an instance in that state is still on the bill -- and no scenario turned the stub's
+# STUB_SHUTTING_DOWN_FOR knob on, so reverting that change left all four suites green. A distinction the
+# tests cannot see is a distinction the next edit will quietly remove.
+STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 \
+  STUB_SHUTTING_DOWN_FOR=3 SPOT_TERMINATE_TRIES=12 STUB_PRESENT_KEYS="results.json log.txt stderr.txt" \
+  run_scenario terminate-shuts-down-then-terminated bash "$TARGET"
+
+# The credentials lapse in the MIDDLE of the termination poll, so the state can no longer be asked for.
+#
+# The stub grew STUB_STATE_UNKNOWN_AFTER to make this reachable -- "makes every read from the Nth onwards
+# fail the way an expired token does" -- and then no scenario set it. That left the harness guarding the
+# money-spending scripts with a dead path exactly where the money is: an instance whose state nobody can
+# read is the one case where "not terminated" and "could not ask" must not be reported as the same thing.
+STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 \
+  STUB_TERMINATE_LINGERS=1 STUB_STATE_UNKNOWN_AFTER=2 SPOT_TERMINATE_TRIES=12 \
+  STUB_PRESENT_KEYS="results.json log.txt stderr.txt" \
+  run_scenario terminate-then-state-unreadable bash "$TARGET"
 
 # No zone will take it. This must fail loudly and must not leave an instance behind.
 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 \
@@ -351,6 +435,29 @@ STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=-1 \
 # script does today; it is pinned here so that fixing it is a visible, deliberate diff.
 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_PRESENT_AT_START=1 \
   run_scenario stale-done bash "$TARGET"
+
+  # AWS accepted the launch and the answer never came back.
+  #
+  # The runner used to clear IID and try the next zone, so an instance it already owned kept billing while a
+  # second one was bought, and cleanup terminated the one id it had -- which was not the first. The retry now
+  # reuses the token, and EC2's zonal idempotency hands back the same instance rather than making another.
+  STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 \
+    STUB_LAUNCH_ACCEPTED_BUT_SILENT_ZONES="ap-northeast-2a" STUB_SILENT_ZONE_RECOVERS_AFTER=2 \
+    run_scenario launch-accepted-but-answer-lost bash "$TARGET"
+
+  # The same, and the answer is lost every time: retries are exhausted, so the run must reconcile the token
+  # and stop rather than move on. Zero launches in the second zone is the assertion.
+  STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 \
+    STUB_LAUNCH_ACCEPTED_BUT_SILENT_ZONES="ap-northeast-2a ap-northeast-2c" \
+    run_scenario launch-answer-lost-every-time bash "$TARGET"
+
+  # Refused as a duplicate of an earlier request under the same token, with that request's instance there to
+  # be found. AWS answers IdempotentParameterMismatch only after a request under this token SUCCEEDED, so it
+  # is evidence an instance exists: one token-scoped describe, one terminate, and no second zone.
+  STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 \
+    STUB_LAUNCH_FAIL_ZONES="ap-northeast-2a" STUB_LAUNCH_FAILURE=idempotent-mismatch \
+    STUB_MISMATCH_LEAVES_INSTANCE=1 \
+    run_scenario launch-refused-as-a-duplicate-token bash "$TARGET"
 }
 
 scenarios_price_of_protection() {
@@ -391,6 +498,48 @@ scenarios_price_of_protection() {
   STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_PRESENT_AT_START=1 \
     STUB_PRESENT_KEYS="log.txt" \
     run_scenario stale-done bash "$TARGET"
+
+  # The terminate call is ACCEPTED and the instance keeps running.
+  #
+  # This wrapper gained the `exit 1` it performs when termination cannot be confirmed, and no
+  # scenario here reached it. A gate whose failure path nothing executes is a gate on paper.
+  # The keys are the ones THIS runner downloads, so the scenario fails for the reason it is named for.
+  #
+  # With only log.txt it stopped at "no evidence archive was written" before it ever reached the terminate
+  # path, so deleting the wrapper's `exit 1` would not have changed this golden by a byte -- the gate the
+  # scenario exists to pin was pinned by nothing. REQUIRE_CLEAN_TREE is gone because this wrapper never
+  # read it; only m5c and queuelab have that variable.
+  STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 STUB_TERMINATE_LINGERS=1 \
+    SPOT_TERMINATE_TRIES=12 STUB_PRESENT_KEYS="evidence.tgz run.json log.txt stderr.txt" \
+    run_scenario terminate-accepted-but-still-running bash "$TARGET"
+
+  # AWS accepted the launch and the answer never came back.
+  #
+  # The runner used to clear IID and try the next zone, so an instance it already owned kept billing while a
+  # second one was bought, and cleanup terminated the one id it had -- which was not the first. The retry now
+  # reuses the token, and EC2's zonal idempotency hands back the same instance rather than making another.
+  STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 \
+    STUB_LAUNCH_ACCEPTED_BUT_SILENT_ZONES="ap-northeast-2a" STUB_SILENT_ZONE_RECOVERS_AFTER=2 \
+    STUB_PRESENT_KEYS="evidence.tgz run.json log.txt stderr.txt" \
+    run_scenario launch-accepted-but-answer-lost bash "$TARGET"
+
+  # The same, and the answer is lost every time.
+  #
+  # The half that costs money: retries are exhausted, so the run must reconcile the token and stop rather than
+  # move on. Zero launches in the second zone is the assertion.
+  STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 \
+    STUB_LAUNCH_ACCEPTED_BUT_SILENT_ZONES="ap-northeast-2a ap-northeast-2c" \
+    STUB_PRESENT_KEYS="log.txt" \
+    run_scenario launch-answer-lost-every-time bash "$TARGET"
+
+  # Refused as a duplicate of an earlier request under the same token, with that request's instance there to
+  # be found. AWS answers IdempotentParameterMismatch only after a request under this token SUCCEEDED, so it
+  # is evidence an instance exists: one token-scoped describe, one terminate, and no second zone.
+  STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 \
+    STUB_LAUNCH_FAIL_ZONES="ap-northeast-2a" STUB_LAUNCH_FAILURE=idempotent-mismatch \
+    STUB_MISMATCH_LEAVES_INSTANCE=1 \
+    STUB_PRESENT_KEYS="log.txt" \
+    run_scenario launch-refused-as-a-duplicate-token bash "$TARGET"
 }
 
 scenarios_m5c_gpu_session() {
@@ -400,6 +549,16 @@ scenarios_m5c_gpu_session() {
   # The commit the session will ship, so its evidence-identity check has something that matches.
   STUB_COMMIT=$(git -C "$ROOT" rev-parse HEAD); export STUB_COMMIT
 
+  # The purchase purpose, exported ONCE rather than repeated on every scenario.
+  #
+  # REPS is per-scenario because `no-reps` captures its refusal and every other scenario has to carry it.
+  # PURPOSE is the same kind of mandatory variable, but there are nineteen scenarios here and exactly one is
+  # about the refusal -- so it is exported and that one CLEARS it. Same coverage, eighteen fewer places to
+  # forget it, and the refusal is still exercised rather than assumed.
+  export PURPOSE=new-measurement
+  export HYPOTHESIS="characterization run: no question is asked of a card"
+  export STOPPING_RULE="the stubs answer immediately and nothing is rented"
+
   # This runner rents ONE card and builds a kind cluster on it, so its scenarios are about the lifecycle
   # around that: what it refuses before spending, and what it does when the instance does not come back.
   #
@@ -407,6 +566,13 @@ scenarios_m5c_gpu_session() {
   # confirmatory run is three, and neither is a thing to arrive at by forgetting a variable. The refusal
   # itself is the first scenario, because it is the only guard that runs before AWS is touched at all.
   run_scenario no-reps bash "$TARGET"
+
+  # The purchase-purpose refusal, which runs after REPS and before AWS is touched.
+  #
+  # It is the guard the 2026-10-02 registration asked for and nothing implemented: a purchase has to declare
+  # a reproduction attempt or a new measurement, and the run that spent $2.16 under a name it did not match
+  # would have been stopped here.
+  REPS=1 PURPOSE= run_scenario no-purpose bash "$TARGET"
 
   # The provenance guard, made to fire rather than assumed to. A probe file makes the tree dirty and is
   # removed whatever happens; without it this scenario means nothing on a clean checkout.
@@ -418,26 +584,163 @@ scenarios_m5c_gpu_session() {
 
   # The pilot: one repetition of every arm, everything present, evidence comes back.
   REPS=1 REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 \
-    STUB_PRESENT_KEYS="evidence.tgz log.txt commit.txt nodes.txt" \
+    STUB_PRESENT_KEYS="evidence.tgz log.txt commit.txt nodes.txt preflight-nvidia-smi.csv preflight-node-cards.txt" \
     run_scenario pilot bash "$TARGET"
+
+  # The instrument-validation study end to end: no load variable reaches the instance, and every arm comes back.
+  #
+  # The plan check calls the matrix directly, so it never saw this script's load defaults; a RATE of 9.85
+  # written into user-data would have been refused by the matrix on the paid instance. Pinned here, where the
+  # user-data the instance would receive is recorded.
+  REPS=1 REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 \
+    STUDY=instrument-validation-2026-10-05 \
+    ARMS="serial-log serial-nolog burst-log burst-nolog stagger-log stagger-nolog serial-async burst-async stagger-async" \
+    STUB_EVIDENCE_ARMS="serial-log serial-nolog burst-log burst-nolog stagger-log stagger-nolog serial-async burst-async stagger-async" \
+    STUB_PRESENT_KEYS="evidence.tgz log.txt commit.txt nodes.txt preflight-nvidia-smi.csv preflight-node-cards.txt" \
+    run_scenario instrument-validation bash "$TARGET"
+
+  # The prospective-admission pilot's stage A: its rates and stage reach the instance, and no RATE or ARMS does.
+  # The matrix on the instance refuses a weighted RATE or a caller's ARMS beside the pilot, so a default leaking
+  # into user-data would be refused only after the card was rented.
+  REPS=3 REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 \
+    STUDY=prospective-pilot-2026-10-08 PILOT_STAGE=A PREMIUM_RATE=9.25 PILOT_NOISY_RATE=0.5 SEEDS="11 12 13" \
+    PREMIUM_PROMPT_CHARS=200 NOISY_PROMPT_CHARS=40000 REQUEST_TIMEOUT_MS=30000 PREMIUM_OUTPUT_TOKENS=64 NOISY_OUTPUT_TOKENS=16 \
+    STUB_EVIDENCE_ARMS="R1 off prospective" STUB_EVIDENCE_REPS=3 STUB_EVIDENCE_RECORDS=1 \
+    STUB_PRESENT_KEYS="evidence.tgz log.txt commit.txt nodes.txt preflight-nvidia-smi.csv preflight-node-cards.txt matrix-returned.txt" \
+    run_scenario prospective-pilot-stage-a bash "$TARGET"
+
+  # The pilot's strict credential check: with no exportable expiry, the only cache entry names just an account, which
+  # another session takes and the pilot refuses (design page, build item 13).
+  REPS=3 REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_CREDENTIALS_EXPIRE_IN_MIN= \
+    STUDY=prospective-pilot-2026-10-08 PILOT_STAGE=A PREMIUM_RATE=9.25 PILOT_NOISY_RATE=0.5 SEEDS="11 12 13" \
+    PREMIUM_PROMPT_CHARS=200 NOISY_PROMPT_CHARS=40000 REQUEST_TIMEOUT_MS=30000 PREMIUM_OUTPUT_TOKENS=64 NOISY_OUTPUT_TOKENS=16 \
+    run_scenario prospective-pilot-account-only-credential bash "$TARGET"
+
+  # The admission diagnostic's stage D: its own study, its five arms, R1 once, and its 4 h 14 m limits.
+  REPS=3 REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 \
+    STUDY=admission-diagnostic-2026-10-10 PILOT_STAGE=D PREMIUM_RATE=9.25 PILOT_NOISY_RATE=0.5 SEEDS="851 852 853" \
+    PREMIUM_PROMPT_CHARS=200 NOISY_PROMPT_CHARS=40000 REQUEST_TIMEOUT_MS=30000 PREMIUM_OUTPUT_TOKENS=64 NOISY_OUTPUT_TOKENS=16 \
+    STUB_EVIDENCE_ARMS="R1 off hold cap hold-cap" STUB_EVIDENCE_REPS=3 STUB_EVIDENCE_R1_ONCE=1 STUB_EVIDENCE_RECORDS=1 \
+    STUB_PRESENT_KEYS="evidence.tgz log.txt commit.txt nodes.txt preflight-nvidia-smi.csv preflight-node-cards.txt matrix-returned.txt" \
+    run_scenario admission-diagnostic-stage-d bash "$TARGET"
+
+  # v26's stage E: its own study, R1 and six arms in three blocks, its frozen seeds, and its 6 h 9 m limits.
+  REPS=3 REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 \
+    STUDY=admission-frontier-2026-10-10 PILOT_STAGE=E PREMIUM_RATE=9.25 PILOT_NOISY_RATE=0.5 SEEDS="861 862 863" \
+    PREMIUM_PROMPT_CHARS=200 NOISY_PROMPT_CHARS=40000 REQUEST_TIMEOUT_MS=30000 PREMIUM_OUTPUT_TOKENS=64 NOISY_OUTPUT_TOKENS=16 \
+    STUB_EVIDENCE_ARMS="R1 off hold-cap fixed-1.62 fixed-1.66 fixed-1.70 fixed-1.74" STUB_EVIDENCE_REPS=3 STUB_EVIDENCE_R1_ONCE=1 STUB_EVIDENCE_RECORDS=1 \
+    STUB_PRESENT_KEYS="evidence.tgz log.txt commit.txt nodes.txt preflight-nvidia-smi.csv preflight-node-cards.txt matrix-returned.txt" \
+    run_scenario admission-frontier-stage-e bash "$TARGET"
+
+  # Stage E whose instance stays shutting-down past the first terminate-first call: the evidence is still downloaded
+  # and judged, and the termination confirmed by a second bounded call (v26's result, apparatus note).
+  REPS=3 REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 STUB_SHUTTING_DOWN_FOR=70 \
+    STUDY=admission-frontier-2026-10-10 PILOT_STAGE=E PREMIUM_RATE=9.25 PILOT_NOISY_RATE=0.5 SEEDS="861 862 863" \
+    PREMIUM_PROMPT_CHARS=200 NOISY_PROMPT_CHARS=40000 REQUEST_TIMEOUT_MS=30000 PREMIUM_OUTPUT_TOKENS=64 NOISY_OUTPUT_TOKENS=16 \
+    STUB_EVIDENCE_ARMS="R1 off hold-cap fixed-1.62 fixed-1.66 fixed-1.70 fixed-1.74" STUB_EVIDENCE_REPS=3 STUB_EVIDENCE_R1_ONCE=1 STUB_EVIDENCE_RECORDS=1 \
+    STUB_PRESENT_KEYS="evidence.tgz log.txt commit.txt nodes.txt preflight-nvidia-smi.csv preflight-node-cards.txt matrix-returned.txt" \
+    run_scenario admission-frontier-slow-termination bash "$TARGET"
+
+  # v27's calibration stage F: its own study, one block, R1 and six arms at three lengths, and its 2 h 19 m limits.
+  REPS=1 REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 \
+    STUDY=admission-length-calibration-2026-10-10 PILOT_STAGE=F PREMIUM_RATE=9.25 PILOT_NOISY_RATE=0.5 SEEDS=871 \
+    PREMIUM_PROMPT_CHARS=200 NOISY_PROMPT_CHARS=40000 REQUEST_TIMEOUT_MS=30000 PREMIUM_OUTPUT_TOKENS=64 NOISY_OUTPUT_TOKENS=16 \
+    STUB_EVIDENCE_ARMS="R1 off-short off-ref off-long hold-cap-short hold-cap-ref hold-cap-long" STUB_EVIDENCE_REPS=1 STUB_EVIDENCE_R1_ONCE=1 STUB_EVIDENCE_RECORDS=1 \
+    STUB_PRESENT_KEYS="evidence.tgz log.txt commit.txt nodes.txt preflight-nvidia-smi.csv preflight-node-cards.txt matrix-returned.txt" \
+    run_scenario length-calibration-stage-f bash "$TARGET"
+
+  # Stage B without the R stage A fitted: refused before anything is rented.
+  REPS=3 REQUIRE_CLEAN_TREE=0 \
+    STUDY=prospective-pilot-2026-10-08 PILOT_STAGE=B PREMIUM_RATE=9.25 PILOT_NOISY_RATE=0.5 SEEDS="11 12 13" \
+    run_scenario prospective-pilot-stage-b-without-r bash "$TARGET"
 
   # A fresh account: the bucket and the profile are created, and the profile must carry GetObject because
   # this instance downloads the source archive and both binaries it was sent.
   REPS=1 REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=0 STUB_PROFILE_EXISTS=0 STUB_DONE_AFTER=2 \
-    STUB_PRESENT_KEYS="evidence.tgz log.txt commit.txt nodes.txt" \
+    STUB_PRESENT_KEYS="evidence.tgz log.txt commit.txt nodes.txt preflight-nvidia-smi.csv preflight-node-cards.txt" \
     run_scenario fresh bash "$TARGET"
 
   # No capacity in the first zone, which is a normal answer and must not abort the run.
   REPS=1 REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 \
     STUB_LAUNCH_FAIL_ZONES="ap-northeast-2a" \
-    STUB_PRESENT_KEYS="evidence.tgz log.txt commit.txt nodes.txt" \
+    STUB_PRESENT_KEYS="evidence.tgz log.txt commit.txt nodes.txt preflight-nvidia-smi.csv preflight-node-cards.txt" \
     run_scenario zone-retry bash "$TARGET"
+
+  # AWS accepted the launch in the first zone and the caller never learned the instance id.
+  #
+  # This records the CURRENT behaviour, and the current behaviour is the defect: an ambiguous failure is
+  # indistinguishable from "no instance was created", so the runner clears IID, moves to the next zone, and
+  # launches a second instance. Cleanup terminates the id it retained, which is not the first one. The tags
+  # carry no run nonce, so nothing afterwards can tell that orphan from a previous session's.
+  #
+  # It is recorded before the fix rather than after, which is this suite's whole premise: "the only honest way
+  # to claim a refactor changed nothing is to have a recording of what it did before". When the runner learns
+  # to reconcile by nonce before moving zones, THIS golden is the thing that must change, and a diff that
+  # touches nothing else is the evidence that only the ambiguous path moved.
+  #
+  # Found by an adversarial security review, which put the bounded loss at roughly $2.50 per occurrence -- the
+  # in-instance backstop is 9000 s -- and refused to inflate it beyond that. The probability is unestablished.
+  REPS=1 REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 \
+    STUB_LAUNCH_ACCEPTED_BUT_SILENT_ZONES="ap-northeast-2a" \
+    STUB_PRESENT_KEYS="evidence.tgz log.txt commit.txt nodes.txt preflight-nvidia-smi.csv preflight-node-cards.txt" \
+    run_scenario launch-accepted-but-answer-lost bash "$TARGET"
+
+  # Every attempt loses its answer, including the retries -- the zone never recovers.
+  #
+  # The scenario above lets the retry succeed, so it pins the happy half of the repair: the same token comes
+  # back and no second instance is bought. This one pins the half that costs money if it is wrong. The runner
+  # must retry the SAME zone to its limit, never launch in another, reconcile by client token, terminate what
+  # it finds, and exit non-zero. What must NOT appear is a second `run-instances`, an `i-0stub`, any result
+  # polling or any evidence download: all of those would mean the session carried on with an instance it had
+  # lost track of.
+  #
+  # Asked for by the review that found the defect, on the grounds that "accepted once and then recovered" and
+  # "accepted and never heard from again" are different failures and only the second one strands an instance
+  # the script never names.
+  REPS=1 REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 \
+    STUB_LAUNCH_ACCEPTED_BUT_SILENT_ZONES="ap-northeast-2a ap-northeast-2c" \
+    STUB_SILENT_ZONE_RECOVERS_AFTER=-1 \
+    STUB_PRESENT_KEYS="evidence.tgz log.txt commit.txt nodes.txt preflight-nvidia-smi.csv preflight-node-cards.txt" \
+    run_scenario launch-answer-lost-every-time bash "$TARGET"
+
+  # The marker is there and carries SOMEBODY ELSE'S nonce.
+  #
+  # The marker's body is what distinguishes this launch's evidence from a previous run's under a reused
+  # prefix, and the stub grew STUB_DONE_NONCE to make the mismatch testable -- then no scenario set it, so
+  # only the matching path was ever executed. The refusal that protects a session from reporting another
+  # run's numbers as its own was pinned by nothing.
+  REPS=1 REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 \
+    STUB_DONE_NONCE=deadbeef \
+    STUB_PRESENT_KEYS="evidence.tgz log.txt commit.txt nodes.txt preflight-nvidia-smi.csv preflight-node-cards.txt" \
+    run_scenario done-marker-wrong-nonce bash "$TARGET"
+
+  # The CLI reports no expiry, the cache is scanned, and what it finds is TOO SHORT -- so nothing launches.
+  #
+  # An empty STUB_CREDENTIALS_EXPIRE_IN_MIN omits the Expiration field, which is the whole reason that knob
+  # takes an empty value -- and nothing set it, so the fallback was reachable in principle and reached by
+  # nothing. The first version of this scenario stopped there and pinned the wrong half: with an identity-less
+  # cache entry the fallback found nothing, returned success, and the golden recorded "skipping the check"
+  # followed by run-instances and exit 0. That made fixing the fail-open a test failure. What is worth
+  # pinning is the fallback doing its job: it reads an expiry it can trust and refuses before a dollar moves.
+  REPS=1 REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 \
+    STUB_CREDENTIALS_EXPIRE_IN_MIN= STUB_CACHE_EXPIRES_IN="20 minutes" \
+    STUB_PRESENT_KEYS="evidence.tgz log.txt commit.txt nodes.txt preflight-nvidia-smi.csv preflight-node-cards.txt" \
+    run_scenario credentials-expiry-too-short bash "$TARGET"
+
+  # The same fallback, with enough life left: it evaluates the expiry and lets the run proceed.
+  #
+  # Without this one the suite would only ever show the fallback refusing, and a fallback that refuses
+  # everything passes that test too.
+  REPS=1 REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 \
+    STUB_CREDENTIALS_EXPIRE_IN_MIN= \
+    STUB_PRESENT_KEYS="evidence.tgz log.txt commit.txt nodes.txt preflight-nvidia-smi.csv preflight-node-cards.txt" \
+    run_scenario credentials-expiry-from-cache bash "$TARGET"
 
   # The terminate call is refused, the way it is when credentials lapse mid-run. The transcript is what
   # makes the SHOUTING branch executed rather than asserted; on 2026-09-08 the silent version of this let a
   # real instance bill until somebody noticed.
   REPS=1 REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 \
-    STUB_TERMINATE_FAILS=1 STUB_PRESENT_KEYS="evidence.tgz log.txt commit.txt nodes.txt" \
+    STUB_TERMINATE_FAILS=1 STUB_PRESENT_KEYS="evidence.tgz log.txt commit.txt nodes.txt preflight-nvidia-smi.csv preflight-node-cards.txt" \
     run_scenario terminate-refused bash "$TARGET"
 
  # The terminate call is ACCEPTED and the instance keeps running.
@@ -446,8 +749,14 @@ scenarios_m5c_gpu_session() {
  # request, the old code returned 0 on that alone, and an instance that never went away was
  # reported as terminated. The polling that now follows an accepted call is only honest if this
  # path is executed.
- STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 \
-    STUB_TERMINATE_LINGERS=1 STUB_PRESENT_KEYS="evidence.tgz log.txt commit.txt nodes.txt" \
+ # REPS and REQUIRE_CLEAN_TREE are set so this scenario REACHES the terminate path.
+ #
+ # Without them the run died on `REPS is unset` before it launched anything: the golden recorded a
+ # refusal with no run-instances and no terminate-instances in it, so removing the wrapper's `exit 1`
+ # would not have changed a byte. A scenario that never reaches the branch it is named for is worse
+ # than no scenario, because the suite counts it as covered.
+ REPS=1 REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 \
+    STUB_TERMINATE_LINGERS=1 SPOT_TERMINATE_TRIES=12 STUB_PRESENT_KEYS="evidence.tgz log.txt commit.txt nodes.txt preflight-nvidia-smi.csv preflight-node-cards.txt" \
     run_scenario terminate-accepted-but-still-running bash "$TARGET"
 
   # The instance is reclaimed before it writes its marker. Only the log made it up, so there is no archive
@@ -469,6 +778,53 @@ scenarios_m5c_gpu_session() {
   REPS=1 REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_PRESENT_AT_START=1 \
     STUB_PRESENT_KEYS="log.txt" \
     run_scenario stale-done bash "$TARGET"
+
+  # A policy denial in the FIRST zone must stop the run, not walk to the second.
+  #
+  # Only 2a is made to fail, and it fails with UnauthorizedOperation. Read this against zone-retry above,
+  # which plants the same shape with a capacity refusal and expects the loop to move on and succeed in 2c:
+  # the pair is what makes "only a zone's shortage may move zones" an assertion rather than a sentence in a
+  # comment. Before LAUNCH_DEFINITIVE the two behaved identically -- `break` left the inner retry loop and
+  # the outer `for z` re-sent a request the account is not allowed to make.
+  #
+  # The run ends refused, and the refusal must be the one that names the service control policy, since the
+  # denial is the only error in launch-errors.txt.
+  REPS=1 REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 \
+    STUB_LAUNCH_FAIL_ZONES="ap-northeast-2a" STUB_LAUNCH_FAILURE=unauthorized \
+    run_scenario launch-refused-by-policy-stops-at-the-first-zone bash "$TARGET"
+
+  # The launch is refused as a duplicate of an earlier request under the same token.
+  #
+  # AWS answers IdempotentParameterMismatch only when that token was already used by a request that
+  # SUCCEEDED, so it is evidence an instance exists. It used to sit in the definitive list beside the
+  # authorization errors, where it cleared the uncertain token and moved to the next zone -- reading
+  # "something was created" as "nothing was created", which is the defect the whole loop was rewritten to
+  # close. What the golden pins is that the token is reconciled and the run stops.
+  REPS=1 REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 \
+    STUB_LAUNCH_FAIL_ZONES="ap-northeast-2a" STUB_LAUNCH_FAILURE=idempotent-mismatch \
+    run_scenario launch-refused-as-a-duplicate-token bash "$TARGET"
+
+  # The same refusal, with the instance that earlier request created actually there to be found.
+  #
+  # The scenario above pins the half where the token-filtered read comes back empty and the runner refuses
+  # without claiming nothing exists. That half cannot show a termination, so on its own it would let a
+  # reconcile that never terminates anything pass as covered. Here the instance is discoverable, and what the
+  # golden pins is the whole path: one launch, one token-filtered describe, one terminate of the instance the
+  # token names, and still no second zone.
+  REPS=1 REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 \
+    STUB_LAUNCH_FAIL_ZONES="ap-northeast-2a" STUB_LAUNCH_FAILURE=idempotent-mismatch \
+    STUB_MISMATCH_LEAVES_INSTANCE=1 \
+    run_scenario launch-refused-as-a-duplicate-token-that-exists bash "$TARGET"
+
+  # Two instances answer the same token, and BOTH must be terminated.
+  #
+  # One row cannot tell a loop over every match from code that takes the first and stops, so the reconciler's
+  # "terminate every id the filter returned" was untested by construction. The scenario also pins that the run
+  # still refuses: finding two instances under one launch token is an invariant violation, not a recovery.
+  REPS=1 REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 \
+    STUB_LAUNCH_ACCEPTED_BUT_SILENT_ZONES="ap-northeast-2a ap-northeast-2c" \
+    STUB_SECOND_ORPHAN_ID=i-0twin \
+    run_scenario launch-answer-lost-with-two-instances-under-one-token bash "$TARGET"
 }
 
 scenarios_queuelab_gpu_session() {
@@ -572,6 +928,43 @@ scenarios_queuelab_gpu_session() {
   REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_PRESENT_AT_START=1 \
     STUB_PRESENT_KEYS="log.txt" \
     run_scenario stale-done bash "$TARGET"
+
+  # The terminate call is ACCEPTED and the instance keeps running.
+  #
+  # This wrapper gained the `exit 1` it performs when termination cannot be confirmed, and no
+  # scenario here reached it. A gate whose failure path nothing executes is a gate on paper.
+  # REQUIRE_CLEAN_TREE is set so this scenario REACHES the terminate path rather than refusing first,
+  # and the keys are the ones this runner downloads so it does not stop at a missing archive instead.
+  REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 STUB_TERMINATE_LINGERS=1 \
+    SPOT_TERMINATE_TRIES=12 \
+    STUB_PRESENT_KEYS="session.tgz commit.txt log.txt preflight.txt preflight-nodes.txt preflight-nvidia-smi.csv preflight-why.txt" \
+    run_scenario terminate-accepted-but-still-running bash "$TARGET"
+
+  # AWS accepted the launch and the answer never came back.
+  #
+  # The expensive shape: the runner used to clear IID and try the next zone, so an instance it already owned
+  # kept billing while a second one was bought, and cleanup terminated the one id it had -- which was not the
+  # first. What the golden pins is that the same zone is retried under the same token, that no second zone is
+  # tried, and that anything the lost launch created is found by the token and terminated.
+  REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 \
+    STUB_LAUNCH_ACCEPTED_BUT_SILENT_ZONES="ap-northeast-2a" STUB_SILENT_ZONE_RECOVERS_AFTER=2 \
+    run_scenario launch-accepted-but-answer-lost bash "$TARGET"
+
+  # The same, and the answer is lost every time.
+  #
+  # This is the half that costs money: the retries are exhausted, so the run must reconcile and stop rather
+  # than move on. Zero launches in the second zone is the assertion, and the run ends refused.
+  REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 \
+    STUB_LAUNCH_ACCEPTED_BUT_SILENT_ZONES="ap-northeast-2a ap-northeast-2c" \
+    run_scenario launch-answer-lost-every-time bash "$TARGET"
+
+  # Refused as a duplicate of an earlier request under the same token, with that request's instance there to
+  # be found. AWS answers IdempotentParameterMismatch only after a request under this token SUCCEEDED, so it
+  # is evidence an instance exists: one token-scoped describe, one terminate, and no second zone.
+  REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 \
+    STUB_LAUNCH_FAIL_ZONES="ap-northeast-2a" STUB_LAUNCH_FAILURE=idempotent-mismatch \
+    STUB_MISMATCH_LEAVES_INSTANCE=1 \
+    run_scenario launch-refused-as-a-duplicate-token bash "$TARGET"
 }
 
 # The cleanup trap must be armed BEFORE anything can launch an instance.
@@ -583,14 +976,36 @@ scenarios_queuelab_gpu_session() {
 # Ctrl-C in that window strands a GPU instance with nothing to terminate it. So the order is checked where
 # the order lives.
 trap_armed_before_launch() {
-  local f="$ROOT/$TARGET" t l
-  t=$(grep -n '^trap cleanup EXIT INT TERM' "$f" | head -1 | cut -d: -f1)
+  local f="$ROOT/$TARGET" t l n_traps resumes
+  # EVERY trap that arms cleanup has to be in place before the launch, not just one line matching one shape.
+  #
+  # This looked for the literal `trap cleanup EXIT INT TERM`. When the wrappers split that into three traps --
+  # so a signal exits 130/143 instead of running cleanup and resuming -- the assertion stopped finding
+  # anything and reported "no trap found" for scripts whose traps were all correctly placed. A check that
+  # fails when the thing it guards is improved is a check that gets deleted; the property it defends is that
+  # the LAST of them still precedes the launch.
+  # Placement was the only property asserted, and the pattern that asserted it also matched the shape the
+  # split replaced: `trap cleanup EXIT INT TERM` satisfied it, so reverting the fix -- or deleting INT and
+  # TERM outright -- still reported ok. A widened pattern accepts the bug it was widened around.
+  #
+  # Placement and shape are therefore separate assertions now. A handler trapped on a signal without an
+  # exit RESUMES the script where the signal arrived, which is the defect, so that shape is named rather
+  # than matched; and the two signal handlers must be present at all, not merely well placed.
+  resumes=$(grep -cE "^trap cleanup .*(INT|TERM)" "$f" || true)
+  t=$(grep -nE "^trap ('cleanup; exit (130|143)'|cleanup) (EXIT|INT|TERM)" "$f" | cut -d: -f1 | sort -n | tail -1)
+  n_traps=$(grep -cE "^trap ('cleanup; exit (130|143)'|cleanup) (EXIT|INT|TERM)" "$f" || true)
   l=$(grep -n 'spot_launch "$REGION"' "$f" | head -1 | cut -d: -f1)
   if [ -z "$t" ] || [ -z "$l" ]; then
     printf 'FAIL     trap-before-launch (no trap or no launch found in %s)\n' "$TARGET"
     fail=$((fail + 1))
+  elif [ "$resumes" != "0" ]; then
+    printf 'FAIL     %s traps cleanup on a signal with no exit, so the handler returns and the script carries on past it\n' "$TARGET"
+    fail=$((fail + 1))
+  elif ! grep -qE "^trap 'cleanup; exit 130' INT" "$f" || ! grep -qE "^trap 'cleanup; exit 143' TERM" "$f"; then
+    printf 'FAIL     %s has no INT/TERM handler that exits; a Ctrl-C would clean up and then keep going\n' "$TARGET"
+    fail=$((fail + 1))
   elif [ "$t" -lt "$l" ]; then
-    printf 'ok       the cleanup trap is armed before the launch\n'
+    printf 'ok       all %s cleanup trap(s) are armed before the launch, and INT/TERM exit rather than resume\n' "$n_traps"
     pass=$((pass + 1))
   else
     printf 'FAIL     the cleanup trap is armed at line %s, AFTER the launch at line %s; an exit in between strands the instance\n' "$t" "$l"

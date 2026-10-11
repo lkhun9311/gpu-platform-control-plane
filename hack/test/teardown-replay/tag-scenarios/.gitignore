@@ -1,0 +1,15 @@
+# The scenario responses are FIXTURES, not output.
+#
+# The repository root ignores `*.out` (line 142) because paid-session runners write .out files all over the
+# tree. These six are recorded AWS responses that the replay reads, and without them three of its scenario
+# directories do not exist at all -- so a fresh checkout loses 01, 02 and 06 and the harness reports "no
+# scenario directory" for each.
+#
+# `git add` exited 0 while staging none of them. The miss was caught by reading the commit's own file list.
+#
+# The root .gitignore's own comment at line 131 records THIS EXACT ACCIDENT happening once before, to this
+# same directory tree: "git add hack/test staged the driver and every golden file and silently left out the
+# two files that make the harness a harness". The rule that was written down was not enough to stop it
+# happening again, so the exemption lives here, beside the files it protects.
+!*.out
+!**/*.out

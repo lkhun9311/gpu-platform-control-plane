@@ -19,6 +19,7 @@ package bench
 import (
 	"bytes"
 	"math"
+	"testing"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -188,6 +189,20 @@ var _ = Describe("GenerateTrace under the independent-arrivals model", func() {
 		Expect(len(rowsOf(fast, "premium-1"))).To(BeNumerically(">", 2*len(rowsOf(slow, "premium-1"))))
 	})
 
+	// The tail-crossing sweep is the same property read the other way: the BE rate moves and the latency-
+	// critical schedule must not. The report pairs the baseline with every BE level of a repetition on that
+	// schedule, so a generator that moved it would make every level's pairing refuse -- or, worse, a weaker
+	// pairing check accept two different arrival sequences as one.
+	It("holds the latency-critical schedule byte-identical while the best-effort rate quintuples", func() {
+		low, err := GenerateTrace(ladderRungParams(7, 0.2864, 0.0286))
+		Expect(err).NotTo(HaveOccurred())
+		high, err := GenerateTrace(ladderRungParams(7, 0.2864, 0.1432))
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(rowsOf(high, "premium-1")).To(Equal(rowsOf(low, "premium-1")))
+		Expect(len(rowsOf(high, "standard-noisy"))).To(BeNumerically(">", 2*len(rowsOf(low, "standard-noisy"))))
+	})
+
 	It("holds a tenant's schedule byte-identical when another tenant is added or removed", func() {
 		two, err := GenerateTrace(ladderRungParams(9, 1.16, 0.5))
 		Expect(err).NotTo(HaveOccurred())
@@ -346,3 +361,50 @@ var _ = Describe("GenerateTrace refusing an unstated arrival process", func() {
 		Expect(err.Error()).To(ContainSubstring("appears twice"))
 	})
 })
+
+// A manifest has to say what prompt length it replayed, and the value comes from the trace itself.
+//
+// Mutation that turns this red: drop the PromptLenChars fill from either manifest writer. There are two --
+// gen-trace and prepare-traces -- and a value filled in one of them is how this project has twice shipped
+// a field that was populated on one path and empty on the other.
+func TestPromptLenCharsByTenantReadsEveryTenant(t *testing.T) {
+	rows := []TraceRow{
+		{Index: 0, Tenant: PremiumTenant, PromptLenChars: 1174},
+		{Index: 1, Tenant: NoisyTenant, PromptLenChars: 42579},
+		{Index: 2, Tenant: PremiumTenant, PromptLenChars: 1174},
+	}
+	got := PromptLenCharsByTenant(rows)
+	if got[PremiumTenant] != 1174 || got[NoisyTenant] != 42579 {
+		t.Errorf("want premium 1174 and noisy 42579, got %v", got)
+	}
+	if len(got) != 2 {
+		t.Errorf("want exactly the two tenants the trace carries, got %v", got)
+	}
+}
+
+// One tenant whose rows carry two lengths is a trace the study did not freeze, and it is reported as such.
+//
+// Mutation that turns this red: keep the last length seen instead of -1. Averaging or overwriting hides
+// exactly the condition this value exists to surface -- a run whose load was not the registered one.
+func TestPromptLenCharsRefusesToAverageADisagreement(t *testing.T) {
+	rows := []TraceRow{
+		{Index: 0, Tenant: PremiumTenant, PromptLenChars: 200},
+		{Index: 1, Tenant: PremiumTenant, PromptLenChars: 1174},
+		{Index: 2, Tenant: PremiumTenant, PromptLenChars: 200},
+	}
+	if got := PromptLenCharsByTenant(rows)[PremiumTenant]; got != -1 {
+		t.Errorf("a tenant sent 200 and 1174 characters and the map reported %d rather than -1", got)
+	}
+}
+
+// The isolated baseline must not claim a contender prompt length it never sent.
+//
+// R1's rows are the premium subset, so a manifest built from the CANONICAL trace rather than from the
+// arm's own rows would name a contender length for an arm that had no contender at all.
+func TestTheIsolatedArmClaimsNoContenderLength(t *testing.T) {
+	r1Rows := []TraceRow{{Index: 0, Tenant: PremiumTenant, PromptLenChars: 1174}}
+	got := PromptLenCharsByTenant(r1Rows)
+	if _, ok := got[NoisyTenant]; ok {
+		t.Errorf("the isolated arm's manifest names a contender length: %v", got)
+	}
+}

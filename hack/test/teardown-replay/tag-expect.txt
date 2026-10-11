@@ -1,0 +1,6 @@
+01-both-readable-clean      cmp|clean|0
+02-both-readable-appeared   cmp|appeared|1
+03-before-unreadable        skip|clean|0
+04-after-unreadable         skip|clean|0
+05-both-unreadable          skip|clean|0
+06-before-readable-empty    cmp|appeared|1

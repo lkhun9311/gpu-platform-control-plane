@@ -1,0 +1,166 @@
+I would buy this in two stages: **a small calibration study, followed—only if it establishes a feasible test—by a frozen robustness comparison.** The current replay supports the mechanism hypothesis, but it does not yet justify purchasing a prompt-length robustness result.
+
+The distinction matters: the archived 10% slowdown protected premium TTFT while making hold-cap violate the contender limits on one trace. Premium protection alone would not answer the owner’s question. Also, v26’s “neither was 15% better” verdict was a descriptive comparison, not a statistical equivalence result. See the [frozen protocol and result](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md:1290).
+
+**Move contender input length, keeping arrival rates fixed.** My proposed levels are:
+
+| Level | Exact contender input tokens | Generator prompt characters | Purpose |
+|---|---:|---:|---|
+| Short | 6,144 | 31,894 | Test the cost of excessive fixed spacing |
+| Reference | 7,695 | 40,000 | Reproduce v26’s operating point |
+| Long—primary challenge | 8,192 | 42,579 | Lengthen prefill modestly without deliberately overwhelming serialization |
+
+The two additional character mappings are already measured in [inputlengths.go](/home/lkhun9311/workspace/gpu-platform-control-plane/internal/bench/inputlengths.go:106). They still need verification against the pinned serving configuration.
+
+Keep premium input at 68 tokens, premium arrivals at 9.25/s, contender arrivals at 0.5/s, outputs exactly 64/16, arrivals lasting 420 seconds, timeout 30 seconds, and maximum admission hold 25 seconds. Preserve v26’s engine, priorities, 512-token budget, 64 slots, and disabled prefix caching.
+
+This moves **work per contender**, not arrival intensity. Offered contender input work becomes 3,072, 3,847.5, and 4,096 tokens/s. It deliberately changes both prefill duration and utilization; the latter is part of the operational challenge and must not be hidden.
+
+I would not start with 12,288 tokens: the increase is large enough that failing the contender limits could dominate the experiment. Nor would I compensate longer prompts with fewer arrivals: that would answer a different, constant-work-rate question. Increasing contender arrival rate alone primarily tests queue pressure and need not lengthen an individual serialized prefill.
+
+These are proposed challenge levels, **not a claim that 8,192 tokens necessarily crosses the 1.74-second boundary**. Calibration must establish that.
+
+**Use five arms, including a serious size-aware control.**
+
+| Arm | Engine cap | Admission |
+|---|---:|---|
+| Off | None | Immediate |
+| Cap-only | 384 | Immediate |
+| H: hold-cap | 384 | Release the next contender on first-content feedback |
+| F: fixed | 384 | Frozen 1.740-second spacing |
+| S: size-aware static | 384 | Frozen spacing determined by prompt size |
+
+F remains 1.740 seconds on every card and at every length. Retuning it would remove the question being tested.
+
+S is needed. Otherwise, a positive result could mean only that F ignores a known request-size change. I would make S stronger than simple token-proportional spacing:
+
+\[
+s(N)=1.740\text{ s}\times\frac{d_{\mathrm{cal}}(N)}
+                                      {d_{\mathrm{cal}}(7695)}
+\]
+
+Here \(d_{\mathrm{cal}}(N)\) is the median contender admission-to-first-content duration measured under hold-cap in the separate calibration stage. Freeze this formula before calibration, then freeze its resulting spacing table before the main purchase. S uses no completion feedback during the main experiment. At the reference length, S and F are identical and share one cell.
+
+This is a static size lookup trained on separate evidence. It deliberately gives the control knowledge of the new prompt sizes. Simple \(1.740N/7695\) scaling is a useful sensitivity analysis, but a weaker primary control: attention work and chunk overhead are not linear in token count.
+
+All held arms use the same FIFO, timeout, refusal, cancellation, and admission-clock semantics. For any eventual mixed-size extension, spacing after an admission must depend on the **previously admitted request’s** work.
+
+Cap-only checks whether the cap itself protects premium traffic at the changed load. Hold without cap is unnecessary here: H versus F and S already holds the cap constant.
+
+**Freeze separate calibration and evaluation seeds.**
+
+My proposed purchase structure is:
+
+- **Calibration:** seed 871, one A10G, R1 once plus Off and H at each of the three lengths: **7 cells**.
+- **Main:** seeds 881, 882, 883, one complete block on each of three separately acquired A10Gs.
+- Each main block runs all three lengths and all arms: five short cells, four reference cells, five long cells, plus R1 once: **15 cells per block, 45 total**.
+- Rotate length order across blocks: short/reference/long; reference/long/short; long/short/reference. Freeze arm order through the existing hash-order method and publish the resulting order before purchase.
+- Start each cell with a fresh engine; retain the same warm-up, drain, capture, and provenance rules.
+
+Using three cards prevents one card’s pace from deciding the entire finding. Three cards still do not establish a fleet-wide success probability.
+
+Within a block, preserve exactly the same arrival schedules across lengths and arms; change only contender prompt size. The generator’s independent tenant streams support this. Explicitly use premium/noisy rates and zero probe rate, not weighted arrivals.
+
+This requires a **new study registration**, including the new exact-token table, traces, checksums, arm configuration, and scorer. The [v26 registry](/home/lkhun9311/workspace/gpu-platform-control-plane/internal/bench/study.go:794) freezes only the old tuple; merely passing different prompt flags is not a valid registered extension.
+
+No seed replacement after replay. If a frozen trace is too heavy, record that finding and stop or redesign transparently.
+
+**Keep the endpoint conditional on load. Do not pool different lengths.**
+
+For each arm and length, pool premium requests across the three main blocks and compute the same nearest-rank TTFT p99 and crossed bounds used by v26. Failures remain failures at infinity; missing evidence remains an evidence problem.
+
+Retain every frozen validity rule, including dispatch fidelity, gateway delay, complete timing evidence, mode fidelity, and healthy Off references. A measured treatment failure must not become an “inconclusive” apparatus failure.
+
+For **every block and length**, treatment admissibility requires:
+
+- Contender completion at least 95%.
+- Scheduled-to-completion p50 at most 1.5 times the corresponding Off cell.
+- Completion p95 at most 25 seconds; no hold refusal.
+- No preemption.
+- Shared-window contender prefill and decode work each at least 0.9 times Off.
+- Premium inter-token-gap p99 at most 1.25 times Off.
+
+Directional comparisons retain v26’s additional work protection: the winner completes at least the loser’s fraction minus one percentage point and retains at least 97% of its shared-window prefill and decode work.
+
+I would register the following decision sequence:
+
+1. **Evidence failure:** inconclusive, naming the failed validity or unscorable line.
+2. **Challenge not achieved:** the measured serialized prefill did not lengthen as intended. Require the long level’s H median admission-to-first-content duration to exceed both 1.740 seconds and 1.05 times its reference value in each block. Publish engine-only prefill duration separately.
+3. **Hold-cap robustness not met:** H violates any admissibility constraint, or fails to cut premium p99 at least 15% below corresponding Off at any registered length.
+4. **Fixed-spacing robustness failure observed:** at the reference level, F is admissible and its descriptive tail comparison with H lies within the registered 15% band; at the long level, H remains protective and admissible while F fails either protection or admissibility.
+5. **Relative advantage only:** F still meets protection and admissibility, but H beats it by at least 15% with the work safeguards. This must not be reported as “fixed spacing stopped protecting.”
+6. Otherwise, **the proposed separation is not established**.
+
+For attribution to the load change, also require deterioration in the H/F comparison from reference to long, rather than merely a main-study difference already present at reference. A conservative registered interaction is:
+
+\[
+\frac{H_{\text{long}}/F_{\text{long}}}
+     {H_{\text{reference}}/F_{\text{reference}}}\leq0.85,
+\]
+
+evaluated using the unfavorable crossed-bound endpoints. Failure to meet it limits the claim to a difference at the long setting.
+
+Apply the same comparisons to S as a prespecified secondary decision:
+
+- If S preserves protection within the contender limits, conclude that **static size awareness sufficed over the tested range**.
+- If H succeeds where S fails, or beats admissible S by 15% with retained work, report an advantage over this calibrated size-aware rule.
+- Neither result proves superiority over every possible static controller.
+
+The short level diagnoses over-spacing cost. It cannot substitute for a failed long-level primary challenge. These remain descriptive registered verdicts; three blocks do not justify treating thousands of correlated requests as independent experimental replications.
+
+**The replay must establish a feasible experiment, not merely print a favorable premium p99.**
+
+Before the calibration purchase, freeze predictions on seed 871 for:
+
+- Serialized capped-prefill duration, including its distribution around 1.740 seconds.
+- Premium tail, contender completion, p50/p95, holds, and refusals at every length.
+- Queue growth and the number of admitted contenders without first content.
+- Sensitivity to step-model error and delivery delay.
+
+Before the main purchase, require:
+
+- Validation against the new-length calibration cells, with predictions recorded beforehand.
+- The actual S spacings frozen.
+- Replay of all main traces, every arm, and the actual decision rules.
+- A joint feasible region in which H protects premium traffic **and** meets contender constraints.
+- Published prediction ranges and distances to every binding threshold—not just one nominal verdict.
+
+The model must include realistic state-dependent and temporally correlated timing error. Multiplying every step by the same scalar is useful sensitivity analysis, but insufficient around a cascade threshold. The archived capped-step bias and 3–7% contender-cost underprediction are material here.
+
+**The current replay cannot satisfy that gate as written.** Its [step features](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/prospective-pilot/simulate.py:94) include prefill tokens, scheduled requests, accumulated context, and attention work. Thus, two prompt lengths do provide many within-prefill feature values; the fit is not simply a two-point regression. Nevertheless:
+
+- 8,192 tokens extends context beyond the fitted long-prompt range.
+- 6,144 tokens changes where prefill ends and decode begins.
+- Successful reproduction at 7,695 tokens does not validate either new workload.
+- The current frontier command implements the old arms and only part of the registered scorer.
+- It does not establish shared-window work, inter-token-gap, preemption, or evidence-validity guarantees.
+
+Calibration can therefore be purchased as an explicitly bounded measurement of those unknowns. The main study should not be purchased on the current replay alone. If calibration fails the prespecified prediction or feasibility gate, do not refit on those observations and call the same observations validation; stop and register a new validation step.
+
+I would not require every uncertainty scenario to predict an H victory—that would encourage selecting an experiment for its desired answer. I would require a credible, measurable challenge with enough service headroom to distinguish controller behavior from unavoidable overload.
+
+**Cost is 52 cells for the complete proposal.**
+
+| Stage | Cells | Arrival-window cell-hours |
+|---|---:|---:|
+| Calibration | 7 | 0.82 |
+| Main | 45 | 5.25 |
+| Total | 52 | **6.07** |
+
+Those are \(420\)-second measurement windows, not billed instance time. Using [v26’s observed cell timings](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/data/2026-10-10-frontier-results/cell-timings.tsv)—roughly nine minutes per warm cell, plus cold starts and transitions—the total is approximately **8.5–9 instance-hours** across four sessions.
+
+If retaining v26’s conservative allowance formula, the seven-cell calibration session allows about 2.31 hours, and each fifteen-cell main session about 4.87 hours: approximately **16.9 hours of summed session limits**, before separately specified cleanup backstops. A failed calibration gate limits the purchase to seven cells. No automatic replacement purchases.
+
+**My ranked open risks are:**
+
+1. **No joint feasible separation.** A modest length increase may leave F working; a larger one may break H’s contender p95 first. This is the leading risk, already demonstrated in the slowdown replay.
+2. **Timing-model error near the threshold.** A few percent of capped-prefill error can reverse the verdict. New-length validation and residual sensitivity are essential.
+3. **Predictable size scaling explains the result.** F losing alone establishes fragility of its old tuning. S is necessary to test whether first-token feedback adds value beyond known work.
+4. **Lost or postponed work creates apparent protection.** Cancellations can release H’s reservation; delayed contenders can finish outside the shared window. Retain work constraints and publish end-of-window backlog and cancellation-triggered releases.
+5. **Card pace, order, or a worsening Off denominator explains the comparison.** Balance order, reproduce the reference setting on every card, record clocks and prefill timing, and publish absolute TTFT alongside ratios and R1. “15% below Off” is not an absolute premium SLO.
+6. **Sparse tail evidence and selected traces.** Each cell has only about 210 contenders, so its p95 rests on roughly eleven upper-tail observations. Freeze seeds, retain every block, and limit the scope of the verdict.
+7. **The proposed mechanism is misidentified.** Count admitted-but-unfinished prefills separately from prefills actually receiving tokens. Show that F’s overlap precedes premium delay, that H prevents that overlap, and that KV pressure, preemption, priority changes, or admission-timer errors do not explain it.
+
+The shutdown/evidence-download defect documented after v26 also needs repair and rehearsal before another purchase.
+
+I only read repository material; I edited no files and launched no experiments.

@@ -1,0 +1,69 @@
+threshold 0, light: contender 3030 tokens in 6 chunks; busiest step 13 requests; 8 premium request(s) arrived mid-prefill
+   steps from add to prompt completion  6   client send to first content 1665 ms   most requests in a step 11
+   steps from add to prompt completion  5   client send to first content 1515 ms   most requests in a step 11
+   steps from add to prompt completion  4   client send to first content 1364 ms   most requests in a step 11
+   steps from add to prompt completion  4   client send to first content 1214 ms   most requests in a step 11
+   steps from add to prompt completion  3   client send to first content 1063 ms   most requests in a step 11
+   steps from add to prompt completion  3   client send to first content 913 ms   most requests in a step 11
+   steps from add to prompt completion  2   client send to first content 762 ms   most requests in a step 11
+   steps from add to prompt completion  2   client send to first content 612 ms   most requests in a step 11
+threshold 384, light: contender 3030 tokens in 8 chunks; busiest step 13 requests; 10 premium request(s) arrived mid-prefill
+   steps from add to prompt completion  1   client send to first content 373 ms   most requests in a step 3
+   steps from add to prompt completion  1   client send to first content 223 ms   most requests in a step 3
+   steps from add to prompt completion  1   client send to first content 282 ms   most requests in a step 4
+   steps from add to prompt completion  1   client send to first content 401 ms   most requests in a step 5
+   steps from add to prompt completion  1   client send to first content 544 ms   most requests in a step 7
+   steps from add to prompt completion  1   client send to first content 393 ms   most requests in a step 7
+   steps from add to prompt completion  1   client send to first content 544 ms   most requests in a step 9
+   steps from add to prompt completion  1   client send to first content 393 ms   most requests in a step 9
+   steps from add to prompt completion  1   client send to first content 543 ms   most requests in a step 11
+   steps from add to prompt completion  1   client send to first content 392 ms   most requests in a step 11
+threshold 256, light: contender 3030 tokens in 12 chunks; busiest step 13 requests; 12 premium request(s) arrived mid-prefill
+   steps from add to prompt completion  1   client send to first content 249 ms   most requests in a step 2
+   steps from add to prompt completion  1   client send to first content 225 ms   most requests in a step 3
+   steps from add to prompt completion  1   client send to first content 259 ms   most requests in a step 4
+   steps from add to prompt completion  1   client send to first content 299 ms   most requests in a step 5
+   steps from add to prompt completion  1   client send to first content 341 ms   most requests in a step 6
+   steps from add to prompt completion  1   client send to first content 396 ms   most requests in a step 8
+   steps from add to prompt completion  1   client send to first content 246 ms   most requests in a step 8
+   steps from add to prompt completion  1   client send to first content 296 ms   most requests in a step 9
+   steps from add to prompt completion  1   client send to first content 353 ms   most requests in a step 10
+   steps from add to prompt completion  1   client send to first content 422 ms   most requests in a step 12
+   steps from add to prompt completion  1   client send to first content 272 ms   most requests in a step 12
+   steps from add to prompt completion  1   client send to first content 379 ms   most requests in a step 13
+threshold 0, full: contender 3030 tokens in 7 chunks; busiest step 64 requests; 10 premium request(s) arrived mid-prefill
+   steps from add to prompt completion  6   client send to first content 1843 ms   most requests in a step 64
+   steps from add to prompt completion  5   client send to first content 1691 ms   most requests in a step 64
+   steps from add to prompt completion  6   client send to first content 1583 ms   most requests in a step 64
+   steps from add to prompt completion  8   client send to first content 1709 ms   most requests in a step 64
+   steps from add to prompt completion 67   client send to first content 6170 ms   most requests in a step 64
+   steps from add to prompt completion 67   client send to first content 6018 ms   most requests in a step 64
+   steps from add to prompt completion 67   client send to first content 5964 ms   most requests in a step 64
+   steps from add to prompt completion 70   client send to first content 6032 ms   most requests in a step 64
+   steps from add to prompt completion 129   client send to first content 10679 ms   most requests in a step 64
+   steps from add to prompt completion 129   client send to first content 10529 ms   most requests in a step 64
+threshold 384, full: contender 3030 tokens in 8 chunks; busiest step 64 requests; 11 premium request(s) arrived mid-prefill
+   steps from add to prompt completion  1   client send to first content 340 ms   most requests in a step 62
+   steps from add to prompt completion  1   client send to first content 458 ms   most requests in a step 64
+   steps from add to prompt completion  2   client send to first content 532 ms   most requests in a step 64
+   steps from add to prompt completion  9   client send to first content 1798 ms   most requests in a step 64
+   steps from add to prompt completion 63   client send to first content 5807 ms   most requests in a step 64
+   steps from add to prompt completion 63   client send to first content 5698 ms   most requests in a step 64
+   steps from add to prompt completion 63   client send to first content 5643 ms   most requests in a step 64
+   steps from add to prompt completion 71   client send to first content 6158 ms   most requests in a step 64
+   steps from add to prompt completion 124   client send to first content 10224 ms   most requests in a step 64
+   steps from add to prompt completion 124   client send to first content 10169 ms   most requests in a step 64
+   steps from add to prompt completion 125   client send to first content 10114 ms   most requests in a step 64
+threshold 256, full: contender 3030 tokens in 12 chunks; busiest step 64 requests; 12 premium request(s) arrived mid-prefill
+   steps from add to prompt completion  1   client send to first content 228 ms   most requests in a step 62
+   steps from add to prompt completion  1   client send to first content 262 ms   most requests in a step 63
+   steps from add to prompt completion  1   client send to first content 302 ms   most requests in a step 64
+   steps from add to prompt completion 12   client send to first content 2091 ms   most requests in a step 64
+   steps from add to prompt completion 61   client send to first content 5738 ms   most requests in a step 64
+   steps from add to prompt completion 61   client send to first content 5682 ms   most requests in a step 64
+   steps from add to prompt completion 62   client send to first content 5627 ms   most requests in a step 64
+   steps from add to prompt completion 73   client send to first content 6456 ms   most requests in a step 64
+   steps from add to prompt completion 122   client send to first content 10224 ms   most requests in a step 64
+   steps from add to prompt completion 122   client send to first content 10167 ms   most requests in a step 64
+   steps from add to prompt completion 123   client send to first content 10112 ms   most requests in a step 64
+   steps from add to prompt completion 134   client send to first content 10890 ms   most requests in a step 64

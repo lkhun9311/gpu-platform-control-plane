@@ -124,6 +124,18 @@ type ObservedState struct {
 	// existed. Empty and SaveNotAttempted are different claims: the first is "nobody could say", the second
 	// is "the workload was given nowhere to write".
 	SaveStatus string
+	// SleptNs and WindowNs are the workload's own MEASUREMENT of how it spent its service, beside DutyCycle's
+	// report of what it was configured to do.
+	//
+	// DutyCycle alone cannot be checked: it is the workload echoing its argument back, so a workload whose
+	// sleep had been deleted reports the value it was given while sleeping none of it. The pair is measured
+	// around the workload's own time.sleep calls with its own monotonic clock, which is what makes the
+	// configured value falsifiable rather than merely recorded.
+	//
+	// nil for every message from a build that could not measure, and a measured zero is a different claim from
+	// that absence. Present or absent together, because the parser refuses a message carrying one alone.
+	SleptNs  *int64
+	WindowNs *int64
 	// DutyCycle is the fraction of its service the workload spent computing, as the workload itself reported
 	// it, and nil when the message did not carry one.
 	//
@@ -199,6 +211,11 @@ func ClassifyPod(pod *corev1.Pod) ObservedState {
 		if r.duty > 0 {
 			st.DutyCycle = &r.duty
 		}
+		// Copied unconditionally, unlike duty. Duty needs the `> 0` guard because ReportFromMessage defaults a
+		// missing fourth field to 1.0 and a refused message to 0, so zero is the only spelling of "no reading"
+		// a float64 has. These are pointers, so nil already says that and a guard could only lose a measured
+		// zero -- which is precisely the reading a full-duty attempt produces.
+		st.SleptNs, st.WindowNs = r.sleptNs, r.windowNs
 		return st
 	}
 	if pod.Status.Phase == corev1.PodRunning && podConditionTrue(pod, corev1.PodReady) {
@@ -250,6 +267,11 @@ type terminatedReading struct {
 	accumulator       *float64
 	resumed           *int
 	saveStatus        string
+	// sleptNs and windowNs are the workload's measurement of how it spent its service, and they travel as a
+	// pair because a fraction needs both. ReportFromMessage refuses a message carrying one without the other,
+	// so either being non-nil means both are.
+	sleptNs  *int64
+	windowNs *int64
 }
 
 func soleTerminated(pod *corev1.Pod) terminatedReading {
@@ -264,8 +286,10 @@ func soleTerminated(pod *corev1.Pod) terminatedReading {
 		}
 		c := t.ExitCode
 		r.exitCode = &c
-		r.iterations, r.kind, r.device, r.duty, r.accumulator, r.resumed, r.saveStatus =
-			ReportFromMessage(t.Message)
+		rep := ReportFromMessage(t.Message)
+		r.iterations, r.kind, r.device = rep.Iterations, rep.Kind, rep.Device
+		r.duty, r.accumulator, r.resumed, r.saveStatus = rep.Duty, rep.Accumulator, rep.Resumed, rep.SaveStatus
+		r.sleptNs, r.windowNs = rep.SleptNs, rep.WindowNs
 		if !t.FinishedAt.IsZero() {
 			f := t.FinishedAt.UnixNano()
 			r.finishedUnixNanos = &f
@@ -380,9 +404,49 @@ var saveStatuses = map[string]bool{
 // launched, so it cannot appear beside the CPU fallback; and the device kind can only carry ok or the
 // mid-run failure, because every earlier failure returns before the kind is set. A pair outside that
 // relation was not written by this workload.
-func ReportFromMessage(msg string) (
-	iters *int, kind, device string, duty float64, acc *float64, resumed *int, saved string,
-) {
+// WorkloadReport is everything one termination message yields, as one value.
+//
+// A struct rather than the seven return values this became, for the argument terminatedReading already makes
+// twenty lines above: they are all readings of ONE sentence, four of them are optional in the same way, and a
+// positional list that long invites a caller to transpose two of its string-or-pointer slots without the
+// compiler noticing. Twenty-one call sites spelled `_` four to six times each to reach one field.
+//
+// Iterations == nil is the invalid-report signal, and it is the ONLY one. A refused message yields the zero
+// struct, so no partially parsed field can escape a refusal -- the rule the whole parser is arranged around is
+// that a message this build cannot fully read is one whose count it also has no reason to trust. Mutating the
+// arity refusal to return the count it had already parsed turns
+// TestAMessageWhoseSaveStatusThisBuildDoesNotKnowIsRefusedWhole red, which is the evidence that the rule is
+// pinned rather than merely intended.
+type WorkloadReport struct {
+	// Iterations is the work the attempt reported completing, and nil means the message was refused.
+	Iterations *int
+	// Kind and Device are the closed-set tokens naming WHICH loop produced Iterations.
+	Kind   string
+	Device string
+	// Duty is the fraction the workload was CONFIGURED to compute for, defaulting to 1.0 for a message from a
+	// build whose workload had no duty axis. It is the workload's own echo of its argument, not a measurement.
+	Duty float64
+	// Accumulator, Resumed and SaveStatus are absent for a message from a build that could not report them,
+	// and each absence is a different statement from its zero value.
+	Accumulator *float64
+	Resumed     *int
+	SaveStatus  string
+	// SleptNs and WindowNs are the workload's own measurement of how it spent its service: nanoseconds spent
+	// inside its time.sleep calls, over the window from its start to the snapshot that reported them.
+	//
+	// Both nil for a message from a build whose workload could not measure, and a measured zero is a DIFFERENT
+	// statement from that absence -- a full-duty attempt slept none of its service and says so. They are
+	// present or absent TOGETHER: a fraction needs both, and slept without a window is half a reading.
+	//
+	// This is not GPU utilisation and the complement is not device compute time. The rest of the window also
+	// holds descheduling, sleep overrun, interpreter overhead and kernel-launch latency, none of which this
+	// separates. Compared against 1-Duty rather than Duty, and never required to equal it: a row whose duration
+	// is not a whole number of the workload's periods ends inside one phase or the other.
+	SleptNs  *int64
+	WindowNs *int64
+}
+
+func ReportFromMessage(msg string) WorkloadReport {
 	fields := strings.Fields(strings.TrimSpace(msg))
 	// Three fields through seven. Each later shape came from a build the earlier ones could not have
 	// written: the fourth is the duty cycle, the fifth the accumulator, the sixth the resume point, the
@@ -391,32 +455,32 @@ func ReportFromMessage(msg string) (
 	// Accepting every shape is what keeps every record written before an axis existed readable; refusing the
 	// old shape would make this build unable to read its own history, which is a worse failure than the one
 	// the strictness is for.
-	if len(fields) < 3 || len(fields) > 7 {
-		return nil, "", "", 0, nil, nil, ""
+	if len(fields) < 3 || len(fields) > 9 {
+		return WorkloadReport{}
 	}
 	n, err := strconv.Atoi(strings.TrimPrefix(fields[0], "iters="))
 	if !strings.HasPrefix(fields[0], "iters=") || err != nil || n < 0 {
-		return nil, "", "", 0, nil, nil, ""
+		return WorkloadReport{}
 	}
 	if !strings.HasPrefix(fields[1], "kind=") || !strings.HasPrefix(fields[2], "dev=") {
-		return nil, "", "", 0, nil, nil, ""
+		return WorkloadReport{}
 	}
 	k := strings.TrimPrefix(fields[1], "kind=")
 	d := strings.TrimPrefix(fields[2], "dev=")
 	if !deviceStatuses[d] {
-		return nil, "", "", 0, nil, nil, ""
+		return WorkloadReport{}
 	}
 	switch {
 	case k == KindCPUFloat && d != DeviceOK:
 	case k == KindCUDAFMA && (d == DeviceOK || d == DeviceLaunchFailedMidrun):
 	default:
-		return nil, "", "", 0, nil, nil, ""
+		return WorkloadReport{}
 	}
 	u := 1.0
 	if len(fields) >= 4 {
 		v, ok := parseDutyField(fields[3])
 		if !ok {
-			return nil, "", "", 0, nil, nil, ""
+			return WorkloadReport{}
 		}
 		u = v
 	}
@@ -429,7 +493,7 @@ func ReportFromMessage(msg string) (
 	if len(fields) >= 5 {
 		v, ok := parseAccumulatorField(fields[4])
 		if !ok {
-			return nil, "", "", 0, nil, nil, ""
+			return WorkloadReport{}
 		}
 		a = &v
 	}
@@ -443,19 +507,52 @@ func ReportFromMessage(msg string) (
 	if len(fields) >= 6 {
 		v, ok := parseResumeField(fields[5], n)
 		if !ok {
-			return nil, "", "", 0, nil, nil, ""
+			return WorkloadReport{}
 		}
 		res = &v
 	}
 	s := ""
-	if len(fields) == 7 {
+	// `>= 7`, not `== 7`, and this is the third time that distinction has mattered in this function.
+	//
+	// The accumulator had the defect at `== 5` and the resume point inherited the fix at `>= 6`. Widening the
+	// arity for the timing fields while leaving this at `== 7` would skip the save status on every message that
+	// carries them -- the value present, parsed nowhere, returned as the empty string, which reads as "a build
+	// that could not report it" rather than as a parse that did not happen.
+	if len(fields) >= 7 {
 		v, ok := parseSavedField(fields[6])
 		if !ok {
-			return nil, "", "", 0, nil, nil, ""
+			return WorkloadReport{}
 		}
 		s = v
 	}
-	return &n, k, d, u, a, res, s
+	// The two observations arrive together or not at all.
+	//
+	// An eight-field message carries a slept total with no window to divide it by, and a fraction is the only
+	// thing either number is for. Accepting it would put an unusable reading into the ledger under a name that
+	// promises a fraction, so the whole message is refused -- the same rule every optional field here follows.
+	var slept, window *int64
+	if len(fields) == 8 {
+		return WorkloadReport{}
+	}
+	if len(fields) == 9 {
+		sv, ok := parseSleptField(fields[7])
+		if !ok {
+			return WorkloadReport{}
+		}
+		wv, ok := parseWindowField(fields[8])
+		if !ok {
+			return WorkloadReport{}
+		}
+		// Slept cannot exceed the window it is a fraction of. A pair that says otherwise was not written by one
+		// process reading one clock, and reporting a fraction above 1.0 would be a plausible wrong number --
+		// which this package treats as worse than a refusal.
+		if sv > wv {
+			return WorkloadReport{}
+		}
+		slept, window = &sv, &wv
+	}
+	return WorkloadReport{Iterations: &n, Kind: k, Device: d, Duty: u, Accumulator: a, Resumed: res, SaveStatus: s,
+		SleptNs: slept, WindowNs: window}
 }
 
 // The four optional fields, one reader each, returning false for anything this build cannot read.
@@ -526,6 +623,41 @@ func parseResumeField(f string, iters int) (int, bool) {
 	}
 	v, err := strconv.Atoi(strings.TrimPrefix(f, "resumed="))
 	if err != nil || v < 0 || v > iters {
+		return 0, false
+	}
+	return v, true
+}
+
+// parseSleptField reads the nanoseconds the workload spent inside its own time.sleep calls.
+//
+// Zero is a claim and not an absence: a full-duty attempt slept none of its service, and a build whose workload
+// could not measure sends no field at all. Collapsing those would make "measured nothing" and "did not measure"
+// the same reading, which is the distinction this field exists to create.
+//
+// Negative is refused rather than clamped. The value is a difference of two time.monotonic() readings inside one
+// process, so a negative one means the arithmetic was edited; a fraction built from it would be nonsense.
+func parseSleptField(f string) (int64, bool) {
+	if !strings.HasPrefix(f, "sleptns=") {
+		return 0, false
+	}
+	v, err := strconv.ParseInt(strings.TrimPrefix(f, "sleptns="), 10, 64)
+	if err != nil || v < 0 {
+		return 0, false
+	}
+	return v, true
+}
+
+// parseWindowField reads the nanoseconds between the workload's start and the snapshot reporting it.
+//
+// Zero is refused where the slept field accepts it, and the asymmetry is the point: a zero denominator makes the
+// fraction undefined, while a zero numerator makes it exactly zero. A reader handed the first cannot tell a run
+// that idled from one that measured nothing.
+func parseWindowField(f string) (int64, bool) {
+	if !strings.HasPrefix(f, "windowns=") {
+		return 0, false
+	}
+	v, err := strconv.ParseInt(strings.TrimPrefix(f, "windowns="), 10, 64)
+	if err != nil || v <= 0 {
 		return 0, false
 	}
 	return v, true

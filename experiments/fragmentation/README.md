@@ -47,8 +47,12 @@ for *every* sample taken while the Pod was unschedulable, which is the claim —
 not 145 s. The runner now prints samples and seconds separately.
 
 `computeMLTJPhase` returns `Running` when `job.Status.Active > 0`
-(`internal/controller/mltrainingjob_controller.go:288`), and Kubernetes' `JobStatus.Active` is documented as
+(`internal/controller/mltrainingjob_controller.go:288` as it stood when these trials ran), and Kubernetes'
+`JobStatus.Active` is documented as
 *the number of pending and running Pods*. A Pod that no node will accept is pending, so it counts.
+
+(Fixed 2026-09-25: the phase now reads `job.Status.Ready`. This paragraph describes the code as it was when
+these trials ran, which is what made the numbers below what they are.)
 
 Two consequences, and the second is worse:
 

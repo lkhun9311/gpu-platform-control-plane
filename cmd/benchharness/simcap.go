@@ -82,6 +82,11 @@ func simCap(args []string) error {
 	backend := &gateway.BackendRef{Namespace: "sim", Name: "engine", Port: 8000, URL: &url.URL{Scheme: "http", Host: "sim"}}
 
 	var offered, admitted int64
+	// The estimate charges the bucket, because that is what the gateway spends and what arm B's tuning is
+	// expressed in. The EXACT counts weight the fraction, because that is the unit the design registers the
+	// admission-match criterion in. They are two numbers with two jobs and they must not be conflated.
+	var offeredExact, admittedExact int64
+	var exactMissing int
 	var eligible, refused int
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 0, 1<<20), 1<<20)
@@ -105,9 +110,17 @@ func simCap(args []string) error {
 		at = origin.Add(time.Duration(row.OffsetMs) * time.Millisecond)
 		eligible++
 		offered += int64(est)
+		if row.ExactInputTokens > 0 {
+			offeredExact += int64(row.ExactInputTokens)
+		} else {
+			exactMissing++
+		}
 		ok, _ := admitter.Admit(context.Background(), gateway.RequestMeta{Model: "sim", EstInputTokens: est}, backend, row.Tenant, tier)
 		if ok {
 			admitted += int64(est)
+			if row.ExactInputTokens > 0 {
+				admittedExact += int64(row.ExactInputTokens)
+			}
 		} else {
 			refused++
 		}
@@ -120,14 +133,35 @@ func simCap(args []string) error {
 	}
 
 	fraction := float64(admitted) / float64(offered)
-	fmt.Printf("eligible=%d refused=%d offered=%d admitted=%d fraction=%.4f\n", eligible, refused, offered, admitted, fraction)
+	exactFraction := 0.0
+	if offeredExact > 0 {
+		exactFraction = float64(admittedExact) / float64(offeredExact)
+	}
+	fmt.Printf("eligible=%d refused=%d offered=%d admitted=%d fraction=%.4f (estimate-weighted)\n",
+		eligible, refused, offered, admitted, fraction)
+	if exactMissing > 0 {
+		fmt.Printf("exact tokens: %d of %d eligible rows carry no measured count, so this trace cannot express the registered unit\n", exactMissing, eligible)
+	} else {
+		fmt.Printf("exact tokens: offeredExact=%d admittedExact=%d fraction=%.4f (the registered unit)\n", offeredExact, admittedExact, exactFraction)
+	}
+	// A -target check is a claim about the REGISTERED criterion, and the criterion is defined over the served
+	// tokenizer's own counts. A trace whose rows carry none cannot answer it.
+	//
+	// Passing here on the estimate is how a bucket gets frozen against a number nobody measured: this command
+	// does not freeze anything itself, but its exit status is what the runner reads before committing to a
+	// paid confirmatory run. Refusing is the repository's rule for measurement code -- an error beats a figure
+	// the evidence does not support -- and the estimate-weighted fraction is still printed above for diagnosis.
+	if *target > 0 && exactMissing > 0 {
+		return fmt.Errorf("-target-admitted-fraction asks whether this bucket matches the pilot's admitted-work fraction, which the design defines over EXACT target-tokenizer input tokens, and %d of %d eligible rows in %s carry no measured count. Stamp the trace first (benchharness stamp-exact-tokens) or drop -target-admitted-fraction and read the estimate-weighted fraction above as a diagnostic",
+			exactMissing, eligible, *tracePath)
+	}
 	if *target > 0 {
 		// Relative, because the pre-registered admission-match check is |B-C|/C and an absolute band of the
 		// same width is a different, looser contract: at a target of 0.8456 an absolute 0.05 admits 0.796,
 		// which is 5.9 percent off relative and would fail the check this is meant to pre-empt.
-		rel := (fraction - *target) / *target
+		rel := (exactFraction - *target) / *target
 		if rel > *tolerance || rel < -*tolerance {
-			return fmt.Errorf("rate %.0f tok/s with burst %d admits %.4f of the eligible offered tokens against a frozen target of %.4f, which is %.1f percent off relative and outside the %.1f percent allowed. The tuning and the traffic disagree, so arm B would not be admission-matched to C and the incremental-value comparison would measure the mismatch instead of the guard", *rate, *burst, fraction, *target, rel*100, *tolerance*100)
+			return fmt.Errorf("rate %.0f tok/s with burst %d admits %.4f of the eligible offered EXACT tokens against a frozen target of %.4f, which is %.1f percent off relative and outside the %.1f percent allowed. The tuning and the traffic disagree, so arm B would not be admission-matched to C and the incremental-value comparison would measure the mismatch instead of the guard", *rate, *burst, exactFraction, *target, rel*100, *tolerance*100)
 		}
 	}
 	return nil

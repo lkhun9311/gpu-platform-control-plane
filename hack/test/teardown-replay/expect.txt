@@ -1,0 +1,12 @@
+01-all-empty                 ok|yes
+02-only-eks                  ok+left|no
+03-only-ec2                  ok+left|no
+04-only-nat                  ok+left|no
+05-only-eip                  ok+left|no
+06-only-ebs                  ok+left|no
+07-only-asg                  ok+left|no
+08-only-elb                  ok+left|no
+09-one-expired               unasked|no
+10-all-expired               unasked|no
+11-mixed-fail-with-stdout    unasked+left|no
+12-whitespace-only           ok|yes

@@ -1,0 +1,58 @@
+Design: all 21 traces are the matrix step-boundary-2026-10-06 registers (matrix-plan-check)
+Design: all 21 warm-up traces are what gen-trace --warmup makes from their recorded seeds
+Seed: all 42 measured and warm-up traces are seed 31's, byte for byte
+Provenance: 21 cells ran sha256:0a51ea5b4ae2, revision aa8e72537993, with their registered flags
+Engine: all 21 cells ran the registered configuration; every -step cell ran this tree's instrument
+W, S and I2: all 21 registered cells pass
+burst-step-1: steps: 3081 recorded, 3081 logged by the engine, tokens equal at every step; instrument cost per step: median 0.07262%, worst 0.39452% of occupancy; clock anchors: 3593, bracket median 390 ns, worst 46702 ns; requests: 512 joined to client ids, every one scheduled prompt + output - 1 tokens
+burst-step-2: steps: 3080 recorded, 3080 logged by the engine, tokens equal at every step; instrument cost per step: median 0.06755%, worst 0.33837% of occupancy; clock anchors: 3592, bracket median 310.0 ns, worst 37511 ns; requests: 512 joined to client ids, every one scheduled prompt + output - 1 tokens
+burst-step-3: steps: 3080 recorded, 3080 logged by the engine, tokens equal at every step; instrument cost per step: median 0.07166%, worst 0.36427% of occupancy; clock anchors: 3592, bracket median 390.0 ns, worst 37672 ns; requests: 512 joined to client ids, every one scheduled prompt + output - 1 tokens
+burst-step-4: steps: 3080 recorded, 3080 logged by the engine, tokens equal at every step; instrument cost per step: median 0.07091%, worst 0.39567% of occupancy; clock anchors: 3592, bracket median 390.0 ns, worst 34802 ns; requests: 512 joined to client ids, every one scheduled prompt + output - 1 tokens
+burst-step-5: steps: 3080 recorded, 3080 logged by the engine, tokens equal at every step; instrument cost per step: median 0.07123%, worst 0.31240% of occupancy; clock anchors: 3592, bracket median 460.0 ns, worst 12341 ns; requests: 512 joined to client ids, every one scheduled prompt + output - 1 tokens
+burst-step-6: steps: 3081 recorded, 3081 logged by the engine, tokens equal at every step; instrument cost per step: median 0.07003%, worst 0.32924% of occupancy; clock anchors: 3593, bracket median 390 ns, worst 24971 ns; requests: 512 joined to client ids, every one scheduled prompt + output - 1 tokens
+serial-step-1: steps: 5314 recorded, 5314 logged by the engine, tokens equal at every step; instrument cost per step: median 0.07045%, worst 0.43325% of occupancy; clock anchors: 5507, bracket median 390 ns, worst 26751 ns; requests: 193 joined to client ids, every one scheduled prompt + output - 1 tokens
+serial-step-3: steps: 5314 recorded, 5314 logged by the engine, tokens equal at every step; instrument cost per step: median 0.06239%, worst 0.37907% of occupancy; clock anchors: 5507, bracket median 330 ns, worst 32012 ns; requests: 193 joined to client ids, every one scheduled prompt + output - 1 tokens
+serial-step-5: steps: 5314 recorded, 5314 logged by the engine, tokens equal at every step; instrument cost per step: median 0.06917%, worst 0.56461% of occupancy; clock anchors: 5507, bracket median 390 ns, worst 16191 ns; requests: 193 joined to client ids, every one scheduled prompt + output - 1 tokens
+stagger-step-1: steps: 37960 recorded, 37960 logged by the engine, tokens equal at every step; instrument cost per step: median 0.06747%, worst 0.48820% of occupancy; clock anchors: 38540, bracket median 410.0 ns, worst 35231 ns; requests: 580 joined to client ids, every one scheduled prompt + output - 1 tokens
+stagger-step-3: steps: 37960 recorded, 37960 logged by the engine, tokens equal at every step; instrument cost per step: median 0.07201%, worst 0.55894% of occupancy; clock anchors: 38540, bracket median 380.0 ns, worst 59812 ns; requests: 580 joined to client ids, every one scheduled prompt + output - 1 tokens
+stagger-step-5: steps: 37960 recorded, 37960 logged by the engine, tokens equal at every step; instrument cost per step: median 0.06984%, worst 0.50148% of occupancy; clock anchors: 38540, bracket median 330.0 ns, worst 50222 ns; requests: 580 joined to client ids, every one scheduled prompt + output - 1 tokens
+overhead serial: 45 endpoints over 3 pairs; widest ((1024, 16), 'itl') mean +0.0015, 95% [-0.0104, +0.0134] (log ratio)
+overhead burst: 30 endpoints over 6 pairs; widest ((16, 256, 64), 'mean-ttft') mean +0.0014, 95% [-0.0066, +0.0095] (log ratio)
+overhead gate: PASS -- serial and burst only; staggered is the instrumented engine's
+decomposition (1, 256, 256): mean ms S-P 2.991, P-A 11.151, A-F 0.016, F-O 45.152, O-C 2.177 over 21 late prefills
+decomposition (1, 256, 8192): mean ms S-P 4.134, P-A 23.483, A-F 0.022, F-O 1053.419, O-C 5.276 over 9 late prefills
+decomposition (1, 8192, 256): mean ms S-P 3.032, P-A 12.294, A-F 0.016, F-O 58.409, O-C 2.169 over 21 late prefills
+decomposition (1, 8192, 8192): mean ms S-P 3.951, P-A 26.324, A-F 0.019, F-O 1076.239, O-C 5.206 over 9 late prefills
+decomposition (4, 256, 256): mean ms S-P 3.489, P-A 10.903, A-F 0.018, F-O 46.137, O-C 2.638 over 21 late prefills
+decomposition (4, 256, 8192): mean ms S-P 4.443, P-A 25.358, A-F 0.017, F-O 1058.912, O-C 5.664 over 9 late prefills
+decomposition (4, 8192, 256): mean ms S-P 3.540, P-A 14.415, A-F 0.017, F-O 59.774, O-C 2.634 over 21 late prefills
+decomposition (4, 8192, 8192): mean ms S-P 4.565, P-A 27.273, A-F 0.017, F-O 1115.513, O-C 5.723 over 9 late prefills
+decomposition (16, 256, 256): mean ms S-P 5.039, P-A 12.109, A-F 0.016, F-O 49.011, O-C 3.689 over 21 late prefills
+decomposition (16, 256, 8192): mean ms S-P 5.725, P-A 26.487, A-F 0.016, F-O 1076.690, O-C 6.654 over 9 late prefills
+decomposition (16, 8192, 256): mean ms S-P 4.701, P-A 18.972, A-F 0.018, F-O 104.069, O-C 3.801 over 21 late prefills
+decomposition (16, 8192, 8192): mean ms S-P 5.708, P-A 27.139, A-F 0.020, F-O 1328.976, O-C 7.056 over 9 late prefills
+inter-step gap serial: median 0.037 ms, p95 0.060 ms over 13014 gaps within measured episodes (block medians: block 1 0.038, block 3 0.037, block 5 0.037)
+inter-step gap burst: median 0.044 ms, p95 0.070 ms over 13394 gaps within measured episodes (block medians: block 1 0.044, block 2 0.044, block 3 0.043, block 4 0.045, block 5 0.044, block 6 0.044)
+inter-step gap stagger: median 0.043 ms, p95 0.065 ms over 94560 gaps within measured episodes (block medians: block 1 0.042, block 3 0.044, block 5 0.042)
+Q1 (1, 256, 256): mean wait 8.777 ms against half the pilot's gap 9.873 ms -> does not hold (by block: block 1 8.518, block 3 10.312, block 5 7.501; block-mean t95 [5.242, 12.312] ms)
+Q1 (1, 8192, 256): mean wait 9.919 ms against half the pilot's gap 15.442 ms -> does not hold (by block: block 1 11.754, block 3 7.428, block 5 10.576; block-mean t95 [4.364, 15.475] ms)
+Q1 (4, 256, 256): mean wait 8.530 ms against half the pilot's gap 8.967 ms -> does not hold (by block: block 1 7.350, block 3 8.600, block 5 9.640; block-mean t95 [5.682, 11.378] ms)
+Q1 (4, 8192, 256): mean wait 12.042 ms against half the pilot's gap 15.047 ms -> does not hold (by block: block 1 12.805, block 3 13.217, block 5 10.103; block-mean t95 [7.840, 16.244] ms)
+Q1 (16, 256, 256): mean wait 9.734 ms against half the pilot's gap 13.162 ms -> does not hold (by block: block 1 10.077, block 3 9.202, block 5 9.924; block-mean t95 [8.573, 10.895] ms)
+Q1 (16, 8192, 256): mean wait 16.599 ms against half the pilot's gap 28.532 ms -> does not hold (by block: block 1 15.776, block 3 17.267, block 5 16.754; block-mean t95 [14.717, 18.481] ms)
+Q1: does not hold on every short-prefill setting
+Q3: condition 13.7, 37 training settings, 49 held-out or staggered settings, 13 phase(s) outside 10%
+  ('burst', 16, 8192, 64) decode: predicted 29.785 ms against 22.831 ms, +30.5%
+  ('burst', 4, 8192, 64) decode: predicted 21.619 ms against 19.356 ms, +11.7%
+  ('stagger', 1, 256, 256) context: predicted 35.540 ms against 40.327 ms, -11.9%
+  ('stagger', 1, 256, 256) late-prefill: predicted 35.595 ms against 45.151 ms, -21.2%
+  ('stagger', 1, 8192, 256) late-prefill: predicted 37.230 ms against 58.409 ms, -36.3%
+  ('stagger', 16, 256, 256) late-prefill: predicted 37.477 ms against 49.011 ms, -23.5%
+  ('stagger', 16, 8192, 256) decode: predicted 42.006 ms against 27.129 ms, +54.8%
+  ('stagger', 16, 8192, 256) late-prefill: predicted 64.191 ms against 104.069 ms, -38.3%
+  ('stagger', 16, 8192, 8192) decode: predicted 42.043 ms against 27.121 ms, +55.0%
+  ('stagger', 4, 256, 256) late-prefill: predicted 35.930 ms against 46.137 ms, -22.1%
+  ('stagger', 4, 8192, 256) decode: predicted 22.395 ms against 19.649 ms, +14.0%
+  ('stagger', 4, 8192, 256) late-prefill: predicted 42.518 ms against 59.774 ms, -28.9%
+  ('stagger', 4, 8192, 8192) decode: predicted 22.444 ms against 19.679 ms, +14.1%
+Q3: FAIL

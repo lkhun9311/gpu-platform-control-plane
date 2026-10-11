@@ -22,10 +22,14 @@ docs/superpowers/*
 !/README.md
 !/infra/**/README.md
 !/hack/m6-kind-e2e.md
+!/hack/m1-m4-kind-e2e.md
+!/hack/ledger-first-projection.md
 !/hack/m5b-gateway-path.md
 !/hack/chaos-fr004-degraded-node.md
 !/hack/observability-kind.md
 !/hack/chaos-fr002-serving-pod-killed.md
+# A paid session's record is evidence a reader must be able to check, so it is published with its files.
+!/hack/holdcap-conformance/runs/*/README.md
 !/hack/chaos-fr002b-backend-fallback.md
 !/hack/argocd-kind.md
 !/hack/kueue-deployment-integration.md
@@ -93,7 +97,10 @@ tmp/
 *.sqlite
 *.sqlite3
 deployments/
-evidence/
+# evidence/* rather than evidence/ : git does not descend into an excluded DIRECTORY, so a `!` exception
+# for a file inside one never fires. Excluding the contents instead lets the one tracked note through.
+evidence/*
+!/evidence/README.md
 
 # Generated binaries
 bin/
@@ -105,8 +112,10 @@ bin/
 /benchharness
 /gateway
 /gpu-simulator
+/platformctl
 /queuelabrun
 /queueload
+/strandedrun
 /workloadrunctl
 
 # Python bytecode from `py_compile` checks on the experiment scripts.
@@ -126,6 +135,20 @@ build/
 # PATH and run the REAL aws and the REAL sleep against a real account.
 !/hack/test/spot-lifecycle/bin/
 !/hack/test/spot-lifecycle/bin/*
+
+# The teardown replay's stub, exempted here and not beside itself.
+#
+# `bin/` above excludes the DIRECTORY, so git never descends into it and a .gitignore placed inside is not
+# read -- it is ignored by the same rule. Two lines are needed: one to re-admit the directory, one for its
+# contents. That is why the block above has two, and this one does too.
+#
+# hack/test/teardown-replay/bin/aws was never tracked. A fresh clone had no stub, so the replay that drives
+# it could not run anywhere but the machine that wrote it, while reporting 12 scenarios green there. The
+# exemption above was written after the same accident and this directory, created later, was never added to
+# it -- so remembering a central list failed twice. The fixtures next to it use nested files instead; only a
+# directory exclusion forces the exemption to live up here.
+!/hack/test/teardown-replay/bin/
+!/hack/test/teardown-replay/bin/*
 
 # OS files
 .DS_Store
@@ -178,6 +201,14 @@ hack/m5c-run-*/
 # harness binaries it ships to the instance. The pattern above does not match it, so the first failed run
 # left all of that untracked in the tree -- one `git add -A` from the mistake this block was written about.
 hack/m5c-2*/
+# A paid session's own log must not be able to dirty the tree it is about to archive.
+#
+# 2026-10-01: the launcher wrote hack/m5c-paid-<stamp>.log inside the repository, and the session refused
+# with "the working tree is dirty" -- correctly, because it records a commit as the provenance of its
+# numbers. Nothing was spent, and the fix at the time was to move the log out by hand. By hand is not a
+# fix: the rule above covers the output DIRECTORY and never covered a log file beside it.
+hack/m5c-paid-*.log
+hack/*-paid-*.log
 # The capacity ladder's session directory, which is the same script under a different OUT.
 #
 # hack/m5c-gpu-session.sh writes wherever OUT points, and the ladder runs use hack/ladder-<stamp> so that a
@@ -189,6 +220,7 @@ hack/ladder-*/
 # Microtest output: instance ids, user-data, and the raw results, which are copied into
 # docs/evidence when a run produces something worth keeping.
 hack/microtest-*/
+hack/attention-bench-*/
 # The device-observation session writes a run directory per invocation. Ignored for the same reason as the
 # others, and for one more: this runner refuses to start when the tree is dirty, so its own output would
 # otherwise stop the next run.
@@ -204,3 +236,22 @@ hack/m5b-gpu-session-evidence.log
 # hides the directory and `*.md` hides the index, and a negation above either of them does nothing.
 !docs/captures/
 !docs/captures/**
+
+# The custom golangci-lint binary make lint builds into bin/. A 51 MB ELF was committed at the
+# repository root by accident; it is identical in size to bin/golangci-lint and is rebuilt on demand.
+custom-gcl
+
+# docs/evidence: per-file sha256 of each paid run's evidence, published as a COMMITMENT rather than as data.
+#
+# The rows themselves stay out of this repository and out of public view; what goes in is the digest of
+# every file, so an archive handed over later can be checked against a claim that predates the request.
+# A hash discloses nothing about its input, so this is not a partial publication of the evidence.
+#
+# Two lines for the same reason docs/captures needs two: git does not descend into an excluded DIRECTORY,
+# so an exception on the files alone never matches. Placed last because the final matching rule wins and
+# `docs/*` above would otherwise swallow it.
+!docs/evidence/
+!docs/evidence/**
+
+# The sweeper Lambda package terraform builds in infra/aws/bootstrap (sweeper.tf); rebuilt on every plan.
+infra/aws/bootstrap/.build/

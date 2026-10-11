@@ -123,6 +123,12 @@ cleanup-test-e2e: ## Tear down the Kind cluster used for e2e tests
 lint: golangci-lint ## Run golangci-lint linter
 	"$(GOLANGCI_LINT)" run
 
+.PHONY: vulncheck
+vulncheck: ## Fail on any known Go vulnerability the code can reach (text mode: JSON and SARIF exit 0 on findings)
+# Text output on purpose: govulncheck's -format json and sarif succeed even when they report a reachable
+# vulnerability, so a gate written with them could never fail. Exit 3 is "your code is affected".
+	go run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
+
 .PHONY: lint-fix
 lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes
 	"$(GOLANGCI_LINT)" run --fix
@@ -166,6 +172,14 @@ docker-build-gateway: ## Build docker image with the gateway.
 .PHONY: docker-push-gateway
 docker-push-gateway: ## Push docker image with the gateway.
 	$(CONTAINER_TOOL) push ${GATEWAY_IMG}
+
+.PHONY: build-platformctl
+build-platformctl: fmt vet ## Build platformctl, the operations-ledger CLI.
+	go build -o bin/platformctl ./cmd/platformctl
+
+.PHONY: build-strandedrun
+build-strandedrun: fmt vet ## Build strandedrun, the stranded-GPU placement study's instrument.
+	go build -o bin/strandedrun ./cmd/strandedrun
 
 .PHONY: build-gpu-simulator
 build-gpu-simulator: fmt vet ## Build gpu-simulator binary.
@@ -279,6 +293,7 @@ ENVTEST_K8S_VERSION ?= $(shell v='$(call gomodver,k8s.io/api)'; \
   printf '%s\n' "$$v" | sed -E 's/^v?[0-9]+\.([0-9]+).*/1.\1/')
 
 GOLANGCI_LINT_VERSION ?= v2.11.4
+GOVULNCHECK_VERSION ?= v1.8.0
 # Kept equal to TF_VERSION in the infra workflows on purpose, and TestTerraformVersionAgreesEverywhere fails
 # when it drifts. It drifted once already: this line sat at 1.9.8 while the roots moved to
 # `required_version = ">= 1.10"` for use_lockfile, and `make infra-validate` refused every root in CI.
@@ -385,12 +400,38 @@ shell-check: ## Parse every shell script under hack/ and .githooks/.
 	@# Nothing checked these until 2026-09-22, and hack/gpu-session.sh is the one wrapper that spends money.
 	@# `bash -n` is a parse, not a lint -- it will not find an unquoted expansion -- but it does catch the
 	@# edit that leaves a block unterminated, which is the failure that would surface on a rented card.
-	@fail=0; for f in hack/*.sh hack/lib/*.sh .githooks/*.sh .githooks/commit-msg .githooks/pre-push; do \
+	@# hack/test/ is in the glob because the harness that guards the paid runners was not guarded itself.
+	@#
+	@# characterize.sh is 43 KB and the recording stub is 20 KB, and neither was parse-checked -- so an edit
+	@# that left a block unterminated in the very thing `make spot-lifecycle` depends on would have been found
+	@# by running it, not by this. The stubs have no .sh suffix, so they are named rather than globbed.
+	@# The closing line says what it checked rather than "every script", which this cannot know: it is a
+	@# named list, and a script added outside it is still unchecked.
+	@#
+	@# The user-data goldens are in the list because they are the exact bytes sent to a rented instance.
+	@#
+	@# A golden that no longer parses means the next paid run boots a machine that dies in cloud-init, and
+	@# nothing here would have said so. collapse.py is checked too -- the harness shells out to it for every
+	@# transcript, so a syntax error there fails every suite for a reason that looks like a behaviour change.
+	@# hack/test/teardown-replay/ is named because the glob stops at hack/test/*.sh and that directory is one
+	@# level deeper. Proved by breaking replay.sh deliberately on 2026-09-30: the gate stayed green, so the
+	@# tool written to verify the teardown classifier was itself unverified. Its aws stub is named for the same
+	@# reason hack/test/spot-lifecycle/bin/aws is -- a stub with a syntax error answers nothing and every
+	@# scenario then reads as "no residue", which is a false pass on the one question the replay asks.
+	@fail=0; for f in hack/*.sh hack/lib/*.sh hack/test/*.sh hack/test/spot-lifecycle/*.sh \
+		hack/test/spot-lifecycle/bin/aws hack/test/spot-lifecycle/bin/sleep \
+		hack/test/spot-lifecycle/golden/*/user-data*.sh \
+		hack/test/teardown-replay/*.sh hack/test/teardown-replay/bin/aws \
+		.githooks/*.sh .githooks/commit-msg .githooks/pre-push; do \
 		[ -f "$$f" ] || continue; \
 		bash -n "$$f" || { echo "shell-check: $$f does not parse" >&2; fail=1; }; \
 	done; \
+	for f in hack/test/spot-lifecycle/*.py hack/serving-stub/*.py; do \
+		[ -f "$$f" ] || continue; \
+		python3 -m py_compile "$$f" || { echo "shell-check: $$f does not compile" >&2; fail=1; }; \
+	done; \
 	if [ "$$fail" != "0" ]; then exit 1; fi; \
-	echo "shell-check: every script parses"
+	echo "shell-check: every listed shell script parses and every harness python file compiles"
 
 .PHONY: session-refusals
 session-refusals: ## Check what gpu-session.sh refuses before it spends anything.
@@ -402,6 +443,51 @@ session-manifest: ## Check that a campaign leaves an attempt history.
 	@# Deleting the whole manifest block left every other check green, refusals test included.
 	./hack/gpu-session-manifest-test.sh
 
+.PHONY: spot-lifecycle
+spot-lifecycle: ## Replay every paid runner against recording stubs and diff the call transcripts.
+	@# Four golden suites existed and nothing ran them, which is how the thing they guard came back.
+	@#
+	@# They pin the parts of a paid session that spend money when they break -- launch arguments, zone retry,
+	@# stale completion markers, teardown -- and two rounds of review found defects inside them that had been
+	@# green for days: a suite whose every m5c golden ended `exit 1`, a trap assertion that accepted the bug it
+	@# was rewritten for, a `shutting-down` branch no scenario executed. Every one of those was found by hand.
+	@#
+	@# Safe in CI and asserted to be: the runners are driven with hack/test/spot-lifecycle/bin/{aws,sleep}
+	@# first on PATH, so no API is reached and no instance can launch. Checked by hiding docker, kind, aws,
+	@# kubectl, helm and terraform behind exit-127 shims -- all four suites stay green -- and again on a PATH
+	@# of /usr/bin:/bin plus Go. About 90 seconds for the four.
+	@fail=0; for t in hack/m5b-scheduler-microtest.sh hack/m5b-price-of-protection.sh \
+		hack/m5c-gpu-session.sh hack/queuelab-gpu-session.sh; do \
+		TARGET="$$t" ./hack/test/spot-lifecycle/characterize.sh || fail=1; \
+	done; \
+	if [ "$$fail" != "0" ]; then echo "spot-lifecycle: a runner's recorded behaviour changed" >&2; exit 1; fi
+
+.PHONY: harness-check
+harness-check: ## Run the self-contained test harnesses under hack/test/ that need no cluster.
+	@# Seven harnesses live under hack/test/ and, until now, nothing ran any of them but the spot-lifecycle
+	@# driver. README.md rests its claim of coverage on two of them, so the repository's own account of what
+	@# it checks depended on scripts no gate executed -- the same shape `make spot-lifecycle` was added to close.
+	@#
+	@# Only the ones that are genuinely self-contained are here. Each lays out its own state in a mktemp
+	@# directory and cleans it up, and needs no cluster, no card, no credentials and no third-party Python.
+	@#
+	@# The first two finish in about two seconds together. check-matrix-plan-refusals.sh is slower -- it
+	@# builds cmd/benchharness and then generates every planned cell's trace for five plans -- and that is
+	@# stated rather than hidden, because the thing it pins is a refusal that must arrive before a paid run
+	@# and the alternative was no gate at all. It is bounded: no network, no retries, no waiting on a port.
+	@#
+	@# check-ladder-refusals.sh is NOT here, and the reason is worth writing down rather than calling it slow:
+	@# it passes 28 checks and then stops at step 9, which runs `benchharness replay --target
+	@# http://127.0.0.1:1`. Nothing listens on port 1, so that call hangs on connection retries rather than
+	@# computing anything. Its header's "no cluster and no card" is true; its runtime is unbounded. Putting it
+	@# in a CI gate would hang the build, and a gate that hangs gets deleted rather than fixed.
+	@#
+	@# The rehearse-* scripts build a real kind cluster and do not belong in a CI gate at all.
+	@fail=0; for t in hack/test/capture-evidence-test.sh hack/test/plot-device-observation-test.sh hack/test/check-matrix-plan-refusals.sh hack/test/check-token-unit-labels.sh hack/test/check-published-spreads.sh hack/test/check-cell-timing-record.sh hack/test/check-engine-metrics-scrape.sh hack/test/check-instrument-validation-harness.sh hack/test/check-tail-crossing-self-tests.sh; do \
+		bash "$$t" || { echo "harness-check: $$t failed" >&2; fail=1; }; \
+	done; \
+	if [ "$$fail" != "0" ]; then exit 1; fi
+
 .PHONY: infra-offline
 infra-offline: terraform ## Check that the Terraform validation step needs no AWS access.
 	@# A prerequisite of infra-validate rather than a step inside it, because the thing it guards is the
@@ -410,7 +496,7 @@ infra-offline: terraform ## Check that the Terraform validation step needs no AW
 	./hack/infra-validate-is-offline-test.sh
 
 .PHONY: infra-validate
-infra-validate: terraform kustomize actionlint shell-check session-refusals session-manifest docs-check infra-offline ## Validate Terraform (offline), Argo manifests, shell, workflow YAML, the session refusals, the campaign manifest, and the published docs' names.
+infra-validate: terraform kustomize actionlint shell-check session-refusals session-manifest docs-check spot-lifecycle harness-check infra-offline ## Validate Terraform (offline), Argo manifests, shell, workflow YAML, the session refusals, the campaign manifest, the published docs' names, every paid runner's recorded behaviour, and the self-contained test harnesses.
 	@# Each root is validated in a throwaway TF_DATA_DIR, and the loop stops at the first failure.
 	@#
 	@# Two defects lived in the previous three lines. The first: `-backend=false` does not mean "no backend".
@@ -438,14 +524,41 @@ infra-validate: terraform kustomize actionlint shell-check session-refusals sess
 			rm -rf "$$tfdata"; \
 		fi; \
 	done
-	@for k in config/argocd config/operator config/gateway config/device-plugin config/crd config/prometheus config/kueue config/samples config/storage config/policy; do \
-		if [ -f "$$k/kustomization.yaml" ]; then \
-			echo "kustomize build $$k"; \
-			"$(KUSTOMIZE)" build "$$k" >/dev/null; \
+	@# Every kustomization in the tree, and a failure in any of them stops this target.
+	@#
+	@# Two defects were fixed here on 2026-09-30, both found by an external audit of the repository's own
+	@# claims. The build's exit status was discarded: `for ... done` is one shell command whose status is the
+	@# last iteration's, so a render that failed early was overwritten by a later success and `make
+	@# infra-validate` -- which CI runs -- went green. And the list was hand-written with ten entries while
+	@# the tree holds twenty-seven kustomizations, so the overlays this repository actually deploys from
+	@# (config/operator-webhook, config/nvidia-device-plugin-mps, config/nvidia-device-plugin-timeslicing,
+	@# config/vllm-shared, config/gateway-kind, config/webhook-enabled and eleven more) were never rendered
+	@# by the gate that exists to render them. `find` cannot fall behind the tree the way a list can.
+	@# Components are excluded, and that is not a loophole -- a kustomize Component is a fragment whose
+	@# patches target resources it does not contain, so `kustomize build` on one fails by design.
+	@# config/webhook-component is the case: it patches Deployment/controller-manager, which arrives from
+	@# whichever overlay includes it, and the widened loop asked it to render alone on its first run. Its two
+	@# consumers, config/operator-webhook and config/webhook-enabled, are in the list and do build, so the
+	@# component is covered through them rather than skipped.
+	@fail=0; for f in $$(find config -name kustomization.yaml | sort); do \
+		k=$$(dirname "$$f"); \
+		if grep -qE '^kind:[[:space:]]*Component[[:space:]]*$$' "$$f"; then \
+			echo "kustomize build $$k -- component, built through its consumers"; \
+			continue; \
 		fi; \
-	done
+		echo "kustomize build $$k"; \
+		"$(KUSTOMIZE)" build "$$k" >/dev/null || { echo "infra-validate: kustomize build $$k failed" >&2; fail=1; }; \
+	done; \
+	if [ "$$fail" != "0" ]; then exit 1; fi
 	"$(ACTIONLINT)" -color
 
 .PHONY: docs-check
 docs-check: ## Check that every name the published docs put in backticks exists in this repository.
+	@# The self-test runs FIRST, and it runs here rather than being available to run.
+	@#
+	@# The checker carries a probe that proves an absent name would be reported. It had been failing for
+	@# months -- its probe was a literal in a file the checker's own source blob reads, so it found itself --
+	@# and nothing said so, because this target called the plain scan only. A green scan from a detector
+	@# nobody has shown can fail is the thing this whole check exists to stop other documents doing.
+	./hack/check-doc-symbols.sh --self-test
 	./hack/check-doc-symbols.sh

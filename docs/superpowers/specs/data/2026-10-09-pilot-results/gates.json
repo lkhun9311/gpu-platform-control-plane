@@ -1,0 +1,232 @@
+{
+ "L_ms": 13,
+ "gates": [
+  {
+   "gate": "A contention: O's premium p99 >= 1.5 x I's (scheduled, uncertain at +inf)",
+   "value": 23.63613452919879,
+   "rule": ">= 1.5",
+   "would_fire": false
+  },
+  {
+   "gate": "A loss: R1 premium loss < 0.5%",
+   "value": 0.0,
+   "rule": "< 0.005",
+   "would_fire": false,
+   "failed": 0,
+   "of": 11645
+  },
+  {
+   "gate": "A loss: off premium loss < 0.5%",
+   "value": 0.0,
+   "rule": "< 0.005",
+   "would_fire": false,
+   "failed": 0,
+   "of": 11645
+  },
+  {
+   "gate": "A loss: prospective premium loss < 0.5%",
+   "value": 0.0,
+   "rule": "< 0.005",
+   "would_fire": false,
+   "failed": 0,
+   "of": 11645
+  },
+  {
+   "gate": "A loss: O completes >= 95% of contender requests",
+   "value": 1.0,
+   "rule": ">= 0.95",
+   "would_fire": false,
+   "completed": 615,
+   "of": 615
+  },
+  {
+   "gate": "A engagement: P refuses 5% to 30% of contender requests",
+   "value": 0.06504065040650409,
+   "rule": "0.05..0.30",
+   "would_fire": false,
+   "admitted": 575,
+   "of": 615
+  },
+  {
+   "gate": "A P/O: ln(P scheduled p99 hi / O arrival p99 lo) <= ln 0.85",
+   "value": -0.005357391698972262,
+   "rule": "<= -0.162519",
+   "would_fire": true
+  },
+  {
+   "gate": "A release timing: >= 95% of P's admitted contenders within 50 ms of release",
+   "value": 1.0,
+   "rule": ">= 0.95",
+   "would_fire": false,
+   "measured": 575
+  },
+  {
+   "gate": "A restart: an engine restart under 3 minutes",
+   "value": null,
+   "rule": "< 180 s",
+   "would_fire": null,
+   "why": "no deployment or readiness stamp is recorded per cell"
+  },
+  {
+   "gate": "A dispatch fidelity: no request's lag above 25 ms",
+   "value": 104.508857,
+   "rule": "<= 25 ms",
+   "would_fire": true
+  },
+  {
+   "gate": "A dispatch fidelity: R1 premium lag above L=5 ms <= 0.05%",
+   "value": 0.0006869901245169601,
+   "rule": "<= 0.0005",
+   "would_fire": true,
+   "uncertain": 8,
+   "premium": 11645,
+   "all_requests": 11645
+  },
+  {
+   "gate": "A dispatch fidelity: off premium lag above L=5 ms <= 0.05%",
+   "value": 0.0016316015457277801,
+   "rule": "<= 0.0005",
+   "would_fire": true,
+   "uncertain": 19,
+   "premium": 11645,
+   "all_requests": 12260
+  },
+  {
+   "gate": "A dispatch fidelity: prospective premium lag above L=5 ms <= 0.05%",
+   "value": 0.00120223271790468,
+   "rule": "<= 0.0005",
+   "would_fire": true,
+   "uncertain": 14,
+   "premium": 11645,
+   "all_requests": 12260
+  },
+  {
+   "gate": "A dispatch fidelity: R1 premium lag above L=13 ms <= 0.05%",
+   "value": 0.00060111635895234,
+   "rule": "<= 0.0005",
+   "would_fire": true,
+   "uncertain": 7,
+   "premium": 11645,
+   "all_requests": 11645
+  },
+  {
+   "gate": "A dispatch fidelity: off premium lag above L=13 ms <= 0.05%",
+   "value": 0.0005152425933877201,
+   "rule": "<= 0.0005",
+   "would_fire": true,
+   "uncertain": 6,
+   "premium": 11645,
+   "all_requests": 12260
+  },
+  {
+   "gate": "A dispatch fidelity: prospective premium lag above L=13 ms <= 0.05%",
+   "value": 0.0005152425933877201,
+   "rule": "<= 0.0005",
+   "would_fire": true,
+   "uncertain": 6,
+   "premium": 11645,
+   "all_requests": 12260
+  },
+  {
+   "gate": "A capture: every cell eligible",
+   "value": true,
+   "rule": "true",
+   "would_fire": false
+  },
+  {
+   "gate": "B loss: R1 premium loss < 0.5%",
+   "value": 0.0,
+   "rule": "< 0.005",
+   "would_fire": false,
+   "failed": 0,
+   "of": 11728
+  },
+  {
+   "gate": "B loss: off premium loss < 0.5%",
+   "value": 0.0,
+   "rule": "< 0.005",
+   "would_fire": false,
+   "failed": 0,
+   "of": 11728
+  },
+  {
+   "gate": "B loss: prospective premium loss < 0.5%",
+   "value": 0.0,
+   "rule": "< 0.005",
+   "would_fire": false,
+   "failed": 0,
+   "of": 11728
+  },
+  {
+   "gate": "B loss: static-cap premium loss < 0.5%",
+   "value": 0.0,
+   "rule": "< 0.005",
+   "would_fire": false,
+   "failed": 0,
+   "of": 11728
+  },
+  {
+   "gate": "B width: block 1 P/S half-width <= 0.043",
+   "value": 0.0036324156781029552,
+   "rule": "<= 0.043",
+   "would_fire": false
+  },
+  {
+   "gate": "B width: block 2 P/S half-width <= 0.043",
+   "value": 0.005032807797211023,
+   "rule": "<= 0.043",
+   "would_fire": false
+  },
+  {
+   "gate": "B width: block 3 P/S half-width <= 0.043",
+   "value": 0.005327508311574362,
+   "rule": "<= 0.043",
+   "would_fire": false
+  },
+  {
+   "gate": "B margin: p_P - p_S >= 0.03 in every block",
+   "value": 0.06763285024154586,
+   "rule": ">= 0.03",
+   "would_fire": false,
+   "per_block": [
+    0.06763285024154586,
+    0.07352941176470584,
+    0.07949790794979084
+   ]
+  },
+  {
+   "gate": "B margin: q_P - q_S >= 0.03 in every block",
+   "value": 0.06340579710144922,
+   "rule": ">= 0.03",
+   "would_fire": false,
+   "per_block": [
+    0.06340579710144922,
+    0.0689338235294118,
+    0.07452928870292885
+   ]
+  },
+  {
+   "gate": "B margin: c_P - c_S >= 0.03 in every block",
+   "value": 0.06763285024154586,
+   "rule": ">= 0.03",
+   "would_fire": false,
+   "per_block": [
+    0.06763285024154586,
+    0.07352941176470584,
+    0.07949790794979084
+   ]
+  },
+  {
+   "gate": "B informative bound: mean p_P - p_S <= 0.10",
+   "value": 0.07355338998534751,
+   "rule": "<= 0.10",
+   "would_fire": false
+  },
+  {
+   "gate": "B re-stamp: the engine's counts equal the frozen ones",
+   "value": true,
+   "rule": "true",
+   "would_fire": false
+  }
+ ]
+}

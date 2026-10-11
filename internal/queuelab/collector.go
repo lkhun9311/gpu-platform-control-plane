@@ -113,6 +113,8 @@ func (b *LedgerBuilder) Observe(delta DeltaType, kind, uid, job string, st Obser
 			WorkloadKind:  st.WorkloadKind,
 			DeviceStatus:  st.DeviceStatus,
 			DutyCycle:     st.DutyCycle,
+			SleptNs:       st.SleptNs,
+			WindowNs:      st.WindowNs,
 			Accumulator:   st.Accumulator,
 			Resumed:       st.Resumed,
 			SaveStatus:    st.SaveStatus,

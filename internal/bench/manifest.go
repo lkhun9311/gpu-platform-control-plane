@@ -34,6 +34,17 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
+// TimeoutScopeWholeRequest is what TimeoutMs actually bounds, written once so two writers cannot drift.
+//
+// HTTPSender.Send wraps the request in a single context deadline before dialling and keeps it through the
+// SSE scan, so the budget covers connection, TLS, headers and the whole stream. It is NOT a first-token
+// budget: a response that starts in time and then stalls expires too, and that expiry is recorded with the
+// first token it had already stamped.
+//
+// A constant rather than a literal at each manifest writer, because gen-trace and prepare-traces both
+// write the field and a string typed twice is a string that drifts once.
+const TimeoutScopeWholeRequest = "whole-request-including-stream"
+
 // RunManifest freezes everything that must stay fixed for a benchmark comparison across arms to
 // be valid.
 //
@@ -90,6 +101,13 @@ type RunManifest struct {
 	GatewaySHA string `json:"gatewaySHA,omitempty"`
 	// ImageDigests pins every image (gateway, vLLM, load generator) this run used, by name.
 	ImageDigests map[string]string `json:"imageDigests,omitempty"`
+	// GatewayBinarySHA256 and GatewayBase name the gateway by content, which its image ID cannot.
+	//
+	// The image ID changes with every build of the same binary on the same base (the copied file's
+	// timestamp is in the layer), so a reproduction compares these two instead when both runs recorded them.
+	// Registered in docs/superpowers/specs/2026-10-07-gateway-identity-for-reproduction.md.
+	GatewayBinarySHA256 string `json:"gatewayBinarySHA256,omitempty"`
+	GatewayBase         string `json:"gatewayBase,omitempty"`
 	// Thresholds records the guard/static-cap parameters in effect for this arm (e.g. engage
 	// usage, W, static-cap rate/burst), as strings so heterogeneous parameter sets across arms
 	// don't need one struct field per possible knob.
@@ -97,6 +115,20 @@ type RunManifest struct {
 	// TimeoutMs bounds how long the replay client waits for a single request before recording it
 	// as a timeout row.
 	TimeoutMs int `json:"timeoutMs"`
+	// TimeoutScope names WHICH INTERVAL TimeoutMs covers, because the number alone does not say.
+	//
+	// The sender wraps the whole request in one context deadline -- connection, TLS, headers and the entire
+	// SSE stream -- so "60000" is not a first-token budget and not a connect budget. Two different
+	// expiries both record errorKind "timeout": one before any response (httpStatus 0, no first token) and
+	// one mid-stream (the first token already stamped and kept). A reader asking "were any requests
+	// censored by the timeout" needs the interval named, and the fifth of the nine log questions asks for
+	// exactly that.
+	//
+	// EMPTY MEANS THE RUN PREDATES THIS FIELD, and Validate deliberately does not require it: the three
+	// archives on disk carry no scope, and refusing them would make every past manifest unloadable to
+	// prove a point about future ones. "Not recorded" and "no scope" must not read the same, which is why
+	// the absence is documented here rather than defaulted to the current value.
+	TimeoutScope string `json:"timeoutScope,omitempty"`
 	// Seed is the trace generator's seed, recorded here so a manifest alone documents which seed
 	// produced its trace even though gen-trace, not LoadManifest, is what actually consumes it.
 	Seed int64 `json:"seed"`
@@ -118,6 +150,37 @@ type RunManifest struct {
 	//
 	// It is frozen here so the report scores admitted-work over the same population the guard used, even if the paid pilot tuned the gateway's --admission-long-threshold.
 	LongThreshold int `json:"longThreshold,omitempty"`
+	// PromptLenChars records the prompt length each tenant was sent, in characters.
+	//
+	// The registration freezes the rate, the three weights, the duration and the seed. It does NOT freeze
+	// the prompt length, and the length moves the headline number: the ninth pilot sent premium prompts of
+	// 200 characters and the first CR-driven run sent 1,174, and the two reported 27.2x and 23.0x for the
+	// same study. Neither manifest said which load it was.
+	//
+	// Not covered by the two fields that come closest. traceChecksum changes with the length -- it is the
+	// sha256 of the trace -- so the difference was DETECTABLE, but two disagreeing hashes do not tell a
+	// reader the prompts grew 5.9x. promptCorpusSHA pins the prompt TEXT and was identical in both runs,
+	// which is correct: the corpus is the source the text is cut from, and the length is cut at send time.
+	//
+	// Written by PromptLenCharsByTenant from the trace itself, so the two places that build a manifest
+	// cannot disagree about it. -1 for a tenant whose rows carry more than one length, which means the
+	// trace is not the one the study froze.
+	//
+	// omitempty, and not in validateFields' required list: the ninth pilot's six manifests predate the
+	// field and must keep loading. Making it required needs a schemaVersion branch, and there is no such
+	// branch anywhere yet -- both writers stamp the literal "v2" and nothing reads it.
+	PromptLenChars map[string]int `json:"promptLenChars,omitempty"`
+
+	// MaxOutputTokens is the per-tenant max_tokens cap this cell sent, keyed by tenant.
+	//
+	// Two of the five frozen quantities are the output caps, and until 2026-10-02 the manifest recorded
+	// neither: the caps reached the engine and then existed only as a per-row field in the trace, so the
+	// declared tuple a run was bought under could not be read back from its manifest. The lengths and the
+	// timeout were already here; these complete the five.
+	//
+	// omitempty and not required, for the reason PromptLenChars gives: six manifests from the ninth pilot
+	// predate the field and must keep loading.
+	MaxOutputTokens map[string]int `json:"maxOutputTokens,omitempty"`
 }
 
 // LoadManifest reads, validates, and returns the manifest at path.
@@ -243,6 +306,37 @@ func digestPinned(ref string) bool {
 	return true
 }
 
+// GatewayIdentityRefusal says what is wrong with a manifest's gateway content facts, or nil.
+//
+// Neither is a run from before the facts existed. One without the other is refused rather than read as neither,
+// because a half-recorded identity would silently fall back to comparing the image ID it was meant to replace.
+func GatewayIdentityRefusal(binarySHA256, base string) error {
+	switch {
+	case binarySHA256 == "" && base == "":
+		return nil
+	case binarySHA256 == "" || base == "":
+		return fmt.Errorf("manifest records gatewayBinarySHA256 %q and gatewayBase %q; the gateway's identity is both or neither", binarySHA256, base)
+	case !lowerHex(binarySHA256, 64):
+		return fmt.Errorf("manifest records gatewayBinarySHA256 %q, which is not 64 lowercase hex characters", binarySHA256)
+	case !digestPinned(base):
+		return fmt.Errorf("manifest records gatewayBase %q, which is not pinned by digest; a tag names whatever was pushed under it most recently", base)
+	}
+	return nil
+}
+
+// lowerHex reports whether s is exactly n lowercase hex characters.
+func lowerHex(s string, n int) bool {
+	if len(s) != n {
+		return false
+	}
+	for _, c := range s {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
+}
+
 // commitShaped reports whether s could be a git commit: 7 to 40 lowercase hex characters, optionally
 // followed by "-dirty".
 //
@@ -301,5 +395,42 @@ func (m RunManifest) RequireProvenance() error {
 				" a tag names whatever was pushed under it most recently, so it identifies nothing after the next build", role, ref)
 		}
 	}
-	return nil
+	// The tokenizer revision, demanded for the same reason as the build and the images.
+	//
+	// The design scores admitted work over the SERVED tokenizer count, and the character-to-token
+	// calibration this repository commits was measured against one specific tokenizer. A number that cannot
+	// name that tokenizer cannot be compared with the calibration, and the calibration file itself claimed to
+	// have been measured at a revision nobody recorded.
+	//
+	// commitShaped is NOT reused here. It accepts 7 to 40 hex characters and a -dirty suffix, both of which
+	// are meaningful for a build from a working tree and meaningless for a model revision: there is no such
+	// thing as a partially modified upstream tokenizer, and a truncated revision does not identify one.
+	rev := strings.TrimSpace(m.TokenizerRev)
+	if rev == "" {
+		return fmt.Errorf("manifest carries no tokenizerRev; a paid run's evidence must name the tokenizer its input-token counts were scored against")
+	}
+	if !revisionShaped(rev) {
+		return fmt.Errorf("manifest records tokenizerRev %q, which is not a full 40-character lowercase hex revision; a truncated or invented revision identifies no tokenizer", rev)
+	}
+	// The gateway's content facts are not demanded, because the M5-b path (prepare-traces) does not record them.
+	// A paid manifest that records them must record them whole.
+	return GatewayIdentityRefusal(m.GatewayBinarySHA256, m.GatewayBase)
+}
+
+// revisionShaped reports whether s is exactly 40 lowercase hex characters.
+//
+// Deliberately stricter than commitShaped. That function exists for a build of THIS repository, where a
+// short SHA and a -dirty suffix both still name something a reader can find. A model revision comes from an
+// upstream registry: it is always the full hash, it is never dirty, and accepting a prefix would let two
+// different tokenizers share a recorded identity.
+func revisionShaped(s string) bool {
+	if len(s) != 40 {
+		return false
+	}
+	for _, c := range s {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
 }

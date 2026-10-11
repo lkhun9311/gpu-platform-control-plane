@@ -115,7 +115,8 @@ func TestTheWorkloadsDevicePathRunsAgainstAFakeDriver(t *testing.T) {
 		t.Fatalf("the device path exited %d:\n%s", code, out)
 	}
 	final := lastLine(out)
-	iters, kind, device, _, _, _, _ := ReportFromMessage(strings.TrimSpace(strings.TrimPrefix(final, "finished ")))
+	rep := ReportFromMessage(strings.TrimSpace(strings.TrimPrefix(final, "finished ")))
+	iters, kind, device := rep.Iterations, rep.Kind, rep.Device
 	if iters == nil {
 		t.Fatalf("the device path left no readable report: %q\n%s", final, out)
 	}
@@ -144,7 +145,8 @@ func TestEachDriverRefusalProducesItsOwnToken(t *testing.T) {
 		t.Run(tc.symbol, func(t *testing.T) {
 			out, _ := runWorkload(t, lib, []string{"SHIM_FAIL_AT=" + tc.symbol}, "1", "ignore")
 			final := strings.TrimSpace(strings.TrimPrefix(lastLine(out), "finished "))
-			_, kind, device, _, _, _, _ := ReportFromMessage(final)
+			rep := ReportFromMessage(final)
+			kind, device := rep.Kind, rep.Device
 			if device != tc.token {
 				t.Fatalf("a driver refusing %s reported dev=%q, want %q\n%s", tc.symbol, device, tc.token, out)
 			}
@@ -161,7 +163,8 @@ func TestEachDriverRefusalProducesItsOwnToken(t *testing.T) {
 	// path to a non-zero exit from the loop rather than from the handler.
 	out, code := runWorkload(t, lib, []string{"SHIM_FAIL_LAUNCH_AFTER=3"}, "5", "ignore")
 	final := strings.TrimSpace(strings.TrimPrefix(lastLine(out), "aborted "))
-	_, kind, device, _, _, _, _ := ReportFromMessage(final)
+	rep := ReportFromMessage(final)
+	kind, device := rep.Kind, rep.Device
 	if kind != KindCUDAFMA || device != "launch-failed-midrun" {
 		t.Fatalf("a mid-run launch failure reported kind=%q dev=%q\n%s", kind, device, out)
 	}
@@ -269,8 +272,19 @@ func TestTheEmbeddedPTXWasCompiled(t *testing.T) {
 // the launches while the context and the allocation stay open throughout -- which is what "holding the card"
 // means.
 //
-// The tolerance is wide because the idle phase is a whole second and a launch is microseconds against this
-// shim, so the boundary quantises. What is under test is that the duty decides, not that it is exact.
+// WHAT THIS CHECK IS, AND IS NOT.
+//
+// It is an operational regression guard on the iteration counts the workload REPORTS. It does not measure the
+// fraction of time spent sleeping, and it cannot: the counts come from three separate runs, and iterations per
+// second is not constant between them. A shared runner throttles and deschedules the run that never rests more
+// than the one that rests half the time, so the ratio drifts upward for reasons the duty knob has nothing to do
+// with. On 2026-09-28 it drifted to 0.8049 against this ceiling and the run went red with nothing wrong.
+//
+// Observed discrimination, which is the honest form of the claim: with the workload's `time.sleep` replaced by
+// `pass` -- a workload that reads the duty and discards it -- the half/full ratio came out at or above 1.0 and
+// this check failed, in each of two runs on this host. The counts themselves are not reproducible (the two runs
+// gave 0.996 and 1.009), and the ordering check happened to fail in one run and pass in the other, so what is
+// recorded here is that the margin fired, not a figure to compare against.
 func TestDutyReachesTheDevicePathAndNotJustTheFallback(t *testing.T) {
 	lib := buildFakeCUDA(t)
 
@@ -279,8 +293,9 @@ func TestDutyReachesTheDevicePathAndNotJustTheFallback(t *testing.T) {
 	// It used to be a flat four seconds, which was fine while the period was one second and wrong the moment
 	// it became 2.6: four seconds holds one and a half periods, the last one is truncated mid-work, and half
 	// duty measured 0.81 of full on CI instead of 0.5. The threshold was not too tight -- the window was not
-	// a multiple of the thing being measured. Two whole periods contribute exactly duty*PERIOD of work each,
-	// so there is no boundary left to be wrong about.
+	// a multiple of the thing being measured. Two whole periods remove the deliberate truncation; they do not
+	// remove overshoot, descheduling or sleep overrun, because the loop takes each segment deadline from the
+	// current time rather than from a fixed schedule.
 	//
 	// Passed as a DECIMAL, not rounded up to a whole second. Rounding 5.2 to 6 put a third of a period on the
 	// end and half duty measured 0.58 instead of 0.5 -- a smaller version of the same defect, in the line
@@ -294,7 +309,8 @@ func TestDutyReachesTheDevicePathAndNotJustTheFallback(t *testing.T) {
 			t.Fatalf("duty %s: the device path exited %d:\n%s", duty, code, out)
 		}
 		final := lastLine(out)
-		iters, kind, device, _, _, _, _ := ReportFromMessage(strings.TrimSpace(strings.TrimPrefix(final, "finished ")))
+		rep := ReportFromMessage(strings.TrimSpace(strings.TrimPrefix(final, "finished ")))
+		iters, kind, device := rep.Iterations, rep.Kind, rep.Device
 		if iters == nil {
 			t.Fatalf("duty %s: no readable report: %q", duty, final)
 		}
@@ -313,21 +329,24 @@ func TestDutyReachesTheDevicePathAndNotJustTheFallback(t *testing.T) {
 	// throttled and descheduled; half duty rests for half of it and goes faster while it is awake, so the
 	// ratio drifts upward for a reason that has nothing to do with the knob.
 	//
-	// What the knob has to do is order the three, and by a margin an ignored argument could not produce: a
-	// workload that read the duty and discarded it returns three roughly equal counts.
+	// What the knob has to do is order the three, and clear a margin. Neither is a measurement of idling: a
+	// workload that read the duty and discarded it returns three counts close together, which this ordering and
+	// margin have been observed to reject -- not which they are guaranteed to reject.
 	full := launches("1")
 	half := launches("0.5")
 	quarter := launches("0.25")
 	if full == 0 {
 		t.Fatal("the device path launched nothing at full duty")
 	}
-	if half >= full*4/5 {
-		t.Errorf("half duty launched %d kernels against %d at full duty; that is not a workload that idled "+
-			"for half its service", half, full)
+	// full*4/5 truncates, so the effective cutoff is an integer rather than exactly 0.8 of full. The message
+	// reports that integer, because "0.800" would be a boundary the code does not use.
+	if cutoff := full * 4 / 5; half >= cutoff {
+		t.Errorf("half/full reported-launch ratio = %.4f (half=%d, full=%d); this guard requires half < %d",
+			float64(half)/float64(full), half, full, cutoff)
 	}
 	if quarter >= half {
-		t.Errorf("quarter duty launched %d kernels and half duty %d; the declared duty does not order them",
-			quarter, half)
+		t.Errorf("reported launches are not ordered by declared duty: quarter=%d, half=%d, full=%d",
+			quarter, half, full)
 	}
 }
 
@@ -344,7 +363,8 @@ func TestTheWorkloadWritesTheDutyThisPackageParses(t *testing.T) {
 		t.Fatalf("the device path exited %d:\n%s", code, out)
 	}
 	final := strings.TrimSpace(strings.TrimPrefix(lastLine(out), "finished "))
-	iters, kind, device, duty, _, _, _ := ReportFromMessage(final)
+	rep := ReportFromMessage(final)
+	iters, kind, device, duty := rep.Iterations, rep.Kind, rep.Device, rep.Duty
 	if iters == nil {
 		t.Fatalf("this package cannot parse the message its own workload wrote: %q", final)
 	}
@@ -425,7 +445,8 @@ func TestACheckpointingWorkloadNeverReachesForTheDriver(t *testing.T) {
 
 	// The precondition: with no state path the shim IS reached, so the fake driver is working.
 	fresh := report("")
-	_, kind, device, _, _, _, _ := ReportFromMessage(fresh)
+	rep := ReportFromMessage(fresh)
+	kind, device := rep.Kind, rep.Device
 	if kind != KindCUDAFMA || device != DeviceOK {
 		t.Fatalf("with no progress file the workload reported kind=%q dev=%q, want the device path; the "+
 			"fake driver is not being loaded at all, so the conclusion below would mean nothing: %q",
@@ -434,7 +455,8 @@ func TestACheckpointingWorkloadNeverReachesForTheDriver(t *testing.T) {
 
 	// The conclusion: the same command with a progress file does not attempt the driver.
 	checkpointing := report(filepath.Join(t.TempDir(), "progress"))
-	_, kind, device, _, _, _, _ = ReportFromMessage(checkpointing)
+	rep = ReportFromMessage(checkpointing)
+	kind, device = rep.Kind, rep.Device
 	if kind != KindCPUFloat {
 		t.Errorf("a checkpointing workload ran %q, and its checkpoint would hold the seed while its count "+
 			"climbed: %q", kind, checkpointing)

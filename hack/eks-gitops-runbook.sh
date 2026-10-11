@@ -186,12 +186,31 @@ apply() {
     sleep 10
   done
   printf '%s\n' "$table" >"$EXDIR/applications.txt"
-  if ((pending == 0)); then
-    ok "every automated Application is Synced/Healthy"
-  elif ((pending < 0)); then
+
+  # The declared set has to still be there in the SAME snapshot that says everything converged.
+  #
+  # Existence was checked in one loop and convergence in another, minutes apart, so an Application that
+  # disappeared in between -- pruned, renamed, deleted by hand -- left a table whose remaining automated rows
+  # were all Synced/Healthy, and that read as success.
+  #
+  # An EMPTY table read that way too, and the guard that skipped the comparison whenever the table was empty
+  # is exactly what let it: `pending` counts failures among the rows present, no rows means no failures, and
+  # the comparison that would have named every declared Application as missing never ran. A successful read
+  # returning zero Applications is the strongest possible failure, not the absence of one. So the unreadable
+  # case is answered first, and every case after it compares against the table whatever the table holds.
+  if ((pending < 0)); then
     bad "could not read Application status at all; this is an unmeasured run, not a pass"
   else
-    bad "$pending automated Application(s) never reached Synced/Healthy; see applications.txt"
+    local gone
+    gone="$(comm -23 <(printf '%s\n' "$expected") \
+      <(printf '%s\n' "$table" | awk 'NF {print $1}' | sort) | grep -v '^$' || true)"
+    if [[ -n "$gone" ]]; then
+      bad "$(printf '%s\n' "$gone" | wc -l) of the $(printf '%s\n' "$expected" | wc -l) declared Application(s) are absent from the snapshot that judged convergence: $(printf '%s\n' "$gone" | tr '\n' ' ')"
+    elif ((pending == 0)); then
+      ok "every automated Application is Synced/Healthy, and every declared Application is still present"
+    else
+      bad "$pending automated Application(s) never reached Synced/Healthy; see applications.txt"
+    fi
   fi
 
   local manual

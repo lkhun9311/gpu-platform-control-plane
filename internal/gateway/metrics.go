@@ -114,6 +114,17 @@ var (
 	// which is the difference between reporting a measurement and reporting an estimate of one. Putting the
 	// edge there fixes no threshold; docs/superpowers/specs/2026-09-21-what-a-violation-would-have-to-mean.md
 	// still declines to set a bar, and no alert reads this series.
+	// admissionWait is how long the admission decision took, which for a holding admitter is how long the request
+	// was held; it is part of request_duration_seconds and time_to_first_byte_seconds too, which start before it.
+	admissionWait = promauto.With(metrics.Registry).NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    metricPrefix + "admission_wait_seconds",
+			Help:    "Seconds the admission decision took, by tenant and outcome; for serial-prefill, the time a request was held.",
+			Buckets: []float64{0.001, 0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 25, 30},
+		},
+		[]string{"tenant", "outcome"},
+	)
+
 	timeToFirstByte = promauto.With(metrics.Registry).NewHistogramVec(
 		prometheus.HistogramOpts{
 			Name:    metricPrefix + "time_to_first_byte_seconds",
@@ -213,6 +224,23 @@ var (
 			Help: "Total estimated input tokens seen by admission control by mode, tenant, and decision.",
 		},
 		[]string{"mode", "tenant", "decision"},
+	)
+
+	// admissionReservedInputTokens and admissionRunningStandardStreams are the prospective admitter's holds per
+	// backend, so a run can show the caps were reached and released rather than assume it.
+	admissionReservedInputTokens = promauto.With(metrics.Registry).NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: metricPrefix + "admission_reserved_input_tokens",
+			Help: "Standard-tier estimated input tokens the prospective admitter holds and that have not started answering, by backend.",
+		},
+		[]string{"backend"},
+	)
+	admissionRunningStandardStreams = promauto.With(metrics.Registry).NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: metricPrefix + "admission_running_standard_streams",
+			Help: "Standard-tier requests the prospective admitter holds a stream slot for, by backend.",
+		},
+		[]string{"backend"},
 	)
 
 	// admissionModeActive publishes which admission mode this process resolved --admission-mode to,

@@ -1,0 +1,6 @@
+The fixed-spacing control can skip scheduled releases during idle periods, producing incorrect completion times and refusals. All 12 commit-local tests pass, but they do not cover this scenario.
+
+Review comment:
+
+- [P2] Schedule spacing deadlines as simulation events — /home/lkhun9311/workspace/gpu-platform-control-plane/hack/prospective-pilot/simulate.py:214-216
+  When the engine becomes idle with a contender held for spacing, the event loop can jump directly to the next arrival, skipping the contender's release time. Backdating `at` here does not replay the skipped engine work. With 10 ms steps, two 512-token contenders arriving at zero, 1 s spacing, and a premium arrival at 10 s, the second contender records forwarding at 1 s but receives its first token at 10.02 s instead of 1.01 s; moving the premium arrival to 26 s incorrectly causes a hold timeout. Include spacing deadlines in the event queue so releases occur before advancing past them, otherwise the static-control latency and refusal results are distorted.

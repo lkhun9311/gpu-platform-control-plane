@@ -1,0 +1,145 @@
+/usr/local/lib/python3.12/site-packages/torch/_subclasses/functional_tensor.py:295: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at ../torch/csrc/utils/tensor_numpy.cpp:84.)
+  cpu = _conversion_method_template(device=torch.device("cpu"))
+/usr/local/lib/python3.12/site-packages/torch/_subclasses/functional_tensor.py:295: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at ../torch/csrc/utils/tensor_numpy.cpp:84.)
+  cpu = _conversion_method_template(device=torch.device("cpu"))
+/usr/local/lib/python3.12/site-packages/torch/_subclasses/functional_tensor.py:295: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at ../torch/csrc/utils/tensor_numpy.cpp:84.)
+  cpu = _conversion_method_template(device=torch.device("cpu"))
+{"attempt": "resume-no-optimizer-1-qb5p4", "die_at_step": 25, "event": "start", "load_mode": "no-optimizer", "loaded": false, "rank": 0, "resumed_from_step": 0, "run_id": "resume-no-optimizer-1", "steps": 40, "torch_version": "2.5.1+cpu", "ts": "2026-10-09T02:06:56.217425+00:00", "world_size": 2}
+{"attempt": "resume-no-optimizer-1-qb5p4", "die_at_step": 25, "event": "start", "load_mode": "no-optimizer", "loaded": false, "rank": 1, "resumed_from_step": 0, "run_id": "resume-no-optimizer-1", "steps": 40, "torch_version": "2.5.1+cpu", "ts": "2026-10-09T02:06:56.217456+00:00", "world_size": 2}
+{"attempt": "resume-no-optimizer-1-qb5p4", "digest": "6969f25baaf6fb81336db2594331d9ead56c8a5f31186e9a68be5833ad424643", "event": "step", "loss": 9.108428955078125, "params": null, "rank": 1, "run_id": "resume-no-optimizer-1", "step": 1, "ts": "2026-10-09T02:06:56.229259+00:00"}
+{"attempt": "resume-no-optimizer-1-qb5p4", "digest": "6969f25baaf6fb81336db2594331d9ead56c8a5f31186e9a68be5833ad424643", "event": "step", "loss": 7.50014591217041, "params": null, "rank": 0, "run_id": "resume-no-optimizer-1", "step": 1, "ts": "2026-10-09T02:06:56.229259+00:00"}
+{"attempt": "resume-no-optimizer-1-qb5p4", "digest": "c2b9b1d0c4e24a46981a284eda05dfd9c13e891d4b086cfff7d697ffbdf296cf", "event": "step", "loss": 16.01248550415039, "params": null, "rank": 0, "run_id": "resume-no-optimizer-1", "step": 2, "ts": "2026-10-09T02:06:56.239904+00:00"}
+{"attempt": "resume-no-optimizer-1-qb5p4", "digest": "c2b9b1d0c4e24a46981a284eda05dfd9c13e891d4b086cfff7d697ffbdf296cf", "event": "step", "loss": 21.491573333740234, "params": null, "rank": 1, "run_id": "resume-no-optimizer-1", "step": 2, "ts": "2026-10-09T02:06:56.239904+00:00"}
+{"attempt": "resume-no-optimizer-1-qb5p4", "digest": "9c12348945211a5ad36dbb685bdb81ba6ce7f4004ae4a508b849c13c54391004", "event": "step", "loss": 13.970389366149902, "params": null, "rank": 0, "run_id": "resume-no-optimizer-1", "step": 3, "ts": "2026-10-09T02:06:56.250422+00:00"}
+{"attempt": "resume-no-optimizer-1-qb5p4", "digest": "9c12348945211a5ad36dbb685bdb81ba6ce7f4004ae4a508b849c13c54391004", "event": "step", "loss": 13.40946102142334, "params": null, "rank": 1, "run_id": "resume-no-optimizer-1", "step": 3, "ts": "2026-10-09T02:06:56.250422+00:00"}
+{"attempt": "resume-no-optimizer-1-qb5p4", "digest": "a1934ea4ad9af3186bed3adfbba165f1532e901030d8c9b4e34f0f950b9a0c00", "event": "step", "loss": 7.558557033538818, "params": null, "rank": 0, "run_id": "resume-no-optimizer-1", "step": 4, "ts": "2026-10-09T02:06:56.265399+00:00"}
+{"attempt": "resume-no-optimizer-1-qb5p4", "digest": "a1934ea4ad9af3186bed3adfbba165f1532e901030d8c9b4e34f0f950b9a0c00", "event": "step", "loss": 3.969231605529785, "params": null, "rank": 1, "run_id": "resume-no-optimizer-1", "step": 4, "ts": "2026-10-09T02:06:56.265401+00:00"}
+{"attempt": "resume-no-optimizer-1-qb5p4", "digest": "68375050e13633538cc004aef7d0271b11dfc8edfc6e51c12d637dbf8d1e9f70", "event": "step", "loss": 1.2955631017684937, "params": null, "rank": 1, "run_id": "resume-no-optimizer-1", "step": 5, "ts": "2026-10-09T02:06:56.275940+00:00"}
+{"attempt": "resume-no-optimizer-1-qb5p4", "digest": "68375050e13633538cc004aef7d0271b11dfc8edfc6e51c12d637dbf8d1e9f70", "event": "step", "loss": 3.692164897918701, "params": null, "rank": 0, "run_id": "resume-no-optimizer-1", "step": 5, "ts": "2026-10-09T02:06:56.275946+00:00"}
+{"attempt": "resume-no-optimizer-1-qb5p4", "digest": "4d1e4648f6002d4ca9729aefdd0d9f312c70246d7bdf24d26d4ea5c6d5a90eee", "event": "step", "loss": 0.7242053747177124, "params": null, "rank": 0, "run_id": "resume-no-optimizer-1", "step": 6, "ts": "2026-10-09T02:06:56.286586+00:00"}
+{"attempt": "resume-no-optimizer-1-qb5p4", "digest": "4d1e4648f6002d4ca9729aefdd0d9f312c70246d7bdf24d26d4ea5c6d5a90eee", "event": "step", "loss": 0.14475201070308685, "params": null, "rank": 1, "run_id": "resume-no-optimizer-1", "step": 6, "ts": "2026-10-09T02:06:56.286614+00:00"}
+{"attempt": "resume-no-optimizer-1-qb5p4", "digest": "02f18f092ddf7cb7b5d8469b04508f419a84805c77184aa68ef1171151a08b44", "event": "step", "loss": 0.5199922919273376, "params": null, "rank": 0, "run_id": "resume-no-optimizer-1", "step": 7, "ts": "2026-10-09T02:06:56.302703+00:00"}
+{"attempt": "resume-no-optimizer-1-qb5p4", "digest": "02f18f092ddf7cb7b5d8469b04508f419a84805c77184aa68ef1171151a08b44", "event": "step", "loss": 0.5368534326553345, "params": null, "rank": 1, "run_id": "resume-no-optimizer-1", "step": 7, "ts": "2026-10-09T02:06:56.302710+00:00"}
+{"attempt": "resume-no-optimizer-1-qb5p4", "digest": "5b3b2637904e4fbc149c44db6b93f35ea82b6409a6094f047520432d57f22717", "event": "step", "loss": 1.9936628341674805, "params": null, "rank": 1, "run_id": "resume-no-optimizer-1", "step": 8, "ts": "2026-10-09T02:06:56.313343+00:00"}
+{"attempt": "resume-no-optimizer-1-qb5p4", "digest": "5b3b2637904e4fbc149c44db6b93f35ea82b6409a6094f047520432d57f22717", "event": "step", "loss": 2.396033525466919, "params": null, "rank": 0, "run_id": "resume-no-optimizer-1", "step": 8, "ts": "2026-10-09T02:06:56.313343+00:00"}
+{"attempt": "resume-no-optimizer-1-qb5p4", "digest": "10aac49a6ecf5441713f5b69d7917dabc14a4bca674e623b127816a17d80b665", "event": "step", "loss": 1.9985352754592896, "params": null, "rank": 0, "run_id": "resume-no-optimizer-1", "step": 9, "ts": "2026-10-09T02:06:56.323916+00:00"}
+{"attempt": "resume-no-optimizer-1-qb5p4", "digest": "10aac49a6ecf5441713f5b69d7917dabc14a4bca674e623b127816a17d80b665", "event": "step", "loss": 3.8439977169036865, "params": null, "rank": 1, "run_id": "resume-no-optimizer-1", "step": 9, "ts": "2026-10-09T02:06:56.323927+00:00"}
+{"attempt": "resume-no-optimizer-1-qb5p4", "digest": "62671c159adefbaa2670ae13a94b4bdcf9052f8b4ef65ddcb9253c1b50c13714", "event": "step", "loss": 5.347487449645996, "params": null, "rank": 1, "run_id": "resume-no-optimizer-1", "step": 10, "ts": "2026-10-09T02:06:56.339513+00:00"}
+{"attempt": "resume-no-optimizer-1-qb5p4", "digest": "62671c159adefbaa2670ae13a94b4bdcf9052f8b4ef65ddcb9253c1b50c13714", "event": "step", "loss": 4.348090171813965, "params": null, "rank": 0, "run_id": "resume-no-optimizer-1", "step": 10, "ts": "2026-10-09T02:06:56.339507+00:00"}
+{"attempt": "resume-no-optimizer-1-qb5p4", "digest": "772237fe6e322361b8f0cb4e310edd47f748ed84e6d90586fbd238b62b305b77", "event": "step", "loss": 5.921109199523926, "params": null, "rank": 0, "run_id": "resume-no-optimizer-1", "step": 11, "ts": "2026-10-09T02:06:56.355808+00:00"}
+{"attempt": "resume-no-optimizer-1-qb5p4", "digest": "772237fe6e322361b8f0cb4e310edd47f748ed84e6d90586fbd238b62b305b77", "event": "step", "loss": 15.703547477722168, "params": null, "rank": 1, "run_id": "resume-no-optimizer-1", "step": 11, "ts": "2026-10-09T02:06:56.355863+00:00"}
+{"attempt": "resume-no-optimizer-1-qb5p4", "digest": "c927a4c50ed5510b6c84efdd5bc8e4af27dc3cfa289a8caf603f35b34980133c", "event": "step", "loss": 3.7863783836364746, "params": null, "rank": 0, "run_id": "resume-no-optimizer-1", "step": 12, "ts": "2026-10-09T02:06:56.371121+00:00"}
+{"attempt": "resume-no-optimizer-1-qb5p4", "digest": "c927a4c50ed5510b6c84efdd5bc8e4af27dc3cfa289a8caf603f35b34980133c", "event": "step", "loss": 10.383660316467285, "params": null, "rank": 1, "run_id": "resume-no-optimizer-1", "step": 12, "ts": "2026-10-09T02:06:56.371174+00:00"}
+{"attempt": "resume-no-optimizer-1-qb5p4", "digest": "f82c450f4821723aa9296a7b86cb09a7f14c53792ebad4c4198822838de1c63e", "event": "step", "loss": 10.006991386413574, "params": null, "rank": 0, "run_id": "resume-no-optimizer-1", "step": 13, "ts": "2026-10-09T02:06:56.387845+00:00"}
+{"attempt": "resume-no-optimizer-1-qb5p4", "digest": "f82c450f4821723aa9296a7b86cb09a7f14c53792ebad4c4198822838de1c63e", "event": "step", "loss": 2.942894458770752, "params": null, "rank": 1, "run_id": "resume-no-optimizer-1", "step": 13, "ts": "2026-10-09T02:06:56.387882+00:00"}
+{"attempt": "resume-no-optimizer-1-qb5p4", "digest": "f60388777addf923233f475114ad1aa0758eaf0f90651fe40ac45abb8b9617eb", "event": "step", "loss": 1.9030215740203857, "params": null, "rank": 0, "run_id": "resume-no-optimizer-1", "step": 14, "ts": "2026-10-09T02:06:56.403123+00:00"}
+{"attempt": "resume-no-optimizer-1-qb5p4", "digest": "f60388777addf923233f475114ad1aa0758eaf0f90651fe40ac45abb8b9617eb", "event": "step", "loss": 8.924108505249023, "params": null, "rank": 1, "run_id": "resume-no-optimizer-1", "step": 14, "ts": "2026-10-09T02:06:56.403163+00:00"}
+{"attempt": "resume-no-optimizer-1-qb5p4", "digest": "1bb988cfbcd0630d3ddf99268f5b55b58018be3395f70db1b7188928c1743134", "event": "step", "loss": 0.3704769015312195, "params": null, "rank": 0, "run_id": "resume-no-optimizer-1", "step": 15, "ts": "2026-10-09T02:06:56.419263+00:00"}
+{"attempt": "resume-no-optimizer-1-qb5p4", "digest": "1bb988cfbcd0630d3ddf99268f5b55b58018be3395f70db1b7188928c1743134", "event": "step", "loss": 0.560535728931427, "params": null, "rank": 1, "run_id": "resume-no-optimizer-1", "step": 15, "ts": "2026-10-09T02:06:56.419310+00:00"}
+{"attempt": "resume-no-optimizer-1-qb5p4", "digest": "a5d36145b0c4cae11cb4020a662ccff98e0330507dc2b07107cbbbfe8c9964d4", "event": "step", "loss": 0.5241513252258301, "params": null, "rank": 0, "run_id": "resume-no-optimizer-1", "step": 16, "ts": "2026-10-09T02:06:56.434442+00:00"}
+{"attempt": "resume-no-optimizer-1-qb5p4", "digest": "a5d36145b0c4cae11cb4020a662ccff98e0330507dc2b07107cbbbfe8c9964d4", "event": "step", "loss": 0.4757004976272583, "params": null, "rank": 1, "run_id": "resume-no-optimizer-1", "step": 16, "ts": "2026-10-09T02:06:56.434491+00:00"}
+{"attempt": "resume-no-optimizer-1-qb5p4", "digest": "1012a7a4df0b03aa58fd57fec0f1bde10ff80e83541b30f22e95615ae947b512", "event": "step", "loss": 0.4815383851528168, "params": null, "rank": 0, "run_id": "resume-no-optimizer-1", "step": 17, "ts": "2026-10-09T02:06:56.450972+00:00"}
+{"attempt": "resume-no-optimizer-1-qb5p4", "digest": "1012a7a4df0b03aa58fd57fec0f1bde10ff80e83541b30f22e95615ae947b512", "event": "step", "loss": 0.34849679470062256, "params": null, "rank": 1, "run_id": "resume-no-optimizer-1", "step": 17, "ts": "2026-10-09T02:06:56.451008+00:00"}
+{"attempt": "resume-no-optimizer-1-qb5p4", "digest": "4b72c3974dafaeb1325a828abf0e3e26d27e64ea742a04c4a4696072c5a938f2", "event": "step", "loss": 3.8462963104248047, "params": null, "rank": 0, "run_id": "resume-no-optimizer-1", "step": 18, "ts": "2026-10-09T02:06:56.466170+00:00"}
+{"attempt": "resume-no-optimizer-1-qb5p4", "digest": "4b72c3974dafaeb1325a828abf0e3e26d27e64ea742a04c4a4696072c5a938f2", "event": "step", "loss": 2.2885537147521973, "params": null, "rank": 1, "run_id": "resume-no-optimizer-1", "step": 18, "ts": "2026-10-09T02:06:56.466230+00:00"}
+{"attempt": "resume-no-optimizer-1-qb5p4", "digest": "553ec6789c051e12bc82112d043850eff75eb7c7df6deb072942a65faafc7311", "event": "step", "loss": 5.600227355957031, "params": null, "rank": 0, "run_id": "resume-no-optimizer-1", "step": 19, "ts": "2026-10-09T02:06:56.483173+00:00"}
+{"attempt": "resume-no-optimizer-1-qb5p4", "digest": "553ec6789c051e12bc82112d043850eff75eb7c7df6deb072942a65faafc7311", "event": "step", "loss": 2.6845641136169434, "params": null, "rank": 1, "run_id": "resume-no-optimizer-1", "step": 19, "ts": "2026-10-09T02:06:56.483210+00:00"}
+{"attempt": "resume-no-optimizer-1-qb5p4", "digest": "e54ca7c26ec54b9ada2b252f3f0a7d3da7f3145c7a7af8edc40b5b54125a592c", "event": "step", "loss": 4.47947883605957, "params": null, "rank": 0, "run_id": "resume-no-optimizer-1", "step": 20, "ts": "2026-10-09T02:06:56.498671+00:00"}
+{"attempt": "resume-no-optimizer-1-qb5p4", "digest": "e54ca7c26ec54b9ada2b252f3f0a7d3da7f3145c7a7af8edc40b5b54125a592c", "event": "step", "loss": 2.5732102394104004, "params": null, "rank": 1, "run_id": "resume-no-optimizer-1", "step": 20, "ts": "2026-10-09T02:06:56.498671+00:00"}
+{"attempt": "resume-no-optimizer-1-qb5p4", "digest": "d9eb0c62c97a48d6aaa199e799cc0daf59aa000d366697d82accdae074bcc960", "event": "step", "loss": 1.2292920351028442, "params": null, "rank": 1, "run_id": "resume-no-optimizer-1", "step": 21, "ts": "2026-10-09T02:06:56.512039+00:00"}
+{"attempt": "resume-no-optimizer-1-qb5p4", "digest": "d9eb0c62c97a48d6aaa199e799cc0daf59aa000d366697d82accdae074bcc960", "event": "step", "loss": 0.892910361289978, "params": null, "rank": 0, "run_id": "resume-no-optimizer-1", "step": 21, "ts": "2026-10-09T02:06:56.512054+00:00"}
+{"attempt": "resume-no-optimizer-1-qb5p4", "digest": "3e24f0f859a69bf735ee2e4357cd4c56d21b63e629275331fef74794256c5040", "event": "step", "loss": 2.350250244140625, "params": null, "rank": 0, "run_id": "resume-no-optimizer-1", "step": 22, "ts": "2026-10-09T02:06:56.527119+00:00"}
+{"attempt": "resume-no-optimizer-1-qb5p4", "digest": "3e24f0f859a69bf735ee2e4357cd4c56d21b63e629275331fef74794256c5040", "event": "step", "loss": 4.475423336029053, "params": null, "rank": 1, "run_id": "resume-no-optimizer-1", "step": 22, "ts": "2026-10-09T02:06:56.527125+00:00"}
+{"attempt": "resume-no-optimizer-1-qb5p4", "digest": "210887912f58445ab5f4d6613b40a500de11e99fc808d827d421a6b97e939711", "event": "step", "loss": 3.37770414352417, "params": null, "rank": 0, "run_id": "resume-no-optimizer-1", "step": 23, "ts": "2026-10-09T02:06:56.543101+00:00"}
+{"attempt": "resume-no-optimizer-1-qb5p4", "digest": "210887912f58445ab5f4d6613b40a500de11e99fc808d827d421a6b97e939711", "event": "step", "loss": 1.7678332328796387, "params": null, "rank": 1, "run_id": "resume-no-optimizer-1", "step": 23, "ts": "2026-10-09T02:06:56.543113+00:00"}
+{"attempt": "resume-no-optimizer-1-qb5p4", "digest": "17efc119899d8e264766987ede5099abc56f307b1cacaeb4c443066f9153591b", "event": "step", "loss": 1.4904727935791016, "params": null, "rank": 0, "run_id": "resume-no-optimizer-1", "step": 24, "ts": "2026-10-09T02:06:56.554243+00:00"}
+{"attempt": "resume-no-optimizer-1-qb5p4", "digest": "17efc119899d8e264766987ede5099abc56f307b1cacaeb4c443066f9153591b", "event": "step", "loss": 2.1800878047943115, "params": null, "rank": 1, "run_id": "resume-no-optimizer-1", "step": 24, "ts": "2026-10-09T02:06:56.554265+00:00"}
+{"attempt": "resume-no-optimizer-1-qb5p4", "event": "self_kill", "rank": 1, "run_id": "resume-no-optimizer-1", "signal": "SIGKILL", "step": 25, "ts": "2026-10-09T02:06:56.558704+00:00"}
+[rank0]: Traceback (most recent call last):
+[rank0]:   File "/work/train.py", line 156, in <module>
+[rank0]:     sys.exit(main())
+[rank0]:              ^^^^^^
+[rank0]:   File "/work/train.py", line 131, in main
+[rank0]:     loss.backward()
+[rank0]:   File "/usr/local/lib/python3.12/site-packages/torch/_tensor.py", line 581, in backward
+[rank0]:     torch.autograd.backward(
+[rank0]:   File "/usr/local/lib/python3.12/site-packages/torch/autograd/__init__.py", line 347, in backward
+[rank0]:     _engine_run_backward(
+[rank0]:   File "/usr/local/lib/python3.12/site-packages/torch/autograd/graph.py", line 825, in _engine_run_backward
+[rank0]:     return Variable._execution_engine.run_backward(  # Calls into the C++ engine to run the backward pass
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]: RuntimeError: [../third_party/gloo/gloo/transport/tcp/pair.cc:534] Connection closed by peer [10.244.2.17]:15248
+W1009 02:06:56.621000 1 site-packages/torch/distributed/elastic/multiprocessing/api.py:897] Sending process 16 closing signal SIGTERM
+E1009 02:06:56.628000 1 site-packages/torch/distributed/elastic/multiprocessing/api.py:869] failed (exitcode: -9) local_rank: 1 (pid: 17) of binary: /usr/local/bin/python3.12
+Traceback (most recent call last):
+  File "/usr/local/bin/torchrun", line 8, in <module>
+    sys.exit(main())
+             ^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/torch/distributed/elastic/multiprocessing/errors/__init__.py", line 355, in wrapper
+    return f(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/torch/distributed/run.py", line 919, in main
+    run(args)
+  File "/usr/local/lib/python3.12/site-packages/torch/distributed/run.py", line 910, in run
+    elastic_launch(
+  File "/usr/local/lib/python3.12/site-packages/torch/distributed/launcher/api.py", line 138, in __call__
+    return launch_agent(self._config, self._entrypoint, list(args))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/torch/distributed/launcher/api.py", line 269, in launch_agent
+    raise ChildFailedError(
+torch.distributed.elastic.multiprocessing.errors.ChildFailedError: 
+===================================================
+/work/train.py FAILED
+---------------------------------------------------
+Failures:
+  <NO_OTHER_FAILURES>
+---------------------------------------------------
+Root Cause (first observed failure):
+[0]:
+  time      : 2026-10-09_02:06:56
+  host      : resume-no-optimizer-1-qb5p4
+  rank      : 1 (local_rank: 1)
+  exitcode  : -9 (pid: 17)
+  error_file: <N/A>
+  traceback : Signal 9 (SIGKILL) received by PID 17
+===================================================
+/usr/local/lib/python3.12/site-packages/torch/_subclasses/functional_tensor.py:295: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at ../torch/csrc/utils/tensor_numpy.cpp:84.)
+  cpu = _conversion_method_template(device=torch.device("cpu"))
+/usr/local/lib/python3.12/site-packages/torch/_subclasses/functional_tensor.py:295: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at ../torch/csrc/utils/tensor_numpy.cpp:84.)
+  cpu = _conversion_method_template(device=torch.device("cpu"))
+/usr/local/lib/python3.12/site-packages/torch/_subclasses/functional_tensor.py:295: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at ../torch/csrc/utils/tensor_numpy.cpp:84.)
+  cpu = _conversion_method_template(device=torch.device("cpu"))
+{"attempt": "resume-no-optimizer-1-x6dgz", "die_at_step": 25, "event": "start", "load_mode": "no-optimizer", "loaded": true, "rank": 1, "resumed_from_step": 24, "run_id": "resume-no-optimizer-1", "steps": 40, "torch_version": "2.5.1+cpu", "ts": "2026-10-09T02:07:07.955014+00:00", "world_size": 2}
+{"attempt": "resume-no-optimizer-1-x6dgz", "die_at_step": 25, "event": "start", "load_mode": "no-optimizer", "loaded": true, "rank": 0, "resumed_from_step": 24, "run_id": "resume-no-optimizer-1", "steps": 40, "torch_version": "2.5.1+cpu", "ts": "2026-10-09T02:07:07.958391+00:00", "world_size": 2}
+{"attempt": "resume-no-optimizer-1-x6dgz", "digest": "5c1106ec082dcaeed74d944419751133513de0d738fe6ab2d777f5eaf1b6b2d5", "event": "step", "loss": 0.3642570972442627, "params": null, "rank": 1, "run_id": "resume-no-optimizer-1", "step": 25, "ts": "2026-10-09T02:07:07.974722+00:00"}
+{"attempt": "resume-no-optimizer-1-x6dgz", "digest": "5c1106ec082dcaeed74d944419751133513de0d738fe6ab2d777f5eaf1b6b2d5", "event": "step", "loss": 1.457960605621338, "params": null, "rank": 0, "run_id": "resume-no-optimizer-1", "step": 25, "ts": "2026-10-09T02:07:07.974722+00:00"}
+{"attempt": "resume-no-optimizer-1-x6dgz", "digest": "462042fc6ef8bb7a4fa2d530e899071f994b5771a5774b1600f4ca45023a1531", "event": "step", "loss": 1.7529484033584595, "params": null, "rank": 0, "run_id": "resume-no-optimizer-1", "step": 26, "ts": "2026-10-09T02:07:07.985573+00:00"}
+{"attempt": "resume-no-optimizer-1-x6dgz", "digest": "462042fc6ef8bb7a4fa2d530e899071f994b5771a5774b1600f4ca45023a1531", "event": "step", "loss": 1.879635214805603, "params": null, "rank": 1, "run_id": "resume-no-optimizer-1", "step": 26, "ts": "2026-10-09T02:07:07.985587+00:00"}
+{"attempt": "resume-no-optimizer-1-x6dgz", "digest": "9debb57f3d73237309d0d82dd024fdd36e45fe1ae84d37b47fcb32ea8b5a9088", "event": "step", "loss": 0.45050865411758423, "params": null, "rank": 0, "run_id": "resume-no-optimizer-1", "step": 27, "ts": "2026-10-09T02:07:08.000666+00:00"}
+{"attempt": "resume-no-optimizer-1-x6dgz", "digest": "9debb57f3d73237309d0d82dd024fdd36e45fe1ae84d37b47fcb32ea8b5a9088", "event": "step", "loss": 0.5764102935791016, "params": null, "rank": 1, "run_id": "resume-no-optimizer-1", "step": 27, "ts": "2026-10-09T02:07:08.000674+00:00"}
+{"attempt": "resume-no-optimizer-1-x6dgz", "digest": "99bf5ac45084ef4cd6f6355e051df7d0b0f660db4367a162cae7693c74958f94", "event": "step", "loss": 0.27732783555984497, "params": null, "rank": 1, "run_id": "resume-no-optimizer-1", "step": 28, "ts": "2026-10-09T02:07:08.017010+00:00"}
+{"attempt": "resume-no-optimizer-1-x6dgz", "digest": "99bf5ac45084ef4cd6f6355e051df7d0b0f660db4367a162cae7693c74958f94", "event": "step", "loss": 0.32137277722358704, "params": null, "rank": 0, "run_id": "resume-no-optimizer-1", "step": 28, "ts": "2026-10-09T02:07:08.017008+00:00"}
+{"attempt": "resume-no-optimizer-1-x6dgz", "digest": "85436d2f1a92f02da66d6674b99328f78849abd4b2db2d86fe09c5273b9e1604", "event": "step", "loss": 0.059203311800956726, "params": null, "rank": 0, "run_id": "resume-no-optimizer-1", "step": 29, "ts": "2026-10-09T02:07:08.027649+00:00"}
+{"attempt": "resume-no-optimizer-1-x6dgz", "digest": "85436d2f1a92f02da66d6674b99328f78849abd4b2db2d86fe09c5273b9e1604", "event": "step", "loss": 0.060518570244312286, "params": null, "rank": 1, "run_id": "resume-no-optimizer-1", "step": 29, "ts": "2026-10-09T02:07:08.027652+00:00"}
+{"attempt": "resume-no-optimizer-1-x6dgz", "digest": "a7bdb488982cd7b0886f809ffd1081f35148a3150dcfd158b1750d1c86668e53", "event": "step", "loss": 0.10134875774383545, "params": null, "rank": 1, "run_id": "resume-no-optimizer-1", "step": 30, "ts": "2026-10-09T02:07:08.038552+00:00"}
+{"attempt": "resume-no-optimizer-1-x6dgz", "digest": "a7bdb488982cd7b0886f809ffd1081f35148a3150dcfd158b1750d1c86668e53", "event": "step", "loss": 0.04438595473766327, "params": null, "rank": 0, "run_id": "resume-no-optimizer-1", "step": 30, "ts": "2026-10-09T02:07:08.038671+00:00"}
+{"attempt": "resume-no-optimizer-1-x6dgz", "digest": "ecec35df50d00259c2d7ed07379d405ec3014a6f29cb0ca4ec9d0b0510f180df", "event": "step", "loss": 0.21736572682857513, "params": null, "rank": 1, "run_id": "resume-no-optimizer-1", "step": 31, "ts": "2026-10-09T02:07:08.055123+00:00"}
+{"attempt": "resume-no-optimizer-1-x6dgz", "digest": "ecec35df50d00259c2d7ed07379d405ec3014a6f29cb0ca4ec9d0b0510f180df", "event": "step", "loss": 0.17926383018493652, "params": null, "rank": 0, "run_id": "resume-no-optimizer-1", "step": 31, "ts": "2026-10-09T02:07:08.055174+00:00"}
+{"attempt": "resume-no-optimizer-1-x6dgz", "digest": "36ca9d557581c8cc301b9f5437ecd8b1d223686bd513b4f5b5667e9fa1c0b809", "event": "step", "loss": 0.3773616552352905, "params": null, "rank": 1, "run_id": "resume-no-optimizer-1", "step": 32, "ts": "2026-10-09T02:07:08.071606+00:00"}
+{"attempt": "resume-no-optimizer-1-x6dgz", "digest": "36ca9d557581c8cc301b9f5437ecd8b1d223686bd513b4f5b5667e9fa1c0b809", "event": "step", "loss": 0.4633299708366394, "params": null, "rank": 0, "run_id": "resume-no-optimizer-1", "step": 32, "ts": "2026-10-09T02:07:08.071606+00:00"}
+{"attempt": "resume-no-optimizer-1-x6dgz", "digest": "7187a3799dd15e2875b84cdbf85505362dd97f2071d499cfb586b2d39b349b25", "event": "step", "loss": 0.3987863063812256, "params": null, "rank": 1, "run_id": "resume-no-optimizer-1", "step": 33, "ts": "2026-10-09T02:07:08.082373+00:00"}
+{"attempt": "resume-no-optimizer-1-x6dgz", "digest": "7187a3799dd15e2875b84cdbf85505362dd97f2071d499cfb586b2d39b349b25", "event": "step", "loss": 0.5451976656913757, "params": null, "rank": 0, "run_id": "resume-no-optimizer-1", "step": 33, "ts": "2026-10-09T02:07:08.082373+00:00"}
+{"attempt": "resume-no-optimizer-1-x6dgz", "digest": "7282df4afa4f263e454593689649a43180446f8205dd25f2d728570fab632da3", "event": "step", "loss": 0.2088836282491684, "params": null, "rank": 0, "run_id": "resume-no-optimizer-1", "step": 34, "ts": "2026-10-09T02:07:08.093039+00:00"}
+{"attempt": "resume-no-optimizer-1-x6dgz", "digest": "7282df4afa4f263e454593689649a43180446f8205dd25f2d728570fab632da3", "event": "step", "loss": 1.0410590171813965, "params": null, "rank": 1, "run_id": "resume-no-optimizer-1", "step": 34, "ts": "2026-10-09T02:07:08.093041+00:00"}
+{"attempt": "resume-no-optimizer-1-x6dgz", "digest": "5fcb2cef6f8fed60d0e3ec2943bf18f227aa72580e17a52d6f15c7ae97604768", "event": "step", "loss": 0.365181028842926, "params": null, "rank": 1, "run_id": "resume-no-optimizer-1", "step": 35, "ts": "2026-10-09T02:07:08.103542+00:00"}
+{"attempt": "resume-no-optimizer-1-x6dgz", "digest": "5fcb2cef6f8fed60d0e3ec2943bf18f227aa72580e17a52d6f15c7ae97604768", "event": "step", "loss": 0.4633123576641083, "params": null, "rank": 0, "run_id": "resume-no-optimizer-1", "step": 35, "ts": "2026-10-09T02:07:08.103543+00:00"}
+{"attempt": "resume-no-optimizer-1-x6dgz", "digest": "3e80fbf66e7cb40a975ea4feb6198eba170b61c80bb0be7843be81bbc671919d", "event": "step", "loss": 0.45086759328842163, "params": null, "rank": 0, "run_id": "resume-no-optimizer-1", "step": 36, "ts": "2026-10-09T02:07:08.113986+00:00"}
+{"attempt": "resume-no-optimizer-1-x6dgz", "digest": "3e80fbf66e7cb40a975ea4feb6198eba170b61c80bb0be7843be81bbc671919d", "event": "step", "loss": 0.7294496893882751, "params": null, "rank": 1, "run_id": "resume-no-optimizer-1", "step": 36, "ts": "2026-10-09T02:07:08.113989+00:00"}
+{"attempt": "resume-no-optimizer-1-x6dgz", "digest": "580caca852016ee0458161b4c141bd0413484c9b39dca07ca68aeae4ca8b691a", "event": "step", "loss": 0.16008292138576508, "params": null, "rank": 0, "run_id": "resume-no-optimizer-1", "step": 37, "ts": "2026-10-09T02:07:08.124464+00:00"}
+{"attempt": "resume-no-optimizer-1-x6dgz", "digest": "580caca852016ee0458161b4c141bd0413484c9b39dca07ca68aeae4ca8b691a", "event": "step", "loss": 0.2564724385738373, "params": null, "rank": 1, "run_id": "resume-no-optimizer-1", "step": 37, "ts": "2026-10-09T02:07:08.124466+00:00"}
+{"attempt": "resume-no-optimizer-1-x6dgz", "digest": "4aa65fc23fd547bcfaf1ee6ffc89d0803fd15035db5facac66a50faa2b14c090", "event": "step", "loss": 0.12248192727565765, "params": null, "rank": 1, "run_id": "resume-no-optimizer-1", "step": 38, "ts": "2026-10-09T02:07:08.134916+00:00"}
+{"attempt": "resume-no-optimizer-1-x6dgz", "digest": "4aa65fc23fd547bcfaf1ee6ffc89d0803fd15035db5facac66a50faa2b14c090", "event": "step", "loss": 0.16482557356357574, "params": null, "rank": 0, "run_id": "resume-no-optimizer-1", "step": 38, "ts": "2026-10-09T02:07:08.134916+00:00"}
+{"attempt": "resume-no-optimizer-1-x6dgz", "digest": "5359d7658657279c3bf44e3b03679f524504ce6fa0b6ec08c8edf2edd9f2d469", "event": "step", "loss": 0.03476814553141594, "params": null, "rank": 0, "run_id": "resume-no-optimizer-1", "step": 39, "ts": "2026-10-09T02:07:08.146253+00:00"}
+{"attempt": "resume-no-optimizer-1-x6dgz", "digest": "5359d7658657279c3bf44e3b03679f524504ce6fa0b6ec08c8edf2edd9f2d469", "event": "step", "loss": 0.022192174568772316, "params": null, "rank": 1, "run_id": "resume-no-optimizer-1", "step": 39, "ts": "2026-10-09T02:07:08.146271+00:00"}
+{"attempt": "resume-no-optimizer-1-x6dgz", "digest": "88c3d8c327a02829da94f6f184293d0a348410d98d108042e731448a0d35a0fa", "event": "step", "loss": 0.033988192677497864, "params": [0.4416329860687256, 1.02877676486969, -1.7631620168685913, 0.5379586815834045, 2.767655372619629], "rank": 1, "run_id": "resume-no-optimizer-1", "step": 40, "ts": "2026-10-09T02:07:08.156805+00:00"}
+{"attempt": "resume-no-optimizer-1-x6dgz", "digest": "88c3d8c327a02829da94f6f184293d0a348410d98d108042e731448a0d35a0fa", "event": "step", "loss": 0.057407867163419724, "params": [0.4416329860687256, 1.02877676486969, -1.7631620168685913, 0.5379586815834045, 2.767655372619629], "rank": 0, "run_id": "resume-no-optimizer-1", "step": 40, "ts": "2026-10-09T02:07:08.156805+00:00"}

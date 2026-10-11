@@ -1,13 +1,17 @@
 # Reference Architecture
 
-> **Status (2026-08-07).** This architecture diagram and boundary table mix built and designed-only pieces
+> **Status (2026-09-30).** This architecture diagram and boundary table mix built and designed-only pieces
 > in one picture; the execution-boundary table below is the accurate breakdown. In short: CRDs/controllers
 > for `InferenceDeployment`, `GPUQuotaPolicy`, and `NodeHealth` are **built**; `MLTrainingJob` + Kueue is
 > **built** (M6, run end-to-end on kind — and not the only milestone with a live run record: M7, the gateway
 > chain and the chaos scenarios have theirs under `hack/`); the gateway (routing, auth, rate limit,
 > proxy, metrics) is **built, unit-tested and deployed on kind but never on EKS**; the M5-b admission guard and benchmark
-> harness are **built, and MEASURED on a paid GPU**: four repetitions on 2026-09-03 and an engine-level scheduler microtest on 2026-09-04. The guard failed — 83.7x against a pre-registered 1.25x premium-tail target — and the harness declared the run invalid rather than reporting a protection claim; `GpuSharingBenchmark` and its "thin status
-> writer" are **designed only — no CRD, no code**. eBPF and Nsight are **not implemented at all**, and
+> harness are **built, and MEASURED on a paid GPU**: four repetitions on 2026-09-03 and an engine-level scheduler microtest on 2026-09-04. The guard failed — 83.7x against a pre-registered 1.25x premium-tail target — and the harness declared the run invalid rather than reporting a protection claim; `GpuSharingBenchmark` has a **type and a generated CRD** (2026-09-30) with 33
+> envtest specs and a spec that is immutable once created, and only its **thin status writer** is outstanding —
+> nothing has ever written `status.result`, so the type has never produced a number. This sentence read
+> "designed only — no CRD, no code" until 2026-09-30, while the execution-boundary list further down this same
+> document already said the type and CRD had landed; the 2026-09-30 correction pass edited that list and not
+> this paragraph. eBPF and Nsight are **not implemented at all**, and
 > neither is Xid or ECC fault detection. DCGM is a narrower case and the blanket claim about it was wrong:
 > a reader for `DCGM_FI_DEV_GPU_UTIL` exists (`internal/queuelab/dcgm.go`), fourteen Go files reference
 > DCGM, and `config/dcgm-exporter/` deploys the exporter. What does NOT exist is any GPU fault detection in
@@ -42,7 +46,7 @@ Controllers
   - InferenceDeployment controller   (built, M4-a)
   - GPUQuotaPolicy controller        (built, M3)
   - NodeHealth controller            (built, M2/M3)
-  - GpuSharingBenchmark thin status writer (designed only — no code yet, M5; deliberately not a heavy controller)
+  - GpuSharingBenchmark thin status writer (designed only — no code yet, M5; deliberately not a heavy controller. The type and CRD landed 2026-09-30; only the writer is outstanding)
         |
         v
 Data plane
@@ -76,9 +80,9 @@ Each CRD encodes an operator intent. A controller reconciles it toward the desir
 | Gateway admission guard (M5)                | **built and measured on a paid GPU.** Four repetitions 2026-09-03. The guard missed its 1.25x target at 83.7x and the run was declared invalid rather than reported. Its engage/release thresholds were the failure — but not because the gateway cannot observe pressure. It did: all 274 refusals came from the waiting-queue condition. The KV-occupancy condition was **unreachable by construction** (0.85 of a 386,912-token cache needs ~43 concurrent long requests; the trace peaked at 13) | yes (real latency effect) |
 | vLLM serving                                | smoke only (no real inference throughput)                        | yes (real serving)        |
 | DCGM / GPU metrics                          | **partly implemented, and run on rented cards by the queuelab.** A `DCGM_FI_DEV_GPU_UTIL` reader, a Pod-attribution resolver, an exporter deployment and a pre-spend gate exist (14 Go files, `config/dcgm-exporter/`). No Xid or ECC. No GPU fault detection feeds NodeHealth | yes (real metrics)        |
-| Noisy-neighbor p99, MPS, time-slicing, eBPF | no `GpuSharingBenchmark` CRD, though its sizing arithmetic and run script exist and the matrix has since run on rented cards nine times. The separate M5-b harness is **built and has produced paid-GPU evidence** | yes (measured evidence)   |
+| Noisy-neighbor p99, MPS, time-slicing, eBPF | `GpuSharingBenchmark` has a type and a CRD that enforces the load protocol at admission and treats the spec as an immutable registration, with 33 envtest specs and no status writer; its sizing arithmetic and run script exist and the matrix has run on rented cards nine times. The separate M5-b harness is **built and has produced paid-GPU evidence** | yes (measured evidence)   |
 
-The killer-feature benchmark (doc 04) produces **measured** evidence only when run on a real GPU node. Locally it produces the M5-b benchmark harness and the report skeleton; the `GpuSharingBenchmark` CRD itself is **designed only and not yet implemented**. Numbers are filled from a real-GPU run, and any unmeasured claim is labeled as such.
+The killer-feature benchmark (doc 04) produces **measured** evidence only when run on a real GPU node. Locally it produces the M5-b benchmark harness and the report skeleton; the `GpuSharingBenchmark` CRD exists and refuses a run declared outside the registered protocol, but **nothing writes its status and it has never produced a number**. Numbers are filled from a real-GPU run, and any unmeasured claim is labeled as such.
 
 ## Non-goals
 

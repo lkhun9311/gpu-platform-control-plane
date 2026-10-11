@@ -174,6 +174,12 @@ var _ = Describe("RequireProvenance", func() {
 				"gateway": "123.dkr.ecr.ap-northeast-2.amazonaws.com/gateway@sha256:" + strings.Repeat("a", 64),
 				"engine":  "vllm/vllm-openai@sha256:" + strings.Repeat("b", 64),
 			},
+			// The measured revision of Qwen/Qwen2.5-3B-Instruct, the model the sharing topologies serve.
+			//
+			// A real value rather than a repeated letter, because this one is checkable: it is what the
+			// registry answers for that model, and the calibration this repository commits was measured
+			// against the tokenizer files at this revision.
+			TokenizerRev: "aa8e72537993ba99e69dfaafa59ed015b17504d1",
 		}
 	}
 
@@ -249,5 +255,55 @@ var _ = Describe("RequireProvenance", func() {
 			m.ImageDigests["gateway"] = bad
 			Expect(m.RequireProvenance()).To(HaveOccurred(), "accepted %q", bad)
 		}
+	})
+})
+
+var _ = Describe("RequireProvenance and the tokenizer revision", func() {
+	// The third provenance field, and the one the earlier repair missed.
+	//
+	// GatewaySHA and ImageDigests were declared and never filled, and a guard plus two flags fixed that.
+	// TokenizerRev was declared in the same struct, for the same reason, and was not in that repair -- so it
+	// stayed the one provenance field with no flag, no writer and no guard, while the calibration file
+	// asserted it had been measured "at the recorded revision".
+	base := func() RunManifest {
+		return RunManifest{
+			GatewaySHA: "0f3c1a9",
+			ImageDigests: map[string]string{
+				"gateway": "123.dkr.ecr.ap-northeast-2.amazonaws.com/gateway@sha256:" + strings.Repeat("a", 64),
+				"engine":  "vllm/vllm-openai@sha256:" + strings.Repeat("b", 64),
+			},
+			TokenizerRev: "aa8e72537993ba99e69dfaafa59ed015b17504d1",
+		}
+	}
+
+	It("refuses a manifest that names no tokenizer revision", func() {
+		m := base()
+		m.TokenizerRev = "   "
+		Expect(m.RequireProvenance()).To(MatchError(ContainSubstring("no tokenizerRev")))
+	})
+
+	// A short SHA is accepted for the gateway build and must NOT be accepted here.
+	//
+	// commitShaped allows 7 to 40 characters and a -dirty suffix because a build from a working tree is
+	// still findable that way. A model revision is an upstream hash: a prefix would let two tokenizers share
+	// one recorded identity, and "dirty" describes nothing upstream.
+	It("refuses a revision that is not a full upstream hash", func() {
+		for _, bad := range []string{
+			"aa8e725", // the prefix commitShaped would accept
+			"aa8e72537993ba99e69dfaafa59ed015b17504d",   // 39
+			"aa8e72537993ba99e69dfaafa59ed015b17504d1a", // 41
+			"AA8E72537993BA99E69DFAAFA59ED015B17504D1",  // upper case
+			"aa8e72537993ba99e69dfaafa59ed015b17504d1-dirty",
+			"unknown",
+			"main",
+		} {
+			m := base()
+			m.TokenizerRev = bad
+			Expect(m.RequireProvenance()).To(HaveOccurred(), "accepted %q", bad)
+		}
+	})
+
+	It("accepts the measured revision", func() {
+		Expect(base().RequireProvenance()).To(Succeed())
 	})
 })

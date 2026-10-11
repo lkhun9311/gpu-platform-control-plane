@@ -1,0 +1,98 @@
+# python3 hack/prospective-pilot/simulate.py frontier --scale K --traces <the frozen v26 traces with exactInputTokens 7695 replaced by N> <pilot A and B archives>
+# N outside the step model's fitted range (68 and 7,695): an extrapolation, not a validated prediction
+
+## out-6144-1.0205
+{"step_model_ms": [15.3639, 0.0966, 0.0959, 0.9292, 3.0468], "fitted_steps": 282897, "forward_ms": 3.912577}
+step scale 1.0205
+generated traces, dispatch lag 1.366 ms: /tmp/claude-1000/-home-lkhun9311-workspace-gpu-platform-control-plane/ac3d3080-6842-4340-9073-02f43fd7484d/scratchpad/lenrep/t861-6144.jsonl, /tmp/claude-1000/-home-lkhun9311-workspace-gpu-platform-control-plane/ac3d3080-6842-4340-9073-02f43fd7484d/scratchpad/lenrep/t862-6144.jsonl, /tmp/claude-1000/-home-lkhun9311-workspace-gpu-platform-control-plane/ac3d3080-6842-4340-9073-02f43fd7484d/scratchpad/lenrep/t863-6144.jsonl
+cell arm | premium p99 ratio_to_off | owner's limits
+t861-6144.jsonl hold-cap | 0.291 | met
+t861-6144.jsonl fixed-1.62 | 0.228 | met
+t861-6144.jsonl fixed-1.66 | 0.212 | met
+t861-6144.jsonl fixed-1.70 | 0.223 | met
+t861-6144.jsonl fixed-1.74 | 0.215 | fails: completion p50 above 1.5x off's
+t862-6144.jsonl hold-cap | 0.382 | met
+t862-6144.jsonl fixed-1.62 | 0.253 | met
+t862-6144.jsonl fixed-1.66 | 0.262 | fails: completion p50 above 1.5x off's
+t862-6144.jsonl fixed-1.70 | 0.241 | fails: completion p50 above 1.5x off's
+t862-6144.jsonl fixed-1.74 | 0.244 | fails: completion p50 above 1.5x off's
+t863-6144.jsonl hold-cap | 0.286 | met
+t863-6144.jsonl fixed-1.62 | 0.250 | met
+t863-6144.jsonl fixed-1.66 | 0.234 | met
+t863-6144.jsonl fixed-1.70 | 0.220 | met
+t863-6144.jsonl fixed-1.74 | 0.227 | fails: completion p50 above 1.5x off's
+
+pooled premium p99 ms: off 1144, hold-cap 381, fixed-1.62 279, fixed-1.66 278 (inadmissible), fixed-1.70 264 (inadmissible), fixed-1.74 267 (inadmissible)
+verdict: observed: fixed-1.62 beat hold-cap
+
+## out-6144-1.0275
+{"step_model_ms": [15.3639, 0.0966, 0.0959, 0.9292, 3.0468], "fitted_steps": 282897, "forward_ms": 3.912577}
+step scale 1.0275
+generated traces, dispatch lag 1.366 ms: /tmp/claude-1000/-home-lkhun9311-workspace-gpu-platform-control-plane/ac3d3080-6842-4340-9073-02f43fd7484d/scratchpad/lenrep/t861-6144.jsonl, /tmp/claude-1000/-home-lkhun9311-workspace-gpu-platform-control-plane/ac3d3080-6842-4340-9073-02f43fd7484d/scratchpad/lenrep/t862-6144.jsonl, /tmp/claude-1000/-home-lkhun9311-workspace-gpu-platform-control-plane/ac3d3080-6842-4340-9073-02f43fd7484d/scratchpad/lenrep/t863-6144.jsonl
+cell arm | premium p99 ratio_to_off | owner's limits
+t861-6144.jsonl hold-cap | 0.287 | met
+t861-6144.jsonl fixed-1.62 | 0.236 | met
+t861-6144.jsonl fixed-1.66 | 0.216 | met
+t861-6144.jsonl fixed-1.70 | 0.227 | met
+t861-6144.jsonl fixed-1.74 | 0.219 | fails: completion p50 above 1.5x off's
+t862-6144.jsonl hold-cap | 0.385 | met
+t862-6144.jsonl fixed-1.62 | 0.256 | met
+t862-6144.jsonl fixed-1.66 | 0.258 | fails: completion p50 above 1.5x off's
+t862-6144.jsonl fixed-1.70 | 0.235 | fails: completion p50 above 1.5x off's
+t862-6144.jsonl fixed-1.74 | 0.243 | fails: completion p50 above 1.5x off's
+t863-6144.jsonl hold-cap | 0.292 | met
+t863-6144.jsonl fixed-1.62 | 0.256 | met
+t863-6144.jsonl fixed-1.66 | 0.232 | met
+t863-6144.jsonl fixed-1.70 | 0.222 | met
+t863-6144.jsonl fixed-1.74 | 0.228 | fails: completion p50 above 1.5x off's
+
+pooled premium p99 ms: off 1160, hold-cap 376, fixed-1.62 288, fixed-1.66 280 (inadmissible), fixed-1.70 268 (inadmissible), fixed-1.74 270 (inadmissible)
+verdict: observed: fixed-1.62 beat hold-cap
+
+## out-8192-1.0205
+{"step_model_ms": [15.3639, 0.0966, 0.0959, 0.9292, 3.0468], "fitted_steps": 282897, "forward_ms": 3.912577}
+step scale 1.0205
+generated traces, dispatch lag 1.366 ms: /tmp/claude-1000/-home-lkhun9311-workspace-gpu-platform-control-plane/ac3d3080-6842-4340-9073-02f43fd7484d/scratchpad/lenrep/t861-8192.jsonl, /tmp/claude-1000/-home-lkhun9311-workspace-gpu-platform-control-plane/ac3d3080-6842-4340-9073-02f43fd7484d/scratchpad/lenrep/t862-8192.jsonl, /tmp/claude-1000/-home-lkhun9311-workspace-gpu-platform-control-plane/ac3d3080-6842-4340-9073-02f43fd7484d/scratchpad/lenrep/t863-8192.jsonl
+cell arm | premium p99 ratio_to_off | owner's limits
+t861-8192.jsonl hold-cap | 0.267 | met
+t861-8192.jsonl fixed-1.62 | 1.136 | met
+t861-8192.jsonl fixed-1.66 | 1.003 | met
+t861-8192.jsonl fixed-1.70 | 0.574 | met
+t861-8192.jsonl fixed-1.74 | 0.366 | met
+t862-8192.jsonl hold-cap | 0.350 | met
+t862-8192.jsonl fixed-1.62 | 1.190 | met
+t862-8192.jsonl fixed-1.66 | 1.223 | met
+t862-8192.jsonl fixed-1.70 | 1.213 | met
+t862-8192.jsonl fixed-1.74 | 1.177 | met
+t863-8192.jsonl hold-cap | 0.329 | met
+t863-8192.jsonl fixed-1.62 | 1.034 | met
+t863-8192.jsonl fixed-1.66 | 0.982 | met
+t863-8192.jsonl fixed-1.70 | 0.739 | met
+t863-8192.jsonl fixed-1.74 | 0.446 | met
+
+pooled premium p99 ms: off 1612, hold-cap 519, fixed-1.62 1867, fixed-1.66 1862, fixed-1.70 1853, fixed-1.74 1754
+verdict: observed: hold-cap beat every admissible fixed spacing
+
+## out-8192-1.0275
+{"step_model_ms": [15.3639, 0.0966, 0.0959, 0.9292, 3.0468], "fitted_steps": 282897, "forward_ms": 3.912577}
+step scale 1.0275
+generated traces, dispatch lag 1.366 ms: /tmp/claude-1000/-home-lkhun9311-workspace-gpu-platform-control-plane/ac3d3080-6842-4340-9073-02f43fd7484d/scratchpad/lenrep/t861-8192.jsonl, /tmp/claude-1000/-home-lkhun9311-workspace-gpu-platform-control-plane/ac3d3080-6842-4340-9073-02f43fd7484d/scratchpad/lenrep/t862-8192.jsonl, /tmp/claude-1000/-home-lkhun9311-workspace-gpu-platform-control-plane/ac3d3080-6842-4340-9073-02f43fd7484d/scratchpad/lenrep/t863-8192.jsonl
+cell arm | premium p99 ratio_to_off | owner's limits
+t861-8192.jsonl hold-cap | 0.258 | met
+t861-8192.jsonl fixed-1.62 | 1.113 | met
+t861-8192.jsonl fixed-1.66 | 0.981 | met
+t861-8192.jsonl fixed-1.70 | 0.853 | met
+t861-8192.jsonl fixed-1.74 | 0.645 | met
+t862-8192.jsonl hold-cap | 0.331 | fails: a hold refusal
+t862-8192.jsonl fixed-1.62 | 1.237 | met
+t862-8192.jsonl fixed-1.66 | 1.169 | met
+t862-8192.jsonl fixed-1.70 | 1.219 | met
+t862-8192.jsonl fixed-1.74 | 1.251 | met
+t863-8192.jsonl hold-cap | 0.332 | met
+t863-8192.jsonl fixed-1.62 | 1.140 | met
+t863-8192.jsonl fixed-1.66 | 1.055 | met
+t863-8192.jsonl fixed-1.70 | 0.862 | met
+t863-8192.jsonl fixed-1.74 | 0.610 | met
+
+pooled premium p99 ms: off 1629, hold-cap 514 (inadmissible), fixed-1.62 1917, fixed-1.66 1833, fixed-1.70 1870, fixed-1.74 1848
+verdict: not met: hold-cap was not admissible: a hold refusal in t862-8192.jsonl

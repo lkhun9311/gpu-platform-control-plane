@@ -139,9 +139,26 @@ spot_subnet_in_zone() {
 # Every parameter is explicit rather than read from the caller's environment, because the version of this
 # that lived inline captured a mutable SUBNET from its enclosing scope and could therefore launch into a
 # zone other than the one its log line named.
+# The tenth argument, a client token, is OPTIONAL and the only caller passing one today is
+# hack/m5c-gpu-session.sh.
+#
+# EC2 applies idempotency per client token, and because --subnet-id pins a zone that idempotency is zonal:
+# an identical retry in the SAME zone with the SAME token returns the instance that already exists instead
+# of launching a second one. That is the protection against the expensive failure -- AWS accepting a launch
+# whose response the caller never receives, which is indistinguishable from "nothing was created" and so
+# sends the zone loop on to buy a second instance.
+#
+# Omitted rather than defaulted when absent, because a token this function invented would be a different
+# token on every call and would therefore protect nothing, while looking like it did. The three runners that
+# do not pass one keep exactly their present behaviour, and their goldens say so.
 spot_launch() {
   local region="$1" ami="$2" instance_type="$3" subnet="$4" profile="$5" \
-        max_price="$6" volume_gb="$7" user_data_file="$8" tags="$9"
+        max_price="$6" volume_gb="$7" user_data_file="$8" tags="$9" client_token="${10:-}"
+  local token_arg=()
+  [ -n "$client_token" ] && token_arg=(--client-token "$client_token")
+  # ${arr[@]+"${arr[@]}"} rather than "${arr[@]}": callers run under `set -u`, where an empty array is an
+  # unbound variable on bash before 4.4. The command stays in one piece rather than being duplicated into a
+  # with-token and without-token copy, because a second copy is a second place to forget to fix.
   aws ec2 run-instances --region "$region" \
     --image-id "$ami" --instance-type "$instance_type" --subnet-id "$subnet" \
     --iam-instance-profile "Name=$profile" \
@@ -150,6 +167,7 @@ spot_launch() {
     --instance-market-options "{\"MarketType\":\"spot\",\"SpotOptions\":{\"MaxPrice\":\"$max_price\",\"SpotInstanceType\":\"one-time\"}}" \
     --user-data "file://$user_data_file" \
     --tag-specifications "$tags" \
+    ${token_arg[@]+"${token_arg[@]}"} \
     --query 'Instances[0].InstanceId' --output text
 }
 
@@ -167,6 +185,17 @@ spot_launch() {
 # It still returns 0. The caller arms this from an EXIT trap, and a trap that fails would overwrite the
 # run's own exit status with the cleanup's -- which is how a successful run would start reporting failure.
 # The report is the message, not the status.
+# How long to wait for an accepted terminate to show up as terminated, in seconds.
+#
+# 60 seconds and 12 tries were sized when `shutting-down` ended this wait immediately. It no longer does --
+# only `terminated` does -- and a real instance sits in shutting-down for minutes, so the old budget would
+# have made the NORMAL paid path print TERMINATION UNCONFIRMED and, through every wrapper's cleanup, exit 1.
+# Tightening the definition without moving the budget turns a success into a failure report, and a gate that
+# fires on success is the one people learn to ignore.
+SPOT_TERMINATE_WAIT="${SPOT_TERMINATE_WAIT:-300}"
+# And how many times to ask, so the transcript is the same on a fast machine as on a slow one.
+SPOT_TERMINATE_TRIES="${SPOT_TERMINATE_TRIES:-60}"
+
 spot_terminate() {
   local region="$1" instance_id="$2" err state
   [ -n "$instance_id" ] || return 0
@@ -178,8 +207,13 @@ spot_terminate() {
     # and both are worth saying out loud.
     state=$(spot_instance_state "$region" "$instance_id")
     case "$state" in
-      terminated|shutting-down)
+      terminated)
         printf 'it is %s anyway, so nothing is still billing\n' "$state" >&2 ;;
+      shutting-down)
+        # Not the same sentence as terminated, and it used to share one. An instance in shutting-down is
+        # still on the bill; this line told the reader they could walk away from it, while the code just
+        # below had already stopped accepting that state as done.
+        printf 'it is %s: still on the bill until it reaches terminated, so the wait below continues\n' "$state" >&2 ;;
       *)
         printf 'STILL %s AND BILLING. Terminate it by hand:\n  aws ec2 terminate-instances --region %s --instance-ids %s\n' \
           "$state" "$region" "$instance_id" >&2 ;;
@@ -190,8 +224,16 @@ spot_terminate() {
     # "TERMINATE FAILED ... STILL running AND BILLING" and then exited successfully. A wrapper checking the
     # exit status -- or a human reading only the last line -- learned nothing. An instance that is already
     # terminated or shutting down is not a failure and keeps returning 0; anything else does not.
+    # `shutting-down` is on the way, not there.
+    #
+    # It was accepted as success, and the wrapper then wrote `terminated` into termination.txt for an
+    # instance that was still shutting down -- a record that says something the API had not said yet. The
+    # state is reported and the caller keeps polling; only `terminated` ends this.
     case "$state" in
-      terminated | shutting-down) return 0 ;;
+      terminated) return 0 ;;
+      shutting-down)
+        spot_say "$instance_id is shutting-down; waiting for terminated"
+        ;;
       *) return 1 ;;
     esac
   fi
@@ -202,16 +244,35 @@ spot_terminate() {
   # The two differ exactly where it matters: an instance still `running` after an accepted call is the case a
   # paid session must not walk away from. So the state is polled, and an unconfirmed termination is a failure
   # -- `unknown` included, because that means the question could not be asked rather than answered.
-  local waited=0
-  while [ "$waited" -lt 12 ]; do
+  # A deadline in seconds, not a count of iterations, and no sleep after the last look.
+  #
+  # `waited -lt 12` plus `sleep 5` reads as a minute and is not: the queries in between were unbounded,
+  # and the twelfth iteration slept five seconds it could not use. SECONDS is the shell's own clock, so
+  # a slow API makes this loop end sooner rather than later -- which is the safe direction, because the
+  # caller treats an unconfirmed termination as a failure.
+  # Bounded by seconds AND by attempts, because only one of the two is a bound everywhere.
+  #
+  # On a real API the deadline is what ends this loop. Under the characterization stubs `sleep` records
+  # its argument and returns at once -- deliberately, so an hour of polling rehearses in milliseconds --
+  # and the same sixty seconds then bought TEN THOUSAND queries, a count that moved with the machine's
+  # speed and made the transcript non-deterministic: 10,354 one run and 10,314 the next. A golden that
+  # cannot be recorded twice is not a golden. The attempt cap makes the transcript the same everywhere
+  # without weakening the wall-clock bound that matters when money is running.
+  local deadline=$((SECONDS + SPOT_TERMINATE_WAIT)) attempts=0
+  while [ "$attempts" -lt "$SPOT_TERMINATE_TRIES" ]; do
+    attempts=$((attempts + 1))
     state=$(spot_instance_state "$region" "$instance_id")
     case "$state" in
-      terminated | shutting-down)
-        spot_say "$instance_id is $state"
+      terminated)
+        spot_say "$instance_id is terminated"
         return 0
         ;;
+      shutting-down)
+        # Recorded as progress, not as the answer: an instance in this state is still on the bill.
+        spot_say "$instance_id is shutting-down"
+        ;;
     esac
-    waited=$((waited + 1))
+    [ "$SECONDS" -ge "$deadline" ] && break
     sleep 5
   done
   printf 'TERMINATION UNCONFIRMED for %s: still %s after an accepted terminate call. Check it by hand:\n  aws ec2 describe-instances --region %s --instance-ids %s\n' \
@@ -220,9 +281,79 @@ spot_terminate() {
 }
 
 # spot_instance_state echoes an instance's state, or "unknown".
+# spot_reconcile_token asks AWS what a launch whose answer was lost actually created, and terminates it.
+#
+# This is the one recovery path that can act on an instance the caller never received an id for. It moved here
+# from hack/m5c-gpu-session.sh, where it was deliberately kept local while it was unproven; four runners need
+# it now, and four copies of termination-sensitive filtering are more dangerous than one implementation. What
+# stays with each caller is every policy decision: generating the token, holding the uncertain-token state,
+# classifying an error, and arming the traps. This function decides nothing -- it answers one question about
+# one token.
+#
+# THE TOKEN IS THE AUTHORITY, AND NOTHING ELSE IS. A client token names one launch attempt. A tag does not:
+# a run nonce is short, is often overridable from the environment, and a nonce-wide sweep can terminate an
+# instance belonging to a session still running. So the query filters on the token alone and never falls back
+# to tags, to a name, or to an unfiltered describe. A caller that has no token has nothing this function can
+# safely act on.
+#
+# An empty token is therefore a REFUSAL, not a no-op. The version in m5c returned success on one, which is
+# the shape this repository has been bitten by most: a guard that cannot answer, passing. With four callers
+# the same silence would mean "reconciled" to whichever one forgot to pass the token.
+#
+# EC2 reads are eventually consistent, so an empty answer is polled rather than believed at once, and an
+# answer that is still empty at the end is reported as unresolved -- not as "nothing was created".
+#
+# Diagnostics go to stderr because stdout is reserved for return data everywhere in this file; this function
+# returns none, and a caller capturing it must still get nothing.
+spot_reconcile_token() {
+  local region="$1" token="$2" subnet="$3" tries="$4" i found="" iid rc=0
+  [ -n "$token" ] || {
+    printf 'spot_reconcile_token was called with no token, so it cannot say what a lost launch created. Refusing rather than reporting success.\n' >&2
+    return 1
+  }
+  # The subnet is required for the same reason the token is: it is what makes the query zonal.
+  #
+  # EC2 applies client-token idempotency within the zone the subnet pins, so a token query with no subnet asks
+  # a region-wide question and can match an instance in a zone this caller never launched into. An argument
+  # that is missing must not widen the search -- it must stop it.
+  [ -n "$subnet" ] || {
+    printf 'spot_reconcile_token was called with no subnet, so its token query would be region-wide. Refusing rather than searching wider than the launch.\n' >&2
+    return 1
+  }
+  spot_say "reconciling the launch token $token: asking AWS what it actually created"
+  for (( i = 1; i <= tries; i++ )); do
+    found=$(aws ec2 describe-instances --region "$region" \
+      --filters "Name=client-token,Values=$token" \
+                "Name=subnet-id,Values=$subnet" \
+                "Name=instance-state-name,Values=pending,running,stopping,stopped" \
+      --cli-connect-timeout 5 --cli-read-timeout 10 \
+      --query 'Reservations[].Instances[].InstanceId' --output text 2>/dev/null) || found=""
+    [ -n "$found" ] && [ "$found" != "None" ] && break
+    found=""
+    sleep $(( i < 4 ? i : 4 ))
+  done
+  if [ -z "$found" ]; then
+    # Not the same sentence as "nothing was created". The read may have failed, and saying otherwise would
+    # be the reassurance this whole path exists to refuse.
+    printf 'LAUNCH UNRESOLVED for token %s: %d reads found no instance, which is not proof that none exists. Check by hand:\n  aws ec2 describe-instances --region %s --filters "Name=client-token,Values=%s" "Name=subnet-id,Values=%s"\n' \
+      "$token" "$tries" "$region" "$token" "$subnet" >&2
+    return 1
+  fi
+  for iid in $found; do
+    spot_say "the lost launch created $iid; terminating it"
+    spot_terminate "$region" "$iid" || rc=1
+  done
+  return "$rc"
+}
+
 spot_instance_state() {
   local region="$1" instance_id="$2"
+  # Per-call timeouts, because a loop deadline does not bound a call that never returns.
+  #
+  # The polling below was described as a 60-second bound and was not one: twelve iterations of an `aws` call
+  # with no timeout is twelve unbounded waits. These two flags are what make the deadline mean seconds.
   aws ec2 describe-instances --region "$region" --instance-ids "$instance_id" \
+    --cli-connect-timeout 5 --cli-read-timeout 10 \
     --query 'Reservations[0].Instances[0].State.Name' --output text 2>/dev/null || echo unknown
 }
 
@@ -252,6 +383,39 @@ spot_wait_for_marker() {
       terminated|shutting-down) printf '%s' "$state"; return 2 ;;
     esac
     sleep "$interval"
+  done
+  return 3
+}
+
+# spot_wait_for_marker_until is spot_wait_for_marker against a wall-clock deadline, not a count of attempts.
+#
+# Every AWS call runs under `timeout` with the seconds left, never fewer than 1: GNU timeout reads 0 as no limit,
+# so a timeout "equal to the time remaining" would be unbounded exactly at the deadline. The state probe keeps its
+# own per-call CLI timeouts. max_attempts still caps the loop, because under a stubbed sleep no time passes and a
+# deadline alone would never be reached. Endings and statuses are spot_wait_for_marker's: 0, 2 with the state,
+# and 3 when the deadline or the cap came first.
+spot_wait_for_marker_until() {
+  local region="$1" bucket="$2" key="$3" instance_id="$4" deadline="$5" interval="$6" max_attempts="$7"
+  local n left state
+  for n in $(seq 1 "$max_attempts"); do
+    left=$(( deadline - $(date +%s) ))
+    [ "$left" -gt 0 ] || return 3
+    if timeout "$left" aws s3api head-object --bucket "$bucket" --key "$key" >/dev/null 2>&1; then
+      return 0
+    fi
+    # The probe is bounded as a whole by the time left, not only per attempt by the CLI's own timeouts, which a
+    # retrying call can repeat past the deadline (review of 9496808).
+    left=$(( deadline - $(date +%s) ))
+    [ "$left" -gt 0 ] || return 3
+    state=$(timeout "$left" aws ec2 describe-instances --region "$region" --instance-ids "$instance_id" \
+      --cli-connect-timeout 5 --cli-read-timeout 10 \
+      --query 'Reservations[0].Instances[0].State.Name' --output text 2>/dev/null || echo unknown)
+    case "$state" in
+      terminated|shutting-down) printf '%s' "$state"; return 2 ;;
+    esac
+    left=$(( deadline - $(date +%s) ))
+    [ "$left" -gt 0 ] || return 3
+    sleep "$(( interval < left ? interval : left ))"
   done
   return 3
 }

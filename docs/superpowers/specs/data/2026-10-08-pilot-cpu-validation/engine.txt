@@ -1,0 +1,2 @@
+vllm/vllm-openai-cpu:v0.27.1-x86_64
+Qwen/Qwen2.5-0.5B-Instruct

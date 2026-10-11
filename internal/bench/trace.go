@@ -53,7 +53,7 @@ type TraceRow struct {
 	//
 	// The design defines the admission-match criterion over EXACT target-tokenizer input tokens, and every
 	// run so far has computed it over ceil(chars/4) instead -- a quantity the project's own calibration
-	// records as 36 percent low on a short prompt and 23 percent high on a long one. So the pre-registered
+	// records as 36 percent low on a short prompt and 30 percent high on a long one (10,000 estimated against 7,695 measured). So the pre-registered
 	// criterion has never actually been evaluated.
 	//
 	// It lives on the trace rather than only on the response because a REFUSED request never reaches the
@@ -64,9 +64,71 @@ type TraceRow struct {
 	// Zero means not measured, and a report refuses the admission-match check rather than falling back to
 	// the estimate, since falling back is how the criterion came to be unevaluated in the first place.
 	ExactInputTokens int `json:"exactInputTokens,omitempty"`
+	// MinOutputTokens is the output the engine must produce before it may stop at end-of-sequence.
+	//
+	// Only session 3's stagger decoders carry it, set equal to their cap so that every decoder decodes for its full window.
+	// Omitted when zero, so every trace written before it existed keeps its bytes and its pinned checksum.
+	MinOutputTokens int `json:"minOutputTokens,omitempty"`
+}
+
+// FixOutputAtCap sets every row's minimum output to its cap, so the engine cannot stop a request early.
+//
+// A row with no cap is refused rather than given a minimum of zero, which would mean "no minimum" on the wire.
+func FixOutputAtCap(rows []TraceRow) error {
+	for i := range rows {
+		if rows[i].MaxOutputTokens <= 0 {
+			return fmt.Errorf("row %d has no output cap, so its output cannot be fixed at one", rows[i].Index)
+		}
+		rows[i].MinOutputTokens = rows[i].MaxOutputTokens
+	}
+	return nil
+}
+
+// StampFrozenExactTokens sets every row's ExactInputTokens from frozen, keyed by prompt length in characters.
+//
+// A length the table does not carry is refused: a row stamped with zero would read as "not measured", and one
+// stamped with a guess would be the estimate this field exists to replace.
+func StampFrozenExactTokens(rows []TraceRow, frozen map[int]int) error {
+	for i := range rows {
+		n, ok := frozen[rows[i].PromptLenChars]
+		if !ok || n <= 0 {
+			return fmt.Errorf("row %d is a %d-character prompt and no exact token count is frozen for that length", rows[i].Index, rows[i].PromptLenChars)
+		}
+		rows[i].ExactInputTokens = n
+	}
+	return nil
 }
 
 // TenantSpec describes one tenant's share of a trace and the shape of its requests.
+// PromptLenCharsByTenant reports the prompt length each tenant's rows carry, in characters.
+//
+// It exists so a manifest can say what load it replayed. Two runs of one study, at the same rate and the
+// same seed, sent premium prompts of 200 and 1,174 characters -- 50 against 294 estimated tokens, a 5.9x
+// difference in prefill -- and produced headline ratios of 27.2x and 23.0x. Nothing on either manifest
+// said so: traceChecksum made the difference detectable (it is the sha256 of the trace, and the trace
+// records lengths) but not legible, and promptCorpusSHA pins the TEXT, which was identical.
+//
+// Characters rather than estimated tokens, because this is the quantity the generator was CONFIGURED with
+// and ceil(chars/4) has no inverse.
+//
+// A tenant whose rows disagree returns -1 for that tenant rather than a mean. Every row of one tenant in a
+// frozen trace is drawn at one fixed length (TenantSpec.PromptLenChars), so a disagreement means the trace
+// is not the one the study froze -- and averaging it away is how that would go unnoticed.
+func PromptLenCharsByTenant(rows []TraceRow) map[string]int {
+	out := map[string]int{}
+	for _, r := range rows {
+		seen, ok := out[r.Tenant]
+		switch {
+		case !ok:
+			out[r.Tenant] = r.PromptLenChars
+		case seen == -1:
+		case seen != r.PromptLenChars:
+			out[r.Tenant] = -1
+		}
+	}
+	return out
+}
+
 type TenantSpec struct {
 	// Tenant is the identity the gateway resolves; it must map to a premium or standard tier through the gateway's policy chain.
 	Tenant string

@@ -9,7 +9,7 @@
 set -uo pipefail
 
 cd "$(dirname "$0")/.."
-export GOTOOLCHAIN=go1.26.0
+export GOTOOLCHAIN=go1.26.9
 
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"; [ -n "${STUB_PID:-}" ] && kill "$STUB_PID" 2>/dev/null' EXIT
@@ -34,16 +34,16 @@ for arm in R1 off static-cap kv-aware; do
     --manifest "$WORK/manifest-$arm.yaml" \
     --target "http://127.0.0.1:8091" \
     --api-keys "premium-1=premium-key,standard-noisy=standard-key" \
-    --raw-out "$WORK/raw-$arm.jsonl" || fail "replay $arm"
-  [ -s "$WORK/raw-$arm.jsonl" ] || fail "no raw evidence for $arm"
+    --raw-out "$WORK/raw-$arm-1.jsonl" || fail "replay $arm"
+  [ -s "$WORK/raw-$arm-1.jsonl" ] || fail "no raw evidence for $arm"
 done
 
 echo "== render report =="
 "$WORK/benchharness" report \
-  --raw "$WORK/raw-R1.jsonl" \
-  --raw "$WORK/raw-off.jsonl" \
-  --raw "$WORK/raw-static-cap.jsonl" \
-  --raw "$WORK/raw-kv-aware.jsonl" \
+  --raw "$WORK/raw-R1-1.jsonl" \
+  --raw "$WORK/raw-off-1.jsonl" \
+  --raw "$WORK/raw-static-cap-1.jsonl" \
+  --raw "$WORK/raw-kv-aware-1.jsonl" \
   --out "$WORK/report.txt" || fail "report"
 
 echo

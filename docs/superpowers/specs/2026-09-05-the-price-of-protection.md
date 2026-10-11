@@ -66,9 +66,19 @@ invisible for four paid runs". That is false, and it is worth correcting precise
 work that came after.
 
 Of the three pre-registered checks, one was not a tail ratio. `admission match` compares the two contended
-arms' admitted-work fractions, `|w_B − w_C| / w_C`, and it did not merely fire — it measured the deletion
-exactly. `static-cap` admitted **0.000** of the eligible work against `kv-aware`'s 0.847, which is where
-the reported 1.000 comes from. The run was declared INVALID and no protection claim was made.
+arms' admitted-work fractions, `|w_B − w_C| / w_C`, and it did fire: `static-cap` admitted **0.000** of the
+eligible work against `kv-aware`'s 0.847. The run was declared INVALID and no protection claim was made.
+
+**Second correction, 2026-09-28.** The sentence above used to say the check "measured the deletion exactly".
+It did not. Those two fractions are **estimate-weighted**, and the criterion this design registers is defined
+over the served tokenizer's own count: `exact target-tokenizer input tokens ADMITTED / OFFERED`. The report's
+`admittedWorkFraction` divided the estimated totals while `ArmSummary` already carried the exact ones — the
+values were collected, validated, and then discarded by the one function that decided the verdict. The stored
+summaries for this run show why it matters: every arm carries `OfferedExactTokens: 0` and
+`ExactTokensMissing: 1788`, so in the registered unit the criterion was **not evaluable**, not measured. What
+the estimate-weighted accounting did establish is real and unchanged — B shed the eligible population
+completely — and that is what the paragraph now claims. The recorded latencies, refusals and the INVALID
+verdict are unaffected; the run was already invalid for the missing exact counts.
 
 What that check could not do is the thing this run is about. It gates the C-against-B comparison rather
 than scoring `static-cap` as a candidate answer, so nothing contradicted the true and entirely misleading

@@ -109,8 +109,14 @@ READY=$(kubectl -n "$SYS" get deploy gpu-platform-control-plane-controller-manag
 # there afterwards" is equally explained by the node never having been a candidate.
 say "scheduling a canary onto $NODE to prove it was a candidate"
 kubectl -n "$CANARY_NS" delete pod chaos-canary-pre --ignore-not-found >/dev/null 2>&1
+# nodeSelector, not nodeName.
+#
+# Setting nodeName skips the scheduler entirely -- the kubelet on that node simply takes the Pod, taints and
+# all. So the previous version proved the kubelet was alive and then said "the node was schedulable", which
+# is a different claim and the one this canary exists to make. A nodeSelector leaves the decision with the
+# scheduler and pins it to this node, so the Pod runs only if the scheduler would have placed it here.
 kubectl -n "$CANARY_NS" run chaos-canary-pre --image=busybox --restart=Never \
-  --overrides="{\"spec\":{\"nodeName\":\"$NODE\",\"containers\":[{\"name\":\"c\",\"image\":\"busybox\",\"command\":[\"sleep\",\"600\"]}]}}" \
+  --overrides="{\"spec\":{\"nodeSelector\":{\"kubernetes.io/hostname\":\"$NODE\"},\"containers\":[{\"name\":\"c\",\"image\":\"busybox\",\"command\":[\"sleep\",\"600\"]}]}}" \
   >/dev/null 2>&1 || die "could not create the pre-fault canary"
 for _ in $(seq 60); do
   PHASE=$(kubectl -n "$CANARY_NS" get pod chaos-canary-pre -o jsonpath='{.status.phase}' 2>/dev/null)

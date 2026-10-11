@@ -224,12 +224,20 @@ spec:
                 type: string
               runningObservedAt:
                 description: |-
-                  runningObservedAt is when this controller first saw the Job report an active Pod.
+                  runningObservedAt is when this controller first saw the Job report a ready Pod.
 
                   Named for what it is. Unlike admittedAt it is not a stamp written by the component that acted: it is
                   this controller's observation, and it carries the watch lag between the kubelet starting a Pod and
                   this reconcile seeing it. The two ends of admitToRunningSeconds are therefore read on different
                   clocks, which is the same thing queuelab reports on two clocks and for the same reason.
+
+                  It used to say "an active Pod", and that was the defect, not just the wording: the phase read
+                  .status.active, which counts PENDING Pods, so this field was stamped for Pods no node had accepted.
+                  It now follows .status.ready, which counts active Pods whose Ready condition is true. That is
+                  stricter than "scheduled", so the lag this carries includes readiness as well as the watch -- and a
+                  job that finishes without ever being seen ready records no time here at all, with the
+                  AdmitToRunningObserved condition saying RunningNotObserved rather than leaving the field silently
+                  empty.
                 format: date-time
                 type: string
             type: object

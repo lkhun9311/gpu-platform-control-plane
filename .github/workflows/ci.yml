@@ -35,6 +35,39 @@ jobs:
       - name: Validate infra, manifests, and workflows
         run: make infra-validate
 
+  # Every image this repository publishes, scanned before anything can push it.
+  #
+  # build-push runs only on main with infrastructure enabled, so a scan placed there would almost never run.
+  # This job builds the same Dockerfiles on every push and pull request, and build-push needs it.
+  # --exit-code 1 is the gate: Trivy exits 0 on findings unless told otherwise. Checked on 2026-10-07: these
+  # images scan clean, and the gateway built from the tree before 9800199 fails with 22 HIGH.
+  image-scan:
+    name: Image scan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      TRIVY_IMAGE: aquasec/trivy:0.75.0@sha256:af6acf9a6b85dfe389a1941505c0ce9efef52a4719635e1a962f022a3d855daa
+    steps:
+      - name: Clone the code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Build the images
+        run: |
+          docker build -f Dockerfile -t scan/operator:ci .
+          docker build -f Dockerfile.gateway -t scan/gateway:ci .
+
+      # Fixable CRITICAL and HIGH only: an unfixed finding cannot be acted on by a rebuild, and failing on it
+      # would teach the job to be ignored. The OS packages and the Go binary are both scanned.
+      - name: Scan the images
+        run: |
+          for img in scan/operator:ci scan/gateway:ci; do
+            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock "$TRIVY_IMAGE" \
+              image --exit-code 1 --severity CRITICAL,HIGH --ignore-unfixed --no-progress "$img"
+          done
+
   build-push:
     name: Build and push operator image
     runs-on: ubuntu-latest
@@ -42,7 +75,7 @@ jobs:
     #
     # The provisioning gate skips this job cleanly until AWS exists.
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.INFRA_ENABLED == 'true'
-    needs: infra-validate
+    needs: [infra-validate, image-scan]
     timeout-minutes: 30
     permissions:
       contents: write

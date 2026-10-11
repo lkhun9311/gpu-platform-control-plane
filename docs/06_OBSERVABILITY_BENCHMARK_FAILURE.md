@@ -51,7 +51,7 @@ This is the evidence center of the project — the proof that the platform actua
 |----------------------|-----------------|---------------------------------------------------------------------------------------------------------------|
 | GPU                  | DCGM exporter   | util, memory, XID, ECC, temp — util is a periodic sample, see the blind spot below                            |
 | Serving              | vLLM metrics    | TTFT, TPOT, queue depth, KV cache                                                                             |
-| Gateway              | Prometheus      | latency, status counts, admission decisions, fallbacks, upstream errors, backend KV telemetry — 13 series     |
+| Gateway              | Prometheus      | latency, status counts, admission decisions and holds, fallbacks, upstream errors, backend KV telemetry — 19 series |
 | Kubernetes           | events / logs   | pod kill, pending, OOM                                                                                        |
 | System (exploratory) | eBPF            | runqueue, syscall/ioctl, IO wait — secondary signal; GPU contention mostly does not surface here (doc 04, S6) |
 | Profiling            | Nsight Systems  | CUDA timeline (optional)                                                                                      |
@@ -67,7 +67,18 @@ The eBPF and Nsight layers require a real GPU node and are **not implemented at 
 
 | ID     | Scenario           | Expected evidence                                            |
 |--------|--------------------|--------------------------------------------------------------|
-| FR-001 | quota exceeded     | HTTP 429, event, `workload_runs.failure_reason=quota_exceed` |
+| FR-001 | quota exceeded     | HTTP 429 with `error.code=rate_limited`, `gpuaas_gateway_rate_limited_total{tenant}` delta ⚠️ |
+
+⚠️ **FR-001 was corrected on 2026-09-27, and two parts of it are still unbuilt.** The row used to promise an
+event and `workload_runs.failure_reason=quota_exceed`. No such code exists: the gateway refuses with
+`rate_limited` and counts `gpuaas_gateway_rate_limited_total` per tenant, and `quota_exceed` appears nowhere in
+this repository. Nor could the operations ledger supply it — `WorkloadRun`'s scenario enum admits only
+`ServingPodKilled` and `DegradedNode`, so a quota refusal is not a run this API can perform, and adding the
+enum value would create one that can never reach a verdict.
+
+Still missing, named here rather than implied: the refusal is **not recorded durably anywhere** — it exists in
+the response the client received and in a counter that resets with the process — and no Kubernetes event is
+emitted for it. Closing that is a gateway change, not a storage one.
 | FR-002 | serving pod killed | gateway error spike, recovery time                           |
 | FR-003 | GPU OOM            | pod failure, NodeHealth / workload failure                   |
 | FR-004 | degraded node      | scheduling reject / avoidance (taint)                        |

@@ -50,6 +50,95 @@ func TestTheWaitIsRecordedOnlyWhenBothEndsWereWatched(t *testing.T) {
 	}
 }
 
+// TestAJobThatFinishedWithoutEverRunningSaysSo closes the silence the ready-count phase introduced.
+//
+// The phase enters Running on `.status.ready`, so a Pod behind a failing readiness probe, or one short
+// enough to start and finish between two reconciles, never produces that transition. Every other refusal
+// fires on the way INTO Running, so such a job used to end with an empty admitToRunningSeconds, no counter
+// and no condition -- while the field's own documentation promises a condition saying why.
+func TestAJobThatFinishedWithoutEverRunningSaysSo(t *testing.T) {
+	var s platformv1.MLTrainingJobStatus
+
+	admitted := at(0)
+	recordAdmitToRunning(&s, mltjPhasePending, mltjPhaseAdmitted, &admitted, at(1))
+
+	out := recordAdmitToRunning(&s, mltjPhaseAdmitted, mltjPhaseSucceeded, &admitted, at(9))
+	if out.Observed {
+		t.Fatal("a window was reported observed for a job that was never seen running")
+	}
+	if out.UnobservedReason != reasonRunningNotObserved {
+		t.Errorf("reason = %q, want %q", out.UnobservedReason, reasonRunningNotObserved)
+	}
+	if s.AdmitToRunningSeconds != "" {
+		t.Errorf("admitToRunningSeconds = %q, want empty", s.AdmitToRunningSeconds)
+	}
+	c := conditionOf(&s)
+	if c == nil || c.Status != metav1.ConditionFalse || c.Reason != reasonRunningNotObserved {
+		t.Fatalf("condition = %+v, want False/%s", c, reasonRunningNotObserved)
+	}
+	if c.Message == "" {
+		t.Error("the condition carries no message, so the tenant is told there is a reason and not what it is")
+	}
+}
+
+// TestAFailedJobThatNeverRanSaysSoToo is the same rule on the other terminal phase.
+func TestAFailedJobThatNeverRanSaysSoToo(t *testing.T) {
+	var s platformv1.MLTrainingJobStatus
+
+	admitted := at(0)
+	recordAdmitToRunning(&s, mltjPhasePending, mltjPhaseAdmitted, &admitted, at(1))
+
+	out := recordAdmitToRunning(&s, mltjPhaseAdmitted, mltjPhaseFailed, &admitted, at(4))
+	if out.UnobservedReason != reasonRunningNotObserved {
+		t.Errorf("reason = %q, want %q", out.UnobservedReason, reasonRunningNotObserved)
+	}
+}
+
+// TestAMeasuredWindowIsNotOverwrittenWhenTheJobFinishes guards the branch from firing on the normal end.
+//
+// Succeeded follows Running for every job that worked. If the terminal branch did not check
+// RunningObservedAt it would replace a True/Observed condition with a refusal on the very jobs that were
+// measured correctly -- turning the fix into a way to lose good measurements.
+func TestAMeasuredWindowIsNotOverwrittenWhenTheJobFinishes(t *testing.T) {
+	var s platformv1.MLTrainingJobStatus
+
+	admitted := at(0)
+	recordAdmitToRunning(&s, mltjPhasePending, mltjPhaseAdmitted, &admitted, at(1))
+	recordAdmitToRunning(&s, mltjPhaseAdmitted, mltjPhaseRunning, &admitted, at(3))
+
+	out := recordAdmitToRunning(&s, mltjPhaseRunning, mltjPhaseSucceeded, &admitted, at(30))
+	if out.UnobservedReason != "" {
+		t.Errorf("reason = %q, want empty for a window that was observed", out.UnobservedReason)
+	}
+	if s.AdmitToRunningSeconds != "3.000" {
+		t.Errorf("admitToRunningSeconds = %q, want the measured \"3.000\" left alone", s.AdmitToRunningSeconds)
+	}
+	if c := conditionOf(&s); c == nil || c.Status != metav1.ConditionTrue || c.Reason != "Observed" {
+		t.Errorf("condition = %+v, want the True/Observed condition left standing", c)
+	}
+}
+
+// TestAnEarlierMoreSpecificRefusalSurvivesTheTerminalPhase keeps the reasons from being flattened.
+//
+// KueueStampMissing says the window had no start; RunningNotObserved says it had no end. A job with the
+// first then reaching Succeeded must keep the first, the same way the Running branch already leaves it.
+func TestAnEarlierMoreSpecificRefusalSurvivesTheTerminalPhase(t *testing.T) {
+	var s platformv1.MLTrainingJobStatus
+
+	// Admitted with no usable Kueue stamp: the window has no start, and that is recorded.
+	if out := recordAdmitToRunning(&s, mltjPhasePending, mltjPhaseAdmitted, nil, at(1)); out.UnobservedReason != reasonKueueStampMissing {
+		t.Fatalf("setup reason = %q, want %q", out.UnobservedReason, reasonKueueStampMissing)
+	}
+
+	out := recordAdmitToRunning(&s, mltjPhaseAdmitted, mltjPhaseSucceeded, nil, at(9))
+	if out.UnobservedReason != "" {
+		t.Errorf("reason = %q, want empty so the earlier refusal is not re-counted", out.UnobservedReason)
+	}
+	if c := conditionOf(&s); c == nil || c.Reason != reasonKueueStampMissing {
+		t.Errorf("condition reason = %+v, want the earlier %s left standing", c, reasonKueueStampMissing)
+	}
+}
+
 // TestAControllerThatMissedAdmissionRefusesToInventTheWait is the case the whole design exists for.
 //
 // Kueue's admission stamp survives on the Workload, so subtracting it from now would always produce a

@@ -1,7 +1,15 @@
 # queuelab workload: make occupancy real, then evidenced, then recoverable
 
-**Status:** design, not yet implemented. Written before the real-GPU session, because the defect it addresses
-is invisible on the CPU-simulated cluster and becomes uninterpretable-and-expensive on real hardware.
+**Status (corrected 2026-09-26):** Stages A, B and C are implemented; this header said "not yet implemented"
+and contradicted Stage B's own `**Status: implemented.**` ninety-nine lines below it. A reader who trusted
+line 3 concluded the lab still measures `sleep`.
+
+Stage A is `internal/queuelab/submit.go` — the PTX `burn` kernel and the `iters=… acc=…` it reports. Stage B
+is the progress line `submit.go` emits and `internal/queuelab/provenance.go` parses. Stage C is the
+`resumed=` and `saved=` fields the same pair carry.
+
+Written before the real-GPU session, because the defect it addresses is invisible on the CPU-simulated
+cluster and becomes uninterpretable-and-expensive on real hardware.
 
 ## The problem in one sentence
 

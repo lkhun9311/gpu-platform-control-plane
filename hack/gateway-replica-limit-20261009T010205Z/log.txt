@@ -1,0 +1,389 @@
+commit 1240e3449a733dd0529022a8efdd63ea0b6a3873, dirty files: 3
+== build
++ make docker-build IMG=controller:gwlimit
+docker build -t controller:gwlimit .
+DEPRECATED: The legacy builder is deprecated and will be removed in a future release.
+            Install the buildx component to build images with BuildKit:
+            https://docs.docker.com/go/buildx/
+
+Sending build context to Docker daemon  2.317MB
+Step 1/14 : FROM golang:1.26 AS builder
+ ---> eb36c1664dd9
+Step 2/14 : ARG TARGETOS
+ ---> Using cache
+ ---> a47aa834d9b9
+Step 3/14 : ARG TARGETARCH
+ ---> Using cache
+ ---> 670f98f0bfc0
+Step 4/14 : WORKDIR /workspace
+ ---> Using cache
+ ---> b46b7aa71548
+Step 5/14 : COPY go.mod go.mod
+ ---> Using cache
+ ---> 5292a71491b3
+Step 6/14 : COPY go.sum go.sum
+ ---> Using cache
+ ---> 7b68e32eb0eb
+Step 7/14 : RUN go mod download
+ ---> Using cache
+ ---> a0d132be0126
+Step 8/14 : COPY . .
+ ---> Using cache
+ ---> fb2e8666954d
+Step 9/14 : RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o manager cmd/main.go
+ ---> Using cache
+ ---> b755b4e18e9a
+Step 10/14 : FROM gcr.io/distroless/static:nonroot
+ ---> e2e927ec666b
+Step 11/14 : WORKDIR /
+ ---> Using cache
+ ---> cb52bf1ed03b
+Step 12/14 : COPY --from=builder /workspace/manager .
+ ---> Using cache
+ ---> 6cb50c862c01
+Step 13/14 : USER 65532:65532
+ ---> Using cache
+ ---> ccb53f3f7b44
+Step 14/14 : ENTRYPOINT ["/manager"]
+ ---> Using cache
+ ---> 47c859c433af
+Successfully built 47c859c433af
+Successfully tagged controller:gwlimit
++ make docker-build-gateway GATEWAY_IMG=gateway:gwlimit
+docker build -t gateway:gwlimit -f Dockerfile.gateway .
+DEPRECATED: The legacy builder is deprecated and will be removed in a future release.
+            Install the buildx component to build images with BuildKit:
+            https://docs.docker.com/go/buildx/
+
+Sending build context to Docker daemon  2.317MB
+Step 1/14 : FROM golang:1.26 AS builder
+ ---> eb36c1664dd9
+Step 2/14 : ARG TARGETOS
+ ---> Using cache
+ ---> a47aa834d9b9
+Step 3/14 : ARG TARGETARCH
+ ---> Using cache
+ ---> 670f98f0bfc0
+Step 4/14 : WORKDIR /workspace
+ ---> Using cache
+ ---> b46b7aa71548
+Step 5/14 : COPY go.mod go.mod
+ ---> Using cache
+ ---> 5292a71491b3
+Step 6/14 : COPY go.sum go.sum
+ ---> Using cache
+ ---> 7b68e32eb0eb
+Step 7/14 : RUN go mod download
+ ---> Using cache
+ ---> a0d132be0126
+Step 8/14 : COPY . .
+ ---> Using cache
+ ---> fb2e8666954d
+Step 9/14 : RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o gateway cmd/gateway/main.go
+ ---> Using cache
+ ---> 33a3cd7f6068
+Step 10/14 : FROM gcr.io/distroless/static:nonroot
+ ---> e2e927ec666b
+Step 11/14 : WORKDIR /
+ ---> Using cache
+ ---> cb52bf1ed03b
+Step 12/14 : COPY --from=builder /workspace/gateway .
+ ---> Using cache
+ ---> b07f22dbcb87
+Step 13/14 : USER 65532:65532
+ ---> Using cache
+ ---> 2716a16b7ca9
+Step 14/14 : ENTRYPOINT ["/gateway"]
+ ---> Using cache
+ ---> 3847bc2b7b60
+Successfully built 3847bc2b7b60
+Successfully tagged gateway:gwlimit
++ make docker-build-benchharness BENCHHARNESS_IMG=benchharness:gwlimit
+docker build -t benchharness:gwlimit -f Dockerfile.benchharness .
+DEPRECATED: The legacy builder is deprecated and will be removed in a future release.
+            Install the buildx component to build images with BuildKit:
+            https://docs.docker.com/go/buildx/
+
+Sending build context to Docker daemon  2.317MB
+Step 1/14 : FROM golang:1.26 AS builder
+ ---> eb36c1664dd9
+Step 2/14 : ARG TARGETOS
+ ---> Using cache
+ ---> a47aa834d9b9
+Step 3/14 : ARG TARGETARCH
+ ---> Using cache
+ ---> 670f98f0bfc0
+Step 4/14 : WORKDIR /workspace
+ ---> Using cache
+ ---> b46b7aa71548
+Step 5/14 : COPY go.mod go.mod
+ ---> Using cache
+ ---> 5292a71491b3
+Step 6/14 : COPY go.sum go.sum
+ ---> Using cache
+ ---> 7b68e32eb0eb
+Step 7/14 : RUN go mod download
+ ---> Using cache
+ ---> a0d132be0126
+Step 8/14 : COPY . .
+ ---> Using cache
+ ---> fb2e8666954d
+Step 9/14 : RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o benchharness ./cmd/benchharness
+ ---> Using cache
+ ---> e07e2d1b3e4c
+Step 10/14 : FROM gcr.io/distroless/static:nonroot
+ ---> e2e927ec666b
+Step 11/14 : WORKDIR /
+ ---> Using cache
+ ---> cb52bf1ed03b
+Step 12/14 : COPY --from=builder /workspace/benchharness .
+ ---> Using cache
+ ---> dc1776d35549
+Step 13/14 : USER 65532:65532
+ ---> Using cache
+ ---> 27994761d7a8
+Step 14/14 : ENTRYPOINT ["/benchharness", "stub-serve"]
+ ---> Using cache
+ ---> 1de9ded3c28a
+Successfully built 1de9ded3c28a
+Successfully tagged benchharness:gwlimit
+== cluster gwlimit
++ kind create cluster --name gwlimit --config /tmp/tmp.iFwXhvaIKk/kind.yaml
+Creating cluster "gwlimit" ...
+ • Ensuring node image (kindest/node:v1.37.0) 🖼️  ...
+ ✓ Ensuring node image (kindest/node:v1.37.0) 🖼️
+ • Preparing nodes 📦   ...
+ ✓ Preparing nodes 📦 
+ • Writing configuration 📜  ...
+ ✓ Writing configuration 📜
+ • Starting control-plane 🕹️  ...
+ ✓ Starting control-plane 🕹️
+ • Installing CNI 🔌  ...
+ ✓ Installing CNI 🔌
+ • Installing StorageClass 💾  ...
+ ✓ Installing StorageClass 💾
+Set kubectl context to "kind-gwlimit"
+You can now use your cluster with:
+
+kubectl cluster-info --context kind-gwlimit
+
+Have a question, bug, or feature request? Let us know! https://kind.sigs.k8s.io/#community 🙂
++ kind load docker-image controller:gwlimit --name gwlimit
+Image: "controller:gwlimit" with ID "sha256:47c859c433afef2c862e790522ae646d76de87b9d3b99820a1c9ef94a3cb2cff" not yet present on node "gwlimit-control-plane", loading...
++ kind load docker-image gateway:gwlimit --name gwlimit
+Image: "gateway:gwlimit" with ID "sha256:3847bc2b7b60bc9ec5b842ad40f6f09c590a65e179e5cc427f4e0676508c4e2d" not yet present on node "gwlimit-control-plane", loading...
++ kind load docker-image benchharness:gwlimit --name gwlimit
+Image: "benchharness:gwlimit" with ID "sha256:1de9ded3c28abefc3e929174328d5c49473174c9793c111bb5788e890a170f62" not yet present on node "gwlimit-control-plane", loading...
+== kueue, CRDs, operator, gateway
++ k apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/v0.18.3/manifests.yaml
+namespace/kueue-system serverside-applied
+customresourcedefinition.apiextensions.k8s.io/admissionchecks.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/clusterqueues.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/cohorts.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/localqueues.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/multikueueclusters.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/multikueueconfigs.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/provisioningrequestconfigs.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/resourceflavors.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/topologies.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/workloadpriorityclasses.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/workloads.kueue.x-k8s.io serverside-applied
+serviceaccount/kueue-controller-manager serverside-applied
+role.rbac.authorization.k8s.io/kueue-leader-election-role serverside-applied
+role.rbac.authorization.k8s.io/kueue-manager-clusterprofiles-role serverside-applied
+role.rbac.authorization.k8s.io/kueue-manager-secrets-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-batch-admin-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-batch-user-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-clusterqueue-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-clusterqueue-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-cohort-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-cohort-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-jaxjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-jaxjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-job-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-job-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-jobset-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-jobset-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-leaderworkerset-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-leaderworkerset-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-localqueue-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-localqueue-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-manager-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-metrics-auth-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-metrics-reader serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-mpijob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-mpijob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-paddlejob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-paddlejob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-pending-workloads-cq-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-pending-workloads-lq-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-pytorchjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-pytorchjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-raycluster-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-raycluster-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-rayjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-rayjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-rayservice-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-rayservice-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-resourceflavor-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-resourceflavor-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-sparkapplication-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-sparkapplication-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-tfjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-tfjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-topology-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-topology-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-trainjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-trainjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-workload-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-workload-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-xgboostjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-xgboostjob-viewer-role serverside-applied
+rolebinding.rbac.authorization.k8s.io/kueue-visibility-server-auth-reader serverside-applied
+rolebinding.rbac.authorization.k8s.io/kueue-leader-election-rolebinding serverside-applied
+rolebinding.rbac.authorization.k8s.io/kueue-manager-clusterprofiles-rolebinding serverside-applied
+rolebinding.rbac.authorization.k8s.io/kueue-manager-secrets-rolebinding serverside-applied
+clusterrolebinding.rbac.authorization.k8s.io/kueue-manager-rolebinding serverside-applied
+clusterrolebinding.rbac.authorization.k8s.io/kueue-metrics-auth-rolebinding serverside-applied
+configmap/kueue-manager-config serverside-applied
+secret/kueue-webhook-server-cert serverside-applied
+service/kueue-controller-manager-metrics-service serverside-applied
+service/kueue-visibility-server serverside-applied
+service/kueue-webhook-service serverside-applied
+deployment.apps/kueue-controller-manager serverside-applied
+apiservice.apiregistration.k8s.io/v1beta1.visibility.kueue.x-k8s.io serverside-applied
+apiservice.apiregistration.k8s.io/v1beta2.visibility.kueue.x-k8s.io serverside-applied
+mutatingwebhookconfiguration.admissionregistration.k8s.io/kueue-mutating-webhook-configuration serverside-applied
+validatingwebhookconfiguration.admissionregistration.k8s.io/kueue-validating-webhook-configuration serverside-applied
++ k -n kueue-system wait --for=condition=Available deploy/kueue-controller-manager --timeout=300s
+deployment.apps/kueue-controller-manager condition met
+customresourcedefinition.apiextensions.k8s.io/gpuquotapolicies.platform.lkhun9311.github.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/gpusharingbenchmarks.platform.lkhun9311.github.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/inferencedeployments.platform.lkhun9311.github.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/mltrainingjobs.platform.lkhun9311.github.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/nodehealths.platform.lkhun9311.github.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/workloadruns.platform.lkhun9311.github.io serverside-applied
+namespace/gpu-platform-control-plane-system created
+namespace/gpu-platform-control-plane-system serverside-applied
+serviceaccount/gpu-platform-control-plane-controller-manager serverside-applied
+role.rbac.authorization.k8s.io/gpu-platform-control-plane-leader-election-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-gpuquotapolicy-admin-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-gpuquotapolicy-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-gpuquotapolicy-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-inferencedeployment-admin-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-inferencedeployment-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-inferencedeployment-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-manager-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-metrics-auth-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-metrics-reader serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-mltrainingjob-admin-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-mltrainingjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-mltrainingjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-nodehealth-admin-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-nodehealth-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-nodehealth-viewer-role serverside-applied
+rolebinding.rbac.authorization.k8s.io/gpu-platform-control-plane-leader-election-rolebinding serverside-applied
+clusterrolebinding.rbac.authorization.k8s.io/gpu-platform-control-plane-manager-rolebinding serverside-applied
+clusterrolebinding.rbac.authorization.k8s.io/gpu-platform-control-plane-metrics-auth-rolebinding serverside-applied
+deployment.apps/gpu-platform-control-plane-controller-manager serverside-applied
++ k -n gpu-platform-control-plane-system set image deployment.apps/gpu-platform-control-plane-controller-manager *=controller:gwlimit
+deployment.apps/gpu-platform-control-plane-controller-manager image updated
++ k -n gpu-platform-control-plane-system rollout status deployment.apps/gpu-platform-control-plane-controller-manager --timeout=180s
+Waiting for deployment "gpu-platform-control-plane-controller-manager" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "gpu-platform-control-plane-controller-manager" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "gpu-platform-control-plane-controller-manager" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "gpu-platform-control-plane-controller-manager" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "gpu-platform-control-plane-controller-manager" rollout to finish: 1 old replicas are pending termination...
+deployment "gpu-platform-control-plane-controller-manager" successfully rolled out
+serviceaccount/gateway serverside-applied
+role.rbac.authorization.k8s.io/gateway-secret-reader serverside-applied
+clusterrole.rbac.authorization.k8s.io/gateway-role serverside-applied
+rolebinding.rbac.authorization.k8s.io/gateway-secret-reader-binding serverside-applied
+clusterrolebinding.rbac.authorization.k8s.io/gateway-rolebinding serverside-applied
+service/gateway serverside-applied
+deployment.apps/gateway serverside-applied
+secret/gateway-api-keys created
++ k -n gpu-platform-control-plane-system set image deploy/gateway gateway=gateway:gwlimit
+deployment.apps/gateway image updated
++ k -n gpu-platform-control-plane-system rollout status deploy/gateway --timeout=180s
+Waiting for deployment "gateway" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "gateway" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "gateway" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "gateway" rollout to finish: 1 old replicas are pending termination...
+deployment "gateway" successfully rolled out
+== tenant policy and stub backend
+namespace/serving created
+gpuquotapolicy.platform.lkhun9311.github.io/tenant-a-quota created
+inferencedeployment.platform.lkhun9311.github.io/stub created
+service/gateway-gwlimit created
+service/stub-gwlimit created
++ k -n serving rollout status deploy/stub --timeout=180s
+Waiting for deployment "stub" rollout to finish: 0 of 1 updated replicas are available...
+deployment "stub" successfully rolled out
+curl: (56) Recv failure: Connection reset by peer
+smoke 200
++ k -n gpu-platform-control-plane-system scale deploy/gateway --replicas=1
+deployment.apps/gateway scaled
++ k -n gpu-platform-control-plane-system rollout status deploy/gateway --timeout=180s
+deployment "gateway" successfully rolled out
+R1-fresh rep 1: sent=300 ok=34 limited=266 transport_errors=0 other=0 stub=34 pods before [gateway-66fb87c49d-wsq6m=1 ] after [gateway-66fb87c49d-wsq6m=35 ]
++ k -n gpu-platform-control-plane-system scale deploy/gateway --replicas=2
+deployment.apps/gateway scaled
++ k -n gpu-platform-control-plane-system rollout status deploy/gateway --timeout=180s
+Waiting for deployment "gateway" rollout to finish: 1 out of 2 new replicas have been updated...
+Waiting for deployment "gateway" rollout to finish: 1 of 2 updated replicas are available...
+deployment "gateway" successfully rolled out
+R2-fresh rep 1: sent=300 ok=68 limited=232 transport_errors=0 other=0 stub=68 pods before [gateway-66fb87c49d-shw8s=0 gateway-66fb87c49d-wsq6m=35 ] after [gateway-66fb87c49d-shw8s=34 gateway-66fb87c49d-wsq6m=69 ]
++ k -n gpu-platform-control-plane-system scale deploy/gateway --replicas=2
+deployment.apps/gateway scaled
++ k -n gpu-platform-control-plane-system rollout status deploy/gateway --timeout=180s
+deployment "gateway" successfully rolled out
+R2-pinned rep 1: sent=300 ok=34 limited=266 transport_errors=0 other=0 stub=34 pods before [gateway-66fb87c49d-shw8s=34 gateway-66fb87c49d-wsq6m=69 ] after [gateway-66fb87c49d-shw8s=68 gateway-66fb87c49d-wsq6m=69 ]
++ k -n gpu-platform-control-plane-system scale deploy/gateway --replicas=1
+deployment.apps/gateway scaled
++ k -n gpu-platform-control-plane-system rollout status deploy/gateway --timeout=180s
+deployment "gateway" successfully rolled out
+R1-fresh rep 2: sent=300 ok=34 limited=266 transport_errors=0 other=0 stub=34 pods before [gateway-66fb87c49d-wsq6m=69 ] after [gateway-66fb87c49d-wsq6m=103 ]
++ k -n gpu-platform-control-plane-system scale deploy/gateway --replicas=2
+deployment.apps/gateway scaled
++ k -n gpu-platform-control-plane-system rollout status deploy/gateway --timeout=180s
+Waiting for deployment "gateway" rollout to finish: 1 out of 2 new replicas have been updated...
+Waiting for deployment "gateway" rollout to finish: 1 of 2 updated replicas are available...
+deployment "gateway" successfully rolled out
+R2-fresh rep 2: sent=300 ok=68 limited=232 transport_errors=0 other=0 stub=68 pods before [gateway-66fb87c49d-wsq6m=103 gateway-66fb87c49d-xk2k5=0 ] after [gateway-66fb87c49d-wsq6m=137 gateway-66fb87c49d-xk2k5=34 ]
++ k -n gpu-platform-control-plane-system scale deploy/gateway --replicas=2
+deployment.apps/gateway scaled
++ k -n gpu-platform-control-plane-system rollout status deploy/gateway --timeout=180s
+deployment "gateway" successfully rolled out
+R2-pinned rep 2: sent=300 ok=34 limited=266 transport_errors=0 other=0 stub=34 pods before [gateway-66fb87c49d-wsq6m=137 gateway-66fb87c49d-xk2k5=34 ] after [gateway-66fb87c49d-wsq6m=171 gateway-66fb87c49d-xk2k5=34 ]
++ k -n gpu-platform-control-plane-system scale deploy/gateway --replicas=1
+deployment.apps/gateway scaled
++ k -n gpu-platform-control-plane-system rollout status deploy/gateway --timeout=180s
+deployment "gateway" successfully rolled out
+R1-fresh rep 3: sent=300 ok=34 limited=266 transport_errors=0 other=0 stub=34 pods before [gateway-66fb87c49d-wsq6m=171 ] after [gateway-66fb87c49d-wsq6m=205 ]
++ k -n gpu-platform-control-plane-system scale deploy/gateway --replicas=2
+deployment.apps/gateway scaled
++ k -n gpu-platform-control-plane-system rollout status deploy/gateway --timeout=180s
+Waiting for deployment "gateway" rollout to finish: 1 out of 2 new replicas have been updated...
+Waiting for deployment "gateway" rollout to finish: 1 of 2 updated replicas are available...
+deployment "gateway" successfully rolled out
+R2-fresh rep 3: sent=300 ok=68 limited=232 transport_errors=0 other=0 stub=68 pods before [gateway-66fb87c49d-hw7ch=0 gateway-66fb87c49d-wsq6m=205 ] after [gateway-66fb87c49d-hw7ch=34 gateway-66fb87c49d-wsq6m=239 ]
++ k -n gpu-platform-control-plane-system scale deploy/gateway --replicas=2
+deployment.apps/gateway scaled
++ k -n gpu-platform-control-plane-system rollout status deploy/gateway --timeout=180s
+deployment "gateway" successfully rolled out
+R2-pinned rep 3: sent=300 ok=34 limited=266 transport_errors=0 other=0 stub=34 pods before [gateway-66fb87c49d-hw7ch=34 gateway-66fb87c49d-wsq6m=239 ] after [gateway-66fb87c49d-hw7ch=34 gateway-66fb87c49d-wsq6m=273 ]
+== score
+arm	rep	T_s	admitted	bound	ratio	limited	other	stub_served	max_ok_1s	pods_serving
+R1-fresh	1	29.90	34	34.90	0.97	266	0	34	2	gateway-66fb87c49d-wsq6m+34
+R2-fresh	1	29.90	68	34.90	1.95	232	0	68	3	gateway-66fb87c49d-shw8s+34,gateway-66fb87c49d-wsq6m+34
+R2-pinned	1	29.90	34	34.90	0.97	266	0	34	2	gateway-66fb87c49d-shw8s+34
+R1-fresh	2	29.90	34	34.90	0.97	266	0	34	2	gateway-66fb87c49d-wsq6m+34
+R2-fresh	2	29.90	68	34.90	1.95	232	0	68	4	gateway-66fb87c49d-wsq6m+34,gateway-66fb87c49d-xk2k5+34
+R2-pinned	2	29.90	34	34.90	0.97	266	0	34	2	gateway-66fb87c49d-wsq6m+34
+R1-fresh	3	29.90	34	34.90	0.97	266	0	34	2	gateway-66fb87c49d-wsq6m+34
+R2-fresh	3	29.90	68	34.90	1.95	232	0	68	4	gateway-66fb87c49d-hw7ch+34,gateway-66fb87c49d-wsq6m+34
+R2-pinned	3	29.90	34	34.90	0.97	266	0	34	2	gateway-66fb87c49d-wsq6m+34
+VALID
+Deleting cluster "gwlimit" ...
+Deleted nodes: ["gwlimit-control-plane"]

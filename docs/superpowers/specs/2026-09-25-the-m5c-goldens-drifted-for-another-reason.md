@@ -19,7 +19,8 @@ Three suites were re-recorded and verified green:
 | `m5b-price-of-protection` | 8 passed, 0 failed |
 | `queuelab-gpu-session` | 15 passed, 0 failed |
 
-**`m5c-gpu-session` was left alone, and it is red: 2 passed, 15 failed.**
+**`m5c-gpu-session` was left alone, and at this point it was red: 2 passed, 15 failed.** (It is green now;
+the last section says what closed it. This page keeps the order the causes were found in.)
 
 ## Why it was left alone
 
@@ -46,9 +47,118 @@ intended. It may well be intended — the stub may simply need to answer the new
 different question from the one this change was answering, and a golden updated without reading it is a
 golden nobody reads.
 
-## What closes it
+## Amendment, same day: the credential call was only the first cause
 
-Teach `hack/test/spot-lifecycle/bin/aws` to answer `configure export-credentials --format process` with an
-expiry, re-run `TARGET=hack/m5c-gpu-session.sh hack/test/spot-lifecycle/characterize.sh`, and check that the
-only remaining diff is the termination lines the other three suites also gained. Until then this suite is red
-on purpose, and `2 passed, 15 failed` is the number to compare against.
+The stub now answers `aws configure export-credentials --format process` with an expiry, and the credential
+divergence is gone — the transcripts line up on that call and on the message it produces. The suite is still
+red, for a **second** cause that re-recording cannot settle:
+
+```
+-PREFIX="run"
++PREFIX="run-ec9f4b39"
++LADDER=""
+```
+
+The prefix now carries an eight-character hash that differs on every run, so a re-recorded golden disagrees
+with the very next execution of the same scenario. `LADDER=""` arrived with the ladder work in the same
+range of commits. Neither is behaviour this suite is meant to pin, and both belong in `run_scenario`'s
+normalization beside the checksums and the commit hash it already elides — which is a change to the harness,
+not a re-recording.
+
+So the suite stayed red on purpose at this point, and the number to compare against was **2 passed, 16 failed** (the
+sixteenth is the new `terminate-accepted-but-still-running`, which has no golden here yet). The three other
+suites were re-recorded and verified, because their only diff was the per-call timeouts added to
+`describe-instances` plus their own new scenario.
+
+## Closed, same day: three places carried the same nonce
+
+The suite is **11 passed, 0 failed**, twice in a row on a fresh re-record. It took three normalizations,
+found one at a time, because the same value appeared in three different shapes:
+
+| where | how it read | what elides it |
+|---|---|---|
+| the payload | `PREFIX="run-ec9f4b39"` | anchored to the `PREFIX=` assignment |
+| every AWS call | `s3://stub-bucket/run-ec9f4b39/src/source.tgz` | `run-<8hex>` in the transcript and the messages |
+| the completion marker | `echo "e2ab277f" > /tmp/DONE` | anchored to that line, not to the digit shape |
+
+`RUN_NONCE` is `openssl rand -hex 4`, and `RUN_ID` is `basename $OUT`-nonce. The third one has no `run-`
+prefix, which is why it survived the first two passes.
+
+The marker's elision is anchored to its line rather than to eight hex digits **on purpose**: an earlier
+normalization in this harness matched any 64 hex characters and erased the engine image digest out of a
+log — the one string identifying what was measured. `LADDER` is deliberately not normalized either; it is
+fixed per scenario, so a change to it is a change to the payload and belongs in the diff.
+
+### Two things I read wrong on the way
+
+**A repeated count is not determinism.** After the first normalization the suite failed **4 passed, 14
+failed** twice, and I recorded that as "the non-determinism is gone, another cause remains". It was not: the
+two runs failed identically *for different nonces*. Two runs agreeing on how many scenarios failed is not
+two runs agreeing.
+
+**`bash -n` passing is not the check.** The comment explaining the marker elision was inserted between
+`sed`'s `-e` arguments, where `#` starts an argument rather than a comment. The syntax check passed it. It
+was caught by running the chain against a rendered payload and reading what came out.
+
+## What closed it
+
+Both causes, in the order they were found:
+
+1. `hack/test/spot-lifecycle/bin/aws` answers `configure export-credentials --format process` with an
+   expiry, which is the one field `hack/m5c-gpu-session.sh` reads. An empty
+   `STUB_CREDENTIALS_EXPIRE_IN_MIN` omits the field, so the cache-scanning fallback stays reachable.
+2. `run_scenario` elides the per-run nonce in all three shapes it takes — the `PREFIX=` assignment, the
+   `run-<8hex>` in every AWS call and message, and the bare value on the `/tmp/DONE` marker line.
+
+`TARGET=hack/m5c-gpu-session.sh hack/test/spot-lifecycle/characterize.sh` is **11 passed, 0 failed**, and
+stays there on a second run — which is the check that matters, because this page records a round where the
+same failing count twice was mistaken for a stable one.
+
+All four suites are green: microtest 12/0, price-of-protection 9/0, queuelab 16/0, m5c 11/0.
+
+**Counts as of 2026-09-26: microtest 14/0, price-of-protection 9/0, m5c 14/0, queuelab 16/0 — 53 checks over
+49 scenarios.** The numbers above are what this page measured on 2026-09-25 and are left as measured; five
+scenarios have been added since (`terminate-shuts-down-then-terminated`, `done-marker-wrong-nonce`,
+`terminate-then-state-unreadable`, `credentials-expiry-too-short`, `credentials-expiry-from-cache`), each for
+a stub knob that existed and that no scenario set. This page exists so a reader can tell a suite left red
+deliberately from one nobody looked at, and a count that has silently moved defeats that — so it is restated
+here rather than edited above.
+
+## Amendment, 2026-09-27: the nonce reached the goldens a fourth way, and three runners keep the defect
+
+An ambiguous EC2 launch — AWS accepts `run-instances` and the caller never receives the id — was found by an
+adversarial security review. The runner reads that as "no instance was created", clears `IID`, moves to the
+next zone and buys a second instance, while cleanup terminates only the id it retained.
+
+Closing it for `hack/m5c-gpu-session.sh` meant stamping identity on the launch: a `{Key=run,Value=$RUN_NONCE}`
+tag and a zone-scoped `--client-token`. **Both carry the nonce, and both landed in the transcripts**, so two
+recordings of one scenario disagreed (`{Key=run,Value=3a54050c}` against `77f6b27a`) and all fifteen m5c
+scenarios would have failed for ever. Re-recording would have hidden that behind a golden that could never
+pass twice. The stub's `normalize` now elides both, anchored to `{Key=run,Value=` and `--client-token ` rather
+than to the shape of the value — the same discipline this page already records, for the same reason: an
+`[0-9a-f]{8}` pattern is also an instance-id suffix, a commit prefix and a checksum fragment.
+
+What the goldens consequently do NOT prove is that the token derives from *this* run's nonce. That is checked
+by calling the stub directly instead, where a filter naming the wrong token returns empty.
+
+⚠️ **The same defect remains in three runners, deliberately and for now.** `hack/queuelab-gpu-session.sh:737`,
+`hack/m5b-price-of-protection.sh:529` and `hack/m5b-scheduler-microtest.sh:335` all make the identical
+nine-argument `spot_launch` call inside the identical `IID=""` zone-retry loop. Only m5c was fixed, because
+only m5c already has a `RUN_NONCE` to derive a token from — the other three would each need an identity
+invented first, and the fix is worth proving on one runner before it is spread across four that spend money.
+`spot_launch`'s tenth argument is optional precisely so those three keep their present behaviour, and their
+goldens are the evidence that they do: microtest, price-of-protection and queuelab are byte-identical across
+this change.
+
+**Counts as of 2026-09-27: microtest 14/0, price-of-protection 9/0, m5c 15/0, queuelab 16/0.** The m5c suite
+gained `launch-accepted-but-answer-lost`, which records the defect as it stands before the runner is taught to
+reconcile — so that golden is expected to change when the fix lands, and a diff touching any other is a sign
+the fix reached further than the ambiguous path.
+
+The last two replaced a single scenario that was worse than none. It planted a credential-cache entry with no
+identity, which the runner deliberately refuses to trust, so the fallback found nothing, returned success, and
+the golden recorded `skipping the check` followed by `run-instances` and `exit 0`. That pinned open the very
+outcome `hack/m5c-gpu-session.sh` calls "worse than the hole it was closing: a guard that refuses to answer
+always passes" — fixing the fail-open would have been a test failure. The replacements plant an entry the
+runner can identify and pin both halves: too little life left refuses before `run-instances`, enough life
+proceeds.

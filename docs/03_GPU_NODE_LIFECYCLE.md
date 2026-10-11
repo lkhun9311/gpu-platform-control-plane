@@ -41,7 +41,7 @@ spec:
   gpuClass: a10g
   intakeProfile: standard-gpu-node
 status:
-  phase: Ready                       # Pending | Intake | Ready | Degraded | Quarantine
+  phase: Ready                       # Pending | Ready | Quarantine
   conditions:
     - { type: DriverReady, status: "True" }
     - { type: DCGMHealthy, status: "True" }
@@ -68,4 +68,6 @@ status:
 
 ## Scope at this milestone
 
-Implemented: Pending/Ready/Quarantine, taint apply/remove, finalizer cleanup, Node watch. (`Degraded` was listed here as implemented; `api/v1/nodehealth_types.go` says the opposite in a comment on the enum — `Intake` and `Degraded` "are not emitted yet" — and the reconciler emits neither.) Target: intake conditions + metrics, re-intake script, operator-approval drain. Stretch: an automated drain controller (deliberately deferred — operational risk).
+Implemented: Pending/Ready/Quarantine, taint apply/remove, finalizer cleanup, Node watch. Target: intake conditions + metrics, re-intake script, operator-approval drain. Stretch: an automated drain controller (deliberately deferred — operational risk).
+
+⚠️ **`Intake` and `Degraded` were removed from the enum on 2026-09-27**, and this paragraph used to carry the contradiction that made the removal obvious: it listed `Degraded` as implemented while `api/v1/nodehealth_types.go` said in the same breath that neither value was emitted, and the reconciler emitted neither. The reason removal is the honest fix rather than implementation: there is exactly one health signal here — whether the node's `Ready` condition is `True`, with `False`, `Unknown` and absent deliberately collapsed together by `isNodeReady` — so no fourth state can be derived from it, and the GPU checks in the intake table above need hardware this project does not have. A status value with no transition criteria and no operational meaning is a promise the type cannot keep. Adding either back, with a definition and something that emits it, is the honest additive change; nothing stored either value, so removing them broke no object.

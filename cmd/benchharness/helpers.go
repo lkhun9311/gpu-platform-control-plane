@@ -21,6 +21,8 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
+	"maps"
 	"net"
 	"net/http"
 	"net/url"
@@ -147,11 +149,14 @@ type stubStats struct {
 	accepted int64
 	open     int64
 	peakOpen int64
+	// byPriority counts chat requests by the priority their body carried, "none" when it carried none, so a
+	// rehearsal can see what a gateway that binds priority actually forwarded.
+	byPriority map[string]int64
 }
 
 // newStubStats returns stats with the connection map ready, since inserting into a nil map panics.
 func newStubStats() *stubStats {
-	return &stubStats{chatConns: make(map[int64]int)}
+	return &stubStats{chatConns: make(map[int64]int), byPriority: make(map[string]int64)}
 }
 
 // connContext stamps a fresh identifier on each accepted connection's base context.
@@ -191,6 +196,13 @@ func (s *stubStats) begin(ctx context.Context) {
 	}
 }
 
+// notePriority counts one chat request under the priority its body carried.
+func (s *stubStats) notePriority(p string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.byPriority[p]++
+}
+
 // end records the completion of one chat request.
 func (s *stubStats) end() {
 	s.mu.Lock()
@@ -208,6 +220,8 @@ type stubStatsSnapshot struct {
 	ConnectionsAccepted        int64 `json:"connectionsAccepted"`
 	OpenConnections            int64 `json:"openConnections"`
 	PeakOpenConnections        int64 `json:"peakOpenConnections"`
+	// RequestsByPriority is the window's chat requests by forwarded priority; "none" is a body without one.
+	RequestsByPriority map[string]int64 `json:"requestsByPriority"`
 }
 
 // snapshot returns the current counters.
@@ -226,6 +240,7 @@ func (s *stubStats) snapshot() stubStatsSnapshot {
 	for _, n := range s.chatConns {
 		snap.MaxRequestsOnOneConnection = max(snap.MaxRequestsOnOneConnection, n)
 	}
+	snap.RequestsByPriority = maps.Clone(s.byPriority)
 	return snap
 }
 
@@ -242,6 +257,7 @@ func (s *stubStats) reset() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.chatConns = make(map[int64]int)
+	s.byPriority = make(map[string]int64)
 	s.requestsServed = 0
 	s.peakInFlight = s.inFlight
 	s.accepted = 0
@@ -250,6 +266,9 @@ func (s *stubStats) reset() {
 
 // stubProfile is the response shape the stub emits.
 type stubProfile struct {
+	// pilot, when set, makes each response produce exactly the request's own output cap and writes the
+	// prospective-admission pilot's step log (stubpilot.go); nil for every other caller.
+	pilot  *stubPilotLog
 	tokens int
 	ttft   time.Duration
 	itl    time.Duration
@@ -263,6 +282,142 @@ type stubProfile struct {
 	//
 	// Zero keeps the old behaviour, which is what every other caller wants.
 	readyAfter time.Duration
+	// metrics serves /metrics with a completed-request counter in vLLM's name.
+	//
+	// It exists so the m5c rehearsal can drive the matrix's engine-metrics scrape down the path a real engine
+	// takes. It is off by default because the gateway's admission guard reads an engine's /metrics too, and
+	// every other rehearsal has always met a stub that answered 404 there.
+	metrics bool
+	// iterLog, when set, prints vLLM v0.27.1's per-iteration log lines for every request the stub serves.
+	iterLog *stubIterLog
+	// usage, when set, ends each stream with the usage chunk vLLM sends for stream_options.include_usage.
+	//
+	// The replay records its prompt_tokens as engineInputTokens, and session 2's warm-up check refuses a cell whose
+	// verification requests are not 2,048-token requests; a stub that sent no usage chunk made every rehearsal
+	// cell read 0 tokens and refused it, so the check's passing path could not be rehearsed.
+	usage bool
+}
+
+// stubPromptTokens is the token count a stub reports for a prompt of n characters.
+//
+// The stub has no tokenizer, so it inverts the measured table in internal/bench: a prompt whose length is one the
+// table resolved reports that count exactly, as the served engine would, and any other length a rough n/4.
+func stubPromptTokens(n int) int {
+	for _, t := range bench.ResolvedInputTokenCounts() {
+		if r, ok := bench.ResolveInputTokens(t); ok && r.Chars == n {
+			return t
+		}
+	}
+	return max(n/4, 1)
+}
+
+// stubRequestPromptTokens is the prompt count the stub reports for a request body: the resolver's count for each
+// message's length; and, for the pilot, the pilot's frozen count for a one-message prompt of a frozen length, as
+// the engine its traces were measured on reports it, since each session checks those counts against its engine.
+func stubRequestPromptTokens(raw []byte, pilot bool) (int, error) {
+	var body struct {
+		Messages []struct {
+			Content string `json:"content"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(raw, &body); err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, m := range body.Messages {
+		n += stubPromptTokens(len([]rune(m.Content)))
+	}
+	if pilot && len(body.Messages) == 1 {
+		if st, ok := bench.LookupStudy(bench.StudyProspectivePilot); ok {
+			if frozen, ok := st.FrozenExactTokens[len([]rune(body.Messages[0].Content))]; ok {
+				n = frozen
+			}
+		}
+	}
+	return n, nil
+}
+
+// stubNonDefaultArgs is the startup line vLLM prints, carrying the keys the instrument-validation harness reads.
+//
+// The keys and the Python repr are vLLM's own: the paid runs recorded `'enable_prefix_caching': False` in this
+// form, and --no-async-scheduling and --enable-logging-iteration-details are the same kind of flag.
+// stubWithRevisions adds the revision keys vLLM prints for --revision and --tokenizer-revision, single-quoted as it
+// prints every string, to a non-default args line; an empty value adds nothing, as vLLM prints only what was set.
+func stubWithRevisions(line, revision, tokenizerRevision string) string {
+	body := strings.TrimSuffix(line, "}")
+	if revision != "" {
+		body += fmt.Sprintf(", 'revision': '%s'", revision)
+	}
+	if tokenizerRevision != "" {
+		body += fmt.Sprintf(", 'tokenizer_revision': '%s'", tokenizerRevision)
+	}
+	return body + "}"
+}
+
+// stubArg is one of the pilot's vLLM flags the stub accepts, with the Python type vLLM prints its value in.
+type stubArg struct {
+	key, kind string
+	val       *string
+}
+
+// stubWithArgs adds the pilot's flags that were set to a non-default args line, in vLLM's repr.
+func stubWithArgs(line string, args []stubArg, noPrefixCaching bool) string {
+	var body strings.Builder
+	body.WriteString(strings.TrimSuffix(line, "}"))
+	if noPrefixCaching {
+		body.WriteString(", 'enable_prefix_caching': False")
+	}
+	for _, a := range args {
+		if *a.val == "" {
+			continue
+		}
+		if a.kind == "str" {
+			fmt.Fprintf(&body, ", '%s': '%s'", a.key, *a.val)
+		} else {
+			fmt.Fprintf(&body, ", '%s': %s", a.key, *a.val)
+		}
+	}
+	return body.String() + "}"
+}
+
+// It names the model under both 'model_tag' and 'model', as the archived vLLM lines do, because the pilot's engine
+// validator requires the 'model' key and refused a rehearsal whose stub printed only the first.
+func stubNonDefaultArgs(port int, noAsync, iterDetails bool) string {
+	s := fmt.Sprintf("non-default args: {'model_tag': 'stub', 'model': 'stub', 'port': %d", port)
+	if noAsync {
+		s += ", 'async_scheduling': False"
+	}
+	if iterDetails {
+		s += ", 'enable_logging_iteration_details': True"
+	}
+	return s + "}"
+}
+
+// stubIterLog prints one line per stub step in the format of vLLM v0.27.1's LoggingStatLogger.
+//
+// The stub has no scheduler, so its steps are invented: one context step for the prompt and one generation step
+// per output token after the first, with the context tokens estimated from the body length.
+// What the harness checks is that the lines exist and that their indices run on without a gap, and both hold.
+type stubIterLog struct {
+	mu    sync.Mutex
+	out   *os.File
+	index int
+}
+
+func (l *stubIterLog) request(promptTokens int64, tokens int) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	ctx := max(promptTokens, 1)
+	_, _ = fmt.Fprintf(l.out, "INFO stub [loggers.py:182] Iteration(%d): 1 context requests, %d context tokens, "+
+		"0 generation requests, 0 generation tokens, iteration elapsed time: 1.00 ms, GPU KV cache usage: 0.1%%\n",
+		l.index, ctx)
+	l.index++
+	for range max(tokens-1, 0) {
+		_, _ = fmt.Fprintf(l.out, "INFO stub [loggers.py:182] Iteration(%d): 0 context requests, 0 context tokens, "+
+			"1 generation requests, 1 generation tokens, iteration elapsed time: 1.00 ms, GPU KV cache usage: 0.1%%\n",
+			l.index)
+		l.index++
+	}
 }
 
 // validate refuses a profile that would serve a backend other than the one declared.
@@ -402,14 +557,50 @@ func stubServe(args []string) error {
 	// has already decided the routing by the time a request arrives here.
 	_ = fs.String("model", "", "model name; accepted for InferenceDeployment compatibility and ignored")
 	modelPath := fs.String("model-path", "", "storage URI; a \"stub://...\" URI overrides the response profile")
+	metrics := fs.Bool("metrics", false, "serve /metrics with a completed-request counter in vLLM's name")
+	// The three flags below are vLLM's, accepted so the instrument-validation harness can append them to a stub
+	// engine exactly as it appends them to the real one, and answered the way vLLM v0.27.1 answers them.
+	//
+	// The harness refuses a cell whose engine does not report the configuration its arm registers, and reads
+	// that report from the `non-default args:` line and the `Iteration(` lines; a stub that printed neither
+	// could only rehearse the refusal, never the path.
+	port := fs.Int("port", 0, "vLLM's port flag; when set it overrides --addr and the vLLM-style non-default args line is printed")
+	noAsync := fs.Bool("no-async-scheduling", false, "vLLM's flag; reported as async_scheduling False")
+	iterDetails := fs.Bool("enable-logging-iteration-details", false, "vLLM's flag; one Iteration( line per stub step")
+	// Session 3 pins the model and tokenizer revision on the engine's command line and refuses a cell whose engine does
+	// not report them, so the stub accepts both and reports them in vLLM's form.
+	revision := fs.String("revision", "", "vLLM's model revision flag; reported in the non-default args line")
+	tokenizerRevision := fs.String("tokenizer-revision", "", "vLLM's tokenizer revision flag; reported likewise")
+	// The prospective-admission pilot's engine flags, accepted and reported in vLLM's form, so the pilot's
+	// whole-line engine validator meets the line it reads on the card. --scheduler-cls naming the pilot's step
+	// logger switches on pilot mode: the step log at STEP_LOG_PATH, and output fixed at each request's own cap.
+	pilotArgs := make([]stubArg, 0, 8)
+	for _, f := range []struct{ name, key, kind string }{
+		{"dtype", "dtype", "str"}, {"max-model-len", "max_model_len", "int"}, {"max-num-seqs", "max_num_seqs", "int"},
+		{"gpu-memory-utilization", "gpu_memory_utilization", "float"},
+		{"max-num-batched-tokens", "max_num_batched_tokens", "int"}, {"scheduling-policy", "scheduling_policy", "str"},
+		{"scheduler-cls", "scheduler_cls", "str"},
+		// The admission diagnostic's per-step prefill cap. The stub has no scheduler to apply it to; it only reports
+		// it, so the validator sees what the card's engine prints.
+		{"long-prefill-token-threshold", "long_prefill_token_threshold", "int"},
+	} {
+		pilotArgs = append(pilotArgs, stubArg{key: f.key, kind: f.kind, val: fs.String(f.name, "", "vLLM's flag; reported in the non-default args line")})
+	}
+	noPrefixCaching := fs.Bool("no-enable-prefix-caching", false, "vLLM's flag; reported as enable_prefix_caching False")
+	stopStepLogAt := fs.String("stub-stop-step-log-at", "", "pilot mode: stop the step log at the first request whose ID contains this, to rehearse an ineligible arm")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
+	if *port > 0 {
+		*addr = fmt.Sprintf(":%d", *port)
+		fmt.Println(stubWithRevisions(stubWithArgs(stubNonDefaultArgs(*port, *noAsync, *iterDetails), pilotArgs, *noPrefixCaching), *revision, *tokenizerRevision))
+	}
 
 	profile := stubProfile{
-		tokens: *tokens,
-		ttft:   time.Duration(*ttftMs) * time.Millisecond,
-		itl:    time.Duration(*itlMs) * time.Millisecond,
+		tokens:  *tokens,
+		ttft:    time.Duration(*ttftMs) * time.Millisecond,
+		itl:     time.Duration(*itlMs) * time.Millisecond,
+		metrics: *metrics,
 	}
 	if err := profile.applyModelPath(*modelPath); err != nil {
 		return err
@@ -421,6 +612,27 @@ func stubServe(args []string) error {
 	}
 
 	stats := newStubStats()
+	if *iterDetails {
+		profile.iterLog = &stubIterLog{out: os.Stdout}
+	}
+	for _, a := range pilotArgs {
+		if a.key == "scheduler_cls" && *a.val == "pilot_step_logger.PilotStepLoggingScheduler" {
+			path := os.Getenv("STEP_LOG_PATH")
+			if path == "" {
+				return fmt.Errorf("the pilot's step logger was asked for and STEP_LOG_PATH is unset")
+			}
+			pl, err := openStubPilotLog(path, os.Stdout)
+			if err != nil {
+				return err
+			}
+			pl.stopAt = *stopStepLogAt
+			profile.pilot = pl
+			// The pilot's own log carries the iteration lines, with timestamps; the session-era log is not printed too.
+			profile.iterLog = nil
+			go pl.watchSentinel(make(chan struct{}))
+		}
+	}
+	profile.usage = *port > 0
 	mux := stubMux(profile, stats)
 	fmt.Printf("stub backend listening on %s (tokens=%d ttft=%s itl=%s readyAfter=%s)\n", *addr, profile.tokens, profile.ttft, profile.itl, profile.readyAfter)
 	srv := &http.Server{
@@ -477,16 +689,72 @@ func stubMux(profile stubProfile, stats *stubStats) *http.ServeMux {
 			f.Flush()
 			return true
 		}
+		promptTokens := 0
+		// The body is read whole once, so the priority can be counted whatever the profile, and the usage
+		// profile decodes the same bytes it always did.
+		raw, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "unreadable request body: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		var prio struct {
+			Priority *json.Number `json:"priority"`
+		}
+		label := "none"
+		if json.Unmarshal(raw, &prio) == nil && prio.Priority != nil {
+			label = prio.Priority.String()
+		}
+		stats.notePriority(label)
+		// The pilot's step log records each request's prompt whether or not usage is reported, so it needs the
+		// count too; without it a length outside the frozen table logged a zero-token prompt (review of 60f3674).
+		if profile.usage || profile.pilot != nil {
+			n, err := stubRequestPromptTokens(raw, profile.pilot != nil)
+			if err != nil {
+				http.Error(w, "unreadable request body: "+err.Error(), http.StatusBadRequest)
+				return
+			}
+			promptTokens += n
+		}
+		tokens := profile.tokens
+		if profile.pilot != nil {
+			var pr stubPilotRequest
+			_ = json.Unmarshal(raw, &pr)
+			if pr.MaxTokens > 0 {
+				tokens = pr.MaxTokens
+			}
+			id := "chatcmpl-" + r.Header.Get("X-Request-Id")
+			profile.pilot.add(id, pr.Priority, promptTokens)
+			profile.pilot.stepFor(id, max(promptTokens, 1), 0, true)
+		}
 		if !wait(profile.ttft) {
 			return
 		}
-		for i := range profile.tokens {
+		if profile.iterLog != nil {
+			// The prompt tokens the usage chunk reports, when there is one, so the log's context steps and the replay's
+			// engineInputTokens agree as they do on the engine; a session-2 warm-up reconciles the two and refused a
+			// rehearsal whose stub logged the body length over four instead.
+			prompt := r.ContentLength / 4
+			if profile.usage {
+				prompt = int64(promptTokens)
+			}
+			profile.iterLog.request(prompt, profile.tokens)
+		}
+		for i := range tokens {
 			if i > 0 && !wait(profile.itl) {
 				return
+			}
+			// Each decode step is recorded before its token is sent, so a step is never logged after the response
+			// that depended on it has reached the client.
+			if i > 0 && profile.pilot != nil {
+				profile.pilot.stepFor("chatcmpl-"+r.Header.Get("X-Request-Id"), 1, promptTokens+i, false)
 			}
 			if !emit("data: {\"choices\":[{\"delta\":{\"content\":\"x\"}}]}\n\n") {
 				return
 			}
+		}
+		if profile.usage && !emit(fmt.Sprintf("data: {\"choices\":[],\"usage\":{\"prompt_tokens\":%d,\"completion_tokens\":%d}}\n\n",
+			promptTokens, tokens)) {
+			return
 		}
 		_ = emit("data: [DONE]\n\n")
 	})
@@ -506,6 +774,15 @@ func stubMux(profile stubProfile, stats *stubStats) *http.ServeMux {
 		}
 		w.WriteHeader(http.StatusOK)
 	})
+	if profile.metrics {
+		// One counter, in the name vLLM gives it, and nothing that would pass for a latency: a stub's timings
+		// are its configuration, and a histogram of them would look like a measurement in an archive.
+		mux.HandleFunc("/metrics", func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "text/plain; version=0.0.4")
+			_, _ = fmt.Fprintf(w, "# HELP vllm:request_success_total Requests this stub began serving.\n"+
+				"# TYPE vllm:request_success_total counter\nvllm:request_success_total %d\n", stats.snapshot().RequestsServed)
+		})
+	}
 	writeStats := func(w http.ResponseWriter, snap stubStatsSnapshot) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(snap)

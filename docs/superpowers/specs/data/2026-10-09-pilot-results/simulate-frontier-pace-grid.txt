@@ -1,0 +1,1180 @@
+# for k in 0.950 0.955 ... 1.100: python3 hack/prospective-pilot/simulate.py frontier --scale k hack/m5c-20261008-235046-pilotA/m5c-run hack/m5c-20261009-013656-pilotB/m5c-run
+# every run in full, at the commit that adds this file
+
+## scale 0.950
+{"step_model_ms": [15.3639, 0.0966, 0.0959, 0.9292, 3.0468], "fitted_steps": 282897, "forward_ms": 3.912577}
+step scale 0.9500
+cell arm | premium p99 ratio_to_off | owner's limits
+pilotA-off-1 hold-cap | 0.296 | met
+pilotA-off-1 fixed-1.62 | 0.249 | met
+pilotA-off-1 fixed-1.66 | 0.249 | met
+pilotA-off-1 fixed-1.70 | 0.219 | met
+pilotA-off-1 fixed-1.74 | 0.214 | fails: completion p50 above 1.5x off's
+pilotA-off-2 hold-cap | 0.242 | met
+pilotA-off-2 fixed-1.62 | 0.211 | met
+pilotA-off-2 fixed-1.66 | 0.210 | met
+pilotA-off-2 fixed-1.70 | 0.202 | fails: completion p50 above 1.5x off's
+pilotA-off-2 fixed-1.74 | 0.190 | fails: completion p50 above 1.5x off's
+pilotA-off-3 hold-cap | 0.246 | met
+pilotA-off-3 fixed-1.62 | 0.229 | met
+pilotA-off-3 fixed-1.66 | 0.229 | met
+pilotA-off-3 fixed-1.70 | 0.228 | met
+pilotA-off-3 fixed-1.74 | 0.209 | met
+pilotB-off-1 hold-cap | 0.331 | met
+pilotB-off-1 fixed-1.62 | 0.305 | met
+pilotB-off-1 fixed-1.66 | 0.288 | fails: completion p50 above 1.5x off's
+pilotB-off-1 fixed-1.70 | 0.244 | fails: completion p50 above 1.5x off's
+pilotB-off-1 fixed-1.74 | 0.242 | fails: completion p50 above 1.5x off's
+pilotB-off-2 hold-cap | 0.282 | met
+pilotB-off-2 fixed-1.62 | 0.293 | met
+pilotB-off-2 fixed-1.66 | 0.260 | met
+pilotB-off-2 fixed-1.70 | 0.218 | met
+pilotB-off-2 fixed-1.74 | 0.224 | fails: completion p50 above 1.5x off's
+pilotB-off-3 hold-cap | 0.264 | met
+pilotB-off-3 fixed-1.62 | 0.240 | met
+pilotB-off-3 fixed-1.66 | 0.220 | met
+pilotB-off-3 fixed-1.70 | 0.210 | fails: a hold refusal
+pilotB-off-3 fixed-1.74 | 0.210 | fails: completion p50 above 1.5x off's
+
+pooled premium p99 ms: hold-cap 385, fixed-1.62 349, fixed-1.66 342 (inadmissible), fixed-1.70 307 (inadmissible), fixed-1.74 300 (inadmissible)
+verdict: not established: neither hold-cap nor fixed-1.62 was 15% below the other
+
+## scale 0.955
+{"step_model_ms": [15.3639, 0.0966, 0.0959, 0.9292, 3.0468], "fitted_steps": 282897, "forward_ms": 3.912577}
+step scale 0.9550
+cell arm | premium p99 ratio_to_off | owner's limits
+pilotA-off-1 hold-cap | 0.292 | met
+pilotA-off-1 fixed-1.62 | 0.261 | met
+pilotA-off-1 fixed-1.66 | 0.246 | met
+pilotA-off-1 fixed-1.70 | 0.219 | met
+pilotA-off-1 fixed-1.74 | 0.215 | fails: completion p50 above 1.5x off's
+pilotA-off-2 hold-cap | 0.248 | met
+pilotA-off-2 fixed-1.62 | 0.217 | met
+pilotA-off-2 fixed-1.66 | 0.218 | met
+pilotA-off-2 fixed-1.70 | 0.202 | fails: completion p50 above 1.5x off's
+pilotA-off-2 fixed-1.74 | 0.188 | fails: completion p50 above 1.5x off's
+pilotA-off-3 hold-cap | 0.267 | met
+pilotA-off-3 fixed-1.62 | 0.231 | met
+pilotA-off-3 fixed-1.66 | 0.238 | met
+pilotA-off-3 fixed-1.70 | 0.237 | met
+pilotA-off-3 fixed-1.74 | 0.214 | met
+pilotB-off-1 hold-cap | 0.334 | met
+pilotB-off-1 fixed-1.62 | 0.312 | met
+pilotB-off-1 fixed-1.66 | 0.292 | fails: completion p50 above 1.5x off's
+pilotB-off-1 fixed-1.70 | 0.251 | fails: completion p50 above 1.5x off's
+pilotB-off-1 fixed-1.74 | 0.249 | fails: completion p50 above 1.5x off's
+pilotB-off-2 hold-cap | 0.263 | met
+pilotB-off-2 fixed-1.62 | 0.309 | met
+pilotB-off-2 fixed-1.66 | 0.271 | met
+pilotB-off-2 fixed-1.70 | 0.230 | met
+pilotB-off-2 fixed-1.74 | 0.228 | fails: completion p50 above 1.5x off's
+pilotB-off-3 hold-cap | 0.269 | met
+pilotB-off-3 fixed-1.62 | 0.252 | met
+pilotB-off-3 fixed-1.66 | 0.219 | met
+pilotB-off-3 fixed-1.70 | 0.218 | fails: a hold refusal
+pilotB-off-3 fixed-1.74 | 0.215 | fails: completion p50 above 1.5x off's
+
+pooled premium p99 ms: hold-cap 389, fixed-1.62 366, fixed-1.66 350 (inadmissible), fixed-1.70 317 (inadmissible), fixed-1.74 307 (inadmissible)
+verdict: not established: neither hold-cap nor fixed-1.62 was 15% below the other
+
+## scale 0.960
+{"step_model_ms": [15.3639, 0.0966, 0.0959, 0.9292, 3.0468], "fitted_steps": 282897, "forward_ms": 3.912577}
+step scale 0.9600
+cell arm | premium p99 ratio_to_off | owner's limits
+pilotA-off-1 hold-cap | 0.284 | met
+pilotA-off-1 fixed-1.62 | 0.266 | met
+pilotA-off-1 fixed-1.66 | 0.257 | met
+pilotA-off-1 fixed-1.70 | 0.230 | met
+pilotA-off-1 fixed-1.74 | 0.222 | met
+pilotA-off-2 hold-cap | 0.259 | met
+pilotA-off-2 fixed-1.62 | 0.219 | met
+pilotA-off-2 fixed-1.66 | 0.224 | met
+pilotA-off-2 fixed-1.70 | 0.210 | fails: completion p50 above 1.5x off's
+pilotA-off-2 fixed-1.74 | 0.192 | fails: completion p50 above 1.5x off's
+pilotA-off-3 hold-cap | 0.273 | met
+pilotA-off-3 fixed-1.62 | 0.242 | met
+pilotA-off-3 fixed-1.66 | 0.240 | met
+pilotA-off-3 fixed-1.70 | 0.238 | met
+pilotA-off-3 fixed-1.74 | 0.216 | met
+pilotB-off-1 hold-cap | 0.356 | met
+pilotB-off-1 fixed-1.62 | 0.353 | met
+pilotB-off-1 fixed-1.66 | 0.302 | fails: completion p50 above 1.5x off's
+pilotB-off-1 fixed-1.70 | 0.260 | fails: completion p50 above 1.5x off's
+pilotB-off-1 fixed-1.74 | 0.264 | fails: completion p50 above 1.5x off's
+pilotB-off-2 hold-cap | 0.274 | met
+pilotB-off-2 fixed-1.62 | 0.316 | met
+pilotB-off-2 fixed-1.66 | 0.275 | met
+pilotB-off-2 fixed-1.70 | 0.226 | met
+pilotB-off-2 fixed-1.74 | 0.235 | fails: completion p50 above 1.5x off's
+pilotB-off-3 hold-cap | 0.282 | met
+pilotB-off-3 fixed-1.62 | 0.248 | met
+pilotB-off-3 fixed-1.66 | 0.227 | met
+pilotB-off-3 fixed-1.70 | 0.217 | fails: a hold refusal
+pilotB-off-3 fixed-1.74 | 0.220 | fails: completion p50 above 1.5x off's
+
+pooled premium p99 ms: hold-cap 408, fixed-1.62 380, fixed-1.66 360 (inadmissible), fixed-1.70 325 (inadmissible), fixed-1.74 314 (inadmissible)
+verdict: not established: neither hold-cap nor fixed-1.62 was 15% below the other
+
+## scale 0.965
+{"step_model_ms": [15.3639, 0.0966, 0.0959, 0.9292, 3.0468], "fitted_steps": 282897, "forward_ms": 3.912577}
+step scale 0.9650
+cell arm | premium p99 ratio_to_off | owner's limits
+pilotA-off-1 hold-cap | 0.297 | met
+pilotA-off-1 fixed-1.62 | 0.284 | met
+pilotA-off-1 fixed-1.66 | 0.263 | met
+pilotA-off-1 fixed-1.70 | 0.229 | met
+pilotA-off-1 fixed-1.74 | 0.223 | met
+pilotA-off-2 hold-cap | 0.252 | met
+pilotA-off-2 fixed-1.62 | 0.225 | met
+pilotA-off-2 fixed-1.66 | 0.226 | met
+pilotA-off-2 fixed-1.70 | 0.213 | fails: completion p50 above 1.5x off's
+pilotA-off-2 fixed-1.74 | 0.197 | fails: completion p50 above 1.5x off's
+pilotA-off-3 hold-cap | 0.277 | met
+pilotA-off-3 fixed-1.62 | 0.250 | met
+pilotA-off-3 fixed-1.66 | 0.251 | met
+pilotA-off-3 fixed-1.70 | 0.246 | met
+pilotA-off-3 fixed-1.74 | 0.226 | met
+pilotB-off-1 hold-cap | 0.396 | met
+pilotB-off-1 fixed-1.62 | 0.327 | met
+pilotB-off-1 fixed-1.66 | 0.306 | fails: completion p50 above 1.5x off's
+pilotB-off-1 fixed-1.70 | 0.270 | fails: completion p50 above 1.5x off's
+pilotB-off-1 fixed-1.74 | 0.261 | fails: completion p50 above 1.5x off's
+pilotB-off-2 hold-cap | 0.280 | met
+pilotB-off-2 fixed-1.62 | 0.321 | met
+pilotB-off-2 fixed-1.66 | 0.281 | met
+pilotB-off-2 fixed-1.70 | 0.239 | met
+pilotB-off-2 fixed-1.74 | 0.240 | fails: completion p50 above 1.5x off's
+pilotB-off-3 hold-cap | 0.267 | met
+pilotB-off-3 fixed-1.62 | 0.255 | met
+pilotB-off-3 fixed-1.66 | 0.230 | met
+pilotB-off-3 fixed-1.70 | 0.226 | fails: a hold refusal
+pilotB-off-3 fixed-1.74 | 0.221 | fails: completion p50 above 1.5x off's
+
+pooled premium p99 ms: hold-cap 416, fixed-1.62 387, fixed-1.66 372 (inadmissible), fixed-1.70 337 (inadmissible), fixed-1.74 322 (inadmissible)
+verdict: not established: neither hold-cap nor fixed-1.62 was 15% below the other
+
+## scale 0.970
+{"step_model_ms": [15.3639, 0.0966, 0.0959, 0.9292, 3.0468], "fitted_steps": 282897, "forward_ms": 3.912577}
+step scale 0.9700
+cell arm | premium p99 ratio_to_off | owner's limits
+pilotA-off-1 hold-cap | 0.283 | met
+pilotA-off-1 fixed-1.62 | 0.298 | met
+pilotA-off-1 fixed-1.66 | 0.285 | met
+pilotA-off-1 fixed-1.70 | 0.245 | met
+pilotA-off-1 fixed-1.74 | 0.225 | met
+pilotA-off-2 hold-cap | 0.252 | met
+pilotA-off-2 fixed-1.62 | 0.230 | met
+pilotA-off-2 fixed-1.66 | 0.233 | met
+pilotA-off-2 fixed-1.70 | 0.217 | fails: completion p50 above 1.5x off's
+pilotA-off-2 fixed-1.74 | 0.202 | fails: completion p50 above 1.5x off's
+pilotA-off-3 hold-cap | 0.281 | met
+pilotA-off-3 fixed-1.62 | 0.252 | met
+pilotA-off-3 fixed-1.66 | 0.253 | met
+pilotA-off-3 fixed-1.70 | 0.248 | met
+pilotA-off-3 fixed-1.74 | 0.227 | met
+pilotB-off-1 hold-cap | 0.371 | met
+pilotB-off-1 fixed-1.62 | 0.360 | met
+pilotB-off-1 fixed-1.66 | 0.322 | met
+pilotB-off-1 fixed-1.70 | 0.282 | fails: completion p50 above 1.5x off's
+pilotB-off-1 fixed-1.74 | 0.272 | fails: completion p50 above 1.5x off's
+pilotB-off-2 hold-cap | 0.285 | met
+pilotB-off-2 fixed-1.62 | 0.339 | met
+pilotB-off-2 fixed-1.66 | 0.291 | met
+pilotB-off-2 fixed-1.70 | 0.237 | met
+pilotB-off-2 fixed-1.74 | 0.239 | met
+pilotB-off-3 hold-cap | 0.270 | met
+pilotB-off-3 fixed-1.62 | 0.264 | met
+pilotB-off-3 fixed-1.66 | 0.236 | met
+pilotB-off-3 fixed-1.70 | 0.228 | fails: a hold refusal
+pilotB-off-3 fixed-1.74 | 0.229 | fails: completion p50 above 1.5x off's
+
+pooled premium p99 ms: hold-cap 404, fixed-1.62 412, fixed-1.66 389, fixed-1.70 345 (inadmissible), fixed-1.74 330 (inadmissible)
+verdict: not established: neither hold-cap nor fixed-1.66 was 15% below the other
+
+## scale 0.975
+{"step_model_ms": [15.3639, 0.0966, 0.0959, 0.9292, 3.0468], "fitted_steps": 282897, "forward_ms": 3.912577}
+step scale 0.9750
+cell arm | premium p99 ratio_to_off | owner's limits
+pilotA-off-1 hold-cap | 0.292 | met
+pilotA-off-1 fixed-1.62 | 0.317 | met
+pilotA-off-1 fixed-1.66 | 0.301 | met
+pilotA-off-1 fixed-1.70 | 0.247 | met
+pilotA-off-1 fixed-1.74 | 0.234 | met
+pilotA-off-2 hold-cap | 0.268 | met
+pilotA-off-2 fixed-1.62 | 0.241 | met
+pilotA-off-2 fixed-1.66 | 0.240 | met
+pilotA-off-2 fixed-1.70 | 0.221 | fails: completion p50 above 1.5x off's
+pilotA-off-2 fixed-1.74 | 0.205 | fails: completion p50 above 1.5x off's
+pilotA-off-3 hold-cap | 0.286 | met
+pilotA-off-3 fixed-1.62 | 0.259 | met
+pilotA-off-3 fixed-1.66 | 0.263 | met
+pilotA-off-3 fixed-1.70 | 0.260 | met
+pilotA-off-3 fixed-1.74 | 0.224 | met
+pilotB-off-1 hold-cap | 0.396 | met
+pilotB-off-1 fixed-1.62 | 0.426 | met
+pilotB-off-1 fixed-1.66 | 0.339 | met
+pilotB-off-1 fixed-1.70 | 0.288 | fails: completion p50 above 1.5x off's
+pilotB-off-1 fixed-1.74 | 0.276 | fails: completion p50 above 1.5x off's
+pilotB-off-2 hold-cap | 0.297 | met
+pilotB-off-2 fixed-1.62 | 0.345 | met
+pilotB-off-2 fixed-1.66 | 0.298 | met
+pilotB-off-2 fixed-1.70 | 0.239 | met
+pilotB-off-2 fixed-1.74 | 0.244 | met
+pilotB-off-3 hold-cap | 0.284 | met
+pilotB-off-3 fixed-1.62 | 0.275 | met
+pilotB-off-3 fixed-1.66 | 0.243 | met
+pilotB-off-3 fixed-1.70 | 0.235 | fails: a hold refusal
+pilotB-off-3 fixed-1.74 | 0.229 | fails: completion p50 above 1.5x off's
+
+pooled premium p99 ms: hold-cap 430, fixed-1.62 449, fixed-1.66 408, fixed-1.70 353 (inadmissible), fixed-1.74 335 (inadmissible)
+verdict: not established: neither hold-cap nor fixed-1.66 was 15% below the other
+
+## scale 0.980
+{"step_model_ms": [15.3639, 0.0966, 0.0959, 0.9292, 3.0468], "fitted_steps": 282897, "forward_ms": 3.912577}
+step scale 0.9800
+cell arm | premium p99 ratio_to_off | owner's limits
+pilotA-off-1 hold-cap | 0.295 | met
+pilotA-off-1 fixed-1.62 | 0.335 | met
+pilotA-off-1 fixed-1.66 | 0.337 | met
+pilotA-off-1 fixed-1.70 | 0.256 | met
+pilotA-off-1 fixed-1.74 | 0.235 | met
+pilotA-off-2 hold-cap | 0.278 | met
+pilotA-off-2 fixed-1.62 | 0.244 | met
+pilotA-off-2 fixed-1.66 | 0.244 | met
+pilotA-off-2 fixed-1.70 | 0.229 | met
+pilotA-off-2 fixed-1.74 | 0.214 | fails: completion p50 above 1.5x off's
+pilotA-off-3 hold-cap | 0.283 | met
+pilotA-off-3 fixed-1.62 | 0.266 | met
+pilotA-off-3 fixed-1.66 | 0.267 | met
+pilotA-off-3 fixed-1.70 | 0.263 | met
+pilotA-off-3 fixed-1.74 | 0.233 | met
+pilotB-off-1 hold-cap | 0.408 | met
+pilotB-off-1 fixed-1.62 | 0.496 | met
+pilotB-off-1 fixed-1.66 | 0.350 | met
+pilotB-off-1 fixed-1.70 | 0.292 | met
+pilotB-off-1 fixed-1.74 | 0.283 | fails: completion p50 above 1.5x off's
+pilotB-off-2 hold-cap | 0.318 | met
+pilotB-off-2 fixed-1.62 | 0.374 | met
+pilotB-off-2 fixed-1.66 | 0.309 | met
+pilotB-off-2 fixed-1.70 | 0.248 | met
+pilotB-off-2 fixed-1.74 | 0.247 | met
+pilotB-off-3 hold-cap | 0.285 | met
+pilotB-off-3 fixed-1.62 | 0.297 | met
+pilotB-off-3 fixed-1.66 | 0.245 | met
+pilotB-off-3 fixed-1.70 | 0.240 | fails: a hold refusal
+pilotB-off-3 fixed-1.74 | 0.234 | fails: completion p50 above 1.5x off's
+
+pooled premium p99 ms: hold-cap 441, fixed-1.62 475, fixed-1.66 423, fixed-1.70 365 (inadmissible), fixed-1.74 346 (inadmissible)
+verdict: not established: neither hold-cap nor fixed-1.66 was 15% below the other
+
+## scale 0.985
+{"step_model_ms": [15.3639, 0.0966, 0.0959, 0.9292, 3.0468], "fitted_steps": 282897, "forward_ms": 3.912577}
+step scale 0.9850
+cell arm | premium p99 ratio_to_off | owner's limits
+pilotA-off-1 hold-cap | 0.308 | met
+pilotA-off-1 fixed-1.62 | 0.361 | met
+pilotA-off-1 fixed-1.66 | 0.331 | met
+pilotA-off-1 fixed-1.70 | 0.261 | met
+pilotA-off-1 fixed-1.74 | 0.241 | met
+pilotA-off-2 hold-cap | 0.258 | met
+pilotA-off-2 fixed-1.62 | 0.243 | met
+pilotA-off-2 fixed-1.66 | 0.250 | met
+pilotA-off-2 fixed-1.70 | 0.236 | met
+pilotA-off-2 fixed-1.74 | 0.211 | fails: completion p50 above 1.5x off's
+pilotA-off-3 hold-cap | 0.289 | met
+pilotA-off-3 fixed-1.62 | 0.277 | met
+pilotA-off-3 fixed-1.66 | 0.278 | met
+pilotA-off-3 fixed-1.70 | 0.255 | met
+pilotA-off-3 fixed-1.74 | 0.237 | met
+pilotB-off-1 hold-cap | 0.389 | met
+pilotB-off-1 fixed-1.62 | 0.595 | met
+pilotB-off-1 fixed-1.66 | 0.376 | met
+pilotB-off-1 fixed-1.70 | 0.305 | met
+pilotB-off-1 fixed-1.74 | 0.283 | fails: completion p50 above 1.5x off's
+pilotB-off-2 hold-cap | 0.309 | met
+pilotB-off-2 fixed-1.62 | 0.396 | met
+pilotB-off-2 fixed-1.66 | 0.333 | met
+pilotB-off-2 fixed-1.70 | 0.255 | met
+pilotB-off-2 fixed-1.74 | 0.255 | met
+pilotB-off-3 hold-cap | 0.285 | met
+pilotB-off-3 fixed-1.62 | 0.309 | met
+pilotB-off-3 fixed-1.66 | 0.261 | met
+pilotB-off-3 fixed-1.70 | 0.241 | fails: a hold refusal
+pilotB-off-3 fixed-1.74 | 0.237 | fails: completion p50 above 1.5x off's
+
+pooled premium p99 ms: hold-cap 446, fixed-1.62 536, fixed-1.66 461, fixed-1.70 377 (inadmissible), fixed-1.74 354 (inadmissible)
+verdict: not established: neither hold-cap nor fixed-1.66 was 15% below the other
+
+## scale 0.990
+{"step_model_ms": [15.3639, 0.0966, 0.0959, 0.9292, 3.0468], "fitted_steps": 282897, "forward_ms": 3.912577}
+step scale 0.9900
+cell arm | premium p99 ratio_to_off | owner's limits
+pilotA-off-1 hold-cap | 0.303 | met
+pilotA-off-1 fixed-1.62 | 0.376 | met
+pilotA-off-1 fixed-1.66 | 0.361 | met
+pilotA-off-1 fixed-1.70 | 0.272 | met
+pilotA-off-1 fixed-1.74 | 0.250 | met
+pilotA-off-2 hold-cap | 0.260 | met
+pilotA-off-2 fixed-1.62 | 0.249 | met
+pilotA-off-2 fixed-1.66 | 0.261 | met
+pilotA-off-2 fixed-1.70 | 0.229 | met
+pilotA-off-2 fixed-1.74 | 0.211 | fails: completion p50 above 1.5x off's
+pilotA-off-3 hold-cap | 0.298 | met
+pilotA-off-3 fixed-1.62 | 0.289 | met
+pilotA-off-3 fixed-1.66 | 0.280 | met
+pilotA-off-3 fixed-1.70 | 0.277 | met
+pilotA-off-3 fixed-1.74 | 0.237 | met
+pilotB-off-1 hold-cap | 0.375 | met
+pilotB-off-1 fixed-1.62 | 0.691 | met
+pilotB-off-1 fixed-1.66 | 0.428 | met
+pilotB-off-1 fixed-1.70 | 0.318 | met
+pilotB-off-1 fixed-1.74 | 0.296 | met
+pilotB-off-2 hold-cap | 0.325 | met
+pilotB-off-2 fixed-1.62 | 0.413 | met
+pilotB-off-2 fixed-1.66 | 0.360 | met
+pilotB-off-2 fixed-1.70 | 0.259 | met
+pilotB-off-2 fixed-1.74 | 0.259 | met
+pilotB-off-3 hold-cap | 0.284 | met
+pilotB-off-3 fixed-1.62 | 0.321 | met
+pilotB-off-3 fixed-1.66 | 0.270 | met
+pilotB-off-3 fixed-1.70 | 0.246 | fails: a hold refusal
+pilotB-off-3 fixed-1.74 | 0.246 | fails: completion p50 above 1.5x off's
+
+pooled premium p99 ms: hold-cap 448, fixed-1.62 605, fixed-1.66 512, fixed-1.70 391 (inadmissible), fixed-1.74 363 (inadmissible)
+verdict: not established: neither hold-cap nor fixed-1.66 was 15% below the other
+
+## scale 0.995
+{"step_model_ms": [15.3639, 0.0966, 0.0959, 0.9292, 3.0468], "fitted_steps": 282897, "forward_ms": 3.912577}
+step scale 0.9950
+cell arm | premium p99 ratio_to_off | owner's limits
+pilotA-off-1 hold-cap | 0.304 | met
+pilotA-off-1 fixed-1.62 | 0.394 | met
+pilotA-off-1 fixed-1.66 | 0.385 | met
+pilotA-off-1 fixed-1.70 | 0.275 | met
+pilotA-off-1 fixed-1.74 | 0.257 | met
+pilotA-off-2 hold-cap | 0.262 | met
+pilotA-off-2 fixed-1.62 | 0.260 | met
+pilotA-off-2 fixed-1.66 | 0.267 | met
+pilotA-off-2 fixed-1.70 | 0.237 | met
+pilotA-off-2 fixed-1.74 | 0.213 | fails: completion p50 above 1.5x off's
+pilotA-off-3 hold-cap | 0.300 | met
+pilotA-off-3 fixed-1.62 | 0.299 | met
+pilotA-off-3 fixed-1.66 | 0.283 | met
+pilotA-off-3 fixed-1.70 | 0.278 | met
+pilotA-off-3 fixed-1.74 | 0.247 | met
+pilotB-off-1 hold-cap | 0.342 | met
+pilotB-off-1 fixed-1.62 | 0.829 | met
+pilotB-off-1 fixed-1.66 | 0.488 | met
+pilotB-off-1 fixed-1.70 | 0.345 | met
+pilotB-off-1 fixed-1.74 | 0.299 | met
+pilotB-off-2 hold-cap | 0.355 | met
+pilotB-off-2 fixed-1.62 | 0.444 | met
+pilotB-off-2 fixed-1.66 | 0.357 | met
+pilotB-off-2 fixed-1.70 | 0.269 | met
+pilotB-off-2 fixed-1.74 | 0.267 | met
+pilotB-off-3 hold-cap | 0.292 | met
+pilotB-off-3 fixed-1.62 | 0.341 | met
+pilotB-off-3 fixed-1.66 | 0.295 | met
+pilotB-off-3 fixed-1.70 | 0.255 | fails: a hold refusal
+pilotB-off-3 fixed-1.74 | 0.248 | fails: completion p95 above 25 s
+
+pooled premium p99 ms: hold-cap 454, fixed-1.62 666, fixed-1.66 559, fixed-1.70 410 (inadmissible), fixed-1.74 376 (inadmissible)
+verdict: observed: hold-cap beat every admissible fixed spacing
+
+## scale 1.000
+{"step_model_ms": [15.3639, 0.0966, 0.0959, 0.9292, 3.0468], "fitted_steps": 282897, "forward_ms": 3.912577}
+step scale 1.0000
+cell arm | premium p99 ratio_to_off | owner's limits
+pilotA-off-1 hold-cap | 0.309 | met
+pilotA-off-1 fixed-1.62 | 0.419 | met
+pilotA-off-1 fixed-1.66 | 0.412 | met
+pilotA-off-1 fixed-1.70 | 0.290 | met
+pilotA-off-1 fixed-1.74 | 0.271 | met
+pilotA-off-2 hold-cap | 0.273 | met
+pilotA-off-2 fixed-1.62 | 0.259 | met
+pilotA-off-2 fixed-1.66 | 0.268 | met
+pilotA-off-2 fixed-1.70 | 0.241 | met
+pilotA-off-2 fixed-1.74 | 0.218 | fails: completion p50 above 1.5x off's
+pilotA-off-3 hold-cap | 0.311 | met
+pilotA-off-3 fixed-1.62 | 0.302 | met
+pilotA-off-3 fixed-1.66 | 0.295 | met
+pilotA-off-3 fixed-1.70 | 0.267 | met
+pilotA-off-3 fixed-1.74 | 0.252 | met
+pilotB-off-1 hold-cap | 0.349 | met
+pilotB-off-1 fixed-1.62 | 0.983 | met
+pilotB-off-1 fixed-1.66 | 0.618 | met
+pilotB-off-1 fixed-1.70 | 0.379 | met
+pilotB-off-1 fixed-1.74 | 0.309 | met
+pilotB-off-2 hold-cap | 0.357 | met
+pilotB-off-2 fixed-1.62 | 0.526 | met
+pilotB-off-2 fixed-1.66 | 0.385 | met
+pilotB-off-2 fixed-1.70 | 0.276 | met
+pilotB-off-2 fixed-1.74 | 0.274 | met
+pilotB-off-3 hold-cap | 0.313 | met
+pilotB-off-3 fixed-1.62 | 0.394 | met
+pilotB-off-3 fixed-1.66 | 0.300 | met
+pilotB-off-3 fixed-1.70 | 0.274 | fails: a hold refusal
+pilotB-off-3 fixed-1.74 | 0.259 | fails: completion p95 above 25 s
+
+pooled premium p99 ms: hold-cap 469, fixed-1.62 754, fixed-1.66 615, fixed-1.70 432 (inadmissible), fixed-1.74 391 (inadmissible)
+verdict: observed: hold-cap beat every admissible fixed spacing
+
+## scale 1.005
+{"step_model_ms": [15.3639, 0.0966, 0.0959, 0.9292, 3.0468], "fitted_steps": 282897, "forward_ms": 3.912577}
+step scale 1.0050
+cell arm | premium p99 ratio_to_off | owner's limits
+pilotA-off-1 hold-cap | 0.313 | met
+pilotA-off-1 fixed-1.62 | 0.426 | met
+pilotA-off-1 fixed-1.66 | 0.468 | met
+pilotA-off-1 fixed-1.70 | 0.310 | met
+pilotA-off-1 fixed-1.74 | 0.280 | met
+pilotA-off-2 hold-cap | 0.294 | met
+pilotA-off-2 fixed-1.62 | 0.271 | met
+pilotA-off-2 fixed-1.66 | 0.284 | met
+pilotA-off-2 fixed-1.70 | 0.253 | met
+pilotA-off-2 fixed-1.74 | 0.223 | fails: completion p50 above 1.5x off's
+pilotA-off-3 hold-cap | 0.318 | met
+pilotA-off-3 fixed-1.62 | 0.316 | met
+pilotA-off-3 fixed-1.66 | 0.304 | met
+pilotA-off-3 fixed-1.70 | 0.294 | met
+pilotA-off-3 fixed-1.74 | 0.263 | met
+pilotB-off-1 hold-cap | 0.357 | met
+pilotB-off-1 fixed-1.62 | 1.047 | met
+pilotB-off-1 fixed-1.66 | 0.648 | met
+pilotB-off-1 fixed-1.70 | 0.417 | met
+pilotB-off-1 fixed-1.74 | 0.317 | met
+pilotB-off-2 hold-cap | 0.352 | met
+pilotB-off-2 fixed-1.62 | 0.570 | met
+pilotB-off-2 fixed-1.66 | 0.403 | met
+pilotB-off-2 fixed-1.70 | 0.288 | met
+pilotB-off-2 fixed-1.74 | 0.273 | met
+pilotB-off-3 hold-cap | 0.319 | met
+pilotB-off-3 fixed-1.62 | 0.439 | met
+pilotB-off-3 fixed-1.66 | 0.306 | met
+pilotB-off-3 fixed-1.70 | 0.282 | fails: a hold refusal
+pilotB-off-3 fixed-1.74 | 0.263 | fails: completion p95 above 25 s
+
+pooled premium p99 ms: hold-cap 485, fixed-1.62 845, fixed-1.66 670, fixed-1.70 466 (inadmissible), fixed-1.74 409 (inadmissible)
+verdict: observed: hold-cap beat every admissible fixed spacing
+
+## scale 1.010
+{"step_model_ms": [15.3639, 0.0966, 0.0959, 0.9292, 3.0468], "fitted_steps": 282897, "forward_ms": 3.912577}
+step scale 1.0100
+cell arm | premium p99 ratio_to_off | owner's limits
+pilotA-off-1 hold-cap | 0.330 | met
+pilotA-off-1 fixed-1.62 | 0.468 | met
+pilotA-off-1 fixed-1.66 | 0.485 | met
+pilotA-off-1 fixed-1.70 | 0.322 | met
+pilotA-off-1 fixed-1.74 | 0.301 | met
+pilotA-off-2 hold-cap | 0.288 | met
+pilotA-off-2 fixed-1.62 | 0.296 | met
+pilotA-off-2 fixed-1.66 | 0.289 | met
+pilotA-off-2 fixed-1.70 | 0.259 | met
+pilotA-off-2 fixed-1.74 | 0.230 | fails: completion p50 above 1.5x off's
+pilotA-off-3 hold-cap | 0.314 | met
+pilotA-off-3 fixed-1.62 | 0.322 | met
+pilotA-off-3 fixed-1.66 | 0.315 | met
+pilotA-off-3 fixed-1.70 | 0.299 | met
+pilotA-off-3 fixed-1.74 | 0.265 | met
+pilotB-off-1 hold-cap | 0.397 | met
+pilotB-off-1 fixed-1.62 | 1.029 | met
+pilotB-off-1 fixed-1.66 | 0.769 | met
+pilotB-off-1 fixed-1.70 | 0.445 | met
+pilotB-off-1 fixed-1.74 | 0.331 | met
+pilotB-off-2 hold-cap | 0.357 | met
+pilotB-off-2 fixed-1.62 | 0.640 | met
+pilotB-off-2 fixed-1.66 | 0.431 | met
+pilotB-off-2 fixed-1.70 | 0.312 | met
+pilotB-off-2 fixed-1.74 | 0.285 | met
+pilotB-off-3 hold-cap | 0.319 | fails: completion p95 above 25 s
+pilotB-off-3 fixed-1.62 | 0.514 | met
+pilotB-off-3 fixed-1.66 | 0.322 | met
+pilotB-off-3 fixed-1.70 | 0.293 | fails: a hold refusal
+pilotB-off-3 fixed-1.74 | 0.278 | fails: completion p95 above 25 s
+
+pooled premium p99 ms: hold-cap 500 (inadmissible), fixed-1.62 917, fixed-1.66 740, fixed-1.70 504 (inadmissible), fixed-1.74 423 (inadmissible)
+verdict: not met: hold-cap broke the owner's limits
+
+## scale 1.015
+{"step_model_ms": [15.3639, 0.0966, 0.0959, 0.9292, 3.0468], "fitted_steps": 282897, "forward_ms": 3.912577}
+step scale 1.0150
+cell arm | premium p99 ratio_to_off | owner's limits
+pilotA-off-1 hold-cap | 0.312 | met
+pilotA-off-1 fixed-1.62 | 0.503 | met
+pilotA-off-1 fixed-1.66 | 0.523 | met
+pilotA-off-1 fixed-1.70 | 0.357 | met
+pilotA-off-1 fixed-1.74 | 0.290 | met
+pilotA-off-2 hold-cap | 0.275 | met
+pilotA-off-2 fixed-1.62 | 0.385 | met
+pilotA-off-2 fixed-1.66 | 0.292 | met
+pilotA-off-2 fixed-1.70 | 0.260 | met
+pilotA-off-2 fixed-1.74 | 0.237 | fails: completion p50 above 1.5x off's
+pilotA-off-3 hold-cap | 0.315 | met
+pilotA-off-3 fixed-1.62 | 0.334 | met
+pilotA-off-3 fixed-1.66 | 0.321 | met
+pilotA-off-3 fixed-1.70 | 0.307 | met
+pilotA-off-3 fixed-1.74 | 0.265 | met
+pilotB-off-1 hold-cap | 0.410 | met
+pilotB-off-1 fixed-1.62 | 1.028 | met
+pilotB-off-1 fixed-1.66 | 0.912 | met
+pilotB-off-1 fixed-1.70 | 0.486 | met
+pilotB-off-1 fixed-1.74 | 0.357 | met
+pilotB-off-2 hold-cap | 0.326 | met
+pilotB-off-2 fixed-1.62 | 0.796 | met
+pilotB-off-2 fixed-1.66 | 0.458 | met
+pilotB-off-2 fixed-1.70 | 0.331 | met
+pilotB-off-2 fixed-1.74 | 0.296 | met
+pilotB-off-3 hold-cap | 0.292 | fails: a hold refusal
+pilotB-off-3 fixed-1.62 | 0.693 | met
+pilotB-off-3 fixed-1.66 | 0.333 | met
+pilotB-off-3 fixed-1.70 | 0.295 | fails: a hold refusal
+pilotB-off-3 fixed-1.74 | 0.288 | fails: completion p95 above 25 s
+
+pooled premium p99 ms: hold-cap 500 (inadmissible), fixed-1.62 1110, fixed-1.66 802, fixed-1.70 534 (inadmissible), fixed-1.74 436 (inadmissible)
+verdict: not met: hold-cap broke the owner's limits
+
+## scale 1.020
+{"step_model_ms": [15.3639, 0.0966, 0.0959, 0.9292, 3.0468], "fitted_steps": 282897, "forward_ms": 3.912577}
+step scale 1.0200
+cell arm | premium p99 ratio_to_off | owner's limits
+pilotA-off-1 hold-cap | 0.324 | met
+pilotA-off-1 fixed-1.62 | 0.517 | met
+pilotA-off-1 fixed-1.66 | 0.550 | met
+pilotA-off-1 fixed-1.70 | 0.374 | met
+pilotA-off-1 fixed-1.74 | 0.314 | met
+pilotA-off-2 hold-cap | 0.278 | met
+pilotA-off-2 fixed-1.62 | 0.458 | met
+pilotA-off-2 fixed-1.66 | 0.308 | met
+pilotA-off-2 fixed-1.70 | 0.276 | met
+pilotA-off-2 fixed-1.74 | 0.239 | fails: completion p50 above 1.5x off's
+pilotA-off-3 hold-cap | 0.315 | met
+pilotA-off-3 fixed-1.62 | 0.375 | met
+pilotA-off-3 fixed-1.66 | 0.331 | met
+pilotA-off-3 fixed-1.70 | 0.321 | met
+pilotA-off-3 fixed-1.74 | 0.278 | met
+pilotB-off-1 hold-cap | 0.419 | met
+pilotB-off-1 fixed-1.62 | 1.040 | met
+pilotB-off-1 fixed-1.66 | 0.928 | met
+pilotB-off-1 fixed-1.70 | 0.590 | met
+pilotB-off-1 fixed-1.74 | 0.388 | met
+pilotB-off-2 hold-cap | 0.337 | met
+pilotB-off-2 fixed-1.62 | 0.941 | met
+pilotB-off-2 fixed-1.66 | 0.555 | met
+pilotB-off-2 fixed-1.70 | 0.333 | met
+pilotB-off-2 fixed-1.74 | 0.303 | met
+pilotB-off-3 hold-cap | 0.313 | fails: completion p95 above 25 s
+pilotB-off-3 fixed-1.62 | 1.000 | met
+pilotB-off-3 fixed-1.66 | 0.410 | fails: completion p95 above 25 s
+pilotB-off-3 fixed-1.70 | 0.298 | fails: completion p95 above 25 s
+pilotB-off-3 fixed-1.74 | 0.297 | fails: completion p95 above 25 s
+
+pooled premium p99 ms: hold-cap 507 (inadmissible), fixed-1.62 1335, fixed-1.66 875 (inadmissible), fixed-1.70 590 (inadmissible), fixed-1.74 467 (inadmissible)
+verdict: not met: hold-cap broke the owner's limits
+
+## scale 1.025
+{"step_model_ms": [15.3639, 0.0966, 0.0959, 0.9292, 3.0468], "fitted_steps": 282897, "forward_ms": 3.912577}
+step scale 1.0250
+cell arm | premium p99 ratio_to_off | owner's limits
+pilotA-off-1 hold-cap | 0.353 | met
+pilotA-off-1 fixed-1.62 | 0.554 | met
+pilotA-off-1 fixed-1.66 | 0.574 | met
+pilotA-off-1 fixed-1.70 | 0.414 | met
+pilotA-off-1 fixed-1.74 | 0.313 | met
+pilotA-off-2 hold-cap | 0.296 | met
+pilotA-off-2 fixed-1.62 | 0.595 | met
+pilotA-off-2 fixed-1.66 | 0.323 | met
+pilotA-off-2 fixed-1.70 | 0.285 | met
+pilotA-off-2 fixed-1.74 | 0.243 | met
+pilotA-off-3 hold-cap | 0.330 | met
+pilotA-off-3 fixed-1.62 | 0.442 | met
+pilotA-off-3 fixed-1.66 | 0.342 | met
+pilotA-off-3 fixed-1.70 | 0.329 | met
+pilotA-off-3 fixed-1.74 | 0.289 | met
+pilotB-off-1 hold-cap | 0.396 | met
+pilotB-off-1 fixed-1.62 | 1.091 | met
+pilotB-off-1 fixed-1.66 | 1.060 | met
+pilotB-off-1 fixed-1.70 | 0.667 | met
+pilotB-off-1 fixed-1.74 | 0.450 | met
+pilotB-off-2 hold-cap | 0.339 | met
+pilotB-off-2 fixed-1.62 | 0.980 | met
+pilotB-off-2 fixed-1.66 | 0.678 | met
+pilotB-off-2 fixed-1.70 | 0.426 | met
+pilotB-off-2 fixed-1.74 | 0.320 | met
+pilotB-off-3 hold-cap | 0.325 | fails: a hold refusal
+pilotB-off-3 fixed-1.62 | 1.094 | fails: completion p95 above 25 s
+pilotB-off-3 fixed-1.66 | 0.488 | fails: completion p95 above 25 s
+pilotB-off-3 fixed-1.70 | 0.316 | fails: completion p95 above 25 s
+pilotB-off-3 fixed-1.74 | 0.294 | fails: completion p95 above 25 s
+
+pooled premium p99 ms: hold-cap 512 (inadmissible), fixed-1.62 1452 (inadmissible), fixed-1.66 988 (inadmissible), fixed-1.70 689 (inadmissible), fixed-1.74 494 (inadmissible)
+verdict: not met: hold-cap broke the owner's limits
+
+## scale 1.030
+{"step_model_ms": [15.3639, 0.0966, 0.0959, 0.9292, 3.0468], "fitted_steps": 282897, "forward_ms": 3.912577}
+step scale 1.0300
+cell arm | premium p99 ratio_to_off | owner's limits
+pilotA-off-1 hold-cap | 0.348 | met
+pilotA-off-1 fixed-1.62 | 0.622 | met
+pilotA-off-1 fixed-1.66 | 0.599 | met
+pilotA-off-1 fixed-1.70 | 0.368 | met
+pilotA-off-1 fixed-1.74 | 0.318 | met
+pilotA-off-2 hold-cap | 0.306 | met
+pilotA-off-2 fixed-1.62 | 0.788 | met
+pilotA-off-2 fixed-1.66 | 0.391 | met
+pilotA-off-2 fixed-1.70 | 0.296 | met
+pilotA-off-2 fixed-1.74 | 0.256 | fails: completion p50 above 1.5x off's
+pilotA-off-3 hold-cap | 0.335 | met
+pilotA-off-3 fixed-1.62 | 0.519 | met
+pilotA-off-3 fixed-1.66 | 0.356 | met
+pilotA-off-3 fixed-1.70 | 0.336 | met
+pilotA-off-3 fixed-1.74 | 0.307 | met
+pilotB-off-1 hold-cap | 0.418 | met
+pilotB-off-1 fixed-1.62 | 1.016 | met
+pilotB-off-1 fixed-1.66 | 1.040 | met
+pilotB-off-1 fixed-1.70 | 0.765 | met
+pilotB-off-1 fixed-1.74 | 0.491 | met
+pilotB-off-2 hold-cap | 0.321 | met
+pilotB-off-2 fixed-1.62 | 0.857 | met
+pilotB-off-2 fixed-1.66 | 0.755 | met
+pilotB-off-2 fixed-1.70 | 0.415 | met
+pilotB-off-2 fixed-1.74 | 0.320 | met
+pilotB-off-3 hold-cap | 0.313 | fails: completion p95 above 25 s
+pilotB-off-3 fixed-1.62 | 1.091 | fails: completion p95 above 25 s
+pilotB-off-3 fixed-1.66 | 0.589 | fails: completion p95 above 25 s
+pilotB-off-3 fixed-1.70 | 0.342 | fails: completion p95 above 25 s
+pilotB-off-3 fixed-1.74 | 0.301 | fails: completion p95 above 25 s
+
+pooled premium p99 ms: hold-cap 514 (inadmissible), fixed-1.62 1483 (inadmissible), fixed-1.66 1083 (inadmissible), fixed-1.70 740 (inadmissible), fixed-1.74 530 (inadmissible)
+verdict: not met: hold-cap broke the owner's limits
+
+## scale 1.035
+{"step_model_ms": [15.3639, 0.0966, 0.0959, 0.9292, 3.0468], "fitted_steps": 282897, "forward_ms": 3.912577}
+step scale 1.0350
+cell arm | premium p99 ratio_to_off | owner's limits
+pilotA-off-1 hold-cap | 0.358 | met
+pilotA-off-1 fixed-1.62 | 0.686 | met
+pilotA-off-1 fixed-1.66 | 0.632 | met
+pilotA-off-1 fixed-1.70 | 0.396 | met
+pilotA-off-1 fixed-1.74 | 0.331 | met
+pilotA-off-2 hold-cap | 0.284 | met
+pilotA-off-2 fixed-1.62 | 0.952 | met
+pilotA-off-2 fixed-1.66 | 0.443 | met
+pilotA-off-2 fixed-1.70 | 0.317 | met
+pilotA-off-2 fixed-1.74 | 0.265 | met
+pilotA-off-3 hold-cap | 0.350 | met
+pilotA-off-3 fixed-1.62 | 0.665 | met
+pilotA-off-3 fixed-1.66 | 0.387 | met
+pilotA-off-3 fixed-1.70 | 0.357 | met
+pilotA-off-3 fixed-1.74 | 0.318 | met
+pilotB-off-1 hold-cap | 0.380 | met
+pilotB-off-1 fixed-1.62 | 1.144 | met
+pilotB-off-1 fixed-1.66 | 0.920 | met
+pilotB-off-1 fixed-1.70 | 0.840 | met
+pilotB-off-1 fixed-1.74 | 0.546 | met
+pilotB-off-2 hold-cap | 0.321 | met
+pilotB-off-2 fixed-1.62 | 0.982 | met
+pilotB-off-2 fixed-1.66 | 1.136 | met
+pilotB-off-2 fixed-1.70 | 0.545 | met
+pilotB-off-2 fixed-1.74 | 0.337 | met
+pilotB-off-3 hold-cap | 0.328 | fails: completion p95 above 25 s
+pilotB-off-3 fixed-1.62 | 1.155 | fails: completion p95 above 25 s
+pilotB-off-3 fixed-1.66 | 0.828 | fails: completion p95 above 25 s
+pilotB-off-3 fixed-1.70 | 0.376 | fails: completion p95 above 25 s
+pilotB-off-3 fixed-1.74 | 0.318 | fails: completion p95 above 25 s
+
+pooled premium p99 ms: hold-cap 518 (inadmissible), fixed-1.62 1628 (inadmissible), fixed-1.66 1284 (inadmissible), fixed-1.70 856 (inadmissible), fixed-1.74 563 (inadmissible)
+verdict: not met: hold-cap broke the owner's limits
+
+## scale 1.040
+{"step_model_ms": [15.3639, 0.0966, 0.0959, 0.9292, 3.0468], "fitted_steps": 282897, "forward_ms": 3.912577}
+step scale 1.0400
+cell arm | premium p99 ratio_to_off | owner's limits
+pilotA-off-1 hold-cap | 0.333 | met
+pilotA-off-1 fixed-1.62 | 0.780 | met
+pilotA-off-1 fixed-1.66 | 0.686 | met
+pilotA-off-1 fixed-1.70 | 0.363 | met
+pilotA-off-1 fixed-1.74 | 0.340 | met
+pilotA-off-2 hold-cap | 0.284 | met
+pilotA-off-2 fixed-1.62 | 1.098 | met
+pilotA-off-2 fixed-1.66 | 0.845 | met
+pilotA-off-2 fixed-1.70 | 0.331 | met
+pilotA-off-2 fixed-1.74 | 0.274 | met
+pilotA-off-3 hold-cap | 0.312 | met
+pilotA-off-3 fixed-1.62 | 0.805 | met
+pilotA-off-3 fixed-1.66 | 0.420 | met
+pilotA-off-3 fixed-1.70 | 0.368 | met
+pilotA-off-3 fixed-1.74 | 0.340 | met
+pilotB-off-1 hold-cap | 0.389 | met
+pilotB-off-1 fixed-1.62 | 1.105 | met
+pilotB-off-1 fixed-1.66 | 1.045 | met
+pilotB-off-1 fixed-1.70 | 0.967 | met
+pilotB-off-1 fixed-1.74 | 0.679 | met
+pilotB-off-2 hold-cap | 0.333 | met
+pilotB-off-2 fixed-1.62 | 1.117 | met
+pilotB-off-2 fixed-1.66 | 1.018 | met
+pilotB-off-2 fixed-1.70 | 0.619 | met
+pilotB-off-2 fixed-1.74 | 0.363 | met
+pilotB-off-3 hold-cap | 0.318 | fails: completion p95 above 25 s
+pilotB-off-3 fixed-1.62 | 1.175 | fails: completion p95 above 25 s
+pilotB-off-3 fixed-1.66 | 1.049 | fails: completion p95 above 25 s
+pilotB-off-3 fixed-1.70 | 0.392 | fails: completion p95 above 25 s
+pilotB-off-3 fixed-1.74 | 0.333 | fails: completion p95 above 25 s
+
+pooled premium p99 ms: hold-cap 512 (inadmissible), fixed-1.62 1689 (inadmissible), fixed-1.66 1419 (inadmissible), fixed-1.70 919 (inadmissible), fixed-1.74 621 (inadmissible)
+verdict: not met: hold-cap broke the owner's limits
+
+## scale 1.045
+{"step_model_ms": [15.3639, 0.0966, 0.0959, 0.9292, 3.0468], "fitted_steps": 282897, "forward_ms": 3.912577}
+step scale 1.0450
+cell arm | premium p99 ratio_to_off | owner's limits
+pilotA-off-1 hold-cap | 0.347 | met
+pilotA-off-1 fixed-1.62 | 1.075 | met
+pilotA-off-1 fixed-1.66 | 0.849 | met
+pilotA-off-1 fixed-1.70 | 0.376 | met
+pilotA-off-1 fixed-1.74 | 0.364 | met
+pilotA-off-2 hold-cap | 0.298 | met
+pilotA-off-2 fixed-1.62 | 1.170 | met
+pilotA-off-2 fixed-1.66 | 1.025 | met
+pilotA-off-2 fixed-1.70 | 0.368 | met
+pilotA-off-2 fixed-1.74 | 0.279 | met
+pilotA-off-3 hold-cap | 0.304 | met
+pilotA-off-3 fixed-1.62 | 0.921 | met
+pilotA-off-3 fixed-1.66 | 0.454 | met
+pilotA-off-3 fixed-1.70 | 0.374 | met
+pilotA-off-3 fixed-1.74 | 0.355 | met
+pilotB-off-1 hold-cap | 0.407 | met
+pilotB-off-1 fixed-1.62 | 1.174 | met
+pilotB-off-1 fixed-1.66 | 1.108 | met
+pilotB-off-1 fixed-1.70 | 1.033 | met
+pilotB-off-1 fixed-1.74 | 0.688 | met
+pilotB-off-2 hold-cap | 0.347 | met
+pilotB-off-2 fixed-1.62 | 1.147 | met
+pilotB-off-2 fixed-1.66 | 1.097 | met
+pilotB-off-2 fixed-1.70 | 0.715 | met
+pilotB-off-2 fixed-1.74 | 0.399 | met
+pilotB-off-3 hold-cap | 0.303 | fails: completion p95 above 25 s
+pilotB-off-3 fixed-1.62 | 1.167 | fails: completion p95 above 25 s
+pilotB-off-3 fixed-1.66 | 1.155 | fails: completion p95 above 25 s
+pilotB-off-3 fixed-1.70 | 0.452 | fails: completion p95 above 25 s
+pilotB-off-3 fixed-1.74 | 0.354 | fails: completion p95 above 25 s
+
+pooled premium p99 ms: hold-cap 513 (inadmissible), fixed-1.62 1763 (inadmissible), fixed-1.66 1666 (inadmissible), fixed-1.70 1009 (inadmissible), fixed-1.74 680 (inadmissible)
+verdict: not met: hold-cap broke the owner's limits
+
+## scale 1.050
+{"step_model_ms": [15.3639, 0.0966, 0.0959, 0.9292, 3.0468], "fitted_steps": 282897, "forward_ms": 3.912577}
+step scale 1.0500
+cell arm | premium p99 ratio_to_off | owner's limits
+pilotA-off-1 hold-cap | 0.346 | met
+pilotA-off-1 fixed-1.62 | 1.012 | met
+pilotA-off-1 fixed-1.66 | 0.951 | met
+pilotA-off-1 fixed-1.70 | 0.398 | met
+pilotA-off-1 fixed-1.74 | 0.375 | met
+pilotA-off-2 hold-cap | 0.295 | met
+pilotA-off-2 fixed-1.62 | 1.177 | met
+pilotA-off-2 fixed-1.66 | 1.179 | met
+pilotA-off-2 fixed-1.70 | 0.457 | met
+pilotA-off-2 fixed-1.74 | 0.294 | met
+pilotA-off-3 hold-cap | 0.312 | met
+pilotA-off-3 fixed-1.62 | 1.049 | met
+pilotA-off-3 fixed-1.66 | 0.573 | met
+pilotA-off-3 fixed-1.70 | 0.374 | met
+pilotA-off-3 fixed-1.74 | 0.377 | met
+pilotB-off-1 hold-cap | 0.405 | met
+pilotB-off-1 fixed-1.62 | 1.191 | met
+pilotB-off-1 fixed-1.66 | 1.078 | met
+pilotB-off-1 fixed-1.70 | 1.110 | met
+pilotB-off-1 fixed-1.74 | 0.846 | met
+pilotB-off-2 hold-cap | 0.324 | met
+pilotB-off-2 fixed-1.62 | 1.212 | met
+pilotB-off-2 fixed-1.66 | 1.077 | met
+pilotB-off-2 fixed-1.70 | 0.749 | met
+pilotB-off-2 fixed-1.74 | 0.533 | met
+pilotB-off-3 hold-cap | 0.349 | fails: completion p95 above 25 s
+pilotB-off-3 fixed-1.62 | 1.173 | fails: completion p95 above 25 s
+pilotB-off-3 fixed-1.66 | 1.125 | fails: completion p95 above 25 s
+pilotB-off-3 fixed-1.70 | 0.670 | fails: completion p95 above 25 s
+pilotB-off-3 fixed-1.74 | 0.397 | fails: completion p95 above 25 s
+
+pooled premium p99 ms: hold-cap 527 (inadmissible), fixed-1.62 1807 (inadmissible), fixed-1.66 1676 (inadmissible), fixed-1.70 1116 (inadmissible), fixed-1.74 825 (inadmissible)
+verdict: not met: hold-cap broke the owner's limits
+
+## scale 1.055
+{"step_model_ms": [15.3639, 0.0966, 0.0959, 0.9292, 3.0468], "fitted_steps": 282897, "forward_ms": 3.912577}
+step scale 1.0550
+cell arm | premium p99 ratio_to_off | owner's limits
+pilotA-off-1 hold-cap | 0.308 | met
+pilotA-off-1 fixed-1.62 | 1.133 | met
+pilotA-off-1 fixed-1.66 | 1.011 | met
+pilotA-off-1 fixed-1.70 | 0.521 | met
+pilotA-off-1 fixed-1.74 | 0.408 | met
+pilotA-off-2 hold-cap | 0.291 | met
+pilotA-off-2 fixed-1.62 | 1.184 | met
+pilotA-off-2 fixed-1.66 | 1.106 | met
+pilotA-off-2 fixed-1.70 | 0.602 | met
+pilotA-off-2 fixed-1.74 | 0.297 | met
+pilotA-off-3 hold-cap | 0.323 | met
+pilotA-off-3 fixed-1.62 | 1.101 | met
+pilotA-off-3 fixed-1.66 | 0.717 | met
+pilotA-off-3 fixed-1.70 | 0.388 | met
+pilotA-off-3 fixed-1.74 | 0.382 | met
+pilotB-off-1 hold-cap | 0.392 | met
+pilotB-off-1 fixed-1.62 | 1.214 | met
+pilotB-off-1 fixed-1.66 | 1.171 | met
+pilotB-off-1 fixed-1.70 | 1.063 | met
+pilotB-off-1 fixed-1.74 | 0.966 | met
+pilotB-off-2 hold-cap | 0.331 | met
+pilotB-off-2 fixed-1.62 | 1.216 | met
+pilotB-off-2 fixed-1.66 | 1.176 | met
+pilotB-off-2 fixed-1.70 | 1.052 | met
+pilotB-off-2 fixed-1.74 | 0.553 | met
+pilotB-off-3 hold-cap | 0.344 | fails: completion p95 above 25 s
+pilotB-off-3 fixed-1.62 | 1.179 | fails: completion p95 above 25 s
+pilotB-off-3 fixed-1.66 | 1.137 | fails: completion p95 above 25 s
+pilotB-off-3 fixed-1.70 | 0.773 | fails: completion p95 above 25 s
+pilotB-off-3 fixed-1.74 | 0.432 | fails: completion p95 above 25 s
+
+pooled premium p99 ms: hold-cap 522 (inadmissible), fixed-1.62 1850 (inadmissible), fixed-1.66 1775 (inadmissible), fixed-1.70 1278 (inadmissible), fixed-1.74 922 (inadmissible)
+verdict: not met: hold-cap broke the owner's limits
+
+## scale 1.060
+{"step_model_ms": [15.3639, 0.0966, 0.0959, 0.9292, 3.0468], "fitted_steps": 282897, "forward_ms": 3.912577}
+step scale 1.0600
+cell arm | premium p99 ratio_to_off | owner's limits
+pilotA-off-1 hold-cap | 0.317 | met
+pilotA-off-1 fixed-1.62 | 1.155 | met
+pilotA-off-1 fixed-1.66 | 1.092 | met
+pilotA-off-1 fixed-1.70 | 0.853 | met
+pilotA-off-1 fixed-1.74 | 0.444 | met
+pilotA-off-2 hold-cap | 0.293 | met
+pilotA-off-2 fixed-1.62 | 1.196 | met
+pilotA-off-2 fixed-1.66 | 1.189 | met
+pilotA-off-2 fixed-1.70 | 0.857 | met
+pilotA-off-2 fixed-1.74 | 0.300 | met
+pilotA-off-3 hold-cap | 0.333 | met
+pilotA-off-3 fixed-1.62 | 1.060 | met
+pilotA-off-3 fixed-1.66 | 0.898 | met
+pilotA-off-3 fixed-1.70 | 0.404 | met
+pilotA-off-3 fixed-1.74 | 0.396 | met
+pilotB-off-1 hold-cap | 0.387 | met
+pilotB-off-1 fixed-1.62 | 1.198 | met
+pilotB-off-1 fixed-1.66 | 1.155 | met
+pilotB-off-1 fixed-1.70 | 1.096 | met
+pilotB-off-1 fixed-1.74 | 1.045 | met
+pilotB-off-2 hold-cap | 0.354 | met
+pilotB-off-2 fixed-1.62 | 1.160 | met
+pilotB-off-2 fixed-1.66 | 1.161 | met
+pilotB-off-2 fixed-1.70 | 0.876 | met
+pilotB-off-2 fixed-1.74 | 0.659 | met
+pilotB-off-3 hold-cap | 0.372 | fails: completion p95 above 25 s
+pilotB-off-3 fixed-1.62 | 1.197 | fails: completion p95 above 25 s
+pilotB-off-3 fixed-1.66 | 1.157 | fails: completion p95 above 25 s
+pilotB-off-3 fixed-1.70 | 1.108 | fails: completion p95 above 25 s
+pilotB-off-3 fixed-1.74 | 0.506 | fails: completion p95 above 25 s
+
+pooled premium p99 ms: hold-cap 540 (inadmissible), fixed-1.62 1848 (inadmissible), fixed-1.66 1803 (inadmissible), fixed-1.70 1535 (inadmissible), fixed-1.74 1048 (inadmissible)
+verdict: not met: hold-cap broke the owner's limits
+
+## scale 1.065
+{"step_model_ms": [15.3639, 0.0966, 0.0959, 0.9292, 3.0468], "fitted_steps": 282897, "forward_ms": 3.912577}
+step scale 1.0650
+cell arm | premium p99 ratio_to_off | owner's limits
+pilotA-off-1 hold-cap | 0.335 | met
+pilotA-off-1 fixed-1.62 | 1.145 | met
+pilotA-off-1 fixed-1.66 | 1.091 | met
+pilotA-off-1 fixed-1.70 | 1.034 | met
+pilotA-off-1 fixed-1.74 | 0.479 | met
+pilotA-off-2 hold-cap | 0.288 | met
+pilotA-off-2 fixed-1.62 | 1.179 | met
+pilotA-off-2 fixed-1.66 | 1.160 | met
+pilotA-off-2 fixed-1.70 | 1.153 | met
+pilotA-off-2 fixed-1.74 | 0.337 | met
+pilotA-off-3 hold-cap | 0.373 | met
+pilotA-off-3 fixed-1.62 | 1.114 | met
+pilotA-off-3 fixed-1.66 | 0.973 | met
+pilotA-off-3 fixed-1.70 | 0.464 | met
+pilotA-off-3 fixed-1.74 | 0.410 | met
+pilotB-off-1 hold-cap | 0.425 | met
+pilotB-off-1 fixed-1.62 | 1.247 | met
+pilotB-off-1 fixed-1.66 | 1.187 | met
+pilotB-off-1 fixed-1.70 | 1.126 | met
+pilotB-off-1 fixed-1.74 | 1.028 | met
+pilotB-off-2 hold-cap | 0.354 | met
+pilotB-off-2 fixed-1.62 | 1.209 | met
+pilotB-off-2 fixed-1.66 | 1.177 | met
+pilotB-off-2 fixed-1.70 | 1.022 | met
+pilotB-off-2 fixed-1.74 | 0.829 | met
+pilotB-off-3 hold-cap | 0.332 | fails: completion p95 above 25 s
+pilotB-off-3 fixed-1.62 | 1.214 | fails: completion p95 above 25 s
+pilotB-off-3 fixed-1.66 | 1.192 | fails: completion p95 above 25 s
+pilotB-off-3 fixed-1.70 | 1.148 | fails: completion p95 above 25 s
+pilotB-off-3 fixed-1.74 | 0.585 | fails: completion p95 above 25 s
+
+pooled premium p99 ms: hold-cap 551 (inadmissible), fixed-1.62 1886 (inadmissible), fixed-1.66 1837 (inadmissible), fixed-1.70 1717 (inadmissible), fixed-1.74 1140 (inadmissible)
+verdict: not met: hold-cap broke the owner's limits
+
+## scale 1.070
+{"step_model_ms": [15.3639, 0.0966, 0.0959, 0.9292, 3.0468], "fitted_steps": 282897, "forward_ms": 3.912577}
+step scale 1.0700
+cell arm | premium p99 ratio_to_off | owner's limits
+pilotA-off-1 hold-cap | 0.354 | met
+pilotA-off-1 fixed-1.62 | 1.198 | met
+pilotA-off-1 fixed-1.66 | 1.145 | met
+pilotA-off-1 fixed-1.70 | 1.159 | met
+pilotA-off-1 fixed-1.74 | 0.582 | met
+pilotA-off-2 hold-cap | 0.296 | met
+pilotA-off-2 fixed-1.62 | 1.212 | met
+pilotA-off-2 fixed-1.66 | 1.169 | met
+pilotA-off-2 fixed-1.70 | 1.141 | met
+pilotA-off-2 fixed-1.74 | 0.418 | met
+pilotA-off-3 hold-cap | 0.338 | met
+pilotA-off-3 fixed-1.62 | 1.127 | met
+pilotA-off-3 fixed-1.66 | 1.032 | met
+pilotA-off-3 fixed-1.70 | 0.638 | met
+pilotA-off-3 fixed-1.74 | 0.432 | met
+pilotB-off-1 hold-cap | 0.456 | met
+pilotB-off-1 fixed-1.62 | 1.188 | met
+pilotB-off-1 fixed-1.66 | 1.208 | met
+pilotB-off-1 fixed-1.70 | 1.142 | met
+pilotB-off-1 fixed-1.74 | 1.055 | met
+pilotB-off-2 hold-cap | 0.344 | met
+pilotB-off-2 fixed-1.62 | 1.185 | met
+pilotB-off-2 fixed-1.66 | 1.141 | met
+pilotB-off-2 fixed-1.70 | 1.049 | met
+pilotB-off-2 fixed-1.74 | 0.784 | met
+pilotB-off-3 hold-cap | 0.382 | fails: completion p95 above 25 s
+pilotB-off-3 fixed-1.62 | 1.198 | fails: completion p95 above 25 s
+pilotB-off-3 fixed-1.66 | 1.165 | fails: completion p95 above 25 s
+pilotB-off-3 fixed-1.70 | 1.194 | fails: completion p95 above 25 s
+pilotB-off-3 fixed-1.74 | 0.766 | fails: completion p95 above 25 s
+
+pooled premium p99 ms: hold-cap 576 (inadmissible), fixed-1.62 1891 (inadmissible), fixed-1.66 1851 (inadmissible), fixed-1.70 1801 (inadmissible), fixed-1.74 1237 (inadmissible)
+verdict: not met: hold-cap broke the owner's limits
+
+## scale 1.075
+{"step_model_ms": [15.3639, 0.0966, 0.0959, 0.9292, 3.0468], "fitted_steps": 282897, "forward_ms": 3.912577}
+step scale 1.0750
+cell arm | premium p99 ratio_to_off | owner's limits
+pilotA-off-1 hold-cap | 0.346 | met
+pilotA-off-1 fixed-1.62 | 1.158 | met
+pilotA-off-1 fixed-1.66 | 1.166 | met
+pilotA-off-1 fixed-1.70 | 1.128 | met
+pilotA-off-1 fixed-1.74 | 0.854 | met
+pilotA-off-2 hold-cap | 0.307 | met
+pilotA-off-2 fixed-1.62 | 1.167 | met
+pilotA-off-2 fixed-1.66 | 1.212 | met
+pilotA-off-2 fixed-1.70 | 1.226 | met
+pilotA-off-2 fixed-1.74 | 0.653 | met
+pilotA-off-3 hold-cap | 0.377 | met
+pilotA-off-3 fixed-1.62 | 1.106 | met
+pilotA-off-3 fixed-1.66 | 1.120 | met
+pilotA-off-3 fixed-1.70 | 0.826 | met
+pilotA-off-3 fixed-1.74 | 0.460 | met
+pilotB-off-1 hold-cap | 0.456 | met
+pilotB-off-1 fixed-1.62 | 1.204 | met
+pilotB-off-1 fixed-1.66 | 1.204 | met
+pilotB-off-1 fixed-1.70 | 1.191 | met
+pilotB-off-1 fixed-1.74 | 1.054 | met
+pilotB-off-2 hold-cap | 0.371 | met
+pilotB-off-2 fixed-1.62 | 1.176 | met
+pilotB-off-2 fixed-1.66 | 1.174 | met
+pilotB-off-2 fixed-1.70 | 1.110 | met
+pilotB-off-2 fixed-1.74 | 0.884 | met
+pilotB-off-3 hold-cap | 0.349 | fails: completion p50 above 1.5x off's
+pilotB-off-3 fixed-1.62 | 1.197 | fails: completion p95 above 25 s
+pilotB-off-3 fixed-1.66 | 1.224 | fails: completion p95 above 25 s
+pilotB-off-3 fixed-1.70 | 1.195 | fails: completion p95 above 25 s
+pilotB-off-3 fixed-1.74 | 0.944 | fails: completion p95 above 25 s
+
+pooled premium p99 ms: hold-cap 589 (inadmissible), fixed-1.62 1878 (inadmissible), fixed-1.66 1910 (inadmissible), fixed-1.70 1853 (inadmissible), fixed-1.74 1418 (inadmissible)
+verdict: not met: hold-cap broke the owner's limits
+
+## scale 1.080
+{"step_model_ms": [15.3639, 0.0966, 0.0959, 0.9292, 3.0468], "fitted_steps": 282897, "forward_ms": 3.912577}
+step scale 1.0800
+cell arm | premium p99 ratio_to_off | owner's limits
+pilotA-off-1 hold-cap | 0.355 | met
+pilotA-off-1 fixed-1.62 | 1.224 | met
+pilotA-off-1 fixed-1.66 | 1.173 | met
+pilotA-off-1 fixed-1.70 | 1.241 | met
+pilotA-off-1 fixed-1.74 | 1.144 | met
+pilotA-off-2 hold-cap | 0.319 | met
+pilotA-off-2 fixed-1.62 | 1.242 | met
+pilotA-off-2 fixed-1.66 | 1.200 | met
+pilotA-off-2 fixed-1.70 | 1.182 | met
+pilotA-off-2 fixed-1.74 | 1.140 | met
+pilotA-off-3 hold-cap | 0.342 | met
+pilotA-off-3 fixed-1.62 | 1.156 | met
+pilotA-off-3 fixed-1.66 | 1.106 | met
+pilotA-off-3 fixed-1.70 | 0.925 | met
+pilotA-off-3 fixed-1.74 | 0.537 | met
+pilotB-off-1 hold-cap | 0.530 | met
+pilotB-off-1 fixed-1.62 | 1.217 | met
+pilotB-off-1 fixed-1.66 | 1.238 | met
+pilotB-off-1 fixed-1.70 | 1.223 | met
+pilotB-off-1 fixed-1.74 | 1.157 | met
+pilotB-off-2 hold-cap | 0.379 | met
+pilotB-off-2 fixed-1.62 | 1.245 | met
+pilotB-off-2 fixed-1.66 | 1.197 | met
+pilotB-off-2 fixed-1.70 | 1.163 | met
+pilotB-off-2 fixed-1.74 | 0.993 | met
+pilotB-off-3 hold-cap | 0.392 | fails: completion p50 above 1.5x off's
+pilotB-off-3 fixed-1.62 | 1.266 | fails: completion p95 above 25 s
+pilotB-off-3 fixed-1.66 | 1.197 | fails: completion p95 above 25 s
+pilotB-off-3 fixed-1.70 | 1.221 | fails: completion p95 above 25 s
+pilotB-off-3 fixed-1.74 | 1.131 | fails: completion p95 above 25 s
+
+pooled premium p99 ms: hold-cap 612 (inadmissible), fixed-1.62 1974 (inadmissible), fixed-1.66 1921 (inadmissible), fixed-1.70 1914 (inadmissible), fixed-1.74 1778 (inadmissible)
+verdict: not met: hold-cap broke the owner's limits
+
+## scale 1.085
+{"step_model_ms": [15.3639, 0.0966, 0.0959, 0.9292, 3.0468], "fitted_steps": 282897, "forward_ms": 3.912577}
+step scale 1.0850
+cell arm | premium p99 ratio_to_off | owner's limits
+pilotA-off-1 hold-cap | 0.365 | met
+pilotA-off-1 fixed-1.62 | 1.171 | met
+pilotA-off-1 fixed-1.66 | 1.219 | met
+pilotA-off-1 fixed-1.70 | 1.177 | met
+pilotA-off-1 fixed-1.74 | 1.241 | met
+pilotA-off-2 hold-cap | 0.333 | met
+pilotA-off-2 fixed-1.62 | 1.211 | met
+pilotA-off-2 fixed-1.66 | 1.165 | met
+pilotA-off-2 fixed-1.70 | 1.144 | met
+pilotA-off-2 fixed-1.74 | 1.152 | met
+pilotA-off-3 hold-cap | 0.375 | met
+pilotA-off-3 fixed-1.62 | 1.169 | met
+pilotA-off-3 fixed-1.66 | 1.237 | met
+pilotA-off-3 fixed-1.70 | 1.068 | met
+pilotA-off-3 fixed-1.74 | 0.604 | met
+pilotB-off-1 hold-cap | 0.430 | met
+pilotB-off-1 fixed-1.62 | 1.192 | met
+pilotB-off-1 fixed-1.66 | 1.243 | met
+pilotB-off-1 fixed-1.70 | 1.224 | met
+pilotB-off-1 fixed-1.74 | 1.137 | met
+pilotB-off-2 hold-cap | 0.385 | met
+pilotB-off-2 fixed-1.62 | 1.200 | met
+pilotB-off-2 fixed-1.66 | 1.194 | met
+pilotB-off-2 fixed-1.70 | 1.201 | met
+pilotB-off-2 fixed-1.74 | 1.103 | met
+pilotB-off-3 hold-cap | 0.355 | fails: completion p95 above 25 s
+pilotB-off-3 fixed-1.62 | 1.316 | fails: completion below 95%
+pilotB-off-3 fixed-1.66 | 1.219 | fails: completion below 95%
+pilotB-off-3 fixed-1.70 | 1.242 | fails: completion p95 above 25 s
+pilotB-off-3 fixed-1.74 | 1.169 | fails: completion p95 above 25 s
+
+pooled premium p99 ms: hold-cap 613 (inadmissible), fixed-1.62 1957 (inadmissible), fixed-1.66 1960 (inadmissible), fixed-1.70 1923 (inadmissible), fixed-1.74 1863 (inadmissible)
+verdict: not met: hold-cap broke the owner's limits
+
+## scale 1.090
+{"step_model_ms": [15.3639, 0.0966, 0.0959, 0.9292, 3.0468], "fitted_steps": 282897, "forward_ms": 3.912577}
+step scale 1.0900
+cell arm | premium p99 ratio_to_off | owner's limits
+pilotA-off-1 hold-cap | 0.391 | met
+pilotA-off-1 fixed-1.62 | 1.175 | met
+pilotA-off-1 fixed-1.66 | 1.153 | met
+pilotA-off-1 fixed-1.70 | 1.175 | met
+pilotA-off-1 fixed-1.74 | 1.163 | met
+pilotA-off-2 hold-cap | 0.325 | met
+pilotA-off-2 fixed-1.62 | 1.183 | met
+pilotA-off-2 fixed-1.66 | 1.211 | met
+pilotA-off-2 fixed-1.70 | 1.163 | met
+pilotA-off-2 fixed-1.74 | 1.179 | met
+pilotA-off-3 hold-cap | 0.375 | met
+pilotA-off-3 fixed-1.62 | 1.199 | met
+pilotA-off-3 fixed-1.66 | 1.165 | met
+pilotA-off-3 fixed-1.70 | 1.095 | met
+pilotA-off-3 fixed-1.74 | 0.999 | met
+pilotB-off-1 hold-cap | 0.461 | met
+pilotB-off-1 fixed-1.62 | 1.281 | met
+pilotB-off-1 fixed-1.66 | 1.245 | met
+pilotB-off-1 fixed-1.70 | 1.264 | met
+pilotB-off-1 fixed-1.74 | 1.247 | met
+pilotB-off-2 hold-cap | 0.372 | met
+pilotB-off-2 fixed-1.62 | 1.194 | met
+pilotB-off-2 fixed-1.66 | 1.195 | met
+pilotB-off-2 fixed-1.70 | 1.203 | met
+pilotB-off-2 fixed-1.74 | 1.140 | met
+pilotB-off-3 hold-cap | 0.378 | fails: completion p95 above 25 s
+pilotB-off-3 fixed-1.62 | 1.193 | fails: completion below 95%
+pilotB-off-3 fixed-1.66 | 1.228 | fails: completion below 95%
+pilotB-off-3 fixed-1.70 | 1.220 | fails: completion p95 above 25 s
+pilotB-off-3 fixed-1.74 | 1.183 | fails: completion p95 above 25 s
+
+pooled premium p99 ms: hold-cap 626 (inadmissible), fixed-1.62 1957 (inadmissible), fixed-1.66 1951 (inadmissible), fixed-1.70 1942 (inadmissible), fixed-1.74 1909 (inadmissible)
+verdict: not met: hold-cap broke the owner's limits
+
+## scale 1.095
+{"step_model_ms": [15.3639, 0.0966, 0.0959, 0.9292, 3.0468], "fitted_steps": 282897, "forward_ms": 3.912577}
+step scale 1.0950
+cell arm | premium p99 ratio_to_off | owner's limits
+pilotA-off-1 hold-cap | 0.428 | met
+pilotA-off-1 fixed-1.62 | 1.213 | met
+pilotA-off-1 fixed-1.66 | 1.236 | met
+pilotA-off-1 fixed-1.70 | 1.193 | met
+pilotA-off-1 fixed-1.74 | 1.168 | met
+pilotA-off-2 hold-cap | 0.316 | met
+pilotA-off-2 fixed-1.62 | 1.251 | met
+pilotA-off-2 fixed-1.66 | 1.198 | met
+pilotA-off-2 fixed-1.70 | 1.198 | met
+pilotA-off-2 fixed-1.74 | 1.142 | met
+pilotA-off-3 hold-cap | 0.367 | met
+pilotA-off-3 fixed-1.62 | 1.222 | met
+pilotA-off-3 fixed-1.66 | 1.249 | met
+pilotA-off-3 fixed-1.70 | 1.156 | met
+pilotA-off-3 fixed-1.74 | 1.036 | met
+pilotB-off-1 hold-cap | 0.411 | met
+pilotB-off-1 fixed-1.62 | 1.261 | met
+pilotB-off-1 fixed-1.66 | 1.215 | met
+pilotB-off-1 fixed-1.70 | 1.269 | met
+pilotB-off-1 fixed-1.74 | 1.164 | met
+pilotB-off-2 hold-cap | 0.384 | met
+pilotB-off-2 fixed-1.62 | 1.235 | met
+pilotB-off-2 fixed-1.66 | 1.231 | met
+pilotB-off-2 fixed-1.70 | 1.168 | met
+pilotB-off-2 fixed-1.74 | 1.145 | met
+pilotB-off-3 hold-cap | 0.372 | fails: completion p95 above 25 s
+pilotB-off-3 fixed-1.62 | 1.254 | fails: completion below 95%
+pilotB-off-3 fixed-1.66 | 1.241 | fails: completion below 95%
+pilotB-off-3 fixed-1.70 | 1.288 | fails: completion p95 above 25 s
+pilotB-off-3 fixed-1.74 | 1.201 | fails: completion p95 above 25 s
+
+pooled premium p99 ms: hold-cap 625 (inadmissible), fixed-1.62 2032 (inadmissible), fixed-1.66 2008 (inadmissible), fixed-1.70 2000 (inadmissible), fixed-1.74 1895 (inadmissible)
+verdict: not met: hold-cap broke the owner's limits
+
+## scale 1.100
+{"step_model_ms": [15.3639, 0.0966, 0.0959, 0.9292, 3.0468], "fitted_steps": 282897, "forward_ms": 3.912577}
+step scale 1.1000
+cell arm | premium p99 ratio_to_off | owner's limits
+pilotA-off-1 hold-cap | 0.425 | met
+pilotA-off-1 fixed-1.62 | 1.252 | met
+pilotA-off-1 fixed-1.66 | 1.254 | met
+pilotA-off-1 fixed-1.70 | 1.187 | met
+pilotA-off-1 fixed-1.74 | 1.182 | met
+pilotA-off-2 hold-cap | 0.331 | met
+pilotA-off-2 fixed-1.62 | 1.186 | met
+pilotA-off-2 fixed-1.66 | 1.183 | met
+pilotA-off-2 fixed-1.70 | 1.184 | met
+pilotA-off-2 fixed-1.74 | 1.203 | met
+pilotA-off-3 hold-cap | 0.368 | met
+pilotA-off-3 fixed-1.62 | 1.226 | met
+pilotA-off-3 fixed-1.66 | 1.174 | met
+pilotA-off-3 fixed-1.70 | 1.165 | met
+pilotA-off-3 fixed-1.74 | 1.181 | met
+pilotB-off-1 hold-cap | 0.442 | met
+pilotB-off-1 fixed-1.62 | 1.252 | met
+pilotB-off-1 fixed-1.66 | 1.243 | met
+pilotB-off-1 fixed-1.70 | 1.268 | met
+pilotB-off-1 fixed-1.74 | 1.232 | met
+pilotB-off-2 hold-cap | 0.414 | met
+pilotB-off-2 fixed-1.62 | 1.183 | met
+pilotB-off-2 fixed-1.66 | 1.215 | met
+pilotB-off-2 fixed-1.70 | 1.191 | met
+pilotB-off-2 fixed-1.74 | 1.185 | met
+pilotB-off-3 hold-cap | 0.383 | fails: completion p95 above 25 s
+pilotB-off-3 fixed-1.62 | 1.275 | fails: completion below 95%
+pilotB-off-3 fixed-1.66 | 1.258 | fails: completion below 95%
+pilotB-off-3 fixed-1.70 | 1.240 | fails: completion below 95%
+pilotB-off-3 fixed-1.74 | 1.248 | fails: completion below 95%
+
+pooled premium p99 ms: hold-cap 659 (inadmissible), fixed-1.62 2018 (inadmissible), fixed-1.66 2005 (inadmissible), fixed-1.70 1979 (inadmissible), fixed-1.74 1983 (inadmissible)
+verdict: not met: hold-cap broke the owner's limits

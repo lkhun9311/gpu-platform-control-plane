@@ -44,11 +44,17 @@ import (
 //
 // BackendFallback (hack/chaos-fr002b-backend-fallback.sh) is the one that was removed, and it is worth
 // recording why rather than leaving a gap. Its observable is the gateway's backend_fallbacks_total moving,
-// not a target recovering; and its injection is scaling the head backend to zero, which the
-// InferenceDeployment controller reports as READY -- an intentional zero-replica state is Ready by design.
-// A run watching that target would therefore see it healthy for the whole window and end Refused, forever,
-// by construction. An enum value that can never produce a verdict is a promise this type does not keep.
-// TestScalingABackendToZeroIsInvisibleToARecoveryWatcher pins the reason.
+// not a target recovering: a backend there is a whole InferenceDeployment rather than a Pod, and the
+// scenario removes the head one so a second absorbs the traffic. Nothing about that shows up as one target
+// returning to health, which is the only thing this recorder judges.
+//
+// A second reason used to be given here and is no longer true, which is why it is corrected rather than
+// quietly dropped: it said a run watching a scaled-to-zero backend would see Ready for the whole window and
+// end Refused forever. The backend does still report Ready -- an intentional zero-replica state is Ready by
+// design -- but the WATCHER no longer reads that as health; isServing requires a ready replica. That change
+// came from a security review, because the old behaviour let anyone who could edit the target turn an
+// observed failure into verdict Recovered mid-run. So the blind spot is gone; the mismatch between what this
+// scenario injects and what a WorkloadRun observes is what keeps it out of the enum.
 // +kubebuilder:validation:Enum=ServingPodKilled;DegradedNode
 type WorkloadRunScenario string
 
@@ -86,6 +92,18 @@ type WorkloadRunTarget struct {
 //
 // The expectation is DECLARED BEFORE the run rather than read off the result, which is the same reason the
 // benchmark harness freezes its manifest: a threshold chosen after seeing the number is not a threshold.
+//
+// The deadline-inside-the-window rule is expressed here, at the type, because it relates two fields and a
+// per-field marker cannot see its sibling.
+//
+// recoversWithinSeconds' own comment has said "it must not exceed observationWindowSeconds" since this type
+// was written, and nothing enforced it: there is no WorkloadRun webhook, and the only CEL rules on this type
+// were the two immutability rules. A run created with a deadline past its window is accepted today and then
+// asks for a verdict about a moment it stopped watching before -- the reconciler compares
+// status.recoveredAtSeconds against the deadline and would report a fail for a recovery it was never
+// watching for. A constraint a document states and no machine checks is the shape this repository keeps
+// finding; this one it stated about itself.
+// +kubebuilder:validation:XValidation:rule="self.recoversWithinSeconds <= self.observationWindowSeconds",message="recoversWithinSeconds must not exceed observationWindowSeconds: the run would be asked to judge a deadline it stopped watching before"
 type WorkloadRunSpec struct {
 	// scenario is the failure to inject. Immutable: a run is evidence about one injection, and editing it
 	// would leave observations attributed to an event that did not happen.

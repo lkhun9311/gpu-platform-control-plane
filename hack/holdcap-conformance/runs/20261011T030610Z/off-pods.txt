@@ -1,0 +1,3 @@
++ kubectl -n default get pods -l app.kubernetes.io/instance=qwen25-3b-holdcap -o wide
+NAME                                 READY   STATUS    RESTARTS   AGE     IP           NODE            NOMINATED NODE   READINESS GATES
+qwen25-3b-holdcap-6d4f777794-shb56   1/1     Running   0          2m45s   10.244.1.4   m5cgpu-worker   <none>           <none>

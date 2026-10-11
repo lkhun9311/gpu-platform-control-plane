@@ -1,0 +1,15 @@
+{
+ "available": true,
+ "L_ms": 13,
+ "ceiling_ms": 409.132934,
+ "p999_lag_ms_max_pooled_arm": 6.093476,
+ "lag_ms_max": 204.566467,
+ "arm_time_s": 920,
+ "bring_up_s": 200.0,
+ "session_tail_s": 12.0,
+ "main_session_length_s": 14065,
+ "hard_stop_s": 14065,
+ "acquisition_deadline_s": 13705,
+ "backstop_s": 14665,
+ "study_deadline_s": 15265
+}

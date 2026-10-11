@@ -1,6 +1,10 @@
 # Residue consumer — tell the next run's operator why the worker is held
 
-**Status:** design approved, not yet implemented.
+**Status (corrected 2026-09-26):** implemented. The Node annotation this design specifies exists as
+`residueKey` in `cmd/queuelabrun/ownership.go`, is read there by `decodeResidue`, and the reason it carries
+reaches the operator through `residueNote`, spliced into the foreign-owner refusal. The lineage note below
+quotes "nothing reads it yet" from the plan that preceded this one; that sentence is what this design closed,
+and it is no longer true of either document.
 **Lineage:** closes the first item under "What this plan still leaves open" in
 `docs/superpowers/plans/2026-08-12-queuelab-teardown-executor.md` — "The next run must refuse to start on a
 residue record. This plan writes it; nothing reads it yet."

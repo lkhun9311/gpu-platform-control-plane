@@ -11,6 +11,9 @@
 # a LATER document could assert it as working and this check would stay silent. The check buys the half that
 # is mechanical -- a name nothing in the repository spells -- and buys nothing about whether a name that
 # exists is described correctly. Scoping entries per file would close the first gap and is not built.
+#
+# The scan covers the tracked specs under docs/superpowers/specs/ since 2026-09-27. The two entries that
+# widening added are at the end, under their own heading, so a reader can see what the wider scope cost.
 
 # --- named precisely because they do not exist ----------------------------------------------------------
 ValidatingAdmissionPolicy	docs/02 names it to record that no VAP is shipped; the admission layer is a ValidatingWebhookConfiguration
@@ -28,9 +31,61 @@ gpu.yml	docs/09 names it three times to record that the GPU node-group workflow 
 # --- designed, stated as designed -----------------------------------------------------------------------
 GpuSharingBenchmark	the CRD is designed in docs/superpowers/specs/2026-07-04-gpusharingbenchmark-crd-design.md and every mention says no code exists; the sharing harness that DOES exist is internal/bench/sharing_matrix.go
 cost_per_1k_tokens_estimated	a column of the operations-ledger schema in docs/04; the ledger is unimplemented and doc 07 says so
-node_health_history	a table of the operations-ledger schema in docs/07; the ledger is unimplemented and the same doc says so
+node_health_history	a table of the operations-ledger schema in docs/07. The reason changed on 2026-09-27: the ledger is no longer unimplemented -- internal/ledger holds migrations and a projector -- but slice 1 deliberately built only workload_runs and operation_events, and this table is one of the four the same doc now says do not exist "not as tables, not as stubs"
 
 # --- the intended artifact set of a run whose outputs were never committed ------------------------------
 analysis.md	docs/04 lists the artifact set a noisy-neighbor run would commit under evidence/benchmark-reports/; that directory holds only .gitkeep
 gateway-429.log	same list in docs/04 -- an intended artifact, and the document says so on the same line
 scripts/demo-06-failure-injection.sh	docs/06 lists it under "To fill" as work not yet done, not as a script a reader can run
+
+# --- paths the repository cannot contain, named by specs that record real runs ---------------------------
+#
+# The hack/ entries are output directories of paid GPU sessions, and the directories themselves were never
+# committed. Most are cited beside a date and commit hash to say WHICH run produced the numbers on a page.
+#
+# That was the whole category until 2026-10-03, and saying so was too narrow: an archive is also cited as the
+# EVIDENCE FOR A CORRECTION, where the point is which archive does and does not contain a string. The fourth
+# pilot's entry below is that -- the MPS study had attributed a `no healthy devices` event to the eighth
+# pilot's MPS arm, and the event is in the fourth pilot's log, about the shared arm. A citation a reader
+# cannot locate is a correction they have to take on trust, so the path is published and listed here.
+#
+# The plans/ entry is working material .gitignore keeps local on purpose, quoted by the design
+# that closed one of its open items.
+#
+# They surfaced only after path_exists stopped consulting the local filesystem: all six are present in this
+# working copy and absent from a fresh checkout, so the check passed here and failed in CI.
+docs/superpowers/plans/2026-08-12-queuelab-teardown-executor.md	.gitignore keeps docs/superpowers/plans/ local -- working material, not published; the residue-consumer design quotes the open item it closed
+hack/m5c-20260912-084918	the output directory of the 2026-09-12 paid M5-c run, cited beside its commit ce0bb8e; run outputs are not committed
+hack/m5c-20260913-011031	the output directory of the 2026-09-13 paid M5-c run, cited beside its commit 85ae2fa; run outputs are not committed
+hack/m5c-20261002-014903	the output directory of the 2026-10-02 paid M5-c run, cited beside its commit b97d88e; run outputs are not committed
+hack/m5c-20260911-235956	the output directory of the fourth paid M5-c pilot, 2026-09-11; the MPS page's 2026-10-03 amendment cites it as the one archive holding the `no healthy devices` event it had attributed to the eighth pilot. Run outputs are not committed
+hack/pop-20260908-015929	the output directory of a 2026-09-08 price-of-protection run, cited as the evidence for reading 4b; run outputs are not committed
+hack/pop-20260908-030550	as hack/pop-20260908-015929 -- another repetition of the same dated run
+hack/pop-20260908-044443	as hack/pop-20260908-015929 -- another repetition of the same dated run
+bin/	.gitignore:99 excludes it under "Generated binaries"; the m5-a design cites it to say the terraform binary is INSTALLED there by a Makefile target, the way kustomize and controller-gen already are. The directory is built, never committed, so no checkout contains it
+
+# --- added when the scan was widened to the tracked specs, 2026-09-27 -------------------------------------
+TenantNotProvisioned	a condition of the GpuSharingBenchmark CRD. docs/00 line 14 says "Designed only -- no CRD, no code" of it, and grep finds it in no Go file, so the name is absent because the type is. Not the gateway's tenant_not_provisioned, which is a different name for a different thing and is listed above
+LaunchTime	an EC2 API field, not a name this repository defines; the MPS pre-registration measures its stopping rule from the instance's LaunchTime as AWS reports it
+
+# --- named by the ledger design to record a decision NOT to build it, 2026-09-27 ------------------------
+QuotaExceeded	the operations-ledger design names it to record that it was considered and REFUSED as a WorkloadRun scenario: a quota refusal changes neither an InferenceDeployment nor a NodeHealth, so the enum value could never reach a verdict. FR-001's evidence lives in the gateway's rate_limited path instead, and docs/06 was corrected to say so
+
+# --- upstream names the stranded-GPU study cites and this repository still does not contain -------
+#
+# Four entries stood here until cmd/strandedrun landed: NodeResourcesFit, LeastAllocated,
+# MostAllocated and KubeSchedulerConfiguration. They were listed because nothing in the repository
+# spelled them; the instrument now does, so the reason each carried stopped being true and they were
+# removed rather than left to make this file describe a repository that no longer exists.
+PodSetTopologyRequest	a Kueue 0.18.3 API field; named to record that the TAS API existing does not show any workload used it, which is why the amendment separates TAS from the scoring comparison
+FailedScheduling	an upstream scheduler Event reason; the amendment DEMOTES it to diagnostic evidence because retries repeat it and ResourceQuota can reject a pod before one exists to fail scheduling
+
+# --- a run output the judge reads and no checkout contains, 2026-09-29 -----------------------------------
+record.json	the cell record hack/stranded-cell.sh WRITES for each attempt, under its evidence directory; check-cell reads it back. The frozen-protocol page names it because it is a real contract between the performer and the judge, and no checkout contains one -- run outputs are not committed, the same reason the five hack/ paid-run directories above are listed
+StartError	an upstream container state reason, not a name this repository defines. The frozen-protocol page cites it to record WHY submissions run registry.k8s.io/pause:3.10: a distroless image whose entrypoint exited died with StartError earlier in this study, held no devices, and the census was correctly reporting nothing. Listed for the same reason as FailedScheduling above
+
+# --- external names the prospective-admission design page cites, 2026-10-10 ------------------------------
+StateReason	the EC2 API's field on an instance recording why its state changed; the design page cites it to say that recording a Spot interruption's cause does not establish its independence
+WroteRequest	a net/http/httptrace hook in Go's standard library; the design page records that it fires when Request.write returns, before the transport has flushed the request, which is why the dispatch lag is not stamped from it
+request.go	a file of Go 1.26.6's net/http, cited with transport.go as the source of the WroteRequest timing above
+transport.go	a file of Go 1.26.6's net/http, cited with request.go as the source of the WroteRequest timing above

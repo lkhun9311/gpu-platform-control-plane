@@ -1747,7 +1747,16 @@ func TestARecordFromAnEarlierSchemaIsRefused(t *testing.T) {
 	// nothing, which is exactly what a genuine null result reports. Events gained `saveStatus`, and a
 	// version-21 record carries none -- which under 22 means what it meant under 21, that the build could not
 	// report one.
-	if recordSchemaVersion != 22 {
+	//
+	// Version 23 makes HOW A WORKLOAD SPENT ITS SERVICE measurable. Until it, the only duty figure in a record
+	// was `dutyCycle` -- the workload echoing back the argument it was given -- so a workload whose sleep had
+	// been deleted reported the same 0.5 as one that idled half its service, and the two tests guarding the
+	// axis could assert only an ordering on reported counts. Events gained `sleptNs` and `windowNs`, measured
+	// around the workload's own sleep calls with its own monotonic clock, and a version-22 record carries
+	// neither -- which under 23 means what it meant under 22, that the build could not measure it. The fields
+	// are pointers, so absence reads as absence rather than as a measured zero, and those are different claims:
+	// a full-duty attempt slept none of its service and now says so.
+	if recordSchemaVersion != 23 {
 		t.Fatalf("recordSchemaVersion is %d; if the wire format changed again, bump this and say what changed",
 			recordSchemaVersion)
 	}
@@ -1856,6 +1865,20 @@ func TestARecordFromAnEarlierSchemaIsRefused(t *testing.T) {
 		}
 	}
 
+	// The same premise for the pair 23 added, over one more version again. No build at 18 through 22 measured
+	// how its workload spent its service, so a document at any of them carrying the observation is a relabelled
+	// 23 being passed off as evidence taken under rules where a configured duty was all anyone could report.
+	for _, older := range []int{18, 19, 20, 21, 22} {
+		withSleep := fmt.Appendf(nil, `{"schemaVersion":%d,"dose":"self-completing","runID":"r9",`+
+			`"arm":"A-honor","disposition":"completed-implemented-checks-passed",`+
+			`"events":[{"elapsedNs":1,"kind":"Pod","type":"AttemptStopped","job":"j","objectUID":"u",`+
+			`"iterations":5,"sleptNs":1300000000,"windowNs":2600000000}],%s}`, older, refusedValidity)
+		if _, err := decodeRunRecord(withSleep); err == nil {
+			t.Errorf("a schema-%d record carrying a sleep observation decoded; that build could not measure "+
+				"one, so the document is a relabelled 23 rather than history", older)
+		}
+	}
+
 	// And the other side of the premise, which the check got WRONG for as long as it asked one blanket
 	// question. 20 is the version that ADDED the accumulator, so a 20 carrying one is an ordinary 20 and not
 	// a forgery -- it was refused with `schema 20 is not 21` until the predicate was made version-aware.
@@ -1903,6 +1926,29 @@ func TestARecordFromAnEarlierSchemaIsRefused(t *testing.T) {
 	if _, err := decodeRunRecord(twentyOneWithResume); err != nil {
 		t.Errorf("a schema-21 record carrying a resume point was refused (%v); 21 is the version that added "+
 			"the field, so that is what a 21 record ordinarily looks like", err)
+	}
+
+	// 22 is the fifth readable predecessor: it can carry a save status but not a sleep observation.
+	twentyTwo := fmt.Appendf(nil, `{"schemaVersion":22,"dose":"self-completing","runID":"r14","arm":"A-honor",`+
+		`"disposition":"completed-implemented-checks-passed",%s}`, refusedValidity)
+	if _, err := decodeRunRecord(twentyTwo); err != nil {
+		t.Fatalf("a schema-22 record was refused (%v); it carries no sleep observation, which is exactly what "+
+			"a 22 record should carry", err)
+	}
+
+	// And its positive side, with a document that REACHES the predicate.
+	//
+	// The event-less fixture above cannot: readableUnderCurrentSchema's 22 arm asks what the events carry, so a
+	// record with none never gets as far as the question. That is the trap the schema-20 case fell into for a
+	// whole version -- a sentence promising "a 20 can carry an accumulator" that no fixture exercised -- and
+	// asserting only the event-less shape here would repeat it one version later.
+	twentyTwoWithSave := fmt.Appendf(nil, `{"schemaVersion":22,"dose":"self-completing","runID":"r15",`+
+		`"arm":"A-honor","disposition":"completed-implemented-checks-passed",`+
+		`"events":[{"elapsedNs":1,"kind":"Pod","type":"AttemptStopped","job":"j","objectUID":"u",`+
+		`"iterations":5,"accumulator":1.5,"saveStatus":"ok"}],%s}`, refusedValidity)
+	if _, err := decodeRunRecord(twentyTwoWithSave); err != nil {
+		t.Errorf("a schema-22 record carrying a save status was refused (%v); 22 is the version that added the "+
+			"field, so that is what a 22 record ordinarily looks like", err)
 	}
 }
 

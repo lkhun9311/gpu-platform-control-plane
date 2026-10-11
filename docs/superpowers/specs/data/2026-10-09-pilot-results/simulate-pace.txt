@@ -1,0 +1,41 @@
+{"step_model_ms": [15.3639, 0.0966, 0.0959, 0.9292, 3.0468], "fitted_steps": 282897, "forward_ms": 3.912577}
+m5c-20261008-235046-pilotA R1 1 | measured/predicted step time 1.0134 | contender prefill none
+m5c-20261008-235046-pilotA R1 2 | measured/predicted step time 1.0127 | contender prefill none
+m5c-20261008-235046-pilotA R1 3 | measured/predicted step time 1.0122 | contender prefill none
+m5c-20261008-235046-pilotA off 1 | measured/predicted step time 0.9969 | contender prefill p50 2217 p95 5764 max 7618 ms
+m5c-20261008-235046-pilotA off 2 | measured/predicted step time 0.9954 | contender prefill p50 2029 p95 8749 max 11917 ms
+m5c-20261008-235046-pilotA off 3 | measured/predicted step time 0.9973 | contender prefill p50 2997 p95 11997 max 13529 ms
+m5c-20261008-235046-pilotA prospective 1 | measured/predicted step time 0.9940 | contender prefill p50 1959 p95 4150 max 5009 ms
+m5c-20261008-235046-pilotA prospective 2 | measured/predicted step time 0.9910 | contender prefill p50 1449 p95 3951 max 4587 ms
+m5c-20261008-235046-pilotA prospective 3 | measured/predicted step time 0.9926 | contender prefill p50 2045 p95 4084 max 4871 ms
+m5c-20261009-013656-pilotB R1 1 | measured/predicted step time 1.0106 | contender prefill none
+m5c-20261009-013656-pilotB R1 2 | measured/predicted step time 1.0131 | contender prefill none
+m5c-20261009-013656-pilotB R1 3 | measured/predicted step time 1.0138 | contender prefill none
+m5c-20261009-013656-pilotB off 1 | measured/predicted step time 1.0021 | contender prefill p50 4209 p95 11368 max 15277 ms
+m5c-20261009-013656-pilotB off 2 | measured/predicted step time 0.9971 | contender prefill p50 2364 p95 7340 max 9705 ms
+m5c-20261009-013656-pilotB off 3 | measured/predicted step time 1.0023 | contender prefill p50 4838 p95 20238 max 22649 ms
+m5c-20261009-013656-pilotB prospective 1 | measured/predicted step time 0.9968 | contender prefill p50 2165 p95 4511 max 5322 ms
+m5c-20261009-013656-pilotB prospective 2 | measured/predicted step time 0.9945 | contender prefill p50 1931 p95 4104 max 5260 ms
+m5c-20261009-013656-pilotB prospective 3 | measured/predicted step time 0.9936 | contender prefill p50 2117 p95 4539 max 5270 ms
+m5c-20261009-013656-pilotB static-cap 1 | measured/predicted step time 0.9934 | contender prefill p50 1638 p95 3411 max 4022 ms
+m5c-20261009-013656-pilotB static-cap 2 | measured/predicted step time 0.9906 | contender prefill p50 1414 p95 2985 max 3386 ms
+m5c-20261009-013656-pilotB static-cap 3 | measured/predicted step time 0.9880 | contender prefill p50 1508 p95 3117 max 3992 ms
+m5c-20261009-122503-diagD R1 1 | measured/predicted step time 1.0147 | contender prefill none (held out)
+m5c-20261009-122503-diagD cap 1 | measured/predicted step time 1.0014 | contender prefill p50 2429 p95 12410 max 15551 ms (held out)
+m5c-20261009-122503-diagD cap 2 | measured/predicted step time 0.9999 | contender prefill p50 4286 p95 10808 max 14426 ms (held out)
+m5c-20261009-122503-diagD cap 3 | measured/predicted step time 1.0011 | contender prefill p50 2492 p95 7054 max 9842 ms (held out)
+m5c-20261009-122503-diagD hold 1 | measured/predicted step time 0.9962 | contender prefill p50 1406 p95 1611 max 1784 ms (held out)
+m5c-20261009-122503-diagD hold 2 | measured/predicted step time 1.0040 | contender prefill p50 1446 p95 1795 max 2311 ms (held out)
+m5c-20261009-122503-diagD hold 3 | measured/predicted step time 0.9959 | contender prefill p50 1400 p95 1626 max 1928 ms (held out)
+m5c-20261009-122503-diagD hold-cap 1 | measured/predicted step time 1.0215 | contender prefill p50 1637 p95 1706 max 1788 ms (held out)
+m5c-20261009-122503-diagD hold-cap 2 | measured/predicted step time 1.0275 | contender prefill p50 1665 p95 1733 max 1890 ms (held out)
+m5c-20261009-122503-diagD hold-cap 3 | measured/predicted step time 1.0205 | contender prefill p50 1647 p95 1712 max 1809 ms (held out)
+m5c-20261009-122503-diagD off 1 | measured/predicted step time 0.9960 | contender prefill p50 2123 p95 12148 max 14940 ms (held out)
+m5c-20261009-122503-diagD off 2 | measured/predicted step time 1.0023 | contender prefill p50 4010 p95 10587 max 14464 ms (held out)
+m5c-20261009-122503-diagD off 3 | measured/predicted step time 0.9952 | contender prefill p50 2098 p95 6563 max 9545 ms (held out)
+
+mechanism on m5c-20261008-235046-pilotA off-1: capped contender prefill, engine arrival to first token
+1.0 hold-cap | prefill p50 1599 p95 1696 ms | at most 1 in prefill at once | share of the span with two or more 0.00
+1.0 spacing-1.7s | prefill p50 1555 p95 1680 ms | at most 2 in prefill at once | share of the span with two or more 0.00
+1.1 hold-cap | prefill p50 1809 p95 1926 ms | at most 1 in prefill at once | share of the span with two or more 0.00
+1.1 spacing-1.7s | prefill p50 2128 p95 9476 ms | at most 6 in prefill at once | share of the span with two or more 0.35

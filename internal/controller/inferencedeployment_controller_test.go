@@ -19,6 +19,8 @@ package controller
 import (
 	"context"
 	"fmt"
+	"strings"
+	"time"
 
 	"github.com/go-logr/logr/funcr"
 	. "github.com/onsi/ginkgo/v2"
@@ -26,6 +28,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -36,6 +39,162 @@ import (
 
 	platformv1 "github.com/lkhun9311/gpu-mlops-platform-control-plane/api/v1"
 )
+
+var _ = Describe("which policy charges this namespace", func() {
+	ctx := context.Background()
+
+	// The queue label decides whose quota this deployment's serving Pods are charged against, so choosing it
+	// arbitrarily bills one tenant for another. Nothing forbids two policies naming the same targetNamespace
+	// -- the admission webhook's quota-mode check is written for exactly that case -- and `servingQueue` used
+	// to return the first match from a List, whose order the API server does not promise.
+	infdFor := func(name, ns string) *platformv1.InferenceDeployment {
+		return &platformv1.InferenceDeployment{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
+			Spec: platformv1.InferenceDeploymentSpec{
+				Model: platformv1.InferenceModel{Name: "m", StorageURI: "s3://m"},
+				Image: "vllm/vllm-openai:test", Replicas: 1, Port: 8080,
+			},
+		}
+	}
+	trainingPolicy := func(name, tenant, target string) *platformv1.GPUQuotaPolicy {
+		return &platformv1.GPUQuotaPolicy{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "policy-home"},
+			Spec: platformv1.GPUQuotaPolicySpec{
+				Tenant: tenant, TargetNamespace: target, TrainingQuota: true,
+				Limits: platformv1.GPUQuotaLimits{GPUCount: 4},
+			},
+		}
+	}
+	reconcilerWith := func(objs ...client.Object) (*InferenceDeploymentReconciler, client.Client) {
+		c := fake.NewClientBuilder().
+			WithScheme(k8sClient.Scheme()).
+			WithObjects(objs...).
+			WithStatusSubresource(&platformv1.InferenceDeployment{}).
+			Build()
+		return &InferenceDeploymentReconciler{Client: c, Scheme: c.Scheme()}, c
+	}
+	key := types.NamespacedName{Name: "served", Namespace: "team-a"}
+
+	It("charges the one policy that claims the namespace", func() {
+		r, c := reconcilerWith(infdFor("served", "team-a"), trainingPolicy("p1", "team-a", "team-a"))
+		for range 3 {
+			_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+			Expect(err).NotTo(HaveOccurred())
+		}
+		dep := &appsv1.Deployment{}
+		Expect(c.Get(ctx, key, dep)).To(Succeed())
+		Expect(dep.Labels).To(HaveKeyWithValue(kueueQueueLabel, "gpu-team-a"))
+	})
+
+	It("charges nothing when no policy claims the namespace", func() {
+		// A namespace with no GPUQuotaPolicy is one this platform makes no quota claim about, and serving
+		// there must still reconcile -- otherwise a policy becomes a prerequisite for running at all.
+		r, c := reconcilerWith(infdFor("served", "team-a"))
+		for range 3 {
+			_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+			Expect(err).NotTo(HaveOccurred())
+		}
+		dep := &appsv1.Deployment{}
+		Expect(c.Get(ctx, key, dep)).To(Succeed())
+		Expect(dep.Labels).NotTo(HaveKey(kueueQueueLabel))
+	})
+
+	// Mutation that turns this red: return the first match from the List instead of refusing on more than one.
+	It("refuses to choose when two policies claim the namespace", func() {
+		r, c := reconcilerWith(
+			infdFor("served", "team-a"),
+			trainingPolicy("p1", "team-a", "team-a"),
+			trainingPolicy("p2", "team-a-shadow", "team-a"),
+		)
+		for range 3 {
+			_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+			Expect(err).NotTo(HaveOccurred())
+		}
+
+		got := &platformv1.InferenceDeployment{}
+		Expect(c.Get(ctx, key, got)).To(Succeed())
+		Expect(got.Status.Phase).To(Equal(infdPhaseDegraded),
+			"an ambiguous quota claim was resolved by List order instead of refused")
+
+		cond := meta.FindStatusCondition(got.Status.Conditions, infdCondAvailable)
+		Expect(cond).NotTo(BeNil())
+		Expect(cond.Reason).To(Equal(infdReasonQuotaPolicyAmbiguous))
+		// Both names, so an operator is told which objects to reconcile by hand, and in a stable order.
+		Expect(cond.Message).To(ContainSubstring("p1, p2"))
+
+		By("leaving no Deployment behind, since which queue it would carry is exactly what is undecided")
+		dep := &appsv1.Deployment{}
+		err := c.Get(ctx, key, dep)
+		Expect(err).To(HaveOccurred())
+	})
+})
+
+// The API server's own defaulting, asked of the API server.
+//
+// Two pieces of production code reason from these markers in comments: router.go:55 says "spec.port carries
+// +kubebuilder:default=8080, so anything that went through the API server already has it set and zero cannot
+// occur in production", and mltrainingjob_controller.go:236 says the CRD default of 1 applies only when the
+// field is omitted. Nothing checked either claim. Every existing spec passes 8080 and 1/1 explicitly, so all
+// of them would stay green if the markers were deleted.
+//
+// What is at stake is the stored record, not the running workload. Both call sites defend themselves anyway
+// -- servingPort falls back to 8080 at router.go:59, defaultOne turns any non-positive value into 1 at
+// mltrainingjob_controller.go:239 -- so losing a CRD default would break neither serving nor training. It
+// would make the object the API hands back disagree with what actually runs, silently.
+//
+// Only omission is pinned, and the two cases left out are left out for different reasons.
+//
+// An "explicit zero" case is not written here because the TYPED client cannot express it: all three fields
+// carry omitempty, so a Go zero is absent from the request body and is indistinguishable from not setting the
+// field. Raw JSON or an unstructured object can express it, and doing so would test a different contract
+// worth its own change -- port: 0 must be REJECTED (Minimum=1) while parallelism: 0 must be STORED
+// (Minimum=0). That second half exposes a disagreement this commit does not settle: the schema admits zero
+// and defaultOne silently runs 1.
+//
+// An "explicit non-zero survives" case is not written because a CRD default never overwrites a present
+// value, so nothing in this tree today can redden it. A mutating or conversion webhook would change that;
+// none exists here yet.
+//
+// Mutation that turns these red: delete the `default:` lines from
+// config/crd/bases/platform.lkhun9311.github.io_{inferencedeployments,mltrainingjobs}.yaml, which is what
+// envtest installs (suite_test.go:90). Verified 2026-09-27: both specs fail, reading back 0 instead of 8080
+// and 1. That mutation proves less than deleting the markers and regenerating would -- it cannot catch
+// controller-gen failing to scan the package, or a later generation step restoring the default.
+var _ = Describe("the defaults the CRDs promise", func() {
+	ctx := context.Background()
+
+	It("fills in the serving port when the spec omits it", func() {
+		name := types.NamespacedName{Name: "defaulted-port", Namespace: "default"}
+		Expect(k8sClient.Create(ctx, &platformv1.InferenceDeployment{
+			ObjectMeta: metav1.ObjectMeta{Name: name.Name, Namespace: name.Namespace},
+			Spec: platformv1.InferenceDeploymentSpec{
+				Model: platformv1.InferenceModel{Name: "m", StorageURI: "s3://m"},
+				Image: "vllm/vllm-openai:test", Replicas: 1, GPUCount: 1,
+			},
+		})).To(Succeed())
+
+		got := &platformv1.InferenceDeployment{}
+		Expect(k8sClient.Get(ctx, name, got)).To(Succeed())
+		Expect(got.Spec.Port).To(Equal(int32(8080)),
+			"the API server did not default spec.port; the gateway's fallback comment reasons from this")
+	})
+
+	It("fills in parallelism and completions when the spec omits them", func() {
+		name := types.NamespacedName{Name: "defaulted-job", Namespace: "default"}
+		Expect(k8sClient.Create(ctx, &platformv1.MLTrainingJob{
+			ObjectMeta: metav1.ObjectMeta{Name: name.Name, Namespace: name.Namespace},
+			Spec: platformv1.MLTrainingJobSpec{
+				Queue: "team-a", Image: "busybox", Command: []string{"true"}, GPUCount: 1,
+			},
+		})).To(Succeed())
+
+		got := &platformv1.MLTrainingJob{}
+		Expect(k8sClient.Get(ctx, name, got)).To(Succeed())
+		Expect(got.Spec.Parallelism).To(Equal(int32(1)),
+			"parallelism was not defaulted; the stored object would read 0 while defaultOne still runs the Job with 1")
+		Expect(got.Spec.Completions).To(Equal(int32(1)), "completions was not defaulted")
+	})
+})
 
 var _ = Describe("mapPolicyToInferenceDeployments", func() {
 	ctx := context.Background()
@@ -426,6 +585,166 @@ var _ = Describe("InferenceDeployment Controller", func() {
 			_, hasLim := updated.Spec.Template.Spec.Containers[0].Resources.Limits[nvidiaGPUResource]
 			Expect(hasReq).To(BeFalse())
 			Expect(hasLim).To(BeFalse())
+		})
+
+		newEngineInfD := func(mode string) *platformv1.InferenceDeployment {
+			o := newInfD(1, 1)
+			o.Spec.Model.StorageURI = "hf://Qwen/Qwen2.5-3B-Instruct"
+			o.Spec.Image = platformv1.VLLMV0271Image
+			o.Spec.Engine = &platformv1.InferenceEngine{VLLM: &platformv1.VLLMEngine{
+				Profile: platformv1.VLLMProfileV0271A10G, ModelRevision: "aa8e72537993ba99e69dfaafa59ed015b17504d1"}}
+			if mode == platformv1.AdmissionModeHoldCap {
+				o.Spec.Admission = &platformv1.InferenceAdmission{Mode: mode, MaxHold: &metav1.Duration{Duration: 25 * time.Second}}
+			}
+			return o
+		}
+		capArgs := func(c corev1.Container) int {
+			n := 0
+			for _, a := range c.Args {
+				if strings.HasPrefix(a, "--long-prefill-token-threshold=") {
+					n++
+				}
+			}
+			return n
+		}
+		reconcileOK := func(r *InferenceDeploymentReconciler) {
+			_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+			Expect(err).NotTo(HaveOccurred())
+		}
+		getDep := func() *appsv1.Deployment {
+			dep := &appsv1.Deployment{}
+			Expect(k8sClient.Get(ctx, key, dep)).To(Succeed())
+			return dep
+		}
+
+		It("renders the capped engine with Recreate, on an A10G, with an annotation that matches its arguments", func() {
+			Expect(k8sClient.Create(ctx, newEngineInfD(platformv1.AdmissionModeHoldCap))).To(Succeed())
+			reconcileOK(reconciler())
+			dep := getDep()
+			Expect(dep.Spec.Strategy.Type).To(Equal(appsv1.RecreateDeploymentStrategyType))
+			Expect(dep.Spec.Template.Annotations).To(HaveKeyWithValue(admissionAnnotation, platformv1.AdmissionModeHoldCap))
+			Expect(dep.Annotations).To(HaveKeyWithValue(renderedGenerationAnnotation, fmt.Sprint(mustGet(ctx, key).Generation)))
+			c := dep.Spec.Template.Spec.Containers[0]
+			Expect(c.Image).To(Equal(platformv1.VLLMV0271Image))
+			Expect(capArgs(c)).To(Equal(1))
+			terms := dep.Spec.Template.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms
+			Expect(terms).To(HaveLen(1))
+			Expect(terms[0].MatchExpressions).To(ConsistOf(
+				corev1.NodeSelectorRequirement{Key: corev1.LabelInstanceTypeStable, Operator: corev1.NodeSelectorOpIn,
+					Values: []string{"g5.xlarge", "g5.2xlarge", "g5.4xlarge", "g5.8xlarge", "g5.16xlarge"}},
+				// The sharing node group is an A10G too; only the exclusive groups carry this label.
+				corev1.NodeSelectorRequirement{Key: "platform.lkhun9311.github.io/gpu", Operator: corev1.NodeSelectorOpIn, Values: []string{"true"}},
+			))
+		})
+
+		It("drops the cap and the annotation follows when HoldCap is turned off", func() {
+			Expect(k8sClient.Create(ctx, newEngineInfD(platformv1.AdmissionModeHoldCap))).To(Succeed())
+			r := reconciler()
+			reconcileOK(r)
+			infd := mustGet(ctx, key)
+			infd.Spec.Admission = nil
+			Expect(k8sClient.Update(ctx, infd)).To(Succeed())
+			reconcileOK(r)
+			dep := getDep()
+			Expect(capArgs(dep.Spec.Template.Spec.Containers[0])).To(Equal(0))
+			Expect(dep.Spec.Template.Annotations).To(HaveKeyWithValue(admissionAnnotation, platformv1.AdmissionModeOff))
+		})
+
+		// Going back to the generic container must not leave the engine's template behind.
+		It("returns to the generic container without the engine's residue when engine is removed", func() {
+			Expect(k8sClient.Create(ctx, newEngineInfD(platformv1.AdmissionModeOff))).To(Succeed())
+			r := reconciler()
+			reconcileOK(r)
+			Expect(getDep().Spec.Strategy.Type).To(Equal(appsv1.RecreateDeploymentStrategyType))
+			infd := mustGet(ctx, key)
+			infd.Spec.Engine = nil
+			infd.Spec.Image = "vllm/vllm-openai:test"
+			Expect(k8sClient.Update(ctx, infd)).To(Succeed())
+			reconcileOK(r)
+			dep := getDep()
+			Expect(dep.Spec.Template.Annotations).NotTo(HaveKey(admissionAnnotation))
+			Expect(dep.Annotations).NotTo(HaveKey(renderedGenerationAnnotation))
+			Expect(dep.Spec.Strategy.Type).To(Equal(appsv1.RollingUpdateDeploymentStrategyType))
+			Expect(dep.Spec.Template.Spec.Volumes).To(BeEmpty())
+			Expect(dep.Spec.Template.Spec.Tolerations).To(BeEmpty())
+			Expect(dep.Spec.Template.Spec.Affinity).To(BeNil())
+			Expect(dep.Spec.Template.Spec.Containers[0].Args).To(ContainElement("--model-path"))
+		})
+
+		It("reports HoldCap only after the capped rollout completes, and Off once it is turned off", func() {
+			Expect(k8sClient.Create(ctx, newEngineInfD(platformv1.AdmissionModeHoldCap))).To(Succeed())
+			r := reconciler()
+			reconcileOK(r)
+			Expect(mustGet(ctx, key).Status.Admission.Mode).To(Equal(platformv1.AdmissionModeOff))
+
+			markDeploymentObserved(1)
+			reconcileOK(r)
+			got := mustGet(ctx, key)
+			Expect(got.Status.Admission.Mode).To(Equal(platformv1.AdmissionModeHoldCap))
+			Expect(got.Status.Admission.ObservedGeneration).To(Equal(got.Generation))
+
+			got.Spec.Admission = &platformv1.InferenceAdmission{Mode: platformv1.AdmissionModeOff}
+			Expect(k8sClient.Update(ctx, got)).To(Succeed())
+			reconcileOK(r)
+			Expect(mustGet(ctx, key).Status.Admission.Mode).To(Equal(platformv1.AdmissionModeOff))
+		})
+
+		// A Deployment this controller does not own is not a capped engine.
+		It("reports Off when a foreign Deployment takes the name", func() {
+			Expect(k8sClient.Create(ctx, newEngineInfD(platformv1.AdmissionModeHoldCap))).To(Succeed())
+			r := reconciler()
+			reconcileOK(r)
+			markDeploymentObserved(1)
+			reconcileOK(r)
+			Expect(mustGet(ctx, key).Status.Admission.Mode).To(Equal(platformv1.AdmissionModeHoldCap))
+
+			dep := getDep()
+			dep.OwnerReferences = nil
+			Expect(k8sClient.Update(ctx, dep)).To(Succeed())
+			_, _ = r.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+			got := mustGet(ctx, key)
+			Expect(got.Status.Phase).To(Equal("Degraded"))
+			Expect(got.Status.Admission.Mode).To(Equal(platformv1.AdmissionModeOff))
+		})
+
+		// A cache still holding the capped Deployment from before an Off-and-back must not read as a completed capped rollout.
+		// The apiserver's copy is the one being rolled to the uncapped template.
+		// The stale copy is built so that the generation stamp is its only difference from a fresh render: the rendering otherwise
+		// replaces whole containers and so differs from any cached copy anyway, which would let this pass with no fence at all.
+		It("does not report HoldCap from a stale cached Deployment after HoldCap is turned off and on again", func() {
+			Expect(k8sClient.Create(ctx, newEngineInfD(platformv1.AdmissionModeHoldCap))).To(Succeed())
+			r := reconciler()
+			reconcileOK(r)
+			markDeploymentObserved(1)
+			reconcileOK(r)
+			Expect(mustGet(ctx, key).Status.Admission.Mode).To(Equal(platformv1.AdmissionModeHoldCap))
+			stale := getDep()
+			staleStamp := stale.Annotations[renderedGenerationAnnotation]
+
+			infd := mustGet(ctx, key)
+			infd.Spec.Admission = &platformv1.InferenceAdmission{Mode: platformv1.AdmissionModeOff}
+			Expect(k8sClient.Update(ctx, infd)).To(Succeed())
+			reconcileOK(r)
+			infd = mustGet(ctx, key)
+			infd.Spec.Admission = &platformv1.InferenceAdmission{Mode: platformv1.AdmissionModeHoldCap, MaxHold: &metav1.Duration{Duration: 25 * time.Second}}
+			Expect(k8sClient.Update(ctx, infd)).To(Succeed())
+			infd = mustGet(ctx, key)
+			r.mutateDeployment(infd, stale, "")
+			stale.Annotations[renderedGenerationAnnotation] = staleStamp
+
+			direct, err := client.NewWithWatch(cfg, client.Options{Scheme: k8sClient.Scheme()})
+			Expect(err).NotTo(HaveOccurred())
+			lagging := interceptor.NewClient(direct, interceptor.Funcs{
+				Get: func(ctx context.Context, c client.WithWatch, k client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+					if d, ok := obj.(*appsv1.Deployment); ok && k == key {
+						stale.DeepCopyInto(d)
+						return nil
+					}
+					return c.Get(ctx, k, obj, opts...)
+				},
+			})
+			_, _ = (&InferenceDeploymentReconciler{Client: lagging, Scheme: k8sClient.Scheme()}).Reconcile(ctx, reconcile.Request{NamespacedName: key})
+			Expect(mustGet(ctx, key).Status.Admission.Mode).To(Equal(platformv1.AdmissionModeOff))
 		})
 	})
 })

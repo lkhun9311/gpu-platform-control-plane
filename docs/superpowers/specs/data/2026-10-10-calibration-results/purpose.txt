@@ -1,0 +1,3 @@
+purpose: new-measurement
+hypothesis: at contender prompts of 6,144, 7,695 and 8,192 tokens hold-cap stays admissible and protective, and the long length lengthens its capped prefill past 1,740 ms and 5% above the reference, so the robustness study is a feasible test
+stoppingRule: R1 once, then off and hold-cap at the three lengths in one block, then stop; or stop at the acquisition deadline (hard stop 2h19 less 6 min) or on an apparatus mismatch

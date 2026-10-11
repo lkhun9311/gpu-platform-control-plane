@@ -1,10 +1,27 @@
 # Operations Ledger and Evidence
 
-> **Status (2026-08-07): designed only — no code.** This is a design skeleton for M7 (failure/evidence;
-> renumbered from M6 when training admission was promoted to M6, 2026-07-04). No ledger table, schema, or
-> projector for the tables below exists in this repository today. (A separate, unrelated event ledger lives
-> inside the queuelab measurement lab — `internal/queuelab/ledger.go` — but it is not this ledger and does
-> not implement any of the tables below.) Every GPU in the kind clusters is simulated by a fake device plugin. The GPUs in the paid EC2 sessions — more than thirty of them since 2026-09-02 — were real.
+> **Status (2026-09-30): storage, projector, reader and a CLI for 2 of the 6 tables, and the projector has
+> now run against a cluster.** `cmd/platformctl workload-runs project` read a kind cluster carrying one
+> `WorkloadRun` and wrote it: `seen=1 written=1 stale=0 without-start=0 events-new=3`. Running it again
+> reported `events-new=0 events-already=3`, so the idempotence the design claims is measured rather than
+> asserted. The record is [`hack/ledger-first-projection.md`](../hack/ledger-first-projection.md).
+> `internal/ledger` holds versioned migrations and an idempotent projector for `workload_runs` and
+> `operation_events` only, with the design of record at
+> `docs/superpowers/specs/2026-09-27-operations-ledger-slice-one-design.md`. `model_versions`,
+> `deployment_runs`, `benchmark_runs` and `node_health_history` do not exist — not as tables, not as stubs.
+>
+> **What is missing matters as much as what is there.** Four of the six tables below do not exist, as tables
+> or as stubs, so this page still describes more schema than the code carries. And nothing runs the projector
+> on a schedule — it is a command someone types, against whatever cluster their kubeconfig points at.
+>
+> ⚠️ This paragraph said until 2026-09-30 that `ProjectWorkloadRuns` "is called by tests and by nothing else"
+> and that "no ledger has ever been written outside a test". Both were true when written and are not now;
+> `cmd/platformctl` was already dispatching three subcommands when the sentence was last edited. (A separate,
+> unrelated event ledger lives inside the queuelab measurement lab — `internal/queuelab/ledger.go` — but it is
+> not this ledger and implements none of the tables below.)
+>
+> This is part of M7 (failure/evidence; renumbered from M6 when training admission was promoted to M6,
+> 2026-07-04). Every GPU in the kind clusters is simulated by a fake device plugin. The GPUs in the paid EC2 sessions — more than thirty of them since 2026-09-02 — were real.
 
 A small operations ledger records what the platform did, as durable evidence. It is deliberately **not** a full MLOps store — GPU-infra operations tracking only.
 

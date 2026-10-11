@@ -18,6 +18,7 @@ package bench
 
 import (
 	"strings"
+	"testing"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -110,11 +111,97 @@ var _ = Describe("BootstrapCI", func() {
 })
 
 var _ = Describe("EvaluateChecks", func() {
+	// The criterion is registered in EXACT tokens, and the calculation read the estimates for as long as both
+	// were present. These five cases are what tell the two apart: a test that only checks "the run is invalid"
+	// passes as soon as a validity guard exists, whether or not the division changed.
+	It("fails the admission match when the exact fractions differ, even though the estimates agree", func() {
+		r1 := ArmSummary{Arm: "R1", TTFTMsP99: 100, TailSampleSize: 500}
+		// Estimates: both 0.50, a perfect match. Exact: 0.30 against 0.60, a 50 percent gap.
+		staticCap := ArmSummary{Arm: "static-cap", TTFTMsP99: 200, TailSampleSize: 500,
+			OfferedInputTokens: 1000, AdmittedInputTokens: 500, OfferedExactTokens: 1000, AdmittedExactTokens: 300}
+		kvAware := ArmSummary{Arm: "kv-aware", TTFTMsP99: 110, TailSampleSize: 500,
+			OfferedInputTokens: 1000, AdmittedInputTokens: 500, OfferedExactTokens: 1000, AdmittedExactTokens: 600}
+		c := EvaluateChecks(r1, staticCap, kvAware, CI{Lo: 0.45, Hi: 0.65, Valid: true}, 0.05)
+		Expect(c.AdmissionNotEvaluable).To(BeFalse())
+		Expect(c.AdmissionMatchPass).To(BeFalse())
+		Expect(c.AdmissionMatchDelta).To(BeNumerically("~", 0.5, 0.001))
+		// The diagnostic still reports what the old calculation would have said, which is how a reader of an
+		// artifact certified before this repair can see why it read as matched.
+		Expect(c.EstimateWeightedDelta).To(BeNumerically("~", 0, 0.001))
+	})
+
+	It("passes the admission match when the exact fractions agree, even though the estimates differ", func() {
+		r1 := ArmSummary{Arm: "R1", TTFTMsP99: 100, TailSampleSize: 500}
+		// The mirror image: estimates 0.30 against 0.60, exact 0.50 against 0.51.
+		staticCap := ArmSummary{Arm: "static-cap", TTFTMsP99: 200, TailSampleSize: 500,
+			OfferedInputTokens: 1000, AdmittedInputTokens: 300, OfferedExactTokens: 1000, AdmittedExactTokens: 500}
+		kvAware := ArmSummary{Arm: "kv-aware", TTFTMsP99: 110, TailSampleSize: 500,
+			OfferedInputTokens: 1000, AdmittedInputTokens: 600, OfferedExactTokens: 1000, AdmittedExactTokens: 510}
+		c := EvaluateChecks(r1, staticCap, kvAware, CI{Lo: 0.45, Hi: 0.65, Valid: true}, 0.05)
+		Expect(c.AdmissionMatchPass).To(BeTrue())
+		Expect(c.AdmissionMatchDelta).To(BeNumerically("~", 0.0196, 0.001))
+		Expect(c.EstimateWeightedDelta).To(BeNumerically("~", 0.5, 0.001))
+	})
+
+	It("reports the criterion as not evaluable when only the estimates are present", func() {
+		r1 := ArmSummary{Arm: "R1", TTFTMsP99: 100, TailSampleSize: 500}
+		staticCap := ArmSummary{Arm: "static-cap", TTFTMsP99: 200, TailSampleSize: 500,
+			OfferedInputTokens: 1000, AdmittedInputTokens: 500}
+		kvAware := ArmSummary{Arm: "kv-aware", TTFTMsP99: 110, TailSampleSize: 500,
+			OfferedInputTokens: 1000, AdmittedInputTokens: 510}
+		c := EvaluateChecks(r1, staticCap, kvAware, CI{Lo: 0.45, Hi: 0.65, Valid: true}, 0.05)
+		Expect(c.AdmissionNotEvaluable).To(BeTrue())
+		Expect(c.Invalid).To(BeTrue())
+		Expect(c.InvalidReason).To(ContainSubstring("no denominator in the unit the design defines it in"))
+		// Not merely failed: a delta of zero beside a FAIL is what this used to print, and zero is a
+		// measurement nobody made.
+		Expect(c.AdmissionMatchDelta).To(BeZero())
+		Expect(c.AdmissionMatchPass).To(BeFalse())
+		Expect(c.OverallPass).To(BeFalse())
+	})
+
+	It("reports not evaluable when C admitted no exact work, so the denominator of |B-C|/C is missing", func() {
+		r1 := ArmSummary{Arm: "R1", TTFTMsP99: 100, TailSampleSize: 500}
+		staticCap := ArmSummary{Arm: "static-cap", TTFTMsP99: 200, TailSampleSize: 500,
+			OfferedInputTokens: 1000, AdmittedInputTokens: 500, OfferedExactTokens: 1000, AdmittedExactTokens: 500}
+		kvAware := ArmSummary{Arm: "kv-aware", TTFTMsP99: 110, TailSampleSize: 500,
+			OfferedInputTokens: 1000, AdmittedInputTokens: 510, OfferedExactTokens: 1000, AdmittedExactTokens: 0}
+		c := EvaluateChecks(r1, staticCap, kvAware, CI{Lo: 0.45, Hi: 0.65, Valid: true}, 0.05)
+		Expect(c.AdmissionNotEvaluable).To(BeTrue())
+		Expect(c.InvalidReason).To(ContainSubstring("has no denominator"))
+		Expect(c.AdmissionMatchPass).To(BeFalse())
+	})
+
+	It("refuses tallies that admit more exact work than they offered", func() {
+		r1 := ArmSummary{Arm: "R1", TTFTMsP99: 100, TailSampleSize: 500}
+		staticCap := ArmSummary{Arm: "static-cap", TTFTMsP99: 200, TailSampleSize: 500,
+			OfferedInputTokens: 1000, AdmittedInputTokens: 500, OfferedExactTokens: 1000, AdmittedExactTokens: 1200}
+		kvAware := ArmSummary{Arm: "kv-aware", TTFTMsP99: 110, TailSampleSize: 500,
+			OfferedInputTokens: 1000, AdmittedInputTokens: 510, OfferedExactTokens: 1000, AdmittedExactTokens: 510}
+		c := EvaluateChecks(r1, staticCap, kvAware, CI{Lo: 0.45, Hi: 0.65, Valid: true}, 0.05)
+		Expect(c.AdmissionNotEvaluable).To(BeTrue())
+		Expect(c.InvalidReason).To(ContainSubstring("which cannot happen"))
+	})
+
+	It("does not require eligible exact work from R1, which is premium-only by design", func() {
+		// R1 carries no eligible standard-long population at all, and that is its normal state rather than a
+		// gap in its evidence. A guard that demanded a denominator from it would invalidate every run.
+		r1 := ArmSummary{Arm: "R1", TTFTMsP99: 100, TailSampleSize: 500}
+		staticCap := ArmSummary{Arm: "static-cap", TTFTMsP99: 200, TailSampleSize: 500,
+			OfferedInputTokens: 1000, AdmittedInputTokens: 500, OfferedExactTokens: 1000, AdmittedExactTokens: 500}
+		kvAware := ArmSummary{Arm: "kv-aware", TTFTMsP99: 110, TailSampleSize: 500,
+			OfferedInputTokens: 1000, AdmittedInputTokens: 510, OfferedExactTokens: 1000, AdmittedExactTokens: 510}
+		c := EvaluateChecks(r1, staticCap, kvAware, CI{Lo: 0.45, Hi: 0.65, Valid: true}, 0.05)
+		Expect(c.AdmissionNotEvaluable).To(BeFalse())
+		Expect(c.Invalid).To(BeFalse())
+		Expect(c.OverallPass).To(BeTrue())
+	})
+
 	It("passes when C beats R1 absolutely and B incrementally with a matched admission fraction", func() {
 		r1 := ArmSummary{Arm: "R1", TTFTMsP99: 100, TailSampleSize: 500}
 		// static-cap and kv-aware admit the same work (matched), but kv-aware protects the tail better.
-		staticCap := ArmSummary{Arm: "static-cap", TTFTMsP99: 200, OfferedInputTokens: 1000, AdmittedInputTokens: 500, TailSampleSize: 500}
-		kvAware := ArmSummary{Arm: "kv-aware", TTFTMsP99: 110, OfferedInputTokens: 1000, AdmittedInputTokens: 510, TailSampleSize: 500}
+		staticCap := ArmSummary{Arm: "static-cap", TTFTMsP99: 200, OfferedInputTokens: 1000, AdmittedInputTokens: 500, OfferedExactTokens: 1000, AdmittedExactTokens: 500, TailSampleSize: 500}
+		kvAware := ArmSummary{Arm: "kv-aware", TTFTMsP99: 110, OfferedInputTokens: 1000, AdmittedInputTokens: 510, OfferedExactTokens: 1000, AdmittedExactTokens: 510, TailSampleSize: 500}
 		ci := CI{Lo: 0.45, Hi: 0.65, Valid: true} // C/B ratio CI, upper bound < 1.0
 		c := EvaluateChecks(r1, staticCap, kvAware, ci, 0.05)
 		Expect(c.Invalid).To(BeFalse())
@@ -130,8 +217,8 @@ var _ = Describe("EvaluateChecks", func() {
 		// ones from the passing case above -- so the disqualification has to come from the sample size
 		// alone, which is the whole point.
 		r1 := ArmSummary{Arm: "R1", TTFTMsP99: 100, TailSampleSize: 500}
-		staticCap := ArmSummary{Arm: "static-cap", TTFTMsP99: 200, OfferedInputTokens: 1000, AdmittedInputTokens: 500, TailSampleSize: 500}
-		kvAware := ArmSummary{Arm: "kv-aware", TTFTMsP99: 110, OfferedInputTokens: 1000, AdmittedInputTokens: 510, TailSampleSize: 99}
+		staticCap := ArmSummary{Arm: "static-cap", TTFTMsP99: 200, OfferedInputTokens: 1000, AdmittedInputTokens: 500, OfferedExactTokens: 1000, AdmittedExactTokens: 500, TailSampleSize: 500}
+		kvAware := ArmSummary{Arm: "kv-aware", TTFTMsP99: 110, OfferedInputTokens: 1000, AdmittedInputTokens: 510, OfferedExactTokens: 1000, AdmittedExactTokens: 510, TailSampleSize: 99}
 		c := EvaluateChecks(r1, staticCap, kvAware, CI{Lo: 0.45, Hi: 0.65, Valid: true}, 0.05)
 		Expect(c.Invalid).To(BeTrue())
 		Expect(c.InvalidReason).To(ContainSubstring("99 premium completions"))
@@ -142,8 +229,8 @@ var _ = Describe("EvaluateChecks", func() {
 		// One more completion than the case above, and the same numbers, so this pins the boundary rather
 		// than merely re-testing the passing case: 100 is where ceil(0.99*n)-1 first falls below n-1.
 		r1 := ArmSummary{Arm: "R1", TTFTMsP99: 100, TailSampleSize: 100}
-		staticCap := ArmSummary{Arm: "static-cap", TTFTMsP99: 200, OfferedInputTokens: 1000, AdmittedInputTokens: 500, TailSampleSize: 100}
-		kvAware := ArmSummary{Arm: "kv-aware", TTFTMsP99: 110, OfferedInputTokens: 1000, AdmittedInputTokens: 510, TailSampleSize: 100}
+		staticCap := ArmSummary{Arm: "static-cap", TTFTMsP99: 200, OfferedInputTokens: 1000, AdmittedInputTokens: 500, OfferedExactTokens: 1000, AdmittedExactTokens: 500, TailSampleSize: 100}
+		kvAware := ArmSummary{Arm: "kv-aware", TTFTMsP99: 110, OfferedInputTokens: 1000, AdmittedInputTokens: 510, OfferedExactTokens: 1000, AdmittedExactTokens: 510, TailSampleSize: 100}
 		c := EvaluateChecks(r1, staticCap, kvAware, CI{Lo: 0.45, Hi: 0.65, Valid: true}, 0.05)
 		Expect(c.Invalid).To(BeFalse())
 		Expect(c.OverallPass).To(BeTrue())
@@ -151,8 +238,8 @@ var _ = Describe("EvaluateChecks", func() {
 
 	It("fails incremental value when C does not beat the admission-matched B (just load shedding)", func() {
 		r1 := ArmSummary{Arm: "R1", TTFTMsP99: 100, TailSampleSize: 500}
-		staticCap := ArmSummary{Arm: "static-cap", TTFTMsP99: 115, OfferedInputTokens: 1000, AdmittedInputTokens: 500, TailSampleSize: 500}
-		kvAware := ArmSummary{Arm: "kv-aware", TTFTMsP99: 112, OfferedInputTokens: 1000, AdmittedInputTokens: 505, TailSampleSize: 500}
+		staticCap := ArmSummary{Arm: "static-cap", TTFTMsP99: 115, OfferedInputTokens: 1000, AdmittedInputTokens: 500, OfferedExactTokens: 1000, AdmittedExactTokens: 500, TailSampleSize: 500}
+		kvAware := ArmSummary{Arm: "kv-aware", TTFTMsP99: 112, OfferedInputTokens: 1000, AdmittedInputTokens: 505, OfferedExactTokens: 1000, AdmittedExactTokens: 505, TailSampleSize: 500}
 		ci := CI{Lo: 0.90, Hi: 1.05, Valid: true} // ratio ~0.97, CI crosses 1.0
 		c := EvaluateChecks(r1, staticCap, kvAware, ci, 0.05)
 		Expect(c.AbsoluteProtectionPass).To(BeTrue()) // 112/100 = 1.12 <= 1.25
@@ -162,8 +249,8 @@ var _ = Describe("EvaluateChecks", func() {
 
 	It("fails admission match when B and C admit different work fractions", func() {
 		r1 := ArmSummary{Arm: "R1", TTFTMsP99: 100, TailSampleSize: 500}
-		staticCap := ArmSummary{Arm: "static-cap", TTFTMsP99: 200, OfferedInputTokens: 1000, AdmittedInputTokens: 300, TailSampleSize: 500}
-		kvAware := ArmSummary{Arm: "kv-aware", TTFTMsP99: 110, OfferedInputTokens: 1000, AdmittedInputTokens: 600, TailSampleSize: 500}
+		staticCap := ArmSummary{Arm: "static-cap", TTFTMsP99: 200, OfferedInputTokens: 1000, AdmittedInputTokens: 300, OfferedExactTokens: 1000, AdmittedExactTokens: 300, TailSampleSize: 500}
+		kvAware := ArmSummary{Arm: "kv-aware", TTFTMsP99: 110, OfferedInputTokens: 1000, AdmittedInputTokens: 600, OfferedExactTokens: 1000, AdmittedExactTokens: 600, TailSampleSize: 500}
 		ci := CI{Lo: 0.45, Hi: 0.65, Valid: true}
 		c := EvaluateChecks(r1, staticCap, kvAware, ci, 0.05)
 		Expect(c.AdmissionMatchPass).To(BeFalse()) // 0.3 vs 0.6 is a 50% gap
@@ -172,9 +259,9 @@ var _ = Describe("EvaluateChecks", func() {
 
 	It("invalidates the run when a compared arm completed no premium requests", func() {
 		r1 := ArmSummary{Arm: "R1", TTFTMsP99: 100, TailSampleSize: 500}
-		staticCap := ArmSummary{Arm: "static-cap", TTFTMsP99: 200, OfferedInputTokens: 1000, AdmittedInputTokens: 500, TailSampleSize: 500}
+		staticCap := ArmSummary{Arm: "static-cap", TTFTMsP99: 200, OfferedInputTokens: 1000, AdmittedInputTokens: 500, OfferedExactTokens: 1000, AdmittedExactTokens: 500, TailSampleSize: 500}
 		// kv-aware completed nothing (e.g. every admitted request timed out): its p99 is 0 and would otherwise pass every ratio check.
-		kvAware := ArmSummary{Arm: "kv-aware", TTFTMsP99: 0, OfferedInputTokens: 1000, AdmittedInputTokens: 500, TailSampleSize: 0}
+		kvAware := ArmSummary{Arm: "kv-aware", TTFTMsP99: 0, OfferedInputTokens: 1000, AdmittedInputTokens: 500, OfferedExactTokens: 1000, AdmittedExactTokens: 500, TailSampleSize: 0}
 		ci := CI{} // no interval: the bootstrap had nothing to resample
 		c := EvaluateChecks(r1, staticCap, kvAware, ci, 0.05)
 		Expect(c.Invalid).To(BeTrue())
@@ -183,8 +270,8 @@ var _ = Describe("EvaluateChecks", func() {
 
 	It("invalidates the run when a compared arm's tail is censored", func() {
 		r1 := ArmSummary{Arm: "R1", TTFTMsP99: 100, TailSampleSize: 500}
-		staticCap := ArmSummary{Arm: "static-cap", TTFTMsP99: 200, OfferedInputTokens: 1000, AdmittedInputTokens: 500, TailSampleSize: 500}
-		kvAware := ArmSummary{Arm: "kv-aware", TTFTMsP99: 110, OfferedInputTokens: 1000, AdmittedInputTokens: 510, TailSampleSize: 500, Censored: true}
+		staticCap := ArmSummary{Arm: "static-cap", TTFTMsP99: 200, OfferedInputTokens: 1000, AdmittedInputTokens: 500, OfferedExactTokens: 1000, AdmittedExactTokens: 500, TailSampleSize: 500}
+		kvAware := ArmSummary{Arm: "kv-aware", TTFTMsP99: 110, OfferedInputTokens: 1000, AdmittedInputTokens: 510, OfferedExactTokens: 1000, AdmittedExactTokens: 510, TailSampleSize: 500, Censored: true}
 		ci := CI{Lo: 0.45, Hi: 0.65, Valid: true}
 		c := EvaluateChecks(r1, staticCap, kvAware, ci, 0.05)
 		Expect(c.Invalid).To(BeTrue())
@@ -247,8 +334,8 @@ var _ = Describe("the two ways a truncated arm used to certify itself", func() {
 		// so the gate `Hi < 1.0` was satisfied by the ABSENCE of an interval -- truncation disarmed the
 		// strictest check in the design instead of tripping it.
 		r1 := ArmSummary{Arm: "R1", TTFTMsP99: 100, TailSampleSize: 500}
-		staticCap := ArmSummary{Arm: "static-cap", TTFTMsP99: 200, OfferedInputTokens: 1000, AdmittedInputTokens: 500, TailSampleSize: 500}
-		kvAware := ArmSummary{Arm: "kv-aware", TTFTMsP99: 110, OfferedInputTokens: 1000, AdmittedInputTokens: 510, TailSampleSize: 500}
+		staticCap := ArmSummary{Arm: "static-cap", TTFTMsP99: 200, OfferedInputTokens: 1000, AdmittedInputTokens: 500, OfferedExactTokens: 1000, AdmittedExactTokens: 500, TailSampleSize: 500}
+		kvAware := ArmSummary{Arm: "kv-aware", TTFTMsP99: 110, OfferedInputTokens: 1000, AdmittedInputTokens: 510, OfferedExactTokens: 1000, AdmittedExactTokens: 510, TailSampleSize: 500}
 		c := EvaluateChecks(r1, staticCap, kvAware, CI{}, 0.05)
 		Expect(c.IncrementalValuePass).To(BeFalse())
 		Expect(c.Invalid).To(BeTrue())
@@ -277,8 +364,16 @@ var _ = Describe("the truncated repetition that pooling hides", func() {
 	// one repetition whose p99 is a maximum over thirty requests -- which the incremental bootstrap then
 	// resamples with equal weight.
 
+	// Exact totals mirror the estimated ones so these cases keep failing for the reason they were written for.
+	//
+	// Without them the admission-match criterion has no denominator in its registered unit, every case here is
+	// invalidated for that instead, and two of them asserted the run was VALID -- a failure about plumbing
+	// standing in for the repetition-floor behaviour being pinned.
 	base := func(arm string, p99 float64, admitted int64) ArmSummary {
-		return ArmSummary{Arm: arm, TTFTMsP99: p99, OfferedInputTokens: 1000, AdmittedInputTokens: admitted, TailSampleSize: 1530}
+		return ArmSummary{Arm: arm, TTFTMsP99: p99,
+			OfferedInputTokens: 1000, AdmittedInputTokens: admitted,
+			OfferedExactTokens: 1000, AdmittedExactTokens: admitted,
+			TailSampleSize: 1530}
 	}
 
 	It("invalidates an arm whose weakest repetition is below the floor, however healthy the pool looks", func() {
@@ -328,16 +423,22 @@ var _ = Describe("a request shed with 413", func() {
 	// nothing: a paid static-cap replay refused 447 noisy requests and printed rejected=0.
 	// These rows are that run's shape -- status 413, error kind "http", no first token -- so the fix is pinned
 	// to the evidence that exposed it rather than to an invented one.
+	// AdmissionReason is what makes this an ADMISSION 413 rather than a body-limit one.
+	//
+	// The two share a status and an error code, and the gateway tells them apart by naming the admission one in
+	// X-Admission-Reason. A fixture without it describes the other refusal -- the one decided before the guard
+	// ran -- so these specs would have been pinning the wrong outcome.
 	shed := func(index int, tenant string, noisy bool) RawRow {
 		return RawRow{
-			Index:          index,
-			SendUnixNanos:  1,
-			Tenant:         tenant,
-			IsNoisy:        noisy,
-			EstInputTokens: 8000,
-			HTTPStatus:     413,
-			ErrorKind:      "http",
-			LongThreshold:  4000,
+			Index:           index,
+			SendUnixNanos:   1,
+			Tenant:          tenant,
+			IsNoisy:         noisy,
+			EstInputTokens:  8000,
+			HTTPStatus:      413,
+			ErrorKind:       "http",
+			AdmissionReason: "input_exceeds_burst",
+			LongThreshold:   4000,
 		}
 	}
 
@@ -380,6 +481,83 @@ var _ = Describe("a request shed with 413", func() {
 		rows := []RawRow{shed(1, thresholdProbePrefix+"long", false)}
 		s := Summarize("static-cap", rows)
 		Expect(s.ThresholdProbe[thresholdProbePrefix+"long"].Rejected).To(Equal(1))
+	})
+
+	// A 422 is the gateway refusing the request's SHAPE, before the guard is consulted.
+	//
+	// Rejected is the quantity that moves: counting a profile violation as shedding credits the bucket with a
+	// decision it never made. Offered and Admitted do not move either way, because a pre-admission refusal is
+	// outside the eligible population entirely -- asserting them here would prove nothing, which is the mistake
+	// the body-limit spec below was written with the first two times.
+	It("does not treat a 422 profile refusal as work the guard shed", func() {
+		violation := shed(2, "noisy", true)
+		violation.HTTPStatus = 422
+		violation.AdmissionReason = ""
+		rows := []RawRow{completedRow(1, 10, 8000), violation}
+		rows[0].Tenant, rows[0].IsNoisy, rows[0].LongThreshold = "noisy", true, 4000
+		rows[0].AdmissionReason = "within_budget"
+		s := Summarize("static-cap", rows)
+		// Offered and Admitted are the quantities that move, and only observation settled which: with the 422
+		// classified as pre-admission the row is outside the eligible population, so both read 8000 (the
+		// completed row alone). Treat it as a guard decision instead and both become 16000 -- the refusal
+		// enters the denominator AND the numerator, because shedByAdmission does not recognise 422 either, so
+		// it would be scored as work the guard ADMITTED. Rejected stays 0 under both, which is why asserting it
+		// proved nothing here even though it was the discriminating field one spec below.
+		Expect(s.OfferedInputTokens).To(Equal(int64(8000)),
+			"a body refused for its shape entered the offered-work denominator, which the guard never saw")
+		Expect(s.AdmittedInputTokens).To(Equal(int64(8000)),
+			"a shape refusal was scored as work the guard admitted")
+	})
+
+	It("counts a 422 against a probe as unevaluated, not rejected", func() {
+		violation := shed(1, ProbeOverTenant, false)
+		violation.HTTPStatus = 422
+		violation.AdmissionReason = ""
+		s := Summarize("static-cap", []RawRow{violation})
+		o := s.ThresholdProbe[ProbeOverTenant]
+		Expect(o.Total).To(Equal(1))
+		Expect(o.Unevaluated).To(Equal(1),
+			"a probe refused for its shape was recorded as a threshold result, which it cannot be")
+		Expect(o.Rejected).To(BeZero())
+	})
+
+	// The OTHER 413: a body over the gateway's size cap, refused before admission ran.
+	//
+	// It carries no admission reason, because the guard never saw it. Counting it as shedding credits the
+	// bucket with a decision it did not make, and the admitted-work fraction is the number that changes.
+	It("does not treat a body-limit 413 as work the guard shed", func() {
+		oversized := shed(2, "noisy", true)
+		oversized.AdmissionReason = ""
+		rows := []RawRow{completedRow(1, 10, 8000), oversized}
+		rows[0].Tenant, rows[0].IsNoisy, rows[0].LongThreshold = "noisy", true, 4000
+		rows[0].AdmissionReason = "within_budget"
+		s := Summarize("static-cap", rows)
+		// Rejected is the quantity that moves. Offered and Admitted do NOT: a pre-admission refusal leaves the
+		// eligible population altogether, so it is absent from both terms under either classification -- which
+		// is why asserting them proves nothing here, and why the first version of this spec survived a mutation
+		// that deleted the check it exists for.
+		Expect(s.Rejected).To(BeZero(),
+			"a body over the size cap was counted as a rejection by the guard, which never saw it")
+		// And it is in neither term of the fraction, which the completed row's presence makes readable.
+		Expect(s.OfferedInputTokens).To(Equal(int64(8000)))
+		Expect(s.AdmittedInputTokens).To(Equal(int64(8000)))
+	})
+
+	// The same distinction one level down, in the threshold-probe tally.
+	//
+	// That tally reads its own predicate, so it can disagree with the fraction above while both look right in
+	// isolation. A probe refused on body size did not test the threshold any more than a 403 did: it must land
+	// in Unevaluated, not in Rejected, or the section reports a boundary the guard was never asked about.
+	It("counts a body-limit 413 against a probe as unevaluated, not rejected", func() {
+		oversized := shed(1, ProbeOverTenant, false)
+		oversized.AdmissionReason = ""
+		s := Summarize("static-cap", []RawRow{oversized})
+		o := s.ThresholdProbe[ProbeOverTenant]
+		Expect(o.Total).To(Equal(1))
+		Expect(o.Unevaluated).To(Equal(1),
+			"a probe refused before admission was not recorded as unevaluated, so the section counts it as a threshold result")
+		Expect(o.Rejected).To(BeZero(),
+			"a body-limit refusal was credited to the threshold, which never judged this request")
 	})
 })
 
@@ -426,6 +604,75 @@ var _ = Describe("a threshold probe the gateway never evaluated", func() {
 // and an empty Checks is indistinguishable from a run that failed everything. Hence the pointer.
 //
 // Mutation that turns this red: make FormatReport treat a nil checks as Checks{} and render it.
+// Summarize and EvaluateChecks are exercised together here, because separately neither can show this.
+//
+// Every EvaluateChecks spec in this file hands over a summary built by hand, and every Summarize spec stops at
+// the totals. So a row that is ELIGIBLE but carries no exact measurement -- which is what `completedRow`
+// produces, and what a replay against an engine that reports no prompt tokens produces -- travels the whole
+// path without any spec reading the verdict at the end of it. The gap is not hypothetical: the benchharness
+// controls failed on exactly this shape the moment the criterion started reading exact tokens.
+var _ = Describe("an eligible population with no exact measurement", func() {
+	eligible := func(arm string, status int) ArmSummary {
+		r := completedRow(1, 10, 8000)
+		r.Tenant = "standard-noisy"
+		r.IsNoisy = true
+		r.LongThreshold = 4096
+		r.HTTPStatus = status
+		if status != 200 {
+			r.ErrorKind = errKindRejected
+			r.FirstTokenUnixNanos, r.EndUnixNanos = 0, 0
+		}
+		s := Summarize(arm, []RawRow{r})
+		s.TTFTMsP99, s.TailSampleSize = 110, 500
+		return s
+	}
+
+	It("carries offered estimate tokens but no exact ones, so the criterion has no denominator", func() {
+		s := eligible("kv-aware", 200)
+		Expect(s.OfferedInputTokens).To(Equal(int64(8000)))
+		Expect(s.OfferedExactTokens).To(BeZero())
+		Expect(s.ExactTokensMissing).To(Equal(1))
+	})
+
+	It("reaches EvaluateChecks as not evaluable rather than as a matched pair", func() {
+		staticCap := eligible("static-cap", 429)
+		staticCap.TTFTMsP99 = 200
+		kvAware := eligible("kv-aware", 200)
+		r1 := ArmSummary{Arm: "R1", TTFTMsP99: 100, TailSampleSize: 500}
+		c := EvaluateChecks(r1, staticCap, kvAware, CI{Lo: 0.45, Hi: 0.65, Valid: true}, 0.05)
+		Expect(c.AdmissionNotEvaluable).To(BeTrue())
+		Expect(c.AdmissionMatchPass).To(BeFalse())
+		Expect(c.OverallPass).To(BeFalse())
+		// Two reasons are recorded, not one: the missing counts and the absent denominator are different facts
+		// and invalidate() keeps every reason rather than the last.
+		Expect(c.InvalidReason).To(ContainSubstring("no measured input-token count"))
+		Expect(c.InvalidReason).To(ContainSubstring("no denominator"))
+	})
+})
+
+var _ = Describe("a report whose admission criterion could not be evaluated", func() {
+	// The old line printed a number unconditionally, so an unevaluable criterion and a criterion that measured
+	// zero produced the same "0.000 FAIL". They are different findings and only one of them is a measurement.
+	It("says NOT EVALUABLE and attaches no pass or fail verdict to the number", func() {
+		out := FormatReport([]ArmSummary{{Arm: "kv-aware", TailSampleSize: 500}},
+			&Checks{AdmissionNotEvaluable: true, EstimateWeightedDelta: 1.0}, 0.05)
+		Expect(out).To(ContainSubstring("admission match      NOT EVALUABLE in exact tokens"))
+		// The estimate-weighted figure is still shown, because the artifacts already recorded were certified
+		// on it -- but it is labelled as not the criterion.
+		Expect(out).To(ContainSubstring("estimate-weighted |B-C|/C = 1.000, not the criterion"))
+		// And no tolerance comparison, because there is nothing to compare.
+		Expect(out).NotTo(ContainSubstring("admission match      |B-C|/C"))
+	})
+
+	It("prints the delta with its verdict when the exact accounting did support it", func() {
+		out := FormatReport([]ArmSummary{{Arm: "kv-aware", TailSampleSize: 500}},
+			&Checks{AdmissionMatchDelta: 0.02, AdmissionMatchPass: true, EstimateWeightedDelta: 0.5}, 0.05)
+		Expect(out).To(ContainSubstring("admission match      |B-C|/C = 0.020"))
+		Expect(out).To(ContainSubstring("estimate-weighted 0.500"))
+		Expect(out).NotTo(ContainSubstring("NOT EVALUABLE"))
+	})
+})
+
 var _ = Describe("a report with no criteria to evaluate", func() {
 	It("prints no verdict and no check table", func() {
 		out := FormatReport([]ArmSummary{{Arm: "default-fcfs", TailSampleSize: 500}}, nil, 0.05)
@@ -550,14 +797,18 @@ var _ = Describe("an eligible request that never got an admission verdict", func
 })
 
 var _ = Describe("the incremental check when the repetition ratios scatter", func() {
-	// The percentile bootstrap over four values is anti-conservative once the per-repetition ratios spread
-	// out: simulated against this package's own BootstrapCI, a true ratio of 1.00 -- no effect whatsoever --
-	// clears the gate 10.2% of the time at a coefficient of variation of 0.20, against a nominal 5%.
+	// ⚠️ The 10.2%-at-CV-0.20 figure was measured against BootstrapCI, which bootstraps the MEAN of the
+	// per-repetition ratios. The 2026-10-01 amendment to the M5-b registration replaced the incremental
+	// interval with a paired BLOCK bootstrap of the pooled p99 ratio, and no coverage has been measured for
+	// that estimator at any scatter. So this bound is retained as a provisional refusal and NOT as a
+	// validity boundary for the interval the gate now reads -- an earlier version of this comment presented
+	// the old measurement as the reason for the current refusal, which is the claim the amendment withdrew.
 	//
-	// So the interval is only worth reading while the ratios are tight. The 2026-09-03 pilot measured 0.001
-	// for the contended arms and 0.056 for the isolation-like ones, well inside that, but a run is not
-	// entitled to assume it stayed there. This refuses rather than reports, because the direction matters:
-	// the failure mode is a gate that passes when it should not.
+	// What survives is narrow and still worth having: with everything else fixed, the runs that pass with
+	// this rule are a subset of those that pass without it, so it cannot raise the rate of a false PASS on
+	// one fixed experiment. The 2026-09-03 pilot measured 0.001 for the contended arms and 0.056 for the
+	// isolation-like ones, so it is not expected to bind; it exists because the failure mode is a gate that
+	// passes when it should not.
 	It("is refused when the ratios are too scattered for the interval to mean anything", func() {
 		Expect(RatioScatterTooHigh([]float64{0.9, 0.9, 0.9, 0.9})).To(BeFalse())
 		Expect(RatioScatterTooHigh([]float64{0.6, 0.9, 1.2, 1.5})).To(BeTrue())
@@ -573,7 +824,7 @@ var _ = Describe("the incremental check when the repetition ratios scatter", fun
 var _ = Describe("the admitted-work fraction over exact tokens", func() {
 	// The design defines the admission-match criterion over EXACT target-tokenizer input tokens. Every run so
 	// far computed it over ceil(chars/4), which this project's own calibration records as 36% low on a
-	// 200-character prompt and 23% high on a 40,000-character one. The pre-registered criterion has therefore
+	// 200-character prompt and 30% high on a 40,000-character one (10,000 estimated against 7,695 measured). The pre-registered criterion has therefore
 	// never been evaluated -- a proxy for it has.
 	//
 	// Falling back to the estimate is exactly how that happened, so a report with no exact counts refuses the
@@ -587,7 +838,7 @@ var _ = Describe("the admitted-work fraction over exact tokens", func() {
 		r.EngineInputTokens = engine
 		r.HTTPStatus = status
 		if status != 200 {
-			r.ErrorKind = "rejected"
+			r.ErrorKind = errKindRejected
 			r.FirstTokenUnixNanos, r.EndUnixNanos = 0, 0
 		}
 		return r
@@ -686,3 +937,102 @@ var _ = Describe("what protection costs", func() {
 		Expect(s.OutputTokensByTenant["premium-1"]).To(Equal(int64(10)))
 	})
 })
+
+// The offered-load line must name EVERY tenant, including one the isolated arm does not have.
+//
+// Mutation that turns this red: make formatOfferedLoad stop at the first arm carrying the map. R1 sorts
+// first and has no contender, so the line printed the premium length alone while the contender's 10,645
+// estimated tokens -- half the prefill work on the card -- were missing from a line whose whole job is to
+// say what load was offered. Measured against two real paid runs before this test existed.
+func TestTheOfferedLoadLineNamesEveryTenant(t *testing.T) {
+	r1 := ArmSummary{
+		Arm: ArmR1, TailSampleSize: 500,
+		EstInputTokensByTenant: map[string]int64{PremiumTenant: 1368570},
+		DispositionByTenant:    map[string]Disposition{PremiumTenant: {Offered: 4655}},
+	}
+	shared := ArmSummary{
+		Arm: ArmShared, TailSampleSize: 500,
+		EstInputTokensByTenant: map[string]int64{PremiumTenant: 1368570, NoisyTenant: 1479655},
+		DispositionByTenant: map[string]Disposition{
+			PremiumTenant: {Offered: 4655},
+			NoisyTenant:   {Offered: 139},
+		},
+	}
+	out := FormatReport([]ArmSummary{r1, shared}, &Checks{}, 0.05)
+	for _, want := range []string{"offered prompt length", PremiumTenant + " 294 tok", NoisyTenant + " 10645 tok"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the report does not say %q, so a reader cannot tell this load from another:\n%s", want, out)
+		}
+	}
+}
+
+// Arms that disagree on a tenant's prompt length are SHOWN disagreeing, not averaged into one number.
+//
+// Every arm of a frozen matrix replays the same trace, so a disagreement means the freeze did not hold --
+// which is the thing this line exists to surface rather than smooth over.
+//
+// Mutation that turns this red: average the per-arm means instead of printing their range.
+func TestArmsThatDisagreeOnPromptLengthAreShownDisagreeing(t *testing.T) {
+	a := ArmSummary{
+		Arm: ArmR1, TailSampleSize: 500,
+		EstInputTokensByTenant: map[string]int64{PremiumTenant: 232750}, // 50 tok
+		DispositionByTenant:    map[string]Disposition{PremiumTenant: {Offered: 4655}},
+	}
+	b := ArmSummary{
+		Arm: ArmShared, TailSampleSize: 500,
+		EstInputTokensByTenant: map[string]int64{PremiumTenant: 1368570}, // 294 tok
+		DispositionByTenant:    map[string]Disposition{PremiumTenant: {Offered: 4655}},
+	}
+	out := FormatReport([]ArmSummary{a, b}, &Checks{}, 0.05)
+	if !strings.Contains(out, "ARMS DISAGREE") {
+		t.Errorf("two arms offered 50 and 294 estimated tokens and the report did not say so:\n%s", out)
+	}
+	if !strings.Contains(out, "50-294 tok") {
+		t.Errorf("the report does not show the range the arms spanned:\n%s", out)
+	}
+}
+
+// The report publishes EVERY per-repetition p99, because the registration requires it by name.
+//
+// The design spec's third 2026-09-30 amendment fixes the reported object as a ratio of median
+// per-repetition p99s and says the report "must publish every per-repetition p99 so a reader can see the
+// sample it came from". The values were filled and read only by a range check, so nothing printed them:
+// a reader saw one tail per arm and could not tell five tight repetitions from five scattered ones.
+//
+// Mutation that turns this red: delete the per-repetition block from FormatReport.
+func TestTheReportPublishesEveryPerRepetitionP99(t *testing.T) {
+	s := ArmSummary{
+		Arm: ArmShared, TailSampleSize: 500, RepetitionCount: 5,
+		RepetitionTTFTMsP99: []float64{3996.117, 4000.349, 4000.510, 3998.338, 3997.887},
+	}
+	out := FormatReport([]ArmSummary{s}, &Checks{}, 0.05)
+	for _, want := range []string{"3996.117", "4000.349", "4000.510", "3998.338", "3997.887"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the report hides repetition %s, so a reader cannot see the sample:\n%s", want, out)
+		}
+	}
+	if !strings.Contains(out, "median 3998.338") {
+		t.Errorf("the report does not name the median this arm's point estimate comes from:\n%s", out)
+	}
+	if !strings.Contains(out, "OBSERVED RANGE") {
+		t.Errorf("the report prints a spread without saying it is not an interval:\n%s", out)
+	}
+}
+
+// The median convention is the registered one: the mean of the two central order statistics.
+//
+// Frozen by the third amendment "because it makes B and C continuous in the observations; taking the lower
+// of the two would bias both arms downward by an amount that depends on the spread".
+//
+// Mutation that turns this red: return s[n/2-1] for an even count.
+func TestTheMedianConventionIsTheRegisteredOne(t *testing.T) {
+	if got := medianOf([]float64{10, 20, 30, 40}); got != 25 {
+		t.Errorf("median of 10,20,30,40 = %v, want the registered 25 (mean of the two central values)", got)
+	}
+	if got := medianOf([]float64{174.034, 173.832, 174.297, 174.387, 174.078}); got != 174.078 {
+		t.Errorf("median of the five measured R1 repetitions = %v, want 174.078", got)
+	}
+	if got := medianOf(nil); got != 0 {
+		t.Errorf("median of no repetitions = %v, want 0", got)
+	}
+}

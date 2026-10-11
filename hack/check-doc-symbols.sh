@@ -18,9 +18,19 @@
 # gitignore, this one by the glob -- so the count is the tell: a new document that does not move it was
 # never read.
 #
-# Why only docs/0*.md, docs/1*.md and README.md: the specs under docs/superpowers/specs/ are dated records
-# of what was believed on the day they were written. A spec diverging from today's code is the archive
-# working, not a defect, and counting it would drown the signal.
+# The tracked specs under docs/superpowers/specs/ are in scope since 2026-09-27, and what that buys is
+# narrower than it sounds.
+#
+# They were excluded on the argument that a spec is a dated record, so divergence from today's code is the
+# archive working rather than a defect. That holds for PROSE and not for a name: a spec spelling a symbol
+# this repository never had is wrong on the day it was written, not merely aged. Widening found four such
+# tokens across 49 specs -- one a real absent name, one a citation to a test that had been renamed, one an
+# AWS API field, and one a bug in this very checker's line-citation regex.
+#
+# What it does NOT buy, and the distinction matters because two status headers were corrected by hand the
+# day before this was widened: this catches names that are ABSENT. It cannot catch a name that exists and is
+# described incorrectly -- "not yet implemented" printed beside code that exists resolves every token on the
+# line. Claiming the symbol checker closes that class would rebuild the false assurance it exists to remove.
 #
 # The numbered glob is 1* rather than 10* so a second numbered document is covered when one is added. That
 # widening alone does not make a document visible: this scan reads `git ls-files`, and .gitignore publishes
@@ -58,7 +68,8 @@ def tracked(*patterns):
     out = subprocess.run(['git', 'ls-files', '--'] + list(patterns), capture_output=True, text=True).stdout
     return [p for p in out.split('\n') if p]
 
-docs = [d for d in tracked('docs/0*.md', 'docs/1*.md', 'README.md', 'experiments/*/README.md')
+docs = [d for d in tracked('docs/0*.md', 'docs/1*.md', 'README.md', 'experiments/*/README.md',
+                           'docs/superpowers/specs/*.md')
         if '/captures/' not in d]
 if not docs:
     sys.exit("no documents matched; refusing to report success on an empty scan")
@@ -75,7 +86,9 @@ for d in docs:
 
 # --- one blob of everything the repository actually says ------------------------------------------------
 blob = []
-for f in tracked('*.go', '*.yaml', '*.yml', '*.tf', '*.sh', '*.json', 'Makefile', '*.mod'):
+# Python is in the corpus because the evaluators are: a page that names step_boundary.check_registered_seed was
+# reported as citing an absent name while the function was committed.
+for f in tracked('*.go', '*.yaml', '*.yml', '*.tf', '*.sh', '*.json', 'Makefile', '*.mod', '*.py'):
     try:
         blob.append(open(f, encoding='utf-8', errors='ignore').read())
     except OSError:
@@ -94,7 +107,13 @@ def classify(tok):
         return 'name'
     if re.fullmatch(r'[a-z][a-z0-9]*(_[a-z0-9]+){2,}', tok):
         return 'name'
-    stripped = re.sub(r':\d+(-\d+)?$', '', tok)          # docs cite `file.go:120-135`
+    # Docs cite `file.go:120`, `file.go:120-135` and `file.go:261,347`.
+    #
+    # The comma form was not stripped, so the whole string was judged as a path, no such file existed, and
+    # the checker reported a file that is present as missing -- inventing the kind of false claim it exists
+    # to catch. Found by widening the scan to the specs; it had been latent because no in-scope document
+    # happened to cite two lines that way.
+    stripped = re.sub(r':\d+([-,]\d+)*$', '', tok)
     if ' ' in stripped or stripped.startswith(('http', '$', '/')):
         return None
     if stripped.startswith(TOPLEVEL):
@@ -104,10 +123,22 @@ def classify(tok):
     return None
 
 def path_exists(tok):
-    p = re.sub(r':\d+(-\d+)?$', '', tok).rstrip('/')
-    if os.path.exists(p):
+    # Judged against what git TRACKS, not against what happens to be on this disk.
+    #
+    # This asked os.path.exists first, so any untracked leftover in a developer's working copy satisfied it.
+    # Widening the scan to the specs exposed six: five paid-run output directories (`hack/m5c-20260912-084918`
+    # and friends) that were never committed, and a plan under docs/superpowers/plans/ that .gitignore
+    # deliberately keeps local. All six are present here and absent on a fresh checkout, so the check passed
+    # for me and failed in CI -- a gate whose verdict depends on whose machine it runs on.
+    #
+    # Tracked files are the only thing a reader of this repository can also see, which is the whole question
+    # the check is asking.
+    p = re.sub(r':\d+([-,]\d+)*$', '', tok).rstrip('/')
+    if tracked(p):                                        # an exact tracked path
         return True
-    if glob.glob(p + '*'):                                # docs write `docs/05` for a numbered document
+    if tracked(p + '/*'):                                 # a tracked directory, cited without a file
+        return True
+    if tracked(p + '*'):                                  # docs write `docs/05` for a numbered document
         return True
     return bool(tracked('*' + os.path.basename(p)))
 
@@ -129,13 +160,53 @@ for tok, sites in sorted(where.items()):
         missing.append((kind, tok, sites))
 
 # --- deliberately break it, so a pass means the detector can still see a failure -------------------------
+#
+# The probe is ASSEMBLED rather than written, and that is the whole point of this block.
+#
+# It used to be a literal on the line below. The blob above reads every tracked *.sh, which includes this
+# file, so the probe found itself and the self-test exited 1 with "the probe string is somehow present in
+# the source" -- permanently, for months. Nothing noticed, because no gate ran it: `make docs-check` called
+# the plain scan only. A detector whose proof-of-liveness is itself broken and unrun is the exact shape this
+# repository keeps finding, and it was sitting inside the tool that polices the others.
+#
+# Assembling it from fragments means the full spelling exists nowhere on disk -- not here, not in a golden,
+# not in a doc quoting this file.
 if self_test == '--self-test':
-    probe = 'ThisSymbolIsNotInTheRepositoryOnPurpose'
+    probe = 'Absent' + 'Symbol' + 'ForSelfTest' + 'Only'
+
+    # 1. the full spelling really is nowhere, or everything below is vacuous
+    if probe in blob:
+        sys.exit("SELF-TEST FAILED: the assembled probe is present in the source; it is no longer absent")
+
+    # 2. it is the kind of token this check judges at all
     if classify(probe) != 'name':
         sys.exit("SELF-TEST FAILED: the probe is not even classified as a name")
-    if probe in blob:
-        sys.exit("SELF-TEST FAILED: the probe string is somehow present in the source")
-    print("self-test: an absent name is classified and would be reported -- the detector can fail")
+
+    # 3. THE PIPELINE, not just the classifier.
+    #
+    # Checking classify() alone proved nothing about whether an absent name reaches the report: the blob
+    # search, the allowlist and the construction of `missing` are all downstream of it, and any of them
+    # could swallow the finding. So the probe is pushed through the same loop the real tokens take.
+    probe_where = {probe: ['<self-test>:1']}
+    probe_missing = []
+    for tok, sites in sorted(probe_where.items()):
+        if tok in allow:
+            continue
+        kind = classify(tok)
+        if kind is None:
+            continue
+        ok = path_exists(tok) if kind == 'path' else name_present(tok)
+        if not ok:
+            probe_missing.append((kind, tok, sites))
+    if not probe_missing:
+        sys.exit("SELF-TEST FAILED: an absent name did not reach the missing list; the detector cannot fail")
+
+    # 4. and the allowlist cannot be what is hiding a real finding
+    if probe in allow:
+        sys.exit(f"SELF-TEST FAILED: the probe is allowlisted in {allow_path}, so this proves nothing")
+
+    print(f"self-test: an absent name is classified, searched, and reported as missing "
+          f"({len(probe_missing)} finding) -- the detector can fail")
     sys.exit(0)
 
 if missing:

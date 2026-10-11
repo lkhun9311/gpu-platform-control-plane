@@ -1,0 +1,45 @@
+I found substantive problems. **Most quoted numbers match the archived outputs, and the proposed blocking mechanism is plausible. The conclusion that the study would merely report the chosen spacing does not follow.** Fixed spacing is a reasonable control for the narrow question, but the screen lacks a principled rule for selecting and judging it.
+
+1. **The stopping argument substitutes an unspecified tradeoff for the owner’s existing constraints.**  
+   The section calls 1.6, 1.7 and 1.8 seconds equally defensible registrations. But the recorded 1.7-second control already refuses **2/239** contenders in B3; at 1.8 seconds it refuses **5/239** and has contender p95 **26.437 seconds**. Those violate the previously stated zero-hold-refusal and 25-second limits. They cannot simply be treated as interchangeable acceptable controls without explicitly changing the objective.
+
+   Nor is “a tie on the tail” established: in B2, 1.7 seconds reduces premium p99 from **524 to 404 ms**, approximately **23%**, while increasing contender median latency. No equivalence margin makes that a tie. The claimed “10% to 19% contender saving” also reverses the denominator: those are the control’s increases over hold-cap; hold-cap’s savings are approximately **9% to 16%**.
+
+   References: [design.md:1229](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md:1229), [limits:1169](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md:1169), [simulate-control.txt:53](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/data/2026-10-09-pilot-results/simulate-control.txt:53), [B2:43](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/data/2026-10-09-pilot-results/simulate-control.txt:43).
+
+2. **“A 10% pace change breaks the tuned spacing and not hold-cap” holds only for premium-tail protection.**  
+   At 10% slower steps, B3 hold-cap refuses **9/239** contenders and reaches contender p95 **27.742 seconds**. It fails the service constraints too. Conversely, at faster steps, saying the spacing “beats hold-cap” describes premium p99 only: in B1 its contender median is **5.899 versus 3.636 seconds**, approximately **62% higher**.
+
+   The supported result is that feedback preserves premium-tail protection under this perturbation, sometimes at unacceptable contender cost. That is materially narrower than a robustness win for the service as a whole.
+
+   References: [design.md:1225](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md:1225), [design.md:1229](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md:1229), [slowed results:87](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/data/2026-10-09-pilot-results/simulate-control.txt:87), [faster results:71](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/data/2026-10-09-pilot-results/simulate-control.txt:71).
+
+3. **The “within about 5%” tuning requirement is not identified by this screen.**  
+   The code evaluates nine spacings, with **100 ms increments around the transition**—already roughly 6% of a 1.65-second prefill. It neither locates the transition finely nor defines what “does as well” means across competing endpoints. The sampled nondominance claim checks out against the printed rows; a quantitative necessary tuning tolerance does not follow from it.
+
+   References: [simulate.py:432](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/prospective-pilot/simulate.py:432), [design.md:1220](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md:1220), [design.md:1229](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md:1229).
+
+4. **The mechanism statistic counts unfinished prefills, including queued requests—not simultaneous prefill execution.**  
+   `engaged` is set when a request enters the engine’s **waiting queue**. `pace` counts overlapping intervals from that timestamp until first token. Consequently, “six contenders prefill at once” and “35% of the span” measure requests present without a first token, including requests receiving no tokens. They do not directly demonstrate six active prefills or the duration of token-budget starvation.
+
+   The measured timing also starts at the scheduler’s `add.mono`, whereas the simulation uses `arrival_wall`. These are distinct: the diagnostic’s first contender has approximately **32 ms** between recorded arrival and scheduler insertion. That distinction matters when discussing a narrow timing tolerance.
+
+   References: [simulate.py:130](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/prospective-pilot/simulate.py:130), [overlap calculation:410](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/prospective-pilot/simulate.py:410), [measured timing:398](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/prospective-pilot/simulate.py:398), [diagnostic step log:335](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/m5c-20261009-122503-diagD/m5c-run/step-log-hold-cap-1.jsonl:335).
+
+5. **The pace comparison cannot exclude the local slowdown relevant to the proposed failure mechanism.**  
+   It divides summed observed step periods by summed predictions, excluding periods above 500 ms. Agreement of these totals supports the reported **cell-average** ratios. It does not exclude slower stretches or conditional errors during capped prefills—the stretches that could initiate a queue cascade. The counterfactual then uses deterministic predicted durations multiplied uniformly by 0.9 or 1.1, without observed residual variation.
+
+   The section acknowledges that the perturbation is simulated, which is correct. But the aggregate check does not validate the claimed narrow operating boundary.
+
+   References: [simulate.py:168](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/prospective-pilot/simulate.py:168), [pace aggregation:385](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/prospective-pilot/simulate.py:385), [design.md:1227](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md:1227).
+
+6. **There is a concrete timer-handling defect in the static-control simulation.**  
+   When the engine becomes idle, its next-event calculation includes arrivals and notifications but **omits the next spacing deadline**. It can jump past a held contender’s release time. Later, the rule backdates the forwarding timestamp, but engine execution still starts at the advanced clock. For example, an idle engine can skip a release due at 3 seconds until an unrelated arrival at 10 seconds. Deadline checks can also reject the request before that backdating occurs.
+
+   This can penalize fixed spacing. I have not established whether it changes these particular archived figures; the existing spacing test keeps the engine busy and does not cover this case.
+
+   References: [simulate.py:271](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/prospective-pilot/simulate.py:271), [deadline/backdating logic:208](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/prospective-pilot/simulate.py:208), [test_simulate.py:136](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/prospective-pilot/test_simulate.py:136).
+
+**My judgment on the control:** retain fixed spacing with the same cap as a legitimate baseline. Select its spacing on calibration data using a frozen objective and contender constraints, then evaluate on held-out traces—or compare the feasible tradeoff curves. Parameter sensitivity is a reason to specify that selection procedure, not evidence that a main study is uninformative. If longer prompts become the robustness experiment, include a static rule that scales spacing with known prompt work; otherwise the comparison also tests whether the control ignores request size.
+
+I inspected the code, saved outputs and archive records. I did not edit files, execute simulations, or launch workloads.

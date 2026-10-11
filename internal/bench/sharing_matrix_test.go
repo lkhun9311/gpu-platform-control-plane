@@ -39,10 +39,19 @@ func healthyArm(name string, ttftP99, tpotP99 float64, contenderTokens int64) Ar
 		// ActiveSeconds is set because reading 1's price is the PREMIUM tenant's tokens per second, which is
 		// derived from per-tenant tokens and the arm's own sending time rather than read off the arm's
 		// aggregate rate. An arm without it has no premium throughput to report.
-		ActiveSeconds:         1000,
-		TTFTMsP99:             ttftP99,
-		TailSampleSize:        3000,
-		RepetitionCount:       3,
+		ActiveSeconds:   1000,
+		TTFTMsP99:       ttftP99,
+		TailSampleSize:  3000,
+		RepetitionCount: 3,
+		// MinRepetitionTail is set, and leaving it at zero was a latent trap rather than a harmless gap.
+		//
+		// EvaluateChecks and RegisteredEstimandFor both refuse on `RepetitionCount > 0 &&
+		// MinRepetitionTail < MinTailSamples`, so a fixture that declares three repetitions and a thinnest
+		// repetition of zero describes a run those paths reject. The readings these tests exercise today do
+		// not consult it, which is why 48 uses passed with it unset -- and why moving reading 4 to the
+		// registered estimand would have turned "fires" into "not evaluable" across the file for a reason
+		// that has nothing to do with contention.
+		MinRepetitionTail:     1000,
 		RepetitionTTFTMsP99:   []float64{ttftP99 - 1, ttftP99, ttftP99 + 1},
 		OutputTokensPerSecond: 40,
 		TPOTMsP99ByTenant:     map[string]float64{PremiumTenant: tpotP99},
@@ -1274,4 +1283,241 @@ func TestARepetitionThatServedPartOfItsContenderLoadIsUnscorable(t *testing.T) {
 			t.Errorf("reading 4b fired on a run that served every contender request in every repetition: %s", fourB.Detail)
 		}
 	})
+}
+
+// TestReadingFourSeparatesPooledFromPerRepetitionMedian is the control for a change not yet made.
+//
+// The 2026-09-10 design spec's "Going forward" section says the NEXT run of this study reads reading 4 as
+// the median of the per-repetition p99s, computed by RegisteredEstimandFor, because the third amendment
+// already chose that estimand for interferenceRatio. The scorer still divides POOLED p99s
+// (sharing_matrix.go), and the spec says so rather than hiding it.
+//
+// This fixture is where the two aggregations disagree across the 5x threshold, so it pins today's behaviour
+// before the swap: four repetitions at 400 ms and one at 1000 ms give a pooled p99 of 1000 against R1's
+// 100 -- 10.0x, no firing -- while the median of the per-repetition p99s is 400 against 100, which is 4.0x
+// and fires. Measured both ways rather than reasoned about.
+//
+// When reading 4 moves to the registered estimand this test must be inverted deliberately, not quietly: it
+// is the one place that records which quantity the gate divides.
+func TestReadingFourSeparatesPooledFromPerRepetitionMedian(t *testing.T) {
+	// Equal-sized repetitions whose tails differ, so the pool is dominated by the slowest block.
+	arm := func(name string, reps []float64) ArmSummary {
+		s := healthyArm(name, reps[len(reps)-1], 20, 40_000)
+		s.RepetitionCount = len(reps)
+		s.RepetitionTTFTMsP99 = reps
+		s.MinRepetitionTail = s.TailSampleSize / len(reps)
+		return s
+	}
+	r1 := arm(ArmR1, []float64{100, 100, 100, 100, 100})
+	r1.DispositionByTenant = map[string]Disposition{}
+	shared := arm(ArmShared, []float64{400, 400, 400, 400, 1000})
+
+	pooled := shared.TTFTMsP99 / r1.TTFTMsP99
+	if pooled < m5cContentionBar {
+		t.Fatalf("the fixture's pooled ratio is %.3f, already under the %.2fx bar, so it cannot show the"+
+			" two aggregations disagreeing", pooled, m5cContentionBar)
+	}
+	e := RegisteredEstimandFor(r1, shared)
+	if !e.Valid {
+		t.Fatalf("the registered estimand could not be computed on this fixture: %s", e.InvalidReason)
+	}
+	if e.Ratio >= m5cContentionBar {
+		t.Fatalf("the fixture's per-repetition median ratio is %.3f, not under the %.2fx bar, so the two"+
+			" aggregations do not straddle the threshold here", e.Ratio, m5cContentionBar)
+	}
+
+	four := sharingReadingFour(r1, shared)
+	if four.NotEvaluable {
+		t.Fatalf("reading 4 refused this fixture rather than scoring it: %s", four.Detail)
+	}
+	// INVERTED on 2026-10-02, deliberately, when reading 4 moved to the registered estimand.
+	//
+	// Until then this asserted the opposite: the scorer divided pooled p99s, 10.000 is not under the 5x bar,
+	// and the reading did not fire. The test said in its failure message that inverting it was the correct
+	// response to a deliberate change and that the design spec's amendment had to say so -- both were done
+	// in the same commit, so the direction of this assertion is the record of which quantity the gate uses.
+	if !four.Fired {
+		t.Errorf("reading 4 did not fire at a per-repetition median ratio of %.3f against the %.2fx bar."+
+			" If it has gone back to dividing pooled p99s (%.3f, which is NOT under the bar), the gate and"+
+			" the published interferenceRatio disagree about one run again: %s",
+			e.Ratio, m5cContentionBar, pooled, four.Detail)
+	}
+	// And the explanation has to print the operands the comparison used, or a reader checking the arithmetic
+	// divides pooled milliseconds and gets a different number from the one that decided the gate.
+	if !strings.Contains(four.Detail, "median of its arm's per-repetition p99s") {
+		t.Errorf("reading 4's detail does not say which quantity it divided: %s", four.Detail)
+	}
+	if strings.Contains(four.Detail, "1000.0 ms") || strings.Contains(four.Detail, "10.000x") {
+		t.Errorf("reading 4's detail prints the pooled operands while comparing the median ratio: %s", four.Detail)
+	}
+}
+
+// TestReadingFourUsesTheRoundedMediansAcrossTheBar is the case integer fixtures cannot show.
+//
+// The registered ratio is the quotient of two medians ROUNDED to integer milliseconds -- the convention the
+// third 2026-09-30 amendment froze so that a reader dividing the two published integers reproduces the
+// published ratio. Every other fixture in this file uses whole milliseconds, where rounding is a no-op, so
+// none of them can tell the registered ratio from the unrounded one.
+//
+// Here the two disagree across the 5x bar: medians of 100.49 and 501.0 give 4.986 unrounded, which is under
+// the bar and would fire, and 501/100 = 5.010 rounded, which is not and does not. Reading 4 must use the
+// rounded pair.
+func TestReadingFourUsesTheRoundedMediansAcrossTheBar(t *testing.T) {
+	arm := func(name string, reps []float64) ArmSummary {
+		s := healthyArm(name, reps[len(reps)-1], 20, 40_000)
+		s.RepetitionCount = len(reps)
+		s.RepetitionTTFTMsP99 = reps
+		return s
+	}
+	// Five repetitions whose median is the middle value, so the median is exactly the number named above.
+	r1 := arm(ArmR1, []float64{100.0, 100.2, 100.49, 100.8, 101.0})
+	r1.DispositionByTenant = map[string]Disposition{}
+	shared := arm(ArmShared, []float64{499.0, 500.0, 501.0, 502.0, 503.0})
+
+	e := RegisteredEstimandFor(r1, shared)
+	if !e.Valid {
+		t.Fatalf("the registered estimand was refused on this fixture: %s", e.InvalidReason)
+	}
+	if e.BaselineP99Ms != 100 || e.ColocatedP99Ms != 501 {
+		t.Fatalf("the rounded medians are %d and %d, want 100 and 501; the fixture no longer straddles the"+
+			" rounding boundary", e.BaselineP99Ms, e.ColocatedP99Ms)
+	}
+	unrounded := 501.0 / 100.49
+	if unrounded >= m5cContentionBar {
+		t.Fatalf("the unrounded ratio is %.6f, already at or over the %.2fx bar, so this fixture cannot"+
+			" distinguish the two conventions", unrounded, m5cContentionBar)
+	}
+	if e.Ratio < m5cContentionBar {
+		t.Fatalf("the ROUNDED ratio is %.6f, under the bar too; the fixture no longer straddles it", e.Ratio)
+	}
+
+	four := sharingReadingFour(r1, shared)
+	if four.NotEvaluable {
+		t.Fatalf("reading 4 refused this fixture rather than scoring it: %s", four.Detail)
+	}
+	// The rounded ratio is 5.010, NOT under the bar, so reading 4 must not fire. If it does, the scorer is
+	// dividing unrounded medians and the gate disagrees with the published interferenceRatio by a hair --
+	// exactly the kind of disagreement the amendment's rounding convention exists to remove.
+	if four.Fired {
+		t.Errorf("reading 4 fired: the rounded ratio is %.3f (%d/%d) which is NOT under the %.2fx bar, so"+
+			" the scorer is using the unrounded %.6f instead: %s",
+			e.Ratio, e.ColocatedP99Ms, e.BaselineP99Ms, m5cContentionBar, unrounded, four.Detail)
+	}
+}
+
+// TestReadingFourRefusesWithAReasonRatherThanReadingLowContention pins the NotEvaluable path.
+//
+// A reading that cannot be computed must not report "the load made no contention" -- that sentence sends the
+// next paid run to RAISE a load that may already be drowning the control. The ladder runs reading 4b past an
+// uncomputable gate precisely so the opposite diagnosis stays available, and this asserts both halves: the
+// reason travels, and 4b still gets to speak.
+func TestReadingFourRefusesWithAReasonRatherThanReadingLowContention(t *testing.T) {
+	m := healthyMatrix()
+	// A thin repetition: RegisteredEstimandFor refuses on MinRepetitionTail below MinTailSamples.
+	m.Shared.MinRepetitionTail = 10
+
+	four := sharingReadingFour(m.R1, m.Shared)
+	if four.Fired {
+		t.Fatalf("reading 4 fired on evidence it cannot compute, which reads as 'the load made no"+
+			" contention': %s", four.Detail)
+	}
+	if !four.NotEvaluable {
+		t.Errorf("reading 4 returned a plain negative for evidence it could not compute; absent and"+
+			" negative are different answers: %s", four.Detail)
+	}
+	if four.Detail == "" {
+		t.Error("reading 4 refused without a reason, so an operator cannot tell which arm to look at")
+	}
+
+	// And 4b must still be reached, or an overload goes undiagnosed.
+	res := EvaluateSharingMatrix(m, PremiumTenant, NoisyTenant)
+	var sawFourB bool
+	for _, r := range res.Readings {
+		if r.ID == "4b" {
+			sawFourB = true
+		}
+	}
+	if !sawFourB {
+		t.Errorf("reading 4b was never evaluated after reading 4 came back uncomputable, so the reading that"+
+			" would say the load was too HIGH never ran: %v", idsOf(res))
+	}
+}
+
+// TestReadingFourDividesTheAggregationSummarizeProduces closes the last gap an external review named.
+//
+// The control test above hands reading 4 an ArmSummary whose TTFTMsP99 field was SET by the fixture, so it
+// pins which field the scorer divides and not which aggregation produced it. Here the summaries come from
+// Summarize over real request rows, one call per repetition block plus one over the pooled rows, so the two
+// numbers are computed the way a paid run computes them.
+//
+// R1 is five blocks at 100 ms. `shared` is four blocks at 400 ms and one at 1000 ms, and the asymmetry is
+// what separates the aggregations: the pooled nearest-rank p99 over all five blocks is 1000 (the slow block
+// occupies a fifth of the sample, far above the top 1%), while the median of the five per-repetition p99s
+// is 400. So pooled gives 10.000 and the registered estimand gives 4.000, one on each side of the 5x bar.
+//
+// Verified by enumeration before this test was written, at 120, 200 and 400 rows per block: every size gives
+// the same pair.
+func TestReadingFourDividesTheAggregationSummarizeProduces(t *testing.T) {
+	const rowsPerBlock = 200
+
+	// summarise builds one arm the way the report does: Summarize per block for the repetition shape, and
+	// Summarize over the concatenation for the pooled tail.
+	summarise := func(arm string, tails []float64) ArmSummary {
+		var pooled []RawRow
+		reps := make([]float64, 0, len(tails))
+		minTail := 0
+		for _, tail := range tails {
+			rows := block(rowsPerBlock, tail, 0)
+			pooled = append(pooled, rows...)
+			s := Summarize(arm, rows)
+			reps = append(reps, s.TTFTMsP99)
+			if minTail == 0 || s.TailSampleSize < minTail {
+				minTail = s.TailSampleSize
+			}
+		}
+		s := Summarize(arm, pooled)
+		s.RepetitionCount = len(tails)
+		s.RepetitionTTFTMsP99 = reps
+		s.MinRepetitionTail = minTail
+		// The fields reading 4's siblings read, set so this test fails on reading 4 and not on a floor.
+		s.ActiveSeconds = 1000
+		s.OutputTokens = 50_000
+		s.OutputTokensByTenant = map[string]int64{PremiumTenant: 50_000}
+		s.TPOTMsP99ByTenant = map[string]float64{PremiumTenant: 20}
+		return s
+	}
+
+	r1 := summarise(ArmR1, []float64{100, 100, 100, 100, 100})
+	shared := summarise(ArmShared, []float64{400, 400, 400, 400, 1000})
+
+	// The two aggregations have to disagree across the bar, or this test proves nothing.
+	pooled := shared.TTFTMsP99 / r1.TTFTMsP99
+	if pooled != 10 {
+		t.Fatalf("Summarize gave a pooled ratio of %.3f, want 10.000; the fixture no longer produces the"+
+			" asymmetry (shared pooled p99 %.1f, R1 %.1f)", pooled, shared.TTFTMsP99, r1.TTFTMsP99)
+	}
+	e := RegisteredEstimandFor(r1, shared)
+	if !e.Valid {
+		t.Fatalf("the registered estimand was refused on summaries Summarize produced: %s", e.InvalidReason)
+	}
+	if e.Ratio != 4 {
+		t.Fatalf("the per-repetition median ratio is %.3f, want 4.000 (B=%d C=%d)", e.Ratio,
+			e.BaselineP99Ms, e.ColocatedP99Ms)
+	}
+
+	four := sharingReadingFour(r1, shared)
+	if four.NotEvaluable {
+		t.Fatalf("reading 4 refused summaries built from real rows: %s", four.Detail)
+	}
+	// 4.000 is under the 5x bar, so it fires. Dividing the pooled 10.000 would not.
+	if !four.Fired {
+		t.Errorf("reading 4 did not fire at a median ratio of 4.000; if it divided the pooled 10.000 the"+
+			" gate is reading the aggregation Summarize pools rather than the registered one: %s", four.Detail)
+	}
+	if !strings.Contains(four.Detail, "400 ms") || !strings.Contains(four.Detail, "100 ms") {
+		t.Errorf("reading 4's detail does not print the rounded medians (400 and 100): %s", four.Detail)
+	}
+	if strings.Contains(four.Detail, "1000") {
+		t.Errorf("reading 4's detail prints the pooled tail (1000 ms) it did not divide: %s", four.Detail)
+	}
 }

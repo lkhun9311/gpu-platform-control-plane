@@ -1,0 +1,5 @@
+steps: 70 recorded, 70 logged by the engine, tokens equal at every step
+instrument cost per step: median 0.04952%, worst 0.06898% of occupancy
+clock anchors: 75, bracket median 590 ns, worst 910 ns
+requests: 5 joined to client ids, every one scheduled prompt + output - 1 tokens
+flushes: 4

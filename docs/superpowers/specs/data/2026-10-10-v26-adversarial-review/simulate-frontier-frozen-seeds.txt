@@ -1,0 +1,170 @@
+# python3 hack/prospective-pilot/simulate.py frontier --scale K --traces <the three frozen traces in this directory> hack/m5c-20261008-235046-pilotA/m5c-run hack/m5c-20261009-013656-pilotB/m5c-run
+# the frozen traces are gen-trace's output for seeds 861-863 at the study's load; their manifests' checksums are in hack/lib/prospective-pilot.sh
+
+## scale 0.980
+{"step_model_ms": [15.3639, 0.0966, 0.0959, 0.9292, 3.0468], "fitted_steps": 282897, "forward_ms": 3.912577}
+step scale 0.9800
+generated traces, dispatch lag 1.366 ms: docs/superpowers/specs/data/2026-10-10-v26-adversarial-review/trace-seed-861.jsonl, docs/superpowers/specs/data/2026-10-10-v26-adversarial-review/trace-seed-862.jsonl, docs/superpowers/specs/data/2026-10-10-v26-adversarial-review/trace-seed-863.jsonl
+cell arm | premium p99 ratio_to_off | owner's limits
+trace-seed-861.jsonl hold-cap | 0.257 | met
+trace-seed-861.jsonl fixed-1.62 | 0.237 | met
+trace-seed-861.jsonl fixed-1.66 | 0.226 | met
+trace-seed-861.jsonl fixed-1.70 | 0.206 | met
+trace-seed-861.jsonl fixed-1.74 | 0.199 | met
+trace-seed-862.jsonl hold-cap | 0.345 | met
+trace-seed-862.jsonl fixed-1.62 | 0.372 | met
+trace-seed-862.jsonl fixed-1.66 | 0.338 | met
+trace-seed-862.jsonl fixed-1.70 | 0.267 | met
+trace-seed-862.jsonl fixed-1.74 | 0.259 | met
+trace-seed-863.jsonl hold-cap | 0.260 | met
+trace-seed-863.jsonl fixed-1.62 | 0.244 | met
+trace-seed-863.jsonl fixed-1.66 | 0.220 | met
+trace-seed-863.jsonl fixed-1.70 | 0.218 | met
+trace-seed-863.jsonl fixed-1.74 | 0.225 | met
+
+pooled premium p99 ms: off 1432, hold-cap 421, fixed-1.62 434, fixed-1.66 380, fixed-1.70 339, fixed-1.74 334
+verdict: observed: fixed-1.74 beat hold-cap
+
+## scale 0.990
+{"step_model_ms": [15.3639, 0.0966, 0.0959, 0.9292, 3.0468], "fitted_steps": 282897, "forward_ms": 3.912577}
+step scale 0.9900
+generated traces, dispatch lag 1.366 ms: docs/superpowers/specs/data/2026-10-10-v26-adversarial-review/trace-seed-861.jsonl, docs/superpowers/specs/data/2026-10-10-v26-adversarial-review/trace-seed-862.jsonl, docs/superpowers/specs/data/2026-10-10-v26-adversarial-review/trace-seed-863.jsonl
+cell arm | premium p99 ratio_to_off | owner's limits
+trace-seed-861.jsonl hold-cap | 0.267 | met
+trace-seed-861.jsonl fixed-1.62 | 0.251 | met
+trace-seed-861.jsonl fixed-1.66 | 0.231 | met
+trace-seed-861.jsonl fixed-1.70 | 0.219 | met
+trace-seed-861.jsonl fixed-1.74 | 0.205 | met
+trace-seed-862.jsonl hold-cap | 0.322 | met
+trace-seed-862.jsonl fixed-1.62 | 0.508 | met
+trace-seed-862.jsonl fixed-1.66 | 0.373 | met
+trace-seed-862.jsonl fixed-1.70 | 0.291 | met
+trace-seed-862.jsonl fixed-1.74 | 0.268 | met
+trace-seed-863.jsonl hold-cap | 0.273 | met
+trace-seed-863.jsonl fixed-1.62 | 0.259 | met
+trace-seed-863.jsonl fixed-1.66 | 0.241 | met
+trace-seed-863.jsonl fixed-1.70 | 0.240 | met
+trace-seed-863.jsonl fixed-1.74 | 0.241 | met
+
+pooled premium p99 ms: off 1445, hold-cap 430, fixed-1.62 571, fixed-1.66 422, fixed-1.70 367, fixed-1.74 349
+verdict: observed: fixed-1.74 beat hold-cap
+
+## scale 1.000
+{"step_model_ms": [15.3639, 0.0966, 0.0959, 0.9292, 3.0468], "fitted_steps": 282897, "forward_ms": 3.912577}
+step scale 1.0000
+generated traces, dispatch lag 1.366 ms: docs/superpowers/specs/data/2026-10-10-v26-adversarial-review/trace-seed-861.jsonl, docs/superpowers/specs/data/2026-10-10-v26-adversarial-review/trace-seed-862.jsonl, docs/superpowers/specs/data/2026-10-10-v26-adversarial-review/trace-seed-863.jsonl
+cell arm | premium p99 ratio_to_off | owner's limits
+trace-seed-861.jsonl hold-cap | 0.265 | met
+trace-seed-861.jsonl fixed-1.62 | 0.269 | met
+trace-seed-861.jsonl fixed-1.66 | 0.242 | met
+trace-seed-861.jsonl fixed-1.70 | 0.224 | met
+trace-seed-861.jsonl fixed-1.74 | 0.213 | met
+trace-seed-862.jsonl hold-cap | 0.325 | met
+trace-seed-862.jsonl fixed-1.62 | 1.021 | met
+trace-seed-862.jsonl fixed-1.66 | 0.423 | met
+trace-seed-862.jsonl fixed-1.70 | 0.297 | met
+trace-seed-862.jsonl fixed-1.74 | 0.300 | met
+trace-seed-863.jsonl hold-cap | 0.272 | met
+trace-seed-863.jsonl fixed-1.62 | 0.268 | met
+trace-seed-863.jsonl fixed-1.66 | 0.252 | met
+trace-seed-863.jsonl fixed-1.70 | 0.248 | met
+trace-seed-863.jsonl fixed-1.74 | 0.252 | met
+
+pooled premium p99 ms: off 1464, hold-cap 433, fixed-1.62 1256, fixed-1.66 468, fixed-1.70 391, fixed-1.74 378
+verdict: not established: neither hold-cap nor fixed-1.74 was 15% below the other
+
+## scale 1.0205
+{"step_model_ms": [15.3639, 0.0966, 0.0959, 0.9292, 3.0468], "fitted_steps": 282897, "forward_ms": 3.912577}
+step scale 1.0205
+generated traces, dispatch lag 1.366 ms: docs/superpowers/specs/data/2026-10-10-v26-adversarial-review/trace-seed-861.jsonl, docs/superpowers/specs/data/2026-10-10-v26-adversarial-review/trace-seed-862.jsonl, docs/superpowers/specs/data/2026-10-10-v26-adversarial-review/trace-seed-863.jsonl
+cell arm | premium p99 ratio_to_off | owner's limits
+trace-seed-861.jsonl hold-cap | 0.270 | met
+trace-seed-861.jsonl fixed-1.62 | 0.333 | met
+trace-seed-861.jsonl fixed-1.66 | 0.276 | met
+trace-seed-861.jsonl fixed-1.70 | 0.254 | met
+trace-seed-861.jsonl fixed-1.74 | 0.229 | met
+trace-seed-862.jsonl hold-cap | 0.358 | met
+trace-seed-862.jsonl fixed-1.62 | 1.175 | met
+trace-seed-862.jsonl fixed-1.66 | 1.057 | met
+trace-seed-862.jsonl fixed-1.70 | 0.412 | met
+trace-seed-862.jsonl fixed-1.74 | 0.345 | met
+trace-seed-863.jsonl hold-cap | 0.274 | met
+trace-seed-863.jsonl fixed-1.62 | 0.377 | met
+trace-seed-863.jsonl fixed-1.66 | 0.280 | met
+trace-seed-863.jsonl fixed-1.70 | 0.282 | met
+trace-seed-863.jsonl fixed-1.74 | 0.281 | met
+
+pooled premium p99 ms: off 1494, hold-cap 469, fixed-1.62 1629, fixed-1.66 1404, fixed-1.70 481, fixed-1.74 433
+verdict: not established: neither hold-cap nor fixed-1.74 was 15% below the other
+
+## scale 1.0275
+{"step_model_ms": [15.3639, 0.0966, 0.0959, 0.9292, 3.0468], "fitted_steps": 282897, "forward_ms": 3.912577}
+step scale 1.0275
+generated traces, dispatch lag 1.366 ms: docs/superpowers/specs/data/2026-10-10-v26-adversarial-review/trace-seed-861.jsonl, docs/superpowers/specs/data/2026-10-10-v26-adversarial-review/trace-seed-862.jsonl, docs/superpowers/specs/data/2026-10-10-v26-adversarial-review/trace-seed-863.jsonl
+cell arm | premium p99 ratio_to_off | owner's limits
+trace-seed-861.jsonl hold-cap | 0.269 | met
+trace-seed-861.jsonl fixed-1.62 | 0.420 | met
+trace-seed-861.jsonl fixed-1.66 | 0.314 | met
+trace-seed-861.jsonl fixed-1.70 | 0.260 | met
+trace-seed-861.jsonl fixed-1.74 | 0.231 | met
+trace-seed-862.jsonl hold-cap | 0.341 | met
+trace-seed-862.jsonl fixed-1.62 | 1.177 | met
+trace-seed-862.jsonl fixed-1.66 | 1.140 | met
+trace-seed-862.jsonl fixed-1.70 | 0.627 | met
+trace-seed-862.jsonl fixed-1.74 | 0.370 | met
+trace-seed-863.jsonl hold-cap | 0.276 | met
+trace-seed-863.jsonl fixed-1.62 | 0.365 | met
+trace-seed-863.jsonl fixed-1.66 | 0.294 | met
+trace-seed-863.jsonl fixed-1.70 | 0.291 | met
+trace-seed-863.jsonl fixed-1.74 | 0.292 | met
+
+pooled premium p99 ms: off 1509, hold-cap 456, fixed-1.62 1548, fixed-1.66 1594, fixed-1.70 799, fixed-1.74 453
+verdict: not established: neither hold-cap nor fixed-1.74 was 15% below the other
+
+## scale 1.040
+{"step_model_ms": [15.3639, 0.0966, 0.0959, 0.9292, 3.0468], "fitted_steps": 282897, "forward_ms": 3.912577}
+step scale 1.0400
+generated traces, dispatch lag 1.366 ms: docs/superpowers/specs/data/2026-10-10-v26-adversarial-review/trace-seed-861.jsonl, docs/superpowers/specs/data/2026-10-10-v26-adversarial-review/trace-seed-862.jsonl, docs/superpowers/specs/data/2026-10-10-v26-adversarial-review/trace-seed-863.jsonl
+cell arm | premium p99 ratio_to_off | owner's limits
+trace-seed-861.jsonl hold-cap | 0.280 | met
+trace-seed-861.jsonl fixed-1.62 | 0.565 | met
+trace-seed-861.jsonl fixed-1.66 | 0.392 | met
+trace-seed-861.jsonl fixed-1.70 | 0.286 | met
+trace-seed-861.jsonl fixed-1.74 | 0.261 | met
+trace-seed-862.jsonl hold-cap | 0.322 | met
+trace-seed-862.jsonl fixed-1.62 | 1.166 | met
+trace-seed-862.jsonl fixed-1.66 | 1.132 | met
+trace-seed-862.jsonl fixed-1.70 | 1.198 | met
+trace-seed-862.jsonl fixed-1.74 | 0.492 | met
+trace-seed-863.jsonl hold-cap | 0.308 | met
+trace-seed-863.jsonl fixed-1.62 | 0.718 | met
+trace-seed-863.jsonl fixed-1.66 | 0.364 | met
+trace-seed-863.jsonl fixed-1.70 | 0.322 | met
+trace-seed-863.jsonl fixed-1.74 | 0.320 | met
+
+pooled premium p99 ms: off 1529, hold-cap 471, fixed-1.62 1691, fixed-1.66 1631, fixed-1.70 1653, fixed-1.74 595
+verdict: observed: hold-cap beat every admissible fixed spacing
+
+## scale 1.060
+{"step_model_ms": [15.3639, 0.0966, 0.0959, 0.9292, 3.0468], "fitted_steps": 282897, "forward_ms": 3.912577}
+step scale 1.0600
+generated traces, dispatch lag 1.366 ms: docs/superpowers/specs/data/2026-10-10-v26-adversarial-review/trace-seed-861.jsonl, docs/superpowers/specs/data/2026-10-10-v26-adversarial-review/trace-seed-862.jsonl, docs/superpowers/specs/data/2026-10-10-v26-adversarial-review/trace-seed-863.jsonl
+cell arm | premium p99 ratio_to_off | owner's limits
+trace-seed-861.jsonl hold-cap | 0.262 | met
+trace-seed-861.jsonl fixed-1.62 | 0.889 | met
+trace-seed-861.jsonl fixed-1.66 | 0.667 | met
+trace-seed-861.jsonl fixed-1.70 | 0.338 | met
+trace-seed-861.jsonl fixed-1.74 | 0.298 | met
+trace-seed-862.jsonl hold-cap | 0.338 | met
+trace-seed-862.jsonl fixed-1.62 | 1.233 | met
+trace-seed-862.jsonl fixed-1.66 | 1.230 | met
+trace-seed-862.jsonl fixed-1.70 | 1.236 | met
+trace-seed-862.jsonl fixed-1.74 | 1.179 | met
+trace-seed-863.jsonl hold-cap | 0.329 | met
+trace-seed-863.jsonl fixed-1.62 | 1.005 | met
+trace-seed-863.jsonl fixed-1.66 | 0.688 | met
+trace-seed-863.jsonl fixed-1.70 | 0.409 | met
+trace-seed-863.jsonl fixed-1.74 | 0.384 | met
+
+pooled premium p99 ms: off 1569, hold-cap 494, fixed-1.62 1798, fixed-1.66 1809, fixed-1.70 1831, fixed-1.74 1704
+verdict: observed: hold-cap beat every admissible fixed spacing

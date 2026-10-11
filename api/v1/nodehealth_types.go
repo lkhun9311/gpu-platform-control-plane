@@ -50,10 +50,18 @@ type NodeHealthSpec struct {
 type NodeHealthStatus struct {
 	// phase is the high-level health state of the node.
 	//
-	// M3 emits Pending, Ready, and Quarantine.
+	// Pending means no target node was found. Ready and Quarantine follow the node's own Ready condition, and
+	// Quarantine is the one that carries the unhealthy taint.
 	//
-	// Intake and Degraded are reserved for the node intake and degrade lifecycle stages (see docs/03) and are not emitted yet.
-	// +kubebuilder:validation:Enum=Pending;Intake;Ready;Degraded;Quarantine
+	// The enum lists exactly the three values the controller can produce. It used to also admit Intake and
+	// Degraded, "reserved" for the lifecycle stages in docs/03 and emitted by nothing: there is one health
+	// signal here -- whether the node's Ready condition is True, with False, Unknown and absent deliberately
+	// collapsed together (isNodeReady) -- so no fourth or fifth state could be derived from it, and the GPU
+	// checks that would distinguish them need hardware this project does not have. A status value with no
+	// transition criteria and no operational meaning is a promise the type cannot keep, so it is not in the
+	// contract. Adding either back, with a definition and something that emits it, is the honest additive
+	// change.
+	// +kubebuilder:validation:Enum=Pending;Ready;Quarantine
 	// +optional
 	Phase string `json:"phase,omitempty"`
 

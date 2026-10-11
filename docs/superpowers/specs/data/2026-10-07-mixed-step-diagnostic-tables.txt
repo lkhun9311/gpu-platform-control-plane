@@ -1,0 +1,96 @@
+121814 measured steps (development data; nothing is fitted)
+T1 -- where the time is (mean ms: occupancy = sched + exec + update)
+  prefill-only: 1656 steps, occ 199.815, sched 0.131, exec 199.597, update 0.087
+  mixed: 4597 steps, occ 254.578, sched 0.205, exec 254.244, update 0.129
+  decode: 115561 steps, occ 18.848, sched 0.114, exec 18.665, update 0.069
+  ('stagger', 1, 256, 256): 21 steps, occ 45.151, sched+update 0.194, exec 44.957
+  ('stagger', 1, 8192, 256): 21 steps, occ 58.409, sched+update 0.185, exec 58.224
+  ('stagger', 4, 256, 256): 21 steps, occ 46.137, sched+update 0.243, exec 45.895
+  ('stagger', 4, 8192, 256): 21 steps, occ 59.774, sched+update 0.239, exec 59.535
+  ('stagger', 16, 256, 256): 21 steps, occ 49.011, sched+update 0.365, exec 48.646
+  ('stagger', 16, 8192, 256): 21 steps, occ 104.069, sched+update 0.398, exec 103.671
+  ('serial', 512, 1): 18 steps, occ 60.996, sched+update 0.230, exec 60.766
+  ('serial', 512, 16): 18 steps, occ 60.989, sched+update 0.197, exec 60.792
+  ('serial', 512, 64): 18 steps, occ 60.977, sched+update 0.200, exec 60.778
+  H-cpu: falsified (largest sched+update in a failing endpoint 0.398 ms; falsified under 1 ms)
+T2 -- mixed steps with one prefilling request, by its q, n and K_max bin (mean exec ms)
+  q 4, n 1, K_max <=1024: 9 steps, exec 31.549, sum K 298, K_max 298
+  q 4, n 1, K_max >4096: 9 steps, exec 31.635, sum K 8233, K_max 8233
+  q 4, n 3, K_max (1024,4096]: 18 steps, exec 21.422, sum K 6151, K_max 2052
+  q 16, n 4, K_max <=1024: 9 steps, exec 33.131, sum K 1159, K_max 290
+  q 16, n 4, K_max >4096: 9 steps, exec 33.499, sum K 33149, K_max 8294
+  q 22, n 3, K_max >4096: 48 steps, exec 32.999, sum K 24601, K_max 8205
+  q 64, n 16, K_max <=1024: 9 steps, exec 37.714, sum K 4660, K_max 293
+  q 64, n 16, K_max >4096: 9 steps, exec 79.475, sum K 134310, K_max 8425
+  q 106, n 15, K_max (1024,4096]: 18 steps, exec 36.939, sum K 30841, K_max 2064
+  q 256, n 1, K_max <=1024: 21 steps, exec 44.957, sum K 291, K_max 291
+  q 256, n 1, K_max >4096: 21 steps, exec 58.224, sum K 8230, K_max 8230
+  q 256, n 4, K_max <=1024: 21 steps, exec 45.895, sum K 1135, K_max 284
+  q 256, n 4, K_max >4096: 21 steps, exec 59.535, sum K 33127, K_max 8288
+  q 256, n 16, K_max <=1024: 21 steps, exec 48.646, sum K 4539, K_max 285
+  q 256, n 16, K_max >4096: 21 steps, exec 103.671, sum K 134255, K_max 8422
+  q 466, n 15, K_max >4096: 48 steps, exec 128.240, sum K 123361, K_max 8253
+  q 2032, n 16, K_max <=1024: 36 steps, exec 259.166, sum K 4620, K_max 290
+  q 2032, n 16, K_max >4096: 36 steps, exec 311.802, sum K 134270, K_max 8423
+  q 2033, n 15, K_max >4096: 144 steps, exec 309.643, sum K 123331, K_max 8251
+  q 2034, n 14, K_max >4096: 144 steps, exec 306.886, sum K 115081, K_max 8247
+  q 2035, n 13, K_max >4096: 144 steps, exec 303.632, sum K 106835, K_max 8243
+  q 2036, n 12, K_max >4096: 144 steps, exec 300.713, sum K 98593, K_max 8239
+  q 2037, n 11, K_max >4096: 144 steps, exec 298.147, sum K 90355, K_max 8235
+  q 2038, n 10, K_max >4096: 144 steps, exec 295.548, sum K 82121, K_max 8231
+  q 2039, n 9, K_max >4096: 144 steps, exec 293.063, sum K 73891, K_max 8227
+  q 2040, n 8, K_max >4096: 144 steps, exec 290.452, sum K 65665, K_max 8223
+  q 2041, n 7, K_max >4096: 144 steps, exec 287.406, sum K 57443, K_max 8219
+  q 2042, n 6, K_max >4096: 144 steps, exec 284.687, sum K 49225, K_max 8215
+  q 2043, n 5, K_max >4096: 144 steps, exec 282.350, sum K 41011, K_max 8211
+  q 2044, n 4, K_max <=1024: 36 steps, exec 256.065, sum K 1149, K_max 288
+  q 2044, n 4, K_max >4096: 180 steps, exec 277.948, sum K 32869, K_max 8224
+  q 2045, n 3, K_max >4096: 288 steps, exec 276.573, sum K 24595, K_max 8203
+  q 2046, n 2, K_max >4096: 288 steps, exec 273.059, sum K 16393, K_max 8199
+  q 2047, n 1, K_max (1024,4096]: 36 steps, exec 221.303, sum K 2049, K_max 2049
+  q 2047, n 1, K_max <=1024: 36 steps, exec 255.143, sum K 295, K_max 295
+  q 2047, n 1, K_max >4096: 420 steps, exec 260.845, sum K 8198, K_max 8198
+  q 256: increment n 1 13.267 ms, n 4 13.640 ms, n 16 55.025 ms; ratio n 16 / n 1 = 4.15
+  H-sum (about 16): falsified; H-max (about 1): falsified; H-wave: the ratio is ceil(16/w) for w about 3.9
+T3 -- graph sizes (captured up to 128 scheduled tokens, FULL_AND_PIECEWISE)
+  decode n 1: 46087 steps, occ 16.371, K/n 4021
+  decode n 2: 1320 steps, occ 17.659, K/n 4897
+  decode n 3: 535 steps, occ 18.972, K/n 7154
+  decode n 4: 32496 steps, occ 18.386, K/n 4346
+  decode n 5: 1110 steps, occ 19.192, K/n 4722
+  decode n 6: 210 steps, occ 21.557, K/n 7974
+  decode n 7: 210 steps, occ 21.712, K/n 7972
+  decode n 8: 275 steps, occ 21.075, K/n 6210
+  decode n 9: 210 steps, occ 24.507, K/n 7968
+  decode n 10: 210 steps, occ 24.697, K/n 7966
+  decode n 11: 211 steps, occ 24.893, K/n 7928
+  decode n 12: 210 steps, occ 25.065, K/n 7962
+  decode n 13: 210 steps, occ 25.357, K/n 7961
+  decode n 14: 210 steps, occ 25.849, K/n 7959
+  decode n 15: 324 steps, occ 25.043, K/n 6622
+  decode n 16: 29735 steps, occ 22.428, K/n 4027
+  decode n 17: 900 steps, occ 25.857, K/n 4247
+  decode n 24: 17 steps, occ 19.766, K/n 318
+  decode n 32: 17 steps, occ 20.184, K/n 318
+  decode n 40: 17 steps, occ 22.792, K/n 317
+  decode n 48: 17 steps, occ 23.499, K/n 316
+  decode n 56: 17 steps, occ 24.486, K/n 316
+  decode n 63: 19 steps, occ 24.569, K/n 315
+  decode n 64: 988 steps, occ 24.425, K/n 287
+  mixed steps with T <= 128: 138; above: 4459
+  mixed T <= 128: occ 35.517 at T 39; above: occ 261.357 at T 1964 (read against T5)
+T4 -- training support each failing fold leaves (steps in other compositions)
+  ('serial', 512, 1): prefill-only, P segment 2: 0 steps elsewhere in the segment, 0 also with its n and K_max bins
+  ('serial', 512, 16): prefill-only, P segment 2: 0 steps elsewhere in the segment, 0 also with its n and K_max bins
+  ('serial', 512, 64): prefill-only, P segment 2: 0 steps elsewhere in the segment, 0 also with its n and K_max bins
+  ('stagger', 1, 8192, 256): mixed, P segment 1: 243 steps elsewhere in the segment, 9 also with its n and K_max bins
+  ('stagger', 16, 8192, 256): mixed, P segment 1: 243 steps elsewhere in the segment, 9 also with its n and K_max bins
+  H-support: standing (standing under 100 prefill-only steps)
+T5 -- prefill-only by size and chunk position
+  P 256, first chunk: 216 steps, occ 36.062, exec 35.858, ms per token 0.1409
+  P 512, first chunk: 54 steps, occ 60.987, exec 60.778, ms per token 0.1191
+  P 768, first chunk: 54 steps, occ 84.990, exec 84.774, ms per token 0.1107
+  P 1024, first chunk: 54 steps, occ 113.993, exec 113.764, ms per token 0.1113
+  P 1024, later chunk: 54 steps, occ 126.420, exec 126.179, ms per token 0.1235
+  P 2048, first chunk: 468 steps, occ 220.793, exec 220.578, ms per token 0.1078
+  P 2048, later chunk: 756 steps, occ 263.106, exec 262.884, ms per token 0.1285

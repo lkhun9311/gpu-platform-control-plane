@@ -51,6 +51,37 @@ type RawRow struct {
 	FirstTokenUnixNanos int64 `json:"firstTokenUnixNanos,omitempty"`
 	// EndUnixNanos is when the response finished; zero if the request never completed.
 	EndUnixNanos int64 `json:"endUnixNanos,omitempty"`
+	// ReplayOriginUnixNanos is the instant the replay's schedule is offset from, so the dispatch lag of this row
+	// (the gateway's arrival minus origin plus ScheduledOffsetMs) can be computed after the run.
+	//
+	// ReturnedUnixNanos is when the sender returned, on EVERY outcome: a timeout, a transport error and a
+	// refusal included. EndUnixNanos stays zero for those, because the report reads it as "completed"; the
+	// pilot's processing window needs an end for all of them, or a final premium timeout would end the window
+	// 30 s early (design page, "The window").
+	//
+	// Both are written only for a study that records replay timing, so every other study's rows keep their bytes.
+	ReplayOriginUnixNanos int64 `json:"replayOriginUnixNanos,omitempty"`
+	ReturnedUnixNanos     int64 `json:"returnedUnixNanos,omitempty"`
+	// ContentGapsMicros is the gap before each content frame after the first, in microseconds, as the client saw
+	// them; set only when the replay records timing. A p99 over these is an inter-token p99 of individual gaps, which
+	// a per-request average (end minus first, over frames minus one) cannot give.
+	ContentGapsMicros []int64 `json:"contentGapsMicros,omitempty"`
+	// PromptLenChars is the prompt size in characters this request was generated at.
+	//
+	// It is on the ROW for the reason Study gives below: the report, the gates and the published documents
+	// all read rows, and a trace's prompt length was recorded only on the manifest. So a row on its own
+	// could not say which input level produced it, and EstInputTokens -- the only trace of the length that
+	// reached the row -- is (chars+3)/4, which throws the length away and is measured 36 percent low on a
+	// 200-character prompt and 30 percent high on a 40,000-character one.
+	//
+	// A study that varies the prompt length needs the level to survive into the evidence, because the
+	// comparison it registers is BETWEEN levels: rows pooled by arm alone would merge two conditions that
+	// differ in the only variable the study is about. The manifest knows, and the manifests are gone by the
+	// time anything scores the rows.
+	//
+	// 0 means the row predates this field. It is never a measured length: the generator refuses a trace
+	// whose tenant rows disagree about their length, so a real row always carries a positive one.
+	PromptLenChars int `json:"promptLenChars,omitempty"`
 	// EstInputTokens is the gateway-style conservative estimate for this prompt, recorded so the report can measure admitted vs offered work for admission matching.
 	EstInputTokens int `json:"estInputTokens"`
 	// OutputTokens is the number of tokens the response produced.
@@ -61,6 +92,19 @@ type RawRow struct {
 	//
 	// It is a small closed vocabulary ("timeout", "transport", "rejected", "stream") so a report can bucket failures without parsing free text.
 	ErrorKind string `json:"errorKind,omitempty"`
+	// StreamTerminated says this response's stream sent its own end marker.
+	//
+	// On the ROW because the distinction cannot be recovered afterwards: a truncated stream and a complete
+	// one produce the same errorKind (none), the same httpStatus (200) and the same stamped times, so a
+	// row without this field cannot say whether the response it records actually finished.
+	//
+	// `omitempty` means false is indistinguishable from absent in the JSON, and that is deliberate for the
+	// same reason PromptLenChars treats 0 as "predates this field": every row written before today lacks
+	// it, and a reader must not take their silence for "truncated". The report counts what it can see and
+	// names the rows it cannot classify, rather than assuming either way.
+	StreamTerminated bool `json:"streamTerminated,omitempty"`
+	// StreamError is the engine's in-band failure text, verbatim, empty when it sent none.
+	StreamError string `json:"streamError,omitempty"`
 	// Study is the pre-registered experiment this row belongs to, copied from the manifest.
 	//
 	// It is on the ROW and not only on the manifest because the report reads rows, not manifests. A
@@ -79,6 +123,10 @@ type RawRow struct {
 	// A pointer for the same reason the request body uses one: 0 is vLLM's most urgent value, so a plain
 	// int cannot distinguish "most urgent" from "not set".
 	Priority *int `json:"priority,omitempty"`
+	// RequestID is the X-Request-Id the request was sent with, empty when the run sent none.
+	//
+	// The engine's own records carry it, so a client row and the engine's steps join on it rather than on timing.
+	RequestID string `json:"requestId,omitempty"`
 	// TraceChecksum is the sha256 of the trace this row replayed, copied from the frozen manifest.
 	//
 	// The report asserts the contended arms all carry one checksum, so it can prove they replayed identical traffic rather than trusting operator discipline.
@@ -103,6 +151,17 @@ type RawRow struct {
 	// prompt length, and this is measured on every admitted request, so a disagreement means the trace was
 	// stamped against a different tokenizer or a different prompt than the one that ran.
 	EngineInputTokens int `json:"engineInputTokens,omitempty"`
+	// FinishReason is why the ENGINE stopped generating this response, verbatim as it reported it.
+	//
+	// vLLM sends "length" when the output cap cut the response and "stop" when the model ended on its own,
+	// on the final SSE chunk. It was arriving and being discarded: the chunk struct declared only the
+	// content delta, so every row recorded the same silence whether the cap truncated the answer or the
+	// model finished. The output cap is one of the five load quantities this study freezes, which makes
+	// "the cap was not reached" a claim the evidence could not support in either direction.
+	//
+	// Empty is its own fact and NOT "stop": it means the engine reported no reason, or no response arrived
+	// at all. A report that reads empty as a normal stop would turn an instrument gap into a measurement.
+	FinishReason string `json:"finishReason,omitempty"`
 	// BackendState is the pressure reading the guard's decision was made from, verbatim as the gateway
 	// reported it: "kv=0.834,waiting=7,engaged=0,fresh=1".
 	//
@@ -154,18 +213,41 @@ type SendResult struct {
 	FirstTokenUnixNanos int64
 	// EndUnixNanos is when the response finished; zero if it never did.
 	EndUnixNanos int64
+	// ContentUnixNanos is every content frame's arrival time, kept only when the sender was asked to.
+	ContentUnixNanos []int64
 	// OutputTokens is the response length in tokens.
 	OutputTokens int
 	// PromptTokens is the engine's own count of the prompt, zero when it reported none.
 	PromptTokens int
 	// EngineOutputTokens is the engine's own count of what it generated, zero when it reported none.
 	EngineOutputTokens int
+	// FinishReason is why the engine stopped, empty when it reported none.
+	//
+	// Empty and "stop" are different facts: the first means nothing said, the second means the model
+	// ended on its own. A report must not read the first as the second.
+	FinishReason string
 	// BackendState is the gateway's report of the pressure its decision used, empty when it reported none.
 	BackendState string
 	// HTTPStatus is the response status; 0 for a transport error or timeout.
 	HTTPStatus int
 	// ErrorKind names the failure, empty on success.
 	ErrorKind string
+	// StreamTerminated says the stream sent its own end marker, "data: [DONE]".
+	//
+	// A stream that stops arriving looks exactly like one that finished: the scanner returns no error at
+	// EOF, so ErrorKind stays empty and the row reads as a completion. Measured 2026-10-04 -- a clean
+	// stream, one cut off before [DONE], and one carrying an error object all returned ErrorKind "", one
+	// output token and a stamped first-token time. This is the field that tells them apart, and it is
+	// false rather than an error because a truncated response is a FACT about the response, not a verdict
+	// on it: the report decides what to do with it.
+	StreamTerminated bool
+	// StreamError is the engine's own in-band failure text, verbatim, empty when it sent none.
+	//
+	// Kept beside ErrorKind rather than inside it because ErrorKind is a closed vocabulary the report
+	// buckets by, and the engine's words are not. An SSE frame carrying {"error": {...}} is valid JSON, so
+	// it unmarshalled into a struct with no matching field and was dropped -- the request then finished as
+	// an ordinary success, with HTTP 200, because the headers had already been sent when the engine failed.
+	StreamError string
 	// Tier and AdmissionReason are what the gateway reported about its own admission decision.
 	//
 	// Empty against a gateway that does not report them, which is how evidence written before it did is
@@ -192,12 +274,20 @@ type ReplayOptions struct {
 	// Priorities is the tenant-to-priority map the sender was given, stamped per row so the treatment is
 	// part of the evidence rather than only of the run log.
 	Priorities map[string]int
+	// RequestIDPrefix is the sender's (see HTTPSender.SetRequestIDPrefix), stamped per row through RequestIDFor.
+	RequestIDPrefix string
 	// TraceChecksum, LongThreshold, and MatchTolerance are the frozen manifest provenance stamped into every RawRow, so the report can enforce trace identity and read the pre-registered knobs from the evidence itself.
 	TraceChecksum  string
 	LongThreshold  int
 	MatchTolerance float64
 	// EstInputTokens estimates a prompt's input tokens the same way the gateway does, so admitted-work can be measured; when nil, a default ceiling-of-chars/4 estimate is used.
 	EstInputTokens func(promptLenChars int) int
+	// RecordTiming stamps ReplayOriginUnixNanos and ReturnedUnixNanos on every row.
+	RecordTiming bool
+	// OnRow, when set, is given each row as soon as its request ends, one call at a time, so the row can leave
+	// the instance before the replay does (design page, "Rows leave the instance as they are written"). It runs
+	// after the row's stamps are taken, so it cannot move any of them.
+	OnRow func(RawRow)
 	// clock and sleepUntil are injected only by tests; production uses the wall clock.
 	clock      func() time.Time
 	sleepUntil func(ctx context.Context, t time.Time)
@@ -224,6 +314,7 @@ func Replay(ctx context.Context, sender Sender, trace []TraceRow, opts ReplayOpt
 
 	rows := make([]RawRow, len(trace))
 	var wg sync.WaitGroup
+	var onRowMu sync.Mutex
 	start := clock()
 
 	for i, tr := range trace {
@@ -239,30 +330,51 @@ func Replay(ctx context.Context, sender Sender, trace []TraceRow, opts ReplayOpt
 			defer wg.Done()
 			sendNanos := clock().UnixNano()
 			res := sender.Send(ctx, tr, sendNanos)
+			var origin, returned int64
+			var gaps []int64
+			if opts.RecordTiming {
+				origin, returned = start.UnixNano(), clock().UnixNano()
+				for k := 1; k < len(res.ContentUnixNanos); k++ {
+					gaps = append(gaps, (res.ContentUnixNanos[k]-res.ContentUnixNanos[k-1])/1000)
+				}
+			}
 			rows[i] = RawRow{
-				Index:               tr.Index,
-				Study:               opts.Study,
-				Arm:                 opts.Arm,
-				Priority:            priorityFor(opts.Priorities, tr.Tenant),
-				Tenant:              tr.Tenant,
-				IsNoisy:             tr.IsNoisy,
-				ScheduledOffsetMs:   tr.OffsetMs,
-				SendUnixNanos:       sendNanos,
-				FirstTokenUnixNanos: res.FirstTokenUnixNanos,
-				EndUnixNanos:        res.EndUnixNanos,
-				EstInputTokens:      estInput(tr.PromptLenChars),
-				ExactInputTokens:    tr.ExactInputTokens,
-				EngineInputTokens:   res.PromptTokens,
-				EngineOutputTokens:  res.EngineOutputTokens,
-				BackendState:        res.BackendState,
-				OutputTokens:        res.OutputTokens,
-				HTTPStatus:          res.HTTPStatus,
-				ErrorKind:           res.ErrorKind,
-				Tier:                res.Tier,
-				AdmissionReason:     res.AdmissionReason,
-				TraceChecksum:       opts.TraceChecksum,
-				LongThreshold:       opts.LongThreshold,
-				MatchTolerance:      opts.MatchTolerance,
+				ReplayOriginUnixNanos: origin,
+				ReturnedUnixNanos:     returned,
+				ContentGapsMicros:     gaps,
+				Index:                 tr.Index,
+				Study:                 opts.Study,
+				Arm:                   opts.Arm,
+				Priority:              priorityFor(opts.Priorities, tr.Tenant),
+				RequestID:             RequestIDFor(opts.RequestIDPrefix, tr.Index),
+				Tenant:                tr.Tenant,
+				IsNoisy:               tr.IsNoisy,
+				ScheduledOffsetMs:     tr.OffsetMs,
+				SendUnixNanos:         sendNanos,
+				FirstTokenUnixNanos:   res.FirstTokenUnixNanos,
+				EndUnixNanos:          res.EndUnixNanos,
+				PromptLenChars:        tr.PromptLenChars,
+				EstInputTokens:        estInput(tr.PromptLenChars),
+				ExactInputTokens:      tr.ExactInputTokens,
+				EngineInputTokens:     res.PromptTokens,
+				EngineOutputTokens:    res.EngineOutputTokens,
+				FinishReason:          res.FinishReason,
+				BackendState:          res.BackendState,
+				OutputTokens:          res.OutputTokens,
+				HTTPStatus:            res.HTTPStatus,
+				ErrorKind:             res.ErrorKind,
+				StreamTerminated:      res.StreamTerminated,
+				StreamError:           res.StreamError,
+				Tier:                  res.Tier,
+				AdmissionReason:       res.AdmissionReason,
+				TraceChecksum:         opts.TraceChecksum,
+				LongThreshold:         opts.LongThreshold,
+				MatchTolerance:        opts.MatchTolerance,
+			}
+			if opts.OnRow != nil {
+				onRowMu.Lock()
+				opts.OnRow(rows[i])
+				onRowMu.Unlock()
 			}
 		}(i, tr)
 	}

@@ -116,6 +116,11 @@ var _ = Describe("admission pipeline placement", func() {
 		// The code travels in the body too, and it defaulted to internal_error: a client branching on it was
 		// told the gateway broke when it had refused something it can name.
 		Expect(rr.Body.String()).To(ContainSubstring("payload_too_large"))
+		// And this one carries NO admission reason, because admission never ran -- the reason variable does not
+		// exist on this path. That absence is the signal internal/bench now reads to keep a body-limit refusal
+		// out of the admitted-work fraction.
+		Expect(rr.Header().Get(HeaderAdmissionReason)).To(BeEmpty(),
+			"a body refused before admission claims an admission reason, which would credit the guard with a decision it never made")
 	})
 
 	// A request that can never be admitted must not carry the retry hint a 429 does. A client obeying
@@ -130,6 +135,41 @@ var _ = Describe("admission pipeline placement", func() {
 		Expect(rr.Body.String()).To(ContainSubstring("payload_too_large"))
 		Expect(rr.Header().Get("Retry-After")).To(BeEmpty(),
 			"a permanently impossible request was advertised as retryable")
+		// The header is what tells this 413 from the body-size 413, which carries the same status and the same
+		// error code. The gateway has always set it -- the assignment sits above the refusal branch, for any
+		// non-empty reason -- and until now nothing asserted it, so the one signal that separates the two
+		// refusals was unguarded. internal/bench read past it and counted both as work the bucket shed.
+		Expect(rr.Header().Get(HeaderAdmissionReason)).To(Equal(reasonInputExceedsBurst),
+			"the admission 413 does not name its reason, so nothing downstream can tell it from a body-limit refusal")
+	})
+
+	// The profile refusal at the pipeline level, which the unit specs cannot show: they prove the error is
+	// distinguishable, not that the handler answers 422 with a code a client can branch on.
+	//
+	// Mutation that turns this red: answer ErrProfileViolation with 400 like every other readRequestMeta error.
+	It("answers 422 profile_violation for a body outside the benchmark profile", func() {
+		s := newAdmissionServer(up.URL, tierStandard, AdmissionOff, offAdmitter{})
+		s.EnforceBenchmarkProfile(true)
+		rr := httptest.NewRecorder()
+		body := `{"model":"` + testModel + `","messages":[{"role":"user","content":"hi"}],"max_tokens":4,` +
+			`"stream":true,"stream_options":{"include_usage":true},"tools":[{"type":"function"}]}`
+		s.Handler().ServeHTTP(rr, authedRequest(body))
+		Expect(rr.Code).To(Equal(http.StatusUnprocessableEntity),
+			"a body that parses but carries a forbidden field was reported as malformed JSON or accepted outright")
+		expectJSONError(rr, "profile_violation")
+	})
+
+	// And with the profile off -- the default -- the same body reaches the upstream.
+	//
+	// This is the pair that stops the profile becoming every caller's contract: the gateway is not only the
+	// experiment's, and a run that turned this on for everyone would refuse legitimate tool-calling traffic.
+	It("forwards the same body when the profile is off", func() {
+		s := newAdmissionServer(up.URL, tierStandard, AdmissionOff, offAdmitter{})
+		rr := httptest.NewRecorder()
+		body := `{"model":"` + testModel + `","messages":[{"role":"user","content":"hi"}],"max_tokens":4,` +
+			`"stream":true,"stream_options":{"include_usage":true},"tools":[{"type":"function"}]}`
+		s.Handler().ServeHTTP(rr, authedRequest(body))
+		Expect(rr.Code).To(Equal(http.StatusOK))
 	})
 
 	It("lets a premium request over the same budget reach the proxy", func() {
