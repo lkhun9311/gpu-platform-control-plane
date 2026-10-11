@@ -131,6 +131,8 @@ func (r *InferenceDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.
 	desired.ReadyReplicas = dep.Status.ReadyReplicas
 	desired.ObservedGeneration = infd.Generation
 	meta.SetStatusCondition(&desired.Conditions, cond)
+	mode, admitCond := admissionInForce(&infd, dep)
+	setAdmissionStatus(desired, &infd, mode, admitCond)
 
 	if !equality.Semantic.DeepEqual(infd.Status, *desired) {
 		infd.Status = *desired
@@ -226,6 +228,15 @@ func (r *InferenceDeploymentReconciler) mutateDeployment(infd *platformv1.Infere
 		dep.Spec.Selector = &metav1.LabelSelector{MatchLabels: map[string]string{instanceLabel: infd.Name}}
 	}
 	dep.Spec.Template.Labels = labels
+
+	if infd.Spec.Engine != nil {
+		// The enum admits only profiles with a rendering, so this is a code defect, and a panic is what a test sees.
+		if !mutateEngineDeployment(infd, dep) {
+			panic(fmt.Sprintf("vLLM profile %q passed the CRD enum and has no rendering", infd.Spec.Engine.VLLM.Profile))
+		}
+		return
+	}
+	clearEngineResidue(dep)
 
 	container := corev1.Container{
 		Name:  "server",
@@ -347,6 +358,10 @@ func (r *InferenceDeploymentReconciler) markDegraded(ctx context.Context, infd *
 	desired.ObservedGeneration = infd.Generation
 	meta.SetStatusCondition(&desired.Conditions, metav1.Condition{
 		Type: infdCondAvailable, Status: metav1.ConditionFalse, Reason: reason, Message: msg, ObservedGeneration: infd.Generation,
+	})
+	// A Degraded object's engine is not one this controller rendered, so no HoldCap may stand at this generation.
+	setAdmissionStatus(desired, infd, platformv1.AdmissionModeOff, metav1.Condition{
+		Type: infdCondAdmissionInForce, Status: metav1.ConditionFalse, Reason: reason, Message: msg, ObservedGeneration: infd.Generation,
 	})
 	if !equality.Semantic.DeepEqual(infd.Status, *desired) {
 		infd.Status = *desired

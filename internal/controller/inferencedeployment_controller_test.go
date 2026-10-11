@@ -19,6 +19,8 @@ package controller
 import (
 	"context"
 	"fmt"
+	"strings"
+	"time"
 
 	"github.com/go-logr/logr/funcr"
 	. "github.com/onsi/ginkgo/v2"
@@ -583,6 +585,166 @@ var _ = Describe("InferenceDeployment Controller", func() {
 			_, hasLim := updated.Spec.Template.Spec.Containers[0].Resources.Limits[nvidiaGPUResource]
 			Expect(hasReq).To(BeFalse())
 			Expect(hasLim).To(BeFalse())
+		})
+
+		newEngineInfD := func(mode string) *platformv1.InferenceDeployment {
+			o := newInfD(1, 1)
+			o.Spec.Model.StorageURI = "hf://Qwen/Qwen2.5-3B-Instruct"
+			o.Spec.Image = platformv1.VLLMV0271Image
+			o.Spec.Engine = &platformv1.InferenceEngine{VLLM: &platformv1.VLLMEngine{
+				Profile: platformv1.VLLMProfileV0271A10G, ModelRevision: "aa8e72537993ba99e69dfaafa59ed015b17504d1"}}
+			if mode == platformv1.AdmissionModeHoldCap {
+				o.Spec.Admission = &platformv1.InferenceAdmission{Mode: mode, MaxHold: &metav1.Duration{Duration: 25 * time.Second}}
+			}
+			return o
+		}
+		capArgs := func(c corev1.Container) int {
+			n := 0
+			for _, a := range c.Args {
+				if strings.HasPrefix(a, "--long-prefill-token-threshold=") {
+					n++
+				}
+			}
+			return n
+		}
+		reconcileOK := func(r *InferenceDeploymentReconciler) {
+			_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+			Expect(err).NotTo(HaveOccurred())
+		}
+		getDep := func() *appsv1.Deployment {
+			dep := &appsv1.Deployment{}
+			Expect(k8sClient.Get(ctx, key, dep)).To(Succeed())
+			return dep
+		}
+
+		It("renders the capped engine with Recreate, on an A10G, with an annotation that matches its arguments", func() {
+			Expect(k8sClient.Create(ctx, newEngineInfD(platformv1.AdmissionModeHoldCap))).To(Succeed())
+			reconcileOK(reconciler())
+			dep := getDep()
+			Expect(dep.Spec.Strategy.Type).To(Equal(appsv1.RecreateDeploymentStrategyType))
+			Expect(dep.Spec.Template.Annotations).To(HaveKeyWithValue(admissionAnnotation, platformv1.AdmissionModeHoldCap))
+			Expect(dep.Annotations).To(HaveKeyWithValue(renderedGenerationAnnotation, fmt.Sprint(mustGet(ctx, key).Generation)))
+			c := dep.Spec.Template.Spec.Containers[0]
+			Expect(c.Image).To(Equal(platformv1.VLLMV0271Image))
+			Expect(capArgs(c)).To(Equal(1))
+			terms := dep.Spec.Template.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms
+			Expect(terms).To(HaveLen(1))
+			Expect(terms[0].MatchExpressions).To(ConsistOf(
+				corev1.NodeSelectorRequirement{Key: corev1.LabelInstanceTypeStable, Operator: corev1.NodeSelectorOpIn,
+					Values: []string{"g5.xlarge", "g5.2xlarge", "g5.4xlarge", "g5.8xlarge", "g5.16xlarge"}},
+				// The sharing node group is an A10G too; only the exclusive groups carry this label.
+				corev1.NodeSelectorRequirement{Key: "platform.lkhun9311.github.io/gpu", Operator: corev1.NodeSelectorOpIn, Values: []string{"true"}},
+			))
+		})
+
+		It("drops the cap and the annotation follows when HoldCap is turned off", func() {
+			Expect(k8sClient.Create(ctx, newEngineInfD(platformv1.AdmissionModeHoldCap))).To(Succeed())
+			r := reconciler()
+			reconcileOK(r)
+			infd := mustGet(ctx, key)
+			infd.Spec.Admission = nil
+			Expect(k8sClient.Update(ctx, infd)).To(Succeed())
+			reconcileOK(r)
+			dep := getDep()
+			Expect(capArgs(dep.Spec.Template.Spec.Containers[0])).To(Equal(0))
+			Expect(dep.Spec.Template.Annotations).To(HaveKeyWithValue(admissionAnnotation, platformv1.AdmissionModeOff))
+		})
+
+		// Going back to the generic container must not leave the engine's template behind.
+		It("returns to the generic container without the engine's residue when engine is removed", func() {
+			Expect(k8sClient.Create(ctx, newEngineInfD(platformv1.AdmissionModeOff))).To(Succeed())
+			r := reconciler()
+			reconcileOK(r)
+			Expect(getDep().Spec.Strategy.Type).To(Equal(appsv1.RecreateDeploymentStrategyType))
+			infd := mustGet(ctx, key)
+			infd.Spec.Engine = nil
+			infd.Spec.Image = "vllm/vllm-openai:test"
+			Expect(k8sClient.Update(ctx, infd)).To(Succeed())
+			reconcileOK(r)
+			dep := getDep()
+			Expect(dep.Spec.Template.Annotations).NotTo(HaveKey(admissionAnnotation))
+			Expect(dep.Annotations).NotTo(HaveKey(renderedGenerationAnnotation))
+			Expect(dep.Spec.Strategy.Type).To(Equal(appsv1.RollingUpdateDeploymentStrategyType))
+			Expect(dep.Spec.Template.Spec.Volumes).To(BeEmpty())
+			Expect(dep.Spec.Template.Spec.Tolerations).To(BeEmpty())
+			Expect(dep.Spec.Template.Spec.Affinity).To(BeNil())
+			Expect(dep.Spec.Template.Spec.Containers[0].Args).To(ContainElement("--model-path"))
+		})
+
+		It("reports HoldCap only after the capped rollout completes, and Off once it is turned off", func() {
+			Expect(k8sClient.Create(ctx, newEngineInfD(platformv1.AdmissionModeHoldCap))).To(Succeed())
+			r := reconciler()
+			reconcileOK(r)
+			Expect(mustGet(ctx, key).Status.Admission.Mode).To(Equal(platformv1.AdmissionModeOff))
+
+			markDeploymentObserved(1)
+			reconcileOK(r)
+			got := mustGet(ctx, key)
+			Expect(got.Status.Admission.Mode).To(Equal(platformv1.AdmissionModeHoldCap))
+			Expect(got.Status.Admission.ObservedGeneration).To(Equal(got.Generation))
+
+			got.Spec.Admission = &platformv1.InferenceAdmission{Mode: platformv1.AdmissionModeOff}
+			Expect(k8sClient.Update(ctx, got)).To(Succeed())
+			reconcileOK(r)
+			Expect(mustGet(ctx, key).Status.Admission.Mode).To(Equal(platformv1.AdmissionModeOff))
+		})
+
+		// A Deployment this controller does not own is not a capped engine.
+		It("reports Off when a foreign Deployment takes the name", func() {
+			Expect(k8sClient.Create(ctx, newEngineInfD(platformv1.AdmissionModeHoldCap))).To(Succeed())
+			r := reconciler()
+			reconcileOK(r)
+			markDeploymentObserved(1)
+			reconcileOK(r)
+			Expect(mustGet(ctx, key).Status.Admission.Mode).To(Equal(platformv1.AdmissionModeHoldCap))
+
+			dep := getDep()
+			dep.OwnerReferences = nil
+			Expect(k8sClient.Update(ctx, dep)).To(Succeed())
+			_, _ = r.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+			got := mustGet(ctx, key)
+			Expect(got.Status.Phase).To(Equal("Degraded"))
+			Expect(got.Status.Admission.Mode).To(Equal(platformv1.AdmissionModeOff))
+		})
+
+		// A cache still holding the capped Deployment from before an Off-and-back must not read as a completed capped rollout.
+		// The apiserver's copy is the one being rolled to the uncapped template.
+		// The stale copy is built so that the generation stamp is its only difference from a fresh render: the rendering otherwise
+		// replaces whole containers and so differs from any cached copy anyway, which would let this pass with no fence at all.
+		It("does not report HoldCap from a stale cached Deployment after HoldCap is turned off and on again", func() {
+			Expect(k8sClient.Create(ctx, newEngineInfD(platformv1.AdmissionModeHoldCap))).To(Succeed())
+			r := reconciler()
+			reconcileOK(r)
+			markDeploymentObserved(1)
+			reconcileOK(r)
+			Expect(mustGet(ctx, key).Status.Admission.Mode).To(Equal(platformv1.AdmissionModeHoldCap))
+			stale := getDep()
+			staleStamp := stale.Annotations[renderedGenerationAnnotation]
+
+			infd := mustGet(ctx, key)
+			infd.Spec.Admission = &platformv1.InferenceAdmission{Mode: platformv1.AdmissionModeOff}
+			Expect(k8sClient.Update(ctx, infd)).To(Succeed())
+			reconcileOK(r)
+			infd = mustGet(ctx, key)
+			infd.Spec.Admission = &platformv1.InferenceAdmission{Mode: platformv1.AdmissionModeHoldCap, MaxHold: &metav1.Duration{Duration: 25 * time.Second}}
+			Expect(k8sClient.Update(ctx, infd)).To(Succeed())
+			infd = mustGet(ctx, key)
+			r.mutateDeployment(infd, stale, "")
+			stale.Annotations[renderedGenerationAnnotation] = staleStamp
+
+			direct, err := client.NewWithWatch(cfg, client.Options{Scheme: k8sClient.Scheme()})
+			Expect(err).NotTo(HaveOccurred())
+			lagging := interceptor.NewClient(direct, interceptor.Funcs{
+				Get: func(ctx context.Context, c client.WithWatch, k client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+					if d, ok := obj.(*appsv1.Deployment); ok && k == key {
+						stale.DeepCopyInto(d)
+						return nil
+					}
+					return c.Get(ctx, k, obj, opts...)
+				},
+			})
+			_, _ = (&InferenceDeploymentReconciler{Client: lagging, Scheme: k8sClient.Scheme()}).Reconcile(ctx, reconcile.Request{NamespacedName: key})
+			Expect(mustGet(ctx, key).Status.Admission.Mode).To(Equal(platformv1.AdmissionModeOff))
 		})
 	})
 })

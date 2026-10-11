@@ -80,7 +80,7 @@ func (f *fixedSpacingAdmitter) Reserve(ctx context.Context, _ RequestMeta, backe
 		return &reservation{}, true, reasonFixedSpacingFree
 	}
 	turn := make(chan struct{})
-	l.waiters = append(l.waiters, waiter{turn, now})
+	l.waiters = append(l.waiters, waiter{turn: turn, since: now, maxHold: f.maxHold})
 	f.arm(key, l, now)
 	f.mu.Unlock()
 
@@ -115,7 +115,7 @@ func (f *fixedSpacingAdmitter) release(key string) {
 	l := f.lines[key]
 	l.armed = false
 	now := time.Now()
-	for len(l.waiters) > 0 && now.Sub(l.waiters[0].since) > f.maxHold {
+	for len(l.waiters) > 0 && now.Sub(l.waiters[0].since) > l.waiters[0].maxHold {
 		l.waiters = l.waiters[1:]
 	}
 	if len(l.waiters) > 0 && now.Sub(l.last) >= f.spacing {

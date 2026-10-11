@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"math"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -85,6 +86,11 @@ type RequestMeta struct {
 	//
 	// A true value means EstInputTokens is a known-approximate lower bound rather than a byte-accurate estimate, since a non-string part's true token cost cannot be read off its byte length.
 	NonTextContent bool
+	// Stream is true only when the body's stream field is the JSON literal true, the one form the gateway can be sure the engine reads as streaming.
+	Stream bool
+	// Choices is how many completions the request asks for: n when it is a whole JSON number, 1 when n is absent or null as the API defaults it.
+	// Any other n is 0, so a rule that must know the count refuses it instead of guessing.
+	Choices int
 }
 
 // chatMessage is the shape readRequestMeta needs from each entry in messages.
@@ -158,7 +164,14 @@ func readRequestMeta(r *http.Request, profile bool) (func() (io.ReadCloser, erro
 		}
 	}
 
-	meta := RequestMeta{Model: probe.Model}
+	// stream and n are read by their exact keys, because a struct field would also take "N" or "Stream", which the engine ignores.
+	// A body carrying "n":2 and "N":1 would then read as one choice here and run as two there.
+	// Both are read raw, so a body the engine would reject on its own is not refused here for a shape only the hold-cap rule cares about.
+	var keys map[string]json.RawMessage
+	if err := json.Unmarshal(buf, &keys); err != nil {
+		return nil, RequestMeta{}, err
+	}
+	meta := RequestMeta{Model: probe.Model, Stream: string(keys["stream"]) == "true", Choices: requestedChoices(keys["n"])}
 	var totalChars int
 	for _, m := range probe.Messages {
 		// An absent content field, or an explicit JSON null, carries no text and is not a non-text part either.
@@ -185,6 +198,18 @@ func readRequestMeta(r *http.Request, profile bool) (func() (io.ReadCloser, erro
 	//
 	// The error return is always nil and exists only to match http.Request.GetBody's signature, so the factory can be assigned to it directly rather than wrapped at the call site.
 	return func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(buf)), nil }, meta, nil
+}
+
+// requestedChoices reads n as RequestMeta.Choices defines it.
+func requestedChoices(raw json.RawMessage) int {
+	if len(raw) == 0 || string(raw) == "null" {
+		return 1
+	}
+	var n float64
+	if err := json.Unmarshal(raw, &n); err != nil || n != math.Trunc(n) || n < 0 || n > math.MaxInt32 {
+		return 0
+	}
+	return int(n)
 }
 
 // statusRecorder wraps a ResponseWriter to capture the status code the proxy actually wrote.
@@ -341,7 +366,7 @@ func writeJSONError(w http.ResponseWriter, status int, message string) {
 //
 // The admission guard is exactly that case (design spec Config and API section): static-cap and kv-aware both reject with 429, but carry different codes ("input_rate_limit" vs "kv_cache_pressure"), and errorCode's status-to-code mapping has room for only one string per status.
 //
-// failReason in server.go is the only caller today.
+// failReason in server.go and refuseHoldCapShape in holdcap.go are its callers.
 func writeJSONErrorCode(w http.ResponseWriter, status int, code, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)

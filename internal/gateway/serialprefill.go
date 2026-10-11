@@ -44,10 +44,12 @@ type serialPrefillAdmitter struct {
 	waiters map[string][]waiter
 }
 
-// waiter is a held request's turn and when it began waiting, so a turn is never handed to one already past its hold.
+// waiter is a held request's turn, when it began waiting and how long it may wait, so a turn is never handed to one already past its hold.
+// Each waiter keeps the hold it arrived under, so a changed maxHold applies to the next request and not to one already waiting.
 type waiter struct {
-	turn  chan struct{}
-	since time.Time
+	turn    chan struct{}
+	since   time.Time
+	maxHold time.Duration
 }
 
 // NewSerialPrefillAdmitter returns the serial-prefill admitter with its longest hold.
@@ -68,6 +70,11 @@ func (s *serialPrefillAdmitter) Admit(context.Context, RequestMeta, *BackendRef,
 // Reserve admits a premium request at once, and a standard one when its backend has no standard request in prefill,
 // waiting its turn behind those that arrived before it.
 func (s *serialPrefillAdmitter) Reserve(ctx context.Context, _ RequestMeta, backend *BackendRef, _, tier string) (*reservation, bool, string) {
+	return s.reserve(ctx, backend, tier, s.maxHold)
+}
+
+// reserve is Reserve with the hold passed in, so the hold-cap admitter can give each backend the hold from its own spec.
+func (s *serialPrefillAdmitter) reserve(ctx context.Context, backend *BackendRef, tier string, maxHold time.Duration) (*reservation, bool, string) {
 	if tier == tierPremium {
 		return nil, true, reasonPremiumUnreserved
 	}
@@ -79,10 +86,10 @@ func (s *serialPrefillAdmitter) Reserve(ctx context.Context, _ RequestMeta, back
 		return s.hold(key), true, reasonSerialPrefillFree
 	}
 	turn := make(chan struct{})
-	s.waiters[key] = append(s.waiters[key], waiter{turn, time.Now()})
+	s.waiters[key] = append(s.waiters[key], waiter{turn: turn, since: time.Now(), maxHold: maxHold})
 	s.mu.Unlock()
 
-	timer := time.NewTimer(s.maxHold)
+	timer := time.NewTimer(maxHold)
 	defer timer.Stop()
 	select {
 	case <-turn:
@@ -111,7 +118,7 @@ func (s *serialPrefillAdmitter) next(key string) {
 	now := time.Now()
 	for w := s.waiters[key]; len(w) > 0; w = s.waiters[key] {
 		s.waiters[key] = w[1:]
-		if now.Sub(w[0].since) > s.maxHold {
+		if now.Sub(w[0].since) > w[0].maxHold {
 			continue
 		}
 		close(w[0].turn)

@@ -196,3 +196,58 @@ func (s *Server) headBackendFor(ctx context.Context, policy *platformv1.GPUQuota
 	}
 	return refs[0], nil
 }
+
+// holdCapInfD builds an InferenceDeployment at generation 4 with the given spec mode and status, so each case states only what differs.
+func holdCapInfD(name string, created time.Time, spec, status string, observed int64) *platformv1.InferenceDeployment {
+	d := newInfD(name, "vision", "m", 8000, created)
+	d.Generation = 4
+	if spec != "" {
+		d.Spec.Admission = &platformv1.InferenceAdmission{Mode: spec}
+		if spec == platformv1.AdmissionModeHoldCap {
+			d.Spec.Admission.MaxHold = &metav1.Duration{Duration: 7 * time.Second}
+		}
+	}
+	if status != "" {
+		d.Status.Admission = &platformv1.InferenceAdmissionStatus{Mode: status, ObservedGeneration: observed}
+	}
+	return d
+}
+
+var _ = Describe("backendAdmission", func() {
+	now := time.Now()
+	// Mutation that must turn this red: read the spec's mode instead of the status.
+	DescribeTable("HoldCap only when the status reports it for the current generation and the spec still asks",
+		func(d *platformv1.InferenceDeployment, want AdmissionMode) {
+			mode, maxHold := backendAdmission(d)
+			Expect(mode).To(Equal(want))
+			if want == AdmissionHoldCap {
+				Expect(maxHold).To(Equal(7 * time.Second))
+			} else {
+				Expect(maxHold).To(BeZero())
+			}
+		},
+		Entry("in force", holdCapInfD("q", now, platformv1.AdmissionModeHoldCap, platformv1.AdmissionModeHoldCap, 4), AdmissionHoldCap),
+		Entry("asked, rollout incomplete", holdCapInfD("q", now, platformv1.AdmissionModeHoldCap, platformv1.AdmissionModeOff, 4), AdmissionMode("")),
+		Entry("asked, status from an older generation", holdCapInfD("q", now, platformv1.AdmissionModeHoldCap, platformv1.AdmissionModeHoldCap, 3), AdmissionMode("")),
+		Entry("asked, no status yet", holdCapInfD("q", now, platformv1.AdmissionModeHoldCap, "", 0), AdmissionMode("")),
+		Entry("turned off, status not yet caught up", holdCapInfD("q", now, platformv1.AdmissionModeOff, platformv1.AdmissionModeHoldCap, 4), AdmissionMode("")),
+		Entry("never asked", holdCapInfD("q", now, "", "", 0), AdmissionMode("")),
+	)
+
+	// The mode has to survive the trip from the object to the BackendRef the server reads, not only the function above.
+	// Mutation that must turn this red: leave Admission and MaxHold out of the BackendRef literal in backendsFor.
+	It("carries the mode in force and its hold onto the BackendRef", func() {
+		capped := holdCapInfD("capped", now, platformv1.AdmissionModeHoldCap, platformv1.AdmissionModeHoldCap, 4)
+		plain := holdCapInfD("plain", now.Add(time.Minute), "", "", 0)
+		s := &Server{Client: newRouterClient(capped, plain)}
+		refs, err := s.backendsFor(context.Background(), policyFor("vision"), "m")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(refs).To(HaveLen(2))
+		Expect(refs[0].Name).To(Equal("capped"))
+		Expect(refs[0].Admission).To(Equal(AdmissionHoldCap))
+		Expect(refs[0].MaxHold).To(Equal(7 * time.Second))
+		Expect(refs[1].Name).To(Equal("plain"))
+		Expect(refs[1].Admission).To(Equal(AdmissionMode("")))
+		Expect(refs[1].MaxHold).To(BeZero())
+	})
+})

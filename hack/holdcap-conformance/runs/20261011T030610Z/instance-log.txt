@@ -1,0 +1,585 @@
++ BUCKET=m5c-gpu-007635145730
++ PREFIX=holdcap-conformance/20261011T030610Z-40feea6f3eaf
++ SOURCE_SHA=22689000f59080cdb0753c088084c5ebb5a59cbf8a1031fee1ba9509eb8d4a0a
++ MANAGER_SHA=d475988d625f0989aa363600e9a98b09b0c1aad26bca06ceba73936ede134515
++ COMMIT=58e313f7d9d466fde4bf1c73955de41982c0e5a5
++ NS=default
++ NAME=qwen25-3b-holdcap
++ mkdir -p /tmp/out
++ sleep 3000
++ trap finish EXIT
++ step 'fetch the source and the manager'
++ tee -a /tmp/out/steps.txt
+++ date -u +%FT%TZ
++ echo '2026-10-11T03:07:11Z fetch the source and the manager'
+2026-10-11T03:07:11Z fetch the source and the manager
++ aws s3 cp s3://m5c-gpu-007635145730/holdcap-conformance/20261011T030610Z-40feea6f3eaf/src/source.tgz /tmp/source.tgz
+Completed 4.4 MiB/4.4 MiB (37.2 MiB/s) with 1 file(s) remainingdownload: s3://m5c-gpu-007635145730/holdcap-conformance/20261011T030610Z-40feea6f3eaf/src/source.tgz to tmp/source.tgz
+++ sha256sum /tmp/source.tgz
+++ cut '-d ' -f1
++ '[' 22689000f59080cdb0753c088084c5ebb5a59cbf8a1031fee1ba9509eb8d4a0a = 22689000f59080cdb0753c088084c5ebb5a59cbf8a1031fee1ba9509eb8d4a0a ']'
++ mkdir -p /src
++ tar -xzf /tmp/source.tgz -C /src
++ cd /src
++ echo 58e313f7d9d466fde4bf1c73955de41982c0e5a5
++ aws s3 cp /tmp/out/commit.txt s3://m5c-gpu-007635145730/holdcap-conformance/20261011T030610Z-40feea6f3eaf/commit.txt
+Completed 41 Bytes/41 Bytes (659 Bytes/s) with 1 file(s) remainingupload: ../tmp/out/commit.txt to s3://m5c-gpu-007635145730/holdcap-conformance/20261011T030610Z-40feea6f3eaf/commit.txt
++ mkdir -p /src/bin
++ aws s3 cp s3://m5c-gpu-007635145730/holdcap-conformance/20261011T030610Z-40feea6f3eaf/bin/manager /src/bin/manager
+Completed 73.4 MiB/73.4 MiB (322.0 MiB/s) with 1 file(s) remainingdownload: s3://m5c-gpu-007635145730/holdcap-conformance/20261011T030610Z-40feea6f3eaf/bin/manager to bin/manager
++ chmod +x /src/bin/manager
+++ sha256sum /src/bin/manager
+++ cut '-d ' -f1
++ '[' d475988d625f0989aa363600e9a98b09b0c1aad26bca06ceba73936ede134515 = d475988d625f0989aa363600e9a98b09b0c1aad26bca06ceba73936ede134515 ']'
++ step 'check the card'
++ tee -a /tmp/out/steps.txt
+++ date -u +%FT%TZ
++ echo '2026-10-11T03:07:15Z check the card'
+2026-10-11T03:07:15Z check the card
++ nvidia-smi --query-gpu=index,name,memory.total,driver_version --format=csv
+++ tail -n +2 /tmp/out/nvidia-smi.csv
+++ wc -l
++ '[' 1 -eq 1 ']'
++ tail -n +2 /tmp/out/nvidia-smi.csv
++ grep -q A10G
++ step 'host container toolkit'
++ tee -a /tmp/out/steps.txt
+++ date -u +%FT%TZ
++ echo '2026-10-11T03:07:15Z host container toolkit'
+2026-10-11T03:07:15Z host container toolkit
++ export DEBIAN_FRONTEND=noninteractive
++ DEBIAN_FRONTEND=noninteractive
++ command -v nvidia-ctk
++ nvidia-ctk runtime configure --runtime=docker --set-as-default
+time="2026-10-11T03:07:15Z" level=info msg="Loading config from /etc/docker/daemon.json"
+time="2026-10-11T03:07:15Z" level=info msg="Wrote updated config to /etc/docker/daemon.json"
+time="2026-10-11T03:07:15Z" level=info msg="It is recommended that docker daemon be restarted."
++ sed -i 's/^#accept-nvidia-visible-devices-as-volume-mounts.*/accept-nvidia-visible-devices-as-volume-mounts = true/' /etc/nvidia-container-runtime/config.toml
++ grep -q 'accept-nvidia-visible-devices-as-volume-mounts = true' /etc/nvidia-container-runtime/config.toml
++ systemctl restart docker
++ sleep 5
++ step 'kind bring-up, from the span the paid admission sessions ran'
++ tee -a /tmp/out/steps.txt
+++ date -u +%FT%TZ
++ echo '2026-10-11T03:07:21Z kind bring-up, from the span the paid admission sessions ran'
+2026-10-11T03:07:21Z kind bring-up, from the span the paid admission sessions ran
++ sed -n '/^# >>> REHEARSABLE/,/^# <<< REHEARSABLE/p' hack/m5c-gpu-session.sh
++ '[' -s /tmp/bringup.sh ']'
++ bash /tmp/bringup.sh
+Creating cluster "m5cgpu" ...
+ • Ensuring node image (kindest/node:v1.31.0) 🖼  ...
+ ✓ Ensuring node image (kindest/node:v1.31.0) 🖼
+ • Preparing nodes 📦 📦   ...
+ ✓ Preparing nodes 📦 📦 
+ • Writing configuration 📜  ...
+ ✓ Writing configuration 📜
+ • Starting control-plane 🕹️  ...
+ ✓ Starting control-plane 🕹️
+ • Installing CNI 🔌  ...
+ ✓ Installing CNI 🔌
+ • Installing StorageClass 💾  ...
+ ✓ Installing StorageClass 💾
+ • Joining worker nodes 🚜  ...
+ ✓ Joining worker nodes 🚜
+ • Waiting ≤ 5m0s for control-plane = Ready ⏳  ...
+ ✓ Waiting ≤ 5m0s for control-plane = Ready ⏳
+ • Ready after 10s 💚
+Set kubectl context to "kind-m5cgpu"
+You can now use your cluster with:
+
+kubectl cluster-info --context kind-m5cgpu --kubeconfig /tmp/kubeconfig
+
+Have a nice day! 👋
+[0;32mKubernetes control plane[0m is running at [0;33mhttps://127.0.0.1:33355[0m
+[0;32mCoreDNS[0m is running at [0;33mhttps://127.0.0.1:33355/api/v1/namespaces/kube-system/services/kube-dns:dns/proxy[0m
+
+To further debug and diagnose cluster problems, use 'kubectl cluster-info dump'.
+customresourcedefinition.apiextensions.k8s.io/gpuquotapolicies.platform.lkhun9311.github.io created
+customresourcedefinition.apiextensions.k8s.io/gpusharingbenchmarks.platform.lkhun9311.github.io created
+customresourcedefinition.apiextensions.k8s.io/inferencedeployments.platform.lkhun9311.github.io created
+customresourcedefinition.apiextensions.k8s.io/mltrainingjobs.platform.lkhun9311.github.io created
+customresourcedefinition.apiextensions.k8s.io/nodehealths.platform.lkhun9311.github.io created
+customresourcedefinition.apiextensions.k8s.io/workloadruns.platform.lkhun9311.github.io created
+namespace/gpu-platform-control-plane-system created
+serviceaccount/gateway created
+role.rbac.authorization.k8s.io/gateway-secret-reader created
+clusterrole.rbac.authorization.k8s.io/gateway-role created
+rolebinding.rbac.authorization.k8s.io/gateway-secret-reader-binding created
+clusterrolebinding.rbac.authorization.k8s.io/gateway-rolebinding created
+debconf: delaying package configuration, since apt-utils is not installed
+(Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 9629 files and directories currently installed.)
+Preparing to unpack .../gpgv_2.2.40-1.1+deb12u2_amd64.deb ...
+Unpacking gpgv (2.2.40-1.1+deb12u2) over (2.2.40-1.1) ...
+Setting up gpgv (2.2.40-1.1+deb12u2) ...
+(Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 9629 files and directories currently installed.)
+Preparing to unpack .../00-ca-certificates_20250419~deb12u1_all.deb ...
+Unpacking ca-certificates (20250419~deb12u1) over (20230311) ...
+Preparing to unpack .../01-curl_7.88.1-10+deb12u15_amd64.deb ...
+Unpacking curl (7.88.1-10+deb12u15) over (7.88.1-10+deb12u6) ...
+Preparing to unpack .../02-libcurl4_7.88.1-10+deb12u15_amd64.deb ...
+Unpacking libcurl4:amd64 (7.88.1-10+deb12u15) over (7.88.1-10+deb12u6) ...
+Selecting previously unselected package libassuan0:amd64.
+Preparing to unpack .../03-libassuan0_2.5.5-5_amd64.deb ...
+Unpacking libassuan0:amd64 (2.5.5-5) ...
+Selecting previously unselected package gpgconf.
+Preparing to unpack .../04-gpgconf_2.2.40-1.1+deb12u2_amd64.deb ...
+Unpacking gpgconf (2.2.40-1.1+deb12u2) ...
+Selecting previously unselected package libksba8:amd64.
+Preparing to unpack .../05-libksba8_1.6.3-2_amd64.deb ...
+Unpacking libksba8:amd64 (1.6.3-2) ...
+Selecting previously unselected package libnpth0:amd64.
+Preparing to unpack .../06-libnpth0_1.6-3_amd64.deb ...
+Unpacking libnpth0:amd64 (1.6-3) ...
+Selecting previously unselected package dirmngr.
+Preparing to unpack .../07-dirmngr_2.2.40-1.1+deb12u2_amd64.deb ...
+Unpacking dirmngr (2.2.40-1.1+deb12u2) ...
+Selecting previously unselected package gnupg-l10n.
+Preparing to unpack .../08-gnupg-l10n_2.2.40-1.1+deb12u2_all.deb ...
+Unpacking gnupg-l10n (2.2.40-1.1+deb12u2) ...
+Selecting previously unselected package gnupg-utils.
+Preparing to unpack .../09-gnupg-utils_2.2.40-1.1+deb12u2_amd64.deb ...
+Unpacking gnupg-utils (2.2.40-1.1+deb12u2) ...
+Selecting previously unselected package gpg.
+Preparing to unpack .../10-gpg_2.2.40-1.1+deb12u2_amd64.deb ...
+Unpacking gpg (2.2.40-1.1+deb12u2) ...
+Selecting previously unselected package pinentry-curses.
+Preparing to unpack .../11-pinentry-curses_1.2.1-1_amd64.deb ...
+Unpacking pinentry-curses (1.2.1-1) ...
+Selecting previously unselected package gpg-agent.
+Preparing to unpack .../12-gpg-agent_2.2.40-1.1+deb12u2_amd64.deb ...
+Unpacking gpg-agent (2.2.40-1.1+deb12u2) ...
+Selecting previously unselected package gpg-wks-client.
+Preparing to unpack .../13-gpg-wks-client_2.2.40-1.1+deb12u2_amd64.deb ...
+Unpacking gpg-wks-client (2.2.40-1.1+deb12u2) ...
+Selecting previously unselected package gpg-wks-server.
+Preparing to unpack .../14-gpg-wks-server_2.2.40-1.1+deb12u2_amd64.deb ...
+Unpacking gpg-wks-server (2.2.40-1.1+deb12u2) ...
+Selecting previously unselected package gpgsm.
+Preparing to unpack .../15-gpgsm_2.2.40-1.1+deb12u2_amd64.deb ...
+Unpacking gpgsm (2.2.40-1.1+deb12u2) ...
+Selecting previously unselected package gnupg.
+Preparing to unpack .../16-gnupg_2.2.40-1.1+deb12u2_all.deb ...
+Unpacking gnupg (2.2.40-1.1+deb12u2) ...
+Setting up libksba8:amd64 (1.6.3-2) ...
+Setting up libnpth0:amd64 (1.6-3) ...
+Setting up libassuan0:amd64 (2.5.5-5) ...
+Setting up ca-certificates (20250419~deb12u1) ...
+Updating certificates in /etc/ssl/certs...
+rehash: warning: skipping ca-certificates.crt,it does not contain exactly one certificate or CRL
+23 added, 13 removed; done.
+Setting up gnupg-l10n (2.2.40-1.1+deb12u2) ...
+Setting up gpgconf (2.2.40-1.1+deb12u2) ...
+Setting up libcurl4:amd64 (7.88.1-10+deb12u15) ...
+Setting up curl (7.88.1-10+deb12u15) ...
+Setting up gpg (2.2.40-1.1+deb12u2) ...
+Setting up gnupg-utils (2.2.40-1.1+deb12u2) ...
+Setting up pinentry-curses (1.2.1-1) ...
+Setting up gpg-agent (2.2.40-1.1+deb12u2) ...
+Created symlink /etc/systemd/user/sockets.target.wants/gpg-agent-browser.socket → /usr/lib/systemd/user/gpg-agent-browser.socket.
+Created symlink /etc/systemd/user/sockets.target.wants/gpg-agent-extra.socket → /usr/lib/systemd/user/gpg-agent-extra.socket.
+Created symlink /etc/systemd/user/sockets.target.wants/gpg-agent-ssh.socket → /usr/lib/systemd/user/gpg-agent-ssh.socket.
+Created symlink /etc/systemd/user/sockets.target.wants/gpg-agent.socket → /usr/lib/systemd/user/gpg-agent.socket.
+Setting up gpgsm (2.2.40-1.1+deb12u2) ...
+Setting up dirmngr (2.2.40-1.1+deb12u2) ...
+Created symlink /etc/systemd/user/sockets.target.wants/dirmngr.socket → /usr/lib/systemd/user/dirmngr.socket.
+Setting up gpg-wks-server (2.2.40-1.1+deb12u2) ...
+Setting up gpg-wks-client (2.2.40-1.1+deb12u2) ...
+Setting up gnupg (2.2.40-1.1+deb12u2) ...
+Processing triggers for libc-bin (2.36-9+deb12u7) ...
+Processing triggers for ca-certificates (20250419~deb12u1) ...
+Updating certificates in /etc/ssl/certs...
+0 added, 0 removed; done.
+Running hooks in /etc/ca-certificates/update.d...
+done.
+debconf: delaying package configuration, since apt-utils is not installed
+Selecting previously unselected package libnvidia-container1:amd64.
+(Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 9894 files and directories currently installed.)
+Preparing to unpack .../libnvidia-container1_1.20.1-1_amd64.deb ...
+Unpacking libnvidia-container1:amd64 (1.20.1-1) ...
+Selecting previously unselected package libnvidia-container-tools.
+Preparing to unpack .../libnvidia-container-tools_1.20.1-1_amd64.deb ...
+Unpacking libnvidia-container-tools (1.20.1-1) ...
+Selecting previously unselected package nvidia-container-toolkit-base.
+Preparing to unpack .../nvidia-container-toolkit-base_1.20.1-1_amd64.deb ...
+Unpacking nvidia-container-toolkit-base (1.20.1-1) ...
+Selecting previously unselected package nvidia-container-toolkit.
+Preparing to unpack .../nvidia-container-toolkit_1.20.1-1_amd64.deb ...
+Unpacking nvidia-container-toolkit (1.20.1-1) ...
+Setting up nvidia-container-toolkit-base (1.20.1-1) ...
+Created symlink /etc/systemd/system/multi-user.target.wants/nvidia-cdi-refresh.path → /lib/systemd/system/nvidia-cdi-refresh.path.
+Created symlink /etc/systemd/system/multi-user.target.wants/nvidia-cdi-refresh.service → /lib/systemd/system/nvidia-cdi-refresh.service.
+/usr/sbin/policy-rc.d returned 101, not running 'start nvidia-cdi-refresh.path nvidia-cdi-refresh.service'
+Setting up libnvidia-container1:amd64 (1.20.1-1) ...
+Setting up libnvidia-container-tools (1.20.1-1) ...
+Setting up nvidia-container-toolkit (1.20.1-1) ...
+Processing triggers for libc-bin (2.36-9+deb12u7) ...
+time="2026-10-11T03:08:35Z" level=info msg="Using config version 2"
+time="2026-10-11T03:08:35Z" level=info msg="Using CRI runtime plugin name \"io.containerd.grpc.v1.cri\""
+time="2026-10-11T03:08:35Z" level=info msg="Wrote updated config to /etc/containerd/conf.d/99-nvidia.toml"
+time="2026-10-11T03:08:35Z" level=info msg="It is recommended that containerd daemon be restarted."
+node/m5cgpu-worker condition met
++ export KUBECONFIG=/tmp/kubeconfig
++ KUBECONFIG=/tmp/kubeconfig
++ step 'kueue CRDs, node labels and the exclusive device plugin'
++ tee -a /tmp/out/steps.txt
+++ date -u +%FT%TZ
++ echo '2026-10-11T03:08:36Z kueue CRDs, node labels and the exclusive device plugin'
+2026-10-11T03:08:36Z kueue CRDs, node labels and the exclusive device plugin
++ k apply --server-side -f config/kueue-crds/
++ kubectl apply --server-side -f config/kueue-crds/
+customresourcedefinition.apiextensions.k8s.io/clusterqueues.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/localqueues.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/resourceflavors.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/workloads.kueue.x-k8s.io serverside-applied
+++ seq 1 60
++ for _ in $(seq 1 60)
++ established workloads.kueue.x-k8s.io
+++ k get crd workloads.kueue.x-k8s.io -o 'jsonpath={.status.conditions[?(@.type=="Established")].status}'
++ '[' '' = True ']'
++ sleep 2
++ for _ in $(seq 1 60)
++ established workloads.kueue.x-k8s.io
+++ k get crd workloads.kueue.x-k8s.io -o 'jsonpath={.status.conditions[?(@.type=="Established")].status}'
++ '[' True = True ']'
++ established inferencedeployments.platform.lkhun9311.github.io
+++ k get crd inferencedeployments.platform.lkhun9311.github.io -o 'jsonpath={.status.conditions[?(@.type=="Established")].status}'
++ '[' True = True ']'
++ break
++ established workloads.kueue.x-k8s.io
+++ k get crd workloads.kueue.x-k8s.io -o 'jsonpath={.status.conditions[?(@.type=="Established")].status}'
++ '[' True = True ']'
++ established inferencedeployments.platform.lkhun9311.github.io
+++ k get crd inferencedeployments.platform.lkhun9311.github.io -o 'jsonpath={.status.conditions[?(@.type=="Established")].status}'
++ '[' True = True ']'
++ k label node m5cgpu-worker node.kubernetes.io/instance-type=g5.2xlarge platform.lkhun9311.github.io/gpu=true --overwrite
++ kubectl label node m5cgpu-worker node.kubernetes.io/instance-type=g5.2xlarge platform.lkhun9311.github.io/gpu=true --overwrite
+node/m5cgpu-worker labeled
++ k apply -f -
++ k kustomize config/nvidia-device-plugin
++ kubectl kustomize config/nvidia-device-plugin
++ kubectl apply -f -
+daemonset.apps/nvidia-device-plugin created
+++ seq 1 60
++ for _ in $(seq 1 60)
+++ k get node m5cgpu-worker -o 'jsonpath={.status.allocatable.nvidia\.com/gpu}'
+++ kubectl get node m5cgpu-worker -o 'jsonpath={.status.allocatable.nvidia\.com/gpu}'
++ gpus=
++ '[' '' = 1 ']'
++ sleep 5
++ for _ in $(seq 1 60)
+++ k get node m5cgpu-worker -o 'jsonpath={.status.allocatable.nvidia\.com/gpu}'
+++ kubectl get node m5cgpu-worker -o 'jsonpath={.status.allocatable.nvidia\.com/gpu}'
++ gpus=
++ '[' '' = 1 ']'
++ sleep 5
++ for _ in $(seq 1 60)
+++ k get node m5cgpu-worker -o 'jsonpath={.status.allocatable.nvidia\.com/gpu}'
+++ kubectl get node m5cgpu-worker -o 'jsonpath={.status.allocatable.nvidia\.com/gpu}'
++ gpus=
++ '[' '' = 1 ']'
++ sleep 5
++ for _ in $(seq 1 60)
+++ k get node m5cgpu-worker -o 'jsonpath={.status.allocatable.nvidia\.com/gpu}'
+++ kubectl get node m5cgpu-worker -o 'jsonpath={.status.allocatable.nvidia\.com/gpu}'
++ gpus=1
++ '[' 1 = 1 ']'
++ break
++ '[' 1 = 1 ']'
++ step 'start the manager'
++ tee -a /tmp/out/steps.txt
+++ date -u +%FT%TZ
++ echo '2026-10-11T03:08:54Z start the manager'
+2026-10-11T03:08:54Z start the manager
++ /src/bin/manager --health-probe-bind-address=:18081 --metrics-bind-address=0
+++ seq 1 30
++ for _ in $(seq 1 30)
++ curl -fs localhost:18081/healthz
++ sleep 2
++ for _ in $(seq 1 30)
++ curl -fs localhost:18081/healthz
++ break
++ curl -fs localhost:18081/healthz
++ step 'apply the HoldCap sample'
++ tee -a /tmp/out/steps.txt
+++ date -u +%FT%TZ
++ echo '2026-10-11T03:08:56Z apply the HoldCap sample'
+2026-10-11T03:08:56Z apply the HoldCap sample
++ k apply -n default -f config/samples/platform_v1_inferencedeployment_holdcap.yaml
++ kubectl apply -n default -f config/samples/platform_v1_inferencedeployment_holdcap.yaml
+inferencedeployment.platform.lkhun9311.github.io/qwen25-3b-holdcap created
+++ seq 1 60
++ for _ in $(seq 1 60)
++ k -n default get deploy qwen25-3b-holdcap
++ break
++ k -n default get deploy qwen25-3b-holdcap
++ kubectl -n default get deploy qwen25-3b-holdcap
++ snapshot at-create
++ k -n default get inferencedeployment qwen25-3b-holdcap -o json
++ kubectl -n default get inferencedeployment qwen25-3b-holdcap -o json
++ k -n default get deploy qwen25-3b-holdcap -o json
++ k -n default get pods -l app.kubernetes.io/instance=qwen25-3b-holdcap -o wide
+++ admission_mode
+++ k -n default get inferencedeployment qwen25-3b-holdcap -o 'jsonpath={.status.admission.mode}/{.status.admission.observedGeneration}/{.metadata.generation}'
+++ kubectl -n default get inferencedeployment qwen25-3b-holdcap -o 'jsonpath={.status.admission.mode}/{.status.admission.observedGeneration}/{.metadata.generation}'
++ step 'status at create: Off/1/1'
+++ date -u +%FT%TZ
++ echo '2026-10-11T03:08:57Z status at create: Off/1/1'
++ tee -a /tmp/out/steps.txt
+2026-10-11T03:08:57Z status at create: Off/1/1
++ step 'wait for the capped engine'
+++ date -u +%FT%TZ
++ echo '2026-10-11T03:08:57Z wait for the capped engine'
++ tee -a /tmp/out/steps.txt
+2026-10-11T03:08:57Z wait for the capped engine
++ k -n default rollout status deploy/qwen25-3b-holdcap --timeout=1500s
++ kubectl -n default rollout status deploy/qwen25-3b-holdcap --timeout=1500s
+Waiting for deployment "qwen25-3b-holdcap" rollout to finish: 0 of 1 updated replicas are available...
+deployment "qwen25-3b-holdcap" successfully rolled out
+++ seq 1 60
++ for _ in $(seq 1 60)
++ case "$(admission_mode)" in
+++ admission_mode
+++ k -n default get inferencedeployment qwen25-3b-holdcap -o 'jsonpath={.status.admission.mode}/{.status.admission.observedGeneration}/{.metadata.generation}'
+++ kubectl -n default get inferencedeployment qwen25-3b-holdcap -o 'jsonpath={.status.admission.mode}/{.status.admission.observedGeneration}/{.metadata.generation}'
++ break
++ snapshot holdcap
++ k -n default get inferencedeployment qwen25-3b-holdcap -o json
++ kubectl -n default get inferencedeployment qwen25-3b-holdcap -o json
++ k -n default get deploy qwen25-3b-holdcap -o json
++ k -n default get pods -l app.kubernetes.io/instance=qwen25-3b-holdcap -o wide
+++ admission_mode
+++ k -n default get inferencedeployment qwen25-3b-holdcap -o 'jsonpath={.status.admission.mode}/{.status.admission.observedGeneration}/{.metadata.generation}'
+++ kubectl -n default get inferencedeployment qwen25-3b-holdcap -o 'jsonpath={.status.admission.mode}/{.status.admission.observedGeneration}/{.metadata.generation}'
++ step 'status after the rollout: HoldCap/1/1'
++ tee -a /tmp/out/steps.txt
+++ date -u +%FT%TZ
++ echo '2026-10-11T03:18:27Z status after the rollout: HoldCap/1/1'
+2026-10-11T03:18:27Z status after the rollout: HoldCap/1/1
++ args_line
++ k -n default logs deploy/qwen25-3b-holdcap --tail=-1
++ kubectl -n default logs deploy/qwen25-3b-holdcap --tail=-1
++ grep -o 'non-default args: {.*}'
++ tail -1
++ '[' -s /tmp/out/args-holdcap.txt ']'
++ step 'one streaming request per tier priority, straight to the engine'
++ tee -a /tmp/out/steps.txt
+++ date -u +%FT%TZ
++ echo '2026-10-11T03:18:27Z one streaming request per tier priority, straight to the engine'
+2026-10-11T03:18:27Z one streaming request per tier priority, straight to the engine
++ PF=16692
++ sleep 3
++ k -n default port-forward svc/qwen25-3b-holdcap 18000:8000
++ for p in 0 1
++ curl -sS -o /tmp/out/request-priority-0.txt -w '%{http_code}\n' localhost:18000/v1/chat/completions -H 'Content-Type: application/json' -d '{"model":"Qwen/Qwen2.5-3B-Instruct","messages":[{"role":"user","content":"Say hello."}],"stream":true,"max_tokens":16,"priority":0}'
++ for p in 0 1
++ curl -sS -o /tmp/out/request-priority-1.txt -w '%{http_code}\n' localhost:18000/v1/chat/completions -H 'Content-Type: application/json' -d '{"model":"Qwen/Qwen2.5-3B-Instruct","messages":[{"role":"user","content":"Say hello."}],"stream":true,"max_tokens":16,"priority":1}'
++ kill 16692
++ step 'turn HoldCap off'
++ tee -a /tmp/out/steps.txt
+++ date -u +%FT%TZ
++ echo '2026-10-11T03:18:31Z turn HoldCap off'
+2026-10-11T03:18:31Z turn HoldCap off
+++ date +%s.%N
++ t0=1791688711.309566713
++ k -n default patch inferencedeployment qwen25-3b-holdcap --type=merge -p '{"spec":{"admission":{"mode":"Off","maxHold":null}}}'
++ kubectl -n default patch inferencedeployment qwen25-3b-holdcap --type=merge -p '{"spec":{"admission":{"mode":"Off","maxHold":null}}}'
+inferencedeployment.platform.lkhun9311.github.io/qwen25-3b-holdcap patched
+++ seq 1 120
++ for _ in $(seq 1 120)
+++ admission_mode
+++ k -n default get inferencedeployment qwen25-3b-holdcap -o 'jsonpath={.status.admission.mode}/{.status.admission.observedGeneration}/{.metadata.generation}'
+++ kubectl -n default get inferencedeployment qwen25-3b-holdcap -o 'jsonpath={.status.admission.mode}/{.status.admission.observedGeneration}/{.metadata.generation}'
++ m=Off/2/2
++ case "$m" in
++ g=2/2
++ '[' 2 = 2 ']'
++ break
++++ date +%s.%N
+++ awk -v a=1791688711.447490373 -v b=1791688711.309566713 'BEGIN{printf "%.1f", a-b}'
+++ admission_mode
+++ k -n default get inferencedeployment qwen25-3b-holdcap -o 'jsonpath={.status.admission.mode}/{.status.admission.observedGeneration}/{.metadata.generation}'
+++ kubectl -n default get inferencedeployment qwen25-3b-holdcap -o 'jsonpath={.status.admission.mode}/{.status.admission.observedGeneration}/{.metadata.generation}'
++ echo '0.1s Off/2/2'
++ snapshot off-immediate
++ k -n default get inferencedeployment qwen25-3b-holdcap -o json
++ kubectl -n default get inferencedeployment qwen25-3b-holdcap -o json
++ k -n default get deploy qwen25-3b-holdcap -o json
++ k -n default get pods -l app.kubernetes.io/instance=qwen25-3b-holdcap -o wide
+++ cat /tmp/out/off-status-latency.txt
++ step 'status after turning off: 0.1s Off/2/2'
++ tee -a /tmp/out/steps.txt
+++ date -u +%FT%TZ
++ echo '2026-10-11T03:18:31Z status after turning off: 0.1s Off/2/2'
+2026-10-11T03:18:31Z status after turning off: 0.1s Off/2/2
+++ seq 1 60
++ for _ in $(seq 1 60)
++ template_off
+++ k -n default get deploy qwen25-3b-holdcap -o 'jsonpath={.spec.template.metadata.annotations.platform\.lkhun9311\.github\.io/admission}'
+++ kubectl -n default get deploy qwen25-3b-holdcap -o 'jsonpath={.spec.template.metadata.annotations.platform\.lkhun9311\.github\.io/admission}'
++ '[' Off = Off ']'
+++ k -n default get deploy qwen25-3b-holdcap -o 'jsonpath={.status.observedGeneration}'
+++ kubectl -n default get deploy qwen25-3b-holdcap -o 'jsonpath={.status.observedGeneration}'
+++ k -n default get deploy qwen25-3b-holdcap -o 'jsonpath={.metadata.generation}'
+++ kubectl -n default get deploy qwen25-3b-holdcap -o 'jsonpath={.metadata.generation}'
++ '[' 2 = 2 ']'
++ break
++ template_off
+++ k -n default get deploy qwen25-3b-holdcap -o 'jsonpath={.spec.template.metadata.annotations.platform\.lkhun9311\.github\.io/admission}'
+++ kubectl -n default get deploy qwen25-3b-holdcap -o 'jsonpath={.spec.template.metadata.annotations.platform\.lkhun9311\.github\.io/admission}'
++ '[' Off = Off ']'
+++ k -n default get deploy qwen25-3b-holdcap -o 'jsonpath={.status.observedGeneration}'
+++ kubectl -n default get deploy qwen25-3b-holdcap -o 'jsonpath={.status.observedGeneration}'
+++ k -n default get deploy qwen25-3b-holdcap -o 'jsonpath={.metadata.generation}'
+++ kubectl -n default get deploy qwen25-3b-holdcap -o 'jsonpath={.metadata.generation}'
++ '[' 2 = 2 ']'
++ k -n default rollout status deploy/qwen25-3b-holdcap --timeout=900s
++ kubectl -n default rollout status deploy/qwen25-3b-holdcap --timeout=900s
+Waiting for deployment "qwen25-3b-holdcap" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "qwen25-3b-holdcap" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "qwen25-3b-holdcap" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "qwen25-3b-holdcap" rollout to finish: 0 of 1 updated replicas are available...
+deployment "qwen25-3b-holdcap" successfully rolled out
++ sleep 5
++ snapshot off
++ k -n default get inferencedeployment qwen25-3b-holdcap -o json
++ kubectl -n default get inferencedeployment qwen25-3b-holdcap -o json
++ k -n default get deploy qwen25-3b-holdcap -o json
++ k -n default get pods -l app.kubernetes.io/instance=qwen25-3b-holdcap -o wide
++ args_line
++ k -n default logs deploy/qwen25-3b-holdcap --tail=-1
++ kubectl -n default logs deploy/qwen25-3b-holdcap --tail=-1
++ grep -o 'non-default args: {.*}'
++ tail -1
++ '[' -s /tmp/out/args-off.txt ']'
++ step DONE
+++ date -u +%FT%TZ
++ echo '2026-10-11T03:21:21Z DONE'
++ tee -a /tmp/out/steps.txt
+2026-10-11T03:21:21Z DONE
++ echo done
++ finish
++ for f in /tmp/out/*
+++ basename /tmp/out/DONE
++ upload /tmp/out/DONE out/DONE
++ aws s3 cp /tmp/out/DONE s3://m5c-gpu-007635145730/holdcap-conformance/20261011T030610Z-40feea6f3eaf/out/DONE
+Completed 5 Bytes/5 Bytes (75 Bytes/s) with 1 file(s) remainingupload: ../tmp/out/DONE to s3://m5c-gpu-007635145730/holdcap-conformance/20261011T030610Z-40feea6f3eaf/out/DONE
++ for f in /tmp/out/*
+++ basename /tmp/out/args-holdcap.txt
++ upload /tmp/out/args-holdcap.txt out/args-holdcap.txt
++ aws s3 cp /tmp/out/args-holdcap.txt s3://m5c-gpu-007635145730/holdcap-conformance/20261011T030610Z-40feea6f3eaf/out/args-holdcap.txt
+Completed 522 Bytes/522 Bytes (8.5 KiB/s) with 1 file(s) remainingupload: ../tmp/out/args-holdcap.txt to s3://m5c-gpu-007635145730/holdcap-conformance/20261011T030610Z-40feea6f3eaf/out/args-holdcap.txt
++ for f in /tmp/out/*
+++ basename /tmp/out/args-off.txt
++ upload /tmp/out/args-off.txt out/args-off.txt
++ aws s3 cp /tmp/out/args-off.txt s3://m5c-gpu-007635145730/holdcap-conformance/20261011T030610Z-40feea6f3eaf/out/args-off.txt
+Completed 485 Bytes/485 Bytes (6.7 KiB/s) with 1 file(s) remainingupload: ../tmp/out/args-off.txt to s3://m5c-gpu-007635145730/holdcap-conformance/20261011T030610Z-40feea6f3eaf/out/args-off.txt
++ for f in /tmp/out/*
+++ basename /tmp/out/at-create-deployment.json
++ upload /tmp/out/at-create-deployment.json out/at-create-deployment.json
++ aws s3 cp /tmp/out/at-create-deployment.json s3://m5c-gpu-007635145730/holdcap-conformance/20261011T030610Z-40feea6f3eaf/out/at-create-deployment.json
+Completed 8.5 KiB/8.5 KiB (124.8 KiB/s) with 1 file(s) remainingupload: ../tmp/out/at-create-deployment.json to s3://m5c-gpu-007635145730/holdcap-conformance/20261011T030610Z-40feea6f3eaf/out/at-create-deployment.json
++ for f in /tmp/out/*
+++ basename /tmp/out/at-create-infd.json
++ upload /tmp/out/at-create-infd.json out/at-create-infd.json
++ aws s3 cp /tmp/out/at-create-infd.json s3://m5c-gpu-007635145730/holdcap-conformance/20261011T030610Z-40feea6f3eaf/out/at-create-infd.json
+Completed 2.8 KiB/2.8 KiB (47.5 KiB/s) with 1 file(s) remainingupload: ../tmp/out/at-create-infd.json to s3://m5c-gpu-007635145730/holdcap-conformance/20261011T030610Z-40feea6f3eaf/out/at-create-infd.json
++ for f in /tmp/out/*
+++ basename /tmp/out/at-create-pods.txt
++ upload /tmp/out/at-create-pods.txt out/at-create-pods.txt
++ aws s3 cp /tmp/out/at-create-pods.txt s3://m5c-gpu-007635145730/holdcap-conformance/20261011T030610Z-40feea6f3eaf/out/at-create-pods.txt
+Completed 357 Bytes/357 Bytes (5.8 KiB/s) with 1 file(s) remainingupload: ../tmp/out/at-create-pods.txt to s3://m5c-gpu-007635145730/holdcap-conformance/20261011T030610Z-40feea6f3eaf/out/at-create-pods.txt
++ for f in /tmp/out/*
+++ basename /tmp/out/commit.txt
++ upload /tmp/out/commit.txt out/commit.txt
++ aws s3 cp /tmp/out/commit.txt s3://m5c-gpu-007635145730/holdcap-conformance/20261011T030610Z-40feea6f3eaf/out/commit.txt
+Completed 41 Bytes/41 Bytes (378 Bytes/s) with 1 file(s) remainingupload: ../tmp/out/commit.txt to s3://m5c-gpu-007635145730/holdcap-conformance/20261011T030610Z-40feea6f3eaf/out/commit.txt
++ for f in /tmp/out/*
+++ basename /tmp/out/holdcap-deployment.json
++ upload /tmp/out/holdcap-deployment.json out/holdcap-deployment.json
++ aws s3 cp /tmp/out/holdcap-deployment.json s3://m5c-gpu-007635145730/holdcap-conformance/20261011T030610Z-40feea6f3eaf/out/holdcap-deployment.json
+Completed 8.6 KiB/8.6 KiB (142.5 KiB/s) with 1 file(s) remainingupload: ../tmp/out/holdcap-deployment.json to s3://m5c-gpu-007635145730/holdcap-conformance/20261011T030610Z-40feea6f3eaf/out/holdcap-deployment.json
++ for f in /tmp/out/*
+++ basename /tmp/out/holdcap-infd.json
++ upload /tmp/out/holdcap-infd.json out/holdcap-infd.json
++ aws s3 cp /tmp/out/holdcap-infd.json s3://m5c-gpu-007635145730/holdcap-conformance/20261011T030610Z-40feea6f3eaf/out/holdcap-infd.json
+Completed 2.8 KiB/2.8 KiB (42.9 KiB/s) with 1 file(s) remainingupload: ../tmp/out/holdcap-infd.json to s3://m5c-gpu-007635145730/holdcap-conformance/20261011T030610Z-40feea6f3eaf/out/holdcap-infd.json
++ for f in /tmp/out/*
+++ basename /tmp/out/holdcap-pods.txt
++ upload /tmp/out/holdcap-pods.txt out/holdcap-pods.txt
++ aws s3 cp /tmp/out/holdcap-pods.txt s3://m5c-gpu-007635145730/holdcap-conformance/20261011T030610Z-40feea6f3eaf/out/holdcap-pods.txt
+Completed 349 Bytes/349 Bytes (5.5 KiB/s) with 1 file(s) remainingupload: ../tmp/out/holdcap-pods.txt to s3://m5c-gpu-007635145730/holdcap-conformance/20261011T030610Z-40feea6f3eaf/out/holdcap-pods.txt
++ for f in /tmp/out/*
+++ basename /tmp/out/nvidia-smi.csv
++ upload /tmp/out/nvidia-smi.csv out/nvidia-smi.csv
++ aws s3 cp /tmp/out/nvidia-smi.csv s3://m5c-gpu-007635145730/holdcap-conformance/20261011T030610Z-40feea6f3eaf/out/nvidia-smi.csv
+Completed 85 Bytes/85 Bytes (1.3 KiB/s) with 1 file(s) remainingupload: ../tmp/out/nvidia-smi.csv to s3://m5c-gpu-007635145730/holdcap-conformance/20261011T030610Z-40feea6f3eaf/out/nvidia-smi.csv
++ for f in /tmp/out/*
+++ basename /tmp/out/off-deployment.json
++ upload /tmp/out/off-deployment.json out/off-deployment.json
++ aws s3 cp /tmp/out/off-deployment.json s3://m5c-gpu-007635145730/holdcap-conformance/20261011T030610Z-40feea6f3eaf/out/off-deployment.json
+Completed 8.5 KiB/8.5 KiB (127.8 KiB/s) with 1 file(s) remainingupload: ../tmp/out/off-deployment.json to s3://m5c-gpu-007635145730/holdcap-conformance/20261011T030610Z-40feea6f3eaf/out/off-deployment.json
++ for f in /tmp/out/*
+++ basename /tmp/out/off-immediate-deployment.json
++ upload /tmp/out/off-immediate-deployment.json out/off-immediate-deployment.json
++ aws s3 cp /tmp/out/off-immediate-deployment.json s3://m5c-gpu-007635145730/holdcap-conformance/20261011T030610Z-40feea6f3eaf/out/off-immediate-deployment.json
+Completed 8.4 KiB/8.4 KiB (120.1 KiB/s) with 1 file(s) remainingupload: ../tmp/out/off-immediate-deployment.json to s3://m5c-gpu-007635145730/holdcap-conformance/20261011T030610Z-40feea6f3eaf/out/off-immediate-deployment.json
++ for f in /tmp/out/*
+++ basename /tmp/out/off-immediate-infd.json
++ upload /tmp/out/off-immediate-infd.json out/off-immediate-infd.json
++ aws s3 cp /tmp/out/off-immediate-infd.json s3://m5c-gpu-007635145730/holdcap-conformance/20261011T030610Z-40feea6f3eaf/out/off-immediate-infd.json
+Completed 2.7 KiB/2.7 KiB (40.6 KiB/s) with 1 file(s) remainingupload: ../tmp/out/off-immediate-infd.json to s3://m5c-gpu-007635145730/holdcap-conformance/20261011T030610Z-40feea6f3eaf/out/off-immediate-infd.json
++ for f in /tmp/out/*
+++ basename /tmp/out/off-immediate-pods.txt
++ upload /tmp/out/off-immediate-pods.txt out/off-immediate-pods.txt
++ aws s3 cp /tmp/out/off-immediate-pods.txt s3://m5c-gpu-007635145730/holdcap-conformance/20261011T030610Z-40feea6f3eaf/out/off-immediate-pods.txt
+Completed 357 Bytes/357 Bytes (5.3 KiB/s) with 1 file(s) remainingupload: ../tmp/out/off-immediate-pods.txt to s3://m5c-gpu-007635145730/holdcap-conformance/20261011T030610Z-40feea6f3eaf/out/off-immediate-pods.txt
++ for f in /tmp/out/*
+++ basename /tmp/out/off-infd.json
++ upload /tmp/out/off-infd.json out/off-infd.json
++ aws s3 cp /tmp/out/off-infd.json s3://m5c-gpu-007635145730/holdcap-conformance/20261011T030610Z-40feea6f3eaf/out/off-infd.json
+Completed 2.8 KiB/2.8 KiB (38.8 KiB/s) with 1 file(s) remainingupload: ../tmp/out/off-infd.json to s3://m5c-gpu-007635145730/holdcap-conformance/20261011T030610Z-40feea6f3eaf/out/off-infd.json
++ for f in /tmp/out/*
+++ basename /tmp/out/off-pods.txt
++ upload /tmp/out/off-pods.txt out/off-pods.txt
++ aws s3 cp /tmp/out/off-pods.txt s3://m5c-gpu-007635145730/holdcap-conformance/20261011T030610Z-40feea6f3eaf/out/off-pods.txt
+Completed 349 Bytes/349 Bytes (5.1 KiB/s) with 1 file(s) remainingupload: ../tmp/out/off-pods.txt to s3://m5c-gpu-007635145730/holdcap-conformance/20261011T030610Z-40feea6f3eaf/out/off-pods.txt
++ for f in /tmp/out/*
+++ basename /tmp/out/off-status-latency.txt
++ upload /tmp/out/off-status-latency.txt out/off-status-latency.txt
++ aws s3 cp /tmp/out/off-status-latency.txt s3://m5c-gpu-007635145730/holdcap-conformance/20261011T030610Z-40feea6f3eaf/out/off-status-latency.txt
+Completed 13 Bytes/13 Bytes (229 Bytes/s) with 1 file(s) remainingupload: ../tmp/out/off-status-latency.txt to s3://m5c-gpu-007635145730/holdcap-conformance/20261011T030610Z-40feea6f3eaf/out/off-status-latency.txt
++ for f in /tmp/out/*
+++ basename /tmp/out/port-forward.txt
++ upload /tmp/out/port-forward.txt out/port-forward.txt
++ aws s3 cp /tmp/out/port-forward.txt s3://m5c-gpu-007635145730/holdcap-conformance/20261011T030610Z-40feea6f3eaf/out/port-forward.txt
+Completed 203 Bytes/203 Bytes (3.1 KiB/s) with 1 file(s) remainingupload: ../tmp/out/port-forward.txt to s3://m5c-gpu-007635145730/holdcap-conformance/20261011T030610Z-40feea6f3eaf/out/port-forward.txt
++ for f in /tmp/out/*
+++ basename /tmp/out/request-priority-0.code
++ upload /tmp/out/request-priority-0.code out/request-priority-0.code
++ aws s3 cp /tmp/out/request-priority-0.code s3://m5c-gpu-007635145730/holdcap-conformance/20261011T030610Z-40feea6f3eaf/out/request-priority-0.code
+Completed 4 Bytes/4 Bytes (67 Bytes/s) with 1 file(s) remainingupload: ../tmp/out/request-priority-0.code to s3://m5c-gpu-007635145730/holdcap-conformance/20261011T030610Z-40feea6f3eaf/out/request-priority-0.code
++ for f in /tmp/out/*
+++ basename /tmp/out/request-priority-0.txt
++ upload /tmp/out/request-priority-0.txt out/request-priority-0.txt
++ aws s3 cp /tmp/out/request-priority-0.txt s3://m5c-gpu-007635145730/holdcap-conformance/20261011T030610Z-40feea6f3eaf/out/request-priority-0.txt
+Completed 2.6 KiB/2.6 KiB (59.9 KiB/s) with 1 file(s) remainingupload: ../tmp/out/request-priority-0.txt to s3://m5c-gpu-007635145730/holdcap-conformance/20261011T030610Z-40feea6f3eaf/out/request-priority-0.txt
++ for f in /tmp/out/*
+++ basename /tmp/out/request-priority-1.code
++ upload /tmp/out/request-priority-1.code out/request-priority-1.code
++ aws s3 cp /tmp/out/request-priority-1.code s3://m5c-gpu-007635145730/holdcap-conformance/20261011T030610Z-40feea6f3eaf/out/request-priority-1.code
+Completed 4 Bytes/4 Bytes (72 Bytes/s) with 1 file(s) remainingupload: ../tmp/out/request-priority-1.code to s3://m5c-gpu-007635145730/holdcap-conformance/20261011T030610Z-40feea6f3eaf/out/request-priority-1.code
++ for f in /tmp/out/*
+++ basename /tmp/out/request-priority-1.txt
++ upload /tmp/out/request-priority-1.txt out/request-priority-1.txt
++ aws s3 cp /tmp/out/request-priority-1.txt s3://m5c-gpu-007635145730/holdcap-conformance/20261011T030610Z-40feea6f3eaf/out/request-priority-1.txt
+Completed 2.6 KiB/2.6 KiB (41.5 KiB/s) with 1 file(s) remainingupload: ../tmp/out/request-priority-1.txt to s3://m5c-gpu-007635145730/holdcap-conformance/20261011T030610Z-40feea6f3eaf/out/request-priority-1.txt
++ for f in /tmp/out/*
+++ basename /tmp/out/steps.txt
++ upload /tmp/out/steps.txt out/steps.txt
++ aws s3 cp /tmp/out/steps.txt s3://m5c-gpu-007635145730/holdcap-conformance/20261011T030610Z-40feea6f3eaf/out/steps.txt
+Completed 741 Bytes/741 Bytes (10.3 KiB/s) with 1 file(s) remainingupload: ../tmp/out/steps.txt to s3://m5c-gpu-007635145730/holdcap-conformance/20261011T030610Z-40feea6f3eaf/out/steps.txt
++ upload /tmp/manager.log out/manager.log
++ aws s3 cp /tmp/manager.log s3://m5c-gpu-007635145730/holdcap-conformance/20261011T030610Z-40feea6f3eaf/out/manager.log
+Completed 17.4 KiB/17.4 KiB (281.2 KiB/s) with 1 file(s) remainingupload: ../tmp/manager.log to s3://m5c-gpu-007635145730/holdcap-conformance/20261011T030610Z-40feea6f3eaf/out/manager.log
++ upload /var/log/holdcap.log log.txt
++ aws s3 cp /var/log/holdcap.log s3://m5c-gpu-007635145730/holdcap-conformance/20261011T030610Z-40feea6f3eaf/log.txt

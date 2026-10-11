@@ -113,6 +113,11 @@ type Server struct {
 	// backendsOverride is backendOverride for a model with several candidates, so the fallback path can run
 	// through the whole pipeline in a test; nil in production, and it wins over backendOverride when set.
 	backendsOverride func(model string) []*url.URL
+	// refsOverride is backendsOverride with whole BackendRefs, so a test can give a backend an admission mode; nil in production, and it wins over both.
+	refsOverride func(model string) []*BackendRef
+	// holdCap admits every HoldCap backend, built on first use so a gateway with none never makes one.
+	holdCap     holdCapAdmitter
+	holdCapOnce sync.Once
 	// responseHeaderTimeout bounds the wait for upstream response headers.
 	//
 	// Zero selects proxy.go's defaultResponseHeaderTimeout (30s), so production leaves it unset.
@@ -289,6 +294,9 @@ func (s *Server) failReason(w http.ResponseWriter, tenant, model string, code in
 //
 // It prefers the test hook over the real backendFor.
 func (s *Server) resolveBackend(ctx context.Context, policy *platformv1.GPUQuotaPolicy, model string) ([]*BackendRef, error) {
+	if s.refsOverride != nil {
+		return s.refsOverride(model), nil
+	}
 	if s.backendsOverride != nil {
 		urls := s.backendsOverride(model)
 		refs := make([]*BackendRef, 0, len(urls))
@@ -472,7 +480,9 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	// candidate, a third backend the request could never reach could reject it on its own pressure — a refusal
 	// attributable to a machine that was never going to serve. Registration has the same problem in the other
 	// direction: a scraper started for a backend outside the reachable set is telemetry nothing can act on.
-	targets = capBackendAttempts(targets)
+	// HoldCap backends are taken out of the tail before the cap, so the attempts the cap allows go to backends a fallback may enter.
+	// Capping first would spend the second attempt on a HoldCap backend that is then dropped, and a plain backend after it would never be tried.
+	targets = capBackendAttempts(holdCapTargets(targets))
 
 	// 7. Admission control: decide whether the request may proceed.
 	//
@@ -489,21 +499,9 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	// admission stage, so a refused request carries it too: a request that was never admitted is exactly the
 	// one whose population membership decides whether the guard is being scored fairly.
 	w.Header().Set(HeaderAdmissionTier, tier)
-	admitter := s.admitter
-	if admitter == nil {
-		// SetAdmitter was never called, so behave exactly as if the guard did not exist.
-		admitter = offAdmitter{}
-	}
-	// kv-aware is the only mode that needs to learn about a backend as soon as it is routed
-	// (design spec Config and API section, "the gateway registers backends as they are first
-	// routed"); off and static-cap don't implement backendRegistrar, so this is a no-op for
-	// them.
-	//
-	// scraperManager.Register is idempotent, so calling it on every request only actually
-	// starts a scraper the first time a given backend is seen.
-	mode := s.mode
-	if mode == "" {
-		mode = AdmissionOff
+	admitter, mode, holdCap := s.admissionFor(targets)
+	if holdCap && s.refuseHoldCapShape(w, tenant, meta, tier) {
+		return
 	}
 	// The latency metrics start here, before admission, because an admitter may hold the request: serial-prefill
 	// queues a standard request for its turn, and a timer started after it would report a request held 20 s before a
@@ -559,7 +557,8 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 
 	// Bound only after admission, so a refused request is never rewritten, and before the handoff, so every
 	// attempt on every backend carries the same priority.
-	if s.bindPriority {
+	// A HoldCap backend's engine is rendered with priority scheduling, so its requests carry the tier whatever -bind-priority says.
+	if s.bindPriority || holdCap {
 		p, err := bindEnginePriority(r, tier)
 		if err != nil {
 			s.fail(w, tenant, meta.Model, http.StatusInternalServerError)
