@@ -284,11 +284,11 @@ const HarnessGenerator = "benchharness-replay"
 func ArmsForSharingMode(mode string) ([]string, bool) {
 	switch mode {
 	case "sharedInstance":
-		return []string{"R1", "shared"}, true
+		return []string{"R1", ArmShared}, true
 	case "timeSlicing":
-		return []string{"R1", "timeSlicing"}, true
+		return []string{"R1", ArmTimeSlicing}, true
 	case "mps":
-		return []string{"R1", "mps"}, true
+		return []string{"R1", ArmMPS}, true
 	default:
 		return nil, false
 	}
