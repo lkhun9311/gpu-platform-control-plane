@@ -54,6 +54,8 @@ type HTTPSender struct {
 	//
 	// It is a field rather than always-on so a run can reproduce the client this replaced and measure the difference; see SenderConn.
 	drain bool
+	// closeEach sends each request with Connection: close; see SenderConn.CloseEachRequest.
+	closeEach bool
 	// now is injected only by tests; production uses the wall clock.
 	now func() time.Time
 }
@@ -71,6 +73,10 @@ type SenderConn struct {
 	MaxIdleConnsPerHost int
 	// DrainForReuse reads the unread tail of each response so its connection can go back to the pool.
 	DrainForReuse bool
+	// CloseEachRequest sends every request with Connection: close, so no connection is ever reused.
+	//
+	// Only SenderModeLegacy sets it; see there for why the legacy client needs it to stay what it claims to be.
+	CloseEachRequest bool
 }
 
 // The sender modes name whole generations of this client's connection handling, not individual knobs.
@@ -80,12 +86,18 @@ type SenderConn struct {
 // between them so the improvement can be attributed to the drain and the pool separately instead of being
 // reported as one lump.
 const (
-	// SenderModeLegacy is the client as it was: http.DefaultTransport, and no drain.
+	// SenderModeLegacy is the client as it was: http.DefaultTransport, no drain, and a new connection per
+	// request.
 	//
-	// Built with Go 1.27 or later it no longer reproduces that client exactly: the transport now drains up to
-	// 256 KiB of an unread body on Close, within 50 ms, and reuses the connection when it reaches EOF. A vLLM
-	// stream's remainder after [DONE] is a few bytes, so a legacy replay built since the toolchain moved to
-	// 1.27 reuses connections the old client discarded. Results recorded on Go 1.26 are unaffected.
+	// The old client dialled per request because it abandoned each body before EOF, and reused a connection
+	// only when the stream terminator happened to be buffered already. Go 1.27 changed the transport under it:
+	// it now drains up to 256 KiB of an unread body on Close, within 50 ms, and reuses the connection when that
+	// reaches EOF, and a vLLM stream's remainder after [DONE] is a few bytes. Built on 1.27, the unchanged
+	// client reused most connections and the "before" arm measured something close to drain-only.
+	//
+	// So it now sends Connection: close and reuses nothing. That is the old client's dial-per-request at its
+	// most consistent: an upper bound on its handshakes, where on Go 1.26 it sometimes did one fewer. Results
+	// recorded on Go 1.26 used the old behaviour and are unaffected.
 	SenderModeLegacy = "legacy"
 	// SenderModeDrainOnly keeps Go's default two-connection pool but drains, isolating the drain's share.
 	SenderModeDrainOnly = "drain-only"
@@ -100,7 +112,7 @@ const (
 func SenderConnForMode(mode string, trace []TraceRow, timeout time.Duration) (SenderConn, error) {
 	switch mode {
 	case SenderModeLegacy:
-		return SenderConn{}, nil
+		return SenderConn{CloseEachRequest: true}, nil
 	case SenderModeDrainOnly:
 		return SenderConn{DrainForReuse: true}, nil
 	case SenderModePooled:
@@ -203,6 +215,7 @@ func NewHTTPSender(gatewayURL, model string, apiKeys map[string]string, timeout 
 		apiKeys:    apiKeys,
 		timeout:    timeout,
 		drain:      conn.DrainForReuse,
+		closeEach:  conn.CloseEachRequest,
 		now:        time.Now,
 	}
 }
@@ -345,6 +358,7 @@ func (h *HTTPSender) Send(ctx context.Context, row TraceRow, sendUnixNanos int64
 	if err != nil {
 		return SendResult{ErrorKind: "transport"}
 	}
+	req.Close = h.closeEach
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "text/event-stream")
 	if key := h.apiKeys[row.Tenant]; key != "" {
