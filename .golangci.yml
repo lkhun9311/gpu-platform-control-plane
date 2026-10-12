@@ -33,8 +33,9 @@ linters:
         - name: comment-spacings
         - name: import-shadowing
     goconst:
-      # call is the default, restated because setting exclude-types replaces it.
-      # compositelit is new in goconst v1.11 (golangci-lint v2.14.0), which began counting strings inside composite
+      # Call is the default, restated because setting exclude-types replaces it. The capitalised spellings are
+      # the only ones the config schema accepts (`make lint-config`), although the linter itself ignores case.
+      # CompositeLit is new in goconst v1.11 (golangci-lint v2.14.0), which began counting strings inside composite
       # literals: struct fields and table rows such as {"dtype", "dtype", "str"}, where the repetition is the
       # shape of the table and a constant would hide which row is which -- the reason test files are already
       # exempt below. It is excluded to keep the scope v2.11.4 enforced. All 39 of its findings were inside
@@ -43,8 +44,8 @@ linters:
       # Tenant: "canary" rows do not, because ownerCanary names a journal owner kind, not a tenant, and shares
       # only the spelling.
       exclude-types:
-        - call
-        - compositelit
+        - Call
+        - CompositeLit
     modernize:
       disable:
         - omitzero
