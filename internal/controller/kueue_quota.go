@@ -50,9 +50,11 @@ const (
 	reasonKueueConflict = "KueueQueueConflict"
 )
 
-// kueueGPUResource is the extended resource the training ClusterQueue caps.
+// kueueGPUResource is the extended resource the tenant's ClusterQueue caps.
 //
-// Training GPU quota lives on this key in Kueue, while serving quota stays on the namespace ResourceQuota, so the same GPUs are not counted twice.
+// Where a policy sets trainingQuota, this key in Kueue is the namespace's only GPU ledger.
+// Training Jobs are charged here, and so are serving Pods, through the queue label the InferenceDeployment controller writes.
+// The namespace ResourceQuota is removed in that mode, so the same GPUs are not counted twice.
 var kueueGPUResource = corev1.ResourceName("nvidia.com/gpu")
 
 // kueueQueueName is the deterministic name of the per-tenant ClusterQueue and LocalQueue.
