@@ -323,7 +323,16 @@ var _ = Describe("HTTPSender", func() {
 			// were reliable. A tail this size cannot be sitting in a buffer, so an undrained body always
 			// leaves unread bytes and the connection is always discarded, which is the causal claim the
 			// before/after arms rest on.
-			_, _ = fmt.Fprint(w, ": "+strings.Repeat("x", 64<<10)+"\n\n")
+			//
+			// 1 MiB rather than the 64 KiB it was, because since Go 1.27 the transport itself drains up to
+			// 256 KiB of an unread body on Close, within 50 ms (net/http maxPostCloseReadBytes), and reuses the
+			// connection when that reaches EOF. A 64 KiB tail then failed 5 times in 30 on go1.27.0 and go1.27.2
+			// against 0 in 30 on go1.26.9; above the drain limit it failed 0 in 30.
+			//
+			// What this does not show is that legacy differs from drain-only: maxDrainBytes is 8 KiB, so over a
+			// remainder this size no mode reuses a connection, and a mutation making legacy drain stays green.
+			// On Go 1.27 the two are close to indistinguishable on a real stream (see SenderModeLegacy).
+			_, _ = fmt.Fprint(w, ": "+strings.Repeat("x", 1<<20)+"\n\n")
 			f.Flush()
 		}))
 		srv.Config.ConnState = func(_ net.Conn, state http.ConnState) {

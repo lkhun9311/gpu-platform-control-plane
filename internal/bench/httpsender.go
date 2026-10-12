@@ -81,6 +81,11 @@ type SenderConn struct {
 // reported as one lump.
 const (
 	// SenderModeLegacy is the client as it was: http.DefaultTransport, and no drain.
+	//
+	// Built with Go 1.27 or later it no longer reproduces that client exactly: the transport now drains up to
+	// 256 KiB of an unread body on Close, within 50 ms, and reuses the connection when it reaches EOF. A vLLM
+	// stream's remainder after [DONE] is a few bytes, so a legacy replay built since the toolchain moved to
+	// 1.27 reuses connections the old client discarded. Results recorded on Go 1.26 are unaffected.
 	SenderModeLegacy = "legacy"
 	// SenderModeDrainOnly keeps Go's default two-connection pool but drains, isolating the drain's share.
 	SenderModeDrainOnly = "drain-only"

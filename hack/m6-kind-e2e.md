@@ -48,7 +48,7 @@ preemption deterministic rather than a race against a short-lived job.
 - `docker` running, plus the vendored `bin/` tools (`kind`, `kubectl`, `kustomize`).
 - Network access to pull the `kind` node image, the Kueue release manifest, and
   the `busybox` image.
-- Go 1.26 toolchain for the image builds (`GOTOOLCHAIN=go1.26.6`, handled by the script).
+- The module's Go toolchain for the image builds (the script sets `GOTOOLCHAIN` from `go.mod`).
 
 ## Procedure
 
