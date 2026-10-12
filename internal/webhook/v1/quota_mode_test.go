@@ -277,9 +277,9 @@ func TestAServingPodIsRefusedWhereNoQuotaChargesIt(t *testing.T) {
 			policy("team-a-quota", "team-a", false), gpuQuotaFor("team-a-quota", "team-a", false)}},
 		{"status.hard not filled in yet", "read spec.hard alone", []client.Object{policy("team-a-quota", "team-a", false),
 			quota(func(q *corev1.ResourceQuota) { q.Status = corev1.ResourceQuotaStatus{} })}},
-		{"status.hard behind spec.hard", "accept any status value", []client.Object{policy("team-a-quota", "team-a", false),
-			quota(func(q *corev1.ResourceQuota) {
-				q.Status.Hard[gpuRequestsResource] = *resource.NewQuantity(8, resource.DecimalSI)
+		{"the GPU key added to spec.hard and not yet to status.hard", "read spec.hard alone", []client.Object{
+			policy("team-a-quota", "team-a", false), quota(func(q *corev1.ResourceQuota) {
+				q.Status.Hard = corev1.ResourceList{corev1.ResourcePods: *resource.NewQuantity(10, resource.DecimalSI)}
 			})}},
 		{"a scoped quota", "ignore spec.scopes", []client.Object{policy("team-a-quota", "team-a", false),
 			quota(func(q *corev1.ResourceQuota) {
@@ -294,6 +294,14 @@ func TestAServingPodIsRefusedWhereNoQuotaChargesIt(t *testing.T) {
 			})}},
 		{"a quota the policy does not own", "skip the ownership check", []client.Object{policy("team-a-quota", "team-a", false),
 			quota(func(q *corev1.ResourceQuota) { q.OwnerReferences = nil })}},
+		{"a quota controlled by another object of the same name", "match the owner by name rather than UID",
+			[]client.Object{policy("team-a-quota", "team-a", false), quota(func(q *corev1.ResourceQuota) {
+				q.OwnerReferences[0].UID = "someone-else"
+			})}},
+		{"a quota the policy owns without controlling it", "accept any ownerReference", []client.Object{
+			policy("team-a-quota", "team-a", false), quota(func(q *corev1.ResourceQuota) {
+				q.OwnerReferences[0].Controller = nil
+			})}},
 		{"a quota being deleted", "ignore the quota's deletion", []client.Object{policy("team-a-quota", "team-a", false),
 			quota(func(q *corev1.ResourceQuota) {
 				q.DeletionTimestamp = &now
@@ -320,7 +328,29 @@ func TestAServingPodIsRefusedWhereNoQuotaChargesIt(t *testing.T) {
 			if !strings.Contains(res.Result.Message, "no ResourceQuota") {
 				t.Fatalf("refused for a reason other than the quota reading: %s", res.Result.Message)
 			}
+			// The Job guard asks the same question before a reservation is made, and must answer it the same way.
+			res = askJob(t, unqueuedJob(), c.objs...)
+			if res.Allowed {
+				t.Fatalf("admitted an unqueued GPU Job nothing charges (would pass under: %s)", c.mutation)
+			}
+			if !strings.Contains(res.Result.Message, "no ResourceQuota") {
+				t.Fatalf("the Job was refused for a reason other than the quota reading: %s", res.Result.Message)
+			}
 		})
+	}
+}
+
+// A changed ceiling reaches status.hard after spec.hard. In between, Kubernetes still charges a Pod against the
+// key status.hard carries, at its old value, so the Pod is charged and refusing it would only make the tenant
+// retry.
+//
+// Mutation that turns this red: require status.hard to equal spec.hard.
+func TestAPodIsAdmittedWhileAChangedCeilingPropagates(t *testing.T) {
+	q := gpuQuotaFor("team-a-quota", "team-a", true)
+	q.Status.Hard[gpuRequestsResource] = *resource.NewQuantity(8, resource.DecimalSI)
+	res := ask(t, gpuValidator(t, policy("team-a-quota", "team-a", false), q), replicaSetController, gpuPod(1, nil))
+	if !res.Allowed {
+		t.Fatalf("refused a Pod Kubernetes charges against the ceiling still in status.hard: %s", res.Result.Message)
 	}
 }
 

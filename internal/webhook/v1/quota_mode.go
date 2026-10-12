@@ -63,10 +63,10 @@ func quotaName(policyName string) string { return "gpuquota-" + policyName }
 //     controller refuses to adopt, cannot stand in for the policy's ceiling.
 //   - Each quota is unscoped. A scoped quota charges only the Pods its scopes select, and this function does
 //     not evaluate scopes against a Pod, so a scoped one could admit a Pod nothing then charges.
-//   - Each quota's status.hard already carries the GPU key at the value spec.hard asks for. Kubernetes' quota
-//     admission matches resources against status.hard, which the API server clears at creation and the
-//     quota controller fills in afterwards; until then a GPU Pod does not match the quota and is charged to
-//     nothing.
+//   - Each quota's status.hard already carries the GPU key. Kubernetes' quota admission matches resources
+//     against status.hard, which the API server clears at creation and the quota controller fills in
+//     afterwards; until then a GPU Pod does not match the quota and is charged to nothing. The same holds
+//     for a GPU key newly added to an existing quota.
 //
 // Every read error is returned, never swallowed. The callers fail closed on it, for the reason the webhook's
 // failurePolicy is Fail: a guard that stops applying when a read fails admits exactly what it exists to
@@ -128,10 +128,11 @@ func chargesEveryGPUPod(rq *corev1.ResourceQuota, p *platformv1.GPUQuotaPolicy) 
 	if len(rq.Spec.Scopes) > 0 || rq.Spec.ScopeSelector != nil {
 		return false
 	}
-	want, capped := rq.Spec.Hard[gpuRequestsResource]
-	if !capped {
+	if _, capped := rq.Spec.Hard[gpuRequestsResource]; !capped {
 		return false
 	}
-	have, initialised := rq.Status.Hard[gpuRequestsResource]
-	return initialised && have.Cmp(want) == 0
+	// Presence, not equality with spec.hard: Kubernetes charges a Pod against every key status.hard carries,
+	// whatever its value, so while a changed ceiling propagates the Pod is still charged, against the old one.
+	_, initialised := rq.Status.Hard[gpuRequestsResource]
+	return initialised
 }

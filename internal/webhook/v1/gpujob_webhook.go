@@ -84,6 +84,8 @@ func (v *GPUJobValidator) Handle(ctx context.Context, req admission.Request) adm
 		// queues, so this branch was refusing the ordinary path of every tenant that never asked for Kueue --
 		// while its policy reported Synced. The refusal is right where Kueue is the authority and wrong where
 		// it is not, so the question the guard asks is now which of the two holds the budget.
+		// It answers "metered" only once the policy's ResourceQuota is owned, unscoped and initialised, so a Job
+		// submitted in the seconds after a policy is created is refused and must be retried.
 		metered, err := meteredByResourceQuota(ctx, v.Reader, req.Namespace)
 		if err != nil {
 			// Fail closed, for the same reason the webhook's failurePolicy is Fail.
@@ -92,9 +94,10 @@ func (v *GPUJobValidator) Handle(ctx context.Context, req admission.Request) adm
 		}
 		if !metered {
 			return admission.Denied(fmt.Sprintf(
-				"this Job asks for %d %s and carries no %s, so Kueue would never admit it and every Pod it "+
-					"created would be refused: label it with the tenant's queue, or submit an MLTrainingJob, "+
-					"which sets the label for you",
+				"this Job asks for %d %s and carries no %s, and no ResourceQuota is charging GPU Pods in this "+
+					"namespace, so nothing would charge it and every Pod it created would be refused: where the "+
+					"policy sets trainingQuota, label it with the tenant's queue or submit an MLTrainingJob, which "+
+					"sets the label for you; otherwise wait for the policy's ResourceQuota to be in place",
 				devices, gpuResource, kueueQueueLabel))
 		}
 	}
