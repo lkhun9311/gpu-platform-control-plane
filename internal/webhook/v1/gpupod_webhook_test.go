@@ -172,32 +172,41 @@ func TestAPodWithNoDeviceRequestIsUntouched(t *testing.T) {
 	}
 }
 
-// The exemption is for cluster infrastructure, and a tenant can annotate their own Pod. Honoured for anyone,
-// it is the bypass with an extra step.
+// exemptAnnotation is the annotation that used to admit a device outside every budget; see the comment where
+// its constant was in gpupod_webhook.go. Spelled out here because nothing in the guard names it any more.
+const exemptAnnotation = "platform.lkhun9311.github.io/quota-exempt"
+
+// A tenant annotating its own Pod was always refused, and still is.
 //
-// Mutation that turns this red: honour the annotation whoever sets it.
+// Mutation that turns this red: admit a Pod that carries the annotation, whoever sets it.
 func TestATenantCannotExemptItself(t *testing.T) {
 	v := gpuValidator(t)
 	res := ask(t, v, tenantUser, gpuPod(4, func(p *corev1.Pod) {
-		p.Annotations = map[string]string{QuotaExemptAnnotation: "please"}
+		p.Annotations = map[string]string{exemptAnnotation: "please"}
 	}))
 	if res.Allowed {
 		t.Fatal("a tenant annotated its way out of the budget")
 	}
 }
 
-// A kube-system service account may, and it announces itself: a device leaving the budget silently is the
-// same hole this guard closes, moved behind an annotation.
-func TestASystemComponentMayBeExemptAndIsWarnedAbout(t *testing.T) {
+// The bypass the exemption left open: a tenant puts the annotation in a Deployment's Pod template, and the
+// ReplicaSet controller, a kube-system service account, creates the Pod carrying it. The guard used to admit
+// that Pod outside every budget; this namespace has neither a queue the Pod is in nor a ResourceQuota.
+//
+// Mutation that turns this red: restore the exemption for kube-system service accounts.
+func TestAControllerCannotCarryATemplatesExemption(t *testing.T) {
 	v := gpuValidator(t)
-	res := ask(t, v, "system:serviceaccount:kube-system:device-plugin", gpuPod(4, func(p *corev1.Pod) {
-		p.Annotations = map[string]string{QuotaExemptAnnotation: "device-plugin"}
-	}))
-	if !res.Allowed {
-		t.Fatalf("refused an exemption held by cluster infrastructure: %s", res.Result.Message)
-	}
-	if len(res.Warnings) == 0 {
-		t.Fatal("an exempt Pod took devices outside the budget and said nothing")
+	for _, controller := range []string{
+		"system:serviceaccount:kube-system:replicaset-controller",
+		"system:serviceaccount:kube-system:daemon-set-controller",
+		"system:serviceaccount:kube-system:statefulset-controller",
+	} {
+		res := ask(t, v, controller, gpuPod(4, func(p *corev1.Pod) {
+			p.Annotations = map[string]string{exemptAnnotation: "device-plugin"}
+		}))
+		if res.Allowed {
+			t.Fatalf("%s created a Pod whose template asked for an exemption, and it took 4 devices unaccounted", controller)
+		}
 	}
 }
 
@@ -351,17 +360,23 @@ func TestALabelledPodCannotHoldADeviceForAnHour(t *testing.T) {
 	}
 }
 
-// The exemption is about who PAYS for a device, not about how long it is held after someone else reclaimed
-// it. Conflating the two is what put the cap behind an early return in the first place.
-func TestAnExemptPodIsStillCappedOnGrace(t *testing.T) {
+// An annotated Pod is capped on grace like any other, and refused for its grace rather than for anything else.
+// Asserting only that it was refused would stay green if the grace cap were removed, since the Pod is refused
+// on accounting grounds anyway now that the annotation grants nothing.
+//
+// Mutation that turns this red: move graceTooLong below the accounting checks.
+func TestAnAnnotatedPodIsStillCappedOnGrace(t *testing.T) {
 	v := gpuValidator(t)
 	hour := int64(3600)
 	res := ask(t, v, "system:serviceaccount:kube-system:daemon-set-controller", gpuPod(1, func(p *corev1.Pod) {
-		p.Annotations = map[string]string{QuotaExemptAnnotation: "true"}
+		p.Annotations = map[string]string{exemptAnnotation: "true"}
 		p.Spec.TerminationGracePeriodSeconds = &hour
 	}))
 	if res.Allowed {
 		t.Fatal("an unaccounted device holder was also allowed to hold it for an hour")
+	}
+	if !strings.Contains(res.Result.Message, "3600") {
+		t.Fatalf("refused for something other than its grace: %s", res.Result.Message)
 	}
 }
 

@@ -20,7 +20,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"strings"
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -52,23 +51,16 @@ const kueueQueueLabel = "kueue.x-k8s.io/queue-name"
 // kubectl apply and obtained two devices, which is exactly the bypass the guard exists to close.
 const jobControllerUser = "system:serviceaccount:kube-system:job-controller"
 
-// systemNamespacePrefix identifies the service accounts allowed to use the exemption.
+// There is no exemption, and there was one until 2026-10-12.
 //
-// A tenant can annotate their own Pod, so an exemption honoured for anyone is not an exemption, it is the
-// bypass with an extra step. Infrastructure that legitimately holds a device outside the budget — a device
-// plugin DaemonSet — runs as a kube-system service account, and a tenant cannot create one.
-const systemNamespacePrefix = "system:serviceaccount:kube-system:"
-
-// QuotaExemptAnnotation marks a Pod that may hold a device outside the tenant quota.
-//
-// It exists because some Pods legitimately need a device and cannot go through the queue: a device plugin
-// DaemonSet, and — in this cluster's current configuration — the serving path, since Kueue's `pod` and
-// `deployment` integrations are not enabled and a serving Pod is therefore invisible to it.
-//
-// It is an annotation someone has to write, not a silent hole. A guard whose exceptions are implicit is a
-// guard nobody can audit: this way `kubectl get pods -o json | grep quota-exempt` enumerates every device
-// this platform is not accounting for.
-const QuotaExemptAnnotation = "platform.lkhun9311.github.io/quota-exempt"
+// A platform.lkhun9311.github.io/quota-exempt annotation used to admit a device request outside every budget
+// when the requester was a kube-system service account, on the reasoning that a tenant cannot assume one.
+// A tenant does not need to: a Deployment, DaemonSet or StatefulSet whose Pod template carries the annotation
+// has its Pods created by kube-system's replicaset, daemon-set or statefulset controller, which copies the
+// template's annotations onto the Pod. The requester proves which controller submitted the Pod, not who chose
+// its annotations, so the exemption was the bypass with two extra steps.
+// Nothing in this repository needed it: both device plugins request no device and run outside the namespaces
+// this webhook selects. The annotation is now an ordinary annotation and grants nothing.
 
 // maxGraceSeconds caps how long a device-holding Pod may take to shut down.
 //
@@ -145,8 +137,8 @@ func (v *GPUPodValidator) Handle(ctx context.Context, req admission.Request) adm
 	// no reads, no owner, and no queue, and it costs the reclaiming owner the same whichever of those decided
 	// the Pod was allowed to exist.
 	//
-	// It used to sit further down, after the exemption branch and after the queue-label branch, and both of
-	// those return Allowed. So a tenant applying a bare Pod with a queue label, two devices and
+	// It used to sit further down, after an exemption branch (since removed) and after the queue-label branch,
+	// and both of those returned Allowed. So a tenant applying a bare Pod with a queue label, two devices and
 	// terminationGracePeriodSeconds: 3600 was admitted without the cap ever being consulted -- the exact
 	// bypass this guard exists to close, reached by the exact mechanism its own thesis names, a guarantee
 	// expressed in a field the tenant writes. The tests did not catch it because both grace tests came in as
@@ -159,22 +151,6 @@ func (v *GPUPodValidator) Handle(ctx context.Context, req admission.Request) adm
 	// three lines it moves.
 	if why := graceTooLong(&pod.Spec); why != "" {
 		return admission.Denied(why)
-	}
-
-	user := req.UserInfo.Username
-
-	if _, exempt := pod.Annotations[QuotaExemptAnnotation]; exempt {
-		// The annotation is honoured only for identities a tenant cannot assume. Honoured for anyone, it is
-		// the bypass with an extra step: a tenant who can create a Pod can also annotate it.
-		if !strings.HasPrefix(user, systemNamespacePrefix) {
-			return admission.Denied(fmt.Sprintf(
-				"%s is reserved for cluster infrastructure and %q is not a kube-system service account; "+
-					"this Pod asks for %d %s and would leave the tenant budget unaccounted",
-				QuotaExemptAnnotation, user, devices, gpuResource))
-		}
-		return admission.Allowed("").WithWarnings(fmt.Sprintf(
-			"this Pod holds %d %s outside the tenant quota, by %s, created by %s",
-			devices, gpuResource, QuotaExemptAnnotation, user))
 	}
 
 	// A Pod carrying the queue label is one Kueue itself is accounting for, and it needs no owner at all.
@@ -195,47 +171,50 @@ func (v *GPUPodValidator) Handle(ctx context.Context, req admission.Request) adm
 		return admission.Allowed("")
 	}
 
-	// Otherwise the Pod must come from a Job, because Kueue governs a Job through the JOB object and does not
-	// propagate the label down: a Pod the Job controller created for a queued Job carries neither
-	// queue-name nor managed. Verified rather than assumed — the Deployment path does carry both.
+	// A namespace whose budget is a ResourceQuota charges the Pod at creation, whoever creates it.
+	//
+	// Until 2026-10-12 this was asked only of the Job controller's Pods, and every other creator was refused
+	// further down. That refused the serving path outright: an InferenceDeployment's Pod is created by the
+	// ReplicaSet controller and carries a queue label only where its policy sets trainingQuota, and the gateway
+	// routes only to backends in a policy's own namespace, so a GPU engine the gateway could reach could never
+	// start in a ResourceQuota-mode namespace. The requester adds nothing to the accounting here: Kubernetes'
+	// quota admission charges a bare Pod exactly as it charges a controller's.
+	metered, err := meteredByResourceQuota(ctx, v.Reader, pod.Namespace)
+	if err != nil {
+		// Fail closed, for the same reason the webhook's failurePolicy is Fail: a guard that stops applying
+		// whenever a read fails admits exactly what it exists to refuse, and does so invisibly.
+		return admission.Errored(http.StatusInternalServerError, fmt.Errorf(
+			"establish how namespace %q meters GPUs: %w", pod.Namespace, err))
+	}
+	if metered {
+		return admission.Allowed("")
+	}
+
+	// Otherwise Kueue holds the budget, or nothing yet charges GPU Pods here, and the Pod must come from a
+	// queued Job, because Kueue governs a Job through the JOB object and does not propagate the label down: a
+	// Pod the Job controller created for a queued Job carries neither queue-name nor managed.
 	//
 	// An ownerReference is only evidence when the Job controller is the one presenting it. A tenant writing
 	// the same field is describing a relationship that does not exist.
+	user := req.UserInfo.Username
 	if user != jobControllerUser {
 		return admission.Denied(fmt.Sprintf(
-			"this namespace's GPU budget is held by a Kueue ClusterQueue, and %q is asking for %d %s directly "+
-				"rather than through a queue, so nothing would charge it: submit an MLTrainingJob, or create a "+
-				"Job labelled %s=<queue> and let the Job controller create the Pod",
+			"%q is asking for %d %s without a queue, and no ResourceQuota is charging GPU Pods in this namespace, "+
+				"so nothing would charge it: where the policy sets trainingQuota, submit an MLTrainingJob or create "+
+				"a Job labelled %s=<queue> and let the Job controller create the Pod; otherwise wait for the "+
+				"policy's ResourceQuota to be in place",
 			user, devices, gpuResource, kueueQueueLabel))
 	}
 
 	queued, err := v.tracesToAQueue(ctx, &pod)
 	if err != nil {
-		// Fail closed, for the same reason the webhook's failurePolicy is Fail: a guard that stops applying
-		// whenever a read fails admits exactly what it exists to refuse, and does so invisibly.
 		return admission.Errored(http.StatusInternalServerError, fmt.Errorf(
 			"establish whether pod %s/%s passes through a queue: %w", pod.Namespace, pod.Name, err))
 	}
 	if !queued {
-		// "Charged to no tenant's budget" is true only where Kueue holds the budget.
-		//
-		// Where the policy leaves trainingQuota off, the namespace ResourceQuota still caps
-		// requests.nvidia.com/gpu, and this Pod is counted against it the moment it is created. The Job guard
-		// admits such a Job for the same reason; refusing its Pod here would move the refusal rather than
-		// remove it, and the tenant would have no queue to name in either place.
-		//
-		// This is reached only by the Job controller — the requester check above admits nothing else — so it
-		// widens nothing for a bare Pod or a serving Pod, both of which are still refused further up.
-		metered, err := meteredByResourceQuota(ctx, v.Reader, pod.Namespace)
-		if err != nil {
-			return admission.Errored(http.StatusInternalServerError, fmt.Errorf(
-				"establish how namespace %q meters GPUs: %w", pod.Namespace, err))
-		}
-		if !metered {
-			return admission.Denied(fmt.Sprintf(
-				"the Job that created this Pod carries no %s, so the %d %s it asks for would be charged to no "+
-					"tenant's budget", kueueQueueLabel, devices, gpuResource))
-		}
+		return admission.Denied(fmt.Sprintf(
+			"the Job that created this Pod carries no %s, so the %d %s it asks for would be charged to no "+
+				"tenant's budget", kueueQueueLabel, devices, gpuResource))
 	}
 	return admission.Allowed("")
 }
@@ -289,9 +268,9 @@ func graceTooLong(spec *corev1.PodSpec) string {
 		return ""
 	}
 	return fmt.Sprintf(
-		"terminationGracePeriodSeconds is %d, and this namespace's GPU budget is reclaimed by preemption — a "+
-			"Pod that takes %d seconds to stop holds its device that long against the owner that reclaimed "+
-			"it. The cap here is %d", *g, *g, maxGraceSeconds)
+		"terminationGracePeriodSeconds is %d, and a GPU reclaimed by preemption waits for termination — a "+
+			"Pod that takes %d seconds to stop holds its device that long against the owner reclaiming it. "+
+			"The cap here is %d", *g, *g, maxGraceSeconds)
 }
 
 // gpuRequest is how many devices this Pod would hold.

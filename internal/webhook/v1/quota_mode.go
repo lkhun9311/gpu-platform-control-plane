@@ -22,6 +22,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	platformv1 "github.com/lkhun9311/gpu-mlops-platform-control-plane/api/v1"
@@ -41,30 +42,41 @@ const gpuRequestsResource = corev1.ResourceName("requests.nvidia.com/gpu")
 func quotaName(policyName string) string { return "gpuquota-" + policyName }
 
 // meteredByResourceQuota reports whether this namespace's GPU budget is held by a ResourceQuota rather than
-// by a Kueue ClusterQueue, and that the cap actually exists.
+// by a Kueue ClusterQueue, and that the cap is one Kubernetes will actually charge a new Pod against.
 //
 // The queue-name label is what makes a workload visible to Kueue's accounting, so demanding it is right
 // exactly where Kueue is the authority. Where a GPUQuotaPolicy leaves trainingQuota off, the controller does
-// the opposite of what the Pod guard's header describes: it KEEPS the namespace ResourceQuota capping
-// requests.nvidia.com/gpu (internal/controller/gpuquotapolicy_controller.go, syncNamespaceResourceQuota) and
-// creates no queues at all (kueue_quota.go deletes them). A Job in such a namespace is already metered, and
-// refusing it for carrying no queue label refused work the platform had agreed to count — with no queue in
-// existence for the tenant to name.
+// the opposite: it KEEPS the namespace ResourceQuota capping requests.nvidia.com/gpu
+// (internal/controller/gpuquotapolicy_controller.go, syncNamespaceResourceQuota) and creates no queues at all
+// (kueue_quota.go deletes them). Work in such a namespace is charged by the ResourceQuota at creation, whoever
+// creates it, and refusing it for carrying no queue label refused work the platform had agreed to count.
 //
-// Three things make this answer conservative rather than convenient:
+// It answers true only when every one of these holds, and each is a way the answer was once wrong or could be:
 //
-//   - A single policy with trainingQuota set anywhere over this namespace returns false. Two policies may
-//     target one namespace (they cap the same key and Kubernetes AND-s them), so a mixed namespace is one
-//     where Kueue is an authority for something, and the queue requirement stays.
-//   - The ResourceQuota must be readable AND carry the GPU key. A policy that says false while its quota is
-//     missing, still being created, or capping something else is not a metered namespace; it is a namespace
-//     with no ceiling, which is what the guard exists to refuse.
-//   - Every read error is returned, never swallowed. The callers fail closed on it, for the reason the
-//     webhook's failurePolicy is Fail: a guard that stops applying when a read fails admits exactly what it
-//     exists to refuse, invisibly.
+//   - No policy over this namespace sets trainingQuota. Two policies may target one namespace, so a mixed
+//     namespace is one where Kueue is an authority for something, and the queue requirement stays.
+//   - No policy over it is being deleted, because deleting a policy deletes its ResourceQuota.
+//   - EVERY ResourceQuota-mode policy's quota exists, not merely one. Policies are conjunctive and the
+//     strictest wins; admitting on the first quota found would let a lax ceiling stand in while a strict
+//     one is still being created.
+//   - Each quota is controlled by its policy, so a foreign object squatting on the expected name, which the
+//     controller refuses to adopt, cannot stand in for the policy's ceiling.
+//   - Each quota is unscoped. A scoped quota charges only the Pods its scopes select, and this function does
+//     not evaluate scopes against a Pod, so a scoped one could admit a Pod nothing then charges.
+//   - Each quota's status.hard already carries the GPU key. Kubernetes' quota admission matches resources
+//     against status.hard, which the API server clears at creation and the quota controller fills in
+//     afterwards; until then a GPU Pod does not match the quota and is charged to nothing. The same holds
+//     for a GPU key newly added to an existing quota.
 //
-// It does NOT widen anything else. A Pod that never passed the requester check does not reach this, so bare
-// Pods and serving Pods are refused exactly as before.
+// Every read error is returned, never swallowed. The callers fail closed on it, for the reason the webhook's
+// failurePolicy is Fail: a guard that stops applying when a read fails admits exactly what it exists to
+// refuse, invisibly.
+//
+// What it cannot see is a change after it answers: a policy created or a quota deleted between this read and
+// the Pod's persistence, or a policy deleted and created again with trainingQuota, which removes the quota
+// without moving the Pods it already admitted into Kueue. trainingQuota itself cannot change in place (a CRD
+// rule), so the last needs the operator's delete and drain. Those are lifecycle gaps of the policy, not of
+// this read, and no second read here would close them.
 func meteredByResourceQuota(ctx context.Context, reader client.Reader, namespace string) (bool, error) {
 	if reader == nil {
 		return false, fmt.Errorf("no reader wired to consult %q's quota mode", namespace)
@@ -81,8 +93,7 @@ func meteredByResourceQuota(ctx context.Context, reader client.Reader, namespace
 		if p.Spec.TargetNamespace != namespace {
 			continue
 		}
-		if p.Spec.TrainingQuota {
-			// Kueue holds the budget for at least part of this namespace. Keep the queue requirement.
+		if p.Spec.TrainingQuota || !p.DeletionTimestamp.IsZero() {
 			return false, nil
 		}
 		resourceQuotaOnly = append(resourceQuotaOnly, p)
@@ -93,18 +104,36 @@ func meteredByResourceQuota(ctx context.Context, reader client.Reader, namespace
 	}
 
 	for i := range resourceQuotaOnly {
-		p := resourceQuotaOnly[i]
+		p := &resourceQuotaOnly[i]
 		var rq corev1.ResourceQuota
 		key := client.ObjectKey{Name: quotaName(p.Name), Namespace: namespace}
 		switch err := reader.Get(ctx, key, &rq); {
 		case apierrors.IsNotFound(err):
-			continue
+			return false, nil
 		case err != nil:
 			return false, fmt.Errorf("read ResourceQuota %s while deciding %q's quota mode: %w", key, namespace, err)
 		}
-		if _, capped := rq.Spec.Hard[gpuRequestsResource]; capped {
-			return true, nil
+		if !chargesEveryGPUPod(&rq, p) {
+			return false, nil
 		}
 	}
-	return false, nil
+	return true, nil
+}
+
+// chargesEveryGPUPod reports whether Kubernetes' quota admission will charge any new GPU Pod in its namespace
+// against rq, the ResourceQuota policy p owns; see meteredByResourceQuota for why each condition is here.
+func chargesEveryGPUPod(rq *corev1.ResourceQuota, p *platformv1.GPUQuotaPolicy) bool {
+	if !rq.DeletionTimestamp.IsZero() || !metav1.IsControlledBy(rq, p) {
+		return false
+	}
+	if len(rq.Spec.Scopes) > 0 || rq.Spec.ScopeSelector != nil {
+		return false
+	}
+	if _, capped := rq.Spec.Hard[gpuRequestsResource]; !capped {
+		return false
+	}
+	// Presence, not equality with spec.hard: Kubernetes charges a Pod against every key status.hard carries,
+	// whatever its value, so while a changed ceiling propagates the Pod is still charged, against the old one.
+	_, initialised := rq.Status.Hard[gpuRequestsResource]
+	return initialised
 }

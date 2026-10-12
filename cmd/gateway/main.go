@@ -22,10 +22,12 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"time"
 
+	"github.com/go-logr/logr"
 	platformv1 "github.com/lkhun9311/gpu-mlops-platform-control-plane/api/v1"
 	"github.com/lkhun9311/gpu-mlops-platform-control-plane/internal/gateway"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -67,9 +69,9 @@ const (
 	// its scraper stopped and its gauges gone. Far above maxStaleness so a backend cannot be evicted while the
 	// guard is still treating its last reading as usable.
 	defaultAdmissionKVIdleTimeout = 15 * time.Minute
-	// shutdownGrace bounds how long in-flight requests are given after a signal. Under a default 30s
-	// terminationGracePeriodSeconds, so the decision to cut a request belongs to this program rather than to
-	// the kubelet's SIGKILL.
+	// shutdownGrace bounds how long in-flight requests are given after a signal.
+	// It sits under the 30s terminationGracePeriodSeconds config/gateway/deployment.yaml sets, so the decision
+	// to cut a request belongs to this program rather than to the kubelet's SIGKILL; a test pins the two.
 	shutdownGrace                   = 25 * time.Second
 	defaultAdmissionKVScrapeTimeout = 1 * time.Second
 )
@@ -308,42 +310,67 @@ func main() {
 	// mode most worth having.
 	api := &http.Server{Addr: ":8080", Handler: s.Handler()}
 	metrics := &http.Server{Addr: ":8081", Handler: s.MetricsHandler()}
-
-	go func() {
-		<-ctx.Done()
-		// Bounded, because Shutdown waits for every in-flight request and a stuck upstream would otherwise
-		// hold the process past the grace period — at which point the kubelet SIGKILLs it and the graceful
-		// path has bought nothing. The bound is deliberately under a default 30s grace period, so the
-		// difference between finishing and being killed belongs to this program rather than to the kubelet.
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownGrace)
-		defer cancel()
-		// Metrics first: readiness lives on that listener, so closing it takes this Pod out of Service
-		// endpoints before the API server stops accepting, and new requests stop arriving while the ones
-		// already here finish.
-		if err := metrics.Shutdown(shutdownCtx); err != nil {
-			log.Error(err, "metrics server did not shut down cleanly")
-		}
-		if err := api.Shutdown(shutdownCtx); err != nil {
-			log.Error(err, "in-flight requests were cut short by the shutdown deadline")
-		}
-		// Last, because until Shutdown returns there are requests being admitted, and admission reads what
-		// these scrapers publish. Stopping them first left the guard failing open over the whole drain.
-		stopAdmitter()
-	}()
-
-	go func() {
-		// ErrServerClosed is what Shutdown produces and is not a failure; reporting it would put an error in
-		// the log of every clean stop.
-		if err := metrics.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Error(err, "metrics server stopped")
-		}
-	}()
-	log.Info("serving", "addr", ":8080")
-	if err := api.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+	apiLn, err := net.Listen("tcp", api.Addr)
+	if err != nil {
+		log.Error(err, "unable to listen", "addr", api.Addr)
+		os.Exit(1)
+	}
+	metricsLn, err := net.Listen("tcp", metrics.Addr)
+	if err != nil {
+		log.Error(err, "unable to listen", "addr", metrics.Addr)
+		os.Exit(1)
+	}
+	log.Info("serving", "addr", api.Addr)
+	if err := serve(logr.NewContext(ctx, log), api, apiLn, metrics, metricsLn, shutdownGrace, stopAdmitter); err != nil {
 		log.Error(err, "serving stopped")
 		os.Exit(1)
 	}
 	log.Info("stopped serving")
+}
+
+// serve answers on both listeners until ctx ends, then drains: it returns only once in-flight requests have
+// finished or grace has run out, so the caller returning ends nothing that was still being answered.
+// The error is a serving failure before any signal; a request cut at the grace is logged, not returned.
+func serve(ctx context.Context, api *http.Server, apiLn net.Listener,
+	metrics *http.Server, metricsLn net.Listener, grace time.Duration, stopAdmitter func()) error {
+	log := logr.FromContextOrDiscard(ctx)
+	go func() {
+		// ErrServerClosed is what Shutdown produces and is not a failure; reporting it would put an error in
+		// the log of every clean stop.
+		if err := metrics.Serve(metricsLn); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Error(err, "metrics server stopped")
+		}
+	}()
+	served := make(chan error, 1)
+	go func() { served <- api.Serve(apiLn) }()
+
+	// The drain runs here rather than in a goroutine of its own, because Serve returns ErrServerClosed the
+	// moment Shutdown begins, not when it ends.
+	// Returning on that, as this code once did, let main return and the process exit with every in-flight
+	// request cut, which is the truncation the drain was written to prevent.
+	select {
+	case err := <-served:
+		return err
+	case <-ctx.Done():
+	}
+
+	// Bounded, because Shutdown waits for every in-flight request and a stuck upstream would otherwise hold
+	// the process until the kubelet's SIGKILL, and the graceful path would have bought nothing.
+	// The caller keeps grace under the Pod's terminationGracePeriodSeconds, so the cut is this program's decision.
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), grace)
+	defer cancel()
+	// Metrics first: readiness lives on that listener, so closing it takes this Pod out of Service endpoints
+	// before the API server stops accepting, and new requests stop arriving while the ones already here finish.
+	if err := metrics.Shutdown(shutdownCtx); err != nil {
+		log.Error(err, "metrics server did not shut down cleanly")
+	}
+	if err := api.Shutdown(shutdownCtx); err != nil {
+		log.Error(err, "in-flight requests were cut short by the shutdown deadline")
+	}
+	// Last, because until Shutdown returns there are requests being admitted, and admission reads what these
+	// scrapers publish. Stopping them first left the guard failing open over the whole drain.
+	stopAdmitter()
+	return nil
 }
 
 // envOr returns the environment value for key or def when unset.
