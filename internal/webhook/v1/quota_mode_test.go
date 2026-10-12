@@ -314,7 +314,7 @@ func TestAServingPodIsRefusedWhereNoQuotaChargesIt(t *testing.T) {
 				p.Finalizers = []string{"test/hold"}
 				return p
 			}(), gpuQuotaFor("team-a-quota", "team-a", true)}},
-		{"a policy switched to training while its quota still stands", "ignore trainingQuota", []client.Object{
+		{"a training policy whose earlier quota still stands", "ignore trainingQuota", []client.Object{
 			policy("team-a-quota", "team-a", true), gpuQuotaFor("team-a-quota", "team-a", true)}},
 		{"a second policy's quota is missing", "admit on the first quota in place", append(meteredNamespace(),
 			policy("team-a-strict", "team-a", false))},

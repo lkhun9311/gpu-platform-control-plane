@@ -29,6 +29,9 @@ import (
 // Any new fields you add must have json tags for the fields to be serialized.
 
 // GPUQuotaPolicySpec defines the desired state of GPUQuotaPolicy.
+//
+// The trainingQuota rule sits here rather than on the field because the field is omitempty: false is never stored, and a rule on an absent field is not evaluated, so false-to-true would pass unchecked.
+// +kubebuilder:validation:XValidation:rule="(has(self.trainingQuota) && self.trainingQuota) == (has(oldSelf.trainingQuota) && oldSelf.trainingQuota)",message="trainingQuota is immutable: delete the policy, drain the namespace's GPU workloads, and create it again in the other mode"
 type GPUQuotaPolicySpec struct {
 	// tenant is the logical tenant (team/org) this policy applies to.
 	//
@@ -68,6 +71,11 @@ type GPUQuotaPolicySpec struct {
 	// trainingQuota, when true, also publishes this tenant's GPU ceiling as a Kueue ClusterQueue for training admission.
 	//
 	// Training GPU quota then lives in Kueue rather than the namespace ResourceQuota, so the same GPUs are not counted twice.
+	//
+	// It is immutable, for the reason targetNamespace is: changing it in place moved the ceiling from one ledger to the other in a single reconcile, and GPU Pods already running under the namespace ResourceQuota stayed running with Kueue never counting them.
+	//
+	// To change it, delete the policy, let the namespace's GPU workloads finish or be removed, and create the policy again in the other mode.
+	// Creating a policy over a namespace that still runs GPU Pods is not checked, so the drain is the operator's step.
 	// +optional
 	TrainingQuota bool `json:"trainingQuota,omitempty"`
 }

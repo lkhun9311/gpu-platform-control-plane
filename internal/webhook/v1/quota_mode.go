@@ -72,10 +72,11 @@ func quotaName(policyName string) string { return "gpuquota-" + policyName }
 // failurePolicy is Fail: a guard that stops applying when a read fails admits exactly what it exists to
 // refuse, invisibly.
 //
-// What it cannot see is a change after it answers: a policy created, a quota deleted or a mode switched
-// between this read and the Pod's persistence, or a later switch to trainingQuota, which deletes the quota
-// without moving the Pods it already admitted into Kueue. Those are lifecycle gaps of the policy, not of this
-// read, and no second read here would close them.
+// What it cannot see is a change after it answers: a policy created or a quota deleted between this read and
+// the Pod's persistence, or a policy deleted and created again with trainingQuota, which removes the quota
+// without moving the Pods it already admitted into Kueue. trainingQuota itself cannot change in place (a CRD
+// rule), so the last needs the operator's delete and drain. Those are lifecycle gaps of the policy, not of
+// this read, and no second read here would close them.
 func meteredByResourceQuota(ctx context.Context, reader client.Reader, namespace string) (bool, error) {
 	if reader == nil {
 		return false, fmt.Errorf("no reader wired to consult %q's quota mode", namespace)
