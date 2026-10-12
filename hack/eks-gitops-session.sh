@@ -10,7 +10,9 @@
 #   * it does not apply or destroy `infra/aws/bootstrap`. That root owns the state bucket, the state KMS key,
 #     both ECR repositories and the budget; destroying it would take the state of everything else with it.
 #     m5a destroys it because m5a is a "can this account build a cluster at all" test. This is not that.
-#   * it does not scale up a GPU node. It does CREATE three GPU node groups, because the cluster root always
+#   * it does not scale up a GPU node unless SERVE=yes, which buys one g5.xlarge in `gpu_single` under an AWS
+#     deadline and serves one request through the gateway to a controller-rendered engine
+#     (docs/superpowers/specs/2026-10-12-serve-one-request-on-eks-design.md). It does CREATE three GPU node groups, because the cluster root always
 #     does -- `gpu`, `gpu_single` and `gpu_shared` all build at `desired_size = 0`, which is the repository's
 #     stated cost discipline (infra/aws/cluster/eks.tf:127). A node group with no nodes bills nothing. An
 #     earlier version of this comment claimed the groups were not deployed at all, which was wrong.
@@ -35,6 +37,7 @@
 #   EGRESS_CIDR       this machine's address, /32                 (default: asked of checkip.amazonaws.com)
 #   REGION            AWS region                                  (default ap-northeast-2)
 #   KEEP_UP           set to `yes` to skip the destroy at the end (the kill switch still fires)
+#   SERVE             set to `yes` to buy one GPU and serve one request; needs TTL_MINUTES of about 180 and gh
 
 set -euo pipefail
 
@@ -90,6 +93,42 @@ log "API endpoint will admit $EGRESS_CIDR only"
   aws --version 2>&1
 } >"$EXDIR/tool-versions.txt"
 
+# --- SERVE=yes: what must hold before anything is built ---------------------------------------------------
+SERVE="${SERVE:-}"
+NODEGROUP="${NODEGROUP:-gpu_single}"
+SERVE_INSTANCE_TYPE="${SERVE_INSTANCE_TYPE:-g5.xlarge}"
+export SERVE_INSTANCE_TYPE SERVE_NODEGROUP="$NODEGROUP"
+WAIT_GPU_NODE="${WAIT_GPU_NODE:-900}"
+WAIT_GPU_PLUGIN="${WAIT_GPU_PLUGIN:-600}"
+WAIT_GPU_GONE="${WAIT_GPU_GONE:-600}"
+# Every bounded wait from the card's purchase to its verified end, so the deadline can be checked to cover them
+# all: node, plugin, HoldCap, request, recovery, request again, scale-down. The runbook's defaults are read here
+# so the sum is of the waits that will actually run.
+SERVE_BUDGET=$((WAIT_GPU_NODE + WAIT_GPU_PLUGIN + ${WAIT_SERVE_READY:-1500} + 300 + ${WAIT_SERVE_RECOVER:-1500} + 300 + WAIT_GPU_GONE + 300))
+if [[ "$SERVE" == yes ]]; then
+  # The build, the baseline and the destroy are measured at 25 minutes for the whole 2026-09-25 cycle; an hour
+  # is allowed for them here, on top of the card's budget.
+  if ((TTL_MINUTES * 60 < SERVE_BUDGET + 3600)); then
+    die "SERVE=yes needs TTL_MINUTES of at least $(((SERVE_BUDGET + 3600 + 59) / 60)) for its waits; it is $TTL_MINUTES"
+  fi
+  # The nightly destroy removes the whole cluster and neither deadline covers it. Its cron has been seen to drift
+  # by hours, so a time window is not enough: a destroy run queued or in progress refuses too, and the residual
+  # risk -- a late cron firing inside the session -- is the operator's to rule out by disabling the schedule.
+  now_min=$((10#$(date -u +%H) * 60 + 10#$(date -u +%M)))
+  destroy_min=$((18 * 60))
+  ((destroy_min <= now_min - 120)) && destroy_min=$((destroy_min + 1440))
+  if ((destroy_min - now_min < TTL_MINUTES + 120 && destroy_min - now_min > -120)); then
+    die "the nightly destroy (.github/workflows/destroy.yml, 18:00 UTC) falls within two hours of this session's ${TTL_MINUTES} min; disable its schedule for today or start later"
+  fi
+  if command -v gh >/dev/null 2>&1; then
+    destroy_runs="$(gh run list --workflow destroy.yml --limit 5 --json status --jq '[.[] | select(.status != "completed")] | length' 2>&1)" ||
+      die "could not ask GitHub whether a destroy run is pending ($destroy_runs)"
+    [[ "$destroy_runs" == 0 ]] || die "$destroy_runs destroy workflow run(s) are queued or in progress; wait for them"
+  else
+    die "gh is needed to check for a pending destroy workflow run before buying a card"
+  fi
+fi
+
 # --- The kill switch, armed before anything is created ------------------------------------------------
 #
 # Budgets are not a kill switch: their data updates a few times a day, and this month's thresholds have all
@@ -105,9 +144,16 @@ setsid nohup bash -c "
   # The cluster first, and only the cluster. It is what bills; the Helm release bills nothing and its destroy
   # needs a reachable API endpoint that, by the time this fires, may well be gone -- so attempting it first
   # would spend the watchdog's one chance on the cheap half.
-  AWS_PROFILE='$AWS_PROFILE' AWS_REGION='$REGION' terraform -chdir='$CLUSTER_DIR' destroy -auto-approve \
-    -var='region=$REGION' -var='cluster_name=$CLUSTER' >> '$PWD/$KILL_LOG' 2>&1
-  ttl_rc=\$?
+  # Waits on the state lock and tries three times: its one attempt used to be spent on a lock the foreground
+  # destroy, or the nightly one, still held.
+  for attempt in 1 2 3; do
+    AWS_PROFILE='$AWS_PROFILE' AWS_REGION='$REGION' terraform -chdir='$CLUSTER_DIR' destroy -auto-approve \
+      -lock-timeout=10m -var='region=$REGION' -var='cluster_name=$CLUSTER' >> '$PWD/$KILL_LOG' 2>&1
+    ttl_rc=\$?
+    [ \"\$ttl_rc\" = 0 ] && break
+    echo \"[ttl] attempt \$attempt failed rc=\$ttl_rc\" >> '$PWD/$KILL_LOG' 2>&1
+    sleep 60
+  done
   if [ \"\$ttl_rc\" = 0 ]; then
     echo \"[ttl] \$(date -u +%H:%M:%SZ) force-destroy SUCCEEDED\" >> '$PWD/$KILL_LOG' 2>&1
     # The GPU deadline is removed only after a destroy that succeeded: with the cluster gone it can only fire
@@ -133,6 +179,8 @@ for _ in 1 2 3 4 5 6 7 8 9 10; do
 done
 [[ -n "$KILL_PID" ]] || die "the TTL watchdog never reported its pid; refusing to create anything without a kill switch"
 log "TTL kill switch armed: PID $KILL_PID, fires in ${TTL_MINUTES}m, log $KILL_LOG"
+# When it fires, so the GPU deadline can be set to beat it rather than to a fresh TTL of its own.
+KILL_AT=$(($(date +%s) + TTL_MINUTES * 60))
 disarm() {
   kill -- -"$KILL_PID" 2>/dev/null || kill "$KILL_PID" 2>/dev/null || true
   if kill -0 "$KILL_PID" 2>/dev/null; then
@@ -196,12 +244,11 @@ done
 #
 # docs/superpowers/specs/2026-10-12-serve-one-request-on-eks-design.md, section 2. Off unless asked for, because
 # it buys a card on top of the cluster.
-NODEGROUP="${NODEGROUP:-gpu_single}"
 GPU_TTL_FILE="$EXDIR/gpu-ttl-schedule.txt"
-WAIT_GPU_NODE="${WAIT_GPU_NODE:-900}"
-WAIT_GPU_PLUGIN="${WAIT_GPU_PLUGIN:-600}"
-WAIT_GPU_GONE="${WAIT_GPU_GONE:-600}"
+GPU_INSTANCES_FILE="$EXDIR/gpu-instances.txt"
 SCALED_UP=""
+GPU_ARMED=""
+kc() { kubectl --context "$CLUSTER" --request-timeout=20s "$@"; }
 
 # The serving steps run with one evidence directory, because serve-sync records the tenant key the later steps
 # send: a fresh directory per step would leave them with no key and read as the chain failing.
@@ -215,21 +262,17 @@ serve_step() {
   return 1
 }
 
+# gpu_up runs as a condition, which switches errexit off inside it, so every command here is checked by hand:
+# a guard whose query failed must refuse, never read the failure as an empty answer.
 gpu_up() {
-  # The nightly destroy removes the whole cluster at 18:00 UTC, and neither deadline covers that.
-  local now_min destroy_min
-  now_min=$((10#$(date -u +%H) * 60 + 10#$(date -u +%M)))
-  destroy_min=$((18 * 60))
-  ((destroy_min <= now_min)) && destroy_min=$((destroy_min + 1440))
-  if ((destroy_min - now_min < TTL_MINUTES)); then
-    bad "the nightly destroy (.github/workflows/destroy.yml, 18:00 UTC) fires in $((destroy_min - now_min)) min, inside this session's ${TTL_MINUTES} min; no card is bought"
-    return 1
-  fi
-
   # Another GPU group already billing would outlive this session's deadline, which names only $NODEGROUP.
-  local ng sz others=""
-  for ng in $(aws eks list-nodegroups --cluster-name "$CLUSTER" --query 'nodegroups[?starts_with(@, `gpu`)]' --output text); do
-    sz="$(aws eks describe-nodegroup --cluster-name "$CLUSTER" --nodegroup-name "$ng" --query 'nodegroup.scalingConfig.desiredSize' --output text)" || {
+  local ng_list ng sz others=""
+  ng_list="$(aws eks list-nodegroups --cluster-name "$CLUSTER" --query 'nodegroups[?starts_with(@, `gpu`)]' --output text 2>&1)" || {
+    bad "could not list $CLUSTER's node groups, so whether another card is running is unknown: $ng_list"
+    return 1
+  }
+  for ng in $ng_list; do
+    sz="$(aws eks describe-nodegroup --cluster-name "$CLUSTER" --nodegroup-name "$ng" --query 'nodegroup.scalingConfig.desiredSize' --output text 2>&1)" || {
       bad "could not read $ng's size; an unreadable node group is not a stopped one"
       return 1
     }
@@ -237,91 +280,163 @@ gpu_up() {
   done
   [[ -z "$others" ]] || { bad "another GPU node group is already running:$others"; return 1; }
 
-  # The deadline AWS enforces, armed and read back before the card exists; the laptop watchdog destroys the
-  # cluster, and this scales the card to zero even if that never runs.
+  # The price is read at purchase, because the figures in the repository disagree with each other; a session
+  # that cannot say what it paid does not buy.
+  if ! aws ec2 describe-spot-price-history --region "$REGION" --instance-types "$SERVE_INSTANCE_TYPE" \
+    --product-descriptions "Linux/UNIX" --start-time "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    --query 'SpotPriceHistory[].[AvailabilityZone,SpotPrice]' --output text >"$EXDIR/spot-price.txt" 2>&1 ||
+    [[ ! -s "$EXDIR/spot-price.txt" ]]; then
+    bad "could not read the $SERVE_INSTANCE_TYPE Spot price ($(head -c 200 "$EXDIR/spot-price.txt")); no card is bought unpriced"
+    return 1
+  fi
+
+  # The AWS deadline fires before the laptop watchdog, so the card is the first thing to go whichever clock
+  # wins, and it must leave the serving steps their whole budget.
+  local left_min gpu_min
+  left_min=$(((KILL_AT - $(date +%s)) / 60))
+  gpu_min=$((left_min - 10))
+  if ((gpu_min * 60 < SERVE_BUDGET)); then
+    bad "the watchdog fires in ${left_min} min, leaving the card ${gpu_min} min against the ${SERVE_BUDGET}s its steps may take; raise TTL_MINUTES"
+    return 1
+  fi
   TTL_ROLE_ARN="${TTL_ROLE_ARN:-$(terraform -chdir=infra/aws/bootstrap output -raw ttl_scaledown_role_arn 2>/dev/null)}"
   export TTL_ROLE_ARN
   # shellcheck source=hack/lib/gpu-ttl.sh
   . hack/lib/gpu-ttl.sh
-  if ! ttl_arm "$CLUSTER" "$NODEGROUP" "$TTL_MINUTES" 2>>"$EXDIR/session.log"; then
+  if ! ttl_arm "$CLUSTER" "$NODEGROUP" "$gpu_min" 2>>"$EXDIR/session.log"; then
     bad "could not register the GPU deadline; no card is bought without one"
     return 1
   fi
-  printf '%s\n' "$TTL_SCHEDULE_NAME" >"$GPU_TTL_FILE"
-  ok "GPU deadline armed: $TTL_SCHEDULE_NAME"
-
-  # The price is read at purchase, because the figures in the repository disagree with each other.
-  aws ec2 describe-spot-price-history --region "$REGION" --instance-types g5.xlarge \
-    --product-descriptions "Linux/UNIX" --start-time "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-    --query 'SpotPriceHistory[].[AvailabilityZone,SpotPrice]' --output text >"$EXDIR/spot-price.txt" 2>&1 || true
+  GPU_ARMED=1
+  if ! printf '%s\n' "$TTL_SCHEDULE_NAME" >"$GPU_TTL_FILE"; then
+    bad "could not record the GPU deadline's name; the watchdog could not remove it later"
+    return 1
+  fi
+  ok "GPU deadline armed for ${gpu_min} min: $TTL_SCHEDULE_NAME"
 
   log "scaling $NODEGROUP to 1 -- the card starts billing here"
+  # Marked before the call, not after: a response lost after AWS accepted it would otherwise leave nothing to
+  # scale back down.
+  SCALED_UP=1
   aws eks update-nodegroup-config --cluster-name "$CLUSTER" --nodegroup-name "$NODEGROUP" \
     --scaling-config minSize=0,maxSize=1,desiredSize=1 >>"$EXDIR/session.log" 2>&1 || {
     bad "could not scale $NODEGROUP up"
     return 1
   }
-  SCALED_UP=1
 
-  # Accepted is not arrived: a Spot refusal leaves the request standing with no node.
+  # Accepted is not arrived: a Spot refusal leaves the request standing with no node. A Ready node, not the
+  # first name listed, since a replaced Spot node can linger NotReady.
   local deadline=$((SECONDS + WAIT_GPU_NODE)) node=""
   while ((SECONDS < deadline)); do
-    node="$(kubectl --context "$CLUSTER" get nodes -l "eks.amazonaws.com/nodegroup=$NODEGROUP" -o name 2>/dev/null | head -1)"
+    node="$(kc get nodes -l "eks.amazonaws.com/nodegroup=$NODEGROUP" \
+      -o jsonpath='{range .items[?(@.status.conditions[?(@.type=="Ready")].status=="True")]}{.metadata.name}{"\n"}{end}' 2>/dev/null | head -1)"
     [[ -n "$node" ]] && break
     sleep 15
   done
-  [[ -n "$node" ]] || { bad "no $NODEGROUP node joined within ${WAIT_GPU_NODE}s (Spot capacity, or the bootstrap)"; return 1; }
-  ok "GPU node joined: $node"
+  [[ -n "$node" ]] || { bad "no Ready $NODEGROUP node within ${WAIT_GPU_NODE}s (Spot capacity, or the bootstrap)"; return 1; }
+  # The instance this session bought, by its own ID, so the scale-down can follow that instance to terminated.
+  kc get node "$node" -o jsonpath='{.spec.providerID}' 2>/dev/null | sed 's|.*/||' >>"$GPU_INSTANCES_FILE"
+  ok "GPU node joined: $node ($(tail -1 "$GPU_INSTANCES_FILE" 2>/dev/null))"
 
-  # Ready means the plugin registered the card, not that the node exists.
+  # S1: the real plugin's Pod Ready on this node and the card advertised, with no simulator anywhere, since the
+  # simulator also advertises one GPU and would satisfy the count alone.
   deadline=$((SECONDS + WAIT_GPU_PLUGIN))
-  local gpus=""
+  local gpus="" plugin="" sims=""
   while ((SECONDS < deadline)); do
-    gpus="$(kubectl --context "$CLUSTER" get "$node" -o jsonpath='{.status.allocatable.nvidia\.com/gpu}' 2>/dev/null)"
-    [[ "$gpus" == 1 ]] && break
+    gpus="$(kc get node "$node" -o jsonpath='{.status.allocatable.nvidia\.com/gpu}' 2>/dev/null)"
+    plugin="$(kc get pods -A -l app.kubernetes.io/component=nvidia-device-plugin --field-selector "spec.nodeName=$node" \
+      -o jsonpath='{range .items[?(@.status.conditions[?(@.type=="Ready")].status=="True")]}{.metadata.name}{"\n"}{end}' 2>/dev/null | head -1)"
+    [[ "$gpus" == 1 && -n "$plugin" ]] && break
     sleep 10
   done
-  kubectl --context "$CLUSTER" get "$node" -o json >"$EXDIR/gpu-node.json" 2>/dev/null || true
-  kubectl --context "$CLUSTER" -n gpu-platform-control-plane-system get pods -o wide \
-    >"$EXDIR/gpu-plugin-pods.txt" 2>&1 || true
-  [[ "$gpus" == 1 ]] || { bad "S1: the node never advertised nvidia.com/gpu: 1 within ${WAIT_GPU_PLUGIN}s (gpu-plugin-pods.txt)"; return 1; }
-  ok "S1: the device plugin registered one GPU on $node"
+  sims="$(kc get pods -A -l app.kubernetes.io/component=gpu-simulator -o name 2>&1)" || sims="unreadable: $sims"
+  kc get node "$node" -o json >"$EXDIR/gpu-node.json" 2>/dev/null || true
+  kc get pods -A -l app.kubernetes.io/component=nvidia-device-plugin -o wide >"$EXDIR/gpu-plugin-pods.txt" 2>&1 || true
+  if [[ "$gpus" != 1 || -z "$plugin" ]]; then
+    bad "S1: within ${WAIT_GPU_PLUGIN}s the node advertised nvidia.com/gpu=${gpus:-none} with Ready plugin Pod '${plugin:-none}' (gpu-plugin-pods.txt)"
+    return 1
+  fi
+  if [[ -n "$sims" ]]; then
+    bad "S1: the simulator is present ($sims), so the advertised GPU cannot be attributed to the real plugin"
+    return 1
+  fi
+  ok "S1: plugin $plugin Ready on $node, which advertises nvidia.com/gpu: 1, and no simulator runs"
 }
 
-# Always reached once a scale-up was requested, whatever happened after it: the card is the expensive half.
+# Reached on every exit once the card or its deadline exists: from the normal path, and from the EXIT trap after
+# an error or a signal. Errexit is off inside, because a cleanup that stops at its first failed command is the
+# one that leaves the card billing.
 gpu_down() {
-  [[ -n "$SCALED_UP" ]] || return 0
-  log "scaling $NODEGROUP to 0"
-  aws eks update-nodegroup-config --cluster-name "$CLUSTER" --nodegroup-name "$NODEGROUP" \
-    --scaling-config minSize=0,maxSize=1,desiredSize=0 >>"$EXDIR/session.log" 2>&1 ||
-    bad "could not scale $NODEGROUP down; the deadline and the cluster destroy still stand"
-  local deadline=$((SECONDS + WAIT_GPU_GONE)) left="?"
+  local -
+  set +e
+  [[ -n "$SCALED_UP$GPU_ARMED" ]] || return 0
+  if [[ -n "$SCALED_UP" ]]; then
+    log "scaling $NODEGROUP to 0"
+    # Retried: an update still in progress answers ResourceInUseException, and one refusal must not be the end.
+    local i out accepted=""
+    for i in 1 2 3 4 5 6; do
+      if out="$(aws eks update-nodegroup-config --cluster-name "$CLUSTER" --nodegroup-name "$NODEGROUP" \
+        --scaling-config minSize=0,maxSize=1,desiredSize=0 2>&1)"; then
+        accepted=1
+        break
+      fi
+      printf 'scale-down attempt %s: %s\n' "$i" "$out" >>"$EXDIR/session.log"
+      sleep 20
+    done
+    [[ -n "$accepted" ]] || bad "the scale-down of $NODEGROUP was refused six times; the GPU deadline and the cluster destroy still stand"
+  fi
+  # Followed by the instances this session recorded, which a terminated one leaves with state terminated or not
+  # at all; stopped is not terminated, since a stopped instance keeps its volume.
+  local deadline=$((SECONDS + WAIT_GPU_GONE)) ids left="" st
+  ids="$(sort -u "$GPU_INSTANCES_FILE" 2>/dev/null | sed '/^$/d' | tr '\n' ' ')"
   while ((SECONDS < deadline)); do
-    left="$(aws ec2 describe-instances --region "$REGION" \
-      --filters "Name=tag:eks:nodegroup-name,Values=$NODEGROUP" "Name=instance-state-name,Values=pending,running,stopping,shutting-down" \
-      --query 'Reservations[].Instances[].InstanceId' --output text 2>/dev/null || echo "?")"
-    [[ -z "${left// /}" ]] && break
+    left=""
+    for i in $ids; do
+      st="$(aws ec2 describe-instances --region "$REGION" --instance-ids "$i" \
+        --query 'Reservations[].Instances[].State.Name' --output text 2>&1)"
+      case "$st" in
+        terminated | *InvalidInstanceID.NotFound*) ;;
+        *) left="$left $i(${st//$'\n'/ })" ;;
+      esac
+    done
+    [[ -z "$left" ]] && break
     sleep 15
   done
   local desired
   desired="$(aws eks describe-nodegroup --cluster-name "$CLUSTER" --nodegroup-name "$NODEGROUP" \
-    --query 'nodegroup.scalingConfig.desiredSize' --output text 2>/dev/null || echo "?")"
-  printf 'desiredSize=%s instances-left=%s\n' "$desired" "${left:-none}" >"$EXDIR/gpu-down.txt"
-  if [[ "$desired" == 0 && -z "${left// /}" ]]; then
-    ok "S6 (GPU half): $NODEGROUP at desiredSize 0 and its instance terminated"
-    # Removed only once the card is verifiably gone; a leftover schedule makes the next session refuse to arm.
-    ttl_disarm 2>>"$EXDIR/session.log" && rm -f "$GPU_TTL_FILE" || bad "the GPU deadline $(cat "$GPU_TTL_FILE") could not be removed; delete it before the next session"
+    --query 'nodegroup.scalingConfig.desiredSize' --output text 2>&1)"
+  printf 'desiredSize=%s instances=%s still-up=%s\n' "$desired" "${ids:-none}" "${left:-none}" >"$EXDIR/gpu-down.txt"
+  if [[ -n "$SCALED_UP" && ( "$desired" != 0 || -n "$left" ) ]]; then
+    bad "S6: $NODEGROUP at desiredSize=$desired with${left:- no} instances still up; the GPU deadline stays armed"
+    return 0
+  fi
+  [[ -n "$SCALED_UP" ]] && ok "S6 (GPU half): $NODEGROUP at desiredSize 0 and instance(s) ${ids:-none recorded} terminated"
+  SCALED_UP=""
+  # Removed only once the card is verifiably gone; a leftover schedule makes the next session refuse to arm.
+  if ttl_disarm 2>>"$EXDIR/session.log"; then
+    rm -f "$GPU_TTL_FILE"
+    GPU_ARMED=""
   else
-    bad "S6: $NODEGROUP is at desiredSize=$desired with instances '${left}' still up; the GPU deadline stays armed"
+    bad "the GPU deadline $(cat "$GPU_TTL_FILE" 2>/dev/null) could not be removed; delete it before the next session"
   fi
 }
 
-if [[ "${SERVE:-}" == yes ]]; then
-  # The GitOps baseline is the ground the serving claim stands on; a failure there buys no card.
+if [[ "$SERVE" == yes ]]; then
+  # From the deadline's arming on, an error or a signal ends the run through gpu_down; a handler that only
+  # cleans up would return to the interrupted step and carry on.
+  trap 'gpu_down' EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  trap 'exit 129' HUP
   if ((failures > 0)); then
+    # The GitOps baseline is the ground the serving claim stands on; a failure there buys no card.
     bad "the GitOps baseline failed ($failures check(s)), so no GPU is bought and nothing is served"
+  elif ! serve_step serve-sync || ! serve_step serve-rehearse; then
+    # What a cluster with no GPU node can show -- the engine Pod admitted and charged, status Off -- is checked
+    # here, before the card, because the pins main carries can differ from what the kind rehearsal ran.
+    bad "the serving bundle failed what this cluster can show without a GPU, so no card is bought"
   elif gpu_up; then
-    serve_step serve-sync && serve_step serve-ready && serve_step serve-request && serve_step serve-recover || true
+    serve_step serve-ready && serve_step serve-request && serve_step serve-recover || true
   fi
   gpu_down
 fi
@@ -351,10 +466,14 @@ log "destroy: argo-bootstrap, then cluster"
 terraform -chdir="$ARGO_DIR" destroy -auto-approve -input=false \
   -var="cluster_endpoint=$endpoint" -var="cluster_ca=$ca" >>"$EXDIR/terraform.log" 2>&1 ||
   log "warning: argo destroy returned non-zero; the cluster destroy below removes it anyway"
-terraform -chdir="$CLUSTER_DIR" destroy -auto-approve -input=false \
+terraform -chdir="$CLUSTER_DIR" destroy -auto-approve -input=false -lock-timeout=10m \
   -var="region=$REGION" -var="cluster_name=$CLUSTER" \
   >>"$EXDIR/terraform.log" 2>&1 || {
-  bad "CLUSTER DESTROY FAILED -- the kill switch at PID $KILL_PID will retry at TTL. Do not walk away."
+  if kill -0 "$KILL_PID" 2>/dev/null; then
+    bad "CLUSTER DESTROY FAILED -- the kill switch at PID $KILL_PID will retry at TTL. Do not walk away."
+  else
+    bad "CLUSTER DESTROY FAILED and the kill switch has already fired or died (see $KILL_LOG) -- nothing will retry; destroy by hand now."
+  fi
   exit 1
 }
 
@@ -417,6 +536,8 @@ still asg aws autoscaling describe-auto-scaling-groups --region "$REGION" \
   --query 'AutoScalingGroups[].AutoScalingGroupName' --output text
 still elb aws elbv2 describe-load-balancers --region "$REGION" \
   --query 'LoadBalancers[].LoadBalancerName' --output text
+still schedule aws scheduler list-schedules --region "$REGION" --name-prefix "gpu-ttl-$CLUSTER-" \
+  --query 'Schedules[].Name' --output text
 still logs aws logs describe-log-groups --region "$REGION" --log-group-name-prefix "/aws/eks/$CLUSTER/" \
   --query 'logGroups[].logGroupName' --output text
 printf '%s\n' "${billing_left:-none}" >"$EXDIR/billing-after-destroy.txt"
@@ -428,7 +549,7 @@ if [[ -n "${billing_left// /}" ]]; then
   bad "something that charges is still alive: $billing_left"
 fi
 if [[ -z "${unasked// /}" && -z "${billing_left// /}" ]]; then
-  ok "nothing that charges remains: no EKS cluster, instance, NAT gateway, EIP, volume, ASG, load balancer or cluster log group"
+  ok "nothing that charges remains: no EKS cluster, instance, NAT gateway, EIP, volume, ASG, load balancer cluster log group or GPU deadline schedule"
 fi
 
 # Disarmed only on a VERIFIED teardown, never on an attempted one -- and "verified" is a fact about the

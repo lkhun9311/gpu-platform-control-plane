@@ -62,17 +62,19 @@ Extending `hack/eks-gitops-session.sh`, with three changes to its existing behav
 - **Every new subcommand reports through the runbook's `failures` counter**, because the runbook runs its command with `|| true` and judges only that counter (`hack/eks-gitops-runbook.sh:411`); each one is shown to fail once by breaking its input in the rehearsal.
 - **Every wait is bounded**, and the bounds sum to less than the remaining deadline.
 
-New subcommands, in order:
+In order, with `SERVE=yes`; runbook subcommands are marked (runbook), the rest are session steps:
 
-1. **`gpu-up`**: reuse `hack/m5b-gpu-session.sh`'s sequence — refuse on a collision with `.github/workflows/destroy.yml` (18:00 UTC), `ttl_arm` and verify, scale `gpu_single` to 1, then wait (bounded) for a node to register. The schedule's name is written to the session's directory, so a later process can disarm it.
-2. **`gpu-ready`**: wait (bounded) for the plugin Pod on that node to be Ready and the node to advertise `nvidia.com/gpu: 1`.
-3. **`serve-sync`**: add a key for `serve-a` to the existing Secret, save it, sync `serving`.
-4. **`serve-ready`**: wait (bounded, 25 minutes, against a 900 s startup probe and the 9 min 31 s the conformance engine took) for `status.admission.mode=HoldCap` at the current generation. Record the node, the engine's argument line, and each Application's synced revision with the running operator and gateway image digests.
-5. **`serve-request`**: one streaming request with the saved `serve-a` key, model `Qwen/Qwen2.5-3B-Instruct`, read by the same rules as `internal/bench/httpsender.go`: well-formed frames, non-empty content, no in-band error, a final `data: [DONE]`.
-6. **`serve-recover`**: delete the engine Pod; record when status leaves HoldCap and returns, then send one request and require it to pass as in step 5.
-7. **`gpu-down`**: scale to 0, wait (bounded) for the instance to terminate, `ttl_disarm` by the recorded name, and read the node group's desired size, all before the existing teardown.
+1. **Before anything is built**: refuse unless `TTL_MINUTES` covers every bounded wait of the card plus an hour for build, baseline and destroy (about 180 at the defaults), unless the nightly destroy falls more than two hours outside the session, and unless GitHub shows no destroy run queued or in progress. The cron has been seen to drift by hours, so disabling its schedule for the day is the operator's step.
+2. **`serve-sync`** (runbook): add a key for `serve-a` to the existing Secret, save it, and sync `serving` by replacing its `operation`; accept only an operation that started after the request.
+3. **`serve-rehearse`** (runbook), still with no GPU node: the engine Pod is created (not FailedCreate), Pending for node affinity, charged against `gpuquota-serve-a-quota`, status `Off`, and the gateway answers serve-a's key with 502. This runs on EKS before the card is bought, because `main`'s pins can differ from what the kind rehearsal ran.
+4. **`gpu_up`**: no other GPU group running (an unreadable listing refuses), the Spot price read and recorded (unreadable refuses), `ttl_arm` for the time the laptop watchdog has left less ten minutes and refused if that does not cover the card's waits, the schedule's name recorded, scale `gpu_single` to 1, wait for a Ready node of that group and record its instance ID, then S1.
+5. **`serve-ready`** (runbook): wait (bounded, 25 minutes, against a 900 s startup probe and the 9 min 31 s the conformance engine took) for `status.admission.mode=HoldCap` at the current generation; S2 and S3; record each Application's revision and the running image digests, failing if any record cannot be written.
+6. **`serve-request`** (runbook): read the live gateway's arguments and refuse if `-bind-priority` is set; one streaming request with the saved `serve-a` key, judged by the bench reader's rules (`internal/bench/httpsender.go`): typed chunks, no in-band error, a final `[DONE]`, non-empty content, and `X-Engine-Priority: 1`.
+7. **`serve-recover`** (runbook): delete the one live engine Pod; an unreadable status is a third answer, not "left HoldCap"; S5 then needs a new Pod UID in force at the same generation, and a second request passing as in step 6.
+8. **`gpu_down`**: scale to 0, retried while EKS refuses; follow the recorded instance ID to `terminated` (stopped is not); then `ttl_disarm`, and only then.
 
-The laptop watchdog also disarms the schedule when it fires.
+From the deadline's arming on, an EXIT trap runs `gpu_down` on every exit, and INT, TERM and HUP end the run rather than resume it.
+The laptop watchdog waits up to ten minutes on the state lock, tries its destroy three times, and removes the GPU schedule only after a destroy that succeeded.
 
 ### 3. Pass bars, fixed before any run
 
@@ -82,8 +84,8 @@ The laptop watchdog also disarms the schedule when it fires.
 | S2 | the engine Pod runs on a node of the `gpu_single` node group (its `eks.amazonaws.com/nodegroup` label), instance type `g5.xlarge` |
 | S3 | `status.admission.mode` is `HoldCap` for the current generation, and the engine's arguments match `pp_expected_args 384` as the conformance session checked them |
 | S4 | the request in step 5 passes; its response carries `X-Engine-Priority` equal to the tenant tier's priority, which the gateway sets only when the backend is under HoldCap or priority binding is on, and priority binding is off in `config/gateway` (`internal/gateway/server.go:561`, `cmd/gateway/main.go:135`) |
-| S5 | after the Pod is deleted, status leaves HoldCap before the new Pod is ready and returns for the same generation, and the request after it passes as in S4 |
-| S6 | the node group's desired size is 0 and its instance is terminated; the schedule is gone; and after destroy the seven existing residue checks and the cluster's CloudWatch log group are empty |
+| S5 | after the Pod is deleted, status is read as not HoldCap, then HoldCap again for the same generation on a Pod with a new UID, and the request after it passes as in S4 |
+| S6 | the node group's desired size is 0 and its recorded instance is terminated; the schedule is gone; and after destroy the seven existing residue checks, the cluster's CloudWatch log group and the GPU deadline schedules are empty |
 
 S1–S4 are the claim; S5 is lifecycle evidence, timing only, since a deleted Pod is replaced from the same capped template; S6 is the cost guard.
 Records name the gauge's label value as the code spells it, `hold-cap` (`internal/gateway/holdcap.go:19`).
@@ -92,7 +94,7 @@ A failure is reported as a failure; no bar is reinterpreted afterwards.
 ### 4. Rehearsal on kind, free, after the promotion
 
 Argo follows `main`, so the rehearsal can only run once both Applications are there; a failed rehearsal costs a further promotion.
-It follows the 2026-09-25 rehearsal, including loading the ECR-pinned images into kind (`docs/superpowers/specs/2026-09-25-gitops-rehearsal-on-clean-kind.md`), with `gpu-up`/`gpu-ready`/`gpu-down` stubbed.
+It follows the 2026-09-25 rehearsal, including loading the ECR-pinned images into kind (`docs/superpowers/specs/2026-09-25-gitops-rehearsal-on-clean-kind.md`), running the runbook's `apply`, `seed-key`, `verify`, `serve-sync` and `serve-rehearse` only; the session's `gpu_up` and `gpu_down` need AWS and were exercised against a stubbed `aws` instead (a refused scale-down retried, an instance followed to terminated, an interrupt ending in scale-down with status 130, a stuck instance keeping the deadline armed).
 No kind node is labelled `platform.lkhun9311.github.io/gpu=true`: the real device plugin, now automated, would schedule there and crash-loop with no card, and the simulator would advertise a device vLLM cannot use.
 So the engine Pod's affinity matches no node, and the rehearsal asserts exactly what that leaves: the Pod is **created** (which before #338 it was not — FailedCreate from the webhook), Pending for node affinity, charged against `serve-a`'s ResourceQuota, status `Off`, and the gateway's answer to `serve-a`'s key while the backend has no endpoint.
 It cannot reach S1–S5, and does not claim to.
@@ -106,7 +108,7 @@ Estimates, not measurements:
 - **GPU:** g5.xlarge Spot. The comment beside the node group says $0.357–0.424/h (`infra/aws/cluster/eks.tf`); a price query on 2026-09-10 read $0.574–0.596/h (`docs/superpowers/specs/2026-09-10-does-splitting-the-card-buy-protection.md`). The session reads the price at purchase and records it.
 - **NAT data, the largest line:** the image is 9.11 GiB compressed and the weights 6.18 GiB (`infra/aws/cluster/eks.tf`); with the second download S5 causes, about 21.5 GiB at $0.059/GB (`infra/aws/cluster/vpc.tf`), roughly $1.4, plus cross-zone charges if Spot lands outside the NAT's zone. NAT data was the largest line of the first three paid sessions (`infra/aws/bootstrap/ecr.tf`).
 - **Docker Hub** serves the image anonymously; nothing in the tree establishes its allowance, so a throttled pull is a risk that ends the session at `serve-ready`.
-- **Spot** can refuse; the session then ends at `gpu-up` and that is the record.
+- **Spot** can refuse; the session then ends at `gpu_up` and that is the record.
 
 ## Out of scope
 
@@ -138,5 +140,28 @@ Latency or protection on EKS; quota metering of the serving Pod; a second tenant
 | S6 misses the log group and the schedule | both | S6 widened |
 | `seed-key` leaves the Secret alone and `verify` uses its first key | Opus | `serve-sync` adds a key; requests use it |
 | S1 passes with zero plugin Pods | Opus | S1 requires the Ready plugin and the advertised GPU |
+
+## The attacks on the implementation, and what each changed
+
+Both engines again, independently, on the committed scripts.
+
+| finding | source | change |
+|---|---|---|
+| an interrupt, error or `die` after the scale-up skips scale-down | both | an EXIT trap runs `gpu_down`; INT, TERM and HUP exit rather than resume |
+| the waits sum to about 100 minutes against a 120-minute watchdog; the GPU deadline started a fresh TTL | both | refused before the build unless `TTL_MINUTES` covers them; the GPU deadline is set to beat the watchdog |
+| the watchdog's one destroy attempt can lose the state lock | astra | lock timeout and three attempts; the failure message says whether anything will retry |
+| the schedule leaks when scale-up fails, termination times out or disarm fails | both | an armed flag as well as a scaled one; the schedule is a residue check |
+| a failed node-group listing reads as no other group | both | refuses |
+| the nightly-destroy check ran after the build and only against a clock | astra | before the build, two hours either side, and a pending destroy run refuses |
+| one scale-down attempt; termination judged by a tag search | astra | retried; the recorded instance ID is followed to terminated |
+| S1 counted allocatable alone, which the simulator also satisfies | both | the real plugin's Pod Ready on the node, and no simulator anywhere |
+| an unreadable status read as "left HoldCap" | both | a third answer; S5 also needs a new Pod UID at the same generation |
+| Pods picked as the first in the namespace | both | by the controller's label, live only, exactly one |
+| `serve-sync` can read the previous operation | both | the operation is replaced and judged only if it started after the request |
+| provenance records best-effort; the header assumed `-bind-priority` off | astra | each record is required; the live gateway's arguments are read |
+| the stream reader was weaker than the bench reader | astra | trims, decodes the typed shape and rejects a non-list `choices`, both reproduced cases now refused |
+| the forwarder's cleanup could wait forever, and its signal handlers resumed | both | bounded TERM then KILL; INT and TERM exit |
+| the card was bought before the checks a GPU-less cluster can answer | Opus | `serve-sync` and `serve-rehearse` run on EKS before `gpu_up` |
+| a failed price lookup still bought | astra | refuses |
 | "nothing has run on an EKS GPU node" | astra | corrected in the question |
 | "one pull is within its limit" has no source | both | stated as a risk |
