@@ -1,0 +1,66 @@
+{
+    "apiVersion": "platform.lkhun9311.github.io/v1",
+    "kind": "InferenceDeployment",
+    "metadata": {
+        "annotations": {
+            "kubectl.kubernetes.io/last-applied-configuration": "{\"apiVersion\":\"platform.lkhun9311.github.io/v1\",\"kind\":\"InferenceDeployment\",\"metadata\":{\"annotations\":{},\"labels\":{\"argocd.argoproj.io/instance\":\"gpu-platform-serving\"},\"name\":\"qwen25-3b-holdcap\",\"namespace\":\"serve-a\"},\"spec\":{\"admission\":{\"maxHold\":\"25s\",\"mode\":\"HoldCap\"},\"engine\":{\"vllm\":{\"modelRevision\":\"aa8e72537993ba99e69dfaafa59ed015b17504d1\",\"profile\":\"v0.27.1-a10g\"}},\"gpuClass\":\"a10g\",\"gpuCount\":1,\"image\":\"vllm/vllm-openai@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967\",\"model\":{\"name\":\"Qwen/Qwen2.5-3B-Instruct\",\"storageUri\":\"hf://Qwen/Qwen2.5-3B-Instruct\"},\"port\":8000,\"replicas\":1}}\n"
+        },
+        "creationTimestamp": "2026-10-12T10:12:31Z",
+        "generation": 1,
+        "labels": {
+            "argocd.argoproj.io/instance": "gpu-platform-serving"
+        },
+        "name": "qwen25-3b-holdcap",
+        "namespace": "serve-a",
+        "resourceVersion": "5525",
+        "uid": "70521f5b-f8ae-460d-ae38-e4f3a098f702"
+    },
+    "spec": {
+        "admission": {
+            "maxHold": "25s",
+            "mode": "HoldCap"
+        },
+        "engine": {
+            "vllm": {
+                "modelRevision": "aa8e72537993ba99e69dfaafa59ed015b17504d1",
+                "profile": "v0.27.1-a10g"
+            }
+        },
+        "gpuClass": "a10g",
+        "gpuCount": 1,
+        "image": "vllm/vllm-openai@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967",
+        "model": {
+            "name": "Qwen/Qwen2.5-3B-Instruct",
+            "storageUri": "hf://Qwen/Qwen2.5-3B-Instruct"
+        },
+        "port": 8000,
+        "replicas": 1
+    },
+    "status": {
+        "admission": {
+            "mode": "HoldCap",
+            "observedGeneration": 1
+        },
+        "conditions": [
+            {
+                "lastTransitionTime": "2026-10-12T10:21:23Z",
+                "message": "all replicas ready",
+                "observedGeneration": 1,
+                "reason": "MinimumReplicasAvailable",
+                "status": "True",
+                "type": "Available"
+            },
+            {
+                "lastTransitionTime": "2026-10-12T10:21:23Z",
+                "message": "the capped engine is the only one serving",
+                "observedGeneration": 1,
+                "reason": "HoldCapInForce",
+                "status": "True",
+                "type": "AdmissionInForce"
+            }
+        ],
+        "observedGeneration": 1,
+        "phase": "Ready",
+        "readyReplicas": 1
+    }
+}

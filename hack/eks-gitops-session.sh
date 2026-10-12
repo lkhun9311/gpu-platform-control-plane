@@ -181,12 +181,30 @@ done
 log "TTL kill switch armed: PID $KILL_PID, fires in ${TTL_MINUTES}m, log $KILL_LOG"
 # When it fires, so the GPU deadline can be set to beat it rather than to a fresh TTL of its own.
 KILL_AT=$(($(date +%s) + TTL_MINUTES * 60))
+# watchdog_alive reports whether the watchdog still runs. A zombie does not: kill -0 succeeds on a process that
+# has exited and not yet been reaped, and asking that immediately after the kill reported a watchdog that was
+# already gone as one that survived (2026-10-12, hack/eks-serve/runs/20261012T095840Z).
+watchdog_alive() {
+  kill -0 "$KILL_PID" 2>/dev/null || return 1
+  [[ "$(awk '{print $3}' "/proc/$KILL_PID/stat" 2>/dev/null)" != Z ]]
+}
+
+# watchdog_gone waits up to five seconds for the watchdog to leave.
+watchdog_gone() {
+  local i
+  for i in 1 2 3 4 5 6 7 8 9 10; do
+    watchdog_alive || return 0
+    sleep 0.5
+  done
+  return 1
+}
+
 disarm() {
   kill -- -"$KILL_PID" 2>/dev/null || kill "$KILL_PID" 2>/dev/null || true
-  if kill -0 "$KILL_PID" 2>/dev/null; then
+  if ! watchdog_gone; then
     kill -9 -- -"$KILL_PID" 2>/dev/null || kill -9 "$KILL_PID" 2>/dev/null || true
   fi
-  if kill -0 "$KILL_PID" 2>/dev/null; then
+  if ! watchdog_gone; then
     bad "the TTL watchdog survived disarming; kill $KILL_PID by hand before the next session"
   fi
 }
