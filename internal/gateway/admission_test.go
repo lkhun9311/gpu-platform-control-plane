@@ -22,8 +22,6 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
 	platformv1 "github.com/lkhun9311/gpu-mlops-platform-control-plane/api/v1"
 )
 
@@ -39,14 +37,14 @@ var _ = Describe("offAdmitter", func() {
 var _ = Describe("tierForPolicy", func() {
 	It("resolves the exact annotation value \"premium\" to premium", func() {
 		p := &platformv1.GPUQuotaPolicy{
-			ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{tierAnnotation: "premium"}},
+			Annotations: map[string]string{tierAnnotation: "premium"},
 		}
 		Expect(tierForPolicy(p)).To(Equal("premium"))
 	})
 
 	It("resolves an explicit \"standard\" annotation to standard", func() {
 		p := &platformv1.GPUQuotaPolicy{
-			ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{tierAnnotation: "standard"}},
+			Annotations: map[string]string{tierAnnotation: "standard"},
 		}
 		Expect(tierForPolicy(p)).To(Equal("standard"))
 	})
@@ -63,14 +61,14 @@ var _ = Describe("tierForPolicy", func() {
 	It("never grants premium on a case variant", func() {
 		// A typo or case mismatch must never grant premium, or a tenant could bypass admission control by accident.
 		p := &platformv1.GPUQuotaPolicy{
-			ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{tierAnnotation: "PREMIUM"}},
+			Annotations: map[string]string{tierAnnotation: "PREMIUM"},
 		}
 		Expect(tierForPolicy(p)).To(Equal("standard"))
 	})
 
 	It("never grants premium on a typo'd value", func() {
 		p := &platformv1.GPUQuotaPolicy{
-			ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{tierAnnotation: "premiumm"}},
+			Annotations: map[string]string{tierAnnotation: "premiumm"},
 		}
 		Expect(tierForPolicy(p)).To(Equal("standard"))
 	})

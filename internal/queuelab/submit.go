@@ -23,7 +23,6 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	platformv1 "github.com/lkhun9311/gpu-mlops-platform-control-plane/api/v1"
 )
@@ -440,11 +439,9 @@ func StateClaim(id FixtureIdentity, class string) (*corev1.PersistentVolumeClaim
 		return nil, fmt.Errorf("parsing StateClaimSize %q: %w", StateClaimSize, err)
 	}
 	return &corev1.PersistentVolumeClaim{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      StateClaimName,
-			Namespace: id.Namespace,
-			Labels:    map[string]string{TxLabel: id.TxID, runLabel: id.RunID},
-		},
+		Name:      StateClaimName,
+		Namespace: id.Namespace,
+		Labels:    map[string]string{TxLabel: id.TxID, runLabel: id.RunID},
 		Spec: corev1.PersistentVolumeClaimSpec{
 			// ReadWriteOnce because the arms never run two writers: parallelism and completions are pinned to
 			// 1, and a preempted victim's replacement starts after the old Pod is gone. It is also the only
@@ -522,15 +519,13 @@ func renderWithState(
 		return nil, err
 	}
 	return &platformv1.MLTrainingJob{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      row.Name,
-			Namespace: namespace,
-			// The trace index and tenant are stamped as labels so the list/watch collector can join an
-			// observed object back to its trace row without parsing the name.
-			Labels: map[string]string{
-				"queuelab.gpu-platform/trace-index": fmt.Sprintf("%d", row.Index),
-				"queuelab.gpu-platform/tenant":      row.Tenant,
-			},
+		Name:      row.Name,
+		Namespace: namespace,
+		// The trace index and tenant are stamped as labels so the list/watch collector can join an
+		// observed object back to its trace row without parsing the name.
+		Labels: map[string]string{
+			"queuelab.gpu-platform/trace-index": fmt.Sprintf("%d", row.Index),
+			"queuelab.gpu-platform/tenant":      row.Tenant,
 		},
 		Spec: platformv1.MLTrainingJobSpec{
 			Queue:       localQueueName(row.Tenant),

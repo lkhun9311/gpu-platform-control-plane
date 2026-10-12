@@ -7,7 +7,6 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -34,16 +33,16 @@ const probeNode = "platform-worker"
 // probeClaim is the probe's claim as the cluster holds it after binding.
 func probeClaim(uid types.UID, phase corev1.PersistentVolumeClaimPhase, volume string) *corev1.PersistentVolumeClaim {
 	return &corev1.PersistentVolumeClaim{
-		ObjectMeta: metav1.ObjectMeta{Name: "queuelab-state", Namespace: canaryNamespace, UID: uid},
-		Spec:       corev1.PersistentVolumeClaimSpec{VolumeName: volume},
-		Status:     corev1.PersistentVolumeClaimStatus{Phase: phase},
+		Name: "queuelab-state", Namespace: canaryNamespace, UID: uid,
+		Spec:   corev1.PersistentVolumeClaimSpec{VolumeName: volume},
+		Status: corev1.PersistentVolumeClaimStatus{Phase: phase},
 	}
 }
 
 // probeHalf is one of the probe's Pods as the cluster holds it after scheduling.
 func probeHalf(name string, uid types.UID, node string) *corev1.Pod {
 	return &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: canaryNamespace, UID: uid},
+		Name: name, Namespace: canaryNamespace, UID: uid,
 		Spec: corev1.PodSpec{
 			NodeName:   node,
 			Containers: []corev1.Container{{Name: probeTrainerContainer, Image: "i"}},

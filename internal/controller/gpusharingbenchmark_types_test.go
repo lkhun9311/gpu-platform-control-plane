@@ -24,7 +24,6 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/yaml"
@@ -45,7 +44,7 @@ var _ = Describe("GpuSharingBenchmark", func() {
 	// because a hand-written Go twin passes while the sample drifts away from it.
 	validBenchmark := func(name string) *platformv1.GpuSharingBenchmark {
 		return &platformv1.GpuSharingBenchmark{
-			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
+			Name: name, Namespace: "default",
 			Spec: platformv1.GpuSharingBenchmarkSpec{
 				GPUClass:    "a10g",
 				SharingMode: "sharedInstance",

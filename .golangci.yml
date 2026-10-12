@@ -8,12 +8,7 @@ linters:
     - dupl
     - errcheck
     - ginkgolinter
-    # goconst is off until its findings under v2.14.0 are cleared, and only for that long.
-    # v2.14.0 is the first golangci-lint that can read Go 1.27's export data, and its goconst (v1.11) counts
-    # strings it did not before: 39 findings on code v2.11.4 passed, mostly Prometheus label names and flag
-    # names, five of them literals that already have a constant. Clearing them is judgement per site, so it is
-    # its own change, and that change turns this back on.
-    # - goconst
+    - goconst
     - gocyclo
     - govet
     - ineffassign
@@ -37,14 +32,23 @@ linters:
       rules:
         - name: comment-spacings
         - name: import-shadowing
+    goconst:
+      # Call is the default, restated because setting exclude-types replaces it. The capitalised spellings are
+      # the only ones the config schema accepts (`make lint-config`), although the linter itself ignores case.
+      # CompositeLit is new in goconst v1.11 (golangci-lint v2.14.0), which began counting strings inside composite
+      # literals: struct fields and table rows such as {"dtype", "dtype", "str"}, where the repetition is the
+      # shape of the table and a constant would hide which row is which -- the reason test files are already
+      # exempt below. It is excluded to keep the scope v2.11.4 enforced. All 39 of its findings were inside
+      # composite literals. Of the five it matched to an existing constant, the two arm names in
+      # ArmsForSharingMode now use ArmTimeSlicing and ArmMPS (and ArmShared beside them), and the three
+      # Tenant: "canary" rows do not, because ownerCanary names a journal owner kind, not a tenant, and shares
+      # only the spelling.
+      exclude-types:
+        - Call
+        - CompositeLit
     modernize:
       disable:
         - omitzero
-        # New in v2.14.0, with 194 findings on code v2.11.4 passed (190 of them embedlit, which --fix applies).
-        # Off for the same reason and the same length of time as goconst above.
-        - embedlit
-        - stringscut
-        - errorsastype
   exclusions:
     generated: lax
     rules:

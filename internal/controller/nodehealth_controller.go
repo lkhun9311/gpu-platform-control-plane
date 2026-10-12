@@ -181,7 +181,7 @@ func (r *NodeHealthReconciler) mapNodeToNodeHealth(ctx context.Context, obj clie
 	reqs := make([]reconcile.Request, 0, len(list.Items))
 	for i := range list.Items {
 		reqs = append(reqs, reconcile.Request{
-			NamespacedName: types.NamespacedName{Name: list.Items[i].Name},
+			Name: list.Items[i].Name,
 		})
 	}
 	return reqs

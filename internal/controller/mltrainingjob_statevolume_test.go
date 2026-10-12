@@ -21,7 +21,6 @@ import (
 	. "github.com/onsi/gomega"
 
 	batchv1 "k8s.io/api/batch/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/rand"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -54,7 +53,7 @@ var _ = Describe("MLTrainingJob state volume", func() {
 		GinkgoHelper()
 		key := types.NamespacedName{Name: "statevol-" + rand.String(5), Namespace: ns}
 		Expect(k8sClient.Create(ctx, &platformv1.MLTrainingJob{
-			ObjectMeta: metav1.ObjectMeta{Name: key.Name, Namespace: key.Namespace},
+			Name: key.Name, Namespace: key.Namespace,
 			Spec: platformv1.MLTrainingJobSpec{
 				Queue: "team-a", Image: "trainer:v1", GPUCount: 1, Parallelism: 1, Completions: 1,
 				StateVolume: sv,
@@ -62,7 +61,7 @@ var _ = Describe("MLTrainingJob state volume", func() {
 		})).To(Succeed())
 		DeferCleanup(func() {
 			_ = k8sClient.Delete(ctx, &platformv1.MLTrainingJob{
-				ObjectMeta: metav1.ObjectMeta{Name: key.Name, Namespace: key.Namespace},
+				Name: key.Name, Namespace: key.Namespace,
 			})
 		})
 

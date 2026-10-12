@@ -260,7 +260,7 @@ func labLabels(id FixtureIdentity, study Study, variant string) map[string]strin
 // own Ready barriers, so the two must be defined together with the flavor.
 func labResourceFlavor(id FixtureIdentity, study Study, variant string) *kueuev1beta2.ResourceFlavor {
 	return &kueuev1beta2.ResourceFlavor{
-		ObjectMeta: metav1.ObjectMeta{Name: FlavorName(id.RunID), Labels: labLabels(id, study, variant)},
+		Name: FlavorName(id.RunID), Labels: labLabels(id, study, variant),
 		Spec: kueuev1beta2.ResourceFlavorSpec{
 			NodeLabels: map[string]string{labWorkerLabel: id.RunID},
 			NodeTaints: []corev1.Taint{{
@@ -305,7 +305,7 @@ func labResourceFlavor(id FixtureIdentity, study Study, variant string) *kueuev1
 func baseClusterQueue(name string, nominal int64, id FixtureIdentity, study Study, variant string) *kueuev1beta2.ClusterQueue {
 	q := resource.NewQuantity(nominal, resource.DecimalSI)
 	return &kueuev1beta2.ClusterQueue{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Labels: labLabels(id, study, variant)},
+		Name: name, Labels: labLabels(id, study, variant),
 		Spec: kueuev1beta2.ClusterQueueSpec{
 			NamespaceSelector: &metav1.LabelSelector{},
 			ResourceGroups: []kueuev1beta2.ResourceGroup{{
@@ -325,7 +325,7 @@ func baseClusterQueue(name string, nominal int64, id FixtureIdentity, study Stud
 // localQueue binds a tenant's namespace queue to the given ClusterQueue.
 func localQueue(tenant, clusterQueue string, id FixtureIdentity, study Study, variant string) *kueuev1beta2.LocalQueue {
 	return &kueuev1beta2.LocalQueue{
-		ObjectMeta: metav1.ObjectMeta{Name: "ql-" + tenant, Namespace: id.Namespace, Labels: labLabels(id, study, variant)},
-		Spec:       kueuev1beta2.LocalQueueSpec{ClusterQueue: kueuev1beta2.ClusterQueueReference(clusterQueue)},
+		Name: "ql-" + tenant, Namespace: id.Namespace, Labels: labLabels(id, study, variant),
+		Spec: kueuev1beta2.LocalQueueSpec{ClusterQueue: kueuev1beta2.ClusterQueueReference(clusterQueue)},
 	}
 }

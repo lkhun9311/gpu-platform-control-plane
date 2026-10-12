@@ -39,7 +39,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus/testutil"
 
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	platformv1 "github.com/lkhun9311/gpu-mlops-platform-control-plane/api/v1"
@@ -76,12 +75,12 @@ func newProxyServer(upstream string, rpm int32) *Server {
 func newProxyServerWithBurst(upstream string, rpm, burst int32) *Server {
 	// The Secret tenant.go's resolveTenant reads to map a key to a tenant.
 	secret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: testSecret, Namespace: testGatewayNS},
-		Data:       map[string][]byte{testKey: []byte(testTenant)},
+		Name: testSecret, Namespace: testGatewayNS,
+		Data: map[string][]byte{testKey: []byte(testTenant)},
 	}
 	// policyForTenant matches on Spec.Tenant; backendFor scopes its search by Spec.TargetNamespace.
 	policy := &platformv1.GPUQuotaPolicy{
-		ObjectMeta: metav1.ObjectMeta{Name: "vision-policy"},
+		Name: "vision-policy",
 		Spec: platformv1.GPUQuotaPolicySpec{
 			Tenant:          testTenant,
 			TargetNamespace: testTenantNS,
@@ -230,8 +229,8 @@ var _ = Describe("chat completions pipeline", func() {
 	It("returns 403 when the tenant has no policy", func() {
 		// A tenant that authenticates but has no GPUQuotaPolicy planted for it.
 		secret := &corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{Name: testSecret, Namespace: testGatewayNS},
-			Data:       map[string][]byte{"k2": []byte("no-policy-tenant")},
+			Name: testSecret, Namespace: testGatewayNS,
+			Data: map[string][]byte{"k2": []byte("no-policy-tenant")},
 		}
 		s := &Server{
 			Client:       newRouterClient(secret),

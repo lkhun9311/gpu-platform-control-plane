@@ -167,7 +167,7 @@ func TestRenderResultSummarizesOccupancyAndReExecution(t *testing.T) {
 		t.Fatalf("TotalOccupancyGPUSeconds = %.1f, want %.1f (the sum over rows)", res.TotalOccupancyGPUSeconds, want)
 	}
 	out := RenderResult(res)
-	header := strings.Split(out, "  a1")[0]
+	header, _, _ := strings.Cut(out, "  a1")
 	for _, s := range []string{"totalOccupancyGPUSeconds=", "reExecutedRows=1"} {
 		if !strings.Contains(header, s) {
 			t.Fatalf("run-level header is missing %q:\n%s", s, out)
@@ -303,7 +303,7 @@ func TestRenderResultSurfacesUnknownAttribution(t *testing.T) {
 		t.Fatalf("fixture must produce unknown attribution: %+v", res)
 	}
 	out := RenderResult(res)
-	header := strings.Split(out, "\n  ")[0]
+	header, _, _ := strings.Cut(out, "\n  ")
 	for _, s := range []string{"UNATTRIBUTED", "could not be attributed"} {
 		if !strings.Contains(header, s) {
 			t.Fatalf("run-level header must state %q so the reader knows unattributable occupancy exists:\n%s", s, out)

@@ -26,7 +26,7 @@ var _ = Describe("InferenceDeployment HoldCap validation", func() {
 	const ns = "holdcap-validation"
 
 	BeforeEach(func() {
-		err := k8sClient.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}})
+		err := k8sClient.Create(ctx, &corev1.Namespace{Name: ns})
 		if err != nil {
 			Expect(client.IgnoreAlreadyExists(err)).To(Succeed())
 		}
@@ -37,7 +37,7 @@ var _ = Describe("InferenceDeployment HoldCap validation", func() {
 
 	holdCap := func(name string) *platformv1.InferenceDeployment {
 		return &platformv1.InferenceDeployment{
-			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
+			Name: name, Namespace: ns,
 			Spec: platformv1.InferenceDeploymentSpec{
 				Model:    platformv1.InferenceModel{Name: "qwen", StorageURI: "hf://Qwen/Qwen2.5-3B-Instruct"},
 				Image:    platformv1.VLLMV0271Image,

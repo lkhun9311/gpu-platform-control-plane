@@ -114,7 +114,7 @@ func (r *GPUQuotaPolicyReconciler) syncKueueTrainingQuota(ctx context.Context, p
 	var cq kueuev1beta1.ClusterQueue
 	switch err := r.Get(ctx, cqKey, &cq); {
 	case apierrors.IsNotFound(err):
-		cq = kueuev1beta1.ClusterQueue{ObjectMeta: metav1.ObjectMeta{Name: name}}
+		cq = kueuev1beta1.ClusterQueue{Name: name}
 		applyClusterQueueSpec(&cq, policy)
 		if err := controllerutil.SetControllerReference(policy, &cq, r.Scheme); err != nil {
 			return ctrl.Result{}, false, err
@@ -154,8 +154,8 @@ func (r *GPUQuotaPolicyReconciler) syncKueueTrainingQuota(ctx context.Context, p
 	switch err := r.Get(ctx, lqKey, &lq); {
 	case apierrors.IsNotFound(err):
 		lq = kueuev1beta1.LocalQueue{
-			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: policy.Spec.TargetNamespace},
-			Spec:       kueuev1beta1.LocalQueueSpec{ClusterQueue: want},
+			Name: name, Namespace: policy.Spec.TargetNamespace,
+			Spec: kueuev1beta1.LocalQueueSpec{ClusterQueue: want},
 		}
 		if err := controllerutil.SetControllerReference(policy, &lq, r.Scheme); err != nil {
 			return ctrl.Result{}, false, err

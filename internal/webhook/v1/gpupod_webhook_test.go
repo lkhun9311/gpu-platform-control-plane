@@ -23,7 +23,7 @@ import (
 // gpuPod builds a Pod asking for n devices, with whatever owner and annotations the spec needs.
 func gpuPod(n int64, mutate func(*corev1.Pod)) *corev1.Pod {
 	p := &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{Name: "p1", Namespace: "team-a"},
+		Name: "p1", Namespace: "team-a",
 		Spec: corev1.PodSpec{
 			Containers: []corev1.Container{{
 				Name:  "trainer",
@@ -74,11 +74,9 @@ func ask(t *testing.T, v *GPUPodValidator, user string, pod *corev1.Pod) admissi
 		t.Fatalf("marshal pod: %v", err)
 	}
 	return v.Handle(context.Background(), admission.Request{
-		AdmissionRequest: admissionv1.AdmissionRequest{
-			Operation: admissionv1.Create,
-			UserInfo:  authenticationv1.UserInfo{Username: user},
-			Object:    runtime.RawExtension{Raw: raw},
-		},
+		Operation: admissionv1.Create,
+		UserInfo:  authenticationv1.UserInfo{Username: user},
+		Object:    runtime.RawExtension{Raw: raw},
 	})
 }
 
@@ -86,7 +84,7 @@ func ask(t *testing.T, v *GPUPodValidator, user string, pod *corev1.Pod) admissi
 const tenantUser = "system:serviceaccount:team-a:default"
 
 func queuedJob(name, queue string) *batchv1.Job {
-	j := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "team-a"}}
+	j := &batchv1.Job{Name: name, Namespace: "team-a"}
 	if queue != "" {
 		j.Labels = map[string]string{kueueQueueLabel: queue}
 	}

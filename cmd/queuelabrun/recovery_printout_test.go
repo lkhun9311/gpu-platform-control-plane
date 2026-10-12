@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -49,10 +48,9 @@ func canaryHeldNode(t *testing.T, canaryID string) *corev1.Node {
 
 // probePod is one Pod as a probe leaves it: in the shared namespace, carrying the id in the selected label.
 func probePod(name, canaryID string) *corev1.Pod {
-	return &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
+	return &corev1.Pod{
 		Name: name, Namespace: canaryNamespace,
-		Labels: map[string]string{canaryProbeLabel: canaryID},
-	}}
+		Labels: map[string]string{canaryProbeLabel: canaryID}}
 }
 
 // THE defect, in the shape that produced it: a stranded device preflight.

@@ -29,7 +29,6 @@ import (
 	. "github.com/onsi/gomega"
 
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	platformv1 "github.com/lkhun9311/gpu-mlops-platform-control-plane/api/v1"
 )
@@ -40,15 +39,15 @@ var eligibleLongBody = `{"model":"` + testModel + `","messages":[{"role":"user",
 // newAdmissionServer builds a Server like newProxyServer in proxy_test.go, but with a tier annotation on the policy and a caller-supplied admission mode/admitter, so pipeline specs can drive both the tier resolution and the admission stage end to end.
 func newAdmissionServer(upstream, tier string, mode AdmissionMode, admitter Admitter) *Server {
 	secret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: testSecret, Namespace: testGatewayNS},
-		Data:       map[string][]byte{testKey: []byte(testTenant)},
+		Name: testSecret, Namespace: testGatewayNS,
+		Data: map[string][]byte{testKey: []byte(testTenant)},
 	}
 	annotations := map[string]string{}
 	if tier != "" {
 		annotations[tierAnnotation] = tier
 	}
 	policy := &platformv1.GPUQuotaPolicy{
-		ObjectMeta: metav1.ObjectMeta{Name: "vision-policy", Annotations: annotations},
+		Name: "vision-policy", Annotations: annotations,
 		Spec: platformv1.GPUQuotaPolicySpec{
 			Tenant:          testTenant,
 			TargetNamespace: testTenantNS,
@@ -203,15 +202,15 @@ var _ = Describe("admission pipeline placement", func() {
 // A tenant value no other spec in the binary uses is what makes an exact counter assertion reproducible despite that shared state; every other label (mode, model, decision, reason) is not by itself enough, since other specs share those too.
 func newTenantAdmissionServer(upstream, tenant, key, tier string, mode AdmissionMode, admitter Admitter) *Server {
 	secret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: testSecret, Namespace: testGatewayNS},
-		Data:       map[string][]byte{key: []byte(tenant)},
+		Name: testSecret, Namespace: testGatewayNS,
+		Data: map[string][]byte{key: []byte(tenant)},
 	}
 	annotations := map[string]string{}
 	if tier != "" {
 		annotations[tierAnnotation] = tier
 	}
 	policy := &platformv1.GPUQuotaPolicy{
-		ObjectMeta: metav1.ObjectMeta{Name: tenant + "-policy", Annotations: annotations},
+		Name: tenant + "-policy", Annotations: annotations,
 		Spec: platformv1.GPUQuotaPolicySpec{
 			Tenant:          tenant,
 			TargetNamespace: testTenantNS,

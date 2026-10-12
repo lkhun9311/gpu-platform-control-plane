@@ -116,8 +116,8 @@ func TestClassifyPodReadyAndStopped(t *testing.T) {
 	// A pod merely marked for deletion (grace period started) but not yet terminal must NOT be stopped, or
 	// the grace-window work would be dropped from waste.
 	deleting := &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{DeletionTimestamp: &metav1.Time{}},
-		Status:     corev1.PodStatus{Phase: corev1.PodRunning},
+		DeletionTimestamp: &metav1.Time{},
+		Status:            corev1.PodStatus{Phase: corev1.PodRunning},
 	}
 	if got := ClassifyPod(deleting); got.Event == EventAttemptStopped {
 		t.Fatalf("a deleting-but-running pod must not be AttemptStopped yet")

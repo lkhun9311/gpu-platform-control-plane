@@ -29,15 +29,14 @@ import (
 	. "github.com/onsi/gomega"
 
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
 var _ = Describe("resolveTenant", func() {
 	newServer := func() *Server {
 		c := fake.NewClientBuilder().WithObjects(&corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{Name: "gateway-api-keys", Namespace: "gw"},
-			Data:       map[string][]byte{"k1": []byte("team-vision")},
+			Name: "gateway-api-keys", Namespace: "gw",
+			Data: map[string][]byte{"k1": []byte("team-vision")},
 		}).Build()
 		return &Server{Client: c, Namespace: "gw", APIKeySecret: "gateway-api-keys"}
 	}
@@ -106,8 +105,8 @@ var _ = Describe("an unreadable api-keys secret", func() {
 	// no error, or the change has turned every bad key into an outage.
 	It("still rejects an unknown key without an error", func() {
 		c := fake.NewClientBuilder().WithObjects(&corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{Name: "gateway-api-keys", Namespace: "gw"},
-			Data:       map[string][]byte{"k1": []byte("team-vision")},
+			Name: "gateway-api-keys", Namespace: "gw",
+			Data: map[string][]byte{"k1": []byte("team-vision")},
 		}).Build()
 		s := &Server{Client: c, Namespace: "gw", APIKeySecret: "gateway-api-keys"}
 		r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)

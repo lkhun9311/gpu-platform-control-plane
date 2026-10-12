@@ -271,8 +271,8 @@ func (r *GPUQuotaPolicyReconciler) syncNamespaceResourceQuota(ctx context.Contex
 	switch err := r.Get(ctx, rqKey, &rq); {
 	case apierrors.IsNotFound(err):
 		rq = corev1.ResourceQuota{
-			ObjectMeta: metav1.ObjectMeta{Name: rqKey.Name, Namespace: rqKey.Namespace},
-			Spec:       corev1.ResourceQuotaSpec{Hard: desiredHard},
+			Name: rqKey.Name, Namespace: rqKey.Namespace,
+			Spec: corev1.ResourceQuotaSpec{Hard: desiredHard},
 		}
 		if err := controllerutil.SetControllerReference(policy, &rq, r.Scheme); err != nil {
 			return ctrl.Result{}, false, err
