@@ -250,6 +250,23 @@ SCALED_UP=""
 GPU_ARMED=""
 kc() { kubectl --context "$CLUSTER" --request-timeout=20s "$@"; }
 
+# ready_names reads a list of objects as JSON on stdin and prints the names of those whose Ready condition is
+# True. kubectl's JSONPath cannot do this: a filter nested inside a filter is refused as "unterminated filter",
+# and with stderr discarded that refusal read as "nothing is Ready".
+ready_names() {
+  python3 -c '
+import json, sys
+try:
+    items = json.load(sys.stdin).get("items", [])
+except Exception:
+    sys.exit(3)
+for o in items:
+    conds = (o.get("status") or {}).get("conditions") or []
+    if any(c.get("type") == "Ready" and c.get("status") == "True" for c in conds):
+        print(o["metadata"]["name"])
+'
+}
+
 # The serving steps run with one evidence directory, because serve-sync records the tenant key the later steps
 # send: a fresh directory per step would leave them with no key and read as the chain failing.
 serve_step() {
@@ -329,13 +346,17 @@ gpu_up() {
   local deadline=$((SECONDS + WAIT_GPU_NODE)) node=""
   while ((SECONDS < deadline)); do
     node="$(kc get nodes -l "eks.amazonaws.com/nodegroup=$NODEGROUP" \
-      -o jsonpath='{range .items[?(@.status.conditions[?(@.type=="Ready")].status=="True")]}{.metadata.name}{"\n"}{end}' 2>/dev/null | head -1)"
+      -o json 2>/dev/null | ready_names | head -1)"
     [[ -n "$node" ]] && break
     sleep 15
   done
   [[ -n "$node" ]] || { bad "no Ready $NODEGROUP node within ${WAIT_GPU_NODE}s (Spot capacity, or the bootstrap)"; return 1; }
   # The instance this session bought, by its own ID, so the scale-down can follow that instance to terminated.
-  kc get node "$node" -o jsonpath='{.spec.providerID}' 2>/dev/null | sed 's|.*/||' >>"$GPU_INSTANCES_FILE"
+  # printf, not the pipeline's own output: jsonpath ends without a newline, and the next ID appended to the file
+  # would be glued onto this one.
+  local iid
+  iid="$(kc get node "$node" -o jsonpath='{.spec.providerID}' 2>/dev/null | sed 's|.*/||')"
+  [[ -n "$iid" ]] && printf '%s\n' "$iid" >>"$GPU_INSTANCES_FILE"
   ok "GPU node joined: $node ($(tail -1 "$GPU_INSTANCES_FILE" 2>/dev/null))"
 
   # S1: the real plugin's Pod Ready on this node and the card advertised, with no simulator anywhere, since the
@@ -345,7 +366,7 @@ gpu_up() {
   while ((SECONDS < deadline)); do
     gpus="$(kc get node "$node" -o jsonpath='{.status.allocatable.nvidia\.com/gpu}' 2>/dev/null)"
     plugin="$(kc get pods -A -l app.kubernetes.io/component=nvidia-device-plugin --field-selector "spec.nodeName=$node" \
-      -o jsonpath='{range .items[?(@.status.conditions[?(@.type=="Ready")].status=="True")]}{.metadata.name}{"\n"}{end}' 2>/dev/null | head -1)"
+      -o json 2>/dev/null | ready_names | head -1)"
     [[ "$gpus" == 1 && -n "$plugin" ]] && break
     sleep 10
   done
@@ -385,11 +406,32 @@ gpu_down() {
     done
     [[ -n "$accepted" ]] || bad "the scale-down of $NODEGROUP was refused six times; the GPU deadline and the cluster destroy still stand"
   fi
-  # Followed by the instances this session recorded, which a terminated one leaves with state terminated or not
-  # at all; stopped is not terminated, since a stopped instance keeps its volume.
-  local deadline=$((SECONDS + WAIT_GPU_GONE)) ids left="" st
-  ids="$(sort -u "$GPU_INSTANCES_FILE" 2>/dev/null | sed '/^$/d' | tr '\n' ' ')"
+  # Followed by instance, not by a tag search: the ones this session recorded at join, together with whatever
+  # the node group's Auto Scaling group holds now, which also covers a launch that never became a Ready node
+  # and a Spot replacement. A terminated instance reads terminated or not at all; stopped is not terminated,
+  # since a stopped instance keeps its volume. A group that cannot be read is not an empty one.
+  local deadline=$((SECONDS + WAIT_GPU_GONE)) ids left="" st asg_names asg_ids unreadable
   while ((SECONDS < deadline)); do
+    unreadable=""
+    asg_ids=""
+    if asg_names="$(aws eks describe-nodegroup --cluster-name "$CLUSTER" --nodegroup-name "$NODEGROUP" \
+      --query 'nodegroup.resources.autoScalingGroups[].name' --output text 2>&1)"; then
+      if [[ -n "${asg_names// /}" && "$asg_names" != None ]]; then
+        # shellcheck disable=SC2086
+        asg_ids="$(aws autoscaling describe-auto-scaling-groups --auto-scaling-group-names $asg_names \
+          --query 'AutoScalingGroups[].Instances[].InstanceId' --output text 2>&1)" || {
+          unreadable="the Auto Scaling group: $asg_ids"
+          asg_ids=""
+        }
+      fi
+    else
+      unreadable="the node group: $asg_names"
+    fi
+    [[ "$asg_ids" == None ]] && asg_ids=""
+    # Kept once seen: the group stops listing an instance as it goes, before it is terminated, and an ID
+    # dropped at that point would leave the instance unchecked.
+    [[ -n "$asg_ids" ]] && printf '%s\n' $asg_ids >>"$GPU_INSTANCES_FILE"
+    ids="$(sort -u "$GPU_INSTANCES_FILE" 2>/dev/null | sed '/^$/d' | tr '\n' ' ')"
     left=""
     for i in $ids; do
       st="$(aws ec2 describe-instances --region "$REGION" --instance-ids "$i" \
@@ -399,15 +441,15 @@ gpu_down() {
         *) left="$left $i(${st//$'\n'/ })" ;;
       esac
     done
-    [[ -z "$left" ]] && break
+    [[ -z "$left" && -z "$asg_ids" && -z "$unreadable" ]] && break
     sleep 15
   done
   local desired
   desired="$(aws eks describe-nodegroup --cluster-name "$CLUSTER" --nodegroup-name "$NODEGROUP" \
     --query 'nodegroup.scalingConfig.desiredSize' --output text 2>&1)"
-  printf 'desiredSize=%s instances=%s still-up=%s\n' "$desired" "${ids:-none}" "${left:-none}" >"$EXDIR/gpu-down.txt"
-  if [[ -n "$SCALED_UP" && ( "$desired" != 0 || -n "$left" ) ]]; then
-    bad "S6: $NODEGROUP at desiredSize=$desired with${left:- no} instances still up; the GPU deadline stays armed"
+  printf 'desiredSize=%s instances=%s still-up=%s group-holds=%s unreadable=%s\n' "$desired" "${ids:-none}" "${left:-none}" "${asg_ids:-none}" "${unreadable:-none}" >"$EXDIR/gpu-down.txt"
+  if [[ -n "$SCALED_UP" && ( "$desired" != 0 || -n "$left" || -n "$asg_ids" || -n "$unreadable" ) ]]; then
+    bad "S6: $NODEGROUP at desiredSize=$desired, instances still up:${left:- none}, group holds:${asg_ids:- none}${unreadable:+, could not read $unreadable}; the GPU deadline stays armed"
     return 0
   fi
   [[ -n "$SCALED_UP" ]] && ok "S6 (GPU half): $NODEGROUP at desiredSize 0 and instance(s) ${ids:-none recorded} terminated"

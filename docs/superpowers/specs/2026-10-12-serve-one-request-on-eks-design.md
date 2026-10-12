@@ -163,5 +163,12 @@ Both engines again, independently, on the committed scripts.
 | the forwarder's cleanup could wait forever, and its signal handlers resumed | both | bounded TERM then KILL; INT and TERM exit |
 | the card was bought before the checks a GPU-less cluster can answer | Opus | `serve-sync` and `serve-rehearse` run on EKS before `gpu_up` |
 | a failed price lookup still bought | astra | refuses |
+
+A bare `codex review` of the fix commit then found two more, both confirmed before they were fixed:
+
+| finding | change |
+|---|---|
+| the Ready filters were nested JSONPath filters, which kubectl refuses ("unterminated filter", reproduced against kind); with stderr discarded every session would have stopped before the card | `ready_names` decodes the JSON in Python; every other new JSONPath expression was run once against a live cluster |
+| `gpu_down` knew only the instance recorded at join, so a launch that never became a Ready node, or a Spot replacement, went unchecked and the deadline was removed | the node group's Auto Scaling group is read on every pass and each instance seen is kept until terminated; an unreadable group keeps the deadline armed |
 | "nothing has run on an EKS GPU node" | astra | corrected in the question |
 | "one pull is within its limit" has no source | both | stated as a risk |

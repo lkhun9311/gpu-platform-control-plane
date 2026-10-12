@@ -431,6 +431,23 @@ engine_pod() {
   printf '%s\n' "$out"
 }
 
+# ready_names reads a list of objects as JSON on stdin and prints the names of those whose Ready condition is
+# True. kubectl's JSONPath cannot do this: a filter nested inside a filter is refused as "unterminated filter",
+# and with stderr discarded that refusal read as "nothing is Ready".
+ready_names() {
+  python3 -c '
+import json, sys
+try:
+    items = json.load(sys.stdin).get("items", [])
+except Exception:
+    sys.exit(3)
+for o in items:
+    conds = (o.get("status") or {}).get("conditions") or []
+    if any(c.get("type") == "Ready" and c.get("status") == "True" for c in conds):
+        print(o["metadata"]["name"])
+'
+}
+
 # gw_forward starts a port-forward to the API port of a Ready gateway Pod and sets GW_API_PORT and GW_PF_PID;
 # gw_unforward ends it. A kernel-chosen port and its own process group, as verify's; and an interrupt ENDS the
 # run, because a handler that only cleans up returns to the interrupted command and the run carries on to
@@ -439,7 +456,7 @@ gw_forward() {
   GW_API_PORT="" GW_PF_PID=""
   local pod pf_log="$EXDIR/port-forward-serve.log"
   pod="$(k -n "$GW_NS" get pod -l app.kubernetes.io/component=gateway \
-    -o jsonpath='{range .items[?(@.status.conditions[?(@.type=="Ready")].status=="True")]}{.metadata.name}{"\n"}{end}' 2>/dev/null | head -1)"
+    -o json 2>/dev/null | ready_names | head -1)"
   [[ -n "$pod" ]] || return 1
   set -m
   kubectl --context "$CONTEXT" -n "$GW_NS" port-forward "pod/$pod" :8080 >"$pf_log" 2>&1 &
