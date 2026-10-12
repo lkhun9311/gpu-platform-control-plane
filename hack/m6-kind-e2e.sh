@@ -12,7 +12,9 @@ set -uo pipefail
 
 cd "$(dirname "$0")/.."
 export PATH="$PWD/bin:$PATH"
-export GOTOOLCHAIN=go1.26.9
+# The module's own Go version, read rather than repeated: a pin copied here drifted from go.mod when a
+# dependency update raised it, and every build below then refused to start.
+export GOTOOLCHAIN="go$(awk '/^go [0-9]/{print $2}' go.mod)"
 
 # Overridable, because they were not and an attempt to run this against a throwaway cluster silently went to
 # `platform` anyway and overwrote the committed evidence log. A plain assignment ignores the environment

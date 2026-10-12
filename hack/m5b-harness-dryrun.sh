@@ -9,7 +9,9 @@
 set -uo pipefail
 
 cd "$(dirname "$0")/.."
-export GOTOOLCHAIN=go1.26.9
+# The module's own Go version, read rather than repeated: a pin copied here drifted from go.mod when a
+# dependency update raised it, and every build below then refused to start.
+export GOTOOLCHAIN="go$(awk '/^go [0-9]/{print $2}' go.mod)"
 
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"; [ -n "${STUB_PID:-}" ] && kill "$STUB_PID" 2>/dev/null' EXIT
