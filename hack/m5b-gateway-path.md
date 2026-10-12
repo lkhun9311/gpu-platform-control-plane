@@ -149,6 +149,12 @@ harness -> stub, AFTER      (sized pool + drain):                 884 requests o
   RESULT: PASS - the sized client pool cut the instrument's own connections from 431 to 6.
 ```
 
+*2026-10-12: these figures are Go 1.26's and stand as recorded. A rerun will not reproduce the `before` row.
+Go 1.27 drains a short unread body on Close and reuses the connection, so the unchanged legacy client
+reused most connections and stopped being the old client. Legacy now sends `Connection: close` and opens
+one connection per request: 884 over 884, an upper bound on the old client's 431. The pass condition
+(pooled below legacy) is unaffected; the drain's share of the attribution is not comparable across the two.*
+
 **431 connections down to 6, a factor of 72.** The `before` figure is worth reading closely: 884
 requests over 431 connections is **2.0 requests per connection**, Go's default cap reproduced to the
 decimal. The instrument was opening a new TCP connection for every other request it timed.
