@@ -1,6 +1,11 @@
 # serve-a's budget: one GPU, held by a namespace ResourceQuota rather than a Kueue ClusterQueue.
 #
 # gpuClass is recorded and not enforced per class; the ResourceQuota caps one aggregate nvidia.com/gpu key.
+#
+# trainingQuota is left out rather than written as false, and that is what keeps the Application Synced. The
+# controller writes the whole policy back when it adds its finalizer, and the Go field is omitempty, so a false
+# written here is removed from the live object; Argo CD then compares the two and reports OutOfSync for good.
+# The kind rehearsal of 2026-10-12 found it. Absent is false, to the controller and to the immutability rule.
 apiVersion: platform.lkhun9311.github.io/v1
 kind: GPUQuotaPolicy
 metadata:
@@ -11,4 +16,3 @@ spec:
   gpuClass: a10g
   limits:
     gpuCount: 1
-  trainingQuota: false
