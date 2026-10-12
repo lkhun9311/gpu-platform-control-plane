@@ -10,8 +10,10 @@ set -uo pipefail
 
 cd "$(dirname "$0")/.."
 # The module's own Go version, read rather than repeated: a pin copied here drifted from go.mod when a
-# dependency update raised it, and every build below then refused to start.
-export GOTOOLCHAIN="go$(awk '/^go [0-9]/{print $2}' go.mod)"
+# dependency update raised it, and every build below then refused to start. Guarded because the harness
+# self-tests run this script from a partial tree with no go.mod, where an unguarded read printed an error
+# into the output they compare byte for byte.
+if [ -f go.mod ]; then export GOTOOLCHAIN="go$(awk '/^go [0-9]/{print $2}' go.mod)"; fi
 
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"; [ -n "${STUB_PID:-}" ] && kill "$STUB_PID" 2>/dev/null' EXIT

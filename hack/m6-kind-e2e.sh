@@ -13,8 +13,10 @@ set -uo pipefail
 cd "$(dirname "$0")/.."
 export PATH="$PWD/bin:$PATH"
 # The module's own Go version, read rather than repeated: a pin copied here drifted from go.mod when a
-# dependency update raised it, and every build below then refused to start.
-export GOTOOLCHAIN="go$(awk '/^go [0-9]/{print $2}' go.mod)"
+# dependency update raised it, and every build below then refused to start. Guarded because the harness
+# self-tests run this script from a partial tree with no go.mod, where an unguarded read printed an error
+# into the output they compare byte for byte.
+if [ -f go.mod ]; then export GOTOOLCHAIN="go$(awk '/^go [0-9]/{print $2}' go.mod)"; fi
 
 # Overridable, because they were not and an attempt to run this against a throwaway cluster silently went to
 # `platform` anyway and overwrote the committed evidence log. A plain assignment ignores the environment
