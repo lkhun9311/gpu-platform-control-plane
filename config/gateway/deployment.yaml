@@ -95,4 +95,6 @@ spec:
             cpu: 10m
             memory: 64Mi
       serviceAccountName: gateway
-      terminationGracePeriodSeconds: 10
+      # Above the gateway's 25s shutdownGrace (cmd/gateway/main.go), so in-flight generations drain and the
+      # gateway, not the kubelet's SIGKILL, decides which ones are cut; serve_test.go pins the two.
+      terminationGracePeriodSeconds: 30
