@@ -1,0 +1,26 @@
+# One tenant and one engine, for the session that serves a request through the gateway on EKS.
+#
+# Manual, because the engine asks for a GPU: synced on a cluster with no GPU node it sits Pending forever, and
+# every cluster that tracks main would carry it. The session syncs it after its GPU node has joined.
+# See docs/superpowers/specs/2026-10-12-serve-one-request-on-eks-design.md.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: gpu-platform-serving
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/lkhun9311/gpu-platform-control-plane.git
+    targetRevision: main
+    path: config/serving
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: serve-a
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true

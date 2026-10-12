@@ -1,0 +1,26 @@
+# hold-cap: the gateway's serial-prefill admission paired with the engine's prefill cap of 384.
+# Measured on one A10G with this model, one engine version and one load; it is not an SLO.
+# See docs/11_WHAT_THIS_MEASURED.md, Finding 9, for what it does and does not establish.
+apiVersion: platform.lkhun9311.github.io/v1
+kind: InferenceDeployment
+metadata:
+  name: qwen25-3b-holdcap
+  namespace: serve-a
+spec:
+  model:
+    name: Qwen/Qwen2.5-3B-Instruct
+    storageUri: hf://Qwen/Qwen2.5-3B-Instruct
+  # The engine runs this image; any other digest is refused while engine is set, and a mirror of the same digest is accepted.
+  image: vllm/vllm-openai@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967
+  gpuClass: a10g
+  gpuCount: 1
+  # HoldCap is refused above one replica: serial-prefill keys on the Service.
+  replicas: 1
+  port: 8000
+  engine:
+    vllm:
+      profile: v0.27.1-a10g
+      modelRevision: aa8e72537993ba99e69dfaafa59ed015b17504d1
+  admission:
+    mode: HoldCap
+    maxHold: 25s

@@ -28,8 +28,9 @@ The gateway routes only to backends in a policy's `targetNamespace` (`internal/g
 So a GPU serving Pod in any namespace the gateway can route to is refused unless the tenant's policy is a training policy — and on EKS no Kueue controller runs to meter it even then (`config/argocd/kueue-crds.yaml`).
 No earlier run reached this: the conformance manager ran without webhooks (`hack/holdcap-conformance/instance.sh`), and the gateway's kind backends request no GPU.
 
-This is a defect in the product, not in the session, and it gets its own change, design and review before this one proceeds.
-The likely shape is that the webhook refuses only where the namespace's GPU budget is a Kueue ClusterQueue, and leaves a namespace whose budget is a `ResourceQuota` to that quota, which meters a Pod directly; that is a judgement about the quota boundary and is the owner's to approve.
+This is a defect in the product, not in the session, and it got its own change: PR #338 admits a GPU Pod, whoever creates it, where every policy over the namespace is in ResourceQuota mode and each one's quota is owned, unscoped and already carries the GPU key in `status.hard`.
+A codex adversarial review shaped those conditions, and the same review found the `quota-exempt` annotation could be laundered through a workload controller, which #338 also removes.
+This session depends on #338 reaching `main`.
 
 ## What exists, and what is missing
 
@@ -91,8 +92,10 @@ A failure is reported as a failure; no bar is reinterpreted afterwards.
 ### 4. Rehearsal on kind, free, after the promotion
 
 Argo follows `main`, so the rehearsal can only run once both Applications are there; a failed rehearsal costs a further promotion.
-It follows the 2026-09-25 rehearsal, including loading the ECR-pinned images into kind (`docs/superpowers/specs/2026-09-25-gitops-rehearsal-on-clean-kind.md`), with `gpu-up`/`gpu-ready`/`gpu-down` stubbed and the fake device plugin advertising one GPU on a worker labelled as `gpu_single` is.
-With P0 fixed, the engine Pod is then created and scheduled and fails to start for lack of a real GPU, so the rehearsal asserts that exact state and the refusal the gateway gives while status is Off, and nothing it cannot reach.
+It follows the 2026-09-25 rehearsal, including loading the ECR-pinned images into kind (`docs/superpowers/specs/2026-09-25-gitops-rehearsal-on-clean-kind.md`), with `gpu-up`/`gpu-ready`/`gpu-down` stubbed.
+No kind node is labelled `platform.lkhun9311.github.io/gpu=true`: the real device plugin, now automated, would schedule there and crash-loop with no card, and the simulator would advertise a device vLLM cannot use.
+So the engine Pod's affinity matches no node, and the rehearsal asserts exactly what that leaves: the Pod is **created** (which before #338 it was not — FailedCreate from the webhook), Pending for node affinity, charged against `serve-a`'s ResourceQuota, status `Off`, and the gateway's answer to `serve-a`'s key while the backend has no endpoint.
+It cannot reach S1–S5, and does not claim to.
 The session installs no tools, so the rehearsal records the laptop's `kubectl`, `helm`, `terraform` and `aws` versions and the session refuses different ones.
 
 ## Cost and risk

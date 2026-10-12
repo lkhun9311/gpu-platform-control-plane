@@ -1,0 +1,9 @@
+# One serving tenant: its namespace, its quota policy and its engine.
+#
+# The engine lives in the namespace its policy targets because the gateway routes a tenant only to backends in
+# that namespace (internal/gateway/router.go). The policy leaves trainingQuota off, so the namespace's GPU budget
+# is a ResourceQuota, which charges the ReplicaSet controller's Pod at creation.
+resources:
+  - namespace.yaml
+  - gpuquotapolicy.yaml
+  - inferencedeployment.yaml
