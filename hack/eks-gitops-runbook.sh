@@ -528,6 +528,13 @@ serve_ready() {
   itype="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["metadata"]["labels"].get("node.kubernetes.io/instance-type",""))' "$EXDIR/engine-node.json" 2>/dev/null || true)"
   ng="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["metadata"]["labels"].get("eks.amazonaws.com/nodegroup",""))' "$EXDIR/engine-node.json" 2>/dev/null || true)"
   say "   engine pod $pod on node $node (instance type ${itype:-?}, node group ${ng:-?})"
+  # S2. The node group label is EKS's own stamp on a managed node group's members, which this session does not
+  # write, so it says where the scheduler put the engine rather than where anyone labelled it.
+  if [[ "$ng" == "${SERVE_NODEGROUP:-gpu_single}" && "$itype" == "${SERVE_INSTANCE_TYPE:-g5.xlarge}" ]]; then
+    ok "S2: the engine runs on a ${itype} of node group ${ng}"
+  else
+    bad "S2: the engine runs on '${itype:-?}' in node group '${ng:-?}', not ${SERVE_INSTANCE_TYPE:-g5.xlarge} in ${SERVE_NODEGROUP:-gpu_single}"
+  fi
   if [[ ! -s "$EXDIR/args-holdcap.txt" ]]; then
     bad "the engine's log carries no 'non-default args' line, so S3 cannot be judged"
   elif python3 "$REPO/hack/holdcap-conformance/check-engine-args.py" "$EXDIR/args-holdcap.txt" 384 "$SERVE_MODEL" \

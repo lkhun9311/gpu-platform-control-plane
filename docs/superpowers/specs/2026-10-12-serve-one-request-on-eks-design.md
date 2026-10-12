@@ -96,7 +96,7 @@ It follows the 2026-09-25 rehearsal, including loading the ECR-pinned images int
 No kind node is labelled `platform.lkhun9311.github.io/gpu=true`: the real device plugin, now automated, would schedule there and crash-loop with no card, and the simulator would advertise a device vLLM cannot use.
 So the engine Pod's affinity matches no node, and the rehearsal asserts exactly what that leaves: the Pod is **created** (which before #338 it was not — FailedCreate from the webhook), Pending for node affinity, charged against `serve-a`'s ResourceQuota, status `Off`, and the gateway's answer to `serve-a`'s key while the backend has no endpoint.
 It cannot reach S1–S5, and does not claim to.
-The session installs no tools, so the rehearsal records the laptop's `kubectl`, `helm`, `terraform` and `aws` versions and the session refuses different ones.
+The session installs no tools, so both the rehearsal and the session record the laptop's `kubectl`, `helm`, `terraform` and `aws` versions (`tool-versions.txt`), and the rehearsal counts only if it ran on the versions the session then runs on; nothing pins them, so the comparison is the operator's.
 
 ## Cost and risk
 
