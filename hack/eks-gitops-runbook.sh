@@ -381,6 +381,315 @@ verify() {
   esac
 }
 
+# --- Serving one request: config/serving, docs/superpowers/specs/2026-10-12-serve-one-request-on-eks-design.md ---
+#
+# The subcommands below take the serving bundle from synced to answered. None of them touches AWS: the GPU node
+# group is scaled by the session, so each of these can be rehearsed on kind, where the engine's Pod is created and
+# can never schedule.
+
+SERVE_NS="${SERVE_NS:-serve-a}"
+SERVE_APP="${SERVE_APP:-gpu-platform-serving}"
+SERVE_INFD="${SERVE_INFD:-qwen25-3b-holdcap}"
+SERVE_MODEL="${SERVE_MODEL:-Qwen/Qwen2.5-3B-Instruct}"
+SERVE_TENANT="${SERVE_TENANT:-serve-a}"
+WAIT_SERVE_SYNC="${WAIT_SERVE_SYNC:-300}"
+# 25 minutes: the startup probe allows 900 s, and the conformance engine took 9 min 31 s from creation to HoldCap
+# on a host that pulled nothing through a NAT.
+WAIT_SERVE_READY="${WAIT_SERVE_READY:-1500}"
+WAIT_SERVE_RECOVER="${WAIT_SERVE_RECOVER:-1500}"
+
+# The tier serve-a's policy resolves to: no tier annotation is standard, and standard binds priority 1
+# (internal/gateway/priority.go). The gateway writes it only under HoldCap or -bind-priority, and config/gateway
+# sets no flags, so its presence on the response is the per-request trace of HoldCap admission.
+SERVE_EXPECTED_PRIORITY="${SERVE_EXPECTED_PRIORITY:-1}"
+
+# gw_forward starts a port-forward to the gateway's API port and sets GW_API_PORT and GW_PF_PID; gw_unforward ends
+# it. The same rules as verify's: a kernel-chosen port, its own process group, and a cleanup that checks.
+gw_forward() {
+  GW_API_PORT="" GW_PF_PID=""
+  local pod pf_log="$EXDIR/port-forward-serve.log"
+  pod="$( { k -n "$GW_NS" get pod -o name 2>/dev/null | grep gateway | head -1 | cut -d/ -f2; } || true)"
+  [[ -n "$pod" ]] || return 1
+  set -m
+  kubectl --context "$CONTEXT" -n "$GW_NS" port-forward "pod/$pod" :8080 >"$pf_log" 2>&1 &
+  GW_PF_PID=$!
+  set +m
+  trap 'gw_unforward' EXIT INT TERM
+  local waited=0
+  while ((waited < 100)); do
+    GW_API_PORT="$(sed -n 's|^Forwarding from 127\.0\.0\.1:\([0-9]\{1,\}\) -> 8080$|\1|p' "$pf_log" | head -1)"
+    [[ -n "$GW_API_PORT" ]] && return 0
+    kill -0 "$GW_PF_PID" 2>/dev/null || break
+    sleep 0.1
+    waited=$((waited + 1))
+  done
+  return 1
+}
+
+gw_unforward() {
+  [[ -n "${GW_PF_PID:-}" ]] || return 0
+  kill -- -"$GW_PF_PID" 2>/dev/null || kill "$GW_PF_PID" 2>/dev/null || true
+  wait "$GW_PF_PID" 2>/dev/null || true
+  if kill -0 "$GW_PF_PID" 2>/dev/null; then
+    sleep 0.5
+    kill -9 -- -"$GW_PF_PID" 2>/dev/null || kill -9 "$GW_PF_PID" 2>/dev/null || true
+  fi
+  GW_PF_PID=""
+  trap - EXIT INT TERM
+}
+
+# serve_key prints the serve-a key this run saved, and nothing when there is none.
+#
+# The key is read from the run's own file rather than from the Secret, because the Secret also holds seed-key's
+# tenant-a key and verify takes the first one it finds: a request sent with that key is answered 403 no_policy,
+# which would read as the serving chain failing.
+serve_key() { cat "$EXDIR/serve-key.txt" 2>/dev/null || true; }
+
+serve_sync() {
+  say "context: $CONTEXT"
+  local key
+  key="$(serve_key)"
+  if [[ -z "$key" ]]; then
+    key="serve-$(head -c 12 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+    # Added to the Secret seed-key made, never replacing it: a merge patch adds one data key and leaves the rest.
+    if ! k -n "$GW_NS" patch secret gateway-api-keys --type merge \
+      -p "{\"stringData\":{\"$key\":\"$SERVE_TENANT\"}}" >>"$EXDIR/run.log" 2>&1; then
+      bad "could not add a $SERVE_TENANT key to gateway-api-keys in $GW_NS (run seed-key first)"
+      return 0
+    fi
+    printf '%s\n' "$key" >"$EXDIR/serve-key.txt"
+    ok "added a key for $SERVE_TENANT to gateway-api-keys (recorded in serve-key.txt)"
+  fi
+
+  # A manual Application syncs when its operation is set; there is no argocd CLI on the path this runs from.
+  if ! k -n argocd patch application "$SERVE_APP" --type merge \
+    -p '{"operation":{"initiatedBy":{"username":"eks-gitops-runbook"},"sync":{"revision":"main"}}}' >>"$EXDIR/run.log" 2>&1; then
+    bad "could not request a sync of $SERVE_APP; is it declared in config/argocd and created by the root?"
+    return 0
+  fi
+  local deadline=$((SECONDS + WAIT_SERVE_SYNC)) sync="" phase=""
+  while ((SECONDS < deadline)); do
+    sync="$(k -n argocd get application "$SERVE_APP" -o jsonpath='{.status.sync.status}' 2>/dev/null || true)"
+    phase="$(k -n argocd get application "$SERVE_APP" -o jsonpath='{.status.operationState.phase}' 2>/dev/null || true)"
+    [[ "$sync" == Synced && "$phase" == Succeeded ]] && break
+    [[ "$phase" == Failed || "$phase" == Error ]] && break
+    sleep 5
+  done
+  k -n argocd get application "$SERVE_APP" -o json >"$EXDIR/serving-application.json" 2>/dev/null || true
+  if [[ "$sync" != Synced || "$phase" != Succeeded ]]; then
+    bad "$SERVE_APP did not sync within ${WAIT_SERVE_SYNC}s (sync=${sync:-?} operation=${phase:-?}); see serving-application.json"
+    return 0
+  fi
+  ok "$SERVE_APP synced at $(k -n argocd get application "$SERVE_APP" -o jsonpath='{.status.sync.revision}' 2>/dev/null)"
+}
+
+# admission_state prints "<mode> <observedGeneration> <generation>" for the serving InferenceDeployment.
+admission_state() {
+  k -n "$SERVE_NS" get inferencedeployment "$SERVE_INFD" \
+    -o jsonpath='{.status.admission.mode} {.status.admission.observedGeneration} {.metadata.generation}' 2>/dev/null
+}
+
+holdcap_in_force() {
+  local m g gen
+  read -r m g gen <<<"$(admission_state)"
+  [[ "$m" == HoldCap && -n "$gen" && "$g" == "$gen" ]]
+}
+
+serve_ready() {
+  say "context: $CONTEXT"
+  local deadline=$((SECONDS + WAIT_SERVE_READY)) t0=$SECONDS
+  until holdcap_in_force; do
+    if ((SECONDS >= deadline)); then
+      k -n "$SERVE_NS" get inferencedeployment "$SERVE_INFD" -o yaml >"$EXDIR/infd-not-ready.yaml" 2>&1 || true
+      k -n "$SERVE_NS" get pods -o wide >"$EXDIR/pods-not-ready.txt" 2>&1 || true
+      k -n "$SERVE_NS" get events --sort-by=.lastTimestamp >"$EXDIR/events-not-ready.txt" 2>&1 || true
+      bad "status did not report HoldCap for the current generation within ${WAIT_SERVE_READY}s ($(admission_state)); see infd-not-ready.yaml"
+      return 0
+    fi
+    sleep 10
+  done
+  ok "HoldCap in force for generation $(admission_state | cut -d' ' -f3), $((SECONDS - t0))s after this step began"
+
+  # The evidence S2 and S3 are judged on: which node, and what the engine says it was started with.
+  local pod node
+  pod="$(k -n "$SERVE_NS" get pod -l "app.kubernetes.io/instance=$SERVE_INFD" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
+  [[ -n "$pod" ]] || pod="$(k -n "$SERVE_NS" get pod -o name 2>/dev/null | head -1 | cut -d/ -f2)"
+  node="$(k -n "$SERVE_NS" get pod "$pod" -o jsonpath='{.spec.nodeName}' 2>/dev/null || true)"
+  k -n "$SERVE_NS" get inferencedeployment "$SERVE_INFD" -o json >"$EXDIR/holdcap-infd.json" 2>/dev/null || true
+  k -n "$SERVE_NS" get pod "$pod" -o json >"$EXDIR/engine-pod.json" 2>/dev/null || true
+  k get node "$node" -o json >"$EXDIR/engine-node.json" 2>/dev/null || true
+  k -n "$SERVE_NS" logs "$pod" 2>/dev/null | grep -m1 'non-default args' >"$EXDIR/args-holdcap.txt" || true
+  k -n argocd get applications.argoproj.io -o custom-columns='NAME:.metadata.name,REVISION:.status.sync.revision,SYNC:.status.sync.status,HEALTH:.status.health.status' \
+    >"$EXDIR/application-revisions.txt" 2>&1 || true
+  k get pods -A -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name}{"\t"}{range .status.containerStatuses[*]}{.imageID}{" "}{end}{"\n"}{end}' 2>/dev/null |
+    grep -E 'gateway|controller-manager|'"$SERVE_NS"'/' >"$EXDIR/running-image-digests.txt" || true
+
+  local itype ng
+  itype="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["metadata"]["labels"].get("node.kubernetes.io/instance-type",""))' "$EXDIR/engine-node.json" 2>/dev/null || true)"
+  ng="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["metadata"]["labels"].get("eks.amazonaws.com/nodegroup",""))' "$EXDIR/engine-node.json" 2>/dev/null || true)"
+  say "   engine pod $pod on node $node (instance type ${itype:-?}, node group ${ng:-?})"
+  if [[ ! -s "$EXDIR/args-holdcap.txt" ]]; then
+    bad "the engine's log carries no 'non-default args' line, so S3 cannot be judged"
+  elif python3 "$REPO/hack/holdcap-conformance/check-engine-args.py" "$EXDIR/args-holdcap.txt" 384 "$SERVE_MODEL" \
+    >"$EXDIR/args-check.txt" 2>&1; then
+    ok "the engine runs the measured arguments with the cap (args-check.txt)"
+  else
+    bad "the engine's arguments do not match the measured set with the cap; see args-check.txt"
+  fi
+}
+
+# send_request sends one streaming completion as serve-a and judges it by the bench reader's rules: every frame
+# well-formed, non-empty content, no in-band engine error, and a final [DONE]. A 200 with [DONE] alone is not
+# enough, because the engine can stream an error object and still end the stream cleanly
+# (internal/bench/stream_termination_test.go). Prints nothing; returns 0 only when every rule holds.
+send_request() {
+  local tag="$1" key
+  key="$(serve_key)"
+  [[ -n "$key" ]] || { echo "no serve key; run serve-sync" >"$EXDIR/request-$tag.verdict"; return 1; }
+  curl -sN --max-time 300 -D "$EXDIR/request-$tag.headers" -o "$EXDIR/request-$tag.body" \
+    -w '%{http_code}' -X POST -H 'Content-Type: application/json' -H "Authorization: Bearer $key" \
+    -d "{\"model\":\"$SERVE_MODEL\",\"stream\":true,\"max_tokens\":32,\"messages\":[{\"role\":\"user\",\"content\":\"Name three colours.\"}]}" \
+    "http://127.0.0.1:$GW_API_PORT/v1/chat/completions" >"$EXDIR/request-$tag.code" 2>/dev/null || true
+  python3 - "$EXDIR/request-$tag" "$SERVE_EXPECTED_PRIORITY" >"$EXDIR/request-$tag.verdict" 2>&1 <<'PY'
+import json, sys
+base, want_priority = sys.argv[1], sys.argv[2]
+code = open(base + ".code").read().strip()
+if code != "200":
+    sys.exit(f"status {code}, not 200")
+headers = {}
+for line in open(base + ".headers", errors="replace"):
+    if ":" in line:
+        k, v = line.split(":", 1)
+        headers[k.strip().lower()] = v.strip()
+got = headers.get("x-engine-priority")
+if got != want_priority:
+    sys.exit(f"X-Engine-Priority is {got!r}, want {want_priority!r}: the request was not bound as under HoldCap")
+frames = [l[len("data:"):].strip() for l in open(base + ".body", errors="replace") if l.startswith("data:")]
+if not frames or frames[-1] != "[DONE]":
+    sys.exit(f"the stream did not end with [DONE] ({len(frames)} frames)")
+content = []
+for i, f in enumerate(frames[:-1]):
+    try:
+        obj = json.loads(f)
+    except ValueError:
+        sys.exit(f"frame {i} is not JSON: {f[:120]!r}")
+    if "error" in obj:
+        sys.exit(f"frame {i} carries an in-band engine error: {f[:200]!r}")
+    for c in obj.get("choices", []):
+        content.append((c.get("delta") or {}).get("content") or "")
+if not "".join(content).strip():
+    sys.exit("the stream carried no content")
+print(f"ok: 200, X-Engine-Priority {got}, {len(frames) - 1} frames, {len(''.join(content))} characters")
+PY
+}
+
+serve_request() {
+  say "context: $CONTEXT"
+  if ! gw_forward; then
+    gw_unforward
+    bad "could not port-forward to the gateway; the request proves nothing either way"
+    return 0
+  fi
+  if send_request first; then
+    ok "served: $(cat "$EXDIR/request-first.verdict")"
+  else
+    bad "the request was not served as S4 requires: $(tail -1 "$EXDIR/request-first.verdict")"
+  fi
+  gw_unforward
+}
+
+serve_recover() {
+  say "context: $CONTEXT"
+  local pod t_del t_off="" t_back=""
+  pod="$(k -n "$SERVE_NS" get pod -o name 2>/dev/null | head -1)"
+  [[ -n "$pod" ]] || { bad "no engine Pod in $SERVE_NS to delete"; return 0; }
+  holdcap_in_force || { bad "HoldCap is not in force before the deletion, so recovery has nothing to show"; return 0; }
+  t_del=$SECONDS
+  k -n "$SERVE_NS" delete "$pod" --wait=false >>"$EXDIR/run.log" 2>&1 || { bad "could not delete $pod"; return 0; }
+  local deadline=$((SECONDS + WAIT_SERVE_RECOVER))
+  while ((SECONDS < deadline)); do
+    if [[ -z "$t_off" ]]; then
+      holdcap_in_force || t_off=$SECONDS
+    elif holdcap_in_force; then
+      t_back=$SECONDS
+      break
+    fi
+    sleep 2
+  done
+  {
+    echo "deleted         t=0"
+    echo "left HoldCap    t=${t_off:+$((t_off - t_del))}s"
+    echo "HoldCap again   t=${t_back:+$((t_back - t_del))}s"
+  } >"$EXDIR/recover-timeline.txt"
+  [[ -n "$t_off" ]] || { bad "status never left HoldCap after its engine Pod was deleted (recover-timeline.txt)"; return 0; }
+  [[ -n "$t_back" ]] || { bad "status did not return to HoldCap within ${WAIT_SERVE_RECOVER}s (recover-timeline.txt)"; return 0; }
+  ok "status left HoldCap $((t_off - t_del))s after the deletion and returned $((t_back - t_del))s after it"
+  if ! gw_forward; then
+    gw_unforward
+    bad "could not port-forward to the gateway after recovery"
+    return 0
+  fi
+  if send_request recovered; then
+    ok "served after recovery: $(cat "$EXDIR/request-recovered.verdict")"
+  else
+    bad "the request after recovery was not served: $(tail -1 "$EXDIR/request-recovered.verdict")"
+  fi
+  gw_unforward
+}
+
+# serve_rehearse is the kind rehearsal's verdict: what a cluster with no GPU node can show, and only that.
+#
+# With no node labelled platform.lkhun9311.github.io/gpu=true the engine's affinity matches nothing. Before PR #338
+# the webhook refused the Pod outright (FailedCreate); the point of this check is that the Pod now EXISTS, is
+# charged against serve-a's ResourceQuota, and is Pending for the affinity, with status Off and the gateway
+# answering 502 bad_gateway for a backend with no endpoint.
+serve_rehearse() {
+  say "context: $CONTEXT"
+  local deadline=$((SECONDS + WAIT_SERVE_SYNC)) pod=""
+  while ((SECONDS < deadline)); do
+    pod="$(k -n "$SERVE_NS" get pod -o name 2>/dev/null | head -1)"
+    [[ -n "$pod" ]] && break
+    sleep 3
+  done
+  k -n "$SERVE_NS" get events --sort-by=.lastTimestamp >"$EXDIR/rehearse-events.txt" 2>&1 || true
+  if [[ -z "$pod" ]]; then
+    if grep -q 'FailedCreate' "$EXDIR/rehearse-events.txt"; then
+      bad "the engine Pod was refused at creation (FailedCreate, rehearse-events.txt): the webhook defect #338 fixes is present"
+    else
+      bad "no engine Pod appeared in $SERVE_NS within ${WAIT_SERVE_SYNC}s (rehearse-events.txt)"
+    fi
+    return 0
+  fi
+  ok "the engine Pod was created: $pod"
+  sleep 5
+  local phase cond used
+  phase="$(k -n "$SERVE_NS" get "$pod" -o jsonpath='{.status.phase}' 2>/dev/null)"
+  cond="$(k -n "$SERVE_NS" get "$pod" -o jsonpath='{.status.conditions[?(@.type=="PodScheduled")].message}' 2>/dev/null)"
+  used="$(k -n "$SERVE_NS" get resourcequota -o jsonpath='{.items[0].status.used.requests\.nvidia\.com/gpu}' 2>/dev/null)"
+  say "   phase=$phase used=$used scheduling: $cond"
+  [[ "$phase" == Pending && "$cond" == *affinity* ]] && ok "Pending for node affinity, as a cluster with no GPU node must leave it" ||
+    bad "expected Pending for node affinity, got phase=$phase ($cond)"
+  [[ "$used" == 1 ]] && ok "charged against serve-a's ResourceQuota (requests.nvidia.com/gpu used=1)" ||
+    bad "the Pod is not charged against serve-a's ResourceQuota (used=${used:-unreadable})"
+  local m
+  m="$(admission_state | cut -d' ' -f1)"
+  [[ "$m" == Off ]] && ok "status reports Off while no engine is ready" || bad "status reports '${m:-nothing}' with no engine ready"
+  if ! gw_forward; then
+    gw_unforward
+    bad "could not port-forward to the gateway"
+    return 0
+  fi
+  send_request rehearse || true
+  gw_unforward
+  local code
+  code="$(cat "$EXDIR/request-rehearse.code" 2>/dev/null)"
+  if [[ "$code" == 502 ]] && grep -q bad_gateway "$EXDIR/request-rehearse.body"; then
+    ok "serve-a's request routed to the backend and found no endpoint: 502 bad_gateway"
+  else
+    bad "expected 502 bad_gateway for a backend with no endpoint, got ${code:-nothing} (request-rehearse.body)"
+  fi
+}
+
 status() {
   say "context: $CONTEXT"
   # A listing that failed is not a status report. Without these the command prints an error and exits 0.
@@ -397,9 +706,9 @@ status() {
 main() {
   local cmd="${1:-}"
   case "$cmd" in
-    apply | seed-key | verify | status) ;;
+    apply | seed-key | verify | status | serve-sync | serve-ready | serve-request | serve-recover | serve-rehearse) ;;
     *)
-      echo "usage: $0 {apply|seed-key|verify|status}" >&2
+      echo "usage: $0 {apply|seed-key|verify|status|serve-sync|serve-ready|serve-request|serve-recover|serve-rehearse}" >&2
       exit 1
       ;;
   esac
