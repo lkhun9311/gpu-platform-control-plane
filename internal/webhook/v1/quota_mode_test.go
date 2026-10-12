@@ -46,7 +46,7 @@ import (
 // policy returns a GPUQuotaPolicy targeting ns, in whichever mode.
 func policy(name, ns string, training bool) *platformv1.GPUQuotaPolicy {
 	return &platformv1.GPUQuotaPolicy{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns, UID: types.UID(name + "-uid")},
+		Name: name, Namespace: ns, UID: types.UID(name + "-uid"),
 		Spec: platformv1.GPUQuotaPolicySpec{
 			TargetNamespace: ns,
 			TrainingQuota:   training,
@@ -69,13 +69,11 @@ func gpuQuotaFor(policyName, ns string, capped bool) *corev1.ResourceQuota {
 	}
 	yes := true
 	return &corev1.ResourceQuota{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: quotaName(policyName), Namespace: ns,
-			OwnerReferences: []metav1.OwnerReference{{
-				APIVersion: platformv1.GroupVersion.String(), Kind: "GPUQuotaPolicy",
-				Name: policyName, UID: types.UID(policyName + "-uid"), Controller: &yes,
-			}},
-		},
+		Name: quotaName(policyName), Namespace: ns,
+		OwnerReferences: []metav1.OwnerReference{{
+			APIVersion: platformv1.GroupVersion.String(), Kind: "GPUQuotaPolicy",
+			Name: policyName, UID: types.UID(policyName + "-uid"), Controller: &yes,
+		}},
 		Spec:   corev1.ResourceQuotaSpec{Hard: hard},
 		Status: corev1.ResourceQuotaStatus{Hard: hard.DeepCopy()},
 	}
@@ -102,7 +100,7 @@ func TestAnUnqueuedGPUJobIsAdmittedWhereAResourceQuotaMetersIt(t *testing.T) {
 //
 // Mutation that turns this red: delete the meteredByResourceQuota branch from the Pod guard.
 func TestAPodFromAnUnqueuedJobIsAdmittedWhereAResourceQuotaMetersIt(t *testing.T) {
-	job := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "train-1", Namespace: "team-a"}}
+	job := &batchv1.Job{Name: "train-1", Namespace: "team-a"}
 	v := gpuValidator(t, job,
 		policy("team-a-quota", "team-a", false),
 		gpuQuotaFor("team-a-quota", "team-a", true))
@@ -167,7 +165,7 @@ func TestAFailedQuotaModeReadRefusesRatherThanGuesses(t *testing.T) {
 	// which a mutation confirmed: swallowing the List error left the test green. Checking only !Allowed would
 	// have hidden it even here, because swallowing the error as "not metered" still produces a refusal. The
 	// assertion is therefore on the cause the refusal carries.
-	job := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "train-1", Namespace: "team-a"}}
+	job := &batchv1.Job{Name: "train-1", Namespace: "team-a"}
 	v := &GPUPodValidator{
 		Reader:  listErroringReader{fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(job).Build()},
 		decoder: admission.NewDecoder(scheme.Scheme),

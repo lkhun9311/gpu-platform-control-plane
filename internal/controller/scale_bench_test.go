@@ -11,7 +11,6 @@ import (
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
@@ -109,17 +108,15 @@ func startCache(b testing.TB, ctx context.Context, cfg *rest.Config) client.Clie
 func seedWorkloads(b testing.TB, ctx context.Context, writer, reader client.Client, ns string, n int) {
 	b.Helper()
 
-	if err := writer.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}}); err != nil {
+	if err := writer.Create(ctx, &corev1.Namespace{Name: ns}); err != nil {
 		b.Fatalf("create namespace: %v", err)
 	}
 
 	for i := range n {
 		wl := &kueuev1beta1.Workload{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      fmt.Sprintf("wl-%d", i),
-				Namespace: ns,
-				Labels:    map[string]string{kueueJobUIDLabel: fmt.Sprintf("uid-%d", i)},
-			},
+			Name:      fmt.Sprintf("wl-%d", i),
+			Namespace: ns,
+			Labels:    map[string]string{kueueJobUIDLabel: fmt.Sprintf("uid-%d", i)},
 			Spec: kueuev1beta1.WorkloadSpec{
 				QueueName: "bench",
 				PodSets: []kueuev1beta1.PodSet{{
@@ -173,7 +170,7 @@ func BenchmarkGetWorkloadForJobMiss(b *testing.B) {
 
 			r := &MLTrainingJobReconciler{Client: reader, Scheme: scheme.Scheme}
 			job := &batchv1.Job{
-				ObjectMeta: metav1.ObjectMeta{Name: "absent", Namespace: ns, UID: types.UID("uid-absent")},
+				Name: "absent", Namespace: ns, UID: types.UID("uid-absent"),
 			}
 
 			b.ResetTimer()
@@ -205,9 +202,7 @@ func BenchmarkGetWorkloadForJobHit(b *testing.B) {
 			r := &MLTrainingJobReconciler{Client: reader, Scheme: scheme.Scheme}
 			// The last seeded Workload, so a store that scans in insertion order cannot look fast by finding it early.
 			job := &batchv1.Job{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "present", Namespace: ns, UID: types.UID(fmt.Sprintf("uid-%d", n-1)),
-				},
+				Name: "present", Namespace: ns, UID: types.UID(fmt.Sprintf("uid-%d", n-1)),
 			}
 
 			b.ResetTimer()

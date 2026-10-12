@@ -33,11 +33,9 @@ import (
 // newInfD builds an InferenceDeployment for tests.
 func newInfD(name, ns, model string, port int32, created time.Time) *platformv1.InferenceDeployment {
 	return &platformv1.InferenceDeployment{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:              name,
-			Namespace:         ns,
-			CreationTimestamp: metav1.NewTime(created),
-		},
+		Name:              name,
+		Namespace:         ns,
+		CreationTimestamp: metav1.NewTime(created),
 		Spec: platformv1.InferenceDeploymentSpec{
 			Model: platformv1.InferenceModel{Name: model},
 			Port:  port,

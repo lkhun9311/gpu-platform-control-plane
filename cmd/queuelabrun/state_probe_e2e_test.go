@@ -9,7 +9,6 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -154,9 +153,8 @@ func (d *probeDouble) interceptors() interceptor.Funcs {
 						// creation check mean something: that check reads the store directly, and a double
 						// that answered NotFound while keeping the object would report a writer still
 						// present at the moment of succession for a probe that had waited correctly.
-						_ = c.Delete(ctx, &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
-							Namespace: o.Namespace, Name: o.Name,
-						}})
+						_ = c.Delete(ctx, &corev1.Pod{
+							Namespace: o.Namespace, Name: o.Name})
 						// The standard constructor, not a hand-rolled error type: apierrors.IsNotFound is
 						// what awaitProbeGone tests the result with, and an error that merely reads like a
 						// NotFound would make absence unreachable and time the probe out instead.
@@ -190,7 +188,7 @@ func probeCluster(t *testing.T, d *probeDouble) client.WithWatch {
 		WithObjects(
 			node(nil, nil),
 			&corev1.PersistentVolume{
-				ObjectMeta: metav1.ObjectMeta{Name: "pv-1"},
+				Name: "pv-1",
 				Spec: corev1.PersistentVolumeSpec{
 					PersistentVolumeReclaimPolicy: corev1.PersistentVolumeReclaimDelete,
 				},

@@ -27,7 +27,6 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	platformv1 "github.com/lkhun9311/gpu-mlops-platform-control-plane/api/v1"
 	"github.com/lkhun9311/gpu-mlops-platform-control-plane/internal/controller"
@@ -264,7 +263,7 @@ func harnessTerminationContract() (canaryContract, error) {
 // decision about the probe, and belongs to whoever adds the field rather than being guessed at now.
 func templateProbeJob() *platformv1.MLTrainingJob {
 	return &platformv1.MLTrainingJob{
-		ObjectMeta: metav1.ObjectMeta{Name: "template-probe", Namespace: "template-probe"},
+		Name: "template-probe", Namespace: "template-probe",
 		Spec: platformv1.MLTrainingJobSpec{
 			Queue:       "template-probe-queue",
 			Image:       "template-probe.invalid/sentinel:not-a-real-image",

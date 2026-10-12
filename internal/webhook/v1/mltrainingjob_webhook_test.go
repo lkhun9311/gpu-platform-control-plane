@@ -21,7 +21,7 @@ import (
 // job builds a valid MLTrainingJob the individual specs then break in one way each.
 func job(mutate func(*platformv1.MLTrainingJob)) *platformv1.MLTrainingJob {
 	mltj := &platformv1.MLTrainingJob{
-		ObjectMeta: metav1.ObjectMeta{Name: "trainer", Namespace: "default"},
+		Name: "trainer", Namespace: "default",
 		Spec: platformv1.MLTrainingJobSpec{
 			Queue: "team-a", Image: "trainer:v1", GPUCount: 1, Parallelism: 1, Completions: 1,
 		},
@@ -45,7 +45,7 @@ func validatorWith(t *testing.T, objs ...runtime.Object) *MLTrainingJobValidator
 
 // ownedJob is the Job the reconciler creates, which is what makes the template-derived fields unchangeable.
 func ownedJob() *batchv1.Job {
-	return &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "trainer", Namespace: "default"}}
+	return &batchv1.Job{Name: "trainer", Namespace: "default"}
 }
 
 // causes lists the field paths an Invalid error blames.

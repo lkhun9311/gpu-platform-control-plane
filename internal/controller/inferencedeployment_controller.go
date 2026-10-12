@@ -100,7 +100,7 @@ func (r *InferenceDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.
 				len(claimants), infd.Namespace, strings.Join(claimants, ", ")))
 	}
 
-	dep := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: infd.Name, Namespace: infd.Namespace}}
+	dep := &appsv1.Deployment{Name: infd.Name, Namespace: infd.Namespace}
 	if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, dep, func() error {
 		r.mutateDeployment(&infd, dep, queue)
 		return controllerutil.SetControllerReference(&infd, dep, r.Scheme)
@@ -115,7 +115,7 @@ func (r *InferenceDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.
 		return r.markDegraded(ctx, &infd, infdReasonServiceConflict, "a Service of the same name is not owned by this InferenceDeployment")
 	}
 
-	svc := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: infd.Name, Namespace: infd.Namespace}}
+	svc := &corev1.Service{Name: infd.Name, Namespace: infd.Namespace}
 	if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, svc, func() error {
 		r.mutateService(&infd, svc)
 		return controllerutil.SetControllerReference(&infd, svc, r.Scheme)
@@ -243,12 +243,10 @@ func (r *InferenceDeploymentReconciler) mutateDeployment(infd *platformv1.Infere
 		Image: infd.Spec.Image,
 		Args:  []string{"--model", infd.Spec.Model.Name, "--model-path", infd.Spec.Model.StorageURI},
 		Ports: []corev1.ContainerPort{{Name: "http", ContainerPort: port}},
-		ReadinessProbe: &corev1.Probe{ProbeHandler: corev1.ProbeHandler{
-			HTTPGet: &corev1.HTTPGetAction{Path: "/health", Port: intstr.FromString("http")},
-		}},
-		LivenessProbe: &corev1.Probe{ProbeHandler: corev1.ProbeHandler{
-			HTTPGet: &corev1.HTTPGetAction{Path: "/health", Port: intstr.FromString("http")},
-		}},
+		ReadinessProbe: &corev1.Probe{
+			HTTPGet: &corev1.HTTPGetAction{Path: "/health", Port: intstr.FromString("http")}},
+		LivenessProbe: &corev1.Probe{
+			HTTPGet: &corev1.HTTPGetAction{Path: "/health", Port: intstr.FromString("http")}},
 	}
 	if infd.Spec.GPUCount > 0 {
 		q := *resource.NewQuantity(int64(infd.Spec.GPUCount), resource.DecimalSI)
@@ -430,10 +428,9 @@ func (r *InferenceDeploymentReconciler) mapPolicyToInferenceDeployments(ctx cont
 	}
 	reqs := make([]reconcile.Request, 0, len(list.Items))
 	for i := range list.Items {
-		reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{
+		reqs = append(reqs, reconcile.Request{
 			Name:      list.Items[i].Name,
-			Namespace: list.Items[i].Namespace,
-		}})
+			Namespace: list.Items[i].Namespace})
 	}
 	return reqs
 }

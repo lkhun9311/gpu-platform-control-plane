@@ -49,18 +49,14 @@ var _ = Describe("policyForTenant", func() {
 
 	It("returns the oldest policy when more than one matches the tenant", func() {
 		older := &platformv1.GPUQuotaPolicy{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:              "team-vision-old",
-				CreationTimestamp: metav1.NewTime(time.Now().Add(-time.Hour)),
-			},
-			Spec: platformv1.GPUQuotaPolicySpec{Tenant: "team-vision"},
+			Name:              "team-vision-old",
+			CreationTimestamp: metav1.NewTime(time.Now().Add(-time.Hour)),
+			Spec:              platformv1.GPUQuotaPolicySpec{Tenant: "team-vision"},
 		}
 		newer := &platformv1.GPUQuotaPolicy{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:              "team-vision-new",
-				CreationTimestamp: metav1.NewTime(time.Now()),
-			},
-			Spec: platformv1.GPUQuotaPolicySpec{Tenant: "team-vision"},
+			Name:              "team-vision-new",
+			CreationTimestamp: metav1.NewTime(time.Now()),
+			Spec:              platformv1.GPUQuotaPolicySpec{Tenant: "team-vision"},
 		}
 		c := fake.NewClientBuilder().WithScheme(newSchemeForTest()).WithObjects(newer, older).Build()
 		s := &Server{Client: c}

@@ -14,7 +14,6 @@ import (
 	admissionv1 "k8s.io/api/admissionregistration/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
@@ -212,7 +211,7 @@ func firstEnvtestBinaryDir() string {
 
 func mltj(name string, mutate func(*platformv1.MLTrainingJob)) *platformv1.MLTrainingJob {
 	j := &platformv1.MLTrainingJob{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
+		Name: name, Namespace: "default",
 		Spec: platformv1.MLTrainingJobSpec{
 			Queue: "team-a", Image: "trainer:v1", GPUCount: 1, Parallelism: 1, Completions: 1,
 		},
@@ -265,7 +264,7 @@ func TestApiserverRefusesAnImageEditOnceTheJobExists(t *testing.T) {
 
 	// Stand in for the reconciler by creating the owned Job it would create.
 	if err := c.Create(ctx, &batchv1.Job{
-		ObjectMeta: metav1.ObjectMeta{Name: job.Name, Namespace: job.Namespace},
+		Name: job.Name, Namespace: job.Namespace,
 		Spec: batchv1.JobSpec{
 			Template: minimalPodTemplate(),
 		},

@@ -121,8 +121,8 @@ func TestRecoverEmitsAnObservationEvenWhenTheReadFails(t *testing.T) {
 func TestRecoverLearnsOurUIDAndMarksAForeignObjectForeign(t *testing.T) {
 	s := testSeed()
 	c := fake.NewClientBuilder().WithScheme(fullScheme(t)).WithObjects(
-		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
-			Name: s.Namespace, UID: "ns-uid", Labels: map[string]string{queuelab.TxLabel: "tx-1"}}},
+		&corev1.Namespace{
+			Name: s.Namespace, UID: "ns-uid", Labels: map[string]string{queuelab.TxLabel: "tx-1"}},
 	).Build()
 	got, err := recoverTargets(context.Background(), c, s, "tx-1")
 	if err != nil {
@@ -148,15 +148,15 @@ func TestRecoverRefusesWhenTxIDDisagreesWithTheSeed(t *testing.T) {
 	s := testSeed() // s.TxID == "tx-1"
 
 	unstamped := fake.NewClientBuilder().WithScheme(fullScheme(t)).WithObjects(
-		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: s.Namespace, UID: "somebody-elses"}},
+		&corev1.Namespace{Name: s.Namespace, UID: "somebody-elses"},
 	).Build()
 	if _, err := recoverTargets(context.Background(), unstamped, s, ""); err == nil {
 		t.Fatal("recovery accepted an empty txID, which matched an unstamped object's absent label and would adopt it as ours")
 	}
 
 	theirs := fake.NewClientBuilder().WithScheme(fullScheme(t)).WithObjects(
-		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
-			Name: s.Namespace, UID: "theirs", Labels: map[string]string{queuelab.TxLabel: "tx-99"}}},
+		&corev1.Namespace{
+			Name: s.Namespace, UID: "theirs", Labels: map[string]string{queuelab.TxLabel: "tx-99"}},
 	).Build()
 	if _, err := recoverTargets(context.Background(), theirs, s, "tx-99"); err == nil {
 		t.Fatal("recovery accepted a txID of tx-99 against a seed whose own TxID is tx-1, adopting another transaction's namespace")
@@ -184,10 +184,10 @@ func TestRecoverReportsAForeignObjectPerTargetRatherThanRefusingTheBatch(t *test
 	// The state a rerun under a used run id actually finds: this attempt's own namespace, and a ResourceFlavor
 	// a previous attempt left behind under a transaction that is no longer this one's.
 	c := fake.NewClientBuilder().WithScheme(fullScheme(t)).WithObjects(
-		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
-			Name: s.Namespace, UID: "ns-uid", Labels: map[string]string{queuelab.TxLabel: s.TxID}}},
-		&kueuev1beta2.ResourceFlavor{ObjectMeta: metav1.ObjectMeta{
-			Name: fs.Flavor.GetName(), UID: "theirs", Labels: map[string]string{queuelab.TxLabel: "tx-previous"}}},
+		&corev1.Namespace{
+			Name: s.Namespace, UID: "ns-uid", Labels: map[string]string{queuelab.TxLabel: s.TxID}},
+		&kueuev1beta2.ResourceFlavor{
+			Name: fs.Flavor.GetName(), UID: "theirs", Labels: map[string]string{queuelab.TxLabel: "tx-previous"}},
 	).Build()
 	got, err := recoverTargets(context.Background(), c, s, s.TxID)
 	if err != nil {
@@ -217,7 +217,7 @@ func TestRecoverReportsAForeignObjectPerTargetRatherThanRefusingTheBatch(t *test
 func TestRecoverTreatsAnUnstampedObjectAsForeign(t *testing.T) {
 	s := testSeed()
 	c := fake.NewClientBuilder().WithScheme(fullScheme(t)).WithObjects(
-		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: s.Namespace, UID: "nobody"}},
+		&corev1.Namespace{Name: s.Namespace, UID: "nobody"},
 	).Build()
 	got, err := recoverTargets(context.Background(), c, s, s.TxID)
 	if err != nil {
@@ -242,15 +242,15 @@ func TestRecoverReadsEveryTargetKindByItsOwnKindAndName(t *testing.T) {
 		t.Fatalf("build fixtures: %v", err)
 	}
 	b := fake.NewClientBuilder().WithScheme(fullScheme(t)).WithObjects(
-		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
-			Name: s.Namespace, UID: "ns-uid", Labels: map[string]string{queuelab.TxLabel: s.TxID}}},
-		&kueuev1beta2.ResourceFlavor{ObjectMeta: metav1.ObjectMeta{
-			Name: fs.Flavor.GetName(), UID: "rf-uid", Labels: map[string]string{queuelab.TxLabel: s.TxID}}},
+		&corev1.Namespace{
+			Name: s.Namespace, UID: "ns-uid", Labels: map[string]string{queuelab.TxLabel: s.TxID}},
+		&kueuev1beta2.ResourceFlavor{
+			Name: fs.Flavor.GetName(), UID: "rf-uid", Labels: map[string]string{queuelab.TxLabel: s.TxID}},
 	)
 	for i, cq := range fs.ClusterQueue {
-		b = b.WithObjects(&kueuev1beta2.ClusterQueue{ObjectMeta: metav1.ObjectMeta{
+		b = b.WithObjects(&kueuev1beta2.ClusterQueue{
 			Name: cq.GetName(), UID: types.UID(fmt.Sprintf("cq-uid-%d", i)),
-			Labels: map[string]string{queuelab.TxLabel: s.TxID}}})
+			Labels: map[string]string{queuelab.TxLabel: s.TxID}})
 	}
 	wantUID := map[string]string{s.Namespace: "ns-uid", fs.Flavor.GetName(): "rf-uid"}
 	for i, cq := range fs.ClusterQueue {
@@ -298,10 +298,10 @@ func TestRecoverMarksAForeignClusterQueueForeign(t *testing.T) {
 		t.Fatalf("fixture set built no ClusterQueue; this test needs at least one to exercise that kind")
 	}
 	c := fake.NewClientBuilder().WithScheme(fullScheme(t)).WithObjects(
-		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
-			Name: s.Namespace, UID: "ns-uid", Labels: map[string]string{queuelab.TxLabel: s.TxID}}},
-		&kueuev1beta2.ClusterQueue{ObjectMeta: metav1.ObjectMeta{
-			Name: fs.ClusterQueue[0].GetName(), UID: "theirs", Labels: map[string]string{queuelab.TxLabel: "tx-2"}}},
+		&corev1.Namespace{
+			Name: s.Namespace, UID: "ns-uid", Labels: map[string]string{queuelab.TxLabel: s.TxID}},
+		&kueuev1beta2.ClusterQueue{
+			Name: fs.ClusterQueue[0].GetName(), UID: "theirs", Labels: map[string]string{queuelab.TxLabel: "tx-2"}},
 	).Build()
 	got, err := recoverTargets(context.Background(), c, s, s.TxID)
 	if err != nil {
@@ -356,10 +356,10 @@ func TestRecoverCarriesTerminatingThrough(t *testing.T) {
 	s := testSeed()
 	now := metav1.NewTime(time.Now())
 	c := fake.NewClientBuilder().WithScheme(fullScheme(t)).WithObjects(
-		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
+		&corev1.Namespace{
 			Name: s.Namespace, UID: "ns-uid", DeletionTimestamp: &now,
 			Finalizers: []string{"queuelab.gpu-platform/hold"},
-			Labels:     map[string]string{queuelab.TxLabel: s.TxID}}},
+			Labels:     map[string]string{queuelab.TxLabel: s.TxID}},
 	).Build()
 	got, err := recoverTargets(context.Background(), c, s, s.TxID)
 	if err != nil {
@@ -494,16 +494,16 @@ func seedOwned(t *testing.T, s seed) []client.Object {
 		t.Fatalf("fixture set built no ClusterQueue; these tests need at least one to exercise that phase")
 	}
 	objs := []client.Object{
-		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
-			Name: s.Namespace, UID: "ns-uid", Labels: map[string]string{queuelab.TxLabel: s.TxID}}},
+		&corev1.Namespace{
+			Name: s.Namespace, UID: "ns-uid", Labels: map[string]string{queuelab.TxLabel: s.TxID}},
 	}
 	for i, cq := range fs.ClusterQueue {
-		objs = append(objs, &kueuev1beta2.ClusterQueue{ObjectMeta: metav1.ObjectMeta{
+		objs = append(objs, &kueuev1beta2.ClusterQueue{
 			Name: cq.GetName(), UID: types.UID(fmt.Sprintf("cq-uid-%d", i)),
-			Labels: map[string]string{queuelab.TxLabel: s.TxID}}})
+			Labels: map[string]string{queuelab.TxLabel: s.TxID}})
 	}
-	objs = append(objs, &kueuev1beta2.ResourceFlavor{ObjectMeta: metav1.ObjectMeta{
-		Name: fs.Flavor.GetName(), UID: "rf-uid", Labels: map[string]string{queuelab.TxLabel: s.TxID}}})
+	objs = append(objs, &kueuev1beta2.ResourceFlavor{
+		Name: fs.Flavor.GetName(), UID: "rf-uid", Labels: map[string]string{queuelab.TxLabel: s.TxID}})
 	return objs
 }
 
@@ -574,8 +574,8 @@ func TestEveryDeleteCarriesItsUIDPrecondition(t *testing.T) {
 // highest-stakes property in the file: every other failure here costs a run, this one costs somebody else's.
 func TestDeleteNeverIssuesADeleteForAForeignTarget(t *testing.T) {
 	s := testSeed()
-	c, calls := callRecorder(t, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
-		Name: s.Namespace, UID: "theirs", Labels: map[string]string{queuelab.TxLabel: "tx-someone-else"}}})
+	c, calls := callRecorder(t, &corev1.Namespace{
+		Name: s.Namespace, UID: "theirs", Labels: map[string]string{queuelab.TxLabel: "tx-someone-else"}})
 	now, sleep := fakeClock(time.Unix(0, 0))
 	res, err := deleteTargets(context.Background(), c, s, s.TxID, now, sleep, time.Minute)
 	if err != nil {
@@ -682,10 +682,10 @@ func TestDeletePollsUntilAbsentNotUntilTerminating(t *testing.T) {
 				if polls <= 3 {
 					// Present, and terminating: the deletion has been accepted and has not completed.
 					ns := obj.(*corev1.Namespace)
-					*ns = corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
+					*ns = corev1.Namespace{
 						Name: s.Namespace, UID: "ns-uid", Labels: map[string]string{queuelab.TxLabel: s.TxID},
 						DeletionTimestamp: &metav1.Time{Time: time.Unix(0, 0)},
-						Finalizers:        []string{"kubernetes"}}}
+						Finalizers:        []string{"kubernetes"}}
 					return nil
 				}
 				return apierrors.NewNotFound(corev1.Resource("namespaces"), s.Namespace)
@@ -985,13 +985,13 @@ func TestDeleteStopsAtOurNameOnceAnotherTransactionTakesIt(t *testing.T) {
 				ns := obj.(*corev1.Namespace)
 				if nsReads == 1 {
 					// Recovery sees our own namespace and records its UID.
-					*ns = corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
-						Name: s.Namespace, UID: "ns-uid", Labels: map[string]string{queuelab.TxLabel: s.TxID}}}
+					*ns = corev1.Namespace{
+						Name: s.Namespace, UID: "ns-uid", Labels: map[string]string{queuelab.TxLabel: s.TxID}}
 					return nil
 				}
 				// Ours went away and another run took the name, stamp and all.
-				*ns = corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
-					Name: s.Namespace, UID: "stranger", Labels: map[string]string{queuelab.TxLabel: "tx-someone-else"}}}
+				*ns = corev1.Namespace{
+					Name: s.Namespace, UID: "stranger", Labels: map[string]string{queuelab.TxLabel: "tx-someone-else"}}
 				return nil
 			},
 		}).Build()

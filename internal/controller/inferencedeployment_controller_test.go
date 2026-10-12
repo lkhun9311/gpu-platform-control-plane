@@ -49,7 +49,7 @@ var _ = Describe("which policy charges this namespace", func() {
 	// to return the first match from a List, whose order the API server does not promise.
 	infdFor := func(name, ns string) *platformv1.InferenceDeployment {
 		return &platformv1.InferenceDeployment{
-			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
+			Name: name, Namespace: ns,
 			Spec: platformv1.InferenceDeploymentSpec{
 				Model: platformv1.InferenceModel{Name: "m", StorageURI: "s3://m"},
 				Image: "vllm/vllm-openai:test", Replicas: 1, Port: 8080,
@@ -58,7 +58,7 @@ var _ = Describe("which policy charges this namespace", func() {
 	}
 	trainingPolicy := func(name, tenant, target string) *platformv1.GPUQuotaPolicy {
 		return &platformv1.GPUQuotaPolicy{
-			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "policy-home"},
+			Name: name, Namespace: "policy-home",
 			Spec: platformv1.GPUQuotaPolicySpec{
 				Tenant: tenant, TargetNamespace: target, TrainingQuota: true,
 				Limits: platformv1.GPUQuotaLimits{GPUCount: 4},
@@ -166,7 +166,7 @@ var _ = Describe("the defaults the CRDs promise", func() {
 	It("fills in the serving port when the spec omits it", func() {
 		name := types.NamespacedName{Name: "defaulted-port", Namespace: "default"}
 		Expect(k8sClient.Create(ctx, &platformv1.InferenceDeployment{
-			ObjectMeta: metav1.ObjectMeta{Name: name.Name, Namespace: name.Namespace},
+			Name: name.Name, Namespace: name.Namespace,
 			Spec: platformv1.InferenceDeploymentSpec{
 				Model: platformv1.InferenceModel{Name: "m", StorageURI: "s3://m"},
 				Image: "vllm/vllm-openai:test", Replicas: 1, GPUCount: 1,
@@ -182,7 +182,7 @@ var _ = Describe("the defaults the CRDs promise", func() {
 	It("fills in parallelism and completions when the spec omits them", func() {
 		name := types.NamespacedName{Name: "defaulted-job", Namespace: "default"}
 		Expect(k8sClient.Create(ctx, &platformv1.MLTrainingJob{
-			ObjectMeta: metav1.ObjectMeta{Name: name.Name, Namespace: name.Namespace},
+			Name: name.Name, Namespace: name.Namespace,
 			Spec: platformv1.MLTrainingJobSpec{
 				Queue: "team-a", Image: "busybox", Command: []string{"true"}, GPUCount: 1,
 			},
@@ -205,7 +205,7 @@ var _ = Describe("mapPolicyToInferenceDeployments", func() {
 	// NodeHealth mapper's specs work within.
 	infd := func(name, ns string) *platformv1.InferenceDeployment {
 		return &platformv1.InferenceDeployment{
-			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
+			Name: name, Namespace: ns,
 			Spec: platformv1.InferenceDeploymentSpec{
 				Model: platformv1.InferenceModel{Name: "m", StorageURI: "s3://m"},
 				Image: "vllm/vllm-openai:test", Replicas: 1, Port: 8080,
@@ -214,8 +214,8 @@ var _ = Describe("mapPolicyToInferenceDeployments", func() {
 	}
 	policyFor := func(target string) *platformv1.GPUQuotaPolicy {
 		return &platformv1.GPUQuotaPolicy{
-			ObjectMeta: metav1.ObjectMeta{Name: "p1", Namespace: "policy-home"},
-			Spec:       platformv1.GPUQuotaPolicySpec{TargetNamespace: target, Tenant: "team-a"},
+			Name: "p1", Namespace: "policy-home",
+			Spec: platformv1.GPUQuotaPolicySpec{TargetNamespace: target, Tenant: "team-a"},
 		}
 	}
 	mapper := func(objs ...client.Object) *InferenceDeploymentReconciler {
@@ -285,7 +285,7 @@ var _ = Describe("InferenceDeployment Controller", func() {
 
 		newInfD := func(replicas, gpu int32) *platformv1.InferenceDeployment {
 			return &platformv1.InferenceDeployment{
-				ObjectMeta: metav1.ObjectMeta{Name: resourceName, Namespace: ns},
+				Name: resourceName, Namespace: ns,
 				Spec: platformv1.InferenceDeploymentSpec{
 					Model:    platformv1.InferenceModel{Name: "llama3-8b", StorageURI: "s3://models/llama3-8b/v1"},
 					Image:    "vllm/vllm-openai:test",
@@ -408,7 +408,7 @@ var _ = Describe("InferenceDeployment Controller", func() {
 
 		It("refuses to adopt an unowned Deployment of the same name", func() {
 			foreign := &appsv1.Deployment{
-				ObjectMeta: metav1.ObjectMeta{Name: resourceName, Namespace: ns, Labels: map[string]string{"owner": "someone-else"}},
+				Name: resourceName, Namespace: ns, Labels: map[string]string{"owner": "someone-else"},
 				Spec: appsv1.DeploymentSpec{
 					Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"owner": "someone-else"}},
 					Template: corev1.PodTemplateSpec{
@@ -537,7 +537,7 @@ var _ = Describe("InferenceDeployment Controller", func() {
 
 		It("refuses to adopt an unowned Service of the same name", func() {
 			foreignSvc := &corev1.Service{
-				ObjectMeta: metav1.ObjectMeta{Name: resourceName, Namespace: ns, Labels: map[string]string{"owner": "someone-else"}},
+				Name: resourceName, Namespace: ns, Labels: map[string]string{"owner": "someone-else"},
 				Spec: corev1.ServiceSpec{
 					Selector: map[string]string{"owner": "someone-else"},
 					Ports:    []corev1.ServicePort{{Name: "foreign", Port: 9999}},

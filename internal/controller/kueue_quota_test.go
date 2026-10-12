@@ -59,13 +59,13 @@ var _ = Describe("GPUQuotaPolicy Kueue sync", func() {
 
 		BeforeEach(func() {
 			By("ensuring the target namespace exists")
-			ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: targetNS}}
+			ns := &corev1.Namespace{Name: targetNS}
 			if err := k8sClient.Create(ctx, ns); err != nil && !errors.IsAlreadyExists(err) {
 				Expect(err).NotTo(HaveOccurred())
 			}
 
 			By("ensuring the shared gpu ResourceFlavor fixture exists")
-			flavor := &kueuev1beta1.ResourceFlavor{ObjectMeta: metav1.ObjectMeta{Name: gpuFlavor}}
+			flavor := &kueuev1beta1.ResourceFlavor{Name: gpuFlavor}
 			if err := k8sClient.Create(ctx, flavor); err != nil && !errors.IsAlreadyExists(err) {
 				Expect(err).NotTo(HaveOccurred())
 			}
@@ -95,7 +95,7 @@ var _ = Describe("GPUQuotaPolicy Kueue sync", func() {
 
 		It("creates a ClusterQueue and LocalQueue when trainingQuota is true", func() {
 			policy := &platformv1.GPUQuotaPolicy{
-				ObjectMeta: metav1.ObjectMeta{Name: resourceName},
+				Name: resourceName,
 				Spec: platformv1.GPUQuotaPolicySpec{
 					Tenant:          tenant,
 					TargetNamespace: targetNS,
@@ -144,7 +144,7 @@ var _ = Describe("GPUQuotaPolicy Kueue sync", func() {
 		// Mutation that turns this red: drop the Admitting condition, or report it True regardless.
 		It("does not claim to be admitting when its ClusterQueue is not", func() {
 			policy := &platformv1.GPUQuotaPolicy{
-				ObjectMeta: metav1.ObjectMeta{Name: resourceName},
+				Name: resourceName,
 				Spec: platformv1.GPUQuotaPolicySpec{
 					Tenant:          tenant,
 					TargetNamespace: targetNS,
@@ -190,7 +190,7 @@ var _ = Describe("GPUQuotaPolicy Kueue sync", func() {
 			// queue authoritatively admits nothing. An operator reading False could not tell "not yet" from
 			// "no", and the two call for opposite responses: wait, or go find the missing ResourceFlavor.
 			policy := &platformv1.GPUQuotaPolicy{
-				ObjectMeta: metav1.ObjectMeta{Name: resourceName},
+				Name: resourceName,
 				Spec: platformv1.GPUQuotaPolicySpec{
 					Tenant:          tenant,
 					TargetNamespace: targetNS,
@@ -221,7 +221,7 @@ var _ = Describe("GPUQuotaPolicy Kueue sync", func() {
 
 		It("reports admitting once its ClusterQueue is active", func() {
 			policy := &platformv1.GPUQuotaPolicy{
-				ObjectMeta: metav1.ObjectMeta{Name: resourceName},
+				Name: resourceName,
 				Spec: platformv1.GPUQuotaPolicySpec{
 					Tenant:          tenant,
 					TargetNamespace: targetNS,
@@ -251,7 +251,7 @@ var _ = Describe("GPUQuotaPolicy Kueue sync", func() {
 
 		It("creates neither a ClusterQueue nor a LocalQueue when trainingQuota is false", func() {
 			policy := &platformv1.GPUQuotaPolicy{
-				ObjectMeta: metav1.ObjectMeta{Name: resourceName},
+				Name: resourceName,
 				Spec: platformv1.GPUQuotaPolicySpec{
 					Tenant:          tenant,
 					TargetNamespace: targetNS,
@@ -274,7 +274,7 @@ var _ = Describe("GPUQuotaPolicy Kueue sync", func() {
 		// Mutation that turns this red: delete the XValidation rule on GPUQuotaPolicySpec, and regenerate the CRD.
 		It("refuses flipping trainingQuota from true to false and leaves the queues in place", func() {
 			policy := &platformv1.GPUQuotaPolicy{
-				ObjectMeta: metav1.ObjectMeta{Name: resourceName},
+				Name: resourceName,
 				Spec: platformv1.GPUQuotaPolicySpec{
 					Tenant:          tenant,
 					TargetNamespace: targetNS,
@@ -299,7 +299,7 @@ var _ = Describe("GPUQuotaPolicy Kueue sync", func() {
 
 		It("deletes the ClusterQueue and LocalQueue on policy deletion", func() {
 			policy := &platformv1.GPUQuotaPolicy{
-				ObjectMeta: metav1.ObjectMeta{Name: resourceName},
+				Name: resourceName,
 				Spec: platformv1.GPUQuotaPolicySpec{
 					Tenant:          tenant,
 					TargetNamespace: targetNS,
@@ -327,7 +327,7 @@ var _ = Describe("GPUQuotaPolicy Kueue sync", func() {
 		It("does not delete a ClusterQueue owned by another policy sharing the tenant", func() {
 			By("creating the owning policy with training quota")
 			owner := &platformv1.GPUQuotaPolicy{
-				ObjectMeta: metav1.ObjectMeta{Name: resourceName},
+				Name: resourceName,
 				Spec: platformv1.GPUQuotaPolicySpec{
 					Tenant:          tenant,
 					TargetNamespace: targetNS,
@@ -341,13 +341,13 @@ var _ = Describe("GPUQuotaPolicy Kueue sync", func() {
 
 			By("creating a second policy for the same tenant in another namespace, opted out of training quota")
 			otherNS := targetNS + "-2"
-			ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: otherNS}}
+			ns := &corev1.Namespace{Name: otherNS}
 			if err := k8sClient.Create(ctx, ns); err != nil && !errors.IsAlreadyExists(err) {
 				Expect(err).NotTo(HaveOccurred())
 			}
 			otherKey := types.NamespacedName{Name: resourceName + "-2"}
 			other := &platformv1.GPUQuotaPolicy{
-				ObjectMeta: metav1.ObjectMeta{Name: otherKey.Name},
+				Name: otherKey.Name,
 				Spec: platformv1.GPUQuotaPolicySpec{
 					Tenant:          tenant,
 					TargetNamespace: otherNS,
@@ -375,7 +375,7 @@ var _ = Describe("GPUQuotaPolicy Kueue sync", func() {
 
 		It("corrects a mutated ClusterQueue nominal quota (drift recovery)", func() {
 			policy := &platformv1.GPUQuotaPolicy{
-				ObjectMeta: metav1.ObjectMeta{Name: resourceName},
+				Name: resourceName,
 				Spec: platformv1.GPUQuotaPolicySpec{
 					Tenant:          tenant,
 					TargetNamespace: targetNS,
@@ -402,7 +402,7 @@ var _ = Describe("GPUQuotaPolicy Kueue sync", func() {
 		It("does not cap GPUs in a namespace ResourceQuota when trainingQuota is true", func() {
 			By("creating a policy with training quota enabled")
 			policy := &platformv1.GPUQuotaPolicy{
-				ObjectMeta: metav1.ObjectMeta{Name: resourceName},
+				Name: resourceName,
 				Spec: platformv1.GPUQuotaPolicySpec{
 					Tenant:          tenant,
 					TargetNamespace: targetNS,
@@ -425,7 +425,7 @@ var _ = Describe("GPUQuotaPolicy Kueue sync", func() {
 		// Mutation that turns this red: move the rule onto the trainingQuota field as self == oldSelf.
 		It("refuses flipping trainingQuota from false to true and keeps the namespace ResourceQuota", func() {
 			policy := &platformv1.GPUQuotaPolicy{
-				ObjectMeta: metav1.ObjectMeta{Name: resourceName},
+				Name: resourceName,
 				Spec: platformv1.GPUQuotaPolicySpec{
 					Tenant:          tenant,
 					TargetNamespace: targetNS,
@@ -457,7 +457,7 @@ var _ = Describe("GPUQuotaPolicy Kueue sync", func() {
 		// errors when the field is absent.
 		It("still accepts an edit that leaves an unset trainingQuota unset", func() {
 			policy := &platformv1.GPUQuotaPolicy{
-				ObjectMeta: metav1.ObjectMeta{Name: resourceName},
+				Name: resourceName,
 				Spec: platformv1.GPUQuotaPolicySpec{
 					Tenant:          tenant,
 					TargetNamespace: targetNS,

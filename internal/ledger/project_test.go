@@ -60,7 +60,7 @@ func obs(elapsed int32, state string, healthy bool) platformv1.WorkloadRunObserv
 func runWith(uid, name string, phase platformv1.WorkloadRunPhase, start *time.Time,
 	lastObserved time.Time, trail ...platformv1.WorkloadRunObservation) platformv1.WorkloadRun {
 	r := platformv1.WorkloadRun{
-		ObjectMeta: metav1.ObjectMeta{UID: types.UID(uid), Name: name, Namespace: "default"},
+		UID: types.UID(uid), Name: name, Namespace: "default",
 		Spec: platformv1.WorkloadRunSpec{
 			Scenario: platformv1.ScenarioServingPodKilled,
 			Target: platformv1.WorkloadRunTarget{

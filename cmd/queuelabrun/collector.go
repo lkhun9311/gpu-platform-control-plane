@@ -762,10 +762,9 @@ func submit(ctx context.Context, c client.Client, col *collector, arm queuelab.A
 // The stamp is in the Create body rather than a follow-up patch because a second write is a window a crash
 // can land in, and an object created without its stamp is one no later teardown can recognise or delete.
 func ensureNamespace(ctx context.Context, c client.Client, ns, txID string) error {
-	created := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
+	created := &corev1.Namespace{
 		Name:   ns,
-		Labels: map[string]string{queuelab.TxLabel: txID},
-	}}
+		Labels: map[string]string{queuelab.TxLabel: txID}}
 	err := c.Create(ctx, created)
 	if err == nil {
 		// What went into the Create body is a REQUEST; recoverTargets decides ownership by what the cluster
@@ -838,7 +837,7 @@ func ensureNamespace(ctx context.Context, c client.Client, ns, txID string) erro
 // widen it to the name, which is the direction to fail in.
 func deleteUnstamped(ctx context.Context, c client.Client, created *corev1.Namespace, cause error) error {
 	uid := created.GetUID()
-	derr := c.Delete(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: created.GetName()}},
+	derr := c.Delete(ctx, &corev1.Namespace{Name: created.GetName()},
 		client.Preconditions{UID: &uid})
 	// NotFound is the state this function exists to reach, by someone else's hand. Anything else is a namespace
 	// left on the cluster under no stamp any teardown can recognise, and that must never reach the caller as

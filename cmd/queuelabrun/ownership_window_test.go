@@ -256,9 +256,9 @@ func TestOwnershipWindowSeesTheWorkerDeleted(t *testing.T) {
 func TestOwnershipWindowIgnoresOtherNodesAndBookmarks(t *testing.T) {
 	ctx := t.Context()
 
-	other := &corev1.Node{ObjectMeta: metav1.ObjectMeta{
-		Name: "platform-worker2", UID: types.UID("uid-other"), ResourceVersion: "1001"}}
-	bookmark := &corev1.Node{ObjectMeta: metav1.ObjectMeta{ResourceVersion: "1002"}}
+	other := &corev1.Node{
+		Name: "platform-worker2", UID: types.UID("uid-other"), ResourceVersion: "1001"}
+	bookmark := &corev1.Node{ResourceVersion: "1002"}
 	s, _ := sentinelOnScript(ctx, t, heldWorker(t, "1000"),
 		func(metav1.ListOptions) (watch.Interface, error) {
 			w := watch.NewFakeWithChanSize(3, false)
