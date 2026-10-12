@@ -37,6 +37,17 @@ the bypass with an extra step.
 **Fix.** Honour it only for `kube-system` service accounts, which a tenant cannot assume. Admitted Pods
 still emit a warning naming the annotation, so a device leaving the budget announces itself.
 
+**The fix was itself the same bypass, found 2026-10-12 in a pre-spend review.** A tenant cannot assume a
+`kube-system` service account, but it does not need to. A Deployment, DaemonSet or StatefulSet whose Pod
+template carries the annotation has its Pods created by `kube-system:replicaset-controller`,
+`daemon-set-controller` or `statefulset-controller`, and those controllers copy the template's annotations
+onto the Pod. The requester proved which controller submitted the Pod, not who chose its annotations.
+Nothing in the repository needed the exemption — both device plugins request no device and run outside the
+namespaces the webhook selects — so it was removed and the annotation now grants nothing
+(`TestAControllerCannotCarryATemplatesExemption`). This is a reading of the code and of Kubernetes' controller
+identities, which this cluster's own refusal log records (`replicaset-controller` below, in
+[quota-bypass-guard.md](quota-bypass-guard.md)); the bypass was not reproduced on a cluster.
+
 ## 3. The reclaim guarantee is bounded by a number the victim chooses
 
 Quota reclaim works by preemption, and preemption waits for termination. Termination waits for
@@ -64,7 +75,8 @@ evidence about the tenant.
 The three fixes take different forms, and the difference is instructive:
 
 - **1** replaced the untrusted input with a trusted one. The requester is authenticated; the object is not.
-- **2** restricted who may supply the input, to a set the tenant cannot join.
+- **2** restricted who may supply the input, to a set the tenant cannot join — and the tenant could reach that
+  set through a controller, so the input was removed instead.
 - **3** could do neither — the grace period genuinely belongs to the workload — so it **bounded** the damage
   instead. That is the weakest of them and the honest one: reclaim is still not immediate, and no Kubernetes
   mechanism makes it so.

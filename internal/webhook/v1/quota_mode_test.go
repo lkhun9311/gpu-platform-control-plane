@@ -26,6 +26,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -45,7 +46,7 @@ import (
 // policy returns a GPUQuotaPolicy targeting ns, in whichever mode.
 func policy(name, ns string, training bool) *platformv1.GPUQuotaPolicy {
 	return &platformv1.GPUQuotaPolicy{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns, UID: types.UID(name + "-uid")},
 		Spec: platformv1.GPUQuotaPolicySpec{
 			TargetNamespace: ns,
 			TrainingQuota:   training,
@@ -53,7 +54,11 @@ func policy(name, ns string, training bool) *platformv1.GPUQuotaPolicy {
 	}
 }
 
-// gpuQuotaFor builds the ResourceQuota the controller syncs for a ResourceQuota-mode policy.
+// gpuQuotaFor builds the ResourceQuota the controller syncs for a ResourceQuota-mode policy, in the state
+// Kubernetes leaves it once the quota controller has run: owned by its policy, and with status.hard filled in.
+//
+// It used to carry neither, so every test of a "metered" namespace passed a quota Kubernetes would not yet
+// charge anything against, and no test could tell an initialised quota from a squatter.
 func gpuQuotaFor(policyName, ns string, capped bool) *corev1.ResourceQuota {
 	hard := corev1.ResourceList{}
 	if capped {
@@ -62,9 +67,17 @@ func gpuQuotaFor(policyName, ns string, capped bool) *corev1.ResourceQuota {
 		// A quota that exists but caps something else is not a GPU ceiling.
 		hard[corev1.ResourceName("pods")] = *resource.NewQuantity(10, resource.DecimalSI)
 	}
+	yes := true
 	return &corev1.ResourceQuota{
-		ObjectMeta: metav1.ObjectMeta{Name: quotaName(policyName), Namespace: ns},
-		Spec:       corev1.ResourceQuotaSpec{Hard: hard},
+		ObjectMeta: metav1.ObjectMeta{
+			Name: quotaName(policyName), Namespace: ns,
+			OwnerReferences: []metav1.OwnerReference{{
+				APIVersion: platformv1.GroupVersion.String(), Kind: "GPUQuotaPolicy",
+				Name: policyName, UID: types.UID(policyName + "-uid"), Controller: &yes,
+			}},
+		},
+		Spec:   corev1.ResourceQuotaSpec{Hard: hard},
+		Status: corev1.ResourceQuotaStatus{Hard: hard.DeepCopy()},
 	}
 }
 
@@ -209,5 +222,150 @@ func TestTheResourceQuotaPathIsStillCappedOnGrace(t *testing.T) {
 func TestTheQuotaNameMatchesTheController(t *testing.T) {
 	if got := quotaName("team-a-quota"); got != "gpuquota-team-a-quota" {
 		t.Fatalf("the webhook looks for %q; GPUQuotaPolicyReconciler syncs gpuquota-<policy>", got)
+	}
+}
+
+// replicaSetController is the identity an InferenceDeployment's Pods are created under.
+const replicaSetController = "system:serviceaccount:kube-system:replicaset-controller"
+
+// meteredNamespace is a ResourceQuota-mode namespace whose quota Kubernetes is already charging against.
+func meteredNamespace() []client.Object {
+	return []client.Object{policy("team-a-quota", "team-a", false), gpuQuotaFor("team-a-quota", "team-a", true)}
+}
+
+// The defect this change exists for: a GPU serving Pod in the namespace the gateway routes to was refused,
+// because only the Job controller's Pods were ever asked whether a ResourceQuota meters them.
+//
+// Mutation that turns this red: ask meteredByResourceQuota only for the Job controller again.
+func TestAServingPodIsAdmittedWhereAResourceQuotaMetersIt(t *testing.T) {
+	res := ask(t, gpuValidator(t, meteredNamespace()...), replicaSetController, gpuPod(1, nil))
+	if !res.Allowed {
+		t.Fatalf("refused a serving Pod the namespace ResourceQuota charges at creation: %s", res.Result.Message)
+	}
+}
+
+// The requester adds nothing where the quota charges every Pod: a tenant's bare Pod is charged the same way.
+func TestABarePodIsAdmittedWhereAResourceQuotaMetersIt(t *testing.T) {
+	res := ask(t, gpuValidator(t, meteredNamespace()...), tenantUser, gpuPod(1, nil))
+	if !res.Allowed {
+		t.Fatalf("refused a Pod the namespace ResourceQuota charges at creation: %s", res.Result.Message)
+	}
+}
+
+// Each case is a namespace that looks metered and is not, and a serving Pod must be refused in every one.
+// The serving Pod rather than a Job's, because the Job controller's Pod also has the queue path to fall to,
+// and a refusal here must come from the quota reading alone.
+func TestAServingPodIsRefusedWhereNoQuotaChargesIt(t *testing.T) {
+	now := metav1.Now()
+	quota := func(mutate func(*corev1.ResourceQuota)) *corev1.ResourceQuota {
+		q := gpuQuotaFor("team-a-quota", "team-a", true)
+		mutate(q)
+		return q
+	}
+	cases := []struct {
+		name string
+		// mutation names the change to meteredByResourceQuota that turns this case green.
+		mutation string
+		objs     []client.Object
+	}{
+		{"no policy at all", "admit when no policy is found", nil},
+		{"a training policy", "ignore trainingQuota", []client.Object{policy("team-a-quota", "team-a", true)}},
+		{"a mixed namespace", "admit on the first ResourceQuota-mode policy", append(meteredNamespace(),
+			policy("team-a-training", "team-a", true))},
+		{"the quota is missing", "skip a missing quota", []client.Object{policy("team-a-quota", "team-a", false)}},
+		{"the quota caps something else", "check only that the quota exists", []client.Object{
+			policy("team-a-quota", "team-a", false), gpuQuotaFor("team-a-quota", "team-a", false)}},
+		{"status.hard not filled in yet", "read spec.hard alone", []client.Object{policy("team-a-quota", "team-a", false),
+			quota(func(q *corev1.ResourceQuota) { q.Status = corev1.ResourceQuotaStatus{} })}},
+		{"the GPU key added to spec.hard and not yet to status.hard", "read spec.hard alone", []client.Object{
+			policy("team-a-quota", "team-a", false), quota(func(q *corev1.ResourceQuota) {
+				q.Status.Hard = corev1.ResourceList{corev1.ResourcePods: *resource.NewQuantity(10, resource.DecimalSI)}
+			})}},
+		{"a scoped quota", "ignore spec.scopes", []client.Object{policy("team-a-quota", "team-a", false),
+			quota(func(q *corev1.ResourceQuota) {
+				q.Spec.Scopes = []corev1.ResourceQuotaScope{corev1.ResourceQuotaScopeNotBestEffort}
+			})}},
+		{"a quota with a scope selector", "ignore spec.scopeSelector", []client.Object{policy("team-a-quota", "team-a", false),
+			quota(func(q *corev1.ResourceQuota) {
+				q.Spec.ScopeSelector = &corev1.ScopeSelector{MatchExpressions: []corev1.ScopedResourceSelectorRequirement{{
+					ScopeName: corev1.ResourceQuotaScopePriorityClass, Operator: corev1.ScopeSelectorOpIn,
+					Values: []string{"restricted"},
+				}}}
+			})}},
+		{"a quota the policy does not own", "skip the ownership check", []client.Object{policy("team-a-quota", "team-a", false),
+			quota(func(q *corev1.ResourceQuota) { q.OwnerReferences = nil })}},
+		{"a quota controlled by another object of the same name", "match the owner by name rather than UID",
+			[]client.Object{policy("team-a-quota", "team-a", false), quota(func(q *corev1.ResourceQuota) {
+				q.OwnerReferences[0].UID = "someone-else"
+			})}},
+		{"a quota the policy owns without controlling it", "accept any ownerReference", []client.Object{
+			policy("team-a-quota", "team-a", false), quota(func(q *corev1.ResourceQuota) {
+				q.OwnerReferences[0].Controller = nil
+			})}},
+		{"a quota being deleted", "ignore the quota's deletion", []client.Object{policy("team-a-quota", "team-a", false),
+			quota(func(q *corev1.ResourceQuota) {
+				q.DeletionTimestamp = &now
+				q.Finalizers = []string{"test/hold"}
+			})}},
+		{"a policy being deleted", "ignore the policy's deletion", []client.Object{
+			func() *platformv1.GPUQuotaPolicy {
+				p := policy("team-a-quota", "team-a", false)
+				p.DeletionTimestamp = &now
+				p.Finalizers = []string{"test/hold"}
+				return p
+			}(), gpuQuotaFor("team-a-quota", "team-a", true)}},
+		{"a training policy whose earlier quota still stands", "ignore trainingQuota", []client.Object{
+			policy("team-a-quota", "team-a", true), gpuQuotaFor("team-a-quota", "team-a", true)}},
+		{"a second policy's quota is missing", "admit on the first quota in place", append(meteredNamespace(),
+			policy("team-a-strict", "team-a", false))},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			res := ask(t, gpuValidator(t, c.objs...), replicaSetController, gpuPod(1, nil))
+			if res.Allowed {
+				t.Fatalf("admitted a serving Pod nothing charges (would pass under: %s)", c.mutation)
+			}
+			if !strings.Contains(res.Result.Message, "no ResourceQuota") {
+				t.Fatalf("refused for a reason other than the quota reading: %s", res.Result.Message)
+			}
+			// The Job guard asks the same question before a reservation is made, and must answer it the same way.
+			res = askJob(t, unqueuedJob(), c.objs...)
+			if res.Allowed {
+				t.Fatalf("admitted an unqueued GPU Job nothing charges (would pass under: %s)", c.mutation)
+			}
+			if !strings.Contains(res.Result.Message, "no ResourceQuota") {
+				t.Fatalf("the Job was refused for a reason other than the quota reading: %s", res.Result.Message)
+			}
+		})
+	}
+}
+
+// A changed ceiling reaches status.hard after spec.hard. In between, Kubernetes still charges a Pod against the
+// key status.hard carries, at its old value, so the Pod is charged and refusing it would only make the tenant
+// retry.
+//
+// Mutation that turns this red: require status.hard to equal spec.hard.
+func TestAPodIsAdmittedWhileAChangedCeilingPropagates(t *testing.T) {
+	q := gpuQuotaFor("team-a-quota", "team-a", true)
+	q.Status.Hard[gpuRequestsResource] = *resource.NewQuantity(8, resource.DecimalSI)
+	res := ask(t, gpuValidator(t, policy("team-a-quota", "team-a", false), q), replicaSetController, gpuPod(1, nil))
+	if !res.Allowed {
+		t.Fatalf("refused a Pod Kubernetes charges against the ceiling still in status.hard: %s", res.Result.Message)
+	}
+}
+
+// The new path is an accounting decision, and grace is not one; see TestTheResourceQuotaPathIsStillCappedOnGrace.
+//
+// Mutation that turns this red: move the meteredByResourceQuota branch above graceTooLong in the Pod guard.
+func TestTheServingPathIsStillCappedOnGrace(t *testing.T) {
+	long := int64(600)
+	res := ask(t, gpuValidator(t, meteredNamespace()...), replicaSetController, gpuPod(1, func(p *corev1.Pod) {
+		p.Spec.TerminationGracePeriodSeconds = &long
+	}))
+	if res.Allowed {
+		t.Fatal("a serving Pod admitted through the ResourceQuota path escaped the grace cap")
+	}
+	if !strings.Contains(res.Result.Message, "600") {
+		t.Fatalf("the refusal does not name the grace that caused it: %s", res.Result.Message)
 	}
 }

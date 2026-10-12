@@ -1,0 +1,14 @@
+# serve-a's budget: one GPU, held by a namespace ResourceQuota rather than a Kueue ClusterQueue.
+#
+# gpuClass is recorded and not enforced per class; the ResourceQuota caps one aggregate nvidia.com/gpu key.
+apiVersion: platform.lkhun9311.github.io/v1
+kind: GPUQuotaPolicy
+metadata:
+  name: serve-a-quota
+spec:
+  tenant: serve-a
+  targetNamespace: serve-a
+  gpuClass: a10g
+  limits:
+    gpuCount: 1
+  trainingQuota: false

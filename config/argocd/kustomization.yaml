@@ -15,5 +15,7 @@ resources:
   - gateway.yaml
   - observability.yaml
   - device-plugin.yaml
+  - nvidia-device-plugin.yaml
   - storage.yaml
   - samples.yaml
+  - serving.yaml

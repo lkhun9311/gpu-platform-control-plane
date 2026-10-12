@@ -267,7 +267,12 @@ var _ = Describe("GPUQuotaPolicy Kueue sync", func() {
 			Expect(errors.IsNotFound(k8sClient.Get(ctx, lqKey, &kueuev1beta1.LocalQueue{}))).To(BeTrue())
 		})
 
-		It("deletes the ClusterQueue and LocalQueue when trainingQuota flips from true to false", func() {
+		// trainingQuota is immutable because flipping it moved the ceiling between ledgers in one reconcile: from
+		// false to true the ResourceQuota went and the GPU Pods it was charging kept running with Kueue never
+		// counting them. Both directions are refused by the API server, and nothing the controller had synced moves.
+		//
+		// Mutation that turns this red: delete the XValidation rule on GPUQuotaPolicySpec, and regenerate the CRD.
+		It("refuses flipping trainingQuota from true to false and leaves the queues in place", func() {
 			policy := &platformv1.GPUQuotaPolicy{
 				ObjectMeta: metav1.ObjectMeta{Name: resourceName},
 				Spec: platformv1.GPUQuotaPolicySpec{
@@ -280,18 +285,16 @@ var _ = Describe("GPUQuotaPolicy Kueue sync", func() {
 			Expect(k8sClient.Create(ctx, policy)).To(Succeed())
 			reconcileUntilSteady()
 
-			Expect(k8sClient.Get(ctx, cqKey, &kueuev1beta1.ClusterQueue{})).To(Succeed())
-			Expect(k8sClient.Get(ctx, lqKey, &kueuev1beta1.LocalQueue{})).To(Succeed())
-
 			got := &platformv1.GPUQuotaPolicy{}
 			Expect(k8sClient.Get(ctx, key, got)).To(Succeed())
 			got.Spec.TrainingQuota = false
-			Expect(k8sClient.Update(ctx, got)).To(Succeed())
+			err := k8sClient.Update(ctx, got)
+			Expect(errors.IsInvalid(err)).To(BeTrue(), "the flip was not refused as invalid: %v", err)
+			Expect(err.Error()).To(ContainSubstring("trainingQuota is immutable"))
 
 			reconcileUntilSteady()
-
-			Expect(errors.IsNotFound(k8sClient.Get(ctx, cqKey, &kueuev1beta1.ClusterQueue{}))).To(BeTrue())
-			Expect(errors.IsNotFound(k8sClient.Get(ctx, lqKey, &kueuev1beta1.LocalQueue{}))).To(BeTrue())
+			Expect(k8sClient.Get(ctx, cqKey, &kueuev1beta1.ClusterQueue{})).To(Succeed())
+			Expect(k8sClient.Get(ctx, lqKey, &kueuev1beta1.LocalQueue{})).To(Succeed())
 		})
 
 		It("deletes the ClusterQueue and LocalQueue on policy deletion", func() {
@@ -416,8 +419,11 @@ var _ = Describe("GPUQuotaPolicy Kueue sync", func() {
 			Expect(k8sClient.Get(ctx, cqKey, &kueuev1beta1.ClusterQueue{})).To(Succeed())
 		})
 
-		It("removes the namespace ResourceQuota when trainingQuota flips from false to true", func() {
-			By("creating a policy with training quota disabled so the namespace ResourceQuota is synced")
+		// The direction the rule exists for. false is never stored, because the field is omitempty, which is why
+		// the rule is written on the spec rather than on the field: on the field it would not be evaluated here.
+		//
+		// Mutation that turns this red: move the rule onto the trainingQuota field as self == oldSelf.
+		It("refuses flipping trainingQuota from false to true and keeps the namespace ResourceQuota", func() {
 			policy := &platformv1.GPUQuotaPolicy{
 				ObjectMeta: metav1.ObjectMeta{Name: resourceName},
 				Spec: platformv1.GPUQuotaPolicySpec{
@@ -433,16 +439,37 @@ var _ = Describe("GPUQuotaPolicy Kueue sync", func() {
 			rqKey := types.NamespacedName{Name: "gpuquota-" + resourceName, Namespace: targetNS}
 			Expect(k8sClient.Get(ctx, rqKey, &corev1.ResourceQuota{})).To(Succeed())
 
-			By("flipping training quota on so the GPU ceiling moves to Kueue")
 			got := &platformv1.GPUQuotaPolicy{}
 			Expect(k8sClient.Get(ctx, key, got)).To(Succeed())
 			got.Spec.TrainingQuota = true
-			Expect(k8sClient.Update(ctx, got)).To(Succeed())
-			reconcileUntilSteady()
+			err := k8sClient.Update(ctx, got)
+			Expect(errors.IsInvalid(err)).To(BeTrue(), "the flip was not refused as invalid: %v", err)
+			Expect(err.Error()).To(ContainSubstring("trainingQuota is immutable"))
 
-			By("confirming the namespace ResourceQuota is removed and the ClusterQueue exists")
-			Expect(errors.IsNotFound(k8sClient.Get(ctx, rqKey, &corev1.ResourceQuota{}))).To(BeTrue())
-			Expect(k8sClient.Get(ctx, cqKey, &kueuev1beta1.ClusterQueue{})).To(Succeed())
+			reconcileUntilSteady()
+			Expect(k8sClient.Get(ctx, rqKey, &corev1.ResourceQuota{})).To(Succeed())
+			Expect(errors.IsNotFound(k8sClient.Get(ctx, cqKey, &kueuev1beta1.ClusterQueue{}))).To(BeTrue())
+		})
+
+		// The rule must not refuse an ordinary edit of a policy whose trainingQuota was never set.
+		//
+		// Mutation that turns this red: write the rule as self.trainingQuota == oldSelf.trainingQuota, which
+		// errors when the field is absent.
+		It("still accepts an edit that leaves an unset trainingQuota unset", func() {
+			policy := &platformv1.GPUQuotaPolicy{
+				ObjectMeta: metav1.ObjectMeta{Name: resourceName},
+				Spec: platformv1.GPUQuotaPolicySpec{
+					Tenant:          tenant,
+					TargetNamespace: targetNS,
+					Limits:          platformv1.GPUQuotaLimits{GPUCount: 12},
+				},
+			}
+			Expect(k8sClient.Create(ctx, policy)).To(Succeed())
+
+			got := &platformv1.GPUQuotaPolicy{}
+			Expect(k8sClient.Get(ctx, key, got)).To(Succeed())
+			got.Spec.Limits.GPUCount = 8
+			Expect(k8sClient.Update(ctx, got)).To(Succeed())
 		})
 	})
 })

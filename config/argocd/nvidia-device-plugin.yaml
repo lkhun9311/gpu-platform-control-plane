@@ -1,0 +1,33 @@
+# The real NVIDIA device plugin, which config/argocd/device-plugin.yaml (the simulator) is not.
+#
+# Automated, because it costs nothing where there is no card: its DaemonSet selects
+# platform.lkhun9311.github.io/gpu=true, which only the GPU node groups carry, so a cluster with every GPU group
+# at zero schedules no Pod and the Application is Healthy with nothing running. It is ready the moment a GPU
+# node joins, which is what a serving session needs and what a manual Application would make a step to forget.
+#
+# The simulator stays manual and must never be synced on a cluster with real cards: both advertise
+# nvidia.com/gpu, and the simulator would hand vLLM a device that does not exist.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: gpu-platform-nvidia-device-plugin
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/lkhun9311/gpu-platform-control-plane.git
+    targetRevision: main
+    path: config/nvidia-device-plugin
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: gpu-platform-control-plane-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
