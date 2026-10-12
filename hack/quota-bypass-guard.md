@@ -77,6 +77,13 @@ An ownerReference naming a Job that does not exist is refused: it is a field any
 | Pod from a Job labelled `kueue.x-k8s.io/queue-name` | **admitted**, no warning |
 | Pod annotated `quota-exempt` | admitted **with a warning naming the annotation** |
 
+*2026-10-12: the last row no longer holds. The exemption was honoured for any kube-system service account,
+and a tenant reaches one by putting the annotation in a Deployment's Pod template, so it was removed
+([tenant-writable-fields.md](tenant-writable-fields.md), section 2). A GPU Pod without a queue label is now
+also admitted, whoever creates it, where the namespace's budget is a ResourceQuota that Kubernetes is already
+charging; the serving refusal recorded below was the Kueue-mode case, and the ResourceQuota-mode one had
+never been handled.*
+
 The refusal:
 
     Error from server (Forbidden): admission webhook "vgpupod.kb.io" denied the request:
