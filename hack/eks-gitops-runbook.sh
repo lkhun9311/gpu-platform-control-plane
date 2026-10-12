@@ -533,11 +533,16 @@ serve_sync() {
     return 0
   fi
   local deadline=$((SECONDS + WAIT_SERVE_SYNC)) started="" phase="" sync=""
+  # A succeeded operation is not yet a Synced Application: the comparison that sets sync.status runs after it,
+  # so the wait goes on until both hold. A resource that drifts back after every apply leaves sync OutOfSync
+  # with the operation Succeeded, and that is reported once the deadline passes, never read as done.
   while ((SECONDS < deadline)); do
     started="$(k -n argocd get application "$SERVE_APP" -o jsonpath='{.status.operationState.startedAt}' 2>/dev/null || true)"
     if [[ -n "$started" && ! "$started" < "$requested" ]]; then
       phase="$(k -n argocd get application "$SERVE_APP" -o jsonpath='{.status.operationState.phase}' 2>/dev/null || true)"
-      [[ "$phase" == Succeeded || "$phase" == Failed || "$phase" == Error ]] && break
+      [[ "$phase" == Failed || "$phase" == Error ]] && break
+      sync="$(k -n argocd get application "$SERVE_APP" -o jsonpath='{.status.sync.status}' 2>/dev/null || true)"
+      [[ "$phase" == Succeeded && "$sync" == Synced ]] && break
     fi
     sleep 5
   done
