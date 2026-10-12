@@ -1,6 +1,6 @@
 module github.com/lkhun9311/gpu-mlops-platform-control-plane
 
-go 1.27.0
+go 1.27.2
 
 require (
 	github.com/go-logr/logr v1.4.4
