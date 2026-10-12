@@ -9,7 +9,6 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -129,7 +128,7 @@ func TestCheckStorageClassRefusesOneTheClusterDoesNotHave(t *testing.T) {
 // The control. Without it a checkStorageClass that refused everything would satisfy the spec above, and the
 // resume arms would be unrunnable on every cluster.
 func TestCheckStorageClassAcceptsOneTheClusterHas(t *testing.T) {
-	sc := &storagev1.StorageClass{ObjectMeta: metav1.ObjectMeta{Name: "fast-ssd"}}
+	sc := &storagev1.StorageClass{Name: "fast-ssd"}
 	c := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(sc).Build()
 
 	if err := checkStorageClass(context.Background(), c, "fast-ssd"); err != nil {
@@ -190,7 +189,7 @@ func TestRunCreatesTheClaimWhenTheArmCheckpoints(t *testing.T) {
 	if testing.Short() {
 		t.Skip("drives run() past the fixtures, which takes the 45-second observation window")
 	}
-	sc := &storagev1.StorageClass{ObjectMeta: metav1.ObjectMeta{Name: "fast-ssd"}}
+	sc := &storagev1.StorageClass{Name: "fast-ssd"}
 	fc := fake.NewClientBuilder().WithScheme(fullScheme(t)).WithObjects(node(nil, nil), sc).
 		WithInterceptorFuncs(interceptor.Funcs{
 			Create: fakeSchedulerCreate,

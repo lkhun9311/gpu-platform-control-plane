@@ -52,7 +52,6 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -171,7 +170,7 @@ func run(ns, queue, metricsURL, out string, count, concurrency int, sampleEvery 
 		return err
 	}
 	defer func() {
-		_ = c.Delete(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}})
+		_ = c.Delete(ctx, &corev1.Namespace{Name: ns})
 		fmt.Printf("\n  removing the load\n")
 	}()
 
@@ -229,7 +228,7 @@ func run(ns, queue, metricsURL, out string, count, concurrency int, sampleEvery 
 		wg.Go(func() {
 			for i := range work {
 				job := &platformv1.MLTrainingJob{
-					ObjectMeta: metav1.ObjectMeta{Name: fmt.Sprintf("load-%d", i), Namespace: ns},
+					Name: fmt.Sprintf("load-%d", i), Namespace: ns,
 					Spec: platformv1.MLTrainingJobSpec{
 						Queue: queue, Image: "busybox:1.36", Command: []string{"sh", "-c", "sleep 1"},
 						GPUCount: 1, Parallelism: 1, Completions: 1,
@@ -322,7 +321,7 @@ func msOrNever(v *float64) string {
 }
 
 func ensureNamespace(ctx context.Context, c client.Client, ns string) error {
-	err := c.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}})
+	err := c.Create(ctx, &corev1.Namespace{Name: ns})
 	if err != nil && !apierrors.IsAlreadyExists(err) {
 		return fmt.Errorf("create namespace %s: %w", ns, err)
 	}
@@ -433,11 +432,11 @@ func (m metrics) missingSeries() []string {
 // "the operator was never the bottleneck". A parse that silently becomes a measurement is the shape this
 // repository keeps finding, so the failure is now returned rather than rounded off.
 func intValue(line string) (int, bool) {
-	i := strings.LastIndex(line, " ")
-	if i < 0 {
+	_, after, ok := strings.CutLast(line, " ")
+	if !ok {
 		return 0, false
 	}
-	f, err := strconv.ParseFloat(strings.TrimSpace(line[i+1:]), 64)
+	f, err := strconv.ParseFloat(strings.TrimSpace(after), 64)
 	if err != nil {
 		return 0, false
 	}

@@ -24,7 +24,6 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 )
 
@@ -106,13 +105,11 @@ func node(labels map[string]string, ann map[string]string, taints ...corev1.Tain
 	annotations := map[string]string{canaryAnnotationKey: qualifiedCanaryAnnotation()}
 	maps.Copy(annotations, ann)
 	return &corev1.Node{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:        "platform-worker",
-			UID:         types.UID("uid-node"),
-			Labels:      labels,
-			Annotations: annotations,
-		},
-		Spec: corev1.NodeSpec{Taints: taints},
+		Name:        "platform-worker",
+		UID:         types.UID("uid-node"),
+		Labels:      labels,
+		Annotations: annotations,
+		Spec:        corev1.NodeSpec{Taints: taints},
 		Status: corev1.NodeStatus{
 			Allocatable: corev1.ResourceList{gpuResourceName: *resource.NewQuantity(2, resource.DecimalSI)},
 			Conditions: []corev1.NodeCondition{

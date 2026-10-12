@@ -61,7 +61,7 @@ var _ = Describe("NodeHealth Controller", func() {
 
 		makeNode := func(ready corev1.ConditionStatus) *corev1.Node {
 			return &corev1.Node{
-				ObjectMeta: metav1.ObjectMeta{Name: nodeName},
+				Name: nodeName,
 				Status: corev1.NodeStatus{
 					Conditions: []corev1.NodeCondition{
 						{Type: corev1.NodeReady, Status: ready},
@@ -73,8 +73,8 @@ var _ = Describe("NodeHealth Controller", func() {
 		BeforeEach(func() {
 			By("creating a NodeHealth pointing at the target node")
 			nh := &platformv1.NodeHealth{
-				ObjectMeta: metav1.ObjectMeta{Name: resourceName},
-				Spec:       platformv1.NodeHealthSpec{NodeName: nodeName},
+				Name: resourceName,
+				Spec: platformv1.NodeHealthSpec{NodeName: nodeName},
 			}
 			Expect(k8sClient.Create(ctx, nh)).To(Succeed())
 		})
@@ -325,17 +325,17 @@ var _ = Describe("NodeHealth Controller", func() {
 
 		It("returns requests only for NodeHealths matching the node name", func() {
 			match := &platformv1.NodeHealth{
-				ObjectMeta: metav1.ObjectMeta{Name: "map-match"},
-				Spec:       platformv1.NodeHealthSpec{NodeName: "map-node"},
+				Name: "map-match",
+				Spec: platformv1.NodeHealthSpec{NodeName: "map-node"},
 			}
 			other := &platformv1.NodeHealth{
-				ObjectMeta: metav1.ObjectMeta{Name: "map-other"},
-				Spec:       platformv1.NodeHealthSpec{NodeName: "different-node"},
+				Name: "map-other",
+				Spec: platformv1.NodeHealthSpec{NodeName: "different-node"},
 			}
 			c := newMapperClient(match, other)
 			r := &NodeHealthReconciler{Client: c, Scheme: c.Scheme()}
 
-			node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "map-node"}}
+			node := &corev1.Node{Name: "map-node"}
 			reqs := r.mapNodeToNodeHealth(ctx, node)
 
 			Expect(reqs).To(HaveLen(1))
@@ -365,7 +365,7 @@ var _ = Describe("NodeHealth Controller", func() {
 				Build()
 			r := &NodeHealthReconciler{Client: c, Scheme: c.Scheme()}
 
-			node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "unmappable-node"}}
+			node := &corev1.Node{Name: "unmappable-node"}
 			reqs := r.mapNodeToNodeHealth(logf.IntoContext(ctx, recorder), node)
 
 			// Nothing to enqueue is still the right return; the point is that it is no longer the only thing that happens.

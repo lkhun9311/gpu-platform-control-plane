@@ -128,8 +128,8 @@ func mutateEngineDeployment(infd *platformv1.InferenceDeployment, dep *appsv1.De
 	shm := resource.MustParse("1Gi")
 	dep.Spec.Template.Spec.Volumes = []corev1.Volume{
 		// The engine's ring buffer needs more than a container's default 64 MiB /dev/shm.
-		{Name: "dshm", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{Medium: corev1.StorageMediumMemory, SizeLimit: &shm}}},
-		{Name: "hf-cache", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
+		{Name: "dshm", EmptyDir: &corev1.EmptyDirVolumeSource{Medium: corev1.StorageMediumMemory, SizeLimit: &shm}},
+		{Name: "hf-cache", EmptyDir: &corev1.EmptyDirVolumeSource{}},
 	}
 	// Matches the taint infra/aws/cluster/eks.tf puts on the GPU node groups.
 	dep.Spec.Template.Spec.Tolerations = []corev1.Toleration{{

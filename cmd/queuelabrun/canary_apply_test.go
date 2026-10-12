@@ -28,7 +28,6 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -1085,7 +1084,7 @@ func TestAProbeIsNotRunningUntilItsContainerIs(t *testing.T) {
 // had already exited and said why.
 func TestAProbeThatEndedBeforeItWasAskedToStopRefusesImmediately(t *testing.T) {
 	now, sleep := fakeClock(time.Unix(0, 0))
-	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Namespace: canaryNamespace, Name: "tc-early-honor"}}
+	pod := &corev1.Pod{Namespace: canaryNamespace, Name: "tc-early-honor"}
 	c := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(pod).
 		WithInterceptorFuncs(interceptor.Funcs{
 			Get: func(ctx context.Context, cl client.WithWatch, key client.ObjectKey, obj client.Object,
@@ -1208,7 +1207,7 @@ func TestReleasingAProbeThatIsAlreadyGoneIsNotAFailure(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(testScheme(t)).Build()
 	var out bytes.Buffer
 	releaseProbes(context.Background(), c, []*corev1.Pod{{
-		ObjectMeta: metav1.ObjectMeta{Namespace: canaryNamespace, Name: "tc-none-honor"},
+		Namespace: canaryNamespace, Name: "tc-none-honor",
 	}}, &out)
 	if out.Len() != 0 {
 		t.Fatalf("cleanup of an absent probe reported a problem: %s", out.String())

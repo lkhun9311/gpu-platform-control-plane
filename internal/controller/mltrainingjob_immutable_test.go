@@ -7,7 +7,6 @@ import (
 	. "github.com/onsi/gomega"
 
 	batchv1 "k8s.io/api/batch/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/rand"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -36,14 +35,14 @@ var _ = Describe("MLTrainingJob fields the controller cannot re-apply", func() {
 		GinkgoHelper()
 		key = types.NamespacedName{Name: "immutable-" + rand.String(5), Namespace: ns}
 		Expect(k8sClient.Create(ctx, &platformv1.MLTrainingJob{
-			ObjectMeta: metav1.ObjectMeta{Name: key.Name, Namespace: key.Namespace},
+			Name: key.Name, Namespace: key.Namespace,
 			Spec: platformv1.MLTrainingJobSpec{
 				Queue: "team-a", Image: image, GPUCount: 1, Parallelism: 1, Completions: 1,
 			},
 		})).To(Succeed())
 		DeferCleanup(func() {
 			_ = k8sClient.Delete(ctx, &platformv1.MLTrainingJob{
-				ObjectMeta: metav1.ObjectMeta{Name: key.Name, Namespace: key.Namespace},
+				Name: key.Name, Namespace: key.Namespace,
 			})
 		})
 
@@ -94,7 +93,7 @@ var _ = Describe("MLTrainingJob fields the controller cannot re-apply", func() {
 		// The Job is then built around a container with no image and can never run.
 		name := "blank-" + rand.String(5)
 		err := k8sClient.Create(ctx, &platformv1.MLTrainingJob{
-			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
+			Name: name, Namespace: ns,
 			Spec: platformv1.MLTrainingJobSpec{
 				Queue: "team-a", Image: "", GPUCount: 1, Parallelism: 1, Completions: 1,
 			},
@@ -102,7 +101,7 @@ var _ = Describe("MLTrainingJob fields the controller cannot re-apply", func() {
 		Expect(err).NotTo(HaveOccurred(), "if this ever fails, the schema gained a MinLength and the webhook's create rule is redundant")
 		DeferCleanup(func() {
 			_ = k8sClient.Delete(ctx, &platformv1.MLTrainingJob{
-				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
+				Name: name, Namespace: ns,
 			})
 		})
 	})
@@ -110,7 +109,7 @@ var _ = Describe("MLTrainingJob fields the controller cannot re-apply", func() {
 	It("accepts a blank queue, which routes the workload to a LocalQueue that cannot exist", func() {
 		name := "noqueue-" + rand.String(5)
 		err := k8sClient.Create(ctx, &platformv1.MLTrainingJob{
-			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
+			Name: name, Namespace: ns,
 			Spec: platformv1.MLTrainingJobSpec{
 				Queue: "", Image: "trainer:v1", GPUCount: 1, Parallelism: 1, Completions: 1,
 			},
@@ -118,7 +117,7 @@ var _ = Describe("MLTrainingJob fields the controller cannot re-apply", func() {
 		Expect(err).NotTo(HaveOccurred(), fmt.Sprintf("schema rejected a blank queue for %s; the webhook's create rule would be redundant", name))
 		DeferCleanup(func() {
 			_ = k8sClient.Delete(ctx, &platformv1.MLTrainingJob{
-				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
+				Name: name, Namespace: ns,
 			})
 		})
 	})

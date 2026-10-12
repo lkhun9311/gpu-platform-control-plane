@@ -40,7 +40,7 @@ import (
 // gpuPod is a Pod that asks for devices, in the ordinary shape: the request named on the container.
 func gpuPod(namespace, name, nodeName string, gpus int64) *corev1.Pod {
 	return &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: name, UID: types.UID(name + "-uid")},
+		Namespace: namespace, Name: name, UID: types.UID(name + "-uid"),
 		Spec: corev1.PodSpec{
 			NodeName: nodeName,
 			Containers: []corev1.Container{{
@@ -65,14 +65,12 @@ func gpuPod(namespace, name, nodeName string, gpus int64) *corev1.Pod {
 // has ever used, including the one the reviewer is about to point at it.
 func simulatorPod(nodeName string) *corev1.Pod {
 	return &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Namespace: "system",
-			Name:      "gpu-simulator-abcde",
-			UID:       types.UID("sim-uid"),
-			Labels: map[string]string{
-				"app.kubernetes.io/name":      "gpu-platform-control-plane",
-				"app.kubernetes.io/component": "gpu-simulator",
-			},
+		Namespace: "system",
+		Name:      "gpu-simulator-abcde",
+		UID:       types.UID("sim-uid"),
+		Labels: map[string]string{
+			"app.kubernetes.io/name":      "gpu-platform-control-plane",
+			"app.kubernetes.io/component": "gpu-simulator",
 		},
 		Spec: corev1.PodSpec{
 			NodeName:          nodeName,
@@ -165,7 +163,7 @@ func TestRequiredGPUIsDerivedFromTheFixturesNotHardCoded(t *testing.T) {
 	// Two quotas on this run's flavor and one on somebody else's, so both halves of the rule are exercised at
 	// once: the total is summed, and the foreign flavor contributes nothing to either the sum or the count.
 	synthetic := &queuelab.FixtureSet{
-		Flavor: &kueuev1beta2.ResourceFlavor{ObjectMeta: metav1.ObjectMeta{Name: "queuelab-gpu-r7"}},
+		Flavor: &kueuev1beta2.ResourceFlavor{Name: "queuelab-gpu-r7"},
 		ClusterQueue: []*kueuev1beta2.ClusterQueue{
 			syntheticCQ("cq-a", "queuelab-gpu-r7", 1),
 			syntheticCQ("cq-b", "queuelab-gpu-r7", 3),
@@ -199,7 +197,7 @@ func TestRequiredGPUIsDerivedFromTheFixturesNotHardCoded(t *testing.T) {
 // `largest > sum` branch). Both real studies stay green — that is the point of this test existing.
 func TestRequiredGPUTakesTheLargestSingleRowWhenItExceedsTheQuotaSum(t *testing.T) {
 	fs := &queuelab.FixtureSet{
-		Flavor:       &kueuev1beta2.ResourceFlavor{ObjectMeta: metav1.ObjectMeta{Name: "queuelab-gpu-r7"}},
+		Flavor:       &kueuev1beta2.ResourceFlavor{Name: "queuelab-gpu-r7"},
 		ClusterQueue: []*kueuev1beta2.ClusterQueue{syntheticCQ("cq-a", "queuelab-gpu-r7", 2)},
 	}
 	trace := []queuelab.TrainingTraceRow{
@@ -240,7 +238,7 @@ func TestRequiredGPUTakesTheLargestSingleRowWhenItExceedsTheQuotaSum(t *testing.
 
 func syntheticCQ(name, flavor string, nominal int64) *kueuev1beta2.ClusterQueue {
 	return &kueuev1beta2.ClusterQueue{
-		ObjectMeta: metav1.ObjectMeta{Name: name},
+		Name: name,
 		Spec: kueuev1beta2.ClusterQueueSpec{
 			ResourceGroups: []kueuev1beta2.ResourceGroup{{
 				CoveredResources: []corev1.ResourceName{gpuResourceName},
@@ -264,7 +262,7 @@ func syntheticCQ(name, flavor string, nominal int64) *kueuev1beta2.ClusterQueue 
 // Mutation that turns this red: drop the `req.Total < 1` branch from requiredGPU.
 func TestRequiredGPURefusesAProtocolThatAsksForNoDevice(t *testing.T) {
 	empty := &queuelab.FixtureSet{
-		Flavor:       &kueuev1beta2.ResourceFlavor{ObjectMeta: metav1.ObjectMeta{Name: "queuelab-gpu-r7"}},
+		Flavor:       &kueuev1beta2.ResourceFlavor{Name: "queuelab-gpu-r7"},
 		ClusterQueue: []*kueuev1beta2.ClusterQueue{syntheticCQ("cq-a", "queuelab-gpu-r7", 0)},
 	}
 	_, err := requiredGPU(empty, []queuelab.TrainingTraceRow{{Index: 0, Name: "cpu-only", GPUCount: 0}})
@@ -625,7 +623,7 @@ func mustHarnessContract(t *testing.T) canaryContract {
 func TestANodeWithSpareDevicesIsRefused(t *testing.T) {
 	node := func(allocatable int64) *corev1.Node {
 		return &corev1.Node{
-			ObjectMeta: metav1.ObjectMeta{Name: "platform-worker", UID: "n1"},
+			Name: "platform-worker", UID: "n1",
 			Status: corev1.NodeStatus{
 				Allocatable: corev1.ResourceList{
 					gpuResourceName: *resource.NewQuantity(allocatable, resource.DecimalSI),
@@ -637,13 +635,11 @@ func TestANodeWithSpareDevicesIsRefused(t *testing.T) {
 	// A Pod holding devices to keep the node SCARCE, which is what makes a four-card instance measurable.
 	occupier := func(gpus int64) []corev1.Pod {
 		return []corev1.Pod{{
-			ObjectMeta: metav1.ObjectMeta{
-				Namespace: "gpu-platform-control-plane-system", Name: "surplus-occupier",
-				// A valid label value: alphanumeric with dashes, dots and underscores. The first version of
-				// this fixture used a sentence, which a fake client accepts and a real API server rejects --
-				// so the unit test passed while the manifest the session applies was invalid.
-				Labels: map[string]string{surplusOccupierLabel: "session"},
-			},
+			Namespace: "gpu-platform-control-plane-system", Name: "surplus-occupier",
+			// A valid label value: alphanumeric with dashes, dots and underscores. The first version of
+			// this fixture used a sentence, which a fake client accepts and a real API server rejects --
+			// so the unit test passed while the manifest the session applies was invalid.
+			Labels: map[string]string{surplusOccupierLabel: "session"},
 			Spec: corev1.PodSpec{
 				NodeName: "platform-worker",
 				Containers: []corev1.Container{{

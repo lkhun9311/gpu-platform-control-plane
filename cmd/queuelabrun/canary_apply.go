@@ -25,7 +25,6 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/uuid"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -333,10 +332,9 @@ func probePodFrom(tpl corev1.PodTemplateSpec, canaryID, node, runID string, cont
 // finalizer-bound operation this repository has a whole file of teardown machinery for — none of which a
 // recovery tool should be dragging in to tidy up after itself.
 func ensureCanaryNamespace(ctx context.Context, c client.Client) error {
-	err := c.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
+	err := c.Create(ctx, &corev1.Namespace{
 		Name:   canaryNamespace,
-		Labels: map[string]string{"queuelab.gpu-platform/purpose": "termination-canary"},
-	}})
+		Labels: map[string]string{"queuelab.gpu-platform/purpose": "termination-canary"}})
 	if err == nil || apierrors.IsAlreadyExists(err) {
 		return nil
 	}

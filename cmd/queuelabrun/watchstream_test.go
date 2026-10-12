@@ -137,11 +137,10 @@ func (s *scriptedWatcher) WatchWithContext(_ context.Context, opts metav1.ListOp
 // podAtVersion builds the smallest object RetryWatcher will accept, which is one carrying a
 // resourceVersion, because an event without one aborts the watcher rather than advancing it.
 func podAtVersion(name, rv string) *corev1.Pod {
-	return &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
+	return &corev1.Pod{
 		Namespace:       "ns-a",
 		Name:            name,
-		ResourceVersion: rv,
-	}}
+		ResourceVersion: rv}
 }
 
 // waitFor polls a condition under a bounded deadline because RetryWatcher's reconnect is timer-driven,

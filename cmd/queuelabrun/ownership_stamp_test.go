@@ -65,7 +65,7 @@ func TestCreateOwnedRefusesWhenTheStampDidNotLand(t *testing.T) {
 	// leak is silent because Create returned no error.
 	c := strippingClient(t)
 	cq := &kueuev1beta2.ClusterQueue{
-		ObjectMeta: metav1.ObjectMeta{Name: "cq-a", Labels: map[string]string{queuelab.TxLabel: "tx-1"}},
+		Name: "cq-a", Labels: map[string]string{queuelab.TxLabel: "tx-1"},
 	}
 
 	err := createOwned(context.Background(), c, cq, "tx-1")
@@ -88,7 +88,7 @@ func TestCreateOwnedAcceptsAStampThatLanded(t *testing.T) {
 	scheme := kueueScheme(t)
 	c := fake.NewClientBuilder().WithScheme(scheme).Build()
 	cq := &kueuev1beta2.ClusterQueue{
-		ObjectMeta: metav1.ObjectMeta{Name: "cq-ok", Labels: map[string]string{queuelab.TxLabel: "tx-1"}},
+		Name: "cq-ok", Labels: map[string]string{queuelab.TxLabel: "tx-1"},
 	}
 	if err := createOwned(context.Background(), c, cq, "tx-1"); err != nil {
 		t.Fatalf("refused a create whose stamp landed: %v", err)
@@ -103,7 +103,7 @@ func TestCreateOwnedRefusesAdoptingADifferentMechanism(t *testing.T) {
 	scheme := kueueScheme(t)
 	never := kueuev1beta2.PreemptionPolicy("Never")
 	existing := &kueuev1beta2.ClusterQueue{
-		ObjectMeta: metav1.ObjectMeta{Name: "cq-b", Labels: map[string]string{queuelab.TxLabel: "tx-1"}},
+		Name: "cq-b", Labels: map[string]string{queuelab.TxLabel: "tx-1"},
 		Spec: kueuev1beta2.ClusterQueueSpec{
 			CohortName: "cohort-1",
 			Preemption: &kueuev1beta2.ClusterQueuePreemption{ReclaimWithinCohort: never},
@@ -113,7 +113,7 @@ func TestCreateOwnedRefusesAdoptingADifferentMechanism(t *testing.T) {
 
 	any := kueuev1beta2.PreemptionPolicy("Any")
 	want := &kueuev1beta2.ClusterQueue{
-		ObjectMeta: metav1.ObjectMeta{Name: "cq-b", Labels: map[string]string{queuelab.TxLabel: "tx-1"}},
+		Name: "cq-b", Labels: map[string]string{queuelab.TxLabel: "tx-1"},
 		Spec: kueuev1beta2.ClusterQueueSpec{
 			CohortName: "cohort-1",
 			Preemption: &kueuev1beta2.ClusterQueuePreemption{ReclaimWithinCohort: any},
@@ -192,14 +192,14 @@ func TestCreateOwnedAdoptsAMatchingMechanism(t *testing.T) {
 		Preemption: &kueuev1beta2.ClusterQueuePreemption{ReclaimWithinCohort: any},
 	}
 	existing := &kueuev1beta2.ClusterQueue{
-		ObjectMeta: metav1.ObjectMeta{Name: "cq-c", Labels: map[string]string{queuelab.TxLabel: "tx-1"}},
-		Spec:       spec,
+		Name: "cq-c", Labels: map[string]string{queuelab.TxLabel: "tx-1"},
+		Spec: spec,
 	}
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(existing).Build()
 
 	want := &kueuev1beta2.ClusterQueue{
-		ObjectMeta: metav1.ObjectMeta{Name: "cq-c", Labels: map[string]string{queuelab.TxLabel: "tx-1"}},
-		Spec:       spec,
+		Name: "cq-c", Labels: map[string]string{queuelab.TxLabel: "tx-1"},
+		Spec: spec,
 	}
 	if err := createOwned(context.Background(), c, want, "tx-1"); err != nil {
 		t.Fatalf("refused to adopt an object this transaction created with the same mechanism: %v", err)
@@ -214,17 +214,13 @@ func TestCreateOwnedRefusesAStoppedLocalQueue(t *testing.T) {
 	scheme := kueueScheme(t)
 	hold := kueuev1beta2.Hold
 	existing := &kueuev1beta2.LocalQueue{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "lq-s", Namespace: "ns", Labels: map[string]string{queuelab.TxLabel: "tx-1"},
-		},
+		Name: "lq-s", Namespace: "ns", Labels: map[string]string{queuelab.TxLabel: "tx-1"},
 		Spec: kueuev1beta2.LocalQueueSpec{ClusterQueue: "cq-mine", StopPolicy: &hold},
 	}
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(existing).Build()
 
 	want := &kueuev1beta2.LocalQueue{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "lq-s", Namespace: "ns", Labels: map[string]string{queuelab.TxLabel: "tx-1"},
-		},
+		Name: "lq-s", Namespace: "ns", Labels: map[string]string{queuelab.TxLabel: "tx-1"},
 		Spec: kueuev1beta2.LocalQueueSpec{ClusterQueue: "cq-mine"},
 	}
 	err := createOwned(context.Background(), c, want, "tx-1")
@@ -243,17 +239,13 @@ func TestCreateOwnedRefusesALocalQueuePointingElsewhere(t *testing.T) {
 	// Mutation that turns this red: stop comparing ClusterQueue in sameMechanism.
 	scheme := kueueScheme(t)
 	existing := &kueuev1beta2.LocalQueue{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "lq-a", Namespace: "ns", Labels: map[string]string{queuelab.TxLabel: "tx-1"},
-		},
+		Name: "lq-a", Namespace: "ns", Labels: map[string]string{queuelab.TxLabel: "tx-1"},
 		Spec: kueuev1beta2.LocalQueueSpec{ClusterQueue: "cq-other"},
 	}
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(existing).Build()
 
 	want := &kueuev1beta2.LocalQueue{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "lq-a", Namespace: "ns", Labels: map[string]string{queuelab.TxLabel: "tx-1"},
-		},
+		Name: "lq-a", Namespace: "ns", Labels: map[string]string{queuelab.TxLabel: "tx-1"},
 		Spec: kueuev1beta2.LocalQueueSpec{ClusterQueue: "cq-mine"},
 	}
 	err := createOwned(context.Background(), c, want, "tx-1")
@@ -270,7 +262,7 @@ func TestCreateOwnedRefusesALocalQueuePointingElsewhere(t *testing.T) {
 func cqWith(mutate func(*kueuev1beta2.ClusterQueue)) *kueuev1beta2.ClusterQueue {
 	q := resource.NewQuantity(2, resource.DecimalSI)
 	cq := &kueuev1beta2.ClusterQueue{
-		ObjectMeta: metav1.ObjectMeta{Name: "cq-x", Labels: map[string]string{queuelab.TxLabel: "tx-1"}},
+		Name: "cq-x", Labels: map[string]string{queuelab.TxLabel: "tx-1"},
 		Spec: kueuev1beta2.ClusterQueueSpec{
 			CohortName:        "cohort-1",
 			QueueingStrategy:  kueuev1beta2.BestEffortFIFO,
@@ -382,7 +374,7 @@ func TestCreateOwnedRefusesEveryExperimentDefiningDifference(t *testing.T) {
 func TestCreateOwnedRefusesAFlavorThatLostItsIsolation(t *testing.T) {
 	base := func(mutate func(*kueuev1beta2.ResourceFlavor)) *kueuev1beta2.ResourceFlavor {
 		rf := &kueuev1beta2.ResourceFlavor{
-			ObjectMeta: metav1.ObjectMeta{Name: "rf-x", Labels: map[string]string{queuelab.TxLabel: "tx-1"}},
+			Name: "rf-x", Labels: map[string]string{queuelab.TxLabel: "tx-1"},
 			Spec: kueuev1beta2.ResourceFlavorSpec{
 				NodeLabels: map[string]string{"queuelab/worker": "run-a"},
 				NodeTaints: []corev1.Taint{{
@@ -448,20 +440,20 @@ func TestFlavorUsageReadsKueueNotOurOwnPhase(t *testing.T) {
 	// Two jobs this operator calls Running, asking for two GPUs between them...
 	jobs := []client.Object{
 		&platformv1.MLTrainingJob{
-			ObjectMeta: metav1.ObjectMeta{Name: "j1", Namespace: "ns"},
-			Spec:       platformv1.MLTrainingJobSpec{Queue: "q", Image: "i", GPUCount: 1},
-			Status:     platformv1.MLTrainingJobStatus{Phase: phaseRunning},
+			Name: "j1", Namespace: "ns",
+			Spec:   platformv1.MLTrainingJobSpec{Queue: "q", Image: "i", GPUCount: 1},
+			Status: platformv1.MLTrainingJobStatus{Phase: phaseRunning},
 		},
 		&platformv1.MLTrainingJob{
-			ObjectMeta: metav1.ObjectMeta{Name: "j2", Namespace: "ns"},
-			Spec:       platformv1.MLTrainingJobSpec{Queue: "q", Image: "i", GPUCount: 1},
-			Status:     platformv1.MLTrainingJobStatus{Phase: phaseRunning},
+			Name: "j2", Namespace: "ns",
+			Spec:   platformv1.MLTrainingJobSpec{Queue: "q", Image: "i", GPUCount: 1},
+			Status: platformv1.MLTrainingJobStatus{Phase: phaseRunning},
 		},
 	}
 	// ...while Kueue has charged nothing against the flavor.
 	empty := &kueuev1beta2.ClusterQueue{
-		ObjectMeta: metav1.ObjectMeta{Name: "cq"},
-		Status:     kueuev1beta2.ClusterQueueStatus{},
+		Name:   "cq",
+		Status: kueuev1beta2.ClusterQueueStatus{},
 	}
 	c := fake.NewClientBuilder().WithScheme(scheme).
 		WithObjects(append(jobs, empty)...).WithStatusSubresource(empty).Build()
@@ -477,7 +469,7 @@ func TestFlavorUsageReadsKueueNotOurOwnPhase(t *testing.T) {
 	// The control: once Kueue does report usage against that flavor, the barrier must see it. Without this a
 	// function returning 0 unconditionally would satisfy the assertion above and the barrier would never lift.
 	charged := &kueuev1beta2.ClusterQueue{
-		ObjectMeta: metav1.ObjectMeta{Name: "cq2"},
+		Name: "cq2",
 		Status: kueuev1beta2.ClusterQueueStatus{
 			FlavorsUsage: []kueuev1beta2.FlavorUsage{{
 				Name: kueuev1beta2.ResourceFlavorReference("queuelab-gpu-r1"),

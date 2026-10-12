@@ -66,7 +66,7 @@ var _ = Describe("MLTrainingJob Controller", func() {
 
 			By("creating the custom resource for the Kind MLTrainingJob")
 			mltj := &platformv1.MLTrainingJob{
-				ObjectMeta: metav1.ObjectMeta{Name: key.Name, Namespace: key.Namespace},
+				Name: key.Name, Namespace: key.Namespace,
 				Spec: platformv1.MLTrainingJobSpec{
 					Queue:       "team-a",
 					Image:       "busybox",
@@ -165,7 +165,7 @@ var _ = Describe("MLTrainingJob Controller", func() {
 
 		It("refuses to adopt a Job of the same name it does not own", func() {
 			foreign := &batchv1.Job{
-				ObjectMeta: metav1.ObjectMeta{Name: key.Name, Namespace: key.Namespace},
+				Name: key.Name, Namespace: key.Namespace,
 				Spec: batchv1.JobSpec{
 					Template: corev1.PodTemplateSpec{
 						Spec: corev1.PodSpec{
@@ -215,11 +215,9 @@ var _ = Describe("MLTrainingJob Controller", func() {
 
 			By("creating the Kueue Workload Kueue would create for this Job, labeled with the Job's UID")
 			wl := &kueuev1beta1.Workload{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      key.Name,
-					Namespace: key.Namespace,
-					Labels:    map[string]string{"kueue.x-k8s.io/job-uid": string(job.UID)},
-				},
+				Name:      key.Name,
+				Namespace: key.Namespace,
+				Labels:    map[string]string{"kueue.x-k8s.io/job-uid": string(job.UID)},
 				Spec: kueuev1beta1.WorkloadSpec{
 					PodSets: []kueuev1beta1.PodSet{{
 						Name:  "main",
@@ -281,11 +279,9 @@ var _ = Describe("MLTrainingJob Controller", func() {
 
 			By("creating the Kueue Workload and admitting it")
 			wl := &kueuev1beta1.Workload{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      key.Name,
-					Namespace: key.Namespace,
-					Labels:    map[string]string{"kueue.x-k8s.io/job-uid": string(job.UID)},
-				},
+				Name:      key.Name,
+				Namespace: key.Namespace,
+				Labels:    map[string]string{"kueue.x-k8s.io/job-uid": string(job.UID)},
 				Spec: kueuev1beta1.WorkloadSpec{
 					PodSets: []kueuev1beta1.PodSet{{
 						Name:  "main",
@@ -339,12 +335,10 @@ var _ = Describe("MLTrainingJob Controller", func() {
 //
 // Mutation that turns this red: take the first match instead of the oldest.
 func TestOlderWorkloadIsADeterministicOrder(t *testing.T) {
-	older := &kueuev1beta1.Workload{ObjectMeta: metav1.ObjectMeta{
-		Name: "wl-b", CreationTimestamp: metav1.Unix(1000, 0),
-	}}
-	newer := &kueuev1beta1.Workload{ObjectMeta: metav1.ObjectMeta{
-		Name: "wl-a", CreationTimestamp: metav1.Unix(2000, 0),
-	}}
+	older := &kueuev1beta1.Workload{
+		Name: "wl-b", CreationTimestamp: metav1.Unix(1000, 0)}
+	newer := &kueuev1beta1.Workload{
+		Name: "wl-a", CreationTimestamp: metav1.Unix(2000, 0)}
 
 	if !olderWorkload(older, newer) {
 		t.Fatal("the earlier creation timestamp must win regardless of name")
@@ -355,12 +349,10 @@ func TestOlderWorkloadIsADeterministicOrder(t *testing.T) {
 
 	// Same second, which metav1.Time cannot separate: the name is the tie-break, and without one the answer
 	// would still depend on list order for the case duplicates are most likely to hit.
-	sameA := &kueuev1beta1.Workload{ObjectMeta: metav1.ObjectMeta{
-		Name: "wl-a", CreationTimestamp: metav1.Unix(1000, 0),
-	}}
-	sameB := &kueuev1beta1.Workload{ObjectMeta: metav1.ObjectMeta{
-		Name: "wl-b", CreationTimestamp: metav1.Unix(1000, 0),
-	}}
+	sameA := &kueuev1beta1.Workload{
+		Name: "wl-a", CreationTimestamp: metav1.Unix(1000, 0)}
+	sameB := &kueuev1beta1.Workload{
+		Name: "wl-b", CreationTimestamp: metav1.Unix(1000, 0)}
 	if !olderWorkload(sameA, sameB) || olderWorkload(sameB, sameA) {
 		t.Fatal("two Workloads created in the same second do not order deterministically")
 	}
@@ -383,8 +375,8 @@ func TestOlderWorkloadIsADeterministicOrder(t *testing.T) {
 func TestAGPURequestingPodDeclaresTheDriverLibrariesItNeeds(t *testing.T) {
 	envOf := func(gpu int32) []corev1.EnvVar {
 		job := BuildJob(&platformv1.MLTrainingJob{
-			ObjectMeta: metav1.ObjectMeta{Name: "j", Namespace: "n"},
-			Spec:       platformv1.MLTrainingJobSpec{Image: "i", Queue: "q", GPUCount: gpu},
+			Name: "j", Namespace: "n",
+			Spec: platformv1.MLTrainingJobSpec{Image: "i", Queue: "q", GPUCount: gpu},
 		})
 		return job.Spec.Template.Spec.Containers[0].Env
 	}
@@ -426,8 +418,8 @@ func TestAGPURequestingPodDeclaresTheDriverLibrariesItNeeds(t *testing.T) {
 // Mutations that turn this red: attach the volume unconditionally; or initialise Volumes to an empty slice.
 func TestAJobAsksForNoVolumeUnlessItsSpecAsksForOne(t *testing.T) {
 	job := BuildJob(&platformv1.MLTrainingJob{
-		ObjectMeta: metav1.ObjectMeta{Name: "j", Namespace: "n"},
-		Spec:       platformv1.MLTrainingJobSpec{Image: "i", Queue: "q", GPUCount: 1},
+		Name: "j", Namespace: "n",
+		Spec: platformv1.MLTrainingJobSpec{Image: "i", Queue: "q", GPUCount: 1},
 	})
 	if v := job.Spec.Template.Spec.Volumes; v != nil {
 		t.Fatalf("a job declaring no state volume rendered %+v; an empty or present volumes key moves the "+
@@ -450,7 +442,7 @@ func TestAJobAsksForNoVolumeUnlessItsSpecAsksForOne(t *testing.T) {
 // attach the volume without mounting it, which is a Pod that carries storage no process can see.
 func TestTheStateVolumeReachesTheTrainerContainer(t *testing.T) {
 	job := BuildJob(&platformv1.MLTrainingJob{
-		ObjectMeta: metav1.ObjectMeta{Name: "j", Namespace: "n"},
+		Name: "j", Namespace: "n",
 		Spec: platformv1.MLTrainingJobSpec{
 			Image: "i", Queue: "q", GPUCount: 1,
 			StateVolume: &platformv1.StateVolume{ClaimName: "resume-state", MountPath: "/state"},

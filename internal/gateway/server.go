@@ -429,8 +429,7 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 		}
 		// A body over the cap is not malformed, and 400 told the caller to fix their JSON when the JSON was
 		// fine. MaxBytesReader reports the case as a distinguishable type precisely so it can be separated.
-		var tooLarge *http.MaxBytesError
-		if errors.As(err, &tooLarge) {
+		if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
 			s.fail(w, tenant, "", http.StatusRequestEntityTooLarge)
 			return
 		}

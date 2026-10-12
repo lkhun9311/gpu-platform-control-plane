@@ -10,7 +10,6 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -22,8 +21,8 @@ import (
 
 func gpuJob(devices int64, mutate func(*batchv1.Job)) *batchv1.Job {
 	j := &batchv1.Job{
-		ObjectMeta: metav1.ObjectMeta{Name: "j1", Namespace: "team-a",
-			Labels: map[string]string{kueueQueueLabel: "team-a-queue"}},
+		Name: "j1", Namespace: "team-a",
+		Labels: map[string]string{kueueQueueLabel: "team-a-queue"},
 		Spec: batchv1.JobSpec{Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{
 			Containers: []corev1.Container{{Name: "trainer", Image: "trainer:v1",
 				Resources: corev1.ResourceRequirements{Limits: corev1.ResourceList{
@@ -51,8 +50,8 @@ func askJob(t *testing.T, j *batchv1.Job, objs ...client.Object) admission.Respo
 		Reader:  fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(objs...).Build(),
 		decoder: admission.NewDecoder(scheme.Scheme),
 	}
-	return v.Handle(context.Background(), admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{
-		Operation: admissionv1.Create, Namespace: j.Namespace, Object: runtime.RawExtension{Raw: raw}}})
+	return v.Handle(context.Background(), admission.Request{
+		Operation: admissionv1.Create, Namespace: j.Namespace, Object: runtime.RawExtension{Raw: raw}})
 }
 
 // testScheme carries the platform types as well as the built-ins, because the guards now read GPUQuotaPolicy.

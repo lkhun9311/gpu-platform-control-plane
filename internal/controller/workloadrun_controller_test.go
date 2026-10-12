@@ -25,7 +25,6 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 
@@ -49,7 +48,7 @@ var _ = Describe("WorkloadRun", func() {
 	// tick advances the injected clock and reconciles once, which is how a window is driven without one.
 	tick := func(d time.Duration) {
 		clock = clock.Add(d)
-		_, err := rec.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: runName, Namespace: ns}})
+		_, err := rec.Reconcile(ctx, ctrl.Request{Name: runName, Namespace: ns})
 		Expect(err).NotTo(HaveOccurred())
 	}
 	load := func() platformv1.WorkloadRun {
@@ -95,7 +94,7 @@ var _ = Describe("WorkloadRun", func() {
 		tgtName = fmt.Sprintf("wr-target-%d", wrSeq)
 		runName = fmt.Sprintf("wr-run-%d", wrSeq)
 		Expect(k8sClient.Create(ctx, &platformv1.InferenceDeployment{
-			ObjectMeta: metav1.ObjectMeta{Name: tgtName, Namespace: ns},
+			Name: tgtName, Namespace: ns,
 			Spec: platformv1.InferenceDeploymentSpec{
 				Model:    platformv1.InferenceModel{Name: "demo", StorageURI: "hf://demo"},
 				Image:    "registry.k8s.io/pause:3.9",
@@ -108,7 +107,7 @@ var _ = Describe("WorkloadRun", func() {
 
 	createRun := func(window, deadline int32, targetName string) {
 		Expect(k8sClient.Create(ctx, &platformv1.WorkloadRun{
-			ObjectMeta: metav1.ObjectMeta{Name: runName, Namespace: ns},
+			Name: runName, Namespace: ns,
 			Spec: platformv1.WorkloadRunSpec{
 				Scenario:                 platformv1.ScenarioServingPodKilled,
 				Target:                   platformv1.WorkloadRunTarget{Kind: "InferenceDeployment", Name: targetName, Namespace: ns},
@@ -128,7 +127,7 @@ var _ = Describe("WorkloadRun", func() {
 	// Mutation that turns this red: remove the XValidation rule from WorkloadRunSpec and regenerate.
 	It("refuses a deadline that outlives the observation window", func() {
 		err := k8sClient.Create(ctx, &platformv1.WorkloadRun{
-			ObjectMeta: metav1.ObjectMeta{Name: runName + "-past-window", Namespace: ns},
+			Name: runName + "-past-window", Namespace: ns,
 			Spec: platformv1.WorkloadRunSpec{
 				Scenario:                 platformv1.ScenarioServingPodKilled,
 				Target:                   platformv1.WorkloadRunTarget{Kind: "InferenceDeployment", Name: tgtName, Namespace: ns},
@@ -144,7 +143,7 @@ var _ = Describe("WorkloadRun", func() {
 	// rule that excluded it would refuse the most natural way to say "by the end".
 	It("accepts a deadline exactly at the end of the window", func() {
 		Expect(k8sClient.Create(ctx, &platformv1.WorkloadRun{
-			ObjectMeta: metav1.ObjectMeta{Name: runName + "-at-edge", Namespace: ns},
+			Name: runName + "-at-edge", Namespace: ns,
 			Spec: platformv1.WorkloadRunSpec{
 				Scenario:                 platformv1.ScenarioServingPodKilled,
 				Target:                   platformv1.WorkloadRunTarget{Kind: "InferenceDeployment", Name: tgtName, Namespace: ns},
@@ -319,7 +318,7 @@ var _ = Describe("WorkloadRun recovery semantics", func() {
 
 	tick := func(d time.Duration) {
 		clock = clock.Add(d)
-		_, err := rec.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: runName, Namespace: ns}})
+		_, err := rec.Reconcile(ctx, ctrl.Request{Name: runName, Namespace: ns})
 		Expect(err).NotTo(HaveOccurred())
 	}
 	load := func() platformv1.WorkloadRun {
@@ -352,7 +351,7 @@ var _ = Describe("WorkloadRun recovery semantics", func() {
 		tgtName = fmt.Sprintf("wr-rec-target-%d", wrSeq)
 		runName = fmt.Sprintf("wr-rec-run-%d", wrSeq)
 		Expect(k8sClient.Create(ctx, &platformv1.InferenceDeployment{
-			ObjectMeta: metav1.ObjectMeta{Name: tgtName, Namespace: ns},
+			Name: tgtName, Namespace: ns,
 			Spec: platformv1.InferenceDeploymentSpec{
 				Model:    platformv1.InferenceModel{Name: "demo", StorageURI: "stub://demo"},
 				Image:    "registry.k8s.io/pause:3.9",
@@ -360,7 +359,7 @@ var _ = Describe("WorkloadRun recovery semantics", func() {
 			},
 		})).To(Succeed())
 		Expect(k8sClient.Create(ctx, &platformv1.WorkloadRun{
-			ObjectMeta: metav1.ObjectMeta{Name: runName, Namespace: ns},
+			Name: runName, Namespace: ns,
 			Spec: platformv1.WorkloadRunSpec{
 				Scenario:                 platformv1.ScenarioServingPodKilled,
 				Target:                   platformv1.WorkloadRunTarget{Kind: "InferenceDeployment", Name: tgtName, Namespace: ns},
@@ -444,7 +443,7 @@ var _ = Describe("WorkloadRun scenario coverage", func() {
 		name := fmt.Sprintf("wr-zero-%d", wrSeq)
 
 		infd := &platformv1.InferenceDeployment{
-			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
+			Name: name, Namespace: "default",
 			Spec: platformv1.InferenceDeploymentSpec{
 				Model:    platformv1.InferenceModel{Name: "demo", StorageURI: "stub://demo"},
 				Image:    "registry.k8s.io/pause:3.9",
@@ -461,7 +460,7 @@ var _ = Describe("WorkloadRun scenario coverage", func() {
 		rec := &WorkloadRunReconciler{Client: k8sClient, Scheme: k8sClient.Scheme(), Now: func() time.Time { return clock }}
 		runName := fmt.Sprintf("wr-zero-run-%d", wrSeq)
 		Expect(k8sClient.Create(ctx, &platformv1.WorkloadRun{
-			ObjectMeta: metav1.ObjectMeta{Name: runName, Namespace: "default"},
+			Name: runName, Namespace: "default",
 			Spec: platformv1.WorkloadRunSpec{
 				Scenario:                 platformv1.ScenarioServingPodKilled,
 				Target:                   platformv1.WorkloadRunTarget{Kind: "InferenceDeployment", Name: name, Namespace: "default"},
@@ -471,7 +470,7 @@ var _ = Describe("WorkloadRun scenario coverage", func() {
 		})).To(Succeed())
 
 		for range 4 {
-			_, err := rec.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: runName, Namespace: "default"}})
+			_, err := rec.Reconcile(ctx, ctrl.Request{Name: runName, Namespace: "default"})
 			Expect(err).NotTo(HaveOccurred())
 			clock = clock.Add(10 * time.Second)
 		}

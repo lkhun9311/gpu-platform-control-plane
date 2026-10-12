@@ -397,7 +397,7 @@ func TestEnsureNamespaceAdoptsOnlyItsOwnStamp(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			c := fake.NewClientBuilder().WithScheme(fullScheme(t)).WithObjects(
-				&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "queuelab-r1", Labels: tc.labels}},
+				&corev1.Namespace{Name: "queuelab-r1", Labels: tc.labels},
 			).Build()
 			err := ensureNamespace(context.Background(), c, "queuelab-r1", "tx-1")
 			if tc.wantAdopt && err != nil {
@@ -487,9 +487,8 @@ func TestApplyFixturesAdoptsOnlyItsOwnStamp(t *testing.T) {
 			// a same-transaction flavor built for a different arm's variant.
 			name: "our tx, wrong variant",
 			preexist: func(fs *queuelab.FixtureSet) client.Object {
-				return &kueuev1beta2.ResourceFlavor{ObjectMeta: metav1.ObjectMeta{
-					Name: fs.Flavor.GetName(), Labels: map[string]string{queuelab.TxLabel: "tx-1", variantLabelKey: "Never"},
-				}}
+				return &kueuev1beta2.ResourceFlavor{
+					Name: fs.Flavor.GetName(), Labels: map[string]string{queuelab.TxLabel: "tx-1", variantLabelKey: "Never"}}
 			},
 			wantAdopt:  false,
 			wantErrSub: "variant",
@@ -500,9 +499,8 @@ func TestApplyFixturesAdoptsOnlyItsOwnStamp(t *testing.T) {
 			name: "foreign cluster queue",
 			preexist: func(fs *queuelab.FixtureSet) client.Object {
 				cq := fs.ClusterQueue[0]
-				return &kueuev1beta2.ClusterQueue{ObjectMeta: metav1.ObjectMeta{
-					Name: cq.GetName(), Labels: map[string]string{queuelab.TxLabel: "tx-2"},
-				}}
+				return &kueuev1beta2.ClusterQueue{
+					Name: cq.GetName(), Labels: map[string]string{queuelab.TxLabel: "tx-2"}}
 			},
 			wantAdopt:  false,
 			wantErrSub: "transaction",
@@ -513,9 +511,8 @@ func TestApplyFixturesAdoptsOnlyItsOwnStamp(t *testing.T) {
 			name: "foreign local queue",
 			preexist: func(fs *queuelab.FixtureSet) client.Object {
 				lq := fs.LocalQueue[0]
-				return &kueuev1beta2.LocalQueue{ObjectMeta: metav1.ObjectMeta{
-					Name: lq.GetName(), Namespace: lq.GetNamespace(), Labels: map[string]string{queuelab.TxLabel: "tx-2"},
-				}}
+				return &kueuev1beta2.LocalQueue{
+					Name: lq.GetName(), Namespace: lq.GetNamespace(), Labels: map[string]string{queuelab.TxLabel: "tx-2"}}
 			},
 			wantAdopt:  false,
 			wantErrSub: "transaction",
@@ -588,8 +585,8 @@ func ledgerErr(col *collector) error {
 // Mutation that turns this red: delete the `if n := s.Baseline().Objects; n > 0` block in collector.start.
 // The baseline is then counted and discarded, which is what startWatchStream on its own does today.
 func TestCollectorRefusesANamespaceThatAlreadyHoldsWatchedObjects(t *testing.T) {
-	leftover := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
-		Namespace: "ns", Name: "victim-0", UID: types.UID("pod-from-a-previous-attempt")}}
+	leftover := &corev1.Pod{
+		Namespace: "ns", Name: "victim-0", UID: types.UID("pod-from-a-previous-attempt")}
 	col := newCollector(streamingFake(t, []client.Object{leftover}, nil), "ns", "r1", time.Hour)
 	ctx := t.Context()
 

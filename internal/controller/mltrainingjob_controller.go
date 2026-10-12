@@ -97,7 +97,7 @@ func (r *MLTrainingJobReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}
 
 	desired := BuildJob(&mltj)
-	job := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: mltj.Name, Namespace: mltj.Namespace}}
+	job := &batchv1.Job{Name: mltj.Name, Namespace: mltj.Namespace}
 	if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, job, func() error {
 		// Suspend and the pod template are set once, on create, and never touched again.
 		//
@@ -194,17 +194,15 @@ func BuildJob(mltj *platformv1.MLTrainingJob) *batchv1.Job {
 	// mount and a paid session is a reading no instrument takes.
 	if sv := mltj.Spec.StateVolume; sv != nil {
 		pod.Volumes = []corev1.Volume{{
-			Name: StateVolumeName,
-			VolumeSource: corev1.VolumeSource{
-				PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: sv.ClaimName},
-			},
+			Name:                  StateVolumeName,
+			PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: sv.ClaimName},
 		}}
 		pod.Containers[0].VolumeMounts = []corev1.VolumeMount{{
 			Name: StateVolumeName, MountPath: sv.MountPath,
 		}}
 	}
 	return &batchv1.Job{
-		ObjectMeta: metav1.ObjectMeta{Name: mltj.Name, Namespace: mltj.Namespace, Labels: labels},
+		Name: mltj.Name, Namespace: mltj.Namespace, Labels: labels,
 		Spec: batchv1.JobSpec{
 			Parallelism: new(defaultOne(mltj.Spec.Parallelism)),
 			Completions: new(defaultOne(mltj.Spec.Completions)),
@@ -502,7 +500,7 @@ func mapWorkloadToMLTrainingJob(_ context.Context, obj client.Object) []reconcil
 	for _, ref := range obj.GetOwnerReferences() {
 		// Match the batch/v1 Job specifically, so a same-named owner from another API group cannot enqueue a spurious request.
 		if ref.Kind == "Job" && ref.APIVersion == "batch/v1" {
-			return []reconcile.Request{{NamespacedName: types.NamespacedName{Name: ref.Name, Namespace: obj.GetNamespace()}}}
+			return []reconcile.Request{{Name: ref.Name, Namespace: obj.GetNamespace()}}
 		}
 	}
 	return nil

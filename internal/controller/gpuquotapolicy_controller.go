@@ -237,7 +237,8 @@ func (r *GPUQuotaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 //
 // When trainingQuota is set, the GPU ceiling is enforced by the Kueue ClusterQueue instead, so the namespace ResourceQuota must not also cap GPUs, or admitted training pods are rejected by a second quota and the same GPUs are counted twice.
 //
-// The namespace ResourceQuota holds only the GPU key today, so enabling training quota leaves nothing for it to enforce and it is removed; a future serving quota key would keep it.
+// The namespace ResourceQuota holds only the GPU key today, so enabling training quota leaves nothing for it to enforce and it is removed.
+// Serving GPUs in that namespace are not left uncounted: their Pods carry the tenant's queue label and are charged to the same ClusterQueue.
 //
 // It returns handled=true when the caller should return the given result immediately, which happens on an ownership conflict or a create race.
 func (r *GPUQuotaPolicyReconciler) syncNamespaceResourceQuota(ctx context.Context, policy *platformv1.GPUQuotaPolicy, rqKey types.NamespacedName) (ctrl.Result, bool, error) {
@@ -271,8 +272,8 @@ func (r *GPUQuotaPolicyReconciler) syncNamespaceResourceQuota(ctx context.Contex
 	switch err := r.Get(ctx, rqKey, &rq); {
 	case apierrors.IsNotFound(err):
 		rq = corev1.ResourceQuota{
-			ObjectMeta: metav1.ObjectMeta{Name: rqKey.Name, Namespace: rqKey.Namespace},
-			Spec:       corev1.ResourceQuotaSpec{Hard: desiredHard},
+			Name: rqKey.Name, Namespace: rqKey.Namespace,
+			Spec: corev1.ResourceQuotaSpec{Hard: desiredHard},
 		}
 		if err := controllerutil.SetControllerReference(policy, &rq, r.Scheme); err != nil {
 			return ctrl.Result{}, false, err

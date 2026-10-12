@@ -56,14 +56,14 @@ var _ = Describe("GPUQuotaPolicy Controller", func() {
 
 		BeforeEach(func() {
 			By("ensuring the target namespace exists")
-			ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: targetNS}}
+			ns := &corev1.Namespace{Name: targetNS}
 			if err := k8sClient.Create(ctx, ns); err != nil && !errors.IsAlreadyExists(err) {
 				Expect(err).NotTo(HaveOccurred())
 			}
 
 			By("creating a GPUQuotaPolicy")
 			policy := &platformv1.GPUQuotaPolicy{
-				ObjectMeta: metav1.ObjectMeta{Name: resourceName},
+				Name: resourceName,
 				Spec: platformv1.GPUQuotaPolicySpec{
 					Tenant:          "team-vision",
 					TargetNamespace: targetNS,
@@ -153,7 +153,7 @@ var _ = Describe("GPUQuotaPolicy Controller", func() {
 		// refuses to publish Synced when it could not turn the guards on.
 		It("refuses to sync a ceiling into a namespace it cannot mark enforced", func() {
 			missing := &platformv1.GPUQuotaPolicy{
-				ObjectMeta: metav1.ObjectMeta{Name: "quota-for-absent-ns"},
+				Name: "quota-for-absent-ns",
 				Spec: platformv1.GPUQuotaPolicySpec{
 					Tenant:          "team-ghost",
 					TargetNamespace: "no-such-namespace",
@@ -258,7 +258,7 @@ var _ = Describe("GPUQuotaPolicy Controller", func() {
 		It("refuses to overwrite a ResourceQuota it does not own and reports Degraded", func() {
 			By("pre-creating an unowned ResourceQuota occupying the policy's target name")
 			foreign := &corev1.ResourceQuota{
-				ObjectMeta: metav1.ObjectMeta{Name: rqKey.Name, Namespace: rqKey.Namespace},
+				Name: rqKey.Name, Namespace: rqKey.Namespace,
 				Spec: corev1.ResourceQuotaSpec{Hard: corev1.ResourceList{
 					gpuResource: *resource.NewQuantity(3, resource.DecimalSI),
 				}},
