@@ -155,10 +155,10 @@ type ResourceWeight struct {
 
 // GPUAware builds the profile an arm of this study uses: the given strategy, scoring over the GPU resource.
 //
-// cpu and memory are deliberately absent rather than carried along at weight zero. A zero-weight entry is
-// accepted by the scheduler and contributes nothing, so it would be indistinguishable in behaviour from the
-// list below while suggesting to a reader that the study scores over three resources. What the arms differ by
-// has to be readable from this function.
+// cpu and memory are deliberately absent rather than carried along at weight zero.
+// A zero-weight entry does not drop out: the scheduler's defaulting rewrites a weight of 0 to 1, so it would
+// score cpu and memory at full weight while the list told a reader they were switched off.
+// What the arms differ by has to be readable from this function.
 func GPUAware(s ScoringStrategy) SchedulerProfile {
 	return SchedulerProfile{
 		Strategy:      s,
@@ -169,8 +169,11 @@ func GPUAware(s ScoringStrategy) SchedulerProfile {
 
 // Validate refuses a profile that would run without the study's treatment actually applying.
 //
-// Every refusal here is a case that the scheduler itself ACCEPTS. That is the point: a configuration the
-// scheduler rejects fails loudly at cluster creation, and this function exists for the ones that do not.
+// Nearly every refusal here is a case that the scheduler itself ACCEPTS.
+// That is the point: a configuration the scheduler rejects fails loudly at cluster creation, and this function
+// exists for the ones that do not.
+// The one exception is a negative weight, which the scheduler rejects too; it is refused here with the zero
+// weight so that one check covers every weight the profile would not run with as written.
 func (p SchedulerProfile) Validate() error {
 	if p.Strategy != LeastAllocated && p.Strategy != MostAllocated {
 		return fmt.Errorf("scoring strategy %q is neither %s nor %s; this study compares those two and a third "+
@@ -182,15 +185,15 @@ func (p SchedulerProfile) Validate() error {
 	}
 	found := false
 	for _, r := range p.Resources {
-		if r.Name == GPUResourceName {
-			if r.Weight <= 0 {
-				return fmt.Errorf("%s carries weight %d; a non-positive weight contributes nothing to the "+
-					"score, so the treatment would be configured and inert", GPUResourceName, r.Weight)
-			}
-			found = true
+		// A zero is the dangerous case because nothing fails: the scheduler defaults it to 1 and runs, so the
+		// recorded weights would describe a profile other than the one that placed the pods.
+		if r.Weight <= 0 {
+			return fmt.Errorf("resource %q carries weight %d; the scheduler rewrites a weight of 0 to 1 and "+
+				"rejects a negative one, so the profile as recorded is not the profile that would run",
+				r.Name, r.Weight)
 		}
-		if r.Weight < 0 {
-			return fmt.Errorf("resource %q carries a negative weight %d", r.Name, r.Weight)
+		if r.Name == GPUResourceName {
+			found = true
 		}
 	}
 	if !found {

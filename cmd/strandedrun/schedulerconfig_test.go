@@ -48,10 +48,16 @@ func TestAProfileTheSchedulerWouldAcceptAndThisStudyMustNot(t *testing.T) {
 			wants: "does not name " + GPUResourceName,
 		},
 		{
-			name: "the GPU named at weight zero, which contributes nothing",
+			name: "the GPU named at weight zero, which the scheduler silently runs at weight one",
 			profile: SchedulerProfile{Strategy: MostAllocated, SchedulerName: "default-scheduler",
 				Resources: []ResourceWeight{{Name: GPUResourceName, Weight: 0}}},
-			wants: "configured and inert",
+			wants: "rewrites a weight of 0 to 1",
+		},
+		{
+			name: "cpu carried at weight zero, which the scheduler would score at weight one",
+			profile: SchedulerProfile{Strategy: MostAllocated, SchedulerName: "default-scheduler",
+				Resources: []ResourceWeight{{Name: GPUResourceName, Weight: 1}, {Name: "cpu", Weight: 0}}},
+			wants: `"cpu" carries weight 0`,
 		},
 		{
 			name: "no schedulerName, so no pod is governed by the profile",
@@ -111,8 +117,8 @@ func TestTheRenderedConfigurationNamesTheResourceTheStudyVaries(t *testing.T) {
 				t.Errorf("%s: the rendered configuration does not contain %q:\n%s", s, want, out)
 			}
 		}
-		// cpu and memory must be ABSENT, not present at weight zero: a zero-weight entry behaves identically
-		// and would tell a reader the study scores over three resources when it scores over one.
+		// cpu and memory must be ABSENT, not present at weight zero: the scheduler defaults a zero weight to 1,
+		// so such an entry would score them while telling a reader they were switched off.
 		if strings.Contains(out, "name: cpu") || strings.Contains(out, "name: memory") {
 			t.Errorf("%s: the configuration names cpu or memory; what the arms differ by must be readable "+
 				"from the resource list:\n%s", s, out)
