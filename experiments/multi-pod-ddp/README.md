@@ -90,6 +90,9 @@ Its `dirty_files=1` is the run's own evidence directory, which the harness creat
 
 The scorer was shown able to fail on copies of this evidence before its PASS was used: a wrong `w`, both Pods on one node, one GPU admitted, `readyRanks` removed, an unparsable sample line, ranks agreeing under no-sync, the rendezvous record removed, the SIGTERM record removed or moved before `FailureTarget`, and the hold record removed each turned the arm red.
 
+After the run, a codex `gpt-6-astra` review of the branch found that the scorer took its arms from the directories present, so a run stopped between arms could exit 0 on the arms it reached.
+It now takes them from `provenance.txt` and reports a requested arm with no directory as VOID; run 2 rescored to the same four PASS, and a copy holding only `pass/` now exits 1.
+
 Two things the run showed that the registration did not ask about:
 
 - On success too, the phase went Running → Admitted → Succeeded, because the Job's ready count falls to 0 a moment before it reports Complete. The design states that window for failure; it is not specific to failure.

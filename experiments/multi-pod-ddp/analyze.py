@@ -235,13 +235,30 @@ def main() -> int:
     if os.path.exists(os.path.join(root, "VOID")):
         print(f"VOID  run: setup failed at: {open(os.path.join(root, 'VOID')).read().strip()}")
         return 1
-    arms = [a for a in SCORERS if os.path.isdir(os.path.join(root, a))]
-    if not arms:
-        print("VOID  run: no arm directories")
+    # The arms come from what the run was asked to do, not from the directories it left.
+    # Read from the directories, a run stopped between arms scored only the arms it reached and could exit 0.
+    requested = None
+    try:
+        with open(os.path.join(root, "provenance.txt")) as handle:
+            for line in handle:
+                if line.startswith("arms="):
+                    requested = line[len("arms="):].split()
+    except OSError:
+        pass
+    if not requested:
+        print("VOID  run: provenance.txt names no requested arms")
+        return 1
+    unknown = [a for a in requested if a not in SCORERS]
+    if unknown:
+        print(f"VOID  run: no scorer for requested arms {unknown}")
         return 1
     all_pass = True
-    for arm in arms:
+    for arm in requested:
         arm_dir = os.path.join(root, arm)
+        if not os.path.isdir(arm_dir):
+            print(f"VOID  {arm}: requested and never run")
+            all_pass = False
+            continue
         if os.path.exists(os.path.join(arm_dir, "VOID")):
             print(f"VOID  {arm}: {open(os.path.join(arm_dir, 'VOID')).read().strip()}")
             all_pass = False
