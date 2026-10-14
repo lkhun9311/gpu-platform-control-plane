@@ -14,6 +14,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -72,10 +73,32 @@ func newValidator(mgr ctrl.Manager) *MLTrainingJobValidator {
 func (v *MLTrainingJobValidator) ValidateCreate(
 	_ context.Context, mltj *platformv1.MLTrainingJob,
 ) (admission.Warnings, error) {
-	if errs := validateRunnable(&mltj.Spec); len(errs) > 0 {
+	errs := validateRunnable(&mltj.Spec)
+	errs = append(errs, distributedName(mltj)...)
+	if len(errs) > 0 {
 		return nil, apierrors.NewInvalid(mltjGroupKind, mltj.Name, errs)
 	}
 	return nil, nil
+}
+
+// distributedName refuses, before any child exists, a distributed job whose rendezvous Service could not be named.
+//
+// The CR's name is a DNS-1123 subdomain, which allows a leading digit, dots and 253 characters; the Service needs a DNS-1035 label.
+// Left to the controller, the mismatch would surface as a Service create failing on every reconcile of a job the API accepted.
+// Only on create, because a name cannot change and distributed cannot be added later.
+// A job without distributed creates no Service, so its names keep today's rules.
+//
+// The suffix is spelled here rather than imported because this package imports nothing from the controller and should not start for one string; a unit test there pins the suffix the controller uses to this same spelling.
+func distributedName(mltj *platformv1.MLTrainingJob) field.ErrorList {
+	if mltj.Spec.Distributed == nil {
+		return nil
+	}
+	svc := mltj.Name + "-ddp"
+	if msgs := validation.IsDNS1035Label(svc); len(msgs) > 0 {
+		return field.ErrorList{field.Invalid(field.NewPath("metadata", "name"), mltj.Name,
+			"a distributed job's rendezvous Service "+svc+" must be a DNS-1035 label (start with a letter, no dots, at most 59 characters before -ddp): "+strings.Join(msgs, "; "))}
+	}
+	return nil
 }
 
 // ValidateUpdate additionally refuses edits the controller has already stopped being able to apply.
