@@ -232,13 +232,22 @@ EOF
   COLLECTORS+=($collector)
   phase=""
   while [ $(($(date +%s) - t0)) -le $ARM_BUDGET ]; do
-    {
-      printf '{"observed":"%s","mltj":' "$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)"
-      k -n "$NS" get mltrainingjob "$name" -o jsonpath='{.status}' 2>>"$LOG" || printf 'null'
-      printf ',"jobConditions":'
-      k -n "$NS" get job "$name" -o jsonpath='{.status.conditions}' 2>>"$LOG" | grep . || printf 'null'
-      printf '}\n'
-    } >>"$dir/timeline.jsonl"
+    # Assembled by python from whole objects, one line per sample.
+    # The first version spliced jsonpath output into a printf, and a stray newline and an empty status split or
+    # emptied records, so a scorer that skipped unparsable lines saw no readyRanks at all.
+    observed=$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)
+    k -n "$NS" get mltrainingjob "$name" -o json >"$dir/.mltj.json" 2>>"$LOG" || echo null >"$dir/.mltj.json"
+    k -n "$NS" get job "$name" -o json >"$dir/.job.json" 2>>"$LOG" || echo null >"$dir/.job.json"
+    python3 - "$observed" "$dir/.mltj.json" "$dir/.job.json" >>"$dir/timeline.jsonl" <<'PY'
+import json, sys
+mltj = json.load(open(sys.argv[2]))
+job = json.load(open(sys.argv[3]))
+print(json.dumps({
+    "observed": sys.argv[1],
+    "mltj": (mltj or {}).get("status"),
+    "jobConditions": ((job or {}).get("status") or {}).get("conditions"),
+}, sort_keys=True))
+PY
     phase=$(k -n "$NS" get mltrainingjob "$name" -o jsonpath='{.status.phase}' 2>>"$LOG")
     jobdone=$(k -n "$NS" get job "$name" -o jsonpath='{.status.conditions[?(@.status=="True")].type}' 2>>"$LOG")
     if [[ "$phase" =~ ^(Succeeded|Failed)$ ]] && [[ "$jobdone" =~ (Complete|Failed) ]]; then break; fi

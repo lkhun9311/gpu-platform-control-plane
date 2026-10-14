@@ -65,17 +65,34 @@ def by_rank(recs: dict[str, list[dict]], event: str) -> dict[int, dict]:
     return found
 
 
+class Unreadable(Exception):
+    """Evidence that exists and cannot be parsed; it fails the criterion that needs it, by name."""
+
+
+def jsonl(arm_dir: str, name: str) -> list[dict]:
+    """Every line of a sample file, refusing the file if any line does not parse.
+
+    The first scorer skipped lines it could not parse, and a harness that split each record across two lines left it
+    reading no readyRanks at all -- a refusal that said the platform had not reported something it had.
+    """
+    path = os.path.join(arm_dir, name)
+    try:
+        with open(path) as handle:
+            lines = handle.read().splitlines()
+    except OSError as exc:
+        raise Unreadable(f"{name}: {exc}") from exc
+    rows = []
+    for n, line in enumerate(lines, 1):
+        try:
+            rows.append(json.loads(line))
+        except ValueError as exc:
+            raise Unreadable(f"{name} line {n} does not parse: {exc}") from exc
+    return rows
+
+
 def pods_seen(arm_dir: str) -> dict[str, dict]:
     """Every Pod UID ever sampled, with the last sample of each."""
-    seen: dict[str, dict] = {}
-    try:
-        with open(os.path.join(arm_dir, "pods.jsonl")) as handle:
-            for line in handle:
-                row = json.loads(line)
-                seen[row["uid"]] = row
-    except (OSError, ValueError):
-        pass
-    return seen
+    return {row["uid"]: row for row in jsonl(arm_dir, "pods.jsonl")}
 
 
 def condition(obj, kind: str):
@@ -107,18 +124,10 @@ def two_pods_two_nodes(arm_dir: str) -> tuple[bool, str]:
 
 def ready_ranks_seen(arm_dir: str) -> tuple[bool, str]:
     best = None
-    try:
-        with open(os.path.join(arm_dir, "timeline.jsonl")) as handle:
-            for line in handle:
-                try:
-                    row = json.loads(line)
-                except ValueError:
-                    continue
-                value = (row.get("mltj") or {}).get("readyRanks")
-                if value is not None:
-                    best = value if best is None else max(best, value)
-    except OSError:
-        return False, "no timeline"
+    for row in jsonl(arm_dir, "timeline.jsonl"):
+        value = (row.get("mltj") or {}).get("readyRanks")
+        if value is not None:
+            best = value if best is None else max(best, value)
     return best is not None and best >= 1, f"highest readyRanks sampled {best}"
 
 
@@ -237,7 +246,10 @@ def main() -> int:
             print(f"VOID  {arm}: {open(os.path.join(arm_dir, 'VOID')).read().strip()}")
             all_pass = False
             continue
-        results = SCORERS[arm](arm_dir, records(arm_dir))
+        try:
+            results = SCORERS[arm](arm_dir, records(arm_dir))
+        except Unreadable as exc:
+            results = [(False, f"unreadable evidence: {exc}")]
         ok = all(r[0] for r in results)
         all_pass &= ok
         print(f"{'PASS' if ok else 'FAIL'}  {arm}")
