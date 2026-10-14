@@ -109,7 +109,7 @@ That session ran no gateway and measured no latency.
 Known gaps, none of which holds requests for an engine without the cap:
 
 - Editing the object, `maxHold` included, moves its generation, so the backend gets the process-wide mode until the controller reports HoldCap again.
-- When HoldCap is turned off and the gateway's cache lags the new engine becoming ready, requests can be held briefly for the uncapped engine: no protection, and holds bounded by `maxHold`.
+- When HoldCap is turned off and the gateway's cache lags the new engine becoming ready, requests can be held briefly for the uncapped engine: no protection, and holds bounded by `maxHold`. The window is the cache lag plus up to `maxHold`, not the cache lag alone, because a request keeps the admission it was routed with while it waits. It has not been measured.
 - A plain deployment ahead of a HoldCap one for the same model no longer falls back into it, so if the plain one is down, its requests fail.
 - serial-prefill state lives in one gateway process. A gateway rollout under the default RollingUpdate briefly runs two, and each admits on its own.
 
