@@ -176,6 +176,14 @@ declared value in a struct is not the same as carrying it to the run — that di
 `outputTokens` work above was about, and these two fields are still on the wrong side of it. Verified by
 reading the code path, not by executing a changed CR.
 
+**Left as it is, by decision (2026-10-14).** An adversarial review of a design to carry both fields to the run
+found it needs: the paid wrapper (`hack/m5c-gpu-session.sh`) to forward them across its user-data boundaries; a
+scoring step the paid path does not run today; the floor applied to the victim alone in the sharing scorer's
+reading 4b, since the contender's offers (139 per repetition in the executable sample) could never reach 1,000; a
+hardware check with a rehearsal mode, so the GPU-free rehearsal still runs; and the pre-purchase plan check. The
+study it serves is frozen, so none of that is built. The CRD's field descriptions now say both are recorded, not
+enforced, so `kubectl explain` tells an operator what this section does.
+
 | Field | What is supported | Refused by, and why that is not a missing afternoon of work |
 |---|---|---|
 | `baseline.tenant`, `contender.tenant` | `premium-1`, `standard-noisy` | `plan.go:53,57`. The trace generator writes these two identities into every row. The names are not a string: one `TENANTS` list derives the API-key secret, the `api_keys` map, the premium tier list, the `GPUQuotaPolicy` and the vLLM priority map, across 12 files. A hand-kept copy is what cost the first paid run a quarter of every replay to 401s (two of four tenants missing from the key secret) and the second its two probe tenants to 403s (keyed but given no policy); a tenant missing from the priority map would fail more quietly still, replaying the control *without an error*. |
