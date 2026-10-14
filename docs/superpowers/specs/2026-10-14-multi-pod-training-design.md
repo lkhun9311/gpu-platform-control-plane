@@ -1,6 +1,6 @@
 # Design: an MLTrainingJob whose ranks run in separate Pods
 
-Written 2026-10-14. Status: **draft for the owner's review**; nothing here is built.
+Written 2026-10-14. Status: **built**, approved by the owner after the second review; the kind experiment passed all four arms on 2026-10-15 (`experiments/multi-pod-ddp/README.md`, run 2).
 Shaped by two adversarial reviews of earlier drafts, a codex `gpt-6-astra` one of the first sketch and a Claude Opus one of the first written version; every finding is answered at the end.
 
 ## The gap

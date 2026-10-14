@@ -73,3 +73,31 @@ Exit code 143 alone does not say who sent the signal, so it is recorded and not 
 
 A run that fails during cluster setup, or whose collector stops before every arm is terminal, is void: it is reported as void and never as a failed criterion.
 `analyze.py` prints VOID, PASS or FAIL per arm and exits non-zero unless every arm is PASS.
+
+## Results
+
+### Run 2, `hack/multi-pod-ddp-20261014T231122Z/`: all four arms PASS
+
+At commit `c74d42c`, on kindest/node v1.37.0, Kueue v0.18.3, cert-manager v1.21.1, torch 2.5.1+cpu; the provenance file has the digests.
+Its `dirty_files=1` is the run's own evidence directory, which the harness creates before it counts.
+
+| arm | result | what the scorer read |
+|---|---|---|
+| `pass` | PASS | two Pods, indexes 0 and 1, on `ddp-worker` and `ddp-worker2`; both ranks `w = 0.4000000059604645`, agreeing, exit 0; one Workload, one pod set of 2, admitted `nvidia.com/gpu` 2; Succeeded after 5 s; `readyRanks` reached 2 |
+| `no-sync` | PASS | the same two-node placement; step-1 `w` 0.2 on rank 0 and 0.6 on rank 1, not agreeing; Succeeded after 4 s; `readyRanks` reached 2 |
+| `bad-address` | PASS | Job Failed and the MLTrainingJob Failed after 122 s; rank 1 recorded `rendezvous_failed` (DistNetworkError) |
+| `one-rank-fails` | PASS | hold 23:15:51.627, rank 1's failure 23:16:01.623, `FailureTarget` (BackoffLimitExceeded) 23:16:04, rank 0's SIGTERM 23:16:04.455, Failed 23:16:05; Failed after 16 s |
+
+The scorer was shown able to fail on copies of this evidence before its PASS was used: a wrong `w`, both Pods on one node, one GPU admitted, `readyRanks` removed, an unparsable sample line, ranks agreeing under no-sync, the rendezvous record removed, the SIGTERM record removed or moved before `FailureTarget`, and the hold record removed each turned the arm red.
+
+Two things the run showed that the registration did not ask about:
+
+- On success too, the phase went Running → Admitted → Succeeded, because the Job's ready count falls to 0 a moment before it reports Complete. The design states that window for failure; it is not specific to failure.
+- The bad address was refused by a different rank in run 1 (rank 0) than in run 2 (rank 1), which is the reason the criterion asks for at least one rank rather than a particular one.
+
+### Run 1, at `ce7d1aa`: not used
+
+`bad-address` and `one-rank-fails` passed, and `pass` and `no-sync` failed because the harness wrote each sample as broken JSON: a newline from `grep` split every record, and an empty status emptied one.
+The first scorer skipped unparsable lines, so it reported `readyRanks` as never sampled, a statement about the platform that the evidence did not support.
+Both were fixed in `c74d42c` (each sample is assembled by Python from whole objects, and the scorer now refuses a file with any unparsable line), and every arm was rerun fresh as run 2.
+Its evidence was not committed.

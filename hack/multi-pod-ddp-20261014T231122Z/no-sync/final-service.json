@@ -1,0 +1,53 @@
+{
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+        "creationTimestamp": "2026-10-14T23:13:32Z",
+        "labels": {
+            "platform.lkhun9311.github.io/mltrainingjob": "ddp-no-sync-231332"
+        },
+        "name": "ddp-no-sync-231332-ddp",
+        "namespace": "ddp",
+        "ownerReferences": [
+            {
+                "apiVersion": "platform.lkhun9311.github.io/v1",
+                "blockOwnerDeletion": true,
+                "controller": true,
+                "kind": "MLTrainingJob",
+                "name": "ddp-no-sync-231332",
+                "uid": "7b3544cc-c4bb-479c-b946-dc69baa7344e"
+            }
+        ],
+        "resourceVersion": "1467",
+        "uid": "a434eb4c-7e87-4b39-8877-83a46d047223"
+    },
+    "spec": {
+        "clusterIP": "None",
+        "clusterIPs": [
+            "None"
+        ],
+        "internalTrafficPolicy": "Cluster",
+        "ipFamilies": [
+            "IPv4"
+        ],
+        "ipFamilyPolicy": "SingleStack",
+        "ports": [
+            {
+                "name": "rendezvous",
+                "port": 29500,
+                "protocol": "TCP",
+                "targetPort": 29500
+            }
+        ],
+        "publishNotReadyAddresses": true,
+        "selector": {
+            "platform.lkhun9311.github.io/mltrainingjob": "ddp-no-sync-231332",
+            "platform.lkhun9311.github.io/mltrainingjob-uid": "7b3544cc-c4bb-479c-b946-dc69baa7344e"
+        },
+        "sessionAffinity": "None",
+        "type": "ClusterIP"
+    },
+    "status": {
+        "loadBalancer": {}
+    }
+}
