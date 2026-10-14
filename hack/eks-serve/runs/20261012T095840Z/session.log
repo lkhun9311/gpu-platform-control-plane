@@ -1,0 +1,95 @@
+09:58:40Z  [session] API endpoint will admit <egress-ip>/32 only
+09:58:42Z  [session] TTL kill switch armed: PID 2672886, fires in 180m, log ex/eks-serve-20261012T095840Z/ttl-kill-switch.log
+09:58:42Z  [session] terraform init (cluster)
+09:58:43Z  [session] terraform apply (cluster) -- this is where the billing starts
+10:10:23Z  [session] cluster up in 700s
+10:10:24Z  [session] terraform init + apply (argo-bootstrap): the pinned argo-cd chart, installed by its own root
+   ok   Argo CD installed by its own Terraform root
+10:11:26Z  [session] runbook: apply
+2026-10-12T10:11:26.503087398Z  context: gpu-platform
+2026-10-12T10:11:26.914635098Z  applying config/argocd/root.yaml -- the step that was missing
+   ok   all 12 Applications this repository declares exist, 12 of them created by this run
+2026-10-12T10:11:55.355033830Z  root resolved revision: 54e29d746ee38d6c6081e75135325bd4c869ce82 (targetRevision is the mutable branch main)
+2026-10-12T10:11:55.357680809Z  waiting for the automated Applications to reach Synced/Healthy
+   ok   every automated Application is Synced/Healthy, and every declared Application is still present
+2026-10-12T10:12:27.175290358Z  not waited on because they carry no automated syncPolicy, by design: gpu-platform-device-plugin gpu-platform-observability gpu-platform-samples gpu-platform-serving 
+   ok   runbook apply
+10:12:27Z  [session] runbook: seed-key
+2026-10-12T10:12:27.201779804Z  context: gpu-platform
+   ok   created gateway-api-keys with one key for tenant-a (recorded in seeded-key.txt)
+   ok   runbook seed-key
+10:12:27Z  [session] runbook: verify
+2026-10-12T10:12:27.952034686Z  context: gpu-platform
+2026-10-12T10:12:28.311191025Z  probing gateway-5888d466b9-j94q6 through a port-forward (the image is distroless, so exec cannot help)
+2026-10-12T10:12:28.838371352Z     forwarding 127.0.0.1:40411 -> 8080 and 127.0.0.1:35399 -> 8081
+2026-10-12T10:12:29.279356016Z     readyz=200  bad-key request=401  real-key request=403
+   ok   a bad key is refused with 401
+   ok   a key from the Secret is accepted and refused by tenant policy (403): authentication reached the key store. Not proof of serving
+   ok   runbook verify
+10:12:29Z  [session] runbook: serve-sync
+2026-10-12T10:12:29.307841710Z  context: gpu-platform
+   ok   added a key for serve-a to gateway-api-keys (recorded in serve-key.txt)
+   ok   gpu-platform-serving synced at 54e29d746ee38d6c6081e75135325bd4c869ce82
+   ok   runbook serve-sync
+10:12:33Z  [session] runbook: serve-rehearse
+2026-10-12T10:12:33.273627070Z  context: gpu-platform
+   ok   the engine Pod was created: qwen25-3b-holdcap-76c6d6ccc-4jd66
+2026-10-12T10:12:40.393993022Z     phase=Pending used=1 scheduling: 0/1 nodes are available: 1 node(s) didn't match Pod's node affinity/selector. no new claims to deallocate, preemption: 0/1 nodes are available: 1 Preemption is not helpful for scheduling.
+   ok   Pending for node affinity, as a cluster with no GPU node must leave it
+   ok   charged against gpuquota-serve-a-quota (requests.nvidia.com/gpu used=1, and this is the namespace's one engine Pod)
+   ok   status reports Off while no engine is ready
+   ok   serve-a's key was accepted and no backend answered: 502 bad_gateway
+   ok   runbook serve-rehearse
+TTL armed: gpu-platform/gpu_single goes to desiredSize=0 at 2026-10-12T12:47:44Z (in 155m), schedule gpu-ttl-gpu-platform-gpu_single-20261012101244
+   ok   GPU deadline armed for 155 min: gpu-ttl-gpu-platform-gpu_single-20261012101244
+10:12:45Z  [session] scaling gpu_single to 1 -- the card starts billing here
+{
+    "update": {
+        "id": "96012a67-8e5c-3ca1-9fdc-42618c372e29",
+        "status": "InProgress",
+        "type": "ConfigUpdate",
+        "params": [
+            {
+                "type": "MinSize",
+                "value": "0"
+            },
+            {
+                "type": "MaxSize",
+                "value": "1"
+            },
+            {
+                "type": "DesiredSize",
+                "value": "1"
+            }
+        ],
+        "createdAt": "2026-10-12T19:12:46.094000+09:00",
+        "errors": []
+    }
+}
+   ok   GPU node joined: ip-10-0-97-214.ap-northeast-2.compute.internal (i-0ae491dfa6ee120da)
+   ok   S1: plugin nvidia-device-plugin-vltcb Ready on ip-10-0-97-214.ap-northeast-2.compute.internal, which advertises nvidia.com/gpu: 1, and no simulator runs
+10:13:45Z  [session] runbook: serve-ready
+2026-10-12T10:13:45.700688374Z  context: gpu-platform
+   ok   HoldCap in force (HoldCap 1 1), 459s after this step began
+2026-10-12T10:21:27.144075295Z     engine pod qwen25-3b-holdcap-76c6d6ccc-4jd66 (5cd91713-9c91-411b-88fd-776bf5010538) on node ip-10-0-97-214.ap-northeast-2.compute.internal (instance type g5.xlarge, node group gpu_single)
+   ok   S2: the engine runs on a g5.xlarge of node group gpu_single
+   ok   S3: the engine runs the measured arguments with the cap (args-check.txt)
+   ok   runbook serve-ready
+10:21:27Z  [session] runbook: serve-request
+2026-10-12T10:21:27.189218549Z  context: gpu-platform
+   ok   served (first): ok: 200, X-Engine-Priority 1, 20 frames, 54 characters
+   ok   runbook serve-request
+10:21:29Z  [session] runbook: serve-recover
+2026-10-12T10:21:29.346322854Z  context: gpu-platform
+   ok   S5: status left HoldCap 1s after the deletion and returned 173s after it, on new Pod qwen25-3b-holdcap-76c6d6ccc-ltx72, generation 1
+   ok   served (recovered): ok: 200, X-Engine-Priority 1, 20 frames, 54 characters
+   ok   runbook serve-recover
+10:24:27Z  [session] scaling gpu_single to 0
+   ok   S6 (GPU half): gpu_single at desiredSize 0 and instance(s) i-0ae491dfa6ee120da  terminated
+TTL disarmed: gpu-ttl-gpu-platform-gpu_single-20261012101244
+10:32:26Z  [session] destroy: argo-bootstrap, then cluster
+   ok   nothing that charges remains: no EKS cluster, instance, NAT gateway, EIP, volume, ASG, load balancer cluster log group or GPU deadline schedule
+   FAIL the TTL watchdog survived disarming; kill 2672886 by hand before the next session
+10:46:14Z  [session] kill switch disarmed: destroy returned zero, every residue query was answered, and all were empty
+10:46:14Z  [session] evidence in ex/eks-serve-20261012T095840Z
+10:46:14Z  [session] 1 check(s) failed

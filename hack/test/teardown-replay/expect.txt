@@ -10,3 +10,5 @@
 10-all-expired               unasked|no
 11-mixed-fail-with-stdout    unasked+left|no
 12-whitespace-only           ok|yes
+13-only-schedule ok+left|no
+14-only-logs ok+left|no

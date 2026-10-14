@@ -1,0 +1,35 @@
+09:58:40Z  [session] API endpoint will admit <egress-ip>/32 only
+09:58:42Z  [session] TTL kill switch armed: PID 2672886, fires in 180m, log ex/eks-serve-20261012T095840Z/ttl-kill-switch.log
+09:58:42Z  [session] terraform init (cluster)
+09:58:43Z  [session] terraform apply (cluster) -- this is where the billing starts
+10:10:23Z  [session] cluster up in 700s
+10:10:24Z  [session] terraform init + apply (argo-bootstrap): the pinned argo-cd chart, installed by its own root
+   ok   Argo CD installed by its own Terraform root
+10:11:26Z  [session] runbook: apply
+   ok   runbook apply
+10:12:27Z  [session] runbook: seed-key
+   ok   runbook seed-key
+10:12:27Z  [session] runbook: verify
+   ok   runbook verify
+10:12:29Z  [session] runbook: serve-sync
+   ok   runbook serve-sync
+10:12:33Z  [session] runbook: serve-rehearse
+   ok   runbook serve-rehearse
+   ok   GPU deadline armed for 155 min: gpu-ttl-gpu-platform-gpu_single-20261012101244
+10:12:45Z  [session] scaling gpu_single to 1 -- the card starts billing here
+   ok   GPU node joined: ip-10-0-97-214.ap-northeast-2.compute.internal (i-0ae491dfa6ee120da)
+   ok   S1: plugin nvidia-device-plugin-vltcb Ready on ip-10-0-97-214.ap-northeast-2.compute.internal, which advertises nvidia.com/gpu: 1, and no simulator runs
+10:13:45Z  [session] runbook: serve-ready
+   ok   runbook serve-ready
+10:21:27Z  [session] runbook: serve-request
+   ok   runbook serve-request
+10:21:29Z  [session] runbook: serve-recover
+   ok   runbook serve-recover
+10:24:27Z  [session] scaling gpu_single to 0
+   ok   S6 (GPU half): gpu_single at desiredSize 0 and instance(s) i-0ae491dfa6ee120da  terminated
+10:32:26Z  [session] destroy: argo-bootstrap, then cluster
+   ok   nothing that charges remains: no EKS cluster, instance, NAT gateway, EIP, volume, ASG, load balancer cluster log group or GPU deadline schedule
+   FAIL the TTL watchdog survived disarming; kill 2672886 by hand before the next session
+10:46:14Z  [session] kill switch disarmed: destroy returned zero, every residue query was answered, and all were empty
+10:46:14Z  [session] evidence in ex/eks-serve-20261012T095840Z
+10:46:14Z  [session] 1 check(s) failed

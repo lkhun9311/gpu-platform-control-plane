@@ -1,0 +1,2 @@
+NAMESPACE                           NAME                         READY   STATUS    RESTARTS   AGE   IP             NODE                                             NOMINATED NODE   READINESS GATES
+gpu-platform-control-plane-system   nvidia-device-plugin-vltcb   1/1     Running   0          14s   10.0.111.172   ip-10-0-97-214.ap-northeast-2.compute.internal   <none>           <none>

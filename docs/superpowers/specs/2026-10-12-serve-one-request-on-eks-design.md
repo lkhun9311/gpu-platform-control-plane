@@ -1,6 +1,6 @@
 # Design: serve one request on EKS, through the GitOps path, to a controller-rendered engine
 
-Written 2026-10-12. Status: **draft for the owner's review**; nothing here is approved, built or bought.
+Written 2026-10-12. Status: **approved, built and run the same day; every bar met.** The result is at the end of this page, and the run record is `hack/eks-serve/runs/20261012T095840Z/README.md`.
 Revision 2, after two independent pre-spend attacks (codex `gpt-6-astra`, and a Claude Opus subagent) on revision 1.
 Their findings, and what each changed, are at the end; every one cited below was re-read in the tree before it was accepted.
 
@@ -172,3 +172,22 @@ A bare `codex review` of the fix commit then found two more, both confirmed befo
 | `gpu_down` knew only the instance recorded at join, so a launch that never became a Ready node, or a Spot replacement, went unchecked and the deadline was removed | the node group's Auto Scaling group is read on every pass and each instance seen is kept until terminated; an unreadable group keeps the deadline armed |
 | "nothing has run on an EKS GPU node" | astra | corrected in the question |
 | "one pull is within its limit" has no source | both | stated as a risk |
+
+## Result (2026-10-12): every bar met
+
+Run `hack/eks-serve/runs/20261012T095840Z/README.md`, against `main` at `54e29d7`, after a kind rehearsal of the same commit passed everything a cluster with no GPU can show.
+
+| bar | result |
+|---|---|
+| before the card | the engine Pod created and charged (used=1), Pending for node affinity, status `Off`, 502 with no engine |
+| S1 | the real plugin Ready on the GPU node, `nvidia.com/gpu: 1` advertised, no simulator |
+| S2 | a `g5.xlarge` of `gpu_single`, Spot, `ap-northeast-2c` |
+| S3 | HoldCap for generation 1, 459 s after `serve-ready` began; 14 measured keys matched with cap 384 |
+| S4 | 200, 20 well-formed frames and `[DONE]`, `X-Engine-Priority: 1`, live gateway without `-bind-priority` |
+| S5 | left HoldCap 1 s after the deletion, back 173 s after it on a new Pod at generation 1, and a second request passed |
+| S6 | `gpu_single` at 0 with its instance terminated; after destroy nothing that charges, no cluster log group, no deadline schedule |
+
+The one failed check was the watchdog's disarm, which asked `kill -0` immediately after the kill. That succeeds on an exited, unreaped process, and reproduced 10 of 10 times locally. The watchdog was gone when checked by hand. The check now treats a zombie as gone and waits up to five seconds.
+
+On the way, the kind rehearsal of the earlier `main` found the serving Application stuck OutOfSync. A `trainingQuota: false` in the manifest was removed from the live object when the controller added its finalizer; fixed in #346 before this run.
+A first launch stopped at `terraform init` on an expired SSO token, having created nothing.

@@ -1,0 +1,10 @@
+HTTP/1.1 200 OK
+Content-Type: text/event-stream; charset=utf-8
+Date: Mon, 12 Oct 2026 10:21:28 GMT
+Server: uvicorn
+X-Admission-Reason: serial_prefill_free
+X-Admission-Tier: standard
+X-Engine-Priority: 1
+X-Request-Id: e6c20cc1054dee2c69ccfc2e17ed1a19
+Transfer-Encoding: chunked
+

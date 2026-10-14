@@ -1,0 +1,4 @@
+deleted         t=0  pod=qwen25-3b-holdcap-76c6d6ccc-4jd66 uid=5cd91713-9c91-411b-88fd-776bf5010538 node=ip-10-0-97-214.ap-northeast-2.compute.internal generation=1
+left HoldCap    t=1s
+HoldCap again   t=173s  pod=qwen25-3b-holdcap-76c6d6ccc-ltx72 uid=fbd54c52-8d8d-421c-878c-bffd209fa882 node=ip-10-0-97-214.ap-northeast-2.compute.internal generation=1
+unreadable status reads in between: 0

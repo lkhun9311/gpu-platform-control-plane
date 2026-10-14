@@ -80,6 +80,8 @@ while read -r name want; do
       still ebs aws ec2 describe-volumes $R --query "x" --output text
       still asg aws autoscaling describe-auto-scaling-groups $R --query "x" --output text
       still elb aws elbv2 describe-load-balancers $R --query "x" --output text
+      still schedule aws scheduler list-schedules $R --name-prefix "gpu-ttl-x-" --query "x" --output text
+      still logs aws logs describe-log-groups $R --log-group-name-prefix "/aws/eks/x/" --query "x" --output text
       v=ok
       [ -n "${unasked// /}" ] && v=unasked
       [ -n "${billing_left// /}" ] && v="${v}+left"
