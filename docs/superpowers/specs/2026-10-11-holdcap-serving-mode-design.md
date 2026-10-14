@@ -168,6 +168,16 @@ new Pod becoming ready, the gateway can briefly hold requests for the uncapped e
 vLLM takes tens of seconds to load, so the window needs a cache lag of that order.
 Its consequence is serial-prefill without the cap, the diagnostic's `hold` arm: no protection, holds bounded by
 `maxHold`, nothing unsafe.
+
+*Corrected 2026-10-14, after an adversarial review of a measurement meant to size this window:* the cache lag is not
+the whole of it. A request takes its admission when it is routed (`BackendRef.Admission`, `internal/gateway/router.go`)
+and keeps it while it waits; nothing re-reads the cache once it is queued (`internal/gateway/serialprefill.go`). So a
+request routed under HoldCap just before the cache flips can still wait up to `maxHold` (at most 25 s, by the
+CEL rule) and, if its turn comes within that, be released to the Service, which by then may front the uncapped
+engine; one whose turn does not come is refused, not released. The window is therefore
+cache lag plus up to `maxHold`, not cache lag alone, and its consequence is unchanged: a hold without the cap.
+It has not been measured. Sizing it needs requests released across the flip, not a reading of the per-backend gauge,
+which shows only what a request routed at that moment would get.
 Closing it by construction is astra's option B: a Deployment and Service per configuration revision, activated only
 after the gateway acknowledges it, and a 503 when anything is uncertain. It is recorded as follow-up work, not built.
 
