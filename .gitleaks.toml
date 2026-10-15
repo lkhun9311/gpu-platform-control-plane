@@ -22,6 +22,16 @@ regexes = [
 ]
 
 [[allowlists]]
+# Reported on 2026-10-15 at hack/eks-serve/holdcap-study/rehearse-kind.sh, commit 6ffa4b0: the line seeds an empty key
+# store on a throwaway kind cluster with one entry mapping the word placeholder to the word nobody.
+description = "the hold-cap rehearsal's placeholder entry in a kind cluster's key store"
+targetRules = ["generic-api-key"]
+regexTarget = "line"
+regexes = [
+  '''create secret generic gateway-api-keys --from-literal=placeholder=nobody\b''',
+]
+
+[[allowlists]]
 description = "fixed keys the local gateway checks send; none is a credential anywhere"
 targetRules = ["curl-auth-header"]
 regexes = [

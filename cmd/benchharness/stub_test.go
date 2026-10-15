@@ -459,8 +459,16 @@ func TestTheStubServesVLLMNamedMetricsOnlyWhenAsked(t *testing.T) {
 		_, _ = io.Copy(io.Discard, r.Body)
 		_ = r.Body.Close()
 	}
-	if after := read(); !strings.Contains(after, "vllm:request_success_total 3") {
+	after := read()
+	if !strings.Contains(after, "vllm:request_success_total 3") {
 		t.Errorf("after three requests the counter did not read 3:\n%s", after)
+	}
+	// The hold-cap product study's idle and preemption reads; an idle stub must report every one of them at zero.
+	// Mutation that turns this red: drop the line that prints them.
+	for _, s := range []string{"vllm:num_requests_running 0", "vllm:num_requests_waiting 0", "vllm:num_preemptions_total 0"} {
+		if !strings.Contains(after, s) {
+			t.Errorf("an idle stub's metrics lack %q:\n%s", s, after)
+		}
 	}
 }
 
@@ -492,5 +500,28 @@ func TestStubCountsTheForwardedPriority(t *testing.T) {
 	stats.reset()
 	if n := len(stats.snapshot().RequestsByPriority); n != 0 {
 		t.Fatalf("a reset left %d priority counts behind", n)
+	}
+}
+
+// TestTheStubAnswersWithTheRequestsLengthOnlyWhenAsked pins the flag the hold-cap product study's rehearsal relies on:
+// its replay scores output against the trace's frozen cap, and a fixed-length stub failed every row of it.
+// Mutation that turns this red: make stubResponseTokens always return the profile's fixed length.
+func TestTheStubAnswersWithTheRequestsLengthOnlyWhenAsked(t *testing.T) {
+	frames := func(p stubProfile) int {
+		srv := httptest.NewServer(stubMux(p, newStubStats()))
+		defer srv.Close()
+		r, err := http.Post(srv.URL+"/v1/chat/completions", "application/json", strings.NewReader(`{"max_tokens":5,"stream":true}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = r.Body.Close() }()
+		b, _ := io.ReadAll(r.Body)
+		return strings.Count(string(b), `"content":"`)
+	}
+	if got := frames(stubProfile{tokens: 2, tokensFromRequest: true}); got != 5 {
+		t.Errorf("asked to honour max_tokens 5, the stub sent %d content frames", got)
+	}
+	if got := frames(stubProfile{tokens: 2}); got != 2 {
+		t.Errorf("not asked, the stub should keep --tokens 2 and sent %d content frames", got)
 	}
 }

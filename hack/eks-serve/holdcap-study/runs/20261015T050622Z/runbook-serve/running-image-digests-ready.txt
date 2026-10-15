@@ -1,0 +1,3 @@
+gpu-platform-control-plane-system/gateway-698c77f884-tf2dn	007635145730.dkr.ecr.ap-northeast-2.amazonaws.com/gpu-platform-gateway@sha256:d15191ab8cb550b89a89a43275c9f008f9ad9fcb62fecd3c6da5a79e26fd0ce0 
+gpu-platform-control-plane-system/gpu-platform-control-plane-controller-manager-6cdbf74dcf-96k58	007635145730.dkr.ecr.ap-northeast-2.amazonaws.com/gpu-platform-operator@sha256:6212f3eef8d5168c093ceafa1edd6496de6366c84b7c1667fe5c2a468c616511 
+serve-a/qwen25-3b-holdcap-76c6d6ccc-7q5wq	docker.io/vllm/vllm-openai@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967 

@@ -1,0 +1,50 @@
+2026-10-15T05:32:23.135112609Z  study holdcap-product-transfer-2026-10-15 on gpu-platform; tooling at 8fb836a9e295b235c43cb1e9f87772994e5063a0, dirty files 0
+2026-10-15T05:32:23.195673226Z  block 851 order: Off HoldCap 
+2026-10-15T05:32:23.201166182Z  block 852 order: HoldCap Off 
+2026-10-15T05:32:23.206704767Z  block 853 order: HoldCap Off 
+2026-10-15T05:32:23.219994535Z  building the harness
+2026-10-15T05:32:24.80989501Z  tenants
+gpuquotapolicy.platform.lkhun9311.github.io/study-premium-1 created
+gpuquotapolicy.platform.lkhun9311.github.io/study-standard-noisy created
+secret/gateway-api-keys patched
+2026-10-15T05:32:26.205022554Z  collector
+namespace/holdcap-study created
+pod/collector created
+pod/collector condition met
+2026-10-15T05:32:50.898552724Z  gateway gateway-698c77f884-tf2dn at 10.0.75.35; replay target http://gateway.gpu-platform-control-plane-system.svc:8080
+2026-10-15T05:32:53.62531703Z  == cell 1: 851-Off, to end by 05:57:53Z
+inferencedeployment.platform.lkhun9311.github.io/qwen25-3b-holdcap patched
+tar: removing leading '/' from member names
+tar: removing leading '/' from member names
+2026-10-15T05:43:47.748675925Z  cell 851-Off complete: 4019 rows, 60 samples
+2026-10-15T05:43:47.765749640Z  == cell 2: 851-HoldCap, to end by 06:08:47Z
+inferencedeployment.platform.lkhun9311.github.io/qwen25-3b-holdcap patched
+tar: removing leading '/' from member names
+tar: removing leading '/' from member names
+tar: removing leading '/' from member names
+2026-10-15T05:54:38.5629291Z  cell 851-HoldCap complete: 4019 rows, 59 samples
+2026-10-15T05:54:38.27373782Z  == cell 3: 852-HoldCap, to end by 06:19:38Z
+pod "qwen25-3b-holdcap-76c6d6ccc-n7pxr" deleted from serve-a namespace
+tar: removing leading '/' from member names
+tar: removing leading '/' from member names
+tar: removing leading '/' from member names
+2026-10-15T06:05:37.888698283Z  cell 852-HoldCap complete: 4143 rows, 60 samples
+2026-10-15T06:05:37.906174218Z  == cell 4: 852-Off, to end by 06:30:37Z
+inferencedeployment.platform.lkhun9311.github.io/qwen25-3b-holdcap patched
+tar: removing leading '/' from member names
+tar: removing leading '/' from member names
+tar: removing leading '/' from member names
+2026-10-15T06:16:31.48273847Z  cell 852-Off complete: 4143 rows, 62 samples
+2026-10-15T06:16:31.69538619Z  == cell 5: 853-HoldCap, to end by 06:41:31Z
+inferencedeployment.platform.lkhun9311.github.io/qwen25-3b-holdcap patched
+tar: removing leading '/' from member names
+tar: removing leading '/' from member names
+2026-10-15T06:27:05.584016587Z  cell 853-HoldCap complete: 4102 rows, 66 samples
+2026-10-15T06:27:05.601859772Z  == cell 6: 853-Off, to end by 06:52:05Z
+inferencedeployment.platform.lkhun9311.github.io/qwen25-3b-holdcap patched
+tar: removing leading '/' from member names
+tar: removing leading '/' from member names
+2026-10-15T06:37:45.17241166Z  cell 853-Off complete: 4102 rows, 66 samples
+2026-10-15T06:37:45.29205486Z  all six cells complete; scoring
+verdict: not met
+  block 853: 1 refusal(s), 0 preemption(s) under HoldCap

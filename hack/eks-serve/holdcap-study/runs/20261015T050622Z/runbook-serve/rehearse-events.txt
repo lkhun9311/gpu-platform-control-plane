@@ -1,0 +1,4 @@
+LAST SEEN   TYPE      REASON              OBJECT                                   MESSAGE
+9s          Warning   FailedScheduling    pod/qwen25-3b-holdcap-76c6d6ccc-7q5wq    0/1 nodes are available: 1 node(s) didn't match Pod's node affinity/selector. no new claims to deallocate, preemption: 0/1 nodes are available: 1 Preemption is not helpful for scheduling.
+9s          Normal    SuccessfulCreate    replicaset/qwen25-3b-holdcap-76c6d6ccc   Created pod: qwen25-3b-holdcap-76c6d6ccc-7q5wq
+9s          Normal    ScalingReplicaSet   deployment/qwen25-3b-holdcap             Scaled up replica set qwen25-3b-holdcap-76c6d6ccc from 0 to 1

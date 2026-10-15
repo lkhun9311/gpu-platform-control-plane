@@ -185,6 +185,12 @@ type RawRow struct {
 	// "not recorded" rather than as a value, so old runs keep scoring the way they did.
 	Tier            string `json:"tier,omitempty"`
 	AdmissionReason string `json:"admissionReason,omitempty"`
+	// EnginePriority is the X-Engine-Priority the gateway answered with, verbatim: the priority it bound, or empty
+	// when it bound none.
+	//
+	// Priority above is what this client asked for. Where the gateway binds by tier it overwrites that, so the
+	// treatment a request actually got is only in the response; a study whose arms differ in binding needs it per row.
+	EnginePriority string `json:"enginePriority,omitempty"`
 	// MatchTolerance is the pre-registered admission-match tolerance, copied from the manifest.
 	//
 	// The report reads it from here rather than a CLI default, so the frozen tolerance cannot be loosened after the fact.
@@ -254,6 +260,8 @@ type SendResult struct {
 	// distinguished from a gateway that decided "no tier".
 	Tier            string
 	AdmissionReason string
+	// EnginePriority is the response's X-Engine-Priority, empty when the gateway sent none.
+	EnginePriority string
 }
 
 // Sender dispatches one request and reports its raw result.
@@ -367,6 +375,7 @@ func Replay(ctx context.Context, sender Sender, trace []TraceRow, opts ReplayOpt
 				StreamError:           res.StreamError,
 				Tier:                  res.Tier,
 				AdmissionReason:       res.AdmissionReason,
+				EnginePriority:        res.EnginePriority,
 				TraceChecksum:         opts.TraceChecksum,
 				LongThreshold:         opts.LongThreshold,
 				MatchTolerance:        opts.MatchTolerance,

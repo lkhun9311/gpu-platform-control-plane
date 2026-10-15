@@ -1,0 +1,36 @@
+2026-10-15T05:21:58Z	INFO	gateway	serving	{"addr": ":8080"}
+2026-10-15T05:21:58Z	INFO	gateway	cache synced; gateway ready
+2026-10-15T05:23:00Z	ERROR	upstream request failed	{"code": 502, "backend": "qwen25-3b-holdcap.serve-a.svc:8000", "path": "/v1/chat/completions", "error": "dial tcp 172.20.103.212:8000: connect: connection refused"}
+github.com/lkhun9311/gpu-mlops-platform-control-plane/internal/gateway.newReverseProxy.func2
+	/workspace/internal/gateway/proxy.go:587
+net/http/httputil.(*ReverseProxy).ServeHTTP
+	/usr/local/go/src/net/http/httputil/reverseproxy.go:571
+github.com/lkhun9311/gpu-mlops-platform-control-plane/internal/gateway.tryBackends
+	/workspace/internal/gateway/proxy.go:805
+github.com/lkhun9311/gpu-mlops-platform-control-plane/internal/gateway.(*Server).chatCompletions
+	/workspace/internal/gateway/server.go:600
+net/http.HandlerFunc.ServeHTTP
+	/usr/local/go/src/net/http/server.go:2358
+net/http.(*ServeMux).ServeHTTP
+	/usr/local/go/src/net/http/server.go:2923
+net/http.serverHandler.ServeHTTP
+	/usr/local/go/src/net/http/server.go:3436
+net/http.(*conn).serve
+	/usr/local/go/src/net/http/server.go:2157
+2026-10-15T06:20:37Z	ERROR	upstream request failed	{"code": 502, "backend": "qwen25-3b-holdcap.serve-a.svc:8000", "path": "/v1/chat/completions", "error": "read tcp 10.0.75.35:49360->172.20.103.212:8000: read: connection reset by peer"}
+github.com/lkhun9311/gpu-mlops-platform-control-plane/internal/gateway.newReverseProxy.func2
+	/workspace/internal/gateway/proxy.go:587
+net/http/httputil.(*ReverseProxy).ServeHTTP
+	/usr/local/go/src/net/http/httputil/reverseproxy.go:571
+github.com/lkhun9311/gpu-mlops-platform-control-plane/internal/gateway.tryBackends
+	/workspace/internal/gateway/proxy.go:805
+github.com/lkhun9311/gpu-mlops-platform-control-plane/internal/gateway.(*Server).chatCompletions
+	/workspace/internal/gateway/server.go:600
+net/http.HandlerFunc.ServeHTTP
+	/usr/local/go/src/net/http/server.go:2358
+net/http.(*ServeMux).ServeHTTP
+	/usr/local/go/src/net/http/server.go:2923
+net/http.serverHandler.ServeHTTP
+	/usr/local/go/src/net/http/server.go:3436
+net/http.(*conn).serve
+	/usr/local/go/src/net/http/server.go:2157

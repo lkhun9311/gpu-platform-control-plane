@@ -1,0 +1,13 @@
+{
+  "study": "holdcap-product-transfer-2026-10-15",
+  "arm": "HoldCap",
+  "connMode": "pooled",
+  "maxIdleConnsPerHost": 600,
+  "drainForReuse": true,
+  "timeoutMs": 30000,
+  "model": "Qwen/Qwen2.5-3B-Instruct",
+  "target": "http://gateway.gpu-platform-control-plane-system.svc:8080",
+  "priorities": {},
+  "requestIdPrefix": "study-851-HoldCap",
+  "binarySha256": "b96b002a55ef0006b224cd8030710ca36101787a93a19adf7f82cb6dd49aff0f"
+}

@@ -1,0 +1,27 @@
+arm: hold-cap
+gatewayBase: gcr.io/distroless/static@sha256:e2e927ec666bae08560abb3c55d0659eceabb657f56b6782ab500a9fc7f555e3
+gatewayBinarySHA256: 0381ecc18c336e19fc5d381348924cf338dc9b69374ccb42887261fe01b39806
+gatewaySHA: aa8861cca811db497180283da20388190b910f2d
+gatewayURL: http://127.0.0.1:18080
+imageDigests:
+  engine: vllm/vllm-openai@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967
+  gateway: gateway:m5c@sha256:a5267fcb11b9a7c0cbd700e8a79bf5f77e1efccbe0256d734a0154a6692a2a78
+longThreshold: 4096
+matchTolerance: "0.05"
+maxOutputTokens:
+  premium-1: 64
+  standard-noisy: 16
+model: Qwen/Qwen2.5-3B-Instruct
+primaryEndpoint: ttft_p99
+promptCorpusSHA: dec1020701584417449f9c7efa5354073682cce69348af3b9fb5244705200a86
+promptLenChars:
+  premium-1: 200
+  standard-noisy: 40000
+schemaVersion: v2
+seed: 851
+study: admission-diagnostic-2026-10-10
+timeoutMs: 30000
+timeoutScope: whole-request-including-stream
+tokenizerRev: aa8e72537993ba99e69dfaafa59ed015b17504d1
+traceChecksum: 0004950e429bec0ad873367c36b6dd40f677112c0c52922d64a347d499825247
+tracePath: /src/m5c-run/trace-hold-cap-1.jsonl

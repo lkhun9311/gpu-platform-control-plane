@@ -288,6 +288,10 @@ type stubProfile struct {
 	// takes. It is off by default because the gateway's admission guard reads an engine's /metrics too, and
 	// every other rehearsal has always met a stub that answered 404 there.
 	metrics bool
+	// tokensFromRequest makes each response as long as the request's own max_tokens, as pilot mode does, without
+	// pilot mode's step log. A replay that scores output against a frozen cap reads a fixed-length stub as a
+	// failure on every row; the hold-cap product study's rehearsal needs the cap honoured and nothing else.
+	tokensFromRequest bool
 	// iterLog, when set, prints vLLM v0.27.1's per-iteration log lines for every request the stub serves.
 	iterLog *stubIterLog
 	// usage, when set, ends each stream with the usage chunk vLLM sends for stream_options.include_usage.
@@ -558,6 +562,7 @@ func stubServe(args []string) error {
 	_ = fs.String("model", "", "model name; accepted for InferenceDeployment compatibility and ignored")
 	modelPath := fs.String("model-path", "", "storage URI; a \"stub://...\" URI overrides the response profile")
 	metrics := fs.Bool("metrics", false, "serve /metrics with a completed-request counter in vLLM's name")
+	tokensFromRequest := fs.Bool("tokens-from-request", false, "answer with the request's own max_tokens rather than --tokens")
 	// The three flags below are vLLM's, accepted so the instrument-validation harness can append them to a stub
 	// engine exactly as it appends them to the real one, and answered the way vLLM v0.27.1 answers them.
 	//
@@ -597,10 +602,11 @@ func stubServe(args []string) error {
 	}
 
 	profile := stubProfile{
-		tokens:  *tokens,
-		ttft:    time.Duration(*ttftMs) * time.Millisecond,
-		itl:     time.Duration(*itlMs) * time.Millisecond,
-		metrics: *metrics,
+		tokens:            *tokens,
+		ttft:              time.Duration(*ttftMs) * time.Millisecond,
+		itl:               time.Duration(*itlMs) * time.Millisecond,
+		metrics:           *metrics,
+		tokensFromRequest: *tokensFromRequest,
 	}
 	if err := profile.applyModelPath(*modelPath); err != nil {
 		return err
@@ -643,6 +649,20 @@ func stubServe(args []string) error {
 		ConnState:         stats.connState,
 	}
 	return srv.ListenAndServe()
+}
+
+// stubResponseTokens is how many tokens a response carries before pilot mode has its say: the request's own max_tokens
+// when the profile asks for it, and the profile's fixed --tokens otherwise.
+// Pilot mode reads max_tokens itself, so it is left to do that, as it did before this flag existed.
+func stubResponseTokens(profile stubProfile, raw []byte) int {
+	if !profile.tokensFromRequest || profile.pilot != nil {
+		return profile.tokens
+	}
+	var pr stubPilotRequest
+	if json.Unmarshal(raw, &pr) == nil && pr.MaxTokens > 0 {
+		return pr.MaxTokens
+	}
+	return profile.tokens
 }
 
 // stubMux builds the stub backend's routes, separated from stubServe so the handlers can be exercised
@@ -715,7 +735,7 @@ func stubMux(profile stubProfile, stats *stubStats) *http.ServeMux {
 			}
 			promptTokens += n
 		}
-		tokens := profile.tokens
+		tokens := stubResponseTokens(profile, raw)
 		if profile.pilot != nil {
 			var pr stubPilotRequest
 			_ = json.Unmarshal(raw, &pr)
@@ -779,8 +799,13 @@ func stubMux(profile stubProfile, stats *stubStats) *http.ServeMux {
 		// are its configuration, and a histogram of them would look like a measurement in an archive.
 		mux.HandleFunc("/metrics", func(w http.ResponseWriter, _ *http.Request) {
 			w.Header().Set("Content-Type", "text/plain; version=0.0.4")
+			snap := stats.snapshot()
 			_, _ = fmt.Fprintf(w, "# HELP vllm:request_success_total Requests this stub began serving.\n"+
-				"# TYPE vllm:request_success_total counter\nvllm:request_success_total %d\n", stats.snapshot().RequestsServed)
+				"# TYPE vllm:request_success_total counter\nvllm:request_success_total %d\n", snap.RequestsServed)
+			// The three series the hold-cap product study reads to decide an engine is idle and to count preemptions.
+			// Running is the stub's own in-flight count; a stub queues nothing and preempts nothing, so the other two
+			// are zero by construction, which makes them a check of the reader, not of any engine.
+			_, _ = fmt.Fprintf(w, "vllm:num_requests_running %d\nvllm:num_requests_waiting 0\nvllm:num_preemptions_total 0\n", snap.InFlight)
 		})
 	}
 	writeStats := func(w http.ResponseWriter, snap stubStatsSnapshot) {
