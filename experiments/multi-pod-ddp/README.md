@@ -93,6 +93,11 @@ The scorer was shown able to fail on copies of this evidence before its PASS was
 After the run, a codex `gpt-6-astra` review of the branch found that the scorer took its arms from the directories present, so a run stopped between arms could exit 0 on the arms it reached.
 It now takes them from `provenance.txt` and reports a requested arm with no directory as VOID; run 2 rescored to the same four PASS, and a copy holding only `pass/` now exits 1.
 
+A second astra review, of what to buy next, found two more ways the scorer accepted evidence that did not show what it claimed, and both reproduced: logs cut down to their verdict lines passed, and both ranks' logs merged under one invented Pod UID passed.
+Records had been pooled by the rank they claimed, with nothing tying a rank to the Pod that ran it.
+The scorer now requires every sampled Pod to have its own log, holding one rank equal to its completion index, under this run's id and the Pod's own hostname, with the records each arm needs; and in `pass`, the step-1 all-reduce's future completed on both ranks.
+Run 2 rescored to the same four PASS, and each of those two cases, logs swapped between Pods, a wrong run id, a missing log, missing step records and an all-reduce that never completed now fails by name.
+
 Two things the run showed that the registration did not ask about:
 
 - On success too, the phase went Running → Admitted → Succeeded, because the Job's ready count falls to 0 a moment before it reports Complete. The design states that window for failure; it is not specific to failure.
