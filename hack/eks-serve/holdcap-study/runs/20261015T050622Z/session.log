@@ -1,0 +1,110 @@
+05:06:22Z  [session] API endpoint will admit <operator-ip>/32 only
+05:06:24Z  [session] TTL kill switch armed: PID 4109228, fires in 300m, log ex/eks-holdcap-study-20261015T050622Z/ttl-kill-switch.log
+05:06:24Z  [session] terraform init (cluster)
+05:07:18Z  [session] terraform apply (cluster) -- this is where the billing starts
+05:19:10Z  [session] cluster up in 712s
+05:19:15Z  [session] terraform init + apply (argo-bootstrap): the pinned argo-cd chart, installed by its own root
+   ok   Argo CD installed by its own Terraform root
+05:21:08Z  [session] runbook: apply
+2026-10-15T05:21:08.263711597Z  context: gpu-platform
+2026-10-15T05:21:08.789532100Z  applying config/argocd/root.yaml -- the step that was missing
+   ok   all 12 Applications this repository declares exist, 12 of them created by this run
+2026-10-15T05:22:15.84482539Z  root resolved revision: ef925c49f85bc87d706f579e0079e638c8756533 (targetRevision is the mutable branch main)
+2026-10-15T05:22:15.86459667Z  waiting for the automated Applications to reach Synced/Healthy
+   ok   every automated Application is Synced/Healthy, and every declared Application is still present
+2026-10-15T05:22:36.613108231Z  not waited on because they carry no automated syncPolicy, by design: gpu-platform-device-plugin gpu-platform-observability gpu-platform-samples gpu-platform-serving 
+   ok   runbook apply
+05:22:36Z  [session] runbook: seed-key
+2026-10-15T05:22:36.639211687Z  context: gpu-platform
+   ok   created gateway-api-keys with one key for tenant-a (recorded in seeded-key.txt)
+   ok   runbook seed-key
+05:22:37Z  [session] runbook: verify
+2026-10-15T05:22:37.566837403Z  context: gpu-platform
+2026-10-15T05:22:37.953640740Z  probing gateway-698c77f884-tf2dn through a port-forward (the image is distroless, so exec cannot help)
+2026-10-15T05:22:38.480624231Z     forwarding 127.0.0.1:43771 -> 8080 and 127.0.0.1:36467 -> 8081
+2026-10-15T05:22:39.1132369Z     readyz=200  bad-key request=401  real-key request=403
+   ok   a bad key is refused with 401
+   ok   a key from the Secret is accepted and refused by tenant policy (403): authentication reached the key store. Not proof of serving
+   ok   runbook verify
+05:22:39Z  [session] runbook: serve-sync
+2026-10-15T05:22:39.30556283Z  context: gpu-platform
+   ok   added a key for serve-a to gateway-api-keys (recorded in serve-key.txt)
+   ok   gpu-platform-serving synced at ef925c49f85bc87d706f579e0079e638c8756533
+   ok   runbook serve-sync
+05:22:49Z  [session] runbook: serve-rehearse
+2026-10-15T05:22:49.476136041Z  context: gpu-platform
+   ok   the engine Pod was created: qwen25-3b-holdcap-76c6d6ccc-7q5wq
+2026-10-15T05:22:58.108222002Z     phase=Pending used=1 scheduling: 0/1 nodes are available: 1 node(s) didn't match Pod's node affinity/selector. no new claims to deallocate, preemption: 0/1 nodes are available: 1 Preemption is not helpful for scheduling.
+   ok   Pending for node affinity, as a cluster with no GPU node must leave it
+   ok   charged against gpuquota-serve-a-quota (requests.nvidia.com/gpu used=1, and this is the namespace's one engine Pod)
+   ok   status reports Off while no engine is ready
+   ok   serve-a's key was accepted and no backend answered: 502 bad_gateway
+   ok   runbook serve-rehearse
+   ok   Spot price at most $1.00 an hour in every zone (ap-northeast-2d 0.572800;ap-northeast-2c 0.585600;ap-northeast-2a 0.589500;)
+TTL armed: gpu-platform/gpu_single goes to desiredSize=0 at 2026-10-15T09:56:04Z (in 273m), schedule gpu-ttl-gpu-platform-gpu_single-20261015052304
+   ok   GPU deadline armed for 273 min: gpu-ttl-gpu-platform-gpu_single-20261015052304
+05:23:05Z  [session] scaling gpu_single to 1 -- the card starts billing here
+{
+    "update": {
+        "id": "7cdebbf7-51de-3eca-99a1-f97da2aee3a5",
+        "status": "InProgress",
+        "type": "ConfigUpdate",
+        "params": [
+            {
+                "type": "MinSize",
+                "value": "0"
+            },
+            {
+                "type": "MaxSize",
+                "value": "1"
+            },
+            {
+                "type": "DesiredSize",
+                "value": "1"
+            }
+        ],
+        "createdAt": "2026-10-15T14:23:05.658000+09:00",
+        "errors": []
+    }
+}
+   ok   GPU node joined: ip-10-0-103-195.ap-northeast-2.compute.internal (i-05ac98ff8ed63f069)
+   ok   S1: plugin nvidia-device-plugin-q98zv Ready on ip-10-0-103-195.ap-northeast-2.compute.internal, which advertises nvidia.com/gpu: 1, and no simulator runs
+05:24:37Z  [session] runbook: serve-ready
+2026-10-15T05:24:37.553820666Z  context: gpu-platform
+   ok   HoldCap in force (HoldCap 1 1), 460s after this step began
+2026-10-15T05:32:23.102633097Z     engine pod qwen25-3b-holdcap-76c6d6ccc-7q5wq (3e468ee8-8544-4b9e-8299-57bf4affa1ae) on node ip-10-0-103-195.ap-northeast-2.compute.internal (instance type g5.xlarge, node group gpu_single)
+   ok   S2: the engine runs on a g5.xlarge of node group gpu_single
+   ok   S3: the engine runs the measured arguments with the cap (args-check.txt)
+   ok   runbook serve-ready
+05:32:23Z  [session] study: holdcap, until 09:56:05Z less a 10 min margin
+2026-10-15T05:32:23.135112609Z  study holdcap-product-transfer-2026-10-15 on gpu-platform; tooling at 8fb836a9e295b235c43cb1e9f87772994e5063a0, dirty files 0
+2026-10-15T05:32:23.195673226Z  block 851 order: Off HoldCap 
+2026-10-15T05:32:23.201166182Z  block 852 order: HoldCap Off 
+2026-10-15T05:32:23.206704767Z  block 853 order: HoldCap Off 
+2026-10-15T05:32:23.219994535Z  building the harness
+2026-10-15T05:32:24.80989501Z  tenants
+2026-10-15T05:32:26.205022554Z  collector
+2026-10-15T05:32:50.898552724Z  gateway gateway-698c77f884-tf2dn at 10.0.75.35; replay target http://gateway.gpu-platform-control-plane-system.svc:8080
+2026-10-15T05:32:53.62531703Z  == cell 1: 851-Off, to end by 05:57:53Z
+2026-10-15T05:43:47.748675925Z  cell 851-Off complete: 4019 rows, 60 samples
+2026-10-15T05:43:47.765749640Z  == cell 2: 851-HoldCap, to end by 06:08:47Z
+2026-10-15T05:54:38.5629291Z  cell 851-HoldCap complete: 4019 rows, 59 samples
+2026-10-15T05:54:38.27373782Z  == cell 3: 852-HoldCap, to end by 06:19:38Z
+2026-10-15T06:05:37.888698283Z  cell 852-HoldCap complete: 4143 rows, 60 samples
+2026-10-15T06:05:37.906174218Z  == cell 4: 852-Off, to end by 06:30:37Z
+2026-10-15T06:16:31.48273847Z  cell 852-Off complete: 4143 rows, 62 samples
+2026-10-15T06:16:31.69538619Z  == cell 5: 853-HoldCap, to end by 06:41:31Z
+2026-10-15T06:27:05.584016587Z  cell 853-HoldCap complete: 4102 rows, 66 samples
+2026-10-15T06:27:05.601859772Z  == cell 6: 853-Off, to end by 06:52:05Z
+2026-10-15T06:37:45.17241166Z  cell 853-Off complete: 4102 rows, 66 samples
+2026-10-15T06:37:45.29205486Z  all six cells complete; scoring
+verdict: not met
+  block 853: 1 refusal(s), 0 preemption(s) under HoldCap
+   ok   study: all six cells ran; verdict: not met
+06:37:45Z  [session] scaling gpu_single to 0
+   ok   S6 (GPU half): gpu_single at desiredSize 0 and instance(s) i-05ac98ff8ed63f069  terminated
+TTL disarmed: gpu-ttl-gpu-platform-gpu_single-20261015052304
+06:45:45Z  [session] destroy: argo-bootstrap, then cluster
+   ok   nothing that charges remains: no EKS cluster, instance, NAT gateway, EIP, volume, ASG, load balancer cluster log group or GPU deadline schedule
+06:56:58Z  [session] kill switch disarmed: destroy returned zero, every residue query was answered, and all were empty
+06:56:58Z  [session] evidence in ex/eks-holdcap-study-20261015T050622Z

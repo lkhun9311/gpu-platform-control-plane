@@ -1,0 +1,6 @@
+2026-10-15T05:22:37.566837403Z  context: gpu-platform
+2026-10-15T05:22:37.953640740Z  probing gateway-698c77f884-tf2dn through a port-forward (the image is distroless, so exec cannot help)
+2026-10-15T05:22:38.480624231Z     forwarding 127.0.0.1:43771 -> 8080 and 127.0.0.1:36467 -> 8081
+2026-10-15T05:22:39.1132369Z     readyz=200  bad-key request=401  real-key request=403
+   ok   a bad key is refused with 401
+   ok   a key from the Secret is accepted and refused by tenant policy (403): authentication reached the key store. Not proof of serving
