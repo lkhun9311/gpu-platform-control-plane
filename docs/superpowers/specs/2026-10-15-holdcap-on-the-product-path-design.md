@@ -146,6 +146,21 @@ What stops spending before the allowance: the purchase gate, the per-cell start 
 
 The lab's `hold` and `cap` arms, R1, a fixed spacing, a second card, a heavier load, contender work inside the premium window, and option B of the serving-mode design.
 
+## Run 2, registered 2026-10-15 before it ran
+
+The first run's verdict, **not met**, stands; run 2 neither replaces it nor is pooled with it, and both are reported side by side whatever run 2 shows.
+The owner approved it after reading the first run's result.
+
+**What is the same:** every line of the registration above. The traces, the six cells and their order, the definitions, every completeness, validity and acceptance line, including the contender median limit of 1.5 × that the first run missed by 0.01 ×, and the verdict's precedence.
+
+**What differs, and why:**
+
+- **The study ID**, `holdcap-product-transfer-r2-2026-10-15`, registered in `internal/bench/study.go` with every other field equal to the first run's, which a test pins. Rows stamped with it cannot be scored as the first run's, and `score.py` reads it from the run's `study-id.txt`.
+- **The product under test** is `main` with #361: the gateway drops an idle backend connection after 4 s, below the engine's 5 s keep-alive. The first run's one refusal was a 502 logged as a connection reset, which that mismatch can produce; run 2 is where that fix meets the same load.
+- **The sampler retries** a failed read of the gateway's metrics up to three times within its 5 s tick, and records read errors in `sampler.err`. The rule is unchanged: a sample that still cannot show the arm counts against validity.
+
+**What it can and cannot say beside run 1.** Two runs of one card are two runs, not a rate. If run 2 meets every line where run 1 did not, the record says the registration was met once and missed once, not that it is met; and the near-miss on the median is a property of the treatment the second run may or may not repeat.
+
 ## The review that shaped v2
 
 codex `gpt-6-astra`, adversarial, on v1:

@@ -20,14 +20,17 @@ import sys
 
 import yaml
 
-STUDY = "holdcap-product-transfer-2026-10-15"
+STUDIES = ("holdcap-product-transfer-2026-10-15", "holdcap-product-transfer-r2-2026-10-15")
 DIGEST = re.compile(r"^\S+@sha256:[0-9a-f]{64}$")
 COMMIT = re.compile(r"^[0-9a-f]{40}$")
 
 
-def derive(archived: dict, arm: str, gateway_url: str, gateway_sha: str, gateway_image: str, engine_image: str) -> dict:
+def derive(archived: dict, arm: str, gateway_url: str, gateway_sha: str, gateway_image: str, engine_image: str,
+           study: str = STUDIES[0]) -> dict:
     if archived.get("study") != "admission-diagnostic-2026-10-10" or archived.get("arm") not in ("off", "hold-cap"):
         raise ValueError(f"not one of the diagnostic's off or hold-cap manifests: {archived.get('study')} {archived.get('arm')}")
+    if study not in STUDIES:
+        raise ValueError(f"study {study!r} is not a registered run of this study")
     if arm not in ("Off", "HoldCap"):
         raise ValueError(f"arm {arm!r} is not Off or HoldCap")
     if not COMMIT.match(gateway_sha):
@@ -37,7 +40,7 @@ def derive(archived: dict, arm: str, gateway_url: str, gateway_sha: str, gateway
             raise ValueError(f"{name} image {ref!r} is not pinned by digest")
     out = {k: v for k, v in archived.items() if k not in ("gatewayBase", "gatewayBinarySHA256")}
     out.update({
-        "study": STUDY,
+        "study": study,
         "arm": arm,
         "tracePath": os.path.basename(archived["tracePath"]).replace("hold-cap", "off"),
         "gatewayURL": gateway_url,
@@ -56,11 +59,12 @@ def main(argv):
     p.add_argument("--gateway-sha", required=True)
     p.add_argument("--gateway-image", required=True)
     p.add_argument("--engine-image", required=True)
+    p.add_argument("--study", default=STUDIES[0])
     a = p.parse_args(argv)
     with open(a.archived) as f:
         archived = yaml.safe_load(f)
     try:
-        out = derive(archived, a.arm, a.gateway_url, a.gateway_sha, a.gateway_image, a.engine_image)
+        out = derive(archived, a.arm, a.gateway_url, a.gateway_sha, a.gateway_image, a.engine_image, a.study)
     except ValueError as exc:
         print(f"derive_manifest: {exc}", file=sys.stderr)
         return 1
