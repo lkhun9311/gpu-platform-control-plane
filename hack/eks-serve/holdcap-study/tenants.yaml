@@ -1,0 +1,27 @@
+# The study's two tenants, frozen in docs/superpowers/specs/2026-10-15-holdcap-on-the-product-path-design.md.
+#
+# Applied by run.sh for the study's lifetime and never committed to config/serving: they exist to put the trace's two
+# tenants on the serving namespace's one engine, under the tiers the trace was generated for.
+# Each one-GPU ceiling becomes a namespace ResourceQuota beside serve-a's own; the strictest applies, and one GPU is
+# what the engine asks for.
+apiVersion: platform.lkhun9311.github.io/v1
+kind: GPUQuotaPolicy
+metadata:
+  name: study-premium-1
+  annotations:
+    platform.lkhun9311.github.io/tier: premium
+spec:
+  tenant: premium-1
+  targetNamespace: serve-a
+  limits:
+    gpuCount: 1
+---
+apiVersion: platform.lkhun9311.github.io/v1
+kind: GPUQuotaPolicy
+metadata:
+  name: study-standard-noisy
+spec:
+  tenant: standard-noisy
+  targetNamespace: serve-a
+  limits:
+    gpuCount: 1

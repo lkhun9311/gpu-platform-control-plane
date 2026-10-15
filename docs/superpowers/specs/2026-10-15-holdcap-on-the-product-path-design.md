@@ -77,7 +77,7 @@ Within each block the two arms run in the order of `sha256("<seed>/<arm>")`, asc
 5. replay the trace; sample, every 5 s, `status.admission`, the gauge, and the engine's and gateway's Pod UIDs and restart counts;
 6. drain: wait for the replay to return, then for the engine's running and waiting gauges to be 0 for 10 s, at most 120 s; read both `/metrics` again.
 
-A cell is not started unless the session's deadline leaves its budget (25 min) plus the teardown reserve (40 min).
+A cell is not started unless the card's own deadline (the AWS scale-down `gpu_up` arms) leaves its budget (25 min) plus a 10 min margin; the cluster's teardown after the card is covered by the watchdog's later deadline.
 
 ## Registration
 
@@ -131,7 +131,7 @@ Every attempt is kept; no cell is rerun to replace another.
 - **The scorer** passes a synthetic fixture built to meet every line, and fails, naming the cause, on altered copies of it: a deleted, duplicated or extra row; a duplicated or missing cell; a wrong study or arm label; a missing sample or a sampling gap; malformed or missing metrics; a wrong priority header; a preemption; a refusal in an otherwise invalid block; an Off baseline below 95% completion; each acceptance line breached in turn.
 - **On kind**, the runner's whole sequence runs end to end with the real traces: two tenants on one backend under three ResourceQuotas, an engine replacement with all three present, the collector replaying a full 420 s trace against `benchharness stub-serve` streaming with representative delays, metrics read from Pod IPs, files exported and hashed, and the scorer run on the result.
   What kind cannot show is the controller-rendered HoldCap status gate on a real engine; it was shown on an A10G on 2026-10-11 (`hack/holdcap-conformance/runs/20261011T030610Z/README.md`) and is covered by envtest.
-- **`main` carries the study's commit**, since Argo deploys `main`.
+- **What runs from where.** The product under test (operator, gateway, engine profile) is what Argo deploys from `main`; this study changes none of it, and the revision and image digests are recorded and frozen as above. The study's own tooling (`run.sh`, the harness binary, `score.py`) runs from the operator's checkout of this branch, and its commit and the harness's sha256 are recorded with the evidence.
 - **The purchase gate**, read at the session's start and enforced: credentials, region, the G Spot quota and its current use, no destroy workflow pending, the nightly destroy outside the session, and a g5.xlarge Spot price at most $1.00 an hour in the chosen zone; any failure buys nothing.
 
 ## Budget
@@ -139,7 +139,7 @@ Every attempt is kept; no cell is rerun to replace another.
 Downloads: the bundle's own HoldCap engine once, then six fresh engines, each 6.18 GiB of model; the vLLM image once, about 9 GiB, since every cell runs on the same node and a Recreate there keeps it.
 That is about 52 GiB through the NAT, $3.3 at $0.059 a GB.
 Card: about 2.6 h at up to $1.00 ($2.6); cluster without the card about 3.5 h at $0.26 ($0.9). About $6.8 in all.
-The ceiling proposed here is **$15**, about twice the estimate; the owner approved paid work without naming an amount, so this figure is the design's, to be confirmed or changed at the purchase gate. The TTL is set to 240 minutes and is a cleanup backstop, not a dollar limit: the watchdog starts the destroy at the deadline, and a destroy that fails leaves resources billing until it is retried by hand.
+The ceiling proposed here is **$15**, about twice the estimate; the owner approved paid work without naming an amount, so this figure is the design's, to be confirmed or changed at the purchase gate. The TTL is set to 300 minutes, because the session refuses to start unless it covers every worst-case wait (six cells at 25 min each among them); it is a cleanup backstop, not a dollar limit: the watchdog starts the destroy at the deadline, and a destroy that fails leaves resources billing until it is retried by hand.
 What stops spending before the allowance: the purchase gate, the per-cell start rule above, and the study ending at the first identity change.
 
 ## Out of scope

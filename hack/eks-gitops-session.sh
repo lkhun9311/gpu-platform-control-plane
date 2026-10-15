@@ -37,6 +37,9 @@
 #   EGRESS_CIDR       this machine's address, /32                 (default: asked of checkip.amazonaws.com)
 #   REGION            AWS region                                  (default ap-northeast-2)
 #   KEEP_UP           set to `yes` to skip the destroy at the end (the kill switch still fires)
+#   STUDY             set to `holdcap` to run the hold-cap product transfer study on the card instead of the one
+#                     request and recovery; implies SERVE=yes and needs TTL_MINUTES of about 300
+#   MAX_SPOT_PRICE    with STUDY, the most an hour of the card may cost in any zone, or nothing is bought (default 1.00)
 #   SERVE             set to `yes` to buy one GPU and serve one request; needs TTL_MINUTES of about 180 and gh
 
 set -euo pipefail
@@ -105,6 +108,18 @@ WAIT_GPU_GONE="${WAIT_GPU_GONE:-600}"
 # all: node, plugin, HoldCap, request, recovery, request again, scale-down. The runbook's defaults are read here
 # so the sum is of the waits that will actually run.
 SERVE_BUDGET=$((WAIT_GPU_NODE + WAIT_GPU_PLUGIN + ${WAIT_SERVE_READY:-1500} + 300 + ${WAIT_SERVE_RECOVER:-1500} + 300 + WAIT_GPU_GONE + 300))
+# The study replaces the request and the recovery with six cells of at most 25 minutes each and 15 minutes of
+# setup (docs/superpowers/specs/2026-10-15-holdcap-on-the-product-path-design.md); the deadline must cover them.
+STUDY="${STUDY:-}"
+MAX_SPOT_PRICE="${MAX_SPOT_PRICE:-1.00}"
+case "$STUDY" in
+  "") ;;
+  holdcap)
+    SERVE=yes
+    SERVE_BUDGET=$((WAIT_GPU_NODE + WAIT_GPU_PLUGIN + ${WAIT_SERVE_READY:-1500} + 900 + 6 * 1500 + WAIT_GPU_GONE + 300))
+    ;;
+  *) die "STUDY=$STUDY is not a study this session runs (holdcap)" ;;
+esac
 if [[ "$SERVE" == yes ]]; then
   # The build, the baseline and the destroy are measured at 25 minutes for the whole 2026-09-25 cycle; an hour
   # is allowed for them here, on top of the card's budget.
@@ -324,6 +339,17 @@ gpu_up() {
     bad "could not read the $SERVE_INSTANCE_TYPE Spot price ($(head -c 200 "$EXDIR/spot-price.txt")); no card is bought unpriced"
     return 1
   fi
+  # A study holds the card for hours, so its price is a gate, not a record. Every zone is judged, because the
+  # node group chooses the zone and this script does not.
+  if [[ -n "$STUDY" ]]; then
+    local dear
+    dear="$(awk -v max="$MAX_SPOT_PRICE" 'NF == 2 && $2 + 0 > max + 0 {printf "%s %s; ", $1, $2}' "$EXDIR/spot-price.txt")"
+    if [[ -n "$dear" ]]; then
+      bad "the $SERVE_INSTANCE_TYPE Spot price exceeds the study's ceiling of \$$MAX_SPOT_PRICE an hour in: $dear; nothing is bought"
+      return 1
+    fi
+    ok "Spot price at most \$$MAX_SPOT_PRICE an hour in every zone ($(tr '\t\n' ' ;' <"$EXDIR/spot-price.txt"))"
+  fi
 
   # The AWS deadline fires before the laptop watchdog, so the card is the first thing to go whichever clock
   # wins, and it must leave the serving steps their whole budget.
@@ -343,6 +369,7 @@ gpu_up() {
     return 1
   fi
   GPU_ARMED=1
+  GPU_DEADLINE=$(($(date +%s) + gpu_min * 60))
   if ! printf '%s\n' "$TTL_SCHEDULE_NAME" >"$GPU_TTL_FILE"; then
     bad "could not record the GPU deadline's name; the watchdog could not remove it later"
     return 1
@@ -496,7 +523,21 @@ if [[ "$SERVE" == yes ]]; then
     # here, before the card, because the pins main carries can differ from what the kind rehearsal ran.
     bad "the serving bundle failed what this cluster can show without a GPU, so no card is bought"
   elif gpu_up; then
-    serve_step serve-ready && serve_step serve-request && serve_step serve-recover || true
+    if [[ "$STUDY" == holdcap ]]; then
+      # The cells must end before the card's own deadline, with ten minutes for the last one's export; the
+      # whole-cluster teardown after gpu_down is covered by the watchdog's later deadline, not by this margin.
+      if serve_step serve-ready; then
+        log "study: holdcap, until $(date -u -d "@$GPU_DEADLINE" +%H:%M:%SZ) less a 10 min margin"
+        if CONTEXT="$CLUSTER" EXDIR="$EXDIR" STUDY_DEADLINE="$GPU_DEADLINE" TEARDOWN_RESERVE=600 \
+          hack/eks-serve/holdcap-study/run.sh >>"$EXDIR/session.log" 2>&1; then
+          ok "study: all six cells ran; $(head -1 "$EXDIR/holdcap-study/verdict.txt" 2>/dev/null || echo 'no verdict file')"
+        else
+          bad "study stopped: $(cat "$EXDIR/holdcap-study/STOPPED" 2>/dev/null || echo 'no reason recorded'); the cells written are kept"
+        fi
+      fi
+    else
+      serve_step serve-ready && serve_step serve-request && serve_step serve-recover || true
+    fi
   fi
   gpu_down
 fi
