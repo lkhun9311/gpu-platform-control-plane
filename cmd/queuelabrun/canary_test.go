@@ -1022,8 +1022,17 @@ func TestTheTemplateKeyDoesNotMoveWithWhatARunSubmits(t *testing.T) {
 // Mutation that turns this red: drop any field from templateProbeJob's literal, or add a field to
 // MLTrainingJobSpec without giving the probe a value for it.
 func TestTheTemplateProbeLeavesNoFieldOfTheSpecUnexercised(t *testing.T) {
+	// Distributed is the one field left unset, because the premise above does not hold for it: no run takes it.
+	// queuelab renders every job it submits in renderWithState, which never sets it, and
+	// TestAQueuelabJobIsNeverDistributed in internal/queuelab turns red the day that changes.
+	// Setting it here instead would turn the probe into an Indexed multi-Pod Job, which the CRD refuses alongside this
+	// probe's stateVolume and 3/5, and would invalidate every reading taken of the template runs actually use.
+	exempt := map[string]bool{"Distributed": true}
 	spec := reflect.ValueOf(templateProbeJob().Spec)
 	for i := 0; i < spec.NumField(); i++ {
+		if exempt[spec.Type().Field(i).Name] {
+			continue
+		}
 		if spec.Field(i).IsZero() {
 			t.Fatalf("templateProbeJob leaves MLTrainingJobSpec.%s at its zero value; the operator's template is "+
 				"keyed at this one input, so anything it renders only when that field is set is outside the key",

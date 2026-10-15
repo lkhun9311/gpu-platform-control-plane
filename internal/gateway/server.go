@@ -322,7 +322,9 @@ func (s *Server) resolveBackend(ctx context.Context, policy *platformv1.GPUQuota
 //  4. rate limit: over its share stops here (429).
 //  5. body parse: extract the model (400).
 //  6. routing: resolve the model to a backend (404).
-//  7. admission: off/static-cap/kv-aware decide whether the request proceeds (429).
+//  7. admission: the process-wide mode (off, static-cap, kv-aware, prospective, serial-prefill or
+//     fixed-spacing), or HoldCap where the backend's status reports it in force, decides whether the request
+//     proceeds, waits or is refused (429; 400 for a shape HoldCap refuses).
 //  8. proxy: hand off upstream (502/504, or whatever the upstream returns).
 //
 // Why auth precedes rate limiting.

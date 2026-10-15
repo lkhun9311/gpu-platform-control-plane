@@ -33,6 +33,10 @@ type GpuSharingBenchmarkSpec struct {
 	// gpuClass is the GPU class the experiment runs on (e.g. "a10g").
 	//
 	// Spelled as in the rest of api/v1, so one vocabulary covers quota, serving and this.
+	//
+	// Recorded, not enforced: it reaches the compiled plan and the CR's digest, but compile-plan does not export it,
+	// the runner never checks the card against it, and nothing refuses a class the harness cannot run.
+	// Carrying it to the run needs the paid wrapper, a hardware check and a rehearsal mode, and is not built.
 	// +required
 	GPUClass string `json:"gpuClass"`
 
@@ -77,6 +81,11 @@ type GpuSharingBenchmarkSpec struct {
 	//
 	// A p99 needs the tail populated; below a thousand requests the figure is decided by a handful of
 	// samples.
+	//
+	// Recorded, not enforced: compile-plan checks it against the harness floor of 100 and exports nothing, and the
+	// scorer applies its own constant floor of 100 per repetition, so a run short of this value is not refused.
+	// Enforcing it means the paid wrapper, the scorer's reading 4b for the victim alone, and the pre-purchase plan
+	// check, and is not built.
 	// +kubebuilder:validation:Minimum=1000
 	// +required
 	MinRequestsPerRun int32 `json:"minRequestsPerRun"`

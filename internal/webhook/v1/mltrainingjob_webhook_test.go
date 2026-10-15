@@ -322,3 +322,53 @@ func TestValidateUpdateNeverBlocksDeletion(t *testing.T) {
 		t.Fatal("an empty image was accepted on a live object; the deletion bypass is too wide")
 	}
 }
+
+func TestADistributedJobNeedsANameItsRendezvousServiceCanCarry(t *testing.T) {
+	// The CR's name is a DNS-1123 subdomain and the Service's must be a DNS-1035 label, so these are names the API
+	// accepts and the controller could never build a Service for.
+	//
+	// Mutation that turns this red: return nil from distributedName before IsDNS1035Label.
+	rows := []struct {
+		name  string
+		bad   bool
+		label string
+	}{
+		{"0trainer", true, "a leading digit"},
+		{"trainer.v2", true, "a dot"},
+		{strings.Repeat("a", 60), true, "60 characters, one more than -ddp leaves room for"},
+		{strings.Repeat("a", 59), false, "59 characters, the most that fits"},
+		{"trainer", false, "an ordinary name"},
+	}
+	for _, row := range rows {
+		t.Run(row.label, func(t *testing.T) {
+			v := validatorWith(t)
+			_, err := v.ValidateCreate(context.Background(), job(func(m *platformv1.MLTrainingJob) {
+				m.Name = row.name
+				m.Spec.Distributed = &platformv1.Distributed{WorldSize: 2}
+			}))
+			switch {
+			case row.bad && err == nil:
+				t.Fatalf("accepted %q for a distributed job", row.name)
+			case row.bad:
+				if got := causes(t, err); len(got) != 1 || got[0] != "metadata.name" {
+					t.Fatalf("blamed %v, want exactly [metadata.name]", got)
+				}
+			case err != nil:
+				t.Fatalf("refused %q: %v", row.name, err)
+			}
+		})
+	}
+}
+
+func TestAnOrdinaryJobKeepsTheNamesItAlwaysHad(t *testing.T) {
+	// The name rule is for distributed jobs only; an ordinary job creates no Service, and refusing its names would
+	// break callers that never asked for anything new.
+	//
+	// Mutation that turns this red: drop the Distributed == nil guard in distributedName.
+	for _, name := range []string{"0trainer", "trainer.v2", strings.Repeat("a", 60)} {
+		v := validatorWith(t)
+		if _, err := v.ValidateCreate(context.Background(), job(func(m *platformv1.MLTrainingJob) { m.Name = name })); err != nil {
+			t.Fatalf("refused the non-distributed name %q: %v", name, err)
+		}
+	}
+}

@@ -168,13 +168,21 @@ partially.
 
 ⚠️ **Two fields are neither refused nor enforced, which is a third state this section used to hide.**
 `CompilePlan` stores `gpuClass` and `minRequestsPerRun` on the `Plan` (`internal/bench/plan.go:191-192`), and
-the `compile-plan` export block never prints them (`cmd/benchharness/compileplan.go:115-150`). So raising the
+the `compile-plan` export block never prints them (`cmd/benchharness/compileplan.go:129-152`). So raising the
 executable sample's `minRequestsPerRun` from 1,000 to 1,000,000 changes the CR's sha256 and changes nothing
 else: the compiler checks only the floor, the runner is never told the number, and the analysis path reads the
-harness constant `MinTailSamples = 100` (`internal/bench/report.go:769`) rather than the CR's value. Keeping a
+harness constant `MinTailSamples = 100` (`internal/bench/report.go:901`) rather than the CR's value. Keeping a
 declared value in a struct is not the same as carrying it to the run — that distinction is what the
 `outputTokens` work above was about, and these two fields are still on the wrong side of it. Verified by
 reading the code path, not by executing a changed CR.
+
+**Left as it is, by decision (2026-10-14).** An adversarial review of a design to carry both fields to the run
+found it needs: the paid wrapper (`hack/m5c-gpu-session.sh`) to forward them across its user-data boundaries; a
+scoring step the paid path does not run today; the floor applied to the victim alone in the sharing scorer's
+reading 4b, since the contender's offers (139 per repetition in the executable sample) could never reach 1,000; a
+hardware check with a rehearsal mode, so the GPU-free rehearsal still runs; and the pre-purchase plan check. The
+study it serves is frozen, so none of that is built. The CRD's field descriptions now say both are recorded, not
+enforced, so `kubectl explain` tells an operator what this section does.
 
 | Field | What is supported | Refused by, and why that is not a missing afternoon of work |
 |---|---|---|

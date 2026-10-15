@@ -1,0 +1,31 @@
+{
+  "metadata": {
+    "name": "plain",
+    "namespace": "ns",
+    "labels": {
+      "kueue.x-k8s.io/queue-name": "q"
+    }
+  },
+  "spec": {
+    "parallelism": 1,
+    "completions": 1,
+    "template": {
+      "metadata": {},
+      "spec": {
+        "containers": [
+          {
+            "name": "trainer",
+            "image": "img:1",
+            "resources": {
+              "limits": {
+                "nvidia.com/gpu": "0"
+              }
+            }
+          }
+        ],
+        "restartPolicy": "Never"
+      }
+    }
+  },
+  "status": {}
+}

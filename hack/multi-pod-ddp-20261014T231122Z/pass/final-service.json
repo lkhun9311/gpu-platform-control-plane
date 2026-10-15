@@ -1,0 +1,53 @@
+{
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+        "creationTimestamp": "2026-10-14T23:13:21Z",
+        "labels": {
+            "platform.lkhun9311.github.io/mltrainingjob": "ddp-pass-231321"
+        },
+        "name": "ddp-pass-231321-ddp",
+        "namespace": "ddp",
+        "ownerReferences": [
+            {
+                "apiVersion": "platform.lkhun9311.github.io/v1",
+                "blockOwnerDeletion": true,
+                "controller": true,
+                "kind": "MLTrainingJob",
+                "name": "ddp-pass-231321",
+                "uid": "32aa5563-9094-4bfe-b822-4b8dd8b6a78a"
+            }
+        ],
+        "resourceVersion": "1370",
+        "uid": "bfcdbdad-1e70-423a-8a19-285379a032f3"
+    },
+    "spec": {
+        "clusterIP": "None",
+        "clusterIPs": [
+            "None"
+        ],
+        "internalTrafficPolicy": "Cluster",
+        "ipFamilies": [
+            "IPv4"
+        ],
+        "ipFamilyPolicy": "SingleStack",
+        "ports": [
+            {
+                "name": "rendezvous",
+                "port": 29500,
+                "protocol": "TCP",
+                "targetPort": 29500
+            }
+        ],
+        "publishNotReadyAddresses": true,
+        "selector": {
+            "platform.lkhun9311.github.io/mltrainingjob": "ddp-pass-231321",
+            "platform.lkhun9311.github.io/mltrainingjob-uid": "32aa5563-9094-4bfe-b822-4b8dd8b6a78a"
+        },
+        "sessionAffinity": "None",
+        "type": "ClusterIP"
+    },
+    "status": {
+        "loadBalancer": {}
+    }
+}

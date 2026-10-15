@@ -53,6 +53,7 @@ type MLTrainingJobReconciler struct {
 // +kubebuilder:rbac:groups=platform.lkhun9311.github.io,resources=mltrainingjobs/finalizers,verbs=update
 // +kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;update
 
 // Reconcile syncs an owned, suspended batch/v1 Job from the MLTrainingJob spec.
 //
@@ -89,11 +90,44 @@ func (r *MLTrainingJobReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, nil
 	}
 
-	if conflict, err := r.ownedConflict(ctx, &mltj, &batchv1.Job{}); err != nil {
+	existing := &batchv1.Job{}
+	if conflict, err := r.ownedConflict(ctx, &mltj, existing); err != nil {
 		return ctrl.Result{}, fmt.Errorf("check job ownership %s/%s: %w", mltj.Namespace, mltj.Name, err)
 	} else if conflict {
 		log.Info("Job exists and is not owned by this MLTrainingJob; refusing to adopt", "name", mltj.Name)
 		return r.markFailed(ctx, &mltj, mltjReasonConflict, "a Job of the same name is not owned by this MLTrainingJob")
+	}
+	jobExists := !existing.CreationTimestamp.IsZero()
+
+	// A distributed job's ranks resolve rank 0 through its Service as soon as they start, so the Service comes first.
+	//
+	// What it blocks is creating the Job, and only that.
+	// Once a Job exists its status is still translated below, so a Service lost mid-run cannot freeze the phase of a job that goes on to finish.
+	var rendezvous *metav1.Condition
+	var rendezvousRequeue time.Duration
+	if mltj.Spec.Distributed != nil {
+		ready, cond, err := r.ensureRendezvousService(ctx, &mltj)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		rendezvous = cond
+		if !ready {
+			// Owns(Service) sees only Services this job owns, so a foreign one going away enqueues nothing; the retry is what notices.
+			rendezvousRequeue = rendezvousRetry
+			if cond == nil {
+				rendezvousRequeue = time.Second
+			}
+			if !jobExists {
+				if cond != nil {
+					// Pending, the phase a job is in before its Job exists, and deliberately not Failed: nothing has run, and the job starts by itself once the name is free.
+					if err := r.setMLTJPhase(ctx, &mltj, mltjPhasePending,
+						admittedCondition(metav1.ConditionFalse, "RendezvousServiceUnavailable"), nil, nil, cond); err != nil {
+						return ctrl.Result{}, err
+					}
+				}
+				return ctrl.Result{RequeueAfter: rendezvousRequeue}, nil
+			}
+		}
 	}
 
 	desired := BuildJob(&mltj)
@@ -107,6 +141,10 @@ func (r *MLTrainingJobReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		if job.CreationTimestamp.IsZero() {
 			job.Spec.Suspend = new(true)
 			job.Spec.Template = desired.Spec.Template
+			// Copied by name because this path copies only what it names: left behind, completionMode would default to NonIndexed and backoffLimit to 6, and a failed rank would be replaced by one that cannot rejoin.
+			// Both are nil for a job without distributed, which is what the API server defaulted before.
+			job.Spec.CompletionMode = desired.Spec.CompletionMode
+			job.Spec.BackoffLimit = desired.Spec.BackoffLimit
 		}
 		// Merge the desired labels in rather than replacing the map, so any label Kueue or the apiserver adds to the Job is preserved across reconciles.
 		if job.Labels == nil {
@@ -133,12 +171,20 @@ func (r *MLTrainingJobReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	if wl != nil {
 		admittedAt = kueueAdmittedStamp(wl.Status.Conditions)
 	}
-	if err := r.setMLTJPhase(ctx, &mltj, phase, cond, admittedAt); err != nil {
+	// Nil when the Job has not reported readiness, so an unknown count is absent rather than a zero nobody measured.
+	var readyRanks *int32
+	if mltj.Spec.Distributed != nil && job.Status.Ready != nil {
+		readyRanks = new(*job.Status.Ready)
+	}
+	if err := r.setMLTJPhase(ctx, &mltj, phase, cond, admittedAt, readyRanks, rendezvous); err != nil {
 		return ctrl.Result{}, err
 	}
 
-	return ctrl.Result{}, nil
+	return ctrl.Result{RequeueAfter: rendezvousRequeue}, nil
 }
+
+// rendezvousRetry is how often a distributed job blocked by a Service it does not own checks whether the name is free.
+const rendezvousRetry = 30 * time.Second
 
 // StateVolumeName is the Pod-local name tying the volume to its mount.
 //
@@ -201,7 +247,7 @@ func BuildJob(mltj *platformv1.MLTrainingJob) *batchv1.Job {
 			Name: StateVolumeName, MountPath: sv.MountPath,
 		}}
 	}
-	return &batchv1.Job{
+	job := &batchv1.Job{
 		Name: mltj.Name, Namespace: mltj.Namespace, Labels: labels,
 		Spec: batchv1.JobSpec{
 			Parallelism: new(defaultOne(mltj.Spec.Parallelism)),
@@ -209,6 +255,10 @@ func BuildJob(mltj *platformv1.MLTrainingJob) *batchv1.Job {
 			Template:    corev1.PodTemplateSpec{Spec: pod},
 		},
 	}
+	if mltj.Spec.Distributed != nil {
+		applyDistributed(job, mltj)
+	}
+	return job
 }
 
 // driverCapabilities states which NVIDIA driver libraries this Pod needs mounted into it, for a Pod that asks for a device.
@@ -448,15 +498,25 @@ func (r *MLTrainingJobReconciler) setMLTJPhase(
 	phase string,
 	cond metav1.Condition,
 	kueueAdmittedAt *metav1.Time,
+	readyRanks *int32,
+	rendezvous *metav1.Condition,
 ) error {
 	desired := mltj.Status.DeepCopy()
 	phaseChanged := desired.Phase != phase
 	previousPhase := mltj.Status.Phase
 	desired.Phase = phase
 	desired.ObservedGeneration = mltj.Generation
+	desired.ReadyRanks = readyRanks
 
 	cond.ObservedGeneration = mltj.Generation
 	meta.SetStatusCondition(&desired.Conditions, cond)
+
+	// Nil leaves whatever the condition last said; a pass that could not yet tell whose the Service is has nothing to report.
+	if rendezvous != nil {
+		rc := *rendezvous
+		rc.ObservedGeneration = mltj.Generation
+		meta.SetStatusCondition(&desired.Conditions, rc)
+	}
 
 	// How long the tenant waited between having quota and using it, recorded on the reconciles that saw each
 	// end of that window and refused on the ones that did not.
@@ -530,6 +590,7 @@ func (r *MLTrainingJobReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&platformv1.MLTrainingJob{}).
 		Owns(&batchv1.Job{}).
+		Owns(&corev1.Service{}).
 		Watches(&kueuev1beta1.Workload{}, handler.EnqueueRequestsFromMapFunc(mapWorkloadToMLTrainingJob)).
 		Named("mltrainingjob").
 		Complete(r)
