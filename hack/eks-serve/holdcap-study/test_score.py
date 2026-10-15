@@ -280,6 +280,11 @@ class ScoreTest(unittest.TestCase):
         self.r.edit_rows(851, "HoldCap", lambda r: r.update(contentGapsMicros=[40_000] * 63) if r["tenant"] == score.PREMIUM else None)
         self.assertVerdict("not met", "line 5")
 
+    def test_every_premium_request_failing_is_not_met_rather_than_a_crash(self):
+        # No premium success leaves no gaps to rank; that must read as a failed line, not an exception.
+        self.r.edit_rows(852, "HoldCap", lambda r: r.update(httpStatus=0, errorKind="timeout") if r["tenant"] == score.PREMIUM else None)
+        self.assertVerdict("not met", "line 1")
+
     def test_a_short_stream_is_not_a_success(self):
         self.r.edit_rows(851, "HoldCap", lambda r: r.update(contentGapsMicros=[30_000] * 62) if r["tenant"] == score.PREMIUM and r["index"] < 5 else None)
         self.assertVerdict("not met", "line 1")

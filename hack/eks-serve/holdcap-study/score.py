@@ -262,8 +262,9 @@ class Cell:
         return done, nearest_rank(lat, 0.5), nearest_rank(lat, 0.95)
 
     def premium_gap_p99_us(self) -> float:
+        """+inf when no premium request succeeded: there are no gaps to rank, and none is not a short gap."""
         gaps = [g for r in self.rows if r["tenant"] == PREMIUM and succeeded(r) for g in r["contentGapsMicros"]]
-        return nearest_rank(gaps, 0.99)
+        return nearest_rank(gaps, 0.99) if gaps else math.inf
 
     def refusals(self) -> int:
         return sum(refused(r) for r in self.rows)
@@ -276,7 +277,8 @@ def off_validity(off: Cell) -> list[str]:
     done, p50, p95 = off.contender()
     if done < OFF_COMPLETION_MIN:
         problems.append(f"Off contender completion {done:.3f}")
-    if any(math.isinf(v) for v in (off.premium_ttft_p99_ms(), p50, p95)) or off.premium_gap_p99_us() <= 0:
+    gap = off.premium_gap_p99_us()
+    if any(math.isinf(v) for v in (off.premium_ttft_p99_ms(), p50, p95, gap)) or gap <= 0:
         problems.append("an Off denominator is not finite and positive")
     return problems
 

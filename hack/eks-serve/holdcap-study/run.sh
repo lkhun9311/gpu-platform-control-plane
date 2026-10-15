@@ -243,9 +243,17 @@ log "gateway $GW_POD at $GW_IP; replay target $GW_URL"
 
 read -r E_POD _ _ _ _ E_NODE <<<"$(engine_pods_json | live_one)" || stop "not exactly one live engine Pod at the start"
 identity "$E_NODE" >"$OUT/identity-start.json" || stop "identity"
-GATEWAY_SHA="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["argo"].get("gateway") or "")' "$OUT/identity-start.json")"
+# The gateway's revision is the one its Argo Application synced, by the name config/argocd/gateway.yaml gives it.
+# A cluster with Argo but no such Application is refused; only a cluster with no Argo at all (the kind rehearsal)
+# falls back to the tooling's commit, so a wrong name cannot hide behind the fallback.
+GATEWAY_APP=gpu-platform-gateway
+GATEWAY_SHA="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["argo"].get(sys.argv[2]) or "")' "$OUT/identity-start.json" "$GATEWAY_APP")"
+ARGO_APPS="$(python3 -c 'import json,sys; print(len(json.load(open(sys.argv[1]))["argo"]))' "$OUT/identity-start.json")"
+if [[ "$ARGO_APPS" != 0 && -z "$GATEWAY_SHA" ]]; then
+  stop "Argo runs $ARGO_APPS Application(s) but none named $GATEWAY_APP reports a synced revision"
+fi
 GATEWAY_IMAGE="$(python3 -c 'import json,sys; i=json.load(open(sys.argv[1]))["pods"]["gateway"]["images"]; print(i[0].split("://")[-1] if len(i)==1 else "")' "$OUT/identity-start.json")"
-[[ -n "$STUDY_REHEARSAL" ]] && GATEWAY_SHA="${GATEWAY_SHA:-$(git -C "$REPO" rev-parse HEAD)}"
+[[ -n "$STUDY_REHEARSAL" && "$ARGO_APPS" == 0 ]] && GATEWAY_SHA="${GATEWAY_SHA:-$(git -C "$REPO" rev-parse HEAD)}"
 GATEWAY_IMAGE="$(rehearsal_ref "$GATEWAY_IMAGE" gateway)"
 [[ "$GATEWAY_SHA" =~ ^[0-9a-f]{40}$ && "$GATEWAY_IMAGE" == *@sha256:* ]] || stop "cannot name the gateway build (sha '$GATEWAY_SHA', image '$GATEWAY_IMAGE')"
 
@@ -266,7 +274,13 @@ set_arm() {
         -p '{"spec":{"admission":{"mode":"Off","maxHold":null}}}' >>"$OUT/run.log" 2>&1 || return 1
     fi
   fi
-  local deadline=$((SECONDS + WAIT_ENGINE)) line st
+  # The engine may take what the cell's budget leaves after the 420 s replay, the idle and drain waits and the
+  # export (about 800 s together), and never more than WAIT_ENGINE: a slow start fails the cell instead of eating
+  # the margin before the card's deadline.
+  local budget=$((CELL_END - $(date +%s) - 800))
+  ((budget > WAIT_ENGINE)) && budget=$WAIT_ENGINE
+  ((budget > 0)) || return 1
+  local deadline=$((SECONDS + budget)) line st
   while ((SECONDS < deadline)); do
     sleep 10
     st="$(k -n "$SERVE_NS" get inferencedeployment "$SERVE_INFD" -o jsonpath='{.status.admission.mode} {.status.admission.observedGeneration} {.metadata.generation}' 2>/dev/null)" || continue
@@ -290,7 +304,8 @@ for seed in "${SEEDS[@]}"; do
       stop "cell $name would not finish before the teardown reserve; the remaining cells are not started"
     fi
     mkdir -p "$D"
-    log "== cell $CELL_NO: $name"
+    CELL_END=$(($(date +%s) + CELL_BUDGET))
+    log "== cell $CELL_NO: $name, to end by $(date -u -d "@$CELL_END" +%H:%M:%SZ)"
     meta() { python3 -c 'import json,sys; d=json.loads(sys.argv[1]); json.dump(d, open(sys.argv[2],"w"), indent=1, sort_keys=True)' "$1" "$D/cell.json"; }
     fail_cell() {
       meta "{\"cell\":\"$name\",\"outcome\":\"failed: $1\"}"
@@ -369,8 +384,9 @@ print(json.dumps({"t": int(t), "statusMode": st[0], "statusObservedGeneration": 
       --request-id-prefix study-$name --target $GW_URL --api-keys premium-1=$PREMIUM_KEY,standard-noisy=$CONTENDER_KEY \
       --raw-out raw-$name.jsonl >replay-$name.log 2>&1; echo \$? >replay-$name.rc) >/dev/null 2>&1 &" ||
       { touch "$D/.stop-sampling"; wait "$SAMPLER"; fail_cell "could not start the replay"; }
+    # The replay may run until 300 s before the cell's end, which leaves the drain and the export their time.
     rc=""
-    for _ in $(seq 1 120); do
+    while (($(date +%s) < CELL_END - 300)); do
       sleep 10
       rc="$(in_collector cat "/study/replay-$name.rc" 2>/dev/null || true)"
       [[ -n "$rc" ]] && break
@@ -398,5 +414,14 @@ print(json.dumps({"t": int(t), "statusMode": st[0], "statusObservedGeneration": 
 done
 
 log "all six cells complete; scoring"
-python3 "$HERE/score.py" "$OUT" | tee "$OUT/verdict.txt"
+# score.py exits 0 for "observed on these traces" and 1 for "not met" or "inconclusive": both are verdicts, and the
+# run that produced them succeeded. Anything else, or no verdict line, means the evidence could not be scored.
+set +e
+python3 "$HERE/score.py" "$OUT" >"$OUT/verdict.txt" 2>"$OUT/score.err"
+rc=$?
+set -e
+cat "$OUT/verdict.txt" | tee -a "$OUT/run.log"
+if [[ "$rc" != 0 && "$rc" != 1 ]] || ! head -1 "$OUT/verdict.txt" | grep -q '^verdict: '; then
+  stop "the scorer exited $rc without a verdict; see score.err"
+fi
 exit 0
