@@ -420,6 +420,23 @@ const defaultResponseHeaderTimeout = 30 * time.Second
 // So it cannot push the socket count above the peak concurrency the process already sustained, and anything it does keep is released by IdleConnTimeout below.
 const maxIdleConnsPerHost = 600
 
+// engineKeepAlive is how long the engine keeps an idle connection open: vLLM v0.27.1's VLLM_HTTP_TIMEOUT_KEEP_ALIVE,
+// whose default of 5 s reaches uvicorn's timeout_keep_alive (read from the v0.27.1 image's own
+// vllm/envs.py and vllm/entrypoints/openai/api_server.py on 2026-10-15). The controller renders no override.
+const engineKeepAlive = 5 * time.Second
+
+// idleConnTimeout is how long the gateway keeps an idle connection to a backend, and it is shorter than
+// engineKeepAlive on purpose.
+//
+// It was 90 s. A connection idle between 5 and 90 s is one the engine may be closing at the moment the gateway
+// picks it for the next request, and a POST lost that way is not retried by net/http, because a chat completion
+// is not idempotent: the client gets a 502. The hold-cap product study saw one such 502, logged as
+// "connection reset by peer" (hack/eks-serve/holdcap-study/runs/20261015T050622Z/README.md); that this race caused
+// it is consistent with the log, not proven by it.
+// Ending the gateway's side first removes the window: a connection the gateway still holds is one the engine has
+// not timed out. The price is a fresh handshake after more than 4 s of idleness, which is cheap inside a cluster.
+const idleConnTimeout = engineKeepAlive - time.Second
+
 // maxIdleBackends is how many distinct backends may each hold a full idle pool before the total cap binds.
 //
 // It converts "unbounded" into a number without making the bound reachable in practice: the measured
@@ -471,7 +488,8 @@ func newTransport(responseHeaderTimeout time.Duration) *http.Transport {
 	// IdleConnTimeout keeps connections warm for reuse, avoiding a TCP handshake per request.
 	//
 	// That property only holds because this Transport outlives the request; see the sharing rationale above.
-	t.IdleConnTimeout = 90 * time.Second
+	// It must also end before the engine's own keep-alive does; see idleConnTimeout.
+	t.IdleConnTimeout = idleConnTimeout
 
 	// See maxIdleConnsPerHost for the derivation; the default of 2 would undo most of the reuse this Transport exists to provide.
 	t.MaxIdleConnsPerHost = maxIdleConnsPerHost
