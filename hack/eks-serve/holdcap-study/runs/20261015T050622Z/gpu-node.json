@@ -1,0 +1,169 @@
+{
+    "apiVersion": "v1",
+    "kind": "Node",
+    "metadata": {
+        "annotations": {
+            "alpha.kubernetes.io/provided-node-ip": "10.0.103.195",
+            "csi.volume.kubernetes.io/nodeid": "{\"ebs.csi.aws.com\":\"i-05ac98ff8ed63f069\"}",
+            "node.alpha.kubernetes.io/ttl": "0",
+            "volumes.kubernetes.io/controller-managed-attach-detach": "true"
+        },
+        "creationTimestamp": "2026-10-15T05:24:11Z",
+        "labels": {
+            "beta.kubernetes.io/arch": "amd64",
+            "beta.kubernetes.io/instance-type": "g5.xlarge",
+            "beta.kubernetes.io/os": "linux",
+            "eks.amazonaws.com/capacityType": "SPOT",
+            "eks.amazonaws.com/nodegroup": "gpu_single",
+            "eks.amazonaws.com/nodegroup-image": "ami-00501fd44dd107e66",
+            "eks.amazonaws.com/sourceLaunchTemplateId": "lt-0a6abca7b2813d014",
+            "eks.amazonaws.com/sourceLaunchTemplateVersion": "1",
+            "failure-domain.beta.kubernetes.io/region": "ap-northeast-2",
+            "failure-domain.beta.kubernetes.io/zone": "ap-northeast-2c",
+            "k8s.io/cloud-provider-aws": "f60b2a7cd06af942e242313b01c4e1b7",
+            "kubernetes.io/arch": "amd64",
+            "kubernetes.io/hostname": "ip-10-0-103-195.ap-northeast-2.compute.internal",
+            "kubernetes.io/os": "linux",
+            "node.kubernetes.io/instance-type": "g5.xlarge",
+            "nvidia.com/gpu.present": "true",
+            "platform.lkhun9311.github.io/gpu": "true",
+            "topology.ebs.csi.aws.com/zone": "ap-northeast-2c",
+            "topology.k8s.aws/zone-id": "apne2-az3",
+            "topology.kubernetes.io/region": "ap-northeast-2",
+            "topology.kubernetes.io/zone": "ap-northeast-2c"
+        },
+        "name": "ip-10-0-103-195.ap-northeast-2.compute.internal",
+        "resourceVersion": "4280",
+        "uid": "85e1c281-f012-48c5-8f23-967d29b18f42"
+    },
+    "spec": {
+        "providerID": "aws:///ap-northeast-2c/i-05ac98ff8ed63f069",
+        "taints": [
+            {
+                "effect": "NoSchedule",
+                "key": "nvidia.com/gpu",
+                "value": "present"
+            }
+        ]
+    },
+    "status": {
+        "addresses": [
+            {
+                "address": "10.0.103.195",
+                "type": "InternalIP"
+            },
+            {
+                "address": "ip-10-0-103-195.ap-northeast-2.compute.internal",
+                "type": "InternalDNS"
+            },
+            {
+                "address": "ip-10-0-103-195.ap-northeast-2.compute.internal",
+                "type": "Hostname"
+            }
+        ],
+        "allocatable": {
+            "cpu": "3920m",
+            "ephemeral-storage": "95491281146",
+            "hugepages-1Gi": "0",
+            "hugepages-2Mi": "0",
+            "memory": "15148012Ki",
+            "nvidia.com/gpu": "1",
+            "pods": "58"
+        },
+        "capacity": {
+            "cpu": "4",
+            "ephemeral-storage": "104779756Ki",
+            "hugepages-1Gi": "0",
+            "hugepages-2Mi": "0",
+            "memory": "16164844Ki",
+            "nvidia.com/gpu": "1",
+            "pods": "58"
+        },
+        "conditions": [
+            {
+                "lastHeartbeatTime": "2026-10-15T05:24:31Z",
+                "lastTransitionTime": "2026-10-15T05:24:07Z",
+                "message": "kubelet has sufficient memory available",
+                "reason": "KubeletHasSufficientMemory",
+                "status": "False",
+                "type": "MemoryPressure"
+            },
+            {
+                "lastHeartbeatTime": "2026-10-15T05:24:31Z",
+                "lastTransitionTime": "2026-10-15T05:24:07Z",
+                "message": "kubelet has no disk pressure",
+                "reason": "KubeletHasNoDiskPressure",
+                "status": "False",
+                "type": "DiskPressure"
+            },
+            {
+                "lastHeartbeatTime": "2026-10-15T05:24:31Z",
+                "lastTransitionTime": "2026-10-15T05:24:07Z",
+                "message": "kubelet has sufficient PID available",
+                "reason": "KubeletHasSufficientPID",
+                "status": "False",
+                "type": "PIDPressure"
+            },
+            {
+                "lastHeartbeatTime": "2026-10-15T05:24:31Z",
+                "lastTransitionTime": "2026-10-15T05:24:21Z",
+                "message": "kubelet is posting ready status",
+                "reason": "KubeletReady",
+                "status": "True",
+                "type": "Ready"
+            }
+        ],
+        "daemonEndpoints": {
+            "kubeletEndpoint": {
+                "Port": 10250
+            }
+        },
+        "features": {
+            "supplementalGroupsPolicy": true
+        },
+        "images": [
+            {
+                "names": [
+                    "602401143452.dkr.ecr.us-west-2.amazonaws.com/eks/pause:3.10",
+                    "localhost/kubernetes/pause:latest"
+                ],
+                "sizeBytes": 318731
+            }
+        ],
+        "nodeInfo": {
+            "architecture": "amd64",
+            "bootID": "f008fec6-4c85-4e0b-8060-0c70faa9da12",
+            "containerRuntimeVersion": "containerd://2.3.5+unknown",
+            "kernelVersion": "6.12.111-136.204.amzn2023.x86_64",
+            "kubeProxyVersion": "",
+            "kubeletVersion": "v1.35.8-eks-b9510e3",
+            "machineID": "ec20e8083eb0c7da5883d10b5242e756",
+            "operatingSystem": "linux",
+            "osImage": "Amazon Linux 2023.12.20261012",
+            "systemUUID": "ec20e808-3eb0-c7da-5883-d10b5242e756"
+        },
+        "runtimeHandlers": [
+            {
+                "features": {
+                    "recursiveReadOnlyMounts": true,
+                    "userNamespaces": true
+                },
+                "name": ""
+            },
+            {
+                "features": {
+                    "recursiveReadOnlyMounts": true,
+                    "userNamespaces": true
+                },
+                "name": "nvidia"
+            },
+            {
+                "features": {
+                    "recursiveReadOnlyMounts": true,
+                    "userNamespaces": true
+                },
+                "name": "runc"
+            }
+        ]
+    }
+}

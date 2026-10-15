@@ -309,6 +309,12 @@ const (
 	// shares the pilot's load, lengths, engine and capture, and adds the hold, cap and hold-cap arms.
 	StudyAdmissionDiagnostic = "admission-diagnostic-2026-10-10"
 
+	// StudyHoldCapProductTransfer replays the diagnostic's three traces through the product path on EKS: an
+	// InferenceDeployment switched between admission Off and HoldCap,
+	// docs/superpowers/specs/2026-10-15-holdcap-on-the-product-path-design.md. Its arms are the product's mode names,
+	// not the lab's, because the product's Off binds no priority and the lab's off did.
+	StudyHoldCapProductTransfer = "holdcap-product-transfer-2026-10-15"
+
 	// StudyAdmissionFrontier is v26: hold-cap against a frozen frontier of fixed spacings, each judged on the card by
 	// the owner's contender limits, docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md,
 	// "v26". It shares the diagnostic's load, lengths, engine and capture; its controls are the gateway's
@@ -795,6 +801,26 @@ var studies = map[string]Study{
 			ContenderOutputTokens: 16,
 		},
 		MinRepetitions:         1,
+		FixesOutputAtCap:       true,
+		RecordsReplayTiming:    true,
+		TracesVaryByRepetition: true,
+		SenderPoolSize:         600,
+		FrozenExactTokens:      map[int]int{200: 68, 40000: 7695},
+	},
+	// The diagnostic's load, lengths, sender and frozen token counts, replayed unchanged, so a row here and a row there
+	// were sent the same way; only what answers them differs.
+	StudyHoldCapProductTransfer: {
+		ID:       StudyHoldCapProductTransfer,
+		Arms:     []string{"Off", "HoldCap"},
+		Arrivals: ArrivalsIndependent,
+		Frozen: &FrozenTuple{
+			PremiumPromptChars:    200,
+			ContenderPromptChars:  40000,
+			TimeoutMs:             30000,
+			PremiumOutputTokens:   64,
+			ContenderOutputTokens: 16,
+		},
+		MinRepetitions:         3,
 		FixesOutputAtCap:       true,
 		RecordsReplayTiming:    true,
 		TracesVaryByRepetition: true,

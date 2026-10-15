@@ -1,0 +1,57 @@
+{
+ "argo": {
+  "cert-manager": "v1.21.1",
+  "gpu-platform-crds": "ef925c49f85bc87d706f579e0079e638c8756533",
+  "gpu-platform-device-plugin": "ef925c49f85bc87d706f579e0079e638c8756533",
+  "gpu-platform-gateway": "ef925c49f85bc87d706f579e0079e638c8756533",
+  "gpu-platform-nvidia-device-plugin": "ef925c49f85bc87d706f579e0079e638c8756533",
+  "gpu-platform-observability": "ef925c49f85bc87d706f579e0079e638c8756533",
+  "gpu-platform-operator": "ef925c49f85bc87d706f579e0079e638c8756533",
+  "gpu-platform-policy": "ef925c49f85bc87d706f579e0079e638c8756533",
+  "gpu-platform-root": "ef925c49f85bc87d706f579e0079e638c8756533",
+  "gpu-platform-samples": "ef925c49f85bc87d706f579e0079e638c8756533",
+  "gpu-platform-serving": "ef925c49f85bc87d706f579e0079e638c8756533",
+  "gpu-platform-storage": "ef925c49f85bc87d706f579e0079e638c8756533",
+  "kueue-crds": "ef925c49f85bc87d706f579e0079e638c8756533"
+ },
+ "node": "aws:///ap-northeast-2c/i-05ac98ff8ed63f069",
+ "pods": {
+  "gateway": {
+   "args": [
+    [
+     "/gateway"
+    ]
+   ],
+   "images": [
+    "007635145730.dkr.ecr.ap-northeast-2.amazonaws.com/gpu-platform-gateway@sha256:d15191ab8cb550b89a89a43275c9f008f9ad9fcb62fecd3c6da5a79e26fd0ce0"
+   ],
+   "restarts": 0,
+   "uid": "735eaedb-7609-4c1c-a7ca-0e822db9ae0b"
+  },
+  "gpu-platform-control-plane-controller-manager-6cdbf74dcf-96k58": {
+   "args": [
+    [
+     "/manager",
+     "--leader-elect",
+     "--health-probe-bind-address=:8081",
+     "--webhook-cert-path=/tmp/k8s-webhook-server/serving-certs"
+    ]
+   ],
+   "images": [
+    "007635145730.dkr.ecr.ap-northeast-2.amazonaws.com/gpu-platform-operator@sha256:6212f3eef8d5168c093ceafa1edd6496de6366c84b7c1667fe5c2a468c616511"
+   ],
+   "restarts": 0,
+   "uid": "0391ddb0-a0c1-4b62-9667-de9d325e68b4"
+  },
+  "nvidia-device-plugin": {
+   "args": [
+    []
+   ],
+   "images": [
+    "nvcr.io/nvidia/k8s-device-plugin@sha256:ed39e22c8b71343fb996737741a99da88ce6c75dd83b5c520e0b3d8e8a884c47"
+   ],
+   "restarts": 0,
+   "uid": "1f2c4df5-9264-4c61-8158-d0578ec7720c"
+  }
+ }
+}

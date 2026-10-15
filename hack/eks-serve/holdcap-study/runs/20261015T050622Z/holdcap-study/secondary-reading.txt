@@ -1,0 +1,29 @@
+Secondary, descriptive reading: every block's comparative lines and validity, computed by score.py's own functions, unchanged.
+It does not replace the registered verdict, which stopped at the first direct harm.
+block 851 Off validity: ok
+block 851 HoldCap validity: ["a sample shows status 'HoldCap', backend '-', process '-'"]
+block 851 Off validity: ok
+block 851 ok  1 premium TTFT p99 ratio: 405.1 / 10006.4 ms = 0.040
+block 851 ok  2 contender completion: 1.0000
+block 851 ok  3 contender p50 ratio and p95: p50 4031 against 3103 ms, p95 16831 ms
+block 851 ok  4 refusals: 0
+block 851 ok  5 premium content-event gap p99 ratio: 88832 / 91358 us = 0.972
+block 851 ok  6 preemptions: 0
+block 852 Off validity: ok
+block 852 HoldCap validity: ok
+block 852 Off validity: ok
+block 852 ok  1 premium TTFT p99 ratio: 461.6 / 9970.6 ms = 0.046
+block 852 ok  2 contender completion: 1.0000
+block 852 BAD 3 contender p50 ratio and p95: p50 7190 against 4761 ms, p95 15925 ms
+block 852 ok  4 refusals: 0
+block 852 ok  5 premium content-event gap p99 ratio: 89857 / 92691 us = 0.969
+block 852 ok  6 preemptions: 0
+block 853 Off validity: ok
+block 853 HoldCap validity: ok
+block 853 Off validity: ok
+block 853 ok  1 premium TTFT p99 ratio: 474.1 / 6232.7 ms = 0.076
+block 853 ok  2 contender completion: 1.0000
+block 853 ok  3 contender p50 ratio and p95: p50 3975 against 3069 ms, p95 9614 ms
+block 853 BAD 4 refusals: 1
+block 853 ok  5 premium content-event gap p99 ratio: 89539 / 91341 us = 0.980
+block 853 ok  6 preemptions: 0
