@@ -465,6 +465,31 @@ var _ = Describe("the gateway's own decision in the evidence", func() {
 		Expect(res.Tier).To(BeEmpty())
 		Expect(res.AdmissionReason).To(BeEmpty())
 	})
+
+	// The product study's arms differ in whether the gateway binds priority, and the client sends none, so the
+	// bound value exists only on the response. Mutation that turns these red: drop the EnginePriority line from
+	// withAdmissionDecision, or from the RawRow literal in Replay.
+	It("records the priority the gateway bound, and nothing when it bound none", func() {
+		bound := send(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("X-Engine-Priority", "1")
+			w.WriteHeader(http.StatusTooManyRequests)
+		})
+		Expect(bound.EnginePriority).To(Equal("1"))
+		unbound := send(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusTooManyRequests) })
+		Expect(unbound.EnginePriority).To(BeEmpty())
+	})
+
+	It("carries the bound priority into the raw row", func() {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("X-Engine-Priority", "0")
+			w.WriteHeader(http.StatusTooManyRequests)
+		}))
+		defer srv.Close()
+		sender := NewHTTPSender(srv.URL, "m", nil, 5*time.Second, SenderConn{MaxIdleConnsPerHost: 8, DrainForReuse: true})
+		rows := Replay(context.Background(), sender, []TraceRow{{Index: 0, PromptLenChars: 40, MaxOutputTokens: 4}}, ReplayOptions{})
+		Expect(rows).To(HaveLen(1))
+		Expect(rows[0].EnginePriority).To(Equal("0"))
+	})
 })
 
 var _ = Describe("the engine's own count of the prompt", func() {

@@ -417,6 +417,7 @@ func (h *HTTPSender) withAdmissionDecision(resp *http.Response, res SendResult) 
 	res.Tier = resp.Header.Get(gateway.HeaderAdmissionTier)
 	res.AdmissionReason = resp.Header.Get(gateway.HeaderAdmissionReason)
 	res.BackendState = resp.Header.Get(gateway.HeaderBackendState)
+	res.EnginePriority = resp.Header.Get(gateway.HeaderEnginePriority)
 	return res
 }
 
