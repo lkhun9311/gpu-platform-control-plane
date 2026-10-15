@@ -72,7 +72,13 @@ print(p["metadata"]["name"], p["metadata"]["uid"], p.get("status", {}).get("podI
 '
 }
 
-metrics_of() { in_collector wget -qO- -T 10 "http://$1/metrics"; }
+# metrics_of reads a /metrics page through the collector; an optional second argument bounds the whole read,
+# kubectl exec included, in seconds (default 10).
+metrics_of() {
+  local secs="${2:-10}"
+  timeout "$((secs + 1))" kubectl --context "$CONTEXT" -n "$COLLECTOR_NS" exec collector -- \
+    wget -qO- -T "$secs" "http://$1/metrics"
+}
 
 # rehearsal_ref returns an image reference unchanged, except that on kind a side-loaded image can report a bare
 # sha256 ID with no repository; a rehearsal names it as local/<role> so the manifest's digest check still applies.
@@ -86,10 +92,11 @@ rehearsal_ref() {
   fi
 }
 
-# backend_modes prints "<backend mode> <process mode>" read from the gateway's own metrics.
+# backend_modes prints "<backend mode> <process mode>" read from the gateway's own metrics; an optional second
+# argument bounds the read in seconds.
 backend_modes() {
   local gw_ip=$1
-  metrics_of "$gw_ip:8081" | python3 -c '
+  metrics_of "$gw_ip:8081" "${2:-10}" | python3 -c '
 import re, sys
 ns, name = sys.argv[1], sys.argv[2]
 backend = process = "-"
@@ -373,10 +380,14 @@ print(uids == {sys.argv[1]})' "$E_UID")" == True ]] || fail_cell "the Service do
         st="$(k -n "$SERVE_NS" get inferencedeployment "$SERVE_INFD" -o jsonpath='{.status.admission.mode} {.status.admission.observedGeneration} {.metadata.generation}' 2>>"$D/sampler.err" || echo "- - -")"
         # Retried within the tick: the first run lost one sample of 59 to a single failed read of the gateway's
         # metrics, and the registration counts a sample that cannot show the arm against validity. The rule is
-        # unchanged; a read that fails three times is still written as unreadable. Failures go to sampler.err.
+        # unchanged; a read that fails until the deadline is still written as unreadable. Failures go to sampler.err.
+        # Every attempt shares one 4 s deadline and is bounded by what is left of it, so retries cannot stretch the
+        # tick: with the 5 s sleep below a sample still follows the last within the scorer's 15 s.
         bm="- -"
-        for _ in 1 2 3; do
-          bm="$(backend_modes "$GW_IP" 2>>"$D/sampler.err")" && [[ "$bm" != "- -" && -n "$bm" ]] && break
+        retry_end=$((SECONDS + 4))
+        while ((SECONDS < retry_end)); do
+          left=$((retry_end - SECONDS))
+          bm="$(backend_modes "$GW_IP" "$left" 2>>"$D/sampler.err")" && [[ "$bm" != "- -" && -n "$bm" ]] && break
           bm="- -"
           sleep 0.5
         done
