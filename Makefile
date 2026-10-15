@@ -422,11 +422,12 @@ shell-check: ## Parse every shell script under hack/ and .githooks/.
 		hack/test/spot-lifecycle/bin/aws hack/test/spot-lifecycle/bin/sleep \
 		hack/test/spot-lifecycle/golden/*/user-data*.sh \
 		hack/test/teardown-replay/*.sh hack/test/teardown-replay/bin/aws \
+		hack/eks-serve/holdcap-study/*.sh \
 		.githooks/*.sh .githooks/commit-msg .githooks/pre-push; do \
 		[ -f "$$f" ] || continue; \
 		bash -n "$$f" || { echo "shell-check: $$f does not parse" >&2; fail=1; }; \
 	done; \
-	for f in hack/test/spot-lifecycle/*.py hack/serving-stub/*.py; do \
+	for f in hack/test/spot-lifecycle/*.py hack/serving-stub/*.py hack/eks-serve/holdcap-study/*.py; do \
 		[ -f "$$f" ] || continue; \
 		python3 -m py_compile "$$f" || { echo "shell-check: $$f does not compile" >&2; fail=1; }; \
 	done; \
