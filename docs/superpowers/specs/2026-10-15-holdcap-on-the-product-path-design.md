@@ -70,7 +70,7 @@ Within each block the two arms run in the order of `sha256("<seed>/<arm>")`, asc
 
 **Each cell:**
 
-1. set the mode, or delete the engine Pod; wait for `status.admission.mode` equal to the arm with `observedGeneration` current, exactly one ready engine Pod, and the gateway's per-backend gauge equal to the arm (`holdcap` under HoldCap, the process-wide mode `off` otherwise);
+1. set the mode, or delete the engine Pod; wait for `status.admission.mode` equal to the arm with `observedGeneration` current, exactly one ready engine Pod, and the gateway's `gpuaas_gateway_backend_admission_mode` for the backend equal to the arm (`hold-cap` under HoldCap, `gateway` under Off), with `gpuaas_gateway_admission_mode_active` on `off`, which is what `gateway` then means;
 2. read the engine log's `non-default args`: `long_prefill_token_threshold: 384` present exactly under HoldCap;
 3. warm up: one premium request (200 characters, 64 tokens) and one contender request (40,000 characters, 16 tokens), in that order, each required to complete in full;
 4. wait for idle: the engine's running and waiting gauges both 0 for 10 s; read both `/metrics`;
