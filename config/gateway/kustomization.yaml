@@ -23,7 +23,7 @@ resources:
 # ci.yml is written to update exactly this field in both kustomizations in one commit, so the operator and
 # the gateway can never be pinned from different builds.
 images:
-- digest: sha256:d15191ab8cb550b89a89a43275c9f008f9ad9fcb62fecd3c6da5a79e26fd0ce0
+- digest: sha256:9269c00f35bf4f610b49ba38b802a5d1d96363bbf2c6aaa6ee08f0dd6fd9844c
   name: gateway
   newName: 007635145730.dkr.ecr.ap-northeast-2.amazonaws.com/gpu-platform-gateway
 apiVersion: kustomize.config.k8s.io/v1beta1
