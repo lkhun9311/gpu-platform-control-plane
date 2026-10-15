@@ -25,6 +25,7 @@ import datetime
 import hashlib
 import json
 import os
+import signal
 import socket
 import sys
 import time
@@ -71,6 +72,17 @@ DIE_AT_STEP = int(os.environ.get("DDP_DIE_AT_STEP", "0"))
 # submitted: nothing was ever holding the GPU. Demonstrating that Kueue WITHHOLDS capacity needs a job that
 # keeps it long enough for the wait to be observed.
 HOLD_SECONDS = int(os.environ.get("DDP_HOLD_SECONDS", "0"))
+# How long rendezvous may wait, in seconds; 0 keeps torch's default, which is 30 minutes.
+#
+# The multi-Pod experiment sets it because a rank whose peer never arrives would otherwise hold its quota for half
+# an hour before saying anything.
+RENDEZVOUS_TIMEOUT = int(os.environ.get("DDP_RENDEZVOUS_TIMEOUT_SECONDS", "0"))
+# The rank that exits 1 after its verdict, for the one-rank-fails control; -1 means none.
+#
+# It exits after the verdict, not mid-step, so its peer is outside every collective when it goes: what ends the
+# peer must then be the platform, because gloo has nothing in flight to fail with.
+FAIL_RANK = int(os.environ.get("DDP_FAIL_RANK", "-1"))
+FAIL_DELAY_SECONDS = int(os.environ.get("DDP_FAIL_DELAY_SECONDS", "10"))
 
 
 def script_sha256() -> str:
@@ -139,7 +151,33 @@ def main() -> int:
     torch.manual_seed(0)
     torch.set_num_threads(1)
 
-    dist.init_process_group(backend="gloo")
+    # A handler that records itself, because this process is PID 1 of its container when started by `exec`.
+    #
+    # The kernel does not deliver a default-action signal to PID 1, so without a handler SIGTERM does nothing and
+    # the Pod ends by SIGKILL at the grace period -- which reads as the platform failing to terminate it.
+    # The record is what says the signal arrived; an exit code of 143 alone does not say who sent it.
+    def on_sigterm(signum, frame):
+        emitter.emit("sigterm")
+        os._exit(143)
+
+    signal.signal(signal.SIGTERM, on_sigterm)
+
+    emitter.emit(
+        "rendezvous_start",
+        master_addr=os.environ.get("MASTER_ADDR", ""),
+        master_port=os.environ.get("MASTER_PORT", ""),
+        timeout_seconds=RENDEZVOUS_TIMEOUT,
+        hostname=socket.gethostname(),
+    )
+    kwargs = {}
+    if RENDEZVOUS_TIMEOUT > 0:
+        kwargs["timeout"] = datetime.timedelta(seconds=RENDEZVOUS_TIMEOUT)
+    try:
+        dist.init_process_group(backend="gloo", **kwargs)
+    except Exception as exc:  # noqa: BLE001 -- the record must name whatever torch raised
+        # The causal record the bad-address control looks for: this rank failed in rendezvous, and said why.
+        emitter.emit("rendezvous_failed", error_type=type(exc).__name__, error=str(exc)[:1000])
+        return 1
     emitter.emit(
         "rendezvous",
         world_size=world_size,
@@ -330,6 +368,12 @@ def main() -> int:
         verdict["exit_code"] = 0 if not failed else 1
 
     emitter.emit("verdict", **verdict)
+
+    if rank == FAIL_RANK:
+        # os._exit, not a return through destroy_process_group, which would wait on a peer that is holding.
+        time.sleep(FAIL_DELAY_SECONDS)
+        emitter.emit("fail_injected", exit_code=1)
+        os._exit(1)
 
     if HOLD_SECONDS > 0:
         # Held before tearing down the process group, so the Pod -- and therefore the quota reservation --

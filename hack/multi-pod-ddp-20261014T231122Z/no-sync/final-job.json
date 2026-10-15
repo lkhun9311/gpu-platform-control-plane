@@ -1,0 +1,146 @@
+{
+    "apiVersion": "batch/v1",
+    "kind": "Job",
+    "metadata": {
+        "creationTimestamp": "2026-10-14T23:13:32Z",
+        "generation": 2,
+        "labels": {
+            "kueue.x-k8s.io/queue-name": "gpu-ddp"
+        },
+        "name": "ddp-no-sync-231332",
+        "namespace": "ddp",
+        "ownerReferences": [
+            {
+                "apiVersion": "platform.lkhun9311.github.io/v1",
+                "blockOwnerDeletion": true,
+                "controller": true,
+                "kind": "MLTrainingJob",
+                "name": "ddp-no-sync-231332",
+                "uid": "7b3544cc-c4bb-479c-b946-dc69baa7344e"
+            }
+        ],
+        "resourceVersion": "1542",
+        "uid": "a09aa320-259a-4a79-82aa-f3791846553f"
+    },
+    "spec": {
+        "backoffLimit": 0,
+        "completionMode": "Indexed",
+        "completions": 2,
+        "manualSelector": false,
+        "parallelism": 2,
+        "podReplacementPolicy": "TerminatingOrFailed",
+        "selector": {
+            "matchLabels": {
+                "batch.kubernetes.io/controller-uid": "a09aa320-259a-4a79-82aa-f3791846553f"
+            }
+        },
+        "suspend": false,
+        "template": {
+            "metadata": {
+                "annotations": {
+                    "kueue.x-k8s.io/workload": "job-ddp-no-sync-231332-fdb01"
+                },
+                "labels": {
+                    "batch.kubernetes.io/controller-uid": "a09aa320-259a-4a79-82aa-f3791846553f",
+                    "batch.kubernetes.io/job-name": "ddp-no-sync-231332",
+                    "controller-uid": "a09aa320-259a-4a79-82aa-f3791846553f",
+                    "job-name": "ddp-no-sync-231332",
+                    "kueue.x-k8s.io/cluster-queue-name": "gpu-ddp",
+                    "kueue.x-k8s.io/local-queue-name": "gpu-ddp",
+                    "kueue.x-k8s.io/podset": "main",
+                    "platform.lkhun9311.github.io/mltrainingjob": "ddp-no-sync-231332",
+                    "platform.lkhun9311.github.io/mltrainingjob-uid": "7b3544cc-c4bb-479c-b946-dc69baa7344e"
+                }
+            },
+            "spec": {
+                "containers": [
+                    {
+                        "command": [
+                            "sh",
+                            "-c",
+                            "export DDP_RUN_ID=ddp-no-sync-231332 DDP_OUT_DIR=/tmp/evidence OMP_NUM_THREADS=1 DDP_RENDEZVOUS_TIMEOUT_SECONDS=60\nexport DDP_NO_SYNC=1\nexec python /work/train.py\n"
+                        ],
+                        "env": [
+                            {
+                                "name": "NVIDIA_DRIVER_CAPABILITIES",
+                                "value": "compute,utility"
+                            },
+                            {
+                                "name": "WORLD_SIZE",
+                                "value": "2"
+                            },
+                            {
+                                "name": "MASTER_ADDR",
+                                "value": "ddp-no-sync-231332-0.ddp-no-sync-231332-ddp.ddp.svc"
+                            },
+                            {
+                                "name": "MASTER_PORT",
+                                "value": "29500"
+                            },
+                            {
+                                "name": "RANK",
+                                "valueFrom": {
+                                    "fieldRef": {
+                                        "apiVersion": "v1",
+                                        "fieldPath": "metadata.annotations['batch.kubernetes.io/job-completion-index']"
+                                    }
+                                }
+                            }
+                        ],
+                        "image": "cpu-ddp:torch251",
+                        "imagePullPolicy": "IfNotPresent",
+                        "name": "trainer",
+                        "resources": {
+                            "limits": {
+                                "nvidia.com/gpu": "1"
+                            }
+                        },
+                        "terminationMessagePath": "/dev/termination-log",
+                        "terminationMessagePolicy": "File"
+                    }
+                ],
+                "dnsPolicy": "ClusterFirst",
+                "restartPolicy": "Never",
+                "schedulerName": "default-scheduler",
+                "securityContext": {},
+                "subdomain": "ddp-no-sync-231332-ddp",
+                "terminationGracePeriodSeconds": 30
+            }
+        }
+    },
+    "status": {
+        "completedIndexes": "0,1",
+        "completionTime": "2026-10-14T23:13:36Z",
+        "conditions": [
+            {
+                "lastProbeTime": "2026-10-14T23:13:32Z",
+                "lastTransitionTime": "2026-10-14T23:13:32Z",
+                "message": "Job resumed",
+                "reason": "JobResumed",
+                "status": "False",
+                "type": "Suspended"
+            },
+            {
+                "lastProbeTime": "2026-10-14T23:13:36Z",
+                "lastTransitionTime": "2026-10-14T23:13:36Z",
+                "message": "Reached expected number of succeeded pods",
+                "reason": "CompletionsReached",
+                "status": "True",
+                "type": "SuccessCriteriaMet"
+            },
+            {
+                "lastProbeTime": "2026-10-14T23:13:36Z",
+                "lastTransitionTime": "2026-10-14T23:13:36Z",
+                "message": "Reached expected number of succeeded pods",
+                "reason": "CompletionsReached",
+                "status": "True",
+                "type": "Complete"
+            }
+        ],
+        "ready": 0,
+        "startTime": "2026-10-14T23:13:32Z",
+        "succeeded": 2,
+        "terminating": 0,
+        "uncountedTerminatedPods": {}
+    }
+}

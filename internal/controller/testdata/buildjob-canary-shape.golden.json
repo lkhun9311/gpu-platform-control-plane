@@ -1,0 +1,56 @@
+{
+  "metadata": {
+    "name": "probe",
+    "namespace": "ns",
+    "labels": {
+      "kueue.x-k8s.io/queue-name": "q"
+    }
+  },
+  "spec": {
+    "parallelism": 3,
+    "completions": 5,
+    "template": {
+      "metadata": {},
+      "spec": {
+        "volumes": [
+          {
+            "name": "state",
+            "persistentVolumeClaim": {
+              "claimName": "c"
+            }
+          }
+        ],
+        "containers": [
+          {
+            "name": "trainer",
+            "image": "img:1",
+            "command": [
+              "sh",
+              "-c",
+              "true"
+            ],
+            "env": [
+              {
+                "name": "NVIDIA_DRIVER_CAPABILITIES",
+                "value": "compute,utility"
+              }
+            ],
+            "resources": {
+              "limits": {
+                "nvidia.com/gpu": "1"
+              }
+            },
+            "volumeMounts": [
+              {
+                "name": "state",
+                "mountPath": "/s"
+              }
+            ]
+          }
+        ],
+        "restartPolicy": "Never"
+      }
+    }
+  },
+  "status": {}
+}

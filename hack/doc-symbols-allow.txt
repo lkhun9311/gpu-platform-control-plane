@@ -89,3 +89,8 @@ StateReason	the EC2 API's field on an instance recording why its state changed; 
 WroteRequest	a net/http/httptrace hook in Go's standard library; the design page records that it fires when Request.write returns, before the transport has flushed the request, which is why the dispatch lag is not stamped from it
 request.go	a file of Go 1.26.6's net/http, cited with transport.go as the source of the WroteRequest timing above
 transport.go	a file of Go 1.26.6's net/http, cited with request.go as the source of the WroteRequest timing above
+
+# --- external names the multi-pod training design cites, 2026-10-14 -------------------------------------
+CompletionMode	batch/v1 Job field the multi-pod design (2026-10-14) plans to set; remove once the controller spells it
+FailureTarget	batch/v1 Job condition type the multi-pod design cites as upstream behaviour, not code of this repository
+DisruptionTarget	Pod condition the multi-pod design names only to record that it was rejected as evidence

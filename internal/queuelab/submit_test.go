@@ -980,3 +980,23 @@ func TestTheArmsThatDoNotCheckpointRenderNoVolume(t *testing.T) {
 		}
 	}
 }
+
+// The termination canary leaves MLTrainingJobSpec.Distributed out of the template it keys on, on the ground that no
+// run submits a distributed job; this is what keeps that ground true.
+//
+// Mutation that turns this red: set Distributed in renderWithState's spec.
+func TestAQueuelabJobIsNeverDistributed(t *testing.T) {
+	for _, row := range ReclaimScenario(true, 600) {
+		for _, c := range []TerminationContract{HonorsSIGTERM, IgnoresSIGTERM} {
+			for _, plan := range []StatePlan{{}, {Checkpoint: true}, {Checkpoint: true, Restore: true}} {
+				job, err := renderWithState(row, "ns", c, plan)
+				if err != nil {
+					t.Fatalf("render %s: %v", row.Name, err)
+				}
+				if job.Spec.Distributed != nil {
+					t.Fatalf("%s renders a distributed job, which the termination canary's template key does not cover", row.Name)
+				}
+			}
+		}
+	}
+}
