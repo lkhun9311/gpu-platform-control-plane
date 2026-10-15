@@ -185,6 +185,15 @@ var _ = Describe("the shared outbound transport", func() {
 	It("falls back to the default response-header timeout when given zero", func() {
 		Expect(newTransport(0).ResponseHeaderTimeout).To(Equal(defaultResponseHeaderTimeout))
 	})
+
+	// The engine closes an idle connection after its keep-alive, and a request the gateway sends on a connection
+	// the engine is closing fails with no retry. Holding connections for less time than the engine does is what
+	// keeps that from happening. Mutation that turns this red: restore IdleConnTimeout to 90 s.
+	It("lets go of an idle connection before the engine would", func() {
+		t := newTransport(30 * time.Second)
+		Expect(t.IdleConnTimeout).To(BeNumerically(">", 0), "zero means no idle limit at all")
+		Expect(t.IdleConnTimeout).To(BeNumerically("<", engineKeepAlive))
+	})
 })
 
 var _ = Describe("chat completions pipeline", func() {
