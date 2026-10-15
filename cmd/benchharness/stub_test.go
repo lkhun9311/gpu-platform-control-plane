@@ -505,7 +505,7 @@ func TestStubCountsTheForwardedPriority(t *testing.T) {
 
 // TestTheStubAnswersWithTheRequestsLengthOnlyWhenAsked pins the flag the hold-cap product study's rehearsal relies on:
 // its replay scores output against the trace's frozen cap, and a fixed-length stub failed every row of it.
-// Mutation that turns this red: drop the tokensFromRequest branch from the chat handler.
+// Mutation that turns this red: make stubResponseTokens always return the profile's fixed length.
 func TestTheStubAnswersWithTheRequestsLengthOnlyWhenAsked(t *testing.T) {
 	frames := func(p stubProfile) int {
 		srv := httptest.NewServer(stubMux(p, newStubStats()))

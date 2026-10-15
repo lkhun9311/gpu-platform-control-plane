@@ -651,6 +651,20 @@ func stubServe(args []string) error {
 	return srv.ListenAndServe()
 }
 
+// stubResponseTokens is how many tokens a response carries before pilot mode has its say: the request's own max_tokens
+// when the profile asks for it, and the profile's fixed --tokens otherwise.
+// Pilot mode reads max_tokens itself, so it is left to do that, as it did before this flag existed.
+func stubResponseTokens(profile stubProfile, raw []byte) int {
+	if !profile.tokensFromRequest || profile.pilot != nil {
+		return profile.tokens
+	}
+	var pr stubPilotRequest
+	if json.Unmarshal(raw, &pr) == nil && pr.MaxTokens > 0 {
+		return pr.MaxTokens
+	}
+	return profile.tokens
+}
+
 // stubMux builds the stub backend's routes, separated from stubServe so the handlers can be exercised
 // without binding a port.
 //
@@ -721,13 +735,7 @@ func stubMux(profile stubProfile, stats *stubStats) *http.ServeMux {
 			}
 			promptTokens += n
 		}
-		tokens := profile.tokens
-		if profile.tokensFromRequest && profile.pilot == nil {
-			var pr stubPilotRequest
-			if json.Unmarshal(raw, &pr) == nil && pr.MaxTokens > 0 {
-				tokens = pr.MaxTokens
-			}
-		}
+		tokens := stubResponseTokens(profile, raw)
 		if profile.pilot != nil {
 			var pr stubPilotRequest
 			_ = json.Unmarshal(raw, &pr)
