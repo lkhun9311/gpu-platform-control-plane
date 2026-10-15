@@ -10,6 +10,7 @@ Exits 0 only on "observed on these traces"; 1 on "not met" or "inconclusive"; 2 
 
 from __future__ import annotations
 
+import gzip
 import hashlib
 import json
 import math
@@ -73,9 +74,14 @@ def read_json(path: str):
 
 
 def read_jsonl(path: str) -> list[dict]:
+    """A JSONL file, or its .gz beside it when only that exists: the committed evidence keeps raw rows compressed."""
     try:
-        with open(path) as handle:
-            lines = handle.read().splitlines()
+        if not os.path.exists(path) and os.path.exists(path + ".gz"):
+            with gzip.open(path + ".gz", "rt") as handle:
+                lines = handle.read().splitlines()
+        else:
+            with open(path) as handle:
+                lines = handle.read().splitlines()
     except OSError as exc:
         raise Unscorable(f"{os.path.basename(path)}: {exc}") from exc
     rows = []
