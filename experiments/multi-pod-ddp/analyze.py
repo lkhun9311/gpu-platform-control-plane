@@ -95,6 +95,56 @@ def pods_seen(arm_dir: str) -> dict[str, dict]:
     return {row["uid"]: row for row in jsonl(arm_dir, "pods.jsonl")}
 
 
+# The records each rank must have left, per arm, beyond the ones a criterion reads.
+#
+# Without them a log holding only verdict lines passed: the arithmetic was read, and nothing said a rendezvous or
+# a step had happened in that Pod.
+REQUIRED = {
+    "pass": {0: ("rendezvous_start", "rendezvous", "step", "verdict"), 1: ("rendezvous_start", "rendezvous", "step", "verdict")},
+    "no-sync": {0: ("rendezvous_start", "rendezvous", "step", "verdict"), 1: ("rendezvous_start", "rendezvous", "step", "verdict")},
+    "bad-address": {0: ("rendezvous_start",), 1: ("rendezvous_start",)},
+    "one-rank-fails": {0: ("rendezvous", "verdict", "holding", "sigterm"), 1: ("rendezvous", "verdict", "fail_injected")},
+}
+
+
+def ranks_bound_to_pods(arm: str, arm_dir: str, recs: dict[str, list[dict]]) -> tuple[bool, str]:
+    """Each sampled Pod has its own log, and that log is one rank: the Pod's completion index, under this run's id.
+
+    Records used to be pooled across logs by the rank they claimed, so both ranks' lines merged under one invented
+    Pod UID still passed: nothing tied a rank to the Pod that was supposed to have run it.
+    """
+    try:
+        name = open(os.path.join(arm_dir, "name")).read().strip()
+    except OSError:
+        return False, "no name file, so no run id to bind records to"
+    seen = pods_seen(arm_dir)
+    problems = []
+    stray = sorted(set(recs) - set(seen))
+    if stray:
+        problems.append(f"logs for Pods never sampled: {stray}")
+    for uid, pod in sorted(seen.items(), key=lambda kv: str(kv[1].get("index"))):
+        index = pod.get("index")
+        rows = recs.get(uid) or []
+        if not rows:
+            problems.append(f"index {index}: no log")
+            continue
+        ranks = {r.get("rank") for r in rows}
+        if ranks != {int(index)}:
+            problems.append(f"index {index}: log carries ranks {sorted(map(str, ranks))}")
+            continue
+        runs = {r.get("run_id") for r in rows}
+        if runs != {name}:
+            problems.append(f"index {index}: run ids {sorted(map(str, runs))}, want {name}")
+        hosts = {r.get("hostname") for r in rows if r.get("event") == "rendezvous_start"}
+        if hosts and hosts != {f"{name}-{index}"}:
+            problems.append(f"index {index}: hostname {sorted(map(str, hosts))}, want {name}-{index}")
+        events = {r.get("event") for r in rows}
+        missing = [e for e in REQUIRED[arm].get(int(index), ()) if e not in events]
+        if missing:
+            problems.append(f"index {index}: missing {missing}")
+    return not problems, "each Pod's log is its own rank" if not problems else "; ".join(problems)
+
+
 def condition(obj, kind: str):
     for c in (obj or {}).get("status", {}).get("conditions") or []:
         if c.get("type") == kind and c.get("status") == "True":
@@ -150,12 +200,16 @@ def one_workload(arm_dir: str) -> tuple[bool, str]:
 
 def score_pass(arm_dir: str, recs) -> list[tuple[bool, str]]:
     verdicts = by_rank(recs, "verdict")
+    steps = by_rank(recs, "step")
     good = sorted(verdicts) == [0, 1] and all(
         abs(v.get("observed_w_after_one_step", 99) - 0.4) < TOLERANCE and v.get("all_ranks_agree") is True and v.get("exit_code") == 0
         for v in verdicts.values()
     )
+    # The all-reduce's future completing in step 1, which is what says the collective ran rather than was requested.
+    reduced = sorted(steps) == [0, 1] and all(s.get("step") == 1 and (s.get("futures_completed_this_step") or 0) >= 1 for s in steps.values())
     return [
         two_pods_two_nodes(arm_dir),
+        (reduced, "step-1 all-reduce completions by rank " + str([(r, s.get("futures_completed_this_step")) for r, s in sorted(steps.items())])),
         (good, f"verdicts from ranks {sorted(verdicts)}: " + "; ".join(
             f"rank {r} w={v.get('observed_w_after_one_step')} agree={v.get('all_ranks_agree')} exit={v.get('exit_code')}"
             for r, v in sorted(verdicts.items()))),
@@ -264,7 +318,8 @@ def main() -> int:
             all_pass = False
             continue
         try:
-            results = SCORERS[arm](arm_dir, records(arm_dir))
+            recs = records(arm_dir)
+            results = [ranks_bound_to_pods(arm, arm_dir, recs)] + SCORERS[arm](arm_dir, recs)
         except Unreadable as exc:
             results = [(False, f"unreadable evidence: {exc}")]
         ok = all(r[0] for r in results)
