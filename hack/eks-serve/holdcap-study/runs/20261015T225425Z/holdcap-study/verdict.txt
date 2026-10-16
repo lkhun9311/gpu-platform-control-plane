@@ -1,0 +1,20 @@
+verdict: not met
+  first failing: block 852, line 3 contender p50 ratio and p95
+  block 851 ok  1 premium TTFT p99 ratio: 428.1 / 9908.0 ms = 0.043
+  block 851 ok  2 contender completion: 1.0000
+  block 851 ok  3 contender p50 ratio and p95: p50 4057 against 3037 ms, p95 16625 ms
+  block 851 ok  4 refusals: 0
+  block 851 ok  5 premium content-event gap p99 ratio: 90730 / 91531 us = 0.991
+  block 851 ok  6 preemptions: 0
+  block 852 ok  1 premium TTFT p99 ratio: 436.7 / 9811.4 ms = 0.045
+  block 852 ok  2 contender completion: 1.0000
+  block 852 BAD 3 contender p50 ratio and p95: p50 7034 against 4673 ms, p95 15698 ms
+  block 852 ok  4 refusals: 0
+  block 852 ok  5 premium content-event gap p99 ratio: 90075 / 93480 us = 0.964
+  block 852 ok  6 preemptions: 0
+  block 853 ok  1 premium TTFT p99 ratio: 464.4 / 6191.6 ms = 0.075
+  block 853 ok  2 contender completion: 1.0000
+  block 853 ok  3 contender p50 ratio and p95: p50 3995 against 3068 ms, p95 9425 ms
+  block 853 ok  4 refusals: 0
+  block 853 ok  5 premium content-event gap p99 ratio: 88824 / 91637 us = 0.969
+  block 853 ok  6 preemptions: 0

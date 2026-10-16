@@ -1,0 +1,74 @@
+apiVersion: v1
+items:
+- apiVersion: v1
+  kind: ResourceQuota
+  metadata:
+    creationTimestamp: "2026-10-15T23:10:10Z"
+    name: gpuquota-serve-a-quota
+    namespace: serve-a
+    ownerReferences:
+    - apiVersion: platform.lkhun9311.github.io/v1
+      blockOwnerDeletion: true
+      controller: true
+      kind: GPUQuotaPolicy
+      name: serve-a-quota
+      uid: 6fb89b45-6cfd-4d20-baa6-209c199c0e18
+    resourceVersion: "3382"
+    uid: b78bd47e-1f43-4aee-974d-bec4de0f5c87
+  spec:
+    hard:
+      requests.nvidia.com/gpu: "1"
+  status:
+    hard:
+      requests.nvidia.com/gpu: "1"
+    used:
+      requests.nvidia.com/gpu: "1"
+- apiVersion: v1
+  kind: ResourceQuota
+  metadata:
+    creationTimestamp: "2026-10-15T23:19:44Z"
+    name: gpuquota-study-premium-1
+    namespace: serve-a
+    ownerReferences:
+    - apiVersion: platform.lkhun9311.github.io/v1
+      blockOwnerDeletion: true
+      controller: true
+      kind: GPUQuotaPolicy
+      name: study-premium-1
+      uid: a8e6e6ae-d0b7-46f1-8f27-e0a8327b7633
+    resourceVersion: "5972"
+    uid: a3b9894b-4110-4e19-bb27-adb41e400ca7
+  spec:
+    hard:
+      requests.nvidia.com/gpu: "1"
+  status:
+    hard:
+      requests.nvidia.com/gpu: "1"
+    used:
+      requests.nvidia.com/gpu: "1"
+- apiVersion: v1
+  kind: ResourceQuota
+  metadata:
+    creationTimestamp: "2026-10-15T23:19:44Z"
+    name: gpuquota-study-standard-noisy
+    namespace: serve-a
+    ownerReferences:
+    - apiVersion: platform.lkhun9311.github.io/v1
+      blockOwnerDeletion: true
+      controller: true
+      kind: GPUQuotaPolicy
+      name: study-standard-noisy
+      uid: 06c89e0e-428c-45e8-95eb-0ab0b8c0c8a2
+    resourceVersion: "5977"
+    uid: d57c806c-5e97-41a9-8dfb-c7aa0128a9f5
+  spec:
+    hard:
+      requests.nvidia.com/gpu: "1"
+  status:
+    hard:
+      requests.nvidia.com/gpu: "1"
+    used:
+      requests.nvidia.com/gpu: "1"
+kind: List
+metadata:
+  resourceVersion: ""

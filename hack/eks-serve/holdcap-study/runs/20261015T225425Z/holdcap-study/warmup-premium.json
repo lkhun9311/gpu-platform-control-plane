@@ -1,0 +1,1 @@
+{"model": "Qwen/Qwen2.5-3B-Instruct", "stream": true, "max_tokens": 64, "min_tokens": 64, "messages": [{"role": "user", "content": "A scheduler that admits work it cannot finish has not scheduled anything; it has only deferred the moment someone notices. The queue is where that deferral becomes visible, and the depth of the queue "}]}

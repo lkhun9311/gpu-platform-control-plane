@@ -1,6 +1,6 @@
 # Design: hold-cap's protection, measured on the product path on EKS
 
-Written 2026-10-15. Status: **run, verdict not met** (`hack/eks-serve/holdcap-study/runs/20261015T050622Z/README.md`). Registered as v2, after codex `gpt-6-astra`'s adversarial review of v1 (5 blockers, 12 majors, 1 minor, every one answered in the table at the end); the registration below is as it stood when the session started.
+Written 2026-10-15. Status: **run twice, verdict not met both times** (run 1: `hack/eks-serve/holdcap-study/runs/20261015T050622Z/README.md`; run 2: `hack/eks-serve/holdcap-study/runs/20261015T225425Z/README.md`). Registered as v2, after codex `gpt-6-astra`'s adversarial review of v1 (5 blockers, 12 majors, 1 minor, every one answered in the table at the end); the registration below is as it stood when the session started.
 The owner approved paid experiments for this work on 2026-10-15, subject to the purchase gate below.
 Chosen over NCCL for `spec.distributed` after independent reviews by astra and me: both found neither ready to buy, and astra's case that this one answers a product question the lab result leaves open was accepted.
 

@@ -1,0 +1,164 @@
+{
+    "apiVersion": "argoproj.io/v1alpha1",
+    "kind": "Application",
+    "metadata": {
+        "annotations": {
+            "argocd.argoproj.io/sync-wave": "2",
+            "kubectl.kubernetes.io/last-applied-configuration": "{\"apiVersion\":\"argoproj.io/v1alpha1\",\"kind\":\"Application\",\"metadata\":{\"annotations\":{\"argocd.argoproj.io/sync-wave\":\"2\"},\"finalizers\":[\"resources-finalizer.argocd.argoproj.io\"],\"labels\":{\"argocd.argoproj.io/instance\":\"gpu-platform-root\"},\"name\":\"gpu-platform-serving\",\"namespace\":\"argocd\"},\"spec\":{\"destination\":{\"namespace\":\"serve-a\",\"server\":\"https://kubernetes.default.svc\"},\"project\":\"default\",\"source\":{\"path\":\"config/serving\",\"repoURL\":\"https://github.com/lkhun9311/gpu-platform-control-plane.git\",\"targetRevision\":\"main\"},\"syncPolicy\":{\"syncOptions\":[\"CreateNamespace=true\"]}}}\n"
+        },
+        "creationTimestamp": "2026-10-15T23:09:29Z",
+        "finalizers": [
+            "resources-finalizer.argocd.argoproj.io"
+        ],
+        "generation": 10,
+        "labels": {
+            "argocd.argoproj.io/instance": "gpu-platform-root"
+        },
+        "name": "gpu-platform-serving",
+        "namespace": "argocd",
+        "resourceVersion": "3383",
+        "uid": "934cfb7e-ccf0-44fe-a2cc-e420b16af743"
+    },
+    "spec": {
+        "destination": {
+            "namespace": "serve-a",
+            "server": "https://kubernetes.default.svc"
+        },
+        "project": "default",
+        "source": {
+            "path": "config/serving",
+            "repoURL": "https://github.com/lkhun9311/gpu-platform-control-plane.git",
+            "targetRevision": "main"
+        },
+        "syncPolicy": {
+            "syncOptions": [
+                "CreateNamespace=true"
+            ]
+        }
+    },
+    "status": {
+        "controllerNamespace": "argocd",
+        "health": {
+            "status": "Healthy"
+        },
+        "history": [
+            {
+                "deployStartedAt": "2026-10-15T23:10:08Z",
+                "deployedAt": "2026-10-15T23:10:09Z",
+                "id": 0,
+                "initiatedBy": {
+                    "username": "eks-gitops-runbook"
+                },
+                "revision": "5edd22768d537821f736777180cfc95f3879af58",
+                "source": {
+                    "path": "config/serving",
+                    "repoURL": "https://github.com/lkhun9311/gpu-platform-control-plane.git",
+                    "targetRevision": "main"
+                }
+            }
+        ],
+        "operationState": {
+            "finishedAt": "2026-10-15T23:10:09Z",
+            "message": "successfully synced (all tasks run)",
+            "operation": {
+                "initiatedBy": {
+                    "username": "eks-gitops-runbook"
+                },
+                "retry": {},
+                "sync": {
+                    "revision": "main"
+                }
+            },
+            "phase": "Succeeded",
+            "startedAt": "2026-10-15T23:10:08Z",
+            "syncResult": {
+                "resources": [
+                    {
+                        "group": "",
+                        "hookPhase": "Running",
+                        "kind": "Namespace",
+                        "message": "namespace/serve-a created",
+                        "name": "serve-a",
+                        "namespace": "serve-a",
+                        "status": "Synced",
+                        "syncPhase": "Sync",
+                        "version": "v1"
+                    },
+                    {
+                        "group": "platform.lkhun9311.github.io",
+                        "hookPhase": "Running",
+                        "kind": "InferenceDeployment",
+                        "message": "inferencedeployment.platform.lkhun9311.github.io/qwen25-3b-holdcap created",
+                        "name": "qwen25-3b-holdcap",
+                        "namespace": "serve-a",
+                        "status": "Synced",
+                        "syncPhase": "Sync",
+                        "version": "v1"
+                    },
+                    {
+                        "group": "platform.lkhun9311.github.io",
+                        "hookPhase": "Running",
+                        "kind": "GPUQuotaPolicy",
+                        "message": "gpuquotapolicy.platform.lkhun9311.github.io/serve-a-quota created",
+                        "name": "serve-a-quota",
+                        "namespace": "serve-a",
+                        "status": "Synced",
+                        "syncPhase": "Sync",
+                        "version": "v1"
+                    }
+                ],
+                "revision": "5edd22768d537821f736777180cfc95f3879af58",
+                "source": {
+                    "path": "config/serving",
+                    "repoURL": "https://github.com/lkhun9311/gpu-platform-control-plane.git",
+                    "targetRevision": "main"
+                }
+            }
+        },
+        "reconciledAt": "2026-10-15T23:10:10Z",
+        "resources": [
+            {
+                "kind": "Namespace",
+                "name": "serve-a",
+                "status": "Synced",
+                "version": "v1"
+            },
+            {
+                "group": "platform.lkhun9311.github.io",
+                "kind": "GPUQuotaPolicy",
+                "name": "serve-a-quota",
+                "status": "Synced",
+                "version": "v1"
+            },
+            {
+                "group": "platform.lkhun9311.github.io",
+                "kind": "InferenceDeployment",
+                "name": "qwen25-3b-holdcap",
+                "namespace": "serve-a",
+                "status": "Synced",
+                "version": "v1"
+            }
+        ],
+        "sourceType": "Kustomize",
+        "summary": {
+            "images": [
+                "vllm/vllm-openai@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967"
+            ]
+        },
+        "sync": {
+            "comparedTo": {
+                "destination": {
+                    "namespace": "serve-a",
+                    "server": "https://kubernetes.default.svc"
+                },
+                "source": {
+                    "path": "config/serving",
+                    "repoURL": "https://github.com/lkhun9311/gpu-platform-control-plane.git",
+                    "targetRevision": "main"
+                }
+            },
+            "revision": "5edd22768d537821f736777180cfc95f3879af58",
+            "status": "Synced"
+        }
+    }
+}
