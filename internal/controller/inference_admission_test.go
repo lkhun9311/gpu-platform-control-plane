@@ -69,3 +69,39 @@ func TestAdmissionInForceOnlyAfterACompleteRollout(t *testing.T) {
 		})
 	}
 }
+
+// The gateway binds a tier on a backend only while this condition is True for the current generation, so it must not
+// be True before every serving Pod runs a template rendered from spec.engine.
+// Mutations that turn this red: drop the annotation check; drop the replica checks.
+func TestEngineInForceOnlyAfterTheRenderedEngineRollsOut(t *testing.T) {
+	off := engineInfD(platformv1.AdmissionModeOff)
+	off.Generation = 5
+	scaledZero := off.DeepCopy()
+	scaledZero.Spec.Replicas = 0
+	cases := []struct {
+		name   string
+		infd   *platformv1.InferenceDeployment
+		mutate func(*appsv1.Deployment)
+		status metav1.ConditionStatus
+	}{
+		{"rendered and rolled out, in Off", off, func(d *appsv1.Deployment) {
+			d.Spec.Template.Annotations[admissionAnnotation] = platformv1.AdmissionModeOff
+		}, metav1.ConditionTrue},
+		{"rendered and rolled out, in HoldCap", off, func(*appsv1.Deployment) {}, metav1.ConditionTrue},
+		{"a template not rendered from spec.engine", off, func(d *appsv1.Deployment) { d.Spec.Template.Annotations = nil }, metav1.ConditionFalse},
+		{"template not yet observed", off, func(d *appsv1.Deployment) { d.Status.ObservedGeneration = 2 }, metav1.ConditionFalse},
+		{"old pod remains", off, func(d *appsv1.Deployment) { d.Status.Replicas = 2 }, metav1.ConditionFalse},
+		{"old pod terminating", off, func(d *appsv1.Deployment) { d.Status.TerminatingReplicas = new(int32(1)) }, metav1.ConditionFalse},
+		{"new pod not ready", off, func(d *appsv1.Deployment) { d.Status.ReadyReplicas = 0 }, metav1.ConditionFalse},
+		{"scaled to zero", scaledZero, func(*appsv1.Deployment) {}, metav1.ConditionFalse},
+	}
+	for _, c := range cases {
+		d := rolledOut()
+		c.mutate(d)
+		got := engineInForce(c.infd, d)
+		if got.Status != c.status || got.ObservedGeneration != c.infd.Generation || got.Type != platformv1.ConditionEngineInForce {
+			t.Errorf("%s: %s/%s at generation %d, want %s at %d", c.name, got.Status, got.Reason, got.ObservedGeneration,
+				c.status, c.infd.Generation)
+		}
+	}
+}

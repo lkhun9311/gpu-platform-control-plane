@@ -689,6 +689,33 @@ var _ = Describe("InferenceDeployment Controller", func() {
 			Expect(mustGet(ctx, key).Status.Admission.Mode).To(Equal(platformv1.AdmissionModeOff))
 		})
 
+		// The gateway binds a tier only on this condition, so it is pinned through Reconcile, not only through engineInForce:
+		// deleting the call that writes it would leave the unit test green and every backend unbound.
+		// Mutation that turns this red: drop setEngineStatus from Reconcile.
+		It("reports the rendered engine in force only after its rollout, and forgets it once spec.engine goes", func() {
+			Expect(k8sClient.Create(ctx, newEngineInfD(platformv1.AdmissionModeOff))).To(Succeed())
+			r := reconciler()
+			reconcileOK(r)
+			inForce := func() *metav1.Condition {
+				return meta.FindStatusCondition(mustGet(ctx, key).Status.Conditions, platformv1.ConditionEngineInForce)
+			}
+			Expect(inForce()).NotTo(BeNil())
+			Expect(inForce().Status).To(Equal(metav1.ConditionFalse))
+
+			markDeploymentObserved(1)
+			reconcileOK(r)
+			got := mustGet(ctx, key)
+			Expect(inForce().Status).To(Equal(metav1.ConditionTrue))
+			Expect(inForce().ObservedGeneration).To(Equal(got.Generation))
+
+			got.Spec.Engine = nil
+			got.Spec.Admission = nil
+			got.Spec.Image = "vllm/vllm-openai:test"
+			Expect(k8sClient.Update(ctx, got)).To(Succeed())
+			reconcileOK(r)
+			Expect(inForce()).To(BeNil())
+		})
+
 		// A Deployment this controller does not own is not a capped engine.
 		It("reports Off when a foreign Deployment takes the name", func() {
 			Expect(k8sClient.Create(ctx, newEngineInfD(platformv1.AdmissionModeHoldCap))).To(Succeed())
