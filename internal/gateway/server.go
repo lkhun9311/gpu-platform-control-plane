@@ -558,8 +558,7 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 
 	// Bound only after admission, so a refused request is never rewritten, and before the handoff, so every
 	// attempt on every backend carries the same priority.
-	// A HoldCap backend's engine is rendered with priority scheduling, so its requests carry the tier whatever -bind-priority says.
-	if s.bindPriority || holdCap {
+	if s.bindsPriority(holdCap, targets) {
 		p, err := bindEnginePriority(r, tier)
 		if err != nil {
 			s.fail(w, tenant, meta.Model, http.StatusInternalServerError)

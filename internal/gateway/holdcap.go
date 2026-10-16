@@ -58,6 +58,30 @@ func holdCapTargets(targets []*BackendRef) []*BackendRef {
 	return kept
 }
 
+// bindsPriority decides whether a request carries its tier's engine priority.
+//
+// -bind-priority asks for it everywhere. A HoldCap backend's engine is rendered with priority scheduling, so its
+// requests carry the tier whatever the flag says.
+// So does a request whose every reachable backend is a rendered engine, in any mode: those engines schedule by
+// priority, and without a bound tier every request arrives at the same one and the policy does nothing. The hold-cap
+// product study measured what that costs: the product's Off left the premium tail at 6 to 10 s where the lab's off,
+// which bound the tier, gave about 1.5 s (hack/eks-serve/holdcap-study/runs/).
+// Every backend, not the first, because a request may fall back, and a backend the controller does not render may
+// schedule first-come and refuse a priority it was not built for.
+func (s *Server) bindsPriority(holdCap bool, targets []*BackendRef) bool {
+	return s.bindPriority || holdCap || allPriorityScheduled(targets)
+}
+
+// allPriorityScheduled reports whether every backend a request may reach schedules by priority; false for none.
+func allPriorityScheduled(targets []*BackendRef) bool {
+	for _, t := range targets {
+		if !t.PriorityScheduled {
+			return false
+		}
+	}
+	return len(targets) > 0
+}
+
 // admissionFor is the admitter and mode a request's head backend selects, and whether that is HoldCap.
 // A HoldCap backend replaces the process-wide mode for its requests, and the two never stack, because the cap was measured with serial-prefill alone.
 func (s *Server) admissionFor(targets []*BackendRef) (Admitter, AdmissionMode, bool) {

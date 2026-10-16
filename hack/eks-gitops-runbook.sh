@@ -401,10 +401,12 @@ WAIT_SERVE_READY="${WAIT_SERVE_READY:-1500}"
 WAIT_SERVE_RECOVER="${WAIT_SERVE_RECOVER:-1500}"
 
 # The tier serve-a's policy resolves to: no tier annotation is standard, and standard binds priority 1
-# (internal/gateway/priority.go). The gateway writes it only under HoldCap or -bind-priority, so it is the
-# per-request trace of HoldCap admission only while the live gateway runs without -bind-priority, which
-# serve-request checks rather than assumes.
+# (internal/gateway/priority.go). The gateway now binds it on every rendered engine, Off included, so the priority
+# says the tier was bound and no longer which mode admitted the request; X-Admission-Reason says that.
 SERVE_EXPECTED_PRIORITY="${SERVE_EXPECTED_PRIORITY:-1}"
+# A standard request admitted under HoldCap is admitted by serial-prefill, free or after waiting
+# (internal/gateway/serialprefill.go); under Off it reads admission_off.
+SERVE_HOLDCAP_REASONS="serial_prefill_free serial_prefill_waited"
 
 # One shape for every "pick the Pod" question: by the label its controller sets, and only Pods that are neither
 # being deleted nor finished. More or fewer than one is an answer of its own, never the first of a list.
@@ -651,9 +653,9 @@ send_request() {
     -w '%{http_code}' -X POST -H 'Content-Type: application/json' -H "Authorization: Bearer $key" \
     -d "{\"model\":\"$SERVE_MODEL\",\"stream\":true,\"max_tokens\":32,\"messages\":[{\"role\":\"user\",\"content\":\"Name three colours.\"}]}" \
     "http://127.0.0.1:$GW_API_PORT/v1/chat/completions" >"$EXDIR/request-$tag.code" 2>/dev/null || true
-  python3 - "$EXDIR/request-$tag" "$SERVE_EXPECTED_PRIORITY" >"$EXDIR/request-$tag.verdict" 2>&1 <<'PY'
+  python3 - "$EXDIR/request-$tag" "$SERVE_EXPECTED_PRIORITY" "$SERVE_HOLDCAP_REASONS" >"$EXDIR/request-$tag.verdict" 2>&1 <<'PY'
 import json, sys
-base, want_priority = sys.argv[1], sys.argv[2]
+base, want_priority, holdcap_reasons = sys.argv[1], sys.argv[2], sys.argv[3].split()
 code = open(base + ".code").read().strip()
 if code != "200":
     sys.exit(f"status {code}, not 200")
@@ -662,9 +664,12 @@ for line in open(base + ".headers", errors="replace"):
     if ":" in line:
         k, v = line.split(":", 1)
         headers[k.strip().lower()] = v.strip()
+reason = headers.get("x-admission-reason")
+if reason not in holdcap_reasons:
+    sys.exit(f"X-Admission-Reason is {reason!r}, want one of {holdcap_reasons}: the request was not admitted by HoldCap")
 got = headers.get("x-engine-priority")
 if got != want_priority:
-    sys.exit(f"X-Engine-Priority is {got!r}, want {want_priority!r}: the request was not bound as under HoldCap")
+    sys.exit(f"X-Engine-Priority is {got!r}, want {want_priority!r}: the request was not bound to its tier")
 done, content, frames = False, [], 0
 for raw in open(base + ".body", errors="replace"):
     line = raw.strip()
@@ -708,28 +713,25 @@ if not done:
     sys.exit(f"the stream did not end with [DONE] ({frames} frames)")
 if not "".join(content).strip():
     sys.exit("the stream carried no content")
-print(f"ok: 200, X-Engine-Priority {got}, {frames} frames, {len(''.join(content))} characters")
+print(f"ok: 200, X-Admission-Reason {reason}, X-Engine-Priority {got}, {frames} frames, {len(''.join(content))} characters")
 PY
 }
 
-# The header S4 reads is written under HoldCap OR -bind-priority, so it means HoldCap only while the live
-# gateway runs without the flag. Read from the running Deployment, not from the manifest that was meant to
-# produce it.
-gateway_binds_priority() {
+# record_gateway_args keeps the running gateway's command and arguments with the evidence, read from the live
+# Deployment rather than the manifest meant to produce it. It used to gate S4, when X-Engine-Priority was the only
+# trace of HoldCap and -bind-priority would have counterfeited it; the admission reason is that trace now, and no
+# flag writes it.
+record_gateway_args() {
   local args
   args="$(k -n "$GW_NS" get deploy -l app.kubernetes.io/component=gateway \
-    -o jsonpath='{range .items[*].spec.template.spec.containers[*]}{.command} {.args}{"\n"}{end}' 2>/dev/null)" || return 2
-  [[ -n "$args" ]] || return 2
+    -o jsonpath='{range .items[*].spec.template.spec.containers[*]}{.command} {.args}{"\n"}{end}' 2>>"$EXDIR/run.log")" || return 1
+  [[ -n "$args" ]] || return 1
   printf '%s\n' "$args" >"$EXDIR/gateway-args.txt"
-  grep -q -- 'bind-priority' <<<"$args"
 }
 
 serve_request_as() {
   local tag="$1"
-  case "$(gateway_binds_priority; echo $?)" in
-    0) bad "the live gateway runs with -bind-priority, so X-Engine-Priority cannot show HoldCap admission"; return 0 ;;
-    2) bad "could not read the live gateway's arguments, so X-Engine-Priority cannot be attributed to HoldCap"; return 0 ;;
-  esac
+  record_gateway_args || bad "could not read the live gateway's arguments into gateway-args.txt"
   if ! gw_forward; then
     gw_unforward
     bad "could not port-forward to a Ready gateway Pod; the request proves nothing either way"

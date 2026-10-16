@@ -54,6 +54,15 @@ type BackendRef struct {
 	Admission AdmissionMode
 	// MaxHold is a HoldCap backend's hold, from its spec, and zero for any other.
 	MaxHold time.Duration
+	// PriorityScheduled says the controller renders this backend's engine, and every engine it renders schedules by
+	// request priority (internal/controller/inference_engine.go, pinned by a test there).
+	// False for a backend the controller does not render, whose engine may reject a priority it was not built for.
+	PriorityScheduled bool
+}
+
+// enginePriorityScheduled reports whether the controller renders d's engine; see BackendRef.PriorityScheduled.
+func enginePriorityScheduled(d *platformv1.InferenceDeployment) bool {
+	return d.Spec.Engine != nil && d.Spec.Engine.VLLM != nil
 }
 
 // backendAdmission reads the mode in force from status, never from the spec alone, because the spec says what was asked and only the controller knows when the capped engine is the one serving.
@@ -154,7 +163,8 @@ func (s *Server) backendsFor(ctx context.Context, policy *platformv1.GPUQuotaPol
 			return nil, fmt.Errorf("parse backend url: %w", err)
 		}
 		mode, maxHold := backendAdmission(d)
-		refs = append(refs, &BackendRef{Namespace: d.Namespace, Name: d.Name, Port: port, URL: u, Model: model, Admission: mode, MaxHold: maxHold})
+		refs = append(refs, &BackendRef{Namespace: d.Namespace, Name: d.Name, Port: port, URL: u, Model: model, Admission: mode, MaxHold: maxHold,
+			PriorityScheduled: enginePriorityScheduled(d)})
 	}
 	return refs, nil
 }
