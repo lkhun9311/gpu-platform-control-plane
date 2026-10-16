@@ -19,6 +19,9 @@ import re
 import sys
 
 STUDY = "holdcap-product-transfer-2026-10-15"
+# The registered runs of this one registration, in order. A run directory names its own in study-id.txt; the first
+# run predates that file and is read as STUDY. Rules are identical across them; only the rows' stamp differs.
+STUDIES = (STUDY, "holdcap-product-transfer-r2-2026-10-15")
 SEEDS = (851, 852, 853)
 ARMS = ("Off", "HoldCap")
 PREMIUM, CONTENDER = "premium-1", "standard-noisy"
@@ -148,8 +151,8 @@ def refused(row: dict) -> bool:
 class Cell:
     """One cell's evidence, checked for completeness on construction."""
 
-    def __init__(self, run: str, seed: int, arm: str, trace_dir: str):
-        self.seed, self.arm, self.name = seed, arm, cell_name(seed, arm)
+    def __init__(self, run: str, seed: int, arm: str, trace_dir: str, study: str = STUDY):
+        self.seed, self.arm, self.name, self.study = seed, arm, cell_name(seed, arm), study
         self.dir = os.path.join(run, "cells", self.name)
         if not os.path.isdir(self.dir):
             raise Unscorable(f"cell {self.name} is missing")
@@ -185,7 +188,7 @@ class Cell:
                 raise Unscorable(f"cell {self.name}: trace request {t['index']} has no matching row")
         for row in self.rows:
             stamp = (row.get("study"), row.get("arm"), row.get("traceChecksum"))
-            if stamp != (STUDY, self.arm, self.trace_sum):
+            if stamp != (self.study, self.arm, self.trace_sum):
                 raise Unscorable(f"cell {self.name}: row {row.get('index')} is stamped {stamp}")
             if row.get("priority") is not None:
                 raise Unscorable(f"cell {self.name}: row {row.get('index')} sent a client priority")
@@ -193,7 +196,7 @@ class Cell:
                 raise Unscorable(f"cell {self.name}: row {row.get('index')} lacks its replay timing")
         s = self.sender
         if (s.get("study"), s.get("arm"), s.get("connMode"), s.get("maxIdleConnsPerHost"), s.get("timeoutMs")) != (
-                STUDY, self.arm, "pooled", SENDER_POOL, TIMEOUT_NS // 1_000_000) or s.get("priorities"):
+                self.study, self.arm, "pooled", SENDER_POOL, TIMEOUT_NS // 1_000_000) or s.get("priorities"):
             raise Unscorable(f"cell {self.name}: sender configuration {s}")
         # Samples must cover the replay with no gap over 15 s, counting the replay's own start and end as edges.
         start = min(r["replayOriginUnixNanos"] for r in self.rows)
@@ -313,6 +316,12 @@ def score(run: str, trace_dir: str = DEFAULT_TRACES) -> tuple[str, list[str]]:
         identity_start = read_json(os.path.join(run, "identity-start.json"))
     except Unscorable as exc:
         return "inconclusive", [f"no starting identity: {exc}"]
+    study = STUDY
+    if os.path.exists(os.path.join(run, "study-id.txt")):
+        with open(os.path.join(run, "study-id.txt")) as handle:
+            study = handle.read().strip()
+    if study not in STUDIES:
+        return "inconclusive", [f"study-id.txt names {study!r}, which is not a registered run of this study"]
     # Exactly the registered cells, each once, in the registered order; anything else is an attempt the run kept.
     present = sorted(os.listdir(os.path.join(run, "cells"))) if os.path.isdir(os.path.join(run, "cells")) else []
     expected = [cell_name(s, a) for s in SEEDS for a in registered_order(s)]
@@ -325,7 +334,7 @@ def score(run: str, trace_dir: str = DEFAULT_TRACES) -> tuple[str, list[str]]:
     for seed in SEEDS:
         for arm in ARMS:
             try:
-                cells[cell_name(seed, arm)] = Cell(run, seed, arm, trace_dir)
+                cells[cell_name(seed, arm)] = Cell(run, seed, arm, trace_dir, study)
             except Unscorable as exc:
                 unscorable[cell_name(seed, arm)] = str(exc)
     started = sorted((c.meta.get("startedUnixNanos", 0), name) for name, c in cells.items())

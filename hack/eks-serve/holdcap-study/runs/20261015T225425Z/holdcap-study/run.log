@@ -1,0 +1,67 @@
+2026-10-15T23:19:43.549665471Z  study holdcap-product-transfer-r2-2026-10-15 on gpu-platform; tooling at 89015bcc721ac800fda8b65748248b70c2482c89, dirty files 0
+2026-10-15T23:19:43.612256756Z  block 851 order: Off HoldCap 
+2026-10-15T23:19:43.617752041Z  block 852 order: HoldCap Off 
+2026-10-15T23:19:43.623229456Z  block 853 order: HoldCap Off 
+2026-10-15T23:19:43.636039885Z  building the harness
+2026-10-15T23:19:44.485120785Z  tenants
+gpuquotapolicy.platform.lkhun9311.github.io/study-premium-1 created
+gpuquotapolicy.platform.lkhun9311.github.io/study-standard-noisy created
+secret/gateway-api-keys patched
+2026-10-15T23:19:46.445181776Z  collector
+namespace/holdcap-study created
+pod/collector created
+pod/collector condition met
+2026-10-15T23:20:11.859375629Z  gateway gateway-869c499b76-66qck at 10.0.75.89; replay target http://gateway.gpu-platform-control-plane-system.svc:8080
+2026-10-15T23:20:15.163176049Z  == cell 1: 851-Off, to end by 23:45:15Z
+inferencedeployment.platform.lkhun9311.github.io/qwen25-3b-holdcap patched
+tar: removing leading '/' from member names
+tar: removing leading '/' from member names
+tar: removing leading '/' from member names
+2026-10-15T23:31:16.482364188Z  cell 851-Off complete: 4019 rows, 65 samples
+2026-10-15T23:31:16.499404803Z  == cell 2: 851-HoldCap, to end by 23:56:16Z
+inferencedeployment.platform.lkhun9311.github.io/qwen25-3b-holdcap patched
+tar: removing leading '/' from member names
+tar: removing leading '/' from member names
+2026-10-15T23:41:53.685173148Z  cell 851-HoldCap complete: 4019 rows, 65 samples
+2026-10-15T23:41:53.706121910Z  == cell 3: 852-HoldCap, to end by 00:06:53Z
+pod "qwen25-3b-holdcap-76c6d6ccc-ts6kb" deleted from serve-a namespace
+tar: removing leading '/' from member names
+tar: removing leading '/' from member names
+2026-10-15T23:52:41.462505100Z  cell 852-HoldCap complete: 4143 rows, 67 samples
+2026-10-15T23:52:41.480458525Z  == cell 4: 852-Off, to end by 00:17:41Z
+inferencedeployment.platform.lkhun9311.github.io/qwen25-3b-holdcap patched
+tar: removing leading '/' from member names
+tar: removing leading '/' from member names
+tar: removing leading '/' from member names
+2026-10-16T00:03:20.129897135Z  cell 852-Off complete: 4143 rows, 64 samples
+2026-10-16T00:03:20.151051867Z  == cell 5: 853-HoldCap, to end by 00:28:20Z
+inferencedeployment.platform.lkhun9311.github.io/qwen25-3b-holdcap patched
+tar: removing leading '/' from member names
+tar: removing leading '/' from member names
+tar: removing leading '/' from member names
+2026-10-16T00:13:53.620529876Z  cell 853-HoldCap complete: 4102 rows, 65 samples
+2026-10-16T00:13:53.638321841Z  == cell 6: 853-Off, to end by 00:38:53Z
+inferencedeployment.platform.lkhun9311.github.io/qwen25-3b-holdcap patched
+tar: removing leading '/' from member names
+2026-10-16T00:24:24.901197726Z  cell 853-Off complete: 4102 rows, 65 samples
+2026-10-16T00:24:24.912629866Z  all six cells complete; scoring
+verdict: not met
+  first failing: block 852, line 3 contender p50 ratio and p95
+  block 851 ok  1 premium TTFT p99 ratio: 428.1 / 9908.0 ms = 0.043
+  block 851 ok  2 contender completion: 1.0000
+  block 851 ok  3 contender p50 ratio and p95: p50 4057 against 3037 ms, p95 16625 ms
+  block 851 ok  4 refusals: 0
+  block 851 ok  5 premium content-event gap p99 ratio: 90730 / 91531 us = 0.991
+  block 851 ok  6 preemptions: 0
+  block 852 ok  1 premium TTFT p99 ratio: 436.7 / 9811.4 ms = 0.045
+  block 852 ok  2 contender completion: 1.0000
+  block 852 BAD 3 contender p50 ratio and p95: p50 7034 against 4673 ms, p95 15698 ms
+  block 852 ok  4 refusals: 0
+  block 852 ok  5 premium content-event gap p99 ratio: 90075 / 93480 us = 0.964
+  block 852 ok  6 preemptions: 0
+  block 853 ok  1 premium TTFT p99 ratio: 464.4 / 6191.6 ms = 0.075
+  block 853 ok  2 contender completion: 1.0000
+  block 853 ok  3 contender p50 ratio and p95: p50 3995 against 3068 ms, p95 9425 ms
+  block 853 ok  4 refusals: 0
+  block 853 ok  5 premium content-event gap p99 ratio: 88824 / 91637 us = 0.969
+  block 853 ok  6 preemptions: 0

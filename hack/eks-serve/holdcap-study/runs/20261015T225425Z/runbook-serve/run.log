@@ -1,0 +1,17 @@
+2026-10-15T23:10:07.183889798Z  context: gpu-platform
+secret/gateway-api-keys patched
+   ok   added a key for serve-a to gateway-api-keys (recorded in serve-key.txt)
+application.argoproj.io/gpu-platform-serving patched
+   ok   gpu-platform-serving synced at 5edd22768d537821f736777180cfc95f3879af58
+2026-10-15T23:10:17.282141946Z  context: gpu-platform
+   ok   the engine Pod was created: qwen25-3b-holdcap-76c6d6ccc-qsc5f
+2026-10-15T23:10:24.381465994Z     phase=Pending used=1 scheduling: 0/1 nodes are available: 1 node(s) didn't match Pod's node affinity/selector. no new claims to deallocate, preemption: 0/1 nodes are available: 1 Preemption is not helpful for scheduling.
+   ok   Pending for node affinity, as a cluster with no GPU node must leave it
+   ok   charged against gpuquota-serve-a-quota (requests.nvidia.com/gpu used=1, and this is the namespace's one engine Pod)
+   ok   status reports Off while no engine is ready
+   ok   serve-a's key was accepted and no backend answered: 502 bad_gateway
+2026-10-15T23:11:30.645956032Z  context: gpu-platform
+   ok   HoldCap in force (HoldCap 1 1), 490s after this step began
+2026-10-15T23:19:43.517425699Z     engine pod qwen25-3b-holdcap-76c6d6ccc-qsc5f (e2f9cc38-6894-4e29-8472-f1ba21d61189) on node ip-10-0-97-26.ap-northeast-2.compute.internal (instance type g5.xlarge, node group gpu_single)
+   ok   S2: the engine runs on a g5.xlarge of node group gpu_single
+   ok   S3: the engine runs the measured arguments with the cap (args-check.txt)

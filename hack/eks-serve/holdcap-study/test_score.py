@@ -203,6 +203,35 @@ class ScoreTest(unittest.TestCase):
             json.dump(meta, f)
         self.assertVerdict("inconclusive", "outcome 'deadline'")
 
+    # The re-run: its rows carry its own study, named by the run's study-id.txt.
+    def restamp(self, study):
+        for seed in score.SEEDS:
+            for arm in score.ARMS:
+                self.r.edit_rows(seed, arm, lambda r: r.update(study=study))
+                path = os.path.join(self.r.dir(seed, arm), "raw.jsonl.sender.json")
+                with open(path) as f:
+                    s = json.load(f)
+                s["study"] = study
+                with open(path, "w") as f:
+                    json.dump(s, f)
+
+    def test_the_re_run_scores_under_its_own_study(self):
+        self.restamp(score.STUDIES[1])
+        with open(os.path.join(self.r.run, "study-id.txt"), "w") as f:
+            f.write(score.STUDIES[1] + "\n")
+        verdict, lines = self.r.score()
+        self.assertEqual(verdict, "observed on these traces", lines)
+
+    def test_re_run_rows_without_its_study_id_file_are_refused(self):
+        # Mutation that turns this red: stamp-check rows against any registered run rather than the one named.
+        self.restamp(score.STUDIES[1])
+        self.assertVerdict("inconclusive", "is stamped")
+
+    def test_a_study_id_file_naming_another_study(self):
+        with open(os.path.join(self.r.run, "study-id.txt"), "w") as f:
+            f.write("admission-diagnostic-2026-10-10\n")
+        self.assertVerdict("inconclusive", "not a registered run")
+
     # Validity: each makes a block invalid.
     def test_a_wrong_priority_header(self):
         self.r.edit_rows(851, "Off", lambda r: r.update(enginePriority="1"))

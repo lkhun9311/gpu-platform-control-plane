@@ -184,3 +184,17 @@ var _ = Describe("the study registry", func() {
 		})
 	})
 })
+
+// The re-run is a new study only so its rows cannot be pooled with the first run's; in every rule it must be the same
+// registration. Mutation that turns this red: change any field of StudyHoldCapProductTransferR2's entry.
+var _ = Describe("the hold-cap product study's re-run", func() {
+	It("is registered exactly like the first run but for its ID", func() {
+		first, ok := LookupStudy(StudyHoldCapProductTransfer)
+		Expect(ok).To(BeTrue())
+		again, ok := LookupStudy(StudyHoldCapProductTransferR2)
+		Expect(ok).To(BeTrue())
+		Expect(again.ID).NotTo(Equal(first.ID))
+		again.ID = first.ID
+		Expect(again).To(Equal(first))
+	})
+})
