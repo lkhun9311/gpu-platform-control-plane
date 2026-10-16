@@ -717,21 +717,37 @@ print(f"ok: 200, X-Admission-Reason {reason}, X-Engine-Priority {got}, {frames} 
 PY
 }
 
-# record_gateway_args keeps the running gateway's command and arguments with the evidence, read from the live
-# Deployment rather than the manifest meant to produce it. It used to gate S4, when X-Engine-Priority was the only
-# trace of HoldCap and -bind-priority would have counterfeited it; the admission reason is that trace now, and no
-# flag writes it.
-record_gateway_args() {
+# gateway_admission_off records the running gateway's command and arguments with the evidence, read from the live
+# Deployment rather than the manifest meant to produce it, and succeeds only when its process-wide admission mode is
+# off. S4 reads HoldCap from the serial-prefill admission reason, and a gateway running serial-prefill process-wide
+# writes the same reason for a backend that is not HoldCap; so the reason means HoldCap only when that mode is off.
+# Returns 1 when the mode is not off, 2 when the arguments cannot be read.
+gateway_admission_off() {
   local args
   args="$(k -n "$GW_NS" get deploy -l app.kubernetes.io/component=gateway \
-    -o jsonpath='{range .items[*].spec.template.spec.containers[*]}{.command} {.args}{"\n"}{end}' 2>>"$EXDIR/run.log")" || return 1
-  [[ -n "$args" ]] || return 1
+    -o jsonpath='{range .items[*].spec.template.spec.containers[*]}{.command} {.args}{"\n"}{end}' 2>>"$EXDIR/run.log")" || return 2
+  [[ -n "$args" ]] || return 2
   printf '%s\n' "$args" >"$EXDIR/gateway-args.txt"
+  # -admission-mode defaults to off (cmd/gateway/main.go); any other value, in either flag spelling, is refused.
+  # The jsonpath prints command and args as JSON arrays, so they are parsed as tokens: a flag and its value can be two
+  # items, which a pattern over the printed text misses.
+  python3 -c '
+import json, re, sys
+tokens = [t for arr in re.findall(r"\[[^\]]*\]", sys.argv[1]) for t in json.loads(arr)]
+modes = []
+for i, t in enumerate(tokens):
+    flag, sep, value = t.partition("=")
+    if flag in ("-admission-mode", "--admission-mode"):
+        modes.append(value if sep else (tokens[i + 1] if i + 1 < len(tokens) else ""))
+sys.exit(0 if all(m == "off" for m in modes) else 1)' "$args"
 }
 
 serve_request_as() {
   local tag="$1"
-  record_gateway_args || bad "could not read the live gateway's arguments into gateway-args.txt"
+  case "$(gateway_admission_off; echo $?)" in
+    1) bad "the live gateway's process-wide admission is not off, so a serial-prefill reason cannot show HoldCap (gateway-args.txt)"; return 0 ;;
+    2) bad "could not read the live gateway's arguments, so the admission reason cannot be attributed to HoldCap"; return 0 ;;
+  esac
   if ! gw_forward; then
     gw_unforward
     bad "could not port-forward to a Ready gateway Pod; the request proves nothing either way"

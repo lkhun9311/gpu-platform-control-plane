@@ -24,6 +24,8 @@ import (
 	"slices"
 	"time"
 
+	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	platformv1 "github.com/lkhun9311/gpu-mlops-platform-control-plane/api/v1"
@@ -54,15 +56,23 @@ type BackendRef struct {
 	Admission AdmissionMode
 	// MaxHold is a HoldCap backend's hold, from its spec, and zero for any other.
 	MaxHold time.Duration
-	// PriorityScheduled says the controller renders this backend's engine, and every engine it renders schedules by
-	// request priority (internal/controller/inference_engine.go, pinned by a test there).
+	// PriorityScheduled says the controller reports its rendered engine serving this backend, and every engine it
+	// renders schedules by request priority (internal/controller/inference_engine.go, pinned by a test there).
 	// False for a backend the controller does not render, whose engine may reject a priority it was not built for.
 	PriorityScheduled bool
 }
 
-// enginePriorityScheduled reports whether the controller renders d's engine; see BackendRef.PriorityScheduled.
+// enginePriorityScheduled reports whether the controller says its rendered engine is the one serving d.
+//
+// Read from the EngineInForce condition, never from spec.engine alone, for the reason backendAdmission reads HoldCap
+// from status: adding spec.engine to a backend says what is wanted, and until the rollout completes the Pods serving it
+// are the old ones, which may not accept a priority. A condition from an older generation is not trusted.
 func enginePriorityScheduled(d *platformv1.InferenceDeployment) bool {
-	return d.Spec.Engine != nil && d.Spec.Engine.VLLM != nil
+	if d.Spec.Engine == nil || d.Spec.Engine.VLLM == nil {
+		return false
+	}
+	c := meta.FindStatusCondition(d.Status.Conditions, platformv1.ConditionEngineInForce)
+	return c != nil && c.Status == metav1.ConditionTrue && c.ObservedGeneration == d.Generation
 }
 
 // backendAdmission reads the mode in force from status, never from the spec alone, because the spec says what was asked and only the controller knows when the capped engine is the one serving.

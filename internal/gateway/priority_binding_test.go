@@ -6,9 +6,11 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"sync/atomic"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	platformv1 "github.com/lkhun9311/gpu-mlops-platform-control-plane/api/v1"
 )
@@ -74,11 +76,43 @@ var _ = Describe("priority binding on rendered engines", func() {
 		Expect(rr.Header().Get(HeaderEnginePriority)).To(BeEmpty())
 	})
 
-	It("reads a rendered engine from the InferenceDeployment's spec", func() {
-		rendered := &platformv1.InferenceDeployment{Spec: platformv1.InferenceDeploymentSpec{
-			Engine: &platformv1.InferenceEngine{VLLM: &platformv1.VLLMEngine{Profile: platformv1.VLLMProfileV0271A10G}},
-		}}
-		Expect(enginePriorityScheduled(rendered)).To(BeTrue())
+	// A reservation pins a request to the head backend, so a fallback it can no longer reach must not keep it unbound.
+	// Mutation that must turn this red: judge bindsPriority on targets rather than forwardTargets(res, targets).
+	It("binds when a reservation leaves only the rendered head reachable", func() {
+		var got atomic.Value
+		up := recording(&got)
+		defer up.Close()
+		s := newAdmissionServer("", tierStandard, AdmissionSerialPrefill, newSerialPrefillAdmitter(10*time.Second))
+		s.refsOverride = func(string) []*BackendRef {
+			return []*BackendRef{ref(up.URL, "rendered", true), ref(up.URL, "plain", false)}
+		}
+		rr := httptest.NewRecorder()
+		s.Handler().ServeHTTP(rr, authedRequest(body))
+		Expect(rr.Code).To(Equal(http.StatusOK))
+		seen, _ := got.Load().([]any)
+		Expect(seen).To(Equal([]any{float64(1)}))
+	})
+
+	// The spec says what is wanted; only the controller's condition, for the current generation, says the rendered
+	// engine is the one serving. Mutation that must turn this red: return true for any spec.engine.
+	It("reads a rendered engine from the controller's condition, not from the spec alone", func() {
+		infd := func(cond *metav1.Condition) *platformv1.InferenceDeployment {
+			d := &platformv1.InferenceDeployment{Spec: platformv1.InferenceDeploymentSpec{
+				Engine: &platformv1.InferenceEngine{VLLM: &platformv1.VLLMEngine{Profile: platformv1.VLLMProfileV0271A10G}},
+			}}
+			d.Generation = 4
+			if cond != nil {
+				d.Status.Conditions = []metav1.Condition{*cond}
+			}
+			return d
+		}
+		inForce := func(status metav1.ConditionStatus, gen int64) *metav1.Condition {
+			return &metav1.Condition{Type: platformv1.ConditionEngineInForce, Status: status, ObservedGeneration: gen}
+		}
+		Expect(enginePriorityScheduled(infd(inForce(metav1.ConditionTrue, 4)))).To(BeTrue())
+		Expect(enginePriorityScheduled(infd(nil))).To(BeFalse(), "spec.engine with no word from the controller")
+		Expect(enginePriorityScheduled(infd(inForce(metav1.ConditionFalse, 4)))).To(BeFalse(), "rollout in progress")
+		Expect(enginePriorityScheduled(infd(inForce(metav1.ConditionTrue, 3)))).To(BeFalse(), "a condition from an older generation")
 		Expect(enginePriorityScheduled(&platformv1.InferenceDeployment{})).To(BeFalse())
 		Expect(allPriorityScheduled(nil)).To(BeFalse(), "no backend is not every backend scheduling by priority")
 	})

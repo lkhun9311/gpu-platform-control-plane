@@ -48,6 +48,51 @@ func admissionInForce(infd *platformv1.InferenceDeployment, dep *appsv1.Deployme
 		Reason: infdReasonHoldCapInForce, Message: "the capped engine is the only one serving", ObservedGeneration: infd.Generation}
 }
 
+// Reasons for the EngineInForce condition (platformv1.ConditionEngineInForce).
+const (
+	infdReasonEngineInForce  = "RenderedEngineInForce"
+	infdReasonEngineRollout  = "RenderedEngineRolloutInProgress"
+	infdReasonEngineScaled0  = "ScaledToZero"
+	infdReasonEngineDegraded = "Degraded"
+)
+
+// engineInForce reports whether every Pod serving the Service runs a template this controller rendered from spec.engine.
+//
+// The gateway binds a tier on such a backend in Off as well as HoldCap, and a request carrying a priority to an engine
+// that was not rendered with priority scheduling may be refused. So, as with HoldCap, the desired spec is not enough:
+// the rendered template must have rolled out, with nothing older still serving. Every rendered template carries the
+// admission annotation, HoldCap or Off; a template without it is not one this controller rendered from spec.engine.
+func engineInForce(infd *platformv1.InferenceDeployment, dep *appsv1.Deployment) metav1.Condition {
+	cond := func(status metav1.ConditionStatus, reason, msg string) metav1.Condition {
+		return metav1.Condition{Type: platformv1.ConditionEngineInForce, Status: status, Reason: reason, Message: msg,
+			ObservedGeneration: infd.Generation}
+	}
+	if infd.Spec.Replicas == 0 {
+		return cond(metav1.ConditionFalse, infdReasonEngineScaled0, "no engine is running")
+	}
+	if dep.Status.ObservedGeneration < dep.Generation {
+		return cond(metav1.ConditionFalse, infdReasonEngineRollout, "the Deployment has not observed its current template")
+	}
+	if _, rendered := dep.Spec.Template.Annotations[admissionAnnotation]; !rendered {
+		return cond(metav1.ConditionFalse, infdReasonEngineRollout, "the current template is not rendered from spec.engine")
+	}
+	s, want := dep.Status, infd.Spec.Replicas
+	if dep.Spec.Replicas == nil || *dep.Spec.Replicas != want || s.Replicas != want || s.UpdatedReplicas != want ||
+		s.ReadyReplicas != want || (s.TerminatingReplicas != nil && *s.TerminatingReplicas != 0) {
+		return cond(metav1.ConditionFalse, infdReasonEngineRollout, "the rendered engine is not yet the only one serving")
+	}
+	return cond(metav1.ConditionTrue, infdReasonEngineInForce, "every serving Pod runs the rendered engine")
+}
+
+// setEngineStatus writes the EngineInForce condition, or removes it when the spec renders no engine.
+func setEngineStatus(st *platformv1.InferenceDeploymentStatus, infd *platformv1.InferenceDeployment, cond metav1.Condition) {
+	if infd.Spec.Engine == nil {
+		meta.RemoveStatusCondition(&st.Conditions, platformv1.ConditionEngineInForce)
+		return
+	}
+	meta.SetStatusCondition(&st.Conditions, cond)
+}
+
 // setAdmissionStatus writes the mode in force, or removes it when the spec asks for none.
 func setAdmissionStatus(st *platformv1.InferenceDeploymentStatus, infd *platformv1.InferenceDeployment, mode string, cond metav1.Condition) {
 	if infd.Spec.Admission == nil {
