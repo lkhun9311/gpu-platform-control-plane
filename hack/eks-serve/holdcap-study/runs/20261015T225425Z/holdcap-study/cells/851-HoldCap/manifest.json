@@ -1,0 +1,30 @@
+{
+ "arm": "HoldCap",
+ "gatewaySHA": "5edd22768d537821f736777180cfc95f3879af58",
+ "gatewayURL": "http://gateway.gpu-platform-control-plane-system.svc:8080",
+ "imageDigests": {
+  "engine": "docker.io/vllm/vllm-openai@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967",
+  "gateway": "007635145730.dkr.ecr.ap-northeast-2.amazonaws.com/gpu-platform-gateway@sha256:605cbf5e246f89af2267569eb2850d14c3f5d912221327a29108446fe3c2de1b"
+ },
+ "longThreshold": 4096,
+ "matchTolerance": "0.05",
+ "maxOutputTokens": {
+  "premium-1": 64,
+  "standard-noisy": 16
+ },
+ "model": "Qwen/Qwen2.5-3B-Instruct",
+ "primaryEndpoint": "ttft_p99",
+ "promptCorpusSHA": "dec1020701584417449f9c7efa5354073682cce69348af3b9fb5244705200a86",
+ "promptLenChars": {
+  "premium-1": 200,
+  "standard-noisy": 40000
+ },
+ "schemaVersion": "v2",
+ "seed": 851,
+ "study": "holdcap-product-transfer-r2-2026-10-15",
+ "timeoutMs": 30000,
+ "timeoutScope": "whole-request-including-stream",
+ "tokenizerRev": "aa8e72537993ba99e69dfaafa59ed015b17504d1",
+ "traceChecksum": "0004950e429bec0ad873367c36b6dd40f677112c0c52922d64a347d499825247",
+ "tracePath": "trace-off-1.jsonl"
+}

@@ -13,6 +13,8 @@
 #   WAIT_ENGINE      seconds for a fresh engine to come up in its mode (default 1200)
 #   STUDY_REHEARSAL  set to 1 only by rehearse-kind.sh: the mode is switched by that script against a stub engine
 #   TEARDOWN_RESERVE seconds kept free before STUDY_DEADLINE (default 2400; the session passes 600)
+#   STUDY_ID         which registered run this is (default the re-run, holdcap-product-transfer-r2-2026-10-15);
+#                    every row is stamped with it and score.py reads it back from study-id.txt
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -29,8 +31,10 @@ SEEDS=(851 852 853)
 # The registration's per-cell budget and the teardown reserve; a cell is not started unless both still fit.
 CELL_BUDGET=1500
 TEARDOWN_RESERVE="${TEARDOWN_RESERVE:-2400}"
+STUDY_ID="${STUDY_ID:-holdcap-product-transfer-r2-2026-10-15}"
 OUT="$EXDIR/holdcap-study"
 mkdir -p "$OUT/cells"
+printf '%s\n' "$STUDY_ID" >"$OUT/study-id.txt"
 
 k() { kubectl --context "$CONTEXT" --request-timeout=30s "$@"; }
 log() { printf '%s  %s\n' "$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)" "$*" | tee -a "$OUT/run.log"; }
@@ -68,7 +72,13 @@ print(p["metadata"]["name"], p["metadata"]["uid"], p.get("status", {}).get("podI
 '
 }
 
-metrics_of() { in_collector wget -qO- -T 10 "http://$1/metrics"; }
+# metrics_of reads a /metrics page through the collector; an optional second argument bounds the whole read,
+# kubectl exec included, in seconds (default 10).
+metrics_of() {
+  local secs="${2:-10}"
+  timeout "$((secs + 1))" kubectl --context "$CONTEXT" -n "$COLLECTOR_NS" exec collector -- \
+    wget -qO- -T "$secs" "http://$1/metrics"
+}
 
 # rehearsal_ref returns an image reference unchanged, except that on kind a side-loaded image can report a bare
 # sha256 ID with no repository; a rehearsal names it as local/<role> so the manifest's digest check still applies.
@@ -82,10 +92,11 @@ rehearsal_ref() {
   fi
 }
 
-# backend_modes prints "<backend mode> <process mode>" read from the gateway's own metrics.
+# backend_modes prints "<backend mode> <process mode>" read from the gateway's own metrics; an optional second
+# argument bounds the read in seconds.
 backend_modes() {
   local gw_ip=$1
-  metrics_of "$gw_ip:8081" | python3 -c '
+  metrics_of "$gw_ip:8081" "${2:-10}" | python3 -c '
 import re, sys
 ns, name = sys.argv[1], sys.argv[2]
 backend = process = "-"
@@ -156,7 +167,7 @@ json.dump(out, sys.stdout, sort_keys=True, indent=1)
 }
 
 # ---------------------------------------------------------------------------------------------------------------
-log "study holdcap-product-transfer-2026-10-15 on $CONTEXT; tooling at $(git -C "$REPO" rev-parse HEAD), dirty files $(git -C "$REPO" status --porcelain | wc -l)"
+log "study $STUDY_ID on $CONTEXT; tooling at $(git -C "$REPO" rev-parse HEAD), dirty files $(git -C "$REPO" status --porcelain | wc -l)"
 git -C "$REPO" rev-parse HEAD >"$OUT/tooling-commit.txt"
 
 # The frozen load, checked before anything is applied.
@@ -355,7 +366,8 @@ print(uids == {sys.argv[1]})' "$E_UID")" == True ]] || fail_cell "the Service do
     archived="$HERE/diagnostic/manifest-$([[ $arm == HoldCap ]] && echo hold-cap || echo off)-$i.yaml"
     E_IMAGE="$(rehearsal_ref "$(engine_pods_json | python3 -c 'import json,sys; p=[p for p in json.load(sys.stdin)["items"] if not p["metadata"].get("deletionTimestamp")][0]; print(p["status"]["containerStatuses"][0]["imageID"].split("://")[-1])')" engine)"
     python3 "$HERE/derive_manifest.py" "$archived" "$D/manifest.json" --arm "$arm" --gateway-url "$GW_URL" \
-      --gateway-sha "$GATEWAY_SHA" --gateway-image "$GATEWAY_IMAGE" --engine-image "$E_IMAGE" || fail_cell "derive manifest"
+      --gateway-sha "$GATEWAY_SHA" --gateway-image "$GATEWAY_IMAGE" --engine-image "$E_IMAGE" --study "$STUDY_ID" ||
+      fail_cell "derive manifest"
     k -n "$COLLECTOR_NS" cp "$D/manifest.json" "collector:/study/manifest-$name.json" >>"$OUT/run.log" 2>&1 || fail_cell "copy manifest"
 
     # Samples every 5 s until the replay returns, in the background; each is one JSON line.
@@ -363,10 +375,22 @@ print(uids == {sys.argv[1]})' "$E_UID")" == True ]] || fail_cell "the Service do
     (
       while [[ ! -f "$D/.stop-sampling" ]]; do
         t="$(date +%s%N)"
-        e="$(engine_pods_json | live_one 2>/dev/null || echo "- - - - - -")"
-        g="$(gateway_pods_json | live_one 2>/dev/null || echo "- - - - - -")"
-        st="$(k -n "$SERVE_NS" get inferencedeployment "$SERVE_INFD" -o jsonpath='{.status.admission.mode} {.status.admission.observedGeneration} {.metadata.generation}' 2>/dev/null || echo "- - -")"
-        bm="$(backend_modes "$GW_IP" 2>/dev/null || echo "- -")"
+        e="$(engine_pods_json 2>>"$D/sampler.err" | live_one 2>>"$D/sampler.err" || echo "- - - - - -")"
+        g="$(gateway_pods_json 2>>"$D/sampler.err" | live_one 2>>"$D/sampler.err" || echo "- - - - - -")"
+        st="$(k -n "$SERVE_NS" get inferencedeployment "$SERVE_INFD" -o jsonpath='{.status.admission.mode} {.status.admission.observedGeneration} {.metadata.generation}' 2>>"$D/sampler.err" || echo "- - -")"
+        # Retried within the tick: the first run lost one sample of 59 to a single failed read of the gateway's
+        # metrics, and the registration counts a sample that cannot show the arm against validity. The rule is
+        # unchanged; a read that fails until the deadline is still written as unreadable. Failures go to sampler.err.
+        # Every attempt shares one 4 s deadline and is bounded by what is left of it, so retries cannot stretch the
+        # tick: with the 5 s sleep below a sample still follows the last within the scorer's 15 s.
+        bm="- -"
+        retry_end=$((SECONDS + 4))
+        while ((SECONDS < retry_end)); do
+          left=$((retry_end - SECONDS))
+          bm="$(backend_modes "$GW_IP" "$left" 2>>"$D/sampler.err")" && [[ "$bm" != "- -" && -n "$bm" ]] && break
+          bm="- -"
+          sleep 0.5
+        done
         python3 -c '
 import json, sys
 t, e, g, st, bm = sys.argv[1:6]
