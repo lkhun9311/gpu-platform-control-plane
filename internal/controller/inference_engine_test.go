@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -138,5 +139,17 @@ func TestEveryProfileInTheCRDHasARendering(t *testing.T) {
 	}
 	if n == 0 {
 		t.Fatal("the profile enum parsed as empty")
+	}
+}
+
+// The gateway binds a tier on every backend whose engine this controller renders, in Off as well as HoldCap
+// (internal/gateway BackendRef.PriorityScheduled), on the strength of this one fact. A profile without priority
+// scheduling would be sent priorities it may refuse.
+// Mutation that turns this red: drop --scheduling-policy=priority from a profile.
+func TestEveryRenderedProfileSchedulesByPriority(t *testing.T) {
+	for name, p := range vllmProfiles {
+		if !slices.Contains(p.args, "--scheduling-policy=priority") {
+			t.Errorf("profile %s does not schedule by priority, and the gateway binds a tier on every rendered engine", name)
+		}
 	}
 }

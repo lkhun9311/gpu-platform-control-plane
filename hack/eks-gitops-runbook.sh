@@ -401,10 +401,12 @@ WAIT_SERVE_READY="${WAIT_SERVE_READY:-1500}"
 WAIT_SERVE_RECOVER="${WAIT_SERVE_RECOVER:-1500}"
 
 # The tier serve-a's policy resolves to: no tier annotation is standard, and standard binds priority 1
-# (internal/gateway/priority.go). The gateway writes it only under HoldCap or -bind-priority, so it is the
-# per-request trace of HoldCap admission only while the live gateway runs without -bind-priority, which
-# serve-request checks rather than assumes.
+# (internal/gateway/priority.go). The gateway now binds it on every rendered engine, Off included, so the priority
+# says the tier was bound and no longer which mode admitted the request; X-Admission-Reason says that.
 SERVE_EXPECTED_PRIORITY="${SERVE_EXPECTED_PRIORITY:-1}"
+# A standard request admitted under HoldCap is admitted by serial-prefill, free or after waiting
+# (internal/gateway/serialprefill.go); under Off it reads admission_off.
+SERVE_HOLDCAP_REASONS="serial_prefill_free serial_prefill_waited"
 
 # One shape for every "pick the Pod" question: by the label its controller sets, and only Pods that are neither
 # being deleted nor finished. More or fewer than one is an answer of its own, never the first of a list.
@@ -453,11 +455,14 @@ for o in items:
 # run, because a handler that only cleans up returns to the interrupted command and the run carries on to
 # report an operator's Ctrl-C as the platform failing a bar.
 gw_forward() {
-  GW_API_PORT="" GW_PF_PID=""
+  GW_API_PORT="" GW_PF_PID="" GW_POD=""
   local pod pf_log="$EXDIR/port-forward-serve.log"
   pod="$(k -n "$GW_NS" get pod -l app.kubernetes.io/component=gateway \
     -o json 2>/dev/null | ready_names | head -1)"
   [[ -n "$pod" ]] || return 1
+  # Kept so a check of the gateway's configuration reads the process the request is sent to, not a template a rollout
+  # may not have reached yet.
+  GW_POD="$pod"
   set -m
   kubectl --context "$CONTEXT" -n "$GW_NS" port-forward "pod/$pod" :8080 >"$pf_log" 2>&1 &
   GW_PF_PID=$!
@@ -651,9 +656,9 @@ send_request() {
     -w '%{http_code}' -X POST -H 'Content-Type: application/json' -H "Authorization: Bearer $key" \
     -d "{\"model\":\"$SERVE_MODEL\",\"stream\":true,\"max_tokens\":32,\"messages\":[{\"role\":\"user\",\"content\":\"Name three colours.\"}]}" \
     "http://127.0.0.1:$GW_API_PORT/v1/chat/completions" >"$EXDIR/request-$tag.code" 2>/dev/null || true
-  python3 - "$EXDIR/request-$tag" "$SERVE_EXPECTED_PRIORITY" >"$EXDIR/request-$tag.verdict" 2>&1 <<'PY'
+  python3 - "$EXDIR/request-$tag" "$SERVE_EXPECTED_PRIORITY" "$SERVE_HOLDCAP_REASONS" >"$EXDIR/request-$tag.verdict" 2>&1 <<'PY'
 import json, sys
-base, want_priority = sys.argv[1], sys.argv[2]
+base, want_priority, holdcap_reasons = sys.argv[1], sys.argv[2], sys.argv[3].split()
 code = open(base + ".code").read().strip()
 if code != "200":
     sys.exit(f"status {code}, not 200")
@@ -662,9 +667,12 @@ for line in open(base + ".headers", errors="replace"):
     if ":" in line:
         k, v = line.split(":", 1)
         headers[k.strip().lower()] = v.strip()
+reason = headers.get("x-admission-reason")
+if reason not in holdcap_reasons:
+    sys.exit(f"X-Admission-Reason is {reason!r}, want one of {holdcap_reasons}: the request was not admitted by HoldCap")
 got = headers.get("x-engine-priority")
 if got != want_priority:
-    sys.exit(f"X-Engine-Priority is {got!r}, want {want_priority!r}: the request was not bound as under HoldCap")
+    sys.exit(f"X-Engine-Priority is {got!r}, want {want_priority!r}: the request was not bound to its tier")
 done, content, frames = False, [], 0
 for raw in open(base + ".body", errors="replace"):
     line = raw.strip()
@@ -708,33 +716,48 @@ if not done:
     sys.exit(f"the stream did not end with [DONE] ({frames} frames)")
 if not "".join(content).strip():
     sys.exit("the stream carried no content")
-print(f"ok: 200, X-Engine-Priority {got}, {frames} frames, {len(''.join(content))} characters")
+print(f"ok: 200, X-Admission-Reason {reason}, X-Engine-Priority {got}, {frames} frames, {len(''.join(content))} characters")
 PY
 }
 
-# The header S4 reads is written under HoldCap OR -bind-priority, so it means HoldCap only while the live
-# gateway runs without the flag. Read from the running Deployment, not from the manifest that was meant to
-# produce it.
-gateway_binds_priority() {
-  local args
-  args="$(k -n "$GW_NS" get deploy -l app.kubernetes.io/component=gateway \
-    -o jsonpath='{range .items[*].spec.template.spec.containers[*]}{.command} {.args}{"\n"}{end}' 2>/dev/null)" || return 2
+# gateway_admission_off records the command and arguments of the gateway Pod named by $1 with the evidence, and
+# succeeds only when that process's admission mode is off. S4 reads HoldCap from the serial-prefill admission reason, and a gateway running serial-prefill process-wide
+# writes the same reason for a backend that is not HoldCap; so the reason means HoldCap only when that mode is off.
+# Returns 1 when the mode is not off, 2 when the arguments cannot be read.
+gateway_admission_off() {
+  local pod="$1" args
+  [[ -n "$pod" ]] || return 2
+  # The Pod the request goes to, not the Deployment's template: during a rollout an old Pod still serves with the old
+  # flags while the template already shows the new ones.
+  args="$(k -n "$GW_NS" get pod "$pod" \
+    -o jsonpath='{range .spec.containers[*]}{.command} {.args}{"\n"}{end}' 2>>"$EXDIR/run.log")" || return 2
   [[ -n "$args" ]] || return 2
   printf '%s\n' "$args" >"$EXDIR/gateway-args.txt"
-  grep -q -- 'bind-priority' <<<"$args"
+  # -admission-mode defaults to off (cmd/gateway/main.go); any other value, in either flag spelling, is refused.
+  # The jsonpath prints command and args as JSON arrays, so they are parsed as tokens: a flag and its value can be two
+  # items, which a pattern over the printed text misses.
+  python3 -c '
+import json, re, sys
+tokens = [t for arr in re.findall(r"\[[^\]]*\]", sys.argv[1]) for t in json.loads(arr)]
+modes = []
+for i, t in enumerate(tokens):
+    flag, sep, value = t.partition("=")
+    if flag in ("-admission-mode", "--admission-mode"):
+        modes.append(value if sep else (tokens[i + 1] if i + 1 < len(tokens) else ""))
+sys.exit(0 if all(m == "off" for m in modes) else 1)' "$args"
 }
 
 serve_request_as() {
   local tag="$1"
-  case "$(gateway_binds_priority; echo $?)" in
-    0) bad "the live gateway runs with -bind-priority, so X-Engine-Priority cannot show HoldCap admission"; return 0 ;;
-    2) bad "could not read the live gateway's arguments, so X-Engine-Priority cannot be attributed to HoldCap"; return 0 ;;
-  esac
   if ! gw_forward; then
     gw_unforward
     bad "could not port-forward to a Ready gateway Pod; the request proves nothing either way"
     return 0
   fi
+  case "$(gateway_admission_off "$GW_POD"; echo $?)" in
+    1) gw_unforward; bad "gateway Pod $GW_POD runs process-wide admission other than off, so a serial-prefill reason cannot show HoldCap (gateway-args.txt)"; return 0 ;;
+    2) gw_unforward; bad "could not read gateway Pod $GW_POD's arguments, so the admission reason cannot be attributed to HoldCap"; return 0 ;;
+  esac
   if send_request "$tag"; then
     ok "served ($tag): $(cat "$EXDIR/request-$tag.verdict")"
   else
