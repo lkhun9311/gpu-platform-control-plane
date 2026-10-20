@@ -100,3 +100,5 @@ RequeuingLimitExceeded	Kueue v0.18.3 deactivation reason (apis/kueue/v1beta1/wor
 DeactivatedDueToRequeuingLimitExceeded	Kueue v0.18.3 eviction reason built by ReasonWithCause (pkg/workload/workload.go), named by the distributed partial-placement design
 IsEvictedByDeactivation	Kueue v0.18.3 function (pkg/workload/workload.go), cited by the distributed partial-placement design
 ReasonWithCause	Kueue v0.18.3 function (pkg/workload/workload.go), cited by the distributed partial-placement design
+config/kueue-controller/	proposed by the parked NCCL groundwork design (2026-10-16), which says it is not built
+config/training/	proposed by the parked NCCL groundwork design (2026-10-16), which says it is not built
