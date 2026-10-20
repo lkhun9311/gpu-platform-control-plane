@@ -161,6 +161,23 @@ The owner approved it after reading the first run's result.
 
 **What it can and cannot say beside run 1.** Two runs of one card are two runs, not a rate. If run 2 meets every line where run 1 did not, the record says the registration was met once and missed once, not that it is met; and the near-miss on the median is a property of the treatment the second run may or may not repeat.
 
+## Run 3, the bound Off, registered 2026-10-21 before it ran
+
+Runs 1 and 2 stand, both not met. They compared HoldCap against an Off that bound no priority, which both runs and their write-ups name as the reason their ratios are not comparable with the lab's: the product's Off left the premium p99 at 6 to 10 s where the lab's off gave about 1.5 s.
+#365 changes the product: the gateway now binds the tenant's tier on every engine the controller reports in force, in Off as in HoldCap, as the lab's off did with `-bind-priority`. Run 3 asks the original question against that Off.
+The owner approved it after reading runs 1 and 2.
+
+**What is the same:** every line of the registration above. The traces, the six cells and their order, the definitions, every completeness, validity and acceptance line, including the contender median limit of 1.5 × and the premium p99 limit of 0.85 × Off's, and the verdict's precedence.
+
+**What differs, and why:**
+
+- **The study ID**, `holdcap-product-transfer-bound-off-2026-10-21`, registered with every other field equal to the first run's, which a test pins.
+- **The product under test** is `main` with #365.
+- **The priority Off must carry.** The validity line "`X-Engine-Priority` on every answered row: absent under Off" becomes "0 for premium and 1 for contender under Off", the same as under HoldCap. A row without it under Off means the gateway did not bind, and the cell is invalid. Nothing else in the registration changes.
+- **Each cell waits for `EngineInForce`** True for the current generation before it starts, because that condition is what the gateway binds on.
+
+**What it can say.** Against an Off that binds by tier, HoldCap's premium ratio is comparable in kind with the lab's 0.30, though not equal to it: the card, the path and the client are the product's. The contender's cost is measured against an Off whose contenders are now deprioritised too, so its median may sit further from 1.5 × than in runs 1 and 2, in either direction; that is what run 3 measures, not what it assumes.
+
 ## The review that shaped v2
 
 codex `gpt-6-astra`, adversarial, on v1:

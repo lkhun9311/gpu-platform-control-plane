@@ -20,8 +20,10 @@ import sys
 
 STUDY = "holdcap-product-transfer-2026-10-15"
 # The registered runs of this one registration, in order. A run directory names its own in study-id.txt; the first
-# run predates that file and is read as STUDY. Rules are identical across them; only the rows' stamp differs.
-STUDIES = (STUDY, "holdcap-product-transfer-r2-2026-10-15")
+# run predates that file and is read as STUDY. Rules are identical across them but for the rows' stamp and, in the
+# bound-Off run, the priority Off is expected to carry.
+BOUND_OFF = "holdcap-product-transfer-bound-off-2026-10-21"
+STUDIES = (STUDY, "holdcap-product-transfer-r2-2026-10-15", BOUND_OFF)
 SEEDS = (851, 852, 853)
 ARMS = ("Off", "HoldCap")
 PREMIUM, CONTENDER = "premium-1", "standard-noisy"
@@ -42,6 +44,13 @@ GAP_RATIO_MAX = 1.25
 CAP_ARG = "'long_prefill_token_threshold': 384"
 BACKEND_MODE = {"Off": "gateway", "HoldCap": "hold-cap"}
 PRIORITY = {"Off": {PREMIUM: "", CONTENDER: ""}, "HoldCap": {PREMIUM: "0", CONTENDER: "1"}}
+# After #365 the gateway binds the tier on a rendered engine in Off too, so the bound-Off run's Off carries the same
+# priorities as HoldCap; the first two runs measured the Off that bound nothing.
+PRIORITY_BY_STUDY = {BOUND_OFF: {"Off": {PREMIUM: "0", CONTENDER: "1"}, "HoldCap": {PREMIUM: "0", CONTENDER: "1"}}}
+
+
+def expected_priority(study: str, arm: str, tenant: str) -> str:
+    return PRIORITY_BY_STUDY.get(study, PRIORITY)[arm][tenant]
 PREEMPTIONS = "vllm:num_preemptions_total"
 ENGINE_SERIES = (PREEMPTIONS, "vllm:num_requests_running", "vllm:num_requests_waiting")
 GATEWAY_SERIES = ("gpuaas_gateway_admission_mode_active", "gpuaas_gateway_backend_admission_mode")
@@ -232,7 +241,7 @@ class Cell:
         if has_cap != (self.arm == "HoldCap"):
             problems.append(f"the cap is {'present' if has_cap else 'absent'} in the engine's non-default args")
         for row in self.rows:
-            if row.get("httpStatus") == 200 and row.get("enginePriority", "") != PRIORITY[self.arm][row["tenant"]]:
+            if row.get("httpStatus") == 200 and row.get("enginePriority", "") != expected_priority(self.study, self.arm, row["tenant"]):
                 problems.append(f"row {row['index']} carries engine priority {row.get('enginePriority', '')!r}")
                 break
         lags = [(row["tenant"], row["sendUnixNanos"] - scheduled(row)) for row in self.rows]

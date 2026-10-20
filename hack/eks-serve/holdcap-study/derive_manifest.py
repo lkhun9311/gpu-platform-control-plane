@@ -20,7 +20,8 @@ import sys
 
 import yaml
 
-STUDIES = ("holdcap-product-transfer-2026-10-15", "holdcap-product-transfer-r2-2026-10-15")
+STUDIES = ("holdcap-product-transfer-2026-10-15", "holdcap-product-transfer-r2-2026-10-15",
+           "holdcap-product-transfer-bound-off-2026-10-21")
 DIGEST = re.compile(r"^\S+@sha256:[0-9a-f]{64}$")
 COMMIT = re.compile(r"^[0-9a-f]{40}$")
 
