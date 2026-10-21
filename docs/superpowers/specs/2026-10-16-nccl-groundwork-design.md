@@ -1,85 +1,141 @@
 # Design: the free groundwork for running `spec.distributed` on GPUs with NCCL
 
-Written 2026-10-16. Status: **parked after review, not built.** codex `gpt-6-astra`'s adversarial review (2026-10-16) found 3 blockers and 10 majors; the scope is much larger than drafted, and it waits behind the hold-cap work.
-No money is spent by anything here; the paid run that would use it is a separate decision.
+Written 2026-10-16, revised 2026-10-21 as v2. Status: **v2, answering every finding of the review that parked v1; not built.**
+v1 was parked after codex `gpt-6-astra`'s adversarial review (2026-10-16) found 3 blockers and 10 majors; its table is at the end, with where v2 answers each row.
+No money is spent by anything here; the paid run that would use it is a separate decision with its own registration.
 
 ## Why
 
 Multi-Pod training is built and passed a registered kind experiment on CPU with gloo (`experiments/multi-pod-ddp/`).
-`docs/11` still says "no NCCL and no GPU". Running the same job on GPUs on EKS is blocked by four gaps, none of which needs a GPU to close:
+`docs/11` still says "no NCCL and no GPU". Running the same job on GPUs on EKS is blocked by five gaps, none of which needs a GPU to close:
 
-1. **Nothing admits a training job on EKS.** Argo installs Kueue's CRDs (`config/argocd/kueue-crds.yaml`) and says in its own comment that the controller is not installed.
-2. **Nothing lets a training Pod onto a GPU node.** The `gpu` and `gpu_single` node groups carry the taint `nvidia.com/gpu=present:NoSchedule` (`infra/aws/cluster/eks.tf`), and `BuildJob` renders no toleration.
+1. **Nothing admits a training job on EKS.** Argo installs four Kueue CRDs (`config/argocd/kueue-crds.yaml`) and says in its own comment that the controller is not installed.
+2. **Nothing places a training Pod on a GPU node.** The `gpu` and `gpu_single` node groups carry the taint `nvidia.com/gpu=present:NoSchedule` and the same label `platform.lkhun9311.github.io/gpu=true` (`infra/aws/cluster/eks.tf`), and `BuildJob` renders no toleration.
 3. **The workload is CPU-only.** `experiments/cpu-ddp/train.py` hard-codes gloo and CPU tensors, and every training image installs the CPU wheel.
-4. **The session cannot buy two GPU nodes.** `hack/eks-gitops-session.sh` scales `gpu_single`, whose `max_size` is 1.
+4. **Nothing could tell a GPU run from a CPU one.** `experiments/multi-pod-ddp/analyze.py` would pass a run whose ranks never touched a GPU, because it checks arithmetic and rendezvous, not backend or device.
+5. **The session cannot buy two training nodes.** `hack/eks-gitops-session.sh` scales `gpu_single`, whose `max_size` is 1, and qualifies one node.
+
+## Facts this version rests on, measured 2026-10-21
+
+- **Kueue's version on EKS must be v0.18.3.** `go.mod` carries `sigs.k8s.io/kueue v0.20.1` since the dependency bump of 2026-10-11 (`33bd11b`), but the operator reads and indexes `kueue.x-k8s.io/v1beta1` in ten files (`internal/controller/`, `cmd/main.go`).
+  The v0.20.1 release manifest serves `v1beta1` for none of its CRDs (`served: false`); v0.18.3 serves `v1beta1` and `v1beta2`, stores `v1beta2`, and converts by webhook. So v0.20.1 on a cluster would stop the operator at startup, and v0.18.3 is also the version every kind script and every recorded kind experiment installed.
+  The client library stays at v0.20.1, which still ships the `v1beta1` types; moving the operator to `v1beta2` is a separate change, out of scope here.
+- **The release ships eleven CRDs.** `config/kueue-crds/` holds four, as envtest and `test/e2e` fixtures; those four store `v1beta1` with no conversion, because envtest runs no webhook.
+- **Argo does not wait for one child Application's health before the next wave.** No Application health customisation exists in this repository, so sync waves order creation only.
+- **The `gpu` node group is On-Demand** (`infra/aws/cluster/vpc.tf`, `local.gpu_capacity`), its instance type defaults to a four-T4 queuelab type, and `gpu_max_nodes` is validated only to lie between 1 and 2 (`infra/aws/cluster/variables.tf`).
+- **`terraform_data.gpu_quota` compares the configured worst case with the account quota** (`infra/aws/cluster/placement.tf`); it does not read what is already running.
+- **`train.py` is 18,691 bytes**, so base64 in the container command is about 25 KB, far inside the object and argument limits.
 
 ## What closes each gap
 
-### 1. The Kueue controller, by Argo, at v0.18.3
+### 1. Kueue v0.18.3, whole, by one Application
 
-A new Application, `gpu-platform-kueue`, auto-synced, deploying the controller from Kueue's own v0.18.3 release manifest **minus its CustomResourceDefinitions**, vendored at `config/kueue-controller/` with the release file's sha256.
-The CRDs stay with `gpu-platform-kueue-crds`, so no two Applications own one object and removing one never deletes the other's CRDs.
-A test reads the vendored manifest and refuses it if it contains a CRD, or if it names an image other than the v0.18.3 controller by digest; another checks that the CRDs in `config/kueue-crds/` are the ones the same release ships, so the two halves cannot drift to different versions.
-The Application also deploys `config/kueue/resourceflavor.yaml`, which nothing on EKS deploys today.
+A new auto-synced Application, `gpu-platform-kueue`, deploys Kueue's own v0.18.3 release manifest **unmodified**: all eleven CRDs, the controller, its webhooks and its internal certificate management.
+The manifest is vendored at `config/kueue-controller/manifests.yaml` with the release file's sha256, and the controller image is pinned by digest through a kustomize `images:` override, so the vendored bytes stay the release's.
+It replaces the `kueue-crds` Application on EKS, so no two Applications own one object. Every EKS session builds a fresh cluster and destroys it, so the switch moves no live object between owners.
+`config/kueue-crds/` stays, as the fixture envtest and `test/e2e` read. Its README and the Argo comment that describe it as what EKS installs are corrected in the same change.
 
-### 2. GPU placement in the ResourceFlavor, not in `BuildJob`
+What the tests pin, each shown red by a mutation:
 
-The `gpu` ResourceFlavor gains `tolerations: [{key: nvidia.com/gpu, operator: Equal, value: present, effect: NoSchedule}]`. Kueue adds a flavor's tolerations to the Pods of every workload it admits on that flavor.
-Why there and not in `BuildJob`: a toleration in `BuildJob` changes the rendered Pod template, which the termination canary hashes, so every canary reading taken so far would be invalidated, and the non-distributed golden would have to be rewritten. The flavor is also where the placement policy belongs: it is what says "this quota is GPUs", and an MLTrainingJob says nothing about nodes today.
-What it costs: a training Pod is placed on a GPU node only through Kueue admission. That is already the only way an MLTrainingJob runs, since every Job is created suspended.
-The flavor's empty `spec` matched the GPU simulator on kind, and a toleration does not stop that: an untainted node needs none.
+- the vendored file's sha256 equals the recorded release sha256;
+- the rendered Application names the v0.18.3 controller by digest and no other image;
+- for each of the four fixture CRDs, the `openAPIV3Schema` of each version equals the release's schema for that version. The `storage` flag and `spec.conversion` are allowed to differ, by name, because they are the one deliberate difference: envtest has no conversion webhook. This is what can be compared; v1 claimed an equality that does not hold.
+
+**Certificates.** Kueue's internal certificate manager writes the CA bundle into its webhook configurations and its CRDs' conversion stanzas, and the certificate into its Secret. The Application declares `ignoreDifferences` for exactly those fields, with `RespectIgnoreDifferences=true`, so self-heal never reverts what Kueue writes. A test pins the list against the objects the release ships.
+
+**Ordering.** The Application syncs in wave -2, as `kueue-crds` did. Because waves do not wait for health, the operator can start before Kueue's conversion webhook answers, fail its `v1beta1` index, and restart.
+That is recovery, not a defect, but it must not be mistaken for health: the session's training mode waits for `deployment/kueue-controller-manager` Available, then for the operator Ready, and records the operator's restart count.
+
+**Rehearsed with Argo, not with `kustomize build`.** On kind, by the clean-kind GitOps rehearsal (`docs/superpowers/specs/2026-09-25-gitops-rehearsal-on-clean-kind.md`) with the new Application: every Application Synced and Healthy; the operator Ready; then three drifts repaired by self-heal (the controller Deployment deleted, its replica count changed, a webhook configuration deleted); then fifteen minutes with no OutOfSync caused by certificate writes.
+
+### 2. Placement in the ResourceFlavor, scoped to the training node group
+
+The `gpu` ResourceFlavor (`config/kueue/resourceflavor.yaml`, the controller's fixed `kueueFlavor`) gains:
+
+- `tolerations: [{key: nvidia.com/gpu, operator: Equal, value: present, effect: NoSchedule}]`, and
+- `nodeLabels: {platform.lkhun9311.github.io/gpu: "true"}`.
+
+Kueue v0.18.3 copies both into the Pod template of every workload it admits on that flavor before unsuspending it; the review confirmed this, and that nothing in the operator or its webhooks strips them.
+Why there and not in `BuildJob`: a toleration in `BuildJob` changes the rendered template the termination canary hashes, which would invalidate every canary reading so far and rewrite the non-distributed golden. The canary hashes `BuildJob`'s output, which this leaves unchanged; it does not claim to describe the live Pod, which Kueue mutates.
+
+The label is shared by `gpu` and `gpu_single`, so the flavor alone does not choose a group. The session does: training mode refuses to start unless `gpu_single` is at desired size 0, and the modes are exclusive.
+The flavor still does not choose distinct nodes or distinct cards. Those are what the analyzer checks (section 4), and with one A10G per g5.xlarge and one GPU per Pod, two Running ranks can only be on two nodes; the evidence says so rather than the construction.
+
+On kind the GPU-simulator worker gets the same label, so the flavor behaves the same; a second, tainted worker is what shows the toleration working.
+This flavor is also deployed on EKS for the first time, by the Application in section 1.
 
 ### 3. A GPU path in `train.py`, chosen explicitly
 
 `DDP_BACKEND` selects `gloo` (default, today's behaviour) or `nccl`.
-With `nccl` the script refuses to start unless CUDA is available, puts the model, data and digest tensors on `cuda:0` (one GPU per Pod, so the local device is always 0), and records the device name, the GPU UUID and the NCCL version in its `rendezvous` record. A run that quietly fell back to CPU would print the same arithmetic; the record is what tells them apart, and the refusal is what stops it.
-The CPU experiment keeps passing unchanged: its arms do not set `DDP_BACKEND`.
+With `nccl` the script refuses to start unless CUDA is available, puts the model, data and digest tensors on `cuda:0` (one GPU per Pod), and records in its `rendezvous` record the backend in use (`torch.distributed.get_backend()`), the tensors' device type, the device name, the GPU UUID, `torch.version.cuda` and `torch.cuda.nccl.version()`.
+The CPU experiment's arms do not set `DDP_BACKEND`, and they rerun unchanged and pass.
 
-**The image.** The public `pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime`, pinned by digest, with `train.py` supplied in the command (base64, decoded to `/tmp/train.py`), because an MLTrainingJob can mount no ConfigMap and an image of our own would need an ECR repository the bootstrap root does not create. The script hashes itself, so the record still names the code that ran.
+**What can be tested without a GPU, and what cannot.** Unit tests run the selection logic with `torch.cuda` replaced by a fake: the refusal by name when CUDA is absent, the device chosen when it is present, and every field of the record. They do not exercise NCCL or a real device; the first execution of that path is the paid run, whose registration must treat it as untested code and include a smoke cell before any measured one.
 
-### 4. Two GPU nodes in the session
+**The image** is the public `pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime`, pinned by digest, with `train.py` supplied in the command as base64 decoded to `/tmp/train.py`, because an MLTrainingJob mounts no ConfigMap and an image of our own would need an ECR repository the bootstrap root does not create.
+The script hashes itself and records it; that hash identifies the code, and section 4 is what checks it against the approved one.
 
-`TRAIN=ddp` in `hack/eks-gitops-session.sh` scales the `gpu` node group, with `gpu_node_instance_type = g5.xlarge` and `gpu_max_nodes = 2` passed to Terraform, to two nodes, under the same deadline, residue checks and teardown as the serving card.
-Two g5.xlarge are 8 vCPU against the account's quota, one A10G each, so the two ranks run on two nodes by construction, as on kind. The `gpu` group is On-Demand (`infra/aws/cluster/vpc.tf`), about $1.0 an hour per node.
-The two modes are exclusive in one session.
+### 4. An analyzer profile that requires the GPU evidence
 
-### 5. A training namespace with quota
+`experiments/multi-pod-ddp/analyze.py` gains an `nccl` profile, selected by the run's registration, not by the evidence. Under it a run passes only if every rank's record shows:
 
-`config/training/`: namespace `train-a`, and a GPUQuotaPolicy with `trainingQuota: true` and `limits.gpuCount: 2`, which makes the controller create ClusterQueue and LocalQueue `gpu-train-a` and label the namespace for the GPU webhooks. A manual Application, as `config/serving/` is, synced by the session's training mode.
+- backend `nccl` and tensors on device type `cuda`;
+- a GPU UUID, and the UUIDs are pairwise distinct across ranks;
+- a node name, the names are pairwise distinct, and each node carried the `eks.amazonaws.com/nodegroup: gpu` label in the node objects the collector saved;
+- the script sha256 equal to the sha256 written in the registration, so the code that ran is the code that was approved.
+
+A missing field fails the criterion, as everywhere in this analyzer. Each criterion is shown red by a fixture that removes or falsifies only that field, and the `gloo` profile's existing behaviour is pinned unchanged.
+
+### 5. Two training nodes in the session, with gates that read what they gate
+
+`TRAIN=ddp` in `hack/eks-gitops-session.sh` passes `gpu_node_instance_type = g5.xlarge` and `gpu_max_nodes = 2` to Terraform, scales the `gpu` node group to 2, and runs under the same deadline, residue checks and teardown as the serving card.
+
+- **Every node, not the first.** The session waits for two nodes of the `gpu` group to join, and qualifies each by name: Ready, the device plugin Running on it, `nvidia.com/gpu: 1` allocatable. It refuses to start the job until both qualify, and a deadline that passes with one stops the session.
+- **The price gate reads the right price.** The `gpu` group is On-Demand, so the gate reads the On-Demand list price of g5.xlarge in the region from the AWS Price List API and refuses above a ceiling. The Spot gate stays for the serving card.
+- **The quota gate reads headroom.** Before scaling, the session reads current usage of "Running On-Demand G and VT instances" (`L-DB2E81BA`) from its CloudWatch usage metric and refuses unless usage plus the 8 vCPU it will add fits the quota. `terraform_data.gpu_quota` keeps checking the configured worst case.
+- **`gpu_max_nodes` must be an integer**, by a validation added beside the existing range check.
+
+**What can be rehearsed for free, and what cannot.** The new refusals are added to `hack/gpu-session-refusals-test.sh`'s style of test for this script, each case reaching its own refusal; the two-node scale-down and residue checks are added to the teardown replay (`hack/test/teardown-replay/`), whose `aws` stub records the calls.
+Terraform is not stubbed by either, so `terraform apply` and `destroy` in training mode are exercised only by the paid session, as they are for serving today. v1 called the rehearsal hermetic; it is not.
+
+### 6. A training namespace with quota, and what the quota does not bound
+
+`config/training/`: namespace `train-a` and a GPUQuotaPolicy with `trainingQuota: true` and `limits.gpuCount: 2`, which makes the controller create ClusterQueue and LocalQueue `gpu-train-a`. A manual Application, as `config/serving/` is, synced by the training mode.
+That ClusterQueue joins the shared cohort `gpu-platform` with reclaim, so `gpuCount` is an admission quota, not a ceiling: within a cohort it can borrow. On a session cluster it is the only training tenant, so nothing is lent to it; the hard ceiling on GPUs bought is the node group's `max_size` of 2, and the record says so.
 
 ## Evidence before any money
 
-- envtest: none of this changes the operator; the existing suite must stay green.
-- The tests above on the vendored Kueue manifest and the CRD versions, each shown red by a mutation.
-- On kind: a cluster with one worker tainted `nvidia.com/gpu=present:NoSchedule`; Kueue installed from `config/kueue-controller/` the way Argo will build it (`kustomize build`); the flavor with its toleration; a `worldSize: 2` job admitted and its Pods observed carrying the toleration and running on the tainted node. That is the only place the placement can be shown without a GPU.
-- `train.py`: the gloo arms of `experiments/multi-pod-ddp/` rerun unchanged and pass; `DDP_BACKEND=nccl` on a CPU-only Pod refuses to start, by name.
-- The session's training mode rehearsed with the AWS stub the teardown replay uses, up to the purchase, and its teardown scenarios replayed.
+- envtest and the full `go test ./...`: the operator is unchanged and stays green.
+- The Kueue manifest, image and CRD-schema tests, the `ignoreDifferences` test, the analyzer's `nccl` criteria, the `train.py` unit tests and the session's new refusals: each shown red by a mutation of the thing it pins.
+- On kind with Argo: the rehearsal in section 1, then a `worldSize: 2` job admitted and its Pods observed carrying the toleration and the node selector, on the labelled tainted worker.
+- The `gloo` arms of `experiments/multi-pod-ddp/` rerun unchanged and pass.
 
 ## What it would license
 
-Nothing by itself: it makes a paid NCCL run possible. That run, its registration and its budget come after this, with the owner's approval.
+Nothing by itself: it makes a paid NCCL run possible and scoreable. That run, its registration, its smoke cell and its budget come after this, with the owner's approval.
+For that budget: two g5.xlarge On-Demand at about $1.0 an hour each, the cluster at about $0.26 an hour, and the CUDA image pulled once per node through the NAT, a few GB each at $0.059 a GB.
 
 ## Out of scope
 
-The paid run, more than one GPU per Pod, a launcher such as `torchrun` across nodes, gang scheduling, and the `gpu_shared` group.
+The paid run; moving the operator to Kueue `v1beta2`; more than one GPU per Pod; a launcher such as `torchrun` across nodes; gang scheduling; and the `gpu_shared` group.
 
-## The review that parked it (codex `gpt-6-astra`, 2026-10-16)
+## The review that parked v1 (codex `gpt-6-astra`, 2026-10-16), and where v2 answers it
 
-| finding | severity |
-|---|---|
-| v0.18.3 ships eleven CRDs, `config/kueue-crds/` holds four; a controller without the rest does not run | blocker |
-| the vendored CRDs store `v1beta1` with `conversion: None`, upstream stores `v1beta2` with conversion webhooks; equality fails and envtest fixtures depend on the difference | blocker |
-| nothing makes the scorer require NCCL, CUDA devices or distinct GPUs; the current analyzer still passes with backend and device evidence removed | blocker |
-| Kueue's own certificate management writes into objects two Applications would own; no drift strategy | major |
-| `kustomize build` does not rehearse Argo ownership, health, ordering or self-heal | major |
-| a toleration admits the taint but selects no node group, card or distinct node | major |
-| the session qualifies one joined node (`head -1`); a second may never arrive | major |
-| the price gate reads Spot; the `gpu` group is On-Demand | major |
-| the quota guard checks configured demand, not remaining headroom or GPU suitability | major |
-| Terraform apply bypasses an `aws` stub, so the proposed rehearsal is not free or hermetic | major |
-| a self-hash identifies the script; nothing checks it against an approved one | major |
-| a CPU refusal test does not exercise the CUDA path | major |
-| `limits.gpuCount: 2` joins a shared cohort with reclaim; not a hard ceiling | major |
-| fractional `gpu_max_nodes`, an argument size bound, image-pull cost, the canary claim's scope, the Application's real name | minor |
+| finding | severity | v2 |
+|---|---|---|
+| v0.18.3 ships eleven CRDs, `config/kueue-crds/` holds four; a controller without the rest does not run | blocker | §1: the whole release by one Application; the four stay as fixtures |
+| the vendored CRDs store `v1beta1` with `conversion: None`, upstream stores `v1beta2` with conversion webhooks; equality fails and envtest fixtures depend on the difference | blocker | §1: per-version schema equality, with storage and conversion named as the allowed difference |
+| nothing makes the scorer require NCCL, CUDA devices or distinct GPUs; the current analyzer still passes with backend and device evidence removed | blocker | §4: the `nccl` profile, each criterion shown red |
+| Kueue's own certificate management writes into objects two Applications would own; no drift strategy | major | §1: one owner, and `ignoreDifferences` on the fields Kueue writes |
+| `kustomize build` does not rehearse Argo ownership, health, ordering or self-heal | major | §1: rehearsed under Argo on kind, with self-heal and a quiet period |
+| a toleration admits the taint but selects no node group, card or distinct node | major | §2 and §4: `nodeLabels`, `gpu_single` at 0, distinctness checked by the analyzer |
+| the session qualifies one joined node (`head -1`); a second may never arrive | major | §5: both nodes qualified by name, or the session stops |
+| the price gate reads Spot; the `gpu` group is On-Demand | major | §5: the On-Demand list price |
+| the quota guard checks configured demand, not remaining headroom or GPU suitability | major | §5: current usage plus 8 against the quota; suitability is the per-node qualification |
+| Terraform apply bypasses an `aws` stub, so the proposed rehearsal is not free or hermetic | major | §5: the claim is narrowed to the refusals and the teardown replay |
+| a self-hash identifies the script; nothing checks it against an approved one | major | §4: the hash is compared with the registration's |
+| a CPU refusal test does not exercise the CUDA path | major | §3: fake-CUDA unit tests, and the paid run's smoke cell, said as such |
+| `limits.gpuCount: 2` joins a shared cohort with reclaim; not a hard ceiling | major | §6: named as an admission quota; the ceiling is `max_size` |
+| fractional `gpu_max_nodes`, an argument size bound, image-pull cost, the canary claim's scope, the Application's real name | minor | §5 integer validation; facts (25 KB); budget note; §2 canary scope; the Application is `kueue-crds`, replaced |
 
 Confirmed by the same review: Kueue v0.18.3 does copy a flavor's tolerations into the Job's Pod template before unsuspending it, and nothing in the operator or its webhooks strips or refuses them.
