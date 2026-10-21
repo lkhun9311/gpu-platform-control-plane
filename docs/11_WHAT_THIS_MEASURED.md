@@ -415,6 +415,34 @@ The evidence re-derives: `hack/verify-admission-evidence.sh` downloads the raw c
 
 ---
 
+## Finding 10 — a distributed job with one rank placed is reported running and holds its whole quota, and a readiness timeout bounds the hold but not the report
+
+Finding 6's fix made the phase read `job.Status.Ready > 0`, which a Pod no node accepted cannot satisfy. A two-rank job can: one rank placed and Ready is enough, while the other has no node.
+On kind, a two-rank `MLTrainingJob` (`distributed.worldSize: 2`, one simulated GPU per rank) was admitted with a ClusterQueue quota of 2 while a squatter Pod held one of the two workers' devices, so one rank ran and the other stayed `Unschedulable`.
+Eight registered runs of 600 s, two of each cell, every one valid; the two repetitions agree to within a second on every figure:
+
+| Kueue `waitForPodsReady` | squatter | what the CR said | quota of 2 GPUs held | outcome |
+|---|---|---|---|---|
+| off (as Kueue ships) | stays | **`Running` for 598.1 of 598.1 s** from its first `Running`, with one rank `Unschedulable` throughout | **599 s, to the window's end** (censored) | still `Running`, never progressing |
+| off | deleted at 300 s | `Running` for 299.2 s while stranded | until the ranks joined, 301 s | `Succeeded` at 304 to 305 s |
+| 120 s timeout, 2 retries | stays | `Running` while stranded for 356.2 s of the 600 | three admissions, at 0, 150 and 330 s, each about 121 s | evicted twice by `PodsReadyTimeout`, then deactivated |
+| 120 s timeout, 2 retries | deleted at 300 s | `Running` while stranded for 237.6 to 237.8 s | two admissions of about 121 s, then the third joined | `Succeeded` at 334 to 335 s, about 30 s after `off` |
+
+Two things the timeout does not do, both measured:
+
+- **It bounds the hold per attempt, not the report.** Within each admission the CR said `Running` with a rank unplaced, exactly as without the timeout; Kueue's own readiness rule (`(*Job).PodsReady`) counts the job unready, and the platform's phase rule does not.
+- **The quota comes back before the device does.** Each eviction released the reservation about 1.1 s after the request, but the evicted rank kept its device for another **28.9 s** and ended with exit 137, in all ten evictions. Its SIGTERM handler is Python, which runs only between bytecodes, and the rank was blocked in `init_process_group`, so the kubelet killed it at the default 30 s grace period. For those 29 s the queue counts as free a device a process still holds. (This measure, M8, was added after a rehearsal showed it, and its prediction is marked as informed by it.)
+
+Each discarded attempt also cost 149 to 150 s of the placed rank's container time.
+
+**Why it matters.** Finding 6's defect is not closed for distributed jobs: a half-placed one is reported `Running` and holds its whole quota for as long as it was watched. Kueue's readiness timeout bounds that hold to about two minutes per attempt and, with capacity back at 300 s, still let the job finish 30 s later than without it, at the price of the discarded attempts.
+
+**What it does not say.** Nothing about GPUs, NCCL, EKS or real scheduling latency (Finding 2 bounds what a simulated device says); nothing about more than two ranks, other jobs in the cohort, `blockAdmission`, or gang placement, which this timeout is not; and not that the hold is unbounded, only that it lasted to the end of a 600 s window. The fix the first row points at, reporting `Running` only when every rank is Ready, is a separate change and has not been made.
+
+*(`docs/superpowers/specs/2026-10-21-distributed-partial-placement-design.md`, `experiments/distributed-partial-placement/`, evidence `hack/distributed-partial-placement-20261021T065335Z/`)*
+
+---
+
 ## What this project is not entitled to claim
 
 Stated first, because the findings above are only believable if the refusals are published with them.
@@ -441,3 +469,4 @@ Two of these are rejected hypotheses, which is a result. Two are gaps, which are
 | 5 — preemption that did not | already closed: the termination contract is now an arm of the protocol |
 | 8 — configuration removes stranding | a second layout, and a demand mix where packing should *lose*. Both arms ran on one shape; the campaign cannot cancel a drift over time, because both arms render the same cluster name and must run in sequence |
 | 9 — hold-cap protects, a tuned clock ties | the robustness study v27 stopped: a load with headroom for the contender, so a fixed spacing tuned at one prompt length can be measured failing at another while hold-cap stays inside its limits; and a second card model |
+| 10 — a half-placed distributed job | more than two ranks, other jobs in the cohort, `blockAdmission: true`, and real devices; and the phase fix it points at, measured the same way |

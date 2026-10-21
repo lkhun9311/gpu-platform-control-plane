@@ -1,0 +1,61 @@
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ClusterQueue
+metadata:
+  creationTimestamp: "2026-10-21T06:56:52Z"
+  finalizers:
+  - kueue.x-k8s.io/resource-in-use
+  generation: 1
+  name: gpu-partial
+  ownerReferences:
+  - apiVersion: platform.lkhun9311.github.io/v1
+    blockOwnerDeletion: true
+    controller: true
+    kind: GPUQuotaPolicy
+    name: partial-quota
+    uid: e6197752-3326-453c-930f-d211f1e25335
+  resourceVersion: "1499"
+  uid: 491eb565-e8dc-41cc-b876-a69c663e0677
+spec:
+  cohortName: gpu-platform
+  flavorFungibility:
+    whenCanBorrow: MayStopSearch
+    whenCanPreempt: TryNextFlavor
+  namespaceSelector: {}
+  preemption:
+    borrowWithinCohort:
+      policy: Never
+    reclaimWithinCohort: Any
+    withinClusterQueue: LowerPriority
+  queueingStrategy: BestEffortFIFO
+  resourceGroups:
+  - coveredResources:
+    - nvidia.com/gpu
+    flavors:
+    - name: gpu
+      resources:
+      - name: nvidia.com/gpu
+        nominalQuota: "2"
+  stopPolicy: None
+status:
+  admittedWorkloads: 0
+  conditions:
+  - lastTransitionTime: "2026-10-21T06:56:52Z"
+    message: Can admit new workloads
+    observedGeneration: 1
+    reason: Ready
+    status: "True"
+    type: Active
+  flavorsReservation:
+  - name: gpu
+    resources:
+    - borrowed: "0"
+      name: nvidia.com/gpu
+      total: "0"
+  flavorsUsage:
+  - name: gpu
+    resources:
+    - borrowed: "0"
+      name: nvidia.com/gpu
+      total: "0"
+  pendingWorkloads: 0
+  reservingWorkloads: 0

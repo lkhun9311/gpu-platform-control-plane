@@ -1,0 +1,823 @@
+setting off: in force
+setting ready-timeout: in force
+
+== off late 1 (pp-off-late-1-070718)
+{
+ "M1_polled_bounds_s": [
+  299.0,
+  301.0
+ ],
+ "M1_running_while_stranded_s": 299.2,
+ "M2_quota_held_before_joining": [
+  {
+   "censored": false,
+   "seconds": 301.3
+  }
+ ],
+ "M3_deactivated": false,
+ "M3_max_requeue_count": 0,
+ "M3_requests": [],
+ "M3_stopped": [],
+ "M4_eviction_lag": [],
+ "M5_final_phase": "Succeeded",
+ "M5_succeeded_after_s": 304.9,
+ "M6_admissions": 1,
+ "M6_discarded": [],
+ "M7_admittedAt_values": [
+  "2026-10-21T07:07:57Z"
+ ],
+ "M7_after_request": [],
+ "M8_device_held_after_release": [],
+ "admissions": [
+  [
+   "2026-10-21T07:07:57.440000+00:00",
+   null
+  ]
+ ],
+ "admitted_stamps": [
+  "2026-10-21T07:07:57+00:00"
+ ],
+ "joined_after_s": 301.8,
+ "second_rank_placed_after_s": 300.7,
+ "squatter_deleted_after_s": 300.6
+}
+P2 held: Running 100.0% of 299.2 s from the first Running to the second placement at 300.7 s; first Running 0.5 s after Ready; final Succeeded; admissions 1
+
+== off late 2 (pp-off-late-2-072811)
+{
+ "M1_polled_bounds_s": [
+  299.0,
+  301.0
+ ],
+ "M1_running_while_stranded_s": 299.2,
+ "M2_quota_held_before_joining": [
+  {
+   "censored": false,
+   "seconds": 301.3
+  }
+ ],
+ "M3_deactivated": false,
+ "M3_max_requeue_count": 0,
+ "M3_requests": [],
+ "M3_stopped": [],
+ "M4_eviction_lag": [],
+ "M5_final_phase": "Succeeded",
+ "M5_succeeded_after_s": 303.7,
+ "M6_admissions": 1,
+ "M6_discarded": [],
+ "M7_admittedAt_values": [
+  "2026-10-21T07:28:45Z"
+ ],
+ "M7_after_request": [],
+ "M8_device_held_after_release": [],
+ "admissions": [
+  [
+   "2026-10-21T07:28:45.392000+00:00",
+   null
+  ]
+ ],
+ "admitted_stamps": [
+  "2026-10-21T07:28:45+00:00"
+ ],
+ "joined_after_s": 301.7,
+ "second_rank_placed_after_s": 300.6,
+ "squatter_deleted_after_s": 300.6
+}
+P2 held: Running 100.0% of 299.2 s from the first Running to the second placement at 300.6 s; first Running 0.5 s after Ready; final Succeeded; admissions 1
+
+== off never 1 (pp-off-never-1-065710)
+{
+ "M1_polled_bounds_s": [
+  598.0,
+  599.0
+ ],
+ "M1_running_while_stranded_s": 598.1,
+ "M2_quota_held_before_joining": [
+  {
+   "censored": true,
+   "seconds": 599.0
+  }
+ ],
+ "M3_deactivated": false,
+ "M3_max_requeue_count": 0,
+ "M3_requests": [],
+ "M3_stopped": [],
+ "M4_eviction_lag": [],
+ "M5_final_phase": "Running",
+ "M5_succeeded_after_s": null,
+ "M6_admissions": 1,
+ "M6_discarded": [],
+ "M7_admittedAt_values": [
+  "2026-10-21T06:57:13Z"
+ ],
+ "M7_after_request": [],
+ "M8_device_held_after_release": [],
+ "admissions": [
+  [
+   "2026-10-21T06:57:13.043000+00:00",
+   null
+  ]
+ ],
+ "admitted_stamps": [
+  "2026-10-21T06:57:13+00:00"
+ ],
+ "joined_after_s": null,
+ "second_rank_placed_after_s": null,
+ "squatter_deleted_after_s": null
+}
+P1 held: Running 100.0% of 598.1 s from the first Running; first Running 0.4 s after Ready; reservations [{'seconds': 599.0, 'censored': True}]; eviction requests 0
+
+== off never 2 (pp-off-never-2-071803)
+{
+ "M1_polled_bounds_s": [
+  598.0,
+  599.0
+ ],
+ "M1_running_while_stranded_s": 598.1,
+ "M2_quota_held_before_joining": [
+  {
+   "censored": true,
+   "seconds": 599.0
+  }
+ ],
+ "M3_deactivated": false,
+ "M3_max_requeue_count": 0,
+ "M3_requests": [],
+ "M3_stopped": [],
+ "M4_eviction_lag": [],
+ "M5_final_phase": "Running",
+ "M5_succeeded_after_s": null,
+ "M6_admissions": 1,
+ "M6_discarded": [],
+ "M7_admittedAt_values": [
+  "2026-10-21T07:18:05Z"
+ ],
+ "M7_after_request": [],
+ "M8_device_held_after_release": [],
+ "admissions": [
+  [
+   "2026-10-21T07:18:05.953000+00:00",
+   null
+  ]
+ ],
+ "admitted_stamps": [
+  "2026-10-21T07:18:05+00:00"
+ ],
+ "joined_after_s": null,
+ "second_rank_placed_after_s": null,
+ "squatter_deleted_after_s": null
+}
+P1 held: Running 100.0% of 598.1 s from the first Running; first Running 0.4 s after Ready; reservations [{'seconds': 599.0, 'censored': True}]; eviction requests 0
+
+== ready-timeout late 1 (pp-rt-late-1-074913)
+{
+ "M1_polled_bounds_s": [
+  236.0,
+  240.0
+ ],
+ "M1_running_while_stranded_s": 237.8,
+ "M2_quota_held_before_joining": [
+  {
+   "censored": false,
+   "seconds": 120.8
+  },
+  {
+   "censored": false,
+   "seconds": 121.0
+  },
+  {
+   "censored": false,
+   "seconds": 1.2
+  }
+ ],
+ "M3_deactivated": false,
+ "M3_max_requeue_count": 2,
+ "M3_requests": [
+  {
+   "arrived": "2026-10-21T07:51:16.015000+00:00",
+   "lastTransitionTime": "2026-10-21T07:51:16+00:00",
+   "reason": "PodsReadyTimeout"
+  },
+  {
+   "arrived": "2026-10-21T07:53:46.018000+00:00",
+   "lastTransitionTime": "2026-10-21T07:53:46+00:00",
+   "reason": "PodsReadyTimeout"
+  }
+ ],
+ "M3_stopped": [
+  true,
+  true
+ ],
+ "M4_eviction_lag": [
+  {
+   "censored": false,
+   "seconds": 1.1
+  },
+  {
+   "censored": false,
+   "seconds": 1.1
+  }
+ ],
+ "M5_final_phase": "Succeeded",
+ "M5_succeeded_after_s": 334.9,
+ "M6_admissions": 3,
+ "M6_discarded": [
+  {
+   "admission": 1,
+   "censored": false,
+   "container_seconds": 150.0
+  },
+  {
+   "admission": 2,
+   "censored": false,
+   "container_seconds": 150.0
+  }
+ ],
+ "M7_admittedAt_values": [
+  "2026-10-21T07:49:16Z"
+ ],
+ "M7_after_request": [
+  {
+   "left_running": true,
+   "phases_from_request": [
+    [
+     0.0,
+     "Running"
+    ],
+    [
+     1.0,
+     "Admitted"
+    ],
+    [
+     1.1,
+     "Pending"
+    ]
+   ],
+   "request_reason": "PodsReadyTimeout"
+  },
+  {
+   "left_running": true,
+   "phases_from_request": [
+    [
+     0.0,
+     "Running"
+    ],
+    [
+     1.0,
+     "Admitted"
+    ],
+    [
+     1.1,
+     "Pending"
+    ]
+   ],
+   "request_reason": "PodsReadyTimeout"
+  }
+ ],
+ "M8_device_held_after_release": [
+  {
+   "censored": false,
+   "exit": 137,
+   "seconds": 28.9
+  },
+  {
+   "censored": false,
+   "exit": 137,
+   "seconds": 28.9
+  }
+ ],
+ "admissions": [
+  [
+   "2026-10-21T07:49:16.249000+00:00",
+   "2026-10-21T07:51:17.068000+00:00"
+  ],
+  [
+   "2026-10-21T07:51:46.045000+00:00",
+   "2026-10-21T07:53:47.071000+00:00"
+  ],
+  [
+   "2026-10-21T07:54:46.036000+00:00",
+   null
+  ]
+ ],
+ "admitted_stamps": [
+  "2026-10-21T07:49:16+00:00",
+  "2026-10-21T07:51:46+00:00",
+  "2026-10-21T07:54:46+00:00"
+ ],
+ "joined_after_s": 331.2,
+ "second_rank_placed_after_s": 330.2,
+ "squatter_deleted_after_s": 300.4
+}
+P4 held: stopped attempts before the squatter's deletion 2; final Succeeded after 334.9 s; admissions 3
+P6 held: device held after each release [{'seconds': 28.9, 'censored': False, 'exit': 137}, {'seconds': 28.9, 'censored': False, 'exit': 137}]
+P5 held: phases from each request [[(0.0, 'Running'), (1.0, 'Admitted'), (1.1, 'Pending')], [(0.0, 'Running'), (1.0, 'Admitted'), (1.1, 'Pending')]]; admittedAt values ['2026-10-21T07:49:16Z']; Kueue's admission stamps ['2026-10-21T07:49:16+00:00', '2026-10-21T07:51:46+00:00', '2026-10-21T07:54:46+00:00']
+
+== ready-timeout late 2 (pp-rt-late-2-080930)
+{
+ "M1_polled_bounds_s": [
+  236.0,
+  240.0
+ ],
+ "M1_running_while_stranded_s": 237.6,
+ "M2_quota_held_before_joining": [
+  {
+   "censored": false,
+   "seconds": 120.7
+  },
+  {
+   "censored": false,
+   "seconds": 121.0
+  },
+  {
+   "censored": false,
+   "seconds": 1.2
+  }
+ ],
+ "M3_deactivated": false,
+ "M3_max_requeue_count": 2,
+ "M3_requests": [
+  {
+   "arrived": "2026-10-21T08:11:33.025000+00:00",
+   "lastTransitionTime": "2026-10-21T08:11:33+00:00",
+   "reason": "PodsReadyTimeout"
+  },
+  {
+   "arrived": "2026-10-21T08:14:03.019000+00:00",
+   "lastTransitionTime": "2026-10-21T08:14:03+00:00",
+   "reason": "PodsReadyTimeout"
+  }
+ ],
+ "M3_stopped": [
+  true,
+  true
+ ],
+ "M4_eviction_lag": [
+  {
+   "censored": false,
+   "seconds": 1.1
+  },
+  {
+   "censored": false,
+   "seconds": 1.1
+  }
+ ],
+ "M5_final_phase": "Succeeded",
+ "M5_succeeded_after_s": 334.4,
+ "M6_admissions": 3,
+ "M6_discarded": [
+  {
+   "admission": 1,
+   "censored": false,
+   "container_seconds": 150.0
+  },
+  {
+   "admission": 2,
+   "censored": false,
+   "container_seconds": 150.0
+  }
+ ],
+ "M7_admittedAt_values": [
+  "2026-10-21T08:09:33Z"
+ ],
+ "M7_after_request": [
+  {
+   "left_running": true,
+   "phases_from_request": [
+    [
+     0.0,
+     "Running"
+    ],
+    [
+     1.0,
+     "Admitted"
+    ],
+    [
+     1.1,
+     "Pending"
+    ]
+   ],
+   "request_reason": "PodsReadyTimeout"
+  },
+  {
+   "left_running": true,
+   "phases_from_request": [
+    [
+     0.0,
+     "Running"
+    ],
+    [
+     1.0,
+     "Admitted"
+    ],
+    [
+     1.1,
+     "Pending"
+    ]
+   ],
+   "request_reason": "PodsReadyTimeout"
+  }
+ ],
+ "M8_device_held_after_release": [
+  {
+   "censored": false,
+   "exit": 137,
+   "seconds": 28.9
+  },
+  {
+   "censored": false,
+   "exit": 137,
+   "seconds": 28.9
+  }
+ ],
+ "admissions": [
+  [
+   "2026-10-21T08:09:33.387000+00:00",
+   "2026-10-21T08:11:34.082000+00:00"
+  ],
+  [
+   "2026-10-21T08:12:03.036000+00:00",
+   "2026-10-21T08:14:04.070000+00:00"
+  ],
+  [
+   "2026-10-21T08:15:03.035000+00:00",
+   null
+  ]
+ ],
+ "admitted_stamps": [
+  "2026-10-21T08:09:33+00:00",
+  "2026-10-21T08:12:03+00:00",
+  "2026-10-21T08:15:03+00:00"
+ ],
+ "joined_after_s": 331.2,
+ "second_rank_placed_after_s": 330.2,
+ "squatter_deleted_after_s": 300.6
+}
+P4 held: stopped attempts before the squatter's deletion 2; final Succeeded after 334.4 s; admissions 3
+P6 held: device held after each release [{'seconds': 28.9, 'censored': False, 'exit': 137}, {'seconds': 28.9, 'censored': False, 'exit': 137}]
+P5 held: phases from each request [[(0.0, 'Running'), (1.0, 'Admitted'), (1.1, 'Pending')], [(0.0, 'Running'), (1.0, 'Admitted'), (1.1, 'Pending')]]; admittedAt values ['2026-10-21T08:09:33Z']; Kueue's admission stamps ['2026-10-21T08:09:33+00:00', '2026-10-21T08:12:03+00:00', '2026-10-21T08:15:03+00:00']
+
+== ready-timeout never 1 (pp-rt-never-1-073905)
+{
+ "M1_polled_bounds_s": [
+  354.0,
+  360.0
+ ],
+ "M1_running_while_stranded_s": 356.2,
+ "M2_quota_held_before_joining": [
+  {
+   "censored": false,
+   "seconds": 120.1
+  },
+  {
+   "censored": false,
+   "seconds": 121.0
+  },
+  {
+   "censored": false,
+   "seconds": 121.1
+  }
+ ],
+ "M3_deactivated": true,
+ "M3_max_requeue_count": 2,
+ "M3_requests": [
+  {
+   "arrived": "2026-10-21T07:41:07.018000+00:00",
+   "lastTransitionTime": "2026-10-21T07:41:07+00:00",
+   "reason": "PodsReadyTimeout"
+  },
+  {
+   "arrived": "2026-10-21T07:43:37.013000+00:00",
+   "lastTransitionTime": "2026-10-21T07:43:37+00:00",
+   "reason": "PodsReadyTimeout"
+  },
+  {
+   "arrived": "2026-10-21T07:46:37.040000+00:00",
+   "lastTransitionTime": "2026-10-21T07:46:37+00:00",
+   "reason": "DeactivatedDueToRequeuingLimitExceeded"
+  }
+ ],
+ "M3_stopped": [
+  true,
+  true,
+  true
+ ],
+ "M4_eviction_lag": [
+  {
+   "censored": false,
+   "seconds": 1.1
+  },
+  {
+   "censored": false,
+   "seconds": 1.1
+  },
+  {
+   "censored": false,
+   "seconds": 1.1
+  }
+ ],
+ "M5_final_phase": "Pending",
+ "M5_succeeded_after_s": null,
+ "M6_admissions": 3,
+ "M6_discarded": [
+  {
+   "admission": 1,
+   "censored": false,
+   "container_seconds": 149.0
+  },
+  {
+   "admission": 2,
+   "censored": false,
+   "container_seconds": 150.0
+  },
+  {
+   "admission": 3,
+   "censored": false,
+   "container_seconds": 150.0
+  }
+ ],
+ "M7_admittedAt_values": [
+  "2026-10-21T07:39:07Z"
+ ],
+ "M7_after_request": [
+  {
+   "left_running": true,
+   "phases_from_request": [
+    [
+     0.0,
+     "Running"
+    ],
+    [
+     1.0,
+     "Admitted"
+    ],
+    [
+     1.1,
+     "Pending"
+    ]
+   ],
+   "request_reason": "PodsReadyTimeout"
+  },
+  {
+   "left_running": true,
+   "phases_from_request": [
+    [
+     0.0,
+     "Running"
+    ],
+    [
+     1.0,
+     "Admitted"
+    ],
+    [
+     1.1,
+     "Pending"
+    ]
+   ],
+   "request_reason": "PodsReadyTimeout"
+  },
+  {
+   "left_running": true,
+   "phases_from_request": [
+    [
+     0.0,
+     "Running"
+    ],
+    [
+     1.0,
+     "Admitted"
+    ],
+    [
+     1.1,
+     "Pending"
+    ]
+   ],
+   "request_reason": "DeactivatedDueToRequeuingLimitExceeded"
+  }
+ ],
+ "M8_device_held_after_release": [
+  {
+   "censored": false,
+   "exit": 137,
+   "seconds": 28.9
+  },
+  {
+   "censored": false,
+   "exit": 137,
+   "seconds": 28.9
+  },
+  {
+   "censored": false,
+   "exit": 137,
+   "seconds": 28.9
+  }
+ ],
+ "admissions": [
+  [
+   "2026-10-21T07:39:07.976000+00:00",
+   "2026-10-21T07:41:08.071000+00:00"
+  ],
+  [
+   "2026-10-21T07:41:37.034000+00:00",
+   "2026-10-21T07:43:38.065000+00:00"
+  ],
+  [
+   "2026-10-21T07:44:37.031000+00:00",
+   "2026-10-21T07:46:38.090000+00:00"
+  ]
+ ],
+ "admitted_stamps": [
+  "2026-10-21T07:39:07+00:00",
+  "2026-10-21T07:41:37+00:00",
+  "2026-10-21T07:44:37+00:00"
+ ],
+ "joined_after_s": null,
+ "second_rank_placed_after_s": null,
+ "squatter_deleted_after_s": null
+}
+P3 held: admissions 3; PodsReadyTimeout requests 2, initiated [120.0, 120.0] s after their admission, stopped [True, True]; requests starting Deactivated 1; largest requeue count 2; eviction lags [{'seconds': 1.1, 'censored': False}, {'seconds': 1.1, 'censored': False}, {'seconds': 1.1, 'censored': False}]
+P6 held: device held after each release [{'seconds': 28.9, 'censored': False, 'exit': 137}, {'seconds': 28.9, 'censored': False, 'exit': 137}, {'seconds': 28.9, 'censored': False, 'exit': 137}]
+P5 held: phases from each request [[(0.0, 'Running'), (1.0, 'Admitted'), (1.1, 'Pending')], [(0.0, 'Running'), (1.0, 'Admitted'), (1.1, 'Pending')], [(0.0, 'Running'), (1.0, 'Admitted'), (1.1, 'Pending')]]; admittedAt values ['2026-10-21T07:39:07Z']; Kueue's admission stamps ['2026-10-21T07:39:07+00:00', '2026-10-21T07:41:37+00:00', '2026-10-21T07:44:37+00:00']
+
+== ready-timeout never 2 (pp-rt-never-2-075922)
+{
+ "M1_polled_bounds_s": [
+  354.0,
+  360.0
+ ],
+ "M1_running_while_stranded_s": 356.2,
+ "M2_quota_held_before_joining": [
+  {
+   "censored": false,
+   "seconds": 120.2
+  },
+  {
+   "censored": false,
+   "seconds": 121.0
+  },
+  {
+   "censored": false,
+   "seconds": 121.1
+  }
+ ],
+ "M3_deactivated": true,
+ "M3_max_requeue_count": 2,
+ "M3_requests": [
+  {
+   "arrived": "2026-10-21T08:01:24.013000+00:00",
+   "lastTransitionTime": "2026-10-21T08:01:24+00:00",
+   "reason": "PodsReadyTimeout"
+  },
+  {
+   "arrived": "2026-10-21T08:03:54.015000+00:00",
+   "lastTransitionTime": "2026-10-21T08:03:54+00:00",
+   "reason": "PodsReadyTimeout"
+  },
+  {
+   "arrived": "2026-10-21T08:06:54.036000+00:00",
+   "lastTransitionTime": "2026-10-21T08:06:54+00:00",
+   "reason": "DeactivatedDueToRequeuingLimitExceeded"
+  }
+ ],
+ "M3_stopped": [
+  true,
+  true,
+  true
+ ],
+ "M4_eviction_lag": [
+  {
+   "censored": false,
+   "seconds": 1.1
+  },
+  {
+   "censored": false,
+   "seconds": 1.1
+  },
+  {
+   "censored": false,
+   "seconds": 1.1
+  }
+ ],
+ "M5_final_phase": "Pending",
+ "M5_succeeded_after_s": null,
+ "M6_admissions": 3,
+ "M6_discarded": [
+  {
+   "admission": 1,
+   "censored": false,
+   "container_seconds": 149.0
+  },
+  {
+   "admission": 2,
+   "censored": false,
+   "container_seconds": 150.0
+  },
+  {
+   "admission": 3,
+   "censored": false,
+   "container_seconds": 150.0
+  }
+ ],
+ "M7_admittedAt_values": [
+  "2026-10-21T07:59:24Z"
+ ],
+ "M7_after_request": [
+  {
+   "left_running": true,
+   "phases_from_request": [
+    [
+     0.0,
+     "Running"
+    ],
+    [
+     1.0,
+     "Admitted"
+    ],
+    [
+     1.1,
+     "Pending"
+    ]
+   ],
+   "request_reason": "PodsReadyTimeout"
+  },
+  {
+   "left_running": true,
+   "phases_from_request": [
+    [
+     0.0,
+     "Running"
+    ],
+    [
+     1.0,
+     "Admitted"
+    ],
+    [
+     1.1,
+     "Pending"
+    ]
+   ],
+   "request_reason": "PodsReadyTimeout"
+  },
+  {
+   "left_running": true,
+   "phases_from_request": [
+    [
+     0.0,
+     "Running"
+    ],
+    [
+     1.0,
+     "Admitted"
+    ],
+    [
+     1.1,
+     "Pending"
+    ]
+   ],
+   "request_reason": "DeactivatedDueToRequeuingLimitExceeded"
+  }
+ ],
+ "M8_device_held_after_release": [
+  {
+   "censored": false,
+   "exit": 137,
+   "seconds": 28.9
+  },
+  {
+   "censored": false,
+   "exit": 137,
+   "seconds": 28.9
+  },
+  {
+   "censored": false,
+   "exit": 137,
+   "seconds": 28.9
+  }
+ ],
+ "admissions": [
+  [
+   "2026-10-21T07:59:24.855000+00:00",
+   "2026-10-21T08:01:25.069000+00:00"
+  ],
+  [
+   "2026-10-21T08:01:54.034000+00:00",
+   "2026-10-21T08:03:55.076000+00:00"
+  ],
+  [
+   "2026-10-21T08:04:54.038000+00:00",
+   "2026-10-21T08:06:55.089000+00:00"
+  ]
+ ],
+ "admitted_stamps": [
+  "2026-10-21T07:59:24+00:00",
+  "2026-10-21T08:01:54+00:00",
+  "2026-10-21T08:04:54+00:00"
+ ],
+ "joined_after_s": null,
+ "second_rank_placed_after_s": null,
+ "squatter_deleted_after_s": null
+}
+P3 held: admissions 3; PodsReadyTimeout requests 2, initiated [120.0, 120.0] s after their admission, stopped [True, True]; requests starting Deactivated 1; largest requeue count 2; eviction lags [{'seconds': 1.1, 'censored': False}, {'seconds': 1.1, 'censored': False}, {'seconds': 1.1, 'censored': False}]
+P6 held: device held after each release [{'seconds': 28.9, 'censored': False, 'exit': 137}, {'seconds': 28.9, 'censored': False, 'exit': 137}, {'seconds': 28.9, 'censored': False, 'exit': 137}]
+P5 held: phases from each request [[(0.0, 'Running'), (1.0, 'Admitted'), (1.1, 'Pending')], [(0.0, 'Running'), (1.0, 'Admitted'), (1.1, 'Pending')], [(0.0, 'Running'), (1.0, 'Admitted'), (1.1, 'Pending')]]; admittedAt values ['2026-10-21T07:59:24Z']; Kueue's admission stamps ['2026-10-21T07:59:24+00:00', '2026-10-21T08:01:54+00:00', '2026-10-21T08:04:54+00:00']
+scorer_commit=b651f81eaa2edd1e34c92dc9b76633ae55bed6c3
