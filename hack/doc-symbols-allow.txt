@@ -102,3 +102,4 @@ IsEvictedByDeactivation	Kueue v0.18.3 function (pkg/workload/workload.go), cited
 ReasonWithCause	Kueue v0.18.3 function (pkg/workload/workload.go), cited by the distributed partial-placement design
 config/kueue-controller/	proposed by the parked NCCL groundwork design (2026-10-16), which says it is not built
 config/training/	proposed by the parked NCCL groundwork design (2026-10-16), which says it is not built
+hack/lib/train-session.sh	proposed by the NCCL groundwork design v3 (2026-10-21), which says it is not built
