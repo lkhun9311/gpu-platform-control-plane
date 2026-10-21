@@ -91,6 +91,26 @@ grep -q -- "eks describe-cluster --region ap-northeast-2 --name gpu-platform" "$
   ok "the cluster asked about is the one the session would build" ||
   bad "the cluster asked about was: $(grep describe-cluster "$work/every training refusal passed.calls")"
 
+# --- the kill switch, armed under an absolute EXDIR --------------------------------------------------------------
+# Without TRAIN nothing stops the session before its kill switch, so it arms one and then dies at the stub's terraform
+# init. The watchdog must have reported its pid where the session reads it; the test then stops it.
+name="an armed kill switch"
+export STUB_CALLS="$work/$name.calls"
+: >"$STUB_CALLS"
+out="$(env -i HOME="$work/home" PATH="$work/bin:/usr/bin:/bin" STUB_CALLS="$STUB_CALLS" SESSION_CONFIRM=yes AWS_PROFILE=stub \
+  EGRESS_CIDR=192.0.2.1/32 EXDIR="$work/$name" TTL_MINUTES=300 timeout 60 bash hack/eks-gitops-session.sh 2>&1)"
+pid="$(cat "$work/$name/ttl.pid" 2>/dev/null)"
+stray="$(pgrep -f -- "$work/$name/" | paste -sd' ')"
+if [[ -n "$pid" && " $stray " == *" $pid "* && "$out" == *"TTL kill switch armed: PID $pid"* ]]; then
+  ok "$name: the watchdog reported pid $pid under an absolute EXDIR, and the session read it"
+else
+  bad "$name: pid file '${pid:-absent}', processes '${stray:-none}', session said: $(grep -o 'TTL[^,]*\|never reported its pid[^;]*' <<<"$out" | head -1)"
+fi
+# shellcheck disable=SC2086
+for p in $stray; do kill -- "-$p" 2>/dev/null || kill "$p" 2>/dev/null || true; done
+sleep 1
+[[ -z "$(pgrep -f -- "$work/$name/")" ]] && ok "$name: the test stopped its watchdog" || bad "$name: a watchdog survived the test: $(pgrep -af -- "$work/$name/")"
+
 if [[ $fails -ne 0 ]]; then
   echo "check-train-session-refusals: $fails failure(s)"
   exit 1

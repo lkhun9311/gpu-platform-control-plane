@@ -63,6 +63,12 @@ ARGO_DIR=infra/aws/argo-bootstrap
 EXDIR="${EXDIR:-ex/eks-session-$(date -u +%Y%m%dT%H%M%SZ)}"
 
 mkdir -p "$EXDIR"
+# Absolute from here, because the watchdog below runs detached and writes into it by this path.
+#
+# The watchdog prefixed $PWD to a relative EXDIR, so an absolute one became $PWD//abs/...: its pid file was never
+# written, the session died for want of a kill switch, and the watchdog it had just started lived on, due to destroy
+# whatever cluster existed TTL_MINUTES later (found 2026-10-22 by hack/test/check-train-session-refusals.sh).
+EXDIR="$(cd "$EXDIR" && pwd)" || exit 1
 log() { printf '%s  [session] %s\n' "$(date -u +%H:%M:%SZ)" "$*" | tee -a "$EXDIR/session.log"; }
 die() { printf '%s  [session] FATAL: %s\n' "$(date -u +%H:%M:%SZ)" "$*" | tee -a "$EXDIR/session.log" >&2; exit 1; }
 
@@ -221,9 +227,9 @@ fi
 KILL_LOG="$EXDIR/ttl-kill-switch.log"
 KILL_PIDFILE="$EXDIR/ttl.pid"
 setsid nohup bash -c "
-  echo \$\$ > '$PWD/$KILL_PIDFILE'
+  echo \$\$ > '$KILL_PIDFILE'
   sleep $((TTL_MINUTES * 60))
-  echo \"[ttl] \$(date -u +%H:%M:%SZ) TTL reached; force-destroying\" >> '$PWD/$KILL_LOG' 2>&1
+  echo \"[ttl] \$(date -u +%H:%M:%SZ) TTL reached; force-destroying\" >> '$KILL_LOG' 2>&1
   cd '$PWD'
   # The cluster first, and only the cluster. It is what bills; the Helm release bills nothing and its destroy
   # needs a reachable API endpoint that, by the time this fires, may well be gone -- so attempting it first
@@ -232,20 +238,20 @@ setsid nohup bash -c "
   # destroy, or the nightly one, still held.
   for attempt in 1 2 3; do
     AWS_PROFILE='$AWS_PROFILE' AWS_REGION='$REGION' terraform -chdir='$CLUSTER_DIR' destroy -auto-approve \
-      -lock-timeout=10m -var='region=$REGION' -var='cluster_name=$CLUSTER' $TF_TRAIN_VARS >> '$PWD/$KILL_LOG' 2>&1
+      -lock-timeout=10m -var='region=$REGION' -var='cluster_name=$CLUSTER' $TF_TRAIN_VARS >> '$KILL_LOG' 2>&1
     ttl_rc=\$?
     [ \"\$ttl_rc\" = 0 ] && break
-    echo \"[ttl] attempt \$attempt failed rc=\$ttl_rc\" >> '$PWD/$KILL_LOG' 2>&1
+    echo \"[ttl] attempt \$attempt failed rc=\$ttl_rc\" >> '$KILL_LOG' 2>&1
     sleep 60
   done
   if [ \"\$ttl_rc\" = 0 ]; then
-    echo \"[ttl] \$(date -u +%H:%M:%SZ) force-destroy SUCCEEDED\" >> '$PWD/$KILL_LOG' 2>&1
+    echo \"[ttl] \$(date -u +%H:%M:%SZ) force-destroy SUCCEEDED\" >> '$KILL_LOG' 2>&1
     # The GPU deadline is removed only after a destroy that succeeded: with the cluster gone it can only fire
     # against nothing, and left in place it makes the next session refuse to arm its own.
-    gpu_ttl=\$(cat '$PWD/$EXDIR/gpu-ttl-schedule.txt' 2>/dev/null)
-    [ -n \"\$gpu_ttl\" ] && AWS_PROFILE='$AWS_PROFILE' AWS_REGION='$REGION' aws scheduler delete-schedule --name \"\$gpu_ttl\" >> '$PWD/$KILL_LOG' 2>&1
+    gpu_ttl=\$(cat '$EXDIR/gpu-ttl-schedule.txt' 2>/dev/null)
+    [ -n \"\$gpu_ttl\" ] && AWS_PROFILE='$AWS_PROFILE' AWS_REGION='$REGION' aws scheduler delete-schedule --name \"\$gpu_ttl\" >> '$KILL_LOG' 2>&1
   else
-    echo \"[ttl] \$(date -u +%H:%M:%SZ) force-destroy FAILED rc=\$ttl_rc -- the cluster may still be billing\" >> '$PWD/$KILL_LOG' 2>&1
+    echo \"[ttl] \$(date -u +%H:%M:%SZ) force-destroy FAILED rc=\$ttl_rc -- the cluster may still be billing\" >> '$KILL_LOG' 2>&1
   fi
 " >/dev/null 2>&1 &
 # The watchdog reports its own pid, because `$!` here is the setsid process and not the watchdog.
