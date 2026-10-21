@@ -5,7 +5,7 @@
 # gpu-simulator is a third, independent process that runs as a DaemonSet on every node, so it takes its own image for the same reason the gateway does: a shared image would redeploy all three whenever only one changes.
 # Both bases are pinned by digest: a tag lets two builds of one commit differ (issue 323).
 # Dependabot raises the digests (.github/dependabot.yml), so the pin is moved on purpose, never by drift.
-FROM golang:1.27.2@sha256:5bc7f572bbaa98885a3a1fd9c0aa76b59e3e14e8628bfc316bbfd0c701e4818c AS builder
+FROM golang:1.27.3@sha256:957861185dbf29d93668ace41e011d091c6e779953d47f0316ef2cc58e28fe2b AS builder
 ARG TARGETOS
 ARG TARGETARCH
 
