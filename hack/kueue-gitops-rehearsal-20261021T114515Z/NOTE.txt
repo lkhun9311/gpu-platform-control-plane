@@ -1,0 +1,26 @@
+VOID as a rehearsal: changed by hand during its run, so its drift and watch results are not evidence.
+
+Run from 94035614 (rehearse/kueue-new 82d1e090... is recorded in provenance.txt). B0, B2, B3 and B4 were met as
+verdicts in log.txt say. B1 was marked not met because the script read an owner label Argo does not put on CRDs;
+the takeover itself held: 4 CRDs kept with unchanged UIDs, 0 recreated, 0 lost, 7 new, and all 11 listed in
+gpu-platform-kueue's status.resources with argocd-controller holding an Apply in their managedFields.
+
+What it found. After the drift that deleted kueue-controller-manager and Argo recreated it, gpu-platform-kueue read
+sync Unknown with the condition
+
+  ComparisonError: Failed to compare desired state to live state: failed to calculate diff: error calculating
+  structured merge diff: error building typed value from live resource: .status.terminatingReplicas: field not
+  declared in schema
+
+and the replica drift (scaled to 3) stood unrepaired. cert-manager, an Application already on main, read the same
+error. The script's checks did not see it: they counted OutOfSync, and Unknown is not OutOfSync.
+
+What was done by hand, on the live cluster:
+  11:56:35Z  annotated gpu-platform-kueue argocd.argoproj.io/compare-options=ServerSideDiff=true, and hard refresh;
+             it read Synced at once and self-heal returned replicas from 3 to 1 (the "repaired in 227 s" in log.txt)
+  11:59:21Z  the same on cert-manager; it read Synced at once
+  12:00:30Z  the run was stopped, and its cleanup deleted the cluster
+
+The fix is 93e1670e (every server-side Application diffs on the API server), and the script now requires Synced
+(e8023150's successor). All three paid EKS sessions on 1.35 recorded cert-manager as Unknown in
+runbook-serve/application-revisions-ready.txt, which this explains.

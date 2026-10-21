@@ -165,15 +165,29 @@ converge() {
   done
   echo "$table" >"$OUT/apps-$label.txt"
 }
-# The owner is Argo's tracking label, whose key the argo-cd chart sets to argocd.argoproj.io/instance.
-crds() { k get crd -o json | python3 -c '
+# The owner is the Application whose status lists the CRD. Argo puts no tracking label on a CRD (measured: none
+# of the eleven carried argocd.argoproj.io/instance), so the Application's own record is what says it manages one.
+crds() {
+  local owners
+  owners="$(k -n argocd get applications -o json | python3 -c '
 import json, sys
+for a in json.load(sys.stdin)["items"]:
+    for r in (a.get("status") or {}).get("resources") or []:
+        if r.get("kind") == "CustomResourceDefinition":
+            print(r["name"], a["metadata"]["name"])
+')"
+  k get crd -o json | python3 -c '
+import json, sys
+owners = {}
+for line in sys.argv[1].splitlines():
+    n, app = line.split()
+    owners.setdefault(n, []).append(app)
 for c in json.load(sys.stdin)["items"]:
     n = c["metadata"]["name"]
     if n.endswith(".kueue.x-k8s.io"):
-        print(n, c["metadata"]["uid"], c["metadata"].get("labels", {}).get("argocd.argoproj.io/instance", "-"),
-              c["metadata"]["creationTimestamp"])
-' | sort; }
+        print(n, c["metadata"]["uid"], ",".join(sorted(owners.get(n, ["-"]))), c["metadata"]["creationTimestamp"])
+' "$owners" | sort
+}
 
 # --- the old root -----------------------------------------------------------------------------------------------
 log "== old root ($OLD_REF)"
@@ -207,6 +221,7 @@ owners = {n: after[n][2] for n in after}
 print(f"before {len(before)} after {len(after)} kept {len(kept)} recreated {len(changed)} lost {len(lost)} new {len(new)}")
 print("owners", sorted(set(owners.values())))
 ok = len(before) == 4 and len(kept) == 4 and not changed and not lost and len(after) == 11 and set(owners.values()) == {"gpu-platform-kueue"}
+print("owners before", sorted({before[n][2] for n in before}))
 print("OK" if ok else "NOT OK")
 EOF
 grep -q "^OK" "$OUT/takeover.txt" && bar B1 met "$(head -2 "$OUT/takeover.txt" | paste -sd' ')" || bar B1 "NOT met" "$(paste -sd' ' "$OUT/takeover.txt")"
@@ -299,8 +314,11 @@ repaired() {
   done
   bar "D-$name" "NOT met" "not repaired within $wait s"
 }
-available() { [[ "$(k -n kueue-system get deploy kueue-controller-manager -o jsonpath='{.status.availableReplicas}/{.spec.replicas}')" == 1/1 ]]; }
-webhook_back() { k get validatingwebhookconfiguration kueue-validating-webhook-configuration -o jsonpath='{.webhooks[0].clientConfig.caBundle}' | grep -q .; }
+# Synced, not only "not OutOfSync": an Application Argo cannot compare reads Unknown, and that is what hid a
+# self-heal that had stopped working (see the comment in config/argocd/kueue.yaml).
+kueue_synced() { [[ "$(k -n argocd get application gpu-platform-kueue -o jsonpath='{.status.sync.status}')" == Synced ]]; }
+available() { [[ "$(k -n kueue-system get deploy kueue-controller-manager -o jsonpath='{.status.availableReplicas}/{.spec.replicas}')" == 1/1 ]] && kueue_synced; }
+webhook_back() { k get validatingwebhookconfiguration kueue-validating-webhook-configuration -o jsonpath='{.webhooks[0].clientConfig.caBundle}' | grep -q . && kueue_synced; }
 k -n kueue-system delete deploy kueue-controller-manager --wait=false >>"$LOG" 2>&1
 repaired deployment-deleted 600 available
 k -n kueue-system scale deploy kueue-controller-manager --replicas=3 >>"$LOG" 2>&1
@@ -319,10 +337,11 @@ while ((SECONDS < end)); do
   sleep 15
 done
 samples="$(grep -c '^@' "$OUT/watch.txt")"
-outs="$(grep -c '^gpu-platform-kueue .* OutOfSync ' "$OUT/watch.txt")"
-others="$(awk '$2 == "automated" && $3 == "OutOfSync" && $1 != "gpu-platform-kueue"' "$OUT/watch.txt" | wc -l)"
-[[ "$outs" == 0 && "$samples" -ge $((WATCH_SECONDS / 20)) ]] && bar B5 met "gpu-platform-kueue Synced in all $samples samples over $WATCH_SECONDS s; other automated OutOfSync samples: $others" ||
-  bar B5 "NOT met" "gpu-platform-kueue OutOfSync in $outs of $samples samples; others $others"
+kueue_seen="$(grep -c '^gpu-platform-kueue ' "$OUT/watch.txt")"
+unsynced="$(awk '$2 == "automated" && $3 != "Synced" {print $1, $3}' "$OUT/watch.txt" | sort | uniq -c | paste -sd';')"
+[[ -z "$unsynced" && "$kueue_seen" == "$samples" && "$samples" -ge $((WATCH_SECONDS / 20)) ]] &&
+  bar B5 met "every automated Application, gpu-platform-kueue included, read Synced in all $samples samples over $WATCH_SECONDS s" ||
+  bar B5 "NOT met" "samples $samples, gpu-platform-kueue in $kueue_seen; not Synced: ${unsynced:-none}"
 
 k -n kueue-system get validatingwebhookconfiguration,mutatingwebhookconfiguration -o yaml >"$OUT/webhooks.yaml" 2>&1
 apps >"$OUT/apps-final.txt" 2>&1
