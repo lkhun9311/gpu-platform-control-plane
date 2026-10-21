@@ -320,3 +320,47 @@ func TestTheNodesAdmitKueuesAggregatedAPI(t *testing.T) {
 		}
 	}
 }
+
+// An Application that applies server-side must also diff server-side, or Argo 2.13 cannot compare it at all.
+//
+// With ServerSideApply, Argo builds the live object against its bundled schema, which lacks a Deployment's
+// status.terminatingReplicas; the comparison fails, the Application reads sync Unknown and self-heal stops.
+// cert-manager read Unknown in all three paid EKS sessions, and the Kueue Application did on kind after a drift.
+//
+// Mutation that turns this red: delete the compare-options annotation from cert-manager.yaml or kueue.yaml.
+func TestServerSideApplicationsDiffServerSide(t *testing.T) {
+	entries, err := os.ReadDir("../../config/argocd")
+	if err != nil {
+		t.Fatal(err)
+	}
+	checked := 0
+	for _, e := range entries {
+		if !strings.HasSuffix(e.Name(), ".yaml") || e.Name() == "kustomization.yaml" {
+			continue
+		}
+		var app struct {
+			Metadata struct {
+				Annotations map[string]string `json:"annotations"`
+			} `json:"metadata"`
+			Spec struct {
+				SyncPolicy struct {
+					SyncOptions []string `json:"syncOptions"`
+				} `json:"syncPolicy"`
+			} `json:"spec"`
+		}
+		if err := yaml.Unmarshal([]byte(readRepoFile(t, "config/argocd/"+e.Name())), &app); err != nil {
+			t.Fatalf("%s: %v", e.Name(), err)
+		}
+		if !slices.Contains(app.Spec.SyncPolicy.SyncOptions, "ServerSideApply=true") {
+			continue
+		}
+		checked++
+		if !strings.Contains(app.Metadata.Annotations["argocd.argoproj.io/compare-options"], "ServerSideDiff=true") {
+			t.Errorf("%s applies server-side and diffs with Argo's own schema, which cannot read a current Deployment", e.Name())
+		}
+	}
+	// cert-manager, crds and kueue apply server-side today; none found means the read went wrong.
+	if checked < 3 {
+		t.Errorf("found %d server-side Applications, want at least 3", checked)
+	}
+}

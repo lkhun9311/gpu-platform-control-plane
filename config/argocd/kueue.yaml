@@ -19,6 +19,12 @@ metadata:
   namespace: argocd
   annotations:
     argocd.argoproj.io/sync-wave: "-2"
+    # Diffed by the API server: with ServerSideApply, Argo 2.13's bundled schema cannot read the controller
+    # Deployment's status.terminatingReplicas, and the comparison then fails and self-heal stops. Measured on kind
+    # 1.37: after the Deployment was deleted and recreated the Application read sync Unknown and left a scaled-up
+    # replica count unrepaired; with this annotation it compared again and restored it. cert-manager.yaml says the
+    # same for the same reason.
+    argocd.argoproj.io/compare-options: ServerSideDiff=true
 spec:
   project: default
   source:
