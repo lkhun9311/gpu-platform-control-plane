@@ -105,3 +105,4 @@ config/training/	proposed by the parked NCCL groundwork design (2026-10-16), whi
 hack/lib/train-session.sh	proposed by the NCCL groundwork design v3 (2026-10-21), which says it is not built
 nodes.json	per-arm node objects the nccl profile of experiments/multi-pod-ddp/analyze.py reads; no collector writes it yet
 ResourceCount	CloudWatch AWS/Usage metric name, cited by the NCCL groundwork design as the gate it did not use
+config/argocd/kueue-crds.yaml	the Application that installed four Kueue CRDs and no controller, removed by the NCCL groundwork build; designs written before it cite it
