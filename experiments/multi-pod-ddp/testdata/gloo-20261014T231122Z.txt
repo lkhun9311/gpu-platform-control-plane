@@ -1,0 +1,23 @@
+PASS  pass
+      ok  each Pod's log is its own rank
+      ok  2 pod(s), indexes ['0', '1'], nodes ['ddp-worker', 'ddp-worker2']
+      ok  step-1 all-reduce completions by rank [(0, 1), (1, 1)]
+      ok  verdicts from ranks [0, 1]: rank 0 w=0.4000000059604645 agree=True exit=0; rank 1 w=0.4000000059604645 agree=True exit=0
+      ok  pod sets [2], admitted nvidia.com/gpu '2'
+      ok  Succeeded after 5 s
+      ok  highest readyRanks sampled 2
+PASS  no-sync
+      ok  each Pod's log is its own rank
+      ok  2 pod(s), indexes ['0', '1'], nodes ['ddp-worker', 'ddp-worker2']
+      ok  step-1 w by rank [(0, 0.20000000298023224), (1, 0.6000000238418579)], agree [False, False]
+      ok  Succeeded after 4 s
+      ok  highest readyRanks sampled 2
+PASS  bad-address
+      ok  each Pod's log is its own rank
+      ok  Job Failed condition present
+      ok  Failed after 122 s
+      ok  rendezvous_failed from ranks [1]; rank 1: DistNetworkError
+PASS  one-rank-fails
+      ok  each Pod's log is its own rank
+      ok  hold 2026-10-14T23:15:51.627252+00:00, fail 2026-10-14T23:16:01.622936+00:00, FailureTarget 2026-10-14T23:16:04Z (BackoffLimitExceeded), sigterm 2026-10-14T23:16:04.454715+00:00, Failed 2026-10-14T23:16:05Z
+      ok  Failed after 16 s
