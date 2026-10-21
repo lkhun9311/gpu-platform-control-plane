@@ -154,7 +154,8 @@ class NcclProfile(unittest.TestCase):
 
     def test_missing_node_objects_fail(self):
         os.remove(self.fx.root / "no-sync" / "nodes.json")
-        self.assertFailsWith("node group")
+        # Said as missing, not as a node outside the group, so a reader knows the collector failed and not the placement.
+        self.assertFailsWith("nodes.json is missing")
 
     def test_an_unapproved_script_fails(self):
         self.fx.edit("pass", 0, "rendezvous", script_sha256="b" * 64)

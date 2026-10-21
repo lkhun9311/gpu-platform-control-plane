@@ -103,3 +103,4 @@ ReasonWithCause	Kueue v0.18.3 function (pkg/workload/workload.go), cited by the 
 config/kueue-controller/	proposed by the parked NCCL groundwork design (2026-10-16), which says it is not built
 config/training/	proposed by the parked NCCL groundwork design (2026-10-16), which says it is not built
 hack/lib/train-session.sh	proposed by the NCCL groundwork design v3 (2026-10-21), which says it is not built
+nodes.json	per-arm node objects the nccl profile of experiments/multi-pod-ddp/analyze.py reads; no collector writes it yet

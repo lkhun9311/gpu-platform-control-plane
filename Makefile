@@ -428,7 +428,8 @@ shell-check: ## Parse every shell script under hack/ and .githooks/.
 		bash -n "$$f" || { echo "shell-check: $$f does not parse" >&2; fail=1; }; \
 	done; \
 	for f in hack/test/spot-lifecycle/*.py hack/serving-stub/*.py hack/eks-serve/holdcap-study/*.py \
-		experiments/distributed-partial-placement/*.py experiments/cpu-ddp/*.py; do \
+		experiments/distributed-partial-placement/*.py experiments/cpu-ddp/*.py \
+		experiments/multi-pod-ddp/*.py; do \
 		[ -f "$$f" ] || continue; \
 		python3 -m py_compile "$$f" || { echo "shell-check: $$f does not compile" >&2; fail=1; }; \
 	done; \
@@ -440,6 +441,7 @@ scorer-tests: ## Run the study scorers' own tests, which pin what each published
 	@# Both suites existed and nothing ran them: compiling a scorer says it parses, not that its rules read their input.
 	cd hack/eks-serve/holdcap-study && python3 -m unittest test_score
 	python3 -m unittest experiments/distributed-partial-placement/test_analyze.py
+	python3 -m unittest experiments/multi-pod-ddp/test_analyze.py
 
 .PHONY: workload-tests
 workload-tests: ## Run train.py's backend and device selection tests, on stub torch modules and no GPU.
