@@ -1,0 +1,9 @@
+{
+ "cell": "851-HoldCap",
+ "endedUnixNanos": 1792551570528530162,
+ "engineNode": "ip-10-0-103-245.ap-northeast-2.compute.internal",
+ "engineNonDefaultArgs": "(APIServer pid=1) INFO 10-21 02:49:10 [api_utils.py:273] non-default args: {'model_tag': 'Qwen/Qwen2.5-3B-Instruct', 'model': 'Qwen/Qwen2.5-3B-Instruct', 'dtype': 'half', 'revision': 'aa8e72537993ba99e69dfaafa59ed015b17504d1', 'tokenizer_revision': 'aa8e72537993ba99e69dfaafa59ed015b17504d1', 'max_model_len': 16384, 'served_model_name': ['Qwen/Qwen2.5-3B-Instruct'], 'gpu_memory_utilization': 0.9, 'enable_prefix_caching': False, 'max_num_batched_tokens': 512, 'max_num_seqs': 64, 'long_prefill_token_threshold': 384, 'scheduling_policy': 'priority', 'async_scheduling': False}",
+ "enginePodUID": "05096c28-1c13-4a15-9a89-5629977744a9",
+ "outcome": "complete",
+ "startedUnixNanos": 1792551117391059146
+}

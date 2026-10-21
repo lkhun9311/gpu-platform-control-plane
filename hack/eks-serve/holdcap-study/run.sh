@@ -13,7 +13,7 @@
 #   WAIT_ENGINE      seconds for a fresh engine to come up in its mode (default 1200)
 #   STUDY_REHEARSAL  set to 1 only by rehearse-kind.sh: the mode is switched by that script against a stub engine
 #   TEARDOWN_RESERVE seconds kept free before STUDY_DEADLINE (default 2400; the session passes 600)
-#   STUDY_ID         which registered run this is (default the re-run, holdcap-product-transfer-r2-2026-10-15);
+#   STUDY_ID         which registered run this is (default the bound-Off run, holdcap-product-transfer-bound-off-2026-10-21);
 #                    every row is stamped with it and score.py reads it back from study-id.txt
 set -euo pipefail
 
@@ -31,7 +31,7 @@ SEEDS=(851 852 853)
 # The registration's per-cell budget and the teardown reserve; a cell is not started unless both still fit.
 CELL_BUDGET=1500
 TEARDOWN_RESERVE="${TEARDOWN_RESERVE:-2400}"
-STUDY_ID="${STUDY_ID:-holdcap-product-transfer-r2-2026-10-15}"
+STUDY_ID="${STUDY_ID:-holdcap-product-transfer-bound-off-2026-10-21}"
 OUT="$EXDIR/holdcap-study"
 mkdir -p "$OUT/cells"
 printf '%s\n' "$STUDY_ID" >"$OUT/study-id.txt"
@@ -297,6 +297,11 @@ set_arm() {
     st="$(k -n "$SERVE_NS" get inferencedeployment "$SERVE_INFD" -o jsonpath='{.status.admission.mode} {.status.admission.observedGeneration} {.metadata.generation}' 2>/dev/null)" || continue
     read -r m og g <<<"$st"
     [[ "$m" == "$arm" && "$og" == "$g" ]] || continue
+    # The gateway binds a tier in Off only once the controller reports the rendered engine in force for this generation
+    # (#365); a cell started before that would replay against an Off that binds nothing.
+    ec="$(k -n "$SERVE_NS" get inferencedeployment "$SERVE_INFD" \
+      -o jsonpath='{.status.conditions[?(@.type=="EngineInForce")].status} {.status.conditions[?(@.type=="EngineInForce")].observedGeneration}' 2>>"$OUT/run.log")" || continue
+    [[ "$ec" == "True $g" ]] || continue
     line="$(engine_pods_json | live_one)" || continue
     read -r _ uid _ _ ready _ <<<"$line"
     [[ "$ready" == ready && "$uid" != "$before_uid" ]] && return 0

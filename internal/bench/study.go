@@ -320,6 +320,11 @@ const (
 	// first run's, whose verdict stands; same design document, section "Run 2".
 	StudyHoldCapProductTransferR2 = "holdcap-product-transfer-r2-2026-10-15"
 
+	// StudyHoldCapProductTransferBoundOff is the same registration on a product whose Off binds the tenant's tier on a
+	// rendered engine (#365), as the lab's off did; same design document, section "Run 3". Its own ID because the Off it
+	// compares against is a different treatment from the first two runs'.
+	StudyHoldCapProductTransferBoundOff = "holdcap-product-transfer-bound-off-2026-10-21"
+
 	// StudyAdmissionFrontier is v26: hold-cap against a frozen frontier of fixed spacings, each judged on the card by
 	// the owner's contender limits, docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md,
 	// "v26". It shares the diagnostic's load, lengths, engine and capture; its controls are the gateway's
@@ -816,6 +821,25 @@ var studies = map[string]Study{
 	// were sent the same way; only what answers them differs.
 	StudyHoldCapProductTransfer: {
 		ID:       StudyHoldCapProductTransfer,
+		Arms:     []string{"Off", "HoldCap"},
+		Arrivals: ArrivalsIndependent,
+		Frozen: &FrozenTuple{
+			PremiumPromptChars:    200,
+			ContenderPromptChars:  40000,
+			TimeoutMs:             30000,
+			PremiumOutputTokens:   64,
+			ContenderOutputTokens: 16,
+		},
+		MinRepetitions:         3,
+		FixesOutputAtCap:       true,
+		RecordsReplayTiming:    true,
+		TracesVaryByRepetition: true,
+		SenderPoolSize:         600,
+		FrozenExactTokens:      map[int]int{200: 68, 40000: 7695},
+	},
+	// Identical to the first run's registration in everything but its ID.
+	StudyHoldCapProductTransferBoundOff: {
+		ID:       StudyHoldCapProductTransferBoundOff,
 		Arms:     []string{"Off", "HoldCap"},
 		Arrivals: ArrivalsIndependent,
 		Frozen: &FrozenTuple{
