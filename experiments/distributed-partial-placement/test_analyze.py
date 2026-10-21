@@ -342,5 +342,134 @@ class Measures(Fixture):
         self.assertEqual([p[1] for p in analyze.predict(run, m) if p[0] == "P5"], ["contradicted"])
 
 
+class ReviewOfB3d1194(Fixture):
+    """One test per defect codex gpt-6-astra found in commit b3d1194's scorer; each failed against that commit."""
+
+    RT = "ready-timeout-never-1"
+    LATE = "off-late-1"
+
+    def append(self, run, name, rows):
+        with open(self.path(run, name), "a") as f:
+            f.write("".join(json.dumps(r) + "\n" for r in rows))
+
+    def last_object(self, run, name, pred):
+        p = self.path(run, name)
+        with open(p) as f:
+            rows = [json.loads(line) for line in f if line.strip()]
+        return [r["object"] for r in rows if r.get("object") and pred(r["object"])][-1]
+
+    def second_eviction(self):
+        """A second PodsReadyTimeout at 06:44:52 that stops the second attempt, whose rank ends at 06:45:05."""
+        import copy
+        w = self.last_object(self.RT, "watch.workloads.jsonl", lambda o: o["kind"] == "Workload")
+        ev = copy.deepcopy(w)
+        for c in ev["status"]["conditions"]:
+            if c["type"] == "Evicted":
+                c.update(status="True", reason="PodsReadyTimeout", lastTransitionTime="2026-10-21T06:44:52Z")
+        rel = copy.deepcopy(ev)
+        for c in rel["status"]["conditions"]:
+            if c["type"] in ("QuotaReserved", "Admitted"):
+                c.update(status="False", lastTransitionTime="2026-10-21T06:44:53Z")
+        self.append(self.RT, "watch.workloads.jsonl", [
+            {"arrived": "2026-10-21T06:44:52.000+00:00", "kind": "workloads", "type": "MODIFIED", "object": ev},
+            {"arrived": "2026-10-21T06:44:53.000+00:00", "kind": "workloads", "type": "MODIFIED", "object": rel}])
+        j = copy.deepcopy(self.last_object(self.RT, "watch.jobs.jsonl", lambda o: o["kind"] == "Job"))
+        j["spec"]["suspend"] = True
+        self.append(self.RT, "watch.jobs.jsonl", [
+            {"arrived": "2026-10-21T06:44:52.500+00:00", "kind": "jobs", "type": "MODIFIED", "object": j}])
+        pod = copy.deepcopy(self.last_object(self.RT, "watch.pods.jsonl",
+                                             lambda o: o["metadata"]["uid"].startswith("50bd5486")))
+        deleting = copy.deepcopy(pod)
+        deleting["metadata"]["deletionTimestamp"] = "2026-10-21T06:44:52Z"
+        dead = copy.deepcopy(deleting)
+        dead["status"]["containerStatuses"][0]["state"] = {"terminated": {
+            "exitCode": 137, "reason": "Error", "startedAt": "2026-10-21T06:44:21Z", "finishedAt": "2026-10-21T06:45:05Z"}}
+        self.append(self.RT, "watch.pods.jsonl", [
+            {"arrived": "2026-10-21T06:44:52.300+00:00", "kind": "pods", "type": "MODIFIED", "object": deleting},
+            {"arrived": "2026-10-21T06:45:05.100+00:00", "kind": "pods", "type": "MODIFIED", "object": dead},
+            {"arrived": "2026-10-21T06:45:06.000+00:00", "kind": "pods", "type": "DELETED", "object": dead}])
+
+    def test_m8_takes_each_releases_own_rank(self):
+        self.second_eviction()
+        m8 = self.run_(self.RT).measures()["M8_device_held_after_release"]
+        self.assertEqual([h["seconds"] for h in m8], [28.9, 12.0])
+
+    def test_nothing_after_the_window_is_evidence(self):
+        # The rank's end arrives 3.2 s after a 147 s window, so inside that window it has not ended.
+        run = analyze.Run(os.path.join(self.out, "runs", self.RT), window=147)
+        m8 = run.measures()["M8_device_held_after_release"]
+        self.assertTrue(all(h["censored"] for h in m8), m8)
+
+    def test_a_deletion_request_alone_is_not_a_stopped_attempt(self):
+        uid = self.placed_uid(self.RT)
+        cut = []
+
+        def truncate(e):
+            o = e.get("object") or {}
+            if o.get("metadata", {}).get("uid") == uid:
+                if cut:
+                    return None
+                if o["metadata"].get("deletionTimestamp"):
+                    cut.append(1)
+            return e
+        self.rewrite(self.RT, "watch.pods.jsonl", truncate)
+        self.assertEqual(self.run_(self.RT).measures()["M3_stopped"], [False])
+
+    def test_a_watch_that_stopped_early_disagrees_with_the_poll(self):
+        seen = []
+
+        def cut(e):
+            o = e.get("object") or {}
+            if seen:
+                return None
+            if o.get("kind") == "MLTrainingJob" and o["status"].get("phase") == "Running":
+                seen.append(1)
+            return e
+        self.rewrite(self.RT, "watch.mltrainingjobs.jsonl", cut)
+        self.assertTrue(any("disagrees with the poll" in p for p in self.run_(self.RT).problems()))
+
+    def test_p1_reads_running_while_stranded(self):
+        # The late run relabelled as never, with the pending rank scheduled 20 s in: Running, but no longer stranded.
+        with open(self.path(self.LATE, "run.txt")) as f:
+            setting, _, rep, name = f.read().split()
+        with open(self.path(self.LATE, "run.txt"), "w") as f:
+            f.write(f"{setting} never {rep} {name}\n")
+        os.remove(self.path(self.LATE, "squatter-deleted-at.txt"))
+
+        def schedule(e):
+            o = e.get("object") or {}
+            if o.get("kind") == "Pod" and e["arrived"] > "2026-10-21T06:45:52":
+                for c in o["status"].get("conditions") or []:
+                    if c.get("type") == "PodScheduled":
+                        c["status"] = "True"
+            return e
+        self.rewrite(self.LATE, "watch.pods.jsonl", schedule)
+
+        def stay_running(e):
+            o = e.get("object") or {}
+            if o.get("kind") == "MLTrainingJob" and o["status"].get("phase") == "Succeeded":
+                o["status"]["phase"] = "Running"
+            return e
+        self.rewrite(self.LATE, "watch.mltrainingjobs.jsonl", stay_running)
+        run = self.run_(self.LATE)
+        m = run.measures()
+        # Every other P1 condition is made to hold, so only the share of Running-while-stranded can decide it.
+        m["M2_quota_held_before_joining"] = [{"seconds": 190.0, "censored": True}]
+        m["M3_requests"] = []
+        self.assertLess(m["M1_running_while_stranded_s"], 30)
+        self.assertEqual([p[1] for p in analyze.predict(run, m) if p[0] == "P1"], ["contradicted"])
+
+    def test_a_void_registered_run_fails_the_exit(self):
+        p = os.path.join(self.out, "provenance.txt")
+        with open(p) as f:
+            text = f.read().replace("window=200 late_at=100", "window=600 late_at=300")
+        with open(p, "w") as f:
+            f.write(text)
+        import contextlib
+        from io import StringIO
+        with contextlib.redirect_stdout(StringIO()):
+            self.assertEqual(analyze.main([self.out]), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

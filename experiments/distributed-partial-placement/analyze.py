@@ -129,7 +129,7 @@ class Timeline:
     maps kind to {uid: object} for the objects that exist then.
     """
 
-    def __init__(self, run_dir: str, job_name: str):
+    def __init__(self, run_dir: str, job_name: str, end: datetime.datetime | None = None):
         self.events = []
         self.coverage_problems = []
         self.job_name = job_name
@@ -140,7 +140,9 @@ class Timeline:
                 continue
             self._check_coverage(kind, rows)
             for r in rows:
-                if r["type"] in ("ADDED", "MODIFIED", "DELETED") and r.get("object"):
+                # The recorders outlive the window by a few seconds; nothing they saw after it is evidence.
+                if r["type"] in ("ADDED", "MODIFIED", "DELETED") and r.get("object") \
+                        and (end is None or ts(r["arrived"]) <= end):
                     self.events.append((ts(r["arrived"]), kind, r["type"], r["object"]))
         self.events.sort(key=lambda e: e[0])
         self.states = []
@@ -272,10 +274,10 @@ class Run:
         self.samples = jsonl(os.path.join(path, "timeline.jsonl"))
         for s in self.samples:
             s["t"] = ts(s["observed"])
-        self.ok = [s for s in self.samples if s.get("ok")]
-        self.logs = self._logs()
-        self.tl = Timeline(path, self.name)
         self.end = self.created + datetime.timedelta(seconds=window) if self.created else None
+        self.ok = [s for s in self.samples if s.get("ok") and (self.end is None or s["t"] <= self.end)]
+        self.logs = self._logs()
+        self.tl = Timeline(path, self.name, self.end)
 
     def _logs(self) -> dict[str, list[dict]]:
         """Records by Pod UID, merged across a stream's restarts and de-duplicated."""
@@ -292,7 +294,8 @@ class Run:
                     r = json.loads(line)
                 except json.JSONDecodeError:
                     continue
-                out.setdefault(uid, {})[(r.get("event"), r.get("ts"))] = r
+                if self.end is None or ts(r.get("ts")) <= self.end:
+                    out.setdefault(uid, {})[(r.get("event"), r.get("ts"))] = r
         return {u: sorted(rs.values(), key=lambda r: r["ts"]) for u, rs in out.items()}
 
     def events(self, uid):
@@ -388,6 +391,9 @@ class Run:
         if term is not None and term_seen < deleted_at:
             return False, f"terminated (exit {term.get('exitCode')}) before its Pod's deletion"
         if term is None:
+            # A deletion request is not an end: without a terminated state, only the Pod's disappearance is one.
+            if gone is None:
+                return False, "deleted but neither terminated nor gone inside the window"
             return True, "no terminated state before the Pod was gone"
         code = term.get("exitCode")
         uid = hist[0][2]["metadata"]["uid"]
@@ -419,6 +425,7 @@ class Run:
         if self.ok[-1]["t"] < end - MAX_GAP * SEC:
             p.append("last successful sample more than 3 s before the window's end")
         p += self.tl.coverage(self.created, end)
+        p += self.watch_agrees_with_poll()
         if self.scenario == "late" and self.squat_deleted is None:
             p.append("late run with no squatter deletion time")
         held_until = self.squat_deleted if self.scenario == "late" and self.squat_deleted else end
@@ -457,6 +464,31 @@ class Run:
             ok, why = self.ended_by_eviction(hist)
             if not ok:
                 p.append(f"rank Pod {uid} ended by itself before the squatter's deletion: {why}")
+        return p
+
+    def watch_agrees_with_poll(self) -> list[str]:
+        """A recorder killed without an end marker looks like a quiet stream, so the polls are the check.
+
+        Each successful sample's CR phase, Workload QuotaReserved status and set of rank Pods must be what the
+        watch timeline held at some instant within 2 s of the sample, which allows for the order the two read in.
+        """
+        p = []
+        for s in self.ok:
+            want_phase = (s.get("mltj") or {}).get("phase")
+            ws = [w for w in s.get("workloads") or [] if s.get("jobUID") and s["jobUID"] in w["owners"]]
+            want_qr = next((c["status"] for w in ws[:1] for c in w["conditions"] if c["type"] == "QuotaReserved"), None)
+            want_pods = sorted(x["uid"] for x in s.get("pods") or [])
+            near = [snap for a, b, snap in self.tl.segments(s["t"] - 2 * SEC, s["t"] + 2 * SEC)]
+            if not near:
+                p.append(f"no watch state near the sample at {s['observed']}")
+                break
+            def matches(snap):
+                qr = (cond(self.tl.workload(snap), "QuotaReserved") or {}).get("status")
+                return self.tl.phase(snap) == want_phase and (want_qr is None or qr == want_qr) \
+                    and sorted(x["metadata"]["uid"] for x in self.tl.pods(snap)) == want_pods
+            if not any(matches(n) for n in near):
+                p.append(f"the watch disagrees with the poll at {s['observed']}")
+                break
         return p
 
     def treatment_problems(self, held_until) -> list[str]:
@@ -565,10 +597,12 @@ class Run:
         for (arrival, reason, _), was_stopped in zip(reqs, stopped):
             if not was_stopped:
                 continue
+            # The attempt this request stopped is the admission it fell in; only that attempt's rank held the device.
+            attempt = [a for a, b in adm if a <= arrival and (b is None or arrival <= b + SEC)]
             release = [stop for start, stop in rsv if stop is not None and start <= arrival <= stop]
             for uid, hist in self.pod_history().items():
                 started = self.started_at(hist)
-                if not started or started >= arrival or not release:
+                if not started or started >= arrival or not release or not attempt or started < attempt[-1] - 2 * SEC:
                     continue
                 _, term = self.terminated(hist)
                 fin = ts((term or {}).get("finishedAt"))
@@ -641,7 +675,9 @@ def predict(run: Run, m: dict) -> list[tuple[str, str, str]]:
                                   after=run.squat_deleted)
                 stop = second or end
             span = (stop - running).total_seconds()
-            share = tl.time_where(running, stop, lambda s: tl.phase(s) == "Running") / span if span > 0 else 0.0
+            # P1 is about M1, Running while a rank is stranded; P2 is about the CR staying Running until the second placement.
+            held = (lambda s: tl.phase(s) == "Running" and tl.stranded(s)) if name == "P1" else (lambda s: tl.phase(s) == "Running")
+            share = tl.time_where(running, stop, held) / span if span > 0 else 0.0
             m2 = m["M2_quota_held_before_joining"]
             if name == "P1":
                 ok = share >= 0.95 and 0 <= lag <= 10 and len(m2) == 1 and m2[0]["censored"] and not m["M3_requests"]
@@ -706,6 +742,7 @@ def main(argv: list[str]) -> int:
     setting_bad = {s: setting_problems(out, s) for s in SETTINGS if os.path.isdir(os.path.join(out, "settings", s))}
     for s, probs in setting_bad.items():
         print(f"setting {s}: " + ("in force" if not probs else "NOT shown in force: " + "; ".join(probs)))
+    voids = 0
     for d in sorted(glob.glob(os.path.join(out, "runs", "*"))):
         run = Run(d, WINDOW if registered or not window else float(window.group(1)))
         probs = run.problems()
@@ -718,11 +755,15 @@ def main(argv: list[str]) -> int:
             print(f"(rehearsal) validity problems: {probs or 'none'}")
         elif probs:
             print("VOID: " + "; ".join(probs))
+            voids += 1
             continue
         m = run.measures()
         print(json.dumps(m, indent=1, sort_keys=True, default=str))
         for name, verdict, numbers in predict(run, m):
             print(f"{name} {verdict}: {numbers}")
+    if voids:
+        print(f"\n{voids} registered run(s) void")
+        return 1
     return 0
 
 
