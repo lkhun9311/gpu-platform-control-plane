@@ -10,6 +10,14 @@
 set -uo pipefail
 cd "$(dirname "$0")/../.." || exit 1
 
+# The repository's pinned download, which `make harness-check` passes in; CI has no terraform on PATH, so a bare
+# `terraform` passed only on a machine that happened to have one.
+TERRAFORM="${TERRAFORM:-$PWD/bin/terraform}"
+if [[ ! -x "$TERRAFORM" ]]; then
+  echo "FAIL: no terraform at $TERRAFORM; run 'make terraform' or set TERRAFORM"
+  exit 1
+fi
+
 fails=0
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
@@ -28,7 +36,7 @@ for j, ch in enumerate(s[i:], i):
             break
 open(sys.argv[2], "w").write(s[i:j + 1] + '\noutput "n" { value = var.gpu_max_nodes }\n')
 PY
-if ! (cd "$work" && terraform init -input=false >"$work/init.log" 2>&1); then
+if ! (cd "$work" && "$TERRAFORM" init -input=false >"$work/init.log" 2>&1); then
   echo "FAIL: terraform init of the copied block: $(tail -3 "$work/init.log")"
   exit 1
 fi
@@ -36,7 +44,7 @@ fi
 # want is "accepted" or the text of the refusal that value must meet.
 check() {
   local value="$1" want="$2" out
-  out=$(cd "$work" && terraform plan -input=false -no-color -var "gpu_max_nodes=$value" 2>&1)
+  out=$(cd "$work" && "$TERRAFORM" plan -input=false -no-color -var "gpu_max_nodes=$value" 2>&1)
   local status=$?
   if [[ "$want" == accepted ]]; then
     if [[ $status -eq 0 ]]; then echo "ok: $value is accepted"; else echo "FAIL: $value was refused: $(tail -4 <<<"$out")"; fails=$((fails + 1)); fi
