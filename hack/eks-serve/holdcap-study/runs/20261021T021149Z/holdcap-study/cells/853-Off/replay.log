@@ -1,0 +1,4 @@
+client connection mode: pooled (MaxIdleConnsPerHost=600, drain=true) for 4102 rows at timeout 30s
+request priorities: none (requests carry no priority field)
+request ids: study-853-Off-<index>
+replayed 4102 rows against http://gateway.gpu-platform-control-plane-system.svc:8080 (arm=Off) to raw-853-Off.jsonl

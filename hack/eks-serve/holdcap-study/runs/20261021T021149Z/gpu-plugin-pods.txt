@@ -1,0 +1,2 @@
+NAMESPACE                           NAME                         READY   STATUS    RESTARTS   AGE   IP             NODE                                              NOMINATED NODE   READINESS GATES
+gpu-platform-control-plane-system   nvidia-device-plugin-686sq   1/1     Running   0          21s   10.0.103.237   ip-10-0-103-245.ap-northeast-2.compute.internal   <none>           <none>
