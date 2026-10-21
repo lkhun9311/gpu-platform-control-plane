@@ -67,7 +67,7 @@ cat >"$work/bin/python" <<'EOF'
 echo "backend=${DDP_BACKEND:-unset} master=${MASTER_ADDR:-unset} run=${DDP_RUN_ID:-unset} script=$(sha256sum "$1" | cut -d' ' -f1)"
 EOF
 chmod +x "$work/bin/python"
-DDP_NS=train-a DDP_QUEUE=gpu-train-a DDP_IMAGE=registry.example/torch@sha256:0000 DDP_SCRIPT="$work/train.py"
+DDP_NS=train-a DDP_QUEUE=gpu-train-a DDP_IMAGE=registry.example/torch@sha256:0000 DDP_SCRIPT="$work/train.py" DDP_GPU_CLASS=a10g
 DDP_PRELUDE="$(ddp_prelude_for experiments/cpu-ddp/train.py "$DDP_SCRIPT" nccl)"
 want_sha="$(sha256sum experiments/cpu-ddp/train.py | cut -d' ' -f1)"
 ddp_render_job ddp-bad-address-1 "$(ddp_arm_body ddp-bad-address-1 bad-address)" >"$work/job.json"
@@ -75,9 +75,9 @@ spec="$(python3 -c '
 import json, sys
 j = json.load(open(sys.argv[1]))
 s = j["spec"]
-print(j["metadata"]["namespace"], s["queue"], s["image"], s["gpuCount"], s["distributed"]["worldSize"], s["command"][:2])
+print(j["metadata"]["namespace"], s["queue"], s["image"], s["gpuCount"], s.get("gpuClass"), s["distributed"]["worldSize"], s["command"][:2])
 ' "$work/job.json")"
-if [[ "$spec" == "train-a gpu-train-a registry.example/torch@sha256:0000 1 2 ['sh', '-c']" ]]; then
+if [[ "$spec" == "train-a gpu-train-a registry.example/torch@sha256:0000 1 a10g 2 ['sh', '-c']" ]]; then
   ok "the job: $spec"
 else
   bad "the job's fields: $spec"
@@ -90,6 +90,8 @@ if [[ $rc == 0 && "$ran" == "backend=nccl master=nowhere.invalid run=ddp-bad-add
 else
   bad "the command ran as rc=$rc: $ran (want script=$want_sha)"
 fi
+
+DDP_GPU_CLASS="" ddp_render_job x "true" >/dev/null 2>&1 && bad "a job rendered without a gpuClass" || ok "no job is rendered without a gpuClass"
 
 # A script altered in transit must not run: the container checks the hash before python starts.
 tampered="$(sed 's/base64 -d >/base64 -d | sed "1s|^|# |" >/' <<<"$body")"

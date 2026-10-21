@@ -151,6 +151,8 @@ TRAIN_NODES=2
 TRAIN_NS=train-a
 TRAIN_QUEUE=gpu-train-a
 TRAIN_APP=gpu-platform-training
+# The class config/training's quota policy names, and the card a g5.xlarge carries; the admission policy requires one.
+TRAIN_GPU_CLASS=a10g
 TRAIN_MAX_PRICE="${TRAIN_MAX_PRICE:-1.40}"
 TRAIN_ARMS="${TRAIN_ARMS:-pass no-sync bad-address one-rank-fails}"
 # pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime, the torch the CPU image installs, with CUDA; read from Docker Hub on
@@ -597,11 +599,14 @@ train_run() {
   ok "T2: $why"
 
   DDP_CONTEXT="$CLUSTER" DDP_NS="$TRAIN_NS" DDP_QUEUE="$TRAIN_QUEUE" DDP_IMAGE="$TRAIN_IMAGE"
-  DDP_SCRIPT=/tmp/train.py DDP_OUT="$EXDIR/ddp" DDP_BUDGET="$TRAIN_ARM_BUDGET"
+  DDP_SCRIPT=/tmp/train.py DDP_OUT="$EXDIR/ddp" DDP_BUDGET="$TRAIN_ARM_BUDGET" DDP_GPU_CLASS="$TRAIN_GPU_CLASS"
   DDP_PRELUDE="$(ddp_prelude_for experiments/cpu-ddp/train.py "$DDP_SCRIPT" nccl)" || { bad "could not encode train.py"; return 1; }
   # The qualification job: two ranks of one GPU each, submitted while no GPU node exists (design, correction 2).
   # Each rank only asks whether CUDA answers, so a pass is about admission, placement and the image, not training.
-  ddp_render_job train-qualify "exec python -c 'import sys, torch; sys.exit(0 if torch.cuda.is_available() else 3)'" \
+  # A rank that finds CUDA stays up sixty seconds: the operator records Running only while it sees both ranks Ready,
+  # and does not backfill it on completion, so a rank that exited at once could leave T7 refusing a healthy cluster
+  # (codex review of c649f2b). A rank that finds none exits at once.
+  ddp_render_job train-qualify "exec python -c 'import sys, time, torch; ok = torch.cuda.is_available(); ok and time.sleep(60); sys.exit(0 if ok else 3)'" \
     >"$TRAIN_DIR/qualification.json" || { bad "could not render the qualification job"; return 1; }
   why="$(kc apply -f "$TRAIN_DIR/qualification.json" 2>&1)" || { bad "T3: the qualification job was refused: $why"; return 1; }
   why="$(train_qualification_held "$CLUSTER" "$TRAIN_NS" train-qualify "$WAIT_QUAL_HELD")" || { bad "T3: $why"; return 1; }

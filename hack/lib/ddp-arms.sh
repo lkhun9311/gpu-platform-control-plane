@@ -17,6 +17,7 @@
 #   DDP_CONTEXT  kubectl context          DDP_NS      namespace           DDP_QUEUE   LocalQueue
 #   DDP_IMAGE    image, by digest         DDP_SCRIPT  path train.py runs from inside the container
 #   DDP_PRELUDE  shell lines run first    DDP_OUT     evidence directory  DDP_BUDGET  seconds per arm
+#   DDP_GPU_CLASS  the job's gpuClass, which the platform's admission policy requires of any job asking for a GPU
 # and defines log, which takes one message.
 
 ddp_k() { kubectl --context "$DDP_CONTEXT" "$@"; }
@@ -52,17 +53,21 @@ ddp_prelude_for() {
 #
 # Built by Python, not by a heredoc: a prelude carrying 28 KB of base64 has to land in the command unchanged, and a
 # YAML block scalar would need every one of its lines indented by hand.
+#
+# The class is required, not defaulted: config/policy/gpu-workload-static.yaml refuses a GPU job without one, and the
+# kind harness never met that policy because it does not install it (found by hack/test/rehearse-train-session.sh).
 ddp_render_job() {
+  [[ -n "${DDP_GPU_CLASS:-}" ]] || { echo "DDP_GPU_CLASS is empty; the admission policy refuses a GPU job without a class" >&2; return 1; }
   python3 -c '
 import json, sys
-name, ns, queue, image, body = sys.argv[1:6]
+name, ns, queue, image, gpu_class, body = sys.argv[1:7]
 print(json.dumps({
     "apiVersion": "platform.lkhun9311.github.io/v1", "kind": "MLTrainingJob",
     "metadata": {"name": name, "namespace": ns},
-    "spec": {"queue": queue, "image": image, "gpuCount": 1, "distributed": {"worldSize": 2},
+    "spec": {"queue": queue, "image": image, "gpuCount": 1, "gpuClass": gpu_class, "distributed": {"worldSize": 2},
              "command": ["sh", "-c", body]},
 }, indent=2))
-' "$1" "$DDP_NS" "$DDP_QUEUE" "$DDP_IMAGE" "$2"
+' "$1" "$DDP_NS" "$DDP_QUEUE" "$DDP_IMAGE" "$DDP_GPU_CLASS" "$2"
 }
 
 # ddp_arm_body NAME ARM: the shell the arm's ranks run, the kind harness's with the prelude ahead of the arm's env.

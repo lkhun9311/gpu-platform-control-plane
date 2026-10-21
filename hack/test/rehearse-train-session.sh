@@ -173,6 +173,9 @@ k get clusterqueues -o yaml >"$OUT/clusterqueues.yaml" 2>&1
 
 DDP_CONTEXT="$CTX" DDP_NS=train-a DDP_QUEUE=gpu-train-a DDP_IMAGE="$TRAIN_IMG" DDP_SCRIPT=/tmp/train.py
 DDP_OUT="$OUT/ddp" DDP_BUDGET=300
+# The session's own class, read from its file, as the qualification command is.
+DDP_GPU_CLASS="$(sed -n 's/^TRAIN_GPU_CLASS=//p' hack/eks-gitops-session.sh)"
+[[ -n "$DDP_GPU_CLASS" ]] || die "could not read TRAIN_GPU_CLASS from hack/eks-gitops-session.sh"
 mkdir -p "$DDP_OUT"
 
 label() { # on|off
@@ -216,7 +219,8 @@ QUAL_BODY="$(sed -n "s/^  ddp_render_job train-qualify \"\(.*\)\" \\\\\$/\1/p" h
 [[ "$QUAL_BODY" == "exec python -c "* ]] || die "could not read the qualification command from hack/eks-gitops-session.sh: '$QUAL_BODY'"
 echo "qualification_body=$QUAL_BODY" >>"$OUT/provenance.txt"
 qualify train-qualify "$QUAL_BODY" refuse
-qualify train-qualify-import "exec python -c 'import torch'" pass
+# The session's command with the CUDA check removed, so on a CPU node it takes the path a GPU node would.
+qualify train-qualify-import "exec python -c 'import sys, time, torch; time.sleep(60); sys.exit(0)'" pass
 
 # --- A: the arms, by the EKS runner, on gloo -----------------------------------------------------------------------
 log "== arms by hack/lib/ddp-arms.sh, gloo"
