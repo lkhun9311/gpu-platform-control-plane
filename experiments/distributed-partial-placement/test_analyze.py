@@ -471,5 +471,35 @@ class ReviewOfB3d1194(Fixture):
             self.assertEqual(analyze.main([self.out]), 1)
 
 
+
+class ReviewOfD2453ba(Fixture):
+    """One test per defect codex gpt-6-astra found in commit d2453ba's scorer; each failed against that commit."""
+
+    RT = "ready-timeout-never-1"
+
+    def test_an_eviction_pending_at_the_windows_end_is_not_a_self_termination(self):
+        # At 147 s the evicted rank is being deleted and still running; that is neither end.
+        run = analyze.Run(os.path.join(self.out, "runs", self.RT), window=147)
+        self.assertFalse(any("ended by itself" in p for p in run.problems()), run.problems())
+        self.assertEqual(run.measures()["M3_stopped"], [False])
+
+    def test_a_poll_is_matched_resource_by_resource(self):
+        # A poll that read the CR before the eviction and the Workload after it: true of no single snapshot,
+        # but each read is true within the tolerance.
+        touched = []
+
+        def torn(r):
+            if r.get("ok") and "06:43:52.2" <= r["observed"][11:23] <= "06:43:54.0":
+                touched.append(r["observed"])
+                r["mltj"] = dict(r.get("mltj") or {}, phase="Running")
+                for w in r.get("workloads") or []:
+                    for c in w["conditions"]:
+                        if c["type"] == "QuotaReserved":
+                            c["status"] = "False"
+            return r
+        self.rewrite(self.RT, "timeline.jsonl", torn)
+        self.assertTrue(touched, "the perturbation touched no sample")
+        self.assertFalse(any("disagrees" in p for p in self.run_(self.RT).problems()), self.run_(self.RT).problems())
+
 if __name__ == "__main__":
     unittest.main()

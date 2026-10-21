@@ -457,8 +457,9 @@ class Run:
                     p.append(f"rank Pod {uid} logged rendezvous_failed: the trainer ended the stranding")
                     continue
             term_seen, term = self.terminated(hist)
-            dt_seen, _ = self.deletion(hist)
-            end_t = min(x for x in (term_seen, dt_seen, self.gone_at(hist), end) if x is not None)
+            # A deletion request is not an end: a container still running at the window's end, eviction pending or
+            # not, ended neither by itself nor by the eviction inside the window.
+            end_t = min(x for x in (term_seen, self.gone_at(hist), end) if x is not None)
             if end_t >= end or end_t >= held_until:
                 continue  # still running at the end, or ended after capacity: an outcome, not validity
             ok, why = self.ended_by_eviction(hist)
@@ -482,12 +483,16 @@ class Run:
             if not near:
                 p.append(f"no watch state near the sample at {s['observed']}")
                 break
-            def matches(snap):
-                qr = (cond(self.tl.workload(snap), "QuotaReserved") or {}).get("status")
-                return self.tl.phase(snap) == want_phase and (want_qr is None or qr == want_qr) \
-                    and sorted(x["metadata"]["uid"] for x in self.tl.pods(snap)) == want_pods
-            if not any(matches(n) for n in near):
-                p.append(f"the watch disagrees with the poll at {s['observed']}")
+            # A poll is several reads, not one snapshot, so each resource is matched on its own within the tolerance.
+            checks = {
+                "phase": any(self.tl.phase(n) == want_phase for n in near),
+                "QuotaReserved": want_qr is None or any(
+                    (cond(self.tl.workload(n), "QuotaReserved") or {}).get("status") == want_qr for n in near),
+                "pods": any(sorted(x["metadata"]["uid"] for x in self.tl.pods(n)) == want_pods for n in near),
+            }
+            bad = [k for k, ok in checks.items() if not ok]
+            if bad:
+                p.append(f"the watch disagrees with the poll at {s['observed']} on {', '.join(bad)}")
                 break
         return p
 

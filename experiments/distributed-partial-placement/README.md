@@ -34,6 +34,7 @@ A rule whose evidence is missing fails. A void run is reported with its reason a
 
 The registered run started at 06:56Z from commit `b3d1194`. While it ran, codex `gpt-6-astra`'s review of that commit (`codex review --commit b3d1194`, no prompt) found six scorer defects; none was in the harness or the recorders, so the evidence being collected was unaffected.
 They were fixed, each with a test that fails against `b3d1194`'s scorer, before any registered run's measures were read: M8 took ranks from earlier attempts; observations after the window were counted; a deletion request alone counted as a stopped attempt; a watch that died without an end marker counted as covering the window, so the watch is now checked against every successful poll; P1 read Running alone instead of Running while stranded; and a void registered run left the exit at zero.
+astra's review of that correction (`d2453ba`) found two defects in the new validity checks, also fixed with a failing-first test each before any reading: a container still running at the window's end with its eviction pending was voided as ending by itself, because a deletion request was taken for an end; and the watch-against-poll check required one watch snapshot to match a poll that is several separate reads, so each resource is now matched on its own within 2 s.
 The registered run is read only with the corrected scorer, whose commit the results name.
 
 ## Rehearsals
