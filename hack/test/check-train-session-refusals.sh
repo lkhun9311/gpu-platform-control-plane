@@ -37,6 +37,16 @@ chmod +x "$work/bin/stub"
 for t in aws terraform kubectl helm gh; do ln -s stub "$work/bin/$t"; done
 sha="$(sha256sum experiments/cpu-ddp/train.py | cut -d' ' -f1)"
 
+# The session runs from a copy holding only what it reads before Terraform, because it puts its own repository's bin/
+# ahead of PATH: a checkout with bin/terraform would otherwise answer in the stub's place, and a case that reaches
+# the cluster's init would run the real one.
+repo="$work/repo"
+mkdir -p "$repo/hack/lib" "$repo/experiments/cpu-ddp"
+cp hack/eks-gitops-session.sh "$repo/hack/"
+cp hack/lib/train-session.sh hack/lib/ddp-arms.sh hack/lib/gpu-ttl.sh "$repo/hack/lib/"
+cp experiments/cpu-ddp/train.py "$repo/experiments/cpu-ddp/"
+[[ ! -e "$repo/bin" ]] || bad "the session's copy has a bin/"
+
 # session NAME WANT_LINE [VAR=VALUE...]: runs the session with TRAIN=ddp and the given environment, and checks that it
 # exited non-zero, printed WANT_LINE, never called Terraform and never armed the kill switch.
 session() {
@@ -48,7 +58,7 @@ session() {
   mkdir -p "$work/home"
   out="$(env -i HOME="$work/home" PATH="$work/bin:/usr/bin:/bin" STUB_CALLS="$STUB_CALLS" SESSION_CONFIRM=yes AWS_PROFILE=stub EGRESS_CIDR=192.0.2.1/32 \
     EXDIR="$work/$name" TRAIN=ddp APPROVED_TRAIN_SHA256="$sha" TTL_MINUTES=300 "$@" \
-    timeout 60 bash hack/eks-gitops-session.sh 2>&1)"
+    timeout 60 bash "$repo/hack/eks-gitops-session.sh" 2>&1)"
   rc=$?
   # A watchdog is a detached process whose command names this case's directory; one left alive would fire at TTL.
   local stray
@@ -98,11 +108,13 @@ name="an armed kill switch"
 export STUB_CALLS="$work/$name.calls"
 : >"$STUB_CALLS"
 out="$(env -i HOME="$work/home" PATH="$work/bin:/usr/bin:/bin" STUB_CALLS="$STUB_CALLS" SESSION_CONFIRM=yes AWS_PROFILE=stub \
-  EGRESS_CIDR=192.0.2.1/32 EXDIR="$work/$name" TTL_MINUTES=300 timeout 60 bash hack/eks-gitops-session.sh 2>&1)"
+  EGRESS_CIDR=192.0.2.1/32 EXDIR="$work/$name" TTL_MINUTES=300 timeout 60 bash "$repo/hack/eks-gitops-session.sh" 2>&1)"
 pid="$(cat "$work/$name/ttl.pid" 2>/dev/null)"
 stray="$(pgrep -f -- "$work/$name/" | paste -sd' ')"
 if [[ -n "$pid" && " $stray " == *" $pid "* && "$out" == *"TTL kill switch armed: PID $pid"* ]]; then
   ok "$name: the watchdog reported pid $pid under an absolute EXDIR, and the session read it"
+  grep -q '^terraform -chdir=infra/aws/cluster init' "$STUB_CALLS" && ok "$name: the cluster's init reached the stub, not a real terraform" ||
+    bad "$name: the stub saw no init of the cluster root: $(grep '^terraform' "$STUB_CALLS" | head -3)"
 else
   bad "$name: pid file '${pid:-absent}', processes '${stray:-none}', session said: $(grep -o 'TTL[^,]*\|never reported its pid[^;]*' <<<"$out" | head -1)"
 fi
