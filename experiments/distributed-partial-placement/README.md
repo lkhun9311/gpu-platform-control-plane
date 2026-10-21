@@ -37,6 +37,22 @@ They were fixed, each with a test that fails against `b3d1194`'s scorer, before 
 astra's review of that correction (`d2453ba`) found two defects in the new validity checks, also fixed with a failing-first test each before any reading: a container still running at the window's end with its eviction pending was voided as ending by itself, because a deletion request was taken for an end; and the watch-against-poll check required one watch snapshot to match a poll that is several separate reads, so each resource is now matched on its own within 2 s.
 The registered run is read only with the corrected scorer, whose commit the results name.
 
+## Result (registered run 2026-10-21, `hack/distributed-partial-placement-20261021T065335Z/`)
+
+Run from harness commit `b3d1194` and scored with `b651f81`; `score.txt` there is the scorer's output, and scoring the gzipped recordings gave byte-identical output to scoring them uncompressed, whose checksums are in `SHA256SUMS-uncompressed-jsonl`.
+Both settings were shown in force, all eight runs were valid, and every registered prediction held in both repetitions:
+
+| run | prediction | the numbers |
+|---|---|---|
+| `off-never` ×2 | P1 held | `Running` while stranded 598.1 s of 598.1 s from the first `Running`, 0.4 s after the placed rank's Ready; one reservation of 599 s, censored at the window's end; no eviction |
+| `off-late` ×2 | P2 held | `Running` for all 299.2 s to the second rank's placement at 300.6 and 300.7 s; `Succeeded` at 303.7 and 304.9 s; one admission |
+| `ready-timeout-never` ×2 | P3, P5, P6 held | admissions at 0, 150 and 330 s; two `PodsReadyTimeout` requests 120 s after their admission, each stopping its attempt; a third ending in `DeactivatedDueToRequeuingLimitExceeded`; largest requeue count 2; each release 1.1 s after its request; `Running` while stranded 356.2 s |
+| `ready-timeout-late` ×2 | P4, P5, P6 held | two stopped attempts before the squatter's deletion, the third admission at 330 s, `Succeeded` at 334.4 and 334.9 s; `Running` while stranded 237.6 and 237.8 s |
+
+In every one of the ten evictions the placed rank kept its device 28.9 s after the quota was released and ended with exit 137 (P6, informed by the second rehearsal); each discarded attempt cost 149 to 150 s of that rank's container time.
+The headline figures were re-derived by a separate script from the Workload conditions' own transition times and the containers' timestamps: admissions at 0, 150 and 330 s, evictions 120 s after admission, releases 1 s after, the device held 29 s at whole-second resolution.
+What it means and what it does not is Finding 10 in `docs/11_WHAT_THIS_MEASURED.md`.
+
 ## Rehearsals
 
 Two rehearsals ran before registration, on 200 s windows, to find harness defects; their numbers are not results and are not published.

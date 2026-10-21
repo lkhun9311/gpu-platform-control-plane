@@ -1,0 +1,197 @@
+{
+    "apiVersion": "v1",
+    "items": [
+        {
+            "apiVersion": "kueue.x-k8s.io/v1beta2",
+            "kind": "Workload",
+            "metadata": {
+                "creationTimestamp": "2026-10-21T07:49:16Z",
+                "generation": 1,
+                "labels": {
+                    "kueue.x-k8s.io/job-uid": "23774bfb-1fe0-4c45-954e-44d2fcbcbee4"
+                },
+                "name": "job-pp-rt-late-1-074913-6c3c4",
+                "namespace": "partial",
+                "ownerReferences": [
+                    {
+                        "apiVersion": "batch/v1",
+                        "blockOwnerDeletion": true,
+                        "controller": true,
+                        "kind": "Job",
+                        "name": "pp-rt-late-1-074913",
+                        "uid": "23774bfb-1fe0-4c45-954e-44d2fcbcbee4"
+                    }
+                ],
+                "resourceVersion": "11899",
+                "uid": "654c53b3-15b5-4bf0-8cb3-a8ab2a65cfa0"
+            },
+            "spec": {
+                "active": true,
+                "podSets": [
+                    {
+                        "count": 2,
+                        "name": "main",
+                        "template": {
+                            "metadata": {
+                                "labels": {
+                                    "batch.kubernetes.io/job-name": "pp-rt-late-1-074913",
+                                    "platform.lkhun9311.github.io/mltrainingjob": "pp-rt-late-1-074913",
+                                    "platform.lkhun9311.github.io/mltrainingjob-uid": "95899fec-8bbe-4167-a116-923bc4822376"
+                                }
+                            },
+                            "spec": {
+                                "containers": [
+                                    {
+                                        "command": [
+                                            "sh",
+                                            "-c",
+                                            "export DDP_RUN_ID=pp-rt-late-1-074913 DDP_OUT_DIR=/tmp/evidence OMP_NUM_THREADS=1 DDP_RENDEZVOUS_TIMEOUT_SECONDS=1500\nexec python /work/train.py\n"
+                                        ],
+                                        "env": [
+                                            {
+                                                "name": "NVIDIA_DRIVER_CAPABILITIES",
+                                                "value": "compute,utility"
+                                            },
+                                            {
+                                                "name": "WORLD_SIZE",
+                                                "value": "2"
+                                            },
+                                            {
+                                                "name": "MASTER_ADDR",
+                                                "value": "pp-rt-late-1-074913-0.pp-rt-late-1-074913-ddp.partial.svc"
+                                            },
+                                            {
+                                                "name": "MASTER_PORT",
+                                                "value": "29500"
+                                            },
+                                            {
+                                                "name": "RANK",
+                                                "valueFrom": {
+                                                    "fieldRef": {
+                                                        "apiVersion": "v1",
+                                                        "fieldPath": "metadata.annotations['batch.kubernetes.io/job-completion-index']"
+                                                    }
+                                                }
+                                            }
+                                        ],
+                                        "image": "cpu-ddp:torch251",
+                                        "imagePullPolicy": "IfNotPresent",
+                                        "name": "trainer",
+                                        "resources": {
+                                            "limits": {
+                                                "nvidia.com/gpu": "1"
+                                            }
+                                        },
+                                        "terminationMessagePath": "/dev/termination-log",
+                                        "terminationMessagePolicy": "File"
+                                    }
+                                ],
+                                "dnsPolicy": "ClusterFirst",
+                                "restartPolicy": "Never",
+                                "schedulerName": "default-scheduler",
+                                "securityContext": {},
+                                "subdomain": "pp-rt-late-1-074913-ddp",
+                                "terminationGracePeriodSeconds": 30
+                            }
+                        },
+                        "topologyRequest": {
+                            "podIndexLabel": "batch.kubernetes.io/job-completion-index"
+                        }
+                    }
+                ],
+                "priority": 0,
+                "queueName": "gpu-partial"
+            },
+            "status": {
+                "accumulatedPastExecutionTimeSeconds": 242,
+                "admission": {
+                    "clusterQueue": "gpu-partial",
+                    "podSetAssignments": [
+                        {
+                            "count": 2,
+                            "flavors": {
+                                "nvidia.com/gpu": "gpu"
+                            },
+                            "name": "main",
+                            "resourceUsage": {
+                                "nvidia.com/gpu": "2"
+                            }
+                        }
+                    ]
+                },
+                "conditions": [
+                    {
+                        "lastTransitionTime": "2026-10-21T07:54:46Z",
+                        "message": "Quota reserved in ClusterQueue gpu-partial",
+                        "observedGeneration": 1,
+                        "reason": "QuotaReserved",
+                        "status": "True",
+                        "type": "QuotaReserved"
+                    },
+                    {
+                        "lastTransitionTime": "2026-10-21T07:54:46Z",
+                        "message": "Previously: Exceeded the PodsReady timeout partial/job-pp-rt-late-1-074913-6c3c4",
+                        "observedGeneration": 1,
+                        "reason": "QuotaReserved",
+                        "status": "False",
+                        "type": "Evicted"
+                    },
+                    {
+                        "lastTransitionTime": "2026-10-21T07:54:46Z",
+                        "message": "The workload is admitted",
+                        "observedGeneration": 1,
+                        "reason": "Admitted",
+                        "status": "True",
+                        "type": "Admitted"
+                    },
+                    {
+                        "lastTransitionTime": "2026-10-21T07:54:46Z",
+                        "message": "The workload backoff was finished",
+                        "observedGeneration": 1,
+                        "reason": "BackoffFinished",
+                        "status": "True",
+                        "type": "Requeued"
+                    },
+                    {
+                        "lastTransitionTime": "2026-10-21T07:54:50Z",
+                        "message": "Reached expected number of succeeded pods",
+                        "observedGeneration": 1,
+                        "reason": "Succeeded",
+                        "status": "True",
+                        "type": "Finished"
+                    },
+                    {
+                        "lastTransitionTime": "2026-10-21T07:54:50Z",
+                        "message": "All pods reached readiness and the workload is running",
+                        "observedGeneration": 1,
+                        "reason": "Recovered",
+                        "status": "True",
+                        "type": "PodsReady"
+                    }
+                ],
+                "reclaimablePods": [
+                    {
+                        "count": 2,
+                        "name": "main"
+                    }
+                ],
+                "requeueState": {
+                    "count": 2
+                },
+                "schedulingStats": {
+                    "evictions": [
+                        {
+                            "count": 2,
+                            "reason": "PodsReadyTimeout",
+                            "underlyingCause": "WaitForStart"
+                        }
+                    ]
+                }
+            }
+        }
+    ],
+    "kind": "List",
+    "metadata": {
+        "resourceVersion": ""
+    }
+}

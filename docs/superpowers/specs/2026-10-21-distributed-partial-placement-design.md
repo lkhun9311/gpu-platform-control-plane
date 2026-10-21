@@ -1,6 +1,6 @@
 # Design: a distributed job with one rank placed — what the platform reports, how long it holds quota, and what Kueue's readiness timeout does about it
 
-Written 2026-10-21. Status: **v3, registered before any registered run; built and rehearsed twice on 200 s windows, whose numbers are not results.** M8 and P6 were added after the second rehearsal, and P6 says so.
+Written 2026-10-21. Status: **v3, run 2026-10-21: all eight runs valid, every prediction held** (`experiments/distributed-partial-placement/README.md`, "Result"; Finding 10 in `docs/11_WHAT_THIS_MEASURED.md`). Built and rehearsed twice on 200 s windows first, whose numbers are not results; M8 and P6 were added after the second rehearsal, and P6 says so.
 v1 and v2 were each reviewed adversarially by codex `gpt-6-astra` the same day: v1 had 2 blockers, 10 majors and 3 minors, v2 had 8 majors and 1 minor. Each finding was re-checked against the code or Kueue's source before the next version answered it; the tables are at the end.
 Chosen over building the NCCL groundwork first, after independent brainstorms by astra and me and an adversarial review of the merged list: this one asks a control-plane question at no rented cost, and the NCCL work stays second (its design, v4 with three binding corrections, is on the unmerged branch feat/nccl-groundwork).
 

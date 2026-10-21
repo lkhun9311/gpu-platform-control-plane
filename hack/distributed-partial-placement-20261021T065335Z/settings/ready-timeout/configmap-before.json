@@ -1,0 +1,21 @@
+{
+    "apiVersion": "v1",
+    "data": {
+        "controller_manager_config.yaml": "apiVersion: config.kueue.x-k8s.io/v1beta2\nclientConnection:\n  burst: 100\n  qps: 50\ncontroller:\n  groupKindConcurrency:\n    ClusterQueue.kueue.x-k8s.io: 1\n    Cohort.kueue.x-k8s.io: 1\n    Job.batch: 5\n    LocalQueue.kueue.x-k8s.io: 1\n    Pod: 5\n    ResourceFlavor.kueue.x-k8s.io: 1\n    Workload.kueue.x-k8s.io: 5\nhealth:\n  healthProbeBindAddress: :8081\nintegrations:\n  frameworks:\n  - batch/job\n  - kubeflow.org/mpijob\n  - ray.io/rayjob\n  - ray.io/raycluster\n  - ray.io/rayservice\n  - jobset.x-k8s.io/jobset\n  - kubeflow.org/paddlejob\n  - kubeflow.org/pytorchjob\n  - kubeflow.org/tfjob\n  - kubeflow.org/xgboostjob\n  - kubeflow.org/jaxjob\n  - workload.codeflare.dev/appwrapper\n  - trainer.kubeflow.org/trainjob\n  - pod\n  - deployment\n  - statefulset\n  - leaderworkerset.x-k8s.io/leaderworkerset\nkind: Configuration\nleaderElection:\n  leaderElect: true\n  resourceName: c1f6bfd2.kueue.x-k8s.io\nmetrics:\n  bindAddress: :8443\nwebhook:\n  port: 9443\n"
+    },
+    "kind": "ConfigMap",
+    "metadata": {
+        "annotations": {
+            "kubectl.kubernetes.io/last-applied-configuration": "{\"apiVersion\":\"v1\",\"data\":{\"controller_manager_config.yaml\":\"apiVersion: config.kueue.x-k8s.io/v1beta2\\nclientConnection:\\n  burst: 100\\n  qps: 50\\ncontroller:\\n  groupKindConcurrency:\\n    ClusterQueue.kueue.x-k8s.io: 1\\n    Cohort.kueue.x-k8s.io: 1\\n    Job.batch: 5\\n    LocalQueue.kueue.x-k8s.io: 1\\n    Pod: 5\\n    ResourceFlavor.kueue.x-k8s.io: 1\\n    Workload.kueue.x-k8s.io: 5\\nhealth:\\n  healthProbeBindAddress: :8081\\nintegrations:\\n  frameworks:\\n  - batch/job\\n  - kubeflow.org/mpijob\\n  - ray.io/rayjob\\n  - ray.io/raycluster\\n  - ray.io/rayservice\\n  - jobset.x-k8s.io/jobset\\n  - kubeflow.org/paddlejob\\n  - kubeflow.org/pytorchjob\\n  - kubeflow.org/tfjob\\n  - kubeflow.org/xgboostjob\\n  - kubeflow.org/jaxjob\\n  - workload.codeflare.dev/appwrapper\\n  - trainer.kubeflow.org/trainjob\\n  - pod\\n  - deployment\\n  - statefulset\\n  - leaderworkerset.x-k8s.io/leaderworkerset\\nkind: Configuration\\nleaderElection:\\n  leaderElect: true\\n  resourceName: c1f6bfd2.kueue.x-k8s.io\\nmetrics:\\n  bindAddress: :8443\\nwebhook:\\n  port: 9443\\n\"},\"kind\":\"ConfigMap\",\"metadata\":{\"annotations\":{},\"name\":\"kueue-manager-config\",\"namespace\":\"kueue-system\"}}\n"
+        },
+        "creationTimestamp": "2026-10-21T06:54:33Z",
+        "labels": {
+            "app.kubernetes.io/name": "kueue",
+            "control-plane": "controller-manager"
+        },
+        "name": "kueue-manager-config",
+        "namespace": "kueue-system",
+        "resourceVersion": "1514",
+        "uid": "67f303b6-22ce-415c-bad2-e2baef1922a4"
+    }
+}
