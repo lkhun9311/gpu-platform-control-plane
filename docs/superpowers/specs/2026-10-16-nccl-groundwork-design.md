@@ -1,7 +1,7 @@
 # Design: the free groundwork for running `spec.distributed` on GPUs with NCCL
 
-Written 2026-10-16, revised 2026-10-21 as v2 and then v3. Status: **v3, answering both reviews; not built.**
-v1 was parked after codex `gpt-6-astra`'s adversarial review (2026-10-16) found 3 blockers and 10 majors. v2 answered them; astra's review of v2 (2026-10-21) found 7 majors and 2 minors and no blocker, each re-checked against the code before v3 answered it. Both tables are at the end.
+Written 2026-10-16, revised 2026-10-21 as v2, v3 and v4. Status: **v4, answering three reviews; not built.**
+v1 was parked after codex `gpt-6-astra`'s adversarial review (2026-10-16) found 3 blockers and 10 majors. v2 answered them; astra's review of v2 found 7 majors and 2 minors, and its review of v3 found 3 majors and 2 minors, none a blocker. Each finding was re-checked against the code before the next version answered it. The tables are at the end.
 No money is spent by anything here; the paid run that would use it is a separate decision with its own registration.
 
 ## Why
@@ -11,7 +11,7 @@ Multi-Pod training is built and passed a registered kind experiment on CPU with 
 
 1. **Nothing admits a training job on EKS.** Argo installs four Kueue CRDs (`config/argocd/kueue-crds.yaml`) and says in its own comment that the controller is not installed.
 2. **Nothing places a training Pod on a GPU node.** The `gpu` and `gpu_single` node groups carry the taint `nvidia.com/gpu=present:NoSchedule` and the same label `platform.lkhun9311.github.io/gpu=true` (`infra/aws/cluster/eks.tf`), and `BuildJob` renders no toleration.
-3. **The workload is CPU-only.** `experiments/cpu-ddp/train.py` hard-codes gloo and CPU tensors, and every training image installs the CPU wheel.
+3. **The workload is CPU-only.** `experiments/cpu-ddp/train.py` hard-codes gloo and CPU tensors, and the experiments' training images install the CPU wheel. (The MLTrainingJob sample names a CUDA image, but carries no `train.py`.)
 4. **Nothing could tell a GPU run from a CPU one.** `experiments/multi-pod-ddp/analyze.py` would pass a run whose ranks never touched a GPU, because it checks arithmetic and rendezvous, not backend or device.
 5. **The session cannot buy two training nodes.** `hack/eks-gitops-session.sh` scales `gpu_single`, whose `max_size` is 1, and qualifies one node.
 
@@ -53,7 +53,8 @@ What the tests pin, each shown red by a mutation:
 
 **Ordering, and what proves the operator reached Kueue.** The Application syncs in wave -2, as `kueue-crds` did. Waves do not wait for health, so the operator can start before Kueue answers.
 Two failures are possible then, and they are different: before the CRDs are served, registering the Workload index fails and the operator exits; after, while the conversion webhook is not yet answering, the index registers but the informer cannot list or convert Workloads, and the operator stays Ready.
-So operator readiness is not the gate. The training mode waits for `deployment/kueue-controller-manager` Available, then applies the training policy and waits for the ClusterQueue `gpu-train-a`, which the operator creates through its Kueue client, to report `Active` from Kueue. That shows the operator writes to Kueue and Kueue's controller answers; the job's own admission is what then shows the operator's Workload cache is working. The operator's restart count is recorded beside them.
+So operator readiness is not the gate. The training mode waits for `deployment/kueue-controller-manager` Available, then applies the training policy and waits for the ClusterQueue `gpu-train-a`, which the operator creates through its Kueue client, to report `Active` from Kueue. That shows the operator writes to Kueue and Kueue's controller answers.
+It does not show the operator reads Workloads: Kueue admits and unsuspends a Job on its own, whatever the operator's cache sees. What does is the MLTrainingJob's status: the operator stamps `admittedAt` there from the Workload's `Admitted` condition after reading it (`internal/controller/mltrainingjob_controller.go`), so the session requires that stamp, equal to the Workload's own condition time, before it counts the job as started. Training mode runs only on a cluster it created (section 5), so neither the ClusterQueue nor the stamp can predate the session. The operator's restart count is recorded beside them.
 
 **Rehearsed with Argo, not with `kustomize build`.** On kind, by the clean-kind GitOps rehearsal (`docs/superpowers/specs/2026-09-25-gitops-rehearsal-on-clean-kind.md`), starting from today's root and then switching to the new one:
 
@@ -107,6 +108,8 @@ A missing field fails the criterion, as everywhere in this analyzer. Each criter
 
 `TRAIN=ddp` in `hack/eks-gitops-session.sh` passes `gpu_node_instance_type = g5.xlarge` and `gpu_max_nodes = 2` to Terraform, scales the `gpu` node group to 2, and runs under the same deadline, residue checks and teardown as the serving card.
 
+- **Only on a cluster it creates.** Training mode refuses before `terraform apply` unless the cluster does not exist (`aws eks describe-cluster` answers `ResourceNotFoundException`), and refuses `KEEP_UP=yes`. On an existing cluster the `gpu` group was created with the queuelab default `g4dn.12xlarge`; changing its instance type forces a replacement, and with a fixed group name that replacement can fail partway, before any gate runs. A fresh cluster also means no ClusterQueue, policy or status in it predates the session, including the two `trainingQuota` sample policies an earlier manual sync could have left.
+
 - **Every node, not the first.** The session waits for two nodes of the `gpu` group to join, and qualifies each by name: Ready, the device plugin Running on it, `nvidia.com/gpu: 1` allocatable. It refuses to start the job until both qualify, and a deadline that passes with one stops the session.
 - **The price gate reads the right price.** The `gpu` group is On-Demand, so the gate reads the On-Demand list price of g5.xlarge in the region from the AWS Price List API and refuses above a ceiling. The Spot gate stays for the serving card.
 - **The quota gate reads headroom.** Before scaling, the session reads current usage of "Running On-Demand G and VT instances" (`L-DB2E81BA`) from its CloudWatch usage metric and refuses unless usage plus the 8 vCPU it will add fits the quota.
@@ -123,7 +126,8 @@ Terraform is stubbed by none of this, so `terraform apply` and `destroy` in trai
 ### 6. A training namespace with quota, and what the quota does not bound
 
 `config/training/`: namespace `train-a` and a GPUQuotaPolicy with `trainingQuota: true` and `limits.gpuCount: 2`, which makes the controller create ClusterQueue and LocalQueue `gpu-train-a`. A manual Application, as `config/serving/` is, synced by the training mode.
-That ClusterQueue joins the shared cohort `gpu-platform` with reclaim, so `gpuCount` is an admission quota, not a ceiling: within a cohort it can borrow. On a session cluster it is the only training tenant, so nothing is lent to it; the hard ceiling on GPUs bought is the node group's `max_size` of 2, and the record says so.
+That ClusterQueue joins the shared cohort `gpu-platform` with reclaim, so `gpuCount` is an admission quota, not a ceiling: within a cohort it can borrow. On the fresh cluster training mode requires, the session checks that `gpu-train-a` is the only ClusterQueue, so nothing is lent to it.
+What bounds the GPUs bought is not the quota and not `max_size` alone. `max_size` of 2 bounds a scale-up, but a managed node group's version or launch-template update raises the group's size temporarily to launch replacements first; the session starts no such update. So the bound is: two nodes, because the session scales to two and never updates the group, checked by the instance IDs it records launching in the group and follows to termination. A third instance in the record is a finding, not a rounding.
 
 ## Evidence before any money
 
@@ -180,5 +184,17 @@ The same review re-scored the CPU experiment's evidence with the backend, device
 Also raised as unverified, and answered: the quota metric's freshness (§5: maximum over fifteen minutes, refusal without a datapoint, named as no reservation) and the `nccl` profile against negative arms (§4: its criteria apply to completing arms only).
 The release asset's bytes, which astra could only hash from a cached copy, I downloaded fresh on 2026-10-21: sha256 `d605eec48cc2c557ba5f3f66111af1f1265368dab1497eacc2292a140b023737`, the same.
 Still unverified, and left to the paid run's registration: the CUDA image's digest, pull size and NCCL behaviour.
+
+## The review of v3 (codex `gpt-6-astra`, 2026-10-21), and where v4 answers it
+
+Each finding was re-checked: the `gpu` group's default type is `g4dn.12xlarge` (`infra/aws/cluster/variables.tf`), and the operator stamps `admittedAt` from the Workload it reads. The same review re-verified the CPU evidence's blind spot, the eight schemas, the five conversion CRDs, and the cached release's sha256.
+
+| finding | severity | v4 |
+|---|---|---|
+| on an existing cluster, changing the `gpu` group's instance type forces a replacement that can fail before any gate | major | §5: training mode refuses unless it creates the cluster, and refuses `KEEP_UP=yes` |
+| `max_size = 2` is not a hard ceiling: a managed node group update launches replacements first | major | §6: the bound is the session's scale-up with no group update, checked by the recorded instance IDs |
+| Kueue admits and unsuspends a Job without the operator, so admission does not show the operator's cache works; `Active` can predate the session | major | §1: the operator's `admittedAt` stamp, equal to the Workload's condition, on a cluster the session created |
+| "the only training tenant" is not guaranteed: sample policies from an earlier manual sync | minor | §5 and §6: a fresh cluster, and `gpu-train-a` checked to be the only ClusterQueue |
+| "every training image installs the CPU wheel" is too broad: the MLTrainingJob sample names a CUDA image | minor | gap 3: narrowed to the experiments' images |
 
 Confirmed by the same review: Kueue v0.18.3 does copy a flavor's tolerations into the Job's Pod template before unsuspending it, and nothing in the operator or its webhooks strips or refuses them.
