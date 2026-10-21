@@ -43,8 +43,12 @@ verdicts=()
 bar() { verdicts+=("$1 $2: $3"); log "$1 $2: $3"; }
 
 DAEMON_PID=""
+# Set just before this invocation creates the cluster. The refusal of an existing cluster exits through this trap,
+# and without it the cleanup deleted the very cluster it had refused to reuse, a kept rehearsal included.
+CREATED=""
 cleanup() {
   [[ -n "$DAEMON_PID" ]] && kill "$DAEMON_PID" 2>>"$LOG"
+  [[ -n "$CREATED" ]] || return
   [[ "${KEEP:-0}" == 1 ]] && { log "KEEP=1: leaving $CLUSTER"; return; }
   if kind get clusters 2>>"$LOG" | grep -qx "$CLUSTER"; then
     kind delete cluster --name "$CLUSTER" >>"$LOG" 2>&1 && log "cleanup: deleted $CLUSTER" || log "cleanup: delete of $CLUSTER FAILED"
@@ -105,6 +109,8 @@ nodes:
   - role: worker
     labels: {platform.lkhun9311.github.io/train: "true"}
 EOF
+# Before the call, so a create that fails partway is still removed.
+CREATED=1
 kind create cluster --name "$CLUSTER" --config "$OUT/kind.yaml" --wait 180s >>"$LOG" 2>&1 || die "kind create"
 for n in $CLUSTER-worker2 $CLUSTER-worker3; do
   k taint node "$n" nvidia.com/gpu=present:NoSchedule >>"$LOG" 2>&1 || die "taint $n"
