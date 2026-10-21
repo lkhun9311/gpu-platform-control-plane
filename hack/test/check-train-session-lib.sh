@@ -24,8 +24,12 @@ cat >"$work/bin/stub" <<'EOF'
 # kind: the CLI and its first two words that are not flags (aws eks describe-cluster, kubectl get nodes, ...).
 tool=$(basename "$0")
 words=()
+skip=""
 for a in "$@"; do
+  [[ -n "$skip" ]] && { skip=""; continue; }
   case "$a" in --context|--request-timeout=*|--context=*) continue ;; esac
+  # A namespace ahead of the verb is skipped with its value, so `kubectl -n ns get x` is kind kubectl-get-x.
+  [[ "$a" == -n ]] && { skip=1; continue; }
   [[ "$a" == -* ]] && break
   words+=("$a")
 done
@@ -216,10 +220,110 @@ scenario
 answer kubectl-get-nodes "error: You must be logged in to the server (Unauthorized)" 1
 expect "an unreadable node list" 1 "unreadable" -- train_qualify_nodes ctx gpu 2 0
 
+# --- a manual Application synced by an operation this request started ------------------------------------------------
+app() { # startedAt phase sync
+  printf '{"status": {"operationState": {"startedAt": "%s", "phase": "%s", "message": "m"}, "sync": {"status": "%s", "revision": "abc123"}}}' "$1" "$2" "$3"
+}
+future=2999-01-01T00:00:00Z
+scenario
+answer kubectl-patch-application "patched"
+answer kubectl-get-application.1 "$(app 2000-01-01T00:00:00Z Succeeded Synced)"
+answer kubectl-get-application.2 "$(app "$future" Running OutOfSync)"
+answer kubectl-get-application "$(app "$future" Succeeded Synced)"
+expect "a sync started after the request" 0 "synced at abc123" -- train_sync_app ctx gpu-platform-training 5
+grep -q -- '-n argocd patch application gpu-platform-training --type json' "$STUB/calls.log" && ok "the sync is a JSON patch of the Application" || bad "the sync was not requested as a JSON patch: $(grep patch "$STUB/calls.log")"
+[[ "$(grep -c 'get application' "$STUB/calls.log")" == 3 ]] && ok "an earlier operation's verdict is not taken for this one" || bad "the old operation was accepted: $(grep -c 'get application' "$STUB/calls.log") reads"
+scenario
+answer kubectl-patch-application "patched"
+answer kubectl-get-application "$(app 2000-01-01T00:00:00Z Succeeded Synced)"
+expect "only an earlier operation at the deadline" 1 "no operation started since" -- train_sync_app ctx gpu-platform-training 0
+scenario
+answer kubectl-patch-application "patched"
+answer kubectl-get-application "$(app "$future" Succeeded OutOfSync)"
+expect "succeeded but not Synced" 1 "sync OutOfSync" -- train_sync_app ctx gpu-platform-training 0
+scenario
+answer kubectl-patch-application "patched"
+answer kubectl-get-application "$(app "$future" Failed OutOfSync)"
+expect "a failed operation" 1 "ended Failed" -- train_sync_app ctx gpu-platform-training 60
+scenario
+answer kubectl-patch-application 'Error from server (NotFound): applications.argoproj.io "gpu-platform-training" not found' 1
+expect "an Application that is not there" 1 "could not request a sync" -- train_sync_app ctx gpu-platform-training 60
+
+# --- the training ClusterQueue, Active and alone -------------------------------------------------------------------
+cq() { # name active
+  printf '{"metadata": {"name": "%s"}, "status": {"conditions": [{"type": "Active", "status": "%s", "reason": "Ready"}]}}' "$1" "$2"
+}
+scenario
+answer kubectl-get-clusterqueues.1 "$(items)"
+answer kubectl-get-clusterqueues.2 "$(items "$(cq gpu-train-a False)")"
+answer kubectl-get-clusterqueues "$(items "$(cq gpu-train-a True)")"
+expect "the queue appears and becomes Active" 0 "Active and the only one" -- train_only_clusterqueue ctx gpu-train-a 5
+scenario
+answer kubectl-get-clusterqueues "$(items "$(cq gpu-train-a True)" "$(cq gpu-tenant-a True)")"
+expect "another ClusterQueue beside it" 1 "gpu-tenant-a" -- train_only_clusterqueue ctx gpu-train-a 60
+scenario
+answer kubectl-get-clusterqueues "$(items "$(cq gpu-train-a False)")"
+expect "a queue never Active" 1 "is not Active" -- train_only_clusterqueue ctx gpu-train-a 0
+scenario
+answer kubectl-get-clusterqueues 'error: the server does not have a resource type "clusterqueues"' 1
+expect "no ClusterQueue API" 1 "unreadable" -- train_only_clusterqueue ctx gpu-train-a 0
+
+# --- the qualification job, held in Admitted, then released ----------------------------------------------------------
+mltj() { # phase admittedAt runningObservedAt seconds
+  python3 -c 'import json,sys; a=sys.argv[1:]; print(json.dumps({"status": {k: v for k, v in zip(("phase","admittedAt","runningObservedAt","admitToRunningSeconds"), a) if v}}))' "$@"
+}
+pod() { printf '{"metadata": {"name": "%s"}, "spec": {%s}}' "$1" "${2:+\"nodeName\": \"$2\"}"; }
+scenario
+answer kubectl-get-mltrainingjob.1 "$(mltj Pending)"
+answer kubectl-get-mltrainingjob "$(mltj Admitted 2026-10-22T01:00:00Z)"
+answer kubectl-get-pods "$(items "$(pod q-0)" "$(pod q-1)")"
+expect "admitted with no node to go to" 0 "admitted at 2026-10-22T01:00:00Z, both Pods unplaced" -- train_qualification_held ctx train-a q 5
+grep -q -- "-l platform.lkhun9311.github.io/mltrainingjob=q" "$STUB/calls.log" && ok "the job's own Pods are the ones read" || bad "the Pods were not selected by the job's label"
+scenario
+answer kubectl-get-mltrainingjob "$(mltj Admitted)"
+answer kubectl-get-pods "$(items "$(pod q-0)" "$(pod q-1)")"
+expect "admitted without the stamp" 1 "admittedAt absent" -- train_qualification_held ctx train-a q 0
+scenario
+answer kubectl-get-mltrainingjob "$(mltj Admitted 2026-10-22T01:00:00Z)"
+answer kubectl-get-pods "$(items "$(pod q-0)" "$(pod q-1 ip-x)")"
+expect "a Pod placed with nothing bought" 1 "q-1 on ip-x" -- train_qualification_held ctx train-a q 60
+scenario
+answer kubectl-get-mltrainingjob "$(mltj Running 2026-10-22T01:00:00Z)"
+answer kubectl-get-pods "$(items "$(pod q-0)" "$(pod q-1)")"
+expect "Running with nothing bought" 1 "is Running with no GPU node" -- train_qualification_held ctx train-a q 60
+scenario
+answer kubectl-get-mltrainingjob "$(mltj Admitted 2026-10-22T01:00:00Z)"
+answer kubectl-get-pods "$(items "$(pod q-0)")"
+expect "one rank's Pod only" 1 "1 Pod(s)" -- train_qualification_held ctx train-a q 0
+scenario
+answer kubectl-get-mltrainingjob "$(mltj Pending)"
+answer kubectl-get-pods "$(items)"
+expect "never admitted" 1 "not held admitted: phase Pending" -- train_qualification_held ctx train-a q 0
+scenario
+answer kubectl-get-mltrainingjob.1 "$(mltj Admitted 2026-10-22T01:00:00Z)"
+answer kubectl-get-mltrainingjob.2 "$(mltj Running 2026-10-22T01:00:00Z 2026-10-22T01:04:00Z 240.000)"
+answer kubectl-get-mltrainingjob "$(mltj Succeeded 2026-10-22T01:00:00Z 2026-10-22T01:04:00Z 240.000)"
+expect "released, run and succeeded" 0 "admitToRunningSeconds 240.000" -- train_qualification_released ctx train-a q 5
+scenario
+answer kubectl-get-mltrainingjob "$(mltj Succeeded 2026-10-22T01:00:00Z)"
+expect "succeeded without a running stamp" 1 "without ['runningObservedAt', 'admitToRunningSeconds']" -- train_qualification_released ctx train-a q 60
+scenario
+answer kubectl-get-mltrainingjob "$(mltj Failed 2026-10-22T01:00:00Z)"
+expect "the qualification job failed" 1 "failed" -- train_qualification_released ctx train-a q 60
+scenario
+answer kubectl-get-mltrainingjob "$(mltj Running 2026-10-22T01:00:00Z 2026-10-22T01:04:00Z 240.000)"
+expect "still running at the deadline" 1 "did not succeed: phase Running" -- train_qualification_released ctx train-a q 0
+
 # --- the scale-down, followed by instance --------------------------------------------------------------------------
+# group_holds IDS: the gpu group's Auto Scaling group, holding IDS (none when empty).
+group_holds() {
+  answer aws-eks-describe-nodegroup "eks-gpu-asg"
+  answer aws-autoscaling-describe-auto-scaling-groups "$1"
+}
 scenario
 printf 'i-0aaa\ni-0bbb\n' >"$STUB/ids"
 answer aws-eks-update-nodegroup-config "{}"
+group_holds ""
 answer aws-ec2-describe-instances.1 "$(printf 'i-0aaa\tshutting-down\ni-0bbb\trunning')"
 answer aws-ec2-describe-instances "$(printf 'i-0aaa\tterminated\ni-0bbb\tterminated')"
 expect "both instances followed to terminated" 0 "i-0aaa i-0bbb terminated" -- train_scale_down gpu-platform ap-northeast-2 gpu "$STUB/ids" 5
@@ -230,20 +334,24 @@ else
   bad "the scale-down did not target gpu at desired 0: $(grep update-nodegroup "$STUB/calls.log")"
 fi
 grep -q -- "--instance-ids i-0aaa i-0bbb" "$STUB/calls.log" && ok "both recorded instances are followed" || bad "not both instances followed"
+grep -q -- "describe-nodegroup .*--nodegroup-name gpu --query nodegroup.resources.autoScalingGroups" "$STUB/calls.log" && ok "the gpu group's Auto Scaling group is read" || bad "the group's Auto Scaling group was not read: $(grep describe-nodegroup "$STUB/calls.log")"
 scenario
 printf 'i-0aaa\ni-0bbb\n' >"$STUB/ids"
 answer aws-eks-update-nodegroup-config "{}"
+group_holds ""
 answer aws-ec2-describe-instances "$(printf 'i-0aaa\tterminated\ni-0bbb\trunning')"
 expect "one instance still running at the deadline" 1 "i-0bbb(running)" -- train_scale_down gpu-platform ap-northeast-2 gpu "$STUB/ids" 0
 scenario
 printf 'i-0aaa\n' >"$STUB/ids"
 answer aws-eks-update-nodegroup-config "An error occurred (ResourceInUseException)" 254
+group_holds ""
 answer aws-ec2-describe-instances "$(printf 'i-0aaa\tterminated')"
 expect "a scale-down refused six times" 1 "refused six times" -- train_scale_down gpu-platform ap-northeast-2 gpu "$STUB/ids" 0
 [[ "$(grep -c update-nodegroup-config "$STUB/calls.log")" == 6 ]] && ok "the scale-down is tried six times" || bad "the scale-down was not tried six times"
 scenario
 printf 'i-0aaa\ni-0bbb\n' >"$STUB/ids"
 answer aws-eks-update-nodegroup-config "{}"
+group_holds ""
 # A terminated instance ages out of the API, and asking for it by ID then fails the whole batch.
 answer aws-ec2-describe-instances.1 "An error occurred (InvalidInstanceID.NotFound) when calling the DescribeInstances operation: The instance ID 'i-0aaa' does not exist" 254
 answer aws-ec2-describe-instances "$(printf 'i-0bbb\tterminated')"
@@ -252,12 +360,44 @@ expect "an instance that aged out is gone, and the other is still followed" 0 "t
 scenario
 printf 'i-0aaa\n' >"$STUB/ids"
 answer aws-eks-update-nodegroup-config "{}"
+group_holds ""
 answer aws-ec2-describe-instances ""
 expect "an empty answer is not an instance without a state" 0 "terminated" -- train_scale_down gpu-platform ap-northeast-2 gpu "$STUB/ids" 0
 scenario
+# A launch that never became a qualified node is in no record but the group's.
+printf 'i-0aaa\n' >"$STUB/ids"
+answer aws-eks-update-nodegroup-config "{}"
+answer aws-eks-describe-nodegroup "eks-gpu-asg"
+answer aws-autoscaling-describe-auto-scaling-groups.1 "$(printf 'i-0aaa\ti-0ccc')"
+answer aws-autoscaling-describe-auto-scaling-groups ""
+answer aws-ec2-describe-instances.1 "$(printf 'i-0aaa\tshutting-down\ni-0ccc\trunning')"
+answer aws-ec2-describe-instances "$(printf 'i-0aaa\tterminated\ni-0ccc\tterminated')"
+expect "an instance only the group knew is followed too" 0 "i-0aaa i-0ccc terminated" -- train_scale_down gpu-platform ap-northeast-2 gpu "$STUB/ids" 5
+grep -qx i-0ccc "$STUB/ids" && ok "the group's instance is added to the record" || bad "the group's instance is not in the record"
+scenario
+printf 'i-0aaa\n' >"$STUB/ids"
+answer aws-eks-update-nodegroup-config "{}"
+group_holds "i-0ddd"
+answer aws-ec2-describe-instances "$(printf 'i-0aaa\tterminated\ni-0ddd\tterminated')"
+expect "the group still lists an instance at the deadline" 1 "the group still holds i-0ddd" -- train_scale_down gpu-platform ap-northeast-2 gpu "$STUB/ids" 0
+scenario
+printf 'i-0aaa\n' >"$STUB/ids"
+answer aws-eks-update-nodegroup-config "{}"
+answer aws-eks-describe-nodegroup "An error occurred (ExpiredTokenException)" 254
+answer aws-ec2-describe-instances "$(printf 'i-0aaa\tterminated')"
+expect "an unreadable group is not an empty one" 1 "could not read the node group" -- train_scale_down gpu-platform ap-northeast-2 gpu "$STUB/ids" 0
+scenario
+printf 'i-0aaa\n' >"$STUB/ids"
+answer aws-eks-update-nodegroup-config "{}"
+answer aws-eks-describe-nodegroup "eks-gpu-asg"
+answer aws-autoscaling-describe-auto-scaling-groups "An error occurred (Throttling)" 254
+answer aws-ec2-describe-instances "$(printf 'i-0aaa\tterminated')"
+expect "an unreadable Auto Scaling group" 1 "could not read the Auto Scaling group" -- train_scale_down gpu-platform ap-northeast-2 gpu "$STUB/ids" 0
+scenario
 : >"$STUB/ids"
 answer aws-eks-update-nodegroup-config "{}"
-expect "no instance recorded" 1 "no instance IDs recorded" -- train_scale_down gpu-platform ap-northeast-2 gpu "$STUB/ids" 0
+group_holds ""
+expect "no instance recorded and none in the group" 1 "no instance IDs recorded" -- train_scale_down gpu-platform ap-northeast-2 gpu "$STUB/ids" 0
 scenario
 answer aws-eks-update-nodegroup-config "{}"
 expect "a missing instance record" 1 "is missing" -- train_scale_down gpu-platform ap-northeast-2 gpu "$STUB/nope" 0
