@@ -1,0 +1,945 @@
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ClusterQueue
+metadata:
+  creationTimestamp: "2026-10-21T11:35:54Z"
+  finalizers:
+  - kueue.x-k8s.io/resource-in-use
+  generation: 1
+  name: gpu-ddp
+  ownerReferences:
+  - apiVersion: platform.lkhun9311.github.io/v1
+    blockOwnerDeletion: true
+    controller: true
+    kind: GPUQuotaPolicy
+    name: ddp-quota
+    uid: 48a05084-5632-48df-87cc-27aa41422034
+  resourceVersion: "1319"
+  uid: baa78b45-db53-4ade-96db-c75e1f952a16
+spec:
+  cohortName: gpu-platform
+  flavorFungibility:
+    whenCanBorrow: MayStopSearch
+    whenCanPreempt: TryNextFlavor
+  namespaceSelector: {}
+  preemption:
+    borrowWithinCohort:
+      policy: Never
+    reclaimWithinCohort: Any
+    withinClusterQueue: LowerPriority
+  queueingStrategy: BestEffortFIFO
+  resourceGroups:
+  - coveredResources:
+    - nvidia.com/gpu
+    flavors:
+    - name: gpu
+      resources:
+      - name: nvidia.com/gpu
+        nominalQuota: "2"
+  stopPolicy: None
+status:
+  admittedWorkloads: 0
+  conditions:
+  - lastTransitionTime: "2026-10-21T11:35:54Z"
+    message: Can admit new workloads
+    observedGeneration: 1
+    reason: Ready
+    status: "True"
+    type: Active
+  flavorsReservation:
+  - name: gpu
+    resources:
+    - borrowed: "0"
+      name: nvidia.com/gpu
+      total: "0"
+  flavorsUsage:
+  - name: gpu
+    resources:
+    - borrowed: "0"
+      name: nvidia.com/gpu
+      total: "0"
+  pendingWorkloads: 0
+  reservingWorkloads: 0
+apiVersion: v1
+kind: Namespace
+metadata:
+  annotations:
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"v1","kind":"Namespace","metadata":{"annotations":{},"name":"ddp"}}
+  creationTimestamp: "2026-10-21T11:35:54Z"
+  labels:
+    kubernetes.io/metadata.name: ddp
+    platform.lkhun9311.github.io/gpu-quota-enforced: "true"
+  name: ddp
+  resourceVersion: "1316"
+  uid: bdc5cad6-fd4e-4845-8646-6d31fa256432
+spec:
+  finalizers:
+  - kubernetes
+status:
+  phase: Active
+apiVersion: v1
+items:
+- apiVersion: admissionregistration.k8s.io/v1
+  kind: ValidatingWebhookConfiguration
+  metadata:
+    annotations:
+      cert-manager.io/inject-ca-from-secret: cert-manager/cert-manager-webhook-ca
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"admissionregistration.k8s.io/v1","kind":"ValidatingWebhookConfiguration","metadata":{"annotations":{"cert-manager.io/inject-ca-from-secret":"cert-manager/cert-manager-webhook-ca"},"labels":{"app":"webhook","app.kubernetes.io/component":"webhook","app.kubernetes.io/instance":"cert-manager","app.kubernetes.io/name":"webhook","app.kubernetes.io/version":"v1.21.1"},"name":"cert-manager-webhook"},"webhooks":[{"admissionReviewVersions":["v1"],"clientConfig":{"service":{"name":"cert-manager-webhook","namespace":"cert-manager","path":"/validate"}},"failurePolicy":"Fail","matchPolicy":"Equivalent","name":"webhook.cert-manager.io","namespaceSelector":{"matchExpressions":[{"key":"cert-manager.io/disable-validation","operator":"NotIn","values":["true"]}]},"rules":[{"apiGroups":["cert-manager.io","acme.cert-manager.io"],"apiVersions":["v1"],"operations":["CREATE","UPDATE"],"resources":["*/*"]}],"sideEffects":"None","timeoutSeconds":30}]}
+    creationTimestamp: "2026-10-21T11:34:53Z"
+    generation: 2
+    labels:
+      app: webhook
+      app.kubernetes.io/component: webhook
+      app.kubernetes.io/instance: cert-manager
+      app.kubernetes.io/name: webhook
+      app.kubernetes.io/version: v1.21.1
+    name: cert-manager-webhook
+    resourceVersion: "750"
+    uid: 2d21d187-8be6-40b9-840e-593424f16791
+  webhooks:
+  - admissionReviewVersions:
+    - v1
+    clientConfig:
+      caBundle: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSUJ4VENDQVV1Z0F3SUJBZ0lVTVNBc1dvc0xCOThOeGlqdk1Kb0szL01tWE9rd0NnWUlLb1pJemowRUF3TXcKSWpFZ01CNEdBMVVFQXhNWFkyVnlkQzF0WVc1aFoyVnlMWGRsWW1odmIyc3RZMkV3SGhjTk1qWXhNREl4TVRFegpOVEEzV2hjTk1qY3hNREl4TVRFek5UQTNXakFpTVNBd0hnWURWUVFERXhkalpYSjBMVzFoYm1GblpYSXRkMlZpCmFHOXZheTFqWVRCMk1CQUdCeXFHU000OUFnRUdCU3VCQkFBaUEySUFCQ09ZcVQxeHc0VmxOZTFyd2wxRXZOVFcKVnJ5NTZueDJXWm1USHdrck5Eb2NxU0JlL3AyemdETFhXdlB3d0ZHSVpYTGdVZUlTVWlteWVFWnpDK2cyRXpxZgpIdWV3UEJIdFhtcjdjRkk5MXNYdnFKN0V4Y1VSYzRESUpzb1RMWmh1dHFOQ01FQXdEZ1lEVlIwUEFRSC9CQVFECkFnS2tNQThHQTFVZEV3RUIvd1FGTUFNQkFmOHdIUVlEVlIwT0JCWUVGUGxFRldiOU5BTHMrTjN2ekpyVDNRdHgKY0RlMU1Bb0dDQ3FHU000OUJBTURBMmdBTUdVQ01RRFF5TEswNmpuMC9FeGlhL2hadVRjdVZlSWZScm9xMHc5dgpBbDVEUHZrbjVwbnpjY2JjMmFpODdzRzVvVUh1WXhjQ01BNko1WHFmZjdQYWZienRBNm5WZlMyUGtzTlppcW9ZCnVsZVVMend6OUNKUmkvZGtKRDRIcFo2UEkzeXE1VHZ2UGc9PQotLS0tLUVORCBDRVJUSUZJQ0FURS0tLS0tCg==
+      service:
+        name: cert-manager-webhook
+        namespace: cert-manager
+        path: /validate
+        port: 443
+    failurePolicy: Fail
+    matchPolicy: Equivalent
+    name: webhook.cert-manager.io
+    namespaceSelector:
+      matchExpressions:
+      - key: cert-manager.io/disable-validation
+        operator: NotIn
+        values:
+        - "true"
+    objectSelector: {}
+    rules:
+    - apiGroups:
+      - cert-manager.io
+      - acme.cert-manager.io
+      apiVersions:
+      - v1
+      operations:
+      - CREATE
+      - UPDATE
+      resources:
+      - '*/*'
+      scope: '*'
+    sideEffects: None
+    timeoutSeconds: 30
+- apiVersion: admissionregistration.k8s.io/v1
+  kind: ValidatingWebhookConfiguration
+  metadata:
+    annotations:
+      cert-manager.io/inject-ca-from: gpu-platform-control-plane-system/gpu-platform-control-plane-serving-cert
+    creationTimestamp: "2026-10-21T11:35:36Z"
+    generation: 2
+    name: gpu-platform-control-plane-validating-webhook-configuration
+    resourceVersion: "1108"
+    uid: 6fea0263-4260-43b6-b71b-b3d69c9eacf8
+  webhooks:
+  - admissionReviewVersions:
+    - v1
+    clientConfig:
+      caBundle: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURjekNDQWx1Z0F3SUJBZ0lVS091c0pkaGtKU3BndThCc2FiWTg1cStGbXdNd0RRWUpLb1pJaHZjTkFRRUwKQlFBd0FEQWVGdzB5TmpFd01qRXhNVE0xTXpaYUZ3MHlOekF4TVRreE1UTTFNelphTUFBd2dnRWlNQTBHQ1NxRwpTSWIzRFFFQkFRVUFBNElCRHdBd2dnRUtBb0lCQVFDeW5zZU5CYi83SjVBSzdvWDQ3Y0tMSnZ5SmUzNmVCN2RTCncxWUhZdytkb2FTTWVFRXlyMVJtRG1RaklaTlFpa3ZESDI1Z05SbzdHazdsam9xVHczOHBqODM5OER2Z2JUakEKMEc2VlNwZ3dhYWQwb1JYTDdRa0RSUHVkRWphcjAvdytTa0hDejN5RG1ialhvdkwxRDNybjJSbW8zeXNFcHFROAppUllyNkl6UWpSem5Qb28rNEhJbUxQTllPYWJPTng3c3BGMFZGQ1BQZExDTEdQWFVadXNwYmRtZnU5T1JUVG5GCklNNGlUUklNM2NWMnVXbjNzMWk5dDF3VnlxbHpBVGNId09JSmlTdFBQZ3FMZkVheFNCcXVUc3JWODR3bGZKcUUKNmhnQ0Z0NjJDSUZtSWdhcnNpS1plUXpQcnZJNCtsOTZITzlSMDdIdXI1UXhTYVp1VnNLUEFnTUJBQUdqZ2VRdwpnZUV3RGdZRFZSMFBBUUgvQkFRREFnV2dNQXdHQTFVZEV3RUIvd1FDTUFBd2djQUdBMVVkRVFFQi93U0J0VENCCnNvSlFaM0IxTFhCc1lYUm1iM0p0TFdOdmJuUnliMnd0Y0d4aGJtVXRkMlZpYUc5dmF5MXpaWEoyYVdObExtZHcKZFMxd2JHRjBabTl5YlMxamIyNTBjbTlzTFhCc1lXNWxMWE41YzNSbGJTNXpkbU9DWG1kd2RTMXdiR0YwWm05eQpiUzFqYjI1MGNtOXNMWEJzWVc1bExYZGxZbWh2YjJzdGMyVnlkbWxqWlM1bmNIVXRjR3hoZEdadmNtMHRZMjl1CmRISnZiQzF3YkdGdVpTMXplWE4wWlcwdWMzWmpMbU5zZFhOMFpYSXViRzlqWVd3d0RRWUpLb1pJaHZjTkFRRUwKQlFBRGdnRUJBR0FxcHFINzNLaHR5TW5wdHNPcjQyeUlGV1diMU9HakV0Q1pJZWR3MGd4MGgrbERqOVJ5a3NXUwpsRXZKdmhETUd5SThORzBEZU9ZRENKYjB2Q3VXUnhRM2Z0d2RvYUtHVDlwMXpQNVo0TGQyOUJ6K0Q0Uy9pRjFmCjFMbXg5bnI0R29UTnEwdFYvT014VXRBdXM0RnpDbks0RUNNNDdlT2F4MnZpRE9CSkVoUzRBaDRWSVFEcVlEWFkKdDdXdzRtaENJcnBacnFxRlRmUVlwR3Bod0Jja2pFQ2xWYzgyeTlxeGs1RjNRTEo5TWd0SVphbU5pR2FpSXFvQwpNN0FlK3EwZUUzdmpUcmNmWTcyWVFFMlNLaVBuQnBEZkNlSkZRZWJnQmFRSVo0bVBqc3I1cmFaYXowZis2WlpyCktzVHhwRzQ2VG1BU3Blc1VmY0hPcDdCbThpS3JIUEU9Ci0tLS0tRU5EIENFUlRJRklDQVRFLS0tLS0K
+      service:
+        name: gpu-platform-control-plane-webhook-service
+        namespace: gpu-platform-control-plane-system
+        path: /validate-platform-lkhun9311-github-io-v1-mltrainingjob
+        port: 443
+    failurePolicy: Fail
+    matchPolicy: Equivalent
+    name: vmltrainingjob.kb.io
+    namespaceSelector: {}
+    objectSelector: {}
+    rules:
+    - apiGroups:
+      - platform.lkhun9311.github.io
+      apiVersions:
+      - v1
+      operations:
+      - CREATE
+      - UPDATE
+      resources:
+      - mltrainingjobs
+      scope: '*'
+    sideEffects: None
+    timeoutSeconds: 10
+  - admissionReviewVersions:
+    - v1
+    clientConfig:
+      caBundle: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURjekNDQWx1Z0F3SUJBZ0lVS091c0pkaGtKU3BndThCc2FiWTg1cStGbXdNd0RRWUpLb1pJaHZjTkFRRUwKQlFBd0FEQWVGdzB5TmpFd01qRXhNVE0xTXpaYUZ3MHlOekF4TVRreE1UTTFNelphTUFBd2dnRWlNQTBHQ1NxRwpTSWIzRFFFQkFRVUFBNElCRHdBd2dnRUtBb0lCQVFDeW5zZU5CYi83SjVBSzdvWDQ3Y0tMSnZ5SmUzNmVCN2RTCncxWUhZdytkb2FTTWVFRXlyMVJtRG1RaklaTlFpa3ZESDI1Z05SbzdHazdsam9xVHczOHBqODM5OER2Z2JUakEKMEc2VlNwZ3dhYWQwb1JYTDdRa0RSUHVkRWphcjAvdytTa0hDejN5RG1ialhvdkwxRDNybjJSbW8zeXNFcHFROAppUllyNkl6UWpSem5Qb28rNEhJbUxQTllPYWJPTng3c3BGMFZGQ1BQZExDTEdQWFVadXNwYmRtZnU5T1JUVG5GCklNNGlUUklNM2NWMnVXbjNzMWk5dDF3VnlxbHpBVGNId09JSmlTdFBQZ3FMZkVheFNCcXVUc3JWODR3bGZKcUUKNmhnQ0Z0NjJDSUZtSWdhcnNpS1plUXpQcnZJNCtsOTZITzlSMDdIdXI1UXhTYVp1VnNLUEFnTUJBQUdqZ2VRdwpnZUV3RGdZRFZSMFBBUUgvQkFRREFnV2dNQXdHQTFVZEV3RUIvd1FDTUFBd2djQUdBMVVkRVFFQi93U0J0VENCCnNvSlFaM0IxTFhCc1lYUm1iM0p0TFdOdmJuUnliMnd0Y0d4aGJtVXRkMlZpYUc5dmF5MXpaWEoyYVdObExtZHcKZFMxd2JHRjBabTl5YlMxamIyNTBjbTlzTFhCc1lXNWxMWE41YzNSbGJTNXpkbU9DWG1kd2RTMXdiR0YwWm05eQpiUzFqYjI1MGNtOXNMWEJzWVc1bExYZGxZbWh2YjJzdGMyVnlkbWxqWlM1bmNIVXRjR3hoZEdadmNtMHRZMjl1CmRISnZiQzF3YkdGdVpTMXplWE4wWlcwdWMzWmpMbU5zZFhOMFpYSXViRzlqWVd3d0RRWUpLb1pJaHZjTkFRRUwKQlFBRGdnRUJBR0FxcHFINzNLaHR5TW5wdHNPcjQyeUlGV1diMU9HakV0Q1pJZWR3MGd4MGgrbERqOVJ5a3NXUwpsRXZKdmhETUd5SThORzBEZU9ZRENKYjB2Q3VXUnhRM2Z0d2RvYUtHVDlwMXpQNVo0TGQyOUJ6K0Q0Uy9pRjFmCjFMbXg5bnI0R29UTnEwdFYvT014VXRBdXM0RnpDbks0RUNNNDdlT2F4MnZpRE9CSkVoUzRBaDRWSVFEcVlEWFkKdDdXdzRtaENJcnBacnFxRlRmUVlwR3Bod0Jja2pFQ2xWYzgyeTlxeGs1RjNRTEo5TWd0SVphbU5pR2FpSXFvQwpNN0FlK3EwZUUzdmpUcmNmWTcyWVFFMlNLaVBuQnBEZkNlSkZRZWJnQmFRSVo0bVBqc3I1cmFaYXowZis2WlpyCktzVHhwRzQ2VG1BU3Blc1VmY0hPcDdCbThpS3JIUEU9Ci0tLS0tRU5EIENFUlRJRklDQVRFLS0tLS0K
+      service:
+        name: gpu-platform-control-plane-webhook-service
+        namespace: gpu-platform-control-plane-system
+        path: /validate--v1-pod
+        port: 443
+    failurePolicy: Fail
+    matchPolicy: Equivalent
+    name: vgpupod.kb.io
+    namespaceSelector:
+      matchLabels:
+        platform.lkhun9311.github.io/gpu-quota-enforced: "true"
+    objectSelector: {}
+    rules:
+    - apiGroups:
+      - ""
+      apiVersions:
+      - v1
+      operations:
+      - CREATE
+      resources:
+      - pods
+      scope: '*'
+    sideEffects: None
+    timeoutSeconds: 10
+  - admissionReviewVersions:
+    - v1
+    clientConfig:
+      caBundle: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURjekNDQWx1Z0F3SUJBZ0lVS091c0pkaGtKU3BndThCc2FiWTg1cStGbXdNd0RRWUpLb1pJaHZjTkFRRUwKQlFBd0FEQWVGdzB5TmpFd01qRXhNVE0xTXpaYUZ3MHlOekF4TVRreE1UTTFNelphTUFBd2dnRWlNQTBHQ1NxRwpTSWIzRFFFQkFRVUFBNElCRHdBd2dnRUtBb0lCQVFDeW5zZU5CYi83SjVBSzdvWDQ3Y0tMSnZ5SmUzNmVCN2RTCncxWUhZdytkb2FTTWVFRXlyMVJtRG1RaklaTlFpa3ZESDI1Z05SbzdHazdsam9xVHczOHBqODM5OER2Z2JUakEKMEc2VlNwZ3dhYWQwb1JYTDdRa0RSUHVkRWphcjAvdytTa0hDejN5RG1ialhvdkwxRDNybjJSbW8zeXNFcHFROAppUllyNkl6UWpSem5Qb28rNEhJbUxQTllPYWJPTng3c3BGMFZGQ1BQZExDTEdQWFVadXNwYmRtZnU5T1JUVG5GCklNNGlUUklNM2NWMnVXbjNzMWk5dDF3VnlxbHpBVGNId09JSmlTdFBQZ3FMZkVheFNCcXVUc3JWODR3bGZKcUUKNmhnQ0Z0NjJDSUZtSWdhcnNpS1plUXpQcnZJNCtsOTZITzlSMDdIdXI1UXhTYVp1VnNLUEFnTUJBQUdqZ2VRdwpnZUV3RGdZRFZSMFBBUUgvQkFRREFnV2dNQXdHQTFVZEV3RUIvd1FDTUFBd2djQUdBMVVkRVFFQi93U0J0VENCCnNvSlFaM0IxTFhCc1lYUm1iM0p0TFdOdmJuUnliMnd0Y0d4aGJtVXRkMlZpYUc5dmF5MXpaWEoyYVdObExtZHcKZFMxd2JHRjBabTl5YlMxamIyNTBjbTlzTFhCc1lXNWxMWE41YzNSbGJTNXpkbU9DWG1kd2RTMXdiR0YwWm05eQpiUzFqYjI1MGNtOXNMWEJzWVc1bExYZGxZbWh2YjJzdGMyVnlkbWxqWlM1bmNIVXRjR3hoZEdadmNtMHRZMjl1CmRISnZiQzF3YkdGdVpTMXplWE4wWlcwdWMzWmpMbU5zZFhOMFpYSXViRzlqWVd3d0RRWUpLb1pJaHZjTkFRRUwKQlFBRGdnRUJBR0FxcHFINzNLaHR5TW5wdHNPcjQyeUlGV1diMU9HakV0Q1pJZWR3MGd4MGgrbERqOVJ5a3NXUwpsRXZKdmhETUd5SThORzBEZU9ZRENKYjB2Q3VXUnhRM2Z0d2RvYUtHVDlwMXpQNVo0TGQyOUJ6K0Q0Uy9pRjFmCjFMbXg5bnI0R29UTnEwdFYvT014VXRBdXM0RnpDbks0RUNNNDdlT2F4MnZpRE9CSkVoUzRBaDRWSVFEcVlEWFkKdDdXdzRtaENJcnBacnFxRlRmUVlwR3Bod0Jja2pFQ2xWYzgyeTlxeGs1RjNRTEo5TWd0SVphbU5pR2FpSXFvQwpNN0FlK3EwZUUzdmpUcmNmWTcyWVFFMlNLaVBuQnBEZkNlSkZRZWJnQmFRSVo0bVBqc3I1cmFaYXowZis2WlpyCktzVHhwRzQ2VG1BU3Blc1VmY0hPcDdCbThpS3JIUEU9Ci0tLS0tRU5EIENFUlRJRklDQVRFLS0tLS0K
+      service:
+        name: gpu-platform-control-plane-webhook-service
+        namespace: gpu-platform-control-plane-system
+        path: /validate-batch-v1-job
+        port: 443
+    failurePolicy: Fail
+    matchPolicy: Equivalent
+    name: vgpujob.kb.io
+    namespaceSelector:
+      matchLabels:
+        platform.lkhun9311.github.io/gpu-quota-enforced: "true"
+    objectSelector: {}
+    rules:
+    - apiGroups:
+      - batch
+      apiVersions:
+      - v1
+      operations:
+      - CREATE
+      resources:
+      - jobs
+      scope: '*'
+    sideEffects: None
+    timeoutSeconds: 10
+- apiVersion: admissionregistration.k8s.io/v1
+  kind: ValidatingWebhookConfiguration
+  metadata:
+    creationTimestamp: "2026-10-21T11:35:15Z"
+    generation: 2
+    labels:
+      app.kubernetes.io/name: kueue
+      control-plane: controller-manager
+    name: kueue-validating-webhook-configuration
+    resourceVersion: "983"
+    uid: ee50ad07-8edb-4c5e-bd7e-f8a9e5969679
+  webhooks:
+  - admissionReviewVersions:
+    - v1
+    clientConfig:
+      caBundle: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURHRENDQWdDZ0F3SUJBZ0lCQURBTkJna3Foa2lHOXcwQkFRc0ZBREFqTVE0d0RBWURWUVFLRXdWcmRXVjEKWlRFUk1BOEdBMVVFQXhNSWEzVmxkV1V0WTJFd0hoY05Nall4TURJeE1UQXpOVEkxV2hjTk16WXhNREU0TVRFegpOVEkxV2pBak1RNHdEQVlEVlFRS0V3VnJkV1YxWlRFUk1BOEdBMVVFQXhNSWEzVmxkV1V0WTJFd2dnRWlNQTBHCkNTcUdTSWIzRFFFQkFRVUFBNElCRHdBd2dnRUtBb0lCQVFDZS9Vc3pSZmxocHhsb2NxY1ZGb0wxNGJ3QytUTGMKMEtRRk55OVJoVTJjMmVjRWdJeHZDeXZTSDNWM3VQNkFMZU1GcmdNU0RyNFNNaEZJWGpQVkhSd2l3Y01xVGpoeQo5ODVVMURrOGNBb3ZCbkJ3TW9vZXN6b0pzV2s1d3ZIWW5MdnJPM0w1VU5yZ3hWekh1RUpMaUEwNUNjVTRzVVJkCmVOaHowUjNYNU9QRmJlNm5ycUhDZnBtUXJkMXl4WC9EeEloSE9GOFh2eXpRT2xhSUxkYmZEcG0vci9EM3hXbzMKLzJtNGxvVUF2T2RFNDNOWWZlT1JmSG5HSnNFc2l2ejE2MGV3NnQ4dDRzR0owK21MUHNBNWJHL2tyMzYwQ1lJVgpCaGxEQmh1ZmR6aUs5UDgwK2hYeWJzeFNNd0ZxVStHLzVoVTc4TERUM01rZ0ZNTVhNNVo2dFpNUEFnTUJBQUdqClZ6QlZNQTRHQTFVZER3RUIvd1FFQXdJQ3BEQVBCZ05WSFJNQkFmOEVCVEFEQVFIL01CMEdBMVVkRGdRV0JCVGkKY1dab2NyTFF4c0tTMlN6eXN1T3hKQStXSnpBVEJnTlZIUkVFRERBS2dnaHJkV1YxWlMxallUQU5CZ2txaGtpRwo5dzBCQVFzRkFBT0NBUUVBVlMxU1g4cnFkdDhiUGxiYTFPZHByMWFZZ090cnRBOUg3bXlMNXAza2NZQVpmNysrCnYzSEdEVFo2emE2T0V5T25ZeStrNUZZZjZsK1RPZTM3SzBKRDE3eEVDSDd2bW1tYmVhZmFlbGlXRmlWdU1lZDIKUlJtdlVjV2ZWL0wzSXovZmZzSlZSMmRGbEJXaURnNm5OQkozTkY0OHR4Y0ROMFVRR2pwRCt2NWo2VXE4UTIzWQp6RXR2dXo4NkRLalRNMGpXMndIWGxhalpMSHE4NEN0UWRoRXdGUE15T0JSNlJELzRxaG1tQXJ0Q2lVSVZOWU1uCk1tbDE0d1ZhL3d3MFNIQ0RjKzJLU2dVQ1FoNHRrSStpNEdEbnZaOTlONUR3MjUvRkNaVWVFa2lkcWlZVm5zbjMKVUYvTXNtK1d4Tm1UcFdtditQOURTazZLaEVqOTVqbGdQVW1TT3c9PQotLS0tLUVORCBDRVJUSUZJQ0FURS0tLS0tCg==
+      service:
+        name: kueue-webhook-service
+        namespace: kueue-system
+        path: /validate--v1-pod
+        port: 443
+    failurePolicy: Fail
+    matchPolicy: Equivalent
+    name: vpod.kb.io
+    namespaceSelector:
+      matchExpressions:
+      - key: kubernetes.io/metadata.name
+        operator: NotIn
+        values:
+        - kube-system
+        - kueue-system
+    objectSelector: {}
+    rules:
+    - apiGroups:
+      - ""
+      apiVersions:
+      - v1
+      operations:
+      - CREATE
+      - UPDATE
+      resources:
+      - pods
+      scope: '*'
+    sideEffects: None
+    timeoutSeconds: 10
+  - admissionReviewVersions:
+    - v1
+    clientConfig:
+      caBundle: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURHRENDQWdDZ0F3SUJBZ0lCQURBTkJna3Foa2lHOXcwQkFRc0ZBREFqTVE0d0RBWURWUVFLRXdWcmRXVjEKWlRFUk1BOEdBMVVFQXhNSWEzVmxkV1V0WTJFd0hoY05Nall4TURJeE1UQXpOVEkxV2hjTk16WXhNREU0TVRFegpOVEkxV2pBak1RNHdEQVlEVlFRS0V3VnJkV1YxWlRFUk1BOEdBMVVFQXhNSWEzVmxkV1V0WTJFd2dnRWlNQTBHCkNTcUdTSWIzRFFFQkFRVUFBNElCRHdBd2dnRUtBb0lCQVFDZS9Vc3pSZmxocHhsb2NxY1ZGb0wxNGJ3QytUTGMKMEtRRk55OVJoVTJjMmVjRWdJeHZDeXZTSDNWM3VQNkFMZU1GcmdNU0RyNFNNaEZJWGpQVkhSd2l3Y01xVGpoeQo5ODVVMURrOGNBb3ZCbkJ3TW9vZXN6b0pzV2s1d3ZIWW5MdnJPM0w1VU5yZ3hWekh1RUpMaUEwNUNjVTRzVVJkCmVOaHowUjNYNU9QRmJlNm5ycUhDZnBtUXJkMXl4WC9EeEloSE9GOFh2eXpRT2xhSUxkYmZEcG0vci9EM3hXbzMKLzJtNGxvVUF2T2RFNDNOWWZlT1JmSG5HSnNFc2l2ejE2MGV3NnQ4dDRzR0owK21MUHNBNWJHL2tyMzYwQ1lJVgpCaGxEQmh1ZmR6aUs5UDgwK2hYeWJzeFNNd0ZxVStHLzVoVTc4TERUM01rZ0ZNTVhNNVo2dFpNUEFnTUJBQUdqClZ6QlZNQTRHQTFVZER3RUIvd1FFQXdJQ3BEQVBCZ05WSFJNQkFmOEVCVEFEQVFIL01CMEdBMVVkRGdRV0JCVGkKY1dab2NyTFF4c0tTMlN6eXN1T3hKQStXSnpBVEJnTlZIUkVFRERBS2dnaHJkV1YxWlMxallUQU5CZ2txaGtpRwo5dzBCQVFzRkFBT0NBUUVBVlMxU1g4cnFkdDhiUGxiYTFPZHByMWFZZ090cnRBOUg3bXlMNXAza2NZQVpmNysrCnYzSEdEVFo2emE2T0V5T25ZeStrNUZZZjZsK1RPZTM3SzBKRDE3eEVDSDd2bW1tYmVhZmFlbGlXRmlWdU1lZDIKUlJtdlVjV2ZWL0wzSXovZmZzSlZSMmRGbEJXaURnNm5OQkozTkY0OHR4Y0ROMFVRR2pwRCt2NWo2VXE4UTIzWQp6RXR2dXo4NkRLalRNMGpXMndIWGxhalpMSHE4NEN0UWRoRXdGUE15T0JSNlJELzRxaG1tQXJ0Q2lVSVZOWU1uCk1tbDE0d1ZhL3d3MFNIQ0RjKzJLU2dVQ1FoNHRrSStpNEdEbnZaOTlONUR3MjUvRkNaVWVFa2lkcWlZVm5zbjMKVUYvTXNtK1d4Tm1UcFdtditQOURTazZLaEVqOTVqbGdQVW1TT3c9PQotLS0tLUVORCBDRVJUSUZJQ0FURS0tLS0tCg==
+      service:
+        name: kueue-webhook-service
+        namespace: kueue-system
+        path: /validate-workload-codeflare-dev-v1beta2-appwrapper
+        port: 443
+    failurePolicy: Fail
+    matchPolicy: Equivalent
+    name: vappwrapper.kb.io
+    namespaceSelector:
+      matchExpressions:
+      - key: kubernetes.io/metadata.name
+        operator: NotIn
+        values:
+        - kube-system
+        - kueue-system
+    objectSelector: {}
+    rules:
+    - apiGroups:
+      - workload.codeflare.dev
+      apiVersions:
+      - v1beta2
+      operations:
+      - CREATE
+      - UPDATE
+      resources:
+      - appwrappers
+      scope: '*'
+    sideEffects: None
+    timeoutSeconds: 10
+  - admissionReviewVersions:
+    - v1
+    clientConfig:
+      caBundle: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURHRENDQWdDZ0F3SUJBZ0lCQURBTkJna3Foa2lHOXcwQkFRc0ZBREFqTVE0d0RBWURWUVFLRXdWcmRXVjEKWlRFUk1BOEdBMVVFQXhNSWEzVmxkV1V0WTJFd0hoY05Nall4TURJeE1UQXpOVEkxV2hjTk16WXhNREU0TVRFegpOVEkxV2pBak1RNHdEQVlEVlFRS0V3VnJkV1YxWlRFUk1BOEdBMVVFQXhNSWEzVmxkV1V0WTJFd2dnRWlNQTBHCkNTcUdTSWIzRFFFQkFRVUFBNElCRHdBd2dnRUtBb0lCQVFDZS9Vc3pSZmxocHhsb2NxY1ZGb0wxNGJ3QytUTGMKMEtRRk55OVJoVTJjMmVjRWdJeHZDeXZTSDNWM3VQNkFMZU1GcmdNU0RyNFNNaEZJWGpQVkhSd2l3Y01xVGpoeQo5ODVVMURrOGNBb3ZCbkJ3TW9vZXN6b0pzV2s1d3ZIWW5MdnJPM0w1VU5yZ3hWekh1RUpMaUEwNUNjVTRzVVJkCmVOaHowUjNYNU9QRmJlNm5ycUhDZnBtUXJkMXl4WC9EeEloSE9GOFh2eXpRT2xhSUxkYmZEcG0vci9EM3hXbzMKLzJtNGxvVUF2T2RFNDNOWWZlT1JmSG5HSnNFc2l2ejE2MGV3NnQ4dDRzR0owK21MUHNBNWJHL2tyMzYwQ1lJVgpCaGxEQmh1ZmR6aUs5UDgwK2hYeWJzeFNNd0ZxVStHLzVoVTc4TERUM01rZ0ZNTVhNNVo2dFpNUEFnTUJBQUdqClZ6QlZNQTRHQTFVZER3RUIvd1FFQXdJQ3BEQVBCZ05WSFJNQkFmOEVCVEFEQVFIL01CMEdBMVVkRGdRV0JCVGkKY1dab2NyTFF4c0tTMlN6eXN1T3hKQStXSnpBVEJnTlZIUkVFRERBS2dnaHJkV1YxWlMxallUQU5CZ2txaGtpRwo5dzBCQVFzRkFBT0NBUUVBVlMxU1g4cnFkdDhiUGxiYTFPZHByMWFZZ090cnRBOUg3bXlMNXAza2NZQVpmNysrCnYzSEdEVFo2emE2T0V5T25ZeStrNUZZZjZsK1RPZTM3SzBKRDE3eEVDSDd2bW1tYmVhZmFlbGlXRmlWdU1lZDIKUlJtdlVjV2ZWL0wzSXovZmZzSlZSMmRGbEJXaURnNm5OQkozTkY0OHR4Y0ROMFVRR2pwRCt2NWo2VXE4UTIzWQp6RXR2dXo4NkRLalRNMGpXMndIWGxhalpMSHE4NEN0UWRoRXdGUE15T0JSNlJELzRxaG1tQXJ0Q2lVSVZOWU1uCk1tbDE0d1ZhL3d3MFNIQ0RjKzJLU2dVQ1FoNHRrSStpNEdEbnZaOTlONUR3MjUvRkNaVWVFa2lkcWlZVm5zbjMKVUYvTXNtK1d4Tm1UcFdtditQOURTazZLaEVqOTVqbGdQVW1TT3c9PQotLS0tLUVORCBDRVJUSUZJQ0FURS0tLS0tCg==
+      service:
+        name: kueue-webhook-service
+        namespace: kueue-system
+        path: /validate-kueue-x-k8s-io-v1beta2-clusterqueue
+        port: 443
+    failurePolicy: Fail
+    matchPolicy: Equivalent
+    name: vclusterqueue.kb.io
+    namespaceSelector: {}
+    objectSelector: {}
+    rules:
+    - apiGroups:
+      - kueue.x-k8s.io
+      apiVersions:
+      - v1beta2
+      operations:
+      - CREATE
+      - UPDATE
+      resources:
+      - clusterqueues
+      scope: '*'
+    sideEffects: None
+    timeoutSeconds: 10
+  - admissionReviewVersions:
+    - v1
+    clientConfig:
+      caBundle: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURHRENDQWdDZ0F3SUJBZ0lCQURBTkJna3Foa2lHOXcwQkFRc0ZBREFqTVE0d0RBWURWUVFLRXdWcmRXVjEKWlRFUk1BOEdBMVVFQXhNSWEzVmxkV1V0WTJFd0hoY05Nall4TURJeE1UQXpOVEkxV2hjTk16WXhNREU0TVRFegpOVEkxV2pBak1RNHdEQVlEVlFRS0V3VnJkV1YxWlRFUk1BOEdBMVVFQXhNSWEzVmxkV1V0WTJFd2dnRWlNQTBHCkNTcUdTSWIzRFFFQkFRVUFBNElCRHdBd2dnRUtBb0lCQVFDZS9Vc3pSZmxocHhsb2NxY1ZGb0wxNGJ3QytUTGMKMEtRRk55OVJoVTJjMmVjRWdJeHZDeXZTSDNWM3VQNkFMZU1GcmdNU0RyNFNNaEZJWGpQVkhSd2l3Y01xVGpoeQo5ODVVMURrOGNBb3ZCbkJ3TW9vZXN6b0pzV2s1d3ZIWW5MdnJPM0w1VU5yZ3hWekh1RUpMaUEwNUNjVTRzVVJkCmVOaHowUjNYNU9QRmJlNm5ycUhDZnBtUXJkMXl4WC9EeEloSE9GOFh2eXpRT2xhSUxkYmZEcG0vci9EM3hXbzMKLzJtNGxvVUF2T2RFNDNOWWZlT1JmSG5HSnNFc2l2ejE2MGV3NnQ4dDRzR0owK21MUHNBNWJHL2tyMzYwQ1lJVgpCaGxEQmh1ZmR6aUs5UDgwK2hYeWJzeFNNd0ZxVStHLzVoVTc4TERUM01rZ0ZNTVhNNVo2dFpNUEFnTUJBQUdqClZ6QlZNQTRHQTFVZER3RUIvd1FFQXdJQ3BEQVBCZ05WSFJNQkFmOEVCVEFEQVFIL01CMEdBMVVkRGdRV0JCVGkKY1dab2NyTFF4c0tTMlN6eXN1T3hKQStXSnpBVEJnTlZIUkVFRERBS2dnaHJkV1YxWlMxallUQU5CZ2txaGtpRwo5dzBCQVFzRkFBT0NBUUVBVlMxU1g4cnFkdDhiUGxiYTFPZHByMWFZZ090cnRBOUg3bXlMNXAza2NZQVpmNysrCnYzSEdEVFo2emE2T0V5T25ZeStrNUZZZjZsK1RPZTM3SzBKRDE3eEVDSDd2bW1tYmVhZmFlbGlXRmlWdU1lZDIKUlJtdlVjV2ZWL0wzSXovZmZzSlZSMmRGbEJXaURnNm5OQkozTkY0OHR4Y0ROMFVRR2pwRCt2NWo2VXE4UTIzWQp6RXR2dXo4NkRLalRNMGpXMndIWGxhalpMSHE4NEN0UWRoRXdGUE15T0JSNlJELzRxaG1tQXJ0Q2lVSVZOWU1uCk1tbDE0d1ZhL3d3MFNIQ0RjKzJLU2dVQ1FoNHRrSStpNEdEbnZaOTlONUR3MjUvRkNaVWVFa2lkcWlZVm5zbjMKVUYvTXNtK1d4Tm1UcFdtditQOURTazZLaEVqOTVqbGdQVW1TT3c9PQotLS0tLUVORCBDRVJUSUZJQ0FURS0tLS0tCg==
+      service:
+        name: kueue-webhook-service
+        namespace: kueue-system
+        path: /validate-kueue-x-k8s-io-v1beta2-cohort
+        port: 443
+    failurePolicy: Fail
+    matchPolicy: Equivalent
+    name: vcohort.kb.io
+    namespaceSelector: {}
+    objectSelector: {}
+    rules:
+    - apiGroups:
+      - kueue.x-k8s.io
+      apiVersions:
+      - v1beta2
+      operations:
+      - CREATE
+      - UPDATE
+      resources:
+      - cohorts
+      scope: '*'
+    sideEffects: None
+    timeoutSeconds: 10
+  - admissionReviewVersions:
+    - v1
+    clientConfig:
+      caBundle: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURHRENDQWdDZ0F3SUJBZ0lCQURBTkJna3Foa2lHOXcwQkFRc0ZBREFqTVE0d0RBWURWUVFLRXdWcmRXVjEKWlRFUk1BOEdBMVVFQXhNSWEzVmxkV1V0WTJFd0hoY05Nall4TURJeE1UQXpOVEkxV2hjTk16WXhNREU0TVRFegpOVEkxV2pBak1RNHdEQVlEVlFRS0V3VnJkV1YxWlRFUk1BOEdBMVVFQXhNSWEzVmxkV1V0WTJFd2dnRWlNQTBHCkNTcUdTSWIzRFFFQkFRVUFBNElCRHdBd2dnRUtBb0lCQVFDZS9Vc3pSZmxocHhsb2NxY1ZGb0wxNGJ3QytUTGMKMEtRRk55OVJoVTJjMmVjRWdJeHZDeXZTSDNWM3VQNkFMZU1GcmdNU0RyNFNNaEZJWGpQVkhSd2l3Y01xVGpoeQo5ODVVMURrOGNBb3ZCbkJ3TW9vZXN6b0pzV2s1d3ZIWW5MdnJPM0w1VU5yZ3hWekh1RUpMaUEwNUNjVTRzVVJkCmVOaHowUjNYNU9QRmJlNm5ycUhDZnBtUXJkMXl4WC9EeEloSE9GOFh2eXpRT2xhSUxkYmZEcG0vci9EM3hXbzMKLzJtNGxvVUF2T2RFNDNOWWZlT1JmSG5HSnNFc2l2ejE2MGV3NnQ4dDRzR0owK21MUHNBNWJHL2tyMzYwQ1lJVgpCaGxEQmh1ZmR6aUs5UDgwK2hYeWJzeFNNd0ZxVStHLzVoVTc4TERUM01rZ0ZNTVhNNVo2dFpNUEFnTUJBQUdqClZ6QlZNQTRHQTFVZER3RUIvd1FFQXdJQ3BEQVBCZ05WSFJNQkFmOEVCVEFEQVFIL01CMEdBMVVkRGdRV0JCVGkKY1dab2NyTFF4c0tTMlN6eXN1T3hKQStXSnpBVEJnTlZIUkVFRERBS2dnaHJkV1YxWlMxallUQU5CZ2txaGtpRwo5dzBCQVFzRkFBT0NBUUVBVlMxU1g4cnFkdDhiUGxiYTFPZHByMWFZZ090cnRBOUg3bXlMNXAza2NZQVpmNysrCnYzSEdEVFo2emE2T0V5T25ZeStrNUZZZjZsK1RPZTM3SzBKRDE3eEVDSDd2bW1tYmVhZmFlbGlXRmlWdU1lZDIKUlJtdlVjV2ZWL0wzSXovZmZzSlZSMmRGbEJXaURnNm5OQkozTkY0OHR4Y0ROMFVRR2pwRCt2NWo2VXE4UTIzWQp6RXR2dXo4NkRLalRNMGpXMndIWGxhalpMSHE4NEN0UWRoRXdGUE15T0JSNlJELzRxaG1tQXJ0Q2lVSVZOWU1uCk1tbDE0d1ZhL3d3MFNIQ0RjKzJLU2dVQ1FoNHRrSStpNEdEbnZaOTlONUR3MjUvRkNaVWVFa2lkcWlZVm5zbjMKVUYvTXNtK1d4Tm1UcFdtditQOURTazZLaEVqOTVqbGdQVW1TT3c9PQotLS0tLUVORCBDRVJUSUZJQ0FURS0tLS0tCg==
+      service:
+        name: kueue-webhook-service
+        namespace: kueue-system
+        path: /validate-apps-v1-deployment
+        port: 443
+    failurePolicy: Fail
+    matchPolicy: Equivalent
+    name: vdeployment.kb.io
+    namespaceSelector:
+      matchExpressions:
+      - key: kubernetes.io/metadata.name
+        operator: NotIn
+        values:
+        - kube-system
+        - kueue-system
+    objectSelector: {}
+    rules:
+    - apiGroups:
+      - apps
+      apiVersions:
+      - v1
+      operations:
+      - CREATE
+      - UPDATE
+      resources:
+      - deployments
+      scope: '*'
+    sideEffects: None
+    timeoutSeconds: 10
+  - admissionReviewVersions:
+    - v1
+    clientConfig:
+      caBundle: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURHRENDQWdDZ0F3SUJBZ0lCQURBTkJna3Foa2lHOXcwQkFRc0ZBREFqTVE0d0RBWURWUVFLRXdWcmRXVjEKWlRFUk1BOEdBMVVFQXhNSWEzVmxkV1V0WTJFd0hoY05Nall4TURJeE1UQXpOVEkxV2hjTk16WXhNREU0TVRFegpOVEkxV2pBak1RNHdEQVlEVlFRS0V3VnJkV1YxWlRFUk1BOEdBMVVFQXhNSWEzVmxkV1V0WTJFd2dnRWlNQTBHCkNTcUdTSWIzRFFFQkFRVUFBNElCRHdBd2dnRUtBb0lCQVFDZS9Vc3pSZmxocHhsb2NxY1ZGb0wxNGJ3QytUTGMKMEtRRk55OVJoVTJjMmVjRWdJeHZDeXZTSDNWM3VQNkFMZU1GcmdNU0RyNFNNaEZJWGpQVkhSd2l3Y01xVGpoeQo5ODVVMURrOGNBb3ZCbkJ3TW9vZXN6b0pzV2s1d3ZIWW5MdnJPM0w1VU5yZ3hWekh1RUpMaUEwNUNjVTRzVVJkCmVOaHowUjNYNU9QRmJlNm5ycUhDZnBtUXJkMXl4WC9EeEloSE9GOFh2eXpRT2xhSUxkYmZEcG0vci9EM3hXbzMKLzJtNGxvVUF2T2RFNDNOWWZlT1JmSG5HSnNFc2l2ejE2MGV3NnQ4dDRzR0owK21MUHNBNWJHL2tyMzYwQ1lJVgpCaGxEQmh1ZmR6aUs5UDgwK2hYeWJzeFNNd0ZxVStHLzVoVTc4TERUM01rZ0ZNTVhNNVo2dFpNUEFnTUJBQUdqClZ6QlZNQTRHQTFVZER3RUIvd1FFQXdJQ3BEQVBCZ05WSFJNQkFmOEVCVEFEQVFIL01CMEdBMVVkRGdRV0JCVGkKY1dab2NyTFF4c0tTMlN6eXN1T3hKQStXSnpBVEJnTlZIUkVFRERBS2dnaHJkV1YxWlMxallUQU5CZ2txaGtpRwo5dzBCQVFzRkFBT0NBUUVBVlMxU1g4cnFkdDhiUGxiYTFPZHByMWFZZ090cnRBOUg3bXlMNXAza2NZQVpmNysrCnYzSEdEVFo2emE2T0V5T25ZeStrNUZZZjZsK1RPZTM3SzBKRDE3eEVDSDd2bW1tYmVhZmFlbGlXRmlWdU1lZDIKUlJtdlVjV2ZWL0wzSXovZmZzSlZSMmRGbEJXaURnNm5OQkozTkY0OHR4Y0ROMFVRR2pwRCt2NWo2VXE4UTIzWQp6RXR2dXo4NkRLalRNMGpXMndIWGxhalpMSHE4NEN0UWRoRXdGUE15T0JSNlJELzRxaG1tQXJ0Q2lVSVZOWU1uCk1tbDE0d1ZhL3d3MFNIQ0RjKzJLU2dVQ1FoNHRrSStpNEdEbnZaOTlONUR3MjUvRkNaVWVFa2lkcWlZVm5zbjMKVUYvTXNtK1d4Tm1UcFdtditQOURTazZLaEVqOTVqbGdQVW1TT3c9PQotLS0tLUVORCBDRVJUSUZJQ0FURS0tLS0tCg==
+      service:
+        name: kueue-webhook-service
+        namespace: kueue-system
+        path: /validate-kubeflow-org-v1-jaxjob
+        port: 443
+    failurePolicy: Fail
+    matchPolicy: Equivalent
+    name: vjaxjob.kb.io
+    namespaceSelector:
+      matchExpressions:
+      - key: kubernetes.io/metadata.name
+        operator: NotIn
+        values:
+        - kube-system
+        - kueue-system
+    objectSelector: {}
+    rules:
+    - apiGroups:
+      - kubeflow.org
+      apiVersions:
+      - v1
+      operations:
+      - CREATE
+      - UPDATE
+      resources:
+      - jaxjobs
+      scope: '*'
+    sideEffects: None
+    timeoutSeconds: 10
+  - admissionReviewVersions:
+    - v1
+    clientConfig:
+      caBundle: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURHRENDQWdDZ0F3SUJBZ0lCQURBTkJna3Foa2lHOXcwQkFRc0ZBREFqTVE0d0RBWURWUVFLRXdWcmRXVjEKWlRFUk1BOEdBMVVFQXhNSWEzVmxkV1V0WTJFd0hoY05Nall4TURJeE1UQXpOVEkxV2hjTk16WXhNREU0TVRFegpOVEkxV2pBak1RNHdEQVlEVlFRS0V3VnJkV1YxWlRFUk1BOEdBMVVFQXhNSWEzVmxkV1V0WTJFd2dnRWlNQTBHCkNTcUdTSWIzRFFFQkFRVUFBNElCRHdBd2dnRUtBb0lCQVFDZS9Vc3pSZmxocHhsb2NxY1ZGb0wxNGJ3QytUTGMKMEtRRk55OVJoVTJjMmVjRWdJeHZDeXZTSDNWM3VQNkFMZU1GcmdNU0RyNFNNaEZJWGpQVkhSd2l3Y01xVGpoeQo5ODVVMURrOGNBb3ZCbkJ3TW9vZXN6b0pzV2s1d3ZIWW5MdnJPM0w1VU5yZ3hWekh1RUpMaUEwNUNjVTRzVVJkCmVOaHowUjNYNU9QRmJlNm5ycUhDZnBtUXJkMXl4WC9EeEloSE9GOFh2eXpRT2xhSUxkYmZEcG0vci9EM3hXbzMKLzJtNGxvVUF2T2RFNDNOWWZlT1JmSG5HSnNFc2l2ejE2MGV3NnQ4dDRzR0owK21MUHNBNWJHL2tyMzYwQ1lJVgpCaGxEQmh1ZmR6aUs5UDgwK2hYeWJzeFNNd0ZxVStHLzVoVTc4TERUM01rZ0ZNTVhNNVo2dFpNUEFnTUJBQUdqClZ6QlZNQTRHQTFVZER3RUIvd1FFQXdJQ3BEQVBCZ05WSFJNQkFmOEVCVEFEQVFIL01CMEdBMVVkRGdRV0JCVGkKY1dab2NyTFF4c0tTMlN6eXN1T3hKQStXSnpBVEJnTlZIUkVFRERBS2dnaHJkV1YxWlMxallUQU5CZ2txaGtpRwo5dzBCQVFzRkFBT0NBUUVBVlMxU1g4cnFkdDhiUGxiYTFPZHByMWFZZ090cnRBOUg3bXlMNXAza2NZQVpmNysrCnYzSEdEVFo2emE2T0V5T25ZeStrNUZZZjZsK1RPZTM3SzBKRDE3eEVDSDd2bW1tYmVhZmFlbGlXRmlWdU1lZDIKUlJtdlVjV2ZWL0wzSXovZmZzSlZSMmRGbEJXaURnNm5OQkozTkY0OHR4Y0ROMFVRR2pwRCt2NWo2VXE4UTIzWQp6RXR2dXo4NkRLalRNMGpXMndIWGxhalpMSHE4NEN0UWRoRXdGUE15T0JSNlJELzRxaG1tQXJ0Q2lVSVZOWU1uCk1tbDE0d1ZhL3d3MFNIQ0RjKzJLU2dVQ1FoNHRrSStpNEdEbnZaOTlONUR3MjUvRkNaVWVFa2lkcWlZVm5zbjMKVUYvTXNtK1d4Tm1UcFdtditQOURTazZLaEVqOTVqbGdQVW1TT3c9PQotLS0tLUVORCBDRVJUSUZJQ0FURS0tLS0tCg==
+      service:
+        name: kueue-webhook-service
+        namespace: kueue-system
+        path: /validate-batch-v1-job
+        port: 443
+    failurePolicy: Fail
+    matchPolicy: Equivalent
+    name: vjob.kb.io
+    namespaceSelector:
+      matchExpressions:
+      - key: kubernetes.io/metadata.name
+        operator: NotIn
+        values:
+        - kube-system
+        - kueue-system
+    objectSelector: {}
+    rules:
+    - apiGroups:
+      - batch
+      apiVersions:
+      - v1
+      operations:
+      - CREATE
+      - UPDATE
+      resources:
+      - jobs
+      scope: '*'
+    sideEffects: None
+    timeoutSeconds: 10
+  - admissionReviewVersions:
+    - v1
+    clientConfig:
+      caBundle: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURHRENDQWdDZ0F3SUJBZ0lCQURBTkJna3Foa2lHOXcwQkFRc0ZBREFqTVE0d0RBWURWUVFLRXdWcmRXVjEKWlRFUk1BOEdBMVVFQXhNSWEzVmxkV1V0WTJFd0hoY05Nall4TURJeE1UQXpOVEkxV2hjTk16WXhNREU0TVRFegpOVEkxV2pBak1RNHdEQVlEVlFRS0V3VnJkV1YxWlRFUk1BOEdBMVVFQXhNSWEzVmxkV1V0WTJFd2dnRWlNQTBHCkNTcUdTSWIzRFFFQkFRVUFBNElCRHdBd2dnRUtBb0lCQVFDZS9Vc3pSZmxocHhsb2NxY1ZGb0wxNGJ3QytUTGMKMEtRRk55OVJoVTJjMmVjRWdJeHZDeXZTSDNWM3VQNkFMZU1GcmdNU0RyNFNNaEZJWGpQVkhSd2l3Y01xVGpoeQo5ODVVMURrOGNBb3ZCbkJ3TW9vZXN6b0pzV2s1d3ZIWW5MdnJPM0w1VU5yZ3hWekh1RUpMaUEwNUNjVTRzVVJkCmVOaHowUjNYNU9QRmJlNm5ycUhDZnBtUXJkMXl4WC9EeEloSE9GOFh2eXpRT2xhSUxkYmZEcG0vci9EM3hXbzMKLzJtNGxvVUF2T2RFNDNOWWZlT1JmSG5HSnNFc2l2ejE2MGV3NnQ4dDRzR0owK21MUHNBNWJHL2tyMzYwQ1lJVgpCaGxEQmh1ZmR6aUs5UDgwK2hYeWJzeFNNd0ZxVStHLzVoVTc4TERUM01rZ0ZNTVhNNVo2dFpNUEFnTUJBQUdqClZ6QlZNQTRHQTFVZER3RUIvd1FFQXdJQ3BEQVBCZ05WSFJNQkFmOEVCVEFEQVFIL01CMEdBMVVkRGdRV0JCVGkKY1dab2NyTFF4c0tTMlN6eXN1T3hKQStXSnpBVEJnTlZIUkVFRERBS2dnaHJkV1YxWlMxallUQU5CZ2txaGtpRwo5dzBCQVFzRkFBT0NBUUVBVlMxU1g4cnFkdDhiUGxiYTFPZHByMWFZZ090cnRBOUg3bXlMNXAza2NZQVpmNysrCnYzSEdEVFo2emE2T0V5T25ZeStrNUZZZjZsK1RPZTM3SzBKRDE3eEVDSDd2bW1tYmVhZmFlbGlXRmlWdU1lZDIKUlJtdlVjV2ZWL0wzSXovZmZzSlZSMmRGbEJXaURnNm5OQkozTkY0OHR4Y0ROMFVRR2pwRCt2NWo2VXE4UTIzWQp6RXR2dXo4NkRLalRNMGpXMndIWGxhalpMSHE4NEN0UWRoRXdGUE15T0JSNlJELzRxaG1tQXJ0Q2lVSVZOWU1uCk1tbDE0d1ZhL3d3MFNIQ0RjKzJLU2dVQ1FoNHRrSStpNEdEbnZaOTlONUR3MjUvRkNaVWVFa2lkcWlZVm5zbjMKVUYvTXNtK1d4Tm1UcFdtditQOURTazZLaEVqOTVqbGdQVW1TT3c9PQotLS0tLUVORCBDRVJUSUZJQ0FURS0tLS0tCg==
+      service:
+        name: kueue-webhook-service
+        namespace: kueue-system
+        path: /validate-jobset-x-k8s-io-v1alpha2-jobset
+        port: 443
+    failurePolicy: Fail
+    matchPolicy: Equivalent
+    name: vjobset.kb.io
+    namespaceSelector:
+      matchExpressions:
+      - key: kubernetes.io/metadata.name
+        operator: NotIn
+        values:
+        - kube-system
+        - kueue-system
+    objectSelector: {}
+    rules:
+    - apiGroups:
+      - jobset.x-k8s.io
+      apiVersions:
+      - v1alpha2
+      operations:
+      - CREATE
+      - UPDATE
+      resources:
+      - jobsets
+      scope: '*'
+    sideEffects: None
+    timeoutSeconds: 10
+  - admissionReviewVersions:
+    - v1
+    clientConfig:
+      caBundle: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURHRENDQWdDZ0F3SUJBZ0lCQURBTkJna3Foa2lHOXcwQkFRc0ZBREFqTVE0d0RBWURWUVFLRXdWcmRXVjEKWlRFUk1BOEdBMVVFQXhNSWEzVmxkV1V0WTJFd0hoY05Nall4TURJeE1UQXpOVEkxV2hjTk16WXhNREU0TVRFegpOVEkxV2pBak1RNHdEQVlEVlFRS0V3VnJkV1YxWlRFUk1BOEdBMVVFQXhNSWEzVmxkV1V0WTJFd2dnRWlNQTBHCkNTcUdTSWIzRFFFQkFRVUFBNElCRHdBd2dnRUtBb0lCQVFDZS9Vc3pSZmxocHhsb2NxY1ZGb0wxNGJ3QytUTGMKMEtRRk55OVJoVTJjMmVjRWdJeHZDeXZTSDNWM3VQNkFMZU1GcmdNU0RyNFNNaEZJWGpQVkhSd2l3Y01xVGpoeQo5ODVVMURrOGNBb3ZCbkJ3TW9vZXN6b0pzV2s1d3ZIWW5MdnJPM0w1VU5yZ3hWekh1RUpMaUEwNUNjVTRzVVJkCmVOaHowUjNYNU9QRmJlNm5ycUhDZnBtUXJkMXl4WC9EeEloSE9GOFh2eXpRT2xhSUxkYmZEcG0vci9EM3hXbzMKLzJtNGxvVUF2T2RFNDNOWWZlT1JmSG5HSnNFc2l2ejE2MGV3NnQ4dDRzR0owK21MUHNBNWJHL2tyMzYwQ1lJVgpCaGxEQmh1ZmR6aUs5UDgwK2hYeWJzeFNNd0ZxVStHLzVoVTc4TERUM01rZ0ZNTVhNNVo2dFpNUEFnTUJBQUdqClZ6QlZNQTRHQTFVZER3RUIvd1FFQXdJQ3BEQVBCZ05WSFJNQkFmOEVCVEFEQVFIL01CMEdBMVVkRGdRV0JCVGkKY1dab2NyTFF4c0tTMlN6eXN1T3hKQStXSnpBVEJnTlZIUkVFRERBS2dnaHJkV1YxWlMxallUQU5CZ2txaGtpRwo5dzBCQVFzRkFBT0NBUUVBVlMxU1g4cnFkdDhiUGxiYTFPZHByMWFZZ090cnRBOUg3bXlMNXAza2NZQVpmNysrCnYzSEdEVFo2emE2T0V5T25ZeStrNUZZZjZsK1RPZTM3SzBKRDE3eEVDSDd2bW1tYmVhZmFlbGlXRmlWdU1lZDIKUlJtdlVjV2ZWL0wzSXovZmZzSlZSMmRGbEJXaURnNm5OQkozTkY0OHR4Y0ROMFVRR2pwRCt2NWo2VXE4UTIzWQp6RXR2dXo4NkRLalRNMGpXMndIWGxhalpMSHE4NEN0UWRoRXdGUE15T0JSNlJELzRxaG1tQXJ0Q2lVSVZOWU1uCk1tbDE0d1ZhL3d3MFNIQ0RjKzJLU2dVQ1FoNHRrSStpNEdEbnZaOTlONUR3MjUvRkNaVWVFa2lkcWlZVm5zbjMKVUYvTXNtK1d4Tm1UcFdtditQOURTazZLaEVqOTVqbGdQVW1TT3c9PQotLS0tLUVORCBDRVJUSUZJQ0FURS0tLS0tCg==
+      service:
+        name: kueue-webhook-service
+        namespace: kueue-system
+        path: /validate-leaderworkerset-x-k8s-io-v1-leaderworkerset
+        port: 443
+    failurePolicy: Fail
+    matchPolicy: Equivalent
+    name: vleaderworkerset.kb.io
+    namespaceSelector:
+      matchExpressions:
+      - key: kubernetes.io/metadata.name
+        operator: NotIn
+        values:
+        - kube-system
+        - kueue-system
+    objectSelector: {}
+    rules:
+    - apiGroups:
+      - leaderworkerset.x-k8s.io
+      apiVersions:
+      - v1
+      operations:
+      - CREATE
+      - UPDATE
+      resources:
+      - leaderworkersets
+      scope: '*'
+    sideEffects: None
+    timeoutSeconds: 10
+  - admissionReviewVersions:
+    - v1
+    clientConfig:
+      caBundle: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURHRENDQWdDZ0F3SUJBZ0lCQURBTkJna3Foa2lHOXcwQkFRc0ZBREFqTVE0d0RBWURWUVFLRXdWcmRXVjEKWlRFUk1BOEdBMVVFQXhNSWEzVmxkV1V0WTJFd0hoY05Nall4TURJeE1UQXpOVEkxV2hjTk16WXhNREU0TVRFegpOVEkxV2pBak1RNHdEQVlEVlFRS0V3VnJkV1YxWlRFUk1BOEdBMVVFQXhNSWEzVmxkV1V0WTJFd2dnRWlNQTBHCkNTcUdTSWIzRFFFQkFRVUFBNElCRHdBd2dnRUtBb0lCQVFDZS9Vc3pSZmxocHhsb2NxY1ZGb0wxNGJ3QytUTGMKMEtRRk55OVJoVTJjMmVjRWdJeHZDeXZTSDNWM3VQNkFMZU1GcmdNU0RyNFNNaEZJWGpQVkhSd2l3Y01xVGpoeQo5ODVVMURrOGNBb3ZCbkJ3TW9vZXN6b0pzV2s1d3ZIWW5MdnJPM0w1VU5yZ3hWekh1RUpMaUEwNUNjVTRzVVJkCmVOaHowUjNYNU9QRmJlNm5ycUhDZnBtUXJkMXl4WC9EeEloSE9GOFh2eXpRT2xhSUxkYmZEcG0vci9EM3hXbzMKLzJtNGxvVUF2T2RFNDNOWWZlT1JmSG5HSnNFc2l2ejE2MGV3NnQ4dDRzR0owK21MUHNBNWJHL2tyMzYwQ1lJVgpCaGxEQmh1ZmR6aUs5UDgwK2hYeWJzeFNNd0ZxVStHLzVoVTc4TERUM01rZ0ZNTVhNNVo2dFpNUEFnTUJBQUdqClZ6QlZNQTRHQTFVZER3RUIvd1FFQXdJQ3BEQVBCZ05WSFJNQkFmOEVCVEFEQVFIL01CMEdBMVVkRGdRV0JCVGkKY1dab2NyTFF4c0tTMlN6eXN1T3hKQStXSnpBVEJnTlZIUkVFRERBS2dnaHJkV1YxWlMxallUQU5CZ2txaGtpRwo5dzBCQVFzRkFBT0NBUUVBVlMxU1g4cnFkdDhiUGxiYTFPZHByMWFZZ090cnRBOUg3bXlMNXAza2NZQVpmNysrCnYzSEdEVFo2emE2T0V5T25ZeStrNUZZZjZsK1RPZTM3SzBKRDE3eEVDSDd2bW1tYmVhZmFlbGlXRmlWdU1lZDIKUlJtdlVjV2ZWL0wzSXovZmZzSlZSMmRGbEJXaURnNm5OQkozTkY0OHR4Y0ROMFVRR2pwRCt2NWo2VXE4UTIzWQp6RXR2dXo4NkRLalRNMGpXMndIWGxhalpMSHE4NEN0UWRoRXdGUE15T0JSNlJELzRxaG1tQXJ0Q2lVSVZOWU1uCk1tbDE0d1ZhL3d3MFNIQ0RjKzJLU2dVQ1FoNHRrSStpNEdEbnZaOTlONUR3MjUvRkNaVWVFa2lkcWlZVm5zbjMKVUYvTXNtK1d4Tm1UcFdtditQOURTazZLaEVqOTVqbGdQVW1TT3c9PQotLS0tLUVORCBDRVJUSUZJQ0FURS0tLS0tCg==
+      service:
+        name: kueue-webhook-service
+        namespace: kueue-system
+        path: /validate-kubeflow-org-v2beta1-mpijob
+        port: 443
+    failurePolicy: Fail
+    matchPolicy: Equivalent
+    name: vmpijob.kb.io
+    namespaceSelector:
+      matchExpressions:
+      - key: kubernetes.io/metadata.name
+        operator: NotIn
+        values:
+        - kube-system
+        - kueue-system
+    objectSelector: {}
+    rules:
+    - apiGroups:
+      - kubeflow.org
+      apiVersions:
+      - v2beta1
+      operations:
+      - CREATE
+      - UPDATE
+      resources:
+      - mpijobs
+      scope: '*'
+    sideEffects: None
+    timeoutSeconds: 10
+  - admissionReviewVersions:
+    - v1
+    clientConfig:
+      caBundle: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURHRENDQWdDZ0F3SUJBZ0lCQURBTkJna3Foa2lHOXcwQkFRc0ZBREFqTVE0d0RBWURWUVFLRXdWcmRXVjEKWlRFUk1BOEdBMVVFQXhNSWEzVmxkV1V0WTJFd0hoY05Nall4TURJeE1UQXpOVEkxV2hjTk16WXhNREU0TVRFegpOVEkxV2pBak1RNHdEQVlEVlFRS0V3VnJkV1YxWlRFUk1BOEdBMVVFQXhNSWEzVmxkV1V0WTJFd2dnRWlNQTBHCkNTcUdTSWIzRFFFQkFRVUFBNElCRHdBd2dnRUtBb0lCQVFDZS9Vc3pSZmxocHhsb2NxY1ZGb0wxNGJ3QytUTGMKMEtRRk55OVJoVTJjMmVjRWdJeHZDeXZTSDNWM3VQNkFMZU1GcmdNU0RyNFNNaEZJWGpQVkhSd2l3Y01xVGpoeQo5ODVVMURrOGNBb3ZCbkJ3TW9vZXN6b0pzV2s1d3ZIWW5MdnJPM0w1VU5yZ3hWekh1RUpMaUEwNUNjVTRzVVJkCmVOaHowUjNYNU9QRmJlNm5ycUhDZnBtUXJkMXl4WC9EeEloSE9GOFh2eXpRT2xhSUxkYmZEcG0vci9EM3hXbzMKLzJtNGxvVUF2T2RFNDNOWWZlT1JmSG5HSnNFc2l2ejE2MGV3NnQ4dDRzR0owK21MUHNBNWJHL2tyMzYwQ1lJVgpCaGxEQmh1ZmR6aUs5UDgwK2hYeWJzeFNNd0ZxVStHLzVoVTc4TERUM01rZ0ZNTVhNNVo2dFpNUEFnTUJBQUdqClZ6QlZNQTRHQTFVZER3RUIvd1FFQXdJQ3BEQVBCZ05WSFJNQkFmOEVCVEFEQVFIL01CMEdBMVVkRGdRV0JCVGkKY1dab2NyTFF4c0tTMlN6eXN1T3hKQStXSnpBVEJnTlZIUkVFRERBS2dnaHJkV1YxWlMxallUQU5CZ2txaGtpRwo5dzBCQVFzRkFBT0NBUUVBVlMxU1g4cnFkdDhiUGxiYTFPZHByMWFZZ090cnRBOUg3bXlMNXAza2NZQVpmNysrCnYzSEdEVFo2emE2T0V5T25ZeStrNUZZZjZsK1RPZTM3SzBKRDE3eEVDSDd2bW1tYmVhZmFlbGlXRmlWdU1lZDIKUlJtdlVjV2ZWL0wzSXovZmZzSlZSMmRGbEJXaURnNm5OQkozTkY0OHR4Y0ROMFVRR2pwRCt2NWo2VXE4UTIzWQp6RXR2dXo4NkRLalRNMGpXMndIWGxhalpMSHE4NEN0UWRoRXdGUE15T0JSNlJELzRxaG1tQXJ0Q2lVSVZOWU1uCk1tbDE0d1ZhL3d3MFNIQ0RjKzJLU2dVQ1FoNHRrSStpNEdEbnZaOTlONUR3MjUvRkNaVWVFa2lkcWlZVm5zbjMKVUYvTXNtK1d4Tm1UcFdtditQOURTazZLaEVqOTVqbGdQVW1TT3c9PQotLS0tLUVORCBDRVJUSUZJQ0FURS0tLS0tCg==
+      service:
+        name: kueue-webhook-service
+        namespace: kueue-system
+        path: /validate-kubeflow-org-v1-paddlejob
+        port: 443
+    failurePolicy: Fail
+    matchPolicy: Equivalent
+    name: vpaddlejob.kb.io
+    namespaceSelector:
+      matchExpressions:
+      - key: kubernetes.io/metadata.name
+        operator: NotIn
+        values:
+        - kube-system
+        - kueue-system
+    objectSelector: {}
+    rules:
+    - apiGroups:
+      - kubeflow.org
+      apiVersions:
+      - v1
+      operations:
+      - CREATE
+      - UPDATE
+      resources:
+      - paddlejobs
+      scope: '*'
+    sideEffects: None
+    timeoutSeconds: 10
+  - admissionReviewVersions:
+    - v1
+    clientConfig:
+      caBundle: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURHRENDQWdDZ0F3SUJBZ0lCQURBTkJna3Foa2lHOXcwQkFRc0ZBREFqTVE0d0RBWURWUVFLRXdWcmRXVjEKWlRFUk1BOEdBMVVFQXhNSWEzVmxkV1V0WTJFd0hoY05Nall4TURJeE1UQXpOVEkxV2hjTk16WXhNREU0TVRFegpOVEkxV2pBak1RNHdEQVlEVlFRS0V3VnJkV1YxWlRFUk1BOEdBMVVFQXhNSWEzVmxkV1V0WTJFd2dnRWlNQTBHCkNTcUdTSWIzRFFFQkFRVUFBNElCRHdBd2dnRUtBb0lCQVFDZS9Vc3pSZmxocHhsb2NxY1ZGb0wxNGJ3QytUTGMKMEtRRk55OVJoVTJjMmVjRWdJeHZDeXZTSDNWM3VQNkFMZU1GcmdNU0RyNFNNaEZJWGpQVkhSd2l3Y01xVGpoeQo5ODVVMURrOGNBb3ZCbkJ3TW9vZXN6b0pzV2s1d3ZIWW5MdnJPM0w1VU5yZ3hWekh1RUpMaUEwNUNjVTRzVVJkCmVOaHowUjNYNU9QRmJlNm5ycUhDZnBtUXJkMXl4WC9EeEloSE9GOFh2eXpRT2xhSUxkYmZEcG0vci9EM3hXbzMKLzJtNGxvVUF2T2RFNDNOWWZlT1JmSG5HSnNFc2l2ejE2MGV3NnQ4dDRzR0owK21MUHNBNWJHL2tyMzYwQ1lJVgpCaGxEQmh1ZmR6aUs5UDgwK2hYeWJzeFNNd0ZxVStHLzVoVTc4TERUM01rZ0ZNTVhNNVo2dFpNUEFnTUJBQUdqClZ6QlZNQTRHQTFVZER3RUIvd1FFQXdJQ3BEQVBCZ05WSFJNQkFmOEVCVEFEQVFIL01CMEdBMVVkRGdRV0JCVGkKY1dab2NyTFF4c0tTMlN6eXN1T3hKQStXSnpBVEJnTlZIUkVFRERBS2dnaHJkV1YxWlMxallUQU5CZ2txaGtpRwo5dzBCQVFzRkFBT0NBUUVBVlMxU1g4cnFkdDhiUGxiYTFPZHByMWFZZ090cnRBOUg3bXlMNXAza2NZQVpmNysrCnYzSEdEVFo2emE2T0V5T25ZeStrNUZZZjZsK1RPZTM3SzBKRDE3eEVDSDd2bW1tYmVhZmFlbGlXRmlWdU1lZDIKUlJtdlVjV2ZWL0wzSXovZmZzSlZSMmRGbEJXaURnNm5OQkozTkY0OHR4Y0ROMFVRR2pwRCt2NWo2VXE4UTIzWQp6RXR2dXo4NkRLalRNMGpXMndIWGxhalpMSHE4NEN0UWRoRXdGUE15T0JSNlJELzRxaG1tQXJ0Q2lVSVZOWU1uCk1tbDE0d1ZhL3d3MFNIQ0RjKzJLU2dVQ1FoNHRrSStpNEdEbnZaOTlONUR3MjUvRkNaVWVFa2lkcWlZVm5zbjMKVUYvTXNtK1d4Tm1UcFdtditQOURTazZLaEVqOTVqbGdQVW1TT3c9PQotLS0tLUVORCBDRVJUSUZJQ0FURS0tLS0tCg==
+      service:
+        name: kueue-webhook-service
+        namespace: kueue-system
+        path: /validate-kubeflow-org-v1-pytorchjob
+        port: 443
+    failurePolicy: Fail
+    matchPolicy: Equivalent
+    name: vpytorchjob.kb.io
+    namespaceSelector:
+      matchExpressions:
+      - key: kubernetes.io/metadata.name
+        operator: NotIn
+        values:
+        - kube-system
+        - kueue-system
+    objectSelector: {}
+    rules:
+    - apiGroups:
+      - kubeflow.org
+      apiVersions:
+      - v1
+      operations:
+      - CREATE
+      - UPDATE
+      resources:
+      - pytorchjobs
+      scope: '*'
+    sideEffects: None
+    timeoutSeconds: 10
+  - admissionReviewVersions:
+    - v1
+    clientConfig:
+      caBundle: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURHRENDQWdDZ0F3SUJBZ0lCQURBTkJna3Foa2lHOXcwQkFRc0ZBREFqTVE0d0RBWURWUVFLRXdWcmRXVjEKWlRFUk1BOEdBMVVFQXhNSWEzVmxkV1V0WTJFd0hoY05Nall4TURJeE1UQXpOVEkxV2hjTk16WXhNREU0TVRFegpOVEkxV2pBak1RNHdEQVlEVlFRS0V3VnJkV1YxWlRFUk1BOEdBMVVFQXhNSWEzVmxkV1V0WTJFd2dnRWlNQTBHCkNTcUdTSWIzRFFFQkFRVUFBNElCRHdBd2dnRUtBb0lCQVFDZS9Vc3pSZmxocHhsb2NxY1ZGb0wxNGJ3QytUTGMKMEtRRk55OVJoVTJjMmVjRWdJeHZDeXZTSDNWM3VQNkFMZU1GcmdNU0RyNFNNaEZJWGpQVkhSd2l3Y01xVGpoeQo5ODVVMURrOGNBb3ZCbkJ3TW9vZXN6b0pzV2s1d3ZIWW5MdnJPM0w1VU5yZ3hWekh1RUpMaUEwNUNjVTRzVVJkCmVOaHowUjNYNU9QRmJlNm5ycUhDZnBtUXJkMXl4WC9EeEloSE9GOFh2eXpRT2xhSUxkYmZEcG0vci9EM3hXbzMKLzJtNGxvVUF2T2RFNDNOWWZlT1JmSG5HSnNFc2l2ejE2MGV3NnQ4dDRzR0owK21MUHNBNWJHL2tyMzYwQ1lJVgpCaGxEQmh1ZmR6aUs5UDgwK2hYeWJzeFNNd0ZxVStHLzVoVTc4TERUM01rZ0ZNTVhNNVo2dFpNUEFnTUJBQUdqClZ6QlZNQTRHQTFVZER3RUIvd1FFQXdJQ3BEQVBCZ05WSFJNQkFmOEVCVEFEQVFIL01CMEdBMVVkRGdRV0JCVGkKY1dab2NyTFF4c0tTMlN6eXN1T3hKQStXSnpBVEJnTlZIUkVFRERBS2dnaHJkV1YxWlMxallUQU5CZ2txaGtpRwo5dzBCQVFzRkFBT0NBUUVBVlMxU1g4cnFkdDhiUGxiYTFPZHByMWFZZ090cnRBOUg3bXlMNXAza2NZQVpmNysrCnYzSEdEVFo2emE2T0V5T25ZeStrNUZZZjZsK1RPZTM3SzBKRDE3eEVDSDd2bW1tYmVhZmFlbGlXRmlWdU1lZDIKUlJtdlVjV2ZWL0wzSXovZmZzSlZSMmRGbEJXaURnNm5OQkozTkY0OHR4Y0ROMFVRR2pwRCt2NWo2VXE4UTIzWQp6RXR2dXo4NkRLalRNMGpXMndIWGxhalpMSHE4NEN0UWRoRXdGUE15T0JSNlJELzRxaG1tQXJ0Q2lVSVZOWU1uCk1tbDE0d1ZhL3d3MFNIQ0RjKzJLU2dVQ1FoNHRrSStpNEdEbnZaOTlONUR3MjUvRkNaVWVFa2lkcWlZVm5zbjMKVUYvTXNtK1d4Tm1UcFdtditQOURTazZLaEVqOTVqbGdQVW1TT3c9PQotLS0tLUVORCBDRVJUSUZJQ0FURS0tLS0tCg==
+      service:
+        name: kueue-webhook-service
+        namespace: kueue-system
+        path: /validate-ray-io-v1-raycluster
+        port: 443
+    failurePolicy: Fail
+    matchPolicy: Equivalent
+    name: vraycluster.kb.io
+    namespaceSelector:
+      matchExpressions:
+      - key: kubernetes.io/metadata.name
+        operator: NotIn
+        values:
+        - kube-system
+        - kueue-system
+    objectSelector: {}
+    rules:
+    - apiGroups:
+      - ray.io
+      apiVersions:
+      - v1
+      operations:
+      - CREATE
+      - UPDATE
+      resources:
+      - rayclusters
+      scope: '*'
+    sideEffects: None
+    timeoutSeconds: 10
+  - admissionReviewVersions:
+    - v1
+    clientConfig:
+      caBundle: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURHRENDQWdDZ0F3SUJBZ0lCQURBTkJna3Foa2lHOXcwQkFRc0ZBREFqTVE0d0RBWURWUVFLRXdWcmRXVjEKWlRFUk1BOEdBMVVFQXhNSWEzVmxkV1V0WTJFd0hoY05Nall4TURJeE1UQXpOVEkxV2hjTk16WXhNREU0TVRFegpOVEkxV2pBak1RNHdEQVlEVlFRS0V3VnJkV1YxWlRFUk1BOEdBMVVFQXhNSWEzVmxkV1V0WTJFd2dnRWlNQTBHCkNTcUdTSWIzRFFFQkFRVUFBNElCRHdBd2dnRUtBb0lCQVFDZS9Vc3pSZmxocHhsb2NxY1ZGb0wxNGJ3QytUTGMKMEtRRk55OVJoVTJjMmVjRWdJeHZDeXZTSDNWM3VQNkFMZU1GcmdNU0RyNFNNaEZJWGpQVkhSd2l3Y01xVGpoeQo5ODVVMURrOGNBb3ZCbkJ3TW9vZXN6b0pzV2s1d3ZIWW5MdnJPM0w1VU5yZ3hWekh1RUpMaUEwNUNjVTRzVVJkCmVOaHowUjNYNU9QRmJlNm5ycUhDZnBtUXJkMXl4WC9EeEloSE9GOFh2eXpRT2xhSUxkYmZEcG0vci9EM3hXbzMKLzJtNGxvVUF2T2RFNDNOWWZlT1JmSG5HSnNFc2l2ejE2MGV3NnQ4dDRzR0owK21MUHNBNWJHL2tyMzYwQ1lJVgpCaGxEQmh1ZmR6aUs5UDgwK2hYeWJzeFNNd0ZxVStHLzVoVTc4TERUM01rZ0ZNTVhNNVo2dFpNUEFnTUJBQUdqClZ6QlZNQTRHQTFVZER3RUIvd1FFQXdJQ3BEQVBCZ05WSFJNQkFmOEVCVEFEQVFIL01CMEdBMVVkRGdRV0JCVGkKY1dab2NyTFF4c0tTMlN6eXN1T3hKQStXSnpBVEJnTlZIUkVFRERBS2dnaHJkV1YxWlMxallUQU5CZ2txaGtpRwo5dzBCQVFzRkFBT0NBUUVBVlMxU1g4cnFkdDhiUGxiYTFPZHByMWFZZ090cnRBOUg3bXlMNXAza2NZQVpmNysrCnYzSEdEVFo2emE2T0V5T25ZeStrNUZZZjZsK1RPZTM3SzBKRDE3eEVDSDd2bW1tYmVhZmFlbGlXRmlWdU1lZDIKUlJtdlVjV2ZWL0wzSXovZmZzSlZSMmRGbEJXaURnNm5OQkozTkY0OHR4Y0ROMFVRR2pwRCt2NWo2VXE4UTIzWQp6RXR2dXo4NkRLalRNMGpXMndIWGxhalpMSHE4NEN0UWRoRXdGUE15T0JSNlJELzRxaG1tQXJ0Q2lVSVZOWU1uCk1tbDE0d1ZhL3d3MFNIQ0RjKzJLU2dVQ1FoNHRrSStpNEdEbnZaOTlONUR3MjUvRkNaVWVFa2lkcWlZVm5zbjMKVUYvTXNtK1d4Tm1UcFdtditQOURTazZLaEVqOTVqbGdQVW1TT3c9PQotLS0tLUVORCBDRVJUSUZJQ0FURS0tLS0tCg==
+      service:
+        name: kueue-webhook-service
+        namespace: kueue-system
+        path: /validate-ray-io-v1-rayjob
+        port: 443
+    failurePolicy: Fail
+    matchPolicy: Equivalent
+    name: vrayjob.kb.io
+    namespaceSelector:
+      matchExpressions:
+      - key: kubernetes.io/metadata.name
+        operator: NotIn
+        values:
+        - kube-system
+        - kueue-system
+    objectSelector: {}
+    rules:
+    - apiGroups:
+      - ray.io
+      apiVersions:
+      - v1
+      operations:
+      - CREATE
+      - UPDATE
+      resources:
+      - rayjobs
+      scope: '*'
+    sideEffects: None
+    timeoutSeconds: 10
+  - admissionReviewVersions:
+    - v1
+    clientConfig:
+      caBundle: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURHRENDQWdDZ0F3SUJBZ0lCQURBTkJna3Foa2lHOXcwQkFRc0ZBREFqTVE0d0RBWURWUVFLRXdWcmRXVjEKWlRFUk1BOEdBMVVFQXhNSWEzVmxkV1V0WTJFd0hoY05Nall4TURJeE1UQXpOVEkxV2hjTk16WXhNREU0TVRFegpOVEkxV2pBak1RNHdEQVlEVlFRS0V3VnJkV1YxWlRFUk1BOEdBMVVFQXhNSWEzVmxkV1V0WTJFd2dnRWlNQTBHCkNTcUdTSWIzRFFFQkFRVUFBNElCRHdBd2dnRUtBb0lCQVFDZS9Vc3pSZmxocHhsb2NxY1ZGb0wxNGJ3QytUTGMKMEtRRk55OVJoVTJjMmVjRWdJeHZDeXZTSDNWM3VQNkFMZU1GcmdNU0RyNFNNaEZJWGpQVkhSd2l3Y01xVGpoeQo5ODVVMURrOGNBb3ZCbkJ3TW9vZXN6b0pzV2s1d3ZIWW5MdnJPM0w1VU5yZ3hWekh1RUpMaUEwNUNjVTRzVVJkCmVOaHowUjNYNU9QRmJlNm5ycUhDZnBtUXJkMXl4WC9EeEloSE9GOFh2eXpRT2xhSUxkYmZEcG0vci9EM3hXbzMKLzJtNGxvVUF2T2RFNDNOWWZlT1JmSG5HSnNFc2l2ejE2MGV3NnQ4dDRzR0owK21MUHNBNWJHL2tyMzYwQ1lJVgpCaGxEQmh1ZmR6aUs5UDgwK2hYeWJzeFNNd0ZxVStHLzVoVTc4TERUM01rZ0ZNTVhNNVo2dFpNUEFnTUJBQUdqClZ6QlZNQTRHQTFVZER3RUIvd1FFQXdJQ3BEQVBCZ05WSFJNQkFmOEVCVEFEQVFIL01CMEdBMVVkRGdRV0JCVGkKY1dab2NyTFF4c0tTMlN6eXN1T3hKQStXSnpBVEJnTlZIUkVFRERBS2dnaHJkV1YxWlMxallUQU5CZ2txaGtpRwo5dzBCQVFzRkFBT0NBUUVBVlMxU1g4cnFkdDhiUGxiYTFPZHByMWFZZ090cnRBOUg3bXlMNXAza2NZQVpmNysrCnYzSEdEVFo2emE2T0V5T25ZeStrNUZZZjZsK1RPZTM3SzBKRDE3eEVDSDd2bW1tYmVhZmFlbGlXRmlWdU1lZDIKUlJtdlVjV2ZWL0wzSXovZmZzSlZSMmRGbEJXaURnNm5OQkozTkY0OHR4Y0ROMFVRR2pwRCt2NWo2VXE4UTIzWQp6RXR2dXo4NkRLalRNMGpXMndIWGxhalpMSHE4NEN0UWRoRXdGUE15T0JSNlJELzRxaG1tQXJ0Q2lVSVZOWU1uCk1tbDE0d1ZhL3d3MFNIQ0RjKzJLU2dVQ1FoNHRrSStpNEdEbnZaOTlONUR3MjUvRkNaVWVFa2lkcWlZVm5zbjMKVUYvTXNtK1d4Tm1UcFdtditQOURTazZLaEVqOTVqbGdQVW1TT3c9PQotLS0tLUVORCBDRVJUSUZJQ0FURS0tLS0tCg==
+      service:
+        name: kueue-webhook-service
+        namespace: kueue-system
+        path: /validate-ray-io-v1-rayservice
+        port: 443
+    failurePolicy: Fail
+    matchPolicy: Equivalent
+    name: vrayservice.kb.io
+    namespaceSelector:
+      matchExpressions:
+      - key: kubernetes.io/metadata.name
+        operator: NotIn
+        values:
+        - kube-system
+        - kueue-system
+    objectSelector: {}
+    rules:
+    - apiGroups:
+      - ray.io
+      apiVersions:
+      - v1
+      operations:
+      - CREATE
+      - UPDATE
+      resources:
+      - rayservices
+      scope: '*'
+    sideEffects: None
+    timeoutSeconds: 10
+  - admissionReviewVersions:
+    - v1
+    clientConfig:
+      caBundle: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURHRENDQWdDZ0F3SUJBZ0lCQURBTkJna3Foa2lHOXcwQkFRc0ZBREFqTVE0d0RBWURWUVFLRXdWcmRXVjEKWlRFUk1BOEdBMVVFQXhNSWEzVmxkV1V0WTJFd0hoY05Nall4TURJeE1UQXpOVEkxV2hjTk16WXhNREU0TVRFegpOVEkxV2pBak1RNHdEQVlEVlFRS0V3VnJkV1YxWlRFUk1BOEdBMVVFQXhNSWEzVmxkV1V0WTJFd2dnRWlNQTBHCkNTcUdTSWIzRFFFQkFRVUFBNElCRHdBd2dnRUtBb0lCQVFDZS9Vc3pSZmxocHhsb2NxY1ZGb0wxNGJ3QytUTGMKMEtRRk55OVJoVTJjMmVjRWdJeHZDeXZTSDNWM3VQNkFMZU1GcmdNU0RyNFNNaEZJWGpQVkhSd2l3Y01xVGpoeQo5ODVVMURrOGNBb3ZCbkJ3TW9vZXN6b0pzV2s1d3ZIWW5MdnJPM0w1VU5yZ3hWekh1RUpMaUEwNUNjVTRzVVJkCmVOaHowUjNYNU9QRmJlNm5ycUhDZnBtUXJkMXl4WC9EeEloSE9GOFh2eXpRT2xhSUxkYmZEcG0vci9EM3hXbzMKLzJtNGxvVUF2T2RFNDNOWWZlT1JmSG5HSnNFc2l2ejE2MGV3NnQ4dDRzR0owK21MUHNBNWJHL2tyMzYwQ1lJVgpCaGxEQmh1ZmR6aUs5UDgwK2hYeWJzeFNNd0ZxVStHLzVoVTc4TERUM01rZ0ZNTVhNNVo2dFpNUEFnTUJBQUdqClZ6QlZNQTRHQTFVZER3RUIvd1FFQXdJQ3BEQVBCZ05WSFJNQkFmOEVCVEFEQVFIL01CMEdBMVVkRGdRV0JCVGkKY1dab2NyTFF4c0tTMlN6eXN1T3hKQStXSnpBVEJnTlZIUkVFRERBS2dnaHJkV1YxWlMxallUQU5CZ2txaGtpRwo5dzBCQVFzRkFBT0NBUUVBVlMxU1g4cnFkdDhiUGxiYTFPZHByMWFZZ090cnRBOUg3bXlMNXAza2NZQVpmNysrCnYzSEdEVFo2emE2T0V5T25ZeStrNUZZZjZsK1RPZTM3SzBKRDE3eEVDSDd2bW1tYmVhZmFlbGlXRmlWdU1lZDIKUlJtdlVjV2ZWL0wzSXovZmZzSlZSMmRGbEJXaURnNm5OQkozTkY0OHR4Y0ROMFVRR2pwRCt2NWo2VXE4UTIzWQp6RXR2dXo4NkRLalRNMGpXMndIWGxhalpMSHE4NEN0UWRoRXdGUE15T0JSNlJELzRxaG1tQXJ0Q2lVSVZOWU1uCk1tbDE0d1ZhL3d3MFNIQ0RjKzJLU2dVQ1FoNHRrSStpNEdEbnZaOTlONUR3MjUvRkNaVWVFa2lkcWlZVm5zbjMKVUYvTXNtK1d4Tm1UcFdtditQOURTazZLaEVqOTVqbGdQVW1TT3c9PQotLS0tLUVORCBDRVJUSUZJQ0FURS0tLS0tCg==
+      service:
+        name: kueue-webhook-service
+        namespace: kueue-system
+        path: /validate-kueue-x-k8s-io-v1beta2-resourceflavor
+        port: 443
+    failurePolicy: Fail
+    matchPolicy: Equivalent
+    name: vresourceflavor.kb.io
+    namespaceSelector: {}
+    objectSelector: {}
+    rules:
+    - apiGroups:
+      - kueue.x-k8s.io
+      apiVersions:
+      - v1beta2
+      operations:
+      - CREATE
+      - UPDATE
+      resources:
+      - resourceflavors
+      scope: '*'
+    sideEffects: None
+    timeoutSeconds: 10
+  - admissionReviewVersions:
+    - v1
+    clientConfig:
+      caBundle: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURHRENDQWdDZ0F3SUJBZ0lCQURBTkJna3Foa2lHOXcwQkFRc0ZBREFqTVE0d0RBWURWUVFLRXdWcmRXVjEKWlRFUk1BOEdBMVVFQXhNSWEzVmxkV1V0WTJFd0hoY05Nall4TURJeE1UQXpOVEkxV2hjTk16WXhNREU0TVRFegpOVEkxV2pBak1RNHdEQVlEVlFRS0V3VnJkV1YxWlRFUk1BOEdBMVVFQXhNSWEzVmxkV1V0WTJFd2dnRWlNQTBHCkNTcUdTSWIzRFFFQkFRVUFBNElCRHdBd2dnRUtBb0lCQVFDZS9Vc3pSZmxocHhsb2NxY1ZGb0wxNGJ3QytUTGMKMEtRRk55OVJoVTJjMmVjRWdJeHZDeXZTSDNWM3VQNkFMZU1GcmdNU0RyNFNNaEZJWGpQVkhSd2l3Y01xVGpoeQo5ODVVMURrOGNBb3ZCbkJ3TW9vZXN6b0pzV2s1d3ZIWW5MdnJPM0w1VU5yZ3hWekh1RUpMaUEwNUNjVTRzVVJkCmVOaHowUjNYNU9QRmJlNm5ycUhDZnBtUXJkMXl4WC9EeEloSE9GOFh2eXpRT2xhSUxkYmZEcG0vci9EM3hXbzMKLzJtNGxvVUF2T2RFNDNOWWZlT1JmSG5HSnNFc2l2ejE2MGV3NnQ4dDRzR0owK21MUHNBNWJHL2tyMzYwQ1lJVgpCaGxEQmh1ZmR6aUs5UDgwK2hYeWJzeFNNd0ZxVStHLzVoVTc4TERUM01rZ0ZNTVhNNVo2dFpNUEFnTUJBQUdqClZ6QlZNQTRHQTFVZER3RUIvd1FFQXdJQ3BEQVBCZ05WSFJNQkFmOEVCVEFEQVFIL01CMEdBMVVkRGdRV0JCVGkKY1dab2NyTFF4c0tTMlN6eXN1T3hKQStXSnpBVEJnTlZIUkVFRERBS2dnaHJkV1YxWlMxallUQU5CZ2txaGtpRwo5dzBCQVFzRkFBT0NBUUVBVlMxU1g4cnFkdDhiUGxiYTFPZHByMWFZZ090cnRBOUg3bXlMNXAza2NZQVpmNysrCnYzSEdEVFo2emE2T0V5T25ZeStrNUZZZjZsK1RPZTM3SzBKRDE3eEVDSDd2bW1tYmVhZmFlbGlXRmlWdU1lZDIKUlJtdlVjV2ZWL0wzSXovZmZzSlZSMmRGbEJXaURnNm5OQkozTkY0OHR4Y0ROMFVRR2pwRCt2NWo2VXE4UTIzWQp6RXR2dXo4NkRLalRNMGpXMndIWGxhalpMSHE4NEN0UWRoRXdGUE15T0JSNlJELzRxaG1tQXJ0Q2lVSVZOWU1uCk1tbDE0d1ZhL3d3MFNIQ0RjKzJLU2dVQ1FoNHRrSStpNEdEbnZaOTlONUR3MjUvRkNaVWVFa2lkcWlZVm5zbjMKVUYvTXNtK1d4Tm1UcFdtditQOURTazZLaEVqOTVqbGdQVW1TT3c9PQotLS0tLUVORCBDRVJUSUZJQ0FURS0tLS0tCg==
+      service:
+        name: kueue-webhook-service
+        namespace: kueue-system
+        path: /validate-sparkoperator-k8s-io-v1beta2-sparkapplication
+        port: 443
+    failurePolicy: Fail
+    matchPolicy: Equivalent
+    name: vsparkapplication.kb.io
+    namespaceSelector:
+      matchExpressions:
+      - key: kubernetes.io/metadata.name
+        operator: NotIn
+        values:
+        - kube-system
+        - kueue-system
+    objectSelector: {}
+    rules:
+    - apiGroups:
+      - sparkoperator.k8s.io
+      apiVersions:
+      - v1beta2
+      operations:
+      - CREATE
+      - UPDATE
+      resources:
+      - sparkapplications
+      scope: '*'
+    sideEffects: None
+    timeoutSeconds: 10
+  - admissionReviewVersions:
+    - v1
+    clientConfig:
+      caBundle: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURHRENDQWdDZ0F3SUJBZ0lCQURBTkJna3Foa2lHOXcwQkFRc0ZBREFqTVE0d0RBWURWUVFLRXdWcmRXVjEKWlRFUk1BOEdBMVVFQXhNSWEzVmxkV1V0WTJFd0hoY05Nall4TURJeE1UQXpOVEkxV2hjTk16WXhNREU0TVRFegpOVEkxV2pBak1RNHdEQVlEVlFRS0V3VnJkV1YxWlRFUk1BOEdBMVVFQXhNSWEzVmxkV1V0WTJFd2dnRWlNQTBHCkNTcUdTSWIzRFFFQkFRVUFBNElCRHdBd2dnRUtBb0lCQVFDZS9Vc3pSZmxocHhsb2NxY1ZGb0wxNGJ3QytUTGMKMEtRRk55OVJoVTJjMmVjRWdJeHZDeXZTSDNWM3VQNkFMZU1GcmdNU0RyNFNNaEZJWGpQVkhSd2l3Y01xVGpoeQo5ODVVMURrOGNBb3ZCbkJ3TW9vZXN6b0pzV2s1d3ZIWW5MdnJPM0w1VU5yZ3hWekh1RUpMaUEwNUNjVTRzVVJkCmVOaHowUjNYNU9QRmJlNm5ycUhDZnBtUXJkMXl4WC9EeEloSE9GOFh2eXpRT2xhSUxkYmZEcG0vci9EM3hXbzMKLzJtNGxvVUF2T2RFNDNOWWZlT1JmSG5HSnNFc2l2ejE2MGV3NnQ4dDRzR0owK21MUHNBNWJHL2tyMzYwQ1lJVgpCaGxEQmh1ZmR6aUs5UDgwK2hYeWJzeFNNd0ZxVStHLzVoVTc4TERUM01rZ0ZNTVhNNVo2dFpNUEFnTUJBQUdqClZ6QlZNQTRHQTFVZER3RUIvd1FFQXdJQ3BEQVBCZ05WSFJNQkFmOEVCVEFEQVFIL01CMEdBMVVkRGdRV0JCVGkKY1dab2NyTFF4c0tTMlN6eXN1T3hKQStXSnpBVEJnTlZIUkVFRERBS2dnaHJkV1YxWlMxallUQU5CZ2txaGtpRwo5dzBCQVFzRkFBT0NBUUVBVlMxU1g4cnFkdDhiUGxiYTFPZHByMWFZZ090cnRBOUg3bXlMNXAza2NZQVpmNysrCnYzSEdEVFo2emE2T0V5T25ZeStrNUZZZjZsK1RPZTM3SzBKRDE3eEVDSDd2bW1tYmVhZmFlbGlXRmlWdU1lZDIKUlJtdlVjV2ZWL0wzSXovZmZzSlZSMmRGbEJXaURnNm5OQkozTkY0OHR4Y0ROMFVRR2pwRCt2NWo2VXE4UTIzWQp6RXR2dXo4NkRLalRNMGpXMndIWGxhalpMSHE4NEN0UWRoRXdGUE15T0JSNlJELzRxaG1tQXJ0Q2lVSVZOWU1uCk1tbDE0d1ZhL3d3MFNIQ0RjKzJLU2dVQ1FoNHRrSStpNEdEbnZaOTlONUR3MjUvRkNaVWVFa2lkcWlZVm5zbjMKVUYvTXNtK1d4Tm1UcFdtditQOURTazZLaEVqOTVqbGdQVW1TT3c9PQotLS0tLUVORCBDRVJUSUZJQ0FURS0tLS0tCg==
+      service:
+        name: kueue-webhook-service
+        namespace: kueue-system
+        path: /validate-apps-v1-statefulset
+        port: 443
+    failurePolicy: Fail
+    matchPolicy: Equivalent
+    name: vstatefulset.kb.io
+    namespaceSelector:
+      matchExpressions:
+      - key: kubernetes.io/metadata.name
+        operator: NotIn
+        values:
+        - kube-system
+        - kueue-system
+    objectSelector: {}
+    rules:
+    - apiGroups:
+      - apps
+      apiVersions:
+      - v1
+      operations:
+      - CREATE
+      - UPDATE
+      resources:
+      - statefulsets
+      scope: '*'
+    sideEffects: None
+    timeoutSeconds: 10
+  - admissionReviewVersions:
+    - v1
+    clientConfig:
+      caBundle: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURHRENDQWdDZ0F3SUJBZ0lCQURBTkJna3Foa2lHOXcwQkFRc0ZBREFqTVE0d0RBWURWUVFLRXdWcmRXVjEKWlRFUk1BOEdBMVVFQXhNSWEzVmxkV1V0WTJFd0hoY05Nall4TURJeE1UQXpOVEkxV2hjTk16WXhNREU0TVRFegpOVEkxV2pBak1RNHdEQVlEVlFRS0V3VnJkV1YxWlRFUk1BOEdBMVVFQXhNSWEzVmxkV1V0WTJFd2dnRWlNQTBHCkNTcUdTSWIzRFFFQkFRVUFBNElCRHdBd2dnRUtBb0lCQVFDZS9Vc3pSZmxocHhsb2NxY1ZGb0wxNGJ3QytUTGMKMEtRRk55OVJoVTJjMmVjRWdJeHZDeXZTSDNWM3VQNkFMZU1GcmdNU0RyNFNNaEZJWGpQVkhSd2l3Y01xVGpoeQo5ODVVMURrOGNBb3ZCbkJ3TW9vZXN6b0pzV2s1d3ZIWW5MdnJPM0w1VU5yZ3hWekh1RUpMaUEwNUNjVTRzVVJkCmVOaHowUjNYNU9QRmJlNm5ycUhDZnBtUXJkMXl4WC9EeEloSE9GOFh2eXpRT2xhSUxkYmZEcG0vci9EM3hXbzMKLzJtNGxvVUF2T2RFNDNOWWZlT1JmSG5HSnNFc2l2ejE2MGV3NnQ4dDRzR0owK21MUHNBNWJHL2tyMzYwQ1lJVgpCaGxEQmh1ZmR6aUs5UDgwK2hYeWJzeFNNd0ZxVStHLzVoVTc4TERUM01rZ0ZNTVhNNVo2dFpNUEFnTUJBQUdqClZ6QlZNQTRHQTFVZER3RUIvd1FFQXdJQ3BEQVBCZ05WSFJNQkFmOEVCVEFEQVFIL01CMEdBMVVkRGdRV0JCVGkKY1dab2NyTFF4c0tTMlN6eXN1T3hKQStXSnpBVEJnTlZIUkVFRERBS2dnaHJkV1YxWlMxallUQU5CZ2txaGtpRwo5dzBCQVFzRkFBT0NBUUVBVlMxU1g4cnFkdDhiUGxiYTFPZHByMWFZZ090cnRBOUg3bXlMNXAza2NZQVpmNysrCnYzSEdEVFo2emE2T0V5T25ZeStrNUZZZjZsK1RPZTM3SzBKRDE3eEVDSDd2bW1tYmVhZmFlbGlXRmlWdU1lZDIKUlJtdlVjV2ZWL0wzSXovZmZzSlZSMmRGbEJXaURnNm5OQkozTkY0OHR4Y0ROMFVRR2pwRCt2NWo2VXE4UTIzWQp6RXR2dXo4NkRLalRNMGpXMndIWGxhalpMSHE4NEN0UWRoRXdGUE15T0JSNlJELzRxaG1tQXJ0Q2lVSVZOWU1uCk1tbDE0d1ZhL3d3MFNIQ0RjKzJLU2dVQ1FoNHRrSStpNEdEbnZaOTlONUR3MjUvRkNaVWVFa2lkcWlZVm5zbjMKVUYvTXNtK1d4Tm1UcFdtditQOURTazZLaEVqOTVqbGdQVW1TT3c9PQotLS0tLUVORCBDRVJUSUZJQ0FURS0tLS0tCg==
+      service:
+        name: kueue-webhook-service
+        namespace: kueue-system
+        path: /validate-kubeflow-org-v1-tfjob
+        port: 443
+    failurePolicy: Fail
+    matchPolicy: Equivalent
+    name: vtfjob.kb.io
+    namespaceSelector:
+      matchExpressions:
+      - key: kubernetes.io/metadata.name
+        operator: NotIn
+        values:
+        - kube-system
+        - kueue-system
+    objectSelector: {}
+    rules:
+    - apiGroups:
+      - kubeflow.org
+      apiVersions:
+      - v1
+      operations:
+      - CREATE
+      - UPDATE
+      resources:
+      - tfjobs
+      scope: '*'
+    sideEffects: None
+    timeoutSeconds: 10
+  - admissionReviewVersions:
+    - v1
+    clientConfig:
+      caBundle: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURHRENDQWdDZ0F3SUJBZ0lCQURBTkJna3Foa2lHOXcwQkFRc0ZBREFqTVE0d0RBWURWUVFLRXdWcmRXVjEKWlRFUk1BOEdBMVVFQXhNSWEzVmxkV1V0WTJFd0hoY05Nall4TURJeE1UQXpOVEkxV2hjTk16WXhNREU0TVRFegpOVEkxV2pBak1RNHdEQVlEVlFRS0V3VnJkV1YxWlRFUk1BOEdBMVVFQXhNSWEzVmxkV1V0WTJFd2dnRWlNQTBHCkNTcUdTSWIzRFFFQkFRVUFBNElCRHdBd2dnRUtBb0lCQVFDZS9Vc3pSZmxocHhsb2NxY1ZGb0wxNGJ3QytUTGMKMEtRRk55OVJoVTJjMmVjRWdJeHZDeXZTSDNWM3VQNkFMZU1GcmdNU0RyNFNNaEZJWGpQVkhSd2l3Y01xVGpoeQo5ODVVMURrOGNBb3ZCbkJ3TW9vZXN6b0pzV2s1d3ZIWW5MdnJPM0w1VU5yZ3hWekh1RUpMaUEwNUNjVTRzVVJkCmVOaHowUjNYNU9QRmJlNm5ycUhDZnBtUXJkMXl4WC9EeEloSE9GOFh2eXpRT2xhSUxkYmZEcG0vci9EM3hXbzMKLzJtNGxvVUF2T2RFNDNOWWZlT1JmSG5HSnNFc2l2ejE2MGV3NnQ4dDRzR0owK21MUHNBNWJHL2tyMzYwQ1lJVgpCaGxEQmh1ZmR6aUs5UDgwK2hYeWJzeFNNd0ZxVStHLzVoVTc4TERUM01rZ0ZNTVhNNVo2dFpNUEFnTUJBQUdqClZ6QlZNQTRHQTFVZER3RUIvd1FFQXdJQ3BEQVBCZ05WSFJNQkFmOEVCVEFEQVFIL01CMEdBMVVkRGdRV0JCVGkKY1dab2NyTFF4c0tTMlN6eXN1T3hKQStXSnpBVEJnTlZIUkVFRERBS2dnaHJkV1YxWlMxallUQU5CZ2txaGtpRwo5dzBCQVFzRkFBT0NBUUVBVlMxU1g4cnFkdDhiUGxiYTFPZHByMWFZZ090cnRBOUg3bXlMNXAza2NZQVpmNysrCnYzSEdEVFo2emE2T0V5T25ZeStrNUZZZjZsK1RPZTM3SzBKRDE3eEVDSDd2bW1tYmVhZmFlbGlXRmlWdU1lZDIKUlJtdlVjV2ZWL0wzSXovZmZzSlZSMmRGbEJXaURnNm5OQkozTkY0OHR4Y0ROMFVRR2pwRCt2NWo2VXE4UTIzWQp6RXR2dXo4NkRLalRNMGpXMndIWGxhalpMSHE4NEN0UWRoRXdGUE15T0JSNlJELzRxaG1tQXJ0Q2lVSVZOWU1uCk1tbDE0d1ZhL3d3MFNIQ0RjKzJLU2dVQ1FoNHRrSStpNEdEbnZaOTlONUR3MjUvRkNaVWVFa2lkcWlZVm5zbjMKVUYvTXNtK1d4Tm1UcFdtditQOURTazZLaEVqOTVqbGdQVW1TT3c9PQotLS0tLUVORCBDRVJUSUZJQ0FURS0tLS0tCg==
+      service:
+        name: kueue-webhook-service
+        namespace: kueue-system
+        path: /validate-trainer-kubeflow-org-v1alpha1-trainjob
+        port: 443
+    failurePolicy: Fail
+    matchPolicy: Equivalent
+    name: vtrainjob.kb.io
+    namespaceSelector:
+      matchExpressions:
+      - key: kubernetes.io/metadata.name
+        operator: NotIn
+        values:
+        - kube-system
+        - kueue-system
+    objectSelector: {}
+    rules:
+    - apiGroups:
+      - trainer.kubeflow.org
+      apiVersions:
+      - v1alpha1
+      operations:
+      - CREATE
+      - UPDATE
+      resources:
+      - trainjobs
+      scope: '*'
+    sideEffects: None
+    timeoutSeconds: 10
+  - admissionReviewVersions:
+    - v1
+    clientConfig:
+      caBundle: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURHRENDQWdDZ0F3SUJBZ0lCQURBTkJna3Foa2lHOXcwQkFRc0ZBREFqTVE0d0RBWURWUVFLRXdWcmRXVjEKWlRFUk1BOEdBMVVFQXhNSWEzVmxkV1V0WTJFd0hoY05Nall4TURJeE1UQXpOVEkxV2hjTk16WXhNREU0TVRFegpOVEkxV2pBak1RNHdEQVlEVlFRS0V3VnJkV1YxWlRFUk1BOEdBMVVFQXhNSWEzVmxkV1V0WTJFd2dnRWlNQTBHCkNTcUdTSWIzRFFFQkFRVUFBNElCRHdBd2dnRUtBb0lCQVFDZS9Vc3pSZmxocHhsb2NxY1ZGb0wxNGJ3QytUTGMKMEtRRk55OVJoVTJjMmVjRWdJeHZDeXZTSDNWM3VQNkFMZU1GcmdNU0RyNFNNaEZJWGpQVkhSd2l3Y01xVGpoeQo5ODVVMURrOGNBb3ZCbkJ3TW9vZXN6b0pzV2s1d3ZIWW5MdnJPM0w1VU5yZ3hWekh1RUpMaUEwNUNjVTRzVVJkCmVOaHowUjNYNU9QRmJlNm5ycUhDZnBtUXJkMXl4WC9EeEloSE9GOFh2eXpRT2xhSUxkYmZEcG0vci9EM3hXbzMKLzJtNGxvVUF2T2RFNDNOWWZlT1JmSG5HSnNFc2l2ejE2MGV3NnQ4dDRzR0owK21MUHNBNWJHL2tyMzYwQ1lJVgpCaGxEQmh1ZmR6aUs5UDgwK2hYeWJzeFNNd0ZxVStHLzVoVTc4TERUM01rZ0ZNTVhNNVo2dFpNUEFnTUJBQUdqClZ6QlZNQTRHQTFVZER3RUIvd1FFQXdJQ3BEQVBCZ05WSFJNQkFmOEVCVEFEQVFIL01CMEdBMVVkRGdRV0JCVGkKY1dab2NyTFF4c0tTMlN6eXN1T3hKQStXSnpBVEJnTlZIUkVFRERBS2dnaHJkV1YxWlMxallUQU5CZ2txaGtpRwo5dzBCQVFzRkFBT0NBUUVBVlMxU1g4cnFkdDhiUGxiYTFPZHByMWFZZ090cnRBOUg3bXlMNXAza2NZQVpmNysrCnYzSEdEVFo2emE2T0V5T25ZeStrNUZZZjZsK1RPZTM3SzBKRDE3eEVDSDd2bW1tYmVhZmFlbGlXRmlWdU1lZDIKUlJtdlVjV2ZWL0wzSXovZmZzSlZSMmRGbEJXaURnNm5OQkozTkY0OHR4Y0ROMFVRR2pwRCt2NWo2VXE4UTIzWQp6RXR2dXo4NkRLalRNMGpXMndIWGxhalpMSHE4NEN0UWRoRXdGUE15T0JSNlJELzRxaG1tQXJ0Q2lVSVZOWU1uCk1tbDE0d1ZhL3d3MFNIQ0RjKzJLU2dVQ1FoNHRrSStpNEdEbnZaOTlONUR3MjUvRkNaVWVFa2lkcWlZVm5zbjMKVUYvTXNtK1d4Tm1UcFdtditQOURTazZLaEVqOTVqbGdQVW1TT3c9PQotLS0tLUVORCBDRVJUSUZJQ0FURS0tLS0tCg==
+      service:
+        name: kueue-webhook-service
+        namespace: kueue-system
+        path: /validate-kueue-x-k8s-io-v1beta2-workload
+        port: 443
+    failurePolicy: Fail
+    matchPolicy: Equivalent
+    name: vworkload.kb.io
+    namespaceSelector: {}
+    objectSelector: {}
+    rules:
+    - apiGroups:
+      - kueue.x-k8s.io
+      apiVersions:
+      - v1beta2
+      operations:
+      - CREATE
+      - UPDATE
+      resources:
+      - workloads
+      - workloads/status
+      scope: '*'
+    sideEffects: None
+    timeoutSeconds: 10
+  - admissionReviewVersions:
+    - v1
+    clientConfig:
+      caBundle: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURHRENDQWdDZ0F3SUJBZ0lCQURBTkJna3Foa2lHOXcwQkFRc0ZBREFqTVE0d0RBWURWUVFLRXdWcmRXVjEKWlRFUk1BOEdBMVVFQXhNSWEzVmxkV1V0WTJFd0hoY05Nall4TURJeE1UQXpOVEkxV2hjTk16WXhNREU0TVRFegpOVEkxV2pBak1RNHdEQVlEVlFRS0V3VnJkV1YxWlRFUk1BOEdBMVVFQXhNSWEzVmxkV1V0WTJFd2dnRWlNQTBHCkNTcUdTSWIzRFFFQkFRVUFBNElCRHdBd2dnRUtBb0lCQVFDZS9Vc3pSZmxocHhsb2NxY1ZGb0wxNGJ3QytUTGMKMEtRRk55OVJoVTJjMmVjRWdJeHZDeXZTSDNWM3VQNkFMZU1GcmdNU0RyNFNNaEZJWGpQVkhSd2l3Y01xVGpoeQo5ODVVMURrOGNBb3ZCbkJ3TW9vZXN6b0pzV2s1d3ZIWW5MdnJPM0w1VU5yZ3hWekh1RUpMaUEwNUNjVTRzVVJkCmVOaHowUjNYNU9QRmJlNm5ycUhDZnBtUXJkMXl4WC9EeEloSE9GOFh2eXpRT2xhSUxkYmZEcG0vci9EM3hXbzMKLzJtNGxvVUF2T2RFNDNOWWZlT1JmSG5HSnNFc2l2ejE2MGV3NnQ4dDRzR0owK21MUHNBNWJHL2tyMzYwQ1lJVgpCaGxEQmh1ZmR6aUs5UDgwK2hYeWJzeFNNd0ZxVStHLzVoVTc4TERUM01rZ0ZNTVhNNVo2dFpNUEFnTUJBQUdqClZ6QlZNQTRHQTFVZER3RUIvd1FFQXdJQ3BEQVBCZ05WSFJNQkFmOEVCVEFEQVFIL01CMEdBMVVkRGdRV0JCVGkKY1dab2NyTFF4c0tTMlN6eXN1T3hKQStXSnpBVEJnTlZIUkVFRERBS2dnaHJkV1YxWlMxallUQU5CZ2txaGtpRwo5dzBCQVFzRkFBT0NBUUVBVlMxU1g4cnFkdDhiUGxiYTFPZHByMWFZZ090cnRBOUg3bXlMNXAza2NZQVpmNysrCnYzSEdEVFo2emE2T0V5T25ZeStrNUZZZjZsK1RPZTM3SzBKRDE3eEVDSDd2bW1tYmVhZmFlbGlXRmlWdU1lZDIKUlJtdlVjV2ZWL0wzSXovZmZzSlZSMmRGbEJXaURnNm5OQkozTkY0OHR4Y0ROMFVRR2pwRCt2NWo2VXE4UTIzWQp6RXR2dXo4NkRLalRNMGpXMndIWGxhalpMSHE4NEN0UWRoRXdGUE15T0JSNlJELzRxaG1tQXJ0Q2lVSVZOWU1uCk1tbDE0d1ZhL3d3MFNIQ0RjKzJLU2dVQ1FoNHRrSStpNEdEbnZaOTlONUR3MjUvRkNaVWVFa2lkcWlZVm5zbjMKVUYvTXNtK1d4Tm1UcFdtditQOURTazZLaEVqOTVqbGdQVW1TT3c9PQotLS0tLUVORCBDRVJUSUZJQ0FURS0tLS0tCg==
+      service:
+        name: kueue-webhook-service
+        namespace: kueue-system
+        path: /validate-kubeflow-org-v1-xgboostjob
+        port: 443
+    failurePolicy: Fail
+    matchPolicy: Equivalent
+    name: vxgboostjob.kb.io
+    namespaceSelector:
+      matchExpressions:
+      - key: kubernetes.io/metadata.name
+        operator: NotIn
+        values:
+        - kube-system
+        - kueue-system
+    objectSelector: {}
+    rules:
+    - apiGroups:
+      - kubeflow.org
+      apiVersions:
+      - v1
+      operations:
+      - CREATE
+      - UPDATE
+      resources:
+      - xgboostjobs
+      scope: '*'
+    sideEffects: None
+    timeoutSeconds: 10
+kind: List
+metadata:
+  resourceVersion: ""

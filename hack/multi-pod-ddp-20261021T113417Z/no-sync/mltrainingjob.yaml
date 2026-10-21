@@ -1,0 +1,18 @@
+apiVersion: platform.lkhun9311.github.io/v1
+kind: MLTrainingJob
+metadata:
+  name: ddp-no-sync-113609
+  namespace: ddp
+spec:
+  queue: gpu-ddp
+  image: cpu-ddp:torch251
+  gpuCount: 1
+  distributed:
+    worldSize: 2
+  command:
+    - sh
+    - -c
+    - |
+      export DDP_RUN_ID=ddp-no-sync-113609 DDP_OUT_DIR=/tmp/evidence OMP_NUM_THREADS=1 DDP_RENDEZVOUS_TIMEOUT_SECONDS=60
+      export DDP_NO_SYNC=1
+      exec python /work/train.py
