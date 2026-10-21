@@ -1,7 +1,7 @@
 # Design: a distributed job with one rank placed — what the platform reports, how long it holds quota, and what Kueue's readiness timeout does about it
 
-Written 2026-10-21. Status: **v2, registered before any run; not built.**
-v1 was reviewed adversarially by codex `gpt-6-astra` the same day: 2 blockers, 10 majors, 3 minors, each re-checked against the code or Kueue's source before v2 answered it; the table is at the end.
+Written 2026-10-21. Status: **v3, registered before any run; not built.**
+v1 and v2 were each reviewed adversarially by codex `gpt-6-astra` the same day: v1 had 2 blockers, 10 majors and 3 minors, v2 had 8 majors and 1 minor. Each finding was re-checked against the code or Kueue's source before the next version answered it; the tables are at the end.
 Chosen over building the NCCL groundwork first, after independent brainstorms by astra and me and an adversarial review of the merged list: this one asks a control-plane question at no rented cost, and the NCCL work stays second (its design, v4 with three binding corrections, is on the unmerged branch feat/nccl-groundwork).
 
 ## The question
@@ -15,14 +15,14 @@ When Kueue admits a two-rank job and only one rank can be placed:
 1. what does the platform report about it, and for how long;
 2. how long does the Workload hold its quota while no rank has joined the other;
 3. with `waitForPodsReady` configured, when is eviction initiated, how long after that is the quota released, how many attempts are stopped, and what does the platform report across them;
-4. when capacity arrives 300 s after creation, does the job complete under each setting?
+4. when the squatter is deleted 300 s after creation, does the job complete under each setting?
 
 ## What a result would license, and what it would not
 
-It would license statements about this operator with Kueue v0.18.3 on kind, with simulated devices, for one two-rank job stranded by one occupied device, observed for 600 s: what the CR said, how long quota was held, what the readiness timeout did, and whether the job finished when capacity arrived at 300 s.
+It would license statements about this operator with Kueue v0.18.3 on kind, with simulated devices, for one two-rank job stranded by one occupied device, observed for 600 s: what the CR said, how long quota was held, what the readiness timeout did, and whether the job finished after the squatter was deleted at 300 s.
 It would not license:
 
-- **an unbounded hold.** A hold that lasts to the end of the window has lasted 600 s; that is what is reported.
+- **an unbounded hold.** A hold that lasts to the end of the window has lasted from its admission to the window's end, 600 s less the admission's offset, and is reported censored there.
 - **eventual recovery in general.** The configured setting has a finite retry limit, so it can deactivate a job before capacity arrives; arrival at 300 s is one timing, and the expected admission times below are inferred from the configuration, not guaranteed by it.
 - **a hard release deadline.** The timeout starts an eviction; suspension, Pod deletion and the release of the reservation follow asynchronously, and the release lag is measured, not bounded.
 - **progress.** No rank has a readiness probe tied to training, so a rank waiting in rendezvous is Ready.
@@ -79,10 +79,15 @@ Once a second from creation to the end of the window, each sample one JSON line 
 
 Every rank Pod's log is streamed from container start; a stream that ends before its container has terminated is restarted, and a Pod whose container ran but whose log has no `rendezvous_start` record is missing evidence.
 
+**Watch streams.** A condition says only what holds now, so a poll can miss a reservation released and taken again between two samples, overwriting the release's `lastTransitionTime`. So the harness also records a Kubernetes watch of the namespace's Workloads, MLTrainingJobs and Pods for the whole window, each event stamped as it arrives (`experiments/distributed-partial-placement/watch.py`). A watch delivers every write; a stream that ends early is restarted, and the restart is recorded, so a gap in it is visible.
+The watch is the primary record of transitions; the polled samples are the cross-check and the source for the ClusterQueue and the squatter, which the watch does not cover.
+
 ## Timing rule
 
-Where an object carries the time, that time is used: a condition's `lastTransitionTime`, a Pod's creation and deletion timestamps, a container's `startedAt` and `finishedAt`. These have one-second resolution.
-Durations that exist only across samples are the sum of the intervals between consecutive successful samples, each attributed to the state at its start. Each is reported with its uncertainty, the largest gap between successful samples in it.
+- **Transitions** come from the watch: the time an object's change arrived, beside the condition's own `lastTransitionTime` (one-second resolution) where it has one.
+- **Durations that combine two objects**, such as M1 (the CR's phase and a Pod's scheduling), are computed on the merged watch timeline, the state of each object holding from one of its events to its next.
+- **Polled durations** are reported only as a cross-check, as a lower and an upper bound: the intervals between consecutive successful samples where both ends show the state, and where either end does. The largest gap is not used as an uncertainty, because errors at several boundaries add up.
+- **Censored durations.** A duration whose end is not observed inside the window is reported as at least its observed length, marked censored, and never as complete.
 The multi-Pod harness's samples were not one second apart (its archived `bad-address` timeline: 109 samples over 121.6 s), so samples are never counted as seconds.
 
 ## What is measured
@@ -90,22 +95,22 @@ The multi-Pod harness's samples were not one second apart (its archived `bad-add
 "Joined" means some rank logged a successful rendezvous; "stranded" means one of the current attempt's rank Pods exists with `PodScheduled=False`.
 
 - **M1, reported Running while stranded:** time with the CR's phase `Running` while stranded.
-- **M2, quota held before joining:** for each admission, from the Workload's `QuotaReserved` turning True to whichever comes first, its turning False or the ranks joining. Read from the Workload's own conditions, not the ClusterQueue's aggregate; the aggregate is recorded beside it.
-- **M3, attempts stopped:** each distinct `Evicted=True` transition (by `lastTransitionTime`) with its reason, whether `PodsReadyTimeout` or `Deactivated`; the largest `requeueState.count` seen in any sample, because deactivation clears it; and whether the Workload ended with `spec.active: false`.
-- **M4, eviction lag:** for each eviction, from `Evicted` turning True to `QuotaReserved` turning False.
+- **M2, quota held before joining:** for each admission, from the Workload's `QuotaReserved` turning True to whichever comes first, its turning False or the ranks joining; censored at the window's end if neither is seen. Read from the Workload's own transitions in the watch, not the ClusterQueue's aggregate; the aggregate is recorded beside it.
+- **M3, eviction requests and stopped attempts, kept apart.** A request is a distinct `Evicted=True` transition with its reason: `PodsReadyTimeout`, or one starting with `Deactivated` (Kueue writes `DeactivatedDueToRequeuingLimitExceeded`, joining the reason and its cause; it matches by prefix itself). An attempt is stopped by it only when, after the request, the Job is seen suspended and the placed rank's container ends as an eviction ends one (below). Also: the largest `requeueState.count` seen, because deactivation clears it, and whether the Workload ended with `spec.active: false`.
+- **M4, eviction lag:** for each request, from `Evicted` turning True to `QuotaReserved` turning False; censored if no release is seen in the window.
 - **M5, outcome:** the CR's phase at the end of the window, and time from creation to `Succeeded` if reached.
-- **M6, cost of discarded attempts:** the number of admissions, and for each discarded one the container-seconds its placed rank ran (from `startedAt` to `finishedAt` or deletion); Pods that never started count as zero.
-- **M7, the CR across an eviction:** its phase in the samples after each eviction, and the value of `admittedAt` against each admission's Kueue stamp.
-- **Capacity arrival** in `late`: when the squatter Pod no longer exists, against the harness's deletion time.
+- **M6, cost of discarded attempts:** the number of admissions, and for each discarded one the container-seconds its placed rank ran, from `startedAt` to `finishedAt` only. A container whose `finishedAt` is never seen is reported censored, at least its last observed running time; a deletion timestamp is never used, because it is a deadline, not an end. Pods that never started count as zero.
+- **M7, the CR across an eviction:** its phase from each request onward, and the value of `admittedAt` against each admission's Kueue stamp.
+- **When the second rank was placed**, in `late`: its `PodScheduled` turning True. The squatter's deletion is the intervention and is reported with it; the device's becoming usable is not observed and is not claimed, because an API object's disappearance does not wait for the kubelet.
 
 ## Registered predictions, read from the code before any run
 
 Each can be contradicted by the runs; a contradicted prediction is reported as a finding, with the code it was read from re-read.
 
-- **P1, `off-never`:** M1 is at least 95% of the time from the placed rank's Ready to the end of the window; M2's single admission lasts to the end of the window; M3 is zero.
-- **P2, `off-late`:** M1 lasts from the placed rank's Ready until the second rank is placed after capacity arrives; the CR reaches `Succeeded` within the window; one admission.
-- **P3, `ready-timeout-never`:** three admissions. The first two end in `PodsReadyTimeout` evictions initiated 120 to 135 s after their admission; the third ends in deactivation (`Deactivated`, after `RequeuingLimitExceeded`) inside the window; the largest requeue count seen is 2. Inferred, not guaranteed, from the backoff of 30 s then 60 s: admissions near 0, 150 and 330 s. M4 is measured and reported; no bound is predicted.
-- **P4, `ready-timeout-late`:** at least one eviction precedes capacity arrival, and the job reaches `Succeeded` in a later admission within the window.
+- **P1, `off-never`:** M1 is at least 95% of the time from the CR's first `Running` to the end of the window, and that first `Running` comes within 10 s of the placed rank's Ready; M2's single admission is censored at the window's end, so it held for the window less its admission offset; M3 has no request.
+- **P2, `off-late`:** from the CR's first `Running`, within 10 s of the placed rank's Ready, until the second rank is placed after the squatter's deletion, the CR is `Running` for at least 95% of that time; the CR reaches `Succeeded` within the window; one admission.
+- **P3, `ready-timeout-never`:** three admissions. The first two end in `PodsReadyTimeout` requests 120 to 135 s after their admission, each followed by a stopped attempt; the third ends in a request whose reason starts with `Deactivated` inside the window; the largest requeue count seen is 2. Inferred, not guaranteed, from the backoff of 30 s then 60 s with Kueue's small jitter: admissions near 0, 150 and 330 s. M4 is measured and reported, censored where it must be; no bound is predicted.
+- **P4, `ready-timeout-late`:** at least one stopped attempt precedes the squatter's deletion, and the job reaches `Succeeded` in a later admission within the window.
 - **P5, the CR across an eviction:** within 30 s of each eviction the CR is not `Running`. `admittedAt` is either absent or equal to the Kueue stamp of the first admission the operator saw as admitted and not yet running, and is never moved to a later admission (`internal/controller/admit_to_running.go` records it once).
 
 ## Validity, per run
@@ -114,15 +119,17 @@ Missing evidence fails a validity rule; absence is never read as a pass. A void 
 
 - the setting in force and the run isolated, as above;
 - each worker advertised exactly one `nvidia.com/gpu`, and the squatter was Running on the second worker from before creation until its deletion (`late`) or the end of the window (`never`);
-- **the treatment happened:** the first admission was observed; it created exactly two rank Pods; exactly one was placed and became Ready; the other carried `PodScheduled=False` with reason `Unschedulable` and a message naming `nvidia.com/gpu`; and the placed rank logged `rendezvous_start` and no successful rendezvous before capacity arrived;
+- **the treatment happened:** the first admission was observed; it created exactly two rank Pods; exactly one was placed and became Ready; the other carried `PodScheduled=False` with reason `Unschedulable` and a message naming `nvidia.com/gpu`; and the placed rank logged `rendezvous_start` and no successful rendezvous before the squatter's deletion;
 - while the squatter held its device, no sample shows both ranks placed;
-- **every rank container ended for an accounted reason:** it was still running at the window's end, or it was deleted during an eviction, or, in `late` only, it exited 0 after a successful rendezvous with its `verdict` record. Any other end, including `rendezvous_failed` or a non-zero exit outside an eviction, voids the run;
-- no more than 3 s between consecutive successful samples, and every rank Pod that ran has its log.
+- **before the squatter's deletion (all of `never`), every rank container ended for an accounted reason:** it was still running at the window's end, or an eviction ended it. An eviction ended it only in this order: the `Evicted=True` request, then the Pod's deletion, then the container's end with exit 143 and a `sigterm` record, or 137 after the grace period, or no terminated state before the Pod was gone. A container that terminated before its Pod's deletion, or with any other exit, or with `rendezvous_failed`, ended by itself, and that voids the run, because then the trainer, not the platform, ended the stranding;
+- **after the squatter's deletion** (`late`), a rank's failure is not a validity problem: it is an outcome, scored against P2 or P4 as a job that did not reach `Succeeded`, with how it ended;
+- no more than 3 s between consecutive successful samples, every rank Pod that ran has its log, and each watch stream covers the window, with any restart's gap under 3 s.
 
 ## Building it
 
 - `hack/distributed-partial-placement.sh`, a new harness. It repeats the multi-Pod harness's cluster setup rather than sourcing it, so `hack/multi-pod-ddp.sh` stays byte-identical to the version its recorded run used.
-- `experiments/distributed-partial-placement/analyze.py`: validity, M1 to M7 and each prediction printed as held or contradicted, with every number and its uncertainty.
+- `experiments/distributed-partial-placement/sample.py`, the poller, and `experiments/distributed-partial-placement/watch.py`, the watch recorder.
+- `experiments/distributed-partial-placement/analyze.py`: validity, M1 to M7 and each prediction printed as held or contradicted, with every number and its bounds or censoring.
 - `test_analyze.py` beside it, on fixture timelines: each measure, the timing rule and each validity rule shown to change when the one input it reads is changed, and each validity rule shown to fail on missing evidence.
 - The registration page, `experiments/distributed-partial-placement/README.md`, fixed before the first run.
 
@@ -160,4 +167,20 @@ Each finding was re-checked; the two blockers against Kueue's `apis/config/v1bet
 | `admittedAt` is the first admission the operator saw, and `Running` can outlast an eviction | minor | P5 reworded, with a 30 s window |
 | extra Pod objects are not the cost of discarded attempts | minor | M6: admissions and container-seconds |
 | "without bound" and general recovery exceed two 600 s observations | major | what it would not license |
-| the squatter's deletion is an intervention, not capacity arrival | minor | capacity arrival measured as the squatter Pod gone, with a zero grace period |
+| the squatter's deletion is an intervention, not capacity arrival | minor | v2 measured the squatter Pod gone; v3 replaced that, below |
+
+## The review of v2 (codex `gpt-6-astra`, 2026-10-21), and where v3 answers it
+
+Each finding was re-checked: the joined eviction reason against `ReasonWithCause` and `IsEvictedByDeactivation` in Kueue's `pkg/workload/workload.go`, the asynchronous release against its Job reconciler.
+
+| finding | severity | v3 |
+|---|---|---|
+| the deactivating eviction's reason is `DeactivatedDueToRequeuingLimitExceeded`, not `Deactivated` | major | M3 and P3: matched by prefix, as Kueue does |
+| a release and readmission between two polls loses the release's time, even with no gap in the samples | major | collection: watch streams of Workloads, MLTrainingJobs and Pods |
+| the largest gap is no uncertainty for a sum of intervals, and one sample is not one instant | major | timing rule: merged watch timeline; polled sums as lower and upper bounds |
+| a deletion timestamp is a deadline, not a container's end | major | M6: `finishedAt` only, censored otherwise |
+| a deleted Pod's disappearance is not the device becoming usable | major | the second rank's `PodScheduled` instead; device availability not claimed |
+| voiding every rank failure after capacity hides failures of P2 and P4 | major | validity: after the squatter's deletion a failure is an outcome |
+| an eviction request is not a stopped attempt, and overlap is not cause | major | M3 keeps requests and stopped attempts apart; validity fixes the order of request, deletion and end |
+| unfinished intervals have no rule, and a hold to the window's end is not 600 s | major | timing rule: censored durations; the hold is 600 s less the admission offset |
+| P2 aligned Pod readiness and the CR's `Running` with no tolerance | minor | P1 and P2: from the CR's first `Running`, within 10 s of Ready |
