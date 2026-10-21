@@ -1,6 +1,6 @@
 # Design: hold-cap's protection, measured on the product path on EKS
 
-Written 2026-10-15. Status: **run twice, verdict not met both times** (run 1: `hack/eks-serve/holdcap-study/runs/20261015T050622Z/README.md`; run 2: `hack/eks-serve/holdcap-study/runs/20261015T225425Z/README.md`). Registered as v2, after codex `gpt-6-astra`'s adversarial review of v1 (5 blockers, 12 majors, 1 minor, every one answered in the table at the end); the registration below is as it stood when the session started.
+Written 2026-10-15. Status: **run three times: not met in runs 1 and 2 against an Off that bound no priority, observed in run 3 against an Off that binds by tier** (run 1: `hack/eks-serve/holdcap-study/runs/20261015T050622Z/README.md`; run 2: `hack/eks-serve/holdcap-study/runs/20261015T225425Z/README.md`; run 3: `hack/eks-serve/holdcap-study/runs/20261021T021149Z/README.md`). Registered as v2, after codex `gpt-6-astra`'s adversarial review of v1 (5 blockers, 12 majors, 1 minor, every one answered in the table at the end); the registration below is as it stood when the session started.
 The owner approved paid experiments for this work on 2026-10-15, subject to the purchase gate below.
 Chosen over NCCL for `spec.distributed` after independent reviews by astra and me: both found neither ready to buy, and astra's case that this one answers a product question the lab result leaves open was accepted.
 
@@ -160,6 +160,23 @@ The owner approved it after reading the first run's result.
 - **The sampler retries** a failed read of the gateway's metrics up to three times within its 5 s tick, and records read errors in `sampler.err`. The rule is unchanged: a sample that still cannot show the arm counts against validity.
 
 **What it can and cannot say beside run 1.** Two runs of one card are two runs, not a rate. If run 2 meets every line where run 1 did not, the record says the registration was met once and missed once, not that it is met; and the near-miss on the median is a property of the treatment the second run may or may not repeat.
+
+## Run 3, the bound Off, registered 2026-10-21 before it ran
+
+Runs 1 and 2 stand, both not met. They compared HoldCap against an Off that bound no priority, which both runs and their write-ups name as the reason their ratios are not comparable with the lab's: the product's Off left the premium p99 at 6 to 10 s where the lab's off gave about 1.5 s.
+#365 changes the product: the gateway now binds the tenant's tier on every engine the controller reports in force, in Off as in HoldCap, as the lab's off did with `-bind-priority`. Run 3 asks the original question against that Off.
+The owner approved it after reading runs 1 and 2.
+
+**What is the same:** every line of the registration above. The traces, the six cells and their order, the definitions, every completeness, validity and acceptance line, including the contender median limit of 1.5 × and the premium p99 limit of 0.85 × Off's, and the verdict's precedence.
+
+**What differs, and why:**
+
+- **The study ID**, `holdcap-product-transfer-bound-off-2026-10-21`, registered with every other field equal to the first run's, which a test pins.
+- **The product under test** is `main` with #365.
+- **The priority Off must carry.** The validity line "`X-Engine-Priority` on every answered row: absent under Off" becomes "0 for premium and 1 for contender under Off", the same as under HoldCap. A row without it under Off means the gateway did not bind, and the cell is invalid. Nothing else in the registration changes.
+- **Each cell waits for `EngineInForce`** True for the current generation before it starts, because that condition is what the gateway binds on.
+
+**What it can say.** Against an Off that binds by tier, HoldCap's premium ratio is comparable in kind with the lab's 0.30, though not equal to it: the card, the path and the client are the product's. The contender's cost is measured against an Off whose contenders are now deprioritised too, so its median may sit further from 1.5 × than in runs 1 and 2, in either direction; that is what run 3 measures, not what it assumes.
 
 ## The review that shaped v2
 

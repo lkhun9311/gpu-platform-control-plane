@@ -232,6 +232,25 @@ class ScoreTest(unittest.TestCase):
             f.write("admission-diagnostic-2026-10-10\n")
         self.assertVerdict("inconclusive", "not a registered run")
 
+    # The bound-Off run: its Off binds the tier as HoldCap does (#365), so unbound Off rows are now the wrong treatment.
+    def bound_off(self, bind_off):
+        self.restamp(score.BOUND_OFF)
+        with open(os.path.join(self.r.run, "study-id.txt"), "w") as f:
+            f.write(score.BOUND_OFF + "\n")
+        if bind_off:
+            for seed in score.SEEDS:
+                self.r.edit_rows(seed, "Off", lambda r: r.update(enginePriority="0" if r["tenant"] == score.PREMIUM else "1"))
+
+    def test_the_bound_off_run_passes_with_its_off_bound(self):
+        self.bound_off(bind_off=True)
+        verdict, lines = self.r.score()
+        self.assertEqual(verdict, "observed on these traces", lines)
+
+    def test_the_bound_off_run_refuses_an_unbound_off(self):
+        # Mutation that turns this red: read the expected priority from PRIORITY whatever the study.
+        self.bound_off(bind_off=False)
+        self.assertVerdict("inconclusive", "engine priority")
+
     # Validity: each makes a block invalid.
     def test_a_wrong_priority_header(self):
         self.r.edit_rows(851, "Off", lambda r: r.update(enginePriority="1"))

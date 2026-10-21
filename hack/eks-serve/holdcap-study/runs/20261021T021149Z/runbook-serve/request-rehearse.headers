@@ -1,0 +1,8 @@
+HTTP/1.1 502 Bad Gateway
+Content-Type: application/json
+X-Admission-Reason: admission_off
+X-Admission-Tier: standard
+X-Request-Id: b5d27f455e34e7a574204dd9808409ad
+Date: Wed, 21 Oct 2026 02:27:44 GMT
+Content-Length: 84
+

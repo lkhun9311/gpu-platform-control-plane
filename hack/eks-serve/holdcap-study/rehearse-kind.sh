@@ -50,8 +50,18 @@ print(json.dumps([{"op": "replace", "path": "/spec/template/spec/containers/0/ar
     k -n "$SERVE_NS" delete pod -l "app.kubernetes.io/instance=$SERVE_INFD" --wait=false
   fi
   gen="$(k -n "$SERVE_NS" get inferencedeployment "$SERVE_INFD" -o jsonpath='{.metadata.generation}')"
-  k -n "$SERVE_NS" patch inferencedeployment "$SERVE_INFD" --subresource=status --type merge \
-    -p "{\"status\":{\"admission\":{\"mode\":\"$arm\",\"observedGeneration\":$gen}}}"
+  write_status "$arm" "$gen"
+}
+
+# write_status writes what the stopped operator would: the admission in force and, since #365, the EngineInForce
+# condition the gateway binds a tier on. A merge patch replaces the conditions list whole, which a stub does not mind.
+write_status() {
+  local arm=$1 gen=$2 now
+  now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  k -n "$SERVE_NS" patch inferencedeployment "$SERVE_INFD" --subresource=status --type merge -p "{\"status\":{
+    \"admission\":{\"mode\":\"$arm\",\"observedGeneration\":$gen},
+    \"conditions\":[{\"type\":\"EngineInForce\",\"status\":\"True\",\"reason\":\"RenderedEngineInForce\",
+      \"message\":\"written by the rehearsal for the stub engine\",\"observedGeneration\":$gen,\"lastTransitionTime\":\"$now\"}]}}"
 }
 
 if [[ "${1:-}" == set-arm ]]; then
@@ -141,8 +151,7 @@ print(json.dumps([
 W="$(k get nodes -o name | grep worker | head -1)"
 k label "$W" node.kubernetes.io/instance-type=g5.xlarge platform.lkhun9311.github.io/gpu=true --overwrite >>"$LOG" 2>&1 || die "label worker"
 gen="$(k -n "$SERVE_NS" get inferencedeployment "$SERVE_INFD" -o jsonpath='{.metadata.generation}')"
-k -n "$SERVE_NS" patch inferencedeployment "$SERVE_INFD" --subresource=status --type merge \
-  -p "{\"status\":{\"admission\":{\"mode\":\"HoldCap\",\"observedGeneration\":$gen}}}" >>"$LOG" 2>&1 || die "status"
+write_status HoldCap "$gen" >>"$LOG" 2>&1 || die "status"
 k -n "$SERVE_NS" rollout status "deploy/$DEP" --timeout=240s >>"$LOG" 2>&1 || die "stub engine rollout"
 
 log "runner"

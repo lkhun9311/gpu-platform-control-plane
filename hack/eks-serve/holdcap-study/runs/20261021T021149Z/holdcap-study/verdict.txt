@@ -1,0 +1,19 @@
+verdict: observed on these traces
+  block 851 ok  1 premium TTFT p99 ratio: 410.8 / 1468.8 ms = 0.280
+  block 851 ok  2 contender completion: 1.0000
+  block 851 ok  3 contender p50 ratio and p95: p50 4006 against 3127 ms, p95 16724 ms
+  block 851 ok  4 refusals: 0
+  block 851 ok  5 premium content-event gap p99 ratio: 88513 / 90921 us = 0.974
+  block 851 ok  6 preemptions: 0
+  block 852 ok  1 premium TTFT p99 ratio: 429.3 / 1515.3 ms = 0.283
+  block 852 ok  2 contender completion: 1.0000
+  block 852 ok  3 contender p50 ratio and p95: p50 7025 against 5107 ms, p95 15770 ms
+  block 852 ok  4 refusals: 0
+  block 852 ok  5 premium content-event gap p99 ratio: 89675 / 92910 us = 0.965
+  block 852 ok  6 preemptions: 0
+  block 853 ok  1 premium TTFT p99 ratio: 456.8 / 1497.9 ms = 0.305
+  block 853 ok  2 contender completion: 1.0000
+  block 853 ok  3 contender p50 ratio and p95: p50 3944 against 3142 ms, p95 9276 ms
+  block 853 ok  4 refusals: 0
+  block 853 ok  5 premium content-event gap p99 ratio: 88471 / 91101 us = 0.971
+  block 853 ok  6 preemptions: 0
