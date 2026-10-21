@@ -1,0 +1,1 @@
+{"attempt": "1", "event": "rendezvous_start", "hostname": "pp-rt-never-1-064148-0", "master_addr": "pp-rt-never-1-064148-0.pp-rt-never-1-064148-ddp.partial.svc", "master_port": "29500", "rank": 0, "run_id": "pp-rt-never-1-064148", "timeout_seconds": 1500, "ts": "2026-10-21T06:44:22.291817+00:00"}

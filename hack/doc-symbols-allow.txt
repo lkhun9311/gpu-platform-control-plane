@@ -95,7 +95,6 @@ CompletionMode	batch/v1 Job field the multi-pod design (2026-10-14) plans to set
 FailureTarget	batch/v1 Job condition type the multi-pod design cites as upstream behaviour, not code of this repository
 DisruptionTarget	Pod condition the multi-pod design names only to record that it was rejected as evidence
 Requeued	Kueue v0.18.3 Workload condition type (apis/kueue/v1beta1/workload_types.go), named by the distributed partial-placement design
-hack/distributed-partial-placement.sh	proposed by the distributed partial-placement design (2026-10-21), which says it is not built
 Deactivated	Kueue v0.18.3 eviction reason (apis/kueue/v1beta1/workload_types.go), named by the distributed partial-placement design
 RequeuingLimitExceeded	Kueue v0.18.3 deactivation reason (apis/kueue/v1beta1/workload_types.go), named by the distributed partial-placement design
 DeactivatedDueToRequeuingLimitExceeded	Kueue v0.18.3 eviction reason built by ReasonWithCause (pkg/workload/workload.go), named by the distributed partial-placement design

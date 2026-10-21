@@ -427,12 +427,19 @@ shell-check: ## Parse every shell script under hack/ and .githooks/.
 		[ -f "$$f" ] || continue; \
 		bash -n "$$f" || { echo "shell-check: $$f does not parse" >&2; fail=1; }; \
 	done; \
-	for f in hack/test/spot-lifecycle/*.py hack/serving-stub/*.py hack/eks-serve/holdcap-study/*.py; do \
+	for f in hack/test/spot-lifecycle/*.py hack/serving-stub/*.py hack/eks-serve/holdcap-study/*.py \
+		experiments/distributed-partial-placement/*.py; do \
 		[ -f "$$f" ] || continue; \
 		python3 -m py_compile "$$f" || { echo "shell-check: $$f does not compile" >&2; fail=1; }; \
 	done; \
 	if [ "$$fail" != "0" ]; then exit 1; fi; \
 	echo "shell-check: every listed shell script parses and every harness python file compiles"
+
+.PHONY: scorer-tests
+scorer-tests: ## Run the study scorers' own tests, which pin what each published verdict reads.
+	@# Both suites existed and nothing ran them: compiling a scorer says it parses, not that its rules read their input.
+	cd hack/eks-serve/holdcap-study && python3 -m unittest test_score
+	python3 -m unittest experiments/distributed-partial-placement/test_analyze.py
 
 .PHONY: session-refusals
 session-refusals: ## Check what gpu-session.sh refuses before it spends anything.
@@ -497,7 +504,7 @@ infra-offline: terraform ## Check that the Terraform validation step needs no AW
 	./hack/infra-validate-is-offline-test.sh
 
 .PHONY: infra-validate
-infra-validate: terraform kustomize actionlint shell-check session-refusals session-manifest docs-check spot-lifecycle harness-check infra-offline ## Validate Terraform (offline), Argo manifests, shell, workflow YAML, the session refusals, the campaign manifest, the published docs' names, every paid runner's recorded behaviour, and the self-contained test harnesses.
+infra-validate: terraform kustomize actionlint shell-check scorer-tests session-refusals session-manifest docs-check spot-lifecycle harness-check infra-offline ## Validate Terraform (offline), Argo manifests, shell, workflow YAML, the session refusals, the campaign manifest, the published docs' names, every paid runner's recorded behaviour, and the self-contained test harnesses.
 	@# Each root is validated in a throwaway TF_DATA_DIR, and the loop stops at the first failure.
 	@#
 	@# Two defects lived in the previous three lines. The first: `-backend=false` does not mean "no backend".

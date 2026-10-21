@@ -1,6 +1,6 @@
 # Design: a distributed job with one rank placed — what the platform reports, how long it holds quota, and what Kueue's readiness timeout does about it
 
-Written 2026-10-21. Status: **v3, registered before any run; not built.**
+Written 2026-10-21. Status: **v3, registered before any registered run; built and rehearsed twice on 200 s windows, whose numbers are not results.** M8 and P6 were added after the second rehearsal, and P6 says so.
 v1 and v2 were each reviewed adversarially by codex `gpt-6-astra` the same day: v1 had 2 blockers, 10 majors and 3 minors, v2 had 8 majors and 1 minor. Each finding was re-checked against the code or Kueue's source before the next version answered it; the tables are at the end.
 Chosen over building the NCCL groundwork first, after independent brainstorms by astra and me and an adversarial review of the merged list: this one asks a control-plane question at no rented cost, and the NCCL work stays second (its design, v4 with three binding corrections, is on the unmerged branch feat/nccl-groundwork).
 
@@ -101,6 +101,7 @@ The multi-Pod harness's samples were not one second apart (its archived `bad-add
 - **M5, outcome:** the CR's phase at the end of the window, and time from creation to `Succeeded` if reached.
 - **M6, cost of discarded attempts:** the number of admissions, and for each discarded one the container-seconds its placed rank ran, from `startedAt` to `finishedAt` only. A container whose `finishedAt` is never seen is reported censored, at least its last observed running time; a deletion timestamp is never used, because it is a deadline, not an end. Pods that never started count as zero.
 - **M7, the CR across an eviction:** its phase from each request onward, and the value of `admittedAt` against each admission's Kueue stamp.
+- **M8, the device held after the quota is released:** for each stopped attempt, from the Workload's `QuotaReserved` turning False to the placed rank's container `finishedAt`, with its exit code; censored if no end is seen. Kueue releases the reservation when the Job is no longer active, which can come before the evicted rank's process has stopped, so for that time the queue counts a device free that a process still holds.
 - **When the second rank was placed**, in `late`: its `PodScheduled` turning True. The squatter's deletion is the intervention and is reported with it; the device's becoming usable is not observed and is not claimed, because an API object's disappearance does not wait for the kubelet.
 
 ## Registered predictions, read from the code before any run
@@ -111,6 +112,7 @@ Each can be contradicted by the runs; a contradicted prediction is reported as a
 - **P2, `off-late`:** from the CR's first `Running`, within 10 s of the placed rank's Ready, until the second rank is placed after the squatter's deletion, the CR is `Running` for at least 95% of that time; the CR reaches `Succeeded` within the window; one admission.
 - **P3, `ready-timeout-never`:** three admissions. The first two end in `PodsReadyTimeout` requests 120 to 135 s after their admission, each followed by a stopped attempt; the third ends in a request whose reason starts with `Deactivated` inside the window; the largest requeue count seen is 2. Inferred, not guaranteed, from the backoff of 30 s then 60 s with Kueue's small jitter: admissions near 0, 150 and 330 s. M4 is measured and reported, censored where it must be; no bound is predicted.
 - **P4, `ready-timeout-late`:** at least one stopped attempt precedes the squatter's deletion, and the job reaches `Succeeded` in a later admission within the window.
+- **P6, the device held after release, not a blind prediction:** in each stopped attempt M8 is 25 to 35 s and the placed rank exits 137. Read from the code, but only after a rehearsal showed it: the trainer's SIGTERM handler is Python, and Python runs a handler only between bytecodes, so while `init_process_group` blocks in its C++ store client the signal waits, and the kubelet kills the process at the default 30 s grace period. The second rehearsal measured 29 s with exit 137 once; this prediction says that it repeats, and is marked as informed by it.
 - **P5, the CR across an eviction:** within 30 s of each eviction the CR is not `Running`. `admittedAt` is either absent or equal to the Kueue stamp of the first admission the operator saw as admitted and not yet running, and is never moved to a later admission (`internal/controller/admit_to_running.go` records it once).
 
 ## Validity, per run
