@@ -1,6 +1,7 @@
 # Design: the free groundwork for running `spec.distributed` on GPUs with NCCL
 
-Written 2026-10-16, revised 2026-10-21 as v2, v3 and v4. Status: **v4, answering three reviews; not built.**
+Written 2026-10-16, revised 2026-10-21 as v2, v3 and v4. Status: **v4, answering three reviews; not built, and second in line.**
+A brainstorm with codex the same day ranked a free kind experiment on partially placed distributed jobs ahead of this, and found three things v4 still gets wrong; they bind any implementation and are listed in "Corrections that bind the build" below, ahead of the sections they amend.
 v1 was parked after codex `gpt-6-astra`'s adversarial review (2026-10-16) found 3 blockers and 10 majors. v2 answered them; astra's review of v2 found 7 majors and 2 minors, and its review of v3 found 3 majors and 2 minors, none a blocker. Each finding was re-checked against the code before the next version answered it. The tables are at the end.
 No money is spent by anything here; the paid run that would use it is a separate decision with its own registration.
 
@@ -29,6 +30,14 @@ Multi-Pod training is built and passed a registered kind experiment on CPU with 
 - **The `gpu` node group is On-Demand** (`infra/aws/cluster/vpc.tf`, `local.gpu_capacity`), its instance type defaults to a four-T4 queuelab type, and `gpu_max_nodes` is validated only to lie between 1 and 2 (`infra/aws/cluster/variables.tf`).
 - **`terraform_data.gpu_quota` compares the configured worst case with the account quota** (`infra/aws/cluster/placement.tf`); it does not read what is already running.
 - **`train.py` is 18,691 bytes**, so base64 in the container command is about 25 KB, far inside the object and argument limits.
+
+## Corrections that bind the build (2026-10-21, after v4)
+
+Each was raised by codex `gpt-6-astra` and re-checked against the file before it was written here.
+
+1. **Placement goes in an EKS-only overlay, not in the shared flavor.** Five kind harnesses apply `config/kueue/resourceflavor.yaml` directly (`hack/multi-pod-ddp.sh`, `hack/checkpoint-resume.sh`, `hack/m6-kind-e2e.sh`, `hack/mlops-lineage.sh`, `hack/m5b-gateway-path.sh`), and none labels its workers; a `nodeLabels` there would leave all of their Pods unschedulable. The shared flavor stays `spec: {}`, and section 2's toleration and label are applied by an overlay the Kueue Application builds.
+2. **The `admittedAt` gate needs a job held in Admitted.** The operator writes `admittedAt` only on a reconcile that sees the job admitted and not yet running (`internal/controller/admit_to_running.go`); a healthy operator that first sees an already-running job leaves it absent, by design. So section 1's check runs on a separate qualification job held admitted but unready, then released, not on each correctness cell.
+3. **The price is $1.237 an hour per g5.xlarge**, the On-Demand list price in `ap-northeast-2` read from the Price List API on 2026-10-21, not "about $1.0".
 
 ## What closes each gap
 
@@ -139,7 +148,7 @@ What bounds the GPUs bought is not the quota and not `max_size` alone. `max_size
 ## What it would license
 
 Nothing by itself: it makes a paid NCCL run possible and scoreable. That run, its registration, its smoke cell and its budget come after this, with the owner's approval.
-For that budget: two g5.xlarge On-Demand at about $1.0 an hour each, the cluster at about $0.26 an hour, and the CUDA image pulled once per node through the NAT, a few GB each at $0.059 a GB.
+For that budget: two g5.xlarge On-Demand at $1.237 an hour each, the cluster at about $0.26 an hour, and the CUDA image pulled once per node through the NAT, a few GB each at $0.059 a GB.
 
 ## Out of scope
 
