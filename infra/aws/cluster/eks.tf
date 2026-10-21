@@ -205,8 +205,12 @@ module "eks" {
       # GPU Feature Discovery -- not deployed here. Selecting on a label nothing sets leaves the observer
       # unschedulable and silently absent, and a run then reports "no device observer ran" without anything
       # saying why. config/dcgm-exporter/daemonset.yaml selects on this one.
+      #
+      # The train label is on this group alone, so Kueue's gpu flavor can place training Pods here and never on
+      # gpu_single, which carries the same gpu label and serves (docs/superpowers/specs/2026-10-16-nccl-groundwork-design.md, section 2).
       labels = {
-        "platform.lkhun9311.github.io/gpu" = "true"
+        "platform.lkhun9311.github.io/gpu"   = "true"
+        "platform.lkhun9311.github.io/train" = "true"
       }
       taints = {
         gpu = {

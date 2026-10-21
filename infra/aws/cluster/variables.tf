@@ -225,4 +225,10 @@ variable "gpu_max_nodes" {
     condition     = var.gpu_max_nodes >= 1 && var.gpu_max_nodes <= 2
     error_message = "The protocol uses one or two workers. Anything else is not a configuration this study describes."
   }
+
+  # A number type accepts 1.5, which the range check passes and EKS would refuse only at apply, on the meter.
+  validation {
+    condition     = floor(var.gpu_max_nodes) == var.gpu_max_nodes
+    error_message = "gpu_max_nodes is a count of nodes and must be a whole number."
+  }
 }
