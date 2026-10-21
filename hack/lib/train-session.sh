@@ -243,6 +243,7 @@ else:
 # The way hack/eks-gitops-runbook.sh's serve_sync does it, for its reasons: the whole operation is replaced, not
 # merged, so an earlier operation's fields cannot narrow this one; status.operationState holds the previous verdict
 # until Argo picks the new request up; and a succeeded operation is not yet a Synced Application.
+# It names no revision, so Argo syncs the Application's own targetRevision: main on EKS, the rehearsal's branch on kind.
 train_sync_app() {
   local ctx="$1" app="$2" wait="$3" deadline=$((SECONDS + $3)) requested out verdict=""
   requested="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -250,7 +251,7 @@ train_sync_app() {
   # only a later second is accepted, and the request waits a second so its own operation starts in one.
   sleep 1
   out="$(kubectl --context "$ctx" --request-timeout=20s -n argocd patch application "$app" --type json -p \
-    '[{"op":"add","path":"/operation","value":{"initiatedBy":{"username":"eks-gitops-session"},"sync":{"revision":"main"}}}]' 2>&1)" || {
+    '[{"op":"add","path":"/operation","value":{"initiatedBy":{"username":"eks-gitops-session"},"sync":{}}}]' 2>&1)" || {
     echo "could not request a sync of $app: ${out:0:300}"
     return 1
   }
