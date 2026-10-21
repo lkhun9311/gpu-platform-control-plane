@@ -334,7 +334,9 @@ def score_gpu(arm_dir: str, recs, approved_sha256: str) -> list[tuple[bool, str]
         (all(d == ("cuda", "cuda") for d in devices.values()),
          f"device and tensor device type by rank {[devices[r] for r in ranks]}"),
         # Distinct cards, not only distinct Pods: two ranks on one GPU is a GPU run of one device.
-        (None not in uuids.values() and len(set(uuids.values())) == len(ranks), f"GPU UUID by rank {[uuids[r] for r in ranks]}"),
+        # Each must be a non-empty string first: an empty one is no identity, and it still differs from the other's.
+        (all(isinstance(u, str) and u.strip() for u in uuids.values()) and len(set(uuids.values())) == len(ranks),
+         f"GPU UUID by rank {[uuids[r] for r in ranks]}"),
         (all(g == GPU_NODE_GROUP for g in on.values()), f"{where}, want {GPU_NODE_GROUP!r}"),
         (all(s == approved_sha256 for s in shas.values()),
          f"script sha256 by rank {[(s or '')[:12] for s in (shas[r] for r in ranks)]}, approved {approved_sha256[:12]}"),

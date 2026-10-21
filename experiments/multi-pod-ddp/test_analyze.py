@@ -141,6 +141,11 @@ class NcclProfile(unittest.TestCase):
         self.fx.edit("pass", 1, "rendezvous_start", gpu_uuid=None)
         self.assertFailsWith("GPU UUID")
 
+    def test_an_empty_gpu_uuid_fails(self):
+        # Empty is no identity, and it differs from the other rank's, so a distinctness check alone passes it.
+        self.fx.edit("pass", 0, "rendezvous_start", gpu_uuid="")
+        self.assertFailsWith("GPU UUID")
+
     def test_one_gpu_shared_by_both_ranks_fails(self):
         self.fx.edit("pass", 1, "rendezvous_start", gpu_uuid=UUIDS[0])
         self.assertFailsWith("GPU UUID")
