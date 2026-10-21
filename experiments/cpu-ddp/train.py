@@ -83,6 +83,40 @@ RENDEZVOUS_TIMEOUT = int(os.environ.get("DDP_RENDEZVOUS_TIMEOUT_SECONDS", "0"))
 # peer must then be the platform, because gloo has nothing in flight to fail with.
 FAIL_RANK = int(os.environ.get("DDP_FAIL_RANK", "-1"))
 FAIL_DELAY_SECONDS = int(os.environ.get("DDP_FAIL_DELAY_SECONDS", "10"))
+# gloo on CPU unless a run asks for NCCL by name; every recorded experiment ran without this set.
+BACKEND = os.environ.get("DDP_BACKEND", "gloo")
+
+
+class DeviceRefused(Exception):
+    """The requested backend cannot run here; raised before rendezvous, so no peer waits on this rank."""
+
+
+def select_device(backend: str, cuda, cuda_version: str | None) -> tuple[str, dict]:
+    """The device this rank computes on, and what the record says about it.
+
+    `cuda` is torch.cuda, passed in so the choice can be tested without a GPU.
+    An unknown name is refused rather than defaulted: a typo would otherwise run a CPU job that a GPU run's
+    evidence was meant to describe.
+    NCCL without CUDA is refused too, because torch would otherwise fail later and less clearly, or a later
+    version might fall back, and either way the record would not say a GPU was absent.
+    """
+    if backend == "gloo":
+        # The card is not touched, so a CPU arm placed on a GPU node neither claims nor initialises it.
+        return "cpu", {"device_type": "cpu"}
+    if backend != "nccl":
+        raise DeviceRefused(f"DDP_BACKEND={backend!r} is neither 'gloo' nor 'nccl'")
+    if not cuda.is_available():
+        raise DeviceRefused("DDP_BACKEND=nccl and CUDA is not available")
+    # One GPU per Pod, so the only device a rank can see is index 0.
+    cuda.set_device(0)
+    return "cuda:0", {
+        "device_type": "cuda",
+        "device_name": cuda.get_device_name(0),
+        # The card's identity, which the analyzer compares across ranks: two ranks on one card is not two GPUs.
+        "gpu_uuid": str(cuda.get_device_properties(0).uuid),
+        "cuda_version": cuda_version,
+        "nccl_version": ".".join(str(part) for part in cuda.nccl.version()),
+    }
 
 
 def script_sha256() -> str:
@@ -162,18 +196,28 @@ def main() -> int:
 
     signal.signal(signal.SIGTERM, on_sigterm)
 
+    try:
+        device, device_fields = select_device(BACKEND, torch.cuda, torch.version.cuda)
+    except DeviceRefused as exc:
+        emitter.emit("device_refused", backend_requested=BACKEND, error=str(exc))
+        return 1
+
     emitter.emit(
         "rendezvous_start",
         master_addr=os.environ.get("MASTER_ADDR", ""),
         master_port=os.environ.get("MASTER_PORT", ""),
         timeout_seconds=RENDEZVOUS_TIMEOUT,
         hostname=socket.gethostname(),
+        backend_requested=BACKEND,
+        # Read off a tensor actually allocated there, not off the string that named the device.
+        tensor_device_type=torch.zeros(1, device=device).device.type,
+        **device_fields,
     )
     kwargs = {}
     if RENDEZVOUS_TIMEOUT > 0:
         kwargs["timeout"] = datetime.timedelta(seconds=RENDEZVOUS_TIMEOUT)
     try:
-        dist.init_process_group(backend="gloo", **kwargs)
+        dist.init_process_group(backend=BACKEND, **kwargs)
     except Exception as exc:  # noqa: BLE001 -- the record must name whatever torch raised
         # The causal record the bad-address control looks for: this rank failed in rendezvous, and said why.
         emitter.emit("rendezvous_failed", error_type=type(exc).__name__, error=str(exc)[:1000])
@@ -191,12 +235,13 @@ def main() -> int:
         die_at_step=DIE_AT_STEP,
     )
 
-    model = nn.Linear(1, 1, bias=False)
+    model = nn.Linear(1, 1, bias=False).to(device)
     # The starting point the arithmetic above assumes. Asserted rather than trusted to the initialiser.
     with torch.no_grad():
         model.weight.fill_(0.0)
 
-    ddp = DDP(model)
+    # device_ids only for a GPU: DDP rejects it for a CPU module, and with it a CUDA module is bound to its card.
+    ddp = DDP(model, device_ids=[0]) if device != "cpu" else DDP(model)
 
     # Counters the comm hook fills in. Kept out of the hook's closure scope as a dict so the hook can mutate
     # them without a global.
@@ -233,9 +278,9 @@ def main() -> int:
     ddp.register_comm_hook(state=None, hook=recording_hook)
 
     optimiser = torch.optim.SGD(ddp.parameters(), lr=0.1)
-    x = torch.tensor([[1.0]])
+    x = torch.tensor([[1.0]], device=device)
     # The whole point: the two ranks see different data, so an unsynchronised run cannot coincidentally agree.
-    y = torch.tensor([[1.0 + 2.0 * rank]])
+    y = torch.tensor([[1.0 + 2.0 * rank]], device=device)
 
     for step in range(1, STEPS + 1):
         if DIE_AT_STEP and rank == 1 and step == DIE_AT_STEP:
@@ -314,8 +359,9 @@ def main() -> int:
     # `tensor.numpy().tobytes()` internally, so it raises "Numpy is not available" on this image exactly as
     # param_digest did. The digest is 32 bytes, which travels as uint8 without any of that.
     digest = param_digest(model)
-    mine = torch.tensor(list(bytes.fromhex(digest)), dtype=torch.uint8)
-    slots = [torch.zeros(32, dtype=torch.uint8) for _ in range(world_size)]
+    # On the rank's device, because NCCL gathers only CUDA tensors.
+    mine = torch.tensor(list(bytes.fromhex(digest)), dtype=torch.uint8, device=device)
+    slots = [torch.zeros(32, dtype=torch.uint8, device=device) for _ in range(world_size)]
     dist.all_gather(slots, mine)
     gathered = [bytes(slot.tolist()).hex() for slot in slots]
     verdict["param_digests"] = gathered

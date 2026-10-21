@@ -1,0 +1,144 @@
+{
+    "apiVersion": "batch/v1",
+    "kind": "Job",
+    "metadata": {
+        "creationTimestamp": "2026-10-21T11:38:26Z",
+        "generation": 2,
+        "labels": {
+            "kueue.x-k8s.io/queue-name": "gpu-ddp"
+        },
+        "name": "ddp-one-rank-fails-113825",
+        "namespace": "ddp",
+        "ownerReferences": [
+            {
+                "apiVersion": "platform.lkhun9311.github.io/v1",
+                "blockOwnerDeletion": true,
+                "controller": true,
+                "kind": "MLTrainingJob",
+                "name": "ddp-one-rank-fails-113825",
+                "uid": "73a58184-6774-467f-8e65-42af699d17a5"
+            }
+        ],
+        "resourceVersion": "2072",
+        "uid": "841148ca-2029-4377-83b0-e3d8a99f5e34"
+    },
+    "spec": {
+        "backoffLimit": 0,
+        "completionMode": "Indexed",
+        "completions": 2,
+        "manualSelector": false,
+        "parallelism": 2,
+        "podReplacementPolicy": "TerminatingOrFailed",
+        "selector": {
+            "matchLabels": {
+                "batch.kubernetes.io/controller-uid": "841148ca-2029-4377-83b0-e3d8a99f5e34"
+            }
+        },
+        "suspend": false,
+        "template": {
+            "metadata": {
+                "annotations": {
+                    "kueue.x-k8s.io/workload": "job-ddp-one-rank-fails-113825-955d2"
+                },
+                "labels": {
+                    "batch.kubernetes.io/controller-uid": "841148ca-2029-4377-83b0-e3d8a99f5e34",
+                    "batch.kubernetes.io/job-name": "ddp-one-rank-fails-113825",
+                    "controller-uid": "841148ca-2029-4377-83b0-e3d8a99f5e34",
+                    "job-name": "ddp-one-rank-fails-113825",
+                    "kueue.x-k8s.io/cluster-queue-name": "gpu-ddp",
+                    "kueue.x-k8s.io/local-queue-name": "gpu-ddp",
+                    "kueue.x-k8s.io/podset": "main",
+                    "platform.lkhun9311.github.io/mltrainingjob": "ddp-one-rank-fails-113825",
+                    "platform.lkhun9311.github.io/mltrainingjob-uid": "73a58184-6774-467f-8e65-42af699d17a5"
+                }
+            },
+            "spec": {
+                "containers": [
+                    {
+                        "command": [
+                            "sh",
+                            "-c",
+                            "export DDP_RUN_ID=ddp-one-rank-fails-113825 DDP_OUT_DIR=/tmp/evidence OMP_NUM_THREADS=1 DDP_RENDEZVOUS_TIMEOUT_SECONDS=60\nexport DDP_FAIL_RANK=1 DDP_FAIL_DELAY_SECONDS=10 DDP_HOLD_SECONDS=900\nexec python /work/train.py\n"
+                        ],
+                        "env": [
+                            {
+                                "name": "NVIDIA_DRIVER_CAPABILITIES",
+                                "value": "compute,utility"
+                            },
+                            {
+                                "name": "WORLD_SIZE",
+                                "value": "2"
+                            },
+                            {
+                                "name": "MASTER_ADDR",
+                                "value": "ddp-one-rank-fails-113825-0.ddp-one-rank-fails-113825-ddp.ddp.svc"
+                            },
+                            {
+                                "name": "MASTER_PORT",
+                                "value": "29500"
+                            },
+                            {
+                                "name": "RANK",
+                                "valueFrom": {
+                                    "fieldRef": {
+                                        "apiVersion": "v1",
+                                        "fieldPath": "metadata.annotations['batch.kubernetes.io/job-completion-index']"
+                                    }
+                                }
+                            }
+                        ],
+                        "image": "cpu-ddp:torch251",
+                        "imagePullPolicy": "IfNotPresent",
+                        "name": "trainer",
+                        "resources": {
+                            "limits": {
+                                "nvidia.com/gpu": "1"
+                            }
+                        },
+                        "terminationMessagePath": "/dev/termination-log",
+                        "terminationMessagePolicy": "File"
+                    }
+                ],
+                "dnsPolicy": "ClusterFirst",
+                "restartPolicy": "Never",
+                "schedulerName": "default-scheduler",
+                "securityContext": {},
+                "subdomain": "ddp-one-rank-fails-113825-ddp",
+                "terminationGracePeriodSeconds": 30
+            }
+        }
+    },
+    "status": {
+        "conditions": [
+            {
+                "lastProbeTime": "2026-10-21T11:38:26Z",
+                "lastTransitionTime": "2026-10-21T11:38:26Z",
+                "message": "Job resumed",
+                "reason": "JobResumed",
+                "status": "False",
+                "type": "Suspended"
+            },
+            {
+                "lastProbeTime": "2026-10-21T11:38:40Z",
+                "lastTransitionTime": "2026-10-21T11:38:40Z",
+                "message": "Job has reached the specified backoff limit",
+                "reason": "BackoffLimitExceeded",
+                "status": "True",
+                "type": "FailureTarget"
+            },
+            {
+                "lastProbeTime": "2026-10-21T11:38:41Z",
+                "lastTransitionTime": "2026-10-21T11:38:41Z",
+                "message": "Job has reached the specified backoff limit",
+                "reason": "BackoffLimitExceeded",
+                "status": "True",
+                "type": "Failed"
+            }
+        ],
+        "failed": 2,
+        "ready": 0,
+        "startTime": "2026-10-21T11:38:26Z",
+        "terminating": 0,
+        "uncountedTerminatedPods": {}
+    }
+}

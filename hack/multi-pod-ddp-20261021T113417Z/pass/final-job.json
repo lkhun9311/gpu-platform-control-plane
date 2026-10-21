@@ -1,0 +1,146 @@
+{
+    "apiVersion": "batch/v1",
+    "kind": "Job",
+    "metadata": {
+        "creationTimestamp": "2026-10-21T11:35:57Z",
+        "generation": 2,
+        "labels": {
+            "kueue.x-k8s.io/queue-name": "gpu-ddp"
+        },
+        "name": "ddp-pass-113557",
+        "namespace": "ddp",
+        "ownerReferences": [
+            {
+                "apiVersion": "platform.lkhun9311.github.io/v1",
+                "blockOwnerDeletion": true,
+                "controller": true,
+                "kind": "MLTrainingJob",
+                "name": "ddp-pass-113557",
+                "uid": "024bc4cf-6b0a-468f-a594-92917cb18eda"
+            }
+        ],
+        "resourceVersion": "1406",
+        "uid": "9809721e-3b1a-4ed2-946e-6ff26f1cb94a"
+    },
+    "spec": {
+        "backoffLimit": 0,
+        "completionMode": "Indexed",
+        "completions": 2,
+        "manualSelector": false,
+        "parallelism": 2,
+        "podReplacementPolicy": "TerminatingOrFailed",
+        "selector": {
+            "matchLabels": {
+                "batch.kubernetes.io/controller-uid": "9809721e-3b1a-4ed2-946e-6ff26f1cb94a"
+            }
+        },
+        "suspend": false,
+        "template": {
+            "metadata": {
+                "annotations": {
+                    "kueue.x-k8s.io/workload": "job-ddp-pass-113557-ec793"
+                },
+                "labels": {
+                    "batch.kubernetes.io/controller-uid": "9809721e-3b1a-4ed2-946e-6ff26f1cb94a",
+                    "batch.kubernetes.io/job-name": "ddp-pass-113557",
+                    "controller-uid": "9809721e-3b1a-4ed2-946e-6ff26f1cb94a",
+                    "job-name": "ddp-pass-113557",
+                    "kueue.x-k8s.io/cluster-queue-name": "gpu-ddp",
+                    "kueue.x-k8s.io/local-queue-name": "gpu-ddp",
+                    "kueue.x-k8s.io/podset": "main",
+                    "platform.lkhun9311.github.io/mltrainingjob": "ddp-pass-113557",
+                    "platform.lkhun9311.github.io/mltrainingjob-uid": "024bc4cf-6b0a-468f-a594-92917cb18eda"
+                }
+            },
+            "spec": {
+                "containers": [
+                    {
+                        "command": [
+                            "sh",
+                            "-c",
+                            "export DDP_RUN_ID=ddp-pass-113557 DDP_OUT_DIR=/tmp/evidence OMP_NUM_THREADS=1 DDP_RENDEZVOUS_TIMEOUT_SECONDS=60\n\nexec python /work/train.py\n"
+                        ],
+                        "env": [
+                            {
+                                "name": "NVIDIA_DRIVER_CAPABILITIES",
+                                "value": "compute,utility"
+                            },
+                            {
+                                "name": "WORLD_SIZE",
+                                "value": "2"
+                            },
+                            {
+                                "name": "MASTER_ADDR",
+                                "value": "ddp-pass-113557-0.ddp-pass-113557-ddp.ddp.svc"
+                            },
+                            {
+                                "name": "MASTER_PORT",
+                                "value": "29500"
+                            },
+                            {
+                                "name": "RANK",
+                                "valueFrom": {
+                                    "fieldRef": {
+                                        "apiVersion": "v1",
+                                        "fieldPath": "metadata.annotations['batch.kubernetes.io/job-completion-index']"
+                                    }
+                                }
+                            }
+                        ],
+                        "image": "cpu-ddp:torch251",
+                        "imagePullPolicy": "IfNotPresent",
+                        "name": "trainer",
+                        "resources": {
+                            "limits": {
+                                "nvidia.com/gpu": "1"
+                            }
+                        },
+                        "terminationMessagePath": "/dev/termination-log",
+                        "terminationMessagePolicy": "File"
+                    }
+                ],
+                "dnsPolicy": "ClusterFirst",
+                "restartPolicy": "Never",
+                "schedulerName": "default-scheduler",
+                "securityContext": {},
+                "subdomain": "ddp-pass-113557-ddp",
+                "terminationGracePeriodSeconds": 30
+            }
+        }
+    },
+    "status": {
+        "completedIndexes": "0,1",
+        "completionTime": "2026-10-21T11:36:02Z",
+        "conditions": [
+            {
+                "lastProbeTime": "2026-10-21T11:35:57Z",
+                "lastTransitionTime": "2026-10-21T11:35:57Z",
+                "message": "Job resumed",
+                "reason": "JobResumed",
+                "status": "False",
+                "type": "Suspended"
+            },
+            {
+                "lastProbeTime": "2026-10-21T11:36:02Z",
+                "lastTransitionTime": "2026-10-21T11:36:02Z",
+                "message": "Reached expected number of succeeded pods",
+                "reason": "CompletionsReached",
+                "status": "True",
+                "type": "SuccessCriteriaMet"
+            },
+            {
+                "lastProbeTime": "2026-10-21T11:36:02Z",
+                "lastTransitionTime": "2026-10-21T11:36:02Z",
+                "message": "Reached expected number of succeeded pods",
+                "reason": "CompletionsReached",
+                "status": "True",
+                "type": "Complete"
+            }
+        ],
+        "ready": 0,
+        "startTime": "2026-10-21T11:35:57Z",
+        "succeeded": 2,
+        "terminating": 0,
+        "uncountedTerminatedPods": {}
+    }
+}

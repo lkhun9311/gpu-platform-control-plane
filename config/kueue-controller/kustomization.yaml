@@ -1,0 +1,81 @@
+# Kueue v0.18.3, whole, as the gpu-platform-kueue Application deploys it on EKS
+# (docs/superpowers/specs/2026-10-16-nccl-groundwork-design.md, section 1).
+#
+# manifests.yaml is the release file byte for byte; RELEASE records where it came from and its sha256, and a test
+# holds the two together. Nothing here edits the vendored bytes: the image is pinned by digest through `images:`,
+# and the only object changed is this repository's own gpu ResourceFlavor.
+#
+# v0.18.3 and not the v0.20.1 go.mod carries: the operator reads kueue.x-k8s.io/v1beta1, which v0.20.1 does not serve.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - manifests.yaml
+  # The shared flavor, included rather than copied, so the kind harnesses and EKS name one object in one file.
+  - ../kueue
+
+images:
+  - name: registry.k8s.io/kueue/kueue
+    digest: sha256:f0a6e65d300269ef525a07fdde8ce73df551856d881d1f0aadcf440dc6ea0b5a
+
+patches:
+  # Placement, on EKS only. Kueue copies a flavor's nodeLabels and tolerations into every Pod it admits on that
+  # flavor, so a training Pod lands on a node of the gpu group and tolerates its taint, and BuildJob's template,
+  # which the termination canary hashes, stays unchanged.
+  #
+  # Here and not in config/kueue/resourceflavor.yaml: five kind harnesses apply that file directly to workers with
+  # no such label, and a nodeLabels there would leave every one of their Pods unschedulable.
+  #
+  # The train label is on the gpu group alone (infra/aws/cluster/eks.tf); gpu_single carries the gpu label too,
+  # and serves.
+  #
+  # Wave 1 within this Application: Argo waits for wave 0, which holds Kueue's Deployment, to be Healthy, and
+  # Kueue's webhook validates a ResourceFlavor, so the flavor applied before the webhook answers would be refused.
+  - target:
+      kind: ResourceFlavor
+      name: gpu
+    patch: |-
+      - op: add
+        path: /metadata/annotations
+        value:
+          argocd.argoproj.io/sync-wave: "1"
+      - op: replace
+        path: /spec
+        value:
+          nodeLabels:
+            platform.lkhun9311.github.io/train: "true"
+          tolerations:
+            - key: nvidia.com/gpu
+              operator: Equal
+              value: present
+              effect: NoSchedule
+  # config/kueue also carries the kind demo's two tenant namespaces and a LocalQueue for one of them, which have no
+  # place on EKS; the training namespace is config/training's.
+  - target:
+      kind: Namespace
+      name: tenant-a
+    patch: |-
+      $patch: delete
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: tenant-a
+  - target:
+      kind: Namespace
+      name: tenant-b
+    patch: |-
+      $patch: delete
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: tenant-b
+  - target:
+      kind: LocalQueue
+      name: gpu-tenant-a
+    patch: |-
+      $patch: delete
+      apiVersion: kueue.x-k8s.io/v1beta1
+      kind: LocalQueue
+      metadata:
+        name: gpu-tenant-a
+        namespace: tenant-a

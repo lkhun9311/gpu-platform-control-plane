@@ -6,6 +6,10 @@ metadata:
   namespace: argocd
   annotations:
     argocd.argoproj.io/sync-wave: "-1"
+    # Every server-side Application diffs server-side, for the reason cert-manager.yaml gives. This one holds only
+    # CRDs, whose status Argo 2.13's schema still reads, which is why it never showed the failure; the rule is
+    # kept uniform so that adding a Deployment here cannot bring it back.
+    argocd.argoproj.io/compare-options: ServerSideDiff=true
 spec:
   project: default
   source:

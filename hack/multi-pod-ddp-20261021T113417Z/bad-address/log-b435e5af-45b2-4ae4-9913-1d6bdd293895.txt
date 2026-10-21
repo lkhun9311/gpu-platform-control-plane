@@ -1,0 +1,50 @@
+/usr/local/lib/python3.12/site-packages/torch/_subclasses/functional_tensor.py:295: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at ../torch/csrc/utils/tensor_numpy.cpp:84.)
+  cpu = _conversion_method_template(device=torch.device("cpu"))
+{"attempt": "1", "backend_requested": "gloo", "device_type": "cpu", "event": "rendezvous_start", "hostname": "ddp-bad-address-113619-1", "master_addr": "nowhere.invalid", "master_port": "29500", "rank": 1, "run_id": "ddp-bad-address-113619", "tensor_device_type": "cpu", "timeout_seconds": 60, "ts": "2026-10-21T11:36:21.130479+00:00"}
+[W1021 11:36:21.535453172 socket.cpp:752] [c10d] The IPv6 network addresses of (nowhere.invalid, 29500) cannot be retrieved (gai error: -2 - Name or service not known).
+[W1021 11:36:21.881762026 socket.cpp:752] [c10d] The IPv6 network addresses of (nowhere.invalid, 29500) cannot be retrieved (gai error: -2 - Name or service not known).
+[W1021 11:36:22.882957366 socket.cpp:752] [c10d] The IPv6 network addresses of (nowhere.invalid, 29500) cannot be retrieved (gai error: -2 - Name or service not known).
+[W1021 11:36:23.331469947 socket.cpp:752] [c10d] The IPv6 network addresses of (nowhere.invalid, 29500) cannot be retrieved (gai error: -2 - Name or service not known).
+[W1021 11:36:26.741817695 socket.cpp:752] [c10d] The IPv6 network addresses of (nowhere.invalid, 29500) cannot be retrieved (gai error: -2 - Name or service not known).
+[W1021 11:36:29.818500998 socket.cpp:752] [c10d] The IPv6 network addresses of (nowhere.invalid, 29500) cannot be retrieved (gai error: -2 - Name or service not known).
+[W1021 11:36:33.348964702 socket.cpp:752] [c10d] The IPv6 network addresses of (nowhere.invalid, 29500) cannot be retrieved (gai error: -2 - Name or service not known).
+[W1021 11:36:38.965366759 socket.cpp:752] [c10d] The IPv6 network addresses of (nowhere.invalid, 29500) cannot be retrieved (gai error: -2 - Name or service not known).
+[W1021 11:36:44.720635089 socket.cpp:752] [c10d] The IPv6 network addresses of (nowhere.invalid, 29500) cannot be retrieved (gai error: -2 - Name or service not known).
+[W1021 11:36:50.128025268 socket.cpp:752] [c10d] The IPv6 network addresses of (nowhere.invalid, 29500) cannot be retrieved (gai error: -2 - Name or service not known).
+[W1021 11:37:13.259686248 socket.cpp:752] [c10d] The IPv6 network addresses of (nowhere.invalid, 29500) cannot be retrieved (gai error: -2 - Name or service not known).
+[E1021 11:37:13.259702977 socket.cpp:1011] [c10d] The client socket has timed out after 60000ms while trying to connect to (nowhere.invalid, 29500).
+[W1021 11:37:13.259834097 TCPStore.cpp:358] [c10d] TCP client failed to connect/validate to host nowhere.invalid:29500 - retrying (try=0, timeout=60000ms, delay=62443ms): The client socket has timed out after 60000ms while trying to connect to (nowhere.invalid, 29500).
+Exception raised from throwTimeoutError at ../torch/csrc/distributed/c10d/socket.cpp:1013 (most recent call first):
+frame #0: c10::Error::Error(c10::SourceLocation, std::string) + 0x96 (0x7c5bf0d3d276 in /usr/local/lib/python3.12/site-packages/torch/lib/libc10.so)
+frame #1: <unknown function> + 0x16c24c6 (0x7c5bf247a4c6 in /usr/local/lib/python3.12/site-packages/torch/lib/libtorch_cpu.so)
+frame #2: <unknown function> + 0x610d195 (0x7c5bf6ec5195 in /usr/local/lib/python3.12/site-packages/torch/lib/libtorch_cpu.so)
+frame #3: <unknown function> + 0x610d336 (0x7c5bf6ec5336 in /usr/local/lib/python3.12/site-packages/torch/lib/libtorch_cpu.so)
+frame #4: <unknown function> + 0x610d7a4 (0x7c5bf6ec57a4 in /usr/local/lib/python3.12/site-packages/torch/lib/libtorch_cpu.so)
+frame #5: <unknown function> + 0x60cb356 (0x7c5bf6e83356 in /usr/local/lib/python3.12/site-packages/torch/lib/libtorch_cpu.so)
+frame #6: c10d::TCPStore::TCPStore(std::string, c10d::TCPStoreOptions const&) + 0x20c (0x7c5bf6e862bc in /usr/local/lib/python3.12/site-packages/torch/lib/libtorch_cpu.so)
+frame #7: <unknown function> + 0xd65d91 (0x7c5c06487d91 in /usr/local/lib/python3.12/site-packages/torch/lib/libtorch_python.so)
+frame #8: <unknown function> + 0x4d0593 (0x7c5c05bf2593 in /usr/local/lib/python3.12/site-packages/torch/lib/libtorch_python.so)
+<omitting python frames>
+frame #15: <unknown function> + 0x4cecbb (0x7c5c05bf0cbb in /usr/local/lib/python3.12/site-packages/torch/lib/libtorch_python.so)
+frame #31: <unknown function> + 0x29ca8 (0x7c5c07d93ca8 in /lib/x86_64-linux-gnu/libc.so.6)
+frame #32: __libc_start_main + 0x85 (0x7c5c07d93d65 in /lib/x86_64-linux-gnu/libc.so.6)
+
+[W1021 11:38:16.707305741 socket.cpp:752] [c10d] The IPv6 network addresses of (nowhere.invalid, 29500) cannot be retrieved (gai error: -2 - Name or service not known).
+[E1021 11:38:16.707321181 socket.cpp:1011] [c10d] The client socket has timed out after 60000ms while trying to connect to (nowhere.invalid, 29500).
+[E1021 11:38:16.707360791 TCPStore.cpp:346] [c10d] TCP client failed to connect/validate to host nowhere.invalid:29500 - timed out (try=1, timeout=60000ms): The client socket has timed out after 60000ms while trying to connect to (nowhere.invalid, 29500).
+Exception raised from throwTimeoutError at ../torch/csrc/distributed/c10d/socket.cpp:1013 (most recent call first):
+frame #0: c10::Error::Error(c10::SourceLocation, std::string) + 0x96 (0x7c5bf0d3d276 in /usr/local/lib/python3.12/site-packages/torch/lib/libc10.so)
+frame #1: <unknown function> + 0x16c24c6 (0x7c5bf247a4c6 in /usr/local/lib/python3.12/site-packages/torch/lib/libtorch_cpu.so)
+frame #2: <unknown function> + 0x610d195 (0x7c5bf6ec5195 in /usr/local/lib/python3.12/site-packages/torch/lib/libtorch_cpu.so)
+frame #3: <unknown function> + 0x610d336 (0x7c5bf6ec5336 in /usr/local/lib/python3.12/site-packages/torch/lib/libtorch_cpu.so)
+frame #4: <unknown function> + 0x610d7a4 (0x7c5bf6ec57a4 in /usr/local/lib/python3.12/site-packages/torch/lib/libtorch_cpu.so)
+frame #5: <unknown function> + 0x60cb356 (0x7c5bf6e83356 in /usr/local/lib/python3.12/site-packages/torch/lib/libtorch_cpu.so)
+frame #6: c10d::TCPStore::TCPStore(std::string, c10d::TCPStoreOptions const&) + 0x20c (0x7c5bf6e862bc in /usr/local/lib/python3.12/site-packages/torch/lib/libtorch_cpu.so)
+frame #7: <unknown function> + 0xd65d91 (0x7c5c06487d91 in /usr/local/lib/python3.12/site-packages/torch/lib/libtorch_python.so)
+frame #8: <unknown function> + 0x4d0593 (0x7c5c05bf2593 in /usr/local/lib/python3.12/site-packages/torch/lib/libtorch_python.so)
+<omitting python frames>
+frame #15: <unknown function> + 0x4cecbb (0x7c5c05bf0cbb in /usr/local/lib/python3.12/site-packages/torch/lib/libtorch_python.so)
+frame #31: <unknown function> + 0x29ca8 (0x7c5c07d93ca8 in /lib/x86_64-linux-gnu/libc.so.6)
+frame #32: __libc_start_main + 0x85 (0x7c5c07d93d65 in /lib/x86_64-linux-gnu/libc.so.6)
+
+{"attempt": "1", "error": "The client socket has timed out after 60000ms while trying to connect to (nowhere.invalid, 29500).", "error_type": "DistNetworkError", "event": "rendezvous_failed", "rank": 1, "run_id": "ddp-bad-address-113619", "ts": "2026-10-21T11:38:16.312707+00:00"}

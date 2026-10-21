@@ -1,0 +1,12 @@
+commit=214ee8db44f297578ddcb32427feb31b17fc1581
+dirty_files=1
+kind=kind v0.33.0 go1.25.7 linux/amd64
+kubectl=v1.36.3
+kueue=v0.18.3
+cert_manager=v1.21.1
+train_py_sha256=733f264307f7f661482852e322377a76ee50448ea52a2bbc5fc65dbf10891a5d
+arms=pass no-sync bad-address one-rank-fails
+workload_image=sha256:f44571f8381692314da1e244faca78f15f842041b4f74a4d17c7be72b5a6efa0
+torch=2.5.1+cpu
+node_image=kindest/node:v1.37.0@sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5
+kubelet=v1.37.0

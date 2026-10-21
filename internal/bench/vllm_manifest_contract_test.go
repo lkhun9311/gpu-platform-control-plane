@@ -931,7 +931,7 @@ func TestTheDigestIsInTheTransformNotTheDeployment(t *testing.T) {
 // selfHeal is left on deliberately. Re-creating a definition someone deleted by hand is safe; removing one
 // because a file moved is not, and that is not a decision to make unattended.
 func TestCRDApplicationsDoNotPrune(t *testing.T) {
-	for _, app := range []string{"config/argocd/crds.yaml", "config/argocd/kueue-crds.yaml"} {
+	for _, app := range []string{"config/argocd/crds.yaml", "config/argocd/kueue.yaml"} {
 		body := readRepoFile(t, app)
 		if strings.Contains(body, "prune: true") {
 			t.Errorf("%s prunes; a renamed file would delete the CRDs and every custom resource stored under them", app)
@@ -945,10 +945,11 @@ func TestCRDApplicationsDoNotPrune(t *testing.T) {
 	}
 
 	// And the CRDs the operator cannot start without must be owned by config/, not by a test fixture.
-	// They lived under test/crd/kueue, which made tidying a fixture a production change.
-	kueue := readRepoFile(t, "config/argocd/kueue-crds.yaml")
-	if !strings.Contains(kueue, "path: config/kueue-crds") {
-		t.Error("the Kueue CRD Application does not source config/kueue-crds; a runtime dependency should not be served out of test/")
+	// They lived under test/crd/kueue, which made tidying a fixture a production change. They now come with the
+	// controller, from the vendored release, and config/kueue-crds is the envtest and e2e fixture alone.
+	kueue := readRepoFile(t, "config/argocd/kueue.yaml")
+	if !strings.Contains(kueue, "path: config/kueue-controller") {
+		t.Error("the Kueue Application does not source config/kueue-controller; a runtime dependency should not be served out of test/")
 	}
 }
 

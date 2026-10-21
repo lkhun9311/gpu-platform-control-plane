@@ -1,0 +1,67 @@
+{
+    "apiVersion": "platform.lkhun9311.github.io/v1",
+    "kind": "MLTrainingJob",
+    "metadata": {
+        "annotations": {
+            "kubectl.kubernetes.io/last-applied-configuration": "{\"apiVersion\":\"platform.lkhun9311.github.io/v1\",\"kind\":\"MLTrainingJob\",\"metadata\":{\"annotations\":{},\"name\":\"ddp-one-rank-fails-113825\",\"namespace\":\"ddp\"},\"spec\":{\"command\":[\"sh\",\"-c\",\"export DDP_RUN_ID=ddp-one-rank-fails-113825 DDP_OUT_DIR=/tmp/evidence OMP_NUM_THREADS=1 DDP_RENDEZVOUS_TIMEOUT_SECONDS=60\\nexport DDP_FAIL_RANK=1 DDP_FAIL_DELAY_SECONDS=10 DDP_HOLD_SECONDS=900\\nexec python /work/train.py\\n\"],\"distributed\":{\"worldSize\":2},\"gpuCount\":1,\"image\":\"cpu-ddp:torch251\",\"queue\":\"gpu-ddp\"}}\n"
+        },
+        "creationTimestamp": "2026-10-21T11:38:26Z",
+        "finalizers": [
+            "mltrainingjob.platform.lkhun9311.github.io/finalizer"
+        ],
+        "generation": 1,
+        "name": "ddp-one-rank-fails-113825",
+        "namespace": "ddp",
+        "resourceVersion": "2074",
+        "uid": "73a58184-6774-467f-8e65-42af699d17a5"
+    },
+    "spec": {
+        "command": [
+            "sh",
+            "-c",
+            "export DDP_RUN_ID=ddp-one-rank-fails-113825 DDP_OUT_DIR=/tmp/evidence OMP_NUM_THREADS=1 DDP_RENDEZVOUS_TIMEOUT_SECONDS=60\nexport DDP_FAIL_RANK=1 DDP_FAIL_DELAY_SECONDS=10 DDP_HOLD_SECONDS=900\nexec python /work/train.py\n"
+        ],
+        "completions": 1,
+        "distributed": {
+            "worldSize": 2
+        },
+        "gpuCount": 1,
+        "image": "cpu-ddp:torch251",
+        "parallelism": 1,
+        "queue": "gpu-ddp"
+    },
+    "status": {
+        "admitToRunningSeconds": "1.055",
+        "admittedAt": "2026-10-21T11:38:26Z",
+        "conditions": [
+            {
+                "lastTransitionTime": "2026-10-21T11:38:41Z",
+                "message": "",
+                "observedGeneration": 1,
+                "reason": "JobFailed",
+                "status": "False",
+                "type": "Admitted"
+            },
+            {
+                "lastTransitionTime": "2026-10-21T11:38:26Z",
+                "message": "",
+                "observedGeneration": 1,
+                "reason": "ServiceOwned",
+                "status": "True",
+                "type": "RendezvousService"
+            },
+            {
+                "lastTransitionTime": "2026-10-21T11:38:27Z",
+                "message": "the tenant waited 1.055s between Kueue admitting this job and this controller seeing it run; the admission end is Kueue's own stamp and the running end is this controller's observation, so the interval carries one watch lag",
+                "reason": "Observed",
+                "status": "True",
+                "type": "AdmitToRunningObserved"
+            }
+        ],
+        "lastTransitionTime": "2026-10-21T11:38:41Z",
+        "observedGeneration": 1,
+        "phase": "Failed",
+        "readyRanks": 0,
+        "runningObservedAt": "2026-10-21T11:38:27Z"
+    }
+}

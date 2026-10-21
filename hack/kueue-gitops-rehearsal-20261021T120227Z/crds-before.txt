@@ -1,0 +1,4 @@
+clusterqueues.kueue.x-k8s.io 21661325-0980-412f-93cd-3173e44770cf kueue-crds 2026-10-21T12:05:16Z
+localqueues.kueue.x-k8s.io bc74152e-0d79-4dcd-9122-24f7901df6d0 kueue-crds 2026-10-21T12:05:16Z
+resourceflavors.kueue.x-k8s.io daeba1e4-c2d5-496b-b5db-0baab52fa1cb kueue-crds 2026-10-21T12:05:16Z
+workloads.kueue.x-k8s.io 6c3ddaa0-35d8-428f-a5b2-a0f99df7b6a6 kueue-crds 2026-10-21T12:05:16Z

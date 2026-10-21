@@ -1,0 +1,4 @@
+old_ref=origin/main e04423cfbd97dfe1500a46a874ad8511dcabf295 rehearse/kueue-old=abb3a7db617e43a0582c193ae789b6a98d4670d5
+new_ref=HEAD da4e0de38471655f8af044197211ca0b6c857467 rehearse/kueue-new=f4556f94a582a22bc2e22295b003f9323185420f
+repo_url=git://172.18.0.1/gpu-platform-control-plane argo_chart=7.7.0 watch_seconds=900
+kind=kind v0.33.0 go1.25.7 linux/amd64 kubectl=v1.36.3

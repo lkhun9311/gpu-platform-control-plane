@@ -1,0 +1,5 @@
+# One training tenant: its namespace and the quota policy that makes the operator create its Kueue queues
+# (docs/superpowers/specs/2026-10-16-nccl-groundwork-design.md, section 6).
+resources:
+  - namespace.yaml
+  - gpuquotapolicy.yaml

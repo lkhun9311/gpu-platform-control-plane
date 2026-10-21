@@ -1,0 +1,67 @@
+Warning: This version is deprecated. Use v1beta2 instead.
+apiVersion: v1
+items:
+- apiVersion: kueue.x-k8s.io/v1beta1
+  kind: ClusterQueue
+  metadata:
+    creationTimestamp: "2026-10-21T11:52:02Z"
+    finalizers:
+    - kueue.x-k8s.io/resource-in-use
+    generation: 1
+    name: gpu-train-a
+    ownerReferences:
+    - apiVersion: platform.lkhun9311.github.io/v1
+      blockOwnerDeletion: true
+      controller: true
+      kind: GPUQuotaPolicy
+      name: train-a-quota
+      uid: 0e2823f3-d4ad-4891-b7fc-3cc2b4f3e751
+    resourceVersion: "2700"
+    uid: 2f953522-f8e6-4119-a860-9148a5b6388d
+  spec:
+    cohort: gpu-platform
+    flavorFungibility:
+      whenCanBorrow: MayStopSearch
+      whenCanPreempt: TryNextFlavor
+    namespaceSelector: {}
+    preemption:
+      borrowWithinCohort:
+        policy: Never
+      reclaimWithinCohort: Any
+      withinClusterQueue: LowerPriority
+    queueingStrategy: BestEffortFIFO
+    resourceGroups:
+    - coveredResources:
+      - nvidia.com/gpu
+      flavors:
+      - name: gpu
+        resources:
+        - name: nvidia.com/gpu
+          nominalQuota: "2"
+    stopPolicy: None
+  status:
+    admittedWorkloads: 0
+    conditions:
+    - lastTransitionTime: "2026-10-21T11:52:02Z"
+      message: Can admit new workloads
+      observedGeneration: 1
+      reason: Ready
+      status: "True"
+      type: Active
+    flavorsReservation:
+    - name: gpu
+      resources:
+      - borrowed: "0"
+        name: nvidia.com/gpu
+        total: "0"
+    flavorsUsage:
+    - name: gpu
+      resources:
+      - borrowed: "0"
+        name: nvidia.com/gpu
+        total: "0"
+    pendingWorkloads: 0
+    reservingWorkloads: 0
+kind: List
+metadata:
+  resourceVersion: ""

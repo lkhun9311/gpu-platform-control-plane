@@ -1,0 +1,1 @@
+kueue-gitops-control-plane=1 kueue-gitops-worker=1 kueue-gitops-worker2=1 kueue-gitops-worker3=1 

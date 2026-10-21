@@ -1,0 +1,57 @@
+apiVersion: platform.lkhun9311.github.io/v1
+kind: MLTrainingJob
+metadata:
+  annotations:
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"platform.lkhun9311.github.io/v1","kind":"MLTrainingJob","metadata":{"annotations":{},"name":"placement","namespace":"train-a"},"spec":{"command":["sh","-c","export DDP_RUN_ID=placement DDP_OUT_DIR=/tmp/evidence OMP_NUM_THREADS=1 DDP_RENDEZVOUS_TIMEOUT_SECONDS=120\nexec python /work/train.py\n"],"distributed":{"worldSize":2},"gpuClass":"a10g","gpuCount":1,"image":"cpu-ddp:torch251","queue":"gpu-train-a"}}
+  creationTimestamp: "2026-10-21T12:09:01Z"
+  finalizers:
+  - mltrainingjob.platform.lkhun9311.github.io/finalizer
+  generation: 1
+  name: placement
+  namespace: train-a
+  resourceVersion: "2948"
+  uid: e1b8fc8f-8a34-4e55-8697-df8d578af2cb
+spec:
+  command:
+  - sh
+  - -c
+  - |
+    export DDP_RUN_ID=placement DDP_OUT_DIR=/tmp/evidence OMP_NUM_THREADS=1 DDP_RENDEZVOUS_TIMEOUT_SECONDS=120
+    exec python /work/train.py
+  completions: 1
+  distributed:
+    worldSize: 2
+  gpuClass: a10g
+  gpuCount: 1
+  image: cpu-ddp:torch251
+  parallelism: 1
+  queue: gpu-train-a
+status:
+  admitToRunningSeconds: "1.415"
+  admittedAt: "2026-10-21T12:09:01Z"
+  conditions:
+  - lastTransitionTime: "2026-10-21T12:09:01Z"
+    message: ""
+    observedGeneration: 1
+    reason: JobComplete
+    status: "True"
+    type: Admitted
+  - lastTransitionTime: "2026-10-21T12:09:01Z"
+    message: ""
+    observedGeneration: 1
+    reason: ServiceOwned
+    status: "True"
+    type: RendezvousService
+  - lastTransitionTime: "2026-10-21T12:09:02Z"
+    message: the tenant waited 1.415s between Kueue admitting this job and this controller
+      seeing it run; the admission end is Kueue's own stamp and the running end is
+      this controller's observation, so the interval carries one watch lag
+    reason: Observed
+    status: "True"
+    type: AdmitToRunningObserved
+  lastTransitionTime: "2026-10-21T12:09:06Z"
+  observedGeneration: 1
+  phase: Succeeded
+  readyRanks: 0
+  runningObservedAt: "2026-10-21T12:09:02Z"

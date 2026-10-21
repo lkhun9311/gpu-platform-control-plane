@@ -428,7 +428,8 @@ shell-check: ## Parse every shell script under hack/ and .githooks/.
 		bash -n "$$f" || { echo "shell-check: $$f does not parse" >&2; fail=1; }; \
 	done; \
 	for f in hack/test/spot-lifecycle/*.py hack/serving-stub/*.py hack/eks-serve/holdcap-study/*.py \
-		experiments/distributed-partial-placement/*.py; do \
+		experiments/distributed-partial-placement/*.py experiments/cpu-ddp/*.py \
+		experiments/multi-pod-ddp/*.py; do \
 		[ -f "$$f" ] || continue; \
 		python3 -m py_compile "$$f" || { echo "shell-check: $$f does not compile" >&2; fail=1; }; \
 	done; \
@@ -440,6 +441,11 @@ scorer-tests: ## Run the study scorers' own tests, which pin what each published
 	@# Both suites existed and nothing ran them: compiling a scorer says it parses, not that its rules read their input.
 	cd hack/eks-serve/holdcap-study && python3 -m unittest test_score
 	python3 -m unittest experiments/distributed-partial-placement/test_analyze.py
+	python3 -m unittest experiments/multi-pod-ddp/test_analyze.py
+
+.PHONY: workload-tests
+workload-tests: ## Run train.py's backend and device selection tests, on stub torch modules and no GPU.
+	python3 -m unittest experiments/cpu-ddp/test_train.py
 
 .PHONY: session-refusals
 session-refusals: ## Check what gpu-session.sh refuses before it spends anything.
@@ -471,7 +477,7 @@ spot-lifecycle: ## Replay every paid runner against recording stubs and diff the
 	if [ "$$fail" != "0" ]; then echo "spot-lifecycle: a runner's recorded behaviour changed" >&2; exit 1; fi
 
 .PHONY: harness-check
-harness-check: ## Run the self-contained test harnesses under hack/test/ that need no cluster.
+harness-check: terraform ## Run the self-contained test harnesses under hack/test/ that need no cluster.
 	@# Seven harnesses live under hack/test/ and, until now, nothing ran any of them but the spot-lifecycle
 	@# driver. README.md rests its claim of coverage on two of them, so the repository's own account of what
 	@# it checks depended on scripts no gate executed -- the same shape `make spot-lifecycle` was added to close.
@@ -491,8 +497,8 @@ harness-check: ## Run the self-contained test harnesses under hack/test/ that ne
 	@# in a CI gate would hang the build, and a gate that hangs gets deleted rather than fixed.
 	@#
 	@# The rehearse-* scripts build a real kind cluster and do not belong in a CI gate at all.
-	@fail=0; for t in hack/test/capture-evidence-test.sh hack/test/plot-device-observation-test.sh hack/test/check-matrix-plan-refusals.sh hack/test/check-token-unit-labels.sh hack/test/check-published-spreads.sh hack/test/check-cell-timing-record.sh hack/test/check-engine-metrics-scrape.sh hack/test/check-instrument-validation-harness.sh hack/test/check-tail-crossing-self-tests.sh; do \
-		bash "$$t" || { echo "harness-check: $$t failed" >&2; fail=1; }; \
+	@fail=0; for t in hack/test/capture-evidence-test.sh hack/test/plot-device-observation-test.sh hack/test/check-matrix-plan-refusals.sh hack/test/check-token-unit-labels.sh hack/test/check-published-spreads.sh hack/test/check-cell-timing-record.sh hack/test/check-engine-metrics-scrape.sh hack/test/check-instrument-validation-harness.sh hack/test/check-tail-crossing-self-tests.sh hack/test/check-gpu-max-nodes-validation.sh hack/test/check-train-session-lib.sh; do \
+		TERRAFORM="$(TERRAFORM)" bash "$$t" || { echo "harness-check: $$t failed" >&2; fail=1; }; \
 	done; \
 	if [ "$$fail" != "0" ]; then exit 1; fi
 
@@ -504,7 +510,7 @@ infra-offline: terraform ## Check that the Terraform validation step needs no AW
 	./hack/infra-validate-is-offline-test.sh
 
 .PHONY: infra-validate
-infra-validate: terraform kustomize actionlint shell-check scorer-tests session-refusals session-manifest docs-check spot-lifecycle harness-check infra-offline ## Validate Terraform (offline), Argo manifests, shell, workflow YAML, the session refusals, the campaign manifest, the published docs' names, every paid runner's recorded behaviour, and the self-contained test harnesses.
+infra-validate: terraform kustomize actionlint shell-check scorer-tests workload-tests session-refusals session-manifest docs-check spot-lifecycle harness-check infra-offline ## Validate Terraform (offline), Argo manifests, shell, workflow YAML, the session refusals, the campaign manifest, the published docs' names, every paid runner's recorded behaviour, and the self-contained test harnesses.
 	@# Each root is validated in a throwaway TF_DATA_DIR, and the loop stops at the first failure.
 	@#
 	@# Two defects lived in the previous three lines. The first: `-backend=false` does not mean "no backend".
