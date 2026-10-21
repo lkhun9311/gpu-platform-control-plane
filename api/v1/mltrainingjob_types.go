@@ -151,7 +151,12 @@ type MLTrainingJobStatus struct {
 	// +optional
 	AdmittedAt *metav1.Time `json:"admittedAt,omitempty"`
 
-	// runningObservedAt is when this controller first saw the Job report a ready Pod.
+	// runningObservedAt is when this controller first saw the job Running: one ready Pod, or for a
+	// distributed job every rank ready or succeeded with at least one still ready.
+	//
+	// A distributed job used to be stamped on its first ready rank, which for a rank waiting at the
+	// rendezvous for a peer with no node is not the start of any work. The field is written once, so a job
+	// stamped under that rule before the change keeps its stamp.
 	//
 	// Named for what it is. Unlike admittedAt it is not a stamp written by the component that acted: it is
 	// this controller's observation, and it carries the watch lag between the kubelet starting a Pod and
