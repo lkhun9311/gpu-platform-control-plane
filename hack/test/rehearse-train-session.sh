@@ -64,7 +64,7 @@ COMMON="$(cd "$(git rev-parse --git-common-dir)" && pwd)"
 REPO_DIR="$(dirname "$COMMON")"
 BASE="$(dirname "$REPO_DIR")"
 GW="$(docker network inspect kind --format '{{range .IPAM.Config}}{{.Gateway}} {{end}}' 2>>"$LOG" | tr ' ' '\n' | grep -E '^[0-9.]+$' | head -1)"
-[[ -n "$GW" ]] || die "no IPv4 gateway on the docker network kind"
+[[ -n "$GW" ]] || die "no IPv4 gateway on the docker network kind; create and delete any kind cluster once so the network exists"
 REPO_URL="git://$GW/$(basename "$REPO_DIR")"
 wt="$(mktemp -d)"
 git worktree add -q --detach "$wt" HEAD >>"$LOG" 2>&1 || die "worktree"
@@ -76,7 +76,8 @@ git branch -f rehearse/train "$(git -C "$wt" rev-parse HEAD)" >>"$LOG" 2>&1 || d
 git worktree remove --force "$wt" >>"$LOG" 2>&1
 {
   echo "head=$(git rev-parse HEAD) rehearse/train=$(git rev-parse rehearse/train)"
-  echo "dirty_files=$(git status --porcelain | wc -l)"
+  # This run's own directory is untracked and already exists, so it is left out of the count.
+  echo "dirty_files=$(git status --porcelain | grep -vcF "$(basename "$OUT")")"
   echo "kind=$(kind version)"
   echo "kubectl=$(kubectl version --client -o json | python3 -c 'import json,sys;print(json.load(sys.stdin)["clientVersion"]["gitVersion"])')"
   echo "argo_chart=$ARGO_CHART"
@@ -199,12 +200,32 @@ qualify() {
   k -n train-a get mltrainingjob "$name" -o json >"$OUT/$name-held.json" 2>&1
   k -n train-a get pods -l "platform.lkhun9311.github.io/mltrainingjob=$name" -o json >"$OUT/$name-held-pods.json" 2>&1
   label on || die "label"
-  if why="$(train_qualification_released "$CTX" train-a "$name" 900)"; then
-    [[ "$want" == pass ]] && bar T7 PASS "$name released and passed: $why" || bar T7 FAIL "$name passed, and it must refuse on a node without CUDA: $why"
-  else
-    [[ "$want" == refuse ]] && bar T7 PASS "$name refused, as it must on a node without CUDA: $why" || bar T7 FAIL "$name: $why"
-  fi
+  local released=""
+  why="$(train_qualification_released "$CTX" train-a "$name" 900)" && released=1
   k -n train-a get mltrainingjob "$name" -o json >"$OUT/$name-final.json" 2>&1
+  k -n train-a get pods -l "platform.lkhun9311.github.io/mltrainingjob=$name" -o json >"$OUT/$name-final-pods.json" 2>&1
+  if [[ "$want" == pass ]]; then
+    [[ -n "$released" ]] && bar T7 PASS "$name released and passed: $why" || bar T7 FAIL "$name: $why"
+  elif [[ -n "$released" ]]; then
+    bar T7 FAIL "$name passed, and it must refuse on a node without CUDA: $why"
+  else
+    # Any refusal is not this one: a timeout or a stall also refuses. The job must have failed, and every rank's
+    # container must have ended with the command's own exit 3, which only the CUDA check returns.
+    local exits
+    exits="$(python3 -c '
+import json, sys
+job = json.load(open(sys.argv[1]))
+pods = json.load(open(sys.argv[2]))["items"]
+codes = sorted(((p.get("status") or {}).get("containerStatuses") or [{}])[0].get("state", {}).get("terminated", {}).get("exitCode", "none")
+               for p in pods)
+print((job.get("status") or {}).get("phase"), codes)
+' "$OUT/$name-final.json" "$OUT/$name-final-pods.json" 2>&1)"
+    if [[ "$exits" =~ ^Failed\ \[3(,\ 3)+\]$ ]]; then
+      bar T7 PASS "$name refused, as it must on a node without CUDA: the job Failed and every rank exited 3 ($exits): $why"
+    else
+      bar T7 FAIL "$name refused, but not for want of CUDA: phase and exit codes $exits: $why"
+    fi
+  fi
   k -n train-a get pods -l "platform.lkhun9311.github.io/mltrainingjob=$name" -o wide >"$OUT/$name-pods.txt" 2>&1
   for p in $(k -n train-a get pods -l "platform.lkhun9311.github.io/mltrainingjob=$name" -o name 2>>"$LOG"); do
     k -n train-a logs "$p" >"$OUT/$name-${p#pod/}.log" 2>&1
@@ -229,7 +250,7 @@ DDP_PRELUDE="$(ddp_prelude_for experiments/cpu-ddp/train.py "$DDP_SCRIPT" gloo)"
 ARMS="pass no-sync bad-address one-rank-fails"
 {
   echo "commit=$(git rev-parse HEAD)"
-  echo "dirty_files=$(git status --porcelain | wc -l)"
+  echo "dirty_files=$(git status --porcelain | grep -vcF "$(basename "$OUT")")"
   echo "train_py_sha256=$(sha256sum experiments/cpu-ddp/train.py | cut -d' ' -f1)"
   echo "workload_image=$TRAIN_IMG"
   echo "profile=gloo"
