@@ -36,6 +36,20 @@ func jobWithCondition(condType batchv1.JobConditionType, status corev1.Condition
 	}
 }
 
+// rankJob builds a running Job with the given spec counts and the three status counts the readiness rule reads.
+func rankJob(parallelism, completions, ready, succeeded int32, uncountedSucceeded int) *batchv1.Job {
+	uncounted := &batchv1.UncountedTerminatedPods{}
+	for range uncountedSucceeded {
+		uncounted.Succeeded = append(uncounted.Succeeded, "uid")
+	}
+	return &batchv1.Job{
+		Spec: batchv1.JobSpec{Parallelism: new(parallelism), Completions: new(completions)},
+		Status: batchv1.JobStatus{
+			Active: parallelism - succeeded - int32(uncountedSucceeded), Ready: new(ready), Succeeded: succeeded, UncountedTerminatedPods: uncounted,
+		},
+	}
+}
+
 // workloadAdmitted builds a Workload whose Admitted condition is set to the given state.
 func workloadAdmitted(admitted bool) *kueuev1beta1.Workload {
 	status := metav1.ConditionFalse
@@ -55,10 +69,11 @@ func workloadAdmitted(admitted bool) *kueuev1beta1.Workload {
 
 func TestComputeMLTJPhase(t *testing.T) {
 	tests := []struct {
-		name      string
-		job       *batchv1.Job
-		wl        *kueuev1beta1.Workload
-		wantPhase string
+		name        string
+		job         *batchv1.Job
+		wl          *kueuev1beta1.Workload
+		distributed bool
+		wantPhase   string
 	}{
 		{
 			name:      "suspended job with no workload yet is pending",
@@ -117,10 +132,99 @@ func TestComputeMLTJPhase(t *testing.T) {
 			//
 			// This is the case that rejects `*Ready > 0 && *Ready == Active`, which would hold a parallel
 			// job at Admitted for as long as any one of its Pods lagged.
+			//
+			// The spec sets parallelism 2 so that a rule applying the distributed count to every job turns this red.
 			name:      "parallel job with one of two pods ready is running",
-			job:       &batchv1.Job{Status: batchv1.JobStatus{Active: 2, Ready: new(int32(1))}},
+			job:       rankJob(2, 2, 1, 0, 0),
 			wl:        workloadAdmitted(true),
 			wantPhase: mltjPhaseRunning,
+		},
+		{
+			name:        "distributed job with every rank ready is running",
+			job:         rankJob(2, 2, 2, 0, 0),
+			wl:          workloadAdmitted(true),
+			distributed: true,
+			wantPhase:   mltjPhaseRunning,
+		},
+		{
+			// Finding 10: one rank placed and Ready, the other unplaceable, and the job reported Running for
+			// 598.1 s while the placed rank sat in its rendezvous and no step could run.
+			name:        "distributed job with one of two ranks ready is admitted, not running",
+			job:         rankJob(2, 2, 1, 0, 0),
+			wl:          workloadAdmitted(true),
+			distributed: true,
+			wantPhase:   mltjPhaseAdmitted,
+		},
+		{
+			// Ranks finish at different moments, so a rank that already exited still counts toward the gang.
+			name:        "distributed job with one rank ready and one succeeded is running",
+			job:         rankJob(2, 2, 1, 1, 0),
+			wl:          workloadAdmitted(true),
+			distributed: true,
+			wantPhase:   mltjPhaseRunning,
+		},
+		{
+			// The Job controller holds a finished Pod here for one sync before adding it to succeeded.
+			name:        "distributed job with one rank ready and one uncounted success is running",
+			job:         rankJob(2, 2, 1, 0, 1),
+			wl:          workloadAdmitted(true),
+			distributed: true,
+			wantPhase:   mltjPhaseRunning,
+		},
+		{
+			// Kueue counts min(parallelism, completions), so reading parallelism alone would wait for a third Pod that never comes.
+			name:        "distributed job counts the smaller of parallelism and completions",
+			job:         rankJob(3, 2, 2, 0, 0),
+			wl:          workloadAdmitted(true),
+			distributed: true,
+			wantPhase:   mltjPhaseRunning,
+		},
+		{
+			// Unknown readiness is not readiness, for a gang as for a single Pod.
+			name: "distributed job with active ranks and no ready count is admitted, not running",
+			job: &batchv1.Job{
+				Spec:   batchv1.JobSpec{Parallelism: new(int32(2)), Completions: new(int32(2))},
+				Status: batchv1.JobStatus{Active: 2},
+			},
+			wl:          workloadAdmitted(true),
+			distributed: true,
+			wantPhase:   mltjPhaseAdmitted,
+		},
+		{
+			// Every row above has two ranks, so without these a rule that compares against 2 passes all of them.
+			name:        "distributed job with two of three ranks ready is admitted, not running",
+			job:         rankJob(3, 3, 2, 0, 0),
+			wl:          workloadAdmitted(true),
+			distributed: true,
+			wantPhase:   mltjPhaseAdmitted,
+		},
+		{
+			name:        "distributed job with three of three ranks ready is running",
+			job:         rankJob(3, 3, 3, 0, 0),
+			wl:          workloadAdmitted(true),
+			distributed: true,
+			wantPhase:   mltjPhaseRunning,
+		},
+		{
+			// The state a finishing gang passes through before Complete: every rank succeeded, none Ready.
+			// Kueue counts it ready; calling it Running would enter that phase as the job ends, and record the
+			// end as the start for a controller that missed the ranks' readiness.
+			name:        "distributed job whose ranks have all succeeded without complete is admitted, not running",
+			job:         rankJob(2, 2, 0, 2, 0),
+			wl:          workloadAdmitted(true),
+			distributed: true,
+			wantPhase:   mltjPhaseAdmitted,
+		},
+		{
+			// Kueue reads a nil ready count as zero and counts the successes; this phase does not run on successes alone.
+			name: "distributed job with no ready count and every rank succeeded is admitted, not running",
+			job: &batchv1.Job{
+				Spec:   batchv1.JobSpec{Parallelism: new(int32(2)), Completions: new(int32(2))},
+				Status: batchv1.JobStatus{Succeeded: 2},
+			},
+			wl:          workloadAdmitted(true),
+			distributed: true,
+			wantPhase:   mltjPhaseAdmitted,
 		},
 		{
 			name:      "job with the complete condition true is succeeded",
@@ -138,7 +242,7 @@ func TestComputeMLTJPhase(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotPhase, gotCond := computeMLTJPhase(tt.job, tt.wl)
+			gotPhase, gotCond := computeMLTJPhase(tt.job, tt.wl, tt.distributed)
 			if gotPhase != tt.wantPhase {
 				t.Errorf("computeMLTJPhase() phase = %q, want %q", gotPhase, tt.wantPhase)
 			}

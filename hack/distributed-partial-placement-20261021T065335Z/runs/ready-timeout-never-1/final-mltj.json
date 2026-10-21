@@ -1,0 +1,67 @@
+{
+    "apiVersion": "platform.lkhun9311.github.io/v1",
+    "kind": "MLTrainingJob",
+    "metadata": {
+        "annotations": {
+            "kubectl.kubernetes.io/last-applied-configuration": "{\"apiVersion\":\"platform.lkhun9311.github.io/v1\",\"kind\":\"MLTrainingJob\",\"metadata\":{\"annotations\":{},\"name\":\"pp-rt-never-1-073905\",\"namespace\":\"partial\"},\"spec\":{\"command\":[\"sh\",\"-c\",\"export DDP_RUN_ID=pp-rt-never-1-073905 DDP_OUT_DIR=/tmp/evidence OMP_NUM_THREADS=1 DDP_RENDEZVOUS_TIMEOUT_SECONDS=1500\\nexec python /work/train.py\\n\"],\"distributed\":{\"worldSize\":2},\"gpuCount\":1,\"image\":\"cpu-ddp:torch251\",\"queue\":\"gpu-partial\"}}\n"
+        },
+        "creationTimestamp": "2026-10-21T07:39:07Z",
+        "finalizers": [
+            "mltrainingjob.platform.lkhun9311.github.io/finalizer"
+        ],
+        "generation": 1,
+        "name": "pp-rt-never-1-073905",
+        "namespace": "partial",
+        "resourceVersion": "10327",
+        "uid": "d8d890d3-4a88-4f02-bcf3-15f03aec5a69"
+    },
+    "spec": {
+        "command": [
+            "sh",
+            "-c",
+            "export DDP_RUN_ID=pp-rt-never-1-073905 DDP_OUT_DIR=/tmp/evidence OMP_NUM_THREADS=1 DDP_RENDEZVOUS_TIMEOUT_SECONDS=1500\nexec python /work/train.py\n"
+        ],
+        "completions": 1,
+        "distributed": {
+            "worldSize": 2
+        },
+        "gpuCount": 1,
+        "image": "cpu-ddp:torch251",
+        "parallelism": 1,
+        "queue": "gpu-partial"
+    },
+    "status": {
+        "admitToRunningSeconds": "1.866",
+        "admittedAt": "2026-10-21T07:39:07Z",
+        "conditions": [
+            {
+                "lastTransitionTime": "2026-10-21T07:46:38Z",
+                "message": "",
+                "observedGeneration": 1,
+                "reason": "QueuedForAdmission",
+                "status": "False",
+                "type": "Admitted"
+            },
+            {
+                "lastTransitionTime": "2026-10-21T07:39:07Z",
+                "message": "",
+                "observedGeneration": 1,
+                "reason": "ServiceOwned",
+                "status": "True",
+                "type": "RendezvousService"
+            },
+            {
+                "lastTransitionTime": "2026-10-21T07:39:08Z",
+                "message": "the tenant waited 1.866s between Kueue admitting this job and this controller seeing it run; the admission end is Kueue's own stamp and the running end is this controller's observation, so the interval carries one watch lag",
+                "reason": "Observed",
+                "status": "True",
+                "type": "AdmitToRunningObserved"
+            }
+        ],
+        "lastTransitionTime": "2026-10-21T07:46:38Z",
+        "observedGeneration": 1,
+        "phase": "Pending",
+        "readyRanks": 0,
+        "runningObservedAt": "2026-10-21T07:39:08Z"
+    }
+}

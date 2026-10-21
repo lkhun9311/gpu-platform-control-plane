@@ -165,7 +165,7 @@ func (r *MLTrainingJobReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, fmt.Errorf("get kueue workload for job %s/%s: %w", mltj.Namespace, mltj.Name, err)
 	}
 
-	phase, cond := computeMLTJPhase(job, wl)
+	phase, cond := computeMLTJPhase(job, wl, mltj.Spec.Distributed != nil)
 	// Kueue's own admission stamp, not this controller's clock, for the start of the wait it reports.
 	var admittedAt *metav1.Time
 	if wl != nil {
@@ -326,7 +326,7 @@ func (r *MLTrainingJobReconciler) markFailed(ctx context.Context, mltj *platform
 // computeMLTJPhase derives the training phase from the Job and its Kueue Workload.
 //
 // Kueue admission is read from the Workload's Admitted condition, since the Job's suspend flag alone is ambiguous mid-transition.
-func computeMLTJPhase(job *batchv1.Job, wl *kueuev1beta1.Workload) (string, metav1.Condition) {
+func computeMLTJPhase(job *batchv1.Job, wl *kueuev1beta1.Workload, distributed bool) (string, metav1.Condition) {
 	if isJobConditionTrue(job, batchv1.JobFailed) {
 		return mltjPhaseFailed, admittedCondition(metav1.ConditionFalse, "JobFailed")
 	}
@@ -351,13 +351,46 @@ func computeMLTJPhase(job *batchv1.Job, wl *kueuev1beta1.Workload) (string, meta
 	// zero. A nil is therefore a cluster too old to report it, which is unknown rather than "nothing is
 	// running" -- so it falls through to Admitted rather than reinstating the Active reading, which would
 	// restore exactly the defect this replaces.
-	if job.Status.Ready != nil && *job.Status.Ready > 0 {
+	//
+	// A distributed job needs every rank, not one: its ranks rendezvous before the first step, so a job
+	// missing any of them does no work at all. One Ready rank of two is what Finding 10 measured reported as
+	// Running for 598.1 s while the other rank had no node and Kueue's own readiness rule counted it unready.
+	if job.Status.Ready != nil && *job.Status.Ready > 0 && (!distributed || ranksReady(job)) {
 		return mltjPhaseRunning, admittedCondition(metav1.ConditionTrue, "PodsRunning")
 	}
 	if wl != nil && meta.IsStatusConditionTrue(wl.Status.Conditions, kueuev1beta1.WorkloadAdmitted) {
 		return mltjPhaseAdmitted, admittedCondition(metav1.ConditionTrue, "QuotaReserved")
 	}
 	return mltjPhasePending, admittedCondition(metav1.ConditionFalse, "QueuedForAdmission")
+}
+
+// ranksReady reports whether every Pod of the Job is Ready or has already succeeded.
+//
+// It is Kueue v0.18.3's (*Job).PodsReady and podsCount, so that the platform and the admission controller
+// count the same Job's ranks the same way.
+// Succeeded ranks count because ranks finish at different moments, and a gang whose first rank exited is
+// still the gang that ran; the uncounted ones are Pods the Job controller has seen finish and not yet added.
+//
+// The caller also requires one rank still Ready, which Kueue does not, and the difference is deliberate.
+// Kueue asks whether the ranks came up, and every rank having succeeded answers yes; this phase says what is
+// happening now. Without that requirement a job whose ranks all exited, seen before the Job carries Complete
+// (it carried SuccessCriteriaMet alone for 21 to 28 ms in Finding 10's four finishing runs), would enter
+// Running at its end, and a controller that missed the ranks' readiness would record its completion as the
+// moment they started.
+func ranksReady(job *batchv1.Job) bool {
+	// The API server defaults parallelism to 1, so nil only reaches here from a hand-built Job.
+	want := int32(1)
+	if p := job.Spec.Parallelism; p != nil {
+		want = *p
+	}
+	if c := job.Spec.Completions; c != nil && *c < want {
+		want = *c
+	}
+	done := job.Status.Succeeded
+	if u := job.Status.UncountedTerminatedPods; u != nil {
+		done += int32(len(u.Succeeded))
+	}
+	return *job.Status.Ready+done >= want
 }
 
 // isJobConditionTrue reports whether the Job carries the given condition type with status True.

@@ -94,3 +94,9 @@ transport.go	a file of Go 1.26.6's net/http, cited with request.go as the source
 CompletionMode	batch/v1 Job field the multi-pod design (2026-10-14) plans to set; remove once the controller spells it
 FailureTarget	batch/v1 Job condition type the multi-pod design cites as upstream behaviour, not code of this repository
 DisruptionTarget	Pod condition the multi-pod design names only to record that it was rejected as evidence
+Requeued	Kueue v0.18.3 Workload condition type (apis/kueue/v1beta1/workload_types.go), named by the distributed partial-placement design
+Deactivated	Kueue v0.18.3 eviction reason (apis/kueue/v1beta1/workload_types.go), named by the distributed partial-placement design
+RequeuingLimitExceeded	Kueue v0.18.3 deactivation reason (apis/kueue/v1beta1/workload_types.go), named by the distributed partial-placement design
+DeactivatedDueToRequeuingLimitExceeded	Kueue v0.18.3 eviction reason built by ReasonWithCause (pkg/workload/workload.go), named by the distributed partial-placement design
+IsEvictedByDeactivation	Kueue v0.18.3 function (pkg/workload/workload.go), cited by the distributed partial-placement design
+ReasonWithCause	Kueue v0.18.3 function (pkg/workload/workload.go), cited by the distributed partial-placement design

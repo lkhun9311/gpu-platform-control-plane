@@ -37,6 +37,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 
 	platformv1 "github.com/lkhun9311/gpu-mlops-platform-control-plane/api/v1"
 )
@@ -248,8 +249,9 @@ var _ = Describe("MLTrainingJob distributed", func() {
 		Expect(k8sClient.Delete(ctx, &corev1.Service{Name: svcKey.Name, Namespace: ns})).To(Succeed())
 		foreignService(svcKey.Name)
 
+		// Both ranks, because a distributed job is Running only when every rank is Ready.
 		job.Status.Active = 2
-		job.Status.Ready = new(int32(1))
+		job.Status.Ready = new(int32(2))
 		Expect(k8sClient.Status().Update(ctx, job)).To(Succeed())
 
 		Eventually(func(g Gomega) {
@@ -260,8 +262,59 @@ var _ = Describe("MLTrainingJob distributed", func() {
 			g.Expect(c.Reason).To(Equal(mltjReasonServiceConflict))
 			// Mutation that turns this red: return early on a Service conflict even when the Job exists.
 			g.Expect(mltj.Status.Phase).To(Equal(mltjPhaseRunning))
-			g.Expect(mltj.Status.ReadyRanks).To(HaveValue(BeEquivalentTo(1)))
+			g.Expect(mltj.Status.ReadyRanks).To(HaveValue(BeEquivalentTo(2)))
 		}, 10*time.Second, 50*time.Millisecond).Should(Succeed())
+	})
+
+	It("stays Admitted with one of two ranks Ready and closes admitToRunning only when both are", func() {
+		key := create("ddp-" + rand.String(6))
+		job := untilJob(key)
+
+		wl := &kueuev1beta1.Workload{
+			Name: key.Name, Namespace: ns,
+			Labels: map[string]string{kueueJobUIDLabel: string(job.UID)},
+			Spec: kueuev1beta1.WorkloadSpec{PodSets: []kueuev1beta1.PodSet{{
+				Name: "main", Count: 2,
+				Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{
+					RestartPolicy: corev1.RestartPolicyNever,
+					Containers:    []corev1.Container{{Name: "trainer", Image: "trainer:v1"}},
+				}},
+			}}},
+		}
+		Expect(k8sClient.Create(ctx, wl)).To(Succeed())
+		DeferCleanup(func() { _ = k8sClient.Delete(ctx, wl) })
+		wl.Status.Conditions = []metav1.Condition{{
+			Type: kueuev1beta1.WorkloadAdmitted, Status: metav1.ConditionTrue, Reason: "Admitted", LastTransitionTime: metav1.Now(),
+		}}
+		Expect(k8sClient.Status().Update(ctx, wl)).To(Succeed())
+		awaitCachedWorkload(wl.Name, wl.Namespace, hasAdmittedCondition)
+
+		// Finding 10's state: one rank placed and Ready, the other with no node.
+		Expect(k8sClient.Get(ctx, key, job)).To(Succeed())
+		job.Status.Active = 2
+		job.Status.Ready = new(int32(1))
+		Expect(k8sClient.Status().Update(ctx, job)).To(Succeed())
+		Eventually(func(g Gomega) {
+			reconcileTimes(cachedClient, key, 1)
+			g.Expect(getMLTJ(key).Status.ReadyRanks).To(HaveValue(BeEquivalentTo(1)))
+		}, 10*time.Second, 50*time.Millisecond).Should(Succeed())
+		half := getMLTJ(key)
+		Expect(half.Status.Phase).To(Equal(mltjPhaseAdmitted))
+		Expect(half.Status.AdmittedAt).NotTo(BeNil())
+		// The latency metric must not close on a rank that cannot start without its peer.
+		Expect(half.Status.RunningObservedAt).To(BeNil())
+		Expect(half.Status.AdmitToRunningSeconds).To(BeEmpty())
+
+		Expect(k8sClient.Get(ctx, key, job)).To(Succeed())
+		job.Status.Ready = new(int32(2))
+		Expect(k8sClient.Status().Update(ctx, job)).To(Succeed())
+		Eventually(func(g Gomega) {
+			reconcileTimes(cachedClient, key, 1)
+			g.Expect(getMLTJ(key).Status.Phase).To(Equal(mltjPhaseRunning))
+		}, 10*time.Second, 50*time.Millisecond).Should(Succeed())
+		full := getMLTJ(key)
+		Expect(full.Status.RunningObservedAt).NotTo(BeNil())
+		Expect(full.Status.AdmitToRunningSeconds).NotTo(BeEmpty())
 	})
 
 	It("writes readyRanks 0 as 0 and leaves it absent for a job without distributed", func() {

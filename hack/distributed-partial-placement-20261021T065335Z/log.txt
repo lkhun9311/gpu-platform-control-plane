@@ -1,0 +1,1279 @@
+06:53:35 provenance: commit=b3d1194e01076681cf1786c664e2769d6b8e280e dirty_files=1 kind=kind v0.33.0 go1.25.7 linux/amd64 kubectl=v1.36.3 kueue=v0.18.3 cert_manager=v1.21.1 train_py_sha256=815a1ea0c94a00dfbe8b621bdf8766680c573f7c4fba1c4fcc83648c424eb3e2 window=600 late_at=300 rendezvous_timeout=1500 runs=off:never:1 off:late:1 off:never:2 off:late:2 ready-timeout:never:1 ready-timeout:late:1 ready-timeout:never:2 ready-timeout:late:2 
+06:53:35 == images
+DEPRECATED: The legacy builder is deprecated and will be removed in a future release.
+            Install the buildx component to build images with BuildKit:
+            https://docs.docker.com/go/buildx/
+
+sha256:62f6ee4bcb6018c91eeaab904bf061859e853e2426312ee2f4e9e15b1a8a57d5
+/usr/local/lib/python3.12/site-packages/torch/_subclasses/functional_tensor.py:295: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at ../torch/csrc/utils/tensor_numpy.cpp:84.)
+  cpu = _conversion_method_template(device=torch.device("cpu"))
+docker build -t controller:partial .
+DEPRECATED: The legacy builder is deprecated and will be removed in a future release.
+            Install the buildx component to build images with BuildKit:
+            https://docs.docker.com/go/buildx/
+
+Sending build context to Docker daemon   2.78MB
+Step 1/14 : FROM golang:1.27.3@sha256:957861185dbf29d93668ace41e011d091c6e779953d47f0316ef2cc58e28fe2b AS builder
+ ---> 957861185dbf
+Step 2/14 : ARG TARGETOS
+ ---> Using cache
+ ---> a38e89fd304b
+Step 3/14 : ARG TARGETARCH
+ ---> Using cache
+ ---> df7229e5f3ec
+Step 4/14 : WORKDIR /workspace
+ ---> Using cache
+ ---> e0f3b83f69f4
+Step 5/14 : COPY go.mod go.mod
+ ---> Using cache
+ ---> fd57ce161410
+Step 6/14 : COPY go.sum go.sum
+ ---> Using cache
+ ---> 163e9ddb2c8b
+Step 7/14 : RUN go mod download
+ ---> Using cache
+ ---> 4252e133d241
+Step 8/14 : COPY . .
+ ---> Using cache
+ ---> 7796bf393815
+Step 9/14 : RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o manager cmd/main.go
+ ---> Using cache
+ ---> b7d7bfc2b5f1
+Step 10/14 : FROM gcr.io/distroless/static:nonroot@sha256:e2e927ec666bae08560abb3c55d0659eceabb657f56b6782ab500a9fc7f555e3
+ ---> e2e927ec666b
+Step 11/14 : WORKDIR /
+ ---> Using cache
+ ---> e61cf3190b2a
+Step 12/14 : COPY --from=builder /workspace/manager .
+ ---> Using cache
+ ---> eaf578c7b29e
+Step 13/14 : USER 65532:65532
+ ---> Using cache
+ ---> 21a77949ddfc
+Step 14/14 : ENTRYPOINT ["/manager"]
+ ---> Using cache
+ ---> 671f35a5f8b5
+Successfully built 671f35a5f8b5
+Successfully tagged controller:partial
+docker build -t gpu-simulator:partial -f Dockerfile.gpu-simulator .
+DEPRECATED: The legacy builder is deprecated and will be removed in a future release.
+            Install the buildx component to build images with BuildKit:
+            https://docs.docker.com/go/buildx/
+
+Sending build context to Docker daemon   2.78MB
+Step 1/14 : FROM golang:1.27.3@sha256:957861185dbf29d93668ace41e011d091c6e779953d47f0316ef2cc58e28fe2b AS builder
+ ---> 957861185dbf
+Step 2/14 : ARG TARGETOS
+ ---> Using cache
+ ---> a38e89fd304b
+Step 3/14 : ARG TARGETARCH
+ ---> Using cache
+ ---> df7229e5f3ec
+Step 4/14 : WORKDIR /workspace
+ ---> Using cache
+ ---> e0f3b83f69f4
+Step 5/14 : COPY go.mod go.mod
+ ---> Using cache
+ ---> fd57ce161410
+Step 6/14 : COPY go.sum go.sum
+ ---> Using cache
+ ---> 163e9ddb2c8b
+Step 7/14 : RUN go mod download
+ ---> Using cache
+ ---> 4252e133d241
+Step 8/14 : COPY . .
+ ---> Using cache
+ ---> 7796bf393815
+Step 9/14 : RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o gpu-simulator cmd/gpu-simulator/main.go
+ ---> Using cache
+ ---> 5da9546bb189
+Step 10/14 : FROM gcr.io/distroless/static:nonroot@sha256:e2e927ec666bae08560abb3c55d0659eceabb657f56b6782ab500a9fc7f555e3
+ ---> e2e927ec666b
+Step 11/14 : WORKDIR /
+ ---> Using cache
+ ---> e61cf3190b2a
+Step 12/14 : COPY --from=builder /workspace/gpu-simulator .
+ ---> Using cache
+ ---> ada8d3eeac89
+Step 13/14 : USER 65532:65532
+ ---> Using cache
+ ---> 2c4b5272cbcb
+Step 14/14 : ENTRYPOINT ["/gpu-simulator"]
+ ---> Using cache
+ ---> b610aeb6e426
+Successfully built b610aeb6e426
+Successfully tagged gpu-simulator:partial
+06:53:37 == cluster partial
+Creating cluster "partial" ...
+ • Ensuring node image (kindest/node:v1.37.0) 🖼️  ...
+ ✓ Ensuring node image (kindest/node:v1.37.0) 🖼️
+ • Preparing nodes 📦 📦 📦   ...
+ ✓ Preparing nodes 📦 📦 📦 
+ • Writing configuration 📜  ...
+ ✓ Writing configuration 📜
+ • Starting control-plane 🕹️  ...
+ ✓ Starting control-plane 🕹️
+ • Installing CNI 🔌  ...
+ ✓ Installing CNI 🔌
+ • Installing StorageClass 💾  ...
+ ✓ Installing StorageClass 💾
+ • Joining worker nodes 🚜  ...
+ ✓ Joining worker nodes 🚜
+Set kubectl context to "kind-partial"
+You can now use your cluster with:
+
+kubectl cluster-info --context kind-partial
+
+Have a nice day! 👋
+Image: "controller:partial" with ID "sha256:671f35a5f8b50d36d861fb7b132fe6d3e73f58745594dc2c24fbd50d72a8dd43" not yet present on node "partial-control-plane", loading...
+Image: "controller:partial" with ID "sha256:671f35a5f8b50d36d861fb7b132fe6d3e73f58745594dc2c24fbd50d72a8dd43" not yet present on node "partial-worker2", loading...
+Image: "controller:partial" with ID "sha256:671f35a5f8b50d36d861fb7b132fe6d3e73f58745594dc2c24fbd50d72a8dd43" not yet present on node "partial-worker", loading...
+Image: "gpu-simulator:partial" with ID "sha256:b610aeb6e4267f12b32adcb17f86ed059f1b3dd64752543cce00d80d624c098a" not yet present on node "partial-control-plane", loading...
+Image: "gpu-simulator:partial" with ID "sha256:b610aeb6e4267f12b32adcb17f86ed059f1b3dd64752543cce00d80d624c098a" not yet present on node "partial-worker2", loading...
+Image: "gpu-simulator:partial" with ID "sha256:b610aeb6e4267f12b32adcb17f86ed059f1b3dd64752543cce00d80d624c098a" not yet present on node "partial-worker", loading...
+Image: "cpu-ddp:torch251" with ID "sha256:62f6ee4bcb6018c91eeaab904bf061859e853e2426312ee2f4e9e15b1a8a57d5" not yet present on node "partial-control-plane", loading...
+Image: "cpu-ddp:torch251" with ID "sha256:62f6ee4bcb6018c91eeaab904bf061859e853e2426312ee2f4e9e15b1a8a57d5" not yet present on node "partial-worker2", loading...
+Image: "cpu-ddp:torch251" with ID "sha256:62f6ee4bcb6018c91eeaab904bf061859e853e2426312ee2f4e9e15b1a8a57d5" not yet present on node "partial-worker", loading...
+namespace/cert-manager created
+customresourcedefinition.apiextensions.k8s.io/challenges.acme.cert-manager.io created
+customresourcedefinition.apiextensions.k8s.io/orders.acme.cert-manager.io created
+customresourcedefinition.apiextensions.k8s.io/certificaterequests.cert-manager.io created
+customresourcedefinition.apiextensions.k8s.io/certificates.cert-manager.io created
+customresourcedefinition.apiextensions.k8s.io/clusterissuers.cert-manager.io created
+customresourcedefinition.apiextensions.k8s.io/issuers.cert-manager.io created
+serviceaccount/cert-manager-cainjector created
+serviceaccount/cert-manager created
+serviceaccount/cert-manager-webhook created
+clusterrole.rbac.authorization.k8s.io/cert-manager-cainjector created
+clusterrole.rbac.authorization.k8s.io/cert-manager-controller-issuers created
+clusterrole.rbac.authorization.k8s.io/cert-manager-controller-clusterissuers created
+clusterrole.rbac.authorization.k8s.io/cert-manager-controller-certificates created
+clusterrole.rbac.authorization.k8s.io/cert-manager-controller-orders created
+clusterrole.rbac.authorization.k8s.io/cert-manager-controller-challenges created
+clusterrole.rbac.authorization.k8s.io/cert-manager-controller-ingress-shim created
+clusterrole.rbac.authorization.k8s.io/cert-manager-cluster-view created
+clusterrole.rbac.authorization.k8s.io/cert-manager-view created
+clusterrole.rbac.authorization.k8s.io/cert-manager-edit created
+clusterrole.rbac.authorization.k8s.io/cert-manager-controller-approve:cert-manager-io created
+clusterrole.rbac.authorization.k8s.io/cert-manager-controller-certificatesigningrequests created
+clusterrole.rbac.authorization.k8s.io/cert-manager-webhook:subjectaccessreviews created
+clusterrolebinding.rbac.authorization.k8s.io/cert-manager-cainjector created
+clusterrolebinding.rbac.authorization.k8s.io/cert-manager-controller-issuers created
+clusterrolebinding.rbac.authorization.k8s.io/cert-manager-controller-clusterissuers created
+clusterrolebinding.rbac.authorization.k8s.io/cert-manager-controller-certificates created
+clusterrolebinding.rbac.authorization.k8s.io/cert-manager-controller-orders created
+clusterrolebinding.rbac.authorization.k8s.io/cert-manager-controller-challenges created
+clusterrolebinding.rbac.authorization.k8s.io/cert-manager-controller-ingress-shim created
+clusterrolebinding.rbac.authorization.k8s.io/cert-manager-controller-approve:cert-manager-io created
+clusterrolebinding.rbac.authorization.k8s.io/cert-manager-controller-certificatesigningrequests created
+clusterrolebinding.rbac.authorization.k8s.io/cert-manager-webhook:subjectaccessreviews created
+role.rbac.authorization.k8s.io/cert-manager-cainjector:leaderelection created
+role.rbac.authorization.k8s.io/cert-manager:leaderelection created
+role.rbac.authorization.k8s.io/cert-manager-webhook:dynamic-serving created
+rolebinding.rbac.authorization.k8s.io/cert-manager-cainjector:leaderelection created
+rolebinding.rbac.authorization.k8s.io/cert-manager:leaderelection created
+rolebinding.rbac.authorization.k8s.io/cert-manager-webhook:dynamic-serving created
+service/cert-manager-cainjector created
+service/cert-manager created
+service/cert-manager-webhook created
+deployment.apps/cert-manager-cainjector created
+deployment.apps/cert-manager created
+deployment.apps/cert-manager-webhook created
+mutatingwebhookconfiguration.admissionregistration.k8s.io/cert-manager-webhook created
+validatingwebhookconfiguration.admissionregistration.k8s.io/cert-manager-webhook created
+deployment.apps/cert-manager condition met
+deployment.apps/cert-manager-cainjector condition met
+deployment.apps/cert-manager-webhook condition met
+namespace/kueue-system serverside-applied
+customresourcedefinition.apiextensions.k8s.io/admissionchecks.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/clusterqueues.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/cohorts.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/localqueues.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/multikueueclusters.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/multikueueconfigs.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/provisioningrequestconfigs.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/resourceflavors.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/topologies.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/workloadpriorityclasses.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/workloads.kueue.x-k8s.io serverside-applied
+serviceaccount/kueue-controller-manager serverside-applied
+role.rbac.authorization.k8s.io/kueue-leader-election-role serverside-applied
+role.rbac.authorization.k8s.io/kueue-manager-clusterprofiles-role serverside-applied
+role.rbac.authorization.k8s.io/kueue-manager-secrets-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-batch-admin-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-batch-user-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-clusterqueue-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-clusterqueue-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-cohort-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-cohort-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-jaxjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-jaxjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-job-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-job-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-jobset-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-jobset-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-leaderworkerset-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-leaderworkerset-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-localqueue-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-localqueue-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-manager-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-metrics-auth-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-metrics-reader serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-mpijob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-mpijob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-paddlejob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-paddlejob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-pending-workloads-cq-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-pending-workloads-lq-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-pytorchjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-pytorchjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-raycluster-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-raycluster-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-rayjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-rayjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-rayservice-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-rayservice-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-resourceflavor-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-resourceflavor-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-sparkapplication-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-sparkapplication-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-tfjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-tfjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-topology-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-topology-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-trainjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-trainjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-workload-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-workload-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-xgboostjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-xgboostjob-viewer-role serverside-applied
+rolebinding.rbac.authorization.k8s.io/kueue-visibility-server-auth-reader serverside-applied
+rolebinding.rbac.authorization.k8s.io/kueue-leader-election-rolebinding serverside-applied
+rolebinding.rbac.authorization.k8s.io/kueue-manager-clusterprofiles-rolebinding serverside-applied
+rolebinding.rbac.authorization.k8s.io/kueue-manager-secrets-rolebinding serverside-applied
+clusterrolebinding.rbac.authorization.k8s.io/kueue-manager-rolebinding serverside-applied
+clusterrolebinding.rbac.authorization.k8s.io/kueue-metrics-auth-rolebinding serverside-applied
+configmap/kueue-manager-config serverside-applied
+secret/kueue-webhook-server-cert serverside-applied
+service/kueue-controller-manager-metrics-service serverside-applied
+service/kueue-visibility-server serverside-applied
+service/kueue-webhook-service serverside-applied
+deployment.apps/kueue-controller-manager serverside-applied
+apiservice.apiregistration.k8s.io/v1beta1.visibility.kueue.x-k8s.io serverside-applied
+apiservice.apiregistration.k8s.io/v1beta2.visibility.kueue.x-k8s.io serverside-applied
+mutatingwebhookconfiguration.admissionregistration.k8s.io/kueue-mutating-webhook-configuration serverside-applied
+validatingwebhookconfiguration.admissionregistration.k8s.io/kueue-validating-webhook-configuration serverside-applied
+deployment.apps/kueue-controller-manager condition met
+customresourcedefinition.apiextensions.k8s.io/gpuquotapolicies.platform.lkhun9311.github.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/gpusharingbenchmarks.platform.lkhun9311.github.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/inferencedeployments.platform.lkhun9311.github.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/mltrainingjobs.platform.lkhun9311.github.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/nodehealths.platform.lkhun9311.github.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/workloadruns.platform.lkhun9311.github.io serverside-applied
+namespace/gpu-platform-control-plane-system serverside-applied
+serviceaccount/gpu-platform-control-plane-controller-manager serverside-applied
+role.rbac.authorization.k8s.io/gpu-platform-control-plane-leader-election-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-gpuquotapolicy-admin-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-gpuquotapolicy-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-gpuquotapolicy-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-inferencedeployment-admin-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-inferencedeployment-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-inferencedeployment-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-manager-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-metrics-auth-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-metrics-reader serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-mltrainingjob-admin-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-mltrainingjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-mltrainingjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-nodehealth-admin-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-nodehealth-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-nodehealth-viewer-role serverside-applied
+rolebinding.rbac.authorization.k8s.io/gpu-platform-control-plane-leader-election-rolebinding serverside-applied
+clusterrolebinding.rbac.authorization.k8s.io/gpu-platform-control-plane-manager-rolebinding serverside-applied
+clusterrolebinding.rbac.authorization.k8s.io/gpu-platform-control-plane-metrics-auth-rolebinding serverside-applied
+service/gpu-platform-control-plane-webhook-service serverside-applied
+deployment.apps/gpu-platform-control-plane-controller-manager serverside-applied
+certificate.cert-manager.io/gpu-platform-control-plane-serving-cert serverside-applied
+issuer.cert-manager.io/gpu-platform-control-plane-selfsigned-issuer serverside-applied
+validatingwebhookconfiguration.admissionregistration.k8s.io/gpu-platform-control-plane-validating-webhook-configuration serverside-applied
+deployment.apps/gpu-platform-control-plane-controller-manager image updated
+deployment.apps/gpu-platform-control-plane-controller-manager patched (no change)
+Waiting for deployment "gpu-platform-control-plane-controller-manager" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "gpu-platform-control-plane-controller-manager" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "gpu-platform-control-plane-controller-manager" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "gpu-platform-control-plane-controller-manager" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "gpu-platform-control-plane-controller-manager" rollout to finish: 1 old replicas are pending termination...
+deployment "gpu-platform-control-plane-controller-manager" successfully rolled out
+daemonset.apps/gpu-simulator created
+daemonset.apps/gpu-simulator image updated
+daemonset.apps/gpu-simulator patched
+Waiting for daemon set "gpu-simulator" rollout to finish: 0 out of 3 new pods have been updated...
+Waiting for daemon set "gpu-simulator" rollout to finish: 1 out of 3 new pods have been updated...
+Waiting for daemon set "gpu-simulator" rollout to finish: 2 out of 3 new pods have been updated...
+Waiting for daemon set "gpu-simulator" rollout to finish: 0 of 3 updated pods are available...
+Waiting for daemon set "gpu-simulator" rollout to finish: 1 of 3 updated pods are available...
+Waiting for daemon set "gpu-simulator" rollout to finish: 2 of 3 updated pods are available...
+daemon set "gpu-simulator" successfully rolled out
+06:56:52 allocatable nvidia.com/gpu per worker: 1 1 
+06:56:52 == queue
+Warning: This version is deprecated. Use v1beta2 instead.
+resourceflavor.kueue.x-k8s.io/gpu created
+namespace/partial created
+namespace/squat created
+gpuquotapolicy.platform.lkhun9311.github.io/partial-quota created
+Error from server (NotFound): clusterqueues.kueue.x-k8s.io "gpu-partial" not found
+Error from server (NotFound): localqueues.kueue.x-k8s.io "gpu-partial" not found
+Warning: resource configmaps/kueue-manager-config is missing the kubectl.kubernetes.io/last-applied-configuration annotation which is required by kubectl apply. kubectl apply should only be used on resources created declaratively by either kubectl create --save-config or kubectl apply. The missing annotation will be patched automatically.
+configmap/kueue-manager-config configured
+deployment.apps/kueue-controller-manager restarted
+Waiting for deployment spec update to be observed...
+Waiting for deployment "kueue-controller-manager" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "kueue-controller-manager" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "kueue-controller-manager" rollout to finish: 1 old replicas are pending termination...
+deployment "kueue-controller-manager" successfully rolled out
+deployment.apps/kueue-controller-manager condition met
+06:57:10 kueue setting off applied; 1 'Configuration loaded' line(s)
+06:57:10 == run off never 1 as pp-off-never-1-065710
+pod/squatter created
+pod/squatter condition met
+mltrainingjob.platform.lkhun9311.github.io/pp-off-never-1-065710 created
+07:07:12 run pp-off-never-1-065710: window over; phase 'Running'
+mltrainingjob.platform.lkhun9311.github.io "pp-off-never-1-065710" deleted from partial namespace
+pod "squatter" deleted from squat namespace
+07:07:18 == run off late 1 as pp-off-late-1-070718
+pod/squatter created
+pod/squatter condition met
+mltrainingjob.platform.lkhun9311.github.io/pp-off-late-1-070718 created
+pod "squatter" deleted from squat namespace
+07:17:57 run pp-off-late-1-070718: window over; phase 'Succeeded'
+hack/distributed-partial-placement.sh: line 1: kill: (3674293) - No such process
+mltrainingjob.platform.lkhun9311.github.io "pp-off-late-1-070718" deleted from partial namespace
+07:18:03 == run off never 2 as pp-off-never-2-071803
+pod/squatter created
+pod/squatter condition met
+mltrainingjob.platform.lkhun9311.github.io/pp-off-never-2-071803 created
+07:28:05 run pp-off-never-2-071803: window over; phase 'Running'
+mltrainingjob.platform.lkhun9311.github.io "pp-off-never-2-071803" deleted from partial namespace
+pod "squatter" deleted from squat namespace
+07:28:11 == run off late 2 as pp-off-late-2-072811
+pod/squatter created
+pod/squatter condition met
+mltrainingjob.platform.lkhun9311.github.io/pp-off-late-2-072811 created
+pod "squatter" deleted from squat namespace
+07:38:45 run pp-off-late-2-072811: window over; phase 'Succeeded'
+hack/distributed-partial-placement.sh: line 1: kill: (3829209) - No such process
+mltrainingjob.platform.lkhun9311.github.io "pp-off-late-2-072811" deleted from partial namespace
+configmap/kueue-manager-config configured
+deployment.apps/kueue-controller-manager restarted
+Waiting for deployment "kueue-controller-manager" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "kueue-controller-manager" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "kueue-controller-manager" rollout to finish: 1 old replicas are pending termination...
+deployment "kueue-controller-manager" successfully rolled out
+deployment.apps/kueue-controller-manager condition met
+07:39:05 kueue setting ready-timeout applied; 1 'Configuration loaded' line(s)
+07:39:05 == run ready-timeout never 1 as pp-rt-never-1-073905
+pod/squatter created
+pod/squatter condition met
+mltrainingjob.platform.lkhun9311.github.io/pp-rt-never-1-073905 created
+07:49:07 run pp-rt-never-1-073905: window over; phase 'Pending'
+hack/distributed-partial-placement.sh: line 1: kill: (3908454) - No such process
+mltrainingjob.platform.lkhun9311.github.io "pp-rt-never-1-073905" deleted from partial namespace
+pod "squatter" deleted from squat namespace
+07:49:13 == run ready-timeout late 1 as pp-rt-late-1-074913
+pod/squatter created
+pod/squatter condition met
+mltrainingjob.platform.lkhun9311.github.io/pp-rt-late-1-074913 created
+pod "squatter" deleted from squat namespace
+07:59:16 run pp-rt-late-1-074913: window over; phase 'Succeeded'
+hack/distributed-partial-placement.sh: line 1: kill: (3983747) - No such process
+mltrainingjob.platform.lkhun9311.github.io "pp-rt-late-1-074913" deleted from partial namespace
+07:59:22 == run ready-timeout never 2 as pp-rt-never-2-075922
+pod/squatter created
+pod/squatter condition met
+mltrainingjob.platform.lkhun9311.github.io/pp-rt-never-2-075922 created
+08:09:24 run pp-rt-never-2-075922: window over; phase 'Pending'
+hack/distributed-partial-placement.sh: line 1: kill: (4057338) - No such process
+mltrainingjob.platform.lkhun9311.github.io "pp-rt-never-2-075922" deleted from partial namespace
+pod "squatter" deleted from squat namespace
+08:09:30 == run ready-timeout late 2 as pp-rt-late-2-080930
+pod/squatter created
+pod/squatter condition met
+mltrainingjob.platform.lkhun9311.github.io/pp-rt-late-2-080930 created
+pod "squatter" deleted from squat namespace
+08:19:33 run pp-rt-late-2-080930: window over; phase 'Succeeded'
+hack/distributed-partial-placement.sh: line 1: kill: (4131674) - No such process
+mltrainingjob.platform.lkhun9311.github.io "pp-rt-late-2-080930" deleted from partial namespace
+08:19:39 == done; scoring
+setting off: in force
+setting ready-timeout: in force
+
+== off late 1 (pp-off-late-1-070718)
+{
+ "M1_polled_bounds_s": [
+  299.0,
+  301.0
+ ],
+ "M1_running_while_stranded_s": 299.2,
+ "M2_quota_held_before_joining": [
+  {
+   "censored": false,
+   "seconds": 301.3
+  }
+ ],
+ "M3_deactivated": false,
+ "M3_max_requeue_count": 0,
+ "M3_requests": [],
+ "M3_stopped": [],
+ "M4_eviction_lag": [],
+ "M5_final_phase": "Succeeded",
+ "M5_succeeded_after_s": 304.9,
+ "M6_admissions": 1,
+ "M6_discarded": [],
+ "M7_admittedAt_values": [
+  "2026-10-21T07:07:57Z"
+ ],
+ "M7_after_request": [],
+ "M8_device_held_after_release": [],
+ "admissions": [
+  [
+   "2026-10-21T07:07:57.440000+00:00",
+   null
+  ]
+ ],
+ "admitted_stamps": [
+  "2026-10-21T07:07:57+00:00"
+ ],
+ "joined_after_s": 301.8,
+ "second_rank_placed_after_s": 300.7,
+ "squatter_deleted_after_s": 300.6
+}
+P2 held: Running 100.0% of 299.2 s from the first Running to the second placement at 300.7 s; first Running 0.5 s after Ready; final Succeeded; admissions 1
+
+== off late 2 (pp-off-late-2-072811)
+{
+ "M1_polled_bounds_s": [
+  299.0,
+  301.0
+ ],
+ "M1_running_while_stranded_s": 299.2,
+ "M2_quota_held_before_joining": [
+  {
+   "censored": false,
+   "seconds": 301.3
+  }
+ ],
+ "M3_deactivated": false,
+ "M3_max_requeue_count": 0,
+ "M3_requests": [],
+ "M3_stopped": [],
+ "M4_eviction_lag": [],
+ "M5_final_phase": "Succeeded",
+ "M5_succeeded_after_s": 303.7,
+ "M6_admissions": 1,
+ "M6_discarded": [],
+ "M7_admittedAt_values": [
+  "2026-10-21T07:28:45Z"
+ ],
+ "M7_after_request": [],
+ "M8_device_held_after_release": [],
+ "admissions": [
+  [
+   "2026-10-21T07:28:45.392000+00:00",
+   null
+  ]
+ ],
+ "admitted_stamps": [
+  "2026-10-21T07:28:45+00:00"
+ ],
+ "joined_after_s": 301.7,
+ "second_rank_placed_after_s": 300.6,
+ "squatter_deleted_after_s": 300.6
+}
+P2 held: Running 100.0% of 299.2 s from the first Running to the second placement at 300.6 s; first Running 0.5 s after Ready; final Succeeded; admissions 1
+
+== off never 1 (pp-off-never-1-065710)
+{
+ "M1_polled_bounds_s": [
+  598.0,
+  599.0
+ ],
+ "M1_running_while_stranded_s": 598.1,
+ "M2_quota_held_before_joining": [
+  {
+   "censored": true,
+   "seconds": 599.0
+  }
+ ],
+ "M3_deactivated": false,
+ "M3_max_requeue_count": 0,
+ "M3_requests": [],
+ "M3_stopped": [],
+ "M4_eviction_lag": [],
+ "M5_final_phase": "Running",
+ "M5_succeeded_after_s": null,
+ "M6_admissions": 1,
+ "M6_discarded": [],
+ "M7_admittedAt_values": [
+  "2026-10-21T06:57:13Z"
+ ],
+ "M7_after_request": [],
+ "M8_device_held_after_release": [],
+ "admissions": [
+  [
+   "2026-10-21T06:57:13.043000+00:00",
+   null
+  ]
+ ],
+ "admitted_stamps": [
+  "2026-10-21T06:57:13+00:00"
+ ],
+ "joined_after_s": null,
+ "second_rank_placed_after_s": null,
+ "squatter_deleted_after_s": null
+}
+P1 held: Running 100.0% of 598.1 s from the first Running; first Running 0.4 s after Ready; reservations [{'seconds': 599.0, 'censored': True}]; eviction requests 0
+
+== off never 2 (pp-off-never-2-071803)
+{
+ "M1_polled_bounds_s": [
+  598.0,
+  599.0
+ ],
+ "M1_running_while_stranded_s": 598.1,
+ "M2_quota_held_before_joining": [
+  {
+   "censored": true,
+   "seconds": 599.0
+  }
+ ],
+ "M3_deactivated": false,
+ "M3_max_requeue_count": 0,
+ "M3_requests": [],
+ "M3_stopped": [],
+ "M4_eviction_lag": [],
+ "M5_final_phase": "Running",
+ "M5_succeeded_after_s": null,
+ "M6_admissions": 1,
+ "M6_discarded": [],
+ "M7_admittedAt_values": [
+  "2026-10-21T07:18:05Z"
+ ],
+ "M7_after_request": [],
+ "M8_device_held_after_release": [],
+ "admissions": [
+  [
+   "2026-10-21T07:18:05.953000+00:00",
+   null
+  ]
+ ],
+ "admitted_stamps": [
+  "2026-10-21T07:18:05+00:00"
+ ],
+ "joined_after_s": null,
+ "second_rank_placed_after_s": null,
+ "squatter_deleted_after_s": null
+}
+P1 held: Running 100.0% of 598.1 s from the first Running; first Running 0.4 s after Ready; reservations [{'seconds': 599.0, 'censored': True}]; eviction requests 0
+
+== ready-timeout late 1 (pp-rt-late-1-074913)
+{
+ "M1_polled_bounds_s": [
+  236.0,
+  240.0
+ ],
+ "M1_running_while_stranded_s": 237.8,
+ "M2_quota_held_before_joining": [
+  {
+   "censored": false,
+   "seconds": 120.8
+  },
+  {
+   "censored": false,
+   "seconds": 121.0
+  },
+  {
+   "censored": false,
+   "seconds": 1.2
+  }
+ ],
+ "M3_deactivated": false,
+ "M3_max_requeue_count": 2,
+ "M3_requests": [
+  {
+   "arrived": "2026-10-21T07:51:16.015000+00:00",
+   "lastTransitionTime": "2026-10-21T07:51:16+00:00",
+   "reason": "PodsReadyTimeout"
+  },
+  {
+   "arrived": "2026-10-21T07:53:46.018000+00:00",
+   "lastTransitionTime": "2026-10-21T07:53:46+00:00",
+   "reason": "PodsReadyTimeout"
+  }
+ ],
+ "M3_stopped": [
+  true,
+  true
+ ],
+ "M4_eviction_lag": [
+  {
+   "censored": false,
+   "seconds": 1.1
+  },
+  {
+   "censored": false,
+   "seconds": 1.1
+  }
+ ],
+ "M5_final_phase": "Succeeded",
+ "M5_succeeded_after_s": 334.9,
+ "M6_admissions": 3,
+ "M6_discarded": [
+  {
+   "admission": 1,
+   "censored": false,
+   "container_seconds": 150.0
+  },
+  {
+   "admission": 2,
+   "censored": false,
+   "container_seconds": 150.0
+  }
+ ],
+ "M7_admittedAt_values": [
+  "2026-10-21T07:49:16Z"
+ ],
+ "M7_after_request": [
+  {
+   "left_running": true,
+   "phases_from_request": [
+    [
+     0.0,
+     "Running"
+    ],
+    [
+     1.0,
+     "Admitted"
+    ],
+    [
+     1.1,
+     "Pending"
+    ]
+   ],
+   "request_reason": "PodsReadyTimeout"
+  },
+  {
+   "left_running": true,
+   "phases_from_request": [
+    [
+     0.0,
+     "Running"
+    ],
+    [
+     1.0,
+     "Admitted"
+    ],
+    [
+     1.1,
+     "Pending"
+    ]
+   ],
+   "request_reason": "PodsReadyTimeout"
+  }
+ ],
+ "M8_device_held_after_release": [
+  {
+   "censored": false,
+   "exit": 137,
+   "seconds": 28.9
+  },
+  {
+   "censored": false,
+   "exit": 137,
+   "seconds": 28.9
+  }
+ ],
+ "admissions": [
+  [
+   "2026-10-21T07:49:16.249000+00:00",
+   "2026-10-21T07:51:17.068000+00:00"
+  ],
+  [
+   "2026-10-21T07:51:46.045000+00:00",
+   "2026-10-21T07:53:47.071000+00:00"
+  ],
+  [
+   "2026-10-21T07:54:46.036000+00:00",
+   null
+  ]
+ ],
+ "admitted_stamps": [
+  "2026-10-21T07:49:16+00:00",
+  "2026-10-21T07:51:46+00:00",
+  "2026-10-21T07:54:46+00:00"
+ ],
+ "joined_after_s": 331.2,
+ "second_rank_placed_after_s": 330.2,
+ "squatter_deleted_after_s": 300.4
+}
+P4 held: stopped attempts before the squatter's deletion 2; final Succeeded after 334.9 s; admissions 3
+P6 held: device held after each release [{'seconds': 28.9, 'censored': False, 'exit': 137}, {'seconds': 28.9, 'censored': False, 'exit': 137}]
+P5 held: phases from each request [[(0.0, 'Running'), (1.0, 'Admitted'), (1.1, 'Pending')], [(0.0, 'Running'), (1.0, 'Admitted'), (1.1, 'Pending')]]; admittedAt values ['2026-10-21T07:49:16Z']; Kueue's admission stamps ['2026-10-21T07:49:16+00:00', '2026-10-21T07:51:46+00:00', '2026-10-21T07:54:46+00:00']
+
+== ready-timeout late 2 (pp-rt-late-2-080930)
+{
+ "M1_polled_bounds_s": [
+  236.0,
+  240.0
+ ],
+ "M1_running_while_stranded_s": 237.6,
+ "M2_quota_held_before_joining": [
+  {
+   "censored": false,
+   "seconds": 120.7
+  },
+  {
+   "censored": false,
+   "seconds": 121.0
+  },
+  {
+   "censored": false,
+   "seconds": 1.2
+  }
+ ],
+ "M3_deactivated": false,
+ "M3_max_requeue_count": 2,
+ "M3_requests": [
+  {
+   "arrived": "2026-10-21T08:11:33.025000+00:00",
+   "lastTransitionTime": "2026-10-21T08:11:33+00:00",
+   "reason": "PodsReadyTimeout"
+  },
+  {
+   "arrived": "2026-10-21T08:14:03.019000+00:00",
+   "lastTransitionTime": "2026-10-21T08:14:03+00:00",
+   "reason": "PodsReadyTimeout"
+  }
+ ],
+ "M3_stopped": [
+  true,
+  true
+ ],
+ "M4_eviction_lag": [
+  {
+   "censored": false,
+   "seconds": 1.1
+  },
+  {
+   "censored": false,
+   "seconds": 1.1
+  }
+ ],
+ "M5_final_phase": "Succeeded",
+ "M5_succeeded_after_s": 334.4,
+ "M6_admissions": 3,
+ "M6_discarded": [
+  {
+   "admission": 1,
+   "censored": false,
+   "container_seconds": 150.0
+  },
+  {
+   "admission": 2,
+   "censored": false,
+   "container_seconds": 150.0
+  }
+ ],
+ "M7_admittedAt_values": [
+  "2026-10-21T08:09:33Z"
+ ],
+ "M7_after_request": [
+  {
+   "left_running": true,
+   "phases_from_request": [
+    [
+     0.0,
+     "Running"
+    ],
+    [
+     1.0,
+     "Admitted"
+    ],
+    [
+     1.1,
+     "Pending"
+    ]
+   ],
+   "request_reason": "PodsReadyTimeout"
+  },
+  {
+   "left_running": true,
+   "phases_from_request": [
+    [
+     0.0,
+     "Running"
+    ],
+    [
+     1.0,
+     "Admitted"
+    ],
+    [
+     1.1,
+     "Pending"
+    ]
+   ],
+   "request_reason": "PodsReadyTimeout"
+  }
+ ],
+ "M8_device_held_after_release": [
+  {
+   "censored": false,
+   "exit": 137,
+   "seconds": 28.9
+  },
+  {
+   "censored": false,
+   "exit": 137,
+   "seconds": 28.9
+  }
+ ],
+ "admissions": [
+  [
+   "2026-10-21T08:09:33.387000+00:00",
+   "2026-10-21T08:11:34.082000+00:00"
+  ],
+  [
+   "2026-10-21T08:12:03.036000+00:00",
+   "2026-10-21T08:14:04.070000+00:00"
+  ],
+  [
+   "2026-10-21T08:15:03.035000+00:00",
+   null
+  ]
+ ],
+ "admitted_stamps": [
+  "2026-10-21T08:09:33+00:00",
+  "2026-10-21T08:12:03+00:00",
+  "2026-10-21T08:15:03+00:00"
+ ],
+ "joined_after_s": 331.2,
+ "second_rank_placed_after_s": 330.2,
+ "squatter_deleted_after_s": 300.6
+}
+P4 held: stopped attempts before the squatter's deletion 2; final Succeeded after 334.4 s; admissions 3
+P6 held: device held after each release [{'seconds': 28.9, 'censored': False, 'exit': 137}, {'seconds': 28.9, 'censored': False, 'exit': 137}]
+P5 held: phases from each request [[(0.0, 'Running'), (1.0, 'Admitted'), (1.1, 'Pending')], [(0.0, 'Running'), (1.0, 'Admitted'), (1.1, 'Pending')]]; admittedAt values ['2026-10-21T08:09:33Z']; Kueue's admission stamps ['2026-10-21T08:09:33+00:00', '2026-10-21T08:12:03+00:00', '2026-10-21T08:15:03+00:00']
+
+== ready-timeout never 1 (pp-rt-never-1-073905)
+{
+ "M1_polled_bounds_s": [
+  354.0,
+  360.0
+ ],
+ "M1_running_while_stranded_s": 356.2,
+ "M2_quota_held_before_joining": [
+  {
+   "censored": false,
+   "seconds": 120.1
+  },
+  {
+   "censored": false,
+   "seconds": 121.0
+  },
+  {
+   "censored": false,
+   "seconds": 121.1
+  }
+ ],
+ "M3_deactivated": true,
+ "M3_max_requeue_count": 2,
+ "M3_requests": [
+  {
+   "arrived": "2026-10-21T07:41:07.018000+00:00",
+   "lastTransitionTime": "2026-10-21T07:41:07+00:00",
+   "reason": "PodsReadyTimeout"
+  },
+  {
+   "arrived": "2026-10-21T07:43:37.013000+00:00",
+   "lastTransitionTime": "2026-10-21T07:43:37+00:00",
+   "reason": "PodsReadyTimeout"
+  },
+  {
+   "arrived": "2026-10-21T07:46:37.040000+00:00",
+   "lastTransitionTime": "2026-10-21T07:46:37+00:00",
+   "reason": "DeactivatedDueToRequeuingLimitExceeded"
+  }
+ ],
+ "M3_stopped": [
+  true,
+  true,
+  true
+ ],
+ "M4_eviction_lag": [
+  {
+   "censored": false,
+   "seconds": 1.1
+  },
+  {
+   "censored": false,
+   "seconds": 1.1
+  },
+  {
+   "censored": false,
+   "seconds": 1.1
+  }
+ ],
+ "M5_final_phase": "Pending",
+ "M5_succeeded_after_s": null,
+ "M6_admissions": 3,
+ "M6_discarded": [
+  {
+   "admission": 1,
+   "censored": false,
+   "container_seconds": 149.0
+  },
+  {
+   "admission": 2,
+   "censored": false,
+   "container_seconds": 150.0
+  },
+  {
+   "admission": 3,
+   "censored": false,
+   "container_seconds": 150.0
+  }
+ ],
+ "M7_admittedAt_values": [
+  "2026-10-21T07:39:07Z"
+ ],
+ "M7_after_request": [
+  {
+   "left_running": true,
+   "phases_from_request": [
+    [
+     0.0,
+     "Running"
+    ],
+    [
+     1.0,
+     "Admitted"
+    ],
+    [
+     1.1,
+     "Pending"
+    ]
+   ],
+   "request_reason": "PodsReadyTimeout"
+  },
+  {
+   "left_running": true,
+   "phases_from_request": [
+    [
+     0.0,
+     "Running"
+    ],
+    [
+     1.0,
+     "Admitted"
+    ],
+    [
+     1.1,
+     "Pending"
+    ]
+   ],
+   "request_reason": "PodsReadyTimeout"
+  },
+  {
+   "left_running": true,
+   "phases_from_request": [
+    [
+     0.0,
+     "Running"
+    ],
+    [
+     1.0,
+     "Admitted"
+    ],
+    [
+     1.1,
+     "Pending"
+    ]
+   ],
+   "request_reason": "DeactivatedDueToRequeuingLimitExceeded"
+  }
+ ],
+ "M8_device_held_after_release": [
+  {
+   "censored": false,
+   "exit": 137,
+   "seconds": 28.9
+  },
+  {
+   "censored": false,
+   "exit": 137,
+   "seconds": 28.9
+  },
+  {
+   "censored": false,
+   "exit": 137,
+   "seconds": 28.9
+  }
+ ],
+ "admissions": [
+  [
+   "2026-10-21T07:39:07.976000+00:00",
+   "2026-10-21T07:41:08.071000+00:00"
+  ],
+  [
+   "2026-10-21T07:41:37.034000+00:00",
+   "2026-10-21T07:43:38.065000+00:00"
+  ],
+  [
+   "2026-10-21T07:44:37.031000+00:00",
+   "2026-10-21T07:46:38.090000+00:00"
+  ]
+ ],
+ "admitted_stamps": [
+  "2026-10-21T07:39:07+00:00",
+  "2026-10-21T07:41:37+00:00",
+  "2026-10-21T07:44:37+00:00"
+ ],
+ "joined_after_s": null,
+ "second_rank_placed_after_s": null,
+ "squatter_deleted_after_s": null
+}
+P3 held: admissions 3; PodsReadyTimeout requests 2, initiated [120.0, 120.0] s after their admission, stopped [True, True]; requests starting Deactivated 1; largest requeue count 2; eviction lags [{'seconds': 1.1, 'censored': False}, {'seconds': 1.1, 'censored': False}, {'seconds': 1.1, 'censored': False}]
+P6 held: device held after each release [{'seconds': 28.9, 'censored': False, 'exit': 137}, {'seconds': 28.9, 'censored': False, 'exit': 137}, {'seconds': 28.9, 'censored': False, 'exit': 137}]
+P5 held: phases from each request [[(0.0, 'Running'), (1.0, 'Admitted'), (1.1, 'Pending')], [(0.0, 'Running'), (1.0, 'Admitted'), (1.1, 'Pending')], [(0.0, 'Running'), (1.0, 'Admitted'), (1.1, 'Pending')]]; admittedAt values ['2026-10-21T07:39:07Z']; Kueue's admission stamps ['2026-10-21T07:39:07+00:00', '2026-10-21T07:41:37+00:00', '2026-10-21T07:44:37+00:00']
+
+== ready-timeout never 2 (pp-rt-never-2-075922)
+{
+ "M1_polled_bounds_s": [
+  354.0,
+  360.0
+ ],
+ "M1_running_while_stranded_s": 356.2,
+ "M2_quota_held_before_joining": [
+  {
+   "censored": false,
+   "seconds": 120.2
+  },
+  {
+   "censored": false,
+   "seconds": 121.0
+  },
+  {
+   "censored": false,
+   "seconds": 121.1
+  }
+ ],
+ "M3_deactivated": true,
+ "M3_max_requeue_count": 2,
+ "M3_requests": [
+  {
+   "arrived": "2026-10-21T08:01:24.013000+00:00",
+   "lastTransitionTime": "2026-10-21T08:01:24+00:00",
+   "reason": "PodsReadyTimeout"
+  },
+  {
+   "arrived": "2026-10-21T08:03:54.015000+00:00",
+   "lastTransitionTime": "2026-10-21T08:03:54+00:00",
+   "reason": "PodsReadyTimeout"
+  },
+  {
+   "arrived": "2026-10-21T08:06:54.036000+00:00",
+   "lastTransitionTime": "2026-10-21T08:06:54+00:00",
+   "reason": "DeactivatedDueToRequeuingLimitExceeded"
+  }
+ ],
+ "M3_stopped": [
+  true,
+  true,
+  true
+ ],
+ "M4_eviction_lag": [
+  {
+   "censored": false,
+   "seconds": 1.1
+  },
+  {
+   "censored": false,
+   "seconds": 1.1
+  },
+  {
+   "censored": false,
+   "seconds": 1.1
+  }
+ ],
+ "M5_final_phase": "Pending",
+ "M5_succeeded_after_s": null,
+ "M6_admissions": 3,
+ "M6_discarded": [
+  {
+   "admission": 1,
+   "censored": false,
+   "container_seconds": 149.0
+  },
+  {
+   "admission": 2,
+   "censored": false,
+   "container_seconds": 150.0
+  },
+  {
+   "admission": 3,
+   "censored": false,
+   "container_seconds": 150.0
+  }
+ ],
+ "M7_admittedAt_values": [
+  "2026-10-21T07:59:24Z"
+ ],
+ "M7_after_request": [
+  {
+   "left_running": true,
+   "phases_from_request": [
+    [
+     0.0,
+     "Running"
+    ],
+    [
+     1.0,
+     "Admitted"
+    ],
+    [
+     1.1,
+     "Pending"
+    ]
+   ],
+   "request_reason": "PodsReadyTimeout"
+  },
+  {
+   "left_running": true,
+   "phases_from_request": [
+    [
+     0.0,
+     "Running"
+    ],
+    [
+     1.0,
+     "Admitted"
+    ],
+    [
+     1.1,
+     "Pending"
+    ]
+   ],
+   "request_reason": "PodsReadyTimeout"
+  },
+  {
+   "left_running": true,
+   "phases_from_request": [
+    [
+     0.0,
+     "Running"
+    ],
+    [
+     1.0,
+     "Admitted"
+    ],
+    [
+     1.1,
+     "Pending"
+    ]
+   ],
+   "request_reason": "DeactivatedDueToRequeuingLimitExceeded"
+  }
+ ],
+ "M8_device_held_after_release": [
+  {
+   "censored": false,
+   "exit": 137,
+   "seconds": 28.9
+  },
+  {
+   "censored": false,
+   "exit": 137,
+   "seconds": 28.9
+  },
+  {
+   "censored": false,
+   "exit": 137,
+   "seconds": 28.9
+  }
+ ],
+ "admissions": [
+  [
+   "2026-10-21T07:59:24.855000+00:00",
+   "2026-10-21T08:01:25.069000+00:00"
+  ],
+  [
+   "2026-10-21T08:01:54.034000+00:00",
+   "2026-10-21T08:03:55.076000+00:00"
+  ],
+  [
+   "2026-10-21T08:04:54.038000+00:00",
+   "2026-10-21T08:06:55.089000+00:00"
+  ]
+ ],
+ "admitted_stamps": [
+  "2026-10-21T07:59:24+00:00",
+  "2026-10-21T08:01:54+00:00",
+  "2026-10-21T08:04:54+00:00"
+ ],
+ "joined_after_s": null,
+ "second_rank_placed_after_s": null,
+ "squatter_deleted_after_s": null
+}
+P3 held: admissions 3; PodsReadyTimeout requests 2, initiated [120.0, 120.0] s after their admission, stopped [True, True]; requests starting Deactivated 1; largest requeue count 2; eviction lags [{'seconds': 1.1, 'censored': False}, {'seconds': 1.1, 'censored': False}, {'seconds': 1.1, 'censored': False}]
+P6 held: device held after each release [{'seconds': 28.9, 'censored': False, 'exit': 137}, {'seconds': 28.9, 'censored': False, 'exit': 137}, {'seconds': 28.9, 'censored': False, 'exit': 137}]
+P5 held: phases from each request [[(0.0, 'Running'), (1.0, 'Admitted'), (1.1, 'Pending')], [(0.0, 'Running'), (1.0, 'Admitted'), (1.1, 'Pending')], [(0.0, 'Running'), (1.0, 'Admitted'), (1.1, 'Pending')]]; admittedAt values ['2026-10-21T07:59:24Z']; Kueue's admission stamps ['2026-10-21T07:59:24+00:00', '2026-10-21T08:01:54+00:00', '2026-10-21T08:04:54+00:00']
+hack/distributed-partial-placement.sh: line 47: kill: (3557378) - No such process
+hack/distributed-partial-placement.sh: line 47: kill: (3557379) - No such process
+hack/distributed-partial-placement.sh: line 47: kill: (3557380) - No such process
+hack/distributed-partial-placement.sh: line 47: kill: (3557383) - No such process
+hack/distributed-partial-placement.sh: line 47: kill: (3557594) - No such process
+hack/distributed-partial-placement.sh: line 47: kill: (3557595) - No such process
+hack/distributed-partial-placement.sh: line 47: kill: (3633260) - No such process
+hack/distributed-partial-placement.sh: line 47: kill: (3633261) - No such process
+hack/distributed-partial-placement.sh: line 47: kill: (3633262) - No such process
+hack/distributed-partial-placement.sh: line 47: kill: (3633264) - No such process
+hack/distributed-partial-placement.sh: line 47: kill: (3633538) - No such process
+hack/distributed-partial-placement.sh: line 47: kill: (3633539) - No such process
+hack/distributed-partial-placement.sh: line 47: kill: (3711094) - No such process
+hack/distributed-partial-placement.sh: line 47: kill: (3711095) - No such process
+hack/distributed-partial-placement.sh: line 47: kill: (3711097) - No such process
+hack/distributed-partial-placement.sh: line 47: kill: (3711098) - No such process
+hack/distributed-partial-placement.sh: line 47: kill: (3711290) - No such process
+hack/distributed-partial-placement.sh: line 47: kill: (3711291) - No such process
+hack/distributed-partial-placement.sh: line 47: kill: (3791781) - No such process
+hack/distributed-partial-placement.sh: line 47: kill: (3791782) - No such process
+hack/distributed-partial-placement.sh: line 47: kill: (3791784) - No such process
+hack/distributed-partial-placement.sh: line 47: kill: (3791786) - No such process
+hack/distributed-partial-placement.sh: line 47: kill: (3791927) - No such process
+hack/distributed-partial-placement.sh: line 47: kill: (3791928) - No such process
+hack/distributed-partial-placement.sh: line 47: kill: (3867024) - No such process
+hack/distributed-partial-placement.sh: line 47: kill: (3867025) - No such process
+hack/distributed-partial-placement.sh: line 47: kill: (3867027) - No such process
+hack/distributed-partial-placement.sh: line 47: kill: (3867029) - No such process
+hack/distributed-partial-placement.sh: line 47: kill: (3867237) - No such process
+hack/distributed-partial-placement.sh: line 47: kill: (3867238) - No such process
+hack/distributed-partial-placement.sh: line 47: kill: (3941295) - No such process
+hack/distributed-partial-placement.sh: line 47: kill: (3941296) - No such process
+hack/distributed-partial-placement.sh: line 47: kill: (3941298) - No such process
+hack/distributed-partial-placement.sh: line 47: kill: (3941300) - No such process
+hack/distributed-partial-placement.sh: line 47: kill: (3942152) - No such process
+hack/distributed-partial-placement.sh: line 47: kill: (3942153) - No such process
+hack/distributed-partial-placement.sh: line 47: kill: (4017356) - No such process
+hack/distributed-partial-placement.sh: line 47: kill: (4017357) - No such process
+hack/distributed-partial-placement.sh: line 47: kill: (4017359) - No such process
+hack/distributed-partial-placement.sh: line 47: kill: (4017361) - No such process
+hack/distributed-partial-placement.sh: line 47: kill: (4017490) - No such process
+hack/distributed-partial-placement.sh: line 47: kill: (4017491) - No such process
+hack/distributed-partial-placement.sh: line 47: kill: (4090284) - No such process
+hack/distributed-partial-placement.sh: line 47: kill: (4090285) - No such process
+hack/distributed-partial-placement.sh: line 47: kill: (4090287) - No such process
+hack/distributed-partial-placement.sh: line 47: kill: (4090289) - No such process
+hack/distributed-partial-placement.sh: line 47: kill: (4090546) - No such process
+hack/distributed-partial-placement.sh: line 47: kill: (4090547) - No such process
+Deleting cluster "partial" ...
+Deleted nodes: ["partial-control-plane" "partial-worker2" "partial-worker"]
+08:19:40 cleanup: deleted partial
