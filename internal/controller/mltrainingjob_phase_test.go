@@ -191,6 +191,42 @@ func TestComputeMLTJPhase(t *testing.T) {
 			wantPhase:   mltjPhaseAdmitted,
 		},
 		{
+			// Every row above has two ranks, so without these a rule that compares against 2 passes all of them.
+			name:        "distributed job with two of three ranks ready is admitted, not running",
+			job:         rankJob(3, 3, 2, 0, 0),
+			wl:          workloadAdmitted(true),
+			distributed: true,
+			wantPhase:   mltjPhaseAdmitted,
+		},
+		{
+			name:        "distributed job with three of three ranks ready is running",
+			job:         rankJob(3, 3, 3, 0, 0),
+			wl:          workloadAdmitted(true),
+			distributed: true,
+			wantPhase:   mltjPhaseRunning,
+		},
+		{
+			// The state a finishing gang passes through before Complete: every rank succeeded, none Ready.
+			// Kueue counts it ready; calling it Running would enter that phase as the job ends, and record the
+			// end as the start for a controller that missed the ranks' readiness.
+			name:        "distributed job whose ranks have all succeeded without complete is admitted, not running",
+			job:         rankJob(2, 2, 0, 2, 0),
+			wl:          workloadAdmitted(true),
+			distributed: true,
+			wantPhase:   mltjPhaseAdmitted,
+		},
+		{
+			// Kueue reads a nil ready count as zero and counts the successes; this phase does not run on successes alone.
+			name: "distributed job with no ready count and every rank succeeded is admitted, not running",
+			job: &batchv1.Job{
+				Spec:   batchv1.JobSpec{Parallelism: new(int32(2)), Completions: new(int32(2))},
+				Status: batchv1.JobStatus{Succeeded: 2},
+			},
+			wl:          workloadAdmitted(true),
+			distributed: true,
+			wantPhase:   mltjPhaseAdmitted,
+		},
+		{
 			name:      "job with the complete condition true is succeeded",
 			job:       jobWithCondition(batchv1.JobComplete, corev1.ConditionTrue),
 			wl:        workloadAdmitted(true),

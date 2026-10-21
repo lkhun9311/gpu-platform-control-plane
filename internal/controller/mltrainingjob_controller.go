@@ -355,13 +355,8 @@ func computeMLTJPhase(job *batchv1.Job, wl *kueuev1beta1.Workload, distributed b
 	// A distributed job needs every rank, not one: its ranks rendezvous before the first step, so a job
 	// missing any of them does no work at all. One Ready rank of two is what Finding 10 measured reported as
 	// Running for 598.1 s while the other rank had no node and Kueue's own readiness rule counted it unready.
-	if job.Status.Ready != nil {
-		if distributed && ranksReady(job) {
-			return mltjPhaseRunning, admittedCondition(metav1.ConditionTrue, "PodsRunning")
-		}
-		if !distributed && *job.Status.Ready > 0 {
-			return mltjPhaseRunning, admittedCondition(metav1.ConditionTrue, "PodsRunning")
-		}
+	if job.Status.Ready != nil && *job.Status.Ready > 0 && (!distributed || ranksReady(job)) {
+		return mltjPhaseRunning, admittedCondition(metav1.ConditionTrue, "PodsRunning")
 	}
 	if wl != nil && meta.IsStatusConditionTrue(wl.Status.Conditions, kueuev1beta1.WorkloadAdmitted) {
 		return mltjPhaseAdmitted, admittedCondition(metav1.ConditionTrue, "QuotaReserved")
@@ -371,11 +366,17 @@ func computeMLTJPhase(job *batchv1.Job, wl *kueuev1beta1.Workload, distributed b
 
 // ranksReady reports whether every Pod of the Job is Ready or has already succeeded.
 //
-// It is Kueue v0.18.3's (*Job).PodsReady and podsCount transcribed, so that the platform and the admission
-// controller cannot disagree about whether the same Job's ranks are up.
+// It is Kueue v0.18.3's (*Job).PodsReady and podsCount, so that the platform and the admission controller
+// count the same Job's ranks the same way.
 // Succeeded ranks count because ranks finish at different moments, and a gang whose first rank exited is
 // still the gang that ran; the uncounted ones are Pods the Job controller has seen finish and not yet added.
-// The caller has already checked that Ready is reported.
+//
+// The caller also requires one rank still Ready, which Kueue does not, and the difference is deliberate.
+// Kueue asks whether the ranks came up, and every rank having succeeded answers yes; this phase says what is
+// happening now. Without that requirement a job whose ranks all exited, seen before the Job carries Complete
+// (it carried SuccessCriteriaMet alone for 21 to 28 ms in Finding 10's four finishing runs), would enter
+// Running at its end, and a controller that missed the ranks' readiness would record its completion as the
+// moment they started.
 func ranksReady(job *batchv1.Job) bool {
 	// The API server defaults parallelism to 1, so nil only reaches here from a hand-built Job.
 	want := int32(1)
