@@ -165,12 +165,13 @@ converge() {
   done
   echo "$table" >"$OUT/apps-$label.txt"
 }
+# The owner is Argo's tracking label, whose key the argo-cd chart sets to argocd.argoproj.io/instance.
 crds() { k get crd -o json | python3 -c '
 import json, sys
 for c in json.load(sys.stdin)["items"]:
     n = c["metadata"]["name"]
     if n.endswith(".kueue.x-k8s.io"):
-        print(n, c["metadata"]["uid"], c["metadata"].get("labels", {}).get("app.kubernetes.io/instance", "-"),
+        print(n, c["metadata"]["uid"], c["metadata"].get("labels", {}).get("argocd.argoproj.io/instance", "-"),
               c["metadata"]["creationTimestamp"])
 ' | sort; }
 
@@ -247,6 +248,8 @@ spec:
   queue: gpu-train-a
   image: $TRAIN_IMG
   gpuCount: 1
+  # The static admission policy refuses a GPU job that names no class.
+  gpuClass: a10g
   distributed:
     worldSize: 2
   command:
