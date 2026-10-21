@@ -1,0 +1,9 @@
+B0 met: the old root converged: 9 automated Applications Synced/Healthy
+B2 met: after the switch every automated Application is Synced/Healthy and kueue-crds is gone: cert-manager gpu-platform-crds gpu-platform-gateway gpu-platform-kueue gpu-platform-nvidia-device-plugin gpu-platform-operator gpu-platform-policy gpu-platform-root gpu-platform-storage
+B1 met: before 4 after 11 kept 4 recreated 0 lost 0 new 7 owners ['gpu-platform-kueue']
+B3 met: gpu-train-a Active from Kueue; 1 ClusterQueue(s) on the cluster
+B4 met: both ranks carry the train selector and the gpu toleration, on worker2 and worker3, with kueue-gitops-worker's GPU free; job Succeeded
+D-deployment-deleted met: repaired in 15 s
+D-replicas-changed met: repaired in 0 s
+D-webhook-deleted met: repaired in 5 s
+B5 met: every automated Application, gpu-platform-kueue included, read Synced in all 60 samples over 900 s

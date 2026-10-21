@@ -22,5 +22,5 @@ What was done by hand, on the live cluster:
   12:00:30Z  the run was stopped, and its cleanup deleted the cluster
 
 The fix is 93e1670e (every server-side Application diffs on the API server), and the script now requires Synced
-(e8023150's successor). All three paid EKS sessions on 1.35 recorded cert-manager as Unknown in
+(da4e0de3). All three paid EKS sessions on 1.35 recorded cert-manager as Unknown in
 runbook-serve/application-revisions-ready.txt, which this explains.
