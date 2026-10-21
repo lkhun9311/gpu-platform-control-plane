@@ -113,6 +113,10 @@ for p in json.load(open(sys.argv[1]))["items"]:
 #
 # Returns 1 only when the arm could not be run at all, with the reason in the arm's VOID, which the analyzer reports.
 ddp_run_arm() {
+  # Errexit is off inside: a status query that fails while the Job is still being created is a sample to retry, and
+  # under a caller's set -e it would otherwise end the arm before any of its evidence was collected.
+  local -
+  set +e
   local arm=$1 name dir t0 phase jobdone body observed
   name="ddp-$arm-$(date -u +%H%M%S)"
   dir=$DDP_OUT/$arm

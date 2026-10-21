@@ -109,10 +109,11 @@ cat >"$work/bin/kubectl" <<'EOF'
 printf '%s\n' "$*" >>"$STUB_CALLS"
 case "$*" in
   *"get mltrainingjob"*jsonpath*) printf 'Succeeded' ;;
-  *"get job"*jsonpath*) printf 'Complete' ;;
+  # The first read of the Job fails, as it does while the operator is still creating it.
+  *"get job"*jsonpath*) [[ -e "$STUB_CALLS.job" ]] || { touch "$STUB_CALLS.job"; echo 'Error from server (NotFound): jobs.batch "x" not found' >&2; exit 1; }; printf 'Complete' ;;
   *"get pods"*) echo '{"items": []}' ;;
   *"get nodes"*) echo '{"items": [{"metadata": {"name": "ip-a", "labels": {"eks.amazonaws.com/nodegroup": "gpu"}}}]}' ;;
-  *apply*) cat >/dev/null; echo created ;;
+  *apply*) echo created ;;
   *) echo '{}' ;;
 esac
 EOF
@@ -122,7 +123,10 @@ export STUB_CALLS="$work/calls.log"
 : >"$STUB_CALLS"
 DDP_CONTEXT=stub DDP_OUT="$work/out" DDP_BUDGET=5
 mkdir -p "$DDP_OUT"
-PATH="$work/bin:$PATH" ddp_run_arm pass
+# Under errexit, as the session runs: a failed poll must be retried, not end the arm.
+# An arm that aborts leaves its log collector looping, holding this test's output open; the trap stops it either way.
+# shellcheck disable=SC2154  # DDP_COLLECTORS is set by the library inside the subshell
+(set -e; trap 'rc=$?; for p in "${DDP_COLLECTORS[@]}"; do kill "$p" 2>/dev/null || true; done; exit $rc' EXIT; PATH="$work/bin:$PATH" ddp_run_arm pass)
 rc=$?
 missing=""
 for f in mltrainingjob.yaml timeline.jsonl final-mltj.json final-job.json final-workloads.json final-service.json name; do

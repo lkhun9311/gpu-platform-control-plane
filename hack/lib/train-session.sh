@@ -246,7 +246,8 @@ else:
 train_sync_app() {
   local ctx="$1" app="$2" wait="$3" deadline=$((SECONDS + $3)) requested out verdict=""
   requested="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  # The API server stamps whole seconds, so an operation started in the request's own second could be the old one.
+  # The API server stamps whole seconds, so an operation started in the request's own second could be the old one:
+  # only a later second is accepted, and the request waits a second so its own operation starts in one.
   sleep 1
   out="$(kubectl --context "$ctx" --request-timeout=20s -n argocd patch application "$app" --type json -p \
     '[{"op":"add","path":"/operation","value":{"initiatedBy":{"username":"eks-gitops-session"},"sync":{"revision":"main"}}}]' 2>&1)" || {
@@ -265,7 +266,7 @@ op = st.get("operationState") or {}
 started, phase = op.get("startedAt") or "", op.get("phase") or "?"
 sync = (st.get("sync") or {}).get("status") or "?"
 revision = (st.get("sync") or {}).get("revision") or "?"
-if not started or started < sys.argv[2]:
+if not started or started <= sys.argv[2]:
     print("WAIT no operation started since " + sys.argv[2] + " (last started " + (started or "never") + ")")
 elif phase in ("Failed", "Error"):
     print("REFUSE the sync operation started " + started + " ended " + phase + ": " + (op.get("message") or "")[:200])
@@ -417,6 +418,27 @@ else:
   done
 }
 
+# train_group_instances CLUSTER REGION GROUP: the instance IDs the group's Auto Scaling group holds, one line, or
+# nothing when it holds none; fails, naming what could not be read, when either the group or its Auto Scaling group
+# cannot be read.
+train_group_instances() {
+  local cluster="$1" region="$2" group="$3" names ids
+  names="$(aws eks describe-nodegroup --region "$region" --cluster-name "$cluster" --nodegroup-name "$group" \
+    --query 'nodegroup.resources.autoScalingGroups[].name' --output text 2>&1)" || {
+    echo "the node group: ${names:0:200}"
+    return 1
+  }
+  [[ -n "${names//[[:space:]]/}" && "$names" != None ]] || return 0
+  # shellcheck disable=SC2086
+  ids="$(aws autoscaling describe-auto-scaling-groups --region "$region" --auto-scaling-group-names $names \
+    --query 'AutoScalingGroups[].Instances[].InstanceId' --output text 2>&1)" || {
+    echo "the Auto Scaling group: ${ids:0:200}"
+    return 1
+  }
+  [[ "$ids" == None ]] && ids=""
+  xargs <<<"${ids//[[:space:]]/ }"
+}
+
 # train_scale_down CLUSTER REGION GROUP INSTANCES_FILE WAIT_SECONDS: the group to zero, and every instance it launched
 # followed to terminated.
 #
@@ -426,7 +448,14 @@ else:
 # also covers a launch that never became a qualified node; each is added to the record once seen, because the group
 # stops listing an instance as it goes, before it has terminated. A group that cannot be read is not an empty one.
 train_scale_down() {
-  local cluster="$1" region="$2" group="$3" file="$4" wait="$5" i out accepted="" ids states left
+  local cluster="$1" region="$2" group="$3" file="$4" wait="$5" i out accepted="" ids states left held
+  # Read before the request as well as after it: an instance the scale-down removes from the group's listing before
+  # the first poll would otherwise never be recorded, and so never be followed. An unreadable answer here is not
+  # fatal, because the polls below read the group again and refuse on an unreadable one.
+  if [[ -w "$file" ]] && held="$(train_group_instances "$cluster" "$region" "$group")" && [[ -n "$held" ]]; then
+    # shellcheck disable=SC2086
+    printf '%s\n' $held >>"$file"
+  fi
   for i in 1 2 3 4 5 6; do
     if out="$(aws eks update-nodegroup-config --region "$region" --cluster-name "$cluster" --nodegroup-name "$group" \
       --scaling-config minSize=0,maxSize=2,desiredSize=0 2>&1)"; then
@@ -440,26 +469,14 @@ train_scale_down() {
     echo "the instance record $file is missing, so nothing shows the nodes this session bought have gone"
     return 1
   fi
-  local deadline=$((SECONDS + wait)) gone="" named asg_names asg_ids unreadable asking
+  local deadline=$((SECONDS + wait)) gone="" named asg_ids unreadable asking
   while :; do
     unreadable=""
     asg_ids=""
-    if asg_names="$(aws eks describe-nodegroup --region "$region" --cluster-name "$cluster" --nodegroup-name "$group" \
-      --query 'nodegroup.resources.autoScalingGroups[].name' --output text 2>&1)"; then
-      if [[ -n "${asg_names//[[:space:]]/}" && "$asg_names" != None ]]; then
-        # shellcheck disable=SC2086
-        asg_ids="$(aws autoscaling describe-auto-scaling-groups --region "$region" --auto-scaling-group-names $asg_names \
-          --query 'AutoScalingGroups[].Instances[].InstanceId' --output text 2>&1)" || {
-          unreadable="the Auto Scaling group: ${asg_ids:0:200}"
-          asg_ids=""
-        }
-      fi
-    else
-      unreadable="the node group: ${asg_names:0:200}"
-    fi
-    [[ "$asg_ids" == None ]] && asg_ids=""
-    asg_ids="${asg_ids//[[:space:]]/ }"
-    asg_ids="$(xargs <<<"$asg_ids")"
+    asg_ids="$(train_group_instances "$cluster" "$region" "$group")" || {
+      unreadable="$asg_ids"
+      asg_ids=""
+    }
     # shellcheck disable=SC2086
     [[ -n "$asg_ids" ]] && printf '%s\n' $asg_ids >>"$file"
     ids="$(sort -u "$file" | grep -E '^i-[0-9a-f]+$' | paste -sd' ')"

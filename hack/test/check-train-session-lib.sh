@@ -220,6 +220,9 @@ scenario
 answer kubectl-get-nodes "error: You must be logged in to the server (Unauthorized)" 1
 expect "an unreadable node list" 1 "unreadable" -- train_qualify_nodes ctx gpu 2 0
 
+# env_path DIR COMMAND...: runs COMMAND, a function here, with DIR first on PATH.
+env_path() { local PATH="$1:$PATH"; shift; "$@"; }
+
 # --- a manual Application synced by an operation this request started ------------------------------------------------
 app() { # startedAt phase sync
   printf '{"status": {"operationState": {"startedAt": "%s", "phase": "%s", "message": "m"}, "sync": {"status": "%s", "revision": "abc123"}}}' "$1" "$2" "$3"
@@ -237,6 +240,14 @@ scenario
 answer kubectl-patch-application "patched"
 answer kubectl-get-application "$(app 2000-01-01T00:00:00Z Succeeded Synced)"
 expect "only an earlier operation at the deadline" 1 "no operation started since" -- train_sync_app ctx gpu-platform-training 0
+scenario
+# An earlier operation that started in the request's own second is still the earlier one.
+mkdir -p "$work/clock"
+printf '#!/usr/bin/env bash\necho 2026-10-22T01:00:00Z\n' >"$work/clock/date"
+chmod +x "$work/clock/date"
+answer kubectl-patch-application "patched"
+answer kubectl-get-application "$(app 2026-10-22T01:00:00Z Succeeded Synced)"
+expect "an operation from the request's own second" 1 "no operation started since 2026-10-22T01:00:00Z" -- env_path "$work/clock" train_sync_app ctx gpu-platform-training 0
 scenario
 answer kubectl-patch-application "patched"
 answer kubectl-get-application "$(app "$future" Succeeded OutOfSync)"
@@ -374,6 +385,18 @@ answer aws-ec2-describe-instances.1 "$(printf 'i-0aaa\tshutting-down\ni-0ccc\tru
 answer aws-ec2-describe-instances "$(printf 'i-0aaa\tterminated\ni-0ccc\tterminated')"
 expect "an instance only the group knew is followed too" 0 "i-0aaa i-0ccc terminated" -- train_scale_down gpu-platform ap-northeast-2 gpu "$STUB/ids" 5
 grep -qx i-0ccc "$STUB/ids" && ok "the group's instance is added to the record" || bad "the group's instance is not in the record"
+scenario
+# The scale-down can take an instance out of the group's listing before the first poll reads it.
+printf 'i-0aaa\n' >"$STUB/ids"
+answer aws-eks-update-nodegroup-config "{}"
+answer aws-eks-describe-nodegroup "eks-gpu-asg"
+answer aws-autoscaling-describe-auto-scaling-groups.1 "i-0ccc"
+answer aws-autoscaling-describe-auto-scaling-groups ""
+answer aws-ec2-describe-instances.1 "$(printf 'i-0aaa\tterminated\ni-0ccc\tshutting-down')"
+answer aws-ec2-describe-instances "$(printf 'i-0aaa\tterminated\ni-0ccc\tterminated')"
+expect "an instance the group listed only before the request" 0 "i-0aaa i-0ccc terminated" -- train_scale_down gpu-platform ap-northeast-2 gpu "$STUB/ids" 5
+first_two="$(grep -E 'describe-auto-scaling-groups|update-nodegroup-config' "$STUB/calls.log" | head -2 | awk '{print $3}' | paste -sd' ')"
+[[ "$first_two" == "describe-auto-scaling-groups update-nodegroup-config" ]] && ok "the group is read before the scale-down is asked for" || bad "the order was: $first_two"
 scenario
 printf 'i-0aaa\n' >"$STUB/ids"
 answer aws-eks-update-nodegroup-config "{}"
