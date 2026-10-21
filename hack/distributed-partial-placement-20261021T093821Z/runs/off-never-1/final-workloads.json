@@ -1,0 +1,149 @@
+{
+    "apiVersion": "v1",
+    "items": [
+        {
+            "apiVersion": "kueue.x-k8s.io/v1beta2",
+            "kind": "Workload",
+            "metadata": {
+                "creationTimestamp": "2026-10-21T09:41:31Z",
+                "finalizers": [
+                    "kueue.x-k8s.io/resource-in-use"
+                ],
+                "generation": 1,
+                "labels": {
+                    "kueue.x-k8s.io/job-uid": "073553be-e384-493f-a2ae-5f75d524bf90"
+                },
+                "name": "job-pp-off-never-1-094128-46bc7",
+                "namespace": "partial",
+                "ownerReferences": [
+                    {
+                        "apiVersion": "batch/v1",
+                        "blockOwnerDeletion": true,
+                        "controller": true,
+                        "kind": "Job",
+                        "name": "pp-off-never-1-094128",
+                        "uid": "073553be-e384-493f-a2ae-5f75d524bf90"
+                    }
+                ],
+                "resourceVersion": "1525",
+                "uid": "5902a150-af61-43c2-95c5-9c48bb63ac1a"
+            },
+            "spec": {
+                "active": true,
+                "podSets": [
+                    {
+                        "count": 2,
+                        "name": "main",
+                        "template": {
+                            "metadata": {
+                                "labels": {
+                                    "batch.kubernetes.io/job-name": "pp-off-never-1-094128",
+                                    "platform.lkhun9311.github.io/mltrainingjob": "pp-off-never-1-094128",
+                                    "platform.lkhun9311.github.io/mltrainingjob-uid": "0b2a33b3-0169-4864-b430-c657cf1f7a81"
+                                }
+                            },
+                            "spec": {
+                                "containers": [
+                                    {
+                                        "command": [
+                                            "sh",
+                                            "-c",
+                                            "export DDP_RUN_ID=pp-off-never-1-094128 DDP_OUT_DIR=/tmp/evidence OMP_NUM_THREADS=1 DDP_RENDEZVOUS_TIMEOUT_SECONDS=1500\nexec python /work/train.py\n"
+                                        ],
+                                        "env": [
+                                            {
+                                                "name": "NVIDIA_DRIVER_CAPABILITIES",
+                                                "value": "compute,utility"
+                                            },
+                                            {
+                                                "name": "WORLD_SIZE",
+                                                "value": "2"
+                                            },
+                                            {
+                                                "name": "MASTER_ADDR",
+                                                "value": "pp-off-never-1-094128-0.pp-off-never-1-094128-ddp.partial.svc"
+                                            },
+                                            {
+                                                "name": "MASTER_PORT",
+                                                "value": "29500"
+                                            },
+                                            {
+                                                "name": "RANK",
+                                                "valueFrom": {
+                                                    "fieldRef": {
+                                                        "apiVersion": "v1",
+                                                        "fieldPath": "metadata.annotations['batch.kubernetes.io/job-completion-index']"
+                                                    }
+                                                }
+                                            }
+                                        ],
+                                        "image": "cpu-ddp:torch251",
+                                        "imagePullPolicy": "IfNotPresent",
+                                        "name": "trainer",
+                                        "resources": {
+                                            "limits": {
+                                                "nvidia.com/gpu": "1"
+                                            }
+                                        },
+                                        "terminationMessagePath": "/dev/termination-log",
+                                        "terminationMessagePolicy": "File"
+                                    }
+                                ],
+                                "dnsPolicy": "ClusterFirst",
+                                "restartPolicy": "Never",
+                                "schedulerName": "default-scheduler",
+                                "securityContext": {},
+                                "subdomain": "pp-off-never-1-094128-ddp",
+                                "terminationGracePeriodSeconds": 30
+                            }
+                        },
+                        "topologyRequest": {
+                            "podIndexLabel": "batch.kubernetes.io/job-completion-index"
+                        }
+                    }
+                ],
+                "priority": 0,
+                "queueName": "gpu-partial"
+            },
+            "status": {
+                "admission": {
+                    "clusterQueue": "gpu-partial",
+                    "podSetAssignments": [
+                        {
+                            "count": 2,
+                            "flavors": {
+                                "nvidia.com/gpu": "gpu"
+                            },
+                            "name": "main",
+                            "resourceUsage": {
+                                "nvidia.com/gpu": "2"
+                            }
+                        }
+                    ]
+                },
+                "conditions": [
+                    {
+                        "lastTransitionTime": "2026-10-21T09:41:31Z",
+                        "message": "Quota reserved in ClusterQueue gpu-partial",
+                        "observedGeneration": 1,
+                        "reason": "QuotaReserved",
+                        "status": "True",
+                        "type": "QuotaReserved"
+                    },
+                    {
+                        "lastTransitionTime": "2026-10-21T09:41:31Z",
+                        "message": "The workload is admitted",
+                        "observedGeneration": 1,
+                        "reason": "Admitted",
+                        "status": "True",
+                        "type": "Admitted"
+                    }
+                ]
+            }
+        }
+    ],
+    "kind": "List",
+    "metadata": {
+        "resourceVersion": ""
+    }
+}

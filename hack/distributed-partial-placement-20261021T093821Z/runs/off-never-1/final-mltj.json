@@ -1,0 +1,58 @@
+{
+    "apiVersion": "platform.lkhun9311.github.io/v1",
+    "kind": "MLTrainingJob",
+    "metadata": {
+        "annotations": {
+            "kubectl.kubernetes.io/last-applied-configuration": "{\"apiVersion\":\"platform.lkhun9311.github.io/v1\",\"kind\":\"MLTrainingJob\",\"metadata\":{\"annotations\":{},\"name\":\"pp-off-never-1-094128\",\"namespace\":\"partial\"},\"spec\":{\"command\":[\"sh\",\"-c\",\"export DDP_RUN_ID=pp-off-never-1-094128 DDP_OUT_DIR=/tmp/evidence OMP_NUM_THREADS=1 DDP_RENDEZVOUS_TIMEOUT_SECONDS=1500\\nexec python /work/train.py\\n\"],\"distributed\":{\"worldSize\":2},\"gpuCount\":1,\"image\":\"cpu-ddp:torch251\",\"queue\":\"gpu-partial\"}}\n"
+        },
+        "creationTimestamp": "2026-10-21T09:41:31Z",
+        "finalizers": [
+            "mltrainingjob.platform.lkhun9311.github.io/finalizer"
+        ],
+        "generation": 1,
+        "name": "pp-off-never-1-094128",
+        "namespace": "partial",
+        "resourceVersion": "1552",
+        "uid": "0b2a33b3-0169-4864-b430-c657cf1f7a81"
+    },
+    "spec": {
+        "command": [
+            "sh",
+            "-c",
+            "export DDP_RUN_ID=pp-off-never-1-094128 DDP_OUT_DIR=/tmp/evidence OMP_NUM_THREADS=1 DDP_RENDEZVOUS_TIMEOUT_SECONDS=1500\nexec python /work/train.py\n"
+        ],
+        "completions": 1,
+        "distributed": {
+            "worldSize": 2
+        },
+        "gpuCount": 1,
+        "image": "cpu-ddp:torch251",
+        "parallelism": 1,
+        "queue": "gpu-partial"
+    },
+    "status": {
+        "admittedAt": "2026-10-21T09:41:31Z",
+        "conditions": [
+            {
+                "lastTransitionTime": "2026-10-21T09:41:31Z",
+                "message": "",
+                "observedGeneration": 1,
+                "reason": "QuotaReserved",
+                "status": "True",
+                "type": "Admitted"
+            },
+            {
+                "lastTransitionTime": "2026-10-21T09:41:31Z",
+                "message": "",
+                "observedGeneration": 1,
+                "reason": "ServiceOwned",
+                "status": "True",
+                "type": "RendezvousService"
+            }
+        ],
+        "lastTransitionTime": "2026-10-21T09:41:31Z",
+        "observedGeneration": 1,
+        "phase": "Admitted",
+        "readyRanks": 1
+    }
+}

@@ -1,0 +1,459 @@
+09:38:21 provenance: commit=943e4b147432c7c56e1dfaa739aba863d737339c dirty_files=1 kind=kind v0.33.0 go1.25.7 linux/amd64 kubectl=v1.36.3 kueue=v0.18.3 cert_manager=v1.21.1 train_py_sha256=815a1ea0c94a00dfbe8b621bdf8766680c573f7c4fba1c4fcc83648c424eb3e2 window=300 late_at=150 rendezvous_timeout=1500 runs=off:never:1 off:late:1 
+09:38:21 == images
+DEPRECATED: The legacy builder is deprecated and will be removed in a future release.
+            Install the buildx component to build images with BuildKit:
+            https://docs.docker.com/go/buildx/
+
+sha256:62f6ee4bcb6018c91eeaab904bf061859e853e2426312ee2f4e9e15b1a8a57d5
+/usr/local/lib/python3.12/site-packages/torch/_subclasses/functional_tensor.py:295: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at ../torch/csrc/utils/tensor_numpy.cpp:84.)
+  cpu = _conversion_method_template(device=torch.device("cpu"))
+docker build -t controller:partial .
+DEPRECATED: The legacy builder is deprecated and will be removed in a future release.
+            Install the buildx component to build images with BuildKit:
+            https://docs.docker.com/go/buildx/
+
+Sending build context to Docker daemon  2.782MB
+Step 1/14 : FROM golang:1.27.3@sha256:957861185dbf29d93668ace41e011d091c6e779953d47f0316ef2cc58e28fe2b AS builder
+ ---> 957861185dbf
+Step 2/14 : ARG TARGETOS
+ ---> Using cache
+ ---> a38e89fd304b
+Step 3/14 : ARG TARGETARCH
+ ---> Using cache
+ ---> df7229e5f3ec
+Step 4/14 : WORKDIR /workspace
+ ---> Using cache
+ ---> e0f3b83f69f4
+Step 5/14 : COPY go.mod go.mod
+ ---> Using cache
+ ---> fd57ce161410
+Step 6/14 : COPY go.sum go.sum
+ ---> Using cache
+ ---> 163e9ddb2c8b
+Step 7/14 : RUN go mod download
+ ---> Using cache
+ ---> 4252e133d241
+Step 8/14 : COPY . .
+ ---> 5ca719d962b9
+Step 9/14 : RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o manager cmd/main.go
+ ---> Running in ebe97b36ba5e
+ ---> Removed intermediate container ebe97b36ba5e
+ ---> 4824d96f3c52
+Step 10/14 : FROM gcr.io/distroless/static:nonroot@sha256:e2e927ec666bae08560abb3c55d0659eceabb657f56b6782ab500a9fc7f555e3
+ ---> e2e927ec666b
+Step 11/14 : WORKDIR /
+ ---> Using cache
+ ---> e61cf3190b2a
+Step 12/14 : COPY --from=builder /workspace/manager .
+ ---> 1d526a990bc5
+Step 13/14 : USER 65532:65532
+ ---> Running in 2a16236466d2
+ ---> Removed intermediate container 2a16236466d2
+ ---> c4eed2afbfd5
+Step 14/14 : ENTRYPOINT ["/manager"]
+ ---> Running in 56cdb463fa38
+ ---> Removed intermediate container 56cdb463fa38
+ ---> 90380057c4b7
+Successfully built 90380057c4b7
+Successfully tagged controller:partial
+docker build -t gpu-simulator:partial -f Dockerfile.gpu-simulator .
+DEPRECATED: The legacy builder is deprecated and will be removed in a future release.
+            Install the buildx component to build images with BuildKit:
+            https://docs.docker.com/go/buildx/
+
+Sending build context to Docker daemon  2.782MB
+Step 1/14 : FROM golang:1.27.3@sha256:957861185dbf29d93668ace41e011d091c6e779953d47f0316ef2cc58e28fe2b AS builder
+ ---> 957861185dbf
+Step 2/14 : ARG TARGETOS
+ ---> Using cache
+ ---> a38e89fd304b
+Step 3/14 : ARG TARGETARCH
+ ---> Using cache
+ ---> df7229e5f3ec
+Step 4/14 : WORKDIR /workspace
+ ---> Using cache
+ ---> e0f3b83f69f4
+Step 5/14 : COPY go.mod go.mod
+ ---> Using cache
+ ---> fd57ce161410
+Step 6/14 : COPY go.sum go.sum
+ ---> Using cache
+ ---> 163e9ddb2c8b
+Step 7/14 : RUN go mod download
+ ---> Using cache
+ ---> 4252e133d241
+Step 8/14 : COPY . .
+ ---> Using cache
+ ---> 5ca719d962b9
+Step 9/14 : RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o gpu-simulator cmd/gpu-simulator/main.go
+ ---> Running in d71a25afa9c6
+ ---> Removed intermediate container d71a25afa9c6
+ ---> b8a4dab1e559
+Step 10/14 : FROM gcr.io/distroless/static:nonroot@sha256:e2e927ec666bae08560abb3c55d0659eceabb657f56b6782ab500a9fc7f555e3
+ ---> e2e927ec666b
+Step 11/14 : WORKDIR /
+ ---> Using cache
+ ---> e61cf3190b2a
+Step 12/14 : COPY --from=builder /workspace/gpu-simulator .
+ ---> Using cache
+ ---> ada8d3eeac89
+Step 13/14 : USER 65532:65532
+ ---> Using cache
+ ---> 2c4b5272cbcb
+Step 14/14 : ENTRYPOINT ["/gpu-simulator"]
+ ---> Using cache
+ ---> b610aeb6e426
+Successfully built b610aeb6e426
+Successfully tagged gpu-simulator:partial
+09:39:36 == cluster partial
+Creating cluster "partial" ...
+ • Ensuring node image (kindest/node:v1.37.0) 🖼️  ...
+ ✓ Ensuring node image (kindest/node:v1.37.0) 🖼️
+ • Preparing nodes 📦 📦 📦   ...
+ ✓ Preparing nodes 📦 📦 📦 
+ • Writing configuration 📜  ...
+ ✓ Writing configuration 📜
+ • Starting control-plane 🕹️  ...
+ ✓ Starting control-plane 🕹️
+ • Installing CNI 🔌  ...
+ ✓ Installing CNI 🔌
+ • Installing StorageClass 💾  ...
+ ✓ Installing StorageClass 💾
+ • Joining worker nodes 🚜  ...
+ ✓ Joining worker nodes 🚜
+Set kubectl context to "kind-partial"
+You can now use your cluster with:
+
+kubectl cluster-info --context kind-partial
+
+Not sure what to do next? 😅  Check out https://kind.sigs.k8s.io/docs/user/quick-start/
+Image: "controller:partial" with ID "sha256:90380057c4b7156ea49f4019e365145760290ffb9f53f626129f548ed6cf02ec" not yet present on node "partial-worker", loading...
+Image: "controller:partial" with ID "sha256:90380057c4b7156ea49f4019e365145760290ffb9f53f626129f548ed6cf02ec" not yet present on node "partial-control-plane", loading...
+Image: "controller:partial" with ID "sha256:90380057c4b7156ea49f4019e365145760290ffb9f53f626129f548ed6cf02ec" not yet present on node "partial-worker2", loading...
+Image: "gpu-simulator:partial" with ID "sha256:b610aeb6e4267f12b32adcb17f86ed059f1b3dd64752543cce00d80d624c098a" not yet present on node "partial-worker", loading...
+Image: "gpu-simulator:partial" with ID "sha256:b610aeb6e4267f12b32adcb17f86ed059f1b3dd64752543cce00d80d624c098a" not yet present on node "partial-control-plane", loading...
+Image: "gpu-simulator:partial" with ID "sha256:b610aeb6e4267f12b32adcb17f86ed059f1b3dd64752543cce00d80d624c098a" not yet present on node "partial-worker2", loading...
+Image: "cpu-ddp:torch251" with ID "sha256:62f6ee4bcb6018c91eeaab904bf061859e853e2426312ee2f4e9e15b1a8a57d5" not yet present on node "partial-worker", loading...
+Image: "cpu-ddp:torch251" with ID "sha256:62f6ee4bcb6018c91eeaab904bf061859e853e2426312ee2f4e9e15b1a8a57d5" not yet present on node "partial-control-plane", loading...
+Image: "cpu-ddp:torch251" with ID "sha256:62f6ee4bcb6018c91eeaab904bf061859e853e2426312ee2f4e9e15b1a8a57d5" not yet present on node "partial-worker2", loading...
+namespace/cert-manager created
+customresourcedefinition.apiextensions.k8s.io/challenges.acme.cert-manager.io created
+customresourcedefinition.apiextensions.k8s.io/orders.acme.cert-manager.io created
+customresourcedefinition.apiextensions.k8s.io/certificaterequests.cert-manager.io created
+customresourcedefinition.apiextensions.k8s.io/certificates.cert-manager.io created
+customresourcedefinition.apiextensions.k8s.io/clusterissuers.cert-manager.io created
+customresourcedefinition.apiextensions.k8s.io/issuers.cert-manager.io created
+serviceaccount/cert-manager-cainjector created
+serviceaccount/cert-manager created
+serviceaccount/cert-manager-webhook created
+clusterrole.rbac.authorization.k8s.io/cert-manager-cainjector created
+clusterrole.rbac.authorization.k8s.io/cert-manager-controller-issuers created
+clusterrole.rbac.authorization.k8s.io/cert-manager-controller-clusterissuers created
+clusterrole.rbac.authorization.k8s.io/cert-manager-controller-certificates created
+clusterrole.rbac.authorization.k8s.io/cert-manager-controller-orders created
+clusterrole.rbac.authorization.k8s.io/cert-manager-controller-challenges created
+clusterrole.rbac.authorization.k8s.io/cert-manager-controller-ingress-shim created
+clusterrole.rbac.authorization.k8s.io/cert-manager-cluster-view created
+clusterrole.rbac.authorization.k8s.io/cert-manager-view created
+clusterrole.rbac.authorization.k8s.io/cert-manager-edit created
+clusterrole.rbac.authorization.k8s.io/cert-manager-controller-approve:cert-manager-io created
+clusterrole.rbac.authorization.k8s.io/cert-manager-controller-certificatesigningrequests created
+clusterrole.rbac.authorization.k8s.io/cert-manager-webhook:subjectaccessreviews created
+clusterrolebinding.rbac.authorization.k8s.io/cert-manager-cainjector created
+clusterrolebinding.rbac.authorization.k8s.io/cert-manager-controller-issuers created
+clusterrolebinding.rbac.authorization.k8s.io/cert-manager-controller-clusterissuers created
+clusterrolebinding.rbac.authorization.k8s.io/cert-manager-controller-certificates created
+clusterrolebinding.rbac.authorization.k8s.io/cert-manager-controller-orders created
+clusterrolebinding.rbac.authorization.k8s.io/cert-manager-controller-challenges created
+clusterrolebinding.rbac.authorization.k8s.io/cert-manager-controller-ingress-shim created
+clusterrolebinding.rbac.authorization.k8s.io/cert-manager-controller-approve:cert-manager-io created
+clusterrolebinding.rbac.authorization.k8s.io/cert-manager-controller-certificatesigningrequests created
+clusterrolebinding.rbac.authorization.k8s.io/cert-manager-webhook:subjectaccessreviews created
+role.rbac.authorization.k8s.io/cert-manager-cainjector:leaderelection created
+role.rbac.authorization.k8s.io/cert-manager:leaderelection created
+role.rbac.authorization.k8s.io/cert-manager-webhook:dynamic-serving created
+rolebinding.rbac.authorization.k8s.io/cert-manager-cainjector:leaderelection created
+rolebinding.rbac.authorization.k8s.io/cert-manager:leaderelection created
+rolebinding.rbac.authorization.k8s.io/cert-manager-webhook:dynamic-serving created
+service/cert-manager-cainjector created
+service/cert-manager created
+service/cert-manager-webhook created
+deployment.apps/cert-manager-cainjector created
+deployment.apps/cert-manager created
+deployment.apps/cert-manager-webhook created
+mutatingwebhookconfiguration.admissionregistration.k8s.io/cert-manager-webhook created
+validatingwebhookconfiguration.admissionregistration.k8s.io/cert-manager-webhook created
+deployment.apps/cert-manager condition met
+deployment.apps/cert-manager-cainjector condition met
+deployment.apps/cert-manager-webhook condition met
+namespace/kueue-system serverside-applied
+customresourcedefinition.apiextensions.k8s.io/admissionchecks.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/clusterqueues.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/cohorts.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/localqueues.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/multikueueclusters.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/multikueueconfigs.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/provisioningrequestconfigs.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/resourceflavors.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/topologies.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/workloadpriorityclasses.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/workloads.kueue.x-k8s.io serverside-applied
+serviceaccount/kueue-controller-manager serverside-applied
+role.rbac.authorization.k8s.io/kueue-leader-election-role serverside-applied
+role.rbac.authorization.k8s.io/kueue-manager-clusterprofiles-role serverside-applied
+role.rbac.authorization.k8s.io/kueue-manager-secrets-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-batch-admin-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-batch-user-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-clusterqueue-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-clusterqueue-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-cohort-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-cohort-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-jaxjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-jaxjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-job-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-job-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-jobset-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-jobset-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-leaderworkerset-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-leaderworkerset-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-localqueue-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-localqueue-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-manager-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-metrics-auth-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-metrics-reader serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-mpijob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-mpijob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-paddlejob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-paddlejob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-pending-workloads-cq-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-pending-workloads-lq-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-pytorchjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-pytorchjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-raycluster-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-raycluster-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-rayjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-rayjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-rayservice-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-rayservice-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-resourceflavor-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-resourceflavor-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-sparkapplication-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-sparkapplication-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-tfjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-tfjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-topology-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-topology-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-trainjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-trainjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-workload-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-workload-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-xgboostjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-xgboostjob-viewer-role serverside-applied
+rolebinding.rbac.authorization.k8s.io/kueue-visibility-server-auth-reader serverside-applied
+rolebinding.rbac.authorization.k8s.io/kueue-leader-election-rolebinding serverside-applied
+rolebinding.rbac.authorization.k8s.io/kueue-manager-clusterprofiles-rolebinding serverside-applied
+rolebinding.rbac.authorization.k8s.io/kueue-manager-secrets-rolebinding serverside-applied
+clusterrolebinding.rbac.authorization.k8s.io/kueue-manager-rolebinding serverside-applied
+clusterrolebinding.rbac.authorization.k8s.io/kueue-metrics-auth-rolebinding serverside-applied
+configmap/kueue-manager-config serverside-applied
+secret/kueue-webhook-server-cert serverside-applied
+service/kueue-controller-manager-metrics-service serverside-applied
+service/kueue-visibility-server serverside-applied
+service/kueue-webhook-service serverside-applied
+deployment.apps/kueue-controller-manager serverside-applied
+apiservice.apiregistration.k8s.io/v1beta1.visibility.kueue.x-k8s.io serverside-applied
+apiservice.apiregistration.k8s.io/v1beta2.visibility.kueue.x-k8s.io serverside-applied
+mutatingwebhookconfiguration.admissionregistration.k8s.io/kueue-mutating-webhook-configuration serverside-applied
+validatingwebhookconfiguration.admissionregistration.k8s.io/kueue-validating-webhook-configuration serverside-applied
+deployment.apps/kueue-controller-manager condition met
+customresourcedefinition.apiextensions.k8s.io/gpuquotapolicies.platform.lkhun9311.github.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/gpusharingbenchmarks.platform.lkhun9311.github.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/inferencedeployments.platform.lkhun9311.github.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/mltrainingjobs.platform.lkhun9311.github.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/nodehealths.platform.lkhun9311.github.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/workloadruns.platform.lkhun9311.github.io serverside-applied
+namespace/gpu-platform-control-plane-system serverside-applied
+serviceaccount/gpu-platform-control-plane-controller-manager serverside-applied
+role.rbac.authorization.k8s.io/gpu-platform-control-plane-leader-election-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-gpuquotapolicy-admin-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-gpuquotapolicy-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-gpuquotapolicy-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-inferencedeployment-admin-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-inferencedeployment-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-inferencedeployment-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-manager-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-metrics-auth-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-metrics-reader serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-mltrainingjob-admin-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-mltrainingjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-mltrainingjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-nodehealth-admin-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-nodehealth-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-nodehealth-viewer-role serverside-applied
+rolebinding.rbac.authorization.k8s.io/gpu-platform-control-plane-leader-election-rolebinding serverside-applied
+clusterrolebinding.rbac.authorization.k8s.io/gpu-platform-control-plane-manager-rolebinding serverside-applied
+clusterrolebinding.rbac.authorization.k8s.io/gpu-platform-control-plane-metrics-auth-rolebinding serverside-applied
+service/gpu-platform-control-plane-webhook-service serverside-applied
+deployment.apps/gpu-platform-control-plane-controller-manager serverside-applied
+certificate.cert-manager.io/gpu-platform-control-plane-serving-cert serverside-applied
+issuer.cert-manager.io/gpu-platform-control-plane-selfsigned-issuer serverside-applied
+validatingwebhookconfiguration.admissionregistration.k8s.io/gpu-platform-control-plane-validating-webhook-configuration serverside-applied
+deployment.apps/gpu-platform-control-plane-controller-manager image updated
+deployment.apps/gpu-platform-control-plane-controller-manager patched
+Waiting for deployment "gpu-platform-control-plane-controller-manager" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "gpu-platform-control-plane-controller-manager" rollout to finish: 0 of 1 updated replicas are available...
+Waiting for deployment "gpu-platform-control-plane-controller-manager" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "gpu-platform-control-plane-controller-manager" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "gpu-platform-control-plane-controller-manager" rollout to finish: 1 old replicas are pending termination...
+deployment "gpu-platform-control-plane-controller-manager" successfully rolled out
+daemonset.apps/gpu-simulator created
+daemonset.apps/gpu-simulator image updated
+daemonset.apps/gpu-simulator patched
+Waiting for daemon set "gpu-simulator" rollout to finish: 0 out of 3 new pods have been updated...
+Waiting for daemon set "gpu-simulator" rollout to finish: 0 out of 3 new pods have been updated...
+Waiting for daemon set "gpu-simulator" rollout to finish: 1 out of 3 new pods have been updated...
+Waiting for daemon set "gpu-simulator" rollout to finish: 1 out of 3 new pods have been updated...
+Waiting for daemon set "gpu-simulator" rollout to finish: 2 out of 3 new pods have been updated...
+Waiting for daemon set "gpu-simulator" rollout to finish: 2 out of 3 new pods have been updated...
+Waiting for daemon set "gpu-simulator" rollout to finish: 0 of 3 updated pods are available...
+Waiting for daemon set "gpu-simulator" rollout to finish: 1 of 3 updated pods are available...
+Waiting for daemon set "gpu-simulator" rollout to finish: 2 of 3 updated pods are available...
+daemon set "gpu-simulator" successfully rolled out
+09:41:11 allocatable nvidia.com/gpu per worker: 1 1 
+09:41:11 == queue
+Warning: This version is deprecated. Use v1beta2 instead.
+resourceflavor.kueue.x-k8s.io/gpu created
+namespace/partial created
+namespace/squat created
+gpuquotapolicy.platform.lkhun9311.github.io/partial-quota created
+Error from server (NotFound): clusterqueues.kueue.x-k8s.io "gpu-partial" not found
+Error from server (NotFound): localqueues.kueue.x-k8s.io "gpu-partial" not found
+Warning: resource configmaps/kueue-manager-config is missing the kubectl.kubernetes.io/last-applied-configuration annotation which is required by kubectl apply. kubectl apply should only be used on resources created declaratively by either kubectl create --save-config or kubectl apply. The missing annotation will be patched automatically.
+configmap/kueue-manager-config configured
+deployment.apps/kueue-controller-manager restarted
+Waiting for deployment spec update to be observed...
+Waiting for deployment "kueue-controller-manager" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "kueue-controller-manager" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "kueue-controller-manager" rollout to finish: 1 old replicas are pending termination...
+deployment "kueue-controller-manager" successfully rolled out
+deployment.apps/kueue-controller-manager condition met
+09:41:28 kueue setting off applied; 1 'Configuration loaded' line(s)
+09:41:28 == run off never 1 as pp-off-never-1-094128
+pod/squatter created
+pod/squatter condition met
+mltrainingjob.platform.lkhun9311.github.io/pp-off-never-1-094128 created
+09:46:31 run pp-off-never-1-094128: window over; phase 'Admitted'
+mltrainingjob.platform.lkhun9311.github.io "pp-off-never-1-094128" deleted from partial namespace
+pod "squatter" deleted from squat namespace
+09:46:37 == run off late 1 as pp-off-late-1-094637
+pod/squatter created
+pod/squatter condition met
+mltrainingjob.platform.lkhun9311.github.io/pp-off-late-1-094637 created
+pod "squatter" deleted from squat namespace
+09:52:11 run pp-off-late-1-094637: window over; phase 'Succeeded'
+hack/distributed-partial-placement.sh: line 1: kill: (278369) - No such process
+mltrainingjob.platform.lkhun9311.github.io "pp-off-late-1-094637" deleted from partial namespace
+09:52:16 == done; scoring
+NOT the registered study: provenance records window=300 late_at=150, registered window=600 late_at=300; every run below is a rehearsal
+setting off: in force
+
+== off late 1 (pp-off-late-1-094637)
+(rehearsal) validity problems: none
+{
+ "M1_polled_bounds_s": [
+  0,
+  0
+ ],
+ "M1_running_while_stranded_s": 0,
+ "M2_quota_held_before_joining": [
+  {
+   "censored": false,
+   "seconds": 150.7
+  }
+ ],
+ "M3_deactivated": false,
+ "M3_max_requeue_count": 0,
+ "M3_requests": [],
+ "M3_stopped": [],
+ "M4_eviction_lag": [],
+ "M5_final_phase": "Succeeded",
+ "M5_succeeded_after_s": 154.9,
+ "M6_admissions": 1,
+ "M6_discarded": [],
+ "M7_admittedAt_values": [
+  "2026-10-21T09:47:10Z"
+ ],
+ "M7_after_request": [],
+ "M8_device_held_after_release": [],
+ "admissions": [
+  [
+   "2026-10-21T09:47:10.989000+00:00",
+   null
+  ]
+ ],
+ "admitted_stamps": [
+  "2026-10-21T09:47:10+00:00"
+ ],
+ "joined_after_s": 151.7,
+ "second_rank_placed_after_s": 150.6,
+ "squatter_deleted_after_s": 150.6
+}
+P2 contradicted: Running 0.0% of -1.0 s from the first Running to the second placement at 150.6 s; first Running 150.1 s after Ready; final Succeeded; admissions 1
+
+== off never 1 (pp-off-never-1-094128)
+(rehearsal) validity problems: none
+{
+ "M1_polled_bounds_s": [
+  0,
+  0
+ ],
+ "M1_running_while_stranded_s": 0,
+ "M2_quota_held_before_joining": [
+  {
+   "censored": true,
+   "seconds": 299.4
+  }
+ ],
+ "M3_deactivated": false,
+ "M3_max_requeue_count": 0,
+ "M3_requests": [],
+ "M3_stopped": [],
+ "M4_eviction_lag": [],
+ "M5_final_phase": "Admitted",
+ "M5_succeeded_after_s": null,
+ "M6_admissions": 1,
+ "M6_discarded": [],
+ "M7_admittedAt_values": [
+  "2026-10-21T09:41:31Z"
+ ],
+ "M7_after_request": [],
+ "M8_device_held_after_release": [],
+ "admissions": [
+  [
+   "2026-10-21T09:41:31.618000+00:00",
+   null
+  ]
+ ],
+ "admitted_stamps": [
+  "2026-10-21T09:41:31+00:00"
+ ],
+ "joined_after_s": null,
+ "second_rank_placed_after_s": null,
+ "squatter_deleted_after_s": null
+}
+P1 not evaluable: Ready 2026-10-21 09:41:32.182000+00:00, first Running None
+hack/distributed-partial-placement.sh: line 47: kill: (219828) - No such process
+hack/distributed-partial-placement.sh: line 47: kill: (219829) - No such process
+hack/distributed-partial-placement.sh: line 47: kill: (219830) - No such process
+hack/distributed-partial-placement.sh: line 47: kill: (219832) - No such process
+hack/distributed-partial-placement.sh: line 47: kill: (220036) - No such process
+hack/distributed-partial-placement.sh: line 47: kill: (220037) - No such process
+hack/distributed-partial-placement.sh: line 47: kill: (258980) - No such process
+hack/distributed-partial-placement.sh: line 47: kill: (258981) - No such process
+hack/distributed-partial-placement.sh: line 47: kill: (258983) - No such process
+hack/distributed-partial-placement.sh: line 47: kill: (258985) - No such process
+hack/distributed-partial-placement.sh: line 47: kill: (259143) - No such process
+hack/distributed-partial-placement.sh: line 47: kill: (259144) - No such process
+Deleting cluster "partial" ...
+Deleted nodes: ["partial-worker" "partial-control-plane" "partial-worker2"]
+09:52:18 cleanup: deleted partial

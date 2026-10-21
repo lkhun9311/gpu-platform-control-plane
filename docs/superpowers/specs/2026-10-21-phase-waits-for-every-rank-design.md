@@ -1,6 +1,6 @@
 # A distributed job is Running only when every rank is: design
 
-Status: v2, 2026-10-21. v1 was reviewed adversarially before its confirmation run; the review is at the end, and the rule below is the corrected one.
+Status: v2, implemented and confirmed on kind, 2026-10-21. v1 was reviewed adversarially before its confirmation run; the review is at the end, and the rule below is the corrected one. The confirmation's result is under "Confirmation on kind".
 
 ## The defect
 
@@ -94,6 +94,18 @@ What it must show, read from the MLTrainingJob watch stream:
 
 The scorer's P1 and P2 were registered for the old rule and are expected to fail; the run is read for the two statements above, not scored against them.
 
+### Result
+
+Run from commit `943e4b1` (`hack/distributed-partial-placement-20261021T093821Z/`); a first attempt from `af601dd`, the v1 rule, was stopped during its first run once the review below showed v1 wrong, and its output was discarded.
+The scorer found both runs valid and setting `off` in force, reported them as rehearsals, and, as expected, P1 not evaluable and P2 contradicted.
+Both statements held, read from the MLTrainingJob watch and the once-a-second polls:
+
+- `off:never`: no `Running` in the watch; of 300 successful polls from 0.5 to 299.5 s, none more than 1.0 s apart, 299 read `Admitted` and the first `Pending`; `readyRanks` 1 from 1.5 s; no `runningObservedAt`.
+- `off:late`: the squatter was deleted at 150.6 s; `Admitted` until 151.6 s, then `Running` with `readyRanks` 2, `Admitted` at 153.9 s while the ranks exited, `Succeeded` at 154.9 s; one entry into `Running`; `admitToRunningSeconds` 151.611.
+
+Under the old rule all eight registered runs of Finding 10 had recorded `admitToRunningSeconds` of 0.941 to 1.936 s, the four whose second rank never got a node included.
+The confirmation's figures were read by a script outside the repository from the archived streams; the scorer's own output is `score.txt` there, and scoring the gzipped streams gave output identical to scoring them uncompressed.
+
 ## Documents
 
 Finding 10's last paragraph says the fix "has not been made"; it is changed to name this change and the confirmation run.
@@ -111,3 +123,7 @@ codex `gpt-6-astra`, high effort, asked to show the design wrong. Each finding w
 | jobs stamped before the upgrade keep the old latency | medium | yes: `runningObservedAt` is written once (`admit_to_running.go`) | stated under consequences and in the field's description |
 | "transcribed" was false for a nil Ready, which Kueue reads as zero | low | yes: `job_controller.go`, v0.18.3 and v0.20.1 | claim withdrawn, difference stated, row added |
 | `runningObservedAt`'s published description still said "a ready Pod" | low | yes: `api/v1/mltrainingjob_types.go`, the generated CRD | description changed, CRD regenerated |
+
+Then the two commits were reviewed bare (`codex review --commit`, no prompt, `gpt-6-astra`, high).
+`af601dd`'s review found, independently of the design review, the first finding above: a job with every rank succeeded and no `Complete` entering `Running`; `c9bad30` is the fix.
+`c9bad30`'s review found no defect. Both are static readings; codex also ran `TestComputeMLTJPhase` in its sandbox, and the envtests, the mutations and the kind run are this design's own, reported above.

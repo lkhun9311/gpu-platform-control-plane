@@ -53,6 +53,12 @@ In every one of the ten evictions the placed rank kept its device 28.9 s after t
 The headline figures were re-derived by a separate script from the Workload conditions' own transition times and the containers' timestamps: admissions at 0, 150 and 330 s, evictions 120 s after admission, releases 1 s after, the device held 29 s at whole-second resolution.
 What it means and what it does not is Finding 10 in `docs/11_WHAT_THIS_MEASURED.md`.
 
+## After the phase fix
+
+The fix Finding 10 pointed at, `Running` only when every rank is Ready, was confirmed on this harness with only the controller changed: one `off` run per scenario at `WINDOW=300 LATE_AT=150`, in `hack/distributed-partial-placement-20261021T093821Z/`.
+That is not a run of this study, and the scorer says so; P1 and P2 describe the old rule and fail there as expected.
+What it showed is in `docs/superpowers/specs/2026-10-21-phase-waits-for-every-rank-design.md`, "Confirmation on kind".
+
 ## Rehearsals
 
 Two rehearsals ran before registration, on 200 s windows, to find harness defects; their numbers are not results and are not published.
