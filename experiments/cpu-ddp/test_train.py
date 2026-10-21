@@ -49,8 +49,12 @@ class Stop(Exception):
     """Raised by the stub init_process_group, so main() stops at rendezvous after the backend is recorded."""
 
 
-def load_train(cuda: FakeCuda):
-    """Import train.py against stub torch modules whose cuda is the given fake."""
+def load_train(cuda: FakeCuda, allocated_on: str | None = None):
+    """Import train.py against stub torch modules whose cuda is the given fake.
+
+    A tensor lands on the device it names unless allocated_on says otherwise, which is how a test shows the
+    record reads the tensor and not the name.
+    """
     torch = types.ModuleType("torch")
     torch.cuda = cuda
     torch.version = types.SimpleNamespace(cuda="12.4")
@@ -58,7 +62,7 @@ def load_train(cuda: FakeCuda):
     torch.manual_seed = lambda seed: None
     torch.set_num_threads = lambda n: None
     torch.zeros = lambda *shape, device=None, **kw: types.SimpleNamespace(
-        device=types.SimpleNamespace(type=str(device).split(":")[0]))
+        device=types.SimpleNamespace(type=allocated_on or str(device).split(":")[0]))
     dist = types.ModuleType("torch.distributed")
     dist.init_calls = []
 
@@ -83,7 +87,7 @@ def load_train(cuda: FakeCuda):
         sys.path.remove(str(HERE))
 
 
-def run_main(backend: str | None, cuda: FakeCuda):
+def run_main(backend: str | None, cuda: FakeCuda, allocated_on: str | None = None):
     """Run main() as rank 0 of 2 and return its exit code, its records and the backends rendezvous was asked for."""
     with tempfile.TemporaryDirectory() as out:
         env = {"RANK": "0", "WORLD_SIZE": "2", "DDP_OUT_DIR": out}
@@ -98,7 +102,7 @@ def run_main(backend: str | None, cuda: FakeCuda):
         # main() installs its own SIGTERM handler, which must not outlive the test in the runner's process.
         sigterm = signal.getsignal(signal.SIGTERM)
         try:
-            train, dist = load_train(cuda)
+            train, dist = load_train(cuda, allocated_on)
             os.dup2(devnull, 1)
             code = train.main()
         finally:
@@ -172,6 +176,13 @@ class Main(unittest.TestCase):
         self.assertEqual(start["device_type"], "cuda")
         self.assertEqual(start["tensor_device_type"], "cuda")
         self.assertEqual(start["gpu_uuid"], "12345678-1234-5678-1234-567812345678")
+
+    def test_the_tensor_device_is_read_off_a_tensor_not_the_name(self):
+        # If an allocation ever landed elsewhere than it was asked, the record must say where it landed.
+        _, records, _ = run_main("nccl", FakeCuda(available=True), allocated_on="cpu")
+        start = [r for r in records if r["event"] == "rendezvous_start"][0]
+        self.assertEqual(start["device_type"], "cuda")
+        self.assertEqual(start["tensor_device_type"], "cpu")
 
     def test_a_refused_device_stops_before_rendezvous(self):
         code, records, calls = run_main("nccl", FakeCuda(available=False))
