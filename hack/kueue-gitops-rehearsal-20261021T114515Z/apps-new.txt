@@ -1,0 +1,14 @@
+cert-manager automated Synced Healthy v1.21.1
+gpu-platform-crds automated Synced Healthy e994963c3352
+gpu-platform-device-plugin manual OutOfSync Missing e994963c3352
+gpu-platform-gateway automated Synced Healthy e994963c3352
+gpu-platform-kueue automated Synced Healthy e994963c3352
+gpu-platform-nvidia-device-plugin automated Synced Healthy e994963c3352
+gpu-platform-observability manual OutOfSync Healthy e994963c3352
+gpu-platform-operator automated Synced Healthy e994963c3352
+gpu-platform-policy automated Synced Healthy e994963c3352
+gpu-platform-root automated Synced Healthy e994963c3352
+gpu-platform-samples manual OutOfSync Healthy e994963c3352
+gpu-platform-serving manual OutOfSync Healthy e994963c3352
+gpu-platform-storage automated Synced Healthy e994963c3352
+gpu-platform-training manual OutOfSync Healthy e994963c3352

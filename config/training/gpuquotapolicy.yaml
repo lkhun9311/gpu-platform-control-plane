@@ -1,0 +1,16 @@
+# train-a's admission quota: two GPUs, published as the Kueue ClusterQueue and LocalQueue gpu-train-a.
+#
+# An admission quota, not a ceiling. The ClusterQueue joins the shared cohort gpu-platform with reclaim, so within
+# a cohort it can borrow; what bounds the GPUs a session buys is the two nodes it scales to, not this.
+# The training session checks that gpu-train-a is the only ClusterQueue on the cluster it created.
+apiVersion: platform.lkhun9311.github.io/v1
+kind: GPUQuotaPolicy
+metadata:
+  name: train-a-quota
+spec:
+  tenant: train-a
+  targetNamespace: train-a
+  gpuClass: a10g
+  limits:
+    gpuCount: 2
+  trainingQuota: true

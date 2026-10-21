@@ -74,6 +74,13 @@ Exit code 143 alone does not say who sent the signal, so it is recorded and not 
 A run that fails during cluster setup, or whose collector stops before every arm is terminal, is void: it is reported as void and never as a failed criterion.
 `analyze.py` prints VOID, PASS or FAIL per arm and exits non-zero unless every arm is PASS.
 
+## The `nccl` profile (added 2026-10-21, for a GPU run not yet registered)
+
+Everything above is the `gloo` profile, which is the default and whose output on run 2 is pinned byte for byte by `test_analyze.py`.
+`analyze.py --profile nccl --script-sha256 <hex> <dir>` additionally requires, in `pass` and `no-sync`, that each rank's own records show backend `nccl`, device and tensor device type `cuda`, a GPU UUID distinct from the other rank's, a node labelled `eks.amazonaws.com/nodegroup: gpu` in the arm's saved `nodes.json`, and a `train.py` hash equal to the approved one.
+The profile and the hash come from the registration, given by whoever scores; a run whose `provenance.txt` records a different profile is void either way round.
+No GPU run has been scored with it; each criterion is shown able to fail by a fixture that falsifies only its own field.
+
 ## Results
 
 ### Run 2, `hack/multi-pod-ddp-20261014T231122Z/`: all four arms PASS

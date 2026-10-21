@@ -1,0 +1,5 @@
+NAME                         STATUS     ROLES           AGE   VERSION   INTERNAL-IP   EXTERNAL-IP   OS-IMAGE                       KERNEL-VERSION             CONTAINER-RUNTIME
+kueue-gitops-control-plane   Ready      control-plane   19s   v1.37.0   172.18.0.8    <none>        Debian GNU/Linux 13 (trixie)   7.0.0-31-generic (amd64)   containerd://2.3.4
+kueue-gitops-worker          NotReady   <none>          10s   v1.37.0   172.18.0.10   <none>        Debian GNU/Linux 13 (trixie)   7.0.0-31-generic (amd64)   containerd://2.3.4
+kueue-gitops-worker2         NotReady   <none>          10s   v1.37.0   172.18.0.11   <none>        Debian GNU/Linux 13 (trixie)   7.0.0-31-generic (amd64)   containerd://2.3.4
+kueue-gitops-worker3         NotReady   <none>          10s   v1.37.0   172.18.0.9    <none>        Debian GNU/Linux 13 (trixie)   7.0.0-31-generic (amd64)   containerd://2.3.4

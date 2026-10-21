@@ -3,8 +3,12 @@
 Every criterion is evaluated from the evidence directory hack/multi-pod-ddp.sh wrote, and a criterion whose evidence
 is missing fails: absence is never read as a pass.
 
-Usage: python3 experiments/multi-pod-ddp/analyze.py <evidence dir>
-Exits 0 only if every arm that ran is PASS and none is void.
+Usage: python3 experiments/multi-pod-ddp/analyze.py [--profile nccl --script-sha256 <hex>] <evidence dir>
+Exits 0 only if every arm that ran is PASS and none is void, and 2 on a usage error.
+
+The profile is gloo unless the run's registration says nccl, and the registration's approved train.py hash comes
+with it. Both are given by whoever scores, not read from the evidence, so a run cannot choose the bar it is held to;
+a run whose own provenance disagrees with the profile asked for is void rather than scored under either.
 """
 
 from __future__ import annotations
@@ -280,27 +284,114 @@ SCORERS = {
     "one-rank-fails": score_one_rank_fails,
 }
 
+# The arms that reach training steps and finish, which is where the GPU evidence is required.
+#
+# bad-address never reaches rendezvous and one-rank-fails is judged on how it ends; each keeps its own criteria.
+COMPLETING = ("pass", "no-sync")
+GPU_NODE_GROUP = "gpu"
+
+
+def node_groups(arm_dir: str) -> dict[str, str | None] | None:
+    """Each saved node's managed node group label, by node name; None when the node objects were not saved.
+
+    None fails the node-group criterion by name rather than voiding the arm, so the other GPU criteria still print.
+    """
+    doc = load_json(os.path.join(arm_dir, "nodes.json"))
+    if not doc:
+        return None
+    return {n["metadata"]["name"]: n["metadata"].get("labels", {}).get("eks.amazonaws.com/nodegroup")
+            for n in doc.get("items", [])}
+
+
+def score_gpu(arm_dir: str, recs, approved_sha256: str) -> list[tuple[bool, str]]:
+    """What a completing arm must show to be a GPU run and not a CPU one, rank by rank.
+
+    Each rank's records are read from its own Pod's log, so the node and the device are the same rank's.
+    """
+    seen = pods_seen(arm_dir)
+    start, rdv, node = {}, {}, {}
+    for uid, rows in recs.items():
+        for row in rows:
+            rank = row.get("rank")
+            if row.get("event") == "rendezvous_start" and rank not in start:
+                start[rank] = row
+            if row.get("event") == "rendezvous" and rank not in rdv:
+                rdv[rank] = row
+        if uid in seen and rows:
+            node[rows[0].get("rank")] = seen[uid].get("node")
+    ranks = [0, 1]
+    groups = node_groups(arm_dir)
+
+    backends = {r: rdv.get(r, {}).get("backend") for r in ranks}
+    devices = {r: (start.get(r, {}).get("device_type"), start.get(r, {}).get("tensor_device_type")) for r in ranks}
+    uuids = {r: start.get(r, {}).get("gpu_uuid") for r in ranks}
+    shas = {r: rdv.get(r, {}).get("script_sha256") for r in ranks}
+    on = {r: (groups or {}).get(node.get(r)) for r in ranks}
+    where = f"node group by rank {[(node.get(r), on[r]) for r in ranks]}" if groups is not None \
+        else "node group unknown: nodes.json is missing or does not parse"
+    return [
+        (all(b == "nccl" for b in backends.values()), f"backend {' / '.join(str(backends[r]) for r in ranks)} by rank"),
+        (all(d == ("cuda", "cuda") for d in devices.values()),
+         f"device and tensor device type by rank {[devices[r] for r in ranks]}"),
+        # Distinct cards, not only distinct Pods: two ranks on one GPU is a GPU run of one device.
+        # Each must be a non-empty string first: an empty one is no identity, and it still differs from the other's.
+        (all(isinstance(u, str) and u.strip() for u in uuids.values()) and len(set(uuids.values())) == len(ranks),
+         f"GPU UUID by rank {[uuids[r] for r in ranks]}"),
+        (all(g == GPU_NODE_GROUP for g in on.values()), f"{where}, want {GPU_NODE_GROUP!r}"),
+        (all(s == approved_sha256 for s in shas.values()),
+         f"script sha256 by rank {[(s or '')[:12] for s in (shas[r] for r in ranks)]}, approved {approved_sha256[:12]}"),
+    ]
+
+
+def parse_args(argv: list[str]) -> tuple[str, str | None, str] | None:
+    """(profile, approved hash, evidence dir), or None for a usage error."""
+    profile, sha, rest = "gloo", None, []
+    args = iter(argv)
+    for arg in args:
+        if arg == "--profile":
+            profile = next(args, None)
+        elif arg == "--script-sha256":
+            sha = next(args, None)
+        else:
+            rest.append(arg)
+    if len(rest) != 1 or profile not in ("gloo", "nccl"):
+        return None
+    # The approved hash is the point of the profile; without it any code that ran would be accepted.
+    if profile == "nccl" and (sha is None or len(sha) != 64):
+        return None
+    return profile, sha, rest[0]
+
 
 def main() -> int:
-    if len(sys.argv) != 2:
+    parsed = parse_args(sys.argv[1:])
+    if parsed is None:
         print(__doc__)
         return 2
-    root = sys.argv[1]
+    profile, approved_sha256, root = parsed
     if os.path.exists(os.path.join(root, "VOID")):
         print(f"VOID  run: setup failed at: {open(os.path.join(root, 'VOID')).read().strip()}")
         return 1
     # The arms come from what the run was asked to do, not from the directories it left.
     # Read from the directories, a run stopped between arms scored only the arms it reached and could exit 0.
     requested = None
+    # A run recorded before profiles existed ran gloo, which is what an absent line means.
+    recorded_profile = "gloo"
     try:
         with open(os.path.join(root, "provenance.txt")) as handle:
             for line in handle:
                 if line.startswith("arms="):
                     requested = line[len("arms="):].split()
+                if line.startswith("profile="):
+                    recorded_profile = line[len("profile="):].strip()
     except OSError:
         pass
     if not requested:
         print("VOID  run: provenance.txt names no requested arms")
+        return 1
+    if recorded_profile != profile:
+        # Either way round it is the wrong bar: a GPU run scored as gloo passes without its GPU evidence, and a CPU
+        # run scored as nccl fails for evidence it was never meant to produce.
+        print(f"VOID  run: scored with profile {profile!r} but its provenance records profile {recorded_profile!r}")
         return 1
     unknown = [a for a in requested if a not in SCORERS]
     if unknown:
@@ -320,6 +411,8 @@ def main() -> int:
         try:
             recs = records(arm_dir)
             results = [ranks_bound_to_pods(arm, arm_dir, recs)] + SCORERS[arm](arm_dir, recs)
+            if profile == "nccl" and arm in COMPLETING:
+                results += score_gpu(arm_dir, recs, approved_sha256)
         except Unreadable as exc:
             results = [(False, f"unreadable evidence: {exc}")]
         ok = all(r[0] for r in results)

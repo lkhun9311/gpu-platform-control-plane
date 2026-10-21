@@ -25,6 +25,22 @@ module "eks" {
   cluster_endpoint_public_access       = length(var.api_public_access_cidrs) > 0
   cluster_endpoint_public_access_cidrs = var.api_public_access_cidrs
 
+  # Kueue's visibility API is an aggregated APIService the API server reaches on the controller's port 8082.
+  #
+  # The module's recommended node rules open 443, 4443, 6443, 8443, 9443 and 10250 from the control plane, and not
+  # this one, so without it both visibility APIServices stay unavailable. Argo would then hold the
+  # gpu-platform-kueue Application's wave 0 unhealthy and never apply the gpu flavor in its wave 1.
+  node_security_group_additional_rules = {
+    ingress_cluster_8082_kueue_visibility = {
+      description                   = "Cluster API to node 8082/tcp Kueue visibility API"
+      protocol                      = "tcp"
+      from_port                     = 8082
+      to_port                       = 8082
+      type                          = "ingress"
+      source_cluster_security_group = true
+    }
+  }
+
   # Terraform owns the cluster-lifecycle add-ons.
   #
   # Argo CD never touches these.
@@ -205,8 +221,12 @@ module "eks" {
       # GPU Feature Discovery -- not deployed here. Selecting on a label nothing sets leaves the observer
       # unschedulable and silently absent, and a run then reports "no device observer ran" without anything
       # saying why. config/dcgm-exporter/daemonset.yaml selects on this one.
+      #
+      # The train label is on this group alone, so Kueue's gpu flavor can place training Pods here and never on
+      # gpu_single, which carries the same gpu label and serves (docs/superpowers/specs/2026-10-16-nccl-groundwork-design.md, section 2).
       labels = {
-        "platform.lkhun9311.github.io/gpu" = "true"
+        "platform.lkhun9311.github.io/gpu"   = "true"
+        "platform.lkhun9311.github.io/train" = "true"
       }
       taints = {
         gpu = {

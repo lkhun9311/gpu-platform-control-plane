@@ -1,0 +1,6 @@
+version=v0.18.3
+url=https://github.com/kubernetes-sigs/kueue/releases/download/v0.18.3/manifests.yaml
+sha256=d605eec48cc2c557ba5f3f66111af1f1265368dab1497eacc2292a140b023737
+size=1711935
+image=registry.k8s.io/kueue/kueue:v0.18.3
+digest=sha256:f0a6e65d300269ef525a07fdde8ce73df551856d881d1f0aadcf440dc6ea0b5a

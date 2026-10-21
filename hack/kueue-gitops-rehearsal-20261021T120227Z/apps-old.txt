@@ -1,0 +1,13 @@
+cert-manager automated Synced Healthy v1.21.1
+gpu-platform-crds automated Synced Healthy abb3a7db617e
+gpu-platform-device-plugin manual OutOfSync Missing abb3a7db617e
+gpu-platform-gateway automated Synced Healthy abb3a7db617e
+gpu-platform-nvidia-device-plugin automated Synced Healthy abb3a7db617e
+gpu-platform-observability manual OutOfSync Healthy abb3a7db617e
+gpu-platform-operator automated Synced Healthy abb3a7db617e
+gpu-platform-policy automated Synced Healthy abb3a7db617e
+gpu-platform-root automated Synced Healthy abb3a7db617e
+gpu-platform-samples manual OutOfSync Healthy abb3a7db617e
+gpu-platform-serving manual OutOfSync Healthy abb3a7db617e
+gpu-platform-storage automated Synced Healthy abb3a7db617e
+kueue-crds automated Synced Healthy abb3a7db617e

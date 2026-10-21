@@ -1,0 +1,53 @@
+{
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+        "creationTimestamp": "2026-10-21T11:36:19Z",
+        "labels": {
+            "platform.lkhun9311.github.io/mltrainingjob": "ddp-bad-address-113619"
+        },
+        "name": "ddp-bad-address-113619-ddp",
+        "namespace": "ddp",
+        "ownerReferences": [
+            {
+                "apiVersion": "platform.lkhun9311.github.io/v1",
+                "blockOwnerDeletion": true,
+                "controller": true,
+                "kind": "MLTrainingJob",
+                "name": "ddp-bad-address-113619",
+                "uid": "991912cf-ae7b-440d-8fd2-dedf0a4c3ce5"
+            }
+        ],
+        "resourceVersion": "1533",
+        "uid": "89aea907-3f27-42fc-806f-03384cafafd5"
+    },
+    "spec": {
+        "clusterIP": "None",
+        "clusterIPs": [
+            "None"
+        ],
+        "internalTrafficPolicy": "Cluster",
+        "ipFamilies": [
+            "IPv4"
+        ],
+        "ipFamilyPolicy": "SingleStack",
+        "ports": [
+            {
+                "name": "rendezvous",
+                "port": 29500,
+                "protocol": "TCP",
+                "targetPort": 29500
+            }
+        ],
+        "publishNotReadyAddresses": true,
+        "selector": {
+            "platform.lkhun9311.github.io/mltrainingjob": "ddp-bad-address-113619",
+            "platform.lkhun9311.github.io/mltrainingjob-uid": "991912cf-ae7b-440d-8fd2-dedf0a4c3ce5"
+        },
+        "sessionAffinity": "None",
+        "type": "ClusterIP"
+    },
+    "status": {
+        "loadBalancer": {}
+    }
+}

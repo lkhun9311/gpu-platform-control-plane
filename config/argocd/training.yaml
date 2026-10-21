@@ -1,0 +1,26 @@
+# One training tenant, for the session that runs a two-rank NCCL job on EKS (TRAIN=ddp).
+#
+# Manual, as gpu-platform-serving is: its queue admits GPU work, and a cluster that tracks main and has no GPU
+# node has nothing for it to admit. The session syncs it after Kueue answers.
+# See docs/superpowers/specs/2026-10-16-nccl-groundwork-design.md, section 6.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: gpu-platform-training
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/lkhun9311/gpu-platform-control-plane.git
+    targetRevision: main
+    path: config/training
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: train-a
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true

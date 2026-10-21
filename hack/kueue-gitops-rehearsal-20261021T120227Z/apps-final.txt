@@ -1,0 +1,14 @@
+cert-manager automated Synced Healthy v1.21.1
+gpu-platform-crds automated Synced Healthy f4556f94a582
+gpu-platform-device-plugin manual OutOfSync Healthy f4556f94a582
+gpu-platform-gateway automated Synced Healthy f4556f94a582
+gpu-platform-kueue automated Synced Healthy f4556f94a582
+gpu-platform-nvidia-device-plugin automated Synced Healthy f4556f94a582
+gpu-platform-observability manual OutOfSync Healthy f4556f94a582
+gpu-platform-operator automated Synced Healthy f4556f94a582
+gpu-platform-policy automated Synced Healthy f4556f94a582
+gpu-platform-root automated Synced Healthy f4556f94a582
+gpu-platform-samples manual OutOfSync Healthy f4556f94a582
+gpu-platform-serving manual OutOfSync Healthy f4556f94a582
+gpu-platform-storage automated Synced Healthy f4556f94a582
+gpu-platform-training manual Synced Healthy f4556f94a582

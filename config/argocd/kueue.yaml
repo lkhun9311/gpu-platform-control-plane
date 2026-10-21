@@ -1,0 +1,102 @@
+# Kueue v0.18.3, whole: the eleven CRDs, the controller, its webhooks and its own certificate management.
+#
+# It replaces the kueue-crds Application, which installed four CRDs and no controller, so nothing on EKS admitted a
+# training job (docs/superpowers/specs/2026-10-16-nccl-groundwork-design.md, section 1). Two Applications must
+# not own one object, so kueue-crds is gone from the root; config/kueue-crds stays, as the envtest and test/e2e
+# fixture it always also was.
+#
+# On a cluster where kueue-crds already ran, removing it from the root deletes that Application object and none of
+# its CRDs, because it had neither pruning nor a cascade finalizer; this one then applies the same CRDs server-side
+# and takes them over. That is what should happen; the kind rehearsal is what shows it does.
+#
+# The operator still indexes Workloads at startup, so this is in wave -2, as kueue-crds was. Waves order creation
+# and do not wait for a child Application's health, so the operator can start before Kueue answers; operator
+# readiness is therefore not the evidence that it reached Kueue, and the training session checks for that itself.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: gpu-platform-kueue
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+    # Diffed by the API server: with ServerSideApply, Argo 2.13's bundled schema cannot read the controller
+    # Deployment's status.terminatingReplicas, and the comparison then fails and self-heal stops. Measured on kind
+    # 1.37: after the Deployment was deleted and recreated the Application read sync Unknown and left a scaled-up
+    # replica count unrepaired; with this annotation it compared again and restored it. cert-manager.yaml says the
+    # same for the same reason.
+    argocd.argoproj.io/compare-options: ServerSideDiff=true
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/lkhun9311/gpu-platform-control-plane.git
+    targetRevision: main
+    path: config/kueue-controller
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kueue-system
+  # Kueue's internal certificate manager writes these after every sync, and self-heal must not revert them.
+  #
+  # The list is exactly what v0.18.3's cert rotator writes (pkg/util/cert/cert.go, buildCertRotatorConfig): the CA
+  # bundle into both webhook configurations and into the conversion stanzas of the five CRDs that convert by
+  # webhook, and the certificate into its Secret. The release ships every one of them empty. A test holds this
+  # list against the release's objects, so a CRD that starts converting by webhook cannot be missed.
+  ignoreDifferences:
+    - group: admissionregistration.k8s.io
+      kind: ValidatingWebhookConfiguration
+      name: kueue-validating-webhook-configuration
+      jqPathExpressions:
+        - .webhooks[]?.clientConfig.caBundle
+    - group: admissionregistration.k8s.io
+      kind: MutatingWebhookConfiguration
+      name: kueue-mutating-webhook-configuration
+      jqPathExpressions:
+        - .webhooks[]?.clientConfig.caBundle
+    - group: apiextensions.k8s.io
+      kind: CustomResourceDefinition
+      name: clusterqueues.kueue.x-k8s.io
+      jsonPointers:
+        - /spec/conversion/webhook/clientConfig/caBundle
+    - group: apiextensions.k8s.io
+      kind: CustomResourceDefinition
+      name: cohorts.kueue.x-k8s.io
+      jsonPointers:
+        - /spec/conversion/webhook/clientConfig/caBundle
+    - group: apiextensions.k8s.io
+      kind: CustomResourceDefinition
+      name: localqueues.kueue.x-k8s.io
+      jsonPointers:
+        - /spec/conversion/webhook/clientConfig/caBundle
+    - group: apiextensions.k8s.io
+      kind: CustomResourceDefinition
+      name: multikueueclusters.kueue.x-k8s.io
+      jsonPointers:
+        - /spec/conversion/webhook/clientConfig/caBundle
+    - group: apiextensions.k8s.io
+      kind: CustomResourceDefinition
+      name: workloads.kueue.x-k8s.io
+      jsonPointers:
+        - /spec/conversion/webhook/clientConfig/caBundle
+    - group: ""
+      kind: Secret
+      name: kueue-webhook-server-cert
+      namespace: kueue-system
+      jsonPointers:
+        - /data
+  syncPolicy:
+    # prune is OFF and the finalizer absent, for kueue-crds's reason: deleting a CRD deletes every instance of it,
+    # so a renamed file or a removed child would take every Workload and ClusterQueue with it.
+    automated:
+      prune: false
+      selfHeal: true
+    syncOptions:
+      # Client-side apply stores the manifest in an annotation, and the Workload CRD is larger than 262,144 bytes.
+      - ServerSideApply=true
+      - RespectIgnoreDifferences=true
+    # An automated sync that fails is not retried for the same revision without this, and the first sync can fail
+    # for a moment Kueue's own webhook does not yet answer.
+    retry:
+      limit: 10
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m

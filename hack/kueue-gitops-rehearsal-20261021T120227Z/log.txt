@@ -1,0 +1,182 @@
+12:02:27 provenance: old_ref=origin/main e04423cfbd97dfe1500a46a874ad8511dcabf295 rehearse/kueue-old=abb3a7db617e43a0582c193ae789b6a98d4670d5 new_ref=HEAD da4e0de38471655f8af044197211ca0b6c857467 rehearse/kueue-new=f4556f94a582a22bc2e22295b003f9323185420f repo_url=git://172.18.0.1/gpu-platform-control-plane argo_chart=7.7.0 watch_seconds=900 kind=kind v0.33.0 go1.25.7 linux/amd64 kubectl=v1.36.3 
+12:02:29 == cluster
+Creating cluster "kueue-gitops" ...
+ • Ensuring node image (kindest/node:v1.37.0) 🖼️  ...
+ ✓ Ensuring node image (kindest/node:v1.37.0) 🖼️
+ • Preparing nodes 📦 📦 📦 📦   ...
+ ✓ Preparing nodes 📦 📦 📦 📦 
+ • Writing configuration 📜  ...
+ ✓ Writing configuration 📜
+ • Starting control-plane 🕹️  ...
+ ✓ Starting control-plane 🕹️
+ • Installing CNI 🔌  ...
+ ✓ Installing CNI 🔌
+ • Installing StorageClass 💾  ...
+ ✓ Installing StorageClass 💾
+ • Joining worker nodes 🚜  ...
+ ✓ Joining worker nodes 🚜
+ • Waiting ≤ 3m0s for control-plane = Ready ⏳  ...
+ ✓ Waiting ≤ 3m0s for control-plane = Ready ⏳
+ • Ready after 7s 💚
+Set kubectl context to "kind-kueue-gitops"
+You can now use your cluster with:
+
+kubectl cluster-info --context kind-kueue-gitops
+
+Have a nice day! 👋
+node/kueue-gitops-worker2 tainted
+node/kueue-gitops-worker3 tainted
+12:02:57 == images
+DEPRECATED: The legacy builder is deprecated and will be removed in a future release.
+            Install the buildx component to build images with BuildKit:
+            https://docs.docker.com/go/buildx/
+
+sha256:f44571f8381692314da1e244faca78f15f842041b4f74a4d17c7be72b5a6efa0
+docker build -t gpu-simulator:kueue-gitops -f Dockerfile.gpu-simulator .
+DEPRECATED: The legacy builder is deprecated and will be removed in a future release.
+            Install the buildx component to build images with BuildKit:
+            https://docs.docker.com/go/buildx/
+
+Sending build context to Docker daemon  2.782MB
+Step 1/14 : FROM golang:1.27.3@sha256:957861185dbf29d93668ace41e011d091c6e779953d47f0316ef2cc58e28fe2b AS builder
+ ---> 957861185dbf
+Step 2/14 : ARG TARGETOS
+ ---> Using cache
+ ---> a38e89fd304b
+Step 3/14 : ARG TARGETARCH
+ ---> Using cache
+ ---> df7229e5f3ec
+Step 4/14 : WORKDIR /workspace
+ ---> Using cache
+ ---> e0f3b83f69f4
+Step 5/14 : COPY go.mod go.mod
+ ---> Using cache
+ ---> fd57ce161410
+Step 6/14 : COPY go.sum go.sum
+ ---> Using cache
+ ---> 163e9ddb2c8b
+Step 7/14 : RUN go mod download
+ ---> Using cache
+ ---> 4252e133d241
+Step 8/14 : COPY . .
+ ---> Using cache
+ ---> 5ca719d962b9
+Step 9/14 : RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o gpu-simulator cmd/gpu-simulator/main.go
+ ---> Using cache
+ ---> b8a4dab1e559
+Step 10/14 : FROM gcr.io/distroless/static:nonroot@sha256:e2e927ec666bae08560abb3c55d0659eceabb657f56b6782ab500a9fc7f555e3
+ ---> e2e927ec666b
+Step 11/14 : WORKDIR /
+ ---> Using cache
+ ---> e61cf3190b2a
+Step 12/14 : COPY --from=builder /workspace/gpu-simulator .
+ ---> Using cache
+ ---> ada8d3eeac89
+Step 13/14 : USER 65532:65532
+ ---> Using cache
+ ---> 2c4b5272cbcb
+Step 14/14 : ENTRYPOINT ["/gpu-simulator"]
+ ---> Using cache
+ ---> b610aeb6e426
+Successfully built b610aeb6e426
+Successfully tagged gpu-simulator:kueue-gitops
+Image: "cpu-ddp:torch251" with ID "sha256:f44571f8381692314da1e244faca78f15f842041b4f74a4d17c7be72b5a6efa0" not yet present on node "kueue-gitops-worker3", loading...
+Image: "cpu-ddp:torch251" with ID "sha256:f44571f8381692314da1e244faca78f15f842041b4f74a4d17c7be72b5a6efa0" not yet present on node "kueue-gitops-control-plane", loading...
+Image: "cpu-ddp:torch251" with ID "sha256:f44571f8381692314da1e244faca78f15f842041b4f74a4d17c7be72b5a6efa0" not yet present on node "kueue-gitops-worker2", loading...
+Image: "cpu-ddp:torch251" with ID "sha256:f44571f8381692314da1e244faca78f15f842041b4f74a4d17c7be72b5a6efa0" not yet present on node "kueue-gitops-worker", loading...
+Image: "gpu-simulator:kueue-gitops" with ID "sha256:b610aeb6e4267f12b32adcb17f86ed059f1b3dd64752543cce00d80d624c098a" not yet present on node "kueue-gitops-worker3", loading...
+Image: "gpu-simulator:kueue-gitops" with ID "sha256:b610aeb6e4267f12b32adcb17f86ed059f1b3dd64752543cce00d80d624c098a" not yet present on node "kueue-gitops-control-plane", loading...
+Image: "gpu-simulator:kueue-gitops" with ID "sha256:b610aeb6e4267f12b32adcb17f86ed059f1b3dd64752543cce00d80d624c098a" not yet present on node "kueue-gitops-worker2", loading...
+Image: "gpu-simulator:kueue-gitops" with ID "sha256:b610aeb6e4267f12b32adcb17f86ed059f1b3dd64752543cce00d80d624c098a" not yet present on node "kueue-gitops-worker", loading...
+Image is up to date for sha256:f7b7f25e9e0ace943b2231e8e59c75486cbb61ba8cde67d86c0ad6fbef6a7b7e
+Image is up to date for sha256:f682edadaba0b9a93bdf798e226d50240be784f9a4a4cafd4a98245a9f4a7d27
+Image is up to date for sha256:f7b7f25e9e0ace943b2231e8e59c75486cbb61ba8cde67d86c0ad6fbef6a7b7e
+Image is up to date for sha256:f682edadaba0b9a93bdf798e226d50240be784f9a4a4cafd4a98245a9f4a7d27
+Image is up to date for sha256:f7b7f25e9e0ace943b2231e8e59c75486cbb61ba8cde67d86c0ad6fbef6a7b7e
+Image is up to date for sha256:f682edadaba0b9a93bdf798e226d50240be784f9a4a4cafd4a98245a9f4a7d27
+Image is up to date for sha256:f7b7f25e9e0ace943b2231e8e59c75486cbb61ba8cde67d86c0ad6fbef6a7b7e
+Image is up to date for sha256:f682edadaba0b9a93bdf798e226d50240be784f9a4a4cafd4a98245a9f4a7d27
+12:04:00 == argo cd 7.7.0
+"argo" already exists with the same configuration, skipping
+Hang tight while we grab the latest from your chart repositories...
+...Successfully got an update from the "argo" chart repository
+Update Complete. ⎈Happy Helming!⎈
+NAME: argo-cd
+LAST DEPLOYED: Wed Oct 21 21:04:01 2026
+NAMESPACE: argocd
+STATUS: deployed
+REVISION: 1
+TEST SUITE: None
+NOTES:
+In order to access the server UI you have the following options:
+
+1. kubectl port-forward service/argo-cd-argocd-server -n argocd 8080:443
+
+    and then open the browser on http://localhost:8080 and accept the certificate
+
+2. enable ingress in the values file `server.ingress.enabled` and either
+      - Add the annotation for ssl passthrough: https://argo-cd.readthedocs.io/en/stable/operator-manual/ingress/#option-1-ssl-passthrough
+      - Set the `configs.params."server.insecure"` in the values file and terminate SSL at your ingress: https://argo-cd.readthedocs.io/en/stable/operator-manual/ingress/#option-2-multiple-ingress-objects-and-hosts
+
+
+After reaching the UI the first time you can login with username: admin and the random password generated during the installation. You can find the password by running:
+
+kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d
+
+(You should delete the initial secret afterwards as suggested by the Getting Started Guide: https://argo-cd.readthedocs.io/en/stable/getting_started/#4-login-using-the-cli)
+12:05:15 == old root (origin/main)
+Warning: metadata.finalizers: "resources-finalizer.argocd.argoproj.io": prefer a domain-qualified finalizer name including a path (/) to avoid accidental conflicts with other finalizer writers
+application.argoproj.io/gpu-platform-root created
+12:06:15 B0 met: the old root converged: 9 automated Applications Synced/Healthy
+12:06:15 kueue CRDs before: 4
+12:06:15 == switch the root to HEAD
+application.argoproj.io/gpu-platform-root patched
+12:08:31 B2 met: after the switch every automated Application is Synced/Healthy and kueue-crds is gone: cert-manager gpu-platform-crds gpu-platform-gateway gpu-platform-kueue gpu-platform-nvidia-device-plugin gpu-platform-operator gpu-platform-policy gpu-platform-root gpu-platform-storage
+deployment.apps/kueue-controller-manager condition met
+12:08:31 B1 met: before 4 after 11 kept 4 recreated 0 lost 0 new 7 owners ['gpu-platform-kueue']
+12:08:31 == training Application
+application.argoproj.io/gpu-platform-training patched
+Warning: This version is deprecated. Use v1beta2 instead.
+Error from server (NotFound): clusterqueues.kueue.x-k8s.io "gpu-train-a" not found
+Warning: This version is deprecated. Use v1beta2 instead.
+Warning: This version is deprecated. Use v1beta2 instead.
+12:08:46 B3 met: gpu-train-a Active from Kueue; 1 ClusterQueue(s) on the cluster
+12:08:46 == placement
+daemonset.apps/gpu-simulator created
+daemonset.apps/gpu-simulator patched
+Waiting for daemon set "gpu-simulator" rollout to finish: 0 out of 4 new pods have been updated...
+Waiting for daemon set "gpu-simulator" rollout to finish: 1 out of 4 new pods have been updated...
+Waiting for daemon set "gpu-simulator" rollout to finish: 1 out of 4 new pods have been updated...
+Waiting for daemon set "gpu-simulator" rollout to finish: 2 out of 4 new pods have been updated...
+Waiting for daemon set "gpu-simulator" rollout to finish: 2 out of 4 new pods have been updated...
+Waiting for daemon set "gpu-simulator" rollout to finish: 3 out of 4 new pods have been updated...
+Waiting for daemon set "gpu-simulator" rollout to finish: 0 of 4 updated pods are available...
+Waiting for daemon set "gpu-simulator" rollout to finish: 1 of 4 updated pods are available...
+Waiting for daemon set "gpu-simulator" rollout to finish: 3 of 4 updated pods are available...
+daemon set "gpu-simulator" successfully rolled out
+mltrainingjob.platform.lkhun9311.github.io/placement created
+12:09:06 B4 met: both ranks carry the train selector and the gpu toleration, on worker2 and worker3, with kueue-gitops-worker's GPU free; job Succeeded
+12:09:06 == drift
+deployment.apps "kueue-controller-manager" deleted from kueue-system namespace
+Error from server (NotFound): deployments.apps "kueue-controller-manager" not found
+12:09:21 D-deployment-deleted met: repaired in 15 s
+deployment.apps/kueue-controller-manager scaled
+12:09:26 D-replicas-changed met: repaired in 0 s
+validatingwebhookconfiguration.admissionregistration.k8s.io "kueue-validating-webhook-configuration" deleted
+Error from server (NotFound): validatingwebhookconfigurations.admissionregistration.k8s.io "kueue-validating-webhook-configuration" not found
+12:09:31 D-webhook-deleted met: repaired in 5 s
+12:09:31 == watching for 900 s
+12:24:34 B5 met: every automated Application, gpu-platform-kueue included, read Synced in all 60 samples over 900 s
+12:24:35 == verdicts
+B0 met: the old root converged: 9 automated Applications Synced/Healthy
+B2 met: after the switch every automated Application is Synced/Healthy and kueue-crds is gone: cert-manager gpu-platform-crds gpu-platform-gateway gpu-platform-kueue gpu-platform-nvidia-device-plugin gpu-platform-operator gpu-platform-policy gpu-platform-root gpu-platform-storage
+B1 met: before 4 after 11 kept 4 recreated 0 lost 0 new 7 owners ['gpu-platform-kueue']
+B3 met: gpu-train-a Active from Kueue; 1 ClusterQueue(s) on the cluster
+B4 met: both ranks carry the train selector and the gpu toleration, on worker2 and worker3, with kueue-gitops-worker's GPU free; job Succeeded
+D-deployment-deleted met: repaired in 15 s
+D-replicas-changed met: repaired in 0 s
+D-webhook-deleted met: repaired in 5 s
+B5 met: every automated Application, gpu-platform-kueue included, read Synced in all 60 samples over 900 s
+Deleting cluster "kueue-gitops" ...
+Deleted nodes: ["kueue-gitops-worker3" "kueue-gitops-control-plane" "kueue-gitops-worker2" "kueue-gitops-worker"]
+12:24:36 cleanup: deleted kueue-gitops

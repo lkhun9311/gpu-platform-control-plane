@@ -1,0 +1,3 @@
+placement-0-27tvk node kueue-gitops-worker2 selector true toleration True
+placement-1-jptlg node kueue-gitops-worker3 selector true toleration True
+OK
