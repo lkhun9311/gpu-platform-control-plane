@@ -25,6 +25,22 @@ module "eks" {
   cluster_endpoint_public_access       = length(var.api_public_access_cidrs) > 0
   cluster_endpoint_public_access_cidrs = var.api_public_access_cidrs
 
+  # Kueue's visibility API is an aggregated APIService the API server reaches on the controller's port 8082.
+  #
+  # The module's recommended node rules open 443, 4443, 6443, 8443, 9443 and 10250 from the control plane, and not
+  # this one, so without it both visibility APIServices stay unavailable. Argo would then hold the
+  # gpu-platform-kueue Application's wave 0 unhealthy and never apply the gpu flavor in its wave 1.
+  node_security_group_additional_rules = {
+    ingress_cluster_8082_kueue_visibility = {
+      description                   = "Cluster API to node 8082/tcp Kueue visibility API"
+      protocol                      = "tcp"
+      from_port                     = 8082
+      to_port                       = 8082
+      type                          = "ingress"
+      source_cluster_security_group = true
+    }
+  }
+
   # Terraform owns the cluster-lifecycle add-ons.
   #
   # Argo CD never touches these.

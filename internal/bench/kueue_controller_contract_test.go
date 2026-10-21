@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"reflect"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -261,6 +262,61 @@ func TestTheSharedFlavorCarriesNoPlacement(t *testing.T) {
 	for _, want := range []string{"platform.lkhun9311.github.io/train: \"true\"", "key: nvidia.com/gpu", "value: present", "effect: NoSchedule"} {
 		if !strings.Contains(kust, want) {
 			t.Errorf("%s/kustomization.yaml does not carry %q", kueueDir, want)
+		}
+	}
+}
+
+// Kueue's visibility API is aggregated: the API server calls the Service each APIService names, on that Service's
+// target port. The EKS module opens only its recommended webhook ports from the control plane, so every port an
+// APIService needs must be opened in infra/aws/cluster/eks.tf, or the APIService stays unavailable and Argo holds
+// the Application's first wave unhealthy, which keeps the gpu flavor in the second wave from ever being applied.
+//
+// Mutation that turns this red: delete the 8082 rule from eks.tf, or change the release's target port.
+func TestTheNodesAdmitKueuesAggregatedAPI(t *testing.T) {
+	objs := objects(t, kueueDir+"/manifests.yaml")
+	services := map[string]map[string]any{}
+	for _, obj := range objs {
+		if obj["kind"] == "Service" {
+			services[name(obj)] = obj
+		}
+	}
+	ports := map[string]bool{}
+	for _, obj := range objs {
+		if obj["kind"] != "APIService" {
+			continue
+		}
+		svc := services[get(obj, "spec", "service", "name").(string)]
+		if svc == nil {
+			t.Fatalf("APIService %s names a Service the release does not ship", name(obj))
+		}
+		for _, p := range get(svc, "spec", "ports").([]any) {
+			ports[strconv.Itoa(int(get(p, "targetPort").(float64)))] = true
+		}
+	}
+	if len(ports) == 0 {
+		t.Fatal("found no port an APIService needs, so the read went wrong")
+	}
+	tf := readRepoFile(t, "infra/aws/cluster/eks.tf")
+	start := strings.Index(tf, "node_security_group_additional_rules")
+	if start < 0 {
+		t.Fatal("eks.tf sets no node_security_group_additional_rules")
+	}
+	// The block ends at the first line closing it at the module's indentation.
+	block, _, _ := strings.Cut(tf[start:], "\n  }\n")
+	// Matched by regex, not by text, because terraform fmt realigns the equals signs whenever a longer key appears.
+	rule := regexp.MustCompile(`(?s)\{[^{}]*\}`)
+	for port := range ports {
+		open := false
+		for _, r := range rule.FindAllString(block, -1) {
+			if regexp.MustCompile(`from_port\s*=\s*`+port+`\b`).MatchString(r) &&
+				regexp.MustCompile(`to_port\s*=\s*`+port+`\b`).MatchString(r) &&
+				regexp.MustCompile(`type\s*=\s*"ingress"`).MatchString(r) &&
+				regexp.MustCompile(`source_cluster_security_group\s*=\s*true`).MatchString(r) {
+				open = true
+			}
+		}
+		if !open {
+			t.Errorf("an APIService needs the control plane to reach port %s on the nodes, and eks.tf opens no ingress rule for it from the cluster security group", port)
 		}
 	}
 }
