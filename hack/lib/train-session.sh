@@ -117,28 +117,50 @@ train_quota_gate() {
     return 1
   fi
   raw="$(aws ec2 describe-instances --region "$region" --filters Name=instance-state-name,Values=pending,running \
-    --query 'Reservations[].Instances[].[InstanceId,InstanceType,InstanceLifecycle,CpuOptions.CoreCount,CpuOptions.ThreadsPerCore]' \
-    --output json 2>&1)" || {
+    --query 'Reservations[].Instances[].[InstanceId,InstanceType,InstanceLifecycle]' --output json 2>&1)" || {
     echo "could not list running instances: ${raw:0:300}"
     return 1
   }
   # Spot instances count against a different quota; the G and VT families are every type starting g or vt.
-  used="$(python3 -c '
+  local counted types_raw="[]"
+  counted="$(python3 -c '
 import json, sys
 try:
     rows = json.loads(sys.stdin.read())
 except Exception as exc:
     sys.exit(f"the instance list does not parse: {exc}")
-total, seen = 0, []
-for iid, itype, lifecycle, cores, threads in rows:
-    if lifecycle == "spot" or not (itype.startswith("g") or itype.startswith("vt")):
-        continue
-    if not cores or not threads:
-        sys.exit(f"{iid} ({itype}) reports no CPU options, so its vCPU are unknown")
-    total += cores * threads
-    seen.append(f"{iid} {itype} {cores * threads}")
-print(total, "; ".join(seen) or "none")
+for iid, itype, lifecycle in rows:
+    if lifecycle != "spot" and (itype.startswith("g") or itype.startswith("vt")):
+        print(iid, itype)
 ' <<<"$raw" 2>&1)" || {
+    echo "could not read the instance list: $counted"
+    return 1
+  }
+  # The quota is charged the type's default vCPU, whatever CPU options an instance was launched with, so the
+  # count comes from the type and not from the instance's cores and threads, which undercount a customised one.
+  if [[ -n "$counted" ]]; then
+    # shellcheck disable=SC2046
+    types_raw="$(aws ec2 describe-instance-types --region "$region" --instance-types $(awk '{print $2}' <<<"$counted" | sort -u) \
+      --query 'InstanceTypes[].[InstanceType,VCpuInfo.DefaultVCpus]' --output json 2>&1)" || {
+      echo "could not read the default vCPU of $(awk '{print $2}' <<<"$counted" | sort -u | paste -sd' '): ${types_raw:0:300}"
+      return 1
+    }
+  fi
+  used="$(python3 -c '
+import json, sys
+try:
+    vcpus = dict(json.loads(sys.argv[1]))
+except Exception as exc:
+    sys.exit(f"the instance types do not parse: {exc}")
+total, seen = 0, []
+for line in sys.argv[2].splitlines():
+    iid, itype = line.split()
+    if not vcpus.get(itype):
+        sys.exit(f"{itype} has no default vCPU in the answer, so {iid} cannot be counted")
+    total += vcpus[itype]
+    seen.append(f"{iid} {itype} {vcpus[itype]}")
+print(total, "; ".join(seen) or "none")
+' "$types_raw" "$counted" 2>&1)" || {
     echo "could not count running G and VT vCPU: $used"
     return 1
   }
@@ -240,13 +262,23 @@ train_scale_down() {
     echo "no instance IDs recorded in $file, so nothing shows the nodes this session bought have gone"
     return 1
   fi
-  local deadline=$((SECONDS + wait))
+  local deadline=$((SECONDS + wait)) asking="$ids" gone
   while :; do
     # shellcheck disable=SC2086
-    if states="$(aws ec2 describe-instances --region "$region" --instance-ids $ids \
+    if [[ -z "$asking" ]]; then
+      break
+    elif states="$(aws ec2 describe-instances --region "$region" --instance-ids $asking \
       --query 'Reservations[].Instances[].[InstanceId,State.Name]' --output text 2>&1)"; then
-      left="$(awk '$2 != "terminated" {printf "%s(%s) ", $1, $2}' <<<"$states")"
+      # NF, because an empty answer is one empty line, not an instance without a state.
+      left="$(awk 'NF && $2 != "terminated" {printf "%s(%s) ", $1, $2}' <<<"$states")"
       [[ -z "$left" ]] && break
+    elif [[ "$states" == *InvalidInstanceID.NotFound* ]]; then
+      # A terminated instance ages out of the API, and asking for it fails the whole batch; the IDs the error
+      # names are gone, and the rest are asked again at once rather than waiting out the deadline unseen.
+      gone="$(grep -oE 'i-[0-9a-f]+' <<<"$states" | sort -u | paste -sd'|')"
+      asking="$(tr ' ' '\n' <<<"$asking" | grep -vxE "${gone:-^$}" | paste -sd' ')"
+      [[ -n "$gone" ]] && continue
+      left="unreadable: ${states:0:200}"
     else
       left="unreadable: ${states:0:200}"
     fi

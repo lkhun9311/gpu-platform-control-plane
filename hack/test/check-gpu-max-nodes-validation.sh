@@ -13,6 +13,12 @@ cd "$(dirname "$0")/../.." || exit 1
 # The repository's pinned download, which `make harness-check` passes in; CI has no terraform on PATH, so a bare
 # `terraform` passed only on a machine that happened to have one.
 TERRAFORM="${TERRAFORM:-$PWD/bin/terraform}"
+# Made absolute here, because init and plan run from a temporary directory, where ./bin/terraform does not resolve.
+if [[ "$TERRAFORM" == */* && "$TERRAFORM" != /* ]]; then
+  TERRAFORM="$PWD/$TERRAFORM"
+elif [[ "$TERRAFORM" != */* ]]; then
+  TERRAFORM="$(command -v "$TERRAFORM" || echo "$TERRAFORM")"
+fi
 if [[ ! -x "$TERRAFORM" ]]; then
   echo "FAIL: no terraform at $TERRAFORM; run 'make terraform' or set TERRAFORM"
   exit 1

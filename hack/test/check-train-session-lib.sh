@@ -131,23 +131,36 @@ answer aws-pricing-get-products "An error occurred (AccessDeniedException)" 254
 expect "an unreadable price" 1 "could not read" -- train_price_gate ap-northeast-2 g5.xlarge 1.50
 
 # --- the quota -----------------------------------------------------------------------------------------------------
+# EC2 charges a type's default vCPU against the quota whatever CPU options an instance runs with, so the stub's
+# instances carry no CPU counts and the types answer carries the defaults.
+types() { answer aws-ec2-describe-instance-types "$1"; }
 scenario
 answer aws-service-quotas-get-service-quota "52.0"
 answer aws-ec2-describe-instances "[]"
 expect "an idle account" 0 "in use 0 (none) plus 8 fits the quota of 52.0" -- train_quota_gate ap-northeast-2 8
 grep -q -- "--quota-code L-DB2E81BA" "$STUB/calls.log" && ok "the quota read is L-DB2E81BA" || bad "the quota read is not L-DB2E81BA"
+grep -q "describe-instance-types" "$STUB/calls.log" && bad "an idle account still asked for instance types" || ok "an idle account asks for no instance types"
 scenario
 answer aws-service-quotas-get-service-quota "52.0"
-answer aws-ec2-describe-instances '[["i-0aaa", "g4dn.12xlarge", null, 24, 2], ["i-0bbb", "g5.xlarge", "spot", 2, 2], ["i-0ccc", "t3.large", null, 1, 2]]'
+answer aws-ec2-describe-instances '[["i-0aaa", "g4dn.12xlarge", null], ["i-0bbb", "g5.xlarge", "spot"], ["i-0ccc", "t3.large", null]]'
+types '[["g4dn.12xlarge", 48]]'
 expect "a queuelab node running" 1 "in use 48 (i-0aaa g4dn.12xlarge 48) plus 8 is above" -- train_quota_gate ap-northeast-2 8
+grep -q -- "--instance-types g4dn.12xlarge" "$STUB/calls.log" && ok "only the counted type is looked up" || bad "the counted type was not looked up alone: $(grep instance-types "$STUB/calls.log")"
 scenario
 answer aws-service-quotas-get-service-quota "52.0"
-answer aws-ec2-describe-instances '[["i-0aaa", "g5.xlarge", null, 2, 2], ["i-0bbb", "vt1.3xlarge", null, 6, 2]]'
-expect "a serving card and a VT instance" 0 "in use 16" -- train_quota_gate ap-northeast-2 8
+answer aws-ec2-describe-instances '[["i-0aaa", "g5.xlarge", null], ["i-0bbb", "vt1.3xlarge", null], ["i-0ccc", "g5.xlarge", null]]'
+types '[["g5.xlarge", 4], ["vt1.3xlarge", 12]]'
+expect "two serving cards and a VT instance" 0 "in use 20" -- train_quota_gate ap-northeast-2 8
 scenario
 answer aws-service-quotas-get-service-quota "52.0"
-answer aws-ec2-describe-instances '[["i-0aaa", "g5.xlarge", null, null, null]]'
-expect "an instance with no CPU options" 1 "vCPU are unknown" -- train_quota_gate ap-northeast-2 8
+answer aws-ec2-describe-instances '[["i-0aaa", "g5.xlarge", null], ["i-0bbb", "g6.xlarge", null]]'
+types '[["g5.xlarge", 4]]'
+expect "a type with no default vCPU" 1 "g6.xlarge has no default vCPU" -- train_quota_gate ap-northeast-2 8
+scenario
+answer aws-service-quotas-get-service-quota "52.0"
+answer aws-ec2-describe-instances '[["i-0aaa", "g5.xlarge", null]]'
+answer aws-ec2-describe-instance-types "An error occurred (UnauthorizedOperation)" 254
+expect "unreadable instance types" 1 "could not read the default vCPU" -- train_quota_gate ap-northeast-2 8
 scenario
 answer aws-service-quotas-get-service-quota "An error occurred (NoSuchResourceException)" 254
 expect "an unreadable quota" 1 "could not read quota" -- train_quota_gate ap-northeast-2 8
@@ -228,6 +241,19 @@ answer aws-eks-update-nodegroup-config "An error occurred (ResourceInUseExceptio
 answer aws-ec2-describe-instances "$(printf 'i-0aaa\tterminated')"
 expect "a scale-down refused six times" 1 "refused six times" -- train_scale_down gpu-platform ap-northeast-2 gpu "$STUB/ids" 0
 [[ "$(grep -c update-nodegroup-config "$STUB/calls.log")" == 6 ]] && ok "the scale-down is tried six times" || bad "the scale-down was not tried six times"
+scenario
+printf 'i-0aaa\ni-0bbb\n' >"$STUB/ids"
+answer aws-eks-update-nodegroup-config "{}"
+# A terminated instance ages out of the API, and asking for it by ID then fails the whole batch.
+answer aws-ec2-describe-instances.1 "An error occurred (InvalidInstanceID.NotFound) when calling the DescribeInstances operation: The instance ID 'i-0aaa' does not exist" 254
+answer aws-ec2-describe-instances "$(printf 'i-0bbb\tterminated')"
+expect "an instance that aged out is gone, and the other is still followed" 0 "terminated" -- train_scale_down gpu-platform ap-northeast-2 gpu "$STUB/ids" 5
+[[ "$(grep describe-instances "$STUB/calls.log" | tail -1)" == *"--instance-ids i-0bbb --"* ]] && ok "the aged-out ID is dropped and the other asked again" || bad "the retry did not ask for i-0bbb alone: $(grep describe-instances "$STUB/calls.log" | tail -1)"
+scenario
+printf 'i-0aaa\n' >"$STUB/ids"
+answer aws-eks-update-nodegroup-config "{}"
+answer aws-ec2-describe-instances ""
+expect "an empty answer is not an instance without a state" 0 "terminated" -- train_scale_down gpu-platform ap-northeast-2 gpu "$STUB/ids" 0
 scenario
 : >"$STUB/ids"
 answer aws-eks-update-nodegroup-config "{}"
