@@ -70,7 +70,10 @@ jobs:
 
   build-push:
     name: Build and push operator image
-    runs-on: ubuntu-latest
+    # Pinned because ubuntu-26.04's Docker pushes a manifest list with an attestation and then reads the child
+    # manifest back, which the push-only role (no ecr:BatchGetImage) is refused with a 403.
+    # On 24.04 the push is one plain manifest, which is also what the digest pin below records.
+    runs-on: ubuntu-24.04
     # Push only from the default branch; PRs (including forks) run tests only.
     #
     # The provisioning gate skips this job cleanly until AWS exists.
