@@ -182,8 +182,30 @@ def script_sha256() -> str:
         return hashlib.sha256(handle.read()).hexdigest()
 
 
-def emit(rank: int, event: str, **fields: object) -> None:
-    """One JSONL record to stdout in one write, so ranks sharing a launcher's stdout interleave between records."""
+# Linux's PIPE_BUF: a write to a pipe no larger than this is never split by another writer's, and a larger one can be.
+ATOMIC_WRITE_BYTES = 4096
+
+
+class RecordTooLarge(Exception):
+    """A record that could interleave with another rank's on a shared stdout, written while other ranks may write."""
+
+
+def record_line(record: dict, alone: bool) -> bytes:
+    """The record as one JSONL line, refused when it is too large for one atomic write and other ranks may be writing.
+
+    Four ranks' timings at 100 iterations make a size record of over 10 KB, so that record is written only in turn.
+    """
+    line = (json.dumps(record, sort_keys=True) + "\n").encode()
+    if len(line) > ATOMIC_WRITE_BYTES and not alone:
+        raise RecordTooLarge(f"a {len(line)}-byte {record.get('event')} record would not be one atomic write")
+    return line
+
+
+def emit(rank: int, event: str, alone: bool = False, **fields: object) -> None:
+    """One JSONL record to stdout in one write, so ranks sharing a launcher's stdout interleave between records.
+
+    alone says no other rank writes until this call returns; emit_in_turn is what makes that true.
+    """
     record = {
         "ts": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "run_id": RUN_ID,
@@ -191,7 +213,18 @@ def emit(rank: int, event: str, **fields: object) -> None:
         "event": event,
     }
     record.update(fields)
-    os.write(1, (json.dumps(record, sort_keys=True) + "\n").encode())
+    line = record_line(record, alone)
+    # os.write on a blocking pipe may still return short, so the rest is written before another rank's turn.
+    while line:
+        line = line[os.write(1, line) :]
+
+
+def emit_in_turn(dist, rank: int, world_size: int, event: str, **fields: object) -> None:
+    """Each rank writes its record while every other rank waits at a barrier, so a large record cannot interleave."""
+    for turn in range(world_size):
+        if turn == rank:
+            emit(rank, event, alone=True, **fields)
+        dist.barrier()
 
 
 def main() -> int:
@@ -270,7 +303,7 @@ def main() -> int:
         rows = [slot.tolist() for slot in slots]
         verified = all(row[-1] == 1.0 for row in rows)
         record = summarise(size, world_size, [row[:-1] for row in rows], verified)
-        emit(rank, "size", local_mismatched_iterations=mismatched, **record)
+        emit_in_turn(dist, rank, world_size, "size", local_mismatched_iterations=mismatched, **record)
         failed = failed or not verified
         del buffer
 

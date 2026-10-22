@@ -110,5 +110,36 @@ class Summarise(unittest.TestCase):
             self.assertNotIn(key, record)
 
 
+class Records(unittest.TestCase):
+    def test_a_large_record_is_refused_unless_written_alone(self):
+        # CUDA event times are floats like these, which print at full precision, not round values like 0.001.
+        times = [[0.0123456789012345 + i * 1e-9 for i in range(100)]] * 4
+        record = {"event": "size", **bench.summarise(1 << 28, 4, times, verified=True)}
+        self.assertGreater(len(bench.record_line(record, alone=True)), bench.ATOMIC_WRITE_BYTES)
+        with self.assertRaises(bench.RecordTooLarge):
+            bench.record_line(record, alone=False)
+
+    def test_a_small_record_needs_no_turn(self):
+        self.assertTrue(bench.record_line({"event": "done", "exit_code": 0}, alone=False).endswith(b"\n"))
+
+    def test_each_rank_writes_only_in_its_own_turn(self):
+        log = []
+
+        class Dist:
+            def barrier(self):
+                log.append("barrier")
+
+        written = []
+        real = bench.emit
+        bench.emit = lambda rank, event, alone=False, **fields: written.append((len(log), alone))
+        try:
+            bench.emit_in_turn(Dist(), 2, 4, "size")
+        finally:
+            bench.emit = real
+        # Rank 2 of 4 writes after the barriers for turns 0 and 1, and then waits through turns 2 and 3.
+        self.assertEqual(written, [(2, True)])
+        self.assertEqual(len(log), 4)
+
+
 if __name__ == "__main__":
     unittest.main()
