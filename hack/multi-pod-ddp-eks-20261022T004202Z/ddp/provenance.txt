@@ -1,0 +1,10 @@
+commit=07694a23f7cd28849ff590139146bba8de219a2c
+dirty_files=0
+kubectl=v1.36.3
+kueue=v0.18.3
+train_py_sha256=733f264307f7f661482852e322377a76ee50448ea52a2bbc5fc65dbf10891a5d
+approved_train_py_sha256=733f264307f7f661482852e322377a76ee50448ea52a2bbc5fc65dbf10891a5d
+workload_image=docker.io/pytorch/pytorch@sha256:c8268a92a69bd500f8be0e665b2630ee006dadaf7bfbc24249141b15ff622755
+nodes=ip-10-0-54-169.ap-northeast-2.compute.internal i-0c69571a5ef2f601a ip-10-0-78-55.ap-northeast-2.compute.internal i-0347ce941289972e1
+profile=nccl
+arms=pass no-sync bad-address one-rank-fails
