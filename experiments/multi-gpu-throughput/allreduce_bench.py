@@ -219,8 +219,11 @@ def emit(rank: int, event: str, alone: bool = False, **fields: object) -> None:
         line = line[os.write(1, line) :]
 
 
-def emit_in_turn(dist, rank: int, world_size: int, event: str, **fields: object) -> None:
-    """Each rank writes its record while every other rank waits at a barrier, so a large record cannot interleave."""
+def emit_in_turn(dist, rank: int, world_size: int, event: str, fields: dict) -> None:
+    """Each rank writes its record while every other rank waits at a barrier, so a large record cannot interleave.
+
+    fields is a dict, not keyword arguments, because a size record carries world_size itself and would collide.
+    """
     for turn in range(world_size):
         if turn == rank:
             emit(rank, event, alone=True, **fields)
@@ -303,7 +306,7 @@ def main() -> int:
         rows = [slot.tolist() for slot in slots]
         verified = all(row[-1] == 1.0 for row in rows)
         record = summarise(size, world_size, [row[:-1] for row in rows], verified)
-        emit_in_turn(dist, rank, world_size, "size", local_mismatched_iterations=mismatched, **record)
+        emit_in_turn(dist, rank, world_size, "size", {"local_mismatched_iterations": mismatched, **record})
         failed = failed or not verified
         del buffer
 

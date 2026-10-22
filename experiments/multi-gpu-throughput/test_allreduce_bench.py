@@ -131,13 +131,17 @@ class Records(unittest.TestCase):
 
         written = []
         real = bench.emit
-        bench.emit = lambda rank, event, alone=False, **fields: written.append((len(log), alone))
+        bench.emit = lambda rank, event, alone=False, **fields: written.append((len(log), alone, fields))
+        # A real summary, because it carries world_size itself, the field a keyword-argument helper collided with.
+        record = bench.summarise(1 << 20, 4, [[0.01, 0.02, 0.03]] * 4, verified=True)
         try:
-            bench.emit_in_turn(Dist(), 2, 4, "size")
+            bench.emit_in_turn(Dist(), 2, 4, "size", {"local_mismatched_iterations": 0, **record})
         finally:
             bench.emit = real
         # Rank 2 of 4 writes after the barriers for turns 0 and 1, and then waits through turns 2 and 3.
-        self.assertEqual(written, [(2, True)])
+        self.assertEqual([(turn, alone) for turn, alone, _ in written], [(2, True)])
+        self.assertEqual(written[0][2]["world_size"], 4)
+        self.assertEqual(written[0][2]["local_mismatched_iterations"], 0)
         self.assertEqual(len(log), 4)
 
 
