@@ -165,6 +165,17 @@ def buffer_matches(lowest: float, highest: float, world_size: int) -> bool:
     return lowest == want and highest == want
 
 
+def failing_iterations(extrema: list[tuple[float, float]], world_size: int) -> int:
+    """How many iterations' buffers, each given as its (min, max), did not hold the expected sum at both ends.
+
+    Judged per iteration, not over a running minimum and maximum: Python's min and max keep the earlier value against
+    a NaN, so a NaN iteration between two correct ones would leave running extrema that look correct.
+    """
+    if not extrema:
+        raise SettingRefused("no iterations were checked, so nothing was verified")
+    return sum(1 for lowest, highest in extrema if not buffer_matches(lowest, highest, world_size))
+
+
 def script_sha256() -> str:
     """The hash of this file, so a record says which code produced it."""
     with open(__file__, "rb") as handle:
@@ -236,7 +247,7 @@ def main() -> int:
         dist.barrier()
 
         times = []
-        lowest, highest = float("inf"), float("-inf")
+        extrema = []
         for _ in range(iterations):
             # Filled outside the timed span, so the time is the collective's and the check below is per iteration.
             buffer.fill_(float(rank + 1))
@@ -247,10 +258,10 @@ def main() -> int:
             end.record()
             end.synchronize()
             times.append(start.elapsed_time(end) / 1000.0)
-            lowest = min(lowest, float(buffer.min()))
-            highest = max(highest, float(buffer.max()))
+            extrema.append((float(buffer.min()), float(buffer.max())))
 
-        mine_ok = buffer_matches(lowest, highest, world_size)
+        mismatched = failing_iterations(extrema, world_size)
+        mine_ok = mismatched == 0
         # Every rank's times and verdict, gathered, so the record is the same on each rank and a rank that failed
         # its check fails the size for all of them.
         local = torch.tensor(times + [1.0 if mine_ok else 0.0], dtype=torch.float64, device=device)
@@ -259,7 +270,7 @@ def main() -> int:
         rows = [slot.tolist() for slot in slots]
         verified = all(row[-1] == 1.0 for row in rows)
         record = summarise(size, world_size, [row[:-1] for row in rows], verified)
-        emit(rank, "size", local_buffer_min=lowest, local_buffer_max=highest, **record)
+        emit(rank, "size", local_mismatched_iterations=mismatched, **record)
         failed = failed or not verified
         del buffer
 

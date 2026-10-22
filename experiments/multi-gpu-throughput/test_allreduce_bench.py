@@ -40,6 +40,13 @@ class ExpectedSum(unittest.TestCase):
         # A reduction over two of four ranks.
         self.assertFalse(bench.buffer_matches(3.0, 3.0, 4))
 
+    def test_a_nan_iteration_between_correct_ones_is_not_forgiven(self):
+        nan = float("nan")
+        self.assertEqual(bench.failing_iterations([(10.0, 10.0), (nan, nan), (10.0, 10.0)], 4), 1)
+        self.assertEqual(bench.failing_iterations([(10.0, 10.0)] * 3, 4), 0)
+        with self.assertRaises(bench.SettingRefused):
+            bench.failing_iterations([], 4)
+
 
 class Sizes(unittest.TestCase):
     def test_default_ladder(self):
