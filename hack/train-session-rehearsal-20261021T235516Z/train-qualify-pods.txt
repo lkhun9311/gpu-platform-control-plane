@@ -1,0 +1,3 @@
+NAME                    READY   STATUS   RESTARTS   AGE   IP           NODE                    NOMINATED NODE   READINESS GATES
+train-qualify-0-rks8p   0/1     Error    0          10s   10.244.2.3   train-session-worker2   <none>           <none>
+train-qualify-1-w5csh   0/1     Error    0          10s   10.244.3.3   train-session-worker3   <none>           <none>
