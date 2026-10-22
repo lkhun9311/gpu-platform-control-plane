@@ -1,0 +1,153 @@
+23:40:51 == cluster
+Creating cluster "train-session" ...
+ • Ensuring node image (kindest/node:v1.37.0) 🖼️  ...
+ ✓ Ensuring node image (kindest/node:v1.37.0) 🖼️
+ • Preparing nodes 📦 📦 📦 📦   ...
+ ✓ Preparing nodes 📦 📦 📦 📦 
+ • Writing configuration 📜  ...
+ ✓ Writing configuration 📜
+ • Starting control-plane 🕹️  ...
+ ✓ Starting control-plane 🕹️
+ • Installing CNI 🔌  ...
+ ✓ Installing CNI 🔌
+ • Installing StorageClass 💾  ...
+ ✓ Installing StorageClass 💾
+ • Joining worker nodes 🚜  ...
+ ✓ Joining worker nodes 🚜
+ • Waiting ≤ 3m0s for control-plane = Ready ⏳  ...
+ ✓ Waiting ≤ 3m0s for control-plane = Ready ⏳
+ • Ready after 7s 💚
+Set kubectl context to "kind-train-session"
+You can now use your cluster with:
+
+kubectl cluster-info --context kind-train-session
+
+Have a question, bug, or feature request? Let us know! https://kind.sigs.k8s.io/#community 🙂
+node/train-session-worker2 tainted
+node/train-session-worker3 tainted
+23:41:17 == images
+DEPRECATED: The legacy builder is deprecated and will be removed in a future release.
+            Install the buildx component to build images with BuildKit:
+            https://docs.docker.com/go/buildx/
+
+sha256:f44571f8381692314da1e244faca78f15f842041b4f74a4d17c7be72b5a6efa0
+docker build -t gpu-simulator:train-session -f Dockerfile.gpu-simulator .
+DEPRECATED: The legacy builder is deprecated and will be removed in a future release.
+            Install the buildx component to build images with BuildKit:
+            https://docs.docker.com/go/buildx/
+
+Sending build context to Docker daemon  2.782MB
+Step 1/14 : FROM golang:1.27.3@sha256:957861185dbf29d93668ace41e011d091c6e779953d47f0316ef2cc58e28fe2b AS builder
+ ---> 957861185dbf
+Step 2/14 : ARG TARGETOS
+ ---> Using cache
+ ---> a38e89fd304b
+Step 3/14 : ARG TARGETARCH
+ ---> Using cache
+ ---> df7229e5f3ec
+Step 4/14 : WORKDIR /workspace
+ ---> Using cache
+ ---> e0f3b83f69f4
+Step 5/14 : COPY go.mod go.mod
+ ---> Using cache
+ ---> fd57ce161410
+Step 6/14 : COPY go.sum go.sum
+ ---> Using cache
+ ---> 163e9ddb2c8b
+Step 7/14 : RUN go mod download
+ ---> Using cache
+ ---> 4252e133d241
+Step 8/14 : COPY . .
+ ---> Using cache
+ ---> 5ca719d962b9
+Step 9/14 : RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o gpu-simulator cmd/gpu-simulator/main.go
+ ---> Using cache
+ ---> b8a4dab1e559
+Step 10/14 : FROM gcr.io/distroless/static:nonroot@sha256:e2e927ec666bae08560abb3c55d0659eceabb657f56b6782ab500a9fc7f555e3
+ ---> e2e927ec666b
+Step 11/14 : WORKDIR /
+ ---> Using cache
+ ---> e61cf3190b2a
+Step 12/14 : COPY --from=builder /workspace/gpu-simulator .
+ ---> Using cache
+ ---> ada8d3eeac89
+Step 13/14 : USER 65532:65532
+ ---> Using cache
+ ---> 2c4b5272cbcb
+Step 14/14 : ENTRYPOINT ["/gpu-simulator"]
+ ---> Using cache
+ ---> b610aeb6e426
+Successfully built b610aeb6e426
+Successfully tagged gpu-simulator:train-session
+Image: "cpu-ddp:torch251" with ID "sha256:f44571f8381692314da1e244faca78f15f842041b4f74a4d17c7be72b5a6efa0" not yet present on node "train-session-worker", loading...
+Image: "cpu-ddp:torch251" with ID "sha256:f44571f8381692314da1e244faca78f15f842041b4f74a4d17c7be72b5a6efa0" not yet present on node "train-session-worker2", loading...
+Image: "cpu-ddp:torch251" with ID "sha256:f44571f8381692314da1e244faca78f15f842041b4f74a4d17c7be72b5a6efa0" not yet present on node "train-session-worker3", loading...
+Image: "cpu-ddp:torch251" with ID "sha256:f44571f8381692314da1e244faca78f15f842041b4f74a4d17c7be72b5a6efa0" not yet present on node "train-session-control-plane", loading...
+Image: "gpu-simulator:train-session" with ID "sha256:b610aeb6e4267f12b32adcb17f86ed059f1b3dd64752543cce00d80d624c098a" not yet present on node "train-session-worker", loading...
+Image: "gpu-simulator:train-session" with ID "sha256:b610aeb6e4267f12b32adcb17f86ed059f1b3dd64752543cce00d80d624c098a" not yet present on node "train-session-worker2", loading...
+Image: "gpu-simulator:train-session" with ID "sha256:b610aeb6e4267f12b32adcb17f86ed059f1b3dd64752543cce00d80d624c098a" not yet present on node "train-session-worker3", loading...
+Image: "gpu-simulator:train-session" with ID "sha256:b610aeb6e4267f12b32adcb17f86ed059f1b3dd64752543cce00d80d624c098a" not yet present on node "train-session-control-plane", loading...
+Image is up to date for sha256:e7452a87110513d8a578420f2792ee8e4ea94458166ccd03874fff1e9b1f0cee
+Image is up to date for sha256:f580295726ebad5f9e94f558159026196eb2b0998bfbdfbdcc001635de76f14d
+Image is up to date for sha256:e7452a87110513d8a578420f2792ee8e4ea94458166ccd03874fff1e9b1f0cee
+Image is up to date for sha256:f580295726ebad5f9e94f558159026196eb2b0998bfbdfbdcc001635de76f14d
+Image is up to date for sha256:e7452a87110513d8a578420f2792ee8e4ea94458166ccd03874fff1e9b1f0cee
+Image is up to date for sha256:f580295726ebad5f9e94f558159026196eb2b0998bfbdfbdcc001635de76f14d
+Image is up to date for sha256:e7452a87110513d8a578420f2792ee8e4ea94458166ccd03874fff1e9b1f0cee
+Image is up to date for sha256:f580295726ebad5f9e94f558159026196eb2b0998bfbdfbdcc001635de76f14d
+23:41:48 == argo cd 7.7.0
+"argo" already exists with the same configuration, skipping
+Hang tight while we grab the latest from your chart repositories...
+...Successfully got an update from the "argo" chart repository
+Update Complete. ⎈Happy Helming!⎈
+NAME: argo-cd
+LAST DEPLOYED: Thu Oct 22 08:41:49 2026
+NAMESPACE: argocd
+STATUS: deployed
+REVISION: 1
+TEST SUITE: None
+NOTES:
+In order to access the server UI you have the following options:
+
+1. kubectl port-forward service/argo-cd-argocd-server -n argocd 8080:443
+
+    and then open the browser on http://localhost:8080 and accept the certificate
+
+2. enable ingress in the values file `server.ingress.enabled` and either
+      - Add the annotation for ssl passthrough: https://argo-cd.readthedocs.io/en/stable/operator-manual/ingress/#option-1-ssl-passthrough
+      - Set the `configs.params."server.insecure"` in the values file and terminate SSL at your ingress: https://argo-cd.readthedocs.io/en/stable/operator-manual/ingress/#option-2-multiple-ingress-objects-and-hosts
+
+
+After reaching the UI the first time you can login with username: admin and the random password generated during the installation. You can find the password by running:
+
+kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d
+
+(You should delete the initial secret afterwards as suggested by the Getting Started Guide: https://argo-cd.readthedocs.io/en/stable/getting_started/#4-login-using-the-cli)
+Warning: metadata.finalizers: "resources-finalizer.argocd.argoproj.io": prefer a domain-qualified finalizer name including a path (/) to avoid accidental conflicts with other finalizer writers
+application.argoproj.io/gpu-platform-root created
+23:44:25 baseline: 9 automated Applications Synced/Healthy
+daemonset.apps/gpu-simulator created
+daemonset.apps/gpu-simulator patched
+Waiting for daemon set "gpu-simulator" rollout to finish: 0 out of 4 new pods have been updated...
+Waiting for daemon set "gpu-simulator" rollout to finish: 0 out of 4 new pods have been updated...
+Waiting for daemon set "gpu-simulator" rollout to finish: 1 out of 4 new pods have been updated...
+Waiting for daemon set "gpu-simulator" rollout to finish: 2 out of 4 new pods have been updated...
+Waiting for daemon set "gpu-simulator" rollout to finish: 2 out of 4 new pods have been updated...
+Waiting for daemon set "gpu-simulator" rollout to finish: 2 out of 4 new pods have been updated...
+Waiting for daemon set "gpu-simulator" rollout to finish: 3 out of 4 new pods have been updated...
+Waiting for daemon set "gpu-simulator" rollout to finish: 1 of 4 updated pods are available...
+Waiting for daemon set "gpu-simulator" rollout to finish: 2 of 4 updated pods are available...
+Waiting for daemon set "gpu-simulator" rollout to finish: 3 of 4 updated pods are available...
+daemon set "gpu-simulator" successfully rolled out
+23:44:46 T1 PASS: gpu-platform-training synced at 055036f10a47b5253a4f3b71c9e97fd72951d62d
+23:44:46 T2 PASS: ClusterQueue gpu-train-a is Active and the only one
+23:44:46 == T3 and T7: the qualification job held, then released
+label "platform.lkhun9311.github.io/train" not found.
+node/train-session-worker2 not labeled
+label "platform.lkhun9311.github.io/train" not found.
+node/train-session-worker3 not labeled
+The mltrainingjobs "train-qualify" is invalid: : ValidatingAdmissionPolicy 'gpu-workload-static' with binding 'gpu-workload-static' denied request: spec.gpuClass is required when spec.gpuCount is greater than zero; omitting it selects the cluster's default class by omission and the object records nothing about which class ran
+23:44:47 FATAL: submit train-qualify
+Deleting cluster "train-session" ...
+Deleted nodes: ["train-session-worker" "train-session-worker2" "train-session-worker3" "train-session-control-plane"]
+23:44:48 cleanup: deleted train-session

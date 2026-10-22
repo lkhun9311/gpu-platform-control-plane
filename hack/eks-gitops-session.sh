@@ -41,6 +41,12 @@
 #                     request and recovery; implies SERVE=yes and needs TTL_MINUTES of about 300
 #   MAX_SPOT_PRICE    with STUDY, the most an hour of the card may cost in any zone, or nothing is bought (default 1.00)
 #   SERVE             set to `yes` to buy one GPU and serve one request; needs TTL_MINUTES of about 180 and gh
+#   TRAIN             set to `ddp` to buy two g5.xlarge in the `gpu` group and run the multi-Pod DDP arms on them with
+#                     NCCL (docs/superpowers/specs/2026-10-16-nccl-groundwork-design.md, section 5); only on a cluster
+#                     this session creates, never with SERVE or KEEP_UP, and needs TTL_MINUTES of about 180 and gh
+#   APPROVED_TRAIN_SHA256  with TRAIN, the sha256 of experiments/cpu-ddp/train.py the run's registration approved
+#   TRAIN_ARMS        with TRAIN, the arms to run, in order          (default: pass no-sync bad-address one-rank-fails)
+#   TRAIN_MAX_PRICE   with TRAIN, the most an On-Demand hour of one node may cost, or nothing is bought (default 1.40)
 
 set -euo pipefail
 
@@ -57,6 +63,12 @@ ARGO_DIR=infra/aws/argo-bootstrap
 EXDIR="${EXDIR:-ex/eks-session-$(date -u +%Y%m%dT%H%M%SZ)}"
 
 mkdir -p "$EXDIR"
+# Absolute from here, because the watchdog below runs detached and writes into it by this path.
+#
+# The watchdog prefixed $PWD to a relative EXDIR, so an absolute one became $PWD//abs/...: its pid file was never
+# written, the session died for want of a kill switch, and the watchdog it had just started lived on, due to destroy
+# whatever cluster existed TTL_MINUTES later (found 2026-10-22 by hack/test/check-train-session-refusals.sh).
+EXDIR="$(cd "$EXDIR" && pwd)" || exit 1
 log() { printf '%s  [session] %s\n' "$(date -u +%H:%M:%SZ)" "$*" | tee -a "$EXDIR/session.log"; }
 die() { printf '%s  [session] FATAL: %s\n' "$(date -u +%H:%M:%SZ)" "$*" | tee -a "$EXDIR/session.log" >&2; exit 1; }
 
@@ -126,6 +138,71 @@ if [[ "$SERVE" == yes ]]; then
   if ((TTL_MINUTES * 60 < SERVE_BUDGET + 3600)); then
     die "SERVE=yes needs TTL_MINUTES of at least $(((SERVE_BUDGET + 3600 + 59) / 60)) for its waits; it is $TTL_MINUTES"
   fi
+fi
+
+# --- TRAIN=ddp: what must hold before anything is built ---------------------------------------------------
+#
+# docs/superpowers/specs/2026-10-16-nccl-groundwork-design.md, section 5. The gates are functions in
+# hack/lib/train-session.sh, tested by hack/test/check-train-session-lib.sh; this file only orders them.
+TRAIN="${TRAIN:-}"
+TRAIN_GROUP=gpu
+TRAIN_INSTANCE_TYPE=g5.xlarge
+TRAIN_NODES=2
+TRAIN_NS=train-a
+TRAIN_QUEUE=gpu-train-a
+TRAIN_APP=gpu-platform-training
+# The class config/training's quota policy names, and the card a g5.xlarge carries; the admission policy requires one.
+TRAIN_GPU_CLASS=a10g
+TRAIN_MAX_PRICE="${TRAIN_MAX_PRICE:-1.40}"
+TRAIN_ARMS="${TRAIN_ARMS:-pass no-sync bad-address one-rank-fails}"
+# pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime, the torch the CPU image installs, with CUDA; read from Docker Hub on
+# 2026-10-22 as a single linux/amd64 manifest of 3,337,937,647 compressed bytes, which each node pulls once.
+TRAIN_IMAGE=docker.io/pytorch/pytorch@sha256:c8268a92a69bd500f8be0e665b2630ee006dadaf7bfbc24249141b15ff622755
+WAIT_TRAIN_SYNC="${WAIT_TRAIN_SYNC:-600}"
+WAIT_TRAIN_QUEUE="${WAIT_TRAIN_QUEUE:-300}"
+WAIT_QUAL_HELD="${WAIT_QUAL_HELD:-300}"
+# The qualification job is the first to pull the image, so its wait covers the pull on both nodes.
+WAIT_QUAL_RUN="${WAIT_QUAL_RUN:-1500}"
+# The registered budget per arm, as the kind harness's, and a minute each for its submission and its collection.
+TRAIN_ARM_BUDGET=300
+TF_TRAIN_VARS=""
+case "$TRAIN" in
+  "") ;;
+  ddp)
+    [[ -z "$SERVE$STUDY" ]] || die "TRAIN=ddp with SERVE or STUDY would buy GPUs in two groups under one deadline; run one"
+    # shellcheck source=hack/lib/train-session.sh
+    . hack/lib/train-session.sh
+    # shellcheck source=hack/lib/ddp-arms.sh
+    . hack/lib/ddp-arms.sh
+    # The code that runs is the code that was approved, checked before anything is bought for it; the analyzer
+    # checks the same hash again, from what each rank recorded.
+    [[ "${APPROVED_TRAIN_SHA256:-}" =~ ^[0-9a-f]{64}$ ]] ||
+      die "TRAIN=ddp needs APPROVED_TRAIN_SHA256, the train.py hash the run's registration approved"
+    train_sha="$(sha256sum experiments/cpu-ddp/train.py | cut -d' ' -f1)"
+    [[ "$train_sha" == "$APPROVED_TRAIN_SHA256" ]] ||
+      die "experiments/cpu-ddp/train.py is $train_sha, not the approved $APPROVED_TRAIN_SHA256"
+    why="$(train_node_count_refusal "$TRAIN_NODES")" || die "$why"
+    n_arms=0
+    for arm in $TRAIN_ARMS; do
+      ddp_arm_env "$arm" >/dev/null || die "TRAIN_ARMS names $arm, which is not an arm (pass no-sync bad-address one-rank-fails)"
+      n_arms=$((n_arms + 1))
+    done
+    ((n_arms > 0)) || die "TRAIN_ARMS names no arm"
+    # Every bounded wait from the sync to the verified end of the nodes, so the deadline can be checked to cover them.
+    TRAIN_GPU_BUDGET=$((WAIT_GPU_NODE + WAIT_GPU_PLUGIN + WAIT_QUAL_RUN + n_arms * (TRAIN_ARM_BUDGET + 60) + WAIT_GPU_GONE + 300))
+    TRAIN_BUDGET=$((WAIT_TRAIN_SYNC + WAIT_TRAIN_QUEUE + WAIT_QUAL_HELD + TRAIN_GPU_BUDGET))
+    if ((TTL_MINUTES * 60 < TRAIN_BUDGET + 3600)); then
+      die "TRAIN=ddp needs TTL_MINUTES of at least $(((TRAIN_BUDGET + 3600 + 59) / 60)) for its waits; it is $TTL_MINUTES"
+    fi
+    why="$(train_require_new_cluster "$CLUSTER" "$REGION" "${KEEP_UP:-}")" || die "$why"
+    log "$why"
+    # Passed to every apply and destroy of the cluster root, the watchdog's included, so each plans the same groups.
+    TF_TRAIN_VARS="-var=gpu_node_instance_type=$TRAIN_INSTANCE_TYPE -var=gpu_max_nodes=$TRAIN_NODES"
+    ;;
+  *) die "TRAIN=$TRAIN is not a training mode this session runs (ddp)" ;;
+esac
+
+if [[ "$SERVE" == yes || "$TRAIN" == ddp ]]; then
   # The nightly destroy removes the whole cluster and neither deadline covers it. Its cron has been seen to drift
   # by hours, so a time window is not enough: a destroy run queued or in progress refuses too, and the residual
   # risk -- a late cron firing inside the session -- is the operator's to rule out by disabling the schedule.
@@ -152,9 +229,9 @@ fi
 KILL_LOG="$EXDIR/ttl-kill-switch.log"
 KILL_PIDFILE="$EXDIR/ttl.pid"
 setsid nohup bash -c "
-  echo \$\$ > '$PWD/$KILL_PIDFILE'
+  echo \$\$ > '$KILL_PIDFILE'
   sleep $((TTL_MINUTES * 60))
-  echo \"[ttl] \$(date -u +%H:%M:%SZ) TTL reached; force-destroying\" >> '$PWD/$KILL_LOG' 2>&1
+  echo \"[ttl] \$(date -u +%H:%M:%SZ) TTL reached; force-destroying\" >> '$KILL_LOG' 2>&1
   cd '$PWD'
   # The cluster first, and only the cluster. It is what bills; the Helm release bills nothing and its destroy
   # needs a reachable API endpoint that, by the time this fires, may well be gone -- so attempting it first
@@ -163,20 +240,20 @@ setsid nohup bash -c "
   # destroy, or the nightly one, still held.
   for attempt in 1 2 3; do
     AWS_PROFILE='$AWS_PROFILE' AWS_REGION='$REGION' terraform -chdir='$CLUSTER_DIR' destroy -auto-approve \
-      -lock-timeout=10m -var='region=$REGION' -var='cluster_name=$CLUSTER' >> '$PWD/$KILL_LOG' 2>&1
+      -lock-timeout=10m -var='region=$REGION' -var='cluster_name=$CLUSTER' $TF_TRAIN_VARS >> '$KILL_LOG' 2>&1
     ttl_rc=\$?
     [ \"\$ttl_rc\" = 0 ] && break
-    echo \"[ttl] attempt \$attempt failed rc=\$ttl_rc\" >> '$PWD/$KILL_LOG' 2>&1
+    echo \"[ttl] attempt \$attempt failed rc=\$ttl_rc\" >> '$KILL_LOG' 2>&1
     sleep 60
   done
   if [ \"\$ttl_rc\" = 0 ]; then
-    echo \"[ttl] \$(date -u +%H:%M:%SZ) force-destroy SUCCEEDED\" >> '$PWD/$KILL_LOG' 2>&1
+    echo \"[ttl] \$(date -u +%H:%M:%SZ) force-destroy SUCCEEDED\" >> '$KILL_LOG' 2>&1
     # The GPU deadline is removed only after a destroy that succeeded: with the cluster gone it can only fire
     # against nothing, and left in place it makes the next session refuse to arm its own.
-    gpu_ttl=\$(cat '$PWD/$EXDIR/gpu-ttl-schedule.txt' 2>/dev/null)
-    [ -n \"\$gpu_ttl\" ] && AWS_PROFILE='$AWS_PROFILE' AWS_REGION='$REGION' aws scheduler delete-schedule --name \"\$gpu_ttl\" >> '$PWD/$KILL_LOG' 2>&1
+    gpu_ttl=\$(cat '$EXDIR/gpu-ttl-schedule.txt' 2>/dev/null)
+    [ -n \"\$gpu_ttl\" ] && AWS_PROFILE='$AWS_PROFILE' AWS_REGION='$REGION' aws scheduler delete-schedule --name \"\$gpu_ttl\" >> '$KILL_LOG' 2>&1
   else
-    echo \"[ttl] \$(date -u +%H:%M:%SZ) force-destroy FAILED rc=\$ttl_rc -- the cluster may still be billing\" >> '$PWD/$KILL_LOG' 2>&1
+    echo \"[ttl] \$(date -u +%H:%M:%SZ) force-destroy FAILED rc=\$ttl_rc -- the cluster may still be billing\" >> '$KILL_LOG' 2>&1
   fi
 " >/dev/null 2>&1 &
 # The watchdog reports its own pid, because `$!` here is the setsid process and not the watchdog.
@@ -240,7 +317,7 @@ log "terraform apply (cluster) -- this is where the billing starts"
 # one cluster and pointed every later step at another -- and the destroy below would have torn down the
 # default rather than the one this session made.
 terraform -chdir="$CLUSTER_DIR" apply -auto-approve -input=false \
-  -var="region=$REGION" -var="cluster_name=$CLUSTER" -var="api_public_access_cidrs=[\"$EGRESS_CIDR\"]" \
+  -var="region=$REGION" -var="cluster_name=$CLUSTER" -var="api_public_access_cidrs=[\"$EGRESS_CIDR\"]" $TF_TRAIN_VARS \
   >>"$EXDIR/terraform.log" 2>&1 || die "cluster apply failed; the kill switch still holds at PID $KILL_PID"
 log "cluster up in $(( $(date +%s) - started ))s"
 
@@ -508,6 +585,154 @@ gpu_down() {
   fi
 }
 
+# --- Training on two GPUs with NCCL (TRAIN=ddp) -------------------------------------------------------------
+#
+# train_run runs as a condition, which switches errexit off inside it, so every step's status is checked by hand.
+# Nothing is bought until T1 to T5 hold, and those are what the cluster can show with no GPU node at all.
+TRAIN_DIR="$EXDIR/train"
+train_run() {
+  local why ids
+  mkdir -p "$TRAIN_DIR" "$EXDIR/ddp"
+  why="$(train_sync_app "$CLUSTER" "$TRAIN_APP" "$WAIT_TRAIN_SYNC")" || { bad "T1: $why"; return 1; }
+  ok "T1: $why"
+  why="$(train_only_clusterqueue "$CLUSTER" "$TRAIN_QUEUE" "$WAIT_TRAIN_QUEUE")" || { bad "T2: $why"; return 1; }
+  ok "T2: $why"
+
+  DDP_CONTEXT="$CLUSTER" DDP_NS="$TRAIN_NS" DDP_QUEUE="$TRAIN_QUEUE" DDP_IMAGE="$TRAIN_IMAGE"
+  DDP_SCRIPT=/tmp/train.py DDP_OUT="$EXDIR/ddp" DDP_BUDGET="$TRAIN_ARM_BUDGET" DDP_GPU_CLASS="$TRAIN_GPU_CLASS"
+  DDP_PRELUDE="$(ddp_prelude_for experiments/cpu-ddp/train.py "$DDP_SCRIPT" nccl)" || { bad "could not encode train.py"; return 1; }
+  # The qualification job: two ranks of one GPU each, submitted while no GPU node exists (design, correction 2).
+  # Each rank only asks whether CUDA answers, so a pass is about admission, placement and the image, not training.
+  # A rank that finds CUDA stays up sixty seconds: the operator records Running only while it sees both ranks Ready,
+  # and does not backfill it on completion, so a rank that exited at once could leave T7 refusing a healthy cluster
+  # (codex review of c649f2b). A rank that finds none exits at once.
+  ddp_render_job train-qualify "exec python -c 'import sys, time, torch; ok = torch.cuda.is_available(); ok and time.sleep(60); sys.exit(0 if ok else 3)'" \
+    >"$TRAIN_DIR/qualification.json" || { bad "could not render the qualification job"; return 1; }
+  why="$(kc apply -f "$TRAIN_DIR/qualification.json" 2>&1)" || { bad "T3: the qualification job was refused: $why"; return 1; }
+  why="$(train_qualification_held "$CLUSTER" "$TRAIN_NS" train-qualify "$WAIT_QUAL_HELD")" || { bad "T3: $why"; return 1; }
+  ok "T3: $why"
+  why="$(train_price_gate "$REGION" "$TRAIN_INSTANCE_TYPE" "$TRAIN_MAX_PRICE")" || { bad "T4: $why"; return 1; }
+  ok "T4: $why"
+  printf '%s\n' "$why" >"$TRAIN_DIR/price.txt"
+  local vcpu
+  vcpu="$(aws ec2 describe-instance-types --region "$REGION" --instance-types "$TRAIN_INSTANCE_TYPE" \
+    --query 'InstanceTypes[0].VCpuInfo.DefaultVCpus' --output text 2>&1)"
+  [[ "$vcpu" =~ ^[1-9][0-9]*$ ]] || { bad "T5: could not read $TRAIN_INSTANCE_TYPE's default vCPU: ${vcpu:0:200}"; return 1; }
+  why="$(train_quota_gate "$REGION" $((vcpu * TRAIN_NODES)))" || { bad "T5: $why"; return 1; }
+  ok "T5: $why"
+
+  # The AWS deadline fires before the laptop watchdog, so the nodes are the first thing to go whichever clock wins,
+  # and it must leave the GPU steps their whole budget.
+  local left_min gpu_min
+  left_min=$(((KILL_AT - $(date +%s)) / 60))
+  gpu_min=$((left_min - 10))
+  if ((gpu_min * 60 < TRAIN_GPU_BUDGET)); then
+    bad "the watchdog fires in ${left_min} min, leaving the nodes ${gpu_min} min against the ${TRAIN_GPU_BUDGET}s their steps may take; raise TTL_MINUTES"
+    return 1
+  fi
+  TTL_ROLE_ARN="${TTL_ROLE_ARN:-$(terraform -chdir=infra/aws/bootstrap output -raw ttl_scaledown_role_arn 2>>"$EXDIR/session.log")}"
+  export TTL_ROLE_ARN
+  # shellcheck source=hack/lib/gpu-ttl.sh
+  . hack/lib/gpu-ttl.sh
+  if ! ttl_arm "$CLUSTER" "$TRAIN_GROUP" "$gpu_min" 2>>"$EXDIR/session.log"; then
+    bad "could not register the GPU deadline; no node is bought without one"
+    return 1
+  fi
+  GPU_ARMED=1
+  if ! printf '%s\n' "$TTL_SCHEDULE_NAME" >"$GPU_TTL_FILE"; then
+    bad "could not record the GPU deadline's name; the watchdog could not remove it later"
+    return 1
+  fi
+  ok "GPU deadline armed for ${gpu_min} min: $TTL_SCHEDULE_NAME"
+
+  log "scaling $TRAIN_GROUP to $TRAIN_NODES -- the nodes start billing here"
+  # Marked before the call, not after: a response lost after AWS accepted it would otherwise leave nothing to
+  # scale back down. The record exists before it too, because the scale-down refuses without one.
+  : >>"$GPU_INSTANCES_FILE"
+  SCALED_UP=1
+  aws eks update-nodegroup-config --cluster-name "$CLUSTER" --nodegroup-name "$TRAIN_GROUP" \
+    --scaling-config "minSize=0,maxSize=$TRAIN_NODES,desiredSize=$TRAIN_NODES" >>"$EXDIR/session.log" 2>&1 || {
+    bad "could not scale $TRAIN_GROUP up"
+    return 1
+  }
+  ids="$(train_qualify_nodes "$CLUSTER" "$TRAIN_GROUP" "$TRAIN_NODES" $((WAIT_GPU_NODE + WAIT_GPU_PLUGIN)))" || {
+    bad "T6: $ids"
+    return 1
+  }
+  awk '{print $2}' <<<"$ids" >>"$GPU_INSTANCES_FILE"
+  ok "T6: $(paste -sd';' <<<"$ids")"
+  kc get nodes -o json >"$TRAIN_DIR/nodes.json" 2>>"$EXDIR/session.log" || true
+  why="$(train_qualification_released "$CLUSTER" "$TRAIN_NS" train-qualify "$WAIT_QUAL_RUN")" || { bad "T7: $why"; return 1; }
+  ok "T7: $why"
+  kc -n "$TRAIN_NS" get mltrainingjob train-qualify -o json >"$TRAIN_DIR/qualification-final.json" 2>>"$EXDIR/session.log" || true
+
+  # The arms, as experiments/multi-pod-ddp/ registers them, with the provenance the analyzer reads its bar from.
+  {
+    echo "commit=$(git rev-parse HEAD)"
+    echo "dirty_files=$(git status --porcelain | wc -l)"
+    echo "kubectl=$(kubectl version --client -o json | python3 -c 'import json,sys;print(json.load(sys.stdin)["clientVersion"]["gitVersion"])')"
+    echo "kueue=$(sed -n 's/^version=//p' config/kueue-controller/RELEASE)"
+    echo "train_py_sha256=$train_sha"
+    echo "approved_train_py_sha256=$APPROVED_TRAIN_SHA256"
+    echo "workload_image=$TRAIN_IMAGE"
+    echo "nodes=$(paste -sd' ' <<<"$ids")"
+    echo "profile=nccl"
+    echo "arms=$TRAIN_ARMS"
+  } >"$EXDIR/ddp/provenance.txt"
+  local arm
+  for arm in $TRAIN_ARMS; do
+    ddp_run_arm "$arm" || bad "arm $arm could not be run: $(cat "$EXDIR/ddp/$arm/VOID" 2>/dev/null)"
+  done
+  if python3 experiments/multi-pod-ddp/analyze.py --profile nccl --script-sha256 "$APPROVED_TRAIN_SHA256" "$EXDIR/ddp" \
+    >"$EXDIR/ddp/verdict.txt" 2>&1; then
+    ok "T8: every arm PASS under the nccl profile ($EXDIR/ddp/verdict.txt)"
+  else
+    bad "T8: not every arm passed under the nccl profile: $(grep -E '^(PASS|FAIL|VOID)' "$EXDIR/ddp/verdict.txt" | paste -sd';')"
+  fi
+}
+
+# Reached on every exit once the nodes or their deadline exist, from the normal path and from the EXIT trap.
+# Errexit is off inside, because a cleanup that stops at its first failed command is the one that leaves nodes billing.
+train_down() {
+  local - why p
+  set +e
+  for p in "${DDP_COLLECTORS[@]}"; do kill "$p" 2>>"$EXDIR/session.log"; done
+  DDP_COLLECTORS=()
+  [[ -n "$SCALED_UP$GPU_ARMED" ]] || return 0
+  if [[ -n "$SCALED_UP" ]]; then
+    log "scaling $TRAIN_GROUP to 0"
+    if why="$(train_scale_down "$CLUSTER" "$REGION" "$TRAIN_GROUP" "$GPU_INSTANCES_FILE" "$WAIT_GPU_GONE")"; then
+      ok "S6 (GPU half): $why"
+      SCALED_UP=""
+    else
+      bad "S6: $why; the GPU deadline stays armed"
+      return 0
+    fi
+  fi
+  # Removed only once the nodes are verifiably gone; a leftover schedule makes the next session refuse to arm.
+  if ttl_disarm 2>>"$EXDIR/session.log"; then
+    rm -f "$GPU_TTL_FILE"
+    GPU_ARMED=""
+  else
+    bad "the GPU deadline $(cat "$GPU_TTL_FILE" 2>/dev/null) could not be removed; delete it before the next session"
+  fi
+}
+
+if [[ "$TRAIN" == ddp ]]; then
+  # From here an error or a signal ends the run through train_down, as SERVE's does through gpu_down.
+  trap 'train_down' EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  trap 'exit 129' HUP
+  if ((failures > 0)); then
+    # The GitOps baseline is the ground the training claim stands on; a failure there buys no node.
+    bad "the GitOps baseline failed ($failures check(s)), so no GPU is bought and nothing is trained"
+  else
+    train_run || true
+  fi
+  train_down
+fi
+
 if [[ "$SERVE" == yes ]]; then
   # From the deadline's arming on, an error or a signal ends the run through gpu_down; a handler that only
   # cleans up would return to the interrupted step and carry on.
@@ -568,7 +793,7 @@ terraform -chdir="$ARGO_DIR" destroy -auto-approve -input=false \
   -var="cluster_endpoint=$endpoint" -var="cluster_ca=$ca" >>"$EXDIR/terraform.log" 2>&1 ||
   log "warning: argo destroy returned non-zero; the cluster destroy below removes it anyway"
 terraform -chdir="$CLUSTER_DIR" destroy -auto-approve -input=false -lock-timeout=10m \
-  -var="region=$REGION" -var="cluster_name=$CLUSTER" \
+  -var="region=$REGION" -var="cluster_name=$CLUSTER" $TF_TRAIN_VARS \
   >>"$EXDIR/terraform.log" 2>&1 || {
   if kill -0 "$KILL_PID" 2>/dev/null; then
     bad "CLUSTER DESTROY FAILED -- the kill switch at PID $KILL_PID will retry at TTL. Do not walk away."

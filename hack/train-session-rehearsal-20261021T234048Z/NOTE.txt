@@ -1,0 +1,13 @@
+Void, and kept because it is the run that found a defect.
+
+At T3 the platform's admission policy gpu-workload-static refused the qualification job:
+"spec.gpuClass is required when spec.gpuCount is greater than zero". hack/lib/ddp-arms.sh rendered no gpuClass.
+The policy is applied by Argo on EKS as on kind, so the paid session would have stopped at T3, before any purchase,
+and every arm would have been refused the same way. hack/multi-pod-ddp.sh never met it because it installs no policy.
+
+T1 (the training Application synced through Argo, with no revision named) and T2 (gpu-train-a Active and the only
+ClusterQueue) had passed by then; the log shows both.
+
+The run started at 1de2f759. 49e234e7 was committed while it ran and changed only
+hack/test/check-train-session-refusals.sh, which the rehearsal does not read.
+The fix and its rerun follow in the next commits.

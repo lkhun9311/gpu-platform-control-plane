@@ -1,0 +1,6 @@
+commit=ba73d8862cd9c85409363e6b5e8455e737dbe26f
+dirty_files=0
+train_py_sha256=733f264307f7f661482852e322377a76ee50448ea52a2bbc5fc65dbf10891a5d
+workload_image=cpu-ddp:torch251
+profile=nccl
+arms=pass no-sync bad-address one-rank-fails

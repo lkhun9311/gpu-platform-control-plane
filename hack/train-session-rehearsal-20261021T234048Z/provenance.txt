@@ -1,0 +1,9 @@
+head=1de2f75906384ef5a61ad419a9f0012b255b2b0d rehearse/train=055036f10a47b5253a4f3b71c9e97fd72951d62d
+dirty_files=1
+kind=kind v0.33.0 go1.25.7 linux/amd64
+kubectl=v1.36.3
+argo_chart=7.7.0
+train_py_sha256=733f264307f7f661482852e322377a76ee50448ea52a2bbc5fc65dbf10891a5d
+node_image=kindest/node:v1.37.0@sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5
+workload_image=sha256:f44571f8381692314da1e244faca78f15f842041b4f74a4d17c7be72b5a6efa0
+qualification_body=exec python -c 'import sys, torch; sys.exit(0 if torch.cuda.is_available() else 3)'
