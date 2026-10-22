@@ -28,6 +28,7 @@ import os
 import signal
 import socket
 import sys
+import threading
 import time
 
 import torch
@@ -176,6 +177,41 @@ def param_digest(model: nn.Module) -> str:
     return hasher.hexdigest()
 
 
+# How often the main thread wakes while rendezvous runs, which bounds how late the SIGTERM handler can run.
+RENDEZVOUS_POLL_SECONDS = 0.2
+
+
+def rendezvous_off_the_main_thread(init, **kwargs) -> None:
+    """Call init(**kwargs) on a worker thread, and wait for it in short waits the SIGTERM handler can run between.
+
+    CPython runs a Python signal handler only on the main thread, once that thread is back in the interpreter.
+    init_process_group waits for its peers inside torch's native store code, which does not return there, so a
+    rank called it on the main thread could not act on SIGTERM until its peer arrived or the timeout expired.
+    On kind that was every eviction of a half-placed job: the handler never ran, and the kubelet killed the rank
+    with exit 137 at the 30 s grace period, 28.9 s after Kueue had counted its device free (Finding 10).
+
+    The waits are timed, not one join, because the kernel may hand the signal to one of torch's own threads, and
+    then nothing interrupts the main thread's wait; each timeout is a return to the interpreter.
+    The worker is a daemon, and the handler ends the process with os._exit, so a rendezvous still blocked is
+    abandoned rather than waited for.
+    An exception init raises is raised again here, so the caller's rendezvous_failed record is unchanged.
+    """
+    outcome: dict[str, BaseException] = {}
+
+    def run() -> None:
+        try:
+            init(**kwargs)
+        except BaseException as exc:  # noqa: BLE001 -- handed to the main thread whole, whatever it is
+            outcome["error"] = exc
+
+    worker = threading.Thread(target=run, name="rendezvous", daemon=True)
+    worker.start()
+    while worker.is_alive():
+        worker.join(RENDEZVOUS_POLL_SECONDS)
+    if "error" in outcome:
+        raise outcome["error"]
+
+
 def main() -> int:
     rank = int(os.environ["RANK"])
     world_size = int(os.environ["WORLD_SIZE"])
@@ -217,7 +253,7 @@ def main() -> int:
     if RENDEZVOUS_TIMEOUT > 0:
         kwargs["timeout"] = datetime.timedelta(seconds=RENDEZVOUS_TIMEOUT)
     try:
-        dist.init_process_group(backend=BACKEND, **kwargs)
+        rendezvous_off_the_main_thread(dist.init_process_group, backend=BACKEND, **kwargs)
     except Exception as exc:  # noqa: BLE001 -- the record must name whatever torch raised
         # The causal record the bad-address control looks for: this rank failed in rendezvous, and said why.
         emitter.emit("rendezvous_failed", error_type=type(exc).__name__, error=str(exc)[:1000])

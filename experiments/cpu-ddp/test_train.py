@@ -7,12 +7,16 @@ first execution of that path is the paid run, which must treat it as untested co
 
 from __future__ import annotations
 
+import ctypes
 import importlib
 import json
 import os
 import signal
+import subprocess
 import sys
 import tempfile
+import threading
+import time
 import types
 import unittest
 import uuid
@@ -194,5 +198,107 @@ class Main(unittest.TestCase):
         self.assertIn("CUDA is not available", refused[0]["error"])
 
 
+def sigterm_child(out_dir: str) -> None:
+    """Run main() as rank 0 with a rendezvous that blocks the way torch's native wait does, for SigtermDuringRendezvous.
+
+    The stub blocks SIGTERM in the thread that calls it and then sleeps.
+    That models what the kind run measured: the thread waiting inside init_process_group does not return to the
+    interpreter, so it cannot run the Python handler, and whatever runs it has to be another thread.
+    A plain sleep without the mask would not model it, because CPython interrupts a sleeping main thread for a
+    signal and runs the handler at once, which would let the defect pass.
+    """
+    os.environ.update({"RANK": "0", "WORLD_SIZE": "2", "DDP_OUT_DIR": out_dir})
+    os.environ.pop("DDP_BACKEND", None)
+    train, dist = load_train(FakeCuda(available=False))
+
+    def blocking_init(backend, **kwargs):
+        signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGTERM})
+        Path(out_dir, "entered").write_text(backend)
+        time.sleep(60)
+        raise Stop("the stub rendezvous ran to its end without the process being stopped")
+
+    dist.init_process_group = blocking_init
+
+    # A thread that leaves SIGTERM unblocked, as the threads torch starts do, so a signal can be aimed at a
+    # thread other than the main one.
+    def bystander() -> None:
+        while True:
+            time.sleep(1)
+
+    thread = threading.Thread(target=bystander, daemon=True)
+    thread.start()
+    Path(out_dir, "bystander").write_text(str(thread.native_id))
+    os.dup2(os.open(os.devnull, os.O_WRONLY), 1)
+    sys.exit(train.main())
+
+
+class SigtermDuringRendezvous(unittest.TestCase):
+    """An evicted rank still waiting for its peer must act on SIGTERM well inside the kubelet's 30 s grace period.
+
+    On kind it did not: in all ten evictions of the partial-placement study the rank was blocked in
+    init_process_group, its handler never ran, and the kubelet killed it with exit 137 at the grace period,
+    28.9 s after Kueue had already counted its device free (Finding 10 in docs/11_WHAT_THIS_MEASURED.md).
+    """
+
+    DEADLINE_SECONDS = 5.0
+
+    def run_child(self, aim: str) -> tuple[int, list[dict]]:
+        with tempfile.TemporaryDirectory() as out:
+            child = subprocess.Popen(
+                [sys.executable, str(Path(__file__).resolve()), "--sigterm-child", out],
+                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+            try:
+                entered = Path(out, "entered")
+                waited = time.monotonic() + 30
+                while not entered.exists():
+                    if child.poll() is not None:
+                        self.fail(f"the child exited {child.returncode} before rendezvous: {child.stderr.read()!r}")
+                    if time.monotonic() > waited:
+                        self.fail("the child never reached the stub rendezvous")
+                    time.sleep(0.05)
+                if aim == "process":
+                    os.kill(child.pid, signal.SIGTERM)
+                else:
+                    libc = ctypes.CDLL(None, use_errno=True)
+                    if not hasattr(libc, "tgkill"):
+                        self.skipTest("this libc has no tgkill, so a signal cannot be aimed at one thread")
+                    tid = int(Path(out, "bystander").read_text())
+                    if libc.tgkill(child.pid, tid, signal.SIGTERM) != 0:
+                        self.fail(f"tgkill failed with errno {ctypes.get_errno()}")
+                try:
+                    code = child.wait(timeout=self.DEADLINE_SECONDS)
+                except subprocess.TimeoutExpired:
+                    self.fail(f"the rank was still running {self.DEADLINE_SECONDS} s after SIGTERM "
+                              f"(aimed at the {aim}) while blocked in rendezvous")
+                path = Path(out, "rank-0.jsonl")
+                records = [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
+                return code, records
+            finally:
+                if child.poll() is None:
+                    child.kill()
+                    child.wait()
+                child.stderr.close()
+
+    def assert_stopped_by_its_handler(self, code: int, records: list[dict]) -> None:
+        events = [r["event"] for r in records]
+        self.assertEqual(code, 143, f"exit {code}, events {events}")
+        self.assertIn("sigterm", events)
+        # The rank stopped inside rendezvous, so it must not claim to have finished it or to have failed in it.
+        self.assertNotIn("rendezvous", events)
+        self.assertNotIn("rendezvous_failed", events)
+
+    def test_a_signal_sent_to_the_process_stops_it(self):
+        code, records = self.run_child("process")
+        self.assert_stopped_by_its_handler(code, records)
+
+    def test_a_signal_taken_by_another_thread_still_stops_it(self):
+        # The kernel may hand a process-directed signal to any thread that does not block it, torch's included.
+        # Then nothing interrupts the main thread's wait, and only a wait that wakes by itself lets the handler run.
+        code, records = self.run_child("bystander")
+        self.assert_stopped_by_its_handler(code, records)
+
+
 if __name__ == "__main__":
+    if len(sys.argv) == 3 and sys.argv[1] == "--sigterm-child":
+        sigterm_child(sys.argv[2])
     unittest.main()
