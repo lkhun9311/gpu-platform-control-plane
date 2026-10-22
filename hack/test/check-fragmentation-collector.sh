@@ -19,11 +19,12 @@ bad() { echo "FAIL: $*"; fails=$((fails + 1)); }
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 
-# run_trial NAME ARM [CLASSIFY_LIMIT] [WINDOW] [FAIL_DELETE]: one stubbed trial of ARM in its own evidence directory;
-# CLASSIFY_LIMIT makes the stubbed classifier fail on that call, as a dead kubectl would, and FAIL_DELETE=1 makes the
-# original holder's deletion fail, so set -e ends the foreground mid-intervention.
+# run_trial NAME ARM [CLASSIFY_LIMIT] [WINDOW] [FAIL_DELETE] [HANG]: one stubbed trial of ARM in its own evidence
+# directory; CLASSIFY_LIMIT makes the stubbed classifier fail on that call, as a dead kubectl would, FAIL_DELETE=1 makes
+# the original holder's deletion fail, so set -e ends the foreground mid-intervention, and HANG=1 makes the classifier's
+# second call block in a child process, as a kubectl request with no timeout would.
 run_trial() {
-  local name="$1" arm="$2" limit="${3:-0}" window="${4:-4}" fail_delete="${5:-0}" dir="$work/$1"
+  local name="$1" arm="$2" limit="${3:-0}" window="${4:-4}" fail_delete="${5:-0}" hang="${6:-0}" dir="$work/$1"
   mkdir -p "$dir"
   echo fragmentation >"$dir/state"
   (
@@ -55,6 +56,11 @@ run_trial() {
       if ((CLASSIFY_LIMIT > 0)) && (($(wc -l <"$EXDIR/classify-calls") >= CLASSIFY_LIMIT)); then
         echo "stub: kubectl refused" >&2
         return 1
+      fi
+      if [[ "$hang" == 1 ]] && (($(wc -l <"$EXDIR/classify-calls") >= 2)); then
+        sleep 300 &
+        echo $! >"$EXDIR/hung-pid"
+        wait $!
       fi
       local st
       st="$(cat "$STATE")"
@@ -141,6 +147,17 @@ if [[ "$before" == "$after" && ! -e "$work/abort/intervening-R-1" ]]; then
   ok "the exit trap stopped the collector ($after samples, unchanged 3 s later, marker removed)"
 else
   bad "the collector kept sampling after the foreground died: $before then $after samples, marker $(ls "$work/abort" | grep -c intervening)"
+fi
+
+# A foreground that fails while the collector is blocked in a cluster call must not leave that call's processes behind.
+run_trial hung R 0 4 1 1
+hung="$(cat "$work/hung/hung-pid" 2>&1)"
+sleep 1
+if [[ "$hung" =~ ^[0-9]+$ ]] && ! ps -p "$hung" -o comm= >/dev/null; then
+  ok "the exit trap ended the collector's blocked child (pid $hung is gone)"
+else
+  bad "the collector's blocked child outlived the trial: pid ${hung:-unrecorded} $(ps -p "$hung" -o stat=,comm= 2>&1)"
+  [[ "$hung" =~ ^[0-9]+$ ]] && kill "$hung"
 fi
 
 # A collector that dies must not read as a short, clean window.

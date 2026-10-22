@@ -490,7 +490,9 @@ stop_collector() {
 # collector sampling forever, because the intervention marker it honours is never removed.
 on_exit() {
   if [[ -n "${COLLECTOR_PID:-}" ]]; then
-    kill "$COLLECTOR_PID" 2>>"$EXDIR/run.log" || true
+    # The whole process group, which set -m gives the collector: killing only its shell left a classifier blocked in
+    # kubectl, with no timeout, running after the lock was released.
+    kill -TERM -- "-$COLLECTOR_PID" 2>>"$EXDIR/run.log" || true
     stop_collector "$COLLECTOR_PID" "$COLLECTOR_TAG"
   fi
   release_lock
