@@ -1,0 +1,79 @@
+**DRAFT — no purchase authorized; no files modified.** This is a new study, `admission-ladder-2026-10-22`. Every previous verdict remains unchanged.
+
+For compact citations, **D** denotes [the prospective-admission design](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md:1137), **P** [the product-path design](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/2026-10-15-holdcap-on-the-product-path-design.md:82), and **R3** [run 3’s report](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/eks-serve/holdcap-study/runs/20261021T021149Z/README.md:14).
+
+**1. Apparatus and T0**
+
+Run on **one g5.2xlarge in gpu-lab**. The product controller fixes the batch budget at 512, fixes HoldCap’s threshold at 384, couples that threshold to HoldCap, and omits the diagnostic scheduler instrumentation. It cannot presently render the requested factorial experiment or establish windowed engine work. The lab supports separate engine and gateway controls and captures both ledgers; its registry still needs extending. [inference_engine.go:27](/home/lkhun9311/workspace/gpu-platform-control-plane/internal/controller/inference_engine.go:27), [inference_engine.go:77](/home/lkhun9311/workspace/gpu-platform-control-plane/internal/controller/inference_engine.go:77), [prospective-pilot.sh:103](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/lib/prospective-pilot.sh:103).
+
+T0 means **lab non-regression against a contemporaneous implementation of run 3’s configuration**, plus retention of run 3’s acceptance contract. It cannot establish literal EKS non-regression: run 3 used a g5.xlarge and a different client/path, and explicitly calls the lab comparison “agreement in kind.” [P:28](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/2026-10-15-holdcap-on-the-product-path-design.md:28), [R3:41](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/eks-serve/holdcap-study/runs/20261021T021149Z/README.md:41).
+
+Do not turn run 3’s observed 410.8–456.8 ms into portable absolute limits. A later EKS transfer would require its own registration.
+
+**2. Frozen registration**
+
+**Arms.** Cross `long_prefill_token_threshold ∈ {absent,128,256,384}` with serial-prefill hold `{off,on}`: eight mixed-load arms. “On” means FIFO holding, maximum 25 seconds, released on first complete content event. Add isolation **I**, replaying only the block’s premium rows with hold off and threshold absent. **O** is uncapped/off; **H384** is the incumbent reference; **H128/H256** are advancement candidates. Other arms identify cap, hold and interaction effects. The smaller thresholds test shorter blocking intervals while remaining above the 68-token premium prompt. The total batch budget stays **512** throughout. [serialprefill.go:18](/home/lkhun9311/workspace/gpu-platform-control-plane/internal/gateway/serialprefill.go:18), [study.go:798](/home/lkhun9311/workspace/gpu-platform-control-plane/internal/bench/study.go:798).
+
+**Engine/load.** Retain the diagnostic’s pinned vLLM image, Qwen model/tokenizer revision, synchronous priority scheduler, 64 sequence slots, disabled prefix caching and instrumentation in every arm. Bind premium/contender priority 0/1. Use independent arrivals at 9.25/0.5 requests/s for 420 seconds; prompts 200/40,000 characters, exactly 68/7,695 engine tokens; outputs 64/16; timeout 30 seconds; sender pool 600. [prospective-pilot.sh:13](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/lib/prospective-pilot.sh:13), [D:1299](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md:1299).
+
+**Seeds/cells.** Freeze **2026102201, 2026102202, 2026102203**; repository text search found no occurrences. Relevant previously used seeds include default 11, rehearsal 301–313, pilot 801–803/811–813, diagnostic/product 851–853, frontier 861–863 and calibration 871. Seeds 841–842 and 881–883 also appear in earlier designs and are reserved against reuse. [D:1013](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md:1013), [D:1156](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md:1156), [D:1248](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md:1248), [D:1389](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md:1389).
+
+Three blocks, nine cells each: **27 maximum**, all on the same instance/session. Sort arms within each block by ascending SHA256 of `study-id/seed/arm`, including I; lexical arm name breaks ties. Archive the computed order and trace hashes before execution. Every cell gets a fresh engine, identical two-request warm-up, idle verification and complete capture before proceeding.
+
+**Estimands.** Decisions are **per block**, never ratios of pooled blocks. Publish pooled distributions descriptively.
+
+A successful stream requires HTTP 200, no error, `[DONE]`, engine output at its cap, the prescribed content-event count, and complete gaps. This deliberately retains the product’s treatment of short event streams; run 3’s 63-event cases remain failures. [R3:48](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/eks-serve/holdcap-study/runs/20261021T021149Z/README.md:48).
+
+Nearest-rank p99 is order statistic `ceil(.99N)` over **all scheduled premium requests**; failures receive infinity.
+
+For T0 use scheduled **client-observed** TTFT, matching P:90. Require candidate p99 ≤ H384 p99, with zero non-inferiority margin. Both must retain run 3’s contract against O: premium p99 ≤0.85×O; contender completion ≥95%, scheduled-to-last-content p50 ≤1.5×O and p95 ≤25 seconds; premium content-gap p99 ≤1.25×O; zero refusals and preemptions. [P:88](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/2026-10-15-holdcap-on-the-product-path-design.md:88).
+
+For T1–T3 use the lab’s **crossed upper ratio**:
+
+`candidate scheduled-hi p99 / I arrival-lo p99 ≤ 3, 2, 1.25`, respectively.
+
+Both clocks end at gateway first-content forwarding; starts are scheduled time and gateway arrival. Arrival lag above 13 ms makes a request uncertain: substitute infinity in the numerator and zero in the denominator. Other failures remain infinity. Require positive, finite denominators. These are measurement bounds, not confidence intervals. [pilot_report.py:209](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/prospective-pilot/pilot_report.py:209), [pilot_report.py:359](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/prospective-pilot/pilot_report.py:359).
+
+**Common guards, every block and rung.** Define the shared window as replay origin through **420 seconds**, including for I; exclude warm-up and drain.
+
+Let \(Y_t\) be engine output tokens from successful tenant-\(t\) streams whose conservatively reconstructed last-content timestamp is inside that window. Credit a completed stream once; partial streams receive zero. Thus throughput is explicitly **completed-output goodput**, not engine compute throughput.
+
+Require:
+
+- \((Y_p+Y_c)_A/(Y_p+Y_c)_O \ge .95\).
+- Contender output share \( [Y_c/(Y_p+Y_c)]_A/[Y_c/(Y_p+Y_c)]_O \ge .75\).
+- Contender prefill work \(P_{c,A}/P_{c,O}\ge .75\), counting prompt tokens in logged steps starting within the shared window, using scheduler add records to separate prefill from decode.
+
+All denominators must be positive. Also publish absolute output retention and the existing decode-work `q`; **q is not delivered output**. Shared-window accounting and conservative gap reconstruction follow the existing mechanisms, with the fixed 420-second boundary registered here. [pilot_report.py:287](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/prospective-pilot/pilot_report.py:287), [pilot_report.py:642](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/prospective-pilot/pilot_report.py:642).
+
+**Validity.** Require exact planned cells/rows/IDs/hashes; frozen binaries, images and node identity; correct resolved cap and priorities; complete gateway records, clock anchors, scheduler additions and iteration reconciliation; acknowledged fence and terminal capture within five minutes; complete timing/gap evidence. Arrival lag: maximum 50 ms, at most 0.1% of premium requests above 13 ms. Gateway arrival-to-record and premium arrival-to-decision: p99 ≤13 ms, maximum 50 ms. I/O premium loss <0.5%; O contender completion ≥95%. [D:1303](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md:1303), [D:1413](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md:1413).
+
+Treatment failures are outcomes; missing evidence is inconclusive. An ablation’s bad performance does not invalidate a candidate comparison.
+
+**Stage reading/stops.** T0–T3 are nested gates on this frozen matrix. Report each candidate’s highest consecutively attained rung across **all three blocks**; never combine different candidates’ successes. Stop reading at its first failed rung. A complete block that fails T0 permanently eliminates that candidate; if both are eliminated, end acquisition. Otherwise finish the registered matrix. No early success, replacement cells, seed swaps, load reductions or extensions. Direct refusals/preemptions remain reported despite invalid comparisons. Interrupted or incomplete evidence cannot earn a rung.
+
+Before purchase: commit the new registry, runner, scorer and hashes; rehearse the full matrix; mutation-test boundaries, missingness, denominator failures and early stops. Publish frozen-seed replay predictions, including uncertainty outside the model’s measured cap regime; purchase stops if neither candidate is predicted to clear T0. No favorable-seed substitution. Explicit owner approval remains necessary.
+
+In session: halt on identity change, capture failure or deadline; preserve evidence and terminate. After failure, further work requires a new registration.
+
+**Time/cost.** Diagnostic cells measured 881 seconds cold and 537–559 warm, plus 19–21 seconds upload. [cell-timings.tsv:2](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/m5c-20261009-122503-diagD/m5c-run/cell-timings.tsv:2), [cell-uploads.tsv:2](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/m5c-20261009-122503-diagD/m5c-run/cell-uploads.tsv:2).
+
+Plan approximately `(204+900+26×580+17)/3600 = 4.50 hours`. Smaller caps may run slower. Using the precedent’s 920-second allowance gives `1.25×(204+27×920+17)`, rounded to **8h43 hard stop**; acquisition ends six minutes earlier, backstop ten minutes later, sweeper deadline twenty minutes later. Reserve **9h18**; require credentials through hard-stop plus 50 minutes. Historical planning rates imply **$3.07 expected, $10.53 reserved**, plus storage/termination overhead; propose a $12 reservation gate, rechecking rates before approval. These are estimates, not current quotes or guaranteed ceilings. [D:730](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md:730).
+
+**3. Licenses**
+
+T0 licenses lab non-regression on these traces; T1/T2/T3 license the corresponding observed isolation-relative bound with every guard retained. None licenses EKS transfer, an SLO, population success probability, optimality, or reopening M5-b. Failure establishes only that the registered bound was not demonstrated. Inconclusive evidence licenses no comparative claim.
+
+**4. Three plausible wrong numbers**
+
+1. **Different clocks masquerading as improvement:** separate the product-compatible T0 endpoint from gateway crossed bounds; measure isolation every block.
+2. **Protection purchased by delayed/deleted work:** common fixed windows, completed-output accounting, scheduler prefill ledger and refusal accounting.
+3. **Missing evidence or favorable selection masquerading as success:** exact inventories, fence/iteration reconciliation, frozen seeds/order, infinity-valued failures and no replacement attempts.
+
+**5. Binding interpretations**
+
+“Throughput” should retain the predecessor’s **output-token** meaning. [price-of-protection:179](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/2026-09-05-the-price-of-protection.md:179).
+
+Nominal premium/contender output is **592/8 tokens/s**. With premium output unchanged, retaining 75% of contender *share* requires contender output ≥5.98/s, leaving aggregate throughput **99.66%**. Thus the share guard largely dominates the 95% guard here; windowed premium losses prevent universal redundancy. Counting input plus output instead would require roughly **93.4% contender retention**, materially changing the contract.
+
+Finally, 1.25× is a stretch endpoint, not a forecast: the diagnostic measured approximately **452/63.5 = 7.12×**. The ladder makes failure informative; it does not make T3 likely. [D:1204](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md:1204).

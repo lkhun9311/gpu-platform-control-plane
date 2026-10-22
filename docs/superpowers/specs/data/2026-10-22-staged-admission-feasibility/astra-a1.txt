@@ -1,0 +1,81 @@
+**A1 can support a useful feasibility screen, but not a validated ladder prediction.** My judgement is: **T0 plausible; T1 plausible; T2 not decidable; T3 implausible with these levers at this load.** I interpret 256/128 as per-request prefill caps while the aggregate step budget remains 512. Changing the aggregate budget is a different treatment.
+
+I read the main checkout’s `CLAUDE.md`, which is absent from this worktree. I modified no files.
+
+The earlier failures do not establish that every narrow model must fail:
+
+- **Original timing family:** the fit was refused because its instrument prerequisite failed—not because that fit demonstrated impossibility. The iteration timer omitted preparation/scheduling time; serial corrections did not establish mixed-step timing. Logging equivalence also failed its registered setting-level gate. [Instrument design:13](/home/lkhun9311/workspace/gpu-cp-t2/docs/superpowers/specs/2026-10-05-can-the-stock-engine-time-an-iteration-instrument-validation.md:13), [session 5:45](/home/lkhun9311/workspace/gpu-cp-t2/docs/superpowers/specs/2026-10-06-instrument-validation-session-5.md:45).
+- **Logged-engine pilot:** both clock conventions failed despite an identified design. Context-clock/decode-clock fits failed 11/10 settings; late-prefill TTFT predictions were 0.551–0.983/0.453–0.972 of observations. Own-service steps omitted arrival-boundary waits, but that was not the whole problem: direct occupancy measurements subsequently reproduced 13 failing phases. [Logged-engine result:136](/home/lkhun9311/workspace/gpu-cp-t2/docs/superpowers/specs/2026-10-06-a-timing-family-for-the-logged-synchronous-engine.md:136), [step-boundary result:245](/home/lkhun9311/workspace/gpu-cp-t2/docs/superpowers/specs/2026-10-06-where-the-late-prefill-waits-step-boundary-session.md:245).
+- **S1:** confirmation failed 12/158 endpoints, including prefill-only 128, 129 and 257 tokens and a 129-total-token mixed step. Its mixed-only graph/eager surcharge did not resolve prefill-only discontinuities. Moreover, occupancy prediction did not include frontend waits, inter-step gaps or TTFT tails. [S1 result:181](/home/lkhun9311/workspace/gpu-cp-t2/docs/superpowers/specs/2026-10-07-confirming-s1-on-unseen-settings.md:181), [S1 limitations:94](/home/lkhun9311/workspace/gpu-cp-t2/docs/superpowers/specs/2026-10-07-confirming-s1-on-unseen-settings.md:94).
+
+The narrow pilot workload avoids some old compositions and has newer direct measurements. That supports trying a narrower model; it does not make request lengths equivalent to step-composition coverage.
+
+For reproducibility, below **A/B/D/E/F** mean the five supplied archives ending `pilotA/pilotB/diagD/frontierE/lencalF`, each under:
+
+`/home/lkhun9311/workspace/gpu-platform-control-plane/hack/<session>/m5c-run`
+
+My **narrow-load coverage** computation scans every `step-log-*.jsonl` in those directories, joins request IDs to `add.prompt`, selects prompts exactly **7,695**, and calculates, per scheduled request:
+
+```python
+c = sched["computed"][id]
+f = min(sched["tokens"][id], max(add[id]["prompt"] - c, 0))
+```
+
+Count each `(file, step)` once per chunk-size bin. For each bin, separately count steps containing a qualifying first chunk (`c==0`), interior chunk (`c>0 and c+f<7695`), or final chunk (`c+f==7695`). These columns can overlap when two contenders share a step.
+
+| Chunk tokens | Steps | First | Interior | Final |
+|---|---:|---:|---:|---:|
+| 1–64 | 4,938 | 831 | 0 | 4,120 |
+| 65–128 | 6,344 | 743 | 4,654 | 952 |
+| 129–256 | 3,104 | 1,105 | 137 | 1,942 |
+| 257–384 | 89,771 | 4,614 | 83,564 | 1,593 |
+| 385–512 | 77,341 | 2,125 | 74,405 | 811 |
+
+Context coverage matters more than those totals:
+
+- First chunks have context zero; final chunks have context exactly `7695−f`.
+- Interior 65–128 chunks occur at contexts **1–2,088**; interior 129–256 at **4–1,950**.
+- **Every one of those small interior steps schedules 512 total tokens and contains another contender prefill.** None represents a lone contender taking small chunks throughout its context.
+- Only **two** interior chunks are exactly 128 and **one** exactly 256; all have two contenders.
+- The three supplied boundary/confirmation archives contain no 7,695-token prompts. Repeating the calculation with `prompt>=6144` finds their small long-prompt chunks are final remainders, not missing interior coverage.
+
+Thus 256 creates repeated interior chunks across contexts roughly 256…7,424, beside premium decodes and newly admitted 68-token prompts. At 128, this becomes roughly 128…7,552. Those complete trajectories are unmeasured.
+
+**A 128 cap does not imply graph execution.** A 128-token contender chunk plus one decode already schedules 129 tokens; adding a premium prompt schedules at least 196. The boundary concerns **total scheduled tokens**. The diagnostic engine records capture sizes ending at 128. [Graph/eager definition:26](/home/lkhun9311/workspace/gpu-cp-t2/docs/superpowers/specs/2026-10-07-graph-and-eager-mixed-steps.md:26), [engine-log-hold-cap-1.txt:21](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/m5c-20261009-122503-diagD/m5c-run/engine-log-hold-cap-1.txt:21).
+
+I also independently evaluated the replay’s existing model. Exact fitting recipe: use `load_cell` for every `pilot_report.cells(A)` and `cells(B)`, then `fit_step_model`; leave D/E/F entirely out. It fits successive scheduler-start periods, excluding periods above 500 ms, to:
+
+`[1, prefill_tokens, scheduled_requests, Σ(c+n)/1000, Σf(c+f/2)/10⁶]`.
+
+I reproduced **282,897 observations** and coefficients:
+
+`[15.36385920, .09656006, .09590410, .92917753, 3.04676677]`.
+
+[simulate.py:93](/home/lkhun9311/workspace/gpu-cp-t2/hack/prospective-pilot/simulate.py:93).
+
+For held-out evaluation, retain steps containing prefill from a prompt ≥6,144. Select D’s `cap-*` and `hold-cap-*`, E’s `fixed-*` and `hold-cap-*`, and F’s `hold-cap-*`. Apply the same period filter. Bias is `100*(Σprediction/Σperiod−1)`; MAPE is `100*mean(abs(prediction/period−1))`.
+
+| Held-out archive | Steps | Bias | MAPE |
+|---|---:|---:|---:|
+| D | 24,055 | −2.07% | 3.30% |
+| E | 62,982 | −3.30% | 3.87% |
+| F | 11,684 | −3.58% | 4.10% |
+
+That is encouraging for **384**, not validation of 256/128. Tail error is larger: replaying D’s `hold-cap` arrivals with those coefficients, `RULES["hold-one-prefill"]`, forward delay **3,912,577 ns**, delivery delay **8,000,000 ns**, and `long_prefill=384` predicts premium p99 **410/407/444 ms**, versus **423/479/452 ms** observed. Compute observations as nearest-rank p99 of `first_content−sched`; these are point predictions, not the scorer’s uncertainty bounds. [simulate.py:217](/home/lkhun9311/workspace/gpu-cp-t2/hack/prospective-pilot/simulate.py:217), [pilot_report.py:54](/home/lkhun9311/workspace/gpu-cp-t2/hack/prospective-pilot/pilot_report.py:54).
+
+For ladder screening, substitute D’s `off` arrivals into that same replay:
+
+| Stage | Judgement | Reason |
+|---|---|---|
+| **T0** | **Plausibly reachable** | Run 3 already observed 411/429/457 ms with zero refusals. This is a credible benchmark, although the new throughput/work guards require explicit scoring. |
+| **T1 ≤3×** | **Plausibly reachable at 256** | Replay predicts 153/152/154 ms, all contenders completing; diagnostic isolation was 63.5 ms, making 3× about 191 ms. |
+| **T2 ≤2×** | **Not decidable** | At 128, predictions are 116/114/116 ms, but contender completions are only 161/186, 173/232 and 169/185. Unsupported timing and retention near/below 75% prevent a joint feasibility conclusion. |
+| **T3 ≤1.25×** | **Implausible** | Approximately 79 ms against that isolation anchor is substantially below even the optimistic 128 replay. Further shrinking increases contender overhead; below 68 also splits premiums. |
+
+Sources for measured anchors: [run 3 README:14](/home/lkhun9311/workspace/gpu-cp-t2/hack/eks-serve/holdcap-study/runs/20261021T021149Z/README.md:14), [diagnostic:1204](/home/lkhun9311/workspace/gpu-cp-t2/docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md:1204). Completion fractions are **not substitutes** for the requested work/output-share guards.
+
+Stability is the limiting tradeoff. Minimum contender prefill steps rise **16→21→31→61** at caps 512/384/256/128. Replay mean engine-prefill time is approximately **1.81–1.84 s at 256**, versus **2.53–2.54 s at 128**. A serial prefill server receiving 0.5/s needs mean service below 2 s to retain everything indefinitely. Slowing modeled steps 10% moves 256 past that boundary. Free token budget also cannot admit premiums when all 64 slots are occupied, as the CPU experiment demonstrated. [CPU results:1122](/home/lkhun9311/workspace/gpu-cp-t2/docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md:1122).
+
+Minimal paid calibration must measure 256/128 interior chunks across contender context depth, total-token graph boundaries, premium multiplicity and slot occupancy; scheduler periods plus arrival-to-add and content-delivery delays; and complete frozen-load cells with same-session isolation, unshed and 384 references. Freeze fitting versus held-out cells, endpoint clocks, isolation configuration, common work window, throughput definition, failures and refusal accounting before acquisition. Do not import the old contender-latency gates as the new ladder’s requirements.
+
+**The most dangerous plausible wrong number is a low premium p99 obtained by silently reducing effective contender load.** Optimistic step timing can hide unstable queues; survivor-only scoring or counting deferred work during drain can then manufacture a guard-bar pass. The existing scorer explicitly uses a shared window to prevent that escape. [pilot_report.py:292](/home/lkhun9311/workspace/gpu-cp-t2/hack/prospective-pilot/pilot_report.py:292).

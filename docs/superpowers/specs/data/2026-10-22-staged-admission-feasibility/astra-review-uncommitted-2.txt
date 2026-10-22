@@ -1,0 +1,9 @@
+The new analysis script can report stage eligibility using output metrics that differ from the accompanying specification. Bash syntax and diff whitespace checks passed; the file-writing harness was not run in the read-only environment.
+
+Full review comments:
+
+- [P2] Count only completed successful streams toward output throughput — /home/lkhun9311/workspace/gpu-cp-t2/docs/superpowers/specs/data/2026-10-22-staged-admission-feasibility/ladder.py:92-94
+  When a stream finishes after the observation window or times out, these sums still credit its intermediate output tokens. The draft's aggregate-throughput definition instead credits only successful streams whose last content arrives inside the window (`2026-10-22-staged-admission-targets-design.md:70`). A synthetic replay with two streams finishing after a 5 ms window reports 10 output tokens here, although the specified metric is zero. Calculate output totals from successful request completions, including delivery time, before using them to judge stages.
+
+- [P2] Normalize contender output by each arm's total output — /home/lkhun9311/workspace/gpu-cp-t2/docs/superpowers/specs/data/2026-10-22-staged-admission-feasibility/ladder.py:149-150
+  When aggregate output differs between an arm and off, this absolute contender-output ratio is not the contender output-share ratio specified in `2026-10-22-staged-admission-targets-design.md:71`. For example, retaining 76% of off's contender output while producing 102% of its total output passes this check, but retains only 74.5% of its contender share and should fail. Compute the normalized share ratio per block before taking the minimum and applying the output-based stage guard.
