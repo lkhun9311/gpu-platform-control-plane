@@ -1,6 +1,6 @@
 # Design: the free groundwork for running `spec.distributed` on GPUs with NCCL
 
-Written 2026-10-16, revised 2026-10-21 as v2, v3 and v4. Status: **v4, partly built (2026-10-21): sections 1 to 4 and 6, and section 5's gates as a tested library; the session's training mode and the paid run are not.** What the build showed is under "Evidence before any money".
+Written 2026-10-16, revised 2026-10-21 as v2, v3 and v4. Status: **v4, built (2026-10-22): every section, the session's training mode included, rehearsed on kind up to the purchase; the paid run is not, and needs its own registration and the owner's approval.** What the build showed is under "Evidence before any money".
 A brainstorm with codex the same day ranked a free kind experiment on partially placed distributed jobs ahead of this, and found three things v4 still gets wrong; they bind any implementation and are listed in "Corrections that bind the build" below, ahead of the sections they amend.
 v1 was parked after codex `gpt-6-astra`'s adversarial review (2026-10-16) found 3 blockers and 10 majors. v2 answered them; astra's review of v2 found 7 majors and 2 minors, and its review of v3 found 3 majors and 2 minors, none a blocker. Each finding was re-checked against the code before the next version answered it. The tables are at the end.
 No money is spent by anything here; the paid run that would use it is a separate decision with its own registration.
@@ -156,7 +156,69 @@ What bounds the GPUs bought is not the quota and not `max_size` alone. `max_size
 - The Argo rehearsal (`hack/test/rehearse-kueue-gitops.sh`, evidence `hack/kueue-gitops-rehearsal-20261021T120227Z/`), from `origin/main` to `da4e0de`, Argo CD chart 7.7.0, kind 1.37, every bar met: the old root converged with 9 automated Applications Synced/Healthy; after the switch every automated Application was Synced/Healthy and `kueue-crds` gone; the four old CRDs kept their UIDs and moved from `kueue-crds` to `gpu-platform-kueue`, and seven were created, none deleted; `gpu-train-a` Active from Kueue as the only ClusterQueue; a two-rank job's Pods carried the train selector and the gpu toleration and ran on the two labelled workers while an unlabelled worker's GPU stood free, and the job Succeeded; the controller Deployment deleted, its replicas set to 3 and the validating webhook configuration deleted were each repaired, in 15 s, within 5 s and 5 s, with the Application Synced afterwards; and every automated Application read Synced in all 60 samples over 900 s.
 - The run before it (`hack/kueue-gitops-rehearsal-20261021T114515Z/`, void, `NOTE.txt` there) is the one that found correction 6.
 
-**Not built yet, and needed before a paid run:** `TRAIN=ddp` in `hack/eks-gitops-session.sh` calling the library's gates, the qualification job held in Admitted (correction 2), and the collector that writes each arm's `nodes.json` and runs the arms on EKS. Correction 5 is shown only on a paid session.
+### The training mode, built 2026-10-22
+
+`TRAIN=ddp` in `hack/eks-gitops-session.sh` orders the library's gates; it decides nothing itself.
+Before anything is created it refuses: no `APPROVED_TRAIN_SHA256`, or a `train.py` whose hash is not that one; an arm that is not one of the four; a `TTL_MINUTES` shorter than its waits plus an hour; `SERVE` or `STUDY` beside it; `KEEP_UP=yes`; and a cluster that already exists.
+After the GitOps baseline, and before any purchase, it requires:
+- T1, the manual `gpu-platform-training` Application synced by an operation started after the request's own second;
+- T2, `gpu-train-a` Active and the only ClusterQueue;
+- T3, the qualification job held in Admitted, with `admittedAt` stamped and both Pods unplaced;
+- T4, the On-Demand price at most `TRAIN_MAX_PRICE`;
+- T5, the quota headroom for both nodes' default vCPU.
+
+Then it arms the AWS deadline on the `gpu` group, scales the group to two, and requires:
+- T6, both nodes qualified by name;
+- T7, the qualification job released by the scale-up and succeeded with every stamp;
+- T8, the arms run and scored by `analyze.py --profile nccl` against the approved hash.
+
+The group is followed down by instance, whether the run passed or not.
+
+Correction 2 is met by timing, not by a mechanism of its own.
+The qualification job is submitted while the `gpu` group has no node, so Kueue admits it on quota and its Pods can go nowhere: that is the Admitted state the operator stamps.
+Scaling the group up is what releases it.
+Each rank only asks whether CUDA answers.
+A rank that finds CUDA stays up sixty seconds, because the operator records Running only while it sees both ranks Ready and does not backfill it later (codex's review of `c649f2b`).
+The same job pulls the training image onto both nodes before the first measured arm.
+
+The arms are run by `hack/lib/ddp-arms.sh`.
+It repeats the kind harness's collector rather than sourcing it, because that harness is registered and must stay byte-identical.
+A test holds its three record-writing programs and its four arm environments equal to the harness's.
+`train.py` travels in the command as base64, and the container checks its hash before Python starts.
+Each arm saves the node objects as `nodes.json`.
+
+What the build showed:
+- `hack/test/check-train-session-lib.sh` (79 checks), `hack/test/check-ddp-arms-lib.sh` (14) and `hack/test/check-train-session-refusals.sh` (16) are green under `make harness-check`.
+- The refusal test runs the real session script from a copy with stubs, and fails if it reaches `terraform init` or leaves a watchdog alive.
+- Mutations, each shown to fail its test:
+  - eight of the arm runner;
+  - fourteen of the session library;
+  - seven of the session's refusals, plus a `terraform` planted ahead of the stub.
+  - One refusal mutation first survived: an unknown `TRAIN` mode logged instead of refused. Chasing it found a defect older than this mode.
+- That defect: the TTL watchdog wrote its pid to `$PWD/$EXDIR`. So with an absolute `EXDIR` the session died for want of a kill switch, and the watchdog it had just started lived on, due to destroy whatever cluster existed at TTL. `EXDIR` is now made absolute first.
+- codex `gpt-6-astra`, run bare on each commit, found nine more things. Each was re-checked against the code and fixed. Codex's reviews read the code and ran no cluster.
+  - Pinned by a test that fails without the fix:
+    - an arm that a caller's `set -e` would end on its first failed poll;
+    - a sync gate that accepted an operation from the request's own second;
+    - a scale-down that read the group's instances only after asking for zero;
+    - a refusal case that a repository-local `terraform` could answer;
+    - the missing GPU class below, which codex found independently of the rehearsal.
+  - Fixed without a test that fails without the fix:
+    - a test stub that read stdin and hung at a terminal, shown only by a run with stdin held open;
+    - a qualification rank that could exit before Running was seen, held by the rehearsal's positive case, not by a test;
+    - a rehearsal that counted any refusal as the CUDA one, now requiring a failed job whose every rank exited 3;
+    - a rehearsal that needs the kind network to exist already, which now says so when it stops.
+- The kind rehearsal (`hack/test/rehearse-train-session.sh`) ran the session's own functions, its qualification command and its GPU class through Argo CD 7.7.0 on kind 1.37. Evidence: `hack/train-session-rehearsal-20261021T235516Z/`, every bar met.
+  - T1 and T2 passed.
+  - T3 held the qualification job admitted with no labelled worker.
+  - T7 refused it once the workers were labelled, because every rank exited 3 for want of CUDA: the negative control.
+  - The same job with the CUDA check removed was held and then released with `admitToRunningSeconds` 6.450.
+  - All four arms, run by `hack/lib/ddp-arms.sh` with `train.py` as base64 and `gloo`, PASS under the gloo profile.
+  - The same evidence fails the nccl profile's completing arms on backend, device, GPU UUID and node group.
+- The run before it (`hack/train-session-rehearsal-20261021T234048Z/`, void, `NOTE.txt` there) found that the platform's admission policy refuses a GPU job without `spec.gpuClass`, which the rendered jobs lacked. The kind harness never met the policy because it installs none. On EKS the paid session would have stopped at T3, before buying anything. The jobs now carry `a10g`, the class `config/training` names.
+
+**What only the paid run can show:** NCCL and CUDA on a real device, which this code has never executed; the 8082 rule of correction 5; the image pull through the NAT; and the price and the quota on the day.
+Its registration must name the arms, the approved `train.py` hash and the smoke cell section 3 requires. `TRAIN_ARMS=pass` alone is a smoke session.
 
 ## What it would license
 
