@@ -209,21 +209,25 @@ qualify() {
   elif [[ -n "$released" ]]; then
     bar T7 FAIL "$name passed, and it must refuse on a node without CUDA: $why"
   else
-    # Any refusal is not this one: a timeout or a stall also refuses. The job must have failed, and every rank's
-    # container must have ended with the command's own exit 3, which only the CUDA check returns.
+    # Any refusal is not this one: a timeout or a stall also refuses. The job must have failed with at least one rank
+    # ending in the command's own exit 3, which only the CUDA check returns. The others may not have reached it: the
+    # distributed Job has backoffLimit 0, so the first rank to fail has the rest stopped, by SIGTERM (143) or SIGKILL
+    # (137), possibly before they start (codex review of ba73d88). Any other code is a failure this did not intend.
     local exits
     exits="$(python3 -c '
 import json, sys
 job = json.load(open(sys.argv[1]))
 pods = json.load(open(sys.argv[2]))["items"]
-codes = sorted(((p.get("status") or {}).get("containerStatuses") or [{}])[0].get("state", {}).get("terminated", {}).get("exitCode", "none")
+codes = sorted(str(((p.get("status") or {}).get("containerStatuses") or [{}])[0].get("state", {}).get("terminated", {}).get("exitCode", "none"))
                for p in pods)
-print((job.get("status") or {}).get("phase"), codes)
+phase = (job.get("status") or {}).get("phase")
+verdict = "OK" if phase == "Failed" and "3" in codes and set(codes) <= {"3", "137", "143", "none"} else "NO"
+print(verdict, phase, codes)
 ' "$OUT/$name-final.json" "$OUT/$name-final-pods.json" 2>&1)"
-    if [[ "$exits" =~ ^Failed\ \[3(,\ 3)+\]$ ]]; then
-      bar T7 PASS "$name refused, as it must on a node without CUDA: the job Failed and every rank exited 3 ($exits): $why"
+    if [[ "$exits" == OK\ * ]]; then
+      bar T7 PASS "$name refused, as it must on a node without CUDA: the job Failed and a rank exited 3 (${exits#OK }): $why"
     else
-      bar T7 FAIL "$name refused, but not for want of CUDA: phase and exit codes $exits: $why"
+      bar T7 FAIL "$name refused, but not for want of CUDA: phase and exit codes ${exits#NO }: $why"
     fi
   fi
   k -n train-a get pods -l "platform.lkhun9311.github.io/mltrainingjob=$name" -o wide >"$OUT/$name-pods.txt" 2>&1

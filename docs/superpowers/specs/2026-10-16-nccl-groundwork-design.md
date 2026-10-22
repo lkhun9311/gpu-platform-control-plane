@@ -206,12 +206,12 @@ What the build showed:
   - Fixed without a test that fails without the fix:
     - a test stub that read stdin and hung at a terminal, shown only by a run with stdin held open;
     - a qualification rank that could exit before Running was seen, held by the rehearsal's positive case, not by a test;
-    - a rehearsal that counted any refusal as the CUDA one, now requiring a failed job whose every rank exited 3;
+    - a rehearsal that counted any refusal as the CUDA one. It first required every rank to exit 3, which codex's next review showed too strict: under `backoffLimit: 0` the first failure has the other rank stopped. It now requires a failed job with a rank that exited 3 and any other rank stopped by the Job;
     - a rehearsal that needs the kind network to exist already, which now says so when it stops.
 - The kind rehearsal (`hack/test/rehearse-train-session.sh`) ran the session's own functions, its qualification command and its GPU class through Argo CD 7.7.0 on kind 1.37. Evidence: `hack/train-session-rehearsal-20261021T235516Z/`, every bar met.
   - T1 and T2 passed.
   - T3 held the qualification job admitted with no labelled worker.
-  - T7 refused it once the workers were labelled, because every rank exited 3 for want of CUDA: the negative control.
+  - T7 refused it once the workers were labelled, because every rank exited 3 for want of CUDA: the negative control. The run predates the relaxed rule above and meets it as well.
   - The same job with the CUDA check removed was held and then released with `admitToRunningSeconds` 6.450.
   - All four arms, run by `hack/lib/ddp-arms.sh` with `train.py` as base64 and `gloo`, PASS under the gloo profile.
   - The same evidence fails the nccl profile's completing arms on backend, device, GPU UUID and node group.
