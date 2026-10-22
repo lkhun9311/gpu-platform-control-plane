@@ -1,0 +1,45 @@
+{"attempt": "1", "backend_requested": "nccl", "cuda_version": "12.4", "device_name": "NVIDIA A10G", "device_type": "cuda", "event": "rendezvous_start", "gpu_uuid": "d3e6fa0b-8571-2169-4375-3220e360bc17", "hostname": "ddp-bad-address-010320-1", "master_addr": "nowhere.invalid", "master_port": "29500", "nccl_version": "2.21.5", "rank": 1, "run_id": "ddp-bad-address-010320", "tensor_device_type": "cuda", "timeout_seconds": 60, "ts": "2026-10-22T01:03:23.445943+00:00"}
+[W1022 01:03:23.348653388 socket.cpp:752] [c10d] The IPv6 network addresses of (nowhere.invalid, 29500) cannot be retrieved (gai error: -2 - Name or service not known).
+[W1022 01:03:24.006021782 socket.cpp:752] [c10d] The IPv6 network addresses of (nowhere.invalid, 29500) cannot be retrieved (gai error: -2 - Name or service not known).
+[W1022 01:03:24.802981348 socket.cpp:752] [c10d] The IPv6 network addresses of (nowhere.invalid, 29500) cannot be retrieved (gai error: -2 - Name or service not known).
+[W1022 01:03:26.132098234 socket.cpp:752] [c10d] The IPv6 network addresses of (nowhere.invalid, 29500) cannot be retrieved (gai error: -2 - Name or service not known).
+[W1022 01:03:28.506630727 socket.cpp:752] [c10d] The IPv6 network addresses of (nowhere.invalid, 29500) cannot be retrieved (gai error: -2 - Name or service not known).
+[W1022 01:03:32.256681419 socket.cpp:752] [c10d] The IPv6 network addresses of (nowhere.invalid, 29500) cannot be retrieved (gai error: -2 - Name or service not known).
+[W1022 01:03:35.964200559 socket.cpp:752] [c10d] The IPv6 network addresses of (nowhere.invalid, 29500) cannot be retrieved (gai error: -2 - Name or service not known).
+[W1022 01:03:40.107923284 socket.cpp:752] [c10d] The IPv6 network addresses of (nowhere.invalid, 29500) cannot be retrieved (gai error: -2 - Name or service not known).
+[W1022 01:03:48.012211170 socket.cpp:752] [c10d] The IPv6 network addresses of (nowhere.invalid, 29500) cannot be retrieved (gai error: -2 - Name or service not known).
+[W1022 01:03:59.640510434 socket.cpp:752] [c10d] The IPv6 network addresses of (nowhere.invalid, 29500) cannot be retrieved (gai error: -2 - Name or service not known).
+[E1022 01:03:59.640548205 socket.cpp:1011] [c10d] The client socket has timed out after 60000ms while trying to connect to (nowhere.invalid, 29500).
+[W1022 01:03:59.640830130 TCPStore.cpp:358] [c10d] TCP client failed to connect/validate to host nowhere.invalid:29500 - retrying (try=0, timeout=60000ms, delay=40724ms): The client socket has timed out after 60000ms while trying to connect to (nowhere.invalid, 29500).
+Exception raised from throwTimeoutError at ../torch/csrc/distributed/c10d/socket.cpp:1013 (most recent call first):
+frame #0: c10::Error::Error(c10::SourceLocation, std::string) + 0x96 (0x7fbc4cab9446 in /opt/conda/lib/python3.11/site-packages/torch/lib/libc10.so)
+frame #1: <unknown function> + 0x15e04c6 (0x7fbc37d3c4c6 in /opt/conda/lib/python3.11/site-packages/torch/lib/libtorch_cpu.so)
+frame #2: <unknown function> + 0x6029d95 (0x7fbc3c785d95 in /opt/conda/lib/python3.11/site-packages/torch/lib/libtorch_cpu.so)
+frame #3: <unknown function> + 0x6029f36 (0x7fbc3c785f36 in /opt/conda/lib/python3.11/site-packages/torch/lib/libtorch_cpu.so)
+frame #4: <unknown function> + 0x602a3a4 (0x7fbc3c7863a4 in /opt/conda/lib/python3.11/site-packages/torch/lib/libtorch_cpu.so)
+frame #5: <unknown function> + 0x5fe8016 (0x7fbc3c744016 in /opt/conda/lib/python3.11/site-packages/torch/lib/libtorch_cpu.so)
+frame #6: c10d::TCPStore::TCPStore(std::string, c10d::TCPStoreOptions const&) + 0x20c (0x7fbc3c746f7c in /opt/conda/lib/python3.11/site-packages/torch/lib/libtorch_cpu.so)
+frame #7: <unknown function> + 0xda5bed (0x7fbc4c134bed in /opt/conda/lib/python3.11/site-packages/torch/lib/libtorch_python.so)
+frame #8: <unknown function> + 0x4ccad4 (0x7fbc4b85bad4 in /opt/conda/lib/python3.11/site-packages/torch/lib/libtorch_python.so)
+<omitting python frames>
+frame #15: <unknown function> + 0x4cb31b (0x7fbc4b85a31b in /opt/conda/lib/python3.11/site-packages/torch/lib/libtorch_python.so)
+frame #40: <unknown function> + 0x29d90 (0x7fbc4dd3ed90 in /lib/x86_64-linux-gnu/libc.so.6)
+frame #41: __libc_start_main + 0x80 (0x7fbc4dd3ee40 in /lib/x86_64-linux-gnu/libc.so.6)
+
+[W1022 01:04:40.381477798 socket.cpp:752] [c10d] The IPv6 network addresses of (nowhere.invalid, 29500) cannot be retrieved (gai error: -2 - Name or service not known).
+[E1022 01:05:12.256985378 TCPStore.cpp:346] [c10d] TCP client failed to connect/validate to host nowhere.invalid:29500 - timed out (try=1, timeout=60000ms): Interrupted system call
+Exception raised from delay at ../torch/csrc/distributed/c10d/socket.cpp:117 (most recent call first):
+frame #0: c10::Error::Error(c10::SourceLocation, std::string) + 0x96 (0x7fbc4cab9446 in /opt/conda/lib/python3.11/site-packages/torch/lib/libc10.so)
+frame #1: <unknown function> + 0x15e1205 (0x7fbc37d3d205 in /opt/conda/lib/python3.11/site-packages/torch/lib/libtorch_cpu.so)
+frame #2: <unknown function> + 0x6029f36 (0x7fbc3c785f36 in /opt/conda/lib/python3.11/site-packages/torch/lib/libtorch_cpu.so)
+frame #3: <unknown function> + 0x602a3a4 (0x7fbc3c7863a4 in /opt/conda/lib/python3.11/site-packages/torch/lib/libtorch_cpu.so)
+frame #4: <unknown function> + 0x5fe8016 (0x7fbc3c744016 in /opt/conda/lib/python3.11/site-packages/torch/lib/libtorch_cpu.so)
+frame #5: c10d::TCPStore::TCPStore(std::string, c10d::TCPStoreOptions const&) + 0x20c (0x7fbc3c746f7c in /opt/conda/lib/python3.11/site-packages/torch/lib/libtorch_cpu.so)
+frame #6: <unknown function> + 0xda5bed (0x7fbc4c134bed in /opt/conda/lib/python3.11/site-packages/torch/lib/libtorch_python.so)
+frame #7: <unknown function> + 0x4ccad4 (0x7fbc4b85bad4 in /opt/conda/lib/python3.11/site-packages/torch/lib/libtorch_python.so)
+<omitting python frames>
+frame #14: <unknown function> + 0x4cb31b (0x7fbc4b85a31b in /opt/conda/lib/python3.11/site-packages/torch/lib/libtorch_python.so)
+frame #39: <unknown function> + 0x29d90 (0x7fbc4dd3ed90 in /lib/x86_64-linux-gnu/libc.so.6)
+frame #40: __libc_start_main + 0x80 (0x7fbc4dd3ee40 in /lib/x86_64-linux-gnu/libc.so.6)
+
+{"attempt": "1", "event": "sigterm", "rank": 1, "run_id": "ddp-bad-address-010320", "ts": "2026-10-22T01:05:12.372837+00:00"}

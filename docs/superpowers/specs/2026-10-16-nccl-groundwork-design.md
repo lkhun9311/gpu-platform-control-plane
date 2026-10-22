@@ -1,6 +1,6 @@
 # Design: the free groundwork for running `spec.distributed` on GPUs with NCCL
 
-Written 2026-10-16, revised 2026-10-21 as v2, v3 and v4. Status: **v4, built (2026-10-22): every section, the session's training mode included, rehearsed on kind up to the purchase; the paid run is not, and needs its own registration and the owner's approval.** What the build showed is under "Evidence before any money".
+Written 2026-10-16, revised 2026-10-21 as v2, v3 and v4. Status: **v4, built (2026-10-22): every section, the session's training mode included, rehearsed on kind up to the purchase; and the paid run, registered as run 3 of `experiments/multi-pod-ddp/`, passed on EKS on 2026-10-22 with every arm PASS under the `nccl` profile.** What the build showed is under "Evidence before any money".
 A brainstorm with codex the same day ranked a free kind experiment on partially placed distributed jobs ahead of this, and found three things v4 still gets wrong; they bind any implementation and are listed in "Corrections that bind the build" below, ahead of the sections they amend.
 v1 was parked after codex `gpt-6-astra`'s adversarial review (2026-10-16) found 3 blockers and 10 majors. v2 answered them; astra's review of v2 found 7 majors and 2 minors, and its review of v3 found 3 majors and 2 minors, none a blocker. Each finding was re-checked against the code before the next version answered it. The tables are at the end.
 No money is spent by anything here; the paid run that would use it is a separate decision with its own registration.

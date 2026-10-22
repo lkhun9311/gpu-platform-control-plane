@@ -126,6 +126,47 @@ The other three arms still run and are recorded, but they are not reported as re
 
 ## Results
 
+### Run 3, `hack/multi-pod-ddp-eks-20261022T004202Z/`: the smoke cell and all four arms PASS under the `nccl` profile
+
+The session ran at the registration's commit `07694a2`, with `dirty_files=0`, on 2026-10-22 in `gpu-lab`, under the settings registered above.
+The evidence is the session's directory, without `terraform.log`, the watchdog's pid file and the gateway key the runbook seeds.
+
+**Gates.**
+The GitOps baseline passed: all 13 Applications existed, and every automated one was Synced and Healthy, `gpu-platform-kueue` and `cert-manager` included.
+T1 to T5 passed before anything was bought:
+- T3: the qualification job was admitted at 00:58:44Z with both Pods unplaced;
+- T4: the price read $1.237 an hour;
+- T5: 0 of 52 vCPU was in use.
+
+The two g5.xlarge launched at 00:59:03Z and were qualified by name (T6).
+The qualification job was released by the scale-up and succeeded, with `admitToRunningSeconds` 176.924, image pull included (T7).
+
+**The smoke cell `pass` passed, so the run is a measurement.**
+Both ranks recorded:
+- backend `nccl`, NCCL 2.21.5, CUDA 12.4;
+- device and tensor device type `cuda`;
+- GPU UUIDs `5c1d5a84-…` and `d3e6fa0b-…`;
+- nodes in the `gpu` group;
+- the approved `train.py` hash.
+
+Both reported w = 0.4000000059604645 and agreed, and the job succeeded 9 s after creation.
+
+**The other three arms:**
+- `no-sync`: diverged to 0.2 and 0.6 on the same two GPUs and passed the same GPU criteria.
+- `bad-address`: failed in rendezvous with `DistNetworkError`, and the Job Failed at 113 s.
+- `one-rank-fails`: followed the registered sequence; rank 1 failed at 01:05:37.869, `FailureTarget` came at 01:05:40, rank 0's SIGTERM at 01:05:40.999, and Failed at 01:05:42.
+
+The session's T8 and a reading by hand afterwards, from the same commit, printed identical output.
+
+**Teardown.**
+The nodes were followed to terminated; their shutdown began at 01:08:10Z, 9 min 7 s after launch.
+Nothing that charges remained after the destroy, and the kill switch was disarmed only then.
+At list prices the run cost about $1: about $0.38 of GPU time, $0.19 of cluster time and $0.39 of image pulls through the NAT.
+
+**What it does not show.**
+Correction 5's 8082 rule is shown only indirectly: the `gpu` flavor, which correction 5 says could not be applied without Kueue's visibility API, was applied, and the ranks were placed through it. The APIServices' own condition was not recorded.
+Nothing here is a throughput figure.
+
 ### Run 2, `hack/multi-pod-ddp-20261014T231122Z/`: all four arms PASS
 
 At commit `c74d42c`, on kindest/node v1.37.0, Kueue v0.18.3, cert-manager v1.21.1, torch 2.5.1+cpu; the provenance file has the digests.

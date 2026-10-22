@@ -1,0 +1,22 @@
+{
+  "apiVersion": "platform.lkhun9311.github.io/v1",
+  "kind": "MLTrainingJob",
+  "metadata": {
+    "name": "train-qualify",
+    "namespace": "train-a"
+  },
+  "spec": {
+    "queue": "gpu-train-a",
+    "image": "docker.io/pytorch/pytorch@sha256:c8268a92a69bd500f8be0e665b2630ee006dadaf7bfbc24249141b15ff622755",
+    "gpuCount": 1,
+    "gpuClass": "a10g",
+    "distributed": {
+      "worldSize": 2
+    },
+    "command": [
+      "sh",
+      "-c",
+      "exec python -c 'import sys, time, torch; ok = torch.cuda.is_available(); ok and time.sleep(60); sys.exit(0 if ok else 3)'"
+    ]
+  }
+}
