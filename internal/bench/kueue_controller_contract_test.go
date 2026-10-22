@@ -325,7 +325,7 @@ func TestTheNodesAdmitKueuesAggregatedAPI(t *testing.T) {
 //
 // With ServerSideApply, Argo builds the live object against its bundled schema, which lacks a Deployment's
 // status.terminatingReplicas; the comparison fails, the Application reads sync Unknown and self-heal stops.
-// cert-manager read Unknown in all three paid EKS sessions, and the Kueue Application did on kind after a drift.
+// cert-manager read Unknown in all four paid EKS sessions before the fix, and the Kueue Application did on kind after a drift.
 //
 // Mutation that turns this red: delete the compare-options annotation from cert-manager.yaml or kueue.yaml.
 func TestServerSideApplicationsDiffServerSide(t *testing.T) {

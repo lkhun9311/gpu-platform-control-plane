@@ -6,11 +6,13 @@
 > cites the pre-registration or result page it came from, and every claim is bounded by what the measurement
 > could actually see.
 
-The control plane is not the result. It is the instrument. The results are nine findings that could not be
+The control plane is not the result. It is the instrument. The results are ten findings that could not be
 asked without it, and four claims this project is **not** entitled to make.
 
-(Nine, counted from the headings below. This line once said seven while the page carried eight, which is the
-kind of drift that makes a reader stop trusting the arithmetic in the findings themselves.)
+(Ten, counted from the `## Finding N` headings below; `### Finding 3b` is a sub-heading of Finding 3 and is not
+counted on its own. This line still said nine after Finding 10 was added on 2026-10-21, and once said seven while the
+page carried eight, which is the kind of drift that makes a reader stop trusting the arithmetic in the findings
+themselves.)
 
 ---
 
@@ -442,6 +444,8 @@ Each discarded attempt also cost 149 to 150 s of the placed rank's container tim
 **What it does not say.** Nothing about GPUs, NCCL, EKS or real scheduling latency (Finding 2 bounds what a simulated device says); nothing about more than two ranks, other jobs in the cohort, `blockAdmission`, or gang placement, which this timeout is not; and not that the hold is unbounded, only that it lasted to the end of a 600 s window.
 
 **Fixed 2026-10-21, after this measurement.** A distributed job is now `Running` only when every rank is Ready or has succeeded, counted as Kueue's `(*Job).PodsReady` counts them, and at least one rank is still Ready. The second condition is not Kueue's: every finishing run above passed through a state with both ranks succeeded and no `Complete` for 21 to 28 ms, which Kueue's count alone would have called `Running` as the job ended. A job without `distributed` keeps the one-Ready-Pod rule. The fix does not reduce the hold; it changes what the platform says during it. Re-run on the same harness with only the controller changed (`hack/distributed-partial-placement-20261021T093821Z/`, one `off` run per scenario at a 300 s window with the squatter deleted at 150 s, which the scorer reports as a rehearsal, not as this study): stranded, the job read `Admitted` in 299 of 300 once-a-second polls and `Pending` in the other, with no `runningObservedAt`; freed, it read `Admitted` until 151.6 s, 1.0 s after the squatter's deletion, then `Running` once, with `admitToRunningSeconds` 151.611. Under the old rule every one of the eight registered runs had recorded 0.941 to 1.936 s, the four whose second rank never got a node included. The table is left as it was measured.
+
+**Changed 2026-10-22, not yet measured on a cluster: the 28.9 s.** `experiments/cpu-ddp/train.py` now calls `init_process_group` on a worker thread and waits for it in 0.2 s joins, so its SIGTERM handler can run while rendezvous is blocked. Its tests on stub torch show a rank blocked in a rendezvous that cannot take the signal now exits 143 with a `sigterm` record, where the previous file was still running 5 s after the signal. That is the trainer's fix, not the platform's: Kueue still releases the quota when the Job has no active Pod, and any workload that blocks SIGTERM the same way will still hold its device to the grace period. No kind run has measured it yet, and the change gives `train.py` a new sha256, so a paid session needs a new `APPROVED_TRAIN_SHA256`.
 
 *(`docs/superpowers/specs/2026-10-21-distributed-partial-placement-design.md`, `experiments/distributed-partial-placement/`, evidence `hack/distributed-partial-placement-20261021T065335Z/`; the fix: `docs/superpowers/specs/2026-10-21-phase-waits-for-every-rank-design.md`, evidence `hack/distributed-partial-placement-20261021T093821Z/`)*
 

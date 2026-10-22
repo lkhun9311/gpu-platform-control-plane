@@ -288,7 +288,7 @@ verdict from.
 The full account — five mistakes, what each one's evidence was, and what changed — is in
 [docs/10_WHAT_I_GOT_WRONG.md](docs/10_WHAT_I_GOT_WRONG.md).
 
-Its counterpart is [docs/11_WHAT_THIS_MEASURED.md](docs/11_WHAT_THIS_MEASURED.md) — **nine findings
+Its counterpart is [docs/11_WHAT_THIS_MEASURED.md](docs/11_WHAT_THIS_MEASURED.md) — **ten findings
 that survived**, each citing the pre-registration it was measured against, and a table of the four
 claims this project is **not** entitled to make. Among them: a 2-GPU job left Pending with 2 GPUs free
 while the platform reported it `Running` in 145 of 145 samples; an admission guard that measured 83.7x
