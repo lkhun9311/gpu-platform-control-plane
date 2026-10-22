@@ -81,6 +81,49 @@ Everything above is the `gloo` profile, which is the default and whose output on
 The profile and the hash come from the registration, given by whoever scores; a run whose `provenance.txt` records a different profile is void either way round.
 No GPU run has been scored with it; each criterion is shown able to fail by a fixture that falsifies only its own field.
 
+## Run 3 registration: EKS, NCCL, two g5.xlarge (registered 2026-10-22, before the run)
+
+Approved by the owner on 2026-10-22 as one paid session.
+
+**The question** is the one above, asked on GPUs: do the two ranks run as two Pods on two GPU nodes of the `gpu` group, admitted as one Kueue workload, find each other through the platform, and complete one synchronised step with NCCL on CUDA? And does one rank's failure end the attempt, by the Job controller?
+A pass licenses that sentence for two A10Gs, one per g5.xlarge, on EKS, deployed by the product's GitOps path.
+It licenses nothing about throughput, more than one GPU per Pod, a launcher such as `torchrun`, gang scheduling, or any interconnect beyond the VPC network.
+Cross-node placement is forced by construction: one GPU per node and one GPU per rank.
+
+**The session:**
+- `TRAIN=ddp` in `hack/eks-gitops-session.sh`, on a cluster it creates;
+- `TTL_MINUTES=180`, `TRAIN_MAX_PRICE=1.40`;
+- `APPROVED_TRAIN_SHA256=733f264307f7f661482852e322377a76ee50448ea52a2bbc5fc65dbf10891a5d`;
+- `TRAIN_ARMS="pass no-sync bad-address one-rank-fails"`, in that order.
+
+**The software:**
+- The image is `docker.io/pytorch/pytorch@sha256:c8268a92a69bd500f8be0e665b2630ee006dadaf7bfbc24249141b15ff622755`.
+- `train.py` travels in the command as base64, with `DDP_BACKEND=nccl`.
+- `gpuClass` is `a10g`.
+- Everything else in each arm is the kind harness's: its arm environments, `DDP_RENDEZVOUS_TIMEOUT_SECONDS=60`, and the 300 s budget.
+- Kueue is v0.18.3, from the `gpu-platform-kueue` Application on `main`.
+- Devices come from the real NVIDIA device plugin, with no simulator.
+
+**The smoke cell is `pass`, run first.**
+This code has never executed NCCL or CUDA, so its first execution is not taken as a measurement unless it works.
+If `pass` is not PASS under the `nccl` profile, the run is reported as a failed smoke cell.
+The other three arms still run and are recorded, but they are not reported as results of this registration.
+
+**Criteria:**
+- Every criterion above, unchanged.
+- The `nccl` profile in `pass` and `no-sync`, with the hash above.
+- The analyzer at the commit the session runs from, scored by the session's T8 and by hand from the evidence afterwards. Both readings must agree.
+
+**Voids:**
+- Any gate from T1 to T7 that refuses voids the run, and no arm is scored.
+- T1 to T5 refuse before any GPU is bought. A run voided there may be repeated under this registration, since it bought no GPU.
+- A run voided after the purchase is not repeated without the owner's approval.
+- Neither `analyze.py` nor the session may change between the run and its reading.
+
+**Budget:**
+- Expected: about $3. That is the cluster at about $0.26 an hour for about 1.5 hours, two g5.xlarge at $1.237 an hour each for about 40 minutes, and the 3.3 GB image pulled through the NAT once per node at $0.059 a GB.
+- Bounded at about $8 if every wait runs to its deadline: the AWS deadline scales the nodes down at most 170 minutes after the start, and the watchdog destroys the cluster at 180.
+
 ## Results
 
 ### Run 2, `hack/multi-pod-ddp-20261014T231122Z/`: all four arms PASS
