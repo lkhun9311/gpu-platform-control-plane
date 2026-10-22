@@ -167,6 +167,10 @@ At list prices the run cost about $1: about $0.38 of GPU time, $0.19 of cluster 
 Correction 5's 8082 rule is shown only indirectly: the `gpu` flavor, which correction 5 says could not be applied without Kueue's visibility API, was applied, and the ranks were placed through it. The APIServices' own condition was not recorded.
 Nothing here is a throughput figure.
 
+**Noted 2026-10-22, after the run: the two GPU nodes were in different availability zones.**
+In `pass` and `no-sync`, rank 0 ran on `ip-10-0-78-55` in `ap-northeast-2c` and rank 1 on `ip-10-0-54-169` in `ap-northeast-2a` (`ddp/*/nodes.json`, `ddp/*/.pods.json`), so both steps' NCCL traffic crossed zones.
+The registration did not pin a zone, so this does not change any verdict, but nothing here describes NCCL between two nodes in one zone.
+
 ### Run 2, `hack/multi-pod-ddp-20261014T231122Z/`: all four arms PASS
 
 At commit `c74d42c`, on kindest/node v1.37.0, Kueue v0.18.3, cert-manager v1.21.1, torch 2.5.1+cpu; the provenance file has the digests.
