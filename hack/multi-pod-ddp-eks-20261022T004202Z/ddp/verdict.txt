@@ -1,0 +1,33 @@
+PASS  pass
+      ok  each Pod's log is its own rank
+      ok  2 pod(s), indexes ['0', '1'], nodes ['ip-10-0-54-169.ap-northeast-2.compute.internal', 'ip-10-0-78-55.ap-northeast-2.compute.internal']
+      ok  step-1 all-reduce completions by rank [(0, 1), (1, 1)]
+      ok  verdicts from ranks [0, 1]: rank 0 w=0.4000000059604645 agree=True exit=0; rank 1 w=0.4000000059604645 agree=True exit=0
+      ok  pod sets [2], admitted nvidia.com/gpu '2'
+      ok  Succeeded after 9 s
+      ok  highest readyRanks sampled 2
+      ok  backend nccl / nccl by rank
+      ok  device and tensor device type by rank [('cuda', 'cuda'), ('cuda', 'cuda')]
+      ok  GPU UUID by rank ['5c1d5a84-4973-f0dd-bbe2-0237acac4143', 'd3e6fa0b-8571-2169-4375-3220e360bc17']
+      ok  node group by rank [('ip-10-0-78-55.ap-northeast-2.compute.internal', 'gpu'), ('ip-10-0-54-169.ap-northeast-2.compute.internal', 'gpu')], want 'gpu'
+      ok  script sha256 by rank ['733f264307f7', '733f264307f7'], approved 733f264307f7
+PASS  no-sync
+      ok  each Pod's log is its own rank
+      ok  2 pod(s), indexes ['0', '1'], nodes ['ip-10-0-54-169.ap-northeast-2.compute.internal', 'ip-10-0-78-55.ap-northeast-2.compute.internal']
+      ok  step-1 w by rank [(0, 0.20000000298023224), (1, 0.6000000238418579)], agree [False, False]
+      ok  Succeeded after 8 s
+      ok  highest readyRanks sampled 2
+      ok  backend nccl / nccl by rank
+      ok  device and tensor device type by rank [('cuda', 'cuda'), ('cuda', 'cuda')]
+      ok  GPU UUID by rank ['5c1d5a84-4973-f0dd-bbe2-0237acac4143', 'd3e6fa0b-8571-2169-4375-3220e360bc17']
+      ok  node group by rank [('ip-10-0-78-55.ap-northeast-2.compute.internal', 'gpu'), ('ip-10-0-54-169.ap-northeast-2.compute.internal', 'gpu')], want 'gpu'
+      ok  script sha256 by rank ['733f264307f7', '733f264307f7'], approved 733f264307f7
+PASS  bad-address
+      ok  each Pod's log is its own rank
+      ok  Job Failed condition present
+      ok  Failed after 113 s
+      ok  rendezvous_failed from ranks [0]; rank 0: DistNetworkError
+PASS  one-rank-fails
+      ok  each Pod's log is its own rank
+      ok  hold 2026-10-22T01:05:27.869436+00:00, fail 2026-10-22T01:05:37.869057+00:00, FailureTarget 2026-10-22T01:05:40Z (BackoffLimitExceeded), sigterm 2026-10-22T01:05:40.998679+00:00, Failed 2026-10-22T01:05:42Z
+      ok  Failed after 19 s

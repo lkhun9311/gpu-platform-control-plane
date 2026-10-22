@@ -1,0 +1,2 @@
+007635145730.dkr.ecr.ap-northeast-2.amazonaws.com/gpu-platform-gateway@sha256:26480734cb79226d56a56b3e3509ea5f22f57f61e80871dc183076d22f3ba29d
+007635145730.dkr.ecr.ap-northeast-2.amazonaws.com/gpu-platform-operator@sha256:ebbd04aa39ace33bdb17aabbeede8f032fb45b94977fb19724fe11bfacc80f26

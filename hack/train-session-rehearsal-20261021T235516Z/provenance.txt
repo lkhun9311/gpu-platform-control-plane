@@ -1,0 +1,9 @@
+head=ba73d8862cd9c85409363e6b5e8455e737dbe26f rehearse/train=a56626e3efd3d8068f086f08e34950c2ac4c9002
+dirty_files=0
+kind=kind v0.33.0 go1.25.7 linux/amd64
+kubectl=v1.36.3
+argo_chart=7.7.0
+train_py_sha256=733f264307f7f661482852e322377a76ee50448ea52a2bbc5fc65dbf10891a5d
+node_image=kindest/node:v1.37.0@sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5
+workload_image=sha256:f44571f8381692314da1e244faca78f15f842041b4f74a4d17c7be72b5a6efa0
+qualification_body=exec python -c 'import sys, time, torch; ok = torch.cuda.is_available(); ok and time.sleep(60); sys.exit(0 if ok else 3)'

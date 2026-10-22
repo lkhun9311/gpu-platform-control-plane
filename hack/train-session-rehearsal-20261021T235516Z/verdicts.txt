@@ -1,0 +1,8 @@
+T1 PASS: gpu-platform-training synced at a56626e3efd3d8068f086f08e34950c2ac4c9002
+T2 PASS: ClusterQueue gpu-train-a is Active and the only one
+T3 PASS: train-qualify: qualification job train-qualify admitted at 2026-10-22T00:01:12Z, both Pods unplaced
+T7 PASS: train-qualify refused, as it must on a node without CUDA: the job Failed and every rank exited 3 (Failed [3, 3]): the qualification job failed: {'admittedAt': '2026-10-22T00:01:12Z', 'runningObservedAt': '2026-10-22T00:01:18Z', 'admitToRunningSeconds': '6.674'}
+T3 PASS: train-qualify-import: qualification job train-qualify-import admitted at 2026-10-22T00:01:23Z, both Pods unplaced
+T7 PASS: train-qualify-import released and passed: qualification job train-qualify-import succeeded: admittedAt 2026-10-22T00:01:23Z, runningObservedAt 2026-10-22T00:01:29Z, admitToRunningSeconds 6.450
+A PASS: every arm PASS under the gloo profile: 4 of 4
+A PASS: the nccl profile refuses this CPU run, on its backend among others

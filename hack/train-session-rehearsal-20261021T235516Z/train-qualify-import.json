@@ -1,0 +1,22 @@
+{
+  "apiVersion": "platform.lkhun9311.github.io/v1",
+  "kind": "MLTrainingJob",
+  "metadata": {
+    "name": "train-qualify-import",
+    "namespace": "train-a"
+  },
+  "spec": {
+    "queue": "gpu-train-a",
+    "image": "cpu-ddp:torch251",
+    "gpuCount": 1,
+    "gpuClass": "a10g",
+    "distributed": {
+      "worldSize": 2
+    },
+    "command": [
+      "sh",
+      "-c",
+      "exec python -c 'import sys, time, torch; time.sleep(60); sys.exit(0)'"
+    ]
+  }
+}
