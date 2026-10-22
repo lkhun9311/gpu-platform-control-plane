@@ -1,11 +1,13 @@
 # Kubernetes-native GPUaaS Control Plane
 
-> **Status (2026-08-07).** This document surveys the whole project; the areas it covers are at different
+> **Status (written 2026-08-07, revised to 2026-10-22).** The date used to read 2026-08-07 alone while the
+> banner below carried facts from September and October; the 2026-10-22 revision changed the gateway's EKS
+> line and the number of cluster cycles, and left the rest as it was. This document surveys the whole project; the areas it covers are at different
 > stages, matched here to the README's evidence table — this banner does not upgrade or soften any of them.
 > **Built:** `NodeHealth` (node readiness — but the CR is hand-created and no GPU fault signal reaches it:
 > nothing Xid or ECC exists at all, and the DCGM code that does exist is a utilisation reader the queuelab
 > uses, not a health input), `GPUQuotaPolicy` (quota), `InferenceDeployment` (serving), `MLTrainingJob` +
-> Kueue (training admission). **Built, unit-tested, deployed on kind, and on EKS only as far as authentication:** the gateway — the 2026-09-25 GitOps cycle reached it on a real cluster and the request ended at `403 no_policy`, so routing and serving through it on EKS remain unproven. **Built and MEASURED
+> Kueue (training admission). **Built, unit-tested, deployed on kind, and on EKS served once:** the gateway — the 2026-09-25 GitOps cycle reached it on a real cluster and the request ended at `403 no_policy`, which was as far as it got until 2026-10-12, when one tenant's streaming request was routed through it under HoldCap admission to a controller-rendered vLLM engine on an A10G and answered (`hack/eks-serve/runs/20261012T095840Z/README.md`). That is one request at a time on an idle backend, so it shows routing and serving, not that the gateway held anything; three later sessions put a replayed two-tenant load through the same path (Finding 9 of `docs/11_WHAT_THIS_MEASURED.md`, product-path row). **Built and MEASURED
 > on a paid GPU:** the M5-b admission guard and benchmark harness — four repetitions on 2026-09-03 and an
 > engine-level scheduler microtest on 2026-09-04. The guard failed: 83.7x against a pre-registered 1.25x
 > premium-tail target, and the harness declared the run invalid rather than reporting a protection claim.
@@ -21,14 +23,18 @@
 > from a GpuSharingBenchmark" (`hack/m5c-20261001-*/log.txt:312`). There is still no status writer, so the
 > result is the harness's and not the CR's. **Partly built, and projected for the first time on 2026-09-30:** the SQLite ledger and the
 > `platformctl` CLI — storage, projector and reader for 2 of 6 tables, projected from a cluster once outside a
-> test (`hack/ledger-first-projection.md`). **Applied and destroyed twice, not
+> test (`hack/ledger-first-projection.md`). **Applied and destroyed, not
 > applied now:** the `cluster` half of the AWS hosting path — its first apply, on 2026-08-31, failed on all
 > four node groups against an SCP deny; on 2026-09-18 a full apply of 96 resources succeeded and a
 > hand-dispatched teardown removed all 96, verified by resource ID
 > (`hack/eks-cluster-cycle-20260918.md`). That cluster carried no GPU node, no load balancer and no Argo CD.
 > The second cycle, on 2026-09-25, carried Argo CD and was torn down and checked by hand per service
 > (`docs/superpowers/specs/2026-09-25-gitops-rehearsal-on-clean-kind.md`); its "What this licenses"
-> section excludes GPU scheduling, LoadBalancer and EBS behaviour, so those teardown cases remain untested. **Withdrawn once,
+> section excludes GPU scheduling, LoadBalancer and EBS behaviour, so those teardown cases remain untested.
+> This banner said "applied and destroyed twice" until 2026-10-22; five paid sessions have applied and destroyed
+> it since, each with a GPU node and Argo CD, and each recorded its post-destroy billing query in
+> `billing-after-destroy.txt`: `hack/eks-serve/runs/20261012T095840Z/`, the three runs under
+> `hack/eks-serve/holdcap-study/runs/`, and `hack/multi-pod-ddp-eks-20261022T004202Z/`. **Withdrawn once,
 > then re-measured, then observed on hardware:** the queuelab reclaim result. Twelve runs on a kind cluster
 > carried the banner `device: NOT OBSERVED`; a $3.90 session then reproduced it on four A10Gs, eight runs
 > accepted by `-require-device`, and the banner is gone. Owner wait separates by 28.8 s there against 29.0 s
@@ -74,7 +80,7 @@ A multi-tenant GPUaaS control plane that:
 | CRD                   | Role                                         | Status (2026-07)                                                                                                     |
 |-----------------------|----------------------------------------------|----------------------------------------------------------------------------------------------------------------------|
 | `InferenceDeployment` | declare a model-serving intent               | type + serving reconciler (Deployment/Service, phase ladder) — M4-a merged                                           |
-| `GPUQuotaPolicy`      | per-tenant GPU quota / rate limit            | type + reconciler (ResourceQuota sync, drift recovery) — M3 merged; `rateLimit` feeds the M4-b gateway — **M4-b merged, gateway built, unit-tested, deployed on kind, and reached on EKS only to the point of authentication** (2026-09-25, `403 no_policy`) |
+| `GPUQuotaPolicy`      | per-tenant GPU quota / rate limit            | type + reconciler (ResourceQuota sync, drift recovery) — M3 merged; `rateLimit` feeds the M4-b gateway — **M4-b merged, gateway built, unit-tested, deployed on kind, and reached on EKS only to the point of authentication** (2026-09-25, `403 no_policy`); since 2026-10-12 it has served one request on EKS (`hack/eks-serve/runs/20261012T095840Z/README.md`) |
 | `NodeHealth`          | GPU node intake and operational state        | type + reconciler (observe + taint, finalizer, drift recovery) — M2/M3 merged; **no GPU fault signal reaches it** — nothing Xid or ECC exists, and the DCGM code that does exist reads utilisation for the queuelab rather than health for this controller |
 | `GpuSharingBenchmark` | declare a noisy-neighbor / sharing benchmark | type + CRD + 33 envtest specs, per spec `2026-07-04-gpusharingbenchmark-crd-design.md` and its 2026-09-30 amendment; the spec is immutable once created. `CompilePlan` (`internal/bench/plan.go`) compiles a spec into the harness invocation or refuses it with a reason per unsupported value — called from `cmd/benchharness` since 2026-10-01, and two paid runs that day took their load from a CR. The committed sample is one of the specs it refuses. No status writer, so no result is recorded through this path (M5) |
 | `WorkloadRun`         | record a workload execution                  | type + reconciler + driver — `internal/controller/workloadrun_controller.go` (320 lines). A Pod kill was recorded automatically as `Ready → Pending → Ready` with recovery at 20 s on kind (`hack/m7-evidence-trail.log`). It is not a general-purpose ledger |

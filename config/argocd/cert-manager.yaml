@@ -26,7 +26,7 @@ metadata:
     #
     # With ServerSideApply, Argo builds the live object against its bundled schema, and a Deployment's status now
     # carries terminatingReplicas, which that schema lacks; the comparison fails with "field not declared in
-    # schema", the Application reads sync Unknown, and self-heal stops. All three paid EKS sessions on 1.35
+    # schema", the Application reads sync Unknown, and self-heal stops. All four paid EKS sessions on 1.35
     # recorded this Application as Unknown and nothing read it; the kind rehearsal of the Kueue Application found
     # the cause, and this annotation cleared it there (docs/superpowers/specs/2026-10-16-nccl-groundwork-design.md).
     argocd.argoproj.io/compare-options: ServerSideDiff=true

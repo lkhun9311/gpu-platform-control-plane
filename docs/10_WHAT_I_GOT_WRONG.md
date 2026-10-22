@@ -1,6 +1,8 @@
 # What I Got Wrong
 
-> **Status (2026-08-07).** A record, not a design. Everything here is a mistake I made in this repository.
+> **Status (written 2026-08-07, revised 2026-09-20).** The five mistakes are the ones known when this was written, beginning
+> with the measurement of 2026-08-02, and none has been added or removed since; the 2026-09-20 revision marked with ⚠️ two confessions whose subjects
+> were fixed afterwards, and left each one's original wording quoted beside the correction. A record, not a design. Everything here is a mistake I made in this repository.
 > The evidence is committed: `hack/m6-e2e-evidence.log` and `hack/m6-e2e-evidence-contaminated.log` for §5,
 > the specs under `docs/superpowers/specs/` for the rest. Where a figure comes from a run whose raw ledger
 > I did not keep, I say so.
