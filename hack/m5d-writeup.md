@@ -204,6 +204,15 @@ prefill and decode, an engine per tenant class, a partitioned card — and that 
 different question. The successor's constraints are pre-registered in
 `docs/superpowers/specs/2026-09-09-what-would-have-to-change.md`.
 
+> **Added 2026-10-22.** The negative above stands as measured: the M5-b guard and the engine's own scheduler,
+> at this load, on this card. It is no longer the last word on the admission layer. Finding 9 of
+> `docs/11_WHAT_THIS_MEASURED.md` (2026-10-09 onward) measured a different rule, hold-cap, which combines a
+> gateway hold of one contender prefill at a time with the engine's per-step prefill cap of 384, and it cut the
+> premium TTFT p99 to about 0.30 of no admission (block 3: 452 against 1,486 ms) while neither half alone did.
+> That was a later, frozen load with a 7,695-token contender prompt, judged against the owner's frozen
+> contender limits, not this page's 134.6 ms bar, and 452 ms is not inside that bar. So "what is left is
+> physical separation" is true of the rules this page measured, and not of every admission rule.
+
 None of the five pre-registered readings fired, and that is recorded as no reading having fired rather than
 as the nearest one winning — the same discipline the microtest's own result got, two sections up, and for
 the same reason.
