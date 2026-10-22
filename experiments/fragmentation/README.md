@@ -11,7 +11,13 @@ any trial ran. This page reports what happened against the bars it fixed. Raw ev
 That second half is the finding. It is not a fragmentation quirk: the same false `Running` appears whenever
 the Pod cannot be placed, including plain capacity shortage.
 
-## The four states, 25 trials, zero invalid
+## The four states, 20 trials, zero invalid
+
+Twenty of the study's 25 trials are the four states below, and none was invalid.
+The other five are the repack arm R, and every one of them breaches the pre-registered 5 s collection-gap rule
+(see "R: repacking fixed it without adding anything"), so the study as a whole is not "zero
+invalid".
+This heading said "25 trials, zero invalid" until 2026-10-22.
 
 Two worker nodes, 2 simulated GPUs each. Holders are 1-GPU Kueue-admitted sleepers pinned by
 `kubernetes.io/hostname`. The target is one `MLTrainingJob` asking for 2 GPUs.
@@ -86,7 +92,10 @@ trial on any gap over 5 s. So R's five trials are **not** clean passes under the
 run. They are reported here as what they are: the middle state was measured at a point rather than observed
 continuously, and by the letter of the invalidation rule every R trial is invalid.
 
-P, F, Q and S are unaffected — their largest gap across all 25 timelines is **1.30 s**.
+P, F, Q and S are unaffected — their largest gap across their 20 timelines is **1.30 s**.
+This line used to say "across all 25 timelines", which counted the five R timelines of attempt 1 below,
+the discarded run in which nothing was fragmented and nothing paused the sampler; the five R timelines reported
+here are attempt 3's, and each has one 13.57–13.63 s gap (re-read from `ex/frag-r2/` on 2026-10-22).
 
 ## R took three attempts, and the first two reported success
 
@@ -107,7 +116,7 @@ middle state is asserted rather than assumed; and `pod_uid` is recorded so "the 
 
 **Does:** on a Kubernetes cluster with Kueue, a 2-GPU job was held unschedulable with 2 GPUs free in
 aggregate; quota shortage, node-level fragmentation and aggregate shortage were separated by pre-registered
-controls with no misclassification across 25 trials with no collection gap over 1.30 s; and the platform
+controls with no misclassification across 20 trials with no collection gap over 1.30 s; and the platform
 reported the unplaced job as `Running` in every sample taken while it was unschedulable, with its latency
 metric taken from that false transition.
 
