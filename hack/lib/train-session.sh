@@ -237,6 +237,96 @@ else:
   echo "${verdict#OK }" | tr '|' '\n' | sed 's/^ *//; s/ *$//'
 }
 
+# train_zone_refusal ZONE: empty, or the name of one availability zone the gpu group is pinned to.
+#
+# The cluster root validates the same shape, but only once apply has begun; this refuses before.
+# Empty is not a refusal: the group may then use every zone that offers its type, and train_node_zones records
+# which zones it used.
+train_zone_refusal() {
+  local zone="$1"
+  if [[ -z "$zone" ]]; then
+    echo "no zone pin: the nodes may land in any zone that offers the type, and the record says which they did"
+    return 0
+  fi
+  if [[ ! "$zone" =~ ^[a-z]{2}-[a-z]+-[0-9][a-z]$ ]]; then
+    echo "TRAIN_AZ '$zone' is not a zone name such as ap-northeast-2a"
+    return 1
+  fi
+  echo "pinned to $zone"
+}
+
+# train_group_subnet_zones CLUSTER REGION GROUP ZONE: the zones of the subnets the node group was created with, and
+# with ZONE, every one of them must be it.
+#
+# Read from the group AWS holds, not from the variable the session passed, because a variable that did not reach
+# the apply pins nothing and looks exactly like one that did. It runs before the scale-up, so a pin that did not take
+# is refused before anything bills.
+train_group_subnet_zones() {
+  local cluster="$1" region="$2" group="$3" zone="$4" subnets zones
+  subnets="$(aws eks describe-nodegroup --region "$region" --cluster-name "$cluster" --nodegroup-name "$group" \
+    --query 'nodegroup.subnets' --output text 2>&1)" || {
+    echo "could not read the subnets of node group $group: ${subnets:0:200}"
+    return 1
+  }
+  if [[ -z "${subnets//[[:space:]]/}" || "$subnets" == None ]]; then
+    echo "node group $group lists no subnets"
+    return 1
+  fi
+  # shellcheck disable=SC2086
+  zones="$(aws ec2 describe-subnets --region "$region" --subnet-ids $subnets \
+    --query 'Subnets[].AvailabilityZone' --output text 2>&1)" || {
+    echo "could not read the zones of subnets $(xargs <<<"$subnets"): ${zones:0:200}"
+    return 1
+  }
+  # One zone per subnet, or a subnet went unanswered and its zone is unknown.
+  if (($(wc -w <<<"$zones") != $(wc -w <<<"$subnets"))); then
+    echo "$(wc -w <<<"$subnets") subnet(s) but $(wc -w <<<"$zones") zone(s) answered: $(xargs <<<"$zones")"
+    return 1
+  fi
+  zones="$(tr -s '[:space:]' '\n' <<<"$zones" | sed '/^$/d' | sort -u | paste -sd' ')"
+  if [[ -n "$zone" && "$zones" != "$zone" ]]; then
+    echo "node group $group has subnets in $zones, not only $zone: the pin did not reach the group"
+    return 1
+  fi
+  echo "node group $group has subnets in $zones"
+}
+
+# train_node_zones CONTEXT GROUP ZONE: each node of the group with the zone it runs in, and with ZONE, every node must
+# be in it.
+#
+# Pinned or not, a node without a topology.kubernetes.io/zone label is refused, because the record would then not
+# say where its rank ran; run 3's ranks crossed zones and only these labels showed it.
+# Prints "name zone" per node on success.
+train_node_zones() {
+  local ctx="$1" group="$2" zone="$3" nodes
+  nodes="$(kubectl --context "$ctx" --request-timeout=20s get nodes -l "eks.amazonaws.com/nodegroup=$group" -o json 2>&1)" || {
+    echo "could not read the nodes of group $group: ${nodes:0:200}"
+    return 1
+  }
+  python3 -c '
+import json, sys
+zone = sys.argv[1]
+try:
+    nodes = json.loads(sys.argv[2]).get("items", [])
+except Exception as exc:
+    print(f"the node list is unreadable: {exc}"); sys.exit(1)
+if not nodes:
+    print("the group has no nodes"); sys.exit(1)
+rows, faults = [], []
+for n in nodes:
+    name = n["metadata"]["name"]
+    z = (n["metadata"].get("labels") or {}).get("topology.kubernetes.io/zone", "")
+    if not z:
+        faults.append(f"{name} has no topology.kubernetes.io/zone label")
+    elif zone and z != zone:
+        faults.append(f"{name} is in {z}, not {zone}")
+    rows.append(f"{name} {z}")
+if faults:
+    print("; ".join(faults)); sys.exit(1)
+print("\n".join(rows))
+' "$zone" "$nodes"
+}
+
 # train_sync_app CONTEXT APP WAIT_SECONDS: a manual Argo CD Application synced, judged by an operation started after
 # the request.
 #
