@@ -159,6 +159,29 @@ class Timeline:
             else:
                 self.states.append((t, snap))
 
+    def ever(self, pred) -> str:
+        """Whether pred held after any single event, which `states` can hide when two arrive in one millisecond.
+
+        "seen" when it held after an event no other stream shares a millisecond with, "ambiguous" when it held only
+        where another stream's event has the same arrival, since the order between two streams' events is then the
+        sort's and not the cluster's, and "none" otherwise.
+        """
+        current: dict[str, dict[str, dict]] = {k: {} for k in WATCHED}
+        kinds_at: dict[datetime.datetime, set[str]] = {}
+        for t, kind, _, _ in self.events:
+            kinds_at.setdefault(t, set()).add(kind)
+        found = "none"
+        for t, kind, etype, obj in self.events:
+            if etype == "DELETED":
+                current[kind].pop(obj["metadata"]["uid"], None)
+            else:
+                current[kind][obj["metadata"]["uid"]] = obj
+            if pred(current):
+                if len(kinds_at[t]) == 1:
+                    return "seen"
+                found = "ambiguous"
+        return found
+
     def _check_coverage(self, kind, rows):
         self.starts = getattr(self, "starts", {})
         started = [ts(r["arrived"]) for r in rows if r["type"] == "WATCH_STARTED"]
@@ -523,6 +546,8 @@ class Run:
         joined = self.joined_at()
         if joined and joined < held_until:
             p.append("the ranks joined before the squatter's deletion")
+        if self.scenario == "witness":
+            p += self.witness_problems()
         return p
 
     # measures
@@ -612,8 +637,10 @@ class Run:
                 _, term = self.terminated(hist)
                 fin = ts((term or {}).get("finishedAt"))
                 if fin:
+                    # The two instants are kept, because the witness's scheduling is judged against the finish itself.
                     held_after.append({"seconds": round((fin - release[0]).total_seconds(), 1), "censored": False,
-                                       "exit": term.get("exitCode")})
+                                       "exit": term.get("exitCode"), "release": release[0].isoformat(),
+                                       "finishedAt": fin.isoformat()})
                 else:
                     gone = self.gone_at(hist)
                     held_after.append({"seconds": round(((gone or end) - release[0]).total_seconds(), 1),
@@ -629,6 +656,9 @@ class Run:
                               after=self.squat_deleted)
         return {
             "M1_running_while_stranded_s": round(running_stranded, 1),
+            # Unrounded, for Q1: a 20 ms Running while stranded rounds to 0.0 and is still the forbidden state.
+            "M1_unrounded_s": running_stranded,
+            "M1_polled_upper_unrounded_s": hi,
             "M1_polled_bounds_s": [round(lo, 1), round(hi, 1)],
             "M2_quota_held_before_joining": m2,
             "M3_requests": [{"arrived": a.isoformat(), "reason": r, "lastTransitionTime": l.isoformat() if l else None}
@@ -649,6 +679,7 @@ class Run:
             "second_rank_placed_after_s": round((second - self.created).total_seconds(), 1) if second else None,
             "squatter_deleted_after_s": round((self.squat_deleted - self.created).total_seconds(), 1) if self.squat_deleted else None,
             "joined_after_s": round((joined - self.created).total_seconds(), 1) if joined else None,
+            "M9_witness": self.witness_measures(held_after, rsv) if self.scenario == "witness" else None,
         }
 
     def placed_ready_at(self):
@@ -656,6 +687,109 @@ class Run:
 
     def first_running_at(self):
         return self.tl.first(lambda s: self.tl.phase(s) == "Running")
+
+    def running_entries(self) -> list[datetime.datetime]:
+        """Each entry into Running, from the CR's own events in arrival order, which snapshots coalesce in a tie."""
+        out, prev = [], None
+        for t, kind, etype, obj in self.tl.events:
+            if kind != "mltrainingjobs" or obj["metadata"]["name"] != self.name:
+                continue
+            phase = None if etype == "DELETED" else (obj.get("status") or {}).get("phase")
+            if phase == "Running" and prev != "Running":
+                out.append(t)
+            prev = phase
+        return out
+
+    def both_ready_at(self):
+        """When two rank Pods not being deleted were first Ready together, which only a joined pair can be."""
+        return self.tl.first(lambda s: len([p for p in self.tl.pods(s) if self.container(p).get("ready")
+                                            and not p["metadata"].get("deletionTimestamp")]) >= 2)
+
+    # the witness
+
+    def witness_history(self):
+        """The witness Job's Workload and Pod events, which every rank filter above leaves out."""
+        wname = "witness-" + self.name
+        job_uids = {o["metadata"]["uid"] for _, _, _, o in self.tl.events
+                    if o.get("kind") == "Job" and o["metadata"]["name"] == wname}
+        workload, pods = [], {}
+        for t, kind, etype, obj in self.tl.events:
+            if kind == "workloads" and any(r.get("uid") in job_uids for r in obj["metadata"].get("ownerReferences") or []):
+                workload.append((t, etype, obj))
+            labels = obj["metadata"].get("labels") or {}
+            if kind == "pods" and wname in (labels.get("batch.kubernetes.io/job-name"), labels.get("job-name")):
+                pods.setdefault(obj["metadata"]["uid"], []).append((t, etype, obj))
+        return workload, pods
+
+    def witness_created(self):
+        return ts((read(os.path.join(self.path, "witness-created-at.txt")) or "").strip())
+
+    def witness_measures(self, held_after, rsv) -> dict:
+        """M9: from the witness's QuotaReserved turning True to its Pod's PodScheduled turning True, by arrival."""
+        workload, pods = self.witness_history()
+        reserved = next((t for t, _, o in workload if true(o, "QuotaReserved")), None)
+        pod_hist = next(iter(pods.values()), [])
+        scheduled = next((t for t, _, o in pod_hist if true(o, "PodScheduled")), None)
+        unschedulable = []
+        for _, _, o in pod_hist:
+            c = cond(o, "PodScheduled")
+            if c and c.get("status") == "False" and (c.get("reason"), c.get("message")) not in unschedulable:
+                unschedulable.append((c.get("reason"), c.get("message")))
+        release = next((stop for _, stop in rsv if stop is not None), None)
+        # The first release's own rank, and nothing from a later attempt: a censored finish stays missing.
+        first_held = next((h for h in held_after if release and h.get("release") == release.isoformat()), None)
+        finished = ts(first_held["finishedAt"]) if first_held and not first_held["censored"] else None
+        created = self.witness_created()
+        return {
+            "created": created.isoformat() if created else None,
+            "pods": len(pods),
+            "first_release": release.isoformat() if release else None,
+            "reserved_after_first_release_s": round((reserved - release).total_seconds(), 1) if reserved and release else None,
+            "M9_s": round((scheduled - reserved).total_seconds(), 1) if reserved and scheduled else None,
+            "unschedulable": unschedulable,
+            # finishedAt is whole seconds and the watch arrival is not, so this carries up to a second of rounding.
+            "scheduled_minus_rank_finished_s": round((scheduled - finished).total_seconds(), 1) if scheduled and finished else None,
+        }
+
+    def witness_problems(self) -> list[str]:
+        """The witness runs' own validity rules, from the registration's "Validity, per run"."""
+        p = []
+        created = self.witness_created()
+        workload, pods = self.witness_history()
+        rsv, reqs = self.reservations(), self.requests()
+        if created is None:
+            return ["no witness creation time"]
+        if not rsv or created < rsv[0][0]:
+            p.append("the witness was created before the job's first reservation")
+        if reqs and created >= reqs[0][0]:
+            p.append("the witness was created after the job's first Evicted")
+        if len(pods) != 1:
+            p.append(f"{len(pods)} witness Pods, not 1")
+        # The witness must be the only other Pod asking for a device, or another could take the capacity M9 times.
+        others = set()
+        for _, kind, _, obj in self.tl.events:
+            labels = obj["metadata"].get("labels") or {}
+            if kind != "pods" or obj["metadata"]["uid"] in pods or labels.get("platform.lkhun9311.github.io/mltrainingjob") == self.name:
+                continue
+            spec = obj.get("spec") or {}
+            # Init containers too: a request there reserves the device for the Pod as much as a main container's.
+            asks = [c for c in (spec.get("containers") or []) + (spec.get("initContainers") or [])
+                    if "nvidia.com/gpu" in (((c.get("resources") or {}).get("limits") or {}) | ((c.get("resources") or {}).get("requests") or {}))]
+            if asks:
+                others.add(obj["metadata"]["name"])
+        if others:
+            p.append(f"other Pods requested nvidia.com/gpu: {sorted(others)}")
+        # Never admitted while the job held both units: no instant with both Workloads reserving quota.
+        # A finished Workload can keep QuotaReserved=True while holding nothing, so Finished=True counts as released.
+        def holds(w):
+            return true(w, "QuotaReserved") and not true(w, "Finished")
+        uids = {o["metadata"]["uid"] for _, _, o in workload}
+        for t, s in self.tl.states:
+            mine = [w for w in s["workloads"].values() if w["metadata"]["uid"] in uids]
+            if holds(self.tl.workload(s)) and any(holds(w) for w in mine):
+                p.append(f"the witness held quota with the job at {t.isoformat()}")
+                break
+        return p
 
 
 # --- predictions ------------------------------------------------------------------------------------------------
@@ -732,6 +866,86 @@ def predict(run: Run, m: dict) -> list[tuple[str, str, str]]:
     return out
 
 
+def predict_after_fix(run: Run, m: dict, earlier: list[tuple[str, str, str]]) -> list[tuple[str, str, str]]:
+    """Q1 to Q7 of 2026-10-22-finding-10-after-the-phase-fix-design.md, beside P1 to P6, which describe the old code.
+
+    A witness run is read only for Q1, Q6 and Q7, since the witness changes the job's later admissions.
+    """
+    out, tl, end = [], run.tl, run.end
+    key = (run.setting, run.scenario)
+    verdict = {name: v for name, v, _ in earlier}
+    entries = run.running_entries()
+    # Zero integrated time is not proof the state never occurred, so every single event is checked as well.
+    seen = tl.ever(lambda s: tl.phase(s) == "Running" and tl.stranded(s))
+    zero = m["M1_unrounded_s"] == 0 and m["M1_polled_upper_unrounded_s"] == 0
+    out.append(("Q1", "contradicted" if not zero or seen == "seen" else "not evaluable" if seen == "ambiguous" else "held",
+                f"M1 {m['M1_running_while_stranded_s']} s, polled bounds {m['M1_polled_bounds_s']}, "
+                f"Running while stranded after any single event {seen}"))
+    statuses = [((tl.mltj(s) or {}).get("status") or {}) for _, s in tl.states]
+    final = statuses[-1] if statuses else {}
+    if key == ("off", "never"):
+        m2 = m["M2_quota_held_before_joining"]
+        observed = [st.get("runningObservedAt") for st in statuses if st.get("runningObservedAt")]
+        # "To the window's end": from the first status with one rank Ready, every later one must still say so.
+        first_ready = next((i for i, st in enumerate(statuses) if st.get("readyRanks") == 1), None)
+        lapses = [] if first_ready is None else [
+            (st.get("phase"), st.get("readyRanks")) for st in statuses[first_ready:]
+            if st.get("phase") != "Admitted" or st.get("readyRanks") != 1]
+        ok = (m["M5_final_phase"] == "Admitted" and final.get("readyRanks") == 1 and first_ready is not None
+              and not lapses and not observed and not entries
+              and len(m2) == 1 and m2[0]["censored"] and m2[0]["seconds"] >= run.window - 10)
+        out.append(("Q2", "held" if ok else "contradicted",
+                    f"final {m['M5_final_phase']}, readyRanks {final.get('readyRanks')}, lapses after the first Ready "
+                    f"{lapses[:3]}, runningObservedAt {observed[:1]}, "
+                    f"entries into Running {len(entries)}, reservations {m2}"))
+    if key == ("off", "late"):
+        both = run.both_ready_at()
+        a2r = final.get("admitToRunningSeconds")
+        admitted = ts(final.get("admittedAt"))
+        stamps = run.admitted_stamps()
+        first = stamps[0] if stamps else None
+        after_ready = (entries[0] - both).total_seconds() if entries and both else None
+        # The floor comes from Kueue's own first admission stamp, not the CR's admittedAt, so a controller that moved
+        # admittedAt to the Running entry cannot lower the bar along with the figure it is judging.
+        floor = (run.squat_deleted - first).total_seconds() - 1 if run.squat_deleted and first else None
+        same_stamp = admitted is not None and first is not None and abs((admitted - first).total_seconds()) <= 1
+        ok = (len(entries) == 1 and after_ready is not None and 0 <= after_ready <= 10
+              and run.squat_deleted is not None and entries[0] >= run.squat_deleted
+              and same_stamp and a2r is not None and floor is not None and float(a2r) >= floor
+              and m["M5_succeeded_after_s"] is not None)
+        out.append(("Q3", "held" if ok else "contradicted",
+                    f"entries into Running {len(entries)}, the first {after_ready} s after both ranks were Ready; "
+                    f"admitToRunningSeconds {a2r} against at least {floor}; succeeded after {m['M5_succeeded_after_s']} s"))
+    if key == ("ready-timeout", "never"):
+        stamps = [ts(x) for x in m["admitted_stamps"]]
+        vals = [ts(v) for v in m["M7_admittedAt_values"]]
+        stamp_ok = len(vals) == 1 and bool(stamps) and abs((vals[0] - stamps[0]).total_seconds()) <= 1
+        ok = verdict.get("P3") == "held" and not entries and stamp_ok
+        out.append(("Q4", "held" if ok else "contradicted",
+                    f"P3 {verdict.get('P3')}; entries into Running {len(entries)}; admittedAt values "
+                    f"{m['M7_admittedAt_values']} against the first stamp {m['admitted_stamps'][:1]}"))
+    if key == ("ready-timeout", "late"):
+        both = run.both_ready_at()
+        # "The only entry": a phase that left Running and came back is a contradiction even after both were Ready.
+        ok = verdict.get("P4") == "held" and len(entries) == 1 and both is not None and entries[0] >= both
+        out.append(("Q5", "held" if ok else "contradicted",
+                    f"P4 {verdict.get('P4')}; entries into Running {[e.isoformat() for e in entries]}; "
+                    f"both ranks first Ready {both.isoformat() if both else None}"))
+    if run.setting == "ready-timeout" and any(m["M3_stopped"]):
+        held = m["M8_device_held_after_release"]
+        ok = bool(held) and all(not h["censored"] and h["exit"] == 143 and -3 <= h["seconds"] <= 5 for h in held)
+        out.append(("Q6", "held" if ok else "contradicted",
+                    f"device held after each release {[(h['seconds'], h['exit'], h['censored']) for h in held]}"))
+    if run.scenario == "witness":
+        w = m["M9_witness"] or {}
+        lag, m9, gap = w.get("reserved_after_first_release_s"), w.get("M9_s"), w.get("scheduled_minus_rank_finished_s")
+        ok = lag is not None and 0 <= lag <= 3 and m9 is not None and m9 <= 5 and gap is not None and gap >= -1
+        out.append(("Q7", "held" if ok else "contradicted",
+                    f"reserved {lag} s after the first release; M9 {m9} s; scheduled {gap} s after the evicted rank's "
+                    f"finishedAt, which is whole seconds, so -1 s is the same instant; unschedulable {w.get('unschedulable')}"))
+    return out
+
+
 def main(argv: list[str]) -> int:
     out = argv[0]
     if os.path.exists(os.path.join(out, "VOID")):
@@ -764,7 +978,10 @@ def main(argv: list[str]) -> int:
             continue
         m = run.measures()
         print(json.dumps(m, indent=1, sort_keys=True, default=str))
-        for name, verdict, numbers in predict(run, m):
+        earlier = predict(run, m)
+        # A witness run is scored only by its Q lines; the P lines describe runs without a second tenant.
+        lines = ([] if run.scenario == "witness" else earlier) + predict_after_fix(run, m, earlier)
+        for name, verdict, numbers in lines:
             print(f"{name} {verdict}: {numbers}")
     if voids:
         print(f"\n{voids} registered run(s) void")
