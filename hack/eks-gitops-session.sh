@@ -47,6 +47,8 @@
 #   APPROVED_TRAIN_SHA256  with TRAIN, the sha256 of experiments/cpu-ddp/train.py the run's registration approved
 #   TRAIN_ARMS        with TRAIN, the arms to run, in order          (default: pass no-sync bad-address one-rank-fails)
 #   TRAIN_MAX_PRICE   with TRAIN, the most an On-Demand hour of one node may cost, or nothing is bought (default 1.40)
+#   TRAIN_AZ          with TRAIN, the one availability zone the nodes must be in, such as ap-northeast-2a; unset, they
+#                     may land in any zone that offers the type, and the record says which (default: unset)
 
 set -euo pipefail
 
@@ -155,6 +157,7 @@ TRAIN_APP=gpu-platform-training
 TRAIN_GPU_CLASS=a10g
 TRAIN_MAX_PRICE="${TRAIN_MAX_PRICE:-1.40}"
 TRAIN_ARMS="${TRAIN_ARMS:-pass no-sync bad-address one-rank-fails}"
+TRAIN_AZ="${TRAIN_AZ:-}"
 # pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime, the torch the CPU image installs, with CUDA; read from Docker Hub on
 # 2026-10-22 as a single linux/amd64 manifest of 3,337,937,647 compressed bytes, which each node pulls once.
 TRAIN_IMAGE=docker.io/pytorch/pytorch@sha256:c8268a92a69bd500f8be0e665b2630ee006dadaf7bfbc24249141b15ff622755
@@ -182,6 +185,8 @@ case "$TRAIN" in
     [[ "$train_sha" == "$APPROVED_TRAIN_SHA256" ]] ||
       die "experiments/cpu-ddp/train.py is $train_sha, not the approved $APPROVED_TRAIN_SHA256"
     why="$(train_node_count_refusal "$TRAIN_NODES")" || die "$why"
+    why="$(train_zone_refusal "$TRAIN_AZ")" || die "$why"
+    log "TRAIN_AZ: $why"
     n_arms=0
     for arm in $TRAIN_ARMS; do
       ddp_arm_env "$arm" >/dev/null || die "TRAIN_ARMS names $arm, which is not an arm (pass no-sync bad-address one-rank-fails)"
@@ -198,6 +203,8 @@ case "$TRAIN" in
     log "$why"
     # Passed to every apply and destroy of the cluster root, the watchdog's included, so each plans the same groups.
     TF_TRAIN_VARS="-var=gpu_node_instance_type=$TRAIN_INSTANCE_TYPE -var=gpu_max_nodes=$TRAIN_NODES"
+    # Empty passes nothing, so an unpinned session plans exactly the groups it planned before the pin existed.
+    [[ -z "$TRAIN_AZ" ]] || TF_TRAIN_VARS="$TF_TRAIN_VARS -var=gpu_availability_zone=$TRAIN_AZ"
     ;;
   *) die "TRAIN=$TRAIN is not a training mode this session runs (ddp)" ;;
 esac
@@ -620,6 +627,9 @@ train_run() {
   [[ "$vcpu" =~ ^[1-9][0-9]*$ ]] || { bad "T5: could not read $TRAIN_INSTANCE_TYPE's default vCPU: ${vcpu:0:200}"; return 1; }
   why="$(train_quota_gate "$REGION" $((vcpu * TRAIN_NODES)))" || { bad "T5: $why"; return 1; }
   ok "T5: $why"
+  # Z1: the zones of the subnets the group was created with, read from AWS before anything bills.
+  why="$(train_group_subnet_zones "$CLUSTER" "$REGION" "$TRAIN_GROUP" "$TRAIN_AZ")" || { bad "Z1: $why"; return 1; }
+  ok "Z1: $why"
 
   # The AWS deadline fires before the laptop watchdog, so the nodes are the first thing to go whichever clock wins,
   # and it must leave the GPU steps their whole budget.
@@ -662,6 +672,11 @@ train_run() {
   awk '{print $2}' <<<"$ids" >>"$GPU_INSTANCES_FILE"
   ok "T6: $(paste -sd';' <<<"$ids")"
   kc get nodes -o json >"$TRAIN_DIR/nodes.json" 2>>"$EXDIR/session.log" || true
+  # Z2: the zone each qualified node runs in, which every rank's figure inherits; with TRAIN_AZ, all of them in it.
+  local zones
+  zones="$(train_node_zones "$CLUSTER" "$TRAIN_GROUP" "$TRAIN_AZ")" || { bad "Z2: $zones"; return 1; }
+  printf '%s\n' "$zones" >"$TRAIN_DIR/node-zones.txt"
+  ok "Z2: $(paste -sd';' <<<"$zones")"
   why="$(train_qualification_released "$CLUSTER" "$TRAIN_NS" train-qualify "$WAIT_QUAL_RUN")" || { bad "T7: $why"; return 1; }
   ok "T7: $why"
   kc -n "$TRAIN_NS" get mltrainingjob train-qualify -o json >"$TRAIN_DIR/qualification-final.json" 2>>"$EXDIR/session.log" || true
@@ -676,6 +691,8 @@ train_run() {
     echo "approved_train_py_sha256=$APPROVED_TRAIN_SHA256"
     echo "workload_image=$TRAIN_IMAGE"
     echo "nodes=$(paste -sd' ' <<<"$ids")"
+    echo "train_az=${TRAIN_AZ:-unpinned}"
+    echo "node_zones=$(paste -sd' ' <<<"$zones")"
     echo "profile=nccl"
     echo "arms=$TRAIN_ARMS"
   } >"$EXDIR/ddp/provenance.txt"
