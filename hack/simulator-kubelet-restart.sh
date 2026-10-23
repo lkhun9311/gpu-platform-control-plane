@@ -67,11 +67,13 @@ allocatable() {
   echo "${v:-0}"
 }
 
-# ready_after prints yes when the worker is Ready on a heartbeat later than the epoch second given.
+# ready_after prints yes when the worker is Ready and its kubelet has renewed its node Lease after the epoch second given.
+# The Lease, not the Ready condition's lastHeartbeatTime: with leases the kubelet rewrites node status only when it
+# changes or every five minutes, and the first run of this check read a heartbeat minutes old in both arms.
 ready_after() {
   local status beat
   status=$(k get node "$WORKER" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}')
-  beat=$(k get node "$WORKER" -o jsonpath='{.status.conditions[?(@.type=="Ready")].lastHeartbeatTime}')
+  beat=$(k -n kube-node-lease get lease "$WORKER" -o jsonpath='{.spec.renewTime}')
   if [ "$status" = True ] && [ -n "$beat" ] && [ "$(date -d "$beat" +%s)" -gt "$1" ]; then echo yes; else echo no; fi
 }
 
@@ -135,7 +137,15 @@ EOF
   k -n system logs "$pod" >"$dir/simulator.log" 2>>"$LOG" || die "arm $arm: simulator log"
   docker exec "$WORKER" ls /var/lib/kubelet/device-plugins >"$dir/device-plugins.txt" 2>>"$LOG" || die "arm $arm: socket listing"
   sock=$(grep -cx 'gpu-simulator.sock' "$dir/device-plugins.txt" || true)
-  line=$(grep -c 'kubelet restarted, serving and registering again' "$dir/simulator.log" || true)
+  # Counted only when the simulator's own timestamp is not before the kubelet's start, so a line from an earlier
+  # restart could not be read as this one; the log is in whole seconds, as the start time is.
+  line=0
+  local stamp
+  while read -r stamp; do
+    if [ "$(date -d "$stamp" +%s)" -ge "$started" ]; then line=$((line + 1)); fi
+  done < <(grep 'kubelet restarted, serving and registering again' "$dir/simulator.log" | cut -f1)
+  k get node "$WORKER" -o json >"$dir/node-after.json" 2>>"$LOG" || die "arm $arm: node read"
+  k -n kube-node-lease get lease "$WORKER" -o json >"$dir/lease-after.json" 2>>"$LOG" || die "arm $arm: lease read"
 
   cat >"$dir/probe.yaml" <<EOF
 apiVersion: v1
