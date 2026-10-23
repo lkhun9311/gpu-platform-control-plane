@@ -1,0 +1,4 @@
+C1: S-default stranded in 10 of 12, S-gpu-most in 0 of 12; one-sided Fisher p = 0.0000; packing removed stranding on this layout and mix
+C2: S-default stranded in 6 of 12, S-gpu-most in 12 of 12; one-sided Fisher p = 0.0069; packing lost on this mix
+C3: S-default stranded in 12 of 12, S-gpu-most in 0 of 12; one-sided Fisher p = 0.0000; packing removed stranding on this layout and mix
+a sign reversal between C2 and C3 on the same layout: packing lost on one mix and won on the other
