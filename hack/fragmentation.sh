@@ -11,7 +11,8 @@
 #   hack/fragmentation.sh teardown
 #
 # Environment:
-#   CONTEXT   kube context                        (default kind-platform)
+#   CLUSTER   kind cluster name, which names the workers  (default platform)
+#   CONTEXT   kube context                        (default kind-$CLUSTER)
 #   EXDIR     evidence directory                  (default ex/frag-<UTC timestamp>)
 #   WINDOW    observation seconds after submit    (default 180)
 #   REPACK_AT     seconds after submit at which R intervenes   (default 60)
@@ -20,7 +21,8 @@
 set -euo pipefail
 set -m
 
-CONTEXT="${CONTEXT:-kind-platform}"
+CLUSTER="${CLUSTER:-platform}"
+CONTEXT="${CONTEXT:-kind-$CLUSTER}"
 NS=frag
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # Where the manifests live, which is not always where this script lives.
@@ -45,8 +47,9 @@ COLLECTOR_TAG=""
 # The two workers. The control-plane node is excluded by its own NoSchedule taint, since the target Pod
 # carries no toleration -- so the eligible set is these two and the advertised total of six GPUs is not six
 # the target can reach.
-NODE_A=platform-worker
-NODE_B=platform-worker2
+# kind names them after the cluster, so a cluster built by hack/fragmentation-cluster.sh has its own.
+NODE_A=$CLUSTER-worker
+NODE_B=$CLUSTER-worker2
 
 k() { kubectl --context "$CONTEXT" "$@"; }
 now() { date -u +%s.%N; }
@@ -555,6 +558,19 @@ if arm == "R":
     lo, hi = events.get("replica-running"), events.get("original-delete")
     middle = [r for r in rows if lo is not None and hi is not None and lo <= r["t"] <= hi and r.get("sum_free") == 1]
     fields.append(f"middle_state_samples={len(middle)}")
+    # The registered bar: the same Pod, not a replacement, scheduled within 60 s of the original's deletion.
+    # It was read by hand from the run log before; the timeline carries both the UID and the time.
+    uids = {r.get("pod_uid") for r in rows if r.get("pod_uid")}
+    scheduled = [r for r in rows if r["state"] == "scheduled"]
+    # Recovery means a Pod the timeline saw stranded before the deletion, not one that first appeared after it.
+    stranded = {r.get("pod_uid") for r in rows
+                if hi is not None and r["t"] <= hi and r["state"] in ("fragmentation", "aggregate-shortage")}
+    if hi is None or not scheduled:
+        fields.append(f"pod_uids={len(uids)}\tscheduled_after_delete=none\trepack_bar=fail")
+    else:
+        after = scheduled[0]["t"] - hi
+        ok = len(uids) == 1 and scheduled[0].get("pod_uid") in stranded and 0.0 <= after <= 60.0
+        fields.append(f"pod_uids={len(uids)}\tscheduled_after_delete={after:.2f}s\trepack_bar={'pass' if ok else 'fail'}")
 print("\t".join(fields))
 PY
 }

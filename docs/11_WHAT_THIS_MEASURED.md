@@ -310,6 +310,10 @@ measured that, and since 2026-10-21 such a job needs every rank.
 Repacking one holder — no added GPU, no added quota, demand 2 → 3 → 2 — returned the same Pod to scheduled
 in 5/5 trials, though every one of those five breaches the study's own 5 s collection-gap rule and is
 reported as evidence rather than as a pass (`experiments/fragmentation/README.md`).
+A registered rerun on 2026-10-23, with a sampler the intervention could not pause, gave five R trials that
+meet the rule: the same Pod scheduled 0.51–1.43 s after the deletion in each, with the middle state in the
+timeline itself; its five F trials, the same session's control, never scheduled and showed the CR `Running`
+while unscheduled in 0 samples, where each F trial on 2026-09-24 showed 145.
 
 **What it does not say.** Nothing about real GPUs, utilisation, gang scheduling, or automatic repacking,
 which this platform does not do. The thing moved was a `pause` container, not live training.
