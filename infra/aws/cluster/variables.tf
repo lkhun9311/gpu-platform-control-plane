@@ -126,6 +126,29 @@ variable "gpu_node_instance_type" {
   default = "g4dn.12xlarge"
 }
 
+variable "gpu_availability_zone" {
+  description = "One availability zone the GPU managed node group is restricted to, or empty for every zone in the VPC that offers its type."
+  type        = string
+  nullable    = false
+  # Empty, so every existing session keeps the placement it had.
+  #
+  # A two-node session left to the group's full subnet list may put its nodes in different zones, and run 3
+  # of experiments/multi-pod-ddp did: its two ranks were in 2a and 2c. Its NCCL traffic then crossed zones,
+  # and the run's record did not say so until afterwards. A cross-node bandwidth figure taken that way is a
+  # cross-zone figure, which is a different claim, so a session that means one zone names it here.
+  #
+  # The value only narrows the list placement.tf already derives. A zone that is not in the VPC, or does not
+  # offer the type, leaves the list empty, and the placement precondition refuses the plan. It never falls
+  # back to the unrestricted list, because a pin that quietly widens is a cross-zone run that claims not to be.
+  default = ""
+
+  # The shape is checked here so a stray value fails at the variable rather than as an empty list.
+  validation {
+    condition     = var.gpu_availability_zone == "" || can(regex("^[a-z]{2}-[a-z]+-[0-9][a-z]$", var.gpu_availability_zone))
+    error_message = "gpu_availability_zone must be empty or a zone name such as ap-northeast-2a."
+  }
+}
+
 variable "tags" {
   description = "Owner and TTL tags applied to every resource."
   type        = map(string)

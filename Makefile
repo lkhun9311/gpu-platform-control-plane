@@ -532,13 +532,18 @@ infra-validate: terraform kustomize actionlint shell-check scorer-tests workload
 	@#
 	@# TF_DATA_DIR is absolute because init and validate run after `cd` into the root. -lockfile=readonly
 	@# keeps the isolated run from rewriting the committed provider lock.
+	@#
+	@# A root with a tests/ directory also runs `terraform test`. Those tests mock the provider and replace
+	@# the modules, so they stay as offline as validate; what they add is the plan-time logic, such as the
+	@# gpu group's zone pin, which validate accepts whatever it computes.
 	@set -e; \
 	for d in infra/aws/*/; do \
 		if [ -f "$$d/versions.tf" ]; then \
 			echo "validate $$d"; \
 			tfdata="$$(mktemp -d)"; \
 			( cd "$$d" && TF_DATA_DIR="$$tfdata" "$(abspath $(TERRAFORM))" init -backend=false -input=false -lockfile=readonly >/dev/null \
-				&& TF_DATA_DIR="$$tfdata" "$(abspath $(TERRAFORM))" validate ) \
+				&& TF_DATA_DIR="$$tfdata" "$(abspath $(TERRAFORM))" validate \
+				&& { [ ! -d tests ] || TF_DATA_DIR="$$tfdata" "$(abspath $(TERRAFORM))" test -no-color; } ) \
 				|| { rm -rf "$$tfdata"; echo "infra-validate: $$d failed" >&2; exit 1; }; \
 			rm -rf "$$tfdata"; \
 		fi; \

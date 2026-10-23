@@ -42,7 +42,12 @@ locals {
 
   # Subnets whose zone actually offers the type. Ordered by local.azs so the choice is deterministic
   # rather than dependent on the order AWS happened to return offerings in.
-  gpu_subnets        = [for az in local.azs : local.az_subnet[az] if contains(data.aws_ec2_instance_type_offerings.gpu.locations, az)]
+  # The gpu group alone can be pinned to one of them, by var.gpu_availability_zone.
+  gpu_subnets = [
+    for az in local.azs : local.az_subnet[az]
+    if contains(data.aws_ec2_instance_type_offerings.gpu.locations, az)
+    && (var.gpu_availability_zone == "" || az == var.gpu_availability_zone)
+  ]
   gpu_single_subnets = [for az in local.azs : local.az_subnet[az] if contains(data.aws_ec2_instance_type_offerings.gpu_single.locations, az)]
   gpu_shared_subnets = [for az in local.azs : local.az_subnet[az] if contains(data.aws_ec2_instance_type_offerings.gpu_shared.locations, az)]
 }
@@ -61,7 +66,7 @@ resource "terraform_data" "gpu_placement" {
   lifecycle {
     precondition {
       condition     = length(local.gpu_subnets) > 0
-      error_message = "No subnet in this VPC is in a zone that offers ${var.gpu_node_instance_type}. queuelab needs two devices on one node and this is the only family size that provides them; either widen local.azs or move the region."
+      error_message = var.gpu_availability_zone != "" ? "gpu_availability_zone is ${var.gpu_availability_zone}, and no subnet in this VPC is in that zone and offers ${var.gpu_node_instance_type}. The pin is not widened to the other zones; name a zone the VPC has and the type is offered in, or leave it empty." : "No subnet in this VPC is in a zone that offers ${var.gpu_node_instance_type}. queuelab needs two devices on one node and this is the only family size that provides them; either widen local.azs or move the region."
     }
     precondition {
       condition     = length(local.gpu_single_subnets) > 0
