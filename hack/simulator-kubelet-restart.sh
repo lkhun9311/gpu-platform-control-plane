@@ -91,6 +91,10 @@ EOF
   k create namespace system >>"$LOG" 2>&1 || die "namespace"
   k apply -f config/device-plugin/daemonset.yaml >>"$LOG" 2>&1 || die "daemonset"
   k -n system set image ds/gpu-simulator "*=gpu-simulator:krs-$arm" >>"$LOG" 2>&1 || die "image set"
+  # The manifest names :latest, so it says Always, and a new tag does not change that; kind has no registry to pull from.
+  k -n system patch ds/gpu-simulator --type=json \
+    -p '[{"op":"add","path":"/spec/template/spec/containers/0/imagePullPolicy","value":"IfNotPresent"}]' >>"$LOG" 2>&1 ||
+    die "pull policy"
   k -n system set env ds/gpu-simulator FAKE_GPU_COUNT=2 >>"$LOG" 2>&1 || die "count"
   k -n system rollout status ds/gpu-simulator --timeout=180s >>"$LOG" 2>&1 || die "rollout"
 
