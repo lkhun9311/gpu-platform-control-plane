@@ -211,5 +211,8 @@ verdict() {
 build_images
 run_arm control
 run_arm fixed
-{ verdict control; verdict fixed; } | tee "$OUT/verdict.txt" | tee -a "$LOG"
+{ verdict control; verdict fixed; } >"$OUT/verdict.txt"
+tee -a "$LOG" <"$OUT/verdict.txt"
 log "evidence in $OUT"
+# A contradicted prediction is the check failing, so it has to reach the caller as a failing status, not only as text.
+if grep -q contradicted "$OUT/verdict.txt"; then exit 1; fi
