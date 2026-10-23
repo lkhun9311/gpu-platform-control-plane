@@ -67,7 +67,7 @@ run_trial() {
       case "$st" in
         middle) st=aggregate-shortage ;;
       esac
-      echo "{\"state\": \"$st\", \"cr_phase\": \"Running\", $(free_for)}"
+      echo "{\"state\": \"$st\", \"cr_phase\": \"Running\", \"pod_uid\": \"target-uid\", $(free_for)}"
     }
     headroom() { echo "{$(free_for)}"; }
     submit_holder() { HOLDER_FAILURE=""; return 0; }
@@ -107,6 +107,11 @@ if [[ "$line" == R$'\t'1$'\t'scheduled$'\t'* ]]; then
   ok "the repacked target ended scheduled"
 else
   bad "the repacked target did not end scheduled: ${line:-no R line}"
+fi
+if [[ "$line" == *$'\t'pod_uids=1$'\t'scheduled_after_delete=*$'\t'repack_bar=pass* ]]; then
+  ok "the registered bar was judged from the timeline: $(grep -o 'scheduled_after_delete=[0-9.]*s' <<<"$line")"
+else
+  bad "the repack bar was not judged a pass from the timeline: ${line:-no R line}"
 fi
 if grep -q 'delete job frag-h1-r-1' "$work/repack/k-calls.log"; then
   ok "the original holder was deleted through the stub, so the case exercised the intervention"
@@ -184,7 +189,31 @@ fi
   printf '%s\n' '{"state":"fragmentation","t":0.5}' '{"state":"fragmentation","t":1.5}' '{"state":"fragmentation","t":2.5}' >"$work/early.jsonl"
   printf '%s\n' '{"event":"window-end","t":21.0}' >"$work/early-events.jsonl"
   judge_timeline "$work/early.jsonl" F 1 "$work/early-events.jsonl" >"$work/early.out"
+  # The bar's two ways to fail: a replacement Pod, and the same Pod scheduled 61 s after the deletion.
+  printf '%s\n' '{"event":"replica-running","t":2.0}' '{"event":"original-delete","t":10.0}' >"$work/bar-events.jsonl"
+  printf '%s\n' '{"state":"fragmentation","t":9.0,"pod_uid":"a"}' '{"state":"scheduled","t":11.0,"pod_uid":"b"}' >"$work/replaced.jsonl"
+  printf '%s\n' '{"state":"fragmentation","t":9.0,"pod_uid":"a"}' '{"state":"scheduled","t":71.0,"pod_uid":"a"}' >"$work/late.jsonl"
+  judge_timeline "$work/replaced.jsonl" R 1 "$work/bar-events.jsonl" >"$work/replaced.out"
+  judge_timeline "$work/late.jsonl" R 1 "$work/bar-events.jsonl" >"$work/late.out"
+  # A target whose Pod first appears after the deletion was never stranded, so nothing recovered.
+  printf '%s\n' '{"state":"quota-short","t":9.0}' '{"state":"scheduled","t":11.0,"pod_uid":"a"}' >"$work/unseen.jsonl"
+  judge_timeline "$work/unseen.jsonl" R 1 "$work/bar-events.jsonl" >"$work/unseen.out"
 )
+if grep -qP 'pod_uids=1\tscheduled_after_delete=1.00s\trepack_bar=fail' "$work/unseen.out"; then
+  ok "a Pod not seen stranded before the deletion fails the repack bar"
+else
+  bad "a Pod first seen after the deletion passed the repack bar: $(cat "$work/unseen.out")"
+fi
+if grep -qP 'pod_uids=2\tscheduled_after_delete=1.00s\trepack_bar=fail' "$work/replaced.out"; then
+  ok "a replacement Pod fails the repack bar"
+else
+  bad "a replacement Pod was not failed: $(cat "$work/replaced.out")"
+fi
+if grep -qP 'pod_uids=1\tscheduled_after_delete=61.00s\trepack_bar=fail' "$work/late.out"; then
+  ok "scheduling 61 s after the deletion fails the repack bar"
+else
+  bad "a 61 s wait was not failed: $(cat "$work/late.out")"
+fi
 if grep -q 'max_gap=1.00s.*gap_rule=ok.*coverage=INVALID' "$work/early.out"; then
   ok "a timeline that stopped early with no gap inside it fails coverage"
 else
