@@ -393,7 +393,21 @@ author — an early pair that matched the hypothesis was disclosed as a rehearsa
 variation above, and a qualification fixture was refused by a guard written four changes earlier because on a
 symmetric layout the two candidate nodes tie.
 
-*(`docs/superpowers/specs/2026-09-29-stranded-gpu-frozen-protocol.md`, `cmd/strandedrun`, `hack/stranded-cell.sh`)*
+**Measured 2026-10-23, a second campaign: the sign reverses with the mix.** A new registration asked what this finding said it needed: a second layout, two workers advertising 3 and 2 devices, a mix where packing should lose, and an order that can cancel drift. Each of 72 cells, 12 per arm in each of three conditions, ran on its own freshly built cluster, in twelve blocks drawn from a seed before any cell, and was judged by a one-sided Fisher exact test fixed in advance, per condition at 0.05. Every cell stood on its first attempt, and the cells ran in the registered order:
+
+| condition | layout, sequence | stranded at the discriminating step, `S-default` | `S-gpu-most` | one-sided p | registered reading |
+|---|---|---:|---:|---:|---|
+| C1, this finding's own | 2, 1, 1; the six submissions above | **10 of 12**, 2 devices each | 0 of 12 | 0.00003 | packing removed stranding |
+| C2, packing should lose | 3, 2; 1, 2, 2, then 1 | 6 of 12, 2 devices each | **12 of 12**, 2 devices each | 0.0069 | **packing lost on this mix** |
+| C3, packing should win | 3, 2; 1, 1, 3, then 1 | **12 of 12**, 3 devices each | 0 of 12 | 0.0000004 | packing removed stranding |
+
+So the same configuration that protected the large node in C1 and C3 stranded two devices in every C2 cell, on the same layout as C3. Both C2 and C3 passed, so the sign reversal the registration allowed is reported. `MostAllocated` put the first one-device request on the two-device worker because 1/2 is the larger fraction, and the two two-device requests that followed could not both fit. The rule protects the node a request fills, not the remainder a later request needs.
+
+One registered estimate was wrong, though the test it was beside was not affected. The registration expected the default scheduler to strand in C3 "about three times in four", reading it as a coin per request. In all 12 `S-default` cells of C3 the second one-device request went to the worker the first had not taken, so two ones never shared the two-device worker and C3 stranded every time; the first landed on the three-device worker in 4 of the 12. C2 points the same way where its second request, of two devices, had a choice: in the 6 cells where the first request took the three-device worker, the second went to the other worker every time. C1's reference arm stranded in 10 of 12, against two of three in each earlier series.
+
+**What the second campaign does not say.** Not that packing is wrong in general, or right: it is three fixed sequences on two layouts, on simulated devices, and a fixed sequence is not an arrival process. The treatment is still the whole configuration.
+
+*(`docs/superpowers/specs/2026-09-29-stranded-gpu-frozen-protocol.md`, `cmd/strandedrun`, `hack/stranded-cell.sh`; the second campaign: `docs/superpowers/specs/2026-10-22-stranding-where-packing-should-lose-design.md`, `hack/stranded-protocol-v2.yaml`, evidence `hack/stranded-v2-20261023T031645Z/`)*
 
 ---
 
@@ -489,6 +503,6 @@ Two of these are rejected hypotheses, which is a result. Two are gaps, which are
 | 3 — sharing vs isolation | MIG on a card that supports it, which the account's instance-family policy does not permit. The MPS arm is **unjudged rather than failed** — it did not run correctly in the matrix, which is a different statement from missing the bar |
 | 4 — tail-only readings | nothing; the mechanism is established and the fix is a reading, not a run |
 | 5 — preemption that did not | already closed: the termination contract is now an arm of the protocol |
-| 8 — configuration removes stranding | a second layout, and a demand mix where packing should *lose*. Both arms ran on one shape; the campaign cannot cancel a drift over time, because both arms render the same cluster name and must run in sequence |
+| 8 — configuration removes stranding | the second layout, the mix where packing loses and the counterbalanced order were measured on 2026-10-23, and the sign reversed with the mix; what remains is real devices, an arrival process rather than a fixed sequence, and more than three workers |
 | 9 — hold-cap protects, a tuned clock ties | the robustness study v27 stopped: a load with headroom for the contender, so a fixed spacing tuned at one prompt length can be measured failing at another while hold-cap stays inside its limits; and a second card model |
 | 10 — a half-placed distributed job | more than two ranks, other jobs in the cohort, `blockAdmission: true`, and real devices; the phase fix it pointed at and the trainer's signal fix were measured together under a second registration, two runs per scenario plus two with a second tenant, all on simulated devices |

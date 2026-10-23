@@ -1,0 +1,74 @@
+{
+  "arm": "S-default",
+  "repetition": 6,
+  "attempt": 1,
+  "arm_verdict": {
+    "arm": "S-default",
+    "qualified": true,
+    "scheduler_image": "registry.k8s.io/kube-scheduler-amd64:v1.31.0",
+    "restarts": 0
+  },
+  "censuses": [
+    {
+      "step": "c1",
+      "stranded_devices": 0,
+      "unusable_gap_sum_diagnostic_only": 0,
+      "witness_request": 3,
+      "witness_exists": true,
+      "no_demand": true,
+      "reserved_total": 1,
+      "placed_workloads": [
+        "s1"
+      ],
+      "outstanding_demand": 0
+    },
+    {
+      "step": "c2",
+      "stranded_devices": 0,
+      "unusable_gap_sum_diagnostic_only": 0,
+      "witness_request": 0,
+      "witness_exists": false,
+      "no_demand": true,
+      "reserved_total": 3,
+      "placed_workloads": [
+        "s1",
+        "s2"
+      ],
+      "outstanding_demand": 0
+    },
+    {
+      "step": "c3",
+      "stranded_devices": 0,
+      "unusable_gap_sum_diagnostic_only": 0,
+      "witness_request": 0,
+      "witness_exists": false,
+      "no_demand": true,
+      "reserved_total": 5,
+      "placed_workloads": [
+        "s1",
+        "s2",
+        "s3"
+      ],
+      "outstanding_demand": 0
+    },
+    {
+      "step": "c4",
+      "stranded_devices": 0,
+      "blocked": [
+        "s4"
+      ],
+      "unusable_gap_sum_diagnostic_only": 0,
+      "witness_request": 0,
+      "witness_exists": false,
+      "no_demand": false,
+      "reserved_total": 5,
+      "placed_workloads": [
+        "s1",
+        "s2",
+        "s3"
+      ],
+      "outstanding_demand": 1
+    }
+  ],
+  "protocol_sha256": "d6fd4a6527e07c3ec1c1dc39167f3e13e98786cebb3c378c917e6ca4cebf9f2b"
+}

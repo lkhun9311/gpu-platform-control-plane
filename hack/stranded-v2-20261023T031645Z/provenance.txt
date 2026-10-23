@@ -1,0 +1,7 @@
+commit=e1c489b99788dd2541e2abcb98e9ee1b7c416259
+kind=kind v0.33.0 go1.25.7 linux/amd64
+simulator_image=sha256:f0854ffb7b75179e6eab0219cddadda71ad5b8d162a702a02f707ded288ac61f
+node_image_C1=kindest/node:v1.31.0 sha256:25a3504b2b340954595fa7a6ed1575ef2edadf5abd83c0776a4308b64bf47c93
+node_image_C2=kindest/node:v1.31.0 sha256:25a3504b2b340954595fa7a6ed1575ef2edadf5abd83c0776a4308b64bf47c93
+node_image_C3=kindest/node:v1.31.0 sha256:25a3504b2b340954595fa7a6ed1575ef2edadf5abd83c0776a4308b64bf47c93
+rehearsal=0 cells=72
