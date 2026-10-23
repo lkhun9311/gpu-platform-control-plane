@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: squatter
+  namespace: squat
+spec:
+  nodeName: partial-worker2
+  terminationGracePeriodSeconds: 0
+  containers:
+    - name: hold
+      image: cpu-ddp:torch251
+      imagePullPolicy: IfNotPresent
+      command: ["sleep", "infinity"]
+      resources:
+        limits:
+          nvidia.com/gpu: 1

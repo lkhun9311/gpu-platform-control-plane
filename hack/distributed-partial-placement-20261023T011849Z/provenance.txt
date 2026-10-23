@@ -1,0 +1,14 @@
+commit=55530a986318c331f9916db3151ca864154032e0
+dirty_files=1
+kind=kind v0.33.0 go1.25.7 linux/amd64
+kubectl=v1.36.3
+kueue=v0.18.3
+cert_manager=v1.21.1
+train_py_sha256=b3d7c162a582a54a567791d7602f03fcc3c8fab27b3b86d1310aff1763b318ca
+window=600 late_at=300 rendezvous_timeout=1500
+runs=off:never:1 off:late:1 off:never:2 off:late:2 ready-timeout:never:1 ready-timeout:late:1 ready-timeout:never:2 ready-timeout:late:2 ready-timeout:witness:1 ready-timeout:witness:2
+workload_image=sha256:125a84772526abddb6cd52c303d71ea82e2a56a25ba3f18e119b6d35d39e6bdf
+torch=2.5.1+cpu
+node_image=kindest/node:v1.37.0@sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5
+kubelet=v1.37.0
+workers=partial-worker partial-worker2  squat_node=partial-worker2
