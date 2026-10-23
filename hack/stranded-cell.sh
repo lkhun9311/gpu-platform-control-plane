@@ -337,8 +337,34 @@ print(f\"stranded={d['stranded_devices']} reserved={d['reserved_total']} blocked
 # The probe and its holder are deleted before the registered sequence runs. They are qualification evidence,
 # which the protocol excludes from the comparison, and leaving them in place would change the cluster the
 # sequence starts from.
+#
+# The second campaign's 3,2 layout has no tie to break: an empty cluster already separates the strategies, the
+# probe reaching 1/2 on the two-device node and 1/3 on the three-device one, so MostAllocated prefers the first
+# and LeastAllocated the second, and no holder is placed. Any other layout has no registered probe and refuses.
 qualify_treatment() {
-  local holder_node="stranded-worker3" probe_node
+  local holder_node="" fixture
+  case "${LAYOUT[*]}" in
+    "2 1 1")
+      holder_node="stranded-worker3"
+      fixture="stranded-worker:${LAYOUT[0]}:0,stranded-worker2:${LAYOUT[1]}:0,$holder_node:${LAYOUT[2]}:${LAYOUT[2]}"
+      ;;
+    "3 2")
+      fixture="stranded-worker:${LAYOUT[0]}:0,stranded-worker2:${LAYOUT[1]}:0"
+      ;;
+    *)
+      say "no qualification probe is registered for layout ${LAYOUT[*]}"
+      invalid missing_arm_qualification_evidence
+      ;;
+  esac
+  if [ -n "$holder_node" ]; then
+    qualify_hold "$holder_node"
+  fi
+  qualify_probe "$fixture"
+}
+
+# qualify_hold fills one one-device node, so that the probe's candidates no longer tie.
+qualify_hold() {
+  local holder_node="$1"
   say "qualification probe: holding $holder_node so the two one-device nodes do not tie"
   k -n "$NS" apply -f - >>"$EXDIR/run.log" 2>&1 <<YAML
 apiVersion: v1
@@ -365,7 +391,12 @@ YAML
     say "the qualification holder never bound, so no discriminating fixture exists"
     invalid missing_arm_qualification_evidence
   fi
+}
 
+# qualify_probe places a one-device probe and asks check-treatment whether MostAllocated put it there.
+# The fixture states the cluster AS THE PROBE SAW IT: a holder's node full, the others free.
+qualify_probe() {
+  local fixture="$1" probe_node deadline
   k -n "$NS" apply -f - >>"$EXDIR/run.log" 2>&1 <<YAML
 apiVersion: v1
 kind: Pod
@@ -392,9 +423,7 @@ YAML
   fi
   say "qualification probe landed on $probe_node"
 
-  # The fixture states the cluster AS THE PROBE SAW IT: the holder's node is full, the others are free.
-  if "$BIN" check-treatment -strategy=MostAllocated \
-      -nodes="stranded-worker:${LAYOUT[0]}:0,stranded-worker2:${LAYOUT[1]}:0,$holder_node:${LAYOUT[2]}:${LAYOUT[2]}" \
+  if "$BIN" check-treatment -strategy=MostAllocated -nodes="$fixture" \
       -request=1 -observed="$probe_node" >>"$EXDIR/check-treatment.log" 2>&1; then
     TREATMENT_APPLIED=yes
   else
@@ -403,7 +432,8 @@ YAML
   PROBE_NODE="$probe_node"; export PROBE_NODE
   say "check-treatment: applied=$TREATMENT_APPLIED"
 
-  k -n "$NS" delete pod qual-holder qual-probe --wait=true >>"$EXDIR/run.log" 2>&1
+  # A 3,2 cell placed no holder, and under set -e a delete of an absent Pod would end the cell.
+  k -n "$NS" delete pod qual-holder qual-probe --ignore-not-found --wait=true >>"$EXDIR/run.log" 2>&1
   say "qualification evidence removed; the sequence starts from the layout it verified"
 }
 
@@ -412,14 +442,16 @@ YAML
 write_record() {
   local reason="${1:-}"
   python3 - "$EXDIR" "$ARM" "$REP" "$TRY" "$ARM_IMAGE" "$ARM_RESTARTS" \
-      "${ARM_QUALIFIED:-false}" "${TREATMENT_APPLIED:-}" "$reason" <<'PY' >"$EXDIR/record.json"
-import glob, json, os, sys
-exdir, arm, rep, try_, image, restarts, qualified, treat, reason = sys.argv[1:10]
+      "${ARM_QUALIFIED:-false}" "${TREATMENT_APPLIED:-}" "$reason" "$PROTOCOL" <<'PY' >"$EXDIR/record.json"
+import glob, hashlib, json, os, sys
+exdir, arm, rep, try_, image, restarts, qualified, treat, reason, protocol = sys.argv[1:11]
 rec = {
     "arm": arm, "repetition": int(rep), "attempt": int(try_),
     "arm_verdict": {"arm": arm, "qualified": qualified == "true",
                     "scheduler_image": image, "restarts": int(restarts or 0)},
     "censuses": [],
+    # The file this cell was performed against, so a record filed under another condition is refused.
+    "protocol_sha256": hashlib.sha256(open(protocol, "rb").read()).hexdigest(),
 }
 if arm == "S-gpu-most" and treat:
     rec["treatment_verdict"] = {"strategy": "MostAllocated", "observed": os.environ.get("PROBE_NODE", ""),

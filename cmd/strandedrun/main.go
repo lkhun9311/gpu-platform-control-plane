@@ -83,6 +83,8 @@ func main() {
 		err = checkCell(os.Args[2:])
 	case "check-campaign":
 		err = checkCampaign(os.Args[2:])
+	case "check-campaign-v2":
+		err = checkCampaignV2(os.Args[2:])
 	case "-h", "--help", "help":
 		usage()
 		return
@@ -149,7 +151,43 @@ func usage() {
       an over-cap attempt count are all invisible to per-cell checks. DIR holds one .json per
       attempt, and every attempt is read -- the protocol publishes them all, including the
       invalid ones.
+
+  check-campaign-v2 -records=DIR -campaign=hack/stranded-protocol-v2.yaml [-root=.]
+      Judge the second campaign: each condition's records, under DIR/<condition>, by
+      check-campaign's rules against that condition's own protocol, then the registered
+      one-sided Fisher test between the arms at the discriminating step and the reading it
+      licenses. A first-campaign protocol is refused by its version.
 `)
+}
+
+// checkCampaignV2 judges the second campaign's conditions, and prints each one's counts, test and reading.
+func checkCampaignV2(args []string) error {
+	fs := flag.NewFlagSet("check-campaign-v2", flag.ContinueOnError)
+	dir := fs.String("records", "", "directory holding one directory of cell records per condition")
+	campaign := fs.String("campaign", "", "the second campaign's frozen protocol")
+	root := fs.String("root", ".", "the repository root the campaign's condition paths are relative to")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *dir == "" || *campaign == "" {
+		return fmt.Errorf("-records and -campaign are both required")
+	}
+	c, err := LoadCampaignV2(*campaign, *root)
+	if err != nil {
+		return err
+	}
+	readings, err := c.CheckCampaignV2(*dir)
+	if err != nil {
+		return err
+	}
+	for _, r := range readings {
+		fmt.Printf("%s: S-default stranded in %d of %d, S-gpu-most in %d of %d; one-sided Fisher p = %.4f; %s\n",
+			r.Condition, r.DefaultStranded, r.DefaultCells, r.GPUMostStranded, r.GPUMostCells, r.P, r.Reading)
+	}
+	if s := SignReversal(readings); s != "" {
+		fmt.Println(s)
+	}
+	return nil
 }
 
 func renderSchedulerConfig(args []string) error {

@@ -1,7 +1,7 @@
 # Stranding where packing should lose, on a second layout, in counterbalanced order: a registration
 
 Written 2026-10-22, before any cell.
-**DRAFT until the owner commits it; it is frozen from that commit, and no cell before it counts.**
+**Registered 2026-10-23 by the owner's approval; frozen from the commit that adds this line, and no cell before it counts.**
 Free: local kind clusters, no rented hardware.
 Finding 8's six cells and their series stand as published (`docs/11_WHAT_THIS_MEASURED.md`, Finding 8); this is a new campaign with its own protocol version.
 
@@ -73,15 +73,21 @@ A tie, an identical outcome, or a stranding figure of zero does not invalidate a
 
 ## Building it
 
-- A version-2 protocol file beside `hack/stranded-protocol.yaml`, to be written: the three conditions, their layouts and sequences, the 12 per arm, the order above, and the test; `cmd/strandedrun` reads it as version 2 and refuses a version-1 file asked to do version 2's work.
-- `cmd/strandedrun`: a per-condition campaign check, the Fisher test with a table-driven test against hand-computed values (12/12 against 8/12 gives 0.0466 and against 9/12 0.1087 one-sided; 0/12 against 4/12 gives 0.0466), and the readings above; each new refusal pinned by a test that fails when it is removed.
-- `hack/stranded-cell.sh`: the qualification probe chosen by the condition's layout instead of a fixed holder on `stranded-worker3`, and the cluster built fresh for each cell.
-- A rehearsal of one cell of each condition and arm, reported as a rehearsal and not counted.
+- `hack/stranded-protocol-v2.yaml`, version 2: the three conditions, what each predicts, the order above with its seed, and the test. Each condition names its own file, `hack/stranded-protocol-v2/c1.yaml` to `hack/stranded-protocol-v2/c3.yaml`, in the first campaign's schema with its layout, its sequence and 12 repetitions per arm (24 cells, at most 48 attempts), so `check-cell` judges every cell by the first campaign's rules with no second copy of any.
+  The layout check keeps its registered reason name, `advertised_capacity_not_2_1_1_at_start`, which in C2 and C3 means the advertised capacity was not 3,2.
+- `cmd/strandedrun check-campaign-v2`: refuses a version-1 file by its version; judges each condition's records, kept in a directory of their own and each naming by `protocol_sha256` the file it was performed against, since C2 and C3 share submission names and a misfiled record would otherwise pass, by `check-campaign`'s rules; then the Fisher test, exact from big-integer binomials, with a table-driven test against the values above (12/12 against 8/12 gives 0.0466 and against 9/12 0.1087 one-sided; 4/12 against 0/12 gives 0.0466), and the readings above, including the sign reversal only when both C2 and C3 pass. Each new refusal and reading is pinned by a test that fails when it is removed.
+- `hack/test/check-stranded-v2-order.sh`, in `make harness-check`: redraws the twelve blocks from the seed and compares, since Go cannot redraw Python's shuffle and `check-campaign-v2` checks only that each block is a permutation.
+- `hack/stranded-cell.sh`: the qualification probe chosen by the condition's layout: Finding 8's holder on `stranded-worker3` for 2,1,1, no holder for 3,2, and a refusal for any other layout.
+- `hack/stranded-campaign-v2.sh`: every cell in the registered order on its own fresh cluster, built by the registered steps and deleted after; an invalid attempt is replaced at once, and a second invalidation of one cell stops the campaign.
+- A rehearsal of one cell of each condition and arm (`REHEARSE=1`, block 1 only), reported as a rehearsal and not counted.
+  Run 2026-10-23 from `e06b570f`, before this line, into `ex/stranded-v2-rehearsal-20261023T030928Z/`: all six cells stood under `check-cell`, each on its own cluster created and deleted by the registered steps, each layout read back as its condition registers, each record naming its own condition's protocol file, and the qualification probe of every `S-gpu-most` cell placed on the two-device worker, with Finding 8's holder only in C1.
+  It showed what the harness does, not what the campaign will find, and its stranding figures are not reported.
 
 ## Cost and time
 
 No rented hardware.
 At about two minutes to build a cluster and three to run a cell, 72 cells take about six hours; the rehearsal measures this, and the order above is not changed if it is slower.
+The rehearsal's six cells took 39 to 50 s each, cluster included, so the campaign should take about an hour; nothing above depends on its duration.
 
 ## What it does not say, whatever the result
 

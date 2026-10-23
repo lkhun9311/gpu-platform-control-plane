@@ -1,0 +1,115 @@
+# Condition C3 of the second stranded-GPU campaign, packing should win on the second layout, in the form check-cell reads.
+#
+# Registered by docs/superpowers/specs/2026-10-22-stranding-where-packing-should-lose-design.md. The campaign file
+# hack/stranded-protocol-v2.yaml names this file as C3's protocol and adds what is campaign-wide: the order the
+# cells run in and the test. This file is one condition's cells, in the first campaign's schema, so the same
+# check-cell judges them by the same rules.
+#
+# Changing any value here changes the registered protocol.
+
+version: 1
+
+arms:
+  - name: S-default
+    installs_scheduler_config: false
+    qualification:
+      scheduler_args_must_not_contain: ["--config"]
+      profile_file_must_be_absent: true
+      demand_must_schedule: true
+  - name: S-gpu-most
+    installs_scheduler_config: true
+    qualification:
+      check_treatment_must_report_applied: true
+      scoring_strategy: MostAllocated
+      scoring_resources:
+        - name: nvidia.com/gpu
+          weight: 1
+
+# On an empty 3,2 a one-device probe reaches 1/2 on the two-device worker and 1/3 on the three-device one, so the
+# two strategies already disagree and the cell places no holder before it (hack/stranded-cell.sh).
+node_layout:
+  workers: [3, 2]
+  control_plane_devices: 0
+
+images:
+  node: kindest/node:v1.31.0
+  scheduler: registry.k8s.io/kube-scheduler-amd64:v1.31.0
+
+# MostAllocated puts s1 and s2 on the two-device worker (1/2, then 2/2), leaving all three of the other for s3.
+# The default strands three unless both ones land on the two-device worker. Read from the scoring rule.
+submissions:
+  - id: s1
+    request: 1
+  - id: s2
+    request: 1
+  - id: s3
+    request: 3
+    discriminating: true
+  - id: s4
+    request: 1
+
+expected_counts:
+  submission_attempts: 4
+  accepted_censuses: 4
+  membership_at_step_k_must_be: s1..sk
+
+matrix:
+  repetitions_per_arm: 12
+  cells: 24
+  replacements_per_invalid_cell: 1
+  max_attempts_total: 48
+  publish_every_attempt: true
+  reporting_threshold: none
+
+performed_by: hack/stranded-cell.sh
+judged_by:
+  - check-cell
+  - check-campaign-v2
+
+# Every cell builds its own cluster under this one name and deletes it after, so no cell inherits another's
+# state, only one stands at a time, and the arms can be interleaved in the registered order.
+cluster:
+  name: stranded
+  one_arm_at_a_time: true
+  build_steps:
+    - render-cluster writes kind-config.yaml and device-plugins.yaml
+    - kind create cluster --config kind-config.yaml
+    - kind load docker-image gpu-simulator:latest --name stranded
+    - kubectl apply -f device-plugins.yaml, which creates its own namespace
+    - wait for capacity by reading allocatable back, never by rollout status
+    - stranded-cell.sh cell ARM REP ATTEMPT
+    - kind delete cluster --name stranded
+  arm_established_by: qualify-arm reading the scheduler's arguments at the start of every cell
+
+barriers:
+  settledness_must_be_observed: true
+  per_step_timeout_seconds: 120
+  retain_per_step:
+    - api_response
+    - bound_node_name
+    - failed_scheduling_events
+
+# The first campaign's list, unchanged. advertised_capacity_not_2_1_1_at_start keeps its registered name and here
+# means that the advertised capacity was not this file's layout, 3,2.
+invalidates_a_cell:
+  - unobserved_disposition
+  - ledger_membership_mismatch
+  - pending_for_a_non_gpu_reason
+  - scheduler_restart_during_the_cell
+  - scheduler_image_differs_between_cells
+  - missing_arm_qualification_evidence
+  - advertised_capacity_not_2_1_1_at_start
+  - render_directory_not_cleaned_by_the_renderer
+  - step_neither_bound_nor_refused_within_timeout
+  - a_submission_of_this_campaign_outside_its_own_cluster
+  - the_sibling_studys_fixture_installed_on_the_cells_cluster
+
+does_not_invalidate_a_cell:
+  - a_tie_between_nodes
+  - an_identical_outcome_across_arms_or_repetitions
+  - a_stranding_figure_of_zero
+  - a_shortage_classification
+
+# The rehearsal of one cell per condition and arm, which the registration requires and does not count.
+qualification_evidence_excluded_from_comparison:
+  - the rehearsal of one C3 cell of each arm before this file was frozen
