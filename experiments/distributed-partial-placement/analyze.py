@@ -159,27 +159,59 @@ class Timeline:
             else:
                 self.states.append((t, snap))
 
-    def ever(self, pred) -> str:
-        """Whether pred held after any single event, which `states` can hide when two arrive in one millisecond.
+    def ever(self, pred, kinds=WATCHED) -> str:
+        """Whether pred held after any single event of the given streams, which `states` can hide in a tie.
 
-        "seen" when it held after an event no other stream shares a millisecond with, "ambiguous" when it held only
-        where another stream's event has the same arrival, since the order between two streams' events is then the
-        sort's and not the cluster's, and "none" otherwise.
+        One stream's events keep the order its recorder wrote them in, but two streams' events in one millisecond have
+        no known order, so a tie across streams is replayed in every interleaving that keeps each stream's own order.
+        "seen" when pred held in a state every ordering passes through, "ambiguous" when it held only in some, and
+        "none" otherwise.
         """
         current: dict[str, dict[str, dict]] = {k: {} for k in WATCHED}
-        kinds_at: dict[datetime.datetime, set[str]] = {}
-        for t, kind, _, _ in self.events:
-            kinds_at.setdefault(t, set()).add(kind)
-        found = "none"
-        for t, kind, etype, obj in self.events:
+
+        def apply(state, event):
+            _, kind, etype, obj = event
             if etype == "DELETED":
-                current[kind].pop(obj["metadata"]["uid"], None)
+                state[kind].pop(obj["metadata"]["uid"], None)
             else:
-                current[kind][obj["metadata"]["uid"]] = obj
-            if pred(current):
-                if len(kinds_at[t]) == 1:
+                state[kind][obj["metadata"]["uid"]] = obj
+
+        def interleavings(streams):
+            if not any(streams):
+                yield []
+                return
+            for i, s in enumerate(streams):
+                if s:
+                    rest = streams[:i] + [s[1:]] + streams[i + 1:]
+                    for tail in interleavings(rest):
+                        yield [s[0]] + tail
+
+        events = [e for e in self.events if e[1] in kinds]
+        found, i = "none", 0
+        while i < len(events):
+            j = i
+            while j < len(events) and events[j][0] == events[i][0]:
+                j += 1
+            group = events[i:j]
+            streams = [[e for e in group if e[1] == k] for k in kinds if any(e[1] == k for e in group)]
+            if len(streams) == 1:
+                for e in group:
+                    apply(current, e)
+                    if pred(current):
+                        return "seen"
+            else:
+                for order in interleavings(streams):
+                    trial = {k: dict(v) for k, v in current.items()}
+                    for e in order[:-1]:
+                        apply(trial, e)
+                        if pred(trial):
+                            found = "ambiguous"
+                for e in group:
+                    apply(current, e)
+                # The state after the whole group is the same in every ordering.
+                if pred(current):
                     return "seen"
-                found = "ambiguous"
+            i = j
         return found
 
     def _check_coverage(self, kind, rows):
@@ -784,11 +816,11 @@ class Run:
         def holds(w):
             return true(w, "QuotaReserved") and not true(w, "Finished")
         uids = {o["metadata"]["uid"] for _, _, o in workload}
-        for t, s in self.tl.states:
-            mine = [w for w in s["workloads"].values() if w["metadata"]["uid"] in uids]
-            if holds(self.tl.workload(s)) and any(holds(w) for w in mine):
-                p.append(f"the witness held quota with the job at {t.isoformat()}")
-                break
+        # Both are Workloads, one stream in its recorded order, so every single event is checked, not the snapshots.
+        overlap = self.tl.ever(lambda s: holds(self.tl.workload(s)) and any(
+            holds(w) for w in s["workloads"].values() if w["metadata"]["uid"] in uids), kinds=("workloads",))
+        if overlap != "none":
+            p.append("the witness held quota with the job")
         return p
 
 
@@ -876,12 +908,14 @@ def predict_after_fix(run: Run, m: dict, earlier: list[tuple[str, str, str]]) ->
     verdict = {name: v for name, v, _ in earlier}
     entries = run.running_entries()
     # Zero integrated time is not proof the state never occurred, so every single event is checked as well.
-    seen = tl.ever(lambda s: tl.phase(s) == "Running" and tl.stranded(s))
+    seen = tl.ever(lambda s: tl.phase(s) == "Running" and tl.stranded(s), kinds=("mltrainingjobs", "pods"))
     zero = m["M1_unrounded_s"] == 0 and m["M1_polled_upper_unrounded_s"] == 0
     out.append(("Q1", "contradicted" if not zero or seen == "seen" else "not evaluable" if seen == "ambiguous" else "held",
                 f"M1 {m['M1_running_while_stranded_s']} s, polled bounds {m['M1_polled_bounds_s']}, "
                 f"Running while stranded after any single event {seen}"))
-    statuses = [((tl.mltj(s) or {}).get("status") or {}) for _, s in tl.states]
+    # Every status the CR's own stream recorded, in order: snapshots drop the earlier of two in one millisecond.
+    statuses = [(o.get("status") or {}) for _, kind, etype, o in tl.events
+                if kind == "mltrainingjobs" and etype != "DELETED" and o["metadata"]["name"] == run.name]
     final = statuses[-1] if statuses else {}
     if key == ("off", "never"):
         m2 = m["M2_quota_held_before_joining"]

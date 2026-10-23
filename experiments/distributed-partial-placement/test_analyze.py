@@ -518,9 +518,9 @@ class AfterFix(Fixture):
         m["M1_unrounded_s"], m["M1_polled_upper_unrounded_s"] = 0.0, 0.0
         # The old code was Running while stranded, which every-event replay still sees with M1 set to zero.
         self.assertEqual(self.q(run, m, "Q1"), ["contradicted"])
-        run.tl.ever = lambda pred: "none"
+        run.tl.ever = lambda pred, kinds=None: "none"
         self.assertEqual(self.q(run, m, "Q1"), ["held"])
-        run.tl.ever = lambda pred: "ambiguous"
+        run.tl.ever = lambda pred, kinds=None: "ambiguous"
         self.assertEqual(self.q(run, m, "Q1"), ["not evaluable"])
         m["M1_polled_upper_unrounded_s"] = 1.0
         self.assertEqual(self.q(run, m, "Q1"), ["contradicted"])
@@ -604,6 +604,38 @@ class AfterFix(Fixture):
         self.assertEqual([v for n, v, _ in analyze.predict_after_fix(run, m, []) if n == "Q2"], ["held"])
         run.tl = self.timeline(run.name, steady[:2] + [(t + 50 * analyze.SEC, "Admitted", 0, True)] + steady[2:])
         self.assertEqual([v for n, v, _ in analyze.predict_after_fix(run, m, []) if n == "Q2"], ["contradicted"])
+        # The lapse and its recovery in one millisecond, which one snapshot would hide.
+        run.tl = self.timeline(run.name, steady[:2] + [(t + 50 * analyze.SEC, "Admitted", 0, None),
+                                                       (t + 50 * analyze.SEC, "Admitted", 1, None)] + steady[2:])
+        self.assertEqual([v for n, v, _ in analyze.predict_after_fix(run, m, []) if n == "Q2"], ["contradicted"])
+
+    def test_a_tie_where_running_ends_as_a_rank_strands_is_ambiguous(self):
+        # The CR leaves Running in the millisecond a rank becomes unschedulable; with the Pod first, both held at once.
+        t = analyze.ts("2026-10-21T06:42:00+00:00")
+        tl = self.timeline("j", [(t, "Running", 2, False), (t + analyze.SEC, "Admitted", 1, True)])
+        self.assertEqual(tl.ever(lambda s: tl.phase(s) == "Running" and tl.stranded(s), kinds=("mltrainingjobs", "pods")),
+                         "ambiguous")
+
+    def test_a_witness_reserving_in_the_millisecond_the_job_releases_overlaps(self):
+        self.add_witness()
+        release = "2026-10-21T06:43:52.091000+00:00"
+        rows = []
+
+        def same_ms(r):
+            obj = r.get("object") or {}
+            if obj.get("metadata", {}).get("uid") == "witness-wl" and r["arrived"].startswith("2026-10-21T06:43:52.491"):
+                rows.append(r)
+                return None
+            return r
+        self.rewrite(self.RT, "watch.workloads.jsonl", same_ms)
+        # Recorded just before the job's release, in the same millisecond, in the stream's own order.
+        with open(self.path(self.RT, "watch.workloads.jsonl")) as f:
+            lines = f.readlines()
+        at = next(i for i, line in enumerate(lines) if json.loads(line)["arrived"][:23] == release[:23])
+        lines.insert(at, json.dumps(dict(rows[0], arrived=lines and json.loads(lines[at])["arrived"])) + "\n")
+        with open(self.path(self.RT, "watch.workloads.jsonl"), "w") as f:
+            f.writelines(lines)
+        self.assertTrue(any("held quota with the job" in p for p in self.run_(self.RT).witness_problems()))
 
     def test_q3_needs_running_after_both_ranks_are_ready(self):
         # The old rule entered Running before the second rank was placed.
