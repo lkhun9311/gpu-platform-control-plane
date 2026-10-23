@@ -49,6 +49,12 @@ type CellRecord struct {
 	// is a registered enum rather than free text, and why the ones the protocol says do NOT invalidate are
 	// refused here explicitly.
 	InvalidatedBecause string `json:"invalidated_because,omitempty"`
+	// ProtocolSHA256 is the hash of the protocol file the cell was performed against, written by the performer.
+	//
+	// The second campaign requires it: two of its conditions both register four submissions named s1 to s4, so a
+	// record filed under the wrong condition passes check-cell against the other's file unchanged, and only the
+	// file it was performed against tells them apart. The first campaign's records predate it and carry none.
+	ProtocolSHA256 string `json:"protocol_sha256,omitempty"`
 }
 
 // Valid reports whether this attempt is one the campaign may count.
