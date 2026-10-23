@@ -112,6 +112,31 @@ The fixes were: R's quota raised 4 → 5 (recorded as a deviation in the pre-reg
 unchanged); a replica that never runs now **invalidates** the trial instead of being stepped over; the
 middle state is asserted rather than assumed; and `pod_uid` is recorded so "the same Pod" can be checked.
 
+## R again, with a collector the intervention cannot pause (2026-10-23)
+
+Registered before any trial in `docs/superpowers/specs/2026-10-22-repack-with-a-continuous-collector-design.md`
+and frozen at `79d6b1c9`; ten trials, R and F alternating (R, F, F, R, R, F, F, R, R, F), on a throwaway kind
+cluster `frag` built from that commit with no uncommitted change (`ex/frag-r3/cluster-provenance.txt`).
+The sampler ran as its own process for the whole window, so the intervention could not pause it.
+
+| measurement | R, 5 trials | F, 5 trials |
+|---|---|---|
+| largest collection gap | 1.27–1.28 s, `gap_rule=ok` 5/5 | 1.27–1.28 s, `gap_rule=ok` 5/5 |
+| window covered at both edges | `coverage=ok` 5/5 | `coverage=ok` 5/5 |
+| middle state `ΣF = 1` in the timeline itself, between the replica running and the deletion | 8 samples in each | — |
+| one Pod UID throughout, seen stranded before the deletion | 5/5 | 5/5 |
+| target scheduled after the original holder's deletion | 5/5, 0.51–1.43 s after it | never, 147–149 samples of `fragmentation` |
+| samples where the CR said `Running` while unscheduled | 0 in each | 0 in each |
+
+So R meets its registered bars in five trials that also meet the collection-gap rule, and the caveat above is
+replaced, not removed: the attempt-3 trials stay invalid by that rule, and these five are the valid ones.
+F's zero, against 145 samples in each F trial on 2026-09-24, re-confirms the 2026-09-25 phase fix on this
+harness.
+
+What differs from 2026-09-24 besides the collector: the cluster (built fresh from the tree rather than the
+long-lived `kind-platform`), the operator (this commit's, with the phase fix), and possibly Kueue, which is
+v0.18.3 now and was not recorded then. The node image is the same `kindest/node:v1.31.0` by digest.
+
 ## What this licenses
 
 **Does:** on a Kubernetes cluster with Kueue, a 2-GPU job was held unschedulable with 2 GPUs free in
@@ -120,9 +145,9 @@ controls with no misclassification across 20 trials with no collection gap over 
 reported the unplaced job as `Running` in every sample taken while it was unschedulable, with its latency
 metric taken from that false transition.
 
-**Does, but with a caveat that has to travel with it:** demand-preserving repacking recovered the same Pod
-in 5/5 — and every one of those five trials breaches the pre-registered 5 s collection-gap rule, so they are
-reported as evidence rather than as passes.
+**Does:** demand-preserving repacking recovered the same Pod in 5/5 trials that meet the pre-registered 5 s
+collection-gap rule, with the middle state in the timeline itself (the 2026-10-23 rerun above). The first five
+R trials breach that rule and are reported as evidence rather than as passes.
 
 **Does not:** real NVIDIA hardware, CUDA, GPU memory, MIG, NVLink or PCIe topology; utilisation, throughput
 or cost; multi-Pod gang scheduling or multi-node DDP; Kueue topology-aware scheduling; automatic detection
