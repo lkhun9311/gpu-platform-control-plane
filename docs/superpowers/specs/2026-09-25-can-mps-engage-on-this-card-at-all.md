@@ -324,3 +324,39 @@ A rerun needs both corrected first. They are settled in an amendment dated befor
 The source reading above is mine. codex `gpt-6-astra` was asked the same question independently, and its answer is recorded with the amendment, not merged into this paragraph.
 
 **The evidence** is committed in `hack/mps-capability/2026-10-24-run1/`, with a `SHA256SUMS` over every file in it. The binaries and the source archive the instance ran are kept on the owner's machine.
+
+## Amendment, 2026-10-24: the overlay and the engines' shm corrected before run 2
+
+**Written before run 2 was bought.** The owner approved run 2 on 2026-10-24, after reading run 1's result.
+No bar, outcome rule, phase, deadline, kill or B5 load above changes. What changes is the arrangement under test, which run 1 showed was not MPS as NVIDIA deploys it.
+
+**What changes, and where.**
+1. `config/nvidia-device-plugin-mps/daemonset.yaml`:
+   - the plugin's `--mps-root` is the host root, `/run/nvidia/mps`, which equals the hostPath both DaemonSets mount at `/mps`;
+   - the daemon first runs `mps-control-daemon mount-shm` in a privileged init container, with `/mps` propagated Bidirectionally;
+   - the daemon and the plugin both mount the host's `/run/nvidia/mps/shm` at `/dev/shm`.
+   These three follow the chart at the pinned tag, v0.16.2. `hack/test/check-mps-overlay.sh` renders the overlay and pins each of them. It fails on run 1's overlay, and on each of five single-point mutations of the new one.
+2. Under this study only, the engines are applied without their own `/dev/shm`. `config/vllm-shared/mps-shm-patch.yaml` removes the mount and the `dshm` volume, and `mpscap_engine_manifest` renders each engine through `kubectl kustomize` and refuses a render that still carries either.
+   The time-slicing and exclusive arms apply the engine files unchanged.
+   So under MPS each engine's `/dev/shm` is the daemon's tmpfs, shared by both engines and half the node's memory, instead of its own 1 GiB.
+   That is a difference between this study's engines and the matrix's. It does not touch a capability answer, and any later MPS comparison has to record it.
+3. The engines' pin covers the patch as well as both engine files. Each pin's files are now named once, in `hack/lib/mps-capability.sh`, for the session, the instance and the session's test.
+4. The diagnostics collect both engines' logs, current and previous, as rows that are not required. An engine refused its device has no container to log, and a required row would leave the collection incomplete in exactly the case REFUSED needs it complete.
+
+**Who established what.**
+- The plugin takes `--mps-root` as a host path: I read it in the v0.16.2 source (`internal/plugin/server.go:89-90`, `381-392`). codex `gpt-6-astra`, asked independently and told nothing of my reading, reached the same conclusion from the same files.
+- The chart's shm arrangement: read by both of us, separately, from the same tag's chart.
+- Without the patch, the engine's own `/dev/shm` would cover the plugin's. That is codex's reading of kubelet v1.31.0 and containerd v1.7.18. I have not verified it, and no container's mount table showed it.
+  The patch removes the question rather than relying on its answer.
+- `mount-shm`'s tmpfs reaches the node and a second, unprivileged Pod: I ran the init container from the pinned image on a throwaway kind cluster at `kindest/node:v1.31.0`, the instance's node image.
+  The tmpfs appeared on the node's `/run/nvidia/mps/shm` as a shared mount, and a file written by one Pod was read by the other.
+- The engine render: checked with kubectl v1.31.0, the version the instance installs, as well as the local one.
+- codex also corrected one line of run 1's result: the daemon did accept a connection, the plugin's health check, and what never connected was a CUDA client.
+
+**What is not known until run 2.** Whether a CUDA client now reaches the daemon on the card. Why engine B exited in run 1, whose log was not kept. Whether the Exclusive Process mode that locked out a second non-MPS process was all of it.
+
+**The purchase is the same as run 1's:**
+- one g5.2xlarge Spot at no more than $1.1324 an hour;
+- the 2,400 s stop from `LaunchTime`;
+- the same sweeper tag;
+- a new output directory, `hack/mpscap-20261024-run2`.
