@@ -306,7 +306,7 @@ Phase 1 ended at 470 s against its 720 s bound. The margin estimated from the ar
 
 **What the evidence shows.**
 - The control daemon started under the pinned image (its log names commit `42a0fa92`, the v0.16.2 tag), opened `/mps/nvidia.com/gpu/pipe/control`, and set a 50% thread share and an 11,514 MiB pinned-memory limit.
-  After that it accepted one connection, at 04:35:39.120, and that was the plugin's health check (`get_default_active_thread_percentage`, logged by the plugin as "MPS daemon is healthy" in the same millisecond). No CUDA client connected and no MPS server started.
+  After that it accepted one connection, at 04:35:39.120, and that was the plugin's health check (the daemon's get_default_active_thread_percentage command, logged by the plugin as "MPS daemon is healthy" in the same millisecond). No CUDA client connected and no MPS server started.
   codex corrected this line: the first version said nothing connected at all.
 - Inside both engine containers `CUDA_MPS_PIPE_DIRECTORY` was `/mps/nvidia.com/gpu/pipe`. The directory existed and held no control socket. That is B3's failure.
 - `nvidia-smi` at 867 s showed the card in Exclusive Process mode with one process, `VLLM::EngineCore`, of type `C`, holding 9,908 MiB. There was no `nvidia-cuda-mps-server`.
@@ -359,4 +359,4 @@ No bar, outcome rule, phase, deadline, kill or B5 load above changes. What chang
 - one g5.2xlarge Spot at no more than $1.1324 an hour;
 - the 2,400 s stop from `LaunchTime`;
 - the same sweeper tag;
-- a new output directory, `hack/mpscap-20261024-run2`.
+- a new output directory, hack/mpscap-20261024-run2, which the runner refuses to reuse.
