@@ -252,6 +252,24 @@ put ev-b "$(event vllm-shared-b-1 UnexpectedAdmissionError "$refusal_msg")"
 b2_rules a b ev-a ev-b
 mpscap_b2 m5c-a m5c-b "$(soon)" >/dev/null
 [[ -z "$(fact images_pulled)" ]] && ok "a pull error that resolved records no failed pull" || bad "a resolved pull error recorded images_pulled $(fact images_pulled)"
+# codex, review of ab6d3b1a: a refused Pod left Failed beside its replacement cannot hide the replacement's pull failure.
+scenario
+put a '{"items": [{"metadata": {"name": "vllm-shared-a-1", "uid": "ua1"}, "status": {"phase": "Failed"}}, {"metadata": {"name": "vllm-shared-a-2", "uid": "ua2"}, "status": {"phase": "Pending", "containerStatuses": [{"state": {"waiting": {"reason": "ImagePullBackOff"}}}]}}]}'
+put b "$(engine_pod vllm-shared-b-1 ub Failed)"; put none "$no_events"
+put ev-b "$(event vllm-shared-b-1 UnexpectedAdmissionError "$refusal_msg")"
+b2_rules a b none ev-b
+mpscap_b2 m5c-a m5c-b "$(soon)" >/dev/null
+[[ "$(fact images_pulled)" == false ]] && ok "a replacement failing to pull beside a Failed Pod is recorded" || bad "the replacement's pull failure was lost: '$(fact images_pulled)'"
+# The unit journal has no launch_time_read fact, which alone would make it INVALID, so the reason is what is checked.
+"$work/benchharness" mps-capability-verdict --journal "$MPS_JOURNAL" | grep -qx "reason: images_pulled is false" && ok "so the run is INVALID for the pull, not REFUSED" ||
+  bad "the verdict does not name the pull: $("$work/benchharness" mps-capability-verdict --journal "$MPS_JOURNAL" | grep reason | paste -sd';')"
+scenario
+put a '{"items": [{"metadata": {"name": "vllm-shared-a-1", "uid": "ua1"}, "status": {"phase": "Failed"}}, {"metadata": {"name": "vllm-shared-a-2", "uid": "ua2"}, "status": {"phase": "Running"}}]}'
+put b "$(engine_pod vllm-shared-b-1 ub Running)"; put none "$no_events"
+b2_rules a b none none
+uids="$(mpscap_b2 m5c-a m5c-b "$(soon)")"
+expect "an ended Pod beside its Running replacement, with no refusal" B2 pass "uid ua2 Running"
+[[ "$uids" == "ua2 ub" ]] && ok "the pair is the replacement, not the ended Pod" || bad "the pair printed was '$uids'"
 scenario
 put a "$(engine_pod vllm-shared-a-1 ua Pending "" '0/2 nodes are available: 1 node(s) had untolerated taint')"; put b "$(engine_pod vllm-shared-b-1 ub Pending)"; put none "$no_events"
 b2_rules a b none none
@@ -396,15 +414,26 @@ diag_scene() {
 }
 diag_scene
 mpscap_diagnostics m5c-a m5c-b && ok "every required diagnostic collected returns 0" || bad "the diagnostics returned non-zero: $(cat "$MPSCAP_OUT/diag/inventory.tsv")"
-[[ $(awk -F'\t' 'NR > 1' "$MPSCAP_OUT/diag/inventory.tsv" | wc -l) == 12 ]] && ok "the inventory lists all twelve commands" || bad "the inventory lists $(awk 'NR > 1' "$MPSCAP_OUT/diag/inventory.tsv" | wc -l) commands"
+[[ $(awk -F'\t' 'NR > 1' "$MPSCAP_OUT/diag/inventory.tsv" | wc -l) == 14 ]] && ok "the inventory lists all fourteen commands" || bad "the inventory lists $(awk 'NR > 1' "$MPSCAP_OUT/diag/inventory.tsv" | wc -l) commands"
 awk -F'\t' '$1 ~ /previous/ && $2 != 0 && $5 == "no"' "$MPSCAP_OUT/diag/inventory.tsv" | grep -q . && ok "a missing previous log is recorded and not required" || bad "the previous log's row is wrong"
 [[ "$(fact no_healthy_devices_event)" == false ]] && ok "with B2 cut short, the diagnostics record that no refusal event exists" || bad "the fact is $(fact no_healthy_devices_event)"
 grep -q -- "describe pods -n m5c-a" "$STUB/calls.log" && grep -q -- "logs -n gpu-platform-control-plane-system -l app.kubernetes.io/component=nvidia-mps-control-daemon" "$STUB/calls.log" &&
   ok "the engine Pods are described and the daemon's log is read" || bad "a mandatory diagnostic was not asked for"
 diag_scene
-put events '{"items": [{"reason": "UnexpectedAdmissionError", "message": "Allocate failed due to no healthy devices present"}]}'
+put events '{"items": [{"involvedObject": {"kind": "Pod", "namespace": "m5c-b", "name": "vllm-shared-b-1"}, "reason": "UnexpectedAdmissionError", "message": "Allocate failed due to no healthy devices present"}]}'
 mpscap_diagnostics m5c-a m5c-b
 [[ "$(fact no_healthy_devices_event)" == true ]] && ok "a refusal event found only by the diagnostics is recorded" || bad "the refusal event was missed: $(fact no_healthy_devices_event)"
+# codex, review of 9b25fe70: another namespace's refusal, or another Pod's, is not this session's.
+diag_scene
+put events '{"items": [{"involvedObject": {"kind": "Pod", "namespace": "other-team", "name": "vllm-shared-b-1"}, "reason": "UnexpectedAdmissionError", "message": "Allocate failed due to no healthy devices present"}, {"involvedObject": {"kind": "Pod", "namespace": "m5c-a", "name": "debug-shell"}, "reason": "UnexpectedAdmissionError", "message": "Allocate failed due to no healthy devices present"}]}'
+mpscap_diagnostics m5c-a m5c-b
+[[ "$(fact no_healthy_devices_event)" == false ]] && ok "a refusal about another namespace or another Pod is not recorded as this session's" || bad "an unrelated refusal became the fact $(fact no_healthy_devices_event)"
+# codex, review of 9b25fe70: logs asked of a component with no Pod are a missing diagnostic, not an empty one.
+diag_scene
+: >"$STUB/rules"; put empty ""; rule "*get pods -n gpu-platform-control-plane-system -l app.kubernetes.io/component=nvidia-mps-control-daemon -o name*" empty
+rule "*get events -A -o json*" events; rule "*logs*--previous*" ok 1; rule "*" ok
+mpscap_diagnostics m5c-a m5c-b && bad "the diagnostics returned 0 with no control daemon Pod to log" || ok "no control daemon Pod is a failed required diagnostic"
+awk -F'\t' '$1 == "pods-nvidia-mps-control-daemon.txt" && $2 != 0 && $5 == "yes"' "$MPSCAP_OUT/diag/inventory.tsv" | grep -q . && ok "the inventory names the missing Pod" || bad "the inventory does not name the missing Pod"
 diag_scene
 mj_fact no_healthy_devices_event false
 mpscap_diagnostics m5c-a m5c-b

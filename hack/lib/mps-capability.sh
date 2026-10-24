@@ -201,7 +201,19 @@ for k in ("pods-a", "pods-b"):
         running = False
         state.append(f"{k}: unreadable")
         continue
-    live = [p for p in d.get("items", []) if not p["metadata"].get("deletionTimestamp")]
+    current = [p for p in d.get("items", []) if not p["metadata"].get("deletionTimestamp")]
+    # Every current Pod is read for these two, before the count below can skip any: a refused Pod left Failed beside
+    # its replacement must not hide the replacement's failure to pull (codex, review of ab6d3b1a).
+    for p in current:
+        st = p.get("status") or {}
+        waiting = [((c.get("state") or {}).get("waiting") or {}).get("reason") for c in st.get("containerStatuses") or []]
+        if any(w in ("ErrImagePull", "ImagePullBackOff") for w in waiting):
+            pulling = True
+        for c in st.get("conditions") or []:
+            if c.get("type") == "PodScheduled" and c.get("status") == "False" and "nvidia.com/gpu" not in (c.get("message") or ""):
+                unscheduled = True
+    # A Pod that has ended is not one of the pair; the engine is its live replacement.
+    live = [p for p in current if (p.get("status") or {}).get("phase") not in ("Failed", "Succeeded")]
     if len(live) != 1:
         running = False
         state.append(f"{k}: {len(live)} live Pod(s)")
@@ -210,11 +222,6 @@ for k in ("pods-a", "pods-b"):
     st = p.get("status") or {}
     phase = st.get("phase")
     waiting = [((c.get("state") or {}).get("waiting") or {}).get("reason") for c in st.get("containerStatuses") or []]
-    if any(w in ("ErrImagePull", "ImagePullBackOff") for w in waiting):
-        pulling = True
-    for c in st.get("conditions") or []:
-        if c.get("type") == "PodScheduled" and c.get("status") == "False" and "nvidia.com/gpu" not in (c.get("message") or ""):
-            unscheduled = True
     state.append(f"{k}: {p['metadata']['name']} uid {p['metadata']['uid']} {phase}" + (f" waiting {','.join(w for w in waiting if w)}" if any(waiting) else ""))
     uids.append(p["metadata"]["uid"])
     if phase != "Running":
@@ -380,6 +387,14 @@ mpscap_b5_decide() {
   [ "${out%%$'\t'*}" = pass ]
 }
 
+# mpscap_pods_named COMPONENT: the plugin namespace's Pods of COMPONENT, failing when there are none.
+mpscap_pods_named() {
+  local names
+  names="$(mpscap_k get pods -n "$MPSCAP_PLUGIN_NS" -l "app.kubernetes.io/component=$1" -o name 2>&1)" || { echo "$names"; return 1; }
+  [ -n "$names" ] || { echo "no Pod of $1 in $MPSCAP_PLUGIN_NS"; return 1; }
+  echo "$names"
+}
+
 # mpscap_diagnostics NS_A NS_B: the page's mandatory diagnostics, on every exit path, before anything is deleted.
 #
 # Each command's output is kept with its exit status, size and SHA-256 in diag/inventory.tsv, so a missing piece is a
@@ -406,14 +421,33 @@ mpscap_diagnostics() {
   diag events-all.json yes mpscap_k get events -A -o json
   diag "describe-pods-$MPSCAP_PLUGIN_NS.txt" yes mpscap_k describe pods -n "$MPSCAP_PLUGIN_NS"
   for comp in nvidia-device-plugin-mps-plugin nvidia-mps-control-daemon; do
+    # `logs -l` with no matching Pod prints "No resources found" and exits 0, so the Pods are named first and none is
+    # a failed diagnostic (codex, review of 9b25fe70).
+    diag "pods-$comp.txt" yes mpscap_pods_named "$comp"
     diag "logs-$comp.txt" yes mpscap_k logs -n "$MPSCAP_PLUGIN_NS" -l "app.kubernetes.io/component=$comp" --all-containers --tail=-1
     diag "logs-$comp-previous.txt" no mpscap_k logs -n "$MPSCAP_PLUGIN_NS" -l "app.kubernetes.io/component=$comp" --all-containers --previous --tail=-1
   done
   diag nvidia-smi.txt yes nvidia-smi
   diag nvidia-smi-compute-apps.csv yes nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv
-  if ! mj_has_fact no_healthy_devices_event && python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$d/events-all.json" 2>/dev/null; then
-    if grep -q "no healthy devices" "$d/events-all.json"; then
-      mj_fact no_healthy_devices_event true "found by the diagnostics after B2 was cut short"
+  # Only events about the engines' own Pods, in their own namespaces, as B2 reads them: another workload's refusal
+  # is not this session's (codex, review of 9b25fe70).
+  local found
+  if ! mj_has_fact no_healthy_devices_event && found="$(python3 - "$d/events-all.json" "$ns_a" "$ns_b" <<'PY'
+import json, sys
+try:
+    events = json.load(open(sys.argv[1])).get("items", [])
+except Exception:
+    sys.exit(1)
+for e in events:
+    o = e.get("involvedObject") or {}
+    if o.get("kind") == "Pod" and o.get("namespace") in sys.argv[2:] and o.get("name", "").startswith("vllm-shared-") \
+            and "no healthy devices" in (e.get("message") or ""):
+        print(f"{o['namespace']}/{o['name']}: {e.get('message')}")
+        break
+PY
+)"; then
+    if [ -n "$found" ]; then
+      mj_fact no_healthy_devices_event true "found by the diagnostics after B2 was cut short: $found"
     else
       mj_fact no_healthy_devices_event false
     fi
