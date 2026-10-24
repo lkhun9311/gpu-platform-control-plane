@@ -360,3 +360,45 @@ No bar, outcome rule, phase, deadline, kill or B5 load above changes. What chang
 - the 2,400 s stop from `LaunchTime`;
 - the same sweeper tag;
 - a new output directory, hack/mpscap-20261024-run2, which the runner refuses to reuse.
+
+## Result, 2026-10-24: run 2 is INVALID, with every bar passed, because the session gave up on the termination too early
+
+**Verdict: `MPS: INVALID`.** B0 to B5 each passed. The session's wait for EC2 to report the instance terminated ran out while it still read `shutting-down`, so `termination_confirmed` was never established.
+The invalidation rules above say it plainly: "If the session cannot confirm the instance terminated, the run is void regardless of what it measured." So this run is not the PASS that its bars describe, and nothing below is offered as one.
+The instance was terminated. I read it by hand at 08:30:54Z, seconds after the session gave up, and the record is `termination-by-hand.txt` beside the evidence, not a line in the journal. That reading does not reclassify the run, because the rule is about what the session confirmed.
+
+**The purchase.** One g5.2xlarge Spot instance, `i-02c0ea27a1f4ad8f1`, in ap-northeast-2a, from commit `9f5e06f6`, the same AMI and driver as run 1.
+`LaunchTime` was 08:11:07Z, and CloudTrail records `TerminateInstances` at 08:25:35Z, 868 s later.
+At the zone's Spot price read before launch, $0.6829 an hour, that is about $0.16. Runs 1 and 2 together come to about $0.33, by the same price-times-time estimate.
+
+**When each bar was decided, from `LaunchTime`.**
+
+| event | s |
+|---|---:|
+| `LaunchTime` read on the instance | 99 |
+| B0, B1 | 260 |
+| B2, both Pods Running | 482 |
+| B3 | 716 |
+| B4 | 719 |
+| B5 | 856 |
+| diagnostics uploaded, complete | 864 |
+| termination requested | 868 |
+
+**What the bars measured, re-read from the raw files rather than from the journal's own details.**
+- B3: in both engines `CUDA_MPS_PIPE_DIRECTORY` was `/mps/nvidia.com/gpu/pipe`, and the directory held the control socket.
+- B4 (`m5c-run/mpscap/b4-nvidia-smi.txt`, `b4-compute-apps.csv`, `b4-cgroups/`):
+  - one `nvidia-cuda-mps-server`, pid 20820, of type `C` and 30 MiB;
+  - two `VLLM::EngineCore` processes of type `M+C`, pids 20877 and 20884, at 9,776 MiB each;
+  - the clients' cgroups name the Pods `a57e91b8…` (engine A) and `a0cd6129…` (engine B), the UIDs B2 recorded. The server's cgroup names the control daemon's Pod.
+- The daemon's log records "Starting new server 75" at 08:19:41 and eight `NEW CLIENT` lines.
+- B5 (`m5c-run/raw-mps-1.jsonl`): 249 rows, 241 premium and 8 contender, none with a 5xx or a 4xx, and the replay exited 0.
+
+So, on this card, with this repository's corrected manifests, MPS engaged with two clients: one in each engine, both serving.
+This is a measurement in a run the registration voids, not a licensed answer. What a pass would license is still unlicensed.
+
+**Why the wait ran out.** The termination wait is `spot_terminate`'s, bounded at 300 s (`SPOT_TERMINATE_WAIT` in `hack/lib/spot-run.sh`).
+Run 1's shutdown was confirmed 296 s after its terminate call, four seconds inside that bound. Run 2's was still `shutting-down` when the bound ran out, about 300 s after its call at 08:25:35, and read `terminated` at 08:30:54.
+The registration allots the termination step, with its confirmation, until 2,400 s from `LaunchTime`. The runner used a fixed five minutes instead, and nothing tested a slower shutdown.
+The fix waits until `LaunchTime` plus 2,400 s, and never less than five minutes. A session test makes EC2 answer `shutting-down` seventy times before `terminated`. Billing ends at `shutting-down`, so a longer wait costs nothing.
+
+**The evidence** is in `hack/mps-capability/2026-10-24-run2/`, with a `SHA256SUMS` over every file in it.
