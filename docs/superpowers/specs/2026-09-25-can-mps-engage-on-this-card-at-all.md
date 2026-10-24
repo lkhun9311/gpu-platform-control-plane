@@ -232,6 +232,13 @@ An instance that cannot read it within 180 s of its own start stops and the run 
 | evidence | 2,040 s | the diagnostics, the journal, the upload |
 | termination | 2,400 s | the shutdown and its confirmation |
 
+**Whether 720 s is enough, from the archives, before the purchase.**
+Four session archives on this instance type record `LaunchTime`: the admission pilot's stages A and B, its diagnostic and its length calibration, of 2026-10-08 to 2026-10-10. Those archives are kept on the owner's machine and are not committed.
+Their cold first cell pulled the engine image and downloaded the weights.
+In each, the engine's first log line came 452 to 499 s after `LaunchTime`, and its last line before startup completed came 582 to 655 s after it.
+The log line stands in for Running and is not a Pod-phase timestamp. Those cells ran one engine, and this one runs two behind an MPS plugin and its control daemon.
+So phase 1 has some 3 to 4 minutes of margin, and a slow image pull could spend it. A phase 1 that runs out is recorded as interrupted, and the run is INCONCLUSIVE, not a refusal.
+
 A phase may end early and never borrows time.
 A phase that runs out records its open bar as interrupted, not as failed or passed, and the run goes straight to the evidence step.
 
