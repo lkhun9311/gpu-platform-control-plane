@@ -8,7 +8,7 @@ v27's records stand as written (`2026-10-08-measuring-prospective-admission-desi
 ## How it was drafted
 
 In parallel and independently: codex `gpt-6-astra` drafted the calibration cold, and I wrote my own sketch before reading its draft. Both are in `data/2026-10-24-c3-headroom/`, with the prompt.
-Then a free replay was run, after both drafts and before this page (the same directory, `README.md`). Every figure below is mine, re-derived from those files.
+Then a free replay was run, after both drafts and before this page (the same directory, `README.txt`). Every figure below is mine, re-derived from those files.
 
 | Choice | My sketch | astra's draft | Taken |
 |---|---|---|---|
