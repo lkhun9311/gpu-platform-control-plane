@@ -181,3 +181,83 @@ successful next run could not say which change bought the success. If B0–B2 fa
 is what selects the next change. Separately, `mps.enableHostPID` — which the project's own values file
 explains the MPS server needs to find its PID through `/proc/self` — arrived in **v0.18.0**, after the pinned
 `v0.16.2`; raising the pin is a candidate this page does not take today.
+
+## Amendment, 2026-10-24: the runner's contract, fixed before the first purchase
+
+**No card has been bought for this page.**
+The owner approved buying its one session on 2026-10-24.
+This amendment settles what the runner could not implement as written. It is dated here and does not edit the text above.
+It changes no bar's subject and relaxes none.
+My reading and codex `gpt-6-astra`'s, made independently, found the same two gaps in the page: B4's process types, and B5's workload.
+
+**B4 contradicted itself, and NVIDIA's wording settles it.**
+The bar table asks for "an `M+C` compute process for the MPS server". The command note below it says "`M+C` on the clients, `C` on the server".
+NVIDIA's MPS Quick Start (https://docs.nvidia.com/deploy/mps/latest/quick-start.html, read 2026-10-24) says only two things on this:
+- `nvidia-smi` verifies "the existence of the `nvidia-cuda-mps-server` process";
+- a client application "will also appear in `nvidia-smi` with the `M+C` type specified".
+It does not give the server's type.
+B4 therefore passes when, in a table captured while both engines are Ready:
+- exactly one process is named `nvidia-cuda-mps-server`;
+- two processes are of type `M+C`, each mapped to a different engine Pod through `/proc/<pid>/cgroup`.
+The server's type is recorded and not judged.
+A captured table that shows anything else is a **failed** B4. B4 is **unmeasured** only when either command did not run or could not be read.
+
+**B5's workload, frozen.**
+The page named the matrix's replay but not its load, and the session's defaults are mutable.
+The replay is `gen-trace` with:
+- seed 11;
+- `--duration-ms 120000`;
+- rate 2 requests a second;
+- premium weight 1, contender weight 0.054, probe weight 0;
+- premium prompt 1,174 characters, contender prompt 42,579;
+- 64 and 16 output tokens;
+- a request timeout of 60,000 ms.
+The prompt sizes, output tokens, timeout and mix are the matrix's registered ones. The rate is lowered from 9.85 to 2 because this bar asks whether the arrangement survives work, not how fast. A load chosen near capacity would turn an overload into a B5 failure that says nothing about MPS.
+B5 passes when:
+- the replay exits 0;
+- `raw-mps-1.jsonl` parses row by row;
+- both the premium and the contender tenant have rows;
+- no row carries a 5xx.
+4xx rows and rows with an `errorKind` are counted and printed beside it, not judged. The page asked for no 5xx and nothing more, and this does not move that line after the fact.
+
+**The clock and the phases.**
+Every deadline counts from EC2's `LaunchTime`, which the session reads right after the launch and writes to the run's S3 prefix. The instance reads it from there.
+An instance that cannot read it within 180 s of its own start stops and the run is INVALID. Its boot time is later than `LaunchTime`, so a deadline taken from it would overrun.
+
+| from `LaunchTime` | ends no later than | work |
+|---|---:|---|
+| bring-up, B0, B1, B2 | 720 s | driver check, toolkit, kind, the overlay, a Running pair |
+| B3, B4 | 1,200 s | serving readiness, the client probes, the two host tables |
+| B5 | 1,920 s | the replay above and its decision |
+| evidence | 2,040 s | the diagnostics, the journal, the upload |
+| termination | 2,400 s | the shutdown and its confirmation |
+
+A phase may end early and never borrows time.
+A phase that runs out records its open bar as interrupted, not as failed or passed, and the run goes straight to the evidence step.
+
+**The kill that does not depend on the instance.** The launch carries the `study-deadline` tag, set to the launch request plus 1,980 s.
+The termination sweeper (`infra/aws/bootstrap/sweeper/sweeper.py`) runs every five minutes, so it requests termination no later than 38 minutes after `LaunchTime`, even if the instance and the laptop both die.
+The launch request precedes `LaunchTime`, so the tag can only be earlier than intended, never later.
+Before the purchase, the deployed sweeper's schedule and state are read back from AWS.
+
+**The classification, applied in this order.**
+1. **INVALID:**
+   - termination not confirmed;
+   - `LaunchTime` unreadable on the instance;
+   - the overlay or either engine manifest not the pinned one;
+   - an image that did not pull;
+   - a Pod that could not be scheduled for a reason the diagnostics name and that is not the device.
+2. **REFUSED:**
+   - the plugin advertised two and a `no healthy devices` event on an engine Pod is captured;
+   - or the control daemon's log records a client's rejection with its reason;
+   - and in either case the mandatory diagnostics were uploaded.
+3. **PASS:** B0 to B5 each passed, the provenance and diagnostics are complete, and termination is confirmed.
+4. **INCONCLUSIVE:** everything else, including a bar left interrupted or unmeasured.
+A failed bar whose cause the diagnostics do not establish is recorded as failed. Not knowing why does not erase the measurement.
+
+**The run record before B0:**
+- the AMI ID, pinned before launch and checked against the image ID EC2 reports for the instance;
+- the driver version;
+- the container toolkit's version on the host and in the kind node;
+- the engine images' digests;
+- the SHA-256 of the rendered overlay and of both engine manifests.
