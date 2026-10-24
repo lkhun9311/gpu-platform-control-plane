@@ -1,0 +1,5 @@
+
+--- exit 1
+--- messages
+FAIL: stage G registers premium 9.25/s and contender 0.375/s; got PREMIUM_RATE=9.25 and PILOT_NOISY_RATE=0.5
+--- files
