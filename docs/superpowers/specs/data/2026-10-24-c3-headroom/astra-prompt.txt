@@ -1,0 +1,14 @@
+You are drafting, cold and independently, a pre-registration for a paid GPU calibration session in this repository (gpu-platform-control-plane). Do not edit any file. Read only.
+
+Context to read yourself:
+- docs/superpowers/specs/2026-10-22-paid-retry-candidates.md, section "C3. v27 asked again as a new question".
+- docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md, sections from "v26: hold-cap against a frontier" through "v27 main study: drafted, and stopped at its purchase gate".
+- The code that implements v27's calibration: grep for admission-length-calibration-2026-10-10 and StudyLengthCalibration (internal/bench/study.go, hack/lib/prospective-pilot.sh, hack/m5c-matrix.sh, hack/m5c-gpu-session.sh, hack/prospective-pilot/pilot_report.py, hack/verify-admission-evidence.sh, hack/test/).
+
+The owner has approved C3, starting with its calibration stage. Draft the registration of that calibration as you would freeze it for purchase. Cover: the question, arms and order, load (premium and contender rates, lengths, seed), cell length, the session's limits and hard stop, validity, the gate and its verdicts in order, what it publishes for a later main study, the purchase gate before buying (including any replay prediction and what it may or may not decide), cost, and what it licenses.
+
+Then attack C3's own draft: anything in its rate rule, its seeds, its fixed-control rule (reference median engine prefill times 1.0533), or its stages that is wrong, circular, under-specified, or contradicts what v26/v27 established. Rank the risks.
+
+Finally list, with file:line references, every place in the code that must change to run this calibration rather than v27's, and anything that would silently keep v27's values (rate, seed, checksums, study name, limits).
+
+Be concrete. Numbers must come from files you read; cite them.
