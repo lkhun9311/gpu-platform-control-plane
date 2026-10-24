@@ -90,6 +90,8 @@ func main() {
 		err = ladderVerdict(os.Args[2:])
 	case "mps-capability-verdict":
 		err = mpsCapabilityVerdict(os.Args[2:])
+	case "mps-capability-bar":
+		err = mpsCapabilityBar(os.Args[2:])
 	case "ladder-plan-check":
 		err = ladderPlanCheck(os.Args[2:])
 	case "matrix-plan-check":
@@ -119,7 +121,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: benchharness <gen-trace|prepare-traces|replay|report|ladder-verdict|mps-capability-verdict|ladder-plan-check|matrix-plan-check|study-arrivals|study-frozen-tuple|print-prompt|check-replay|stamp-exact-tokens|verify-exact-tokens|compile-plan|sim-cap|power|stub-serve> [flags]")
+	fmt.Fprintln(os.Stderr, "usage: benchharness <gen-trace|prepare-traces|replay|report|ladder-verdict|mps-capability-verdict|mps-capability-bar|ladder-plan-check|matrix-plan-check|study-arrivals|study-frozen-tuple|print-prompt|check-replay|stamp-exact-tokens|verify-exact-tokens|compile-plan|sim-cap|power|stub-serve> [flags]")
 }
 
 // arrivalFlags are gen-trace's load flags, gathered so the choice between the two arrival models lives in one place.
@@ -845,6 +847,70 @@ func mpsCapabilityVerdict(args []string) error {
 		return err
 	}
 	fmt.Print(v.String())
+	return nil
+}
+
+// mpsCapabilityBar judges B4 or B5 of the MPS capability session from what the session captured, and prints the
+// result and its detail on one line separated by a tab, for the session to journal as it stands.
+//
+// A judgement exits 0 whatever it is; only a call that cannot be judged at all, a missing flag or an unreadable
+// input, exits non-zero, and the session then journals the bar as unmeasured itself.
+func mpsCapabilityBar(args []string) error {
+	fs := flag.NewFlagSet("mps-capability-bar", flag.ExitOnError)
+	bar := fs.String("bar", "", "B4 or B5")
+	raw := fs.String("raw", "", "B5: the replay's raw rows")
+	replayExit := fs.Int("replay-exit", -1, "B5: the replay's exit status")
+	table := fs.String("table", "", "B4: the plain nvidia-smi output")
+	tableExit := fs.Int("table-exit", -1, "B4: nvidia-smi's exit status")
+	queryExit := fs.Int("query-exit", -1, "B4: the compute-apps query's exit status")
+	cgroups := fs.String("cgroups", "", "B4: a directory of <pid>.cgroup files, each a copy of /proc/<pid>/cgroup")
+	engineA := fs.String("engine-a", "", "B4: engine a's Pod UID")
+	engineB := fs.String("engine-b", "", "B4: engine b's Pod UID")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	var j bench.MPSBarJudgement
+	switch *bar {
+	case "B5":
+		if *raw == "" || *replayExit < 0 {
+			return fmt.Errorf("B5 needs --raw and --replay-exit")
+		}
+		f, err := os.Open(*raw)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = f.Close() }()
+		j = bench.JudgeMPSReplay(f, *replayExit)
+	case "B4":
+		if *table == "" || *tableExit < 0 || *queryExit < 0 || *cgroups == "" {
+			return fmt.Errorf("B4 needs --table, --table-exit, --query-exit and --cgroups")
+		}
+		text, err := os.ReadFile(*table)
+		if err != nil {
+			return err
+		}
+		in := bench.MPSProcessTableInput{Table: string(text), TableExit: *tableExit, QueryExit: *queryExit,
+			Cgroups: map[int]string{}, EngineA: *engineA, EngineB: *engineB}
+		entries, err := os.ReadDir(*cgroups)
+		if err != nil {
+			return err
+		}
+		for _, e := range entries {
+			pid, perr := strconv.Atoi(strings.TrimSuffix(e.Name(), ".cgroup"))
+			if perr != nil || !strings.HasSuffix(e.Name(), ".cgroup") {
+				return fmt.Errorf("%s in %s is not a <pid>.cgroup file", e.Name(), *cgroups)
+			}
+			b, rerr := os.ReadFile(filepath.Join(*cgroups, e.Name()))
+			if rerr != nil {
+				return rerr
+			}
+			in.Cgroups[pid] = string(b)
+		}
+		j = bench.JudgeMPSProcessTable(in)
+	default:
+		return fmt.Errorf("--bar must be B4 or B5, not %q", *bar)
+	}
+	fmt.Printf("%s\t%s\n", j.Result, strings.ReplaceAll(j.Detail, "\n", " "))
 	return nil
 }
 
