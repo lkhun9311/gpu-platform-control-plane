@@ -165,91 +165,115 @@ mpscap_b0_b1
 expect "no container status is unknown, not zero restarts" B0 unmeasured "no container status"
 
 # --- B2 ----------------------------------------------------------------------------------------------------------
-engine_pod() { # name uid phase [waiting-reason]
-  local w=""
+engine_pod() { # name uid phase [waiting-reason] [unscheduled-message]
+  local w="" c=""
   [[ -n "${4:-}" ]] && w=", \"containerStatuses\": [{\"state\": {\"waiting\": {\"reason\": \"$4\"}}}]"
-  printf '{"items": [{"metadata": {"name": "%s", "uid": "%s"}, "status": {"phase": "%s"%s}}]}' "$1" "$2" "$3" "$w"
+  [[ -n "${5:-}" ]] && c=", \"conditions\": [{\"type\": \"PodScheduled\", \"status\": \"False\", \"message\": \"$5\"}]"
+  printf '{"items": [{"metadata": {"name": "%s", "uid": "%s"}, "status": {"phase": "%s"%s%s}}]}' "$1" "$2" "$3" "$w" "$c"
 }
-event() { printf '{"items": [{"reason": "%s", "message": "%s"}]}' "$1" "$2"; }
+event() { # pod reason message
+  printf '{"items": [{"involvedObject": {"kind": "Pod", "name": "%s"}, "reason": "%s", "message": "%s"}]}' "$1" "$2" "$3"
+}
 no_events='{"items": []}'
-b2_rules() {
+refusal_msg='Allocate failed due to no healthy devices present; cannot allocate unhealthy devices nvidia.com/gpu'
+b2_rules() { # pods-a pods-b events-a events-b [events-rc]
   rule "*get pods -n m5c-a *" "$1"; rule "*get pods -n m5c-b *" "$2"
-  rule "*get events -n m5c-a *" "$3"; rule "*get events -n m5c-b *" "$4"
+  rule "*get events -n m5c-a *" "$3" "${5:-0}"; rule "*get events -n m5c-b *" "$4" "${5:-0}"
 }
+soon() { echo $(( $(date +%s) + ${1:-60} )); }
 
 scenario
-put a "$(engine_pod eng-a ua Running)"; put b "$(engine_pod eng-b ub Running)"; put none "$no_events"
+put a "$(engine_pod vllm-shared-a-1 ua Running)"; put b "$(engine_pod vllm-shared-b-1 ub Running)"; put none "$no_events"
 b2_rules a b none none
-uids="$(mpscap_b2 m5c-a m5c-b $(( $(date +%s) + 60 )))" && ok "a Running pair returns 0" || bad "a Running pair returned non-zero"
+uids="$(mpscap_b2 m5c-a m5c-b "$(soon)")" && ok "a Running pair returns 0" || bad "a Running pair returned non-zero"
 expect "both Running" B2 pass "uid ua Running"
 [[ "$uids" == "ua ub" ]] && ok "the pair's UIDs are printed for B3 and B4" || bad "printed '$uids', not the two UIDs"
 [[ "$(fact no_healthy_devices_event)" == false && "$(fact images_pulled)" == true && "$(fact schedulable)" == true ]] &&
   ok "a Running pair records no refusal, pulled images and scheduled Pods" || bad "facts: $(grep fact "$MPS_JOURNAL")"
 
 scenario
-put pend "$(engine_pod eng-a ua Pending)"; put a "$(engine_pod eng-a ua Running)"; put b "$(engine_pod eng-b ub Running)"; put none "$no_events"
+put pend "$(engine_pod vllm-shared-a-1 ua Pending)"; put a "$(engine_pod vllm-shared-a-1 ua Running)"; put b "$(engine_pod vllm-shared-b-1 ub Running)"; put none "$no_events"
 b2_rules "pend|pend|a" b none none
-mpscap_b2 m5c-a m5c-b $(( $(date +%s) + 60 )) >/dev/null
+mpscap_b2 m5c-a m5c-b "$(soon)" >/dev/null
 expect "engine a Running on the third poll" B2 pass
 scenario
-put a "$(engine_pod eng-a ua Failed)"; put b "$(engine_pod eng-b ub Running)"; put none "$no_events"
-put refused "$(event UnexpectedAdmissionError 'Allocate failed due to no healthy devices present; cannot allocate unhealthy devices nvidia.com/gpu')"
+put a "$(engine_pod vllm-shared-a-1 ua Failed)"; put b "$(engine_pod vllm-shared-b-1 ub Running)"; put none "$no_events"
+put refused "$(event vllm-shared-a-1 UnexpectedAdmissionError "$refusal_msg")"
 b2_rules a b refused none
-mpscap_b2 m5c-a m5c-b $(( $(date +%s) + 60 )) >/dev/null && bad "a refused device returned 0" || ok "a refused device returns non-zero"
+mpscap_b2 m5c-a m5c-b "$(soon)" >/dev/null && bad "a refused device returned 0" || ok "a refused device returns non-zero"
 expect "the kubelet refused the device" B2 fail "no healthy devices"
 [[ "$(fact no_healthy_devices_event)" == true ]] && ok "the refusal is recorded as a fact" || bad "the refusal fact is $(fact no_healthy_devices_event)"
 # The event decides B2 even when both Pods end up Running: the bar says no such event on either.
 scenario
-put a "$(engine_pod eng-a ua Running)"; put b "$(engine_pod eng-b ub Running)"; put none "$no_events"
-put refused "$(event UnexpectedAdmissionError 'Allocate failed due to no healthy devices present')"
+put a "$(engine_pod vllm-shared-a-1 ua Running)"; put b "$(engine_pod vllm-shared-b-1 ub Running)"; put none "$no_events"
+put refused "$(event vllm-shared-b-1 UnexpectedAdmissionError "$refusal_msg")"
 b2_rules a b none refused
-mpscap_b2 m5c-a m5c-b $(( $(date +%s) + 60 )) >/dev/null
+mpscap_b2 m5c-a m5c-b "$(soon)" >/dev/null
 expect "a refusal before both ran" B2 fail "no healthy devices"
+# codex, review of cc26b174: an event about anything but the engines' own Pods must not decide the bar.
 scenario
-put a "$(engine_pod eng-a ua Pending ImagePullBackOff)"; put b "$(engine_pod eng-b ub Pending)"; put none "$no_events"
+put a "$(engine_pod vllm-shared-a-1 ua Running)"; put b "$(engine_pod vllm-shared-b-1 ub Running)"; put none "$no_events"
+put other "$(event some-debug-pod UnexpectedAdmissionError "$refusal_msg")"
+b2_rules a b other none
+mpscap_b2 m5c-a m5c-b "$(soon)" >/dev/null
+expect "a refusal about another Pod in the namespace" B2 pass
+[[ "$(fact no_healthy_devices_event)" == false ]] && ok "another Pod's event is not recorded as a refusal" || bad "another Pod's event became the fact $(fact no_healthy_devices_event)"
+# codex, review of cc26b174: a captured refusal is kept when the other namespace's events could not be read.
+scenario
+put a "$(engine_pod vllm-shared-a-1 ua Failed)"; put b "$(engine_pod vllm-shared-b-1 ub Running)"; put err "error: the server was unable to return a response"
+put refused "$(event vllm-shared-a-1 UnexpectedAdmissionError "$refusal_msg")"
+rule "*get pods -n m5c-a *" a; rule "*get pods -n m5c-b *" b; rule "*get events -n m5c-a *" refused; rule "*get events -n m5c-b *" err 1
+mpscap_b2 m5c-a m5c-b "$(soon)" >/dev/null
+expect "a refusal read beside unreadable events" B2 fail "no healthy devices"
+[[ "$(fact no_healthy_devices_event)" == true ]] && ok "the refusal fact is kept though one event read failed" || bad "the refusal fact is '$(fact no_healthy_devices_event)'"
+# codex, review of cc26b174: a phase that ran out leaves B2 interrupted, never decided.
+scenario
+put a "$(engine_pod vllm-shared-a-1 ua Pending)"; put b "$(engine_pod vllm-shared-b-1 ub Pending)"; put none "$no_events"
 b2_rules a b none none
-mpscap_b2 m5c-a m5c-b $(( $(date +%s) - 1 )) >/dev/null
-expect "an image that did not pull, at the deadline" B2 fail "not both Running"
-[[ "$(fact images_pulled)" == false ]] && ok "an image pull failure is recorded, which makes the run INVALID" || bad "images_pulled is $(fact images_pulled)"
+mpscap_b2 m5c-a m5c-b "$(soon 1)" >/dev/null 2>&1
+expect "Pods still Pending when the phase ran out" B2 interrupted
+scenario
+put a "$(engine_pod vllm-shared-a-1 ua Running)"; put b "$(engine_pod vllm-shared-b-1 ub Running)"; put none "$no_events"
+b2_rules a b none none
+mpscap_b2 m5c-a m5c-b "$(( $(date +%s) - 1 ))" >/dev/null 2>&1 && bad "a B2 called after its deadline returned 0" || ok "a B2 called after its deadline returns non-zero"
+expect "a Running pair seen only after the deadline" B2 interrupted
+scenario
+put a "$(engine_pod vllm-shared-a-1 ua Pending ImagePullBackOff)"; put b "$(engine_pod vllm-shared-b-1 ub Pending)"; put none "$no_events"
+b2_rules a b none none
+mpscap_b2 m5c-a m5c-b "$(soon 1)" >/dev/null 2>&1
+expect "an image still failing to pull at the deadline" B2 interrupted
+[[ "$(fact images_pulled)" == false ]] && ok "an image still failing to pull is recorded, which makes the run INVALID" || bad "images_pulled is '$(fact images_pulled)'"
 "$work/benchharness" mps-capability-verdict --journal "$MPS_JOURNAL" | grep -q "images_pulled is false" && ok "the classifier reads the pull failure" || bad "the classifier did not read the pull failure"
+# codex, review of cc26b174: a pull error that resolved on engine a cannot turn engine b's refusal into INVALID.
 scenario
-put a "$(engine_pod eng-a ua Pending)"; put b "$(engine_pod eng-b ub Pending)"; put none "$no_events"
-put sched "$(event FailedScheduling '0/2 nodes are available: 1 node(s) had untolerated taint')"
-b2_rules a b sched none
-mpscap_b2 m5c-a m5c-b $(( $(date +%s) - 1 )) >/dev/null
-[[ "$(fact schedulable)" == false ]] && ok "a Pod unschedulable for a taint is recorded" || bad "schedulable is $(fact schedulable)"
+put a "$(engine_pod vllm-shared-a-1 ua Running)"; put b "$(engine_pod vllm-shared-b-1 ub Failed)"
+put ev-a "$(event vllm-shared-a-1 Failed 'Failed to pull image: rpc error: context deadline exceeded')"
+put ev-b "$(event vllm-shared-b-1 UnexpectedAdmissionError "$refusal_msg")"
+b2_rules a b ev-a ev-b
+mpscap_b2 m5c-a m5c-b "$(soon)" >/dev/null
+[[ -z "$(fact images_pulled)" ]] && ok "a pull error that resolved records no failed pull" || bad "a resolved pull error recorded images_pulled $(fact images_pulled)"
 scenario
-put a "$(engine_pod eng-a ua Pending)"; put b "$(engine_pod eng-b ub Pending)"; put none "$no_events"
-put sched "$(event FailedScheduling '0/2 nodes are available: 2 Insufficient nvidia.com/gpu')"
-b2_rules a b sched none
-mpscap_b2 m5c-a m5c-b $(( $(date +%s) - 1 )) >/dev/null
+put a "$(engine_pod vllm-shared-a-1 ua Pending "" '0/2 nodes are available: 1 node(s) had untolerated taint')"; put b "$(engine_pod vllm-shared-b-1 ub Pending)"; put none "$no_events"
+b2_rules a b none none
+mpscap_b2 m5c-a m5c-b "$(soon 1)" >/dev/null 2>&1
+[[ "$(fact schedulable)" == false ]] && ok "a Pod still unschedulable for a taint is recorded" || bad "schedulable is '$(fact schedulable)'"
+scenario
+put a "$(engine_pod vllm-shared-a-1 ua Pending "" '0/2 nodes are available: 2 Insufficient nvidia.com/gpu')"; put b "$(engine_pod vllm-shared-b-1 ub Pending)"; put none "$no_events"
+b2_rules a b none none
+mpscap_b2 m5c-a m5c-b "$(soon 1)" >/dev/null 2>&1
 [[ -z "$(fact schedulable)" ]] && ok "unschedulable for want of the device is not a broken apparatus" || bad "schedulable was recorded as $(fact schedulable)"
-# A transient scheduling event before both Pods ran must not make a working run INVALID.
 scenario
-put a "$(engine_pod eng-a ua Running)"; put b "$(engine_pod eng-b ub Running)"; put none "$no_events"
-put sched "$(event FailedScheduling '0/2 nodes are available: 1 node(s) had untolerated taint')"
-b2_rules a b sched none
-mpscap_b2 m5c-a m5c-b $(( $(date +%s) + 60 )) >/dev/null
-[[ "$(fact schedulable)" == true ]] && ok "a scheduling wait that resolved leaves schedulable true" || bad "schedulable is $(fact schedulable)"
-scenario
-put a "$(engine_pod eng-a ua Running)"; put b "$(engine_pod eng-b ub Running)"; put err "error: the server was unable to return a response"
-b2_rules a b err err
-# Both event reads fail, with exit 1.
-python3 - "$STUB/rules" <<'PY'
-import sys
-p = sys.argv[1]
-lines = open(p).read().splitlines()
-open(p, "w").write("\n".join(l[:-1] + "1" if "get events" in l else l for l in lines) + "\n")
-PY
-mpscap_b2 m5c-a m5c-b $(( $(date +%s) - 1 )) >/dev/null
-expect "events that could not be read are not no events" B2 unmeasured "could not be read"
+put a "$(engine_pod vllm-shared-a-1 ua Running)"; put b "$(engine_pod vllm-shared-b-1 ub Running)"; put err "error: the server was unable to return a response"
+b2_rules a b err err 1
+mpscap_b2 m5c-a m5c-b "$(soon 1)" >/dev/null 2>&1
+expect "events never readable" B2 interrupted
 [[ -z "$(fact no_healthy_devices_event)" ]] && ok "no refusal fact is recorded from unread events" || bad "a refusal fact came from unread events: $(fact no_healthy_devices_event)"
 scenario
-put a '{"items": [{"metadata": {"name": "eng-a", "uid": "ua"}, "status": {"phase": "Running"}}, {"metadata": {"name": "eng-a2", "uid": "ua2"}, "status": {"phase": "Running"}}]}'
-put b "$(engine_pod eng-b ub Running)"; put none "$no_events"
+put a '{"items": [{"metadata": {"name": "vllm-shared-a-1", "uid": "ua"}, "status": {"phase": "Running"}}, {"metadata": {"name": "vllm-shared-a-2", "uid": "ua2"}, "status": {"phase": "Running"}}]}'
+put b "$(engine_pod vllm-shared-b-1 ub Running)"; put none "$no_events"
 b2_rules a b none none
-mpscap_b2 m5c-a m5c-b $(( $(date +%s) - 1 )) >/dev/null
-expect "two live Pods for one engine" B2 fail "2 live Pod(s)"
+mpscap_b2 m5c-a m5c-b "$(soon 1)" >/dev/null 2>&1
+expect "two live Pods for one engine never pass" B2 interrupted
 
 # --- B3 ----------------------------------------------------------------------------------------------------------
 b3_rules() { # probe-a rc-a probe-b rc-b [ipc-a]

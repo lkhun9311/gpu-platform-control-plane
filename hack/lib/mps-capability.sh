@@ -121,23 +121,30 @@ PY
 #
 # The Pods are told apart by UID, so a Pod replaced during the wait is the new one and not a stale read; their UIDs
 # are printed on success, for B3 and B4 to probe the same Pods.
-# Three facts are recorded here because only here are they seen: whether the kubelet refused the device, whether an
-# image failed to pull, and whether a Pod could not be scheduled for a reason that is not the device.
+# Only events about the engines' own Pods count, so an event about anything else in the namespace cannot fail the bar.
+# An observation completed after the deadline decides nothing: the amendment leaves a phase that ran out with its bar
+# interrupted, so B2 is then left started and undecided, whatever the last poll saw.
+# Three facts are recorded here because only here are they seen:
+# - whether the kubelet refused the device, recorded true whenever such an event was read and false only when both
+#   namespaces' events were read and neither had one;
+# - whether an image is failing to pull, and whether a Pod cannot be scheduled for a reason that is not the device,
+#   read from each Pod's current state rather than its history, so an error that resolved on one engine cannot make
+#   a run INVALID that the other engine's refusal makes REFUSED.
 mpscap_b2() {
-  local ns_a="$1" ns_b="$2" deadline="$3" sel="app.kubernetes.io/component=vllm-shared" verdict="" pa pb ev
+  local ns_a="$1" ns_b="$2" deadline="$3" sel="app.kubernetes.io/component=vllm-shared" verdict="" pa pb ev result=""
   mj_start B2 || return 1
-  while :; do
+  while [ "$(date +%s)" -lt "$deadline" ]; do
     pa="$(mpscap_k get pods -n "$ns_a" -l "$sel" -o json 2>&1)" || pa="UNREADABLE $pa"
     pb="$(mpscap_k get pods -n "$ns_b" -l "$sel" -o json 2>&1)" || pb="UNREADABLE $pb"
-    ev="$(mpscap_k get events -n "$ns_a" -o json 2>&1)" || ev="UNREADABLE $ev"
     printf '%s\n' "$pa" >"$MPSCAP_OUT/b2-pods-a.json"
     printf '%s\n' "$pb" >"$MPSCAP_OUT/b2-pods-b.json"
+    ev="$(mpscap_k get events -n "$ns_a" -o json 2>&1)" || ev="UNREADABLE $ev"
     printf '%s\n' "$ev" >"$MPSCAP_OUT/b2-events-a.json"
     ev="$(mpscap_k get events -n "$ns_b" -o json 2>&1)" || ev="UNREADABLE $ev"
     printf '%s\n' "$ev" >"$MPSCAP_OUT/b2-events-b.json"
-    verdict="$(python3 - "$MPSCAP_OUT" "$(( $(date +%s) >= deadline ))" <<'PY'
+    verdict="$(python3 - "$MPSCAP_OUT" <<'PY'
 import json, os, sys
-out, final = sys.argv[1], sys.argv[2] == "1"
+out = sys.argv[1]
 def load(name):
     text = open(os.path.join(out, name)).read()
     if text.startswith("UNREADABLE"):
@@ -147,67 +154,76 @@ def load(name):
     except Exception:
         return None
 docs = {k: load(f"b2-{k}.json") for k in ("pods-a", "pods-b", "events-a", "events-b")}
-events = [e for k in ("events-a", "events-b") if docs[k] for e in docs[k].get("items", [])]
-msgs = [(e.get("reason", ""), e.get("message", "")) for e in events]
-refused = any("no healthy devices" in m for _, m in msgs)
-pulled_bad = any(r in ("ErrImagePull", "ImagePullBackOff", "Failed") and "image" in m.lower() and "pull" in m.lower() for r, m in msgs)
-sched_bad = any(r == "FailedScheduling" and "nvidia.com/gpu" not in m for r, m in msgs)
-state, uids = [], []
-ready = True
+# The engines' Deployments are vllm-shared-a and vllm-shared-b, so their Pods' names start with this.
+def ours(e):
+    o = e.get("involvedObject") or {}
+    return o.get("kind") == "Pod" and o.get("name", "").startswith("vllm-shared-")
+events = [e for k in ("events-a", "events-b") if docs[k] for e in docs[k].get("items", []) if ours(e)]
+refused = any("no healthy devices" in (e.get("message") or "") for e in events)
+events_read = docs["events-a"] is not None and docs["events-b"] is not None
+state, uids, pulling, unscheduled = [], [], False, False
+running = True
 for k in ("pods-a", "pods-b"):
     d = docs[k]
     if d is None:
-        ready = None if ready is not False else False
+        running = False
         state.append(f"{k}: unreadable")
         continue
     live = [p for p in d.get("items", []) if not p["metadata"].get("deletionTimestamp")]
     if len(live) != 1:
-        ready = False
+        running = False
         state.append(f"{k}: {len(live)} live Pod(s)")
         continue
     p = live[0]
-    phase = (p.get("status") or {}).get("phase")
-    waiting = [c.get("state", {}).get("waiting", {}).get("reason") for c in (p.get("status") or {}).get("containerStatuses") or []]
+    st = p.get("status") or {}
+    phase = st.get("phase")
+    waiting = [((c.get("state") or {}).get("waiting") or {}).get("reason") for c in st.get("containerStatuses") or []]
     if any(w in ("ErrImagePull", "ImagePullBackOff") for w in waiting):
-        pulled_bad = True
+        pulling = True
+    for c in st.get("conditions") or []:
+        if c.get("type") == "PodScheduled" and c.get("status") == "False" and "nvidia.com/gpu" not in (c.get("message") or ""):
+            unscheduled = True
     state.append(f"{k}: {p['metadata']['name']} uid {p['metadata']['uid']} {phase}" + (f" waiting {','.join(w for w in waiting if w)}" if any(waiting) else ""))
     uids.append(p["metadata"]["uid"])
     if phase != "Running":
-        ready = False
-facts = f"refused={int(refused)} pulled_bad={int(pulled_bad)} sched_bad={int(sched_bad)} events_read={int(docs['events-a'] is not None and docs['events-b'] is not None)}"
+        running = False
+facts = f"refused={int(refused)} pulling={int(pulling)} unscheduled={int(unscheduled)} events_read={int(events_read)}"
 detail = "; ".join(state)
-if ready is True and len(uids) == 2 and not refused and docs["events-a"] is not None and docs["events-b"] is not None:
+if refused:
+    print(f"fail\t{detail}; a no healthy devices event about an engine Pod was recorded\t{facts}\t")
+elif running and len(uids) == 2 and events_read:
     print(f"pass\t{detail}\t{facts}\t{' '.join(uids)}")
-elif refused:
-    print(f"fail\t{detail}; a no healthy devices event was recorded\t{facts}\t")
-elif final:
-    if ready is None or docs["events-a"] is None or docs["events-b"] is None:
-        print(f"unmeasured\t{detail}; the Pods or their events could not be read at the deadline\t{facts}\t")
-    else:
-        print(f"fail\t{detail}; not both Running by the phase deadline\t{facts}\t")
 else:
     print(f"wait\t{detail}\t{facts}\t")
 PY
-)" || verdict=$'unmeasured\tthe B2 judgement did not run\trefused=0 pulled_bad=0 sched_bad=0 events_read=0\t'
-    [ "${verdict%%$'\t'*}" = wait ] || break
+)" || verdict=$'wait\tthe B2 judgement did not run\trefused=0 pulling=0 unscheduled=0 events_read=0\t'
+    # An observation that ended after the deadline is not inside the phase, so it decides nothing.
+    if [ "$(date +%s)" -gt "$deadline" ]; then break; fi
+    result="${verdict%%$'\t'*}"
+    [ "$result" = wait ] || break
+    result=""
     sleep "$MPSCAP_POLL"
   done
-  local result detail facts uids
-  IFS=$'\t' read -r result detail facts uids <<<"$verdict"
-  mj_decide B2 "$result" "$detail"
-  case "$facts" in *events_read=1*)
-    case "$facts" in *refused=1*) mj_fact no_healthy_devices_event true "$detail" ;; *) mj_fact no_healthy_devices_event false ;; esac ;;
+  # The first field is the poll's own result, already in $result unless the deadline overrode it.
+  local detail facts uids
+  IFS=$'\t' read -r _ detail facts uids <<<"$verdict"
+  case "$facts" in
+    *refused=1*) mj_fact no_healthy_devices_event true "$detail" ;;
+    *events_read=1*) mj_fact no_healthy_devices_event false ;;
   esac
-  if [ "$result" = pass ]; then
-    # Both Pods ran, so an image that failed once and pulled on a retry, or a scheduling attempt that waited, did not
-    # stop the arrangement; only a failure that kept the Pods from running makes the run INVALID.
-    mj_fact images_pulled true
-    mj_fact schedulable true
-    printf '%s\n' "$uids"
-    return 0
-  fi
-  case "$facts" in *pulled_bad=1*) mj_fact images_pulled false "$detail" ;; esac
-  case "$facts" in *sched_bad=1*) mj_fact schedulable false "$detail" ;; esac
+  case "$result" in
+    pass)
+      mj_decide B2 pass "$detail"
+      # Both Pods ran, so whatever an image or the scheduler did on the way did not stop the arrangement.
+      mj_fact images_pulled true
+      mj_fact schedulable true
+      printf '%s\n' "$uids"
+      return 0 ;;
+    fail) mj_decide B2 fail "$detail" ;;
+    *) echo "B2 ran out of its phase with ${detail:-no observation}; it is left interrupted" >&2 ;;
+  esac
+  case "$facts" in *pulling=1*) mj_fact images_pulled false "$detail" ;; esac
+  case "$facts" in *unscheduled=1*) mj_fact schedulable false "$detail" ;; esac
   return 1
 }
 
