@@ -1,0 +1,256 @@
+# shellcheck shell=bash
+# The MPS capability session's instruments for B0 to B3, by the 2026-10-24 amendment of
+# docs/superpowers/specs/2026-09-25-can-mps-engage-on-this-card-at-all.md.
+#
+# Each function starts its bar in the journal (hack/lib/mps-journal.sh), reads the cluster, saves what it read under
+# MPSCAP_OUT, and decides the bar as pass, fail or unmeasured.
+# B4 and B5 are judged by `benchharness mps-capability-bar` (internal/bench/mps_capability_bars.go), because they
+# parse a process table and replay rows; their capture is here.
+#
+# A kubectl that could not answer is UNMEASURED, never an empty answer: "could not ask" and "nothing there" are
+# different facts, and this repository has more than once read the first as the second.
+#
+# Callers set MPSCAP_CTX (the kube context), MPSCAP_OUT (the evidence directory) and MPS_JOURNAL.
+
+MPSCAP_PLUGIN_NS="${MPSCAP_PLUGIN_NS:-gpu-platform-control-plane-system}"
+MPSCAP_POLL="${MPSCAP_POLL:-5}"
+
+mpscap_k() { kubectl --context "$MPSCAP_CTX" --request-timeout=20s "$@"; }
+
+# mpscap_b0_b1: the plugin and the control daemon alive, read around the node's advertisement, which must be 2.
+#
+# The Pods are read before and after the node, so a Pod that restarted or was replaced while the advertisement was
+# read cannot lend it its credibility: B0 needs the same Pod, Running, with no restart, on both sides.
+mpscap_b0_b1() {
+  mj_start B0 || return 1
+  mj_start B1 || return 1
+  local sel="app.kubernetes.io/name=gpu-platform-control-plane" before node after verdict b0 b1
+  before="$(mpscap_k get pods -n "$MPSCAP_PLUGIN_NS" -l "$sel" -o json 2>&1)" || before="UNREADABLE $before"
+  node="$(mpscap_k get nodes -l platform.lkhun9311.github.io/gpu-sharing=true -o json 2>&1)" || node="UNREADABLE $node"
+  after="$(mpscap_k get pods -n "$MPSCAP_PLUGIN_NS" -l "$sel" -o json 2>&1)" || after="UNREADABLE $after"
+  printf '%s\n' "$before" >"$MPSCAP_OUT/b0-pods-before.json"
+  printf '%s\n' "$node" >"$MPSCAP_OUT/b1-node.json"
+  printf '%s\n' "$after" >"$MPSCAP_OUT/b0-pods-after.json"
+  verdict="$(python3 - "$MPSCAP_OUT/b0-pods-before.json" "$MPSCAP_OUT/b1-node.json" "$MPSCAP_OUT/b0-pods-after.json" <<'PY'
+import json, sys
+def load(p):
+    text = open(p).read()
+    if text.startswith("UNREADABLE"):
+        return None, text[len("UNREADABLE "):].strip()[:160]
+    try:
+        return json.loads(text), None
+    except Exception as exc:
+        return None, f"not JSON: {exc}"
+before, eb = load(sys.argv[1])
+node, en = load(sys.argv[2])
+after, ea = load(sys.argv[3])
+
+def b1():
+    if node is None:
+        return "unmeasured", f"the sharing node could not be read: {en}"
+    items = node.get("items", [])
+    if len(items) != 1:
+        return "fail", f"{len(items)} nodes carry the sharing label, not one"
+    gpus = ((items[0].get("status") or {}).get("allocatable") or {}).get("nvidia.com/gpu")
+    if gpus is None:
+        return "fail", f"node {items[0]['metadata']['name']} advertises no nvidia.com/gpu"
+    return ("pass" if gpus == "2" else "fail"), f"node {items[0]['metadata']['name']} advertises nvidia.com/gpu {gpus}"
+
+def pods(doc, component):
+    return [p for p in doc.get("items", []) if (p["metadata"].get("labels") or {}).get("app.kubernetes.io/component") == component]
+
+def alive(p):
+    st = p.get("status") or {}
+    cs = st.get("containerStatuses")
+    if not cs:
+        return None, "has no container status"
+    restarts = sum(c.get("restartCount", 0) for c in cs)
+    if p["metadata"].get("deletionTimestamp"):
+        return False, "is being deleted"
+    if st.get("phase") != "Running":
+        return False, f"is {st.get('phase')}"
+    if restarts:
+        return False, f"has restarted {restarts} time(s)"
+    return True, "Running with 0 restarts"
+
+def b0():
+    if before is None or after is None:
+        return "unmeasured", f"the plugin Pods could not be read: {eb or ea}"
+    out, unknown = [], []
+    ok = True
+    for comp in ("nvidia-device-plugin-mps-plugin", "nvidia-mps-control-daemon"):
+        pb, pa = pods(before, comp), pods(after, comp)
+        if len(pb) != 1 or len(pa) != 1:
+            ok = False
+            out.append(f"{comp}: {len(pb)} Pod(s) before the node read and {len(pa)} after, not one")
+            continue
+        if pb[0]["metadata"]["uid"] != pa[0]["metadata"]["uid"]:
+            ok = False
+            out.append(f"{comp}: the Pod was replaced while the node was read")
+            continue
+        for when, p in (("before", pb[0]), ("after", pa[0])):
+            good, why = alive(p)
+            if good is None:
+                unknown.append(f"{comp} {p['metadata']['name']} {why} {when} the node read")
+            elif not good:
+                ok = False
+                out.append(f"{comp} {p['metadata']['name']} {why} {when} the node read")
+        out.append(f"{comp} {pb[0]['metadata']['name']} uid {pb[0]['metadata']['uid']}")
+    if not ok:
+        return "fail", "; ".join(out)
+    if unknown:
+        return "unmeasured", "; ".join(unknown)
+    return "pass", "; ".join(out)
+
+r0, d0 = b0()
+r1, d1 = b1()
+print(f"{r0}\t{d0}")
+print(f"{r1}\t{d1}")
+PY
+)" || verdict=$'unmeasured\tthe B0 judgement did not run\nunmeasured\tthe B1 judgement did not run'
+  b0="$(sed -n 1p <<<"$verdict")"
+  b1="$(sed -n 2p <<<"$verdict")"
+  mj_decide B0 "${b0%%$'\t'*}" "${b0#*$'\t'}"
+  mj_decide B1 "${b1%%$'\t'*}" "${b1#*$'\t'}"
+  # The stopping rule: B1 failed ends the session rather than retrying with other plugin settings.
+  [ "${b1%%$'\t'*}" = pass ]
+}
+
+# mpscap_b2 NS_A NS_B DEADLINE_EPOCH: both engine Pods Running, with no "no healthy devices" event on either, polled
+# until the phase deadline.
+#
+# The Pods are told apart by UID, so a Pod replaced during the wait is the new one and not a stale read; their UIDs
+# are printed on success, for B3 and B4 to probe the same Pods.
+# Three facts are recorded here because only here are they seen: whether the kubelet refused the device, whether an
+# image failed to pull, and whether a Pod could not be scheduled for a reason that is not the device.
+mpscap_b2() {
+  local ns_a="$1" ns_b="$2" deadline="$3" sel="app.kubernetes.io/component=vllm-shared" verdict="" pa pb ev
+  mj_start B2 || return 1
+  while :; do
+    pa="$(mpscap_k get pods -n "$ns_a" -l "$sel" -o json 2>&1)" || pa="UNREADABLE $pa"
+    pb="$(mpscap_k get pods -n "$ns_b" -l "$sel" -o json 2>&1)" || pb="UNREADABLE $pb"
+    ev="$(mpscap_k get events -n "$ns_a" -o json 2>&1)" || ev="UNREADABLE $ev"
+    printf '%s\n' "$pa" >"$MPSCAP_OUT/b2-pods-a.json"
+    printf '%s\n' "$pb" >"$MPSCAP_OUT/b2-pods-b.json"
+    printf '%s\n' "$ev" >"$MPSCAP_OUT/b2-events-a.json"
+    ev="$(mpscap_k get events -n "$ns_b" -o json 2>&1)" || ev="UNREADABLE $ev"
+    printf '%s\n' "$ev" >"$MPSCAP_OUT/b2-events-b.json"
+    verdict="$(python3 - "$MPSCAP_OUT" "$(( $(date +%s) >= deadline ))" <<'PY'
+import json, os, sys
+out, final = sys.argv[1], sys.argv[2] == "1"
+def load(name):
+    text = open(os.path.join(out, name)).read()
+    if text.startswith("UNREADABLE"):
+        return None
+    try:
+        return json.loads(text)
+    except Exception:
+        return None
+docs = {k: load(f"b2-{k}.json") for k in ("pods-a", "pods-b", "events-a", "events-b")}
+events = [e for k in ("events-a", "events-b") if docs[k] for e in docs[k].get("items", [])]
+msgs = [(e.get("reason", ""), e.get("message", "")) for e in events]
+refused = any("no healthy devices" in m for _, m in msgs)
+pulled_bad = any(r in ("ErrImagePull", "ImagePullBackOff", "Failed") and "image" in m.lower() and "pull" in m.lower() for r, m in msgs)
+sched_bad = any(r == "FailedScheduling" and "nvidia.com/gpu" not in m for r, m in msgs)
+state, uids = [], []
+ready = True
+for k in ("pods-a", "pods-b"):
+    d = docs[k]
+    if d is None:
+        ready = None if ready is not False else False
+        state.append(f"{k}: unreadable")
+        continue
+    live = [p for p in d.get("items", []) if not p["metadata"].get("deletionTimestamp")]
+    if len(live) != 1:
+        ready = False
+        state.append(f"{k}: {len(live)} live Pod(s)")
+        continue
+    p = live[0]
+    phase = (p.get("status") or {}).get("phase")
+    waiting = [c.get("state", {}).get("waiting", {}).get("reason") for c in (p.get("status") or {}).get("containerStatuses") or []]
+    if any(w in ("ErrImagePull", "ImagePullBackOff") for w in waiting):
+        pulled_bad = True
+    state.append(f"{k}: {p['metadata']['name']} uid {p['metadata']['uid']} {phase}" + (f" waiting {','.join(w for w in waiting if w)}" if any(waiting) else ""))
+    uids.append(p["metadata"]["uid"])
+    if phase != "Running":
+        ready = False
+facts = f"refused={int(refused)} pulled_bad={int(pulled_bad)} sched_bad={int(sched_bad)} events_read={int(docs['events-a'] is not None and docs['events-b'] is not None)}"
+detail = "; ".join(state)
+if ready is True and len(uids) == 2 and not refused and docs["events-a"] is not None and docs["events-b"] is not None:
+    print(f"pass\t{detail}\t{facts}\t{' '.join(uids)}")
+elif refused:
+    print(f"fail\t{detail}; a no healthy devices event was recorded\t{facts}\t")
+elif final:
+    if ready is None or docs["events-a"] is None or docs["events-b"] is None:
+        print(f"unmeasured\t{detail}; the Pods or their events could not be read at the deadline\t{facts}\t")
+    else:
+        print(f"fail\t{detail}; not both Running by the phase deadline\t{facts}\t")
+else:
+    print(f"wait\t{detail}\t{facts}\t")
+PY
+)" || verdict=$'unmeasured\tthe B2 judgement did not run\trefused=0 pulled_bad=0 sched_bad=0 events_read=0\t'
+    [ "${verdict%%$'\t'*}" = wait ] || break
+    sleep "$MPSCAP_POLL"
+  done
+  local result detail facts uids
+  IFS=$'\t' read -r result detail facts uids <<<"$verdict"
+  mj_decide B2 "$result" "$detail"
+  case "$facts" in *events_read=1*)
+    case "$facts" in *refused=1*) mj_fact no_healthy_devices_event true "$detail" ;; *) mj_fact no_healthy_devices_event false ;; esac ;;
+  esac
+  if [ "$result" = pass ]; then
+    # Both Pods ran, so an image that failed once and pulled on a retry, or a scheduling attempt that waited, did not
+    # stop the arrangement; only a failure that kept the Pods from running makes the run INVALID.
+    mj_fact images_pulled true
+    mj_fact schedulable true
+    printf '%s\n' "$uids"
+    return 0
+  fi
+  case "$facts" in *pulled_bad=1*) mj_fact images_pulled false "$detail" ;; esac
+  case "$facts" in *sched_bad=1*) mj_fact schedulable false "$detail" ;; esac
+  return 1
+}
+
+# mpscap_b3 NS_A UID_A NS_B UID_B: each engine Pod a real MPS client, by its own account.
+#
+# Both Pods are probed even when the first fails, so the record says what each one was. A probe that could not run
+# is unmeasured; one that ran and found no variable, no directory or no socket is a failure.
+mpscap_b3() {
+  local ns uid pod probe rc ipc lines=() results=() i
+  mj_start B3 || return 1
+  for i in 1 2; do
+    if [ "$i" = 1 ]; then ns="$1" uid="$2"; else ns="$3" uid="$4"; fi
+    pod="$(mpscap_k get pods -n "$ns" -o jsonpath="{range .items[?(@.metadata.uid==\"$uid\")]}{.metadata.name}{end}" 2>&1)" || {
+      results+=(unmeasured); lines+=("$ns: the Pod could not be looked up: ${pod:0:160}"); continue; }
+    if [ -z "$pod" ]; then results+=(fail); lines+=("$ns: the Pod B2 decided on (uid $uid) is gone"); continue; fi
+    ipc="$(mpscap_k get pod -n "$ns" "$pod" -o jsonpath='{.spec.hostIPC}' 2>&1)" || {
+      results+=(unmeasured); lines+=("$ns/$pod: hostIPC could not be read: ${ipc:0:160}"); continue; }
+    if [ "$ipc" != true ]; then results+=(fail); lines+=("$ns/$pod: hostIPC is ${ipc:-absent}, so it cannot reach the daemon's pipe"); continue; fi
+    # Single-quoted on purpose: the variables expand inside the Pod, which is the environment being asked about.
+    # shellcheck disable=SC2016
+    probe="$(mpscap_k exec -n "$ns" "$pod" -- sh -c '
+      pipe="${CUDA_MPS_PIPE_DIRECTORY:-unset}"
+      if [ "$pipe" = "unset" ]; then echo "PIPE=unset"; exit 0; fi
+      if [ ! -d "$pipe" ]; then echo "PIPE=$pipe DIR=missing"; exit 0; fi
+      sock=no
+      for candidate in "$pipe"/control "$pipe"/nvidia-mps/control; do [ -S "$candidate" ] && sock=yes && break; done
+      echo "PIPE=$pipe DIR=present CONTROL=$sock"' 2>&1)"
+    rc=$?
+    printf '%s\n' "$probe" >"$MPSCAP_OUT/b3-probe-$ns.txt"
+    if [ "$rc" != 0 ]; then results+=(unmeasured); lines+=("$ns/$pod: the probe could not run (exit $rc): ${probe:0:160}"); continue; fi
+    case "$probe" in
+      *CONTROL=yes*) results+=(pass); lines+=("$ns/$pod: $probe") ;;
+      *PIPE=unset* | *DIR=missing* | *CONTROL=no*) results+=(fail); lines+=("$ns/$pod: $probe") ;;
+      *) results+=(unmeasured); lines+=("$ns/$pod: the probe answered '${probe:0:120}'") ;;
+    esac
+  done
+  local result=pass detail
+  detail="$(printf '%s; ' "${lines[@]}")"
+  # A measured failure outranks an unmeasured probe: one engine seen not to be a client is a failed bar.
+  case " ${results[*]} " in
+    *" fail "*) result=fail ;;
+    *" unmeasured "*) result=unmeasured ;;
+  esac
+  mj_decide B3 "$result" "${detail%; }"
+  [ "$result" = pass ]
+}

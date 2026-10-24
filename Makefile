@@ -505,7 +505,8 @@ harness-check: terraform ## Run the self-contained test harnesses under hack/tes
 	@#
 	@# check-mps-journal.sh builds benchharness and judges every journal it writes with the real classifier, so the
 	@# MPS session's writer and reader are checked against each other rather than each against a copy.
-	@fail=0; for t in hack/test/capture-evidence-test.sh hack/test/plot-device-observation-test.sh hack/test/check-matrix-plan-refusals.sh hack/test/check-token-unit-labels.sh hack/test/check-published-spreads.sh hack/test/check-cell-timing-record.sh hack/test/check-engine-metrics-scrape.sh hack/test/check-instrument-validation-harness.sh hack/test/check-tail-crossing-self-tests.sh hack/test/check-gpu-max-nodes-validation.sh hack/test/check-train-session-lib.sh hack/test/check-ddp-arms-lib.sh hack/test/check-train-session-refusals.sh hack/test/check-serve-sync.sh hack/test/check-fragmentation-collector.sh hack/test/check-stranded-v2-order.sh hack/test/check-mps-journal.sh; do \
+	@# check-mps-capability-lib.sh does the same for the B0 to B3 instruments, with kubectl a stub answering from rules.
+	@fail=0; for t in hack/test/capture-evidence-test.sh hack/test/plot-device-observation-test.sh hack/test/check-matrix-plan-refusals.sh hack/test/check-token-unit-labels.sh hack/test/check-published-spreads.sh hack/test/check-cell-timing-record.sh hack/test/check-engine-metrics-scrape.sh hack/test/check-instrument-validation-harness.sh hack/test/check-tail-crossing-self-tests.sh hack/test/check-gpu-max-nodes-validation.sh hack/test/check-train-session-lib.sh hack/test/check-ddp-arms-lib.sh hack/test/check-train-session-refusals.sh hack/test/check-serve-sync.sh hack/test/check-fragmentation-collector.sh hack/test/check-stranded-v2-order.sh hack/test/check-mps-journal.sh hack/test/check-mps-capability-lib.sh; do \
 		TERRAFORM="$(TERRAFORM)" bash "$$t" || { echo "harness-check: $$t failed" >&2; fail=1; }; \
 	done; \
 	if [ "$$fail" != "0" ]; then exit 1; fi
