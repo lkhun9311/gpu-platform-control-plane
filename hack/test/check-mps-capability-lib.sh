@@ -291,6 +291,108 @@ put name-a ""
 mpscap_b3 m5c-a ua m5c-b ub
 expect "the Pod B2 decided on is gone" B3 fail "is gone"
 
+# --- B4: the capture, with nvidia-smi a stub and /proc a directory ------------------------------------------------
+cat >"$work/bin/nvidia-smi" <<'SMI'
+#!/usr/bin/env bash
+case "$*" in
+  *--query-compute-apps*) f=csv ;;
+  "") f=table ;;
+  *) f=other ;;
+esac
+[ -e "$STUB/smi-$f" ] && cat "$STUB/smi-$f"
+[ -e "$STUB/smi-$f.rc" ] && exit "$(cat "$STUB/smi-$f.rc")"
+exit 0
+SMI
+chmod +x "$work/bin/nvidia-smi"
+ready_pods() { # ready-a ready-b
+  printf '{"items": [{"metadata": {"name": "eng-a", "namespace": "m5c-a", "uid": "0b6f4c1e-2d3a-4b5c-8d9e-0f1a2b3c4d5e"}, "status": {"conditions": [{"type": "Ready", "status": "%s"}]}}, {"metadata": {"name": "eng-b", "namespace": "m5c-b", "uid": "9e8d7c6b-5a49-4382-a1b0-c9d8e7f6a5b4"}, "status": {"conditions": [{"type": "Ready", "status": "%s"}]}}]}' "$1" "$2"
+}
+ua=0b6f4c1e-2d3a-4b5c-8d9e-0f1a2b3c4d5e ub=9e8d7c6b-5a49-4382-a1b0-c9d8e7f6a5b4
+b4_scene() { # table-rows...
+  scenario
+  put ready "$(ready_pods True True)"
+  rule "*get pods -A -o json*" ready
+  printf '%s\n' '| Processes:  |' "$@" >"$STUB/smi-table"
+  printf 'pid, process_name, used_memory [MiB]\n4242, nvidia-cuda-mps-server, 28 MiB\n5151, /usr/bin/python3, 10230 MiB\n6161, /usr/bin/python3, 10230 MiB\n' >"$STUB/smi-csv"
+  export MPSCAP_PROC="$STUB/proc"
+  mkdir -p "$MPSCAP_PROC/4242" "$MPSCAP_PROC/5151" "$MPSCAP_PROC/6161"
+  echo "0::/system.slice/nvidia-mps.scope" >"$MPSCAP_PROC/4242/cgroup"
+  echo "0::/kubelet-kubepods-burstable-pod${ua//-/_}.slice/cri-containerd-a.scope" >"$MPSCAP_PROC/5151/cgroup"
+  echo "0::/kubelet-kubepods-burstable-pod${ub//-/_}.slice/cri-containerd-b.scope" >"$MPSCAP_PROC/6161/cgroup"
+}
+server='|    0   N/A  N/A      4242      C   nvidia-cuda-mps-server     28MiB |'
+c1='|    0   N/A  N/A      5151    M+C   /usr/bin/python3      10230MiB |'
+c2='|    0   N/A  N/A      6161    M+C   /usr/bin/python3      10230MiB |'
+b4_scene "$server" "$c1" "$c2"
+mpscap_b4 "$ua" "$ub" "$work/benchharness" && ok "a captured server and two clients return 0" || bad "a passing B4 returned non-zero"
+expect "one server, one client per engine" B4 pass "pid 6161 in Pod $ub"
+[[ -s "$MPSCAP_OUT/b4-cgroups/5151.cgroup" && -s "$MPSCAP_OUT/b4-cgroups/4242.cgroup" ]] && ok "each listed PID's cgroup is kept as evidence" || bad "the cgroups were not copied: $(ls "$MPSCAP_OUT/b4-cgroups")"
+b4_scene "$server" "$c1" '|    0   N/A  N/A      6161      C   /usr/bin/python3      10230MiB |'
+mpscap_b4 "$ua" "$ub" "$work/benchharness"
+expect "engine b running without MPS" B4 fail "exactly two M+C"
+b4_scene "$server" "$c1" "$c2"
+echo 9 >"$STUB/smi-table.rc"
+mpscap_b4 "$ua" "$ub" "$work/benchharness"
+expect "nvidia-smi that failed" B4 unmeasured "exited 9"
+b4_scene "$server" "$c1" "$c2"
+put ready "$(ready_pods True False)"
+mpscap_b4 "$ua" "$ub" "$work/benchharness"
+expect "engine b not Ready, so no table is taken" B4 unmeasured "is not Ready"
+[[ ! -e "$MPSCAP_OUT/b4-nvidia-smi.txt" ]] && ok "no table is captured while an engine is not Ready" || bad "a table was captured while an engine was not Ready"
+b4_scene "$server" "$c1" "$c2"
+put notready "$(ready_pods True False)"
+: >"$STUB/rules"; rule "*get pods -A -o json*" "ready|notready"
+mpscap_b4 "$ua" "$ub" "$work/benchharness"
+expect "an engine that stopped being Ready during the capture" B4 unmeasured "not after it"
+
+# --- B5 ----------------------------------------------------------------------------------------------------------
+scenario
+row() { printf '{"arm":"mps","tenant":"%s","httpStatus":%s,"study":"mps-capability-2026-10-24"}\n' "$1" "$2"; }
+{ row premium-1 200; row standard-noisy 200; } >"$STUB/raw.jsonl"
+mpscap_b5_start && mpscap_b5_decide "$STUB/raw.jsonl" 0 "$work/benchharness" && ok "a clean replay returns 0" || bad "a clean replay returned non-zero"
+expect "both tenants answered" B5 pass "premium-1 1, standard-noisy 1"
+scenario
+mpscap_b5_start; mpscap_b5_decide "$STUB/none.jsonl" 2 "$work/benchharness"
+expect "a replay that wrote nothing" B5 fail "wrote no raw file"
+scenario
+{ row premium-1 200; row standard-noisy 503; } >"$STUB/raw.jsonl"
+mpscap_b5_start; mpscap_b5_decide "$STUB/raw.jsonl" 0 "$work/benchharness"
+expect "a 5xx" B5 fail "1 5xx"
+
+# --- the diagnostics ---------------------------------------------------------------------------------------------
+diag_scene() {
+  scenario
+  put ok "something"
+  put events '{"items": []}'
+  rule "*get events -A -o json*" events
+  rule "*logs*--previous*" ok 1
+  rule "*" ok
+  printf 'pid, process_name, used_memory [MiB]\n' >"$STUB/smi-csv"
+  printf '| Processes: |\n' >"$STUB/smi-table"
+}
+diag_scene
+mpscap_diagnostics m5c-a m5c-b && ok "every required diagnostic collected returns 0" || bad "the diagnostics returned non-zero: $(cat "$MPSCAP_OUT/diag/inventory.tsv")"
+[[ $(awk -F'\t' 'NR > 1' "$MPSCAP_OUT/diag/inventory.tsv" | wc -l) == 12 ]] && ok "the inventory lists all twelve commands" || bad "the inventory lists $(awk 'NR > 1' "$MPSCAP_OUT/diag/inventory.tsv" | wc -l) commands"
+awk -F'\t' '$1 ~ /previous/ && $2 != 0 && $5 == "no"' "$MPSCAP_OUT/diag/inventory.tsv" | grep -q . && ok "a missing previous log is recorded and not required" || bad "the previous log's row is wrong"
+[[ "$(fact no_healthy_devices_event)" == false ]] && ok "with B2 cut short, the diagnostics record that no refusal event exists" || bad "the fact is $(fact no_healthy_devices_event)"
+grep -q -- "describe pods -n m5c-a" "$STUB/calls.log" && grep -q -- "logs -n gpu-platform-control-plane-system -l app.kubernetes.io/component=nvidia-mps-control-daemon" "$STUB/calls.log" &&
+  ok "the engine Pods are described and the daemon's log is read" || bad "a mandatory diagnostic was not asked for"
+diag_scene
+put events '{"items": [{"reason": "UnexpectedAdmissionError", "message": "Allocate failed due to no healthy devices present"}]}'
+mpscap_diagnostics m5c-a m5c-b
+[[ "$(fact no_healthy_devices_event)" == true ]] && ok "a refusal event found only by the diagnostics is recorded" || bad "the refusal event was missed: $(fact no_healthy_devices_event)"
+diag_scene
+mj_fact no_healthy_devices_event false
+mpscap_diagnostics m5c-a m5c-b
+[[ $(grep -c no_healthy_devices_event "$MPS_JOURNAL") == 1 ]] && ok "a fact B2 already recorded is not recorded again" || bad "the fact was recorded twice"
+diag_scene
+: >"$STUB/rules"; rule "*describe pods -n m5c-a*" ok 1; rule "*get events -A -o json*" events; rule "*" ok
+mpscap_diagnostics m5c-a m5c-b && bad "a failed describe returned 0" || ok "a required diagnostic that failed returns non-zero"
+diag_scene
+: >"$STUB/rules"; rule "*get events -A -o json*" ok 1; rule "*" ok
+mpscap_diagnostics m5c-a m5c-b
+[[ -z "$(fact no_healthy_devices_event)" ]] && ok "events that could not be read record no refusal fact either way" || bad "a fact came from unread events"
+
 if [[ $fails -ne 0 ]]; then
   echo "check-mps-capability-lib: $fails failure(s)"
   exit 1

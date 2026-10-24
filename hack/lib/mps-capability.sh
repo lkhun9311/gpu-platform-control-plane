@@ -254,3 +254,121 @@ mpscap_b3() {
   mj_decide B3 "$result" "${detail%; }"
   [ "$result" = pass ]
 }
+
+# mpscap_engines_ready UID_A UID_B: both engine Pods, found by UID, report Ready; prints why not otherwise.
+mpscap_engines_ready() {
+  local pods
+  pods="$(mpscap_k get pods -A -o json 2>&1)" || { echo "the Pods could not be read: ${pods:0:160}"; return 1; }
+  # Through a file, because the heredoc below is already python's stdin and a here-string beside it would be dropped.
+  printf '%s\n' "$pods" >"$MPSCAP_OUT/ready-pods.json"
+  python3 - "$MPSCAP_OUT/ready-pods.json" "$1" "$2" <<'PY'
+import json, sys
+want = sys.argv[2:]
+by_uid = {p["metadata"]["uid"]: p for p in json.load(open(sys.argv[1])).get("items", [])}
+bad = []
+for uid in want:
+    p = by_uid.get(uid)
+    if p is None:
+        bad.append(f"Pod {uid} is gone")
+        continue
+    ready = any(c.get("type") == "Ready" and c.get("status") == "True" for c in (p.get("status") or {}).get("conditions") or [])
+    if not ready:
+        bad.append(f"{p['metadata']['namespace']}/{p['metadata']['name']} is not Ready")
+if bad:
+    print("; ".join(bad))
+    sys.exit(1)
+PY
+}
+
+# mpscap_b4 UID_A UID_B BENCHHARNESS: the two tables the page names, captured on the host while both engines are Ready,
+# with each listed process's cgroup, judged by `benchharness mps-capability-bar --bar B4`.
+#
+# Readiness is read before and after the capture, so a table taken while an engine restarted is not judged as one
+# taken while both served. MPSCAP_PROC replaces /proc in the test.
+mpscap_b4() {
+  local uid_a="$1" uid_b="$2" bh="$3" why t_rc q_rc pid out dir="$MPSCAP_OUT/b4-cgroups"
+  mj_start B4 || return 1
+  if ! why="$(mpscap_engines_ready "$uid_a" "$uid_b")"; then
+    mj_decide B4 unmeasured "the table was not captured, because both engines were not Ready: $why"
+    return 1
+  fi
+  nvidia-smi >"$MPSCAP_OUT/b4-nvidia-smi.txt" 2>"$MPSCAP_OUT/b4-nvidia-smi.err"
+  t_rc=$?
+  nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv >"$MPSCAP_OUT/b4-compute-apps.csv" 2>"$MPSCAP_OUT/b4-compute-apps.err"
+  q_rc=$?
+  mkdir -p "$dir"
+  # Every PID either command lists, so the judge has a cgroup for each client it could be asked to attribute.
+  for pid in $( { grep -oE '^\|[[:space:]]+[0-9]+[[:space:]]+[^[:space:]]+[[:space:]]+[^[:space:]]+[[:space:]]+[0-9]+' "$MPSCAP_OUT/b4-nvidia-smi.txt" | awk '{print $NF}'
+                  awk -F, 'NR > 1 && $1 ~ /^ *[0-9]+ *$/ {gsub(/ /, "", $1); print $1}' "$MPSCAP_OUT/b4-compute-apps.csv"; } | sort -un); do
+    cp "${MPSCAP_PROC:-/proc}/$pid/cgroup" "$dir/$pid.cgroup" 2>>"$MPSCAP_OUT/b4-cgroups.err" || true
+  done
+  if ! why="$(mpscap_engines_ready "$uid_a" "$uid_b")"; then
+    mj_decide B4 unmeasured "both engines were Ready before the capture and not after it: $why"
+    return 1
+  fi
+  if ! out="$("$bh" mps-capability-bar --bar B4 --table "$MPSCAP_OUT/b4-nvidia-smi.txt" --table-exit "$t_rc" \
+    --query-exit "$q_rc" --cgroups "$dir" --engine-a "$uid_a" --engine-b "$uid_b" 2>&1)"; then
+    mj_decide B4 unmeasured "the judge could not read the capture: ${out:0:200}"
+    return 1
+  fi
+  mj_decide B4 "${out%%$'\t'*}" "${out#*$'\t'}"
+  [ "${out%%$'\t'*}" = pass ]
+}
+
+# mpscap_b5_start and mpscap_b5_decide RAW REPLAY_EXIT BENCHHARNESS bracket the matrix's own replay of the frozen
+# trace, so a replay that is killed leaves B5 interrupted rather than absent.
+mpscap_b5_start() { mj_start B5; }
+mpscap_b5_decide() {
+  local raw="$1" rc="$2" bh="$3" out
+  if [ ! -f "$raw" ]; then
+    mj_decide B5 fail "the replay exited $rc and wrote no raw file"
+    return 1
+  fi
+  if ! out="$("$bh" mps-capability-bar --bar B5 --raw "$raw" --replay-exit "$rc" 2>&1)"; then
+    mj_decide B5 unmeasured "the judge could not read the replay: ${out:0:200}"
+    return 1
+  fi
+  mj_decide B5 "${out%%$'\t'*}" "${out#*$'\t'}"
+  [ "${out%%$'\t'*}" = pass ]
+}
+
+# mpscap_diagnostics NS_A NS_B: the page's mandatory diagnostics, on every exit path, before anything is deleted.
+#
+# Each command's output is kept with its exit status, size and SHA-256 in diag/inventory.tsv, so a missing piece is a
+# recorded failure rather than an absent file. The previous container's log is asked for and may legitimately not
+# exist; every other command must succeed, and the function returns non-zero when one did not.
+# It also records whether a "no healthy devices" event exists, when B2 was cut short before it could say.
+mpscap_diagnostics() {
+  local ns_a="$1" ns_b="$2" d="$MPSCAP_OUT/diag" missing=0 name rc comp
+  mkdir -p "$d"
+  printf 'name\texit\tbytes\tsha256\trequired\n' >"$d/inventory.tsv"
+  # diag NAME REQUIRED COMMAND...
+  diag() {
+    name="$1"; local required="$2"; shift 2
+    "$@" >"$d/$name" 2>&1
+    rc=$?
+    printf '%s\t%s\t%s\t%s\t%s\n' "$name" "$rc" "$(wc -c <"$d/$name")" "$(sha256sum "$d/$name" | cut -d' ' -f1)" "$required" >>"$d/inventory.tsv"
+    if [ "$rc" != 0 ] && [ "$required" = yes ]; then missing=$((missing + 1)); fi
+    return 0
+  }
+  diag "describe-pods-$ns_a.txt" yes mpscap_k describe pods -n "$ns_a"
+  diag "describe-pods-$ns_b.txt" yes mpscap_k describe pods -n "$ns_b"
+  diag "pods-$ns_a.json" yes mpscap_k get pods -n "$ns_a" -o json
+  diag "pods-$ns_b.json" yes mpscap_k get pods -n "$ns_b" -o json
+  diag events-all.json yes mpscap_k get events -A -o json
+  diag "describe-pods-$MPSCAP_PLUGIN_NS.txt" yes mpscap_k describe pods -n "$MPSCAP_PLUGIN_NS"
+  for comp in nvidia-device-plugin-mps-plugin nvidia-mps-control-daemon; do
+    diag "logs-$comp.txt" yes mpscap_k logs -n "$MPSCAP_PLUGIN_NS" -l "app.kubernetes.io/component=$comp" --all-containers --tail=-1
+    diag "logs-$comp-previous.txt" no mpscap_k logs -n "$MPSCAP_PLUGIN_NS" -l "app.kubernetes.io/component=$comp" --all-containers --previous --tail=-1
+  done
+  diag nvidia-smi.txt yes nvidia-smi
+  diag nvidia-smi-compute-apps.csv yes nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv
+  if ! mj_has_fact no_healthy_devices_event && python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$d/events-all.json" 2>/dev/null; then
+    if grep -q "no healthy devices" "$d/events-all.json"; then
+      mj_fact no_healthy_devices_event true "found by the diagnostics after B2 was cut short"
+    else
+      mj_fact no_healthy_devices_event false
+    fi
+  fi
+  [ "$missing" = 0 ]
+}
