@@ -2610,7 +2610,8 @@ expected_outputs() {
   # is the file itself. Expecting it is what makes "the refusal was never written down" a shortfall rather
   # than a quiet agreement between two counts that moved together.
   orphan=$(awk -F'\t' 'NR > 1 && $4 == "refused" {print $2}' "$OUT/cell-timings.tsv" | sort -u | while read -r a; do
-    [ -f "$OUT/refused-$a.txt" ] || [ -f "$OUT/invalid-$a.txt" ] || echo "$a"
+    # The capability cell's stop is written in its journal, which says which bar ended it and why.
+    [ -f "$OUT/refused-$a.txt" ] || [ -f "$OUT/invalid-$a.txt" ] || { mpscap_is_study && [ -s "${MPS_JOURNAL:-}" ]; } || echo "$a"
   done | wc -l)
   # The fixed files, each counted only under the condition it appears under.
   # `-f`, not `-s`: an empty file is in the archive and `find -type f` counts it.
@@ -2651,7 +2652,7 @@ expected_outputs() {
     -o -name 'fence-*.json' -o -name 'fence-forward-*.log' -o -name 'gateway-record-*.jsonl' -o -name 'raw-*.jsonl.sender.json' \
     -o -name 'ineligible-*.txt' -o -name 'phases.tsv' -o -name 'cell-uploads.tsv' -o -name 'calibration.txt' \
     -o -name 'calibration-forward.log' -o -name 'live-raw-*.jsonl' -o -name 'live-gateway-record-*.jsonl' \
-    -o -name 'sidecar-uploads.tsv' -o -name 'engine-samples-*.tsv' \) 2>/dev/null | wc -l)
+    -o -name 'sidecar-uploads.tsv' -o -name 'engine-samples-*.tsv' -o -name 'mps-journal.jsonl' \) 2>/dev/null | wc -l)
   # The engine-metrics files are in the total as whatever is there, like the conditional outputs above.
   #
   # How many a cell owes depends on its topology -- one engine or two -- which this count cannot see, so
@@ -2816,7 +2817,7 @@ EOF
     -o -name 'fence-*.json' -o -name 'fence-forward-*.log' -o -name 'gateway-record-*.jsonl' -o -name 'raw-*.jsonl.sender.json' \
     -o -name 'ineligible-*.txt' -o -name 'phases.tsv' -o -name 'cell-uploads.tsv' -o -name 'calibration.txt' \
     -o -name 'calibration-forward.log' -o -name 'live-raw-*.jsonl' -o -name 'live-gateway-record-*.jsonl' \
-    -o -name 'sidecar-uploads.tsv' -o -name 'engine-samples-*.tsv' \) 2>/dev/null | wc -l)
+    -o -name 'sidecar-uploads.tsv' -o -name 'engine-samples-*.tsv' -o -name 'mps-journal.jsonl' \) 2>/dev/null | wc -l)
   unattr=0
   for f in "$OUT"/*; do
     [ -f "$f" ] || continue
@@ -2833,6 +2834,8 @@ EOF
       fence-*.json | fence-forward-*.log | gateway-record-*.jsonl | raw-*.jsonl.sender.json | ineligible-*.txt) ;;
       phases.tsv | cell-uploads.tsv | calibration.txt | calibration-forward.log) ;;
       live-raw-*.jsonl | live-gateway-record-*.jsonl | sidecar-uploads.tsv | engine-samples-*.tsv) ;;
+      # The MPS capability session's bar journal; its evidence is in the mpscap/ directory beside it.
+      mps-journal.jsonl) ;;
       *) unattr=$(( unattr + 1 )) ;;
     esac
   done
@@ -2847,7 +2850,8 @@ EOF
   # refused row has neither a refusal nor an invalid file. Expected zero; anything here is a refusal nobody
   # wrote down.
   printf 'unwritten-refusals 0 %s\n' "$(awk -F'\t' 'NR > 1 && $4 == "refused" {print $2}' "$OUT/cell-timings.tsv" | sort -u | while read -r a; do
-    [ -f "$OUT/refused-$a.txt" ] || [ -f "$OUT/invalid-$a.txt" ] || echo "$a"
+    # The capability cell's stop is written in its journal, which says which bar ended it and why.
+    [ -f "$OUT/refused-$a.txt" ] || [ -f "$OUT/invalid-$a.txt" ] || { mpscap_is_study && [ -s "${MPS_JOURNAL:-}" ]; } || echo "$a"
   done | wc -l)"
   # One per cell cell_refused_stop recorded, printed only when there is one so other runs read as before.
   if [ "$cref_expected" != 0 ] || [ "$cref_all" != 0 ]; then
