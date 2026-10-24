@@ -469,6 +469,9 @@ PY
       mj_fact no_healthy_devices_event false
     fi
   fi
+  # Written last, after every command above ran, so a collection cut off part-way has no marker and its inventory's
+  # successful prefix cannot pass for the whole (codex, review of 96bb69fd).
+  printf 'required_failed=%s\n' "$missing" >"$d/complete"
   [ "$missing" = 0 ]
 }
 

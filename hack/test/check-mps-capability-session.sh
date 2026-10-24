@@ -204,9 +204,21 @@ grep -q 'export STUDY=mps-capability-2026-10-24 ARMS=mps REPS=1 RATE=2 PREMIUM_W
 grep -q 'P1=$(( L + 720 )); P2=$(( L + 1200 )); P3=$(( L + 1920 )); EV=$(( L + 2040 ))' "$ud" &&
   ok "the phases end at 720, 1,200 and 1,920 s after LaunchTime and the evidence at 2,040 s" || bad "the phase arithmetic in the user-data is not the registered one"
 grep -q 'mpscap_supervise "$P1" "$P2" "$P3" 90 -- bash hack/m5c-matrix.sh' "$ud" && ok "the matrix runs under the phase supervisor" || bad "the matrix is not supervised"
+# codex, review of 96bb69fd: phase 1 includes the bring-up, so the bring-up runs under a timeout that ends with it.
+grep -q 'bringup_left=$(( P1 - $(date +%s) ))' "$ud" && grep -q 'timeout --kill-after=15 "$bringup_left" bash /tmp/bringup.sh' "$ud" &&
+  ok "the bring-up runs under a timeout that ends with phase 1" || bad "the bring-up is not bounded by phase 1"
+grep -q "^cat > /tmp/bringup.sh <<'BRINGUP'$" "$ud" && grep -qx 'BRINGUP' "$ud" && ok "the bring-up is carried as its own script" || bad "the bring-up script is not written"
+sed -n "/^cat > \/tmp\/bringup.sh <<'BRINGUP'$/,/^BRINGUP$/p" "$ud" | sed '1d;$d' >"$STUB/bringup-extracted.sh"
+bash -n "$STUB/bringup-extracted.sh" && ok "the carried bring-up parses on its own" || bad "the carried bring-up does not parse"
+grep -q 'grep -qx .required_failed=0. /src/m5c-run/mpscap/diag/complete' "$ud" &&
+  ok "the diagnostics count as uploaded only with the collector's completion marker" || bad "the diagnostics fact does not require the completion marker"
 (( $(wc -c <"$ud") < 16384 )) && ok "the user-data is $(wc -c <"$ud") bytes, under EC2's 16 KB" || bad "the user-data is $(wc -c <"$ud") bytes"
 pin=$(cd "$REPO" && bash -c '. hack/lib/mps-capability.sh; mpscap_pin_hash config/vllm-shared/engine-a.yaml config/vllm-shared/engine-b.yaml')
 grep -q "MPSCAP_PIN_ENGINES=$pin" "$ud" && ok "the engines' pin is the commit's" || bad "the engines' pin in the user-data is not the commit's ($pin)"
+
+# codex, review of 96bb69fd: an output directory that already exists could lend this session another run's journal.
+scene; base_rules; passing_journal; mkdir -p "$STUB/out"; echo '{"type":"fact","name":"termination_confirmed","value":true,"at":"t"}' >"$STUB/out/journal.jsonl"
+refused "an output directory that already exists" "already exists; each session writes a new directory"
 
 # --- the ways the end can go wrong -------------------------------------------------------------------------------
 scene; put other "$LT	ami-0other"; rule "ec2 describe-instances*LaunchTime*" other; base_rules; passing_journal

@@ -437,6 +437,7 @@ diag_scene() {
 }
 diag_scene
 mpscap_diagnostics m5c-a m5c-b && ok "every required diagnostic collected returns 0" || bad "the diagnostics returned non-zero: $(cat "$MPSCAP_OUT/diag/inventory.tsv")"
+grep -qx 'required_failed=0' "$MPSCAP_OUT/diag/complete" && ok "a finished collection leaves its completion marker" || bad "no completion marker: $(cat "$MPSCAP_OUT/diag/complete" 2>&1)"
 [[ $(awk -F'\t' 'NR > 1' "$MPSCAP_OUT/diag/inventory.tsv" | wc -l) == 14 ]] && ok "the inventory lists all fourteen commands" || bad "the inventory lists $(awk 'NR > 1' "$MPSCAP_OUT/diag/inventory.tsv" | wc -l) commands"
 awk -F'\t' '$1 ~ /previous/ && $2 != 0 && $5 == "no"' "$MPSCAP_OUT/diag/inventory.tsv" | grep -q . && ok "a missing previous log is recorded and not required" || bad "the previous log's row is wrong"
 [[ "$(fact no_healthy_devices_event)" == false ]] && ok "with B2 cut short, the diagnostics record that no refusal event exists" || bad "the fact is $(fact no_healthy_devices_event)"
@@ -464,6 +465,7 @@ mpscap_diagnostics m5c-a m5c-b
 diag_scene
 : >"$STUB/rules"; rule "*describe pods -n m5c-a*" ok 1; rule "*get events -A -o json*" events; rule "*" ok
 mpscap_diagnostics m5c-a m5c-b && bad "a failed describe returned 0" || ok "a required diagnostic that failed returns non-zero"
+grep -qx 'required_failed=1' "$MPSCAP_OUT/diag/complete" && ok "the marker counts the failed required diagnostic" || bad "the marker says $(cat "$MPSCAP_OUT/diag/complete" 2>&1)"
 diag_scene
 : >"$STUB/rules"; rule "*get events -A -o json*" ok 1; rule "*" ok
 mpscap_diagnostics m5c-a m5c-b

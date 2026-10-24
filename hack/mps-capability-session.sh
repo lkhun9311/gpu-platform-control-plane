@@ -62,6 +62,9 @@ for tool in aws go python3 git tar sha256sum; do command -v "$tool" >/dev/null |
 COMMIT=$(git rev-parse HEAD)
 ACCOUNT=$(aws sts get-caller-identity --query Account --output text 2>&1) || fail "could not read the caller's account: $ACCOUNT"
 [ "$ACCOUNT" = "$ACCOUNT_WANT" ] || fail "the credentials are for account $ACCOUNT; paid sessions run only in gpu-lab ($ACCOUNT_WANT)"
+# A fresh directory only: a journal or verdict left from another run would otherwise be read as this one's when a
+# download fails (codex, review of 96bb69fd).
+[ ! -e "$OUT" ] || fail "$OUT already exists; each session writes a new directory"
 mkdir -p "$OUT" || fail "cannot create $OUT"
 say "the MPS capability session, $STUDY_ID, from $COMMIT, into $OUT"
 
@@ -223,8 +226,24 @@ nvidia-smi --query-gpu=index,name,memory.total,driver_version --format=csv > /tm
 upload /tmp/nvidia-smi.csv preflight-nvidia-smi.csv
 [ "$(tail -n +2 /tmp/nvidia-smi.csv | wc -l)" = 1 ] && tail -n +2 /tmp/nvidia-smi.csv | grep -q A10G || { echo "PREFLIGHT FAILED: not one A10G"; exit 1; }
 HEAD
+  # The bring-up runs as its own script under a timeout that ends with phase 1, because phase 1 is registered to include
+  # it, and a hung install with no clock on it would never reach the evidence step (codex, review of 96bb69fd).
+  # The bring-up's own upload, single-quoted so it reaches the instance unexpanded.
+  # shellcheck disable=SC2016
+  echo "cat > /tmp/bringup.sh <<'BRINGUP'"
+  # shellcheck disable=SC2016
+  echo 'upload() { aws s3 cp --only-show-errors "$1" "s3://$BUCKET/$PREFIX/$2" || true; }'
   cat "$OUT/bringup.sh"
+  echo "BRINGUP"
   cat <<'TAIL'
+export BUCKET PREFIX
+bringup_left=$(( P1 - $(date +%s) ))
+bringup_rc=124
+if [ "$bringup_left" -gt 0 ]; then
+  timeout --kill-after=15 "$bringup_left" bash /tmp/bringup.sh
+  bringup_rc=$?
+fi
+echo "bring-up exited $bringup_rc"
 # The run record, before B0: what the registration says a capability answer is worth nothing without.
 imds=$(curl -s -X PUT -H "X-aws-ec2-metadata-token-ttl-seconds: 300" http://169.254.169.254/latest/api/token)
 md() { curl -s -H "X-aws-ec2-metadata-token: $imds" "http://169.254.169.254/latest/meta-data/$1"; }
@@ -254,8 +273,14 @@ export STUDY=STUDY_PLACEHOLDER ARMS=mps REPS=1 RATE=2 PREMIUM_WEIGHT=1 NOISY_WEI
 export MPSCAP_PHASE1_END="$P1" MPSCAP_PHASE2_END="$P2" MPSCAP_PHASE3_END="$P3"
 export MPSCAP_PIN_OVERLAY=PIN_OVERLAY_PLACEHOLDER MPSCAP_PIN_ENGINES=PIN_ENGINES_PLACEHOLDER
 # The phases are enforced from outside the matrix; its TERM runs its cleanup, and with it the diagnostics.
-mpscap_supervise "$P1" "$P2" "$P3" 90 -- bash hack/m5c-matrix.sh
-matrix_rc=$?
+if [ "$bringup_rc" = 0 ]; then
+  mpscap_supervise "$P1" "$P2" "$P3" 90 -- bash hack/m5c-matrix.sh
+  matrix_rc=$?
+else
+  # No cluster, so no bar is started; the run goes straight to its evidence and reads INCONCLUSIVE or INVALID.
+  echo "the bring-up did not finish inside phase 1 (exit $bringup_rc); the matrix is not run"
+  matrix_rc=$bringup_rc
+fi
 echo "matrix exited $matrix_rc"
 evidence_rc=0
 left=$(( EV - $(date +%s) )); [ "$left" -gt 5 ] || left=5
@@ -263,7 +288,8 @@ tar -czf /tmp/evidence.tgz -C /src m5c-run || evidence_rc=$?
 [ "$evidence_rc" != 0 ] || timeout "$left" aws s3 cp --only-show-errors /tmp/evidence.tgz "s3://$BUCKET/$PREFIX/evidence.tgz" || evidence_rc=$?
 # The diagnostics are uploaded when the evidence is, and complete when every required one ran.
 inv=/src/m5c-run/mpscap/diag/inventory.tsv
-if [ "$evidence_rc" = 0 ] && [ -s "$inv" ] && awk -F'\t' 'NR > 1 && $5 == "yes" && $2 != 0 {bad = 1} END {exit bad}' "$inv"; then
+if [ "$evidence_rc" = 0 ] && grep -qx 'required_failed=0' /src/m5c-run/mpscap/diag/complete 2>/dev/null && [ -s "$inv" ] &&
+  awk -F'\t' 'NR > 1 && $5 == "yes" && $2 != 0 {bad = 1} END {exit bad}' "$inv"; then
   mj_fact diagnostics_uploaded true
 else
   mj_fact diagnostics_uploaded false "evidence upload exit $evidence_rc; inventory $( [ -s "$inv" ] && awk -F'\t' 'NR > 1 && $5 == "yes" && $2 != 0 {print $1}' "$inv" | paste -sd' ' || echo missing)"
@@ -384,9 +410,9 @@ done
 export MPS_JOURNAL="$OUT/journal.jsonl"
 [ -s "$MPS_JOURNAL" ] || : >"$MPS_JOURNAL"
 if [ "$TERMINATION" = confirmed ]; then
-  mj_fact termination_confirmed true "$IID terminated"
+  mj_fact termination_confirmed true "$IID terminated" || fail "the journal already held a termination fact, so it is not this session's"
 else
-  mj_fact termination_confirmed false "$IID was not seen terminated"
+  mj_fact termination_confirmed false "$IID was not seen terminated" || fail "the journal already held a termination fact, so it is not this session's"
 fi
 "$OUT/benchharness-local" mps-capability-verdict --journal "$MPS_JOURNAL" | tee "$OUT/verdict.txt"
 say "the verdict is in $OUT/verdict.txt and the evidence in $OUT/m5c-run"
