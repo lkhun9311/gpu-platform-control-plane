@@ -741,10 +741,14 @@ class FrontierTest(unittest.TestCase):
             self.assertIn("%d:*) echo %s" % (seed, whole), lib)
 
 
-def lencal_block(d, ttft=None, a2c=None, skip=(), unfinished=()):
+def lencal_block(d, ttft=None, a2c=None, skip=(), unfinished=(), study=None, seed=None, checksums=None):
     """Every v27 calibration cell, as frontier_block builds v26's: ttft maps an arm to its premium first content after
-    arrival (20 ms by default); a2c maps a length to hold-cap's contender decision-to-first-content in ms."""
+    arrival (20 ms by default); a2c maps a length to hold-cap's contender decision-to-first-content in ms.
+    study, seed and checksums default to v27's; C3's calibration passes its own."""
     ttft, a2c = ttft or {}, a2c or {}
+    study = study or pr.LENCAL_STUDY
+    seed = seed or pr.LENCAL_SEED
+    checksums = checksums or pr.LENCAL_CHECKSUMS
     for c in pr.LENCAL_CELLS:
         if c in skip:
             continue
@@ -754,9 +758,9 @@ def lencal_block(d, ttft=None, a2c=None, skip=(), unfinished=()):
         cell.rows[0]["contentGapsMicros"] = [10_000] * 63
         cell.rows[1]["firstTokenUnixNanos"] = ORIGIN + 30_000_000
         cell.rows[1]["contentGapsMicros"] = [500] * 15
-        want = pr.LENCAL_CHECKSUMS["R1" if arm == "R1" else length]
+        want = checksums["R1" if arm == "R1" else length]
         for i, r in enumerate(cell.rows):
-            r.update({"index": i, "study": pr.LENCAL_STUDY, "arm": arm, "traceChecksum": want,
+            r.update({"index": i, "study": study, "arm": arm, "traceChecksum": want,
                       "promptLenChars": FIXTURE_TRACE[i]["promptLenChars"]})
         for r in cell.steps:
             if r.get("anchor"):
@@ -782,7 +786,7 @@ def lencal_block(d, ttft=None, a2c=None, skip=(), unfinished=()):
         cell.steps[-1].update({"seq_written": seq, "seq_produced": seq})
         cell.save()
         with open(os.path.join(d, "manifest-%s-1.yaml" % arm), "w") as f:
-            f.write('arm: "%s"\nseed: %d\nstudy: %s\ntraceChecksum: %s\n' % (arm, pr.LENCAL_SEED, pr.LENCAL_STUDY, want))
+            f.write('arm: "%s"\nseed: %d\nstudy: %s\ntraceChecksum: %s\n' % (arm, seed, study, want))
         write(os.path.join(d, "trace-%s-1.jsonl" % arm), FIXTURE_TRACE)
         for phase in ("before", "after"):
             with open(os.path.join(d, "engine-metrics-%s-1-%s.prom" % (arm, phase)), "w") as f:
@@ -883,6 +887,7 @@ class CalibrationTest(unittest.TestCase):
         write(path, recs)
         self.assertIn("off-long-1 admitted contenders the step log scheduled", self.v()["verdict"])
 
+
     # A row whose prompt is not its trace's replayed another workload (C3).
     # Mutation that turns it red: drop the payload comparison from provenance.
     def test_a_row_with_another_prompt_is_not_the_registered_cell(self):
@@ -917,6 +922,83 @@ class CalibrationTest(unittest.TestCase):
             pat = "871:R1) echo %s" % want if key == "R1" else "871:*-%s) echo %s" % (key, want)
             self.assertIn(pat, lib)
 
+
+
+class HeadroomTest(unittest.TestCase):
+    # C3's calibration gate on built cells: v27's first rules, then the long length against S = 1.0533 x d(ref).
+    def setUp(self):
+        self.d = tempfile.mkdtemp()
+        patch = mock.patch.dict(pr.HEADROOM_CHECKSUMS, {k: FIXTURE_HASH for k in pr.HEADROOM_CHECKSUMS})
+        patch.start()
+        self.addCleanup(patch.stop)
+        self.protective = {"hold-cap-short": 10_000_000, "hold-cap-ref": 10_000_000, "hold-cap-long": 10_000_000}
+
+    def block(self, a2c, **kw):
+        kw = {"study": pr.HEADROOM_STUDY, "seed": pr.HEADROOM_SEED, "checksums": pr.HEADROOM_CHECKSUMS, **kw}
+        lencal_block(self.d, ttft=self.protective, a2c=a2c, **kw)
+
+    # A long prefill of 1,700 ms against a reference of 1,600 ms outlasts S = 1,685.3 ms though not v26's 1,740 ms:
+    # feasible here, where v27's gate would say the challenge was not achieved, and S and the spacings frozen.
+    # Mutation that turns it red: judge the long length against V26_SPACING_MS.
+    def test_feasible_against_the_derived_spacing_not_v26s(self):
+        self.block({"short": 1300, "ref": 1600, "long": 1700})
+        v = pr.headroom(self.d)
+        s = round(1.0533 * 1600.002, 1)
+        self.assertEqual(v["verdict"], "feasible: hold-cap admissible and protective at every length, and the long length outlasts S = %.1f ms" % s)
+        self.assertEqual(v["fixed_spacing_ms"], s)
+        self.assertEqual(v["size_aware_spacings_ms"], {"short": round(s * 1300.002 / 1600.002, 1), "ref": round(s, 1),
+                                                       "long": round(s * 1700.002 / 1600.002, 1)})
+        self.assertEqual(v["spacings_status"], "frozen for the main study")
+
+    # 1,684 ms is past 1.05 times the reference (1,680) and short of S (1,685.3): the ratio is 1.0533, not 1.05.
+    # Mutation that turns it red: set HEADROOM_SPACING_RATIO to 1.05.
+    def test_a_long_prefill_short_of_s_is_no_challenge(self):
+        self.block({"short": 1300, "ref": 1600, "long": 1684})
+        v = pr.headroom(self.d)
+        self.assertTrue(v["verdict"].startswith("challenge not achieved: hold-cap's median engine prefill at the long length, 1684 ms"), v["verdict"])
+        self.assertEqual(v["spacings_status"], "provisional, not licensed for a main study")
+        self.assertIsNotNone(v["size_aware_spacings_ms"])
+
+    # v27's earlier rules still come first: a hold refusal at the long length is not feasible whatever the medians.
+    def test_hold_cap_inadmissible_outranks_the_challenge(self):
+        self.block({"short": 1300, "ref": 1600, "long": 1800})
+        path = os.path.join(self.d, "gateway-record-hold-cap-long-1.jsonl")
+        recs = pr.jsonl(path)
+        for r in recs:
+            if r["ev"] == "done" and r["requestId"] == "pp-A-off-1-1":
+                r["reason"] = "serial_prefill_hold_timeout"
+        write(path, recs)
+        self.assertEqual(pr.headroom(self.d)["verdict"], "not feasible: hold-cap was not admissible at long: hold refusals")
+
+    # Cells filed under v27's study are not C3's evidence, though seed and traces are C3's: only the study differs.
+    # Mutation that turns it red: score headroom with LENCAL_STUDY.
+    def test_cells_under_v27s_study_are_not_c3s(self):
+        self.block({"short": 1300, "ref": 1600, "long": 1800}, study=pr.LENCAL_STUDY)
+        v = pr.headroom(self.d)
+        self.assertTrue(v["verdict"].startswith("inconclusive: evidence not trusted"), v["verdict"])
+
+    # Cells under C3's study on v27's seed are not C3's evidence either: only the seed differs.
+    # Mutation that turns it red: score headroom with LENCAL_SEED.
+    def test_cells_on_v27s_seed_are_not_c3s(self):
+        self.block({"short": 1300, "ref": 1600, "long": 1800}, seed=pr.LENCAL_SEED)
+        v = pr.headroom(self.d)
+        self.assertTrue(v["verdict"].startswith("inconclusive: evidence not trusted"), v["verdict"])
+
+    # An unfinished prefill leaves no S to publish, and the verdict inconclusive.
+    def test_no_spacing_without_finite_medians(self):
+        self.block({"short": 1300, "ref": 1600, "long": 1800}, unfinished=("ref",))
+        v = pr.headroom(self.d)
+        self.assertTrue(v["verdict"].startswith("inconclusive: a length has no finite engine prefill median"), v["verdict"])
+        self.assertIsNone(v["fixed_spacing_ms"])
+        self.assertIsNone(v["size_aware_spacings_ms"])
+
+    # The scorer's checksums and the session library's are one table (a key assembled in two places).
+    def test_the_checksums_agree_with_the_session_library(self):
+        mock.patch.stopall()
+        lib = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib", "prospective-pilot.sh")).read()
+        self.assertIn("%d:R1) echo %s" % (pr.HEADROOM_SEED, pr.HEADROOM_CHECKSUMS["R1"]), lib)
+        for length in ("short", "ref", "long"):
+            self.assertIn("%d:*-%s) echo %s" % (pr.HEADROOM_SEED, length, pr.HEADROOM_CHECKSUMS[length]), lib)
 
 if __name__ == "__main__":
     unittest.main()
