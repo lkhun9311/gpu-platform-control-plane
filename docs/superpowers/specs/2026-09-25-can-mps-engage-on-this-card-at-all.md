@@ -277,3 +277,48 @@ A failed bar whose cause the diagnostics do not establish is recorded as failed.
 - the container toolkit's version on the host and in the kind node;
 - the engine images' digests;
 - the SHA-256 of the rendered overlay and of both engine manifests.
+
+## Result, 2026-10-24: run 1 is INCONCLUSIVE, because our overlay never let a client reach the daemon
+
+**Verdict: `MPS: INCONCLUSIVE`.** B0, B1 and B2 passed; B3 failed; B4 was unmeasured; B5 is absent.
+This is the classification above applied as written, by `benchharness mps-capability-verdict` on the journal.
+It is not REFUSED: the daemon's log records no client at all, so it records no rejection, and no `no healthy devices` event was captured.
+It says nothing about whether MPS can engage on an A10G, because no CUDA client ever asked it to.
+
+**The purchase.** One g5.2xlarge Spot instance, `i-0d6780100fc296545`, in ap-northeast-2a, from commit `04fac8f3`, AMI `ami-097edab977037f65f`, driver 595.91.07.
+`LaunchTime` was 04:31:37Z. CloudTrail records `TerminateInstances` at 04:46:23Z, 886 s later, and the session read the instance as terminated at 1,182 s.
+At the zone's Spot price read before launch, $0.683 an hour, the 886 s cost about $0.17. That is the price times the time, not a billed figure.
+The sweeper did not have to act.
+
+**When each bar ran, from `LaunchTime`.**
+
+| event | s |
+|---|---:|
+| `LaunchTime` read on the instance | 93 |
+| B0 started | 252 |
+| B2 decided, both Pods Running | 470 |
+| B3 started, after the wait for both engines to be Ready | 858 |
+| B4 decided | 862 |
+| diagnostics uploaded | 867 |
+| termination requested | 886 |
+
+Phase 1 ended at 470 s against its 720 s bound. The margin estimated from the archives held on this run.
+
+**What the evidence shows.**
+- The control daemon started under the pinned image (its log names commit `42a0fa92`, the v0.16.2 tag), opened `/mps/nvidia.com/gpu/pipe/control`, and set a 50% thread share and an 11,514 MiB pinned-memory limit. Nothing connected to it afterwards.
+- Inside both engine containers `CUDA_MPS_PIPE_DIRECTORY` was `/mps/nvidia.com/gpu/pipe`. The directory existed and held no control socket. That is B3's failure.
+- `nvidia-smi` at 867 s showed the card in Exclusive Process mode with one process, `VLLM::EngineCore`, of type `C`, holding 9,908 MiB. There was no `nvidia-cuda-mps-server`.
+  So engine A ran on the card directly, without MPS.
+- Engine B's container exited with code 1 four times and was never Ready, so B4's table was not captured.
+  Its log was not captured either: the diagnostics collect the plugin's and the daemon's logs and not the engines'. Why it exited is therefore not established here.
+
+**Why no client reached the daemon, read from the source of the pinned build.**
+In the v0.16.2 tag (`42a0fa92`), `internal/plugin/server.go:89-90` builds the daemon's paths from the fixed container root `/mps`, and builds `mpsHostRoot` from the `--mps-root` flag.
+`updateResponseForMPS` (`server.go:381-388`) then mounts `mpsHostRoot`'s pipe directory, as a **host** path, at the container's `/mps/nvidia.com/gpu/pipe`.
+Our overlay passes `--mps-root=/mps`, while the daemon's state is in the host's `/run/nvidia/mps`. Each engine was therefore given the host's `/mps/nvidia.com/gpu/pipe`, an empty directory.
+The overlay's own comment says the opposite, that the flag is "the path INSIDE this container". That comment is wrong, and it is what the 2026-09-12 fix was built on.
+The upstream chart at the same tag passes the host root (`MPS_ROOT` set to `mps.root`), and it also shares a tmpfs at host `<root>/shm` through a `mount-shm` init container, which our overlay lacks. The plugin mounts that shm into each client at `/dev/shm`, where our engines mount their own volume.
+A rerun needs both corrected first. They are settled in an amendment dated before that rerun.
+The source reading above is mine. codex `gpt-6-astra` was asked the same question independently, and its answer is recorded with the amendment, not merged into this paragraph.
+
+**The evidence** is committed in `hack/mps-capability/2026-10-24-run1/`, with a `SHA256SUMS` over every file in it. The binaries and the source archive the instance ran are kept on the owner's machine.
