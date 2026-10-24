@@ -149,6 +149,18 @@ if pp_frontier_checksum 851 off >/dev/null 2>&1; then bad "a seed outside v26's 
 [ "$(pp_lencal_checksum 871 off-long)" = "$(pp_lencal_checksum 871 hold-cap-long)" ] && [ "$(pp_lencal_checksum 871 off-long)" != "$(pp_lencal_checksum 871 off-ref)" ] \
   && ok "a length's arms share one checksum and each length has its own" || bad "pp_lencal_checksum"
 
+# C3's calibration stage G: F's arms under its own study, its own seed's checksums, and none of v27's.
+[ "$(pp_stage_arms G | tr '\n' ' ')" = "$(pp_stage_arms F | tr '\n' ' ')" ] && [ "$(pp_stage_study G)" = "$PP_HEADROOM_STUDY" ] \
+  && [ "$PP_HEADROOM_STUDY" != "$PP_LENCAL_STUDY" ] && pp_is_study "$PP_HEADROOM_STUDY" \
+  && ok "stage G has stage F's arms under C3's own study" || bad "stage G's arms or study"
+[ "$(pp_headroom_checksum 891 off-long)" = "$(pp_headroom_checksum 891 hold-cap-long)" ] \
+  && [ "$(pp_headroom_checksum 891 off-long)" != "$(pp_headroom_checksum 891 off-ref)" ] \
+  && [ "$(pp_headroom_checksum 891 off-long)" != "$(pp_lencal_checksum 871 off-long)" ] \
+  && ok "C3's length arms share a checksum, each length has its own, and none is v27's" || bad "pp_headroom_checksum"
+if pp_headroom_checksum 871 off-long >/dev/null 2>&1; then bad "v27's seed was given a C3 checksum"; else ok "v27's seed has no C3 checksum"; fi
+pp_is_length_stage G && pp_is_length_stage F && ! pp_is_length_stage E && ok "F and G are the length stages, E is not" || bad "pp_is_length_stage"
+[ "$(pp_request_id_flag G hold-cap-ref 1)" = "--request-id-prefix=pp-G-hold-cap-ref-1" ] && ok "stage G's request IDs name its stage" || bad "stage G's request-ID prefix"
+
 # The capture, against stubbed kubectl, curl and docker on PATH: the cluster calls answer at once, except the
 # gateway record's node read, which sleeps past the bound.
 # A complete step log showing a request at the wrong priority must still stop the pilot (exit 3), because that is
