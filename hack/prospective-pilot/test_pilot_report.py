@@ -984,6 +984,49 @@ class HeadroomTest(unittest.TestCase):
         v = pr.headroom(self.d)
         self.assertTrue(v["verdict"].startswith("inconclusive: evidence not trusted"), v["verdict"])
 
+    # A NaN is not a ratio: it compares false both ways, so a line judged by it could fail with no rule seeing it.
+    # Mutation that turns it red: drop the NaN refusal in crossed_log_ratio.
+    def test_a_nan_is_not_a_crossed_ratio(self):
+        self.assertIsNone(pr.crossed_log_ratio(float("nan"), 20.0))
+        self.assertIsNone(pr.crossed_log_ratio(20.0, float("nan")))
+
+    # The rule behind it: a line that does not hold blocks feasible even when no verdict rule reads it, reached here
+    # by giving the protection line the NaN the old crossed_log_ratio returned.
+    # Mutation that turns it red: drop the rule that a line not holding blocks feasible.
+    def test_a_line_that_reaches_no_rule_still_blocks_feasible(self):
+        self.block({"short": 1300, "ref": 1600, "long": 1800})
+        with mock.patch.object(pr, "crossed_log_ratio", return_value=float("nan")):
+            v = pr.headroom(self.d)
+        self.assertTrue(v["verdict"].startswith("inconclusive: lines that did not hold and reached no rule"), v["verdict"])
+
+    # End to end, NaN first-content stamps in every hold-cap cell (astra's attack on the C3 page, 1): not feasible.
+    # Both tests above pin it; with either rule alone it stays green, which is why each has its own test.
+    def test_a_nan_timestamp_is_not_feasible(self):
+        self.block({"short": 1300, "ref": 1600, "long": 1800})
+        for length in ("short", "ref", "long"):
+            path = os.path.join(self.d, "gateway-record-hold-cap-%s-1.jsonl" % length)
+            recs = pr.jsonl(path)
+            for r in recs:
+                if r["ev"] == "done" and r["requestId"] == "pp-A-off-1-0":
+                    r["firstContentUnixNanos"] = float("nan")
+            write(path, recs)
+        v = pr.headroom(self.d)
+        self.assertFalse(v["verdict"].startswith("feasible"), v["verdict"])
+        self.assertTrue(v["verdict"].startswith("inconclusive"), v["verdict"])
+
+    # A step log's done record without its end time is malformed evidence: inconclusive, not a crash (astra's attack, 4).
+    # Mutation that turns it red: index done records' t2 directly again.
+    def test_a_done_record_without_its_end_time_is_inconclusive(self):
+        self.block({"short": 1300, "ref": 1600, "long": 1800})
+        path = os.path.join(self.d, "step-log-hold-cap-long-1.jsonl")
+        recs = pr.jsonl(path)
+        for r in recs:
+            if r.get("ev") == "done":
+                r.pop("t2", None)
+        write(path, recs)
+        v = pr.headroom(self.d)
+        self.assertTrue(v["verdict"].startswith("inconclusive"), v["verdict"])
+
     # An unfinished prefill leaves no S to publish, and the verdict inconclusive.
     def test_no_spacing_without_finite_medians(self):
         self.block({"short": 1300, "ref": 1600, "long": 1800}, unfinished=("ref",))

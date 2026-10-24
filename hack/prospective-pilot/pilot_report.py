@@ -376,6 +376,10 @@ def crossed_log_ratio(num, den):
     denominator -inf, which is what a failure-heavy arm makes them (review of 97ae105, finding 8)."""
     if num is None or den is None or den <= 0 and not math.isinf(den):
         return None
+    # A NaN compares false both ways, so a ratio built from one would pass a "fails" line and miss the verdict rule
+    # that reads the same line (astra's attack on the C3 page, 1). It is not a ratio, so it is unscorable.
+    if math.isnan(num) or math.isnan(den):
+        return None
     # Both infinite is undefined, not either infinity (design page, "If both p99s are infinite at the same vertex";
     # review of 9b10925).
     if math.isinf(num) and math.isinf(den):
@@ -1178,7 +1182,16 @@ def engine_prefill(stage_dir, tag):
     admitted = [rid for rid, e in gateway_records(os.path.join(stage_dir, "gateway-record-%s.jsonl" % tag)).items()
                 if rows.get(rid) == CONTENDER and (e.get("done") or {}).get("decision") == "admit"]
     steps = jsonl(os.path.join(stage_dir, "step-log-%s.jsonl" % tag))
-    done = {st["step"]: st["t2"] for st in steps if st.get("ev") == "done"}
+    # A done record without a finite end time cannot end a prefill; it is counted, so the caller can refuse the cell
+    # rather than this crash or quietly time the contender as unfinished (astra's attack on the C3 page, 4).
+    done, malformed = {}, 0
+    for st in steps:
+        if st.get("ev") == "done":
+            t2 = st.get("t2")
+            if isinstance(t2, (int, float)) and math.isfinite(t2):
+                done[st.get("step")] = t2
+            else:
+                malformed += 1
     adds = {st["id"]: st for st in steps if st.get("ev") == "add" and match_client(st.get("id", ""), admitted)}
     ends = {}
     for st in steps:
@@ -1188,7 +1201,7 @@ def engine_prefill(stage_dir, tag):
             a = adds.get(eid)
             if a and eid not in ends and st.get("computed", {}).get(eid, 0) + n >= a["prompt"] and st["step"] in done:
                 ends[eid] = done[st["step"]]
-    return sorted(ms(ends[e] - a["mono"]) if e in ends else math.inf for e, a in adds.items())
+    return sorted(ms(ends[e] - a["mono"]) if e in ends else math.inf for e, a in adds.items()), malformed
 
 
 def _length_stage(stage_dir, study, seed, checksums):
@@ -1235,7 +1248,8 @@ def _length_stage(stage_dir, study, seed, checksums):
             first_fail[length] = "premium p99 crossed against off's"
         a2c, a2c_untimed = admission_to_content(stage_dir, h)
         check(validity, "hold-cap at %s: contender successes without gateway timing" % length, a2c_untimed, "0", a2c_untimed == 0)
-        eng = engine_prefill(stage_dir, h)
+        eng, eng_malformed = engine_prefill(stage_dir, h)
+        check(validity, "hold-cap at %s: step-log done records without an end time" % length, eng_malformed, "0", eng_malformed == 0)
         measured[length] = {"tokens": tokens, "engine_prefill_p50_ms": nearest_rank(eng, 0.5),
                             "engine_prefill_p95_ms": nearest_rank(eng, 0.95),
                             "engine_prefill_unfinished": sum(1 for x in eng if math.isinf(x)),
@@ -1267,6 +1281,12 @@ def _length_stage(stage_dir, study, seed, checksums):
             0 < (measured[l]["engine_prefill_p50_ms"] or 0) < math.inf for l, _ in LENCAL_LENGTHS):
         inconclusive.append("a length has no finite engine prefill median")
 
+    # Feasible needs every line to hold, not only no rule to have fired: a line that failed or was unscorable without
+    # reaching a rule above is a gap in the rules, and it is reported as one (astra's attack on the C3 page, 1).
+    if not inconclusive and not bad_len:
+        silent = [x["line"] for x in validity + lines if x["state"] != "holds"]
+        if silent:
+            inconclusive.append("lines that did not hold and reached no rule: " + ", ".join(silent[:5]))
     reason = None
     if inconclusive:
         reason = "inconclusive: " + "; ".join(inconclusive)
