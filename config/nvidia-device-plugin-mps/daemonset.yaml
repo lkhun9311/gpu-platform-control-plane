@@ -46,9 +46,26 @@ spec:
       nodeSelector:
         platform.lkhun9311.github.io/gpu-sharing: "true"
       priorityClassName: system-node-critical
-      # The control daemon and every client must share one IPC namespace, or the clients cannot reach the
-      # daemon's pipe and each falls back to running without MPS -- which looks like a working arm.
+      # Kept from the first version of this file; it is neither what lets a client reach the daemon nor known to be
+      # needed. The clients reach it through files: the pipe directory and the shm below, both under /run/nvidia/mps.
+      # The comment that stood here said the opposite, and run 1 of 2026-10-24 is what an arm built on it looks like:
+      # a daemon no CUDA client ever connected to.
       hostIPC: true
+      # The upstream chart at the pinned tag (deployments/helm/nvidia-device-plugin/templates/
+      # daemonset-mps-control-daemon.yml, v0.16.2) runs this before the daemon. cmd/mps-control-daemon/mount/mount-shm.go
+      # mounts a tmpfs at /mps/shm, half the node's memory in size, and the Bidirectional propagation is what carries
+      # that mount out to the node's /run/nvidia/mps/shm. The daemon, the plugin and every client then bind that one
+      # directory at /dev/shm.
+      initContainers:
+        - name: mps-control-daemon-mounts
+          image: nvcr.io/nvidia/k8s-device-plugin:v0.16.2@sha256:ed39e22c8b71343fb996737741a99da88ce6c75dd83b5c520e0b3d8e8a884c47
+          command: ["mps-control-daemon", "mount-shm"]
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - name: mps-root
+              mountPath: /mps
+              mountPropagation: Bidirectional
       containers:
         - name: mps-control-daemon
           image: nvcr.io/nvidia/k8s-device-plugin:v0.16.2@sha256:ed39e22c8b71343fb996737741a99da88ce6c75dd83b5c520e0b3d8e8a884c47
@@ -63,6 +80,8 @@ spec:
           securityContext:
             privileged: true
           volumeMounts:
+            - name: mps-shm
+              mountPath: /dev/shm
             - name: mps-root
               mountPath: /mps
             - name: sharing-config
@@ -72,6 +91,9 @@ spec:
           hostPath:
             path: /run/nvidia/mps
             type: DirectoryOrCreate
+        - name: mps-shm
+          hostPath:
+            path: /run/nvidia/mps/shm
         - name: sharing-config
           configMap:
             name: nvidia-device-plugin-sharing-mps
@@ -116,12 +138,14 @@ spec:
           #   E0912 ... error starting plugins: unable to validate flags: using MPS requires --mps-root to
           #   be specified
           #
-          # The value is the path INSIDE this container, not the host path: the header above records that
-          # the pinned image "roots its state under /mps", and the volume below mounts the host's
-          # /run/nvidia/mps there. The control daemon mounts the same host directory at the same container
-          # path, which is what lets the two halves meet.
+          # The value is the HOST path. In the pinned tag, internal/plugin/server.go:89-90 fixes the plugin's own view
+          # of the daemon at the container root /mps, and takes this flag as mpsHostRoot; updateResponseForMPS
+          # (server.go:381-388) then hands each client this host path's pipe directory as a bind mount.
+          # The first version set /mps here, under a comment saying it was the container path, and run 1 of
+          # 2026-10-24 gave both engines the node's empty /mps/nvidia.com/gpu/pipe instead of the daemon's.
+          # It must equal the mps-root volume's hostPath below, which hack/test/check-mps-overlay.sh pins.
           args:
-            - --mps-root=/mps
+            - --mps-root=/run/nvidia/mps
           env:
             - name: FAIL_ON_INIT_ERROR
               value: "true"
@@ -134,6 +158,9 @@ spec:
           volumeMounts:
             - name: device-plugin
               mountPath: /var/lib/kubelet/device-plugins
+            # The chart mounts the daemon's shm here too, "needed to allow for MPS daemon health-checking".
+            - name: mps-shm
+              mountPath: /dev/shm
             - name: mps-root
               mountPath: /mps
             - name: sharing-config
@@ -146,6 +173,9 @@ spec:
           hostPath:
             path: /run/nvidia/mps
             type: DirectoryOrCreate
+        - name: mps-shm
+          hostPath:
+            path: /run/nvidia/mps/shm
         - name: sharing-config
           configMap:
             name: nvidia-device-plugin-sharing-mps
