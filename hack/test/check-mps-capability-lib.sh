@@ -417,6 +417,31 @@ diag_scene
 mpscap_diagnostics m5c-a m5c-b
 [[ -z "$(fact no_healthy_devices_event)" ]] && ok "events that could not be read record no refusal fact either way" || bad "a fact came from unread events"
 
+# --- the pins ----------------------------------------------------------------------------------------------------
+scenario
+mkdir -p "$STUB/tree"
+printf 'kind: DaemonSet\n' >"$STUB/tree/a.yaml"; printf 'kind: ConfigMap\n' >"$STUB/tree/b.yaml"
+pin="$(cd "$STUB/tree" && mpscap_pin_hash a.yaml b.yaml)"
+(cd "$STUB/tree" && mpscap_pin_check overlay_pinned "$pin" a.yaml b.yaml) && ok "files matching the pin pass" || bad "matching files were refused"
+[[ "$(fact overlay_pinned)" == true ]] && ok "a matching pin is recorded true" || bad "overlay_pinned is $(fact overlay_pinned)"
+scenario
+mkdir -p "$STUB/tree"
+printf 'kind: DaemonSet\n' >"$STUB/tree/a.yaml"; printf 'kind: ConfigMap\n' >"$STUB/tree/b.yaml"
+pin="$(cd "$STUB/tree" && mpscap_pin_hash a.yaml b.yaml)"
+printf 'kind: DaemonSet\nhostPID: true\n' >"$STUB/tree/a.yaml"
+(cd "$STUB/tree" && mpscap_pin_check overlay_pinned "$pin" a.yaml b.yaml) >/dev/null && bad "an edited overlay passed its pin" || ok "an edited overlay fails its pin"
+[[ "$(fact overlay_pinned)" == false ]] && ok "an edited overlay is recorded false, which makes the run INVALID" || bad "overlay_pinned is $(fact overlay_pinned)"
+scenario
+mkdir -p "$STUB/tree"
+printf 'x\n' >"$STUB/tree/a.yaml"
+(cd "$STUB/tree" && mpscap_pin_check manifests_pinned "" a.yaml) >/dev/null && bad "no pin passed" || ok "no pin given is refused"
+[[ -z "$(fact manifests_pinned)" ]] && ok "no pin records nothing, so PASS needs it and INVALID does not follow" || bad "manifests_pinned is $(fact manifests_pinned)"
+scenario
+mkdir -p "$STUB/tree"
+printf 'x\n' >"$STUB/tree/a.yaml"
+pin="$(cd "$STUB/tree" && mpscap_pin_hash a.yaml b.yaml)"
+[[ "$pin" != "$(cd "$STUB/tree" && mpscap_pin_hash a.yaml)" ]] && ok "a missing file changes the hash rather than vanishing from it" || bad "a missing file left the hash unchanged"
+
 # --- the supervisor, with harmless commands and deadlines seconds away ---------------------------------------------
 export MPSCAP_SUPERVISE_POLL=0.2
 scenario

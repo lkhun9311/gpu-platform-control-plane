@@ -15,7 +15,39 @@
 MPSCAP_PLUGIN_NS="${MPSCAP_PLUGIN_NS:-gpu-platform-control-plane-system}"
 MPSCAP_POLL="${MPSCAP_POLL:-5}"
 
-mpscap_k() { kubectl --context "$MPSCAP_CTX" --request-timeout=20s "$@"; }
+# The request timeout is shortened for the diagnostics, which run inside the supervisor's grace after a kill.
+mpscap_k() { kubectl --context "$MPSCAP_CTX" --request-timeout="${MPSCAP_REQUEST_TIMEOUT:-20s}" "$@"; }
+
+# mpscap_pin_hash FILE...: one hash over each file's path and contents, in the order given.
+#
+# The session computes it in the tree it launches from and the instance in the tree it unpacked, so equal values say
+# the manifests applied are the ones registered.
+mpscap_pin_hash() {
+  local f
+  for f in "$@"; do
+    [ -f "$f" ] || { echo "missing:$f"; continue; }
+    printf '%s\t%s\n' "$f" "$(sha256sum "$f" | cut -d' ' -f1)"
+  done | sha256sum | cut -d' ' -f1
+}
+
+# mpscap_pin_check FACT WANT FILE...: records FACT true when the files hash to WANT and false when they hash to
+# anything else; with no WANT it records nothing, so PASS stays out of reach without making the run INVALID.
+mpscap_pin_check() {
+  local fact="$1" want="$2" got
+  shift 2
+  got="$(mpscap_pin_hash "$@")"
+  if [ -z "$want" ]; then
+    echo "$fact: the session passed no pin, so it is not established"
+    return 1
+  fi
+  if [ "$got" = "$want" ]; then
+    mj_fact "$fact" true "$got"
+    return 0
+  fi
+  mj_fact "$fact" false "the files hash to $got, the registered commit's to $want"
+  echo "$fact: the files hash to $got, not the registered $want"
+  return 1
+}
 
 # mpscap_b0_b1: the plugin and the control daemon alive, read around the node's advertisement, which must be 2.
 #

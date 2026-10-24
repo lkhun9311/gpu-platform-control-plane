@@ -221,8 +221,8 @@ fi
 if [ -z "$LADDER" ]; then
   STUDY="${STUDY:-sharing-matrix-2026-09-10}"
   case "$STUDY" in
-    sharing-matrix-2026-09-10|tail-crossing-lc256-2026-10-04|tail-crossing-lc2048-2026-10-05|tail-crossing-lc8192-2026-10-04|instrument-validation-2026-10-05|instrument-validation-s2-2026-10-05|instrument-validation-s3-2026-10-06|instrument-validation-s4-2026-10-06|step-boundary-2026-10-06|step-confirm-2026-10-07|prospective-pilot-2026-10-08|admission-diagnostic-2026-10-10|admission-frontier-2026-10-10|admission-length-calibration-2026-10-10) ;;
-    *) fail "STUDY is ${STUDY@Q}; the non-ladder matrix files evidence under sharing-matrix-2026-09-10, tail-crossing-lc256-2026-10-04, tail-crossing-lc2048-2026-10-05, tail-crossing-lc8192-2026-10-04, instrument-validation-2026-10-05, instrument-validation-s2-2026-10-05, instrument-validation-s3-2026-10-06, instrument-validation-s4-2026-10-06 or step-boundary-2026-10-06, step-confirm-2026-10-07, prospective-pilot-2026-10-08, admission-diagnostic-2026-10-10, admission-frontier-2026-10-10, admission-length-calibration-2026-10-10. An unregistered id is not refused by gen-trace -- it writes a manifest for any string -- so this refusal is the one that stops it before anything is rented" ;;
+    sharing-matrix-2026-09-10|tail-crossing-lc256-2026-10-04|tail-crossing-lc2048-2026-10-05|tail-crossing-lc8192-2026-10-04|instrument-validation-2026-10-05|instrument-validation-s2-2026-10-05|instrument-validation-s3-2026-10-06|instrument-validation-s4-2026-10-06|step-boundary-2026-10-06|step-confirm-2026-10-07|prospective-pilot-2026-10-08|admission-diagnostic-2026-10-10|admission-frontier-2026-10-10|admission-length-calibration-2026-10-10|mps-capability-2026-10-24) ;;
+    *) fail "STUDY is ${STUDY@Q}; the non-ladder matrix files evidence under sharing-matrix-2026-09-10, tail-crossing-lc256-2026-10-04, tail-crossing-lc2048-2026-10-05, tail-crossing-lc8192-2026-10-04, instrument-validation-2026-10-05, instrument-validation-s2-2026-10-05, instrument-validation-s3-2026-10-06, instrument-validation-s4-2026-10-06 or step-boundary-2026-10-06, step-confirm-2026-10-07, prospective-pilot-2026-10-08, admission-diagnostic-2026-10-10, admission-frontier-2026-10-10, admission-length-calibration-2026-10-10, mps-capability-2026-10-24. An unregistered id is not refused by gen-trace -- it writes a manifest for any string -- so this refusal is the one that stops it before anything is rented" ;;
   esac
 fi
 
@@ -443,6 +443,37 @@ if [ -z "$LADDER" ] && pp_is_study "$STUDY"; then REQUIRED_LOAD_VARS="PREMIUM_RA
 for v in $REQUIRED_LOAD_VARS; do
   [ -n "${!v:-}" ] || fail "$v is unset. RATE alone does not describe this load: gen-trace's default mix puts the 40,000-character contender at 45% of arrivals, which is four to five times an A10G's prefill capacity at any rate this study could use, and lowering RATE to compensate starves the premium tail below the MinTailSamples floor. Derive the mix on the card and pass all four. hack/m5b-price-of-protection.sh measured RATE=9.85 PREMIUM_WEIGHT=1 NOISY_WEIGHT=0.054 PROBE_WEIGHT=0.0054 DURATION_MS=420000 for ONE engine with the whole card; this run gives each engine half of one, so it is a starting point and not an answer."
 done
+
+# The MPS capability session: one mps cell, its registered load, and three phase deadlines from LaunchTime.
+#
+# docs/superpowers/specs/2026-09-25-can-mps-engage-on-this-card-at-all.md, amendment of 2026-10-24. Every value it
+# freezes is checked here rather than defaulted, because the matrix's defaults are another study's and a default that
+# applied silently would be a capability answer about a load nobody registered. The prompt lengths, output caps and
+# timeout are the study's FrozenTuple, which refuse_unfrozen_load checks below like any other study's.
+MPSCAP_STUDY=mps-capability-2026-10-24
+if [ -z "$LADDER" ] && [ "$STUDY" = "$MPSCAP_STUDY" ]; then
+  [ "$ARMS" = mps ] || fail "ARMS is ${ARMS@Q} and study $STUDY buys exactly one mps cell"
+  [ "$REPS" = 1 ] || fail "REPS is ${REPS@Q} and study $STUDY allows one attempt; its stopping rule forbids a second"
+  [ -z "$SWEEP" ] || fail "SWEEP is set and study $STUDY registers no sweep"
+  [ -z "$SEEDS" ] || fail "SEEDS is ${SEEDS@Q}; study $STUDY replays seed 11, which is the matrix's seed when SEEDS is empty"
+  # Compared as the strings the session passes, so 2.0 for 2 is refused rather than read as the same load.
+  for _pair in RATE=2 PREMIUM_WEIGHT=1 NOISY_WEIGHT=0.054 PROBE_WEIGHT=0 DURATION_MS=120000; do
+    _name="${_pair%%=*}"
+    [ "${!_name:-}" = "${_pair#*=}" ] || fail "$_name is ${!_name:-unset} and study $STUDY freezes it at ${_pair#*=}"
+  done
+  for _v in MPSCAP_PHASE1_END MPSCAP_PHASE2_END MPSCAP_PHASE3_END; do
+    [[ "${!_v:-}" =~ ^[0-9]+$ ]] || fail "$_v is ${!_v:-unset}; study $STUDY's phases end at epochs the session derives from the instance's LaunchTime"
+  done
+  # shellcheck source=hack/lib/mps-journal.sh
+  . hack/lib/mps-journal.sh
+  # shellcheck source=hack/lib/mps-capability.sh
+  . hack/lib/mps-capability.sh
+  MPSCAP_OUT="$OUT/mpscap"
+  MPS_JOURNAL="${MPS_JOURNAL:-$OUT/mps-journal.jsonl}"
+  MPSCAP_CTX="$KCTX"
+  export MPSCAP_OUT MPS_JOURNAL MPSCAP_CTX
+fi
+mpscap_is_study() { [ -z "${LADDER:-}" ] && [ "${STUDY:-}" = "$MPSCAP_STUDY" ]; }
 # The engine build every arm runs, taken from the manifests rather than written here.
 #
 # The paid manifests carried no image identity at all: gen-trace has accepted --engine-image since it was
@@ -1309,6 +1340,10 @@ cleanup() {
   CLEANED=1
   record_expected_files
   [ -n "$PF_PID" ] && kill "$PF_PID" 2>/dev/null
+  # The capability session's diagnostics are mandatory output, and the namespaces below hold what they describe.
+  if mpscap_is_study; then
+    MPSCAP_REQUEST_TIMEOUT=8s mpscap_diagnostics "$NS_A" "$NS_B" || say "a required diagnostic failed; see $MPSCAP_OUT/diag/inventory.tsv"
+  fi
   k delete namespace "$NS_A" "$NS_B" --wait=false >/dev/null 2>&1
   k delete gpuquotapolicy m5c-premium m5c-standard >/dev/null 2>&1
   k delete clusterrolebinding m5c-gateway-role >/dev/null 2>&1
@@ -2091,6 +2126,45 @@ engine_diagnosis() {
   echo "=== end of diagnosis ==="
 }
 
+# mpscap_deploy LABEL: the capability cell, bar by bar, within the phases the session set from LaunchTime.
+#
+# B1 failing ends the cell, and so does B2: the stopping rule forbids trying other settings. B3 and B4 are measured
+# whatever the other says, and the replay runs only once both engines are Ready, because B5 is a replay of both.
+mpscap_deploy() {
+  local label="$1" uids uid_a uid_b left why
+  # The overlay and the engines are hashed as they sit in the tree the instance unpacked, against the session's hashes
+  # of the commit it registered, so a tree that differs from the commit is INVALID before anything is applied.
+  why=$(mpscap_pin_check overlay_pinned "${MPSCAP_PIN_OVERLAY:-}" config/nvidia-device-plugin-mps/configmap.yaml \
+    config/nvidia-device-plugin-mps/daemonset.yaml config/nvidia-device-plugin-mps/kustomization.yaml) || say "  $why"
+  why=$(mpscap_pin_check manifests_pinned "${MPSCAP_PIN_ENGINES:-}" config/vllm-shared/engine-a.yaml config/vllm-shared/engine-b.yaml) \
+    || say "  $why"
+  # The plugin's own setup can refuse; B0 and B1 then read whatever it left, which is the evidence of why.
+  apply_device_plugin mps "$label" || say "  the mps plugin's setup refused; B0 and B1 read what it left"
+  mpscap_b0_b1 || { say "B1 did not pass, so the session ends here by the stopping rule"; return 1; }
+  if ! k apply -f config/vllm-shared/engine-a.yaml -n "$NS_A" >/dev/null || ! k apply -f config/vllm-shared/engine-b.yaml -n "$NS_B" >/dev/null; then
+    say "an engine manifest could not be applied; B2 has nothing to observe and is left to the phase deadline"
+  fi
+  uids=$(mpscap_b2 "$NS_A" "$NS_B" "$MPSCAP_PHASE1_END") || { say "B2 did not pass, so the session ends here by the stopping rule"; return 1; }
+  uid_a="${uids%% *}"; uid_b="${uids#* }"
+  # Readiness is not a bar, but B4 is read while both serve and B5 replays both, so it is waited for inside phase 2,
+  # leaving a minute of the phase for B3 and B4 themselves.
+  left=$(( MPSCAP_PHASE2_END - $(date +%s) - 60 ))
+  if [ "$left" -gt 0 ]; then
+    k rollout status deploy/vllm-shared-a -n "$NS_A" --timeout="${left}s" >/dev/null
+    left=$(( MPSCAP_PHASE2_END - $(date +%s) - 60 ))
+    [ "$left" -gt 0 ] && k rollout status deploy/vllm-shared-b -n "$NS_B" --timeout="${left}s" >/dev/null
+  fi
+  mpscap_b3 "$NS_A" "$uid_a" "$NS_B" "$uid_b" || say "B3 did not pass; B4 is measured all the same"
+  mpscap_b4 "$uid_a" "$uid_b" "$WORK/benchharness" || say "B4 did not pass"
+  why=$(mpscap_engines_ready "$uid_a" "$uid_b") || { say "the engines are not both Ready ($why), so there is no replay of both for B5"; return 1; }
+  engine_kv_report "$NS_A" vllm-shared-a
+  engine_kv_report "$NS_B" vllm-shared-b
+  engine_applied_record "$NS_A" vllm-shared-a config/vllm-shared/engine-a.yaml "$label"
+  engine_applied_record "$NS_B" vllm-shared-b config/vllm-shared/engine-b.yaml "$label"
+  routing_record "$NS_A" vllm-shared-a
+  routing_record "$NS_B" vllm-shared-b
+}
+
 deploy_arm() {
   # arm is the TOPOLOGY -- what to deploy. label is the arm name the evidence carries, which in ladder mode
   # also names the rung. They are the same string in the frozen matrix and differ in the ladder, and keeping
@@ -2119,6 +2193,12 @@ deploy_arm() {
     ! k get namespace "$_ns" >/dev/null 2>&1 || fail "namespace $_ns survived its deletion, so this cell would inherit the previous cell's engine"
     k create ns "$_ns" >/dev/null || fail "namespace $_ns could not be created for this cell"
   done
+  # The capability session's one cell measures each bar as it goes, so it does not take the sharing arm's path,
+  # whose waits and refusals answer a different question.
+  if [ "$arm" = mps ] && mpscap_is_study; then
+    mpscap_deploy "$label" || return 1
+    PREMIUM_NS="$NS_A"; STANDARD_NS="$NS_B"
+  else
   case "$arm" in
     R1|shared)
       # One engine with the whole card. Both policies point at the same namespace, so both tenants resolve
@@ -2243,6 +2323,7 @@ deploy_arm() {
       PREMIUM_NS="$NS_A"; STANDARD_NS="$NS_B"
       ;;
   esac
+  fi
 
   k apply -f - >/dev/null <<EOF || fail "policies for $arm"
 apiVersion: platform.lkhun9311.github.io/v1
@@ -3498,11 +3579,16 @@ run_cell() {
     pp_sidecar_start "$label" "$rep"
     pp_sampler_start "$label" "$rep"
   fi
+  local replay_rc=0
+  if mpscap_is_study; then mpscap_b5_start; fi
   "$WORK/benchharness" replay --manifest "$OUT/manifest-$label-$rep.yaml" \
     $PROVENANCE_FLAG ${idflag:+"$idflag"} \
     --target "http://127.0.0.1:18080" \
     --api-keys "premium-1=premium-key,standard-noisy=standard-key" \
-    --raw-out "$OUT/raw-$label-$rep.jsonl" || fail "replay $label"
+    --raw-out "$OUT/raw-$label-$rep.jsonl" || replay_rc=$?
+  # B5 is decided from the replay as it returned, before the refusal below ends the run.
+  if mpscap_is_study; then mpscap_b5_decide "$OUT/raw-$label-$rep.jsonl" "$replay_rc" "$WORK/benchharness" || true; fi
+  [ "$replay_rc" = 0 ] || fail "replay $label"
   [ -s "$OUT/raw-$label-$rep.jsonl" ] || fail "no raw evidence for $label rep $rep"
   # The pilot's capture bound runs from the replay's return, before anything else is done (pilot review 11).
   local replay_done_epoch
