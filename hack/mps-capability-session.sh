@@ -38,6 +38,8 @@ PHASE1_S=720
 PHASE2_S=1200
 PHASE3_S=1920
 EVIDENCE_S=2040
+# The registered end of the termination step, by which the shutdown is to be confirmed.
+TERMINATION_S=2400
 # The instance stops at once if it cannot read LaunchTime within this many seconds of its own start.
 LAUNCHTIME_WAIT_S=180
 # The sweeper is believed only if it ran this many times in the last half hour, with no error.
@@ -393,6 +395,14 @@ fi
 spot_wait_for_marker_until "$REGION" "$BUCKET" "$RUN_ID/DONE" "$IID" $(( L + STOP_FROM_LAUNCH_S )) 20 400 >"$OUT/wait.txt"
 wait_rc=$?
 say "the wait ended with status $wait_rc ($(cat "$OUT/wait.txt"))"
+# The confirmation may take until TERMINATION_S from LaunchTime, as registered, and never less than the library's five
+# minutes. Run 2 of 2026-10-24 had every bar pass and was INVALID because a fixed 300 s ended with the instance still
+# shutting-down; it read terminated by hand seconds later. Billing had stopped at shutting-down, so the
+# longer wait costs nothing; the tries are scaled with it so that a count does not end the wait before the clock does.
+SPOT_TERMINATE_WAIT=$(( L + TERMINATION_S - $(date +%s) ))
+[ "$SPOT_TERMINATE_WAIT" -ge 300 ] || SPOT_TERMINATE_WAIT=300
+SPOT_TERMINATE_TRIES=$(( SPOT_TERMINATE_WAIT / 5 + 1 ))
+say "waiting up to ${SPOT_TERMINATE_WAIT}s for EC2 to report the instance terminated"
 if spot_terminate "$REGION" "$IID"; then
   TERMINATION=confirmed
   echo "terminated $IID" >"$OUT/termination.txt"

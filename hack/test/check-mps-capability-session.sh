@@ -168,6 +168,15 @@ scene; put soon "{\"Expiration\": \"$(date -u -d '+30 min' +%Y-%m-%dT%H:%M:%SZ)\
 scene; put earlier "i-0earlier"; rule "ec2 describe-instances*tag:purpose*" earlier; base_rules; refused "an earlier capability instance still live" "still live (i-0earlier)"
 
 # --- the whole session, with a passing journal -------------------------------------------------------------------
+# Run 2 of 2026-10-24: every bar passed and the run was INVALID, because the wait for "terminated" ended at a fixed
+# 300 s with the instance still shutting-down. Seventy polls of shutting-down outlast the library's sixty tries.
+scene; put shut "shutting-down"; rule "ec2 describe-instances*State.Name*" "shut|shut|shut|shut|shut|shut|shut|shut|shut|shut|shut|shut|shut|shut|shut|shut|shut|shut|shut|shut|shut|shut|shut|shut|shut|shut|shut|shut|shut|shut|shut|shut|shut|shut|shut|shut|shut|shut|shut|shut|shut|shut|shut|shut|shut|shut|shut|shut|shut|shut|shut|shut|shut|shut|shut|shut|shut|shut|shut|shut|shut|shut|shut|shut|shut|shut|shut|shut|shut|shut|terminated"; base_rules; passing_journal
+session "a slow shutdown"
+grep -qx "MPS: PASS" "$STUB/out/verdict.txt" 2>/dev/null && grep -q '"name":"termination_confirmed","value":true' "$STUB/out/journal.jsonl" &&
+  ok "a shutdown slower than five minutes is still waited for and confirmed" || bad "a slow shutdown was not confirmed: $(head -1 "$STUB/out/verdict.txt" 2>/dev/null); $(tail -3 "$STUB/session.out")"
+grep -qE "waiting up to (2[0-9]{3}|1[0-9]{3})s for EC2" "$STUB/session.out" && ok "the wait runs to the registered 2,400 s from LaunchTime" ||
+  bad "the wait was: $(grep 'waiting up to' "$STUB/session.out")"
+
 scene; base_rules; passing_journal
 t0=$(date +%s)
 session "a whole session"
