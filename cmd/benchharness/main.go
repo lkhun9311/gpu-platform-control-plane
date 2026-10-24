@@ -88,6 +88,8 @@ func main() {
 		err = checkReplay(os.Args[2:])
 	case "ladder-verdict":
 		err = ladderVerdict(os.Args[2:])
+	case "mps-capability-verdict":
+		err = mpsCapabilityVerdict(os.Args[2:])
 	case "ladder-plan-check":
 		err = ladderPlanCheck(os.Args[2:])
 	case "matrix-plan-check":
@@ -117,7 +119,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: benchharness <gen-trace|prepare-traces|replay|report|ladder-verdict|ladder-plan-check|matrix-plan-check|study-arrivals|study-frozen-tuple|print-prompt|check-replay|stamp-exact-tokens|verify-exact-tokens|compile-plan|sim-cap|power|stub-serve> [flags]")
+	fmt.Fprintln(os.Stderr, "usage: benchharness <gen-trace|prepare-traces|replay|report|ladder-verdict|mps-capability-verdict|ladder-plan-check|matrix-plan-check|study-arrivals|study-frozen-tuple|print-prompt|check-replay|stamp-exact-tokens|verify-exact-tokens|compile-plan|sim-cap|power|stub-serve> [flags]")
 }
 
 // arrivalFlags are gen-trace's load flags, gathered so the choice between the two arrival models lives in one place.
@@ -818,6 +820,34 @@ const ladderVerdictStop = 10
 //
 // It prints one line as well as setting an exit code. The line is what the runner asserts on, so a change
 // to either alone is caught rather than silently obeyed.
+// mpsCapabilityVerdict prints the MPS capability session's one outcome from its bar journal.
+//
+// A journal it cannot read prints MPS: UNREADABLE and exits non-zero, so the session cannot mistake a recorder fault
+// for any of the four registered outcomes.
+func mpsCapabilityVerdict(args []string) error {
+	fs := flag.NewFlagSet("mps-capability-verdict", flag.ExitOnError)
+	journal := fs.String("journal", "", "the session's bar journal, one JSON object per line")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *journal == "" {
+		return fmt.Errorf("--journal is required")
+	}
+	f, err := os.Open(*journal)
+	if err != nil {
+		fmt.Println("MPS: UNREADABLE")
+		return err
+	}
+	defer func() { _ = f.Close() }()
+	v, err := bench.ClassifyMPSCapability(f)
+	if err != nil {
+		fmt.Println("MPS: UNREADABLE")
+		return err
+	}
+	fmt.Print(v.String())
+	return nil
+}
+
 func ladderVerdict(args []string) error {
 	fs := flag.NewFlagSet("ladder-verdict", flag.ExitOnError)
 	var rawFiles multiFlag
