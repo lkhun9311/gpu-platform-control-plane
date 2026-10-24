@@ -1,0 +1,11 @@
+# Findings reviewed and kept in the history, each by its exact fingerprint, so the same leak in another commit or line is still reported.
+#
+# IMDSv2 session tokens, traced by set -x into the MPS capability sessions' committed log.txt (2026-10-24, runs 1 to 3).
+# Each was valid for 300 s, only from inside its instance, and all three instances are terminated.
+# hack/mps-capability-session.sh no longer traces the token.
+376f0e38515efd4dfc780cab71aba142c17698ad:hack/mps-capability/2026-10-24-run3/log.txt:generic-api-key:251
+376f0e38515efd4dfc780cab71aba142c17698ad:hack/mps-capability/2026-10-24-run3/log.txt:generic-api-key:254
+5a23d99bb902aebb7c89126511fe36e64921306e:hack/mps-capability/2026-10-24-run2/log.txt:generic-api-key:251
+5a23d99bb902aebb7c89126511fe36e64921306e:hack/mps-capability/2026-10-24-run2/log.txt:generic-api-key:254
+5e8670e62df2486bc37ad45dcec290d8240e72b3:hack/mps-capability/2026-10-24-run1/log.txt:generic-api-key:249
+5e8670e62df2486bc37ad45dcec290d8240e72b3:hack/mps-capability/2026-10-24-run1/log.txt:generic-api-key:252

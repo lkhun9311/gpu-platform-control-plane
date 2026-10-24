@@ -246,8 +246,11 @@ if [ "$bringup_left" -gt 0 ]; then
 fi
 echo "bring-up exited $bringup_rc"
 # The run record, before B0: what the registration says a capability answer is worth nothing without.
+# The token is traced off: log.txt is committed as evidence, and gitleaks reads a token in a header as a key.
+set +x
 imds=$(curl -s -X PUT -H "X-aws-ec2-metadata-token-ttl-seconds: 300" http://169.254.169.254/latest/api/token)
-md() { curl -s -H "X-aws-ec2-metadata-token: $imds" "http://169.254.169.254/latest/meta-data/$1"; }
+set -x
+md() { local -; set +x; curl -s -H "X-aws-ec2-metadata-token: $imds" "http://169.254.169.254/latest/meta-data/$1"; }
 {
   echo "commit=$COMMIT"
   echo "launch_time_epoch=$L"
