@@ -235,9 +235,18 @@ An instance that cannot read it within 180 s of its own start stops and the run 
 A phase may end early and never borrows time.
 A phase that runs out records its open bar as interrupted, not as failed or passed, and the run goes straight to the evidence step.
 
-**The kill that does not depend on the instance.** The launch carries the `study-deadline` tag, set to the launch request plus 1,980 s.
-The termination sweeper (`infra/aws/bootstrap/sweeper/sweeper.py`) runs every five minutes, so it requests termination no later than 38 minutes after `LaunchTime`, even if the instance and the laptop both die.
-The launch request precedes `LaunchTime`, so the tag can only be earlier than intended, never later.
+**The kills, in the order they should fire.**
+1. The instance shuts itself down once the evidence step ends. Its own timer shuts it down at 2,100 s from `LaunchTime` if that step hangs, and it launches with shutdown set to terminate.
+2. The session terminates the instance when the run's completion marker arrives, or at 2,100 s, and waits until EC2 reports it terminated.
+3. The termination sweeper (`infra/aws/bootstrap/sweeper/sweeper.py`) runs every five minutes and does not depend on either. It ends any instance whose `study-deadline` tag has passed.
+
+**The tag is written twice.**
+- At launch it is the launch request plus 2,040 s. That holds if the session dies before it can rewrite it: the request precedes `LaunchTime`, so the latest sweep is no later than 2,340 s after `LaunchTime`.
+- Once the session has read `LaunchTime`, it rewrites the tag to `LaunchTime` plus 2,070 s. That keeps the sweeper out of the evidence step, which ends at 2,040 s, and the latest sweep requests termination by 2,370 s.
+
+codex found that the first version of this paragraph overlapped the two. It set the tag to the request plus 1,980 s, so a sweep could end the instance at 1,980 s, while the evidence step ran to 2,040 s.
+A five-minute sweeper bounds its latest request, never its earliest.
+Billing ends as the instance enters `shutting-down` (https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-instance-lifecycle.html, read 2026-10-24), so the sweeper's bound is on the termination request. The confirmation that follows is recorded rather than assumed.
 Before the purchase, the deployed sweeper's schedule and state are read back from AWS.
 
 **The classification, applied in this order.**
