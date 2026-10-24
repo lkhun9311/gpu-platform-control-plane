@@ -1,0 +1,4 @@
+pid, process_name, used_gpu_memory [MiB]
+20820, nvidia-cuda-mps-server, 30 MiB
+20877, VLLM::EngineCore, 9776 MiB
+20884, VLLM::EngineCore, 9776 MiB

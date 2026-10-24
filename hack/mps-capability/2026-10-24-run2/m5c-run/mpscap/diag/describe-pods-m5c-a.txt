@@ -1,0 +1,141 @@
+Name:             gateway-64f98b498f-mhxdk
+Namespace:        m5c-a
+Priority:         0
+Service Account:  gateway
+Node:             m5cgpu-worker/172.18.0.3
+Start Time:       Sat, 24 Oct 2026 08:23:08 +0000
+Labels:           app=m5c-gateway
+                  pod-template-hash=64f98b498f
+Annotations:      arm: mps
+Status:           Running
+IP:               10.244.1.6
+IPs:
+  IP:           10.244.1.6
+Controlled By:  ReplicaSet/gateway-64f98b498f
+Containers:
+  gateway:
+    Container ID:  containerd://fbd41e0b6e4944768d788252085f060235d9b3eb5d0580624e3f3fd8813c4f21
+    Image:         gateway:m5c
+    Image ID:      docker.io/library/import-2026-10-24@sha256:f013bfc743f75684da8aa2ad190b199c14bf13dea8eccb678f5782c247a544ad
+    Port:          8080/TCP
+    Host Port:     0/TCP
+    Args:
+      -admission-mode=off
+    State:          Running
+      Started:      Sat, 24 Oct 2026 08:23:10 +0000
+    Ready:          True
+    Restart Count:  0
+    Readiness:      http-get http://:http/readyz delay=0s timeout=1s period=2s #success=1 #failure=60
+    Environment:
+      GATEWAY_NAMESPACE:       m5c-a
+      GATEWAY_API_KEY_SECRET:  gateway-api-keys
+    Mounts:
+      /var/run/secrets/kubernetes.io/serviceaccount from kube-api-access-zctxl (ro)
+Conditions:
+  Type                        Status
+  PodReadyToStartContainers   True 
+  Initialized                 True 
+  Ready                       True 
+  ContainersReady             True 
+  PodScheduled                True 
+Volumes:
+  kube-api-access-zctxl:
+    Type:                    Projected (a volume that contains injected data from multiple sources)
+    TokenExpirationSeconds:  3607
+    ConfigMapName:           kube-root-ca.crt
+    ConfigMapOptional:       <nil>
+    DownwardAPI:             true
+QoS Class:                   BestEffort
+Node-Selectors:              <none>
+Tolerations:                 node.kubernetes.io/not-ready:NoExecute op=Exists for 300s
+                             node.kubernetes.io/unreachable:NoExecute op=Exists for 300s
+Events:
+  Type     Reason     Age                    From               Message
+  ----     ------     ----                   ----               -------
+  Normal   Scheduled  2m19s                  default-scheduler  Successfully assigned m5c-a/gateway-64f98b498f-mhxdk to m5cgpu-worker
+  Normal   Pulled     2m18s                  kubelet            Container image "gateway:m5c" already present on machine
+  Normal   Created    2m18s                  kubelet            Created container gateway
+  Normal   Started    2m17s                  kubelet            Started container gateway
+  Warning  Unhealthy  2m14s (x4 over 2m16s)  kubelet            Readiness probe failed: Get "http://10.244.1.6:8080/readyz": dial tcp 10.244.1.6:8080: connect: connection refused
+  Warning  Unhealthy  2m12s                  kubelet            Readiness probe failed: HTTP probe failed with statuscode: 503
+
+
+Name:             vllm-shared-a-659cc94c49-tdttj
+Namespace:        m5c-a
+Priority:         0
+Service Account:  default
+Node:             m5cgpu-worker/172.18.0.3
+Start Time:       Sat, 24 Oct 2026 08:15:30 +0000
+Labels:           app.kubernetes.io/component=vllm-shared
+                  app.kubernetes.io/name=gpu-platform-control-plane
+                  platform.lkhun9311.github.io/engine=a
+                  pod-template-hash=659cc94c49
+Annotations:      <none>
+Status:           Running
+IP:               10.244.1.4
+IPs:
+  IP:           10.244.1.4
+Controlled By:  ReplicaSet/vllm-shared-a-659cc94c49
+Containers:
+  vllm:
+    Container ID:  containerd://76df29db49e2e9efb8bd2182e93f18796c26e02e138cda3d540e67675faf15a7
+    Image:         vllm/vllm-openai@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967
+    Image ID:      docker.io/vllm/vllm-openai@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967
+    Port:          8000/TCP
+    Host Port:     0/TCP
+    Args:
+      Qwen/Qwen2.5-3B-Instruct
+      --dtype=half
+      --max-model-len=16384
+      --max-num-seqs=32
+      --gpu-memory-utilization=0.475
+      --kv-cache-memory=3435973836
+      --no-enable-prefix-caching
+      --max-num-batched-tokens=2048
+      --port=8000
+    State:          Running
+      Started:      Sat, 24 Oct 2026 08:18:59 +0000
+    Ready:          True
+    Restart Count:  0
+    Limits:
+      nvidia.com/gpu:  1
+    Requests:
+      nvidia.com/gpu:  1
+    Readiness:         http-get http://:http/health delay=0s timeout=1s period=5s #success=1 #failure=3
+    Startup:           http-get http://:http/health delay=0s timeout=1s period=10s #success=1 #failure=90
+    Environment:       <none>
+    Mounts:
+      /root/.cache/huggingface from hf-cache (rw)
+      /var/run/secrets/kubernetes.io/serviceaccount from kube-api-access-4l7dg (ro)
+Conditions:
+  Type                        Status
+  PodReadyToStartContainers   True 
+  Initialized                 True 
+  Ready                       True 
+  ContainersReady             True 
+  PodScheduled                True 
+Volumes:
+  hf-cache:
+    Type:       EmptyDir (a temporary directory that shares a pod's lifetime)
+    Medium:     
+    SizeLimit:  <unset>
+  kube-api-access-4l7dg:
+    Type:                    Projected (a volume that contains injected data from multiple sources)
+    TokenExpirationSeconds:  3607
+    ConfigMapName:           kube-root-ca.crt
+    ConfigMapOptional:       <nil>
+    DownwardAPI:             true
+QoS Class:                   BestEffort
+Node-Selectors:              platform.lkhun9311.github.io/gpu-sharing=true
+Tolerations:                 node.kubernetes.io/not-ready:NoExecute op=Exists for 300s
+                             node.kubernetes.io/unreachable:NoExecute op=Exists for 300s
+                             nvidia.com/gpu=present:NoSchedule
+Events:
+  Type     Reason     Age                     From               Message
+  ----     ------     ----                    ----               -------
+  Normal   Scheduled  9m57s                   default-scheduler  Successfully assigned m5c-a/vllm-shared-a-659cc94c49-tdttj to m5cgpu-worker
+  Normal   Pulling    9m57s                   kubelet            Pulling image "vllm/vllm-openai@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967"
+  Normal   Pulled     6m35s                   kubelet            Successfully pulled image "vllm/vllm-openai@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967" in 3m22.102s (3m22.102s including waiting). Image size: 9110698465 bytes.
+  Normal   Created    6m34s                   kubelet            Created container vllm
+  Normal   Started    6m28s                   kubelet            Started container vllm
+  Warning  Unhealthy  2m47s (x22 over 6m17s)  kubelet            Startup probe failed: Get "http://10.244.1.4:8000/health": dial tcp 10.244.1.4:8000: connect: connection refused

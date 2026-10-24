@@ -1,0 +1,112 @@
+ERROR: driverInitFileInfo 578 result=11ERROR: init 664 result=11ERROR: init 250 result=11I1024 08:14:45.073836       1 main.go:199] Starting FS watcher.
+I1024 08:14:45.073958       1 main.go:206] Starting OS watcher.
+I1024 08:14:45.074336       1 main.go:221] Starting Plugins.
+I1024 08:14:45.074345       1 main.go:278] Loading configuration.
+I1024 08:14:45.075563       1 main.go:303] Updating config with default resource matching patterns.
+I1024 08:14:45.075627       1 main.go:314] 
+Running with config:
+{
+  "version": "v1",
+  "flags": {
+    "migStrategy": "none",
+    "failOnInitError": true,
+    "mpsRoot": "/run/nvidia/mps",
+    "nvidiaDriverRoot": "/",
+    "nvidiaDevRoot": "/",
+    "gdsEnabled": false,
+    "mofedEnabled": false,
+    "useNodeFeatureAPI": null,
+    "deviceDiscoveryStrategy": "auto",
+    "plugin": {
+      "passDeviceSpecs": false,
+      "deviceListStrategy": [
+        "envvar"
+      ],
+      "deviceIDStrategy": "uuid",
+      "cdiAnnotationPrefix": "cdi.k8s.io/",
+      "nvidiaCTKPath": "/usr/bin/nvidia-ctk",
+      "containerDriverRoot": "/driver-root"
+    }
+  },
+  "resources": {
+    "gpus": [
+      {
+        "pattern": "*",
+        "name": "nvidia.com/gpu"
+      }
+    ]
+  },
+  "sharing": {
+    "timeSlicing": {},
+    "mps": {
+      "failRequestsGreaterThanOne": true,
+      "resources": [
+        {
+          "name": "nvidia.com/gpu",
+          "devices": "all",
+          "replicas": 2
+        }
+      ]
+    }
+  }
+}
+I1024 08:14:45.075643       1 main.go:317] Retrieving plugins.
+E1024 08:14:45.120159       1 main.go:339] Failed to start plugin: error waiting for MPS daemon: error checking MPS daemon health: failed to send command to MPS daemon: exit status 1
+I1024 08:14:45.120185       1 main.go:229] Failed to start one or more plugins. Retrying in 30s...
+I1024 08:15:15.147388       1 main.go:353] Stopping plugins.
+I1024 08:15:15.147420       1 server.go:185] Stopping to serve 'nvidia.com/gpu' on /var/lib/kubelet/device-plugins/nvidia-gpu.sock
+I1024 08:15:15.147472       1 main.go:221] Starting Plugins.
+I1024 08:15:15.147486       1 main.go:278] Loading configuration.
+I1024 08:15:15.147900       1 main.go:303] Updating config with default resource matching patterns.
+I1024 08:15:15.147963       1 main.go:314] 
+Running with config:
+{
+  "version": "v1",
+  "flags": {
+    "migStrategy": "none",
+    "failOnInitError": true,
+    "mpsRoot": "/run/nvidia/mps",
+    "nvidiaDriverRoot": "/",
+    "nvidiaDevRoot": "/",
+    "gdsEnabled": false,
+    "mofedEnabled": false,
+    "useNodeFeatureAPI": null,
+    "deviceDiscoveryStrategy": "auto",
+    "plugin": {
+      "passDeviceSpecs": false,
+      "deviceListStrategy": [
+        "envvar"
+      ],
+      "deviceIDStrategy": "uuid",
+      "cdiAnnotationPrefix": "cdi.k8s.io/",
+      "nvidiaCTKPath": "/usr/bin/nvidia-ctk",
+      "containerDriverRoot": "/driver-root"
+    }
+  },
+  "resources": {
+    "gpus": [
+      {
+        "pattern": "*",
+        "name": "nvidia.com/gpu"
+      }
+    ]
+  },
+  "sharing": {
+    "timeSlicing": {},
+    "mps": {
+      "failRequestsGreaterThanOne": true,
+      "resources": [
+        {
+          "name": "nvidia.com/gpu",
+          "devices": "all",
+          "replicas": 2
+        }
+      ]
+    }
+  }
+}
+I1024 08:15:15.147976       1 main.go:317] Retrieving plugins.
+I1024 08:15:15.181242       1 server.go:176] "MPS daemon is healthy" resource="nvidia.com/gpu"
+I1024 08:15:15.181596       1 server.go:216] Starting GRPC server for 'nvidia.com/gpu'
+I1024 08:15:15.182124       1 server.go:147] Starting to serve 'nvidia.com/gpu' on /var/lib/kubelet/device-plugins/nvidia-gpu.sock
+I1024 08:15:15.185293       1 server.go:154] Registered device plugin for 'nvidia.com/gpu' with Kubelet

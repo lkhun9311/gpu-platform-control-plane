@@ -1,0 +1,9 @@
+Read by hand after the session gave up, not by the session, and not written into journal.jsonl.
+The session's wait for "terminated" is bounded at 300 s (SPOT_TERMINATE_WAIT in hack/lib/spot-run.sh) and ended with the instance still shutting-down.
+
+2026-10-24T08:30:54Z  aws ec2 describe-instances --instance-ids i-02c0ea27a1f4ad8f1
+  terminated	User initiated (2026-10-24 08:25:34 GMT)	2026-10-24T08:11:07+00:00
+CloudTrail, ap-northeast-2, ResourceName=i-02c0ea27a1f4ad8f1:
+  2026-10-24T08:25:35Z TerminateInstances
+  2026-10-24T08:11:07Z RunInstances
+No instance tagged purpose=mps-capability was pending, running, stopping or shutting-down at the same read.

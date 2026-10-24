@@ -1,0 +1,234 @@
+{
+    "apiVersion": "v1",
+    "items": [
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T08:15:30Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "kind": "Pod",
+                "name": "vllm-shared-a-659cc94c49-tdttj",
+                "namespace": "m5c-a",
+                "resourceVersion": "682",
+                "uid": "a57e91b8-f93d-4771-85e5-b653f7fe836b"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T08:15:30Z",
+            "message": "Successfully assigned m5c-a/vllm-shared-a-659cc94c49-tdttj to m5cgpu-worker",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T08:15:30Z",
+                "name": "vllm-shared-a-659cc94c49-tdttj.18e169240b274691",
+                "namespace": "m5c-a",
+                "resourceVersion": "688",
+                "uid": "a6ffc7f4-2e67-44db-9d15-e71641145aee"
+            },
+            "reason": "Scheduled",
+            "reportingComponent": "default-scheduler",
+            "reportingInstance": "",
+            "source": {
+                "component": "default-scheduler"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T08:15:30Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{vllm}",
+                "kind": "Pod",
+                "name": "vllm-shared-a-659cc94c49-tdttj",
+                "namespace": "m5c-a",
+                "resourceVersion": "685",
+                "uid": "a57e91b8-f93d-4771-85e5-b653f7fe836b"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T08:15:30Z",
+            "message": "Pulling image \"vllm/vllm-openai@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967\"",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T08:15:30Z",
+                "name": "vllm-shared-a-659cc94c49-tdttj.18e1692426a0fe37",
+                "namespace": "m5c-a",
+                "resourceVersion": "709",
+                "uid": "c07bc645-69fa-48e0-92dc-f51ce082517c"
+            },
+            "reason": "Pulling",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "m5cgpu-worker",
+            "source": {
+                "component": "kubelet",
+                "host": "m5cgpu-worker"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T08:18:52Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{vllm}",
+                "kind": "Pod",
+                "name": "vllm-shared-a-659cc94c49-tdttj",
+                "namespace": "m5c-a",
+                "resourceVersion": "685",
+                "uid": "a57e91b8-f93d-4771-85e5-b653f7fe836b"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T08:18:52Z",
+            "message": "Successfully pulled image \"vllm/vllm-openai@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967\" in 3m22.102s (3m22.102s including waiting). Image size: 9110698465 bytes.",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T08:18:52Z",
+                "name": "vllm-shared-a-659cc94c49-tdttj.18e1695334de043c",
+                "namespace": "m5c-a",
+                "resourceVersion": "988",
+                "uid": "46628d98-6a75-4a3f-b76e-8d78c4a2cf5d"
+            },
+            "reason": "Pulled",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "m5cgpu-worker",
+            "source": {
+                "component": "kubelet",
+                "host": "m5cgpu-worker"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T08:18:53Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{vllm}",
+                "kind": "Pod",
+                "name": "vllm-shared-a-659cc94c49-tdttj",
+                "namespace": "m5c-a",
+                "resourceVersion": "685",
+                "uid": "a57e91b8-f93d-4771-85e5-b653f7fe836b"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T08:18:53Z",
+            "message": "Created container vllm",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T08:18:53Z",
+                "name": "vllm-shared-a-659cc94c49-tdttj.18e1695346c99d68",
+                "namespace": "m5c-a",
+                "resourceVersion": "990",
+                "uid": "dde6d131-9de4-4969-a6c8-0f686835d733"
+            },
+            "reason": "Created",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "m5cgpu-worker",
+            "source": {
+                "component": "kubelet",
+                "host": "m5cgpu-worker"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T08:18:59Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{vllm}",
+                "kind": "Pod",
+                "name": "vllm-shared-a-659cc94c49-tdttj",
+                "namespace": "m5c-a",
+                "resourceVersion": "685",
+                "uid": "a57e91b8-f93d-4771-85e5-b653f7fe836b"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T08:18:59Z",
+            "message": "Started container vllm",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T08:18:59Z",
+                "name": "vllm-shared-a-659cc94c49-tdttj.18e16954d31d9398",
+                "namespace": "m5c-a",
+                "resourceVersion": "1002",
+                "uid": "8652f3a6-0d33-4692-97c5-760350811d2e"
+            },
+            "reason": "Started",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "m5cgpu-worker",
+            "source": {
+                "component": "kubelet",
+                "host": "m5cgpu-worker"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T08:15:30Z",
+            "involvedObject": {
+                "apiVersion": "apps/v1",
+                "kind": "ReplicaSet",
+                "name": "vllm-shared-a-659cc94c49",
+                "namespace": "m5c-a",
+                "resourceVersion": "679",
+                "uid": "b501fede-9f08-4182-a7c2-ac0935d0f629"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T08:15:30Z",
+            "message": "Created pod: vllm-shared-a-659cc94c49-tdttj",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T08:15:30Z",
+                "name": "vllm-shared-a-659cc94c49.18e169240a7e5927",
+                "namespace": "m5c-a",
+                "resourceVersion": "684",
+                "uid": "828966e4-01cc-45fe-9f32-2e16cc822a37"
+            },
+            "reason": "SuccessfulCreate",
+            "reportingComponent": "replicaset-controller",
+            "reportingInstance": "",
+            "source": {
+                "component": "replicaset-controller"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T08:15:30Z",
+            "involvedObject": {
+                "apiVersion": "apps/v1",
+                "kind": "Deployment",
+                "name": "vllm-shared-a",
+                "namespace": "m5c-a",
+                "resourceVersion": "678",
+                "uid": "b3bfea97-e5a5-4076-a395-dfefeaa14b54"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T08:15:30Z",
+            "message": "Scaled up replica set vllm-shared-a-659cc94c49 to 1",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T08:15:30Z",
+                "name": "vllm-shared-a.18e1692409e570c8",
+                "namespace": "m5c-a",
+                "resourceVersion": "680",
+                "uid": "9ddaaa58-2d59-4cf9-8e99-d871e10d8e5f"
+            },
+            "reason": "ScalingReplicaSet",
+            "reportingComponent": "deployment-controller",
+            "reportingInstance": "",
+            "source": {
+                "component": "deployment-controller"
+            },
+            "type": "Normal"
+        }
+    ],
+    "kind": "List",
+    "metadata": {
+        "resourceVersion": ""
+    }
+}
