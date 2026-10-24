@@ -282,7 +282,7 @@ A failed bar whose cause the diagnostics do not establish is recorded as failed.
 
 **Verdict: `MPS: INCONCLUSIVE`.** B0, B1 and B2 passed; B3 failed; B4 was unmeasured; B5 is absent.
 This is the classification above applied as written, by `benchharness mps-capability-verdict` on the journal.
-It is not REFUSED: the daemon's log records no client at all, so it records no rejection, and no `no healthy devices` event was captured.
+It is not REFUSED: the daemon's log records no CUDA client at all, so it records no rejection of one, and no `no healthy devices` event was captured.
 It says nothing about whether MPS can engage on an A10G, because no CUDA client ever asked it to.
 
 **The purchase.** One g5.2xlarge Spot instance, `i-0d6780100fc296545`, in ap-northeast-2a, from commit `04fac8f3`, AMI `ami-097edab977037f65f`, driver 595.91.07.
@@ -305,7 +305,9 @@ The sweeper did not have to act.
 Phase 1 ended at 470 s against its 720 s bound. The margin estimated from the archives held on this run.
 
 **What the evidence shows.**
-- The control daemon started under the pinned image (its log names commit `42a0fa92`, the v0.16.2 tag), opened `/mps/nvidia.com/gpu/pipe/control`, and set a 50% thread share and an 11,514 MiB pinned-memory limit. Nothing connected to it afterwards.
+- The control daemon started under the pinned image (its log names commit `42a0fa92`, the v0.16.2 tag), opened `/mps/nvidia.com/gpu/pipe/control`, and set a 50% thread share and an 11,514 MiB pinned-memory limit.
+  After that it accepted one connection, at 04:35:39.120, and that was the plugin's health check (`get_default_active_thread_percentage`, logged by the plugin as "MPS daemon is healthy" in the same millisecond). No CUDA client connected and no MPS server started.
+  codex corrected this line: the first version said nothing connected at all.
 - Inside both engine containers `CUDA_MPS_PIPE_DIRECTORY` was `/mps/nvidia.com/gpu/pipe`. The directory existed and held no control socket. That is B3's failure.
 - `nvidia-smi` at 867 s showed the card in Exclusive Process mode with one process, `VLLM::EngineCore`, of type `C`, holding 9,908 MiB. There was no `nvidia-cuda-mps-server`.
   So engine A ran on the card directly, without MPS.
