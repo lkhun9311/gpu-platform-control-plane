@@ -936,6 +936,29 @@ fz_calls=$(grep -c 'refuse_unfrozen_load' hack/m5c-matrix.sh || true)
   && ok "both the plan-only and the real path call the refusal (${fz_calls} references including the definition)" \
   || bad "refuse_unfrozen_load is referenced ${fz_calls} time(s); it must be defined and called on both paths"
 
+# The MPS capability session: one mps cell at its registered load, with the three phase deadlines the session sets.
+# Every value its amendment freezes is refused when it differs, because a default would be another study's load.
+say "the mps capability session's frozen cell"
+mc_end=$(( $(date +%s) + 3000 ))
+mc_env=(STUDY=mps-capability-2026-10-24 ARMS=mps REPS=1 RATE=2 NOISY_WEIGHT=0.054 DURATION_MS=120000
+        MPSCAP_PHASE1_END="$mc_end" MPSCAP_PHASE2_END="$mc_end" MPSCAP_PHASE3_END="$mc_end" REGISTRY=stub.local/x)
+plan_case "the registered capability cell" ok "${mc_env[@]}"
+case "$LAST_PLAN_OUT" in
+  *"PLAN OK under study mps-capability-2026-10-24"*"1 cell"*|*"1 cell"*"PLAN OK under study mps-capability-2026-10-24"*)
+    ok "it stands as one cell under the capability study" ;;
+  *) bad "the plan did not stand as one cell under the capability study: $(tail -3 <<<"$LAST_PLAN_OUT")" ;;
+esac
+plan_case "a second arm beside it" "buys exactly one mps cell" "${mc_env[@]}" ARMS="R1 mps"
+plan_case "a second attempt" "allows one attempt" "${mc_env[@]}" REPS=2
+plan_case "the sharing matrix's rate" "RATE is 9.4045 and study mps-capability-2026-10-24 freezes it at 2" "${mc_env[@]}" RATE="$RATE"
+plan_case "2.0 for 2" "freezes it at 2" "${mc_env[@]}" RATE=2.0
+plan_case "another contender weight" "NOISY_WEIGHT is 0.0260" "${mc_env[@]}" NOISY_WEIGHT="$NOISY_WEIGHT"
+plan_case "a longer trace" "DURATION_MS is 505000" "${mc_env[@]}" DURATION_MS="$FULL_DURATION"
+plan_case "a seed list" "replays seed 11" "${mc_env[@]}" SEEDS="11 12"
+plan_case "no phase deadline" "MPSCAP_PHASE2_END is unset" "${mc_env[@]}" MPSCAP_PHASE2_END=
+plan_case "a deadline that is not an epoch" "MPSCAP_PHASE3_END is 30m" "${mc_env[@]}" MPSCAP_PHASE3_END=30m
+plan_case "the sharing matrix's prompt" "1174" "${mc_env[@]}" PREMIUM_PROMPT_CHARS=200
+
 echo
 if [ "$failures" = "0" ]; then
   say "MATRIX PLAN REFUSALS PINNED: fifteen cells, the per-repetition tail floor, the missing denominator, the ladder unchanged, the backstop still ahead of the deadline, and a reproduction claim checked against the load it names, and a load that differs from the study's frozen tuple refused on both paths ahead of the first spend, and the plan standing under the study that was asked for -- named in the comparison and in the verdict, because the three registered levels share enough of their frozen tuples that an exit code cannot tell them apart."

@@ -621,8 +621,10 @@ BH_NO_WARMUP=1 drive_warmup serial-log "$WORK/w-good.jsonl" "$ITER2" && bad "a h
 	|| { grep -qF "MATRIX FAILED: gen-trace --warmup serial-log" "$WORK/warm.out" \
 		&& ok "a benchharness that refuses --warmup ends the run before any replay" || bad "wrong failure: $(tail -2 "$WORK/warm.out")"; }
 # The two replays take the same flags, read as text so a flag added to one and not the other is seen.
+# The measured replay keeps its exit status for the MPS session's B5 rather than failing on the spot, so that tail is
+# stripped too: what is compared is the flags.
 replay_flags() { extract "$1" | awk '/benchharness" replay --manifest/ {on = 1} on {print} on && /--raw-out/ {exit}' \
-	| sed -e 's/--manifest "[^"]*"//' -e 's/--raw-out "[^"]*"//' -e 's/|| fail .*//' -e 's/\\$//' | tr -s ' \t\n' ' '; }
+	| sed -e 's/--manifest "[^"]*"//' -e 's/--raw-out "[^"]*"//' -e 's/|| fail .*//' -e 's/|| replay_rc=\$?//' -e 's/\\$//' | tr -s ' \t\n' ' '; }
 rw=$(replay_flags run_warmup)
 rc_=$(replay_flags run_cell)
 [ "$rw" = "$rc_" ] && [ -n "$rc_" ] && ok "the warm-up replay takes the measured replay's flags:$rc_" \

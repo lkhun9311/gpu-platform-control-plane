@@ -1243,11 +1243,14 @@ for pair in "declared:no-flag-lines-in-manifest" "applied:no-deployment-or-query
 	esac
 done
 # The matrix must CALL it, on both the exclusive and the shared branch. Read as text, as section 5 does.
+# Five: the exclusive engine and both shared engines on the sharing paths, and both shared engines again on the MPS
+# capability session's own path (mpscap_deploy), which deploys the same two engines its own way.
 calls=$(grep -c '^ *engine_applied_record ' "$SRC" || true)
-if [ "$calls" = 3 ]; then
-	ok "three call sites: the exclusive engine and both shared engines"
+engines=$(grep -oE '^ *engine_applied_record "\$NS_[AB]" [a-z0-9-]+' "$SRC" | awk '{print $3}' | sort | uniq -c | awk '{print $2 "x" $1}' | paste -sd' ')
+if [ "$calls" = 5 ] && [ "$engines" = "vllm-qwen25-3bx1 vllm-shared-ax2 vllm-shared-bx2" ]; then
+	ok "five call sites: the exclusive engine once and both shared engines on each of their two paths"
 else
-	bad "found $calls engine_applied_record call sites, want 3 (vllm-qwen25-3b, vllm-shared-a, vllm-shared-b); an engine nobody records is an engine whose applied values are missing from the archive"
+	bad "found $calls engine_applied_record call sites recording [$engines], want 5 (vllm-qwen25-3b once, vllm-shared-a and -b twice); an engine nobody records is an engine whose applied values are missing from the archive"
 fi
 
 # --- 9. the card's state per cell, with a missing tool, a failing tool and an empty table kept apart --------
