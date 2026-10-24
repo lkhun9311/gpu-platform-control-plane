@@ -388,3 +388,35 @@ mpscap_diagnostics() {
   fi
   [ "$missing" = 0 ]
 }
+
+# mpscap_supervise END1 END2 END3 GRACE -- COMMAND...: COMMAND run in its own process group, ended when a phase runs out.
+#
+# The phases end at the amendment's epochs, each with the bar that closes it: B2 at END1, B4 at END2 and B5 at END3.
+# The deadline is enforced from outside the work, because the work's own waits are longer than its phase and a
+# wait that has not returned cannot check a clock.
+# At a deadline whose bar is undecided the group gets TERM, which runs the matrix's cleanup and with it the
+# diagnostics, and KILL after GRACE seconds. The bar stays started and undecided, which the classifier reads as
+# interrupted.
+# Returns COMMAND's status, or 124 when a phase ran out.
+mpscap_supervise() {
+  local ends=("$1" "$2" "$3") grace="$4" bars=(B2 B4 B5) pid i now
+  shift 5
+  setsid "$@" &
+  pid=$!
+  while kill -0 "$pid" 2>/dev/null; do
+    now="$(date +%s)"
+    for i in 0 1 2; do
+      if [ "$now" -ge "${ends[$i]}" ] && [ -z "$(mj_result "${bars[$i]}")" ]; then
+        echo "mps supervisor: phase $((i + 1)) ran out at $(date -u -d "@${ends[$i]}" +%H:%M:%SZ) with ${bars[$i]} undecided; stopping the run" >&2
+        kill -TERM -- "-$pid" 2>/dev/null
+        local waited=0
+        while kill -0 "$pid" 2>/dev/null && [ "$waited" -lt "$grace" ]; do sleep 1; waited=$((waited + 1)); done
+        kill -KILL -- "-$pid" 2>/dev/null
+        wait "$pid" 2>/dev/null
+        return 124
+      fi
+    done
+    sleep "${MPSCAP_SUPERVISE_POLL:-2}"
+  done
+  wait "$pid"
+}

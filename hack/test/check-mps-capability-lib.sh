@@ -417,6 +417,47 @@ diag_scene
 mpscap_diagnostics m5c-a m5c-b
 [[ -z "$(fact no_healthy_devices_event)" ]] && ok "events that could not be read record no refusal fact either way" || bad "a fact came from unread events"
 
+# --- the supervisor, with harmless commands and deadlines seconds away ---------------------------------------------
+export MPSCAP_SUPERVISE_POLL=0.2
+scenario
+far=$(( $(date +%s) + 600 ))
+mpscap_supervise "$far" "$far" "$far" 5 -- bash -c 'exit 7'
+rc=$?
+[[ "$rc" == 7 ]] && ok "a command that ends on its own returns its own status, not the supervisor's" || bad "a command exiting 7 returned $rc"
+scenario
+start=$(date +%s)
+mpscap_supervise $(( start + 2 )) "$far" "$far" 5 -- bash -c 'echo $$ >"$MPSCAP_OUT/pid"; sleep 300' 2>"$STUB/sup.err"
+rc=$?
+took=$(( $(date +%s) - start ))
+[[ "$rc" == 124 ]] && ok "phase 1 running out with B2 undecided stops the run" || bad "phase 1 ran out and the supervisor returned $rc"
+(( took <= 10 )) && ok "it stopped within seconds of the deadline ($took s)" || bad "it took $took s to stop"
+grep -q "phase 1 ran out" "$STUB/sup.err" && ok "it says which phase ran out" || bad "it did not say which phase: $(cat "$STUB/sup.err")"
+child=$(cat "$MPSCAP_OUT/pid" 2>/dev/null)
+sleep 0.5
+[[ -n "$child" ]] && ! kill -0 "$child" 2>/dev/null && ok "the command's own process is gone, not orphaned" || bad "the command's process $child is still alive"
+# A grandchild in the same group goes too, since the matrix's port-forwards and replays are its children.
+scenario
+mpscap_supervise $(( $(date +%s) + 2 )) "$far" "$far" 5 -- bash -c 'sleep 300 & echo $! >"$MPSCAP_OUT/grandchild"; wait' 2>/dev/null
+gc=$(cat "$MPSCAP_OUT/grandchild" 2>/dev/null)
+sleep 0.5
+[[ -n "$gc" ]] && ! kill -0 "$gc" 2>/dev/null && ok "a grandchild of the command is stopped with it" || bad "the grandchild $gc survived"
+# The TERM is what runs the matrix's cleanup, and the grace lets it finish before KILL.
+scenario
+mpscap_supervise $(( $(date +%s) + 2 )) "$far" "$far" 10 -- bash -c 'trap "sleep 1; echo cleaned >\"$MPSCAP_OUT/trap\"; exit 143" TERM; sleep 300 & wait' 2>/dev/null
+[[ "$(cat "$MPSCAP_OUT/trap" 2>/dev/null)" == cleaned ]] && ok "the command's TERM trap ran to completion inside the grace" || bad "the TERM trap did not finish before KILL"
+# A phase whose bar was decided in time does not stop the run when its deadline passes.
+scenario
+mj_start B2; mj_decide B2 pass "both Running"
+mpscap_supervise $(( $(date +%s) - 1 )) "$far" "$far" 5 -- bash -c 'sleep 1; exit 0' 2>/dev/null
+rc=$?
+[[ "$rc" == 0 ]] && ok "a past deadline whose bar is decided does not stop the run" || bad "a decided phase stopped the run ($rc)"
+scenario
+mj_start B2; mj_decide B2 pass ok
+mpscap_supervise $(( $(date +%s) - 10 )) $(( $(date +%s) + 2 )) "$far" 5 -- bash -c 'sleep 300' 2>"$STUB/sup.err"
+rc=$?
+[[ "$rc" == 124 ]] && grep -q "phase 2 ran out" "$STUB/sup.err" && ok "phase 2 running out with B4 undecided stops the run" || bad "phase 2: rc $rc, $(cat "$STUB/sup.err")"
+unset MPSCAP_SUPERVISE_POLL
+
 if [[ $fails -ne 0 ]]; then
   echo "check-mps-capability-lib: $fails failure(s)"
   exit 1
