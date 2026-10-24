@@ -258,6 +258,8 @@ esac
 # volume mounted and declared. The model is not passed positionally, because the stub's flag parser stops at the
 # first positional argument.
 PILOT_UNDER_TEST="${PILOT:-}"
+# MPSCAP=1 rehearses the MPS capability session's one cell (study mps-capability-2026-10-24) through the real matrix.
+MPSCAP_UNDER_TEST="${MPSCAP:-}"
 # Any other value rehearsed stages A and B while its name suggested something else (v26 review, C37).
 case "$PILOT_UNDER_TEST" in "" | 1 | D | E | F) ;; *) echo "PILOT is ${PILOT_UNDER_TEST@Q}; it is 1 for stages A and B, D, E or F" >&2; exit 2 ;; esac
 # The two ineligible arms the rehearsal must show (design page, "Rehearsals before purchase"): stage A's off-2 has
@@ -372,6 +374,23 @@ spec:
         - name: pause
           image: registry.k8s.io/pause:3.9
 EOF
+# The capability session's B0 reads the plugin and the daemon by the real overlay's Pod labels, so the copy carries
+# them; otherwise B0 would find no Pod and the rehearsal would test the copy rather than the matrix.
+if [ -n "$MPSCAP_UNDER_TEST" ]; then
+  python3 - "$SRC/config/nvidia-device-plugin-mps/daemonset.yaml" <<'PY'
+import sys
+p = sys.argv[1]
+s = open(p).read()
+s = s.replace("app.kubernetes.io/component: nvidia-device-plugin-mps\n", "app.kubernetes.io/component: nvidia-device-plugin-mps-plugin\n")
+labels = "{app.kubernetes.io/name: gpu-platform-control-plane, app.kubernetes.io/component: nvidia-mps-control-daemon}"
+s = s.replace("selector: {matchLabels: {app: mps-control-stub}}", "selector: {matchLabels: " + labels + "}")
+s = s.replace("metadata: {labels: {app: mps-control-stub}}", "metadata: {labels: " + labels + "}")
+open(p, "w").write(s)
+PY
+  grep -q "component: nvidia-device-plugin-mps-plugin" "$SRC/config/nvidia-device-plugin-mps/daemonset.yaml" \
+    && grep -q "component: nvidia-mps-control-daemon}" "$SRC/config/nvidia-device-plugin-mps/daemonset.yaml" \
+    || fail "the copy's MPS overlay does not carry the real overlay's Pod labels, so B0 would read nothing"
+fi
 
 say "run the REAL hack/m5c-matrix.sh against this cluster"
 # Derived WITHOUT discarding stderr, which is how the first version of this line failed silently.
@@ -543,6 +562,18 @@ if [ -n "$PILOT_UNDER_TEST" ]; then
   done
   cp "$WORK/matrix-${stage}.log" "$WORK/matrix.log"
   ( exit "$pilot_rc" )
+elif [ -n "$MPSCAP_UNDER_TEST" ]; then
+  # The registered load and three phases half an hour away, so nothing here runs out; the deadlines are tested in
+  # hack/test/check-mps-capability-lib.sh, with seconds-away epochs.
+  mpscap_end=$(( $(date +%s) + 1800 ))
+  ( cd "$SRC" && PLATFORM=kind KCTX="$KCTX" GPU_NODE="$GPU_NODE" \
+      DEADLINE_EPOCH=$(( $(date +%s) + 3600 )) \
+      GATEWAY_BIN="$WORK/gateway" BENCHHARNESS_BIN="$WORK/benchharness" \
+      ENGINE_PIN_WAIVED=1 STUDY=mps-capability-2026-10-24 ARMS=mps REPS=1 \
+      RATE=2 PREMIUM_WEIGHT=1 NOISY_WEIGHT=0.054 PROBE_WEIGHT=0 DURATION_MS=120000 \
+      MPSCAP_PHASE1_END="$mpscap_end" MPSCAP_PHASE2_END="$mpscap_end" MPSCAP_PHASE3_END="$mpscap_end" \
+      OUT="$OUT_DIR" CELL_DONE_HOOK="$WORK/cell-hook" CELL_HOOK_LOG="$CELL_HOOK_LOG" \
+      bash hack/m5c-matrix.sh ) 2>&1 | tee "$WORK/matrix.log"
 elif [ -n "$IV_UNDER_TEST" ]; then
   # No load and no DURATION_MS: the study refuses both, and each arm's trace length is its own.
   # Three serial arms, one of each engine mode, because the modes are what this path changes per cell; burst and
@@ -607,6 +638,36 @@ set -e
 # The checks below this block are the sharing studies': two tenants, an R1 arm, readings. This study has none
 # of them, and what it adds -- a per-arm engine and a per-cell engine log -- is checked from the files the
 # matrix wrote, not from its exit status alone, because the matrix refusing nothing is what is under test.
+# The capability cell is checked bar by bar from its journal, with the real classifier, and ends here.
+#
+# What kind can show: the plugin and the daemon read around a simulated advertisement of two, both engine Pods by
+# UID, a replay of both tenants through the real path, and the diagnostics before cleanup. What it cannot: there is
+# no MPS daemon behind the stub's pipe directory, so B3 must FAIL, and no nvidia-smi here, so B4 must be UNMEASURED.
+# Either one passing would mean an instrument accepted a stand-in.
+if [ -n "$MPSCAP_UNDER_TEST" ]; then
+  say "check the capability cell's journal"
+  journal="$OUT_DIR/mps-journal.jsonl"
+  [ -s "$journal" ] || fail "the capability cell wrote no journal at $journal"
+  "$WORK/benchharness" mps-capability-verdict --journal "$journal" >"$WORK/mpscap-verdict.txt" 2>&1 \
+    || fail "the journal could not be read: $(cat "$WORK/mpscap-verdict.txt")"
+  for want in "B0 pass" "B1 pass" "B2 pass" "B3 fail" "B4 unmeasured" "B5 pass"; do
+    grep -qx "$want" "$WORK/mpscap-verdict.txt" || fail "the journal does not read '$want': $(grep '^B[0-5] ' "$WORK/mpscap-verdict.txt" | paste -sd';')"
+  done
+  grep -q '"bar":"B3".*CONTROL=no' "$journal" || fail "B3 failed for a reason other than the missing control socket: $(grep '"bar":"B3"' "$journal" | tail -1)"
+  # The session writes launch_time_read and termination_confirmed; without them the run is INVALID, and that is right
+  # for a matrix run on its own.
+  head -1 "$WORK/mpscap-verdict.txt" | grep -qx "MPS: INVALID" || fail "a matrix run with no session facts read as $(head -1 "$WORK/mpscap-verdict.txt")"
+  [ -s "$OUT_DIR/mpscap/diag/inventory.tsv" ] || fail "the diagnostics left no inventory"
+  for need in describe-pods-m5c-a.txt describe-pods-m5c-b.txt events-all.json logs-nvidia-device-plugin-mps-plugin.txt logs-nvidia-mps-control-daemon.txt; do
+    awk -F'\t' -v n="$need" '$1 == n && $2 == 0' "$OUT_DIR/mpscap/diag/inventory.tsv" | grep -q . \
+      || fail "the diagnostics did not collect $need: $(grep "$need" "$OUT_DIR/mpscap/diag/inventory.tsv")"
+  done
+  grep -q '"name":"no_healthy_devices_event","value":false' "$journal" || fail "B2 recorded no refusal fact"
+  cat "$WORK/mpscap-verdict.txt"
+  say "REHEARSAL PASSED: the capability cell ran bar by bar on kind; B3 failed on the stub's missing socket and B4 was unmeasured with no nvidia-smi, as kind requires."
+  exit 0
+fi
+
 if [ -n "$PILOT_UNDER_TEST" ]; then
   if [ "$PILOT_UNDER_TEST" = D ] || [ "$PILOT_UNDER_TEST" = E ] || [ "$PILOT_UNDER_TEST" = F ]; then
     st="$PILOT_UNDER_TEST"
