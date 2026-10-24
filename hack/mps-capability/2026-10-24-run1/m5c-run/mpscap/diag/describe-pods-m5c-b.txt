@@ -1,0 +1,91 @@
+Name:             vllm-shared-b-84d8d7b546-46tfc
+Namespace:        m5c-b
+Priority:         0
+Service Account:  default
+Node:             m5cgpu-worker/172.18.0.3
+Start Time:       Sat, 24 Oct 2026 04:35:54 +0000
+Labels:           app.kubernetes.io/component=vllm-shared
+                  app.kubernetes.io/name=gpu-platform-control-plane
+                  platform.lkhun9311.github.io/engine=b
+                  pod-template-hash=84d8d7b546
+Annotations:      <none>
+Status:           Running
+IP:               10.244.1.5
+IPs:
+  IP:           10.244.1.5
+Controlled By:  ReplicaSet/vllm-shared-b-84d8d7b546
+Containers:
+  vllm:
+    Container ID:  containerd://8c13cde72b9597fd7f4c529c9b1d55d850e3f9818e4100e7f556a99266a1d3f3
+    Image:         vllm/vllm-openai@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967
+    Image ID:      docker.io/vllm/vllm-openai@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967
+    Port:          8000/TCP
+    Host Port:     0/TCP
+    Args:
+      Qwen/Qwen2.5-3B-Instruct
+      --dtype=half
+      --max-model-len=16384
+      --max-num-seqs=32
+      --gpu-memory-utilization=0.475
+      --kv-cache-memory=3435973836
+      --no-enable-prefix-caching
+      --max-num-batched-tokens=2048
+      --port=8000
+    State:          Running
+      Started:      Sat, 24 Oct 2026 04:45:34 +0000
+    Last State:     Terminated
+      Reason:       Error
+      Exit Code:    1
+      Started:      Sat, 24 Oct 2026 04:43:47 +0000
+      Finished:     Sat, 24 Oct 2026 04:44:44 +0000
+    Ready:          False
+    Restart Count:  4
+    Limits:
+      nvidia.com/gpu:  1
+    Requests:
+      nvidia.com/gpu:  1
+    Readiness:         http-get http://:http/health delay=0s timeout=1s period=5s #success=1 #failure=3
+    Startup:           http-get http://:http/health delay=0s timeout=1s period=10s #success=1 #failure=90
+    Environment:       <none>
+    Mounts:
+      /dev/shm from dshm (rw)
+      /root/.cache/huggingface from hf-cache (rw)
+      /var/run/secrets/kubernetes.io/serviceaccount from kube-api-access-j2wrd (ro)
+Conditions:
+  Type                        Status
+  PodReadyToStartContainers   True 
+  Initialized                 True 
+  Ready                       False 
+  ContainersReady             False 
+  PodScheduled                True 
+Volumes:
+  dshm:
+    Type:       EmptyDir (a temporary directory that shares a pod's lifetime)
+    Medium:     Memory
+    SizeLimit:  1Gi
+  hf-cache:
+    Type:       EmptyDir (a temporary directory that shares a pod's lifetime)
+    Medium:     
+    SizeLimit:  <unset>
+  kube-api-access-j2wrd:
+    Type:                    Projected (a volume that contains injected data from multiple sources)
+    TokenExpirationSeconds:  3607
+    ConfigMapName:           kube-root-ca.crt
+    ConfigMapOptional:       <nil>
+    DownwardAPI:             true
+QoS Class:                   BestEffort
+Node-Selectors:              platform.lkhun9311.github.io/gpu-sharing=true
+Tolerations:                 node.kubernetes.io/not-ready:NoExecute op=Exists for 300s
+                             node.kubernetes.io/unreachable:NoExecute op=Exists for 300s
+                             nvidia.com/gpu=present:NoSchedule
+Events:
+  Type     Reason     Age                     From               Message
+  ----     ------     ----                    ----               -------
+  Normal   Scheduled  10m                     default-scheduler  Successfully assigned m5c-b/vllm-shared-b-84d8d7b546-46tfc to m5cgpu-worker
+  Normal   Pulling    10m                     kubelet            Pulling image "vllm/vllm-openai@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967"
+  Normal   Pulled     6m43s                   kubelet            Successfully pulled image "vllm/vllm-openai@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967" in 2.095s (3m23.493s including waiting). Image size: 9110698465 bytes.
+  Normal   Created    5m15s (x2 over 6m43s)   kubelet            Created container vllm
+  Normal   Started    5m3s (x2 over 6m39s)    kubelet            Started container vllm
+  Warning  Unhealthy  3m57s (x16 over 6m37s)  kubelet            Startup probe failed: Get "http://10.244.1.5:8000/health": dial tcp 10.244.1.5:8000: connect: connection refused
+  Warning  BackOff    3m47s (x2 over 3m52s)   kubelet            Back-off restarting failed container vllm in pod vllm-shared-b-84d8d7b546-46tfc_m5c-b(7d7b85bb-eaf6-4d0d-a0d8-727cd00d927a)
+  Normal   Pulled     3m35s (x2 over 5m15s)   kubelet            Container image "vllm/vllm-openai@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967" already present on machine

@@ -1,0 +1,21 @@
+== preflight
+== acquiring the card on kind
+== card node m5cgpu-worker labelled for sharing
+== the gateway and the harness
+==   gateway: shipped, 6b36f5cbde21
+==   benchharness: shipped, a34c9326e4be
+== load matches study mps-capability-2026-10-24's frozen tuple (five quantities)
+==   gateway image sha256:8fc2b7c7ceb540c8578998a8fce28818f26f925413e9e77174d22a64e41ae0cb
+== load the gateway into the kind cluster
+== load: rate 2/s, 120000ms per arm, weights premium=1 noisy=0.054 probe=0
+== run:  1 repetitions of [mps] on kind, output /src/m5c-run
+== cell 1/1: mps (rep 1) at load 2:0.054 under weighted arrivals
+== wait for the card to advertise exactly 2 device(s) under mps
+== node advertises 2 device(s) for one physical card under mps
+== B3 did not pass; B4 is measured all the same
+== B4 did not pass
+== the engines are not both Ready (m5c-b/vllm-shared-b-84d8d7b546-46tfc is not Ready), so there is no replay of both for B5
+== skipping the rest of cell 1: mps was refused as a registered outcome, and the arms beside it stand
+== MATRIX DONE. Raw evidence in /src/m5c-run (see its README.txt before analysing).
+== The comparison is premium TTFT p99 across the sharing modes at equal offered load.
+== Per-engine GPU utilisation is deliberately absent: under time-slicing nothing can attribute it.

@@ -1,0 +1,2779 @@
+{
+    "apiVersion": "v1",
+    "items": [
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:34:11Z",
+            "involvedObject": {
+                "kind": "Node",
+                "name": "m5cgpu-control-plane",
+                "uid": "m5cgpu-control-plane"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:34:11Z",
+            "message": "Starting kubelet.",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:34:11Z",
+                "name": "m5cgpu-control-plane.18e15d1051d47754",
+                "namespace": "default",
+                "resourceVersion": "221",
+                "uid": "cbed73ad-734e-4025-9338-ae5ce600e35f"
+            },
+            "reason": "Starting",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "m5cgpu-control-plane",
+            "source": {
+                "component": "kubelet",
+                "host": "m5cgpu-control-plane"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:34:11Z",
+            "involvedObject": {
+                "kind": "Node",
+                "name": "m5cgpu-control-plane",
+                "uid": "m5cgpu-control-plane"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:34:11Z",
+            "message": "Updated Node Allocatable limit across pods",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:34:11Z",
+                "name": "m5cgpu-control-plane.18e15d10549b6e9e",
+                "namespace": "default",
+                "resourceVersion": "223",
+                "uid": "92830ee3-66f2-45fb-887d-c4a2f12c6d7f"
+            },
+            "reason": "NodeAllocatableEnforced",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "m5cgpu-control-plane",
+            "source": {
+                "component": "kubelet",
+                "host": "m5cgpu-control-plane"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:34:11Z",
+            "involvedObject": {
+                "kind": "Node",
+                "name": "m5cgpu-control-plane",
+                "uid": "m5cgpu-control-plane"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:34:11Z",
+            "message": "Node m5cgpu-control-plane status is now: NodeHasSufficientMemory",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:34:11Z",
+                "name": "m5cgpu-control-plane.18e15d105a96dade",
+                "namespace": "default",
+                "resourceVersion": "229",
+                "uid": "4b7d2cc3-1f0b-44bb-b0aa-3c8f7661b3c5"
+            },
+            "reason": "NodeHasSufficientMemory",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "m5cgpu-control-plane",
+            "source": {
+                "component": "kubelet",
+                "host": "m5cgpu-control-plane"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:34:11Z",
+            "involvedObject": {
+                "kind": "Node",
+                "name": "m5cgpu-control-plane",
+                "uid": "m5cgpu-control-plane"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:34:11Z",
+            "message": "Node m5cgpu-control-plane status is now: NodeHasNoDiskPressure",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:34:11Z",
+                "name": "m5cgpu-control-plane.18e15d105a972373",
+                "namespace": "default",
+                "resourceVersion": "230",
+                "uid": "02b56a9b-1904-49ec-ab64-5d68a54a0d0c"
+            },
+            "reason": "NodeHasNoDiskPressure",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "m5cgpu-control-plane",
+            "source": {
+                "component": "kubelet",
+                "host": "m5cgpu-control-plane"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:34:11Z",
+            "involvedObject": {
+                "kind": "Node",
+                "name": "m5cgpu-control-plane",
+                "uid": "m5cgpu-control-plane"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:34:11Z",
+            "message": "Node m5cgpu-control-plane status is now: NodeHasSufficientPID",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:34:11Z",
+                "name": "m5cgpu-control-plane.18e15d105a9730c5",
+                "namespace": "default",
+                "resourceVersion": "232",
+                "uid": "b3b10cc7-4aef-419a-a015-75decae0c806"
+            },
+            "reason": "NodeHasSufficientPID",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "m5cgpu-control-plane",
+            "source": {
+                "component": "kubelet",
+                "host": "m5cgpu-control-plane"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:34:16Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "kind": "Node",
+                "name": "m5cgpu-control-plane",
+                "uid": "603492ae-cffd-4513-bc65-d0299f5ba475"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:34:16Z",
+            "message": "Node m5cgpu-control-plane event: Registered Node m5cgpu-control-plane in Controller",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:34:16Z",
+                "name": "m5cgpu-control-plane.18e15d11895be8f9",
+                "namespace": "default",
+                "resourceVersion": "303",
+                "uid": "f4a53e45-f43f-4dae-831f-9e33947abd2e"
+            },
+            "reason": "RegisteredNode",
+            "reportingComponent": "node-controller",
+            "reportingInstance": "",
+            "source": {
+                "component": "node-controller"
+            },
+            "type": "Normal"
+        },
+        {
+            "action": "StartKubeProxy",
+            "apiVersion": "v1",
+            "eventTime": "2026-10-24T04:34:18.372515Z",
+            "firstTimestamp": null,
+            "involvedObject": {
+                "kind": "Node",
+                "name": "m5cgpu-control-plane",
+                "uid": "m5cgpu-control-plane"
+            },
+            "kind": "Event",
+            "lastTimestamp": null,
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:34:18Z",
+                "name": "m5cgpu-control-plane.18e15d11f4c48ab9",
+                "namespace": "default",
+                "resourceVersion": "374",
+                "uid": "9530a6d4-16ca-4850-9bd2-bc456078a03d"
+            },
+            "reason": "Starting",
+            "reportingComponent": "kube-proxy",
+            "reportingInstance": "kube-proxy-m5cgpu-control-plane",
+            "source": {},
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:34:30Z",
+            "involvedObject": {
+                "kind": "Node",
+                "name": "m5cgpu-control-plane",
+                "uid": "m5cgpu-control-plane"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:34:30Z",
+            "message": "Node m5cgpu-control-plane status is now: NodeReady",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:34:30Z",
+                "name": "m5cgpu-control-plane.18e15d14c259f2d2",
+                "namespace": "default",
+                "resourceVersion": "444",
+                "uid": "c2e6cd99-40a7-41f3-a940-7cdade4105b4"
+            },
+            "reason": "NodeReady",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "m5cgpu-control-plane",
+            "source": {
+                "component": "kubelet",
+                "host": "m5cgpu-control-plane"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:34:20Z",
+            "involvedObject": {
+                "kind": "Node",
+                "name": "m5cgpu-worker",
+                "uid": "m5cgpu-worker"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:34:20Z",
+            "message": "Starting kubelet.",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:34:20Z",
+                "name": "m5cgpu-worker.18e15d127061808a",
+                "namespace": "default",
+                "resourceVersion": "388",
+                "uid": "41f525d3-bf74-4a4e-9195-2c3da7e992c4"
+            },
+            "reason": "Starting",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "m5cgpu-worker",
+            "source": {
+                "component": "kubelet",
+                "host": "m5cgpu-worker"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 2,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:34:20Z",
+            "involvedObject": {
+                "kind": "Node",
+                "name": "m5cgpu-worker",
+                "uid": "m5cgpu-worker"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:34:20Z",
+            "message": "Node m5cgpu-worker status is now: NodeHasSufficientMemory",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:34:20Z",
+                "name": "m5cgpu-worker.18e15d1271409843",
+                "namespace": "default",
+                "resourceVersion": "394",
+                "uid": "b6448094-a45b-4c34-8fd4-fe6d63d983b0"
+            },
+            "reason": "NodeHasSufficientMemory",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "m5cgpu-worker",
+            "source": {
+                "component": "kubelet",
+                "host": "m5cgpu-worker"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 2,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:34:20Z",
+            "involvedObject": {
+                "kind": "Node",
+                "name": "m5cgpu-worker",
+                "uid": "m5cgpu-worker"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:34:20Z",
+            "message": "Node m5cgpu-worker status is now: NodeHasNoDiskPressure",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:34:20Z",
+                "name": "m5cgpu-worker.18e15d127140dadd",
+                "namespace": "default",
+                "resourceVersion": "398",
+                "uid": "63e4eddc-4077-4652-a866-d4ac1bf367ad"
+            },
+            "reason": "NodeHasNoDiskPressure",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "m5cgpu-worker",
+            "source": {
+                "component": "kubelet",
+                "host": "m5cgpu-worker"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 2,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:34:20Z",
+            "involvedObject": {
+                "kind": "Node",
+                "name": "m5cgpu-worker",
+                "uid": "m5cgpu-worker"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:34:20Z",
+            "message": "Node m5cgpu-worker status is now: NodeHasSufficientPID",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:34:20Z",
+                "name": "m5cgpu-worker.18e15d127140e68b",
+                "namespace": "default",
+                "resourceVersion": "407",
+                "uid": "ed7c5c61-5ef6-4c0b-9540-d1ad5c81afab"
+            },
+            "reason": "NodeHasSufficientPID",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "m5cgpu-worker",
+            "source": {
+                "component": "kubelet",
+                "host": "m5cgpu-worker"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:34:20Z",
+            "involvedObject": {
+                "kind": "Node",
+                "name": "m5cgpu-worker",
+                "uid": "m5cgpu-worker"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:34:20Z",
+            "message": "Updated Node Allocatable limit across pods",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:34:20Z",
+                "name": "m5cgpu-worker.18e15d12729b656b",
+                "namespace": "default",
+                "resourceVersion": "392",
+                "uid": "2adf813b-880d-4598-87df-9e71fb409ac2"
+            },
+            "reason": "NodeAllocatableEnforced",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "m5cgpu-worker",
+            "source": {
+                "component": "kubelet",
+                "host": "m5cgpu-worker"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:34:21Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "kind": "Node",
+                "name": "m5cgpu-worker",
+                "uid": "cd1a09d5-c661-4d66-943b-555665220e0b"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:34:21Z",
+            "message": "Node m5cgpu-worker event: Registered Node m5cgpu-worker in Controller",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:34:21Z",
+                "name": "m5cgpu-worker.18e15d12b373b81e",
+                "namespace": "default",
+                "resourceVersion": "419",
+                "uid": "3283e300-1ab9-4838-8318-e652ec21afc1"
+            },
+            "reason": "RegisteredNode",
+            "reportingComponent": "node-controller",
+            "reportingInstance": "",
+            "source": {
+                "component": "node-controller"
+            },
+            "type": "Normal"
+        },
+        {
+            "action": "StartKubeProxy",
+            "apiVersion": "v1",
+            "eventTime": "2026-10-24T04:34:22.507086Z",
+            "firstTimestamp": null,
+            "involvedObject": {
+                "kind": "Node",
+                "name": "m5cgpu-worker",
+                "uid": "m5cgpu-worker"
+            },
+            "kind": "Event",
+            "lastTimestamp": null,
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:34:22Z",
+                "name": "m5cgpu-worker.18e15d12eb351776",
+                "namespace": "default",
+                "resourceVersion": "427",
+                "uid": "6a778269-55dd-4044-8c69-623262ac9bae"
+            },
+            "reason": "Starting",
+            "reportingComponent": "kube-proxy",
+            "reportingInstance": "kube-proxy-m5cgpu-worker",
+            "source": {},
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:34:34Z",
+            "involvedObject": {
+                "kind": "Node",
+                "name": "m5cgpu-worker",
+                "uid": "m5cgpu-worker"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:34:34Z",
+            "message": "Node m5cgpu-worker status is now: NodeReady",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:34:34Z",
+                "name": "m5cgpu-worker.18e15d1599fd654c",
+                "namespace": "default",
+                "resourceVersion": "515",
+                "uid": "d0ed8739-b64e-458d-8c45-451a7bc29f9b"
+            },
+            "reason": "NodeReady",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "m5cgpu-worker",
+            "source": {
+                "component": "kubelet",
+                "host": "m5cgpu-worker"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:35:03Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "kind": "Pod",
+                "name": "nvidia-device-plugin-mps-v89h4",
+                "namespace": "gpu-platform-control-plane-system",
+                "resourceVersion": "570",
+                "uid": "9b1d8e98-4759-4110-a401-fb857b10ee4a"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:35:03Z",
+            "message": "Successfully assigned gpu-platform-control-plane-system/nvidia-device-plugin-mps-v89h4 to m5cgpu-worker",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:35:03Z",
+                "name": "nvidia-device-plugin-mps-v89h4.18e15d1c81f52e75",
+                "namespace": "gpu-platform-control-plane-system",
+                "resourceVersion": "576",
+                "uid": "654ffa3e-ad55-45ec-bc68-f3b8fd0cb0bd"
+            },
+            "reason": "Scheduled",
+            "reportingComponent": "default-scheduler",
+            "reportingInstance": "",
+            "source": {
+                "component": "default-scheduler"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:35:04Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{nvidia-device-plugin}",
+                "kind": "Pod",
+                "name": "nvidia-device-plugin-mps-v89h4",
+                "namespace": "gpu-platform-control-plane-system",
+                "resourceVersion": "573",
+                "uid": "9b1d8e98-4759-4110-a401-fb857b10ee4a"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:35:04Z",
+            "message": "Pulling image \"nvcr.io/nvidia/k8s-device-plugin:v0.16.2@sha256:ed39e22c8b71343fb996737741a99da88ce6c75dd83b5c520e0b3d8e8a884c47\"",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:35:04Z",
+                "name": "nvidia-device-plugin-mps-v89h4.18e15d1c9caed3db",
+                "namespace": "gpu-platform-control-plane-system",
+                "resourceVersion": "584",
+                "uid": "4ba66824-82a5-434c-b3f1-9cd9aa935420"
+            },
+            "reason": "Pulling",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "m5cgpu-worker",
+            "source": {
+                "component": "kubelet",
+                "host": "m5cgpu-worker"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:35:08Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{nvidia-device-plugin}",
+                "kind": "Pod",
+                "name": "nvidia-device-plugin-mps-v89h4",
+                "namespace": "gpu-platform-control-plane-system",
+                "resourceVersion": "573",
+                "uid": "9b1d8e98-4759-4110-a401-fb857b10ee4a"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:35:08Z",
+            "message": "Successfully pulled image \"nvcr.io/nvidia/k8s-device-plugin:v0.16.2@sha256:ed39e22c8b71343fb996737741a99da88ce6c75dd83b5c520e0b3d8e8a884c47\" in 4.572s (4.573s including waiting). Image size: 126081487 bytes.",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:35:08Z",
+                "name": "nvidia-device-plugin-mps-v89h4.18e15d1dad421e5d",
+                "namespace": "gpu-platform-control-plane-system",
+                "resourceVersion": "590",
+                "uid": "3de4e6d4-e183-410a-9cef-354a46930aa8"
+            },
+            "reason": "Pulled",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "m5cgpu-worker",
+            "source": {
+                "component": "kubelet",
+                "host": "m5cgpu-worker"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:35:08Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{nvidia-device-plugin}",
+                "kind": "Pod",
+                "name": "nvidia-device-plugin-mps-v89h4",
+                "namespace": "gpu-platform-control-plane-system",
+                "resourceVersion": "573",
+                "uid": "9b1d8e98-4759-4110-a401-fb857b10ee4a"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:35:08Z",
+            "message": "Created container nvidia-device-plugin",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:35:08Z",
+                "name": "nvidia-device-plugin-mps-v89h4.18e15d1dae7d4eb8",
+                "namespace": "gpu-platform-control-plane-system",
+                "resourceVersion": "591",
+                "uid": "bde396f0-6a90-47dd-9e9e-df1cc4ca6724"
+            },
+            "reason": "Created",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "m5cgpu-worker",
+            "source": {
+                "component": "kubelet",
+                "host": "m5cgpu-worker"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:35:09Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{nvidia-device-plugin}",
+                "kind": "Pod",
+                "name": "nvidia-device-plugin-mps-v89h4",
+                "namespace": "gpu-platform-control-plane-system",
+                "resourceVersion": "573",
+                "uid": "9b1d8e98-4759-4110-a401-fb857b10ee4a"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:35:09Z",
+            "message": "Started container nvidia-device-plugin",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:35:09Z",
+                "name": "nvidia-device-plugin-mps-v89h4.18e15d1dbf7e1af2",
+                "namespace": "gpu-platform-control-plane-system",
+                "resourceVersion": "592",
+                "uid": "14cdbb5f-4f3d-4a80-a757-14c4ba0e6094"
+            },
+            "reason": "Started",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "m5cgpu-worker",
+            "source": {
+                "component": "kubelet",
+                "host": "m5cgpu-worker"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:35:03Z",
+            "involvedObject": {
+                "apiVersion": "apps/v1",
+                "kind": "DaemonSet",
+                "name": "nvidia-device-plugin-mps",
+                "namespace": "gpu-platform-control-plane-system",
+                "resourceVersion": "567",
+                "uid": "d0a68674-3ad1-4efd-aa04-3c348e40d1ea"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:35:03Z",
+            "message": "Created pod: nvidia-device-plugin-mps-v89h4",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:35:03Z",
+                "name": "nvidia-device-plugin-mps.18e15d1c818131d8",
+                "namespace": "gpu-platform-control-plane-system",
+                "resourceVersion": "572",
+                "uid": "9f2cda2c-f533-4b33-900c-af61fd6816fe"
+            },
+            "reason": "SuccessfulCreate",
+            "reportingComponent": "daemonset-controller",
+            "reportingInstance": "",
+            "source": {
+                "component": "daemonset-controller"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:35:03Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "kind": "Pod",
+                "name": "nvidia-mps-control-daemon-ttqzj",
+                "namespace": "gpu-platform-control-plane-system",
+                "resourceVersion": "575",
+                "uid": "84775c80-0b42-46a7-98c2-1e0eef71d7a9"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:35:03Z",
+            "message": "Successfully assigned gpu-platform-control-plane-system/nvidia-mps-control-daemon-ttqzj to m5cgpu-worker",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:35:03Z",
+                "name": "nvidia-mps-control-daemon-ttqzj.18e15d1c8299e21d",
+                "namespace": "gpu-platform-control-plane-system",
+                "resourceVersion": "581",
+                "uid": "e4ea9119-af3b-430a-a909-7128bddbbed2"
+            },
+            "reason": "Scheduled",
+            "reportingComponent": "default-scheduler",
+            "reportingInstance": "",
+            "source": {
+                "component": "default-scheduler"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:35:04Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{mps-control-daemon}",
+                "kind": "Pod",
+                "name": "nvidia-mps-control-daemon-ttqzj",
+                "namespace": "gpu-platform-control-plane-system",
+                "resourceVersion": "577",
+                "uid": "84775c80-0b42-46a7-98c2-1e0eef71d7a9"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:35:04Z",
+            "message": "Pulling image \"nvcr.io/nvidia/k8s-device-plugin:v0.16.2@sha256:ed39e22c8b71343fb996737741a99da88ce6c75dd83b5c520e0b3d8e8a884c47\"",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:35:04Z",
+                "name": "nvidia-mps-control-daemon-ttqzj.18e15d1c9cdf9f90",
+                "namespace": "gpu-platform-control-plane-system",
+                "resourceVersion": "585",
+                "uid": "5a68fd1e-1291-4b8b-ba43-9aed96fde04e"
+            },
+            "reason": "Pulling",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "m5cgpu-worker",
+            "source": {
+                "component": "kubelet",
+                "host": "m5cgpu-worker"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:35:09Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{mps-control-daemon}",
+                "kind": "Pod",
+                "name": "nvidia-mps-control-daemon-ttqzj",
+                "namespace": "gpu-platform-control-plane-system",
+                "resourceVersion": "577",
+                "uid": "84775c80-0b42-46a7-98c2-1e0eef71d7a9"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:35:09Z",
+            "message": "Successfully pulled image \"nvcr.io/nvidia/k8s-device-plugin:v0.16.2@sha256:ed39e22c8b71343fb996737741a99da88ce6c75dd83b5c520e0b3d8e8a884c47\" in 695ms (5.265s including waiting). Image size: 126081487 bytes.",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:35:09Z",
+                "name": "nvidia-mps-control-daemon-ttqzj.18e15d1dd6b8764d",
+                "namespace": "gpu-platform-control-plane-system",
+                "resourceVersion": "594",
+                "uid": "df86d5f9-413f-4076-9b5f-c69f2a2cb016"
+            },
+            "reason": "Pulled",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "m5cgpu-worker",
+            "source": {
+                "component": "kubelet",
+                "host": "m5cgpu-worker"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:35:09Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{mps-control-daemon}",
+                "kind": "Pod",
+                "name": "nvidia-mps-control-daemon-ttqzj",
+                "namespace": "gpu-platform-control-plane-system",
+                "resourceVersion": "577",
+                "uid": "84775c80-0b42-46a7-98c2-1e0eef71d7a9"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:35:09Z",
+            "message": "Created container mps-control-daemon",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:35:09Z",
+                "name": "nvidia-mps-control-daemon-ttqzj.18e15d1dd80ae97e",
+                "namespace": "gpu-platform-control-plane-system",
+                "resourceVersion": "595",
+                "uid": "c0124c18-0d1b-49e5-9637-89fb49315711"
+            },
+            "reason": "Created",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "m5cgpu-worker",
+            "source": {
+                "component": "kubelet",
+                "host": "m5cgpu-worker"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:35:09Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{mps-control-daemon}",
+                "kind": "Pod",
+                "name": "nvidia-mps-control-daemon-ttqzj",
+                "namespace": "gpu-platform-control-plane-system",
+                "resourceVersion": "577",
+                "uid": "84775c80-0b42-46a7-98c2-1e0eef71d7a9"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:35:09Z",
+            "message": "Started container mps-control-daemon",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:35:09Z",
+                "name": "nvidia-mps-control-daemon-ttqzj.18e15d1de92b916b",
+                "namespace": "gpu-platform-control-plane-system",
+                "resourceVersion": "598",
+                "uid": "736d0adf-729f-441e-8041-cd10e9038b42"
+            },
+            "reason": "Started",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "m5cgpu-worker",
+            "source": {
+                "component": "kubelet",
+                "host": "m5cgpu-worker"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:35:03Z",
+            "involvedObject": {
+                "apiVersion": "apps/v1",
+                "kind": "DaemonSet",
+                "name": "nvidia-mps-control-daemon",
+                "namespace": "gpu-platform-control-plane-system",
+                "resourceVersion": "569",
+                "uid": "d5f18146-33e5-412f-bd8a-9a8a1495b9db"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:35:03Z",
+            "message": "Created pod: nvidia-mps-control-daemon-ttqzj",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:35:03Z",
+                "name": "nvidia-mps-control-daemon.18e15d1c8243eee1",
+                "namespace": "gpu-platform-control-plane-system",
+                "resourceVersion": "578",
+                "uid": "0bb2a21a-127d-4f17-911b-724f619c141e"
+            },
+            "reason": "SuccessfulCreate",
+            "reportingComponent": "daemonset-controller",
+            "reportingInstance": "",
+            "source": {
+                "component": "daemonset-controller"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:34:17Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "kind": "Pod",
+                "name": "coredns-6f6b679f8f-n5lzz",
+                "namespace": "kube-system",
+                "resourceVersion": "354",
+                "uid": "99a71603-6a3c-47e7-9940-ddf6db114d69"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:34:17Z",
+            "message": "0/1 nodes are available: 1 node(s) had untolerated taint {node.kubernetes.io/not-ready: }. preemption: 0/1 nodes are available: 1 Preemption is not helpful for scheduling.",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:34:17Z",
+                "name": "coredns-6f6b679f8f-n5lzz.18e15d11c8707def",
+                "namespace": "kube-system",
+                "resourceVersion": "361",
+                "uid": "826e4ce5-b529-4e4c-b50d-8c83eeb87558"
+            },
+            "reason": "FailedScheduling",
+            "reportingComponent": "default-scheduler",
+            "reportingInstance": "",
+            "source": {
+                "component": "default-scheduler"
+            },
+            "type": "Warning"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:34:30Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "kind": "Pod",
+                "name": "coredns-6f6b679f8f-n5lzz",
+                "namespace": "kube-system",
+                "resourceVersion": "362",
+                "uid": "99a71603-6a3c-47e7-9940-ddf6db114d69"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:34:30Z",
+            "message": "Successfully assigned kube-system/coredns-6f6b679f8f-n5lzz to m5cgpu-control-plane",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:34:30Z",
+                "name": "coredns-6f6b679f8f-n5lzz.18e15d14c3dad870",
+                "namespace": "kube-system",
+                "resourceVersion": "450",
+                "uid": "ca266b2c-0a1a-4d6f-bbf1-58240618387e"
+            },
+            "reason": "Scheduled",
+            "reportingComponent": "default-scheduler",
+            "reportingInstance": "",
+            "source": {
+                "component": "default-scheduler"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:34:30Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{coredns}",
+                "kind": "Pod",
+                "name": "coredns-6f6b679f8f-n5lzz",
+                "namespace": "kube-system",
+                "resourceVersion": "447",
+                "uid": "99a71603-6a3c-47e7-9940-ddf6db114d69"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:34:30Z",
+            "message": "Container image \"registry.k8s.io/coredns/coredns:v1.11.1\" already present on machine",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:34:30Z",
+                "name": "coredns-6f6b679f8f-n5lzz.18e15d14e06bcb97",
+                "namespace": "kube-system",
+                "resourceVersion": "458",
+                "uid": "03bbf08c-e895-4015-9996-7fda1854e804"
+            },
+            "reason": "Pulled",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "m5cgpu-control-plane",
+            "source": {
+                "component": "kubelet",
+                "host": "m5cgpu-control-plane"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:34:32Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{coredns}",
+                "kind": "Pod",
+                "name": "coredns-6f6b679f8f-n5lzz",
+                "namespace": "kube-system",
+                "resourceVersion": "447",
+                "uid": "99a71603-6a3c-47e7-9940-ddf6db114d69"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:34:32Z",
+            "message": "Created container coredns",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:34:32Z",
+                "name": "coredns-6f6b679f8f-n5lzz.18e15d152ca9035e",
+                "namespace": "kube-system",
+                "resourceVersion": "491",
+                "uid": "fbe63688-c37b-46e1-99e3-dd370362a6e2"
+            },
+            "reason": "Created",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "m5cgpu-control-plane",
+            "source": {
+                "component": "kubelet",
+                "host": "m5cgpu-control-plane"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:34:32Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{coredns}",
+                "kind": "Pod",
+                "name": "coredns-6f6b679f8f-n5lzz",
+                "namespace": "kube-system",
+                "resourceVersion": "447",
+                "uid": "99a71603-6a3c-47e7-9940-ddf6db114d69"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:34:32Z",
+            "message": "Started container coredns",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:34:32Z",
+                "name": "coredns-6f6b679f8f-n5lzz.18e15d1533082e9d",
+                "namespace": "kube-system",
+                "resourceVersion": "493",
+                "uid": "426b93be-77a9-4b89-b16f-713ba1ae3140"
+            },
+            "reason": "Started",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "m5cgpu-control-plane",
+            "source": {
+                "component": "kubelet",
+                "host": "m5cgpu-control-plane"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:34:17Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "kind": "Pod",
+                "name": "coredns-6f6b679f8f-x2dk7",
+                "namespace": "kube-system",
+                "resourceVersion": "350",
+                "uid": "8b6e4e00-5414-4302-bee4-6201aef44579"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:34:17Z",
+            "message": "0/1 nodes are available: 1 node(s) had untolerated taint {node.kubernetes.io/not-ready: }. preemption: 0/1 nodes are available: 1 Preemption is not helpful for scheduling.",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:34:17Z",
+                "name": "coredns-6f6b679f8f-x2dk7.18e15d11c7b5b1a2",
+                "namespace": "kube-system",
+                "resourceVersion": "353",
+                "uid": "a026cdda-ed7e-4e96-96eb-c1717104758d"
+            },
+            "reason": "FailedScheduling",
+            "reportingComponent": "default-scheduler",
+            "reportingInstance": "",
+            "source": {
+                "component": "default-scheduler"
+            },
+            "type": "Warning"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:34:30Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "kind": "Pod",
+                "name": "coredns-6f6b679f8f-x2dk7",
+                "namespace": "kube-system",
+                "resourceVersion": "357",
+                "uid": "8b6e4e00-5414-4302-bee4-6201aef44579"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:34:30Z",
+            "message": "Successfully assigned kube-system/coredns-6f6b679f8f-x2dk7 to m5cgpu-control-plane",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:34:30Z",
+                "name": "coredns-6f6b679f8f-x2dk7.18e15d14c3fe469a",
+                "namespace": "kube-system",
+                "resourceVersion": "453",
+                "uid": "cf493012-3e5c-492f-9b41-ab34c5acdb57"
+            },
+            "reason": "Scheduled",
+            "reportingComponent": "default-scheduler",
+            "reportingInstance": "",
+            "source": {
+                "component": "default-scheduler"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:34:30Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{coredns}",
+                "kind": "Pod",
+                "name": "coredns-6f6b679f8f-x2dk7",
+                "namespace": "kube-system",
+                "resourceVersion": "449",
+                "uid": "8b6e4e00-5414-4302-bee4-6201aef44579"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:34:30Z",
+            "message": "Container image \"registry.k8s.io/coredns/coredns:v1.11.1\" already present on machine",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:34:30Z",
+                "name": "coredns-6f6b679f8f-x2dk7.18e15d14e1022dd8",
+                "namespace": "kube-system",
+                "resourceVersion": "460",
+                "uid": "99f5e361-fdc8-4963-a468-f06bca0b7226"
+            },
+            "reason": "Pulled",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "m5cgpu-control-plane",
+            "source": {
+                "component": "kubelet",
+                "host": "m5cgpu-control-plane"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:34:32Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{coredns}",
+                "kind": "Pod",
+                "name": "coredns-6f6b679f8f-x2dk7",
+                "namespace": "kube-system",
+                "resourceVersion": "449",
+                "uid": "8b6e4e00-5414-4302-bee4-6201aef44579"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:34:32Z",
+            "message": "Created container coredns",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:34:32Z",
+                "name": "coredns-6f6b679f8f-x2dk7.18e15d152ccf019e",
+                "namespace": "kube-system",
+                "resourceVersion": "492",
+                "uid": "14a3246e-a58b-423d-b472-ce059e399c01"
+            },
+            "reason": "Created",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "m5cgpu-control-plane",
+            "source": {
+                "component": "kubelet",
+                "host": "m5cgpu-control-plane"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:34:32Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{coredns}",
+                "kind": "Pod",
+                "name": "coredns-6f6b679f8f-x2dk7",
+                "namespace": "kube-system",
+                "resourceVersion": "449",
+                "uid": "8b6e4e00-5414-4302-bee4-6201aef44579"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:34:32Z",
+            "message": "Started container coredns",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:34:32Z",
+                "name": "coredns-6f6b679f8f-x2dk7.18e15d153309a37b",
+                "namespace": "kube-system",
+                "resourceVersion": "494",
+                "uid": "55741a57-c44a-4055-9a60-dce9a031e603"
+            },
+            "reason": "Started",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "m5cgpu-control-plane",
+            "source": {
+                "component": "kubelet",
+                "host": "m5cgpu-control-plane"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:34:17Z",
+            "involvedObject": {
+                "apiVersion": "apps/v1",
+                "kind": "ReplicaSet",
+                "name": "coredns-6f6b679f8f",
+                "namespace": "kube-system",
+                "resourceVersion": "341",
+                "uid": "654f4b66-3797-4341-9abf-b6419195d93a"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:34:17Z",
+            "message": "Created pod: coredns-6f6b679f8f-x2dk7",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:34:17Z",
+                "name": "coredns-6f6b679f8f.18e15d11c7af87df",
+                "namespace": "kube-system",
+                "resourceVersion": "352",
+                "uid": "5c541261-4b5f-4f72-9296-0f64501451e2"
+            },
+            "reason": "SuccessfulCreate",
+            "reportingComponent": "replicaset-controller",
+            "reportingInstance": "",
+            "source": {
+                "component": "replicaset-controller"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:34:17Z",
+            "involvedObject": {
+                "apiVersion": "apps/v1",
+                "kind": "ReplicaSet",
+                "name": "coredns-6f6b679f8f",
+                "namespace": "kube-system",
+                "resourceVersion": "341",
+                "uid": "654f4b66-3797-4341-9abf-b6419195d93a"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:34:17Z",
+            "message": "Created pod: coredns-6f6b679f8f-n5lzz",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:34:17Z",
+                "name": "coredns-6f6b679f8f.18e15d11c8377cad",
+                "namespace": "kube-system",
+                "resourceVersion": "360",
+                "uid": "a1203a3e-29ec-4e34-8b26-db354732c2f6"
+            },
+            "reason": "SuccessfulCreate",
+            "reportingComponent": "replicaset-controller",
+            "reportingInstance": "",
+            "source": {
+                "component": "replicaset-controller"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:34:17Z",
+            "involvedObject": {
+                "apiVersion": "apps/v1",
+                "kind": "Deployment",
+                "name": "coredns",
+                "namespace": "kube-system",
+                "resourceVersion": "231",
+                "uid": "550ac211-53f3-45a8-b098-bf9487270bf3"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:34:17Z",
+            "message": "Scaled up replica set coredns-6f6b679f8f to 2",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:34:17Z",
+                "name": "coredns.18e15d11bebb82e6",
+                "namespace": "kube-system",
+                "resourceVersion": "343",
+                "uid": "00f2d04d-2dc3-426f-90fe-db02b93e14fa"
+            },
+            "reason": "ScalingReplicaSet",
+            "reportingComponent": "deployment-controller",
+            "reportingInstance": "",
+            "source": {
+                "component": "deployment-controller"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:34:20Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "kind": "Pod",
+                "name": "kindnet-7hbck",
+                "namespace": "kube-system",
+                "resourceVersion": "396",
+                "uid": "cb8e1163-7c7e-476b-8111-1717e8ee9c05"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:34:20Z",
+            "message": "Successfully assigned kube-system/kindnet-7hbck to m5cgpu-worker",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:34:20Z",
+                "name": "kindnet-7hbck.18e15d1279f39686",
+                "namespace": "kube-system",
+                "resourceVersion": "408",
+                "uid": "9f97a715-f31b-4b86-a098-ec4f727b1ecd"
+            },
+            "reason": "Scheduled",
+            "reportingComponent": "default-scheduler",
+            "reportingInstance": "",
+            "source": {
+                "component": "default-scheduler"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:34:22Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{kindnet-cni}",
+                "kind": "Pod",
+                "name": "kindnet-7hbck",
+                "namespace": "kube-system",
+                "resourceVersion": "403",
+                "uid": "cb8e1163-7c7e-476b-8111-1717e8ee9c05"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:34:22Z",
+            "message": "Container image \"docker.io/kindest/kindnetd:v20240813-c6f155d6\" already present on machine",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:34:22Z",
+                "name": "kindnet-7hbck.18e15d12d619a128",
+                "namespace": "kube-system",
+                "resourceVersion": "422",
+                "uid": "3a1b20c1-12c0-49af-b54c-1d55383c238f"
+            },
+            "reason": "Pulled",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "m5cgpu-worker",
+            "source": {
+                "component": "kubelet",
+                "host": "m5cgpu-worker"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:34:22Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{kindnet-cni}",
+                "kind": "Pod",
+                "name": "kindnet-7hbck",
+                "namespace": "kube-system",
+                "resourceVersion": "403",
+                "uid": "cb8e1163-7c7e-476b-8111-1717e8ee9c05"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:34:22Z",
+            "message": "Created container kindnet-cni",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:34:22Z",
+                "name": "kindnet-7hbck.18e15d1300bb1455",
+                "namespace": "kube-system",
+                "resourceVersion": "428",
+                "uid": "602cea3e-c860-442f-b1a2-6e71788cfca8"
+            },
+            "reason": "Created",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "m5cgpu-worker",
+            "source": {
+                "component": "kubelet",
+                "host": "m5cgpu-worker"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:34:23Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{kindnet-cni}",
+                "kind": "Pod",
+                "name": "kindnet-7hbck",
+                "namespace": "kube-system",
+                "resourceVersion": "403",
+                "uid": "cb8e1163-7c7e-476b-8111-1717e8ee9c05"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:34:23Z",
+            "message": "Started container kindnet-cni",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:34:23Z",
+                "name": "kindnet-7hbck.18e15d131d878c40",
+                "namespace": "kube-system",
+                "resourceVersion": "430",
+                "uid": "6072a66b-0610-42a2-9cd5-cc8eb5747347"
+            },
+            "reason": "Started",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "m5cgpu-worker",
+            "source": {
+                "component": "kubelet",
+                "host": "m5cgpu-worker"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:34:17Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "kind": "Pod",
+                "name": "kindnet-t52tl",
+                "namespace": "kube-system",
+                "resourceVersion": "316",
+                "uid": "302851ce-f054-4938-9f71-ce16d9a48bbf"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:34:17Z",
+            "message": "Successfully assigned kube-system/kindnet-t52tl to m5cgpu-control-plane",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:34:17Z",
+                "name": "kindnet-t52tl.18e15d11b396f1bb",
+                "namespace": "kube-system",
+                "resourceVersion": "325",
+                "uid": "fa649a91-22a9-43dc-969c-33f44c9bd354"
+            },
+            "reason": "Scheduled",
+            "reportingComponent": "default-scheduler",
+            "reportingInstance": "",
+            "source": {
+                "component": "default-scheduler"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:34:17Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{kindnet-cni}",
+                "kind": "Pod",
+                "name": "kindnet-t52tl",
+                "namespace": "kube-system",
+                "resourceVersion": "320",
+                "uid": "302851ce-f054-4938-9f71-ce16d9a48bbf"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:34:17Z",
+            "message": "Container image \"docker.io/kindest/kindnetd:v20240813-c6f155d6\" already present on machine",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:34:17Z",
+                "name": "kindnet-t52tl.18e15d11d565cb8b",
+                "namespace": "kube-system",
+                "resourceVersion": "371",
+                "uid": "5c4fd893-9399-44ba-b1f5-9fc48faa574c"
+            },
+            "reason": "Pulled",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "m5cgpu-control-plane",
+            "source": {
+                "component": "kubelet",
+                "host": "m5cgpu-control-plane"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:34:19Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{kindnet-cni}",
+                "kind": "Pod",
+                "name": "kindnet-t52tl",
+                "namespace": "kube-system",
+                "resourceVersion": "320",
+                "uid": "302851ce-f054-4938-9f71-ce16d9a48bbf"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:34:19Z",
+            "message": "Created container kindnet-cni",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:34:19Z",
+                "name": "kindnet-t52tl.18e15d12327d97b0",
+                "namespace": "kube-system",
+                "resourceVersion": "382",
+                "uid": "30e1901f-a038-46ba-aee3-11fee95a072d"
+            },
+            "reason": "Created",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "m5cgpu-control-plane",
+            "source": {
+                "component": "kubelet",
+                "host": "m5cgpu-control-plane"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:34:19Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{kindnet-cni}",
+                "kind": "Pod",
+                "name": "kindnet-t52tl",
+                "namespace": "kube-system",
+                "resourceVersion": "320",
+                "uid": "302851ce-f054-4938-9f71-ce16d9a48bbf"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:34:19Z",
+            "message": "Started container kindnet-cni",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:34:19Z",
+                "name": "kindnet-t52tl.18e15d1251af47ac",
+                "namespace": "kube-system",
+                "resourceVersion": "384",
+                "uid": "9b97fa58-1de1-4384-82fb-8d1027ff0f52"
+            },
+            "reason": "Started",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "m5cgpu-control-plane",
+            "source": {
+                "component": "kubelet",
+                "host": "m5cgpu-control-plane"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:34:17Z",
+            "involvedObject": {
+                "apiVersion": "apps/v1",
+                "kind": "DaemonSet",
+                "name": "kindnet",
+                "namespace": "kube-system",
+                "resourceVersion": "267",
+                "uid": "1c0ba1e3-4b0b-4947-a68e-a804bbeb85c5"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:34:17Z",
+            "message": "Created pod: kindnet-t52tl",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:34:17Z",
+                "name": "kindnet.18e15d11b3343f81",
+                "namespace": "kube-system",
+                "resourceVersion": "323",
+                "uid": "9e20a539-9afe-4e3a-b5b3-5361e0b98393"
+            },
+            "reason": "SuccessfulCreate",
+            "reportingComponent": "daemonset-controller",
+            "reportingInstance": "",
+            "source": {
+                "component": "daemonset-controller"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:34:20Z",
+            "involvedObject": {
+                "apiVersion": "apps/v1",
+                "kind": "DaemonSet",
+                "name": "kindnet",
+                "namespace": "kube-system",
+                "resourceVersion": "386",
+                "uid": "1c0ba1e3-4b0b-4947-a68e-a804bbeb85c5"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:34:20Z",
+            "message": "Created pod: kindnet-7hbck",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:34:20Z",
+                "name": "kindnet.18e15d12796f042a",
+                "namespace": "kube-system",
+                "resourceVersion": "405",
+                "uid": "bbfff4f6-9b06-4f1d-8336-d3f6db906cbc"
+            },
+            "reason": "SuccessfulCreate",
+            "reportingComponent": "daemonset-controller",
+            "reportingInstance": "",
+            "source": {
+                "component": "daemonset-controller"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:34:11Z",
+            "involvedObject": {
+                "apiVersion": "coordination.k8s.io/v1",
+                "kind": "Lease",
+                "name": "kube-controller-manager",
+                "namespace": "kube-system",
+                "resourceVersion": "240",
+                "uid": "d80133b3-c40c-4438-9c7e-f64d14fa87dc"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:34:11Z",
+            "message": "m5cgpu-control-plane_01bb7b32-525a-42be-b314-c80d662c69d7 became leader",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:34:11Z",
+                "name": "kube-controller-manager.18e15d106d61a3bb",
+                "namespace": "kube-system",
+                "resourceVersion": "241",
+                "uid": "00e4d421-9925-4ec4-9e2a-04505e634897"
+            },
+            "reason": "LeaderElection",
+            "reportingComponent": "kube-controller-manager",
+            "reportingInstance": "",
+            "source": {
+                "component": "kube-controller-manager"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:34:20Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "kind": "Pod",
+                "name": "kube-proxy-8dhbm",
+                "namespace": "kube-system",
+                "resourceVersion": "395",
+                "uid": "8ec96f5a-29b7-4d7b-8a6c-257e3d550d01"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:34:20Z",
+            "message": "Successfully assigned kube-system/kube-proxy-8dhbm to m5cgpu-worker",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:34:20Z",
+                "name": "kube-proxy-8dhbm.18e15d12799ad7df",
+                "namespace": "kube-system",
+                "resourceVersion": "406",
+                "uid": "7b473673-3d1a-45bb-87d6-41a6b0bf1296"
+            },
+            "reason": "Scheduled",
+            "reportingComponent": "default-scheduler",
+            "reportingInstance": "",
+            "source": {
+                "component": "default-scheduler"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:34:21Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{kube-proxy}",
+                "kind": "Pod",
+                "name": "kube-proxy-8dhbm",
+                "namespace": "kube-system",
+                "resourceVersion": "399",
+                "uid": "8ec96f5a-29b7-4d7b-8a6c-257e3d550d01"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:34:21Z",
+            "message": "Container image \"registry.k8s.io/kube-proxy:v1.31.0\" already present on machine",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:34:21Z",
+                "name": "kube-proxy-8dhbm.18e15d12c636140c",
+                "namespace": "kube-system",
+                "resourceVersion": "421",
+                "uid": "3f50146b-af4b-4b18-a699-43d6d57ba034"
+            },
+            "reason": "Pulled",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "m5cgpu-worker",
+            "source": {
+                "component": "kubelet",
+                "host": "m5cgpu-worker"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:34:22Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{kube-proxy}",
+                "kind": "Pod",
+                "name": "kube-proxy-8dhbm",
+                "namespace": "kube-system",
+                "resourceVersion": "399",
+                "uid": "8ec96f5a-29b7-4d7b-8a6c-257e3d550d01"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:34:22Z",
+            "message": "Created container kube-proxy",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:34:22Z",
+                "name": "kube-proxy-8dhbm.18e15d12dd44a0c6",
+                "namespace": "kube-system",
+                "resourceVersion": "423",
+                "uid": "caab6c4e-15f6-4f8b-9402-6feefca93d9e"
+            },
+            "reason": "Created",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "m5cgpu-worker",
+            "source": {
+                "component": "kubelet",
+                "host": "m5cgpu-worker"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:34:22Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{kube-proxy}",
+                "kind": "Pod",
+                "name": "kube-proxy-8dhbm",
+                "namespace": "kube-system",
+                "resourceVersion": "399",
+                "uid": "8ec96f5a-29b7-4d7b-8a6c-257e3d550d01"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:34:22Z",
+            "message": "Started container kube-proxy",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:34:22Z",
+                "name": "kube-proxy-8dhbm.18e15d12e42b5623",
+                "namespace": "kube-system",
+                "resourceVersion": "424",
+                "uid": "97b7afed-a2f0-40fe-9aeb-1dc23d0af15d"
+            },
+            "reason": "Started",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "m5cgpu-worker",
+            "source": {
+                "component": "kubelet",
+                "host": "m5cgpu-worker"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:34:17Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "kind": "Pod",
+                "name": "kube-proxy-j5zpd",
+                "namespace": "kube-system",
+                "resourceVersion": "317",
+                "uid": "e3013cc8-24b7-4e8e-a27b-90d844f2a61f"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:34:17Z",
+            "message": "Successfully assigned kube-system/kube-proxy-j5zpd to m5cgpu-control-plane",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:34:17Z",
+                "name": "kube-proxy-j5zpd.18e15d11b3953a7e",
+                "namespace": "kube-system",
+                "resourceVersion": "324",
+                "uid": "8dbb4ee5-f5af-4cf2-a278-4fffc2ddba68"
+            },
+            "reason": "Scheduled",
+            "reportingComponent": "default-scheduler",
+            "reportingInstance": "",
+            "source": {
+                "component": "default-scheduler"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:34:17Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{kube-proxy}",
+                "kind": "Pod",
+                "name": "kube-proxy-j5zpd",
+                "namespace": "kube-system",
+                "resourceVersion": "319",
+                "uid": "e3013cc8-24b7-4e8e-a27b-90d844f2a61f"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:34:17Z",
+            "message": "Container image \"registry.k8s.io/kube-proxy:v1.31.0\" already present on machine",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:34:17Z",
+                "name": "kube-proxy-j5zpd.18e15d11cc24c7b5",
+                "namespace": "kube-system",
+                "resourceVersion": "369",
+                "uid": "ee9dd451-dfc0-418b-9e5b-81de63f538e8"
+            },
+            "reason": "Pulled",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "m5cgpu-control-plane",
+            "source": {
+                "component": "kubelet",
+                "host": "m5cgpu-control-plane"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:34:18Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{kube-proxy}",
+                "kind": "Pod",
+                "name": "kube-proxy-j5zpd",
+                "namespace": "kube-system",
+                "resourceVersion": "319",
+                "uid": "e3013cc8-24b7-4e8e-a27b-90d844f2a61f"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:34:18Z",
+            "message": "Created container kube-proxy",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:34:18Z",
+                "name": "kube-proxy-j5zpd.18e15d11e29733b0",
+                "namespace": "kube-system",
+                "resourceVersion": "372",
+                "uid": "976a322f-772a-438e-a59b-bba5435f80c7"
+            },
+            "reason": "Created",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "m5cgpu-control-plane",
+            "source": {
+                "component": "kubelet",
+                "host": "m5cgpu-control-plane"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:34:18Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{kube-proxy}",
+                "kind": "Pod",
+                "name": "kube-proxy-j5zpd",
+                "namespace": "kube-system",
+                "resourceVersion": "319",
+                "uid": "e3013cc8-24b7-4e8e-a27b-90d844f2a61f"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:34:18Z",
+            "message": "Started container kube-proxy",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:34:18Z",
+                "name": "kube-proxy-j5zpd.18e15d11ed6beaa2",
+                "namespace": "kube-system",
+                "resourceVersion": "373",
+                "uid": "1e6aaf20-d29c-4753-83d5-463d5840dee5"
+            },
+            "reason": "Started",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "m5cgpu-control-plane",
+            "source": {
+                "component": "kubelet",
+                "host": "m5cgpu-control-plane"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:34:17Z",
+            "involvedObject": {
+                "apiVersion": "apps/v1",
+                "kind": "DaemonSet",
+                "name": "kube-proxy",
+                "namespace": "kube-system",
+                "resourceVersion": "237",
+                "uid": "2aacb9fa-3d76-463a-944d-b8422a84c7cc"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:34:17Z",
+            "message": "Created pod: kube-proxy-j5zpd",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:34:17Z",
+                "name": "kube-proxy.18e15d11b330a6f5",
+                "namespace": "kube-system",
+                "resourceVersion": "318",
+                "uid": "994c120a-ee2a-4c9e-9333-a93bd7bf46c2"
+            },
+            "reason": "SuccessfulCreate",
+            "reportingComponent": "daemonset-controller",
+            "reportingInstance": "",
+            "source": {
+                "component": "daemonset-controller"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:34:20Z",
+            "involvedObject": {
+                "apiVersion": "apps/v1",
+                "kind": "DaemonSet",
+                "name": "kube-proxy",
+                "namespace": "kube-system",
+                "resourceVersion": "376",
+                "uid": "2aacb9fa-3d76-463a-944d-b8422a84c7cc"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:34:20Z",
+            "message": "Created pod: kube-proxy-8dhbm",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:34:20Z",
+                "name": "kube-proxy.18e15d127942f897",
+                "namespace": "kube-system",
+                "resourceVersion": "400",
+                "uid": "7b17494c-b680-4f94-845b-e0f496629139"
+            },
+            "reason": "SuccessfulCreate",
+            "reportingComponent": "daemonset-controller",
+            "reportingInstance": "",
+            "source": {
+                "component": "daemonset-controller"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:34:13Z",
+            "involvedObject": {
+                "apiVersion": "coordination.k8s.io/v1",
+                "kind": "Lease",
+                "name": "kube-scheduler",
+                "namespace": "kube-system",
+                "resourceVersion": "278",
+                "uid": "b09c0ee2-a2ec-49d8-b610-20d412af6fa2"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:34:13Z",
+            "message": "m5cgpu-control-plane_e3a0152f-87bb-49ba-902f-02f457a3b6ac became leader",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:34:13Z",
+                "name": "kube-scheduler.18e15d10b6b27b5f",
+                "namespace": "kube-system",
+                "resourceVersion": "279",
+                "uid": "b58786ff-25fd-4c75-90e2-11c978214f5f"
+            },
+            "reason": "LeaderElection",
+            "reportingComponent": "default-scheduler",
+            "reportingInstance": "",
+            "source": {
+                "component": "default-scheduler"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:34:17Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "kind": "Pod",
+                "name": "local-path-provisioner-57c5987fd4-jc64v",
+                "namespace": "local-path-storage",
+                "resourceVersion": "351",
+                "uid": "03a5bcc0-dcec-4e93-971f-7c1ab734c7dc"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:34:17Z",
+            "message": "0/1 nodes are available: 1 node(s) had untolerated taint {node.kubernetes.io/not-ready: }. preemption: 0/1 nodes are available: 1 Preemption is not helpful for scheduling.",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:34:17Z",
+                "name": "local-path-provisioner-57c5987fd4-jc64v.18e15d11c8efaae8",
+                "namespace": "local-path-storage",
+                "resourceVersion": "365",
+                "uid": "323c301a-2f6f-4a33-bb6d-fd5fe0fef626"
+            },
+            "reason": "FailedScheduling",
+            "reportingComponent": "default-scheduler",
+            "reportingInstance": "",
+            "source": {
+                "component": "default-scheduler"
+            },
+            "type": "Warning"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:34:30Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "kind": "Pod",
+                "name": "local-path-provisioner-57c5987fd4-jc64v",
+                "namespace": "local-path-storage",
+                "resourceVersion": "366",
+                "uid": "03a5bcc0-dcec-4e93-971f-7c1ab734c7dc"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:34:30Z",
+            "message": "Successfully assigned local-path-storage/local-path-provisioner-57c5987fd4-jc64v to m5cgpu-control-plane",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:34:30Z",
+                "name": "local-path-provisioner-57c5987fd4-jc64v.18e15d14c3dc767b",
+                "namespace": "local-path-storage",
+                "resourceVersion": "451",
+                "uid": "b75069d4-3069-4316-9969-b0e61fbd96a6"
+            },
+            "reason": "Scheduled",
+            "reportingComponent": "default-scheduler",
+            "reportingInstance": "",
+            "source": {
+                "component": "default-scheduler"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:34:30Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{local-path-provisioner}",
+                "kind": "Pod",
+                "name": "local-path-provisioner-57c5987fd4-jc64v",
+                "namespace": "local-path-storage",
+                "resourceVersion": "448",
+                "uid": "03a5bcc0-dcec-4e93-971f-7c1ab734c7dc"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:34:30Z",
+            "message": "Container image \"docker.io/kindest/local-path-provisioner:v20240813-c6f155d6\" already present on machine",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:34:30Z",
+                "name": "local-path-provisioner-57c5987fd4-jc64v.18e15d14e0bdda69",
+                "namespace": "local-path-storage",
+                "resourceVersion": "459",
+                "uid": "f3e3314f-6f01-435e-8304-07ff74a847c5"
+            },
+            "reason": "Pulled",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "m5cgpu-control-plane",
+            "source": {
+                "component": "kubelet",
+                "host": "m5cgpu-control-plane"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:34:32Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{local-path-provisioner}",
+                "kind": "Pod",
+                "name": "local-path-provisioner-57c5987fd4-jc64v",
+                "namespace": "local-path-storage",
+                "resourceVersion": "448",
+                "uid": "03a5bcc0-dcec-4e93-971f-7c1ab734c7dc"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:34:32Z",
+            "message": "Created container local-path-provisioner",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:34:32Z",
+                "name": "local-path-provisioner-57c5987fd4-jc64v.18e15d1535081e0b",
+                "namespace": "local-path-storage",
+                "resourceVersion": "495",
+                "uid": "491470c4-8877-4dd6-bb0f-96b1aaf75241"
+            },
+            "reason": "Created",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "m5cgpu-control-plane",
+            "source": {
+                "component": "kubelet",
+                "host": "m5cgpu-control-plane"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:34:32Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{local-path-provisioner}",
+                "kind": "Pod",
+                "name": "local-path-provisioner-57c5987fd4-jc64v",
+                "namespace": "local-path-storage",
+                "resourceVersion": "448",
+                "uid": "03a5bcc0-dcec-4e93-971f-7c1ab734c7dc"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:34:32Z",
+            "message": "Started container local-path-provisioner",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:34:32Z",
+                "name": "local-path-provisioner-57c5987fd4-jc64v.18e15d153af95506",
+                "namespace": "local-path-storage",
+                "resourceVersion": "503",
+                "uid": "c1a9c2cf-abe2-4281-8c3c-df863854eeca"
+            },
+            "reason": "Started",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "m5cgpu-control-plane",
+            "source": {
+                "component": "kubelet",
+                "host": "m5cgpu-control-plane"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:34:17Z",
+            "involvedObject": {
+                "apiVersion": "apps/v1",
+                "kind": "ReplicaSet",
+                "name": "local-path-provisioner-57c5987fd4",
+                "namespace": "local-path-storage",
+                "resourceVersion": "342",
+                "uid": "fd1c1bad-755d-4e05-a3b0-567e1e3cfc5e"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:34:17Z",
+            "message": "Created pod: local-path-provisioner-57c5987fd4-jc64v",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:34:17Z",
+                "name": "local-path-provisioner-57c5987fd4.18e15d11c7bb4604",
+                "namespace": "local-path-storage",
+                "resourceVersion": "356",
+                "uid": "d3392a40-f970-40f1-9a3b-104449ed8739"
+            },
+            "reason": "SuccessfulCreate",
+            "reportingComponent": "replicaset-controller",
+            "reportingInstance": "",
+            "source": {
+                "component": "replicaset-controller"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:34:17Z",
+            "involvedObject": {
+                "apiVersion": "apps/v1",
+                "kind": "Deployment",
+                "name": "local-path-provisioner",
+                "namespace": "local-path-storage",
+                "resourceVersion": "274",
+                "uid": "4345fdac-2409-4a06-942d-70d10d5d683a"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:34:17Z",
+            "message": "Scaled up replica set local-path-provisioner-57c5987fd4 to 1",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:34:17Z",
+                "name": "local-path-provisioner.18e15d11bee59681",
+                "namespace": "local-path-storage",
+                "resourceVersion": "345",
+                "uid": "bd07a350-37a6-47ff-8ef7-ad9243ad0300"
+            },
+            "reason": "ScalingReplicaSet",
+            "reportingComponent": "deployment-controller",
+            "reportingInstance": "",
+            "source": {
+                "component": "deployment-controller"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:35:54Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "kind": "Pod",
+                "name": "vllm-shared-a-fc865d989-8jlrj",
+                "namespace": "m5c-a",
+                "resourceVersion": "674",
+                "uid": "5cf93d13-827e-4287-b7d0-ae209c1eda63"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:35:54Z",
+            "message": "Successfully assigned m5c-a/vllm-shared-a-fc865d989-8jlrj to m5cgpu-worker",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:35:54Z",
+                "name": "vllm-shared-a-fc865d989-8jlrj.18e15d2843ae28bd",
+                "namespace": "m5c-a",
+                "resourceVersion": "682",
+                "uid": "41278979-0b83-4cb6-b788-539d25cc8c78"
+            },
+            "reason": "Scheduled",
+            "reportingComponent": "default-scheduler",
+            "reportingInstance": "",
+            "source": {
+                "component": "default-scheduler"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:35:54Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{vllm}",
+                "kind": "Pod",
+                "name": "vllm-shared-a-fc865d989-8jlrj",
+                "namespace": "m5c-a",
+                "resourceVersion": "676",
+                "uid": "5cf93d13-827e-4287-b7d0-ae209c1eda63"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:35:54Z",
+            "message": "Pulling image \"vllm/vllm-openai@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967\"",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:35:54Z",
+                "name": "vllm-shared-a-fc865d989-8jlrj.18e15d285f189784",
+                "namespace": "m5c-a",
+                "resourceVersion": "703",
+                "uid": "70324a76-3b16-4c92-b5a7-e4343eab696f"
+            },
+            "reason": "Pulling",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "m5cgpu-worker",
+            "source": {
+                "component": "kubelet",
+                "host": "m5cgpu-worker"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:39:16Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{vllm}",
+                "kind": "Pod",
+                "name": "vllm-shared-a-fc865d989-8jlrj",
+                "namespace": "m5c-a",
+                "resourceVersion": "676",
+                "uid": "5cf93d13-827e-4287-b7d0-ae209c1eda63"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:39:16Z",
+            "message": "Successfully pulled image \"vllm/vllm-openai@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967\" in 3m21.558s (3m21.558s including waiting). Image size: 9110698465 bytes.",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:39:16Z",
+                "name": "vllm-shared-a-fc865d989-8jlrj.18e15d574cebc152",
+                "namespace": "m5c-a",
+                "resourceVersion": "982",
+                "uid": "373d2d6c-940a-4d40-afce-a4591a1f0c66"
+            },
+            "reason": "Pulled",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "m5cgpu-worker",
+            "source": {
+                "component": "kubelet",
+                "host": "m5cgpu-worker"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:39:16Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{vllm}",
+                "kind": "Pod",
+                "name": "vllm-shared-a-fc865d989-8jlrj",
+                "namespace": "m5c-a",
+                "resourceVersion": "676",
+                "uid": "5cf93d13-827e-4287-b7d0-ae209c1eda63"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:39:16Z",
+            "message": "Created container vllm",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:39:16Z",
+                "name": "vllm-shared-a-fc865d989-8jlrj.18e15d5768eca2d2",
+                "namespace": "m5c-a",
+                "resourceVersion": "984",
+                "uid": "4122fb4a-2ec2-4a0c-9e65-ddf889009761"
+            },
+            "reason": "Created",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "m5cgpu-worker",
+            "source": {
+                "component": "kubelet",
+                "host": "m5cgpu-worker"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:39:22Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{vllm}",
+                "kind": "Pod",
+                "name": "vllm-shared-a-fc865d989-8jlrj",
+                "namespace": "m5c-a",
+                "resourceVersion": "676",
+                "uid": "5cf93d13-827e-4287-b7d0-ae209c1eda63"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:39:22Z",
+            "message": "Started container vllm",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:39:22Z",
+                "name": "vllm-shared-a-fc865d989-8jlrj.18e15d58de20b924",
+                "namespace": "m5c-a",
+                "resourceVersion": "995",
+                "uid": "91638dfd-e15e-4c2f-b22e-e3d49aed78aa"
+            },
+            "reason": "Started",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "m5cgpu-worker",
+            "source": {
+                "component": "kubelet",
+                "host": "m5cgpu-worker"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 17,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:39:24Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{vllm}",
+                "kind": "Pod",
+                "name": "vllm-shared-a-fc865d989-8jlrj",
+                "namespace": "m5c-a",
+                "resourceVersion": "676",
+                "uid": "5cf93d13-827e-4287-b7d0-ae209c1eda63"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:42:04Z",
+            "message": "Startup probe failed: Get \"http://10.244.1.4:8000/health\": dial tcp 10.244.1.4:8000: connect: connection refused",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:39:24Z",
+                "name": "vllm-shared-a-fc865d989-8jlrj.18e15d593b8a956b",
+                "namespace": "m5c-a",
+                "resourceVersion": "1266",
+                "uid": "0f9f1583-55eb-4d12-a1d1-c1c71394ec01"
+            },
+            "reason": "Unhealthy",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "m5cgpu-worker",
+            "source": {
+                "component": "kubelet",
+                "host": "m5cgpu-worker"
+            },
+            "type": "Warning"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:35:54Z",
+            "involvedObject": {
+                "apiVersion": "apps/v1",
+                "kind": "ReplicaSet",
+                "name": "vllm-shared-a-fc865d989",
+                "namespace": "m5c-a",
+                "resourceVersion": "670",
+                "uid": "7eabee58-5b5e-49e0-aa50-4f6f0c6fc2a5"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:35:54Z",
+            "message": "Created pod: vllm-shared-a-fc865d989-8jlrj",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:35:54Z",
+                "name": "vllm-shared-a-fc865d989.18e15d28434cea64",
+                "namespace": "m5c-a",
+                "resourceVersion": "679",
+                "uid": "dfed614a-3cb8-40e9-ba10-59b5401d9a9c"
+            },
+            "reason": "SuccessfulCreate",
+            "reportingComponent": "replicaset-controller",
+            "reportingInstance": "",
+            "source": {
+                "component": "replicaset-controller"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:35:54Z",
+            "involvedObject": {
+                "apiVersion": "apps/v1",
+                "kind": "Deployment",
+                "name": "vllm-shared-a",
+                "namespace": "m5c-a",
+                "resourceVersion": "669",
+                "uid": "1efb679e-9d27-4ab0-9baf-2c5ccd4fb0b7"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:35:54Z",
+            "message": "Scaled up replica set vllm-shared-a-fc865d989 to 1",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:35:54Z",
+                "name": "vllm-shared-a.18e15d2842625bdb",
+                "namespace": "m5c-a",
+                "resourceVersion": "675",
+                "uid": "778ec860-ef7b-496b-b9bf-b60c96699f1f"
+            },
+            "reason": "ScalingReplicaSet",
+            "reportingComponent": "deployment-controller",
+            "reportingInstance": "",
+            "source": {
+                "component": "deployment-controller"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:35:54Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "kind": "Pod",
+                "name": "vllm-shared-b-84d8d7b546-46tfc",
+                "namespace": "m5c-b",
+                "resourceVersion": "691",
+                "uid": "7d7b85bb-eaf6-4d0d-a0d8-727cd00d927a"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:35:54Z",
+            "message": "Successfully assigned m5c-b/vllm-shared-b-84d8d7b546-46tfc to m5cgpu-worker",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:35:54Z",
+                "name": "vllm-shared-b-84d8d7b546-46tfc.18e15d284d1ce38d",
+                "namespace": "m5c-b",
+                "resourceVersion": "699",
+                "uid": "dd3bcd6e-2641-46ef-8889-ac2e8b1156b2"
+            },
+            "reason": "Scheduled",
+            "reportingComponent": "default-scheduler",
+            "reportingInstance": "",
+            "source": {
+                "component": "default-scheduler"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:35:54Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{vllm}",
+                "kind": "Pod",
+                "name": "vllm-shared-b-84d8d7b546-46tfc",
+                "namespace": "m5c-b",
+                "resourceVersion": "696",
+                "uid": "7d7b85bb-eaf6-4d0d-a0d8-727cd00d927a"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:35:54Z",
+            "message": "Pulling image \"vllm/vllm-openai@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967\"",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:35:54Z",
+                "name": "vllm-shared-b-84d8d7b546-46tfc.18e15d28689f79b1",
+                "namespace": "m5c-b",
+                "resourceVersion": "704",
+                "uid": "40999ad3-9327-4f0a-872e-ab521d6ffb4f"
+            },
+            "reason": "Pulling",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "m5cgpu-worker",
+            "source": {
+                "component": "kubelet",
+                "host": "m5cgpu-worker"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:39:18Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{vllm}",
+                "kind": "Pod",
+                "name": "vllm-shared-b-84d8d7b546-46tfc",
+                "namespace": "m5c-b",
+                "resourceVersion": "696",
+                "uid": "7d7b85bb-eaf6-4d0d-a0d8-727cd00d927a"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:39:18Z",
+            "message": "Successfully pulled image \"vllm/vllm-openai@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967\" in 2.095s (3m23.493s including waiting). Image size: 9110698465 bytes.",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:39:18Z",
+                "name": "vllm-shared-b-84d8d7b546-46tfc.18e15d57c9cb5a22",
+                "namespace": "m5c-b",
+                "resourceVersion": "988",
+                "uid": "5860318d-5d05-436c-9121-4e809705c52b"
+            },
+            "reason": "Pulled",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "m5cgpu-worker",
+            "source": {
+                "component": "kubelet",
+                "host": "m5cgpu-worker"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 2,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:39:18Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{vllm}",
+                "kind": "Pod",
+                "name": "vllm-shared-b-84d8d7b546-46tfc",
+                "namespace": "m5c-b",
+                "resourceVersion": "696",
+                "uid": "7d7b85bb-eaf6-4d0d-a0d8-727cd00d927a"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:40:46Z",
+            "message": "Created container vllm",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:39:18Z",
+                "name": "vllm-shared-b-84d8d7b546-46tfc.18e15d57d51af38e",
+                "namespace": "m5c-b",
+                "resourceVersion": "1141",
+                "uid": "1b377a60-696b-4e2c-8a5d-8a47f7f4e114"
+            },
+            "reason": "Created",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "m5cgpu-worker",
+            "source": {
+                "component": "kubelet",
+                "host": "m5cgpu-worker"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 2,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:39:22Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{vllm}",
+                "kind": "Pod",
+                "name": "vllm-shared-b-84d8d7b546-46tfc",
+                "namespace": "m5c-b",
+                "resourceVersion": "696",
+                "uid": "7d7b85bb-eaf6-4d0d-a0d8-727cd00d927a"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:40:58Z",
+            "message": "Started container vllm",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:39:22Z",
+                "name": "vllm-shared-b-84d8d7b546-46tfc.18e15d58de20c703",
+                "namespace": "m5c-b",
+                "resourceVersion": "1160",
+                "uid": "1ae10e8d-6fdc-4d9f-b979-8dd817f1e4e6"
+            },
+            "reason": "Started",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "m5cgpu-worker",
+            "source": {
+                "component": "kubelet",
+                "host": "m5cgpu-worker"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 16,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:39:24Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{vllm}",
+                "kind": "Pod",
+                "name": "vllm-shared-b-84d8d7b546-46tfc",
+                "namespace": "m5c-b",
+                "resourceVersion": "696",
+                "uid": "7d7b85bb-eaf6-4d0d-a0d8-727cd00d927a"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:42:04Z",
+            "message": "Startup probe failed: Get \"http://10.244.1.5:8000/health\": dial tcp 10.244.1.5:8000: connect: connection refused",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:39:24Z",
+                "name": "vllm-shared-b-84d8d7b546-46tfc.18e15d5944e2425f",
+                "namespace": "m5c-b",
+                "resourceVersion": "1268",
+                "uid": "71bef928-f429-4009-a9f2-dcfa8c5d9529"
+            },
+            "reason": "Unhealthy",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "m5cgpu-worker",
+            "source": {
+                "component": "kubelet",
+                "host": "m5cgpu-worker"
+            },
+            "type": "Warning"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 2,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:40:46Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{vllm}",
+                "kind": "Pod",
+                "name": "vllm-shared-b-84d8d7b546-46tfc",
+                "namespace": "m5c-b",
+                "resourceVersion": "696",
+                "uid": "7d7b85bb-eaf6-4d0d-a0d8-727cd00d927a"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:42:26Z",
+            "message": "Container image \"vllm/vllm-openai@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967\" already present on machine",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:40:46Z",
+                "name": "vllm-shared-b-84d8d7b546-46tfc.18e15d6c378cc682",
+                "namespace": "m5c-b",
+                "resourceVersion": "1308",
+                "uid": "df1dc0ae-9c71-4762-8aeb-f6d6f5d28d7a"
+            },
+            "reason": "Pulled",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "m5cgpu-worker",
+            "source": {
+                "component": "kubelet",
+                "host": "m5cgpu-worker"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 2,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:42:09Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{vllm}",
+                "kind": "Pod",
+                "name": "vllm-shared-b-84d8d7b546-46tfc",
+                "namespace": "m5c-b",
+                "resourceVersion": "696",
+                "uid": "7d7b85bb-eaf6-4d0d-a0d8-727cd00d927a"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:42:14Z",
+            "message": "Back-off restarting failed container vllm in pod vllm-shared-b-84d8d7b546-46tfc_m5c-b(7d7b85bb-eaf6-4d0d-a0d8-727cd00d927a)",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:42:09Z",
+                "name": "vllm-shared-b-84d8d7b546-46tfc.18e15d7f92b2c116",
+                "namespace": "m5c-b",
+                "resourceVersion": "1290",
+                "uid": "cf70602b-7f11-4b21-a46a-3f8ebf0f13c8"
+            },
+            "reason": "BackOff",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "m5cgpu-worker",
+            "source": {
+                "component": "kubelet",
+                "host": "m5cgpu-worker"
+            },
+            "type": "Warning"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:35:54Z",
+            "involvedObject": {
+                "apiVersion": "apps/v1",
+                "kind": "ReplicaSet",
+                "name": "vllm-shared-b-84d8d7b546",
+                "namespace": "m5c-b",
+                "resourceVersion": "687",
+                "uid": "214546e4-cb2f-4c82-9f90-e780add35a22"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:35:54Z",
+            "message": "Created pod: vllm-shared-b-84d8d7b546-46tfc",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:35:54Z",
+                "name": "vllm-shared-b-84d8d7b546.18e15d284c781e25",
+                "namespace": "m5c-b",
+                "resourceVersion": "693",
+                "uid": "84f2bf99-39d5-4730-a33e-ff941f0368c5"
+            },
+            "reason": "SuccessfulCreate",
+            "reportingComponent": "replicaset-controller",
+            "reportingInstance": "",
+            "source": {
+                "component": "replicaset-controller"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-24T04:35:54Z",
+            "involvedObject": {
+                "apiVersion": "apps/v1",
+                "kind": "Deployment",
+                "name": "vllm-shared-b",
+                "namespace": "m5c-b",
+                "resourceVersion": "686",
+                "uid": "ed9f40ed-099e-44a7-8e3d-e31248236b92"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-24T04:35:54Z",
+            "message": "Scaled up replica set vllm-shared-b-84d8d7b546 to 1",
+            "metadata": {
+                "creationTimestamp": "2026-10-24T04:35:54Z",
+                "name": "vllm-shared-b.18e15d284be5e370",
+                "namespace": "m5c-b",
+                "resourceVersion": "688",
+                "uid": "d6f2e36b-56a1-489f-8a1f-13c7114b804a"
+            },
+            "reason": "ScalingReplicaSet",
+            "reportingComponent": "deployment-controller",
+            "reportingInstance": "",
+            "source": {
+                "component": "deployment-controller"
+            },
+            "type": "Normal"
+        }
+    ],
+    "kind": "List",
+    "metadata": {
+        "resourceVersion": ""
+    }
+}

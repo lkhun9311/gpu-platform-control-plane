@@ -1,0 +1,3 @@
+cell	arm	stage	fact	value
+1	mps	refused	gpu	0, GPU-c4601434-5564-52d7-d272-c981c74326a2, 595.91.07
+1	mps	refused	processes	20426, VLLM::EngineCore, 9908 MiB
