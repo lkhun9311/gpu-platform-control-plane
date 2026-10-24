@@ -477,7 +477,7 @@ spot-lifecycle: ## Replay every paid runner against recording stubs and diff the
 	if [ "$$fail" != "0" ]; then echo "spot-lifecycle: a runner's recorded behaviour changed" >&2; exit 1; fi
 
 .PHONY: harness-check
-harness-check: terraform ## Run the self-contained test harnesses under hack/test/ that need no cluster.
+harness-check: terraform kustomize ## Run the self-contained test harnesses under hack/test/ that need no cluster.
 	@# Seven harnesses live under hack/test/ and, until now, nothing ran any of them but the spot-lifecycle
 	@# driver. README.md rests its claim of coverage on two of them, so the repository's own account of what
 	@# it checks depended on scripts no gate executed -- the same shape `make spot-lifecycle` was added to close.
@@ -509,9 +509,12 @@ harness-check: terraform ## Run the self-contained test harnesses under hack/tes
 	@# check-mps-capability-session.sh runs the paid session's runner against a stub aws from a throwaway commit of the
 	@# tree; it builds the binaries once per case, so it takes a few minutes.
 	@# check-mps-overlay.sh renders the real MPS overlay, which the kind rehearsal replaces with a simulator, and checks its
-	@# mounts against the device plugin's own contract at the pinned tag.
+	@# mounts against the device plugin's own contract at the pinned tag. It and check-mps-capability-lib.sh render with the
+	@# kustomize this target provisions, and read YAML with PyYAML, which this target does not install: like
+	@# hack/check-prometheus-rules.sh and the stranded campaigns, they fail on its absence rather than skip (codex, review
+	@# of bb7de393).
 	@fail=0; for t in hack/test/capture-evidence-test.sh hack/test/plot-device-observation-test.sh hack/test/check-matrix-plan-refusals.sh hack/test/check-token-unit-labels.sh hack/test/check-published-spreads.sh hack/test/check-cell-timing-record.sh hack/test/check-engine-metrics-scrape.sh hack/test/check-instrument-validation-harness.sh hack/test/check-tail-crossing-self-tests.sh hack/test/check-gpu-max-nodes-validation.sh hack/test/check-train-session-lib.sh hack/test/check-ddp-arms-lib.sh hack/test/check-train-session-refusals.sh hack/test/check-serve-sync.sh hack/test/check-fragmentation-collector.sh hack/test/check-stranded-v2-order.sh hack/test/check-mps-journal.sh hack/test/check-mps-capability-lib.sh hack/test/check-mps-capability-session.sh hack/test/check-mps-overlay.sh; do \
-		TERRAFORM="$(TERRAFORM)" bash "$$t" || { echo "harness-check: $$t failed" >&2; fail=1; }; \
+		TERRAFORM="$(TERRAFORM)" KUSTOMIZE="$(KUSTOMIZE)" bash "$$t" || { echo "harness-check: $$t failed" >&2; fail=1; }; \
 	done; \
 	if [ "$$fail" != "0" ]; then exit 1; fi
 

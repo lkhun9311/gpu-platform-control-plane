@@ -486,6 +486,18 @@ mpscap_diagnostics m5c-a m5c-b
 # under test is the render itself; MPSCAP_TEST_KUBECTL names another kubectl, which is how the instance's v1.31 is run.
 real_path="${PATH#"$work/bin:"}"
 [ -n "${MPSCAP_TEST_KUBECTL:-}" ] && real_path="$(dirname "$MPSCAP_TEST_KUBECTL"):$real_path"
+# make harness-check provisions kustomize and not kubectl, so without a kubectl the render goes through a shim over it
+# (codex, review of bb7de393); with neither, the checks below fail rather than skip.
+if ! PATH="$real_path" command -v kubectl >/dev/null && [ -n "${KUSTOMIZE:-}" ] && [ -x "$KUSTOMIZE" ]; then
+  mkdir -p "$work/kz-shim"
+  printf '#!/bin/sh
+[ "$1" = kustomize ] || { echo "kubectl shim: only kustomize" >&2; exit 2; }
+shift
+exec "%s" build "$@"
+' "$KUSTOMIZE" >"$work/kz-shim/kubectl"
+  chmod +x "$work/kz-shim/kubectl"
+  real_path="$work/kz-shim:$real_path"
+fi
 scenario
 for e in a b; do
   if why=$(PATH="$real_path" mpscap_engine_manifest "$e" "$STUB/engine-$e.yaml"); then
