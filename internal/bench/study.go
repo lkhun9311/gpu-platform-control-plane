@@ -341,6 +341,14 @@ const (
 	// calibration's size-aware spacings at three contender lengths, one block per card on three cards,
 	// docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md, "v27 main study".
 	StudyLengthRobustness = "admission-length-robustness-2026-10-10"
+
+	// StudyMPSCapability is the one-cell capability session of
+	// docs/superpowers/specs/2026-09-25-can-mps-engage-on-this-card-at-all.md, as its 2026-10-24 amendment freezes it.
+	//
+	// It is not the sharing matrix's mps arm bought alone. Its replay is at 2 requests a second rather than the matrix's,
+	// and it answers whether MPS engages, not what the split costs, so a row of it pooled into a sharing report would
+	// report a latency for a load that study never offered.
+	StudyMPSCapability = "mps-capability-2026-10-24"
 )
 
 // ArmProspective is the prospective-admission arm; the pilot's other arms reuse the M5-b names.
@@ -914,6 +922,23 @@ var studies = map[string]Study{
 		// The two new lengths are the resolver's measured entries (inputlengths.go: 6,144 and 8,192 tokens); the card
 		// re-checks every count before the first cell.
 		FrozenExactTokens: map[int]int{200: 68, 31894: 6144, 40000: 7695, 42579: 8192},
+	},
+	// One mps cell, once: the stopping rule allows one attempt, and nothing is divided by anything.
+	// The tuple is the sharing matrix's, which the amendment carries over; only the rate differs, and the session
+	// enforces it, since a weighted mix's rate is not part of a FrozenTuple.
+	StudyMPSCapability: {
+		ID:   StudyMPSCapability,
+		Arms: []string{ArmMPS},
+		Frozen: &FrozenTuple{
+			PremiumPromptChars:    1174,
+			ContenderPromptChars:  42579,
+			PremiumInputTokens:    256,
+			ContenderInputTokens:  8192,
+			TimeoutMs:             60000,
+			PremiumOutputTokens:   64,
+			ContenderOutputTokens: 16,
+		},
+		MinRepetitions: 1,
 	},
 	// R1 once per card, then five arms at each of the three lengths in one block.
 	StudyLengthRobustness: {
