@@ -1,0 +1,15 @@
+name	exit	bytes	sha256	required
+describe-pods-m5c-a.txt	0	4088	413d205bf5dab48e3fdb6c28889f3bbe40dfc7ea9c91d33d3896cf48d5126dd2	yes
+describe-pods-m5c-b.txt	0	4663	d8489fea545f80137bc12c2267875423c85430c0a56912a50084367dd7e96713	yes
+pods-m5c-a.json	0	11702	e1f99a4469ef68fed11f29ef9b02bd4fa806153f420976d613db77ee27a41d91	yes
+pods-m5c-b.json	0	12439	013293ffe290a9a9954ba5dd0c699a3366e0a573b109f318f9cf5141fdd3e0a7	yes
+events-all.json	0	109878	bbb16a9219de5f231952de00186615312cbb80aa97c4da76f072a2770773b825	yes
+describe-pods-gpu-platform-control-plane-system.txt	0	8176	d9967a63ca9518d8834501a5b2387f9a5c4e46d410e02e62cd5f21db9fed6d20	yes
+pods-nvidia-device-plugin-mps-plugin.txt	0	35	08f2ce3af71d2f059f8f715fa671dbdc199596c64c81c14dfff3de9fbc1d0b34	yes
+logs-nvidia-device-plugin-mps-plugin.txt	0	3678	f0d504224a89ebec8cc38ebbfcbd78fa4d2bc394b64214dfe331bc24959ff2eb	yes
+logs-nvidia-device-plugin-mps-plugin-previous.txt	1	135	a68e87c6756753304e043ea3b642c4c0854f2b806f4aae27ee2957b00e2a3b30	no
+pods-nvidia-mps-control-daemon.txt	0	36	362f8c9eadae717e567077b49181bdbfca339e15a05ffebd5f744457e1a47114	yes
+logs-nvidia-mps-control-daemon.txt	0	2988	8885bc49420e4826d95744a4b4c1120a1bd424e318edbe5f6883b59a7a59f22b	yes
+logs-nvidia-mps-control-daemon-previous.txt	1	134	a8c28c2cdc9905c3e8bc60b3723598d08c1c650a7822ef36a7e7290f43c2ba0d	no
+nvidia-smi.txt	0	1689	e1e0fe217eb9198ca84a06b46f7103afca71a75ef7497d17835b16cfcfd6dc3e	yes
+nvidia-smi-compute-apps.csv	0	75	4814d06036f7ab7a064902b0bdc2ae826a1d93b7eb109656739f7fc7de2b590e	yes

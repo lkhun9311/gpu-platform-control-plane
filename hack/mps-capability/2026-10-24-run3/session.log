@@ -1,0 +1,69 @@
+== the MPS capability session, mps-capability-2026-10-24, from 8ed1fbe335fcf8f78992deb7244fa58f5c5f5831, into hack/mpscap-20261024-run3
+== AMI ami-097edab977037f65f: Deep Learning Base OSS Nvidia Driver GPU AMI (Ubuntu 22.04) 20261016	available
+== Spot g5.2xlarge under $1.1324/h in: ap-northeast-2a ap-northeast-2c ap-northeast-2d (ap-northeast-2a	0.682900 ap-northeast-2c	0.675800 ap-northeast-2d	0.685400)
+== the termination sweeper: Active, ENABLED rate(5 minutes), 6.0 run(s) and 0.0 error(s) in the last 30 minutes
+== credentials expire in 719 minutes
+== building the gateway and the harness for the instance
+== launching g5.2xlarge Spot (max $1.1324/h), study-deadline 2026-10-24T12:54:31Z -- the instance bills from here
+== launched i-07234fb4f5c4f9f05 in ap-northeast-2a
+== LaunchTime 2026-10-24T12:20:33+00:00; the sweeper's deadline moved to 2026-10-24T12:55:03Z
+== the wait ended with status 0 ()
+== waiting up to 1518s for EC2 to report the instance terminated
+== terminating i-07234fb4f5c4f9f05
+== i-07234fb4f5c4f9f05 is shutting-down
+== i-07234fb4f5c4f9f05 is shutting-down
+== i-07234fb4f5c4f9f05 is shutting-down
+== i-07234fb4f5c4f9f05 is shutting-down
+== i-07234fb4f5c4f9f05 is shutting-down
+== i-07234fb4f5c4f9f05 is shutting-down
+== i-07234fb4f5c4f9f05 is shutting-down
+== i-07234fb4f5c4f9f05 is shutting-down
+== i-07234fb4f5c4f9f05 is shutting-down
+== i-07234fb4f5c4f9f05 is shutting-down
+== i-07234fb4f5c4f9f05 is shutting-down
+== i-07234fb4f5c4f9f05 is shutting-down
+== i-07234fb4f5c4f9f05 is shutting-down
+== i-07234fb4f5c4f9f05 is shutting-down
+== i-07234fb4f5c4f9f05 is shutting-down
+== i-07234fb4f5c4f9f05 is shutting-down
+== i-07234fb4f5c4f9f05 is shutting-down
+== i-07234fb4f5c4f9f05 is shutting-down
+== i-07234fb4f5c4f9f05 is shutting-down
+== i-07234fb4f5c4f9f05 is shutting-down
+== i-07234fb4f5c4f9f05 is shutting-down
+== i-07234fb4f5c4f9f05 is shutting-down
+== i-07234fb4f5c4f9f05 is shutting-down
+== i-07234fb4f5c4f9f05 is shutting-down
+== i-07234fb4f5c4f9f05 is shutting-down
+== i-07234fb4f5c4f9f05 is shutting-down
+== i-07234fb4f5c4f9f05 is shutting-down
+== i-07234fb4f5c4f9f05 is shutting-down
+== i-07234fb4f5c4f9f05 is shutting-down
+== i-07234fb4f5c4f9f05 is shutting-down
+== i-07234fb4f5c4f9f05 is shutting-down
+== i-07234fb4f5c4f9f05 is shutting-down
+== i-07234fb4f5c4f9f05 is shutting-down
+== i-07234fb4f5c4f9f05 is shutting-down
+== i-07234fb4f5c4f9f05 is shutting-down
+== i-07234fb4f5c4f9f05 is shutting-down
+== i-07234fb4f5c4f9f05 is shutting-down
+== i-07234fb4f5c4f9f05 is shutting-down
+== i-07234fb4f5c4f9f05 is shutting-down
+== i-07234fb4f5c4f9f05 is shutting-down
+== i-07234fb4f5c4f9f05 is shutting-down
+== i-07234fb4f5c4f9f05 is shutting-down
+== i-07234fb4f5c4f9f05 is shutting-down
+== i-07234fb4f5c4f9f05 is shutting-down
+== i-07234fb4f5c4f9f05 is shutting-down
+== i-07234fb4f5c4f9f05 is shutting-down
+== i-07234fb4f5c4f9f05 is shutting-down
+== i-07234fb4f5c4f9f05 is shutting-down
+== i-07234fb4f5c4f9f05 is shutting-down
+== i-07234fb4f5c4f9f05 is shutting-down
+== i-07234fb4f5c4f9f05 is shutting-down
+== i-07234fb4f5c4f9f05 is shutting-down
+== i-07234fb4f5c4f9f05 is shutting-down
+== i-07234fb4f5c4f9f05 is shutting-down
+== i-07234fb4f5c4f9f05 is shutting-down
+== i-07234fb4f5c4f9f05 is terminated
+== the verdict is in hack/mpscap-20261024-run3/verdict.txt and the evidence in hack/mpscap-20261024-run3/m5c-run

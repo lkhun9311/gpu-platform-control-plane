@@ -1,0 +1,8 @@
+MPS: INVALID
+B0 pass
+B1 pass
+B2 pass
+B3 pass
+B4 pass
+B5 pass
+reason: termination_confirmed is not established

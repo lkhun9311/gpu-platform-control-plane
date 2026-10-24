@@ -1,0 +1,13 @@
+expected	17
+basis	completed-1x4+refused-0+invalid-0+unwritten-0+conditional-3+metrics-4+fixed-6
+actual	17
+class	cell-outputs	expected 4	actual 4
+class	stray-cell-outputs	expected 0	actual 0
+class	engine-metrics	expected 2	actual 2
+class	refusal-files	expected 0	actual 0
+class	invalid-files	expected 0	actual 0
+class	unwritten-refusals	expected 0	actual 0
+class	fixed-files	expected 6	actual 6
+class	conditional	expected 3	actual 3
+class	unattributed	expected 0	actual 0
+agree	yes

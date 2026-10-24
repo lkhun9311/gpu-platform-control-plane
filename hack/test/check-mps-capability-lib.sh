@@ -438,11 +438,21 @@ diag_scene() {
 diag_scene
 mpscap_diagnostics m5c-a m5c-b && ok "every required diagnostic collected returns 0" || bad "the diagnostics returned non-zero: $(cat "$MPSCAP_OUT/diag/inventory.tsv")"
 grep -qx 'required_failed=0' "$MPSCAP_OUT/diag/complete" && ok "a finished collection leaves its completion marker" || bad "no completion marker: $(cat "$MPSCAP_OUT/diag/complete" 2>&1)"
-[[ $(awk -F'\t' 'NR > 1' "$MPSCAP_OUT/diag/inventory.tsv" | wc -l) == 14 ]] && ok "the inventory lists all fourteen commands" || bad "the inventory lists $(awk 'NR > 1' "$MPSCAP_OUT/diag/inventory.tsv" | wc -l) commands"
+[[ $(awk -F'\t' 'NR > 1' "$MPSCAP_OUT/diag/inventory.tsv" | wc -l) == 18 ]] && ok "the inventory lists all eighteen commands" || bad "the inventory lists $(awk 'NR > 1' "$MPSCAP_OUT/diag/inventory.tsv" | wc -l) commands"
 awk -F'\t' '$1 ~ /previous/ && $2 != 0 && $5 == "no"' "$MPSCAP_OUT/diag/inventory.tsv" | grep -q . && ok "a missing previous log is recorded and not required" || bad "the previous log's row is wrong"
 [[ "$(fact no_healthy_devices_event)" == false ]] && ok "with B2 cut short, the diagnostics record that no refusal event exists" || bad "the fact is $(fact no_healthy_devices_event)"
 grep -q -- "describe pods -n m5c-a" "$STUB/calls.log" && grep -q -- "logs -n gpu-platform-control-plane-system -l app.kubernetes.io/component=nvidia-mps-control-daemon" "$STUB/calls.log" &&
   ok "the engine Pods are described and the daemon's log is read" || bad "a mandatory diagnostic was not asked for"
+grep -q -- "logs -n m5c-a -l app.kubernetes.io/component=vllm-shared --all-containers --prefix --tail=-1" "$STUB/calls.log" &&
+  grep -q -- "logs -n m5c-b -l app.kubernetes.io/component=vllm-shared --all-containers --prefix --previous --tail=-1" "$STUB/calls.log" &&
+  ok "both engines' logs, current and previous, are asked for" || bad "an engine's log was not asked for"
+# Run 1's engine b exited 1 four times with nothing kept; a Pod refused its device has no container to log at all.
+diag_scene
+: >"$STUB/rules"; rule "*logs -n m5c-b -l app.kubernetes.io/component=vllm-shared*" ok 1; rule "*get events -A -o json*" events
+rule "*logs*--previous*" ok 1; rule "*" ok
+mpscap_diagnostics m5c-a m5c-b && ok "an engine with no log to give does not fail the collection" || bad "a missing engine log failed the collection: $(cat "$MPSCAP_OUT/diag/inventory.tsv")"
+awk -F'\t' '$1 == "logs-engines-m5c-b.txt" && $2 != 0 && $5 == "no"' "$MPSCAP_OUT/diag/inventory.tsv" | grep -q . &&
+  ok "the missing engine log is recorded with its exit status" || bad "the engine log's row is wrong"
 diag_scene
 put events '{"items": [{"involvedObject": {"kind": "Pod", "namespace": "m5c-b", "name": "vllm-shared-b-1"}, "reason": "UnexpectedAdmissionError", "message": "Allocate failed due to no healthy devices present"}]}'
 mpscap_diagnostics m5c-a m5c-b
@@ -470,6 +480,72 @@ diag_scene
 : >"$STUB/rules"; rule "*get events -A -o json*" ok 1; rule "*" ok
 mpscap_diagnostics m5c-a m5c-b
 [[ -z "$(fact no_healthy_devices_event)" ]] && ok "events that could not be read record no refusal fact either way" || bad "a fact came from unread events"
+
+# --- the engines as applied under MPS -----------------------------------------------------------------------------
+# These run the real kubectl's kustomize against the checked-in engines, with the stub left off PATH, because what is
+# under test is the render itself; MPSCAP_TEST_KUBECTL names another kubectl, which is how the instance's v1.31 is run.
+real_path="${PATH#"$work/bin:"}"
+[ -n "${MPSCAP_TEST_KUBECTL:-}" ] && real_path="$(dirname "$MPSCAP_TEST_KUBECTL"):$real_path"
+# make harness-check provisions kustomize and not kubectl, so without a kubectl the render goes through a shim over it
+# (codex, review of bb7de393); with neither, the checks below fail rather than skip.
+if ! PATH="$real_path" command -v kubectl >/dev/null && [ -n "${KUSTOMIZE:-}" ] && [ -x "$KUSTOMIZE" ]; then
+  mkdir -p "$work/kz-shim"
+  printf '#!/bin/sh
+[ "$1" = kustomize ] || { echo "kubectl shim: only kustomize" >&2; exit 2; }
+shift
+exec "%s" build "$@"
+' "$KUSTOMIZE" >"$work/kz-shim/kubectl"
+  chmod +x "$work/kz-shim/kubectl"
+  real_path="$work/kz-shim:$real_path"
+fi
+scenario
+for e in a b; do
+  if why=$(PATH="$real_path" mpscap_engine_manifest "$e" "$STUB/engine-$e.yaml"); then
+    ok "engine $e renders without its own /dev/shm"
+  else
+    bad "engine $e did not render: $why"
+  fi
+  # Everything but the two shm items must survive unchanged; a patch whose volumes list is empty deletes every volume.
+  if diff=$(python3 - "config/vllm-shared/engine-$e.yaml" "$STUB/engine-$e.yaml" <<'PY'
+import sys, yaml
+want = [d for d in yaml.safe_load_all(open(sys.argv[1])) if d]
+got = [d for d in yaml.safe_load_all(open(sys.argv[2])) if d]
+for d in want:
+    if d["kind"] == "Deployment":
+        spec = d["spec"]["template"]["spec"]
+        for c in spec["containers"]:
+            c["volumeMounts"] = [m for m in c.get("volumeMounts", []) if m["mountPath"] != "/dev/shm"]
+        spec["volumes"] = [v for v in spec.get("volumes", []) if v["name"] != "dshm"]
+key = lambda d: (d["kind"], d["metadata"]["name"])
+if sorted(want, key=key) != sorted(got, key=key):
+    print("the render differs from the checked-in engine by more than its shm"); sys.exit(1)
+PY
+  ); then
+    ok "engine $e renders as the checked-in engine less its shm mount and volume, and nothing else"
+  else
+    bad "engine $e: $diff"
+  fi
+done
+grep -q -- 'mountPath: /dev/shm' config/vllm-shared/engine-a.yaml && ok "the checked-in engine still mounts its own shm, for the arms that are not MPS" ||
+  bad "the checked-in engine lost its shm, so the time-slicing arm changed too"
+# A patch that removes nothing must be refused, or the engines would cover the daemon's shm as in run 1's manifests.
+mkdir -p "$STUB/tree2/config/vllm-shared"; cp config/vllm-shared/engine-a.yaml "$STUB/tree2/config/vllm-shared/"
+sed 's/\$patch: delete/readOnly: true/' config/vllm-shared/mps-shm-patch.yaml >"$STUB/tree2/config/vllm-shared/mps-shm-patch.yaml"
+if why=$(cd "$STUB/tree2" && PATH="$real_path" mpscap_engine_manifest a "$STUB/engine-x.yaml"); then
+  bad "a patch that removed nothing was accepted"
+else
+  [[ $why == *"still carries its own shm"* ]] && ok "a render that keeps the engine's shm is refused, naming why" || bad "refused for the wrong reason: $why"
+fi
+# An engine file that is not one Deployment is refused rather than half applied.
+cp config/vllm-shared/mps-shm-patch.yaml "$STUB/tree2/config/vllm-shared/"
+sed -n '/^kind: Service$/,$p' config/vllm-shared/engine-a.yaml | sed '1i apiVersion: v1' >"$STUB/tree2/config/vllm-shared/engine-a.yaml"
+if why=$(cd "$STUB/tree2" && PATH="$real_path" mpscap_engine_manifest a "$STUB/engine-x.yaml"); then
+  bad "an engine file without a Deployment was accepted"
+else
+  [[ $why == *"Deployments, not one"* ]] && ok "an engine file without its Deployment is refused, naming why" || bad "refused for the wrong reason: $why"
+fi
+[[ " ${MPSCAP_ENGINE_FILES[*]} " == *" config/vllm-shared/mps-shm-patch.yaml "* ]] && ok "the engines' pin covers the patch" ||
+  bad "the patch is applied unpinned"
 
 # --- the pins ----------------------------------------------------------------------------------------------------
 scenario

@@ -38,6 +38,8 @@ PHASE1_S=720
 PHASE2_S=1200
 PHASE3_S=1920
 EVIDENCE_S=2040
+# The registered end of the termination step, by which the shutdown is to be confirmed.
+TERMINATION_S=2400
 # The instance stops at once if it cannot read LaunchTime within this many seconds of its own start.
 LAUNCHTIME_WAIT_S=180
 # The sweeper is believed only if it ran this many times in the last half hour, with no error.
@@ -146,9 +148,8 @@ SOURCE_SHA=$(sha256sum "$OUT/source.tgz" | cut -d' ' -f1)
 GATEWAY_SHA=$(sha256sum "$OUT/gateway" | cut -d' ' -f1)
 HARNESS_SHA=$(sha256sum "$OUT/benchharness" | cut -d' ' -f1)
 # The pins the instance compares the tree it unpacked against; this tree is clean, so they are the commit's.
-PIN_OVERLAY=$(mpscap_pin_hash config/nvidia-device-plugin-mps/configmap.yaml config/nvidia-device-plugin-mps/daemonset.yaml \
-  config/nvidia-device-plugin-mps/kustomization.yaml)
-PIN_ENGINES=$(mpscap_pin_hash config/vllm-shared/engine-a.yaml config/vllm-shared/engine-b.yaml)
+PIN_OVERLAY=$(mpscap_pin_hash "${MPSCAP_OVERLAY_FILES[@]}")
+PIN_ENGINES=$(mpscap_pin_hash "${MPSCAP_ENGINE_FILES[@]}")
 RUN_NONCE=$(python3 -c 'import secrets; print(secrets.token_hex(4))')
 RUN_ID="$(basename "$OUT")-$RUN_NONCE"
 BUCKET="$STACK-$ACCOUNT"
@@ -258,8 +259,8 @@ md() { curl -s -H "X-aws-ec2-metadata-token: $imds" "http://169.254.169.254/late
   echo "engine_a_image=$(grep -m1 -oE 'image: *[^ ]+' config/vllm-shared/engine-a.yaml | sed 's/image: *//')"
   echo "engine_b_image=$(grep -m1 -oE 'image: *[^ ]+' config/vllm-shared/engine-b.yaml | sed 's/image: *//')"
   echo "plugin_image=$(grep -m1 -oE 'image: *[^ ]+' config/nvidia-device-plugin-mps/daemonset.yaml | sed 's/image: *//')"
-  echo "pin_overlay=$(mpscap_pin_hash config/nvidia-device-plugin-mps/configmap.yaml config/nvidia-device-plugin-mps/daemonset.yaml config/nvidia-device-plugin-mps/kustomization.yaml)"
-  echo "pin_engines=$(mpscap_pin_hash config/vllm-shared/engine-a.yaml config/vllm-shared/engine-b.yaml)"
+  echo "pin_overlay=$(mpscap_pin_hash "${MPSCAP_OVERLAY_FILES[@]}")"
+  echo "pin_engines=$(mpscap_pin_hash "${MPSCAP_ENGINE_FILES[@]}")"
 } > /tmp/provenance.txt
 upload /tmp/provenance.txt provenance.txt
 if awk -F= 'NF < 2 || $2 == "" {bad = 1} END {exit bad}' /tmp/provenance.txt; then
@@ -394,6 +395,14 @@ fi
 spot_wait_for_marker_until "$REGION" "$BUCKET" "$RUN_ID/DONE" "$IID" $(( L + STOP_FROM_LAUNCH_S )) 20 400 >"$OUT/wait.txt"
 wait_rc=$?
 say "the wait ended with status $wait_rc ($(cat "$OUT/wait.txt"))"
+# The confirmation may take until TERMINATION_S from LaunchTime, as registered, and never less than the library's five
+# minutes. Run 2 of 2026-10-24 had every bar pass and was INVALID because a fixed 300 s ended with the instance still
+# shutting-down; it read terminated by hand seconds later. Billing had stopped at shutting-down, so the
+# longer wait costs nothing; the tries are scaled with it so that a count does not end the wait before the clock does.
+SPOT_TERMINATE_WAIT=$(( L + TERMINATION_S - $(date +%s) ))
+[ "$SPOT_TERMINATE_WAIT" -ge 300 ] || SPOT_TERMINATE_WAIT=300
+SPOT_TERMINATE_TRIES=$(( SPOT_TERMINATE_WAIT / 5 + 1 ))
+say "waiting up to ${SPOT_TERMINATE_WAIT}s for EC2 to report the instance terminated"
 if spot_terminate "$REGION" "$IID"; then
   TERMINATION=confirmed
   echo "terminated $IID" >"$OUT/termination.txt"

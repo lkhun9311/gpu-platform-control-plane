@@ -219,6 +219,10 @@ hack/*-paid-*.log
 # next run impossible. That is exactly what happened -- a killed ladder session left hack/ladder-<stamp>
 # untracked and the relaunch refused, with the card already released.
 hack/ladder-*/
+# The MPS capability session's directory, for the same two reasons: about 120 MB of binaries and source archive, and a
+# runner that refuses a dirty tree. Run 1 of 2026-10-24 left hack/mpscap-20261024-run1 untracked, and run 2 would have
+# been refused by it. What is kept of a run is copied into hack/mps-capability/<date>-<run>/, which this does not match.
+hack/mpscap-2*/
 # Microtest output: instance ids, user-data, and the raw results, which are copied into
 # docs/evidence when a run produces something worth keeping.
 hack/microtest-*/

@@ -2134,14 +2134,16 @@ mpscap_deploy() {
   local label="$1" uids uid_a uid_b left why
   # The overlay and the engines are hashed as they sit in the tree the instance unpacked, against the session's hashes
   # of the commit it registered, so a tree that differs from the commit is INVALID before anything is applied.
-  why=$(mpscap_pin_check overlay_pinned "${MPSCAP_PIN_OVERLAY:-}" config/nvidia-device-plugin-mps/configmap.yaml \
-    config/nvidia-device-plugin-mps/daemonset.yaml config/nvidia-device-plugin-mps/kustomization.yaml) || say "  $why"
-  why=$(mpscap_pin_check manifests_pinned "${MPSCAP_PIN_ENGINES:-}" config/vllm-shared/engine-a.yaml config/vllm-shared/engine-b.yaml) \
-    || say "  $why"
+  why=$(mpscap_pin_check overlay_pinned "${MPSCAP_PIN_OVERLAY:-}" "${MPSCAP_OVERLAY_FILES[@]}") || say "  $why"
+  why=$(mpscap_pin_check manifests_pinned "${MPSCAP_PIN_ENGINES:-}" "${MPSCAP_ENGINE_FILES[@]}") || say "  $why"
   # The plugin's own setup can refuse; B0 and B1 then read whatever it left, which is the evidence of why.
   apply_device_plugin mps "$label" || say "  the mps plugin's setup refused; B0 and B1 read what it left"
   mpscap_b0_b1 || { say "B1 did not pass, so the session ends here by the stopping rule"; return 1; }
-  if ! k apply -f config/vllm-shared/engine-a.yaml -n "$NS_A" >/dev/null || ! k apply -f config/vllm-shared/engine-b.yaml -n "$NS_B" >/dev/null; then
+  # The engines are applied as rendered without their own /dev/shm, so the daemon's reaches them; the rendered files
+  # are kept as evidence of what was applied.
+  if ! why=$(mpscap_engine_manifest a "$MPSCAP_OUT/engine-a-applied.yaml") || ! why=$(mpscap_engine_manifest b "$MPSCAP_OUT/engine-b-applied.yaml"); then
+    say "  $why; B2 has nothing to observe and is left to the phase deadline"
+  elif ! k apply -f "$MPSCAP_OUT/engine-a-applied.yaml" -n "$NS_A" >/dev/null || ! k apply -f "$MPSCAP_OUT/engine-b-applied.yaml" -n "$NS_B" >/dev/null; then
     say "an engine manifest could not be applied; B2 has nothing to observe and is left to the phase deadline"
   fi
   uids=$(mpscap_b2 "$NS_A" "$NS_B" "$MPSCAP_PHASE1_END") || { say "B2 did not pass, so the session ends here by the stopping rule"; return 1; }
@@ -2159,8 +2161,8 @@ mpscap_deploy() {
   why=$(mpscap_engines_ready "$uid_a" "$uid_b") || { say "the engines are not both Ready ($why), so there is no replay of both for B5"; return 1; }
   engine_kv_report "$NS_A" vllm-shared-a
   engine_kv_report "$NS_B" vllm-shared-b
-  engine_applied_record "$NS_A" vllm-shared-a config/vllm-shared/engine-a.yaml "$label"
-  engine_applied_record "$NS_B" vllm-shared-b config/vllm-shared/engine-b.yaml "$label"
+  engine_applied_record "$NS_A" vllm-shared-a "$MPSCAP_OUT/engine-a-applied.yaml" "$label" "config/vllm-shared/engine-a.yaml+mps-shm-patch.yaml"
+  engine_applied_record "$NS_B" vllm-shared-b "$MPSCAP_OUT/engine-b-applied.yaml" "$label" "config/vllm-shared/engine-b.yaml+mps-shm-patch.yaml"
   routing_record "$NS_A" vllm-shared-a
   routing_record "$NS_B" vllm-shared-b
 }

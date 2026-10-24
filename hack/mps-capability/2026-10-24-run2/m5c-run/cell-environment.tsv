@@ -1,0 +1,3 @@
+cell	arm	stage	fact	value
+1	mps	engines-ready	gpu	0, GPU-25a23198-5495-b8da-4951-b89ec6c52d87, 595.91.07
+1	mps	engines-ready	processes	20820, nvidia-cuda-mps-server, 30 MiB;20877, VLLM::EngineCore, 9776 MiB;20884, VLLM::EngineCore, 9776 MiB
