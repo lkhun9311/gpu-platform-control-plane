@@ -1,0 +1,19 @@
+{"type":"fact","name":"launch_time_read","value":true,"detail":"LaunchTime 2026-10-24T12:20:33+00:00, epoch 1792844433","at":"2026-10-24T12:22:15.720992Z"}
+{"type":"fact","name":"provenance_complete","value":true,"at":"2026-10-24T12:23:53.370062Z"}
+{"type":"fact","name":"overlay_pinned","value":true,"detail":"8de32fae1adfac35de19f2545f74d61ebc47175f32d343a2c4d58b8deb30bf47","at":"2026-10-24T12:24:08.172771Z"}
+{"type":"fact","name":"manifests_pinned","value":true,"detail":"2b2c18b35b4c9a5526f82679d940cca13c787453c317b84ebc0a67ac0cd9574e","at":"2026-10-24T12:24:09.187325Z"}
+{"type":"bar","bar":"B0","state":"started","at":"2026-10-24T12:24:56.636063Z"}
+{"type":"bar","bar":"B1","state":"started","at":"2026-10-24T12:24:57.596574Z"}
+{"type":"bar","bar":"B0","state":"decided","result":"pass","detail":"nvidia-device-plugin-mps-plugin nvidia-device-plugin-mps-qmjlx uid b1751220-91bb-486a-8285-a748fd29bbcb; nvidia-mps-control-daemon nvidia-mps-control-daemon-7cpw8 uid 92e9cbe5-d755-4a62-b07c-822151118969","at":"2026-10-24T12:24:58.765481Z"}
+{"type":"bar","bar":"B1","state":"decided","result":"pass","detail":"node m5cgpu-worker advertises nvidia.com/gpu 2","at":"2026-10-24T12:24:59.723810Z"}
+{"type":"bar","bar":"B2","state":"started","at":"2026-10-24T12:25:01.270893Z"}
+{"type":"fact","name":"no_healthy_devices_event","value":false,"at":"2026-10-24T12:28:47.073321Z"}
+{"type":"bar","bar":"B2","state":"decided","result":"pass","detail":"pods-a: vllm-shared-a-659cc94c49-nk2qf uid 17cb63d1-6f3d-4c39-bc61-40bbaf064155 Running; pods-b: vllm-shared-b-78f5684b48-m8g8s uid b5881843-c9a8-4f02-aaf6-c451ebd04f5b Running","at":"2026-10-24T12:28:50.440056Z"}
+{"type":"fact","name":"images_pulled","value":true,"at":"2026-10-24T12:28:51.540433Z"}
+{"type":"fact","name":"schedulable","value":true,"at":"2026-10-24T12:28:52.620396Z"}
+{"type":"bar","bar":"B3","state":"started","at":"2026-10-24T12:32:41.634195Z"}
+{"type":"bar","bar":"B3","state":"decided","result":"pass","detail":"m5c-a/vllm-shared-a-659cc94c49-nk2qf: PIPE=/mps/nvidia.com/gpu/pipe DIR=present CONTROL=yes; m5c-b/vllm-shared-b-78f5684b48-m8g8s: PIPE=/mps/nvidia.com/gpu/pipe DIR=present CONTROL=yes","at":"2026-10-24T12:32:43.979628Z"}
+{"type":"bar","bar":"B4","state":"started","at":"2026-10-24T12:32:44.976451Z"}
+{"type":"bar","bar":"B4","state":"decided","result":"pass","detail":"3 process row(s): 1 nvidia-cuda-mps-server, 2 M+C client(s); the server is pid 20617 of type C; pid 20676 in Pod 17cb63d1-6f3d-4c39-bc61-40bbaf064155, pid 20683 in Pod b5881843-c9a8-4f02-aaf6-c451ebd04f5b","at":"2026-10-24T12:32:46.281351Z"}
+{"type":"bar","bar":"B5","state":"started","at":"2026-10-24T12:33:00.638974Z"}
+{"type":"bar","bar":"B5","state":"decided","result":"pass","detail":"replay exit 0, 249 row(s) (premium-1 241, standard-noisy 8), 0 5xx, 0 4xx, 0 with no status, 0 with an errorKind","at":"2026-10-24T12:35:03.734281Z"}

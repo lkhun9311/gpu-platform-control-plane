@@ -1,0 +1,12 @@
+commit=8ed1fbe335fcf8f78992deb7244fa58f5c5f5831
+launch_time_epoch=1792844433
+instance_id=i-07234fb4f5c4f9f05
+ami_id=ami-097edab977037f65f
+driver=595.91.07
+toolkit_host=NVIDIA Container Toolkit CLI version 1.20.1
+toolkit_node=NVIDIA Container Toolkit CLI version 1.20.1
+engine_a_image=vllm/vllm-openai@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967
+engine_b_image=vllm/vllm-openai@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967
+plugin_image=nvcr.io/nvidia/k8s-device-plugin:v0.16.2@sha256:ed39e22c8b71343fb996737741a99da88ce6c75dd83b5c520e0b3d8e8a884c47
+pin_overlay=8de32fae1adfac35de19f2545f74d61ebc47175f32d343a2c4d58b8deb30bf47
+pin_engines=2b2c18b35b4c9a5526f82679d940cca13c787453c317b84ebc0a67ac0cd9574e

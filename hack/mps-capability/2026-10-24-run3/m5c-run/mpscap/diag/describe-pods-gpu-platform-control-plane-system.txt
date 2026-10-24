@@ -1,0 +1,193 @@
+Name:                 nvidia-device-plugin-mps-qmjlx
+Namespace:            gpu-platform-control-plane-system
+Priority:             2000001000
+Priority Class Name:  system-node-critical
+Service Account:      default
+Node:                 m5cgpu-worker/172.18.0.3
+Start Time:           Sat, 24 Oct 2026 12:24:10 +0000
+Labels:               app.kubernetes.io/component=nvidia-device-plugin-mps-plugin
+                      app.kubernetes.io/name=gpu-platform-control-plane
+                      controller-revision-hash=5b558b4965
+                      pod-template-generation=1
+Annotations:          <none>
+Status:               Running
+IP:                   10.244.1.2
+IPs:
+  IP:           10.244.1.2
+Controlled By:  DaemonSet/nvidia-device-plugin-mps
+Containers:
+  nvidia-device-plugin:
+    Container ID:  containerd://df5288683c5eaf6f32d52cc88cdf58234fcf2cfb4750e96364579a300c8696be
+    Image:         nvcr.io/nvidia/k8s-device-plugin:v0.16.2@sha256:ed39e22c8b71343fb996737741a99da88ce6c75dd83b5c520e0b3d8e8a884c47
+    Image ID:      nvcr.io/nvidia/k8s-device-plugin@sha256:ed39e22c8b71343fb996737741a99da88ce6c75dd83b5c520e0b3d8e8a884c47
+    Port:          <none>
+    Host Port:     <none>
+    Args:
+      --mps-root=/run/nvidia/mps
+    State:          Running
+      Started:      Sat, 24 Oct 2026 12:24:15 +0000
+    Ready:          True
+    Restart Count:  0
+    Environment:
+      FAIL_ON_INIT_ERROR:  true
+      CONFIG_FILE:         /etc/nvidia-device-plugin/config.yaml
+    Mounts:
+      /dev/shm from mps-shm (rw)
+      /etc/nvidia-device-plugin from sharing-config (rw)
+      /mps from mps-root (rw)
+      /var/lib/kubelet/device-plugins from device-plugin (rw)
+      /var/run/secrets/kubernetes.io/serviceaccount from kube-api-access-pjw69 (ro)
+Conditions:
+  Type                        Status
+  PodReadyToStartContainers   True 
+  Initialized                 True 
+  Ready                       True 
+  ContainersReady             True 
+  PodScheduled                True 
+Volumes:
+  device-plugin:
+    Type:          HostPath (bare host directory volume)
+    Path:          /var/lib/kubelet/device-plugins
+    HostPathType:  
+  mps-root:
+    Type:          HostPath (bare host directory volume)
+    Path:          /run/nvidia/mps
+    HostPathType:  DirectoryOrCreate
+  mps-shm:
+    Type:          HostPath (bare host directory volume)
+    Path:          /run/nvidia/mps/shm
+    HostPathType:  
+  sharing-config:
+    Type:      ConfigMap (a volume populated by a ConfigMap)
+    Name:      nvidia-device-plugin-sharing-mps
+    Optional:  false
+  kube-api-access-pjw69:
+    Type:                    Projected (a volume that contains injected data from multiple sources)
+    TokenExpirationSeconds:  3607
+    ConfigMapName:           kube-root-ca.crt
+    ConfigMapOptional:       <nil>
+    DownwardAPI:             true
+QoS Class:                   BestEffort
+Node-Selectors:              platform.lkhun9311.github.io/gpu-sharing=true
+Tolerations:                 node.kubernetes.io/disk-pressure:NoSchedule op=Exists
+                             node.kubernetes.io/memory-pressure:NoSchedule op=Exists
+                             node.kubernetes.io/not-ready:NoExecute op=Exists
+                             node.kubernetes.io/pid-pressure:NoSchedule op=Exists
+                             node.kubernetes.io/unreachable:NoExecute op=Exists
+                             node.kubernetes.io/unschedulable:NoSchedule op=Exists
+                             nvidia.com/gpu:NoSchedule op=Exists
+Events:
+  Type    Reason     Age   From               Message
+  ----    ------     ----  ----               -------
+  Normal  Scheduled  10m   default-scheduler  Successfully assigned gpu-platform-control-plane-system/nvidia-device-plugin-mps-qmjlx to m5cgpu-worker
+  Normal  Pulling    10m   kubelet            Pulling image "nvcr.io/nvidia/k8s-device-plugin:v0.16.2@sha256:ed39e22c8b71343fb996737741a99da88ce6c75dd83b5c520e0b3d8e8a884c47"
+  Normal  Pulled     10m   kubelet            Successfully pulled image "nvcr.io/nvidia/k8s-device-plugin:v0.16.2@sha256:ed39e22c8b71343fb996737741a99da88ce6c75dd83b5c520e0b3d8e8a884c47" in 4.633s (4.633s including waiting). Image size: 126081487 bytes.
+  Normal  Created    10m   kubelet            Created container nvidia-device-plugin
+  Normal  Started    10m   kubelet            Started container nvidia-device-plugin
+
+
+Name:                 nvidia-mps-control-daemon-7cpw8
+Namespace:            gpu-platform-control-plane-system
+Priority:             2000001000
+Priority Class Name:  system-node-critical
+Service Account:      default
+Node:                 m5cgpu-worker/172.18.0.3
+Start Time:           Sat, 24 Oct 2026 12:24:10 +0000
+Labels:               app.kubernetes.io/component=nvidia-mps-control-daemon
+                      app.kubernetes.io/name=gpu-platform-control-plane
+                      controller-revision-hash=795979d9db
+                      pod-template-generation=1
+Annotations:          <none>
+Status:               Running
+IP:                   10.244.1.3
+IPs:
+  IP:           10.244.1.3
+Controlled By:  DaemonSet/nvidia-mps-control-daemon
+Init Containers:
+  mps-control-daemon-mounts:
+    Container ID:  containerd://f6bf99242ad1ce23874b90eb10051e00cced9207f698ec0b67cf362b02fb107d
+    Image:         nvcr.io/nvidia/k8s-device-plugin:v0.16.2@sha256:ed39e22c8b71343fb996737741a99da88ce6c75dd83b5c520e0b3d8e8a884c47
+    Image ID:      nvcr.io/nvidia/k8s-device-plugin@sha256:ed39e22c8b71343fb996737741a99da88ce6c75dd83b5c520e0b3d8e8a884c47
+    Port:          <none>
+    Host Port:     <none>
+    Command:
+      mps-control-daemon
+      mount-shm
+    State:          Terminated
+      Reason:       Completed
+      Exit Code:    0
+      Started:      Sat, 24 Oct 2026 12:24:16 +0000
+      Finished:     Sat, 24 Oct 2026 12:24:16 +0000
+    Ready:          True
+    Restart Count:  0
+    Environment:    <none>
+    Mounts:
+      /mps from mps-root (rw)
+      /var/run/secrets/kubernetes.io/serviceaccount from kube-api-access-hdfcp (ro)
+Containers:
+  mps-control-daemon:
+    Container ID:  containerd://063447abcbf225cbd260860dc86f598c4280812206a03cd92c7b48c38bedb620
+    Image:         nvcr.io/nvidia/k8s-device-plugin:v0.16.2@sha256:ed39e22c8b71343fb996737741a99da88ce6c75dd83b5c520e0b3d8e8a884c47
+    Image ID:      nvcr.io/nvidia/k8s-device-plugin@sha256:ed39e22c8b71343fb996737741a99da88ce6c75dd83b5c520e0b3d8e8a884c47
+    Port:          <none>
+    Host Port:     <none>
+    Command:
+      mps-control-daemon
+    State:          Running
+      Started:      Sat, 24 Oct 2026 12:24:20 +0000
+    Ready:          True
+    Restart Count:  0
+    Environment:
+      CONFIG_FILE:  /etc/nvidia-device-plugin/config.yaml
+      NODE_NAME:     (v1:spec.nodeName)
+    Mounts:
+      /dev/shm from mps-shm (rw)
+      /etc/nvidia-device-plugin from sharing-config (rw)
+      /mps from mps-root (rw)
+      /var/run/secrets/kubernetes.io/serviceaccount from kube-api-access-hdfcp (ro)
+Conditions:
+  Type                        Status
+  PodReadyToStartContainers   True 
+  Initialized                 True 
+  Ready                       True 
+  ContainersReady             True 
+  PodScheduled                True 
+Volumes:
+  mps-root:
+    Type:          HostPath (bare host directory volume)
+    Path:          /run/nvidia/mps
+    HostPathType:  DirectoryOrCreate
+  mps-shm:
+    Type:          HostPath (bare host directory volume)
+    Path:          /run/nvidia/mps/shm
+    HostPathType:  
+  sharing-config:
+    Type:      ConfigMap (a volume populated by a ConfigMap)
+    Name:      nvidia-device-plugin-sharing-mps
+    Optional:  false
+  kube-api-access-hdfcp:
+    Type:                    Projected (a volume that contains injected data from multiple sources)
+    TokenExpirationSeconds:  3607
+    ConfigMapName:           kube-root-ca.crt
+    ConfigMapOptional:       <nil>
+    DownwardAPI:             true
+QoS Class:                   BestEffort
+Node-Selectors:              platform.lkhun9311.github.io/gpu-sharing=true
+Tolerations:                 node.kubernetes.io/disk-pressure:NoSchedule op=Exists
+                             node.kubernetes.io/memory-pressure:NoSchedule op=Exists
+                             node.kubernetes.io/not-ready:NoExecute op=Exists
+                             node.kubernetes.io/pid-pressure:NoSchedule op=Exists
+                             node.kubernetes.io/unreachable:NoExecute op=Exists
+                             node.kubernetes.io/unschedulable:NoSchedule op=Exists
+                             nvidia.com/gpu:NoSchedule op=Exists
+Events:
+  Type    Reason     Age   From               Message
+  ----    ------     ----  ----               -------
+  Normal  Scheduled  10m   default-scheduler  Successfully assigned gpu-platform-control-plane-system/nvidia-mps-control-daemon-7cpw8 to m5cgpu-worker
+  Normal  Pulling    10m   kubelet            Pulling image "nvcr.io/nvidia/k8s-device-plugin:v0.16.2@sha256:ed39e22c8b71343fb996737741a99da88ce6c75dd83b5c520e0b3d8e8a884c47"
+  Normal  Pulled     10m   kubelet            Successfully pulled image "nvcr.io/nvidia/k8s-device-plugin:v0.16.2@sha256:ed39e22c8b71343fb996737741a99da88ce6c75dd83b5c520e0b3d8e8a884c47" in 666ms (5.293s including waiting). Image size: 126081487 bytes.
+  Normal  Created    10m   kubelet            Created container mps-control-daemon-mounts
+  Normal  Started    10m   kubelet            Started container mps-control-daemon-mounts
+  Normal  Pulled     10m   kubelet            Container image "nvcr.io/nvidia/k8s-device-plugin:v0.16.2@sha256:ed39e22c8b71343fb996737741a99da88ce6c75dd83b5c520e0b3d8e8a884c47" already present on machine
+  Normal  Created    10m   kubelet            Created container mps-control-daemon
+  Normal  Started    10m   kubelet            Started container mps-control-daemon
