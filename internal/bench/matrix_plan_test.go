@@ -138,6 +138,18 @@ func TestMatrixPlanArmSetRefusalForTheLengthCalibration(t *testing.T) {
 	}
 }
 
+// C3's calibration plans the same seven arms under its own id (2026-10-24-c3-headroom-calibration.md).
+// Mutation that turns it red: drop StudyHeadroomCalibration from the length studies' rule.
+func TestMatrixPlanArmSetRefusalForTheHeadroomCalibration(t *testing.T) {
+	all := []string{"R1", "off-short", "off-ref", "off-long", "hold-cap-short", "hold-cap-ref", "hold-cap-long"}
+	if err := MatrixPlanArmSetRefusal(StudyHeadroomCalibration, all); err != nil {
+		t.Fatalf("the calibration's registered arms were refused: %v", err)
+	}
+	if err := MatrixPlanArmSetRefusal(StudyHeadroomCalibration, all[:6]); err == nil {
+		t.Fatal("a calibration plan without hold-cap-long was accepted")
+	}
+}
+
 // The capability session buys exactly one mps cell; a baseline beside it would be a cell nothing reads, and a second
 // arm would be the sharing matrix under another name.
 func TestMatrixPlanArmSetRefusalForTheMPSCapability(t *testing.T) {
