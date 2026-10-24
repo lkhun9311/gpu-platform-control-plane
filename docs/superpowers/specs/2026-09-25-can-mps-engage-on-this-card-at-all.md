@@ -402,3 +402,46 @@ The registration allots the termination step, with its confirmation, until 2,400
 The fix waits until `LaunchTime` plus 2,400 s, and never less than five minutes. A session test makes EC2 answer `shutting-down` seventy times before `terminated`. Billing ends at `shutting-down`, so a longer wait costs nothing.
 
 **The evidence** is in `hack/mps-capability/2026-10-24-run2/`, with a `SHA256SUMS` over every file in it.
+
+## Result, 2026-10-24: run 3 PASSES, with every bar passed and the termination confirmed inside the registered bound
+
+**Verdict: `MPS: PASS`.** B0 to B5 each passed, the provenance and diagnostics are complete, and the session confirmed the instance terminated.
+No invalidation rule applies: the overlay and both engines are the committed ones, pinned by SHA in the journal, and both engines carry `hostIPC: true`.
+This is the pass the page asked about. What it licenses is the section "What a pass licenses" above, and nothing more.
+
+**The purchase.** One g5.2xlarge Spot instance, `i-07234fb4f5c4f9f05`, in ap-northeast-2a, from commit `8ed1fbe3`, the same AMI as runs 1 and 2.
+`LaunchTime` was 12:20:33Z, and EC2 records the user-initiated termination at 12:35:16Z, 883 s later.
+At the zone's Spot price read before launch, $0.6829 an hour, that is about $0.17. Runs 1, 2 and 3 together come to about $0.50, by the same price-times-time estimate.
+
+**When each bar was decided, from `LaunchTime`.**
+
+| event | s |
+|---|---:|
+| `LaunchTime` read on the instance | 102 |
+| B0, B1 | 266 |
+| B2, both Pods Running | 497 |
+| B3 | 730 |
+| B4 | 733 |
+| B5 | 870 |
+| diagnostics uploaded, complete | 877 |
+| termination requested | 883 |
+| termination confirmed | 1,196 |
+
+The confirmation came 313 s after the terminate call.
+Under run 2's fixed 300 s wait this run would have been void as well. The fix in `6235d07a` waited up to 1,518 s, the time left to the registered 2,400 s.
+
+**What the bars measured, re-read from the raw files rather than from the journal's own details.**
+- B3: in both engines `CUDA_MPS_PIPE_DIRECTORY` was `/mps/nvidia.com/gpu/pipe`, and the directory held the control socket.
+- B4 (`m5c-run/mpscap/b4-nvidia-smi.txt`, `b4-compute-apps.csv`, `b4-cgroups/`):
+  - one `nvidia-cuda-mps-server`, pid 20617, of type `C` and 30 MiB, whose cgroup names the control daemon's Pod `92e9cbe5…`;
+  - two `VLLM::EngineCore` processes of type `M+C`, pids 20676 and 20683, at 9,776 MiB each;
+  - their cgroups name the Pods `17cb63d1…` (engine A) and `b5881843…` (engine B), the UIDs B2 recorded.
+- The daemon's log records "Starting new server 75" at 12:29:29 and eight `NEW CLIENT` lines.
+- B5 (`m5c-run/raw-mps-1.jsonl`): 249 rows, 241 premium and 8 contender, every one with HTTP 200, and the replay exited 0.
+
+So, on this card, with this repository's corrected manifests, MPS engages with two clients, one in each engine, and both serve.
+Run 2 measured the same thing, but the registration voids that run. Run 3 is the run the answer stands on.
+
+**Who established what.** The verdict is the session's, computed on the instance from the journal. I re-read every figure above from the raw files and EC2. codex reviewed the fixes before the run (static review, `6235d07a` and earlier), and did not see these results.
+
+**The evidence** is in `hack/mps-capability/2026-10-24-run3/`, with a `SHA256SUMS` over every file in it.
