@@ -109,14 +109,16 @@ S = 1.0533 × d(ref), rounded to 0.1 ms.
 1. **inconclusive: <reason>** for a missing or extra cell, any failed or unscorable validity line, any unscorable admissibility or protection line, or any hold-cap contender success the gateway did not time;
 2. **not feasible: hold-cap was not admissible at <length>: <line>**, by v26's seven admissibility lines against off at the same length;
 3. **not feasible: hold-cap's 15% protection of the premium tail was not established at <length>**, when ln(hold-cap scheduled hi / off arrival lo) exceeds ln 0.85;
-4. **inconclusive** when a length's engine prefill median is missing, not positive, or infinite, only once 2 and 3 pass at every length; and when any validity, admissibility or protection line does not hold without having reached rules 1 to 3, since feasible needs every line to hold, not only no rule to have fired;
+4. **inconclusive** when a length's engine prefill median is missing, not positive, or infinite, or when S rounds to 0.0 ms, only once 2 and 3 pass at every length; and when any validity, admissibility or protection line does not hold without having reached rules 1 to 3, since feasible needs every line to hold, not only no rule to have fired;
 5. **challenge not achieved**, when d(long) does not exceed S;
 6. **feasible** otherwise.
 
 Within a rule, lengths are reported short, ref, long, and every failure is listed.
 v27's second condition, "and 1.05 times the reference's", is dropped: with S at 1.0533 × d(ref), exceeding S already exceeds it.
+That holds only while S is positive: a reference under 0.05 ms, as kind's stub engine gives, rounds S to 0.0 ms, which any long length exceeds, so rule 4 refuses it.
+The stage G rehearsal found this, scoring "feasible" against S = 0.0 ms before the refusal was added.
 
-**Published whatever the verdict:** S and the size-aware spacings s(length) = S × d(length) / d(ref), whenever every median is finite and positive, labelled provisional unless the verdict is feasible, and otherwise absent, with the reason in the verdict; every validity and admissibility line; off's and hold-cap's premium bounds; contender completion, p50, p95 and refusals; work p and q; premium gaps; preemptions; d and its p95 and unfinished count per length; the gateway's admission-to-first-content beside d, not judged; and the session's timings and cost.
+**Published whatever the verdict:** S and the size-aware spacings s(length) = S × d(length) / d(ref), whenever every median is finite and positive and S does not round to zero, labelled provisional unless the verdict is feasible, and otherwise absent, with the reason in the verdict; every validity and admissibility line; off's and hold-cap's premium bounds; contender completion, p50, p95 and refusals; work p and q; premium gaps; preemptions; d and its p95 and unfinished count per length; the gateway's admission-to-first-content beside d, not judged; and the session's timings and cost.
 
 ## The prediction, recorded before purchase
 

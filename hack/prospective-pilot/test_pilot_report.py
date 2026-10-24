@@ -1035,6 +1035,16 @@ class HeadroomTest(unittest.TestCase):
         self.assertIsNone(v["fixed_spacing_ms"])
         self.assertIsNone(v["size_aware_spacings_ms"])
 
+    # Medians of hundredths of a millisecond, as kind's stub engine gives, are positive yet round S to 0.0 ms, and any
+    # long length outlasts a spacing of zero: no spacing exists to challenge, so inconclusive and nothing published.
+    # Mutation that turns it red: drop the refusal of an S that rounds to zero.
+    def test_an_s_that_rounds_to_zero_is_no_spacing(self):
+        self.block({"short": 0.01, "ref": 0.02, "long": 0.03})
+        v = pr.headroom(self.d)
+        self.assertTrue(v["verdict"].startswith("inconclusive: S = 1.0533 x the reference's median rounds to 0.0 ms"), v["verdict"])
+        self.assertIsNone(v["fixed_spacing_ms"])
+        self.assertIsNone(v["size_aware_spacings_ms"])
+
     # The scorer's checksums and the session library's are one table (a key assembled in two places).
     def test_the_checksums_agree_with_the_session_library(self):
         mock.patch.stopall()

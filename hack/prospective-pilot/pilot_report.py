@@ -1332,7 +1332,8 @@ def headroom(stage_dir):
     v26's 1,740 ms, so the long length must outlast a spacing derived from this card's reference
     (docs/superpowers/specs/2026-10-24-c3-headroom-calibration.md, "The gate").
 
-    S and the size-aware spacings S x d(N) / d(reference) are published whenever every median is finite, and are
+    S and the size-aware spacings S x d(N) / d(reference) are published whenever every median is finite and positive and
+    S does not round to zero, and are
     frozen for a main study only when the verdict is feasible; otherwise they are labelled provisional.
     """
     verdict, validity, lines, measured, first_fail = _length_stage(stage_dir, HEADROOM_STUDY, HEADROOM_SEED, HEADROOM_CHECKSUMS)
@@ -1341,6 +1342,12 @@ def headroom(stage_dir):
     if all(m is not None and 0 < m < math.inf for m in medians.values()):
         fixed = round(HEADROOM_SPACING_RATIO * medians["ref"], 1)
         spacings = {l: round(fixed * medians[l] / medians["ref"], 1) for l, _ in LENCAL_LENGTHS}
+        # A positive reference under 0.05 ms, kind's stub engine, rounds S to zero, and any long length outlasts that.
+        if not fixed > 0:
+            fixed, spacings = None, None
+            if verdict is None:
+                verdict = ("inconclusive: S = 1.0533 x the reference's median rounds to 0.0 ms at 0.1 ms, so there is no "
+                           "spacing to challenge (reference median %r ms)" % medians["ref"])
     if verdict is None:
         # The rule v27 also required, 1.05 times the reference, is implied: S is already 1.0533 times it.
         if not medians["long"] > fixed:
