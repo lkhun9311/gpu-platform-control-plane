@@ -85,8 +85,8 @@ expect() { # NAME BAR WANT [NEEDLE]
 plugin_pod() { # component name uid phase restarts [deleting]
   local del=""
   [[ -n "${6:-}" ]] && del=', "deletionTimestamp": "2026-10-24T00:00:00Z"'
-  printf '{"metadata": {"name": "%s", "uid": "%s", "labels": {"app.kubernetes.io/component": "%s"}%s}, "status": {"phase": "%s", "containerStatuses": [{"restartCount": %s}]}}' \
-    "$2" "$3" "$1" "$del" "$4" "$5"
+  printf '{"metadata": {"name": "%s", "uid": "%s", "labels": {"app.kubernetes.io/component": "%s"}%s}, "spec": {"nodeName": "%s"}, "status": {"phase": "%s", "containerStatuses": [{"restartCount": %s}]}}' \
+    "$2" "$3" "$1" "$del" "${7:-m5cgpu-worker}" "$4" "$5"
 }
 items() { local IFS=,; echo "{\"items\": [$*]}"; }
 healthy="$(items "$(plugin_pod nvidia-device-plugin-mps-plugin plug-1 u-plug Running 0)" "$(plugin_pod nvidia-mps-control-daemon mpsd-1 u-mpsd Running 0)")"
@@ -99,6 +99,15 @@ mpscap_b0_b1 && ok "B1 passing returns 0" || bad "B1 passing returned non-zero"
 expect "both alive and two advertised" B0 pass "u-plug"
 expect "both alive and two advertised" B1 pass "nvidia.com/gpu 2"
 grep -q -- "--context ctx" "$STUB/calls.log" && ok "the instruments ask the session's context" || bad "the context was not passed: $(head -1 "$STUB/calls.log")"
+
+# The kind rehearsal found the evidence directory never created: every case above had it made by scenario().
+scenario
+rmdir "$MPSCAP_OUT"
+put pods "$healthy"; put node "$(sharing_node 2)"
+rule "*get pods -n gpu-platform-control-plane-system*" pods; rule "*get nodes*" node
+mpscap_b0_b1 >/dev/null 2>&1
+expect "an evidence directory nobody created" B0 pass
+[[ -s "$MPSCAP_OUT/b1-node.json" ]] && ok "the instrument creates the directory it saves into" || bad "the node read was not saved"
 
 scenario
 put pods "$healthy"; put node "$(sharing_node 0)"
@@ -151,6 +160,20 @@ put node "$(sharing_node 2)"
 rule "*get pods -n gpu-platform-control-plane-system*" pods; rule "*get nodes*" node
 mpscap_b0_b1
 expect "two live plugin Pods" B0 fail "nvidia-device-plugin-mps-plugin: 2 Pod(s)"
+# The kind rehearsal: DaemonSets tolerating every node put a second Pod on the control plane, which is not the plugin
+# the advertisement comes from.
+scenario
+put pods "$(items "$(plugin_pod nvidia-device-plugin-mps-plugin plug-1 u-plug Running 0)" "$(plugin_pod nvidia-mps-control-daemon mpsd-1 u-mpsd Running 0)" \
+  "$(plugin_pod nvidia-device-plugin-mps-plugin plug-cp u-plugcp Running 3 "" m5cgpu-control-plane)" "$(plugin_pod nvidia-mps-control-daemon mpsd-cp u-mpsdcp Running 0 "" m5cgpu-control-plane)")"
+put node "$(sharing_node 2)"
+rule "*get pods -n gpu-platform-control-plane-system*" pods; rule "*get nodes*" node
+mpscap_b0_b1
+expect "Pods on another node are not the sharing node's" B0 pass "u-plug;"
+scenario
+put pods "$healthy"; put node '{"items": []}'
+rule "*get pods -n gpu-platform-control-plane-system*" pods; rule "*get nodes*" node
+mpscap_b0_b1
+expect "no sharing node to name the Pods by" B0 unmeasured "cannot be named"
 scenario
 put pods "$(items "$(plugin_pod nvidia-device-plugin-mps-plugin plug-1 u-plug Running 0)" "$(plugin_pod nvidia-mps-control-daemon mpsd-1 u-mpsd Running 0 deleting)")"
 put node "$(sharing_node 2)"
@@ -158,7 +181,7 @@ rule "*get pods -n gpu-platform-control-plane-system*" pods; rule "*get nodes*" 
 mpscap_b0_b1
 expect "a terminating daemon" B0 fail "being deleted"
 scenario
-put pods '{"items": [{"metadata": {"name": "plug-1", "uid": "u-plug", "labels": {"app.kubernetes.io/component": "nvidia-device-plugin-mps-plugin"}}, "status": {"phase": "Running"}}, {"metadata": {"name": "mpsd-1", "uid": "u-mpsd", "labels": {"app.kubernetes.io/component": "nvidia-mps-control-daemon"}}, "status": {"phase": "Running", "containerStatuses": [{"restartCount": 0}]}}]}'
+put pods '{"items": [{"metadata": {"name": "plug-1", "uid": "u-plug", "labels": {"app.kubernetes.io/component": "nvidia-device-plugin-mps-plugin"}}, "spec": {"nodeName": "m5cgpu-worker"}, "status": {"phase": "Running"}}, {"metadata": {"name": "mpsd-1", "uid": "u-mpsd", "labels": {"app.kubernetes.io/component": "nvidia-mps-control-daemon"}}, "spec": {"nodeName": "m5cgpu-worker"}, "status": {"phase": "Running", "containerStatuses": [{"restartCount": 0}]}}]}'
 put node "$(sharing_node 2)"
 rule "*get pods -n gpu-platform-control-plane-system*" pods; rule "*get nodes*" node
 mpscap_b0_b1

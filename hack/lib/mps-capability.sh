@@ -18,6 +18,10 @@ MPSCAP_POLL="${MPSCAP_POLL:-5}"
 # The request timeout is shortened for the diagnostics, which run inside the supervisor's grace after a kill.
 mpscap_k() { kubectl --context "$MPSCAP_CTX" --request-timeout="${MPSCAP_REQUEST_TIMEOUT:-20s}" "$@"; }
 
+# mpscap_out: the evidence directory, created on first use, because nothing upstream of the first bar creates it.
+# The kind rehearsal found it missing: B0 and B1 could not save what they read and came out unmeasured.
+mpscap_out() { mkdir -p "$MPSCAP_OUT" || { echo "mps capability: cannot create $MPSCAP_OUT" >&2; return 1; }; }
+
 # mpscap_pin_hash FILE...: one hash over each file's path and contents, in the order given.
 #
 # The session computes it in the tree it launches from and the instance in the tree it unpacked, so equal values say
@@ -54,6 +58,7 @@ mpscap_pin_check() {
 # The Pods are read before and after the node, so a Pod that restarted or was replaced while the advertisement was
 # read cannot lend it its credibility: B0 needs the same Pod, Running, with no restart, on both sides.
 mpscap_b0_b1() {
+  mpscap_out || return 1
   mj_start B0 || return 1
   mj_start B1 || return 1
   local sel="app.kubernetes.io/name=gpu-platform-control-plane" before node after verdict b0 b1
@@ -88,8 +93,15 @@ def b1():
         return "fail", f"node {items[0]['metadata']['name']} advertises no nvidia.com/gpu"
     return ("pass" if gpus == "2" else "fail"), f"node {items[0]['metadata']['name']} advertises nvidia.com/gpu {gpus}"
 
+# The Pods on the sharing node only: B0 is about the plugin whose advertisement B1 reads, and a DaemonSet that also
+# runs elsewhere would otherwise lend B0 a second Pod (the kind rehearsal's two-node cluster did).
+sharing = None
+if node is not None and len(node.get("items", [])) == 1:
+    sharing = node["items"][0]["metadata"]["name"]
+
 def pods(doc, component):
-    return [p for p in doc.get("items", []) if (p["metadata"].get("labels") or {}).get("app.kubernetes.io/component") == component]
+    return [p for p in doc.get("items", []) if (p["metadata"].get("labels") or {}).get("app.kubernetes.io/component") == component
+            and (p.get("spec") or {}).get("nodeName") == sharing]
 
 def alive(p):
     st = p.get("status") or {}
@@ -108,13 +120,15 @@ def alive(p):
 def b0():
     if before is None or after is None:
         return "unmeasured", f"the plugin Pods could not be read: {eb or ea}"
+    if sharing is None:
+        return "unmeasured", "the sharing node could not be read as one node, so its plugin Pods cannot be named"
     out, unknown = [], []
     ok = True
     for comp in ("nvidia-device-plugin-mps-plugin", "nvidia-mps-control-daemon"):
         pb, pa = pods(before, comp), pods(after, comp)
         if len(pb) != 1 or len(pa) != 1:
             ok = False
-            out.append(f"{comp}: {len(pb)} Pod(s) before the node read and {len(pa)} after, not one")
+            out.append(f"{comp}: {len(pb)} Pod(s) on {sharing} before the node read and {len(pa)} after, not one")
             continue
         if pb[0]["metadata"]["uid"] != pa[0]["metadata"]["uid"]:
             ok = False
@@ -163,6 +177,7 @@ PY
 #   read from each Pod's current state rather than its history, so an error that resolved on one engine cannot make
 #   a run INVALID that the other engine's refusal makes REFUSED.
 mpscap_b2() {
+  mpscap_out || return 1
   local ns_a="$1" ns_b="$2" deadline="$3" sel="app.kubernetes.io/component=vllm-shared" verdict="" pa pb ev result=""
   mj_start B2 || return 1
   while [ "$(date +%s)" -lt "$deadline" ]; do
@@ -271,6 +286,7 @@ PY
 # Both Pods are probed even when the first fails, so the record says what each one was. A probe that could not run
 # is unmeasured; one that ran and found no variable, no directory or no socket is a failure.
 mpscap_b3() {
+  mpscap_out || return 1
   local ns uid pod probe rc ipc lines=() results=() i
   mj_start B3 || return 1
   for i in 1 2; do
@@ -341,6 +357,7 @@ PY
 # Readiness is read before and after the capture, so a table taken while an engine restarted is not judged as one
 # taken while both served. MPSCAP_PROC replaces /proc in the test.
 mpscap_b4() {
+  mpscap_out || return 1
   local uid_a="$1" uid_b="$2" bh="$3" why t_rc q_rc pid out dir="$MPSCAP_OUT/b4-cgroups"
   mj_start B4 || return 1
   if ! why="$(mpscap_engines_ready "$uid_a" "$uid_b")"; then
