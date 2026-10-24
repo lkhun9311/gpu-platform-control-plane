@@ -438,11 +438,21 @@ diag_scene() {
 diag_scene
 mpscap_diagnostics m5c-a m5c-b && ok "every required diagnostic collected returns 0" || bad "the diagnostics returned non-zero: $(cat "$MPSCAP_OUT/diag/inventory.tsv")"
 grep -qx 'required_failed=0' "$MPSCAP_OUT/diag/complete" && ok "a finished collection leaves its completion marker" || bad "no completion marker: $(cat "$MPSCAP_OUT/diag/complete" 2>&1)"
-[[ $(awk -F'\t' 'NR > 1' "$MPSCAP_OUT/diag/inventory.tsv" | wc -l) == 14 ]] && ok "the inventory lists all fourteen commands" || bad "the inventory lists $(awk 'NR > 1' "$MPSCAP_OUT/diag/inventory.tsv" | wc -l) commands"
+[[ $(awk -F'\t' 'NR > 1' "$MPSCAP_OUT/diag/inventory.tsv" | wc -l) == 18 ]] && ok "the inventory lists all eighteen commands" || bad "the inventory lists $(awk 'NR > 1' "$MPSCAP_OUT/diag/inventory.tsv" | wc -l) commands"
 awk -F'\t' '$1 ~ /previous/ && $2 != 0 && $5 == "no"' "$MPSCAP_OUT/diag/inventory.tsv" | grep -q . && ok "a missing previous log is recorded and not required" || bad "the previous log's row is wrong"
 [[ "$(fact no_healthy_devices_event)" == false ]] && ok "with B2 cut short, the diagnostics record that no refusal event exists" || bad "the fact is $(fact no_healthy_devices_event)"
 grep -q -- "describe pods -n m5c-a" "$STUB/calls.log" && grep -q -- "logs -n gpu-platform-control-plane-system -l app.kubernetes.io/component=nvidia-mps-control-daemon" "$STUB/calls.log" &&
   ok "the engine Pods are described and the daemon's log is read" || bad "a mandatory diagnostic was not asked for"
+grep -q -- "logs -n m5c-a -l app.kubernetes.io/component=vllm-shared --all-containers --prefix --tail=-1" "$STUB/calls.log" &&
+  grep -q -- "logs -n m5c-b -l app.kubernetes.io/component=vllm-shared --all-containers --prefix --previous --tail=-1" "$STUB/calls.log" &&
+  ok "both engines' logs, current and previous, are asked for" || bad "an engine's log was not asked for"
+# Run 1's engine b exited 1 four times with nothing kept; a Pod refused its device has no container to log at all.
+diag_scene
+: >"$STUB/rules"; rule "*logs -n m5c-b -l app.kubernetes.io/component=vllm-shared*" ok 1; rule "*get events -A -o json*" events
+rule "*logs*--previous*" ok 1; rule "*" ok
+mpscap_diagnostics m5c-a m5c-b && ok "an engine with no log to give does not fail the collection" || bad "a missing engine log failed the collection: $(cat "$MPSCAP_OUT/diag/inventory.tsv")"
+awk -F'\t' '$1 == "logs-engines-m5c-b.txt" && $2 != 0 && $5 == "no"' "$MPSCAP_OUT/diag/inventory.tsv" | grep -q . &&
+  ok "the missing engine log is recorded with its exit status" || bad "the engine log's row is wrong"
 diag_scene
 put events '{"items": [{"involvedObject": {"kind": "Pod", "namespace": "m5c-b", "name": "vllm-shared-b-1"}, "reason": "UnexpectedAdmissionError", "message": "Allocate failed due to no healthy devices present"}]}'
 mpscap_diagnostics m5c-a m5c-b

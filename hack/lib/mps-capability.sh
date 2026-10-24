@@ -419,7 +419,7 @@ mpscap_pods_named() {
 # exist; every other command must succeed, and the function returns non-zero when one did not.
 # It also records whether a "no healthy devices" event exists, when B2 was cut short before it could say.
 mpscap_diagnostics() {
-  local ns_a="$1" ns_b="$2" d="$MPSCAP_OUT/diag" missing=0 name rc comp
+  local ns_a="$1" ns_b="$2" d="$MPSCAP_OUT/diag" missing=0 name rc comp ns
   mkdir -p "$d"
   printf 'name\texit\tbytes\tsha256\trequired\n' >"$d/inventory.tsv"
   # diag NAME REQUIRED COMMAND...
@@ -443,6 +443,13 @@ mpscap_diagnostics() {
     diag "pods-$comp.txt" yes mpscap_pods_named "$comp"
     diag "logs-$comp.txt" yes mpscap_k logs -n "$MPSCAP_PLUGIN_NS" -l "app.kubernetes.io/component=$comp" --all-containers --tail=-1
     diag "logs-$comp-previous.txt" no mpscap_k logs -n "$MPSCAP_PLUGIN_NS" -l "app.kubernetes.io/component=$comp" --all-containers --previous --tail=-1
+  done
+  # The engines' own logs, current and previous, because run 1's engine b exited 1 four times and nothing kept why.
+  # They are not required: an engine refused its device never starts a container, so it has no log to give, and
+  # requiring one would leave the collection incomplete in exactly the case a REFUSED verdict needs it complete.
+  for ns in "$ns_a" "$ns_b"; do
+    diag "logs-engines-$ns.txt" no mpscap_k logs -n "$ns" -l app.kubernetes.io/component=vllm-shared --all-containers --prefix --tail=-1
+    diag "logs-engines-$ns-previous.txt" no mpscap_k logs -n "$ns" -l app.kubernetes.io/component=vllm-shared --all-containers --prefix --previous --tail=-1
   done
   diag nvidia-smi.txt yes nvidia-smi
   diag nvidia-smi-compute-apps.csv yes nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv
