@@ -1,0 +1,62 @@
+I would not freeze this yet. The most consequential defects are below, ranked by consequence. I made no file edits.
+
+1. **The inherited scorer can return “feasible” while every protection line says “fails.”**
+
+   `crossed_log_ratio()` accepts NaN. The calibration records protection failure using `r <= threshold`, but adds the failure to its verdict logic using `r > threshold`. Both comparisons are false for NaN, so the failed protection lines disappear from the verdict decision. [pilot_report.py:374](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/prospective-pilot/pilot_report.py:374), [pilot_report.py:1220](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/prospective-pilot/pilot_report.py:1220), [pilot_report.py:1235](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/prospective-pilot/pilot_report.py:1235).
+
+   I verified both parts in memory: replacing gateway first-content timestamps with NaN left an archived cell passing every validity check and produced NaN premium bounds; exercising the calibration decision with NaN bounds and otherwise passing inputs returned **“feasible” with three failed protection lines**. The timestamp arithmetic lacks a finite-value check. [pilot_report.py:238](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/prospective-pilot/pilot_report.py:238).
+
+   C3 explicitly inherits these functions. Its new gate must reject malformed numerical evidence and require every applicable protection line to **hold**, rather than infer success from the absence of a recorded failure. [spec:84](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/2026-10-24-c3-headroom-calibration.md:84), [spec:92](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/2026-10-24-c3-headroom-calibration.md:92).
+
+2. **“Feasible” licenses a stronger comparison than the experiment establishes.**
+
+   The gate measures hold-cap and asks whether `d(long) > 1.0533 × d(ref)`. Reference fit is automatic, and neither fixed-S nor size-aware runs. Nevertheless, the licensing paragraph says this makes the main study’s comparison “a real one.” The following sentence admits that the stage establishes nothing about either control’s tails. Those statements do not support the same conclusion. [spec:58](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/2026-10-24-c3-headroom-calibration.md:58), [spec:89](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/2026-10-24-c3-headroom-calibration.md:89), [spec:132](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/2026-10-24-c3-headroom-calibration.md:132).
+
+   A median prefill exceeding a spacing does not itself establish a fixed-control tail failure: the arrival schedule and overlapping work also matter. The author’s own earlier sketch identifies precisely this gap and proposes measuring fixed at reference and long. [mine-before-reading-astra.txt:7](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/data/2026-10-24-c3-headroom/mine-before-reading-astra.txt:7).
+
+   Either narrow the license to **hold-cap feasibility plus a measured median-ratio challenge**, or acquire the control evidence needed for the stronger statement.
+
+3. **The replay does not predict the registered admissibility gate.**
+
+   The page repeatedly says hold-cap is predicted “admissible” and therefore the gate is predicted “feasible.” Its scripts call `owner_limits()`, which checks only completion, completion p50, completion p95 and hold refusals. They do not check preemptions, shared-window work, or premium inter-token gaps—the additional safeguards required by the registered gate. [spec:55](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/2026-10-24-c3-headroom-calibration.md:55), [spec:106](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/2026-10-24-c3-headroom-calibration.md:106), [predict-c3.py:25](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/data/2026-10-24-c3-headroom/predict-c3.py:25), [simulate.py:380](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/prospective-pilot/simulate.py:380), [pilot_report.py:995](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/prospective-pilot/pilot_report.py:995).
+
+   There is another mismatch: replay prefill medians exclude contenders without a first token, whereas registered d includes unfinished prefills at infinity. The page acknowledges a timing-definition difference but omits this population difference. [predict-c3.py:24](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/data/2026-10-24-c3-headroom/predict-c3.py:24), [spec:89](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/2026-10-24-c3-headroom-calibration.md:89), [spec:116](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/2026-10-24-c3-headroom-calibration.md:116).
+
+   The defensible prediction is conditional: **the four modeled contender limits pass, with favorable point-estimate tails and prefill separation**. Full admissibility remains unpredicted.
+
+4. **Malformed prefill evidence can crash scoring instead of producing “inconclusive.”**
+
+   I removed one `done.t2` field from an archived step log in memory. `cell_report()` still returned `eligible=True`; `engine_prefill()` then raised `KeyError('t2')`. Eligibility checks sequence/completeness and scheduler-token alignment, but not the required completion timestamp. Prefill extraction subsequently indexes `t2` directly, outside the malformed-record exception boundary. [pilot_report.py:270](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/prospective-pilot/pilot_report.py:270), [pilot_report.py:1167](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/prospective-pilot/pilot_report.py:1167), [pilot_report.py:915](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/prospective-pilot/pilot_report.py:915), [pilot_report.py:1227](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/prospective-pilot/pilot_report.py:1227).
+
+   That violates C3’s promised unscorable-evidence verdict and unconditional reporting. Merely substituting S into the existing calibration gate does not repair it. [spec:92](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/2026-10-24-c3-headroom-calibration.md:92), [spec:102](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/2026-10-24-c3-headroom-calibration.md:102), [spec:142](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/2026-10-24-c3-headroom-calibration.md:142).
+
+5. **The recorded derived-control replay uses a different rounding rule from the registration.**
+
+   The registration rounds **S** to 0.1 ms. The replay first rounds **d** to whole milliseconds, then derives S from that rounded value. The derived script accepts spacings as external arguments and does not record them in its JSON output. [spec:90](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/2026-10-24-c3-headroom-calibration.md:90), [predict-c3.py:29](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/data/2026-10-24-c3-headroom/predict-c3.py:29), [predict-c3-derived.py:8](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/data/2026-10-24-c3-headroom/predict-c3-derived.py:8), [predict-c3-derived.py:30](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/data/2026-10-24-c3-headroom/predict-c3-derived.py:30).
+
+   Recomputing from full-precision replay medians gives:
+
+   | Pace | Recorded S | S under the stated rule |
+   |---|---:|---:|
+   | 1.000 | 1,608.4 | **1,608.5 ms** |
+   | 1.0205 | 1,658.9 | **1,659.1 ms** |
+   | 1.0275 | 1,672.6 | **1,672.9 ms** |
+   | 1.070 | 1,767.4 | **1,767.3 ms** |
+
+   The recorded column is the published table; the corrected column comes from rerunning the cited simulator before its whole-millisecond rounding. [spec:108](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/2026-10-24-c3-headroom-calibration.md:108), [predict-c3.py:21](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/data/2026-10-24-c3-headroom/predict-c3.py:21).
+
+   These are small discrepancies, with no demonstrated verdict flip. They nevertheless mean the replay did not run the exact registered control rule. Preserve full-precision medians, freeze size-aware rounding too, and record actual spacing arguments.
+
+6. **The numerical-domain and failure-publication contract is incomplete.**
+
+   Rule 4 names only missing or infinite medians. It drops the requirement that medians be **positive**, present in both astra’s draft and the inherited implementation. Zero reference d makes the size-aware formula undefined; negative d can make the challenge comparison meaningless. [spec:95](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/2026-10-24-c3-headroom-calibration.md:95), [astra-independent-draft.txt:108](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/data/2026-10-24-c3-headroom/astra-independent-draft.txt:108), [pilot_report.py:1255](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/prospective-pilot/pilot_report.py:1255).
+
+   “Published whatever the verdict” also promises S and all size-aware spacings when the reference median may be missing or infinite. Astra explicitly qualified publication with “whenever valid finite inputs allow calculation”; this page removed that qualification. Specify unavailable outputs and reasons, and retain computable provisional outputs after other gate failures. [spec:102](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/2026-10-24-c3-headroom-calibration.md:102), [astra-independent-draft.txt:116](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/data/2026-10-24-c3-headroom/astra-independent-draft.txt:116).
+
+7. **The approval claim is unsupported by its citation.**
+
+   The page says the owner approved C3 on October 24 and cites “Order, if any is bought.” That section gives a recommendation and explicitly leaves the purchase decision to the owner. It records no such approval. This does **not** establish that approval never occurred; it establishes that the cited record does not substantiate it. [spec:5](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/2026-10-24-c3-headroom-calibration.md:5), [paid-retry-candidates.md:79](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/2026-10-22-paid-retry-candidates.md:79).
+
+The numerical audit otherwise reproduced all twelve C3 prediction JSONs using the recorded, rounded controls, all twelve listed trace checksums, and v27’s four seed-871 checksums. The v27 control’s numerical results also match; “identical” is literally inaccurate only because the new JSON adds a `seeds` field. [trace-checksums.txt:1](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/data/2026-10-24-c3-headroom/trace-checksums.txt:1), [README.txt:15](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/data/2026-10-24-c3-headroom/README.txt:15), [control JSON:1](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/data/2026-10-24-c3-headroom/control-v27-seeds-1.0205.json:1), [original JSON:1](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/data/2026-10-10-robustness-design/predict-main-1.0205.json:1).
+
+Concurrent edits corrected the README’s original false claim that study IDs enter trace checksums; its current wording correctly says they do not. I have excluded that corrected issue from the outstanding findings. [README.txt:17](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/data/2026-10-24-c3-headroom/README.txt:17).

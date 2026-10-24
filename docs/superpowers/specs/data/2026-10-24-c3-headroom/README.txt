@@ -18,7 +18,8 @@ An id not registered in `internal/bench` gets no exact-token stamps at all, with
 Once C3's id was registered, its seed-891 traces came out with the same three length checksums as listed here: the id itself does not enter the checksum.
 
 `predict-c3.py` is v27's `predict-main.py` with the trace directory and seeds taken as arguments.
-The control, `control-v27-seeds-1.0205.json`, regenerates v27's main-study traces (seeds 881 to 883 at 0.5/s) and is identical to v27's committed `predict-main-1.0205.json`.
+The control, `control-v27-seeds-1.0205.json`, regenerates v27's main-study traces (seeds 881 to 883 at 0.5/s) and matches v27's committed `predict-main-1.0205.json` in every field the two share; it adds only `seeds`.
+After astra's attack (`astra-attack.txt`, finding 5) both scripts also write the unrounded median, `hc_prefill_p50_exact`, and the derived script the spacings it ran; the derived outputs were re-run with S rounded once, to 0.1 ms, from the unrounded medians.
 
 - `predict-main-anchor1740-<pace>.json`: seeds 882, 892 and 893, with the fixed arm at v26's 1,740 ms and the size-aware spacings v27's calibration froze.
 - `predict-cal891-anchor1740-<pace>.json`: the calibration's seed 891, the same arms.

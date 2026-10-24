@@ -2,7 +2,7 @@
 
 Written 2026-10-24.
 **DRAFT, not frozen for purchase.** It is frozen only after codex's cold attack on this page has been reconciled, the build below is in, and the plan check and a kind rehearsal have run. The owner confirms the purchase after that.
-The owner approved C3, calibration first, on 2026-10-24 (`2026-10-22-paid-retry-candidates.md`, "Order, if any is bought").
+The owner approved proceeding with C3 in the recommended order, calibration first, in the working session of 2026-10-24; no document records that approval. The order itself is `2026-10-22-paid-retry-candidates.md`, "Order, if any is bought".
 v27's records stand as written (`2026-10-08-measuring-prospective-admission-design.md`, "v27 calibration's result" and "v27 main study"). This is a new question at a new load.
 
 ## How it was drafted
@@ -47,16 +47,33 @@ So with v26's spacing carried unchanged, the challenge sits on a pace knife edge
 
 | pace | S | off, long | hold-cap, long | fixed S, long | fixed S against hold-cap, ref |
 |---|---:|---:|---:|---:|---:|
-| 1.000 | 1,608.4 ms | 1,540 | 394 | 1,468 | 426 against 370 |
-| 1.0205 | 1,658.9 ms | 1,578 | 433 | 1,507 | 425 against 390 |
-| 1.0275 | 1,672.6 ms | 1,589 | 452 | 1,502 | 447 against 400 |
-| 1.070 | 1,767.4 ms | 1,664 | 509 | 1,819 | 531 against 471 |
+| 1.000 | 1,608.5 ms | 1,540 | 394 | 1,468 | 426 against 370 |
+| 1.0205 | 1,659.1 ms | 1,578 | 433 | 1,488 | 429 against 390 |
+| 1.0275 | 1,672.9 ms | 1,589 | 452 | 1,513 | 447 against 400 |
+| 1.070 | 1,767.3 ms | 1,664 | 509 | 1,819 | 528 against 471 |
 
-At every pace hold-cap is admissible on every seed and length, and the derived spacing collapses at the long length. At the reference neither is 15% below the other: hold-cap over fixed-S is 0.869 to 0.918.
+S here is computed from the replay's unrounded medians and rounded once, to 0.1 ms, as the gate computes it; each output records the spacings it ran.
+At every pace the four contender limits the replay models hold for hold-cap on every seed and length, and the derived spacing collapses at the long length. At the reference neither is 15% below the other: hold-cap over fixed-S is 0.869 to 0.909.
 That is the separation the main study needs, and the reason the derived rule is taken.
 
 What the derived rule costs, in astra's words: the reference length's fit to S holds by construction, so the calibration can no longer test it independently as v27's did ("the reference must still fit", C6). The main study has to show it instead, by fixed-S being admissible at the reference with neither it nor hold-cap 15% below the other.
 And S is v26's ratio carried to a new load, not a spacing tuned at it: 1.0533 is the literal ratio of v26's selected 1,740 ms to v27's measured 1,652 ms (1,740 / 1,652 = 1.05327, frozen as **1.0533**). v26 never measured past its grid's widest spacing, so nothing establishes S as the best fixed spacing here.
+
+## Revised against astra's cold attack, before purchase
+
+astra attacked this page cold (`data/2026-10-24-c3-headroom/astra-attack.txt`, from `astra-attack-prompt.txt`, which names no place to look). I reproduced each finding before acting on it.
+
+| # | Finding | Reproduced | Resolution |
+|---|---|---|---|
+| 1 | A NaN timestamp makes the crossed ratio NaN, which reads "fails" on its line and passes the rule that should act on it, so the inherited gate returns feasible with three failed protection lines | yes: a test with NaN first-content stamps read feasible | `crossed_log_ratio` returns unscorable for a NaN, and feasible now needs every line to hold (rule 4); each has its own test and mutation |
+| 2 | "Feasible" was worded as licensing the main comparison, which this stage does not measure | yes | the license is narrowed to hold-cap's feasibility and a prefill challenge; the fixed spacing's failure is a prediction ("What it licenses") |
+| 3 | The replay models four of the gate's admissibility lines, and its d differs from the scorer's in population | yes | the prediction is stated as the four modelled limits, with both differences named |
+| 4 | A done record without its end time crashes the scorer instead of reading inconclusive | yes: `KeyError: 't2'` | such records are counted as a validity line; a test and a mutation |
+| 5 | The derived replay rounded d to whole milliseconds before deriving S | yes: S off by up to 0.3 ms | re-run from unrounded medians; each output records its spacings; the tables above are the re-run's |
+| 6 | Rule 4 dropped "not positive", and publication was promised where S cannot be computed | yes | both restored as astra's draft had them |
+| 7 | The approval was cited to a page that records only a recommendation | yes | the approval is now stated as given in the working session, with no document behind it |
+
+Findings 1 and 4 are in the scoring code v27's calibration shares, and in `crossed_log_ratio`, which the diagnostic and v26 also use. The fixes change no published verdict. Scored by `dev`'s scorer and by this one, the diagnostic's and v26's archives give byte-identical output. v27's gives the same verdict, medians and spacings, and differs only by three added validity lines, one per length, each holding at 0 done records without an end time.
 
 ## Study, stage and load
 
@@ -92,28 +109,31 @@ S = 1.0533 × d(ref), rounded to 0.1 ms.
 1. **inconclusive: <reason>** for a missing or extra cell, any failed or unscorable validity line, any unscorable admissibility or protection line, or any hold-cap contender success the gateway did not time;
 2. **not feasible: hold-cap was not admissible at <length>: <line>**, by v26's seven admissibility lines against off at the same length;
 3. **not feasible: hold-cap's 15% protection of the premium tail was not established at <length>**, when ln(hold-cap scheduled hi / off arrival lo) exceeds ln 0.85;
-4. **inconclusive: <length>'s engine prefill median is <missing / infinite>**, only once 2 and 3 pass at every length;
+4. **inconclusive** when a length's engine prefill median is missing, not positive, or infinite, only once 2 and 3 pass at every length; and when any validity, admissibility or protection line does not hold without having reached rules 1 to 3, since feasible needs every line to hold, not only no rule to have fired;
 5. **challenge not achieved**, when d(long) does not exceed S;
 6. **feasible** otherwise.
 
 Within a rule, lengths are reported short, ref, long, and every failure is listed.
 v27's second condition, "and 1.05 times the reference's", is dropped: with S at 1.0533 × d(ref), exceeding S already exceeds it.
 
-**Published whatever the verdict:** S and the size-aware spacings s(length) = S × d(length) / d(ref), labelled provisional unless the verdict is feasible; every validity and admissibility line; off's and hold-cap's premium bounds; contender completion, p50, p95 and refusals; work p and q; premium gaps; preemptions; d and its p95 and unfinished count per length; the gateway's admission-to-first-content beside d, not judged; and the session's timings and cost.
+**Published whatever the verdict:** S and the size-aware spacings s(length) = S × d(length) / d(ref), whenever every median is finite and positive, labelled provisional unless the verdict is feasible, and otherwise absent, with the reason in the verdict; every validity and admissibility line; off's and hold-cap's premium bounds; contender completion, p50, p95 and refusals; work p and q; premium gaps; preemptions; d and its p95 and unfinished count per length; the gateway's admission-to-first-content beside d, not judged; and the session's timings and cost.
 
 ## The prediction, recorded before purchase
 
-On seed 891, at the four paces, the replay predicts hold-cap admissible at every length, with its pooled premium p99 at 0.24 to 0.29 of off's, and:
+On seed 891, at the four paces, the replay predicts that hold-cap passes the four contender limits it models (completion, completion p50, completion p95, no hold refusal) at every length, with its pooled premium p99 at 0.24 to 0.29 of off's, and:
 
 | pace | d(short) | d(ref) | d(long) | S | d(long) > S |
 |---|---:|---:|---:|---:|---|
-| 1.000 | 1,106 | 1,527 | 1,648 | 1,608.4 | yes |
-| 1.0205 | 1,133 | 1,575 | 1,702 | 1,658.9 | yes |
-| 1.0275 | 1,147 | 1,588 | 1,726 | 1,672.6 | yes |
-| 1.070 | 1,210 | 1,678 | 1,828 | 1,767.4 | yes |
+| 1.000 | 1,106 | 1,527 | 1,648 | 1,608.5 | yes |
+| 1.0205 | 1,133 | 1,575 | 1,702 | 1,659.1 | yes |
+| 1.0275 | 1,147 | 1,588 | 1,726 | 1,672.9 | yes |
+| 1.070 | 1,210 | 1,678 | 1,828 | 1,767.3 | yes |
 
-So the gate is predicted to read **feasible** at every pace replayed.
-Two limits on that. The replay's prefill is a contender's first token less its engagement in the model, which is not the scorer's d, though both end at the step that took the last prompt token. And the replay has understated the contender's cost by 3% to 7% against every card measured so far.
+So the replay points to **feasible** at every pace, and it does not predict the gate in full:
+- the gate's other admissibility lines, no preemption, shared-window work p and q, and the premium inter-token gap, are not modelled (`simulate.py`, `owner_limits`), so full admissibility is unpredicted;
+- the replay's d is a contender's first token less its engagement in the model, over the contenders that reached a first token; the scorer's d runs from the scheduler's add and counts an unfinished prefill as +∞, so the two differ in definition and in population;
+- the replay has understated the contender's cost by 3% to 7% against every card measured so far.
+
 The prediction does not decide the purchase. It cannot establish validity, and it cannot be used to change the rate, the seed or the multiplier.
 
 ## What comes after, not registered here
@@ -129,8 +149,9 @@ At the $1.1324/h price cap and the full 2 h 19 m hard stop it is about $2.6.
 
 ## What it licenses
 
-Feasible: that at this load, on this card and seed, hold-cap meets the owner's limits at all three lengths and the long prompt outlasts the derived spacing, so a main study's comparison is a real one.
-It says nothing about the fixed or size-aware controls' tails, which this stage does not run, nothing across cards, and nothing that revises v26's or v27's verdicts at the old load.
+Feasible: that at this load, on this card and seed, hold-cap meets the owner's limits at all three lengths, and that the long prompt's median capped prefill outlasts S, 1.0533 times the reference's.
+That is a challenge to the fixed spacing measured in prefill, not a fixed spacing measured failing: whether fixed-S loses the premium tail at the long length depends on the arrival schedule and the overlapping work as well, and this stage runs neither fixed-S nor size-aware. The replay predicts it does; only the main study can measure it.
+So a feasible verdict licenses registering the main study and running its purchase gate, and nothing about either control's tail, nothing across cards, and nothing that revises v26's or v27's verdicts at the old load.
 
 ## What must be built before purchase
 

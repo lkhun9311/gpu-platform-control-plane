@@ -1,0 +1,3 @@
+Attack, cold, the pre-registration at docs/superpowers/specs/2026-10-24-c3-headroom-calibration.md in this repository, as you would before money is spent on it. Read only; do not edit files.
+
+Find what is wrong: anything false, circular, under-specified, inconsistent with the files it cites or with the code it will run on, any figure that does not reproduce from docs/superpowers/specs/data/2026-10-24-c3-headroom/, and any way the session could report a verdict the evidence does not support. Rank by consequence. Cite file:line for every claim.

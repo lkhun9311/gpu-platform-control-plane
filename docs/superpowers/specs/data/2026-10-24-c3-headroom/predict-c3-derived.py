@@ -26,5 +26,5 @@ for L in ("short","ref","long"):
             f=sim.owner_limits(res[a],res["off"])
             if f and adm[a]: adm[a]=False; why[a]=f"{f} seed {seed}"
     p99={a:sim.summarize(pooled[a])["premium_p99_ms"] for a in arms}
-    out[L]={"p99":{a:round(v) for a,v in p99.items()},"inadmissible":why,"hc_prefill_p50":round(pr.nearest_rank(sorted(pre),0.5))}
-print(json.dumps({"scale":scale,"seeds":SEEDS,**out}))
+    out[L]={"p99":{a:round(v) for a,v in p99.items()},"inadmissible":why,"hc_prefill_p50":round(pr.nearest_rank(sorted(pre),0.5)),"hc_prefill_p50_exact":pr.nearest_rank(sorted(pre),0.5)}
+print(json.dumps({"scale":scale,"seeds":SEEDS,"fixed_spacing_ms":FIX/1e6,"size_aware_ms":{k:v/1e6 for k,v in SIZE.items()},**out}))
