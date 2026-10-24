@@ -146,9 +146,8 @@ SOURCE_SHA=$(sha256sum "$OUT/source.tgz" | cut -d' ' -f1)
 GATEWAY_SHA=$(sha256sum "$OUT/gateway" | cut -d' ' -f1)
 HARNESS_SHA=$(sha256sum "$OUT/benchharness" | cut -d' ' -f1)
 # The pins the instance compares the tree it unpacked against; this tree is clean, so they are the commit's.
-PIN_OVERLAY=$(mpscap_pin_hash config/nvidia-device-plugin-mps/configmap.yaml config/nvidia-device-plugin-mps/daemonset.yaml \
-  config/nvidia-device-plugin-mps/kustomization.yaml)
-PIN_ENGINES=$(mpscap_pin_hash config/vllm-shared/engine-a.yaml config/vllm-shared/engine-b.yaml)
+PIN_OVERLAY=$(mpscap_pin_hash "${MPSCAP_OVERLAY_FILES[@]}")
+PIN_ENGINES=$(mpscap_pin_hash "${MPSCAP_ENGINE_FILES[@]}")
 RUN_NONCE=$(python3 -c 'import secrets; print(secrets.token_hex(4))')
 RUN_ID="$(basename "$OUT")-$RUN_NONCE"
 BUCKET="$STACK-$ACCOUNT"
@@ -258,8 +257,8 @@ md() { curl -s -H "X-aws-ec2-metadata-token: $imds" "http://169.254.169.254/late
   echo "engine_a_image=$(grep -m1 -oE 'image: *[^ ]+' config/vllm-shared/engine-a.yaml | sed 's/image: *//')"
   echo "engine_b_image=$(grep -m1 -oE 'image: *[^ ]+' config/vllm-shared/engine-b.yaml | sed 's/image: *//')"
   echo "plugin_image=$(grep -m1 -oE 'image: *[^ ]+' config/nvidia-device-plugin-mps/daemonset.yaml | sed 's/image: *//')"
-  echo "pin_overlay=$(mpscap_pin_hash config/nvidia-device-plugin-mps/configmap.yaml config/nvidia-device-plugin-mps/daemonset.yaml config/nvidia-device-plugin-mps/kustomization.yaml)"
-  echo "pin_engines=$(mpscap_pin_hash config/vllm-shared/engine-a.yaml config/vllm-shared/engine-b.yaml)"
+  echo "pin_overlay=$(mpscap_pin_hash "${MPSCAP_OVERLAY_FILES[@]}")"
+  echo "pin_engines=$(mpscap_pin_hash "${MPSCAP_ENGINE_FILES[@]}")"
 } > /tmp/provenance.txt
 upload /tmp/provenance.txt provenance.txt
 if awk -F= 'NF < 2 || $2 == "" {bad = 1} END {exit bad}' /tmp/provenance.txt; then

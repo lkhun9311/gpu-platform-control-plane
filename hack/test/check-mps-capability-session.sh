@@ -213,7 +213,7 @@ bash -n "$STUB/bringup-extracted.sh" && ok "the carried bring-up parses on its o
 grep -q 'grep -qx .required_failed=0. /src/m5c-run/mpscap/diag/complete' "$ud" &&
   ok "the diagnostics count as uploaded only with the collector's completion marker" || bad "the diagnostics fact does not require the completion marker"
 (( $(wc -c <"$ud") < 16384 )) && ok "the user-data is $(wc -c <"$ud") bytes, under EC2's 16 KB" || bad "the user-data is $(wc -c <"$ud") bytes"
-pin=$(cd "$REPO" && bash -c '. hack/lib/mps-capability.sh; mpscap_pin_hash config/vllm-shared/engine-a.yaml config/vllm-shared/engine-b.yaml')
+pin=$(cd "$REPO" && bash -c '. hack/lib/mps-capability.sh; mpscap_pin_hash "${MPSCAP_ENGINE_FILES[@]}"')
 grep -q "MPSCAP_PIN_ENGINES=$pin" "$ud" && ok "the engines' pin is the commit's" || bad "the engines' pin in the user-data is not the commit's ($pin)"
 
 # codex, review of 96bb69fd: an output directory that already exists could lend this session another run's journal.

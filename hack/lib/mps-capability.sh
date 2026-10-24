@@ -22,6 +22,35 @@ mpscap_k() { kubectl --context "$MPSCAP_CTX" --request-timeout="${MPSCAP_REQUEST
 # The kind rehearsal found it missing: B0 and B1 could not save what they read and came out unmeasured.
 mpscap_out() { mkdir -p "$MPSCAP_OUT" || { echo "mps capability: cannot create $MPSCAP_OUT" >&2; return 1; }; }
 
+# The files each pin covers, named once: the session hashes them before launch, the instance after unpacking, and the
+# session's test against the user-data, and a file added at one of those sites and not the others would be applied
+# unpinned.
+MPSCAP_OVERLAY_FILES=(config/nvidia-device-plugin-mps/configmap.yaml config/nvidia-device-plugin-mps/daemonset.yaml
+  config/nvidia-device-plugin-mps/kustomization.yaml)
+MPSCAP_ENGINE_FILES=(config/vllm-shared/engine-a.yaml config/vllm-shared/engine-b.yaml config/vllm-shared/mps-shm-patch.yaml)
+
+# mpscap_engine_manifest ENGINE OUT: config/vllm-shared/engine-ENGINE.yaml with the engine's own /dev/shm removed, as
+# config/vllm-shared/mps-shm-patch.yaml explains, written to OUT; it fails when the rendered Deployment still mounts
+# anything at /dev/shm.
+#
+# The render happens in a directory of its own because a kustomization may not name a file above itself.
+mpscap_engine_manifest() {
+  local engine="$1" out="$2" t rc=0
+  t="$(mktemp -d)" || return 1
+  cp "config/vllm-shared/engine-$engine.yaml" "$t/engine.yaml" && cp config/vllm-shared/mps-shm-patch.yaml "$t/patch.yaml" \
+    && printf 'apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources:\n  - engine.yaml\npatches:\n  - path: patch.yaml\n    target:\n      kind: Deployment\n' >"$t/kustomization.yaml" \
+    && kubectl kustomize "$t" >"$out" || rc=1
+  rm -rf "$t"
+  [ "$rc" = 0 ] || { echo "the engine $engine manifest could not be rendered without its /dev/shm"; return 1; }
+  # kustomize writes its output normalized, one key per line at fixed indentation, so a line match reads it exactly;
+  # the instance has kubectl for certain and PyYAML not.
+  local deployments shm
+  deployments=$(grep -cx 'kind: Deployment' "$out")
+  shm=$(grep -nE '^ *(- )?mountPath: /dev/shm$|^ *(- )?name: dshm$' "$out")
+  [ "$deployments" = 1 ] || { echo "the rendered engine $engine holds ${deployments:-no} Deployments, not one"; return 1; }
+  [ -z "$shm" ] || { echo "the rendered engine $engine still carries its own shm: $(echo "$shm" | tr '\n' ' ')"; return 1; }
+}
+
 # mpscap_pin_hash FILE...: one hash over each file's path and contents, in the order given.
 #
 # The session computes it in the tree it launches from and the instance in the tree it unpacked, so equal values say

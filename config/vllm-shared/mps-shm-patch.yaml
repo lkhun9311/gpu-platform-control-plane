@@ -1,0 +1,30 @@
+# Applied to both engines in the MPS capability study only, by mpscap_engine_manifest in hack/lib/mps-capability.sh,
+# which renders each engine through `kubectl kustomize` with this as a strategic-merge patch.
+#
+# Under MPS the device plugin hands every client the daemon's shm as a bind mount at /dev/shm
+# (internal/plugin/server.go:389-392 at v0.16.2), backed by the tmpfs the daemon's mount-shm init container makes at
+# the node's /run/nvidia/mps/shm, half the node's memory in size.
+# The engines' own memory-backed /dev/shm is mounted at the same path, after the plugin's: kubelet appends Pod volume
+# mounts after the device plugin's, and containerd keeps CRI mounts with one destination in that order, so the
+# engine's emptyDir would cover the daemon's shm (codex gpt-6-astra's reading of kubelet v1.31.0 and containerd
+# v1.7.18, not mine, and not observed on a container's mount table).
+# Removing the engine's own mount leaves the plugin's, which is the arrangement the chart at the same tag deploys.
+#
+# It is a separate file and not a kustomization because a kustomization here could not name ../engine-a.yaml
+# without kustomize's load restrictor turned off, and make infra-validate builds every kustomization with it on.
+# The time-slicing and exclusive arms apply the engine files unpatched.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: any
+spec:
+  template:
+    spec:
+      containers:
+        - name: vllm
+          volumeMounts:
+            - mountPath: /dev/shm
+              $patch: delete
+      volumes:
+        - name: dshm
+          $patch: delete
