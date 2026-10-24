@@ -124,7 +124,8 @@ func readMPSJournal(r io.Reader) (mpsJournalState, error) {
 	st := mpsJournalState{started: map[string]bool{}, decided: map[string]string{}, facts: map[string]bool{}}
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 0, 64*1024), 1<<20)
-	n := 0
+	// Lines and records are counted apart, because a journal of blank lines has lines and no evidence.
+	n, records := 0, 0
 	for sc.Scan() {
 		n++
 		raw := bytes.TrimSpace(sc.Bytes())
@@ -137,9 +138,15 @@ func readMPSJournal(r io.Reader) (mpsJournalState, error) {
 		if err := dec.Decode(&l); err != nil {
 			return st, fmt.Errorf("journal line %d is not a journal record: %w", n, err)
 		}
+		// One record per line: Decode stops after the first object, so anything after it would be dropped unread,
+		// and a dropped line can be the fact that contradicts the rest.
+		if _, err := dec.Token(); err != io.EOF {
+			return st, fmt.Errorf("journal line %d holds more than one record", n)
+		}
 		if l.At == "" {
 			return st, fmt.Errorf("journal line %d has no time", n)
 		}
+		records++
 		var err error
 		switch l.Type {
 		case "bar":
@@ -156,8 +163,8 @@ func readMPSJournal(r io.Reader) (mpsJournalState, error) {
 	if err := sc.Err(); err != nil {
 		return st, fmt.Errorf("reading the journal: %w", err)
 	}
-	if n == 0 {
-		return st, fmt.Errorf("the journal is empty, so there is nothing to classify")
+	if records == 0 {
+		return st, fmt.Errorf("the journal holds no records, so there is nothing to classify")
 	}
 	return st, nil
 }

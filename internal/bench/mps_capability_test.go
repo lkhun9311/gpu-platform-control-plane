@@ -151,7 +151,13 @@ func TestMPSCapabilityRefusesAJournalItCannotRead(t *testing.T) {
 	cases := []struct {
 		name, journal, want string
 	}{
-		{"an empty journal", "", "empty"},
+		{"an empty journal", "", "no records"},
+		{"a journal of blank lines", "\n  \n\n", "no records"},
+		// The trailing record is the one that would make the run INVALID, so dropping it would change the outcome.
+		{"two records on one line", strings.Replace(pass.render(), `"value":true,"at":"2026-10-24T00:00:02Z"}`+"\n",
+			`"value":true,"at":"2026-10-24T00:00:02Z"} {"type":"fact","name":"x","value":false,"at":"t"}`+"\n", 1), "more than one record"},
+		{"garbage after a record", strings.Replace(pass.render(), `"value":true,"at":"2026-10-24T00:00:02Z"}`+"\n",
+			`"value":true,"at":"2026-10-24T00:00:02Z"} trailing`+"\n", 1), "more than one record"},
 		{"a line that is not JSON", withExtra("B0 pass"), "not a journal record"},
 		{"a field the journal does not have", withExtra(`{"type":"fact","name":"provenance_complete","value":true,"at":"x","ok":1}`), "not a journal record"},
 		{"a line with no time", withExtra(`{"type":"bar","bar":"B9","state":"started"}`), "no time"},
