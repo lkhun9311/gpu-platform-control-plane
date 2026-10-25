@@ -150,6 +150,26 @@ func TestMatrixPlanArmSetRefusalForTheHeadroomCalibration(t *testing.T) {
 	}
 }
 
+// C3's main study plans its 16 labels, and v27's fixed1740 label is not one of them (2026-10-25-c3-headroom-main.md).
+// Mutation that turns it red: drop StudyHeadroomMain from the length studies' rule.
+func TestMatrixPlanArmSetRefusalForTheHeadroomMain(t *testing.T) {
+	all := []string{"R1"}
+	for _, a := range []string{"off", "caponly", "hold-cap", "fixedS", "sizeaware"} {
+		for _, l := range []string{"short", "ref", "long"} {
+			all = append(all, a+"-"+l)
+		}
+	}
+	if err := MatrixPlanArmSetRefusal(StudyHeadroomMain, all); err != nil {
+		t.Fatalf("the main study's registered arms were refused: %v", err)
+	}
+	if err := MatrixPlanArmSetRefusal(StudyHeadroomMain, all[:15]); err == nil {
+		t.Fatal("a main-study plan without sizeaware-long was accepted")
+	}
+	if err := MatrixPlanArmSetRefusal(StudyHeadroomMain, append(all[:len(all):len(all)], "fixed1740-long")); err == nil {
+		t.Fatal("a main-study plan carrying v27's fixed1740-long was accepted")
+	}
+}
+
 // The capability session buys exactly one mps cell; a baseline beside it would be a cell nothing reads, and a second
 // arm would be the sharing matrix under another name.
 func TestMatrixPlanArmSetRefusalForTheMPSCapability(t *testing.T) {
