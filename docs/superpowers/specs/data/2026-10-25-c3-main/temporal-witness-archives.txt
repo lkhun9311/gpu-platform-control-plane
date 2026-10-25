@@ -1,0 +1,24 @@
+m5c-20261009-122503-diagD hold-cap-1 hold-cap: 186 admissions, min gap after release 0.014 ms, 0 before it, 0 without a release; first content less release 0.016 to 1.838 ms
+m5c-20261009-122503-diagD hold-cap-2 hold-cap: 232 admissions, min gap after release 0.017 ms, 0 before it, 0 without a release; first content less release 0.017 to 0.921 ms
+m5c-20261009-122503-diagD hold-cap-3 hold-cap: 185 admissions, min gap after release 0.013 ms, 0 before it, 0 without a release; first content less release 0.017 to 0.824 ms
+m5c-20261010-024449-frontierE fixed-1.62-1 fixed 1620 ms: 200 admissions, least gap less spacing 0.017 ms, 0 under -1 ms
+m5c-20261010-024449-frontierE fixed-1.62-2 fixed 1620 ms: 207 admissions, least gap less spacing 0.022 ms, 0 under -1 ms
+m5c-20261010-024449-frontierE fixed-1.62-3 fixed 1620 ms: 201 admissions, least gap less spacing 0.019 ms, 0 under -1 ms
+m5c-20261010-024449-frontierE fixed-1.66-1 fixed 1660 ms: 200 admissions, least gap less spacing -0.010 ms, 0 under -1 ms
+m5c-20261010-024449-frontierE fixed-1.66-2 fixed 1660 ms: 207 admissions, least gap less spacing 0.023 ms, 0 under -1 ms
+m5c-20261010-024449-frontierE fixed-1.66-3 fixed 1660 ms: 201 admissions, least gap less spacing 0.017 ms, 0 under -1 ms
+m5c-20261010-024449-frontierE fixed-1.70-1 fixed 1700 ms: 200 admissions, least gap less spacing -0.011 ms, 0 under -1 ms
+m5c-20261010-024449-frontierE fixed-1.70-2 fixed 1700 ms: 207 admissions, least gap less spacing -0.000 ms, 0 under -1 ms
+m5c-20261010-024449-frontierE fixed-1.70-3 fixed 1700 ms: 201 admissions, least gap less spacing 0.011 ms, 0 under -1 ms
+m5c-20261010-024449-frontierE fixed-1.74-1 fixed 1740 ms: 200 admissions, least gap less spacing -0.007 ms, 0 under -1 ms
+m5c-20261010-024449-frontierE fixed-1.74-2 fixed 1740 ms: 207 admissions, least gap less spacing 0.030 ms, 0 under -1 ms
+m5c-20261010-024449-frontierE fixed-1.74-3 fixed 1740 ms: 201 admissions, least gap less spacing 0.011 ms, 0 under -1 ms
+m5c-20261010-024449-frontierE hold-cap-1 hold-cap: 200 admissions, min gap after release 0.016 ms, 0 before it, 0 without a release; first content less release 0.015 to 0.671 ms
+m5c-20261010-024449-frontierE hold-cap-2 hold-cap: 207 admissions, min gap after release 0.013 ms, 0 before it, 0 without a release; first content less release 0.018 to 0.395 ms
+m5c-20261010-024449-frontierE hold-cap-3 hold-cap: 201 admissions, min gap after release 0.016 ms, 0 before it, 0 without a release; first content less release 0.017 to 1.256 ms
+m5c-20261010-080107-lencalF hold-cap-long-1 hold-cap: 198 admissions, min gap after release 0.017 ms, 0 before it, 0 without a release; first content less release 0.015 to 0.389 ms
+m5c-20261010-080107-lencalF hold-cap-ref-1 hold-cap: 198 admissions, min gap after release 0.018 ms, 0 before it, 0 without a release; first content less release 0.018 to 0.758 ms
+m5c-20261010-080107-lencalF hold-cap-short-1 hold-cap: 198 admissions, min gap after release 0.011 ms, 0 before it, 0 without a release; first content less release 0.017 to 0.562 ms
+m5c-20261025-040425-headroomG hold-cap-long-1 hold-cap: 163 admissions, min gap after release 0.012 ms, 0 before it, 0 without a release; first content less release 0.019 to 0.415 ms
+m5c-20261025-040425-headroomG hold-cap-ref-1 hold-cap: 163 admissions, min gap after release 0.013 ms, 0 before it, 0 without a release; first content less release 0.017 to 0.953 ms
+m5c-20261025-040425-headroomG hold-cap-short-1 hold-cap: 163 admissions, min gap after release 0.013 ms, 0 before it, 0 without a release; first content less release 0.019 to 0.803 ms

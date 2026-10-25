@@ -15,7 +15,7 @@ Then the purchase gate was frozen (`gate.txt`, before it ran), run once at its n
 | Arms | off, cap-only, hold-cap, fixed-S, size-aware at each length | the same, size-aware as the existing fixed-spacing mode at each length's scalar | the same |
 | Block numbering | not considered | the global block, 1 to 3, enters the order's hash, though each card runs alone | astra's; the orders below are recomputed by me with the matrix's rule |
 | The reference test | "within 15%" | neither 15% below the other, explicitly not equivalence; v27's stronger non-inferiority published beside it | astra's |
-| A card slower than the gate's band (a higher replay pace) | not considered | not considered | a named verdict, below: the pass band's upper edge is a reference tie that breaks toward hold-cap, and that outcome answers something |
+| A card slower than the gate's band (a higher replay pace) | not considered | not considered | first a verdict of its own; after astra's attack showed the calibration card at that edge, the owner chose to judge the length question there too (rule 6) |
 | Replacement launches | not considered | at most one, for a documented Spot interruption only | astra's |
 | Top risk | seed 882's heavy draw at long | the fixed control was chosen on the separation the replay predicted | both stated; astra's limits what a win licenses ("What it licenses") |
 
@@ -25,10 +25,10 @@ astra attacked this page cold at `d94e973a` (`data/2026-10-25-c3-main/astra-atta
 
 | # | Finding | Reproduced | Resolution |
 |---|---|---|---|
-| 1 | The inherited serial-prefill line counts reason labels, and the spacing line times only admissions labelled "waited": neither checks the treatment's timing | yes, in `pilot_report.py`'s `mode_reasons` and `spacing_deviation`; astra's rewritten-timestamp archive I have not rebuilt | two temporal witnesses added to the scorer's build (item 6) |
+| 1 | The inherited serial-prefill line counts reason labels, and the spacing line times only admissions labelled "waited": neither checks the treatment's timing | yes, in `pilot_report.py`'s `mode_reasons` and `spacing_deviation`; astra's rewritten-timestamp archive I have not rebuilt | two temporal witnesses added to the scorer's build (item 6). Run on every archived card first (`temporal-witness.py`, `temporal-witness-archives.txt`): all 12 hold-cap cells admit each contender after the previous one's recorded release, by at least 0.011 ms, each release 0.015 to 1.84 ms before its first content; all 12 of v26's fixed cells hold every consecutive gap within 0.011 ms of the spacing. So the calibration's evidence passes them |
 | 2 | An unscorable protection or comparison bound has no verdict, and the short length's would go unread by the interaction | yes | rule 1 takes every unscorable bound rules 3 to 7 read, and rule 6 needs every line it names to hold |
 | 3 | The pace margin used a shift onto the gate's grid point with no basis | yes: the card matches at 1.0316 on the generated trace and 1.0306 on its own | removed; the margin is 0.0012 to 0.0022, and the calibration card sits at the upper edge ("The purchase gate") |
-| 4 | Rule 5b's license claimed a tie the calibration never measured; and failing both wins does not establish "neither 15% below" | yes | both reworded |
+| 4 | Rule 5b's (now 5d's) license claimed a tie the calibration never measured; and failing both wins does not establish "neither 15% below" | yes | both reworded |
 | 5 | Nothing requires three distinct GPUs, yet the license spoke of three cards | yes | the verdicts speak of three sessions, and the number of distinct UUIDs is published |
 | 6 | A ledger refusing a fourth launch makes the allowed replacement impossible | yes | a fifth launch is refused |
 | 7 | A waiter giving up as its turn comes spends the slot | yes, `fixedspacing.go` `leave` | stated |
@@ -133,18 +133,20 @@ H is hold-cap, F fixed-S, A size-aware, C cap-only, O off.
 3. **hold-cap's protection not established at <length>**, when U(H, O) > ln 0.85 at any length.
 4. **challenge not reproduced on block <b>**, unless on every block d(ref, b) ≤ 1,680.4, d(long, b) > 1,680.4, and d(long, b) > 1.05 × d(ref, b). A missing, not positive or infinite median reads inconclusive here instead.
    The 1.05 condition is back: S is frozen, no longer recomputed from each card's own reference, so exceeding S no longer implies it.
-5. **The reference comparison**, the first that applies:
+5. **The reference comparison**, the first that applies, with 5a, 5b and 5c ending the verdict and 5d carried into rule 6:
    - 5a. **reference comparison not established: fixed-S <inadmissible | not protective> at ref**, when F fails an admissibility line at ref, or U(F, O) > ln 0.85 there;
-   - 5b. **hold-cap beat the frozen spacing at the reference already**, when W(H, F) at ref;
-   - 5c. **the frozen spacing beat hold-cap at the reference**, when W(F, H) at ref;
-   - 5d. **reference comparison not established: <which bound or work line>**, when U(H, F) ≤ ln 0.85 or U(F, H) ≤ ln 0.85 at ref without the W that would name it;
-   - otherwise neither directional 15% advantage is established at ref, and the verdict goes on. That is not equivalence, and it does not say neither arm is 15% below the other: hold-cap's bounds at [80, 90] against fixed-S's at [100, 110] establish neither, while allowing a 20% gap. N(F, H) at ref is published beside it.
-6. **length-dependent advantage over the frozen spacing observed**, when the interaction I⁺ = U(H, F) at long − L(H, F) at ref ≤ ln 0.85, K(H, F) at long, and either F is inadmissible at long or W(H, F) at long.
-   The reference's lower bound is subtracted, so the interaction is the unfavourable end. With F's bound infinite at long and H's finite, I⁺ is −∞ and holds; with H's infinite it is +∞ and fails.
-7. **length-dependent advantage not established: <which>**, otherwise, naming the failed interaction, separation or work line, and any reverse W(F, H) at long.
+   - 5b. **the frozen spacing beat hold-cap at the reference**, when W(F, H) at ref;
+   - 5c. **reference comparison not established: <which bound or work line>**, when U(H, F) ≤ ln 0.85 or U(F, H) ≤ ln 0.85 at ref without the W that would name it;
+   - 5d. **hold-cap already ahead at the reference**, when W(H, F) at ref: not a verdict on its own, but the starting point rule 6 names;
+   - otherwise neither directional 15% advantage is established at ref. That is not equivalence, and it does not say neither arm is 15% below the other: hold-cap's bounds at [80, 90] against fixed-S's at [100, 110] establish neither, while allowing a 20% gap. N(F, H) at ref is published beside it.
+6. **length-dependent advantage over the frozen spacing observed, <from a reference with neither ahead | with hold-cap already ahead at the reference>**, when the interaction I⁺ = U(H, F) at long − L(H, F) at ref ≤ ln 0.85, K(H, F) at long, and either F is inadmissible at long or W(H, F) at long.
+   The reference's lower bound is subtracted, so the interaction is the unfavourable end, and an advantage hold-cap already had at the reference is subtracted from the long one before the 15% is asked of it. With F's bound infinite at long and H's finite, I⁺ is −∞ and holds; with H's infinite it is +∞ and fails.
+7. **length-dependent advantage not established: <which>**, otherwise, naming the failed interaction, separation or work line, whether hold-cap was already ahead at the reference (5d), and any reverse W(F, H) at long.
 
-Rule 5b is the outcome the gate's pass band ends on: above a replay pace of about 1.0328, fixed-S at ref begins to collapse while every seed's d(ref) is still under S (`pace-band.txt`).
-It is registered before purchase, so that outcome is not folded into "not established". The interaction is still computed and published under it, and not judged.
+**Changed after the gate, by the owner's choice (2026-10-25).** As first drafted, hold-cap ahead at the reference ended the verdict, and the length question went unanswered.
+That outcome is where the gate's pass band ends: above a replay pace of about 1.0328 fixed-S at ref begins to collapse while every seed's d(ref) is still under S, and the calibration card itself matches the replay at 1.0306 to 1.0316 (`pace-band.txt`).
+So it was changed, after reading the replay, to the rule above: the question is whether hold-cap's advantage grows from the reference to the long length, and an advantage already present at the reference does not answer it either way, since the interaction subtracts it.
+The change is not blind. The replay predicts the interaction holding on both sides of the edge (−1.088 at 1.0306, −1.013 at 1.035, −0.733 at 1.050, against ln 0.85 = −0.163), which is part of why it was made; a reader should weigh a rule 6 verdict knowing that.
 
 **Size-aware, separately**, the first that applies, on valid evidence:
 1. **the frozen size-aware control broke the limits at <length>**, when A is inadmissible anywhere;
@@ -168,7 +170,7 @@ Its pass band, sensitivity and not deciding (`pace-band.txt`): from about 1.007,
 Every archived ref and long cell has run inside it, in the gate's sense of pace: eight ref cells on four cards at 1.0198 to 1.0306, two long cells at 1.0301 and 1.0322. (The two short cells, 1.0070 and 1.0151, are not what either edge reads.)
 **The calibration card itself sits at the upper edge.** Its ref cell matches the replay at 1.0306 on its own archived trace and at about 1.0316 on the generated one, 0.0022 and 0.0012 below the edge, and it is the only card at this load.
 At 1.0316 the gate's replay still passes, but hold-cap over fixed-S at ref is 0.889 against the 0.85 that ends the tie.
-So a card like the calibration's has a real chance of ending at rule 5b: under a normal spread of 0.0033 per cell, about one in four per cell. That figure is an illustration resting on assumptions `pace-band.txt` states, not a probability.
+So a card like the calibration's has a real chance of finding hold-cap already ahead at the reference (5d), which rule 6 now judges rather than stops on: under a normal spread of 0.0033 per cell, about one in four per cell. That figure is an illustration resting on assumptions `pace-band.txt` states, not a probability.
 An earlier version of this page put the margin at 0.0054 and the chance at one in seven, after a shift onto the gate's scale that astra's attack showed had no basis (below).
 
 The gate is not blind: these seeds' replays were read while the calibration page was written. A pass says the modelled prerequisites of rules 2 to 6 are reachable at the nominal pace, not the verdict.
@@ -187,8 +189,8 @@ All three verdict families are published even when the primary stops early.
 Rule 6: that in these three sessions, at this load and these traces, hold-cap's tail advantage over **this frozen spacing, 1,680.4 ms**, grew by at least 15% from the reference to the long length, with hold-cap inside the owner's limits.
 Not over fixed spacing generally: S is v26's ratio carried to this load and chosen because the replay predicted it would separate, and nothing here measures a wider spacing failing the limits (astra's first risk).
 That fixed-S missed the protection target at long needs, in addition, L(F, O) > ln 0.85 there; a failed upper-bound test alone does not say it.
-Rule 5b: that on these sessions hold-cap beat the frozen spacing by 15% at the very length S was derived from. The calibration never ran fixed-S, so there was no measured tie for this to break; it says the frozen spacing did not transfer from the calibration's card and seed to these, and nothing about length dependence.
-Rules 2 to 4, 5a, 5c, 5d and 7: that the registered contrast was not reached, or not shown; none establishes equivalence, a general failure, or anything that revises v26's or v27's verdicts.
+Hold-cap already ahead at the reference (5d), with rule 6 or 7: in addition, that on these sessions hold-cap beat the frozen spacing by 15% at the very length S was derived from. The calibration never ran fixed-S, so there was no measured tie for this to break; it says the frozen spacing did not transfer from the calibration's card and seed to these.
+Rules 2 to 4, 5a to 5c and 7: that the registered contrast was not reached, or not shown; none establishes equivalence, a general failure, or anything that revises v26's or v27's verdicts.
 The size-aware verdicts concern a control calibrated on one card and seed, whose short spacing, 1,176.9 ms, lies below the calibration's own short p95 of 1,253.9 ms. A loss is a loss of that calibration, not proof that static size knowledge cannot work (astra's third risk).
 
 ## What must be built before purchase
@@ -200,6 +202,6 @@ astra's inventory, to be re-checked against the code before each item is built:
 4. `hack/m5c-gpu-session.sh`: the study and stage, the block, 18,720 and 19,320 s, the rates, and the scoring command, through the user data to the instance;
 5. a launch ledger that refuses a fifth launch, a second replacement, a replacement without a recorded Spot interruption, or a block already completed;
 6. `pilot_report.py`: a main scorer over three session archives, the rules above, the calibration's `headroom` and v26's `frontier` left as they are;
-   with two temporal witnesses the inherited lines lack (astra's finding 1): in a hold-cap cell, no contender admitted before the previous admitted contender's first content or its end; in a fixed-spacing cell, every consecutive pair of contender admissions at least the spacing less 1 ms apart, whatever their reason labels;
+   with two temporal witnesses the inherited lines lack (astra's finding 1): in a hold-cap cell, every admitted contender carries its release instant, each is admitted no sooner than the previous admitted contender's release, and each release lies at most 13 ms before its first content; in a fixed-spacing cell, every consecutive pair of contender admissions at least the spacing less 1 ms apart, whatever their reason labels. A missing stamp is missing evidence;
 7. a versioned verifier for the main study's evidence, `verify-c3-evidence.sh` not repointed;
 8. tests for each, spot-lifecycle goldens for stage H, and a kind rehearsal of three stage-H sessions scored together, with each new check made to fail once.
