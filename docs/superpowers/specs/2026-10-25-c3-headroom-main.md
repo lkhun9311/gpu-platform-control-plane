@@ -1,6 +1,8 @@
 # C3's main study: hold-cap against a frozen fixed spacing and a size-aware one, over three sessions — pre-registered
 
-Written 2026-10-25. **Not frozen for purchase.** The build, the plan check, the kind rehearsal and codex's cold attack of this page come first, and buying it needs the owner's separate approval.
+Written 2026-10-25. **Frozen for purchase, 2026-10-26,** at the commit that carries this line; the rules, the cells, the spacings, the checksums and the limits below are not changed after it.
+codex's cold attack is reconciled, the build is in ("Build status"), the plan check passes all three blocks, and the kind rehearsal of three stage-H sessions has run twice, holding every line but the gateway latency bound this host fails.
+The owner approved the purchase, the three sessions one after another, in the working session of 2026-10-26; no document records it.
 The owner approved drafting it in the working session of 2026-10-25, after C3's calibration read feasible; no document records that approval.
 C3's calibration (`2026-10-24-c3-headroom-calibration.md`) froze S, the size-aware spacings and the seeds, and its records stand as written.
 
@@ -227,5 +229,6 @@ That is the failure the calibration's rehearsals showed on this host (13.1 to 23
 Block 1, run while I also ran the library and lifecycle checks, has 22 of the 48 lines; blocks 2 and 3, with nothing else running, 12 and 14.
 The bound is not relaxed: on the cards it is judged as registered, and a failure there makes the study inconclusive.
 The rehearsal kept no files (it ran without KEEP=1), so the scorer's verdict on the stub's evidence was not printed past the validity check that stopped it.
-Still to do: freezing this page for purchase, and the owner's separate approval to buy.
+It was run again at `fb865e99` keeping its files: every block again wrote all 253 files; the untrusted validity lines were the 48 provenance lines and 51 gateway latency lines (18, 19 and 14 by block), p99 13.1 to 17.5 ms, every maximum under 19.9 ms; and `headroom-main` scored the three archives without error.
+Beyond validity, kind cannot score two things the card does: the stub exports no preemption counter, so the four capped arms' 36 preemption lines were unscorable (on the calibration's card every such line was scored), and the stub's instant answers leave 21 completion-p50 and shared-window work lines failing against off. With provenance, gateway latency and preemptions forced to pass, the scorer ran through rules 1 to 3 and both separate verdicts on that evidence without error; rules 4 to 7 are pinned by the unit tests.
 
