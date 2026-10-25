@@ -1,0 +1,35 @@
+C3 main study: the purchase gate, frozen 2026-10-25 before it was run
+
+Committed before predict-main-gate.py was run on the frozen spacings, so neither the rules nor the pace can move after its result.
+The C3 calibration page fixes the gate's shape ("What comes after, not registered here"): replay seeds 882, 892 and 893 once, at the calibration card's pace and S; if it predicts hold-cap inadmissible anywhere, or the main comparison unreachable, the study stops and no seed is swapped.
+This file makes that shape exact, taking astra's resolution of the pace (astra-independent-draft.txt, "Purchase gate") and the conditions of its primary verdicts 2 to 6.
+
+Not blind, said before it is run: predict-main-derived-<pace>.json in data/2026-10-24-c3-headroom/ already replayed these seeds, with spacings that moved with the pace, and were read while the calibration page was written.
+At pace 1.0275 those spacings were 1,672.9, 1,208.3 and 1,818.4 ms, not the frozen ones below.
+
+Inputs, all fixed:
+- traces: the 9 seed-882, -892 and -893 traces at 0.375/s, under the checksums in data/2026-10-24-c3-headroom/trace-checksums.txt;
+- the model: simulate.py's step model fitted on pilots A and B, as every earlier replay;
+- arms: off; cap-only (cap 384); hold-cap (hold-one-prefill, cap 384); fixed-S at 1,680.4 ms at every length (cap 384); size-aware at 1,176.9, 1,680.4 and 1,830.8 ms (cap 384);
+- nominal pace 1.0275: of the replay grid's paces, the one whose seed-891 hold-cap median at ref (1,588.27 ms, predict-cal891-anchor1740-1.0275.json) lies nearest the card's 1,595.40 ms.
+
+Control before the gate: the driver run at 1.0275 with the earlier derived spacings (1672.9, 1208.3, 1818.4) must reproduce predict-main-derived-1.0275.json's pooled p99 and hold-cap prefill median at every length.
+If it does not, the driver is not the replay the calibration page cited, and the gate is not run.
+
+The gate, on the replay's point estimates at the nominal pace; every condition must hold.
+Pooled p99 is over the three seeds' premium requests, per arm and length, never across lengths. d is the replay's hold-cap prefill median, first token less engagement, per seed.
+G1 hold-cap passes the four modelled contender limits (completion, completion p50 against off's, completion p95, no hold refusal) at every length on every seed.
+G2 hold-cap protective: pooled p99(hold-cap) <= 0.85 x pooled p99(off) at every length.
+G3 the challenge, on every seed: d(ref) <= 1,680.4 ms, d(long) > 1,680.4 ms, and d(long) > 1.05 x d(ref).
+   The 1.05 condition is back because S is frozen now and no longer recomputed from each card's reference (astra, risk 6).
+G4 the reference comparison reachable: fixed-S passes the four limits at ref on every seed; pooled p99(fixed-S) <= 0.85 x pooled p99(off) at ref; and neither of hold-cap and fixed-S is 15% below the other at ref.
+G5 the long separation and the interaction: at long, fixed-S fails a modelled limit on some seed, or pooled p99(hold-cap) <= 0.85 x pooled p99(fixed-S);
+   and ln(p99 H/F at long) - ln(p99 H/F at ref) <= ln 0.85, where an infinite fixed-S p99 against a finite hold-cap p99 counts as satisfying it and an infinite hold-cap p99 as failing it.
+
+Nothing is required of size-aware or cap-only: either outcome of theirs answers the main study's secondary questions.
+
+What the gate may decide: stop the purchase. It may not swap a seed, move the pace, the rates or a spacing, or be re-run at another pace to pass.
+What a pass means: the modelled prerequisites of the main study's verdicts 2 to 6 are reachable at the nominal pace. It does not predict the verdict:
+preemption, shared-window work and premium gaps are not modelled; the replay's d differs from the scorer's in definition and population; and the replay has understated the contender's cost by 3% to 7% against every card measured.
+
+Sensitivity, published and not deciding: the same run at paces 1.000, 1.0205 and 1.070.

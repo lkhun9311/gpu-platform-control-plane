@@ -1,0 +1,42 @@
+My sketch of C3's main study, written 2026-10-25 before reading astra's draft. Not checked against the code where it says so.
+
+Question.
+At premium 9.25/s and contender 0.375/s on an A10G, at contender prompts of 6,144, 7,695 and 8,192 tokens:
+does hold-cap keep the premium tail protected within the owner's contender limits at every length, while the fixed spacing frozen at the reference, S = 1,680.4 ms, does not at the long length;
+and does a size-aware static spacing, S x d(L)/d(ref), do as well as hold-cap?
+
+Arms per card, one block: R1 first, then off, cap-only, hold-cap, fixed-S and size-aware at each of the three lengths.
+That is 15 cells plus R1. At ref, size-aware equals fixed-S (1,680.4 ms both), kept as a run-to-run check, as v27's draft kept it.
+Within a cell every contender has the same length, so the size-aware arm at length L is a fixed spacing of s(L): 1,176.9, 1,680.4 or 1,830.8 ms.
+So it may need no new gateway mode, only a fixed spacing at 0.1 ms resolution. Not checked: whether the fixed-spacing arm's name or flag carries 0.1 ms (v26's arms were fixed-1.62 to fixed-1.74, in seconds to 0.01).
+The order within a block hashed per card, as v26's blocks were, with R1 first.
+
+Cards and seeds: three sessions, one card each, seeds 882, 892 and 893 as the calibration page fixes. One block per card.
+Seed 882 is the heaviest draw at 0.375/s (172 contenders a cell against 148 and 163), which is the risk v27's main study stopped on.
+
+Cell length 420 s as before. Limits: 16 cells at the calibration's 920 s budget a cell is 1.25 x (200 + 16 x 920 + 12) = 18,665 s, so a hard stop near 5 h 11 m.
+Measured in the calibration: cells took 538 to 563 s, and R1 881 s (cold engine), so 16 cells are about 2.6 h of cells plus about 25 min of setup.
+
+Endpoint: per length, never pooled across lengths, the crossed log ratio of premium p99 (scheduled hi over the comparator's arrival lo), as v26 and v27.
+Verdicts in order (a sketch):
+1. inconclusive on evidence: any failed validity line, missing cell, unscorable line;
+2. hold-cap not operationally robust: any owner limit fails at any length on any card;
+3. hold-cap not protective: ln(hold-cap hi / off lo) > ln 0.85 at any length on any card;
+4. challenge not reproduced: on some card, d(long) does not exceed S;
+5. the main comparison: at the long length, fixed-S worse than hold-cap by at least 15% on the crossed unfavourable end on every card, and at ref the two within 15% (v26's tie);
+   or an interaction: hold-cap over fixed-S improves from ref to long by at least 15%;
+6. size-aware: a separate verdict, whether it is within 15% of hold-cap at every length, inside the owner's limits.
+7. otherwise not established.
+
+Purchase gate: the replay on seeds 882, 892 and 893 at the calibration card's pace with the frozen S and spacings.
+The card's d(ref), 1,595.4 ms, lies a little above the replay's at pace 1.0275 (1,588), so the nominal pace is about 1.03; it should be fixed by matching d(ref), as v27 matched 1,651 to 1,652.
+If the replay predicts hold-cap inadmissible anywhere, or the comparison unreachable, stop: no seed swapped (the calibration page already says so).
+The replay understates the contender's cost by 3 to 7%, so a pass at the nominal pace is optimistic; a pass should also be checked at the next pace up.
+
+Cost: about 3 h a session at $0.68/h, about $2 each and $6 for three, with the hard stop as the spending bound (5.2 h x $1.10 = $5.7 a session).
+
+Risks I see before reading astra:
+- seed 882's heavy draw pushing hold-cap's contender p95 at the long length toward 25 s, as at 0.5/s;
+- the size-aware arm's spacing at short (1,176.9) may over-space less than fixed-S does, which is the point, but at long (1,830.8) it may cost contender completion latency;
+- the frozen S comes from one card; another card's pace moves d(ref), so fixed-S on card 2 is not S x that card's d(ref). That is the intended property (a static spacing frozen once), but it should be stated;
+- whether a 16-cell session fits the hard stop with the cold first cell (memory: fifteen cells stop after the cold first cell unless HARD_STOP is raised).
