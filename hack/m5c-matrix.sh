@@ -221,8 +221,8 @@ fi
 if [ -z "$LADDER" ]; then
   STUDY="${STUDY:-sharing-matrix-2026-09-10}"
   case "$STUDY" in
-    sharing-matrix-2026-09-10|tail-crossing-lc256-2026-10-04|tail-crossing-lc2048-2026-10-05|tail-crossing-lc8192-2026-10-04|instrument-validation-2026-10-05|instrument-validation-s2-2026-10-05|instrument-validation-s3-2026-10-06|instrument-validation-s4-2026-10-06|step-boundary-2026-10-06|step-confirm-2026-10-07|prospective-pilot-2026-10-08|admission-diagnostic-2026-10-10|admission-frontier-2026-10-10|admission-length-calibration-2026-10-10|admission-headroom-calibration-2026-10-24|mps-capability-2026-10-24) ;;
-    *) fail "STUDY is ${STUDY@Q}; the non-ladder matrix files evidence under sharing-matrix-2026-09-10, tail-crossing-lc256-2026-10-04, tail-crossing-lc2048-2026-10-05, tail-crossing-lc8192-2026-10-04, instrument-validation-2026-10-05, instrument-validation-s2-2026-10-05, instrument-validation-s3-2026-10-06, instrument-validation-s4-2026-10-06 or step-boundary-2026-10-06, step-confirm-2026-10-07, prospective-pilot-2026-10-08, admission-diagnostic-2026-10-10, admission-frontier-2026-10-10, admission-length-calibration-2026-10-10, admission-headroom-calibration-2026-10-24, mps-capability-2026-10-24. An unregistered id is not refused by gen-trace -- it writes a manifest for any string -- so this refusal is the one that stops it before anything is rented" ;;
+    sharing-matrix-2026-09-10|tail-crossing-lc256-2026-10-04|tail-crossing-lc2048-2026-10-05|tail-crossing-lc8192-2026-10-04|instrument-validation-2026-10-05|instrument-validation-s2-2026-10-05|instrument-validation-s3-2026-10-06|instrument-validation-s4-2026-10-06|step-boundary-2026-10-06|step-confirm-2026-10-07|prospective-pilot-2026-10-08|admission-diagnostic-2026-10-10|admission-frontier-2026-10-10|admission-length-calibration-2026-10-10|admission-headroom-calibration-2026-10-24|admission-headroom-main-2026-10-25|mps-capability-2026-10-24) ;;
+    *) fail "STUDY is ${STUDY@Q}; the non-ladder matrix files evidence under sharing-matrix-2026-09-10, tail-crossing-lc256-2026-10-04, tail-crossing-lc2048-2026-10-05, tail-crossing-lc8192-2026-10-04, instrument-validation-2026-10-05, instrument-validation-s2-2026-10-05, instrument-validation-s3-2026-10-06, instrument-validation-s4-2026-10-06 or step-boundary-2026-10-06, step-confirm-2026-10-07, prospective-pilot-2026-10-08, admission-diagnostic-2026-10-10, admission-frontier-2026-10-10, admission-length-calibration-2026-10-10, admission-headroom-calibration-2026-10-24, admission-headroom-main-2026-10-25, mps-capability-2026-10-24. An unregistered id is not refused by gen-trace -- it writes a manifest for any string -- so this refusal is the one that stops it before anything is rented" ;;
   esac
 fi
 
@@ -383,6 +383,16 @@ if [ -z "$LADDER" ] && pp_is_study "$STUDY"; then
   fi
   if [ "$STUDY" = "$PP_HEADROOM_STUDY" ]; then
     [ "$(printf '%s ' $SEEDS)" = "$PP_HEADROOM_SEEDS " ] || fail "SEEDS is ${SEEDS@Q} and C3's calibration froze $PP_HEADROOM_SEEDS"
+  fi
+  # C3's main study runs one block per card, so each session names its global block, and the block names its seed.
+  # The block also enters the order's hash and the request ids: hashed as block 1 on every card, blocks 2 and 3 would
+  # run orders the registration does not list (2026-10-25-c3-headroom-main.md, "Cards, blocks, order and load").
+  if [ "$STUDY" = "$PP_HEADROOM_MAIN_STUDY" ]; then
+    case "${PILOT_BLOCK:-}" in 1 | 2 | 3) ;; *) fail "PILOT_BLOCK is '${PILOT_BLOCK:-}', and each session of C3's main study runs one of its blocks 1, 2 and 3" ;; esac
+    _pp_block_seed=$(printf '%s\n' $PP_HEADROOM_MAIN_SEEDS | sed -n "${PILOT_BLOCK}p")
+    [ "$(printf '%s ' $SEEDS)" = "$_pp_block_seed " ] || fail "SEEDS is ${SEEDS@Q} and C3's main study froze seed $_pp_block_seed for block $PILOT_BLOCK"
+  else
+    [ -z "${PILOT_BLOCK:-}" ] || fail "PILOT_BLOCK is set and study $STUDY numbers its own blocks; only C3's main study runs one block per session"
   fi
   if [ "$STUDY" = "$PP_FRONTIER_STUDY" ]; then
     [ "$(printf '%s ' $SEEDS)" = "$PP_FRONTIER_SEEDS " ] || fail "SEEDS is ${SEEDS@Q} and v26 froze $PP_FRONTIER_SEEDS"
@@ -793,7 +803,7 @@ fi
 cell_prompt_flags() {
   local f
   for f in ${PROMPT_FLAGS[@]+"${PROMPT_FLAGS[@]}"}; do printf '%s\n' "$f"; done | {
-    if [ -z "$LADDER" ] && { [ "${STUDY:-}" = "$PP_LENCAL_STUDY" ] || [ "${STUDY:-}" = "$PP_HEADROOM_STUDY" ]; }; then
+    if [ -z "$LADDER" ] && { [ "${STUDY:-}" = "$PP_LENCAL_STUDY" ] || [ "${STUDY:-}" = "$PP_HEADROOM_STUDY" ] || [ "${STUDY:-}" = "$PP_HEADROOM_MAIN_STUDY" ]; }; then
       awk -v c="$(pp_arm_contender_chars "$1" "$NOISY_PROMPT_CHARS")" 'prev == "--noisy-prompt-chars" { $0 = c } { print; prev = $0 }'
     else cat; fi
   } | paste -sd' '
@@ -886,10 +896,16 @@ else
       while IFS= read -r spec; do
         CELLS+=("$spec")
       done < <(pp_stage_arms "$PILOT_STAGE" | { if [ "$PILOT_STAGE" = D ] || [ "$PILOT_STAGE" = E ] || pp_is_length_stage "$PILOT_STAGE"; then grep -vx R1; else cat; fi; } | while read -r arm; do
-        printf '%s R1|%s|%s|%s|%s|0\n' "$(printf '%s/%s/%s/%s' "${block_seed:-11}" "$PILOT_STAGE" "$rep" "$arm" | sha256sum | cut -c1-16)" \
+        printf '%s R1|%s|%s|%s|%s|0\n' "$(printf '%s/%s/%s/%s' "${block_seed:-11}" "$PILOT_STAGE" "${PILOT_BLOCK:-$rep}" "$arm" | sha256sum | cut -c1-16)" \
           "$arm" "$rep" "$PREMIUM_RATE" "$PILOT_NOISY_RATE"
       done | LC_ALL=C sort | cut -d' ' -f2-)
     done
+    # C3's main study registers each block's order; one built from another block number is refused here.
+    if [ "$STUDY" = "$PP_HEADROOM_MAIN_STUDY" ]; then
+      _pp_order=$(printf '%s\n' "${CELLS[@]}" | cut -d'|' -f2 | paste -sd' ')
+      _pp_want=$(pp_headroom_main_order "$PILOT_BLOCK") || fail "$_pp_want"
+      [ "$_pp_order" = "$_pp_want" ] || fail "block $PILOT_BLOCK's cells would run as ($_pp_order), and C3's main study registered ($_pp_want)"
+    fi
   elif iv_is_study "$STUDY"; then
     # The instrument-validation study's blocks, as its registration lays them out (section 4).
     #
@@ -1079,10 +1095,11 @@ if [ -n "${PLAN_ONLY:-}" ]; then
       || { echo "PLAN REFUSED: gen-trace could not build $cell_label's trace" >&2; plan_failures=$(( plan_failures + 1 )); continue; }
     # v26's traces are frozen by checksum: a seed, rate, duration or prompt that differs from the registration's
     # changes it, so the plan cannot buy a lighter load under the study's name (v26 review, B6 and C5).
-    if [ -z "$LADDER" ] && { [ "$STUDY" = "$PP_FRONTIER_STUDY" ] || [ "$STUDY" = "$PP_LENCAL_STUDY" ] || [ "$STUDY" = "$PP_HEADROOM_STUDY" ]; }; then
+    if [ -z "$LADDER" ] && { [ "$STUDY" = "$PP_FRONTIER_STUDY" ] || [ "$STUDY" = "$PP_LENCAL_STUDY" ] || [ "$STUDY" = "$PP_HEADROOM_STUDY" ] || [ "$STUDY" = "$PP_HEADROOM_MAIN_STUDY" ]; }; then
       case "$STUDY" in
         "$PP_LENCAL_STUDY") plan_sum=pp_lencal_checksum ;;
         "$PP_HEADROOM_STUDY") plan_sum=pp_headroom_checksum ;;
+        "$PP_HEADROOM_MAIN_STUDY") plan_sum=pp_headroom_main_checksum ;;
         *) plan_sum=pp_frontier_checksum ;;
       esac
       plan_want=$("$plan_sum" "$plan_seed" "$cell_label" 2>&1) \
@@ -3588,7 +3605,7 @@ run_cell() {
   if [ -z "${LADDER:-}" ] && iv_is_study "${STUDY:-}"; then
     idflag=$(iv_request_id_flag "$STUDY" "$label" "$rep" measured) || fail "request ids for $label"
   elif [ -z "${LADDER:-}" ] && pp_is_study "${STUDY:-}"; then
-    idflag=$(pp_request_id_flag "$PILOT_STAGE" "$label" "$rep") || fail "request ids for $label"
+    idflag=$(pp_request_id_flag "$PILOT_STAGE" "$label" "${PILOT_BLOCK:-$rep}") || fail "request ids for $label"
     pp_phase "$label" "$rep" replay-start
     pp_sidecar_start "$label" "$rep"
     pp_sampler_start "$label" "$rep"
@@ -3807,13 +3824,17 @@ if [ -z "${LADDER:-}" ] && pp_is_study "${STUDY:-}"; then
   _pp_cmd=$(case "$PILOT_STAGE" in G) echo headroom ;; F) echo calibration ;; E) echo frontier ;; D) echo diagnostic ;; *) echo stage ;; esac)
   _pp_page=docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md
   [ "$PILOT_STAGE" != G ] || _pp_page=docs/superpowers/specs/2026-10-24-c3-headroom-calibration.md
+  [ "$PILOT_STAGE" != H ] || _pp_page=docs/superpowers/specs/2026-10-25-c3-headroom-main.md
+  _pp_usage="python3 hack/prospective-pilot/pilot_report.py $_pp_cmd <this directory>"
+  # The main study is scored over its three sessions at once; one session's directory is a third of its evidence.
+  [ "$PILOT_STAGE" != H ] || _pp_usage="python3 hack/prospective-pilot/pilot_report.py headroom-main <block 1's directory> <block 2's> <block 3's>   (this is block $PILOT_BLOCK)"
   cat > "$OUT/README.txt" <<EOF
 Raw evidence for study $STUDY, stage $PILOT_STAGE ($_pp_page).
 
 Its arms are admission and engine settings, named in each cell's files: $ARMS.
 It is judged by its registered scorer and by nothing else:
 
-  python3 hack/prospective-pilot/pilot_report.py $_pp_cmd <this directory>
+  $_pp_usage
 
 Do not pass these files to benchharness report: that evaluates the sharing matrix's readings, another question.
 EOF

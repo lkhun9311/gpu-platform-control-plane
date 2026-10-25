@@ -122,6 +122,17 @@ pp_headroom_main_checksum() {
   esac
 }
 
+# C3's main-study blocks in the order its registration lists, R1 first: the matrix's hash of seed, stage, global block
+# and arm, frozen here so a session that hashed another block number is refused rather than run in another order.
+pp_headroom_main_order() {
+  case "${1:-}" in
+    1) echo "R1 hold-cap-long fixedS-long fixedS-ref hold-cap-ref off-long caponly-short sizeaware-short off-ref fixedS-short off-short caponly-long hold-cap-short sizeaware-long sizeaware-ref caponly-ref" ;;
+    2) echo "R1 hold-cap-short off-ref hold-cap-long fixedS-long fixedS-short hold-cap-ref sizeaware-ref caponly-ref caponly-short fixedS-ref off-short sizeaware-short off-long sizeaware-long caponly-long" ;;
+    3) echo "R1 fixedS-long sizeaware-ref off-short caponly-short sizeaware-short caponly-long off-ref sizeaware-long fixedS-short off-long hold-cap-short hold-cap-ref fixedS-ref hold-cap-long caponly-ref" ;;
+    *) echo "block ${1@Q} is not one of C3's main-study blocks 1, 2 and 3" >&2; return 1 ;;
+  esac
+}
+
 # The stages whose arms carry their contender length in their name: v27's calibration, C3's and C3's main study.
 pp_is_length_stage() { [ "${1:-}" = F ] || [ "${1:-}" = G ] || [ "${1:-}" = H ]; }
 

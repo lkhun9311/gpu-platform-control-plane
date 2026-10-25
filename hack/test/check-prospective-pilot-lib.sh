@@ -192,6 +192,14 @@ pp_gateway_args caponly-ref | grep -qx -- -admission-mode=off && [ "$(pp_arm_pre
   && [ "$(pp_arm_prefill_cap sizeaware-long)" = "$PP_DIAG_PREFILL_CAP" ] && [ "$(pp_arm_prefill_cap off-long)" = 0 ] \
   && ok "cap-only runs admission off with the cap, and the static arms run the cap" || bad "cap-only's or a static arm's mapping"
 if pp_fixed_spacing fixed1740-long >/dev/null 2>&1; then bad "v27's fixed1740 label was given a spacing"; else ok "v27's fixed1740 label has no spacing"; fi
+_h_ok=1
+for _b in 1 2 3; do
+  [ "$(pp_headroom_main_order $_b | cut -d' ' -f1)" = R1 ] \
+    && [ "$(pp_headroom_main_order $_b | tr ' ' '\n' | sort | paste -sd' ')" = "$(pp_stage_arms H | sort | paste -sd' ')" ] || _h_ok=0
+done
+[ "$_h_ok" = 1 ] && [ "$(pp_headroom_main_order 1)" != "$(pp_headroom_main_order 2)" ] \
+  && ok "each main-study block's frozen order is R1 and then exactly stage H's other arms" || bad "pp_headroom_main_order"
+if pp_headroom_main_order 4 >/dev/null 2>&1; then bad "a fourth block was given an order"; else ok "there is no fourth main-study block"; fi
 [ "$(pp_request_id_flag H fixedS-ref 2)" = "--request-id-prefix=pp-H-fixedS-ref-2" ] && ok "stage H's request IDs name its stage and block" || bad "stage H's request-ID prefix"
 
 # The capture, against stubbed kubectl, curl and docker on PATH: the cluster calls answer at once, except the
