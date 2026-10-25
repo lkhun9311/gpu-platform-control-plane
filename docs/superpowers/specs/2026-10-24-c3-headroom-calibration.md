@@ -202,3 +202,4 @@ It establishes nothing about fixed-S's or size-aware's premium tail, which this 
 The session took 75 min 8 s from launch (04:08:40) to the terminate call (05:23:48), at a Spot price of $0.6759/h: about **$0.85**.
 AWS reported the instance terminated, and no instance of the account was left pending, running, stopping or shutting down.
 The session's log carries no metadata token (`770d45fe`); the raw archive is not committed, as v27's is not.
+It is the asset of the release `evidence-c3-calibration-2026-10-25`, under the checksum in `data/c3-evidence-SHA256SUMS`, and `hack/verify-c3-evidence.sh` downloads it, checks it and re-derives the verdict, the three medians, S and the spacings; it did so on 2026-10-25 with no difference.
