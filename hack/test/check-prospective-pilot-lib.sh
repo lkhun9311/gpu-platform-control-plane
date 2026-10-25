@@ -161,6 +161,39 @@ if pp_headroom_checksum 871 off-long >/dev/null 2>&1; then bad "v27's seed was g
 pp_is_length_stage G && pp_is_length_stage F && ! pp_is_length_stage E && ok "F and G are the length stages, E is not" || bad "pp_is_length_stage"
 [ "$(pp_request_id_flag G hold-cap-ref 1)" = "--request-id-prefix=pp-G-hold-cap-ref-1" ] && ok "stage G's request IDs name its stage" || bad "stage G's request-ID prefix"
 
+# C3's main study, stage H: 16 arms under its own study, three seeds' checksums, and the frozen spacings by name.
+[ "$(pp_stage_arms H | wc -l)" = 16 ] && [ "$(pp_stage_study H)" = "$PP_HEADROOM_MAIN_STUDY" ] && pp_is_study "$PP_HEADROOM_MAIN_STUDY" \
+  && [ "$PP_HEADROOM_MAIN_STUDY" != "$PP_HEADROOM_STUDY" ] && pp_is_length_stage H \
+  && ok "stage H has 16 arms under C3's main study, and is a length stage" || bad "stage H's arms or study"
+_h_ok=1
+for _s in 882 892 893; do
+  for _a in off caponly hold-cap fixedS sizeaware; do
+    [ "$(pp_headroom_main_checksum $_s $_a-long)" = "$(pp_headroom_main_checksum $_s off-long)" ] || _h_ok=0
+  done
+  [ "$(pp_headroom_main_checksum $_s off-long)" != "$(pp_headroom_main_checksum $_s off-ref)" ] \
+    && [ "$(pp_headroom_main_checksum $_s R1)" != "$(pp_headroom_main_checksum $_s off-ref)" ] || _h_ok=0
+done
+[ "$_h_ok" = 1 ] && [ "$(pp_headroom_main_checksum 882 off-ref)" != "$(pp_headroom_main_checksum 892 off-ref)" ] \
+  && ok "every arm at a length shares its seed's checksum, R1 and each length have their own, and the seeds differ" || bad "pp_headroom_main_checksum"
+if pp_headroom_main_checksum 891 off-long >/dev/null 2>&1; then bad "the calibration's seed was given a main-study checksum"; else ok "the calibration's seed has no main-study checksum"; fi
+# The nine full traces are the ones the calibration page replayed, which the study id does not enter.
+_h_sums="docs/superpowers/specs/data/2026-10-24-c3-headroom/trace-checksums.txt"
+_h_ok=1
+for _s in 882 892 893; do for _l in short ref long; do
+  grep -qx "t$_s-off-$_l $(pp_headroom_main_checksum $_s off-$_l)" "$_h_sums" || _h_ok=0
+done; done
+[ "$_h_ok" = 1 ] && ok "the nine main-study checksums equal the replay's trace-checksums.txt" || bad "a main-study checksum differs from $_h_sums"
+[ "$(pp_gateway_args fixedS-long | grep -- -admission-fixed-spacing=)" = "-admission-fixed-spacing=1680.4ms" ] \
+  && [ "$(pp_gateway_args sizeaware-short | grep -- -admission-fixed-spacing=)" = "-admission-fixed-spacing=1176.9ms" ] \
+  && [ "$(pp_gateway_args sizeaware-ref | grep -- -admission-fixed-spacing=)" = "-admission-fixed-spacing=1680.4ms" ] \
+  && [ "$(pp_gateway_args sizeaware-long | grep -- -admission-fixed-spacing=)" = "-admission-fixed-spacing=1830.8ms" ] \
+  && ok "fixed-S runs 1680.4 ms at every length, size-aware 1176.9, 1680.4 and 1830.8 ms" || bad "a main-study spacing"
+pp_gateway_args caponly-ref | grep -qx -- -admission-mode=off && [ "$(pp_arm_prefill_cap caponly-ref)" = "$PP_DIAG_PREFILL_CAP" ] \
+  && [ "$(pp_arm_prefill_cap sizeaware-long)" = "$PP_DIAG_PREFILL_CAP" ] && [ "$(pp_arm_prefill_cap off-long)" = 0 ] \
+  && ok "cap-only runs admission off with the cap, and the static arms run the cap" || bad "cap-only's or a static arm's mapping"
+if pp_fixed_spacing fixed1740-long >/dev/null 2>&1; then bad "v27's fixed1740 label was given a spacing"; else ok "v27's fixed1740 label has no spacing"; fi
+[ "$(pp_request_id_flag H fixedS-ref 2)" = "--request-id-prefix=pp-H-fixedS-ref-2" ] && ok "stage H's request IDs name its stage and block" || bad "stage H's request-ID prefix"
+
 # The capture, against stubbed kubectl, curl and docker on PATH: the cluster calls answer at once, except the
 # gateway record's node read, which sleeps past the bound.
 # A complete step log showing a request at the wrong priority must still stop the pilot (exit 3), because that is
