@@ -256,6 +256,15 @@ elif [ -n "${PILOT_STAGE:-}" ]; then
   . "$(dirname "${BASH_SOURCE[0]}")/lib/prospective-pilot.sh" || fail "could not source hack/lib/prospective-pilot.sh"
   ARMS=$(pp_stage_arms "$PILOT_STAGE" | tr '\n' ' ') || fail "no arms for stage $PILOT_STAGE"
   ARMS="${ARMS% }"
+  # Stage H's launches are counted in a ledger committed after each session, read at HEAD so an uncommitted edit cannot
+  # allow a launch: four at most, the blocks in order, and one replacement, only for a Spot interruption
+  # (docs/superpowers/specs/2026-10-25-c3-headroom-main.md, "Sessions, limits and cost").
+  if [ "$PILOT_STAGE" = H ]; then
+    _pp_ledger=$(git -C "$(dirname "${BASH_SOURCE[0]}")/.." show "HEAD:$PP_HEADROOM_MAIN_LEDGER") \
+      || fail "the launch ledger $PP_HEADROOM_MAIN_LEDGER is not committed at HEAD, so no stage H launch can be counted"
+    _pp_why=$(printf '%s\n' "$_pp_ledger" | pp_headroom_main_launch_refusal "$PILOT_BLOCK")
+    [ -z "$_pp_why" ] || fail "the launch ledger refuses block $PILOT_BLOCK: $_pp_why"
+  fi
   # The registered limits (design page, "Deadlines"): stage A's hard stop is 2 h 30 and its backstop 2 h 40;
   # stage B is the size of a main session, 3 h 30 and 3 h 40. They size the allowance, so a caller cannot move them.
   [ -z "$LIMITS_FROM_CALLER" ] || fail "HARD_STOP_SECONDS or BACKSTOP_SECONDS is set, and the pilot's limits are registered per stage; unset them"

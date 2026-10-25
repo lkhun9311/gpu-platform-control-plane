@@ -41,7 +41,7 @@ gateway checksum: user-data matches the uploaded binary
 == arms   [R1 off-short off-ref off-long caponly-short caponly-ref caponly-long hold-cap-short hold-cap-ref hold-cap-long fixedS-short fixedS-ref fixedS-long sizeaware-short sizeaware-ref sizeaware-long], 1 repetition(s) each
 == output <OUT>
 == load   the pilot's stage H, 420000ms per cell: premium 9.25/s, contender 0.375/s, independent
-==        block 2 of 3, seed 892
+==        block 1 of 3, seed 882
 == credentials expire in 719 min (asked of the active provider); this session needs about 322 plus 40 of headroom
 == source <COMMIT> <TREE STATE>
 == building the gateway and the harness for the instance, which has no Go
@@ -50,24 +50,24 @@ gateway checksum: user-data matches the uploaded binary
 == g5.2xlarge is offered in: ap-northeast-2a ap-northeast-2c
 == user-data: 13380 of 16384 raw bytes
 == checking the purchase plan locally, before anything is rented
-== plan: 16 cell(s): R1 hold-cap-short off-ref hold-cap-long fixedS-long fixedS-short hold-cap-ref sizeaware-ref caponly-ref caponly-short fixedS-ref off-short sizeaware-short off-long sizeaware-long caponly-long 
+== plan: 16 cell(s): R1 hold-cap-long fixedS-long fixedS-ref hold-cap-ref off-long caponly-short sizeaware-short off-ref fixedS-short off-short caponly-long hold-cap-short sizeaware-long sizeaware-ref caponly-ref 
 == load matches study admission-headroom-main-2026-10-25's frozen tuple (five quantities)
-==   R1: 3887 premium, 0 contender -- scorable
-==   hold-cap-short: 3887 premium, 148 contender -- scorable
-==   off-ref: 3887 premium, 148 contender -- scorable
-==   hold-cap-long: 3887 premium, 148 contender -- scorable
-==   fixedS-long: 3887 premium, 148 contender -- scorable
-==   fixedS-short: 3887 premium, 148 contender -- scorable
-==   hold-cap-ref: 3887 premium, 148 contender -- scorable
-==   sizeaware-ref: 3887 premium, 148 contender -- scorable
-==   caponly-ref: 3887 premium, 148 contender -- scorable
-==   caponly-short: 3887 premium, 148 contender -- scorable
-==   fixedS-ref: 3887 premium, 148 contender -- scorable
-==   off-short: 3887 premium, 148 contender -- scorable
-==   sizeaware-short: 3887 premium, 148 contender -- scorable
-==   off-long: 3887 premium, 148 contender -- scorable
-==   sizeaware-long: 3887 premium, 148 contender -- scorable
-==   caponly-long: 3887 premium, 148 contender -- scorable
+==   R1: 3917 premium, 0 contender -- scorable
+==   hold-cap-long: 3917 premium, 172 contender -- scorable
+==   fixedS-long: 3917 premium, 172 contender -- scorable
+==   fixedS-ref: 3917 premium, 172 contender -- scorable
+==   hold-cap-ref: 3917 premium, 172 contender -- scorable
+==   off-long: 3917 premium, 172 contender -- scorable
+==   caponly-short: 3917 premium, 172 contender -- scorable
+==   sizeaware-short: 3917 premium, 172 contender -- scorable
+==   off-ref: 3917 premium, 172 contender -- scorable
+==   fixedS-short: 3917 premium, 172 contender -- scorable
+==   off-short: 3917 premium, 172 contender -- scorable
+==   caponly-long: 3917 premium, 172 contender -- scorable
+==   hold-cap-short: 3917 premium, 172 contender -- scorable
+==   sizeaware-long: 3917 premium, 172 contender -- scorable
+==   sizeaware-ref: 3917 premium, 172 contender -- scorable
+==   caponly-ref: 3917 premium, 172 contender -- scorable
 == PLAN OK under study admission-headroom-main-2026-10-25: every planned cell generates a trace the readings can score. Nothing was rented.
 == launching g5.2xlarge spot (max $1.10/h)
 == credentials expire in 719 min (asked of the active provider); this session needs about 322 plus 40 of headroom
@@ -79,7 +79,7 @@ gateway checksum: user-data matches the uploaded binary
 == the archive holds exactly the 16 planned cells, each with its gateway record, step log and manifest
 == every arm in [R1 off-short off-ref off-long caponly-short caponly-ref caponly-long hold-cap-short hold-cap-ref hold-cap-long fixedS-short fixedS-ref fixedS-long sizeaware-short sizeaware-ref sizeaware-long] returned raw evidence
 == SESSION DONE. Evidence in <OUT>/m5c-run
-== This is block 2 of 3. Score all three together:  python3 hack/prospective-pilot/pilot_report.py headroom-main <block 1's m5c-run> <block 2's> <block 3's>
+== This is block 1 of 3. Score all three together:  python3 hack/prospective-pilot/pilot_report.py headroom-main <block 1's m5c-run> <block 2's> <block 3's>
 == terminating i-0stub
 == i-0stub is terminated
 --- files
