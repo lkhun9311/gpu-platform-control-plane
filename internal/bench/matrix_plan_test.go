@@ -1,6 +1,7 @@
 package bench
 
 import (
+	"slices"
 	"strings"
 	"testing"
 )
@@ -165,7 +166,7 @@ func TestMatrixPlanArmSetRefusalForTheHeadroomMain(t *testing.T) {
 	if err := MatrixPlanArmSetRefusal(StudyHeadroomMain, all[:15]); err == nil {
 		t.Fatal("a main-study plan without sizeaware-long was accepted")
 	}
-	if err := MatrixPlanArmSetRefusal(StudyHeadroomMain, append(all[:len(all):len(all)], "fixed1740-long")); err == nil {
+	if err := MatrixPlanArmSetRefusal(StudyHeadroomMain, append(slices.Clip(all), "fixed1740-long")); err == nil {
 		t.Fatal("a main-study plan carrying v27's fixed1740-long was accepted")
 	}
 }
