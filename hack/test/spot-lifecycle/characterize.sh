@@ -662,6 +662,26 @@ scenarios_m5c_gpu_session() {
     STUDY=admission-headroom-calibration-2026-10-24 PILOT_STAGE=G PREMIUM_RATE=9.25 PILOT_NOISY_RATE=0.5 SEEDS=891 \
     run_scenario headroom-calibration-stage-g-at-the-old-rate bash "$TARGET"
 
+  # C3's main study stage H, block 2: one block of 16 cells on seed 892, the block carried to the instance, and
+  # its 5 h 12 m limits.
+  REPS=1 REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 \
+    STUDY=admission-headroom-main-2026-10-25 PILOT_STAGE=H PILOT_BLOCK=2 PREMIUM_RATE=9.25 PILOT_NOISY_RATE=0.375 SEEDS=892 \
+    PREMIUM_PROMPT_CHARS=200 NOISY_PROMPT_CHARS=40000 REQUEST_TIMEOUT_MS=30000 PREMIUM_OUTPUT_TOKENS=64 NOISY_OUTPUT_TOKENS=16 \
+    STUB_EVIDENCE_ARMS="R1 off-short off-ref off-long caponly-short caponly-ref caponly-long hold-cap-short hold-cap-ref hold-cap-long fixedS-short fixedS-ref fixedS-long sizeaware-short sizeaware-ref sizeaware-long" \
+    STUB_EVIDENCE_REPS=1 STUB_EVIDENCE_R1_ONCE=1 STUB_EVIDENCE_RECORDS=1 \
+    STUB_PRESENT_KEYS="evidence.tgz log.txt commit.txt nodes.txt preflight-nvidia-smi.csv preflight-node-cards.txt matrix-returned.txt" \
+    run_scenario headroom-main-stage-h-block-2 bash "$TARGET"
+
+  # Stage H's block 2 on block 1's seed: refused by name before anything is built or rented.
+  REPS=1 REQUIRE_CLEAN_TREE=0 \
+    STUDY=admission-headroom-main-2026-10-25 PILOT_STAGE=H PILOT_BLOCK=2 PREMIUM_RATE=9.25 PILOT_NOISY_RATE=0.375 SEEDS=882 \
+    run_scenario headroom-main-stage-h-on-another-blocks-seed bash "$TARGET"
+
+  # Stage H without its block: refused, since every session would otherwise order and name its cells as block 1.
+  REPS=1 REQUIRE_CLEAN_TREE=0 \
+    STUDY=admission-headroom-main-2026-10-25 PILOT_STAGE=H PREMIUM_RATE=9.25 PILOT_NOISY_RATE=0.375 SEEDS=882 \
+    run_scenario headroom-main-stage-h-without-a-block bash "$TARGET"
+
   # Stage B without the R stage A fitted: refused before anything is rented.
   REPS=3 REQUIRE_CLEAN_TREE=0 \
     STUDY=prospective-pilot-2026-10-08 PILOT_STAGE=B PREMIUM_RATE=9.25 PILOT_NOISY_RATE=0.5 SEEDS="11 12 13" \

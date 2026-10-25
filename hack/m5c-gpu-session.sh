@@ -217,8 +217,8 @@ elif [ -n "${PILOT_STAGE:-}" ]; then
   # "The measurement pilot"): two tenants at fixed independent rates, one stage per session, its arms the stage's.
   # Stages A and B are the pilot's, stage D the admission diagnostic's (design page, "v25") and stage E v26's.
   case "$PILOT_STAGE:${STUDY:-}" in
-    A:prospective-pilot-2026-10-08 | B:prospective-pilot-2026-10-08 | D:admission-diagnostic-2026-10-10 | E:admission-frontier-2026-10-10 | F:admission-length-calibration-2026-10-10 | G:admission-headroom-calibration-2026-10-24) ;;
-    *) fail "PILOT_STAGE ${PILOT_STAGE@Q} and STUDY ${STUDY@Q} do not go together: stages A and B are prospective-pilot-2026-10-08's, stage D admission-diagnostic-2026-10-10's, stage E admission-frontier-2026-10-10's, stage F admission-length-calibration-2026-10-10's, stage G admission-headroom-calibration-2026-10-24's" ;;
+    A:prospective-pilot-2026-10-08 | B:prospective-pilot-2026-10-08 | D:admission-diagnostic-2026-10-10 | E:admission-frontier-2026-10-10 | F:admission-length-calibration-2026-10-10 | G:admission-headroom-calibration-2026-10-24 | H:admission-headroom-main-2026-10-25) ;;
+    *) fail "PILOT_STAGE ${PILOT_STAGE@Q} and STUDY ${STUDY@Q} do not go together: stages A and B are prospective-pilot-2026-10-08's, stage D admission-diagnostic-2026-10-10's, stage E admission-frontier-2026-10-10's, stage F admission-length-calibration-2026-10-10's, stage G admission-headroom-calibration-2026-10-24's, stage H admission-headroom-main-2026-10-25's" ;;
   esac
   [ -z "$LADDER" ]           || fail "PILOT_STAGE and LADDER are both set"
   [ -z "${RATE:-}" ]         || fail "RATE and PILOT_STAGE are both set; the pilot's rates are PREMIUM_RATE and PILOT_NOISY_RATE"
@@ -226,14 +226,23 @@ elif [ -n "${PILOT_STAGE:-}" ]; then
   [ -z "$ARMS_FROM_CALLER" ] || fail "ARMS and PILOT_STAGE are both set; the pilot's arms are its stage's"
   [ -n "$PREMIUM_RATE" ] && [ -n "${PILOT_NOISY_RATE:-}" ] || fail "the pilot needs PREMIUM_RATE and PILOT_NOISY_RATE"
   case "$PREMIUM_RATE ${PILOT_NOISY_RATE} ${PILOT_STATIC_RATE:-0}" in *[!0-9.\ ]*) fail "the pilot's rates carry only decimals" ;; esac
-  case "$PILOT_STAGE" in A | D | E | F | G) ;; B) [ -n "${PILOT_STATIC_RATE:-}" ] || fail "stage B needs PILOT_STATIC_RATE, the R fitted in stage A" ;;
-    *) fail "PILOT_STAGE is ${PILOT_STAGE@Q}; the pilot has stages A and B, the diagnostic stage D, v26 stage E, v27's calibration stage F and C3's calibration stage G" ;; esac
-  case "$PILOT_STAGE" in D | E | F | G) [ -z "${PILOT_STATIC_RATE:-}" ] || fail "PILOT_STATIC_RATE is set and stage $PILOT_STAGE has no static arm" ;; esac
+  case "$PILOT_STAGE" in A | D | E | F | G | H) ;; B) [ -n "${PILOT_STATIC_RATE:-}" ] || fail "stage B needs PILOT_STATIC_RATE, the R fitted in stage A" ;;
+    *) fail "PILOT_STAGE is ${PILOT_STAGE@Q}; the pilot has stages A and B, the diagnostic stage D, v26 stage E, v27's calibration stage F, C3's calibration stage G and its main study's stage H" ;; esac
+  case "$PILOT_STAGE" in D | E | F | G | H) [ -z "${PILOT_STATIC_RATE:-}" ] || fail "PILOT_STATIC_RATE is set and stage $PILOT_STAGE has no static arm" ;; esac
   # C3's load is its one change from v27's calibration, so its rates are refused here by name rather than left to the
   # plan's checksum mismatch (docs/superpowers/specs/2026-10-24-c3-headroom-calibration.md).
-  if [ "$PILOT_STAGE" = G ]; then
+  # Its main study, stage H, runs at the same load (docs/superpowers/specs/2026-10-25-c3-headroom-main.md).
+  if [ "$PILOT_STAGE" = G ] || [ "$PILOT_STAGE" = H ]; then
     [ "$PREMIUM_RATE" = 9.25 ] && [ "$PILOT_NOISY_RATE" = 0.375 ] \
-      || fail "stage G registers premium 9.25/s and contender 0.375/s; got PREMIUM_RATE=$PREMIUM_RATE and PILOT_NOISY_RATE=$PILOT_NOISY_RATE"
+      || fail "stage $PILOT_STAGE registers premium 9.25/s and contender 0.375/s; got PREMIUM_RATE=$PREMIUM_RATE and PILOT_NOISY_RATE=$PILOT_NOISY_RATE"
+  fi
+  # Stage H is one block per session, and the block names its seed; the matrix refuses either mismatch too, but here
+  # it is refused before the build, and the block is what the instance's matrix is told.
+  if [ "$PILOT_STAGE" = H ]; then
+    case "${PILOT_BLOCK:-}:${SEEDS:-}" in 1:882 | 2:892 | 3:893) ;;
+      *) fail "stage H runs block 1 on seed 882, block 2 on 892 or block 3 on 893, one per session; got PILOT_BLOCK='${PILOT_BLOCK:-}' and SEEDS='${SEEDS:-}'" ;; esac
+  else
+    [ -z "${PILOT_BLOCK:-}" ] || fail "PILOT_BLOCK is set and stage $PILOT_STAGE numbers its own blocks; only stage H runs one block per session"
   fi
   # The admission studies were sized, priced and replayed on one A10G in the region whose sweeper reads their
   # study-deadline tag; another type, a higher price ceiling or another region is another experiment, or one no
@@ -258,7 +267,9 @@ elif [ -n "${PILOT_STAGE:-}" ]; then
     D) HARD_STOP_SECONDS=15240; BACKSTOP_SECONDS=15840 ;; E) HARD_STOP_SECONDS=22140; BACKSTOP_SECONDS=22740 ;;
     # Stage F, v27's 7 calibration cells: 1.25 x (200 + 7 x 920 + 12) = 8,315 s, rounded up to 2 h 19 m.
     # Stage G, C3's calibration, is the same seven cells at the same length, so the same limits.
-    F | G) HARD_STOP_SECONDS=8340; BACKSTOP_SECONDS=8940 ;; esac
+    F | G) HARD_STOP_SECONDS=8340; BACKSTOP_SECONDS=8940 ;;
+    # Stage H, C3's main block, 16 cells: 1.25 x (200 + 16 x 920 + 12) = 18,665 s, rounded up to 5 h 12 m.
+    H) HARD_STOP_SECONDS=18720; BACKSTOP_SECONDS=19320 ;; esac
 elif [ -n "$PREMIUM_RATE" ]; then
   fail "PREMIUM_RATE is set without SWEEP. It is the held latency-critical rate of a sweep, and on its own it would be ignored."
 fi
@@ -417,6 +428,7 @@ if [ -n "${PILOT_STAGE:-}" ]; then
   # C3's stage has its own registration page; every earlier stage is registered on the admission design page.
   _pp_page=docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md
   [ "$PILOT_STAGE" != G ] || _pp_page=docs/superpowers/specs/2026-10-24-c3-headroom-calibration.md
+  [ "$PILOT_STAGE" != H ] || _pp_page=docs/superpowers/specs/2026-10-25-c3-headroom-main.md
   say "study  $STUDY, stage $PILOT_STAGE -- $_pp_page"
 else
   say "study  M5-c sharing matrix -- does giving each tenant its own engine on a shared card protect the tail"
@@ -503,6 +515,7 @@ elif [ -n "$SWEEP" ]; then
 elif [ -n "${PILOT_STAGE:-}" ]; then
   say "load   the pilot's stage ${PILOT_STAGE}, ${DURATION_MS}ms per cell: premium ${PREMIUM_RATE}/s, contender ${PILOT_NOISY_RATE}/s, independent"
   [ -z "${PILOT_STATIC_RATE:-}" ] || say "       the static arm at R=${PILOT_STATIC_RATE}"
+  [ -z "${PILOT_BLOCK:-}" ] || say "       block ${PILOT_BLOCK} of 3, seed ${SEEDS}"
 elif iv_is_study "${STUDY:-}"; then
   say "load   none -- registered episodes, one tenant; the trace length per arm ($(for _a in $ARMS; do printf '%s=%sms ' "$_a" "$(iv_duration_ms "$STUDY" "$_a")"; done))"
 else
@@ -845,6 +858,8 @@ PREMIUM_RATE="HELD_LC_PER_SEC_PLACEHOLDER"
 PILOT_STAGE="PILOT_STAGE_PLACEHOLDER"
 PILOT_NOISY_RATE="PILOT_CONTENDER_PER_SEC_PLACEHOLDER"
 PILOT_STATIC_RATE="PILOT_STATIC_R_PLACEHOLDER"
+# Stage H's global block, which orders its cells and names its request ids; empty for every other stage.
+PILOT_BLOCK="PILOT_GLOBAL_BLOCK_PLACEHOLDER"
 # The rest of the load, which used to stay on the laptop.
 #
 # The ninth pilot's user-data carries no PREMIUM_PROMPT_CHARS, no MODEL_REVISION and no REQUEST_TIMEOUT_MS
@@ -1101,6 +1116,7 @@ elif [ -n "$PILOT_STAGE" ]; then
   unset RATE NOISY_WEIGHT ARMS
   export PREMIUM_WEIGHT PROBE_WEIGHT DURATION_MS REPS PREMIUM_RATE PILOT_STAGE PILOT_NOISY_RATE
   if [ -n "$PILOT_STATIC_RATE" ]; then export PILOT_STATIC_RATE; fi
+  if [ -n "$PILOT_BLOCK" ]; then export PILOT_BLOCK; fi
 else
   export RATE PREMIUM_WEIGHT NOISY_WEIGHT PROBE_WEIGHT DURATION_MS REPS ARMS
 fi
@@ -1364,6 +1380,7 @@ UD="$(mktemp)"
       -e "s|PILOT_STAGE_PLACEHOLDER|${PILOT_STAGE:-}|" \
       -e "s|PILOT_CONTENDER_PER_SEC_PLACEHOLDER|${PILOT_NOISY_RATE:-}|" \
       -e "s|PILOT_STATIC_R_PLACEHOLDER|${PILOT_STATIC_RATE:-}|" \
+      -e "s|PILOT_GLOBAL_BLOCK_PLACEHOLDER|${PILOT_BLOCK:-}|" \
       -e "s|PILOT_MATRIX_DEADLINE_PLACEHOLDER|${PILOT_MATRIX_DEADLINE:-}|" \
       -e "s|PILOT_BACKSTOP_EPOCH_PLACEHOLDER|${PILOT_BACKSTOP_EPOCH:-}|" \
       -e "s|PREMIUM_PROMPT_CHARS_PLACEHOLDER|${PREMIUM_PROMPT_CHARS:-}|" \
@@ -1450,6 +1467,7 @@ elif [ -n "$SWEEP" ]; then
 elif [ -n "${PILOT_STAGE:-}" ]; then
   plan_env+=(REPS="$REPS" PREMIUM_RATE="$PREMIUM_RATE" PILOT_STAGE="$PILOT_STAGE" PILOT_NOISY_RATE="$PILOT_NOISY_RATE")
   [ -z "${PILOT_STATIC_RATE:-}" ] || plan_env+=(PILOT_STATIC_RATE="$PILOT_STATIC_RATE")
+  [ -z "${PILOT_BLOCK:-}" ] || plan_env+=(PILOT_BLOCK="$PILOT_BLOCK")
   [ -z "${SEEDS:-}" ] || plan_env+=(SEEDS="$SEEDS")
 else
   plan_env+=(ARMS="$ARMS" REPS="$REPS" RATE="$RATE" NOISY_WEIGHT="$NOISY_WEIGHT")
@@ -2034,7 +2052,7 @@ for arm in $expected_arms; do
     _arm_reps="${REPS:-1}"
     if iv_is_study "${STUDY:-}"; then case "$arm" in *-async) _arm_reps=1 ;; esac; fi
     # The diagnostic's stage D runs R1 once, as its isolated anchor.
-    case "${PILOT_STAGE:-}" in D | E | F | G) [ "$arm" != R1 ] || _arm_reps=1 ;; esac
+    case "${PILOT_STAGE:-}" in D | E | F | G | H) [ "$arm" != R1 ] || _arm_reps=1 ;; esac
     _rep=1
     while [ "$_rep" -le "$_arm_reps" ]; do
       # A block the study does not buy this arm in owes no file (the step-boundary session's serial and staggered
@@ -2067,7 +2085,7 @@ fi
 # did not buy; extra cells were accepted and missing records went unnoticed (v26 review, C23).
 if [ -n "${PILOT_STAGE:-}" ]; then
   _want=$(for arm in $expected_arms; do
-    _n="${REPS:-1}"; case "$PILOT_STAGE" in D | E | F | G) [ "$arm" != R1 ] || _n=1 ;; esac
+    _n="${REPS:-1}"; case "$PILOT_STAGE" in D | E | F | G | H) [ "$arm" != R1 ] || _n=1 ;; esac
     for _r in $(seq 1 "$_n"); do echo "$arm-$_r"; done
   done | LC_ALL=C sort)
   _got=$(cd "$OUT/m5c-run" && for _f in raw-*.jsonl; do case "$_f" in raw-warmup-*) continue ;; esac; _c=${_f#raw-}; echo "${_c%.jsonl}"; done | LC_ALL=C sort)
@@ -2092,6 +2110,7 @@ case "${PILOT_STAGE:-}" in
   E) say "Score it with the registered decision:  python3 hack/prospective-pilot/pilot_report.py frontier $OUT/m5c-run"; exit 0 ;;
   F) say "Score it with the registered gate:  python3 hack/prospective-pilot/pilot_report.py calibration $OUT/m5c-run"; exit 0 ;;
   G) say "Score it with the registered gate:  python3 hack/prospective-pilot/pilot_report.py headroom $OUT/m5c-run"; exit 0 ;;
+  H) say "This is block $PILOT_BLOCK of 3. Score all three together:  python3 hack/prospective-pilot/pilot_report.py headroom-main <block 1's m5c-run> <block 2's> <block 3's>"; exit 0 ;;
   D) say "Score it with the registered decision:  python3 hack/prospective-pilot/pilot_report.py diagnostic $OUT/m5c-run"; exit 0 ;;
   A | B) say "Score it with:  python3 hack/prospective-pilot/pilot_report.py stage $OUT/m5c-run"; exit 0 ;;
 esac
