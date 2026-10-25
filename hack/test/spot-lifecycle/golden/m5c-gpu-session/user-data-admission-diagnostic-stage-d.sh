@@ -225,6 +225,8 @@ SIDECAR
   # longer than one upload, so the sidecar's flush on it can finish.
   export PP_SPOT_NOTICE_FILE=/tmp/spot-notice
   (
+    # Untraced, or set -x writes every token into log.txt, which is committed, every 5 s.
+    set +x
     # Each request bounded at 2 s, so a stalled metadata call cannot use up the two-minute warning (review of c4eef3d).
     while :; do
       imds_token=$(curl -s --connect-timeout 1 --max-time 2 -X PUT -H "X-aws-ec2-metadata-token-ttl-seconds: 300" \

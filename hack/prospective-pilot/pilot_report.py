@@ -376,6 +376,10 @@ def crossed_log_ratio(num, den):
     denominator -inf, which is what a failure-heavy arm makes them (review of 97ae105, finding 8)."""
     if num is None or den is None or den <= 0 and not math.isinf(den):
         return None
+    # A NaN compares false both ways, so a ratio built from one would pass a "fails" line and miss the verdict rule
+    # that reads the same line (astra's attack on the C3 page, 1). It is not a ratio, so it is unscorable.
+    if math.isnan(num) or math.isnan(den):
+        return None
     # Both infinite is undefined, not either infinity (design page, "If both p99s are infinite at the same vertex";
     # review of 9b10925).
     if math.isinf(num) and math.isinf(den):
@@ -1137,6 +1141,20 @@ LENCAL_CELLS = ["R1-1"] + ["%s-%s-1" % (a, l) for l, _ in LENCAL_LENGTHS for a i
 # v26's fixed spacing, which the long level must outlast for the robustness study to test anything.
 V26_SPACING_MS = 1740.0
 
+# C3's calibration (docs/superpowers/specs/2026-10-24-c3-headroom-calibration.md): v27's cells at 0.375 contenders a
+# second on seed 891. The same table is in hack/lib/prospective-pilot.sh.
+HEADROOM_STUDY = "admission-headroom-calibration-2026-10-24"
+HEADROOM_SEED = 891
+HEADROOM_CHECKSUMS = {
+    "R1": "5d1eed22b672a279b5bff76e1163e290ac811890359fcab55c2888b79842abc5",
+    "short": "bf07e81165efe07a38362e8f2ed8e9bc24ef2dc58f17eef7fb65014d1406cb9a",
+    "ref": "04f00759c75855845bd4431ac80721e04a5a95a8e33e139a275b82c3fafd5e8c",
+    "long": "78a4b8f4f2ae02d1d93e207a75926bb87de0bc1792852258feac3af3bfc75cf4",
+}
+# The literal ratio of v26's selected 1,740 ms to v27's measured 1,652 ms at the reference (1.05327), frozen as
+# registered: C3's fixed spacing is d(ref) times this, carried from the old load rather than tuned at the new one.
+HEADROOM_SPACING_RATIO = 1.0533
+
 
 def admission_to_content(stage_dir, tag):
     """(durations, untimed): each admitted contender's gateway decision to its first content, in ms, under
@@ -1164,7 +1182,16 @@ def engine_prefill(stage_dir, tag):
     admitted = [rid for rid, e in gateway_records(os.path.join(stage_dir, "gateway-record-%s.jsonl" % tag)).items()
                 if rows.get(rid) == CONTENDER and (e.get("done") or {}).get("decision") == "admit"]
     steps = jsonl(os.path.join(stage_dir, "step-log-%s.jsonl" % tag))
-    done = {st["step"]: st["t2"] for st in steps if st.get("ev") == "done"}
+    # A done record without a finite end time cannot end a prefill; it is counted, so the caller can refuse the cell
+    # rather than this crash or quietly time the contender as unfinished (astra's attack on the C3 page, 4).
+    done, malformed = {}, 0
+    for st in steps:
+        if st.get("ev") == "done":
+            t2 = st.get("t2")
+            if isinstance(t2, (int, float)) and math.isfinite(t2):
+                done[st.get("step")] = t2
+            else:
+                malformed += 1
     adds = {st["id"]: st for st in steps if st.get("ev") == "add" and match_client(st.get("id", ""), admitted)}
     ends = {}
     for st in steps:
@@ -1174,18 +1201,15 @@ def engine_prefill(stage_dir, tag):
             a = adds.get(eid)
             if a and eid not in ends and st.get("computed", {}).get(eid, 0) + n >= a["prompt"] and st["step"] in done:
                 ends[eid] = done[st["step"]]
-    return sorted(ms(ends[e] - a["mono"]) if e in ends else math.inf for e, a in adds.items())
+    return sorted(ms(ends[e] - a["mono"]) if e in ends else math.inf for e, a in adds.items()), malformed
 
 
-def calibration(stage_dir):
-    """v27's calibration gate: whether hold-cap is admissible and protective at every length, and whether the long
-    length lengthens the capped prefill past v26's fixed spacing, with every measurement it rests on.
+def _length_stage(stage_dir, study, seed, checksums):
+    """The measurements and the first three verdict rules both length calibrations share, v27's and C3's: every cell
+    scored, each length's hold-cap against its off, and the reason, if any, the stage cannot be feasible.
 
-    The verdicts, in order: inconclusive; not feasible, hold-cap inadmissible at a length; not feasible, hold-cap's
-    protection not established at a length; challenge not achieved; feasible. Beside them it publishes the size-aware
-    control's spacings the main study would freeze, s(N) = 1,740 ms x d(N) / d(reference), with d the median engine
-    prefill under hold-cap over every forwarded contender; the gateway's admission-to-first-content is published
-    beside it (design page, "v27", and its review).
+    Returns (reason, validity, lines, measured, first_fail): reason is the inconclusive or not-feasible verdict, or
+    None when hold-cap is admissible and protective at every length with a finite median engine prefill at each.
     """
     validity, lines = [], []
 
@@ -1195,7 +1219,7 @@ def calibration(stage_dir):
 
     def prov(arm, rep):
         key = "R1" if arm == "R1" else arm.rsplit("-", 1)[1]
-        return provenance(stage_dir, arm, rep, study=LENCAL_STUDY, seed=LENCAL_SEED, want=LENCAL_CHECKSUMS[key])
+        return provenance(stage_dir, arm, rep, study=study, seed=seed, want=checksums[key])
 
     present = {c: os.path.exists(os.path.join(stage_dir, "raw-%s.jsonl" % c)) for c in LENCAL_CELLS}
     missing = [c for c in LENCAL_CELLS if not present[c]]
@@ -1224,7 +1248,8 @@ def calibration(stage_dir):
             first_fail[length] = "premium p99 crossed against off's"
         a2c, a2c_untimed = admission_to_content(stage_dir, h)
         check(validity, "hold-cap at %s: contender successes without gateway timing" % length, a2c_untimed, "0", a2c_untimed == 0)
-        eng = engine_prefill(stage_dir, h)
+        eng, eng_malformed = engine_prefill(stage_dir, h)
+        check(validity, "hold-cap at %s: step-log done records without an end time" % length, eng_malformed, "0", eng_malformed == 0)
         measured[length] = {"tokens": tokens, "engine_prefill_p50_ms": nearest_rank(eng, 0.5),
                             "engine_prefill_p95_ms": nearest_rank(eng, 0.95),
                             "engine_prefill_unfinished": sum(1 for x in eng if math.isinf(x)),
@@ -1256,14 +1281,35 @@ def calibration(stage_dir):
             0 < (measured[l]["engine_prefill_p50_ms"] or 0) < math.inf for l, _ in LENCAL_LENGTHS):
         inconclusive.append("a length has no finite engine prefill median")
 
-    spacings = None
+    # Feasible needs every line to hold, not only no rule to have fired: a line that failed or was unscorable without
+    # reaching a rule above is a gap in the rules, and it is reported as one (astra's attack on the C3 page, 1).
+    if not inconclusive and not bad_len:
+        silent = [x["line"] for x in validity + lines if x["state"] != "holds"]
+        if silent:
+            inconclusive.append("lines that did not hold and reached no rule: " + ", ".join(silent[:5]))
+    reason = None
     if inconclusive:
-        verdict = "inconclusive: " + "; ".join(inconclusive)
+        reason = "inconclusive: " + "; ".join(inconclusive)
     elif bad_len:
         l = bad_len[0]
-        verdict = ("not feasible: hold-cap's 15%% protection of the premium tail was not established at %s" % l
-                   if first_fail[l] == prot else "not feasible: hold-cap was not admissible at %s: %s" % (l, first_fail[l]))
-    else:
+        reason = ("not feasible: hold-cap's 15%% protection of the premium tail was not established at %s" % l
+                  if first_fail[l] == prot else "not feasible: hold-cap was not admissible at %s: %s" % (l, first_fail[l]))
+    return reason, validity, lines, measured, first_fail
+
+
+def calibration(stage_dir):
+    """v27's calibration gate: whether hold-cap is admissible and protective at every length, and whether the long
+    length lengthens the capped prefill past v26's fixed spacing, with every measurement it rests on.
+
+    The verdicts, in order: inconclusive; not feasible, hold-cap inadmissible at a length; not feasible, hold-cap's
+    protection not established at a length; challenge not achieved; feasible. Beside them it publishes the size-aware
+    control's spacings the main study would freeze, s(N) = 1,740 ms x d(N) / d(reference), with d the median engine
+    prefill under hold-cap over every forwarded contender; the gateway's admission-to-first-content is published
+    beside it (design page, "v27", and its review).
+    """
+    verdict, validity, lines, measured, first_fail = _length_stage(stage_dir, LENCAL_STUDY, LENCAL_SEED, LENCAL_CHECKSUMS)
+    spacings = None
+    if verdict is None:
         # Judged on the engine's own prefill, which is what a fixed spacing must outlast; the gateway's view adds the
         # transport and the flush (review of the v27 calibration, C1).
         d_ref, d_long = measured["ref"]["engine_prefill_p50_ms"], measured["long"]["engine_prefill_p50_ms"]
@@ -1281,6 +1327,40 @@ def calibration(stage_dir):
             "size_aware_spacings_ms": spacings, "first_failure": first_fail}
 
 
+def headroom(stage_dir):
+    """C3's calibration gate: v27's first rules, then the challenge judged against S = 1.0533 x d(reference) in place of
+    v26's 1,740 ms, so the long length must outlast a spacing derived from this card's reference
+    (docs/superpowers/specs/2026-10-24-c3-headroom-calibration.md, "The gate").
+
+    S and the size-aware spacings S x d(N) / d(reference) are published whenever every median is finite and positive and
+    S does not round to zero, and are
+    frozen for a main study only when the verdict is feasible; otherwise they are labelled provisional.
+    """
+    verdict, validity, lines, measured, first_fail = _length_stage(stage_dir, HEADROOM_STUDY, HEADROOM_SEED, HEADROOM_CHECKSUMS)
+    medians = {l: (measured.get(l) or {}).get("engine_prefill_p50_ms") for l, _ in LENCAL_LENGTHS}
+    fixed, spacings = None, None
+    if all(m is not None and 0 < m < math.inf for m in medians.values()):
+        fixed = round(HEADROOM_SPACING_RATIO * medians["ref"], 1)
+        spacings = {l: round(fixed * medians[l] / medians["ref"], 1) for l, _ in LENCAL_LENGTHS}
+        # A positive reference under 0.05 ms, kind's stub engine, rounds S to zero, and any long length outlasts that.
+        if not fixed > 0:
+            fixed, spacings = None, None
+            if verdict is None:
+                verdict = ("inconclusive: S = 1.0533 x the reference's median rounds to 0.0 ms at 0.1 ms, so there is no "
+                           "spacing to challenge (reference median %r ms)" % medians["ref"])
+    if verdict is None:
+        # The rule v27 also required, 1.05 times the reference, is implied: S is already 1.0533 times it.
+        if not medians["long"] > fixed:
+            verdict = ("challenge not achieved: hold-cap's median engine prefill at the long length, %.0f ms, does not exceed "
+                       "S = %.1f ms, 1.0533 times the reference's %.0f ms" % (medians["long"], fixed, medians["ref"]))
+        else:
+            verdict = "feasible: hold-cap admissible and protective at every length, and the long length outlasts S = %.1f ms" % fixed
+    return {"verdict": verdict, "validity": validity, "lines": lines, "measured": measured,
+            "fixed_spacing_ms": fixed, "size_aware_spacings_ms": spacings,
+            "spacings_status": "frozen for the main study" if verdict.startswith("feasible") else "provisional, not licensed for a main study",
+            "first_failure": first_fail}
+
+
 def main(argv):
     if len(argv) in (3, 4) and argv[1] == "stage" and (len(argv) == 3 or argv[3] in STAGE_ARMS):
         json.dump(stage_report(argv[2], argv[3] if len(argv) == 4 else None), sys.stdout, indent=1, default=str)
@@ -1288,6 +1368,10 @@ def main(argv):
         return 0
     if len(argv) == 3 and argv[1] == "calibration":
         json.dump(calibration(argv[2]), sys.stdout, indent=1, default=str)
+        print()
+        return 0
+    if len(argv) == 3 and argv[1] == "headroom":
+        json.dump(headroom(argv[2]), sys.stdout, indent=1, default=str)
         print()
         return 0
     if len(argv) == 3 and argv[1] == "frontier":

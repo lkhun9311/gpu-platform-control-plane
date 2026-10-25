@@ -342,6 +342,12 @@ const (
 	// docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md, "v27 main study".
 	StudyLengthRobustness = "admission-length-robustness-2026-10-10"
 
+	// StudyHeadroomCalibration is C3's calibration: v27's seven cells at a contender rate of 0.375/s, so hold-cap has
+	// headroom at the long length, docs/superpowers/specs/2026-10-24-c3-headroom-calibration.md.
+	// It is a separate id because the rate is not part of a FrozenTuple: the trace checksums the plan freezes per id are
+	// what keep a 0.5/s trace from being bought under it, and a 0.375/s one under v27's.
+	StudyHeadroomCalibration = "admission-headroom-calibration-2026-10-24"
+
 	// StudyMPSCapability is the one-cell capability session of
 	// docs/superpowers/specs/2026-09-25-can-mps-engage-on-this-card-at-all.md, as its 2026-10-24 amendment freezes it.
 	//
@@ -922,6 +928,26 @@ var studies = map[string]Study{
 		// The two new lengths are the resolver's measured entries (inputlengths.go: 6,144 and 8,192 tokens); the card
 		// re-checks every count before the first cell.
 		FrozenExactTokens: map[int]int{200: 68, 31894: 6144, 40000: 7695, 42579: 8192},
+	},
+	// v27's calibration in every field but the id: the arms, tuple, token table and pool are the same, and the rate is
+	// the session's and the checksums', not this entry's.
+	StudyHeadroomCalibration: {
+		ID:       StudyHeadroomCalibration,
+		Arms:     []string{ArmR1, "off-short", "off-ref", "off-long", "hold-cap-short", "hold-cap-ref", "hold-cap-long"},
+		Arrivals: ArrivalsIndependent,
+		Frozen: &FrozenTuple{
+			PremiumPromptChars:    200,
+			ContenderPromptChars:  40000,
+			TimeoutMs:             30000,
+			PremiumOutputTokens:   64,
+			ContenderOutputTokens: 16,
+		},
+		MinRepetitions:         1,
+		FixesOutputAtCap:       true,
+		RecordsReplayTiming:    true,
+		TracesVaryByRepetition: true,
+		SenderPoolSize:         600,
+		FrozenExactTokens:      map[int]int{200: 68, 31894: 6144, 40000: 7695, 42579: 8192},
 	},
 	// One mps cell, once: the stopping rule allows one attempt, and nothing is divided by anything.
 	// The tuple is the sharing matrix's, which the amendment carries over; only the rate differs, and the session

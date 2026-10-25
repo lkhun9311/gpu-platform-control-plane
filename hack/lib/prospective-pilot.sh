@@ -40,9 +40,13 @@ PP_FRONTIER_SEEDS="861 862 863"
 # v27's calibration stage (design page, "v27"): off and hold-cap at three contender lengths, one block.
 PP_LENCAL_STUDY=admission-length-calibration-2026-10-10
 PP_LENCAL_SEEDS="871"
+# C3's calibration (docs/superpowers/specs/2026-10-24-c3-headroom-calibration.md): stage F's arms at a contender rate of
+# 0.375/s, one block on a seed of its own, under its own stage so a stage still names one study.
+PP_HEADROOM_STUDY=admission-headroom-calibration-2026-10-24
+PP_HEADROOM_SEEDS="891"
 
 # The pilot, the admission diagnostic and v26 share this apparatus: its capture, sidecar, sampler and calibration.
-pp_is_study() { [ "${1:-}" = "$PP_STUDY" ] || [ "${1:-}" = "$PP_DIAG_STUDY" ] || [ "${1:-}" = "$PP_FRONTIER_STUDY" ] || [ "${1:-}" = "$PP_LENCAL_STUDY" ]; }
+pp_is_study() { [ "${1:-}" = "$PP_STUDY" ] || [ "${1:-}" = "$PP_DIAG_STUDY" ] || [ "${1:-}" = "$PP_FRONTIER_STUDY" ] || [ "${1:-}" = "$PP_LENCAL_STUDY" ] || [ "${1:-}" = "$PP_HEADROOM_STUDY" ]; }
 
 # The study a stage belongs to; a stage filed under another study would be scored by rules it was not bought under.
 pp_stage_study() {
@@ -51,7 +55,8 @@ pp_stage_study() {
     D) echo "$PP_DIAG_STUDY" ;;
     E) echo "$PP_FRONTIER_STUDY" ;;
     F) echo "$PP_LENCAL_STUDY" ;;
-    *) echo "PILOT_STAGE is ${1@Q}; the stages are A, B, D, E and F" >&2; return 1 ;;
+    G) echo "$PP_HEADROOM_STUDY" ;;
+    *) echo "PILOT_STAGE is ${1@Q}; the stages are A, B, D, E, F and G" >&2; return 1 ;;
   esac
 }
 
@@ -81,7 +86,21 @@ pp_lencal_checksum() {
   esac
 }
 
-# The contender prompt an arm replays, in characters: v27's calibration arms carry their length in their name;
+# C3's calibration traces for seed 891 at 0.375 contenders a second, frozen as v27's are: R1's and one per length.
+pp_headroom_checksum() {
+  case "${1:-}:${2:-}" in
+    891:R1) echo 5d1eed22b672a279b5bff76e1163e290ac811890359fcab55c2888b79842abc5 ;;
+    891:*-short) echo bf07e81165efe07a38362e8f2ed8e9bc24ef2dc58f17eef7fb65014d1406cb9a ;;
+    891:*-ref) echo 04f00759c75855845bd4431ac80721e04a5a95a8e33e139a275b82c3fafd5e8c ;;
+    891:*-long) echo 78a4b8f4f2ae02d1d93e207a75926bb87de0bc1792852258feac3af3bfc75cf4 ;;
+    *) echo "seed ${1@Q} and arm ${2@Q} are not one of C3's calibration traces" >&2; return 1 ;;
+  esac
+}
+
+# The stages whose arms carry their contender length in their name: v27's calibration and C3's.
+pp_is_length_stage() { [ "${1:-}" = F ] || [ "${1:-}" = G ]; }
+
+# The contender prompt an arm replays, in characters: v27's and C3's calibration arms carry their length in their name;
 # every other arm replays its study's frozen length, given as $2.
 pp_arm_contender_chars() {
   case "${1:-}" in
@@ -112,7 +131,9 @@ pp_stage_arms() {
     E) printf '%s\n' R1 off hold-cap fixed-1.62 fixed-1.66 fixed-1.70 fixed-1.74 ;;
     # v27's calibration: R1 once, then off and hold-cap at each length in one block (design page, "v27").
     F) printf '%s\n' R1 off-short off-ref off-long hold-cap-short hold-cap-ref hold-cap-long ;;
-    *) echo "PILOT_STAGE is ${1@Q}; the pilot has stages A and B, the diagnostic D, v26 E and v27's calibration F" >&2; return 1 ;;
+    # C3's calibration: the same arms, at its own load.
+    G) printf '%s\n' R1 off-short off-ref off-long hold-cap-short hold-cap-ref hold-cap-long ;;
+    *) echo "PILOT_STAGE is ${1@Q}; the pilot has stages A and B, the diagnostic D, v26 E, v27's calibration F and C3's G" >&2; return 1 ;;
   esac
 }
 
@@ -242,7 +263,7 @@ pp_gateway_args_yaml() {
 # The replay's request-ID prefix: stage, arm and block, so every ID is unique across the whole pilot.
 pp_request_id_flag() {
   local stage="$1" arm="$2" rep="$3"
-  case "$stage" in A | B | D | E | F) ;; *) echo "PILOT_STAGE is ${stage@Q}" >&2; return 1 ;; esac
+  case "$stage" in A | B | D | E | F | G) ;; *) echo "PILOT_STAGE is ${stage@Q}" >&2; return 1 ;; esac
   printf -- '--request-id-prefix=pp-%s-%s-%s\n' "$stage" "$arm" "$rep"
 }
 
