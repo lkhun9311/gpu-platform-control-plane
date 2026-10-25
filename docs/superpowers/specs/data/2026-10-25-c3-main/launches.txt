@@ -1,3 +1,4 @@
 # C3's main study's launches, one line each: <block> <instance id> <completed | interrupted | failed>.
 # Committed after each session; hack/m5c-gpu-session.sh reads this file at HEAD and refuses a launch it does not allow
-# (2026-10-25-c3-headroom-main.md, "Sessions, limits and cost"). No launch yet.
+# (2026-10-25-c3-headroom-main.md, "Sessions, limits and cost").
+1 i-0af230b6c53323355 completed
