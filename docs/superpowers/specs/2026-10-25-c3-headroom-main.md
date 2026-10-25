@@ -220,5 +220,12 @@ Built and pushed on `feat/c3-main-gate`, each with its tests and each new check 
 | 6, the scorer | `885f3528`, `a8552458` | 16 tests, 13 mutations each red; the diagnostic, v26, v27 calibration and C3 calibration archives score byte-identically with the scorer before it |
 
 codex's bare reviews of `885f3528` found two defects, a truncated cell crashing the report and the secondary verdicts waiting on the primary's text, both reproduced by a test and fixed in `a8552458`; of `c4cd7ec2` and `7b7e92bb`, tests that depended on the live ledger, fixed in `b4850bda`; of `efa7c235`, none. These are static reviews; the test runs are mine.
-Still to do: the kind rehearsal of three stage-H sessions, freezing this page for purchase, and the owner's separate approval to buy.
+The kind rehearsal of stage H ran on 2026-10-25 at `efa7c235`: three matrices one after another, blocks 1 to 3 on seeds 882, 892 and 893, scored together by `pilot_report.py headroom-main`.
+Every block wrote all 253 expected files and completed all 16 cells; every cell was eligible, ran its own admission mode and cap, and the 20-second traces' provenance lines failed by design.
+Every validity line beyond provenance held, the new ones included (request ids naming the block, the engine's cap, the cell order, both temporal witnesses), except one class: the gateway's arrival-to-record and premium arrival-to-decision p99, bound at 13 ms, failed in 48 lines at 13.4 to 26.0 ms, every maximum under the 50 ms ceiling.
+That is the failure the calibration's rehearsals showed on this host (13.1 to 23.6 ms), and which its control, v27's stage F on `dev`'s tree, showed too; on both cards since, those lines read 4.9 to 5.7 ms.
+Block 1, run while I also ran the library and lifecycle checks, has 22 of the 48 lines; blocks 2 and 3, with nothing else running, 12 and 14.
+The bound is not relaxed: on the cards it is judged as registered, and a failure there makes the study inconclusive.
+The rehearsal kept no files (it ran without KEEP=1), so the scorer's verdict on the stub's evidence was not printed past the validity check that stopped it.
+Still to do: freezing this page for purchase, and the owner's separate approval to buy.
 
