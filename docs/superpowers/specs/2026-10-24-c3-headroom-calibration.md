@@ -1,7 +1,12 @@
 # C3's calibration: hold-cap and a fixed spacing at a load with contender headroom — pre-registered
 
 Written 2026-10-24.
-**DRAFT, not frozen for purchase.** It is frozen only after codex's cold attack on this page has been reconciled, the build below is in, and the plan check and a kind rehearsal have run. The owner confirms the purchase after that.
+**Frozen for purchase, 2026-10-25,** at the commit that carries this line; the gate, the cells and the checksums below are not changed after it.
+codex's cold attack is reconciled (the table below), the build is in, the plan check refuses a mutated checksum by name, and the kind rehearsal of stage G has run five times.
+That rehearsal held every line but one: the gateway's arrival-to-record and premium arrival-to-decision p99, bound at 13 ms, failed in two to six cells per run at 13.1 to 23.6 ms.
+It failed the same way in a control, v27's stage F on `dev`'s committed tree on the same host (15.0 and 19.0 ms in two cells), so it judges the rehearsal host, which also ran three other kind clusters; on v27's card every cell's p99 was 5.1 to 5.7 ms.
+The bound is not relaxed: on the card it is judged as registered, and a failure there makes this calibration inconclusive.
+The owner confirmed the purchase on 2026-10-25 in the working session, knowing that one line failed on kind; no other document records it.
 The owner approved proceeding with C3 in the recommended order, calibration first, in the working session of 2026-10-24; no document records that approval. The order itself is `2026-10-22-paid-retry-candidates.md`, "Order, if any is bought".
 v27's records stand as written (`2026-10-08-measuring-prospective-admission-design.md`, "v27 calibration's result" and "v27 main study"). This is a new question at a new load.
 
