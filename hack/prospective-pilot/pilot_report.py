@@ -1361,7 +1361,379 @@ def headroom(stage_dir):
             "first_failure": first_fail}
 
 
+# ---------------------------------------------------------------- C3's main study
+#
+# docs/superpowers/specs/2026-10-25-c3-headroom-main.md: off, cap-only, hold-cap, the frozen S and the frozen
+# size-aware spacings at three lengths, one block per session over three sessions, scored together.
+
+MAIN_STUDY = "admission-headroom-main-2026-10-25"
+MAIN_SEEDS = {1: 882, 2: 892, 3: 893}
+# The frozen trace checksums, by seed and length; R1's under "R1". The same table is in hack/lib/prospective-pilot.sh.
+MAIN_CHECKSUMS = {
+    882: {"R1": "1bd9c8513141261c7b615dbb0f3371a6b82450ecf9c705c45523953d4800bf4f",
+          "short": "b7ffc7eec33e8a3166a8a92f51283d4622d68867982f50739e6fc4c12f41392a",
+          "ref": "46a5cc47debf87ddc3af8c81faee36c96a8c64a0cf2c9bb3413593d69768f5d6",
+          "long": "e8b057853cf5c38df49a7811fa469f39985f0f02d65c280ed2b79c39cb070d53"},
+    892: {"R1": "7d269b31213421a781399325f80fea19ea0ba49f2cd0af34e6da5e9577f2e382",
+          "short": "888ff4868e99cc18f372b94a24db5c2d8d8cc3a1e3dd68f5d181aae958b836a7",
+          "ref": "39826dc699f63440796339920f82035a6a27a25116660d1200ca99d7d1d8a1ad",
+          "long": "68727974493694fea6023056ceafd1ee89d72c0f46664ea05382f351820b493d"},
+    893: {"R1": "c0a0dde28547b67a9a05ec1b0f78c8d3a2cee0cd0ac183ad6869d8d26092c8b7",
+          "short": "56a9dc08d564bb54a55dd2e16079cee6d28296390345a0690d73e2cbca769787",
+          "ref": "248faf6a28ba483fffe80e0b48cbf8766eb1b6e378a3af28d436725c0978d326",
+          "long": "c5681e8ae15c385e6262fea807317a16fd832b3bbc0661642fae08289cf2a69a"},
+}
+MAIN_ARMS = ("off", "caponly", "hold-cap", "fixedS", "sizeaware")
+MAIN_LENGTHS = ("short", "ref", "long")
+MAIN_CELLS = ["R1-1"] + ["%s-%s-1" % (a, l) for l in MAIN_LENGTHS for a in MAIN_ARMS]
+# S from the calibration's scored medians, and the size-aware spacing of each length, frozen by its verdict.
+MAIN_S_MS = 1680.4
+MAIN_SPACING_MS = {"fixedS": {"short": 1680.4, "ref": 1680.4, "long": 1680.4},
+                   "sizeaware": {"short": 1176.9, "ref": 1680.4, "long": 1830.8}}
+# Each block's registered order after R1; the same table is in hack/lib/prospective-pilot.sh.
+MAIN_ORDER = {
+    1: "hold-cap-long fixedS-long fixedS-ref hold-cap-ref off-long caponly-short sizeaware-short off-ref fixedS-short "
+       "off-short caponly-long hold-cap-short sizeaware-long sizeaware-ref caponly-ref",
+    2: "hold-cap-short off-ref hold-cap-long fixedS-long fixedS-short hold-cap-ref sizeaware-ref caponly-ref caponly-short "
+       "fixedS-ref off-short sizeaware-short off-long sizeaware-long caponly-long",
+    3: "fixedS-long sizeaware-ref off-short caponly-short sizeaware-short caponly-long off-ref sizeaware-long fixedS-short "
+       "off-long hold-cap-short hold-cap-ref fixedS-ref hold-cap-long caponly-ref",
+}
+LN_115 = math.log(1.15)
+# The engine's per-step prefill cap of every arm but off and R1, as hack/lib/prospective-pilot.sh renders it.
+MAIN_PREFILL_CAP = 384
+
+
+def engine_cap(stage_dir, tag):
+    """The prefill cap the cell's engine reported in its non-default arguments, 0 for none, or None without that line."""
+    path = os.path.join(stage_dir, "engine-log-%s.txt" % tag)
+    if not os.path.exists(path):
+        return None
+    with open(path, errors="replace") as f:
+        for line in f:
+            m = re.search(r"non-default args: (\{.*\})", line)
+            if m:
+                cap = re.search(r"'long_prefill_token_threshold': (\d+)", m.group(1))
+                return int(cap.group(1)) if cap else 0
+    return None
+
+
+def _admitted_contenders(stage_dir, tag):
+    rows = {r.get("requestId"): r.get("tenant") for r in jsonl(os.path.join(stage_dir, "raw-%s.jsonl" % tag))}
+    return [d for rid, e in gateway_records(os.path.join(stage_dir, "gateway-record-%s.jsonl" % tag)).items()
+            for d in [e.get("done") or {}] if rows.get(rid) == CONTENDER and d.get("decision") == "admit"]
+
+
+def serial_witness(stage_dir, tag):
+    """(missing stamps, admissions before the previous admission's release, releases off their first content): what
+    hold-cap did in time, not what its reason labels say (astra's attack on the main page, 1).
+    A release with first content lies at most 13 ms before it; one without lies at the request's end."""
+    adm = _admitted_contenders(stage_dir, tag)
+    missing = sum(1 for d in adm if not d.get("decidedUnixNanos") or not d.get("releasedUnixNanos"))
+    if missing:
+        return missing, None, None
+    adm.sort(key=lambda d: d["decidedUnixNanos"])
+    early = sum(1 for a, b in zip(adm, adm[1:]) if b["decidedUnixNanos"] < a["releasedUnixNanos"])
+    off = 0
+    for d in adm:
+        fc = d.get("firstContentUnixNanos")
+        if fc and not d.get("firstContentAtEnd"):
+            off += not (0 <= fc - d["releasedUnixNanos"] <= DIAG_L_MS * 1_000_000)
+        else:
+            off += not d.get("releasedAtEnd")
+    return 0, early, off
+
+
+def spacing_witness(stage_dir, tag, spacing_ms):
+    """(missing stamps, consecutive contender admissions closer than the spacing less 1 ms), whatever their labels."""
+    adm = _admitted_contenders(stage_dir, tag)
+    missing = sum(1 for d in adm if not d.get("decidedUnixNanos"))
+    if missing:
+        return missing, None
+    t = sorted(d["decidedUnixNanos"] for d in adm)
+    return 0, sum(1 for a, b in zip(t, t[1:]) if ms(b - a) < spacing_ms - 1.0)
+
+
+def _session_gpu(stage_dir):
+    """The GPU UUIDs the session's cells recorded, from cell-environment.tsv; empty without it."""
+    path = os.path.join(stage_dir, "cell-environment.tsv")
+    if not os.path.exists(path):
+        return []
+    with open(path) as f:
+        return sorted({u for row in csv.DictReader(f, delimiter="\t") if row.get("fact") == "gpu"
+                       for u in re.findall(r"GPU-[0-9a-f-]+", row.get("value", ""))})
+
+
+def _cell_order(stage_dir):
+    """The arms in the order cell-timings.tsv lists them, or None without it."""
+    path = os.path.join(stage_dir, "cell-timings.tsv")
+    if not os.path.exists(path):
+        return None
+    with open(path) as f:
+        return [row.get("arm") for row in csv.DictReader(f, delimiter="\t")]
+
+
+def headroom_main(dirs):
+    """C3's main study over its three sessions, block b's archive at dirs[b - 1]: the primary verdict, the size-aware
+    and cap-only verdicts beside it, and every line and pooled quantity they read
+    (docs/superpowers/specs/2026-10-25-c3-headroom-main.md, "The verdict, in this order")."""
+    validity, lines = [], []
+
+    def check(collection, name, value, rule, ok):
+        collection.append({"line": name, "value": value, "rule": rule,
+                           "state": "unscorable" if ok is None else ("holds" if ok else "fails")})
+
+    inventory, reports, outcomes, gpus = [], {}, {}, {}
+    for b, stage_dir in enumerate(dirs, start=1):
+        seed = MAIN_SEEDS[b]
+        present = {c: os.path.exists(os.path.join(stage_dir, "raw-%s.jsonl" % c)) for c in MAIN_CELLS}
+        inventory += ["block %d: %s not acquired" % (b, c) for c in MAIN_CELLS if not present[c]]
+        inventory += ["block %d: %s was not bought" % (b, os.path.basename(f)[4:-6])
+                      for f in glob.glob(os.path.join(stage_dir, "raw-*.jsonl"))
+                      if os.path.basename(f)[4:-6] not in MAIN_CELLS and not os.path.basename(f).startswith("raw-warmup-")]
+        order = _cell_order(stage_dir)
+        want = ["R1"] + MAIN_ORDER[b].split()
+        check(validity, "block %d's cells ran in its registered order" % b, None if order is None else " ".join(order),
+              " ".join(want), None if order is None else order == want)
+        gpus[b] = _session_gpu(stage_dir)
+
+        def prov(arm, rep, b=b, seed=seed, stage_dir=stage_dir):
+            return provenance(stage_dir, arm, rep, study=MAIN_STUDY, seed=seed,
+                              want=MAIN_CHECKSUMS[seed]["R1" if arm == "R1" else arm.rsplit("-", 1)[1]])
+
+        rb, ob = {}, {}
+        for c in MAIN_CELLS:
+            if not present[c]:
+                continue
+            score_cell(stage_dir, c, prov, lambda coll, name, value, rule, ok: check(coll, "block %d: %s" % (b, name), value, rule, ok),
+                       validity, rb, ob)
+            if c in rb:
+                reports["%s@%d" % (c, b)], outcomes["%s@%d" % (c, b)] = rb[c], ob[c]
+            arm = c.rsplit("-", 1)[0]
+            name = "block %d: %s" % (b, c)
+            # The block a session ran is named in every request id the matrix gave it: a directory passed as another
+            # block's is refused rather than pooled under the wrong seed's name.
+            rows = jsonl(os.path.join(stage_dir, "raw-%s.jsonl" % c))
+            prefix = "pp-H-%s-%d-" % (arm, b)
+            misnamed = sum(1 for r in rows if not str(r.get("requestId", "")).startswith(prefix))
+            check(validity, "%s request ids name block %d" % (name, b), misnamed, "0", misnamed == 0)
+            cap = engine_cap(stage_dir, c)
+            want_cap = 0 if arm == "R1" or arm.startswith("off-") else MAIN_PREFILL_CAP
+            check(validity, "%s engine prefill cap" % name, cap, str(want_cap), None if cap is None else cap == want_cap)
+            family = arm.rsplit("-", 1)[0]
+            if family in ("R1", "off", "caponly"):
+                n_dec, n_mode = mode_reasons(stage_dir, c, "admission_off")
+                check(validity, "%s contender decisions with admission off" % name, (n_mode, n_dec), "all",
+                      True if n_dec == 0 else n_mode == n_dec)
+            if family == "hold-cap":
+                missing, early, off = serial_witness(stage_dir, c)
+                check(validity, "%s admissions after the previous release, releases at first content" % name,
+                      (missing, early, off), "no stamp missing, 0 early, 0 off", None if missing else early == 0 and off == 0)
+            if family in MAIN_SPACING_MS:
+                spacing = MAIN_SPACING_MS[family][arm.rsplit("-", 1)[1]]
+                n_dec, n_mode = mode_reasons(stage_dir, c, "fixed_spacing_")
+                check(validity, "%s contender decisions by fixed spacing" % name, (n_mode, n_dec), "all",
+                      None if n_dec == 0 else n_mode == n_dec)
+                least, p99 = spacing_deviation(stage_dir, c, spacing)
+                check(validity, "%s admissions after the %.1f ms spacing" % (name, spacing), (least, p99),
+                      "least >= -1 ms, p99 <= 13 ms",
+                      None if least == "missing" else (True if least is None else least >= -1.0 and p99 <= DIAG_L_MS))
+                missing, close = spacing_witness(stage_dir, c, spacing)
+                check(validity, "%s consecutive admissions at least %.1f ms less 1 ms apart" % (name, spacing),
+                      (missing, close), "no stamp missing, 0 closer", None if missing else close == 0)
+        # Admissibility per treatment arm, length and block, against that block's off at the same length.
+        for l in MAIN_LENGTHS:
+            off = "off-%s-1" % l
+            for a in MAIN_ARMS[1:]:
+                c = "%s-%s-1" % (a, l)
+                if "%s@%d" % (c, b) not in reports or "%s@%d" % (off, b) not in reports:
+                    continue
+                res = admissibility_lines(stage_dir, c, off, {c: reports["%s@%d" % (c, b)], off: reports["%s@%d" % (off, b)]},
+                                          {c: outcomes["%s@%d" % (c, b)], off: outcomes["%s@%d" % (off, b)]})
+                for n, value, rule, ok in res:
+                    check(lines, "%s at %s, block %d: %s" % (a, l, b, n), value, rule, ok)
+
+    def adm(a, l):
+        return not any(x["state"] == "fails" for x in lines if x["line"].startswith("%s at %s, block " % (a, l)))
+
+    pooled = {}
+    for a in MAIN_ARMS:
+        for l in MAIN_LENGTHS:
+            keys = ["%s-%s-1@%d" % (a, l, b) for b in (1, 2, 3)]
+            if not all(k in reports for k in keys):
+                continue
+            cs = [reports[k] for k in keys]
+            sched_hi, arr_lo, sched_lo, arr_hi = _box(cs)
+            done = sum(outcomes[k][0] for k in keys)
+            offered = sum(outcomes[k][1] for k in keys)
+            work = {k: (sum(c["work"][k] for c in cs) / 3 if all(c["work"][k] is not None for c in cs) else None)
+                    for k in ("p_shared_window", "q_shared_window")}
+            pooled[(a, l)] = {"premium_p99_sched_hi": sched_hi, "premium_p99_arr_lo": arr_lo, "premium_p99_sched_lo": sched_lo,
+                              "premium_p99_arr_hi": arr_hi, "contender_completion": done / offered if offered else None,
+                              "work": work}
+
+    def U(x, y, l):
+        if (x, l) not in pooled or (y, l) not in pooled:
+            return None
+        return crossed_log_ratio(pooled[(x, l)]["premium_p99_sched_hi"], pooled[(y, l)]["premium_p99_arr_lo"])
+
+    def K(x, y, l):
+        px, py = pooled.get((x, l)), pooled.get((y, l))
+        if px is None or py is None:
+            return None
+        cx, cy = px["contender_completion"], py["contender_completion"]
+        ws = [(px["work"][k], py["work"][k]) for k in ("p_shared_window", "q_shared_window")]
+        if cx is None or cy is None or any(w is None or v is None for w, v in ws):
+            return None
+        return cx >= cy - 0.01 and all(w >= 0.97 * v for w, v in ws)
+
+    def W(x, y, l, bound=LN_085):
+        u, k = U(x, y, l), K(x, y, l)
+        return u is not None and k is not None and adm(x, l) and k and u <= bound
+
+    # d per block, hold-cap's median engine prefill at each length.
+    d, d_bad = {}, []
+    for b, stage_dir in enumerate(dirs, start=1):
+        for l in MAIN_LENGTHS:
+            c = "hold-cap-%s-1" % l
+            if "%s@%d" % (c, b) not in reports:
+                continue
+            eng, malformed = engine_prefill(stage_dir, c)
+            check(validity, "block %d: hold-cap at %s: step-log done records without an end time" % (b, l), malformed, "0", malformed == 0)
+            d[(l, b)] = nearest_rank(eng, 0.5)
+
+    # Every bound rules 3 to 7 read, and every work comparison, scored before any rule is reached (rule 1).
+    needed = {}
+    for l in MAIN_LENGTHS:
+        needed["U(H, O) at %s" % l] = U("hold-cap", "off", l)
+    needed["U(F, O) at ref"] = U("fixedS", "off", "ref")
+    for l in ("ref", "long"):
+        needed["U(H, F) at %s" % l] = U("hold-cap", "fixedS", l)
+        needed["U(F, H) at %s" % l] = U("fixedS", "hold-cap", l)
+        needed["K(H, F) at %s" % l] = K("hold-cap", "fixedS", l)
+    needed["K(F, H) at ref"] = K("fixedS", "hold-cap", "ref")
+
+    unscorable = [x["line"] for x in validity + lines if x["state"] == "unscorable"]
+    bad = [x["line"] for x in validity if x["state"] == "fails"]
+    inconclusive = []
+    if len(dirs) != 3:
+        inconclusive.append("%d session archive(s), and the study registers three blocks" % len(dirs))
+    if inventory:
+        inconclusive.append("cells: " + ", ".join(inventory[:5]))
+    if bad:
+        inconclusive.append("evidence not trusted: " + ", ".join(bad[:5]))
+    if unscorable:
+        inconclusive.append("unscorable: " + ", ".join(unscorable[:5]))
+    if not inconclusive and len(pooled) != len(MAIN_ARMS) * len(MAIN_LENGTHS):
+        inconclusive.append("an arm has fewer than three scored cells at a length")
+    if not inconclusive:
+        missing = [k for k, v in needed.items() if v is None]
+        if missing:
+            inconclusive.append("bounds the verdict reads are unscorable: " + ", ".join(missing))
+
+    h_fail = [x["line"] for x in lines if x["line"].startswith("hold-cap at ") and x["state"] == "fails"]
+    verdict, ahead, interaction = None, None, None
+    if inconclusive:
+        verdict = "inconclusive: " + "; ".join(inconclusive)
+    elif h_fail:
+        verdict = "hold-cap not operationally robust: " + "; ".join(h_fail)
+    elif any(needed["U(H, O) at %s" % l] > LN_085 for l in MAIN_LENGTHS):
+        verdict = "hold-cap's protection not established at " + ", ".join(
+            l for l in MAIN_LENGTHS if needed["U(H, O) at %s" % l] > LN_085)
+    if verdict is None:
+        ds = [d.get((l, b)) for l in ("ref", "long") for b in (1, 2, 3)]
+        if not all(x is not None and 0 < x < math.inf for x in ds):
+            verdict = "inconclusive: a block's hold-cap median engine prefill at ref or long is missing, not positive or infinite"
+        else:
+            failed = [b for b in (1, 2, 3) if not (d[("ref", b)] <= MAIN_S_MS and d[("long", b)] > MAIN_S_MS
+                                                   and d[("long", b)] > 1.05 * d[("ref", b)])]
+            if failed:
+                verdict = "challenge not reproduced on block " + ", ".join(str(b) for b in failed)
+    if verdict is None:
+        if not adm("fixedS", "ref"):
+            verdict = "reference comparison not established: fixed-S inadmissible at ref"
+        elif needed["U(F, O) at ref"] > LN_085:
+            verdict = "reference comparison not established: fixed-S not protective at ref"
+        elif W("fixedS", "hold-cap", "ref"):
+            verdict = "the frozen spacing beat hold-cap at the reference"
+        else:
+            h_ahead = W("hold-cap", "fixedS", "ref")
+            if not h_ahead and (needed["U(H, F) at ref"] <= LN_085 or needed["U(F, H) at ref"] <= LN_085):
+                verdict = ("reference comparison not established: a 15%% bound at ref held without its work line (%s)"
+                           % ("U(H, F)" if needed["U(H, F) at ref"] <= LN_085 else "U(F, H)"))
+            else:
+                ahead = h_ahead
+    if verdict is None:
+        u_long, l_ref = needed["U(H, F) at long"], -needed["U(F, H) at ref"]
+        if math.isinf(u_long) and math.isinf(l_ref) and (u_long > 0) == (l_ref > 0):
+            interaction = None
+        else:
+            interaction = u_long - l_ref
+        separated = (not adm("fixedS", "long")) or W("hold-cap", "fixedS", "long")
+        start = "with hold-cap already ahead at the reference" if ahead else "from a reference with neither ahead"
+        if interaction is None:
+            verdict = "inconclusive: the interaction is undefined (both of its bounds infinite)"
+        elif interaction <= LN_085 and needed["K(H, F) at long"] and separated:
+            verdict = "length-dependent advantage over the frozen spacing observed, " + start
+        else:
+            why = [w for w, bad_ in (("the interaction %.3f exceeds ln 0.85" % interaction, interaction > LN_085),
+                                     ("hold-cap's retained work at long fell short of fixed-S's", not needed["K(H, F) at long"]),
+                                     ("fixed-S was admissible at long and hold-cap did not beat it by 15%", not separated)) if bad_]
+            if W("fixedS", "hold-cap", "long"):
+                why.append("fixed-S beat hold-cap at long")
+            verdict = "length-dependent advantage not established, %s: %s" % (start, "; ".join(why))
+
+    def secondary(x, name):
+        if verdict.startswith("inconclusive"):
+            return "%s comparison unavailable: the primary verdict is inconclusive" % name
+        us = {l: (U(x, "off", l), U(x, "hold-cap", l), K(x, "hold-cap", l)) for l in MAIN_LENGTHS}
+        if any(v is None for t in us.values() for v in t):
+            return "%s comparison unresolved: a bound or work line it reads is unscorable" % name
+        return None
+
+    sa = secondary("sizeaware", "size-aware")
+    if sa is None:
+        bad_l = [l for l in MAIN_LENGTHS if not adm("sizeaware", l)]
+        if bad_l:
+            sa = "the frozen size-aware control broke the limits at " + ", ".join(bad_l)
+        elif all(U("sizeaware", "off", l) <= LN_085 and W("sizeaware", "hold-cap", l, LN_115) for l in MAIN_LENGTHS):
+            sa = "the frozen size-aware control did as well, within 15%"
+            won = [l for l in MAIN_LENGTHS if W("sizeaware", "hold-cap", l)]
+            if won:
+                sa += "; it beat hold-cap by 15% at " + ", ".join(won)
+        elif W("hold-cap", "sizeaware", "long"):
+            sa = "hold-cap beat the frozen size-aware control at long"
+        else:
+            sa = "size-aware comparison unresolved"
+    co = secondary("caponly", "cap-only")
+    if co is None:
+        if all(U("caponly", "off", l) <= LN_085 and W("caponly", "hold-cap", l, LN_115) for l in MAIN_LENGTHS):
+            co = "the cap alone protects, within 15% of hold-cap"
+        else:
+            won = [l for l in MAIN_LENGTHS if W("hold-cap", "caponly", l)]
+            co = ("the gateway's signal added to the cap at " + ", ".join(won)) if won else "cap-only comparison unresolved"
+
+    comparisons = {}
+    for l in MAIN_LENGTHS:
+        for x in MAIN_ARMS:
+            for y in MAIN_ARMS:
+                if x != y:
+                    comparisons["U(%s, %s) at %s" % (x, y, l)] = U(x, y, l)
+    uuids = sorted({u for v in gpus.values() for u in v})
+    return {"verdict": verdict, "size_aware": sa, "cap_only": co, "hold_cap_ahead_at_ref": ahead,
+            "interaction": interaction, "validity": validity, "lines": lines,
+            "pooled": {"%s at %s" % k: v for k, v in pooled.items()}, "comparisons": comparisons,
+            "admissible": {"%s at %s" % (a, l): adm(a, l) for a in MAIN_ARMS[1:] for l in MAIN_LENGTHS},
+            "engine_prefill_p50_ms": {"%s, block %d" % k: v for k, v in d.items()},
+            "fixed_s_ref_against_size_aware_ref": (U("fixedS", "sizeaware", "ref"), U("sizeaware", "fixedS", "ref")),
+            "gpu_uuids": {str(b): v for b, v in gpus.items()}, "distinct_gpus": len(uuids)}
+
+
 def main(argv):
+    if len(argv) == 5 and argv[1] == "headroom-main":
+        json.dump(headroom_main(argv[2:]), sys.stdout, indent=1, default=str)
+        print()
+        return 0
     if len(argv) in (3, 4) and argv[1] == "stage" and (len(argv) == 3 or argv[3] in STAGE_ARMS):
         json.dump(stage_report(argv[2], argv[3] if len(argv) == 4 else None), sys.stdout, indent=1, default=str)
         print()
