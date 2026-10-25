@@ -1509,6 +1509,10 @@ def headroom_main(dirs):
                        validity, rb, ob)
             if c in rb:
                 reports["%s@%d" % (c, b)], outcomes["%s@%d" % (c, b)] = rb[c], ob[c]
+            # A cell score_cell could not read is already an untrusted line; its records are not read again here, and
+            # every file read below is one score_cell has parsed, the engine log aside, which is read leniently.
+            if c not in rb:
+                continue
             arm = c.rsplit("-", 1)[0]
             name = "block %d: %s" % (b, c)
             # The block a session ran is named in every request id the matrix gave it: a directory passed as another
@@ -1683,12 +1687,17 @@ def headroom_main(dirs):
                 why.append("fixed-S beat hold-cap at long")
             verdict = "length-dependent advantage not established, %s: %s" % (start, "; ".join(why))
 
+    # Each secondary verdict waits on its own evidence, not the primary's: one bound the primary reads being unscorable
+    # leaves a comparison that never reads it standing (codex review of 885f3528, 2).
+    evidence = inventory or bad or len(dirs) != 3 or any(x["state"] == "unscorable" for x in validity)
+
     def secondary(x, name):
-        if verdict.startswith("inconclusive"):
-            return "%s comparison unavailable: the primary verdict is inconclusive" % name
-        us = {l: (U(x, "off", l), U(x, "hold-cap", l), K(x, "hold-cap", l)) for l in MAIN_LENGTHS}
-        if any(v is None for t in us.values() for v in t):
-            return "%s comparison unresolved: a bound or work line it reads is unscorable" % name
+        if evidence:
+            return "%s comparison unavailable: the evidence is not trusted or not complete" % name
+        own = [l for l in unscorable if any(l.startswith("%s at %s, block " % (a, ln)) for a in (x, "hold-cap") for ln in MAIN_LENGTHS)]
+        us = {l: (U(x, "off", l), U(x, "hold-cap", l), U("hold-cap", x, l), K(x, "hold-cap", l), K("hold-cap", x, l)) for l in MAIN_LENGTHS}
+        if own or any(v is None for t in us.values() for v in t):
+            return "%s comparison unresolved: a bound or line it reads is unscorable" % name
         return None
 
     sa = secondary("sizeaware", "size-aware")

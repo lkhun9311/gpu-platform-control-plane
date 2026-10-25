@@ -1260,6 +1260,29 @@ class HeadroomMainTest(unittest.TestCase):
         raw_and_records(d, "fixedS-ref-1", [(0, None, None, "fixed_spacing_free"), (1679.5, None, None, "fixed_spacing_waited")])
         self.assertEqual(pr.spacing_witness(d, "fixedS-ref-1", 1680.4), (0, 0))
 
+    # A raw file cut off mid-line is an untrusted cell, not a crash of the whole report (codex review of 885f3528, 1).
+    # Mutation that turns it red: run the main study's cell checks on a cell whose records score_cell could not read.
+    def test_a_truncated_cell_is_inconclusive_not_a_crash(self):
+        self.build()
+        with open(os.path.join(self.dirs[1], "raw-hold-cap-long-1.jsonl"), "a") as f:
+            f.write('{"requestId": "pp-H-hold-')
+        v = pr.headroom_main(self.dirs)
+        self.assertTrue(v["verdict"].startswith("inconclusive: evidence not trusted"), v["verdict"])
+        self.assertIn("block 2: hold-cap-long-1 records readable", v["verdict"])
+
+    # Fixed-S's ref premium bound unscorable leaves the primary inconclusive, and neither secondary verdict reads
+    # fixed-S: both are still given (codex review of 885f3528, 2).
+    # Mutation that turns it red: withhold the secondary verdicts whenever the primary is inconclusive.
+    def test_the_secondary_verdicts_do_not_wait_on_the_primary(self):
+        real = pr.crossed_log_ratio
+        self.build()
+        f_ref = pr._box([pr.cell_report(self.dirs[0], "fixedS-ref", 1, L=pr.DIAG_L_MS)])[1]
+        with mock.patch.object(pr, "crossed_log_ratio", side_effect=lambda n, d: None if d == f_ref or n == f_ref else real(n, d)):
+            v = pr.headroom_main(self.dirs)
+        self.assertTrue(v["verdict"].startswith("inconclusive: bounds the verdict reads are unscorable"), v["verdict"])
+        self.assertEqual(v["size_aware"], "the frozen size-aware control did as well, within 15%")
+        self.assertEqual(v["cap_only"], "the gateway's signal added to the cap at short, ref, long")
+
     # The scorer's checksums and orders and the session library's are one table each.
     def test_the_tables_agree_with_the_session_library(self):
         mock.patch.stopall()
