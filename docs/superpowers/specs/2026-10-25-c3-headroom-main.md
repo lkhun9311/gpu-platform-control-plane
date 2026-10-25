@@ -203,5 +203,22 @@ astra's inventory, to be re-checked against the code before each item is built:
 5. a launch ledger that refuses a fifth launch, a second replacement, a replacement without a recorded Spot interruption, or a block already completed;
 6. `pilot_report.py`: a main scorer over three session archives, the rules above, the calibration's `headroom` and v26's `frontier` left as they are;
    with two temporal witnesses the inherited lines lack (astra's finding 1): in a hold-cap cell, every admitted contender carries its release instant, each is admitted no sooner than the previous admitted contender's release, and each release lies at most 13 ms before its first content; in a fixed-spacing cell, every consecutive pair of contender admissions at least the spacing less 1 ms apart, whatever their reason labels. A missing stamp is missing evidence;
-7. a versioned verifier for the main study's evidence, `verify-c3-evidence.sh` not repointed;
+7. a versioned verifier for the main study's evidence, `verify-c3-evidence.sh` not repointed. It is written after the sessions and before any result is published, since its release tag, assets and committed verdict do not exist before them;
 8. tests for each, spot-lifecycle goldens for stage H, and a kind rehearsal of three stage-H sessions scored together, with each new check made to fail once.
+
+## Build status, 2026-10-25
+
+Built and pushed on `feat/c3-main-gate`, each with its tests and each new check made to fail once:
+
+| Item | Commit | What pins it |
+|---|---|---|
+| 1, the study | `374ecb8f` | the arm-set test; dropping the study from the rule turns it red |
+| 2, stage H in the library | `c918373e`, `48ee7418` | the library checks: the 12 checksums, the nine equal to `trace-checksums.txt`, the spacings, the cap-only mapping, the three frozen orders; a wrong checksum and a wrong spacing each turn them red |
+| 3, the matrix | `48ee7418` | the plan check passes all three blocks with the registered orders and contender counts 172, 148 and 163; it refuses a block on another's seed, a missing block, a fourth block, a block passed to stage G, the old rate, and an order hashed from the local repetition |
+| 4, the session | `1ae2b556` | 36 lifecycle scenarios; the block reaches the instance's user data, and dropping its substitution fails every session scenario |
+| 5, the ledger | `c4cd7ec2`, `7b7e92bb`, `b4850bda` | its rules on fixed ledgers, a session refusal read at HEAD, and scenarios on a fixed ledger so recording a launch does not change them |
+| 6, the scorer | `885f3528`, `a8552458` | 16 tests, 13 mutations each red; the diagnostic, v26, v27 calibration and C3 calibration archives score byte-identically with the scorer before it |
+
+codex's bare reviews of `885f3528` found two defects, a truncated cell crashing the report and the secondary verdicts waiting on the primary's text, both reproduced by a test and fixed in `a8552458`; of `c4cd7ec2` and `7b7e92bb`, tests that depended on the live ledger, fixed in `b4850bda`; of `efa7c235`, none. These are static reviews; the test runs are mine.
+Still to do: the kind rehearsal of three stage-H sessions, freezing this page for purchase, and the owner's separate approval to buy.
+
