@@ -677,6 +677,11 @@ scenarios_m5c_gpu_session() {
     STUDY=admission-headroom-main-2026-10-25 PILOT_STAGE=H PILOT_BLOCK=2 PREMIUM_RATE=9.25 PILOT_NOISY_RATE=0.375 SEEDS=892 \
     run_scenario headroom-main-stage-h-block-2-before-block-1 bash "$TARGET"
 
+  # Stage H's block 1 again, after the ledger (bin/git's fixed one) records it complete: refused, a block is bought once.
+  REPS=1 REQUIRE_CLEAN_TREE=0 STUB_LAUNCH_LEDGER='1 i-0123456789abcdef0 completed\n' \
+    STUDY=admission-headroom-main-2026-10-25 PILOT_STAGE=H PILOT_BLOCK=1 PREMIUM_RATE=9.25 PILOT_NOISY_RATE=0.375 SEEDS=882 \
+    run_scenario headroom-main-stage-h-block-1-again bash "$TARGET"
+
   # Stage H's block 2 on block 1's seed: refused by name before anything is built or rented.
   REPS=1 REQUIRE_CLEAN_TREE=0 \
     STUDY=admission-headroom-main-2026-10-25 PILOT_STAGE=H PILOT_BLOCK=2 PREMIUM_RATE=9.25 PILOT_NOISY_RATE=0.375 SEEDS=882 \
