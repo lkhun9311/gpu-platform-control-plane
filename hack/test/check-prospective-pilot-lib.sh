@@ -211,7 +211,12 @@ _led() { printf "$1" | pp_headroom_main_launch_refusal "$2"; }
   && [ -n "$(_led '1 i-a interrupted\n1 i-b completed\n2 i-c completed\n3 i-d interrupted\n' 3)" ] \
   && [ -n "$(_led '1 i-a done\n' 2)" ] && [ -n "$(_led '' 4)" ] \
   && ok "the ledger refuses a block out of order, a block bought twice, a failed launch replaced, a second replacement, a fifth launch and a malformed line" || bad "the ledger allowed a launch it refuses"
-[ -z "$(pp_headroom_main_launch_refusal 1 < "$PP_HEADROOM_MAIN_LEDGER")" ] && ok "the committed ledger allows block 1" || bad "the committed ledger $PP_HEADROOM_MAIN_LEDGER"
+# The committed ledger itself is read only for its form: what it allows changes as launches are recorded (codex review
+# of c4cd7ec2), and the cases above pin the rules on fixed ledgers.
+case "$(pp_headroom_main_launch_refusal 1 < "$PP_HEADROOM_MAIN_LEDGER")" in
+  *malformed*) bad "the committed ledger $PP_HEADROOM_MAIN_LEDGER has malformed lines" ;;
+  *) ok "the committed ledger is well formed" ;;
+esac
 [ "$(pp_request_id_flag H fixedS-ref 2)" = "--request-id-prefix=pp-H-fixedS-ref-2" ] && ok "stage H's request IDs name its stage and block" || bad "stage H's request-ID prefix"
 
 # The capture, against stubbed kubectl, curl and docker on PATH: the cluster calls answer at once, except the
