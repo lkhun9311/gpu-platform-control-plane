@@ -1,0 +1,3 @@
+purpose: new-measurement
+hypothesis: at premium 9.25/s and contender 0.375/s, at contender prompts of 6,144, 7,695 and 8,192 tokens, hold-cap stays admissible and protective, and the long length's median capped engine prefill outlasts S = 1.0533 times the reference's, so a main study comparing hold-cap with fixed-S and size-aware spacing is worth registering
+stoppingRule: R1 once, then off and hold-cap at the three lengths in one block, then stop; or stop at the acquisition deadline (hard stop 2h19 less 6 min) or on an apparatus mismatch

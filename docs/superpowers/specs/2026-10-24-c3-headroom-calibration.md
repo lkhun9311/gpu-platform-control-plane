@@ -171,3 +171,34 @@ astra's inventory, re-checked against the code at `d0fd2873`:
 6. tests for each, a spot-lifecycle golden, and a kind rehearsal of stage G, with each new check made to fail once.
 
 v27's verifier (`hack/verify-admission-evidence.sh`) keeps reproducing v27 after the scorer changes, and is not repointed.
+
+## Result, 2026-10-25: feasible
+
+**feasible: hold-cap admissible and protective at every length, and the long length outlasts S = 1680.4 ms.**
+Bought at `770d45fe` on instance `i-09a2297e3206f70a7`, one A10G (driver 595.91.07), and scored at the same commit by `pilot_report.py headroom`; the scorer's output is `data/2026-10-25-c3-calibration-results/verdict.json`, beside the cell timings, the purpose record, the preflight and the termination record.
+All seven cells completed, R1 first, in one block, from 04:11:25 to 05:22:51 UTC.
+Every one of the 78 validity lines holds, the gateway's included: its arrival-to-record p99 was 4.9 to 5.2 ms in every cell, against the 13.1 to 23.6 ms the kind rehearsal measured on its host.
+Every one of the 27 admissibility and protection lines holds.
+
+| length | tokens | d, median | d, p95 | unfinished | s(length) | hold-cap premium p99 / off's |
+|---|---:|---:|---:|---:|---:|---:|
+| short | 6,144 | 1,117.4 ms | 1,253.9 ms | 0 | 1,176.9 ms | 0.271 |
+| ref | 7,695 | 1,595.4 ms | 1,692.0 ms | 0 | 1,680.4 ms | 0.264 |
+| long | 8,192 | 1,738.2 ms | 1,812.6 ms | 0 | 1,830.8 ms | 0.249 |
+
+S = 1.0533 × 1,595.398 ms = 1,680.433 ms, rounded to **1,680.4 ms**; I re-derived it, and the size-aware spacings, from the medians in `verdict.json`.
+d(long) exceeds S by 57.8 ms, and is 1.0895 times d(ref).
+The premium ratio is exp of the crossed log ratio, scheduled hi over off's arrival lo, so each is a bound, not a point estimate.
+Each length had 163 contenders, every one timed by the gateway and every one completed, with no hold refusal and no preemption.
+S and the size-aware spacings are frozen for the main study by this verdict.
+
+Against the prediction: hold-cap's premium ratios, 0.25 to 0.27, fall inside the replay's 0.24 to 0.29.
+The measured d lie at about the replay's pace 1.0275, a little above at ref (1,595 against 1,588) and long (1,738 against 1,726), and S lies 7.5 ms above that pace's 1,672.9.
+The replay did not predict the other admissibility lines; they were measured here and all hold.
+
+What it licenses is the section above, no more: registering the main study and running its purchase gate.
+It establishes nothing about fixed-S's or size-aware's premium tail, which this stage did not run.
+
+The session took 75 min 8 s from launch (04:08:40) to the terminate call (05:23:48), at a Spot price of $0.6759/h: about **$0.85**.
+AWS reported the instance terminated, and no instance of the account was left pending, running, stopping or shutting down.
+The session's log carries no metadata token (`770d45fe`); the raw archive is not committed, as v27's is not.
