@@ -133,6 +133,30 @@ pp_headroom_main_order() {
   esac
 }
 
+# C3's main-study launch ledger: one line per launch, "<block> <instance> <outcome>", outcome completed, interrupted
+# (a documented Spot interruption) or failed, committed after each session (2026-10-25-c3-headroom-main.md, "Sessions").
+PP_HEADROOM_MAIN_LEDGER=docs/superpowers/specs/data/2026-10-25-c3-main/launches.txt
+
+# Why block $1 may not be launched, given the ledger on stdin, or nothing: at most four launches, the blocks in order,
+# none bought twice once complete, and one replacement at most, only for a block whose launch was interrupted.
+pp_headroom_main_launch_refusal() {
+  local block="${1:-}"
+  awk -v b="$block" '
+    /^[[:space:]]*(#|$)/ { next }
+    NF != 3 || $1 !~ /^[123]$/ || $3 !~ /^(completed|interrupted|failed)$/ { bad = bad " line " NR; next }
+    { n++; runs[$1]++; last[$1] = $3; if ($3 == "completed") done[$1] = 1 }
+    END {
+      if (bad != "") { print "the ledger has malformed lines:" bad; exit }
+      if (b !~ /^[123]$/) { print "block " b " is not one of 1, 2 and 3"; exit }
+      if (n >= 4) { print "the ledger already records " n " launches, and the study allows four, one a replacement"; exit }
+      if (done[b]) { print "block " b " is already complete"; exit }
+      for (k = 1; k < b; k++) if (!done[k]) { print "block " k " is not complete, and the blocks run in order"; exit }
+      if (runs[b] && last[b] != "interrupted") { print "block " b " was launched and ended " last[b] ", and only a Spot interruption is replaced"; exit }
+      r = 0; for (k in runs) r += runs[k] - 1
+      if (runs[b] && r >= 1) { print "the study allows one replacement launch, and it has been used"; exit }
+    }'
+}
+
 # The stages whose arms carry their contender length in their name: v27's calibration, C3's and C3's main study.
 pp_is_length_stage() { [ "${1:-}" = F ] || [ "${1:-}" = G ] || [ "${1:-}" = H ]; }
 

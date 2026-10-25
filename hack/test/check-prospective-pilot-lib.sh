@@ -200,6 +200,18 @@ done
 [ "$_h_ok" = 1 ] && [ "$(pp_headroom_main_order 1)" != "$(pp_headroom_main_order 2)" ] \
   && ok "each main-study block's frozen order is R1 and then exactly stage H's other arms" || bad "pp_headroom_main_order"
 if pp_headroom_main_order 4 >/dev/null 2>&1; then bad "a fourth block was given an order"; else ok "there is no fourth main-study block"; fi
+# The launch ledger: four launches at most, the blocks in order, none twice once complete, one replacement and only
+# for an interrupted launch; a reason printed is a refusal.
+_led() { printf "$1" | pp_headroom_main_launch_refusal "$2"; }
+[ -z "$(_led '' 1)" ] && [ -z "$(_led '1 i-a completed\n' 2)" ] && [ -z "$(_led '1 i-a interrupted\n' 1)" ] \
+  && [ -z "$(_led '# no launch yet\n' 1)" ] && [ -z "$(_led '1 i-a completed\n2 i-b completed\n3 i-c interrupted\n' 3)" ] \
+  && ok "the ledger allows block 1 first, the next block after a completed one, and an interrupted block once more" || bad "the ledger refused a launch it allows"
+[ -n "$(_led '' 2)" ] && [ -n "$(_led '1 i-a completed\n' 1)" ] && [ -n "$(_led '1 i-a failed\n' 1)" ] \
+  && [ -n "$(_led '1 i-a interrupted\n1 i-b completed\n2 i-c interrupted\n' 2)" ] \
+  && [ -n "$(_led '1 i-a interrupted\n1 i-b completed\n2 i-c completed\n3 i-d interrupted\n' 3)" ] \
+  && [ -n "$(_led '1 i-a done\n' 2)" ] && [ -n "$(_led '' 4)" ] \
+  && ok "the ledger refuses a block out of order, a block bought twice, a failed launch replaced, a second replacement, a fifth launch and a malformed line" || bad "the ledger allowed a launch it refuses"
+[ -z "$(pp_headroom_main_launch_refusal 1 < "$PP_HEADROOM_MAIN_LEDGER")" ] && ok "the committed ledger allows block 1" || bad "the committed ledger $PP_HEADROOM_MAIN_LEDGER"
 [ "$(pp_request_id_flag H fixedS-ref 2)" = "--request-id-prefix=pp-H-fixedS-ref-2" ] && ok "stage H's request IDs name its stage and block" || bad "stage H's request-ID prefix"
 
 # The capture, against stubbed kubectl, curl and docker on PATH: the cluster calls answer at once, except the
