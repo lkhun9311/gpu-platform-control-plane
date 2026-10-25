@@ -1,0 +1,40 @@
+C3 main study: where the gate's pass band lies, and where the cards have run. 2026-10-25, after the gate passed.
+
+Sensitivity only. The gate (gate.txt) passed at its frozen pace, 1.0275, and nothing here decides or re-runs it.
+It answers one question before any build: how likely is a new card to land outside the paces where the replay predicts the main comparison reachable?
+
+The band, from predict-main-gate.py at 1.005 to 1.050 (sensitivity-gate-<pace>.json, beside gate-<pace>.json):
+
+| pace | min over seeds d(long) | max over seeds d(ref) | ref p99 hold-cap / fixed-S | gate |
+|---|---|---|---|---|
+| 1.005 | 1,674.7 | 1,598.7 | 371 / 363 | stops on G3 |
+| 1.010 | 1,686.7 | 1,603.9 | 380 / 376 | passes |
+| 1.015 | 1,696.3 | 1,612.3 | 389 / 392 | passes |
+| 1.030 | 1,721.7 | 1,639.0 | 406 / 441 | passes |
+| 1.035 | 1,733.9 | 1,653.1 | 406 / 508 | stops on G4 |
+| 1.050 | 1,756.9 | 1,678.0 | 445 / 706 | stops on G4 |
+
+Interpolated linearly: seed 892's d(long) crosses S = 1,680.4 ms at 1.0074, and hold-cap over fixed-S at ref crosses 0.85 at 1.0329.
+So the lower edge is the challenge (G3) and the upper edge is the reference tie (G4): above about 1.033, fixed-S at ref begins to collapse while the medians d(ref) of seeds 882 and 893 are still under S (at most 1,653.1 ms at 1.035).
+Their d(ref) runs 47 ms above seed 891's at the same pace (1,635 and 1,638 against 1,588 at 1.0275), and S was frozen on seed 891.
+
+The cards, in the gate's sense of pace (card-pace.py, card-pace.jsonl): for each archived hold-cap cell, the replay pace at which the replay's hold-cap prefill median on that cell's own archived trace equals the card's measured median.
+On C3's ref cell this gives 1.0306 where the gate's nominal, matched on the generated seed-891 trace, is 1.0275, so the paces below are shifted by -0.0031 onto the gate's scale.
+That shift is measured on one cell only.
+
+| length | cells | cards | gate-scale pace |
+|---|---|---|---|
+| ref (7,695 tokens) | 8 | diagnostic, v26, v27 calibration, C3 | 1.0167 to 1.0275, mean 1.0213, sd 0.0039 |
+| long (8,192) | 2 | v27 calibration, C3 | 1.0270, 1.0291 |
+| short (6,144) | 2 | v27 calibration, C3 | 1.0039, 1.0120 |
+
+The step-time ratio the pace tool prints (step-time-pace-all-cards.txt, simulate.py pace) is a different quantity: C3's ref cell is 1.0181 by it and 1.0306 by d. The gate's pace is the d one.
+
+What it says.
+- The lower edge sits 0.020 below every long cell measured, about 34 ms of seed 892's d(long) at 1.0275; no card has run near it.
+- The upper edge sits 0.0054 above the highest ref cell measured, which is C3's own, and C3 is the only card at this load (0.375 contenders a second). The other seven cells ran at 0.5/s.
+- If the seven 0.5/s cells describe a new card (mean 1.0204, sd 0.0033 per cell), a ref cell above 1.033 is under a 0.01% event per card. If C3's position is systematic at the lighter load, with the mean at 1.0275 and the same sd, it is about 5% per card and 14% that at least one of three cards exceeds it; with the 8-cell sd, 0.0039, 8% and 23%.
+- These are the replay's point estimates. The main study decides on the card's measured p99s with crossed bounds, and the replay has understated the contender's cost by 3% to 7%.
+- An earlier statement in conversation, that cards ran 3% to 7% slower than the model "toward the 1.070 side", confused the contender-cost error with pace. By d, no card has run above 1.0291.
+
+Not done: a pace per length in the gate's replay. On both cards that ran all three lengths, the long cell's pace exceeds the ref cell's (by 0.0059 and 0.0016), which widens the G3 margin, and the short cell's is lower.
