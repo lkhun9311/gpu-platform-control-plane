@@ -47,7 +47,7 @@ gateway checksum: user-data matches the uploaded binary
 ==   gateway <SHA12>, benchharness <SHA12>
 == uploading the source and the binaries
 == g5.2xlarge is offered in: ap-northeast-2a ap-northeast-2c
-== user-data: 13099 of 16384 raw bytes
+== user-data: 13200 of 16384 raw bytes
 == checking the purchase plan locally, before anything is rented
 == plan: 7 cell(s): R1 off-long off-short hold-cap-short hold-cap-ref hold-cap-long off-ref 
 == load matches study admission-headroom-calibration-2026-10-24's frozen tuple (five quantities)
