@@ -340,7 +340,7 @@ func (h *HTTPSender) Send(ctx context.Context, row TraceRow, sendUnixNanos int64
 
 	body := chatRequest{
 		Model:         h.model,
-		Messages:      []chatReqMsg{{Role: "user", Content: PromptText(row.PromptLenChars)}},
+		Messages:      []chatReqMsg{{Role: "user", Content: PromptForRow(row)}},
 		MaxTokens:     row.MaxOutputTokens,
 		MinTokens:     row.MinOutputTokens,
 		Stream:        true,
@@ -418,6 +418,11 @@ func (h *HTTPSender) withAdmissionDecision(resp *http.Response, res SendResult) 
 	res.AdmissionReason = resp.Header.Get(gateway.HeaderAdmissionReason)
 	res.BackendState = resp.Header.Get(gateway.HeaderBackendState)
 	res.EnginePriority = resp.Header.Get(gateway.HeaderEnginePriority)
+	res.RoutingPolicy = resp.Header.Get(gateway.HeaderRoutingPolicy)
+	res.RoutedBackend = resp.Header.Get(gateway.HeaderRoutingBackend)
+	res.RoutingReason = resp.Header.Get(gateway.HeaderRoutingReason)
+	res.RoutingMatch = resp.Header.Get(gateway.HeaderRoutingMatch)
+	res.RoutingLoad = resp.Header.Get(gateway.HeaderRoutingLoad)
 	return res
 }
 
