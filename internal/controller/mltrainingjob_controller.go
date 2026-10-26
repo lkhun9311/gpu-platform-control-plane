@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"path"
 	"time"
 
 	batchv1 "k8s.io/api/batch/v1"
@@ -198,6 +199,39 @@ const rendezvousRetry = 30 * time.Second
 // not a check on it. That package already links this one, so sharing the constant costs nothing new.
 const StateVolumeName = "state"
 
+// SharedMemoryVolumeName is the Pod-local name of the memory-backed volume mounted at /dev/shm in a Pod with more than one GPU.
+//
+// Exported for the same reason as StateVolumeName: a reader of a rendered template must be able to name it without spelling it again.
+const SharedMemoryVolumeName = "dshm"
+
+// sharedMemorySize is the size of that volume.
+//
+// The NCCL 2.21.5 user guide's troubleshooting page says NCCL "creates shared memory segments in /dev/shm" for inter-process communication, that too little makes initialization fail, and that a container should be given `--shm-size=1g`.
+// A container runtime's default /dev/shm is commonly 64 MiB, which several NCCL processes in one Pod can exhaust.
+// The number is the guide's, not a measurement here (docs/superpowers/specs/2026-10-27-four-gpu-nccl-design.md).
+var sharedMemorySize = resource.MustParse("1Gi")
+
+// sharedMemoryVolume is the /dev/shm volume for a Pod that may run one process per GPU.
+//
+// It is rendered only when gpuCount > 1, because a Pod with one GPU runs one NCCL process and has no peer in it to share memory with.
+// Memory-backed, so it is RAM charged to the Pod, and bounded by sizeLimit so a runaway writer is evicted rather than taking the node's memory.
+//
+// It changes the template rendered for the termination canary's probe job, whose gpuCount is 7, so every canary taken before it must be retaken; the same trade driverCapabilities made, made here before a multi-GPU node exists.
+func sharedMemoryVolume() corev1.Volume {
+	size := sharedMemorySize.DeepCopy()
+	return corev1.Volume{
+		Name: SharedMemoryVolumeName,
+		EmptyDir: &corev1.EmptyDirVolumeSource{
+			Medium: corev1.StorageMediumMemory, SizeLimit: &size,
+		},
+	}
+}
+
+// stateVolumeAt reports whether the spec's state volume is mounted at dir, compared as cleaned paths so /dev/shm/ is /dev/shm.
+func stateVolumeAt(sv *platformv1.StateVolume, dir string) bool {
+	return sv != nil && path.Clean(sv.MountPath) == dir
+}
+
 // BuildJob renders the desired batch/v1 Job for a training job.
 //
 // Suspend is deliberately absent here: the caller decides whether to set it, since it only applies on the create path and must never be reconciled on update, as Kueue owns it after admission.
@@ -246,6 +280,14 @@ func BuildJob(mltj *platformv1.MLTrainingJob) *batchv1.Job {
 		pod.Containers[0].VolumeMounts = []corev1.VolumeMount{{
 			Name: StateVolumeName, MountPath: sv.MountPath,
 		}}
+	}
+	// A state volume the spec put at /dev/shm already occupies the path, and a second mount there would make the
+	// API server refuse the whole Job; the tenant's volume wins, because it is the one the spec named.
+	if mltj.Spec.GPUCount > 1 && !stateVolumeAt(mltj.Spec.StateVolume, "/dev/shm") {
+		pod.Volumes = append(pod.Volumes, sharedMemoryVolume())
+		pod.Containers[0].VolumeMounts = append(pod.Containers[0].VolumeMounts, corev1.VolumeMount{
+			Name: SharedMemoryVolumeName, MountPath: "/dev/shm",
+		})
 	}
 	job := &batchv1.Job{
 		Name: mltj.Name, Namespace: mltj.Namespace, Labels: labels,

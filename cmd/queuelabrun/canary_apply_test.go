@@ -31,6 +31,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+
+	"github.com/lkhun9311/gpu-mlops-platform-control-plane/internal/controller"
 )
 
 // fakeKubelet is the double these tests drive the real canary against, and it is worth being exact about what
@@ -730,12 +732,24 @@ func TestTheProbeIsTheTemplateAndTheThreeDocumentedChanges(t *testing.T) {
 			want.Containers[i].Resources.Limits = nil
 		}
 		// The state volume's mount, modelled by hand like the device strip above it. Today's template mounts
-		// it in the one container, so this is written as "drop them all" rather than as a name search; the
+		// it and the /dev/shm volume a seven-GPU job is rendered with, and only the state mount goes; the
 		// per-container and per-name halves are covered by rows in
 		// TestTheProbeCarriesWhatTheOperatorAddsToTheTemplate, for the reason the list below this test gives.
-		want.Containers[i].VolumeMounts = nil
+		var kept []corev1.VolumeMount
+		for _, m := range want.Containers[i].VolumeMounts {
+			if m.Name != controller.StateVolumeName {
+				kept = append(kept, m)
+			}
+		}
+		want.Containers[i].VolumeMounts = kept
 	}
-	want.Volumes = nil
+	var keptVolumes []corev1.Volume
+	for _, v := range want.Volumes {
+		if v.Name != controller.StateVolumeName {
+			keptVolumes = append(keptVolumes, v)
+		}
+	}
+	want.Volumes = keptVolumes
 	want.NodeName = "platform-worker"
 	want.Tolerations = append(want.Tolerations, corev1.Toleration{
 		Key: workerTaintKey, Operator: corev1.TolerationOpEqual, Value: "canary-abcd1234",
@@ -1321,12 +1335,26 @@ func TestTheReadingIsTheTrainersAndNotWhicheverContainerAnswersFirst(t *testing.
 // from templateProbeJob, which fails the precondition rather than the conclusion.
 func TestTheProbeCarriesNoStateVolumeThoughTheTemplateDoes(t *testing.T) {
 	tpl := renderedPodTemplate(templateProbeJob())
-	if len(tpl.Spec.Volumes) != 1 || tpl.Spec.Volumes[0].PersistentVolumeClaim == nil {
+	// The template also carries the /dev/shm volume a job with more than one GPU is rendered with; that one is
+	// runnable anywhere and stays, so the precondition looks for the state volume by name.
+	declared := false
+	for _, v := range tpl.Spec.Volumes {
+		if v.Name == controller.StateVolumeName && v.PersistentVolumeClaim != nil {
+			declared = true
+		}
+	}
+	if !declared {
 		t.Fatalf("the operator's template renders %+v; this test's point is that the probe drops a volume the "+
 			"template declares, and it declares none", tpl.Spec.Volumes)
 	}
-	if len(tpl.Spec.Containers[0].VolumeMounts) != 1 {
-		t.Fatalf("the operator's template mounts %+v in the trainer, want exactly one",
+	mounted := 0
+	for _, m := range tpl.Spec.Containers[0].VolumeMounts {
+		if m.Name == controller.StateVolumeName {
+			mounted++
+		}
+	}
+	if mounted != 1 {
+		t.Fatalf("the operator's template mounts %+v in the trainer, want the state volume exactly once",
 			tpl.Spec.Containers[0].VolumeMounts)
 	}
 
@@ -1336,12 +1364,20 @@ func TestTheProbeCarriesNoStateVolumeThoughTheTemplateDoes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build the probe: %v", err)
 	}
-	if len(p.Spec.Volumes) != 0 {
-		t.Fatalf("the probe carries %+v; the claim it names exists nowhere, so the Pod would sit Pending "+
-			"until the start budget ran out", p.Spec.Volumes)
+	for _, v := range p.Spec.Volumes {
+		if v.Name == controller.StateVolumeName || v.PersistentVolumeClaim != nil {
+			t.Fatalf("the probe carries %+v; the claim it names exists nowhere, so the Pod would sit Pending "+
+				"until the start budget ran out", p.Spec.Volumes)
+		}
 	}
 	for _, ctr := range p.Spec.Containers {
-		if len(ctr.VolumeMounts) != 0 {
+		stateMounts := 0
+		for _, m := range ctr.VolumeMounts {
+			if m.Name == controller.StateVolumeName {
+				stateMounts++
+			}
+		}
+		if stateMounts != 0 {
 			t.Fatalf("probe container %q mounts %+v with no volume declaring it, which the apiserver rejects "+
 				"outright", ctr.Name, ctr.VolumeMounts)
 		}
