@@ -196,7 +196,7 @@ qualify() {
   label off || die "unlabel"
   ddp_render_job "$name" "$body" >"$OUT/$name.json" || die "render $name"
   k apply -f "$OUT/$name.json" >>"$LOG" 2>&1 || die "submit $name"
-  why="$(train_qualification_held "$CTX" train-a "$name" 300)" && bar T3 PASS "$name: $why" || bar T3 FAIL "$name: $why"
+  why="$(train_qualification_held "$CTX" train-a "$name" 300 2)" && bar T3 PASS "$name: $why" || bar T3 FAIL "$name: $why"
   k -n train-a get mltrainingjob "$name" -o json >"$OUT/$name-held.json" 2>&1
   k -n train-a get pods -l "platform.lkhun9311.github.io/mltrainingjob=$name" -o json >"$OUT/$name-held-pods.json" 2>&1
   label on || die "label"
