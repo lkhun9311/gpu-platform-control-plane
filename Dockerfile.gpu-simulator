@@ -21,7 +21,8 @@ COPY . .
 
 # GOARCH is left without a default for the same reason as in the existing Dockerfile.
 # Left empty, the build targets the platform of the host that runs it.
-RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o gpu-simulator cmd/gpu-simulator/main.go
+# The package, not main.go: naming one file left the fake DCGM in dcgm.go out of the build.
+RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o gpu-simulator ./cmd/gpu-simulator
 
 # distroless: a minimal base image with no shell and no package manager.
 # gpu-simulator only writes one unix socket file under a hostPath mount, so it needs no shell or package manager either.
