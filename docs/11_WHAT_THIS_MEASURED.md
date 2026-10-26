@@ -530,6 +530,23 @@ How far gateway and engine logic can move that tail is what the later studies me
 That is the answer the guess stood in for: on one shared A10G at this load, admission and scheduling logic narrow the gap by an order of magnitude, and the components' documentation points to separating the resource, a dedicated engine or card or a hardware partition, for the rest.
 That last step is the documentation's, not a measurement here, and an earlier attempt to prove 1.25x unreachable by arithmetic was itself refuted (the same 2026-10-06 page, section 2).
 
+### The other targets that decided a verdict
+
+M5-b's was not the only bar stated without a derivation.
+A census of the registrations on 2026-10-26 sorted every numeric target that decided a published verdict by where its number came from; the rows below are the ones that did, each re-read at the line cited:
+
+| target | used by | where its number came from | what the verdict therefore says |
+|---|---|---|---|
+| premium TTFT p99 at most 2x isolation, TPOT at most 1.25x | the scheduler microtest, the price of protection, the split-card study (Finding 3) | stated with no derivation (`docs/superpowers/specs/2026-09-05-the-price-of-protection.md:208-211`); later pages carried it forward on purpose, so that no bar would be picked for reachability after the misses (`docs/superpowers/specs/2026-09-10-does-splitting-the-card-buy-protection.md:710-714`) | the misses, 14.5x to 27.2x, refute the guess; what they measured is how far each sharing mode is from isolation at that load, which is the reading Finding 3 already gives |
+| premium TTFT p99 at most 139.0 ms | the throughput ladder | twice the ninth pilot's measured isolation, 69.524 ms (`docs/superpowers/specs/2026-09-13-what-the-split-costs-in-throughput.md:63`), so derived from a measurement but inheriting the 2x | the rates bracketed are where each mode crosses twice isolation, a reference line rather than a requirement, as `docs/superpowers/specs/2026-09-13-the-repetition-the-bracket-is-owed.md:330` already says |
+| premium p99 at least 15% below off, ln 0.85; two arms "neither 15% below the other" | the diagnostic, v26, v27, the product path and C3 (Finding 9) | stated with no derivation (`docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md:1167`, `docs/superpowers/specs/2026-10-25-c3-headroom-main.md:124`) | a margin chosen in advance, not an effect size any user needs; hold-cap's measured effect, about 0.30 of off, is far past it, and v26's tie is a tie only at that margin |
+| contender completion at least 95%, median at most 1.5x off's, p95 at most 25 s | the same studies | the owner's decision with a reason: the contender is a batch client with a 30 s timeout, and the p95 sits 5 s inside it (`docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md:1166-1169`) | a stated service requirement, so runs 1 and 2's 1.51x and 1.505x are misses of a requirement, not of a guess |
+| throughput at least 95% of off, contender share at least 75% | the price of protection, the staged-admission draft | conventions with a stated purpose, "an acceptance threshold, not a measurement" (`docs/superpowers/specs/2026-09-05-the-price-of-protection.md:234`) | they separate protection from deletion; where they decided, they decided that, and nothing finer |
+| 10% prediction or timing error | the admission and queue predictors, the timing families, S1 | stated with no derivation (for example `docs/superpowers/specs/2026-10-05-what-an-admission-rule-has-to-know-computational.md:38`) | the failures, 15.1% to 33.7% and 12 of 158 endpoints, say how good each model was, which the pages report beside the verdict |
+
+Where a bar was derived — the 100-sample floor below which a p99 is the maximum, the checkpoint and gradient tolerances, the Fisher cutoffs of the stranding study, C3's spacing from v26 and v27's measured prefills — the verdict is a statement about the system and is read as one.
+None of the verdicts above changes.
+
 ## What each finding needs before it generalises
 
 | finding | the next thing that would strengthen it |
