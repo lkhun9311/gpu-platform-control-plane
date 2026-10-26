@@ -1,0 +1,49 @@
+I would revise this before publication. **The descriptive measurements largely reproduce; the causal explanation overreaches.** The registered verdict remains unchanged.
+
+1. **“Three concurrent prefills” is not what the engine logs show.** [The mechanism claim](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/2026-10-26-c3-block2-exploratory.md:41) promotes a declared gateway proxy—admitted contenders awaiting first content—into an explanation about engine execution.
+
+   I reconstructed each contender’s actual prefill interval from its first scheduled prompt work to the completed step consuming its last prompt token. The maximum number actively prefilling was **2, 2, 2**, not 3, 2, 3. Three outstanding contenders can include one waiting to start.
+
+   I also intersected premium arrival-to-first-content intervals with the gateway’s three-contender intervals. **64 of block 1’s 118 slow requests, and 71 of block 3’s 153, exceeded 1,000 ms without intersecting any three-contender interval.** Those counts alone exceed 1% of each block’s premium population.
+
+   A simpler mechanism fits: two active contender prefills, together with existing decode work, exhaust the scheduler budget and delay premium prompt work. The step logs contain **258, 50 and 312** steps with two contender prefills, all 512 tokens allocated, and no premium prompt work. Earlier congestion could still have carryover effects; these checks establish neither a three-prefill threshold nor its necessity.
+
+2. **“Block 2 is not noise” and “its smaller margin is not what spared it” are stronger than the checks establish.** [The reading](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/2026-10-26-c3-block2-exploratory.md:40) should distinguish evidence consistent with a mechanism from identification of that mechanism.
+
+   I reran the cited pace contrasts and reproduced them. They show that the **hold-cap median margin alone does not order fixed-S’s tail across these seeds**. They do not show that the smaller margin contributed nothing.
+
+   Additional confounds are omitted: premium arrival timing and decode load, gaps allowing recovery between contender runs, GPU/session identity, and cell order. Each seed ran on one card; the reported pace is inferred from another arm’s hold-cap median, rather than independently measuring fixed-S’s execution speed.
+
+   To test one omission, I held seed 882’s contender schedule, spacing and model pace fixed, and substituted only the other seeds’ premium schedules. Its replay p99 changed from **1,522 ms to 1,781 or 1,197 ms**, with the contender-only queue unchanged. These substitutions retained the qualitative block split, supporting a contender-trace contribution, but they demonstrate that the queue summary does not determine the tail.
+
+3. **The quoted predictions are not at each card’s measured pace.** [Line 17](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/2026-10-26-c3-block2-exploratory.md:17) quotes **1,522 / 485 / 1,625 ms**. All three come from pace **1.0306**.
+
+   I independently reconstructed the long-cell pace matching: the published rounded paces **1.0306 / 1.0304 / 1.0269** reproduce. Running the gate model on the archived trace schedules at those respective paces gives approximately **1,522 / 496 / 1,587 ms**.
+
+   Either label the existing figures as a common representative pace, or use the respective paces. Also distinguish the pre-purchase replay curve from the post-purchase selection of a measured pace. The frozen nominal gate genuinely predicted the qualitative split: I reproduced **1,610 / 470 / 1,548 ms** at 1.0275.
+
+4. **The burst lengths omit the first contender; the contender counts are transposed later.** [The burst script](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/data/2026-10-26-c3-block2/trace-queue.py:18) counts consecutive positive waits. It excludes the initial admission that starts each spacing-bound run.
+
+   Independently rebuilding admissions with  
+   `admission[i] = max(arrival[i], admission[i−1] + 1680.4)`  
+   gives longest runs containing **16, 9 and 27 contenders**. The published **15, 8 and 26** are counts of subsequent delayed admissions, or spacing intervals. Relabel them if retaining those values.
+
+   [Line 42](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/2026-10-26-c3-block2-exploratory.md:42) also lists contender counts as **148, 172, 163** beside block-ordered run lengths. The correct block order is **172, 148, 163**, verified directly from the traces.
+
+5. **Size-aware’s spacing exceeds a median, not “the long prefill” generally.** [The contrast](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/2026-10-26-c3-block2-exploratory.md:35) suggests a stronger service-time guarantee than exists.
+
+   Using the scorer’s scheduler-add-to-last-prompt-step definition, **10/172, 3/148 and 23/163** size-aware contenders had engine prefill durations exceeding 1,830.8 ms. Block 3’s size-aware prefill p95 was **1,863.8 ms**. Thus occasional overlap is expected, and size-aware’s good tail cannot be explained by its spacing universally outlasting prefill. “Above the observed medians” would be supportable.
+
+6. **Hold-cap’s zero overlap is rounded zero under the page’s own proxy.** [“Never … for any measurable time”](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/2026-10-26-c3-block2-exploratory.md:36) overstates the output.
+
+   Sweeping the unrounded gateway timestamps gives total two-contender overlap of **1.426, 0.154 and 1.726 milliseconds**. The TSV prints these as 0.0 seconds and explicitly reports peak occupancy 2 in every block.
+
+   This is a small wording issue, not evidence of meaningful simultaneous engine prefill: my engine-interval reconstruction found none under hold-cap. Say “negligible overlap in the gateway proxy” or report the actual engine result.
+
+7. **“Fixed-S failed” risks introducing a new verdict.** [The closing interpretation](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/2026-10-26-c3-block2-exploratory.md:44) uses failure language without specifying failure of what.
+
+   Independently pooling raw premium timestamps gives fixed-S’s long scheduled upper p99 **1,325.681 ms**, versus off’s arrival lower p99 **1,582.692 ms**: ratio **0.837612**, or **16.24% lower**. The full scorer also reproduces every arm’s admissibility and the registered verdict.
+
+   The exploratory 1,000-ms cutoff is not a registered failure criterion. Describe the large tail penalty relative to hold-cap, and keep “failure” from implying failed protection or admissibility. Likewise, “failure … is conditional on burst structure” asserts an established causal condition that the registration did not test. The opening disclaimer does not resolve that later wording.
+
+I reran all three exploratory scripts: **their TSVs reproduce byte for byte**. I independently checked the quoted measured p99s, margins, queue statistics and relevant replay contrasts. The complete scorer result matches committed `verdict.json` after JSON serialization, including interaction **−1.097432533**; I memoized only its unchanged request-ID lookup to accelerate repeated scans. **No repository files were modified.**
