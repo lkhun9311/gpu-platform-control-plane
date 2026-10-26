@@ -1,0 +1,12 @@
+Attack this exploratory analysis cold, before it is published: docs/superpowers/specs/2026-10-26-c3-block2-exploratory.md in this repository.
+
+It explains why, in a pre-registered study's three paid sessions, a frozen fixed spacing held its premium tail at the long contender length in one session (block 2) and collapsed in the other two. The registered study, its verdict and its data are docs/superpowers/specs/2026-10-25-c3-headroom-main.md and docs/superpowers/specs/data/2026-10-25-c3-main/. The page's own scripts and outputs are in docs/superpowers/specs/data/2026-10-26-c3-block2/.
+
+The three sessions' raw archives are on disk, in block order:
+  hack/m5c-20261025-155947-mainH1/m5c-run
+  hack/m5c-20261025-185243-mainH2/m5c-run
+  hack/m5c-20261025-224804-mainH3/m5c-run
+The scorer is hack/prospective-pilot/pilot_report.py and the replay model hack/prospective-pilot/simulate.py.
+
+Find what is wrong: any figure that does not reproduce from the archives or the committed files, any claim the evidence does not support, any explanation that a simpler or different mechanism fits as well, any confound the page does not name, and any way the page could be read as revising or extending the registered verdict. Re-derive what you rely on rather than trusting the page. Say for each finding what you checked and how.
+Do not modify any file in the repository. Write any scratch files under /tmp only.
