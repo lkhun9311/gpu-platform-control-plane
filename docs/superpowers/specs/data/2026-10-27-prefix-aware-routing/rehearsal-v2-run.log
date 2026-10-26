@@ -1,0 +1,95 @@
+2026-10-26T15:03:00.951676886Z  study prefix-route-2026-10-27 on kind-prefixroute; tooling at e9ccc898459c45a67804b7c8f667e3ad7559da38, dirty files 44
+2026-10-26T15:03:00.984191905Z  building the harness
+2026-10-26T15:03:02.83861534Z  traces
+2026-10-26T15:03:02.110550889Z  study objects
+gpuquotapolicy.platform.lkhun9311.github.io/prefix-study-premium unchanged
+2026-10-26T15:03:02.614691088Z  collector
+2026-10-26T15:03:07.343149617Z  == cell shared-941-RoundRobin, to end by 15:28:07Z
+error: the server doesn't have a resource type "applications"
+tar: removing leading '/' from member names
+tar: removing leading '/' from member names
+tar: removing leading '/' from member names
+error: the server doesn't have a resource type "applications"
+2026-10-26T15:14:17.239789480Z  cell shared-941-RoundRobin complete: 485 rows, 114 samples
+2026-10-26T15:14:17.256993944Z  == cell shared-941-LeastQueue, to end by 15:39:17Z
+tar: removing leading '/' from member names
+tar: removing leading '/' from member names
+tar: removing leading '/' from member names
+error: the server doesn't have a resource type "applications"
+2026-10-26T15:25:26.974751655Z  cell shared-941-LeastQueue complete: 485 rows, 114 samples
+2026-10-26T15:25:26.992181738Z  == cell shared-941-PrefixAffinity, to end by 15:50:26Z
+tar: removing leading '/' from member names
+tar: removing leading '/' from member names
+tar: removing leading '/' from member names
+error: the server doesn't have a resource type "applications"
+2026-10-26T15:36:36.608525969Z  cell shared-941-PrefixAffinity complete: 485 rows, 114 samples
+2026-10-26T15:36:36.625834472Z  == cell shared-942-LeastQueue, to end by 16:01:36Z
+tar: removing leading '/' from member names
+tar: removing leading '/' from member names
+tar: removing leading '/' from member names
+error: the server doesn't have a resource type "applications"
+2026-10-26T15:47:46.200722902Z  cell shared-942-LeastQueue complete: 482 rows, 114 samples
+2026-10-26T15:47:46.219038885Z  == cell shared-942-PrefixAffinity, to end by 16:12:46Z
+tar: removing leading '/' from member names
+tar: removing leading '/' from member names
+tar: removing leading '/' from member names
+error: the server doesn't have a resource type "applications"
+2026-10-26T15:58:56.216406587Z  cell shared-942-PrefixAffinity complete: 482 rows, 114 samples
+2026-10-26T15:58:56.233937361Z  == cell shared-942-RoundRobin, to end by 16:23:56Z
+tar: removing leading '/' from member names
+tar: removing leading '/' from member names
+tar: removing leading '/' from member names
+error: the server doesn't have a resource type "applications"
+2026-10-26T16:10:05.999262017Z  cell shared-942-RoundRobin complete: 482 rows, 114 samples
+2026-10-26T16:10:06.16920377Z  == cell shared-943-PrefixAffinity, to end by 16:35:06Z
+tar: removing leading '/' from member names
+tar: removing leading '/' from member names
+error: the server doesn't have a resource type "applications"
+2026-10-26T16:21:15.762651109Z  cell shared-943-PrefixAffinity complete: 521 rows, 114 samples
+2026-10-26T16:21:15.780997449Z  == cell shared-943-RoundRobin, to end by 16:46:15Z
+tar: removing leading '/' from member names
+tar: removing leading '/' from member names
+tar: removing leading '/' from member names
+error: the server doesn't have a resource type "applications"
+2026-10-26T16:32:25.895520608Z  cell shared-943-RoundRobin complete: 521 rows, 114 samples
+2026-10-26T16:32:25.913028877Z  == cell shared-943-LeastQueue, to end by 16:57:25Z
+tar: removing leading '/' from member names
+tar: removing leading '/' from member names
+error: the server doesn't have a resource type "applications"
+2026-10-26T16:43:35.963859152Z  cell shared-943-LeastQueue complete: 521 rows, 114 samples
+2026-10-26T16:43:35.981446022Z  == cell control-944-RoundRobin, to end by 17:08:35Z
+tar: removing leading '/' from member names
+tar: removing leading '/' from member names
+tar: removing leading '/' from member names
+error: the server doesn't have a resource type "applications"
+2026-10-26T16:54:46.49482504Z  cell control-944-RoundRobin complete: 491 rows, 114 samples
+2026-10-26T16:54:46.67098064Z  == cell control-944-LeastQueue, to end by 17:19:46Z
+tar: removing leading '/' from member names
+tar: removing leading '/' from member names
+tar: removing leading '/' from member names
+error: the server doesn't have a resource type "applications"
+2026-10-26T17:05:55.789951967Z  cell control-944-LeastQueue complete: 491 rows, 114 samples
+2026-10-26T17:05:55.808244183Z  == cell control-944-PrefixAffinity, to end by 17:30:55Z
+tar: removing leading '/' from member names
+tar: removing leading '/' from member names
+tar: removing leading '/' from member names
+error: the server doesn't have a resource type "applications"
+2026-10-26T17:17:06.80436993Z  cell control-944-PrefixAffinity complete: 491 rows, 114 samples
+2026-10-26T17:17:06.92392564Z  all twelve cells complete; scoring
+verdict: observed on these traces
+control-944 LeastQueue: H=0.0000 p50=1354.9 ms p99=2999.0 ms share a/b=0.501/0.499 p99 a/b=3021.7/2891.5 ms imbalance=0.45 completion=1.0000
+control-944 PrefixAffinity: H=0.0000 p50=1355.1 ms p99=2997.4 ms share a/b=0.501/0.499 p99 a/b=3020.7/2893.0 ms imbalance=0.48 completion=1.0000
+control-944 RoundRobin: H=0.0000 p50=1354.9 ms p99=2998.1 ms share a/b=0.501/0.499 p99 a/b=3022.2/2892.4 ms imbalance=0.50 completion=1.0000
+shared-941 LeastQueue: H=0.5638 p50=58.3 ms p99=2322.7 ms share a/b=0.505/0.495 p99 a/b=2139.3/2338.6 ms imbalance=0.35 completion=1.0000
+shared-941 PrefixAffinity: H=0.8215 p50=54.9 ms p99=1365.8 ms share a/b=0.536/0.464 p99 a/b=1356.4/1891.2 ms imbalance=0.43 completion=1.0000
+shared-941 RoundRobin: H=0.5537 p50=300.5 ms p99=2491.2 ms share a/b=0.501/0.499 p99 a/b=2337.4/2491.2 ms imbalance=0.54 completion=1.0000
+shared-942 LeastQueue: H=0.5410 p50=59.0 ms p99=2855.3 ms share a/b=0.504/0.496 p99 a/b=2944.6/2785.9 ms imbalance=0.45 completion=1.0000
+shared-942 PrefixAffinity: H=0.8206 p50=55.0 ms p99=2722.9 ms share a/b=0.535/0.465 p99 a/b=2722.9/2320.8 ms imbalance=0.28 completion=1.0000
+shared-942 RoundRobin: H=0.5531 p50=76.8 ms p99=2853.6 ms share a/b=0.500/0.500 p99 a/b=2942.7/2787.0 ms imbalance=0.50 completion=1.0000
+shared-943 LeastQueue: H=0.5192 p50=694.6 ms p99=2538.4 ms share a/b=0.501/0.499 p99 a/b=2685.3/2530.6 ms imbalance=0.46 completion=1.0000
+shared-943 PrefixAffinity: H=0.8322 p50=55.0 ms p99=1805.9 ms share a/b=0.449/0.551 p99 a/b=1862.6/1798.4 ms imbalance=0.50 completion=1.0000
+shared-943 RoundRobin: H=0.5286 p50=626.2 ms p99=2316.8 ms share a/b=0.501/0.499 p99 a/b=2190.8/2539.9 ms imbalance=0.46 completion=1.0000
+rule 2, control: PrefixAffinity's H gain over RoundRobin on control-944 is +0.0000 (limit 0.01, and below every shared block's)
+rule 2, control: PrefixAffinity's H gain over LeastQueue on control-944 is +0.0000 (limit 0.01, and below every shared block's)
+share bounds: shared-941 0.6243, shared-942 0.6240, shared-943 0.6222
+capacity bar: 513000 tokens

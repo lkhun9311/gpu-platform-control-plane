@@ -69,6 +69,13 @@ type TraceRow struct {
 	// Only session 3's stagger decoders carry it, set equal to their cap so that every decoder decodes for its full window.
 	// Omitted when zero, so every trace written before it existed keeps its bytes and its pinned checksum.
 	MinOutputTokens int `json:"minOutputTokens,omitempty"`
+	// PrefixGroup, PrefixChars, PrefixControl and PromptSeed describe a shared-prefix row (GeneratePrefixTrace): which
+	// system prompt it opens with, how long that is, whether its own header is moved to the front, and the seed its
+	// header names. All omitted when zero, so every earlier trace keeps its bytes and its pinned checksum.
+	PrefixGroup   int   `json:"prefixGroup,omitempty"`
+	PrefixChars   int   `json:"prefixChars,omitempty"`
+	PrefixControl bool  `json:"prefixControl,omitempty"`
+	PromptSeed    int64 `json:"promptSeed,omitempty"`
 }
 
 // FixOutputAtCap sets every row's minimum output to its cap, so the engine cannot stop a request early.

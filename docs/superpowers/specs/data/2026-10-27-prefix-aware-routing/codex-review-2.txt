@@ -1,0 +1,3 @@
+codex
+No actionable regressions were identified. Focused Go tests, all 34 scorer tests, and session-refusal checks passed; full Go-suite validation was blocked by socket restrictions and missing envtest binaries.
+No actionable regressions were identified. Focused Go tests, all 34 scorer tests, and session-refusal checks passed; full Go-suite validation was blocked by socket restrictions and missing envtest binaries.

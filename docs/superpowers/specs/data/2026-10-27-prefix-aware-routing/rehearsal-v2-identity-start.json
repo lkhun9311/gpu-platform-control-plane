@@ -1,0 +1,17 @@
+{
+ "argo": {},
+ "gatewayArgs": [
+  [
+   "/gateway"
+  ]
+ ],
+ "gpuNodes": [
+  "kind://docker/prefixroute/prefixroute-worker",
+  "kind://docker/prefixroute/prefixroute-worker2"
+ ],
+ "images": {
+  "gateway": [
+   "docker.io/library/import-2026-10-26@sha256:e147b8c040811117af30e84a9ba14a8ee533a159a58cc98acde48b387dcef11e"
+  ]
+ }
+}

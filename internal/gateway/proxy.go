@@ -782,6 +782,15 @@ func (a *attemptWriter) Flush() {
 // failed request is then published as a success. Reporting the fact is the only way the caller can know it.
 func tryBackends(w http.ResponseWriter, r *http.Request, targets []*url.URL,
 	transport http.RoundTripper, onFailure func(code int, final bool)) (advanced bool) {
+	return tryBackendsObserved(w, r, targets, transport, onFailure, nil)
+}
+
+// tryBackendsObserved is tryBackends that also reports each attempt, by its index in targets, as it begins.
+//
+// The routing policies count requests outstanding per backend, and a request that falls back is outstanding on the
+// backend that now serves it, not the one first chosen; onAttempt is how that count follows it. Nil reports nothing.
+func tryBackendsObserved(w http.ResponseWriter, r *http.Request, targets []*url.URL,
+	transport http.RoundTripper, onFailure func(code int, final bool), onAttempt func(i int)) (advanced bool) {
 	// Attempts are capped, and the cap is not tidiness. Each attempt gets the transport's full
 	// ResponseHeaderTimeout plus its dial timeout, and nothing spans the loop — so a model left with four
 	// stale InferenceDeployments pointing at blackholed Services would pin a goroutine, a client connection
@@ -798,6 +807,9 @@ func tryBackends(w http.ResponseWriter, r *http.Request, targets []*url.URL,
 	targets = capBackendAttempts(targets)
 	for i, u := range targets {
 		last := i == len(targets)-1
+		if onAttempt != nil {
+			onAttempt(i)
+		}
 		att := &attemptWriter{ResponseWriter: w, suppress: !last}
 		proxy := newReverseProxy(u, transport, func(c int, err error) {
 			att.failed = true

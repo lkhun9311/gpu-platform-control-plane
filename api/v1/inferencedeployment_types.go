@@ -35,6 +35,7 @@ import (
 // +kubebuilder:validation:XValidation:rule="!has(self.engine) || self.gpuCount == 1",message="spec.engine requires gpuCount 1: its only profile is one engine on one A10G"
 // +kubebuilder:validation:XValidation:rule="!has(self.engine) || self.model.storageUri.matches('^hf://[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$')",message="spec.engine requires model.storageUri of the form hf://<org>/<repo>"
 // +kubebuilder:validation:XValidation:rule="!has(self.engine) || self.image.endsWith('@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967')",message="spec.engine requires spec.image pinned to the vLLM v0.27.1 digest the profile was measured on, from any registry"
+// +kubebuilder:validation:XValidation:rule="!has(self.admission) || self.admission.mode != 'HoldCap' || !has(self.engine) || self.engine.vllm.profile == 'v0.27.1-a10g'",message="admission.mode HoldCap requires engine profile v0.27.1-a10g: HoldCap was measured with prefix caching off"
 type InferenceDeploymentSpec struct {
 	// model is the model to serve.
 	// +required
@@ -80,6 +81,30 @@ type InferenceDeploymentSpec struct {
 	// Absent leaves the gateway's own process-wide mode in charge.
 	// +optional
 	Admission *InferenceAdmission `json:"admission,omitempty"`
+
+	// routing selects how the gateway spreads this model's requests across the InferenceDeployments serving it.
+	// It applies only when every deployment serving the model in the namespace names the same policy and none is HoldCap.
+	// Absent keeps the gateway's ordering: the oldest deployment serves and the others are fallback.
+	// +optional
+	Routing *InferenceRouting `json:"routing,omitempty"`
+}
+
+// The routing policies an InferenceDeployment can ask for.
+const (
+	RoutingPolicyRoundRobin     = "RoundRobin"
+	RoutingPolicyLeastQueue     = "LeastQueue"
+	RoutingPolicyPrefixAffinity = "PrefixAffinity"
+)
+
+// InferenceRouting selects the gateway's routing across the deployments serving one model.
+type InferenceRouting struct {
+	// policy is RoundRobin, LeastQueue or PrefixAffinity.
+	// LeastQueue picks the deployment with the fewest requests the gateway has outstanding on it.
+	// PrefixAffinity picks the deployment the gateway last sent the longest run of this prompt's leading text to, an approximation of the engine's prefix cache, and falls back to LeastQueue when that deployment is busier by more than the matched prefix would save.
+	// None of them was measured before docs/superpowers/specs/2026-10-27-prefix-aware-routing-design.md registered a study of all three.
+	// +kubebuilder:validation:Enum=RoundRobin;LeastQueue;PrefixAffinity
+	// +required
+	Policy string `json:"policy"`
 }
 
 // The admission modes an InferenceDeployment can ask for.
@@ -93,8 +118,12 @@ const (
 // the controller renders schedules by priority and an engine it did not render may refuse a priority.
 const ConditionEngineInForce = "EngineInForce"
 
-// VLLMProfileV0271A10G is the engine configuration the admission study measured, and the only one offered.
+// VLLMProfileV0271A10G is the engine configuration the admission study measured.
 const VLLMProfileV0271A10G = "v0.27.1-a10g"
+
+// VLLMProfileV0271A10GPrefixCache is VLLMProfileV0271A10G with vLLM's prefix caching on and nothing else changed.
+// It exists for the prefix-aware routing study, which needs the engines to keep shared prefixes; its latency has not been measured.
+const VLLMProfileV0271A10GPrefixCache = "v0.27.1-a10g-prefix-cache"
 
 // VLLMV0271Digest is the image digest config/vllm/deployment.yaml pins; the CEL rule on the spec repeats it.
 const VLLMV0271Digest = "sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967"
@@ -112,8 +141,9 @@ type InferenceEngine struct {
 // VLLMEngine is a pinned vLLM configuration.
 // It has no free-form arguments: a list would let HoldCap run on an engine the evidence says nothing about.
 type VLLMEngine struct {
-	// profile is the engine configuration measured on one A10G with Qwen2.5-3B-Instruct; it is the only one offered.
-	// +kubebuilder:validation:Enum=v0.27.1-a10g
+	// profile is the engine configuration measured on one A10G with Qwen2.5-3B-Instruct.
+	// v0.27.1-a10g-prefix-cache is the same configuration with prefix caching on, for the prefix-aware routing study.
+	// +kubebuilder:validation:Enum=v0.27.1-a10g;v0.27.1-a10g-prefix-cache
 	// +required
 	Profile string `json:"profile"`
 

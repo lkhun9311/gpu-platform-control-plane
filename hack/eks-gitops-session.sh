@@ -39,6 +39,10 @@
 #   KEEP_UP           set to `yes` to skip the destroy at the end (the kill switch still fires)
 #   STUDY             set to `holdcap` to run the hold-cap product transfer study on the card instead of the one
 #                     request and recovery; implies SERVE=yes and needs TTL_MINUTES of about 300
+#                     STUDY=prefixroute instead buys two g5.xlarge On-Demand in the `gpu` group and runs the prefix-aware
+#                     routing study (docs/superpowers/specs/2026-10-27-prefix-aware-routing-design.md); only on a cluster
+#                     this session creates, never with SERVE, TRAIN or KEEP_UP, and needs TTL_MINUTES of at least 415 and gh
+#   PREFIX_MAX_PRICE  with STUDY=prefixroute, the most an On-Demand hour of one node may cost, or nothing is bought (default 1.40)
 #   MAX_SPOT_PRICE    with STUDY, the most an hour of the card may cost in any zone, or nothing is bought (default 1.00)
 #   SERVE             set to `yes` to buy one GPU and serve one request; needs TTL_MINUTES of about 180 and gh
 #   TRAIN             set to `ddp` to buy two g5.xlarge in the `gpu` group and run the multi-Pod DDP arms on them with
@@ -139,7 +143,12 @@ case "$STUDY" in
     SERVE=yes
     SERVE_BUDGET=$((WAIT_GPU_NODE + WAIT_GPU_PLUGIN + ${WAIT_SERVE_READY:-1500} + 900 + 6 * 1500 + WAIT_GPU_GONE + 300))
     ;;
-  *) die "STUDY=$STUDY is not a study this session runs (holdcap)" ;;
+  # Two engines on two cards: the `gpu` group at two nodes, bought and released by the same gates TRAIN=ddp uses,
+  # because gpu_single's max_size is 1. Node join, plugin, 900 s of setup, twelve cells of 1,500 s and the scale-down.
+  prefixroute)
+    PREFIX_GPU_BUDGET=$((WAIT_GPU_NODE + WAIT_GPU_PLUGIN + 900 + 12 * 1500 + WAIT_GPU_GONE + 300))
+    ;;
+  *) die "STUDY=$STUDY is not a study this session runs (holdcap, prefixroute)" ;;
 esac
 if [[ "$SERVE" == yes ]]; then
   # The build, the baseline and the destroy are measured at 25 minutes for the whole 2026-09-25 cycle; an hour
@@ -268,7 +277,24 @@ case "$TRAIN" in
   *) die "TRAIN=$TRAIN is not a training mode this session runs (ddp, allreduce)" ;;
 esac
 
-if [[ "$SERVE" == yes || -n "$TRAIN" ]]; then
+# --- STUDY=prefixroute: what must hold before anything is built -------------------------------------------
+PREFIX_MAX_PRICE="${PREFIX_MAX_PRICE:-1.40}"
+PREFIX_NODES=2
+if [[ "$STUDY" == prefixroute ]]; then
+  [[ -z "$SERVE$TRAIN" ]] || die "STUDY=prefixroute with SERVE or TRAIN would buy GPUs in two groups under one deadline; run one"
+  # The node gates are the training session's, tested by hack/test/check-train-session-lib.sh.
+  # shellcheck source=hack/lib/train-session.sh
+  . hack/lib/train-session.sh
+  if ((TTL_MINUTES * 60 < PREFIX_GPU_BUDGET + 3600)); then
+    die "STUDY=prefixroute needs TTL_MINUTES of at least $(((PREFIX_GPU_BUDGET + 3600 + 59) / 60)) for its waits; it is $TTL_MINUTES"
+  fi
+  why="$(train_require_new_cluster "$CLUSTER" "$REGION" "${KEEP_UP:-}")" || die "$why"
+  log "$why"
+  # Passed to every apply and destroy of the cluster root, the watchdog's included, so each plans the same groups.
+  TF_TRAIN_VARS="-var=gpu_node_instance_type=$TRAIN_INSTANCE_TYPE -var=gpu_max_nodes=$PREFIX_NODES"
+fi
+
+if [[ "$SERVE" == yes || -n "$TRAIN" || "$STUDY" == prefixroute ]]; then
   # The nightly destroy removes the whole cluster and neither deadline covers it. Its cron has been seen to drift
   # by hours, so a time window is not enough: a destroy run queued or in progress refuses too, and the residual
   # risk -- a late cron firing inside the session -- is the operator's to rule out by disabling the schedule.
@@ -891,6 +917,83 @@ if [[ -n "$TRAIN" ]]; then
     bad "the GitOps baseline failed ($failures check(s)), so no GPU is bought and nothing is trained"
   else
     train_run || true
+  fi
+  train_down
+fi
+
+# --- The prefix-aware routing study on two GPUs (STUDY=prefixroute) -------------------------------------------
+#
+# prefix_run runs as a condition, which switches errexit off inside it, so every gate's status is checked by hand.
+# It buys the two nodes with the training session's gates and releases them through train_down, whose group is gpu.
+prefix_run() {
+  local why vcpu left_min gpu_min ids
+  why="$(train_price_gate "$REGION" "$TRAIN_INSTANCE_TYPE" "$PREFIX_MAX_PRICE")" || { bad "P1: $why"; return 1; }
+  ok "P1: $why"
+  mkdir -p "$EXDIR/prefix-route-study"
+  printf '%s\n' "$why" >"$EXDIR/prefix-route-study/price.txt"
+  vcpu="$(aws ec2 describe-instance-types --region "$REGION" --instance-types "$TRAIN_INSTANCE_TYPE" \
+    --query 'InstanceTypes[0].VCpuInfo.DefaultVCpus' --output text 2>&1)"
+  [[ "$vcpu" =~ ^[1-9][0-9]*$ ]] || { bad "P2: could not read $TRAIN_INSTANCE_TYPE's default vCPU: ${vcpu:0:200}"; return 1; }
+  why="$(train_quota_gate "$REGION" $((vcpu * PREFIX_NODES)))" || { bad "P2: $why"; return 1; }
+  ok "P2: $why"
+  # The AWS deadline fires before the laptop watchdog, so the nodes are the first thing to go whichever clock wins,
+  # and it must leave the study its whole budget.
+  left_min=$(((KILL_AT - $(date +%s)) / 60))
+  gpu_min=$((left_min - 10))
+  if ((gpu_min * 60 < PREFIX_GPU_BUDGET)); then
+    bad "the watchdog fires in ${left_min} min, leaving the nodes ${gpu_min} min against the ${PREFIX_GPU_BUDGET}s the study may take; raise TTL_MINUTES"
+    return 1
+  fi
+  TTL_ROLE_ARN="${TTL_ROLE_ARN:-$(terraform -chdir=infra/aws/bootstrap output -raw ttl_scaledown_role_arn 2>>"$EXDIR/session.log")}"
+  export TTL_ROLE_ARN
+  # shellcheck source=hack/lib/gpu-ttl.sh
+  . hack/lib/gpu-ttl.sh
+  if ! ttl_arm "$CLUSTER" "$TRAIN_GROUP" "$gpu_min" 2>>"$EXDIR/session.log"; then
+    bad "could not register the GPU deadline; no node is bought without one"
+    return 1
+  fi
+  GPU_ARMED=1
+  GPU_DEADLINE=$(($(date +%s) + gpu_min * 60))
+  if ! printf '%s\n' "$TTL_SCHEDULE_NAME" >"$GPU_TTL_FILE"; then
+    bad "could not record the GPU deadline's name; the watchdog could not remove it later"
+    return 1
+  fi
+  ok "GPU deadline armed for ${gpu_min} min: $TTL_SCHEDULE_NAME"
+  log "scaling $TRAIN_GROUP to $PREFIX_NODES -- the nodes start billing here"
+  : >>"$GPU_INSTANCES_FILE"
+  SCALED_UP=1
+  aws eks update-nodegroup-config --cluster-name "$CLUSTER" --nodegroup-name "$TRAIN_GROUP" \
+    --scaling-config "minSize=0,maxSize=$PREFIX_NODES,desiredSize=$PREFIX_NODES" >>"$EXDIR/session.log" 2>&1 || {
+    bad "could not scale $TRAIN_GROUP up"
+    return 1
+  }
+  # One card per g5.xlarge; the gate requires the count, so a node advertising none is refused rather than qualified.
+  ids="$(train_qualify_nodes "$CLUSTER" "$TRAIN_GROUP" "$PREFIX_NODES" $((WAIT_GPU_NODE + WAIT_GPU_PLUGIN)) 1)" || {
+    bad "P3: $ids"
+    return 1
+  }
+  awk '{print $2}' <<<"$ids" >>"$GPU_INSTANCES_FILE"
+  ok "P3: $(paste -sd';' <<<"$ids")"
+  log "study: prefixroute, until $(date -u -d "@$GPU_DEADLINE" +%H:%M:%SZ) less a 10 min margin"
+  if CONTEXT="$CLUSTER" EXDIR="$EXDIR" STUDY_DEADLINE="$GPU_DEADLINE" TEARDOWN_RESERVE=600 \
+    hack/eks-serve/prefix-route-study/run.sh >>"$EXDIR/session.log" 2>&1; then
+    ok "study: all twelve cells ran; $(head -1 "$EXDIR/prefix-route-study/verdict.txt" 2>/dev/null || echo 'no verdict file')"
+  else
+    bad "study stopped: $(cat "$EXDIR/prefix-route-study/STOPPED" 2>/dev/null || echo 'no reason recorded'); the cells written are kept"
+  fi
+}
+
+if [[ "$STUDY" == prefixroute ]]; then
+  # train_down iterates the training collectors, which this mode never starts.
+  DDP_COLLECTORS=()
+  trap 'train_down' EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  trap 'exit 129' HUP
+  if ((failures > 0)); then
+    bad "the GitOps baseline failed ($failures check(s)), so no GPU is bought and nothing is measured"
+  else
+    prefix_run || true
   fi
   train_down
 fi

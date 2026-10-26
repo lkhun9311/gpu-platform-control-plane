@@ -129,6 +129,16 @@ grep -q 'TRAIN=allreduce: 1 x g5.12xlarge of 4 GPUs, price ceiling \$6.98, GPU b
 session "C: an operator's ceiling" "does not exist" "${ar[@]}" TRAIN_MAX_PRICE=7.20
 grep -q 'price ceiling \$7.20' "$work/C: an operator's ceiling/session.log" && ok "C: an operator's ceiling is kept" ||
   bad "C: the operator's ceiling was replaced: $(grep 'TRAIN=allreduce:' "$work/C: an operator's ceiling/session.log")"
+# --- STUDY=prefixroute, which buys the same group with the same gates -------------------------------------------
+# TRAIN is emptied in each case, so these are the routing study's refusals and not the training mode's.
+session "prefixroute: a deadline too short for twelve cells" "STUDY=prefixroute needs TTL_MINUTES of at least" \
+  TRAIN= STUDY=prefixroute TTL_MINUTES=300
+session "prefixroute: with SERVE" "STUDY=prefixroute with SERVE or TRAIN would buy GPUs in two groups" \
+  TRAIN= STUDY=prefixroute SERVE=yes TTL_MINUTES=420
+session "prefixroute: with KEEP_UP" "refuses KEEP_UP=yes" TRAIN= STUDY=prefixroute KEEP_UP=yes TTL_MINUTES=420
+session "prefixroute: an existing cluster" "cluster gpu-platform already exists (ACTIVE)" \
+  TRAIN= STUDY=prefixroute STUB_CLUSTER_EXISTS=1 TTL_MINUTES=420
+session "prefixroute: every refusal passed" "does not exist" TRAIN= STUDY=prefixroute TTL_MINUTES=420
 
 # --- the kill switch, armed under an absolute EXDIR --------------------------------------------------------------
 # Without TRAIN nothing stops the session before its kill switch, so it arms one and then dies at the stub's terraform
@@ -151,6 +161,22 @@ fi
 for p in $stray; do kill -- "-$p" 2>/dev/null || kill "$p" 2>/dev/null || true; done
 sleep 1
 [[ -z "$(pgrep -f -- "$work/$name/")" ]] && ok "$name: the test stopped its watchdog" || bad "$name: a watchdog survived the test: $(pgrep -af -- "$work/$name/")"
+
+# Every call the session makes to the node gates passes the GPUs per node they require.
+# The refusals above stop before any node is bought, so none of them reaches these calls: STUDY=prefixroute kept a
+# four-argument train_qualify_nodes after #406 made the fifth required, and only a review found it (codex, c9ddbb42).
+calls="$(python3 - hack/eks-gitops-session.sh <<'PY'
+import re, shlex, sys
+for n, line in enumerate(open(sys.argv[1]), 1):
+    m = re.search(r'\$\((train_qualify_nodes|train_qualification_held) (.*?)\)"? *\|\|', line)
+    if m:
+        args = shlex.split(re.sub(r'\$\(\((.*?)\)\)', 'ARITH', m.group(2)))
+        print(n, m.group(1), len(args))
+PY
+)"
+short="$(awk '$3 < 5' <<<"$calls")"
+[[ -n "$calls" && -z "$short" ]] && ok "every node-gate call passes its required count ($(wc -l <<<"$calls") calls)" ||
+  bad "node-gate calls missing the required count: ${short:-no calls found}"
 
 if [[ $fails -ne 0 ]]; then
   echo "check-train-session-refusals: $fails failure(s)"

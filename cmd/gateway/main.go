@@ -173,6 +173,19 @@ func main() {
 	flag.StringVar(&metricsBearerTokenFile, "metrics-bearer-token-file", "",
 		"path to a file holding the bearer token /metrics on :8081 requires. "+
 			"Empty leaves /metrics open; /readyz stays open either way because the kubelet probes it without credentials.")
+	// The routing sizes default to what the prefix-aware routing study registered, so a gateway started with no
+	// flags, as Argo starts it, runs the registered treatment; they matter only to backends that name a policy.
+	routing := gateway.DefaultRoutingConfig()
+	flag.IntVar(&routing.ChunkChars, "routing-prefix-chunk-chars", routing.ChunkChars,
+		"PrefixAffinity: characters per hashed prompt chunk.")
+	flag.IntVar(&routing.CapacityChunks, "routing-prefix-capacity-chunks", routing.CapacityChunks,
+		"PrefixAffinity: chunks the index remembers per backend, sized to the engine's KV capacity.")
+	flag.IntVar(&routing.MaxBackends, "routing-prefix-max-backends", routing.MaxBackends,
+		"PrefixAffinity: backends the index remembers; with the capacity, the bound on its memory.")
+	flag.IntVar(&routing.MaxChunks, "routing-prefix-max-chunks", routing.MaxChunks,
+		"PrefixAffinity: chunks hashed per request at most.")
+	flag.IntVar(&routing.StepBudgetTokens, "routing-step-budget-tokens", routing.StepBudgetTokens,
+		"PrefixAffinity: the engine's per-step token budget the load escape divides a match by.")
 	flag.Parse()
 
 	// Register the core and platform types the gateway reads.
@@ -244,6 +257,10 @@ func main() {
 		Client:       cl,
 		Namespace:    namespace,
 		APIKeySecret: envOr("GATEWAY_API_KEY_SECRET", "gateway-api-keys"),
+	}
+	if err := s.SetRoutingConfig(routing); err != nil {
+		log.Error(err, "configure routing")
+		os.Exit(1)
 	}
 	// The token is loaded before anything listens, so a missing or empty file stops the process rather than leaving an open /metrics behind a flag that claims otherwise.
 	if metricsBearerTokenFile != "" {

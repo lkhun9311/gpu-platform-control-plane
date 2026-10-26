@@ -14,7 +14,7 @@ The gateway is not the main feature; it is the runtime boundary that makes the G
 | model routing        | body `model` → `InferenceDeployment` with `spec.model.name == model` in the policy's `targetNamespace` (cache field index) → Service |
 | proxy                | `httputil.ReverseProxy`, streaming-safe (`FlushInterval`), 502/504 mapping, upstream 5xx passthrough                                 |
 | OpenAI compatibility | `POST /v1/chat/completions` only (ADR-3); `/v1/embeddings` deferred                                                                  |
-| metrics              | 19 `gpuaas_gateway_*` series on a separate `:8081` (`internal/gateway/metrics.go`, and `holdcap.go` for the per-backend mode)        |
+| metrics              | 23 `gpuaas_gateway_*` series on a separate `:8081` (`internal/gateway/metrics.go`, `holdcap.go` for the per-backend mode, `routing.go` for routing) |
 | audit                | structured logs with tenant, model, `request_id` (generated if absent, forwarded + echoed)                                           |
 
 ## Identity chain (canonical)
@@ -113,6 +113,20 @@ Known gaps, none of which holds requests for an engine without the cap:
 - When HoldCap is turned off and the gateway's cache lags the new engine becoming ready, requests can be held briefly for the uncapped engine: no protection, and holds bounded by `maxHold`. The window is the cache lag plus up to `maxHold`, not the cache lag alone, because a request keeps the admission it was routed with while it waits. It has not been measured.
 - A plain deployment ahead of a HoldCap one for the same model no longer falls back into it, so if the plain one is down, its requests fail.
 - serial-prefill state lives in one gateway process. A gateway rollout under the default RollingUpdate briefly runs two, and each admits on its own.
+
+### Routing across the deployments serving one model
+
+Without a policy the gateway sends every request for a model to its oldest `InferenceDeployment` and keeps the others as fallback.
+`spec.routing.policy` on an `InferenceDeployment` selects `RoundRobin`, `LeastQueue` or `PrefixAffinity` (`internal/gateway/routing.go`).
+A policy applies only when every deployment serving the model in the namespace names the same one and none is HoldCap; any disagreement keeps the default ordering.
+
+- `LeastQueue` picks the deployment with the fewest requests this gateway has outstanding on it.
+- `PrefixAffinity` re-implements the approximate prefix index of Gateway API Inference Extension proposal 0602 and llm-d: a chain of hashes over 256-character chunks of the prompt, seeded with the tenant and the model, a per-backend LRU sized to the A10G engine's measured KV capacity (`internal/gateway/prefixindex.go`), and a load escape to the least-loaded deployment that is an uncalibrated heuristic.
+- A routed response carries `X-Routing-Policy`, `X-Routing-Backend`, `X-Routing-Reason`, `X-Routing-Load` and, under `PrefixAffinity`, `X-Routing-Match`; `gpuaas_gateway_routing_decisions_total` and `gpuaas_gateway_routing_outstanding_requests` count the decisions and the outstanding requests per backend.
+- The engine profile `v0.27.1-a10g-prefix-cache` is the measured profile with vLLM's prefix caching on; the CRD refuses HoldCap on it.
+
+What the evidence licenses: nothing yet. None of the three policies has been measured; `docs/superpowers/specs/2026-10-27-prefix-aware-routing-design.md` registers the study that would, on two A10Gs, and it has been rehearsed on kind only.
+The index and the outstanding counts live in one gateway process, so a second replica would route on its own view.
 
 ## Open WebUI principle
 
