@@ -1,10 +1,11 @@
 # Experiment A: does prefix-aware routing raise the engines' prefix-cache hits and lower TTFT, without a hot backend — pre-registered
 
-Written 2026-10-26 for a session no earlier than 2026-10-27. Status: **registered as v2, built, rehearsed on kind end to end (twelve cells, stub engines), not frozen for purchase, nothing bought.**
+Written 2026-10-26 for a session no earlier than 2026-10-27.
+**Registered as v2 and frozen for purchase, 2026-10-27, at the commit that carries this line.** The owner approved every valid experiment of 2026-10-27 on 2026-10-26 ("유효 실험도 전부 승인하니 진행"), and on 2026-10-27, told that this session's proposed ceiling was $40, approved the paid sessions to go ahead ("유료 실험 진행 가능"); $40 is the ceiling. Nothing below changes after this commit, and a session run from code other than this commit's, as promoted to `main`, does not count.
+Until this line, the status said: "registered as v2, built, rehearsed on kind end to end (twelve cells, stub engines), not frozen for purchase, nothing bought."
 v1 of this page was attacked cold by codex `gpt-6-astra` before the build was finished (13 findings: 1 blocker, 9 major, 3 minor); every finding was re-derived and answered in "The cold attack and what changed" at the end, and v2 below is the result.
 The seeds, the four trace checksums and the bytes every request sends are frozen in "Frozen traces", and a test fails if the generator ever produces anything else.
-The page becomes frozen for purchase only at a commit carrying a line that says so, as C3's did.
-No paid session is approved by this page. The owner's explicit approval is the only basis for buying one.
+The page became frozen for purchase only at the commit carrying the line above, as C3's did; the owner's approval quoted there is the basis for buying one session, and nothing in this page is.
 
 ## The question
 
