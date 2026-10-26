@@ -276,6 +276,7 @@ Fixed-S's per-block upper p99 at long was 1,393, 479 and 1,509 ms, against hold-
 Block 2's d(long) cleared S by 42.3 ms, against 81.2 and 75.3 ms in blocks 1 and 3, which is what the frozen spacing's failure at long depends on.
 The registered endpoint pools the three blocks and does not ask each block to separate, so the verdict stands as registered; a reader should weigh it knowing the pooled tail at long is fixed-S's tail in blocks 1 and 3.
 At ref, both arms ranged together in every block, fixed-S 381 to 435 and hold-cap 362 to 416.
+Why block 2 differs is examined, exploratorily and after the fact, in `2026-10-26-c3-block2-exploratory.md`; it revises nothing here.
 
 Hold-cap's prefill on each card (`hold-cap-prefill-by-block.txt`, from the scorer's `engine_prefill` and `admission_to_content`), every contender finished:
 
