@@ -305,4 +305,5 @@ The size-aware verdict concerns a control calibrated on one card and seed; it sa
 The raw archives are not committed. They are the three assets of the release `evidence-c3-main-2026-10-26`, one per block, under the checksums in `data/c3-main-evidence-SHA256SUMS`; no excluded file (`seeded-key.txt`, `terraform.log`, `ttl.pid`) is in them.
 `hack/verify-c3-main-evidence.sh` checks the three against those checksums, scores them together and compares the primary and both separate verdicts, whether hold-cap was ahead at the reference, the interaction, every arm's admissibility, the nine medians and the card count with `verdict.json`.
 It did so on the local assets on 2026-10-26 with no difference, and it fails on an altered asset, a checksum list missing a block, and an altered published verdict.
+Once the release was published (targeting `9419885a`), it downloaded the three assets from it and again re-derived everything it compares, with no difference.
 
