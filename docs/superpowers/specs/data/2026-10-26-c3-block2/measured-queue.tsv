@@ -1,0 +1,16 @@
+arm	block	admitted	held by the spacing	max wait ms	peak in prefill	seconds with 2+ in prefill	premium	premium > 600 ms	premium > 1000 ms
+fixedS-long	1	172	116	8878	3	50.9	3917	222	118
+fixedS-long	2	148	94	4507	2	13.2	3887	4	0
+fixedS-long	3	163	109	9882	3	62.1	3942	324	153
+hold-cap-long	1	172	0	9998	2	0.0	3917	1	0
+hold-cap-long	2	148	0	5127	2	0.0	3887	0	0
+hold-cap-long	3	163	0	12657	2	0.0	3942	12	0
+fixedS-ref	1	172	116	8877	2	4.1	3917	0	0
+fixedS-ref	2	148	94	4504	2	1.4	3887	0	0
+fixedS-ref	3	163	109	9882	2	8.0	3942	4	0
+sizeaware-long	1	172	128	10233	2	1.5	3917	0	0
+sizeaware-long	2	148	95	5258	2	0.2	3887	0	0
+sizeaware-long	3	163	122	12587	2	2.9	3942	9	0
+off-long	1	172	0	5	6	114.3	3917	1532	825
+off-long	2	148	0	5	4	80.5	3887	1287	706
+off-long	3	163	0	6	7	123.4	3942	1518	808
