@@ -204,6 +204,9 @@ b2_rules() { # pods-a pods-b events-a events-b [events-rc]
   rule "*get events -n m5c-a *" "$3" "${5:-0}"; rule "*get events -n m5c-b *" "$4" "${5:-0}"
 }
 soon() { echo $(( $(date +%s) + ${1:-60} )); }
+# A deadline of `soon 1` leaves anywhere from 0 to 1 s, because date +%s is whole seconds, and when the second turned
+# before mpscap_b2's first check it read nothing and recorded no fact (CI, 2026-10-26: "schedulable is ''" with no
+# journal). The scenarios that need the phase to run out therefore use `soon 2`, which always leaves at least 1 s.
 
 scenario
 put a "$(engine_pod vllm-shared-a-1 ua Running)"; put b "$(engine_pod vllm-shared-b-1 ub Running)"; put none "$no_events"
@@ -253,7 +256,7 @@ expect "a refusal read beside unreadable events" B2 fail "no healthy devices"
 scenario
 put a "$(engine_pod vllm-shared-a-1 ua Pending)"; put b "$(engine_pod vllm-shared-b-1 ub Pending)"; put none "$no_events"
 b2_rules a b none none
-mpscap_b2 m5c-a m5c-b "$(soon 1)" >/dev/null 2>&1
+mpscap_b2 m5c-a m5c-b "$(soon 2)" >/dev/null 2>&1
 expect "Pods still Pending when the phase ran out" B2 interrupted
 scenario
 put a "$(engine_pod vllm-shared-a-1 ua Running)"; put b "$(engine_pod vllm-shared-b-1 ub Running)"; put none "$no_events"
@@ -263,7 +266,7 @@ expect "a Running pair seen only after the deadline" B2 interrupted
 scenario
 put a "$(engine_pod vllm-shared-a-1 ua Pending ImagePullBackOff)"; put b "$(engine_pod vllm-shared-b-1 ub Pending)"; put none "$no_events"
 b2_rules a b none none
-mpscap_b2 m5c-a m5c-b "$(soon 1)" >/dev/null 2>&1
+mpscap_b2 m5c-a m5c-b "$(soon 2)" >/dev/null 2>&1
 expect "an image still failing to pull at the deadline" B2 interrupted
 [[ "$(fact images_pulled)" == false ]] && ok "an image still failing to pull is recorded, which makes the run INVALID" || bad "images_pulled is '$(fact images_pulled)'"
 "$work/benchharness" mps-capability-verdict --journal "$MPS_JOURNAL" | grep -q "images_pulled is false" && ok "the classifier reads the pull failure" || bad "the classifier did not read the pull failure"
@@ -296,24 +299,24 @@ expect "an ended Pod beside its Running replacement, with no refusal" B2 pass "u
 scenario
 put a "$(engine_pod vllm-shared-a-1 ua Pending "" '0/2 nodes are available: 1 node(s) had untolerated taint')"; put b "$(engine_pod vllm-shared-b-1 ub Pending)"; put none "$no_events"
 b2_rules a b none none
-mpscap_b2 m5c-a m5c-b "$(soon 1)" >/dev/null 2>&1
+mpscap_b2 m5c-a m5c-b "$(soon 2)" >/dev/null 2>&1
 [[ "$(fact schedulable)" == false ]] && ok "a Pod still unschedulable for a taint is recorded" || bad "schedulable is '$(fact schedulable)'"
 scenario
 put a "$(engine_pod vllm-shared-a-1 ua Pending "" '0/2 nodes are available: 2 Insufficient nvidia.com/gpu')"; put b "$(engine_pod vllm-shared-b-1 ub Pending)"; put none "$no_events"
 b2_rules a b none none
-mpscap_b2 m5c-a m5c-b "$(soon 1)" >/dev/null 2>&1
+mpscap_b2 m5c-a m5c-b "$(soon 2)" >/dev/null 2>&1
 [[ -z "$(fact schedulable)" ]] && ok "unschedulable for want of the device is not a broken apparatus" || bad "schedulable was recorded as $(fact schedulable)"
 scenario
 put a "$(engine_pod vllm-shared-a-1 ua Running)"; put b "$(engine_pod vllm-shared-b-1 ub Running)"; put err "error: the server was unable to return a response"
 b2_rules a b err err 1
-mpscap_b2 m5c-a m5c-b "$(soon 1)" >/dev/null 2>&1
+mpscap_b2 m5c-a m5c-b "$(soon 2)" >/dev/null 2>&1
 expect "events never readable" B2 interrupted
 [[ -z "$(fact no_healthy_devices_event)" ]] && ok "no refusal fact is recorded from unread events" || bad "a refusal fact came from unread events: $(fact no_healthy_devices_event)"
 scenario
 put a '{"items": [{"metadata": {"name": "vllm-shared-a-1", "uid": "ua"}, "status": {"phase": "Running"}}, {"metadata": {"name": "vllm-shared-a-2", "uid": "ua2"}, "status": {"phase": "Running"}}]}'
 put b "$(engine_pod vllm-shared-b-1 ub Running)"; put none "$no_events"
 b2_rules a b none none
-mpscap_b2 m5c-a m5c-b "$(soon 1)" >/dev/null 2>&1
+mpscap_b2 m5c-a m5c-b "$(soon 2)" >/dev/null 2>&1
 expect "two live Pods for one engine never pass" B2 interrupted
 
 # --- B3 ----------------------------------------------------------------------------------------------------------
