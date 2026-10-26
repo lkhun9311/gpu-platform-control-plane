@@ -261,7 +261,7 @@ PILOT_UNDER_TEST="${PILOT:-}"
 # MPSCAP=1 rehearses the MPS capability session's one cell (study mps-capability-2026-10-24) through the real matrix.
 MPSCAP_UNDER_TEST="${MPSCAP:-}"
 # Any other value rehearsed stages A and B while its name suggested something else (v26 review, C37).
-case "$PILOT_UNDER_TEST" in "" | 1 | D | E | F | G) ;; *) echo "PILOT is ${PILOT_UNDER_TEST@Q}; it is 1 for stages A and B, D, E, F or G" >&2; exit 2 ;; esac
+case "$PILOT_UNDER_TEST" in "" | 1 | D | E | F | G | H) ;; *) echo "PILOT is ${PILOT_UNDER_TEST@Q}; it is 1 for stages A and B, D, E, F, G or H" >&2; exit 2 ;; esac
 # The two ineligible arms the rehearsal must show (design page, "Rehearsals before purchase"): stage A's off-2 has
 # its step log stopped mid-cell by the stub, and stage B's R1-3 has one request's gateway record deleted after the
 # run. Request 40 is past the cell's start, so the log stops with records before it, as a plugin that died would.
@@ -537,6 +537,9 @@ if [ -n "$PILOT_UNDER_TEST" ]; then
   if [ "$PILOT_UNDER_TEST" = F ]; then pilot_stages=F; pilot_study=admission-length-calibration-2026-10-10; fi
   # PILOT=G rehearses C3's calibration stage G: stage F's cells under its own study, seed and contender rate.
   if [ "$PILOT_UNDER_TEST" = G ]; then pilot_stages=G; pilot_study=admission-headroom-calibration-2026-10-24; fi
+  # PILOT=H rehearses C3's main study: stage H's three blocks one after another, as three sessions run them, each on
+  # its own seed and block, scored together.
+  if [ "$PILOT_UNDER_TEST" = H ]; then pilot_stages="H1 H2 H3"; pilot_study=admission-headroom-main-2026-10-25; fi
   for stage in $pilot_stages; do
     if [ "$stage" = B ]; then
       fit_args=()
@@ -550,10 +553,11 @@ if [ -n "$PILOT_UNDER_TEST" ]; then
     ( cd "$SRC" && PLATFORM=kind KCTX="$KCTX" GPU_NODE="$GPU_NODE" \
         DEADLINE_EPOCH=$(( $(date +%s) + 7200 )) \
         GATEWAY_BIN="$WORK/gateway" BENCHHARNESS_BIN="$WORK/benchharness" \
-        ENGINE_PIN_WAIVED=1 STUDY="$pilot_study" PILOT_STAGE="$stage" PILOT_STATIC_RATE="$PILOT_R" \
+        ENGINE_PIN_WAIVED=1 STUDY="$pilot_study" PILOT_STAGE="${stage%[123]}" PILOT_STATIC_RATE="$PILOT_R" \
+        PILOT_BLOCK="$(case "$stage" in H?) echo "${stage#H}" ;; esac)" \
         MODEL_REVISION=aa8e72537993ba99e69dfaafa59ed015b17504d1 \
-        REPS="$(case "$stage" in F | G) echo 1 ;; *) echo 3 ;; esac)" SEEDS="$(case "$stage" in A) echo '301 302 303' ;; B) echo '311 312 313' ;; D) echo '321 322 323' ;; E) echo '861 862 863' ;; F) echo 871 ;; G) echo 891 ;; esac)" \
-        PREMIUM_RATE=9.25 PILOT_NOISY_RATE="$( [ "$stage" = G ] && echo 0.375 || echo 0.5)" PREMIUM_WEIGHT=1 PROBE_WEIGHT=0 DURATION_MS="${PILOT_DURATION_MS:-20000}" \
+        REPS="$(case "$stage" in F | G | H?) echo 1 ;; *) echo 3 ;; esac)" SEEDS="$(case "$stage" in A) echo '301 302 303' ;; B) echo '311 312 313' ;; D) echo '321 322 323' ;; E) echo '861 862 863' ;; F) echo 871 ;; G) echo 891 ;; H1) echo 882 ;; H2) echo 892 ;; H3) echo 893 ;; esac)" \
+        PREMIUM_RATE=9.25 PILOT_NOISY_RATE="$(case "$stage" in G | H?) echo 0.375 ;; *) echo 0.5 ;; esac)" PREMIUM_WEIGHT=1 PROBE_WEIGHT=0 DURATION_MS="${PILOT_DURATION_MS:-20000}" \
         PREMIUM_PROMPT_CHARS=200 NOISY_PROMPT_CHARS=40000 REQUEST_TIMEOUT_MS=30000 \
         PREMIUM_OUTPUT_TOKENS=64 NOISY_OUTPUT_TOKENS=16 OUT="$OUT_DIR-$stage" \
         CELL_DONE_HOOK="$WORK/cell-hook" CELL_HOOK_LOG="$CELL_HOOK_LOG" \
@@ -671,12 +675,14 @@ if [ -n "$MPSCAP_UNDER_TEST" ]; then
 fi
 
 if [ -n "$PILOT_UNDER_TEST" ]; then
-  if [ "$PILOT_UNDER_TEST" = D ] || [ "$PILOT_UNDER_TEST" = E ] || [ "$PILOT_UNDER_TEST" = F ] || [ "$PILOT_UNDER_TEST" = G ]; then
+  if [ "$PILOT_UNDER_TEST" = D ] || [ "$PILOT_UNDER_TEST" = E ] || [ "$PILOT_UNDER_TEST" = F ] || [ "$PILOT_UNDER_TEST" = G ] || [ "$PILOT_UNDER_TEST" = H ]; then
     st="$PILOT_UNDER_TEST"
-    say "check what stage $st's cells wrote"
-    d="$OUT_DIR-$st"
+    # Stage H's three sessions each hold one block, and each is checked as stage G's one block is.
+    st_dirs="$OUT_DIR-$st"; [ "$st" != H ] || st_dirs="$OUT_DIR-H1 $OUT_DIR-H2 $OUT_DIR-H3"
+    for d in $st_dirs; do
+    say "check what stage $st's cells wrote in $(basename "$d")"
     st_arms=$(. "$ROOT/hack/lib/prospective-pilot.sh" && pp_stage_arms "$st" | grep -vx R1 | tr '\n' ' ') || fail "no arms for stage $st"
-    st_reps="1 2 3"; case "$st" in F | G) st_reps=1 ;; esac
+    st_reps="1 2 3"; case "$st" in F | G | H) st_reps=1 ;; esac
     cells="R1-1"; for a in $st_arms; do for r in $st_reps; do cells="$cells $a-$r"; done; done
     want_n=$(( 1 + $(echo $st_reps | wc -w) * $(echo $st_arms | wc -w) ))
     n_raw=$(find "$d" -maxdepth 1 -name 'raw-*-[0-9].jsonl' | wc -l)
@@ -694,7 +700,7 @@ if [ -n "$PILOT_UNDER_TEST" ]; then
       case "$arm" in
         hold | hold-cap | hold-cap-*) grep -q '"reason":"serial_prefill_' "$d/gateway-record-$cell.jsonl" \
           || fail "stage $st cell $cell: no serial-prefill decision in its gateway record" ;;
-        fixed-*) grep -q '"reason":"fixed_spacing_' "$d/gateway-record-$cell.jsonl" \
+        fixed-* | fixedS-* | sizeaware-*) grep -q '"reason":"fixed_spacing_' "$d/gateway-record-$cell.jsonl" \
           || fail "stage $st cell $cell: no fixed-spacing decision in its gateway record" ;;
         *) ! grep -qE '"reason":"(serial_prefill|fixed_spacing)_' "$d/gateway-record-$cell.jsonl" \
           || fail "stage $st cell $cell: a held decision in an arm without a hold" ;;
@@ -708,7 +714,19 @@ if [ -n "$PILOT_UNDER_TEST" ]; then
       if [ "$want_cap" = 384 ]; then [ "$cap_seen" -ge 1 ] || fail "stage $st cell $cell: its engine did not report the 384 prefill cap"
       else [ "$cap_seen" = 0 ] || fail "stage $st cell $cell: an engine without the cap reported it"; fi
     done
-    if [ "$st" = D ]; then
+    done
+    if [ "$st" = H ]; then
+      # Scored as the purchase will be, the three sessions together. The 20-second traces are not the frozen ones, so
+      # each cell's provenance line fails by design; every other validity line must hold.
+      verdict=$(python3 "$ROOT/hack/prospective-pilot/pilot_report.py" headroom-main $st_dirs | python3 -c '
+import json, sys
+v = json.load(sys.stdin)
+bad = [x["line"] + " " + str(x["value"])[:80] for x in v["validity"] if x["state"] != "holds" and not x["line"].endswith("is the registered cell")]
+if bad:
+    print("validity failed beyond provenance, %d line(s): " % len(bad) + "; ".join(bad))
+    sys.exit(1)
+print(v["verdict"][:200] + " | size-aware: " + v["size_aware"][:80] + " | cap-only: " + v["cap_only"][:80])') || fail "stage $st: $verdict"
+    elif [ "$st" = D ]; then
       verdict=$(python3 "$ROOT/hack/prospective-pilot/pilot_report.py" diagnostic "$d" | python3 -c 'import json,sys; print(json.load(sys.stdin)["verdict"])') \
         || fail "the report could not score the diagnostic"
       case "$verdict" in "observed on these traces"* | "not met: "* | "inconclusive: "*) ;; *) fail "the diagnostic's verdict is not one of the three: $verdict" ;; esac
@@ -727,7 +745,7 @@ if bad:
 print(v["verdict"][:200])') || fail "stage $st: $verdict"
     fi
     say "the stub's verdict, which says nothing about the card: $verdict"
-    say "STAGE $st REHEARSAL: R1 once and [$st_arms] in $(echo $st_reps | wc -w) block(s), each arm's mode and cap cell by cell, every cell eligible, scored"
+    say "STAGE $st REHEARSAL: R1 once and [$st_arms] in $(echo $st_reps | wc -w) block(s) per session, $(echo $st_dirs | wc -w) session(s), each arm's mode and cap cell by cell, every cell eligible, scored"
     exit 0
   fi
   say "check what the pilot's cells wrote"

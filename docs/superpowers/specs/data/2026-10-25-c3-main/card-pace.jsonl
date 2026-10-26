@@ -1,0 +1,12 @@
+{"card": "m5c-20261009-122503-diagD", "cell": "hold-cap-1", "measured_d_ms": 1636.695783, "replay_d_at_1.0_ms": 1588.283392, "replay_d_at_1.08_ms": 1754.601216, "d_matched_pace": 1.0252}
+{"card": "m5c-20261009-122503-diagD", "cell": "hold-cap-2", "measured_d_ms": 1665.131057, "replay_d_at_1.0_ms": 1622.222336, "replay_d_at_1.08_ms": 1790.49984, "d_matched_pace": 1.0202}
+{"card": "m5c-20261009-122503-diagD", "cell": "hold-cap-3", "measured_d_ms": 1646.672737, "replay_d_at_1.0_ms": 1601.17888, "replay_d_at_1.08_ms": 1768.005376, "d_matched_pace": 1.0234}
+{"card": "m5c-20261010-024449-frontierE", "cell": "hold-cap-1", "measured_d_ms": 1644.802945, "replay_d_at_1.0_ms": 1585.594624, "replay_d_at_1.08_ms": 1749.1392, "d_matched_pace": 1.0293}
+{"card": "m5c-20261010-024449-frontierE", "cell": "hold-cap-2", "measured_d_ms": 1669.423773, "replay_d_at_1.0_ms": 1623.674368, "replay_d_at_1.08_ms": 1803.665152, "d_matched_pace": 1.0198}
+{"card": "m5c-20261010-024449-frontierE", "cell": "hold-cap-3", "measured_d_ms": 1650.238816, "replay_d_at_1.0_ms": 1598.31808, "replay_d_at_1.08_ms": 1769.644544, "d_matched_pace": 1.0221}
+{"card": "m5c-20261010-080107-lencalF", "cell": "hold-cap-long-1", "measured_d_ms": 1772.338212, "replay_d_at_1.0_ms": 1713.999104, "replay_d_at_1.08_ms": 1892.971776, "d_matched_pace": 1.0301}
+{"card": "m5c-20261010-080107-lencalF", "cell": "hold-cap-ref-1", "measured_d_ms": 1651.813815, "replay_d_at_1.0_ms": 1594.838016, "replay_d_at_1.08_ms": 1755.83488, "d_matched_pace": 1.0242}
+{"card": "m5c-20261010-080107-lencalF", "cell": "hold-cap-short-1", "measured_d_ms": 1193.203282, "replay_d_at_1.0_ms": 1165.90464, "replay_d_at_1.08_ms": 1292.379136, "d_matched_pace": 1.0151}
+{"card": "m5c-20261025-040425-headroomG", "cell": "hold-cap-long-1", "measured_d_ms": 1738.179325, "replay_d_at_1.0_ms": 1649.298176, "replay_d_at_1.08_ms": 1855.54944, "d_matched_pace": 1.0322}
+{"card": "m5c-20261025-040425-headroomG", "cell": "hold-cap-ref-1", "measured_d_ms": 1595.398333, "replay_d_at_1.0_ms": 1527.336704, "replay_d_at_1.08_ms": 1714.840064, "d_matched_pace": 1.0306}
+{"card": "m5c-20261025-040425-headroomG", "cell": "hold-cap-short-1", "measured_d_ms": 1117.381907, "replay_d_at_1.0_ms": 1103.235584, "replay_d_at_1.08_ms": 1227.49312, "d_matched_pace": 1.007}

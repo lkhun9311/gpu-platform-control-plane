@@ -419,7 +419,7 @@ shell-check: ## Parse every shell script under hack/ and .githooks/.
 	@# reason hack/test/spot-lifecycle/bin/aws is -- a stub with a syntax error answers nothing and every
 	@# scenario then reads as "no residue", which is a false pass on the one question the replay asks.
 	@fail=0; for f in hack/*.sh hack/lib/*.sh hack/test/*.sh hack/test/spot-lifecycle/*.sh \
-		hack/test/spot-lifecycle/bin/aws hack/test/spot-lifecycle/bin/sleep \
+		hack/test/spot-lifecycle/bin/aws hack/test/spot-lifecycle/bin/git hack/test/spot-lifecycle/bin/sleep \
 		hack/test/spot-lifecycle/golden/*/user-data*.sh \
 		hack/test/teardown-replay/*.sh hack/test/teardown-replay/bin/aws \
 		hack/eks-serve/holdcap-study/*.sh \
