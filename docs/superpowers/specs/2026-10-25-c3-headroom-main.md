@@ -3,6 +3,7 @@
 Written 2026-10-25. **Frozen for purchase, 2026-10-26,** at the commit that carries this line; the rules, the cells, the spacings, the checksums and the limits below are not changed after it.
 codex's cold attack is reconciled, the build is in ("Build status"), the plan check passes all three blocks, and the kind rehearsal of three stage-H sessions has run twice, holding every line but the gateway latency bound this host fails.
 The owner approved the purchase, the three sessions one after another, in the working session of 2026-10-26; no document records it.
+**Result, 2026-10-26** (the last section): length-dependent advantage over the frozen spacing observed, from a reference with neither ahead, its separation at long resting on two of the three sessions; size-aware unresolved; the gateway's signal added to the cap at every length.
 The owner approved drafting it in the working session of 2026-10-25, after C3's calibration read feasible; no document records that approval.
 C3's calibration (`2026-10-24-c3-headroom-calibration.md`) froze S, the size-aware spacings and the seeds, and its records stand as written.
 
@@ -231,4 +232,77 @@ The bound is not relaxed: on the cards it is judged as registered, and a failure
 The rehearsal kept no files (it ran without KEEP=1), so the scorer's verdict on the stub's evidence was not printed past the validity check that stopped it.
 It was run again at `fb865e99` keeping its files: every block again wrote all 253 files; the untrusted validity lines were the 48 provenance lines and 51 gateway latency lines (18, 19 and 14 by block), p99 13.1 to 17.5 ms, every maximum under 19.9 ms; and `headroom-main` scored the three archives without error.
 Beyond validity, kind cannot score two things the card does: the stub exports no preemption counter, so the four capped arms' 36 preemption lines were unscorable (on the calibration's card every such line was scored), and the stub's instant answers leave 21 completion-p50 and shared-window work lines failing against off. With provenance, gateway latency and preemptions forced to pass, the scorer ran through rules 1 to 3 and both separate verdicts on that evidence without error; rules 4 to 7 are pinned by the unit tests.
+
+## Result, 2026-10-26: length-dependent advantage observed, from a reference with neither ahead
+
+**Primary: length-dependent advantage over the frozen spacing observed, from a reference with neither ahead.**
+**Size-aware: size-aware comparison unresolved.** **Cap-only: the gateway's signal added to the cap at short, ref, long.**
+Scored by `pilot_report.py headroom-main` at `8cc32c53` over the three sessions' archives, block 1's first; its output is `data/2026-10-25-c3-main/verdict.json`.
+The three blocks were acquired one after another without any endpoint being read between them; only cell outcomes and timings were looked at until all three were in.
+
+| block | seed | launched at | instance | zone | card | cells | session | Spot price | cost |
+|---|---:|---|---|---|---|---|---:|---:|---:|
+| 1 | 882 | `950f5101` | `i-0af230b6c53323355` | 2c | `GPU-cb497906…` | 16/16, 16:05:50 to 18:41:29 | 2 h 44 m 11 s | $0.6757/h | $1.85 |
+| 2 | 892 | `d9aacd9d` | `i-0b6730e0b6c96cd63` | 2d | `GPU-29e30f5e…` | 16/16, 18:58:37 to 21:32:57 | 2 h 43 m 25 s | $0.6859/h | $1.87 |
+| 3 | 893 | `e3df039f` | `i-04d84f4a10243d4fe` | 2c | `GPU-048db8d3…` | 16/16, 22:54:30 to 01:28:26 | 2 h 43 m 18 s | $0.6757/h, then $0.6756/h | $1.84 |
+
+Three sessions on **three distinct cards**, every one an A10G on driver 595.91.07; block 1's is the card the calibration ran on.
+Each ran R1 and its 15 cells in its registered order, R1 in 828 to 840 s and every other cell in 536 to 557 s, within one launch each: the ledger records three completed launches and no replacement.
+A session is timed from its instance's launch to the termination record the script writes once AWS confirms the instance terminated; the three cost **about $5.56** together, against the $5.6 expected and the $27 allowance.
+After the third, no instance of the account in ap-northeast-2 was pending, running, stopping, stopped or shutting down.
+
+Every one of the 651 validity lines holds, the new ones included: the cell order, the request ids naming their block, the engine's cap in every cell, the admission mode of every cell, and both temporal witnesses, with no stamp missing, early or off.
+The gateway's arrival-to-record p99 was 5.0 to 5.7 ms in every cell, its maximum 7.1 to 10.5 ms; premium arrival-to-decision 5.1 to 5.8 ms and 6.3 to 10.6 ms. That is the bound the kind host fails, judged here as registered.
+Every one of the 288 admissibility lines holds, so every arm is admissible at every length: contender completion 1.0 in every cell, no hold refusal, no preemption in any of the 36 scored preemption lines, completion p95 at most 12,659 ms.
+
+Pooled premium TTFT p99, the scheduled-start upper bound, in ms, over each arm's 11,746 premium requests, every one of which returned its 64 tokens:
+
+| length | off | cap-only | hold-cap | fixed-S | size-aware |
+|---|---:|---:|---:|---:|---:|
+| short | 1,051.3 | 1,108.1 | 301.2 | 246.3 | 401.9 |
+| ref | 1,438.0 | 1,642.1 | 400.2 | 405.8 | 403.5 |
+| long | 1,584.4 | 1,789.8 | 434.5 | 1,325.7 | 425.6 |
+
+The rules, as `verdict.json` walks them, each step re-derived from its quantities:
+- rules 1 to 3: no line untrusted or unscorable; hold-cap admissible everywhere; U(H, O) −1.249, −1.278 and −1.293, each ≤ ln 0.85 = −0.163;
+- rule 4, on every block: d(ref) 1,631.0, 1,602.7 and 1,635.0 ms, each ≤ 1,680.4; d(long) 1,761.6, 1,722.7 and 1,755.7 ms, each above 1,680.4 and above 1.05 × d(ref) (1,712.6, 1,682.9 and 1,716.8);
+- rule 5: fixed-S admissible and protective at ref, U(F, O) −1.264; U(F, H) +0.017 and U(H, F) −0.008, so neither directional 15% advantage, and no bound at ln 0.85 without its W. N(F, H) at ref holds: fixed-S was at most 15% worse than hold-cap there;
+- rule 6: I⁺ = U(H, F) at long − L(H, F) at ref = −1.115 − (−0.017) = **−1.097**, against ln 0.85 = −0.163; K(H, F) at long; and fixed-S admissible at long with W(H, F) there, U(H, F) −1.115, hold-cap's 434.5 ms against fixed-S's lower bound of 1,324.9.
+
+Hold-cap was not ahead at the reference, so the change made to rules 5 and 6 after the gate did not decide this verdict: under the rule as first drafted, W(H, F) at ref fails just as here, and its rule 6 asked the same three conditions.
+
+**The separation at long rests on two of the three sessions** (`per-block-bounds.jsonl`, each cell boxed by the scorer's own functions).
+Fixed-S's per-block upper p99 at long was 1,393, 479 and 1,509 ms, against hold-cap's 414, 405 and 480: in block 2 fixed-S held its tail at long.
+Block 2's d(long) cleared S by 42.3 ms, against 81.2 and 75.3 ms in blocks 1 and 3, which is what the frozen spacing's failure at long depends on.
+The registered endpoint pools the three blocks and does not ask each block to separate, so the verdict stands as registered; a reader should weigh it knowing the pooled tail at long is fixed-S's tail in blocks 1 and 3.
+At ref, both arms ranged together in every block, fixed-S 381 to 435 and hold-cap 362 to 416.
+
+Hold-cap's prefill on each card (`hold-cap-prefill-by-block.txt`, from the scorer's `engine_prefill` and `admission_to_content`), every contender finished:
+
+| length | d, median by block | d, p95 by block | gateway admission to first content, median |
+|---|---|---|---|
+| short | 1,150.3 / 1,139.6 / 1,169.1 | 1,260.2 / 1,249.8 / 1,277.1 | 1,185.3 / 1,179.3 / 1,203.9 |
+| ref | 1,631.0 / 1,602.7 / 1,635.0 | 1,707.2 / 1,704.7 / 1,711.9 | 1,677.2 / 1,653.3 / 1,673.6 |
+| long | 1,761.6 / 1,722.7 / 1,755.7 | 1,825.8 / 1,818.2 / 1,833.4 | 1,805.4 / 1,768.9 / 1,803.1 |
+
+Each card's cells in the gate's sense of pace (`card-pace-main.jsonl`, `card-pace.py` given the three archives): ref 1.0258, 1.0265 and 1.0275, long 1.0306, 1.0304 and 1.0269, short 1.0186, 1.0075 and 1.0139; every ref and long cell inside the gate's pass band of about 1.007 to 1.033.
+Against the gate's replay at 1.0275: at ref it predicted hold-cap 400 and fixed-S 433 ms, and these read 400.2 and 405.8; at long 452 against 1,489.5, and these read 434.5 against 1,325.7; the interaction −1.114, and this reads −1.097.
+
+**Size-aware: unresolved.** It was admissible everywhere and protective everywhere (U(A, O) −0.960, −1.270, −1.313), but N(A, H) fails at short: U(A, H) +0.293 against ln 1.15 = 0.140, its 401.9 ms against hold-cap's 301.2, and its block 3 cell at 605 ms. At long hold-cap did not beat it, U(H, A) +0.023.
+The replay predicted the same shape: size-aware at short 519 against hold-cap's 328, at long 428 against 452.
+fixed-S at ref and size-aware at ref run the same spacing on the same traces; their pooled bounds lie within 1% in both directions (U +0.010 and −0.000), a measure of how far two cells of one arm differ here.
+
+**Cap-only: the gateway's signal added to the cap at every length.** W(H, C) holds at short, ref and long, U(H, C) −1.300, −1.411 and −1.415, and cap-only was not protective at any length (U(C, O) +0.054, +0.134 and +0.123): its arrival-start lower p99, 1,105.3, 1,640.6 and 1,788.2 ms, lies above off's scheduled-start upper one at every length, so its tail was above off's. The replay predicted it above off at every length.
+
+Beyond the rules, both directions of every comparison are in `verdict.json`. Two a reader may ask about:
+fixed-S beat hold-cap by 15% at **short**, U(F, H) −0.196 with both admissible and K holding, where S is 1,680.4 ms against a d(short) of about 1,150; no rule reads short for this contrast, and it is reported, not judged.
+And fixed-S did not miss the protection target at long: L(F, O) there is −0.179, at or below ln 0.85, so it protected against off by at least 16% even while hold-cap's tail was a third of its.
+
+What it licenses is "What it licenses", rule 6: that in these three sessions, at this load and these traces, hold-cap's tail advantage over this frozen spacing, 1,680.4 ms, grew by at least 15% from the reference to the long length, with hold-cap inside the owner's limits.
+Not over fixed spacing generally, not a failure of fixed-S's protection at long, and, given block 2, not that the frozen spacing's tail collapses at long on every session.
+The size-aware verdict concerns a control calibrated on one card and seed; it says nothing either way about static size knowledge in general.
+
+The raw archives are not committed. They are the three assets of the release `evidence-c3-main-2026-10-26`, one per block, under the checksums in `data/c3-main-evidence-SHA256SUMS`; no excluded file (`seeded-key.txt`, `terraform.log`, `ttl.pid`) is in them.
+`hack/verify-c3-main-evidence.sh` checks the three against those checksums, scores them together and compares the primary and both separate verdicts, whether hold-cap was ahead at the reference, the interaction, every arm's admissibility, the nine medians and the card count with `verdict.json`.
+It did so on the local assets on 2026-10-26 with no difference, and it fails on an altered asset, a checksum list missing a block, and an altered published verdict.
 

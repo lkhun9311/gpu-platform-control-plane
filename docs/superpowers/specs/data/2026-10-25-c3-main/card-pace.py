@@ -1,6 +1,7 @@
 """Each archived hold-cap cell's pace in the gate's sense: the replay pace at which the replay's hold-cap prefill
 median on that cell's own trace equals the card's measured median (the pace tool's definition of measured d).
-Run from the repository root: python3 docs/superpowers/specs/data/2026-10-25-c3-main/card-pace.py"""
+Run from the repository root: python3 docs/superpowers/specs/data/2026-10-25-c3-main/card-pace.py [m5c-run ...]
+Without arguments it reads the four archives card-pace.jsonl was made from; with them, those archives instead."""
 import sys, json
 sys.path.insert(0, "hack/prospective-pilot")
 import simulate as sim, pilot_report as pr
@@ -11,6 +12,8 @@ coef, _ = sim.fit_step_model(fit)
 fwd = sim.offsets(fit)
 CARDS = ["hack/m5c-20261009-122503-diagD/m5c-run", "hack/m5c-20261010-024449-frontierE/m5c-run",
          "hack/m5c-20261010-080107-lencalF/m5c-run", "hack/m5c-20261025-040425-headroomG/m5c-run"]
+# The main study's sessions are measured with the same definition, so their paces sit on the gate's scale.
+CARDS = sys.argv[1:] or CARDS
 GRID = [round(1.0 + 0.005 * i, 3) for i in range(17)]
 
 
