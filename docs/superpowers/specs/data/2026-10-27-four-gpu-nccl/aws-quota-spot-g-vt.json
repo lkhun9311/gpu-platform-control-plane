@@ -1,0 +1,26 @@
+{
+    "Quota": {
+        "ServiceCode": "ec2",
+        "ServiceName": "Amazon Elastic Compute Cloud (Amazon EC2)",
+        "QuotaArn": "arn:aws:servicequotas:ap-northeast-2:007635145730:ec2/L-3819A6DF",
+        "QuotaCode": "L-3819A6DF",
+        "QuotaName": "All G and VT Spot Instance Requests",
+        "Value": 48.0,
+        "Unit": "None",
+        "Adjustable": true,
+        "GlobalQuota": false,
+        "UsageMetric": {
+            "MetricNamespace": "AWS/Usage",
+            "MetricName": "ResourceCount",
+            "MetricDimensions": {
+                "Class": "G/Spot",
+                "Resource": "vCPU",
+                "Service": "EC2",
+                "Type": "Resource"
+            },
+            "MetricStatisticRecommendation": "Maximum"
+        },
+        "QuotaAppliedAtLevel": "ACCOUNT",
+        "Description": "The maximum number of vCPUs for all running or requested G and VT Spot Instances per Region"
+    }
+}

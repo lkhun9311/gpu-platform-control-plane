@@ -1,0 +1,12 @@
+AR_RUN_ID c-r-ddp-4pod1gpu c-r-ddp-4pod1gpu-2
+AR_NCCL_CONF absent /etc/nccl.conf
+AR_NCCL_CONF absent /root/.nccl.conf
+AR_NCCL_ENV NCCL_DEBUG_SUBSYS=INIT,GRAPH,ENV
+AR_NCCL_ENV NCCL_DEBUG=INFO
+AR_SHM_KB 65536
+/usr/local/lib/python3.12/site-packages/torch/_subclasses/functional_tensor.py:295: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at ../torch/csrc/utils/tensor_numpy.cpp:84.)
+  cpu = _conversion_method_template(device=torch.device("cpu"))
+{"backend": "gloo", "batch": 64, "cpu_affinity": 32, "cuda_version": null, "device": "cpu", "device_name": "cpu", "event": "start", "gpu_uuid": null, "gradient_bytes": 1052672, "hostname": "c-r-ddp-4pod1gpu-2", "layers": 4, "local_rank": 0, "local_rank_env": null, "nccl_env": {"NCCL_DEBUG": "INFO", "NCCL_DEBUG_SUBSYS": "INIT,GRAPH,ENV"}, "nccl_version": null, "omp_num_threads": "1", "parameters": 263168, "pid": 1, "rank": 2, "run_id": "c-r-ddp-4pod1gpu", "script_sha256": "7cad86378795a9586e9d197525292dc437e6710c337dd35f03b667d26b8e7417", "timed_pairs": 50, "torch_threads": 1, "torch_version": "2.5.1+cpu", "ts": "2026-10-26T14:21:31.234190+00:00", "visible_devices": 0, "visible_devices_env": {"CUDA_VISIBLE_DEVICES": null, "NVIDIA_VISIBLE_DEVICES": null}, "warmup_pairs": 20, "width": 256, "world_size": 4}
+[W1026 14:21:31.645501434 socket.cpp:752] [c10d] The IPv6 network addresses of (c-r-ddp-4pod1gpu-0.c-r-ddp-4pod1gpu-ddp.train-a.svc, 29500) cannot be retrieved (gai error: -2 - Name or service not known).
+[W1026 14:21:31.208218516 socket.cpp:752] [c10d] The IPv6 network addresses of (c-r-ddp-4pod1gpu-0.c-r-ddp-4pod1gpu-ddp.train-a.svc, 29500) cannot be retrieved (gai error: -2 - Name or service not known).
+failed to create fsnotify watcher: too many open files

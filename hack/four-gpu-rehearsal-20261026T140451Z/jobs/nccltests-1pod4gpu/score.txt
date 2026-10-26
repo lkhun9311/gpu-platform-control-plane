@@ -1,0 +1,1 @@
+INVALID /home/lkhun9311/workspace/gpu-platform-control-plane/.claude/worktrees/agent-a30829262741726b1/hack/four-gpu-rehearsal-20261026T140451Z/jobs/nccltests-1pod4gpu not terminal within the 240s budget (phase 'Admitted'); the job took 243 s, over the registered 240 s; the MLTrainingJob ended 'Admitted', not Succeeded; 5 Pod(s) were ever created, want 1

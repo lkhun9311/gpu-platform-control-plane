@@ -1,0 +1,19 @@
+{
+  "apiVersion": "platform.lkhun9311.github.io/v1",
+  "kind": "MLTrainingJob",
+  "metadata": {
+    "name": "train-qualify",
+    "namespace": "train-a"
+  },
+  "spec": {
+    "queue": "gpu-train-a",
+    "image": "cpu-ddp:torch251",
+    "gpuCount": 4,
+    "gpuClass": "a10g",
+    "command": [
+      "sh",
+      "-c",
+      "echo '== nvidia-smi -L'; nvidia-smi -L\nnvidia-smi --query-gpu=index,uuid,pci.bus_id,driver_version --format=csv,noheader | sed 's/^/AR_GPU /'\necho '== nvidia-smi topo -m'; nvidia-smi topo -m\necho '== nvidia-smi topo -p2p r'; nvidia-smi topo -p2p r || echo \"AR_P2P_QUERY_FAILED $?\"\necho '== nvidia-smi -q'; nvidia-smi -q\necho \"AR_SHM_KB $(df -kP /dev/shm | awk 'NR == 2 {print $2}')\"\nn=$(nvidia-smi -L | grep -o 'UUID: GPU-[0-9a-f-]*' | sort -u | wc -l)\n[ \"$n\" = 4 ] || { echo \"AR_QUALIFY_REFUSED $n distinct GPU(s)\"; exit 3; }\nsleep 60"
+    ]
+  }
+}

@@ -1,0 +1,215 @@
+**This registration is not ready for a paid session.** Its arithmetic is mostly reproducible, but several claimed bounds do not follow from that arithmetic, and some validity rules conflict with the proposed instruments.
+
+I modified nothing. I read the registration, its predecessor, the benches, session libraries, controller/API, cluster infrastructure and prior experiment evidence. The 29 available bench unit tests passed; they exercise no CUDA or NCCL.
+
+The working tree changed during this review. My last implementation checks were around **2026-10-26 13:38 UTC**, against HEAD `e9ccc898459c45a67804b7c8f667e3ad7559da38` plus working-tree changes. The [registration](/home/lkhun9311/workspace/gpu-platform-control-plane/.claude/worktrees/agent-a30829262741726b1/docs/superpowers/specs/2026-10-27-four-gpu-nccl-design.md) remained at SHA-256 `f91a0fd811d8a6676f312ba1f28ccfbefb76cafedb8d2fa53eb35a38c848b807`. Line references below refer to that page.
+
+**1. The advertised session is not executable — blocker**
+
+**Concerns:** L69, “`ar_block_order` computes the order”; L117, “`TRAIN=allreduce`”; L210, the nccl-tests Dockerfile; L257–261, the purchase command.
+
+**Repository checked:** The final checkout still had no `hack/lib/allreduce-arms.sh`, throughput scorer, or nccl-tests Dockerfile. `eks-gitops-session.sh:172–209` accepted only `TRAIN=ddp`; its fallback rejects `allreduce`. Its settings remained two g5.xlarge and a $1.40 price ceiling.
+
+The shared-memory mount, four-GPU quota and DDP bench were present by my final checks. The qualification helpers had gained required count arguments, but their session callers still omitted them. There is another integration failure: `train_qualification_held` selects the `platform.lkhun9311.github.io/mltrainingjob` Pod label, which `applyDistributed` adds only for distributed jobs. The proposed single-Pod qualification job does not receive it.
+
+Thus this is more than an unfinished image digest: the advertised command cannot execute the registration, and changing the count alone does not fix qualification.
+
+**Settling evidence:** A frozen implementation and an end-to-end rehearsal showing the actual single-Pod qualification, all 25 submissions, evidence collection, scoring, smoke-stop and teardown paths.
+
+**2. The pinned nccl-tests cannot satisfy the registered warm-up rule — blocker**
+
+**Concerns:** L85–86, “20 … per size” and “the same history”; L148, “Warm-up 20 and timed 100 per size.”
+
+**Outside source checked:** At the specified nccl-tests commit, `TimeTest` warms the maximum size and minimum size, then traverses the ladder. `BenchTime` performs an additional synchronization collective before each timed measurement. It does **not** perform 20 warm-ups at each intermediate size. The source default is five warm-ups, although `-w 20` overrides it. [Pinned nccl-tests source](https://raw.githubusercontent.com/NVIDIA/nccl-tests/8dfeab9eb9bdfdf13503e71e1f33e7f8a208b540/src/common.cu)
+
+A literal scorer must therefore invalidate the reference arm and stop block 0. Accepting its command-line header as proof of per-size history would instead certify something the executable did not do.
+
+E6 also compares different timing procedures: the torch loop synchronizes and checks every timed operation; nccl-tests times a sequence of operations and averages across ranks by default. Their difference is not merely median versus mean.
+
+**Settling evidence:** The exact invocation and an operation-level execution trace reconciled with the validity rule and the intended interpretation of E6.
+
+**3. The 0.32 GB/s timeout boundary is not a boundary — major**
+
+**Concerns:** L222–223, “slower than about 0.32 GB/s … cannot complete”; L95, “under a minute at the worst bandwidth.”
+
+The calculation assumes equal bandwidth at all five sizes. With that assumption:
+
+\[
+\sum S=357{,}564{,}416\text{ bytes},\qquad
+B=\frac{120\times1.5\times\sum S}{200\times10^9}
+=0.3218079744\text{ GB/s}.
+\]
+
+That arithmetic is correct. The categorical conclusion is not. A bandwidth at 256 MiB does not determine the other four durations. For example, 1.5 seconds at 256 MiB gives **0.2684 GB/s** and consumes 180 seconds for those 120 operations, leaving 20 seconds for smaller sizes within the assumed 200-second allowance.
+
+Conversely, 0.32 GB/s does not assure completion: buffer fills, verification, barriers, recording and startup consume time too. The reference also runs both in-place and out-of-place measurements.
+
+The DDP justification contradicts its own approximation: **50 × 1.25 = 62.5 seconds**, already above one minute before local steps; 70 synced steps including warm-up would take 87.5 seconds under that model.
+
+**Repository checked:** Both benches perform substantial work outside their timed spans. No measured runtime distribution establishes the 40-second startup allowance.
+
+**Settling evidence:** Separate whole-job runtime accounting for each instrument, including size-dependent performance and untimed operations. The 240-second limit can be a convention; the claimed performance cutoff cannot be inferred from it.
+
+**4. The termination machinery does not establish the advertised monetary ceiling — major**
+
+**Concerns:** L226–234, “205 min, the GPU deadline” and “bounded”; L249–250, termination guarantees.
+
+**Repository checked:** `eks-gitops-session.sh:636–647` computes the AWS deadline as the **remaining laptop-watchdog time minus ten minutes**, then checks that it is *at least* the GPU budget. It does not schedule termination at that budget.
+
+For illustration, if pre-GPU setup consumed 30 minutes of a 285-minute watchdog, the AWS target would be approximately **245 minutes after arming**, costing **$28.48** of GPU time at the quoted rate, before termination delay. That exceeds the registered $23.83 GPU ceiling.
+
+Furthermore:
+
+- `gpu-ttl.sh` requests `UpdateNodegroupConfig`; it does not terminate the instance synchronously.
+- The laptop watchdog **starts** Terraform destruction at its deadline, including lock waits and retries.
+- `train_scale_down` starts its nominal wait after preliminary requests/retries.
+- GPU root storage is 100 GiB in `infra/aws/cluster/eks.tf:173–181`, but no GPU EBS charge appears in the table.
+- The image transfer “bound” uses an unbuilt image’s estimated size.
+
+**Outside sources checked:** Scheduler has 60-second invocation precision, and EKS configuration updates are asynchronous. [Scheduler timing](https://docs.aws.amazon.com/scheduler/latest/UserGuide/schedule-types.html), [EKS update semantics](https://docs.aws.amazon.com/eks/latest/APIReference/API_UpdateNodegroupConfig.html)
+
+The safeguards are useful; they do not prove those hard billing limits. Also, T1–T5 occur after cluster creation, so L119’s “before anything is bought” is false for cluster charges.
+
+**Settling evidence:** The actual scheduled timestamp, bounded teardown behavior, all billable resources and transfer volumes, and failure-path tests distinguishing an accepted scale-down request from terminated instances.
+
+**5. The false-separation guarantee is for a different decision rule and an unsupported assignment model — major**
+
+**Concerns:** L67–74; L168–170, including “the mirror sentence for the reverse.”
+
+The combinatorics are correct **for one prespecified direction under exchangeability**. The actual verdict permits either direction:
+
+| Jobs per arm | \(C(2k,k)\) | One-direction probability | Five-size bound, either direction |
+|---:|---:|---:|---:|
+| 3 | 20 | 5% | 50% |
+| 4 | 70 | 1.4286% | 14.2857% |
+| 5 | 252 | 0.3968% | **3.9683%** |
+
+Thus “under 2%” does not describe V1 as registered. Five remains the smallest count giving a five-size bound below 5%, **conditional on exchangeability**. Including V2 and V3 gives a seven-comparison Bonferroni bound of **14/252 = 5.5556%**, not an experiment-wide sub-5% guarantee.
+
+**Repository/design checked:** The ordering is deterministic. A cyclic Latin square balances positions, but does not establish exchangeability or remove arbitrary time effects. It also repeatedly places each arm after the same predecessor, leaving carryover substantially confounded with arm.
+
+**Settling evidence:** A statistical derivation for the actual two-direction verdict, declared comparison family and assignment mechanism. Position balance alone does not supply it.
+
+**6. E4 does not isolate “communication the backward pass did not hide” — major**
+
+**Concerns:** L98 and L160; `ddp_step_bench.py:263–295`.
+
+**Repository checked:** The reported quantity is a difference between medians of whole forward/backward elapsed times. Between timed steps, each rank converts and sums every gradient in float64. There is only one barrier before the timed loop, not between pairs.
+
+Consequently, a rank can enter its next synced step while another is still checking gradients or completing its previous local step. The early rank’s timed wait can include that instrumentation skew. Synced steps also take reducer/bucket-management paths that local steps bypass. Subtraction does not separate those costs from transfer or overlap.
+
+**Outside source checked:** PyTorch’s synchronization mode changes reducer execution, not merely the presence of an otherwise isolated transfer. [PyTorch 2.5.1 DDP implementation](https://raw.githubusercontent.com/pytorch/pytorch/v2.5.1/torch/nn/parallel/distributed.py)
+
+A plausible positive E4 can therefore be a synchronization-enabled elapsed-time penalty while being a wrong number for the claimed unhidden all-reduce time.
+
+**Settling evidence:** Per-rank timelines separating computation, collective execution, waiting and instrumentation, plus evidence that the subtraction estimates the claimed component.
+
+**7. The model’s total gradient is not its collective message size — major**
+
+**Concerns:** L82–93, especially “its communication is the size the bandwidth arms measure.”
+
+**Repository checked:** `ddp_step_bench.py:257` constructs DDP with default bucket settings. It does not request one collective containing the entire gradient or record actual bucket sizes.
+
+**Outside source checked:** PyTorch 2.5.1 defaults to a 25 MiB bucket cap and reduces buckets as gradients become ready. Each registered layer’s weight matrix alone is 64 MiB; the actual collective sequence depends on bucket construction. [PyTorch’s bucket configuration](https://raw.githubusercontent.com/pytorch/pytorch/v2.5.1/torch/nn/parallel/distributed.py)
+
+The total gradient calculation is correct, but it does not establish a 256 MiB all-reduce. Several collectives have different launch costs, algorithm choices and overlap opportunities from one collective of their summed size.
+
+Likewise, dividing FLOPs by peak throughput establishes an idealized compute time, not that communication dominates this execution.
+
+**Settling evidence:** Recorded bucket sizes and collective counts after warm-up, and measured compute/communication timelines.
+
+**8. Different transport logs do not establish transport causation — major**
+
+**Concerns:** L171, “attributed to transport only if … different transports.”
+
+Different transport is a necessary observation for that proposed explanation, not sufficient evidence of causation. Layout also changes process launching, namespaces, CPU scheduling and potentially rank ordering and topology construction.
+
+**Repository checked:** The renderer specifies GPU resources but no controlled CPU allocation. The new benches do not record CPU affinity or torch thread counts.
+
+**Outside source checked:** `torchrun` sets `OMP_NUM_THREADS=1` when launching multiple workers if it was unset. Directly launched per-Pod processes do not pass through that adjustment. Whether the eventual arm library equalizes this remains unproven. [PyTorch 2.5.1 launcher](https://raw.githubusercontent.com/pytorch/pytorch/v2.5.1/torch/distributed/run.py)
+
+The registered evidence can show a layout difference accompanied by a transport difference. It cannot identify transport as the cause.
+
+**Settling evidence:** A mechanism-discriminating intervention or profiling evidence that accounts for the competing changes, including actual process environments and affinity.
+
+**9. The environment record cannot enforce “no NCCL tuning” — major**
+
+**Concerns:** L104–105 and L149, “record every one in force”; L202, “no `NCCL_` variable is tuned.”
+
+**Repository checked:** Both benches record Python’s `os.environ` before `init_process_group`.
+
+**Outside sources checked:** NCCL 2.21.5 reads configuration from the user’s `.nccl.conf` and `/etc/nccl.conf`, installing values using C `setenv`. Python’s environment mapping does not automatically reflect external changes. [NCCL configuration loading](https://raw.githubusercontent.com/NVIDIA/nccl/v2.21.5-1/src/misc/param.cc), [Python environment behavior](https://docs.python.org/3/library/os.html#os.environ)
+
+A configuration-file setting can therefore affect NCCL while the JSON record contains only the two permitted variables. This is a concrete gap in the evidence, not evidence that either image actually contains such a file.
+
+**Settling evidence:** Inspection of both final images’ configuration files and effective NCCL settings, with a refusal test demonstrating detection of a file-supplied setting.
+
+**10. PID alone cannot establish per-rank transport attribution across Pods — major**
+
+**Concerns:** L146, “attributed to the rank by the process id its own record … gives.”
+
+**Repository checked:** The archived run-3 logs already provide a counterexample: rank 0 and rank 1 both reported **PID 1**, in different Pods.
+
+A PID-only lookup across pooled logs can credit one process’s transport line to another rank, concealing missing evidence. The registration does not explicitly require the compound Pod/container/process identity, run identity and communicator association needed to prevent this. The absent scorer prevents verifying that it will supply those checks independently.
+
+The predecessor experiment’s README records earlier false acceptance caused by pooling rank records without binding them to their originating Pods.
+
+**Settling evidence:** Scorer fixtures with repeated PIDs across Pods, swapped logs, stale run IDs and missing transport lines; each must fail or preserve the correct originating identity.
+
+**11. The correctness gates establish less than “correct sums” — major**
+
+**Concerns:** L88, “every iteration is checked”; L97 and L147, DDP correctness.
+
+**Repository checked:** The all-reduce bench checks timed iterations, but not warm-ups. The DDP bench similarly discards warm-up checksums.
+
+More substantially, identical scalar gradient sums do not establish the correct reduced gradient. Commonly wrong gradients—or different gradients with equal scalar sums—can pass. I directly exercised the DDP helper: identical zero synced checksums pass, and distinct local checksums pass. Together, those conditions do not test whether the synced result equals the expected average of local gradients.
+
+This does not demonstrate a faulty PyTorch reduction. It demonstrates that the advertised oracle cannot exclude one.
+
+**Settling evidence:** Comparison against an independently established expected reduced gradient, with negative fixtures for common corruption, wrong scaling and checksum collisions; explicit evidence for whichever warm-up correctness claims remain.
+
+**12. The quota arithmetic contradicts “only with nothing else running” — minor**
+
+**Concerns:** L238, “48 … against … 52, so … only with nothing else … running.”
+
+**Repository checked:** `train_quota_gate` admits `used + requested <= quota`.
+
+Since **52 − 48 = 4**, another four-vCPU eligible instance can coexist within the stated quota. The gate does not enforce an otherwise-empty region. The statement that two g5.12xlarge need 96 vCPU and exceed 52 is correct.
+
+**Settling evidence:** The actual usage/quota response and a distinction between a quota-fit condition and any separate exclusivity condition.
+
+The following is my numeric audit. “Reproduced” means recalculated or located in evidence, not measured on the proposed node.
+
+| Page numbers | Independent result and assessment |
+|---|---|
+| Four GPUs; 48 vCPU; 196,608 MiB; 40 Gbps, L31 | AWS’s public table supports four GPUs, 48 vCPU, 192 GiB and 40 Gbps; \(192×1024=196{,}608\) MiB. **Supported shape, outside source.** [AWS G5 specifications](https://aws.amazon.com/ec2/instance-types/g5/) |
+| 22,888 MiB per GPU; one EFA interface; zones 2a/2c/2d; quotas 52/48; zero running instances | **Could not reproduce the claimed dated API readings.** I found no archived responses for these new reads. The repository independently records the older 52-vCPU quota. Public EFA documentation supports g5.12xlarge eligibility, but is not evidence of that account’s offerings, quota or usage at the claimed time. |
+| $6.97442/h and Spot $3.4865/$3.5285/$3.7245 | **Could not independently reproduce the historical quotes.** Their arithmetic is usable conditionally. Spot is respectively 49.99%, 50.59% and 53.40% of On-Demand, so “about half” is reasonable. |
+| Five arms, four ranks, five blocks, 25 jobs | **Reproduced.** Rotations are ABCDE, BCDEA, CDEAB, DEABC, EABCD. Each arm occupies each position once. This is position balance, not general drift cancellation. |
+| Additional two-GPU arms: six GPU-minutes, L62 | Reproducible only as \(2\text{ jobs}×1.5\text{ min}×2\text{ GPUs}=6\) occupied GPU-minutes. On the purchased four-GPU node, that duration costs three node-minutes, or 12 allocated GPU-minutes. The duration remains an estimate. |
+| Sizes 1/4/16/64/256 MiB | **Reproduced:** 1,048,576; 4,194,304; 16,777,216; 67,108,864; 268,435,456 bytes. Float32 element counts are 262,144; 1,048,576; 4,194,304; 16,777,216; 67,108,864. |
+| Approximately 1 MiB latency/bandwidth crossover | **Unsupported as a device-specific boundary.** It is explicitly a convention; protocol and topology measurements are absent. |
+| Correct SUM 10; bus factor 1.5 | **Reproduced:** \(4×5/2=10\); \(2(4-1)/4=1.5\). Decimal GB/s conversion is correct. |
+| 67,125,248 parameters; 268,500,992 bytes | **Reproduced:** \(4(4096²+4096)\) parameters, multiplied by four bytes. This is **256.0625 MiB**, 65,536 bytes above the ladder’s top—not exactly its top. |
+| 25.8 GFLOP; 0.8 ms | The stated approximation gives **25.7761 GFLOP**, then **0.8262 ms** at 31.2 TFLOPS. NVIDIA lists that peak. The formula is a rough training-work estimate, not exact operation accounting or a runtime bound. [NVIDIA A10 specifications](https://www.nvidia.com/en-us/data-center/products/a10-gpu/) |
+| 20 warm-ups, 100 timed operations; 20/50 DDP pairs | **Conventions, not convergence or precision guarantees.** AWS’s example supports choosing 100. DDP performs 70 pairs, hence 140 total steps. The all-reduce bench’s defaults remain 5/20; the missing launcher must override them. Finding 2 covers nccl-tests. |
+| 1 GiB `/dev/shm`; default 64 MiB; probe GPU count seven | Renderer has **1,073,741,824 bytes** for `gpuCount > 1`; probe count seven is present. NVIDIA’s 1 GiB example supports a configuration choice, not proof of sufficiency for this communicator. The runtime’s presumed 64 MiB default was not measured here. [NCCL container guidance](https://docs.nvidia.com/deeplearning/nccl/archives/nccl_2215/user-guide/docs/troubleshooting.html) |
+| Four distinct UUIDs; four ranks; one Workload; four reserved GPUs; 4×4 matrix; zero wrong elements | These are defensible **structural/correctness requirements**, not statistical bounds. Their enforcement remains to be demonstrated by the scorer. |
+| 64 GB/s physical ceiling | NVIDIA lists 64 GB/s. It is a conservative sanity threshold under the PCIe-only premise, not an expected NCCL rate or proof that any lower result is correct. Approximately half for one direction is consistent with the stated interpretation. |
+| 1/20, 1/70, 1/252; 25%, 7.1%, below 2% | Arithmetic reproduced **for one direction**. The actual verdict and design limitations are in finding 5. |
+| 240 s; 40 s startup; 200 s remaining; 1.33; 1.25 s; 0.32 GB/s | \(240-40=200\); exact ladder ratio is **341/256 = 1.33203125**; corresponding top-size time is **1.25122 s**. Arithmetic reproduced; the asserted cutoff is unsupported, as finding 3 explains. |
+| GPU budget 12,300 s / 205 min | **Exact:** \(900+600+1500+900+25(240+60)+600+300=12{,}300\). These are chosen wait allowances, not demonstrated runtime maxima. |
+| TTL 285 min | **Exact:** \((12{,}300+600+300+300+3600)/60=285\). This does not establish termination or billing cessation at that instant. |
+| Expected GPU duration 55 min | Listed components sum to **50.5 minutes**, not 55: \(4+6+25×1.5+3\). The extra 4.5 minutes can be contingency, but no basis is stated. |
+| GPU $6.4 expected; $23.8 bounded | At the quoted price, 55 minutes is **$6.39322** and 205 minutes **$23.82927**. Arithmetic reproduced; the latter is not an enforced ceiling. |
+| Cluster $0.26/h, $0.7 expected, $1.2 bounded | \(0.26×2.5=\$0.65\); \(0.26×4.75=\$1.235\). The script’s named components alone sum to **$0.2633/h**, before omitted charges. This is a rough baseline, not an exhaustive rate. |
+| Torch 3.34 GB; base 4.11 GB; total 7.7 GB | Script records **3,337,937,647 compressed bytes** for torch. I could not independently resolve that manifest or the new base’s size. Rounded inputs leave about **0.25 GB** for added layers; no built image establishes that allowance. |
+| NAT $0.059/GB; about $0.5 | \(7.7×0.059=\$0.4543\). Rate is inherited from prior records, not independently verified here. “Bounded: the same” lacks a bound on image size, retries and other traffic. |
+| Totals $7.6 / $25.5 | Using unrounded conditional inputs gives **$7.49752 / $25.51857**. $7.6 is the sum of the individually rounded displayed estimates. $25.5 rounds correctly but is not a demonstrated maximum. |
+| Version and digest numbers | Prior rank logs substantiate torch **2.5.1+cu124**, CUDA **12.4**, NCCL **2.21.5**. Repository manifests substantiate the device-plugin **v0.16.2** digest and Kueue **v0.18.3** pin. The specified nccl-tests commit is readable upstream; I could not independently verify its tag mapping or the CUDA image digest. Final image and approved script hashes remain pending. Dates, version labels and decision identifiers are provenance claims, not derivable quantities. |
+
+**Ranked risks to a purchased session, assuming the missing execution path is completed:**
+
+1. **Finding 2 — nccl-tests warm-up mismatch:** literal enforcement voids the first smoke block; permissive enforcement certifies false execution history.
+2. **Finding 6 — E4 attribution:** the code can publish a convincing elapsed-time difference that is not the claimed unhidden communication time.
+3. **Finding 3 — unsupported runtime cutoff:** the session can censor or time out a legitimate slow arm under a budget whose claimed performance boundary is wrong.

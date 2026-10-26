@@ -1,0 +1,7 @@
+commit=e9ccc898459c45a67804b7c8f667e3ad7559da38
+dirty_files=21
+kind=kind v0.24.0 go1.22.6 linux/amd64
+kueue=v0.18.3
+cert_manager=v1.21.1
+bench_sha256=af802523bcbbeed578a8f5c9c2494116bb49481e478f7ec03fedf6872b0134e3
+step_sha256=7cad86378795a9586e9d197525292dc437e6710c337dd35f03b667d26b8e7417

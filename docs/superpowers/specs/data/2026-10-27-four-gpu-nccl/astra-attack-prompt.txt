@@ -1,0 +1,18 @@
+You are reviewing a pre-registration for a paid GPU experiment in this repository, read-only.
+The page is docs/superpowers/specs/2026-10-27-four-gpu-nccl-design.md.
+It has not run. Nothing has been bought. Your job is to attack it cold, as an adversary who wants to find
+how this registration could publish a plausible wrong number, waste the purchase, or claim more than its
+evidence supports.
+
+Rules for your answer:
+- Read whatever you need in the repository (the draft it descends from, the session script and libraries
+  under hack/, the API types and controller, infra/aws/cluster, experiments/). Do not modify anything.
+- Re-derive every number on the page yourself (arithmetic, prices, bounds, probabilities, byte counts,
+  budgets) and say which you could and could not reproduce.
+- For every numeric bound, judge whether the stated basis actually supports the number.
+- For each finding give: a number, a one-line title, severity (blocker / major / minor), the exact text or
+  line it concerns, why it is wrong, and what evidence would settle it. Mark clearly what you checked in the
+  repository versus what you believe from outside knowledge (for example about NCCL, nccl-tests, torchrun,
+  Kubernetes or EKS behaviour); outside-knowledge claims must say so.
+- Do not propose prose rewrites; say what is wrong.
+- End with a ranked list of the three findings most likely to make a purchased session's result wrong or void.

@@ -1,0 +1,65 @@
+== nvidia-smi -L
+sh: 1: nvidia-smi: not found
+sh: 2: nvidia-smi: not found
+== nvidia-smi topo -m
+== nvidia-smi topo -p2p r
+AR_P2P_QUERY_FAILED 127
+== nvidia-smi -q
+sh: 3: nvidia-smi: not found
+sh: 4: nvidia-smi: not found
+sh: 5: nvidia-smi: not found
+AR_SHM_KB 1048576
+sh: 7: nvidia-smi: not found
+AR_QUALIFY_REFUSED 0 distinct GPU(s)
+== nvidia-smi -L
+sh: 1: nvidia-smi: not found
+sh: 2: nvidia-smi: not found
+== nvidia-smi topo -m
+== nvidia-smi topo -p2p r
+AR_P2P_QUERY_FAILED 127
+== nvidia-smi -q
+sh: 3: nvidia-smi: not found
+sh: 4: nvidia-smi: not found
+sh: 5: nvidia-smi: not found
+AR_SHM_KB 1048576
+sh: 7: nvidia-smi: not found
+AR_QUALIFY_REFUSED 0 distinct GPU(s)
+== nvidia-smi -L
+sh: 1: nvidia-smi: not found
+sh: 2: nvidia-smi: not found
+sh: 3: nvidia-smi: not found
+== nvidia-smi topo -m
+== nvidia-smi topo -p2p r
+sh: 4: nvidia-smi: not found
+sh: 5: nvidia-smi: not found
+AR_P2P_QUERY_FAILED 127
+== nvidia-smi -q
+AR_SHM_KB 1048576
+sh: 7: nvidia-smi: not found
+AR_QUALIFY_REFUSED 0 distinct GPU(s)
+== nvidia-smi -L
+sh: 1: nvidia-smi: not found
+sh: 2: nvidia-smi: not found
+== nvidia-smi topo -m
+== nvidia-smi topo -p2p r
+sh: 3: nvidia-smi: not found
+sh: 4: nvidia-smi: not found
+sh: 5: nvidia-smi: not found
+AR_P2P_QUERY_FAILED 127
+== nvidia-smi -q
+AR_SHM_KB 1048576
+sh: 7: nvidia-smi: not found
+AR_QUALIFY_REFUSED 0 distinct GPU(s)
+== nvidia-smi -L
+sh: 1: nvidia-smi: not found
+sh: 2: nvidia-smi: not found
+== nvidia-smi topo -m
+== nvidia-smi topo -p2p r
+AR_P2P_QUERY_FAILED 127
+sh: 3: nvidia-smi: not found
+sh: 4: nvidia-smi: not found
+sh: 5: nvidia-smi: not found
+== nvidia-smi -q
+AR_SHM_KB 1048576
+sh: 7: nvidia-smi: not found
+AR_QUALIFY_REFUSED 0 distinct GPU(s)

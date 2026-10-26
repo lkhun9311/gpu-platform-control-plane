@@ -1,0 +1,21 @@
+AR_RUN_ID c-r-allreduce-1pod4gpu c-r-allreduce-1pod4gpu-vd8qf
+AR_NCCL_CONF absent /etc/nccl.conf
+AR_NCCL_CONF absent /root/.nccl.conf
+AR_NCCL_ENV NCCL_DEBUG_SUBSYS=INIT,GRAPH,ENV
+AR_NCCL_ENV NCCL_DEBUG=INFO
+AR_SHM_KB 1048576
+/usr/local/lib/python3.12/site-packages/torch/_subclasses/functional_tensor.py:295: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at ../torch/csrc/utils/tensor_numpy.cpp:84.)
+  cpu = _conversion_method_template(device=torch.device("cpu"))
+/usr/local/lib/python3.12/site-packages/torch/_subclasses/functional_tensor.py:295: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at ../torch/csrc/utils/tensor_numpy.cpp:84.)
+  cpu = _conversion_method_template(device=torch.device("cpu"))
+/usr/local/lib/python3.12/site-packages/torch/_subclasses/functional_tensor.py:295: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at ../torch/csrc/utils/tensor_numpy.cpp:84.)
+  cpu = _conversion_method_template(device=torch.device("cpu"))
+/usr/local/lib/python3.12/site-packages/torch/_subclasses/functional_tensor.py:295: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at ../torch/csrc/utils/tensor_numpy.cpp:84.)
+  cpu = _conversion_method_template(device=torch.device("cpu"))
+/usr/local/lib/python3.12/site-packages/torch/_subclasses/functional_tensor.py:295: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at ../torch/csrc/utils/tensor_numpy.cpp:84.)
+  cpu = _conversion_method_template(device=torch.device("cpu"))
+{"error": "CUDA is not available, and this bench measures GPUs only", "event": "refused", "rank": 1, "run_id": "c-r-allreduce-1pod4gpu", "ts": "2026-10-26T14:17:12.703599+00:00"}
+{"error": "CUDA is not available, and this bench measures GPUs only", "event": "refused", "rank": 2, "run_id": "c-r-allreduce-1pod4gpu", "ts": "2026-10-26T14:17:12.704832+00:00"}
+{"error": "CUDA is not available, and this bench measures GPUs only", "event": "refused", "rank": 0, "run_id": "c-r-allreduce-1pod4gpu", "ts": "2026-10-26T14:17:12.708448+00:00"}
+{"error": "CUDA is not available, and this bench measures GPUs only", "event": "refused", "rank": 3, "run_id": "c-r-allreduce-1pod4gpu", "ts": "2026-10-26T14:17:12.709757+00:00"}
+failed to create fsnotify watcher: too many open files

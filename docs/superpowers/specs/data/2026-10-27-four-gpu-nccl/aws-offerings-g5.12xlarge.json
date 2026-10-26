@@ -1,0 +1,19 @@
+{
+    "InstanceTypeOfferings": [
+        {
+            "InstanceType": "g5.12xlarge",
+            "LocationType": "availability-zone",
+            "Location": "ap-northeast-2c"
+        },
+        {
+            "InstanceType": "g5.12xlarge",
+            "LocationType": "availability-zone",
+            "Location": "ap-northeast-2d"
+        },
+        {
+            "InstanceType": "g5.12xlarge",
+            "LocationType": "availability-zone",
+            "Location": "ap-northeast-2a"
+        }
+    ]
+}

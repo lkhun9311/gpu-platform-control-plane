@@ -1,0 +1,1164 @@
+{
+    "apiVersion": "v1",
+    "items": [
+        {
+            "apiVersion": "v1",
+            "kind": "Pod",
+            "metadata": {
+                "annotations": {
+                    "kueue.x-k8s.io/workload": "job-c-smoke-nccltests-1pod4gpu-142229-6c5ca"
+                },
+                "creationTimestamp": "2026-10-26T14:25:00Z",
+                "generateName": "c-smoke-nccltests-1pod4gpu-142229-",
+                "labels": {
+                    "batch.kubernetes.io/controller-uid": "3afaa4cf-1f70-49a2-8a45-b925200afd7a",
+                    "batch.kubernetes.io/job-name": "c-smoke-nccltests-1pod4gpu-142229",
+                    "controller-uid": "3afaa4cf-1f70-49a2-8a45-b925200afd7a",
+                    "job-name": "c-smoke-nccltests-1pod4gpu-142229",
+                    "kueue.x-k8s.io/cluster-queue-name": "gpu-train-a",
+                    "kueue.x-k8s.io/local-queue-name": "gpu-train-a",
+                    "kueue.x-k8s.io/podset": "main"
+                },
+                "name": "c-smoke-nccltests-1pod4gpu-142229-8rnpn",
+                "namespace": "train-a",
+                "ownerReferences": [
+                    {
+                        "apiVersion": "batch/v1",
+                        "blockOwnerDeletion": true,
+                        "controller": true,
+                        "kind": "Job",
+                        "name": "c-smoke-nccltests-1pod4gpu-142229",
+                        "uid": "3afaa4cf-1f70-49a2-8a45-b925200afd7a"
+                    }
+                ],
+                "resourceVersion": "4573",
+                "uid": "b03e52f7-3424-4fca-ad5c-75cd3d17ccb4"
+            },
+            "spec": {
+                "containers": [
+                    {
+                        "command": [
+                            "sh",
+                            "-c",
+                            "export NCCL_DEBUG=INFO NCCL_DEBUG_SUBSYS=INIT,GRAPH,ENV OMP_NUM_THREADS=1\necho \"AR_RUN_ID c-smoke-nccltests-1pod4gpu-142229 $(hostname)\"\nfor f in /etc/nccl.conf \"$HOME/.nccl.conf\"; do if [ -e \"$f\" ]; then echo \"AR_NCCL_CONF present $f\"; sed 's/^/AR_NCCL_CONF_LINE /' \"$f\"; else echo \"AR_NCCL_CONF absent $f\"; fi; done\nenv | grep '^NCCL_' | sed 's/^/AR_NCCL_ENV /'\necho \"AR_SHM_KB $(df -kP /dev/shm | awk 'NR == 2 {print $2}')\"\nnvidia-smi --query-gpu=index,uuid,pci.bus_id,driver_version --format=csv,noheader | sed 's/^/AR_GPU /'\nexec mpirun --allow-run-as-root -np 4 --bind-to none --mca btl self,vader -x NCCL_DEBUG -x NCCL_DEBUG_SUBSYS -x OMP_NUM_THREADS all_reduce_perf -b 1M -e 256M -f 4 -g 1 -c 1 -n 100 -w 20 -a 3"
+                        ],
+                        "env": [
+                            {
+                                "name": "NVIDIA_DRIVER_CAPABILITIES",
+                                "value": "compute,utility"
+                            }
+                        ],
+                        "image": "cpu-ddp:torch251",
+                        "imagePullPolicy": "IfNotPresent",
+                        "name": "trainer",
+                        "resources": {
+                            "limits": {
+                                "nvidia.com/gpu": "4"
+                            },
+                            "requests": {
+                                "nvidia.com/gpu": "4"
+                            }
+                        },
+                        "terminationMessagePath": "/dev/termination-log",
+                        "terminationMessagePolicy": "File",
+                        "volumeMounts": [
+                            {
+                                "mountPath": "/dev/shm",
+                                "name": "dshm"
+                            },
+                            {
+                                "mountPath": "/var/run/secrets/kubernetes.io/serviceaccount",
+                                "name": "kube-api-access-8mhvh",
+                                "readOnly": true
+                            }
+                        ]
+                    }
+                ],
+                "dnsPolicy": "ClusterFirst",
+                "enableServiceLinks": true,
+                "nodeName": "kind-fourgpu-worker",
+                "preemptionPolicy": "PreemptLowerPriority",
+                "priority": 0,
+                "restartPolicy": "Never",
+                "schedulerName": "default-scheduler",
+                "securityContext": {},
+                "serviceAccount": "default",
+                "serviceAccountName": "default",
+                "terminationGracePeriodSeconds": 30,
+                "tolerations": [
+                    {
+                        "effect": "NoExecute",
+                        "key": "node.kubernetes.io/not-ready",
+                        "operator": "Exists",
+                        "tolerationSeconds": 300
+                    },
+                    {
+                        "effect": "NoExecute",
+                        "key": "node.kubernetes.io/unreachable",
+                        "operator": "Exists",
+                        "tolerationSeconds": 300
+                    }
+                ],
+                "volumes": [
+                    {
+                        "emptyDir": {
+                            "medium": "Memory",
+                            "sizeLimit": "1Gi"
+                        },
+                        "name": "dshm"
+                    },
+                    {
+                        "name": "kube-api-access-8mhvh",
+                        "projected": {
+                            "defaultMode": 420,
+                            "sources": [
+                                {
+                                    "serviceAccountToken": {
+                                        "expirationSeconds": 3607,
+                                        "path": "token"
+                                    }
+                                },
+                                {
+                                    "configMap": {
+                                        "items": [
+                                            {
+                                                "key": "ca.crt",
+                                                "path": "ca.crt"
+                                            }
+                                        ],
+                                        "name": "kube-root-ca.crt"
+                                    }
+                                },
+                                {
+                                    "downwardAPI": {
+                                        "items": [
+                                            {
+                                                "fieldRef": {
+                                                    "apiVersion": "v1",
+                                                    "fieldPath": "metadata.namespace"
+                                                },
+                                                "path": "namespace"
+                                            }
+                                        ]
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                ]
+            },
+            "status": {
+                "conditions": [
+                    {
+                        "lastProbeTime": null,
+                        "lastTransitionTime": "2026-10-26T14:25:01Z",
+                        "status": "False",
+                        "type": "PodReadyToStartContainers"
+                    },
+                    {
+                        "lastProbeTime": null,
+                        "lastTransitionTime": "2026-10-26T14:25:00Z",
+                        "status": "True",
+                        "type": "Initialized"
+                    },
+                    {
+                        "lastProbeTime": null,
+                        "lastTransitionTime": "2026-10-26T14:25:00Z",
+                        "reason": "PodFailed",
+                        "status": "False",
+                        "type": "Ready"
+                    },
+                    {
+                        "lastProbeTime": null,
+                        "lastTransitionTime": "2026-10-26T14:25:00Z",
+                        "reason": "PodFailed",
+                        "status": "False",
+                        "type": "ContainersReady"
+                    },
+                    {
+                        "lastProbeTime": null,
+                        "lastTransitionTime": "2026-10-26T14:25:00Z",
+                        "status": "True",
+                        "type": "PodScheduled"
+                    }
+                ],
+                "containerStatuses": [
+                    {
+                        "containerID": "containerd://a92faa0124b035a359c44cf7cbb2ce3f9a7baef6b5de94f06a642e15bad44006",
+                        "image": "docker.io/library/cpu-ddp:torch251",
+                        "imageID": "docker.io/library/import-2026-10-26@sha256:125a84772526abddb6cd52c303d71ea82e2a56a25ba3f18e119b6d35d39e6bdf",
+                        "lastState": {},
+                        "name": "trainer",
+                        "ready": false,
+                        "restartCount": 0,
+                        "started": false,
+                        "state": {
+                            "terminated": {
+                                "containerID": "containerd://a92faa0124b035a359c44cf7cbb2ce3f9a7baef6b5de94f06a642e15bad44006",
+                                "exitCode": 127,
+                                "finishedAt": "2026-10-26T14:25:00Z",
+                                "reason": "Error",
+                                "startedAt": "2026-10-26T14:25:00Z"
+                            }
+                        },
+                        "volumeMounts": [
+                            {
+                                "mountPath": "/dev/shm",
+                                "name": "dshm"
+                            },
+                            {
+                                "mountPath": "/var/run/secrets/kubernetes.io/serviceaccount",
+                                "name": "kube-api-access-8mhvh",
+                                "readOnly": true,
+                                "recursiveReadOnly": "Disabled"
+                            }
+                        ]
+                    }
+                ],
+                "hostIP": "172.18.0.11",
+                "hostIPs": [
+                    {
+                        "ip": "172.18.0.11"
+                    }
+                ],
+                "phase": "Failed",
+                "podIP": "10.244.1.37",
+                "podIPs": [
+                    {
+                        "ip": "10.244.1.37"
+                    }
+                ],
+                "qosClass": "BestEffort",
+                "startTime": "2026-10-26T14:25:00Z"
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Pod",
+            "metadata": {
+                "annotations": {
+                    "kueue.x-k8s.io/workload": "job-c-smoke-nccltests-1pod4gpu-142229-6c5ca"
+                },
+                "creationTimestamp": "2026-10-26T14:23:40Z",
+                "generateName": "c-smoke-nccltests-1pod4gpu-142229-",
+                "labels": {
+                    "batch.kubernetes.io/controller-uid": "3afaa4cf-1f70-49a2-8a45-b925200afd7a",
+                    "batch.kubernetes.io/job-name": "c-smoke-nccltests-1pod4gpu-142229",
+                    "controller-uid": "3afaa4cf-1f70-49a2-8a45-b925200afd7a",
+                    "job-name": "c-smoke-nccltests-1pod4gpu-142229",
+                    "kueue.x-k8s.io/cluster-queue-name": "gpu-train-a",
+                    "kueue.x-k8s.io/local-queue-name": "gpu-train-a",
+                    "kueue.x-k8s.io/podset": "main"
+                },
+                "name": "c-smoke-nccltests-1pod4gpu-142229-blr2q",
+                "namespace": "train-a",
+                "ownerReferences": [
+                    {
+                        "apiVersion": "batch/v1",
+                        "blockOwnerDeletion": true,
+                        "controller": true,
+                        "kind": "Job",
+                        "name": "c-smoke-nccltests-1pod4gpu-142229",
+                        "uid": "3afaa4cf-1f70-49a2-8a45-b925200afd7a"
+                    }
+                ],
+                "resourceVersion": "4358",
+                "uid": "4127c711-bbad-478f-af78-d590c7bc5d4d"
+            },
+            "spec": {
+                "containers": [
+                    {
+                        "command": [
+                            "sh",
+                            "-c",
+                            "export NCCL_DEBUG=INFO NCCL_DEBUG_SUBSYS=INIT,GRAPH,ENV OMP_NUM_THREADS=1\necho \"AR_RUN_ID c-smoke-nccltests-1pod4gpu-142229 $(hostname)\"\nfor f in /etc/nccl.conf \"$HOME/.nccl.conf\"; do if [ -e \"$f\" ]; then echo \"AR_NCCL_CONF present $f\"; sed 's/^/AR_NCCL_CONF_LINE /' \"$f\"; else echo \"AR_NCCL_CONF absent $f\"; fi; done\nenv | grep '^NCCL_' | sed 's/^/AR_NCCL_ENV /'\necho \"AR_SHM_KB $(df -kP /dev/shm | awk 'NR == 2 {print $2}')\"\nnvidia-smi --query-gpu=index,uuid,pci.bus_id,driver_version --format=csv,noheader | sed 's/^/AR_GPU /'\nexec mpirun --allow-run-as-root -np 4 --bind-to none --mca btl self,vader -x NCCL_DEBUG -x NCCL_DEBUG_SUBSYS -x OMP_NUM_THREADS all_reduce_perf -b 1M -e 256M -f 4 -g 1 -c 1 -n 100 -w 20 -a 3"
+                        ],
+                        "env": [
+                            {
+                                "name": "NVIDIA_DRIVER_CAPABILITIES",
+                                "value": "compute,utility"
+                            }
+                        ],
+                        "image": "cpu-ddp:torch251",
+                        "imagePullPolicy": "IfNotPresent",
+                        "name": "trainer",
+                        "resources": {
+                            "limits": {
+                                "nvidia.com/gpu": "4"
+                            },
+                            "requests": {
+                                "nvidia.com/gpu": "4"
+                            }
+                        },
+                        "terminationMessagePath": "/dev/termination-log",
+                        "terminationMessagePolicy": "File",
+                        "volumeMounts": [
+                            {
+                                "mountPath": "/dev/shm",
+                                "name": "dshm"
+                            },
+                            {
+                                "mountPath": "/var/run/secrets/kubernetes.io/serviceaccount",
+                                "name": "kube-api-access-hkn8z",
+                                "readOnly": true
+                            }
+                        ]
+                    }
+                ],
+                "dnsPolicy": "ClusterFirst",
+                "enableServiceLinks": true,
+                "nodeName": "kind-fourgpu-worker",
+                "preemptionPolicy": "PreemptLowerPriority",
+                "priority": 0,
+                "restartPolicy": "Never",
+                "schedulerName": "default-scheduler",
+                "securityContext": {},
+                "serviceAccount": "default",
+                "serviceAccountName": "default",
+                "terminationGracePeriodSeconds": 30,
+                "tolerations": [
+                    {
+                        "effect": "NoExecute",
+                        "key": "node.kubernetes.io/not-ready",
+                        "operator": "Exists",
+                        "tolerationSeconds": 300
+                    },
+                    {
+                        "effect": "NoExecute",
+                        "key": "node.kubernetes.io/unreachable",
+                        "operator": "Exists",
+                        "tolerationSeconds": 300
+                    }
+                ],
+                "volumes": [
+                    {
+                        "emptyDir": {
+                            "medium": "Memory",
+                            "sizeLimit": "1Gi"
+                        },
+                        "name": "dshm"
+                    },
+                    {
+                        "name": "kube-api-access-hkn8z",
+                        "projected": {
+                            "defaultMode": 420,
+                            "sources": [
+                                {
+                                    "serviceAccountToken": {
+                                        "expirationSeconds": 3607,
+                                        "path": "token"
+                                    }
+                                },
+                                {
+                                    "configMap": {
+                                        "items": [
+                                            {
+                                                "key": "ca.crt",
+                                                "path": "ca.crt"
+                                            }
+                                        ],
+                                        "name": "kube-root-ca.crt"
+                                    }
+                                },
+                                {
+                                    "downwardAPI": {
+                                        "items": [
+                                            {
+                                                "fieldRef": {
+                                                    "apiVersion": "v1",
+                                                    "fieldPath": "metadata.namespace"
+                                                },
+                                                "path": "namespace"
+                                            }
+                                        ]
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                ]
+            },
+            "status": {
+                "conditions": [
+                    {
+                        "lastProbeTime": null,
+                        "lastTransitionTime": "2026-10-26T14:23:42Z",
+                        "status": "False",
+                        "type": "PodReadyToStartContainers"
+                    },
+                    {
+                        "lastProbeTime": null,
+                        "lastTransitionTime": "2026-10-26T14:23:40Z",
+                        "status": "True",
+                        "type": "Initialized"
+                    },
+                    {
+                        "lastProbeTime": null,
+                        "lastTransitionTime": "2026-10-26T14:23:41Z",
+                        "reason": "PodFailed",
+                        "status": "False",
+                        "type": "Ready"
+                    },
+                    {
+                        "lastProbeTime": null,
+                        "lastTransitionTime": "2026-10-26T14:23:41Z",
+                        "reason": "PodFailed",
+                        "status": "False",
+                        "type": "ContainersReady"
+                    },
+                    {
+                        "lastProbeTime": null,
+                        "lastTransitionTime": "2026-10-26T14:23:40Z",
+                        "status": "True",
+                        "type": "PodScheduled"
+                    }
+                ],
+                "containerStatuses": [
+                    {
+                        "containerID": "containerd://e149865ee5b94436c07e99124acf2bfe786b7bba89c2f378fda073d78ee7c4dc",
+                        "image": "docker.io/library/cpu-ddp:torch251",
+                        "imageID": "docker.io/library/import-2026-10-26@sha256:125a84772526abddb6cd52c303d71ea82e2a56a25ba3f18e119b6d35d39e6bdf",
+                        "lastState": {},
+                        "name": "trainer",
+                        "ready": false,
+                        "restartCount": 0,
+                        "started": false,
+                        "state": {
+                            "terminated": {
+                                "containerID": "containerd://e149865ee5b94436c07e99124acf2bfe786b7bba89c2f378fda073d78ee7c4dc",
+                                "exitCode": 127,
+                                "finishedAt": "2026-10-26T14:23:40Z",
+                                "reason": "Error",
+                                "startedAt": "2026-10-26T14:23:40Z"
+                            }
+                        },
+                        "volumeMounts": [
+                            {
+                                "mountPath": "/dev/shm",
+                                "name": "dshm"
+                            },
+                            {
+                                "mountPath": "/var/run/secrets/kubernetes.io/serviceaccount",
+                                "name": "kube-api-access-hkn8z",
+                                "readOnly": true,
+                                "recursiveReadOnly": "Disabled"
+                            }
+                        ]
+                    }
+                ],
+                "hostIP": "172.18.0.11",
+                "hostIPs": [
+                    {
+                        "ip": "172.18.0.11"
+                    }
+                ],
+                "phase": "Failed",
+                "podIP": "10.244.1.36",
+                "podIPs": [
+                    {
+                        "ip": "10.244.1.36"
+                    }
+                ],
+                "qosClass": "BestEffort",
+                "startTime": "2026-10-26T14:23:40Z"
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Pod",
+            "metadata": {
+                "annotations": {
+                    "kueue.x-k8s.io/workload": "job-c-smoke-nccltests-1pod4gpu-142229-6c5ca"
+                },
+                "creationTimestamp": "2026-10-26T14:23:00Z",
+                "generateName": "c-smoke-nccltests-1pod4gpu-142229-",
+                "labels": {
+                    "batch.kubernetes.io/controller-uid": "3afaa4cf-1f70-49a2-8a45-b925200afd7a",
+                    "batch.kubernetes.io/job-name": "c-smoke-nccltests-1pod4gpu-142229",
+                    "controller-uid": "3afaa4cf-1f70-49a2-8a45-b925200afd7a",
+                    "job-name": "c-smoke-nccltests-1pod4gpu-142229",
+                    "kueue.x-k8s.io/cluster-queue-name": "gpu-train-a",
+                    "kueue.x-k8s.io/local-queue-name": "gpu-train-a",
+                    "kueue.x-k8s.io/podset": "main"
+                },
+                "name": "c-smoke-nccltests-1pod4gpu-142229-f9xdz",
+                "namespace": "train-a",
+                "ownerReferences": [
+                    {
+                        "apiVersion": "batch/v1",
+                        "blockOwnerDeletion": true,
+                        "controller": true,
+                        "kind": "Job",
+                        "name": "c-smoke-nccltests-1pod4gpu-142229",
+                        "uid": "3afaa4cf-1f70-49a2-8a45-b925200afd7a"
+                    }
+                ],
+                "resourceVersion": "4236",
+                "uid": "db4fc03f-11c4-4eb1-80ee-864926d8e500"
+            },
+            "spec": {
+                "containers": [
+                    {
+                        "command": [
+                            "sh",
+                            "-c",
+                            "export NCCL_DEBUG=INFO NCCL_DEBUG_SUBSYS=INIT,GRAPH,ENV OMP_NUM_THREADS=1\necho \"AR_RUN_ID c-smoke-nccltests-1pod4gpu-142229 $(hostname)\"\nfor f in /etc/nccl.conf \"$HOME/.nccl.conf\"; do if [ -e \"$f\" ]; then echo \"AR_NCCL_CONF present $f\"; sed 's/^/AR_NCCL_CONF_LINE /' \"$f\"; else echo \"AR_NCCL_CONF absent $f\"; fi; done\nenv | grep '^NCCL_' | sed 's/^/AR_NCCL_ENV /'\necho \"AR_SHM_KB $(df -kP /dev/shm | awk 'NR == 2 {print $2}')\"\nnvidia-smi --query-gpu=index,uuid,pci.bus_id,driver_version --format=csv,noheader | sed 's/^/AR_GPU /'\nexec mpirun --allow-run-as-root -np 4 --bind-to none --mca btl self,vader -x NCCL_DEBUG -x NCCL_DEBUG_SUBSYS -x OMP_NUM_THREADS all_reduce_perf -b 1M -e 256M -f 4 -g 1 -c 1 -n 100 -w 20 -a 3"
+                        ],
+                        "env": [
+                            {
+                                "name": "NVIDIA_DRIVER_CAPABILITIES",
+                                "value": "compute,utility"
+                            }
+                        ],
+                        "image": "cpu-ddp:torch251",
+                        "imagePullPolicy": "IfNotPresent",
+                        "name": "trainer",
+                        "resources": {
+                            "limits": {
+                                "nvidia.com/gpu": "4"
+                            },
+                            "requests": {
+                                "nvidia.com/gpu": "4"
+                            }
+                        },
+                        "terminationMessagePath": "/dev/termination-log",
+                        "terminationMessagePolicy": "File",
+                        "volumeMounts": [
+                            {
+                                "mountPath": "/dev/shm",
+                                "name": "dshm"
+                            },
+                            {
+                                "mountPath": "/var/run/secrets/kubernetes.io/serviceaccount",
+                                "name": "kube-api-access-jbc5x",
+                                "readOnly": true
+                            }
+                        ]
+                    }
+                ],
+                "dnsPolicy": "ClusterFirst",
+                "enableServiceLinks": true,
+                "nodeName": "kind-fourgpu-worker",
+                "preemptionPolicy": "PreemptLowerPriority",
+                "priority": 0,
+                "restartPolicy": "Never",
+                "schedulerName": "default-scheduler",
+                "securityContext": {},
+                "serviceAccount": "default",
+                "serviceAccountName": "default",
+                "terminationGracePeriodSeconds": 30,
+                "tolerations": [
+                    {
+                        "effect": "NoExecute",
+                        "key": "node.kubernetes.io/not-ready",
+                        "operator": "Exists",
+                        "tolerationSeconds": 300
+                    },
+                    {
+                        "effect": "NoExecute",
+                        "key": "node.kubernetes.io/unreachable",
+                        "operator": "Exists",
+                        "tolerationSeconds": 300
+                    }
+                ],
+                "volumes": [
+                    {
+                        "emptyDir": {
+                            "medium": "Memory",
+                            "sizeLimit": "1Gi"
+                        },
+                        "name": "dshm"
+                    },
+                    {
+                        "name": "kube-api-access-jbc5x",
+                        "projected": {
+                            "defaultMode": 420,
+                            "sources": [
+                                {
+                                    "serviceAccountToken": {
+                                        "expirationSeconds": 3607,
+                                        "path": "token"
+                                    }
+                                },
+                                {
+                                    "configMap": {
+                                        "items": [
+                                            {
+                                                "key": "ca.crt",
+                                                "path": "ca.crt"
+                                            }
+                                        ],
+                                        "name": "kube-root-ca.crt"
+                                    }
+                                },
+                                {
+                                    "downwardAPI": {
+                                        "items": [
+                                            {
+                                                "fieldRef": {
+                                                    "apiVersion": "v1",
+                                                    "fieldPath": "metadata.namespace"
+                                                },
+                                                "path": "namespace"
+                                            }
+                                        ]
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                ]
+            },
+            "status": {
+                "conditions": [
+                    {
+                        "lastProbeTime": null,
+                        "lastTransitionTime": "2026-10-26T14:23:02Z",
+                        "status": "False",
+                        "type": "PodReadyToStartContainers"
+                    },
+                    {
+                        "lastProbeTime": null,
+                        "lastTransitionTime": "2026-10-26T14:23:00Z",
+                        "status": "True",
+                        "type": "Initialized"
+                    },
+                    {
+                        "lastProbeTime": null,
+                        "lastTransitionTime": "2026-10-26T14:23:01Z",
+                        "reason": "PodFailed",
+                        "status": "False",
+                        "type": "Ready"
+                    },
+                    {
+                        "lastProbeTime": null,
+                        "lastTransitionTime": "2026-10-26T14:23:01Z",
+                        "reason": "PodFailed",
+                        "status": "False",
+                        "type": "ContainersReady"
+                    },
+                    {
+                        "lastProbeTime": null,
+                        "lastTransitionTime": "2026-10-26T14:23:00Z",
+                        "status": "True",
+                        "type": "PodScheduled"
+                    }
+                ],
+                "containerStatuses": [
+                    {
+                        "containerID": "containerd://25f7e813f5e5eccda006496c10ce2e8b1a82b9fcb353dc6816c79d7397d339dc",
+                        "image": "docker.io/library/cpu-ddp:torch251",
+                        "imageID": "docker.io/library/import-2026-10-26@sha256:125a84772526abddb6cd52c303d71ea82e2a56a25ba3f18e119b6d35d39e6bdf",
+                        "lastState": {},
+                        "name": "trainer",
+                        "ready": false,
+                        "restartCount": 0,
+                        "started": false,
+                        "state": {
+                            "terminated": {
+                                "containerID": "containerd://25f7e813f5e5eccda006496c10ce2e8b1a82b9fcb353dc6816c79d7397d339dc",
+                                "exitCode": 127,
+                                "finishedAt": "2026-10-26T14:23:00Z",
+                                "reason": "Error",
+                                "startedAt": "2026-10-26T14:23:00Z"
+                            }
+                        },
+                        "volumeMounts": [
+                            {
+                                "mountPath": "/dev/shm",
+                                "name": "dshm"
+                            },
+                            {
+                                "mountPath": "/var/run/secrets/kubernetes.io/serviceaccount",
+                                "name": "kube-api-access-jbc5x",
+                                "readOnly": true,
+                                "recursiveReadOnly": "Disabled"
+                            }
+                        ]
+                    }
+                ],
+                "hostIP": "172.18.0.11",
+                "hostIPs": [
+                    {
+                        "ip": "172.18.0.11"
+                    }
+                ],
+                "phase": "Failed",
+                "podIP": "10.244.1.35",
+                "podIPs": [
+                    {
+                        "ip": "10.244.1.35"
+                    }
+                ],
+                "qosClass": "BestEffort",
+                "startTime": "2026-10-26T14:23:00Z"
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Pod",
+            "metadata": {
+                "annotations": {
+                    "kueue.x-k8s.io/workload": "job-c-smoke-nccltests-1pod4gpu-142229-6c5ca"
+                },
+                "creationTimestamp": "2026-10-26T14:22:29Z",
+                "generateName": "c-smoke-nccltests-1pod4gpu-142229-",
+                "labels": {
+                    "batch.kubernetes.io/controller-uid": "3afaa4cf-1f70-49a2-8a45-b925200afd7a",
+                    "batch.kubernetes.io/job-name": "c-smoke-nccltests-1pod4gpu-142229",
+                    "controller-uid": "3afaa4cf-1f70-49a2-8a45-b925200afd7a",
+                    "job-name": "c-smoke-nccltests-1pod4gpu-142229",
+                    "kueue.x-k8s.io/cluster-queue-name": "gpu-train-a",
+                    "kueue.x-k8s.io/local-queue-name": "gpu-train-a",
+                    "kueue.x-k8s.io/podset": "main"
+                },
+                "name": "c-smoke-nccltests-1pod4gpu-142229-hhdh4",
+                "namespace": "train-a",
+                "ownerReferences": [
+                    {
+                        "apiVersion": "batch/v1",
+                        "blockOwnerDeletion": true,
+                        "controller": true,
+                        "kind": "Job",
+                        "name": "c-smoke-nccltests-1pod4gpu-142229",
+                        "uid": "3afaa4cf-1f70-49a2-8a45-b925200afd7a"
+                    }
+                ],
+                "resourceVersion": "4122",
+                "uid": "a72e6eeb-4d59-4720-89d7-a39902350d8d"
+            },
+            "spec": {
+                "containers": [
+                    {
+                        "command": [
+                            "sh",
+                            "-c",
+                            "export NCCL_DEBUG=INFO NCCL_DEBUG_SUBSYS=INIT,GRAPH,ENV OMP_NUM_THREADS=1\necho \"AR_RUN_ID c-smoke-nccltests-1pod4gpu-142229 $(hostname)\"\nfor f in /etc/nccl.conf \"$HOME/.nccl.conf\"; do if [ -e \"$f\" ]; then echo \"AR_NCCL_CONF present $f\"; sed 's/^/AR_NCCL_CONF_LINE /' \"$f\"; else echo \"AR_NCCL_CONF absent $f\"; fi; done\nenv | grep '^NCCL_' | sed 's/^/AR_NCCL_ENV /'\necho \"AR_SHM_KB $(df -kP /dev/shm | awk 'NR == 2 {print $2}')\"\nnvidia-smi --query-gpu=index,uuid,pci.bus_id,driver_version --format=csv,noheader | sed 's/^/AR_GPU /'\nexec mpirun --allow-run-as-root -np 4 --bind-to none --mca btl self,vader -x NCCL_DEBUG -x NCCL_DEBUG_SUBSYS -x OMP_NUM_THREADS all_reduce_perf -b 1M -e 256M -f 4 -g 1 -c 1 -n 100 -w 20 -a 3"
+                        ],
+                        "env": [
+                            {
+                                "name": "NVIDIA_DRIVER_CAPABILITIES",
+                                "value": "compute,utility"
+                            }
+                        ],
+                        "image": "cpu-ddp:torch251",
+                        "imagePullPolicy": "IfNotPresent",
+                        "name": "trainer",
+                        "resources": {
+                            "limits": {
+                                "nvidia.com/gpu": "4"
+                            },
+                            "requests": {
+                                "nvidia.com/gpu": "4"
+                            }
+                        },
+                        "terminationMessagePath": "/dev/termination-log",
+                        "terminationMessagePolicy": "File",
+                        "volumeMounts": [
+                            {
+                                "mountPath": "/dev/shm",
+                                "name": "dshm"
+                            },
+                            {
+                                "mountPath": "/var/run/secrets/kubernetes.io/serviceaccount",
+                                "name": "kube-api-access-nkmnr",
+                                "readOnly": true
+                            }
+                        ]
+                    }
+                ],
+                "dnsPolicy": "ClusterFirst",
+                "enableServiceLinks": true,
+                "nodeName": "kind-fourgpu-worker",
+                "preemptionPolicy": "PreemptLowerPriority",
+                "priority": 0,
+                "restartPolicy": "Never",
+                "schedulerName": "default-scheduler",
+                "securityContext": {},
+                "serviceAccount": "default",
+                "serviceAccountName": "default",
+                "terminationGracePeriodSeconds": 30,
+                "tolerations": [
+                    {
+                        "effect": "NoExecute",
+                        "key": "node.kubernetes.io/not-ready",
+                        "operator": "Exists",
+                        "tolerationSeconds": 300
+                    },
+                    {
+                        "effect": "NoExecute",
+                        "key": "node.kubernetes.io/unreachable",
+                        "operator": "Exists",
+                        "tolerationSeconds": 300
+                    }
+                ],
+                "volumes": [
+                    {
+                        "emptyDir": {
+                            "medium": "Memory",
+                            "sizeLimit": "1Gi"
+                        },
+                        "name": "dshm"
+                    },
+                    {
+                        "name": "kube-api-access-nkmnr",
+                        "projected": {
+                            "defaultMode": 420,
+                            "sources": [
+                                {
+                                    "serviceAccountToken": {
+                                        "expirationSeconds": 3607,
+                                        "path": "token"
+                                    }
+                                },
+                                {
+                                    "configMap": {
+                                        "items": [
+                                            {
+                                                "key": "ca.crt",
+                                                "path": "ca.crt"
+                                            }
+                                        ],
+                                        "name": "kube-root-ca.crt"
+                                    }
+                                },
+                                {
+                                    "downwardAPI": {
+                                        "items": [
+                                            {
+                                                "fieldRef": {
+                                                    "apiVersion": "v1",
+                                                    "fieldPath": "metadata.namespace"
+                                                },
+                                                "path": "namespace"
+                                            }
+                                        ]
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                ]
+            },
+            "status": {
+                "conditions": [
+                    {
+                        "lastProbeTime": null,
+                        "lastTransitionTime": "2026-10-26T14:22:32Z",
+                        "status": "False",
+                        "type": "PodReadyToStartContainers"
+                    },
+                    {
+                        "lastProbeTime": null,
+                        "lastTransitionTime": "2026-10-26T14:22:30Z",
+                        "status": "True",
+                        "type": "Initialized"
+                    },
+                    {
+                        "lastProbeTime": null,
+                        "lastTransitionTime": "2026-10-26T14:22:31Z",
+                        "reason": "PodFailed",
+                        "status": "False",
+                        "type": "Ready"
+                    },
+                    {
+                        "lastProbeTime": null,
+                        "lastTransitionTime": "2026-10-26T14:22:31Z",
+                        "reason": "PodFailed",
+                        "status": "False",
+                        "type": "ContainersReady"
+                    },
+                    {
+                        "lastProbeTime": null,
+                        "lastTransitionTime": "2026-10-26T14:22:29Z",
+                        "status": "True",
+                        "type": "PodScheduled"
+                    }
+                ],
+                "containerStatuses": [
+                    {
+                        "containerID": "containerd://e757e746ff2adb8ff35f5509a047a24858346def9da7c50f35e3a27aaab634f3",
+                        "image": "docker.io/library/cpu-ddp:torch251",
+                        "imageID": "docker.io/library/import-2026-10-26@sha256:125a84772526abddb6cd52c303d71ea82e2a56a25ba3f18e119b6d35d39e6bdf",
+                        "lastState": {},
+                        "name": "trainer",
+                        "ready": false,
+                        "restartCount": 0,
+                        "started": false,
+                        "state": {
+                            "terminated": {
+                                "containerID": "containerd://e757e746ff2adb8ff35f5509a047a24858346def9da7c50f35e3a27aaab634f3",
+                                "exitCode": 127,
+                                "finishedAt": "2026-10-26T14:22:30Z",
+                                "reason": "Error",
+                                "startedAt": "2026-10-26T14:22:30Z"
+                            }
+                        },
+                        "volumeMounts": [
+                            {
+                                "mountPath": "/dev/shm",
+                                "name": "dshm"
+                            },
+                            {
+                                "mountPath": "/var/run/secrets/kubernetes.io/serviceaccount",
+                                "name": "kube-api-access-nkmnr",
+                                "readOnly": true,
+                                "recursiveReadOnly": "Disabled"
+                            }
+                        ]
+                    }
+                ],
+                "hostIP": "172.18.0.11",
+                "hostIPs": [
+                    {
+                        "ip": "172.18.0.11"
+                    }
+                ],
+                "phase": "Failed",
+                "podIP": "10.244.1.33",
+                "podIPs": [
+                    {
+                        "ip": "10.244.1.33"
+                    }
+                ],
+                "qosClass": "BestEffort",
+                "startTime": "2026-10-26T14:22:30Z"
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Pod",
+            "metadata": {
+                "annotations": {
+                    "kueue.x-k8s.io/workload": "job-c-smoke-nccltests-1pod4gpu-142229-6c5ca"
+                },
+                "creationTimestamp": "2026-10-26T14:22:40Z",
+                "generateName": "c-smoke-nccltests-1pod4gpu-142229-",
+                "labels": {
+                    "batch.kubernetes.io/controller-uid": "3afaa4cf-1f70-49a2-8a45-b925200afd7a",
+                    "batch.kubernetes.io/job-name": "c-smoke-nccltests-1pod4gpu-142229",
+                    "controller-uid": "3afaa4cf-1f70-49a2-8a45-b925200afd7a",
+                    "job-name": "c-smoke-nccltests-1pod4gpu-142229",
+                    "kueue.x-k8s.io/cluster-queue-name": "gpu-train-a",
+                    "kueue.x-k8s.io/local-queue-name": "gpu-train-a",
+                    "kueue.x-k8s.io/podset": "main"
+                },
+                "name": "c-smoke-nccltests-1pod4gpu-142229-sd7pk",
+                "namespace": "train-a",
+                "ownerReferences": [
+                    {
+                        "apiVersion": "batch/v1",
+                        "blockOwnerDeletion": true,
+                        "controller": true,
+                        "kind": "Job",
+                        "name": "c-smoke-nccltests-1pod4gpu-142229",
+                        "uid": "3afaa4cf-1f70-49a2-8a45-b925200afd7a"
+                    }
+                ],
+                "resourceVersion": "4166",
+                "uid": "59a5a3c9-ec55-4dea-a22d-60087f3325da"
+            },
+            "spec": {
+                "containers": [
+                    {
+                        "command": [
+                            "sh",
+                            "-c",
+                            "export NCCL_DEBUG=INFO NCCL_DEBUG_SUBSYS=INIT,GRAPH,ENV OMP_NUM_THREADS=1\necho \"AR_RUN_ID c-smoke-nccltests-1pod4gpu-142229 $(hostname)\"\nfor f in /etc/nccl.conf \"$HOME/.nccl.conf\"; do if [ -e \"$f\" ]; then echo \"AR_NCCL_CONF present $f\"; sed 's/^/AR_NCCL_CONF_LINE /' \"$f\"; else echo \"AR_NCCL_CONF absent $f\"; fi; done\nenv | grep '^NCCL_' | sed 's/^/AR_NCCL_ENV /'\necho \"AR_SHM_KB $(df -kP /dev/shm | awk 'NR == 2 {print $2}')\"\nnvidia-smi --query-gpu=index,uuid,pci.bus_id,driver_version --format=csv,noheader | sed 's/^/AR_GPU /'\nexec mpirun --allow-run-as-root -np 4 --bind-to none --mca btl self,vader -x NCCL_DEBUG -x NCCL_DEBUG_SUBSYS -x OMP_NUM_THREADS all_reduce_perf -b 1M -e 256M -f 4 -g 1 -c 1 -n 100 -w 20 -a 3"
+                        ],
+                        "env": [
+                            {
+                                "name": "NVIDIA_DRIVER_CAPABILITIES",
+                                "value": "compute,utility"
+                            }
+                        ],
+                        "image": "cpu-ddp:torch251",
+                        "imagePullPolicy": "IfNotPresent",
+                        "name": "trainer",
+                        "resources": {
+                            "limits": {
+                                "nvidia.com/gpu": "4"
+                            },
+                            "requests": {
+                                "nvidia.com/gpu": "4"
+                            }
+                        },
+                        "terminationMessagePath": "/dev/termination-log",
+                        "terminationMessagePolicy": "File",
+                        "volumeMounts": [
+                            {
+                                "mountPath": "/dev/shm",
+                                "name": "dshm"
+                            },
+                            {
+                                "mountPath": "/var/run/secrets/kubernetes.io/serviceaccount",
+                                "name": "kube-api-access-hlcsl",
+                                "readOnly": true
+                            }
+                        ]
+                    }
+                ],
+                "dnsPolicy": "ClusterFirst",
+                "enableServiceLinks": true,
+                "nodeName": "kind-fourgpu-worker",
+                "preemptionPolicy": "PreemptLowerPriority",
+                "priority": 0,
+                "restartPolicy": "Never",
+                "schedulerName": "default-scheduler",
+                "securityContext": {},
+                "serviceAccount": "default",
+                "serviceAccountName": "default",
+                "terminationGracePeriodSeconds": 30,
+                "tolerations": [
+                    {
+                        "effect": "NoExecute",
+                        "key": "node.kubernetes.io/not-ready",
+                        "operator": "Exists",
+                        "tolerationSeconds": 300
+                    },
+                    {
+                        "effect": "NoExecute",
+                        "key": "node.kubernetes.io/unreachable",
+                        "operator": "Exists",
+                        "tolerationSeconds": 300
+                    }
+                ],
+                "volumes": [
+                    {
+                        "emptyDir": {
+                            "medium": "Memory",
+                            "sizeLimit": "1Gi"
+                        },
+                        "name": "dshm"
+                    },
+                    {
+                        "name": "kube-api-access-hlcsl",
+                        "projected": {
+                            "defaultMode": 420,
+                            "sources": [
+                                {
+                                    "serviceAccountToken": {
+                                        "expirationSeconds": 3607,
+                                        "path": "token"
+                                    }
+                                },
+                                {
+                                    "configMap": {
+                                        "items": [
+                                            {
+                                                "key": "ca.crt",
+                                                "path": "ca.crt"
+                                            }
+                                        ],
+                                        "name": "kube-root-ca.crt"
+                                    }
+                                },
+                                {
+                                    "downwardAPI": {
+                                        "items": [
+                                            {
+                                                "fieldRef": {
+                                                    "apiVersion": "v1",
+                                                    "fieldPath": "metadata.namespace"
+                                                },
+                                                "path": "namespace"
+                                            }
+                                        ]
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                ]
+            },
+            "status": {
+                "conditions": [
+                    {
+                        "lastProbeTime": null,
+                        "lastTransitionTime": "2026-10-26T14:22:42Z",
+                        "status": "False",
+                        "type": "PodReadyToStartContainers"
+                    },
+                    {
+                        "lastProbeTime": null,
+                        "lastTransitionTime": "2026-10-26T14:22:40Z",
+                        "status": "True",
+                        "type": "Initialized"
+                    },
+                    {
+                        "lastProbeTime": null,
+                        "lastTransitionTime": "2026-10-26T14:22:41Z",
+                        "reason": "PodFailed",
+                        "status": "False",
+                        "type": "Ready"
+                    },
+                    {
+                        "lastProbeTime": null,
+                        "lastTransitionTime": "2026-10-26T14:22:41Z",
+                        "reason": "PodFailed",
+                        "status": "False",
+                        "type": "ContainersReady"
+                    },
+                    {
+                        "lastProbeTime": null,
+                        "lastTransitionTime": "2026-10-26T14:22:40Z",
+                        "status": "True",
+                        "type": "PodScheduled"
+                    }
+                ],
+                "containerStatuses": [
+                    {
+                        "containerID": "containerd://2a5b15fdb277a9f2d6e89f1e2f8fbd991d5176821a82e23c2cd209a26a4faa55",
+                        "image": "docker.io/library/cpu-ddp:torch251",
+                        "imageID": "docker.io/library/import-2026-10-26@sha256:125a84772526abddb6cd52c303d71ea82e2a56a25ba3f18e119b6d35d39e6bdf",
+                        "lastState": {},
+                        "name": "trainer",
+                        "ready": false,
+                        "restartCount": 0,
+                        "started": false,
+                        "state": {
+                            "terminated": {
+                                "containerID": "containerd://2a5b15fdb277a9f2d6e89f1e2f8fbd991d5176821a82e23c2cd209a26a4faa55",
+                                "exitCode": 127,
+                                "finishedAt": "2026-10-26T14:22:40Z",
+                                "reason": "Error",
+                                "startedAt": "2026-10-26T14:22:40Z"
+                            }
+                        },
+                        "volumeMounts": [
+                            {
+                                "mountPath": "/dev/shm",
+                                "name": "dshm"
+                            },
+                            {
+                                "mountPath": "/var/run/secrets/kubernetes.io/serviceaccount",
+                                "name": "kube-api-access-hlcsl",
+                                "readOnly": true,
+                                "recursiveReadOnly": "Disabled"
+                            }
+                        ]
+                    }
+                ],
+                "hostIP": "172.18.0.11",
+                "hostIPs": [
+                    {
+                        "ip": "172.18.0.11"
+                    }
+                ],
+                "phase": "Failed",
+                "podIP": "10.244.1.34",
+                "podIPs": [
+                    {
+                        "ip": "10.244.1.34"
+                    }
+                ],
+                "qosClass": "BestEffort",
+                "startTime": "2026-10-26T14:22:40Z"
+            }
+        }
+    ],
+    "kind": "List",
+    "metadata": {
+        "resourceVersion": ""
+    }
+}
