@@ -187,38 +187,57 @@ scenario
 answer kubectl-get-nodes "$(items "$(node ip-a True 1)" "$(node ip-b True 1)")"
 answer kubectl-get-pods-nvidia-device-plugin "$(items "$(plugin ip-a)" "$(plugin ip-b)")"
 answer kubectl-get-pods-gpu-simulator ""
-expect "two qualified nodes" 0 "ip-a i-a0" -- train_qualify_nodes ctx gpu 2 0
+expect "two qualified nodes" 0 "ip-a i-a0" -- train_qualify_nodes ctx gpu 2 0 1
 grep -q "eks.amazonaws.com/nodegroup=gpu" "$STUB/calls.log" && ok "the nodes are selected by the gpu group" || bad "the nodes are not selected by the gpu group"
 scenario
 answer kubectl-get-nodes.1 "$(items "$(node ip-a True 1)")"
 answer kubectl-get-nodes "$(items "$(node ip-a True 1)" "$(node ip-b True 1)")"
 answer kubectl-get-pods-nvidia-device-plugin "$(items "$(plugin ip-a)" "$(plugin ip-b)")"
 answer kubectl-get-pods-gpu-simulator ""
-expect "the second node joins on a later poll" 0 "ip-b" -- train_qualify_nodes ctx gpu 2 5
+expect "the second node joins on a later poll" 0 "ip-b" -- train_qualify_nodes ctx gpu 2 5 1
 scenario
 answer kubectl-get-nodes "$(items "$(node ip-a True 1)" "$(node ip-b False 1)")"
 answer kubectl-get-pods-nvidia-device-plugin "$(items "$(plugin ip-a)" "$(plugin ip-b)")"
-expect "one node of two Ready at the deadline" 1 "ip-b: not Ready" -- train_qualify_nodes ctx gpu 2 0
+expect "one node of two Ready at the deadline" 1 "ip-b: not Ready" -- train_qualify_nodes ctx gpu 2 0 1
 scenario
 answer kubectl-get-nodes "$(items "$(node ip-a True 1)" "$(node ip-b True 1)")"
 answer kubectl-get-pods-nvidia-device-plugin "$(items "$(plugin ip-a)")"
-expect "a node without the device plugin" 1 "ip-b: no Ready device plugin" -- train_qualify_nodes ctx gpu 2 0
+expect "a node without the device plugin" 1 "ip-b: no Ready device plugin" -- train_qualify_nodes ctx gpu 2 0 1
 scenario
 answer kubectl-get-nodes "$(items "$(node ip-a True 1)" "$(node ip-b True 0)")"
 answer kubectl-get-pods-nvidia-device-plugin "$(items "$(plugin ip-a)" "$(plugin ip-b)")"
-expect "a node advertising no GPU" 1 "ip-b: allocatable nvidia.com/gpu '0'" -- train_qualify_nodes ctx gpu 2 0
+expect "a node advertising no GPU" 1 "ip-b: allocatable nvidia.com/gpu '0', want '1'" -- train_qualify_nodes ctx gpu 2 0 1
 scenario
 answer kubectl-get-nodes "$(items "$(node ip-a True 1)" "$(node ip-b True 1)" "$(node ip-c True 1)")"
 answer kubectl-get-pods-nvidia-device-plugin "$(items "$(plugin ip-a)" "$(plugin ip-b)" "$(plugin ip-c)")"
-expect "a third node" 1 "3 nodes in the group, want 2" -- train_qualify_nodes ctx gpu 2 60
+expect "a third node" 1 "3 nodes in the group, want 2" -- train_qualify_nodes ctx gpu 2 60 1
 scenario
 answer kubectl-get-nodes "$(items "$(node ip-a True 1)" "$(node ip-b True 1)")"
 answer kubectl-get-pods-nvidia-device-plugin "$(items "$(plugin ip-a)" "$(plugin ip-b)")"
 answer kubectl-get-pods-gpu-simulator "pod/gpu-simulator-x"
-expect "a simulator present" 1 "simulator is present" -- train_qualify_nodes ctx gpu 2 0
+expect "a simulator present" 1 "simulator is present" -- train_qualify_nodes ctx gpu 2 0 1
 scenario
 answer kubectl-get-nodes "error: You must be logged in to the server (Unauthorized)" 1
-expect "an unreadable node list" 1 "unreadable" -- train_qualify_nodes ctx gpu 2 0
+expect "an unreadable node list" 1 "unreadable" -- train_qualify_nodes ctx gpu 2 0 1
+
+# --- the GPU count each node must advertise ------------------------------------------------------------------------
+# A g5.12xlarge advertising one card of its four is a node with three missing; a g5.xlarge advertising four is not one.
+scenario
+answer kubectl-get-nodes "$(items "$(node ip-a True 4)")"
+answer kubectl-get-pods-nvidia-device-plugin "$(items "$(plugin ip-a)")"
+answer kubectl-get-pods-gpu-simulator ""
+expect "one node advertising its four GPUs" 0 "ip-a i-a0" -- train_qualify_nodes ctx gpu 1 0 4
+scenario
+answer kubectl-get-nodes "$(items "$(node ip-a True 1)")"
+answer kubectl-get-pods-nvidia-device-plugin "$(items "$(plugin ip-a)")"
+expect "one GPU of an expected four" 1 "allocatable nvidia.com/gpu '1', want '4'" -- train_qualify_nodes ctx gpu 1 0 4
+scenario
+answer kubectl-get-nodes "$(items "$(node ip-a True 4)")"
+answer kubectl-get-pods-nvidia-device-plugin "$(items "$(plugin ip-a)")"
+expect "four GPUs where one is expected" 1 "allocatable nvidia.com/gpu '4', want '1'" -- train_qualify_nodes ctx gpu 1 0 1
+scenario
+expect "no expected count" 1 "not a positive whole number" -- train_qualify_nodes ctx gpu 1 0
+[[ -s "$STUB/calls.log" ]] && bad "a missing count still asked the cluster" || ok "a missing count refuses before asking the cluster"
 
 # --- the zone pin ------------------------------------------------------------------------------------------------
 scenario
@@ -351,28 +370,38 @@ scenario
 answer kubectl-get-mltrainingjob.1 "$(mltj Pending)"
 answer kubectl-get-mltrainingjob "$(mltj Admitted 2026-10-22T01:00:00Z)"
 answer kubectl-get-pods "$(items "$(pod q-0)" "$(pod q-1)")"
-expect "admitted with no node to go to" 0 "admitted at 2026-10-22T01:00:00Z, both Pods unplaced" -- train_qualification_held ctx train-a q 5
-grep -q -- "-l platform.lkhun9311.github.io/mltrainingjob=q" "$STUB/calls.log" && ok "the job's own Pods are the ones read" || bad "the Pods were not selected by the job's label"
+expect "admitted with no node to go to" 0 "admitted at 2026-10-22T01:00:00Z, both Pods unplaced" -- train_qualification_held ctx train-a q 5 2
+grep -q -- "-l batch.kubernetes.io/job-name=q" "$STUB/calls.log" && ok "the job's own Pods are the ones read" || bad "the Pods were not selected by the Job controller's job-name label, which a one-Pod job carries too"
 scenario
 answer kubectl-get-mltrainingjob "$(mltj Admitted)"
 answer kubectl-get-pods "$(items "$(pod q-0)" "$(pod q-1)")"
-expect "admitted without the stamp" 1 "admittedAt absent" -- train_qualification_held ctx train-a q 0
+expect "admitted without the stamp" 1 "admittedAt absent" -- train_qualification_held ctx train-a q 0 2
 scenario
 answer kubectl-get-mltrainingjob "$(mltj Admitted 2026-10-22T01:00:00Z)"
 answer kubectl-get-pods "$(items "$(pod q-0)" "$(pod q-1 ip-x)")"
-expect "a Pod placed with nothing bought" 1 "q-1 on ip-x" -- train_qualification_held ctx train-a q 60
+expect "a Pod placed with nothing bought" 1 "q-1 on ip-x" -- train_qualification_held ctx train-a q 60 2
 scenario
 answer kubectl-get-mltrainingjob "$(mltj Running 2026-10-22T01:00:00Z)"
 answer kubectl-get-pods "$(items "$(pod q-0)" "$(pod q-1)")"
-expect "Running with nothing bought" 1 "is Running with no GPU node" -- train_qualification_held ctx train-a q 60
+expect "Running with nothing bought" 1 "is Running with no GPU node" -- train_qualification_held ctx train-a q 60 2
 scenario
 answer kubectl-get-mltrainingjob "$(mltj Admitted 2026-10-22T01:00:00Z)"
 answer kubectl-get-pods "$(items "$(pod q-0)")"
-expect "one rank's Pod only" 1 "1 Pod(s)" -- train_qualification_held ctx train-a q 0
+expect "one rank's Pod only" 1 "1 Pod(s)" -- train_qualification_held ctx train-a q 0 2
+scenario
+answer kubectl-get-mltrainingjob "$(mltj Admitted 2026-10-22T01:00:00Z)"
+answer kubectl-get-pods "$(items "$(pod q-0)")"
+expect "one Pod of four GPUs, held" 0 "1 Pod(s) unplaced" -- train_qualification_held ctx train-a q 0 1
+scenario
+answer kubectl-get-mltrainingjob "$(mltj Admitted 2026-10-22T01:00:00Z)"
+answer kubectl-get-pods "$(items "$(pod q-0)" "$(pod q-1)")"
+expect "two Pods where one is expected" 1 "2 Pod(s) of 1" -- train_qualification_held ctx train-a q 0 1
+scenario
+expect "no expected Pod count" 1 "not a positive whole number" -- train_qualification_held ctx train-a q 0
 scenario
 answer kubectl-get-mltrainingjob "$(mltj Pending)"
 answer kubectl-get-pods "$(items)"
-expect "never admitted" 1 "not held admitted: phase Pending" -- train_qualification_held ctx train-a q 0
+expect "never admitted" 1 "not held admitted: phase Pending" -- train_qualification_held ctx train-a q 0 2
 scenario
 answer kubectl-get-mltrainingjob.1 "$(mltj Admitted 2026-10-22T01:00:00Z)"
 answer kubectl-get-mltrainingjob.2 "$(mltj Running 2026-10-22T01:00:00Z 2026-10-22T01:04:00Z 240.000)"

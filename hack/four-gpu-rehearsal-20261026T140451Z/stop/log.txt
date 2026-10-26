@@ -1,0 +1,3 @@
+mltrainingjob.platform.lkhun9311.github.io/c-smoke-nccltests-1pod4gpu-142229 created
+hack/lib/allreduce-arms.sh: line 1: kill: (3442040) - No such process
+mltrainingjob.platform.lkhun9311.github.io "c-smoke-nccltests-1pod4gpu-142229" deleted from train-a namespace

@@ -1,5 +1,7 @@
 # Design: more than one GPU per Pod, and the platform's first throughput figure
 
+**Superseded 2026-10-26 by `2026-10-27-four-gpu-nccl-design.md`, the registration this draft became; this page is kept as written, as history.**
+
 Written 2026-10-22. Status: **DRAFT, not registered.** Nothing here is approved, nothing has run on a GPU, and no number below is a result.
 It becomes a registration only when the owner approves a session, the open decisions at the end are closed, and the sections marked "to build" exist and have been rehearsed.
 My reading and codex `gpt-6-astra`'s were made independently and are kept apart in "Two readings"; where they disagree the disagreement is left visible.

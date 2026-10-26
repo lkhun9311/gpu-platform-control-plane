@@ -1,0 +1,74 @@
+AR_RUN_ID c-r-allreduce-1pod4gpu c-r-allreduce-1pod4gpu-4vnl4
+AR_NCCL_CONF absent /etc/nccl.conf
+AR_NCCL_CONF absent /root/.nccl.conf
+AR_NCCL_ENV NCCL_DEBUG_SUBSYS=INIT,GRAPH,ENV
+AR_NCCL_ENV NCCL_DEBUG=INFO
+AR_SHM_KB 1048576
+/usr/local/lib/python3.12/site-packages/torch/_subclasses/functional_tensor.py:295: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at ../torch/csrc/utils/tensor_numpy.cpp:84.)
+  cpu = _conversion_method_template(device=torch.device("cpu"))
+/usr/local/lib/python3.12/site-packages/torch/_subclasses/functional_tensor.py:295: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at ../torch/csrc/utils/tensor_numpy.cpp:84.)
+  cpu = _conversion_method_template(device=torch.device("cpu"))
+/usr/local/lib/python3.12/site-packages/torch/_subclasses/functional_tensor.py:295: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at ../torch/csrc/utils/tensor_numpy.cpp:84.)
+  cpu = _conversion_method_template(device=torch.device("cpu"))
+/usr/local/lib/python3.12/site-packages/torch/_subclasses/functional_tensor.py:295: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at ../torch/csrc/utils/tensor_numpy.cpp:84.)
+  cpu = _conversion_method_template(device=torch.device("cpu"))
+/usr/local/lib/python3.12/site-packages/torch/_subclasses/functional_tensor.py:295: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at ../torch/csrc/utils/tensor_numpy.cpp:84.)
+  cpu = _conversion_method_template(device=torch.device("cpu"))
+{"error": "CUDA is not available, and this bench measures GPUs only", "event": "refused", "rank": 3, "run_id": "c-r-allreduce-1pod4gpu", "ts": "2026-10-26T14:17:34.756323+00:00"}
+{"error": "CUDA is not available, and this bench measures GPUs only", "event": "refused", "rank": 2, "run_id": "c-r-allreduce-1pod4gpu", "ts": "2026-10-26T14:17:34.762694+00:00"}
+{"error": "CUDA is not available, and this bench measures GPUs only", "event": "refused", "rank": 0, "run_id": "c-r-allreduce-1pod4gpu", "ts": "2026-10-26T14:17:34.763854+00:00"}
+{"error": "CUDA is not available, and this bench measures GPUs only", "event": "refused", "rank": 1, "run_id": "c-r-allreduce-1pod4gpu", "ts": "2026-10-26T14:17:34.763854+00:00"}
+E1026 14:17:34.962000 1 site-packages/torch/distributed/elastic/multiprocessing/api.py:869] failed (exitcode: 1) local_rank: 0 (pid: 26) of binary: /usr/local/bin/python3.12
+Traceback (most recent call last):
+  File "/usr/local/bin/torchrun", line 8, in <module>
+    sys.exit(main())
+             ^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/torch/distributed/elastic/multiprocessing/errors/__init__.py", line 355, in wrapper
+    return f(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/torch/distributed/run.py", line 919, in main
+    run(args)
+  File "/usr/local/lib/python3.12/site-packages/torch/distributed/run.py", line 910, in run
+    elastic_launch(
+  File "/usr/local/lib/python3.12/site-packages/torch/distributed/launcher/api.py", line 138, in __call__
+    return launch_agent(self._config, self._entrypoint, list(args))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/torch/distributed/launcher/api.py", line 269, in launch_agent
+    raise ChildFailedError(
+torch.distributed.elastic.multiprocessing.errors.ChildFailedError: 
+============================================================
+/tmp/allreduce_bench.py FAILED
+------------------------------------------------------------
+Failures:
+[1]:
+  time      : 2026-10-26_14:17:34
+  host      : c-r-allreduce-1pod4gpu-4vnl4
+  rank      : 1 (local_rank: 1)
+  exitcode  : 1 (pid: 27)
+  error_file: <N/A>
+  traceback : To enable traceback see: https://pytorch.org/docs/stable/elastic/errors.html
+[2]:
+  time      : 2026-10-26_14:17:34
+  host      : c-r-allreduce-1pod4gpu-4vnl4
+  rank      : 2 (local_rank: 2)
+  exitcode  : 1 (pid: 28)
+  error_file: <N/A>
+  traceback : To enable traceback see: https://pytorch.org/docs/stable/elastic/errors.html
+[3]:
+  time      : 2026-10-26_14:17:34
+  host      : c-r-allreduce-1pod4gpu-4vnl4
+  rank      : 3 (local_rank: 3)
+  exitcode  : 1 (pid: 29)
+  error_file: <N/A>
+  traceback : To enable traceback see: https://pytorch.org/docs/stable/elastic/errors.html
+------------------------------------------------------------
+Root Cause (first observed failure):
+[0]:
+  time      : 2026-10-26_14:17:34
+  host      : c-r-allreduce-1pod4gpu-4vnl4
+  rank      : 0 (local_rank: 0)
+  exitcode  : 1 (pid: 26)
+  error_file: <N/A>
+  traceback : To enable traceback see: https://pytorch.org/docs/stable/elastic/errors.html
+============================================================
+failed to create fsnotify watcher: too many open files

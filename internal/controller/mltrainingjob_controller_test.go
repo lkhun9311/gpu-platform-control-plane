@@ -27,6 +27,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/rand"
@@ -427,6 +428,70 @@ func TestAJobAsksForNoVolumeUnlessItsSpecAsksForOne(t *testing.T) {
 	}
 	if m := job.Spec.Template.Spec.Containers[0].VolumeMounts; m != nil {
 		t.Fatalf("a job declaring no state volume rendered mounts %+v", m)
+	}
+}
+
+// A Pod with more than one GPU gets a memory-backed /dev/shm of 1 GiB, and a Pod with one or none gets nothing.
+//
+// Several NCCL processes in one Pod share memory through /dev/shm, and a runtime default of 64 MiB can fail their initialization; a Pod with one GPU has no peer in it.
+// The state volume is set too, so the test also shows the two volumes coexist rather than one replacing the other.
+//
+// Mutations that turn this red: render the volume at gpuCount >= 1; drop the medium, which puts the volume on the node's disk; change the size; mount it elsewhere; or assign the volume list instead of appending to it.
+func TestAPodWithSeveralGPUsGetsSharedMemory(t *testing.T) {
+	for _, gpus := range []int32{0, 1} {
+		job := BuildJob(&platformv1.MLTrainingJob{
+			Name: "j", Namespace: "n",
+			Spec: platformv1.MLTrainingJobSpec{Image: "i", Queue: "q", GPUCount: gpus},
+		})
+		if v := job.Spec.Template.Spec.Volumes; v != nil {
+			t.Fatalf("gpuCount %d rendered volumes %+v; a Pod with at most one GPU has no peer to share memory with", gpus, v)
+		}
+	}
+	for _, gpus := range []int32{2, 4} {
+		job := BuildJob(&platformv1.MLTrainingJob{
+			Name: "j", Namespace: "n",
+			Spec: platformv1.MLTrainingJobSpec{
+				Image: "i", Queue: "q", GPUCount: gpus,
+				StateVolume: &platformv1.StateVolume{ClaimName: "c", MountPath: "/state"},
+			},
+		})
+		pod := job.Spec.Template.Spec
+		if len(pod.Volumes) != 2 || pod.Volumes[0].Name != StateVolumeName || pod.Volumes[1].Name != SharedMemoryVolumeName {
+			t.Fatalf("gpuCount %d rendered volumes %+v, want the state volume then %q", gpus, pod.Volumes, SharedMemoryVolumeName)
+		}
+		ed := pod.Volumes[1].EmptyDir
+		if ed == nil || ed.Medium != corev1.StorageMediumMemory {
+			t.Fatalf("gpuCount %d: the shared-memory volume is %+v, want a memory-backed emptyDir", gpus, pod.Volumes[1].VolumeSource)
+		}
+		if ed.SizeLimit == nil || ed.SizeLimit.Cmp(resource.MustParse("1Gi")) != 0 {
+			t.Fatalf("gpuCount %d: sizeLimit %v, want 1Gi, the NCCL guide's --shm-size=1g", gpus, ed.SizeLimit)
+		}
+		mounts := pod.Containers[0].VolumeMounts
+		if len(mounts) != 2 || mounts[1].Name != SharedMemoryVolumeName || mounts[1].MountPath != "/dev/shm" {
+			t.Fatalf("gpuCount %d: the trainer's mounts are %+v, want the state mount then %q at /dev/shm", gpus, mounts, SharedMemoryVolumeName)
+		}
+	}
+}
+
+// A state volume the spec mounts at /dev/shm keeps the path, and no second mount is rendered beside it.
+//
+// The API admits that mount path, and two mounts at one path make the API server refuse the Job, so a spec that rendered before the shared-memory volume existed must still render.
+//
+// Mutation that turns this red: drop the stateVolumeAt condition, or compare the raw path so "/dev/shm/" slips through.
+func TestAStateVolumeAtDevShmIsNotMountedTwice(t *testing.T) {
+	for _, at := range []string{"/dev/shm", "/dev/shm/"} {
+		job := BuildJob(&platformv1.MLTrainingJob{
+			Name: "j", Namespace: "n",
+			Spec: platformv1.MLTrainingJobSpec{
+				Image: "i", Queue: "q", GPUCount: 4,
+				StateVolume: &platformv1.StateVolume{ClaimName: "c", MountPath: at},
+			},
+		})
+		pod := job.Spec.Template.Spec
+		if len(pod.Volumes) != 1 || pod.Volumes[0].Name != StateVolumeName || len(pod.Containers[0].VolumeMounts) != 1 {
+			t.Fatalf("a state volume at %q rendered volumes %+v and mounts %+v, want the state volume alone",
+				at, pod.Volumes, pod.Containers[0].VolumeMounts)
+		}
 	}
 }
 

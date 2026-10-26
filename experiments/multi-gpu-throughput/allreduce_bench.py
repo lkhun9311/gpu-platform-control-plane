@@ -1,8 +1,9 @@
 """An all-reduce timing loop that refuses to report a bandwidth it did not verify.
 
-DRAFT instrument for docs/superpowers/specs/2026-10-22-multi-gpu-per-pod-throughput-design.md.
-It has never run on a GPU; its first execution is the registration's smoke cell, and nothing it prints before that
-cell passes is a measurement.
+The torch instrument of docs/superpowers/specs/2026-10-27-four-gpu-nccl-design.md, first drafted for
+docs/superpowers/specs/2026-10-22-multi-gpu-per-pod-throughput-design.md.
+It has never run on a GPU; its first execution is the registration's smoke block, and nothing it prints before that
+block passes is a measurement.
 
 Each rank fills its buffer with rank + 1 before every timed all-reduce, so every element of a correct SUM is
 n(n+1)/2 exactly, and a reduction that did not happen, or happened over the wrong group, leaves a different number.
@@ -266,6 +267,13 @@ def main() -> int:
         nccl_version=".".join(str(part) for part in torch.cuda.nccl.version()),
         # Every NCCL_ variable in force, because each one can change the transport the figure describes.
         nccl_env={k: v for k, v in sorted(os.environ.items()) if k.startswith("NCCL_")},
+        # Which cards the container was given, as the device plugin and the runtime said it; nothing here sets them.
+        visible_devices_env={k: os.environ.get(k) for k in ("CUDA_VISIBLE_DEVICES", "NVIDIA_VISIBLE_DEVICES")},
+        # What the process could run on, which differs by layout: torchrun and a Pod per rank set threads differently.
+        cpu_affinity=len(os.sched_getaffinity(0)),
+        omp_num_threads=os.environ.get("OMP_NUM_THREADS"),
+        torch_threads=torch.get_num_threads(),
+        device="cuda",
         script_sha256=script_sha256(),
         sizes=list(sizes),
         warmup=warmup,
@@ -287,6 +295,10 @@ def main() -> int:
         for _ in range(iterations):
             # Filled outside the timed span, so the time is the collective's and the check below is per iteration.
             buffer.fill_(float(rank + 1))
+            # Every rank starts the iteration together, so a rank that arrives early does not count its wait for a
+            # late one as transfer time; the slowest-rank rule below would otherwise publish that wait.
+            torch.cuda.synchronize(device)
+            dist.barrier()
             start = torch.cuda.Event(enable_timing=True)
             end = torch.cuda.Event(enable_timing=True)
             start.record()

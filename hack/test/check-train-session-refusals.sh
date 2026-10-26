@@ -45,6 +45,12 @@ mkdir -p "$repo/hack/lib" "$repo/experiments/cpu-ddp"
 cp hack/eks-gitops-session.sh "$repo/hack/"
 cp hack/lib/train-session.sh hack/lib/ddp-arms.sh hack/lib/gpu-ttl.sh "$repo/hack/lib/"
 cp experiments/cpu-ddp/train.py "$repo/experiments/cpu-ddp/"
+mkdir -p "$repo/experiments/multi-gpu-throughput"
+cp hack/lib/allreduce-arms.sh "$repo/hack/lib/"
+cp experiments/multi-gpu-throughput/allreduce_bench.py experiments/multi-gpu-throughput/ddp_step_bench.py "$repo/experiments/multi-gpu-throughput/"
+bench_sha="$(sha256sum experiments/multi-gpu-throughput/allreduce_bench.py | cut -d' ' -f1)"
+step_sha="$(sha256sum experiments/multi-gpu-throughput/ddp_step_bench.py | cut -d' ' -f1)"
+image="registry.example/nccl-tests@sha256:$(printf '%064d' 1)"
 [[ ! -e "$repo/bin" ]] || bad "the session's copy has a bin/"
 
 # session NAME WANT_LINE [VAR=VALUE...]: runs the session with TRAIN=ddp and the given environment, and checks that it
@@ -106,6 +112,23 @@ session "every training refusal passed" "does not exist"
 grep -q -- "eks describe-cluster --region ap-northeast-2 --name gpu-platform" "$work/every training refusal passed.calls" &&
   ok "the cluster asked about is the one the session would build" ||
   bad "the cluster asked about was: $(grep describe-cluster "$work/every training refusal passed.calls")"
+
+# --- TRAIN=allreduce, experiment C -------------------------------------------------------------------------------
+ar=(TRAIN=allreduce APPROVED_BENCH_SHA256="$bench_sha" APPROVED_STEP_SHA256="$step_sha" NCCLTESTS_IMAGE="$image" TTL_MINUTES=320)
+session "C: no bench hash" "needs APPROVED_BENCH_SHA256" "${ar[@]}" APPROVED_BENCH_SHA256=
+session "C: a different step bench" "ddp_step_bench.py is $step_sha, not the approved" "${ar[@]}" APPROVED_STEP_SHA256="$(printf '%064d' 0)"
+session "C: no nccl-tests image" "needs NCCLTESTS_IMAGE" "${ar[@]}" NCCLTESTS_IMAGE=
+session "C: an image by tag" "needs NCCLTESTS_IMAGE" "${ar[@]}" NCCLTESTS_IMAGE=registry.example/nccl-tests:2.13.11
+session "C: a deadline too short for thirty jobs" "TRAIN=allreduce needs TTL_MINUTES of at least 310" "${ar[@]}" TTL_MINUTES=300
+session "C: with SERVE" "TRAIN=allreduce with SERVE or STUDY" "${ar[@]}" SERVE=yes
+session "C: with KEEP_UP" "refuses KEEP_UP=yes" "${ar[@]}" KEEP_UP=yes
+session "C: every refusal passed" "does not exist" "${ar[@]}"
+grep -q 'TRAIN=allreduce: 1 x g5.12xlarge of 4 GPUs, price ceiling \$6.98, GPU budget 13800s' "$work/C: every refusal passed/session.log" &&
+  ok "C: one g5.12xlarge of four GPUs, ceiling \$6.98, 13,800 s of GPU budget" ||
+  bad "C: the mode's settings: $(grep 'TRAIN=allreduce:' "$work/C: every refusal passed/session.log")"
+session "C: an operator's ceiling" "does not exist" "${ar[@]}" TRAIN_MAX_PRICE=7.20
+grep -q 'price ceiling \$7.20' "$work/C: an operator's ceiling/session.log" && ok "C: an operator's ceiling is kept" ||
+  bad "C: the operator's ceiling was replaced: $(grep 'TRAIN=allreduce:' "$work/C: an operator's ceiling/session.log")"
 
 # --- the kill switch, armed under an absolute EXDIR --------------------------------------------------------------
 # Without TRAIN nothing stops the session before its kill switch, so it arms one and then dies at the stub's terraform

@@ -1,0 +1,9 @@
+AR_RUN_ID c-r-nccltests-1pod4gpu c-r-nccltests-1pod4gpu-cwr69
+AR_NCCL_CONF absent /etc/nccl.conf
+AR_NCCL_CONF absent /root/.nccl.conf
+AR_NCCL_ENV NCCL_DEBUG_SUBSYS=INIT,GRAPH,ENV
+AR_NCCL_ENV NCCL_DEBUG=INFO
+AR_SHM_KB 1048576
+sh: 6: nvidia-smi: not found
+sh: 7: exec: mpirun: not found
+failed to create fsnotify watcher: too many open files

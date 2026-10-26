@@ -1,0 +1,9 @@
+AR_RUN_ID c-r-allreduce-1pod4gpu c-r-allreduce-1pod4gpu-6b7f5
+AR_NCCL_CONF absent /etc/nccl.conf
+AR_NCCL_CONF absent /root/.nccl.conf
+AR_NCCL_ENV NCCL_DEBUG_SUBSYS=INIT,GRAPH,ENV
+AR_NCCL_ENV NCCL_DEBUG=INFO
+AR_SHM_KB 1048576
+/usr/local/lib/python3.12/site-packages/torch/_subclasses/functional_tensor.py:295: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at ../torch/csrc/utils/tensor_numpy.cpp:84.)
+  cpu = _conversion_method_template(device=torch.device("cpu"))
+failed to create fsnotify watcher: too many open files

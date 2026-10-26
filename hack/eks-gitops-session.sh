@@ -49,6 +49,13 @@
 #   TRAIN_MAX_PRICE   with TRAIN, the most an On-Demand hour of one node may cost, or nothing is bought (default 1.40)
 #   TRAIN_AZ          with TRAIN, the one availability zone the nodes must be in, such as ap-northeast-2a; unset, they
 #                     may land in any zone that offers the type, and the record says which (default: unset)
+#   TRAIN=allreduce   instead buys ONE g5.12xlarge (four A10G) in the `gpu` group and runs experiment C's arms on it
+#                     (docs/superpowers/specs/2026-10-27-four-gpu-nccl-design.md); the same conditions as ddp, and
+#                     TTL_MINUTES of at least 310. TRAIN_MAX_PRICE defaults to 6.98 in this mode
+#   APPROVED_BENCH_SHA256  with TRAIN=allreduce, the sha256 of experiments/multi-gpu-throughput/allreduce_bench.py
+#   APPROVED_STEP_SHA256   with TRAIN=allreduce, the sha256 of experiments/multi-gpu-throughput/ddp_step_bench.py
+#   NCCLTESTS_IMAGE   with TRAIN=allreduce, the nccl-tests image built from experiments/multi-gpu-throughput/nccl-tests,
+#                     named by digest (repository@sha256:...)
 
 set -euo pipefail
 
@@ -155,7 +162,19 @@ TRAIN_QUEUE=gpu-train-a
 TRAIN_APP=gpu-platform-training
 # The class config/training's quota policy names, and the card a g5.xlarge carries; the admission policy requires one.
 TRAIN_GPU_CLASS=a10g
+# What each node must advertise, and how many Pods the qualification job has; TRAIN=allreduce changes both.
+TRAIN_GPUS_PER_NODE=1
+TRAIN_QUAL_PODS=2
+# Whether the operator named a ceiling, so a mode's own default applies only when nobody did.
+TRAIN_MAX_PRICE_SET="${TRAIN_MAX_PRICE:+1}"
 TRAIN_MAX_PRICE="${TRAIN_MAX_PRICE:-1.40}"
+# Experiment C (TRAIN=allreduce): its price ceiling is the g5.12xlarge On-Demand list price read on 2026-10-26,
+# $6.97442, rounded up to the cent, so any rise in the price refuses and the budget the owner approved stays the one
+# that is spent (docs/superpowers/specs/2026-10-27-four-gpu-nccl-design.md, "Budget").
+AR_MAX_PRICE_DEFAULT=6.98
+# The registered per-job budget, and the warm job's wait; both are conventions the registration states.
+AR_JOB_BUDGET=240
+WAIT_WARM="${WAIT_WARM:-900}"
 TRAIN_ARMS="${TRAIN_ARMS:-pass no-sync bad-address one-rank-fails}"
 TRAIN_AZ="${TRAIN_AZ:-}"
 # pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime, the torch the CPU image installs, with CUDA; read from Docker Hub on
@@ -206,10 +225,50 @@ case "$TRAIN" in
     # Empty passes nothing, so an unpinned session plans exactly the groups it planned before the pin existed.
     [[ -z "$TRAIN_AZ" ]] || TF_TRAIN_VARS="$TF_TRAIN_VARS -var=gpu_availability_zone=$TRAIN_AZ"
     ;;
-  *) die "TRAIN=$TRAIN is not a training mode this session runs (ddp)" ;;
+  allreduce)
+    # Experiment C: one g5.12xlarge, its four A10Gs in one Pod against four Pods of one.
+    [[ -z "$SERVE$STUDY" ]] || die "TRAIN=allreduce with SERVE or STUDY would buy GPUs in two groups under one deadline; run one"
+    # shellcheck source=hack/lib/train-session.sh
+    . hack/lib/train-session.sh
+    # shellcheck source=hack/lib/allreduce-arms.sh
+    . hack/lib/allreduce-arms.sh
+    TRAIN_INSTANCE_TYPE=g5.12xlarge
+    TRAIN_NODES=1
+    TRAIN_GPUS_PER_NODE=4
+    TRAIN_QUAL_PODS=1
+    [[ -n "${TRAIN_MAX_PRICE_SET:-}" ]] || TRAIN_MAX_PRICE="$AR_MAX_PRICE_DEFAULT"
+    # The code that runs is the code that was approved, checked before anything is bought; the scorer checks the
+    # same hashes again, from what each rank recorded.
+    for pair in "APPROVED_BENCH_SHA256 experiments/multi-gpu-throughput/allreduce_bench.py" \
+      "APPROVED_STEP_SHA256 experiments/multi-gpu-throughput/ddp_step_bench.py"; do
+      var="${pair%% *}" file="${pair#* }"
+      [[ "${!var:-}" =~ ^[0-9a-f]{64}$ ]] || die "TRAIN=allreduce needs $var, the sha256 of $file the registration approved"
+      sha="$(sha256sum "$file" | cut -d' ' -f1)"
+      [[ "$sha" == "${!var}" ]] || die "$file is $sha, not the approved ${!var}"
+    done
+    # By digest, or the image that runs is whatever the tag names on the day.
+    [[ "${NCCLTESTS_IMAGE:-}" =~ ^[a-z0-9.:/_-]+@sha256:[0-9a-f]{64}$ ]] ||
+      die "TRAIN=allreduce needs NCCLTESTS_IMAGE, the built nccl-tests image named by digest (repository@sha256:...)"
+    why="$(train_node_count_refusal "$TRAIN_NODES")" || die "$why"
+    why="$(train_zone_refusal "$TRAIN_AZ")" || die "$why"
+    log "TRAIN_AZ: $why"
+    # Five smoke jobs and the registered twenty-five, each with a minute for its submission and collection.
+    n_jobs=$((5 + 25))
+    TRAIN_GPU_BUDGET=$((WAIT_GPU_NODE + WAIT_GPU_PLUGIN + WAIT_QUAL_RUN + WAIT_WARM + n_jobs * (AR_JOB_BUDGET + 60) + WAIT_GPU_GONE + 300))
+    TRAIN_BUDGET=$((WAIT_TRAIN_SYNC + WAIT_TRAIN_QUEUE + WAIT_QUAL_HELD + TRAIN_GPU_BUDGET))
+    if ((TTL_MINUTES * 60 < TRAIN_BUDGET + 3600)); then
+      die "TRAIN=allreduce needs TTL_MINUTES of at least $(((TRAIN_BUDGET + 3600 + 59) / 60)) for its waits; it is $TTL_MINUTES"
+    fi
+    why="$(train_require_new_cluster "$CLUSTER" "$REGION" "${KEEP_UP:-}")" || die "$why"
+    log "$why"
+    TF_TRAIN_VARS="-var=gpu_node_instance_type=$TRAIN_INSTANCE_TYPE -var=gpu_max_nodes=$TRAIN_NODES"
+    [[ -z "$TRAIN_AZ" ]] || TF_TRAIN_VARS="$TF_TRAIN_VARS -var=gpu_availability_zone=$TRAIN_AZ"
+    log "TRAIN=allreduce: $TRAIN_NODES x $TRAIN_INSTANCE_TYPE of $TRAIN_GPUS_PER_NODE GPUs, price ceiling \$$TRAIN_MAX_PRICE, GPU budget ${TRAIN_GPU_BUDGET}s"
+    ;;
+  *) die "TRAIN=$TRAIN is not a training mode this session runs (ddp, allreduce)" ;;
 esac
 
-if [[ "$SERVE" == yes || "$TRAIN" == ddp ]]; then
+if [[ "$SERVE" == yes || -n "$TRAIN" ]]; then
   # The nightly destroy removes the whole cluster and neither deadline covers it. Its cron has been seen to drift
   # by hours, so a time window is not enough: a destroy run queued or in progress refuses too, and the residual
   # risk -- a late cron firing inside the session -- is the operator's to rule out by disabling the schedule.
@@ -605,18 +664,31 @@ train_run() {
   why="$(train_only_clusterqueue "$CLUSTER" "$TRAIN_QUEUE" "$WAIT_TRAIN_QUEUE")" || { bad "T2: $why"; return 1; }
   ok "T2: $why"
 
-  DDP_CONTEXT="$CLUSTER" DDP_NS="$TRAIN_NS" DDP_QUEUE="$TRAIN_QUEUE" DDP_IMAGE="$TRAIN_IMAGE"
-  DDP_SCRIPT=/tmp/train.py DDP_OUT="$EXDIR/ddp" DDP_BUDGET="$TRAIN_ARM_BUDGET" DDP_GPU_CLASS="$TRAIN_GPU_CLASS"
-  DDP_PRELUDE="$(ddp_prelude_for experiments/cpu-ddp/train.py "$DDP_SCRIPT" nccl)" || { bad "could not encode train.py"; return 1; }
-  # The qualification job: two ranks of one GPU each, submitted while no GPU node exists (design, correction 2).
-  # Each rank only asks whether CUDA answers, so a pass is about admission, placement and the image, not training.
-  # A rank that finds CUDA stays up sixty seconds: the operator records Running only while it sees both ranks Ready,
-  # and does not backfill it on completion, so a rank that exited at once could leave T7 refusing a healthy cluster
-  # (codex review of c649f2b). A rank that finds none exits at once.
-  ddp_render_job train-qualify "exec python -c 'import sys, time, torch; ok = torch.cuda.is_available(); ok and time.sleep(60); sys.exit(0 if ok else 3)'" \
-    >"$TRAIN_DIR/qualification.json" || { bad "could not render the qualification job"; return 1; }
+  if [[ "$TRAIN" == allreduce ]]; then
+    AR_CONTEXT="$CLUSTER" AR_NS="$TRAIN_NS" AR_QUEUE="$TRAIN_QUEUE" AR_TORCH_IMAGE="$TRAIN_IMAGE"
+    AR_NCCLTESTS_IMAGE="$NCCLTESTS_IMAGE" AR_GPU_CLASS="$TRAIN_GPU_CLASS" AR_OUT="$EXDIR/c" AR_BUDGET="$AR_JOB_BUDGET"
+    AR_BENCH_FILE=experiments/multi-gpu-throughput/allreduce_bench.py AR_STEP_FILE=experiments/multi-gpu-throughput/ddp_step_bench.py
+    AR_SCORER=experiments/multi-gpu-throughput/analyze.py
+    mkdir -p "$AR_OUT/qualification"
+    # The qualification job: one Pod of four GPUs in the nccl-tests image, submitted while no GPU node exists, so
+    # T3 shows Kueue and the operator answering before anything is bought; once the node exists it records what Q
+    # reads (docs/superpowers/specs/2026-10-27-four-gpu-nccl-design.md, "The session").
+    ar_render_job train-qualify nccltests-1pod4gpu "$(ar_qualification_body)" \
+      >"$TRAIN_DIR/qualification.json" || { bad "could not render the qualification job"; return 1; }
+  else
+    DDP_CONTEXT="$CLUSTER" DDP_NS="$TRAIN_NS" DDP_QUEUE="$TRAIN_QUEUE" DDP_IMAGE="$TRAIN_IMAGE"
+    DDP_SCRIPT=/tmp/train.py DDP_OUT="$EXDIR/ddp" DDP_BUDGET="$TRAIN_ARM_BUDGET" DDP_GPU_CLASS="$TRAIN_GPU_CLASS"
+    DDP_PRELUDE="$(ddp_prelude_for experiments/cpu-ddp/train.py "$DDP_SCRIPT" nccl)" || { bad "could not encode train.py"; return 1; }
+    # The qualification job: two ranks of one GPU each, submitted while no GPU node exists (design, correction 2).
+    # Each rank only asks whether CUDA answers, so a pass is about admission, placement and the image, not training.
+    # A rank that finds CUDA stays up sixty seconds: the operator records Running only while it sees both ranks Ready,
+    # and does not backfill it on completion, so a rank that exited at once could leave T7 refusing a healthy cluster
+    # (codex review of c649f2b). A rank that finds none exits at once.
+    ddp_render_job train-qualify "exec python -c 'import sys, time, torch; ok = torch.cuda.is_available(); ok and time.sleep(60); sys.exit(0 if ok else 3)'" \
+      >"$TRAIN_DIR/qualification.json" || { bad "could not render the qualification job"; return 1; }
+  fi
   why="$(kc apply -f "$TRAIN_DIR/qualification.json" 2>&1)" || { bad "T3: the qualification job was refused: $why"; return 1; }
-  why="$(train_qualification_held "$CLUSTER" "$TRAIN_NS" train-qualify "$WAIT_QUAL_HELD")" || { bad "T3: $why"; return 1; }
+  why="$(train_qualification_held "$CLUSTER" "$TRAIN_NS" train-qualify "$WAIT_QUAL_HELD" "$TRAIN_QUAL_PODS")" || { bad "T3: $why"; return 1; }
   ok "T3: $why"
   why="$(train_price_gate "$REGION" "$TRAIN_INSTANCE_TYPE" "$TRAIN_MAX_PRICE")" || { bad "T4: $why"; return 1; }
   ok "T4: $why"
@@ -639,6 +711,12 @@ train_run() {
   if ((gpu_min * 60 < TRAIN_GPU_BUDGET)); then
     bad "the watchdog fires in ${left_min} min, leaving the nodes ${gpu_min} min against the ${TRAIN_GPU_BUDGET}s their steps may take; raise TTL_MINUTES"
     return 1
+  fi
+  # Experiment C registers its GPU bound as the GPU budget itself, so its deadline is set there rather than at
+  # whatever the watchdog leaves: a setup that ran fast would otherwise leave the node a longer leash than the
+  # registration's bound (the registration's review, finding 4).
+  if [[ "$TRAIN" == allreduce ]]; then
+    gpu_min=$(((TRAIN_GPU_BUDGET + 59) / 60))
   fi
   TTL_ROLE_ARN="${TTL_ROLE_ARN:-$(terraform -chdir=infra/aws/bootstrap output -raw ttl_scaledown_role_arn 2>>"$EXDIR/session.log")}"
   export TTL_ROLE_ARN
@@ -665,7 +743,7 @@ train_run() {
     bad "could not scale $TRAIN_GROUP up"
     return 1
   }
-  ids="$(train_qualify_nodes "$CLUSTER" "$TRAIN_GROUP" "$TRAIN_NODES" $((WAIT_GPU_NODE + WAIT_GPU_PLUGIN)))" || {
+  ids="$(train_qualify_nodes "$CLUSTER" "$TRAIN_GROUP" "$TRAIN_NODES" $((WAIT_GPU_NODE + WAIT_GPU_PLUGIN)) "$TRAIN_GPUS_PER_NODE")" || {
     bad "T6: $ids"
     return 1
   }
@@ -680,6 +758,10 @@ train_run() {
   why="$(train_qualification_released "$CLUSTER" "$TRAIN_NS" train-qualify "$WAIT_QUAL_RUN")" || { bad "T7: $why"; return 1; }
   ok "T7: $why"
   kc -n "$TRAIN_NS" get mltrainingjob train-qualify -o json >"$TRAIN_DIR/qualification-final.json" 2>>"$EXDIR/session.log" || true
+  if [[ "$TRAIN" == allreduce ]]; then
+    train_run_allreduce "$ids" "$zones"
+    return
+  fi
 
   # The arms, as experiments/multi-pod-ddp/ registers them, with the provenance the analyzer reads its bar from.
   {
@@ -710,11 +792,74 @@ train_run() {
 
 # Reached on every exit once the nodes or their deadline exist, from the normal path and from the EXIT trap.
 # Errexit is off inside, because a cleanup that stops at its first failed command is the one that leaves nodes billing.
+# train_run_allreduce IDS ZONES: experiment C on the qualified node, from Q through the scorer.
+#
+# Q is read from the qualification job's own log; T7b pulls the torch image and shows torch sees four devices; then
+# the smoke jobs and the registered jobs (hack/lib/allreduce-arms.sh), and the scorer over all of it.
+train_run_allreduce() {
+  local ids="$1" zones="$2" node why
+  node="$(awk 'NR == 1 {print $1}' <<<"$ids")"
+  if ! kc -n "$TRAIN_NS" logs -l batch.kubernetes.io/job-name=train-qualify --tail=-1 \
+    >"$AR_OUT/qualification/qualification.log" 2>>"$EXDIR/session.log"; then
+    bad "Q: the qualification job's log could not be read"
+    return 1
+  fi
+  cp "$TRAIN_DIR/qualification-final.json" "$AR_OUT/qualification/" 2>>"$EXDIR/session.log"
+  why="$(python3 - "$AR_OUT/qualification" <<'PY'
+import sys
+sys.path.insert(0, "experiments/multi-gpu-throughput")
+import analyze
+from pathlib import Path
+faults = analyze.judge_qualification(Path(sys.argv[1]))
+print("; ".join(faults) or "four distinct UUIDs, one driver, a 4 x 4 topology and 1 GiB of /dev/shm")
+sys.exit(1 if faults else 0)
+PY
+)" || { bad "Q: $why"; return 1; }
+  ok "Q: $why"
+  # The warm job pulls the torch image, so it is given the warm wait rather than a measured job's budget.
+  AR_BUDGET="$WAIT_WARM" ar_run_job c-warm allreduce-1pod4gpu "$AR_OUT/warm" "$(ar_warm_body)"
+  if [[ "$(python3 -c 'import json,sys; print((json.load(open(sys.argv[1])).get("status") or {}).get("phase"))' "$AR_OUT/warm/final-mltj.json" 2>&1)" != Succeeded ]]; then
+    bad "T7b: the warm job did not succeed ($(grep -h AR_WARM "$AR_OUT"/warm/log-*.txt 2>&1 | head -1))"
+    return 1
+  fi
+  ok "T7b: $(grep -h AR_WARM "$AR_OUT"/warm/log-*.txt | head -1)"
+  {
+    echo "commit=$(git rev-parse HEAD)"
+    echo "dirty_files=$(git status --porcelain | wc -l)"
+    echo "kueue=$(sed -n 's/^version=//p' config/kueue-controller/RELEASE)"
+    echo "approved_bench_sha256=$APPROVED_BENCH_SHA256"
+    echo "approved_step_sha256=$APPROVED_STEP_SHA256"
+    echo "torch_image=$TRAIN_IMAGE"
+    echo "nccltests_image=$NCCLTESTS_IMAGE"
+    echo "node=$node"
+    echo "nodes=$(paste -sd' ' <<<"$ids")"
+    echo "train_az=${TRAIN_AZ:-unpinned}"
+    echo "node_zones=$(paste -sd' ' <<<"$zones")"
+    echo "order_seed=$AR_ORDER_SEED"
+    echo "job_budget_seconds=$AR_BUDGET"
+    echo "nodegroup_release=$(aws eks describe-nodegroup --cluster-name "$CLUSTER" --nodegroup-name "$TRAIN_GROUP" \
+      --query 'nodegroup.releaseVersion' --output text 2>&1 | head -1)"
+  } >"$AR_OUT/provenance.txt"
+  AR_SCORER_ARGS="--bench-sha256 $APPROVED_BENCH_SHA256 --step-sha256 $APPROVED_STEP_SHA256 --node $node"
+  if ar_run_all; then
+    ok "the smoke jobs passed and every registered job ran"
+  else
+    bad "the arms stopped: $(cat "$AR_OUT/STOPPED" 2>&1)"
+  fi
+  if python3 "$AR_SCORER" "$AR_OUT" --bench-sha256 "$APPROVED_BENCH_SHA256" --step-sha256 "$APPROVED_STEP_SHA256" \
+    >"$AR_OUT/verdict.txt" 2>&1; then
+    ok "T8: every registered job valid ($AR_OUT/verdict.txt)"
+  else
+    bad "T8: not every job was valid: $(grep -cE '^INVALID' "$AR_OUT/verdict.txt") invalid line(s), see $AR_OUT/verdict.txt"
+  fi
+}
+
 train_down() {
   local - why p
   set +e
-  for p in "${DDP_COLLECTORS[@]}"; do kill "$p" 2>>"$EXDIR/session.log"; done
+  for p in "${DDP_COLLECTORS[@]}" "${AR_COLLECTORS[@]}"; do kill "$p" 2>>"$EXDIR/session.log"; done
   DDP_COLLECTORS=()
+  AR_COLLECTORS=()
   [[ -n "$SCALED_UP$GPU_ARMED" ]] || return 0
   if [[ -n "$SCALED_UP" ]]; then
     log "scaling $TRAIN_GROUP to 0"
@@ -735,7 +880,7 @@ train_down() {
   fi
 }
 
-if [[ "$TRAIN" == ddp ]]; then
+if [[ -n "$TRAIN" ]]; then
   # From here an error or a signal ends the run through train_down, as SERVE's does through gpu_down.
   trap 'train_down' EXIT
   trap 'exit 130' INT

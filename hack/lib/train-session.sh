@@ -172,22 +172,28 @@ print(total, "; ".join(seen) or "none")
   echo "G and VT On-Demand vCPU in use $n ($which) plus $add fits the quota of $quota"
 }
 
-# train_qualify_nodes CONTEXT GROUP WANT WAIT_SECONDS: exactly WANT nodes of the group, each qualified by name.
+# train_qualify_nodes CONTEXT GROUP WANT WAIT_SECONDS GPUS: exactly WANT nodes of the group, each qualified by name.
 #
-# Qualified is Ready, advertising nvidia.com/gpu 1, with a Ready device plugin Pod on that node; and no GPU
+# Qualified is Ready, advertising exactly GPUS nvidia.com/gpu, with a Ready device plugin Pod on that node; and no GPU
 # simulator anywhere, since it also advertises a GPU and would satisfy the count alone. Every node, not the first:
 # a session that qualified one and trained on two would be reading the second on trust.
 # Prints "name instance-id" per node on success.
 train_qualify_nodes() {
   # Assigned empty, because a failed first query leaves the second unrun and its variable otherwise unset.
-  local ctx="$1" group="$2" want="$3" wait="$4" deadline=$((SECONDS + $4)) nodes="" plugins="" verdict sims
+  local ctx="$1" group="$2" want="$3" wait="$4" gpus="${5:-}" deadline=$((SECONDS + $4)) nodes="" plugins="" verdict sims
+  # Required, not defaulted: a g5.12xlarge advertising one card of four is a node with three missing, and a default of
+  # 1 would qualify exactly that.
+  if [[ ! "$gpus" =~ ^[1-9][0-9]*$ ]]; then
+    echo "the expected GPUs per node '$gpus' is not a positive whole number"
+    return 1
+  fi
   while :; do
     verdict=""
     if nodes="$(kubectl --context "$ctx" --request-timeout=20s get nodes -l "eks.amazonaws.com/nodegroup=$group" -o json 2>&1)" &&
       plugins="$(kubectl --context "$ctx" --request-timeout=20s get pods -A -l app.kubernetes.io/component=nvidia-device-plugin -o json 2>&1)"; then
       verdict="$(python3 -c '
 import json, sys
-want = int(sys.argv[1])
+want, per_node = int(sys.argv[1]), sys.argv[4]
 try:
     nodes = json.loads(sys.argv[2]).get("items", [])
     plugins = json.loads(sys.argv[3]).get("items", [])
@@ -200,7 +206,7 @@ good, why = [], []
 for n in nodes:
     name = n["metadata"]["name"]
     gpus = ((n.get("status") or {}).get("allocatable") or {}).get("nvidia.com/gpu")
-    faults = [f for f, ok in (("not Ready", ready(n)), (f"allocatable nvidia.com/gpu {gpus!r}", gpus == "1"),
+    faults = [f for f, ok in (("not Ready", ready(n)), (f"allocatable nvidia.com/gpu {gpus!r}, want {per_node!r}", gpus == per_node),
                               ("no Ready device plugin", name in with_plugin)) if not ok]
     if faults:
         why.append(name + ": " + ", ".join(faults))
@@ -212,7 +218,7 @@ elif len(good) == want:
     print("OK " + " | ".join(good))
 else:
     print(f"WAIT {len(good)} of {want} qualified; " + ("; ".join(why) or f"{len(nodes)} node(s) joined"))
-' "$want" "$nodes" "$plugins")"
+' "$want" "$nodes" "$plugins" "$gpus")"
     else
       verdict="WAIT unreadable: ${nodes:0:200} ${plugins:0:200}"
     fi
@@ -383,7 +389,7 @@ else:
 
 # train_only_clusterqueue CONTEXT NAME WAIT_SECONDS: NAME is Active, and it is the only ClusterQueue on the cluster.
 #
-# The training ClusterQueue joins a shared cohort with reclaim, so its two GPUs are an admission quota and not a
+# The training ClusterQueue joins a shared cohort with reclaim, so its GPUs are an admission quota and not a
 # ceiling: any other ClusterQueue in the cohort could lend to it. On the fresh cluster the session requires, none
 # should exist, and one that does is a finding, refused at once rather than waited out.
 train_only_clusterqueue() {
@@ -424,17 +430,22 @@ else:
   done
 }
 
-# train_qualification_held CONTEXT NAMESPACE NAME WAIT_SECONDS: the qualification job admitted, unplaced, and stamped.
+# train_qualification_held CONTEXT NAMESPACE NAME WAIT_SECONDS PODS: the qualification job admitted, unplaced, and
+# stamped, with exactly PODS Pods (two ranks of one GPU for TRAIN=ddp, one Pod of four for TRAIN=allreduce).
 #
 # Submitted before any GPU node exists, so Kueue admits it on quota alone and its Pods can go nowhere: the job sits
 # in Admitted, the one state in which the operator writes admittedAt (design, correction 2). Admitted with the stamp
 # shows Kueue and the operator answering on this cluster before anything is bought.
 # A Pod with a node, or a phase past Admitted, means a GPU node existed that this session did not buy, and refuses.
 train_qualification_held() {
-  local ctx="$1" ns="$2" name="$3" wait="$4" deadline=$((SECONDS + $4)) job="" pods="" verdict
+  local ctx="$1" ns="$2" name="$3" wait="$4" want="${5:-}" deadline=$((SECONDS + $4)) job="" pods="" verdict
+  if [[ ! "$want" =~ ^[1-9][0-9]*$ ]]; then
+    echo "the expected Pod count '$want' is not a positive whole number"
+    return 1
+  fi
   while :; do
     if job="$(kubectl --context "$ctx" --request-timeout=20s -n "$ns" get mltrainingjob "$name" -o json 2>&1)" &&
-      pods="$(kubectl --context "$ctx" --request-timeout=20s -n "$ns" get pods -l "platform.lkhun9311.github.io/mltrainingjob=$name" -o json 2>&1)"; then
+      pods="$(kubectl --context "$ctx" --request-timeout=20s -n "$ns" get pods -l "batch.kubernetes.io/job-name=$name" -o json 2>&1)"; then
       verdict="$(python3 -c '
 import json, sys
 try:
@@ -448,11 +459,11 @@ if placed:
     print(f"REFUSE a qualification Pod was placed before any GPU node was bought: {placed}")
 elif phase in ("Running", "Succeeded", "Failed"):
     print(f"REFUSE the qualification job is {phase} with no GPU node bought")
-elif phase == "Admitted" and stamp and len(pods) == 2:
-    print(f"OK admitted at {stamp}, both Pods unplaced")
+elif phase == "Admitted" and stamp and len(pods) == int(sys.argv[3]):
+    print(f"OK admitted at {stamp}, " + ("both Pods" if len(pods) == 2 else f"{len(pods)} Pod(s)") + " unplaced")
 else:
-    print(f"WAIT phase {phase}, admittedAt " + (stamp or "absent") + f", {len(pods)} Pod(s)")
-' "$job" "$pods")"
+    print(f"WAIT phase {phase}, admittedAt " + (stamp or "absent") + f", {len(pods)} Pod(s) of {sys.argv[3]}")
+' "$job" "$pods" "$want")"
     else
       verdict="WAIT unreadable: ${job:0:200} ${pods:0:200}"
     fi
