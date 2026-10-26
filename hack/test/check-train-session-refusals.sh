@@ -162,6 +162,22 @@ for p in $stray; do kill -- "-$p" 2>/dev/null || kill "$p" 2>/dev/null || true; 
 sleep 1
 [[ -z "$(pgrep -f -- "$work/$name/")" ]] && ok "$name: the test stopped its watchdog" || bad "$name: a watchdog survived the test: $(pgrep -af -- "$work/$name/")"
 
+# Every call the session makes to the node gates passes the GPUs per node they require.
+# The refusals above stop before any node is bought, so none of them reaches these calls: STUDY=prefixroute kept a
+# four-argument train_qualify_nodes after #406 made the fifth required, and only a review found it (codex, c9ddbb42).
+calls="$(python3 - hack/eks-gitops-session.sh <<'PY'
+import re, shlex, sys
+for n, line in enumerate(open(sys.argv[1]), 1):
+    m = re.search(r'\$\((train_qualify_nodes|train_qualification_held) (.*?)\)"? *\|\|', line)
+    if m:
+        args = shlex.split(re.sub(r'\$\(\((.*?)\)\)', 'ARITH', m.group(2)))
+        print(n, m.group(1), len(args))
+PY
+)"
+short="$(awk '$3 < 5' <<<"$calls")"
+[[ -n "$calls" && -z "$short" ]] && ok "every node-gate call passes its required count ($(wc -l <<<"$calls") calls)" ||
+  bad "node-gate calls missing the required count: ${short:-no calls found}"
+
 if [[ $fails -ne 0 ]]; then
   echo "check-train-session-refusals: $fails failure(s)"
   exit 1

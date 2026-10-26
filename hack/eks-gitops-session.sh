@@ -967,7 +967,8 @@ prefix_run() {
     bad "could not scale $TRAIN_GROUP up"
     return 1
   }
-  ids="$(train_qualify_nodes "$CLUSTER" "$TRAIN_GROUP" "$PREFIX_NODES" $((WAIT_GPU_NODE + WAIT_GPU_PLUGIN)))" || {
+  # One card per g5.xlarge; the gate requires the count, so a node advertising none is refused rather than qualified.
+  ids="$(train_qualify_nodes "$CLUSTER" "$TRAIN_GROUP" "$PREFIX_NODES" $((WAIT_GPU_NODE + WAIT_GPU_PLUGIN)) 1)" || {
     bad "P3: $ids"
     return 1
   }
