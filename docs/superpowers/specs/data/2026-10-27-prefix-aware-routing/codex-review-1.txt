@@ -1,0 +1,16 @@
+codex
+Fallback requests corrupt the new routing load accounting, and the scorer can accept incomplete observations or an unregistered gateway configuration. Targeted tests pass, but full Go-suite validation was blocked by socket restrictions and missing envtest binaries.
+
+Full review comments:
+
+- [P2] Transfer outstanding counts when a request falls back — /home/lkhun9311/workspace/gpu-platform-control-plane/.claude/worktrees/agent-a279fe81eee6dfa00/internal/gateway/routing.go:192-196
+  When `tryBackends` advances to a fallback, the outstanding count remains attached to the initially selected backend until the entire response finishes. For example, if A fails to connect and B streams the response, the router sees A as busy and B as idle; with C also available, LeastQueue can select busy B instead of idle C. PrefixAffinity's load escape uses the same incorrect counts. Update the accounting when the proxy changes backends.
+
+- [P2] Check sample coverage across the entire replay interval — /home/lkhun9311/workspace/gpu-platform-control-plane/.claude/worktrees/agent-a279fe81eee6dfa00/hack/eks-serve/prefix-route-study/score.py:247-251
+  The coverage check only measures gaps between surviving samples. If collection stops after two successful samples, all subsequent missing observations are ignored, allowing unobserved restarts and an unrepresentative queue-imbalance endpoint. Keeping only the first two samples in every synthetic test cell still produces `verdict: observed on these traces`. Check the first and last sample against the replay boundaries as well as checking internal gaps.
+
+- [P2] Validate gateway settings against the registered configuration — /home/lkhun9311/workspace/gpu-platform-control-plane/.claude/worktrees/agent-a279fe81eee6dfa00/hack/eks-serve/prefix-route-study/score.py:218-223
+  Comparing each identity with the initial identity only detects changes during the study, not an incorrect starting configuration. A gateway consistently running with `--routing-prefix-capacity-chunks=1`, for example, passes this check despite changing the registered treatment. Replacing `gatewayArgs` with that command throughout the synthetic fixture still produces a passing verdict. Validate the initial arguments against the registered defaults before accepting cells, preferably before starting the paid replay.
+Fallback requests corrupt the new routing load accounting, and the scorer can accept incomplete observations or an unregistered gateway configuration. Targeted tests pass, but full Go-suite validation was blocked by socket restrictions and missing envtest binaries.
+
+Full review comments:
