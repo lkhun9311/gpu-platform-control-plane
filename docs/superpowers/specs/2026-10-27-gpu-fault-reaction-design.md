@@ -331,3 +331,17 @@ The fix, `ca763d7a` (#410), labels the job image so it has a manifest of its own
 **The evidence** is in `hack/gpu-fault/2026-10-26-run1/`, with a `SHA256SUMS` over every file in it. The three image archives, the source archive, the local scorer binary and the evidence tarball (which `gf-run/` unpacks) are not committed; `NOT-COMMITTED.sha256` records their hashes, and the files are kept on the owner's machine.
 
 **What follows.** "Nothing is re-bought: one attempt, reported as it ran" (The paid session, above). A second session is therefore not run under this page as it stands; it needs an amendment, written before it is bought and approved by the owner, as MPS run 2 had. The amendment proposed is the smallest one: the job image's build and the archive check, both already merged, with every arm, bound, phase and verdict rule unchanged.
+
+## Amendment for run 2, 2026-10-27, approved by the owner before it is bought
+
+The owner approved a second session on 2026-10-27, after run 1's record and this amendment's proposal were reported to them.
+"Nothing is re-bought" is lifted for exactly one more attempt, run 2, and for nothing after it: a run 2 that fails for any reason is reported as it ran, and a third needs its own amendment and approval.
+
+**What changes**, and only this:
+- the job image is built as `FROM busybox:1.36` plus a `LABEL`, so it has a manifest of its own (`ca763d7a`, #410);
+- the runner refuses to upload or buy unless `hack/image-archive-check.py` passes all three image archives: exactly one manifest, no `io.containerd.manifest.subject` annotation, no in-toto layer (#410).
+
+**What does not change:** the question, the topology, every arm and its repetitions, every endpoint, prediction and bound, the validity rules, the verdict rules, the falsifiers, the smoke cell, the phases and their deadlines, the stop rule, the termination chain, the AMI, the instance type and the cost rate.
+Run 1's evidence stays where it is and is not pooled with run 2's; run 2 is scored on its own.
+
+**Run 2 is bought from the commit that carries this section**, once it is merged to `dev`, with the command in "The paid session" above.
