@@ -98,11 +98,12 @@ spec:
                         pattern: ^[0-9a-f]{40}$
                         type: string
                       profile:
-                        description: profile is the engine configuration measured
-                          on one A10G with Qwen2.5-3B-Instruct; it is the only one
-                          offered.
+                        description: |-
+                          profile is the engine configuration measured on one A10G with Qwen2.5-3B-Instruct.
+                          v0.27.1-a10g-prefix-cache is the same configuration with prefix caching on, for the prefix-aware routing study.
                         enum:
                         - v0.27.1-a10g
+                        - v0.27.1-a10g-prefix-cache
                         type: string
                     required:
                     - modelRevision
@@ -157,6 +158,26 @@ spec:
                 format: int32
                 minimum: 0
                 type: integer
+              routing:
+                description: |-
+                  routing selects how the gateway spreads this model's requests across the InferenceDeployments serving it.
+                  It applies only when every deployment serving the model in the namespace names the same policy and none is HoldCap.
+                  Absent keeps the gateway's ordering: the oldest deployment serves and the others are fallback.
+                properties:
+                  policy:
+                    description: |-
+                      policy is RoundRobin, LeastQueue or PrefixAffinity.
+                      LeastQueue picks the deployment with the fewest requests the gateway has outstanding on it.
+                      PrefixAffinity picks the deployment the gateway last sent the longest run of this prompt's leading text to, an approximation of the engine's prefix cache, and falls back to LeastQueue when that deployment is busier by more than the matched prefix would save.
+                      None of them was measured before docs/superpowers/specs/2026-10-27-prefix-aware-routing-design.md registered a study of all three.
+                    enum:
+                    - RoundRobin
+                    - LeastQueue
+                    - PrefixAffinity
+                    type: string
+                required:
+                - policy
+                type: object
             required:
             - gpuCount
             - image
@@ -184,6 +205,10 @@ spec:
             - message: spec.engine requires spec.image pinned to the vLLM v0.27.1
                 digest the profile was measured on, from any registry
               rule: '!has(self.engine) || self.image.endsWith(''@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967'')'
+            - message: 'admission.mode HoldCap requires engine profile v0.27.1-a10g:
+                HoldCap was measured with prefix caching off'
+              rule: '!has(self.admission) || self.admission.mode != ''HoldCap'' ||
+                !has(self.engine) || self.engine.vllm.profile == ''v0.27.1-a10g'''
           status:
             description: status defines the observed state of InferenceDeployment
             properties:

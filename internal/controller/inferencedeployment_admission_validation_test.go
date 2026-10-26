@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -135,6 +136,30 @@ var _ = Describe("InferenceDeployment HoldCap validation", func() {
 		o := holdCap("short-rev")
 		o.Spec.Engine.VLLM.ModelRevision = "main"
 		refused(o, "modelRevision")
+	})
+
+	// HoldCap was measured with prefix caching off, so the profile that turns it on cannot carry it.
+	It("refuses HoldCap on the prefix-cache profile and accepts the profile without it", func() {
+		o := holdCap("holdcap-prefix")
+		o.Spec.Engine.VLLM.Profile = platformv1.VLLMProfileV0271A10GPrefixCache
+		refused(o, "HoldCap requires engine profile v0.27.1-a10g")
+		o = holdCap("prefix-off")
+		o.Spec.Engine.VLLM.Profile = platformv1.VLLMProfileV0271A10GPrefixCache
+		o.Spec.Admission = nil
+		Expect(k8sClient.Create(ctx, o)).To(Succeed())
+	})
+
+	It("accepts the three routing policies and refuses any other", func() {
+		for _, p := range []string{platformv1.RoutingPolicyRoundRobin, platformv1.RoutingPolicyLeastQueue, platformv1.RoutingPolicyPrefixAffinity} {
+			o := holdCap("routing-" + strings.ToLower(p))
+			o.Spec.Admission = nil
+			o.Spec.Routing = &platformv1.InferenceRouting{Policy: p}
+			Expect(k8sClient.Create(ctx, o)).To(Succeed())
+		}
+		o := holdCap("routing-random")
+		o.Spec.Admission = nil
+		o.Spec.Routing = &platformv1.InferenceRouting{Policy: "Random"}
+		refused(o, "spec.routing.policy")
 	})
 
 	It("still accepts the committed legacy sample unchanged", func() {
