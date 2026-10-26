@@ -1,0 +1,12 @@
+commit=6d9d087f65fbbe70968740ef8598d599fbf51b8b
+study=gpu-fault-2026-10-27
+ami_id=ami-097edab977037f65f
+ami_name=Deep Learning Base OSS Nvidia Driver GPU AMI (Ubuntu 22.04) 20261016	available
+instance_type=g5.2xlarge
+max_spot_price=1.1324
+source_sha256=75fd6fb95e1e121033d44f6576a19eac08600ffa91ce90a16ab84558faf5a4ab
+images_sha256=a9444877aded1913246ff9f7e49e8597b134dbb56c9e7dba9b6840a01380e6b3
+image_controller=049aadf74350ed718946f5d8c566659eb4f6b22b7e4eca600704de3c9c9739d2
+image_gpu-simulator=624cf9eb91b5b110dc3abd5c60a2134fd23ed6dc4d2f054a58dc865b2914a07e
+image_job=75dc399cd9e790fa2e991351bdbca63286abc1ce7130be1d809526ca76458e8a
+run_id=gpu-fault-20261026T193353Z-68b64c6e

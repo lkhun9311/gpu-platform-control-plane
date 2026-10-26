@@ -1,0 +1,9 @@
+GPU FAULT REACTION: REFUSED
+  refused: no repetition directory was found
+  refused: no smoke.env: the session never recorded whether injection reaches the exporter
+P5 (allocatable unchanged by injection): held
+arm xid    UNJUDGED               valid 0 of 0
+arm ecc    UNJUDGED               valid 0 of 0
+arm benign UNJUDGED               valid 0 of 0
+arm none   UNJUDGED               valid 0 of 0
+termination=confirmed

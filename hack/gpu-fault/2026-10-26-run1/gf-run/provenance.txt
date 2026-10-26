@@ -1,0 +1,8 @@
+mode=dcgm
+kubectl=v1.31.0
+node_image=kindest/node:v1.31.0@sha256:53df588e04085fd41ae12de0c3fe4c72f7013bba32a20e7325357a1ac94ba865
+kueue=v0.18.3
+exporter_image=nvcr.io/nvidia/k8s/dcgm-exporter:3.3.9-3.6.1-ubuntu22.04@sha256:3d4e0dfa5fc4d7d12689d29fc6b56cd6c610750e8d187a393882e341fbba6c12
+device_plugin_image=nvcr.io/nvidia/k8s-device-plugin:v0.16.2@sha256:ed39e22c8b71343fb996737741a99da88ce6c75dd83b5c520e0b3d8e8a884c47
+image_archive controller=049aadf74350ed718946f5d8c566659eb4f6b22b7e4eca600704de3c9c9739d2
+image_archive gpu-simulator=624cf9eb91b5b110dc3abd5c60a2134fd23ed6dc4d2f054a58dc865b2914a07e
