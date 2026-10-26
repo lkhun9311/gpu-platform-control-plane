@@ -84,6 +84,8 @@ func main() {
 	flag.StringVar(&metricsCertKey, "metrics-cert-key", "tls.key", "The name of the metrics server key file.")
 	flag.BoolVar(&enableHTTP2, "enable-http2", false,
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
+	var gpuFault controller.GPUFaultFlags
+	gpuFault.Bind(flag.CommandLine)
 	opts := zap.Options{
 		Development: true,
 	}
@@ -200,9 +202,15 @@ func main() {
 		os.Exit(1)
 	}
 
+	gpuFaultConfig, err := gpuFault.Setup(mgr)
+	if err != nil {
+		setupLog.Error(err, "Failed to set up the GPU fault path")
+		os.Exit(1)
+	}
 	if err := (&controller.NodeHealthReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:   mgr.GetClient(),
+		Scheme:   mgr.GetScheme(),
+		GPUFault: gpuFaultConfig,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "nodehealth")
 		os.Exit(1)

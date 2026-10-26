@@ -31,6 +31,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/source"
+	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 
 	platformv1 "github.com/lkhun9311/gpu-mlops-platform-control-plane/api/v1"
 )
@@ -39,12 +41,17 @@ import (
 type NodeHealthReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
+	// GPUFault turns on the DCGM fault path; nil keeps the reconciler readiness-only, as it always was.
+	GPUFault *GPUFaultConfig
 }
 
 // +kubebuilder:rbac:groups=platform.lkhun9311.github.io,resources=nodehealths,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=platform.lkhun9311.github.io,resources=nodehealths/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=platform.lkhun9311.github.io,resources=nodehealths/finalizers,verbs=update
 // +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups="",resources=pods,verbs=get;list
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch;patch
+// +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 
 // Reconcile observes the target Node, reflects its readiness into NodeHealth status, and enforces quarantine:
 // a not-ready node is tainted so the scheduler stops placing GPU workloads on it,
@@ -64,7 +71,10 @@ func (r *NodeHealthReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			switch err := r.Get(ctx, types.NamespacedName{Name: nh.Spec.NodeName}, &node); {
 			case err == nil:
 				base := node.DeepCopy()
-				if removeUnhealthyTaint(&node) {
+				// The gpu-fault taint is this resource's too, so it goes with the resource whether or not the
+				// fault path is still enabled; a taint nobody will ever remove is the worse failure.
+				removedGPU := removeGPUFaultTaint(&node)
+				if removeUnhealthyTaint(&node) || removedGPU {
 					if err := r.Patch(ctx, &node, client.MergeFrom(base)); err != nil {
 						return ctrl.Result{}, fmt.Errorf("remove unhealthy taint from node %s on deletion: %w", node.Name, err)
 					}
@@ -98,8 +108,19 @@ func (r *NodeHealthReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 
 	var node corev1.Node
 	var nodeBase *corev1.Node
+	// nodeChanged is the readiness taint's change alone, because the taint metric below counts only that one.
 	nodeChanged := false
 	err := r.Get(ctx, types.NamespacedName{Name: nh.Spec.NodeName}, &node)
+	// The DCGM path runs only on a node that exists, and only when it was turned on.
+	// It is decided before the phase is set, so that a latched GPU fault quarantines a node whose kubelet is
+	// Ready without the phase passing through Ready, which would move lastTransitionTime on every reconcile.
+	var gpuDecision *gpuFaultDecision
+	if r.GPUFault != nil && err == nil {
+		d := r.decideGPUFaultFor(&nh)
+		gpuDecision = &d
+	}
+	// readinessTaint is "applied" or "removed" when the readiness taint changed, for the metric that counts only it.
+	readinessTaint := ""
 	switch {
 	case apierrors.IsNotFound(err):
 		// No node to manage: report Pending and clear any fault signal.
@@ -110,16 +131,31 @@ func (r *NodeHealthReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return ctrl.Result{}, fmt.Errorf("get node %s: %w", nh.Spec.NodeName, err)
 	case isNodeReady(&node):
 		nodeBase = node.DeepCopy()
-		setPhase(desired, phaseReady)
-		desired.FaultSignal = nil
-		nodeChanged = removeUnhealthyTaint(&node)
+		if gpuDecision != nil && gpuDecision.latch != "" {
+			setPhase(desired, phaseQuarantine)
+			desired.FaultSignal = &platformv1.FaultSignal{Source: faultSourceDCGM, Code: gpuDecision.latch}
+		} else {
+			setPhase(desired, phaseReady)
+			desired.FaultSignal = nil
+		}
+		if removeUnhealthyTaint(&node) {
+			nodeChanged, readinessTaint = true, "removed"
+		}
 		setReadyCondition(desired, true, reasonNodeReady, "Target node is Ready", nh.Generation)
 	default:
 		nodeBase = node.DeepCopy()
 		setPhase(desired, phaseQuarantine)
 		desired.FaultSignal = &platformv1.FaultSignal{Source: faultSourceNodeNotReady}
-		nodeChanged = ensureUnhealthyTaint(&node)
+		if ensureUnhealthyTaint(&node) {
+			nodeChanged, readinessTaint = true, "applied"
+		}
 		setReadyCondition(desired, false, reasonNodeNotReady, "Target node is not Ready", nh.Generation)
+	}
+	if gpuDecision != nil {
+		if applyGPUFaultToNode(&node, *gpuDecision) {
+			nodeChanged = true
+		}
+		applyGPUFaultToStatus(desired, *gpuDecision, nh.Generation)
 	}
 
 	// Enforce taint changes on the node first, so status never claims a quarantine we failed to apply.
@@ -132,12 +168,15 @@ func (r *NodeHealthReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 
 		// Count the taint transition only after the patch succeeds, so the metric never claims an enforcement that did not happen.
 		//
-		// Pending has no taint change, so only these two phases increment the counter.
-		switch desired.Phase {
-		case phaseQuarantine:
-			nodeHealthTaintTotal.WithLabelValues("applied").Inc()
-		case phaseReady:
-			nodeHealthTaintTotal.WithLabelValues("removed").Inc()
+		// Only the readiness taint is counted here; the gpu-fault taint has its own series.
+		if readinessTaint != "" {
+			nodeHealthTaintTotal.WithLabelValues(readinessTaint).Inc()
+		}
+	}
+	// After the Node patch, so that tainted-at is a time the taint existed.
+	if gpuDecision != nil {
+		if err := r.recordGPUFault(ctx, &nh, *gpuDecision, &node); err != nil {
+			return ctrl.Result{}, err
 		}
 	}
 
@@ -195,9 +234,17 @@ func (r *NodeHealthReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &platformv1.NodeHealth{}, NodeNameIndex, indexNodeHealthByNodeName); err != nil {
 		return fmt.Errorf("index nodehealth by %s: %w", NodeNameIndex, err)
 	}
-	return ctrl.NewControllerManagedBy(mgr).
+	b := ctrl.NewControllerManagedBy(mgr).
 		For(&platformv1.NodeHealth{}).
-		Watches(&corev1.Node{}, handler.EnqueueRequestsFromMapFunc(r.mapNodeToNodeHealth)).
-		Named("nodehealth").
-		Complete(r)
+		Watches(&corev1.Node{}, handler.EnqueueRequestsFromMapFunc(r.mapNodeToNodeHealth))
+	if r.GPUFault != nil {
+		if r.GPUFault.Events == nil || r.GPUFault.Store == nil || r.GPUFault.APIReader == nil {
+			return fmt.Errorf("gpu fault path enabled without its store, wake-up channel or API reader")
+		}
+		// The scraper's wake-ups, and the displaced Workloads, whose eviction finishing is what lets them be
+		// reactivated; without the second watch a reactivation would wait for the next Node heartbeat.
+		b = b.WatchesRawSource(source.Channel(r.GPUFault.Events, &handler.EnqueueRequestForObject{})).
+			Watches(&kueuev1beta1.Workload{}, handler.EnqueueRequestsFromMapFunc(r.mapWorkloadToNodeHealth))
+	}
+	return b.Named("nodehealth").Complete(r)
 }
