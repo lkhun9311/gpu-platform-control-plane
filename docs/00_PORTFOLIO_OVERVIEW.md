@@ -11,6 +11,8 @@
 > on a paid GPU:** the M5-b admission guard and benchmark harness — four repetitions on 2026-09-03 and an
 > engine-level scheduler microtest on 2026-09-04. The guard failed: 83.7x against a pre-registered 1.25x
 > premium-tail target, and the harness declared the run invalid rather than reporting a protection claim.
+> The 1.25x had no derivation; what the run taught instead, checked against vLLM's and NVIDIA's documentation,
+> is in "What the targets were based on" of `docs/11_WHAT_THIS_MEASURED.md`.
 > **Built, and run for real on kind:** failure & recovery (M7) — a `WorkloadRun` CRD, a controller and a
 > driver, with a recorded run in which deleting a serving Pod produced a recovery trail nobody wrote by
 > hand. **Type and CRD built, and has declared a paid run's load:** `GpuSharingBenchmark` / performance isolation — the API type, the
