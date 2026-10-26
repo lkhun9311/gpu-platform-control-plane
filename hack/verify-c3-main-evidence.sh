@@ -83,8 +83,13 @@ self_test() {
   tmp=$(mktemp -d)
   TMPS+=("$tmp")
   for b in 1 2 3; do printf 'not the archive\n' > "$tmp/$ASSET$b.tgz"; done
-  if (trap cleanup EXIT; verify "$tmp") >/dev/null 2>&1; then fail "self-test: altered assets passed the checksum check"; fi
-  say "self-test: altered assets are refused -- the check can fail"
+  # The subshell starts its own list, or its exit would remove $tmp and the output read below.
+  if (TMPS=(); trap cleanup EXIT; verify "$tmp") >"$tmp/out" 2>&1; then fail "self-test: altered assets passed the checksum check"; fi
+  # Any refusal would satisfy the line above, a missing checksum list or verdict included, so the reason is asserted
+  # (codex review of ec213973).
+  grep -q "does not match $SUMS" "$tmp/out" || fail "self-test: refused for another reason: $(tail -1 "$tmp/out")"
+  [ -s "$VERDICT" ] || fail "self-test: the committed verdict $VERDICT is missing"
+  say "self-test: altered assets are refused by their checksums -- the check can fail"
 }
 
 case "${1:-}" in
