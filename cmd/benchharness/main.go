@@ -92,6 +92,8 @@ func main() {
 		err = mpsCapabilityVerdict(os.Args[2:])
 	case "mps-capability-bar":
 		err = mpsCapabilityBar(os.Args[2:])
+	case "gpu-fault-verdict":
+		err = gpuFaultVerdict(os.Args[2:])
 	case "ladder-plan-check":
 		err = ladderPlanCheck(os.Args[2:])
 	case "matrix-plan-check":
@@ -121,7 +123,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: benchharness <gen-trace|prepare-traces|replay|report|ladder-verdict|mps-capability-verdict|mps-capability-bar|ladder-plan-check|matrix-plan-check|study-arrivals|study-frozen-tuple|print-prompt|check-replay|stamp-exact-tokens|verify-exact-tokens|compile-plan|sim-cap|power|stub-serve> [flags]")
+	fmt.Fprintln(os.Stderr, "usage: benchharness <gen-trace|prepare-traces|replay|report|ladder-verdict|mps-capability-verdict|mps-capability-bar|gpu-fault-verdict|ladder-plan-check|matrix-plan-check|study-arrivals|study-frozen-tuple|print-prompt|check-replay|stamp-exact-tokens|verify-exact-tokens|compile-plan|sim-cap|power|stub-serve> [flags]")
 }
 
 // arrivalFlags are gen-trace's load flags, gathered so the choice between the two arrival models lives in one place.

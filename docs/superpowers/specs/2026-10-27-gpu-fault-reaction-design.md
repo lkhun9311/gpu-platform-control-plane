@@ -1,0 +1,309 @@
+# How long the platform takes to react to a GPU fault DCGM reports: a registration
+
+Written 2026-10-26 and 2026-10-27, before any run.
+**Draft. Not registered: it becomes the registration only by the owner's approval, from the commit that records that approval, and no run before it counts.**
+Two parts: a free rehearsal on kind with a fake exporter, which tests the apparatus and is never a result; and one paid session on one g5.2xlarge, the only run this page can score as a result.
+The first draft was attacked by codex `gpt-6-astra` before anything was built on it; its seventeen findings and what was done with each are in "Adversarial review" at the end, and the prompt and reply are in `docs/superpowers/specs/data/2026-10-27-gpu-fault-reaction/`.
+
+## Why
+
+`docs/03_GPU_NODE_LIFECYCLE.md` and `docs/06_OBSERVABILITY_BENCHMARK_FAILURE.md` both state the gap: nothing DCGM, Xid or ECC reports reaches `NodeHealth`.
+The reconciler reads the Node's `Ready` condition and nothing else, so a card that reports an uncorrectable error on a node whose kubelet is healthy is invisible to this platform, and a training job keeps running on it.
+Fault handling of that kind is what GPU platform operators are asked for (NAVER Cloud GPUaaS Infra, "GPU 서버 자원 모니터링, 장애 대응 및 운영 자동화 도구 개발" with "NVIDIA DCGM 및 Prometheus, Grafana"; 42dot, "GPU 하드웨어 및 소프트웨어 스택 전반의 장애를 모니터링하고 진단하여 고가용성 유지 및 신속한 장애 복구"), and what a large run meets in practice: a 504-GPU pre-training run identified ten GPU failures by Xid (arXiv 2605.09370), and Toss describes health checks and preflight as the first layer of its GPU cluster (https://toss.tech/article/gpu-native-cluster).
+This page builds the missing path and asks how long each hop of it takes, and whether it stays quiet when nothing is wrong.
+
+## The question
+
+When DCGM holds a GPU fault value for a node's card — an Xid in `DCGM_FI_DEV_XID_ERRORS` or a double-bit ECC count in `DCGM_FI_DEV_ECC_DBE_VOL_TOTAL`, put there by injection — how long does each hop of this platform's reaction take, from the value being in DCGM to the displaced training job being placed on a healthy node; do a benign field change and no change at all, both watched by a working observer, produce no reaction; and does missing data neither set nor clear a fault?
+
+## The known boundary: this measures the platform's path, not the device plugin's
+
+Verified against the sources, 2026-10-26:
+- `dcgmi test --inject` writes into DCGM's cache: its parser describes the switch as "Inject values into cache.", requires `-f/--field` and `-v/--value`, takes a single `--gpuid` (default **1**, so the runner always passes `--gpuid 0`), and `--offset` is the "Number of seconds into the future in which to inject the data", default 1 (NVIDIA/DCGM, dcgmi/CommandLineParser.cpp, function ProcessAdminCommandLine; upstream names, not files in this repository).
+  The library call is `dcgmInjectFieldValue(dcgmHandle_t, unsigned int gpuId, dcgmInjectFieldValue_t *)`, which "injects a sample into the cache manager" (`dcgmlib/dcgm_test_apis.h`).
+  The help text of the **exact** `dcgmi` in the pinned exporter image shows the same flags: version 3.3.9, extracted from layer `sha256:8e0a5837…` of `nvcr.io/nvidia/k8s/dcgm-exporter@sha256:19a6d4fe…`, the amd64 manifest of the digest `config/dcgm-exporter/daemonset.yaml` pins. That layer also carries `/usr/bin/nv-hostengine` and `libdcgm.so.3.3.9`.
+- `dcgmi test --introspect` does **not** read a value back: the same binary's strings for that output are cache metadata ("Newest Timestamp", "Oldest Timestamp", "Fetch Count"). The readback is therefore `dcgmi dmon -e <field> -i 0 -c 1`, whose row for the card is `GPU 0 <value>`; that this row carries the injected value is something the smoke cell must show (S3).
+- Field identifiers, `dcgmlib/dcgm_fields.h`: `DCGM_FI_DEV_XID_ERRORS` is an alias of `DCGM_FI_DEV_XID_ERROR`, **230**, "The value is the specific XID error"; `DCGM_FI_DEV_ECC_SBE_VOL_TOTAL` **310** and `DCGM_FI_DEV_ECC_DBE_VOL_TOTAL` **311**, "Total single/double bit volatile ECC errors".
+- dcgm-exporter 3.3.9-3.6.1's default counters export `DCGM_FI_DEV_XID_ERRORS` as a gauge, "Value of the last XID error encountered", and carry the four ECC totals **commented out**; the study overlay `config/dcgm-exporter-fault/` names all three fields itself.
+- The NVIDIA k8s-device-plugin's health check (NVIDIA/k8s-device-plugin, internal/rm/health.go, at v0.16.2, the version `config/nvidia-device-plugin/daemonset.yaml` pins) creates an NVML event set, waits on eventSet.Wait(5000), skips every event that is not an NVML Xid-critical-error event, and has no reference to DCGM.
+  An injected DCGM value produces no NVML event, so **the plugin is not expected to mark the device unhealthy, and `allocatable` is not expected to change**.
+  What is measured here is this platform's reaction to what DCGM reports, not the device plugin's, and not what a real fault does to NVML.
+- Injection needs a host engine to connect to. The exporter as `config/dcgm-exporter/` deploys it runs DCGM embedded, which opens no port for `dcgmi`.
+  The study overlay therefore runs `nv-hostengine -n` (bound to 127.0.0.1, its default) as a second container in the exporter's Pod, and the exporter with `-r localhost:5555` (`--remote-hostengine-info` in the 3.3.9 binary's `--help`), so the exporter and `dcgmi` read and write one cache.
+
+Not verified, and confirmed or refuted only by the paid smoke cell (S1 to S6 below):
+- that `nv-hostengine` starts inside a kind node on an A10G and lists the card;
+- that the exporter in remote mode exports what the host engine holds, so an injected value appears on `/metrics`;
+- that `dcgmi dmon` returns the injected value;
+- that an injected value **persists** against DCGM's own polling. Field 311 is read from NVML on each update, and a sample injected one second in the future (the default offset) would be the newest only until the next poll.
+  The runner injects every value with a fixed offset of 900 s, so the injected sample is the newest by timestamp for 900 s, longer than one repetition plus its reset (260 s at most, below); a later injection, at a later wall time with the same offset, is newer still, so a reset supersedes the fault.
+  That DCGM returns the newest sample by timestamp rather than the last one written is the reading this rests on, and S3 to S5 test it for 30 s;
+- that field 311 and field 310 can be injected and exported on an A10G at all.
+
+## The platform's reaction, as built for this study
+
+Opt-in and inert by default: nothing below runs unless the operator is started with `--gpu-fault-source=dcgm`, and nothing is evicted unless it is also started with `--gpu-fault-evict-workloads`.
+The operator scrapes each node's exporter Pod directly once a second (`--gpu-fault-scrape-interval`, timeout `--gpu-fault-scrape-timeout` 0.8 s), and a reading older than `--gpu-fault-stale-after` 5 s is not fresh.
+5 s is a convention: four missed scrapes, so that one slow scrape does not flap the signal; `GPUFaultSourceConfig.Validate` refuses a stale-after that does not exceed the interval.
+Each hop is stamped by the component that performs it.
+
+| hop | what happens | where its time comes from |
+|---|---|---|
+| H0 | the runner injects, then reads the value back with `dcgmi dmon` | the runner's host clock, `date +%s.%N`, just before the injection call and when it returns: the value became available inside **[t_inj0, t_inj1]**; the readback afterwards, **t_rb**, confirms it and starts nothing |
+| H1 | the exporter serves the value on `/metrics` | the runner's probe, which reads `/metrics` through the apiserver's Pod proxy every 0.2 s plus one request: **t_exp**. A poll, because the exporter carries no per-sample timestamp |
+| H2 | the operator's scraper reads the value | annotation `gpufault.platform.lkhun9311.github.io/observed-at` on the `NodeHealth`, RFC 3339 with nanoseconds: when the scrape that first carried the fault fingerprint returned, **t_obs** |
+| H3 | the reconciler sets `GPUHealthy=False` (reason `XidError`, `EccDoubleBitError` or `MultipleFaults`) and taints the node `platform.lkhun9311.github.io/gpu-fault=true:NoSchedule` | annotation `…/tainted-at`, written after the Node patch succeeded: **t_taint** |
+| H4 | the reconciler deactivates the Kueue `Workload` of each GPU Pod on the node (`spec.active=false`) | annotation `…/deactivated-at` on the Workload, the time the patch was sent: **t_deact** |
+| H5 | Kueue decides the eviction: `Evicted=True`, reason `Deactivated` | that condition's `lastTransitionTime`, whole seconds: **t_evict**, the eviction decision only |
+| H5a | Kueue's Job integration suspends the Job | the Job's `Suspended=True` condition, whole seconds: **t_suspend** |
+| H5b | the quota is released | the Workload's first `QuotaReserved` not `True` after the deactivation, in the order the watch delivered them, whole seconds: **t_release** |
+| H6 | the displaced Pod's container stops | its `state.terminated.finishedAt`, whole seconds: **t_stop** |
+| H7 | the reconciler reactivates the Workload it deactivated, once Kueue reports it evicted and its quota released; Kueue requeues and re-admits it | annotation `…/reactivated-at` (nanoseconds), then the first `QuotaReserved=True` after the release in stream order: **t_readmit** (whole seconds) |
+| H8 | the new Pod is bound to the healthy node and its container starts | its `PodScheduled=True` `lastTransitionTime` on the healthy node, and `state.running.startedAt`, whole seconds: **t_placed**, **t_run** |
+| H9 (reset) | the runner injects zero back; the next fresh scrape reading every fault field at zero clears the condition and removes the taint | annotation `…/cleared-at` |
+
+Every value the operator reads, the single-bit count included, is written to `…/reading` with the time it first appeared in `…/reading-at`, when it changes; that is the evidence a control's value was read and ignored rather than never read.
+
+The un-fault path is deliberate and narrow. A latched fault clears only on a **fresh** scrape in which every fault field on every card reads **zero** — what a GPU reset or a driver reload leaves — or when an operator writes the current fingerprint into `gpufault.platform.lkhun9311.github.io/acknowledged`.
+"No fault" is not enough: the Xid field holds the last Xid only, so an application Xid arriving after a fatal one replaces it and reads as no fault while nothing was repaired (`TestGPUFaultApplicationXidAfterAFatalOneKeepsTheLatch`).
+Stale or missing data never clears a fault and never sets one.
+Stale data has its own condition, `GPUSignal=False` with reason `Stale`, `NoExporter`, `AmbiguousExporter`, `ScrapeFailed` or `NoCards`; with no latched fault, `GPUHealthy` is then `Unknown`, never `True`.
+
+The fault policy, and where each part of it comes from:
+- an Xid is a fault unless it is 13, 31, 43, 45 or 68, the Xids NVIDIA's device plugin v0.16.2 ignores as application errors ("the GPU should still be healthy", in the plugin's internal/rm/health.go). Borrowed with citation, so that this platform's quarantine and the plugin's own unhealthy rule agree on which Xids are about the card;
+- `DCGM_FI_DEV_ECC_DBE_VOL_TOTAL` above zero is a fault: NVIDIA's Xid catalogue reports a double-bit ECC error as Xid 48, which is not in the ignored list;
+- `DCGM_FI_DEV_ECC_SBE_VOL_TOTAL` is never a fault: single-bit errors are corrected, and the device plugin subscribes to them and acts on none. That is what makes it the benign arm;
+- a card missing either fault field cannot be called healthy: `GPUHealthy=Unknown`, reason `FieldMissing`.
+
+## Clocks and resolution
+
+Both the rehearsal and the paid session run one kind cluster on one machine: the runner, the operator, Kueue, the apiserver and the kubelets read the same kernel clock, because kind nodes are containers on it. There is no cross-host offset.
+The nanosecond stamps are the operator's and the runner's; every Kubernetes condition and container time is truncated to the whole second.
+So every hop is reported as an interval `[lo, hi]`:
+- from the injection bracket to a nanosecond stamp t: `[t − t_inj1, t − t_inj0]`;
+- from the bracket to a whole-second time s: `[s − t_inj1, s + 1 − t_inj0]`;
+- from a nanosecond stamp t to a whole-second time s: `[s − t, s + 1 − t]`;
+- between two whole-second times: `[s2 − s1 − 1, s2 − s1 + 1]` (re-admission, and lost work).
+Watch streams (`kubectl get -w -o json`) are recorded for the Node, the `NodeHealth`, the Workload, the Job and the job's Pods, because a deleted Pod's `finishedAt` exists nowhere else afterwards.
+Kueue's transitions are identified by the order the Workload's watch delivered them, not by comparing whole-second stamps, which can reorder events inside one second.
+Each watch records when it started and ended (`watch-<resource>.log`); a watch that started after the injection, ended inside the window, or restarted, leaves a gap whose contents are unknown, and the repetition is INVALID (V3), never quiet.
+
+## Arms and repetitions
+
+| arm | injection | expected platform action |
+|---|---|---|
+| `xid` | field 230 := 79 ("GPU has fallen off the bus", not ignored) | H2 to H8 |
+| `ecc` | field 311 := 1 | H2 to H8 |
+| `benign` | field 310 := 1 | none, and the reading recorded |
+| `none` | nothing; after the window, a sentinel: field 310 := 100 + the repetition's number | none in the window, and the sentinel recorded |
+
+Five repetitions per arm, twenty in all, in five blocks; block b runs the arms in the order rotated by b − 1 (`xid ecc benign none`, then `ecc benign none xid`, …), so drift over the session does not line up with an arm.
+Five is a convention, not a power calculation: this is a characterisation with no hypothesis test, five gives a median and a range from distinct runs, and the session's length follows from it ("Phases").
+For the controls it gives a count, "no reaction in n fully observed windows", and is published as that count, never as a rate.
+
+**One repetition**, on both the rehearsal and the paid session:
+1. Pre-state, read before anything is submitted: on the target node T, `GPUHealthy=True`, `GPUSignal=True`, no `gpu-fault` taint, no latched fingerprint; every field the smoke cell passed reads back 0.
+2. The healthy node H carries the runner's own taint `gpufault-study/hold=true:NoSchedule`, so the job can only land on T.
+   One `MLTrainingJob`, `gpuCount: 1`, image `busybox:1.36` rebuilt locally as the single-platform `gpufault-job:busybox` (kind's image import refuses the multi-platform original), a shell loop that traps SIGTERM and exits 143, is submitted into a ClusterQueue with a quota of **one** GPU, so re-admission needs the evicted quota back.
+   When its Pod is `Ready` on T (at most 60 s), the hold taint is removed from H, and the runner waits 10 s; 60 s and 10 s are conventions, the second so that the displaced attempt has run for a measurable time.
+3. The five watches start and must each have delivered their first objects; the exporter probe starts (not for `none`); `allocatable` on T is read; the injection call is bracketed (H0); `dcgmi dmon` reads the value back.
+4. Observation for **W = 120 s** from t_inj1. W is an observation cutoff, a convention: four times the kubelet's default 30 s grace period. It bounds what the repetition can report, not how long the platform may take; a reaction not complete inside it is reported as not complete inside W.
+5. For `none` only, the sentinel, then at most 10 s (ten scrape periods, a convention) for the operator to record it.
+6. `allocatable` on T is read again; the watches and the probe stop; the final objects and the operator's log are saved.
+7. Reset (H9): zero injected into every field the smoke cell passed; at most 60 s (a convention, an operating cutoff) for the target to read clear; the job deleted and its Pods gone. A reset that does not clear stops the arms, because every later repetition would start faulted.
+
+**The longest repetition** is 60 + 10 + 120 + 10 + 60 = **260 s**, plus the deletion; the runner does not start a repetition with less than 260 s left in the arms phase, and records those it did not start.
+
+## Endpoints, with units
+
+Per fault repetition, intervals in seconds: **detect** (H0 bracket to t_obs), **taint** (t_obs to t_taint), **evict-request** (t_taint to t_deact), **Kueue eviction decision**, **Job suspension**, **quota release** and **container stop** (each from t_deact), **re-admission** (t_release to t_readmit), **end to end** (H0 bracket to t_placed, the headline: from the value being in DCGM to the job bound to a healthy node), **running** (to t_run), **lost work** (the displaced container's `startedAt` to `finishedAt`: the job keeps no checkpoint, so everything it did is lost), and **exporter lag** (H0 to t_exp, diagnostic).
+Per control repetition: the list of platform actions in W (`GPUHealthy=False` in any `NodeHealth` object, a latched fingerprint, the `gpu-fault` taint in any Node object, any Workload with `…/deactivated-at`), and the evidence the operator was reading (V7).
+Per arm: each endpoint's per-repetition intervals, and the median, minimum and maximum of their upper ends; no mean, no interval estimate.
+
+## Registered predictions, and where each bound comes from
+
+- **P1, detect.** In every valid fault repetition, the detect interval does not lie wholly above **2.8 s**.
+  This is an **idealised** bound, derived from configuration under stated assumptions, not a measured one: the exporter collects once per 1.0 s (`-c 1000`, kept by the overlay), the operator scrapes once per 1.0 s, and one scrape takes at most its 0.8 s timeout, so a value written just after a collection is read at most 1.0 + 1.0 + 0.8 s later **if** collection and publication take no time, no scrape fails, and nothing waits to be scheduled.
+  None of those holds exactly: the exporter formats and publishes after it collects, and a failed scrape adds a period (astra, finding 3).
+  So a breach is reported with the operator's log, which records every run of failed scrapes ("GPU fault scrape failing"); a breach with a logged failure inside the repetition is explained by it, and a breach without one says the path is slower than the configuration alone predicts. Either way it is reported as a breach, before anything changes.
+- **P2, the path.** In every valid fault repetition every hop H2 to H8 is present; the platform latches exactly the injected fingerprint; and t_inj0 ≤ t_obs ≤ t_taint ≤ t_deact, with t_evict, t_readmit and t_placed each no more than 1 s (truncation) before the hop preceding it.
+- **P3, placement.** In every valid fault repetition the job's new Pod is bound to H, no new Pod of the job is bound to T after the taint, and the end-to-end interval's upper end is at most W. An interval that straddles W counts as not inside it.
+- **P4, controls.** In every valid `benign` and `none` repetition, zero platform actions.
+- **P5, the boundary (paid only).** `allocatable` `nvidia.com/gpu` on T is the same before and after every injection. A change is reported as an unexpected change **with its cause unresolved**: the device plugin also marks devices unhealthy on its own NVML errors, so a change alone does not show that injection reached NVML (astra, finding 14).
+- **P6, stale data (both runs).** With the operator running, taking T's exporter away for 15 s (three stale-after periods, a convention): with nothing latched, `GPUSignal=False` with a no-reading reason, `GPUHealthy=Unknown`, no taint; with a fault latched, the fault, the taint and the fingerprint all stay; and after the exporter returns and zero is injected, the fault clears.
+- No bound on taint, evict-request, the Kueue hops, re-admission, placement time or lost work: no derivation for one exists, and a bar picked now would be the kind of guess `docs/11_WHAT_THIS_MEASURED.md` ("What the targets were based on") records the earlier ones to have been. These are measured and reported.
+
+## Validity, per repetition
+
+A repetition is **INVALID**, reported with its reason and never scored, when:
+- V1: the readback is not the injected value (`none`: not the baseline), or the recorded field is not the arm's;
+- V2: the pre-state of steps 1 and 2 did not hold;
+- V3: a watch stream is missing, empty or unparseable; a watch started after the injection began, ended inside the window or restarted; or the injection and window stamps are unreadable or out of order;
+- V5: in an arm that injects, the exporter probe never served the injected value inside the window — the stimulus did not reach the exporter, so nothing the platform did is a reaction to it;
+- V6: the repetition does not record which exporter it read (`fake` or `dcgm`); for the session, a tree dirty under `cmd/`, `internal/`, `config/` or `hack/`, or an image digest not recorded;
+- V7 (controls): no evidence the operator was reading — for `benign`, the operator's recorded reading never carried the injected single-bit value inside the window; for `none`, it never carried the sentinel within 10 s of it.
+
+What is **not** invalid, because it is the platform's output and the stimulus was established independently by the readback and the probe: a missing hop, a wrong order, a late or wrong placement, and a latched fingerprint that is not the injected one. Each is a result, scored against P2 or P3 with the predicate it broke.
+
+## Verdict rules
+
+Per arm, from its valid repetitions:
+- fewer than **3** valid: **UNJUDGED** (a convention: the least that gives a median that is not an endpoint);
+- an arm the smoke cell stopped: **NOT-RUN**;
+- `xid`, `ecc`: **FAILED** when any valid repetition broke P2 or P3, naming each broken predicate (`P2-missing`, `P2-order`, `P3-late`, `P3-wrong-node`, `attribution`) and the evidence; otherwise **REACTED-OUTSIDE-BOUND** when P1 was breached in any; otherwise **REACTED**;
+- `benign`, `none`: **QUIET** when P4 holds in every valid repetition, with the count of fully observed windows; **FALSE-POSITIVE** with each action otherwise.
+
+Beside the arms: P5 (held, or failed with its cause unresolved) and the two P6 checks (PASS, FAIL or NOT-RUN).
+The scorer labels the session **REHEARSAL** from the recorded mode when the exporter was the fake, **REFUSED** when there is no smoke record or the repetitions disagree on the exporter, and **RESULT** only for a `dcgm` session.
+
+## Falsifiers
+
+- detect wholly above 2.8 s with no failed scrape logged (P1);
+- a control that taints, latches or deactivates (P4): the classifier is not what this page claims;
+- the job re-admitted and not placed inside W while H has a free device, or placed back on T (P3);
+- stale data that reads healthy, or that releases a latched fault (P6);
+- a latch released by an application Xid rather than by zero or an acknowledgement;
+- `allocatable` changing on injection, which would at least say the boundary above is incomplete (P5).
+
+## The smoke cell, and what stops what
+
+Run on both, before the operator is deployed so that nothing can react, and recorded in `smoke.env`:
+- S1: the exporter Pod on T is Ready and serves field 230; on the paid session, `dcgmi` and `nv-hostengine` are in its `hostengine` container and `dcgmi discovery -l` lists an A10G;
+- S2: `/metrics` carries fields 230, 311 and 310 for the card, and gives its UUID;
+- S3, S4, S5, for 230 := 79, 311 := 1 and 310 := 1 in turn: inject; `dcgmi dmon` reads the value back; the exporter serves it within 10 s (ten collection periods, a convention); it is still served 30 s later (persistence, a convention longer than any detection chain expected); zero is injected, read back and served within 10 s;
+- S6: `allocatable` on T before S3 and after S5.
+
+| smoke outcome | consequence |
+|---|---|
+| S1 or S2 fails, or S3 (field 230) or S4 (field 311) fails | the session stops before any arm: the platform's policy needs both fault fields to call a card healthy, so no repetition could meet its pre-state. The answer is "injection is not visible through the exporter on this card for that field", which is what the smoke cell exists to find out, at the cost of the bring-up |
+| S5 (field 310) fails | `benign` and `none` are NOT-RUN, because both use field 310 (the injection and the sentinel); `xid` and `ecc` run |
+| all pass | all four arms run |
+
+## The paid session
+
+One g5.2xlarge Spot instance (one A10G), the `gpu-lab` account (`007635145730`), `ap-northeast-2`, the AMI pinned by ID: the Deep Learning Base OSS Nvidia Driver GPU AMI (Ubuntu 22.04) that run 3 of the MPS capability study used, `ami-097edab977037f65f`, unless the owner names another at approval.
+Runner: `hack/gpu-fault-session.sh`. It reuses rather than copies: the EC2 lifecycle of `hack/lib/spot-run.sh`, and the instance bring-up of `hack/m5c-gpu-session.sh` spliced between its two anchor lines, exactly as `hack/mps-capability-session.sh` does; the cell procedure is `hack/lib/gpu-fault.sh`, the same file the rehearsal runs; the instance side is `hack/gpu-fault-instance.sh`.
+The operator, `gpu-simulator` and job images are built on the laptop from the committed tree, shipped as checksummed tarballs and loaded into kind; Kueue comes from `config/kueue-controller/manifests.yaml`, the pinned v0.18.3.
+
+**Topology on the instance.** The bring-up creates kind cluster `m5cgpu`: a control-plane and one worker holding the card.
+The worker is T: the real A10G, the NVIDIA device plugin, the study exporter with its host engine.
+The control-plane is H: its control-plane taint removed and `gpu-simulator` pinned to it, advertising one simulated `nvidia.com/gpu`.
+**So re-admission on the paid session lands on a simulated device**, and that is stated with every number from it: what the paid session measures on real hardware is H0 to H6, DCGM to eviction; placement on a healthy node is the same scheduler and Kueue path on both clusters, and a second real card would add cost without adding a hop.
+
+**Phases, from EC2's `LaunchTime`, as `hack/mps-capability-session.sh` counts them:**
+
+| phase | ends at | contents |
+|---|---:|---|
+| bring-up | 720 s | the spliced bring-up, measured at 2 min 43 s on a warm AMI (`docs/superpowers/specs/2026-10-22-paid-retry-candidates.md`); 720 s is the MPS session's registered phase-1 limit, reused |
+| platform and smoke | 1,320 s | images loaded, Kueue, CRDs, device plugin, `gpu-simulator` on H, the study exporter, the smoke cell (S3 to S5 take about 60 s each), then the operator and the tenant |
+| arms | 6,520 s | twenty repetitions of at most 260 s, 5,200 s |
+| stale checks | 6,820 s | P6, two cells of at most about 120 s |
+| evidence | 6,940 s | tar and upload |
+| instance stop | 7,000 s | `shutdown -h now` from the instance's own backstop |
+
+**Stop rule.** Each phase ends at its deadline whatever has run; a repetition is not started with less than 260 s left, and one the deadline cuts anyway is scored as cut.
+A reset that does not clear, or a step that cannot run (a job that cannot be submitted, a hold taint that cannot be set), ends the arms phase and goes to the stale checks and the evidence.
+Nothing is re-bought: one attempt, reported as it ran.
+
+**Termination**, inherited from the existing runners rather than written again:
+- the instance shuts itself down at `LaunchTime` + 7,000 s from a backstop armed as its first line and re-armed precisely once `LaunchTime` is read, and `spot_launch` sets `--instance-initiated-shutdown-behavior terminate`;
+- the launch carries the termination sweeper's `study-deadline` tag at the request plus 6,940 s, rewritten to `LaunchTime` + 6,970 s once `LaunchTime` is known, so a sweep cannot cut the evidence step; the sweeper (`gpu-platform-study-sweeper`, a five-minute schedule) is checked before anything is bought: Active, enabled, aimed at itself, and seen running at least four times without error in the last half hour;
+- the laptop's EXIT, INT and TERM traps call `spot_terminate`, which waits for `terminated` and prints TERMINATION UNCONFIRMED otherwise; the wait may run until `LaunchTime` + 7,300 s, because MPS run 2 was voided by a fixed 300 s;
+- an earlier instance with this study's `purpose` tag still live refuses the purchase.
+`hack/lib/gpu-ttl.sh` is not used: its `ttl_arm` scales an EKS node group to zero, and this session has no node group; the instance's own backstop and the sweeper are its deadline.
+
+None of these is a guarantee on its own (astra, finding 13): the sweeper *requests* termination, its errors are caught per instance, and EventBridge documents delivery delays.
+A TERMINATION UNCONFIRMED is therefore an instruction to the operator to terminate by hand at once, and the session exits non-zero.
+
+**Cost.** The rate is the repository's worst-case rate for this instance, **$1.1324 per instance-hour** (Spot cap $1.10, 200 GB gp3 and a public IPv4; `docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md`, "The worst-case rate per instance-hour").
+The operating allowance, not a maximum, follows that page's convention of the sweeper's tag plus 15 minutes: 6,970 + 900 s, 2.19 h, **$2.48**, conditional on the backstop, the sweeper or the laptop terminating the instance.
+Expected: about 1.7 h at the $0.68/h measured for g5.2xlarge Spot on 2026-09-10 (`docs/superpowers/specs/2026-09-10-does-splitting-the-card-buy-protection.md`), about **$1.2**. The session reads the live price, records it, and tries only zones under the cap.
+
+**To buy it**, after the owner approves this page and the tree is committed and clean:
+
+```
+SESSION_CONFIRM=yes AWS_PROFILE=gpu-lab GPU_FAULT_AMI_ID=ami-097edab977037f65f bash hack/gpu-fault-session.sh
+```
+
+Credentials: an SSO session for the `gpu-lab` profile in account `007635145730` whose exported credential expires at least 155 minutes after the start (the 122 minutes to the end of the termination wait and 30 of headroom), with the rights `hack/mps-capability-session.sh` already uses: EC2 Spot launch, describe and terminate, tags, S3 on the study bucket, IAM instance-profile creation, Service Quotas, Lambda, EventBridge and CloudWatch reads.
+
+## What it does not license
+
+- Nothing about what a **real** Xid or ECC error does: a real fault arrives through NVML, may take the card off the bus, may hang the device plugin, and may need a GPU reset or a reboot; injection exercises none of that.
+- Nothing about the device plugin's health path, `allocatable`, driver resets, row remapping, or DCGM's own policies and health watches, which are a different DCGM path.
+- Nothing about many nodes faulting at once, fault storms, a flapping exporter, or the apiserver under load: one node, one card, one job at a time.
+- Nothing about checkpointed training: lost work here is the whole displaced attempt.
+- Nothing about a frozen exporter cache. The exporter carries no collection timestamp, so a host engine that stopped updating while the exporter kept serving its last snapshot reads as fresh; only a failed scrape is detected as stale.
+- Nothing about EKS: kind, on one machine, with one clock.
+- Not that 2.8 s is a service level anyone needs: it is what this configuration should deliver under its assumptions, and the test is whether it does.
+- Not a false-positive rate: zero actions in n windows is a count of windows.
+
+## Rehearsal on kind
+
+`hack/gpu-fault-reaction.sh` builds kind cluster `gpufault` (context `kind-gpufault`, `hack/kind-config-gpufault.yaml`) from this tree in the paid session's topology: the worker is T and the control-plane, untainted, is H, each advertising one simulated `nvidia.com/gpu` from `gpu-simulator`, whose fake DCGM (`FAKE_DCGM_ADDR`) serves the three fields per simulated device from a cache it snapshots once per `FAKE_DCGM_COLLECT_MS` (1,000 ms by default, matching `-c 1000`), keeps the newest sample by timestamp, and answers injection, readback and an exporter on/off switch over HTTP in place of `dcgmi` and the exporter Pod leaving.
+It runs the same `hack/lib/gpu-fault.sh` procedure — smoke cell, arms, stale checks — scores with the same scorer, and deletes the cluster.
+It proves the apparatus, the scorer and the refusals; it measures nothing about DCGM.
+
+### Rehearsal result, 2026-10-26: REHEARSAL, every arm as predicted, both stale checks PASS
+
+Run `hack/gpu-fault-rehearsal-20261026T150138Z/`, three blocks (`GF_BLOCKS=3`, twelve repetitions, three per arm, the least the verdict rules judge), from an uncommitted tree (its `provenance.txt` records the dirty-file count), on the fake exporter.
+Shortened from five blocks because the host's kind capacity was contended (below); the scorer counts what ran.
+The smoke cell passed S1 to S6 on the fake; `allocatable` was 1 before and after (P5 held, trivially, since the fake has no NVML).
+
+| arm | verdict | valid | detect, upper end (median, min, max) | end to end, upper end | lost work |
+|---|---|---|---|---|---|
+| `xid` | REACTED | 3 of 3 | 0.864, 0.654, 0.925 s | 2.402, 2.192, 2.463 s | upper end 13 s in all three (each interval [11, 13]) |
+| `ecc` | REACTED | 3 of 3 | 0.905, 0.818, 1.015 s | 2.443, 2.356, 2.553 s | upper ends 12 to 13 s |
+| `benign` | QUIET | 3 of 3 | — | — | — |
+| `none` | QUIET | 3 of 3 | — | — | — |
+
+The in-process hops were milliseconds: observed to tainted 8 to 12 ms, tainted to the deactivation patch 33 to 92 ms. Kueue's eviction decision, the Job's suspension and the quota release fell within the same second as the deactivation or the next; re-admission within ±1 s of the release; the new Pod bound to the control-plane node at most 2.2 to 2.6 s after the injection call (the intervals' upper ends).
+P1 held in all six fault repetitions, detect at most 1.015 s against 2.8 s. The fake collects once a second as the real exporter is configured to, but has no DCGM or NVML behind it, so none of these numbers says anything about a card.
+Every control window was observed: the benign value and every sentinel appear in the operator's recorded reading. Stale checks: with the fake exporter answering 503 for 15 s, `GPUSignal=False` (`ScrapeFailed`), `GPUHealthy=Unknown`, no taint; with Xid 79 latched first, the fault, the taint and the fingerprint stayed, and cleared after the exporter came back and zero was injected.
+
+Refusals, shown on copies of this evidence bent one way each (the original is untouched): no `smoke.env` → REFUSED and a non-zero exit; a second start in one repetition's Pod watch → that repetition INVALID (V3) and `xid` UNJUDGED with two valid; a readback of 0 for an injection of 1 → INVALID (V1); the benign value removed from the operator's recorded reading → INVALID (V7); the deactivation stamp removed from a Workload stream → `xid` FAILED, a result rather than an invalid run.
+
+Four attempts before it were void, and each is why something above is the way it is:
+- two could not boot a kind node: the host's root inotify pool was exhausted by other sessions' clusters ("Failed to create control group inotify object: Too many open files"), which is why the rehearsal cluster has two nodes, not three;
+- two failed loading the job image: Docker's containerd store exported busybox's multi-platform index, and the node's import refused it; images are now saved single-platform and loaded as archives, on the paid instance too;
+- an earlier start of this run was stopped after its first repetition, because the watch stop killed a function's subshell rather than the `kubectl` in it, and the next repetition's ECC latch landed in the first repetition's stream: the scorer called it an `attribution` failure. The watch now records `kubectl`'s own PID, and the stop checks that it is gone.
+
+## Adversarial review
+
+codex `gpt-6-astra`, reasoning effort high, read-only, given the first draft with no instruction about where to look (`astra-registration-prompt.txt`, reply `astra-registration-reply.txt`).
+Each finding was re-derived before it was acted on; the column "re-derived" says how.
+
+| # | finding | re-derived | disposition |
+|---|---|---|---|
+| 1 | `dcgmi test --introspect` prints cache metadata, not the value | the pinned binary's strings for that output are "Newest Timestamp", "Oldest Timestamp", "Fetch Count" | adopted: readback is `dcgmi dmon -e F -i 0 -c 1`, parsed as the `GPU 0` row; S3 must show it carries the value |
+| 2 | readback is after availability; t_obs < t_rb is a correct outcome | follows from H0 to H2 running concurrently | adopted: availability is the injection call's bracket, every hop is an interval from it, readback only confirms |
+| 3 | 2.8 s omits collection, publication and failed scrapes | the arithmetic is right, the "worst case" was not | adopted: P1 stated as idealised under named assumptions; failed scrapes are logged on every run of them, and a breach is reported with that log |
+| 4 | `Evicted=True` does not timestamp suspension or quota release | Kueue v0.18.3 sets Evicted, then its Job reconciler suspends and the quota clears later | adopted: H5 split into eviction decision, Job `Suspended`, quota release; a Job watch added |
+| 5 | strict whole-second comparisons can lose re-admissions; both-truncated differences | arithmetic | adopted: Kueue transitions are read in stream order; both-truncated differences carry ±1 s; a straddle of W is not inside it |
+| 6 | a non-empty, parseable watch can have disconnected | a disconnect leaves exactly such a file | adopted: start and end records per watch; a late start, early end or restart is V3 |
+| 7 | V3 excluded the wrong-fingerprint outcome the study should detect | the stimulus is established by readback and probe, independently | adopted: a wrong fingerprint is a scored `attribution` failure, not INVALID |
+| 8 | QUIET did not need a working observer | a dead scraper leaves the NodeHealth unchanged, which reads as quiet | adopted: the operator records every reading it takes on change; V7 requires the benign value, or the `none` sentinel, to appear in it |
+| 9 | the stale falsifier had no cell | true of the draft | adopted: P6, two checks with the operator running |
+| 10 | smoke stop and skip rules contradicted; a missing field breaks pre-state | true: a missing 311 leaves `GPUHealthy=Unknown` for every arm | adopted: the decision table above |
+| 11 | 210 s per repetition did not add up | 60 + 10 + 120 + 60 = 250 | adopted: 260 s with the sentinel, derived; phases recomputed |
+| 12 | conventions were explained as guarantees | true, and 60 / 2.8 is 21, not 30 | adopted: W, the reset and the start limits are stated as cutoffs |
+| 13 | $1.92 was presented as a ceiling | the sweeper requests, it does not confirm | adopted: an operating allowance conditional on termination, with the escalation |
+| 14 | an `allocatable` change does not prove NVML saw the injection | the plugin marks devices unhealthy on its own NVML errors | adopted: P5 failure is reported with its cause unresolved |
+| 15 | an application Xid replacing a fatal one would clear the latch | true of the draft's rule, and of the first implementation | adopted, in the code: a latch clears only on all-zero fault fields or an acknowledgement; tested |
+| 16 | "first missing hop" cannot describe an order or placement failure | true | adopted: FAILED with the named predicate |
+| 17 | the rule of three has unstated assumptions; n may be under five | true | adopted: controls report a count of fully observed windows, no rate |
+
+Rejected: none. Not verifiable here, and left to the smoke cell as the review also says: A10G field support, injection persistence, and whether `dcgmi dmon` returns an injected value.
+
+## Code review of the implementation
+
+`codex review --uncommitted` with `gpt-6-astra`, reasoning effort high, bare (no prompt), over the uncommitted implementation (`codex-review-uncommitted-1.txt`).
+It ran while mutation tests were being applied and reverted in the same tree, so a finding naming a mutated line would have been discounted; none did.
+A static review: it did not establish that anything runs, and the tests below are what did.
+
+| finding | re-derived | fixed |
+|---|---|---|
+| P1: the rehearsal's EXIT trap deletes a `gpufault` cluster that already existed when it refuses to proceed | true: `die` on "already exists" ran the trap, which checked only the name | cleanup deletes only a cluster this run created (`CREATED`) |
+| P1: a latched fault clears when the faulted card drops out of the scrape and a healthy card remains | true: `Pristine` judged only the cards present | a latch clears only on a reading that covers every card its fingerprint names (`Assessment.Covers`); `TestGPUFaultLatchHoldsWhenTheFaultedCardDisappears`, and disabling the check fails it |
+| P1: the rehearsal applies the simulator DaemonSet before its namespace exists | true: `config/device-plugin` holds only the DaemonSet | the namespace is created first, as the instance script already did |
+| P2: serial scrapes let slow exporters delay every other node past the interval and stale-after | true: ten timeouts of 0.8 s per tick | nodes are scraped concurrently, at most 64 at a time; `TestGPUFaultSourceScrapesNodesConcurrently`, and a concurrency of 1 fails it at 2.0 s |

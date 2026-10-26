@@ -1,0 +1,12 @@
+# The GPU fault-reaction rehearsal's cluster (hack/gpu-fault-reaction.sh).
+#
+# Two nodes, the paid session's topology: the worker is the node whose card is faulted, and the control-plane, its
+# control-plane taint removed, is the healthy node the displaced job must land on. A third node would add nothing
+# the study reads, and on a host shared with other kind clusters every node costs inotify instances from one
+# per-user pool: a three-node cluster failed to boot here with "Failed to create control group inotify object".
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: gpufault
+nodes:
+  - role: control-plane
+  - role: worker

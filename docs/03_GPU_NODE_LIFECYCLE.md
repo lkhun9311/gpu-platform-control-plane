@@ -1,5 +1,14 @@
 # GPU Node Lifecycle
 
+> **Update, 2026-10-27.** The paragraph below is the default, and stays true of it. An opt-in path now exists:
+> with `--gpu-fault-source=dcgm` the operator scrapes each node's DCGM exporter, latches an Xid or a double-bit
+> ECC count into `GPUHealthy=False` with the `platform.lkhun9311.github.io/gpu-fault` taint, reports stale data
+> as `GPUSignal=False` rather than as health, and with `--gpu-fault-evict-workloads` deactivates and later
+> reactivates the Kueue Workloads of GPU Pods on the node (`internal/controller/nodehealth_gpufault.go`). It is
+> unit-tested and rehearsed on kind against a fake exporter (every arm as predicted, labelled REHEARSAL);
+> its paid session is registered in `docs/superpowers/specs/2026-10-27-gpu-fault-reaction-design.md`, and no
+> card has yet been through it.
+>
 > **Status (2026-08-07): built** — but the CR is hand-created (no automated intake pipeline creates it),
 > and there is **no GPU-specific fault detection in the health path**: nothing DCGM, Xid or ECC reports
 > reaches `NodeHealth`. Xid and ECC have no code at all. DCGM does — a utilisation reader and an exporter
