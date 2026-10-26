@@ -1,0 +1,195 @@
+I would not approve the paid session from this draft. The main blockers are the readback operation, the timing contract, and the claimed spending ceiling.
+
+I reviewed the [draft](/home/lkhun9311/workspace/gpu-platform-control-plane/.claude/worktrees/agent-a5b6768413de6a7da/docs/superpowers/specs/2026-10-27-gpu-fault-reaction-design.md), the requested repository components, the existing runners, and relevant upstream sources. References below use the draft’s current line numbers. This was a static review; I did not run the study or treat unfinished implementation files as defects.
+
+1. **H0’s introspection command does not establish the injected value — blocker**
+
+   **Draft, L49:** “reads the value back with `dcgmi test --introspect`”.
+
+   The pinned binary’s cache-introspection path calls `dcgmGetCacheManagerFieldInfo` and displays cache metadata: status, sample count, newest/oldest timestamps, watch interval and fetch statistics. Those are not the sample’s value. Consequently, the proposed command does not establish “readback 79,” baseline equality, or `t_rb`; V1 and S3–S5 depend on that distinction.
+
+   **Evidence:** I statically inspected the extracted 3.3.9 `dcgmi` binary and verified that its archive’s SHA-256 begins with the draft’s `8e0a5837`. The parser’s help describes viewing cached values, but help text alone does not establish the returned data. I could not retrieve `DcgmiTest.cpp` through browsing or verify successful introspection against a running host engine.
+
+   **Fix:** Specify and demonstrate a value-reading operation against the same host engine, returning GPU identity, field, status, value and sample timestamp. Freeze its parsing contract before purchase.
+
+2. **Readback is an observation after availability, not the availability time — blocker**
+
+   **Draft, L94:** “Injection and readback (H0); t_rb starts the clock.”  
+   **L120:** “t_rb ≤ t_obs”.
+
+   Nothing stops the exporter and operator from reading the injection while the runner is obtaining its subsequent readback. A correct execution can therefore have `t_obs < t_rb`. Readback delay also subtracts time from every reported detection and end-to-end latency. If that delay exceeds a second, V4 can discard an otherwise correct run as contradictory-clock evidence.
+
+   **Evidence:** This follows directly from the concurrent operations specified in H0–H2; the clocks need not disagree.
+
+   **Fix:** Treat injection availability as bracketed by suitable command/API timestamps, propagate that uncertainty, and retain readback as confirmation. Alternatively, explicitly measure latency from readback confirmation and remove the causal-order claim that confirmation must precede observation.
+
+3. **The 2.8-second “derived worst case” omits delays and failures — major**
+
+   **Draft, L117–119:** “Derived from configuration”; “1.0 + 1.0 + 0.8”; “A breach says the mechanism is not the one described here”.
+
+   The addition is correct; the claimed upper bound is not established. A collection interval bounds neither collection execution nor publication time. A scrape timeout bounds one attempt, not time until a successful attempt. One failed scrape can leave V1–V6 satisfied while adding another interval. Scheduling delays and exporter processing can also produce a breach without changing the mechanism.
+
+   **Evidence:** Verified in the pinned exporter’s [pipeline implementation](https://raw.githubusercontent.com/NVIDIA/dcgm-exporter/3.3.9-3.6.1/pkg/dcgmexporter/pipeline.go): the ticker triggers collection, followed by transformations and formatting; collection failures and skipped output are possible.
+
+   **Fix:** State the assumptions under which the idealized bound applies and account for collection/publication execution and successful-scrape timing. Otherwise register 2.8 seconds as a chosen prediction, without interpreting every miss as proof of a different mechanism.
+
+4. **`Evicted=True` does not timestamp quota release or Job suspension — major**
+
+   **Draft, L54:** “Kueue evicts: `Evicted=True`, reason `Deactivated`, quota released, Job suspended”.
+
+   These are separate transitions. Kueue first marks the Workload evicted. Its Job integration subsequently stops the Job and clears quota reservation when the Job is no longer active. The eviction condition’s timestamp cannot measure all three events. The specified four watches omit Jobs, so suspension is not independently captured.
+
+   **Evidence:** Verified in locally available Kueue **v0.18.3** source: `pkg/controller/core/workload_controller.go:560–604`; `pkg/controller/jobframework/reconciler.go:547–568`; `pkg/controller/jobs/job/job_controller.go:157–158`.
+
+   **Fix:** Name `t_evict` as the eviction-decision timestamp. Record Job suspension and quota-release transitions separately, including their object identities, and require the actual release/re-reservation sequence.
+
+5. **Whole-second handling can lose valid re-admissions and understate uncertainty — major**
+
+   **Draft, L56:** “`QuotaReserved=True` `lastTransitionTime` after **t_deact**”.  
+   **L72:** “[t_s − t_start, t_s + 1 − t_start)”.
+
+   A re-admission occurring after a nanosecond deactivation stamp can have an earlier-looking whole-second timestamp. For example, deactivation and re-admission within the same second fail a strict timestamp comparison.
+
+   The interval formula also assumes an exact start. Both endpoints of `t_readmit − t_evict`, and of the proposed lost-work duration, are truncated. Their difference needs uncertainty from both endpoints. The page also does not resolve a placement interval that straddles W.
+
+   **Evidence:** Arithmetic using the timestamp precision explicitly registered in L54–57 and L72.
+
+   **Fix:** Identify re-admission by the same Workload’s recorded reservation transitions, not strict timestamp comparison. Specify interval arithmetic for each endpoint and pre-register how boundary-straddling observations affect P2/P3 and summaries.
+
+6. **Nonempty, parseable watches do not establish complete observation — major**
+
+   **Draft, L131:** “a watch stream is missing, empty, or does not parse”.  
+   **L136:** a missing hop otherwise means “did not react”.
+
+   A watch can record its initial objects and then disconnect, leaving a nonempty, perfectly parseable file. A control can consequently be declared QUIET despite unobserved actions; a fault repetition can be declared nonreactive despite an unobserved transition.
+
+   **Evidence:** The repository already recognizes this distinction: `experiments/distributed-partial-placement/watch.py:21–50` records watch starts and ends and restarts exited streams. Its header explicitly discusses visible observation gaps.
+
+   **Fix:** Require coverage from before injection through the observation window, collector exit/error records, and a defined resource-version recovery policy. Missing evidence during a gap must remain unknown, rather than becoming absence of platform action.
+
+7. **V3 excludes the classification failures the study should detect — major**
+
+   **Draft, L131:** “the operator’s annotations name a different fingerprint than the one injected”.
+
+   A wrong fingerprint can be a product failure: the operator can misparse a field, attribute it to the wrong GPU, retain a previous fault, or classify the benign field as a fault. V3 removes these repetitions before P2/P4 can judge them. In particular, a benign-arm false positive can become INVALID instead of FALSE-POSITIVE.
+
+   **Evidence:** The contradiction is between V3 and the classifier/control claims at L64–66, L122 and L143.
+
+   **Fix:** Separate externally established stimulus contamination from incorrect operator output. An operator-reported mismatch should be a scored attribution/classification failure unless independent evidence proves the apparatus supplied the wrong stimulus.
+
+8. **QUIET does not require a functioning observer throughout the control — major**
+
+   **Draft, L143:** “QUIET when P4 holds in every valid repetition”.
+
+   `GPUSignal=True` is required only before injection. There is no requirement that the operator continue successfully observing the control during W. The benign exporter probe verifies the exporter, not the operator’s consumption; the none arm has no equivalent exposure check. A scraper that stops after pre-state can therefore satisfy the stated QUIET rule.
+
+   **Evidence:** L89 establishes only pre-state; L110 counts actions; L129–134 contain no continuous operator-observation requirement.
+
+   **Fix:** Require recorded successful operator observations covering each control window, including evidence that the benign value was consumed. Distinguish “observed and ignored” from “not observed.”
+
+9. **The promised stale-path falsifier has no corresponding cell — major**
+
+   **Draft, L154:** “a stale exporter (S6 below) that sets `GPUHealthy=True`, or clears a latched fault”.
+
+   S6, at L173, only records allocatable before and after injections. It never makes an exporter stale. Furthermore, the smoke cell runs before the operator is deployed, so it cannot test the operator’s stale behavior.
+
+   **Evidence:** Direct contradiction between L154, L167 and L173.
+
+   **Fix:** Register an explicit failure-of-observation procedure with the operator running, covering both an initially healthy state and a latched fault. Define expected conditions and prohibited actions, or remove the claim that this study tests that behavior.
+
+10. **The smoke-failure policy is contradictory, and skipping fields breaks pre-state — major**
+
+    **Draft, L176:** “A failed S1 to S5 stops the session before any arm”.  
+    **L177:** “An arm whose field failed its smoke check is skipped … the others run.”
+
+    These prescribe different actions after the same event. Also, L89 requires baseline readback of all three fields. If a field is unsupported or absent—the anticipated reason for skipping its arm—the remaining arms cannot satisfy that universal pre-state as written.
+
+    **Evidence:** L40, L89, L169 and L176–177.
+
+    **Fix:** Provide one explicit decision table separating common infrastructure failures from optional-field failures. Define the remaining arms’ prerequisites and health semantics for each permitted partial-capability case.
+
+11. **The repetition budget does not follow from the procedure — major**
+
+    **Draft, L185:** “twenty repetitions of at most 210 s each (10 s settle after a start of at most 60 s, W = 120 s, a reset of at most 60 s, less overlap)”.
+
+    Those listed durations total **250 seconds**, before injection/readback, evidence work and deletion waits. The procedure orders start, settle, observation and reset sequentially; it specifies no overlap that removes the difference. Thus 4,200 seconds does not establish that twenty maximum-duration repetitions fit.
+
+    **Evidence:** The ordering in L89–98 and the arithmetic in L185.
+
+    **Fix:** Derive the phase budget from an explicit schedule and bounded operations. If 4,200 seconds is simply a spending deadline, say that it may cut the planned repetitions and define summaries and exposure counts accordingly.
+
+12. **The timeout explanations manufacture guarantees from conventions — major**
+
+    **Draft, L95:** a Pod ignoring SIGTERM “plus a requeue and a Pod start, would still end inside” W.  
+    **L97:** “60 s … thirty times the derived detection bound … a defect, not latency”.
+
+    A termination grace period does not bound the full eviction, scheduling, image-pull and startup path. L124 itself says no latency bound exists for several of these stages. Also, thirty times 2.8 seconds is not 60 seconds, and reset includes reconciliation and taint removal, not merely detection.
+
+    **Evidence:** Internal inconsistency with L116–124; the pinned Kueue code in finding 4 shows additional asynchronous stages.
+
+    **Fix:** Keep these as explicit observation/operating cutoffs, or derive them from a complete model. A timeout establishes “not completed within the registered window,” not automatically a defect rather than latency.
+
+13. **The hard lifetime and $1.92 ceiling are unsupported — blocker**
+
+    **Draft, L200:** “The instance cannot outlive the sweeper’s tag plus one sweep … **at most $1.92**.”
+
+    The sweeper requests termination; it neither guarantees completion nor verifies it. A five-minute schedule is not a maximum delivery-and-execution delay. Its per-instance failures are caught and returned normally, so Lambda’s `Errors=0` can coexist with failed termination requests.
+
+    **Evidence:** Verified in `infra/aws/bootstrap/sweeper/sweeper.py:61–88`, especially its explicit “termination requested” distinction. AWS documents [scheduled-rule delivery delays](https://docs.aws.amazon.com/eventbridge/latest/userguide/eb-create-rule-schedule.html). The draft’s own cost source already rejects this inference: `2026-10-08-measuring-prospective-admission-design.md:725–728,822–827` calls its amount an operating allowance, not a maximum.
+
+    **Fix:** State a conditional operating allowance, the termination-confirmation/escalation procedure, and what spending continues if terminators fail. Do not obtain approval on an unconditional ceiling these mechanisms cannot enforce.
+
+14. **An allocatable change does not prove injection reached NVML — major**
+
+    **Draft, L144:** “A P5 failure … says the injection reached NVML after all”.
+
+    Allocatable can change for other reasons. The pinned device plugin marks devices unhealthy on several NVML API failures, including event-wait errors, without receiving the injected Xid. An unrelated real event is another possible cause. Observing allocatable alone does not distinguish these explanations.
+
+    **Evidence:** Verified in [device-plugin v0.16.2 `health.go`](https://raw.githubusercontent.com/NVIDIA/k8s-device-plugin/v0.16.2/internal/rm/health.go), particularly the device-registration and event-wait error paths.
+
+    **Fix:** Report P5 failure as an unexpected allocatable change with unresolved attribution. Establish causation using correlated device-plugin/NVML evidence before asserting that cache injection generated an NVML event.
+
+15. **A benign latest Xid does not establish recovery from an earlier fault — major**
+
+    **Draft, L60:** a fresh scrape without a fault “on real hardware means the value was reset (a GPU reset or a driver reload)”.
+
+    The Xid metric reports the **last error**, not a durable hardware-health state. A subsequent ignored application Xid can replace a previous fault-valued Xid. Under the registered classifier, that is now a scrape without a fault even though no reset or recovery was established. This undermines the explanation of the “latched” fault.
+
+    **Evidence:** Verified latest-error semantics in the pinned [default counters](https://raw.githubusercontent.com/NVIDIA/dcgm-exporter/3.3.9-3.6.1/etc/default-counters.csv); ignored codes are verified in the plugin source. The recovery conclusion is an unsupported inference from those semantics.
+
+    **Fix:** Define recovery independently of “the latest Xid is currently ignored.” Specify what clears a latch, and test a fault followed by an ignored Xid. Do not describe that sequence as verified hardware recovery.
+
+16. **The verdict vocabulary cannot describe all registered failures — minor**
+
+    **Draft, L142:** “DID-NOT-REACT otherwise, naming the first missing hop”.
+
+    P2 can fail on ordering while every hop exists. P3 can fail because every hop occurred but placement was late. Neither case has a first missing hop. The rule forces an inaccurate diagnosis or leaves the scorer to invent an unregistered distinction.
+
+    **Evidence:** L120–121 versus L142.
+
+    **Fix:** Separate missing reaction, incorrect order, placement outside W, wrong destination and indeterminate timing. Report the failed predicate and available evidence.
+
+17. **The rule-of-three statement overstates what these controls establish — minor**
+
+    **Draft, L86:** “zero in five bounds a per-window rate only at 3/5 = 60% by the rule of three”.
+
+    The rule of three is an approximation requiring a confidence level and a sampling model. Neither is specified; repeated windows on one session do not establish independence. Moreover, L141 allows an arm verdict with fewer than five valid repetitions, so the denominator cannot always be five.
+
+    **Evidence:** Mathematical assumptions of the approximation, plus the draft’s own validity/verdict rules.
+
+    **Fix:** Prefer the promised descriptive result: zero actions in the actual number of fully observed valid windows. If retaining a population-rate bound, specify its assumptions, confidence level and calculation using that actual denominator.
+
+I could not verify live A10G field support, injection persistence through the entire observation window, the current AWS account/AMI/price/sweeper state, or the Toss and recruitment quotations. The new implementation was changing during review; none of the findings depends on its being complete.
+
+I checked the following and found them sound:
+
+- The baseline gap is accurately described by the existing NodeHealth API/controller and `docs/03_GPU_NODE_LIFECYCLE.md`: node readiness was the health input.
+- MLTrainingJob creates a suspended Job and leaves later suspension control to Kueue: `internal/controller/mltrainingjob_controller.go:135–148` at the reviewed baseline.
+- The default ResourceFlavor permits simulated GPU placement: `config/kueue/resourceflavor.yaml:1–14`. The paid destination’s simulated nature is clearly disclosed.
+- The injection flags, default GPU ID and offset description match the pinned [DCGM parser](https://raw.githubusercontent.com/NVIDIA/DCGM/v3.3.9/dcgmi/CommandLineParser.cpp).
+- The field IDs and the default exporter’s commented-out ECC counters match NVIDIA’s sources.
+- The device plugin’s five ignored Xids and its skipping of non-Xid events match v0.16.2. Keeping DCGM-cache injection separate from real hardware-fault behavior is appropriate.
+- `PodScheduled=True` is a defensible binding timestamp: Kubernetes v1.31 [sets it in the binding update](https://raw.githubusercontent.com/kubernetes/kubernetes/v1.31.0/pkg/registry/core/pod/storage/storage.go), alongside `spec.nodeName`.
+- The existing launch library sets terminate-on-instance-shutdown and delete-on-termination for its root volume: `hack/lib/spot-run.sh:162–167`.
+- The cited [504-GPU report](https://arxiv.org/abs/2605.09370) does report ten Xid-identified GPU failures.
+- The explicit limits concerning real faults, checkpoint recovery, frozen exporter caches, EKS and population generalization are appropriate.

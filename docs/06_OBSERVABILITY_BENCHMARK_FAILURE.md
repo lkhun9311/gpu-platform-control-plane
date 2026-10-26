@@ -28,7 +28,10 @@
 > held more than 13 (25.9%). The failure is a threshold nothing in this workload could reach, not a signal
 > the gateway cannot see (`docs/superpowers/specs/2026-09-04-the-layer-not-the-signal.md`).
 >
-> **Designed only — no code:** Xid and ECC (nothing in the Go tree). The DCGM exporter layer is NOT in this
+> **Built, not yet run on a card:** Xid and double-bit ECC, read from the DCGM exporter by an opt-in path into
+> `NodeHealth` (`--gpu-fault-source=dcgm`, `internal/gpufault/`, 2026-10-27), rehearsed on kind against a fake
+> exporter only, with its paid session registered in `docs/superpowers/specs/2026-10-27-gpu-fault-reaction-design.md`. Until 2026-10-27 this
+> line said nothing Xid or ECC was in the Go tree, which was true then. The DCGM exporter layer is NOT in this
 > category and the claim that it was is corrected here: `config/dcgm-exporter/` deploys it and
 > `internal/queuelab/dcgm.go` reads `DCGM_FI_DEV_GPU_UTIL` from it. It has now been pointed at real cards:
 > session `qlgpu-20260906-032038` ran eight runs on four A10Gs and every one carries
@@ -61,7 +64,7 @@ This is the evidence center of the project — the proof that the platform actua
 
 **The gate did not save the first run; its phase did.** At a one-second period the sampler visits one phase of the workload's cycle and stays there. That phase fell in an idle stretch, so the run was refused. Had it fallen inside the burst, every collection would have read 98 and a quarter-duty card would have passed as fully busy. Do not read the refusal as a property of the instrument. A dashboard has no gate at all, and a utilisation panel is a periodic sampler with the same failure mode -- but the gate's protection here is narrower than it looks, and `docs/superpowers/specs/2026-09-06-does-reservation-track-use.md` carries the withdrawal in full. Counting collections rather than scrapes also closed a hole in the gate itself: it required two busy samples at distinct timestamps, and one cached collection read twice supplied both. It now requires them `maxObserverGap` apart, which no single snapshot can span.
 
-The eBPF and Nsight layers require a real GPU node and are **not implemented at all today**, and neither is Xid or ECC. The DCGM layer is different and this sentence has been wrong twice about it. It once said no code existed; the reader, the Pod-attribution resolver, the exporter deployment and the pre-spend gate all do. It then said no card had been rented; one has. In session `qlgpu-20260906-032038` the exporter named Pods on four A10Gs, the two cards the protocol used were busy in 541 and 559 of 663 samples, and the two held by the surplus occupier in 0 of 663 -- so a GPU-second in that session is an observed device-second. Everything earlier remains a second of reservation, and is labelled as one. Unmeasured layers are labeled, not faked.
+The eBPF and Nsight layers require a real GPU node and are **not implemented at all today**. Xid and ECC are implemented as an opt-in health input since 2026-10-27 and have not been run on a card (see the header). The DCGM layer is different and this sentence has been wrong twice about it. It once said no code existed; the reader, the Pod-attribution resolver, the exporter deployment and the pre-spend gate all do. It then said no card had been rented; one has. In session `qlgpu-20260906-032038` the exporter named Pods on four A10Gs, the two cards the protocol used were busy in 541 and 559 of 663 samples, and the two held by the surplus occupier in 0 of 663 -- so a GPU-second in that session is an observed device-second. Everything earlier remains a second of reservation, and is labelled as one. Unmeasured layers are labeled, not faked.
 
 ## Failure reports (5)
 

@@ -1,0 +1,10 @@
+You are an adversarial reviewer of a pre-registration for a measurement study in this repository.
+
+Read docs/superpowers/specs/2026-10-27-gpu-fault-reaction-design.md. It is a draft registration: nothing has run, and the implementation it describes is being written now, so files it names may not exist yet.
+Also read whatever in the repository you judge relevant to attack it: CLAUDE.md, docs/11_WHAT_THIS_MEASURED.md (in particular "What the targets were based on"), docs/03_GPU_NODE_LIFECYCLE.md, the NodeHealth API and controller, the existing paid session runners and their libraries under hack/, config/dcgm-exporter/, and the Kueue integration of MLTrainingJob.
+
+Your job is to find what is wrong with it before money is spent. Attack it independently; do not limit yourself to any area. Examples of the kinds of defect that matter here, not a checklist: a numeric bound whose stated basis does not support it or whose arithmetic is wrong; a hop whose timestamp cannot be obtained the way the page says; a validity rule that cannot fire, or fires on a valid run; a verdict that could be reached from evidence that does not establish it; a control that cannot distinguish the outcomes it claims to; a claim about DCGM, dcgm-exporter, Kueue, Kubernetes or the NVIDIA device plugin that is false or unverified but stated as verified; a cost, time or termination guarantee that does not hold; anything the page licenses that the design cannot support.
+
+For each finding give: a short title; severity (blocker, major, minor); the exact sentence or line in the page it concerns; why it is wrong, with evidence (file and line in this repository, or the documented behaviour of the component, saying which you are relying on and whether you verified it); and what would fix it.
+Do not propose new numbers as facts: if a number is wrong, say what its basis would have to be.
+Say plainly where you could not verify something. End with a list of anything you checked and found sound, so the absence of a finding is distinguishable from not having looked.
