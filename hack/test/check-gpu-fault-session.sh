@@ -64,9 +64,28 @@ for i, rule in enumerate(open(os.path.join(stub, "rules")).read().splitlines()):
         sys.exit(int(rc))
 sys.exit(0)
 EOF
-# Images are not built here: make succeeds without building, and docker save writes a few bytes per image.
+# Images are not built here: make succeeds without building, and docker save writes a minimal OCI archive, which is
+# all hack/image-archive-check.py reads. With $STUB/attested present it writes the archive the first paid session
+# produced, an image manifest plus the attestation naming it, which a kind node's import refuses.
+python3 - "$work" <<'PY2'
+import io, json, sys, tarfile
+def archive(path, entries):
+    with tarfile.open(path, "w") as t:
+        def add(name, obj):
+            data = json.dumps(obj).encode()
+            info = tarfile.TarInfo(name); info.size = len(data); t.addfile(info, io.BytesIO(data))
+        index = []
+        for digest, layer_type, annotations in entries:
+            add("blobs/sha256/" + digest, {"layers": [{"mediaType": layer_type, "digest": "sha256:" + "0" * 64}]})
+            index.append({"digest": "sha256:" + digest, "annotations": annotations})
+        add("index.json", {"manifests": index})
+image = ("a" * 64, "application/vnd.oci.image.layer.v1.tar+gzip", {})
+attestation = ("b" * 64, "application/vnd.in-toto+json", {"io.containerd.manifest.subject": "sha256:" + "a" * 64})
+archive(sys.argv[1] + "/image.tar", [image])
+archive(sys.argv[1] + "/attested.tar", [image, attestation])
+PY2
 printf '#!/bin/sh\necho "make $*" >>"$STUB/calls.log"\nexit 0\n' >"$work/bin/make"
-printf '#!/bin/sh\necho "docker $*" >>"$STUB/calls.log"\n[ "$1" = save ] && echo "image $2"\nexit 0\n' >"$work/bin/docker"
+printf '#!/bin/sh\necho "docker $*" >>"$STUB/calls.log"\nif [ "$1" = save ]; then if [ -e "$STUB/attested" ]; then cat "%s/attested.tar"; else cat "%s/image.tar"; fi; fi\nexit 0\n' "$work" "$work" >"$work/bin/docker"
 printf '#!/bin/sh\nexit 0\n' >"$work/bin/sleep"
 chmod +x "$work/bin/"*
 
@@ -156,6 +175,7 @@ scene; put soon "{\"Expiration\": \"$(date -u -d '+120 min' +%Y-%m-%dT%H:%M:%SZ)
 refused "credentials that expire before 155 minutes" "the session needs 155"
 scene; put earlier "i-0earlier"; rule "ec2 describe-instances*tag:purpose*" earlier; base_rules; refused "an earlier instance still live" "still live (i-0earlier)"
 scene; base_rules; mkdir -p "$STUB/out"; refused "an output directory that already exists" "already exists; each session writes a new directory"
+scene; base_rules; touch "$STUB/attested"; refused "an image archive carrying an attestation" "an image archive the kind node would refuse to import"
 
 # --- the whole session -------------------------------------------------------------------------------------------
 scene; base_rules; smoke_stopped_evidence

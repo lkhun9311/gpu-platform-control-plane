@@ -63,7 +63,8 @@ gf_log "== images"
 make docker-build IMG=controller:$TAG >>"$GF_LOG" 2>&1 || die "operator image"
 make docker-build-gpu-simulator GPU_SIMULATOR_IMG=gpu-simulator:$TAG >>"$GF_LOG" 2>&1 || die "simulator image"
 docker pull "$JOB_BASE" >>"$GF_LOG" 2>&1 || die "pull $JOB_BASE"
-printf 'FROM %s\n' "$JOB_BASE" | docker build -q -t "$JOB_IMAGE" - >>"$GF_LOG" 2>&1 || die "build $JOB_IMAGE"
+# Labelled for the same reason as the paid runner's job image (hack/gpu-fault-session.sh).
+printf 'FROM %s\nLABEL io.gpufault.role=job\n' "$JOB_BASE" | docker build -q -t "$JOB_IMAGE" - >>"$GF_LOG" 2>&1 || die "build $JOB_IMAGE"
 for img in controller:$TAG gpu-simulator:$TAG "$JOB_IMAGE"; do
   echo "image $img=$(docker image inspect "$img" --format '{{.Id}}')" >>"$OUT/provenance.txt"
 done
@@ -78,6 +79,7 @@ kind create cluster --name "$CLUSTER" --config hack/kind-config-gpufault.yaml >>
 # ... not found"); that voided two rehearsals.
 for img in controller:$TAG gpu-simulator:$TAG "$JOB_IMAGE"; do
   docker save --platform linux/amd64 -o "$OUT/image.tar" "$img" >>"$GF_LOG" 2>&1 || die "docker save $img"
+  python3 hack/image-archive-check.py "$OUT/image.tar" >>"$GF_LOG" 2>&1 || die "the archive of $img would fail the node's import"
   kind load image-archive "$OUT/image.tar" --name "$CLUSTER" >>"$GF_LOG" 2>&1 || die "kind load $img"
   rm -f "$OUT/image.tar"
 done
