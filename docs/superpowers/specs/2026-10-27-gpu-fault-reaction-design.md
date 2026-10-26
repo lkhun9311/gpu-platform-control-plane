@@ -308,3 +308,26 @@ A static review: it did not establish that anything runs, and the tests below ar
 | P1: a latched fault clears when the faulted card drops out of the scrape and a healthy card remains | true: `Pristine` judged only the cards present | a latch clears only on a reading that covers every card its fingerprint names (`Assessment.Covers`); `TestGPUFaultLatchHoldsWhenTheFaultedCardDisappears`, and disabling the check fails it |
 | P1: the rehearsal applies the simulator DaemonSet before its namespace exists | true: `config/device-plugin` holds only the DaemonSet | the namespace is created first, as the instance script already did |
 | P2: serial scrapes let slow exporters delay every other node past the interval and stale-after | true: ten timeouts of 0.8 s per tick | nodes are scraped concurrently, at most 64 at a time; `TestGPUFaultSourceScrapesNodesConcurrently`, and a concurrency of 1 fails it at 2.0 s |
+
+## Result, 2026-10-26: run 1 is REFUSED, because the job image's archive could not be imported onto the kind node
+
+**Verdict: `GPU FAULT REACTION: REFUSED`.** The scorer refused it for "no repetition directory was found" and "no smoke.env: the session never recorded whether injection reaches the exporter"; every arm is UNJUDGED with 0 valid repetitions, and P5 held only because no injection ran.
+This says nothing about DCGM, the exporter, the A10G or the platform's reaction: the instance stopped before the platform was installed.
+
+**The purchase.** One g5.2xlarge Spot instance, `i-09c64e59ffb24d702`, in ap-northeast-2a, from `6d9d087f`, the commit that froze this page, on the pinned AMI `ami-097edab977037f65f`.
+`LaunchTime` was 19:38:24Z; the session asked EC2 to terminate it at 19:41:36Z, 192 s later, after the instance had written its `DONE` marker, and the wait for `terminated` then confirmed it (`termination.txt`).
+Billing ends as the instance enters `shutting-down`, so at the zone's Spot price read before launch, $0.6823 an hour, the run cost about $0.04.
+
+**What happened, from the instance's own log** (`hack/gpu-fault/2026-10-26-run1/log.txt` and `gf-run/`).
+- Bring-up exited 0: driver 595.91.07, the kind worker Ready.
+- The platform phase stopped at `kind load job` at 19:41:24Z, 180 s after `LaunchTime`: `ctr: mismatched image rootfs and manifest layers`, importing `gpufault-job:busybox`.
+- The instance procedure exited 1 and uploaded its evidence and `DONE`; the session's wait for that marker returned at once, and the session terminated the instance, well inside the 720 s bring-up phase rather than at 7,000 s.
+
+**The cause, reproduced off the card.** `FROM busybox:1.36` alone makes no manifest of its own: the image is the official image's amd64 manifest, so `docker save --platform linux/amd64` also writes the attestation manifest that names it as its subject, an in-toto layer, and kind's `ctr images import --all-platforms` tries to unpack that as an image.
+The archive this session uploaded holds those two digests (`b7f3d86d…` and the attestation `89ac9548…`, the pair in the instance's error), and on a throwaway kind node of the pinned `kindest/node:v1.31.0` it failed with the same message while a labelled rebuild imported cleanly.
+It is a different defect from the two void rehearsals above: those failed on platforms missing from a multi-platform index ("content digest ... not found"), which `--platform linux/amd64` fixed; this is a second manifest of the one platform, which `--platform` keeps. Why the rehearsal that completed did not meet it is not established.
+The fix, `ca763d7a` (#410), labels the job image so it has a manifest of its own and adds `hack/image-archive-check.py`, which the runner now applies to all three archives before anything is uploaded or bought; on this run's own archives it refuses `job.tar.gz` and passes the other two.
+
+**The evidence** is in `hack/gpu-fault/2026-10-26-run1/`, with a `SHA256SUMS` over every file in it. The three image archives, the source archive, the local scorer binary and the evidence tarball (which `gf-run/` unpacks) are not committed; `NOT-COMMITTED.sha256` records their hashes, and the files are kept on the owner's machine.
+
+**What follows.** "Nothing is re-bought: one attempt, reported as it ran" (The paid session, above). A second session is therefore not run under this page as it stands; it needs an amendment, written before it is bought and approved by the owner, as MPS run 2 had. The amendment proposed is the smallest one: the job image's build and the archive check, both already merged, with every arm, bound, phase and verdict rule unchanged.

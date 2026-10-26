@@ -1,0 +1,107 @@
+docker build -t controller:gpufault .
+DEPRECATED: The legacy builder is deprecated and will be removed in a future release.
+            Install the buildx component to build images with BuildKit:
+            https://docs.docker.com/go/buildx/
+
+Sending build context to Docker daemon  2.994MB
+Step 1/14 : FROM golang:1.27.3@sha256:957861185dbf29d93668ace41e011d091c6e779953d47f0316ef2cc58e28fe2b AS builder
+ ---> 957861185dbf
+Step 2/14 : ARG TARGETOS
+ ---> Using cache
+ ---> a38e89fd304b
+Step 3/14 : ARG TARGETARCH
+ ---> Using cache
+ ---> df7229e5f3ec
+Step 4/14 : WORKDIR /workspace
+ ---> Using cache
+ ---> e0f3b83f69f4
+Step 5/14 : COPY go.mod go.mod
+ ---> Using cache
+ ---> 25fa289dafb1
+Step 6/14 : COPY go.sum go.sum
+ ---> Using cache
+ ---> 48231ad691d8
+Step 7/14 : RUN go mod download
+ ---> Using cache
+ ---> 0f94324b773e
+Step 8/14 : COPY . .
+ ---> 17b38423ee21
+Step 9/14 : RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o manager cmd/main.go
+ ---> Running in e00ff45e7650
+ ---> Removed intermediate container e00ff45e7650
+ ---> 4b4f71569424
+Step 10/14 : FROM gcr.io/distroless/static:nonroot@sha256:d62067879de890a1def9da0e7766b7d20810a5e5555cef8506b752437d7a3e88
+ ---> d62067879de8
+Step 11/14 : WORKDIR /
+ ---> Using cache
+ ---> a1751751a97a
+Step 12/14 : COPY --from=builder /workspace/manager .
+ ---> c2cddce05685
+Step 13/14 : USER 65532:65532
+ ---> Running in b8922ce22ebf
+ ---> Removed intermediate container b8922ce22ebf
+ ---> 480a34438dd7
+Step 14/14 : ENTRYPOINT ["/manager"]
+ ---> Running in 76a00b53cb76
+ ---> Removed intermediate container 76a00b53cb76
+ ---> 7386f975595a
+Successfully built 7386f975595a
+Successfully tagged controller:gpufault
+docker build -t gpu-simulator:gpufault -f Dockerfile.gpu-simulator .
+DEPRECATED: The legacy builder is deprecated and will be removed in a future release.
+            Install the buildx component to build images with BuildKit:
+            https://docs.docker.com/go/buildx/
+
+Sending build context to Docker daemon  2.994MB
+Step 1/14 : FROM golang:1.27.3@sha256:957861185dbf29d93668ace41e011d091c6e779953d47f0316ef2cc58e28fe2b AS builder
+ ---> 957861185dbf
+Step 2/14 : ARG TARGETOS
+ ---> Using cache
+ ---> a38e89fd304b
+Step 3/14 : ARG TARGETARCH
+ ---> Using cache
+ ---> df7229e5f3ec
+Step 4/14 : WORKDIR /workspace
+ ---> Using cache
+ ---> e0f3b83f69f4
+Step 5/14 : COPY go.mod go.mod
+ ---> Using cache
+ ---> 25fa289dafb1
+Step 6/14 : COPY go.sum go.sum
+ ---> Using cache
+ ---> 48231ad691d8
+Step 7/14 : RUN go mod download
+ ---> Using cache
+ ---> 0f94324b773e
+Step 8/14 : COPY . .
+ ---> Using cache
+ ---> 17b38423ee21
+Step 9/14 : RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o gpu-simulator ./cmd/gpu-simulator
+ ---> Running in ab3fb618298e
+ ---> Removed intermediate container ab3fb618298e
+ ---> 3a92cf1bf5e1
+Step 10/14 : FROM gcr.io/distroless/static:nonroot@sha256:d62067879de890a1def9da0e7766b7d20810a5e5555cef8506b752437d7a3e88
+ ---> d62067879de8
+Step 11/14 : WORKDIR /
+ ---> Using cache
+ ---> a1751751a97a
+Step 12/14 : COPY --from=builder /workspace/gpu-simulator .
+ ---> Using cache
+ ---> 2901c6a245e8
+Step 13/14 : USER 65532:65532
+ ---> Using cache
+ ---> 149ab129a373
+Step 14/14 : ENTRYPOINT ["/gpu-simulator"]
+ ---> Using cache
+ ---> c6b46039457e
+Successfully built c6b46039457e
+Successfully tagged gpu-simulator:gpufault
+1.36: Pulling from library/busybox
+Digest: sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662
+Status: Image is up to date for busybox:1.36
+docker.io/library/busybox:1.36
+DEPRECATED: The legacy builder is deprecated and will be removed in a future release.
+            Install the buildx component to build images with BuildKit:
+            https://docs.docker.com/go/buildx/
+
+sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662

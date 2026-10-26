@@ -1,0 +1,36 @@
+{
+  "label": "REFUSED",
+  "arms": [
+    {
+      "arm": "xid",
+      "verdict": "UNJUDGED",
+      "valid": 0,
+      "total": 0
+    },
+    {
+      "arm": "ecc",
+      "verdict": "UNJUDGED",
+      "valid": 0,
+      "total": 0
+    },
+    {
+      "arm": "benign",
+      "verdict": "UNJUDGED",
+      "valid": 0,
+      "total": 0
+    },
+    {
+      "arm": "none",
+      "verdict": "UNJUDGED",
+      "valid": 0,
+      "total": 0
+    }
+  ],
+  "checks": null,
+  "p5": "held",
+  "cells": null,
+  "refuse": [
+    "no repetition directory was found",
+    "no smoke.env: the session never recorded whether injection reaches the exporter"
+  ]
+}

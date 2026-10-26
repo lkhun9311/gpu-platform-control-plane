@@ -1,0 +1,6 @@
+ERROR: failed to load image: command "docker exec --privileged -i m5cgpu-worker ctr --namespace=k8s.io images import --all-platforms --digests --snapshotter=overlayfs -" failed with error: exit status 1
+
+Command Output: unpacking docker.io/library/gpufault-job:busybox (sha256:b7f3d86d6e84fc17718c48bcde1450807faa2d56704205c697b4bd5df7b9e29f)...done
+unpacking import-2026-10-26@sha256:b7f3d86d6e84fc17718c48bcde1450807faa2d56704205c697b4bd5df7b9e29f (sha256:b7f3d86d6e84fc17718c48bcde1450807faa2d56704205c697b4bd5df7b9e29f)...done
+unpacking import-2026-10-26@sha256:89ac95482c5fefb46a0d3470431760940c36e9c0ff0c40e9e5c259091a26b1e3 (sha256:89ac95482c5fefb46a0d3470431760940c36e9c0ff0c40e9e5c259091a26b1e3)...ctr: mismatched image rootfs and manifest layers
+19:41:24 phase platform: stopped: kind load job
