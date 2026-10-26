@@ -1,0 +1,10 @@
+arm	block	most contenders given prompt tokens in one step	most started and unfinished	steps with 2 contenders' prompt work	of them full budget, no premium prompt work
+fixedS-long	1	2	2	328	258
+fixedS-long	2	2	2	79	50
+fixedS-long	3	2	2	364	312
+hold-cap-long	1	1	1	0	0
+hold-cap-long	2	1	1	0	0
+hold-cap-long	3	1	1	0	0
+sizeaware-long	1	2	2	2	0
+sizeaware-long	2	1	1	0	0
+sizeaware-long	3	2	2	6	2

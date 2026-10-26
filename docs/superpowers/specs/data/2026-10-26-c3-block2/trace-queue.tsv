@@ -1,4 +1,4 @@
-block	seed	contenders	held by the spacing	longest back-to-back run	max wait ms
-1	882	172	116	15	8870
-2	892	148	94	8	4501
-3	893	163	109	26	9868
+block	seed	contenders	held by the spacing	longest run of back-to-back admissions	max wait ms
+1	882	172	116	16	8870
+2	892	148	94	9	4501
+3	893	163	109	27	9868

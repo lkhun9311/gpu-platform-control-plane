@@ -7,7 +7,7 @@ import json, sys
 
 SPACING = 1680.4
 SEEDS = {1: 882, 2: 892, 3: 893}
-print("block\tseed\tcontenders\theld by the spacing\tlongest back-to-back run\tmax wait ms")
+print("block\tseed\tcontenders\theld by the spacing\tlongest run of back-to-back admissions\tmax wait ms")
 for b, d in enumerate(sys.argv[1:], start=1):
     arrivals = sorted(r["offsetMs"] for r in map(json.loads, open("%s/trace-fixedS-long-1.jsonl" % d)) if r.get("isNoisy"))
     waits, last = [], None
@@ -15,8 +15,10 @@ for b, d in enumerate(sys.argv[1:], start=1):
         x = a if last is None else max(a, last + SPACING)
         waits.append(x - a)
         last = x
+    # A run counts its admissions, the one that starts it included: that one did not wait, the rest did
+    # (astra's attack, 4: counting only the waits gave one fewer).
     longest = run = 0
     for w in waits:
-        run = run + 1 if w > 0 else 0
+        run = run + 1 if w > 0 else 1
         longest = max(longest, run)
     print("%d\t%d\t%d\t%d\t%d\t%.0f" % (b, SEEDS[b], len(arrivals), sum(w > 0 for w in waits), longest, max(waits)))
