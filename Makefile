@@ -422,12 +422,12 @@ shell-check: ## Parse every shell script under hack/ and .githooks/.
 		hack/test/spot-lifecycle/bin/aws hack/test/spot-lifecycle/bin/git hack/test/spot-lifecycle/bin/sleep \
 		hack/test/spot-lifecycle/golden/*/user-data*.sh \
 		hack/test/teardown-replay/*.sh hack/test/teardown-replay/bin/aws \
-		hack/eks-serve/holdcap-study/*.sh \
+		hack/eks-serve/holdcap-study/*.sh hack/eks-serve/prefix-route-study/*.sh \
 		.githooks/*.sh .githooks/commit-msg .githooks/pre-push; do \
 		[ -f "$$f" ] || continue; \
 		bash -n "$$f" || { echo "shell-check: $$f does not parse" >&2; fail=1; }; \
 	done; \
-	for f in hack/test/spot-lifecycle/*.py hack/serving-stub/*.py hack/eks-serve/holdcap-study/*.py \
+	for f in hack/test/spot-lifecycle/*.py hack/serving-stub/*.py hack/eks-serve/holdcap-study/*.py hack/eks-serve/prefix-route-study/*.py \
 		experiments/distributed-partial-placement/*.py experiments/cpu-ddp/*.py \
 		experiments/multi-pod-ddp/*.py; do \
 		[ -f "$$f" ] || continue; \
@@ -440,6 +440,7 @@ shell-check: ## Parse every shell script under hack/ and .githooks/.
 scorer-tests: ## Run the study scorers' own tests, which pin what each published verdict reads.
 	@# Both suites existed and nothing ran them: compiling a scorer says it parses, not that its rules read their input.
 	cd hack/eks-serve/holdcap-study && python3 -m unittest test_score
+	cd hack/eks-serve/prefix-route-study && python3 -m unittest test_score
 	python3 -m unittest experiments/distributed-partial-placement/test_analyze.py
 	python3 -m unittest experiments/multi-pod-ddp/test_analyze.py
 	python3 -m unittest experiments/multi-gpu-throughput/test_analyze.py

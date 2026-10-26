@@ -129,6 +129,16 @@ grep -q 'TRAIN=allreduce: 1 x g5.12xlarge of 4 GPUs, price ceiling \$6.98, GPU b
 session "C: an operator's ceiling" "does not exist" "${ar[@]}" TRAIN_MAX_PRICE=7.20
 grep -q 'price ceiling \$7.20' "$work/C: an operator's ceiling/session.log" && ok "C: an operator's ceiling is kept" ||
   bad "C: the operator's ceiling was replaced: $(grep 'TRAIN=allreduce:' "$work/C: an operator's ceiling/session.log")"
+# --- STUDY=prefixroute, which buys the same group with the same gates -------------------------------------------
+# TRAIN is emptied in each case, so these are the routing study's refusals and not the training mode's.
+session "prefixroute: a deadline too short for twelve cells" "STUDY=prefixroute needs TTL_MINUTES of at least" \
+  TRAIN= STUDY=prefixroute TTL_MINUTES=300
+session "prefixroute: with SERVE" "STUDY=prefixroute with SERVE or TRAIN would buy GPUs in two groups" \
+  TRAIN= STUDY=prefixroute SERVE=yes TTL_MINUTES=420
+session "prefixroute: with KEEP_UP" "refuses KEEP_UP=yes" TRAIN= STUDY=prefixroute KEEP_UP=yes TTL_MINUTES=420
+session "prefixroute: an existing cluster" "cluster gpu-platform already exists (ACTIVE)" \
+  TRAIN= STUDY=prefixroute STUB_CLUSTER_EXISTS=1 TTL_MINUTES=420
+session "prefixroute: every refusal passed" "does not exist" TRAIN= STUDY=prefixroute TTL_MINUTES=420
 
 # --- the kill switch, armed under an absolute EXDIR --------------------------------------------------------------
 # Without TRAIN nothing stops the session before its kill switch, so it arms one and then dies at the stub's terraform
