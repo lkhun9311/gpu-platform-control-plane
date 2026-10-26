@@ -136,13 +136,18 @@ say "building the operator, the simulator and the scorer from $COMMIT"
 make docker-build IMG=controller:$TAG >"$OUT/build.log" 2>&1 || fail "operator image; see $OUT/build.log"
 make docker-build-gpu-simulator GPU_SIMULATOR_IMG=gpu-simulator:$TAG >>"$OUT/build.log" 2>&1 || fail "simulator image; see $OUT/build.log"
 docker pull "$JOB_BASE" >>"$OUT/build.log" 2>&1 || fail "could not pull $JOB_BASE"
-printf 'FROM %s\n' "$JOB_BASE" | docker build -q -t "$JOB_IMAGE" - >>"$OUT/build.log" 2>&1 || fail "could not build $JOB_IMAGE"
+# The label makes a manifest of its own: FROM alone is the official image's manifest, which `docker save` exports with
+# the attestation naming it, and the kind node's import fails on that ("mismatched image rootfs and manifest layers",
+# the first paid session, 2026-10-26).
+printf 'FROM %s\nLABEL io.gpufault.role=job\n' "$JOB_BASE" | docker build -q -t "$JOB_IMAGE" - >>"$OUT/build.log" 2>&1 || fail "could not build $JOB_IMAGE"
 mkdir -p "$OUT/images" || fail "mkdir images"
 for pair in controller:$TAG:controller gpu-simulator:$TAG:gpu-simulator "$JOB_IMAGE:job"; do
   img=${pair%:*} name=${pair##*:}
   # Single-platform: a multi-platform index in the archive makes the kind node's import fail (rehearsal, 2026-10-26).
   docker save --platform linux/amd64 "$img" | gzip -1 >"$OUT/images/$name.tar.gz" || fail "could not save $img"
 done
+python3 hack/image-archive-check.py "$OUT/images/controller.tar.gz" "$OUT/images/gpu-simulator.tar.gz" "$OUT/images/job.tar.gz" \
+  >>"$OUT/build.log" 2>&1 || fail "an image archive the kind node would refuse to import; see $OUT/build.log"
 go build -o "$OUT/benchharness-local" ./cmd/benchharness || fail "build the local scorer"
 git archive --format=tar.gz -o "$OUT/source.tgz" HEAD || fail "git archive"
 SOURCE_SHA=$(sha256sum "$OUT/source.tgz" | cut -d' ' -f1)
