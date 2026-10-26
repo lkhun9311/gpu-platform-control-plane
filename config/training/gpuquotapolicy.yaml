@@ -1,7 +1,10 @@
-# train-a's admission quota: two GPUs, published as the Kueue ClusterQueue and LocalQueue gpu-train-a.
+# train-a's admission quota: four GPUs, published as the Kueue ClusterQueue and LocalQueue gpu-train-a.
+#
+# Four, because experiment C admits one Pod of four GPUs, or four Pods of one, on one g5.12xlarge
+# (docs/superpowers/specs/2026-10-27-four-gpu-nccl-design.md); TRAIN=ddp's two ranks of one GPU fit under it unchanged.
 #
 # An admission quota, not a ceiling. The ClusterQueue joins the shared cohort gpu-platform with reclaim, so within
-# a cohort it can borrow; what bounds the GPUs a session buys is the two nodes it scales to, not this.
+# a cohort it can borrow; what bounds the GPUs a session buys is the nodes it scales to, not this.
 # The training session checks that gpu-train-a is the only ClusterQueue on the cluster it created.
 apiVersion: platform.lkhun9311.github.io/v1
 kind: GPUQuotaPolicy
@@ -12,5 +15,5 @@ spec:
   targetNamespace: train-a
   gpuClass: a10g
   limits:
-    gpuCount: 2
+    gpuCount: 4
   trainingQuota: true
