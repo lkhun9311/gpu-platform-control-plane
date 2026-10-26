@@ -40,9 +40,17 @@ PP_FRONTIER_SEEDS="861 862 863"
 # v27's calibration stage (design page, "v27"): off and hold-cap at three contender lengths, one block.
 PP_LENCAL_STUDY=admission-length-calibration-2026-10-10
 PP_LENCAL_SEEDS="871"
+# C3's calibration (docs/superpowers/specs/2026-10-24-c3-headroom-calibration.md): stage F's arms at a contender rate of
+# 0.375/s, one block on a seed of its own, under its own stage so a stage still names one study.
+PP_HEADROOM_STUDY=admission-headroom-calibration-2026-10-24
+PP_HEADROOM_SEEDS="891"
+# C3's main study (docs/superpowers/specs/2026-10-25-c3-headroom-main.md): five arms at three lengths, one block per card
+# on three cards, in that seed order, at the calibration's load.
+PP_HEADROOM_MAIN_STUDY=admission-headroom-main-2026-10-25
+PP_HEADROOM_MAIN_SEEDS="882 892 893"
 
 # The pilot, the admission diagnostic and v26 share this apparatus: its capture, sidecar, sampler and calibration.
-pp_is_study() { [ "${1:-}" = "$PP_STUDY" ] || [ "${1:-}" = "$PP_DIAG_STUDY" ] || [ "${1:-}" = "$PP_FRONTIER_STUDY" ] || [ "${1:-}" = "$PP_LENCAL_STUDY" ]; }
+pp_is_study() { [ "${1:-}" = "$PP_STUDY" ] || [ "${1:-}" = "$PP_DIAG_STUDY" ] || [ "${1:-}" = "$PP_FRONTIER_STUDY" ] || [ "${1:-}" = "$PP_LENCAL_STUDY" ] || [ "${1:-}" = "$PP_HEADROOM_STUDY" ] || [ "${1:-}" = "$PP_HEADROOM_MAIN_STUDY" ]; }
 
 # The study a stage belongs to; a stage filed under another study would be scored by rules it was not bought under.
 pp_stage_study() {
@@ -51,7 +59,9 @@ pp_stage_study() {
     D) echo "$PP_DIAG_STUDY" ;;
     E) echo "$PP_FRONTIER_STUDY" ;;
     F) echo "$PP_LENCAL_STUDY" ;;
-    *) echo "PILOT_STAGE is ${1@Q}; the stages are A, B, D, E and F" >&2; return 1 ;;
+    G) echo "$PP_HEADROOM_STUDY" ;;
+    H) echo "$PP_HEADROOM_MAIN_STUDY" ;;
+    *) echo "PILOT_STAGE is ${1@Q}; the stages are A, B, D, E, F, G and H" >&2; return 1 ;;
   esac
 }
 
@@ -81,7 +91,76 @@ pp_lencal_checksum() {
   esac
 }
 
-# The contender prompt an arm replays, in characters: v27's calibration arms carry their length in their name;
+# C3's calibration traces for seed 891 at 0.375 contenders a second, frozen as v27's are: R1's and one per length.
+pp_headroom_checksum() {
+  case "${1:-}:${2:-}" in
+    891:R1) echo 5d1eed22b672a279b5bff76e1163e290ac811890359fcab55c2888b79842abc5 ;;
+    891:*-short) echo bf07e81165efe07a38362e8f2ed8e9bc24ef2dc58f17eef7fb65014d1406cb9a ;;
+    891:*-ref) echo 04f00759c75855845bd4431ac80721e04a5a95a8e33e139a275b82c3fafd5e8c ;;
+    891:*-long) echo 78a4b8f4f2ae02d1d93e207a75926bb87de0bc1792852258feac3af3bfc75cf4 ;;
+    *) echo "seed ${1@Q} and arm ${2@Q} are not one of C3's calibration traces" >&2; return 1 ;;
+  esac
+}
+
+# C3's main-study traces at 0.375 contenders a second: R1's and one per length, for each of the three seeds.
+# The nine full traces equal data/2026-10-24-c3-headroom/trace-checksums.txt, which the study id does not enter.
+pp_headroom_main_checksum() {
+  case "${1:-}:${2:-}" in
+    882:R1) echo 1bd9c8513141261c7b615dbb0f3371a6b82450ecf9c705c45523953d4800bf4f ;;
+    882:*-short) echo b7ffc7eec33e8a3166a8a92f51283d4622d68867982f50739e6fc4c12f41392a ;;
+    882:*-ref) echo 46a5cc47debf87ddc3af8c81faee36c96a8c64a0cf2c9bb3413593d69768f5d6 ;;
+    882:*-long) echo e8b057853cf5c38df49a7811fa469f39985f0f02d65c280ed2b79c39cb070d53 ;;
+    892:R1) echo 7d269b31213421a781399325f80fea19ea0ba49f2cd0af34e6da5e9577f2e382 ;;
+    892:*-short) echo 888ff4868e99cc18f372b94a24db5c2d8d8cc3a1e3dd68f5d181aae958b836a7 ;;
+    892:*-ref) echo 39826dc699f63440796339920f82035a6a27a25116660d1200ca99d7d1d8a1ad ;;
+    892:*-long) echo 68727974493694fea6023056ceafd1ee89d72c0f46664ea05382f351820b493d ;;
+    893:R1) echo c0a0dde28547b67a9a05ec1b0f78c8d3a2cee0cd0ac183ad6869d8d26092c8b7 ;;
+    893:*-short) echo 56a9dc08d564bb54a55dd2e16079cee6d28296390345a0690d73e2cbca769787 ;;
+    893:*-ref) echo 248faf6a28ba483fffe80e0b48cbf8766eb1b6e378a3af28d436725c0978d326 ;;
+    893:*-long) echo c5681e8ae15c385e6262fea807317a16fd832b3bbc0661642fae08289cf2a69a ;;
+    *) echo "seed ${1@Q} and arm ${2@Q} are not one of C3's main-study traces" >&2; return 1 ;;
+  esac
+}
+
+# C3's main-study blocks in the order its registration lists, R1 first: the matrix's hash of seed, stage, global block
+# and arm, frozen here so a session that hashed another block number is refused rather than run in another order.
+pp_headroom_main_order() {
+  case "${1:-}" in
+    1) echo "R1 hold-cap-long fixedS-long fixedS-ref hold-cap-ref off-long caponly-short sizeaware-short off-ref fixedS-short off-short caponly-long hold-cap-short sizeaware-long sizeaware-ref caponly-ref" ;;
+    2) echo "R1 hold-cap-short off-ref hold-cap-long fixedS-long fixedS-short hold-cap-ref sizeaware-ref caponly-ref caponly-short fixedS-ref off-short sizeaware-short off-long sizeaware-long caponly-long" ;;
+    3) echo "R1 fixedS-long sizeaware-ref off-short caponly-short sizeaware-short caponly-long off-ref sizeaware-long fixedS-short off-long hold-cap-short hold-cap-ref fixedS-ref hold-cap-long caponly-ref" ;;
+    *) echo "block ${1@Q} is not one of C3's main-study blocks 1, 2 and 3" >&2; return 1 ;;
+  esac
+}
+
+# C3's main-study launch ledger: one line per launch, "<block> <instance> <outcome>", outcome completed, interrupted
+# (a documented Spot interruption) or failed, committed after each session (2026-10-25-c3-headroom-main.md, "Sessions").
+PP_HEADROOM_MAIN_LEDGER=docs/superpowers/specs/data/2026-10-25-c3-main/launches.txt
+
+# Why block $1 may not be launched, given the ledger on stdin, or nothing: at most four launches, the blocks in order,
+# none bought twice once complete, and one replacement at most, only for a block whose launch was interrupted.
+pp_headroom_main_launch_refusal() {
+  local block="${1:-}"
+  awk -v b="$block" '
+    /^[[:space:]]*(#|$)/ { next }
+    NF != 3 || $1 !~ /^[123]$/ || $3 !~ /^(completed|interrupted|failed)$/ { bad = bad " line " NR; next }
+    { n++; runs[$1]++; last[$1] = $3; if ($3 == "completed") done[$1] = 1 }
+    END {
+      if (bad != "") { print "the ledger has malformed lines:" bad; exit }
+      if (b !~ /^[123]$/) { print "block " b " is not one of 1, 2 and 3"; exit }
+      if (n >= 4) { print "the ledger already records " n " launches, and the study allows four, one a replacement"; exit }
+      if (done[b]) { print "block " b " is already complete"; exit }
+      for (k = 1; k < b; k++) if (!done[k]) { print "block " k " is not complete, and the blocks run in order"; exit }
+      if (runs[b] && last[b] != "interrupted") { print "block " b " was launched and ended " last[b] ", and only a Spot interruption is replaced"; exit }
+      r = 0; for (k in runs) r += runs[k] - 1
+      if (runs[b] && r >= 1) { print "the study allows one replacement launch, and it has been used"; exit }
+    }'
+}
+
+# The stages whose arms carry their contender length in their name: v27's calibration, C3's and C3's main study.
+pp_is_length_stage() { [ "${1:-}" = F ] || [ "${1:-}" = G ] || [ "${1:-}" = H ]; }
+
+# The contender prompt an arm replays, in characters: v27's and C3's calibration arms carry their length in their name;
 # every other arm replays its study's frozen length, given as $2.
 pp_arm_contender_chars() {
   case "${1:-}" in
@@ -96,7 +175,11 @@ pp_arm_contender_chars() {
 pp_fixed_spacing() {
   case "${1:-}" in
     fixed-1.62 | fixed-1.66 | fixed-1.70 | fixed-1.74) echo "${1#fixed-}s" ;;
-    *) echo "arm ${1@Q} is not one of v26's fixed spacings" >&2; return 1 ;;
+    # C3's main study: S at every length, and the size-aware spacing of each length, both frozen by its calibration.
+    fixedS-short | fixedS-ref | fixedS-long | sizeaware-ref) echo 1680.4ms ;;
+    sizeaware-short) echo 1176.9ms ;;
+    sizeaware-long) echo 1830.8ms ;;
+    *) echo "arm ${1@Q} is not one of v26's or C3's fixed spacings" >&2; return 1 ;;
   esac
 }
 
@@ -112,7 +195,12 @@ pp_stage_arms() {
     E) printf '%s\n' R1 off hold-cap fixed-1.62 fixed-1.66 fixed-1.70 fixed-1.74 ;;
     # v27's calibration: R1 once, then off and hold-cap at each length in one block (design page, "v27").
     F) printf '%s\n' R1 off-short off-ref off-long hold-cap-short hold-cap-ref hold-cap-long ;;
-    *) echo "PILOT_STAGE is ${1@Q}; the pilot has stages A and B, the diagnostic D, v26 E and v27's calibration F" >&2; return 1 ;;
+    # C3's calibration: the same arms, at its own load.
+    G) printf '%s\n' R1 off-short off-ref off-long hold-cap-short hold-cap-ref hold-cap-long ;;
+    # C3's main study: R1 once, then five arms at each length in one block.
+    H) printf '%s\n' R1 off-short off-ref off-long caponly-short caponly-ref caponly-long hold-cap-short hold-cap-ref hold-cap-long \
+         fixedS-short fixedS-ref fixedS-long sizeaware-short sizeaware-ref sizeaware-long ;;
+    *) echo "PILOT_STAGE is ${1@Q}; the pilot has stages A and B, the diagnostic D, v26 E, v27's calibration F, C3's G and its main study H" >&2; return 1 ;;
   esac
 }
 
@@ -122,6 +210,7 @@ pp_stage_arms() {
 pp_arm_prefill_cap() {
   case "${1:-}" in
     cap | hold-cap | fixed-1.62 | fixed-1.66 | fixed-1.70 | fixed-1.74 | hold-cap-short | hold-cap-ref | hold-cap-long) echo "$PP_DIAG_PREFILL_CAP" ;;
+    caponly-short | caponly-ref | caponly-long | fixedS-short | fixedS-ref | fixedS-long | sizeaware-short | sizeaware-ref | sizeaware-long) echo "$PP_DIAG_PREFILL_CAP" ;;
     R1 | off | hold | prospective | static-cap | off-short | off-ref | off-long) echo 0 ;;
     *) echo "arm ${1@Q} has no registered prefill cap" >&2; return 1 ;;
   esac
@@ -213,9 +302,11 @@ pp_gateway_args() {
   case "$arm" in
     # The diagnostic's cap arm differs from off only in the engine.
     R1 | off | cap | off-short | off-ref | off-long) printf '%s\n' -admission-mode=off ;;
+    # C3's cap-only arms differ from off only in the engine, as the diagnostic's cap arm does.
+    caponly-short | caponly-ref | caponly-long) printf '%s\n' -admission-mode=off ;;
     hold | hold-cap | hold-cap-short | hold-cap-ref | hold-cap-long) printf '%s\n' -admission-mode=serial-prefill "-admission-serial-prefill-max-hold=$PP_DIAG_MAX_HOLD" ;;
     # v26's controls: the same longest hold as serial-prefill, so the two differ only in what releases a contender.
-    fixed-*)
+    fixed-* | fixedS-* | sizeaware-*)
       local spacing
       spacing=$(pp_fixed_spacing "$arm") || return 1
       printf '%s\n' -admission-mode=fixed-spacing "-admission-fixed-spacing=$spacing" "-admission-fixed-spacing-max-hold=$PP_DIAG_MAX_HOLD" ;;
@@ -242,7 +333,7 @@ pp_gateway_args_yaml() {
 # The replay's request-ID prefix: stage, arm and block, so every ID is unique across the whole pilot.
 pp_request_id_flag() {
   local stage="$1" arm="$2" rep="$3"
-  case "$stage" in A | B | D | E | F) ;; *) echo "PILOT_STAGE is ${stage@Q}" >&2; return 1 ;; esac
+  case "$stage" in A | B | D | E | F | G | H) ;; *) echo "PILOT_STAGE is ${stage@Q}" >&2; return 1 ;; esac
   printf -- '--request-id-prefix=pp-%s-%s-%s\n' "$stage" "$arm" "$rep"
 }
 

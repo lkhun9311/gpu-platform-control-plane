@@ -1,0 +1,5 @@
+
+--- exit 1
+--- messages
+FAIL: the launch ledger refuses block 2: block 1 is not complete, and the blocks run in order
+--- files

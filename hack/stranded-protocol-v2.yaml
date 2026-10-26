@@ -1,0 +1,49 @@
+# The second stranded-GPU campaign's frozen protocol, in the form check-campaign-v2 reads.
+#
+# Registered by docs/superpowers/specs/2026-10-22-stranding-where-packing-should-lose-design.md before any cell.
+# Each condition's cells are judged by check-cell against that condition's own file, in the first campaign's
+# schema; this file adds what is campaign-wide: which conditions there are, what each predicts, the order every
+# cell runs in, and the test. Finding 8's six cells are not in it; they stand as published.
+#
+# Changing any value here changes the registered protocol.
+
+version: 2
+
+conditions:
+  - name: C1
+    protocol: hack/stranded-protocol-v2/c1.yaml
+    # S-gpu-most strands at the discriminating step in no cell; S-default in some.
+    prediction: gpu-most-strands-in-none
+  - name: C2
+    protocol: hack/stranded-protocol-v2/c2.yaml
+    # Packing should lose: S-gpu-most strands in every cell; S-default about half the time.
+    prediction: gpu-most-strands-in-every
+  - name: C3
+    protocol: hack/stranded-protocol-v2/c3.yaml
+    prediction: gpu-most-strands-in-none
+
+# Twelve blocks, each holding every condition-arm cell once. Drawn by Python's random.Random(seed) shuffling the
+# list once per block, in order; hack/test/check-stranded-v2-order.sh redraws them and compares.
+order:
+  seed: 20261022
+  list: [C1/S-default, C1/S-gpu-most, C2/S-default, C2/S-gpu-most, C3/S-default, C3/S-gpu-most]
+  blocks:
+    - [C1/S-gpu-most, C2/S-gpu-most, C1/S-default, C3/S-default, C2/S-default, C3/S-gpu-most]
+    - [C2/S-gpu-most, C2/S-default, C1/S-default, C3/S-default, C3/S-gpu-most, C1/S-gpu-most]
+    - [C2/S-default, C3/S-gpu-most, C2/S-gpu-most, C3/S-default, C1/S-gpu-most, C1/S-default]
+    - [C2/S-gpu-most, C1/S-default, C2/S-default, C3/S-default, C1/S-gpu-most, C3/S-gpu-most]
+    - [C3/S-gpu-most, C2/S-default, C1/S-default, C2/S-gpu-most, C3/S-default, C1/S-gpu-most]
+    - [C2/S-gpu-most, C1/S-default, C3/S-default, C3/S-gpu-most, C1/S-gpu-most, C2/S-default]
+    - [C2/S-default, C3/S-gpu-most, C2/S-gpu-most, C3/S-default, C1/S-gpu-most, C1/S-default]
+    - [C3/S-gpu-most, C2/S-gpu-most, C2/S-default, C1/S-gpu-most, C3/S-default, C1/S-default]
+    - [C3/S-gpu-most, C3/S-default, C2/S-default, C2/S-gpu-most, C1/S-gpu-most, C1/S-default]
+    - [C1/S-gpu-most, C3/S-gpu-most, C2/S-default, C3/S-default, C2/S-gpu-most, C1/S-default]
+    - [C3/S-default, C2/S-default, C1/S-default, C3/S-gpu-most, C2/S-gpu-most, C1/S-gpu-most]
+    - [C1/S-gpu-most, C3/S-default, C2/S-gpu-most, C3/S-gpu-most, C1/S-default, C2/S-default]
+
+# Per condition: cells stranded at the discriminating step, compared between arms, one-sided in the predicted
+# direction, each condition its own question with no correction across the three.
+test:
+  kind: fisher-exact-one-sided
+  alpha: 0.05
+  correction_across_conditions: none

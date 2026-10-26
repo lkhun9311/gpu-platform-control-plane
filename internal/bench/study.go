@@ -341,6 +341,26 @@ const (
 	// calibration's size-aware spacings at three contender lengths, one block per card on three cards,
 	// docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md, "v27 main study".
 	StudyLengthRobustness = "admission-length-robustness-2026-10-10"
+
+	// StudyHeadroomCalibration is C3's calibration: v27's seven cells at a contender rate of 0.375/s, so hold-cap has
+	// headroom at the long length, docs/superpowers/specs/2026-10-24-c3-headroom-calibration.md.
+	// It is a separate id because the rate is not part of a FrozenTuple: the trace checksums the plan freezes per id are
+	// what keep a 0.5/s trace from being bought under it, and a 0.375/s one under v27's.
+	StudyHeadroomCalibration = "admission-headroom-calibration-2026-10-24"
+
+	// StudyHeadroomMain is C3's main study: off, cap-only, hold-cap, the frozen 1,680.4 ms spacing and the frozen
+	// size-aware spacings at three contender lengths, one block per card on three cards, at 0.375 contenders a second,
+	// docs/superpowers/specs/2026-10-25-c3-headroom-main.md.
+	// It is not v27's StudyLengthRobustness under a new rate: that study's fixed arm is 1,740 ms and its traces are 0.5/s.
+	StudyHeadroomMain = "admission-headroom-main-2026-10-25"
+
+	// StudyMPSCapability is the one-cell capability session of
+	// docs/superpowers/specs/2026-09-25-can-mps-engage-on-this-card-at-all.md, as its 2026-10-24 amendment freezes it.
+	//
+	// It is not the sharing matrix's mps arm bought alone. Its replay is at 2 requests a second rather than the matrix's,
+	// and it answers whether MPS engages, not what the split costs, so a row of it pooled into a sharing report would
+	// report a latency for a load that study never offered.
+	StudyMPSCapability = "mps-capability-2026-10-24"
 )
 
 // ArmProspective is the prospective-admission arm; the pilot's other arms reuse the M5-b names.
@@ -915,6 +935,63 @@ var studies = map[string]Study{
 		// re-checks every count before the first cell.
 		FrozenExactTokens: map[int]int{200: 68, 31894: 6144, 40000: 7695, 42579: 8192},
 	},
+	// v27's calibration in every field but the id: the arms, tuple, token table and pool are the same, and the rate is
+	// the session's and the checksums', not this entry's.
+	StudyHeadroomCalibration: {
+		ID:       StudyHeadroomCalibration,
+		Arms:     []string{ArmR1, "off-short", "off-ref", "off-long", "hold-cap-short", "hold-cap-ref", "hold-cap-long"},
+		Arrivals: ArrivalsIndependent,
+		Frozen: &FrozenTuple{
+			PremiumPromptChars:    200,
+			ContenderPromptChars:  40000,
+			TimeoutMs:             30000,
+			PremiumOutputTokens:   64,
+			ContenderOutputTokens: 16,
+		},
+		MinRepetitions:         1,
+		FixesOutputAtCap:       true,
+		RecordsReplayTiming:    true,
+		TracesVaryByRepetition: true,
+		SenderPoolSize:         600,
+		FrozenExactTokens:      map[int]int{200: 68, 31894: 6144, 40000: 7695, 42579: 8192},
+	},
+	// The calibration's tuple, token table and pool; only the arms differ, and the rate is the session's and the
+	// checksums', not this entry's.
+	StudyHeadroomMain: {
+		ID:       StudyHeadroomMain,
+		Arms:     headroomMainArms(),
+		Arrivals: ArrivalsIndependent,
+		Frozen: &FrozenTuple{
+			PremiumPromptChars:    200,
+			ContenderPromptChars:  40000,
+			TimeoutMs:             30000,
+			PremiumOutputTokens:   64,
+			ContenderOutputTokens: 16,
+		},
+		MinRepetitions:         1,
+		FixesOutputAtCap:       true,
+		RecordsReplayTiming:    true,
+		TracesVaryByRepetition: true,
+		SenderPoolSize:         600,
+		FrozenExactTokens:      map[int]int{200: 68, 31894: 6144, 40000: 7695, 42579: 8192},
+	},
+	// One mps cell, once: the stopping rule allows one attempt, and nothing is divided by anything.
+	// The tuple is the sharing matrix's, which the amendment carries over; only the rate differs, and the session
+	// enforces it, since a weighted mix's rate is not part of a FrozenTuple.
+	StudyMPSCapability: {
+		ID:   StudyMPSCapability,
+		Arms: []string{ArmMPS},
+		Frozen: &FrozenTuple{
+			PremiumPromptChars:    1174,
+			ContenderPromptChars:  42579,
+			PremiumInputTokens:    256,
+			ContenderInputTokens:  8192,
+			TimeoutMs:             60000,
+			PremiumOutputTokens:   64,
+			ContenderOutputTokens: 16,
+		},
+		MinRepetitions: 1,
+	},
 	// R1 once per card, then five arms at each of the three lengths in one block.
 	StudyLengthRobustness: {
 		ID:       StudyLengthRobustness,
@@ -1020,6 +1097,19 @@ func widestArmName() int {
 }
 
 // lengthRobustnessArms is R1 and the five v27 main-study arms at each contender length.
+// headroomMainArms is C3's main block: R1 and five arms at each length.
+// fixedS is named for S, not a millisecond figure, so the label cannot claim a spacing the session does not run.
+func headroomMainArms() []string {
+	arms := make([]string, 0, 16)
+	arms = append(arms, ArmR1)
+	for _, a := range []string{"off", "caponly", "hold-cap", "fixedS", "sizeaware"} {
+		for _, l := range []string{"short", "ref", "long"} {
+			arms = append(arms, a+"-"+l)
+		}
+	}
+	return arms
+}
+
 func lengthRobustnessArms() []string {
 	arms := make([]string, 0, 16)
 	arms = append(arms, ArmR1)

@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# git for the characterisation runs: every call goes to the real git except the read of C3's main-study launch ledger
+# at HEAD, which answers with a fixed ledger, so a scenario's outcome does not move as the real ledger records
+# launches (codex review of 7b7e92bb).
+# STUB_LAUNCH_LEDGER, when set, is the ledger's lines, as printf reads them; unset, the ledger records no launch.
+for a in "$@"; do
+  if [ "$a" = "HEAD:docs/superpowers/specs/data/2026-10-25-c3-main/launches.txt" ]; then
+    printf '# fixed ledger for the characterisation runs\n'
+    [ -z "${STUB_LAUNCH_LEDGER:-}" ] || printf "$STUB_LAUNCH_LEDGER"
+    exit 0
+  fi
+done
+# The real git: the first one on PATH that is not this file.
+self=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+IFS=: read -r -a dirs <<<"$PATH"
+for d in "${dirs[@]}"; do
+  [ "$(cd "$d" 2>/dev/null && pwd)" = "$self" ] && continue
+  [ -x "$d/git" ] && exec "$d/git" "$@"
+done
+echo "the git stub found no real git on PATH" >&2
+exit 127

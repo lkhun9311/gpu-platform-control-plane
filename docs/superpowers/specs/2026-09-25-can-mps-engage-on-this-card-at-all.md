@@ -181,3 +181,267 @@ successful next run could not say which change bought the success. If B0–B2 fa
 is what selects the next change. Separately, `mps.enableHostPID` — which the project's own values file
 explains the MPS server needs to find its PID through `/proc/self` — arrived in **v0.18.0**, after the pinned
 `v0.16.2`; raising the pin is a candidate this page does not take today.
+
+## Amendment, 2026-10-24: the runner's contract, fixed before the first purchase
+
+**No card has been bought for this page.**
+The owner approved buying its one session on 2026-10-24.
+This amendment settles what the runner could not implement as written. It is dated here and does not edit the text above.
+It changes no bar's subject and relaxes none.
+My reading and codex `gpt-6-astra`'s, made independently, found the same two gaps in the page: B4's process types, and B5's workload.
+
+**B4 contradicted itself, and NVIDIA's wording settles it.**
+The bar table asks for "an `M+C` compute process for the MPS server". The command note below it says "`M+C` on the clients, `C` on the server".
+NVIDIA's MPS Quick Start (https://docs.nvidia.com/deploy/mps/latest/quick-start.html, read 2026-10-24) says only two things on this:
+- `nvidia-smi` verifies "the existence of the `nvidia-cuda-mps-server` process";
+- a client application "will also appear in `nvidia-smi` with the `M+C` type specified".
+It does not give the server's type.
+B4 therefore passes when, in a table captured while both engines are Ready:
+- exactly one process is named `nvidia-cuda-mps-server`;
+- two processes are of type `M+C`, each mapped to a different engine Pod through `/proc/<pid>/cgroup`.
+The server's type is recorded and not judged.
+A captured table that shows anything else is a **failed** B4. B4 is **unmeasured** only when either command did not run or could not be read.
+
+**B5's workload, frozen.**
+The page named the matrix's replay but not its load, and the session's defaults are mutable.
+The replay is `gen-trace` with:
+- seed 11;
+- `--duration-ms 120000`;
+- rate 2 requests a second;
+- premium weight 1, contender weight 0.054, probe weight 0;
+- premium prompt 1,174 characters, contender prompt 42,579;
+- 64 and 16 output tokens;
+- a request timeout of 60,000 ms.
+The prompt sizes, output tokens, timeout and mix are the matrix's registered ones. The rate is lowered from 9.85 to 2 because this bar asks whether the arrangement survives work, not how fast. A load chosen near capacity would turn an overload into a B5 failure that says nothing about MPS.
+B5 passes when:
+- the replay exits 0;
+- `raw-mps-1.jsonl` parses row by row;
+- both the premium and the contender tenant have rows;
+- no row carries a 5xx.
+4xx rows and rows with an `errorKind` are counted and printed beside it, not judged. The page asked for no 5xx and nothing more, and this does not move that line after the fact.
+
+**The clock and the phases.**
+Every deadline counts from EC2's `LaunchTime`, which the session reads right after the launch and writes to the run's S3 prefix. The instance reads it from there.
+An instance that cannot read it within 180 s of its own start stops and the run is INVALID. Its boot time is later than `LaunchTime`, so a deadline taken from it would overrun.
+
+| from `LaunchTime` | ends no later than | work |
+|---|---:|---|
+| bring-up, B0, B1, B2 | 720 s | driver check, toolkit, kind, the overlay, a Running pair |
+| B3, B4 | 1,200 s | serving readiness, the client probes, the two host tables |
+| B5 | 1,920 s | the replay above and its decision |
+| evidence | 2,040 s | the diagnostics, the journal, the upload |
+| termination | 2,400 s | the shutdown and its confirmation |
+
+**Whether 720 s is enough, from the archives, before the purchase.**
+Four session archives on this instance type record `LaunchTime`: the admission pilot's stages A and B, its diagnostic and its length calibration, of 2026-10-08 to 2026-10-10. Those archives are kept on the owner's machine and are not committed.
+Their cold first cell pulled the engine image and downloaded the weights.
+In each, the engine's first log line came 452 to 499 s after `LaunchTime`, and its last line before startup completed came 582 to 655 s after it.
+The log line stands in for Running and is not a Pod-phase timestamp. Those cells ran one engine, and this one runs two behind an MPS plugin and its control daemon.
+So phase 1 has some 3 to 4 minutes of margin, and a slow image pull could spend it. A phase 1 that runs out is recorded as interrupted, and the run is INCONCLUSIVE, not a refusal.
+
+A phase may end early and never borrows time.
+A phase that runs out records its open bar as interrupted, not as failed or passed, and the run goes straight to the evidence step.
+
+**The kills, in the order they should fire.**
+1. The instance shuts itself down once the evidence step ends. Its own timer shuts it down at 2,100 s from `LaunchTime` if that step hangs, and it launches with shutdown set to terminate.
+2. The session terminates the instance when the run's completion marker arrives, or at 2,100 s, and waits until EC2 reports it terminated.
+3. The termination sweeper (`infra/aws/bootstrap/sweeper/sweeper.py`) runs every five minutes and does not depend on either. It ends any instance whose `study-deadline` tag has passed.
+
+**The tag is written twice.**
+- At launch it is the launch request plus 2,040 s. That holds if the session dies before it can rewrite it: the request precedes `LaunchTime`, so the latest sweep is no later than 2,340 s after `LaunchTime`.
+- Once the session has read `LaunchTime`, it rewrites the tag to `LaunchTime` plus 2,070 s. That keeps the sweeper out of the evidence step, which ends at 2,040 s, and the latest sweep requests termination by 2,370 s.
+
+codex found that the first version of this paragraph overlapped the two. It set the tag to the request plus 1,980 s, so a sweep could end the instance at 1,980 s, while the evidence step ran to 2,040 s.
+A five-minute sweeper bounds its latest request, never its earliest.
+Billing ends as the instance enters `shutting-down` (https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-instance-lifecycle.html, read 2026-10-24), so the sweeper's bound is on the termination request. The confirmation that follows is recorded rather than assumed.
+Before the purchase, the deployed sweeper's schedule and state are read back from AWS.
+
+**The classification, applied in this order.**
+1. **INVALID:**
+   - termination not confirmed;
+   - `LaunchTime` unreadable on the instance;
+   - the overlay or either engine manifest not the pinned one;
+   - an image that did not pull;
+   - a Pod that could not be scheduled for a reason the diagnostics name and that is not the device.
+2. **REFUSED:**
+   - the plugin advertised two and a `no healthy devices` event on an engine Pod is captured;
+   - or the control daemon's log records a client's rejection with its reason;
+   - and in either case the mandatory diagnostics were uploaded.
+3. **PASS:** B0 to B5 each passed, the provenance and diagnostics are complete, and termination is confirmed.
+4. **INCONCLUSIVE:** everything else, including a bar left interrupted or unmeasured.
+A failed bar whose cause the diagnostics do not establish is recorded as failed. Not knowing why does not erase the measurement.
+
+**The run record before B0:**
+- the AMI ID, pinned before launch and checked against the image ID EC2 reports for the instance;
+- the driver version;
+- the container toolkit's version on the host and in the kind node;
+- the engine images' digests;
+- the SHA-256 of the rendered overlay and of both engine manifests.
+
+## Result, 2026-10-24: run 1 is INCONCLUSIVE, because our overlay never let a client reach the daemon
+
+**Verdict: `MPS: INCONCLUSIVE`.** B0, B1 and B2 passed; B3 failed; B4 was unmeasured; B5 is absent.
+This is the classification above applied as written, by `benchharness mps-capability-verdict` on the journal.
+It is not REFUSED: the daemon's log records no CUDA client at all, so it records no rejection of one, and no `no healthy devices` event was captured.
+It says nothing about whether MPS can engage on an A10G, because no CUDA client ever asked it to.
+
+**The purchase.** One g5.2xlarge Spot instance, `i-0d6780100fc296545`, in ap-northeast-2a, from commit `04fac8f3`, AMI `ami-097edab977037f65f`, driver 595.91.07.
+`LaunchTime` was 04:31:37Z. CloudTrail records `TerminateInstances` at 04:46:23Z, 886 s later, and the session read the instance as terminated at 1,182 s.
+At the zone's Spot price read before launch, $0.683 an hour, the 886 s cost about $0.17. That is the price times the time, not a billed figure.
+The sweeper did not have to act.
+
+**When each bar ran, from `LaunchTime`.**
+
+| event | s |
+|---|---:|
+| `LaunchTime` read on the instance | 93 |
+| B0 started | 252 |
+| B2 decided, both Pods Running | 470 |
+| B3 started, after the wait for both engines to be Ready | 858 |
+| B4 decided | 862 |
+| diagnostics uploaded | 867 |
+| termination requested | 886 |
+
+Phase 1 ended at 470 s against its 720 s bound. The margin estimated from the archives held on this run.
+
+**What the evidence shows.**
+- The control daemon started under the pinned image (its log names commit `42a0fa92`, the v0.16.2 tag), opened `/mps/nvidia.com/gpu/pipe/control`, and set a 50% thread share and an 11,514 MiB pinned-memory limit.
+  After that it accepted one connection, at 04:35:39.120, and that was the plugin's health check (the daemon's get_default_active_thread_percentage command, logged by the plugin as "MPS daemon is healthy" in the same millisecond). No CUDA client connected and no MPS server started.
+  codex corrected this line: the first version said nothing connected at all.
+- Inside both engine containers `CUDA_MPS_PIPE_DIRECTORY` was `/mps/nvidia.com/gpu/pipe`. The directory existed and held no control socket. That is B3's failure.
+- `nvidia-smi` at 867 s showed the card in Exclusive Process mode with one process, `VLLM::EngineCore`, of type `C`, holding 9,908 MiB. There was no `nvidia-cuda-mps-server`.
+  So engine A ran on the card directly, without MPS.
+- Engine B's container exited with code 1 four times and was never Ready, so B4's table was not captured.
+  Its log was not captured either: the diagnostics collect the plugin's and the daemon's logs and not the engines'. Why it exited is therefore not established here.
+
+**Why no client reached the daemon, read from the source of the pinned build.**
+In the v0.16.2 tag (`42a0fa92`), `internal/plugin/server.go:89-90` builds the daemon's paths from the fixed container root `/mps`, and builds `mpsHostRoot` from the `--mps-root` flag.
+`updateResponseForMPS` (`server.go:381-388`) then mounts `mpsHostRoot`'s pipe directory, as a **host** path, at the container's `/mps/nvidia.com/gpu/pipe`.
+Our overlay passes `--mps-root=/mps`, while the daemon's state is in the host's `/run/nvidia/mps`. Each engine was therefore given the host's `/mps/nvidia.com/gpu/pipe`, an empty directory.
+The overlay's own comment says the opposite, that the flag is "the path INSIDE this container". That comment is wrong, and it is what the 2026-09-12 fix was built on.
+The upstream chart at the same tag passes the host root (`MPS_ROOT` set to `mps.root`), and it also shares a tmpfs at host `<root>/shm` through a `mount-shm` init container, which our overlay lacks. The plugin mounts that shm into each client at `/dev/shm`, where our engines mount their own volume.
+A rerun needs both corrected first. They are settled in an amendment dated before that rerun.
+The source reading above is mine. codex `gpt-6-astra` was asked the same question independently, and its answer is recorded with the amendment, not merged into this paragraph.
+
+**The evidence** is committed in `hack/mps-capability/2026-10-24-run1/`, with a `SHA256SUMS` over every file in it. The binaries and the source archive the instance ran are kept on the owner's machine.
+
+## Amendment, 2026-10-24: the overlay and the engines' shm corrected before run 2
+
+**Written before run 2 was bought.** The owner approved run 2 on 2026-10-24, after reading run 1's result.
+No bar, outcome rule, phase, deadline, kill or B5 load above changes. What changes is the arrangement under test, which run 1 showed was not MPS as NVIDIA deploys it.
+
+**What changes, and where.**
+1. `config/nvidia-device-plugin-mps/daemonset.yaml`:
+   - the plugin's `--mps-root` is the host root, `/run/nvidia/mps`, which equals the hostPath both DaemonSets mount at `/mps`;
+   - the daemon first runs `mps-control-daemon mount-shm` in a privileged init container, with `/mps` propagated Bidirectionally;
+   - the daemon and the plugin both mount the host's `/run/nvidia/mps/shm` at `/dev/shm`.
+   These three follow the chart at the pinned tag, v0.16.2. `hack/test/check-mps-overlay.sh` renders the overlay and pins each of them. It fails on run 1's overlay, and on each of five single-point mutations of the new one.
+2. Under this study only, the engines are applied without their own `/dev/shm`. `config/vllm-shared/mps-shm-patch.yaml` removes the mount and the `dshm` volume, and `mpscap_engine_manifest` renders each engine through `kubectl kustomize` and refuses a render that still carries either.
+   The time-slicing and exclusive arms apply the engine files unchanged.
+   So under MPS each engine's `/dev/shm` is the daemon's tmpfs, shared by both engines and half the node's memory, instead of its own 1 GiB.
+   That is a difference between this study's engines and the matrix's. It does not touch a capability answer, and any later MPS comparison has to record it.
+3. The engines' pin covers the patch as well as both engine files. Each pin's files are now named once, in `hack/lib/mps-capability.sh`, for the session, the instance and the session's test.
+4. The diagnostics collect both engines' logs, current and previous, as rows that are not required. An engine refused its device has no container to log, and a required row would leave the collection incomplete in exactly the case REFUSED needs it complete.
+
+**Who established what.**
+- The plugin takes `--mps-root` as a host path: I read it in the v0.16.2 source (`internal/plugin/server.go:89-90`, `381-392`). codex `gpt-6-astra`, asked independently and told nothing of my reading, reached the same conclusion from the same files.
+- The chart's shm arrangement: read by both of us, separately, from the same tag's chart.
+- Without the patch, the engine's own `/dev/shm` would cover the plugin's. That is codex's reading of kubelet v1.31.0 and containerd v1.7.18. I have not verified it, and no container's mount table showed it.
+  The patch removes the question rather than relying on its answer.
+- `mount-shm`'s tmpfs reaches the node and a second, unprivileged Pod: I ran the init container from the pinned image on a throwaway kind cluster at `kindest/node:v1.31.0`, the instance's node image.
+  The tmpfs appeared on the node's `/run/nvidia/mps/shm` as a shared mount, and a file written by one Pod was read by the other.
+- The engine render: checked with kubectl v1.31.0, the version the instance installs, as well as the local one.
+- codex also corrected one line of run 1's result: the daemon did accept a connection, the plugin's health check, and what never connected was a CUDA client.
+
+**What is not known until run 2.** Whether a CUDA client now reaches the daemon on the card. Why engine B exited in run 1, whose log was not kept. Whether the Exclusive Process mode that locked out a second non-MPS process was all of it.
+
+**The purchase is the same as run 1's:**
+- one g5.2xlarge Spot at no more than $1.1324 an hour;
+- the 2,400 s stop from `LaunchTime`;
+- the same sweeper tag;
+- a new output directory, hack/mpscap-20261024-run2, which the runner refuses to reuse.
+
+## Result, 2026-10-24: run 2 is INVALID, with every bar passed, because the session gave up on the termination too early
+
+**Verdict: `MPS: INVALID`.** B0 to B5 each passed. The session's wait for EC2 to report the instance terminated ran out while it still read `shutting-down`, so `termination_confirmed` was never established.
+The invalidation rules above say it plainly: "If the session cannot confirm the instance terminated, the run is void regardless of what it measured." So this run is not the PASS that its bars describe, and nothing below is offered as one.
+The instance was terminated. I read it by hand at 08:30:54Z, seconds after the session gave up, and the record is `termination-by-hand.txt` beside the evidence, not a line in the journal. That reading does not reclassify the run, because the rule is about what the session confirmed.
+
+**The purchase.** One g5.2xlarge Spot instance, `i-02c0ea27a1f4ad8f1`, in ap-northeast-2a, from commit `9f5e06f6`, the same AMI and driver as run 1.
+`LaunchTime` was 08:11:07Z, and CloudTrail records `TerminateInstances` at 08:25:35Z, 868 s later.
+At the zone's Spot price read before launch, $0.6829 an hour, that is about $0.16. Runs 1 and 2 together come to about $0.33, by the same price-times-time estimate.
+
+**When each bar was decided, from `LaunchTime`.**
+
+| event | s |
+|---|---:|
+| `LaunchTime` read on the instance | 99 |
+| B0, B1 | 260 |
+| B2, both Pods Running | 482 |
+| B3 | 716 |
+| B4 | 719 |
+| B5 | 856 |
+| diagnostics uploaded, complete | 864 |
+| termination requested | 868 |
+
+**What the bars measured, re-read from the raw files rather than from the journal's own details.**
+- B3: in both engines `CUDA_MPS_PIPE_DIRECTORY` was `/mps/nvidia.com/gpu/pipe`, and the directory held the control socket.
+- B4 (`m5c-run/mpscap/b4-nvidia-smi.txt`, `b4-compute-apps.csv`, `b4-cgroups/`):
+  - one `nvidia-cuda-mps-server`, pid 20820, of type `C` and 30 MiB;
+  - two `VLLM::EngineCore` processes of type `M+C`, pids 20877 and 20884, at 9,776 MiB each;
+  - the clients' cgroups name the Pods `a57e91b8…` (engine A) and `a0cd6129…` (engine B), the UIDs B2 recorded. The server's cgroup names the control daemon's Pod.
+- The daemon's log records "Starting new server 75" at 08:19:41 and eight `NEW CLIENT` lines.
+- B5 (`m5c-run/raw-mps-1.jsonl`): 249 rows, 241 premium and 8 contender, none with a 5xx or a 4xx, and the replay exited 0.
+
+So, on this card, with this repository's corrected manifests, MPS engaged with two clients: one in each engine, both serving.
+This is a measurement in a run the registration voids, not a licensed answer. What a pass would license is still unlicensed.
+
+**Why the wait ran out.** The termination wait is `spot_terminate`'s, bounded at 300 s (`SPOT_TERMINATE_WAIT` in `hack/lib/spot-run.sh`).
+Run 1's shutdown was confirmed 296 s after its terminate call, four seconds inside that bound. Run 2's was still `shutting-down` when the bound ran out, about 300 s after its call at 08:25:35, and read `terminated` at 08:30:54.
+The registration allots the termination step, with its confirmation, until 2,400 s from `LaunchTime`. The runner used a fixed five minutes instead, and nothing tested a slower shutdown.
+The fix waits until `LaunchTime` plus 2,400 s, and never less than five minutes. A session test makes EC2 answer `shutting-down` seventy times before `terminated`. Billing ends at `shutting-down`, so a longer wait costs nothing.
+
+**The evidence** is in `hack/mps-capability/2026-10-24-run2/`, with a `SHA256SUMS` over every file in it.
+
+## Result, 2026-10-24: run 3 PASSES, with every bar passed and the termination confirmed inside the registered bound
+
+**Verdict: `MPS: PASS`.** B0 to B5 each passed, the provenance and diagnostics are complete, and the session confirmed the instance terminated.
+No invalidation rule applies: the overlay and both engines are the committed ones, pinned by SHA in the journal, and both engines carry `hostIPC: true`.
+This is the pass the page asked about. What it licenses is the section "What a pass licenses" above, and nothing more.
+
+**The purchase.** One g5.2xlarge Spot instance, `i-07234fb4f5c4f9f05`, in ap-northeast-2a, from commit `8ed1fbe3`, the same AMI as runs 1 and 2.
+`LaunchTime` was 12:20:33Z, and EC2 records the user-initiated termination at 12:35:16Z, 883 s later.
+At the zone's Spot price read before launch, $0.6829 an hour, that is about $0.17. Runs 1, 2 and 3 together come to about $0.50, by the same price-times-time estimate.
+
+**When each bar was decided, from `LaunchTime`.**
+
+| event | s |
+|---|---:|
+| `LaunchTime` read on the instance | 102 |
+| B0, B1 | 266 |
+| B2, both Pods Running | 497 |
+| B3 | 730 |
+| B4 | 733 |
+| B5 | 870 |
+| diagnostics uploaded, complete | 877 |
+| termination requested | 883 |
+| termination confirmed | 1,196 |
+
+The confirmation came 313 s after the terminate call.
+Under run 2's fixed 300 s wait this run would have been void as well. The fix in `6235d07a` waited up to 1,518 s, the time left to the registered 2,400 s.
+
+**What the bars measured, re-read from the raw files rather than from the journal's own details.**
+- B3: in both engines `CUDA_MPS_PIPE_DIRECTORY` was `/mps/nvidia.com/gpu/pipe`, and the directory held the control socket.
+- B4 (`m5c-run/mpscap/b4-nvidia-smi.txt`, `b4-compute-apps.csv`, `b4-cgroups/`):
+  - one `nvidia-cuda-mps-server`, pid 20617, of type `C` and 30 MiB, whose cgroup names the control daemon's Pod `92e9cbe5…`;
+  - two `VLLM::EngineCore` processes of type `M+C`, pids 20676 and 20683, at 9,776 MiB each;
+  - their cgroups name the Pods `17cb63d1…` (engine A) and `b5881843…` (engine B), the UIDs B2 recorded.
+- The daemon's log records "Starting new server 75" at 12:29:29 and eight `NEW CLIENT` lines.
+- B5 (`m5c-run/raw-mps-1.jsonl`): 249 rows, 241 premium and 8 contender, every one with HTTP 200, and the replay exited 0.
+
+So, on this card, with this repository's corrected manifests, MPS engages with two clients, one in each engine, and both serve.
+Run 2 measured the same thing, but the registration voids that run. Run 3 is the run the answer stands on.
+
+**Who established what.** The verdict is the session's, computed on the instance from the journal. I re-read every figure above from the raw files and EC2. codex reviewed the fixes before the run (static review, `6235d07a` and earlier), and did not see these results.
+
+**The evidence** is in `hack/mps-capability/2026-10-24-run3/`, with a `SHA256SUMS` over every file in it.

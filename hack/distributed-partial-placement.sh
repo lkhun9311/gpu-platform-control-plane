@@ -34,9 +34,11 @@ LOG=$OUT/log.txt
 mkdir -p "$OUT"
 
 RUNS=("$@")
+# The registered eight, then the two witness runs of 2026-10-22-finding-10-after-the-phase-fix-design.md.
 [ ${#RUNS[@]} -gt 0 ] || RUNS=(
   off:never:1 off:late:1 off:never:2 off:late:2
   ready-timeout:never:1 ready-timeout:late:1 ready-timeout:never:2 ready-timeout:late:2
+  ready-timeout:witness:1 ready-timeout:witness:2
 )
 
 log() { echo -e "$(date -u +%H:%M:%S) $*" | tee -a "$LOG"; }
@@ -290,6 +292,43 @@ for p in items:
   done
 }
 
+# witness creates the second tenant of the witness scenario: one Kueue-managed Job for one device in the same queue.
+# It sleeps 60 s once placed, so it holds its unit about a minute, and it never restarts, so one Pod is the record.
+witness() {
+  local name=$1 dir=$2
+  cat <<EOF >"$dir/witness.yaml"
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: witness-$name
+  namespace: $NS
+  labels:
+    kueue.x-k8s.io/queue-name: $CQ
+spec:
+  suspend: true
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      terminationGracePeriodSeconds: 0
+      containers:
+        - name: witness
+          image: $IMG
+          imagePullPolicy: IfNotPresent
+          command: ["sleep", "60"]
+          resources:
+            limits:
+              nvidia.com/gpu: 1
+EOF
+  if k apply -f "$dir/witness.yaml" >>"$LOG" 2>&1; then
+    date -u +%Y-%m-%dT%H:%M:%S.%3NZ >"$dir/witness-created-at.txt"
+    log "run $name: witness created"
+  else
+    log "run $name: witness refused"
+    echo "witness refused" >"$dir/VOID"
+  fi
+}
+
 # run_one runs one registered run: isolation check, squatter, job, sampling for the window, then teardown.
 run_one() {
   local setting=$1 scenario=$2 rep=$3 name dir t0 until deleted=""
@@ -371,6 +410,27 @@ EOF
     k -n "$SQUAT_NS" delete pod "$SQUAT_POD" --wait=false >>"$LOG" 2>&1 || log "run $name: squatter delete failed"
     echo "$deleted" >"$dir/squatter-deleted-at.txt"
   fi
+  if [ "$scenario" = witness ]; then
+    # After the job holds both units, not with it: the operator creates its Workload seconds after the CR, and a
+    # witness admitted first would leave the two-rank job unadmittable.
+    local reserved=""
+    while [ "$(date +%s)" -lt "$until" ]; do
+      reserved=$(k -n "$NS" get workloads -o json 2>>"$LOG" | python3 -c 'import json,sys
+name=sys.argv[1]
+for w in json.load(sys.stdin)["items"]:
+    if any(r.get("kind")=="Job" and r.get("name")==name for r in w["metadata"].get("ownerReferences") or []):
+        if any(c["type"]=="QuotaReserved" and c["status"]=="True" for c in w.get("status",{}).get("conditions") or []):
+            print("yes")' "$name")
+      [ "$reserved" = yes ] && break
+      sleep 1
+    done
+    if [ "$reserved" = yes ]; then
+      witness "$name" "$dir"
+    else
+      log "run $name: the job's Workload was never seen reserved, so no witness was created"
+      echo "no reservation to queue the witness behind" >"$dir/VOID"
+    fi
+  fi
   wait "$sampler"
   log "run $name: window over; phase '$(k -n "$NS" get mltrainingjob "$name" -o jsonpath='{.status.phase}' 2>>"$LOG")'"
   sleep 5
@@ -380,13 +440,20 @@ EOF
   k -n "$NS" get workloads -o json >"$dir/final-workloads.json" 2>>"$LOG"
   k -n "$NS" get events -o json >"$dir/events.json" 2>>"$LOG"
   k -n "$NS" delete mltrainingjob "$name" --wait=true --timeout=180s >>"$LOG" 2>&1 || log "run $name: job delete did not finish"
+  if [ "$scenario" = witness ]; then
+    k -n "$NS" delete job "witness-$name" --cascade=foreground --ignore-not-found --wait=true --timeout=120s >>"$LOG" 2>&1 ||
+      log "run $name: witness delete did not finish"
+  fi
   k -n "$SQUAT_NS" delete pod "$SQUAT_POD" --ignore-not-found --wait=true --timeout=60s >>"$LOG" 2>&1 || log "run $name: squatter delete did not finish"
 }
 
 current=""
 for spec in "${RUNS[@]}"; do
   IFS=: read -r setting scenario rep <<<"$spec"
-  case "$setting:$scenario" in off:never | off:late | ready-timeout:never | ready-timeout:late) ;; *) die "unknown run $spec" ;; esac
+  case "$setting:$scenario" in
+    off:never | off:late | ready-timeout:never | ready-timeout:late | ready-timeout:witness) ;;
+    *) die "unknown run $spec" ;;
+  esac
   [ "$setting" = "$current" ] || { set_kueue "$setting"; current=$setting; }
   run_one "$setting" "$scenario" "$rep"
 done

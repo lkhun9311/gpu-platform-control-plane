@@ -1,0 +1,8 @@
+(1, 64) {'steps': 4938, 'first': 831, 'interior': 0, 'final': 4120, 'int_total512': 0, 'int_other_contender': 0} interior ctx range None
+(65, 128) {'steps': 6344, 'first': 743, 'interior': 4654, 'final': 952, 'int_total512': 4654, 'int_other_contender': 4654} interior ctx range (1, 2088)
+(129, 256) {'steps': 3104, 'first': 1105, 'interior': 137, 'final': 1942, 'int_total512': 137, 'int_other_contender': 137} interior ctx range (4, 1950)
+(257, 384) {'steps': 89771, 'first': 4614, 'interior': 83564, 'final': 1593, 'int_total512': 32434, 'int_other_contender': 5489} interior ctx range (1, 7310)
+(385, 512) {'steps': 77341, 'first': 2125, 'interior': 74405, 'final': 811, 'int_total512': 74405, 'int_other_contender': 0} interior ctx range (1, 7240)
+diagD off-1 tokens premium 502123 contender 1434060 contender share 0.7407
+diagD off-2 tokens premium 512341 contender 1788720 contender share 0.7773
+diagD off-3 tokens premium 513127 contender 1426350 contender share 0.7354

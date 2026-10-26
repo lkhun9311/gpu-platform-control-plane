@@ -29,7 +29,9 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"net"
 	"os"
 	"os/signal"
@@ -89,26 +91,78 @@ func main() {
 	// by accident.
 	resource := envOr("FAKE_RESOURCE_NAME", defaultResourceName)
 	socketName := envOr("FAKE_SOCKET_NAME", socketNameFor(resource))
-	socketPath := filepath.Join(pluginPath, socketName)
 	log = log.WithValues("resource", resource, "socket", socketName)
+
+	// The logger travels in the context, which is the one place every function below already reads.
+	ctx, stop := signal.NotifyContext(logr.NewContext(context.Background(), log), os.Interrupt, syscall.SIGTERM)
+	cfg := pluginConfig{
+		pluginPath:   pluginPath,
+		socketName:   socketName,
+		resource:     resource,
+		count:        count,
+		pollInterval: kubeletPollInterval,
+	}
+	err = run(ctx, cfg)
+	stop()
+	if err != nil {
+		log.Error(err, "device plugin stopped")
+		os.Exit(1)
+	}
+}
+
+// kubeletPollInterval is how often the plugin checks whether the kubelet has restarted.
+//
+// Until the check after a restart, the node advertises none of this plugin's devices, so the interval is the
+// longest that gap lasts beyond the kubelet's own start; two stat calls a second is what it costs.
+const kubeletPollInterval = 1 * time.Second
+
+// pluginConfig is what one plugin instance serves, and where.
+type pluginConfig struct {
+	pluginPath   string
+	socketName   string
+	resource     string
+	count        int
+	pollInterval time.Duration
+}
+
+// run serves the plugin and registers it, and does both again each time the kubelet restarts, until ctx ends.
+//
+// A starting kubelet deletes every socket in the device-plugin directory, this plugin's included, and keeps no
+// record of earlier registrations, so a plugin that registered once is forgotten by the restarted kubelet.
+// On kind on 2026-09-29 that left a simulator Pod Running with 0 restarts while its node advertised 0 GPUs,
+// because nothing in this binary noticed.
+// Real device plugins watch kubelet.sock for the same reason; this one polls, which needs no new dependency.
+func run(ctx context.Context, cfg pluginConfig) error {
+	for {
+		restarted, err := serveOnce(ctx, cfg)
+		if err != nil || !restarted {
+			return err
+		}
+		logr.FromContextOrDiscard(ctx).Info("kubelet restarted, serving and registering again")
+	}
+}
+
+// serveOnce listens, registers and serves until ctx ends (false), the server fails (an error), or the kubelet
+// restarts (true).
+func serveOnce(ctx context.Context, cfg pluginConfig) (bool, error) {
+	log := logr.FromContextOrDiscard(ctx)
+	socketPath := filepath.Join(cfg.pluginPath, cfg.socketName)
 
 	// A prior instance's socket can survive a crash or a plain container restart.
 	//
 	// net.Listen on a unix path fails with "address already in use" if the
 	// file is still there, so it is removed first.
 	if err := os.Remove(socketPath); err != nil && !os.IsNotExist(err) {
-		log.Error(err, "remove stale socket", "path", socketPath)
-		os.Exit(1)
+		return false, fmt.Errorf("remove stale socket %s: %w", socketPath, err)
 	}
 
 	lis, err := net.Listen("unix", socketPath)
 	if err != nil {
-		log.Error(err, "listen on device plugin socket", "path", socketPath)
-		os.Exit(1)
+		return false, fmt.Errorf("listen on device plugin socket %s: %w", socketPath, err)
 	}
 
 	grpcServer := grpc.NewServer()
-	simulator := &gpuSimulator{devices: fakeDevices(count), stop: make(chan struct{})}
+	simulator := &gpuSimulator{devices: fakeDevices(cfg.count), stop: make(chan struct{})}
 	pluginapi.RegisterDevicePluginServer(grpcServer, simulator)
 
 	serveErr := make(chan error, 1)
@@ -121,34 +175,77 @@ func main() {
 	// The kubelet must be able to dial socketName before Register is called.
 	//
 	// That ordering is why registration happens after Serve starts, not before.
-	if err := registerWithKubeletRetry(log, pluginPath, socketName, resource); err != nil {
-		log.Error(err, "register with kubelet")
+	if err := registerWithKubeletRetry(ctx, cfg.pluginPath, cfg.socketName, cfg.resource); err != nil {
 		grpcServer.Stop()
-		os.Exit(1)
+		// A SIGTERM that arrives while a registration is retried is a shutdown, not a failed registration.
+		if ctx.Err() != nil {
+			return false, nil
+		}
+		return false, err
 	}
-	log.Info("registered with kubelet", "devices", count)
+	log.Info("registered with kubelet", "devices", cfg.count)
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
+	// The kubelet socket as it was when the registration succeeded, to tell a later one apart from it.
+	//
+	// A failed stat leaves it nil, and the check then relies on this plugin's own socket alone, which a
+	// restarting kubelet removes in any case.
+	kubeletSock := filepath.Join(cfg.pluginPath, "kubelet.sock")
+	registeredWith, err := os.Stat(kubeletSock)
+	if err != nil {
+		registeredWith = nil
+	}
 
-	select {
-	case <-ctx.Done():
-		log.Info("shutting down")
+	ticker := time.NewTicker(cfg.pollInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			log.Info("shutting down")
 
-		// ListAndWatch only returns when its stream context ends or this
-		// channel closes, and the stream context never ends on its own.
-		//
-		// Closing it here, before GracefulStop, is what lets the in-flight
-		// ListAndWatch call return so GracefulStop can finish instead of
-		// blocking until the kubelet sends SIGKILL.
-		close(simulator.stop)
-		grpcServer.GracefulStop()
-	case err := <-serveErr:
-		if err != nil {
-			log.Error(err, "device plugin server stopped")
-			os.Exit(1)
+			// ListAndWatch only returns when its stream context ends or this
+			// channel closes, and the stream context never ends on its own.
+			//
+			// Closing it here, before GracefulStop, is what lets the in-flight
+			// ListAndWatch call return so GracefulStop can finish instead of
+			// blocking until the kubelet sends SIGKILL.
+			close(simulator.stop)
+			grpcServer.GracefulStop()
+			return false, nil
+		case err := <-serveErr:
+			if err != nil {
+				return false, fmt.Errorf("device plugin server stopped: %w", err)
+			}
+			return false, nil
+		case <-ticker.C:
+			if kubeletRestarted(kubeletSock, registeredWith, socketPath) {
+				// Stop, not GracefulStop: the kubelet holding the old streams is gone, and nothing it had open
+				// is worth waiting for.
+				close(simulator.stop)
+				grpcServer.Stop()
+				return true, nil
+			}
 		}
 	}
+}
+
+// kubeletRestarted reports whether the kubelet this plugin registered with has been replaced.
+//
+// Nothing is decided while kubelet.sock is absent, because a kubelet that has not created it yet cannot take a
+// registration.
+// Once it is there, either sign counts: this plugin's own socket is gone, which is what a starting kubelet's
+// cleanup of the directory leaves, or kubelet.sock is a different file from the one registered with.
+// The first is the one relied on, because a recreated file can be given the old inode number and then compare
+// as the same file, which is what happened in this package's restart test on a tmpfs /tmp when the first sign
+// was disabled.
+func kubeletRestarted(kubeletSock string, registeredWith os.FileInfo, ownSocket string) bool {
+	now, err := os.Stat(kubeletSock)
+	if err != nil {
+		return false
+	}
+	if _, err := os.Stat(ownSocket); errors.Is(err, fs.ErrNotExist) {
+		return true
+	}
+	return registeredWith != nil && !os.SameFile(registeredWith, now)
 }
 
 // deviceCount reads FAKE_GPU_COUNT, defaulting to one fake device.
@@ -195,8 +292,11 @@ const registerRetryBackoff = 1 * time.Second
 //
 // Retrying inside the same startup recovers from that race in seconds,
 // rather than leaving recovery to the pod's much slower restart backoff.
-func registerWithKubeletRetry(log logr.Logger, pluginPath, endpoint, resource string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+//
+// It takes the caller's context so that a SIGTERM during a re-registration ends the wait at once.
+func registerWithKubeletRetry(parent context.Context, pluginPath, endpoint, resource string) error {
+	log := logr.FromContextOrDiscard(parent)
+	ctx, cancel := context.WithTimeout(parent, 10*time.Second)
 	defer cancel()
 
 	var lastErr error

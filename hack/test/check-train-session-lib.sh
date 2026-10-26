@@ -220,6 +220,69 @@ scenario
 answer kubectl-get-nodes "error: You must be logged in to the server (Unauthorized)" 1
 expect "an unreadable node list" 1 "unreadable" -- train_qualify_nodes ctx gpu 2 0
 
+# --- the zone pin ------------------------------------------------------------------------------------------------
+scenario
+expect "no pin" 0 "no zone pin" -- train_zone_refusal ""
+expect "a zone name" 0 "pinned to ap-northeast-2a" -- train_zone_refusal ap-northeast-2a
+expect "a zone letter alone" 1 "not a zone name" -- train_zone_refusal 2a
+expect "a region" 1 "not a zone name" -- train_zone_refusal ap-northeast-2
+expect "a zone ID" 1 "not a zone name" -- train_zone_refusal apne2-az1
+
+# The subnets come from the group AWS holds; the second call resolves them to zones.
+scenario
+answer aws-eks-describe-nodegroup "subnet-2a"
+answer aws-ec2-describe-subnets "ap-northeast-2a"
+expect "a pinned group in its zone" 0 "subnets in ap-northeast-2a" -- train_group_subnet_zones gpu-platform ap-northeast-2 gpu ap-northeast-2a
+grep -q -- "--nodegroup-name gpu" "$STUB/calls.log" && grep -q -- "--subnet-ids subnet-2a" "$STUB/calls.log" &&
+  ok "the subnets read are the gpu group's own" || bad "the subnets were not read from the gpu group: $(cat "$STUB/calls.log")"
+scenario
+answer aws-eks-describe-nodegroup "subnet-2a	subnet-2c"
+answer aws-ec2-describe-subnets "ap-northeast-2a	ap-northeast-2c"
+expect "a pin that did not reach the group" 1 "the pin did not reach the group" -- train_group_subnet_zones gpu-platform ap-northeast-2 gpu ap-northeast-2a
+scenario
+answer aws-eks-describe-nodegroup "subnet-2a	subnet-2c"
+answer aws-ec2-describe-subnets "ap-northeast-2a	ap-northeast-2c"
+expect "an unpinned group across two zones" 0 "subnets in ap-northeast-2a ap-northeast-2c" -- train_group_subnet_zones gpu-platform ap-northeast-2 gpu ""
+scenario
+answer aws-eks-describe-nodegroup "subnet-2a	subnet-2c"
+answer aws-ec2-describe-subnets "ap-northeast-2a"
+expect "a subnet whose zone went unanswered" 1 "2 subnet(s) but 1 zone(s)" -- train_group_subnet_zones gpu-platform ap-northeast-2 gpu ap-northeast-2a
+scenario
+answer aws-eks-describe-nodegroup "None"
+expect "a group listing no subnets" 1 "lists no subnets" -- train_group_subnet_zones gpu-platform ap-northeast-2 gpu ap-northeast-2a
+scenario
+answer aws-eks-describe-nodegroup "An error occurred (ExpiredTokenException)" 255
+expect "an unreadable group" 1 "could not read the subnets" -- train_group_subnet_zones gpu-platform ap-northeast-2 gpu ap-northeast-2a
+scenario
+answer aws-eks-describe-nodegroup "subnet-2a"
+answer aws-ec2-describe-subnets "An error occurred (UnauthorizedOperation)" 254
+expect "unreadable subnets" 1 "could not read the zones" -- train_group_subnet_zones gpu-platform ap-northeast-2 gpu ap-northeast-2a
+
+zoned() { # name zone, or no zone label when the second argument is empty
+  local labels='"eks.amazonaws.com/nodegroup": "gpu"'
+  [[ -z "$2" ]] || labels="$labels, \"topology.kubernetes.io/zone\": \"$2\""
+  printf '{"metadata": {"name": "%s", "labels": {%s}}}' "$1" "$labels"
+}
+scenario
+answer kubectl-get-nodes "$(items "$(zoned ip-a ap-northeast-2a)" "$(zoned ip-b ap-northeast-2a)")"
+expect "both nodes in the pinned zone" 0 "ip-b ap-northeast-2a" -- train_node_zones ctx gpu ap-northeast-2a
+grep -q "eks.amazonaws.com/nodegroup=gpu" "$STUB/calls.log" && ok "the zoned nodes are selected by the gpu group" || bad "the zoned nodes are not selected by the gpu group"
+scenario
+answer kubectl-get-nodes "$(items "$(zoned ip-a ap-northeast-2a)" "$(zoned ip-b ap-northeast-2c)")"
+expect "a node outside the pinned zone" 1 "ip-b is in ap-northeast-2c, not ap-northeast-2a" -- train_node_zones ctx gpu ap-northeast-2a
+scenario
+answer kubectl-get-nodes "$(items "$(zoned ip-a ap-northeast-2a)" "$(zoned ip-b ap-northeast-2c)")"
+expect "unpinned nodes across zones, recorded" 0 "ip-b ap-northeast-2c" -- train_node_zones ctx gpu ""
+scenario
+answer kubectl-get-nodes "$(items "$(zoned ip-a ap-northeast-2a)" "$(zoned ip-b "")")"
+expect "a node with no zone label, unpinned" 1 "ip-b has no topology.kubernetes.io/zone label" -- train_node_zones ctx gpu ""
+scenario
+answer kubectl-get-nodes "$(items)"
+expect "no nodes" 1 "no nodes" -- train_node_zones ctx gpu ap-northeast-2a
+scenario
+answer kubectl-get-nodes "error: You must be logged in to the server (Unauthorized)" 1
+expect "an unreadable zoned node list" 1 "could not read the nodes" -- train_node_zones ctx gpu ap-northeast-2a
+
 # env_path DIR COMMAND...: runs COMMAND, a function here, with DIR first on PATH.
 env_path() { local PATH="$1:$PATH"; shift; "$@"; }
 

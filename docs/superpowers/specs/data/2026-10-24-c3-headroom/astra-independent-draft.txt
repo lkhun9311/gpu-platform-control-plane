@@ -1,0 +1,197 @@
+I read the requested sections and traced the implementation without editing files or running a session. **C3 needs a new study identity and scorer configuration. Its proposed fixed-control rule also changes the meaning of v27’s gate.**
+
+Below is the registration I would freeze, followed by the attack and implementation inventory. The new trace checksums and pre-purchase replay remain required artifacts; I have not invented either.
+
+**The calibration registration**
+
+The question is: at premium **9.25 requests/s** and contender **0.375 requests/s**, does hold-cap remain admissible and establish at least **15% premium-tail protection** at all three contender lengths, while the long prefill exceeds a reference-derived fixed spacing? This is a feasibility measurement for a later comparison with fixed and size-aware controls. Those controls are not measured in this session. The load and seed come from [C3:64–73](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/2026-10-22-paid-retry-candidates.md:64).
+
+Use a **new study ID**, proposed `admission-headroom-calibration-2026-10-22`. Retain **stage F as the seven-cell shape**, with study-specific configuration; do not redefine the existing v27 ID.
+
+| Item | Frozen specification |
+|---|---|
+| Session | One g5.2xlarge Spot, one A10G, ap-northeast-2; one block |
+| Seed | **891**, unchanged after inspecting its trace or prediction |
+| Arrivals | Independent per-tenant Poisson streams; premium **9.25/s**, contender **0.375/s** |
+| Premium prompt | **200 characters / 68 engine tokens** |
+| Contender short | **31,894 characters / 6,144 tokens** |
+| Contender reference | **40,000 characters / 7,695 tokens** |
+| Contender long | **42,579 characters / 8,192 tokens** |
+| Outputs | Premium **64**, contender **16** tokens, fixed at their caps |
+| Timeout | **30,000 ms**, measured from the scheduled instant for completion scoring |
+| Cell duration | **420,000 ms** of scheduled arrivals |
+| Sender pool | **600**, retained explicitly despite the reduced contender rate |
+| Arms | R1 once; off and hold-cap at each length |
+
+The inherited tuple, token table, pool and arrival model are in [study.go:906–924](/home/lkhun9311/workspace/gpu-platform-control-plane/internal/bench/study.go:906); duration is in [v27’s registration:1389](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md:1389). The infrastructure restrictions are enforced at [m5c-gpu-session.sh:232–237](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/m5c-gpu-session.sh:232).
+
+R1 contains the seed’s premium arrivals only, with admission off and no cap. Every off arm has admission off and no cap. Every hold-cap arm uses **serial-prefill**, a **25 s maximum hold**, and **384-token long-prefill cap**. Each cell gets a fresh engine. Keep the inherited **512-token batch budget**, pinned model/revision and engine image, priority scheduling, synchronous scheduling and disabled prefix caching. Sources: [prospective-pilot.sh:13–34](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/lib/prospective-pilot.sh:13), [engine arguments:132–139](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/lib/prospective-pilot.sh:132), [deployment.yaml:75–104](/home/lkhun9311/workspace/gpu-platform-control-plane/config/vllm/deployment.yaml:75).
+
+One arrival schedule is shared across lengths; only contender prompt length changes. Off and hold-cap at a given length replay identical trace bytes. Generate and freeze **four SHA-256 checksums**: R1, short, reference, long. Independent arrival generation makes the schedule independent of prompt length ([trace.go:286–348](/home/lkhun9311/workspace/gpu-platform-control-plane/internal/bench/trace.go:286)).
+
+For seed 891, stage F, block 1, the existing hash algorithm gives this order, which I calculated read-only:
+
+1. R1
+2. off-ref
+3. hold-cap-ref
+4. off-long
+5. hold-cap-short
+6. off-short
+7. hold-cap-long
+
+This uses the first sixteen hexadecimal characters of SHA-256 of `891/F/1/<arm>`, sorted lexically, with R1 first ([m5c-matrix.sh:872–887](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/m5c-matrix.sh:872)). Changing the stage label would change the permutation; it must not happen implicitly.
+
+The session retains v27’s allowance:
+
+\[
+1.25(200+7\times920+12)=8,315\text{ s},
+\]
+
+rounded to a **hard stop of 8,340 s / 2 h 19 m**. From a clock established **before launch**, freeze:
+
+| Boundary | Offset from that clock |
+|---|---:|
+| Matrix execution deadline | **7,860 s** |
+| Acquisition deadline | **7,980 s** |
+| Hard stop | **8,340 s** |
+| Instance backstop | **8,940 s** |
+| Sweeper `study-deadline` | **9,540 s** |
+
+These are derived directly from [the stage-F limit:253–254](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/m5c-gpu-session.sh:253) and [deadline arithmetic:1291–1315](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/m5c-gpu-session.sh:1291): two minutes for the archive before acquisition closes, six minutes between acquisition and the hard stop, then backstops at ten and twenty minutes beyond it.
+
+No extension, replacement seed or second paid calibration is authorized by this registration. Missing cells yield an inconclusive calibration. Preserve partial evidence and the existing slow-termination recovery path ([m5c-gpu-session.sh:1752–1762](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/m5c-gpu-session.sh:1752)). Active credentials must cover the backstop plus **40 minutes**, approximately **189 minutes** at the start; the existing code rechecks immediately before purchase ([credential rule:540–547](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/m5c-gpu-session.sh:540), [purchase recheck:1589–1595](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/m5c-gpu-session.sh:1589)).
+
+Validity applies to **every cell**, including R1 where applicable:
+
+- Exactly the registered cells, study, arm, seed, trace checksum and request identities; row prompt lengths and token counts match the trace, including engine-reported counts where available.
+- Present, readable, eligible evidence; required gateway records, scheduler records, clock anchors and engine-log alignment.
+- Maximum dispatch lag **≤50 ms**; no more than **0.1%** of premium requests above **13 ms**.
+- No successful premium request without gap evidence; no successful contender without complete timing.
+- Gateway arrival-to-durable-record delay for every request, and arrival-to-decision for premium requests: **p99 ≤13 ms, maximum ≤50 ms**.
+- Every admitted contender appears in that cell’s scheduler log; every hold-cap contender decision uses serial-prefill.
+- Each off reference has premium loss **<0.5%** and contender completion **≥95%**.
+- Every successful hold-cap contender has gateway admission-to-first-content timing.
+
+These are the revised rules, not the earlier shorthand: [design:1303–1311](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md:1303), [v27 amendments:1408–1414](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md:1408), [score_cell:911–962](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/prospective-pilot/pilot_report.py:911).
+
+Hold-cap admissibility is checked separately at each length against that length’s off:
+
+| Line | Requirement |
+|---|---|
+| Contender completion | **≥95%** |
+| Contender completion p50 | **≤1.5 × off** |
+| Contender completion p95 | **≤25 s** |
+| Hold refusals | **0** |
+| Preemptions | **0** |
+| Shared-window contender prefill and decode work, p and q | Each **≥0.9 × off** |
+| Premium inter-token gap p99 | **≤1.25 × off** |
+
+Failures, including refusals and timeouts, enter contender completion latencies at **+∞**. Completion timing ends at the last content token, with the existing upward correction for truncated gaps. The shared window ends at the last scheduled arrival, not a treatment-dependent completion time ([contender_outcomes:642–674](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/prospective-pilot/pilot_report.py:642), [work accounting:287–339](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/prospective-pilot/pilot_report.py:287), [admissibility:979–1006](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/prospective-pilot/pilot_report.py:979)).
+
+Define \(d_N\) as hold-cap’s **median engine prefill**, from scheduler add to the end of the step consuming the last prompt token. Include every received contender; unfinished prefills count at **+∞**. Gateway admission-to-first-content is published separately and does not substitute for engine prefill ([engine_prefill:1158–1177](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/prospective-pilot/pilot_report.py:1158)).
+
+To make C3’s proposed control rule internally consistent, I would explicitly freeze:
+
+\[
+S=\operatorname{round}_{0.1\text{ ms}}(1.0533\,d_{\rm ref}),\qquad
+s_N=\operatorname{round}_{0.1\text{ ms}}(S\,d_N/d_{\rm ref}).
+\]
+
+Here **1.0533 is the literal registered multiplier**. The precision follows the existing scorer’s one-decimal spacing output. This replaces **both** occurrences of v27’s 1,740 ms anchor: the challenge threshold and the size-aware normalization. Otherwise the fixed and size-aware controls would differ at reference. Sources: [C3:70–71](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/2026-10-22-paid-retry-candidates.md:70), [existing formula:1269–1277](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/prospective-pilot/pilot_report.py:1269).
+
+Read the gate in this order:
+
+1. **Inconclusive**: missing/extra cells, failed validity, or unscorable validity/admissibility/protection evidence.
+2. **Not feasible: hold-cap was not admissible at `<length>: <line>`**: any scored admissibility failure, across all lengths.
+3. **Not feasible: hold-cap’s 15% protection of the premium tail was not established at `<length>`**:  
+   \(\ln(\text{hold-cap scheduled p99 upper}/\text{off arrival p99 lower})>\ln(0.85)\).
+4. **Inconclusive**: only after admissibility and protection pass everywhere, any engine prefill median is missing, nonpositive or infinite.
+5. **Challenge not achieved**: long’s engine median does not exceed **both \(S\)** and **\(1.05d_{\rm ref}\)**.
+6. **Feasible** otherwise.
+
+Within a verdict category, report failures in short/reference/long order and publish all failures. Scored admissibility failure takes precedence over protection failure and unavailable medians. Treatment premium failures remain endpoint outcomes at **+∞**, not apparatus invalidity. This preserves [v27’s revised ordering:1408–1413](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md:1408) and [the implemented ordering:1235–1279](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/prospective-pilot/pilot_report.py:1235).
+
+**This normalized version cannot retain v27’s independent “reference still fits 1,740 ms” test.** Reference fit is built into \(S\). The later main study must measure reference suitability independently, using the spacing frozen here.
+
+Publish regardless of verdict: the plan/order, trace hashes and counts, source/binary/image/model identities, raw evidence, validity lines, every admissibility line, off and hold-cap premium bounds, contender completion/p50/p95/refusals, p/q work, premium gaps, preemptions, engine prefill median/p95/unfinished counts, gateway timing and session timing/cost. Publish \(S\) and all three \(s_N\) whenever valid finite inputs allow calculation; label them **provisional, not licensed for main purchase** unless the gate is feasible. The old scorer currently returns only selected measurements, gate lines and spacings ([calibration return:1280–1281](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/prospective-pilot/pilot_report.py:1280)).
+
+Before buying:
+
+- Commit the new registration, implementation and scorer; freeze the four traces and checksums.
+- Run the real seven-cell purchase-plan check, token verification and isolated-kind apparatus rehearsal. Preserve v27’s historical scoring regression.
+- Replay **seed 891 at this one frozen rate**, recording the model version, inputs, pace, predictions and limitations before spending. I would use the previously documented **1.0205** nominal pace as the pre-calibration prediction convention; it matched the old card’s reference prefill, **1,651 predicted versus 1,652 ms measured** ([design:1451](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md:1451)).
+- For this calibration, that replay is a recorded prediction, not a requirement to predict “feasible.” It cannot establish validity or certify the new card’s cost, and cannot select another rate, seed or control multiplier. That distinction is deliberate: v27 bought calibration despite its prediction varying between feasible and a long-length hold refusal ([design:1402–1406](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md:1402)).
+- Only after a feasible calibration may the later main-study purchase gate be evaluated. Retain **882, 892, 893**, freeze the calibration-derived spacings across all cards, and never replace a seed. A predicted hold-cap admissibility failure anywhere stops that purchase. Also retain v27’s requirements for predicted protection and reachability of the main comparison; C3’s shorter wording should not silently remove them ([C3:72–73](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/2026-10-22-paid-retry-candidates.md:72), [v27 gate:1449](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md:1449)).
+
+There is **no C3 replay prediction in the files inspected**. “Feasible is predicted” cannot yet be placed in the purchase record.
+
+For cost, the old seven-cell session’s launch-to-matrix-return was **74 min 42 s**, giving approximately **$0.85** at the recorded expected **$0.6824/h**; budgeting **about $1** matches C3. At the recorded combined ceiling **$1.1324/h**, the hard-stop duration costs approximately **$2.62**. Following the document’s reserve convention—sweeper deadline plus **15 minutes**—reserve **174 minutes**, approximately **$3.28**. These are historical planning rates and an operating allowance, not an unconditional spending maximum ([C3:75](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/2026-10-22-paid-retry-candidates.md:75), [cost components/reserve:725–737](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md:725), [allowance limitation:820–827](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md:820)).
+
+A feasible result licenses **designing and screening the later main study with frozen controls**. It establishes feasibility on this card and trace. It establishes no fixed-control failure, no size-aware-control result, no across-card robustness and no revision of the old-load verdicts.
+
+**The attack on C3, ranked**
+
+1. **Highest: the fixed-control rule can manufacture reference fit and leave the comparator unvalidated.**  
+   \(d_{\rm ref}\le1.0533d_{\rm ref}\) holds by construction. It replaces v27’s independent reference-fit guard with an identity. Moreover, **1,740/1,652 combines v26’s selected grid spacing with a different session’s v27 median**; v26 did not establish a transferable “median plus 5.33%” tuning law. V26 found a steep response to spacing and never measured beyond its grid’s upper endpoint. The seven-cell calibration does not run the new fixed control at all. Consequently “reference median fits” cannot mean “fixed is admissible and competitive at reference.” Keep an empirical reference comparison in the main gate, freeze \(S\) across cards, and describe this as testing the specified calibration rule—not the best fixed controller. Sources: [v26 rationale:1239–1246](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md:1239), [results:1346–1359](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md:1346), [reference guard:1410](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md:1410).
+
+2. **High: C3 contains incompatible control/gate instructions unless resolved explicitly.**  
+   “v27’s formula” means \(1740d_N/d_{\rm ref}\), while its next sentence defines fixed as \(1.0533d_{\rm ref}\). Literal inheritance makes size-aware-reference differ from fixed-reference, losing the duplicate-control check that v27 deliberately included. Likewise “v27’s gate as revised” still refers to **1,740 ms**. My draft resolves both anchors to \(S\), while acknowledging the lost independent reference test. Because **1.0533 > 1.05**, the 5% challenge condition becomes redundant except for rounding. Also, \(1740/1652=1.053268765\ldots\), not exactly 1.0533; choose one rule before measurement. Sources: [C3:70–71](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/2026-10-22-paid-retry-candidates.md:70), [main duplicate control:1437](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md:1437).
+
+3. **High: the rate rule is a headroom heuristic, not utilization or a tail guarantee.**  
+   The calculation is valid: **0.375 × 1.851 = 0.694125**. But rate times a **p95 engine prefill** is not mean server utilization. Serial-prefill’s reservation lasts until first content reaches the gateway, which includes more than the measured engine interval; premium activity and card pace also matter. A p95 does not bound rare service times or arrival bursts. Freeze **0.375/s** as the chosen design point; do not claim the new card is guaranteed below 70% utilization or inside the 25 s p95. The rounding grid behind “rounded down” is also unstated, although freezing the explicit rate removes operational ambiguity. Sources: [C3:64–67](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/2026-10-22-paid-retry-candidates.md:64), [serialprefill.go:9–21](/home/lkhun9311/workspace/gpu-platform-control-plane/internal/gateway/serialprefill.go:9).
+
+4. **High: the stages still may have no useful main comparison.**  
+   Lowering load can rescue hold-cap’s contender cost while also rescuing fixed’s premium tail, removing the separation being sought. Conversely, a median prefill exceeding a spacing is not itself evidence of the fixed arm’s tail failure. This was precisely why v27 distinguished calibration measurements from main-study predictions. The calibration can be feasible and the main study still unreachable or uninformative under its specified interaction. Sources: [original feasibility concern:1377–1381](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md:1377), [evidence distinctions:1462–1470](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md:1462).
+
+5. **Medium-high: the seeds are deliberately chosen traces, not fresh representative replication.**  
+   Keeping **882** is defensible and avoids discarding the known difficult stream. But its old **234 contenders** does not carry over at the reduced rate: the generator rescales that tenant’s interarrival gaps and truncates at the fixed duration. Its premium stream stays the same; contender timing relative to premium changes. It is not guaranteed to remain the heaviest new trace. Replacing old **881/883** with **892/893** is permitted for a new registration, but needs disclosure; “never replayed” does not establish random sampling or population representativeness. One calibration seed gives no across-seed robustness guarantee. Sources: [old counts:1456](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md:1456), [generator:307–318](/home/lkhun9311/workspace/gpu-platform-control-plane/internal/bench/trace.go:307).
+
+6. **Medium-high: “replay once” underspecifies a consequential decision rule.**  
+   C3 does not specify nominal pace, fitting data, whether prediction occurs before or after calibration, or how “main comparison reachable” is implemented. The old replay understated contender cost by **3–7%**, and v26 explicitly rejected letting replay error choose the winning control. A frozen replay veto is a spending rule, not a measured finding. Predictions must not be used to retune the rate, multiplier or seeds until the gate passes. Sources: [v26:1239](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md:1239), [v27:1449–1456](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md:1449).
+
+7. **Medium: validity, precision and cost are abbreviated too far.**  
+   C3’s parenthetical verdict list omits **inconclusive**. Seven cells on one card cannot distinguish length effects from every session drift; hash ordering mitigates systematic placement but supplies no replication. The cost estimate is reasonable, but “at most” should not replace the earlier operating-allowance qualification. These omissions are repairable without changing the experimental load.
+
+**The implementation inventory**
+
+I would add C3 alongside v27, preserving old registrations, tests and evidence. The following are the required extension points; generic apparatus need not be rewritten.
+
+| Location | Required change / value that otherwise remains |
+|---|---|
+| [internal/bench/study.go:334](/home/lkhun9311/workspace/gpu-platform-control-plane/internal/bench/study.go:334), [906](/home/lkhun9311/workspace/gpu-platform-control-plane/internal/bench/study.go:906) | Add a new study constant and registry entry with the seven arms, independent arrivals, frozen tuple, token table, one repetition and pool 600. **The tuple does not freeze rates or seed.** Those require the plan/checksum contract. |
+| [internal/bench/matrix_plan.go:135](/home/lkhun9311/workspace/gpu-platform-control-plane/internal/bench/matrix_plan.go:135) | Include the new study in the length-study arm-set check. Otherwise it misses this special handling for per-length off arms. |
+| [hack/lib/prospective-pilot.sh:40](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/lib/prospective-pilot.sh:40) | Add new study/seed metadata; existing constants bind **old ID / 871**. |
+| Same file: [45](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/lib/prospective-pilot.sh:45), [48](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/lib/prospective-pilot.sh:48), [105](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/lib/prospective-pilot.sh:105) | Recognize C3 as an admission study and resolve stage F by **study plus stage**. Currently F belongs exclusively to v27. Keep its seven-arm shape. |
+| Same file: [73](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/lib/prospective-pilot.sh:73) | Add seed-891 R1/short/ref/long checksums. Existing cases accept **871** only and return v27 trace hashes. |
+| [hack/m5c-matrix.sh:224](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/m5c-matrix.sh:224) | Add new ID to the allowlist and refusal text. |
+| Same file: [368](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/m5c-matrix.sh:368), [381](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/m5c-matrix.sh:381), [390](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/m5c-matrix.sh:390) | Resolve study/stage, enforce **891**, one block, and the new frozen rates/duration. Avoid weakening v27’s seed guard. |
+| Same file: [792](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/m5c-matrix.sh:792) | Extend per-arm prompt substitution to C3. Missing this is especially dangerous: all six arms otherwise retain the run-wide **40,000-character** contender. |
+| Same file: [877](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/m5c-matrix.sh:877) | Pass the new study context into stage-arm resolution; retain R1-first and the frozen hash ordering. |
+| Same file: [1078](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/m5c-matrix.sh:1078) | Select C3’s checksum table during the purchase plan. Merely adding the ID elsewhere would skip this old-ID-specific check. |
+| Same file: [3797](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/m5c-matrix.sh:3797) | Archive README must name the new registration and correct scorer/configuration, not blindly direct every F run to v27’s scorer. |
+| [hack/m5c-gpu-session.sh:219](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/m5c-gpu-session.sh:219), [242](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/m5c-gpu-session.sh:242) | Admit the new study/F pair and obtain its arms with study context. Current allowlist refuses it. |
+| Same file: [227](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/m5c-gpu-session.sh:227) | Bind/check **9.25 and 0.375**, rather than merely accepting decimal rate arguments. Keep the plan’s trace hashes as independent enforcement. |
+| Same file: [253](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/m5c-gpu-session.sh:253), [410](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/m5c-gpu-session.sh:410), [2081](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/m5c-gpu-session.sh:2081) | Explicitly associate C3 with its registration, limits and scoring command. **8,340/8,940 s remain correct here**, but must be inherited deliberately. |
+| [hack/prospective-pilot/pilot_report.py:1126](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/prospective-pilot/pilot_report.py:1126), [1196](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/prospective-pilot/pilot_report.py:1196) | Add separate study/seed/checksum configuration and provenance dispatch. Existing calibration binds **old ID, 871 and four old hashes**. |
+| Same file: [1138](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/prospective-pilot/pilot_report.py:1138), [1269](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/prospective-pilot/pilot_report.py:1269) | Implement C3’s chosen fixed-spacing and challenge rules. Existing code hardcodes **1,740 ms**, including formulas and verdict strings. Preserve the old behavior for v27. |
+| Same file: [1280](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/prospective-pilot/pilot_report.py:1280), [1289](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/prospective-pilot/pilot_report.py:1289) | Add output fields for fixed spacing, calculation provenance and publication status; expose an explicit C3 scorer route or strict manifest-driven dispatch. |
+
+These shared helpers already implement the required lengths and treatments and need **no numerical change**: [prospective-pilot.sh:86](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/lib/prospective-pilot.sh:86), [122](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/lib/prospective-pilot.sh:122), [210](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/lib/prospective-pilot.sh:210). Likewise the shared validity, engine-prefill and admissibility functions should be reused.
+
+The tests and historical verification also need explicit treatment:
+
+| Location | Required coverage |
+|---|---|
+| [internal/bench/matrix_plan_test.go:129](/home/lkhun9311/workspace/gpu-platform-control-plane/internal/bench/matrix_plan_test.go:129) | Add new-ID tests for complete/missing/extra arm sets. Preserve v27 coverage. |
+| [hack/test/check-prospective-pilot-lib.sh:141](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/test/check-prospective-pilot-lib.sh:141) | Add C3 study/stage/seed/checksum tests; existing checks use **871**. |
+| [hack/prospective-pilot/test_pilot_report.py:744](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/prospective-pilot/test_pilot_report.py:744), [793](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/prospective-pilot/test_pilot_report.py:793), [913](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/prospective-pilot/test_pilot_report.py:913) | Add C3 fixtures and gate tests, including precedence, malformed evidence, dynamic spacing/rounding, wrong old ID/seed/hash rejection and shell/Python checksum equality. Existing expectations freeze **1740** and checksum text containing **871**. |
+| [hack/test/rehearse-m5c-matrix.sh:537](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/test/rehearse-m5c-matrix.sh:537), [553](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/test/rehearse-m5c-matrix.sh:553), [714](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/test/rehearse-m5c-matrix.sh:714) | Add a C3 rehearsal selection. Current F explicitly uses **old ID, 871, 0.5/s**, and the old scorer. Its default **20 s** traces intentionally fail paid-trace provenance; do not treat this as a successful frozen purchase-plan check. |
+| Same file: [727](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/test/rehearse-m5c-matrix.sh:727) | Correct the success message: it says “three blocks” even for F’s one block. |
+| [hack/test/spot-lifecycle/characterize.sh:644](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/test/spot-lifecycle/characterize.sh:644) | Add C3 lifecycle scenario with new ID, **891**, **0.375**, new order/checksums, inherited deadlines and correct scorer. |
+| [golden/length-calibration-stage-f.txt:40](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/test/spot-lifecycle/golden/m5c-gpu-session/length-calibration-stage-f.txt:40) | Add a new golden; existing output freezes the old study, rate, permutation, **3,846 premium / 198 contender** counts and scorer command. Those counts cannot be carried into C3. |
+| [golden/user-data-length-calibration-stage-f.sh:18](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/test/spot-lifecycle/golden/m5c-gpu-session/user-data-length-calibration-stage-f.sh:18) | Add a new generated golden; old user-data embeds **0.5**, **871**, old `STUDY` and `STUDY_FROM_CR`, plus stage-F limits. |
+| [hack/verify-admission-evidence.sh:29](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/verify-admission-evidence.sh:29), [48](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/verify-admission-evidence.sh:48), [66](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/verify-admission-evidence.sh:66), [77](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/verify-admission-evidence.sh:77), [99](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/verify-admission-evidence.sh:99) | **Keep the old release, archives, expected verdicts and checksum fixtures.** This verifier is not a launch dependency. Extend it separately once C3 publishes real evidence; before purchase it must still reproduce v27 after scorer changes. Never repoint its historical expectations to C3. |
+
+Finally, the replay path must be new or parameterized. [predict-main.py:8–20](/home/lkhun9311/workspace/gpu-platform-control-plane/docs/superpowers/specs/data/2026-10-10-robustness-design/predict-main.py:8) hardcodes **1,256.9 / 1,740 / 1,867 ms**, seeds **881/882/883**, and a fixed1740 arm. It reads externally supplied traces; it does not establish that they were generated at C3’s rate. Its `owner_limits` check covers only the four contender limits, not the complete measured gate ([simulate.py:380–390](/home/lkhun9311/workspace/gpu-platform-control-plane/hack/prospective-pilot/simulate.py:380)). Reusing that script unchanged would silently predict the wrong study.
+
+The most consequential silent hazards are therefore **skipping C3 checksum enforcement, leaving all lengths at 40,000 characters, retaining 1,740 ms in the scorer, and rehearsing 0.5/s on seed 871 while believing C3 was exercised**.

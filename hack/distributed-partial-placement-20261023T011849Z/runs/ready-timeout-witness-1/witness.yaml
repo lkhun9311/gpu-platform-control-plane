@@ -1,0 +1,22 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: witness-pp-rt-witness-1-024213
+  namespace: partial
+  labels:
+    kueue.x-k8s.io/queue-name: gpu-partial
+spec:
+  suspend: true
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      terminationGracePeriodSeconds: 0
+      containers:
+        - name: witness
+          image: cpu-ddp:torch251
+          imagePullPolicy: IfNotPresent
+          command: ["sleep", "60"]
+          resources:
+            limits:
+              nvidia.com/gpu: 1

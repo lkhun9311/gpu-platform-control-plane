@@ -1,0 +1,16 @@
+You are drafting, cold and independently, a pre-registration for a paid GPU main study in this repository (gpu-platform-control-plane). Do not edit any file. Read only.
+
+Context to read yourself:
+- docs/superpowers/specs/2026-10-24-c3-headroom-calibration.md, the whole page, including "What comes after, not registered here", "What it licenses" and "Result, 2026-10-25: feasible".
+- docs/superpowers/specs/data/2026-10-25-c3-calibration-results/verdict.json, the calibration's scored output.
+- docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md, sections from "v26: hold-cap against a frontier" through "v27 main study: drafted, and stopped at its purchase gate", and docs/superpowers/specs/data/2026-10-10-robustness-design/ (astra-main-study-draft.txt, predict-main.py and its outputs).
+- docs/superpowers/specs/data/2026-10-24-c3-headroom/ (the replay at 0.375 contenders a second: predict-c3.py, predict-c3-derived.py, their outputs, README.txt).
+- The code that ran the calibration: grep for admission-headroom-calibration-2026-10-24, StudyHeadroomCalibration and stage G (internal/bench/study.go, matrix_plan.go, hack/lib/prospective-pilot.sh, hack/m5c-matrix.sh, hack/m5c-gpu-session.sh, hack/prospective-pilot/pilot_report.py, hack/prospective-pilot/simulate.py, the gateway's admission modes under cmd/ and internal/).
+
+The calibration read feasible, and the owner has approved drafting its main study; nothing is bought until the owner approves the purchase separately. Draft the main study's registration as you would freeze it for purchase. Cover: the question; the arms and their order within a block; the controls and how each spacing is frozen from the calibration's result; cards, blocks and seeds; the load and cell length; the sessions' limits and hard stops; validity; the verdicts in order, with their exact inequalities; what it publishes whatever the verdict; the purchase gate before buying, including the replay it runs, at which pace, and what that replay may and may not decide; cost; and what each verdict licenses and does not.
+
+Then attack the plan that the C3 calibration page already fixes for this main study: its arms, its seeds (882, 892, 893), its purchase gate, and the frozen S and size-aware spacings. Say what is wrong, circular, under-specified, or contradicts what v26, v27 or the calibration established. Rank the risks.
+
+Finally list, with file:line references, every place in the code that must change to run this main study, including any arm or gateway mode that does not exist yet, and anything that would silently keep the calibration's values (study name, stage, seed, checksums, arms, limits).
+
+Be concrete. Numbers must come from files you read; cite them.

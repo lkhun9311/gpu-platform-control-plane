@@ -1,0 +1,21 @@
+You are working read-only in this repository (gpu-platform-control-plane). Read /home/lkhun9311/workspace/gpu-platform-control-plane/CLAUDE.md first. Do not modify files.
+
+Task: independently draft the pre-registration for a staged admission study. I will compare your draft with one written separately; do not try to guess what the other says.
+
+The owner's specification, verbatim in substance:
+- Never change a past verdict; re-ask with a NEW pre-registered design, staged, with realistic targets registered in full before any data, and report which stage was reached.
+- Ladder: T0 no regression against hold-cap product-path run 3 (hack/eks-serve/holdcap-study/runs/20261021T021149Z/README.md), 0 refusals; T1 premium TTFT p99 <= 3x isolation; T2 <= 2x; T3 <= 1.25x.
+- Every stage has the same guard bars: aggregate throughput >= 95% and contender work/output share >= 75% of an unshed arm.
+- Arms: prefill budgets x hold (the engine's long_prefill_token_threshold together with the gateway's serial-prefill hold), load, seeds, estimands, stop rules, cost estimate, and what each outcome licenses.
+- The isolation baseline must be measured in the same session.
+- It is a DRAFT; nothing is bought.
+
+Material: docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md (the diagnostic, v26, v27 sections and their registrations are the closest precedents, including how validity, crossed bounds, shared windows, block orders and session limits were handled), docs/superpowers/specs/2026-10-15-holdcap-on-the-product-path-design.md, docs/superpowers/specs/2026-10-06-m5b-stays-closed-and-what-a-successor-needs-first.md, hack/prospective-pilot/ (scorer, replay, tests), hack/lib/prospective-pilot.sh, internal/bench/study.go, internal/controller/inference_engine.go, internal/gateway/serialprefill.go. The paid sessions' raw archives (never committed) are readable under /home/lkhun9311/workspace/gpu-platform-control-plane/hack/m5c-20261009-122503-diagD/m5c-run etc.
+
+Deliver, in under 1,800 words:
+1. Where the study should run (the lab apparatus on a g5.2xlarge, or the product path on EKS) and why, given what each can and cannot vary and record; and how T0 "no regression against run 3" should be operationalised given that answer.
+2. The full registration: arms and why each, load, seeds (say which seeds are already used in this repository and pick unused ones, or argue for reuse), cells and block order rule, estimands with exact definitions (which clock, which p99, crossed bounds or not, per block or pooled), the guard bars made exact (which window, which tokens, which denominator), validity lines, the stage-reading rule, stop rules (before purchase, in session, after a stage fails), and a cost and time estimate derived from measured cell times in the repository (cite them).
+3. What each outcome licenses and does not.
+4. The three most likely ways this design produces a plausible wrong number, and what in the design prevents each.
+5. Anything in the owner's specification you think is internally inconsistent or that binds differently from how it reads (for example, whether one guard bar makes another redundant at this load), with the arithmetic.
+Cite file:line for claims about code or documents.

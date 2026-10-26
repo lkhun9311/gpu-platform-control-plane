@@ -528,6 +528,8 @@ serve_sync() {
   # resource selection, a dry run -- cannot narrow this one. Its result is accepted only from an operation that
   # started after this request, because status.operationState still holds the previous operation's verdict
   # until Argo picks the new one up, and a re-run would otherwise judge that one.
+  # The API server stamps whole seconds, so an operation started in the request's own second could be the old one:
+  # only a later second is accepted, and the request waits a second so its own operation starts in one.
   local requested
   requested="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   sleep 1
@@ -543,7 +545,7 @@ serve_sync() {
   # with the operation Succeeded, and that is reported once the deadline passes, never read as done.
   while ((SECONDS < deadline)); do
     started="$(k -n argocd get application "$SERVE_APP" -o jsonpath='{.status.operationState.startedAt}' 2>/dev/null || true)"
-    if [[ -n "$started" && ! "$started" < "$requested" ]]; then
+    if [[ -n "$started" && "$started" > "$requested" ]]; then
       phase="$(k -n argocd get application "$SERVE_APP" -o jsonpath='{.status.operationState.phase}' 2>/dev/null || true)"
       [[ "$phase" == Failed || "$phase" == Error ]] && break
       sync="$(k -n argocd get application "$SERVE_APP" -o jsonpath='{.status.sync.status}' 2>/dev/null || true)"

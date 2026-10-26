@@ -1,0 +1,9 @@
+The background collector can survive an aborted intervention indefinitely or finish before an intervention begins. These lifecycle gaps can leak sampling processes and produce incomplete evidence without reporting collector failure.
+
+Full review comments:
+
+- [P2] Stop the background collector on foreground failure — /home/lkhun9311/workspace/gpu-cp-t2/hack/fragmentation.sh:386-387
+  If the original-holder deletion fails, `set -e` exits the foreground while `intervening-$tag` still exists. The EXIT trap only releases the lock, leaving the background collector sampling indefinitely because its loop ignores the deadline while that marker exists. Interrupting the foreground during intervention has the same problem. Add exit/signal cleanup that stops and reaps the collector before releasing the lock.
+
+- [P2] Prevent the collector from finishing before the repack starts — /home/lkhun9311/workspace/gpu-cp-t2/hack/fragmentation.sh:390-393
+  With `WINDOW=30` and the default `REPACK_AT=60`, the collector exits successfully before the foreground creates the intervention marker. The foreground subsequently performs the repack and extends the deadline, but nothing restarts collection; `wait` succeeds and the verdict reports `gap_rule=ok` using only pre-intervention samples. Reject this timing configuration before starting the trial, or keep the collector alive until the scheduled intervention and recovery observation finish.

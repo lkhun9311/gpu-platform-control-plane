@@ -11,7 +11,13 @@ any trial ran. This page reports what happened against the bars it fixed. Raw ev
 That second half is the finding. It is not a fragmentation quirk: the same false `Running` appears whenever
 the Pod cannot be placed, including plain capacity shortage.
 
-## The four states, 25 trials, zero invalid
+## The four states, 20 trials, zero invalid
+
+Twenty of the study's 25 trials are the four states below, and none was invalid.
+The other five are the repack arm R, and every one of them breaches the pre-registered 5 s collection-gap rule
+(see "R: repacking fixed it without adding anything"), so the study as a whole is not "zero
+invalid".
+This heading said "25 trials, zero invalid" until 2026-10-22.
 
 Two worker nodes, 2 simulated GPUs each. Holders are 1-GPU Kueue-admitted sleepers pinned by
 `kubernetes.io/hostname`. The target is one `MLTrainingJob` asking for 2 GPUs.
@@ -86,7 +92,10 @@ trial on any gap over 5 s. So R's five trials are **not** clean passes under the
 run. They are reported here as what they are: the middle state was measured at a point rather than observed
 continuously, and by the letter of the invalidation rule every R trial is invalid.
 
-P, F, Q and S are unaffected — their largest gap across all 25 timelines is **1.30 s**.
+P, F, Q and S are unaffected — their largest gap across their 20 timelines is **1.30 s**.
+This line used to say "across all 25 timelines", which counted the five R timelines of attempt 1 below,
+the discarded run in which nothing was fragmented and nothing paused the sampler; the five R timelines reported
+here are attempt 3's, and each has one 13.57–13.63 s gap (re-read from `ex/frag-r2/` on 2026-10-22).
 
 ## R took three attempts, and the first two reported success
 
@@ -103,17 +112,42 @@ The fixes were: R's quota raised 4 → 5 (recorded as a deviation in the pre-reg
 unchanged); a replica that never runs now **invalidates** the trial instead of being stepped over; the
 middle state is asserted rather than assumed; and `pod_uid` is recorded so "the same Pod" can be checked.
 
+## R again, with a collector the intervention cannot pause (2026-10-23)
+
+Registered before any trial in `docs/superpowers/specs/2026-10-22-repack-with-a-continuous-collector-design.md`
+and frozen at `79d6b1c9`; ten trials, R and F alternating (R, F, F, R, R, F, F, R, R, F), on a throwaway kind
+cluster `frag` built from that commit with no uncommitted change (`ex/frag-r3/cluster-provenance.txt`).
+The sampler ran as its own process for the whole window, so the intervention could not pause it.
+
+| measurement | R, 5 trials | F, 5 trials |
+|---|---|---|
+| largest collection gap | 1.27–1.28 s, `gap_rule=ok` 5/5 | 1.27–1.28 s, `gap_rule=ok` 5/5 |
+| window covered at both edges | `coverage=ok` 5/5 | `coverage=ok` 5/5 |
+| middle state `ΣF = 1` in the timeline itself, between the replica running and the deletion | 8 samples in each | — |
+| one Pod UID throughout, seen stranded before the deletion | 5/5 | 5/5 |
+| target scheduled after the original holder's deletion | 5/5, 0.51–1.43 s after it | never, 147–149 samples of `fragmentation` |
+| samples where the CR said `Running` while unscheduled | 0 in each | 0 in each |
+
+So R meets its registered bars in five trials that also meet the collection-gap rule, and the caveat above is
+replaced, not removed: the attempt-3 trials stay invalid by that rule, and these five are the valid ones.
+F's zero, against 145 samples in each F trial on 2026-09-24, re-confirms the 2026-09-25 phase fix on this
+harness.
+
+What differs from 2026-09-24 besides the collector: the cluster (built fresh from the tree rather than the
+long-lived `kind-platform`), the operator (this commit's, with the phase fix), and possibly Kueue, which is
+v0.18.3 now and was not recorded then. The node image is the same `kindest/node:v1.31.0` by digest.
+
 ## What this licenses
 
 **Does:** on a Kubernetes cluster with Kueue, a 2-GPU job was held unschedulable with 2 GPUs free in
 aggregate; quota shortage, node-level fragmentation and aggregate shortage were separated by pre-registered
-controls with no misclassification across 25 trials with no collection gap over 1.30 s; and the platform
+controls with no misclassification across 20 trials with no collection gap over 1.30 s; and the platform
 reported the unplaced job as `Running` in every sample taken while it was unschedulable, with its latency
 metric taken from that false transition.
 
-**Does, but with a caveat that has to travel with it:** demand-preserving repacking recovered the same Pod
-in 5/5 — and every one of those five trials breaches the pre-registered 5 s collection-gap rule, so they are
-reported as evidence rather than as passes.
+**Does:** demand-preserving repacking recovered the same Pod in 5/5 trials that meet the pre-registered 5 s
+collection-gap rule, with the middle state in the timeline itself (the 2026-10-23 rerun above). The first five
+R trials breach that rule and are reported as evidence rather than as passes.
 
 **Does not:** real NVIDIA hardware, CUDA, GPU memory, MIG, NVLink or PCIe topology; utilisation, throughput
 or cost; multi-Pod gang scheduling or multi-node DDP; Kueue topology-aware scheduling; automatic detection

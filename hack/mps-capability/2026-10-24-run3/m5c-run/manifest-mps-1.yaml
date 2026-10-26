@@ -1,0 +1,27 @@
+arm: mps
+gatewayBase: gcr.io/distroless/static@sha256:e2e927ec666bae08560abb3c55d0659eceabb657f56b6782ab500a9fc7f555e3
+gatewayBinarySHA256: 5b996d0ed56a96262c82b3f4cc44e4ab993e1e64fe12c7891f5e5f051ad421af
+gatewaySHA: 8ed1fbe335fcf8f78992deb7244fa58f5c5f5831
+gatewayURL: http://127.0.0.1:18080
+imageDigests:
+  engine: vllm/vllm-openai@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967
+  gateway: gateway:m5c@sha256:ee1fdac20c0ea389d927af9f3082027eb3f0dc59254a3a4ba484b74dadfc6be0
+longThreshold: 4096
+matchTolerance: "0.05"
+maxOutputTokens:
+  premium-1: 64
+  standard-noisy: 16
+model: Qwen/Qwen2.5-3B-Instruct
+primaryEndpoint: ttft_p99
+promptCorpusSHA: dec1020701584417449f9c7efa5354073682cce69348af3b9fb5244705200a86
+promptLenChars:
+  premium-1: 1174
+  standard-noisy: 42579
+schemaVersion: v2
+seed: 11
+study: mps-capability-2026-10-24
+timeoutMs: 60000
+timeoutScope: whole-request-including-stream
+tokenizerRev: aa8e72537993ba99e69dfaafa59ed015b17504d1
+traceChecksum: 36ff8afc74f494d0ecfb5adf3e83383c5aaf6f29c5796101f320e256aef0adef
+tracePath: /src/m5c-run/trace-mps-1.jsonl

@@ -221,8 +221,8 @@ fi
 if [ -z "$LADDER" ]; then
   STUDY="${STUDY:-sharing-matrix-2026-09-10}"
   case "$STUDY" in
-    sharing-matrix-2026-09-10|tail-crossing-lc256-2026-10-04|tail-crossing-lc2048-2026-10-05|tail-crossing-lc8192-2026-10-04|instrument-validation-2026-10-05|instrument-validation-s2-2026-10-05|instrument-validation-s3-2026-10-06|instrument-validation-s4-2026-10-06|step-boundary-2026-10-06|step-confirm-2026-10-07|prospective-pilot-2026-10-08|admission-diagnostic-2026-10-10|admission-frontier-2026-10-10|admission-length-calibration-2026-10-10) ;;
-    *) fail "STUDY is ${STUDY@Q}; the non-ladder matrix files evidence under sharing-matrix-2026-09-10, tail-crossing-lc256-2026-10-04, tail-crossing-lc2048-2026-10-05, tail-crossing-lc8192-2026-10-04, instrument-validation-2026-10-05, instrument-validation-s2-2026-10-05, instrument-validation-s3-2026-10-06, instrument-validation-s4-2026-10-06 or step-boundary-2026-10-06, step-confirm-2026-10-07, prospective-pilot-2026-10-08, admission-diagnostic-2026-10-10, admission-frontier-2026-10-10, admission-length-calibration-2026-10-10. An unregistered id is not refused by gen-trace -- it writes a manifest for any string -- so this refusal is the one that stops it before anything is rented" ;;
+    sharing-matrix-2026-09-10|tail-crossing-lc256-2026-10-04|tail-crossing-lc2048-2026-10-05|tail-crossing-lc8192-2026-10-04|instrument-validation-2026-10-05|instrument-validation-s2-2026-10-05|instrument-validation-s3-2026-10-06|instrument-validation-s4-2026-10-06|step-boundary-2026-10-06|step-confirm-2026-10-07|prospective-pilot-2026-10-08|admission-diagnostic-2026-10-10|admission-frontier-2026-10-10|admission-length-calibration-2026-10-10|admission-headroom-calibration-2026-10-24|admission-headroom-main-2026-10-25|mps-capability-2026-10-24) ;;
+    *) fail "STUDY is ${STUDY@Q}; the non-ladder matrix files evidence under sharing-matrix-2026-09-10, tail-crossing-lc256-2026-10-04, tail-crossing-lc2048-2026-10-05, tail-crossing-lc8192-2026-10-04, instrument-validation-2026-10-05, instrument-validation-s2-2026-10-05, instrument-validation-s3-2026-10-06, instrument-validation-s4-2026-10-06 or step-boundary-2026-10-06, step-confirm-2026-10-07, prospective-pilot-2026-10-08, admission-diagnostic-2026-10-10, admission-frontier-2026-10-10, admission-length-calibration-2026-10-10, admission-headroom-calibration-2026-10-24, admission-headroom-main-2026-10-25, mps-capability-2026-10-24. An unregistered id is not refused by gen-trace -- it writes a manifest for any string -- so this refusal is the one that stops it before anything is rented" ;;
   esac
 fi
 
@@ -381,14 +381,27 @@ if [ -z "$LADDER" ] && pp_is_study "$STUDY"; then
   if [ "$STUDY" = "$PP_LENCAL_STUDY" ]; then
     [ "$(printf '%s ' $SEEDS)" = "$PP_LENCAL_SEEDS " ] || fail "SEEDS is ${SEEDS@Q} and v27's calibration froze $PP_LENCAL_SEEDS"
   fi
+  if [ "$STUDY" = "$PP_HEADROOM_STUDY" ]; then
+    [ "$(printf '%s ' $SEEDS)" = "$PP_HEADROOM_SEEDS " ] || fail "SEEDS is ${SEEDS@Q} and C3's calibration froze $PP_HEADROOM_SEEDS"
+  fi
+  # C3's main study runs one block per card, so each session names its global block, and the block names its seed.
+  # The block also enters the order's hash and the request ids: hashed as block 1 on every card, blocks 2 and 3 would
+  # run orders the registration does not list (2026-10-25-c3-headroom-main.md, "Cards, blocks, order and load").
+  if [ "$STUDY" = "$PP_HEADROOM_MAIN_STUDY" ]; then
+    case "${PILOT_BLOCK:-}" in 1 | 2 | 3) ;; *) fail "PILOT_BLOCK is '${PILOT_BLOCK:-}', and each session of C3's main study runs one of its blocks 1, 2 and 3" ;; esac
+    _pp_block_seed=$(printf '%s\n' $PP_HEADROOM_MAIN_SEEDS | sed -n "${PILOT_BLOCK}p")
+    [ "$(printf '%s ' $SEEDS)" = "$_pp_block_seed " ] || fail "SEEDS is ${SEEDS@Q} and C3's main study froze seed $_pp_block_seed for block $PILOT_BLOCK"
+  else
+    [ -z "${PILOT_BLOCK:-}" ] || fail "PILOT_BLOCK is set and study $STUDY numbers its own blocks; only C3's main study runs one block per session"
+  fi
   if [ "$STUDY" = "$PP_FRONTIER_STUDY" ]; then
     [ "$(printf '%s ' $SEEDS)" = "$PP_FRONTIER_SEEDS " ] || fail "SEEDS is ${SEEDS@Q} and v26 froze $PP_FRONTIER_SEEDS"
   fi
   # Three blocks per stage, as the study registers: the main endpoint pools three, and pooling is not linear in
   # the number of blocks, so a stage of another size would measure a different quantity (review of 780929a).
-  # v27's calibration stage F is one block; every other stage is three.
-  if [ "$PILOT_STAGE" = F ]; then
-    [ "$REPS" = 1 ] || fail "REPS is $REPS and v27's calibration stage F is one block; pass REPS=1"
+  # v27's calibration stage F and C3's stage G are one block; every other stage is three.
+  if pp_is_length_stage "$PILOT_STAGE"; then
+    [ "$REPS" = 1 ] || fail "REPS is $REPS and calibration stage $PILOT_STAGE is one block; pass REPS=1"
   else
     [ "$REPS" = 3 ] || fail "REPS is $REPS and each pilot stage is three blocks; pass REPS=3"
   fi
@@ -443,6 +456,37 @@ if [ -z "$LADDER" ] && pp_is_study "$STUDY"; then REQUIRED_LOAD_VARS="PREMIUM_RA
 for v in $REQUIRED_LOAD_VARS; do
   [ -n "${!v:-}" ] || fail "$v is unset. RATE alone does not describe this load: gen-trace's default mix puts the 40,000-character contender at 45% of arrivals, which is four to five times an A10G's prefill capacity at any rate this study could use, and lowering RATE to compensate starves the premium tail below the MinTailSamples floor. Derive the mix on the card and pass all four. hack/m5b-price-of-protection.sh measured RATE=9.85 PREMIUM_WEIGHT=1 NOISY_WEIGHT=0.054 PROBE_WEIGHT=0.0054 DURATION_MS=420000 for ONE engine with the whole card; this run gives each engine half of one, so it is a starting point and not an answer."
 done
+
+# The MPS capability session: one mps cell, its registered load, and three phase deadlines from LaunchTime.
+#
+# docs/superpowers/specs/2026-09-25-can-mps-engage-on-this-card-at-all.md, amendment of 2026-10-24. Every value it
+# freezes is checked here rather than defaulted, because the matrix's defaults are another study's and a default that
+# applied silently would be a capability answer about a load nobody registered. The prompt lengths, output caps and
+# timeout are the study's FrozenTuple, which refuse_unfrozen_load checks below like any other study's.
+MPSCAP_STUDY=mps-capability-2026-10-24
+if [ -z "$LADDER" ] && [ "$STUDY" = "$MPSCAP_STUDY" ]; then
+  [ "$ARMS" = mps ] || fail "ARMS is ${ARMS@Q} and study $STUDY buys exactly one mps cell"
+  [ "$REPS" = 1 ] || fail "REPS is ${REPS@Q} and study $STUDY allows one attempt; its stopping rule forbids a second"
+  [ -z "$SWEEP" ] || fail "SWEEP is set and study $STUDY registers no sweep"
+  [ -z "$SEEDS" ] || fail "SEEDS is ${SEEDS@Q}; study $STUDY replays seed 11, which is the matrix's seed when SEEDS is empty"
+  # Compared as the strings the session passes, so 2.0 for 2 is refused rather than read as the same load.
+  for _pair in RATE=2 PREMIUM_WEIGHT=1 NOISY_WEIGHT=0.054 PROBE_WEIGHT=0 DURATION_MS=120000; do
+    _name="${_pair%%=*}"
+    [ "${!_name:-}" = "${_pair#*=}" ] || fail "$_name is ${!_name:-unset} and study $STUDY freezes it at ${_pair#*=}"
+  done
+  for _v in MPSCAP_PHASE1_END MPSCAP_PHASE2_END MPSCAP_PHASE3_END; do
+    [[ "${!_v:-}" =~ ^[0-9]+$ ]] || fail "$_v is ${!_v:-unset}; study $STUDY's phases end at epochs the session derives from the instance's LaunchTime"
+  done
+  # shellcheck source=hack/lib/mps-journal.sh
+  . hack/lib/mps-journal.sh
+  # shellcheck source=hack/lib/mps-capability.sh
+  . hack/lib/mps-capability.sh
+  MPSCAP_OUT="$OUT/mpscap"
+  MPS_JOURNAL="${MPS_JOURNAL:-$OUT/mps-journal.jsonl}"
+  MPSCAP_CTX="$KCTX"
+  export MPSCAP_OUT MPS_JOURNAL MPSCAP_CTX
+fi
+mpscap_is_study() { [ -z "${LADDER:-}" ] && [ "${STUDY:-}" = "$MPSCAP_STUDY" ]; }
 # The engine build every arm runs, taken from the manifests rather than written here.
 #
 # The paid manifests carried no image identity at all: gen-trace has accepted --engine-image since it was
@@ -753,12 +797,13 @@ else
     --premium-output-tokens "$PREMIUM_OUTPUT_TOKENS" --noisy-output-tokens "$NOISY_OUTPUT_TOKENS")
 fi
 
-# A cell's prompt flags: the run's, except that v27's calibration arms replay the contender length their name carries.
+# A cell's prompt flags: the run's, except that v27's and C3's calibration arms replay the contender length their name
+# carries; without it every arm of either would replay 40,000 characters.
 # Printed one word per flag or value; none carries a space.
 cell_prompt_flags() {
   local f
   for f in ${PROMPT_FLAGS[@]+"${PROMPT_FLAGS[@]}"}; do printf '%s\n' "$f"; done | {
-    if [ -z "$LADDER" ] && [ "${STUDY:-}" = "$PP_LENCAL_STUDY" ]; then
+    if [ -z "$LADDER" ] && { [ "${STUDY:-}" = "$PP_LENCAL_STUDY" ] || [ "${STUDY:-}" = "$PP_HEADROOM_STUDY" ] || [ "${STUDY:-}" = "$PP_HEADROOM_MAIN_STUDY" ]; }; then
       awk -v c="$(pp_arm_contender_chars "$1" "$NOISY_PROMPT_CHARS")" 'prev == "--noisy-prompt-chars" { $0 = c } { print; prev = $0 }'
     else cat; fi
   } | paste -sd' '
@@ -843,18 +888,24 @@ else
     # hash of the block's seed, the stage and the block, so no arm is always first (design page, build item 7).
     # The diagnostic's stage D and v26's stage E run R1 once, first, as the isolated anchor, and their blocks hold the
     # other arms (design page, "v25" and "v26").
-    if [ "$PILOT_STAGE" = D ] || [ "$PILOT_STAGE" = E ] || [ "$PILOT_STAGE" = F ]; then
+    if [ "$PILOT_STAGE" = D ] || [ "$PILOT_STAGE" = E ] || pp_is_length_stage "$PILOT_STAGE"; then
       CELLS+=("R1|R1|1|$PREMIUM_RATE|$PILOT_NOISY_RATE|0")
     fi
     for rep in $(seq 1 "$REPS"); do
       block_seed=$(printf '%s\n' $SEEDS | sed -n "${rep}p")
       while IFS= read -r spec; do
         CELLS+=("$spec")
-      done < <(pp_stage_arms "$PILOT_STAGE" | { if [ "$PILOT_STAGE" = D ] || [ "$PILOT_STAGE" = E ] || [ "$PILOT_STAGE" = F ]; then grep -vx R1; else cat; fi; } | while read -r arm; do
-        printf '%s R1|%s|%s|%s|%s|0\n' "$(printf '%s/%s/%s/%s' "${block_seed:-11}" "$PILOT_STAGE" "$rep" "$arm" | sha256sum | cut -c1-16)" \
+      done < <(pp_stage_arms "$PILOT_STAGE" | { if [ "$PILOT_STAGE" = D ] || [ "$PILOT_STAGE" = E ] || pp_is_length_stage "$PILOT_STAGE"; then grep -vx R1; else cat; fi; } | while read -r arm; do
+        printf '%s R1|%s|%s|%s|%s|0\n' "$(printf '%s/%s/%s/%s' "${block_seed:-11}" "$PILOT_STAGE" "${PILOT_BLOCK:-$rep}" "$arm" | sha256sum | cut -c1-16)" \
           "$arm" "$rep" "$PREMIUM_RATE" "$PILOT_NOISY_RATE"
       done | LC_ALL=C sort | cut -d' ' -f2-)
     done
+    # C3's main study registers each block's order; one built from another block number is refused here.
+    if [ "$STUDY" = "$PP_HEADROOM_MAIN_STUDY" ]; then
+      _pp_order=$(printf '%s\n' "${CELLS[@]}" | cut -d'|' -f2 | paste -sd' ')
+      _pp_want=$(pp_headroom_main_order "$PILOT_BLOCK") || fail "$_pp_want"
+      [ "$_pp_order" = "$_pp_want" ] || fail "block $PILOT_BLOCK's cells would run as ($_pp_order), and C3's main study registered ($_pp_want)"
+    fi
   elif iv_is_study "$STUDY"; then
     # The instrument-validation study's blocks, as its registration lays them out (section 4).
     #
@@ -1044,8 +1095,13 @@ if [ -n "${PLAN_ONLY:-}" ]; then
       || { echo "PLAN REFUSED: gen-trace could not build $cell_label's trace" >&2; plan_failures=$(( plan_failures + 1 )); continue; }
     # v26's traces are frozen by checksum: a seed, rate, duration or prompt that differs from the registration's
     # changes it, so the plan cannot buy a lighter load under the study's name (v26 review, B6 and C5).
-    if [ -z "$LADDER" ] && { [ "$STUDY" = "$PP_FRONTIER_STUDY" ] || [ "$STUDY" = "$PP_LENCAL_STUDY" ]; }; then
-      if [ "$STUDY" = "$PP_LENCAL_STUDY" ]; then plan_sum=pp_lencal_checksum; else plan_sum=pp_frontier_checksum; fi
+    if [ -z "$LADDER" ] && { [ "$STUDY" = "$PP_FRONTIER_STUDY" ] || [ "$STUDY" = "$PP_LENCAL_STUDY" ] || [ "$STUDY" = "$PP_HEADROOM_STUDY" ] || [ "$STUDY" = "$PP_HEADROOM_MAIN_STUDY" ]; }; then
+      case "$STUDY" in
+        "$PP_LENCAL_STUDY") plan_sum=pp_lencal_checksum ;;
+        "$PP_HEADROOM_STUDY") plan_sum=pp_headroom_checksum ;;
+        "$PP_HEADROOM_MAIN_STUDY") plan_sum=pp_headroom_main_checksum ;;
+        *) plan_sum=pp_frontier_checksum ;;
+      esac
       plan_want=$("$plan_sum" "$plan_seed" "$cell_label" 2>&1) \
         || { echo "PLAN REFUSED: $plan_want" >&2; plan_failures=$(( plan_failures + 1 )); continue; }
       plan_got=$(awk '/^traceChecksum:/ {print $2}' "$WORK/plan-$plan_name.yaml")
@@ -1309,6 +1365,10 @@ cleanup() {
   CLEANED=1
   record_expected_files
   [ -n "$PF_PID" ] && kill "$PF_PID" 2>/dev/null
+  # The capability session's diagnostics are mandatory output, and the namespaces below hold what they describe.
+  if mpscap_is_study; then
+    MPSCAP_REQUEST_TIMEOUT=8s mpscap_diagnostics "$NS_A" "$NS_B" || say "a required diagnostic failed; see $MPSCAP_OUT/diag/inventory.tsv"
+  fi
   k delete namespace "$NS_A" "$NS_B" --wait=false >/dev/null 2>&1
   k delete gpuquotapolicy m5c-premium m5c-standard >/dev/null 2>&1
   k delete clusterrolebinding m5c-gateway-role >/dev/null 2>&1
@@ -2091,6 +2151,47 @@ engine_diagnosis() {
   echo "=== end of diagnosis ==="
 }
 
+# mpscap_deploy LABEL: the capability cell, bar by bar, within the phases the session set from LaunchTime.
+#
+# B1 failing ends the cell, and so does B2: the stopping rule forbids trying other settings. B3 and B4 are measured
+# whatever the other says, and the replay runs only once both engines are Ready, because B5 is a replay of both.
+mpscap_deploy() {
+  local label="$1" uids uid_a uid_b left why
+  # The overlay and the engines are hashed as they sit in the tree the instance unpacked, against the session's hashes
+  # of the commit it registered, so a tree that differs from the commit is INVALID before anything is applied.
+  why=$(mpscap_pin_check overlay_pinned "${MPSCAP_PIN_OVERLAY:-}" "${MPSCAP_OVERLAY_FILES[@]}") || say "  $why"
+  why=$(mpscap_pin_check manifests_pinned "${MPSCAP_PIN_ENGINES:-}" "${MPSCAP_ENGINE_FILES[@]}") || say "  $why"
+  # The plugin's own setup can refuse; B0 and B1 then read whatever it left, which is the evidence of why.
+  apply_device_plugin mps "$label" || say "  the mps plugin's setup refused; B0 and B1 read what it left"
+  mpscap_b0_b1 || { say "B1 did not pass, so the session ends here by the stopping rule"; return 1; }
+  # The engines are applied as rendered without their own /dev/shm, so the daemon's reaches them; the rendered files
+  # are kept as evidence of what was applied.
+  if ! why=$(mpscap_engine_manifest a "$MPSCAP_OUT/engine-a-applied.yaml") || ! why=$(mpscap_engine_manifest b "$MPSCAP_OUT/engine-b-applied.yaml"); then
+    say "  $why; B2 has nothing to observe and is left to the phase deadline"
+  elif ! k apply -f "$MPSCAP_OUT/engine-a-applied.yaml" -n "$NS_A" >/dev/null || ! k apply -f "$MPSCAP_OUT/engine-b-applied.yaml" -n "$NS_B" >/dev/null; then
+    say "an engine manifest could not be applied; B2 has nothing to observe and is left to the phase deadline"
+  fi
+  uids=$(mpscap_b2 "$NS_A" "$NS_B" "$MPSCAP_PHASE1_END") || { say "B2 did not pass, so the session ends here by the stopping rule"; return 1; }
+  uid_a="${uids%% *}"; uid_b="${uids#* }"
+  # Readiness is not a bar, but B4 is read while both serve and B5 replays both, so it is waited for inside phase 2,
+  # leaving a minute of the phase for B3 and B4 themselves.
+  left=$(( MPSCAP_PHASE2_END - $(date +%s) - 60 ))
+  if [ "$left" -gt 0 ]; then
+    k rollout status deploy/vllm-shared-a -n "$NS_A" --timeout="${left}s" >/dev/null
+    left=$(( MPSCAP_PHASE2_END - $(date +%s) - 60 ))
+    [ "$left" -gt 0 ] && k rollout status deploy/vllm-shared-b -n "$NS_B" --timeout="${left}s" >/dev/null
+  fi
+  mpscap_b3 "$NS_A" "$uid_a" "$NS_B" "$uid_b" || say "B3 did not pass; B4 is measured all the same"
+  mpscap_b4 "$uid_a" "$uid_b" "$WORK/benchharness" || say "B4 did not pass"
+  why=$(mpscap_engines_ready "$uid_a" "$uid_b") || { say "the engines are not both Ready ($why), so there is no replay of both for B5"; return 1; }
+  engine_kv_report "$NS_A" vllm-shared-a
+  engine_kv_report "$NS_B" vllm-shared-b
+  engine_applied_record "$NS_A" vllm-shared-a "$MPSCAP_OUT/engine-a-applied.yaml" "$label" "config/vllm-shared/engine-a.yaml+mps-shm-patch.yaml"
+  engine_applied_record "$NS_B" vllm-shared-b "$MPSCAP_OUT/engine-b-applied.yaml" "$label" "config/vllm-shared/engine-b.yaml+mps-shm-patch.yaml"
+  routing_record "$NS_A" vllm-shared-a
+  routing_record "$NS_B" vllm-shared-b
+}
+
 deploy_arm() {
   # arm is the TOPOLOGY -- what to deploy. label is the arm name the evidence carries, which in ladder mode
   # also names the rung. They are the same string in the frozen matrix and differ in the ladder, and keeping
@@ -2119,6 +2220,12 @@ deploy_arm() {
     ! k get namespace "$_ns" >/dev/null 2>&1 || fail "namespace $_ns survived its deletion, so this cell would inherit the previous cell's engine"
     k create ns "$_ns" >/dev/null || fail "namespace $_ns could not be created for this cell"
   done
+  # The capability session's one cell measures each bar as it goes, so it does not take the sharing arm's path,
+  # whose waits and refusals answer a different question.
+  if [ "$arm" = mps ] && mpscap_is_study; then
+    mpscap_deploy "$label" || return 1
+    PREMIUM_NS="$NS_A"; STANDARD_NS="$NS_B"
+  else
   case "$arm" in
     R1|shared)
       # One engine with the whole card. Both policies point at the same namespace, so both tenants resolve
@@ -2243,6 +2350,7 @@ deploy_arm() {
       PREMIUM_NS="$NS_A"; STANDARD_NS="$NS_B"
       ;;
   esac
+  fi
 
   k apply -f - >/dev/null <<EOF || fail "policies for $arm"
 apiVersion: platform.lkhun9311.github.io/v1
@@ -2529,7 +2637,8 @@ expected_outputs() {
   # is the file itself. Expecting it is what makes "the refusal was never written down" a shortfall rather
   # than a quiet agreement between two counts that moved together.
   orphan=$(awk -F'\t' 'NR > 1 && $4 == "refused" {print $2}' "$OUT/cell-timings.tsv" | sort -u | while read -r a; do
-    [ -f "$OUT/refused-$a.txt" ] || [ -f "$OUT/invalid-$a.txt" ] || echo "$a"
+    # The capability cell's stop is written in its journal, which says which bar ended it and why.
+    [ -f "$OUT/refused-$a.txt" ] || [ -f "$OUT/invalid-$a.txt" ] || { mpscap_is_study && [ -s "${MPS_JOURNAL:-}" ]; } || echo "$a"
   done | wc -l)
   # The fixed files, each counted only under the condition it appears under.
   # `-f`, not `-s`: an empty file is in the archive and `find -type f` counts it.
@@ -2570,7 +2679,7 @@ expected_outputs() {
     -o -name 'fence-*.json' -o -name 'fence-forward-*.log' -o -name 'gateway-record-*.jsonl' -o -name 'raw-*.jsonl.sender.json' \
     -o -name 'ineligible-*.txt' -o -name 'phases.tsv' -o -name 'cell-uploads.tsv' -o -name 'calibration.txt' \
     -o -name 'calibration-forward.log' -o -name 'live-raw-*.jsonl' -o -name 'live-gateway-record-*.jsonl' \
-    -o -name 'sidecar-uploads.tsv' -o -name 'engine-samples-*.tsv' \) 2>/dev/null | wc -l)
+    -o -name 'sidecar-uploads.tsv' -o -name 'engine-samples-*.tsv' -o -name 'mps-journal.jsonl' \) 2>/dev/null | wc -l)
   # The engine-metrics files are in the total as whatever is there, like the conditional outputs above.
   #
   # How many a cell owes depends on its topology -- one engine or two -- which this count cannot see, so
@@ -2735,7 +2844,7 @@ EOF
     -o -name 'fence-*.json' -o -name 'fence-forward-*.log' -o -name 'gateway-record-*.jsonl' -o -name 'raw-*.jsonl.sender.json' \
     -o -name 'ineligible-*.txt' -o -name 'phases.tsv' -o -name 'cell-uploads.tsv' -o -name 'calibration.txt' \
     -o -name 'calibration-forward.log' -o -name 'live-raw-*.jsonl' -o -name 'live-gateway-record-*.jsonl' \
-    -o -name 'sidecar-uploads.tsv' -o -name 'engine-samples-*.tsv' \) 2>/dev/null | wc -l)
+    -o -name 'sidecar-uploads.tsv' -o -name 'engine-samples-*.tsv' -o -name 'mps-journal.jsonl' \) 2>/dev/null | wc -l)
   unattr=0
   for f in "$OUT"/*; do
     [ -f "$f" ] || continue
@@ -2752,6 +2861,8 @@ EOF
       fence-*.json | fence-forward-*.log | gateway-record-*.jsonl | raw-*.jsonl.sender.json | ineligible-*.txt) ;;
       phases.tsv | cell-uploads.tsv | calibration.txt | calibration-forward.log) ;;
       live-raw-*.jsonl | live-gateway-record-*.jsonl | sidecar-uploads.tsv | engine-samples-*.tsv) ;;
+      # The MPS capability session's bar journal; its evidence is in the mpscap/ directory beside it.
+      mps-journal.jsonl) ;;
       *) unattr=$(( unattr + 1 )) ;;
     esac
   done
@@ -2766,7 +2877,8 @@ EOF
   # refused row has neither a refusal nor an invalid file. Expected zero; anything here is a refusal nobody
   # wrote down.
   printf 'unwritten-refusals 0 %s\n' "$(awk -F'\t' 'NR > 1 && $4 == "refused" {print $2}' "$OUT/cell-timings.tsv" | sort -u | while read -r a; do
-    [ -f "$OUT/refused-$a.txt" ] || [ -f "$OUT/invalid-$a.txt" ] || echo "$a"
+    # The capability cell's stop is written in its journal, which says which bar ended it and why.
+    [ -f "$OUT/refused-$a.txt" ] || [ -f "$OUT/invalid-$a.txt" ] || { mpscap_is_study && [ -s "${MPS_JOURNAL:-}" ]; } || echo "$a"
   done | wc -l)"
   # One per cell cell_refused_stop recorded, printed only when there is one so other runs read as before.
   if [ "$cref_expected" != 0 ] || [ "$cref_all" != 0 ]; then
@@ -3493,16 +3605,21 @@ run_cell() {
   if [ -z "${LADDER:-}" ] && iv_is_study "${STUDY:-}"; then
     idflag=$(iv_request_id_flag "$STUDY" "$label" "$rep" measured) || fail "request ids for $label"
   elif [ -z "${LADDER:-}" ] && pp_is_study "${STUDY:-}"; then
-    idflag=$(pp_request_id_flag "$PILOT_STAGE" "$label" "$rep") || fail "request ids for $label"
+    idflag=$(pp_request_id_flag "$PILOT_STAGE" "$label" "${PILOT_BLOCK:-$rep}") || fail "request ids for $label"
     pp_phase "$label" "$rep" replay-start
     pp_sidecar_start "$label" "$rep"
     pp_sampler_start "$label" "$rep"
   fi
+  local replay_rc=0
+  if mpscap_is_study; then mpscap_b5_start; fi
   "$WORK/benchharness" replay --manifest "$OUT/manifest-$label-$rep.yaml" \
     $PROVENANCE_FLAG ${idflag:+"$idflag"} \
     --target "http://127.0.0.1:18080" \
     --api-keys "premium-1=premium-key,standard-noisy=standard-key" \
-    --raw-out "$OUT/raw-$label-$rep.jsonl" || fail "replay $label"
+    --raw-out "$OUT/raw-$label-$rep.jsonl" || replay_rc=$?
+  # B5 is decided from the replay as it returned, before the refusal below ends the run.
+  if mpscap_is_study; then mpscap_b5_decide "$OUT/raw-$label-$rep.jsonl" "$replay_rc" "$WORK/benchharness" || true; fi
+  [ "$replay_rc" = 0 ] || fail "replay $label"
   [ -s "$OUT/raw-$label-$rep.jsonl" ] || fail "no raw evidence for $label rep $rep"
   # The pilot's capture bound runs from the replay's return, before anything else is done (pilot review 11).
   local replay_done_epoch
@@ -3704,14 +3821,20 @@ if [ -z "${LADDER:-}" ] && pp_is_study "${STUDY:-}"; then pp_wait_background; fi
 # The admission studies' archives say which study they are and which scorer judges them; the sharing matrix's text
 # below names another question (v26 review, C45).
 if [ -z "${LADDER:-}" ] && pp_is_study "${STUDY:-}"; then
-  _pp_cmd=$(case "$PILOT_STAGE" in F) echo calibration ;; E) echo frontier ;; D) echo diagnostic ;; *) echo stage ;; esac)
+  _pp_cmd=$(case "$PILOT_STAGE" in G) echo headroom ;; F) echo calibration ;; E) echo frontier ;; D) echo diagnostic ;; *) echo stage ;; esac)
+  _pp_page=docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md
+  [ "$PILOT_STAGE" != G ] || _pp_page=docs/superpowers/specs/2026-10-24-c3-headroom-calibration.md
+  [ "$PILOT_STAGE" != H ] || _pp_page=docs/superpowers/specs/2026-10-25-c3-headroom-main.md
+  _pp_usage="python3 hack/prospective-pilot/pilot_report.py $_pp_cmd <this directory>"
+  # The main study is scored over its three sessions at once; one session's directory is a third of its evidence.
+  [ "$PILOT_STAGE" != H ] || _pp_usage="python3 hack/prospective-pilot/pilot_report.py headroom-main <block 1's directory> <block 2's> <block 3's>   (this is block $PILOT_BLOCK)"
   cat > "$OUT/README.txt" <<EOF
-Raw evidence for study $STUDY, stage $PILOT_STAGE (docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md).
+Raw evidence for study $STUDY, stage $PILOT_STAGE ($_pp_page).
 
 Its arms are admission and engine settings, named in each cell's files: $ARMS.
 It is judged by its registered scorer and by nothing else:
 
-  python3 hack/prospective-pilot/pilot_report.py $_pp_cmd <this directory>
+  $_pp_usage
 
 Do not pass these files to benchharness report: that evaluates the sharing matrix's readings, another question.
 EOF

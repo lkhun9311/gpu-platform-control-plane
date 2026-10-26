@@ -1,0 +1,118 @@
+{
+  "arm": "S-gpu-most",
+  "repetition": 11,
+  "attempt": 1,
+  "arm_verdict": {
+    "arm": "S-gpu-most",
+    "qualified": true,
+    "scheduler_image": "registry.k8s.io/kube-scheduler-amd64:v1.31.0",
+    "restarts": 0
+  },
+  "censuses": [
+    {
+      "step": "c1",
+      "stranded_devices": 0,
+      "unusable_gap_sum_diagnostic_only": 0,
+      "witness_request": 3,
+      "witness_exists": true,
+      "no_demand": true,
+      "reserved_total": 1,
+      "placed_workloads": [
+        "s1"
+      ],
+      "outstanding_demand": 0
+    },
+    {
+      "step": "c2",
+      "stranded_devices": 0,
+      "unusable_gap_sum_diagnostic_only": 0,
+      "witness_request": 0,
+      "witness_exists": false,
+      "no_demand": true,
+      "reserved_total": 2,
+      "placed_workloads": [
+        "s1",
+        "s2"
+      ],
+      "outstanding_demand": 0
+    },
+    {
+      "step": "c3",
+      "stranded_devices": 0,
+      "unusable_gap_sum_diagnostic_only": 0,
+      "witness_request": 0,
+      "witness_exists": false,
+      "no_demand": true,
+      "reserved_total": 4,
+      "placed_workloads": [
+        "s1",
+        "s2",
+        "s3"
+      ],
+      "outstanding_demand": 0
+    },
+    {
+      "step": "c4",
+      "stranded_devices": 0,
+      "blocked": [
+        "s4"
+      ],
+      "unusable_gap_sum_diagnostic_only": 0,
+      "witness_request": 0,
+      "witness_exists": false,
+      "no_demand": false,
+      "reserved_total": 4,
+      "placed_workloads": [
+        "s1",
+        "s2",
+        "s3"
+      ],
+      "outstanding_demand": 1
+    },
+    {
+      "step": "c5",
+      "stranded_devices": 0,
+      "blocked": [
+        "s4",
+        "s5"
+      ],
+      "unusable_gap_sum_diagnostic_only": 0,
+      "witness_request": 0,
+      "witness_exists": false,
+      "no_demand": false,
+      "reserved_total": 4,
+      "placed_workloads": [
+        "s1",
+        "s2",
+        "s3"
+      ],
+      "outstanding_demand": 2
+    },
+    {
+      "step": "c6",
+      "stranded_devices": 0,
+      "blocked": [
+        "s4",
+        "s5",
+        "s6"
+      ],
+      "unusable_gap_sum_diagnostic_only": 0,
+      "witness_request": 0,
+      "witness_exists": false,
+      "no_demand": false,
+      "reserved_total": 4,
+      "placed_workloads": [
+        "s1",
+        "s2",
+        "s3"
+      ],
+      "outstanding_demand": 4
+    }
+  ],
+  "protocol_sha256": "0984b02bda37d015991df66bf259d2025214ed82f52a2bc81300ca913e90e48a",
+  "treatment_verdict": {
+    "strategy": "MostAllocated",
+    "observed": "stranded-worker2",
+    "applied": true
+  }
+}

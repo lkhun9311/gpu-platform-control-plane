@@ -1,6 +1,7 @@
 package bench
 
 import (
+	"slices"
 	"strings"
 	"testing"
 )
@@ -135,5 +136,60 @@ func TestMatrixPlanArmSetRefusalForTheLengthCalibration(t *testing.T) {
 	}
 	if err := MatrixPlanArmSetRefusal(StudyLengthCalibration, all[:6]); err == nil {
 		t.Fatal("a calibration plan without hold-cap-long was accepted")
+	}
+}
+
+// C3's calibration plans the same seven arms under its own id (2026-10-24-c3-headroom-calibration.md).
+// Mutation that turns it red: drop StudyHeadroomCalibration from the length studies' rule.
+func TestMatrixPlanArmSetRefusalForTheHeadroomCalibration(t *testing.T) {
+	all := []string{"R1", "off-short", "off-ref", "off-long", "hold-cap-short", "hold-cap-ref", "hold-cap-long"}
+	if err := MatrixPlanArmSetRefusal(StudyHeadroomCalibration, all); err != nil {
+		t.Fatalf("the calibration's registered arms were refused: %v", err)
+	}
+	if err := MatrixPlanArmSetRefusal(StudyHeadroomCalibration, all[:6]); err == nil {
+		t.Fatal("a calibration plan without hold-cap-long was accepted")
+	}
+}
+
+// C3's main study plans its 16 labels, and v27's fixed1740 label is not one of them (2026-10-25-c3-headroom-main.md).
+// Mutation that turns it red: drop StudyHeadroomMain from the length studies' rule.
+func TestMatrixPlanArmSetRefusalForTheHeadroomMain(t *testing.T) {
+	all := []string{"R1"}
+	for _, a := range []string{"off", "caponly", "hold-cap", "fixedS", "sizeaware"} {
+		for _, l := range []string{"short", "ref", "long"} {
+			all = append(all, a+"-"+l)
+		}
+	}
+	if err := MatrixPlanArmSetRefusal(StudyHeadroomMain, all); err != nil {
+		t.Fatalf("the main study's registered arms were refused: %v", err)
+	}
+	if err := MatrixPlanArmSetRefusal(StudyHeadroomMain, all[:15]); err == nil {
+		t.Fatal("a main-study plan without sizeaware-long was accepted")
+	}
+	if err := MatrixPlanArmSetRefusal(StudyHeadroomMain, append(slices.Clip(all), "fixed1740-long")); err == nil {
+		t.Fatal("a main-study plan carrying v27's fixed1740-long was accepted")
+	}
+}
+
+// The capability session buys exactly one mps cell; a baseline beside it would be a cell nothing reads, and a second
+// arm would be the sharing matrix under another name.
+func TestMatrixPlanArmSetRefusalForTheMPSCapability(t *testing.T) {
+	if err := MatrixPlanArmSetRefusal(StudyMPSCapability, []string{ArmMPS}); err != nil {
+		t.Fatalf("the one registered cell was refused: %v", err)
+	}
+	for _, arms := range [][]string{{ArmR1, ArmMPS}, {ArmShared}, {ArmMPS, ArmMPS}, {ArmTimeSlicing}} {
+		err := MatrixPlanArmSetRefusal(StudyMPSCapability, arms)
+		if err == nil {
+			t.Errorf("arms %v were accepted for %s, which registers only %s", arms, StudyMPSCapability, ArmMPS)
+		} else if !strings.Contains(err.Error(), "not exactly mps") {
+			t.Errorf("arms %v: the refusal does not name the one cell: %v", arms, err)
+		}
+	}
+	s, ok := LookupStudy(StudyMPSCapability)
+	if !ok {
+		t.Fatalf("%s is not registered", StudyMPSCapability)
+	}
+	if !s.Admits(ArmMPS) || s.Admits(ArmShared) || s.Admits(ArmR1) {
+		t.Errorf("%s admits the wrong arms: %v", StudyMPSCapability, s.Arms)
 	}
 }

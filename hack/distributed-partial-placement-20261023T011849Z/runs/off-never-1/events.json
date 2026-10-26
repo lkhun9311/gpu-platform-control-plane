@@ -1,0 +1,410 @@
+{
+    "apiVersion": "v1",
+    "items": [
+        {
+            "action": "QuotaReserved",
+            "apiVersion": "v1",
+            "eventTime": "2026-10-23T01:20:45.207648Z",
+            "firstTimestamp": null,
+            "involvedObject": {
+                "apiVersion": "kueue.x-k8s.io/v1beta2",
+                "kind": "Workload",
+                "name": "job-pp-off-never-1-012042-e3e97",
+                "namespace": "partial",
+                "resourceVersion": "1475",
+                "uid": "7c4bc5a8-33f4-4297-b2aa-9bb7baafd75a"
+            },
+            "kind": "Event",
+            "lastTimestamp": null,
+            "message": "Quota reserved in ClusterQueue gpu-partial, wait time since queued was 0s",
+            "metadata": {
+                "creationTimestamp": "2026-10-23T01:20:45Z",
+                "name": "job-pp-off-never-1-012042-e3e97.18e103ed7ce48172",
+                "namespace": "partial",
+                "resourceVersion": "1477",
+                "uid": "5fe5a3b5-abfe-4c9f-af26-60f758a053e2"
+            },
+            "reason": "QuotaReserved",
+            "reportingComponent": "kueue-admission",
+            "reportingInstance": "kueue-admission-kueue-controller-manager-58c7ff4f85-2h2hk",
+            "source": {},
+            "type": "Normal"
+        },
+        {
+            "action": "Admitted",
+            "apiVersion": "v1",
+            "eventTime": "2026-10-23T01:20:45.207665Z",
+            "firstTimestamp": null,
+            "involvedObject": {
+                "apiVersion": "kueue.x-k8s.io/v1beta2",
+                "kind": "Workload",
+                "name": "job-pp-off-never-1-012042-e3e97",
+                "namespace": "partial",
+                "resourceVersion": "1475",
+                "uid": "7c4bc5a8-33f4-4297-b2aa-9bb7baafd75a"
+            },
+            "kind": "Event",
+            "lastTimestamp": null,
+            "message": "Admitted by ClusterQueue gpu-partial, wait time since reservation was 0s",
+            "metadata": {
+                "creationTimestamp": "2026-10-23T01:20:45Z",
+                "name": "job-pp-off-never-1-012042-e3e97.18e103ed7ce4c13c",
+                "namespace": "partial",
+                "resourceVersion": "1476",
+                "uid": "47793c82-267c-4cae-a355-b36c034ed6fd"
+            },
+            "reason": "Admitted",
+            "reportingComponent": "kueue-admission",
+            "reportingInstance": "kueue-admission-kueue-controller-manager-58c7ff4f85-2h2hk",
+            "source": {},
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-23T01:20:45Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "kind": "Pod",
+                "name": "pp-off-never-1-012042-0-4zllw",
+                "namespace": "partial",
+                "resourceVersion": "1481",
+                "uid": "b62641a5-37f7-46fd-808d-43e00ec1e701"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-23T01:20:45Z",
+            "message": "Successfully assigned partial/pp-off-never-1-012042-0-4zllw to partial-worker",
+            "metadata": {
+                "creationTimestamp": "2026-10-23T01:20:45Z",
+                "name": "pp-off-never-1-012042-0-4zllw.18e103ed7f6fe487",
+                "namespace": "partial",
+                "resourceVersion": "1484",
+                "uid": "aba08513-71d6-40ef-a0ed-c89369dc315e"
+            },
+            "reason": "Scheduled",
+            "reportingComponent": "default-scheduler",
+            "reportingInstance": "",
+            "source": {
+                "component": "default-scheduler"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-23T01:20:45Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{trainer}",
+                "kind": "Pod",
+                "name": "pp-off-never-1-012042-0-4zllw",
+                "namespace": "partial",
+                "resourceVersion": "1483",
+                "uid": "b62641a5-37f7-46fd-808d-43e00ec1e701"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-23T01:20:45Z",
+            "message": "Container image \"cpu-ddp:torch251\" already present on machine and can be accessed by the pod",
+            "metadata": {
+                "creationTimestamp": "2026-10-23T01:20:45Z",
+                "name": "pp-off-never-1-012042-0-4zllw.18e103ed98497969",
+                "namespace": "partial",
+                "resourceVersion": "1495",
+                "uid": "50c4e3cc-b70f-445b-b06d-0cc6a2e15bc2"
+            },
+            "reason": "Pulled",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "partial-worker",
+            "source": {
+                "component": "kubelet",
+                "host": "partial-worker"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-23T01:20:45Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{trainer}",
+                "kind": "Pod",
+                "name": "pp-off-never-1-012042-0-4zllw",
+                "namespace": "partial",
+                "resourceVersion": "1483",
+                "uid": "b62641a5-37f7-46fd-808d-43e00ec1e701"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-23T01:20:45Z",
+            "message": "Container created",
+            "metadata": {
+                "creationTimestamp": "2026-10-23T01:20:45Z",
+                "name": "pp-off-never-1-012042-0-4zllw.18e103ed9a305a32",
+                "namespace": "partial",
+                "resourceVersion": "1497",
+                "uid": "738cd623-9675-4882-853a-a3dffbb5bc33"
+            },
+            "reason": "Created",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "partial-worker",
+            "source": {
+                "component": "kubelet",
+                "host": "partial-worker"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-23T01:20:45Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{trainer}",
+                "kind": "Pod",
+                "name": "pp-off-never-1-012042-0-4zllw",
+                "namespace": "partial",
+                "resourceVersion": "1483",
+                "uid": "b62641a5-37f7-46fd-808d-43e00ec1e701"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-23T01:20:45Z",
+            "message": "Container started",
+            "metadata": {
+                "creationTimestamp": "2026-10-23T01:20:45Z",
+                "name": "pp-off-never-1-012042-0-4zllw.18e103ed9cad231e",
+                "namespace": "partial",
+                "resourceVersion": "1499",
+                "uid": "9b5f6c46-1711-4476-bcf0-0082886220a6"
+            },
+            "reason": "Started",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "partial-worker",
+            "source": {
+                "component": "kubelet",
+                "host": "partial-worker"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 2,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-23T01:20:45Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "kind": "Pod",
+                "name": "pp-off-never-1-012042-1-7mbbb",
+                "namespace": "partial",
+                "resourceVersion": "1487",
+                "uid": "59a4af7c-fa13-4dc9-b114-aa6ef63cbb37"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-23T01:26:01Z",
+            "message": "0/3 nodes are available: 1 node(s) had untolerated taint(s), 2 Insufficient nvidia.com/gpu. preemption: 0/3 nodes are available: 1 Preemption is not helpful for scheduling, 2 No preemption victims found for incoming pod.",
+            "metadata": {
+                "creationTimestamp": "2026-10-23T01:20:45Z",
+                "name": "pp-off-never-1-012042-1-7mbbb.18e103ed848b8699",
+                "namespace": "partial",
+                "resourceVersion": "2372",
+                "uid": "21f0a67d-45e6-4e24-a619-8e569c1212ea"
+            },
+            "reason": "FailedScheduling",
+            "reportingComponent": "default-scheduler",
+            "reportingInstance": "",
+            "source": {
+                "component": "default-scheduler"
+            },
+            "type": "Warning"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-23T01:20:45Z",
+            "involvedObject": {
+                "apiVersion": "batch/v1",
+                "kind": "Job",
+                "name": "pp-off-never-1-012042",
+                "namespace": "partial",
+                "resourceVersion": "1464",
+                "uid": "6d952ee6-b619-4328-907f-3e44ce7c494c"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-23T01:20:45Z",
+            "message": "Job suspended",
+            "metadata": {
+                "creationTimestamp": "2026-10-23T01:20:45Z",
+                "name": "pp-off-never-1-012042.18e103ed7555827b",
+                "namespace": "partial",
+                "resourceVersion": "1466",
+                "uid": "4b6dea5a-30d5-4843-913d-254b0090edee"
+            },
+            "reason": "Suspended",
+            "reportingComponent": "job-controller",
+            "reportingInstance": "",
+            "source": {
+                "component": "job-controller"
+            },
+            "type": "Normal"
+        },
+        {
+            "action": "CreatedWorkload",
+            "apiVersion": "v1",
+            "eventTime": "2026-10-23T01:20:45.194145Z",
+            "firstTimestamp": null,
+            "involvedObject": {
+                "apiVersion": "batch/v1",
+                "kind": "Job",
+                "name": "pp-off-never-1-012042",
+                "namespace": "partial",
+                "resourceVersion": "1464",
+                "uid": "6d952ee6-b619-4328-907f-3e44ce7c494c"
+            },
+            "kind": "Event",
+            "lastTimestamp": null,
+            "message": "Created Workload: partial/job-pp-off-never-1-012042-e3e97",
+            "metadata": {
+                "creationTimestamp": "2026-10-23T01:20:45Z",
+                "name": "pp-off-never-1-012042.18e103ed7c16845e",
+                "namespace": "partial",
+                "resourceVersion": "1474",
+                "uid": "a2412923-752e-42ab-89fa-7218bca0af3d"
+            },
+            "reason": "CreatedWorkload",
+            "reportingComponent": "batch/job-kueue-controller",
+            "reportingInstance": "batch/job-kueue-controller-kueue-controller-manager-58c7ff4f85-2h2hk",
+            "source": {},
+            "type": "Normal"
+        },
+        {
+            "action": "Started",
+            "apiVersion": "v1",
+            "eventTime": "2026-10-23T01:20:45.220689Z",
+            "firstTimestamp": null,
+            "involvedObject": {
+                "apiVersion": "batch/v1",
+                "kind": "Job",
+                "name": "pp-off-never-1-012042",
+                "namespace": "partial",
+                "resourceVersion": "1479",
+                "uid": "6d952ee6-b619-4328-907f-3e44ce7c494c"
+            },
+            "kind": "Event",
+            "lastTimestamp": null,
+            "message": "Admitted by clusterQueue gpu-partial",
+            "metadata": {
+                "creationTimestamp": "2026-10-23T01:20:45Z",
+                "name": "pp-off-never-1-012042.18e103ed7dab7f82",
+                "namespace": "partial",
+                "resourceVersion": "1480",
+                "uid": "56b1a2f7-a106-4933-a562-1aba8c203430"
+            },
+            "reason": "Started",
+            "reportingComponent": "batch/job-kueue-controller",
+            "reportingInstance": "batch/job-kueue-controller-kueue-controller-manager-58c7ff4f85-2h2hk",
+            "source": {},
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-23T01:20:45Z",
+            "involvedObject": {
+                "apiVersion": "batch/v1",
+                "kind": "Job",
+                "name": "pp-off-never-1-012042",
+                "namespace": "partial",
+                "resourceVersion": "1479",
+                "uid": "6d952ee6-b619-4328-907f-3e44ce7c494c"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-23T01:20:45Z",
+            "message": "Created pod: pp-off-never-1-012042-0-4zllw",
+            "metadata": {
+                "creationTimestamp": "2026-10-23T01:20:45Z",
+                "name": "pp-off-never-1-012042.18e103ed7e7070ce",
+                "namespace": "partial",
+                "resourceVersion": "1482",
+                "uid": "46711b66-dadd-43f3-92ed-19b4aa3334d3"
+            },
+            "reason": "SuccessfulCreate",
+            "reportingComponent": "job-controller",
+            "reportingInstance": "",
+            "source": {
+                "component": "job-controller"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-23T01:20:45Z",
+            "involvedObject": {
+                "apiVersion": "batch/v1",
+                "kind": "Job",
+                "name": "pp-off-never-1-012042",
+                "namespace": "partial",
+                "resourceVersion": "1479",
+                "uid": "6d952ee6-b619-4328-907f-3e44ce7c494c"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-23T01:20:45Z",
+            "message": "Created pod: pp-off-never-1-012042-1-7mbbb",
+            "metadata": {
+                "creationTimestamp": "2026-10-23T01:20:45Z",
+                "name": "pp-off-never-1-012042.18e103ed8481fe35",
+                "namespace": "partial",
+                "resourceVersion": "1488",
+                "uid": "6ab03acf-5bae-4fdc-8d20-d1a68e0456bb"
+            },
+            "reason": "SuccessfulCreate",
+            "reportingComponent": "job-controller",
+            "reportingInstance": "",
+            "source": {
+                "component": "job-controller"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1,
+            "eventTime": null,
+            "firstTimestamp": "2026-10-23T01:20:45Z",
+            "involvedObject": {
+                "apiVersion": "batch/v1",
+                "kind": "Job",
+                "name": "pp-off-never-1-012042",
+                "namespace": "partial",
+                "resourceVersion": "1479",
+                "uid": "6d952ee6-b619-4328-907f-3e44ce7c494c"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2026-10-23T01:20:45Z",
+            "message": "Job resumed",
+            "metadata": {
+                "creationTimestamp": "2026-10-23T01:20:45Z",
+                "name": "pp-off-never-1-012042.18e103ed84824c87",
+                "namespace": "partial",
+                "resourceVersion": "1492",
+                "uid": "ff61425d-d969-4284-b8d6-53b008196687"
+            },
+            "reason": "Resumed",
+            "reportingComponent": "job-controller",
+            "reportingInstance": "",
+            "source": {
+                "component": "job-controller"
+            },
+            "type": "Normal"
+        }
+    ],
+    "kind": "List",
+    "metadata": {
+        "resourceVersion": ""
+    }
+}

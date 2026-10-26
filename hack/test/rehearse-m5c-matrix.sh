@@ -258,8 +258,10 @@ esac
 # volume mounted and declared. The model is not passed positionally, because the stub's flag parser stops at the
 # first positional argument.
 PILOT_UNDER_TEST="${PILOT:-}"
+# MPSCAP=1 rehearses the MPS capability session's one cell (study mps-capability-2026-10-24) through the real matrix.
+MPSCAP_UNDER_TEST="${MPSCAP:-}"
 # Any other value rehearsed stages A and B while its name suggested something else (v26 review, C37).
-case "$PILOT_UNDER_TEST" in "" | 1 | D | E | F) ;; *) echo "PILOT is ${PILOT_UNDER_TEST@Q}; it is 1 for stages A and B, D, E or F" >&2; exit 2 ;; esac
+case "$PILOT_UNDER_TEST" in "" | 1 | D | E | F | G | H) ;; *) echo "PILOT is ${PILOT_UNDER_TEST@Q}; it is 1 for stages A and B, D, E, F, G or H" >&2; exit 2 ;; esac
 # The two ineligible arms the rehearsal must show (design page, "Rehearsals before purchase"): stage A's off-2 has
 # its step log stopped mid-cell by the stub, and stage B's R1-3 has one request's gateway record deleted after the
 # run. Request 40 is past the cell's start, so the log stops with records before it, as a plugin that died would.
@@ -372,6 +374,23 @@ spec:
         - name: pause
           image: registry.k8s.io/pause:3.9
 EOF
+# The capability session's B0 reads the plugin and the daemon by the real overlay's Pod labels, so the copy carries
+# them; otherwise B0 would find no Pod and the rehearsal would test the copy rather than the matrix.
+if [ -n "$MPSCAP_UNDER_TEST" ]; then
+  python3 - "$SRC/config/nvidia-device-plugin-mps/daemonset.yaml" <<'PY'
+import sys
+p = sys.argv[1]
+s = open(p).read()
+s = s.replace("app.kubernetes.io/component: nvidia-device-plugin-mps\n", "app.kubernetes.io/component: nvidia-device-plugin-mps-plugin\n")
+labels = "{app.kubernetes.io/name: gpu-platform-control-plane, app.kubernetes.io/component: nvidia-mps-control-daemon}"
+s = s.replace("selector: {matchLabels: {app: mps-control-stub}}", "selector: {matchLabels: " + labels + "}")
+s = s.replace("metadata: {labels: {app: mps-control-stub}}", "metadata: {labels: " + labels + "}")
+open(p, "w").write(s)
+PY
+  grep -q "component: nvidia-device-plugin-mps-plugin" "$SRC/config/nvidia-device-plugin-mps/daemonset.yaml" \
+    && grep -q "component: nvidia-mps-control-daemon}" "$SRC/config/nvidia-device-plugin-mps/daemonset.yaml" \
+    || fail "the copy's MPS overlay does not carry the real overlay's Pod labels, so B0 would read nothing"
+fi
 
 say "run the REAL hack/m5c-matrix.sh against this cluster"
 # Derived WITHOUT discarding stderr, which is how the first version of this line failed silently.
@@ -516,6 +535,11 @@ if [ -n "$PILOT_UNDER_TEST" ]; then
   if [ "$PILOT_UNDER_TEST" = E ]; then pilot_stages=E; pilot_study=admission-frontier-2026-10-10; fi
   # PILOT=F rehearses v27's calibration stage F, one block at its frozen seed (design page, "v27").
   if [ "$PILOT_UNDER_TEST" = F ]; then pilot_stages=F; pilot_study=admission-length-calibration-2026-10-10; fi
+  # PILOT=G rehearses C3's calibration stage G: stage F's cells under its own study, seed and contender rate.
+  if [ "$PILOT_UNDER_TEST" = G ]; then pilot_stages=G; pilot_study=admission-headroom-calibration-2026-10-24; fi
+  # PILOT=H rehearses C3's main study: stage H's three blocks one after another, as three sessions run them, each on
+  # its own seed and block, scored together.
+  if [ "$PILOT_UNDER_TEST" = H ]; then pilot_stages="H1 H2 H3"; pilot_study=admission-headroom-main-2026-10-25; fi
   for stage in $pilot_stages; do
     if [ "$stage" = B ]; then
       fit_args=()
@@ -529,10 +553,11 @@ if [ -n "$PILOT_UNDER_TEST" ]; then
     ( cd "$SRC" && PLATFORM=kind KCTX="$KCTX" GPU_NODE="$GPU_NODE" \
         DEADLINE_EPOCH=$(( $(date +%s) + 7200 )) \
         GATEWAY_BIN="$WORK/gateway" BENCHHARNESS_BIN="$WORK/benchharness" \
-        ENGINE_PIN_WAIVED=1 STUDY="$pilot_study" PILOT_STAGE="$stage" PILOT_STATIC_RATE="$PILOT_R" \
+        ENGINE_PIN_WAIVED=1 STUDY="$pilot_study" PILOT_STAGE="${stage%[123]}" PILOT_STATIC_RATE="$PILOT_R" \
+        PILOT_BLOCK="$(case "$stage" in H?) echo "${stage#H}" ;; esac)" \
         MODEL_REVISION=aa8e72537993ba99e69dfaafa59ed015b17504d1 \
-        REPS="$( [ "$stage" = F ] && echo 1 || echo 3)" SEEDS="$(case "$stage" in A) echo '301 302 303' ;; B) echo '311 312 313' ;; D) echo '321 322 323' ;; E) echo '861 862 863' ;; F) echo 871 ;; esac)" \
-        PREMIUM_RATE=9.25 PILOT_NOISY_RATE=0.5 PREMIUM_WEIGHT=1 PROBE_WEIGHT=0 DURATION_MS="${PILOT_DURATION_MS:-20000}" \
+        REPS="$(case "$stage" in F | G | H?) echo 1 ;; *) echo 3 ;; esac)" SEEDS="$(case "$stage" in A) echo '301 302 303' ;; B) echo '311 312 313' ;; D) echo '321 322 323' ;; E) echo '861 862 863' ;; F) echo 871 ;; G) echo 891 ;; H1) echo 882 ;; H2) echo 892 ;; H3) echo 893 ;; esac)" \
+        PREMIUM_RATE=9.25 PILOT_NOISY_RATE="$(case "$stage" in G | H?) echo 0.375 ;; *) echo 0.5 ;; esac)" PREMIUM_WEIGHT=1 PROBE_WEIGHT=0 DURATION_MS="${PILOT_DURATION_MS:-20000}" \
         PREMIUM_PROMPT_CHARS=200 NOISY_PROMPT_CHARS=40000 REQUEST_TIMEOUT_MS=30000 \
         PREMIUM_OUTPUT_TOKENS=64 NOISY_OUTPUT_TOKENS=16 OUT="$OUT_DIR-$stage" \
         CELL_DONE_HOOK="$WORK/cell-hook" CELL_HOOK_LOG="$CELL_HOOK_LOG" \
@@ -543,6 +568,18 @@ if [ -n "$PILOT_UNDER_TEST" ]; then
   done
   cp "$WORK/matrix-${stage}.log" "$WORK/matrix.log"
   ( exit "$pilot_rc" )
+elif [ -n "$MPSCAP_UNDER_TEST" ]; then
+  # The registered load and three phases half an hour away, so nothing here runs out; the deadlines are tested in
+  # hack/test/check-mps-capability-lib.sh, with seconds-away epochs.
+  mpscap_end=$(( $(date +%s) + 1800 ))
+  ( cd "$SRC" && PLATFORM=kind KCTX="$KCTX" GPU_NODE="$GPU_NODE" \
+      DEADLINE_EPOCH=$(( $(date +%s) + 3600 )) \
+      GATEWAY_BIN="$WORK/gateway" BENCHHARNESS_BIN="$WORK/benchharness" \
+      ENGINE_PIN_WAIVED=1 STUDY=mps-capability-2026-10-24 ARMS=mps REPS=1 \
+      RATE=2 PREMIUM_WEIGHT=1 NOISY_WEIGHT=0.054 PROBE_WEIGHT=0 DURATION_MS=120000 \
+      MPSCAP_PHASE1_END="$mpscap_end" MPSCAP_PHASE2_END="$mpscap_end" MPSCAP_PHASE3_END="$mpscap_end" \
+      OUT="$OUT_DIR" CELL_DONE_HOOK="$WORK/cell-hook" CELL_HOOK_LOG="$CELL_HOOK_LOG" \
+      bash hack/m5c-matrix.sh ) 2>&1 | tee "$WORK/matrix.log"
 elif [ -n "$IV_UNDER_TEST" ]; then
   # No load and no DURATION_MS: the study refuses both, and each arm's trace length is its own.
   # Three serial arms, one of each engine mode, because the modes are what this path changes per cell; burst and
@@ -607,17 +644,49 @@ set -e
 # The checks below this block are the sharing studies': two tenants, an R1 arm, readings. This study has none
 # of them, and what it adds -- a per-arm engine and a per-cell engine log -- is checked from the files the
 # matrix wrote, not from its exit status alone, because the matrix refusing nothing is what is under test.
+# The capability cell is checked bar by bar from its journal, with the real classifier, and ends here.
+#
+# What kind can show: the plugin and the daemon read around a simulated advertisement of two, both engine Pods by
+# UID, a replay of both tenants through the real path, and the diagnostics before cleanup. What it cannot: there is
+# no MPS daemon behind the stub's pipe directory, so B3 must FAIL, and no nvidia-smi here, so B4 must be UNMEASURED.
+# Either one passing would mean an instrument accepted a stand-in.
+if [ -n "$MPSCAP_UNDER_TEST" ]; then
+  say "check the capability cell's journal"
+  journal="$OUT_DIR/mps-journal.jsonl"
+  [ -s "$journal" ] || fail "the capability cell wrote no journal at $journal"
+  "$WORK/benchharness" mps-capability-verdict --journal "$journal" >"$WORK/mpscap-verdict.txt" 2>&1 \
+    || fail "the journal could not be read: $(cat "$WORK/mpscap-verdict.txt")"
+  for want in "B0 pass" "B1 pass" "B2 pass" "B3 fail" "B4 unmeasured" "B5 pass"; do
+    grep -qx "$want" "$WORK/mpscap-verdict.txt" || fail "the journal does not read '$want': $(grep '^B[0-5] ' "$WORK/mpscap-verdict.txt" | paste -sd';')"
+  done
+  grep -q '"bar":"B3".*CONTROL=no' "$journal" || fail "B3 failed for a reason other than the missing control socket: $(grep '"bar":"B3"' "$journal" | tail -1)"
+  # The session writes launch_time_read and termination_confirmed; without them the run is INVALID, and that is right
+  # for a matrix run on its own.
+  head -1 "$WORK/mpscap-verdict.txt" | grep -qx "MPS: INVALID" || fail "a matrix run with no session facts read as $(head -1 "$WORK/mpscap-verdict.txt")"
+  [ -s "$OUT_DIR/mpscap/diag/inventory.tsv" ] || fail "the diagnostics left no inventory"
+  for need in describe-pods-m5c-a.txt describe-pods-m5c-b.txt events-all.json logs-nvidia-device-plugin-mps-plugin.txt logs-nvidia-mps-control-daemon.txt; do
+    awk -F'\t' -v n="$need" '$1 == n && $2 == 0' "$OUT_DIR/mpscap/diag/inventory.tsv" | grep -q . \
+      || fail "the diagnostics did not collect $need: $(grep "$need" "$OUT_DIR/mpscap/diag/inventory.tsv")"
+  done
+  grep -q '"name":"no_healthy_devices_event","value":false' "$journal" || fail "B2 recorded no refusal fact"
+  cat "$WORK/mpscap-verdict.txt"
+  say "REHEARSAL PASSED: the capability cell ran bar by bar on kind; B3 failed on the stub's missing socket and B4 was unmeasured with no nvidia-smi, as kind requires."
+  exit 0
+fi
+
 if [ -n "$PILOT_UNDER_TEST" ]; then
-  if [ "$PILOT_UNDER_TEST" = D ] || [ "$PILOT_UNDER_TEST" = E ] || [ "$PILOT_UNDER_TEST" = F ]; then
+  if [ "$PILOT_UNDER_TEST" = D ] || [ "$PILOT_UNDER_TEST" = E ] || [ "$PILOT_UNDER_TEST" = F ] || [ "$PILOT_UNDER_TEST" = G ] || [ "$PILOT_UNDER_TEST" = H ]; then
     st="$PILOT_UNDER_TEST"
-    say "check what stage $st's cells wrote"
-    d="$OUT_DIR-$st"
+    # Stage H's three sessions each hold one block, and each is checked as stage G's one block is.
+    st_dirs="$OUT_DIR-$st"; [ "$st" != H ] || st_dirs="$OUT_DIR-H1 $OUT_DIR-H2 $OUT_DIR-H3"
+    for d in $st_dirs; do
+    say "check what stage $st's cells wrote in $(basename "$d")"
     st_arms=$(. "$ROOT/hack/lib/prospective-pilot.sh" && pp_stage_arms "$st" | grep -vx R1 | tr '\n' ' ') || fail "no arms for stage $st"
-    st_reps="1 2 3"; [ "$st" = F ] && st_reps=1
+    st_reps="1 2 3"; case "$st" in F | G | H) st_reps=1 ;; esac
     cells="R1-1"; for a in $st_arms; do for r in $st_reps; do cells="$cells $a-$r"; done; done
     want_n=$(( 1 + $(echo $st_reps | wc -w) * $(echo $st_arms | wc -w) ))
     n_raw=$(find "$d" -maxdepth 1 -name 'raw-*-[0-9].jsonl' | wc -l)
-    [ "$n_raw" = "$want_n" ] || fail "stage $st holds $n_raw raw files, not R1 once and [$st_arms] in three blocks"
+    [ "$n_raw" = "$want_n" ] || fail "stage $st holds $n_raw raw files, not R1 once and [$st_arms] in $(echo $st_reps | wc -w) block(s)"
     for cell in $cells; do
       arm=${cell%-*}; rep=${cell##*-}
       for need in "raw-$cell.jsonl" "step-log-$cell.jsonl" "gateway-record-$cell.jsonl" "engine-samples-$cell.tsv"; do
@@ -631,7 +700,7 @@ if [ -n "$PILOT_UNDER_TEST" ]; then
       case "$arm" in
         hold | hold-cap | hold-cap-*) grep -q '"reason":"serial_prefill_' "$d/gateway-record-$cell.jsonl" \
           || fail "stage $st cell $cell: no serial-prefill decision in its gateway record" ;;
-        fixed-*) grep -q '"reason":"fixed_spacing_' "$d/gateway-record-$cell.jsonl" \
+        fixed-* | fixedS-* | sizeaware-*) grep -q '"reason":"fixed_spacing_' "$d/gateway-record-$cell.jsonl" \
           || fail "stage $st cell $cell: no fixed-spacing decision in its gateway record" ;;
         *) ! grep -qE '"reason":"(serial_prefill|fixed_spacing)_' "$d/gateway-record-$cell.jsonl" \
           || fail "stage $st cell $cell: a held decision in an arm without a hold" ;;
@@ -645,12 +714,24 @@ if [ -n "$PILOT_UNDER_TEST" ]; then
       if [ "$want_cap" = 384 ]; then [ "$cap_seen" -ge 1 ] || fail "stage $st cell $cell: its engine did not report the 384 prefill cap"
       else [ "$cap_seen" = 0 ] || fail "stage $st cell $cell: an engine without the cap reported it"; fi
     done
-    if [ "$st" = D ]; then
+    done
+    if [ "$st" = H ]; then
+      # Scored as the purchase will be, the three sessions together. The 20-second traces are not the frozen ones, so
+      # each cell's provenance line fails by design; every other validity line must hold.
+      verdict=$(python3 "$ROOT/hack/prospective-pilot/pilot_report.py" headroom-main $st_dirs | python3 -c '
+import json, sys
+v = json.load(sys.stdin)
+bad = [x["line"] + " " + str(x["value"])[:80] for x in v["validity"] if x["state"] != "holds" and not x["line"].endswith("is the registered cell")]
+if bad:
+    print("validity failed beyond provenance, %d line(s): " % len(bad) + "; ".join(bad))
+    sys.exit(1)
+print(v["verdict"][:200] + " | size-aware: " + v["size_aware"][:80] + " | cap-only: " + v["cap_only"][:80])') || fail "stage $st: $verdict"
+    elif [ "$st" = D ]; then
       verdict=$(python3 "$ROOT/hack/prospective-pilot/pilot_report.py" diagnostic "$d" | python3 -c 'import json,sys; print(json.load(sys.stdin)["verdict"])') \
         || fail "the report could not score the diagnostic"
       case "$verdict" in "observed on these traces"* | "not met: "* | "inconclusive: "*) ;; *) fail "the diagnostic's verdict is not one of the three: $verdict" ;; esac
     else
-      sc=$([ "$st" = F ] && echo calibration || echo frontier)
+      sc=$(case "$st" in F) echo calibration ;; G) echo headroom ;; *) echo frontier ;; esac)
       # The rehearsal's 20-second traces are not the frozen ones, so each cell's provenance line fails by design;
       # every other validity line must hold, or the purchase would be inconclusive for an apparatus reason.
       verdict=$(python3 "$ROOT/hack/prospective-pilot/pilot_report.py" "$sc" "$d" | python3 -c '
@@ -658,12 +739,13 @@ import json, sys
 v = json.load(sys.stdin)
 bad = [x["line"] + " " + str(x["value"])[:80] for x in v["validity"] if x["state"] != "holds" and not x["line"].endswith("is the registered cell")]
 if bad:
-    print("validity failed beyond provenance: " + "; ".join(bad[:6]))
+    # Every line and their count, since a list cut at six showed three failing cells where there were six.
+    print("validity failed beyond provenance, %d line(s): " % len(bad) + "; ".join(bad))
     sys.exit(1)
 print(v["verdict"][:200])') || fail "stage $st: $verdict"
     fi
     say "the stub's verdict, which says nothing about the card: $verdict"
-    say "STAGE $st REHEARSAL: R1 once and [$st_arms] in three blocks, each arm's mode and cap cell by cell, every cell eligible, scored"
+    say "STAGE $st REHEARSAL: R1 once and [$st_arms] in $(echo $st_reps | wc -w) block(s) per session, $(echo $st_dirs | wc -w) session(s), each arm's mode and cap cell by cell, every cell eligible, scored"
     exit 0
   fi
   say "check what the pilot's cells wrote"

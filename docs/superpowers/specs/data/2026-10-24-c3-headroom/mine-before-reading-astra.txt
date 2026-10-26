@@ -1,0 +1,30 @@
+C3 calibration: my sketch, written 2026-10-24 before reading astra's draft.
+
+Shape taken from C3 as written: stage F at contender 0.375/s, premium 9.25/s, seed 891, R1 + off/hold-cap at 6,144, 7,695, 8,192 tokens, 7 cells, v27's revised gate.
+
+Concerns I hold before reading astra:
+
+1. The lighter rate can dissolve the separation the main study needs.
+   v27's predicted collapse of fixed-1740 at the long length is a backlog effect: spacing 1,740 ms against a 1,772 ms prefill only overlaps prefills when contenders queue behind the spacing.
+   At 0.5/s the spacing server runs at 0.5 x 1.74 = 0.87; at 0.375/s at 0.65, so backlogs are rarer and shorter.
+   C3's calibration measures only off and hold-cap, so it cannot see whether the fixed spacing still fails at the new load.
+   The calibration's "challenge achieved" is a prefill-length criterion and will pass trivially (1,772 > 1,740 at the old load; prefill is per-request, so roughly rate-independent), which makes it a weak gate for the question C3 actually asks.
+   Options: (a) add fixed1740 at long (and ref) to the calibration, 9 cells; (b) keep 7 cells and make the main study's purchase gate a replay of fixed1740 at 0.375/s; (c) both.
+   My lean: (a), because the replay has already been wrong about which side of a knife edge a card lands on, and the question is whether a separation exists at all.
+
+2. The 0.70 rule's input was measured at the old load.
+   The long p95 1,851 ms is hold-cap's engine prefill at 0.5/s on seed 871. Prefill under the cap interleaves with premium decode, so it depends on premium load (unchanged) more than contender rate. Acceptable as frozen, but the page must say the input came from a different rate.
+   Utilisation lambda x S ignores that a held contender also waits for the premium's share of steps; the measured S already includes that interleaving, so the rule is coherent.
+
+3. The fixed-control rule (ref median x 1.0533) transfers a ratio tuned by v26's frontier at the old load.
+   It is a rule, not a tuning; the page must say no frontier is re-run, and that the main study's fixed arm is "v26's ratio carried", not "tuned at this load".
+
+4. Seeds: 891 for calibration, main 882 (kept, never dropped), 892, 893 new. Seed 882's trace at 0.375/s is a different trace from v27's 882 at 0.5/s (fewer contenders); say so, so "882 kept" is not read as "the same heavy draw kept".
+
+5. Off's premium tail with fewer contenders: busy fraction 0.375 x ~1.7 s ~ 0.64 still dominates p99, so the protection line should still be reachable. The replay should confirm before purchase.
+
+6. Purchase gate for the calibration itself: a free replay at 0.375/s on seed 891's trace with all three lengths, predicting hold-cap admissible and protective, and (if option a) fixed1740's tail at long. The prediction is recorded, it does not decide the purchase except for refusing one already predicted not feasible.
+
+Build surface I expect: a new study constant and its token table; new trace checksums for seed 891 at 0.375/s for R1 and three lengths in hack/lib/prospective-pilot.sh and the scorer; the matrix's study dispatch and stage; the session's study mode and limits; the scorer's calibration subcommand parameterised by study; characterize golden; rehearsal.
+
+Cost: about $1 (7 cells, ~1 h 15 m) or ~$1.3 with 9 cells.

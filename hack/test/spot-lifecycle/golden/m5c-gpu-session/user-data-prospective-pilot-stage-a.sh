@@ -23,6 +23,7 @@ PREMIUM_RATE="9.25"
 PILOT_STAGE="A"
 PILOT_NOISY_RATE="0.5"
 PILOT_STATIC_RATE=""
+PILOT_BLOCK=""
 PREMIUM_PROMPT_CHARS="200"
 NOISY_PROMPT_CHARS="40000"
 REQUEST_TIMEOUT_MS="30000"
@@ -151,6 +152,7 @@ elif [ -n "$PILOT_STAGE" ]; then
   unset RATE NOISY_WEIGHT ARMS
   export PREMIUM_WEIGHT PROBE_WEIGHT DURATION_MS REPS PREMIUM_RATE PILOT_STAGE PILOT_NOISY_RATE
   if [ -n "$PILOT_STATIC_RATE" ]; then export PILOT_STATIC_RATE; fi
+  if [ -n "$PILOT_BLOCK" ]; then export PILOT_BLOCK; fi
 else
   export RATE PREMIUM_WEIGHT NOISY_WEIGHT PROBE_WEIGHT DURATION_MS REPS ARMS
 fi
@@ -225,6 +227,8 @@ SIDECAR
   # longer than one upload, so the sidecar's flush on it can finish.
   export PP_SPOT_NOTICE_FILE=/tmp/spot-notice
   (
+    # Untraced, or set -x writes every token into log.txt, which is committed, every 5 s.
+    set +x
     # Each request bounded at 2 s, so a stalled metadata call cannot use up the two-minute warning (review of c4eef3d).
     while :; do
       imds_token=$(curl -s --connect-timeout 1 --max-time 2 -X PUT -H "X-aws-ec2-metadata-token-ttl-seconds: 300" \

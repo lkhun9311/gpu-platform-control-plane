@@ -1,0 +1,17 @@
+{"type":"fact","name":"launch_time_read","value":true,"detail":"LaunchTime 2026-10-24T04:31:37+00:00, epoch 1792816297","at":"2026-10-24T04:33:10.896716Z"}
+{"type":"fact","name":"provenance_complete","value":true,"at":"2026-10-24T04:34:47.531662Z"}
+{"type":"fact","name":"overlay_pinned","value":true,"detail":"a9022421b9dd77e749936441cc52fc9c6bd02f6dde10e15617f2842320ad00a1","at":"2026-10-24T04:35:01.412139Z"}
+{"type":"fact","name":"manifests_pinned","value":true,"detail":"0cd4e054c59ef6f2013896d4e699d422771756f80b99963f6b6f3d429514707e","at":"2026-10-24T04:35:02.420087Z"}
+{"type":"bar","bar":"B0","state":"started","at":"2026-10-24T04:35:49.958038Z"}
+{"type":"bar","bar":"B1","state":"started","at":"2026-10-24T04:35:50.935093Z"}
+{"type":"bar","bar":"B0","state":"decided","result":"pass","detail":"nvidia-device-plugin-mps-plugin nvidia-device-plugin-mps-v89h4 uid 9b1d8e98-4759-4110-a401-fb857b10ee4a; nvidia-mps-control-daemon nvidia-mps-control-daemon-ttqzj uid 84775c80-0b42-46a7-98c2-1e0eef71d7a9","at":"2026-10-24T04:35:52.130427Z"}
+{"type":"bar","bar":"B1","state":"decided","result":"pass","detail":"node m5cgpu-worker advertises nvidia.com/gpu 2","at":"2026-10-24T04:35:53.089403Z"}
+{"type":"bar","bar":"B2","state":"started","at":"2026-10-24T04:35:54.368616Z"}
+{"type":"fact","name":"no_healthy_devices_event","value":false,"at":"2026-10-24T04:39:24.707410Z"}
+{"type":"bar","bar":"B2","state":"decided","result":"pass","detail":"pods-a: vllm-shared-a-fc865d989-8jlrj uid 5cf93d13-827e-4287-b7d0-ae209c1eda63 Running; pods-b: vllm-shared-b-84d8d7b546-46tfc uid 7d7b85bb-eaf6-4d0d-a0d8-727cd00d927a Running","at":"2026-10-24T04:39:27.992470Z"}
+{"type":"fact","name":"images_pulled","value":true,"at":"2026-10-24T04:39:29.045903Z"}
+{"type":"fact","name":"schedulable","value":true,"at":"2026-10-24T04:39:30.109978Z"}
+{"type":"bar","bar":"B3","state":"started","at":"2026-10-24T04:45:55.039546Z"}
+{"type":"bar","bar":"B3","state":"decided","result":"fail","detail":"m5c-a/vllm-shared-a-fc865d989-8jlrj: PIPE=/mps/nvidia.com/gpu/pipe DIR=present CONTROL=no; m5c-b/vllm-shared-b-84d8d7b546-46tfc: PIPE=/mps/nvidia.com/gpu/pipe DIR=present CONTROL=no","at":"2026-10-24T04:45:57.416678Z"}
+{"type":"bar","bar":"B4","state":"started","at":"2026-10-24T04:45:58.505370Z"}
+{"type":"bar","bar":"B4","state":"decided","result":"unmeasured","detail":"the table was not captured, because both engines were not Ready: m5c-b/vllm-shared-b-84d8d7b546-46tfc is not Ready","at":"2026-10-24T04:45:59.632918Z"}

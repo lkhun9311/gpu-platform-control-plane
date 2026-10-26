@@ -1,0 +1,266 @@
+{
+ "pace": 1.005,
+ "seeds": [
+  882,
+  892,
+  893
+ ],
+ "fixed_spacing_ms": 1680.4,
+ "size_aware_ms": {
+  "short": 1176.9,
+  "ref": 1680.4,
+  "long": 1830.8
+ },
+ "short": {
+  "pooled_premium_p99_ms": {
+   "off": 1083.378656649414,
+   "caponly": 1190.6644860105287,
+   "hold-cap": 302.3110373253479,
+   "fixedS": 249.93097136743165,
+   "sizeaware": 374.5424032650757
+  },
+  "pooled_hold_cap_prefill_p50_ms": 1138.7120186377258,
+  "per_seed": {
+   "882": {
+    "hold_cap_prefill_p50_ms": 1129.1806057070924,
+    "limits_failed": {
+     "caponly": null,
+     "hold-cap": null,
+     "fixedS": null,
+     "sizeaware": null
+    },
+    "premium_p99_ms": {
+     "off": 1065.391239609253,
+     "caponly": 1071.4855539500122,
+     "hold-cap": 296.699447076416,
+     "fixedS": 239.3159636639099,
+     "sizeaware": 323.9697776636963
+    },
+    "contender_completion_p95_ms": {
+     "off": 4151.978602532486,
+     "caponly": 4410.984518555633,
+     "hold-cap": 4380.47005316867,
+     "fixedS": 6290.182662258789,
+     "sizeaware": 4491.376715497299
+    }
+   },
+   "892": {
+    "hold_cap_prefill_p50_ms": 1137.8328561358642,
+    "limits_failed": {
+     "caponly": null,
+     "hold-cap": null,
+     "fixedS": null,
+     "sizeaware": null
+    },
+    "premium_p99_ms": {
+     "off": 1071.4971218215637,
+     "caponly": 1192.4714709446412,
+     "hold-cap": 280.5462619388733,
+     "fixedS": 232.72979799972535,
+     "sizeaware": 287.8838128116455
+    },
+    "contender_completion_p95_ms": {
+     "off": 3309.444871915161,
+     "caponly": 3542.767430597443,
+     "hold-cap": 3566.9353570488283,
+     "fixedS": 4527.258871638916,
+     "sizeaware": 3723.078944235901
+    }
+   },
+   "893": {
+    "hold_cap_prefill_p50_ms": 1161.0320881720886,
+    "limits_failed": {
+     "caponly": null,
+     "hold-cap": null,
+     "fixedS": null,
+     "sizeaware": null
+    },
+    "premium_p99_ms": {
+     "off": 1107.6001229853516,
+     "caponly": 1260.5705910755614,
+     "hold-cap": 340.72314468414305,
+     "fixedS": 265.1262660477295,
+     "sizeaware": 457.3789048633518
+    },
+    "contender_completion_p95_ms": {
+     "off": 4160.151596202865,
+     "caponly": 4315.080649452576,
+     "hold-cap": 4520.868169662171,
+     "fixedS": 8644.496854631774,
+     "sizeaware": 4550.921247217163
+    }
+   }
+  }
+ },
+ "ref": {
+  "pooled_premium_p99_ms": {
+   "off": 1428.9175025709228,
+   "caponly": 1666.3438051032103,
+   "hold-cap": 370.62009817105104,
+   "fixedS": 362.5817331536903,
+   "sizeaware": 362.5817331536903
+  },
+  "pooled_hold_cap_prefill_p50_ms": 1569.7176322308349,
+  "per_seed": {
+   "882": {
+    "hold_cap_prefill_p50_ms": 1573.755579405304,
+    "limits_failed": {
+     "caponly": null,
+     "hold-cap": null,
+     "fixedS": null,
+     "sizeaware": null
+    },
+    "premium_p99_ms": {
+     "off": 1422.1724257023316,
+     "caponly": 1601.2984633367919,
+     "hold-cap": 375.0129323366089,
+     "fixedS": 351.638004190979,
+     "sizeaware": 351.638004190979
+    },
+    "contender_completion_p95_ms": {
+     "off": 6398.870631649627,
+     "caponly": 6912.909220046814,
+     "hold-cap": 7038.400228679749,
+     "fixedS": 7443.469248466034,
+     "sizeaware": 7443.469248466034
+    }
+   },
+   "892": {
+    "hold_cap_prefill_p50_ms": 1554.2954133857727,
+    "limits_failed": {
+     "caponly": null,
+     "hold-cap": null,
+     "fixedS": null,
+     "sizeaware": null
+    },
+    "premium_p99_ms": {
+     "off": 1413.8420208804932,
+     "caponly": 1538.8755973500213,
+     "hold-cap": 325.47616657208255,
+     "fixedS": 333.44548217988586,
+     "sizeaware": 333.44548217988586
+    },
+    "contender_completion_p95_ms": {
+     "off": 4855.420334678955,
+     "caponly": 5188.70007826178,
+     "hold-cap": 5410.523189195374,
+     "fixedS": 5587.316722688721,
+     "sizeaware": 5587.316722688721
+    }
+   },
+   "893": {
+    "hold_cap_prefill_p50_ms": 1598.7291435221252,
+    "limits_failed": {
+     "caponly": null,
+     "hold-cap": null,
+     "fixedS": null,
+     "sizeaware": null
+    },
+    "premium_p99_ms": {
+     "off": 1452.1617505363045,
+     "caponly": 1753.4562718048705,
+     "hold-cap": 395.92185955181884,
+     "fixedS": 382.846786586853,
+     "sizeaware": 382.846786586853
+    },
+    "contender_completion_p95_ms": {
+     "off": 8073.891139356201,
+     "caponly": 9252.14364280017,
+     "hold-cap": 9474.062199843873,
+     "fixedS": 9841.393038877564,
+     "sizeaware": 9841.393038877564
+    }
+   }
+  }
+ },
+ "long": {
+  "pooled_premium_p99_ms": {
+   "off": 1555.3496382218018,
+   "caponly": 1779.3728361426392,
+   "hold-cap": 407.28378286917876,
+   "fixedS": 950.1634541816406,
+   "sizeaware": 367.7630358493424
+  },
+  "pooled_hold_cap_prefill_p50_ms": 1693.5618400582887,
+  "per_seed": {
+   "882": {
+    "hold_cap_prefill_p50_ms": 1701.460826143921,
+    "limits_failed": {
+     "caponly": null,
+     "hold-cap": null,
+     "fixedS": null,
+     "sizeaware": null
+    },
+    "premium_p99_ms": {
+     "off": 1557.3610640533143,
+     "caponly": 1791.867268373108,
+     "hold-cap": 406.5405771175537,
+     "fixedS": 954.379490515625,
+     "sizeaware": 349.64693823864746
+    },
+    "contender_completion_p95_ms": {
+     "off": 6945.770541891479,
+     "caponly": 7742.777156544434,
+     "hold-cap": 8258.723101399934,
+     "fixedS": 8055.724786253327,
+     "sizeaware": 9182.594372434081
+    }
+   },
+   "892": {
+    "hold_cap_prefill_p50_ms": 1674.662221119568,
+    "limits_failed": {
+     "caponly": null,
+     "hold-cap": null,
+     "fixedS": null,
+     "sizeaware": null
+    },
+    "premium_p99_ms": {
+     "off": 1538.5507736709899,
+     "caponly": 1630.6930465005494,
+     "hold-cap": 392.73458875064085,
+     "fixedS": 413.65455496478273,
+     "sizeaware": 359.4248525446701
+    },
+    "contender_completion_p95_ms": {
+     "off": 5365.271333564331,
+     "caponly": 5630.901268337174,
+     "hold-cap": 5867.5794997162475,
+     "fixedS": 5992.571189239563,
+     "sizeaware": 6212.9712732373655
+    }
+   },
+   "893": {
+    "hold_cap_prefill_p50_ms": 1702.868984008484,
+    "limits_failed": {
+     "caponly": null,
+     "hold-cap": null,
+     "fixedS": null,
+     "sizeaware": null
+    },
+    "premium_p99_ms": {
+     "off": 1558.3590793106462,
+     "caponly": 1810.4629125393676,
+     "hold-cap": 427.6708411715183,
+     "fixedS": 1237.6178142163085,
+     "sizeaware": 379.8127479534302
+    },
+    "contender_completion_p95_ms": {
+     "off": 10223.159954611328,
+     "caponly": 11284.368565716492,
+     "hold-cap": 11560.017969769347,
+     "fixedS": 11231.23381736316,
+     "sizeaware": 12336.797660466675
+    }
+   }
+  }
+ },
+ "interaction_ln": -0.8690514533181508,
+ "gate": {
+  "G1 hold-cap inside the four modelled limits at every length on every seed": true,
+  "G2 hold-cap pooled p99 <= 0.85 x off's at every length": true,
+  "G3 on every seed d(ref) <= S, d(long) > S and d(long) > 1.05 d(ref)": false,
+  "G4 fixed-S inside the limits at ref, protective there, and neither it nor hold-cap 15% below the other": true,
+  "G5 at long fixed-S breaks a limit or hold-cap is 15% below it, and the interaction is at most ln 0.85": true
+ },
+ "gate_passes": false
+}

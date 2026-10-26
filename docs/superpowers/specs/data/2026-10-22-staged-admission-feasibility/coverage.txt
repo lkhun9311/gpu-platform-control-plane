@@ -1,0 +1,139 @@
+{"fit": "pilotA+pilotB", "coef_ms": [15.3639, 0.0966, 0.0959, 0.9292, 3.0468], "steps": 282897}
+== held out: diagD, frontierE, lencalF, fitted on pilots A and B
+key | steps | sum measured / sum predicted | median per-step ratio | p10 | p90
+chunk 0-0 | 259561 | 0.9920 | 1.0015 | 0.9214 | 1.0522
+chunk 1-64 | 3658 | 1.0914 | 1.0970 | 1.0150 | 1.2271
+chunk 129-192 | 787 | 0.9970 | 0.9931 | 0.9666 | 1.0314
+chunk 193-256 | 798 | 0.9969 | 0.9927 | 0.9614 | 1.0314
+chunk 257-383 | 1868 | 1.0257 | 1.0298 | 0.9825 | 1.0564
+chunk 384-384 | 94067 | 1.0299 | 1.0282 | 0.9894 | 1.0817
+chunk 385-511 | 37007 | 1.0005 | 1.0051 | 0.9616 | 1.0270
+chunk 512-512 | 64 | 0.9715 | 0.9723 | 0.9340 | 1.0014
+chunk 65-128 | 892 | 1.0113 | 1.0081 | 0.9802 | 1.0679
+chunk-depth 0-0 - | 259561 | 0.9920 | 1.0015 | 0.9214 | 1.0522
+chunk-depth 1-64 deep | 3439 | 1.0994 | 1.1040 | 1.0155 | 1.2287
+chunk-depth 1-64 shallow | 219 | 1.0210 | 1.0224 | 1.0139 | 1.0336
+chunk-depth 129-192 deep | 502 | 0.9820 | 0.9798 | 0.9629 | 1.0072
+chunk-depth 129-192 shallow | 285 | 1.0234 | 1.0237 | 1.0124 | 1.0370
+chunk-depth 193-256 deep | 472 | 0.9821 | 0.9805 | 0.9589 | 1.0043
+chunk-depth 193-256 shallow | 326 | 1.0191 | 1.0243 | 0.9889 | 1.0367
+chunk-depth 257-383 deep | 905 | 1.0323 | 1.0412 | 0.9822 | 1.0622
+chunk-depth 257-383 shallow | 963 | 1.0190 | 1.0272 | 0.9828 | 1.0389
+chunk-depth 384-384 deep | 67025 | 1.0283 | 1.0264 | 0.9892 | 1.0817
+chunk-depth 384-384 shallow | 27042 | 1.0343 | 1.0323 | 0.9939 | 1.0815
+chunk-depth 385-511 deep | 26088 | 1.0006 | 1.0014 | 0.9705 | 1.0263
+chunk-depth 385-511 shallow | 10919 | 1.0001 | 1.0133 | 0.9456 | 1.0282
+chunk-depth 512-512 deep | 48 | 0.9812 | 0.9805 | 0.9480 | 1.0017
+chunk-depth 512-512 shallow | 16 | 0.9377 | 0.9347 | 0.9302 | 0.9455
+chunk-depth 65-128 deep | 663 | 1.0080 | 0.9968 | 0.9790 | 1.0840
+chunk-depth 65-128 shallow | 229 | 1.0196 | 1.0221 | 1.0126 | 1.0330
+graph <=128 contender | 1843 | 1.1333 | 1.1497 | 1.0256 | 1.2482
+graph <=128 no-contender | 251300 | 0.9883 | 1.0011 | 0.9215 | 1.0505
+graph >128 contender | 137298 | 1.0214 | 1.0193 | 0.9802 | 1.0738
+graph >128 no-contender | 8261 | 1.0393 | 1.0187 | 0.9790 | 1.1394
+session-arm 503-diagD R1 | 22346 | 1.0147 | 1.0156 | 0.9827 | 1.0526
+session-arm 503-diagD cap | 28197 | 1.0008 | 0.9994 | 0.9445 | 1.0561
+session-arm 503-diagD hold | 29140 | 0.9987 | 1.0032 | 0.9384 | 1.0423
+session-arm 503-diagD hold-cap | 26787 | 1.0232 | 1.0162 | 0.9464 | 1.0768
+session-arm 503-diagD off | 29179 | 0.9979 | 1.0033 | 0.9376 | 1.0419
+session-arm 7-lencalF R1 | 22304 | 1.0159 | 1.0168 | 0.9844 | 1.0532
+session-arm 7-lencalF hold-cap-long | 8040 | 1.0287 | 1.0220 | 0.9441 | 1.0814
+session-arm 7-lencalF hold-cap-ref | 9013 | 1.0263 | 1.0182 | 0.9474 | 1.0796
+session-arm 7-lencalF hold-cap-short | 12356 | 1.0109 | 1.0055 | 0.9457 | 1.0619
+session-arm 7-lencalF off-long | 8837 | 1.0044 | 1.0085 | 0.9384 | 1.0457
+session-arm 7-lencalF off-ref | 9947 | 0.9982 | 1.0021 | 0.9381 | 1.0444
+session-arm 7-lencalF off-short | 13185 | 0.9838 | 0.9936 | 0.9362 | 1.0421
+session-arm frontierE R1 | 22387 | 1.0156 | 1.0165 | 0.9842 | 1.0515
+session-arm frontierE fixed-1.62 | 26046 | 1.0166 | 1.0091 | 0.9411 | 1.0705
+session-arm frontierE fixed-1.66 | 25868 | 1.0190 | 1.0111 | 0.9396 | 1.0736
+session-arm frontierE fixed-1.70 | 25660 | 1.0218 | 1.0135 | 0.9367 | 1.0770
+session-arm frontierE fixed-1.74 | 25629 | 1.0228 | 1.0154 | 0.9304 | 1.0800
+session-arm frontierE hold-cap | 25548 | 1.0235 | 1.0148 | 0.9430 | 1.0762
+session-arm frontierE off | 28233 | 0.9975 | 0.9997 | 0.9345 | 1.0387
+== in sample: pilots A and B
+key | steps | sum measured / sum predicted | median per-step ratio | p10 | p90
+chunk 0-0 | 232771 | 1.0006 | 1.0094 | 0.9656 | 1.0487
+chunk 1-64 | 612 | 1.0117 | 1.0132 | 0.9948 | 1.0266
+chunk 129-192 | 757 | 0.9937 | 0.9853 | 0.9668 | 1.0273
+chunk 193-256 | 768 | 0.9920 | 0.9841 | 0.9589 | 1.0294
+chunk 257-383 | 1327 | 1.0270 | 1.0293 | 0.9815 | 1.0554
+chunk 384-384 | 16 | 1.0433 | 1.0396 | 1.0374 | 1.0534
+chunk 385-511 | 45965 | 0.9985 | 1.0030 | 0.9594 | 1.0250
+chunk 65-128 | 681 | 1.0020 | 0.9975 | 0.9797 | 1.0253
+chunk-depth 0-0 - | 232771 | 1.0006 | 1.0094 | 0.9656 | 1.0487
+chunk-depth 1-64 deep | 324 | 1.0031 | 1.0027 | 0.9929 | 1.0144
+chunk-depth 1-64 shallow | 288 | 1.0214 | 1.0211 | 1.0136 | 1.0305
+chunk-depth 129-192 deep | 480 | 0.9774 | 0.9763 | 0.9650 | 0.9912
+chunk-depth 129-192 shallow | 277 | 1.0229 | 1.0234 | 1.0146 | 1.0351
+chunk-depth 193-256 deep | 482 | 0.9733 | 0.9708 | 0.9566 | 0.9917
+chunk-depth 193-256 shallow | 286 | 1.0250 | 1.0253 | 1.0170 | 1.0372
+chunk-depth 257-383 deep | 770 | 1.0279 | 1.0410 | 0.9766 | 1.0600
+chunk-depth 257-383 shallow | 557 | 1.0257 | 1.0269 | 1.0170 | 1.0379
+chunk-depth 384-384 deep | 10 | 1.0443 | 1.0405 | 1.0374 | 1.0533
+chunk-depth 384-384 shallow | 6 | 1.0414 | 1.0387 | 1.0341 | 1.0534
+chunk-depth 385-511 deep | 32615 | 0.9991 | 0.9996 | 0.9698 | 1.0250
+chunk-depth 385-511 shallow | 13350 | 0.9967 | 1.0114 | 0.9440 | 1.0250
+chunk-depth 65-128 deep | 406 | 0.9900 | 0.9885 | 0.9778 | 1.0033
+chunk-depth 65-128 shallow | 275 | 1.0200 | 1.0205 | 1.0136 | 1.0314
+graph <=128 no-contender | 225374 | 0.9983 | 1.0086 | 0.9629 | 1.0482
+graph >128 contender | 50126 | 0.9993 | 1.0036 | 0.9606 | 1.0263
+graph >128 no-contender | 7397 | 1.0278 | 1.0141 | 0.9903 | 1.1040
+session-arm 46-pilotA R1 | 67015 | 1.0128 | 1.0134 | 0.9823 | 1.0488
+session-arm 46-pilotA off | 28321 | 0.9966 | 1.0003 | 0.9359 | 1.0380
+session-arm 46-pilotA prospective | 31005 | 0.9925 | 0.9968 | 0.9300 | 1.0383
+session-arm 56-pilotB R1 | 66909 | 1.0125 | 1.0135 | 0.9814 | 1.0486
+session-arm 56-pilotB off | 25907 | 1.0005 | 1.0051 | 0.9412 | 1.0377
+session-arm 56-pilotB prospective | 30104 | 0.9950 | 0.9992 | 0.9330 | 1.0389
+session-arm 56-pilotB static-cap | 33636 | 0.9907 | 0.9954 | 0.9279 | 1.0389
+{"fit": "all five sessions", "coef_ms": [15.2456, 0.0985, 0.1078, 0.8768, 3.3476], "steps": 681599}
+== capped sessions, fitted on all five
+key | steps | sum measured / sum predicted | median per-step ratio | p10 | p90
+chunk 0-0 | 259561 | 0.9928 | 1.0014 | 0.9196 | 1.0563
+chunk 1-64 | 3658 | 1.0893 | 1.0962 | 1.0085 | 1.2375
+chunk 129-192 | 787 | 0.9857 | 0.9801 | 0.9546 | 1.0217
+chunk 193-256 | 798 | 0.9845 | 0.9781 | 0.9486 | 1.0213
+chunk 257-383 | 1868 | 1.0123 | 1.0189 | 0.9696 | 1.0392
+chunk 384-384 | 94067 | 1.0166 | 1.0141 | 0.9774 | 1.0670
+chunk 385-511 | 37007 | 0.9867 | 0.9914 | 0.9472 | 1.0134
+chunk 512-512 | 64 | 0.9553 | 0.9563 | 0.9202 | 0.9825
+chunk 65-128 | 892 | 1.0013 | 0.9985 | 0.9692 | 1.0593
+chunk-depth 0-0 - | 259561 | 0.9928 | 1.0014 | 0.9196 | 1.0563
+chunk-depth 1-64 deep | 3439 | 1.0982 | 1.1033 | 1.0113 | 1.2404
+chunk-depth 1-64 shallow | 219 | 1.0113 | 1.0126 | 1.0051 | 1.0242
+chunk-depth 129-192 deep | 502 | 0.9700 | 0.9679 | 0.9509 | 0.9942
+chunk-depth 129-192 shallow | 285 | 1.0136 | 1.0141 | 1.0020 | 1.0274
+chunk-depth 193-256 deep | 472 | 0.9683 | 0.9662 | 0.9457 | 0.9893
+chunk-depth 193-256 shallow | 326 | 1.0087 | 1.0146 | 0.9743 | 1.0268
+chunk-depth 257-383 deep | 905 | 1.0158 | 1.0236 | 0.9694 | 1.0448
+chunk-depth 257-383 shallow | 963 | 1.0086 | 1.0177 | 0.9699 | 1.0290
+chunk-depth 384-384 deep | 67025 | 1.0138 | 1.0107 | 0.9772 | 1.0641
+chunk-depth 384-384 shallow | 27042 | 1.0240 | 1.0217 | 0.9813 | 1.0734
+chunk-depth 385-511 deep | 26088 | 0.9858 | 0.9868 | 0.9565 | 1.0104
+chunk-depth 385-511 shallow | 10919 | 0.9888 | 1.0034 | 0.9317 | 1.0178
+chunk-depth 512-512 deep | 48 | 0.9642 | 0.9637 | 0.9332 | 0.9828
+chunk-depth 512-512 shallow | 16 | 0.9246 | 0.9213 | 0.9174 | 0.9329
+chunk-depth 65-128 deep | 663 | 0.9979 | 0.9867 | 0.9681 | 1.0739
+chunk-depth 65-128 shallow | 229 | 1.0098 | 1.0123 | 1.0038 | 1.0232
+graph <=128 contender | 1843 | 1.1386 | 1.1538 | 1.0268 | 1.2600
+graph <=128 no-contender | 251300 | 0.9897 | 1.0015 | 0.9198 | 1.0546
+graph >128 contender | 137298 | 1.0080 | 1.0061 | 0.9668 | 1.0603
+graph >128 no-contender | 8261 | 1.0320 | 1.0103 | 0.9696 | 1.1391
+session-arm 503-diagD R1 | 22346 | 1.0159 | 1.0174 | 0.9815 | 1.0570
+session-arm 503-diagD cap | 28197 | 0.9920 | 0.9927 | 0.9391 | 1.0536
+session-arm 503-diagD hold | 29140 | 0.9896 | 0.9972 | 0.9316 | 1.0435
+session-arm 503-diagD hold-cap | 26787 | 1.0139 | 1.0098 | 0.9427 | 1.0684
+session-arm 503-diagD off | 29179 | 0.9888 | 0.9970 | 0.9305 | 1.0429
+session-arm 7-lencalF R1 | 22304 | 1.0171 | 1.0187 | 0.9833 | 1.0575
+session-arm 7-lencalF hold-cap-long | 8040 | 1.0185 | 1.0138 | 0.9405 | 1.0716
+session-arm 7-lencalF hold-cap-ref | 9013 | 1.0171 | 1.0119 | 0.9432 | 1.0722
+session-arm 7-lencalF hold-cap-short | 12356 | 1.0043 | 1.0030 | 0.9424 | 1.0581
+session-arm 7-lencalF off-long | 8837 | 0.9945 | 1.0010 | 0.9310 | 1.0455
+session-arm 7-lencalF off-ref | 9947 | 0.9893 | 0.9961 | 0.9311 | 1.0463
+session-arm 7-lencalF off-short | 13185 | 0.9776 | 0.9890 | 0.9311 | 1.0456
+session-arm frontierE R1 | 22387 | 1.0168 | 1.0183 | 0.9831 | 1.0559
+session-arm frontierE fixed-1.62 | 26046 | 1.0071 | 1.0028 | 0.9367 | 1.0619
+session-arm frontierE fixed-1.66 | 25868 | 1.0095 | 1.0041 | 0.9351 | 1.0645
+session-arm frontierE fixed-1.70 | 25660 | 1.0122 | 1.0062 | 0.9329 | 1.0677
+session-arm frontierE fixed-1.74 | 25629 | 1.0132 | 1.0073 | 0.9271 | 1.0700
+session-arm frontierE hold-cap | 25548 | 1.0138 | 1.0075 | 0.9390 | 1.0663
+session-arm frontierE off | 28233 | 0.9882 | 0.9935 | 0.9278 | 1.0376

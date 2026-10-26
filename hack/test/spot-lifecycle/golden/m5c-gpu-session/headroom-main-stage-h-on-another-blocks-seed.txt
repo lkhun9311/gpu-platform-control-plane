@@ -1,0 +1,5 @@
+
+--- exit 1
+--- messages
+FAIL: stage H runs block 1 on seed 882, block 2 on 892 or block 3 on 893, one per session; got PILOT_BLOCK='2' and SEEDS='882'
+--- files

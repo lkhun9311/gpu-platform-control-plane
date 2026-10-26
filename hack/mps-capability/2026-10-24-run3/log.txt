@@ -1,0 +1,4103 @@
+++ date +%s
++ MPSCAP_START=1792844529
++ BUCKET=mpscap-gpu-007635145730
++ PREFIX=mpscap-20261024-run3-4ee4e34c
++ SOURCE_SHA=634b739f46092cc542e52f07e54e455023feb07529ea11ef8006b6134b1fdfda
++ GATEWAY_SHA=5b996d0ed56a96262c82b3f4cc44e4ab993e1e64fe12c7891f5e5f051ad421af
++ HARNESS_SHA=a94feb47ec65186dc033dc23159211ac1e69fdce22f315cb4aecb2f1bd4284a9
++ COMMIT=8ed1fbe335fcf8f78992deb7244fa58f5c5f5831
++ sleep 2100
++ trap 'upload /var/log/mpscap.log log.txt; shutdown -h now' EXIT
++ aws s3 cp --only-show-errors s3://mpscap-gpu-007635145730/mpscap-20261024-run3-4ee4e34c/src/source.tgz /tmp/source.tgz
+++ sha256sum /tmp/source.tgz
+++ cut '-d ' -f1
++ '[' 634b739f46092cc542e52f07e54e455023feb07529ea11ef8006b6134b1fdfda = 634b739f46092cc542e52f07e54e455023feb07529ea11ef8006b6134b1fdfda ']'
++ mkdir -p /src
++ tar -xzf /tmp/source.tgz -C /src
++ cd /src
++ mkdir -p /src/bin /src/m5c-run
++ for b in gateway benchharness
++ aws s3 cp --only-show-errors s3://mpscap-gpu-007635145730/mpscap-20261024-run3-4ee4e34c/bin/gateway /src/bin/gateway
++ chmod +x /src/bin/gateway
++ for b in gateway benchharness
++ aws s3 cp --only-show-errors s3://mpscap-gpu-007635145730/mpscap-20261024-run3-4ee4e34c/bin/benchharness /src/bin/benchharness
++ chmod +x /src/bin/benchharness
+++ sha256sum /src/bin/gateway
+++ cut '-d ' -f1
++ '[' 5b996d0ed56a96262c82b3f4cc44e4ab993e1e64fe12c7891f5e5f051ad421af = 5b996d0ed56a96262c82b3f4cc44e4ab993e1e64fe12c7891f5e5f051ad421af ']'
+++ sha256sum /src/bin/benchharness
+++ cut '-d ' -f1
++ '[' a94feb47ec65186dc033dc23159211ac1e69fdce22f315cb4aecb2f1bd4284a9 = a94feb47ec65186dc033dc23159211ac1e69fdce22f315cb4aecb2f1bd4284a9 ']'
++ . hack/lib/mps-journal.sh
++ . hack/lib/mps-capability.sh
+++ MPSCAP_PLUGIN_NS=gpu-platform-control-plane-system
+++ MPSCAP_POLL=5
+++ MPSCAP_OVERLAY_FILES=(config/nvidia-device-plugin-mps/configmap.yaml config/nvidia-device-plugin-mps/daemonset.yaml config/nvidia-device-plugin-mps/kustomization.yaml)
+++ MPSCAP_ENGINE_FILES=(config/vllm-shared/engine-a.yaml config/vllm-shared/engine-b.yaml config/vllm-shared/mps-shm-patch.yaml)
++ export MPS_JOURNAL=/src/m5c-run/mps-journal.jsonl
++ MPS_JOURNAL=/src/m5c-run/mps-journal.jsonl
++ export 'MPS_JOURNAL_ON_APPEND=aws s3 cp --only-show-errors /src/m5c-run/mps-journal.jsonl s3://mpscap-gpu-007635145730/mpscap-20261024-run3-4ee4e34c/journal.jsonl'
++ MPS_JOURNAL_ON_APPEND='aws s3 cp --only-show-errors /src/m5c-run/mps-journal.jsonl s3://mpscap-gpu-007635145730/mpscap-20261024-run3-4ee4e34c/journal.jsonl'
++ L=
+++ date +%s
++ '[' 5 -lt 180 ']'
++ aws s3 cp --only-show-errors s3://mpscap-gpu-007635145730/mpscap-20261024-run3-4ee4e34c/launch-time.txt /tmp/launch-time.txt
++++ cat /tmp/launch-time.txt
+++ date -u -d 2026-10-24T12:20:33+00:00 +%s
++ L=1792844433
++ break
+++ date +%s
++ NOW=1792844535
++ [[ 1792844433 =~ ^[0-9]+$ ]]
++ '[' 1792844433 -gt 1792844535 ']'
++ '[' 102 -gt 900 ']'
+++ cat /tmp/launch-time.txt
++ mj_fact launch_time_read true 'LaunchTime 2026-10-24T12:20:33+00:00, epoch 1792844433'
++ case "$2" in
++ mj_has_fact launch_time_read
++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
++ return 1
++ mj_append fact name=launch_time_read value=true 'detail=LaunchTime 2026-10-24T12:20:33+00:00, epoch 1792844433'
++ '[' -n /src/m5c-run/mps-journal.jsonl ']'
++ python3 - /src/m5c-run/mps-journal.jsonl fact name=launch_time_read value=true 'detail=LaunchTime 2026-10-24T12:20:33+00:00, epoch 1792844433'
++ '[' -n 'aws s3 cp --only-show-errors /src/m5c-run/mps-journal.jsonl s3://mpscap-gpu-007635145730/mpscap-20261024-run3-4ee4e34c/journal.jsonl' ']'
++ aws s3 cp --only-show-errors /src/m5c-run/mps-journal.jsonl s3://mpscap-gpu-007635145730/mpscap-20261024-run3-4ee4e34c/journal.jsonl
++ return 0
++ P1=1792845153
++ P2=1792845633
++ P3=1792846353
++ EV=1792846473
++ nvidia-smi --query-gpu=index,name,memory.total,driver_version --format=csv
+++ date +%s
+++ date +%s
++ sleep 1997
++ upload /tmp/nvidia-smi.csv preflight-nvidia-smi.csv
++ aws s3 cp --only-show-errors /tmp/nvidia-smi.csv s3://mpscap-gpu-007635145730/mpscap-20261024-run3-4ee4e34c/preflight-nvidia-smi.csv
+++ tail -n +2 /tmp/nvidia-smi.csv
+++ wc -l
++ '[' 1 = 1 ']'
++ tail -n +2 /tmp/nvidia-smi.csv
++ grep -q A10G
++ cat
++ export BUCKET PREFIX
+++ date +%s
++ bringup_left=616
++ bringup_rc=124
++ '[' 616 -gt 0 ']'
++ timeout --kill-after=15 616 bash /tmp/bringup.sh
+time="2026-10-24T12:22:17Z" level=info msg="Loading config from /etc/docker/daemon.json"
+time="2026-10-24T12:22:17Z" level=info msg="Wrote updated config to /etc/docker/daemon.json"
+time="2026-10-24T12:22:17Z" level=info msg="It is recommended that docker daemon be restarted."
+Creating cluster "m5cgpu" ...
+ • Ensuring node image (kindest/node:v1.31.0) 🖼  ...
+ ✓ Ensuring node image (kindest/node:v1.31.0) 🖼
+ • Preparing nodes 📦 📦   ...
+ ✓ Preparing nodes 📦 📦 
+ • Writing configuration 📜  ...
+ ✓ Writing configuration 📜
+ • Starting control-plane 🕹️  ...
+ ✓ Starting control-plane 🕹️
+ • Installing CNI 🔌  ...
+ ✓ Installing CNI 🔌
+ • Installing StorageClass 💾  ...
+ ✓ Installing StorageClass 💾
+ • Joining worker nodes 🚜  ...
+ ✓ Joining worker nodes 🚜
+ • Waiting ≤ 5m0s for control-plane = Ready ⏳  ...
+ ✓ Waiting ≤ 5m0s for control-plane = Ready ⏳
+ • Ready after 9s 💚
+Set kubectl context to "kind-m5cgpu"
+You can now use your cluster with:
+
+kubectl cluster-info --context kind-m5cgpu --kubeconfig /tmp/kubeconfig
+
+Have a nice day! 👋
+[0;32mKubernetes control plane[0m is running at [0;33mhttps://127.0.0.1:34533[0m
+[0;32mCoreDNS[0m is running at [0;33mhttps://127.0.0.1:34533/api/v1/namespaces/kube-system/services/kube-dns:dns/proxy[0m
+
+To further debug and diagnose cluster problems, use 'kubectl cluster-info dump'.
+customresourcedefinition.apiextensions.k8s.io/gpuquotapolicies.platform.lkhun9311.github.io created
+customresourcedefinition.apiextensions.k8s.io/gpusharingbenchmarks.platform.lkhun9311.github.io created
+customresourcedefinition.apiextensions.k8s.io/inferencedeployments.platform.lkhun9311.github.io created
+customresourcedefinition.apiextensions.k8s.io/mltrainingjobs.platform.lkhun9311.github.io created
+customresourcedefinition.apiextensions.k8s.io/nodehealths.platform.lkhun9311.github.io created
+customresourcedefinition.apiextensions.k8s.io/workloadruns.platform.lkhun9311.github.io created
+namespace/gpu-platform-control-plane-system created
+serviceaccount/gateway created
+role.rbac.authorization.k8s.io/gateway-secret-reader created
+clusterrole.rbac.authorization.k8s.io/gateway-role created
+rolebinding.rbac.authorization.k8s.io/gateway-secret-reader-binding created
+clusterrolebinding.rbac.authorization.k8s.io/gateway-rolebinding created
+debconf: delaying package configuration, since apt-utils is not installed
+(Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 9629 files and directories currently installed.)
+Preparing to unpack .../gpgv_2.2.40-1.1+deb12u2_amd64.deb ...
+Unpacking gpgv (2.2.40-1.1+deb12u2) over (2.2.40-1.1) ...
+Setting up gpgv (2.2.40-1.1+deb12u2) ...
+(Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 9629 files and directories currently installed.)
+Preparing to unpack .../00-ca-certificates_20250419~deb12u2_all.deb ...
+Unpacking ca-certificates (20250419~deb12u2) over (20230311) ...
+Preparing to unpack .../01-curl_7.88.1-10+deb12u15_amd64.deb ...
+Unpacking curl (7.88.1-10+deb12u15) over (7.88.1-10+deb12u6) ...
+Preparing to unpack .../02-libcurl4_7.88.1-10+deb12u15_amd64.deb ...
+Unpacking libcurl4:amd64 (7.88.1-10+deb12u15) over (7.88.1-10+deb12u6) ...
+Selecting previously unselected package libassuan0:amd64.
+Preparing to unpack .../03-libassuan0_2.5.5-5_amd64.deb ...
+Unpacking libassuan0:amd64 (2.5.5-5) ...
+Selecting previously unselected package gpgconf.
+Preparing to unpack .../04-gpgconf_2.2.40-1.1+deb12u2_amd64.deb ...
+Unpacking gpgconf (2.2.40-1.1+deb12u2) ...
+Selecting previously unselected package libksba8:amd64.
+Preparing to unpack .../05-libksba8_1.6.3-2_amd64.deb ...
+Unpacking libksba8:amd64 (1.6.3-2) ...
+Selecting previously unselected package libnpth0:amd64.
+Preparing to unpack .../06-libnpth0_1.6-3_amd64.deb ...
+Unpacking libnpth0:amd64 (1.6-3) ...
+Selecting previously unselected package dirmngr.
+Preparing to unpack .../07-dirmngr_2.2.40-1.1+deb12u2_amd64.deb ...
+Unpacking dirmngr (2.2.40-1.1+deb12u2) ...
+Selecting previously unselected package gnupg-l10n.
+Preparing to unpack .../08-gnupg-l10n_2.2.40-1.1+deb12u2_all.deb ...
+Unpacking gnupg-l10n (2.2.40-1.1+deb12u2) ...
+Selecting previously unselected package gnupg-utils.
+Preparing to unpack .../09-gnupg-utils_2.2.40-1.1+deb12u2_amd64.deb ...
+Unpacking gnupg-utils (2.2.40-1.1+deb12u2) ...
+Selecting previously unselected package gpg.
+Preparing to unpack .../10-gpg_2.2.40-1.1+deb12u2_amd64.deb ...
+Unpacking gpg (2.2.40-1.1+deb12u2) ...
+Selecting previously unselected package pinentry-curses.
+Preparing to unpack .../11-pinentry-curses_1.2.1-1_amd64.deb ...
+Unpacking pinentry-curses (1.2.1-1) ...
+Selecting previously unselected package gpg-agent.
+Preparing to unpack .../12-gpg-agent_2.2.40-1.1+deb12u2_amd64.deb ...
+Unpacking gpg-agent (2.2.40-1.1+deb12u2) ...
+Selecting previously unselected package gpg-wks-client.
+Preparing to unpack .../13-gpg-wks-client_2.2.40-1.1+deb12u2_amd64.deb ...
+Unpacking gpg-wks-client (2.2.40-1.1+deb12u2) ...
+Selecting previously unselected package gpg-wks-server.
+Preparing to unpack .../14-gpg-wks-server_2.2.40-1.1+deb12u2_amd64.deb ...
+Unpacking gpg-wks-server (2.2.40-1.1+deb12u2) ...
+Selecting previously unselected package gpgsm.
+Preparing to unpack .../15-gpgsm_2.2.40-1.1+deb12u2_amd64.deb ...
+Unpacking gpgsm (2.2.40-1.1+deb12u2) ...
+Selecting previously unselected package gnupg.
+Preparing to unpack .../16-gnupg_2.2.40-1.1+deb12u2_all.deb ...
+Unpacking gnupg (2.2.40-1.1+deb12u2) ...
+Setting up libksba8:amd64 (1.6.3-2) ...
+Setting up libnpth0:amd64 (1.6-3) ...
+Setting up libassuan0:amd64 (2.5.5-5) ...
+Setting up ca-certificates (20250419~deb12u2) ...
+Updating certificates in /etc/ssl/certs...
+rehash: warning: skipping ca-certificates.crt,it does not contain exactly one certificate or CRL
+23 added, 15 removed; done.
+Setting up gnupg-l10n (2.2.40-1.1+deb12u2) ...
+Setting up gpgconf (2.2.40-1.1+deb12u2) ...
+Setting up libcurl4:amd64 (7.88.1-10+deb12u15) ...
+Setting up curl (7.88.1-10+deb12u15) ...
+Setting up gpg (2.2.40-1.1+deb12u2) ...
+Setting up gnupg-utils (2.2.40-1.1+deb12u2) ...
+Setting up pinentry-curses (1.2.1-1) ...
+Setting up gpg-agent (2.2.40-1.1+deb12u2) ...
+Created symlink /etc/systemd/user/sockets.target.wants/gpg-agent-browser.socket → /usr/lib/systemd/user/gpg-agent-browser.socket.
+Created symlink /etc/systemd/user/sockets.target.wants/gpg-agent-extra.socket → /usr/lib/systemd/user/gpg-agent-extra.socket.
+Created symlink /etc/systemd/user/sockets.target.wants/gpg-agent-ssh.socket → /usr/lib/systemd/user/gpg-agent-ssh.socket.
+Created symlink /etc/systemd/user/sockets.target.wants/gpg-agent.socket → /usr/lib/systemd/user/gpg-agent.socket.
+Setting up gpgsm (2.2.40-1.1+deb12u2) ...
+Setting up dirmngr (2.2.40-1.1+deb12u2) ...
+Created symlink /etc/systemd/user/sockets.target.wants/dirmngr.socket → /usr/lib/systemd/user/dirmngr.socket.
+Setting up gpg-wks-server (2.2.40-1.1+deb12u2) ...
+Setting up gpg-wks-client (2.2.40-1.1+deb12u2) ...
+Setting up gnupg (2.2.40-1.1+deb12u2) ...
+Processing triggers for libc-bin (2.36-9+deb12u7) ...
+Processing triggers for ca-certificates (20250419~deb12u2) ...
+Updating certificates in /etc/ssl/certs...
+0 added, 0 removed; done.
+Running hooks in /etc/ca-certificates/update.d...
+done.
+debconf: delaying package configuration, since apt-utils is not installed
+Selecting previously unselected package libnvidia-container1:amd64.
+(Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 9892 files and directories currently installed.)
+Preparing to unpack .../libnvidia-container1_1.20.1-1_amd64.deb ...
+Unpacking libnvidia-container1:amd64 (1.20.1-1) ...
+Selecting previously unselected package libnvidia-container-tools.
+Preparing to unpack .../libnvidia-container-tools_1.20.1-1_amd64.deb ...
+Unpacking libnvidia-container-tools (1.20.1-1) ...
+Selecting previously unselected package nvidia-container-toolkit-base.
+Preparing to unpack .../nvidia-container-toolkit-base_1.20.1-1_amd64.deb ...
+Unpacking nvidia-container-toolkit-base (1.20.1-1) ...
+Selecting previously unselected package nvidia-container-toolkit.
+Preparing to unpack .../nvidia-container-toolkit_1.20.1-1_amd64.deb ...
+Unpacking nvidia-container-toolkit (1.20.1-1) ...
+Setting up nvidia-container-toolkit-base (1.20.1-1) ...
+Created symlink /etc/systemd/system/multi-user.target.wants/nvidia-cdi-refresh.path → /lib/systemd/system/nvidia-cdi-refresh.path.
+Created symlink /etc/systemd/system/multi-user.target.wants/nvidia-cdi-refresh.service → /lib/systemd/system/nvidia-cdi-refresh.service.
+/usr/sbin/policy-rc.d returned 101, not running 'start nvidia-cdi-refresh.path nvidia-cdi-refresh.service'
+Setting up libnvidia-container1:amd64 (1.20.1-1) ...
+Setting up libnvidia-container-tools (1.20.1-1) ...
+Setting up nvidia-container-toolkit (1.20.1-1) ...
+Processing triggers for libc-bin (2.36-9+deb12u7) ...
+time="2026-10-24T12:23:50Z" level=info msg="Using config version 2"
+time="2026-10-24T12:23:50Z" level=info msg="Using CRI runtime plugin name \"io.containerd.grpc.v1.cri\""
+time="2026-10-24T12:23:50Z" level=info msg="Wrote updated config to /etc/containerd/conf.d/99-nvidia.toml"
+time="2026-10-24T12:23:50Z" level=info msg="It is recommended that containerd daemon be restarted."
+node/m5cgpu-worker condition met
++ bringup_rc=0
++ echo 'bring-up exited 0'
+bring-up exited 0
+++ curl -s -X PUT -H 'X-aws-ec2-metadata-token-ttl-seconds: 300' http://169.254.169.254/latest/api/token
++ imds=AQAEAHBuPWHK7rtix6Ms1da5LU8-0lV_42CytUDxGGL2YRpjbMgNbA==
++ echo commit=8ed1fbe335fcf8f78992deb7244fa58f5c5f5831
++ echo launch_time_epoch=1792844433
+++ md instance-id
+++ curl -s -H 'X-aws-ec2-metadata-token: AQAEAHBuPWHK7rtix6Ms1da5LU8-0lV_42CytUDxGGL2YRpjbMgNbA==' http://169.254.169.254/latest/meta-data/instance-id
++ echo instance_id=i-07234fb4f5c4f9f05
+++ md ami-id
+++ curl -s -H 'X-aws-ec2-metadata-token: AQAEAHBuPWHK7rtix6Ms1da5LU8-0lV_42CytUDxGGL2YRpjbMgNbA==' http://169.254.169.254/latest/meta-data/ami-id
++ echo ami_id=ami-097edab977037f65f
+++ tail -n +2 /tmp/nvidia-smi.csv
+++ cut -d, -f4
+++ tr -d ' '
++ echo driver=595.91.07
+++ nvidia-ctk --version
+++ head -1
++ echo 'toolkit_host=NVIDIA Container Toolkit CLI version 1.20.1'
+++ docker exec m5cgpu-worker nvidia-ctk --version
+++ head -1
++ echo 'toolkit_node=NVIDIA Container Toolkit CLI version 1.20.1'
+++ grep -m1 -oE 'image: *[^ ]+' config/vllm-shared/engine-a.yaml
+++ sed 's/image: *//'
++ echo engine_a_image=vllm/vllm-openai@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967
+++ grep -m1 -oE 'image: *[^ ]+' config/vllm-shared/engine-b.yaml
+++ sed 's/image: *//'
++ echo engine_b_image=vllm/vllm-openai@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967
+++ grep -m1 -oE 'image: *[^ ]+' config/nvidia-device-plugin-mps/daemonset.yaml
+++ sed 's/image: *//'
++ echo plugin_image=nvcr.io/nvidia/k8s-device-plugin:v0.16.2@sha256:ed39e22c8b71343fb996737741a99da88ce6c75dd83b5c520e0b3d8e8a884c47
+++ mpscap_pin_hash config/nvidia-device-plugin-mps/configmap.yaml config/nvidia-device-plugin-mps/daemonset.yaml config/nvidia-device-plugin-mps/kustomization.yaml
+++ local f
+++ for f in "$@"
+++ '[' -f config/nvidia-device-plugin-mps/configmap.yaml ']'
+++ sha256sum
++++ sha256sum config/nvidia-device-plugin-mps/configmap.yaml
++++ cut '-d ' -f1
+++ cut '-d ' -f1
+++ printf '%s\t%s\n' config/nvidia-device-plugin-mps/configmap.yaml e19810901c904d82ed40c4c8a16269ceffc029b740f80911925fff310db58522
+++ for f in "$@"
+++ '[' -f config/nvidia-device-plugin-mps/daemonset.yaml ']'
++++ sha256sum config/nvidia-device-plugin-mps/daemonset.yaml
++++ cut '-d ' -f1
+++ printf '%s\t%s\n' config/nvidia-device-plugin-mps/daemonset.yaml d20a00e1ebb31fb01606d8fe07b13d1b58891cadfdebfe6315a0022c4d40d266
+++ for f in "$@"
+++ '[' -f config/nvidia-device-plugin-mps/kustomization.yaml ']'
++++ sha256sum config/nvidia-device-plugin-mps/kustomization.yaml
++++ cut '-d ' -f1
+++ printf '%s\t%s\n' config/nvidia-device-plugin-mps/kustomization.yaml 530edaa9d87e965b5c6b750a999899035ac10b58fae30d03a18afbd42de8f015
++ echo pin_overlay=8de32fae1adfac35de19f2545f74d61ebc47175f32d343a2c4d58b8deb30bf47
+++ mpscap_pin_hash config/vllm-shared/engine-a.yaml config/vllm-shared/engine-b.yaml config/vllm-shared/mps-shm-patch.yaml
+++ local f
+++ for f in "$@"
+++ '[' -f config/vllm-shared/engine-a.yaml ']'
+++ sha256sum
+++ cut '-d ' -f1
++++ sha256sum config/vllm-shared/engine-a.yaml
++++ cut '-d ' -f1
+++ printf '%s\t%s\n' config/vllm-shared/engine-a.yaml 0e7e3d2aebde2696e442c9f2431c98a865872828bfdc6ba00cbf0ebdeade8025
+++ for f in "$@"
+++ '[' -f config/vllm-shared/engine-b.yaml ']'
++++ sha256sum config/vllm-shared/engine-b.yaml
++++ cut '-d ' -f1
+++ printf '%s\t%s\n' config/vllm-shared/engine-b.yaml c1a6ac4f4d35eeb4f7ec01062417c355dd8fb634c8fe075511079604e6534140
+++ for f in "$@"
+++ '[' -f config/vllm-shared/mps-shm-patch.yaml ']'
++++ sha256sum config/vllm-shared/mps-shm-patch.yaml
++++ cut '-d ' -f1
+++ printf '%s\t%s\n' config/vllm-shared/mps-shm-patch.yaml ed9e29072c65e582aa59366edf3f9fc482e51a2d93fab5abdfb568cd8adacd80
++ echo pin_engines=2b2c18b35b4c9a5526f82679d940cca13c787453c317b84ebc0a67ac0cd9574e
++ upload /tmp/provenance.txt provenance.txt
++ aws s3 cp --only-show-errors /tmp/provenance.txt s3://mpscap-gpu-007635145730/mpscap-20261024-run3-4ee4e34c/provenance.txt
++ awk -F= 'NF < 2 || $2 == "" {bad = 1} END {exit bad}' /tmp/provenance.txt
++ mj_fact provenance_complete true
++ case "$2" in
++ mj_has_fact provenance_complete
++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
++ python3 - /src/m5c-run/mps-journal.jsonl provenance_complete
++ mj_append fact name=provenance_complete value=true detail=
++ '[' -n /src/m5c-run/mps-journal.jsonl ']'
++ python3 - /src/m5c-run/mps-journal.jsonl fact name=provenance_complete value=true detail=
++ '[' -n 'aws s3 cp --only-show-errors /src/m5c-run/mps-journal.jsonl s3://mpscap-gpu-007635145730/mpscap-20261024-run3-4ee4e34c/journal.jsonl' ']'
++ aws s3 cp --only-show-errors /src/m5c-run/mps-journal.jsonl s3://mpscap-gpu-007635145730/mpscap-20261024-run3-4ee4e34c/journal.jsonl
++ return 0
++ export KUBECONFIG=/tmp/kubeconfig PLATFORM=kind KCTX=kind-m5cgpu GPU_NODE=m5cgpu-worker DEADLINE_EPOCH=1792846473
++ KUBECONFIG=/tmp/kubeconfig
++ PLATFORM=kind
++ KCTX=kind-m5cgpu
++ GPU_NODE=m5cgpu-worker
++ DEADLINE_EPOCH=1792846473
++ export GATEWAY_BIN=/src/bin/gateway BENCHHARNESS_BIN=/src/bin/benchharness OUT=/src/m5c-run SOURCE_COMMIT=8ed1fbe335fcf8f78992deb7244fa58f5c5f5831
++ GATEWAY_BIN=/src/bin/gateway
++ BENCHHARNESS_BIN=/src/bin/benchharness
++ OUT=/src/m5c-run
++ SOURCE_COMMIT=8ed1fbe335fcf8f78992deb7244fa58f5c5f5831
++ export STUDY=mps-capability-2026-10-24 ARMS=mps REPS=1 RATE=2 PREMIUM_WEIGHT=1 NOISY_WEIGHT=0.054 PROBE_WEIGHT=0 DURATION_MS=120000
++ STUDY=mps-capability-2026-10-24
++ ARMS=mps
++ REPS=1
++ RATE=2
++ PREMIUM_WEIGHT=1
++ NOISY_WEIGHT=0.054
++ PROBE_WEIGHT=0
++ DURATION_MS=120000
++ export MPSCAP_PHASE1_END=1792845153 MPSCAP_PHASE2_END=1792845633 MPSCAP_PHASE3_END=1792846353
++ MPSCAP_PHASE1_END=1792845153
++ MPSCAP_PHASE2_END=1792845633
++ MPSCAP_PHASE3_END=1792846353
++ export MPSCAP_PIN_OVERLAY=8de32fae1adfac35de19f2545f74d61ebc47175f32d343a2c4d58b8deb30bf47 MPSCAP_PIN_ENGINES=2b2c18b35b4c9a5526f82679d940cca13c787453c317b84ebc0a67ac0cd9574e
++ MPSCAP_PIN_OVERLAY=8de32fae1adfac35de19f2545f74d61ebc47175f32d343a2c4d58b8deb30bf47
++ MPSCAP_PIN_ENGINES=2b2c18b35b4c9a5526f82679d940cca13c787453c317b84ebc0a67ac0cd9574e
++ '[' 0 = 0 ']'
++ mpscap_supervise 1792845153 1792845633 1792846353 90 -- bash hack/m5c-matrix.sh
++ ends=('1792845153' '1792845633' '1792846353')
++ bars=('B2' 'B4' 'B5')
++ local ends grace=90 bars pid i now
++ shift 5
++ pid=15339
++ kill -0 15339
++ setsid bash hack/m5c-matrix.sh
+++ date +%s
++ now=1792844634
++ for i in 0 1 2
++ '[' 1792844634 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844634 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844634 -ge 1792846353 ']'
++ sleep 2
+== plan: 1 cell(s): mps 
+== preflight
+== acquiring the card on kind
+== card node m5cgpu-worker labelled for sharing
+== the gateway and the harness
+==   gateway: shipped, 5b996d0ed56a
+==   benchharness: shipped, a94feb47ec65
+== load matches study mps-capability-2026-10-24's frozen tuple (five quantities)
++ kill -0 15339
+++ date +%s
++ now=1792844636
++ for i in 0 1 2
++ '[' 1792844636 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844636 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844636 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844638
++ for i in 0 1 2
++ '[' 1792844638 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844638 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844638 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844640
++ for i in 0 1 2
++ '[' 1792844640 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844640 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844640 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844642
++ for i in 0 1 2
++ '[' 1792844642 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844642 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844642 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844644
++ for i in 0 1 2
++ '[' 1792844644 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844644 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844644 -ge 1792846353 ']'
++ sleep 2
+==   gateway image sha256:ee1fdac20c0ea389d927af9f3082027eb3f0dc59254a3a4ba484b74dadfc6be0
+== load the gateway into the kind cluster
+Image: "gateway:m5c" with ID "sha256:ee1fdac20c0ea389d927af9f3082027eb3f0dc59254a3a4ba484b74dadfc6be0" not yet present on node "m5cgpu-control-plane", loading...
+Image: "gateway:m5c" with ID "sha256:ee1fdac20c0ea389d927af9f3082027eb3f0dc59254a3a4ba484b74dadfc6be0" not yet present on node "m5cgpu-worker", loading...
++ kill -0 15339
+++ date +%s
++ now=1792844646
++ for i in 0 1 2
++ '[' 1792844646 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844646 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844646 -ge 1792846353 ']'
++ sleep 2
+== load: rate 2/s, 120000ms per arm, weights premium=1 noisy=0.054 probe=0
+== run:  1 repetitions of [mps] on kind, output /src/m5c-run
+== cell 1/1: mps (rep 1) at load 2:0.054 under weighted arrivals
++ kill -0 15339
+++ date +%s
++ now=1792844648
++ for i in 0 1 2
++ '[' 1792844648 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844648 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844648 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844650
++ for i in 0 1 2
++ '[' 1792844650 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844650 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844650 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844652
++ for i in 0 1 2
++ '[' 1792844652 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844652 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844652 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844654
++ for i in 0 1 2
++ '[' 1792844654 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844654 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844654 -ge 1792846353 ']'
++ sleep 2
+== wait for the card to advertise exactly 2 device(s) under mps
++ kill -0 15339
+++ date +%s
++ now=1792844656
++ for i in 0 1 2
++ '[' 1792844656 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844656 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844656 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844658
++ for i in 0 1 2
++ '[' 1792844658 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844658 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844658 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844660
++ for i in 0 1 2
++ '[' 1792844660 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844660 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844660 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844662
++ for i in 0 1 2
++ '[' 1792844662 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844662 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844662 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844664
++ for i in 0 1 2
++ '[' 1792844664 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844664 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844664 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844666
++ for i in 0 1 2
++ '[' 1792844666 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844666 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844666 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844668
++ for i in 0 1 2
++ '[' 1792844668 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844668 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844668 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844670
++ for i in 0 1 2
++ '[' 1792844670 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844670 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844670 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844672
++ for i in 0 1 2
++ '[' 1792844672 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844672 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844672 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844674
++ for i in 0 1 2
++ '[' 1792844674 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844674 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844674 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844676
++ for i in 0 1 2
++ '[' 1792844676 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844676 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844676 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844678
++ for i in 0 1 2
++ '[' 1792844678 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844678 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844678 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844680
++ for i in 0 1 2
++ '[' 1792844680 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844680 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844680 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844682
++ for i in 0 1 2
++ '[' 1792844682 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844682 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844682 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844684
++ for i in 0 1 2
++ '[' 1792844684 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844684 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844684 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844686
++ for i in 0 1 2
++ '[' 1792844686 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844686 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844686 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844688
++ for i in 0 1 2
++ '[' 1792844688 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844688 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844688 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844690
++ for i in 0 1 2
++ '[' 1792844690 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844690 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844690 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844692
++ for i in 0 1 2
++ '[' 1792844692 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844692 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844692 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844694
++ for i in 0 1 2
++ '[' 1792844694 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844694 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844694 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844696
++ for i in 0 1 2
++ '[' 1792844696 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844696 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844696 -ge 1792846353 ']'
++ sleep 2
+== node advertises 2 device(s) for one physical card under mps
++ kill -0 15339
+++ date +%s
++ now=1792844698
++ for i in 0 1 2
++ '[' 1792844698 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844698 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844698 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844700
++ for i in 0 1 2
++ '[' 1792844700 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844700 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844700 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844702
++ for i in 0 1 2
++ '[' 1792844702 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844702 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844702 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844704
++ for i in 0 1 2
++ '[' 1792844704 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844704 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844704 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844706
++ for i in 0 1 2
++ '[' 1792844706 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844706 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844706 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844708
++ for i in 0 1 2
++ '[' 1792844708 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844708 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844708 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844710
++ for i in 0 1 2
++ '[' 1792844710 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844710 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844710 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844712
++ for i in 0 1 2
++ '[' 1792844712 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844712 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844712 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844714
++ for i in 0 1 2
++ '[' 1792844714 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844714 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844714 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844716
++ for i in 0 1 2
++ '[' 1792844716 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844716 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844716 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844718
++ for i in 0 1 2
++ '[' 1792844718 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844718 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844718 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844720
++ for i in 0 1 2
++ '[' 1792844720 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844720 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844720 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844722
++ for i in 0 1 2
++ '[' 1792844722 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844722 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844722 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844724
++ for i in 0 1 2
++ '[' 1792844724 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844724 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844724 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844726
++ for i in 0 1 2
++ '[' 1792844726 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844726 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844726 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844728
++ for i in 0 1 2
++ '[' 1792844728 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844728 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844728 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844730
++ for i in 0 1 2
++ '[' 1792844730 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844730 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844730 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844732
++ for i in 0 1 2
++ '[' 1792844732 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844732 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844732 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844734
++ for i in 0 1 2
++ '[' 1792844734 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844734 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844734 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844736
++ for i in 0 1 2
++ '[' 1792844736 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844736 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844736 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844738
++ for i in 0 1 2
++ '[' 1792844738 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844738 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844738 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844740
++ for i in 0 1 2
++ '[' 1792844740 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844740 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844740 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844742
++ for i in 0 1 2
++ '[' 1792844742 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844742 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844742 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844744
++ for i in 0 1 2
++ '[' 1792844744 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844744 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844744 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844746
++ for i in 0 1 2
++ '[' 1792844746 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844746 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844746 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844748
++ for i in 0 1 2
++ '[' 1792844748 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844748 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844748 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844750
++ for i in 0 1 2
++ '[' 1792844750 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844750 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844750 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844752
++ for i in 0 1 2
++ '[' 1792844752 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844752 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844752 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844754
++ for i in 0 1 2
++ '[' 1792844754 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844754 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844754 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844756
++ for i in 0 1 2
++ '[' 1792844756 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844756 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844756 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844758
++ for i in 0 1 2
++ '[' 1792844758 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844758 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844758 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844760
++ for i in 0 1 2
++ '[' 1792844760 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844760 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844760 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844762
++ for i in 0 1 2
++ '[' 1792844762 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844762 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844762 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844764
++ for i in 0 1 2
++ '[' 1792844764 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844764 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844764 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844766
++ for i in 0 1 2
++ '[' 1792844766 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844766 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844766 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844768
++ for i in 0 1 2
++ '[' 1792844768 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844768 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844768 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844770
++ for i in 0 1 2
++ '[' 1792844770 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844770 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844770 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844772
++ for i in 0 1 2
++ '[' 1792844772 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844772 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844772 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844774
++ for i in 0 1 2
++ '[' 1792844774 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844774 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844774 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844776
++ for i in 0 1 2
++ '[' 1792844776 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844776 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844776 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844778
++ for i in 0 1 2
++ '[' 1792844778 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844778 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844778 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844780
++ for i in 0 1 2
++ '[' 1792844780 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844780 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844780 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844782
++ for i in 0 1 2
++ '[' 1792844782 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844782 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844782 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844784
++ for i in 0 1 2
++ '[' 1792844784 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844784 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844784 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844786
++ for i in 0 1 2
++ '[' 1792844786 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844786 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844786 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844788
++ for i in 0 1 2
++ '[' 1792844788 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844788 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844788 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844790
++ for i in 0 1 2
++ '[' 1792844790 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844790 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844790 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844792
++ for i in 0 1 2
++ '[' 1792844792 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844792 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844792 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844794
++ for i in 0 1 2
++ '[' 1792844794 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844794 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844794 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844796
++ for i in 0 1 2
++ '[' 1792844796 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844796 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844796 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844798
++ for i in 0 1 2
++ '[' 1792844798 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844798 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844798 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844800
++ for i in 0 1 2
++ '[' 1792844800 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844800 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844800 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844802
++ for i in 0 1 2
++ '[' 1792844802 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844802 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844802 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844804
++ for i in 0 1 2
++ '[' 1792844804 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844804 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844804 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844806
++ for i in 0 1 2
++ '[' 1792844806 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844806 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844806 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844808
++ for i in 0 1 2
++ '[' 1792844808 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844808 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844808 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844810
++ for i in 0 1 2
++ '[' 1792844810 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844810 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844810 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844812
++ for i in 0 1 2
++ '[' 1792844812 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844812 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844812 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844814
++ for i in 0 1 2
++ '[' 1792844814 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844814 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844814 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844816
++ for i in 0 1 2
++ '[' 1792844816 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844816 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844816 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844818
++ for i in 0 1 2
++ '[' 1792844818 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844818 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844818 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844820
++ for i in 0 1 2
++ '[' 1792844820 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844820 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844820 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844822
++ for i in 0 1 2
++ '[' 1792844822 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844822 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844822 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844824
++ for i in 0 1 2
++ '[' 1792844824 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844824 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844824 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844826
++ for i in 0 1 2
++ '[' 1792844826 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844826 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844826 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844828
++ for i in 0 1 2
++ '[' 1792844828 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844828 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844828 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844830
++ for i in 0 1 2
++ '[' 1792844830 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844830 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844830 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844832
++ for i in 0 1 2
++ '[' 1792844832 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844832 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844832 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844834
++ for i in 0 1 2
++ '[' 1792844834 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844834 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844834 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844836
++ for i in 0 1 2
++ '[' 1792844836 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844836 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844836 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844838
++ for i in 0 1 2
++ '[' 1792844838 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844838 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844838 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844840
++ for i in 0 1 2
++ '[' 1792844840 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844840 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844840 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844842
++ for i in 0 1 2
++ '[' 1792844842 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844842 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844842 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844844
++ for i in 0 1 2
++ '[' 1792844844 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844844 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844844 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844846
++ for i in 0 1 2
++ '[' 1792844846 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844846 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844846 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844848
++ for i in 0 1 2
++ '[' 1792844848 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844848 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844848 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844850
++ for i in 0 1 2
++ '[' 1792844850 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844850 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844850 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844852
++ for i in 0 1 2
++ '[' 1792844852 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844852 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844852 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844854
++ for i in 0 1 2
++ '[' 1792844854 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844854 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844854 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844856
++ for i in 0 1 2
++ '[' 1792844856 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844856 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844856 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844858
++ for i in 0 1 2
++ '[' 1792844858 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844858 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844858 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844860
++ for i in 0 1 2
++ '[' 1792844860 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844860 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844860 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844862
++ for i in 0 1 2
++ '[' 1792844862 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844862 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844862 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844864
++ for i in 0 1 2
++ '[' 1792844864 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844864 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844864 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844866
++ for i in 0 1 2
++ '[' 1792844866 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844866 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844866 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844868
++ for i in 0 1 2
++ '[' 1792844868 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844868 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844868 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844870
++ for i in 0 1 2
++ '[' 1792844870 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844870 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844870 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844872
++ for i in 0 1 2
++ '[' 1792844872 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844872 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844872 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844874
++ for i in 0 1 2
++ '[' 1792844874 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844874 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844874 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844876
++ for i in 0 1 2
++ '[' 1792844876 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844876 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844876 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844878
++ for i in 0 1 2
++ '[' 1792844878 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844878 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844878 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844880
++ for i in 0 1 2
++ '[' 1792844880 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844880 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844880 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844882
++ for i in 0 1 2
++ '[' 1792844882 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844882 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844882 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844884
++ for i in 0 1 2
++ '[' 1792844884 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844884 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844884 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844886
++ for i in 0 1 2
++ '[' 1792844886 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844886 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844886 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844888
++ for i in 0 1 2
++ '[' 1792844888 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844888 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844888 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844890
++ for i in 0 1 2
++ '[' 1792844890 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844890 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844890 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844892
++ for i in 0 1 2
++ '[' 1792844892 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844892 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844892 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844894
++ for i in 0 1 2
++ '[' 1792844894 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844894 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844894 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844896
++ for i in 0 1 2
++ '[' 1792844896 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844896 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844896 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844898
++ for i in 0 1 2
++ '[' 1792844898 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844898 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844898 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844900
++ for i in 0 1 2
++ '[' 1792844900 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844900 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844900 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844902
++ for i in 0 1 2
++ '[' 1792844902 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844902 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844902 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844904
++ for i in 0 1 2
++ '[' 1792844904 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844904 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844904 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844906
++ for i in 0 1 2
++ '[' 1792844906 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844906 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844906 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844908
++ for i in 0 1 2
++ '[' 1792844908 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844908 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844908 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844910
++ for i in 0 1 2
++ '[' 1792844910 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844910 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844910 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844912
++ for i in 0 1 2
++ '[' 1792844912 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844912 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844912 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844914
++ for i in 0 1 2
++ '[' 1792844914 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844914 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844914 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844916
++ for i in 0 1 2
++ '[' 1792844916 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844916 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844916 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844918
++ for i in 0 1 2
++ '[' 1792844918 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844918 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844918 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844920
++ for i in 0 1 2
++ '[' 1792844920 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844920 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844920 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844922
++ for i in 0 1 2
++ '[' 1792844922 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844922 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844922 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844924
++ for i in 0 1 2
++ '[' 1792844924 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844924 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844924 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844926
++ for i in 0 1 2
++ '[' 1792844926 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844926 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844926 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844928
++ for i in 0 1 2
++ '[' 1792844928 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844928 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844928 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844930
++ for i in 0 1 2
++ '[' 1792844930 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844930 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844930 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844932
++ for i in 0 1 2
++ '[' 1792844932 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844932 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844932 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844934
++ for i in 0 1 2
++ '[' 1792844934 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844934 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844934 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844936
++ for i in 0 1 2
++ '[' 1792844936 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844936 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844936 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844938
++ for i in 0 1 2
++ '[' 1792844938 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844938 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844938 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844940
++ for i in 0 1 2
++ '[' 1792844940 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844940 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844940 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844942
++ for i in 0 1 2
++ '[' 1792844942 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844942 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844942 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844944
++ for i in 0 1 2
++ '[' 1792844944 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844944 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844944 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844946
++ for i in 0 1 2
++ '[' 1792844946 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844946 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844946 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844948
++ for i in 0 1 2
++ '[' 1792844948 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844948 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844948 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844950
++ for i in 0 1 2
++ '[' 1792844950 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844950 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844950 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844952
++ for i in 0 1 2
++ '[' 1792844952 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844952 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844952 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844954
++ for i in 0 1 2
++ '[' 1792844954 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844954 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844954 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844956
++ for i in 0 1 2
++ '[' 1792844956 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844956 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844956 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844958
++ for i in 0 1 2
++ '[' 1792844958 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844958 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844958 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844960
++ for i in 0 1 2
++ '[' 1792844960 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844960 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844960 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844962
++ for i in 0 1 2
++ '[' 1792844962 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844962 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844962 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844964
++ for i in 0 1 2
++ '[' 1792844964 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844964 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844964 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844966
++ for i in 0 1 2
++ '[' 1792844966 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844966 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844966 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844968
++ for i in 0 1 2
++ '[' 1792844968 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844968 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844968 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844970
++ for i in 0 1 2
++ '[' 1792844970 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844970 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844970 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844972
++ for i in 0 1 2
++ '[' 1792844972 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844972 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844972 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844974
++ for i in 0 1 2
++ '[' 1792844974 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844974 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844974 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844977
++ for i in 0 1 2
++ '[' 1792844977 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844977 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844977 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844979
++ for i in 0 1 2
++ '[' 1792844979 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844979 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844979 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844981
++ for i in 0 1 2
++ '[' 1792844981 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844981 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844981 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844983
++ for i in 0 1 2
++ '[' 1792844983 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844983 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844983 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844985
++ for i in 0 1 2
++ '[' 1792844985 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844985 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844985 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844987
++ for i in 0 1 2
++ '[' 1792844987 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844987 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844987 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844989
++ for i in 0 1 2
++ '[' 1792844989 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844989 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844989 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844991
++ for i in 0 1 2
++ '[' 1792844991 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844991 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844991 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844993
++ for i in 0 1 2
++ '[' 1792844993 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844993 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844993 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844995
++ for i in 0 1 2
++ '[' 1792844995 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844995 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844995 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844997
++ for i in 0 1 2
++ '[' 1792844997 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844997 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844997 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792844999
++ for i in 0 1 2
++ '[' 1792844999 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792844999 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792844999 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845001
++ for i in 0 1 2
++ '[' 1792845001 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792845001 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845001 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845003
++ for i in 0 1 2
++ '[' 1792845003 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792845003 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845003 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845005
++ for i in 0 1 2
++ '[' 1792845005 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792845005 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845005 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845007
++ for i in 0 1 2
++ '[' 1792845007 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792845007 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845007 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845009
++ for i in 0 1 2
++ '[' 1792845009 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792845009 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845009 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845011
++ for i in 0 1 2
++ '[' 1792845011 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792845011 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845011 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845013
++ for i in 0 1 2
++ '[' 1792845013 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792845013 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845013 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845015
++ for i in 0 1 2
++ '[' 1792845015 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792845015 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845015 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845017
++ for i in 0 1 2
++ '[' 1792845017 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792845017 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845017 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845019
++ for i in 0 1 2
++ '[' 1792845019 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792845019 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845019 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845021
++ for i in 0 1 2
++ '[' 1792845021 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792845021 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845021 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845023
++ for i in 0 1 2
++ '[' 1792845023 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792845023 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845023 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845025
++ for i in 0 1 2
++ '[' 1792845025 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792845025 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845025 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845027
++ for i in 0 1 2
++ '[' 1792845027 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792845027 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845027 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845029
++ for i in 0 1 2
++ '[' 1792845029 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792845029 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845029 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845031
++ for i in 0 1 2
++ '[' 1792845031 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792845031 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845031 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845033
++ for i in 0 1 2
++ '[' 1792845033 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792845033 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845033 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845035
++ for i in 0 1 2
++ '[' 1792845035 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792845035 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845035 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845037
++ for i in 0 1 2
++ '[' 1792845037 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792845037 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845037 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845039
++ for i in 0 1 2
++ '[' 1792845039 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792845039 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845039 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845041
++ for i in 0 1 2
++ '[' 1792845041 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792845041 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845041 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845043
++ for i in 0 1 2
++ '[' 1792845043 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792845043 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845043 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845045
++ for i in 0 1 2
++ '[' 1792845045 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792845045 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845045 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845047
++ for i in 0 1 2
++ '[' 1792845047 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792845047 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845047 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845049
++ for i in 0 1 2
++ '[' 1792845049 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792845049 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845049 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845051
++ for i in 0 1 2
++ '[' 1792845051 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792845051 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845051 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845053
++ for i in 0 1 2
++ '[' 1792845053 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792845053 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845053 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845055
++ for i in 0 1 2
++ '[' 1792845055 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792845055 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845055 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845057
++ for i in 0 1 2
++ '[' 1792845057 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792845057 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845057 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845059
++ for i in 0 1 2
++ '[' 1792845059 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792845059 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845059 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845061
++ for i in 0 1 2
++ '[' 1792845061 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792845061 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845061 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845063
++ for i in 0 1 2
++ '[' 1792845063 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792845063 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845063 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845065
++ for i in 0 1 2
++ '[' 1792845065 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792845065 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845065 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845067
++ for i in 0 1 2
++ '[' 1792845067 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792845067 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845067 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845069
++ for i in 0 1 2
++ '[' 1792845069 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792845069 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845069 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845071
++ for i in 0 1 2
++ '[' 1792845071 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792845071 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845071 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845073
++ for i in 0 1 2
++ '[' 1792845073 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792845073 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845073 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845075
++ for i in 0 1 2
++ '[' 1792845075 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792845075 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845075 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845077
++ for i in 0 1 2
++ '[' 1792845077 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792845077 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845077 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845079
++ for i in 0 1 2
++ '[' 1792845079 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792845079 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845079 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845081
++ for i in 0 1 2
++ '[' 1792845081 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792845081 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845081 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845083
++ for i in 0 1 2
++ '[' 1792845083 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792845083 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845083 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845085
++ for i in 0 1 2
++ '[' 1792845085 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792845085 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845085 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845087
++ for i in 0 1 2
++ '[' 1792845087 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792845087 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845087 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845089
++ for i in 0 1 2
++ '[' 1792845089 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792845089 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845089 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845091
++ for i in 0 1 2
++ '[' 1792845091 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792845091 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845091 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845093
++ for i in 0 1 2
++ '[' 1792845093 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792845093 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845093 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845095
++ for i in 0 1 2
++ '[' 1792845095 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792845095 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845095 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845097
++ for i in 0 1 2
++ '[' 1792845097 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792845097 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845097 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845099
++ for i in 0 1 2
++ '[' 1792845099 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792845099 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845099 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845101
++ for i in 0 1 2
++ '[' 1792845101 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792845101 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845101 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845103
++ for i in 0 1 2
++ '[' 1792845103 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792845103 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845103 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845105
++ for i in 0 1 2
++ '[' 1792845105 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792845105 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845105 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845107
++ for i in 0 1 2
++ '[' 1792845107 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792845107 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845107 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845109
++ for i in 0 1 2
++ '[' 1792845109 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792845109 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845109 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845111
++ for i in 0 1 2
++ '[' 1792845111 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792845111 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845111 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845113
++ for i in 0 1 2
++ '[' 1792845113 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792845113 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845113 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845115
++ for i in 0 1 2
++ '[' 1792845115 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792845115 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845115 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845117
++ for i in 0 1 2
++ '[' 1792845117 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792845117 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845117 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845119
++ for i in 0 1 2
++ '[' 1792845119 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792845119 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845119 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845121
++ for i in 0 1 2
++ '[' 1792845121 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792845121 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845121 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845123
++ for i in 0 1 2
++ '[' 1792845123 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792845123 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845123 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845125
++ for i in 0 1 2
++ '[' 1792845125 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792845125 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845125 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845127
++ for i in 0 1 2
++ '[' 1792845127 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792845127 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845127 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845129
++ for i in 0 1 2
++ '[' 1792845129 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792845129 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845129 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845131
++ for i in 0 1 2
++ '[' 1792845131 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792845131 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845131 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845133
++ for i in 0 1 2
++ '[' 1792845133 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792845133 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845133 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845135
++ for i in 0 1 2
++ '[' 1792845135 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792845135 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845135 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845137
++ for i in 0 1 2
++ '[' 1792845137 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792845137 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845137 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845139
++ for i in 0 1 2
++ '[' 1792845139 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792845139 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845139 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845141
++ for i in 0 1 2
++ '[' 1792845141 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792845141 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845141 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845143
++ for i in 0 1 2
++ '[' 1792845143 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792845143 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845143 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845145
++ for i in 0 1 2
++ '[' 1792845145 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792845145 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845145 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845147
++ for i in 0 1 2
++ '[' 1792845147 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792845147 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845147 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845149
++ for i in 0 1 2
++ '[' 1792845149 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792845149 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845149 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845151
++ for i in 0 1 2
++ '[' 1792845151 -ge 1792845153 ']'
++ for i in 0 1 2
++ '[' 1792845151 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845151 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845153
++ for i in 0 1 2
++ '[' 1792845153 -ge 1792845153 ']'
+++ mj_result B2
+++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
+++ python3 - /src/m5c-run/mps-journal.jsonl B2
++ '[' -z pass ']'
++ for i in 0 1 2
++ '[' 1792845153 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845153 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845155
++ for i in 0 1 2
++ '[' 1792845155 -ge 1792845153 ']'
+++ mj_result B2
+++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
+++ python3 - /src/m5c-run/mps-journal.jsonl B2
++ '[' -z pass ']'
++ for i in 0 1 2
++ '[' 1792845155 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845155 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845157
++ for i in 0 1 2
++ '[' 1792845157 -ge 1792845153 ']'
+++ mj_result B2
+++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
+++ python3 - /src/m5c-run/mps-journal.jsonl B2
++ '[' -z pass ']'
++ for i in 0 1 2
++ '[' 1792845157 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845157 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845159
++ for i in 0 1 2
++ '[' 1792845159 -ge 1792845153 ']'
+++ mj_result B2
+++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
+++ python3 - /src/m5c-run/mps-journal.jsonl B2
++ '[' -z pass ']'
++ for i in 0 1 2
++ '[' 1792845159 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845159 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845161
++ for i in 0 1 2
++ '[' 1792845161 -ge 1792845153 ']'
+++ mj_result B2
+++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
+++ python3 - /src/m5c-run/mps-journal.jsonl B2
++ '[' -z pass ']'
++ for i in 0 1 2
++ '[' 1792845161 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845161 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845163
++ for i in 0 1 2
++ '[' 1792845163 -ge 1792845153 ']'
+++ mj_result B2
+++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
+++ python3 - /src/m5c-run/mps-journal.jsonl B2
++ '[' -z pass ']'
++ for i in 0 1 2
++ '[' 1792845163 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845163 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845165
++ for i in 0 1 2
++ '[' 1792845165 -ge 1792845153 ']'
+++ mj_result B2
+++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
+++ python3 - /src/m5c-run/mps-journal.jsonl B2
++ '[' -z pass ']'
++ for i in 0 1 2
++ '[' 1792845165 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845165 -ge 1792846353 ']'
++ sleep 2
+--- m5c-a/vllm-shared-a: what the engine says it allocated ---
+  (APIServer pid=1) INFO 10-24 12:29:19 [api_utils.py:273] non-default args: {'model_tag': 'Qwen/Qwen2.5-3B-Instruct', 'model': 'Qwen/Qwen2.5-3B-Instruct', 'dtype': 'half', 'max_model_len': 16384, 'gpu_memory_utilization': 0.475, 'kv_cache_memory_bytes': 3435973836, 'enable_prefix_caching': False, 'max_num_batched_tokens': 2048, 'max_num_seqs': 32}
+  (EngineCore pid=106) INFO 10-24 12:32:23 [gpu_worker.py:491] Initial free memory 11.11 GiB, reserved 3.2 GiB memory for KV Cache as specified by kv_cache_memory_bytes config and skipped memory profiling. This does not respect the gpu_memory_utilization config. Only use kv_cache_memory_bytes config when you want manual control of KV cache memory size. If OOM'ed, check the difference of initial free memory between the current run and the previous run where kv_cache_memory_bytes is suggested and update it correspondingly.
+  (EngineCore pid=106) INFO 10-24 12:32:23 [kv_cache_utils.py:2235] GPU KV cache size: 93,200 tokens
+  (EngineCore pid=106) INFO 10-24 12:32:30 [core.py:348] init engine (profile, create kv cache, warmup model) took 28.07 s (compilation: 19.50 s)
+--- m5c-b/vllm-shared-b: what the engine says it allocated ---
+  (APIServer pid=1) INFO 10-24 12:29:19 [api_utils.py:273] non-default args: {'model_tag': 'Qwen/Qwen2.5-3B-Instruct', 'model': 'Qwen/Qwen2.5-3B-Instruct', 'dtype': 'half', 'max_model_len': 16384, 'gpu_memory_utilization': 0.475, 'kv_cache_memory_bytes': 3435973836, 'enable_prefix_caching': False, 'max_num_batched_tokens': 2048, 'max_num_seqs': 32}
+  (EngineCore pid=106) INFO 10-24 12:32:15 [gpu_worker.py:491] Initial free memory 11.11 GiB, reserved 3.2 GiB memory for KV Cache as specified by kv_cache_memory_bytes config and skipped memory profiling. This does not respect the gpu_memory_utilization config. Only use kv_cache_memory_bytes config when you want manual control of KV cache memory size. If OOM'ed, check the difference of initial free memory between the current run and the previous run where kv_cache_memory_bytes is suggested and update it correspondingly.
+  (EngineCore pid=106) INFO 10-24 12:32:15 [kv_cache_utils.py:2235] GPU KV cache size: 93,200 tokens
+  (EngineCore pid=106) INFO 10-24 12:32:26 [core.py:348] init engine (profile, create kv cache, warmup model) took 36.47 s (compilation: 23.34 s)
++ kill -0 15339
+++ date +%s
++ now=1792845167
++ for i in 0 1 2
++ '[' 1792845167 -ge 1792845153 ']'
+++ mj_result B2
+++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
+++ python3 - /src/m5c-run/mps-journal.jsonl B2
++ '[' -z pass ']'
++ for i in 0 1 2
++ '[' 1792845167 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845167 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845169
++ for i in 0 1 2
++ '[' 1792845169 -ge 1792845153 ']'
+++ mj_result B2
+++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
+++ python3 - /src/m5c-run/mps-journal.jsonl B2
++ '[' -z pass ']'
++ for i in 0 1 2
++ '[' 1792845169 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845169 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845171
++ for i in 0 1 2
++ '[' 1792845171 -ge 1792845153 ']'
+++ mj_result B2
+++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
+++ python3 - /src/m5c-run/mps-journal.jsonl B2
++ '[' -z pass ']'
++ for i in 0 1 2
++ '[' 1792845171 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845171 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845173
++ for i in 0 1 2
++ '[' 1792845173 -ge 1792845153 ']'
+++ mj_result B2
+++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
+++ python3 - /src/m5c-run/mps-journal.jsonl B2
++ '[' -z pass ']'
++ for i in 0 1 2
++ '[' 1792845173 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845173 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845175
++ for i in 0 1 2
++ '[' 1792845175 -ge 1792845153 ']'
+++ mj_result B2
+++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
+++ python3 - /src/m5c-run/mps-journal.jsonl B2
++ '[' -z pass ']'
++ for i in 0 1 2
++ '[' 1792845175 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845175 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845177
++ for i in 0 1 2
++ '[' 1792845177 -ge 1792845153 ']'
+++ mj_result B2
+++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
+++ python3 - /src/m5c-run/mps-journal.jsonl B2
++ '[' -z pass ']'
++ for i in 0 1 2
++ '[' 1792845177 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845177 -ge 1792846353 ']'
++ sleep 2
+wrote 249 trace rows to /src/m5c-run/trace-mps-1.jsonl and manifest /src/m5c-run/manifest-mps-1.yaml (arm=mps)
++ kill -0 15339
+++ date +%s
++ now=1792845179
++ for i in 0 1 2
++ '[' 1792845179 -ge 1792845153 ']'
+++ mj_result B2
+++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
+++ python3 - /src/m5c-run/mps-journal.jsonl B2
++ '[' -z pass ']'
++ for i in 0 1 2
++ '[' 1792845179 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845179 -ge 1792846353 ']'
++ sleep 2
+client connection mode: pooled (MaxIdleConnsPerHost=127, drain=true) for 249 rows at timeout 1m0s
+request priorities: none (requests carry no priority field)
++ kill -0 15339
+++ date +%s
++ now=1792845181
++ for i in 0 1 2
++ '[' 1792845181 -ge 1792845153 ']'
+++ mj_result B2
+++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
+++ python3 - /src/m5c-run/mps-journal.jsonl B2
++ '[' -z pass ']'
++ for i in 0 1 2
++ '[' 1792845181 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845181 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845183
++ for i in 0 1 2
++ '[' 1792845183 -ge 1792845153 ']'
+++ mj_result B2
+++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
+++ python3 - /src/m5c-run/mps-journal.jsonl B2
++ '[' -z pass ']'
++ for i in 0 1 2
++ '[' 1792845183 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845183 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845185
++ for i in 0 1 2
++ '[' 1792845185 -ge 1792845153 ']'
+++ mj_result B2
+++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
+++ python3 - /src/m5c-run/mps-journal.jsonl B2
++ '[' -z pass ']'
++ for i in 0 1 2
++ '[' 1792845185 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845185 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845187
++ for i in 0 1 2
++ '[' 1792845187 -ge 1792845153 ']'
+++ mj_result B2
+++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
+++ python3 - /src/m5c-run/mps-journal.jsonl B2
++ '[' -z pass ']'
++ for i in 0 1 2
++ '[' 1792845187 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845187 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845189
++ for i in 0 1 2
++ '[' 1792845189 -ge 1792845153 ']'
+++ mj_result B2
+++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
+++ python3 - /src/m5c-run/mps-journal.jsonl B2
++ '[' -z pass ']'
++ for i in 0 1 2
++ '[' 1792845189 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845189 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845191
++ for i in 0 1 2
++ '[' 1792845191 -ge 1792845153 ']'
+++ mj_result B2
+++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
+++ python3 - /src/m5c-run/mps-journal.jsonl B2
++ '[' -z pass ']'
++ for i in 0 1 2
++ '[' 1792845191 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845191 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845193
++ for i in 0 1 2
++ '[' 1792845193 -ge 1792845153 ']'
+++ mj_result B2
+++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
+++ python3 - /src/m5c-run/mps-journal.jsonl B2
++ '[' -z pass ']'
++ for i in 0 1 2
++ '[' 1792845193 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845193 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845196
++ for i in 0 1 2
++ '[' 1792845196 -ge 1792845153 ']'
+++ mj_result B2
+++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
+++ python3 - /src/m5c-run/mps-journal.jsonl B2
++ '[' -z pass ']'
++ for i in 0 1 2
++ '[' 1792845196 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845196 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845198
++ for i in 0 1 2
++ '[' 1792845198 -ge 1792845153 ']'
+++ mj_result B2
+++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
+++ python3 - /src/m5c-run/mps-journal.jsonl B2
++ '[' -z pass ']'
++ for i in 0 1 2
++ '[' 1792845198 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845198 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845200
++ for i in 0 1 2
++ '[' 1792845200 -ge 1792845153 ']'
+++ mj_result B2
+++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
+++ python3 - /src/m5c-run/mps-journal.jsonl B2
++ '[' -z pass ']'
++ for i in 0 1 2
++ '[' 1792845200 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845200 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845202
++ for i in 0 1 2
++ '[' 1792845202 -ge 1792845153 ']'
+++ mj_result B2
+++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
+++ python3 - /src/m5c-run/mps-journal.jsonl B2
++ '[' -z pass ']'
++ for i in 0 1 2
++ '[' 1792845202 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845202 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845204
++ for i in 0 1 2
++ '[' 1792845204 -ge 1792845153 ']'
+++ mj_result B2
+++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
+++ python3 - /src/m5c-run/mps-journal.jsonl B2
++ '[' -z pass ']'
++ for i in 0 1 2
++ '[' 1792845204 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845204 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845206
++ for i in 0 1 2
++ '[' 1792845206 -ge 1792845153 ']'
+++ mj_result B2
+++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
+++ python3 - /src/m5c-run/mps-journal.jsonl B2
++ '[' -z pass ']'
++ for i in 0 1 2
++ '[' 1792845206 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845206 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845208
++ for i in 0 1 2
++ '[' 1792845208 -ge 1792845153 ']'
+++ mj_result B2
+++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
+++ python3 - /src/m5c-run/mps-journal.jsonl B2
++ '[' -z pass ']'
++ for i in 0 1 2
++ '[' 1792845208 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845208 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845210
++ for i in 0 1 2
++ '[' 1792845210 -ge 1792845153 ']'
+++ mj_result B2
+++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
+++ python3 - /src/m5c-run/mps-journal.jsonl B2
++ '[' -z pass ']'
++ for i in 0 1 2
++ '[' 1792845210 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845210 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845212
++ for i in 0 1 2
++ '[' 1792845212 -ge 1792845153 ']'
+++ mj_result B2
+++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
+++ python3 - /src/m5c-run/mps-journal.jsonl B2
++ '[' -z pass ']'
++ for i in 0 1 2
++ '[' 1792845212 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845212 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845214
++ for i in 0 1 2
++ '[' 1792845214 -ge 1792845153 ']'
+++ mj_result B2
+++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
+++ python3 - /src/m5c-run/mps-journal.jsonl B2
++ '[' -z pass ']'
++ for i in 0 1 2
++ '[' 1792845214 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845214 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845216
++ for i in 0 1 2
++ '[' 1792845216 -ge 1792845153 ']'
+++ mj_result B2
+++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
+++ python3 - /src/m5c-run/mps-journal.jsonl B2
++ '[' -z pass ']'
++ for i in 0 1 2
++ '[' 1792845216 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845216 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845218
++ for i in 0 1 2
++ '[' 1792845218 -ge 1792845153 ']'
+++ mj_result B2
+++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
+++ python3 - /src/m5c-run/mps-journal.jsonl B2
++ '[' -z pass ']'
++ for i in 0 1 2
++ '[' 1792845218 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845218 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845220
++ for i in 0 1 2
++ '[' 1792845220 -ge 1792845153 ']'
+++ mj_result B2
+++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
+++ python3 - /src/m5c-run/mps-journal.jsonl B2
++ '[' -z pass ']'
++ for i in 0 1 2
++ '[' 1792845220 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845220 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845222
++ for i in 0 1 2
++ '[' 1792845222 -ge 1792845153 ']'
+++ mj_result B2
+++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
+++ python3 - /src/m5c-run/mps-journal.jsonl B2
++ '[' -z pass ']'
++ for i in 0 1 2
++ '[' 1792845222 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845222 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845224
++ for i in 0 1 2
++ '[' 1792845224 -ge 1792845153 ']'
+++ mj_result B2
+++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
+++ python3 - /src/m5c-run/mps-journal.jsonl B2
++ '[' -z pass ']'
++ for i in 0 1 2
++ '[' 1792845224 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845224 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845226
++ for i in 0 1 2
++ '[' 1792845226 -ge 1792845153 ']'
+++ mj_result B2
+++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
+++ python3 - /src/m5c-run/mps-journal.jsonl B2
++ '[' -z pass ']'
++ for i in 0 1 2
++ '[' 1792845226 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845226 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845228
++ for i in 0 1 2
++ '[' 1792845228 -ge 1792845153 ']'
+++ mj_result B2
+++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
+++ python3 - /src/m5c-run/mps-journal.jsonl B2
++ '[' -z pass ']'
++ for i in 0 1 2
++ '[' 1792845228 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845228 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845230
++ for i in 0 1 2
++ '[' 1792845230 -ge 1792845153 ']'
+++ mj_result B2
+++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
+++ python3 - /src/m5c-run/mps-journal.jsonl B2
++ '[' -z pass ']'
++ for i in 0 1 2
++ '[' 1792845230 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845230 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845232
++ for i in 0 1 2
++ '[' 1792845232 -ge 1792845153 ']'
+++ mj_result B2
+++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
+++ python3 - /src/m5c-run/mps-journal.jsonl B2
++ '[' -z pass ']'
++ for i in 0 1 2
++ '[' 1792845232 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845232 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845234
++ for i in 0 1 2
++ '[' 1792845234 -ge 1792845153 ']'
+++ mj_result B2
+++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
+++ python3 - /src/m5c-run/mps-journal.jsonl B2
++ '[' -z pass ']'
++ for i in 0 1 2
++ '[' 1792845234 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845234 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845236
++ for i in 0 1 2
++ '[' 1792845236 -ge 1792845153 ']'
+++ mj_result B2
+++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
+++ python3 - /src/m5c-run/mps-journal.jsonl B2
++ '[' -z pass ']'
++ for i in 0 1 2
++ '[' 1792845236 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845236 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845238
++ for i in 0 1 2
++ '[' 1792845238 -ge 1792845153 ']'
+++ mj_result B2
+++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
+++ python3 - /src/m5c-run/mps-journal.jsonl B2
++ '[' -z pass ']'
++ for i in 0 1 2
++ '[' 1792845238 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845238 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845240
++ for i in 0 1 2
++ '[' 1792845240 -ge 1792845153 ']'
+++ mj_result B2
+++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
+++ python3 - /src/m5c-run/mps-journal.jsonl B2
++ '[' -z pass ']'
++ for i in 0 1 2
++ '[' 1792845240 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845240 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845242
++ for i in 0 1 2
++ '[' 1792845242 -ge 1792845153 ']'
+++ mj_result B2
+++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
+++ python3 - /src/m5c-run/mps-journal.jsonl B2
++ '[' -z pass ']'
++ for i in 0 1 2
++ '[' 1792845242 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845242 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845244
++ for i in 0 1 2
++ '[' 1792845244 -ge 1792845153 ']'
+++ mj_result B2
+++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
+++ python3 - /src/m5c-run/mps-journal.jsonl B2
++ '[' -z pass ']'
++ for i in 0 1 2
++ '[' 1792845244 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845244 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845246
++ for i in 0 1 2
++ '[' 1792845246 -ge 1792845153 ']'
+++ mj_result B2
+++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
+++ python3 - /src/m5c-run/mps-journal.jsonl B2
++ '[' -z pass ']'
++ for i in 0 1 2
++ '[' 1792845246 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845246 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845248
++ for i in 0 1 2
++ '[' 1792845248 -ge 1792845153 ']'
+++ mj_result B2
+++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
+++ python3 - /src/m5c-run/mps-journal.jsonl B2
++ '[' -z pass ']'
++ for i in 0 1 2
++ '[' 1792845248 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845248 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845250
++ for i in 0 1 2
++ '[' 1792845250 -ge 1792845153 ']'
+++ mj_result B2
+++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
+++ python3 - /src/m5c-run/mps-journal.jsonl B2
++ '[' -z pass ']'
++ for i in 0 1 2
++ '[' 1792845250 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845250 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845252
++ for i in 0 1 2
++ '[' 1792845252 -ge 1792845153 ']'
+++ mj_result B2
+++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
+++ python3 - /src/m5c-run/mps-journal.jsonl B2
++ '[' -z pass ']'
++ for i in 0 1 2
++ '[' 1792845252 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845252 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845254
++ for i in 0 1 2
++ '[' 1792845254 -ge 1792845153 ']'
+++ mj_result B2
+++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
+++ python3 - /src/m5c-run/mps-journal.jsonl B2
++ '[' -z pass ']'
++ for i in 0 1 2
++ '[' 1792845254 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845254 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845256
++ for i in 0 1 2
++ '[' 1792845256 -ge 1792845153 ']'
+++ mj_result B2
+++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
+++ python3 - /src/m5c-run/mps-journal.jsonl B2
++ '[' -z pass ']'
++ for i in 0 1 2
++ '[' 1792845256 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845256 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845258
++ for i in 0 1 2
++ '[' 1792845258 -ge 1792845153 ']'
+++ mj_result B2
+++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
+++ python3 - /src/m5c-run/mps-journal.jsonl B2
++ '[' -z pass ']'
++ for i in 0 1 2
++ '[' 1792845258 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845258 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845260
++ for i in 0 1 2
++ '[' 1792845260 -ge 1792845153 ']'
+++ mj_result B2
+++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
+++ python3 - /src/m5c-run/mps-journal.jsonl B2
++ '[' -z pass ']'
++ for i in 0 1 2
++ '[' 1792845260 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845260 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845262
++ for i in 0 1 2
++ '[' 1792845262 -ge 1792845153 ']'
+++ mj_result B2
+++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
+++ python3 - /src/m5c-run/mps-journal.jsonl B2
++ '[' -z pass ']'
++ for i in 0 1 2
++ '[' 1792845262 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845262 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845264
++ for i in 0 1 2
++ '[' 1792845264 -ge 1792845153 ']'
+++ mj_result B2
+++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
+++ python3 - /src/m5c-run/mps-journal.jsonl B2
++ '[' -z pass ']'
++ for i in 0 1 2
++ '[' 1792845264 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845264 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845267
++ for i in 0 1 2
++ '[' 1792845267 -ge 1792845153 ']'
+++ mj_result B2
+++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
+++ python3 - /src/m5c-run/mps-journal.jsonl B2
++ '[' -z pass ']'
++ for i in 0 1 2
++ '[' 1792845267 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845267 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845269
++ for i in 0 1 2
++ '[' 1792845269 -ge 1792845153 ']'
+++ mj_result B2
+++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
+++ python3 - /src/m5c-run/mps-journal.jsonl B2
++ '[' -z pass ']'
++ for i in 0 1 2
++ '[' 1792845269 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845269 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845271
++ for i in 0 1 2
++ '[' 1792845271 -ge 1792845153 ']'
+++ mj_result B2
+++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
+++ python3 - /src/m5c-run/mps-journal.jsonl B2
++ '[' -z pass ']'
++ for i in 0 1 2
++ '[' 1792845271 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845271 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845273
++ for i in 0 1 2
++ '[' 1792845273 -ge 1792845153 ']'
+++ mj_result B2
+++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
+++ python3 - /src/m5c-run/mps-journal.jsonl B2
++ '[' -z pass ']'
++ for i in 0 1 2
++ '[' 1792845273 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845273 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845275
++ for i in 0 1 2
++ '[' 1792845275 -ge 1792845153 ']'
+++ mj_result B2
+++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
+++ python3 - /src/m5c-run/mps-journal.jsonl B2
++ '[' -z pass ']'
++ for i in 0 1 2
++ '[' 1792845275 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845275 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845277
++ for i in 0 1 2
++ '[' 1792845277 -ge 1792845153 ']'
+++ mj_result B2
+++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
+++ python3 - /src/m5c-run/mps-journal.jsonl B2
++ '[' -z pass ']'
++ for i in 0 1 2
++ '[' 1792845277 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845277 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845279
++ for i in 0 1 2
++ '[' 1792845279 -ge 1792845153 ']'
+++ mj_result B2
+++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
+++ python3 - /src/m5c-run/mps-journal.jsonl B2
++ '[' -z pass ']'
++ for i in 0 1 2
++ '[' 1792845279 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845279 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845281
++ for i in 0 1 2
++ '[' 1792845281 -ge 1792845153 ']'
+++ mj_result B2
+++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
+++ python3 - /src/m5c-run/mps-journal.jsonl B2
++ '[' -z pass ']'
++ for i in 0 1 2
++ '[' 1792845281 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845281 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845283
++ for i in 0 1 2
++ '[' 1792845283 -ge 1792845153 ']'
+++ mj_result B2
+++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
+++ python3 - /src/m5c-run/mps-journal.jsonl B2
++ '[' -z pass ']'
++ for i in 0 1 2
++ '[' 1792845283 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845283 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845285
++ for i in 0 1 2
++ '[' 1792845285 -ge 1792845153 ']'
+++ mj_result B2
+++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
+++ python3 - /src/m5c-run/mps-journal.jsonl B2
++ '[' -z pass ']'
++ for i in 0 1 2
++ '[' 1792845285 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845285 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845287
++ for i in 0 1 2
++ '[' 1792845287 -ge 1792845153 ']'
+++ mj_result B2
+++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
+++ python3 - /src/m5c-run/mps-journal.jsonl B2
++ '[' -z pass ']'
++ for i in 0 1 2
++ '[' 1792845287 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845287 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845289
++ for i in 0 1 2
++ '[' 1792845289 -ge 1792845153 ']'
+++ mj_result B2
+++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
+++ python3 - /src/m5c-run/mps-journal.jsonl B2
++ '[' -z pass ']'
++ for i in 0 1 2
++ '[' 1792845289 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845289 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845291
++ for i in 0 1 2
++ '[' 1792845291 -ge 1792845153 ']'
+++ mj_result B2
+++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
+++ python3 - /src/m5c-run/mps-journal.jsonl B2
++ '[' -z pass ']'
++ for i in 0 1 2
++ '[' 1792845291 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845291 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845293
++ for i in 0 1 2
++ '[' 1792845293 -ge 1792845153 ']'
+++ mj_result B2
+++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
+++ python3 - /src/m5c-run/mps-journal.jsonl B2
++ '[' -z pass ']'
++ for i in 0 1 2
++ '[' 1792845293 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845293 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845295
++ for i in 0 1 2
++ '[' 1792845295 -ge 1792845153 ']'
+++ mj_result B2
+++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
+++ python3 - /src/m5c-run/mps-journal.jsonl B2
++ '[' -z pass ']'
++ for i in 0 1 2
++ '[' 1792845295 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845295 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845297
++ for i in 0 1 2
++ '[' 1792845297 -ge 1792845153 ']'
+++ mj_result B2
+++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
+++ python3 - /src/m5c-run/mps-journal.jsonl B2
++ '[' -z pass ']'
++ for i in 0 1 2
++ '[' 1792845297 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845297 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845299
++ for i in 0 1 2
++ '[' 1792845299 -ge 1792845153 ']'
+++ mj_result B2
+++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
+++ python3 - /src/m5c-run/mps-journal.jsonl B2
++ '[' -z pass ']'
++ for i in 0 1 2
++ '[' 1792845299 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845299 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845301
++ for i in 0 1 2
++ '[' 1792845301 -ge 1792845153 ']'
+++ mj_result B2
+++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
+++ python3 - /src/m5c-run/mps-journal.jsonl B2
++ '[' -z pass ']'
++ for i in 0 1 2
++ '[' 1792845301 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845301 -ge 1792846353 ']'
++ sleep 2
++ kill -0 15339
+++ date +%s
++ now=1792845303
++ for i in 0 1 2
++ '[' 1792845303 -ge 1792845153 ']'
+++ mj_result B2
+++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
+++ python3 - /src/m5c-run/mps-journal.jsonl B2
++ '[' -z pass ']'
++ for i in 0 1 2
++ '[' 1792845303 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845303 -ge 1792846353 ']'
++ sleep 2
+replayed 249 rows against http://127.0.0.1:18080 (arm=mps) to /src/m5c-run/raw-mps-1.jsonl
++ kill -0 15339
+++ date +%s
++ now=1792845305
++ for i in 0 1 2
++ '[' 1792845305 -ge 1792845153 ']'
+++ mj_result B2
+++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
+++ python3 - /src/m5c-run/mps-journal.jsonl B2
++ '[' -z pass ']'
++ for i in 0 1 2
++ '[' 1792845305 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845305 -ge 1792846353 ']'
++ sleep 2
+==   249 rows
+== MATRIX DONE. Raw evidence in /src/m5c-run (see its README.txt before analysing).
+== The comparison is premium TTFT p99 across the sharing modes at equal offered load.
+== Per-engine GPU utilisation is deliberately absent: under time-slicing nothing can attribute it.
+expected-files.txt: expected=17 actual=17 basis=completed-1x4+refused-0+invalid-0+unwritten-0+conditional-3+metrics-4+fixed-6 mismatched=none
++ kill -0 15339
+++ date +%s
++ now=1792845307
++ for i in 0 1 2
++ '[' 1792845307 -ge 1792845153 ']'
+++ mj_result B2
+++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
+++ python3 - /src/m5c-run/mps-journal.jsonl B2
++ '[' -z pass ']'
++ for i in 0 1 2
++ '[' 1792845307 -ge 1792845633 ']'
++ for i in 0 1 2
++ '[' 1792845307 -ge 1792846353 ']'
++ sleep 2
+the card is the rented instance, so nothing is scaled down here: hack/m5c-gpu-session.sh terminates it, and the instance's own shutdown backstop covers a shell that dies in this script
++ kill -0 15339
++ wait 15339
++ matrix_rc=0
++ echo 'matrix exited 0'
+matrix exited 0
++ evidence_rc=0
+++ date +%s
++ left=1164
++ '[' 1164 -gt 5 ']'
++ tar -czf /tmp/evidence.tgz -C /src m5c-run
++ '[' 0 '!=' 0 ']'
++ timeout 1164 aws s3 cp --only-show-errors /tmp/evidence.tgz s3://mpscap-gpu-007635145730/mpscap-20261024-run3-4ee4e34c/evidence.tgz
++ inv=/src/m5c-run/mpscap/diag/inventory.tsv
++ '[' 0 = 0 ']'
++ grep -qx required_failed=0 /src/m5c-run/mpscap/diag/complete
++ '[' -s /src/m5c-run/mpscap/diag/inventory.tsv ']'
++ awk '-F\t' 'NR > 1 && $5 == "yes" && $2 != 0 {bad = 1} END {exit bad}' /src/m5c-run/mpscap/diag/inventory.tsv
++ mj_fact diagnostics_uploaded true
++ case "$2" in
++ mj_has_fact diagnostics_uploaded
++ '[' -s /src/m5c-run/mps-journal.jsonl ']'
++ python3 - /src/m5c-run/mps-journal.jsonl diagnostics_uploaded
++ mj_append fact name=diagnostics_uploaded value=true detail=
++ '[' -n /src/m5c-run/mps-journal.jsonl ']'
++ python3 - /src/m5c-run/mps-journal.jsonl fact name=diagnostics_uploaded value=true detail=
++ '[' -n 'aws s3 cp --only-show-errors /src/m5c-run/mps-journal.jsonl s3://mpscap-gpu-007635145730/mpscap-20261024-run3-4ee4e34c/journal.jsonl' ']'
++ aws s3 cp --only-show-errors /src/m5c-run/mps-journal.jsonl s3://mpscap-gpu-007635145730/mpscap-20261024-run3-4ee4e34c/journal.jsonl
++ return 0
++ upload /var/log/mpscap.log log.txt
++ aws s3 cp --only-show-errors /var/log/mpscap.log s3://mpscap-gpu-007635145730/mpscap-20261024-run3-4ee4e34c/log.txt
++ echo 4ee4e34c
++ upload /tmp/DONE DONE
++ aws s3 cp --only-show-errors /tmp/DONE s3://mpscap-gpu-007635145730/mpscap-20261024-run3-4ee4e34c/DONE
++ upload /var/log/mpscap.log log.txt
++ aws s3 cp --only-show-errors /var/log/mpscap.log s3://mpscap-gpu-007635145730/mpscap-20261024-run3-4ee4e34c/log.txt

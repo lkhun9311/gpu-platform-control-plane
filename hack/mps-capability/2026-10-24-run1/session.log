@@ -1,0 +1,69 @@
+== the MPS capability session, mps-capability-2026-10-24, from 04fac8f345607aac1248664345a7147a50cde636, into hack/mpscap-20261024-run1
+== AMI ami-097edab977037f65f: Deep Learning Base OSS Nvidia Driver GPU AMI (Ubuntu 22.04) 20261016	available
+== Spot g5.2xlarge under $1.1324/h in: ap-northeast-2a ap-northeast-2c ap-northeast-2d (ap-northeast-2d	0.685400 ap-northeast-2c	0.675900 ap-northeast-2a	0.683000)
+== the termination sweeper: Active, ENABLED rate(5 minutes), 6.0 run(s) and 0.0 error(s) in the last 30 minutes
+== credentials expire in 685 minutes
+== building the gateway and the harness for the instance
+== creating results bucket mpscap-gpu-007635145730
+== creating instance role mpscap-gpu
+== waiting for the instance profile to propagate
+== launching g5.2xlarge Spot (max $1.1324/h), study-deadline 2026-10-24T05:05:34Z -- the instance bills from here
+== launched i-0d6780100fc296545 in ap-northeast-2a
+== LaunchTime 2026-10-24T04:31:37+00:00; the sweeper's deadline moved to 2026-10-24T05:06:07Z
+== the wait ended with status 0 ()
+== terminating i-0d6780100fc296545
+== i-0d6780100fc296545 is shutting-down
+== i-0d6780100fc296545 is shutting-down
+== i-0d6780100fc296545 is shutting-down
+== i-0d6780100fc296545 is shutting-down
+== i-0d6780100fc296545 is shutting-down
+== i-0d6780100fc296545 is shutting-down
+== i-0d6780100fc296545 is shutting-down
+== i-0d6780100fc296545 is shutting-down
+== i-0d6780100fc296545 is shutting-down
+== i-0d6780100fc296545 is shutting-down
+== i-0d6780100fc296545 is shutting-down
+== i-0d6780100fc296545 is shutting-down
+== i-0d6780100fc296545 is shutting-down
+== i-0d6780100fc296545 is shutting-down
+== i-0d6780100fc296545 is shutting-down
+== i-0d6780100fc296545 is shutting-down
+== i-0d6780100fc296545 is shutting-down
+== i-0d6780100fc296545 is shutting-down
+== i-0d6780100fc296545 is shutting-down
+== i-0d6780100fc296545 is shutting-down
+== i-0d6780100fc296545 is shutting-down
+== i-0d6780100fc296545 is shutting-down
+== i-0d6780100fc296545 is shutting-down
+== i-0d6780100fc296545 is shutting-down
+== i-0d6780100fc296545 is shutting-down
+== i-0d6780100fc296545 is shutting-down
+== i-0d6780100fc296545 is shutting-down
+== i-0d6780100fc296545 is shutting-down
+== i-0d6780100fc296545 is shutting-down
+== i-0d6780100fc296545 is shutting-down
+== i-0d6780100fc296545 is shutting-down
+== i-0d6780100fc296545 is shutting-down
+== i-0d6780100fc296545 is shutting-down
+== i-0d6780100fc296545 is shutting-down
+== i-0d6780100fc296545 is shutting-down
+== i-0d6780100fc296545 is shutting-down
+== i-0d6780100fc296545 is shutting-down
+== i-0d6780100fc296545 is shutting-down
+== i-0d6780100fc296545 is shutting-down
+== i-0d6780100fc296545 is shutting-down
+== i-0d6780100fc296545 is shutting-down
+== i-0d6780100fc296545 is shutting-down
+== i-0d6780100fc296545 is shutting-down
+== i-0d6780100fc296545 is shutting-down
+== i-0d6780100fc296545 is shutting-down
+== i-0d6780100fc296545 is shutting-down
+== i-0d6780100fc296545 is shutting-down
+== i-0d6780100fc296545 is shutting-down
+== i-0d6780100fc296545 is shutting-down
+== i-0d6780100fc296545 is shutting-down
+== i-0d6780100fc296545 is shutting-down
+== i-0d6780100fc296545 is shutting-down
+== i-0d6780100fc296545 is shutting-down
+== i-0d6780100fc296545 is terminated
+== the verdict is in hack/mpscap-20261024-run1/verdict.txt and the evidence in hack/mpscap-20261024-run1/m5c-run

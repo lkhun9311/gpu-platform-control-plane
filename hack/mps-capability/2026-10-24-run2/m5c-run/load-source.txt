@@ -1,0 +1,9 @@
+study: mps-capability-2026-10-24
+order: mps/1
+seeds: 11 in every repetition
+PREMIUM_PROMPT_CHARS: 1174 (default of hack/m5c-matrix.sh)
+NOISY_PROMPT_CHARS: 42579 (default of hack/m5c-matrix.sh)
+REQUEST_TIMEOUT_MS: 60000 (default of hack/m5c-matrix.sh)
+PREMIUM_OUTPUT_TOKENS: 64 (default of hack/m5c-matrix.sh)
+NOISY_OUTPUT_TOKENS: 16 (default of hack/m5c-matrix.sh)
+MODEL_REVISION: aa8e72537993ba99e69dfaafa59ed015b17504d1 (default of hack/m5c-matrix.sh)

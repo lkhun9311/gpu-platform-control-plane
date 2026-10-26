@@ -1,0 +1,12 @@
+commit=8ed1fbe335fcf8f78992deb7244fa58f5c5f5831
+study=mps-capability-2026-10-24
+ami_id=ami-097edab977037f65f
+ami_name=Deep Learning Base OSS Nvidia Driver GPU AMI (Ubuntu 22.04) 20261016	available
+instance_type=g5.2xlarge
+max_spot_price=1.1324
+source_sha256=634b739f46092cc542e52f07e54e455023feb07529ea11ef8006b6134b1fdfda
+gateway_sha256=5b996d0ed56a96262c82b3f4cc44e4ab993e1e64fe12c7891f5e5f051ad421af
+benchharness_sha256=a94feb47ec65186dc033dc23159211ac1e69fdce22f315cb4aecb2f1bd4284a9
+pin_overlay=8de32fae1adfac35de19f2545f74d61ebc47175f32d343a2c4d58b8deb30bf47
+pin_engines=2b2c18b35b4c9a5526f82679d940cca13c787453c317b84ebc0a67ac0cd9574e
+run_id=mpscap-20261024-run3-4ee4e34c

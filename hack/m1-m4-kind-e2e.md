@@ -159,15 +159,25 @@ the failure an earlier version of this script produced.
 
 ## Notes and caveats
 
-**A quarantined node does not get its GPUs back.** Step 2 stops and starts a worker's
-kubelet, which empties `/var/lib/kubelet/device-plugins`. The simulator pod stays
-`Running` with 0 restarts and never re-registers, so that node advertises 0 GPUs for
+**A quarantined node did not get its GPUs back, until 2026-10-22.** Step 2 stops and starts a worker's
+kubelet, which empties `/var/lib/kubelet/device-plugins`. On 2026-09-29 the simulator pod stayed
+`Running` with 0 restarts and never re-registered, so that node advertised 0 GPUs for
 the rest of the run — visible in the capacity table step 5 prints before it schedules
 anything. Nothing reported the loss: no pod died, no phase moved, no condition went
 false. A real `nvidia-device-plugin` watches `kubelet.sock` and re-registers for
-exactly this reason; the simulator in this repository does not. The step order was left
+exactly this reason. The step order was left
 alone rather than rearranged to avoid the collision, because reordering would remove
 the observation, not the fault.
+
+The simulator now re-registers (`97c52d51`, which polls `kubelet.sock` and its own socket). It was checked
+on kind on 2026-10-23 by `hack/simulator-kubelet-restart.sh`, the same stop and start on one worker of a fresh
+cluster, with the simulator from before the fix as its control. The fixed simulator registered again in the
+same second as the kubelet's start, in the same Pod with 0 restarts; the worker advertised 2 GPUs again, and a
+Pod requesting 2 was bound to it. The control reproduced the fault: the worker still advertised 0 after 120 s,
+with no plugin socket, and the 2-GPU Pod stayed `Pending` on `Insufficient nvidia.com/gpu`. That is one run of
+each arm, and it says nothing about a real device plugin. The first two runs of the check were invalid: the
+first because of an image pull policy, and the second because its liveness gate read a heartbeat the
+kubelet writes only every few minutes. Both are fixed in the script.
 
 **Steps 3 and 5 are not independent.** The GPU ceiling of 1 that step 3 leaves standing
 is the ceiling the step 5 replica runs under, so the serving deployment is demonstrably

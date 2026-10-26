@@ -59,6 +59,36 @@ The fix Finding 10 pointed at, `Running` only when every rank is Ready, was conf
 That is not a run of this study, and the scorer says so; P1 and P2 describe the old rule and fail there as expected.
 What it showed is in `docs/superpowers/specs/2026-10-21-phase-waits-for-every-rank-design.md`, "Confirmation on kind".
 
+## Result after both fixes (registered run 2026-10-23, `hack/distributed-partial-placement-20261023T011849Z/`)
+
+Registered by `docs/superpowers/specs/2026-10-22-finding-10-after-the-phase-fix-design.md` and run from its freezing commit `55530a98`, with the controller's phase fix and the trainer's signal fix both in place, at the registered 600 s window with the squatter deleted at 300 s.
+`score.txt` is the scorer's output, identical to what the run printed; scoring the gzipped recordings gave byte-identical output, and the uncompressed checksums are in `SHA256SUMS-uncompressed-jsonl`.
+`dirty_files=1` in `provenance.txt` is this evidence directory itself, which exists before that line is written.
+Both settings were shown in force, all ten runs were valid, and every registered prediction held:
+
+| run | prediction | the numbers |
+|---|---|---|
+| all ten | Q1 held | M1 0 s, unrounded and after every single watch event, with no state seen only in a tie |
+| `off-never` ×2 | Q2 held | `Pending`, then `Admitted` with `readyRanks` 1 to the window's end; no `runningObservedAt`; one reservation of 599.8 and 599.2 s, censored at the window's end |
+| `off-late` ×2 | Q3 held | one entry into `Running`, 0.494 and 0.512 s after the second rank was Ready; `admitToRunningSeconds` 301.466 and 301.838; `Succeeded` at 305.1 and 305.6 s |
+| `ready-timeout-never` ×2 | Q4, Q6 held | Finding 10's P3 unchanged: admissions at 0, 150 and 330 s, two `PodsReadyTimeout` requests 120 s after their admission, then deactivation; no entry into `Running`; `admittedAt` the first admission's stamp throughout |
+| `ready-timeout-late` ×2 | Q5, Q6 held | Finding 10's P4 unchanged, admissions at 0, 150 and 330 s; the only entry into `Running` 0.4 s after the third admission's ranks were both Ready; `Succeeded` at 334.1 and 334.8 s |
+| `ready-timeout-witness` ×2 | Q1, Q6, Q7 held | the witness reserved 1.0 s after the first release, its Pod scheduled 0.03 s after that (M9), 2 s after the evicted rank's `finishedAt` |
+
+In all sixteen stopped attempts the placed rank ended with exit 143, and its container's `finishedAt` was 1.1 s before the recorded release (M8 −1.1 s, uncensored); exit 137 appears nowhere in the recordings.
+`finishedAt` is whole seconds, so −1.1 s says the rank stopped within the second before Kueue's release was recorded, not that it stopped before it was asked to.
+P1, P2 and P6 were contradicted, as the registration said they would be, because they describe the old phase rule and the old trainer.
+
+A separate script read the watch streams without `analyze.py` and re-derived the headline figures:
+- the CR's phase sequence in every run, with entries into `Running` only in the four `late` runs and only after both ranks' first Ready;
+- exit codes 143 and 0 only;
+- every stopped attempt's `finishedAt` 1.06 to 1.07 s before its Workload's quota transition;
+- in both witness runs, the witness's quota reserved 1.01 s after the first release and its Pod scheduled 0.03 s after that.
+
+Two things no prediction covered were seen, and they are reported as observations:
+- In the witness runs the job's second admission came at 186 s, not 150 s, because its two-GPU request waited for the witness to finish its 60 s on one of the two; the third came 180 s after the second, as without the witness.
+- In the four `late` runs the CR read `Running` for 1.0 to 2.7 s and then `Admitted` for 1.0 to 2.0 s before `Succeeded`. In that interval the ranks' Pods were still `Running` with `Ready=False`, then `Succeeded` about a second before the Job recorded `Complete`, and the phase rule, which needs a Ready rank for `Running` and the Job's completion for `Succeeded`, calls that `Admitted`. So the job's last seconds are reported as not yet running, the cautious side of the error Finding 10 measured.
+
 ## Rehearsals
 
 Two rehearsals ran before registration, on 200 s windows, to find harness defects; their numbers are not results and are not published.

@@ -741,10 +741,14 @@ class FrontierTest(unittest.TestCase):
             self.assertIn("%d:*) echo %s" % (seed, whole), lib)
 
 
-def lencal_block(d, ttft=None, a2c=None, skip=(), unfinished=()):
+def lencal_block(d, ttft=None, a2c=None, skip=(), unfinished=(), study=None, seed=None, checksums=None):
     """Every v27 calibration cell, as frontier_block builds v26's: ttft maps an arm to its premium first content after
-    arrival (20 ms by default); a2c maps a length to hold-cap's contender decision-to-first-content in ms."""
+    arrival (20 ms by default); a2c maps a length to hold-cap's contender decision-to-first-content in ms.
+    study, seed and checksums default to v27's; C3's calibration passes its own."""
     ttft, a2c = ttft or {}, a2c or {}
+    study = study or pr.LENCAL_STUDY
+    seed = seed or pr.LENCAL_SEED
+    checksums = checksums or pr.LENCAL_CHECKSUMS
     for c in pr.LENCAL_CELLS:
         if c in skip:
             continue
@@ -754,9 +758,9 @@ def lencal_block(d, ttft=None, a2c=None, skip=(), unfinished=()):
         cell.rows[0]["contentGapsMicros"] = [10_000] * 63
         cell.rows[1]["firstTokenUnixNanos"] = ORIGIN + 30_000_000
         cell.rows[1]["contentGapsMicros"] = [500] * 15
-        want = pr.LENCAL_CHECKSUMS["R1" if arm == "R1" else length]
+        want = checksums["R1" if arm == "R1" else length]
         for i, r in enumerate(cell.rows):
-            r.update({"index": i, "study": pr.LENCAL_STUDY, "arm": arm, "traceChecksum": want,
+            r.update({"index": i, "study": study, "arm": arm, "traceChecksum": want,
                       "promptLenChars": FIXTURE_TRACE[i]["promptLenChars"]})
         for r in cell.steps:
             if r.get("anchor"):
@@ -782,7 +786,7 @@ def lencal_block(d, ttft=None, a2c=None, skip=(), unfinished=()):
         cell.steps[-1].update({"seq_written": seq, "seq_produced": seq})
         cell.save()
         with open(os.path.join(d, "manifest-%s-1.yaml" % arm), "w") as f:
-            f.write('arm: "%s"\nseed: %d\nstudy: %s\ntraceChecksum: %s\n' % (arm, pr.LENCAL_SEED, pr.LENCAL_STUDY, want))
+            f.write('arm: "%s"\nseed: %d\nstudy: %s\ntraceChecksum: %s\n' % (arm, seed, study, want))
         write(os.path.join(d, "trace-%s-1.jsonl" % arm), FIXTURE_TRACE)
         for phase in ("before", "after"):
             with open(os.path.join(d, "engine-metrics-%s-1-%s.prom" % (arm, phase)), "w") as f:
@@ -883,6 +887,7 @@ class CalibrationTest(unittest.TestCase):
         write(path, recs)
         self.assertIn("off-long-1 admitted contenders the step log scheduled", self.v()["verdict"])
 
+
     # A row whose prompt is not its trace's replayed another workload (C3).
     # Mutation that turns it red: drop the payload comparison from provenance.
     def test_a_row_with_another_prompt_is_not_the_registered_cell(self):
@@ -916,6 +921,378 @@ class CalibrationTest(unittest.TestCase):
         for key, want in pr.LENCAL_CHECKSUMS.items():
             pat = "871:R1) echo %s" % want if key == "R1" else "871:*-%s) echo %s" % (key, want)
             self.assertIn(pat, lib)
+
+
+
+class HeadroomTest(unittest.TestCase):
+    # C3's calibration gate on built cells: v27's first rules, then the long length against S = 1.0533 x d(ref).
+    def setUp(self):
+        self.d = tempfile.mkdtemp()
+        patch = mock.patch.dict(pr.HEADROOM_CHECKSUMS, {k: FIXTURE_HASH for k in pr.HEADROOM_CHECKSUMS})
+        patch.start()
+        self.addCleanup(patch.stop)
+        self.protective = {"hold-cap-short": 10_000_000, "hold-cap-ref": 10_000_000, "hold-cap-long": 10_000_000}
+
+    def block(self, a2c, **kw):
+        kw = {"study": pr.HEADROOM_STUDY, "seed": pr.HEADROOM_SEED, "checksums": pr.HEADROOM_CHECKSUMS, **kw}
+        lencal_block(self.d, ttft=self.protective, a2c=a2c, **kw)
+
+    # A long prefill of 1,700 ms against a reference of 1,600 ms outlasts S = 1,685.3 ms though not v26's 1,740 ms:
+    # feasible here, where v27's gate would say the challenge was not achieved, and S and the spacings frozen.
+    # Mutation that turns it red: judge the long length against V26_SPACING_MS.
+    def test_feasible_against_the_derived_spacing_not_v26s(self):
+        self.block({"short": 1300, "ref": 1600, "long": 1700})
+        v = pr.headroom(self.d)
+        s = round(1.0533 * 1600.002, 1)
+        self.assertEqual(v["verdict"], "feasible: hold-cap admissible and protective at every length, and the long length outlasts S = %.1f ms" % s)
+        self.assertEqual(v["fixed_spacing_ms"], s)
+        self.assertEqual(v["size_aware_spacings_ms"], {"short": round(s * 1300.002 / 1600.002, 1), "ref": round(s, 1),
+                                                       "long": round(s * 1700.002 / 1600.002, 1)})
+        self.assertEqual(v["spacings_status"], "frozen for the main study")
+
+    # 1,684 ms is past 1.05 times the reference (1,680) and short of S (1,685.3): the ratio is 1.0533, not 1.05.
+    # Mutation that turns it red: set HEADROOM_SPACING_RATIO to 1.05.
+    def test_a_long_prefill_short_of_s_is_no_challenge(self):
+        self.block({"short": 1300, "ref": 1600, "long": 1684})
+        v = pr.headroom(self.d)
+        self.assertTrue(v["verdict"].startswith("challenge not achieved: hold-cap's median engine prefill at the long length, 1684 ms"), v["verdict"])
+        self.assertEqual(v["spacings_status"], "provisional, not licensed for a main study")
+        self.assertIsNotNone(v["size_aware_spacings_ms"])
+
+    # v27's earlier rules still come first: a hold refusal at the long length is not feasible whatever the medians.
+    def test_hold_cap_inadmissible_outranks_the_challenge(self):
+        self.block({"short": 1300, "ref": 1600, "long": 1800})
+        path = os.path.join(self.d, "gateway-record-hold-cap-long-1.jsonl")
+        recs = pr.jsonl(path)
+        for r in recs:
+            if r["ev"] == "done" and r["requestId"] == "pp-A-off-1-1":
+                r["reason"] = "serial_prefill_hold_timeout"
+        write(path, recs)
+        self.assertEqual(pr.headroom(self.d)["verdict"], "not feasible: hold-cap was not admissible at long: hold refusals")
+
+    # Cells filed under v27's study are not C3's evidence, though seed and traces are C3's: only the study differs.
+    # Mutation that turns it red: score headroom with LENCAL_STUDY.
+    def test_cells_under_v27s_study_are_not_c3s(self):
+        self.block({"short": 1300, "ref": 1600, "long": 1800}, study=pr.LENCAL_STUDY)
+        v = pr.headroom(self.d)
+        self.assertTrue(v["verdict"].startswith("inconclusive: evidence not trusted"), v["verdict"])
+
+    # Cells under C3's study on v27's seed are not C3's evidence either: only the seed differs.
+    # Mutation that turns it red: score headroom with LENCAL_SEED.
+    def test_cells_on_v27s_seed_are_not_c3s(self):
+        self.block({"short": 1300, "ref": 1600, "long": 1800}, seed=pr.LENCAL_SEED)
+        v = pr.headroom(self.d)
+        self.assertTrue(v["verdict"].startswith("inconclusive: evidence not trusted"), v["verdict"])
+
+    # A NaN is not a ratio: it compares false both ways, so a line judged by it could fail with no rule seeing it.
+    # Mutation that turns it red: drop the NaN refusal in crossed_log_ratio.
+    def test_a_nan_is_not_a_crossed_ratio(self):
+        self.assertIsNone(pr.crossed_log_ratio(float("nan"), 20.0))
+        self.assertIsNone(pr.crossed_log_ratio(20.0, float("nan")))
+
+    # The rule behind it: a line that does not hold blocks feasible even when no verdict rule reads it, reached here
+    # by giving the protection line the NaN the old crossed_log_ratio returned.
+    # Mutation that turns it red: drop the rule that a line not holding blocks feasible.
+    def test_a_line_that_reaches_no_rule_still_blocks_feasible(self):
+        self.block({"short": 1300, "ref": 1600, "long": 1800})
+        with mock.patch.object(pr, "crossed_log_ratio", return_value=float("nan")):
+            v = pr.headroom(self.d)
+        self.assertTrue(v["verdict"].startswith("inconclusive: lines that did not hold and reached no rule"), v["verdict"])
+
+    # End to end, NaN first-content stamps in every hold-cap cell (astra's attack on the C3 page, 1): not feasible.
+    # Both tests above pin it; with either rule alone it stays green, which is why each has its own test.
+    def test_a_nan_timestamp_is_not_feasible(self):
+        self.block({"short": 1300, "ref": 1600, "long": 1800})
+        for length in ("short", "ref", "long"):
+            path = os.path.join(self.d, "gateway-record-hold-cap-%s-1.jsonl" % length)
+            recs = pr.jsonl(path)
+            for r in recs:
+                if r["ev"] == "done" and r["requestId"] == "pp-A-off-1-0":
+                    r["firstContentUnixNanos"] = float("nan")
+            write(path, recs)
+        v = pr.headroom(self.d)
+        self.assertFalse(v["verdict"].startswith("feasible"), v["verdict"])
+        self.assertTrue(v["verdict"].startswith("inconclusive"), v["verdict"])
+
+    # A step log's done record without its end time is malformed evidence: inconclusive, not a crash (astra's attack, 4).
+    # Mutation that turns it red: index done records' t2 directly again.
+    def test_a_done_record_without_its_end_time_is_inconclusive(self):
+        self.block({"short": 1300, "ref": 1600, "long": 1800})
+        path = os.path.join(self.d, "step-log-hold-cap-long-1.jsonl")
+        recs = pr.jsonl(path)
+        for r in recs:
+            if r.get("ev") == "done":
+                r.pop("t2", None)
+        write(path, recs)
+        v = pr.headroom(self.d)
+        self.assertTrue(v["verdict"].startswith("inconclusive"), v["verdict"])
+
+    # An unfinished prefill leaves no S to publish, and the verdict inconclusive.
+    def test_no_spacing_without_finite_medians(self):
+        self.block({"short": 1300, "ref": 1600, "long": 1800}, unfinished=("ref",))
+        v = pr.headroom(self.d)
+        self.assertTrue(v["verdict"].startswith("inconclusive: a length has no finite engine prefill median"), v["verdict"])
+        self.assertIsNone(v["fixed_spacing_ms"])
+        self.assertIsNone(v["size_aware_spacings_ms"])
+
+    # Medians of hundredths of a millisecond, as kind's stub engine gives, are positive yet round S to 0.0 ms, and any
+    # long length outlasts a spacing of zero: no spacing exists to challenge, so inconclusive and nothing published.
+    # Mutation that turns it red: drop the refusal of an S that rounds to zero.
+    def test_an_s_that_rounds_to_zero_is_no_spacing(self):
+        self.block({"short": 0.01, "ref": 0.02, "long": 0.03})
+        v = pr.headroom(self.d)
+        self.assertTrue(v["verdict"].startswith("inconclusive: S = 1.0533 x the reference's median rounds to 0.0 ms"), v["verdict"])
+        self.assertIsNone(v["fixed_spacing_ms"])
+        self.assertIsNone(v["size_aware_spacings_ms"])
+
+    # The scorer's checksums and the session library's are one table (a key assembled in two places).
+    def test_the_checksums_agree_with_the_session_library(self):
+        mock.patch.stopall()
+        lib = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib", "prospective-pilot.sh")).read()
+        self.assertIn("%d:R1) echo %s" % (pr.HEADROOM_SEED, pr.HEADROOM_CHECKSUMS["R1"]), lib)
+        for length in ("short", "ref", "long"):
+            self.assertIn("%d:*-%s) echo %s" % (pr.HEADROOM_SEED, length, pr.HEADROOM_CHECKSUMS[length]), lib)
+
+MAIN_TTFT = {"off": 20.0, "caponly": 20.0, "hold-cap": 10.0, "fixedS": 10.5, "fixedS-long": 30.0, "sizeaware": 10.0}
+MAIN_D = {"short": 1100, "ref": 1600, "long": 1750}
+
+
+def main_session(d, b, ttft=None, prefill=None, order=None, cap=None):
+    """One C3 main-study session, block b, as the matrix writes it: every cell's rows and records under request ids
+    naming stage H, the arm and the block, the engine's reported cap, the cell order and the GPU.
+    ttft maps an arm, or an arm at a length, to its premium first content after arrival in ms (MAIN_TTFT by default);
+    prefill maps a length to hold-cap's contender prefill in ms (MAIN_D); cap maps a cell to the cap its engine reports."""
+    ttft = {**MAIN_TTFT, **(ttft or {})}
+    prefill = {**MAIN_D, **(prefill or {})}
+    cap = cap or {}
+    for c in pr.MAIN_CELLS:
+        arm = c.rsplit("-", 1)[0]
+        family, length = (arm, None) if arm == "R1" else arm.rsplit("-", 1)
+        cell = Cell(d, arm, 1)
+        cell.rows[0]["contentGapsMicros"] = [10_000] * 63
+        cell.rows[1]["firstTokenUnixNanos"] = ORIGIN + 30_000_000
+        cell.rows[1]["contentGapsMicros"] = [500] * 15
+        want = pr.MAIN_CHECKSUMS[pr.MAIN_SEEDS[b]]["R1" if arm == "R1" else length]
+        for i, r in enumerate(cell.rows):
+            r.update({"index": i, "study": pr.MAIN_STUDY, "arm": arm, "traceChecksum": want,
+                      "promptLenChars": FIXTURE_TRACE[i]["promptLenChars"]})
+        for r in cell.steps:
+            if r.get("anchor"):
+                r["anchor"] = [0, ORIGIN - 100_000_000, 0]
+        reason = {"hold-cap": "serial_prefill_free", "fixedS": "fixed_spacing_free", "sizeaware": "fixed_spacing_free"}.get(family, "admission_off")
+        p = prefill.get(length, 1600)
+        for g in cell.gw:
+            if g["ev"] == "done":
+                g["decision"], g["reason"] = "admit", reason
+                if g["requestId"] == "pp-A-off-1-0":
+                    g["firstContentUnixNanos"] = g["arrivedUnixNanos"] + int(ttft.get(arm, ttft.get(family, 20.0)) * 1_000_000)
+                elif family == "hold-cap":
+                    g["firstContentUnixNanos"] = g["decidedUnixNanos"] + int(p * 1_000_000)
+                    g["releasedUnixNanos"] = g["firstContentUnixNanos"] - 100_000
+        cell.steps[0]["mono"] = 0
+        cell.steps.insert(3, {"ev": "done", "step": 1, "t2": int(p * 1_000_000)})
+        seq = 0
+        for r in cell.steps:
+            if r["ev"] != "terminal":
+                seq += 1
+                r["seq"] = seq
+        cell.steps[-1].update({"seq_written": seq, "seq_produced": seq})
+        # The matrix's request ids name the stage, arm and block; the fixture's are rewritten to them.
+        ids = "pp-H-%s-%d" % (arm, b)
+        cell.rows, cell.gw, cell.steps = (json.loads(json.dumps(x).replace("pp-A-off-1", ids)) for x in (cell.rows, cell.gw, cell.steps))
+        cell.save()
+        want_cap = cap.get(c, 0 if family in ("R1", "off") else 384)
+        with open(os.path.join(d, "engine-log-%s.txt" % c), "a") as f:
+            f.write("INFO non-default args: {'model': 'Qwen/Qwen2.5-3B-Instruct'%s}\n"
+                    % (", 'long_prefill_token_threshold': %d" % want_cap if want_cap else ""))
+        with open(os.path.join(d, "manifest-%s.yaml" % c), "w") as f:
+            f.write('arm: "%s"\nseed: %d\nstudy: %s\ntraceChecksum: %s\n' % (arm, pr.MAIN_SEEDS[b], pr.MAIN_STUDY, want))
+        write(os.path.join(d, "trace-%s.jsonl" % c), FIXTURE_TRACE)
+        for phase in ("before", "after"):
+            with open(os.path.join(d, "engine-metrics-%s-%s.prom" % (c, phase)), "w") as f:
+                f.write('vllm:num_preemptions_total{engine="0"} 0.0\n')
+    arms = order or ["R1"] + pr.MAIN_ORDER[b].split()
+    with open(os.path.join(d, "cell-timings.tsv"), "w") as f:
+        f.write("cell\tarm\trep\toutcome\n" + "".join("%d\t%s\t1\tcompleted\n" % (i + 1, a) for i, a in enumerate(arms)))
+    with open(os.path.join(d, "cell-environment.tsv"), "w") as f:
+        f.write("cell\tarm\tstage\tfact\tvalue\n1\tR1\tengines-ready\tgpu\t0, GPU-0000000%d-0000-0000-0000-000000000000, 595.91.07\n" % b)
+
+
+def raw_and_records(d, tag, admissions):
+    """A cell with one contender per admission, each (decided, released, first content, reason) in ms after ORIGIN:
+    a stamp of zero is a missing stamp to the scorer, as it is in a gateway record."""
+    rows, gw = [], []
+    at = lambda t: None if t is None else t + ORIGIN / 1e6
+    for i, (dec, rel, fc, reason) in enumerate((at(a), at(b), at(c), r) for a, b, c, r in admissions):
+        rid = "c-%d" % i
+        rows.append({"requestId": rid, "tenant": "standard-noisy"})
+        done = {"ev": "done", "requestId": rid, "decision": "admit", "reason": reason, "decidedUnixNanos": int(dec * 1e6)}
+        if rel is not None:
+            done["releasedUnixNanos"] = int(rel * 1e6)
+        if fc is not None:
+            done["firstContentUnixNanos"] = int(fc * 1e6)
+        gw += [{"ev": "arrive", "requestId": rid, "arrivedUnixNanos": int(dec * 1e6) - 1000}, done]
+    write(os.path.join(d, "raw-%s.jsonl" % tag), rows)
+    write(os.path.join(d, "gateway-record-%s.jsonl" % tag), gw)
+
+
+class HeadroomMainTest(unittest.TestCase):
+    # C3's main study over three built sessions (docs/superpowers/specs/2026-10-25-c3-headroom-main.md).
+    def setUp(self):
+        self.dirs = [tempfile.mkdtemp() for _ in range(3)]
+        patch = mock.patch.dict(pr.MAIN_CHECKSUMS, {s: {k: FIXTURE_HASH for k in ("R1", "short", "ref", "long")} for s in pr.MAIN_CHECKSUMS})
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def build(self, per_block=None, **kw):
+        per_block = per_block or {}
+        for b, d in enumerate(self.dirs, start=1):
+            main_session(d, b, **{**kw, **per_block.get(b, {})})
+        return pr.headroom_main(self.dirs)
+
+    # Neither ahead at ref (10.6 against 11.1 ms), fixed-S collapsed at long (30 ms): the length-dependent advantage,
+    # and size-aware at hold-cap's tail, and cap-only no better than off.
+    def test_a_length_dependent_advantage_from_a_tie(self):
+        v = self.build()
+        self.assertEqual(v["verdict"], "length-dependent advantage over the frozen spacing observed, from a reference with neither ahead")
+        self.assertEqual(v["size_aware"], "the frozen size-aware control did as well, within 15%")
+        self.assertEqual(v["cap_only"], "the gateway's signal added to the cap at short, ref, long")
+        self.assertEqual(v["distinct_gpus"], 3)
+        self.assertTrue(all(x["state"] == "holds" for x in v["validity"]), [x for x in v["validity"] if x["state"] != "holds"])
+
+    # Hold-cap 15% ahead at ref, still more so at long: rule 6 judges the length question from there, as the owner chose.
+    # Mutation that turns it red: end the verdict when hold-cap is already ahead at the reference.
+    def test_hold_cap_ahead_at_the_reference_still_reaches_the_length_question(self):
+        v = self.build(ttft={"fixedS": 13.0, "fixedS-long": 40.0})
+        self.assertEqual(v["verdict"], "length-dependent advantage over the frozen spacing observed, with hold-cap already ahead at the reference")
+        self.assertTrue(v["hold_cap_ahead_at_ref"])
+
+    # Ahead at ref and further ahead at long, but by under 15% more on the unfavourable ends: the interaction subtracts
+    # the reference's lower bound, ln(10 / 13.6), and reads -0.120; subtracting its upper bound, ln(10.6 / 13), would
+    # read -0.223 and pass. Long separates either way (ln(10.6 / 16.25) = -0.427).
+    # Mutation that turns it red: subtract the reference's upper bound in the interaction instead of its lower.
+    def test_an_advantage_that_does_not_grow_enough_is_not_length_dependent(self):
+        v = self.build(ttft={"fixedS": 13.0, "fixedS-long": 16.25})
+        self.assertTrue(v["verdict"].startswith("length-dependent advantage not established, with hold-cap already ahead at the reference: the interaction -0.12"), v["verdict"])
+
+    # Block 2's long prefill under S: the challenge is judged on every block.
+    # Mutation that turns it red: judge the challenge on block 1 only.
+    def test_the_challenge_is_judged_on_every_block(self):
+        v = self.build(per_block={2: {"prefill": {"long": 1650}}})
+        self.assertEqual(v["verdict"], "challenge not reproduced on block 2")
+
+    # 1,684 ms outlasts S but is not 1.05 times a reference of 1,650 ms (1,732.5): the condition is back with S frozen.
+    # Mutation that turns it red: drop the 1.05 condition.
+    def test_a_long_prefill_must_also_exceed_105_times_the_reference(self):
+        v = self.build(per_block={3: {"prefill": {"ref": 1650, "long": 1684}}})
+        self.assertEqual(v["verdict"], "challenge not reproduced on block 3")
+
+    # The second and first sessions passed in each other's places: their request ids name the other block.
+    # Mutation that turns it red: drop the request-id line.
+    def test_sessions_passed_as_another_block_are_refused(self):
+        self.build()
+        self.dirs[0], self.dirs[1] = self.dirs[1], self.dirs[0]
+        v = pr.headroom_main(self.dirs)
+        self.assertTrue(v["verdict"].startswith("inconclusive: evidence not trusted"), v["verdict"])
+        self.assertIn("request ids name block 1", v["verdict"])
+
+    # A cell order other than the registered one, though every cell is present.
+    # Mutation that turns it red: drop the order line.
+    def test_a_block_run_in_another_order_is_refused(self):
+        v = self.build(per_block={1: {"order": ["R1"] + sorted(pr.MAIN_ORDER[1].split())}})
+        self.assertIn("block 1's cells ran in its registered order", v["verdict"])
+
+    # A fixed-S engine that reported no prefill cap ran another treatment.
+    # Mutation that turns it red: drop the engine cap line.
+    def test_an_engine_without_its_cap_is_refused(self):
+        v = self.build(per_block={2: {"cap": {"fixedS-long-1": 0}}})
+        self.assertIn("block 2: fixedS-long-1 engine prefill cap", v["verdict"])
+
+    # Fixed-S inadmissible at ref (a hold refusal in block 1): the reference comparison is not established.
+    def test_fixed_s_inadmissible_at_the_reference(self):
+        self.build()
+        path = os.path.join(self.dirs[0], "gateway-record-fixedS-ref-1.jsonl")
+        recs = pr.jsonl(path)
+        for r in recs:
+            if r["ev"] == "done" and r["requestId"].endswith("-1") and "fixedS" in r["requestId"]:
+                r["reason"] = "fixed_spacing_hold_timeout"
+        write(path, recs)
+        self.assertEqual(pr.headroom_main(self.dirs)["verdict"], "reference comparison not established: fixed-S inadmissible at ref")
+
+    # A bound every rule reads unscorable is inconclusive, not a crash and not a skipped comparison (astra's attack, 2).
+    # Mutation that turns it red: drop the check of the bounds the verdict reads.
+    def test_unscorable_bounds_are_inconclusive(self):
+        self.build()
+        with mock.patch.object(pr, "crossed_log_ratio", return_value=None):
+            v = pr.headroom_main(self.dirs)
+        self.assertTrue(v["verdict"].startswith("inconclusive: bounds the verdict reads are unscorable"), v["verdict"])
+
+    # A hold-cap release 20 ms before its first content is not serial-prefill as registered.
+    # Mutation that turns it red: drop the release-at-first-content condition from serial_witness.
+    def test_a_release_before_first_content_is_refused(self):
+        self.build()
+        path = os.path.join(self.dirs[2], "gateway-record-hold-cap-ref-1.jsonl")
+        recs = pr.jsonl(path)
+        for r in recs:
+            if r.get("releasedUnixNanos"):
+                r["releasedUnixNanos"] = r["firstContentUnixNanos"] - 20_000_000
+        write(path, recs)
+        v = pr.headroom_main(self.dirs)
+        self.assertIn("block 3: hold-cap-ref-1 admissions after the previous release", v["verdict"])
+
+    # Two serial-prefill admissions, the second before the first's release, both labelled as the mode says.
+    # Mutation that turns it red: compare each admission with the previous one's first content instead of its release.
+    def test_serial_witness_counts_an_admission_before_the_previous_release(self):
+        d = tempfile.mkdtemp()
+        raw_and_records(d, "hold-cap-ref-1", [(0, 1000, 1000.5, "serial_prefill_free"), (999.8, 2000, 2000.5, "serial_prefill_waited")])
+        self.assertEqual(pr.serial_witness(d, "hold-cap-ref-1"), (0, 1, 0))
+        raw_and_records(d, "hold-cap-ref-1", [(0, 1000, 1000.5, "serial_prefill_free"), (1000.2, 2000, 2000.5, "serial_prefill_waited")])
+        self.assertEqual(pr.serial_witness(d, "hold-cap-ref-1"), (0, 0, 0))
+        raw_and_records(d, "hold-cap-ref-1", [(0, None, 1000.5, "serial_prefill_free")])
+        self.assertEqual(pr.serial_witness(d, "hold-cap-ref-1"), (1, None, None))
+
+    # Two admissions 100 ms apart, both labelled free, under a 1,680.4 ms spacing: the label is not the timing.
+    # Mutation that turns it red: count only pairs whose second admission is labelled waited.
+    def test_spacing_witness_ignores_the_labels(self):
+        d = tempfile.mkdtemp()
+        raw_and_records(d, "fixedS-ref-1", [(0, None, None, "fixed_spacing_free"), (100, None, None, "fixed_spacing_free")])
+        self.assertEqual(pr.spacing_witness(d, "fixedS-ref-1", 1680.4), (0, 1))
+        raw_and_records(d, "fixedS-ref-1", [(0, None, None, "fixed_spacing_free"), (1679.5, None, None, "fixed_spacing_waited")])
+        self.assertEqual(pr.spacing_witness(d, "fixedS-ref-1", 1680.4), (0, 0))
+
+    # A raw file cut off mid-line is an untrusted cell, not a crash of the whole report (codex review of 885f3528, 1).
+    # Mutation that turns it red: run the main study's cell checks on a cell whose records score_cell could not read.
+    def test_a_truncated_cell_is_inconclusive_not_a_crash(self):
+        self.build()
+        with open(os.path.join(self.dirs[1], "raw-hold-cap-long-1.jsonl"), "a") as f:
+            f.write('{"requestId": "pp-H-hold-')
+        v = pr.headroom_main(self.dirs)
+        self.assertTrue(v["verdict"].startswith("inconclusive: evidence not trusted"), v["verdict"])
+        self.assertIn("block 2: hold-cap-long-1 records readable", v["verdict"])
+
+    # Fixed-S's ref premium bound unscorable leaves the primary inconclusive, and neither secondary verdict reads
+    # fixed-S: both are still given (codex review of 885f3528, 2).
+    # Mutation that turns it red: withhold the secondary verdicts whenever the primary is inconclusive.
+    def test_the_secondary_verdicts_do_not_wait_on_the_primary(self):
+        real = pr.crossed_log_ratio
+        self.build()
+        f_ref = pr._box([pr.cell_report(self.dirs[0], "fixedS-ref", 1, L=pr.DIAG_L_MS)])[1]
+        with mock.patch.object(pr, "crossed_log_ratio", side_effect=lambda n, d: None if d == f_ref or n == f_ref else real(n, d)):
+            v = pr.headroom_main(self.dirs)
+        self.assertTrue(v["verdict"].startswith("inconclusive: bounds the verdict reads are unscorable"), v["verdict"])
+        self.assertEqual(v["size_aware"], "the frozen size-aware control did as well, within 15%")
+        self.assertEqual(v["cap_only"], "the gateway's signal added to the cap at short, ref, long")
+
+    # The scorer's checksums and orders and the session library's are one table each.
+    def test_the_tables_agree_with_the_session_library(self):
+        mock.patch.stopall()
+        lib = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib", "prospective-pilot.sh")).read()
+        for seed, sums in pr.MAIN_CHECKSUMS.items():
+            self.assertIn("%d:R1) echo %s" % (seed, sums["R1"]), lib)
+            for length in ("short", "ref", "long"):
+                self.assertIn("%d:*-%s) echo %s" % (seed, length, sums[length]), lib)
+        for b, order in pr.MAIN_ORDER.items():
+            self.assertIn('%d) echo "R1 %s" ;;' % (b, order), lib)
 
 
 if __name__ == "__main__":

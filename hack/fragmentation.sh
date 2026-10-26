@@ -11,14 +11,18 @@
 #   hack/fragmentation.sh teardown
 #
 # Environment:
-#   CONTEXT   kube context                        (default kind-platform)
+#   CLUSTER   kind cluster name, which names the workers  (default platform)
+#   CONTEXT   kube context                        (default kind-$CLUSTER)
 #   EXDIR     evidence directory                  (default ex/frag-<UTC timestamp>)
 #   WINDOW    observation seconds after submit    (default 180)
+#   REPACK_AT     seconds after submit at which R intervenes   (default 60)
+#   REPACK_WATCH  seconds R watches after the intervention     (default 60)
 
 set -euo pipefail
 set -m
 
-CONTEXT="${CONTEXT:-kind-platform}"
+CLUSTER="${CLUSTER:-platform}"
+CONTEXT="${CONTEXT:-kind-$CLUSTER}"
 NS=frag
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # Where the manifests live, which is not always where this script lives.
@@ -34,12 +38,18 @@ if [[ ! -d "$REPO/experiments/fragmentation" ]]; then
 fi
 LOCKDIR="${LOCKDIR:-/tmp/fragmentation.lock}"
 WINDOW="${WINDOW:-180}"
+REPACK_AT="${REPACK_AT:-60}"
+REPACK_WATCH="${REPACK_WATCH:-60}"
+# The running trial's collector, for the exit trap; empty between trials.
+COLLECTOR_PID=""
+COLLECTOR_TAG=""
 
 # The two workers. The control-plane node is excluded by its own NoSchedule taint, since the target Pod
 # carries no toleration -- so the eligible set is these two and the advertised total of six GPUs is not six
 # the target can reach.
-NODE_A=platform-worker
-NODE_B=platform-worker2
+# kind names them after the cluster, so a cluster built by hack/fragmentation-cluster.sh has its own.
+NODE_A=$CLUSTER-worker
+NODE_B=$CLUSTER-worker2
 
 k() { kubectl --context "$CONTEXT" "$@"; }
 now() { date -u +%s.%N; }
@@ -372,64 +382,145 @@ trial() {
 
   # One snapshot a second for the whole window, so the classification and the CR's own phase are recorded
   # side by side at every instant rather than reconciled afterwards.
-  local deadline
-  deadline=$(python3 -c "print($t0 + $WINDOW)")
+  #
+  # The sampler runs as its own process, so nothing the trial does in the foreground can pause it.
+  # When it shared the loop with the repack, every R trial lost 13.6 s of samples to the intervention and broke
+  # the pre-registration's 5 s gap rule, and the middle state was seen only by a point check in run.log.
   : >"$EXDIR/timeline-$tag.jsonl"
-  local rescued=0
-  while (($(python3 -c "print(1 if $(now) < $deadline else 0)"))); do
+  python3 -c "print($t0 + $WINDOW)" >"$EXDIR/deadline-$tag"
+  rm -f "$EXDIR/intervening-$tag"
+  # The collector does not stop while this marker exists, and for R it exists from the start, so neither a window
+  # shorter than REPACK_AT nor a slow intervention can end the sampling before the repack has been watched.
+  if [[ "$arm" == "R" ]]; then : >"$EXDIR/intervening-$tag"; fi
+  collect_timeline "$target" "$t0" "$tag" &
+  local collector=$!
+  # Recorded for the exit trap, which stops a collector the foreground abandoned by failing or being interrupted.
+  COLLECTOR_PID=$collector
+  COLLECTOR_TAG=$tag
+
+  # The repack arm intervenes once, REPACK_AT seconds in, and never by deleting first.
+  if [[ "$arm" == "R" ]]; then
+    while (($(python3 -c "print(1 if $(now)-$t0 <= $REPACK_AT else 0)"))); do sleep 0.2; done
+    local rescue_start rescue_end
+    rescue_start="$(now)"
+    event "$t0" "$tag" repack-start
+    say "R: creating the replica holder on $NODE_B before deleting the original"
+    # A replica that never runs is not a repack, so it ends the trial instead of being stepped over.
+    if ! submit_holder "frag-h3-$slug" "$NODE_B" || ! wait_holder_running "frag-h3-$slug" "$NODE_B"; then
+      say "INVALID: the replica holder never ran, so no repack took place"
+      echo -e "$arm\t$rep\tINVALID\treplica-never-ran" >>"$EXDIR/results.tsv"
+      stop_collector "$collector" "$tag"
+      return 0
+    fi
+    event "$t0" "$tag" replica-running
+    local middle
+    middle="$(headroom)"
+    say "R: middle state $middle"
+    # The middle state is the evidence that demand was preserved: headroom must fall to 1 here, not stay
+    # at 2. If it stayed at 2 the replica did not land and the recovery below would be a deletion.
+    if [[ "$(python3 -c "import json,sys; print(json.loads(sys.argv[1])['sum_free'])" "$middle")" != "1" ]]; then
+      say "INVALID: middle-state headroom is not 1; the replica did not take a device"
+      echo -e "$arm\t$rep\tINVALID\tmiddle-state-not-reached" >>"$EXDIR/results.tsv"
+      stop_collector "$collector" "$tag"
+      return 0
+    fi
+    sleep 10
+    say "R: deleting the original holder on $NODE_A"
+    event "$t0" "$tag" original-delete
+    k -n "$NS" delete job "frag-h1-$slug" --ignore-not-found >>"$EXDIR/run.log" 2>&1
+    rescue_end="$(now)"
+    # The window is extended by however long the intervention took, plus REPACK_WATCH seconds to watch the result.
+    #
+    # Without this the intervention ate the observation: creating and waiting for the replica took about
+    # two minutes, so the deadline had passed before it returned and not one sample after the repack was
+    # ever recorded.
+    # It is also never less than REPACK_WATCH seconds after the deletion, which a window shorter than REPACK_AT
+    # would otherwise cut short.
+    python3 -c "print(max($(cat "$EXDIR/deadline-$tag") + ($rescue_end - $rescue_start), $rescue_end) + $REPACK_WATCH)" \
+      >"$EXDIR/deadline-$tag.next"
+    mv "$EXDIR/deadline-$tag.next" "$EXDIR/deadline-$tag"
+    rm -f "$EXDIR/intervening-$tag"
+    say "R: window extended to observe the recovery"
+  fi
+  # A collector that died left a timeline that ends early, which the gap rule alone would not see.
+  if ! wait "$collector"; then
+    COLLECTOR_PID=""
+    say "INVALID: the timeline collector exited early; see collector-$tag.log"
+    echo -e "$arm\t$rep\tINVALID\tcollector-failed" >>"$EXDIR/results.tsv"
+    return 0
+  fi
+  COLLECTOR_PID=""
+  # The instant the window was due to end, so the judgement can tell a timeline that covered it from one that
+  # stopped early with no gap inside it.
+  python3 -c "import json; print(json.dumps({'event': 'window-end', 't': round($(cat "$EXDIR/deadline-$tag") - $t0, 2)}))" \
+    >>"$EXDIR/events-$tag.jsonl"
+
+  # The verdict is the state that held for the window, plus whatever the CR claimed while it held.
+  judge_timeline "$EXDIR/timeline-$tag.jsonl" "$arm" "$rep" "$EXDIR/events-$tag.jsonl" | tee -a "$EXDIR/results.tsv"
+}
+
+# Appends one row a second to the trial's timeline until the deadline file's instant has passed and no
+# intervention is in progress.
+#
+# Each row carries its own time since submission, so the gap rule reads the collector's real cadence.
+# Errors go to collector-<tag>.log rather than away, because a collector that dies quietly looks like a short
+# window.
+collect_timeline() {
+  local target="$1" t0="$2" tag="$3"
+  exec 2>>"$EXDIR/collector-$tag.log"
+  while [[ -e "$EXDIR/intervening-$tag" ]] ||
+    (($(python3 -c "print(1 if $(now) < $(cat "$EXDIR/deadline-$tag") else 0)"))); do
     local snap
     snap="$(classify "$target")"
     python3 -c "
 import json,sys
 d=json.loads(sys.argv[1]); d['t']=round($(now)-$t0,2); print(json.dumps(d,sort_keys=True))" "$snap" \
       >>"$EXDIR/timeline-$tag.jsonl"
-
-    # The repack arm intervenes once, 60 seconds in, and never by deleting first.
-    if [[ "$arm" == "R" && "$rescued" == "0" ]] &&
-      (($(python3 -c "print(1 if $(now)-$t0 > 60 else 0)"))); then
-      # The window is extended by however long the intervention takes, plus 60s to watch the result.
-      #
-      # Without this the intervention ate the observation: creating and waiting for the replica took about
-      # two minutes, so the loop's deadline had passed before it returned and not one sample after the
-      # repack was ever recorded. The run then reported the arm on evidence that stopped before the thing
-      # it was measuring.
-      local rescue_start rescue_end
-      rescue_start="$(now)"
-      say "R: creating the replica holder on $NODE_B before deleting the original"
-      # A replica that never runs is not a repack, so it ends the trial instead of being stepped over.
-      if ! submit_holder "frag-h3-$slug" "$NODE_B" || ! wait_holder_running "frag-h3-$slug" "$NODE_B"; then
-        say "INVALID: the replica holder never ran, so no repack took place"
-        echo -e "$arm\t$rep\tINVALID\treplica-never-ran" >>"$EXDIR/results.tsv"
-        return 0
-      fi
-      local middle
-      middle="$(headroom)"
-      say "R: middle state $middle"
-      # The middle state is the evidence that demand was preserved: headroom must fall to 1 here, not stay
-      # at 2. If it stayed at 2 the replica did not land and the recovery below would be a deletion.
-      if [[ "$(python3 -c "import json,sys; print(json.loads(sys.argv[1])['sum_free'])" "$middle")" != "1" ]]; then
-        say "INVALID: middle-state headroom is not 1; the replica did not take a device"
-        echo -e "$arm\t$rep\tINVALID\tmiddle-state-not-reached" >>"$EXDIR/results.tsv"
-        return 0
-      fi
-      sleep 10
-      say "R: deleting the original holder on $NODE_A"
-      k -n "$NS" delete job "frag-h1-$slug" --ignore-not-found >>"$EXDIR/run.log" 2>&1
-      rescue_end="$(now)"
-      deadline=$(python3 -c "print($deadline + ($rescue_end - $rescue_start) + 60)")
-      say "R: window extended to observe the recovery"
-      rescued=1
-    fi
     sleep 1
   done
+}
 
-  # The verdict is the state that held for the window, plus whatever the CR claimed while it held.
-  python3 - "$EXDIR/timeline-$tag.jsonl" "$arm" "$rep" <<'PY' | tee -a "$EXDIR/results.tsv"
+# Ends the collector of a trial that is being abandoned, so it does not keep writing into the next trial's window.
+stop_collector() {
+  local pid="$1" tag="$2"
+  rm -f "$EXDIR/intervening-$tag"
+  echo 0 >"$EXDIR/deadline-$tag"
+  wait "$pid" || true
+  COLLECTOR_PID=""
+}
+
+# The exit trap: a foreground that failed under set -e or was interrupted mid-trial would otherwise leave its
+# collector sampling forever, because the intervention marker it honours is never removed.
+on_exit() {
+  if [[ -n "${COLLECTOR_PID:-}" ]]; then
+    # The whole process group, which set -m gives the collector: killing only its shell left a classifier blocked in
+    # kubectl, with no timeout, running after the lock was released.
+    kill -TERM -- "-$COLLECTOR_PID" 2>>"$EXDIR/run.log" || true
+    stop_collector "$COLLECTOR_PID" "$COLLECTOR_TAG"
+  fi
+  release_lock
+}
+
+# Records when the foreground did something, against the same clock as the timeline, so the judgement can find
+# the samples taken between two steps of the intervention.
+event() {
+  local t0="$1" tag="$2" name="$3"
+  python3 -c "import json; print(json.dumps({'event': '$name', 't': round($(now) - $t0, 2)}))" \
+    >>"$EXDIR/events-$tag.jsonl"
+}
+
+# The verdict line for one trial's timeline: final state, time in each state, the CR's false Running, the largest
+# collection gap and whether it breaks the pre-registration's 5 s rule, and for the repack arm how many samples
+# saw the middle state.
+judge_timeline() {
+  python3 - "$@" <<'PY'
 import collections
 import json
+import os
 import sys
 
 path, arm, rep = sys.argv[1], sys.argv[2], sys.argv[3]
+events_path = sys.argv[4] if len(sys.argv) > 4 else ""
 rows = [json.loads(line) for line in open(path)]
 states = collections.Counter(r["state"] for r in rows)
 final = rows[-1]["state"] if rows else "none"
@@ -444,10 +535,43 @@ span = (lying[-1]["t"] - lying[0]["t"]) if len(lying) > 1 else 0.0
 # collection gap over 5s and nothing was checking.
 gaps = [rows[i + 1]["t"] - rows[i]["t"] for i in range(len(rows) - 1)]
 worst = max(gaps) if gaps else 0.0
-print("\t".join([arm, rep, final,
-                 ",".join(f"{k}={v}" for k, v in states.most_common()),
-                 f"cr_running_while_unscheduled={len(lying)}samples/{span:.1f}s",
-                 f"max_gap={worst:.2f}s"]))
+fields = [arm, rep, final,
+          ",".join(f"{k}={v}" for k, v in states.most_common()),
+          f"cr_running_while_unscheduled={len(lying)}samples/{span:.1f}s",
+          f"max_gap={worst:.2f}s",
+          "gap_rule=ok" if worst <= 5.0 else "gap_rule=INVALID"]
+events = {}
+if events_path and os.path.exists(events_path):
+    for line in open(events_path):
+        e = json.loads(line)
+        events[e["event"]] = e["t"]
+# The gap rule reads only between samples, so a collection that stopped early passes it; the window's two edges
+# are held to the same 5 s, against the instant the window was due to end.
+end = events.get("window-end")
+if end is None or not rows:
+    fields.append("coverage=unknown")
+else:
+    fields.append("coverage=ok" if rows[0]["t"] <= 5.0 and rows[-1]["t"] >= end - 5.0 else "coverage=INVALID")
+if arm == "R":
+    # The middle state has to be observed by the timeline, between the replica running and the original's
+    # deletion, not only by the point check the foreground logs; zero such samples is reported, not assumed away.
+    lo, hi = events.get("replica-running"), events.get("original-delete")
+    middle = [r for r in rows if lo is not None and hi is not None and lo <= r["t"] <= hi and r.get("sum_free") == 1]
+    fields.append(f"middle_state_samples={len(middle)}")
+    # The registered bar: the same Pod, not a replacement, scheduled within 60 s of the original's deletion.
+    # It was read by hand from the run log before; the timeline carries both the UID and the time.
+    uids = {r.get("pod_uid") for r in rows if r.get("pod_uid")}
+    scheduled = [r for r in rows if r["state"] == "scheduled"]
+    # Recovery means a Pod the timeline saw stranded before the deletion, not one that first appeared after it.
+    stranded = {r.get("pod_uid") for r in rows
+                if hi is not None and r["t"] <= hi and r["state"] in ("fragmentation", "aggregate-shortage")}
+    if hi is None or not scheduled:
+        fields.append(f"pod_uids={len(uids)}\tscheduled_after_delete=none\trepack_bar=fail")
+    else:
+        after = scheduled[0]["t"] - hi
+        ok = len(uids) == 1 and scheduled[0].get("pod_uid") in stranded and 0.0 <= after <= 60.0
+        fields.append(f"pod_uids={len(uids)}\tscheduled_after_delete={after:.2f}s\trepack_bar={'pass' if ok else 'fail'}")
+print("\t".join(fields))
 PY
 }
 
@@ -509,9 +633,15 @@ main() {
   acquire_lock
   EXDIR="${EXDIR:-ex/frag-$(date -u +%Y%m%dT%H%M%SZ)}"
   mkdir -p "$EXDIR"
-  trap release_lock EXIT
+  trap on_exit EXIT
+  # An interrupt ends the script through exit, so the EXIT trap above runs and reaps a trial's collector.
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
 
   "$cmd" "$@"
 }
 
-main "$@"
+# Sourced by hack/test/check-fragmentation-collector.sh, which replaces the cluster calls with stubs.
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
+fi

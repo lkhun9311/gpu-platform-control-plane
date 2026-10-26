@@ -1,0 +1,107 @@
+ERROR: driverInitFileInfo 578 result=11ERROR: init 664 result=11ERROR: init 250 result=11I1024 12:24:16.491410       1 main.go:81] "NVIDIA MPS Control Daemon" version=<
+	42a0fa92
+	commit: 42a0fa92ce166592ab5702a1143ddecd891c8e5e
+ >
+ERROR: driverInitFileInfo 578 result=11ERROR: init 664 result=11ERROR: init 250 result=11I1024 12:24:20.512727       1 main.go:81] "NVIDIA MPS Control Daemon" version=<
+	42a0fa92
+	commit: 42a0fa92ce166592ab5702a1143ddecd891c8e5e
+ >
+I1024 12:24:20.512873       1 main.go:110] Starting OS watcher.
+I1024 12:24:20.513309       1 main.go:124] Starting Daemons.
+I1024 12:24:20.513342       1 main.go:167] Loading configuration.
+I1024 12:24:20.513801       1 main.go:182] Updating config with default resource matching patterns.
+I1024 12:24:20.513880       1 main.go:193] 
+Running with config:
+{
+  "version": "v1",
+  "flags": {
+    "migStrategy": "none",
+    "failOnInitError": null,
+    "gdsEnabled": null,
+    "mofedEnabled": null,
+    "useNodeFeatureAPI": null,
+    "deviceDiscoveryStrategy": null,
+    "plugin": {
+      "passDeviceSpecs": null,
+      "deviceListStrategy": null,
+      "deviceIDStrategy": null,
+      "cdiAnnotationPrefix": null,
+      "nvidiaCTKPath": null,
+      "containerDriverRoot": null
+    }
+  },
+  "resources": {
+    "gpus": [
+      {
+        "pattern": "*",
+        "name": "nvidia.com/gpu"
+      }
+    ]
+  },
+  "sharing": {
+    "timeSlicing": {},
+    "mps": {
+      "failRequestsGreaterThanOne": true,
+      "resources": [
+        {
+          "name": "nvidia.com/gpu",
+          "devices": "all",
+          "replicas": 2
+        }
+      ]
+    }
+  }
+}
+I1024 12:24:20.513898       1 main.go:197] Retrieving MPS daemons.
+I1024 12:24:20.557103       1 daemon.go:94] "Staring MPS daemon" resource="nvidia.com/gpu"
+I1024 12:24:20.557250       1 daemon.go:147] "SELinux disabled, not updating context" path="/mps/nvidia.com/gpu/pipe"
+I1024 12:24:20.834905       1 daemon.go:136] "Starting log tailer" resource="nvidia.com/gpu"
+[2026-10-24 12:24:20.831 Control    67] Starting control daemon using socket /mps/nvidia.com/gpu/pipe/control
+[2026-10-24 12:24:20.831 Control    67] To connect CUDA applications to this daemon, set env CUDA_MPS_PIPE_DIRECTORY=/mps/nvidia.com/gpu/pipe
+[2026-10-24 12:24:20.831 Control    67] CUDA MPS Control binary version: 13020
+[2026-10-24 12:24:20.832 Control    67] Accepting connection...
+[2026-10-24 12:24:20.833 Control    67] NEW UI
+[2026-10-24 12:24:20.833 Control    67] Cmd:set_default_device_pinned_mem_limit 0 11514M
+[2026-10-24 12:24:20.833 Control    67] set_default_device_pinned_mem_limit 0 11514M.
+[2026-10-24 12:24:20.833 Control    67] UI closed
+[2026-10-24 12:24:20.834 Control    67] Accepting connection...
+[2026-10-24 12:24:20.834 Control    67] NEW UI
+[2026-10-24 12:24:20.834 Control    67] Cmd:set_default_active_thread_percentage 50
+[2026-10-24 12:24:20.834 Control    67] 50.0
+[2026-10-24 12:24:20.834 Control    67] UI closed
+[2026-10-24 12:24:45.924 Control    67] Accepting connection...
+[2026-10-24 12:24:45.924 Control    67] NEW UI
+[2026-10-24 12:24:45.924 Control    67] Cmd:get_default_active_thread_percentage
+[2026-10-24 12:24:45.924 Control    67] 50.0
+[2026-10-24 12:24:45.925 Control    67] UI closed
+[2026-10-24 12:29:29.554 Control    67] Accepting connection...
+[2026-10-24 12:29:29.554 Control    67] User did not send valid credentials
+[2026-10-24 12:29:29.555 Control    67] Accepting connection...
+[2026-10-24 12:29:29.555 Control    67] User did not send valid credentials
+[2026-10-24 12:29:29.555 Control    67] Accepting connection...
+[2026-10-24 12:29:29.555 Control    67] NEW CLIENT 0 from user 0: Server is not ready, push client to pending list
+[2026-10-24 12:29:29.636 Control    67] Accepting connection...
+[2026-10-24 12:29:29.636 Control    75] Starting new server 75 for user 0
+[2026-10-24 12:29:29.636 Control    67] NEW CLIENT 0 from user 0: Server is not ready, push client to pending list
+[2026-10-24 12:29:29.726 Control    67] Accepting connection...
+[2026-10-24 12:29:30.576 Control    67] NEW SERVER 75: Ready
+[2026-10-24 12:29:37.994 Control    67] Accepting connection...
+[2026-10-24 12:29:37.994 Control    67] User did not send valid credentials
+[2026-10-24 12:29:37.994 Control    67] Accepting connection...
+[2026-10-24 12:29:37.994 Control    67] NEW CLIENT 0 from user 0: Server already exists
+[2026-10-24 12:29:37.996 Control    67] Accepting connection...
+[2026-10-24 12:29:37.996 Control    67] User did not send valid credentials
+[2026-10-24 12:29:37.996 Control    67] Accepting connection...
+[2026-10-24 12:29:37.996 Control    67] NEW CLIENT 0 from user 0: Server already exists
+[2026-10-24 12:29:53.724 Control    67] Accepting connection...
+[2026-10-24 12:29:53.724 Control    67] User did not send valid credentials
+[2026-10-24 12:29:53.724 Control    67] Accepting connection...
+[2026-10-24 12:29:53.724 Control    67] NEW CLIENT 0 from user 0: Server already exists
+[2026-10-24 12:29:53.724 Control    67] Accepting connection...
+[2026-10-24 12:29:53.724 Control    67] User did not send valid credentials
+[2026-10-24 12:29:53.724 Control    67] Accepting connection...
+[2026-10-24 12:29:53.725 Control    67] NEW CLIENT 0 from user 0: Server already exists
+[2026-10-24 12:29:55.996 Control    67] Accepting connection...
+[2026-10-24 12:29:55.996 Control    67] NEW CLIENT 0 from user 0: Server already exists
+[2026-10-24 12:29:55.996 Control    67] Accepting connection...
+[2026-10-24 12:29:55.996 Control    67] NEW CLIENT 0 from user 0: Server already exists

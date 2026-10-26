@@ -95,6 +95,12 @@ session "with STUDY" "would buy GPUs in two groups" STUDY=holdcap
 session "with KEEP_UP" "refuses KEEP_UP=yes" KEEP_UP=yes
 session "an existing cluster" "cluster gpu-platform already exists (ACTIVE)" STUB_CLUSTER_EXISTS=1
 session "an unknown training mode" "not a training mode" TRAIN=fsdp
+session "a zone letter for TRAIN_AZ" "TRAIN_AZ '2a' is not a zone name" TRAIN_AZ=2a
+# A pin passes the refusals too, and says so; the line is how it is told from a session that never read TRAIN_AZ.
+session "a pinned zone passes every refusal" "does not exist" TRAIN_AZ=ap-northeast-2a
+grep -q "TRAIN_AZ: pinned to ap-northeast-2a" "$work/a pinned zone passes every refusal/session.log" &&
+  ok "the pinned session logged its zone" ||
+  bad "the pinned session did not log its zone: $(grep TRAIN_AZ "$work/a pinned zone passes every refusal/session.log")"
 # Every refusal passed: the next stop is the destroy-window check or the stub gh, both before the kill switch.
 session "every training refusal passed" "does not exist"
 grep -q -- "eks describe-cluster --region ap-northeast-2 --name gpu-platform" "$work/every training refusal passed.calls" &&

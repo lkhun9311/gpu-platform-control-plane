@@ -1,0 +1,17 @@
+apiVersion: platform.lkhun9311.github.io/v1
+kind: MLTrainingJob
+metadata:
+  name: pp-rt-witness-1-024213
+  namespace: partial
+spec:
+  queue: gpu-partial
+  image: cpu-ddp:torch251
+  gpuCount: 1
+  distributed:
+    worldSize: 2
+  command:
+    - sh
+    - -c
+    - |
+      export DDP_RUN_ID=pp-rt-witness-1-024213 DDP_OUT_DIR=/tmp/evidence OMP_NUM_THREADS=1 DDP_RENDEZVOUS_TIMEOUT_SECONDS=1500
+      exec python /work/train.py

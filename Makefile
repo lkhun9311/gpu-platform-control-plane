@@ -419,7 +419,7 @@ shell-check: ## Parse every shell script under hack/ and .githooks/.
 	@# reason hack/test/spot-lifecycle/bin/aws is -- a stub with a syntax error answers nothing and every
 	@# scenario then reads as "no residue", which is a false pass on the one question the replay asks.
 	@fail=0; for f in hack/*.sh hack/lib/*.sh hack/test/*.sh hack/test/spot-lifecycle/*.sh \
-		hack/test/spot-lifecycle/bin/aws hack/test/spot-lifecycle/bin/sleep \
+		hack/test/spot-lifecycle/bin/aws hack/test/spot-lifecycle/bin/git hack/test/spot-lifecycle/bin/sleep \
 		hack/test/spot-lifecycle/golden/*/user-data*.sh \
 		hack/test/teardown-replay/*.sh hack/test/teardown-replay/bin/aws \
 		hack/eks-serve/holdcap-study/*.sh \
@@ -477,7 +477,7 @@ spot-lifecycle: ## Replay every paid runner against recording stubs and diff the
 	if [ "$$fail" != "0" ]; then echo "spot-lifecycle: a runner's recorded behaviour changed" >&2; exit 1; fi
 
 .PHONY: harness-check
-harness-check: terraform ## Run the self-contained test harnesses under hack/test/ that need no cluster.
+harness-check: terraform kustomize ## Run the self-contained test harnesses under hack/test/ that need no cluster.
 	@# Seven harnesses live under hack/test/ and, until now, nothing ran any of them but the spot-lifecycle
 	@# driver. README.md rests its claim of coverage on two of them, so the repository's own account of what
 	@# it checks depended on scripts no gate executed -- the same shape `make spot-lifecycle` was added to close.
@@ -497,8 +497,24 @@ harness-check: terraform ## Run the self-contained test harnesses under hack/tes
 	@# in a CI gate would hang the build, and a gate that hangs gets deleted rather than fixed.
 	@#
 	@# The rehearse-* scripts build a real kind cluster and do not belong in a CI gate at all.
-	@fail=0; for t in hack/test/capture-evidence-test.sh hack/test/plot-device-observation-test.sh hack/test/check-matrix-plan-refusals.sh hack/test/check-token-unit-labels.sh hack/test/check-published-spreads.sh hack/test/check-cell-timing-record.sh hack/test/check-engine-metrics-scrape.sh hack/test/check-instrument-validation-harness.sh hack/test/check-tail-crossing-self-tests.sh hack/test/check-gpu-max-nodes-validation.sh hack/test/check-train-session-lib.sh hack/test/check-ddp-arms-lib.sh hack/test/check-train-session-refusals.sh; do \
-		TERRAFORM="$(TERRAFORM)" bash "$$t" || { echo "harness-check: $$t failed" >&2; fail=1; }; \
+	@#
+	@# check-fragmentation-collector.sh takes about 50 s, almost all of it fragmentation.sh's own fixed sleeps, and
+	@# is bounded the same way: every cluster call is a stub.
+	@#
+	@# check-stranded-v2-order.sh redraws the second stranded campaign's blocks from its seed, in well under a second.
+	@#
+	@# check-mps-journal.sh builds benchharness and judges every journal it writes with the real classifier, so the
+	@# MPS session's writer and reader are checked against each other rather than each against a copy.
+	@# check-mps-capability-lib.sh does the same for the B0 to B3 instruments, with kubectl a stub answering from rules.
+	@# check-mps-capability-session.sh runs the paid session's runner against a stub aws from a throwaway commit of the
+	@# tree; it builds the binaries once per case, so it takes a few minutes.
+	@# check-mps-overlay.sh renders the real MPS overlay, which the kind rehearsal replaces with a simulator, and checks its
+	@# mounts against the device plugin's own contract at the pinned tag. It and check-mps-capability-lib.sh render with the
+	@# kustomize this target provisions, and read YAML with PyYAML, which this target does not install: like
+	@# hack/check-prometheus-rules.sh and the stranded campaigns, they fail on its absence rather than skip (codex, review
+	@# of bb7de393).
+	@fail=0; for t in hack/test/capture-evidence-test.sh hack/test/plot-device-observation-test.sh hack/test/check-matrix-plan-refusals.sh hack/test/check-token-unit-labels.sh hack/test/check-published-spreads.sh hack/test/check-cell-timing-record.sh hack/test/check-engine-metrics-scrape.sh hack/test/check-instrument-validation-harness.sh hack/test/check-tail-crossing-self-tests.sh hack/test/check-gpu-max-nodes-validation.sh hack/test/check-train-session-lib.sh hack/test/check-ddp-arms-lib.sh hack/test/check-train-session-refusals.sh hack/test/check-serve-sync.sh hack/test/check-fragmentation-collector.sh hack/test/check-stranded-v2-order.sh hack/test/check-mps-journal.sh hack/test/check-mps-capability-lib.sh hack/test/check-mps-capability-session.sh hack/test/check-mps-overlay.sh; do \
+		TERRAFORM="$(TERRAFORM)" KUSTOMIZE="$(KUSTOMIZE)" bash "$$t" || { echo "harness-check: $$t failed" >&2; fail=1; }; \
 	done; \
 	if [ "$$fail" != "0" ]; then exit 1; fi
 
@@ -527,13 +543,18 @@ infra-validate: terraform kustomize actionlint shell-check scorer-tests workload
 	@#
 	@# TF_DATA_DIR is absolute because init and validate run after `cd` into the root. -lockfile=readonly
 	@# keeps the isolated run from rewriting the committed provider lock.
+	@#
+	@# A root with a tests/ directory also runs `terraform test`. Those tests mock the provider and replace
+	@# the modules, so they stay as offline as validate; what they add is the plan-time logic, such as the
+	@# gpu group's zone pin, which validate accepts whatever it computes.
 	@set -e; \
 	for d in infra/aws/*/; do \
 		if [ -f "$$d/versions.tf" ]; then \
 			echo "validate $$d"; \
 			tfdata="$$(mktemp -d)"; \
 			( cd "$$d" && TF_DATA_DIR="$$tfdata" "$(abspath $(TERRAFORM))" init -backend=false -input=false -lockfile=readonly >/dev/null \
-				&& TF_DATA_DIR="$$tfdata" "$(abspath $(TERRAFORM))" validate ) \
+				&& TF_DATA_DIR="$$tfdata" "$(abspath $(TERRAFORM))" validate \
+				&& { [ ! -d tests ] || TF_DATA_DIR="$$tfdata" "$(abspath $(TERRAFORM))" test -no-color; } ) \
 				|| { rm -rf "$$tfdata"; echo "infra-validate: $$d failed" >&2; exit 1; }; \
 			rm -rf "$$tfdata"; \
 		fi; \

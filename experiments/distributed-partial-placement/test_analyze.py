@@ -501,5 +501,303 @@ class ReviewOfD2453ba(Fixture):
         self.assertTrue(touched, "the perturbation touched no sample")
         self.assertFalse(any("disagrees" in p for p in self.run_(self.RT).problems()), self.run_(self.RT).problems())
 
+
+class AfterFix(Fixture):
+    """Q1 to Q7 of the registration after the phase and signal fixes, on the old rehearsal, so the old code contradicts them."""
+
+    RT = "ready-timeout-never-1"
+    LATE = "off-late-1"
+
+    def q(self, run, m, name):
+        return [v for n, v, _ in analyze.predict_after_fix(run, m, analyze.predict(run, m)) if n == name]
+
+    def test_q1_reads_m1_and_its_polled_bound(self):
+        run = self.run_(self.RT)
+        m = run.measures()
+        self.assertEqual(self.q(run, m, "Q1"), ["contradicted"])
+        m["M1_unrounded_s"], m["M1_polled_upper_unrounded_s"] = 0.0, 0.0
+        # The old code was Running while stranded, which every-event replay still sees with M1 set to zero.
+        self.assertEqual(self.q(run, m, "Q1"), ["contradicted"])
+        run.tl.ever = lambda pred, kinds=None: "none"
+        self.assertEqual(self.q(run, m, "Q1"), ["held"])
+        run.tl.ever = lambda pred, kinds=None: "ambiguous"
+        self.assertEqual(self.q(run, m, "Q1"), ["not evaluable"])
+        m["M1_polled_upper_unrounded_s"] = 1.0
+        self.assertEqual(self.q(run, m, "Q1"), ["contradicted"])
+        # 20 ms rounds to the published 0.0 and is still Running while stranded.
+        m["M1_polled_upper_unrounded_s"], m["M1_unrounded_s"], m["M1_running_while_stranded_s"] = 0.0, 0.02, 0.0
+        self.assertEqual(self.q(run, m, "Q1"), ["contradicted"])
+
+    def test_q5_needs_exactly_one_entry_into_running(self):
+        run = self.run_(self.RT)
+        both = analyze.ts("2026-10-21T06:44:30+00:00")
+        run.setting, run.scenario = "ready-timeout", "late"
+        run.both_ready_at = lambda: both
+        m = run.measures()
+        earlier = [("P4", "held", "")]
+        after = [both + analyze.SEC * 5]
+        run.running_entries = lambda: after
+        self.assertEqual([v for n, v, _ in analyze.predict_after_fix(run, m, earlier) if n == "Q5"], ["held"])
+        after.append(both + analyze.SEC * 50)
+        self.assertEqual([v for n, v, _ in analyze.predict_after_fix(run, m, earlier) if n == "Q5"], ["contradicted"])
+
+    @staticmethod
+    def timeline(job, rows):
+        """A Timeline from (time, phase, readyRanks, stranded) rows: a CR event per row, and a Pod event when stranded
+        is not None, so a test can put the two streams in one millisecond or keep them apart."""
+        tl = analyze.Timeline.__new__(analyze.Timeline)
+        tl.job_name, tl.events, tl.states = job, [], []
+        current = {"workloads": {}, "mltrainingjobs": {}, "jobs": {}, "pods": {}}
+        for t, phase, ready, stranded in rows:
+            new = []
+            if phase is not None:
+                new.append(("mltrainingjobs", {"kind": "MLTrainingJob", "metadata": {"name": job, "uid": "cr"},
+                                               "status": {"phase": phase, "readyRanks": ready}}))
+            if stranded is not None:
+                new.append(("pods", {"kind": "Pod", "metadata": {"name": "r1", "uid": "rank-1",
+                                                                 "labels": {"platform.lkhun9311.github.io/mltrainingjob": job}},
+                                     "spec": {}, "status": {"conditions": [
+                                         {"type": "PodScheduled", "status": "False" if stranded else "True"}]}}))
+            for kind, obj in new:
+                tl.events.append((t, kind, "MODIFIED", obj))
+                current[kind][obj["metadata"]["uid"]] = obj
+            snap = {k: dict(v) for k, v in current.items()}
+            if tl.states and tl.states[-1][0] == t:
+                tl.states[-1] = (t, snap)
+            else:
+                tl.states.append((t, snap))
+        return tl
+
+    def test_q1_sees_a_running_event_two_updates_hide_in_one_millisecond(self):
+        t = analyze.ts("2026-10-21T06:42:00+00:00")
+        tl = self.timeline("j", [(t, None, None, True), (t + analyze.SEC, "Running", 1, None),
+                                 (t + analyze.SEC, "Admitted", 1, None), (t + 2 * analyze.SEC, "Admitted", 1, None)])
+        pred = lambda s: tl.phase(s) == "Running" and tl.stranded(s)  # noqa: E731
+        # The snapshots integrate to nothing, and the replay of the CR's own stream still sees the forbidden state.
+        self.assertEqual(tl.time_where(t, t + 3 * analyze.SEC, pred), 0.0)
+        self.assertEqual(tl.ever(pred), "seen")
+
+    def test_a_cross_stream_tie_is_ambiguous_not_seen(self):
+        # The Pod is scheduled and the CR goes Running in the same millisecond: the sort's order is not the cluster's.
+        t = analyze.ts("2026-10-21T06:42:00+00:00")
+        tl = self.timeline("j", [(t, "Admitted", 1, True), (t + analyze.SEC, "Running", 1, False)])
+        self.assertEqual(tl.ever(lambda s: tl.phase(s) == "Running" and tl.stranded(s)), "ambiguous")
+
+    def test_running_entries_come_from_the_crs_own_events(self):
+        run = self.run_(self.RT)
+        t = run.created
+        run.tl = self.timeline(run.name, [(t, "Admitted", 1, None), (t + analyze.SEC, "Running", 2, None),
+                                          (t + analyze.SEC, "Admitted", 1, None), (t + analyze.SEC, "Running", 2, None)])
+        self.assertEqual(len(run.running_entries()), 2)
+        # The coalesced snapshots see one entry, which is the miscount the events replace.
+        self.assertEqual(len([v for _, v in run.tl.flips(lambda s: run.tl.phase(s) == "Running") if v]), 1)
+
+    def test_q2_reads_every_status_after_the_first_ready(self):
+        run = self.run_(self.RT)
+        run.setting, run.scenario = "off", "never"
+        m = run.measures()
+        m["M5_final_phase"] = "Admitted"
+        m["M2_quota_held_before_joining"] = [{"seconds": run.window - 1, "censored": True}]
+        t = run.created
+        steady = [(t, "Pending", None, True), (t + 5 * analyze.SEC, "Admitted", 1, True), (t + 150 * analyze.SEC, "Admitted", 1, True)]
+        run.tl = self.timeline(run.name, steady)
+        self.assertEqual([v for n, v, _ in analyze.predict_after_fix(run, m, []) if n == "Q2"], ["held"])
+        run.tl = self.timeline(run.name, steady[:2] + [(t + 50 * analyze.SEC, "Admitted", 0, True)] + steady[2:])
+        self.assertEqual([v for n, v, _ in analyze.predict_after_fix(run, m, []) if n == "Q2"], ["contradicted"])
+        # The lapse and its recovery in one millisecond, which one snapshot would hide.
+        run.tl = self.timeline(run.name, steady[:2] + [(t + 50 * analyze.SEC, "Admitted", 0, None),
+                                                       (t + 50 * analyze.SEC, "Admitted", 1, None)] + steady[2:])
+        self.assertEqual([v for n, v, _ in analyze.predict_after_fix(run, m, []) if n == "Q2"], ["contradicted"])
+
+    def test_a_tie_where_running_ends_as_a_rank_strands_is_ambiguous(self):
+        # The CR leaves Running in the millisecond a rank becomes unschedulable; with the Pod first, both held at once.
+        t = analyze.ts("2026-10-21T06:42:00+00:00")
+        tl = self.timeline("j", [(t, "Running", 2, False), (t + analyze.SEC, "Admitted", 1, True)])
+        self.assertEqual(tl.ever(lambda s: tl.phase(s) == "Running" and tl.stranded(s), kinds=("mltrainingjobs", "pods")),
+                         "ambiguous")
+
+    def test_a_witness_reserving_in_the_millisecond_the_job_releases_overlaps(self):
+        self.add_witness()
+        release = "2026-10-21T06:43:52.091000+00:00"
+        rows = []
+
+        def same_ms(r):
+            obj = r.get("object") or {}
+            if obj.get("metadata", {}).get("uid") == "witness-wl" and r["arrived"].startswith("2026-10-21T06:43:52.491"):
+                rows.append(r)
+                return None
+            return r
+        self.rewrite(self.RT, "watch.workloads.jsonl", same_ms)
+        # Recorded just before the job's release, in the same millisecond, in the stream's own order.
+        with open(self.path(self.RT, "watch.workloads.jsonl")) as f:
+            lines = f.readlines()
+        at = next(i for i, line in enumerate(lines) if json.loads(line)["arrived"][:23] == release[:23])
+        lines.insert(at, json.dumps(dict(rows[0], arrived=lines and json.loads(lines[at])["arrived"])) + "\n")
+        with open(self.path(self.RT, "watch.workloads.jsonl"), "w") as f:
+            f.writelines(lines)
+        self.assertTrue(any("held quota with the job" in p for p in self.run_(self.RT).witness_problems()))
+
+    def test_q3_needs_running_after_both_ranks_are_ready(self):
+        # The old rule entered Running before the second rank was placed.
+        run = self.run_(self.LATE)
+        self.assertEqual(self.q(run, run.measures(), "Q3"), ["contradicted"])
+
+    def test_q3_holds_admit_to_running_to_kueues_first_stamp(self):
+        def q3(admitted_at, a2r):
+            def edit(r):
+                st = ((r.get("object") or {}).get("status"))
+                if st is not None:
+                    st["admittedAt"], st["admitToRunningSeconds"] = admitted_at, a2r
+                return r
+            self.rewrite(self.LATE, "watch.mltrainingjobs.jsonl", edit)
+            run = self.run_(self.LATE)
+            first = run.admitted_stamps()[0]
+            entry = run.squat_deleted + analyze.SEC * 5
+            # The old rule entered Running early; the ordering is set to the fixed rule's, so only the stamp is judged.
+            run.running_entries, run.both_ready_at = (lambda: [entry]), (lambda: entry - analyze.SEC)
+            return first, entry, self.q(run, run.measures(), "Q3")
+        first, entry, verdict = q3("2026-10-21T06:45:55Z", "200.0")
+        self.assertEqual(verdict, ["held"])
+        # admittedAt moved to the Running entry, with a figure that agrees with it: the floor must not move with it.
+        _, _, verdict = q3(entry.strftime("%Y-%m-%dT%H:%M:%SZ"), "0")
+        self.assertEqual(verdict, ["contradicted"])
+        _, _, verdict = q3("2026-10-21T06:45:55Z", "5.0")
+        self.assertEqual(verdict, ["contradicted"])
+        # A moved admittedAt is wrong whatever figure sits beside it.
+        _, _, verdict = q3(entry.strftime("%Y-%m-%dT%H:%M:%SZ"), "200.0")
+        self.assertEqual(verdict, ["contradicted"])
+
+    def test_q6_reads_exit_code_and_seconds(self):
+        run = self.run_(self.RT)
+        m = run.measures()
+        self.assertEqual(self.q(run, m, "Q6"), ["contradicted"])
+        h = m["M8_device_held_after_release"][0]
+        h["exit"], h["seconds"] = 143, 1.0
+        self.assertEqual(self.q(run, m, "Q6"), ["held"])
+        h["seconds"] = -3.0
+        self.assertEqual(self.q(run, m, "Q6"), ["held"])
+        h["seconds"] = 5.1
+        self.assertEqual(self.q(run, m, "Q6"), ["contradicted"])
+        h["seconds"], h["exit"] = 1.0, 137
+        self.assertEqual(self.q(run, m, "Q6"), ["contradicted"])
+        h["exit"], h["censored"] = 143, True
+        self.assertEqual(self.q(run, m, "Q6"), ["contradicted"])
+
+    # The witness, added to the rehearsal: its Job, its Workload reserved 0.4 s after the job's release at
+    # 06:43:52.091, and its Pod unschedulable until 0.4 s after the evicted rank's finishedAt of 06:44:21.
+
+    def add_witness(self, created="2026-10-21T06:42:10.000Z"):
+        d = os.path.join(self.out, "runs", self.RT)
+        name = "pp-rt-never-1-064148"
+        spill(os.path.join(d, "run.txt"), f"ready-timeout witness 1 {name}\n")
+        spill(os.path.join(d, "witness-created-at.txt"), created + "\n")
+        wname = "witness-" + name
+        job = {"kind": "Job", "metadata": {"name": wname, "uid": "witness-job", "creationTimestamp": "2026-10-21T06:42:10Z"},
+               "spec": {"suspend": True}, "status": {}}
+        owner = [{"kind": "Job", "name": wname, "uid": "witness-job"}]
+
+        def workload(status, finished=False):
+            conds = [{"type": "QuotaReserved", "status": status}]
+            if finished:
+                conds.append({"type": "Finished", "status": "True"})
+            return {"kind": "Workload", "metadata": {"name": "job-" + wname, "uid": "witness-wl", "ownerReferences": owner},
+                    "spec": {"active": True}, "status": {"conditions": conds}}
+
+        def pod(status, reason=None, message=None):
+            c = {"type": "PodScheduled", "status": status}
+            if reason:
+                c.update(reason=reason, message=message)
+            return {"kind": "Pod", "metadata": {"name": wname + "-x", "uid": "witness-pod", "labels": {"job-name": wname},
+                                                "creationTimestamp": "2026-10-21T06:43:52Z"},
+                    "spec": {}, "status": {"conditions": [c]}}
+
+        def add(kind, rows):
+            with open(os.path.join(d, f"watch.{kind}.jsonl"), "a") as f:
+                for arrived, etype, obj in rows:
+                    f.write(json.dumps({"arrived": "2026-10-21T" + arrived + "+00:00", "kind": kind, "type": etype,
+                                        "object": obj}) + "\n")
+        add("jobs", [("06:42:10.100", "ADDED", job)])
+        # The rehearsal's job was admitted again at 06:44:21.042, which a real witness holding a unit would have
+        # prevented, so this one finishes just before it, still reserved, as a finished Workload can be.
+        add("workloads", [("06:42:10.300", "ADDED", workload("False")), ("06:43:52.491", "MODIFIED", workload("True")),
+                          ("06:44:21.000", "MODIFIED", workload("True", finished=True))])
+        add("pods", [("06:43:52.800", "ADDED", pod("False", "Unschedulable", "0/3 nodes are available: 1 Insufficient nvidia.com/gpu")),
+                     ("06:44:21.400", "MODIFIED", pod("True"))])
+        return self.run_(self.RT)
+
+    def test_m9_is_read_from_the_witness_objects(self):
+        run = self.add_witness()
+        self.assertEqual(run.witness_problems(), [])
+        w = run.measures()["M9_witness"]
+        self.assertEqual(w["pods"], 1)
+        self.assertEqual(w["reserved_after_first_release_s"], 0.4)
+        self.assertEqual(w["M9_s"], 28.9)
+        self.assertEqual(w["scheduled_minus_rank_finished_s"], 0.4)
+        self.assertEqual(w["unschedulable"], [("Unschedulable", "0/3 nodes are available: 1 Insufficient nvidia.com/gpu")])
+
+    def test_q7_reads_lag_m9_and_order(self):
+        run = self.add_witness()
+        m = run.measures()
+        # The old trainer's 28.9 s hold is the gap Q7 says is gone.
+        self.assertEqual(self.q(run, m, "Q7"), ["contradicted"])
+        w = m["M9_witness"]
+        w["M9_s"] = 5.0
+        self.assertEqual(self.q(run, m, "Q7"), ["held"])
+        w["reserved_after_first_release_s"] = 3.1
+        self.assertEqual(self.q(run, m, "Q7"), ["contradicted"])
+        w["reserved_after_first_release_s"], w["scheduled_minus_rank_finished_s"] = 0.4, -1.1
+        self.assertEqual(self.q(run, m, "Q7"), ["contradicted"])
+
+    def test_m9_compares_only_with_the_first_releases_rank(self):
+        run = self.add_witness()
+        rsv = run.reservations()
+        held = run.measures()["M8_device_held_after_release"]
+        # The first release's rank censored, and a later attempt's finish present: the later one must not be used.
+        later = dict(held[0], release="2026-10-21T06:50:00+00:00", finishedAt="2026-10-21T06:50:30+00:00")
+        first = dict(held[0], censored=True, finishedAt=None)
+        w = run.witness_measures([first, later], rsv)
+        self.assertIsNone(w["scheduled_minus_rank_finished_s"])
+
+    def test_another_gpu_pod_in_the_namespace_voids_a_witness_run(self):
+        self.add_witness()
+        other = {"kind": "Pod", "metadata": {"name": "intruder", "uid": "intruder", "labels": {}},
+                 "spec": {"containers": [{"name": "c", "resources": {"limits": {"nvidia.com/gpu": "1"}}}]}, "status": {}}
+        with open(self.path(self.RT, "watch.pods.jsonl"), "a") as f:
+            f.write(json.dumps({"arrived": "2026-10-21T06:43:00.000+00:00", "kind": "pods", "type": "ADDED", "object": other}) + "\n")
+        self.assertTrue(any("intruder" in p for p in self.run_(self.RT).problems()))
+
+    def test_an_init_container_asking_for_a_gpu_counts(self):
+        self.add_witness()
+        other = {"kind": "Pod", "metadata": {"name": "init-intruder", "uid": "init-intruder", "labels": {}},
+                 "spec": {"containers": [{"name": "c"}],
+                          "initContainers": [{"name": "i", "resources": {"requests": {"nvidia.com/gpu": "1"}}}]}, "status": {}}
+        with open(self.path(self.RT, "watch.pods.jsonl"), "a") as f:
+            f.write(json.dumps({"arrived": "2026-10-21T06:43:00.000+00:00", "kind": "pods", "type": "ADDED", "object": other}) + "\n")
+        self.assertTrue(any("init-intruder" in p for p in self.run_(self.RT).problems()))
+
+    def test_a_witness_run_is_scored_only_by_q1_q6_and_q7(self):
+        run = self.add_witness()
+        m = run.measures()
+        self.assertEqual(sorted(n for n, _, _ in analyze.predict_after_fix(run, m, analyze.predict(run, m))), ["Q1", "Q6", "Q7"])
+
+    def test_a_witness_created_before_the_reservation_is_void(self):
+        run = self.add_witness(created="2026-10-21T06:41:50.000Z")
+        # Through problems(), which is what voids a run, and not only through the helper.
+        self.assertTrue(any("before the job's first reservation" in p for p in run.problems()), run.problems())
+
+    def test_a_witness_created_after_the_eviction_is_void(self):
+        run = self.add_witness(created="2026-10-21T06:43:55.000Z")
+        self.assertTrue(any("after the job's first Evicted" in p for p in run.witness_problems()))
+
+    def test_a_witness_holding_quota_with_the_job_is_void(self):
+        self.add_witness()
+        # Only the reservation moves, to 06:43:40, while the job's own reservation still holds both units.
+        self.rewrite(self.RT, "watch.workloads.jsonl",
+                     lambda r: dict(r, arrived="2026-10-21T06:43:40.000+00:00")
+                     if (r.get("object") or {}).get("metadata", {}).get("uid") == "witness-wl"
+                     and r["arrived"].startswith("2026-10-21T06:43:52.491") else r)
+        self.assertTrue(any("held quota with the job" in p for p in self.run_(self.RT).witness_problems()))
+
+
 if __name__ == "__main__":
     unittest.main()

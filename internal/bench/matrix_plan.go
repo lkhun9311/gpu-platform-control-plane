@@ -120,12 +120,19 @@ func MatrixPlanArmSetRefusal(study string, arms []string) error {
 	if IsInstrumentValidationStudy(s.ID) {
 		return instrumentValidationArmSetRefusal(s, arms)
 	}
+	// The capability session buys its one mps cell and nothing else: it has no baseline because it divides nothing.
+	if s.ID == StudyMPSCapability {
+		if len(arms) != 1 || arms[0] != ArmMPS {
+			return fmt.Errorf("the planned arms (%s) are not exactly %s, the one cell study %s registers", strings.Join(arms, " "), ArmMPS, s.ID)
+		}
+		return nil
+	}
 	// The admission pilot's family has no `shared`: its control is off. A pilot stage buys a subset of the pilot's
 	// arms with R1 and off in it; the diagnostic and v26 buy exactly their registered arms, which their scorers
 	// require cell by cell (v26 review, C6: the matrix had been passing the sharing matrix's default arms here).
 	// The length calibration has no bare off: its references are off at each length, and every registered arm is
 	// required, as its scorer requires each cell.
-	if s.ID == StudyLengthCalibration || s.ID == StudyLengthRobustness {
+	if s.ID == StudyLengthCalibration || s.ID == StudyHeadroomCalibration || s.ID == StudyLengthRobustness || s.ID == StudyHeadroomMain {
 		for _, a := range arms {
 			if !slices.Contains(s.Arms, a) {
 				return fmt.Errorf("the planned arm %s is not one of study %s's (%s)", a, s.ID, strings.Join(s.Arms, " "))

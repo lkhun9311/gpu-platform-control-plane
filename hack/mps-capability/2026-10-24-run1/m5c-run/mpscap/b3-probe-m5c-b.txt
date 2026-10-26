@@ -1,0 +1,1 @@
+PIPE=/mps/nvidia.com/gpu/pipe DIR=present CONTROL=no

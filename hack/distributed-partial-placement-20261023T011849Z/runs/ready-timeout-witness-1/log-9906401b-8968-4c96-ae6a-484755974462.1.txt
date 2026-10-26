@@ -1,0 +1,4 @@
+/usr/local/lib/python3.12/site-packages/torch/_subclasses/functional_tensor.py:295: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at ../torch/csrc/utils/tensor_numpy.cpp:84.)
+  cpu = _conversion_method_template(device=torch.device("cpu"))
+{"attempt": "1", "backend_requested": "gloo", "device_type": "cpu", "event": "rendezvous_start", "hostname": "pp-rt-witness-1-024213-0", "master_addr": "pp-rt-witness-1-024213-0.pp-rt-witness-1-024213-ddp.partial.svc", "master_port": "29500", "rank": 0, "run_id": "pp-rt-witness-1-024213", "tensor_device_type": "cpu", "timeout_seconds": 1500, "ts": "2026-10-23T02:48:23.141345+00:00"}
+{"attempt": "1", "event": "sigterm", "rank": 0, "run_id": "pp-rt-witness-1-024213", "ts": "2026-10-23T02:50:22.068807+00:00"}

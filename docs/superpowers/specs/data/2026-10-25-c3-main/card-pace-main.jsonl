@@ -1,0 +1,9 @@
+{"card": "m5c-20261025-155947-mainH1", "cell": "hold-cap-long-1", "measured_d_ms": 1761.568655, "replay_d_at_1.0_ms": 1692.093696, "replay_d_at_1.08_ms": 1879.24096, "d_matched_pace": 1.0306}
+{"card": "m5c-20261025-155947-mainH1", "cell": "hold-cap-ref-1", "measured_d_ms": 1631.017888, "replay_d_at_1.0_ms": 1564.54912, "replay_d_at_1.08_ms": 1747.35488, "d_matched_pace": 1.0258}
+{"card": "m5c-20261025-155947-mainH1", "cell": "hold-cap-short-1", "measured_d_ms": 1150.287445, "replay_d_at_1.0_ms": 1116.26368, "replay_d_at_1.08_ms": 1253.710848, "d_matched_pace": 1.0186}
+{"card": "m5c-20261025-185243-mainH2", "cell": "hold-cap-long-1", "measured_d_ms": 1722.733837, "replay_d_at_1.0_ms": 1661.484544, "replay_d_at_1.08_ms": 1824.332288, "d_matched_pace": 1.0304}
+{"card": "m5c-20261025-185243-mainH2", "cell": "hold-cap-ref-1", "measured_d_ms": 1602.730535, "replay_d_at_1.0_ms": 1540.094208, "replay_d_at_1.08_ms": 1702.921728, "d_matched_pace": 1.0265}
+{"card": "m5c-20261025-185243-mainH2", "cell": "hold-cap-short-1", "measured_d_ms": 1139.630527, "replay_d_at_1.0_ms": 1128.416512, "replay_d_at_1.08_ms": 1244.19584, "d_matched_pace": 1.0075}
+{"card": "m5c-20261025-224804-mainH3", "cell": "hold-cap-long-1", "measured_d_ms": 1755.670737, "replay_d_at_1.0_ms": 1693.540096, "replay_d_at_1.08_ms": 1880.121088, "d_matched_pace": 1.0269}
+{"card": "m5c-20261025-224804-mainH3", "cell": "hold-cap-ref-1", "measured_d_ms": 1635.024604, "replay_d_at_1.0_ms": 1588.574208, "replay_d_at_1.08_ms": 1743.503104, "d_matched_pace": 1.0275}
+{"card": "m5c-20261025-224804-mainH3", "cell": "hold-cap-short-1", "measured_d_ms": 1169.07465, "replay_d_at_1.0_ms": 1146.592, "replay_d_at_1.08_ms": 1266.514944, "d_matched_pace": 1.0139}

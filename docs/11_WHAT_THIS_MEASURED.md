@@ -6,11 +6,13 @@
 > cites the pre-registration or result page it came from, and every claim is bounded by what the measurement
 > could actually see.
 
-The control plane is not the result. It is the instrument. The results are nine findings that could not be
+The control plane is not the result. It is the instrument. The results are ten findings that could not be
 asked without it, and four claims this project is **not** entitled to make.
 
-(Nine, counted from the headings below. This line once said seven while the page carried eight, which is the
-kind of drift that makes a reader stop trusting the arithmetic in the findings themselves.)
+(Ten, counted from the `## Finding N` headings below; `### Finding 3b` is a sub-heading of Finding 3 and is not
+counted on its own. This line still said nine after Finding 10 was added on 2026-10-21, and once said seven while the
+page carried eight, which is the kind of drift that makes a reader stop trusting the arithmetic in the findings
+themselves.)
 
 ---
 
@@ -308,6 +310,10 @@ measured that, and since 2026-10-21 such a job needs every rank.
 Repacking one holder — no added GPU, no added quota, demand 2 → 3 → 2 — returned the same Pod to scheduled
 in 5/5 trials, though every one of those five breaches the study's own 5 s collection-gap rule and is
 reported as evidence rather than as a pass (`experiments/fragmentation/README.md`).
+A registered rerun on 2026-10-23, with a sampler the intervention could not pause, gave five R trials that
+meet the rule: the same Pod scheduled 0.51–1.43 s after the deletion in each, with the middle state in the
+timeline itself; its five F trials, the same session's control, never scheduled and showed the CR `Running`
+while unscheduled in 0 samples, where each F trial on 2026-09-24 showed 145.
 
 **What it does not say.** Nothing about real GPUs, utilisation, gang scheduling, or automatic repacking,
 which this platform does not do. The thing moved was a `pause` container, not live training.
@@ -387,7 +393,21 @@ author — an early pair that matched the hypothesis was disclosed as a rehearsa
 variation above, and a qualification fixture was refused by a guard written four changes earlier because on a
 symmetric layout the two candidate nodes tie.
 
-*(`docs/superpowers/specs/2026-09-29-stranded-gpu-frozen-protocol.md`, `cmd/strandedrun`, `hack/stranded-cell.sh`)*
+**Measured 2026-10-23, a second campaign: the sign reverses with the mix.** A new registration asked what this finding said it needed: a second layout, two workers advertising 3 and 2 devices, a mix where packing should lose, and an order that can cancel drift. Each of 72 cells, 12 per arm in each of three conditions, ran on its own freshly built cluster, in twelve blocks drawn from a seed before any cell, and was judged by a one-sided Fisher exact test fixed in advance, per condition at 0.05. Every cell stood on its first attempt, and the cells ran in the registered order:
+
+| condition | layout, sequence | stranded at the discriminating step, `S-default` | `S-gpu-most` | one-sided p | registered reading |
+|---|---|---:|---:|---:|---|
+| C1, this finding's own | 2, 1, 1; the six submissions above | **10 of 12**, 2 devices each | 0 of 12 | 0.00003 | packing removed stranding |
+| C2, packing should lose | 3, 2; 1, 2, 2, then 1 | 6 of 12, 2 devices each | **12 of 12**, 2 devices each | 0.0069 | **packing lost on this mix** |
+| C3, packing should win | 3, 2; 1, 1, 3, then 1 | **12 of 12**, 3 devices each | 0 of 12 | 0.0000004 | packing removed stranding |
+
+So the same configuration that protected the large node in C1 and C3 stranded two devices in every C2 cell, on the same layout as C3. Both C2 and C3 passed, so the sign reversal the registration allowed is reported. `MostAllocated` put the first one-device request on the two-device worker because 1/2 is the larger fraction, and the two two-device requests that followed could not both fit. The rule protects the node a request fills, not the remainder a later request needs.
+
+One registered estimate was wrong, though the test it was beside was not affected. The registration expected the default scheduler to strand in C3 "about three times in four", reading it as a coin per request. In all 12 `S-default` cells of C3 the second one-device request went to the worker the first had not taken, so two ones never shared the two-device worker and C3 stranded every time; the first landed on the three-device worker in 4 of the 12. C2 points the same way where its second request, of two devices, had a choice: in the 6 cells where the first request took the three-device worker, the second went to the other worker every time. C1's reference arm stranded in 10 of 12, against two of three in each earlier series.
+
+**What the second campaign does not say.** Not that packing is wrong in general, or right: it is three fixed sequences on two layouts, on simulated devices, and a fixed sequence is not an arrival process. The treatment is still the whole configuration.
+
+*(`docs/superpowers/specs/2026-09-29-stranded-gpu-frozen-protocol.md`, `cmd/strandedrun`, `hack/stranded-cell.sh`; the second campaign: `docs/superpowers/specs/2026-10-22-stranding-where-packing-should-lose-design.md`, `hack/stranded-protocol-v2.yaml`, evidence `hack/stranded-v2-20261023T031645Z/`)*
 
 ---
 
@@ -443,7 +463,19 @@ Each discarded attempt also cost 149 to 150 s of the placed rank's container tim
 
 **Fixed 2026-10-21, after this measurement.** A distributed job is now `Running` only when every rank is Ready or has succeeded, counted as Kueue's `(*Job).PodsReady` counts them, and at least one rank is still Ready. The second condition is not Kueue's: every finishing run above passed through a state with both ranks succeeded and no `Complete` for 21 to 28 ms, which Kueue's count alone would have called `Running` as the job ended. A job without `distributed` keeps the one-Ready-Pod rule. The fix does not reduce the hold; it changes what the platform says during it. Re-run on the same harness with only the controller changed (`hack/distributed-partial-placement-20261021T093821Z/`, one `off` run per scenario at a 300 s window with the squatter deleted at 150 s, which the scorer reports as a rehearsal, not as this study): stranded, the job read `Admitted` in 299 of 300 once-a-second polls and `Pending` in the other, with no `runningObservedAt`; freed, it read `Admitted` until 151.6 s, 1.0 s after the squatter's deletion, then `Running` once, with `admitToRunningSeconds` 151.611. Under the old rule every one of the eight registered runs had recorded 0.941 to 1.936 s, the four whose second rank never got a node included. The table is left as it was measured.
 
-*(`docs/superpowers/specs/2026-10-21-distributed-partial-placement-design.md`, `experiments/distributed-partial-placement/`, evidence `hack/distributed-partial-placement-20261021T065335Z/`; the fix: `docs/superpowers/specs/2026-10-21-phase-waits-for-every-rank-design.md`, evidence `hack/distributed-partial-placement-20261021T093821Z/`)*
+**Changed 2026-10-22: the 28.9 s.** `experiments/cpu-ddp/train.py` now calls `init_process_group` on a worker thread and waits for it in 0.2 s joins, so its SIGTERM handler can run while rendezvous is blocked. Its tests on stub torch show a rank blocked in a rendezvous that cannot take the signal now exits 143 with a `sigterm` record, where the previous file was still running 5 s after the signal. That is the trainer's fix, not the platform's: Kueue still releases the quota when the Job has no active Pod, and any workload that blocks SIGTERM the same way will still hold its device to the grace period. The change gives `train.py` a new sha256, so a paid session needs a new `APPROVED_TRAIN_SHA256`.
+
+**Measured 2026-10-23, after both fixes, under a new registration.** Finding 10's harness ran again at its registered 600 s window, with the phase fix and the trainer's fix in place: two runs of each of the four scenarios, plus two `ready-timeout` runs with a *witness*, a one-GPU Job queued into the same ClusterQueue after the job's first reservation. All ten runs were valid, and every registered prediction held:
+
+- **Not `Running` while stranded, in either setting.** The CR was never `Running` with a rank unplaced, read after every single watch event and not only from polls: `Admitted` for the whole 600 s in `off-never`, and no entry into `Running` across the three admissions of `ready-timeout-never`. Where the squatter left, `Running` came once, 0.4 to 0.5 s after the second rank was Ready, and `admitToRunningSeconds` read 301.5 and 301.8 s, where the old rule had recorded 0.9 to 1.9 s. The hold did not change: 599 s to the window's end without the timeout, and Finding 10's admissions at 0, 150 and 330 s with it.
+- **The device now comes back with the quota.** In all sixteen evictions the placed rank ended with exit 143, not 137, with its container's `finishedAt` 1.1 s before the recorded release, against 28.9 s after it before the trainer's fix. (`finishedAt` is whole seconds, so this says the rank stopped within the same second, not before it was asked to.)
+- **A second tenant met no gap.** In both witness runs the witness was admitted 1.0 s after the first release and its Pod was scheduled 0.03 s after that, 2 s after the evicted rank had stopped.
+
+Two observations no prediction covered: the witness, holding one of the two devices for its 60 s, pushed the job's second admission from 150 to 186 s; and every finishing run read `Admitted` for 1.0 to 2.0 s before `Succeeded`, while its ranks were still running but no longer Ready, which is the cautious side of the error this finding measured.
+
+**What this adds and what it does not.** On this harness, with two ranks and simulated devices, a half-placed job is no longer reported running, and a rank evicted by the readiness timeout releases its device within a second of the quota. It says nothing about a real GPU or NCCL releasing as fast, about a workload that blocks SIGTERM as the old trainer did, or about more ranks, a cohort or `blockAdmission`; and two witness runs show that the gap was short, not that it is never long.
+
+*(`docs/superpowers/specs/2026-10-21-distributed-partial-placement-design.md`, `experiments/distributed-partial-placement/`, evidence `hack/distributed-partial-placement-20261021T065335Z/`; the fix: `docs/superpowers/specs/2026-10-21-phase-waits-for-every-rank-design.md`, evidence `hack/distributed-partial-placement-20261021T093821Z/`; after both fixes: `docs/superpowers/specs/2026-10-22-finding-10-after-the-phase-fix-design.md`, evidence `hack/distributed-partial-placement-20261023T011849Z/`)*
 
 ---
 
@@ -471,6 +503,6 @@ Two of these are rejected hypotheses, which is a result. Two are gaps, which are
 | 3 — sharing vs isolation | MIG on a card that supports it, which the account's instance-family policy does not permit. The MPS arm is **unjudged rather than failed** — it did not run correctly in the matrix, which is a different statement from missing the bar |
 | 4 — tail-only readings | nothing; the mechanism is established and the fix is a reading, not a run |
 | 5 — preemption that did not | already closed: the termination contract is now an arm of the protocol |
-| 8 — configuration removes stranding | a second layout, and a demand mix where packing should *lose*. Both arms ran on one shape; the campaign cannot cancel a drift over time, because both arms render the same cluster name and must run in sequence |
+| 8 — configuration removes stranding | the second layout, the mix where packing loses and the counterbalanced order were measured on 2026-10-23, and the sign reversed with the mix; what remains is real devices, an arrival process rather than a fixed sequence, and more than three workers |
 | 9 — hold-cap protects, a tuned clock ties | the robustness study v27 stopped: a load with headroom for the contender, so a fixed spacing tuned at one prompt length can be measured failing at another while hold-cap stays inside its limits; and a second card model |
-| 10 — a half-placed distributed job | more than two ranks, other jobs in the cohort, `blockAdmission: true`, and real devices; the phase fix it pointed at is made and was confirmed on one run per scenario, not under the registered window or with `ready-timeout` |
+| 10 — a half-placed distributed job | more than two ranks, other jobs in the cohort, `blockAdmission: true`, and real devices; the phase fix it pointed at and the trainer's signal fix were measured together under a second registration, two runs per scenario plus two with a second tenant, all on simulated devices |
