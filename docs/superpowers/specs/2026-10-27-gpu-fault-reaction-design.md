@@ -1,7 +1,8 @@
 # How long the platform takes to react to a GPU fault DCGM reports: a registration
 
 Written 2026-10-26 and 2026-10-27, before any run.
-**Draft. Not registered: it becomes the registration only by the owner's approval, from the commit that records that approval, and no run before it counts.**
+**Registered and frozen for purchase, 2026-10-27, at the commit that carries this line.** The owner approved every valid experiment of 2026-10-27, this one among them, on 2026-10-26 ("유효 실험도 전부 승인하니 진행"); nothing below changes after this commit, and a run from any other commit does not count.
+Until this line, the page said: "Draft. Not registered: it becomes the registration only by the owner's approval, from the commit that records that approval, and no run before it counts."
 Two parts: a free rehearsal on kind with a fake exporter, which tests the apparatus and is never a result; and one paid session on one g5.2xlarge, the only run this page can score as a result.
 The first draft was attacked by codex `gpt-6-astra` before anything was built on it; its seventeen findings and what was done with each are in "Adversarial review" at the end, and the prompt and reply are in `docs/superpowers/specs/data/2026-10-27-gpu-fault-reaction/`.
 
