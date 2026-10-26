@@ -1,0 +1,52 @@
+# The DCGM exporter as the GPU fault-reaction study runs it
+# (docs/superpowers/specs/2026-10-27-gpu-fault-reaction-design.md).
+#
+# Two changes to config/dcgm-exporter, and only these, so the exporter every queuelab session used stays as it was:
+#
+#   1. The fault fields are collected: DCGM_FI_DEV_XID_ERRORS (230), DCGM_FI_DEV_ECC_DBE_VOL_TOTAL (311) and
+#      DCGM_FI_DEV_ECC_SBE_VOL_TOTAL (310), beside the utilisation the queuelab reads. The exporter's default
+#      counters carry the ECC totals commented out, so naming them here is what makes them exported at all.
+#   2. DCGM runs as its own host engine in a second container of the same Pod, and the exporter connects to it
+#      with -r localhost:5555 instead of embedding DCGM. Embedded, DCGM opens no port, and `dcgmi test --inject`
+#      would have no cache to write into; with one host engine, the exporter and dcgmi read and write the same
+#      cache. The host engine binds 127.0.0.1, its default, so nothing outside the Pod can reach it.
+#
+# The collection interval stays at -c 1000: the registration's detection bound is derived from it.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../dcgm-exporter
+
+patches:
+  - target:
+      kind: ConfigMap
+      name: dcgm-exporter-metrics
+    patch: |-
+      - op: replace
+        path: /data/queuelab-metrics.csv
+        value: |
+          # Format,          Prometheus metric type, help message
+          DCGM_FI_DEV_GPU_UTIL, gauge, GPU utilization (in %).
+          DCGM_FI_DEV_XID_ERRORS, gauge, Value of the last XID error encountered.
+          DCGM_FI_DEV_ECC_DBE_VOL_TOTAL, counter, Total number of double-bit volatile ECC errors.
+          DCGM_FI_DEV_ECC_SBE_VOL_TOTAL, counter, Total number of single-bit volatile ECC errors.
+  - target:
+      kind: DaemonSet
+      name: dcgm-exporter
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/args/-
+        value: "-r"
+      - op: add
+        path: /spec/template/spec/containers/0/args/-
+        value: "localhost:5555"
+      - op: add
+        path: /spec/template/spec/containers/-
+        value:
+          name: hostengine
+          # The same image, so the host engine and the exporter's DCGM client are one version, 3.3.9.
+          image: nvcr.io/nvidia/k8s/dcgm-exporter:3.3.9-3.6.1-ubuntu22.04@sha256:3d4e0dfa5fc4d7d12689d29fc6b56cd6c610750e8d187a393882e341fbba6c12
+          command: ["nv-hostengine", "-n", "--log-level", "ERROR", "-f", "/tmp/nv-hostengine.log"]
+          securityContext:
+            privileged: true
