@@ -424,6 +424,14 @@ class Qualification(Base):
     def test_no_topology(self):
         self.assertTrue(analyze.judge_qualification(self.write(drop="GPU3\t X")))
 
+    def test_the_header_nvidia_smi_underlines(self):
+        # The header exactly as the paid session of 2026-10-27 captured it: nvidia-smi underlined it with ANSI
+        # escapes although no terminal was attached, and a scorer that read only the plain form voided that run.
+        path = self.write(drop="\tGPU0\tGPU1")
+        log = path / "qualification.log"
+        log.write_text("\t\x1b[4mGPU0\tGPU1\tGPU2\tGPU3\tCPU Affinity\tNUMA Affinity\tGPU NUMA ID\x1b[0m\n" + log.read_text())
+        self.assertEqual(analyze.judge_qualification(path), [])
+
     def test_small_shared_memory(self):
         path = self.write(drop="AR_SHM_KB")
         (path / "qualification.log").write_text((path / "qualification.log").read_text() + "AR_SHM_KB 65536\n")

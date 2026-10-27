@@ -3,7 +3,7 @@
 Written 2026-10-26 (dated 2026-10-27, the earliest day a session under it could run).
 **Registered and frozen for purchase, 2026-10-27, at the commit that carries this line.** The owner approved every valid experiment of 2026-10-27 on 2026-10-26 ("유효 실험도 전부 승인하니 진행"), and on 2026-10-27 approved the paid sessions to go ahead ("유료 실험 진행 가능"). Nothing below changes after this commit, and a session run from code other than this commit's, as promoted to `main`, does not count.
 Until this line, the status said: "registered for review, not approved for purchase."
-Nothing here has run on a GPU, and no number below is a result.
+**Status, 2026-10-27: run 1 is VOID at Q, after the purchase, by a defect in the scorer; no job ran and no number below is a result.** The owner approved one more attempt under "Amendment for run 2", at the end, which changes only the scorer's reading of the topology header.
 codex `gpt-6-astra` attacked the first version cold; every finding was re-derived, and this version is the reconciled one ("Review: astra's attack, reconciled", at the end).
 It grows out of the draft `2026-10-22-multi-gpu-per-pod-throughput-design.md`, which is left as it was written and is history; where this page and the draft differ, this page holds, and "Changes from the draft" says what moved and why.
 Every numeric bound below names where its number comes from, because `docs/11_WHAT_THIS_MEASURED.md` ("What the targets were based on") now records that several earlier bars had none.
@@ -352,3 +352,40 @@ It also found two defects, both fixed after it:
 - **Followed logs ended early.** The host had exhausted its inotify instances (`max_user_instances` 512, with four other kind clusters up), the kubelet's follow answered "failed to create fsnotify watcher: too many open files", and the DDP Pods' saved logs held only their start records, so the rehearsal's own checks of the DDP path failed. The runner now reads every surviving Pod's whole log once more, without following, before it deletes the job. On EKS the node is the session's own, but the defect is the collector's, not kind's.
 - **A failing one-Pod job is retried.** The nccl-tests and one-Pod bench jobs, failing here, were retried by the Job controller up to its default `backoffLimit` and ran into the budget with five Pods each; validity line 1 now says so, and the rehearsal no longer expects one Pod of a failing job.
 A second run, to show the first fix on kind, could not start its operator: the same inotify exhaustion crash-looped `kube-proxy` ("failed complete: too many open files"), so Service traffic and the admission webhooks never answered; it was stopped and its cluster deleted. **So the final-read fix is tested by reading, not on kind.** I also edited the rehearsal script while the first run was executing it, after its last measured step; its verdict lines printed as written, but that run is not a clean execution of the file as it now stands.
+
+## Run 1, 2026-10-27: VOID at Q, after the purchase, because the scorer could not read the topology header nvidia-smi printed
+
+**What ran.** `hack/eks-gitops-session.sh` with the command in "Buying the session", from a clean worktree at `main` `c3b36e04`, started 09:58:39Z.
+Every check before the purchase passed: T1 synced at `c3b36e04`, T2, T3 (admitted 10:14:30Z, held unplaced), T4 at $6.97442 an hour against the $6.98 ceiling, T5 (0 in use plus 48 within 52), Z1, and the GPU deadline armed for 230 minutes.
+The node was `i-019bd1b36bf31ec80` in ap-northeast-2c; T6, Z2 and T7 passed, the qualification job running 153.570 s after admission and succeeding.
+
+**What failed.** Q refused with "nvidia-smi topo -m printed no 4 x 4 GPU matrix", so the session scaled the group to 0 before any registered or smoke job, and the run is void under "Stop rule, voids and termination".
+The matrix was printed and complete.
+`nvidia-smi` underlined its header with ANSI escapes although no terminal was attached, so the captured line begins `\t\x1b[4mGPU0\tGPU1`, and `judge_qualification` matched the header with `^\s*GPU0`, which the escape defeats.
+The rest of Q held in the log: four distinct UUIDs, one driver (580.178.04), and `/dev/shm` of 1,048,576 KiB.
+Nothing checked a header carrying escapes before the purchase: the scorer's fixture, `check-allreduce-arms-lib.sh`'s qualification body and the kind rehearsal's stubbed `nvidia-smi` all printed the plain form.
+
+**What the void run's log shows, and is not a result.** Every GPU pair reads `PHB` in `topo -m`, a path through the CPU's PCIe host bridge, and every pair reads `NS`, not supported, in `topo -p2p r`.
+That is one node's report on one day; it is recorded because it bears on how any figure of run 2 may be read, and it is not one of this page's endpoints.
+
+**Teardown.** The GPU instance was launched at 10:14:52Z and terminated at 10:20:27Z (CloudTrail); the cluster's destroy finished at 10:38:36Z with every residue query answered and empty, and the watchdog was disarmed.
+**Cost, estimated from the rates in "Budget", not billed:** 335 s of g5.12xlarge at $6.97442 an hour, about $0.65, and about 39.5 minutes of the cluster at $0.2633 an hour, about $0.17.
+
+**The fix** (`faba4156`): `judge_qualification` strips ANSI escape sequences from every line before reading it.
+`test_the_header_nvidia_smi_underlines` carries run 1's header byte for byte and failed before the fix with the run's own message; with the strip removed it fails again.
+`analyze.py`'s 93 tests with the two benches' pass, and `judge_qualification` on run 1's own log now returns no fault.
+
+**Evidence:** `hack/four-gpu/2026-10-27-run1/`, 37 files listed in `SHA256SUMS`; `NOT-COMMITTED.sha256` holds the hashes of `terraform.log`, `seeded-key.txt` and `ttl.pid`, which are not committed.
+
+## Amendment for run 2, 2026-10-27, approved by the owner before it is bought
+
+The owner approved a second session on 2026-10-27 ("권장안 진행"), after run 1's record and this amendment's proposal were reported to them.
+"Not repeated without the owner's approval" is lifted for exactly one more attempt, run 2: a run 2 that fails for any reason is reported as it ran, and a third needs its own amendment and approval.
+
+**What changes**, and only this: `judge_qualification` in `experiments/multi-gpu-throughput/analyze.py` reads each line of the qualification log with ANSI escape sequences removed (`faba4156`).
+
+**What does not change:** the question, the arms, the order and repetitions, both benches and their approved hashes, the nccl-tests image digest, the validity lines, endpoints, verdict rules, predictions, falsifiers, the stop rule, the termination chain, the TTL, the price ceiling and the GPU budget.
+The approved hashes still name the benches at this commit: `allreduce_bench.py` af802523… and `ddp_step_bench.py` 7cad8637…, unchanged by the fix.
+
+**Run 2 is bought from `main` at the promotion that carries this section**, which replaces "this commit's, as promoted to `main`" in the status line for run 2 only, with the command in "Buying the session" and the values in "Pinned, and recorded".
+Run 1's evidence is not pooled with run 2's.
