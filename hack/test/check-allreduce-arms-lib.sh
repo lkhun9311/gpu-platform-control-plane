@@ -93,13 +93,15 @@ cat >"$work/bin/df" <<'EOF'
 printf 'Filesystem 1024-blocks Used Available Capacity Mounted on\nshm 1048576 0 1048576 0%% /dev/shm\n'
 EOF
 for t in torchrun python mpirun; do printf '#!/bin/sh\necho "STUB %s $*"\n' "$t" >"$work/bin/$t"; done
+# topo -m underlines its header as the paid session of 2026-10-27 captured it, with no terminal attached; the
+# plain header this stub printed before is what let a scorer that could not read the real one pass here.
 cat >"$work/bin/nvidia-smi" <<'EOF'
 #!/bin/sh
 n="${STUB_GPUS:-4}"
 case "$*" in
   -L) i=0; while [ "$i" -lt "$n" ]; do echo "GPU $i: NVIDIA A10G (UUID: GPU-5c1d5a84-0000-0000-0000-00000000000$i)"; i=$((i + 1)); done ;;
   --query-gpu*) i=0; while [ "$i" -lt "$n" ]; do echo "$i, GPU-5c1d5a84-0000-0000-0000-00000000000$i, 00000000:1$((i + 11)):00.0, 550.127.05"; i=$((i + 1)); done ;;
-  "topo -m") printf '\tGPU0\tGPU1\tGPU2\tGPU3\tCPU Affinity\nGPU0\t X \tPHB\tPHB\tPHB\t0-47\nGPU1\tPHB\t X \tPHB\tPHB\t0-47\nGPU2\tPHB\tPHB\t X \tPHB\t0-47\nGPU3\tPHB\tPHB\tPHB\t X \t0-47\n' ;;
+  "topo -m") printf '\t\033[4mGPU0\tGPU1\tGPU2\tGPU3\tCPU Affinity\tNUMA Affinity\tGPU NUMA ID\033[0m\nGPU0\t X \tPHB\tPHB\tPHB\t0-47\nGPU1\tPHB\t X \tPHB\tPHB\t0-47\nGPU2\tPHB\tPHB\t X \tPHB\t0-47\nGPU3\tPHB\tPHB\tPHB\t X \t0-47\n' ;;
   *) echo "stub nvidia-smi $*" ;;
 esac
 EOF
