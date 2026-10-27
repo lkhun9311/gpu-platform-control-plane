@@ -47,6 +47,13 @@ spec:
         - key: nvidia.com/gpu
           operator: Exists
           effect: NoSchedule
+        # The platform quarantines a faulted node with this taint, and only a fresh zero reading from this
+        # exporter clears it automatically.
+        # Without the toleration a restarted exporter could not return to the node it is needed on, which the
+        # paid GPU fault session of 2026-10-27 hit (docs/superpowers/specs/2026-10-27-gpu-fault-reaction-design.md).
+        - key: platform.lkhun9311.github.io/gpu-fault
+          operator: Exists
+          effect: NoSchedule
       # Selected on the label the GPU node group sets for itself (infra/aws/cluster/eks.tf), NOT on
       # nvidia.com/gpu.present.
       #
