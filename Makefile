@@ -183,11 +183,11 @@ build-strandedrun: fmt vet ## Build strandedrun, the stranded-GPU placement stud
 
 .PHONY: build-gpu-simulator
 build-gpu-simulator: fmt vet ## Build gpu-simulator binary.
-	go build -o bin/gpu-simulator cmd/gpu-simulator/main.go
+	go build -o bin/gpu-simulator ./cmd/gpu-simulator
 
 .PHONY: run-gpu-simulator
 run-gpu-simulator: fmt vet ## Run the gpu-simulator from your host.
-	go run ./cmd/gpu-simulator/main.go
+	go run ./cmd/gpu-simulator
 
 .PHONY: docker-build-gpu-simulator
 docker-build-gpu-simulator: ## Build docker image with gpu-simulator.
@@ -422,12 +422,12 @@ shell-check: ## Parse every shell script under hack/ and .githooks/.
 		hack/test/spot-lifecycle/bin/aws hack/test/spot-lifecycle/bin/git hack/test/spot-lifecycle/bin/sleep \
 		hack/test/spot-lifecycle/golden/*/user-data*.sh \
 		hack/test/teardown-replay/*.sh hack/test/teardown-replay/bin/aws \
-		hack/eks-serve/holdcap-study/*.sh \
+		hack/eks-serve/holdcap-study/*.sh hack/eks-serve/prefix-route-study/*.sh \
 		.githooks/*.sh .githooks/commit-msg .githooks/pre-push; do \
 		[ -f "$$f" ] || continue; \
 		bash -n "$$f" || { echo "shell-check: $$f does not parse" >&2; fail=1; }; \
 	done; \
-	for f in hack/test/spot-lifecycle/*.py hack/serving-stub/*.py hack/eks-serve/holdcap-study/*.py \
+	for f in hack/test/spot-lifecycle/*.py hack/serving-stub/*.py hack/eks-serve/holdcap-study/*.py hack/eks-serve/prefix-route-study/*.py \
 		experiments/distributed-partial-placement/*.py experiments/cpu-ddp/*.py \
 		experiments/multi-pod-ddp/*.py; do \
 		[ -f "$$f" ] || continue; \
@@ -440,12 +440,15 @@ shell-check: ## Parse every shell script under hack/ and .githooks/.
 scorer-tests: ## Run the study scorers' own tests, which pin what each published verdict reads.
 	@# Both suites existed and nothing ran them: compiling a scorer says it parses, not that its rules read their input.
 	cd hack/eks-serve/holdcap-study && python3 -m unittest test_score
+	cd hack/eks-serve/prefix-route-study && python3 -m unittest test_score
 	python3 -m unittest experiments/distributed-partial-placement/test_analyze.py
 	python3 -m unittest experiments/multi-pod-ddp/test_analyze.py
+	python3 -m unittest experiments/multi-gpu-throughput/test_analyze.py
 
 .PHONY: workload-tests
-workload-tests: ## Run train.py's backend and device selection tests, on stub torch modules and no GPU.
+workload-tests: ## Run train.py's backend and device selection tests and experiment C's bench arithmetic, without torch or a GPU.
 	python3 -m unittest experiments/cpu-ddp/test_train.py
+	python3 -m unittest experiments/multi-gpu-throughput/test_allreduce_bench.py experiments/multi-gpu-throughput/test_ddp_step_bench.py
 
 .PHONY: session-refusals
 session-refusals: ## Check what gpu-session.sh refuses before it spends anything.
@@ -513,7 +516,7 @@ harness-check: terraform kustomize ## Run the self-contained test harnesses unde
 	@# kustomize this target provisions, and read YAML with PyYAML, which this target does not install: like
 	@# hack/check-prometheus-rules.sh and the stranded campaigns, they fail on its absence rather than skip (codex, review
 	@# of bb7de393).
-	@fail=0; for t in hack/test/capture-evidence-test.sh hack/test/plot-device-observation-test.sh hack/test/check-matrix-plan-refusals.sh hack/test/check-token-unit-labels.sh hack/test/check-published-spreads.sh hack/test/check-cell-timing-record.sh hack/test/check-engine-metrics-scrape.sh hack/test/check-instrument-validation-harness.sh hack/test/check-tail-crossing-self-tests.sh hack/test/check-gpu-max-nodes-validation.sh hack/test/check-train-session-lib.sh hack/test/check-ddp-arms-lib.sh hack/test/check-train-session-refusals.sh hack/test/check-serve-sync.sh hack/test/check-fragmentation-collector.sh hack/test/check-stranded-v2-order.sh hack/test/check-mps-journal.sh hack/test/check-mps-capability-lib.sh hack/test/check-mps-capability-session.sh hack/test/check-mps-overlay.sh; do \
+	@fail=0; for t in hack/test/capture-evidence-test.sh hack/test/plot-device-observation-test.sh hack/test/check-matrix-plan-refusals.sh hack/test/check-token-unit-labels.sh hack/test/check-published-spreads.sh hack/test/check-cell-timing-record.sh hack/test/check-engine-metrics-scrape.sh hack/test/check-instrument-validation-harness.sh hack/test/check-tail-crossing-self-tests.sh hack/test/check-gpu-max-nodes-validation.sh hack/test/check-train-session-lib.sh hack/test/check-ddp-arms-lib.sh hack/test/check-allreduce-arms-lib.sh hack/test/check-train-session-refusals.sh hack/test/check-serve-sync.sh hack/test/check-fragmentation-collector.sh hack/test/check-stranded-v2-order.sh hack/test/check-mps-journal.sh hack/test/check-mps-capability-lib.sh hack/test/check-mps-capability-session.sh hack/test/check-mps-overlay.sh hack/test/check-gpu-fault-session.sh; do \
 		TERRAFORM="$(TERRAFORM)" KUSTOMIZE="$(KUSTOMIZE)" bash "$$t" || { echo "harness-check: $$t failed" >&2; fail=1; }; \
 	done; \
 	if [ "$$fail" != "0" ]; then exit 1; fi

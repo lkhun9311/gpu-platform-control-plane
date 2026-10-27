@@ -21,6 +21,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -139,6 +140,32 @@ type Server struct {
 	// Construction is deferred rather than done at assembly because responseHeaderTimeout is set on the struct after it is built (production leaves it zero, tests shorten it), and a Transport built too early would capture the wrong bound.
 	transport     http.RoundTripper
 	transportOnce sync.Once
+	// routingConfig sizes the routing policies' state, and router is built from it on first use, so a gateway whose
+	// backends name no policy never builds one.
+	routingConfig RoutingConfig
+	router        *router
+	routerOnce    sync.Once
+}
+
+// SetRoutingConfig replaces the registered routing sizes; it must be called before the first request.
+func (s *Server) SetRoutingConfig(c RoutingConfig) error {
+	if err := c.Validate(); err != nil {
+		return err
+	}
+	s.routingConfig = c
+	return nil
+}
+
+// routerFor returns the process-wide router, built the first time a policy needs it.
+func (s *Server) routerFor() *router {
+	s.routerOnce.Do(func() {
+		cfg := s.routingConfig
+		if cfg == (RoutingConfig{}) {
+			cfg = DefaultRoutingConfig()
+		}
+		s.router = newRouter(cfg)
+	})
+	return s.router
 }
 
 // sharedTransport returns the process-wide outbound Transport, building it the first time it is asked for.
@@ -481,6 +508,13 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	// candidate, a third backend the request could never reach could reject it on its own pressure — a refusal
 	// attributable to a machine that was never going to serve. Registration has the same problem in the other
 	// direction: a scraper started for a backend outside the reachable set is telemetry nothing can act on.
+	// A routing policy chooses the head before anything else looks at the list, so admission, priority binding and the
+	// attempt cap all see the backend the request will actually be sent to first. routingPolicyFor returns none when
+	// any candidate is HoldCap, so the HoldCap step below is unchanged wherever it can matter.
+	targets, routed := s.route(w, targets, tenant, meta.Model, body)
+	// Released on every way out, refused requests included: an outstanding count that a refusal left raised would
+	// steer every later request away from a backend that is doing nothing.
+	defer routed.done()
 	// HoldCap backends are taken out of the tail before the cap, so the attempts the cap allows go to backends a fallback may enter.
 	// Capping first would spend the second attempt on a HoldCap backend that is then dropped, and a plain backend after it would never be tried.
 	targets = capBackendAttempts(holdCapTargets(targets))
@@ -598,13 +632,13 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	// way out would miss a panic or a cancelled request and quietly shrink the denominator it exists to be.
 	backendAttempts.WithLabelValues(tenant, meta.Model).Inc()
 	tr.handedOff()
-	advanced := tryBackends(rec, r, urls, s.sharedTransport(), func(code int, final bool) {
+	advanced := tryBackendsObserved(rec, r, urls, s.sharedTransport(), func(code int, final bool) {
 		upstreamErrors.WithLabelValues(tenant, meta.Model).Inc()
 		lastFailure = code
 		if final {
 			rec.code = code
 		}
-	})
+	}, func(i int) { routed.move(targets[i]) })
 	rec.code = publishedCode(rec.answered, rec.code, lastFailure)
 	tr.outcome(rec.code, rec.answered)
 	if servedByFallback(advanced, rec.code) {
@@ -633,6 +667,32 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	if !rec.firstByteAt.IsZero() {
 		timeToFirstByte.WithLabelValues(tenant, meta.Model).Observe(rec.firstByteAt.Sub(start).Seconds())
 	}
+}
+
+// route applies the routing policy every candidate agrees on, if any, and reports the decision on the response.
+//
+// It returns the candidates with the chosen backend first, and the decision, whose done releases the request's
+// outstanding count and whose move follows it to a fallback; with no policy the candidates come back as they were and
+// both do nothing.
+func (s *Server) route(w http.ResponseWriter, targets []*BackendRef, tenant, model string,
+	body func() (io.ReadCloser, error)) ([]*BackendRef, routingDecision) {
+	policy := routingPolicyFor(targets)
+	if policy == "" {
+		return targets, routingDecision{done: func() {}, move: func(*BackendRef) {}}
+	}
+	ordered, dec := s.routerFor().route(targets, policy, tenant, model, func() string {
+		rc, err := body()
+		if err != nil {
+			return ""
+		}
+		raw, err := io.ReadAll(rc)
+		if err != nil {
+			return ""
+		}
+		return routingPrompt(raw)
+	})
+	dec.setHeaders(w.Header())
+	return ordered, dec
 }
 
 // publishedCode is the status a finished proxy attempt should be counted under.

@@ -1,0 +1,17 @@
+# The routing study's tenant and engines, applied by run.sh and archived as applied.
+# docs/superpowers/specs/2026-10-27-prefix-aware-routing-design.md, "Apparatus".
+#
+# One premium tenant with a budget of two GPUs in prefix-route, and two engines of the prefix-cache profile there.
+# run.sh creates qwen-a before qwen-b, two seconds apart, so qwen-a is the older and the gateway's fallback order is fixed.
+# Neither names a routing policy here; run.sh sets the arm's on both before every cell.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: prefix-route
+---
+apiVersion: platform.lkhun9311.github.io/v1
+kind: GPUQuotaPolicy
+metadata:
+  name: prefix-study-premium
+  annotations: {platform.lkhun9311.github.io/tier: premium}
+spec: {tenant: premium-1, targetNamespace: prefix-route, gpuClass: a10g, limits: {gpuCount: 2}}

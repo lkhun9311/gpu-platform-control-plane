@@ -92,6 +92,8 @@ func main() {
 		err = mpsCapabilityVerdict(os.Args[2:])
 	case "mps-capability-bar":
 		err = mpsCapabilityBar(os.Args[2:])
+	case "gpu-fault-verdict":
+		err = gpuFaultVerdict(os.Args[2:])
 	case "ladder-plan-check":
 		err = ladderPlanCheck(os.Args[2:])
 	case "matrix-plan-check":
@@ -121,7 +123,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: benchharness <gen-trace|prepare-traces|replay|report|ladder-verdict|mps-capability-verdict|mps-capability-bar|ladder-plan-check|matrix-plan-check|study-arrivals|study-frozen-tuple|print-prompt|check-replay|stamp-exact-tokens|verify-exact-tokens|compile-plan|sim-cap|power|stub-serve> [flags]")
+	fmt.Fprintln(os.Stderr, "usage: benchharness <gen-trace|prepare-traces|replay|report|ladder-verdict|mps-capability-verdict|mps-capability-bar|gpu-fault-verdict|ladder-plan-check|matrix-plan-check|study-arrivals|study-frozen-tuple|print-prompt|check-replay|stamp-exact-tokens|verify-exact-tokens|compile-plan|sim-cap|power|stub-serve> [flags]")
 }
 
 // arrivalFlags are gen-trace's load flags, gathered so the choice between the two arrival models lives in one place.
@@ -360,6 +362,7 @@ func genTrace(args []string) error {
 	manifestOut := fs.String("manifest-out", "manifest.yaml", "manifest file to write")
 	// The warm-up is a separate trace rather than rows prepended to the measured one, so the measured trace's bytes and its plan check are the same with or without it.
 	warmup := fs.Bool("warmup", false, "write the registered warm-up trace for the arm's episode type instead of the measured trace (episode studies that register a warm-up only)")
+	prefixControl := fs.Bool("prefix-control", false, "shared-prefix studies: write the unique-prefix control, each request's own header moved to the front")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -383,6 +386,13 @@ func genTrace(args []string) error {
 		}
 		// The caps and lengths vary by episode, so the manifest leaves both per-tenant maps out rather than recording one value of several.
 		return writeTraceAndManifest(rows, out, nil)
+	}
+	// A shared-prefix study's load is its registration's too, so a load flag here would be a second, unregistered load.
+	if st, ok := bench.LookupStudy(*study); ok && st.Arrivals == bench.ArrivalsSharedPrefix {
+		return prefixTrace(st, fs, out, *prefixControl, *warmup)
+	}
+	if *prefixControl {
+		return fmt.Errorf("--prefix-control is defined only for a shared-prefix study, and study %s is not one", *study)
 	}
 	// A Poisson study has no warm-up registered, and ignoring the flag would hand back a measured trace to a caller who asked for something else.
 	if *warmup {

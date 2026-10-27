@@ -168,6 +168,9 @@ The colocated long-context workload increases vLLM KV-cache pressure and queue d
 - **Cost reported alongside**: standard tenant's guard-429 rate and throughput loss in R4 vs R3. Suppressing tenant B entirely is not "protection"; the fairness cost is part of the result.
 - If the threshold is missed, the report states the guard did not protect at these settings — a null/negative result is published, not reworded.
 
+The 1.25 was stated, not derived: no step time, model or published figure stands behind it.
+The verdict against it stands as registered; what the miss taught about the mechanism is in `docs/11_WHAT_THIS_MEASURED.md`, "What the targets were based on".
+
 ### Metrics
 
 | Layer     | Metrics                                                                                                                    |

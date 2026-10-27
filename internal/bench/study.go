@@ -125,6 +125,9 @@ type Study struct {
 	// best-effort prefill. A study with this set is refused if two repetitions of an arm share a trace, and
 	// its baseline and contended arm are paired by repetition on the latency-critical schedule instead.
 	TracesVaryByRepetition bool
+
+	// PrefixLoad is a shared-prefix study's registered load, nil for every other study.
+	PrefixLoad *PrefixLoad
 }
 
 // FrozenTuple is the five load quantities a pre-registration can freeze.
@@ -182,6 +185,9 @@ const (
 	// ArrivalsEpisodes sends registered episodes into a drained engine; see GenerateEpisodeTrace.
 	// It has no rate at all, so gen-trace refuses every rate, weight and per-tenant shape flag for a study that declares it.
 	ArrivalsEpisodes ArrivalModel = "episodes"
+	// ArrivalsSharedPrefix is a study's registered PrefixLoad; see GeneratePrefixTrace.
+	// Like an episode study it takes no rate, weight or length flags, because its load is the registration's.
+	ArrivalsSharedPrefix ArrivalModel = "shared-prefix"
 )
 
 const (
@@ -353,6 +359,11 @@ const (
 	// docs/superpowers/specs/2026-10-25-c3-headroom-main.md.
 	// It is not v27's StudyLengthRobustness under a new rate: that study's fixed arm is 1,740 ms and its traces are 0.5/s.
 	StudyHeadroomMain = "admission-headroom-main-2026-10-25"
+
+	// StudyPrefixRoute is experiment A, docs/superpowers/specs/2026-10-27-prefix-aware-routing-design.md: the gateway's
+	// three routing policies over two engines with prefix caching on, on a shared-prefix trace and its control.
+	// Its arms are the InferenceDeployment's policy names, because the arm is exactly what the spec field is set to.
+	StudyPrefixRoute = "prefix-route-2026-10-27"
 
 	// StudyMPSCapability is the one-cell capability session of
 	// docs/superpowers/specs/2026-09-25-can-mps-engage-on-this-card-at-all.md, as its 2026-10-24 amendment freezes it.
@@ -974,6 +985,21 @@ var studies = map[string]Study{
 		TracesVaryByRepetition: true,
 		SenderPoolSize:         600,
 		FrozenExactTokens:      map[int]int{200: 68, 31894: 6144, 40000: 7695, 42579: 8192},
+	},
+	// The load is the registration's, every value derived or borrowed on the design page ("Load"); the pool is the
+	// admission studies' 600, at least this load's open-loop ceiling of 0.8/s × 30 s.
+	StudyPrefixRoute: {
+		ID:       StudyPrefixRoute,
+		Arms:     []string{"RoundRobin", "LeastQueue", "PrefixAffinity"},
+		Arrivals: ArrivalsSharedPrefix,
+		PrefixLoad: &PrefixLoad{
+			RatePerSec: 0.8, DurationMs: 600_000, PromptChars: 41_000, PrefixChars: 40_000, Groups: 77,
+			OutputTokens: 64, TimeoutMs: 30_000,
+		},
+		MinRepetitions:      1,
+		FixesOutputAtCap:    true,
+		RecordsReplayTiming: true,
+		SenderPoolSize:      600,
 	},
 	// One mps cell, once: the stopping rule allows one attempt, and nothing is divided by anything.
 	// The tuple is the sharing matrix's, which the amendment carries over; only the rate differs, and the session

@@ -1,0 +1,61 @@
+== the GPU fault-reaction session, gpu-fault-2026-10-27, from 3584d07997205ad25eb2843bf9e1f011d45159d1, into hack/gpu-fault-20261026T232027Z
+== AMI ami-097edab977037f65f: Deep Learning Base OSS Nvidia Driver GPU AMI (Ubuntu 22.04) 20261016	available
+== Spot g5.2xlarge under $1.1324/h in: ap-northeast-2a ap-northeast-2c ap-northeast-2d (ap-northeast-2d	0.686000 ap-northeast-2a	0.682200 ap-northeast-2c	0.675600)
+== the termination sweeper: Active, ENABLED rate(5 minutes), 6.0 run(s) and 0.0 error(s) in the last 30 minutes
+== credentials expire in 683 minutes
+== building the operator, the simulator and the scorer from 3584d07997205ad25eb2843bf9e1f011d45159d1
+== launching g5.2xlarge Spot (max $1.1324/h), study-deadline 2026-10-27T01:23:05Z -- the instance bills from here
+== launched i-09d3bd39d799d566f in ap-northeast-2a
+== LaunchTime 2026-10-26T23:27:28+00:00; the sweeper's deadline moved to 2026-10-27T01:23:38Z
+== the wait ended with status 0 ()
+== waiting up to 3992s for EC2 to report the instance terminated
+== terminating i-09d3bd39d799d566f
+== i-09d3bd39d799d566f is shutting-down
+== i-09d3bd39d799d566f is shutting-down
+== i-09d3bd39d799d566f is shutting-down
+== i-09d3bd39d799d566f is shutting-down
+== i-09d3bd39d799d566f is shutting-down
+== i-09d3bd39d799d566f is shutting-down
+== i-09d3bd39d799d566f is shutting-down
+== i-09d3bd39d799d566f is shutting-down
+== i-09d3bd39d799d566f is shutting-down
+== i-09d3bd39d799d566f is shutting-down
+== i-09d3bd39d799d566f is shutting-down
+== i-09d3bd39d799d566f is shutting-down
+== i-09d3bd39d799d566f is shutting-down
+== i-09d3bd39d799d566f is shutting-down
+== i-09d3bd39d799d566f is shutting-down
+== i-09d3bd39d799d566f is shutting-down
+== i-09d3bd39d799d566f is shutting-down
+== i-09d3bd39d799d566f is shutting-down
+== i-09d3bd39d799d566f is shutting-down
+== i-09d3bd39d799d566f is shutting-down
+== i-09d3bd39d799d566f is shutting-down
+== i-09d3bd39d799d566f is shutting-down
+== i-09d3bd39d799d566f is shutting-down
+== i-09d3bd39d799d566f is shutting-down
+== i-09d3bd39d799d566f is shutting-down
+== i-09d3bd39d799d566f is shutting-down
+== i-09d3bd39d799d566f is shutting-down
+== i-09d3bd39d799d566f is shutting-down
+== i-09d3bd39d799d566f is shutting-down
+== i-09d3bd39d799d566f is shutting-down
+== i-09d3bd39d799d566f is shutting-down
+== i-09d3bd39d799d566f is shutting-down
+== i-09d3bd39d799d566f is shutting-down
+== i-09d3bd39d799d566f is shutting-down
+== i-09d3bd39d799d566f is shutting-down
+== i-09d3bd39d799d566f is shutting-down
+== i-09d3bd39d799d566f is shutting-down
+== i-09d3bd39d799d566f is shutting-down
+== i-09d3bd39d799d566f is shutting-down
+== i-09d3bd39d799d566f is shutting-down
+== i-09d3bd39d799d566f is shutting-down
+== i-09d3bd39d799d566f is shutting-down
+== i-09d3bd39d799d566f is shutting-down
+== i-09d3bd39d799d566f is shutting-down
+== i-09d3bd39d799d566f is shutting-down
+== i-09d3bd39d799d566f is shutting-down
+== i-09d3bd39d799d566f is shutting-down
+== i-09d3bd39d799d566f is terminated
+== the verdict is in hack/gpu-fault-20261026T232027Z/verdict.txt and the evidence in hack/gpu-fault-20261026T232027Z/gf-run

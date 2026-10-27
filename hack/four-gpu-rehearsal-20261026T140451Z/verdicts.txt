@@ -1,0 +1,18 @@
+Q4 PASS: config/training made ClusterQueue gpu-train-a with nominal nvidia.com/gpu 4
+T3 PASS: qualification job train-qualify admitted at 2026-10-26T14:07:33Z, 1 Pod(s) unplaced
+T3-count PASS: expecting two Pods of a one-Pod job refuses: within 0s the qualification job was not held admitted: phase Admitted, admittedAt 2026-10-26T14:07:33Z, 1 Pod(s) of 2
+T6 PASS: the simulated node is refused: within 0s: 0 of 1 qualified; kind-fourgpu-worker: no Ready device plugin
+T6-count PASS: four GPUs where one is expected: within 0s: 0 of 1 qualified; kind-fourgpu-worker: allocatable nvidia.com/gpu '4', want '1', no Ready device plugin
+T7 PASS: refused: within 300s the qualification job did not succeed: phase Admitted
+T7-why PASS: the Pod's own log names the missing tool
+A-1pod FAIL: see arms-check.txt
+A-4pod PASS: four Pods of one: one Workload reserving 4, all on the worker, the runtime's own /dev/shm
+A-torchrun FAIL: see arms-check.txt
+A-ddp-pods FAIL: see arms-check.txt
+A-bench PASS: the all-reduce bench refuses without CUDA
+S-nccltests-1pod4gpu FAIL: rc 1: INVALID /home/lkhun9311/workspace/gpu-platform-control-plane/.claude/worktrees/agent-a30829262741726b1/hack/four-gpu-rehearsal-20261026T140451Z/jobs/nccltests-1pod4gpu not terminal within the 240s budget (phase 'Admitted'); the job took 243 s, over the registered 240 s; the MLTrainingJob ended 'Admi
+S-allreduce-1pod4gpu PASS: INVALID: CUDA is not available
+S-allreduce-4pod1gpu PASS: INVALID: CUDA is not available
+S-ddp-1pod4gpu PASS: INVALID: not cuda
+S-ddp-4pod1gpu PASS: INVALID: not cuda
+X PASS: stopped after 1 job: smoke job nccltests-1pod4gpu is not valid: INVALID /home/lkhun9311/workspace/gpu-platform-control-plane/.claude/worktrees/agent-a30829262741726b1/hack/four-gpu-

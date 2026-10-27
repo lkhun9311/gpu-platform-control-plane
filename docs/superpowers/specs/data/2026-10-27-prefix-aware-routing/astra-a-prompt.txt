@@ -1,0 +1,12 @@
+You are reviewing a pre-registration for a paid GPU experiment in this repository, before anything is built or bought.
+
+The page is docs/superpowers/specs/2026-10-27-prefix-aware-routing-design.md.
+The repository's rules for measurement work are in CLAUDE.md, and docs/11_WHAT_THIS_MEASURED.md records what earlier studies found and why some of their bars had no basis.
+
+Attack the registration cold, as an adversary who wants it to fail before money is spent.
+Find whatever would make its verdict wrong, unreadable, unfalsifiable, unpaid-for, or unsafe to buy.
+Check every number it states against the repository and against arithmetic; where it claims a basis for a number, say whether that basis holds.
+Read whatever code, data and documents you need; do not assume the page is right about any of them.
+
+For each finding give: a severity (blocker, major, minor), what is wrong, the evidence (file and line, or the arithmetic), and what would fix it.
+Do not propose a rewrite of the page. Report findings only.

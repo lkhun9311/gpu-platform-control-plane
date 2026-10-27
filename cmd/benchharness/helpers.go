@@ -300,6 +300,10 @@ type stubProfile struct {
 	// verification requests are not 2,048-token requests; a stub that sent no usage chunk made every rehearsal
 	// cell read 0 tokens and refused it, so the check's passing path could not be rehearsed.
 	usage bool
+	// prefixCache, when set, models the engine's prefix cache and exports its counters; prefill charges the uncached
+	// part of each prompt. Both exist for the routing study's rehearsal, whose endpoints are those counters.
+	prefixCache *stubPrefixCache
+	prefill     *stubPrefill
 }
 
 // stubPromptTokens is the token count a stub reports for a prompt of n characters.
@@ -592,13 +596,24 @@ func stubServe(args []string) error {
 		pilotArgs = append(pilotArgs, stubArg{key: f.key, kind: f.kind, val: fs.String(f.name, "", "vLLM's flag; reported in the non-default args line")})
 	}
 	noPrefixCaching := fs.Bool("no-enable-prefix-caching", false, "vLLM's flag; reported as enable_prefix_caching False")
+	prefixCaching := fs.Bool("enable-prefix-caching", false, "vLLM's flag; reported as enable_prefix_caching True, and the stub models a prefix cache whose counters /metrics exports")
+	kvTokens := fs.Int("stub-kv-capacity-tokens", 393232, "with --enable-prefix-caching: the modelled cache's capacity in tokens (default the A10G engine's measured capacity)")
+	prefillUs := fs.Int("stub-prefill-us-per-token", 0, "with --enable-prefix-caching: microseconds of prefill per uncached token, added before the first token")
+	serialPrefill := fs.Bool("stub-serial-prefill", false, "with --enable-prefix-caching: prefill one request at a time, as one engine's steps do")
 	stopStepLogAt := fs.String("stub-stop-step-log-at", "", "pilot mode: stop the step log at the first request whose ID contains this, to rehearse an ineligible arm")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
+	if *prefixCaching && *noPrefixCaching {
+		return fmt.Errorf("--enable-prefix-caching and --no-enable-prefix-caching contradict each other")
+	}
 	if *port > 0 {
 		*addr = fmt.Sprintf(":%d", *port)
-		fmt.Println(stubWithRevisions(stubWithArgs(stubNonDefaultArgs(*port, *noAsync, *iterDetails), pilotArgs, *noPrefixCaching), *revision, *tokenizerRevision))
+		line := stubWithArgs(stubNonDefaultArgs(*port, *noAsync, *iterDetails), pilotArgs, *noPrefixCaching)
+		if *prefixCaching {
+			line = strings.TrimSuffix(line, "}") + ", 'enable_prefix_caching': True}"
+		}
+		fmt.Println(stubWithRevisions(line, *revision, *tokenizerRevision))
 	}
 
 	profile := stubProfile{
@@ -639,6 +654,13 @@ func stubServe(args []string) error {
 		}
 	}
 	profile.usage = *port > 0
+	if *prefixCaching {
+		if *kvTokens < 16 || *prefillUs < 0 {
+			return fmt.Errorf("the modelled cache needs at least 16 tokens and a non-negative prefill, got %d and %d", *kvTokens, *prefillUs)
+		}
+		profile.prefixCache = newStubPrefixCache(*kvTokens)
+		profile.prefill = &stubPrefill{perToken: time.Duration(*prefillUs) * time.Microsecond, isSerial: *serialPrefill}
+	}
 	mux := stubMux(profile, stats)
 	fmt.Printf("stub backend listening on %s (tokens=%d ttft=%s itl=%s readyAfter=%s)\n", *addr, profile.tokens, profile.ttft, profile.itl, profile.readyAfter)
 	srv := &http.Server{
@@ -746,6 +768,9 @@ func stubMux(profile stubProfile, stats *stubStats) *http.ServeMux {
 			profile.pilot.add(id, pr.Priority, promptTokens)
 			profile.pilot.stepFor(id, max(promptTokens, 1), 0, true)
 		}
+		if !profile.prefill.run(profile.prefixCache, raw, wait) {
+			return
+		}
 		if !wait(profile.ttft) {
 			return
 		}
@@ -806,6 +831,7 @@ func stubMux(profile stubProfile, stats *stubStats) *http.ServeMux {
 			// Running is the stub's own in-flight count; a stub queues nothing and preempts nothing, so the other two
 			// are zero by construction, which makes them a check of the reader, not of any engine.
 			_, _ = fmt.Fprintf(w, "vllm:num_requests_running %d\nvllm:num_requests_waiting 0\nvllm:num_preemptions_total 0\n", snap.InFlight)
+			profile.prefixCache.writeMetrics(w)
 		})
 	}
 	writeStats := func(w http.ResponseWriter, snap stubStatsSnapshot) {

@@ -153,3 +153,29 @@ func TestEveryRenderedProfileSchedulesByPriority(t *testing.T) {
 		}
 	}
 }
+
+// The prefix-cache profile is the measured engine with caching on and nothing else moved, which is all the routing
+// study's registration claims for it.
+// Mutation that turns this red: change any other argument of one profile and leave the other as it is.
+func TestPrefixCacheProfileDiffersOnlyInCaching(t *testing.T) {
+	base := vllmProfiles[platformv1.VLLMProfileV0271A10G]
+	pc, ok := vllmProfiles[platformv1.VLLMProfileV0271A10GPrefixCache]
+	if !ok {
+		t.Fatal("no rendering for the prefix-cache profile")
+	}
+	if len(base.args) != len(pc.args) {
+		t.Fatalf("the profiles render %d and %d arguments", len(base.args), len(pc.args))
+	}
+	var diff []string
+	for i := range base.args {
+		if base.args[i] != pc.args[i] {
+			diff = append(diff, base.args[i]+" -> "+pc.args[i])
+		}
+	}
+	if len(diff) != 1 || diff[0] != "--no-enable-prefix-caching -> --enable-prefix-caching" {
+		t.Fatalf("the profiles differ in %v, want only the caching flag", diff)
+	}
+	if !slices.Equal(base.instanceTypes, pc.instanceTypes) {
+		t.Fatalf("instance types %v and %v differ", base.instanceTypes, pc.instanceTypes)
+	}
+}

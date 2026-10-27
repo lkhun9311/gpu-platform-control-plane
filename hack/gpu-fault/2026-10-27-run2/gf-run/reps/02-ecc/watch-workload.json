@@ -1,0 +1,1761 @@
+{
+    "apiVersion": "kueue.x-k8s.io/v1beta2",
+    "kind": "Workload",
+    "metadata": {
+        "creationTimestamp": "2026-10-26T23:35:06Z",
+        "finalizers": [
+            "kueue.x-k8s.io/resource-in-use"
+        ],
+        "generation": 1,
+        "labels": {
+            "kueue.x-k8s.io/job-uid": "1fc854f3-39a2-4263-ac71-2e4f2fe5f83f"
+        },
+        "name": "job-gf-02-ecc-eb48f",
+        "namespace": "gpufault",
+        "ownerReferences": [
+            {
+                "apiVersion": "batch/v1",
+                "blockOwnerDeletion": true,
+                "controller": true,
+                "kind": "Job",
+                "name": "gf-02-ecc",
+                "uid": "1fc854f3-39a2-4263-ac71-2e4f2fe5f83f"
+            }
+        ],
+        "resourceVersion": "1697",
+        "uid": "93f8f1f8-53f0-44ce-afac-77a854fdc2e5"
+    },
+    "spec": {
+        "active": true,
+        "podSets": [
+            {
+                "count": 1,
+                "name": "main",
+                "template": {
+                    "metadata": {
+                        "labels": {
+                            "batch.kubernetes.io/job-name": "gf-02-ecc"
+                        }
+                    },
+                    "spec": {
+                        "containers": [
+                            {
+                                "command": [
+                                    "sh",
+                                    "-c",
+                                    "trap 'exit 143' TERM; while true; do sleep 1; done"
+                                ],
+                                "env": [
+                                    {
+                                        "name": "NVIDIA_DRIVER_CAPABILITIES",
+                                        "value": "compute,utility"
+                                    }
+                                ],
+                                "image": "gpufault-job:busybox",
+                                "imagePullPolicy": "IfNotPresent",
+                                "name": "trainer",
+                                "resources": {
+                                    "limits": {
+                                        "nvidia.com/gpu": "1"
+                                    }
+                                },
+                                "terminationMessagePath": "/dev/termination-log",
+                                "terminationMessagePolicy": "File"
+                            }
+                        ],
+                        "dnsPolicy": "ClusterFirst",
+                        "restartPolicy": "Never",
+                        "schedulerName": "default-scheduler",
+                        "securityContext": {},
+                        "terminationGracePeriodSeconds": 30
+                    }
+                },
+                "topologyRequest": {
+                    "podIndexLabel": "batch.kubernetes.io/job-completion-index"
+                }
+            }
+        ],
+        "priority": 0,
+        "queueName": "gpu-gpufault"
+    },
+    "status": {
+        "admission": {
+            "clusterQueue": "gpu-gpufault",
+            "podSetAssignments": [
+                {
+                    "count": 1,
+                    "flavors": {
+                        "nvidia.com/gpu": "gpu"
+                    },
+                    "name": "main",
+                    "resourceUsage": {
+                        "nvidia.com/gpu": "1"
+                    }
+                }
+            ]
+        },
+        "conditions": [
+            {
+                "lastTransitionTime": "2026-10-26T23:35:06Z",
+                "message": "Quota reserved in ClusterQueue gpu-gpufault",
+                "observedGeneration": 1,
+                "reason": "QuotaReserved",
+                "status": "True",
+                "type": "QuotaReserved"
+            },
+            {
+                "lastTransitionTime": "2026-10-26T23:35:06Z",
+                "message": "The workload is admitted",
+                "observedGeneration": 1,
+                "reason": "Admitted",
+                "status": "True",
+                "type": "Admitted"
+            }
+        ]
+    }
+}
+{
+    "apiVersion": "kueue.x-k8s.io/v1beta2",
+    "kind": "Workload",
+    "metadata": {
+        "annotations": {
+            "gpufault.platform.lkhun9311.github.io/deactivated-at": "2026-10-26T23:35:20.225119794Z",
+            "gpufault.platform.lkhun9311.github.io/deactivated-fingerprint": "GPU-c4601434-5564-52d7-d272-c981c74326a2/DCGM_FI_DEV_ECC_DBE_VOL_TOTAL=1",
+            "gpufault.platform.lkhun9311.github.io/deactivated-node": "m5cgpu-worker"
+        },
+        "creationTimestamp": "2026-10-26T23:35:06Z",
+        "finalizers": [
+            "kueue.x-k8s.io/resource-in-use"
+        ],
+        "generation": 2,
+        "labels": {
+            "kueue.x-k8s.io/job-uid": "1fc854f3-39a2-4263-ac71-2e4f2fe5f83f"
+        },
+        "name": "job-gf-02-ecc-eb48f",
+        "namespace": "gpufault",
+        "ownerReferences": [
+            {
+                "apiVersion": "batch/v1",
+                "blockOwnerDeletion": true,
+                "controller": true,
+                "kind": "Job",
+                "name": "gf-02-ecc",
+                "uid": "1fc854f3-39a2-4263-ac71-2e4f2fe5f83f"
+            }
+        ],
+        "resourceVersion": "1755",
+        "uid": "93f8f1f8-53f0-44ce-afac-77a854fdc2e5"
+    },
+    "spec": {
+        "active": false,
+        "podSets": [
+            {
+                "count": 1,
+                "name": "main",
+                "template": {
+                    "metadata": {
+                        "labels": {
+                            "batch.kubernetes.io/job-name": "gf-02-ecc"
+                        }
+                    },
+                    "spec": {
+                        "containers": [
+                            {
+                                "command": [
+                                    "sh",
+                                    "-c",
+                                    "trap 'exit 143' TERM; while true; do sleep 1; done"
+                                ],
+                                "env": [
+                                    {
+                                        "name": "NVIDIA_DRIVER_CAPABILITIES",
+                                        "value": "compute,utility"
+                                    }
+                                ],
+                                "image": "gpufault-job:busybox",
+                                "imagePullPolicy": "IfNotPresent",
+                                "name": "trainer",
+                                "resources": {
+                                    "limits": {
+                                        "nvidia.com/gpu": "1"
+                                    }
+                                },
+                                "terminationMessagePath": "/dev/termination-log",
+                                "terminationMessagePolicy": "File"
+                            }
+                        ],
+                        "dnsPolicy": "ClusterFirst",
+                        "restartPolicy": "Never",
+                        "schedulerName": "default-scheduler",
+                        "securityContext": {},
+                        "terminationGracePeriodSeconds": 30
+                    }
+                },
+                "topologyRequest": {
+                    "podIndexLabel": "batch.kubernetes.io/job-completion-index"
+                }
+            }
+        ],
+        "priority": 0,
+        "queueName": "gpu-gpufault"
+    },
+    "status": {
+        "admission": {
+            "clusterQueue": "gpu-gpufault",
+            "podSetAssignments": [
+                {
+                    "count": 1,
+                    "flavors": {
+                        "nvidia.com/gpu": "gpu"
+                    },
+                    "name": "main",
+                    "resourceUsage": {
+                        "nvidia.com/gpu": "1"
+                    }
+                }
+            ]
+        },
+        "conditions": [
+            {
+                "lastTransitionTime": "2026-10-26T23:35:06Z",
+                "message": "Quota reserved in ClusterQueue gpu-gpufault",
+                "observedGeneration": 1,
+                "reason": "QuotaReserved",
+                "status": "True",
+                "type": "QuotaReserved"
+            },
+            {
+                "lastTransitionTime": "2026-10-26T23:35:06Z",
+                "message": "The workload is admitted",
+                "observedGeneration": 1,
+                "reason": "Admitted",
+                "status": "True",
+                "type": "Admitted"
+            }
+        ]
+    }
+}
+{
+    "apiVersion": "kueue.x-k8s.io/v1beta2",
+    "kind": "Workload",
+    "metadata": {
+        "annotations": {
+            "gpufault.platform.lkhun9311.github.io/deactivated-at": "2026-10-26T23:35:20.225119794Z",
+            "gpufault.platform.lkhun9311.github.io/deactivated-fingerprint": "GPU-c4601434-5564-52d7-d272-c981c74326a2/DCGM_FI_DEV_ECC_DBE_VOL_TOTAL=1",
+            "gpufault.platform.lkhun9311.github.io/deactivated-node": "m5cgpu-worker"
+        },
+        "creationTimestamp": "2026-10-26T23:35:06Z",
+        "finalizers": [
+            "kueue.x-k8s.io/resource-in-use"
+        ],
+        "generation": 2,
+        "labels": {
+            "kueue.x-k8s.io/job-uid": "1fc854f3-39a2-4263-ac71-2e4f2fe5f83f"
+        },
+        "name": "job-gf-02-ecc-eb48f",
+        "namespace": "gpufault",
+        "ownerReferences": [
+            {
+                "apiVersion": "batch/v1",
+                "blockOwnerDeletion": true,
+                "controller": true,
+                "kind": "Job",
+                "name": "gf-02-ecc",
+                "uid": "1fc854f3-39a2-4263-ac71-2e4f2fe5f83f"
+            }
+        ],
+        "resourceVersion": "1758",
+        "uid": "93f8f1f8-53f0-44ce-afac-77a854fdc2e5"
+    },
+    "spec": {
+        "active": false,
+        "podSets": [
+            {
+                "count": 1,
+                "name": "main",
+                "template": {
+                    "metadata": {
+                        "labels": {
+                            "batch.kubernetes.io/job-name": "gf-02-ecc"
+                        }
+                    },
+                    "spec": {
+                        "containers": [
+                            {
+                                "command": [
+                                    "sh",
+                                    "-c",
+                                    "trap 'exit 143' TERM; while true; do sleep 1; done"
+                                ],
+                                "env": [
+                                    {
+                                        "name": "NVIDIA_DRIVER_CAPABILITIES",
+                                        "value": "compute,utility"
+                                    }
+                                ],
+                                "image": "gpufault-job:busybox",
+                                "imagePullPolicy": "IfNotPresent",
+                                "name": "trainer",
+                                "resources": {
+                                    "limits": {
+                                        "nvidia.com/gpu": "1"
+                                    }
+                                },
+                                "terminationMessagePath": "/dev/termination-log",
+                                "terminationMessagePolicy": "File"
+                            }
+                        ],
+                        "dnsPolicy": "ClusterFirst",
+                        "restartPolicy": "Never",
+                        "schedulerName": "default-scheduler",
+                        "securityContext": {},
+                        "terminationGracePeriodSeconds": 30
+                    }
+                },
+                "topologyRequest": {
+                    "podIndexLabel": "batch.kubernetes.io/job-completion-index"
+                }
+            }
+        ],
+        "priority": 0,
+        "queueName": "gpu-gpufault"
+    },
+    "status": {
+        "admission": {
+            "clusterQueue": "gpu-gpufault",
+            "podSetAssignments": [
+                {
+                    "count": 1,
+                    "flavors": {
+                        "nvidia.com/gpu": "gpu"
+                    },
+                    "name": "main",
+                    "resourceUsage": {
+                        "nvidia.com/gpu": "1"
+                    }
+                }
+            ]
+        },
+        "conditions": [
+            {
+                "lastTransitionTime": "2026-10-26T23:35:06Z",
+                "message": "Quota reserved in ClusterQueue gpu-gpufault",
+                "observedGeneration": 1,
+                "reason": "QuotaReserved",
+                "status": "True",
+                "type": "QuotaReserved"
+            },
+            {
+                "lastTransitionTime": "2026-10-26T23:35:20Z",
+                "message": "The workload is deactivated",
+                "observedGeneration": 2,
+                "reason": "Deactivated",
+                "status": "True",
+                "type": "Evicted"
+            },
+            {
+                "lastTransitionTime": "2026-10-26T23:35:06Z",
+                "message": "The workload is admitted",
+                "observedGeneration": 1,
+                "reason": "Admitted",
+                "status": "True",
+                "type": "Admitted"
+            }
+        ],
+        "schedulingStats": {
+            "evictions": [
+                {
+                    "count": 1,
+                    "reason": "Deactivated",
+                    "underlyingCause": ""
+                }
+            ]
+        }
+    }
+}
+{
+    "apiVersion": "kueue.x-k8s.io/v1beta2",
+    "kind": "Workload",
+    "metadata": {
+        "annotations": {
+            "gpufault.platform.lkhun9311.github.io/deactivated-at": "2026-10-26T23:35:20.225119794Z",
+            "gpufault.platform.lkhun9311.github.io/deactivated-fingerprint": "GPU-c4601434-5564-52d7-d272-c981c74326a2/DCGM_FI_DEV_ECC_DBE_VOL_TOTAL=1",
+            "gpufault.platform.lkhun9311.github.io/deactivated-node": "m5cgpu-worker"
+        },
+        "creationTimestamp": "2026-10-26T23:35:06Z",
+        "finalizers": [
+            "kueue.x-k8s.io/resource-in-use"
+        ],
+        "generation": 2,
+        "labels": {
+            "kueue.x-k8s.io/job-uid": "1fc854f3-39a2-4263-ac71-2e4f2fe5f83f"
+        },
+        "name": "job-gf-02-ecc-eb48f",
+        "namespace": "gpufault",
+        "ownerReferences": [
+            {
+                "apiVersion": "batch/v1",
+                "blockOwnerDeletion": true,
+                "controller": true,
+                "kind": "Job",
+                "name": "gf-02-ecc",
+                "uid": "1fc854f3-39a2-4263-ac71-2e4f2fe5f83f"
+            }
+        ],
+        "resourceVersion": "1773",
+        "uid": "93f8f1f8-53f0-44ce-afac-77a854fdc2e5"
+    },
+    "spec": {
+        "active": false,
+        "podSets": [
+            {
+                "count": 1,
+                "name": "main",
+                "template": {
+                    "metadata": {
+                        "labels": {
+                            "batch.kubernetes.io/job-name": "gf-02-ecc"
+                        }
+                    },
+                    "spec": {
+                        "containers": [
+                            {
+                                "command": [
+                                    "sh",
+                                    "-c",
+                                    "trap 'exit 143' TERM; while true; do sleep 1; done"
+                                ],
+                                "env": [
+                                    {
+                                        "name": "NVIDIA_DRIVER_CAPABILITIES",
+                                        "value": "compute,utility"
+                                    }
+                                ],
+                                "image": "gpufault-job:busybox",
+                                "imagePullPolicy": "IfNotPresent",
+                                "name": "trainer",
+                                "resources": {
+                                    "limits": {
+                                        "nvidia.com/gpu": "1"
+                                    }
+                                },
+                                "terminationMessagePath": "/dev/termination-log",
+                                "terminationMessagePolicy": "File"
+                            }
+                        ],
+                        "dnsPolicy": "ClusterFirst",
+                        "restartPolicy": "Never",
+                        "schedulerName": "default-scheduler",
+                        "securityContext": {},
+                        "terminationGracePeriodSeconds": 30
+                    }
+                },
+                "topologyRequest": {
+                    "podIndexLabel": "batch.kubernetes.io/job-completion-index"
+                }
+            }
+        ],
+        "priority": 0,
+        "queueName": "gpu-gpufault"
+    },
+    "status": {
+        "accumulatedPastExecutionTimeSeconds": 14,
+        "conditions": [
+            {
+                "lastTransitionTime": "2026-10-26T23:35:20Z",
+                "message": "The workload is deactivated",
+                "observedGeneration": 2,
+                "reason": "Pending",
+                "status": "False",
+                "type": "QuotaReserved"
+            },
+            {
+                "lastTransitionTime": "2026-10-26T23:35:20Z",
+                "message": "The workload is deactivated",
+                "observedGeneration": 2,
+                "reason": "Deactivated",
+                "status": "True",
+                "type": "Evicted"
+            },
+            {
+                "lastTransitionTime": "2026-10-26T23:35:20Z",
+                "message": "The workload has no reservation",
+                "observedGeneration": 2,
+                "reason": "NoReservation",
+                "status": "False",
+                "type": "Admitted"
+            },
+            {
+                "lastTransitionTime": "2026-10-26T23:35:20Z",
+                "message": "The workload is deactivated",
+                "observedGeneration": 2,
+                "reason": "Deactivated",
+                "status": "False",
+                "type": "Requeued"
+            }
+        ],
+        "schedulingStats": {
+            "evictions": [
+                {
+                    "count": 1,
+                    "reason": "Deactivated",
+                    "underlyingCause": ""
+                }
+            ]
+        }
+    }
+}
+{
+    "apiVersion": "kueue.x-k8s.io/v1beta2",
+    "kind": "Workload",
+    "metadata": {
+        "annotations": {
+            "gpufault.platform.lkhun9311.github.io/deactivated-at": "2026-10-26T23:35:20.225119794Z",
+            "gpufault.platform.lkhun9311.github.io/deactivated-fingerprint": "GPU-c4601434-5564-52d7-d272-c981c74326a2/DCGM_FI_DEV_ECC_DBE_VOL_TOTAL=1",
+            "gpufault.platform.lkhun9311.github.io/deactivated-node": "m5cgpu-worker",
+            "gpufault.platform.lkhun9311.github.io/reactivated-at": "2026-10-26T23:35:20.353378795Z"
+        },
+        "creationTimestamp": "2026-10-26T23:35:06Z",
+        "finalizers": [
+            "kueue.x-k8s.io/resource-in-use"
+        ],
+        "generation": 3,
+        "labels": {
+            "kueue.x-k8s.io/job-uid": "1fc854f3-39a2-4263-ac71-2e4f2fe5f83f"
+        },
+        "name": "job-gf-02-ecc-eb48f",
+        "namespace": "gpufault",
+        "ownerReferences": [
+            {
+                "apiVersion": "batch/v1",
+                "blockOwnerDeletion": true,
+                "controller": true,
+                "kind": "Job",
+                "name": "gf-02-ecc",
+                "uid": "1fc854f3-39a2-4263-ac71-2e4f2fe5f83f"
+            }
+        ],
+        "resourceVersion": "1775",
+        "uid": "93f8f1f8-53f0-44ce-afac-77a854fdc2e5"
+    },
+    "spec": {
+        "active": true,
+        "podSets": [
+            {
+                "count": 1,
+                "name": "main",
+                "template": {
+                    "metadata": {
+                        "labels": {
+                            "batch.kubernetes.io/job-name": "gf-02-ecc"
+                        }
+                    },
+                    "spec": {
+                        "containers": [
+                            {
+                                "command": [
+                                    "sh",
+                                    "-c",
+                                    "trap 'exit 143' TERM; while true; do sleep 1; done"
+                                ],
+                                "env": [
+                                    {
+                                        "name": "NVIDIA_DRIVER_CAPABILITIES",
+                                        "value": "compute,utility"
+                                    }
+                                ],
+                                "image": "gpufault-job:busybox",
+                                "imagePullPolicy": "IfNotPresent",
+                                "name": "trainer",
+                                "resources": {
+                                    "limits": {
+                                        "nvidia.com/gpu": "1"
+                                    }
+                                },
+                                "terminationMessagePath": "/dev/termination-log",
+                                "terminationMessagePolicy": "File"
+                            }
+                        ],
+                        "dnsPolicy": "ClusterFirst",
+                        "restartPolicy": "Never",
+                        "schedulerName": "default-scheduler",
+                        "securityContext": {},
+                        "terminationGracePeriodSeconds": 30
+                    }
+                },
+                "topologyRequest": {
+                    "podIndexLabel": "batch.kubernetes.io/job-completion-index"
+                }
+            }
+        ],
+        "priority": 0,
+        "queueName": "gpu-gpufault"
+    },
+    "status": {
+        "accumulatedPastExecutionTimeSeconds": 14,
+        "conditions": [
+            {
+                "lastTransitionTime": "2026-10-26T23:35:20Z",
+                "message": "The workload is deactivated",
+                "observedGeneration": 2,
+                "reason": "Pending",
+                "status": "False",
+                "type": "QuotaReserved"
+            },
+            {
+                "lastTransitionTime": "2026-10-26T23:35:20Z",
+                "message": "The workload is deactivated",
+                "observedGeneration": 2,
+                "reason": "Deactivated",
+                "status": "True",
+                "type": "Evicted"
+            },
+            {
+                "lastTransitionTime": "2026-10-26T23:35:20Z",
+                "message": "The workload has no reservation",
+                "observedGeneration": 2,
+                "reason": "NoReservation",
+                "status": "False",
+                "type": "Admitted"
+            },
+            {
+                "lastTransitionTime": "2026-10-26T23:35:20Z",
+                "message": "The workload is deactivated",
+                "observedGeneration": 2,
+                "reason": "Deactivated",
+                "status": "False",
+                "type": "Requeued"
+            }
+        ],
+        "schedulingStats": {
+            "evictions": [
+                {
+                    "count": 1,
+                    "reason": "Deactivated",
+                    "underlyingCause": ""
+                }
+            ]
+        }
+    }
+}
+{
+    "apiVersion": "kueue.x-k8s.io/v1beta2",
+    "kind": "Workload",
+    "metadata": {
+        "annotations": {
+            "gpufault.platform.lkhun9311.github.io/deactivated-at": "2026-10-26T23:35:20.225119794Z",
+            "gpufault.platform.lkhun9311.github.io/deactivated-fingerprint": "GPU-c4601434-5564-52d7-d272-c981c74326a2/DCGM_FI_DEV_ECC_DBE_VOL_TOTAL=1",
+            "gpufault.platform.lkhun9311.github.io/deactivated-node": "m5cgpu-worker",
+            "gpufault.platform.lkhun9311.github.io/reactivated-at": "2026-10-26T23:35:20.353378795Z"
+        },
+        "creationTimestamp": "2026-10-26T23:35:06Z",
+        "finalizers": [
+            "kueue.x-k8s.io/resource-in-use"
+        ],
+        "generation": 3,
+        "labels": {
+            "kueue.x-k8s.io/job-uid": "1fc854f3-39a2-4263-ac71-2e4f2fe5f83f"
+        },
+        "name": "job-gf-02-ecc-eb48f",
+        "namespace": "gpufault",
+        "ownerReferences": [
+            {
+                "apiVersion": "batch/v1",
+                "blockOwnerDeletion": true,
+                "controller": true,
+                "kind": "Job",
+                "name": "gf-02-ecc",
+                "uid": "1fc854f3-39a2-4263-ac71-2e4f2fe5f83f"
+            }
+        ],
+        "resourceVersion": "1777",
+        "uid": "93f8f1f8-53f0-44ce-afac-77a854fdc2e5"
+    },
+    "spec": {
+        "active": true,
+        "podSets": [
+            {
+                "count": 1,
+                "name": "main",
+                "template": {
+                    "metadata": {
+                        "labels": {
+                            "batch.kubernetes.io/job-name": "gf-02-ecc"
+                        }
+                    },
+                    "spec": {
+                        "containers": [
+                            {
+                                "command": [
+                                    "sh",
+                                    "-c",
+                                    "trap 'exit 143' TERM; while true; do sleep 1; done"
+                                ],
+                                "env": [
+                                    {
+                                        "name": "NVIDIA_DRIVER_CAPABILITIES",
+                                        "value": "compute,utility"
+                                    }
+                                ],
+                                "image": "gpufault-job:busybox",
+                                "imagePullPolicy": "IfNotPresent",
+                                "name": "trainer",
+                                "resources": {
+                                    "limits": {
+                                        "nvidia.com/gpu": "1"
+                                    }
+                                },
+                                "terminationMessagePath": "/dev/termination-log",
+                                "terminationMessagePolicy": "File"
+                            }
+                        ],
+                        "dnsPolicy": "ClusterFirst",
+                        "restartPolicy": "Never",
+                        "schedulerName": "default-scheduler",
+                        "securityContext": {},
+                        "terminationGracePeriodSeconds": 30
+                    }
+                },
+                "topologyRequest": {
+                    "podIndexLabel": "batch.kubernetes.io/job-completion-index"
+                }
+            }
+        ],
+        "priority": 0,
+        "queueName": "gpu-gpufault"
+    },
+    "status": {
+        "accumulatedPastExecutionTimeSeconds": 14,
+        "conditions": [
+            {
+                "lastTransitionTime": "2026-10-26T23:35:20Z",
+                "message": "The workload is deactivated",
+                "observedGeneration": 2,
+                "reason": "Pending",
+                "status": "False",
+                "type": "QuotaReserved"
+            },
+            {
+                "lastTransitionTime": "2026-10-26T23:35:20Z",
+                "message": "The workload is deactivated",
+                "observedGeneration": 2,
+                "reason": "Deactivated",
+                "status": "True",
+                "type": "Evicted"
+            },
+            {
+                "lastTransitionTime": "2026-10-26T23:35:20Z",
+                "message": "The workload has no reservation",
+                "observedGeneration": 2,
+                "reason": "NoReservation",
+                "status": "False",
+                "type": "Admitted"
+            },
+            {
+                "lastTransitionTime": "2026-10-26T23:35:20Z",
+                "message": "The workload was reactivated",
+                "observedGeneration": 3,
+                "reason": "Reactivated",
+                "status": "True",
+                "type": "Requeued"
+            }
+        ],
+        "schedulingStats": {
+            "evictions": [
+                {
+                    "count": 1,
+                    "reason": "Deactivated",
+                    "underlyingCause": ""
+                }
+            ]
+        }
+    }
+}
+{
+    "apiVersion": "kueue.x-k8s.io/v1beta2",
+    "kind": "Workload",
+    "metadata": {
+        "annotations": {
+            "gpufault.platform.lkhun9311.github.io/deactivated-at": "2026-10-26T23:35:20.225119794Z",
+            "gpufault.platform.lkhun9311.github.io/deactivated-fingerprint": "GPU-c4601434-5564-52d7-d272-c981c74326a2/DCGM_FI_DEV_ECC_DBE_VOL_TOTAL=1",
+            "gpufault.platform.lkhun9311.github.io/deactivated-node": "m5cgpu-worker",
+            "gpufault.platform.lkhun9311.github.io/reactivated-at": "2026-10-26T23:35:20.353378795Z"
+        },
+        "creationTimestamp": "2026-10-26T23:35:06Z",
+        "finalizers": [
+            "kueue.x-k8s.io/resource-in-use"
+        ],
+        "generation": 3,
+        "labels": {
+            "kueue.x-k8s.io/job-uid": "1fc854f3-39a2-4263-ac71-2e4f2fe5f83f"
+        },
+        "name": "job-gf-02-ecc-eb48f",
+        "namespace": "gpufault",
+        "ownerReferences": [
+            {
+                "apiVersion": "batch/v1",
+                "blockOwnerDeletion": true,
+                "controller": true,
+                "kind": "Job",
+                "name": "gf-02-ecc",
+                "uid": "1fc854f3-39a2-4263-ac71-2e4f2fe5f83f"
+            }
+        ],
+        "resourceVersion": "1778",
+        "uid": "93f8f1f8-53f0-44ce-afac-77a854fdc2e5"
+    },
+    "spec": {
+        "active": true,
+        "podSets": [
+            {
+                "count": 1,
+                "name": "main",
+                "template": {
+                    "metadata": {
+                        "labels": {
+                            "batch.kubernetes.io/job-name": "gf-02-ecc"
+                        }
+                    },
+                    "spec": {
+                        "containers": [
+                            {
+                                "command": [
+                                    "sh",
+                                    "-c",
+                                    "trap 'exit 143' TERM; while true; do sleep 1; done"
+                                ],
+                                "env": [
+                                    {
+                                        "name": "NVIDIA_DRIVER_CAPABILITIES",
+                                        "value": "compute,utility"
+                                    }
+                                ],
+                                "image": "gpufault-job:busybox",
+                                "imagePullPolicy": "IfNotPresent",
+                                "name": "trainer",
+                                "resources": {
+                                    "limits": {
+                                        "nvidia.com/gpu": "1"
+                                    }
+                                },
+                                "terminationMessagePath": "/dev/termination-log",
+                                "terminationMessagePolicy": "File"
+                            }
+                        ],
+                        "dnsPolicy": "ClusterFirst",
+                        "restartPolicy": "Never",
+                        "schedulerName": "default-scheduler",
+                        "securityContext": {},
+                        "terminationGracePeriodSeconds": 30
+                    }
+                },
+                "topologyRequest": {
+                    "podIndexLabel": "batch.kubernetes.io/job-completion-index"
+                }
+            }
+        ],
+        "priority": 0,
+        "queueName": "gpu-gpufault"
+    },
+    "status": {
+        "accumulatedPastExecutionTimeSeconds": 14,
+        "admission": {
+            "clusterQueue": "gpu-gpufault",
+            "podSetAssignments": [
+                {
+                    "count": 1,
+                    "flavors": {
+                        "nvidia.com/gpu": "gpu"
+                    },
+                    "name": "main",
+                    "resourceUsage": {
+                        "nvidia.com/gpu": "1"
+                    }
+                }
+            ]
+        },
+        "conditions": [
+            {
+                "lastTransitionTime": "2026-10-26T23:35:20Z",
+                "message": "Quota reserved in ClusterQueue gpu-gpufault",
+                "observedGeneration": 3,
+                "reason": "QuotaReserved",
+                "status": "True",
+                "type": "QuotaReserved"
+            },
+            {
+                "lastTransitionTime": "2026-10-26T23:35:20Z",
+                "message": "Previously: The workload is deactivated",
+                "observedGeneration": 3,
+                "reason": "QuotaReserved",
+                "status": "False",
+                "type": "Evicted"
+            },
+            {
+                "lastTransitionTime": "2026-10-26T23:35:20Z",
+                "message": "The workload is admitted",
+                "observedGeneration": 3,
+                "reason": "Admitted",
+                "status": "True",
+                "type": "Admitted"
+            },
+            {
+                "lastTransitionTime": "2026-10-26T23:35:20Z",
+                "message": "The workload was reactivated",
+                "observedGeneration": 3,
+                "reason": "Reactivated",
+                "status": "True",
+                "type": "Requeued"
+            }
+        ],
+        "schedulingStats": {
+            "evictions": [
+                {
+                    "count": 1,
+                    "reason": "Deactivated",
+                    "underlyingCause": ""
+                }
+            ]
+        }
+    }
+}
+{
+    "apiVersion": "kueue.x-k8s.io/v1beta2",
+    "kind": "Workload",
+    "metadata": {
+        "annotations": {
+            "gpufault.platform.lkhun9311.github.io/deactivated-at": "2026-10-26T23:35:20.445603267Z",
+            "gpufault.platform.lkhun9311.github.io/deactivated-fingerprint": "GPU-c4601434-5564-52d7-d272-c981c74326a2/DCGM_FI_DEV_ECC_DBE_VOL_TOTAL=1",
+            "gpufault.platform.lkhun9311.github.io/deactivated-node": "m5cgpu-worker"
+        },
+        "creationTimestamp": "2026-10-26T23:35:06Z",
+        "finalizers": [
+            "kueue.x-k8s.io/resource-in-use"
+        ],
+        "generation": 4,
+        "labels": {
+            "kueue.x-k8s.io/job-uid": "1fc854f3-39a2-4263-ac71-2e4f2fe5f83f"
+        },
+        "name": "job-gf-02-ecc-eb48f",
+        "namespace": "gpufault",
+        "ownerReferences": [
+            {
+                "apiVersion": "batch/v1",
+                "blockOwnerDeletion": true,
+                "controller": true,
+                "kind": "Job",
+                "name": "gf-02-ecc",
+                "uid": "1fc854f3-39a2-4263-ac71-2e4f2fe5f83f"
+            }
+        ],
+        "resourceVersion": "1791",
+        "uid": "93f8f1f8-53f0-44ce-afac-77a854fdc2e5"
+    },
+    "spec": {
+        "active": false,
+        "podSets": [
+            {
+                "count": 1,
+                "name": "main",
+                "template": {
+                    "metadata": {
+                        "labels": {
+                            "batch.kubernetes.io/job-name": "gf-02-ecc"
+                        }
+                    },
+                    "spec": {
+                        "containers": [
+                            {
+                                "command": [
+                                    "sh",
+                                    "-c",
+                                    "trap 'exit 143' TERM; while true; do sleep 1; done"
+                                ],
+                                "env": [
+                                    {
+                                        "name": "NVIDIA_DRIVER_CAPABILITIES",
+                                        "value": "compute,utility"
+                                    }
+                                ],
+                                "image": "gpufault-job:busybox",
+                                "imagePullPolicy": "IfNotPresent",
+                                "name": "trainer",
+                                "resources": {
+                                    "limits": {
+                                        "nvidia.com/gpu": "1"
+                                    }
+                                },
+                                "terminationMessagePath": "/dev/termination-log",
+                                "terminationMessagePolicy": "File"
+                            }
+                        ],
+                        "dnsPolicy": "ClusterFirst",
+                        "restartPolicy": "Never",
+                        "schedulerName": "default-scheduler",
+                        "securityContext": {},
+                        "terminationGracePeriodSeconds": 30
+                    }
+                },
+                "topologyRequest": {
+                    "podIndexLabel": "batch.kubernetes.io/job-completion-index"
+                }
+            }
+        ],
+        "priority": 0,
+        "queueName": "gpu-gpufault"
+    },
+    "status": {
+        "accumulatedPastExecutionTimeSeconds": 14,
+        "admission": {
+            "clusterQueue": "gpu-gpufault",
+            "podSetAssignments": [
+                {
+                    "count": 1,
+                    "flavors": {
+                        "nvidia.com/gpu": "gpu"
+                    },
+                    "name": "main",
+                    "resourceUsage": {
+                        "nvidia.com/gpu": "1"
+                    }
+                }
+            ]
+        },
+        "conditions": [
+            {
+                "lastTransitionTime": "2026-10-26T23:35:20Z",
+                "message": "Quota reserved in ClusterQueue gpu-gpufault",
+                "observedGeneration": 3,
+                "reason": "QuotaReserved",
+                "status": "True",
+                "type": "QuotaReserved"
+            },
+            {
+                "lastTransitionTime": "2026-10-26T23:35:20Z",
+                "message": "Previously: The workload is deactivated",
+                "observedGeneration": 3,
+                "reason": "QuotaReserved",
+                "status": "False",
+                "type": "Evicted"
+            },
+            {
+                "lastTransitionTime": "2026-10-26T23:35:20Z",
+                "message": "The workload is admitted",
+                "observedGeneration": 3,
+                "reason": "Admitted",
+                "status": "True",
+                "type": "Admitted"
+            },
+            {
+                "lastTransitionTime": "2026-10-26T23:35:20Z",
+                "message": "The workload was reactivated",
+                "observedGeneration": 3,
+                "reason": "Reactivated",
+                "status": "True",
+                "type": "Requeued"
+            }
+        ],
+        "schedulingStats": {
+            "evictions": [
+                {
+                    "count": 1,
+                    "reason": "Deactivated",
+                    "underlyingCause": ""
+                }
+            ]
+        }
+    }
+}
+{
+    "apiVersion": "kueue.x-k8s.io/v1beta2",
+    "kind": "Workload",
+    "metadata": {
+        "annotations": {
+            "gpufault.platform.lkhun9311.github.io/deactivated-at": "2026-10-26T23:35:20.445603267Z",
+            "gpufault.platform.lkhun9311.github.io/deactivated-fingerprint": "GPU-c4601434-5564-52d7-d272-c981c74326a2/DCGM_FI_DEV_ECC_DBE_VOL_TOTAL=1",
+            "gpufault.platform.lkhun9311.github.io/deactivated-node": "m5cgpu-worker"
+        },
+        "creationTimestamp": "2026-10-26T23:35:06Z",
+        "finalizers": [
+            "kueue.x-k8s.io/resource-in-use"
+        ],
+        "generation": 4,
+        "labels": {
+            "kueue.x-k8s.io/job-uid": "1fc854f3-39a2-4263-ac71-2e4f2fe5f83f"
+        },
+        "name": "job-gf-02-ecc-eb48f",
+        "namespace": "gpufault",
+        "ownerReferences": [
+            {
+                "apiVersion": "batch/v1",
+                "blockOwnerDeletion": true,
+                "controller": true,
+                "kind": "Job",
+                "name": "gf-02-ecc",
+                "uid": "1fc854f3-39a2-4263-ac71-2e4f2fe5f83f"
+            }
+        ],
+        "resourceVersion": "1793",
+        "uid": "93f8f1f8-53f0-44ce-afac-77a854fdc2e5"
+    },
+    "spec": {
+        "active": false,
+        "podSets": [
+            {
+                "count": 1,
+                "name": "main",
+                "template": {
+                    "metadata": {
+                        "labels": {
+                            "batch.kubernetes.io/job-name": "gf-02-ecc"
+                        }
+                    },
+                    "spec": {
+                        "containers": [
+                            {
+                                "command": [
+                                    "sh",
+                                    "-c",
+                                    "trap 'exit 143' TERM; while true; do sleep 1; done"
+                                ],
+                                "env": [
+                                    {
+                                        "name": "NVIDIA_DRIVER_CAPABILITIES",
+                                        "value": "compute,utility"
+                                    }
+                                ],
+                                "image": "gpufault-job:busybox",
+                                "imagePullPolicy": "IfNotPresent",
+                                "name": "trainer",
+                                "resources": {
+                                    "limits": {
+                                        "nvidia.com/gpu": "1"
+                                    }
+                                },
+                                "terminationMessagePath": "/dev/termination-log",
+                                "terminationMessagePolicy": "File"
+                            }
+                        ],
+                        "dnsPolicy": "ClusterFirst",
+                        "restartPolicy": "Never",
+                        "schedulerName": "default-scheduler",
+                        "securityContext": {},
+                        "terminationGracePeriodSeconds": 30
+                    }
+                },
+                "topologyRequest": {
+                    "podIndexLabel": "batch.kubernetes.io/job-completion-index"
+                }
+            }
+        ],
+        "priority": 0,
+        "queueName": "gpu-gpufault"
+    },
+    "status": {
+        "accumulatedPastExecutionTimeSeconds": 14,
+        "admission": {
+            "clusterQueue": "gpu-gpufault",
+            "podSetAssignments": [
+                {
+                    "count": 1,
+                    "flavors": {
+                        "nvidia.com/gpu": "gpu"
+                    },
+                    "name": "main",
+                    "resourceUsage": {
+                        "nvidia.com/gpu": "1"
+                    }
+                }
+            ]
+        },
+        "conditions": [
+            {
+                "lastTransitionTime": "2026-10-26T23:35:20Z",
+                "message": "Quota reserved in ClusterQueue gpu-gpufault",
+                "observedGeneration": 3,
+                "reason": "QuotaReserved",
+                "status": "True",
+                "type": "QuotaReserved"
+            },
+            {
+                "lastTransitionTime": "2026-10-26T23:35:20Z",
+                "message": "The workload is deactivated",
+                "observedGeneration": 4,
+                "reason": "Deactivated",
+                "status": "True",
+                "type": "Evicted"
+            },
+            {
+                "lastTransitionTime": "2026-10-26T23:35:20Z",
+                "message": "The workload is admitted",
+                "observedGeneration": 3,
+                "reason": "Admitted",
+                "status": "True",
+                "type": "Admitted"
+            },
+            {
+                "lastTransitionTime": "2026-10-26T23:35:20Z",
+                "message": "The workload was reactivated",
+                "observedGeneration": 3,
+                "reason": "Reactivated",
+                "status": "True",
+                "type": "Requeued"
+            }
+        ],
+        "schedulingStats": {
+            "evictions": [
+                {
+                    "count": 2,
+                    "reason": "Deactivated",
+                    "underlyingCause": ""
+                }
+            ]
+        }
+    }
+}
+{
+    "apiVersion": "kueue.x-k8s.io/v1beta2",
+    "kind": "Workload",
+    "metadata": {
+        "annotations": {
+            "gpufault.platform.lkhun9311.github.io/deactivated-at": "2026-10-26T23:35:20.445603267Z",
+            "gpufault.platform.lkhun9311.github.io/deactivated-fingerprint": "GPU-c4601434-5564-52d7-d272-c981c74326a2/DCGM_FI_DEV_ECC_DBE_VOL_TOTAL=1",
+            "gpufault.platform.lkhun9311.github.io/deactivated-node": "m5cgpu-worker"
+        },
+        "creationTimestamp": "2026-10-26T23:35:06Z",
+        "finalizers": [
+            "kueue.x-k8s.io/resource-in-use"
+        ],
+        "generation": 4,
+        "labels": {
+            "kueue.x-k8s.io/job-uid": "1fc854f3-39a2-4263-ac71-2e4f2fe5f83f"
+        },
+        "name": "job-gf-02-ecc-eb48f",
+        "namespace": "gpufault",
+        "ownerReferences": [
+            {
+                "apiVersion": "batch/v1",
+                "blockOwnerDeletion": true,
+                "controller": true,
+                "kind": "Job",
+                "name": "gf-02-ecc",
+                "uid": "1fc854f3-39a2-4263-ac71-2e4f2fe5f83f"
+            }
+        ],
+        "resourceVersion": "1806",
+        "uid": "93f8f1f8-53f0-44ce-afac-77a854fdc2e5"
+    },
+    "spec": {
+        "active": false,
+        "podSets": [
+            {
+                "count": 1,
+                "name": "main",
+                "template": {
+                    "metadata": {
+                        "labels": {
+                            "batch.kubernetes.io/job-name": "gf-02-ecc"
+                        }
+                    },
+                    "spec": {
+                        "containers": [
+                            {
+                                "command": [
+                                    "sh",
+                                    "-c",
+                                    "trap 'exit 143' TERM; while true; do sleep 1; done"
+                                ],
+                                "env": [
+                                    {
+                                        "name": "NVIDIA_DRIVER_CAPABILITIES",
+                                        "value": "compute,utility"
+                                    }
+                                ],
+                                "image": "gpufault-job:busybox",
+                                "imagePullPolicy": "IfNotPresent",
+                                "name": "trainer",
+                                "resources": {
+                                    "limits": {
+                                        "nvidia.com/gpu": "1"
+                                    }
+                                },
+                                "terminationMessagePath": "/dev/termination-log",
+                                "terminationMessagePolicy": "File"
+                            }
+                        ],
+                        "dnsPolicy": "ClusterFirst",
+                        "restartPolicy": "Never",
+                        "schedulerName": "default-scheduler",
+                        "securityContext": {},
+                        "terminationGracePeriodSeconds": 30
+                    }
+                },
+                "topologyRequest": {
+                    "podIndexLabel": "batch.kubernetes.io/job-completion-index"
+                }
+            }
+        ],
+        "priority": 0,
+        "queueName": "gpu-gpufault"
+    },
+    "status": {
+        "accumulatedPastExecutionTimeSeconds": 14,
+        "conditions": [
+            {
+                "lastTransitionTime": "2026-10-26T23:35:20Z",
+                "message": "The workload is deactivated",
+                "observedGeneration": 4,
+                "reason": "Pending",
+                "status": "False",
+                "type": "QuotaReserved"
+            },
+            {
+                "lastTransitionTime": "2026-10-26T23:35:20Z",
+                "message": "The workload is deactivated",
+                "observedGeneration": 4,
+                "reason": "Deactivated",
+                "status": "True",
+                "type": "Evicted"
+            },
+            {
+                "lastTransitionTime": "2026-10-26T23:35:20Z",
+                "message": "The workload has no reservation",
+                "observedGeneration": 4,
+                "reason": "NoReservation",
+                "status": "False",
+                "type": "Admitted"
+            },
+            {
+                "lastTransitionTime": "2026-10-26T23:35:20Z",
+                "message": "The workload is deactivated",
+                "observedGeneration": 4,
+                "reason": "Deactivated",
+                "status": "False",
+                "type": "Requeued"
+            }
+        ],
+        "schedulingStats": {
+            "evictions": [
+                {
+                    "count": 2,
+                    "reason": "Deactivated",
+                    "underlyingCause": ""
+                }
+            ]
+        }
+    }
+}
+{
+    "apiVersion": "kueue.x-k8s.io/v1beta2",
+    "kind": "Workload",
+    "metadata": {
+        "annotations": {
+            "gpufault.platform.lkhun9311.github.io/deactivated-at": "2026-10-26T23:35:20.445603267Z",
+            "gpufault.platform.lkhun9311.github.io/deactivated-fingerprint": "GPU-c4601434-5564-52d7-d272-c981c74326a2/DCGM_FI_DEV_ECC_DBE_VOL_TOTAL=1",
+            "gpufault.platform.lkhun9311.github.io/deactivated-node": "m5cgpu-worker",
+            "gpufault.platform.lkhun9311.github.io/reactivated-at": "2026-10-26T23:35:20.585807374Z"
+        },
+        "creationTimestamp": "2026-10-26T23:35:06Z",
+        "finalizers": [
+            "kueue.x-k8s.io/resource-in-use"
+        ],
+        "generation": 5,
+        "labels": {
+            "kueue.x-k8s.io/job-uid": "1fc854f3-39a2-4263-ac71-2e4f2fe5f83f"
+        },
+        "name": "job-gf-02-ecc-eb48f",
+        "namespace": "gpufault",
+        "ownerReferences": [
+            {
+                "apiVersion": "batch/v1",
+                "blockOwnerDeletion": true,
+                "controller": true,
+                "kind": "Job",
+                "name": "gf-02-ecc",
+                "uid": "1fc854f3-39a2-4263-ac71-2e4f2fe5f83f"
+            }
+        ],
+        "resourceVersion": "1808",
+        "uid": "93f8f1f8-53f0-44ce-afac-77a854fdc2e5"
+    },
+    "spec": {
+        "active": true,
+        "podSets": [
+            {
+                "count": 1,
+                "name": "main",
+                "template": {
+                    "metadata": {
+                        "labels": {
+                            "batch.kubernetes.io/job-name": "gf-02-ecc"
+                        }
+                    },
+                    "spec": {
+                        "containers": [
+                            {
+                                "command": [
+                                    "sh",
+                                    "-c",
+                                    "trap 'exit 143' TERM; while true; do sleep 1; done"
+                                ],
+                                "env": [
+                                    {
+                                        "name": "NVIDIA_DRIVER_CAPABILITIES",
+                                        "value": "compute,utility"
+                                    }
+                                ],
+                                "image": "gpufault-job:busybox",
+                                "imagePullPolicy": "IfNotPresent",
+                                "name": "trainer",
+                                "resources": {
+                                    "limits": {
+                                        "nvidia.com/gpu": "1"
+                                    }
+                                },
+                                "terminationMessagePath": "/dev/termination-log",
+                                "terminationMessagePolicy": "File"
+                            }
+                        ],
+                        "dnsPolicy": "ClusterFirst",
+                        "restartPolicy": "Never",
+                        "schedulerName": "default-scheduler",
+                        "securityContext": {},
+                        "terminationGracePeriodSeconds": 30
+                    }
+                },
+                "topologyRequest": {
+                    "podIndexLabel": "batch.kubernetes.io/job-completion-index"
+                }
+            }
+        ],
+        "priority": 0,
+        "queueName": "gpu-gpufault"
+    },
+    "status": {
+        "accumulatedPastExecutionTimeSeconds": 14,
+        "conditions": [
+            {
+                "lastTransitionTime": "2026-10-26T23:35:20Z",
+                "message": "The workload is deactivated",
+                "observedGeneration": 4,
+                "reason": "Pending",
+                "status": "False",
+                "type": "QuotaReserved"
+            },
+            {
+                "lastTransitionTime": "2026-10-26T23:35:20Z",
+                "message": "The workload is deactivated",
+                "observedGeneration": 4,
+                "reason": "Deactivated",
+                "status": "True",
+                "type": "Evicted"
+            },
+            {
+                "lastTransitionTime": "2026-10-26T23:35:20Z",
+                "message": "The workload has no reservation",
+                "observedGeneration": 4,
+                "reason": "NoReservation",
+                "status": "False",
+                "type": "Admitted"
+            },
+            {
+                "lastTransitionTime": "2026-10-26T23:35:20Z",
+                "message": "The workload is deactivated",
+                "observedGeneration": 4,
+                "reason": "Deactivated",
+                "status": "False",
+                "type": "Requeued"
+            }
+        ],
+        "schedulingStats": {
+            "evictions": [
+                {
+                    "count": 2,
+                    "reason": "Deactivated",
+                    "underlyingCause": ""
+                }
+            ]
+        }
+    }
+}
+{
+    "apiVersion": "kueue.x-k8s.io/v1beta2",
+    "kind": "Workload",
+    "metadata": {
+        "annotations": {
+            "gpufault.platform.lkhun9311.github.io/deactivated-at": "2026-10-26T23:35:20.445603267Z",
+            "gpufault.platform.lkhun9311.github.io/deactivated-fingerprint": "GPU-c4601434-5564-52d7-d272-c981c74326a2/DCGM_FI_DEV_ECC_DBE_VOL_TOTAL=1",
+            "gpufault.platform.lkhun9311.github.io/deactivated-node": "m5cgpu-worker",
+            "gpufault.platform.lkhun9311.github.io/reactivated-at": "2026-10-26T23:35:20.585807374Z"
+        },
+        "creationTimestamp": "2026-10-26T23:35:06Z",
+        "finalizers": [
+            "kueue.x-k8s.io/resource-in-use"
+        ],
+        "generation": 5,
+        "labels": {
+            "kueue.x-k8s.io/job-uid": "1fc854f3-39a2-4263-ac71-2e4f2fe5f83f"
+        },
+        "name": "job-gf-02-ecc-eb48f",
+        "namespace": "gpufault",
+        "ownerReferences": [
+            {
+                "apiVersion": "batch/v1",
+                "blockOwnerDeletion": true,
+                "controller": true,
+                "kind": "Job",
+                "name": "gf-02-ecc",
+                "uid": "1fc854f3-39a2-4263-ac71-2e4f2fe5f83f"
+            }
+        ],
+        "resourceVersion": "1810",
+        "uid": "93f8f1f8-53f0-44ce-afac-77a854fdc2e5"
+    },
+    "spec": {
+        "active": true,
+        "podSets": [
+            {
+                "count": 1,
+                "name": "main",
+                "template": {
+                    "metadata": {
+                        "labels": {
+                            "batch.kubernetes.io/job-name": "gf-02-ecc"
+                        }
+                    },
+                    "spec": {
+                        "containers": [
+                            {
+                                "command": [
+                                    "sh",
+                                    "-c",
+                                    "trap 'exit 143' TERM; while true; do sleep 1; done"
+                                ],
+                                "env": [
+                                    {
+                                        "name": "NVIDIA_DRIVER_CAPABILITIES",
+                                        "value": "compute,utility"
+                                    }
+                                ],
+                                "image": "gpufault-job:busybox",
+                                "imagePullPolicy": "IfNotPresent",
+                                "name": "trainer",
+                                "resources": {
+                                    "limits": {
+                                        "nvidia.com/gpu": "1"
+                                    }
+                                },
+                                "terminationMessagePath": "/dev/termination-log",
+                                "terminationMessagePolicy": "File"
+                            }
+                        ],
+                        "dnsPolicy": "ClusterFirst",
+                        "restartPolicy": "Never",
+                        "schedulerName": "default-scheduler",
+                        "securityContext": {},
+                        "terminationGracePeriodSeconds": 30
+                    }
+                },
+                "topologyRequest": {
+                    "podIndexLabel": "batch.kubernetes.io/job-completion-index"
+                }
+            }
+        ],
+        "priority": 0,
+        "queueName": "gpu-gpufault"
+    },
+    "status": {
+        "accumulatedPastExecutionTimeSeconds": 14,
+        "conditions": [
+            {
+                "lastTransitionTime": "2026-10-26T23:35:20Z",
+                "message": "The workload is deactivated",
+                "observedGeneration": 4,
+                "reason": "Pending",
+                "status": "False",
+                "type": "QuotaReserved"
+            },
+            {
+                "lastTransitionTime": "2026-10-26T23:35:20Z",
+                "message": "The workload is deactivated",
+                "observedGeneration": 4,
+                "reason": "Deactivated",
+                "status": "True",
+                "type": "Evicted"
+            },
+            {
+                "lastTransitionTime": "2026-10-26T23:35:20Z",
+                "message": "The workload has no reservation",
+                "observedGeneration": 4,
+                "reason": "NoReservation",
+                "status": "False",
+                "type": "Admitted"
+            },
+            {
+                "lastTransitionTime": "2026-10-26T23:35:20Z",
+                "message": "The workload was reactivated",
+                "observedGeneration": 5,
+                "reason": "Reactivated",
+                "status": "True",
+                "type": "Requeued"
+            }
+        ],
+        "schedulingStats": {
+            "evictions": [
+                {
+                    "count": 2,
+                    "reason": "Deactivated",
+                    "underlyingCause": ""
+                }
+            ]
+        }
+    }
+}
+{
+    "apiVersion": "kueue.x-k8s.io/v1beta2",
+    "kind": "Workload",
+    "metadata": {
+        "annotations": {
+            "gpufault.platform.lkhun9311.github.io/deactivated-at": "2026-10-26T23:35:20.445603267Z",
+            "gpufault.platform.lkhun9311.github.io/deactivated-fingerprint": "GPU-c4601434-5564-52d7-d272-c981c74326a2/DCGM_FI_DEV_ECC_DBE_VOL_TOTAL=1",
+            "gpufault.platform.lkhun9311.github.io/deactivated-node": "m5cgpu-worker",
+            "gpufault.platform.lkhun9311.github.io/reactivated-at": "2026-10-26T23:35:20.585807374Z"
+        },
+        "creationTimestamp": "2026-10-26T23:35:06Z",
+        "finalizers": [
+            "kueue.x-k8s.io/resource-in-use"
+        ],
+        "generation": 5,
+        "labels": {
+            "kueue.x-k8s.io/job-uid": "1fc854f3-39a2-4263-ac71-2e4f2fe5f83f"
+        },
+        "name": "job-gf-02-ecc-eb48f",
+        "namespace": "gpufault",
+        "ownerReferences": [
+            {
+                "apiVersion": "batch/v1",
+                "blockOwnerDeletion": true,
+                "controller": true,
+                "kind": "Job",
+                "name": "gf-02-ecc",
+                "uid": "1fc854f3-39a2-4263-ac71-2e4f2fe5f83f"
+            }
+        ],
+        "resourceVersion": "1812",
+        "uid": "93f8f1f8-53f0-44ce-afac-77a854fdc2e5"
+    },
+    "spec": {
+        "active": true,
+        "podSets": [
+            {
+                "count": 1,
+                "name": "main",
+                "template": {
+                    "metadata": {
+                        "labels": {
+                            "batch.kubernetes.io/job-name": "gf-02-ecc"
+                        }
+                    },
+                    "spec": {
+                        "containers": [
+                            {
+                                "command": [
+                                    "sh",
+                                    "-c",
+                                    "trap 'exit 143' TERM; while true; do sleep 1; done"
+                                ],
+                                "env": [
+                                    {
+                                        "name": "NVIDIA_DRIVER_CAPABILITIES",
+                                        "value": "compute,utility"
+                                    }
+                                ],
+                                "image": "gpufault-job:busybox",
+                                "imagePullPolicy": "IfNotPresent",
+                                "name": "trainer",
+                                "resources": {
+                                    "limits": {
+                                        "nvidia.com/gpu": "1"
+                                    }
+                                },
+                                "terminationMessagePath": "/dev/termination-log",
+                                "terminationMessagePolicy": "File"
+                            }
+                        ],
+                        "dnsPolicy": "ClusterFirst",
+                        "restartPolicy": "Never",
+                        "schedulerName": "default-scheduler",
+                        "securityContext": {},
+                        "terminationGracePeriodSeconds": 30
+                    }
+                },
+                "topologyRequest": {
+                    "podIndexLabel": "batch.kubernetes.io/job-completion-index"
+                }
+            }
+        ],
+        "priority": 0,
+        "queueName": "gpu-gpufault"
+    },
+    "status": {
+        "accumulatedPastExecutionTimeSeconds": 14,
+        "admission": {
+            "clusterQueue": "gpu-gpufault",
+            "podSetAssignments": [
+                {
+                    "count": 1,
+                    "flavors": {
+                        "nvidia.com/gpu": "gpu"
+                    },
+                    "name": "main",
+                    "resourceUsage": {
+                        "nvidia.com/gpu": "1"
+                    }
+                }
+            ]
+        },
+        "conditions": [
+            {
+                "lastTransitionTime": "2026-10-26T23:35:20Z",
+                "message": "Quota reserved in ClusterQueue gpu-gpufault",
+                "observedGeneration": 5,
+                "reason": "QuotaReserved",
+                "status": "True",
+                "type": "QuotaReserved"
+            },
+            {
+                "lastTransitionTime": "2026-10-26T23:35:20Z",
+                "message": "Previously: The workload is deactivated",
+                "observedGeneration": 5,
+                "reason": "QuotaReserved",
+                "status": "False",
+                "type": "Evicted"
+            },
+            {
+                "lastTransitionTime": "2026-10-26T23:35:20Z",
+                "message": "The workload is admitted",
+                "observedGeneration": 5,
+                "reason": "Admitted",
+                "status": "True",
+                "type": "Admitted"
+            },
+            {
+                "lastTransitionTime": "2026-10-26T23:35:20Z",
+                "message": "The workload was reactivated",
+                "observedGeneration": 5,
+                "reason": "Reactivated",
+                "status": "True",
+                "type": "Requeued"
+            }
+        ],
+        "schedulingStats": {
+            "evictions": [
+                {
+                    "count": 2,
+                    "reason": "Deactivated",
+                    "underlyingCause": ""
+                }
+            ]
+        }
+    }
+}

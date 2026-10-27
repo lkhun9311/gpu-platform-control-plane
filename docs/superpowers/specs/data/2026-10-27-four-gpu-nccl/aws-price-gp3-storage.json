@@ -1,0 +1,6 @@
+{
+    "PriceList": [
+        "{\"product\":{\"productFamily\":\"Storage\",\"attributes\":{\"maxThroughputvolume\":\"2000 MiB/s\",\"volumeType\":\"General Purpose\",\"maxIopsvolume\":\"80000\",\"usagetype\":\"APN2-EBS:VolumeUsage.gp3\",\"locationType\":\"AWS Region\",\"maxVolumeSize\":\"64 TiB\",\"storageMedia\":\"SSD-backed\",\"regionCode\":\"ap-northeast-2\",\"servicecode\":\"AmazonEC2\",\"volumeApiName\":\"gp3\",\"location\":\"Asia Pacific (Seoul)\",\"servicename\":\"Amazon Elastic Compute Cloud\",\"operation\":\"\"},\"sku\":\"MTK7D9SGKGYR3JD6\"},\"serviceCode\":\"AmazonEC2\",\"terms\":{\"OnDemand\":{\"MTK7D9SGKGYR3JD6.JRTCKXETXF\":{\"priceDimensions\":{\"MTK7D9SGKGYR3JD6.JRTCKXETXF.6YS6EN2CT7\":{\"unit\":\"GB-Mo\",\"endRange\":\"Inf\",\"description\":\"$0.0912 per GB-month of General Purpose (gp3) provisioned storage - Asia Pacific (Seoul)\",\"appliesTo\":[],\"rateCode\":\"MTK7D9SGKGYR3JD6.JRTCKXETXF.6YS6EN2CT7\",\"beginRange\":\"0\",\"pricePerUnit\":{\"USD\":\"0.0912000000\"}}},\"sku\":\"MTK7D9SGKGYR3JD6\",\"effectiveDate\":\"2026-10-01T00:00:00Z\",\"offerTermCode\":\"JRTCKXETXF\",\"termAttributes\":{}}}},\"version\":\"20261023221355\",\"publicationDate\":\"2026-10-23T22:13:55Z\"}"
+    ],
+    "FormatVersion": "aws_v1"
+}

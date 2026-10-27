@@ -1,0 +1,17 @@
+verdict: observed on these traces
+control-944 LeastQueue: H=0.0000 p50=1354.9 ms p99=2999.0 ms share a/b=0.501/0.499 p99 a/b=3021.7/2891.5 ms imbalance=0.45 completion=1.0000
+control-944 PrefixAffinity: H=0.0000 p50=1355.1 ms p99=2997.4 ms share a/b=0.501/0.499 p99 a/b=3020.7/2893.0 ms imbalance=0.48 completion=1.0000
+control-944 RoundRobin: H=0.0000 p50=1354.9 ms p99=2998.1 ms share a/b=0.501/0.499 p99 a/b=3022.2/2892.4 ms imbalance=0.50 completion=1.0000
+shared-941 LeastQueue: H=0.5638 p50=58.3 ms p99=2322.7 ms share a/b=0.505/0.495 p99 a/b=2139.3/2338.6 ms imbalance=0.35 completion=1.0000
+shared-941 PrefixAffinity: H=0.8215 p50=54.9 ms p99=1365.8 ms share a/b=0.536/0.464 p99 a/b=1356.4/1891.2 ms imbalance=0.43 completion=1.0000
+shared-941 RoundRobin: H=0.5537 p50=300.5 ms p99=2491.2 ms share a/b=0.501/0.499 p99 a/b=2337.4/2491.2 ms imbalance=0.54 completion=1.0000
+shared-942 LeastQueue: H=0.5410 p50=59.0 ms p99=2855.3 ms share a/b=0.504/0.496 p99 a/b=2944.6/2785.9 ms imbalance=0.45 completion=1.0000
+shared-942 PrefixAffinity: H=0.8206 p50=55.0 ms p99=2722.9 ms share a/b=0.535/0.465 p99 a/b=2722.9/2320.8 ms imbalance=0.28 completion=1.0000
+shared-942 RoundRobin: H=0.5531 p50=76.8 ms p99=2853.6 ms share a/b=0.500/0.500 p99 a/b=2942.7/2787.0 ms imbalance=0.50 completion=1.0000
+shared-943 LeastQueue: H=0.5192 p50=694.6 ms p99=2538.4 ms share a/b=0.501/0.499 p99 a/b=2685.3/2530.6 ms imbalance=0.46 completion=1.0000
+shared-943 PrefixAffinity: H=0.8322 p50=55.0 ms p99=1805.9 ms share a/b=0.449/0.551 p99 a/b=1862.6/1798.4 ms imbalance=0.50 completion=1.0000
+shared-943 RoundRobin: H=0.5286 p50=626.2 ms p99=2316.8 ms share a/b=0.501/0.499 p99 a/b=2190.8/2539.9 ms imbalance=0.46 completion=1.0000
+rule 2, control: PrefixAffinity's H gain over RoundRobin on control-944 is +0.0000 (limit 0.01, and below every shared block's)
+rule 2, control: PrefixAffinity's H gain over LeastQueue on control-944 is +0.0000 (limit 0.01, and below every shared block's)
+share bounds: shared-941 0.6243, shared-942 0.6240, shared-943 0.6222
+capacity bar: 513000 tokens

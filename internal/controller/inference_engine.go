@@ -40,21 +40,35 @@ type vllmProfile struct {
 	instanceTypes []string
 }
 
+// measuredA10GArgs are the admission study's engine settings, shared by both profiles.
+// cachingArg is the one setting the prefix-cache profile changes, kept apart so the two cannot drift in anything else.
+func measuredA10GArgs(cachingArg string) []string {
+	return []string{
+		"--dtype=half",
+		"--max-model-len=16384",
+		"--max-num-seqs=64",
+		"--gpu-memory-utilization=0.90",
+		cachingArg,
+		// 512, not the base manifest's 2048: the pilot replaced it (PP_BUDGET), and the measurement is the pilot's.
+		"--max-num-batched-tokens=512",
+		"--scheduling-policy=priority",
+		"--no-async-scheduling",
+	}
+}
+
+// a10gInstanceTypes are the g5 sizes that carry exactly one A10G; the measured sessions ran on g5.xlarge.
+var a10gInstanceTypes = []string{"g5.xlarge", "g5.2xlarge", "g5.4xlarge", "g5.8xlarge", "g5.16xlarge"}
+
 var vllmProfiles = map[string]vllmProfile{
 	platformv1.VLLMProfileV0271A10G: {
-		args: []string{
-			"--dtype=half",
-			"--max-model-len=16384",
-			"--max-num-seqs=64",
-			"--gpu-memory-utilization=0.90",
-			"--no-enable-prefix-caching",
-			// 512, not the base manifest's 2048: the pilot replaced it (PP_BUDGET), and the measurement is the pilot's.
-			"--max-num-batched-tokens=512",
-			"--scheduling-policy=priority",
-			"--no-async-scheduling",
-		},
-		// The g5 sizes that carry exactly one A10G; the measured sessions ran on g5.xlarge.
-		instanceTypes: []string{"g5.xlarge", "g5.2xlarge", "g5.4xlarge", "g5.8xlarge", "g5.16xlarge"},
+		args:          measuredA10GArgs("--no-enable-prefix-caching"),
+		instanceTypes: a10gInstanceTypes,
+	},
+	// The routing study needs engines that keep shared prefixes, so caching is on and nothing else moves.
+	// The CRD refuses HoldCap on this profile, because HoldCap was measured with caching off.
+	platformv1.VLLMProfileV0271A10GPrefixCache: {
+		args:          measuredA10GArgs("--enable-prefix-caching"),
+		instanceTypes: a10gInstanceTypes,
 	},
 }
 

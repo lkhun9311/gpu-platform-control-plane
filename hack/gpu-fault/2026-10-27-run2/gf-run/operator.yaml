@@ -1,0 +1,635 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: gpu-platform-control-plane
+    control-plane: controller-manager
+  name: gpu-platform-control-plane-system
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: gpu-platform-control-plane
+  name: gpu-platform-control-plane-controller-manager
+  namespace: gpu-platform-control-plane-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: gpu-platform-control-plane
+  name: gpu-platform-control-plane-leader-election-role
+  namespace: gpu-platform-control-plane-system
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
+- apiGroups:
+  - coordination.k8s.io
+  resources:
+  - leases
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: gpu-platform-control-plane
+  name: gpu-platform-control-plane-gpuquotapolicy-admin-role
+rules:
+- apiGroups:
+  - platform.lkhun9311.github.io
+  resources:
+  - gpuquotapolicies
+  verbs:
+  - '*'
+- apiGroups:
+  - platform.lkhun9311.github.io
+  resources:
+  - gpuquotapolicies/status
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: gpu-platform-control-plane
+  name: gpu-platform-control-plane-gpuquotapolicy-editor-role
+rules:
+- apiGroups:
+  - platform.lkhun9311.github.io
+  resources:
+  - gpuquotapolicies
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - platform.lkhun9311.github.io
+  resources:
+  - gpuquotapolicies/status
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: gpu-platform-control-plane
+  name: gpu-platform-control-plane-gpuquotapolicy-viewer-role
+rules:
+- apiGroups:
+  - platform.lkhun9311.github.io
+  resources:
+  - gpuquotapolicies
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - platform.lkhun9311.github.io
+  resources:
+  - gpuquotapolicies/status
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: gpu-platform-control-plane
+  name: gpu-platform-control-plane-inferencedeployment-admin-role
+rules:
+- apiGroups:
+  - platform.lkhun9311.github.io
+  resources:
+  - inferencedeployments
+  verbs:
+  - '*'
+- apiGroups:
+  - platform.lkhun9311.github.io
+  resources:
+  - inferencedeployments/status
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: gpu-platform-control-plane
+  name: gpu-platform-control-plane-inferencedeployment-editor-role
+rules:
+- apiGroups:
+  - platform.lkhun9311.github.io
+  resources:
+  - inferencedeployments
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - platform.lkhun9311.github.io
+  resources:
+  - inferencedeployments/status
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: gpu-platform-control-plane
+  name: gpu-platform-control-plane-inferencedeployment-viewer-role
+rules:
+- apiGroups:
+  - platform.lkhun9311.github.io
+  resources:
+  - inferencedeployments
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - platform.lkhun9311.github.io
+  resources:
+  - inferencedeployments/status
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: gpu-platform-control-plane-manager-role
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - namespaces
+  verbs:
+  - get
+  - list
+  - patch
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - nodes
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - get
+  - list
+- apiGroups:
+  - ""
+  resources:
+  - resourcequotas
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - services
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - apps
+  resources:
+  - deployments
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - batch
+  resources:
+  - jobs
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - events.k8s.io
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+- apiGroups:
+  - kueue.x-k8s.io
+  resources:
+  - clusterqueues
+  - localqueues
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - kueue.x-k8s.io
+  resources:
+  - workloads
+  verbs:
+  - get
+  - list
+  - patch
+  - watch
+- apiGroups:
+  - platform.lkhun9311.github.io
+  resources:
+  - gpuquotapolicies
+  - mltrainingjobs
+  - nodehealths
+  - workloadruns
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - platform.lkhun9311.github.io
+  resources:
+  - gpuquotapolicies/finalizers
+  - mltrainingjobs/finalizers
+  - nodehealths/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - platform.lkhun9311.github.io
+  resources:
+  - gpuquotapolicies/status
+  - inferencedeployments/status
+  - mltrainingjobs/status
+  - nodehealths/status
+  - workloadruns/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - platform.lkhun9311.github.io
+  resources:
+  - inferencedeployments
+  verbs:
+  - get
+  - list
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: gpu-platform-control-plane-metrics-auth-role
+rules:
+- apiGroups:
+  - authentication.k8s.io
+  resources:
+  - tokenreviews
+  verbs:
+  - create
+- apiGroups:
+  - authorization.k8s.io
+  resources:
+  - subjectaccessreviews
+  verbs:
+  - create
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: gpu-platform-control-plane-metrics-reader
+rules:
+- nonResourceURLs:
+  - /metrics
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: gpu-platform-control-plane
+  name: gpu-platform-control-plane-mltrainingjob-admin-role
+rules:
+- apiGroups:
+  - platform.lkhun9311.github.io
+  resources:
+  - mltrainingjobs
+  verbs:
+  - '*'
+- apiGroups:
+  - platform.lkhun9311.github.io
+  resources:
+  - mltrainingjobs/status
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: gpu-platform-control-plane
+  name: gpu-platform-control-plane-mltrainingjob-editor-role
+rules:
+- apiGroups:
+  - platform.lkhun9311.github.io
+  resources:
+  - mltrainingjobs
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - platform.lkhun9311.github.io
+  resources:
+  - mltrainingjobs/status
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: gpu-platform-control-plane
+  name: gpu-platform-control-plane-mltrainingjob-viewer-role
+rules:
+- apiGroups:
+  - platform.lkhun9311.github.io
+  resources:
+  - mltrainingjobs
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - platform.lkhun9311.github.io
+  resources:
+  - mltrainingjobs/status
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: gpu-platform-control-plane
+  name: gpu-platform-control-plane-nodehealth-admin-role
+rules:
+- apiGroups:
+  - platform.lkhun9311.github.io
+  resources:
+  - nodehealths
+  verbs:
+  - '*'
+- apiGroups:
+  - platform.lkhun9311.github.io
+  resources:
+  - nodehealths/status
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: gpu-platform-control-plane
+  name: gpu-platform-control-plane-nodehealth-editor-role
+rules:
+- apiGroups:
+  - platform.lkhun9311.github.io
+  resources:
+  - nodehealths
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - platform.lkhun9311.github.io
+  resources:
+  - nodehealths/status
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: gpu-platform-control-plane
+  name: gpu-platform-control-plane-nodehealth-viewer-role
+rules:
+- apiGroups:
+  - platform.lkhun9311.github.io
+  resources:
+  - nodehealths
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - platform.lkhun9311.github.io
+  resources:
+  - nodehealths/status
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: gpu-platform-control-plane
+  name: gpu-platform-control-plane-leader-election-rolebinding
+  namespace: gpu-platform-control-plane-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: gpu-platform-control-plane-leader-election-role
+subjects:
+- kind: ServiceAccount
+  name: gpu-platform-control-plane-controller-manager
+  namespace: gpu-platform-control-plane-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: gpu-platform-control-plane
+  name: gpu-platform-control-plane-manager-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: gpu-platform-control-plane-manager-role
+subjects:
+- kind: ServiceAccount
+  name: gpu-platform-control-plane-controller-manager
+  namespace: gpu-platform-control-plane-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: gpu-platform-control-plane-metrics-auth-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: gpu-platform-control-plane-metrics-auth-role
+subjects:
+- kind: ServiceAccount
+  name: gpu-platform-control-plane-controller-manager
+  namespace: gpu-platform-control-plane-system
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: gpu-platform-control-plane
+    control-plane: controller-manager
+  name: gpu-platform-control-plane-controller-manager
+  namespace: gpu-platform-control-plane-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: gpu-platform-control-plane
+      control-plane: controller-manager
+  template:
+    metadata:
+      annotations:
+        kubectl.kubernetes.io/default-container: manager
+      labels:
+        app.kubernetes.io/name: gpu-platform-control-plane
+        control-plane: controller-manager
+    spec:
+      containers:
+      - args:
+        - --leader-elect
+        - --health-probe-bind-address=:8081
+        command:
+        - /manager
+        image: 007635145730.dkr.ecr.ap-northeast-2.amazonaws.com/gpu-platform-operator@sha256:be59a44c952539c662edb16cc4cf751fe044d101b912036e95b3c0f1d506da03
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8081
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        name: manager
+        ports:
+        - containerPort: 8081
+          name: health
+          protocol: TCP
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: 8081
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          limits:
+            cpu: 500m
+            memory: 128Mi
+          requests:
+            cpu: 10m
+            memory: 64Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+        volumeMounts: []
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      serviceAccountName: gpu-platform-control-plane-controller-manager
+      terminationGracePeriodSeconds: 10
+      volumes: []

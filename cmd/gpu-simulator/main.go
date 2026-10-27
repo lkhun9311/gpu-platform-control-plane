@@ -102,6 +102,22 @@ func main() {
 		count:        count,
 		pollInterval: kubeletPollInterval,
 	}
+	// The fake DCGM runs beside the plugin, not inside it: the plugin's restart loop is what keeps the node's
+	// capacity, and an exporter error must not take that down, so a failing fake is logged and the plugin goes on.
+	dcgmAddr, dcgmCollect, err := fakeDCGMConfig(os.Getenv)
+	if err != nil {
+		log.Error(err, "read the fake DCGM configuration")
+		os.Exit(1)
+	}
+	if dcgmAddr != "" {
+		d := newFakeDCGM(os.Getenv("NODE_NAME"), count, time.Now)
+		go func() {
+			if err := serveFakeDCGM(ctx, d, dcgmAddr, dcgmCollect); err != nil {
+				log.Error(err, "fake DCGM stopped", "addr", dcgmAddr)
+			}
+		}()
+		log.Info("fake DCGM serving", "addr", dcgmAddr, "collect", dcgmCollect)
+	}
 	err = run(ctx, cfg)
 	stop()
 	if err != nil {

@@ -479,6 +479,25 @@ var _ = Describe("the gateway's own decision in the evidence", func() {
 		Expect(unbound.EnginePriority).To(BeEmpty())
 	})
 
+	// The routing study's per-backend endpoints exist only in these headers. Mutation that turns this red: drop any
+	// Routing line from withAdmissionDecision or from the RawRow literal in Replay.
+	It("carries the gateway's routing headers into the raw row", func() {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("X-Routing-Policy", "PrefixAffinity")
+			w.Header().Set("X-Routing-Backend", "prefix-route/qwen-b")
+			w.Header().Set("X-Routing-Reason", "prefix_match")
+			w.Header().Set("X-Routing-Match", "156/160")
+			w.Header().Set("X-Routing-Load", "3/1")
+			w.WriteHeader(http.StatusTooManyRequests)
+		}))
+		defer srv.Close()
+		sender := NewHTTPSender(srv.URL, "m", nil, 5*time.Second, SenderConn{MaxIdleConnsPerHost: 8, DrainForReuse: true})
+		rows := Replay(context.Background(), sender, []TraceRow{{Index: 0, PromptLenChars: 40, MaxOutputTokens: 4}}, ReplayOptions{})
+		Expect(rows).To(HaveLen(1))
+		Expect([]string{rows[0].RoutingPolicy, rows[0].RoutedBackend, rows[0].RoutingReason, rows[0].RoutingMatch, rows[0].RoutingLoad}).
+			To(Equal([]string{"PrefixAffinity", "prefix-route/qwen-b", "prefix_match", "156/160", "3/1"}))
+	})
+
 	It("carries the bound priority into the raw row", func() {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.Header().Set("X-Engine-Priority", "0")

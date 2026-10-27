@@ -1,25 +1,40 @@
+# A two-rank distributed training job that runs as written, once its image and queue exist.
+#
+# The previous sample named pytorch/pytorch:2.3.0-cuda12.1-cudnn8-runtime with `python train.py`, and that image
+# carries no train.py, so the one sample that looked like training could not start (docs/11, "I built a training
+# platform"). This one uses the trainer every distributed run in experiments/ used.
+#
+# Before applying:
+#   docker build -t cpu-ddp:torch251 experiments/cpu-ddp && kind load docker-image cpu-ddp:torch251 --name <cluster>
+#   a Kueue LocalQueue named below in this sample's namespace, with 2 nvidia.com/gpu of nominal quota.
+# hack/multi-pod-ddp.sh builds both and runs this shape end to end.
 apiVersion: platform.lkhun9311.github.io/v1
 kind: MLTrainingJob
 metadata:
   labels:
     app.kubernetes.io/name: gpu-platform-control-plane
     app.kubernetes.io/managed-by: kustomize
-  name: bert-finetune
+  name: ddp-sample
   namespace: default
 spec:
   # queue is the Kueue LocalQueue name (same namespace) this job is admitted through.
   queue: team-vision-queue
-  # image is the training container image.
-  image: pytorch/pytorch:2.3.0-cuda12.1-cudnn8-runtime
-  # command overrides the container entrypoint.
+  # image is built from experiments/cpu-ddp: torch 2.5.1 on CPU with train.py baked in at /work.
+  image: cpu-ddp:torch251
+  # The trainer reads its settings from the environment, and the CRD has no env field, so they are exported.
+  # DDP_BACKEND=nccl selects the GPU path on a real node; gloo needs no device and runs on simulated capacity.
   command:
-    - python
-    - train.py
-  # gpuClass is illustrative; locally it is backed by simulated capacity.
-  gpuClass: l40s
-  # gpuCount is GPUs per pod (nvidia.com/gpu).
-  gpuCount: 2
-  # parallelism is the batch/v1 Job parallelism (concurrent pods).
-  parallelism: 2
-  # completions is the batch/v1 Job completions (successful pods required).
-  completions: 2
+    - sh
+    - -c
+    - |
+      export DDP_RUN_ID=ddp-sample DDP_OUT_DIR=/tmp/evidence OMP_NUM_THREADS=1 DDP_RENDEZVOUS_TIMEOUT_SECONDS=60
+      exec python /work/train.py
+  # The admission policy refuses a GPU job without a class (config/policy/gpu-workload-static.yaml), so the sample
+  # names the class the paid sessions ran on; the controller records it and does not place by it.
+  gpuClass: a10g
+  # gpuCount is GPUs per rank (nvidia.com/gpu); locally it is backed by simulated capacity.
+  gpuCount: 1
+  # distributed renders an Indexed Job behind a headless Service, so the two ranks find each other.
+  # parallelism: 2 alone would start two independent single-rank Pods instead.
+  distributed:
+    worldSize: 2

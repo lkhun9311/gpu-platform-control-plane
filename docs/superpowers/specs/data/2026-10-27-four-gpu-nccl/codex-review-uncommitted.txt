@@ -1,0 +1,12 @@
+The scorer rejects the normal NCCL version banner, preventing the experiment from progressing beyond its first smoke job. The changes also introduce a mount-path collision and allow late completions to bypass the experiment's timeout rule.
+
+Full review comments:
+
+- [P1] Parse NCCL's unprefixed version banner — /home/lkhun9311/workspace/gpu-platform-control-plane/.claude/worktrees/agent-a30829262741726b1/experiments/multi-gpu-throughput/analyze.py:378-380
+  NCCL 2.21.5 normally prints `NCCL version 2.21.5+cuda12.4` without the hostname/PID/`NCCL INFO` prefix. Filtering through `nccl_lines()` discards that banner, leaving `versions` empty and rejecting a successful nccl-tests run. Because this is the first smoke arm, the session stops before running any other arm. Parse the version banner directly from the log lines and add a fixture with its actual format.
+
+- [P2] Handle an existing state-volume mount at /dev/shm — /home/lkhun9311/workspace/gpu-platform-control-plane/.claude/worktrees/agent-a30829262741726b1/internal/controller/mltrainingjob_controller.go:278-282
+  For a multi-GPU MLTrainingJob with `stateVolume.mountPath: /dev/shm`, which the current API permits, this appends a second mount at the same path. Kubernetes rejects the generated Job because mount paths must be unique, so a previously supported specification now remains stuck in reconciliation. Handle the existing mount explicitly or reject the conflicting specification during admission rather than generating an invalid Job.
+
+- [P2] Recheck the deadline before accepting terminal status — /home/lkhun9311/workspace/gpu-platform-control-plane/.claude/worktrees/agent-a30829262741726b1/hack/lib/allreduce-arms.sh:226-228
+  If the last polling iteration starts before the deadline but its API requests return afterward, a late `Succeeded` response bypasses the timeout marker. Each request can take 20 seconds, and the scorer never checks `elapsed-seconds`, so jobs exceeding the registered 240-second budget can be reported VALID. Recheck elapsed time after polling and mark an over-budget completion as timed out.

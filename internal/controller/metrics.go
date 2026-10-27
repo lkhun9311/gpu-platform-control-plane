@@ -108,6 +108,48 @@ var (
 		[]string{"reason"},
 	)
 
+	// gpuFaultScrapeTotal counts the DCGM path's exporter scrapes, by result.
+	//
+	// A fault path whose scrapes all fail reports no fault, and without this series that would read as a
+	// fleet of healthy cards; the result label is the reason the GPUSignal condition carries.
+	gpuFaultScrapeTotal = promauto.With(metrics.Registry).NewCounterVec(
+		prometheus.CounterOpts{
+			Name: metricPrefix + "gpufault_scrape_total",
+			Help: "DCGM exporter scrapes by the GPU fault path, labeled by result (ok or the failure reason).",
+		},
+		[]string{"result"},
+	)
+
+	// gpuFaultTransitionsTotal counts faults latched, by the condition reason, and latches released ("Cleared").
+	gpuFaultTransitionsTotal = promauto.With(metrics.Registry).NewCounterVec(
+		prometheus.CounterOpts{
+			Name: metricPrefix + "gpufault_transitions_total",
+			Help: "GPU faults latched on a NodeHealth, labeled by reason, and latches cleared (reason Cleared).",
+		},
+		[]string{"reason"},
+	)
+
+	// gpuFaultWorkloadActionsTotal counts Kueue Workloads deactivated off a faulted node and reactivated after.
+	gpuFaultWorkloadActionsTotal = promauto.With(metrics.Registry).NewCounterVec(
+		prometheus.CounterOpts{
+			Name: metricPrefix + "gpufault_workload_actions_total",
+			Help: "Kueue Workloads displaced from a GPU-faulted node, labeled by action (deactivated, reactivated).",
+		},
+		[]string{"action"},
+	)
+
+	// gpuFaultObserveToTaintSeconds is the time from the scrape that first carried a fault to the taint existing.
+	//
+	// The buckets run from milliseconds to the scrape period and past it, because the hop is in-process and a
+	// value near a second means the reconcile waited for something it should not have.
+	gpuFaultObserveToTaintSeconds = promauto.With(metrics.Registry).NewHistogram(
+		prometheus.HistogramOpts{
+			Name:    metricPrefix + "gpufault_observe_to_taint_seconds",
+			Help:    "Seconds from the scrape that first carried a GPU fault to the gpu-fault taint being on the node.",
+			Buckets: []float64{0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 5},
+		},
+	)
+
 	// mlTrainingJobPhaseTotal counts MLTrainingJob phase transitions, by phase.
 	//
 	// It increments each time a phase actually changes, right after the status update succeeds.

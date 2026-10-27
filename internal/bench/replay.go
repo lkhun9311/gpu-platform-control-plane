@@ -191,6 +191,18 @@ type RawRow struct {
 	// Priority above is what this client asked for. Where the gateway binds by tier it overwrites that, so the
 	// treatment a request actually got is only in the response; a study whose arms differ in binding needs it per row.
 	EnginePriority string `json:"enginePriority,omitempty"`
+	// RoutingPolicy, RoutedBackend, RoutingReason and RoutingMatch are the gateway's X-Routing-* headers verbatim: the
+	// policy in force, the backend it chose as namespace/name, why, and under PrefixAffinity the whole chunks matched
+	// over the chunks hashed. Empty when the gateway routed by its default ordering, which sets none of them.
+	//
+	// A routing study's per-backend endpoints are read from here, and checked against each engine's own request count,
+	// because nothing else on the client side can say which engine served a request.
+	RoutingPolicy string `json:"routingPolicy,omitempty"`
+	RoutedBackend string `json:"routedBackend,omitempty"`
+	RoutingReason string `json:"routingReason,omitempty"`
+	RoutingMatch  string `json:"routingMatch,omitempty"`
+	// RoutingLoad is X-Routing-Load: the outstanding counts on the chosen and the least loaded backend at the decision.
+	RoutingLoad string `json:"routingLoad,omitempty"`
 	// MatchTolerance is the pre-registered admission-match tolerance, copied from the manifest.
 	//
 	// The report reads it from here rather than a CLI default, so the frozen tolerance cannot be loosened after the fact.
@@ -262,6 +274,8 @@ type SendResult struct {
 	AdmissionReason string
 	// EnginePriority is the response's X-Engine-Priority, empty when the gateway sent none.
 	EnginePriority string
+	// RoutingPolicy, RoutedBackend, RoutingReason and RoutingMatch are the response's X-Routing-* headers.
+	RoutingPolicy, RoutedBackend, RoutingReason, RoutingMatch, RoutingLoad string
 }
 
 // Sender dispatches one request and reports its raw result.
@@ -376,6 +390,11 @@ func Replay(ctx context.Context, sender Sender, trace []TraceRow, opts ReplayOpt
 				Tier:                  res.Tier,
 				AdmissionReason:       res.AdmissionReason,
 				EnginePriority:        res.EnginePriority,
+				RoutingPolicy:         res.RoutingPolicy,
+				RoutedBackend:         res.RoutedBackend,
+				RoutingReason:         res.RoutingReason,
+				RoutingMatch:          res.RoutingMatch,
+				RoutingLoad:           res.RoutingLoad,
 				TraceChecksum:         opts.TraceChecksum,
 				LongThreshold:         opts.LongThreshold,
 				MatchTolerance:        opts.MatchTolerance,

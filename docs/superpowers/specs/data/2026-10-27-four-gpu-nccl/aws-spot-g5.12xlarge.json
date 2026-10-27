@@ -1,0 +1,28 @@
+{
+    "SpotPriceHistory": [
+        {
+            "AvailabilityZone": "ap-northeast-2d",
+            "AvailabilityZoneId": "apne2-az4",
+            "InstanceType": "g5.12xlarge",
+            "ProductDescription": "Linux/UNIX",
+            "SpotPrice": "3.724500",
+            "Timestamp": "2026-10-26T13:00:00+00:00"
+        },
+        {
+            "AvailabilityZone": "ap-northeast-2c",
+            "AvailabilityZoneId": "apne2-az3",
+            "InstanceType": "g5.12xlarge",
+            "ProductDescription": "Linux/UNIX",
+            "SpotPrice": "3.528500",
+            "Timestamp": "2026-10-26T13:00:00+00:00"
+        },
+        {
+            "AvailabilityZone": "ap-northeast-2a",
+            "AvailabilityZoneId": "apne2-az1",
+            "InstanceType": "g5.12xlarge",
+            "ProductDescription": "Linux/UNIX",
+            "SpotPrice": "3.486500",
+            "Timestamp": "2026-10-26T12:00:00+00:00"
+        }
+    ]
+}

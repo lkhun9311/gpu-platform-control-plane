@@ -1,0 +1,72 @@
+== the GPU fault-reaction session, gpu-fault-2026-10-27, from 6d9d087f65fbbe70968740ef8598d599fbf51b8b, into hack/gpu-fault-20261026T193353Z
+== AMI ami-097edab977037f65f: Deep Learning Base OSS Nvidia Driver GPU AMI (Ubuntu 22.04) 20261016	available
+== Spot g5.2xlarge under $1.1324/h in: ap-northeast-2a ap-northeast-2c ap-northeast-2d (ap-northeast-2d	0.686000 ap-northeast-2c	0.675600 ap-northeast-2a	0.682300)
+== the termination sweeper: Active, ENABLED rate(5 minutes), 6.0 run(s) and 0.0 error(s) in the last 30 minutes
+== credentials expire in 346 minutes
+== building the operator, the simulator and the scorer from 6d9d087f65fbbe70968740ef8598d599fbf51b8b
+== creating results bucket gpufault-gpu-007635145730
+== creating instance role gpufault-gpu
+== waiting for the instance profile to propagate
+== launching g5.2xlarge Spot (max $1.1324/h), study-deadline 2026-10-26T21:34:02Z -- the instance bills from here
+== launched i-09c64e59ffb24d702 in ap-northeast-2a
+== LaunchTime 2026-10-26T19:38:24+00:00; the sweeper's deadline moved to 2026-10-26T21:34:34Z
+== the wait ended with status 0 ()
+== waiting up to 7108s for EC2 to report the instance terminated
+== terminating i-09c64e59ffb24d702
+== i-09c64e59ffb24d702 is shutting-down
+== i-09c64e59ffb24d702 is shutting-down
+== i-09c64e59ffb24d702 is shutting-down
+== i-09c64e59ffb24d702 is shutting-down
+== i-09c64e59ffb24d702 is shutting-down
+== i-09c64e59ffb24d702 is shutting-down
+== i-09c64e59ffb24d702 is shutting-down
+== i-09c64e59ffb24d702 is shutting-down
+== i-09c64e59ffb24d702 is shutting-down
+== i-09c64e59ffb24d702 is shutting-down
+== i-09c64e59ffb24d702 is shutting-down
+== i-09c64e59ffb24d702 is shutting-down
+== i-09c64e59ffb24d702 is shutting-down
+== i-09c64e59ffb24d702 is shutting-down
+== i-09c64e59ffb24d702 is shutting-down
+== i-09c64e59ffb24d702 is shutting-down
+== i-09c64e59ffb24d702 is shutting-down
+== i-09c64e59ffb24d702 is shutting-down
+== i-09c64e59ffb24d702 is shutting-down
+== i-09c64e59ffb24d702 is shutting-down
+== i-09c64e59ffb24d702 is shutting-down
+== i-09c64e59ffb24d702 is shutting-down
+== i-09c64e59ffb24d702 is shutting-down
+== i-09c64e59ffb24d702 is shutting-down
+== i-09c64e59ffb24d702 is shutting-down
+== i-09c64e59ffb24d702 is shutting-down
+== i-09c64e59ffb24d702 is shutting-down
+== i-09c64e59ffb24d702 is shutting-down
+== i-09c64e59ffb24d702 is shutting-down
+== i-09c64e59ffb24d702 is shutting-down
+== i-09c64e59ffb24d702 is shutting-down
+== i-09c64e59ffb24d702 is shutting-down
+== i-09c64e59ffb24d702 is shutting-down
+== i-09c64e59ffb24d702 is shutting-down
+== i-09c64e59ffb24d702 is shutting-down
+== i-09c64e59ffb24d702 is shutting-down
+== i-09c64e59ffb24d702 is shutting-down
+== i-09c64e59ffb24d702 is shutting-down
+== i-09c64e59ffb24d702 is shutting-down
+== i-09c64e59ffb24d702 is shutting-down
+== i-09c64e59ffb24d702 is shutting-down
+== i-09c64e59ffb24d702 is shutting-down
+== i-09c64e59ffb24d702 is shutting-down
+== i-09c64e59ffb24d702 is shutting-down
+== i-09c64e59ffb24d702 is shutting-down
+== i-09c64e59ffb24d702 is shutting-down
+== i-09c64e59ffb24d702 is shutting-down
+== i-09c64e59ffb24d702 is shutting-down
+== i-09c64e59ffb24d702 is shutting-down
+== i-09c64e59ffb24d702 is shutting-down
+== i-09c64e59ffb24d702 is shutting-down
+== i-09c64e59ffb24d702 is shutting-down
+== i-09c64e59ffb24d702 is shutting-down
+== i-09c64e59ffb24d702 is shutting-down
+== i-09c64e59ffb24d702 is shutting-down
+== i-09c64e59ffb24d702 is terminated
+== the verdict is in hack/gpu-fault-20261026T193353Z/verdict.txt and the evidence in hack/gpu-fault-20261026T193353Z/gf-run

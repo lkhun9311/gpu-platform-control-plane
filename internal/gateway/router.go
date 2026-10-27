@@ -60,6 +60,17 @@ type BackendRef struct {
 	// renders schedules by request priority (internal/controller/inference_engine.go, pinned by a test there).
 	// False for a backend the controller does not render, whose engine may reject a priority it was not built for.
 	PriorityScheduled bool
+	// Routing is the routing policy the InferenceDeployment's spec names, empty when it names none.
+	// It is read from the spec because the gateway alone applies it: nothing is rendered or rolled out for it.
+	Routing string
+}
+
+// specRouting is the policy an InferenceDeployment asks for, or "".
+func specRouting(d *platformv1.InferenceDeployment) string {
+	if d.Spec.Routing == nil {
+		return ""
+	}
+	return d.Spec.Routing.Policy
 }
 
 // enginePriorityScheduled reports whether the controller says its rendered engine is the one serving d.
@@ -150,6 +161,9 @@ func (s *Server) backendsFor(ctx context.Context, policy *platformv1.GPUQuotaPol
 	// Oldest-first rather than newest, because a request must resolve deterministically across gateway
 	// replicas: two gateways picking different heads for the same model would make latency depend on which
 	// one a client happened to reach.
+	//
+	// A routing policy that every candidate names reorders this list per request (routing.go); without one this
+	// order is the routing.
 	sorted := make([]*platformv1.InferenceDeployment, 0, len(list.Items))
 	for i := range list.Items {
 		sorted = append(sorted, &list.Items[i])
@@ -174,7 +188,7 @@ func (s *Server) backendsFor(ctx context.Context, policy *platformv1.GPUQuotaPol
 		}
 		mode, maxHold := backendAdmission(d)
 		refs = append(refs, &BackendRef{Namespace: d.Namespace, Name: d.Name, Port: port, URL: u, Model: model, Admission: mode, MaxHold: maxHold,
-			PriorityScheduled: enginePriorityScheduled(d)})
+			PriorityScheduled: enginePriorityScheduled(d), Routing: specRouting(d)})
 	}
 	return refs, nil
 }

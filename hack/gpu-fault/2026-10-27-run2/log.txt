@@ -1,0 +1,304 @@
+++ date +%s
++ GF_START=1793057319
++ BUCKET=gpufault-gpu-007635145730
++ PREFIX=gpu-fault-20261026T232027Z-15355a73
++ SOURCE_SHA=29f2944a23ddf719110bb39e8d7dd1324343b1e9cb00a9df7d49d198cd9f1398
++ IMAGES_SHA=c952d6f032584f6d3489dea2b39d5330a1ff0e1605adf2cb2bc70425a2f14b13
++ COMMIT=3584d07997205ad25eb2843bf9e1f011d45159d1
++ sleep 7000
++ trap 'upload /var/log/gpufault.log log.txt; shutdown -h now' EXIT
++ aws s3 cp --only-show-errors s3://gpufault-gpu-007635145730/gpu-fault-20261026T232027Z-15355a73/src/source.tgz /tmp/source.tgz
+++ sha256sum /tmp/source.tgz
+++ cut '-d ' -f1
++ '[' 29f2944a23ddf719110bb39e8d7dd1324343b1e9cb00a9df7d49d198cd9f1398 = 29f2944a23ddf719110bb39e8d7dd1324343b1e9cb00a9df7d49d198cd9f1398 ']'
++ mkdir -p /src
++ tar -xzf /tmp/source.tgz -C /src
++ cd /src
++ mkdir -p /src/images /src/gf-run
++ for n in controller gpu-simulator job
++ aws s3 cp --only-show-errors s3://gpufault-gpu-007635145730/gpu-fault-20261026T232027Z-15355a73/images/controller.tar.gz /src/images/controller.tar.gz
++ for n in controller gpu-simulator job
++ aws s3 cp --only-show-errors s3://gpufault-gpu-007635145730/gpu-fault-20261026T232027Z-15355a73/images/gpu-simulator.tar.gz /src/images/gpu-simulator.tar.gz
++ for n in controller gpu-simulator job
++ aws s3 cp --only-show-errors s3://gpufault-gpu-007635145730/gpu-fault-20261026T232027Z-15355a73/images/job.tar.gz /src/images/job.tar.gz
+++ cd /src/images
+++ sha256sum controller.tar.gz gpu-simulator.tar.gz job.tar.gz
+++ sha256sum
+++ cut '-d ' -f1
++ '[' c952d6f032584f6d3489dea2b39d5330a1ff0e1605adf2cb2bc70425a2f14b13 = c952d6f032584f6d3489dea2b39d5330a1ff0e1605adf2cb2bc70425a2f14b13 ']'
++ L=
+++ date +%s
++ '[' 6 -lt 180 ']'
++ aws s3 cp --only-show-errors s3://gpufault-gpu-007635145730/gpu-fault-20261026T232027Z-15355a73/launch-time.txt /tmp/launch-time.txt
++++ cat /tmp/launch-time.txt
+++ date -u -d 2026-10-26T23:27:28+00:00 +%s
++ L=1793057248
++ break
+++ date +%s
++ NOW=1793057326
++ [[ 1793057248 =~ ^[0-9]+$ ]]
++ '[' 1793057248 -gt 1793057326 ']'
++ '[' 78 -gt 900 ']'
++ P1=1793057968
++ P2=1793058568
++ P3=1793063768
++ P4=1793064068
++ EV=1793064188
++ nvidia-smi --query-gpu=index,name,memory.total,driver_version --format=csv
+++ date +%s
+++ date +%s
++ sleep 6922
++ upload /tmp/nvidia-smi.csv preflight-nvidia-smi.csv
++ aws s3 cp --only-show-errors /tmp/nvidia-smi.csv s3://gpufault-gpu-007635145730/gpu-fault-20261026T232027Z-15355a73/preflight-nvidia-smi.csv
+++ tail -n +2 /tmp/nvidia-smi.csv
+++ wc -l
++ '[' 1 = 1 ']'
++ tail -n +2 /tmp/nvidia-smi.csv
++ grep -q A10G
++ cat
++ export BUCKET PREFIX
+++ date +%s
++ bringup_left=641
++ bringup_rc=124
++ '[' 641 -gt 0 ']'
++ timeout --kill-after=15 641 bash /tmp/bringup.sh
+time="2026-10-26T23:28:47Z" level=info msg="Loading config from /etc/docker/daemon.json"
+time="2026-10-26T23:28:47Z" level=info msg="Wrote updated config to /etc/docker/daemon.json"
+time="2026-10-26T23:28:47Z" level=info msg="It is recommended that docker daemon be restarted."
+Creating cluster "m5cgpu" ...
+ • Ensuring node image (kindest/node:v1.31.0) 🖼  ...
+ ✓ Ensuring node image (kindest/node:v1.31.0) 🖼
+ • Preparing nodes 📦 📦   ...
+ ✓ Preparing nodes 📦 📦 
+ • Writing configuration 📜  ...
+ ✓ Writing configuration 📜
+ • Starting control-plane 🕹️  ...
+ ✓ Starting control-plane 🕹️
+ • Installing CNI 🔌  ...
+ ✓ Installing CNI 🔌
+ • Installing StorageClass 💾  ...
+ ✓ Installing StorageClass 💾
+ • Joining worker nodes 🚜  ...
+ ✓ Joining worker nodes 🚜
+ • Waiting ≤ 5m0s for control-plane = Ready ⏳  ...
+ ✓ Waiting ≤ 5m0s for control-plane = Ready ⏳
+ • Ready after 10s 💚
+Set kubectl context to "kind-m5cgpu"
+You can now use your cluster with:
+
+kubectl cluster-info --context kind-m5cgpu --kubeconfig /tmp/kubeconfig
+
+Have a nice day! 👋
+[0;32mKubernetes control plane[0m is running at [0;33mhttps://127.0.0.1:45259[0m
+[0;32mCoreDNS[0m is running at [0;33mhttps://127.0.0.1:45259/api/v1/namespaces/kube-system/services/kube-dns:dns/proxy[0m
+
+To further debug and diagnose cluster problems, use 'kubectl cluster-info dump'.
+customresourcedefinition.apiextensions.k8s.io/gpuquotapolicies.platform.lkhun9311.github.io created
+customresourcedefinition.apiextensions.k8s.io/gpusharingbenchmarks.platform.lkhun9311.github.io created
+customresourcedefinition.apiextensions.k8s.io/inferencedeployments.platform.lkhun9311.github.io created
+customresourcedefinition.apiextensions.k8s.io/mltrainingjobs.platform.lkhun9311.github.io created
+customresourcedefinition.apiextensions.k8s.io/nodehealths.platform.lkhun9311.github.io created
+customresourcedefinition.apiextensions.k8s.io/workloadruns.platform.lkhun9311.github.io created
+namespace/gpu-platform-control-plane-system created
+serviceaccount/gateway created
+role.rbac.authorization.k8s.io/gateway-secret-reader created
+clusterrole.rbac.authorization.k8s.io/gateway-role created
+rolebinding.rbac.authorization.k8s.io/gateway-secret-reader-binding created
+clusterrolebinding.rbac.authorization.k8s.io/gateway-rolebinding created
+debconf: delaying package configuration, since apt-utils is not installed
+(Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 9629 files and directories currently installed.)
+Preparing to unpack .../gpgv_2.2.40-1.1+deb12u2_amd64.deb ...
+Unpacking gpgv (2.2.40-1.1+deb12u2) over (2.2.40-1.1) ...
+Setting up gpgv (2.2.40-1.1+deb12u2) ...
+(Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 9629 files and directories currently installed.)
+Preparing to unpack .../00-ca-certificates_20250419~deb12u2_all.deb ...
+Unpacking ca-certificates (20250419~deb12u2) over (20230311) ...
+Preparing to unpack .../01-curl_7.88.1-10+deb12u15_amd64.deb ...
+Unpacking curl (7.88.1-10+deb12u15) over (7.88.1-10+deb12u6) ...
+Preparing to unpack .../02-libcurl4_7.88.1-10+deb12u15_amd64.deb ...
+Unpacking libcurl4:amd64 (7.88.1-10+deb12u15) over (7.88.1-10+deb12u6) ...
+Selecting previously unselected package libassuan0:amd64.
+Preparing to unpack .../03-libassuan0_2.5.5-5_amd64.deb ...
+Unpacking libassuan0:amd64 (2.5.5-5) ...
+Selecting previously unselected package gpgconf.
+Preparing to unpack .../04-gpgconf_2.2.40-1.1+deb12u2_amd64.deb ...
+Unpacking gpgconf (2.2.40-1.1+deb12u2) ...
+Selecting previously unselected package libksba8:amd64.
+Preparing to unpack .../05-libksba8_1.6.3-2_amd64.deb ...
+Unpacking libksba8:amd64 (1.6.3-2) ...
+Selecting previously unselected package libnpth0:amd64.
+Preparing to unpack .../06-libnpth0_1.6-3_amd64.deb ...
+Unpacking libnpth0:amd64 (1.6-3) ...
+Selecting previously unselected package dirmngr.
+Preparing to unpack .../07-dirmngr_2.2.40-1.1+deb12u2_amd64.deb ...
+Unpacking dirmngr (2.2.40-1.1+deb12u2) ...
+Selecting previously unselected package gnupg-l10n.
+Preparing to unpack .../08-gnupg-l10n_2.2.40-1.1+deb12u2_all.deb ...
+Unpacking gnupg-l10n (2.2.40-1.1+deb12u2) ...
+Selecting previously unselected package gnupg-utils.
+Preparing to unpack .../09-gnupg-utils_2.2.40-1.1+deb12u2_amd64.deb ...
+Unpacking gnupg-utils (2.2.40-1.1+deb12u2) ...
+Selecting previously unselected package gpg.
+Preparing to unpack .../10-gpg_2.2.40-1.1+deb12u2_amd64.deb ...
+Unpacking gpg (2.2.40-1.1+deb12u2) ...
+Selecting previously unselected package pinentry-curses.
+Preparing to unpack .../11-pinentry-curses_1.2.1-1_amd64.deb ...
+Unpacking pinentry-curses (1.2.1-1) ...
+Selecting previously unselected package gpg-agent.
+Preparing to unpack .../12-gpg-agent_2.2.40-1.1+deb12u2_amd64.deb ...
+Unpacking gpg-agent (2.2.40-1.1+deb12u2) ...
+Selecting previously unselected package gpg-wks-client.
+Preparing to unpack .../13-gpg-wks-client_2.2.40-1.1+deb12u2_amd64.deb ...
+Unpacking gpg-wks-client (2.2.40-1.1+deb12u2) ...
+Selecting previously unselected package gpg-wks-server.
+Preparing to unpack .../14-gpg-wks-server_2.2.40-1.1+deb12u2_amd64.deb ...
+Unpacking gpg-wks-server (2.2.40-1.1+deb12u2) ...
+Selecting previously unselected package gpgsm.
+Preparing to unpack .../15-gpgsm_2.2.40-1.1+deb12u2_amd64.deb ...
+Unpacking gpgsm (2.2.40-1.1+deb12u2) ...
+Selecting previously unselected package gnupg.
+Preparing to unpack .../16-gnupg_2.2.40-1.1+deb12u2_all.deb ...
+Unpacking gnupg (2.2.40-1.1+deb12u2) ...
+Setting up libksba8:amd64 (1.6.3-2) ...
+Setting up libnpth0:amd64 (1.6-3) ...
+Setting up libassuan0:amd64 (2.5.5-5) ...
+Setting up ca-certificates (20250419~deb12u2) ...
+Updating certificates in /etc/ssl/certs...
+rehash: warning: skipping ca-certificates.crt,it does not contain exactly one certificate or CRL
+23 added, 15 removed; done.
+Setting up gnupg-l10n (2.2.40-1.1+deb12u2) ...
+Setting up gpgconf (2.2.40-1.1+deb12u2) ...
+Setting up libcurl4:amd64 (7.88.1-10+deb12u15) ...
+Setting up curl (7.88.1-10+deb12u15) ...
+Setting up gpg (2.2.40-1.1+deb12u2) ...
+Setting up gnupg-utils (2.2.40-1.1+deb12u2) ...
+Setting up pinentry-curses (1.2.1-1) ...
+Setting up gpg-agent (2.2.40-1.1+deb12u2) ...
+Created symlink /etc/systemd/user/sockets.target.wants/gpg-agent-browser.socket → /usr/lib/systemd/user/gpg-agent-browser.socket.
+Created symlink /etc/systemd/user/sockets.target.wants/gpg-agent-extra.socket → /usr/lib/systemd/user/gpg-agent-extra.socket.
+Created symlink /etc/systemd/user/sockets.target.wants/gpg-agent-ssh.socket → /usr/lib/systemd/user/gpg-agent-ssh.socket.
+Created symlink /etc/systemd/user/sockets.target.wants/gpg-agent.socket → /usr/lib/systemd/user/gpg-agent.socket.
+Setting up gpgsm (2.2.40-1.1+deb12u2) ...
+Setting up dirmngr (2.2.40-1.1+deb12u2) ...
+Created symlink /etc/systemd/user/sockets.target.wants/dirmngr.socket → /usr/lib/systemd/user/dirmngr.socket.
+Setting up gpg-wks-server (2.2.40-1.1+deb12u2) ...
+Setting up gpg-wks-client (2.2.40-1.1+deb12u2) ...
+Setting up gnupg (2.2.40-1.1+deb12u2) ...
+Processing triggers for libc-bin (2.36-9+deb12u7) ...
+Processing triggers for ca-certificates (20250419~deb12u2) ...
+Updating certificates in /etc/ssl/certs...
+0 added, 0 removed; done.
+Running hooks in /etc/ca-certificates/update.d...
+done.
+debconf: delaying package configuration, since apt-utils is not installed
+Selecting previously unselected package libnvidia-container1:amd64.
+(Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 9892 files and directories currently installed.)
+Preparing to unpack .../libnvidia-container1_1.20.1-1_amd64.deb ...
+Unpacking libnvidia-container1:amd64 (1.20.1-1) ...
+Selecting previously unselected package libnvidia-container-tools.
+Preparing to unpack .../libnvidia-container-tools_1.20.1-1_amd64.deb ...
+Unpacking libnvidia-container-tools (1.20.1-1) ...
+Selecting previously unselected package nvidia-container-toolkit-base.
+Preparing to unpack .../nvidia-container-toolkit-base_1.20.1-1_amd64.deb ...
+Unpacking nvidia-container-toolkit-base (1.20.1-1) ...
+Selecting previously unselected package nvidia-container-toolkit.
+Preparing to unpack .../nvidia-container-toolkit_1.20.1-1_amd64.deb ...
+Unpacking nvidia-container-toolkit (1.20.1-1) ...
+Setting up nvidia-container-toolkit-base (1.20.1-1) ...
+Created symlink /etc/systemd/system/multi-user.target.wants/nvidia-cdi-refresh.path → /lib/systemd/system/nvidia-cdi-refresh.path.
+Created symlink /etc/systemd/system/multi-user.target.wants/nvidia-cdi-refresh.service → /lib/systemd/system/nvidia-cdi-refresh.service.
+/usr/sbin/policy-rc.d returned 101, not running 'start nvidia-cdi-refresh.path nvidia-cdi-refresh.service'
+Setting up libnvidia-container1:amd64 (1.20.1-1) ...
+Setting up libnvidia-container-tools (1.20.1-1) ...
+Setting up nvidia-container-toolkit (1.20.1-1) ...
+Processing triggers for libc-bin (2.36-9+deb12u7) ...
+time="2026-10-26T23:30:18Z" level=info msg="Using config version 2"
+time="2026-10-26T23:30:18Z" level=info msg="Using CRI runtime plugin name \"io.containerd.grpc.v1.cri\""
+time="2026-10-26T23:30:18Z" level=info msg="Wrote updated config to /etc/containerd/conf.d/99-nvidia.toml"
+time="2026-10-26T23:30:18Z" level=info msg="It is recommended that containerd daemon be restarted."
+node/m5cgpu-worker condition met
++ bringup_rc=0
++ echo 'bring-up exited 0'
+bring-up exited 0
++ echo commit=3584d07997205ad25eb2843bf9e1f011d45159d1
++ echo launch_time_epoch=1793057248
+++ tail -n +2 /tmp/nvidia-smi.csv
+++ cut -d, -f4
+++ tr -d ' '
++ echo driver=595.91.07
++ echo bringup_rc=0
++ '[' 0 = 0 ']'
++ export KUBECONFIG=/tmp/kubeconfig GF_PLATFORM_END=1793058568 GF_ARMS_END=1793063768 GF_CHECKS_END=1793064068 GF_OUT=/src/gf-run
++ KUBECONFIG=/tmp/kubeconfig
++ GF_PLATFORM_END=1793058568
++ GF_ARMS_END=1793063768
++ GF_CHECKS_END=1793064068
++ GF_OUT=/src/gf-run
+++ date +%s
+++ date +%s
++ timeout --kill-after=15 6769 bash hack/gpu-fault-instance.sh
+23:32:35 smoke: S1=pass uuid=GPU-c4601434-5564-52d7-d272-c981c74326a2 S2_230=pass S2_311=pass S2_310=pass alloc_before=1 S_inject_230=pass S_inject_311=pass S_inject_310=pass alloc_after=1 arm_xid=run arm_ecc=run arm_benign=run arm_none=run
+23:32:35 phase smoke: done
+Error from server (NotFound): clusterqueues.kueue.x-k8s.io "gpu-gpufault" not found
+23:32:47 phase platform: done
+23:32:47 rep 1: xid (block 1, repetition 1)
+23:35:05 rep 1: done, readback 79, reset ok
+23:35:05 rep 2: ecc (block 1, repetition 1)
+23:37:22 rep 2: done, readback 1, reset ok
+23:37:22 rep 3: benign (block 1, repetition 1)
+23:39:38 rep 3: done, readback 1, reset ok
+23:39:38 rep 4: none (block 1, repetition 1)
+23:41:56 rep 4: done, readback 0, reset ok
+23:41:56 rep 5: ecc (block 2, repetition 2)
+23:44:14 rep 5: done, readback 1, reset ok
+23:44:14 rep 6: benign (block 2, repetition 2)
+23:46:30 rep 6: done, readback 1, reset ok
+23:46:30 rep 7: none (block 2, repetition 2)
+23:48:47 rep 7: done, readback 0, reset ok
+23:48:47 rep 8: xid (block 2, repetition 2)
+23:51:04 rep 8: done, readback 79, reset ok
+23:51:04 rep 9: benign (block 3, repetition 3)
+23:53:19 rep 9: done, readback 1, reset ok
+23:53:19 rep 10: none (block 3, repetition 3)
+23:55:37 rep 10: done, readback 0, reset ok
+23:55:37 rep 11: xid (block 3, repetition 3)
+23:57:55 rep 11: done, readback 79, reset ok
+23:57:55 rep 12: ecc (block 3, repetition 3)
+00:00:12 rep 12: done, readback 1, reset ok
+00:00:12 rep 13: none (block 4, repetition 4)
+00:02:30 rep 13: done, readback 0, reset ok
+00:02:30 rep 14: xid (block 4, repetition 4)
+00:04:48 rep 14: done, readback 79, reset ok
+00:04:48 rep 15: ecc (block 4, repetition 4)
+00:07:05 rep 15: done, readback 1, reset ok
+00:07:05 rep 16: benign (block 4, repetition 4)
+00:09:21 rep 16: done, readback 1, reset ok
+00:09:21 rep 17: xid (block 5, repetition 5)
+00:11:38 rep 17: done, readback 79, reset ok
+00:11:38 rep 18: ecc (block 5, repetition 5)
+00:13:55 rep 18: done, readback 1, reset ok
+00:13:55 rep 19: benign (block 5, repetition 5)
+00:16:11 rep 19: done, readback 1, reset ok
+00:16:11 rep 20: none (block 5, repetition 5)
+00:18:29 rep 20: done, readback 0, reset ok
+00:18:29 phase arms: done
+00:18:29 check stale-healthy
+00:18:58 check stale-latched
+the exporter on m5cgpu-worker never served DCGM_FI_DEV_XID_ERRORS (attempt 60)
+00:22:20 stale-latched: the exporter did not come back
+00:22:20 the stale checks did not complete
+00:22:20 phase checks: done
++ echo 'the instance procedure exited 0'
+the instance procedure exited 0
+++ date +%s
++ left=3698
++ '[' 3698 -gt 5 ']'
++ tar -czf /tmp/evidence.tgz -C /src gf-run
++ timeout 3698 aws s3 cp --only-show-errors /tmp/evidence.tgz s3://gpufault-gpu-007635145730/gpu-fault-20261026T232027Z-15355a73/evidence.tgz
++ upload /var/log/gpufault.log log.txt
++ aws s3 cp --only-show-errors /var/log/gpufault.log s3://gpufault-gpu-007635145730/gpu-fault-20261026T232027Z-15355a73/log.txt
++ echo 15355a73
++ upload /tmp/DONE DONE
++ aws s3 cp --only-show-errors /tmp/DONE s3://gpufault-gpu-007635145730/gpu-fault-20261026T232027Z-15355a73/DONE
++ upload /var/log/gpufault.log log.txt
++ aws s3 cp --only-show-errors /var/log/gpufault.log s3://gpufault-gpu-007635145730/gpu-fault-20261026T232027Z-15355a73/log.txt
