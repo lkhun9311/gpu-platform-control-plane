@@ -463,3 +463,41 @@ func TestStaleChecks(t *testing.T) {
 		}
 	}
 }
+
+// A clearing step that never ran is a FAIL of the clause, but its reason must not describe a reading.
+//
+// Paid run 2 recorded no after_* lines because the exporter never came back, and the scorer printed
+// "a fresh zero reading did not clear it" for a zero that was never injected.
+func TestStaleLatchedNamesAClearingStepThatNeverRan(t *testing.T) {
+	during := "before_latched=GPU-a/DCGM_FI_DEV_XID_ERRORS=79\nduring_signal_status=False\nduring_signal_reason=NoExporter\n" +
+		"during_healthy_status=False\nduring_taint=present\nduring_latched=GPU-a/DCGM_FI_DEV_XID_ERRORS=79\n"
+	for _, tc := range []struct {
+		name, after, want, not string
+	}{
+		{"never reached", "", "never reached", "did not clear"},
+		{"reached and still latched", "after_latched=GPU-a/DCGM_FI_DEV_XID_ERRORS=79\nafter_taint=present\n", "did not clear", "never reached"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := session(t, allRun, nil)
+			p := filepath.Join(dir, "checks", "stale-latched")
+			if err := os.MkdirAll(p, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(p, "check.env"), []byte(during+tc.after), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			r, _ := ScoreSession(dir)
+			for _, c := range r.Checks {
+				if c.Name != "stale-latched" {
+					continue
+				}
+				reasons := strings.Join(c.Reasons, "; ")
+				if c.Verdict != "FAIL" || !strings.Contains(reasons, tc.want) || strings.Contains(reasons, tc.not) {
+					t.Fatalf("read as %s %q, want FAIL naming %q and not %q", c.Verdict, reasons, tc.want, tc.not)
+				}
+				return
+			}
+			t.Fatal("no stale-latched check in the report")
+		})
+	}
+}

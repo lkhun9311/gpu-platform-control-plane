@@ -452,6 +452,19 @@ gf_record_during() {
   } >>"$file"
 }
 
+# gf_record_exporter_absence keeps what the scheduler saw when the exporter did not return.
+# Paid run 2 recorded only that it had not, so its cause, a taint the DaemonSet did not tolerate, was shown on kind afterwards rather than by the card.
+gf_record_exporter_absence() {
+  [ "$GF_MODE" = dcgm ] || return 0
+  {
+    gfk -n "$GF_SYS" get ds dcgm-exporter -o yaml
+    gfk -n "$GF_SYS" get pods -o wide
+    gfk get node "$GF_TARGET" -o jsonpath='{.spec.taints}'
+    echo
+    gfk -n "$GF_SYS" get events --sort-by=.lastTimestamp
+  } >"$1/exporter-absence.txt" 2>&1 || gf_log "could not record the exporter's absence; see $1/exporter-absence.txt"
+}
+
 # gf_stale_checks runs the two registered cells that take the exporter away with the operator running.
 gf_stale_checks() {
   local d
@@ -461,7 +474,7 @@ gf_stale_checks() {
   if gf_is_clear && gf_exporter_state down; then
     sleep "$GF_STALE_WAIT_S"
     gf_record_during "$d/check.env"
-    gf_exporter_state up || { gf_log "stale-healthy: the exporter did not come back"; return 1; }
+    gf_exporter_state up || { gf_log "stale-healthy: the exporter did not come back"; gf_record_exporter_absence "$d"; return 1; }
     gf_wait_until 30 gf_is_clear || gf_log "stale-healthy: not clear 30 s after the exporter came back"
   else
     echo "precondition=failed" >>"$d/check.env"
@@ -476,7 +489,7 @@ gf_stale_checks() {
   if gf_exporter_state down; then
     sleep "$GF_STALE_WAIT_S"
     gf_record_during "$d/check.env"
-    gf_exporter_state up || { gf_log "stale-latched: the exporter did not come back"; return 1; }
+    gf_exporter_state up || { gf_log "stale-latched: the exporter did not come back"; gf_record_exporter_absence "$d"; return 1; }
   fi
   # A restarted real host engine starts from an empty cache; the fake keeps its cache. The baseline is injected
   # either way, so what clears the latch is a fresh zero reading, never the exporter's return alone.

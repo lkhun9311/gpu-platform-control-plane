@@ -101,8 +101,14 @@ func judgeStaleCheck(dir, name string) CheckResult {
 		expect(env["before_latched"] != "", "the fault was never latched before the exporter was taken away")
 		expect(env["during_healthy_status"] == "False" && env["during_taint"] == "present" && env["during_latched"] == env["before_latched"],
 			"stale data released the fault: GPUHealthy %s, taint %s, latched %q", env["during_healthy_status"], env["during_taint"], env["during_latched"])
-		expect(env["after_latched"] == "" && env["after_taint"] == "absent",
-			"a fresh zero reading did not clear it: latched %q, taint %s", env["after_latched"], env["after_taint"])
+		// The runner writes the after_* lines only once it has injected zero, so their absence is a step that did
+		// not run, which fails the clause but is not a reading that failed to clear.
+		if _, reached := env["after_taint"]; !reached {
+			expect(false, "the clearing step was never reached: no fresh zero reading was given after the exporter left (see the runner's log)")
+		} else {
+			expect(env["after_latched"] == "" && env["after_taint"] == "absent",
+				"a fresh zero reading did not clear it: latched %q, taint %s", env["after_latched"], env["after_taint"])
+		}
 	}
 	return c
 }
