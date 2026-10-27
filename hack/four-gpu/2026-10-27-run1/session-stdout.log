@@ -1,0 +1,35 @@
+09:58:39Z  [session] API endpoint will admit 211.202.99.162/32 only
+09:58:40Z  [session] TRAIN_AZ: no zone pin: the nodes may land in any zone that offers the type, and the record says which they did
+09:58:40Z  [session] cluster gpu-platform does not exist
+09:58:40Z  [session] TRAIN=allreduce: 1 x g5.12xlarge of 4 GPUs, price ceiling $6.98, GPU budget 13800s
+09:58:41Z  [session] TTL kill switch armed: PID 1706384, fires in 310m, log /home/lkhun9311/workspace/gpu-cp-c-run1/ex/eks-session-20261027T095839Z/ttl-kill-switch.log
+09:58:41Z  [session] terraform init (cluster)
+09:59:08Z  [session] terraform apply (cluster) -- this is where the billing starts
+10:10:07Z  [session] cluster up in 659s
+10:10:10Z  [session] terraform init + apply (argo-bootstrap): the pinned argo-cd chart, installed by its own root
+   ok   Argo CD installed by its own Terraform root
+10:11:24Z  [session] runbook: apply
+   ok   runbook apply
+10:14:10Z  [session] runbook: seed-key
+   ok   runbook seed-key
+10:14:11Z  [session] runbook: verify
+   ok   runbook verify
+   ok   T1: gpu-platform-training synced at c3b36e04b9d69f267c0d132be1fd3cb01984daab
+   ok   T2: ClusterQueue gpu-train-a is Active and the only one
+   ok   T3: qualification job train-qualify admitted at 2026-10-27T10:14:30Z, 1 Pod(s) unplaced
+   ok   T4: g5.12xlarge On-Demand in ap-northeast-2 at $6.9744200000 an hour, ceiling $6.98
+   ok   T5: G and VT On-Demand vCPU in use 0 (none) plus 48 fits the quota of 52.0
+   ok   Z1: node group gpu has subnets in ap-northeast-2a ap-northeast-2c ap-northeast-2d
+   ok   GPU deadline armed for 230 min: gpu-ttl-gpu-platform-gpu-20261027101435
+10:14:36Z  [session] scaling gpu to 1 -- the nodes start billing here
+   ok   T6: ip-10-0-67-207.ap-northeast-2.compute.internal i-019bd1b36bf31ec80
+   ok   Z2: ip-10-0-67-207.ap-northeast-2.compute.internal ap-northeast-2c
+   ok   T7: qualification job train-qualify succeeded: admittedAt 2026-10-27T10:14:30Z, runningObservedAt 2026-10-27T10:17:03Z, admitToRunningSeconds 153.570
+   FAIL Q: nvidia-smi topo -m printed no 4 x 4 GPU matrix
+10:18:17Z  [session] scaling gpu to 0
+   ok   S6 (GPU half): gpu scaled to 0 and i-019bd1b36bf31ec80 terminated
+10:27:24Z  [session] destroy: argo-bootstrap, then cluster
+   ok   nothing that charges remains: no EKS cluster, instance, NAT gateway, EIP, volume, ASG, load balancer cluster log group or GPU deadline schedule
+10:38:36Z  [session] kill switch disarmed: destroy returned zero, every residue query was answered, and all were empty
+10:38:36Z  [session] evidence in /home/lkhun9311/workspace/gpu-cp-c-run1/ex/eks-session-20261027T095839Z
+10:38:36Z  [session] 1 check(s) failed
