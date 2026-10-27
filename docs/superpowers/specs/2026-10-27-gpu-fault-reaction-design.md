@@ -345,3 +345,49 @@ The owner approved a second session on 2026-10-27, after run 1's record and this
 Run 1's evidence stays where it is and is not pooled with run 2's; run 2 is scored on its own.
 
 **Run 2 is bought from the commit that carries this section**, once it is merged to `dev`, with the command in "The paid session" above.
+
+## Result, 2026-10-27: run 2 is a RESULT; both fault arms REACTED inside every bound, and the latched stale check FAILED because the platform's own taint kept the exporter off the node
+
+**Verdict: `GPU FAULT REACTION: RESULT`**, from `3584d079`, the merge that carries the amendment above.
+The scorer the session ran and a scorer rebuilt from that commit print the same report, and their JSON differs only in the evidence path's prefix.
+
+| arm | verdict | valid | detect, median (min–max) | end to end, median (min–max) | lost work, median |
+|---|---|---:|---|---|---:|
+| `xid` (Xid 79) | REACTED | 5 of 5 | 1.627 s (1.051–1.758) | 2.502 s (1.926–2.634) | 15 s |
+| `ecc` (DBE 1) | REACTED | 5 of 5 | 1.448 s (1.314–1.789) | 2.324 s (2.189–2.664) | 14 s |
+| `benign` (SBE 1) | QUIET | 5 of 5 | — | — | — |
+| `none` | QUIET | 5 of 5 | — | — | — |
+
+Every figure is an upper end of a truncation interval, as "Endpoints, with units" defines them; the other hops are in `verdict.txt`.
+- **P1** held: no detect interval lies wholly above 2.8 s; the largest upper end is 1.789 s.
+- **P2 and P3** held in all ten fault repetitions: every hop present, the injected fingerprint latched, the order kept, and the job placed on H inside W = 120 s, at most 2.664 s after the value was in DCGM.
+- **P4** held: no control repetition produced a platform action.
+- **P5** held across every injection the scorer read, and the smoke cell's own record is `alloc_before=1`, `alloc_after=1` (`smoke.env`), as the boundary section predicts for DCGM's cache.
+- **P6, stale-healthy: PASS.** With nothing latched and the exporter away, `GPUSignal=False` (`NoExporter`), `GPUHealthy=Unknown`, no taint.
+- **P6, stale-latched: FAIL.**
+
+**What the stale-latched FAIL is.** The check has three clauses, and its record (`gf-run/checks/stale-latched/check.env`) shows how far it got.
+- The first two held: Xid 79 latched before the exporter left, and while it was away the fault, the taint and the fingerprint all stayed, with `GPUSignal=False` (`NoExporter`). So the falsifier "stale data that releases a latched fault" did not occur.
+- The third was never reached: the runner logged "stale-latched: the exporter did not come back" at 00:22:20Z and returned before injecting zero, so no fresh zero reading was ever given.
+- The scorer's reason, "a fresh zero reading did not clear it", is therefore wrong about the cause: it reads the absent `after_*` lines as a reading that failed to clear. The verdict FAIL stands, because the exporter's return is part of the clause the page registered; the reason text is corrected here and in the scorer, not by re-scoring.
+
+**Why the exporter did not come back, reproduced off the card.**
+The study takes the exporter away by giving its DaemonSet a node selector nothing matches, and brings it back by removing it, so the Pod is created again.
+The DaemonSet tolerates `nvidia.com/gpu:NoSchedule` and nothing else, and with a fault latched, T carries the platform's own `platform.lkhun9311.github.io/gpu-fault:NoSchedule`.
+A DaemonSet does not place a new Pod on a node whose `NoSchedule` taint it does not tolerate.
+On a throwaway kind node of the pinned `kindest/node:v1.31.0` with the same two tolerations, the running Pod stayed through the taint, and once it left, the DaemonSet's desired count went to 0 and no Pod returned. Adding a toleration for the fault taint brought it back at once.
+The stale-healthy check, run with no taint on T, brought its exporter back without trouble.
+The instance's own evidence does not record the Pod's scheduling events, so the cause is established by that reproduction and by the configuration, not by an event from the card.
+
+**What it says about the platform.** It is a defect in the product, not in the apparatus: on a node the platform has quarantined, the exporter whose fresh zero reading is the only automatic way to clear the latch cannot come back once it restarts.
+After that, only an operator's acknowledgement clears the node.
+The NVIDIA device plugin's DaemonSet tolerates the same single taint, so it would not come back to a quarantined node either; the run does not exercise that, and it is noted, not measured.
+
+**What it does not say.** Every fault is a value injected into DCGM's cache, not a hardware fault; re-admission landed on H's simulated device ("Topology on the instance"); one card, one driver (595.91.07); five repetitions per arm, so medians and ranges, not rates.
+
+**The purchase.** One g5.2xlarge Spot instance, `i-09d3bd39d799d566f`, in ap-northeast-2a, on the pinned AMI. `LaunchTime` 23:27:28Z on 2026-10-26; the session asked EC2 to terminate it at 00:22:36Z on 2026-10-27, 3,308 s later, and its wait confirmed `terminated` (`termination.txt`).
+At the zone's Spot price read before launch, $0.6822 an hour, that is about **$0.63**.
+
+**The evidence** is in `hack/gpu-fault/2026-10-27-run2/`, with a `SHA256SUMS` over every file in it. The three image archives, the source archive, the local scorer binary and the evidence tarball are not committed; `NOT-COMMITTED.sha256` records their hashes, and the files are kept on the owner's machine.
+
+**What follows**, none of it a re-run: the exporter's DaemonSet tolerates the platform's fault taint, with a test that fails when it does not; the scorer names an absent clause as not reached rather than as a reading; and the runner records the exporter's Pod and events when it does not return.
