@@ -48,9 +48,21 @@ def nccl(host: str, pid: int, dev: int, msg: str) -> str:
     return f"{host}:{pid}:{pid + 7} [{dev}] NCCL INFO {msg}"
 
 
+def channel(rank: int, via: str) -> str:
+    """A channel line as NCCL 2.21.5 formats it for each transport, not as a fixture would like it.
+
+    P2P and NET print the connection index after the channel (src/transport/p2p.cc:364, net.cc:195), SHM does not
+    (shm.cc:95), and the first fixture here gave SHM the index it never prints, which hid a scorer that read only that form.
+    """
+    peer = (rank + 1) % 4
+    number = "00" if via.startswith("SHM/") else "00/0"
+    direction = " [send]" if via.startswith("NET/") else ""
+    return f"Channel {number} : {rank}[{rank}] -> {peer}[{peer}]{direction} via {via}"
+
+
 def rank_lines(name: str, rank: int, pid: int, host: str, ddp: bool, busbw_scale: float, transport: str) -> list[str]:
     lines = [json.dumps(start(name, rank, pid, host, STEP if ddp else BENCH, ddp))]
-    lines.append(nccl(host, pid, rank, f"Channel 00/0 : {rank}[{rank}] -> {(rank + 1) % 4}[{(rank + 1) % 4}] via {transport}"))
+    lines.append(nccl(host, pid, rank, channel(rank, transport)))
     if ddp:
         lines.append(json.dumps({"run_id": name, "rank": rank, "event": "steps", "verified": True, "synced_steps": 50,
                                  "local_steps": 50, "device": "cuda", "synced_ms_median": 60.0 * busbw_scale,
@@ -72,8 +84,7 @@ def nccltests_lines(name: str, host: str, scale: float) -> list[str]:
               for i in range(4)]
     # As NCCL 2.21.5 prints it: a bare printf from rank 0, with no host:pid:tid prefix.
     lines.append("NCCL version 2.21.5+cuda12.4")
-    lines += [nccl(host, 100 + i, i, f"Channel 00/0 : {i}[{i}] -> {(i + 1) % 4}[{(i + 1) % 4}] via SHM/direct/direct")
-              for i in range(4)]
+    lines += [nccl(host, 100 + i, i, channel(i, "SHM/direct/direct")) for i in range(4)]
     for size in analyze.SIZES:
         bw = 10.0 * scale
         lines.append(f"{size:>12}  {size // 4:>12}     float     sum      -1  1234.5  {bw / 1.5:6.2f}  {bw:6.2f}      0  "

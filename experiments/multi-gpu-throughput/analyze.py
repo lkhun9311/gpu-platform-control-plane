@@ -46,7 +46,9 @@ JOB_BUDGET_SECONDS = 240
 
 NCCL_LINE = re.compile(r"^(?P<host>[^:\s]+):(?P<pid>\d+):(?P<tid>\d+) \[(?P<dev>\d+)\] NCCL INFO (?P<msg>.*)$")
 # The bracket after a rank is a device index in some NCCL versions and a hexadecimal bus ID in others.
-CHANNEL = re.compile(r"Channel \d+/\d+ : \d+\[[0-9a-fA-F]+\] -> \d+\[[0-9a-fA-F]+\](?: \[\w+\])? via (?P<via>\S+)")
+# NCCL 2.21.5 prints a connection index after the channel for P2P and NET but not for SHM (src/transport/shm.cc:95),
+# and requiring it would leave every rank of an SHM run with no transport, which voids the job.
+CHANNEL = re.compile(r"Channel \d+(?:/\d+)? : \d+\[[0-9a-fA-F]+\] -> \d+\[[0-9a-fA-F]+\](?: \[\w+\])? via (?P<via>\S+)")
 SET_BY_ENV = re.compile(r"^(?P<name>NCCL_[A-Z0-9_]+) set by environment to (?P<value>.*)$")
 # NCCL 2.21.5's rank 0 prints this banner with a bare printf, without the host:pid:tid prefix (showVersion in its
 # src/init.cc), so it is read from every line, prefixed or not.
