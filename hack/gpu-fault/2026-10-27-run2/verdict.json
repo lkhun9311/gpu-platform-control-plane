@@ -1,0 +1,865 @@
+{
+  "label": "RESULT",
+  "arms": [
+    {
+      "arm": "xid",
+      "verdict": "REACTED",
+      "valid": 5,
+      "total": 5,
+      "summary": {
+        "detect": [
+          1.626729101,
+          1.050780504,
+          1.758463378
+        ],
+        "end_to_end": [
+          2.502477124,
+          1.926268677,
+          2.633802793
+        ],
+        "evict_request": [
+          0.09316204,
+          0.08990648,
+          0.093348609
+        ],
+        "exporter_lag": [
+          0.784690347,
+          0.26351285,
+          1.048114455
+        ],
+        "job_suspend": [
+          0.774302448,
+          0.774160995,
+          0.775008725
+        ],
+        "kueue_evict": [
+          0.774302448,
+          0.774160995,
+          0.775008725
+        ],
+        "lost_work": [
+          15,
+          14,
+          15
+        ],
+        "quota_release": [
+          0.774302448,
+          0.774160995,
+          0.775008725
+        ],
+        "readmit": [
+          1,
+          1,
+          1
+        ],
+        "running": [
+          3.926268677,
+          3.502477124,
+          4.633802793
+        ],
+        "stop": [
+          0.774302448,
+          0.774160995,
+          0.775008725
+        ],
+        "taint": [
+          0.008130985,
+          0.007613822,
+          0.010443638
+        ]
+      }
+    },
+    {
+      "arm": "ecc",
+      "verdict": "REACTED",
+      "valid": 5,
+      "total": 5,
+      "summary": {
+        "detect": [
+          1.447502182,
+          1.313514222,
+          1.7889594199999999
+        ],
+        "end_to_end": [
+          2.323566593,
+          2.189288667,
+          2.663991549
+        ],
+        "evict_request": [
+          0.092183294,
+          0.01388286,
+          0.09317748
+        ],
+        "exporter_lag": [
+          0.785988258,
+          0.522041887,
+          1.048268088
+        ],
+        "job_suspend": [
+          0.774880206,
+          0.774379347,
+          0.85475531
+        ],
+        "kueue_evict": [
+          0.774880206,
+          0.774379347,
+          0.85475531
+        ],
+        "lost_work": [
+          14,
+          14,
+          15
+        ],
+        "quota_release": [
+          0.774880206,
+          0.774379347,
+          0.85475531
+        ],
+        "readmit": [
+          1,
+          1,
+          1
+        ],
+        "running": [
+          3.663991549,
+          2.411896981,
+          4.323566593
+        ],
+        "stop": [
+          0.774880206,
+          0.774379347,
+          0.85475531
+        ],
+        "taint": [
+          0.008218589,
+          0.007426241,
+          0.009613697
+        ]
+      }
+    },
+    {
+      "arm": "benign",
+      "verdict": "QUIET",
+      "valid": 5,
+      "total": 5,
+      "reasons": [
+        "5 fully observed window(s); this is a count, not a rate"
+      ]
+    },
+    {
+      "arm": "none",
+      "verdict": "QUIET",
+      "valid": 5,
+      "total": 5,
+      "reasons": [
+        "5 fully observed window(s); this is a count, not a rate"
+      ]
+    }
+  ],
+  "checks": [
+    {
+      "name": "stale-healthy",
+      "verdict": "PASS"
+    },
+    {
+      "name": "stale-latched",
+      "verdict": "FAIL",
+      "reasons": [
+        "a fresh zero reading did not clear it: latched \"\", taint "
+      ]
+    }
+  ],
+  "p5": "held",
+  "cells": [
+    {
+      "dir": "hack/gpu-fault-20261026T232027Z/gf-run/reps/01-xid",
+      "arm": "xid",
+      "rep": 1,
+      "block": 1,
+      "mode": "dcgm",
+      "hops": {
+        "detect": {
+          "lo": 1.515293271,
+          "hi": 1.626729101
+        },
+        "end_to_end": {
+          "lo": 1.3910412939999999,
+          "hi": 2.502477124
+        },
+        "evict_request": {
+          "lo": 0.093249588,
+          "hi": 0.093249588
+        },
+        "exporter_lag": {
+          "lo": 0.673254517,
+          "hi": 0.784690347
+        },
+        "job_suspend": {
+          "lo": -0.225628406,
+          "hi": 0.774371594
+        },
+        "kueue_evict": {
+          "lo": -0.225628406,
+          "hi": 0.774371594
+        },
+        "lost_work": {
+          "lo": 12,
+          "hi": 14
+        },
+        "quota_release": {
+          "lo": -0.225628406,
+          "hi": 0.774371594
+        },
+        "readmit": {
+          "lo": -1,
+          "hi": 1
+        },
+        "running": {
+          "lo": 2.391041294,
+          "hi": 3.502477124
+        },
+        "stop": {
+          "lo": -0.225628406,
+          "hi": 0.774371594
+        },
+        "taint": {
+          "lo": 0.008126841,
+          "hi": 0.008126841
+        }
+      },
+      "allocatableChanged": false
+    },
+    {
+      "dir": "hack/gpu-fault-20261026T232027Z/gf-run/reps/02-ecc",
+      "arm": "ecc",
+      "rep": 1,
+      "block": 1,
+      "mode": "dcgm",
+      "hops": {
+        "detect": {
+          "lo": 1.23565927,
+          "hi": 1.3449877
+        },
+        "end_to_end": {
+          "lo": 1.111171966,
+          "hi": 2.220500396
+        },
+        "evict_request": {
+          "lo": 0.092413901,
+          "hi": 0.092413901
+        },
+        "exporter_lag": {
+          "lo": 0.412713457,
+          "hi": 0.522041887
+        },
+        "job_suspend": {
+          "lo": -0.225119794,
+          "hi": 0.774880206
+        },
+        "kueue_evict": {
+          "lo": -0.225119794,
+          "hi": 0.774880206
+        },
+        "lost_work": {
+          "lo": 12,
+          "hi": 14
+        },
+        "quota_release": {
+          "lo": -0.225119794,
+          "hi": 0.774880206
+        },
+        "readmit": {
+          "lo": -1,
+          "hi": 1
+        },
+        "running": {
+          "lo": 3.111171966,
+          "hi": 4.220500396
+        },
+        "stop": {
+          "lo": -0.225119794,
+          "hi": 0.774880206
+        },
+        "taint": {
+          "lo": 0.008218589,
+          "hi": 0.008218589
+        }
+      },
+      "allocatableChanged": false
+    },
+    {
+      "dir": "hack/gpu-fault-20261026T232027Z/gf-run/reps/03-benign",
+      "arm": "benign",
+      "rep": 1,
+      "block": 1,
+      "mode": "dcgm",
+      "hops": {
+        "exporter_lag": {
+          "lo": 0.151468889,
+          "hi": 0.263189769
+        }
+      },
+      "allocatableChanged": false
+    },
+    {
+      "dir": "hack/gpu-fault-20261026T232027Z/gf-run/reps/04-none",
+      "arm": "none",
+      "rep": 1,
+      "block": 1,
+      "mode": "dcgm",
+      "allocatableChanged": false
+    },
+    {
+      "dir": "hack/gpu-fault-20261026T232027Z/gf-run/reps/05-ecc",
+      "arm": "ecc",
+      "rep": 2,
+      "block": 2,
+      "mode": "dcgm",
+      "hops": {
+        "detect": {
+          "lo": 1.4220714509999999,
+          "hi": 1.536195428
+        },
+        "end_to_end": {
+          "lo": 1.297773004,
+          "hi": 2.411896981
+        },
+        "evict_request": {
+          "lo": 0.014262743,
+          "hi": 0.014262743
+        },
+        "exporter_lag": {
+          "lo": 0.671864281,
+          "hi": 0.785988258
+        },
+        "job_suspend": {
+          "lo": -0.148174887,
+          "hi": 0.851825113
+        },
+        "kueue_evict": {
+          "lo": -0.148174887,
+          "hi": 0.851825113
+        },
+        "lost_work": {
+          "lo": 13,
+          "hi": 15
+        },
+        "quota_release": {
+          "lo": -0.148174887,
+          "hi": 0.851825113
+        },
+        "readmit": {
+          "lo": -1,
+          "hi": 1
+        },
+        "running": {
+          "lo": 1.297773004,
+          "hi": 2.411896981
+        },
+        "stop": {
+          "lo": -0.148174887,
+          "hi": 0.851825113
+        },
+        "taint": {
+          "lo": 0.009613697,
+          "hi": 0.009613697
+        }
+      },
+      "allocatableChanged": false
+    },
+    {
+      "dir": "hack/gpu-fault-20261026T232027Z/gf-run/reps/06-benign",
+      "arm": "benign",
+      "rep": 2,
+      "block": 2,
+      "mode": "dcgm",
+      "hops": {
+        "exporter_lag": {
+          "lo": 0.414037632,
+          "hi": 0.525908869
+        }
+      },
+      "allocatableChanged": false
+    },
+    {
+      "dir": "hack/gpu-fault-20261026T232027Z/gf-run/reps/07-none",
+      "arm": "none",
+      "rep": 2,
+      "block": 2,
+      "mode": "dcgm",
+      "allocatableChanged": false
+    },
+    {
+      "dir": "hack/gpu-fault-20261026T232027Z/gf-run/reps/08-xid",
+      "arm": "xid",
+      "rep": 2,
+      "block": 2,
+      "mode": "dcgm",
+      "hops": {
+        "detect": {
+          "lo": 1.64480227,
+          "hi": 1.758463378
+        },
+        "end_to_end": {
+          "lo": 1.520141685,
+          "hi": 2.633802793
+        },
+        "evict_request": {
+          "lo": 0.091608592,
+          "hi": 0.091608592
+        },
+        "exporter_lag": {
+          "lo": 0.934453347,
+          "hi": 1.048114455
+        },
+        "job_suspend": {
+          "lo": -0.225839005,
+          "hi": 0.774160995
+        },
+        "kueue_evict": {
+          "lo": -0.225839005,
+          "hi": 0.774160995
+        },
+        "lost_work": {
+          "lo": 13,
+          "hi": 15
+        },
+        "quota_release": {
+          "lo": -0.225839005,
+          "hi": 0.774160995
+        },
+        "readmit": {
+          "lo": -1,
+          "hi": 1
+        },
+        "running": {
+          "lo": 3.520141685,
+          "hi": 4.633802793
+        },
+        "stop": {
+          "lo": -0.225839005,
+          "hi": 0.774160995
+        },
+        "taint": {
+          "lo": 0.009569828,
+          "hi": 0.009569828
+        }
+      },
+      "allocatableChanged": false
+    },
+    {
+      "dir": "hack/gpu-fault-20261026T232027Z/gf-run/reps/09-benign",
+      "arm": "benign",
+      "rep": 3,
+      "block": 3,
+      "mode": "dcgm",
+      "hops": {
+        "exporter_lag": {
+          "lo": 0.133996071,
+          "hi": 0.264764478
+        }
+      },
+      "allocatableChanged": false
+    },
+    {
+      "dir": "hack/gpu-fault-20261026T232027Z/gf-run/reps/10-none",
+      "arm": "none",
+      "rep": 3,
+      "block": 3,
+      "mode": "dcgm",
+      "allocatableChanged": false
+    },
+    {
+      "dir": "hack/gpu-fault-20261026T232027Z/gf-run/reps/11-xid",
+      "arm": "xid",
+      "rep": 3,
+      "block": 3,
+      "mode": "dcgm",
+      "hops": {
+        "detect": {
+          "lo": 1.416935117,
+          "hi": 1.529389777
+        },
+        "end_to_end": {
+          "lo": 1.29229396,
+          "hi": 2.40474862
+        },
+        "evict_request": {
+          "lo": 0.08990648,
+          "hi": 0.08990648
+        },
+        "exporter_lag": {
+          "lo": 0.671459145,
+          "hi": 0.783913805
+        },
+        "job_suspend": {
+          "lo": -0.224991275,
+          "hi": 0.775008725
+        },
+        "kueue_evict": {
+          "lo": -0.224991275,
+          "hi": 0.775008725
+        },
+        "lost_work": {
+          "lo": 13,
+          "hi": 15
+        },
+        "quota_release": {
+          "lo": -0.224991275,
+          "hi": 0.775008725
+        },
+        "readmit": {
+          "lo": -1,
+          "hi": 1
+        },
+        "running": {
+          "lo": 3.29229396,
+          "hi": 4.40474862
+        },
+        "stop": {
+          "lo": -0.224991275,
+          "hi": 0.775008725
+        },
+        "taint": {
+          "lo": 0.010443638,
+          "hi": 0.010443638
+        }
+      },
+      "allocatableChanged": false
+    },
+    {
+      "dir": "hack/gpu-fault-20261026T232027Z/gf-run/reps/12-ecc",
+      "arm": "ecc",
+      "rep": 3,
+      "block": 3,
+      "mode": "dcgm",
+      "hops": {
+        "detect": {
+          "lo": 1.202044537,
+          "hi": 1.313514222
+        },
+        "end_to_end": {
+          "lo": 1.077818982,
+          "hi": 2.189288667
+        },
+        "evict_request": {
+          "lo": 0.09317748,
+          "hi": 0.09317748
+        },
+        "exporter_lag": {
+          "lo": 0.413251949,
+          "hi": 0.524721634
+        },
+        "job_suspend": {
+          "lo": -0.225339653,
+          "hi": 0.774660347
+        },
+        "kueue_evict": {
+          "lo": -0.225339653,
+          "hi": 0.774660347
+        },
+        "lost_work": {
+          "lo": 12,
+          "hi": 14
+        },
+        "quota_release": {
+          "lo": -0.225339653,
+          "hi": 0.774660347
+        },
+        "readmit": {
+          "lo": -1,
+          "hi": 1
+        },
+        "running": {
+          "lo": 2.077818982,
+          "hi": 3.189288667
+        },
+        "stop": {
+          "lo": -0.225339653,
+          "hi": 0.774660347
+        },
+        "taint": {
+          "lo": 0.007936618,
+          "hi": 0.007936618
+        }
+      },
+      "allocatableChanged": false
+    },
+    {
+      "dir": "hack/gpu-fault-20261026T232027Z/gf-run/reps/13-none",
+      "arm": "none",
+      "rep": 4,
+      "block": 4,
+      "mode": "dcgm",
+      "allocatableChanged": false
+    },
+    {
+      "dir": "hack/gpu-fault-20261026T232027Z/gf-run/reps/14-xid",
+      "arm": "xid",
+      "rep": 4,
+      "block": 4,
+      "mode": "dcgm",
+      "hops": {
+        "detect": {
+          "lo": 1.535086554,
+          "hi": 1.648434313
+        },
+        "end_to_end": {
+          "lo": 1.410351433,
+          "hi": 2.523699192
+        },
+        "evict_request": {
+          "lo": 0.093348609,
+          "hi": 0.093348609
+        },
+        "exporter_lag": {
+          "lo": 0.67158557,
+          "hi": 0.784933329
+        },
+        "job_suspend": {
+          "lo": -0.225697552,
+          "hi": 0.774302448
+        },
+        "kueue_evict": {
+          "lo": -0.225697552,
+          "hi": 0.774302448
+        },
+        "lost_work": {
+          "lo": 13,
+          "hi": 15
+        },
+        "quota_release": {
+          "lo": -0.225697552,
+          "hi": 0.774302448
+        },
+        "readmit": {
+          "lo": -1,
+          "hi": 1
+        },
+        "running": {
+          "lo": 2.4103514329999998,
+          "hi": 3.523699192
+        },
+        "stop": {
+          "lo": -0.225697552,
+          "hi": 0.774302448
+        },
+        "taint": {
+          "lo": 0.007613822,
+          "hi": 0.007613822
+        }
+      },
+      "allocatableChanged": false
+    },
+    {
+      "dir": "hack/gpu-fault-20261026T232027Z/gf-run/reps/15-ecc",
+      "arm": "ecc",
+      "rep": 4,
+      "block": 4,
+      "mode": "dcgm",
+      "hops": {
+        "detect": {
+          "lo": 1.335308664,
+          "hi": 1.447502182
+        },
+        "end_to_end": {
+          "lo": 1.211373075,
+          "hi": 2.323566593
+        },
+        "evict_request": {
+          "lo": 0.01388286,
+          "hi": 0.01388286
+        },
+        "exporter_lag": {
+          "lo": 0.674013956,
+          "hi": 0.786207474
+        },
+        "job_suspend": {
+          "lo": -0.14524469,
+          "hi": 0.85475531
+        },
+        "kueue_evict": {
+          "lo": -0.14524469,
+          "hi": 0.85475531
+        },
+        "lost_work": {
+          "lo": 12,
+          "hi": 14
+        },
+        "quota_release": {
+          "lo": -0.14524469,
+          "hi": 0.85475531
+        },
+        "readmit": {
+          "lo": -1,
+          "hi": 1
+        },
+        "running": {
+          "lo": 3.211373075,
+          "hi": 4.323566593
+        },
+        "stop": {
+          "lo": -0.14524469,
+          "hi": 0.85475531
+        },
+        "taint": {
+          "lo": 0.007426241,
+          "hi": 0.007426241
+        }
+      },
+      "allocatableChanged": false
+    },
+    {
+      "dir": "hack/gpu-fault-20261026T232027Z/gf-run/reps/16-benign",
+      "arm": "benign",
+      "rep": 4,
+      "block": 4,
+      "mode": "dcgm",
+      "hops": {
+        "exporter_lag": {
+          "lo": 0.157685972,
+          "hi": 0.266381668
+        }
+      },
+      "allocatableChanged": false
+    },
+    {
+      "dir": "hack/gpu-fault-20261026T232027Z/gf-run/reps/17-xid",
+      "arm": "xid",
+      "rep": 5,
+      "block": 5,
+      "mode": "dcgm",
+      "hops": {
+        "detect": {
+          "lo": 0.936418111,
+          "hi": 1.050780504
+        },
+        "end_to_end": {
+          "lo": 0.811906284,
+          "hi": 1.926268677
+        },
+        "evict_request": {
+          "lo": 0.09316204,
+          "hi": 0.09316204
+        },
+        "exporter_lag": {
+          "lo": 0.149150457,
+          "hi": 0.26351285
+        },
+        "job_suspend": {
+          "lo": -0.225804852,
+          "hi": 0.774195148
+        },
+        "kueue_evict": {
+          "lo": -0.225804852,
+          "hi": 0.774195148
+        },
+        "lost_work": {
+          "lo": 12,
+          "hi": 14
+        },
+        "quota_release": {
+          "lo": -0.225804852,
+          "hi": 0.774195148
+        },
+        "readmit": {
+          "lo": -1,
+          "hi": 1
+        },
+        "running": {
+          "lo": 2.811906284,
+          "hi": 3.926268677
+        },
+        "stop": {
+          "lo": -0.225804852,
+          "hi": 0.774195148
+        },
+        "taint": {
+          "lo": 0.008130985,
+          "hi": 0.008130985
+        }
+      },
+      "allocatableChanged": false
+    },
+    {
+      "dir": "hack/gpu-fault-20261026T232027Z/gf-run/reps/18-ecc",
+      "arm": "ecc",
+      "rep": 5,
+      "block": 5,
+      "mode": "dcgm",
+      "hops": {
+        "detect": {
+          "lo": 1.67735015,
+          "hi": 1.7889594199999999
+        },
+        "end_to_end": {
+          "lo": 1.5523822790000001,
+          "hi": 2.663991549
+        },
+        "evict_request": {
+          "lo": 0.092183294,
+          "hi": 0.092183294
+        },
+        "exporter_lag": {
+          "lo": 0.936658818,
+          "hi": 1.048268088
+        },
+        "job_suspend": {
+          "lo": -0.225620653,
+          "hi": 0.774379347
+        },
+        "kueue_evict": {
+          "lo": -0.225620653,
+          "hi": 0.774379347
+        },
+        "lost_work": {
+          "lo": 13,
+          "hi": 15
+        },
+        "quota_release": {
+          "lo": -0.225620653,
+          "hi": 0.774379347
+        },
+        "readmit": {
+          "lo": -1,
+          "hi": 1
+        },
+        "running": {
+          "lo": 2.552382279,
+          "hi": 3.663991549
+        },
+        "stop": {
+          "lo": -0.225620653,
+          "hi": 0.774379347
+        },
+        "taint": {
+          "lo": 0.008469488,
+          "hi": 0.008469488
+        }
+      },
+      "allocatableChanged": false
+    },
+    {
+      "dir": "hack/gpu-fault-20261026T232027Z/gf-run/reps/19-benign",
+      "arm": "benign",
+      "rep": 5,
+      "block": 5,
+      "mode": "dcgm",
+      "hops": {
+        "exporter_lag": {
+          "lo": 0.671731718,
+          "hi": 0.78664803
+        }
+      },
+      "allocatableChanged": false
+    },
+    {
+      "dir": "hack/gpu-fault-20261026T232027Z/gf-run/reps/20-none",
+      "arm": "none",
+      "rep": 5,
+      "block": 5,
+      "mode": "dcgm",
+      "allocatableChanged": false
+    }
+  ]
+}
