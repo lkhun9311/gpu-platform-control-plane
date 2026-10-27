@@ -1,13 +1,15 @@
 # Experiment C: four A10Gs in one Pod against four Pods of one, on one g5.12xlarge — registration
 
-Written 2026-10-26 (dated 2026-10-27, the earliest day a session under it could run). Status: **registered for review, not approved for purchase.**
+Written 2026-10-26 (dated 2026-10-27, the earliest day a session under it could run).
+**Registered and frozen for purchase, 2026-10-27, at the commit that carries this line.** The owner approved every valid experiment of 2026-10-27 on 2026-10-26 ("유효 실험도 전부 승인하니 진행"), and on 2026-10-27 approved the paid sessions to go ahead ("유료 실험 진행 가능"). Nothing below changes after this commit, and a session run from code other than this commit's, as promoted to `main`, does not count.
+Until this line, the status said: "registered for review, not approved for purchase."
 Nothing here has run on a GPU, and no number below is a result.
 codex `gpt-6-astra` attacked the first version cold; every finding was re-derived, and this version is the reconciled one ("Review: astra's attack, reconciled", at the end).
 It grows out of the draft `2026-10-22-multi-gpu-per-pod-throughput-design.md`, which is left as it was written and is history; where this page and the draft differ, this page holds, and "Changes from the draft" says what moved and why.
 Every numeric bound below names where its number comes from, because `docs/11_WHAT_THIS_MEASURED.md` ("What the targets were based on") now records that several earlier bars had none.
 A bound with no derivation is marked as a convention, and whatever it decides is read as a statement about the convention.
 
-**Before purchase, three things remain:** the nccl-tests image must be pushed and its digest added here; this page and the code must be frozen at one commit, which fixes the two approved script hashes; and `config/training/gpuquotapolicy.yaml` at 4 GPUs must be on `main`.
+**Before purchase, three things remained**, and at this commit two are done: the nccl-tests image is pushed and its digest is in "Pinned, and recorded"; this page and the code are frozen here, which fixes the two approved script hashes. The third, `config/training/gpuquotapolicy.yaml` at 4 GPUs on `main`, is met by the promotion that carries this commit; the session's T1 checks the Application synced from `main`, and T3 cannot admit its four-GPU Pod without that quota.
 
 ## Why this is worth a session
 
@@ -219,8 +221,8 @@ It would not license:
 **Pinned before the session:**
 - g5.12xlarge, one node, On-Demand, the `gpu` group (`TRAIN_INSTANCE_TYPE`, `TRAIN_NODES=1`, set by the mode, not by the operator);
 - the torch image `docker.io/pytorch/pytorch@sha256:c8268a92a69bd500f8be0e665b2630ee006dadaf7bfbc24249141b15ff622755`, run 3's, 3,337,937,647 compressed bytes (registry manifest, read 2026-10-26);
-- the nccl-tests image, built from `experiments/multi-gpu-throughput/nccl-tests/Dockerfile`: base `nvidia/cuda:12.4.1-devel-ubuntu22.04` at its linux/amd64 digest `sha256:5645fec64549cc35930eee9d85aafd2b0006c0c3f22632be5a1d85e2604e9749` (4,112,380,996 compressed bytes, Docker Hub, read 2026-10-26); the base's NCCL checked to be `2.21.5-1+cuda12.4` and the built binary checked to link `libnccl.so.2.21.5`; nccl-tests at commit `8dfeab9eb9bdfdf13503e71e1f33e7f8a208b540` (tag v2.13.11, GitHub, read 2026-10-26); Open MPI `4.1.2-2ubuntu1`. **Built here on 2026-10-26** (local image `sha256:27bb844f…9b71`, 4,248,476,266 bytes uncompressed); a build with the NCCL pin changed to 2.21.4 failed at its first step, as it should. **Not pushed**: the owner pushes it, and its registry digest is added here as an amendment before the session;
-- the approved sha256 of both benches, fixed at the commit that freezes this page (at the time of writing, `allreduce_bench.py` `af802523…34e3` and `ddp_step_bench.py` `7cad8637…7417`, which any later edit changes);
+- the nccl-tests image, built from `experiments/multi-gpu-throughput/nccl-tests/Dockerfile`: base `nvidia/cuda:12.4.1-devel-ubuntu22.04` at its linux/amd64 digest `sha256:5645fec64549cc35930eee9d85aafd2b0006c0c3f22632be5a1d85e2604e9749` (4,112,380,996 compressed bytes, Docker Hub, read 2026-10-26); the base's NCCL checked to be `2.21.5-1+cuda12.4` and the built binary checked to link `libnccl.so.2.21.5`; nccl-tests at commit `8dfeab9eb9bdfdf13503e71e1f33e7f8a208b540` (tag v2.13.11, GitHub, read 2026-10-26); Open MPI `4.1.2-2ubuntu1`. **Built here on 2026-10-26** (local image `sha256:27bb844f…9b71`, 4,248,476,266 bytes uncompressed); a build with the NCCL pin changed to 2.21.4 failed at its first step, as it should. **Pushed 2026-10-27** from the committed Dockerfile (rebuilt from `origin/dev` at `6fe3003f`; every step came from cache and gave the same image `27bb844f…9b71`) to the private `gpu-lab` repository created for it, as `007635145730.dkr.ecr.ap-northeast-2.amazonaws.com/nccl-tests@sha256:27bb844f707101dfc4f03843b6ed4117996191b615123ef43413633531769b71` (tag `v2.13.11-nccl2.21.5-cuda12.4.1`, tags immutable, 4,248,473,059 bytes as ECR reports it); the session names it by that digest;
+- the approved sha256 of both benches, fixed at the commit that freezes this page: `allreduce_bench.py` `af802523bcbbeed578a8f5c9c2494116bb49481e478f7ec03fedf6872b0134e3` and `ddp_step_bench.py` `7cad86378795a9586e9d197525292dc437e6710c337dd35f03b667d26b8e7417`;
 - the NVIDIA device plugin v0.16.2 by digest (`config/nvidia-device-plugin/daemonset.yaml`) and Kueue v0.18.3, as run 3.
 
 **Recorded, not pinnable:**
