@@ -384,6 +384,12 @@ The owner approved a second session on 2026-10-27 ("권장안 진행"), after ru
 
 **What changes**, and only this: `judge_qualification` in `experiments/multi-gpu-throughput/analyze.py` reads each line of the qualification log with ANSI escape sequences removed (`faba4156`).
 
+**A second change, added before run 2 is bought, 2026-10-27.** The owner asked that the work continue after consulting codex, and codex `gpt-6-astra`, asked what could void run 2, found that `CHANNEL` required `Channel NN/N`, while NCCL 2.21.5 prints SHM's channel lines without the connection index (`src/transport/shm.cc:95`, read at tag `v2.21.5-1`; P2P and NET print it, `p2p.cc:364`, `net.cc:195`).
+Every rank of a job whose channels all ran over SHM would then have logged "no channel transport" and been invalid, and run 1 showed no peer-to-peer support between any pair of the node's GPUs, which makes SHM the likely transport.
+I re-derived it from NCCL's source and the test fixtures: the fixtures had given SHM the `/0` it never prints; written in the vendor's form, six scorer tests failed, and with `CHANNEL` accepting both forms (`9f3d0f19`) all pass, and reverting the pattern fails them again.
+This changes which lines are read as transport evidence and nothing that is judged from them.
+**The owner has not yet seen this second change; merging the promotion that carries it to `main` is the owner's confirmation of it**, and a run 2 bought from a `main` without it is bought under the first change alone.
+
 **What does not change:** the question, the arms, the order and repetitions, both benches and their approved hashes, the nccl-tests image digest, the validity lines, endpoints, verdict rules, predictions, falsifiers, the stop rule, the termination chain, the TTL, the price ceiling and the GPU budget.
 The approved hashes still name the benches at this commit: `allreduce_bench.py` af802523… and `ddp_step_bench.py` 7cad8637…, unchanged by the fix.
 
