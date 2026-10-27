@@ -61,6 +61,7 @@ NT_ROW = re.compile(r"^\s*(?P<size>\d+)\s+(?P<count>\d+)\s+float\s+sum\s+-?\d+\s
                     r"(?P<t2>[\d.]+)\s+(?P<alg2>[\d.]+)\s+(?P<bus2>[\d.]+)\s+(?P<wrong2>\S+)\s*$")
 GPU_LINE = re.compile(r"^AR_GPU (?P<index>\d+), GPU-(?P<uuid>[0-9a-f-]+), (?P<bus>[0-9A-Fa-f]+:[0-9A-Fa-f]+):"
                       r"(?P<dev>[0-9A-Fa-f]+)\.(?P<fn>\d), (?P<driver>[\d.]+)$")
+ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*m")
 
 
 def transport_of(via: str) -> str:
@@ -440,6 +441,9 @@ def judge_qualification(path: Path) -> list[str]:
         lines = (path / "qualification.log").read_text().splitlines()
     except OSError:
         return ["no qualification.log"]
+    # nvidia-smi underlines the topo -m header with ANSI escapes even when no terminal is attached.
+    # Read as written, that header matched nothing, and the paid session of 2026-10-27 was voided over a matrix it had.
+    lines = [ANSI_ESCAPE.sub("", x) for x in lines]
     uuids = {norm_uuid(m.group(1)) for m in (re.search(r"\(UUID: (GPU-[0-9a-f-]+)\)", x) for x in lines) if m}
     if len(uuids) != RANKS:
         faults.append(f"nvidia-smi -L listed {len(uuids)} distinct UUID(s), want {RANKS}")
