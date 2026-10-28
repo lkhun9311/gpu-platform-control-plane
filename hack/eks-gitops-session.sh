@@ -960,7 +960,10 @@ for p in pods["items"]:
 need = int(sys.argv[1])
 free = {}
 for n in nodes["items"]:
-    if any(t.get("key") == "nvidia.com/gpu" for t in n["spec"].get("taints") or []):
+    # The collector tolerates nothing, so a node it cannot schedule onto offers it no CPU, the GPU nodes included.
+    ready = any(c.get("type") == "Ready" and c.get("status") == "True" for c in n["status"].get("conditions") or [])
+    blocked = any(t.get("effect") in ("NoSchedule", "NoExecute") for t in n["spec"].get("taints") or [])
+    if n["spec"].get("unschedulable") or not ready or blocked:
         continue
     name = n["metadata"]["name"]
     free[name] = milli(n["status"]["allocatable"]["cpu"]) - used.get(name, 0)
