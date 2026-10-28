@@ -108,14 +108,16 @@ def write_job(root: Path, dirname: str, arm: str, scale: float = 1.0) -> Path:
     command = ["sh", "-c", "mpirun ... all_reduce_perf " + " ".join(analyze.NCCLTESTS_FLAGS) + " "]
     (path / "mltrainingjob.json").write_text(json.dumps({"spec": {"command": command}}))
     (path / "final-mltj.json").write_text(json.dumps({"status": {"phase": "Succeeded"}}))
-    (path / "final-job.json").write_text(json.dumps({"metadata": {"uid": "job-uid"}}))
+    # Each job is its own execution, as the cluster names them; job "a", which most tests edit, keeps the short names.
+    suffix = "" if dirname == "a" else f"-{dirname}"
+    (path / "final-job.json").write_text(json.dumps({"metadata": {"uid": "job-uid" + suffix}}))
     usage = [{"count": pods, "resourceUsage": {"nvidia.com/gpu": "4"}}]
     (path / "final-workloads.json").write_text(json.dumps({"items": [
-        {"metadata": {"ownerReferences": [{"uid": "job-uid"}]}, "status": {"admission": {"podSetAssignments": usage}}}]}))
+        {"metadata": {"ownerReferences": [{"uid": "job-uid" + suffix}]}, "status": {"admission": {"podSetAssignments": usage}}}]}))
     samples = []
     ddp = arm.startswith("ddp-")
     for p in range(pods):
-        uid = f"pod-uid-{p}"
+        uid = f"pod-uid-{p}{suffix}"
         host = f"{name}-{p}" if pods > 1 else name
         samples.append({"uid": uid, "name": host + "-x", "index": str(p) if pods > 1 else None, "node": NODE})
         if arm.startswith("nccltests-"):
@@ -532,6 +534,17 @@ class Score(Base):
         self.assertIn("(smoke, not counted)", text)
         # Five values, without the smoke job's 10.00, which a counted smoke would add as a sixth.
         self.assertIn("allreduce-1pod4gpu    1 MiB: 20.30 [20.10, 20.20, 20.30, 20.40, 20.50]", text)
+
+    def test_one_execution_copied_into_five_repetitions_fails(self):
+        # codex's case: a valid smoke job copied unchanged over each registered job of its arm read as five repetitions.
+        self.build()
+        smoke = self.root / "jobs" / "00-smoke-ddp-1pod4gpu"
+        for rep in sorted((self.root / "jobs").glob("*-ddp-1pod4gpu-*")):
+            shutil.rmtree(rep)
+            shutil.copytree(smoke, rep)
+        code, text = self.run_score()
+        self.assertEqual(code, 1, text)
+        self.assertIn("shares its run id c-00-smoke-ddp-1pod4gpu with 00-smoke-ddp-1pod4gpu", text)
 
     def test_an_invalid_smoke_job_fails_the_run(self):
         # The registration stops the run at the first invalid smoke job, so an archive holding one is not a pass,

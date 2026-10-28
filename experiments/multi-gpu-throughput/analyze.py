@@ -92,6 +92,8 @@ class Job:
         self.transports: dict[int, list[str]] = {}
         self.stack_env: dict[str, str] = {}
         self.uuids: dict[int, str] = {}
+        self.job_uid = ""
+        self.pod_uids: set[str] = set()
 
     def fault(self, text: str) -> None:
         self.faults.append(text)
@@ -148,6 +150,8 @@ def check_platform(job: Job, pods: dict, node: str | None) -> None:
     final_job = read_json(job.path / "final-job.json")
     wls = read_json(job.path / "final-workloads.json")
     uid = ((final_job or {}).get("metadata") or {}).get("uid")
+    job.job_uid = uid or ""
+    job.pod_uids = set(pods)
     if not uid or wls is None:
         job.fault("the Job or the Workloads were not saved, so admission cannot be read")
         return
@@ -524,6 +528,19 @@ def score(evidence: Path, bench_sha: str, step_sha: str) -> int:
         if len(arm_smokes) != 1 or not arm_smokes[0].valid:
             print(f"INVALID {arm}: {len(arm_smokes)} smoke job(s), {sum(j.valid for j in arm_smokes)} valid, want 1 valid")
             ok = False
+    # Five repetitions are five executions: one archive copied into five directories would otherwise read as five.
+    for label, key in (("run id", lambda j: [j.name]), ("Job UID", lambda j: [j.job_uid]),
+                       ("Pod UID", lambda j: sorted(j.pod_uids))):
+        seen: dict[str, str] = {}
+        for job, _ in jobs:
+            for value in key(job):
+                if not value:
+                    continue
+                if value in seen:
+                    print(f"INVALID {job.path.name} shares its {label} {value} with {seen[value]}")
+                    ok = False
+                else:
+                    seen[value] = job.path.name
     counted = {arm: [j for j, c in jobs if c and j.arm == arm] for arm in ARMS}
     for arm, arm_jobs in counted.items():
         if len(arm_jobs) != REPS:
