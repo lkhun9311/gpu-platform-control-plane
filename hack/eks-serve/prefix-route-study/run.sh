@@ -30,6 +30,8 @@ STUDY_ID=prefix-route-2026-10-27
 NS=prefix-route
 ENGINES=(qwen-a qwen-b)
 COLLECTOR_NS=prefix-route-collector
+# shellcheck source=hack/eks-serve/prefix-route-study/collector.env
+. "$HERE/collector.env"
 COLLECTOR_IMAGE="busybox@sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e"
 MODEL=Qwen/Qwen2.5-3B-Instruct
 # The registered blocks and, per block, the Latin-square arm order (design page, "Each cell"; score.py's ORDER).
@@ -205,7 +207,7 @@ spec:
       image: $COLLECTOR_IMAGE
       command: ["sleep", "86400"]
       resources:
-        requests: {cpu: "1", memory: 1Gi}
+        requests: {cpu: "${COLLECTOR_CPU_M}m", memory: 1Gi}
         limits: {cpu: "1", memory: 1Gi}
 EOF
 if ! k -n "$COLLECTOR_NS" wait --for=condition=Ready pod/collector --timeout=300s >>"$OUT/run.log" 2>&1; then

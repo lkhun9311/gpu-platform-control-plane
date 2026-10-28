@@ -937,6 +937,40 @@ prefix_run() {
   [[ "$vcpu" =~ ^[1-9][0-9]*$ ]] || { bad "P2: could not read $TRAIN_INSTANCE_TYPE's default vCPU: ${vcpu:0:200}"; return 1; }
   why="$(train_quota_gate "$REGION" $((vcpu * PREFIX_NODES)))" || { bad "P2: $why"; return 1; }
   ok "P2: $why"
+  # P4: the collector runs on a CPU node and was the first thing run 1 of 2026-10-28 could not start, after two GPUs had
+  # been bought; whether a CPU node has room for it is known before any GPU is, so it is asked here.
+  # shellcheck source=hack/eks-serve/prefix-route-study/collector.env
+  . hack/eks-serve/prefix-route-study/collector.env
+  why="$( (kc get nodes -o json && echo '---' && kc get pods -A -o json) 2>&1 | python3 -c '
+import json, sys
+text = sys.stdin.read()
+if "\n---\n" not in text:
+    sys.exit("could not read the nodes and Pods: " + text[:300])
+nodes, pods = (json.loads(part) for part in text.split("\n---\n", 1))
+def milli(q):
+    q = str(q)
+    return int(q[:-1]) if q.endswith("m") else int(float(q) * 1000)
+used = {}
+for p in pods["items"]:
+    if p["status"].get("phase") in ("Succeeded", "Failed") or not p["spec"].get("nodeName"):
+        continue
+    req = sum(milli(c.get("resources", {}).get("requests", {}).get("cpu", "0")) for c in p["spec"]["containers"])
+    init = max([milli(c.get("resources", {}).get("requests", {}).get("cpu", "0")) for c in p["spec"].get("initContainers", [])] or [0])
+    used[p["spec"]["nodeName"]] = used.get(p["spec"]["nodeName"], 0) + max(req, init)
+need = int(sys.argv[1])
+free = {}
+for n in nodes["items"]:
+    if any(t.get("key") == "nvidia.com/gpu" for t in n["spec"].get("taints") or []):
+        continue
+    name = n["metadata"]["name"]
+    free[name] = milli(n["status"]["allocatable"]["cpu"]) - used.get(name, 0)
+report = ", ".join(f"{k} {v}m unrequested" for k, v in sorted(free.items())) or "no CPU node"
+if not any(v >= need for v in free.values()):
+    sys.exit(f"the collector requests {need}m and no CPU node has it: {report}")
+print(f"the collector requests {need}m: {report}")
+' "$COLLECTOR_CPU_M" 2>&1)" || { bad "P4: $why"; return 1; }
+  ok "P4: $why"
+  printf '%s\n' "$why" >"$EXDIR/prefix-route-study/cpu-capacity.txt"
   # The AWS deadline fires before the laptop watchdog, so the nodes are the first thing to go whichever clock wins,
   # and it must leave the study its whole budget.
   left_min=$(((KILL_AT - $(date +%s)) / 60))
