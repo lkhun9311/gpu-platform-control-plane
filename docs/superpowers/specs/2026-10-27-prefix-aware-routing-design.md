@@ -357,7 +357,7 @@ It changes what a stop records and nothing the study does when the collector is 
 **Two more changes, found after run 1 by a whole-project audit (Claude `fable`, 2026-10-28) and re-derived here; without them run 2 would very likely have stopped at its first cell.**
 First, each cell read the engine's `non-default args` line with `kubectl logs | grep -m1` under `pipefail`: grep exits at the match, the next write takes SIGPIPE, and the pipeline fails although the line was there.
 An engine log of this profile is 59,494 bytes with the line at its seventh (`hack/mps-capability/2026-10-24-run2/m5c-run/mpscap/diag/logs-engines-m5c-a.txt`); streamed in two writes around the match it failed the same pipeline here, and the kind rehearsal passed only because a stub engine's log arrives in one write.
-`run.sh` now saves each engine's log in the cell directory (`engine-a.log`, `engine-b.log`) and greps the file.
+`run.sh` now saves each engine's log in the cell directory (`engine-$f.log`, for engines a and b) and greps the file.
 Second, cell 1 was the engines' first start on both new nodes, and a cell gives its fresh engines at most 600 s and its replay only until 1,200 s; one node's first start took 451 to 493 s in the hold-cap sessions, two nodes now pull the 9.1 GiB image through one NAT gateway, and a start past about 510 s fails the cell, which stops the study.
 `run.sh` now waits for both engines' first start before any cell, for at most `FIRST_START` = 1,500 s, and stops if they do not start; every cell still replaces both engines, so none starts warm.
 The session budgets those 1,500 s, so the TTL must be **at least 440 minutes**, not 415, and the session refuses 439 (`check-train-session-refusals.sh`; with the budget reverted that check fails).
