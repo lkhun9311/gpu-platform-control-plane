@@ -95,13 +95,16 @@ EOF
 for t in torchrun python mpirun; do printf '#!/bin/sh\necho "STUB %s $*"\n' "$t" >"$work/bin/$t"; done
 # topo -m underlines its header as the paid session of 2026-10-27 captured it, with no terminal attached; the
 # plain header this stub printed before is what let a scorer that could not read the real one pass here.
+# The bus IDs and the topo -p2p r matrix are run 2's capture (hack/four-gpu/2026-10-27-run2/c/qualification): one bus,
+# 00, and devices 1B to 1E, where this stub had put the cards on buses 1B to 1E.
 cat >"$work/bin/nvidia-smi" <<'EOF'
 #!/bin/sh
 n="${STUB_GPUS:-4}"
 case "$*" in
   -L) i=0; while [ "$i" -lt "$n" ]; do echo "GPU $i: NVIDIA A10G (UUID: GPU-5c1d5a84-0000-0000-0000-00000000000$i)"; i=$((i + 1)); done ;;
-  --query-gpu*) i=0; while [ "$i" -lt "$n" ]; do echo "$i, GPU-5c1d5a84-0000-0000-0000-00000000000$i, 00000000:1$((i + 11)):00.0, 550.127.05"; i=$((i + 1)); done ;;
+  --query-gpu*) i=0; while [ "$i" -lt "$n" ]; do echo "$i, GPU-5c1d5a84-0000-0000-0000-00000000000$i, 00000000:00:1$(printf %X $((i + 11))).0, 580.178.04"; i=$((i + 1)); done ;;
   "topo -m") printf '\t\033[4mGPU0\tGPU1\tGPU2\tGPU3\tCPU Affinity\tNUMA Affinity\tGPU NUMA ID\033[0m\nGPU0\t X \tPHB\tPHB\tPHB\t0-47\nGPU1\tPHB\t X \tPHB\tPHB\t0-47\nGPU2\tPHB\tPHB\t X \tPHB\t0-47\nGPU3\tPHB\tPHB\tPHB\t X \t0-47\n' ;;
+  "topo -p2p r") printf ' \t\033[4mGPU0\tGPU1\tGPU2\tGPU3\t\033[0m\n GPU0\tX\tNS\tNS\tNS\t\n GPU1\tNS\tX\tNS\tNS\t\n GPU2\tNS\tNS\tX\tNS\t\n GPU3\tNS\tNS\tNS\tX\t\n' ;;
   *) echo "stub nvidia-smi $*" ;;
 esac
 EOF

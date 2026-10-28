@@ -108,14 +108,16 @@ def write_job(root: Path, dirname: str, arm: str, scale: float = 1.0) -> Path:
     command = ["sh", "-c", "mpirun ... all_reduce_perf " + " ".join(analyze.NCCLTESTS_FLAGS) + " "]
     (path / "mltrainingjob.json").write_text(json.dumps({"spec": {"command": command}}))
     (path / "final-mltj.json").write_text(json.dumps({"status": {"phase": "Succeeded"}}))
-    (path / "final-job.json").write_text(json.dumps({"metadata": {"uid": "job-uid"}}))
+    # Each job is its own execution, as the cluster names them; job "a", which most tests edit, keeps the short names.
+    suffix = "" if dirname == "a" else f"-{dirname}"
+    (path / "final-job.json").write_text(json.dumps({"metadata": {"uid": "job-uid" + suffix}}))
     usage = [{"count": pods, "resourceUsage": {"nvidia.com/gpu": "4"}}]
     (path / "final-workloads.json").write_text(json.dumps({"items": [
-        {"metadata": {"ownerReferences": [{"uid": "job-uid"}]}, "status": {"admission": {"podSetAssignments": usage}}}]}))
+        {"metadata": {"ownerReferences": [{"uid": "job-uid" + suffix}]}, "status": {"admission": {"podSetAssignments": usage}}}]}))
     samples = []
     ddp = arm.startswith("ddp-")
     for p in range(pods):
-        uid = f"pod-uid-{p}"
+        uid = f"pod-uid-{p}{suffix}"
         host = f"{name}-{p}" if pods > 1 else name
         samples.append({"uid": uid, "name": host + "-x", "index": str(p) if pods > 1 else None, "node": NODE})
         if arm.startswith("nccltests-"):
@@ -341,6 +343,19 @@ class Correctness(Base):
         edit_records(path, "pod-uid-0", lambda r: {**r, "iterations": 20} if r["event"] == "start" else r)
         self.assertFault(path, "not the registered")
 
+    def test_a_size_recorded_twice(self):
+        path = write_job(self.root, "a", "allreduce-1pod4gpu")
+
+        def twice(lines):
+            out = []
+            for x in lines:
+                out.append(x)
+                if x.startswith("{") and '"size_bytes": 1048576' in x and '"rank": 2' in x:
+                    out.append(x.replace('"verified": true', '"verified": false'))
+            return out
+        edit_log(path, "pod-uid-0", twice)
+        self.assertFault(path, "rank 2 recorded 6 size records for 5 sizes")
+
     def test_above_the_ceiling(self):
         path = write_job(self.root, "a", "allreduce-1pod4gpu", scale=6.5)
         self.assertFault(path, "above the 64 GB/s")
@@ -360,6 +375,11 @@ class Correctness(Base):
         path = write_job(self.root, "a", "ddp-1pod4gpu")
         edit_records(path, "pod-uid-0", lambda r: {**r, "synced_ms_median": float("nan")} if r["event"] == "steps" else r)
         self.assertFault(path, "synced_ms_median is nan, not a finite number")
+
+    def test_ddp_cost_that_is_not_the_difference(self):
+        path = write_job(self.root, "a", "ddp-4pod1gpu")
+        edit_records(path, "pod-uid-0", lambda r: {**r, "sync_cost_ms": 9999.0} if r["event"] == "steps" else r)
+        self.assertFault(path, "sync_cost_ms 9999.0 is not its synced")
 
     def test_ddp_negative_step_time(self):
         path = write_job(self.root, "a", "ddp-4pod1gpu")
@@ -390,6 +410,23 @@ class NcclTests(Base):
         path = write_job(self.root, "a", "nccltests-1pod4gpu")
         edit_log(path, "pod-uid-0", lambda lines: [x.replace("warmup iters: 20", "warmup iters: 5") for x in lines])
         self.assertFault(path, "not the registered settings")
+
+    def test_another_step_factor(self):
+        path = write_job(self.root, "a", "nccltests-1pod4gpu")
+        edit_log(path, "pod-uid-0", lambda lines: [x.replace("step: 4(factor)", "step: 2(factor)") for x in lines])
+        self.assertFault(path, "not the registered settings")
+
+    def test_a_failing_row_followed_by_a_passing_one(self):
+        # A dictionary by size kept the last row, so the failing first row was never read.
+        path = write_job(self.root, "a", "nccltests-1pod4gpu")
+
+        def duplicate(lines):
+            first = next(x for x in lines if analyze.NT_ROW.match(x))
+            failing = first.replace("      0  1234.5", "      7  1234.5", 1)
+            i = lines.index(first)
+            return lines[:i] + [failing] + lines[i:]
+        edit_log(path, "pod-uid-0", duplicate)
+        self.assertFault(path, "result rows for 5 sizes")
 
     def test_two_ranks_on_one_bus(self):
         path = write_job(self.root, "a", "nccltests-1pod4gpu")
@@ -441,33 +478,50 @@ class CapturedJob(unittest.TestCase):
 
 
 class Qualification(Base):
-    def write(self, extra: list[str] | None = None, drop: str | None = None) -> Path:
+    # Run 2's qualification log as captured, escapes and all: the fixture this class used before was written from
+    # an idea of nvidia-smi's output, and both of the qualification's defects hid behind it.
+    CAPTURE = Path(__file__).resolve().parents[2] / "hack/four-gpu/2026-10-27-run2/c/qualification/qualification.log"
+
+    def write(self, extra: list[str] | None = None, drop: str | None = None, change=None) -> Path:
         path = self.root / "qualification"
         path.mkdir(exist_ok=True)
-        lines = [f"GPU {i}: NVIDIA A10G (UUID: GPU-{UUIDS[i]})" for i in range(4)]
-        lines += [f"AR_GPU {i}, GPU-{UUIDS[i]}, 00000000:00:{DEVICES[i]:02X}.0, 550.127.05" for i in range(4)]
-        lines += ["\tGPU0\tGPU1\tGPU2\tGPU3\tCPU Affinity\tNUMA Affinity",
-                  *[f"GPU{i}\t X \tPHB\tPHB\tPHB\t0-47\t0" for i in range(4)], "AR_SHM_KB 1048576"]
+        lines = Qualification.CAPTURE.read_text().splitlines()
         lines = [x for x in lines if not (drop and drop in x)] + (extra or [])
+        if change:
+            lines = change(lines)
         (path / "qualification.log").write_text("\n".join(lines) + "\n")
         return path
 
-    def test_valid(self):
+    def test_the_capture_with_its_underlined_headers(self):
+        # nvidia-smi underlined both matrices' headers with ANSI escapes although no terminal was attached, and a
+        # scorer that read only the plain form voided the paid session of 2026-10-27.
+        self.assertIn("\x1b[4mGPU0", self.CAPTURE.read_text())
         self.assertEqual(analyze.judge_qualification(self.write()), [])
 
     def test_three_cards(self):
         self.assertTrue(analyze.judge_qualification(self.write(drop="GPU 3: NVIDIA")))
 
-    def test_no_topology(self):
-        self.assertTrue(analyze.judge_qualification(self.write(drop="GPU3\t X")))
+    def test_no_topology_row(self):
+        self.assertIn("GPU3's row", "".join(analyze.judge_qualification(self.write(drop="GPU3\tPHB\tPHB\tPHB\t X"))))
 
-    def test_the_header_nvidia_smi_underlines(self):
-        # The header exactly as the paid session of 2026-10-27 captured it: nvidia-smi underlined it with ANSI
-        # escapes although no terminal was attached, and a scorer that read only the plain form voided that run.
-        path = self.write(drop="\tGPU0\tGPU1")
-        log = path / "qualification.log"
-        log.write_text("\t\x1b[4mGPU0\tGPU1\tGPU2\tGPU3\tCPU Affinity\tNUMA Affinity\tGPU NUMA ID\x1b[0m\n" + log.read_text())
-        self.assertEqual(analyze.judge_qualification(path), [])
+    def test_the_topo_m_header_is_not_stood_in_for_by_the_p2p_one(self):
+        faults = analyze.judge_qualification(self.write(drop="CPU Affinity\tNUMA Affinity"))
+        self.assertIn("nvidia-smi topo -m printed no complete 4 x 4 GPU matrix: no GPU0 to GPU3 header", faults)
+
+    def test_row_labels_without_values(self):
+        faults = analyze.judge_qualification(self.write(change=lambda lines: [
+            x.split("\t")[0] if x.startswith("GPU") and "\t" in x else x for x in lines]))
+        self.assertIn("nvidia-smi topo -m printed no complete 4 x 4 GPU matrix: GPU0's row is missing or short", faults)
+
+    def test_no_p2p_section(self):
+        faults = analyze.judge_qualification(self.write(change=lambda lines: lines[:lines.index("== nvidia-smi topo -p2p r")]
+                                                        + lines[lines.index("== nvidia-smi -q"):]))
+        self.assertIn("nvidia-smi topo -p2p r printed no complete 4 x 4 GPU matrix: the section is missing", faults)
+
+    def test_a_value_outside_the_legend(self):
+        faults = analyze.judge_qualification(self.write(change=lambda lines: [
+            x.replace(" GPU1\tNS\tX", " GPU1\t??\tX") for x in lines]))
+        self.assertIn("nvidia-smi topo -p2p r printed no complete 4 x 4 GPU matrix: GPU1 to GPU0 reads '??'", faults)
 
     def test_small_shared_memory(self):
         path = self.write(drop="AR_SHM_KB")
@@ -532,6 +586,17 @@ class Score(Base):
         self.assertIn("(smoke, not counted)", text)
         # Five values, without the smoke job's 10.00, which a counted smoke would add as a sixth.
         self.assertIn("allreduce-1pod4gpu    1 MiB: 20.30 [20.10, 20.20, 20.30, 20.40, 20.50]", text)
+
+    def test_one_execution_copied_into_five_repetitions_fails(self):
+        # codex's case: a valid smoke job copied unchanged over each registered job of its arm read as five repetitions.
+        self.build()
+        smoke = self.root / "jobs" / "00-smoke-ddp-1pod4gpu"
+        for rep in sorted((self.root / "jobs").glob("*-ddp-1pod4gpu-*")):
+            shutil.rmtree(rep)
+            shutil.copytree(smoke, rep)
+        code, text = self.run_score()
+        self.assertEqual(code, 1, text)
+        self.assertIn("shares its run id c-00-smoke-ddp-1pod4gpu with 00-smoke-ddp-1pod4gpu", text)
 
     def test_an_invalid_smoke_job_fails_the_run(self):
         # The registration stops the run at the first invalid smoke job, so an archive holding one is not a pass,

@@ -92,6 +92,8 @@ class Job:
         self.transports: dict[int, list[str]] = {}
         self.stack_env: dict[str, str] = {}
         self.uuids: dict[int, str] = {}
+        self.job_uid = ""
+        self.pod_uids: set[str] = set()
 
     def fault(self, text: str) -> None:
         self.faults.append(text)
@@ -148,6 +150,8 @@ def check_platform(job: Job, pods: dict, node: str | None) -> None:
     final_job = read_json(job.path / "final-job.json")
     wls = read_json(job.path / "final-workloads.json")
     uid = ((final_job or {}).get("metadata") or {}).get("uid")
+    job.job_uid = uid or ""
+    job.pod_uids = set(pods)
     if not uid or wls is None:
         job.fault("the Job or the Workloads were not saved, so admission cannot be read")
         return
@@ -311,7 +315,10 @@ def check_allreduce_records(job: Job, starts: dict, by_rank: dict) -> None:
                       f"{start.get('sizes')}, not the registered {WARMUP}, {ITERS} and {list(SIZES)}")
     figures = {}
     for rank in range(RANKS):
-        sizes = {r.get("size_bytes"): r for r in by_rank.get(rank, []) if r.get("event") == "size"}
+        size_records = [r for r in by_rank.get(rank, []) if r.get("event") == "size"]
+        sizes = {r.get("size_bytes"): r for r in size_records}
+        if len(size_records) != len(sizes):
+            job.fault(f"rank {rank} recorded {len(size_records)} size records for {len(sizes)} sizes")
         if tuple(sorted(sizes)) != SIZES:
             job.fault(f"rank {rank} recorded sizes {sorted(sizes)}, want {list(SIZES)}")
             continue
@@ -359,6 +366,13 @@ def check_step_records(job: Job, starts: dict, by_rank: dict) -> None:
                 job.fault(f"rank 0's {k} is {value!r}, not a finite number")
             elif k != "sync_cost_ms" and value <= 0:
                 job.fault(f"rank 0's {k} is {value!r}, not a positive time")
+        # The bench writes the cost as the difference of the two medians, so a record where it is not is not the bench's.
+        f = job.figures
+        if all(isinstance(f.get(k), (int, float)) and math.isfinite(f[k]) for k in ("synced_ms_median", "local_ms_median",
+                                                                                 "sync_cost_ms")):
+            if abs(f["sync_cost_ms"] - (f["synced_ms_median"] - f["local_ms_median"])) > 1e-6 * max(1.0, f["synced_ms_median"]):
+                job.fault(f"rank 0's sync_cost_ms {f['sync_cost_ms']} is not its synced {f['synced_ms_median']} less its "
+                          f"local {f['local_ms_median']}")
 
 
 def check_nccltests_job(job: Job, pods: dict, logs: dict) -> None:
@@ -380,8 +394,10 @@ def check_nccltests_job(job: Job, pods: dict, logs: dict) -> None:
     header = next((m for m in (NT_HEADER.match(line) for line in lines) if m), None)
     if not header:
         job.fault("nccl-tests printed no settings header")
+    # Every field the header prints is compared, the factor and aggregation included, as run 2 captured them.
     elif (int(header["warmup"]), int(header["iters"]), int(header["min"]), int(header["max"]), int(header["check"]),
-          int(header["gpus"]), int(header["threads"])) != (WARMUP, ITERS, SIZES[0], SIZES[-1], 1, 1, 1):
+          int(header["gpus"]), int(header["threads"]), int(header["step"]), int(header["agg"]), int(header["graph"])) != (
+              WARMUP, ITERS, SIZES[0], SIZES[-1], 1, 1, 1, 4, 1, 0):
         job.fault(f"nccl-tests ran {header.group(0)!r}, not the registered settings")
     ranks = [m for m in (NT_RANK.match(line) for line in lines) if m]
     if sorted(int(m["rank"]) for m in ranks) != list(range(RANKS)):
@@ -409,7 +425,11 @@ def check_nccltests_job(job: Job, pods: dict, logs: dict) -> None:
     for rank in range(RANKS):
         if not job.transports.get(rank):
             job.fault(f"rank {rank}'s process logged no channel transport")
-    rows = {int(m["size"]): m for m in (NT_ROW.match(line) for line in lines) if m}
+    matched = [m for m in (NT_ROW.match(line) for line in lines) if m]
+    # A dictionary keeps the last row of a size, so a failing row followed by a passing one would read as passing.
+    if len(matched) != len({int(m["size"]) for m in matched}):
+        job.fault(f"nccl-tests printed {len(matched)} result rows for {len({int(m['size']) for m in matched})} sizes")
+    rows = {int(m["size"]): m for m in matched}
     if tuple(sorted(rows)) != SIZES:
         job.fault(f"nccl-tests printed sizes {sorted(rows)}, want {list(SIZES)}")
     figures = {}
@@ -456,6 +476,39 @@ def judge_job(path: Path, bench_sha: str, step_sha: str, node: str | None) -> Jo
     return job
 
 
+# The values each matrix's legend defines, as nvidia-smi 580.178.04 printed them on run 2's node; X is the diagonal.
+TOPO_M_CELLS = re.compile(r"^(PHB|PIX|PXB|NODE|SYS|NV\d+)$")
+TOPO_P2P_CELLS = re.compile(r"^(OK|NS|CNS|GNS|TNS|U)$")
+
+
+def section(lines: list[str], marker: str) -> list[str]:
+    """The lines after the qualification script's marker, up to the next marker."""
+    if marker not in lines:
+        return []
+    rest = lines[lines.index(marker) + 1:]
+    end = next((i for i, x in enumerate(rest) if x.startswith("== ")), len(rest))
+    return rest[:end]
+
+
+def topology_problem(lines: list[str], cells: re.Pattern) -> str:
+    """Empty if lines hold a GPU0 to GPU3 header and four full rows, X on the diagonal and legend values elsewhere."""
+    if not lines:
+        return "the section is missing"
+    names = [f"GPU{i}" for i in range(RANKS)]
+    if not any(x.split()[:RANKS] == names for x in lines):
+        return "no GPU0 to GPU3 header"
+    # The header begins with GPU0 too, so it is set aside before GPU0's row is looked for.
+    body = [x.split() for x in lines if x.split()[:RANKS] != names]
+    for i in range(RANKS):
+        row = [x for x in body if x[:1] == [f"GPU{i}"]]
+        if len(row) != 1 or len(row[0]) < RANKS + 1:
+            return f"GPU{i}'s row is missing or short"
+        for j, value in enumerate(row[0][1:RANKS + 1]):
+            if (value != "X") if i == j else not cells.match(value):
+                return f"GPU{i} to GPU{j} reads {value!r}"
+    return ""
+
+
 def judge_qualification(path: Path) -> list[str]:
     """Q: four distinct UUIDs, a driver version, a 4 x 4 topology among the GPUs, and /dev/shm of 1 GiB."""
     faults = []
@@ -472,10 +525,12 @@ def judge_qualification(path: Path) -> list[str]:
     drivers = {m["driver"] for m in (GPU_LINE.match(x) for x in lines) if m}
     if len(drivers) != 1:
         faults.append(f"driver versions {sorted(drivers)}, want exactly one")
-    header = next((x for x in lines if re.match(r"^\s*GPU0\s+GPU1\s+GPU2\s+GPU3\b", x)), None)
-    rows = [x for x in lines if re.match(r"^GPU[0-3]\s", x)]
-    if header is None or len({x.split()[0] for x in rows}) != RANKS:
-        faults.append("nvidia-smi topo -m printed no 4 x 4 GPU matrix")
+    # The two matrices are read from their own sections: their headers have the same shape, so a search of the
+    # whole log let one stand in for the other, and four row labels with no values passed as a matrix.
+    for command, legend in (("topo -m", TOPO_M_CELLS), ("topo -p2p r", TOPO_P2P_CELLS)):
+        problem = topology_problem(section(lines, f"== nvidia-smi {command}"), legend)
+        if problem:
+            faults.append(f"nvidia-smi {command} printed no complete 4 x 4 GPU matrix: {problem}")
     shm = [x.split()[1] for x in lines if x.startswith("AR_SHM_KB ")]
     if len(shm) != 1 or not shm[0].isdigit() or int(shm[0]) < SHM_MIN_KB:
         faults.append(f"/dev/shm reported {shm}, want at least {SHM_MIN_KB} KiB")
@@ -524,6 +579,19 @@ def score(evidence: Path, bench_sha: str, step_sha: str) -> int:
         if len(arm_smokes) != 1 or not arm_smokes[0].valid:
             print(f"INVALID {arm}: {len(arm_smokes)} smoke job(s), {sum(j.valid for j in arm_smokes)} valid, want 1 valid")
             ok = False
+    # Five repetitions are five executions: one archive copied into five directories would otherwise read as five.
+    for label, key in (("run id", lambda j: [j.name]), ("Job UID", lambda j: [j.job_uid]),
+                       ("Pod UID", lambda j: sorted(j.pod_uids))):
+        seen: dict[str, str] = {}
+        for job, _ in jobs:
+            for value in key(job):
+                if not value:
+                    continue
+                if value in seen:
+                    print(f"INVALID {job.path.name} shares its {label} {value} with {seen[value]}")
+                    ok = False
+                else:
+                    seen[value] = job.path.name
     counted = {arm: [j for j, c in jobs if c and j.arm == arm] for arm in ARMS}
     for arm, arm_jobs in counted.items():
         if len(arm_jobs) != REPS:
