@@ -1,0 +1,20 @@
+2026-10-27T23:46:26.695370487Z  study prefix-route-2026-10-27 on gpu-platform; tooling at 1b4a8c0727d08c2bc8f3899ca0c65a9d8a1f43ba, dirty files 0
+2026-10-27T23:46:27.60702099Z  building the harness
+2026-10-27T23:46:28.550857058Z  traces
+wrote 485 trace rows to /home/lkhun9311/workspace/gpu-cp-a-run1/ex/eks-session-20261027T232851Z/prefix-route-study/traces/shared-941.jsonl and manifest /home/lkhun9311/workspace/gpu-cp-a-run1/ex/eks-session-20261027T232851Z/prefix-route-study/traces/shared-941.manifest.yaml (arm=RoundRobin)
+wrote 482 trace rows to /home/lkhun9311/workspace/gpu-cp-a-run1/ex/eks-session-20261027T232851Z/prefix-route-study/traces/shared-942.jsonl and manifest /home/lkhun9311/workspace/gpu-cp-a-run1/ex/eks-session-20261027T232851Z/prefix-route-study/traces/shared-942.manifest.yaml (arm=RoundRobin)
+wrote 521 trace rows to /home/lkhun9311/workspace/gpu-cp-a-run1/ex/eks-session-20261027T232851Z/prefix-route-study/traces/shared-943.jsonl and manifest /home/lkhun9311/workspace/gpu-cp-a-run1/ex/eks-session-20261027T232851Z/prefix-route-study/traces/shared-943.manifest.yaml (arm=RoundRobin)
+wrote 491 trace rows to /home/lkhun9311/workspace/gpu-cp-a-run1/ex/eks-session-20261027T232851Z/prefix-route-study/traces/control-944.jsonl and manifest /home/lkhun9311/workspace/gpu-cp-a-run1/ex/eks-session-20261027T232851Z/prefix-route-study/traces/control-944.manifest.yaml (arm=RoundRobin)
+2026-10-27T23:46:28.585705656Z  study objects
+namespace/prefix-route created
+gpuquotapolicy.platform.lkhun9311.github.io/prefix-study-premium created
+Error from server (NotFound): inferencedeployments.platform.lkhun9311.github.io "qwen-a" not found
+inferencedeployment.platform.lkhun9311.github.io/qwen-a created
+Error from server (NotFound): inferencedeployments.platform.lkhun9311.github.io "qwen-b" not found
+inferencedeployment.platform.lkhun9311.github.io/qwen-b created
+secret/gateway-api-keys patched
+2026-10-27T23:46:37.251861487Z  collector
+namespace/prefix-route-collector created
+pod/collector created
+error: timed out waiting for the condition on pods/collector
+2026-10-27T23:51:39.55195820Z  STOP: collector not Ready

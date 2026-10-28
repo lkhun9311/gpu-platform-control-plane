@@ -6,6 +6,7 @@ Until this line, the status said: "registered as v2, built, rehearsed on kind en
 v1 of this page was attacked cold by codex `gpt-6-astra` before the build was finished (13 findings: 1 blocker, 9 major, 3 minor); every finding was re-derived and answered in "The cold attack and what changed" at the end, and v2 below is the result.
 The seeds, the four trace checksums and the bytes every request sends are frozen in "Frozen traces", and a test fails if the generator ever produces anything else.
 The page became frozen for purchase only at the commit carrying the line above, as C3's did; the owner's approval quoted there is the basis for buying one session, and nothing in this page is.
+**Status, 2026-10-28: run 1 STOPPED before its first cell, because the collector Pod never became Ready; no cell ran, nothing was scored and no number below is a result.** "Run 1" and "Amendment for run 2", at the end, say what is known of the stop and what a second attempt changes.
 
 ## The question
 
@@ -325,3 +326,29 @@ astra attacked v1 cold (`data/2026-10-27-prefix-aware-routing/astra-a-prompt.txt
 | 11 | minor | two standard deviations is not exactly 95% | yes: exact coverage 0.954 to 0.956 on the frozen traces | **adopted**: labelled a convention, exact coverage published |
 | 12 | minor | prefix caching had been run before, in `config/vllm/deployment.yaml` | yes: lines 93 to 99 | **adopted**: sentence corrected, and the measurement now supports the TTFT prediction |
 | 13 | minor | checksums, predictor and bounds were placeholders | yes, at v1 | **adopted**: filled above from the committed generator and scripts |
+
+## Run 1, 2026-10-28: STOPPED before its first cell, the collector Pod not Ready
+
+**What ran.** The command in "How to buy it, once approved", from a clean worktree at `main` `1b4a8c07`, started 23:28:51Z on 2026-10-27, after the four-GPU session had torn down and every residue query had come back empty; the owner approved paid sessions on 2026-10-28 ("유료 실행 승인").
+`main` had moved since this page's freeze, by the four-GPU and GPU-fault work: a dcgm-exporter toleration for the GPU-fault taint, which no node here carried, GPU-fault scoring and tests, the four-GPU scorer, and the operator's and gateway's images rebuilt by CI; nothing this study renders, sends or scores changed.
+Every check before the purchase passed: P1 at $1.237 an hour against the $1.40 ceiling, P2 (0 in use plus 8 within 52), the GPU deadline armed for 393 minutes, and P3 with both nodes joined.
+The study wrote the four traces, created the namespace, the quota policy, `qwen-a` and `qwen-b` and the study key, and then created the collector Pod.
+
+**What failed.** `kubectl wait --for=condition=Ready pod/collector --timeout=300s` timed out, and the runner stopped with "collector not Ready" at 23:51:39Z; no engine was warmed and no cell started.
+**The cause is not known.** The runner recorded only the timeout, and the cluster was destroyed eight minutes later.
+The Pod is the hold-cap study's collector byte for byte: the same busybox digest, one CPU and 1 GiB requested, no node selector and no toleration, so it can only run on a CPU node, the GPU nodes carrying `nvidia.com/gpu:NoSchedule`; that Pod was Running in all three hold-cap sessions (`hack/eks-serve/holdcap-study/runs/*/holdcap-study/collector-pod.json`), where the GPU node carried the same taint (`gpu-node.json` of `20261021T021149Z`).
+A CPU shortfall on that node, an image pull and a failed container are each consistent with the record, and nothing in it decides between them.
+
+**Teardown.** Both GPU instances were launched at 23:45:19Z and terminated at 23:53:58Z (CloudTrail); the cluster's destroy finished at 00:10:44Z with every residue query answered and empty, and the watchdog was disarmed.
+**Cost, estimated, not billed:** 519 s of two g5.xlarge at $1.237 an hour, about $0.36, and about 41.5 minutes of the cluster at about $0.26 an hour, about $0.18.
+
+**Evidence:** `hack/prefix-route/2026-10-28-run1/`, listed in `SHA256SUMS`; `NOT-COMMITTED.sha256` holds the hashes of `terraform.log`, `seeded-key.txt`, `ttl.pid`, the study key `prefix-study-key.txt` and the 40 MB harness binary, which are not committed (the binary's hash equals the run's `benchharness.sha256`). `session-stdout.log` is the session's terminal output.
+
+## Amendment for run 2, 2026-10-28, proposed to the owner and not yet approved
+
+**What changes**, and only this: when the collector is not Ready, `run.sh` saves the Pod's description, its namespace's events and every node's description into the study directory before it stops (`collector-describe.txt`, `collector-events.txt`, `nodes-describe.txt`).
+A capture that fails keeps its error in its file and does not skip the stop or its scoring; exercised against a stub `kubectl` that fails the wait and two of the three captures, the block wrote `STOPPED`, and with the guards removed it did not.
+It changes what a stop records and nothing the study does when the collector is Ready.
+**What does not change:** everything above this section, the ceiling of $40 among it; run 1 spent about $0.54 of it.
+A run 2 that stops at the collector again is reported with its cause and is not repeated under this amendment; one that passes the collector runs as registered.
+**Run 2 is bought from `main` at the promotion that carries this section, once the owner approves this amendment.**

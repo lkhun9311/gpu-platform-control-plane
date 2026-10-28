@@ -1,0 +1,95 @@
+23:28:52Z  [session] API endpoint will admit 211.202.99.162/32 only
+23:28:52Z  [session] cluster gpu-platform does not exist
+23:28:53Z  [session] TTL kill switch armed: PID 2816477, fires in 420m, log /home/lkhun9311/workspace/gpu-cp-a-run1/ex/eks-session-20261027T232851Z/ttl-kill-switch.log
+23:28:53Z  [session] terraform init (cluster)
+23:29:16Z  [session] terraform apply (cluster) -- this is where the billing starts
+23:40:46Z  [session] cluster up in 690s
+23:40:49Z  [session] terraform init + apply (argo-bootstrap): the pinned argo-cd chart, installed by its own root
+   ok   Argo CD installed by its own Terraform root
+23:42:01Z  [session] runbook: apply
+2026-10-27T23:42:01.409562659Z  context: gpu-platform
+2026-10-27T23:42:01.833985685Z  applying config/argocd/root.yaml -- the step that was missing
+   ok   all 13 Applications this repository declares exist, 13 of them created by this run
+2026-10-27T23:42:53.471941541Z  root resolved revision: 1b4a8c0727d08c2bc8f3899ca0c65a9d8a1f43ba (targetRevision is the mutable branch main)
+2026-10-27T23:42:53.473702430Z  waiting for the automated Applications to reach Synced/Healthy
+   ok   every automated Application is Synced/Healthy, and every declared Application is still present
+2026-10-27T23:44:59.382167485Z  not waited on because they carry no automated syncPolicy, by design: gpu-platform-device-plugin gpu-platform-observability gpu-platform-samples gpu-platform-serving gpu-platform-training 
+   ok   runbook apply
+23:44:59Z  [session] runbook: seed-key
+2026-10-27T23:44:59.409185878Z  context: gpu-platform
+   ok   created gateway-api-keys with one key for tenant-a (recorded in seeded-key.txt)
+   ok   runbook seed-key
+23:45:00Z  [session] runbook: verify
+2026-10-27T23:45:00.165636355Z  context: gpu-platform
+2026-10-27T23:45:00.554635372Z  probing gateway-79d97ff856-jljn8 through a port-forward (the image is distroless, so exec cannot help)
+2026-10-27T23:45:01.82366342Z     forwarding 127.0.0.1:37601 -> 8080 and 127.0.0.1:38625 -> 8081
+2026-10-27T23:45:01.534790579Z     readyz=200  bad-key request=401  real-key request=403
+   ok   a bad key is refused with 401
+   ok   a key from the Secret is accepted and refused by tenant policy (403): authentication reached the key store. Not proof of serving
+   ok   runbook verify
+   ok   P1: g5.xlarge On-Demand in ap-northeast-2 at $1.2370000000 an hour, ceiling $1.40
+   ok   P2: G and VT On-Demand vCPU in use 0 (none) plus 8 fits the quota of 52.0
+[31m╷[0m[0m
+[31m│[0m [0m[1m[31mError: [0m[0m[1mBackend initialization required, please run "terraform init"[0m
+[31m│[0m [0m
+[31m│[0m [0m[0mReason: Initial configuration of the requested backend "s3"
+[31m│[0m [0m
+[31m│[0m [0mThe "backend" is the interface that Terraform uses to store state,
+[31m│[0m [0mperform operations, etc. If this message is showing up, it means that the
+[31m│[0m [0mTerraform configuration you're using is using a custom configuration for
+[31m│[0m [0mthe Terraform backend.
+[31m│[0m [0m
+[31m│[0m [0mChanges to backend configurations require reinitialization. This allows
+[31m│[0m [0mTerraform to set up the new configuration, copy existing state, etc. Please
+[31m│[0m [0mrun
+[31m│[0m [0m"terraform init" with either the "-reconfigure" or "-migrate-state" flags
+[31m│[0m [0mto
+[31m│[0m [0muse the current configuration.
+[31m│[0m [0m
+[31m│[0m [0mIf the change reason above is incorrect, please verify your configuration
+[31m│[0m [0mhasn't changed and try again. At this point, no changes to your existing
+[31m│[0m [0mconfiguration or state have been made.
+[31m╵[0m[0m
+TTL armed: gpu-platform/gpu goes to desiredSize=0 at 2026-10-28T06:18:05Z (in 393m), schedule gpu-ttl-gpu-platform-gpu-20261027234505
+   ok   GPU deadline armed for 393 min: gpu-ttl-gpu-platform-gpu-20261027234505
+23:45:05Z  [session] scaling gpu to 2 -- the nodes start billing here
+{
+    "update": {
+        "id": "5580a4c0-d196-313c-85c6-dbc2224cb267",
+        "status": "InProgress",
+        "type": "ConfigUpdate",
+        "params": [
+            {
+                "type": "MinSize",
+                "value": "0"
+            },
+            {
+                "type": "MaxSize",
+                "value": "2"
+            },
+            {
+                "type": "DesiredSize",
+                "value": "2"
+            }
+        ],
+        "createdAt": "2026-10-28T08:45:06.467000+09:00",
+        "errors": []
+    }
+}
+   ok   P3: ip-10-0-49-128.ap-northeast-2.compute.internal i-0c6a1eafb3a9d9f6d;ip-10-0-83-19.ap-northeast-2.compute.internal i-019692e1d8bf94747
+23:46:26Z  [session] study: prefixroute, until 06:18:05Z less a 10 min margin
+2026-10-27T23:46:26.695370487Z  study prefix-route-2026-10-27 on gpu-platform; tooling at 1b4a8c0727d08c2bc8f3899ca0c65a9d8a1f43ba, dirty files 0
+2026-10-27T23:46:27.60702099Z  building the harness
+2026-10-27T23:46:28.550857058Z  traces
+2026-10-27T23:46:28.585705656Z  study objects
+2026-10-27T23:46:37.251861487Z  collector
+2026-10-27T23:51:39.55195820Z  STOP: collector not Ready
+   FAIL study stopped: collector not Ready; the cells written are kept
+23:51:39Z  [session] scaling gpu to 0
+   ok   S6 (GPU half): gpu scaled to 0 and i-019692e1d8bf94747 i-0c6a1eafb3a9d9f6d terminated
+TTL disarmed: gpu-ttl-gpu-platform-gpu-20261027234505
+23:59:06Z  [session] destroy: argo-bootstrap, then cluster
+   ok   nothing that charges remains: no EKS cluster, instance, NAT gateway, EIP, volume, ASG, load balancer cluster log group or GPU deadline schedule
+00:10:44Z  [session] kill switch disarmed: destroy returned zero, every residue query was answered, and all were empty
+00:10:44Z  [session] evidence in /home/lkhun9311/workspace/gpu-cp-a-run1/ex/eks-session-20261027T232851Z
+00:10:44Z  [session] 1 check(s) failed
