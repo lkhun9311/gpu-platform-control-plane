@@ -337,7 +337,9 @@ The study wrote the four traces, created the namespace, the quota policy, `qwen-
 **What failed.** `kubectl wait --for=condition=Ready pod/collector --timeout=300s` timed out, and the runner stopped with "collector not Ready" at 23:51:39Z; no engine was warmed and no cell started.
 **The cause is not known.** The runner recorded only the timeout, and the cluster was destroyed eight minutes later.
 The Pod is the hold-cap study's collector byte for byte: the same busybox digest, one CPU and 1 GiB requested, no node selector and no toleration, so it can only run on a CPU node, the GPU nodes carrying `nvidia.com/gpu:NoSchedule`; that Pod was Running in all three hold-cap sessions (`hack/eks-serve/holdcap-study/runs/*/holdcap-study/collector-pod.json`), where the GPU node carried the same taint (`gpu-node.json` of `20261021T021149Z`).
-A CPU shortfall on that node, an image pull and a failed container are each consistent with the record, and nothing in it decides between them.
+**That comparison does not carry**, as codex `gpt-6-astra` found in an adversarial review before run 2: the hold-cap clusters ran `kueue-crds` alone, and run 1's ran the full `gpu-platform-kueue` controller (`runbook-apply/applications.txt` of each), whose Deployment requests 500m CPU (`config/kueue-controller/manifests.yaml`).
+On a t3.large's 1,930m allocatable, the controller and the collector's 1,000m leave 430m for every other Pod on the node, and the system Pods alone may need more.
+**A CPU shortfall is the likely cause and is not verified**: the archive holds no Pod inventory or scheduler event, and an image pull or a failed container remain consistent with it.
 
 **Teardown.** Both GPU instances were launched at 23:45:19Z and terminated at 23:53:58Z (CloudTrail); the cluster's destroy finished at 00:10:44Z with every residue query answered and empty, and the watchdog was disarmed.
 **Cost, estimated, not billed:** 519 s of two g5.xlarge at $1.237 an hour, about $0.36, and about 41.5 minutes of the cluster at about $0.26 an hour, about $0.18.
@@ -357,6 +359,10 @@ Second, cell 1 was the engines' first start on both new nodes, and a cell gives 
 `run.sh` now waits for both engines' first start before any cell, for at most `FIRST_START` = 1,500 s, and stops if they do not start; every cell still replaces both engines, so none starts warm.
 The session budgets those 1,500 s, so the TTL must be **at least 440 minutes**, not 415, and the session refuses 439 (`check-train-session-refusals.sh`; with the budget reverted that check fails).
 Run 2 is bought with `TTL_MINUTES=440`; at the gated price that adds about $1 to the envelope, inside the ceiling.
+**The collector's capacity is asked before any GPU is bought.** The collector requests 250m CPU instead of 1,000m and keeps its one-CPU limit, so the sender may still use a whole idle core; the value lives once, in `hack/eks-serve/prefix-route-study/collector.env`, which `run.sh` and the session both read.
+A new gate, P4, after P2 and before the GPU deadline is armed, sums the CPU requests of every live Pod on each CPU node and refuses the purchase unless one node has the collector's request unrequested; it records its accounting in `cpu-capacity.txt`.
+Exercised on stub inputs: a node of 1,930m with 1,300m requested passes 250m and 630m and refuses 1,000m, finished Pods and GPU nodes are left out, and unreadable input refuses.
+The sender's registered configuration (30 s, pooled, 600 connections) is unchanged; its CPU request is not part of it, and the limit, which bounds what it can use, is unchanged.
 **What does not change:** everything above this section except the TTL, the ceiling of $40 among it; run 1 spent about $0.54 of it.
 A run 2 that stops at the collector again is reported with its cause and is not repeated under this amendment; one that passes the collector runs as registered.
 **Run 2 is bought from `main` at the promotion that carries this section, once the owner approves this amendment.**
