@@ -355,6 +355,17 @@ class Correctness(Base):
         edit_records(path, "pod-uid-0", lambda r: {**r, "width": 1024} if r["event"] == "start" else r)
         self.assertFault(path, "not the registered")
 
+    def test_ddp_nan_step_time(self):
+        # Python's json reads NaN, and a NaN median would compare false both ways and read "not distinguished".
+        path = write_job(self.root, "a", "ddp-1pod4gpu")
+        edit_records(path, "pod-uid-0", lambda r: {**r, "synced_ms_median": float("nan")} if r["event"] == "steps" else r)
+        self.assertFault(path, "synced_ms_median is nan, not a finite number")
+
+    def test_ddp_negative_step_time(self):
+        path = write_job(self.root, "a", "ddp-4pod1gpu")
+        edit_records(path, "pod-uid-0", lambda r: {**r, "local_ms_median": -1.0} if r["event"] == "steps" else r)
+        self.assertFault(path, "local_ms_median is -1.0, not a positive time")
+
     def test_a_rank_refused(self):
         path = write_job(self.root, "a", "ddp-4pod1gpu")
         edit_records(path, "pod-uid-1", lambda r: {"run_id": "c-a", "rank": 1, "event": "refused",
@@ -516,11 +527,27 @@ class Score(Base):
 
     def test_smoke_jobs_are_not_counted(self):
         self.build()
-        smoke = self.root / "jobs" / "00-smoke-allreduce-1pod4gpu"
-        (smoke / "VOID").write_text("x")
         code, text = self.run_score()
         self.assertEqual(code, 0, text)
         self.assertIn("(smoke, not counted)", text)
+        # Five values, without the smoke job's 10.00, which a counted smoke would add as a sixth.
+        self.assertIn("allreduce-1pod4gpu    1 MiB: 20.30 [20.10, 20.20, 20.30, 20.40, 20.50]", text)
+
+    def test_an_invalid_smoke_job_fails_the_run(self):
+        # The registration stops the run at the first invalid smoke job, so an archive holding one is not a pass,
+        # whether or not the runner's STOPPED marker survived.
+        self.build()
+        (self.root / "jobs" / "00-smoke-allreduce-1pod4gpu" / "VOID").write_text("x")
+        code, text = self.run_score()
+        self.assertEqual(code, 1, text)
+        self.assertIn("allreduce-1pod4gpu: 1 smoke job(s), 0 valid", text)
+
+    def test_a_missing_smoke_job_fails_the_run(self):
+        self.build()
+        shutil.rmtree(self.root / "jobs" / "00-smoke-ddp-4pod1gpu")
+        code, text = self.run_score()
+        self.assertEqual(code, 1, text)
+        self.assertIn("ddp-4pod1gpu: 0 smoke job(s)", text)
 
     def test_a_stopped_run_fails(self):
         self.build()

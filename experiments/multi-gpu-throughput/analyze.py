@@ -351,6 +351,14 @@ def check_step_records(job: Job, starts: dict, by_rank: dict) -> None:
     if record0 and record0.get("verified") is True:
         job.figures = {k: record0.get(k) for k in ("synced_ms_median", "local_ms_median", "sync_cost_ms")}
         job.figures["ddp_buckets"] = record0.get("ddp_buckets")
+        # A NaN compares false both ways, so a separation over it reads "not distinguished" instead of refusing.
+        for k, value in job.figures.items():
+            if k == "ddp_buckets":
+                continue
+            if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(value):
+                job.fault(f"rank 0's {k} is {value!r}, not a finite number")
+            elif k != "sync_cost_ms" and value <= 0:
+                job.fault(f"rank 0's {k} is {value!r}, not a positive time")
 
 
 def check_nccltests_job(job: Job, pods: dict, logs: dict) -> None:
@@ -509,6 +517,13 @@ def score(evidence: Path, bench_sha: str, step_sha: str) -> int:
         if job.valid and job.transports:
             print("        transports", {r: job.transports[r] for r in sorted(job.transports)},
                   "set by the stack:", job.stack_env or "nothing")
+    # The registration runs one valid smoke job per arm before any counted one; the runner's STOPPED marker is not
+    # the only witness of that, because an archive can lose the marker and keep the jobs.
+    smokes = {arm: [j for j, c in jobs if not c and j.arm == arm] for arm in ARMS}
+    for arm, arm_smokes in smokes.items():
+        if len(arm_smokes) != 1 or not arm_smokes[0].valid:
+            print(f"INVALID {arm}: {len(arm_smokes)} smoke job(s), {sum(j.valid for j in arm_smokes)} valid, want 1 valid")
+            ok = False
     counted = {arm: [j for j, c in jobs if c and j.arm == arm] for arm in ARMS}
     for arm, arm_jobs in counted.items():
         if len(arm_jobs) != REPS:
