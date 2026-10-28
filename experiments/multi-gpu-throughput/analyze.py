@@ -366,6 +366,13 @@ def check_step_records(job: Job, starts: dict, by_rank: dict) -> None:
                 job.fault(f"rank 0's {k} is {value!r}, not a finite number")
             elif k != "sync_cost_ms" and value <= 0:
                 job.fault(f"rank 0's {k} is {value!r}, not a positive time")
+        # The bench writes the cost as the difference of the two medians, so a record where it is not is not the bench's.
+        f = job.figures
+        if all(isinstance(f.get(k), (int, float)) and math.isfinite(f[k]) for k in ("synced_ms_median", "local_ms_median",
+                                                                                 "sync_cost_ms")):
+            if abs(f["sync_cost_ms"] - (f["synced_ms_median"] - f["local_ms_median"])) > 1e-6 * max(1.0, f["synced_ms_median"]):
+                job.fault(f"rank 0's sync_cost_ms {f['sync_cost_ms']} is not its synced {f['synced_ms_median']} less its "
+                          f"local {f['local_ms_median']}")
 
 
 def check_nccltests_job(job: Job, pods: dict, logs: dict) -> None:

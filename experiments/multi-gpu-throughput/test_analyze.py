@@ -376,6 +376,11 @@ class Correctness(Base):
         edit_records(path, "pod-uid-0", lambda r: {**r, "synced_ms_median": float("nan")} if r["event"] == "steps" else r)
         self.assertFault(path, "synced_ms_median is nan, not a finite number")
 
+    def test_ddp_cost_that_is_not_the_difference(self):
+        path = write_job(self.root, "a", "ddp-4pod1gpu")
+        edit_records(path, "pod-uid-0", lambda r: {**r, "sync_cost_ms": 9999.0} if r["event"] == "steps" else r)
+        self.assertFault(path, "sync_cost_ms 9999.0 is not its synced")
+
     def test_ddp_negative_step_time(self):
         path = write_job(self.root, "a", "ddp-4pod1gpu")
         edit_records(path, "pod-uid-0", lambda r: {**r, "local_ms_median": -1.0} if r["event"] == "steps" else r)

@@ -53,6 +53,11 @@ class Slowest(unittest.TestCase):
         with self.assertRaises(ValueError):
             bench.slowest_per_step([])
 
+    def test_a_rank_of_nan_is_refused(self):
+        # max() over a column holding NaN can return the other rank's time, so the NaN rank vanished into a figure.
+        with self.assertRaises(ValueError):
+            bench.slowest_per_step([[1.0, 2.0], [float("nan"), float("nan")]])
+
 
 class Checksums(unittest.TestCase):
     def test_synced_must_agree_exactly(self):
