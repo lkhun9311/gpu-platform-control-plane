@@ -373,7 +373,7 @@ That is one node's report on one day; it is recorded because it bears on how any
 **Cost, estimated from the rates in "Budget", not billed:** 335 s of g5.12xlarge at $6.97442 an hour, about $0.65, and about 39.5 minutes of the cluster at $0.2633 an hour, about $0.17.
 
 **The fix** (`faba4156`): `judge_qualification` strips ANSI escape sequences from every line before reading it.
-`test_the_header_nvidia_smi_underlines` carries run 1's header byte for byte and failed before the fix with the run's own message; with the strip removed it fails again.
+A test carrying run 1's header byte for byte failed before the fix with the run's own message, and with the strip removed it failed again; since run 2's amendment it is `test_the_capture_with_its_underlined_headers`, which reads run 2's whole captured log, both underlined headers included.
 `analyze.py`'s 93 tests with the two benches' pass, and `judge_qualification` on run 1's own log now returns no fault.
 
 **Evidence:** `hack/four-gpu/2026-10-27-run1/`, 37 files listed in `SHA256SUMS`; `NOT-COMMITTED.sha256` holds the hashes of `terraform.log`, `seeded-key.txt` and `ttl.pid`, which are not committed.
