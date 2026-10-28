@@ -133,12 +133,14 @@ grep -q 'price ceiling \$7.20' "$work/C: an operator's ceiling/session.log" && o
 # TRAIN is emptied in each case, so these are the routing study's refusals and not the training mode's.
 session "prefixroute: a deadline too short for twelve cells" "STUDY=prefixroute needs TTL_MINUTES of at least" \
   TRAIN= STUDY=prefixroute TTL_MINUTES=300
+session "prefixroute: one minute short of the first start and twelve cells" "STUDY=prefixroute needs TTL_MINUTES of at least 440" \
+  TRAIN= STUDY=prefixroute TTL_MINUTES=439
 session "prefixroute: with SERVE" "STUDY=prefixroute with SERVE or TRAIN would buy GPUs in two groups" \
-  TRAIN= STUDY=prefixroute SERVE=yes TTL_MINUTES=420
-session "prefixroute: with KEEP_UP" "refuses KEEP_UP=yes" TRAIN= STUDY=prefixroute KEEP_UP=yes TTL_MINUTES=420
+  TRAIN= STUDY=prefixroute SERVE=yes TTL_MINUTES=440
+session "prefixroute: with KEEP_UP" "refuses KEEP_UP=yes" TRAIN= STUDY=prefixroute KEEP_UP=yes TTL_MINUTES=440
 session "prefixroute: an existing cluster" "cluster gpu-platform already exists (ACTIVE)" \
-  TRAIN= STUDY=prefixroute STUB_CLUSTER_EXISTS=1 TTL_MINUTES=420
-session "prefixroute: every refusal passed" "does not exist" TRAIN= STUDY=prefixroute TTL_MINUTES=420
+  TRAIN= STUDY=prefixroute STUB_CLUSTER_EXISTS=1 TTL_MINUTES=440
+session "prefixroute: every refusal passed" "does not exist" TRAIN= STUDY=prefixroute TTL_MINUTES=440
 
 # --- the kill switch, armed under an absolute EXDIR --------------------------------------------------------------
 # Without TRAIN nothing stops the session before its kill switch, so it arms one and then dies at the stub's terraform

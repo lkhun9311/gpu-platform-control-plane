@@ -11,6 +11,7 @@
 #   STUDY_DEADLINE   epoch seconds by which the session must begin its teardown (required)
 #   GW_NS            default gpu-platform-control-plane-system
 #   WAIT_ENGINE      seconds for two fresh engines to come up (default 1200)
+#   FIRST_START      seconds for the engines' first start, before any cell (default 1500; the session budgets it)
 #   TEARDOWN_RESERVE seconds kept free before STUDY_DEADLINE (default 2400; the session passes 600)
 #   STUDY_REHEARSAL  set to 1 only by rehearse-kind.sh: status is written by that script for stub engines
 #   SCORE_ARGS       passed to score.py; only the rehearsal sets it, to its stubs' cache capacity
@@ -21,6 +22,7 @@ REPO="$(cd "$HERE/../../.." && pwd)"
 : "${CONTEXT:?CONTEXT must name the cluster}" "${EXDIR:?EXDIR must be set}" "${STUDY_DEADLINE:?STUDY_DEADLINE must be set}"
 GW_NS="${GW_NS:-gpu-platform-control-plane-system}"
 WAIT_ENGINE="${WAIT_ENGINE:-1200}"
+FIRST_START="${FIRST_START:-1500}"
 TEARDOWN_RESERVE="${TEARDOWN_RESERVE:-2400}"
 STUDY_REHEARSAL="${STUDY_REHEARSAL:-}"
 SCORE_ARGS="${SCORE_ARGS:-}"
@@ -28,6 +30,8 @@ STUDY_ID=prefix-route-2026-10-27
 NS=prefix-route
 ENGINES=(qwen-a qwen-b)
 COLLECTOR_NS=prefix-route-collector
+# shellcheck source=hack/eks-serve/prefix-route-study/collector.env
+. "$HERE/collector.env"
 COLLECTOR_IMAGE="busybox@sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e"
 MODEL=Qwen/Qwen2.5-3B-Instruct
 # The registered blocks and, per block, the Latin-square arm order (design page, "Each cell"; score.py's ORDER).
@@ -203,10 +207,18 @@ spec:
       image: $COLLECTOR_IMAGE
       command: ["sleep", "86400"]
       resources:
-        requests: {cpu: "1", memory: 1Gi}
+        requests: {cpu: "${COLLECTOR_CPU_M}m", memory: 1Gi}
         limits: {cpu: "1", memory: 1Gi}
 EOF
-k -n "$COLLECTOR_NS" wait --for=condition=Ready pod/collector --timeout=300s >>"$OUT/run.log" 2>&1 || stop "collector not Ready"
+if ! k -n "$COLLECTOR_NS" wait --for=condition=Ready pod/collector --timeout=300s >>"$OUT/run.log" 2>&1; then
+  # The paid session of 2026-10-28 stopped here with nothing to say why, and its cluster was destroyed minutes later.
+  # These are kept so the next refusal names its cause: scheduling, image pull or the container itself.
+  # Each keeps its own error in its file, and a capture that fails must not skip the stop and its scoring.
+  k -n "$COLLECTOR_NS" describe pod collector >"$OUT/collector-describe.txt" 2>&1 || true
+  k -n "$COLLECTOR_NS" get events -o wide >"$OUT/collector-events.txt" 2>&1 || true
+  k describe nodes >"$OUT/nodes-describe.txt" 2>&1 || true
+  stop "collector not Ready"
+fi
 in_collector mkdir -p /study
 k -n "$COLLECTOR_NS" cp "$OUT/benchharness" collector:/study/benchharness >>"$OUT/run.log" 2>&1 || stop "copy harness"
 in_collector chmod +x /study/benchharness
@@ -282,6 +294,28 @@ set_policy() {
   done
 }
 
+# The engines' first start pulls the 9.1 GiB image onto both new nodes through one NAT gateway, and one node alone took
+# 451 to 493 s in the hold-cap sessions; inside a cell that leaves the replay no room before the cell's end, and a
+# failed cell stops the study.
+# It is waited for here, outside every cell, and each cell still replaces both engines, so none starts warm.
+log "first start of both engines, outside every cell"
+first_start_ok=""
+first_deadline=$((SECONDS + FIRST_START))
+while ((SECONDS < first_deadline)); do
+  sleep 10
+  [[ -n "$STUDY_REHEARSAL" ]] && "$HERE/rehearse-kind.sh" write-status >>"$OUT/run.log" 2>&1
+  line_a="$(engine_pods_json qwen-a | live_one)" || continue
+  line_b="$(engine_pods_json qwen-b | live_one)" || continue
+  read -r _ _ _ _ rda _ <<<"$line_a"
+  read -r _ _ _ _ rdb _ <<<"$line_b"
+  if [[ "$rda $rdb" == "ready ready" ]]; then
+    first_start_ok=1
+    break
+  fi
+done
+[[ -n "$first_start_ok" ]] || stop "the engines' first start did not finish within ${FIRST_START} s"
+log "both engines started once"
+
 IDENTITY_DONE=""
 for block in "${BLOCKS[@]}"; do
   seed="${block#*-}"
@@ -311,7 +345,10 @@ for block in "${BLOCKS[@]}"; do
     fi
     for f in a b; do
       pod="$([[ $f == a ]] && echo "$A_POD" || echo "$B_POD")"
-      k -n "$NS" logs "$pod" 2>>"$OUT/run.log" | grep -m1 'non-default args' >"$D/engine-$f-args.txt" ||
+      # The log is saved before it is searched: grep -m1 on a streamed kubectl logs exits at the match, the next write
+      # takes SIGPIPE, and pipefail then fails the cell although the line was there, which a 59 KB engine log does.
+      k -n "$NS" logs "$pod" >"$D/engine-$f.log" 2>>"$OUT/run.log" || fail_cell "engine $f's log is unreadable"
+      grep -m1 'non-default args' "$D/engine-$f.log" >"$D/engine-$f-args.txt" ||
         fail_cell "engine $f logged no non-default args"
     done
     # Readiness of the gateway is its cache sync; its first metrics read is what shows it is serving.

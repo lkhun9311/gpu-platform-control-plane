@@ -1,0 +1,19 @@
+{
+  "apiVersion": "platform.lkhun9311.github.io/v1",
+  "kind": "MLTrainingJob",
+  "metadata": {
+    "name": "c-warm",
+    "namespace": "train-a"
+  },
+  "spec": {
+    "queue": "gpu-train-a",
+    "image": "docker.io/pytorch/pytorch@sha256:c8268a92a69bd500f8be0e665b2630ee006dadaf7bfbc24249141b15ff622755",
+    "gpuCount": 4,
+    "gpuClass": "a10g",
+    "command": [
+      "sh",
+      "-c",
+      "exec python -c 'import sys, time, torch; n = torch.cuda.device_count(); v = \".\".join(map(str, torch.cuda.nccl.version())) if n else \"none\"; print(\"AR_WARM devices\", n, \"nccl\", v, flush=True); n == 4 and time.sleep(30); sys.exit(0 if n == 4 else 3)'"
+    ]
+  }
+}

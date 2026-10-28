@@ -1,0 +1,18 @@
+arm: RoundRobin
+gatewayURL: http://localhost:8080
+longThreshold: 4096
+matchTolerance: "0.05"
+maxOutputTokens:
+  premium-1: 64
+model: Qwen/Qwen2.5-3B-Instruct
+primaryEndpoint: ttft_p99
+promptCorpusSHA: dec1020701584417449f9c7efa5354073682cce69348af3b9fb5244705200a86
+promptLenChars:
+  premium-1: 41000
+schemaVersion: v2
+seed: 943
+study: prefix-route-2026-10-27
+timeoutMs: 30000
+timeoutScope: whole-request-including-stream
+traceChecksum: 4b218170cbb32359446185fccc01a70fd1111b21eec102a08980a7e87ddd2dc5
+tracePath: /home/lkhun9311/workspace/gpu-cp-a-run1/ex/eks-session-20261027T232851Z/prefix-route-study/traces/shared-943.jsonl
