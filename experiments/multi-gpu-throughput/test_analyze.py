@@ -473,33 +473,50 @@ class CapturedJob(unittest.TestCase):
 
 
 class Qualification(Base):
-    def write(self, extra: list[str] | None = None, drop: str | None = None) -> Path:
+    # Run 2's qualification log as captured, escapes and all: the fixture this class used before was written from
+    # an idea of nvidia-smi's output, and both of the qualification's defects hid behind it.
+    CAPTURE = Path(__file__).resolve().parents[2] / "hack/four-gpu/2026-10-27-run2/c/qualification/qualification.log"
+
+    def write(self, extra: list[str] | None = None, drop: str | None = None, change=None) -> Path:
         path = self.root / "qualification"
         path.mkdir(exist_ok=True)
-        lines = [f"GPU {i}: NVIDIA A10G (UUID: GPU-{UUIDS[i]})" for i in range(4)]
-        lines += [f"AR_GPU {i}, GPU-{UUIDS[i]}, 00000000:00:{DEVICES[i]:02X}.0, 550.127.05" for i in range(4)]
-        lines += ["\tGPU0\tGPU1\tGPU2\tGPU3\tCPU Affinity\tNUMA Affinity",
-                  *[f"GPU{i}\t X \tPHB\tPHB\tPHB\t0-47\t0" for i in range(4)], "AR_SHM_KB 1048576"]
+        lines = Qualification.CAPTURE.read_text().splitlines()
         lines = [x for x in lines if not (drop and drop in x)] + (extra or [])
+        if change:
+            lines = change(lines)
         (path / "qualification.log").write_text("\n".join(lines) + "\n")
         return path
 
-    def test_valid(self):
+    def test_the_capture_with_its_underlined_headers(self):
+        # nvidia-smi underlined both matrices' headers with ANSI escapes although no terminal was attached, and a
+        # scorer that read only the plain form voided the paid session of 2026-10-27.
+        self.assertIn("\x1b[4mGPU0", self.CAPTURE.read_text())
         self.assertEqual(analyze.judge_qualification(self.write()), [])
 
     def test_three_cards(self):
         self.assertTrue(analyze.judge_qualification(self.write(drop="GPU 3: NVIDIA")))
 
-    def test_no_topology(self):
-        self.assertTrue(analyze.judge_qualification(self.write(drop="GPU3\t X")))
+    def test_no_topology_row(self):
+        self.assertIn("GPU3's row", "".join(analyze.judge_qualification(self.write(drop="GPU3\tPHB\tPHB\tPHB\t X"))))
 
-    def test_the_header_nvidia_smi_underlines(self):
-        # The header exactly as the paid session of 2026-10-27 captured it: nvidia-smi underlined it with ANSI
-        # escapes although no terminal was attached, and a scorer that read only the plain form voided that run.
-        path = self.write(drop="\tGPU0\tGPU1")
-        log = path / "qualification.log"
-        log.write_text("\t\x1b[4mGPU0\tGPU1\tGPU2\tGPU3\tCPU Affinity\tNUMA Affinity\tGPU NUMA ID\x1b[0m\n" + log.read_text())
-        self.assertEqual(analyze.judge_qualification(path), [])
+    def test_the_topo_m_header_is_not_stood_in_for_by_the_p2p_one(self):
+        faults = analyze.judge_qualification(self.write(drop="CPU Affinity\tNUMA Affinity"))
+        self.assertIn("nvidia-smi topo -m printed no complete 4 x 4 GPU matrix: no GPU0 to GPU3 header", faults)
+
+    def test_row_labels_without_values(self):
+        faults = analyze.judge_qualification(self.write(change=lambda lines: [
+            x.split("\t")[0] if x.startswith("GPU") and "\t" in x else x for x in lines]))
+        self.assertIn("nvidia-smi topo -m printed no complete 4 x 4 GPU matrix: GPU0's row is missing or short", faults)
+
+    def test_no_p2p_section(self):
+        faults = analyze.judge_qualification(self.write(change=lambda lines: lines[:lines.index("== nvidia-smi topo -p2p r")]
+                                                        + lines[lines.index("== nvidia-smi -q"):]))
+        self.assertIn("nvidia-smi topo -p2p r printed no complete 4 x 4 GPU matrix: the section is missing", faults)
+
+    def test_a_value_outside_the_legend(self):
+        faults = analyze.judge_qualification(self.write(change=lambda lines: [
+            x.replace(" GPU1\tNS\tX", " GPU1\t??\tX") for x in lines]))
+        self.assertIn("nvidia-smi topo -p2p r printed no complete 4 x 4 GPU matrix: GPU1 to GPU0 reads '??'", faults)
 
     def test_small_shared_memory(self):
         path = self.write(drop="AR_SHM_KB")
