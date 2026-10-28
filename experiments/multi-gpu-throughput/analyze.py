@@ -315,7 +315,10 @@ def check_allreduce_records(job: Job, starts: dict, by_rank: dict) -> None:
                       f"{start.get('sizes')}, not the registered {WARMUP}, {ITERS} and {list(SIZES)}")
     figures = {}
     for rank in range(RANKS):
-        sizes = {r.get("size_bytes"): r for r in by_rank.get(rank, []) if r.get("event") == "size"}
+        size_records = [r for r in by_rank.get(rank, []) if r.get("event") == "size"]
+        sizes = {r.get("size_bytes"): r for r in size_records}
+        if len(size_records) != len(sizes):
+            job.fault(f"rank {rank} recorded {len(size_records)} size records for {len(sizes)} sizes")
         if tuple(sorted(sizes)) != SIZES:
             job.fault(f"rank {rank} recorded sizes {sorted(sizes)}, want {list(SIZES)}")
             continue
@@ -384,8 +387,10 @@ def check_nccltests_job(job: Job, pods: dict, logs: dict) -> None:
     header = next((m for m in (NT_HEADER.match(line) for line in lines) if m), None)
     if not header:
         job.fault("nccl-tests printed no settings header")
+    # Every field the header prints is compared, the factor and aggregation included, as run 2 captured them.
     elif (int(header["warmup"]), int(header["iters"]), int(header["min"]), int(header["max"]), int(header["check"]),
-          int(header["gpus"]), int(header["threads"])) != (WARMUP, ITERS, SIZES[0], SIZES[-1], 1, 1, 1):
+          int(header["gpus"]), int(header["threads"]), int(header["step"]), int(header["agg"]), int(header["graph"])) != (
+              WARMUP, ITERS, SIZES[0], SIZES[-1], 1, 1, 1, 4, 1, 0):
         job.fault(f"nccl-tests ran {header.group(0)!r}, not the registered settings")
     ranks = [m for m in (NT_RANK.match(line) for line in lines) if m]
     if sorted(int(m["rank"]) for m in ranks) != list(range(RANKS)):
@@ -413,7 +418,11 @@ def check_nccltests_job(job: Job, pods: dict, logs: dict) -> None:
     for rank in range(RANKS):
         if not job.transports.get(rank):
             job.fault(f"rank {rank}'s process logged no channel transport")
-    rows = {int(m["size"]): m for m in (NT_ROW.match(line) for line in lines) if m}
+    matched = [m for m in (NT_ROW.match(line) for line in lines) if m]
+    # A dictionary keeps the last row of a size, so a failing row followed by a passing one would read as passing.
+    if len(matched) != len({int(m["size"]) for m in matched}):
+        job.fault(f"nccl-tests printed {len(matched)} result rows for {len({int(m['size']) for m in matched})} sizes")
+    rows = {int(m["size"]): m for m in matched}
     if tuple(sorted(rows)) != SIZES:
         job.fault(f"nccl-tests printed sizes {sorted(rows)}, want {list(SIZES)}")
     figures = {}

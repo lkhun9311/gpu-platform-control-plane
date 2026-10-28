@@ -343,6 +343,19 @@ class Correctness(Base):
         edit_records(path, "pod-uid-0", lambda r: {**r, "iterations": 20} if r["event"] == "start" else r)
         self.assertFault(path, "not the registered")
 
+    def test_a_size_recorded_twice(self):
+        path = write_job(self.root, "a", "allreduce-1pod4gpu")
+
+        def twice(lines):
+            out = []
+            for x in lines:
+                out.append(x)
+                if x.startswith("{") and '"size_bytes": 1048576' in x and '"rank": 2' in x:
+                    out.append(x.replace('"verified": true', '"verified": false'))
+            return out
+        edit_log(path, "pod-uid-0", twice)
+        self.assertFault(path, "rank 2 recorded 6 size records for 5 sizes")
+
     def test_above_the_ceiling(self):
         path = write_job(self.root, "a", "allreduce-1pod4gpu", scale=6.5)
         self.assertFault(path, "above the 64 GB/s")
@@ -392,6 +405,23 @@ class NcclTests(Base):
         path = write_job(self.root, "a", "nccltests-1pod4gpu")
         edit_log(path, "pod-uid-0", lambda lines: [x.replace("warmup iters: 20", "warmup iters: 5") for x in lines])
         self.assertFault(path, "not the registered settings")
+
+    def test_another_step_factor(self):
+        path = write_job(self.root, "a", "nccltests-1pod4gpu")
+        edit_log(path, "pod-uid-0", lambda lines: [x.replace("step: 4(factor)", "step: 2(factor)") for x in lines])
+        self.assertFault(path, "not the registered settings")
+
+    def test_a_failing_row_followed_by_a_passing_one(self):
+        # A dictionary by size kept the last row, so the failing first row was never read.
+        path = write_job(self.root, "a", "nccltests-1pod4gpu")
+
+        def duplicate(lines):
+            first = next(x for x in lines if analyze.NT_ROW.match(x))
+            failing = first.replace("      0  1234.5", "      7  1234.5", 1)
+            i = lines.index(first)
+            return lines[:i] + [failing] + lines[i:]
+        edit_log(path, "pod-uid-0", duplicate)
+        self.assertFault(path, "result rows for 5 sizes")
 
     def test_two_ranks_on_one_bus(self):
         path = write_job(self.root, "a", "nccltests-1pod4gpu")
