@@ -4,7 +4,7 @@ Written 2026-10-26 (dated 2026-10-27, the earliest day a session under it could 
 **Registered and frozen for purchase, 2026-10-27, at the commit that carries this line.** The owner approved every valid experiment of 2026-10-27 on 2026-10-26 ("유효 실험도 전부 승인하니 진행"), and on 2026-10-27 approved the paid sessions to go ahead ("유료 실험 진행 가능"). Nothing below changes after this commit, and a session run from code other than this commit's, as promoted to `main`, does not count.
 Until this line, the status said: "registered for review, not approved for purchase."
 **Status, 2026-10-27: run 1 is VOID at Q, after the purchase, by a defect in the scorer; no job ran and no number below is a result.** The owner approved one more attempt under "Amendment for run 2", at the end, which changes only the scorer's reading of the topology header.
-**Status, 2026-10-28: run 2 is a FAILED SMOKE, stopped by a third defect in the scorer before any registered job; no number below is a result.** "Run 2" and "Amendment for run 3", at the end, say what failed and what a third attempt changes.
+**Status, 2026-10-28: run 2 is a FAILED SMOKE, stopped by a third defect in the scorer before any registered job; no number below is a result.** "Run 2" and "Amendment for run 3", at the end, say what failed and what a third attempt changes; the owner approved that amendment on 2026-10-28, and run 3 has not been bought.
 codex `gpt-6-astra` attacked the first version cold; every finding was re-derived, and this version is the reconciled one ("Review: astra's attack, reconciled", at the end).
 It grows out of the draft `2026-10-22-multi-gpu-per-pod-throughput-design.md`, which is left as it was written and is history; where this page and the draft differ, this page holds, and "Changes from the draft" says what moved and why.
 Every numeric bound below names where its number comes from, because `docs/11_WHAT_THIS_MEASURED.md` ("What the targets were based on") now records that several earlier bars had none.
@@ -422,7 +422,10 @@ The fixtures now carry this node's layout, and `test_the_smoke_job_that_was_void
 
 **Evidence:** `hack/four-gpu/2026-10-27-run2/`, listed in `SHA256SUMS`; `NOT-COMMITTED.sha256` holds the hashes of `terraform.log`, `seeded-key.txt` and `ttl.pid`, which are not committed. `session-stdout.log` is the session's terminal output.
 
-## Amendment for run 3, 2026-10-28, proposed to the owner and not yet approved
+## Amendment for run 3, 2026-10-28, approved by the owner before it is bought
+
+The owner approved it on 2026-10-28 ("sso login 완료, 권장안 진행"), in reply to a report that named this amendment, its new bench hashes and its disclosed collection budget as waiting for their approval, after every change below had been merged into `dev` (#422, #425, #426).
+"Not repeated without the owner's approval" is lifted for exactly one more attempt, run 3: a run 3 that fails for any reason is reported as it ran, and a fourth needs its own amendment and approval.
 
 Run 2 is reported as it ran, and under "Amendment for run 2" a third attempt needs its own amendment and approval.
 **What changes**, these three and nothing else. First, `check_nccltests_job` reads which GPU each rank used from NCCL's init line instead of nccl-tests' rank line, as "Run 2" describes.
@@ -439,5 +442,5 @@ With each new check removed, its tests fail; `analyze.py`'s 61 tests, the benche
 **This changes both benches, so the approved hashes change**: `allreduce_bench.py` `0e9e939db4864907a24fc3acef4959b7f1c0fb51cf77e3859bac9065fd6eee00` and `ddp_step_bench.py` `d37981777c791af1420525232f66acbec83e2f5e61241984b79ad58134384402` replace af802523… and 7cad8637… for run 3; the change is the refusal and its `import math`, and nothing a valid record holds.
 **One finding is not acted on and is disclosed:** a job's collection, bounded by its timeouts, could take up to about 445 s (four log reads of 60 s, four reads of 20 s, a 120 s delete and 5 s), against the 60 s per job the GPU budget allows. Run 2's collection took seconds, and a GPU deadline reached mid-job makes that job invalid and its arm figureless; it costs money, not a false result.
 **What does not change:** everything "Amendment for run 2" lists as unchanged except the two bench hashes, and its two changes.
-**Run 3 is bought from `main` at the promotion that carries this section, once the owner approves this amendment;** the owner's general approval of paid sessions on 2026-10-28 was given before this change existed and is not read as approving it.
+**Run 3 is bought from `main` at the promotion that carries this section, with `APPROVED_BENCH_SHA256` and `APPROVED_STEP_SHA256` set to the two hashes above;** the owner's general approval of paid sessions earlier on 2026-10-28 was given before this change existed and is not what approves it.
 Run 1's and run 2's evidence are not pooled with run 3's.
