@@ -346,7 +346,10 @@ On a t3.large's 1,930m allocatable, the controller and the collector's 1,000m le
 
 **Evidence:** `hack/prefix-route/2026-10-28-run1/`, listed in `SHA256SUMS`; `NOT-COMMITTED.sha256` holds the hashes of `terraform.log`, `seeded-key.txt`, `ttl.pid`, the study key `prefix-study-key.txt` and the 40 MB harness binary, which are not committed (the binary's hash equals the run's `benchharness.sha256`). `session-stdout.log` is the session's terminal output.
 
-## Amendment for run 2, 2026-10-28, proposed to the owner and not yet approved
+## Amendment for run 2, 2026-10-28, approved by the owner before it is bought
+
+The owner approved paid sessions on 2026-10-28 ("유료 실행 승인") and, after codex `gpt-6-astra` attacked both re-runs, told me to proceed with the recommendation after that review ("codex와 적대적 검토 후 권장안 진행"); the recommendation after the review was this run 2 with every change below, and the four-GPU run 3 held back until its scorer is hardened.
+**One finding of that review is not acted on, and is disclosed instead:** the scorer runs only after the last cell, so a cell whose apparatus is already unscorable (an engine's cache capacity off its registered range, persistent sampling failures) does not stop the purchase of the rest; it costs money, not a false result, since the scorer still refuses those blocks.
 
 **What changes**, and only this: when the collector is not Ready, `run.sh` saves the Pod's description, its namespace's events and every node's description into the study directory before it stops (`collector-describe.txt`, `collector-events.txt`, `nodes-describe.txt`).
 A capture that fails keeps its error in its file and does not skip the stop or its scoring; exercised against a stub `kubectl` that fails the wait and two of the three captures, the block wrote `STOPPED`, and with the guards removed it did not.
