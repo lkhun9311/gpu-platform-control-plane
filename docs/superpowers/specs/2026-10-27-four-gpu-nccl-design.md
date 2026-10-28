@@ -4,6 +4,7 @@ Written 2026-10-26 (dated 2026-10-27, the earliest day a session under it could 
 **Registered and frozen for purchase, 2026-10-27, at the commit that carries this line.** The owner approved every valid experiment of 2026-10-27 on 2026-10-26 ("유효 실험도 전부 승인하니 진행"), and on 2026-10-27 approved the paid sessions to go ahead ("유료 실험 진행 가능"). Nothing below changes after this commit, and a session run from code other than this commit's, as promoted to `main`, does not count.
 Until this line, the status said: "registered for review, not approved for purchase."
 **Status, 2026-10-27: run 1 is VOID at Q, after the purchase, by a defect in the scorer; no job ran and no number below is a result.** The owner approved one more attempt under "Amendment for run 2", at the end, which changes only the scorer's reading of the topology header.
+**Status, 2026-10-28: run 2 is a FAILED SMOKE, stopped by a third defect in the scorer before any registered job; no number below is a result.** "Run 2" and "Amendment for run 3", at the end, say what failed and what a third attempt changes.
 codex `gpt-6-astra` attacked the first version cold; every finding was re-derived, and this version is the reconciled one ("Review: astra's attack, reconciled", at the end).
 It grows out of the draft `2026-10-22-multi-gpu-per-pod-throughput-design.md`, which is left as it was written and is history; where this page and the draft differ, this page holds, and "Changes from the draft" says what moved and why.
 Every numeric bound below names where its number comes from, because `docs/11_WHAT_THIS_MEASURED.md` ("What the targets were based on") now records that several earlier bars had none.
@@ -395,3 +396,41 @@ The approved hashes still name the benches at this commit: `allreduce_bench.py` 
 
 **Run 2 is bought from `main` at the promotion that carries this section**, which replaces "this commit's, as promoted to `main`" in the status line for run 2 only, with the command in "Buying the session" and the values in "Pinned, and recorded".
 Run 1's evidence is not pooled with run 2's.
+
+## Run 2, 2026-10-28: a FAILED SMOKE, because the scorer read nccl-tests' bus number as a GPU address
+
+**What ran.** `hack/eks-gitops-session.sh` with the command in "Buying the session", from a clean worktree at `main` `1b4a8c07`, which carries both changes of "Amendment for run 2", started 22:43:34Z on 2026-10-27.
+It was started after that day's nightly destroy had completed (21:38Z), and the owner approved the paid session again on 2026-10-28 ("유료 실행 승인") after renewing the credentials.
+Every check before the purchase passed: T1 synced at `1b4a8c07`, T2, T3 (admitted 23:00:51Z, held unplaced), T4 at $6.97442 an hour against the $6.98 ceiling, T5 (0 in use plus 48 within 52), Z1, and the GPU deadline armed for 230 minutes.
+The node was `i-0438f3f0577d816d2` in ap-northeast-2c; T6, Z2 and T7 passed, the qualification job running 200.775 s after admission.
+**Q passed** with run 2's fix: four distinct UUIDs, one driver, a 4 x 4 topology and 1 GiB of `/dev/shm`; T7b passed (`AR_WARM` four devices, NCCL 2.21.5).
+
+**What failed.** The first smoke job, `nccltests-1pod4gpu`, succeeded in 50 s and was judged invalid: "the ranks' bus IDs map to 1 distinct GPU UUID(s), want 4".
+Under "Stop rule, voids and termination" the session stopped before any registered job and scaled the group to 0; the run is a failed smoke.
+The job had run on four GPUs.
+nccl-tests' rank line prints `[0x00]` for every rank, which is the PCI bus number alone, and this node puts all four GPUs on bus 00, at devices 1B, 1C, 1D and 1E (`AR_GPU` lines: `00000000:00:1B.0` to `00000000:00:1E.0`).
+The scorer keyed the GPUs by that bus number, so all four collapsed onto one key, and it was matching the wrong field besides: its fixtures had put the GPUs on buses 1B to 1E at device 00, a layout this node does not have.
+NCCL's own init lines name each rank's whole address, `rank 0 … busId 1b0` to `rank 3 … busId 1e0`, under four distinct process IDs.
+The job's channel lines all read `via SHM/direct/direct` (28 lines, none P2P), so the second change of "Amendment for run 2" was needed: without it this job would also have been invalid, for want of a transport.
+
+**Teardown.** The GPU instance was launched at 23:01:04Z and terminated at 23:10:48Z (CloudTrail); the cluster's destroy finished at 23:28:43Z with every residue query answered and empty, and the watchdog was disarmed.
+**Cost, estimated from the rates in "Budget", not billed:** 584 s of g5.12xlarge at $6.97442 an hour, about $1.13, and about 44.7 minutes of the cluster at $0.2633 an hour, about $0.20.
+
+**The fix:** `check_nccltests_job` maps each rank to a GPU through NCCL's `ncclCommInitRank … Init COMPLETE` line, joined to the rank line by process ID and rank, and keys the `AR_GPU` lines by their whole address, as the hex digits of domain, bus, device and function run together, the form NCCL prints.
+The fixtures now carry this node's layout, and `test_the_smoke_job_that_was_voided_reads_as_four_gpus` judges run 2's committed smoke job directory as it was captured: with the fix it has no fault and four distinct UUIDs; against the unfixed scorer it fails, with five other tests.
+`analyze.py`'s 57 tests, the two benches' tests and `check-allreduce-arms-lib.sh` pass.
+
+**Evidence:** `hack/four-gpu/2026-10-27-run2/`, listed in `SHA256SUMS`; `NOT-COMMITTED.sha256` holds the hashes of `terraform.log`, `seeded-key.txt` and `ttl.pid`, which are not committed. `session-stdout.log` is the session's terminal output.
+
+## Amendment for run 3, 2026-10-28, proposed to the owner and not yet approved
+
+Run 2 is reported as it ran, and under "Amendment for run 2" a third attempt needs its own amendment and approval.
+**What changes**, these three and nothing else. First, `check_nccltests_job` reads which GPU each rank used from NCCL's init line instead of nccl-tests' rank line, as "Run 2" describes.
+It changes which lines identify a rank's GPU and nothing judged from them: one process per rank, four distinct UUIDs, and every other validity line stand as registered.
+**Two refusals are added, found by codex `gpt-6-astra` in a whole-project audit on 2026-10-28 and re-derived here; each only refuses what the registration already does not accept.**
+A DDP job whose rank-0 step times are not finite, or whose synced or local time is not positive, is invalid: Python's `json` reads `NaN`, and a `NaN` median compared false in both directions, so V2 and V3 would have printed "not distinguished" over it instead of refusing (`test_ddp_nan_step_time`, `test_ddp_negative_step_time`).
+The aggregate score fails unless each arm has exactly one smoke job and it is valid, as "Order and repetitions" requires; before, an invalid or missing smoke job printed and the run could still PASS when the runner's `STOPPED` marker was absent (`test_an_invalid_smoke_job_fails_the_run`, `test_a_missing_smoke_job_fails_the_run`; the old `test_smoke_jobs_are_not_counted` had pinned the PASS and now pins that the smoke job's figure is left out of the medians).
+With each new check removed, its tests fail; `analyze.py`'s 61 tests, the benches' and `check-allreduce-arms-lib.sh` pass.
+**What does not change:** everything "Amendment for run 2" lists as unchanged, and its two changes.
+**Run 3 is bought from `main` at the promotion that carries this section, once the owner approves this amendment;** the owner's general approval of paid sessions on 2026-10-28 was given before this change existed and is not read as approving it.
+Run 1's and run 2's evidence are not pooled with run 3's.

@@ -206,7 +206,15 @@ spec:
         requests: {cpu: "1", memory: 1Gi}
         limits: {cpu: "1", memory: 1Gi}
 EOF
-k -n "$COLLECTOR_NS" wait --for=condition=Ready pod/collector --timeout=300s >>"$OUT/run.log" 2>&1 || stop "collector not Ready"
+if ! k -n "$COLLECTOR_NS" wait --for=condition=Ready pod/collector --timeout=300s >>"$OUT/run.log" 2>&1; then
+  # The paid session of 2026-10-28 stopped here with nothing to say why, and its cluster was destroyed minutes later.
+  # These are kept so the next refusal names its cause: scheduling, image pull or the container itself.
+  # Each keeps its own error in its file, and a capture that fails must not skip the stop and its scoring.
+  k -n "$COLLECTOR_NS" describe pod collector >"$OUT/collector-describe.txt" 2>&1 || true
+  k -n "$COLLECTOR_NS" get events -o wide >"$OUT/collector-events.txt" 2>&1 || true
+  k describe nodes >"$OUT/nodes-describe.txt" 2>&1 || true
+  stop "collector not Ready"
+fi
 in_collector mkdir -p /study
 k -n "$COLLECTOR_NS" cp "$OUT/benchharness" collector:/study/benchharness >>"$OUT/run.log" 2>&1 || stop "copy harness"
 in_collector chmod +x /study/benchharness

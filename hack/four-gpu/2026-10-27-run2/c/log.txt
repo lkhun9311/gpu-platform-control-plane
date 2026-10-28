@@ -1,0 +1,6 @@
+mltrainingjob.platform.lkhun9311.github.io/c-warm created
+hack/lib/allreduce-arms.sh: line 1: kill: (2777562) - No such process
+mltrainingjob.platform.lkhun9311.github.io "c-warm" deleted from train-a namespace
+mltrainingjob.platform.lkhun9311.github.io/c-smoke-nccltests-1pod4gpu-230736 created
+hack/lib/allreduce-arms.sh: line 1: kill: (2783207) - No such process
+mltrainingjob.platform.lkhun9311.github.io "c-smoke-nccltests-1pod4gpu-230736" deleted from train-a namespace

@@ -1,0 +1,28 @@
+23:28:52Z  [session] API endpoint will admit 211.202.99.162/32 only
+23:28:52Z  [session] cluster gpu-platform does not exist
+23:28:53Z  [session] TTL kill switch armed: PID 2816477, fires in 420m, log /home/lkhun9311/workspace/gpu-cp-a-run1/ex/eks-session-20261027T232851Z/ttl-kill-switch.log
+23:28:53Z  [session] terraform init (cluster)
+23:29:16Z  [session] terraform apply (cluster) -- this is where the billing starts
+23:40:46Z  [session] cluster up in 690s
+23:40:49Z  [session] terraform init + apply (argo-bootstrap): the pinned argo-cd chart, installed by its own root
+   ok   Argo CD installed by its own Terraform root
+23:42:01Z  [session] runbook: apply
+   ok   runbook apply
+23:44:59Z  [session] runbook: seed-key
+   ok   runbook seed-key
+23:45:00Z  [session] runbook: verify
+   ok   runbook verify
+   ok   P1: g5.xlarge On-Demand in ap-northeast-2 at $1.2370000000 an hour, ceiling $1.40
+   ok   P2: G and VT On-Demand vCPU in use 0 (none) plus 8 fits the quota of 52.0
+   ok   GPU deadline armed for 393 min: gpu-ttl-gpu-platform-gpu-20261027234505
+23:45:05Z  [session] scaling gpu to 2 -- the nodes start billing here
+   ok   P3: ip-10-0-49-128.ap-northeast-2.compute.internal i-0c6a1eafb3a9d9f6d;ip-10-0-83-19.ap-northeast-2.compute.internal i-019692e1d8bf94747
+23:46:26Z  [session] study: prefixroute, until 06:18:05Z less a 10 min margin
+   FAIL study stopped: collector not Ready; the cells written are kept
+23:51:39Z  [session] scaling gpu to 0
+   ok   S6 (GPU half): gpu scaled to 0 and i-019692e1d8bf94747 i-0c6a1eafb3a9d9f6d terminated
+23:59:06Z  [session] destroy: argo-bootstrap, then cluster
+   ok   nothing that charges remains: no EKS cluster, instance, NAT gateway, EIP, volume, ASG, load balancer cluster log group or GPU deadline schedule
+00:10:44Z  [session] kill switch disarmed: destroy returned zero, every residue query was answered, and all were empty
+00:10:44Z  [session] evidence in /home/lkhun9311/workspace/gpu-cp-a-run1/ex/eks-session-20261027T232851Z
+00:10:44Z  [session] 1 check(s) failed

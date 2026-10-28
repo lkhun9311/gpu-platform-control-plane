@@ -55,6 +55,11 @@ SET_BY_ENV = re.compile(r"^(?P<name>NCCL_[A-Z0-9_]+) set by environment to (?P<v
 NCCL_VERSION_LINE = re.compile(r"(?:^|NCCL INFO )NCCL version (?P<v>[0-9.]+)\+")
 NT_RANK = re.compile(r"^#\s+Rank\s+(?P<rank>\d+) Group\s+\d+ Pid\s+(?P<pid>\d+) on\s+(?P<host>\S+) device\s+(?P<dev>\d+) "
                      r"\[0x(?P<bus>[0-9a-f]+)\] (?P<name>.+)$")
+# The bracket in nccl-tests' rank line is the PCI bus number alone, and a g5.12xlarge puts all four GPUs on bus 00,
+# so it cannot tell them apart; that voided the smoke job of the paid session of 2026-10-28.
+# NCCL's own init line carries the whole address, as the hex digits of domain, bus, device and function run together.
+NT_INIT = re.compile(r"ncclCommInitRank comm 0x[0-9a-f]+ rank (?P<rank>\d+) nranks \d+ cudaDev \d+ nvmlDev \d+ "
+                     r"busId (?P<busid>[0-9a-f]+) commId 0x[0-9a-f]+ - Init COMPLETE$")
 NT_HEADER = re.compile(r"^# nThread (?P<threads>\d+) nGpus (?P<gpus>\d+) minBytes (?P<min>\d+) maxBytes (?P<max>\d+) "
                        r"step: (?P<step>\d+)\(factor\) warmup iters: (?P<warmup>\d+) iters: (?P<iters>\d+) "
                        r"agg iters: (?P<agg>\d+) validation: (?P<check>\d+) graph: (?P<graph>\d+)")
@@ -346,6 +351,14 @@ def check_step_records(job: Job, starts: dict, by_rank: dict) -> None:
     if record0 and record0.get("verified") is True:
         job.figures = {k: record0.get(k) for k in ("synced_ms_median", "local_ms_median", "sync_cost_ms")}
         job.figures["ddp_buckets"] = record0.get("ddp_buckets")
+        # A NaN compares false both ways, so a separation over it reads "not distinguished" instead of refusing.
+        for k, value in job.figures.items():
+            if k == "ddp_buckets":
+                continue
+            if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(value):
+                job.fault(f"rank 0's {k} is {value!r}, not a finite number")
+            elif k != "sync_cost_ms" and value <= 0:
+                job.fault(f"rank 0's {k} is {value!r}, not a positive time")
 
 
 def check_nccltests_job(job: Job, pods: dict, logs: dict) -> None:
@@ -363,7 +376,7 @@ def check_nccltests_job(job: Job, pods: dict, logs: dict) -> None:
     for line in lines:
         m = GPU_LINE.match(line)
         if m:
-            gpus[int(m["bus"].split(":")[-1], 16)] = norm_uuid(m["uuid"])
+            gpus[int(m["bus"].replace(":", "") + m["dev"] + m["fn"], 16)] = norm_uuid(m["uuid"])
     header = next((m for m in (NT_HEADER.match(line) for line in lines) if m), None)
     if not header:
         job.fault("nccl-tests printed no settings header")
@@ -376,8 +389,15 @@ def check_nccltests_job(job: Job, pods: dict, logs: dict) -> None:
     pid_to_rank = {int(m["pid"]): int(m["rank"]) for m in ranks}
     if len(pid_to_rank) != len(ranks):
         job.fault("two nccl-tests ranks share a process id, so they are not one process per GPU")
+    busids = {}
+    for line in lines:
+        prefixed = NCCL_LINE.match(line)
+        init = prefixed and NT_INIT.match(prefixed["msg"])
+        if init:
+            busids[(int(prefixed["pid"]), int(init["rank"]))] = int(init["busid"], 16)
     for m in ranks:
-        uuid = gpus.get(int(m["bus"], 16))
+        busid = busids.get((int(m["pid"]), int(m["rank"])))
+        uuid = gpus.get(busid) if busid is not None else None
         if uuid:
             job.uuids[int(m["rank"])] = uuid
     if len(job.uuids) != RANKS or len(set(job.uuids.values())) != RANKS:
@@ -497,6 +517,13 @@ def score(evidence: Path, bench_sha: str, step_sha: str) -> int:
         if job.valid and job.transports:
             print("        transports", {r: job.transports[r] for r in sorted(job.transports)},
                   "set by the stack:", job.stack_env or "nothing")
+    # The registration runs one valid smoke job per arm before any counted one; the runner's STOPPED marker is not
+    # the only witness of that, because an archive can lose the marker and keep the jobs.
+    smokes = {arm: [j for j, c in jobs if not c and j.arm == arm] for arm in ARMS}
+    for arm, arm_smokes in smokes.items():
+        if len(arm_smokes) != 1 or not arm_smokes[0].valid:
+            print(f"INVALID {arm}: {len(arm_smokes)} smoke job(s), {sum(j.valid for j in arm_smokes)} valid, want 1 valid")
+            ok = False
     counted = {arm: [j for j, c in jobs if c and j.arm == arm] for arm in ARMS}
     for arm, arm_jobs in counted.items():
         if len(arm_jobs) != REPS:
