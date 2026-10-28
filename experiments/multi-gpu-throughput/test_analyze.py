@@ -597,6 +597,9 @@ class Score(Base):
         code, text = self.run_score()
         self.assertEqual(code, 1, text)
         self.assertIn("shares its run id c-00-smoke-ddp-1pod4gpu with 00-smoke-ddp-1pod4gpu", text)
+        # The copies report nothing: a duplicate is invalid, so the arm has no median and no verdict uses it.
+        self.assertIn("ddp-1pod4gpu: no figure, not every registered job is valid", text)
+        self.assertNotIn("V2 ddp-1pod4gpu vs ddp-4pod1gpu: first", text)
 
     def test_an_invalid_smoke_job_fails_the_run(self):
         # The registration stops the run at the first invalid smoke job, so an archive holding one is not a pass,
