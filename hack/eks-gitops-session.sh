@@ -144,9 +144,10 @@ case "$STUDY" in
     SERVE_BUDGET=$((WAIT_GPU_NODE + WAIT_GPU_PLUGIN + ${WAIT_SERVE_READY:-1500} + 900 + 6 * 1500 + WAIT_GPU_GONE + 300))
     ;;
   # Two engines on two cards: the `gpu` group at two nodes, bought and released by the same gates TRAIN=ddp uses,
-  # because gpu_single's max_size is 1. Node join, plugin, 900 s of setup, twelve cells of 1,500 s and the scale-down.
+  # because gpu_single's max_size is 1. Node join, plugin, 900 s of setup, the engines' first start outside every
+  # cell (run.sh's FIRST_START, 1,500 s), twelve cells of 1,500 s and the scale-down.
   prefixroute)
-    PREFIX_GPU_BUDGET=$((WAIT_GPU_NODE + WAIT_GPU_PLUGIN + 900 + 12 * 1500 + WAIT_GPU_GONE + 300))
+    PREFIX_GPU_BUDGET=$((WAIT_GPU_NODE + WAIT_GPU_PLUGIN + 900 + 1500 + 12 * 1500 + WAIT_GPU_GONE + 300))
     ;;
   *) die "STUDY=$STUDY is not a study this session runs (holdcap, prefixroute)" ;;
 esac
