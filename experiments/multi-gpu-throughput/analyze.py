@@ -582,16 +582,20 @@ def score(evidence: Path, bench_sha: str, step_sha: str) -> int:
     # Five repetitions are five executions: one archive copied into five directories would otherwise read as five.
     for label, key in (("run id", lambda j: [j.name]), ("Job UID", lambda j: [j.job_uid]),
                        ("Pod UID", lambda j: sorted(j.pod_uids))):
-        seen: dict[str, str] = {}
+        seen: dict[str, Job] = {}
         for job, _ in jobs:
             for value in key(job):
                 if not value:
                     continue
                 if value in seen:
-                    print(f"INVALID {job.path.name} shares its {label} {value} with {seen[value]}")
+                    # Both are faulted, so neither arm counts the execution twice in a median or a verdict.
+                    first = seen[value]
+                    print(f"INVALID {job.path.name} shares its {label} {value} with {first.path.name}")
+                    job.fault(f"shares its {label} {value} with {first.path.name}")
+                    first.fault(f"shares its {label} {value} with {job.path.name}")
                     ok = False
                 else:
-                    seen[value] = job.path.name
+                    seen[value] = job
     counted = {arm: [j for j, c in jobs if c and j.arm == arm] for arm in ARMS}
     for arm, arm_jobs in counted.items():
         if len(arm_jobs) != REPS:
