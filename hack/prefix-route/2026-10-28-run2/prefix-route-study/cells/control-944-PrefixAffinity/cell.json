@@ -1,0 +1,12 @@
+{
+ "cell": "control-944-PrefixAffinity",
+ "endedUnixNanos": 1793169222944705155,
+ "engineARestarts": "0",
+ "engineAUID": "7d0ccc52-7c7a-4ea1-aafc-e607dff28c8e",
+ "engineBRestarts": "0",
+ "engineBUID": "7cef5242-5c78-457e-88bd-6e7114bc3f5d",
+ "gatewayRestarts": "0",
+ "gatewayUID": "f4f8151f-983e-4abb-9361-1ad37d0bd4ec",
+ "outcome": "complete",
+ "startedUnixNanos": 1793168576311861445
+}

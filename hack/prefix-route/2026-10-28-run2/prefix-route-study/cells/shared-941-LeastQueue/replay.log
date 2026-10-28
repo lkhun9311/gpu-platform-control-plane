@@ -1,0 +1,4 @@
+client connection mode: pooled (MaxIdleConnsPerHost=600, drain=true) for 485 rows at timeout 30s
+request priorities: none (requests carry no priority field)
+request ids: study-shared-941-LeastQueue-<index>
+replayed 485 rows against http://gateway.gpu-platform-control-plane-system.svc:8080 (arm=LeastQueue) to raw-shared-941-LeastQueue.jsonl

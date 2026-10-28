@@ -1,0 +1,87 @@
+apiVersion: v1
+items:
+- apiVersion: platform.lkhun9311.github.io/v1
+  kind: InferenceDeployment
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"platform.lkhun9311.github.io/v1","kind":"InferenceDeployment","metadata":{"annotations":{},"name":"qwen-a","namespace":"prefix-route"},"spec":{"engine":{"vllm":{"modelRevision":"aa8e72537993ba99e69dfaafa59ed015b17504d1","profile":"v0.27.1-a10g-prefix-cache"}},"gpuClass":"a10g","gpuCount":1,"image":"vllm/vllm-openai@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967","model":{"name":"Qwen/Qwen2.5-3B-Instruct","storageUri":"hf://Qwen/Qwen2.5-3B-Instruct"},"port":8000,"replicas":1}}
+    creationTimestamp: "2026-10-28T03:36:32Z"
+    generation: 1
+    name: qwen-a
+    namespace: prefix-route
+    resourceVersion: "4036"
+    uid: edb510f0-8786-47a1-99b9-be95b40af2a5
+  spec:
+    engine:
+      vllm:
+        modelRevision: aa8e72537993ba99e69dfaafa59ed015b17504d1
+        profile: v0.27.1-a10g-prefix-cache
+    gpuClass: a10g
+    gpuCount: 1
+    image: vllm/vllm-openai@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967
+    model:
+      name: Qwen/Qwen2.5-3B-Instruct
+      storageUri: hf://Qwen/Qwen2.5-3B-Instruct
+    port: 8000
+    replicas: 1
+  status:
+    conditions:
+    - lastTransitionTime: "2026-10-28T03:36:32Z"
+      message: no replicas ready yet
+      observedGeneration: 1
+      reason: RolloutInProgress
+      status: "False"
+      type: Available
+    - lastTransitionTime: "2026-10-28T03:36:32Z"
+      message: the rendered engine is not yet the only one serving
+      observedGeneration: 1
+      reason: RenderedEngineRolloutInProgress
+      status: "False"
+      type: EngineInForce
+    observedGeneration: 1
+    phase: Pending
+- apiVersion: platform.lkhun9311.github.io/v1
+  kind: InferenceDeployment
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"platform.lkhun9311.github.io/v1","kind":"InferenceDeployment","metadata":{"annotations":{},"name":"qwen-b","namespace":"prefix-route"},"spec":{"engine":{"vllm":{"modelRevision":"aa8e72537993ba99e69dfaafa59ed015b17504d1","profile":"v0.27.1-a10g-prefix-cache"}},"gpuClass":"a10g","gpuCount":1,"image":"vllm/vllm-openai@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967","model":{"name":"Qwen/Qwen2.5-3B-Instruct","storageUri":"hf://Qwen/Qwen2.5-3B-Instruct"},"port":8000,"replicas":1}}
+    creationTimestamp: "2026-10-28T03:36:35Z"
+    generation: 1
+    name: qwen-b
+    namespace: prefix-route
+    resourceVersion: "4078"
+    uid: 3d50f1f5-8b44-43b1-a22f-3ce6d0fe5897
+  spec:
+    engine:
+      vllm:
+        modelRevision: aa8e72537993ba99e69dfaafa59ed015b17504d1
+        profile: v0.27.1-a10g-prefix-cache
+    gpuClass: a10g
+    gpuCount: 1
+    image: vllm/vllm-openai@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967
+    model:
+      name: Qwen/Qwen2.5-3B-Instruct
+      storageUri: hf://Qwen/Qwen2.5-3B-Instruct
+    port: 8000
+    replicas: 1
+  status:
+    conditions:
+    - lastTransitionTime: "2026-10-28T03:36:35Z"
+      message: no replicas ready yet
+      observedGeneration: 1
+      reason: RolloutInProgress
+      status: "False"
+      type: Available
+    - lastTransitionTime: "2026-10-28T03:36:35Z"
+      message: the rendered engine is not yet the only one serving
+      observedGeneration: 1
+      reason: RenderedEngineRolloutInProgress
+      status: "False"
+      type: EngineInForce
+    observedGeneration: 1
+    phase: Pending
+kind: List
+metadata:
+  resourceVersion: ""

@@ -1,0 +1,28 @@
+03:21:51Z  [session] API endpoint will admit 211.202.99.162/32 only
+03:21:52Z  [session] cluster gpu-platform does not exist
+03:21:53Z  [session] TTL kill switch armed: PID 3531739, fires in 440m, log /home/lkhun9311/workspace/gpu-cp-a-run2/ex/eks-session-20261028T032151Z/ttl-kill-switch.log
+03:21:53Z  [session] terraform init (cluster)
+03:22:16Z  [session] terraform apply (cluster) -- this is where the billing starts
+03:32:26Z  [session] cluster up in 610s
+03:32:29Z  [session] terraform init + apply (argo-bootstrap): the pinned argo-cd chart, installed by its own root
+   ok   Argo CD installed by its own Terraform root
+03:33:38Z  [session] runbook: apply
+   ok   runbook apply
+03:35:16Z  [session] runbook: seed-key
+   ok   runbook seed-key
+03:35:17Z  [session] runbook: verify
+   ok   runbook verify
+   ok   P1: g5.xlarge On-Demand in ap-northeast-2 at $1.2370000000 an hour, ceiling $1.40
+   ok   P2: G and VT On-Demand vCPU in use 0 (none) plus 8 fits the quota of 52.0
+   ok   P4: the collector requests 250m: ip-10-0-55-71.ap-northeast-2.compute.internal 910m unrequested
+   ok   GPU deadline armed for 416 min: gpu-ttl-gpu-platform-gpu-20261028033523
+03:35:24Z  [session] scaling gpu to 2 -- the nodes start billing here
+   ok   P3: ip-10-0-50-131.ap-northeast-2.compute.internal i-039f167e90e778c81;ip-10-0-72-248.ap-northeast-2.compute.internal i-0163d541fbad84994
+03:36:28Z  [session] study: prefixroute, until 10:31:24Z less a 10 min margin
+   ok   study: all twelve cells ran; verdict: not met: rule 4 p99 (not lowered in shared-942); rule 5 (shared-942 worse-backend p99 3139.0 > RoundRobin's 2595.4 ms)
+06:33:43Z  [session] scaling gpu to 0
+   ok   S6 (GPU half): gpu scaled to 0 and i-0163d541fbad84994 i-039f167e90e778c81 terminated
+06:41:27Z  [session] destroy: argo-bootstrap, then cluster
+   ok   nothing that charges remains: no EKS cluster, instance, NAT gateway, EIP, volume, ASG, load balancer cluster log group or GPU deadline schedule
+06:52:15Z  [session] kill switch disarmed: destroy returned zero, every residue query was answered, and all were empty
+06:52:15Z  [session] evidence in /home/lkhun9311/workspace/gpu-cp-a-run2/ex/eks-session-20261028T032151Z
