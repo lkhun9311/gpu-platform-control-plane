@@ -425,8 +425,12 @@ The fixtures now carry this node's layout, and `test_the_smoke_job_that_was_void
 ## Amendment for run 3, 2026-10-28, proposed to the owner and not yet approved
 
 Run 2 is reported as it ran, and under "Amendment for run 2" a third attempt needs its own amendment and approval.
-**What changes**, and only this: `check_nccltests_job` reads which GPU each rank used from NCCL's init line instead of nccl-tests' rank line, as "Run 2" describes.
+**What changes**, these three and nothing else. First, `check_nccltests_job` reads which GPU each rank used from NCCL's init line instead of nccl-tests' rank line, as "Run 2" describes.
 It changes which lines identify a rank's GPU and nothing judged from them: one process per rank, four distinct UUIDs, and every other validity line stand as registered.
+**Two refusals are added, found by codex `gpt-6-astra` in a whole-project audit on 2026-10-28 and re-derived here; each only refuses what the registration already does not accept.**
+A DDP job whose rank-0 step times are not finite, or whose synced or local time is not positive, is invalid: Python's `json` reads `NaN`, and a `NaN` median compared false in both directions, so V2 and V3 would have printed "not distinguished" over it instead of refusing (`test_ddp_nan_step_time`, `test_ddp_negative_step_time`).
+The aggregate score fails unless each arm has exactly one smoke job and it is valid, as "Order and repetitions" requires; before, an invalid or missing smoke job printed and the run could still PASS when the runner's `STOPPED` marker was absent (`test_an_invalid_smoke_job_fails_the_run`, `test_a_missing_smoke_job_fails_the_run`; the old `test_smoke_jobs_are_not_counted` had pinned the PASS and now pins that the smoke job's figure is left out of the medians).
+With each new check removed, its tests fail; `analyze.py`'s 61 tests, the benches' and `check-allreduce-arms-lib.sh` pass.
 **What does not change:** everything "Amendment for run 2" lists as unchanged, and its two changes.
 **Run 3 is bought from `main` at the promotion that carries this section, once the owner approves this amendment;** the owner's general approval of paid sessions on 2026-10-28 was given before this change existed and is not read as approving it.
 Run 1's and run 2's evidence are not pooled with run 3's.
