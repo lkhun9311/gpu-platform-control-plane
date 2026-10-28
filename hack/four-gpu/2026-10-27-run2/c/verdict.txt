@@ -1,0 +1,28 @@
+Q VALID
+STOPPED smoke job nccltests-1pod4gpu is not valid: INVALID /home/lkhun9311/workspace/gpu-cp-c-run2/ex/eks-session-20261027T224334Z/c/jobs/00-smoke-nccltests-1pod4gpu the ranks' bus IDs map to 1 distinct GPU UUID(s), want 4
+INVALID 00-smoke-nccltests-1pod4gpu (smoke, not counted) the ranks' bus IDs map to 1 distinct GPU UUID(s), want 4
+INVALID nccltests-1pod4gpu: 0 registered job(s), want 5
+INVALID allreduce-1pod4gpu: 0 registered job(s), want 5
+INVALID allreduce-4pod1gpu: 0 registered job(s), want 5
+INVALID ddp-1pod4gpu: 0 registered job(s), want 5
+INVALID ddp-4pod1gpu: 0 registered job(s), want 5
+
+E1 bus bandwidth, GB/s (median of five jobs; each job's figure in brackets)
+  nccltests-1pod4gpu: no figure, not every registered job is valid
+  allreduce-1pod4gpu: no figure, not every registered job is valid
+  allreduce-4pod1gpu: no figure, not every registered job is valid
+
+E4 DDP step, ms (median of five jobs)
+  ddp-1pod4gpu: no figure, not every registered job is valid
+  ddp-4pod1gpu: no figure, not every registered job is valid
+
+Verdicts (complete separation of five against five; either direction)
+  V1 allreduce-1pod4gpu vs allreduce-4pod1gpu at 1 MiB: not scored, an arm has an invalid or missing job
+  V1 allreduce-1pod4gpu vs allreduce-4pod1gpu at 4 MiB: not scored, an arm has an invalid or missing job
+  V1 allreduce-1pod4gpu vs allreduce-4pod1gpu at 16 MiB: not scored, an arm has an invalid or missing job
+  V1 allreduce-1pod4gpu vs allreduce-4pod1gpu at 64 MiB: not scored, an arm has an invalid or missing job
+  V1 allreduce-1pod4gpu vs allreduce-4pod1gpu at 256 MiB: not scored, an arm has an invalid or missing job
+  V2 ddp-1pod4gpu vs ddp-4pod1gpu: not scored, an arm has an invalid or missing job
+  V3 ddp-1pod4gpu vs ddp-4pod1gpu: not scored, an arm has an invalid or missing job
+
+FAIL

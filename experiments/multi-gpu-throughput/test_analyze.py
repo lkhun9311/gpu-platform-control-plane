@@ -23,7 +23,8 @@ BENCH = "a" * 64
 STEP = "b" * 64
 NODE = "ip-10-0-1-1"
 UUIDS = ["5c1d5a84-0000-0000-0000-00000000000%d" % i for i in range(4)]
-BUSES = [0x1B, 0x1C, 0x1D, 0x1E]
+# As run 2 of 2026-10-28 captured them: one PCI bus, 00, and the four GPUs at devices 1B to 1E.
+DEVICES = [0x1B, 0x1C, 0x1D, 0x1E]
 
 
 def preamble(name: str, host: str, shm_kb: int = 1048576, extra_env: dict | None = None) -> list[str]:
@@ -77,11 +78,13 @@ def rank_lines(name: str, rank: int, pid: int, host: str, ddp: bool, busbw_scale
 
 def nccltests_lines(name: str, host: str, scale: float) -> list[str]:
     lines = preamble(name, host, extra_env={"NCCL_VERSION": "2.21.5-1"})
-    lines += [f"AR_GPU {i}, GPU-{UUIDS[i]}, 00000000:{BUSES[i]:02X}:00.0, 550.127.05" for i in range(4)]
+    lines += [f"AR_GPU {i}, GPU-{UUIDS[i]}, 00000000:00:{DEVICES[i]:02X}.0, 550.127.05" for i in range(4)]
     lines.append("# nThread 1 nGpus 1 minBytes 1048576 maxBytes 268435456 step: 4(factor) warmup iters: 20 iters: 100 "
                  "agg iters: 1 validation: 1 graph: 0")
-    lines += [f"#  Rank {i:2d} Group  0 Pid {100 + i:6d} on {host:>10} device {i:2d} [0x{BUSES[i]:02x}] NVIDIA A10G"
+    lines += [f"#  Rank {i:2d} Group  0 Pid {100 + i:6d} on {host:>10} device {i:2d} [0x00] NVIDIA A10G"
               for i in range(4)]
+    lines += [nccl(host, 100 + i, i, f"ncclCommInitRank comm 0x55951b4c62b{i} rank {i} nranks 4 cudaDev {i} nvmlDev {i} "
+                                     f"busId {DEVICES[i]:x}0 commId 0x670d080c18c710e0 - Init COMPLETE") for i in range(4)]
     # As NCCL 2.21.5 prints it: a bare printf from rank 0, with no host:pid:tid prefix.
     lines.append("NCCL version 2.21.5+cuda12.4")
     lines += [nccl(host, 100 + i, i, channel(i, "SHM/direct/direct")) for i in range(4)]
@@ -379,7 +382,7 @@ class NcclTests(Base):
 
     def test_two_ranks_on_one_bus(self):
         path = write_job(self.root, "a", "nccltests-1pod4gpu")
-        edit_log(path, "pod-uid-0", lambda lines: [x.replace("[0x1c]", "[0x1b]") for x in lines])
+        edit_log(path, "pod-uid-0", lambda lines: [x.replace("busId 1c0", "busId 1b0") for x in lines])
         self.assertFault(path, "distinct GPU UUID")
 
     def test_one_process_for_two_ranks(self):
@@ -414,12 +417,24 @@ class NcclTests(Base):
         self.assertFault(path, "started with NCCL_ variables")
 
 
+class CapturedJob(unittest.TestCase):
+    """A job the paid session of 2026-10-28 ran, read as committed: nothing here is a form imagined for a fixture."""
+
+    JOB = Path(__file__).resolve().parents[2] / "hack/four-gpu/2026-10-27-run2/c/jobs/00-smoke-nccltests-1pod4gpu"
+
+    def test_the_smoke_job_that_was_voided_reads_as_four_gpus(self):
+        # Its rank lines all print [0x00], and reading them as the bus that tells GPUs apart voided that session.
+        job = analyze.judge_job(self.JOB, BENCH, STEP, None)
+        self.assertEqual(job.faults, [])
+        self.assertEqual(len(set(job.uuids.values())), 4)
+
+
 class Qualification(Base):
     def write(self, extra: list[str] | None = None, drop: str | None = None) -> Path:
         path = self.root / "qualification"
         path.mkdir(exist_ok=True)
         lines = [f"GPU {i}: NVIDIA A10G (UUID: GPU-{UUIDS[i]})" for i in range(4)]
-        lines += [f"AR_GPU {i}, GPU-{UUIDS[i]}, 00000000:{BUSES[i]:02X}:00.0, 550.127.05" for i in range(4)]
+        lines += [f"AR_GPU {i}, GPU-{UUIDS[i]}, 00000000:00:{DEVICES[i]:02X}.0, 550.127.05" for i in range(4)]
         lines += ["\tGPU0\tGPU1\tGPU2\tGPU3\tCPU Affinity\tNUMA Affinity",
                   *[f"GPU{i}\t X \tPHB\tPHB\tPHB\t0-47\t0" for i in range(4)], "AR_SHM_KB 1048576"]
         lines = [x for x in lines if not (drop and drop in x)] + (extra or [])

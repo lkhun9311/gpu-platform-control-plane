@@ -1,0 +1,106 @@
+22:43:34Z  [session] API endpoint will admit 211.202.99.162/32 only
+22:43:34Z  [session] TRAIN_AZ: no zone pin: the nodes may land in any zone that offers the type, and the record says which they did
+22:43:34Z  [session] cluster gpu-platform does not exist
+22:43:35Z  [session] TRAIN=allreduce: 1 x g5.12xlarge of 4 GPUs, price ceiling $6.98, GPU budget 13800s
+22:43:35Z  [session] TTL kill switch armed: PID 2690440, fires in 310m, log /home/lkhun9311/workspace/gpu-cp-c-run2/ex/eks-session-20261027T224334Z/ttl-kill-switch.log
+22:43:35Z  [session] terraform init (cluster)
+22:44:02Z  [session] terraform apply (cluster) -- this is where the billing starts
+22:56:14Z  [session] cluster up in 732s
+22:56:17Z  [session] terraform init + apply (argo-bootstrap): the pinned argo-cd chart, installed by its own root
+   ok   Argo CD installed by its own Terraform root
+22:57:28Z  [session] runbook: apply
+2026-10-27T22:57:28.978679401Z  context: gpu-platform
+2026-10-27T22:57:29.458875566Z  applying config/argocd/root.yaml -- the step that was missing
+   ok   all 13 Applications this repository declares exist, 13 of them created by this run
+2026-10-27T22:58:04.276985297Z  root resolved revision: 1b4a8c0727d08c2bc8f3899ca0c65a9d8a1f43ba (targetRevision is the mutable branch main)
+2026-10-27T22:58:04.278981147Z  waiting for the automated Applications to reach Synced/Healthy
+   ok   every automated Application is Synced/Healthy, and every declared Application is still present
+2026-10-27T23:00:31.153410564Z  not waited on because they carry no automated syncPolicy, by design: gpu-platform-device-plugin gpu-platform-observability gpu-platform-samples gpu-platform-serving gpu-platform-training 
+   ok   runbook apply
+23:00:31Z  [session] runbook: seed-key
+2026-10-27T23:00:31.179448159Z  context: gpu-platform
+   ok   created gateway-api-keys with one key for tenant-a (recorded in seeded-key.txt)
+   ok   runbook seed-key
+23:00:31Z  [session] runbook: verify
+2026-10-27T23:00:32.1265381Z  context: gpu-platform
+2026-10-27T23:00:32.381481571Z  probing gateway-79d97ff856-zxlww through a port-forward (the image is distroless, so exec cannot help)
+2026-10-27T23:00:32.907467179Z     forwarding 127.0.0.1:46013 -> 8080 and 127.0.0.1:38239 -> 8081
+2026-10-27T23:00:33.380738065Z     readyz=200  bad-key request=401  real-key request=403
+   ok   a bad key is refused with 401
+   ok   a key from the Secret is accepted and refused by tenant policy (403): authentication reached the key store. Not proof of serving
+   ok   runbook verify
+   ok   T1: gpu-platform-training synced at 1b4a8c0727d08c2bc8f3899ca0c65a9d8a1f43ba
+   ok   T2: ClusterQueue gpu-train-a is Active and the only one
+   ok   T3: qualification job train-qualify admitted at 2026-10-27T23:00:51Z, 1 Pod(s) unplaced
+   ok   T4: g5.12xlarge On-Demand in ap-northeast-2 at $6.9744200000 an hour, ceiling $6.98
+   ok   T5: G and VT On-Demand vCPU in use 0 (none) plus 48 fits the quota of 52.0
+   ok   Z1: node group gpu has subnets in ap-northeast-2a ap-northeast-2c ap-northeast-2d
+[31m╷[0m[0m
+[31m│[0m [0m[1m[31mError: [0m[0m[1mBackend initialization required, please run "terraform init"[0m
+[31m│[0m [0m
+[31m│[0m [0m[0mReason: Initial configuration of the requested backend "s3"
+[31m│[0m [0m
+[31m│[0m [0mThe "backend" is the interface that Terraform uses to store state,
+[31m│[0m [0mperform operations, etc. If this message is showing up, it means that the
+[31m│[0m [0mTerraform configuration you're using is using a custom configuration for
+[31m│[0m [0mthe Terraform backend.
+[31m│[0m [0m
+[31m│[0m [0mChanges to backend configurations require reinitialization. This allows
+[31m│[0m [0mTerraform to set up the new configuration, copy existing state, etc. Please
+[31m│[0m [0mrun
+[31m│[0m [0m"terraform init" with either the "-reconfigure" or "-migrate-state" flags
+[31m│[0m [0mto
+[31m│[0m [0muse the current configuration.
+[31m│[0m [0m
+[31m│[0m [0mIf the change reason above is incorrect, please verify your configuration
+[31m│[0m [0mhasn't changed and try again. At this point, no changes to your existing
+[31m│[0m [0mconfiguration or state have been made.
+[31m╵[0m[0m
+TTL armed: gpu-platform/gpu goes to desiredSize=0 at 2026-10-28T02:50:56Z (in 230m), schedule gpu-ttl-gpu-platform-gpu-20261027230056
+   ok   GPU deadline armed for 230 min: gpu-ttl-gpu-platform-gpu-20261027230056
+23:00:57Z  [session] scaling gpu to 1 -- the nodes start billing here
+{
+    "update": {
+        "id": "25777c9f-45c7-39e6-902d-f8cac13ad525",
+        "status": "InProgress",
+        "type": "ConfigUpdate",
+        "params": [
+            {
+                "type": "MinSize",
+                "value": "0"
+            },
+            {
+                "type": "MaxSize",
+                "value": "1"
+            },
+            {
+                "type": "DesiredSize",
+                "value": "1"
+            }
+        ],
+        "createdAt": "2026-10-28T08:00:58.176000+09:00",
+        "errors": []
+    }
+}
+   ok   T6: ip-10-0-70-24.ap-northeast-2.compute.internal i-0438f3f0577d816d2
+   ok   Z2: ip-10-0-70-24.ap-northeast-2.compute.internal ap-northeast-2c
+   ok   T7: qualification job train-qualify succeeded: admittedAt 2026-10-27T23:00:51Z, runningObservedAt 2026-10-27T23:04:11Z, admitToRunningSeconds 200.775
+   ok   Q: four distinct UUIDs, one driver, a 4 x 4 topology and 1 GiB of /dev/shm
+23:05:26Z  [session] == allreduce-1pod4gpu as c-warm
+23:07:28Z  [session] allreduce-1pod4gpu: phase 'Succeeded' after 122 s
+   ok   T7b: AR_WARM devices 4 nccl 2.21.5
+23:07:36Z  [session] == nccltests-1pod4gpu as c-smoke-nccltests-1pod4gpu-230736
+23:08:27Z  [session] nccltests-1pod4gpu: phase 'Succeeded' after 50 s
+23:08:34Z  [session] STOPPED: smoke job nccltests-1pod4gpu is not valid: INVALID /home/lkhun9311/workspace/gpu-cp-c-run2/ex/eks-session-20261027T224334Z/c/jobs/00-smoke-nccltests-1pod4gpu the ranks' bus IDs map to 1 distinct GPU UUID(s), want 4 
+   FAIL the arms stopped: smoke job nccltests-1pod4gpu is not valid: INVALID /home/lkhun9311/workspace/gpu-cp-c-run2/ex/eks-session-20261027T224334Z/c/jobs/00-smoke-nccltests-1pod4gpu the ranks' bus IDs map to 1 distinct GPU UUID(s), want 4 
+   FAIL T8: not every job was valid: 6 invalid line(s), see /home/lkhun9311/workspace/gpu-cp-c-run2/ex/eks-session-20261027T224334Z/c/verdict.txt
+hack/eks-gitops-session.sh: line 886: kill: (2771221) - No such process
+hack/eks-gitops-session.sh: line 886: kill: (2782818) - No such process
+23:08:34Z  [session] scaling gpu to 0
+   ok   S6 (GPU half): gpu scaled to 0 and i-0438f3f0577d816d2 terminated
+TTL disarmed: gpu-ttl-gpu-platform-gpu-20261027230056
+23:17:40Z  [session] destroy: argo-bootstrap, then cluster
+   ok   nothing that charges remains: no EKS cluster, instance, NAT gateway, EIP, volume, ASG, load balancer cluster log group or GPU deadline schedule
+23:28:43Z  [session] kill switch disarmed: destroy returned zero, every residue query was answered, and all were empty
+23:28:43Z  [session] evidence in /home/lkhun9311/workspace/gpu-cp-c-run2/ex/eks-session-20261027T224334Z
+23:28:43Z  [session] 2 check(s) failed

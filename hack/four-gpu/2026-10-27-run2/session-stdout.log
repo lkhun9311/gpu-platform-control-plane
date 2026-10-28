@@ -1,0 +1,43 @@
+22:43:34Z  [session] API endpoint will admit 211.202.99.162/32 only
+22:43:34Z  [session] TRAIN_AZ: no zone pin: the nodes may land in any zone that offers the type, and the record says which they did
+22:43:34Z  [session] cluster gpu-platform does not exist
+22:43:35Z  [session] TRAIN=allreduce: 1 x g5.12xlarge of 4 GPUs, price ceiling $6.98, GPU budget 13800s
+22:43:35Z  [session] TTL kill switch armed: PID 2690440, fires in 310m, log /home/lkhun9311/workspace/gpu-cp-c-run2/ex/eks-session-20261027T224334Z/ttl-kill-switch.log
+22:43:35Z  [session] terraform init (cluster)
+22:44:02Z  [session] terraform apply (cluster) -- this is where the billing starts
+22:56:14Z  [session] cluster up in 732s
+22:56:17Z  [session] terraform init + apply (argo-bootstrap): the pinned argo-cd chart, installed by its own root
+   ok   Argo CD installed by its own Terraform root
+22:57:28Z  [session] runbook: apply
+   ok   runbook apply
+23:00:31Z  [session] runbook: seed-key
+   ok   runbook seed-key
+23:00:31Z  [session] runbook: verify
+   ok   runbook verify
+   ok   T1: gpu-platform-training synced at 1b4a8c0727d08c2bc8f3899ca0c65a9d8a1f43ba
+   ok   T2: ClusterQueue gpu-train-a is Active and the only one
+   ok   T3: qualification job train-qualify admitted at 2026-10-27T23:00:51Z, 1 Pod(s) unplaced
+   ok   T4: g5.12xlarge On-Demand in ap-northeast-2 at $6.9744200000 an hour, ceiling $6.98
+   ok   T5: G and VT On-Demand vCPU in use 0 (none) plus 48 fits the quota of 52.0
+   ok   Z1: node group gpu has subnets in ap-northeast-2a ap-northeast-2c ap-northeast-2d
+   ok   GPU deadline armed for 230 min: gpu-ttl-gpu-platform-gpu-20261027230056
+23:00:57Z  [session] scaling gpu to 1 -- the nodes start billing here
+   ok   T6: ip-10-0-70-24.ap-northeast-2.compute.internal i-0438f3f0577d816d2
+   ok   Z2: ip-10-0-70-24.ap-northeast-2.compute.internal ap-northeast-2c
+   ok   T7: qualification job train-qualify succeeded: admittedAt 2026-10-27T23:00:51Z, runningObservedAt 2026-10-27T23:04:11Z, admitToRunningSeconds 200.775
+   ok   Q: four distinct UUIDs, one driver, a 4 x 4 topology and 1 GiB of /dev/shm
+23:05:26Z  [session] == allreduce-1pod4gpu as c-warm
+23:07:28Z  [session] allreduce-1pod4gpu: phase 'Succeeded' after 122 s
+   ok   T7b: AR_WARM devices 4 nccl 2.21.5
+23:07:36Z  [session] == nccltests-1pod4gpu as c-smoke-nccltests-1pod4gpu-230736
+23:08:27Z  [session] nccltests-1pod4gpu: phase 'Succeeded' after 50 s
+23:08:34Z  [session] STOPPED: smoke job nccltests-1pod4gpu is not valid: INVALID /home/lkhun9311/workspace/gpu-cp-c-run2/ex/eks-session-20261027T224334Z/c/jobs/00-smoke-nccltests-1pod4gpu the ranks' bus IDs map to 1 distinct GPU UUID(s), want 4 
+   FAIL the arms stopped: smoke job nccltests-1pod4gpu is not valid: INVALID /home/lkhun9311/workspace/gpu-cp-c-run2/ex/eks-session-20261027T224334Z/c/jobs/00-smoke-nccltests-1pod4gpu the ranks' bus IDs map to 1 distinct GPU UUID(s), want 4 
+   FAIL T8: not every job was valid: 6 invalid line(s), see /home/lkhun9311/workspace/gpu-cp-c-run2/ex/eks-session-20261027T224334Z/c/verdict.txt
+23:08:34Z  [session] scaling gpu to 0
+   ok   S6 (GPU half): gpu scaled to 0 and i-0438f3f0577d816d2 terminated
+23:17:40Z  [session] destroy: argo-bootstrap, then cluster
+   ok   nothing that charges remains: no EKS cluster, instance, NAT gateway, EIP, volume, ASG, load balancer cluster log group or GPU deadline schedule
+23:28:43Z  [session] kill switch disarmed: destroy returned zero, every residue query was answered, and all were empty
+23:28:43Z  [session] evidence in /home/lkhun9311/workspace/gpu-cp-c-run2/ex/eks-session-20261027T224334Z
+23:28:43Z  [session] 2 check(s) failed
