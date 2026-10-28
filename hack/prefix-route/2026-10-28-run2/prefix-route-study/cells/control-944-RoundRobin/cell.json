@@ -1,0 +1,12 @@
+{
+ "cell": "control-944-RoundRobin",
+ "endedUnixNanos": 1793167534931541454,
+ "engineARestarts": "0",
+ "engineAUID": "83acfa59-790a-4863-8739-cc8754fc8cf2",
+ "engineBRestarts": "0",
+ "engineBUID": "eb191b53-dd56-466d-8167-ec2fc20e5aff",
+ "gatewayRestarts": "0",
+ "gatewayUID": "7e20f667-9e02-41bb-bc40-a5f6a2de9e9f",
+ "outcome": "complete",
+ "startedUnixNanos": 1793166891096765455
+}

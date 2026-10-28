@@ -6,7 +6,8 @@ Until this line, the status said: "registered as v2, built, rehearsed on kind en
 v1 of this page was attacked cold by codex `gpt-6-astra` before the build was finished (13 findings: 1 blocker, 9 major, 3 minor); every finding was re-derived and answered in "The cold attack and what changed" at the end, and v2 below is the result.
 The seeds, the four trace checksums and the bytes every request sends are frozen in "Frozen traces", and a test fails if the generator ever produces anything else.
 The page became frozen for purchase only at the commit carrying the line above, as C3's did; the owner's approval quoted there is the basis for buying one session, and nothing in this page is.
-**Status, 2026-10-28: run 1 STOPPED before its first cell, because the collector Pod never became Ready; no cell ran, nothing was scored and no number below is a result.** "Run 1" and "Amendment for run 2", at the end, say what is known of the stop and what a second attempt changes.
+**Status, 2026-10-28: run 2 ran all twelve cells, every block was scorable and valid, and the verdict is NOT MET: in `shared-942` `PrefixAffinity`'s TTFT p99 was not below both other arms', and its worse backend's p99 was above `RoundRobin`'s.** Rules 3, 4's p50 and 5's share held in all three shared blocks; "Run 2", at the end, gives every cell.
+Run 1 stopped before its first cell, because the collector Pod never became Ready; "Run 1" and "Amendment for run 2" say what is known of that stop and what the second attempt changed.
 
 ## The question
 
@@ -369,3 +370,51 @@ The sender's registered configuration (30 s, pooled, 600 connections) is unchang
 **What does not change:** everything above this section except the TTL, the ceiling of $40 among it; run 1 spent about $0.54 of it.
 A run 2 that stops at the collector again is reported with its cause and is not repeated under this amendment; one that passes the collector runs as registered.
 **Run 2 is bought from `main` at the promotion that carries this section, once the owner approves this amendment.**
+
+## Run 2, 2026-10-28: twelve cells, NOT MET in `shared-942`
+
+**What ran.** The command in "How to buy it, once approved" with `TTL_MINUTES=440`, from a clean worktree at `main` `db4fd0ca`, CI's image pin after the promotion `5019d4aa` (#424) that carries the amendment above; started 03:21:51Z.
+Every check before the purchase passed: P1 at $1.237 an hour, P2 (0 in use plus 8 within 52), P4 with 910m unrequested on the CPU node against the collector's 250m (`prefix-route-study/cpu-capacity.txt`), the GPU deadline armed for 416 minutes, and P3 with both nodes joined.
+The collector became Ready; both engines' first start, outside every cell, took 388 s (03:37:57Z to 03:44:25Z); the twelve cells ran from 03:44:25Z to 06:33:42Z, and the scorer ran once after the last.
+**What P4 says about run 1.** 910m was unrequested on run 2's CPU node, under run 1's 1,000m collector request; if run 1's node held the same Pods, which its archive cannot show, the collector could not have been scheduled. It is the strongest evidence for run 1's likely cause, and it is still not a verification of it.
+
+**Every request succeeded, in every cell** (482 to 521 rows per cell, one per trace request), and no block was unscorable or invalid.
+
+| block | arm | H | TTFT p50 ms | TTFT p99 ms | share a / b | p99 a / b ms | imbalance |
+|---|---|---:|---:|---:|---|---|---:|
+| shared-941 | RoundRobin | 0.5541 | 110.5 | 2159.1 | 0.501 / 0.499 | 2004.2 / 2258.2 | 0.74 |
+| shared-941 | LeastQueue | 0.5534 | 208.5 | 2279.5 | 0.493 / 0.507 | 2347.9 / 2005.3 | 0.55 |
+| shared-941 | PrefixAffinity | 0.8201 | 80.3 | 1314.4 | 0.540 / 0.460 | 1304.6 / 1563.1 | 0.62 |
+| shared-942 | RoundRobin | 0.5467 | 104.7 | 2577.0 | 0.500 / 0.500 | 2595.4 / 2521.3 | 0.61 |
+| shared-942 | LeastQueue | 0.5310 | 194.0 | 3129.2 | 0.508 / 0.492 | 3129.2 / 2580.8 | 0.61 |
+| shared-942 | PrefixAffinity | 0.8191 | 79.5 | **3139.0** | 0.527 / 0.473 | **3139.0** / 2586.5 | 0.60 |
+| shared-943 | RoundRobin | 0.5226 | 504.2 | 2012.1 | 0.501 / 0.499 | 1872.7 / 2283.8 | 0.71 |
+| shared-943 | LeastQueue | 0.5479 | 319.6 | 2044.0 | 0.503 / 0.497 | 2044.0 / 2182.9 | 0.70 |
+| shared-943 | PrefixAffinity | 0.8307 | 80.4 | 1655.7 | 0.440 / 0.560 | 1662.0 / 1655.7 | 0.74 |
+| control-944 | RoundRobin | 0.0033 | 1258.8 | 2705.4 | 0.501 / 0.499 | 2705.4 / 2539.2 | 0.62 |
+| control-944 | LeastQueue | 0.0033 | 1258.0 | 3296.9 | 0.499 / 0.501 | 2779.5 / 3435.6 | 0.75 |
+| control-944 | PrefixAffinity | 0.0033 | 1258.5 | 3310.9 | 0.499 / 0.501 | 2762.1 / 3434.5 | 0.69 |
+
+Share bounds (rule 5): 0.6243, 0.6240 and 0.6222 for `shared-941`, `-942` and `-943`; completion 1.0000 in every cell.
+
+**The verdict, by the rules in their order:** `not met: rule 4 p99 (not lowered in shared-942); rule 5 (shared-942 worse-backend p99 3139.0 > RoundRobin's 2595.4 ms)`.
+- Rule 3 held in all three shared blocks: `PrefixAffinity`'s H was 0.820, 0.819 and 0.831 against at most 0.554, 0.547 and 0.548, close to the predictions' 0.821, 0.820 and 0.832.
+- Rule 4's p50 held in all three: about 80 ms against 104.7 to 504.2 ms.
+- Rule 4's p99 held in `shared-941` and `shared-943` and failed in `shared-942`, where `PrefixAffinity`'s 3,139.0 ms was above `RoundRobin`'s 2,577.0 and `LeastQueue`'s 3,129.2.
+- Rule 5's share held in all three blocks (at most 0.540, 0.527 and 0.560); its tail held in `shared-941` and `shared-943` and failed in `shared-942`, `qwen-a`'s 3,139.0 ms against `RoundRobin`'s worse backend at 2,595.4.
+- On the control, `PrefixAffinity`'s H gain over each other arm was +0.0000.
+
+Rule 1 makes a failure in one valid shared block the verdict, so this run does not license the claim in "What a pass would license"; that the other two blocks met every rule is reported and does not soften it.
+The rules are directions without a magnitude bar ("Where every number comes from"); `shared-942`'s p99 margin over `LeastQueue` was 9.8 ms, and it decides the rule as registered.
+The prediction that "the p99 sits among the misses in every arm and may move little" is what the p99 column shows; the p50 moved with H, as predicted.
+Under the verdict rules' "every attempt is kept", no cell or block is rerun to replace this one.
+
+**How the numbers were checked.** `score.py` is unchanged between `db4fd0ca` and `dev` (empty diff); run again from a clean worktree of `dev` on the archive, it printed the same verdict file byte for byte.
+Separately, a script of my own, not the scorer's code, recomputed from every cell's `raw.jsonl` the success count, TTFT p50 and p99 by nearest rank with failures as +∞, each backend's share and each backend's p99; all of them equal the table's.
+H and imbalance come from the scorer alone.
+
+**Teardown.** Both g5.xlarge were launched at 03:35:40Z and terminated at 06:35:57Z (EC2 `LaunchTime` and CloudTrail `TerminateInstances`); the destroy finished with every residue query answered and empty, and the watchdog was disarmed at 06:52:15Z.
+**Cost, estimated, not billed:** 10,817 s of two g5.xlarge at $1.237 an hour, about $7.43; about 3.5 hours of the cluster (03:22:16Z to 06:52:15Z) at about $0.26 an hour, about $0.91; NAT data not measured, at most the registration's estimate for 26 engine starts, about $10.6.
+About $19 in all, and about $19.5 with run 1, inside the $40 ceiling.
+
+**Evidence:** `hack/prefix-route/2026-10-28-run2/`, listed in `SHA256SUMS`; `NOT-COMMITTED.sha256` holds the hashes of `terraform.log`, `seeded-key.txt`, `ttl.pid`, the study key `prefix-study-key.txt` and the 40 MB harness binary (its hash equals the run's `benchharness.sha256`). `session-stdout.log` is the session's terminal output.

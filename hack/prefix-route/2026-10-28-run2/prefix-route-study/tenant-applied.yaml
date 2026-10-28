@@ -1,0 +1,31 @@
+apiVersion: platform.lkhun9311.github.io/v1
+kind: GPUQuotaPolicy
+metadata:
+  annotations:
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"platform.lkhun9311.github.io/v1","kind":"GPUQuotaPolicy","metadata":{"annotations":{"platform.lkhun9311.github.io/tier":"premium"},"name":"prefix-study-premium"},"spec":{"gpuClass":"a10g","limits":{"gpuCount":2},"targetNamespace":"prefix-route","tenant":"premium-1"}}
+    platform.lkhun9311.github.io/tier: premium
+  creationTimestamp: "2026-10-28T03:36:31Z"
+  finalizers:
+  - gpuquotapolicy.platform.lkhun9311.github.io/finalizer
+  generation: 1
+  name: prefix-study-premium
+  resourceVersion: "4012"
+  uid: 07866a46-a97f-4ee4-a453-05dea22596b6
+spec:
+  gpuClass: a10g
+  limits:
+    gpuCount: 2
+  targetNamespace: prefix-route
+  tenant: premium-1
+status:
+  conditions:
+  - lastTransitionTime: "2026-10-28T03:36:31Z"
+    message: ResourceQuota synced from policy
+    observedGeneration: 1
+    reason: QuotaSynced
+    status: "True"
+    type: Synced
+  lastTransitionTime: "2026-10-28T03:36:31Z"
+  observedGeneration: 1
+  phase: Synced

@@ -1,0 +1,4 @@
+client connection mode: pooled (MaxIdleConnsPerHost=600, drain=true) for 482 rows at timeout 30s
+request priorities: none (requests carry no priority field)
+request ids: study-shared-942-RoundRobin-<index>
+replayed 482 rows against http://gateway.gpu-platform-control-plane-system.svc:8080 (arm=RoundRobin) to raw-shared-942-RoundRobin.jsonl

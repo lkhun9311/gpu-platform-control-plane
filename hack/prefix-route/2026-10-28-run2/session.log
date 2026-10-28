@@ -1,0 +1,146 @@
+03:21:51Z  [session] API endpoint will admit 211.202.99.162/32 only
+03:21:52Z  [session] cluster gpu-platform does not exist
+03:21:53Z  [session] TTL kill switch armed: PID 3531739, fires in 440m, log /home/lkhun9311/workspace/gpu-cp-a-run2/ex/eks-session-20261028T032151Z/ttl-kill-switch.log
+03:21:53Z  [session] terraform init (cluster)
+03:22:16Z  [session] terraform apply (cluster) -- this is where the billing starts
+03:32:26Z  [session] cluster up in 610s
+03:32:29Z  [session] terraform init + apply (argo-bootstrap): the pinned argo-cd chart, installed by its own root
+   ok   Argo CD installed by its own Terraform root
+03:33:38Z  [session] runbook: apply
+2026-10-28T03:33:38.943757694Z  context: gpu-platform
+2026-10-28T03:33:39.367103748Z  applying config/argocd/root.yaml -- the step that was missing
+   ok   all 13 Applications this repository declares exist, 13 of them created by this run
+2026-10-28T03:34:13.456816311Z  root resolved revision: db4fd0ca0990ceda5dbd1f166554e8fa0bc021d6 (targetRevision is the mutable branch main)
+2026-10-28T03:34:13.458731910Z  waiting for the automated Applications to reach Synced/Healthy
+   ok   every automated Application is Synced/Healthy, and every declared Application is still present
+2026-10-28T03:35:16.716452832Z  not waited on because they carry no automated syncPolicy, by design: gpu-platform-device-plugin gpu-platform-observability gpu-platform-samples gpu-platform-serving gpu-platform-training 
+   ok   runbook apply
+03:35:16Z  [session] runbook: seed-key
+2026-10-28T03:35:16.743554098Z  context: gpu-platform
+   ok   created gateway-api-keys with one key for tenant-a (recorded in seeded-key.txt)
+   ok   runbook seed-key
+03:35:17Z  [session] runbook: verify
+2026-10-28T03:35:17.519208864Z  context: gpu-platform
+2026-10-28T03:35:17.902329689Z  probing gateway-79db446f75-f5dd5 through a port-forward (the image is distroless, so exec cannot help)
+2026-10-28T03:35:18.428600868Z     forwarding 127.0.0.1:38185 -> 8080 and 127.0.0.1:35023 -> 8081
+2026-10-28T03:35:18.911068961Z     readyz=200  bad-key request=401  real-key request=403
+   ok   a bad key is refused with 401
+   ok   a key from the Secret is accepted and refused by tenant policy (403): authentication reached the key store. Not proof of serving
+   ok   runbook verify
+   ok   P1: g5.xlarge On-Demand in ap-northeast-2 at $1.2370000000 an hour, ceiling $1.40
+   ok   P2: G and VT On-Demand vCPU in use 0 (none) plus 8 fits the quota of 52.0
+   ok   P4: the collector requests 250m: ip-10-0-55-71.ap-northeast-2.compute.internal 910m unrequested
+[31m╷[0m[0m
+[31m│[0m [0m[1m[31mError: [0m[0m[1mBackend initialization required, please run "terraform init"[0m
+[31m│[0m [0m
+[31m│[0m [0m[0mReason: Initial configuration of the requested backend "s3"
+[31m│[0m [0m
+[31m│[0m [0mThe "backend" is the interface that Terraform uses to store state,
+[31m│[0m [0mperform operations, etc. If this message is showing up, it means that the
+[31m│[0m [0mTerraform configuration you're using is using a custom configuration for
+[31m│[0m [0mthe Terraform backend.
+[31m│[0m [0m
+[31m│[0m [0mChanges to backend configurations require reinitialization. This allows
+[31m│[0m [0mTerraform to set up the new configuration, copy existing state, etc. Please
+[31m│[0m [0mrun
+[31m│[0m [0m"terraform init" with either the "-reconfigure" or "-migrate-state" flags
+[31m│[0m [0mto
+[31m│[0m [0muse the current configuration.
+[31m│[0m [0m
+[31m│[0m [0mIf the change reason above is incorrect, please verify your configuration
+[31m│[0m [0mhasn't changed and try again. At this point, no changes to your existing
+[31m│[0m [0mconfiguration or state have been made.
+[31m╵[0m[0m
+TTL armed: gpu-platform/gpu goes to desiredSize=0 at 2026-10-28T10:31:23Z (in 416m), schedule gpu-ttl-gpu-platform-gpu-20261028033523
+   ok   GPU deadline armed for 416 min: gpu-ttl-gpu-platform-gpu-20261028033523
+03:35:24Z  [session] scaling gpu to 2 -- the nodes start billing here
+{
+    "update": {
+        "id": "2559175b-3fd8-3b51-87ae-2cc1a76d1076",
+        "status": "InProgress",
+        "type": "ConfigUpdate",
+        "params": [
+            {
+                "type": "MinSize",
+                "value": "0"
+            },
+            {
+                "type": "MaxSize",
+                "value": "2"
+            },
+            {
+                "type": "DesiredSize",
+                "value": "2"
+            }
+        ],
+        "createdAt": "2026-10-28T12:35:24.618000+09:00",
+        "errors": []
+    }
+}
+   ok   P3: ip-10-0-50-131.ap-northeast-2.compute.internal i-039f167e90e778c81;ip-10-0-72-248.ap-northeast-2.compute.internal i-0163d541fbad84994
+03:36:28Z  [session] study: prefixroute, until 10:31:24Z less a 10 min margin
+2026-10-28T03:36:29.76203905Z  study prefix-route-2026-10-27 on gpu-platform; tooling at db4fd0ca0990ceda5dbd1f166554e8fa0bc021d6, dirty files 0
+2026-10-28T03:36:29.453936373Z  building the harness
+2026-10-28T03:36:30.609712166Z  traces
+2026-10-28T03:36:30.641770499Z  study objects
+2026-10-28T03:36:39.451671936Z  collector
+2026-10-28T03:37:57.74540546Z  first start of both engines, outside every cell
+2026-10-28T03:44:25.785166236Z  both engines started once
+2026-10-28T03:44:25.792734353Z  == cell shared-941-RoundRobin, to end by 04:09:25Z
+2026-10-28T03:59:04.59529104Z  cell shared-941-RoundRobin complete: 485 rows, 85 samples
+2026-10-28T03:59:04.77597385Z  == cell shared-941-LeastQueue, to end by 04:24:04Z
+2026-10-28T04:13:19.924417029Z  cell shared-941-LeastQueue complete: 485 rows, 85 samples
+2026-10-28T04:13:19.943004820Z  == cell shared-941-PrefixAffinity, to end by 04:38:19Z
+2026-10-28T04:27:25.107424394Z  cell shared-941-PrefixAffinity complete: 485 rows, 85 samples
+2026-10-28T04:27:25.125595875Z  == cell shared-942-LeastQueue, to end by 04:52:25Z
+2026-10-28T04:41:27.744150414Z  cell shared-942-LeastQueue complete: 482 rows, 85 samples
+2026-10-28T04:41:27.762297875Z  == cell shared-942-PrefixAffinity, to end by 05:06:27Z
+Traceback (most recent call last):
+  File "<string>", line 7, in <module>
+    "gatewayUID": g[1], "gatewayRestarts": g[3], "engineALoad": num(la), "engineBLoad": num(lb)}))
+                                                                ~~~^^^^
+  File "<string>", line 5, in <lambda>
+    num = lambda x: float(x) if x != "-" else None
+                    ~~~~~^^^
+ValueError: could not convert string to float: '-\n-'
+2026-10-28T04:56:15.50339816Z  cell shared-942-PrefixAffinity complete: 482 rows, 83 samples
+2026-10-28T04:56:15.69212187Z  == cell shared-942-RoundRobin, to end by 05:21:15Z
+2026-10-28T05:10:18.615961965Z  cell shared-942-RoundRobin complete: 482 rows, 85 samples
+2026-10-28T05:10:18.633945856Z  == cell shared-943-PrefixAffinity, to end by 05:35:18Z
+2026-10-28T05:24:13.559234324Z  cell shared-943-PrefixAffinity complete: 521 rows, 84 samples
+2026-10-28T05:24:13.576557275Z  == cell shared-943-RoundRobin, to end by 05:49:13Z
+2026-10-28T05:37:58.871206800Z  cell shared-943-RoundRobin complete: 521 rows, 84 samples
+2026-10-28T05:37:58.888383921Z  == cell shared-943-LeastQueue, to end by 06:02:58Z
+2026-10-28T05:51:43.244832953Z  cell shared-943-LeastQueue complete: 521 rows, 84 samples
+2026-10-28T05:51:43.262567932Z  == cell control-944-RoundRobin, to end by 06:16:43Z
+2026-10-28T06:05:34.949920701Z  cell control-944-RoundRobin complete: 491 rows, 85 samples
+2026-10-28T06:05:34.968329898Z  == cell control-944-LeastQueue, to end by 06:30:34Z
+2026-10-28T06:19:37.967688234Z  cell control-944-LeastQueue complete: 491 rows, 85 samples
+2026-10-28T06:19:37.985526732Z  == cell control-944-PrefixAffinity, to end by 06:44:37Z
+2026-10-28T06:33:42.963546211Z  cell control-944-PrefixAffinity complete: 491 rows, 85 samples
+2026-10-28T06:33:42.975324623Z  all twelve cells complete; scoring
+verdict: not met: rule 4 p99 (not lowered in shared-942); rule 5 (shared-942 worse-backend p99 3139.0 > RoundRobin's 2595.4 ms)
+control-944 LeastQueue: H=0.0033 p50=1258.0 ms p99=3296.9 ms share a/b=0.499/0.501 p99 a/b=2779.5/3435.6 ms imbalance=0.75 completion=1.0000
+control-944 PrefixAffinity: H=0.0033 p50=1258.5 ms p99=3310.9 ms share a/b=0.499/0.501 p99 a/b=2762.1/3434.5 ms imbalance=0.69 completion=1.0000
+control-944 RoundRobin: H=0.0033 p50=1258.8 ms p99=2705.4 ms share a/b=0.501/0.499 p99 a/b=2705.4/2539.2 ms imbalance=0.62 completion=1.0000
+shared-941 LeastQueue: H=0.5534 p50=208.5 ms p99=2279.5 ms share a/b=0.493/0.507 p99 a/b=2347.9/2005.3 ms imbalance=0.55 completion=1.0000
+shared-941 PrefixAffinity: H=0.8201 p50=80.3 ms p99=1314.4 ms share a/b=0.540/0.460 p99 a/b=1304.6/1563.1 ms imbalance=0.62 completion=1.0000
+shared-941 RoundRobin: H=0.5541 p50=110.5 ms p99=2159.1 ms share a/b=0.501/0.499 p99 a/b=2004.2/2258.2 ms imbalance=0.74 completion=1.0000
+shared-942 LeastQueue: H=0.5310 p50=194.0 ms p99=3129.2 ms share a/b=0.508/0.492 p99 a/b=3129.2/2580.8 ms imbalance=0.61 completion=1.0000
+shared-942 PrefixAffinity: H=0.8191 p50=79.5 ms p99=3139.0 ms share a/b=0.527/0.473 p99 a/b=3139.0/2586.5 ms imbalance=0.60 completion=1.0000
+shared-942 RoundRobin: H=0.5467 p50=104.7 ms p99=2577.0 ms share a/b=0.500/0.500 p99 a/b=2595.4/2521.3 ms imbalance=0.61 completion=1.0000
+shared-943 LeastQueue: H=0.5479 p50=319.6 ms p99=2044.0 ms share a/b=0.503/0.497 p99 a/b=2044.0/2182.9 ms imbalance=0.70 completion=1.0000
+shared-943 PrefixAffinity: H=0.8307 p50=80.4 ms p99=1655.7 ms share a/b=0.440/0.560 p99 a/b=1662.0/1655.7 ms imbalance=0.74 completion=1.0000
+shared-943 RoundRobin: H=0.5226 p50=504.2 ms p99=2012.1 ms share a/b=0.501/0.499 p99 a/b=1872.7/2283.8 ms imbalance=0.71 completion=1.0000
+rule 2, control: PrefixAffinity's H gain over RoundRobin on control-944 is +0.0000 (limit 0.01, and below every shared block's)
+rule 2, control: PrefixAffinity's H gain over LeastQueue on control-944 is +0.0000 (limit 0.01, and below every shared block's)
+share bounds: shared-941 0.6243, shared-942 0.6240, shared-943 0.6222
+capacity bar: 393232 tokens
+   ok   study: all twelve cells ran; verdict: not met: rule 4 p99 (not lowered in shared-942); rule 5 (shared-942 worse-backend p99 3139.0 > RoundRobin's 2595.4 ms)
+06:33:43Z  [session] scaling gpu to 0
+   ok   S6 (GPU half): gpu scaled to 0 and i-0163d541fbad84994 i-039f167e90e778c81 terminated
+TTL disarmed: gpu-ttl-gpu-platform-gpu-20261028033523
+06:41:27Z  [session] destroy: argo-bootstrap, then cluster
+   ok   nothing that charges remains: no EKS cluster, instance, NAT gateway, EIP, volume, ASG, load balancer cluster log group or GPU deadline schedule
+06:52:15Z  [session] kill switch disarmed: destroy returned zero, every residue query was answered, and all were empty
+06:52:15Z  [session] evidence in /home/lkhun9311/workspace/gpu-cp-a-run2/ex/eks-session-20261028T032151Z

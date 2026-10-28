@@ -1,0 +1,17 @@
+verdict: not met: rule 4 p99 (not lowered in shared-942); rule 5 (shared-942 worse-backend p99 3139.0 > RoundRobin's 2595.4 ms)
+control-944 LeastQueue: H=0.0033 p50=1258.0 ms p99=3296.9 ms share a/b=0.499/0.501 p99 a/b=2779.5/3435.6 ms imbalance=0.75 completion=1.0000
+control-944 PrefixAffinity: H=0.0033 p50=1258.5 ms p99=3310.9 ms share a/b=0.499/0.501 p99 a/b=2762.1/3434.5 ms imbalance=0.69 completion=1.0000
+control-944 RoundRobin: H=0.0033 p50=1258.8 ms p99=2705.4 ms share a/b=0.501/0.499 p99 a/b=2705.4/2539.2 ms imbalance=0.62 completion=1.0000
+shared-941 LeastQueue: H=0.5534 p50=208.5 ms p99=2279.5 ms share a/b=0.493/0.507 p99 a/b=2347.9/2005.3 ms imbalance=0.55 completion=1.0000
+shared-941 PrefixAffinity: H=0.8201 p50=80.3 ms p99=1314.4 ms share a/b=0.540/0.460 p99 a/b=1304.6/1563.1 ms imbalance=0.62 completion=1.0000
+shared-941 RoundRobin: H=0.5541 p50=110.5 ms p99=2159.1 ms share a/b=0.501/0.499 p99 a/b=2004.2/2258.2 ms imbalance=0.74 completion=1.0000
+shared-942 LeastQueue: H=0.5310 p50=194.0 ms p99=3129.2 ms share a/b=0.508/0.492 p99 a/b=3129.2/2580.8 ms imbalance=0.61 completion=1.0000
+shared-942 PrefixAffinity: H=0.8191 p50=79.5 ms p99=3139.0 ms share a/b=0.527/0.473 p99 a/b=3139.0/2586.5 ms imbalance=0.60 completion=1.0000
+shared-942 RoundRobin: H=0.5467 p50=104.7 ms p99=2577.0 ms share a/b=0.500/0.500 p99 a/b=2595.4/2521.3 ms imbalance=0.61 completion=1.0000
+shared-943 LeastQueue: H=0.5479 p50=319.6 ms p99=2044.0 ms share a/b=0.503/0.497 p99 a/b=2044.0/2182.9 ms imbalance=0.70 completion=1.0000
+shared-943 PrefixAffinity: H=0.8307 p50=80.4 ms p99=1655.7 ms share a/b=0.440/0.560 p99 a/b=1662.0/1655.7 ms imbalance=0.74 completion=1.0000
+shared-943 RoundRobin: H=0.5226 p50=504.2 ms p99=2012.1 ms share a/b=0.501/0.499 p99 a/b=1872.7/2283.8 ms imbalance=0.71 completion=1.0000
+rule 2, control: PrefixAffinity's H gain over RoundRobin on control-944 is +0.0000 (limit 0.01, and below every shared block's)
+rule 2, control: PrefixAffinity's H gain over LeastQueue on control-944 is +0.0000 (limit 0.01, and below every shared block's)
+share bounds: shared-941 0.6243, shared-942 0.6240, shared-943 0.6222
+capacity bar: 393232 tokens
