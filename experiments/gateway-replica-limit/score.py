@@ -19,6 +19,11 @@ SLOT_S = 0.1
 # The registration's arms and repetitions; a run missing any of them is incomplete, not a smaller result.
 REGISTERED_ARMS = ("R1-fresh", "R2-fresh", "R2-pinned")
 REGISTERED_REPS = 3
+# The registered load, "10 requests per second for 30 s": 300 requests, the first and last dispatched 29.9 s apart.
+# Without it five requests over 0.4 s passed every check above as a valid repetition (audit finding 11), and the limit
+# is only saturated, which is what the readings assume, while that load is offered.
+REGISTERED_REQUESTS = 300
+REGISTERED_SPAN_S = (REGISTERED_REQUESTS - 1) * SLOT_S
 
 
 def read_rows(path):
@@ -96,6 +101,12 @@ def main():
             if late > SLOT_S:
                 print(f"  INVALID: a request was written {late:.3f} s after its dispatch, so the offered rate was not 10/s")
                 valid = False
+        sent = [r["sent"] for r in rows]
+        span = max(sent) - min(sent) if sent else 0.0
+        if len(rows) != REGISTERED_REQUESTS or abs(span - REGISTERED_SPAN_S) > SLOT_S:
+            print(f"  INVALID: {len(rows)} requests dispatched over {span:.3f} s, not the registered "
+                  f"{REGISTERED_REQUESTS} over {REGISTERED_SPAN_S:.1f} s")
+            valid = False
         if stub != admitted:
             print(f"  INVALID: stub served {stub} but the client saw {admitted} answered 200")
             valid = False
