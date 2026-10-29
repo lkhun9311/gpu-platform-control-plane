@@ -181,6 +181,9 @@ func (v *GPUPodValidator) Handle(ctx context.Context, req admission.Request) adm
 	// An owner is therefore evidence here only when a kube-system controller wrote it: those controllers set the
 	// ownerReference to the object they are reconciling, and a tenant cannot make them name another.
 	// A labelled Pod with any other written owner falls through to the checks below, which ask who created it.
+	// That refuses the Pods of workload operators outside kube-system, such as KubeRay's or Kubeflow's, which
+	// Kueue has integrations for; this platform deploys neither, and trusting one means naming its service
+	// account here, a decision about that operator rather than a default (codex review, 2026-10-29).
 	if pod.Labels[kueueQueueLabel] != "" &&
 		(metav1.GetControllerOf(&pod) == nil || strings.HasPrefix(req.UserInfo.Username, kubeSystemServiceAccounts)) {
 		return admission.Allowed("")
