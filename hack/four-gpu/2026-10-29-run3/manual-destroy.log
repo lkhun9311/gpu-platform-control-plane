@@ -1,0 +1,181 @@
+02:01:05
+eni deleted
+[0m[1mmodule.eks.data.aws_iam_policy_document.assume_role_policy[0]: Reading...[0m[0m
+[0m[1mdata.aws_ec2_instance_type_offerings.gpu_shared: Reading...[0m[0m
+[0m[1mdata.aws_servicequotas_service_quota.gpu_spot: Reading...[0m[0m
+[0m[1mdata.aws_ec2_instance_type_offerings.gpu_single: Reading...[0m[0m
+[0m[1mmodule.eks.data.aws_caller_identity.current: Reading...[0m[0m
+[0m[1mdata.aws_ec2_instance_type.gpu_shared: Reading...[0m[0m
+[0m[1mdata.aws_servicequotas_service_quota.gpu_on_demand: Reading...[0m[0m
+[0m[1mmodule.eks.module.kms.data.aws_partition.current[0]: Reading...[0m[0m
+[0m[1mmodule.eks.data.aws_partition.current: Reading...[0m[0m
+[0m[1mmodule.vpc.aws_vpc.this[0]: Refreshing state... [id=vpc-0402a1b45c1f92b8d][0m
+[0m[1mmodule.eks.data.aws_partition.current: Read complete after 0s [id=aws][0m
+[0m[1mmodule.eks.module.kms.data.aws_partition.current[0]: Read complete after 0s [id=aws][0m
+[0m[1mmodule.eks.data.aws_iam_policy_document.assume_role_policy[0]: Read complete after 0s [id=2764486067][0m
+[0m[1mdata.aws_ec2_instance_type_offerings.gpu: Reading...[0m[0m
+[0m[1mdata.aws_ec2_instance_type.gpu: Reading...[0m[0m
+[0m[1mdata.aws_availability_zones.available: Reading...[0m[0m
+[0m[1mmodule.eks.data.aws_caller_identity.current: Read complete after 0s [id=007635145730][0m
+[0m[1mmodule.eks.module.kms.data.aws_caller_identity.current[0]: Reading...[0m[0m
+[0m[1mmodule.eks.module.kms.data.aws_caller_identity.current[0]: Read complete after 0s [id=007635145730][0m
+[0m[1mdata.aws_ec2_instance_type.gpu_single: Reading...[0m[0m
+[0m[1mdata.aws_ec2_instance_type.gpu_shared: Read complete after 0s [id=g5.xlarge][0m
+[0m[1mdata.aws_iam_role.ci_apply[0]: Reading...[0m[0m
+[0m[1mdata.aws_ec2_instance_type.gpu: Read complete after 0s [id=g5.12xlarge][0m
+[0m[1mmodule.eks.data.aws_iam_session_context.current: Reading...[0m[0m
+[0m[1mdata.aws_availability_zones.available: Read complete after 0s [id=ap-northeast-2][0m
+[0m[1mdata.aws_servicequotas_service_quota.gpu_on_demand: Read complete after 0s [id=arn:aws:servicequotas:ap-northeast-2::ec2/L-DB2E81BA][0m
+[0m[1mdata.aws_ec2_instance_type_offerings.gpu_single: Read complete after 0s [id=ap-northeast-2][0m
+[0m[1mdata.aws_ec2_instance_type.gpu_single: Read complete after 0s [id=g5.xlarge][0m
+[0m[1mdata.aws_servicequotas_service_quota.gpu_spot: Read complete after 0s [id=arn:aws:servicequotas:ap-northeast-2::ec2/L-3819A6DF][0m
+[0m[1mdata.aws_ec2_instance_type_offerings.gpu_shared: Read complete after 0s [id=ap-northeast-2][0m
+[0m[1mdata.aws_ec2_instance_type_offerings.gpu: Read complete after 0s [id=ap-northeast-2][0m
+[0m[1mmodule.vpc.aws_subnet.private[0]: Refreshing state... [id=subnet-06b6d2aa18331e1d1][0m
+[0m[1mmodule.eks.aws_security_group.node[0]: Refreshing state... [id=sg-0df1fe26f0c18b6d3][0m
+[0m[1mdata.aws_iam_role.ci_apply[0]: Read complete after 1s [id=gpu-platform-ci-apply][0m
+[0m[1mmodule.eks.module.eks_managed_node_group["gpu_shared"].data.aws_partition.current: Reading...[0m[0m
+[0m[1mmodule.eks.module.eks_managed_node_group["gpu"].data.aws_partition.current: Reading...[0m[0m
+[0m[1mmodule.eks.data.aws_iam_session_context.current: Read complete after 1s [id=arn:aws:sts::007635145730:assumed-role/AWSReservedSSO_AdministratorAccess_ab0543ed4958589e/lkhun9311][0m
+[0m[1mmodule.eks.module.eks_managed_node_group["cpu"].data.aws_partition.current: Reading...[0m[0m
+[0m[1mmodule.eks.module.eks_managed_node_group["gpu"].data.aws_caller_identity.current: Reading...[0m[0m
+[0m[1mmodule.eks.module.eks_managed_node_group["gpu_shared"].data.aws_partition.current: Read complete after 0s [id=aws][0m
+[0m[1mmodule.eks.module.eks_managed_node_group["gpu"].data.aws_partition.current: Read complete after 0s [id=aws][0m
+[0m[1mmodule.eks.module.eks_managed_node_group["cpu"].data.aws_partition.current: Read complete after 0s [id=aws][0m
+[0m[1mmodule.eks.module.eks_managed_node_group["gpu_single"].data.aws_partition.current: Reading...[0m[0m
+[0m[1mmodule.eks.module.eks_managed_node_group["cpu"].data.aws_caller_identity.current: Reading...[0m[0m
+[0m[1mmodule.eks.module.eks_managed_node_group["gpu_shared"].data.aws_caller_identity.current: Reading...[0m[0m
+[0m[1mmodule.eks.module.eks_managed_node_group["gpu_single"].data.aws_caller_identity.current: Reading...[0m[0m
+[0m[1mmodule.eks.module.eks_managed_node_group["gpu_single"].data.aws_partition.current: Read complete after 0s [id=aws][0m
+[0m[1mmodule.eks.module.eks_managed_node_group["cpu"].data.aws_iam_policy_document.assume_role_policy[0]: Reading...[0m[0m
+[0m[1mmodule.eks.module.eks_managed_node_group["gpu_shared"].data.aws_iam_policy_document.assume_role_policy[0]: Reading...[0m[0m
+[0m[1mmodule.eks.module.eks_managed_node_group["gpu_single"].data.aws_iam_policy_document.assume_role_policy[0]: Reading...[0m[0m
+[0m[1mmodule.eks.module.eks_managed_node_group["gpu"].data.aws_iam_policy_document.assume_role_policy[0]: Reading...[0m[0m
+[0m[1mmodule.eks.module.eks_managed_node_group["cpu"].data.aws_iam_policy_document.assume_role_policy[0]: Read complete after 0s [id=2560088296][0m
+[0m[1mmodule.eks.module.eks_managed_node_group["gpu_shared"].data.aws_iam_policy_document.assume_role_policy[0]: Read complete after 0s [id=2560088296][0m
+[0m[1mmodule.eks.module.eks_managed_node_group["gpu_single"].data.aws_iam_policy_document.assume_role_policy[0]: Read complete after 0s [id=2560088296][0m
+[0m[1mmodule.eks.module.eks_managed_node_group["gpu"].data.aws_iam_policy_document.assume_role_policy[0]: Read complete after 0s [id=2560088296][0m
+[0m[1mmodule.eks.module.eks_managed_node_group["gpu"].data.aws_caller_identity.current: Read complete after 0s [id=007635145730][0m
+[0m[1mmodule.eks.module.eks_managed_node_group["cpu"].data.aws_caller_identity.current: Read complete after 0s [id=007635145730][0m
+[0m[1mmodule.eks.module.eks_managed_node_group["gpu_shared"].data.aws_caller_identity.current: Read complete after 0s [id=007635145730][0m
+[0m[1mmodule.eks.module.eks_managed_node_group["gpu_single"].data.aws_caller_identity.current: Read complete after 0s [id=007635145730][0m
+
+Terraform used the selected providers to generate the following execution
+plan. Resource actions are indicated with the following symbols:
+  [31m-[0m destroy[0m
+
+Terraform will perform the following actions:
+
+[1m  # module.eks.aws_security_group.node[0][0m will be [1m[31mdestroyed[0m
+[0m  [31m-[0m[0m resource "aws_security_group" "node" {
+      [31m-[0m[0m arn                    = "arn:aws:ec2:ap-northeast-2:007635145730:security-group/sg-0df1fe26f0c18b6d3" [90m-> null[0m[0m
+      [31m-[0m[0m description            = "EKS node shared security group" [90m-> null[0m[0m
+      [31m-[0m[0m egress                 = [] [90m-> null[0m[0m
+      [31m-[0m[0m id                     = "sg-0df1fe26f0c18b6d3" [90m-> null[0m[0m
+      [31m-[0m[0m ingress                = [] [90m-> null[0m[0m
+      [31m-[0m[0m name                   = "gpu-platform-node-20261029005621270500000007" [90m-> null[0m[0m
+      [31m-[0m[0m name_prefix            = "gpu-platform-node-" [90m-> null[0m[0m
+      [31m-[0m[0m owner_id               = "007635145730" [90m-> null[0m[0m
+      [31m-[0m[0m revoke_rules_on_delete = false [90m-> null[0m[0m
+      [31m-[0m[0m tags                   = {
+          [31m-[0m[0m "Name"                               = "gpu-platform-node"
+          [31m-[0m[0m "kubernetes.io/cluster/gpu-platform" = "owned"
+          [31m-[0m[0m "owner"                              = "lkhun9311"
+          [31m-[0m[0m "project"                            = "gpu-platform-control-plane"
+          [31m-[0m[0m "ttl"                                = "ephemeral"
+        } [90m-> null[0m[0m
+      [31m-[0m[0m tags_all               = {
+          [31m-[0m[0m "Name"                               = "gpu-platform-node"
+          [31m-[0m[0m "kubernetes.io/cluster/gpu-platform" = "owned"
+          [31m-[0m[0m "owner"                              = "lkhun9311"
+          [31m-[0m[0m "project"                            = "gpu-platform-control-plane"
+          [31m-[0m[0m "ttl"                                = "ephemeral"
+        } [90m-> null[0m[0m
+      [31m-[0m[0m vpc_id                 = "vpc-0402a1b45c1f92b8d" [90m-> null[0m[0m
+    }
+
+[1m  # module.vpc.aws_subnet.private[0][0m will be [1m[31mdestroyed[0m
+[0m  [31m-[0m[0m resource "aws_subnet" "private" {
+      [31m-[0m[0m arn                                            = "arn:aws:ec2:ap-northeast-2:007635145730:subnet/subnet-06b6d2aa18331e1d1" [90m-> null[0m[0m
+      [31m-[0m[0m assign_ipv6_address_on_creation                = false [90m-> null[0m[0m
+      [31m-[0m[0m availability_zone                              = "ap-northeast-2a" [90m-> null[0m[0m
+      [31m-[0m[0m availability_zone_id                           = "apne2-az1" [90m-> null[0m[0m
+      [31m-[0m[0m cidr_block                                     = "10.0.48.0/20" [90m-> null[0m[0m
+      [31m-[0m[0m enable_dns64                                   = false [90m-> null[0m[0m
+      [31m-[0m[0m enable_lni_at_device_index                     = 0 [90m-> null[0m[0m
+      [31m-[0m[0m enable_resource_name_dns_a_record_on_launch    = false [90m-> null[0m[0m
+      [31m-[0m[0m enable_resource_name_dns_aaaa_record_on_launch = false [90m-> null[0m[0m
+      [31m-[0m[0m id                                             = "subnet-06b6d2aa18331e1d1" [90m-> null[0m[0m
+      [31m-[0m[0m ipv6_native                                    = false [90m-> null[0m[0m
+      [31m-[0m[0m map_customer_owned_ip_on_launch                = false [90m-> null[0m[0m
+      [31m-[0m[0m map_public_ip_on_launch                        = false [90m-> null[0m[0m
+      [31m-[0m[0m owner_id                                       = "007635145730" [90m-> null[0m[0m
+      [31m-[0m[0m private_dns_hostname_type_on_launch            = "ip-name" [90m-> null[0m[0m
+      [31m-[0m[0m tags                                           = {
+          [31m-[0m[0m "Name"                               = "gpu-platform-vpc-private-ap-northeast-2a"
+          [31m-[0m[0m "kubernetes.io/cluster/gpu-platform" = "shared"
+          [31m-[0m[0m "kubernetes.io/role/internal-elb"    = "1"
+          [31m-[0m[0m "owner"                              = "lkhun9311"
+          [31m-[0m[0m "project"                            = "gpu-platform-control-plane"
+          [31m-[0m[0m "ttl"                                = "ephemeral"
+        } [90m-> null[0m[0m
+      [31m-[0m[0m tags_all                                       = {
+          [31m-[0m[0m "Name"                               = "gpu-platform-vpc-private-ap-northeast-2a"
+          [31m-[0m[0m "kubernetes.io/cluster/gpu-platform" = "shared"
+          [31m-[0m[0m "kubernetes.io/role/internal-elb"    = "1"
+          [31m-[0m[0m "owner"                              = "lkhun9311"
+          [31m-[0m[0m "project"                            = "gpu-platform-control-plane"
+          [31m-[0m[0m "ttl"                                = "ephemeral"
+        } [90m-> null[0m[0m
+      [31m-[0m[0m vpc_id                                         = "vpc-0402a1b45c1f92b8d" [90m-> null[0m[0m
+        [90m# (4 unchanged attributes hidden)[0m[0m
+    }
+
+[1m  # module.vpc.aws_vpc.this[0][0m will be [1m[31mdestroyed[0m
+[0m  [31m-[0m[0m resource "aws_vpc" "this" {
+      [31m-[0m[0m arn                                  = "arn:aws:ec2:ap-northeast-2:007635145730:vpc/vpc-0402a1b45c1f92b8d" [90m-> null[0m[0m
+      [31m-[0m[0m assign_generated_ipv6_cidr_block     = false [90m-> null[0m[0m
+      [31m-[0m[0m cidr_block                           = "10.0.0.0/16" [90m-> null[0m[0m
+      [31m-[0m[0m default_network_acl_id               = "acl-0dbfe9574d970098c" [90m-> null[0m[0m
+      [31m-[0m[0m default_route_table_id               = "rtb-0ca143eebde06bd66" [90m-> null[0m[0m
+      [31m-[0m[0m default_security_group_id            = "sg-0003d515314c1913d" [90m-> null[0m[0m
+      [31m-[0m[0m dhcp_options_id                      = "dopt-0481a94da9fb91752" [90m-> null[0m[0m
+      [31m-[0m[0m enable_dns_hostnames                 = true [90m-> null[0m[0m
+      [31m-[0m[0m enable_dns_support                   = true [90m-> null[0m[0m
+      [31m-[0m[0m enable_network_address_usage_metrics = false [90m-> null[0m[0m
+      [31m-[0m[0m id                                   = "vpc-0402a1b45c1f92b8d" [90m-> null[0m[0m
+      [31m-[0m[0m instance_tenancy                     = "default" [90m-> null[0m[0m
+      [31m-[0m[0m ipv6_netmask_length                  = 0 [90m-> null[0m[0m
+      [31m-[0m[0m main_route_table_id                  = "rtb-0ca143eebde06bd66" [90m-> null[0m[0m
+      [31m-[0m[0m owner_id                             = "007635145730" [90m-> null[0m[0m
+      [31m-[0m[0m tags                                 = {
+          [31m-[0m[0m "Name"    = "gpu-platform-vpc"
+          [31m-[0m[0m "owner"   = "lkhun9311"
+          [31m-[0m[0m "project" = "gpu-platform-control-plane"
+          [31m-[0m[0m "ttl"     = "ephemeral"
+        } [90m-> null[0m[0m
+      [31m-[0m[0m tags_all                             = {
+          [31m-[0m[0m "Name"    = "gpu-platform-vpc"
+          [31m-[0m[0m "owner"   = "lkhun9311"
+          [31m-[0m[0m "project" = "gpu-platform-control-plane"
+          [31m-[0m[0m "ttl"     = "ephemeral"
+        } [90m-> null[0m[0m
+        [90m# (4 unchanged attributes hidden)[0m[0m
+    }
+
+[1mPlan:[0m [0m0 to add, 0 to change, 3 to destroy.
+
+Changes to Outputs:
+  [31m-[0m[0m cluster_name = "gpu-platform" [90m-> null[0m[0m
+  [31m-[0m[0m region       = "ap-northeast-2" [90m-> null[0m[0m
+[0m[1mmodule.eks.aws_security_group.node[0]: Destroying... [id=sg-0df1fe26f0c18b6d3][0m[0m
+[0m[1mmodule.vpc.aws_subnet.private[0]: Destroying... [id=subnet-06b6d2aa18331e1d1][0m[0m
+[0m[1mmodule.vpc.aws_subnet.private[0]: Destruction complete after 0s[0m
+[0m[1mmodule.eks.aws_security_group.node[0]: Destruction complete after 0s[0m
+[0m[1mmodule.vpc.aws_vpc.this[0]: Destroying... [id=vpc-0402a1b45c1f92b8d][0m[0m
+[0m[1mmodule.vpc.aws_vpc.this[0]: Destruction complete after 1s[0m
+[0m[1m[32m
+Destroy complete! Resources: 3 destroyed.[0m
+destroy rc=0
+02:01:13
+02:01:38 kill switch disarmed by hand after the manual destroy and empty residue queries
