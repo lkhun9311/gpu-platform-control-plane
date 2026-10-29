@@ -97,6 +97,14 @@ func TestDecideGPUFault(t *testing.T) {
 		{"a different fault is not covered by the acknowledgement", obs(faultAssessment(79, 1), 0), true, fp, fp, metav1.ConditionTrue, metav1.ConditionFalse, gpufault.ReasonMultipleFault, faultAssessment(79, 1).Fingerprint(), true, +1},
 		{"missing field, nothing latched: unknown, no action", obs(missing, 0), true, "", "", metav1.ConditionTrue, metav1.ConditionUnknown, gpuHealthyReasonFieldMissing, "", false, 0},
 		{"missing field, latched: the fault stays", obs(missing, 0), true, fp, "", metav1.ConditionTrue, metav1.ConditionFalse, gpuHealthyReasonLatched, fp, false, +1},
+		// The registration's escape path: an operator acknowledging the latched fingerprint clears the node even
+		// after an application Xid has replaced the fatal one, which only zero fields could clear until 2026-10-29
+		// (codex audit, 2026-10-28). Mutation that turns it red: delete the acknowledged-latch case.
+		{"an application Xid after a latched fault, acknowledged: clears", obs(faultAssessment(13, 0), 0), true, fp, fp, metav1.ConditionTrue, metav1.ConditionTrue, gpuHealthyReasonAcknowledged, "", false, -1},
+		{"an application Xid after a latched fault, not acknowledged: the fault stays", obs(faultAssessment(13, 0), 0), true, fp, "", metav1.ConditionTrue, metav1.ConditionFalse, gpuHealthyReasonLatched, fp, false, +1},
+		{"an application Xid, another fingerprint acknowledged: the fault stays", obs(faultAssessment(13, 0), 0), true, fp, faultAssessment(79, 1).Fingerprint(), metav1.ConditionTrue, metav1.ConditionFalse, gpuHealthyReasonLatched, fp, false, +1},
+		{"stale, latched and acknowledged: no action", obs(clean, 6*time.Second), true, fp, fp, metav1.ConditionFalse, metav1.ConditionFalse, gpuHealthyReasonLatched, fp, false, +1},
+		{"missing field, latched and acknowledged: the fault stays", obs(missing, 0), true, fp, fp, metav1.ConditionTrue, metav1.ConditionFalse, gpuHealthyReasonLatched, fp, false, +1},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
