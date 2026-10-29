@@ -1,0 +1,35 @@
+{
+ "argo": {
+  "cert-manager": "v1.21.1",
+  "gpu-platform-crds": "db4fd0ca0990ceda5dbd1f166554e8fa0bc021d6",
+  "gpu-platform-device-plugin": "db4fd0ca0990ceda5dbd1f166554e8fa0bc021d6",
+  "gpu-platform-gateway": "db4fd0ca0990ceda5dbd1f166554e8fa0bc021d6",
+  "gpu-platform-kueue": "db4fd0ca0990ceda5dbd1f166554e8fa0bc021d6",
+  "gpu-platform-nvidia-device-plugin": "db4fd0ca0990ceda5dbd1f166554e8fa0bc021d6",
+  "gpu-platform-observability": "db4fd0ca0990ceda5dbd1f166554e8fa0bc021d6",
+  "gpu-platform-operator": "db4fd0ca0990ceda5dbd1f166554e8fa0bc021d6",
+  "gpu-platform-policy": "db4fd0ca0990ceda5dbd1f166554e8fa0bc021d6",
+  "gpu-platform-root": "db4fd0ca0990ceda5dbd1f166554e8fa0bc021d6",
+  "gpu-platform-samples": "db4fd0ca0990ceda5dbd1f166554e8fa0bc021d6",
+  "gpu-platform-serving": "db4fd0ca0990ceda5dbd1f166554e8fa0bc021d6",
+  "gpu-platform-storage": "db4fd0ca0990ceda5dbd1f166554e8fa0bc021d6",
+  "gpu-platform-training": "db4fd0ca0990ceda5dbd1f166554e8fa0bc021d6"
+ },
+ "gatewayArgs": [
+  [
+   "/gateway"
+  ]
+ ],
+ "gpuNodes": [
+  "aws:///ap-northeast-2a/i-039f167e90e778c81",
+  "aws:///ap-northeast-2c/i-0163d541fbad84994"
+ ],
+ "images": {
+  "gateway": [
+   "007635145730.dkr.ecr.ap-northeast-2.amazonaws.com/gpu-platform-gateway@sha256:c38502eef966ccf0864d257c488d45ccb67ff22f85fa18fb8ebeec6143072367"
+  ],
+  "operator": [
+   "007635145730.dkr.ecr.ap-northeast-2.amazonaws.com/gpu-platform-operator@sha256:e29fdf9f4d5643a9a83ea7b21eaaa985ffcd936f4120538c12f31159ebb89753"
+  ]
+ }
+}

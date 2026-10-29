@@ -1,0 +1,13 @@
+{
+  "study": "prefix-route-2026-10-27",
+  "arm": "PrefixAffinity",
+  "connMode": "pooled",
+  "maxIdleConnsPerHost": 600,
+  "drainForReuse": true,
+  "timeoutMs": 30000,
+  "model": "Qwen/Qwen2.5-3B-Instruct",
+  "target": "http://gateway.gpu-platform-control-plane-system.svc:8080",
+  "priorities": {},
+  "requestIdPrefix": "study-shared-943-PrefixAffinity",
+  "binarySha256": "494f96c535e07dcad05f9bf3701f364d0d3a8aafd5a53e8a9966d145b09fc8f5"
+}

@@ -92,6 +92,11 @@ class Summarise(unittest.TestCase):
             with self.subTest(bad=bad), self.assertRaises(ValueError):
                 bench.slowest_per_iteration(bad)
 
+    def test_a_rank_of_nan_is_refused(self):
+        # max() over a column holding NaN can return the other rank's time, so the NaN rank vanished into a figure.
+        with self.assertRaises(ValueError):
+            bench.slowest_per_iteration([[0.010, 0.020], [float("nan"), float("nan")]])
+
     def test_bandwidth_from_the_median_of_the_slowest(self):
         size = 1 << 28
         times = [[0.1, 0.2, 0.3], [0.1, 0.2, 0.4]]

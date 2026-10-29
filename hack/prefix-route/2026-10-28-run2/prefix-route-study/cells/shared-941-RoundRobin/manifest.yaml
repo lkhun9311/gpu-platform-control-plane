@@ -1,0 +1,20 @@
+arm: RoundRobin
+gatewayURL: http://gateway.gpu-platform-control-plane-system.svc:8080
+imageDigests:
+  engine: docker.io/vllm/vllm-openai@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967
+longThreshold: 4096
+matchTolerance: "0.05"
+maxOutputTokens:
+  premium-1: 64
+model: Qwen/Qwen2.5-3B-Instruct
+primaryEndpoint: ttft_p99
+promptCorpusSHA: dec1020701584417449f9c7efa5354073682cce69348af3b9fb5244705200a86
+promptLenChars:
+  premium-1: 41000
+schemaVersion: v2
+seed: 941
+study: prefix-route-2026-10-27
+timeoutMs: 30000
+timeoutScope: whole-request-including-stream
+traceChecksum: 2bdd82f10730e9e2d1408add4092ced7a09d51ce493cab5956f877df282f9efe
+tracePath: /home/lkhun9311/workspace/gpu-cp-a-run2/ex/eks-session-20261028T032151Z/prefix-route-study/cells/shared-941-RoundRobin/trace.jsonl

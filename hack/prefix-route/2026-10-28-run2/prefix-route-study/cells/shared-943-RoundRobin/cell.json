@@ -1,0 +1,12 @@
+{
+ "cell": "shared-943-RoundRobin",
+ "endedUnixNanos": 1793165878852321020,
+ "engineARestarts": "0",
+ "engineAUID": "ced09bfe-c6d7-4c08-9815-89ff8c1ee165",
+ "engineBRestarts": "0",
+ "engineBUID": "d86c7db4-5c6f-44cb-875f-42833a1eb302",
+ "gatewayRestarts": "0",
+ "gatewayUID": "4bff4cf2-3e39-4d3d-a152-0a4aaac32fd0",
+ "outcome": "complete",
+ "startedUnixNanos": 1793165241743548097
+}

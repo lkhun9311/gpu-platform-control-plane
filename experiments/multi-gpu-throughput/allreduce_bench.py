@@ -22,6 +22,7 @@ from __future__ import annotations
 import datetime
 import hashlib
 import json
+import math
 import os
 import socket
 import statistics
@@ -115,8 +116,9 @@ def slowest_per_iteration(times_by_rank: list[list[float]]) -> list[float]:
     lengths = {len(times) for times in times_by_rank}
     if len(lengths) != 1:
         raise ValueError(f"ranks timed different numbers of iterations: {sorted(lengths)}")
-    if any(t <= 0 for times in times_by_rank for t in times):
-        raise ValueError("an iteration timed at zero or less, which no transfer takes")
+    # A NaN is not <= 0, and max() can pass over it, so a rank of NaNs once summarised to a finite time.
+    if any(not math.isfinite(t) or t <= 0 for times in times_by_rank for t in times):
+        raise ValueError("an iteration timed at zero or less, or not at all, which no transfer takes")
     return [max(column) for column in zip(*times_by_rank)]
 
 
