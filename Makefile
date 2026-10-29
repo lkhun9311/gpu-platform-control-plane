@@ -225,9 +225,12 @@ docker-buildx: ## Build and push docker image for the manager for cross-platform
 	sed -e '1 s/\(^FROM\)/FROM --platform=\$$\{BUILDPLATFORM\}/; t' -e ' 1,// s//FROM --platform=\$$\{BUILDPLATFORM\}/' Dockerfile > Dockerfile.cross
 	- $(CONTAINER_TOOL) buildx create --name gpu-platform-control-plane-builder
 	$(CONTAINER_TOOL) buildx use gpu-platform-control-plane-builder
-	- $(CONTAINER_TOOL) buildx build --push --platform=$(PLATFORMS) --tag ${IMG} -f Dockerfile.cross .
-	- $(CONTAINER_TOOL) buildx rm gpu-platform-control-plane-builder
-	rm Dockerfile.cross
+	@# The build's status is kept through the cleanup and returned: with a leading -, a failed build or push left the
+	@# target green and no image published (codex audit, 2026-10-28).
+	rc=0; $(CONTAINER_TOOL) buildx build --push --platform=$(PLATFORMS) --tag ${IMG} -f Dockerfile.cross . || rc=$$?; \
+	$(CONTAINER_TOOL) buildx rm gpu-platform-control-plane-builder; \
+	rm Dockerfile.cross; \
+	exit $$rc
 
 .PHONY: build-installer
 build-installer: manifests generate kustomize ## Generate a consolidated YAML with CRDs and deployment.
