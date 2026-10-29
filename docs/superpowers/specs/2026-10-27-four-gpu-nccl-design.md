@@ -6,7 +6,7 @@ Until this line, the status said: "registered for review, not approved for purch
 **Status, 2026-10-27: run 1 is VOID at Q, after the purchase, by a defect in the scorer; no job ran and no number below is a result.** The owner approved one more attempt under "Amendment for run 2", at the end, which changes only the scorer's reading of the topology header.
 **Status, 2026-10-28: run 2 is a FAILED SMOKE, stopped by a third defect in the scorer before any registered job; no number below is a result.** "Run 2" and "Amendment for run 3", at the end, say what failed and what a third attempt changes; the owner approved that amendment on 2026-10-28.
 **Status, 2026-10-29: run 3 is a FAILED SMOKE, stopped by a fourth defect in the scorer before any registered job; no number below is a result.** "Run 3" and "Amendment for run 4", at the end, say what failed and what a fourth attempt changes; the owner approved that amendment on 2026-10-29.
-**Status, 2026-10-29: run 4 is a FAILED SMOKE, stopped by a fifth defect in the scorer, run 3's fix being too narrow, before any registered job; no number below is a result.** "Run 4" and "Amendment for run 5", at the end, say what failed and what a fifth attempt would change; that amendment is proposed and not approved.
+**Status, 2026-10-29: run 4 is a FAILED SMOKE, stopped by a fifth defect in the scorer, run 3's fix being too narrow, before any registered job; no number below is a result.** "Run 4" and "Amendment for run 5", at the end, say what failed and what a fifth attempt changes; the owner approved that amendment on 2026-10-29.
 codex `gpt-6-astra` attacked the first version cold; every finding was re-derived, and this version is the reconciled one ("Review: astra's attack, reconciled", at the end).
 It grows out of the draft `2026-10-22-multi-gpu-per-pod-throughput-design.md`, which is left as it was written and is history; where this page and the draft differ, this page holds, and "Changes from the draft" says what moved and why.
 Every numeric bound below names where its number comes from, because `docs/11_WHAT_THIS_MEASURED.md` ("What the targets were based on") now records that several earlier bars had none.
@@ -520,13 +520,16 @@ With the fix, `analyze.py` on run 4's whole evidence judges all five smoke jobs 
 
 **Evidence:** `hack/four-gpu/2026-10-29-run4/`, listed in `SHA256SUMS`; `NOT-COMMITTED.sha256` holds the hashes of `terraform.log`, `seeded-key.txt` and `ttl.pid`, which are not committed. `session-stdout.log` is the session's terminal output and `launcher.log` the launcher's.
 
-## Amendment for run 5, 2026-10-29, proposed to the owner and not yet approved
+## Amendment for run 5, 2026-10-29, approved by the owner before it is bought
+
+The owner approved it on 2026-10-29 ("권장안 진행, 승인"), in reply to a report that named this amendment as waiting for their approval, after the fix had been merged into `dev` (#446).
+"Not repeated without the owner's approval" is lifted for exactly one more attempt, run 5: a run 5 that fails for any reason is reported as it ran, and a sixth needs its own amendment and approval.
 
 Run 4 is reported as it ran, and under "Amendment for run 4" a fifth attempt needs its own amendment and approval.
 **What changes**, this and nothing else: the fix above, in `analyze.py`.
 It changes where a record may start on its log line, and nothing judged from the record.
 The benches do not change, so the approved hashes stay `0e9e939d…` and `d3798177…`.
 **Disclosed, not acted on:** an nccl-tests result row is still read only from a line's start, so a cut before one makes the job invalid; in runs 2 to 4 none did, and that is a cost and not a false result.
-**What does not change:** everything "Amendment for run 4" lists as unchanged, its changes and its hashes, and its promotion's scope: run 5 would be bought from `main` at a promotion that carries this section and the fix, and no other change merged into `dev` since run 3's promotion.
-**Run 5 would be bought from `main` at that promotion, once the owner approves it.**
+**What does not change:** everything "Amendment for run 4" lists as unchanged, its changes and its hashes, and its promotion's scope: run 5 is bought from `main` at a promotion that carries this section and the fix, and no other change merged into `dev` since run 3's promotion.
+**Run 5 is bought from `main` at that promotion, with the two hashes above.**
 Run 1's to run 4's evidence are not pooled with run 5's.
