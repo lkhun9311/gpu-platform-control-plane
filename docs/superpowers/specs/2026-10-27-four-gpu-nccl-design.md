@@ -5,7 +5,7 @@ Written 2026-10-26 (dated 2026-10-27, the earliest day a session under it could 
 Until this line, the status said: "registered for review, not approved for purchase."
 **Status, 2026-10-27: run 1 is VOID at Q, after the purchase, by a defect in the scorer; no job ran and no number below is a result.** The owner approved one more attempt under "Amendment for run 2", at the end, which changes only the scorer's reading of the topology header.
 **Status, 2026-10-28: run 2 is a FAILED SMOKE, stopped by a third defect in the scorer before any registered job; no number below is a result.** "Run 2" and "Amendment for run 3", at the end, say what failed and what a third attempt changes; the owner approved that amendment on 2026-10-28.
-**Status, 2026-10-29: run 3 is a FAILED SMOKE, stopped by a fourth defect in the scorer before any registered job; no number below is a result.** "Run 3" and "Amendment for run 4", at the end, say what failed and what a fourth attempt would change; that amendment is proposed and not approved.
+**Status, 2026-10-29: run 3 is a FAILED SMOKE, stopped by a fourth defect in the scorer before any registered job; no number below is a result.** "Run 3" and "Amendment for run 4", at the end, say what failed and what a fourth attempt changes; the owner approved that amendment on 2026-10-29.
 codex `gpt-6-astra` attacked the first version cold; every finding was re-derived, and this version is the reconciled one ("Review: astra's attack, reconciled", at the end).
 It grows out of the draft `2026-10-22-multi-gpu-per-pod-throughput-design.md`, which is left as it was written and is history; where this page and the draft differ, this page holds, and "Changes from the draft" says what moved and why.
 Every numeric bound below names where its number comes from, because `docs/11_WHAT_THIS_MEASURED.md` ("What the targets were based on") now records that several earlier bars had none.
@@ -473,7 +473,10 @@ Run 3's other two smoke jobs are valid with and without it.
 
 **Evidence:** `hack/four-gpu/2026-10-29-run3/`, listed in `SHA256SUMS`; `NOT-COMMITTED.sha256` holds the hashes of `terraform.log`, `seeded-key.txt` and `ttl.pid`, which are not committed. `session-stdout.log` is the session's terminal output and `launcher.log` the launcher's.
 
-## Amendment for run 4, 2026-10-29, proposed to the owner and not yet approved
+## Amendment for run 4, 2026-10-29, approved by the owner before it is bought
+
+The owner approved it on 2026-10-29 ("권장안 진행"), in reply to a report that named this amendment as waiting for their approval, after the fix had been merged into `dev` (#442).
+"Not repeated without the owner's approval" is lifted for exactly one more attempt, run 4: a run 4 that fails for any reason is reported as it ran, and a fifth needs its own amendment and approval.
 
 Run 3 is reported as it ran, and under "Amendment for run 3" a fourth attempt needs its own amendment and approval.
 **What changes**, this and nothing else: the fix above, in `analyze.py`.
@@ -481,5 +484,7 @@ It changes where a record may start on its log line and which NCCL lines name a 
 The benches do not change, so the approved hashes stay `0e9e939d…` and `d3798177…`.
 **Disclosed, not acted on:** the same cut can in principle fall before an nccl-tests result row, which the scorer reads only from a line's start; in runs 2 and 3 none did, the rows coming after NCCL's initialisation messages, and a row lost that way makes the job invalid, a cost and not a false result.
 **What does not change:** everything "Amendment for run 3" lists as unchanged, its changes and its hashes.
-**Run 4 would be bought from `main` at the promotion that carries this section, once the owner approves it.**
+**Run 4 is bought from `main` at the promotion that carries this section, with the two hashes above.**
+That promotion carries, besides this page and the fix, only two changes to the session's own teardown: the GPU deadline refuses to arm or report when a schedule cannot be read (#436), and the cluster destroy sweeps the interfaces the VPC CNI left detached and retries once (#443).
+It leaves out every other change merged into `dev` since run 3's promotion, the dependency updates (#429, #430) and the operator and gateway fixes of #433 to #440 among them, so the platform run 4 measures is the one run 3 ran on.
 Run 1's, run 2's and run 3's evidence are not pooled with run 4's.
