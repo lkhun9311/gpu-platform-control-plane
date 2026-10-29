@@ -1131,6 +1131,14 @@ var _ = Describe("backend fallback", func() {
 // exists to provide. The harness cancels every request outstanding past its timeout, so this is routine.
 //
 // Mutation that turns this red: delete the r.Context().Err() guard from tryBackends.
+// dialFailingTransport fails every round trip as a refused dial, the one failure the retry loop may replay.
+type dialFailingTransport func()
+
+func (f dialFailingTransport) RoundTrip(*http.Request) (*http.Response, error) {
+	f()
+	return nil, &net.OpError{Op: "dial", Net: "tcp", Err: errors.New("connection refused")}
+}
+
 var _ = Describe("fallback and the client's own cancellation", func() {
 	It("does not walk the candidate list after the client has gone", func() {
 		// Atomic because the handlers run on the server's own goroutines while the spec body reads the count;
@@ -1229,15 +1237,17 @@ var _ = Describe("fallback and the client's own cancellation", func() {
 		Expect(rec.answered).To(BeTrue(), "the spare's answer was not recorded as having reached the client")
 	})
 
-	// A request nobody answered must not be publishable as the recorder's seeded 200.
+	// A request nobody served must reach the client, and the recorder, as the failure it was.
 	//
-	// This needs a NON-final attempt to fail and the retry to be refused, which is the only way the loop ends
-	// with nothing written: on a final attempt the ErrorHandler's 502 goes straight through to the client and
-	// the recorder is answered, correctly. A first version of this spec used a single target and asserted the
-	// recorder still held 200 — it held 502, because that is the right answer for that case.
+	// This needs a NON-final attempt to fail and the retry to be refused. That attempt's error was suppressed in
+	// expectation of a next one, and until 2026-10-29 the loop then ended with nothing written: this spec pinned
+	// the recorder unanswered at its seeded 200, and net/http sent the client an empty 200 while the handler
+	// published the failure code (codex audit, 2026-10-28). The held error is now released.
 	//
-	// Mutation that turns this red: make statusRecorder stop tracking answered.
-	It("leaves the recorder unanswered when a non-final attempt fails and no retry follows", func() {
+	// The cancelled slow backend fails after its connection was made, so this ends at the not-replayable guard.
+	//
+	// Mutation that turns this red: delete the release on the not-replayable guard.
+	It("answers the failure when a non-final attempt fails and no retry follows", func() {
 		slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			time.Sleep(400 * time.Millisecond)
 		}))
@@ -1262,11 +1272,51 @@ var _ = Describe("fallback and the client's own cancellation", func() {
 		tryBackends(rec, req, []*url.URL{slowURL, spareURL}, http.DefaultTransport,
 			func(c int, final bool) { last = c })
 
-		Expect(rec.answered).To(BeFalse(), "nothing reached the client, so the recorder must not claim it did")
-		Expect(rec.code).To(Equal(http.StatusOK),
-			"the recorder still holds its seed, which is why the handler has to substitute the failure code")
-		Expect(last).NotTo(BeZero(), "the failure the handler would substitute was never reported")
+		Expect(last).NotTo(BeZero(), "the failure was never reported")
+		Expect(rec.answered).To(BeTrue(), "the client was sent nothing, which net/http turns into an empty 200")
+		Expect(rec.code).To(Equal(last), "the client was not told the failure the handler counts")
 	})
+
+	// The guards after a replayable failure, each reached through a transport that fails at the dial, so the
+	// attempt provably reached no backend and only the guard under test stops the retry.
+	//
+	// Mutation that turns each entry red: delete the release on that entry's guard.
+	DescribeTable("answers the failure when a replayable attempt cannot be retried",
+		func(prepare func(*http.Request, context.CancelFunc) *http.Request) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://gw/v1/chat/completions", nil)
+			Expect(err).NotTo(HaveOccurred())
+			buf := []byte(`{"model":"m"}`)
+			req.GetBody = func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(buf)), nil }
+			req.Body, _ = req.GetBody()
+			req = prepare(req, cancel)
+
+			var calls int
+			dialFails := dialFailingTransport(func() { calls++ })
+			head, _ := url.Parse("http://head.invalid")
+			spare, _ := url.Parse("http://spare.invalid")
+			rec := &statusRecorder{ResponseWriter: httptest.NewRecorder(), code: http.StatusOK}
+			advanced := tryBackends(rec, req, []*url.URL{head, spare}, dialFails, nil)
+
+			Expect(calls).To(Equal(1), "the guard did not stop the retry, so this entry tests nothing")
+			Expect(advanced).To(BeFalse())
+			Expect(rec.answered).To(BeTrue(), "the client was sent nothing, which net/http turns into an empty 200")
+			Expect(rec.code).To(Equal(http.StatusBadGateway))
+		},
+		Entry("the client cancelled", func(r *http.Request, cancel context.CancelFunc) *http.Request {
+			cancel()
+			return r
+		}),
+		Entry("the body cannot be replayed", func(r *http.Request, _ context.CancelFunc) *http.Request {
+			r.GetBody = nil
+			return r
+		}),
+		Entry("the body's replay fails", func(r *http.Request, _ context.CancelFunc) *http.Request {
+			r.GetBody = func() (io.ReadCloser, error) { return nil, errors.New("buffer gone") }
+			return r
+		}),
+	)
 
 	// A backend answering 503 is not a proxy failure and is no longer reported as one.
 	//
@@ -1499,6 +1549,11 @@ var _ = Describe("fallback on a retryable upstream status", func() {
 
 		Expect(advanced).To(BeFalse(), "a completion the backend had already received was sent again")
 		Expect(*spareHits).To(Equal(0), "a non-idempotent completion reached a second backend")
+		// Not replaying it must not mean not answering it: this spec checked only the retry, and the client got
+		// an empty 200 (codex audit, 2026-10-28).
+		// Mutation that turns this red: delete the release on the not-replayable guard.
+		Expect(rec.Code).To(Equal(http.StatusBadGateway), "the client was not told the backend failed")
+		Expect(rec.Body.Len()).NotTo(BeZero(), "the gateway's error envelope did not reach the client")
 	})
 
 	// The client must be able to tell which side failed, which means the backend's status reaches them
