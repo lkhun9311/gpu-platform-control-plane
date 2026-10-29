@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -50,6 +51,10 @@ const kueueQueueLabel = "kueue.x-k8s.io/queue-name"
 // trusted it: a Pod naming a real, queued Job as its controller was admitted. Forging one took a single
 // kubectl apply and obtained two devices, which is exactly the bypass the guard exists to close.
 const jobControllerUser = "system:serviceaccount:kube-system:job-controller"
+
+// kubeSystemServiceAccounts prefixes the identities of the built-in controllers, which write a Pod's
+// ownerReference themselves.
+const kubeSystemServiceAccounts = "system:serviceaccount:kube-system:"
 
 // There is no exemption, and there was one until 2026-10-12.
 //
@@ -167,7 +172,17 @@ func (v *GPUPodValidator) Handle(ctx context.Context, req admission.Request) adm
 	//
 	// The label is checked and not kueue.x-k8s.io/managed, which is forgeable in the way that matters: a Pod
 	// carrying managed=true and no queue name runs with no Workload at all.
-	if pod.Labels[kueueQueueLabel] != "" {
+	//
+	// The bill is sent only when Kueue does not think someone else is paying. Kueue's Pod webhook returns before
+	// gating or labelling a Pod whose controller owner is a queued Job (v0.18.3, `FindAncestorJobManagedByKueue`),
+	// and it reads that owner from the Pod as written. So a tenant writing the label AND an ownerReference to a
+	// queued Job got a Pod that ran with no Workload, admitted here before its requester was ever read (codex
+	// audit, 2026-10-28).
+	// An owner is therefore evidence here only when a kube-system controller wrote it: those controllers set the
+	// ownerReference to the object they are reconciling, and a tenant cannot make them name another.
+	// A labelled Pod with any other written owner falls through to the checks below, which ask who created it.
+	if pod.Labels[kueueQueueLabel] != "" &&
+		(metav1.GetControllerOf(&pod) == nil || strings.HasPrefix(req.UserInfo.Username, kubeSystemServiceAccounts)) {
 		return admission.Allowed("")
 	}
 
