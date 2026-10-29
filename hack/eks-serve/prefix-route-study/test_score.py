@@ -157,6 +157,15 @@ class ScorerTest(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         self.assertEqual(out.splitlines()[0], "verdict: observed on these traces")
 
+    # Review of 981f6031: the flag is accepted from any caller, so a paid run scored with it once passed with exit 0
+    # while a treatment engine ran max_num_seqs 1.
+    def test_unpinned_pass_is_not_the_registered_verdict(self):
+        rc, out = self.run_scorer("--engine-unpinned")
+        self.assertEqual(rc, 1, out)
+        self.assertEqual(out.splitlines()[0], "verdict: rehearsal only, not a result: the traces met every line, "
+                         "but the engine pin was not checked")
+        self.assertIn("engine pin: NOT CHECKED", out)
+
     def test_missing_row(self):
         self.put_rows(self.rows()[1:])
         self.expect("inconclusive: cell shared-941-PrefixAffinity: 199 rows")

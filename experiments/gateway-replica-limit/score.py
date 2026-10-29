@@ -7,6 +7,8 @@ RUN_DIR holds one <arm>-<rep>.tsv per arm and repetition written by loadgen, and
 runner with the stub's served count and, for the restart arm, the deletion offset.
 Exit status is 0 when every validity check passed, 1 when any failed, so a caller cannot read a voided run
 as a result.
+One check is not in the registration: the registered load (REGISTERED_REQUESTS, one every SLOT_S over REGISTERED_SPAN_S),
+added after the result; README.md records it ("Recorded after the result, 2026-10-29").
 """
 import csv
 import os
@@ -107,6 +109,14 @@ def main():
             print(f"  INVALID: {len(rows)} requests dispatched over {span:.3f} s, not the registered "
                   f"{REGISTERED_REQUESTS} over {REGISTERED_SPAN_S:.1f} s")
             valid = False
+        else:
+            # The count and the endpoints say nothing of the requests between them: 299 dispatched at once and one 29.9 s
+            # later passed both (review of fe5be6f7), and the limit is saturated only while the load is offered throughout.
+            off = max(abs(t - min(sent) - i * SLOT_S) for i, t in enumerate(sorted(sent)))
+            if off > SLOT_S:
+                print(f"  INVALID: a request was dispatched {off:.3f} s off the registered schedule of one every "
+                      f"{SLOT_S:.1f} s")
+                valid = False
         if stub != admitted:
             print(f"  INVALID: stub served {stub} but the client saw {admitted} answered 200")
             valid = False

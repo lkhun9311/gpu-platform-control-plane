@@ -283,6 +283,24 @@ var _ = Describe("WorkloadRun", func() {
 		Expect(run.Status.Reason).To(ContainSubstring("stopped existing"))
 	})
 
+	// A run already observing when the controller that records UIDs was installed has none, and nothing was recreated.
+	// It is refused, and its reason must not claim a recreation the record does not show.
+	It("refuses a run that began before the target's UID was recorded, without claiming a recreation", func() {
+		createRun(60, 30, tgtName)
+		setTargetPhase("Degraded")
+		tick(0)
+
+		run := load()
+		run.Status.TargetUID = ""
+		Expect(k8sClient.Status().Update(ctx, &run)).To(Succeed())
+
+		tick(5 * time.Second)
+		run = load()
+		Expect(run.Status.Phase).To(Equal(platformv1.WorkloadRunRefused))
+		Expect(run.Status.Reason).To(ContainSubstring("began before the controller recorded its target's UID"))
+		Expect(run.Status.Reason).NotTo(ContainSubstring("recreated"))
+	})
+
 	// The deletion above is seen because a poll lands while the name is free.
 	// Here the target is deleted and recreated healthy between two polls, so no poll ever sees NotFound, and
 	// before the run pinned the target's UID it credited the new object's health as the old one's recovery.

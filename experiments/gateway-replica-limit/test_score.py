@@ -108,5 +108,22 @@ class ScoreTest(unittest.TestCase):
         self.assert_void_by_load_alone("300 requests dispatched over 14.95")
 
 
+    # Review of fe5be6f7: 299 requests at once and one 29.9 s later have the registered count and span, and the limiter
+    # is not saturated between them.
+    def test_the_right_count_and_span_dispatched_in_a_burst(self):
+        path = os.path.join(self.run, "R2-pinned-1.tsv")
+        with open(path) as f:
+            header, *rows = f.read().splitlines()
+        sent = header.split("\t").index("sent_ms")
+        first = float(rows[0].split("\t")[sent])
+        burst = []
+        for i, r in enumerate(rows):
+            fields = r.split("\t")
+            if i < len(rows) - 1:
+                fields[sent] = f"{first:.3f}"
+            burst.append("\t".join(fields))
+        self.put_rows("R2-pinned-1.tsv", header, burst)
+        self.assert_void_by_load_alone("off the registered schedule of one every 0.1 s")
+
 if __name__ == "__main__":
     unittest.main()

@@ -997,9 +997,13 @@ func exactKeys(buf []byte) error {
 	if err := keysIn(top, "the body", "model", "messages", "max_tokens", "min_tokens", "stream", "stream_options"); err != nil {
 		return err
 	}
+	// An absent messages key has no keys to check; the profile's message count then refuses it by name, where
+	// decoding the missing value here answered "unexpected end of JSON input".
 	var messages []map[string]json.RawMessage
-	if err := json.Unmarshal(top["messages"], &messages); err != nil {
-		return err
+	if raw, ok := top["messages"]; ok {
+		if err := json.Unmarshal(raw, &messages); err != nil {
+			return err
+		}
 	}
 	for i, m := range messages {
 		if err := keysIn(m, fmt.Sprintf("messages[%d]", i), "role", "content"); err != nil {

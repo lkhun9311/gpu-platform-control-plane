@@ -1,14 +1,17 @@
 """Scores experiment A, prefix-aware routing, against its registration.
 
 The registration is docs/superpowers/specs/2026-10-27-prefix-aware-routing-design.md; every constant and rule here
-is copied from it, and a rule it does not state is not applied. Where the evidence cannot support a figure the
-scorer refuses it, naming why, rather than reporting one.
+is copied from it, and a rule it does not state is not applied, with one exception the page records: the engine pin
+(REGISTERED_ENGINE_ARGS), added after the result as a check on the evidence ("Recorded after the result, 2026-10-29").
+Where the evidence cannot support a figure the scorer refuses it, naming why, rather than reporting one.
 
-    python3 hack/eks-serve/prefix-route-study/score.py <study dir> [--capacity-tokens N]
+    python3 hack/eks-serve/prefix-route-study/score.py <study dir> [--capacity-tokens N] [--engine-unpinned]
 
 <study dir> is what run.sh writes: study-id.txt, traces/<block>.jsonl and cells/<block>-<arm>/.
 --capacity-tokens exists for the kind rehearsal, whose stub engines model a smaller cache; the verdict prints the
-capacity it judged against, and the paid session never passes it.
+capacity it judged against, and the paid session never passes it. --engine-unpinned is the rehearsal's too, for the
+same stubs; the output then says the engine pin was not checked, and a run that would have passed is
+reported as a rehearsal, not a result, and exits 1.
 
 Exits 0 only on "observed on these traces"; 1 on any other verdict; 2 on a usage error.
 """
@@ -407,7 +410,7 @@ def main(argv: list[str]) -> int:
     args = list(argv[1:])
     capacity = CAPACITY_TOKENS
     usage = "usage: score.py <study dir> [--capacity-tokens N] [--engine-unpinned]"
-    # The kind rehearsal's stub engines are not vLLM, so only it may skip the engine pin; the verdict says it was skipped.
+    # The kind rehearsal's stub engines are not vLLM, so it skips the engine pin; a run scored without the pin cannot pass.
     pin_engine = "--engine-unpinned" not in args
     if not pin_engine:
         args.remove("--engine-unpinned")
@@ -506,6 +509,9 @@ def main(argv: list[str]) -> int:
         verdict = f"inconclusive: {first}"
     elif attribution:
         verdict = f"not attributable to prefix affinity: {attribution}"
+    elif not pin_engine:
+        # Nothing stops a paid run's scoring from passing the flag, so an unpinned pass is never the registered verdict.
+        verdict = "rehearsal only, not a result: the traces met every line, but the engine pin was not checked"
     else:
         verdict = "observed on these traces"
     print(f"verdict: {verdict}")

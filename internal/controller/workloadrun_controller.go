@@ -177,6 +177,13 @@ func (r *WorkloadRunReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// The UID does not: a recreated object has a new one, and its health is not the old object's recovery.
 	// A run with no recorded UID began before this field existed, so its target's identity was never pinned
 	// and is refused the same way rather than adopted from whatever object holds the name now.
+	// Its reason says that, not that the target was recreated, because nothing here shows a recreation.
+	if run.Status.TargetUID == "" {
+		return r.refuse(ctx, &run, fmt.Sprintf(
+			"this run began before the controller recorded its target's UID, so whether %s %q is still the "+
+				"object it began observing cannot be established; re-run it to get a verdict",
+			run.Spec.Target.Kind, targetKey(run.Spec.Target)))
+	}
 	if seen.uid != run.Status.TargetUID {
 		return r.refuse(ctx, &run, fmt.Sprintf(
 			"target %s %q is a different object from the one this run began observing (UID %q, now %q); "+

@@ -62,8 +62,10 @@ else bad "unexpected response: $(head -1 <<<"$OUT")"; fi
 
 # Both checks below pass on the absence of a string, so a log that could not be read would pass them both.
 # An unreadable or empty log therefore fails them instead, with kubectl's own error.
-if ! LOGS=$(kubectl -n "$SYS" logs "$MGR" --tail=300 2>&1); then
-  bad "the manager log could not be read, so neither log check ran: $(head -1 <<<"$LOGS")"
+# kubectl's stderr is kept out of the log, or a notice it prints with no log at all would read as a log.
+LOGERR=$(mktemp)
+if ! LOGS=$(kubectl -n "$SYS" logs "$MGR" --tail=300 2>"$LOGERR"); then
+  bad "the manager log could not be read, so neither log check ran: $(head -1 "$LOGERR")"
 elif [ -z "$LOGS" ]; then
   bad "the manager log is empty, so neither log check ran"
 else
@@ -78,6 +80,7 @@ else
     ok "the manager started with its certificate"
   fi
 fi
+rm -f "$LOGERR"
 
 echo "---- pass=$pass fail=$fail ----"
 [ "$fail" -eq 0 ]

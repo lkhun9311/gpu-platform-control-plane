@@ -887,7 +887,8 @@ var _ = Describe("readRequestMeta", func() {
 		// DisallowUnknownFields matches keys case-insensitively, so each of these passed it as a known field.
 		Entry("a case variant of a top-level key beside the real one",
 			`{"model":"llama-3","messages":[{"role":"user","content":"a long prompt"}],"Messages":[{"role":"user","content":"hi"}],"max_tokens":4,"stream":true,"stream_options":{"include_usage":true}}`),
-		Entry("a case variant of a top-level key alone",
+		// Without the real key this body is refused earlier, for having no model, so the variant needs the real key beside it.
+		Entry("a case variant of a top-level key carrying the same value as the real one",
 			`{"Model":"llama-3","model":"llama-3","messages":[{"role":"user","content":"hi"}],"max_tokens":4,"stream":true,"stream_options":{"include_usage":true}}`),
 		Entry("a case variant of a message key",
 			`{"model":"llama-3","messages":[{"role":"user","content":"a long prompt","Content":"hi"}],"max_tokens":4,"stream":true,"stream_options":{"include_usage":true}}`),
@@ -944,6 +945,16 @@ var _ = Describe("readRequestMeta", func() {
 		Entry("messages as an object", `{"model":"llama-3","messages":{"role":"user"}}`),
 		Entry("a message that is a string", `{"model":"llama-3","messages":["hi"]}`),
 	)
+
+	// The exact-key check ran before the message count and decoded the absent value, so the refusal named a JSON
+	// syntax error in a body that had none.
+	It("refuses a body with no messages key by its message count, not by a JSON error", func() {
+		body := `{"model":"llama-3","max_tokens":4,"stream":true,"stream_options":{"include_usage":true}}`
+		r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+		_, _, err := readRequestMeta(r, true)
+		Expect(err).To(MatchError(ErrProfileViolation))
+		Expect(err.Error()).To(ContainSubstring("exactly one message, got 0"))
+	})
 
 	// Mutation that turns this red: rename MinTokens's json tag, so DisallowUnknownFields refuses the real field.
 	It("accepts min_tokens equal to max_tokens, the pilot's fixed output", func() {
