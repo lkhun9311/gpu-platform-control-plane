@@ -496,6 +496,32 @@ class CapturedJob(unittest.TestCase):
         self.assertEqual(job.transports, {r: ["NET"] for r in range(4)},
                          "a cut 'via NE' was read as a transport of its own")
 
+    # Run 4's four-Pod DDP smoke job: three ranks' steps records followed a cut that fell inside NCCL's host prefix
+    # ("c-smoke-d"), which no NCCL line pattern matches, so run 3's fix still lost them and stopped that session.
+    # Mutation that turns it red: read a record after a cut only when the line matches NCCL_LINE, as run 3's fix did.
+    RUN4 = Path(__file__).resolve().parents[2] / "hack/four-gpu/2026-10-29-run4/c/jobs/00-smoke-ddp-4pod1gpu"
+
+    def test_the_smoke_job_whose_records_followed_a_cut_host_prefix_is_whole(self):
+        # The hash run 4 was bought with, which its ranks report having run.
+        step = "d37981777c791af1420525232f66acbec83e2f5e61241984b79ad58134384402"
+        job = analyze.judge_job(self.RUN4, BENCH, step, None)
+        self.assertEqual(job.faults, [])
+        self.assertEqual(job.transports, {r: ["NET"] for r in range(4)})
+
+    # Two runs each lost records to a cut at a place the fix before had not seen, so this cuts every NCCL line the
+    # paid sessions captured at every offset, and the record after it must still be read whole.
+    def test_a_record_after_any_cut_of_any_captured_nccl_line(self):
+        record = '{"event": "done", "exit_code": 0, "rank": 1, "run_id": "c-a", "ts": "2026-10-29T04:42:58+00:00"}'
+        root = Path(__file__).resolve().parents[2] / "hack/four-gpu"
+        lines = sorted({line for log in root.glob("2026-10-*/c/jobs/*/log-*.txt")
+                        for line in log.read_text().splitlines() if " NCCL INFO " in line and '{"' not in line})
+        self.assertGreater(len(lines), 1000, "the captured NCCL lines were not found")
+        for line in lines:
+            for k in range(len(line) + 1):
+                got = analyze.record_text(line[:k] + record)
+                if got != record:
+                    self.fail(f"cut at {k} of {line!r}: read {got!r}")
+
 
 class Qualification(Base):
     # Run 2's qualification log as captured, escapes and all: the fixture this class used before was written from

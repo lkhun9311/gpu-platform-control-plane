@@ -236,15 +236,17 @@ def attribute_transports(job: Job, uid: str, lines: list[str], pid_to_rank: dict
 def record_text(line: str) -> str | None:
     """The text of the record a log line carries, or None.
 
-    A record starts its line, or follows a cut NCCL INFO line. NCCL's threads write to stderr in the same Pod, and
-    a message they had begun without its newline took the record onto its line in the merged log: in run 3 every
-    rank's 1 MiB record followed "via NE" or "threadThresholds 8/8/6", the message's rest ("T/Socket/0") came on a
-    later line of its own, and reading only lines that start with "{" lost the record (run 3's smoke job).
-    Nothing NCCL prints contains '{"', so the record starts at its first occurrence.
+    A record starts its line, or follows the cut start of an NCCL line. NCCL's threads write to stderr in the same
+    Pod, and a message they had begun without its newline took the record onto its line in the merged log: in run 3
+    every rank's 1 MiB record followed "via NE" or "threadThresholds 8/8/6", and reading only lines that start with
+    "{" lost the record (run 3's smoke job).
+    The cut can fall anywhere in NCCL's line, its host prefix included: in run 4 three ranks' steps records followed
+    "c-smoke-d" and the like, which no NCCL line pattern matches, and requiring one lost them (run 4's smoke job).
+    Nothing NCCL prints contains '{"', so the record starts at its first occurrence whatever precedes it.
     """
     if line.startswith("{"):
         return line
-    if NCCL_LINE.match(line) and '{"' in line:
+    if '{"' in line:
         return line[line.index('{"'):]
     return None
 
