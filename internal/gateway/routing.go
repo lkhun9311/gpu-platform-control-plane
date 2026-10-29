@@ -315,25 +315,33 @@ func (d routingDecision) setHeaders(h interface{ Set(string, string) }) {
 // The role is included because the engine's chat template puts it in the prompt, so two messages with one text
 // under different roles are different prefixes to the engine as well.
 // A body that does not decode yields "", which matches nothing; readRequestMeta has already refused such a body.
+//
+// Keys are read exactly, as readRequestMeta reads them and the engine does: a struct would also take "Messages",
+// "Role" or "Content", so a decoy under a case variant after the real field chose the backend by a prompt the engine
+// never saw.
 func routingPrompt(body []byte) string {
-	var probe struct {
-		Messages []struct {
-			Role    string          `json:"role"`
-			Content json.RawMessage `json:"content"`
-		} `json:"messages"`
+	var top map[string]json.RawMessage
+	if json.Unmarshal(body, &top) != nil {
+		return ""
 	}
-	if json.Unmarshal(body, &probe) != nil {
+	var messages []chatMessage
+	if raw, ok := top["messages"]; ok && json.Unmarshal(raw, &messages) != nil {
 		return ""
 	}
 	var b strings.Builder
-	for _, m := range probe.Messages {
-		b.WriteString(m.Role)
+	for _, m := range messages {
+		var role string
+		if raw, ok := m["role"]; ok && json.Unmarshal(raw, &role) != nil {
+			return ""
+		}
+		b.WriteString(role)
 		b.WriteByte(0)
+		content := m["content"]
 		var text string
-		if json.Unmarshal(m.Content, &text) == nil {
+		if json.Unmarshal(content, &text) == nil {
 			b.WriteString(text)
 		} else {
-			b.Write(m.Content)
+			b.Write(content)
 		}
 		b.WriteByte(0)
 	}

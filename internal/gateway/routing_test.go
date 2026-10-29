@@ -231,6 +231,35 @@ func TestRoutingPromptReadsRolesAndContent(t *testing.T) {
 	}
 }
 
+// A decoy under a case variant after the real field must not choose the backend, because the engine reads only the
+// exact key; readRequestMeta's estimate was fixed for the same decoy, and routing read it through a struct still.
+func TestRoutingPromptIgnoresCaseVariantKeys(t *testing.T) {
+	for _, tc := range []struct{ name, body string }{
+		{"messages", `{"messages":[{"role":"user","content":"real"}],"Messages":[{"role":"user","content":"decoy"}]}`},
+		{"content", `{"messages":[{"role":"user","content":"real","Content":"decoy"}]}`},
+		{"role", `{"messages":[{"role":"user","Role":"system","content":"real"}]}`},
+	} {
+		if got, want := routingPrompt([]byte(tc.body)), "user\x00real\x00"; got != want {
+			t.Errorf("%s: routingPrompt = %q, want %q", tc.name, got, want)
+		}
+	}
+}
+
+// What the struct decode refused, or read as empty, reading by key must refuse or read the same way.
+func TestRoutingPromptKeepsTheStructDecodesEdges(t *testing.T) {
+	for _, tc := range []struct{ name, body, want string }{
+		{"a role that is not a string", `{"messages":[{"role":7,"content":"x"}]}`, ""},
+		{"messages that are not a list", `{"messages":{"role":"user"}}`, ""},
+		{"a null message", `{"messages":[null]}`, "\x00\x00"},
+		{"null content and role", `{"messages":[{"role":null,"content":null}]}`, "\x00\x00"},
+		{"no messages", `{"model":"m"}`, ""},
+	} {
+		if got := routingPrompt([]byte(tc.body)); got != tc.want {
+			t.Errorf("%s: routingPrompt = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}
+
 func TestDecisionHeaders(t *testing.T) {
 	h := http.Header{}
 	routingDecision{policy: platformv1.RoutingPolicyPrefixAffinity, backend: routeRef("a", ""), reason: routePrefixMatch, matched: 3, total: 5}.setHeaders(h)
