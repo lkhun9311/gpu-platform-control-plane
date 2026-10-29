@@ -54,14 +54,25 @@ ttl_arm() {
   # Refusing is the same answer used for a second running card, for the same reason: this process cannot
   # tell an abandoned schedule from one another session is relying on. TTL_REPLACE=1 is the deliberate
   # override for resuming a session whose own schedule is known to be stale.
-  local existing
-  existing=$(aws scheduler list-schedules --name-prefix "gpu-ttl-${cluster}-${nodegroup}-" \
-               --query 'Schedules[].Name' --output text 2>/dev/null)
+  #
+  # A listing that fails is not a listing that came back empty. Reading it as "none" armed a second deadline
+  # beside whatever the failed call could not show (codex audit, 2026-10-28), so it refuses, with the error.
+  local existing old_name err
+  if ! existing=$(aws scheduler list-schedules --name-prefix "gpu-ttl-${cluster}-${nodegroup}-" \
+                    --query 'Schedules[].Name' --output text 2>&1); then
+    echo "could not list the deadlines already registered for $cluster/$nodegroup, so a second one is not armed: $existing" >&2
+    return 1
+  fi
   if [ -n "$existing" ] && [ "$existing" != "None" ]; then
     if [ "${TTL_REPLACE:-}" = "1" ]; then
+      # A delete that fails leaves the earlier deadline armed, and it fires first; arming beside it is the state
+      # this check exists to refuse.
       for old_name in $existing; do
-        aws scheduler delete-schedule --name "$old_name" >/dev/null 2>&1 \
-          && echo "TTL_REPLACE=1: deleted the earlier schedule $old_name" >&2
+        if ! err=$(aws scheduler delete-schedule --name "$old_name" 2>&1 >/dev/null); then
+          echo "TTL_REPLACE=1: could not delete the earlier schedule $old_name, so it would still fire first: $err" >&2
+          return 1
+        fi
+        echo "TTL_REPLACE=1: deleted the earlier schedule $old_name" >&2
       done
     else
       echo "a deadline is already registered for $cluster/$nodegroup: $existing" >&2
@@ -139,12 +150,25 @@ ttl_remaining_minutes() {
   # will really stop the card.
   local names n at_n earliest=""
   names=$(aws scheduler list-schedules --name-prefix "gpu-ttl-${cluster}-${nodegroup}-" \
-            --query 'Schedules[].Name' --output text 2>/dev/null)
+            --query 'Schedules[].Name' --output text 2>&1) || {
+    echo "could not list the deadlines for $cluster/$nodegroup: $names" >&2
+    return 1
+  }
   [ -n "$names" ] && [ "$names" != "None" ] || return 1
+  # A schedule that cannot be read makes the answer unknown, not the earliest of the others: skipping it printed a
+  # later deadline while an earlier one stayed armed (codex audit, 2026-10-28). Every caller reads a failure with no
+  # output as "cannot tell".
+  local expr_n
   for n in $names; do
-    at_n=$(aws scheduler get-schedule --name "$n" --query 'ScheduleExpression' --output text 2>/dev/null \
-             | sed -n 's/^at(\(.*\))$/\1/p')
-    [ -n "$at_n" ] || continue
+    expr_n=$(aws scheduler get-schedule --name "$n" --query 'ScheduleExpression' --output text 2>&1) || {
+      echo "could not read the deadline $n: $expr_n" >&2
+      return 1
+    }
+    at_n=$(sed -n 's/^at(\(.*\))$/\1/p' <<<"$expr_n")
+    if [ -z "$at_n" ]; then
+      echo "the deadline $n is '$expr_n', not an at() time" >&2
+      return 1
+    fi
     if [ -z "$earliest" ] || [ "$at_n" \< "$earliest" ]; then earliest="$at_n"; fi
   done
   [ -n "$earliest" ] || return 1
