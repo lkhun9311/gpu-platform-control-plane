@@ -272,6 +272,56 @@ func TestALabelledPodIsAdmittedWithoutAnyOwner(t *testing.T) {
 	}
 }
 
+// The label is a bill only when Kueue sends it: Kueue's Pod webhook (v0.18.3, `Default`) returns before gating
+// or labelling a Pod whose controller owner is a queued Job, because it takes the Job's Workload to be paying.
+// A tenant writing that ownerReference beside the label gets a Pod nothing charges (codex audit, 2026-10-28).
+//
+// Mutation that turns this red: admit every queue-labelled Pod again, whoever wrote its owner.
+func TestAQueueLabelDoesNotLaunderAForgedOwner(t *testing.T) {
+	v := gpuValidator(t, queuedJob("train-1", "team-a-queue"))
+	res := ask(t, v, tenantUser, gpuPod(2, func(p *corev1.Pod) {
+		ownedBy("train-1")(p)
+		p.Labels = map[string]string{kueueQueueLabel: "team-a-queue"}
+	}))
+	if res.Allowed {
+		t.Fatal("a tenant obtained devices with a queue label and an ownerReference to a queued Job it did not create")
+	}
+	if !strings.Contains(res.Result.Message, tenantUser) {
+		t.Fatalf("the refusal does not name who asked: %s", res.Result.Message)
+	}
+}
+
+// The Job controller's own Pod may carry the label too, when the Job's template does; its owner is real, and the
+// queued Job pays for it.
+func TestALabelledPodFromAQueuedJobIsAdmitted(t *testing.T) {
+	v := gpuValidator(t, queuedJob("train-1", "team-a-queue"))
+	res := ask(t, v, jobControllerUser, gpuPod(1, func(p *corev1.Pod) {
+		ownedBy("train-1")(p)
+		p.Labels = map[string]string{kueueQueueLabel: "team-a-queue"}
+	}))
+	if !res.Allowed {
+		t.Fatalf("refused a labelled Pod the Job controller created for a queued Job: %s", res.Result.Message)
+	}
+}
+
+// A serving Pod is created by the ReplicaSet controller with the label from its template and a ReplicaSet as its
+// controller; the controller wrote that owner, so the label still bills it.
+//
+// Mutation that turns this red: refuse every labelled Pod with an owner, which stops every serving Pod.
+func TestALabelledPodFromAReplicaSetIsAdmitted(t *testing.T) {
+	v := gpuValidator(t)
+	yes := true
+	res := ask(t, v, "system:serviceaccount:kube-system:replicaset-controller", gpuPod(1, func(p *corev1.Pod) {
+		p.OwnerReferences = []metav1.OwnerReference{{
+			APIVersion: "apps/v1", Kind: "ReplicaSet", Name: "engine-abc", UID: "rs-uid", Controller: &yes,
+		}}
+		p.Labels = map[string]string{kueueQueueLabel: "gpu-premium"}
+	}))
+	if !res.Allowed {
+		t.Fatalf("refused a labelled Pod the ReplicaSet controller created: %s", res.Result.Message)
+	}
+}
+
 // managed=true is NOT the signal, and the difference is not academic: a Pod carrying it with no queue name
 // runs with no Workload at all, so trusting it would admit exactly what this guard refuses.
 func TestTheManagedLabelAloneIsNotEnough(t *testing.T) {

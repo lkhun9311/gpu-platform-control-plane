@@ -688,6 +688,29 @@ type attemptWriter struct {
 	// replayable records that this attempt provably delivered nothing to a backend, which is the only
 	// condition under which the same non-idempotent POST may be sent somewhere else. See neverReachedBackend.
 	replayable bool
+	// heldCode and held are the error response this attempt's ErrorHandler wrote while suppressed, kept so it can
+	// still reach the client when no other backend is tried after all. See release.
+	heldCode int
+	held     []byte
+}
+
+// release sends the error response this attempt held back, when the loop stops without trying another backend.
+//
+// Suppression assumed a next attempt, and four guards can stop the loop before one: a backend that may have
+// received the request, a cancelled client, and a body that cannot be replayed (two ways). Each used to return with
+// nothing written, so net/http answered the client an empty 200 while the gateway's metrics counted a 502 (codex
+// audit, 2026-10-28); "the gateway failed" must reach the client that the counters say it reached.
+func (a *attemptWriter) release() {
+	if !a.failed || a.wrote || !a.suppress {
+		return
+	}
+	a.suppress = false
+	code := a.heldCode
+	if code == 0 {
+		code = http.StatusBadGateway
+	}
+	a.WriteHeader(code)
+	_, _ = a.Write(a.held)
 }
 
 // Header returns this attempt's own map, so nothing an abandoned attempt set can reach the client.
@@ -726,6 +749,7 @@ func (a *attemptWriter) promote() {
 
 func (a *attemptWriter) WriteHeader(c int) {
 	if a.failed && a.suppress {
+		a.heldCode = c
 		return
 	}
 	a.promote()
@@ -735,7 +759,8 @@ func (a *attemptWriter) WriteHeader(c int) {
 
 func (a *attemptWriter) Write(b []byte) (int, error) {
 	if a.failed && a.suppress {
-		// Reported as written so the proxy's own error path completes normally; nothing reaches the client.
+		// Reported as written so the proxy's own error path completes normally; nothing reaches the client yet.
+		a.held = append(a.held, b...)
 		return len(b), nil
 	}
 	// A Write without a WriteHeader implies 200, so this is the other place an attempt commits.
@@ -839,9 +864,12 @@ func tryBackendsObserved(w http.ResponseWriter, r *http.Request, targets []*url.
 		if !att.failed || att.wrote || last {
 			return advanced
 		}
+		// From here the attempt failed before writing, and a guard that ends the loop must send its held error.
+		//
 		// The request must provably have reached no backend. Everything below this line replays a POST that
 		// consumes GPU time and is billed, so the bar is evidence rather than the absence of evidence.
 		if !att.replayable {
+			att.release()
 			return advanced
 		}
 		// A client that hung up is not a backend that failed. RoundTrip returns context.Canceled, which is not
@@ -850,15 +878,18 @@ func tryBackendsObserved(w http.ResponseWriter, r *http.Request, targets []*url.
 		// upstream errors and N-1 fallbacks, poisoning the very ratio backend_fallbacks_total exists to give.
 		// The harness cancels every request outstanding past its timeout, so this is routine rather than exotic.
 		if r.Context().Err() != nil {
+			att.release()
 			return advanced
 		}
 		// The body has been consumed by the attempt that just failed, so the next one needs it back. GetBody
 		// reads from a buffer already in memory; a request without one cannot be replayed and ends here.
 		if r.GetBody == nil {
+			att.release()
 			return advanced
 		}
 		body, err := r.GetBody()
 		if err != nil {
+			att.release()
 			return advanced
 		}
 		r.Body = body

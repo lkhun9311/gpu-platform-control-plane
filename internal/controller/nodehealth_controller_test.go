@@ -252,6 +252,32 @@ var _ = Describe("NodeHealth Controller", func() {
 			Expect(unhealthyTaintCount(gotNode)).To(Equal(0))
 		})
 
+		// A merge patch replaces the whole taints list, so a taint another controller added between this
+		// reconciler's read and its patch was lost (codex audit, 2026-10-28). The patch now carries the
+		// resourceVersion it read, so a racing write is a conflict to retry, not a taint to overwrite.
+		//
+		// Mutation that turns this red: patch with client.MergeFrom again, without the optimistic lock.
+		It("keeps a taint another controller adds between its read and its patch", func() {
+			Expect(k8sClient.Create(ctx, makeNode(corev1.ConditionFalse))).To(Succeed())
+			notReady := &corev1.Node{}
+			Expect(k8sClient.Get(ctx, nodeKey, notReady)).To(Succeed())
+			notReady.Status.Conditions = []corev1.NodeCondition{{Type: corev1.NodeReady, Status: corev1.ConditionFalse}}
+			Expect(k8sClient.Status().Update(ctx, notReady)).To(Succeed())
+
+			racing := &racingTaintClient{Client: k8sClient}
+			r := &NodeHealthReconciler{Client: racing, Scheme: k8sClient.Scheme()}
+			for range 4 {
+				_, _ = r.Reconcile(ctx, reconcile.Request{NamespacedName: nhKey})
+			}
+			Expect(racing.raced).To(BeTrue(), "no taint was added between read and patch, so this tested nothing")
+
+			got := &corev1.Node{}
+			Expect(k8sClient.Get(ctx, nodeKey, got)).To(Succeed())
+			Expect(got.Spec.Taints).To(ContainElement(HaveField("Key", "example.com/racing")),
+				"the taint another controller added was overwritten by this reconciler's patch")
+			Expect(unhealthyTaintCount(got)).To(Equal(1), "the quarantine taint was not applied on the retry")
+		})
+
 		It("removes the taint on deletion (finalizer cleanup)", func() {
 			node := makeNode(corev1.ConditionFalse)
 			Expect(k8sClient.Create(ctx, node)).To(Succeed())
@@ -377,6 +403,29 @@ var _ = Describe("NodeHealth Controller", func() {
 		})
 	})
 })
+
+// racingTaintClient adds a foreign taint to the Node just before the first Node patch it forwards, as another
+// controller writing between the reconciler's read and its patch would.
+type racingTaintClient struct {
+	client.Client
+	raced bool
+}
+
+func (c *racingTaintClient) Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+	if node, ok := obj.(*corev1.Node); ok && !c.raced {
+		c.raced = true
+		other := &corev1.Node{}
+		if err := c.Get(ctx, client.ObjectKeyFromObject(node), other); err != nil {
+			return err
+		}
+		other.Spec.Taints = append(other.Spec.Taints,
+			corev1.Taint{Key: "example.com/racing", Value: "x", Effect: corev1.TaintEffectNoSchedule})
+		if err := c.Update(ctx, other); err != nil {
+			return err
+		}
+	}
+	return c.Client.Patch(ctx, obj, patch, opts...)
+}
 
 // unhealthyTaintCount counts taints carrying the platform unhealthy key.
 func unhealthyTaintCount(node *corev1.Node) int {

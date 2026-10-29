@@ -1,0 +1,111 @@
+Q VALID
+VALID   00-smoke-allreduce-1pod4gpu (smoke, not counted) 
+        transports {0: ['SHM'], 1: ['SHM'], 2: ['SHM'], 3: ['SHM']} set by the stack: nothing
+VALID   00-smoke-allreduce-4pod1gpu (smoke, not counted) 
+        transports {0: ['NET'], 1: ['NET'], 2: ['NET'], 3: ['NET']} set by the stack: nothing
+VALID   00-smoke-ddp-1pod4gpu (smoke, not counted) 
+        transports {0: ['SHM'], 1: ['SHM'], 2: ['SHM'], 3: ['SHM']} set by the stack: nothing
+VALID   00-smoke-ddp-4pod1gpu (smoke, not counted) 
+        transports {0: ['NET'], 1: ['NET'], 2: ['NET'], 3: ['NET']} set by the stack: nothing
+VALID   00-smoke-nccltests-1pod4gpu (smoke, not counted) 
+        transports {0: ['SHM'], 1: ['SHM'], 2: ['SHM'], 3: ['SHM']} set by the stack: nothing
+VALID   01-nccltests-1pod4gpu-2  
+        transports {0: ['SHM'], 1: ['SHM'], 2: ['SHM'], 3: ['SHM']} set by the stack: nothing
+VALID   02-ddp-4pod1gpu-2  
+        transports {0: ['NET'], 1: ['NET'], 2: ['NET'], 3: ['NET']} set by the stack: nothing
+VALID   03-allreduce-4pod1gpu-5  
+        transports {0: ['NET'], 1: ['NET'], 2: ['NET'], 3: ['NET']} set by the stack: nothing
+VALID   04-allreduce-4pod1gpu-1  
+        transports {0: ['NET'], 1: ['NET'], 2: ['NET'], 3: ['NET']} set by the stack: nothing
+VALID   05-ddp-1pod4gpu-4  
+        transports {0: ['SHM'], 1: ['SHM'], 2: ['SHM'], 3: ['SHM']} set by the stack: nothing
+VALID   06-allreduce-4pod1gpu-4  
+        transports {0: ['NET'], 1: ['NET'], 2: ['NET'], 3: ['NET']} set by the stack: nothing
+VALID   07-nccltests-1pod4gpu-3  
+        transports {0: ['SHM'], 1: ['SHM'], 2: ['SHM'], 3: ['SHM']} set by the stack: nothing
+VALID   08-allreduce-1pod4gpu-3  
+        transports {0: ['SHM'], 1: ['SHM'], 2: ['SHM'], 3: ['SHM']} set by the stack: nothing
+VALID   09-ddp-1pod4gpu-5  
+        transports {0: ['SHM'], 1: ['SHM'], 2: ['SHM'], 3: ['SHM']} set by the stack: nothing
+VALID   10-ddp-4pod1gpu-3  
+        transports {0: ['NET'], 1: ['NET'], 2: ['NET'], 3: ['NET']} set by the stack: nothing
+VALID   11-ddp-1pod4gpu-2  
+        transports {0: ['SHM'], 1: ['SHM'], 2: ['SHM'], 3: ['SHM']} set by the stack: nothing
+VALID   12-allreduce-4pod1gpu-3  
+        transports {0: ['NET'], 1: ['NET'], 2: ['NET'], 3: ['NET']} set by the stack: nothing
+VALID   13-nccltests-1pod4gpu-5  
+        transports {0: ['SHM'], 1: ['SHM'], 2: ['SHM'], 3: ['SHM']} set by the stack: nothing
+VALID   14-allreduce-1pod4gpu-4  
+        transports {0: ['SHM'], 1: ['SHM'], 2: ['SHM'], 3: ['SHM']} set by the stack: nothing
+VALID   15-nccltests-1pod4gpu-4  
+        transports {0: ['SHM'], 1: ['SHM'], 2: ['SHM'], 3: ['SHM']} set by the stack: nothing
+VALID   16-nccltests-1pod4gpu-1  
+        transports {0: ['SHM'], 1: ['SHM'], 2: ['SHM'], 3: ['SHM']} set by the stack: nothing
+VALID   17-allreduce-4pod1gpu-2  
+        transports {0: ['NET'], 1: ['NET'], 2: ['NET'], 3: ['NET']} set by the stack: nothing
+VALID   18-ddp-1pod4gpu-1  
+        transports {0: ['SHM'], 1: ['SHM'], 2: ['SHM'], 3: ['SHM']} set by the stack: nothing
+VALID   19-ddp-1pod4gpu-3  
+        transports {0: ['SHM'], 1: ['SHM'], 2: ['SHM'], 3: ['SHM']} set by the stack: nothing
+VALID   20-allreduce-1pod4gpu-5  
+        transports {0: ['SHM'], 1: ['SHM'], 2: ['SHM'], 3: ['SHM']} set by the stack: nothing
+VALID   21-ddp-4pod1gpu-4  
+        transports {0: ['NET'], 1: ['NET'], 2: ['NET'], 3: ['NET']} set by the stack: nothing
+VALID   22-allreduce-1pod4gpu-2  
+        transports {0: ['SHM'], 1: ['SHM'], 2: ['SHM'], 3: ['SHM']} set by the stack: nothing
+VALID   23-ddp-4pod1gpu-5  
+        transports {0: ['NET'], 1: ['NET'], 2: ['NET'], 3: ['NET']} set by the stack: nothing
+VALID   24-allreduce-1pod4gpu-1  
+        transports {0: ['SHM'], 1: ['SHM'], 2: ['SHM'], 3: ['SHM']} set by the stack: nothing
+VALID   25-ddp-4pod1gpu-1  
+        transports {0: ['NET'], 1: ['NET'], 2: ['NET'], 3: ['NET']} set by the stack: nothing
+
+E1 bus bandwidth, GB/s (median of five jobs; each job's figure in brackets)
+  nccltests-1pod4gpu    1 MiB: 3.88 [3.83, 3.88, 3.89, 3.80, 3.89]
+  nccltests-1pod4gpu    4 MiB: 3.24 [3.24, 3.22, 3.24, 3.23, 3.25]
+  nccltests-1pod4gpu   16 MiB: 3.32 [3.32, 3.31, 3.31, 3.32, 3.32]
+  nccltests-1pod4gpu   64 MiB: 3.27 [3.27, 3.27, 3.27, 3.27, 3.28]
+  nccltests-1pod4gpu  256 MiB: 3.05 [3.05, 3.05, 3.03, 3.05, 3.05]
+  allreduce-1pod4gpu    1 MiB: 3.21 [3.18, 3.23, 3.21, 3.30, 3.20]
+  allreduce-1pod4gpu    4 MiB: 2.95 [2.95, 2.96, 2.93, 2.95, 2.95]
+  allreduce-1pod4gpu   16 MiB: 3.05 [3.05, 3.06, 3.05, 3.05, 3.05]
+  allreduce-1pod4gpu   64 MiB: 3.07 [3.07, 3.07, 3.07, 3.07, 3.07]
+  allreduce-1pod4gpu  256 MiB: 3.06 [3.05, 3.06, 3.06, 3.06, 3.06]
+  allreduce-4pod1gpu    1 MiB: 0.81 [0.76, 0.81, 0.81, 0.79, 0.85]
+  allreduce-4pod1gpu    4 MiB: 1.34 [1.32, 1.34, 1.36, 1.28, 1.36]
+  allreduce-4pod1gpu   16 MiB: 1.54 [1.54, 1.54, 1.62, 1.45, 1.57]
+  allreduce-4pod1gpu   64 MiB: 1.62 [1.59, 1.67, 1.66, 1.56, 1.62]
+  allreduce-4pod1gpu  256 MiB: 1.67 [1.66, 1.67, 1.68, 1.67, 1.68]
+
+E4 DDP step, ms (median of five jobs)
+  ddp-1pod4gpu synced_ms_median: 133.87 [133.63, 133.95, 133.87, 133.89, 133.68]
+  ddp-1pod4gpu local_ms_median: 3.85 [3.85, 3.85, 3.85, 3.84, 3.85]
+  ddp-1pod4gpu sync_cost_ms: 130.02 [129.78, 130.10, 130.02, 130.04, 129.83]
+  ddp-4pod1gpu synced_ms_median: 249.00 [254.01, 249.00, 246.28, 248.15, 250.03]
+  ddp-4pod1gpu local_ms_median: 3.98 [3.98, 3.98, 3.98, 3.98, 3.98]
+  ddp-4pod1gpu sync_cost_ms: 245.02 [250.03, 245.02, 242.30, 244.17, 246.05]
+
+Verdicts (complete separation of five against five; either direction)
+  V1 allreduce-1pod4gpu vs allreduce-4pod1gpu at 1 MiB: first above
+      transports allreduce-1pod4gpu: ['SHM']; allreduce-4pod1gpu: ['NET']
+  V1 allreduce-1pod4gpu vs allreduce-4pod1gpu at 4 MiB: first above
+      transports allreduce-1pod4gpu: ['SHM']; allreduce-4pod1gpu: ['NET']
+  V1 allreduce-1pod4gpu vs allreduce-4pod1gpu at 16 MiB: first above
+      transports allreduce-1pod4gpu: ['SHM']; allreduce-4pod1gpu: ['NET']
+  V1 allreduce-1pod4gpu vs allreduce-4pod1gpu at 64 MiB: first above
+      transports allreduce-1pod4gpu: ['SHM']; allreduce-4pod1gpu: ['NET']
+  V1 allreduce-1pod4gpu vs allreduce-4pod1gpu at 256 MiB: first above
+      transports allreduce-1pod4gpu: ['SHM']; allreduce-4pod1gpu: ['NET']
+  V2 ddp-1pod4gpu vs ddp-4pod1gpu: first below
+      transports ddp-1pod4gpu: ['SHM']; ddp-4pod1gpu: ['NET']
+  V3 ddp-1pod4gpu vs ddp-4pod1gpu: first below
+      transports ddp-1pod4gpu: ['SHM']; ddp-4pod1gpu: ['NET']
+
+E6 nccl-tests / torch bench, one Pod of four (reported, not judged)
+     1 MiB: 1.207
+     4 MiB: 1.098
+    16 MiB: 1.087
+    64 MiB: 1.065
+   256 MiB: 0.996
+
+PASS

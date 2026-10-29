@@ -75,7 +75,8 @@ func (r *NodeHealthReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 				// fault path is still enabled; a taint nobody will ever remove is the worse failure.
 				removedGPU := removeGPUFaultTaint(&node)
 				if removeUnhealthyTaint(&node) || removedGPU {
-					if err := r.Patch(ctx, &node, client.MergeFrom(base)); err != nil {
+					// Locked for the reason the quarantine patch below is: the taints list is replaced whole.
+					if err := r.Patch(ctx, &node, client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{})); err != nil {
 						return ctrl.Result{}, fmt.Errorf("remove unhealthy taint from node %s on deletion: %w", node.Name, err)
 					}
 					log.Info("Removed unhealthy taint on deletion", "node", node.Name)
@@ -159,9 +160,11 @@ func (r *NodeHealthReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	}
 
 	// Enforce taint changes on the node first, so status never claims a quarantine we failed to apply.
-	// Patch only the taint delta from the pre-mutation base, so concurrent kubelet updates to the hot Node object are not clobbered.
+	// The patch carries the resourceVersion that was read, because a merge patch replaces the whole taints list:
+	// without the lock, a taint another controller added after the read was dropped (codex audit, 2026-10-28).
+	// A conflict returns an error, and the requeue reads the Node again.
 	if nodeChanged {
-		if err := r.Patch(ctx, &node, client.MergeFrom(nodeBase)); err != nil {
+		if err := r.Patch(ctx, &node, client.MergeFromWithOptions(nodeBase, client.MergeFromWithOptimisticLock{})); err != nil {
 			return ctrl.Result{}, fmt.Errorf("update node %s taints: %w", node.Name, err)
 		}
 		log.Info("Updated node taints", "node", node.Name, "phase", desired.Phase)

@@ -225,9 +225,13 @@ docker-buildx: ## Build and push docker image for the manager for cross-platform
 	sed -e '1 s/\(^FROM\)/FROM --platform=\$$\{BUILDPLATFORM\}/; t' -e ' 1,// s//FROM --platform=\$$\{BUILDPLATFORM\}/' Dockerfile > Dockerfile.cross
 	- $(CONTAINER_TOOL) buildx create --name gpu-platform-control-plane-builder
 	$(CONTAINER_TOOL) buildx use gpu-platform-control-plane-builder
-	- $(CONTAINER_TOOL) buildx build --push --platform=$(PLATFORMS) --tag ${IMG} -f Dockerfile.cross .
-	- $(CONTAINER_TOOL) buildx rm gpu-platform-control-plane-builder
-	rm Dockerfile.cross
+	@# The build's status is kept through the cleanup and returned: with a leading -, a failed build or push left the
+	@# target green and no image published (codex audit, 2026-10-28). The builder's removal stays ignored, as it was,
+	@# so that under -e its failure cannot skip the file's removal or replace the build's status (codex review).
+	rc=0; $(CONTAINER_TOOL) buildx build --push --platform=$(PLATFORMS) --tag ${IMG} -f Dockerfile.cross . || rc=$$?; \
+	$(CONTAINER_TOOL) buildx rm gpu-platform-control-plane-builder || true; \
+	rm Dockerfile.cross; \
+	exit $$rc
 
 .PHONY: build-installer
 build-installer: manifests generate kustomize ## Generate a consolidated YAML with CRDs and deployment.
@@ -445,6 +449,11 @@ scorer-tests: ## Run the study scorers' own tests, which pin what each published
 	python3 -m unittest experiments/multi-pod-ddp/test_analyze.py
 	python3 -m unittest experiments/multi-gpu-throughput/test_analyze.py
 
+.PHONY: sweeper-tests
+sweeper-tests: ## Run the termination sweeper's tests, which pin what it terminates and that a refusal fails the invocation.
+	@# The suite existed and nothing ran it, so its refusal test could not catch a sweeper that hid AccessDenied.
+	python3 -m unittest infra/aws/bootstrap/sweeper/test_sweeper.py
+
 .PHONY: workload-tests
 workload-tests: ## Run train.py's backend and device selection tests and experiment C's bench arithmetic, without torch or a GPU.
 	python3 -m unittest experiments/cpu-ddp/test_train.py
@@ -529,7 +538,7 @@ infra-offline: terraform ## Check that the Terraform validation step needs no AW
 	./hack/infra-validate-is-offline-test.sh
 
 .PHONY: infra-validate
-infra-validate: terraform kustomize actionlint shell-check scorer-tests workload-tests session-refusals session-manifest docs-check spot-lifecycle harness-check infra-offline ## Validate Terraform (offline), Argo manifests, shell, workflow YAML, the session refusals, the campaign manifest, the published docs' names, every paid runner's recorded behaviour, and the self-contained test harnesses.
+infra-validate: terraform kustomize actionlint shell-check scorer-tests sweeper-tests workload-tests session-refusals session-manifest docs-check spot-lifecycle harness-check infra-offline ## Validate Terraform (offline), Argo manifests, shell, workflow YAML, the session refusals, the campaign manifest, the published docs' names, every paid runner's recorded behaviour, and the self-contained test harnesses.
 	@# Each root is validated in a throwaway TF_DATA_DIR, and the loop stops at the first failure.
 	@#
 	@# Two defects lived in the previous three lines. The first: `-backend=false` does not mean "no backend".

@@ -45,7 +45,8 @@ type Projection struct {
 	// Those are runs that never entered Observing. A Refused run is usually NOT one of them: the gap check
 	// refuses a trail with a hole after observation has begun.
 	RunsWithoutStart int
-	// RunsStale is how many runs were skipped because the ledger already held a fresher snapshot.
+	// RunsStale is how many runs were skipped because the ledger already held a fresher snapshot, or one that
+	// had already ended.
 	//
 	// It is counted rather than silent because "nothing changed, the ledger was already ahead" and "nothing
 	// changed, there was nothing to do" are different facts about the run being projected.
@@ -57,15 +58,24 @@ type Projection struct {
 // status.lastObservedAt is when the controller last actually looked (api/v1/workloadrun_types.go:180), which
 // makes it the only honest basis for deciding which of two readings is later. A snapshot with none cannot
 // establish that it is newer, so it may create a row but never replace one.
+//
+// It is not enough on its own, because a refusal ends a run without advancing lastObservedAt: the Observing
+// snapshot taken before the refusal carries the same instant, and it overwrote Refused (codex audit, 2026-10-28).
+// Complete and Refused are terminal in the controller, so a snapshot that would move a stored terminal phase to
+// a non-terminal one is older whatever its timestamp says.
 func isAtLeastAsFresh(tx *sql.Tx, run *platformv1.WorkloadRun) (bool, error) {
 	var stored sql.NullInt64
-	err := tx.QueryRow(`SELECT last_observed_at_unix_nanos FROM workload_runs WHERE uid = ?`,
-		string(run.UID)).Scan(&stored)
+	var storedPhase string
+	err := tx.QueryRow(`SELECT last_observed_at_unix_nanos, phase FROM workload_runs WHERE uid = ?`,
+		string(run.UID)).Scan(&stored, &storedPhase)
 	if errors.Is(err, sql.ErrNoRows) {
 		return true, nil
 	}
 	if err != nil {
 		return false, fmt.Errorf("read the stored freshness of %s/%s: %w", run.Namespace, run.Name, err)
+	}
+	if terminal(platformv1.WorkloadRunPhase(storedPhase)) && !terminal(run.Status.Phase) {
+		return false, nil
 	}
 	if !stored.Valid {
 		return true, nil
@@ -74,6 +84,11 @@ func isAtLeastAsFresh(tx *sql.Tx, run *platformv1.WorkloadRun) (bool, error) {
 		return false, nil
 	}
 	return run.Status.LastObservedAt.UnixNano() >= stored.Int64, nil
+}
+
+// terminal reports whether the controller ever moves a run out of this phase; it does not leave these two.
+func terminal(p platformv1.WorkloadRunPhase) bool {
+	return p == platformv1.WorkloadRunComplete || p == platformv1.WorkloadRunRefused
 }
 
 // ProjectWorkloadRuns records the given runs, and is safe to call repeatedly with the same input.

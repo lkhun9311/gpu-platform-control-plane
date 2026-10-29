@@ -198,17 +198,20 @@ func decodeStream[T any](path string) ([]T, error) {
 	return out, nil
 }
 
-// watchCoverage checks a watch's start and end records: one start before from, and no end before to.
+// watchCoverage checks a watch's start and end records: one start before from, and one end, not before to.
 //
 // A watch that disconnected inside the window leaves a file that parses and is not empty, and whatever happened
 // in the gap is unknown, not absent; so a gap makes the repetition invalid rather than quiet.
+// The end record is required, not only checked when present: a wrapper that died after writing its start left
+// no end, and a quiet control over that watch was valid (codex audit, 2026-10-28). Every archived watch log of
+// both paid runs and the rehearsal carries one start and one end (160 files, 2026-10-29).
 func watchCoverage(path string, from, to time.Time) error {
 	f, err := os.Open(path)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = f.Close() }()
-	starts, firstStart := 0, time.Time{}
+	starts, ends, firstStart := 0, 0, time.Time{}
 	sc := bufio.NewScanner(f)
 	for sc.Scan() {
 		fields := strings.Fields(sc.Text())
@@ -226,6 +229,7 @@ func watchCoverage(path string, from, to time.Time) error {
 				firstStart = t
 			}
 		case "end":
+			ends++
 			if t.Before(to) {
 				return fmt.Errorf("%s: the watch ended at %s, inside the window", filepath.Base(path), t.Format(time.RFC3339Nano))
 			}
@@ -238,6 +242,10 @@ func watchCoverage(path string, from, to time.Time) error {
 		return fmt.Errorf("%s: the watch restarted %d times", filepath.Base(path), starts-1)
 	case firstStart.After(from):
 		return fmt.Errorf("%s: the watch started at %s, after the injection began", filepath.Base(path), firstStart.Format(time.RFC3339Nano))
+	case ends == 0:
+		return fmt.Errorf("%s: no watch end recorded, so whether it watched to the window's end is unknown", filepath.Base(path))
+	case ends > 1:
+		return fmt.Errorf("%s: %d watch ends recorded for one start", filepath.Base(path), ends)
 	}
 	return sc.Err()
 }
@@ -322,7 +330,8 @@ func ScoreCell(dir string) (CellResult, error) {
 	tInj0, e1 := epoch(env["t_inject_start"])
 	tInj1, e2 := epoch(env["t_inject_end"])
 	tEnd, e3 := epoch(env["t_window_end"])
-	if err := errors.Join(e1, e2, e3); err != nil || tInj1.Before(tInj0) {
+	// The window must end after the injection, or every check bounded by it reads an empty or reversed range.
+	if err := errors.Join(e1, e2, e3); err != nil || tInj1.Before(tInj0) || !tEnd.After(tInj1) {
 		invalid("V3: injection or window stamps unreadable or out of order (%v)", err)
 		return res, nil
 	}

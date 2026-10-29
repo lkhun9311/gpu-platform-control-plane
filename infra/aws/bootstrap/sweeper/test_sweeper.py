@@ -4,6 +4,7 @@
 """
 
 import datetime
+import json
 import os
 import sys
 import unittest
@@ -44,9 +45,13 @@ class SweeperTest(unittest.TestCase):
         got = sweeper.decide([inst("i-edge", "0001-01-01T00:00:00+14:00"), inst("i-past", "2026-10-08T11:59:00Z")], NOW)
         self.assertEqual(sorted(i for i, _ in got), ["i-edge", "i-past"])
 
-    # A refused termination is reported as failed, and the sweep goes on to the next (v26 review, C32).
-    # Mutation that turns it red: report every candidate as requested.
+    # A refused termination is reported as failed, and the sweep goes on to the next (v26 review, C32); the
+    # invocation then fails, so Lambda's Errors metric, which the paid sessions' gate reads, counts it (codex audit,
+    # 2026-10-28).
+    # Mutation that turns it red: report every candidate as requested, or return instead of raising.
     def test_a_refused_termination_is_not_reported_as_requested(self):
+        terminated = []
+
         class EC2:
             def get_paginator(self, _):
                 class P:
@@ -58,8 +63,26 @@ class SweeperTest(unittest.TestCase):
             def terminate_instances(self, InstanceIds):
                 if InstanceIds == ["i-denied"]:
                     raise RuntimeError("UnauthorizedOperation")
-        got = sweeper.sweep(EC2(), NOW)
+                terminated.extend(InstanceIds)
+        with self.assertRaises(sweeper.SweepIncomplete) as raised:
+            sweeper.sweep(EC2(), NOW)
+        got = json.loads(str(raised.exception))
         self.assertEqual((got["termination_requested"], got["failed"]), (["i-ok"], ["i-denied"]))
+        self.assertEqual(terminated, ["i-ok"], "a refusal spared the instance after it")
+
+    # A sweep with nothing refused still returns its result, so a clean run stays a clean invocation.
+    def test_a_sweep_with_no_refusal_returns(self):
+        class EC2:
+            def get_paginator(self, _):
+                class P:
+                    def paginate(self, **_):
+                        return [{"Reservations": [{"Instances": [inst("i-ok", "2026-10-08T11:00:00Z")]}]}]
+                return P()
+
+            def terminate_instances(self, InstanceIds):
+                pass
+        got = sweeper.sweep(EC2(), NOW)
+        self.assertEqual((got["termination_requested"], got["failed"]), (["i-ok"], []))
 
 
 if __name__ == "__main__":

@@ -1,0 +1,93 @@
+mltrainingjob.platform.lkhun9311.github.io/c-warm created
+hack/lib/allreduce-arms.sh: line 1: kill: (2045016) - No such process
+mltrainingjob.platform.lkhun9311.github.io "c-warm" deleted from train-a namespace
+mltrainingjob.platform.lkhun9311.github.io/c-smoke-nccltests-1pod4gpu-072309 created
+hack/lib/allreduce-arms.sh: line 1: kill: (2051011) - No such process
+mltrainingjob.platform.lkhun9311.github.io "c-smoke-nccltests-1pod4gpu-072309" deleted from train-a namespace
+mltrainingjob.platform.lkhun9311.github.io/c-smoke-allreduce-1pod4gpu-072405 created
+hack/lib/allreduce-arms.sh: line 1: kill: (2056695) - No such process
+mltrainingjob.platform.lkhun9311.github.io "c-smoke-allreduce-1pod4gpu-072405" deleted from train-a namespace
+mltrainingjob.platform.lkhun9311.github.io/c-smoke-allreduce-4pod1gpu-072444 created
+hack/lib/allreduce-arms.sh: line 1: kill: (2061046) - No such process
+mltrainingjob.platform.lkhun9311.github.io "c-smoke-allreduce-4pod1gpu-072444" deleted from train-a namespace
+mltrainingjob.platform.lkhun9311.github.io/c-smoke-ddp-1pod4gpu-072541 created
+hack/lib/allreduce-arms.sh: line 1: kill: (2067345) - No such process
+mltrainingjob.platform.lkhun9311.github.io "c-smoke-ddp-1pod4gpu-072541" deleted from train-a namespace
+mltrainingjob.platform.lkhun9311.github.io/c-smoke-ddp-4pod1gpu-072612 created
+hack/lib/allreduce-arms.sh: line 1: kill: (2070910) - No such process
+mltrainingjob.platform.lkhun9311.github.io "c-smoke-ddp-4pod1gpu-072612" deleted from train-a namespace
+mltrainingjob.platform.lkhun9311.github.io/c-01-nccltests-1pod4gpu-072651 created
+hack/lib/allreduce-arms.sh: line 1: kill: (2075186) - No such process
+mltrainingjob.platform.lkhun9311.github.io "c-01-nccltests-1pod4gpu-072651" deleted from train-a namespace
+mltrainingjob.platform.lkhun9311.github.io/c-02-ddp-4pod1gpu-072744 created
+hack/lib/allreduce-arms.sh: line 1: kill: (2080863) - No such process
+mltrainingjob.platform.lkhun9311.github.io "c-02-ddp-4pod1gpu-072744" deleted from train-a namespace
+mltrainingjob.platform.lkhun9311.github.io/c-03-allreduce-4pod1gpu-072822 created
+hack/lib/allreduce-arms.sh: line 1: kill: (2084319) - No such process
+mltrainingjob.platform.lkhun9311.github.io "c-03-allreduce-4pod1gpu-072822" deleted from train-a namespace
+mltrainingjob.platform.lkhun9311.github.io/c-04-allreduce-4pod1gpu-072922 created
+hack/lib/allreduce-arms.sh: line 1: kill: (2089783) - No such process
+mltrainingjob.platform.lkhun9311.github.io "c-04-allreduce-4pod1gpu-072922" deleted from train-a namespace
+mltrainingjob.platform.lkhun9311.github.io/c-05-ddp-1pod4gpu-073019 created
+hack/lib/allreduce-arms.sh: line 1: kill: (2094930) - No such process
+mltrainingjob.platform.lkhun9311.github.io "c-05-ddp-1pod4gpu-073019" deleted from train-a namespace
+mltrainingjob.platform.lkhun9311.github.io/c-06-allreduce-4pod1gpu-073050 created
+hack/lib/allreduce-arms.sh: line 1: kill: (2097741) - No such process
+mltrainingjob.platform.lkhun9311.github.io "c-06-allreduce-4pod1gpu-073050" deleted from train-a namespace
+mltrainingjob.platform.lkhun9311.github.io/c-07-nccltests-1pod4gpu-073147 created
+hack/lib/allreduce-arms.sh: line 1: kill: (2102845) - No such process
+mltrainingjob.platform.lkhun9311.github.io "c-07-nccltests-1pod4gpu-073147" deleted from train-a namespace
+mltrainingjob.platform.lkhun9311.github.io/c-08-allreduce-1pod4gpu-073240 created
+hack/lib/allreduce-arms.sh: line 1: kill: (2107720) - No such process
+mltrainingjob.platform.lkhun9311.github.io "c-08-allreduce-1pod4gpu-073240" deleted from train-a namespace
+mltrainingjob.platform.lkhun9311.github.io/c-09-ddp-1pod4gpu-073319 created
+hack/lib/allreduce-arms.sh: line 1: kill: (2111263) - No such process
+mltrainingjob.platform.lkhun9311.github.io "c-09-ddp-1pod4gpu-073319" deleted from train-a namespace
+mltrainingjob.platform.lkhun9311.github.io/c-10-ddp-4pod1gpu-073350 created
+hack/lib/allreduce-arms.sh: line 1: kill: (2114002) - No such process
+mltrainingjob.platform.lkhun9311.github.io "c-10-ddp-4pod1gpu-073350" deleted from train-a namespace
+mltrainingjob.platform.lkhun9311.github.io/c-11-ddp-1pod4gpu-073431 created
+hack/lib/allreduce-arms.sh: line 1: kill: (2117806) - No such process
+mltrainingjob.platform.lkhun9311.github.io "c-11-ddp-1pod4gpu-073431" deleted from train-a namespace
+mltrainingjob.platform.lkhun9311.github.io/c-12-allreduce-4pod1gpu-073502 created
+hack/lib/allreduce-arms.sh: line 1: kill: (2120588) - No such process
+mltrainingjob.platform.lkhun9311.github.io "c-12-allreduce-4pod1gpu-073502" deleted from train-a namespace
+mltrainingjob.platform.lkhun9311.github.io/c-13-nccltests-1pod4gpu-073559 created
+hack/lib/allreduce-arms.sh: line 1: kill: (2126013) - No such process
+mltrainingjob.platform.lkhun9311.github.io "c-13-nccltests-1pod4gpu-073559" deleted from train-a namespace
+mltrainingjob.platform.lkhun9311.github.io/c-14-allreduce-1pod4gpu-073655 created
+hack/lib/allreduce-arms.sh: line 1: kill: (2131011) - No such process
+mltrainingjob.platform.lkhun9311.github.io "c-14-allreduce-1pod4gpu-073655" deleted from train-a namespace
+mltrainingjob.platform.lkhun9311.github.io/c-15-nccltests-1pod4gpu-073735 created
+hack/lib/allreduce-arms.sh: line 1: kill: (2134628) - No such process
+mltrainingjob.platform.lkhun9311.github.io "c-15-nccltests-1pod4gpu-073735" deleted from train-a namespace
+mltrainingjob.platform.lkhun9311.github.io/c-16-nccltests-1pod4gpu-073829 created
+hack/lib/allreduce-arms.sh: line 1: kill: (2139231) - No such process
+mltrainingjob.platform.lkhun9311.github.io "c-16-nccltests-1pod4gpu-073829" deleted from train-a namespace
+mltrainingjob.platform.lkhun9311.github.io/c-17-allreduce-4pod1gpu-073922 created
+hack/lib/allreduce-arms.sh: line 1: kill: (2144884) - No such process
+mltrainingjob.platform.lkhun9311.github.io "c-17-allreduce-4pod1gpu-073922" deleted from train-a namespace
+mltrainingjob.platform.lkhun9311.github.io/c-18-ddp-1pod4gpu-074022 created
+hack/lib/allreduce-arms.sh: line 1: kill: (2150365) - No such process
+mltrainingjob.platform.lkhun9311.github.io "c-18-ddp-1pod4gpu-074022" deleted from train-a namespace
+mltrainingjob.platform.lkhun9311.github.io/c-19-ddp-1pod4gpu-074053 created
+hack/lib/allreduce-arms.sh: line 1: kill: (2153119) - No such process
+mltrainingjob.platform.lkhun9311.github.io "c-19-ddp-1pod4gpu-074053" deleted from train-a namespace
+mltrainingjob.platform.lkhun9311.github.io/c-20-allreduce-1pod4gpu-074124 created
+hack/lib/allreduce-arms.sh: line 1: kill: (2155922) - No such process
+mltrainingjob.platform.lkhun9311.github.io "c-20-allreduce-1pod4gpu-074124" deleted from train-a namespace
+mltrainingjob.platform.lkhun9311.github.io/c-21-ddp-4pod1gpu-074207 created
+hack/lib/allreduce-arms.sh: line 1: kill: (2159838) - No such process
+mltrainingjob.platform.lkhun9311.github.io "c-21-ddp-4pod1gpu-074207" deleted from train-a namespace
+mltrainingjob.platform.lkhun9311.github.io/c-22-allreduce-1pod4gpu-074245 created
+hack/lib/allreduce-arms.sh: line 1: kill: (2163354) - No such process
+mltrainingjob.platform.lkhun9311.github.io "c-22-allreduce-1pod4gpu-074245" deleted from train-a namespace
+mltrainingjob.platform.lkhun9311.github.io/c-23-ddp-4pod1gpu-074325 created
+hack/lib/allreduce-arms.sh: line 1: kill: (2166948) - No such process
+mltrainingjob.platform.lkhun9311.github.io "c-23-ddp-4pod1gpu-074325" deleted from train-a namespace
+mltrainingjob.platform.lkhun9311.github.io/c-24-allreduce-1pod4gpu-074403 created
+hack/lib/allreduce-arms.sh: line 1: kill: (2170438) - No such process
+mltrainingjob.platform.lkhun9311.github.io "c-24-allreduce-1pod4gpu-074403" deleted from train-a namespace
+mltrainingjob.platform.lkhun9311.github.io/c-25-ddp-4pod1gpu-074443 created
+hack/lib/allreduce-arms.sh: line 1: kill: (2174285) - No such process
+mltrainingjob.platform.lkhun9311.github.io "c-25-ddp-4pod1gpu-074443" deleted from train-a namespace
