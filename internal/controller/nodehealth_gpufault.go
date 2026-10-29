@@ -148,8 +148,8 @@ type gpuFaultDecision struct {
 
 // decideGPUFault applies the rules the registration states, and nothing else:
 // a fresh fault latches and taints; a fresh reading whose fault fields all read zero, or that carries exactly
-// the acknowledged fault, releases the latch; anything that is not fresh, or not complete, changes neither the
-// latch nor the taint.
+// the acknowledged fault, or that carries no fault while the latched one is acknowledged, releases the latch;
+// anything that is not fresh, or not complete, changes neither the latch nor the taint.
 func decideGPUFault(obs GPUFaultObservation, hasObs bool, now time.Time, staleAfter time.Duration,
 	latched, acknowledged string, prevHealthy *metav1.Condition) gpuFaultDecision {
 	d := gpuFaultDecision{latch: latched}
@@ -204,6 +204,14 @@ func decideGPUFault(obs GPUFaultObservation, hasObs bool, now time.Time, staleAf
 	case len(obs.Assessment.Missing) > 0:
 		// No fault among the fields that were read, and a fault field not read: health cannot be judged.
 		keepLatch(gpuHealthyReasonFieldMissing, fmt.Sprintf("no readable value for %v", obs.Assessment.Missing))
+	case latched != "" && latched == acknowledged:
+		// No fault now, and the operator has taken the one that is latched. The case above ran only while the
+		// reading still carried that fault, so an application Xid replacing it left the acknowledgement with
+		// nothing to match, and the registration's "only an operator's acknowledgement clears the node" did not
+		// hold (codex audit, 2026-10-28).
+		d.healthy = metav1.Condition{Type: conditionGPUHealthy, Status: metav1.ConditionTrue,
+			Reason: gpuHealthyReasonAcknowledged, Message: "fault " + latched + " is acknowledged"}
+		d.latch, d.taint = "", -1
 	case latched != "" && (!obs.Assessment.Pristine() || !obs.Assessment.Covers(latched)):
 		// No fault now, and not zero either: an application Xid has replaced the fatal one in the last-Xid field.
 		// That is not a repair, so the latch holds until the fields read zero or the fault is acknowledged.
