@@ -445,6 +445,11 @@ scorer-tests: ## Run the study scorers' own tests, which pin what each published
 	python3 -m unittest experiments/multi-pod-ddp/test_analyze.py
 	python3 -m unittest experiments/multi-gpu-throughput/test_analyze.py
 
+.PHONY: sweeper-tests
+sweeper-tests: ## Run the termination sweeper's tests, which pin what it terminates and that a refusal fails the invocation.
+	@# The suite existed and nothing ran it, so its refusal test could not catch a sweeper that hid AccessDenied.
+	python3 -m unittest infra/aws/bootstrap/sweeper/test_sweeper.py
+
 .PHONY: workload-tests
 workload-tests: ## Run train.py's backend and device selection tests and experiment C's bench arithmetic, without torch or a GPU.
 	python3 -m unittest experiments/cpu-ddp/test_train.py
@@ -529,7 +534,7 @@ infra-offline: terraform ## Check that the Terraform validation step needs no AW
 	./hack/infra-validate-is-offline-test.sh
 
 .PHONY: infra-validate
-infra-validate: terraform kustomize actionlint shell-check scorer-tests workload-tests session-refusals session-manifest docs-check spot-lifecycle harness-check infra-offline ## Validate Terraform (offline), Argo manifests, shell, workflow YAML, the session refusals, the campaign manifest, the published docs' names, every paid runner's recorded behaviour, and the self-contained test harnesses.
+infra-validate: terraform kustomize actionlint shell-check scorer-tests sweeper-tests workload-tests session-refusals session-manifest docs-check spot-lifecycle harness-check infra-offline ## Validate Terraform (offline), Argo manifests, shell, workflow YAML, the session refusals, the campaign manifest, the published docs' names, every paid runner's recorded behaviour, and the self-contained test harnesses.
 	@# Each root is validated in a throwaway TF_DATA_DIR, and the loop stops at the first failure.
 	@#
 	@# Two defects lived in the previous three lines. The first: `-backend=false` does not mean "no backend".

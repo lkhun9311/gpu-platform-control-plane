@@ -58,12 +58,20 @@ def tagged_instances(ec2):
     return out
 
 
+class SweepIncomplete(Exception):
+    """At least one termination was refused; the message is the sweep's result, with every refusal in it."""
+
+
 def sweep(ec2, now):
-    """Terminates every doomed instance, one call each, and returns which calls were accepted and which failed.
+    """Terminates every doomed instance, one call each, and returns which calls were accepted.
 
     The result named every candidate as terminated, a refused call included (v26 review, C32). An accepted call is
     named "termination requested": the instance's state is not observed here, and the next sweep finds it again if it
     is still live.
+
+    A refused call raises SweepIncomplete after every candidate has been tried. Returning normally made the invocation
+    a success to Lambda, and the paid sessions' health gate reads Lambda's Errors metric, so a sweeper whose every
+    termination was AccessDenied passed it as clean (codex audit, 2026-10-28).
     """
     requested, failed = [], []
     for iid, why in decide(tagged_instances(ec2), now):
@@ -75,7 +83,10 @@ def sweep(ec2, now):
         except Exception as e:  # noqa: BLE001 -- logged and the sweep continues
             failed.append(iid)
             print(json.dumps({"failed": iid, "why": why, "error": str(e), "at": now.isoformat()}))
-    return {"checked_at": now.isoformat(), "termination_requested": requested, "failed": failed}
+    result = {"checked_at": now.isoformat(), "termination_requested": requested, "failed": failed}
+    if failed:
+        raise SweepIncomplete(json.dumps(result))
+    return result
 
 
 def handler(event, context):
