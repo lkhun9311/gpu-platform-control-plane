@@ -60,16 +60,23 @@ if grep -q "spec.image" <<<"$OUT"; then ok "image edit refused once the Job exis
 elif grep -q "patched" <<<"$OUT"; then bad "the edit was stored; the silent no-op is still there"
 else bad "unexpected response: $(head -1 <<<"$OUT")"; fi
 
-LOGS=$(kubectl -n "$SYS" logs "$MGR" --tail=300 2>/dev/null)
-# Matching the word "certificate" here would flag the manager's own startup line about watching one, which is
-# what a first version of this script did. Only actual failure strings count.
-TLSERR=$(grep -iE 'tls: (handshake|bad|failed)|x509:|certificate (signed by unknown|has expired|is not valid)|remote error' <<<"$LOGS" | head -1)
-[ -z "$TLSERR" ] && ok "no TLS failures in the manager log" || bad "TLS failure: $TLSERR"
-
-if grep -q "admission validation is NOT running" <<<"$LOGS"; then
-  bad "the manager started without a certificate, so validation is disabled"
+# Both checks below pass on the absence of a string, so a log that could not be read would pass them both.
+# An unreadable or empty log therefore fails them instead, with kubectl's own error.
+if ! LOGS=$(kubectl -n "$SYS" logs "$MGR" --tail=300 2>&1); then
+  bad "the manager log could not be read, so neither log check ran: $(head -1 <<<"$LOGS")"
+elif [ -z "$LOGS" ]; then
+  bad "the manager log is empty, so neither log check ran"
 else
-  ok "the manager started with its certificate"
+  # Matching the word "certificate" here would flag the manager's own startup line about watching one, which is
+  # what a first version of this script did. Only actual failure strings count.
+  TLSERR=$(grep -iE 'tls: (handshake|bad|failed)|x509:|certificate (signed by unknown|has expired|is not valid)|remote error' <<<"$LOGS" | head -1)
+  [ -z "$TLSERR" ] && ok "no TLS failures in the manager log" || bad "TLS failure: $TLSERR"
+
+  if grep -q "admission validation is NOT running" <<<"$LOGS"; then
+    bad "the manager started without a certificate, so validation is disabled"
+  else
+    ok "the manager started with its certificate"
+  fi
 fi
 
 echo "---- pass=$pass fail=$fail ----"

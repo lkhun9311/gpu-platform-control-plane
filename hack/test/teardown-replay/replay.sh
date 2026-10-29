@@ -9,6 +9,8 @@
 # still named resources the EC2 API had already dropped. **The check has never run against a live teardown**,
 # and the harness classifier refuses to let the model run the paid script at all.
 #
+# The disarm decision is extracted from the same script, so the replay runs the shipped decision and not a copy.
+#
 # WHAT THIS ESTABLISHES, exactly. Offline replay validates teardown classification and watchdog-disarm
 # decisions for specified AWS CLI responses. It does NOT establish that a live teardown was validated, that
 # AWS confirmed nothing still bills, that the checks cover every billable resource, or that the TTL kill
@@ -28,6 +30,7 @@ cd "$(dirname "${BASH_SOURCE[0]}")/../../.." || exit 1
 SRC=hack/eks-gitops-session.sh
 HERE=hack/test/teardown-replay
 STILL_LINES=18
+DISARM_LINES=6
 
 pass=0; fail=0
 ok()  { printf '  ok    %s\n' "$1"; pass=$((pass+1)); }
@@ -43,6 +46,19 @@ if [ "$n" -ne "$STILL_LINES" ]; then
   exit 1
 fi
 ok "still() extracted from $SRC ($n lines)"
+
+# 1b. Extract the disarm decision the same way. It used to be rewritten here as `[ "$v" = ok ]`, so changing the
+#     production script to disarm unconditionally left every scenario below green.
+#     The block taken is the if-statement that calls disarm, from its `if` to its closing `fi`.
+disarm_src="$(awk '/^if \[\[ .*unasked.*billing_left.* \]\]; then$/ { buf=$0 "\n"; inblk=1; next }
+  inblk { buf=buf $0 "\n"; if ($0 ~ /^fi$/) { if (buf ~ /\n  disarm\n/) printf "%s", buf; inblk=0 } }' "$SRC")"
+n="$(printf '%s\n' "$disarm_src" | wc -l)"
+if [ "$n" -ne "$DISARM_LINES" ]; then
+  printf 'teardown-replay: the disarm decision extracted as %s lines, expected %s.\n' "$n" "$DISARM_LINES" >&2
+  printf 'Read the decision in %s, decide whether these scenarios still describe it, and update DISARM_LINES.\n' "$SRC" >&2
+  exit 1
+fi
+ok "the disarm decision extracted from $SRC ($n lines)"
 
 # 2. The stub must answer for every label the script actually asks about. A label the stub does not know
 #    falls through to an empty response, which reads as "nothing left" -- a false pass on the exact question
@@ -85,8 +101,11 @@ while read -r name want; do
       v=ok
       [ -n "${unasked// /}" ] && v=unasked
       [ -n "${billing_left// /}" ] && v="${v}+left"
-      [ "$v" = ok ] && disarm=yes || disarm=no
-      printf "%s|%s\n" "$v" "$disarm"
+      disarmed=no; KILL_PID=0
+      disarm() { disarmed=yes; }
+      log() { :; }
+      '"$disarm_src"'
+      printf "%s|%s\n" "$v" "$disarmed"
     '
   )"
   rm -rf "$ex"

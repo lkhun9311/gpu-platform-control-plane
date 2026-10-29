@@ -6,8 +6,11 @@
 > as `GPUSignal=False` rather than as health, and with `--gpu-fault-evict-workloads` deactivates and later
 > reactivates the Kueue Workloads of GPU Pods on the node (`internal/controller/nodehealth_gpufault.go`). It is
 > unit-tested and rehearsed on kind against a fake exporter (every arm as predicted, labelled REHEARSAL);
-> its paid session is registered in `docs/superpowers/specs/2026-10-27-gpu-fault-reaction-design.md`, and no
-> card has yet been through it.
+> its paid session is registered in `docs/superpowers/specs/2026-10-27-gpu-fault-reaction-design.md`.
+> Run 2 of that session, on 2026-10-27, took it through a real card: the Xid 79 and double-bit ECC arms each reacted
+> in 5 of 5 repetitions inside every registered bound, both controls stayed quiet in 5 of 5, and the stale-latched
+> check failed because the platform's own taint kept the exporter from coming back (`hack/gpu-fault/2026-10-27-run2/`).
+> The faults were values injected into DCGM's cache on that card, not induced hardware failures.
 >
 > **Status (2026-08-07): built** — but the CR is hand-created (no automated intake pipeline creates it),
 > and there is **no GPU-specific fault detection in the health path**: nothing DCGM, Xid or ECC reports
