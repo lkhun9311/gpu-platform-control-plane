@@ -36,7 +36,12 @@ type GPUQuotaPolicySpec struct {
 	// tenant is the logical tenant (team/org) this policy applies to.
 	//
 	// A tenant may own multiple namespaces, so this is distinct from targetNamespace.
+	//
+	// It is immutable, for the reason targetNamespace is: the Kueue queues are named after the tenant, so changing it created gpu-<new> queues beside the gpu-<old> ones.
+	// The old queues kept their nominal quota and stayed owned by the policy, which still exists, so nothing removed them and the tenant held two reservations.
+	// To rename a tenant, delete the policy and create it again.
 	// +required
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="tenant is immutable"
 	Tenant string `json:"tenant"`
 
 	// targetNamespace is the namespace into which quota objects are synced.

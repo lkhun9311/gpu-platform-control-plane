@@ -284,6 +284,16 @@ var _ = Describe("GPUQuotaPolicy Controller", func() {
 			Expect(cond.Reason).To(Equal(reasonQuotaConflict))
 		})
 
+		// Mutation that turns this red: delete the XValidation rule on tenant and regenerate the CRD.
+		It("rejects a change to the immutable tenant", func() {
+			policy := &platformv1.GPUQuotaPolicy{}
+			Expect(k8sClient.Get(ctx, key, policy)).To(Succeed())
+			policy.Spec.Tenant = policy.Spec.Tenant + "-renamed"
+			err := k8sClient.Update(ctx, policy)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("tenant is immutable"))
+		})
+
 		It("rejects a change to the immutable targetNamespace", func() {
 			policy := &platformv1.GPUQuotaPolicy{}
 			Expect(k8sClient.Get(ctx, key, policy)).To(Succeed())
