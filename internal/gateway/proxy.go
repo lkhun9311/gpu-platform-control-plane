@@ -30,6 +30,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"slices"
 	"strconv"
 	"time"
 
@@ -93,12 +94,11 @@ type RequestMeta struct {
 	Choices int
 }
 
-// chatMessage is the shape readRequestMeta needs from each entry in messages.
+// chatMessage is one entry in messages, keyed exactly as the body spells it.
 //
-// Content stays raw JSON rather than string because the OpenAI schema allows it to be either a plain string or an array of content parts, and readRequestMeta must tell the two apart rather than assume one.
-type chatMessage struct {
-	Content json.RawMessage `json:"content"`
-}
+// A map rather than a struct, because encoding/json matches a struct field's key case-insensitively and the engine does not: a message carrying a long "content" and a short "Content" was estimated by the short one and run on the long one.
+// content stays raw JSON because the OpenAI schema allows it to be either a plain string or an array of content parts, and readRequestMeta must tell the two apart rather than assume one.
+type chatMessage map[string]json.RawMessage
 
 // newRequestID returns a random hex identifier for a single request.
 //
@@ -148,15 +148,27 @@ func readRequestMeta(r *http.Request, profile bool) (func() (io.ReadCloser, erro
 		return nil, RequestMeta{}, err
 	}
 
-	var probe struct {
-		Model    string        `json:"model"`
-		Messages []chatMessage `json:"messages"`
-	}
-	if err := json.Unmarshal(buf, &probe); err != nil {
+	// Every field is read by its exact key, because a struct field would also take "Model", "Messages", "N" or "Stream", which the engine ignores.
+	// A body carrying "n":2 and "N":1 read as one choice here and ran as two there, and a long "messages" followed by a short "Messages" was estimated by the short one and run on the long one.
+	// stream and n are read raw, so a body the engine would reject on its own is not refused here for a shape only the hold-cap rule cares about.
+	var keys map[string]json.RawMessage
+	if err := json.Unmarshal(buf, &keys); err != nil {
 		return nil, RequestMeta{}, err
 	}
-	if probe.Model == "" {
+	var model string
+	if raw, ok := keys["model"]; ok {
+		if err := json.Unmarshal(raw, &model); err != nil {
+			return nil, RequestMeta{}, fmt.Errorf("model: %w", err)
+		}
+	}
+	if model == "" {
 		return nil, RequestMeta{}, ErrNoModel
+	}
+	var messages []chatMessage
+	if raw, ok := keys["messages"]; ok {
+		if err := json.Unmarshal(raw, &messages); err != nil {
+			return nil, RequestMeta{}, fmt.Errorf("messages: %w", err)
+		}
 	}
 	if profile {
 		if err := checkBenchmarkProfile(buf); err != nil {
@@ -164,22 +176,16 @@ func readRequestMeta(r *http.Request, profile bool) (func() (io.ReadCloser, erro
 		}
 	}
 
-	// stream and n are read by their exact keys, because a struct field would also take "N" or "Stream", which the engine ignores.
-	// A body carrying "n":2 and "N":1 would then read as one choice here and run as two there.
-	// Both are read raw, so a body the engine would reject on its own is not refused here for a shape only the hold-cap rule cares about.
-	var keys map[string]json.RawMessage
-	if err := json.Unmarshal(buf, &keys); err != nil {
-		return nil, RequestMeta{}, err
-	}
-	meta := RequestMeta{Model: probe.Model, Stream: string(keys["stream"]) == "true", Choices: requestedChoices(keys["n"])}
+	meta := RequestMeta{Model: model, Stream: string(keys["stream"]) == "true", Choices: requestedChoices(keys["n"])}
 	var totalChars int
-	for _, m := range probe.Messages {
+	for _, m := range messages {
+		content := m["content"]
 		// An absent content field, or an explicit JSON null, carries no text and is not a non-text part either.
-		if len(m.Content) == 0 || string(m.Content) == "null" {
+		if len(content) == 0 || string(content) == "null" {
 			continue
 		}
 		var text string
-		if err := json.Unmarshal(m.Content, &text); err == nil {
+		if err := json.Unmarshal(content, &text); err == nil {
 			totalChars += len(text)
 			continue
 		}
@@ -189,7 +195,7 @@ func readRequestMeta(r *http.Request, profile bool) (func() (io.ReadCloser, erro
 		//
 		// Its raw JSON byte length is still added, so the estimate is never undercounted, only ever imprecise.
 		meta.NonTextContent = true
-		totalChars += len(m.Content)
+		totalChars += len(content)
 	}
 	// Ceiling division, not floor: a conservative estimate must never read lower than the total byte length implies.
 	meta.EstInputTokens = (totalChars + 3) / 4
@@ -946,6 +952,11 @@ func checkBenchmarkProfile(buf []byte) error {
 	if dec.More() {
 		return fmt.Errorf("%w: the body carries more than one JSON document", ErrProfileViolation)
 	}
+	// DisallowUnknownFields matches keys the way decoding does, case-insensitively, so "Messages" passed it as a known field.
+	// The engine reads only the exact spelling, so a case variant is a field this profile never modelled.
+	if err := exactKeys(buf); err != nil {
+		return fmt.Errorf("%w: %v", ErrProfileViolation, err)
+	}
 	if len(req.Messages) != 1 {
 		return fmt.Errorf("%w: the profile sends exactly one message, got %d", ErrProfileViolation, len(req.Messages))
 	}
@@ -971,6 +982,46 @@ func checkBenchmarkProfile(buf []byte) error {
 	if !req.Stream || !req.StreamOptions.IncludeUsage {
 		return fmt.Errorf("%w: the profile streams with usage reporting, got stream=%v include_usage=%v",
 			ErrProfileViolation, req.Stream, req.StreamOptions.IncludeUsage)
+	}
+	return nil
+}
+
+// exactKeys refuses any key in a benchmark body that is not spelled exactly as benchmarkRequest names it.
+//
+// It runs after the strict decode has accepted the body, so the shapes it walks are already known to be objects.
+func exactKeys(buf []byte) error {
+	var top map[string]json.RawMessage
+	if err := json.Unmarshal(buf, &top); err != nil {
+		return err
+	}
+	if err := keysIn(top, "the body", "model", "messages", "max_tokens", "min_tokens", "stream", "stream_options"); err != nil {
+		return err
+	}
+	var messages []map[string]json.RawMessage
+	if err := json.Unmarshal(top["messages"], &messages); err != nil {
+		return err
+	}
+	for i, m := range messages {
+		if err := keysIn(m, fmt.Sprintf("messages[%d]", i), "role", "content"); err != nil {
+			return err
+		}
+	}
+	// A null stream_options decodes to a nil map, which has no keys to refuse; checkBenchmarkProfile's usage check refuses it.
+	if raw, ok := top["stream_options"]; ok {
+		var opts map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &opts); err != nil {
+			return err
+		}
+		return keysIn(opts, "stream_options", "include_usage")
+	}
+	return nil
+}
+
+func keysIn(obj map[string]json.RawMessage, where string, allowed ...string) error {
+	for k := range obj {
+		if !slices.Contains(allowed, k) {
+			return fmt.Errorf("%s carries the key %q, which is not spelled as the profile names any field", where, k)
+		}
 	}
 	return nil
 }
