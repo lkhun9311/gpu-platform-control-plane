@@ -6,6 +6,7 @@ Until this line, the status said: "registered for review, not approved for purch
 **Status, 2026-10-27: run 1 is VOID at Q, after the purchase, by a defect in the scorer; no job ran and no number below is a result.** The owner approved one more attempt under "Amendment for run 2", at the end, which changes only the scorer's reading of the topology header.
 **Status, 2026-10-28: run 2 is a FAILED SMOKE, stopped by a third defect in the scorer before any registered job; no number below is a result.** "Run 2" and "Amendment for run 3", at the end, say what failed and what a third attempt changes; the owner approved that amendment on 2026-10-28.
 **Status, 2026-10-29: run 3 is a FAILED SMOKE, stopped by a fourth defect in the scorer before any registered job; no number below is a result.** "Run 3" and "Amendment for run 4", at the end, say what failed and what a fourth attempt changes; the owner approved that amendment on 2026-10-29.
+**Status, 2026-10-29: run 4 is a FAILED SMOKE, stopped by a fifth defect in the scorer, run 3's fix being too narrow, before any registered job; no number below is a result.** "Run 4" and "Amendment for run 5", at the end, say what failed and what a fifth attempt changes; the owner approved that amendment on 2026-10-29.
 codex `gpt-6-astra` attacked the first version cold; every finding was re-derived, and this version is the reconciled one ("Review: astra's attack, reconciled", at the end).
 It grows out of the draft `2026-10-22-multi-gpu-per-pod-throughput-design.md`, which is left as it was written and is history; where this page and the draft differ, this page holds, and "Changes from the draft" says what moved and why.
 Every numeric bound below names where its number comes from, because `docs/11_WHAT_THIS_MEASURED.md` ("What the targets were based on") now records that several earlier bars had none.
@@ -488,3 +489,47 @@ The benches do not change, so the approved hashes stay `0e9e939d…` and `d37981
 That promotion carries, besides this page and the fix, only two changes to the session's own teardown: the GPU deadline refuses to arm or report when a schedule cannot be read (#436), and the cluster destroy sweeps the interfaces the VPC CNI left detached and retries once (#443).
 It leaves out every other change merged into `dev` since run 3's promotion, the dependency updates (#429, #430) and the operator and gateway fixes of #433 to #440 among them, so the platform run 4 measures is the one run 3 ran on.
 Run 1's, run 2's and run 3's evidence are not pooled with run 4's.
+
+## Run 4, 2026-10-29: a FAILED SMOKE, because run 3's fix read a record only after a cut it recognised as NCCL's
+
+**What ran.** The command in "Buying the session" with the two hashes of "Amendment for run 3", from a clean worktree at `main` `89d74921`, CI's image pin after the promotion `5bc124e3` (#445) that carries "Amendment for run 4"; started 04:17:34Z on 2026-10-29.
+Every check before the purchase passed: T1 synced at `89d74921`, T2, T3 (admitted 04:33:49Z, held unplaced), T4 at $6.97442 an hour against the $6.98 ceiling, T5 (0 in use plus 48 within 52), Z1, and the GPU deadline armed for 230 minutes.
+The node was `i-00ba7032b92e53215` in ap-northeast-2a; T6, Z2 and T7 passed, the qualification job running 149.511 s after admission.
+**Q passed**, and T7b passed (`AR_WARM` four devices, NCCL 2.21.5).
+**Run 3's fix held on hardware:** `allreduce-4pod1gpu`, the smoke job run 3 stopped at, was judged valid with NET on all four ranks, its four 1 MiB records again following cut NCCL lines; so were `nccltests-1pod4gpu`, `allreduce-1pod4gpu` and `ddp-1pod4gpu`.
+
+**What failed.** The fifth smoke job, `ddp-4pod1gpu`, succeeded and was judged invalid: "rank 1 has 0 steps record(s), want 1", and the same for ranks 2 and 3.
+Under "Stop rule, voids and termination" the session stopped before any registered job and scaled the group to 0; the run is a failed smoke, and this arm had never run on hardware before.
+**Every rank had written its steps record, whole**, onto the end of a cut NCCL line as in run 3; rank 0's cut fell after "NCCL INFO" ("TUNER/Plugin: Plu"), and ranks 1 to 3's fell inside NCCL's host prefix ("c-smoke-d", "c-smoke-dd", "c-smoke-ddp-"), with the message's rest ("dp-4pod1gpu-044233-3:1:72 [0] NCCL INFO Connected all trees") on a later line.
+Run 3's fix read a record after a cut only when what preceded it matched the pattern of a whole NCCL INFO line's start, so it read rank 0's and lost the other three.
+That fix was written from the four cuts run 3 had shown, all of which fell after "NCCL INFO", and was tested on those four; nothing tested a cut anywhere else in NCCL's line.
+In the committed logs of runs 1 to 4, 12 records follow a cut: run 3's four, and run 4's eight, in its two four-Pod smoke jobs.
+
+**Teardown.** The GPU instance was launched at 04:34:08Z and terminated at 04:45:28Z (EC2).
+The cluster destroy failed at 05:25:23Z on a detached interface the VPC CNI had left, as in run 3; the session's sweep (#443) deleted `eni-03a91e472ab5d5d2d` at 05:25:25Z, the retried destroy succeeded, every residue query was answered and empty, and the session disarmed its watchdog at 05:25:38Z, with no hand step.
+**Cost, estimated from the rates in "Budget", not billed:** 680 s of g5.12xlarge at $6.97442 an hour, about $1.32, and about 67.6 minutes of the cluster (04:18:04Z to 05:25:38Z) at $0.2633 an hour, about $0.30.
+
+**A correction to run 3's evidence.** Both runs' `launcher.log` end "session exited 0", and neither session did: run 4's printed "2 check(s) failed" and run 3's "CLUSTER DESTROY FAILED".
+The launcher wrote `$?` after a `$(date …)` in the same line, which reset it; the launcher is not part of the repository, and the session's own output in `session-stdout.log` is the record of how each ended.
+
+**The fix:** `records_of` reads a record from a line's first `{"`, whatever precedes it; a cut record there still fails the job as one that does not parse, and a line carrying a record is still left out of transport attribution.
+`test_the_smoke_job_whose_records_followed_a_cut_host_prefix_is_whole` judges run 4's committed smoke job as it was captured: with the fix it has no fault and NET on all four ranks; with run 3's rule back, it fails.
+`test_a_record_after_any_cut_of_any_captured_nccl_line` cuts each distinct NCCL INFO line in the committed logs of the paid runs at every offset and appends a record, which must read back whole; with run 3's rule back, it fails at the first offset.
+With the fix, `analyze.py` on run 4's whole evidence judges all five smoke jobs valid, and on run 3's, its three; dev's scorer on run 4's evidence prints the session's own judgement.
+`analyze.py`'s 73 tests pass.
+
+**Evidence:** `hack/four-gpu/2026-10-29-run4/`, listed in `SHA256SUMS`; `NOT-COMMITTED.sha256` holds the hashes of `terraform.log`, `seeded-key.txt` and `ttl.pid`, which are not committed. `session-stdout.log` is the session's terminal output and `launcher.log` the launcher's.
+
+## Amendment for run 5, 2026-10-29, approved by the owner before it is bought
+
+The owner approved it on 2026-10-29 ("권장안 진행, 승인"), in reply to a report that named this amendment as waiting for their approval, after the fix had been merged into `dev` (#446).
+"Not repeated without the owner's approval" is lifted for exactly one more attempt, run 5: a run 5 that fails for any reason is reported as it ran, and a sixth needs its own amendment and approval.
+
+Run 4 is reported as it ran, and under "Amendment for run 4" a fifth attempt needs its own amendment and approval.
+**What changes**, this and nothing else: the fix above, in `analyze.py`.
+It changes where a record may start on its log line, and nothing judged from the record.
+The benches do not change, so the approved hashes stay `0e9e939d…` and `d3798177…`.
+**Disclosed, not acted on:** an nccl-tests result row is still read only from a line's start, so a cut before one makes the job invalid; in runs 2 to 4 none did, and that is a cost and not a false result.
+**What does not change:** everything "Amendment for run 4" lists as unchanged, its changes and its hashes, and its promotion's scope: run 5 is bought from `main` at a promotion that carries this section and the fix, and no other change merged into `dev` since run 3's promotion.
+**Run 5 is bought from `main` at that promotion, with the two hashes above.**
+Run 1's to run 4's evidence are not pooled with run 5's.
