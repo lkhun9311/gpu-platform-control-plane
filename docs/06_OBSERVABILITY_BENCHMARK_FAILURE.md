@@ -28,9 +28,11 @@
 > held more than 13 (25.9%). The failure is a threshold nothing in this workload could reach, not a signal
 > the gateway cannot see (`docs/superpowers/specs/2026-09-04-the-layer-not-the-signal.md`).
 >
-> **Built, not yet run on a card:** Xid and double-bit ECC, read from the DCGM exporter by an opt-in path into
+> **Built, and run on a card once:** Xid and double-bit ECC, read from the DCGM exporter by an opt-in path into
 > `NodeHealth` (`--gpu-fault-source=dcgm`, `internal/gpufault/`, 2026-10-27), rehearsed on kind against a fake
-> exporter only, with its paid session registered in `docs/superpowers/specs/2026-10-27-gpu-fault-reaction-design.md`. Until 2026-10-27 this
+> exporter, and taken through a real card by run 2 of its registered session on 2026-10-27, with values injected
+> into DCGM's cache rather than induced hardware faults: both fault arms reacted in 5 of 5 repetitions and the
+> stale-latched check failed (`docs/superpowers/specs/2026-10-27-gpu-fault-reaction-design.md`). Until 2026-10-27 this
 > line said nothing Xid or ECC was in the Go tree, which was true then. The DCGM exporter layer is NOT in this
 > category and the claim that it was is corrected here: `config/dcgm-exporter/` deploys it and
 > `internal/queuelab/dcgm.go` reads `DCGM_FI_DEV_GPU_UTIL` from it. It has now been pointed at real cards:

@@ -114,10 +114,12 @@ log "API endpoint will admit $EGRESS_CIDR only"
 
 # The session installs no tools, so the ones that ran are part of the record: a rehearsal on other versions
 # rehearses a different script, which is how a kubectl wait cost a paid run before.
+# sed, not head: head exits after its lines, a producer still writing then takes SIGPIPE, and under pipefail that
+# status ended the session here, before the kill switch was armed, with no message saying why.
 {
-  kubectl version --client 2>&1 | head -2
+  kubectl version --client 2>&1 | sed -n 1,2p
   helm version --short 2>&1
-  terraform version 2>&1 | head -1
+  terraform version 2>&1 | sed -n 1p
   aws --version 2>&1
 } >"$EXDIR/tool-versions.txt"
 
