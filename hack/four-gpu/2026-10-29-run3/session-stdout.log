@@ -1,0 +1,44 @@
+00:55:34Z  [session] API endpoint will admit 211.202.99.162/32 only
+00:55:34Z  [session] TRAIN_AZ: no zone pin: the nodes may land in any zone that offers the type, and the record says which they did
+00:55:34Z  [session] cluster gpu-platform does not exist
+00:55:34Z  [session] TRAIN=allreduce: 1 x g5.12xlarge of 4 GPUs, price ceiling $6.98, GPU budget 13800s
+00:55:35Z  [session] TTL kill switch armed: PID 1350422, fires in 310m, log /home/lkhun9311/workspace/gpu-cp-c-run3/ex/eks-session-20261029T005533Z/ttl-kill-switch.log
+00:55:35Z  [session] terraform init (cluster)
+00:56:03Z  [session] terraform apply (cluster) -- this is where the billing starts
+01:07:04Z  [session] cluster up in 661s
+01:07:06Z  [session] terraform init + apply (argo-bootstrap): the pinned argo-cd chart, installed by its own root
+   ok   Argo CD installed by its own Terraform root
+01:08:21Z  [session] runbook: apply
+   ok   runbook apply
+01:09:54Z  [session] runbook: seed-key
+   ok   runbook seed-key
+01:09:54Z  [session] runbook: verify
+   ok   runbook verify
+   ok   T1: gpu-platform-training synced at 64b264f6e375db29456cb480b8da3d1b5740f2f7
+   ok   T2: ClusterQueue gpu-train-a is Active and the only one
+   ok   T3: qualification job train-qualify admitted at 2026-10-29T01:10:14Z, 1 Pod(s) unplaced
+   ok   T4: g5.12xlarge On-Demand in ap-northeast-2 at $6.9744200000 an hour, ceiling $6.98
+   ok   T5: G and VT On-Demand vCPU in use 0 (none) plus 48 fits the quota of 52.0
+   ok   Z1: node group gpu has subnets in ap-northeast-2a ap-northeast-2c ap-northeast-2d
+   ok   GPU deadline armed for 230 min: gpu-ttl-gpu-platform-gpu-20261029011019
+01:10:20Z  [session] scaling gpu to 1 -- the nodes start billing here
+   ok   T6: ip-10-0-64-158.ap-northeast-2.compute.internal i-003b517e681535b48
+   ok   Z2: ip-10-0-64-158.ap-northeast-2.compute.internal ap-northeast-2c
+   ok   T7: qualification job train-qualify succeeded: admittedAt 2026-10-29T01:10:14Z, runningObservedAt 2026-10-29T01:12:48Z, admitToRunningSeconds 154.005
+   ok   Q: four distinct UUIDs, one driver, a 4 x 4 topology and 1 GiB of /dev/shm
+01:14:03Z  [session] == allreduce-1pod4gpu as c-warm
+01:16:00Z  [session] allreduce-1pod4gpu: phase 'Succeeded' after 117 s
+   ok   T7b: AR_WARM devices 4 nccl 2.21.5
+01:16:09Z  [session] == nccltests-1pod4gpu as c-smoke-nccltests-1pod4gpu-011609
+01:16:58Z  [session] nccltests-1pod4gpu: phase 'Succeeded' after 49 s
+01:17:05Z  [session] == allreduce-1pod4gpu as c-smoke-allreduce-1pod4gpu-011705
+01:17:37Z  [session] allreduce-1pod4gpu: phase 'Succeeded' after 31 s
+01:17:45Z  [session] == allreduce-4pod1gpu as c-smoke-allreduce-4pod1gpu-011745
+01:18:36Z  [session] allreduce-4pod1gpu: phase 'Succeeded' after 50 s
+01:18:45Z  [session] STOPPED: smoke job allreduce-4pod1gpu is not valid: INVALID /home/lkhun9311/workspace/gpu-cp-c-run3/ex/eks-session-20261029T005533Z/c/jobs/00-smoke-allreduce-4pod1gpu rank 0 recorded sizes [4194304, 16777216, 67108864, 268435456], want [1048576, 4194304, 16777216, 67108864, 268435456]; rank 1 recorded sizes [4194304, 16777216, 67108864, 268435456], want [1048576, 4194304, 16777216, 67108864, 268435456]; rank 2 recorded sizes [4194304, 16777216, 67108864, 268435456], want [1048576, 4194304, 16777216, 67108864, 268435456]; rank 3 recorded sizes [4194304, 16777216, 67108864, 268435456], want [1048576, 4194304, 16777216, 67108864, 268435456] 
+   FAIL the arms stopped: smoke job allreduce-4pod1gpu is not valid: INVALID /home/lkhun9311/workspace/gpu-cp-c-run3/ex/eks-session-20261029T005533Z/c/jobs/00-smoke-allreduce-4pod1gpu rank 0 recorded sizes [4194304, 16777216, 67108864, 268435456], want [1048576, 4194304, 16777216, 67108864, 268435456]; rank 1 recorded sizes [4194304, 16777216, 67108864, 268435456], want [1048576, 4194304, 16777216, 67108864, 268435456]; rank 2 recorded sizes [4194304, 16777216, 67108864, 268435456], want [1048576, 4194304, 16777216, 67108864, 268435456]; rank 3 recorded sizes [4194304, 16777216, 67108864, 268435456], want [1048576, 4194304, 16777216, 67108864, 268435456] 
+   FAIL T8: not every job was valid: 9 invalid line(s), see /home/lkhun9311/workspace/gpu-cp-c-run3/ex/eks-session-20261029T005533Z/c/verdict.txt
+01:18:45Z  [session] scaling gpu to 0
+   ok   S6 (GPU half): gpu scaled to 0 and i-003b517e681535b48 terminated
+01:28:24Z  [session] destroy: argo-bootstrap, then cluster
+   FAIL CLUSTER DESTROY FAILED -- the kill switch at PID 1350422 will retry at TTL. Do not walk away.

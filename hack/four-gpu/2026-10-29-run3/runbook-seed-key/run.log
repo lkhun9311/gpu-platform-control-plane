@@ -1,0 +1,3 @@
+2026-10-29T01:09:54.92939270Z  context: gpu-platform
+secret/gateway-api-keys created
+   ok   created gateway-api-keys with one key for tenant-a (recorded in seeded-key.txt)

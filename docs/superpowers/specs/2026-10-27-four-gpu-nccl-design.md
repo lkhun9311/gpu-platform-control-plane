@@ -4,7 +4,8 @@ Written 2026-10-26 (dated 2026-10-27, the earliest day a session under it could 
 **Registered and frozen for purchase, 2026-10-27, at the commit that carries this line.** The owner approved every valid experiment of 2026-10-27 on 2026-10-26 ("유효 실험도 전부 승인하니 진행"), and on 2026-10-27 approved the paid sessions to go ahead ("유료 실험 진행 가능"). Nothing below changes after this commit, and a session run from code other than this commit's, as promoted to `main`, does not count.
 Until this line, the status said: "registered for review, not approved for purchase."
 **Status, 2026-10-27: run 1 is VOID at Q, after the purchase, by a defect in the scorer; no job ran and no number below is a result.** The owner approved one more attempt under "Amendment for run 2", at the end, which changes only the scorer's reading of the topology header.
-**Status, 2026-10-28: run 2 is a FAILED SMOKE, stopped by a third defect in the scorer before any registered job; no number below is a result.** "Run 2" and "Amendment for run 3", at the end, say what failed and what a third attempt changes; the owner approved that amendment on 2026-10-28, and run 3 has not been bought.
+**Status, 2026-10-28: run 2 is a FAILED SMOKE, stopped by a third defect in the scorer before any registered job; no number below is a result.** "Run 2" and "Amendment for run 3", at the end, say what failed and what a third attempt changes; the owner approved that amendment on 2026-10-28.
+**Status, 2026-10-29: run 3 is a FAILED SMOKE, stopped by a fourth defect in the scorer before any registered job; no number below is a result.** "Run 3" and "Amendment for run 4", at the end, say what failed and what a fourth attempt would change; that amendment is proposed and not approved.
 codex `gpt-6-astra` attacked the first version cold; every finding was re-derived, and this version is the reconciled one ("Review: astra's attack, reconciled", at the end).
 It grows out of the draft `2026-10-22-multi-gpu-per-pod-throughput-design.md`, which is left as it was written and is history; where this page and the draft differ, this page holds, and "Changes from the draft" says what moved and why.
 Every numeric bound below names where its number comes from, because `docs/11_WHAT_THIS_MEASURED.md` ("What the targets were based on") now records that several earlier bars had none.
@@ -444,3 +445,41 @@ With each new check removed, its tests fail; `analyze.py`'s 61 tests, the benche
 **What does not change:** everything "Amendment for run 2" lists as unchanged except the two bench hashes, and its two changes.
 **Run 3 is bought from `main` at the promotion that carries this section, with `APPROVED_BENCH_SHA256` and `APPROVED_STEP_SHA256` set to the two hashes above;** the owner's general approval of paid sessions earlier on 2026-10-28 was given before this change existed and is not what approves it.
 Run 1's and run 2's evidence are not pooled with run 3's.
+
+## Run 3, 2026-10-29: a FAILED SMOKE, because the scorer read only records that start their log line
+
+**What ran.** The command in "Buying the session" with the two hashes of "Amendment for run 3", from a clean worktree at `main` `64b264f6`, CI's image pin after the promotion `108d8a02` (#432) that carries that amendment; started 00:55:33Z on 2026-10-29.
+The promotion left out two dependency updates that had reached `dev` (#429, #430: Kueue v0.20.3 among them), so the operator's Kueue library was the one run 2 ran with.
+Every check before the purchase passed: T1 synced at `64b264f6`, T2, T3 (admitted 01:10:14Z, held unplaced), T4 at $6.97442 an hour against the $6.98 ceiling, T5 (0 in use plus 48 within 52), Z1, and the GPU deadline armed for 230 minutes.
+The node was `i-003b517e681535b48` in ap-northeast-2c; T6, Z2 and T7 passed, the qualification job running 154.005 s after admission.
+**Q passed**, and T7b passed (`AR_WARM` four devices, NCCL 2.21.5).
+**Run 2's fix held on hardware:** the smoke job `nccltests-1pod4gpu` was judged valid, its four ranks on four distinct GPUs, and so was `allreduce-1pod4gpu`.
+
+**What failed.** The third smoke job, `allreduce-4pod1gpu`, succeeded in 50 s and was judged invalid: on every rank, "recorded sizes [4194304, 16777216, 67108864, 268435456], want [1048576, …]".
+Under "Stop rule, voids and termination" the session stopped before any registered job and scaled the group to 0; the run is a failed smoke, and this arm had never run on hardware before (run 1 stopped at Q, run 2 at the first smoke job, and the kind rehearsal's ranks are stubs with no NCCL threads).
+**Every rank had written its 1 MiB record, whole.** NCCL's threads print to the same Pod log, and each rank's had begun a message without its newline when the bench wrote that record, so the merged log carries the record on the end of a cut NCCL line: after "via NE" on three ranks and "threadThresholds 8/8/6" on the fourth, with the cut message's rest (`T/Socket/0` and the like) on a later line of its own.
+The scorer read a record only from a line that starts with `{`, so it never saw the four, and the bench's guarantee that a record is one atomic write was kept: what it never addressed is NCCL's stderr in the same Pod.
+In all 32 captured logs of runs 1 to 3 and the rehearsal, 1,738 NCCL INFO lines, exactly these four carry `{"`, and each parses as its rank's 1 MiB record.
+
+**Teardown, and a residue the session did not clear.** The GPU instance was launched at 01:10:33Z and terminated at 01:21:07Z (EC2); the session's cluster destroy failed at 01:59Z with AWS's DependencyViolation (in the uncommitted `terraform.log`) on a security group and a subnet, held by a detached network interface the VPC CNI had left from the CPU node (`eni-040e4ce7ff9b54156`, `aws-K8S-i-04fc4876feb7e3688`, status available).
+Nothing billable remained: no cluster, instance, NAT gateway, Elastic IP, volume, load balancer, Auto Scaling group, log group or GPU deadline schedule.
+I deleted the interface and ran the same cluster destroy by hand, which completed at 02:01:05Z; every residue query above came back empty, and I then disarmed the watchdog (`manual-destroy.log`).
+**Cost, estimated from the rates in "Budget", not billed:** 634 s of g5.12xlarge at $6.97442 an hour, about $1.23, and about 65 minutes of the cluster (00:56:03Z to 02:01:05Z) at $0.2633 an hour, about $0.29.
+
+**The fix:** `records_of` reads a record that follows a cut NCCL INFO line, from its first `{"`, and a cut record there still fails the job as one that does not parse; the cut NCCL line is left out of transport attribution, its `via` token being incomplete.
+`test_the_smoke_job_whose_records_followed_nccl_fragments_is_whole` judges run 3's committed smoke job as it was captured: with the fix it has no fault and NET on all four ranks; with records read only from lines starting `{`, it fails, and so does `test_a_record_cut_in_half_after_an_nccl_fragment`; with the cut line attributed, it fails on a transport "NE…".
+Run 3's other two smoke jobs are valid with and without it.
+`analyze.py`'s 71 tests, the benches' tests and `check-allreduce-arms-lib.sh` pass.
+
+**Evidence:** `hack/four-gpu/2026-10-29-run3/`, listed in `SHA256SUMS`; `NOT-COMMITTED.sha256` holds the hashes of `terraform.log`, `seeded-key.txt` and `ttl.pid`, which are not committed. `session-stdout.log` is the session's terminal output and `launcher.log` the launcher's.
+
+## Amendment for run 4, 2026-10-29, proposed to the owner and not yet approved
+
+Run 3 is reported as it ran, and under "Amendment for run 3" a fourth attempt needs its own amendment and approval.
+**What changes**, this and nothing else: the fix above, in `analyze.py`.
+It changes where a record may start on its log line and which NCCL lines name a transport, and nothing judged from either.
+The benches do not change, so the approved hashes stay `0e9e939d…` and `d3798177…`.
+**Disclosed, not acted on:** the same cut can in principle fall before an nccl-tests result row, which the scorer reads only from a line's start; in runs 2 and 3 none did, the rows coming after NCCL's initialisation messages, and a row lost that way makes the job invalid, a cost and not a false result.
+**What does not change:** everything "Amendment for run 3" lists as unchanged, its changes and its hashes.
+**Run 4 would be bought from `main` at the promotion that carries this section, once the owner approves it.**
+Run 1's, run 2's and run 3's evidence are not pooled with run 4's.
