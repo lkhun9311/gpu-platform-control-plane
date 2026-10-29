@@ -1,0 +1,192 @@
+07:03:03Z  [session] API endpoint will admit 211.202.99.162/32 only
+07:03:03Z  [session] TRAIN_AZ: no zone pin: the nodes may land in any zone that offers the type, and the record says which they did
+07:03:03Z  [session] cluster gpu-platform does not exist
+07:03:03Z  [session] TRAIN=allreduce: 1 x g5.12xlarge of 4 GPUs, price ceiling $6.98, GPU budget 13800s
+07:03:04Z  [session] TTL kill switch armed: PID 2008415, fires in 310m, log /home/lkhun9311/workspace/gpu-cp-c-run5/ex/eks-session-20261029T070302Z/ttl-kill-switch.log
+07:03:05Z  [session] terraform init (cluster)
+07:03:36Z  [session] terraform apply (cluster) -- this is where the billing starts
+07:13:56Z  [session] cluster up in 620s
+07:13:59Z  [session] terraform init + apply (argo-bootstrap): the pinned argo-cd chart, installed by its own root
+   ok   Argo CD installed by its own Terraform root
+07:15:12Z  [session] runbook: apply
+2026-10-29T07:15:12.451825100Z  context: gpu-platform
+2026-10-29T07:15:12.861616788Z  applying config/argocd/root.yaml -- the step that was missing
+   ok   all 13 Applications this repository declares exist, 13 of them created by this run
+2026-10-29T07:15:47.337885974Z  root resolved revision: b14b4e50700e83eb2e7007360e86bffca9b689bb (targetRevision is the mutable branch main)
+2026-10-29T07:15:47.340317242Z  waiting for the automated Applications to reach Synced/Healthy
+   ok   every automated Application is Synced/Healthy, and every declared Application is still present
+2026-10-29T07:16:50.515614368Z  not waited on because they carry no automated syncPolicy, by design: gpu-platform-device-plugin gpu-platform-observability gpu-platform-samples gpu-platform-serving gpu-platform-training 
+   ok   runbook apply
+07:16:50Z  [session] runbook: seed-key
+2026-10-29T07:16:50.541658505Z  context: gpu-platform
+   ok   created gateway-api-keys with one key for tenant-a (recorded in seeded-key.txt)
+   ok   runbook seed-key
+07:16:51Z  [session] runbook: verify
+2026-10-29T07:16:51.284501350Z  context: gpu-platform
+2026-10-29T07:16:51.654658023Z  probing gateway-5fb7747875-tzvtv through a port-forward (the image is distroless, so exec cannot help)
+2026-10-29T07:16:52.179946509Z     forwarding 127.0.0.1:38129 -> 8080 and 127.0.0.1:40455 -> 8081
+2026-10-29T07:16:52.611911458Z     readyz=200  bad-key request=401  real-key request=403
+   ok   a bad key is refused with 401
+   ok   a key from the Secret is accepted and refused by tenant policy (403): authentication reached the key store. Not proof of serving
+   ok   runbook verify
+   ok   T1: gpu-platform-training synced at b14b4e50700e83eb2e7007360e86bffca9b689bb
+   ok   T2: ClusterQueue gpu-train-a is Active and the only one
+   ok   T3: qualification job train-qualify admitted at 2026-10-29T07:17:10Z, 1 Pod(s) unplaced
+   ok   T4: g5.12xlarge On-Demand in ap-northeast-2 at $6.9744200000 an hour, ceiling $6.98
+   ok   T5: G and VT On-Demand vCPU in use 0 (none) plus 48 fits the quota of 52.0
+   ok   Z1: node group gpu has subnets in ap-northeast-2a ap-northeast-2c ap-northeast-2d
+[31m╷[0m[0m
+[31m│[0m [0m[1m[31mError: [0m[0m[1mBackend initialization required, please run "terraform init"[0m
+[31m│[0m [0m
+[31m│[0m [0m[0mReason: Initial configuration of the requested backend "s3"
+[31m│[0m [0m
+[31m│[0m [0mThe "backend" is the interface that Terraform uses to store state,
+[31m│[0m [0mperform operations, etc. If this message is showing up, it means that the
+[31m│[0m [0mTerraform configuration you're using is using a custom configuration for
+[31m│[0m [0mthe Terraform backend.
+[31m│[0m [0m
+[31m│[0m [0mChanges to backend configurations require reinitialization. This allows
+[31m│[0m [0mTerraform to set up the new configuration, copy existing state, etc. Please
+[31m│[0m [0mrun
+[31m│[0m [0m"terraform init" with either the "-reconfigure" or "-migrate-state" flags
+[31m│[0m [0mto
+[31m│[0m [0muse the current configuration.
+[31m│[0m [0m
+[31m│[0m [0mIf the change reason above is incorrect, please verify your configuration
+[31m│[0m [0mhasn't changed and try again. At this point, no changes to your existing
+[31m│[0m [0mconfiguration or state have been made.
+[31m╵[0m[0m
+TTL armed: gpu-platform/gpu goes to desiredSize=0 at 2026-10-29T11:07:16Z (in 230m), schedule gpu-ttl-gpu-platform-gpu-20261029071716
+   ok   GPU deadline armed for 230 min: gpu-ttl-gpu-platform-gpu-20261029071716
+07:17:16Z  [session] scaling gpu to 1 -- the nodes start billing here
+{
+    "update": {
+        "id": "181c40a2-b950-37b0-82a0-534a827a65fa",
+        "status": "InProgress",
+        "type": "ConfigUpdate",
+        "params": [
+            {
+                "type": "MinSize",
+                "value": "0"
+            },
+            {
+                "type": "MaxSize",
+                "value": "1"
+            },
+            {
+                "type": "DesiredSize",
+                "value": "1"
+            }
+        ],
+        "createdAt": "2026-10-29T16:17:17.486000+09:00",
+        "errors": []
+    }
+}
+   ok   T6: ip-10-0-82-199.ap-northeast-2.compute.internal i-0b66cbb2a8ab182d6
+   ok   Z2: ip-10-0-82-199.ap-northeast-2.compute.internal ap-northeast-2d
+   ok   T7: qualification job train-qualify succeeded: admittedAt 2026-10-29T07:17:10Z, runningObservedAt 2026-10-29T07:19:53Z, admitToRunningSeconds 163.662
+   ok   Q: four distinct UUIDs, one driver, a 4 x 4 topology and 1 GiB of /dev/shm
+07:20:58Z  [session] == allreduce-1pod4gpu as c-warm
+07:23:00Z  [session] allreduce-1pod4gpu: phase 'Succeeded' after 121 s
+   ok   T7b: AR_WARM devices 4 nccl 2.21.5
+07:23:09Z  [session] == nccltests-1pod4gpu as c-smoke-nccltests-1pod4gpu-072309
+07:23:57Z  [session] nccltests-1pod4gpu: phase 'Succeeded' after 48 s
+07:24:05Z  [session] == allreduce-1pod4gpu as c-smoke-allreduce-1pod4gpu-072405
+07:24:37Z  [session] allreduce-1pod4gpu: phase 'Succeeded' after 32 s
+07:24:44Z  [session] == allreduce-4pod1gpu as c-smoke-allreduce-4pod1gpu-072444
+07:25:32Z  [session] allreduce-4pod1gpu: phase 'Succeeded' after 47 s
+07:25:41Z  [session] == ddp-1pod4gpu as c-smoke-ddp-1pod4gpu-072541
+07:26:05Z  [session] ddp-1pod4gpu: phase 'Succeeded' after 23 s
+07:26:12Z  [session] == ddp-4pod1gpu as c-smoke-ddp-4pod1gpu-072612
+07:26:42Z  [session] ddp-4pod1gpu: phase 'Succeeded' after 29 s
+07:26:51Z  [session] == nccltests-1pod4gpu as c-01-nccltests-1pod4gpu-072651
+07:27:36Z  [session] nccltests-1pod4gpu: phase 'Succeeded' after 45 s
+07:27:44Z  [session] == ddp-4pod1gpu as c-02-ddp-4pod1gpu-072744
+07:28:13Z  [session] ddp-4pod1gpu: phase 'Succeeded' after 29 s
+07:28:22Z  [session] == allreduce-4pod1gpu as c-03-allreduce-4pod1gpu-072822
+07:29:13Z  [session] allreduce-4pod1gpu: phase 'Succeeded' after 50 s
+07:29:22Z  [session] == allreduce-4pod1gpu as c-04-allreduce-4pod1gpu-072922
+07:30:10Z  [session] allreduce-4pod1gpu: phase 'Succeeded' after 48 s
+07:30:19Z  [session] == ddp-1pod4gpu as c-05-ddp-1pod4gpu-073019
+07:30:42Z  [session] ddp-1pod4gpu: phase 'Succeeded' after 23 s
+07:30:50Z  [session] == allreduce-4pod1gpu as c-06-allreduce-4pod1gpu-073050
+07:31:38Z  [session] allreduce-4pod1gpu: phase 'Succeeded' after 48 s
+07:31:47Z  [session] == nccltests-1pod4gpu as c-07-nccltests-1pod4gpu-073147
+07:32:32Z  [session] nccltests-1pod4gpu: phase 'Succeeded' after 45 s
+07:32:40Z  [session] == allreduce-1pod4gpu as c-08-allreduce-1pod4gpu-073240
+07:33:12Z  [session] allreduce-1pod4gpu: phase 'Succeeded' after 32 s
+07:33:19Z  [session] == ddp-1pod4gpu as c-09-ddp-1pod4gpu-073319
+07:33:43Z  [session] ddp-1pod4gpu: phase 'Succeeded' after 23 s
+07:33:50Z  [session] == ddp-4pod1gpu as c-10-ddp-4pod1gpu-073350
+07:34:22Z  [session] ddp-4pod1gpu: phase 'Succeeded' after 31 s
+07:34:31Z  [session] == ddp-1pod4gpu as c-11-ddp-1pod4gpu-073431
+07:34:55Z  [session] ddp-1pod4gpu: phase 'Succeeded' after 23 s
+07:35:02Z  [session] == allreduce-4pod1gpu as c-12-allreduce-4pod1gpu-073502
+07:35:51Z  [session] allreduce-4pod1gpu: phase 'Succeeded' after 48 s
+07:35:59Z  [session] == nccltests-1pod4gpu as c-13-nccltests-1pod4gpu-073559
+07:36:47Z  [session] nccltests-1pod4gpu: phase 'Succeeded' after 47 s
+07:36:55Z  [session] == allreduce-1pod4gpu as c-14-allreduce-1pod4gpu-073655
+07:37:27Z  [session] allreduce-1pod4gpu: phase 'Succeeded' after 31 s
+07:37:35Z  [session] == nccltests-1pod4gpu as c-15-nccltests-1pod4gpu-073735
+07:38:20Z  [session] nccltests-1pod4gpu: phase 'Succeeded' after 45 s
+07:38:29Z  [session] == nccltests-1pod4gpu as c-16-nccltests-1pod4gpu-073829
+07:39:14Z  [session] nccltests-1pod4gpu: phase 'Succeeded' after 45 s
+07:39:22Z  [session] == allreduce-4pod1gpu as c-17-allreduce-4pod1gpu-073922
+07:40:13Z  [session] allreduce-4pod1gpu: phase 'Succeeded' after 51 s
+07:40:22Z  [session] == ddp-1pod4gpu as c-18-ddp-1pod4gpu-074022
+07:40:45Z  [session] ddp-1pod4gpu: phase 'Succeeded' after 23 s
+07:40:53Z  [session] == ddp-1pod4gpu as c-19-ddp-1pod4gpu-074053
+07:41:17Z  [session] ddp-1pod4gpu: phase 'Succeeded' after 23 s
+07:41:24Z  [session] == allreduce-1pod4gpu as c-20-allreduce-1pod4gpu-074124
+07:41:59Z  [session] allreduce-1pod4gpu: phase 'Succeeded' after 34 s
+07:42:07Z  [session] == ddp-4pod1gpu as c-21-ddp-4pod1gpu-074207
+07:42:36Z  [session] ddp-4pod1gpu: phase 'Succeeded' after 29 s
+07:42:45Z  [session] == allreduce-1pod4gpu as c-22-allreduce-1pod4gpu-074245
+07:43:17Z  [session] allreduce-1pod4gpu: phase 'Succeeded' after 31 s
+07:43:25Z  [session] == ddp-4pod1gpu as c-23-ddp-4pod1gpu-074325
+07:43:54Z  [session] ddp-4pod1gpu: phase 'Succeeded' after 29 s
+07:44:03Z  [session] == allreduce-1pod4gpu as c-24-allreduce-1pod4gpu-074403
+07:44:35Z  [session] allreduce-1pod4gpu: phase 'Succeeded' after 32 s
+07:44:43Z  [session] == ddp-4pod1gpu as c-25-ddp-4pod1gpu-074443
+07:45:14Z  [session] ddp-4pod1gpu: phase 'Succeeded' after 31 s
+   ok   the smoke jobs passed and every registered job ran
+   ok   T8: every registered job valid (/home/lkhun9311/workspace/gpu-cp-c-run5/ex/eks-session-20261029T070302Z/c/verdict.txt)
+hack/eks-gitops-session.sh: line 887: kill: (2037478) - No such process
+hack/eks-gitops-session.sh: line 887: kill: (2049871) - No such process
+hack/eks-gitops-session.sh: line 887: kill: (2056360) - No such process
+hack/eks-gitops-session.sh: line 887: kill: (2060651) - No such process
+hack/eks-gitops-session.sh: line 887: kill: (2066922) - No such process
+hack/eks-gitops-session.sh: line 887: kill: (2070497) - No such process
+hack/eks-gitops-session.sh: line 887: kill: (2074839) - No such process
+hack/eks-gitops-session.sh: line 887: kill: (2080344) - No such process
+hack/eks-gitops-session.sh: line 887: kill: (2083874) - No such process
+hack/eks-gitops-session.sh: line 887: kill: (2089364) - No such process
+hack/eks-gitops-session.sh: line 887: kill: (2094532) - No such process
+hack/eks-gitops-session.sh: line 887: kill: (2097373) - No such process
+hack/eks-gitops-session.sh: line 887: kill: (2102639) - No such process
+hack/eks-gitops-session.sh: line 887: kill: (2107342) - No such process
+hack/eks-gitops-session.sh: line 887: kill: (2110877) - No such process
+hack/eks-gitops-session.sh: line 887: kill: (2113628) - No such process
+hack/eks-gitops-session.sh: line 887: kill: (2117470) - No such process
+hack/eks-gitops-session.sh: line 887: kill: (2120259) - No such process
+hack/eks-gitops-session.sh: line 887: kill: (2125617) - No such process
+hack/eks-gitops-session.sh: line 887: kill: (2130604) - No such process
+hack/eks-gitops-session.sh: line 887: kill: (2134153) - No such process
+hack/eks-gitops-session.sh: line 887: kill: (2139035) - No such process
+hack/eks-gitops-session.sh: line 887: kill: (2144512) - No such process
+hack/eks-gitops-session.sh: line 887: kill: (2149965) - No such process
+hack/eks-gitops-session.sh: line 887: kill: (2152759) - No such process
+hack/eks-gitops-session.sh: line 887: kill: (2155557) - No such process
+hack/eks-gitops-session.sh: line 887: kill: (2159333) - No such process
+hack/eks-gitops-session.sh: line 887: kill: (2162988) - No such process
+hack/eks-gitops-session.sh: line 887: kill: (2166584) - No such process
+hack/eks-gitops-session.sh: line 887: kill: (2170190) - No such process
+hack/eks-gitops-session.sh: line 887: kill: (2173910) - No such process
+07:45:24Z  [session] scaling gpu to 0
+   ok   S6 (GPU half): gpu scaled to 0 and i-0b66cbb2a8ab182d6 terminated
+TTL disarmed: gpu-ttl-gpu-platform-gpu-20261029071716
+07:54:29Z  [session] destroy: argo-bootstrap, then cluster
+07:54:29Z  [session] warning: argo destroy returned non-zero; the cluster destroy below removes it anyway
+07:54:29Z  [session] cluster destroy failed; looking for interfaces the VPC CNI left detached, which hold subnets and security groups
+07:54:30Z  [session] the CNI sweep found no detached aws-K8S interface in vpc-091dc8b912c0f0a81
+   FAIL CLUSTER DESTROY FAILED -- the kill switch at PID 2008415 will retry at TTL. Do not walk away.

@@ -7,6 +7,7 @@ Until this line, the status said: "registered for review, not approved for purch
 **Status, 2026-10-28: run 2 is a FAILED SMOKE, stopped by a third defect in the scorer before any registered job; no number below is a result.** "Run 2" and "Amendment for run 3", at the end, say what failed and what a third attempt changes; the owner approved that amendment on 2026-10-28.
 **Status, 2026-10-29: run 3 is a FAILED SMOKE, stopped by a fourth defect in the scorer before any registered job; no number below is a result.** "Run 3" and "Amendment for run 4", at the end, say what failed and what a fourth attempt changes; the owner approved that amendment on 2026-10-29.
 **Status, 2026-10-29: run 4 is a FAILED SMOKE, stopped by a fifth defect in the scorer, run 3's fix being too narrow, before any registered job; no number below is a result.** "Run 4" and "Amendment for run 5", at the end, say what failed and what a fifth attempt changes; the owner approved that amendment on 2026-10-29.
+**Status, 2026-10-29: run 5 is COMPLETE, Q and all five smoke and 25 registered jobs valid, and its figures and verdicts are this registration's only results.** "Run 5", at the end, records them; runs 1 to 4 are not pooled with it.
 codex `gpt-6-astra` attacked the first version cold; every finding was re-derived, and this version is the reconciled one ("Review: astra's attack, reconciled", at the end).
 It grows out of the draft `2026-10-22-multi-gpu-per-pod-throughput-design.md`, which is left as it was written and is history; where this page and the draft differ, this page holds, and "Changes from the draft" says what moved and why.
 Every numeric bound below names where its number comes from, because `docs/11_WHAT_THIS_MEASURED.md` ("What the targets were based on") now records that several earlier bars had none.
@@ -533,3 +534,62 @@ The benches do not change, so the approved hashes stay `0e9e939d…` and `d37981
 **What does not change:** everything "Amendment for run 4" lists as unchanged, its changes and its hashes, and its promotion's scope: run 5 is bought from `main` at a promotion that carries this section and the fix, and no other change merged into `dev` since run 3's promotion.
 **Run 5 is bought from `main` at that promotion, with the two hashes above.**
 Run 1's to run 4's evidence are not pooled with run 5's.
+
+## Run 5, 2026-10-29: COMPLETE, every registered job valid
+
+**What ran.** The command in "Buying the session" with the two hashes of "Amendment for run 3", from a clean worktree at `main` `b14b4e50`, CI's image pin after the promotion `26b06d02` (#448) that carries "Amendment for run 5"; started 07:03:02Z on 2026-10-29.
+Every check before the purchase passed: T1 synced at `b14b4e50`, T2, T3 (admitted 07:17:10Z, held unplaced), T4 at $6.97442 an hour against the $6.98 ceiling, T5 (0 in use plus 48 within 52), Z1, and the GPU deadline armed for 230 minutes.
+The node was `i-0b66cbb2a8ab182d6` in ap-northeast-2d; T6, Z2 and T7 passed, the qualification job running 163.662 s after admission; Q and T7b passed (`AR_WARM` four devices, NCCL 2.21.5).
+The five smoke jobs and the 25 registered jobs ran from 07:23:09Z to 07:45:14Z in the registered order, each succeeding, and T8 passed: every registered job valid.
+The scorer's verdict (`c/verdict.txt`) ends "PASS".
+
+**E3, topology, from Q's log.** Four A10Gs at PCI bus IDs `00:1B.0`, `00:1C.0`, `00:1D.0` and `00:1E.0`, driver 580.178.04.
+`topo -m` names every pair of cards PHB, and `topo -p2p r` names every pair NS, peer reads not supported.
+
+**E2, transport.** In every job, smoke and registered, every rank of `nccltests-1pod4gpu`, `allreduce-1pod4gpu` and `ddp-1pod4gpu` logged SHM, and every rank of `allreduce-4pod1gpu` and `ddp-4pod1gpu` logged NET; the stack set no NCCL variable of its own in any job.
+
+**E1, bus bandwidth, GB/s:** the median of five jobs, each job's figure in brackets, as the verdict prints them.
+
+| Size | `nccltests-1pod4gpu` | `allreduce-1pod4gpu` | `allreduce-4pod1gpu` |
+|---|---|---|---|
+| 1 MiB | 3.88 [3.83, 3.88, 3.89, 3.80, 3.89] | 3.21 [3.18, 3.23, 3.21, 3.30, 3.20] | 0.81 [0.76, 0.81, 0.81, 0.79, 0.85] |
+| 4 MiB | 3.24 [3.24, 3.22, 3.24, 3.23, 3.25] | 2.95 [2.95, 2.96, 2.93, 2.95, 2.95] | 1.34 [1.32, 1.34, 1.36, 1.28, 1.36] |
+| 16 MiB | 3.32 [3.32, 3.31, 3.31, 3.32, 3.32] | 3.05 [3.05, 3.06, 3.05, 3.05, 3.05] | 1.54 [1.54, 1.54, 1.62, 1.45, 1.57] |
+| 64 MiB | 3.27 [3.27, 3.27, 3.27, 3.27, 3.28] | 3.07 [3.07, 3.07, 3.07, 3.07, 3.07] | 1.62 [1.59, 1.67, 1.66, 1.56, 1.62] |
+| 256 MiB | 3.05 [3.05, 3.05, 3.03, 3.05, 3.05] | 3.06 [3.05, 3.06, 3.06, 3.06, 3.06] | 1.67 [1.66, 1.67, 1.68, 1.67, 1.68] |
+
+**E4, DDP step, ms**, the median of five jobs' medians.
+
+| | `ddp-1pod4gpu` | `ddp-4pod1gpu` |
+|---|---|---|
+| synced step | 133.87 [133.63, 133.95, 133.87, 133.89, 133.68] | 249.00 [254.01, 249.00, 246.28, 248.15, 250.03] |
+| local step | 3.85 [3.85, 3.85, 3.85, 3.84, 3.85] | 3.98 [3.98, 3.98, 3.98, 3.98, 3.98] |
+| synchronisation cost | 130.02 [129.78, 130.10, 130.02, 130.04, 129.83] | 245.02 [250.03, 245.02, 242.30, 244.17, 246.05] |
+
+Every rank of every DDP job reported one bucket of 268,500,992 bytes, rebuilt into four of 67,125,248.
+
+**E6, nccl-tests over torch, one Pod of four, reported and not judged:** 1.207 at 1 MiB, 1.098 at 4 MiB, 1.087 at 16 MiB, 1.065 at 64 MiB and 0.996 at 256 MiB.
+
+**Verdicts.**
+- **V1:** one Pod of four reached higher bus bandwidth than four Pods of one at every size, 1, 4, 16, 64 and 256 MiB: at each, every one of the five one-Pod figures exceeds every one of the four-Pod figures.
+- **V2:** one Pod of four had the shorter synced step: every one of its five figures is below every one of the four-Pod layout's.
+- **V3:** one Pod of four had the smaller synchronisation cost, by the same rule.
+- **V4:** where the layouts differed, the one-Pod ranks logged SHM and the four-Pod ranks NET; that is an observation that accompanied the difference, not its cause.
+- **V5:** no pair of cards supports peer reads by `topo -p2p r`, and NCCL logged no P2P in any job; the path between every pair is PHB by `topo -m`.
+
+**Predictions.** All four held: the four-Pod arms logged NET on every rank; the one-Pod arms logged SHM, not P2P, and no NET; V1 separated for the one-Pod layout at 64 and 256 MiB, and at the three smaller sizes too, which was not predicted; V2 and V3 separated for the one-Pod layout.
+**Falsifiers.** None was met: every job's four ranks named four distinct UUIDs and logged a transport of their own, no figure exceeds 3.9 GB/s against the 64 GB/s bound, every DDP job's checksums passed, nccl-tests and torch ran NCCL 2.21.5 with no configuration file, and every Pod ran on the qualified node in a Workload reserving four GPUs; each is a validity line, and every job is valid.
+**What this licenses** is what "What a result would license" says, and nothing it excludes: in particular, no statement that the transport caused the difference, and nothing about NVLink, RDMA, EFA, more than one node or a real model.
+
+**How the figures were checked.** I re-derived every figure from the raw logs with code of my own, not `analyze.py`: each torch job's figure as the median over its 100 iterations of the slowest rank's time, converted with the bench's bus factor, which agrees with the bench's own figure to within 1e-15; each nccl-tests figure from its out-of-place bus bandwidth column; each DDP figure from the per-rank step times; and the medians, the seven separations and the E6 ratios, all of which agree with the verdict above.
+`analyze.py` from `dev`, run on the committed copy of the evidence, prints the session's verdict byte for byte.
+
+**Teardown, and what it needed by hand.** The GPU instance was launched at 07:17:31Z and terminated at 07:47:40Z (EC2).
+At 07:54:29Z both destroys failed before they began, terraform being unable to refresh the expired SSO token ("failed to refresh cached credentials ... StatusCode: 400"), while the CLI's cached role credentials were still valid; the session's sweep found no detached interface, correctly, since nothing had been deleted.
+Nothing that bills by the GPU remained; the cluster, its CPU node and NAT gateway did.
+I ran the same cluster destroy with the CLI's role credentials exported to terraform, which completed at 08:06:23Z (96 destroyed), removed the Argo CD release from the argo-bootstrap state, its cluster having gone with the destroy, and found every residue query empty, after which I disarmed the watchdog (`manual-destroy.log`).
+So the session exited 1 on its teardown, and on nothing it measured; the launcher, fixed after run 4, logged that status correctly.
+**Cost, estimated from the rates in "Budget", not billed:** 1,809 s of g5.12xlarge at $6.97442 an hour, about $3.50, and about 62.8 minutes of the cluster (07:03:36Z to 08:06:23Z) at $0.2633 an hour, about $0.28.
+Over runs 1 to 5, about $7.83 of GPU time and $1.24 of cluster time.
+
+**Evidence:** `hack/four-gpu/2026-10-29-run5/`, listed in `SHA256SUMS`; `NOT-COMMITTED.sha256` holds the hashes of `terraform.log`, `seeded-key.txt` and `ttl.pid`, which are not committed. `session-stdout.log` is the session's terminal output, `launcher.log` the launcher's and `manual-destroy.log` the hand teardown's.

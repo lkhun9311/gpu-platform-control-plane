@@ -1,0 +1,56 @@
+{
+    "apiVersion": "platform.lkhun9311.github.io/v1",
+    "kind": "MLTrainingJob",
+    "metadata": {
+        "annotations": {
+            "kubectl.kubernetes.io/last-applied-configuration": "{\"apiVersion\":\"platform.lkhun9311.github.io/v1\",\"kind\":\"MLTrainingJob\",\"metadata\":{\"annotations\":{},\"name\":\"c-warm\",\"namespace\":\"train-a\"},\"spec\":{\"command\":[\"sh\",\"-c\",\"exec python -c 'import sys, time, torch; n = torch.cuda.device_count(); v = \\\".\\\".join(map(str, torch.cuda.nccl.version())) if n else \\\"none\\\"; print(\\\"AR_WARM devices\\\", n, \\\"nccl\\\", v, flush=True); n == 4 and time.sleep(30); sys.exit(0 if n == 4 else 3)'\"],\"gpuClass\":\"a10g\",\"gpuCount\":4,\"image\":\"docker.io/pytorch/pytorch@sha256:c8268a92a69bd500f8be0e665b2630ee006dadaf7bfbc24249141b15ff622755\",\"queue\":\"gpu-train-a\"}}\n"
+        },
+        "creationTimestamp": "2026-10-29T07:20:59Z",
+        "finalizers": [
+            "mltrainingjob.platform.lkhun9311.github.io/finalizer"
+        ],
+        "generation": 1,
+        "name": "c-warm",
+        "namespace": "train-a",
+        "resourceVersion": "5362",
+        "uid": "168d4f04-1fb7-4405-a344-2e1c281b8bab"
+    },
+    "spec": {
+        "command": [
+            "sh",
+            "-c",
+            "exec python -c 'import sys, time, torch; n = torch.cuda.device_count(); v = \".\".join(map(str, torch.cuda.nccl.version())) if n else \"none\"; print(\"AR_WARM devices\", n, \"nccl\", v, flush=True); n == 4 and time.sleep(30); sys.exit(0 if n == 4 else 3)'"
+        ],
+        "completions": 1,
+        "gpuClass": "a10g",
+        "gpuCount": 4,
+        "image": "docker.io/pytorch/pytorch@sha256:c8268a92a69bd500f8be0e665b2630ee006dadaf7bfbc24249141b15ff622755",
+        "parallelism": 1,
+        "queue": "gpu-train-a"
+    },
+    "status": {
+        "admitToRunningSeconds": "76.904",
+        "admittedAt": "2026-10-29T07:20:59Z",
+        "conditions": [
+            {
+                "lastTransitionTime": "2026-10-29T07:20:59Z",
+                "message": "",
+                "observedGeneration": 1,
+                "reason": "JobComplete",
+                "status": "True",
+                "type": "Admitted"
+            },
+            {
+                "lastTransitionTime": "2026-10-29T07:22:15Z",
+                "message": "the tenant waited 76.904s between Kueue admitting this job and this controller seeing it run; the admission end is Kueue's own stamp and the running end is this controller's observation, so the interval carries one watch lag",
+                "reason": "Observed",
+                "status": "True",
+                "type": "AdmitToRunningObserved"
+            }
+        ],
+        "lastTransitionTime": "2026-10-29T07:22:58Z",
+        "observedGeneration": 1,
+        "phase": "Succeeded",
+        "runningObservedAt": "2026-10-29T07:22:15Z"
+    }
+}

@@ -1,0 +1,56 @@
+{
+    "apiVersion": "platform.lkhun9311.github.io/v1",
+    "kind": "MLTrainingJob",
+    "metadata": {
+        "annotations": {
+            "kubectl.kubernetes.io/last-applied-configuration": "{\"apiVersion\":\"platform.lkhun9311.github.io/v1\",\"kind\":\"MLTrainingJob\",\"metadata\":{\"annotations\":{},\"name\":\"train-qualify\",\"namespace\":\"train-a\"},\"spec\":{\"command\":[\"sh\",\"-c\",\"echo '== nvidia-smi -L'; nvidia-smi -L\\nnvidia-smi --query-gpu=index,uuid,pci.bus_id,driver_version --format=csv,noheader | sed 's/^/AR_GPU /'\\necho '== nvidia-smi topo -m'; nvidia-smi topo -m\\necho '== nvidia-smi topo -p2p r'; nvidia-smi topo -p2p r || echo \\\"AR_P2P_QUERY_FAILED $?\\\"\\necho '== nvidia-smi -q'; nvidia-smi -q\\necho \\\"AR_SHM_KB $(df -kP /dev/shm | awk 'NR == 2 {print $2}')\\\"\\nn=$(nvidia-smi -L | grep -o 'UUID: GPU-[0-9a-f-]*' | sort -u | wc -l)\\n[ \\\"$n\\\" = 4 ] || { echo \\\"AR_QUALIFY_REFUSED $n distinct GPU(s)\\\"; exit 3; }\\nsleep 60\"],\"gpuClass\":\"a10g\",\"gpuCount\":4,\"image\":\"007635145730.dkr.ecr.ap-northeast-2.amazonaws.com/nccl-tests@sha256:27bb844f707101dfc4f03843b6ed4117996191b615123ef43413633531769b71\",\"queue\":\"gpu-train-a\"}}\n"
+        },
+        "creationTimestamp": "2026-10-29T07:17:10Z",
+        "finalizers": [
+            "mltrainingjob.platform.lkhun9311.github.io/finalizer"
+        ],
+        "generation": 1,
+        "name": "train-qualify",
+        "namespace": "train-a",
+        "resourceVersion": "4737",
+        "uid": "df99b317-a915-4a6b-8cbb-099f5d85a7ca"
+    },
+    "spec": {
+        "command": [
+            "sh",
+            "-c",
+            "echo '== nvidia-smi -L'; nvidia-smi -L\nnvidia-smi --query-gpu=index,uuid,pci.bus_id,driver_version --format=csv,noheader | sed 's/^/AR_GPU /'\necho '== nvidia-smi topo -m'; nvidia-smi topo -m\necho '== nvidia-smi topo -p2p r'; nvidia-smi topo -p2p r || echo \"AR_P2P_QUERY_FAILED $?\"\necho '== nvidia-smi -q'; nvidia-smi -q\necho \"AR_SHM_KB $(df -kP /dev/shm | awk 'NR == 2 {print $2}')\"\nn=$(nvidia-smi -L | grep -o 'UUID: GPU-[0-9a-f-]*' | sort -u | wc -l)\n[ \"$n\" = 4 ] || { echo \"AR_QUALIFY_REFUSED $n distinct GPU(s)\"; exit 3; }\nsleep 60"
+        ],
+        "completions": 1,
+        "gpuClass": "a10g",
+        "gpuCount": 4,
+        "image": "007635145730.dkr.ecr.ap-northeast-2.amazonaws.com/nccl-tests@sha256:27bb844f707101dfc4f03843b6ed4117996191b615123ef43413633531769b71",
+        "parallelism": 1,
+        "queue": "gpu-train-a"
+    },
+    "status": {
+        "admitToRunningSeconds": "163.662",
+        "admittedAt": "2026-10-29T07:17:10Z",
+        "conditions": [
+            {
+                "lastTransitionTime": "2026-10-29T07:17:10Z",
+                "message": "",
+                "observedGeneration": 1,
+                "reason": "JobComplete",
+                "status": "True",
+                "type": "Admitted"
+            },
+            {
+                "lastTransitionTime": "2026-10-29T07:19:53Z",
+                "message": "the tenant waited 163.662s between Kueue admitting this job and this controller seeing it run; the admission end is Kueue's own stamp and the running end is this controller's observation, so the interval carries one watch lag",
+                "reason": "Observed",
+                "status": "True",
+                "type": "AdmitToRunningObserved"
+            }
+        ],
+        "lastTransitionTime": "2026-10-29T07:20:55Z",
+        "observedGeneration": 1,
+        "phase": "Succeeded",
+        "runningObservedAt": "2026-10-29T07:19:53Z"
+    }
+}

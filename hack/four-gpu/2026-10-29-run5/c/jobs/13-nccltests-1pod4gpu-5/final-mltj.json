@@ -1,0 +1,56 @@
+{
+    "apiVersion": "platform.lkhun9311.github.io/v1",
+    "kind": "MLTrainingJob",
+    "metadata": {
+        "annotations": {
+            "kubectl.kubernetes.io/last-applied-configuration": "{\"apiVersion\":\"platform.lkhun9311.github.io/v1\",\"kind\":\"MLTrainingJob\",\"metadata\":{\"annotations\":{},\"name\":\"c-13-nccltests-1pod4gpu-073559\",\"namespace\":\"train-a\"},\"spec\":{\"command\":[\"sh\",\"-c\",\"export NCCL_DEBUG=INFO NCCL_DEBUG_SUBSYS=INIT,GRAPH,ENV OMP_NUM_THREADS=1\\necho \\\"AR_RUN_ID c-13-nccltests-1pod4gpu-073559 $(hostname)\\\"\\nfor f in /etc/nccl.conf \\\"$HOME/.nccl.conf\\\"; do if [ -e \\\"$f\\\" ]; then echo \\\"AR_NCCL_CONF present $f\\\"; sed 's/^/AR_NCCL_CONF_LINE /' \\\"$f\\\"; else echo \\\"AR_NCCL_CONF absent $f\\\"; fi; done\\nenv | grep '^NCCL_' | sed 's/^/AR_NCCL_ENV /'\\necho \\\"AR_SHM_KB $(df -kP /dev/shm | awk 'NR == 2 {print $2}')\\\"\\nnvidia-smi --query-gpu=index,uuid,pci.bus_id,driver_version --format=csv,noheader | sed 's/^/AR_GPU /'\\nexec mpirun --allow-run-as-root -np 4 --bind-to none --mca btl self,vader -x NCCL_DEBUG -x NCCL_DEBUG_SUBSYS -x OMP_NUM_THREADS all_reduce_perf -b 1M -e 256M -f 4 -g 1 -c 1 -n 100 -w 20 -a 3\"],\"gpuClass\":\"a10g\",\"gpuCount\":4,\"image\":\"007635145730.dkr.ecr.ap-northeast-2.amazonaws.com/nccl-tests@sha256:27bb844f707101dfc4f03843b6ed4117996191b615123ef43413633531769b71\",\"queue\":\"gpu-train-a\"}}\n"
+        },
+        "creationTimestamp": "2026-10-29T07:36:00Z",
+        "finalizers": [
+            "mltrainingjob.platform.lkhun9311.github.io/finalizer"
+        ],
+        "generation": 1,
+        "name": "c-13-nccltests-1pod4gpu-073559",
+        "namespace": "train-a",
+        "resourceVersion": "10765",
+        "uid": "5be07c14-88a6-4c35-8e45-92fe08ff3957"
+    },
+    "spec": {
+        "command": [
+            "sh",
+            "-c",
+            "export NCCL_DEBUG=INFO NCCL_DEBUG_SUBSYS=INIT,GRAPH,ENV OMP_NUM_THREADS=1\necho \"AR_RUN_ID c-13-nccltests-1pod4gpu-073559 $(hostname)\"\nfor f in /etc/nccl.conf \"$HOME/.nccl.conf\"; do if [ -e \"$f\" ]; then echo \"AR_NCCL_CONF present $f\"; sed 's/^/AR_NCCL_CONF_LINE /' \"$f\"; else echo \"AR_NCCL_CONF absent $f\"; fi; done\nenv | grep '^NCCL_' | sed 's/^/AR_NCCL_ENV /'\necho \"AR_SHM_KB $(df -kP /dev/shm | awk 'NR == 2 {print $2}')\"\nnvidia-smi --query-gpu=index,uuid,pci.bus_id,driver_version --format=csv,noheader | sed 's/^/AR_GPU /'\nexec mpirun --allow-run-as-root -np 4 --bind-to none --mca btl self,vader -x NCCL_DEBUG -x NCCL_DEBUG_SUBSYS -x OMP_NUM_THREADS all_reduce_perf -b 1M -e 256M -f 4 -g 1 -c 1 -n 100 -w 20 -a 3"
+        ],
+        "completions": 1,
+        "gpuClass": "a10g",
+        "gpuCount": 4,
+        "image": "007635145730.dkr.ecr.ap-northeast-2.amazonaws.com/nccl-tests@sha256:27bb844f707101dfc4f03843b6ed4117996191b615123ef43413633531769b71",
+        "parallelism": 1,
+        "queue": "gpu-train-a"
+    },
+    "status": {
+        "admitToRunningSeconds": "3.668",
+        "admittedAt": "2026-10-29T07:36:00Z",
+        "conditions": [
+            {
+                "lastTransitionTime": "2026-10-29T07:36:00Z",
+                "message": "",
+                "observedGeneration": 1,
+                "reason": "JobComplete",
+                "status": "True",
+                "type": "Admitted"
+            },
+            {
+                "lastTransitionTime": "2026-10-29T07:36:03Z",
+                "message": "the tenant waited 3.668s between Kueue admitting this job and this controller seeing it run; the admission end is Kueue's own stamp and the running end is this controller's observation, so the interval carries one watch lag",
+                "reason": "Observed",
+                "status": "True",
+                "type": "AdmitToRunningObserved"
+            }
+        ],
+        "lastTransitionTime": "2026-10-29T07:36:44Z",
+        "observedGeneration": 1,
+        "phase": "Succeeded",
+        "runningObservedAt": "2026-10-29T07:36:03Z"
+    }
+}

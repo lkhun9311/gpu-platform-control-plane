@@ -1,0 +1,147 @@
+{
+    "apiVersion": "batch/v1",
+    "kind": "Job",
+    "metadata": {
+        "creationTimestamp": "2026-10-29T07:31:47Z",
+        "generation": 2,
+        "labels": {
+            "kueue.x-k8s.io/queue-name": "gpu-train-a"
+        },
+        "name": "c-07-nccltests-1pod4gpu-073147",
+        "namespace": "train-a",
+        "ownerReferences": [
+            {
+                "apiVersion": "platform.lkhun9311.github.io/v1",
+                "blockOwnerDeletion": true,
+                "controller": true,
+                "kind": "MLTrainingJob",
+                "name": "c-07-nccltests-1pod4gpu-073147",
+                "uid": "35b5d85f-cee3-4d8c-bd31-e9d8a90d9d5c"
+            }
+        ],
+        "resourceVersion": "9100",
+        "uid": "05a39ae6-a248-49f1-9bd5-a5a12398e034"
+    },
+    "spec": {
+        "backoffLimit": 6,
+        "completionMode": "NonIndexed",
+        "completions": 1,
+        "manualSelector": false,
+        "parallelism": 1,
+        "podReplacementPolicy": "TerminatingOrFailed",
+        "selector": {
+            "matchLabels": {
+                "batch.kubernetes.io/controller-uid": "05a39ae6-a248-49f1-9bd5-a5a12398e034"
+            }
+        },
+        "suspend": false,
+        "template": {
+            "metadata": {
+                "annotations": {
+                    "kueue.x-k8s.io/workload": "job-c-07-nccltests-1pod4gpu-073147-b4fdd"
+                },
+                "labels": {
+                    "batch.kubernetes.io/controller-uid": "05a39ae6-a248-49f1-9bd5-a5a12398e034",
+                    "batch.kubernetes.io/job-name": "c-07-nccltests-1pod4gpu-073147",
+                    "controller-uid": "05a39ae6-a248-49f1-9bd5-a5a12398e034",
+                    "job-name": "c-07-nccltests-1pod4gpu-073147",
+                    "kueue.x-k8s.io/cluster-queue-name": "gpu-train-a",
+                    "kueue.x-k8s.io/local-queue-name": "gpu-train-a",
+                    "kueue.x-k8s.io/podset": "main"
+                }
+            },
+            "spec": {
+                "containers": [
+                    {
+                        "command": [
+                            "sh",
+                            "-c",
+                            "export NCCL_DEBUG=INFO NCCL_DEBUG_SUBSYS=INIT,GRAPH,ENV OMP_NUM_THREADS=1\necho \"AR_RUN_ID c-07-nccltests-1pod4gpu-073147 $(hostname)\"\nfor f in /etc/nccl.conf \"$HOME/.nccl.conf\"; do if [ -e \"$f\" ]; then echo \"AR_NCCL_CONF present $f\"; sed 's/^/AR_NCCL_CONF_LINE /' \"$f\"; else echo \"AR_NCCL_CONF absent $f\"; fi; done\nenv | grep '^NCCL_' | sed 's/^/AR_NCCL_ENV /'\necho \"AR_SHM_KB $(df -kP /dev/shm | awk 'NR == 2 {print $2}')\"\nnvidia-smi --query-gpu=index,uuid,pci.bus_id,driver_version --format=csv,noheader | sed 's/^/AR_GPU /'\nexec mpirun --allow-run-as-root -np 4 --bind-to none --mca btl self,vader -x NCCL_DEBUG -x NCCL_DEBUG_SUBSYS -x OMP_NUM_THREADS all_reduce_perf -b 1M -e 256M -f 4 -g 1 -c 1 -n 100 -w 20 -a 3"
+                        ],
+                        "env": [
+                            {
+                                "name": "NVIDIA_DRIVER_CAPABILITIES",
+                                "value": "compute,utility"
+                            }
+                        ],
+                        "image": "007635145730.dkr.ecr.ap-northeast-2.amazonaws.com/nccl-tests@sha256:27bb844f707101dfc4f03843b6ed4117996191b615123ef43413633531769b71",
+                        "imagePullPolicy": "IfNotPresent",
+                        "name": "trainer",
+                        "resources": {
+                            "limits": {
+                                "nvidia.com/gpu": "4"
+                            }
+                        },
+                        "terminationMessagePath": "/dev/termination-log",
+                        "terminationMessagePolicy": "File",
+                        "volumeMounts": [
+                            {
+                                "mountPath": "/dev/shm",
+                                "name": "dshm"
+                            }
+                        ]
+                    }
+                ],
+                "dnsPolicy": "ClusterFirst",
+                "nodeSelector": {
+                    "platform.lkhun9311.github.io/train": "true"
+                },
+                "restartPolicy": "Never",
+                "schedulerName": "default-scheduler",
+                "securityContext": {},
+                "terminationGracePeriodSeconds": 30,
+                "tolerations": [
+                    {
+                        "effect": "NoSchedule",
+                        "key": "nvidia.com/gpu",
+                        "operator": "Equal",
+                        "value": "present"
+                    }
+                ],
+                "volumes": [
+                    {
+                        "emptyDir": {
+                            "medium": "Memory",
+                            "sizeLimit": "1Gi"
+                        },
+                        "name": "dshm"
+                    }
+                ]
+            }
+        }
+    },
+    "status": {
+        "completionTime": "2026-10-29T07:32:31Z",
+        "conditions": [
+            {
+                "lastProbeTime": "2026-10-29T07:31:47Z",
+                "lastTransitionTime": "2026-10-29T07:31:47Z",
+                "message": "Job resumed",
+                "reason": "JobResumed",
+                "status": "False",
+                "type": "Suspended"
+            },
+            {
+                "lastProbeTime": "2026-10-29T07:32:31Z",
+                "lastTransitionTime": "2026-10-29T07:32:31Z",
+                "message": "Reached expected number of succeeded pods",
+                "reason": "CompletionsReached",
+                "status": "True",
+                "type": "SuccessCriteriaMet"
+            },
+            {
+                "lastProbeTime": "2026-10-29T07:32:31Z",
+                "lastTransitionTime": "2026-10-29T07:32:31Z",
+                "message": "Reached expected number of succeeded pods",
+                "reason": "CompletionsReached",
+                "status": "True",
+                "type": "Complete"
+            }
+        ],
+        "ready": 0,
+        "startTime": "2026-10-29T07:31:47Z",
+        "succeeded": 1,
+        "terminating": 0,
+        "uncountedTerminatedPods": {}
+    }
+}

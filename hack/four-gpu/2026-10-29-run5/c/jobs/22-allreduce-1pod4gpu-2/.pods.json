@@ -1,0 +1,284 @@
+{
+    "apiVersion": "v1",
+    "items": [
+        {
+            "apiVersion": "v1",
+            "kind": "Pod",
+            "metadata": {
+                "annotations": {
+                    "kueue.x-k8s.io/workload": "job-c-22-allreduce-1pod4gpu-074245-0cc0d"
+                },
+                "creationTimestamp": "2026-10-29T07:42:46Z",
+                "generateName": "c-22-allreduce-1pod4gpu-074245-",
+                "generation": 1,
+                "labels": {
+                    "batch.kubernetes.io/controller-uid": "1ff94ad3-4f48-4df4-9364-0c168ec204dd",
+                    "batch.kubernetes.io/job-name": "c-22-allreduce-1pod4gpu-074245",
+                    "controller-uid": "1ff94ad3-4f48-4df4-9364-0c168ec204dd",
+                    "job-name": "c-22-allreduce-1pod4gpu-074245",
+                    "kueue.x-k8s.io/cluster-queue-name": "gpu-train-a",
+                    "kueue.x-k8s.io/local-queue-name": "gpu-train-a",
+                    "kueue.x-k8s.io/podset": "main",
+                    "topology.kubernetes.io/region": "ap-northeast-2",
+                    "topology.kubernetes.io/zone": "ap-northeast-2d"
+                },
+                "name": "c-22-allreduce-1pod4gpu-074245-kz6kl",
+                "namespace": "train-a",
+                "ownerReferences": [
+                    {
+                        "apiVersion": "batch/v1",
+                        "blockOwnerDeletion": true,
+                        "controller": true,
+                        "kind": "Job",
+                        "name": "c-22-allreduce-1pod4gpu-074245",
+                        "uid": "1ff94ad3-4f48-4df4-9364-0c168ec204dd"
+                    }
+                ],
+                "resourceVersion": "13227",
+                "uid": "eaac1714-c6fb-4b94-a262-0ee3938e76ca"
+            },
+            "spec": {
+                "containers": [
+                    {
+                        "command": [
+                            "sh",
+                            "-c",
+                            "export NCCL_DEBUG=INFO NCCL_DEBUG_SUBSYS=INIT,GRAPH,ENV OMP_NUM_THREADS=1\necho \"AR_RUN_ID c-22-allreduce-1pod4gpu-074245 $(hostname)\"\nfor f in /etc/nccl.conf \"$HOME/.nccl.conf\"; do if [ -e \"$f\" ]; then echo \"AR_NCCL_CONF present $f\"; sed 's/^/AR_NCCL_CONF_LINE /' \"$f\"; else echo \"AR_NCCL_CONF absent $f\"; fi; done\nenv | grep '^NCCL_' | sed 's/^/AR_NCCL_ENV /'\necho \"AR_SHM_KB $(df -kP /dev/shm | awk 'NR == 2 {print $2}')\"\necho IiIiQW4gYWxsLXJlZHVjZSB0aW1pbmcgbG9vcCB0aGF0IHJlZnVzZXMgdG8gcmVwb3J0IGEgYmFuZHdpZHRoIGl0IGRpZCBub3QgdmVyaWZ5LgoKVGhlIHRvcmNoIGluc3RydW1lbnQgb2YgZG9jcy9zdXBlcnBvd2Vycy9zcGVjcy8yMDI2LTEwLTI3LWZvdXItZ3B1LW5jY2wtZGVzaWduLm1kLCBmaXJzdCBkcmFmdGVkIGZvcgpkb2NzL3N1cGVycG93ZXJzL3NwZWNzLzIwMjYtMTAtMjItbXVsdGktZ3B1LXBlci1wb2QtdGhyb3VnaHB1dC1kZXNpZ24ubWQuCkl0IGhhcyBuZXZlciBydW4gb24gYSBHUFU7IGl0cyBmaXJzdCBleGVjdXRpb24gaXMgdGhlIHJlZ2lzdHJhdGlvbidzIHNtb2tlIGJsb2NrLCBhbmQgbm90aGluZyBpdCBwcmludHMgYmVmb3JlIHRoYXQKYmxvY2sgcGFzc2VzIGlzIGEgbWVhc3VyZW1lbnQuCgpFYWNoIHJhbmsgZmlsbHMgaXRzIGJ1ZmZlciB3aXRoIHJhbmsgKyAxIGJlZm9yZSBldmVyeSB0aW1lZCBhbGwtcmVkdWNlLCBzbyBldmVyeSBlbGVtZW50IG9mIGEgY29ycmVjdCBTVU0gaXMKbihuKzEpLzIgZXhhY3RseSwgYW5kIGEgcmVkdWN0aW9uIHRoYXQgZGlkIG5vdCBoYXBwZW4sIG9yIGhhcHBlbmVkIG92ZXIgdGhlIHdyb25nIGdyb3VwLCBsZWF2ZXMgYSBkaWZmZXJlbnQgbnVtYmVyLgpBIHNpemUgd2hvc2UgYnVmZmVyIGRvZXMgbm90IGhvbGQgdGhhdCB2YWx1ZSBvbiBldmVyeSByYW5rIGdldHMgbm8gYmFuZHdpZHRoIGF0IGFsbCwgb25seSB0aGUgcmVmdXNhbC4KClRoZSBmaWd1cmUgaXMgTkNDTCdzIG93biBjb252ZW50aW9uLCBhcyBuY2NsLXRlc3RzIGRlZmluZXMgaXQsIHNvIHRoZSB0d28gY2FuIGJlIGNvbXBhcmVkIG9uIHRoZSBzYW1lIG1lc3NhZ2Ugc2l6ZToKYWxnb3JpdGhtIGJhbmR3aWR0aCBpcyBieXRlcyBvdmVyIHRpbWUsIGFuZCBidXMgYmFuZHdpZHRoIG11bHRpcGxpZXMgaXQgYnkgMihuLTEpL24gZm9yIGFuIGFsbC1yZWR1Y2UuClRoZSB0aW1lIG9mIGFuIGl0ZXJhdGlvbiBpcyB0aGUgc2xvd2VzdCByYW5rJ3MsIGJlY2F1c2UgYW4gYWxsLXJlZHVjZSBpcyBub3QgZmluaXNoZWQgdW50aWwgZXZlcnkgcmFuayBoYXMgaXQuCgpTZXR0aW5ncyBhcnJpdmUgYXMgZW52aXJvbm1lbnQgdmFyaWFibGVzLCBhcyBpbiBleHBlcmltZW50cy9jcHUtZGRwL3RyYWluLnB5LCBiZWNhdXNlIE1MVHJhaW5pbmdKb2IgaGFzIG5vIGVudiBmaWVsZC4KdG9yY2ggaXMgaW1wb3J0ZWQgaW5zaWRlIG1haW4sIHNvIHRoZSBhcml0aG1ldGljIGJlbG93IGlzIHRlc3RlZCB3aXRob3V0IGl0LgoiIiIKCmZyb20gX19mdXR1cmVfXyBpbXBvcnQgYW5ub3RhdGlvbnMKCmltcG9ydCBkYXRldGltZQppbXBvcnQgaGFzaGxpYgppbXBvcnQganNvbgppbXBvcnQgbWF0aAppbXBvcnQgb3MKaW1wb3J0IHNvY2tldAppbXBvcnQgc3RhdGlzdGljcwppbXBvcnQgc3lzCgojIFRoZSBkZWZhdWx0IG1lc3NhZ2Ugc2l6ZXMsIGluIGJ5dGVzOiAxIE1pQiB0byAyNTYgTWlCIGJ5IGZhY3RvcnMgb2YgZm91ci4KIwojIFNtYWxsIHNpemVzIGFyZSBsYXRlbmN5LCBub3QgYmFuZHdpZHRoLCBzbyB0aGUgbGFkZGVyIHN0YXJ0cyB3aGVyZSBhIGJhbmR3aWR0aCByZWFkaW5nIG1lYW5zIHNvbWV0aGluZy4KIyAyNTYgTWlCIG9uIGZvdXIgcmFua3MgaXMgMSBHaUIgb2YgZGV2aWNlIG1lbW9yeSBpbiBhbGwsIGZhciBpbnNpZGUgYW4gQTEwRydzIDI0IEdCIG9yIGEgVDQncyAxNiBHQi4KREVGQVVMVF9TSVpFUyA9IHR1cGxlKDEgPDwgcyBmb3IgcyBpbiAoMjAsIDIyLCAyNCwgMjYsIDI4KSkKCiMgZmxvYXQzMiwgc28gYSBidWZmZXIgb2YgQiBieXRlcyBob2xkcyBCIC8gNCBlbGVtZW50cyBhbmQgdGhlIGV4cGVjdGVkIHN1bSBpcyBleGFjdCBmb3IgYW55IHdvcmxkIHNpemUgdXAgdG8gOC4KRUxFTUVOVF9CWVRFUyA9IDQKClJVTl9JRCA9IG9zLmVudmlyb24uZ2V0KCJCRU5DSF9SVU5fSUQiLCAidW5zZXQiKQoKCmNsYXNzIFNldHRpbmdSZWZ1c2VkKEV4Y2VwdGlvbik6CiAgICAiIiJBIHNldHRpbmcgdGhlIGJlbmNoIGNhbm5vdCBydW4gYXMgYXNrZWQ7IHJhaXNlZCBiZWZvcmUgcmVuZGV6dm91cywgc28gbm8gcGVlciB3YWl0cyBvbiB0aGlzIHJhbmsuIiIiCgoKZGVmIGJ1c19mYWN0b3Iod29ybGRfc2l6ZTogaW50KSAtPiBmbG9hdDoKICAgICIiIm5jY2wtdGVzdHMnIGJ1cyBiYW5kd2lkdGggZmFjdG9yIGZvciBhbGwtcmVkdWNlLCAyKG4tMSkvbi4KCiAgICBPbmUgcmFuayBoYXMgbm90aGluZyB0byByZWR1Y2Ugd2l0aCwgYW5kIGEgZmFjdG9yIG9mIDAgd291bGQgcmVwb3J0IGEgYmFuZHdpZHRoIG9mIDAgdGhhdCBub3RoaW5nIG1lYXN1cmVkLgogICAgIiIiCiAgICBpZiB3b3JsZF9zaXplIDwgMjoKICAgICAgICByYWlzZSBTZXR0aW5nUmVmdXNlZChmImFuIGFsbC1yZWR1Y2Ugb3ZlciB7d29ybGRfc2l6ZX0gcmFuayBtb3ZlcyBub3RoaW5nIGJldHdlZW4gR1BVcyIpCiAgICByZXR1cm4gMi4wICogKHdvcmxkX3NpemUgLSAxKSAvIHdvcmxkX3NpemUKCgpkZWYgZXhwZWN0ZWRfc3VtKHdvcmxkX3NpemU6IGludCkgLT4gZmxvYXQ6CiAgICAiIiJUaGUgdmFsdWUgb2YgZXZlcnkgZWxlbWVudCBhZnRlciBhIFNVTSBvdmVyIHJhbmtzIHRoYXQgZWFjaCBmaWxsZWQgdGhlaXIgYnVmZmVyIHdpdGggcmFuayArIDEuIiIiCiAgICByZXR1cm4gd29ybGRfc2l6ZSAqICh3b3JsZF9zaXplICsgMSkgLyAyLjAKCgpkZWYgcGFyc2Vfc2l6ZXModGV4dDogc3RyKSAtPiB0dXBsZVtpbnQsIC4uLl06CiAgICAiIiJNZXNzYWdlIHNpemVzIGluIGJ5dGVzIGZyb20gYSBjb21tYS1zZXBhcmF0ZWQgbGlzdDsgZW1wdHkgbWVhbnMgdGhlIGRlZmF1bHQgbGFkZGVyLgoKICAgIEEgc2l6ZSB0aGF0IGlzIG5vdCBhIHdob2xlIHBvc2l0aXZlIG11bHRpcGxlIG9mIHRoZSBlbGVtZW50IHNpemUgaXMgcmVmdXNlZCByYXRoZXIgdGhhbiByb3VuZGVkLCBiZWNhdXNlIHRoZQogICAgcmVjb3JkIHdvdWxkIG90aGVyd2lzZSBuYW1lIGEgc2l6ZSB0aGF0IGRpZCBub3QgbW92ZS4KICAgICIiIgogICAgaWYgbm90IHRleHQuc3RyaXAoKToKICAgICAgICByZXR1cm4gREVGQVVMVF9TSVpFUwogICAgc2l6ZXMgPSBbXQogICAgZm9yIHBhcnQgaW4gdGV4dC5zcGxpdCgiLCIpOgogICAgICAgIHBhcnQgPSBwYXJ0LnN0cmlwKCkKICAgICAgICBpZiBub3QgcGFydC5pc2RpZ2l0KCk6CiAgICAgICAgICAgIHJhaXNlIFNldHRpbmdSZWZ1c2VkKGYiQkVOQ0hfU0laRVMgZW50cnkge3BhcnQhcn0gaXMgbm90IGEgd2hvbGUgbnVtYmVyIG9mIGJ5dGVzIikKICAgICAgICBzaXplID0gaW50KHBhcnQpCiAgICAgICAgaWYgc2l6ZSA8PSAwIG9yIHNpemUgJSBFTEVNRU5UX0JZVEVTOgogICAgICAgICAgICByYWlzZSBTZXR0aW5nUmVmdXNlZChmIkJFTkNIX1NJWkVTIGVudHJ5IHtzaXplfSBpcyBub3QgYSBwb3NpdGl2ZSBtdWx0aXBsZSBvZiB7RUxFTUVOVF9CWVRFU30gYnl0ZXMiKQogICAgICAgIHNpemVzLmFwcGVuZChzaXplKQogICAgaWYgbGVuKHNldChzaXplcykpICE9IGxlbihzaXplcyk6CiAgICAgICAgcmFpc2UgU2V0dGluZ1JlZnVzZWQoIkJFTkNIX1NJWkVTIG5hbWVzIGEgc2l6ZSB0d2ljZSwgd2hpY2ggd291bGQgcmVhZCBhcyB0d28gcmVwZXRpdGlvbnMiKQogICAgcmV0dXJuIHR1cGxlKHNpemVzKQoKCmRlZiBwYXJzZV9jb3VudChuYW1lOiBzdHIsIHRleHQ6IHN0ciwgbWluaW11bTogaW50KSAtPiBpbnQ6CiAgICAiIiJBIHdob2xlLW51bWJlciBzZXR0aW5nIGF0IGxlYXN0IGBtaW5pbXVtYCwgcmVmdXNlZCBvdGhlcndpc2UgcmF0aGVyIHRoYW4gZGVmYXVsdGVkLiIiIgogICAgaWYgbm90IHRleHQuc3RyaXAoKS5pc2RpZ2l0KCkgb3IgaW50KHRleHQpIDwgbWluaW11bToKICAgICAgICByYWlzZSBTZXR0aW5nUmVmdXNlZChmIntuYW1lfT17dGV4dCFyfSBpcyBub3QgYSB3aG9sZSBudW1iZXIgb2YgYXQgbGVhc3Qge21pbmltdW19IikKICAgIHJldHVybiBpbnQodGV4dCkKCgpkZWYgbG9jYWxfZGV2aWNlX2luZGV4KGVudmlyb246IGRpY3QsIHZpc2libGU6IGludCkgLT4gaW50OgogICAgIiIiVGhlIENVREEgZGV2aWNlIHRoaXMgcHJvY2VzcyBkcml2ZXMuCgogICAgTE9DQUxfUkFOSyB3aGVuIGEgbGF1bmNoZXIgc2V0IGl0LCB3aGljaCBpcyBob3cgc2V2ZXJhbCBwcm9jZXNzZXMgaW4gb25lIFBvZCBkaXZpZGUgaXRzIEdQVXM7IG90aGVyd2lzZSAwLCB0aGUKICAgIG9uZS1HUFUtcGVyLVBvZCBjYXNlLgogICAgQW4gaW5kZXggdGhlIFBvZCBjYW5ub3Qgc2VlIGlzIHJlZnVzZWQ6IHR3byBwcm9jZXNzZXMgc2lsZW50bHkgc2hhcmluZyBkZXZpY2UgMCB3b3VsZCBlYWNoIHJlcG9ydCBhIGJhbmR3aWR0aCwKICAgIGFuZCB0aGUgcGFpciB3b3VsZCByZWFkIGFzIHR3byBHUFVzLgogICAgIiIiCiAgICByYXcgPSBlbnZpcm9uLmdldCgiTE9DQUxfUkFOSyIsICIwIikKICAgIGlmIG5vdCByYXcuaXNkaWdpdCgpOgogICAgICAgIHJhaXNlIFNldHRpbmdSZWZ1c2VkKGYiTE9DQUxfUkFOSz17cmF3IXJ9IGlzIG5vdCBhIGRldmljZSBpbmRleCIpCiAgICBpbmRleCA9IGludChyYXcpCiAgICBpZiBpbmRleCA+PSB2aXNpYmxlOgogICAgICAgIHJhaXNlIFNldHRpbmdSZWZ1c2VkKGYiTE9DQUxfUkFOSyB7aW5kZXh9IG5hbWVzIGEgZGV2aWNlLCBhbmQgdGhpcyBQb2Qgc2VlcyB7dmlzaWJsZX0iKQogICAgcmV0dXJuIGluZGV4CgoKZGVmIHNsb3dlc3RfcGVyX2l0ZXJhdGlvbih0aW1lc19ieV9yYW5rOiBsaXN0W2xpc3RbZmxvYXRdXSkgLT4gbGlzdFtmbG9hdF06CiAgICAiIiJFYWNoIGl0ZXJhdGlvbidzIHRpbWUgYXMgdGhlIHNsb3dlc3QgcmFuayBzYXcgaXQuCgogICAgRXZlcnkgcmFuayBtdXN0IHJlcG9ydCB0aGUgc2FtZSBudW1iZXIgb2YgaXRlcmF0aW9uczsgYSByYWdnZWQgc2V0IG1lYW5zIGEgcmFuayBtaXNzZWQgb25lLCBhbmQgdGhlIG1heGltdW0gb2YKICAgIHdoYXQgaXMgbGVmdCB3b3VsZCBiZSB0YWtlbiBvdmVyIGZld2VyIHJhbmtzIHRoYW4gdGhlIHJlY29yZCBjbGFpbXMuCiAgICAiIiIKICAgIGlmIG5vdCB0aW1lc19ieV9yYW5rIG9yIG5vdCB0aW1lc19ieV9yYW5rWzBdOgogICAgICAgIHJhaXNlIFZhbHVlRXJyb3IoIm5vIHRpbWVkIGl0ZXJhdGlvbiB0byBzdW1tYXJpc2UiKQogICAgbGVuZ3RocyA9IHtsZW4odGltZXMpIGZvciB0aW1lcyBpbiB0aW1lc19ieV9yYW5rfQogICAgaWYgbGVuKGxlbmd0aHMpICE9IDE6CiAgICAgICAgcmFpc2UgVmFsdWVFcnJvcihmInJhbmtzIHRpbWVkIGRpZmZlcmVudCBudW1iZXJzIG9mIGl0ZXJhdGlvbnM6IHtzb3J0ZWQobGVuZ3Rocyl9IikKICAgICMgQSBOYU4gaXMgbm90IDw9IDAsIGFuZCBtYXgoKSBjYW4gcGFzcyBvdmVyIGl0LCBzbyBhIHJhbmsgb2YgTmFOcyBvbmNlIHN1bW1hcmlzZWQgdG8gYSBmaW5pdGUgdGltZS4KICAgIGlmIGFueShub3QgbWF0aC5pc2Zpbml0ZSh0KSBvciB0IDw9IDAgZm9yIHRpbWVzIGluIHRpbWVzX2J5X3JhbmsgZm9yIHQgaW4gdGltZXMpOgogICAgICAgIHJhaXNlIFZhbHVlRXJyb3IoImFuIGl0ZXJhdGlvbiB0aW1lZCBhdCB6ZXJvIG9yIGxlc3MsIG9yIG5vdCBhdCBhbGwsIHdoaWNoIG5vIHRyYW5zZmVyIHRha2VzIikKICAgIHJldHVybiBbbWF4KGNvbHVtbikgZm9yIGNvbHVtbiBpbiB6aXAoKnRpbWVzX2J5X3JhbmspXQoKCmRlZiBzdW1tYXJpc2Uoc2l6ZV9ieXRlczogaW50LCB3b3JsZF9zaXplOiBpbnQsIHRpbWVzX2J5X3Jhbms6IGxpc3RbbGlzdFtmbG9hdF1dLCB2ZXJpZmllZDogYm9vbCkgLT4gZGljdDoKICAgICIiIk9uZSBzaXplJ3MgcmVjb3JkOiB0aGUgcmF3IHRpbWVzIGFsd2F5cywgYW5kIGJhbmR3aWR0aCBvbmx5IHdoZW4gdGhlIHJlc3VsdCB3YXMgdmVyaWZpZWQgb24gZXZlcnkgcmFuay4KCiAgICBUaGUgbWVkaWFuIGlzIHRoZSByZXBvcnRlZCBmaWd1cmUgYW5kIHRoZSBtaW5pbXVtIGFuZCBtYXhpbXVtIHNpdCBiZXNpZGUgaXQsIHNvIGEgcmVhZGVyIHNlZXMgdGhlIHNwcmVhZCByYXRoZXIKICAgIHRoYW4gYSBzaW5nbGUgbnVtYmVyIGNob3NlbiBmcm9tIGl0LgogICAgIiIiCiAgICByZWNvcmQgPSB7CiAgICAgICAgInNpemVfYnl0ZXMiOiBzaXplX2J5dGVzLAogICAgICAgICJ3b3JsZF9zaXplIjogd29ybGRfc2l6ZSwKICAgICAgICAiaXRlcmF0aW9ucyI6IGxlbih0aW1lc19ieV9yYW5rWzBdKSBpZiB0aW1lc19ieV9yYW5rIGVsc2UgMCwKICAgICAgICAidGltZXNfc19ieV9yYW5rIjogdGltZXNfYnlfcmFuaywKICAgICAgICAidmVyaWZpZWQiOiB2ZXJpZmllZCwKICAgIH0KICAgIGlmIG5vdCB2ZXJpZmllZDoKICAgICAgICByZWNvcmRbInJlZnVzZWQiXSA9ICJ0aGUgcmVkdWNlZCBidWZmZXIgZGlkIG5vdCBob2xkIHRoZSBleHBlY3RlZCBzdW0gb24gZXZlcnkgcmFuaywgc28gbm8gYmFuZHdpZHRoIGlzIHJlcG9ydGVkIgogICAgICAgIHJldHVybiByZWNvcmQKICAgIHNsb3dlc3QgPSBzbG93ZXN0X3Blcl9pdGVyYXRpb24odGltZXNfYnlfcmFuaykKICAgIG1lZGlhbiA9IHN0YXRpc3RpY3MubWVkaWFuKHNsb3dlc3QpCiAgICBmYWN0b3IgPSBidXNfZmFjdG9yKHdvcmxkX3NpemUpCiAgICAjIERlY2ltYWwgZ2lnYWJ5dGVzICgxZTkgYnl0ZXMpIHBlciBzZWNvbmQsIGFzIG5jY2wtdGVzdHMgcHJpbnRzIHRoZW0sIGFuZCBzcGVsbGVkIG91dCBpbiB0aGUga2V5OiAiZ2JwcyIKICAgICMgcmVhZHMgYXMgZ2lnYWJpdHMsIHdoaWNoIHdvdWxkIG1ha2UgZXZlcnkgZmlndXJlIGxvb2sgZWlnaHQgdGltZXMgc21hbGxlciB0aGFuIGl0IGlzLgogICAgIyBzaXplX2J5dGVzIGlzIHRoZSBwYXlsb2FkIG9mIE9ORSByYW5rJ3MgYnVmZmVyLCBuY2NsLXRlc3RzJyBTLCBuZXZlciB0aGUgc3VtIG92ZXIgcmFua3MuCiAgICByZWNvcmQudXBkYXRlKAogICAgICAgIHsKICAgICAgICAgICAgInRpbWVfc19tZWRpYW4iOiBtZWRpYW4sCiAgICAgICAgICAgICJ0aW1lX3NfbWluIjogbWluKHNsb3dlc3QpLAogICAgICAgICAgICAidGltZV9zX21heCI6IG1heChzbG93ZXN0KSwKICAgICAgICAgICAgImFsZ2J3X2dpZ2FieXRlc19wZXJfc19tZWRpYW4iOiBzaXplX2J5dGVzIC8gbWVkaWFuIC8gMWU5LAogICAgICAgICAgICAiYnVzYndfZ2lnYWJ5dGVzX3Blcl9zX21lZGlhbiI6IHNpemVfYnl0ZXMgLyBtZWRpYW4gLyAxZTkgKiBmYWN0b3IsCiAgICAgICAgICAgICJidXNid19naWdhYnl0ZXNfcGVyX3NfYXRfbWluX3RpbWUiOiBzaXplX2J5dGVzIC8gbWluKHNsb3dlc3QpIC8gMWU5ICogZmFjdG9yLAogICAgICAgICAgICAiYnVzYndfZ2lnYWJ5dGVzX3Blcl9zX2F0X21heF90aW1lIjogc2l6ZV9ieXRlcyAvIG1heChzbG93ZXN0KSAvIDFlOSAqIGZhY3RvciwKICAgICAgICAgICAgImJ1c19mYWN0b3IiOiBmYWN0b3IsCiAgICAgICAgfQogICAgKQogICAgcmV0dXJuIHJlY29yZAoKCmRlZiBidWZmZXJfbWF0Y2hlcyhsb3dlc3Q6IGZsb2F0LCBoaWdoZXN0OiBmbG9hdCwgd29ybGRfc2l6ZTogaW50KSAtPiBib29sOgogICAgIiIiV2hldGhlciBhIGJ1ZmZlciB3aG9zZSBzbWFsbGVzdCBhbmQgbGFyZ2VzdCBlbGVtZW50cyBhcmUgdGhlc2UgaG9sZHMgdGhlIGV4cGVjdGVkIHN1bSBldmVyeXdoZXJlLgoKICAgIEV4YWN0IGVxdWFsaXR5LCBub3QgYSB0b2xlcmFuY2U6IHRoZSBvcGVyYW5kcyBhcmUgc21hbGwgaW50ZWdlcnMgaW4gZmxvYXQzMiwgd2hvc2Ugc3VtIGlzIGV4YWN0IGluIGFueSBvcmRlci4KICAgICIiIgogICAgd2FudCA9IGV4cGVjdGVkX3N1bSh3b3JsZF9zaXplKQogICAgcmV0dXJuIGxvd2VzdCA9PSB3YW50IGFuZCBoaWdoZXN0ID09IHdhbnQKCgpkZWYgZmFpbGluZ19pdGVyYXRpb25zKGV4dHJlbWE6IGxpc3RbdHVwbGVbZmxvYXQsIGZsb2F0XV0sIHdvcmxkX3NpemU6IGludCkgLT4gaW50OgogICAgIiIiSG93IG1hbnkgaXRlcmF0aW9ucycgYnVmZmVycywgZWFjaCBnaXZlbiBhcyBpdHMgKG1pbiwgbWF4KSwgZGlkIG5vdCBob2xkIHRoZSBleHBlY3RlZCBzdW0gYXQgYm90aCBlbmRzLgoKICAgIEp1ZGdlZCBwZXIgaXRlcmF0aW9uLCBub3Qgb3ZlciBhIHJ1bm5pbmcgbWluaW11bSBhbmQgbWF4aW11bTogUHl0aG9uJ3MgbWluIGFuZCBtYXgga2VlcCB0aGUgZWFybGllciB2YWx1ZSBhZ2FpbnN0CiAgICBhIE5hTiwgc28gYSBOYU4gaXRlcmF0aW9uIGJldHdlZW4gdHdvIGNvcnJlY3Qgb25lcyB3b3VsZCBsZWF2ZSBydW5uaW5nIGV4dHJlbWEgdGhhdCBsb29rIGNvcnJlY3QuCiAgICAiIiIKICAgIGlmIG5vdCBleHRyZW1hOgogICAgICAgIHJhaXNlIFNldHRpbmdSZWZ1c2VkKCJubyBpdGVyYXRpb25zIHdlcmUgY2hlY2tlZCwgc28gbm90aGluZyB3YXMgdmVyaWZpZWQiKQogICAgcmV0dXJuIHN1bSgxIGZvciBsb3dlc3QsIGhpZ2hlc3QgaW4gZXh0cmVtYSBpZiBub3QgYnVmZmVyX21hdGNoZXMobG93ZXN0LCBoaWdoZXN0LCB3b3JsZF9zaXplKSkKCgpkZWYgc2NyaXB0X3NoYTI1NigpIC0+IHN0cjoKICAgICIiIlRoZSBoYXNoIG9mIHRoaXMgZmlsZSwgc28gYSByZWNvcmQgc2F5cyB3aGljaCBjb2RlIHByb2R1Y2VkIGl0LiIiIgogICAgd2l0aCBvcGVuKF9fZmlsZV9fLCAicmIiKSBhcyBoYW5kbGU6CiAgICAgICAgcmV0dXJuIGhhc2hsaWIuc2hhMjU2KGhhbmRsZS5yZWFkKCkpLmhleGRpZ2VzdCgpCgoKIyBMaW51eCdzIFBJUEVfQlVGOiBhIHdyaXRlIHRvIGEgcGlwZSBubyBsYXJnZXIgdGhhbiB0aGlzIGlzIG5ldmVyIHNwbGl0IGJ5IGFub3RoZXIgd3JpdGVyJ3MsIGFuZCBhIGxhcmdlciBvbmUgY2FuIGJlLgpBVE9NSUNfV1JJVEVfQllURVMgPSA0MDk2CgoKY2xhc3MgUmVjb3JkVG9vTGFyZ2UoRXhjZXB0aW9uKToKICAgICIiIkEgcmVjb3JkIHRoYXQgY291bGQgaW50ZXJsZWF2ZSB3aXRoIGFub3RoZXIgcmFuaydzIG9uIGEgc2hhcmVkIHN0ZG91dCwgd3JpdHRlbiB3aGlsZSBvdGhlciByYW5rcyBtYXkgd3JpdGUuIiIiCgoKZGVmIHJlY29yZF9saW5lKHJlY29yZDogZGljdCwgYWxvbmU6IGJvb2wpIC0+IGJ5dGVzOgogICAgIiIiVGhlIHJlY29yZCBhcyBvbmUgSlNPTkwgbGluZSwgcmVmdXNlZCB3aGVuIGl0IGlzIHRvbyBsYXJnZSBmb3Igb25lIGF0b21pYyB3cml0ZSBhbmQgb3RoZXIgcmFua3MgbWF5IGJlIHdyaXRpbmcuCgogICAgRm91ciByYW5rcycgdGltaW5ncyBhdCAxMDAgaXRlcmF0aW9ucyBtYWtlIGEgc2l6ZSByZWNvcmQgb2Ygb3ZlciAxMCBLQiwgc28gdGhhdCByZWNvcmQgaXMgd3JpdHRlbiBvbmx5IGluIHR1cm4uCiAgICAiIiIKICAgIGxpbmUgPSAoanNvbi5kdW1wcyhyZWNvcmQsIHNvcnRfa2V5cz1UcnVlKSArICJcbiIpLmVuY29kZSgpCiAgICBpZiBsZW4obGluZSkgPiBBVE9NSUNfV1JJVEVfQllURVMgYW5kIG5vdCBhbG9uZToKICAgICAgICByYWlzZSBSZWNvcmRUb29MYXJnZShmImEge2xlbihsaW5lKX0tYnl0ZSB7cmVjb3JkLmdldCgnZXZlbnQnKX0gcmVjb3JkIHdvdWxkIG5vdCBiZSBvbmUgYXRvbWljIHdyaXRlIikKICAgIHJldHVybiBsaW5lCgoKZGVmIGVtaXQocmFuazogaW50LCBldmVudDogc3RyLCBhbG9uZTogYm9vbCA9IEZhbHNlLCAqKmZpZWxkczogb2JqZWN0KSAtPiBOb25lOgogICAgIiIiT25lIEpTT05MIHJlY29yZCB0byBzdGRvdXQgaW4gb25lIHdyaXRlLCBzbyByYW5rcyBzaGFyaW5nIGEgbGF1bmNoZXIncyBzdGRvdXQgaW50ZXJsZWF2ZSBiZXR3ZWVuIHJlY29yZHMuCgogICAgYWxvbmUgc2F5cyBubyBvdGhlciByYW5rIHdyaXRlcyB1bnRpbCB0aGlzIGNhbGwgcmV0dXJuczsgZW1pdF9pbl90dXJuIGlzIHdoYXQgbWFrZXMgdGhhdCB0cnVlLgogICAgIiIiCiAgICByZWNvcmQgPSB7CiAgICAgICAgInRzIjogZGF0ZXRpbWUuZGF0ZXRpbWUubm93KGRhdGV0aW1lLnRpbWV6b25lLnV0YykuaXNvZm9ybWF0KCksCiAgICAgICAgInJ1bl9pZCI6IFJVTl9JRCwKICAgICAgICAicmFuayI6IHJhbmssCiAgICAgICAgImV2ZW50IjogZXZlbnQsCiAgICB9CiAgICByZWNvcmQudXBkYXRlKGZpZWxkcykKICAgIGxpbmUgPSByZWNvcmRfbGluZShyZWNvcmQsIGFsb25lKQogICAgIyBvcy53cml0ZSBvbiBhIGJsb2NraW5nIHBpcGUgbWF5IHN0aWxsIHJldHVybiBzaG9ydCwgc28gdGhlIHJlc3QgaXMgd3JpdHRlbiBiZWZvcmUgYW5vdGhlciByYW5rJ3MgdHVybi4KICAgIHdoaWxlIGxpbmU6CiAgICAgICAgbGluZSA9IGxpbmVbb3Mud3JpdGUoMSwgbGluZSkgOl0KCgpkZWYgZW1pdF9pbl90dXJuKGRpc3QsIHJhbms6IGludCwgd29ybGRfc2l6ZTogaW50LCBldmVudDogc3RyLCBmaWVsZHM6IGRpY3QpIC0+IE5vbmU6CiAgICAiIiJFYWNoIHJhbmsgd3JpdGVzIGl0cyByZWNvcmQgd2hpbGUgZXZlcnkgb3RoZXIgcmFuayB3YWl0cyBhdCBhIGJhcnJpZXIsIHNvIGEgbGFyZ2UgcmVjb3JkIGNhbm5vdCBpbnRlcmxlYXZlLgoKICAgIGZpZWxkcyBpcyBhIGRpY3QsIG5vdCBrZXl3b3JkIGFyZ3VtZW50cywgYmVjYXVzZSBhIHNpemUgcmVjb3JkIGNhcnJpZXMgd29ybGRfc2l6ZSBpdHNlbGYgYW5kIHdvdWxkIGNvbGxpZGUuCiAgICAiIiIKICAgIGZvciB0dXJuIGluIHJhbmdlKHdvcmxkX3NpemUpOgogICAgICAgIGlmIHR1cm4gPT0gcmFuazoKICAgICAgICAgICAgZW1pdChyYW5rLCBldmVudCwgYWxvbmU9VHJ1ZSwgKipmaWVsZHMpCiAgICAgICAgZGlzdC5iYXJyaWVyKCkKCgpkZWYgbWFpbigpIC0+IGludDoKICAgIGltcG9ydCB0b3JjaAogICAgaW1wb3J0IHRvcmNoLmRpc3RyaWJ1dGVkIGFzIGRpc3QKCiAgICByYW5rID0gaW50KG9zLmVudmlyb25bIlJBTksiXSkKICAgIHdvcmxkX3NpemUgPSBpbnQob3MuZW52aXJvblsiV09STERfU0laRSJdKQogICAgdHJ5OgogICAgICAgIHNpemVzID0gcGFyc2Vfc2l6ZXMob3MuZW52aXJvbi5nZXQoIkJFTkNIX1NJWkVTIiwgIiIpKQogICAgICAgIHdhcm11cCA9IHBhcnNlX2NvdW50KCJCRU5DSF9XQVJNVVAiLCBvcy5lbnZpcm9uLmdldCgiQkVOQ0hfV0FSTVVQIiwgIjUiKSwgMSkKICAgICAgICBpdGVyYXRpb25zID0gcGFyc2VfY291bnQoIkJFTkNIX0lURVJTIiwgb3MuZW52aXJvbi5nZXQoIkJFTkNIX0lURVJTIiwgIjIwIiksIDMpCiAgICAgICAgYnVzX2ZhY3Rvcih3b3JsZF9zaXplKQogICAgICAgIGlmIG5vdCB0b3JjaC5jdWRhLmlzX2F2YWlsYWJsZSgpOgogICAgICAgICAgICByYWlzZSBTZXR0aW5nUmVmdXNlZCgiQ1VEQSBpcyBub3QgYXZhaWxhYmxlLCBhbmQgdGhpcyBiZW5jaCBtZWFzdXJlcyBHUFVzIG9ubHkiKQogICAgICAgIGRldmljZV9pbmRleCA9IGxvY2FsX2RldmljZV9pbmRleChvcy5lbnZpcm9uLCB0b3JjaC5jdWRhLmRldmljZV9jb3VudCgpKQogICAgZXhjZXB0IFNldHRpbmdSZWZ1c2VkIGFzIGV4YzoKICAgICAgICBlbWl0KHJhbmssICJyZWZ1c2VkIiwgZXJyb3I9c3RyKGV4YykpCiAgICAgICAgcmV0dXJuIDEKCiAgICB0b3JjaC5jdWRhLnNldF9kZXZpY2UoZGV2aWNlX2luZGV4KQogICAgZGV2aWNlID0gdG9yY2guZGV2aWNlKCJjdWRhIiwgZGV2aWNlX2luZGV4KQogICAgZW1pdCgKICAgICAgICByYW5rLAogICAgICAgICJzdGFydCIsCiAgICAgICAgd29ybGRfc2l6ZT13b3JsZF9zaXplLAogICAgICAgIGxvY2FsX3Jhbms9ZGV2aWNlX2luZGV4LAogICAgICAgIHZpc2libGVfZGV2aWNlcz10b3JjaC5jdWRhLmRldmljZV9jb3VudCgpLAogICAgICAgIGRldmljZV9uYW1lPXRvcmNoLmN1ZGEuZ2V0X2RldmljZV9uYW1lKGRldmljZV9pbmRleCksCiAgICAgICAgIyBUaGUgY2FyZCdzIGlkZW50aXR5LCB3aGljaCB0aGUgc2NvcmVyIGNvbXBhcmVzIGFjcm9zcyByYW5rczogdHdvIHJhbmtzIG9uIG9uZSBjYXJkIGlzIG5vdCB0d28gR1BVcy4KICAgICAgICBncHVfdXVpZD1zdHIodG9yY2guY3VkYS5nZXRfZGV2aWNlX3Byb3BlcnRpZXMoZGV2aWNlX2luZGV4KS51dWlkKSwKICAgICAgICBob3N0bmFtZT1zb2NrZXQuZ2V0aG9zdG5hbWUoKSwKICAgICAgICBwaWQ9b3MuZ2V0cGlkKCksCiAgICAgICAgdG9yY2hfdmVyc2lvbj10b3JjaC5fX3ZlcnNpb25fXywKICAgICAgICBjdWRhX3ZlcnNpb249dG9yY2gudmVyc2lvbi5jdWRhLAogICAgICAgIG5jY2xfdmVyc2lvbj0iLiIuam9pbihzdHIocGFydCkgZm9yIHBhcnQgaW4gdG9yY2guY3VkYS5uY2NsLnZlcnNpb24oKSksCiAgICAgICAgIyBFdmVyeSBOQ0NMXyB2YXJpYWJsZSBpbiBmb3JjZSwgYmVjYXVzZSBlYWNoIG9uZSBjYW4gY2hhbmdlIHRoZSB0cmFuc3BvcnQgdGhlIGZpZ3VyZSBkZXNjcmliZXMuCiAgICAgICAgbmNjbF9lbnY9e2s6IHYgZm9yIGssIHYgaW4gc29ydGVkKG9zLmVudmlyb24uaXRlbXMoKSkgaWYgay5zdGFydHN3aXRoKCJOQ0NMXyIpfSwKICAgICAgICAjIFdoaWNoIGNhcmRzIHRoZSBjb250YWluZXIgd2FzIGdpdmVuLCBhcyB0aGUgZGV2aWNlIHBsdWdpbiBhbmQgdGhlIHJ1bnRpbWUgc2FpZCBpdDsgbm90aGluZyBoZXJlIHNldHMgdGhlbS4KICAgICAgICB2aXNpYmxlX2RldmljZXNfZW52PXtrOiBvcy5lbnZpcm9uLmdldChrKSBmb3IgayBpbiAoIkNVREFfVklTSUJMRV9ERVZJQ0VTIiwgIk5WSURJQV9WSVNJQkxFX0RFVklDRVMiKX0sCiAgICAgICAgIyBXaGF0IHRoZSBwcm9jZXNzIGNvdWxkIHJ1biBvbiwgd2hpY2ggZGlmZmVycyBieSBsYXlvdXQ6IHRvcmNocnVuIGFuZCBhIFBvZCBwZXIgcmFuayBzZXQgdGhyZWFkcyBkaWZmZXJlbnRseS4KICAgICAgICBjcHVfYWZmaW5pdHk9bGVuKG9zLnNjaGVkX2dldGFmZmluaXR5KDApKSwKICAgICAgICBvbXBfbnVtX3RocmVhZHM9b3MuZW52aXJvbi5nZXQoIk9NUF9OVU1fVEhSRUFEUyIpLAogICAgICAgIHRvcmNoX3RocmVhZHM9dG9yY2guZ2V0X251bV90aHJlYWRzKCksCiAgICAgICAgZGV2aWNlPSJjdWRhIiwKICAgICAgICBzY3JpcHRfc2hhMjU2PXNjcmlwdF9zaGEyNTYoKSwKICAgICAgICBzaXplcz1saXN0KHNpemVzKSwKICAgICAgICB3YXJtdXA9d2FybXVwLAogICAgICAgIGl0ZXJhdGlvbnM9aXRlcmF0aW9ucywKICAgICkKCiAgICBkaXN0LmluaXRfcHJvY2Vzc19ncm91cChiYWNrZW5kPSJuY2NsIikKICAgIGZhaWxlZCA9IEZhbHNlCiAgICBmb3Igc2l6ZSBpbiBzaXplczoKICAgICAgICBidWZmZXIgPSB0b3JjaC5lbXB0eShzaXplIC8vIEVMRU1FTlRfQllURVMsIGR0eXBlPXRvcmNoLmZsb2F0MzIsIGRldmljZT1kZXZpY2UpCiAgICAgICAgZm9yIF8gaW4gcmFuZ2Uod2FybXVwKToKICAgICAgICAgICAgYnVmZmVyLmZpbGxfKGZsb2F0KHJhbmsgKyAxKSkKICAgICAgICAgICAgZGlzdC5hbGxfcmVkdWNlKGJ1ZmZlciwgb3A9ZGlzdC5SZWR1Y2VPcC5TVU0pCiAgICAgICAgdG9yY2guY3VkYS5zeW5jaHJvbml6ZSgpCiAgICAgICAgZGlzdC5iYXJyaWVyKCkKCiAgICAgICAgdGltZXMgPSBbXQogICAgICAgIGV4dHJlbWEgPSBbXQogICAgICAgIGZvciBfIGluIHJhbmdlKGl0ZXJhdGlvbnMpOgogICAgICAgICAgICAjIEZpbGxlZCBvdXRzaWRlIHRoZSB0aW1lZCBzcGFuLCBzbyB0aGUgdGltZSBpcyB0aGUgY29sbGVjdGl2ZSdzIGFuZCB0aGUgY2hlY2sgYmVsb3cgaXMgcGVyIGl0ZXJhdGlvbi4KICAgICAgICAgICAgYnVmZmVyLmZpbGxfKGZsb2F0KHJhbmsgKyAxKSkKICAgICAgICAgICAgIyBFdmVyeSByYW5rIHN0YXJ0cyB0aGUgaXRlcmF0aW9uIHRvZ2V0aGVyLCBzbyBhIHJhbmsgdGhhdCBhcnJpdmVzIGVhcmx5IGRvZXMgbm90IGNvdW50IGl0cyB3YWl0IGZvciBhCiAgICAgICAgICAgICMgbGF0ZSBvbmUgYXMgdHJhbnNmZXIgdGltZTsgdGhlIHNsb3dlc3QtcmFuayBydWxlIGJlbG93IHdvdWxkIG90aGVyd2lzZSBwdWJsaXNoIHRoYXQgd2FpdC4KICAgICAgICAgICAgdG9yY2guY3VkYS5zeW5jaHJvbml6ZShkZXZpY2UpCiAgICAgICAgICAgIGRpc3QuYmFycmllcigpCiAgICAgICAgICAgIHN0YXJ0ID0gdG9yY2guY3VkYS5FdmVudChlbmFibGVfdGltaW5nPVRydWUpCiAgICAgICAgICAgIGVuZCA9IHRvcmNoLmN1ZGEuRXZlbnQoZW5hYmxlX3RpbWluZz1UcnVlKQogICAgICAgICAgICBzdGFydC5yZWNvcmQoKQogICAgICAgICAgICBkaXN0LmFsbF9yZWR1Y2UoYnVmZmVyLCBvcD1kaXN0LlJlZHVjZU9wLlNVTSkKICAgICAgICAgICAgZW5kLnJlY29yZCgpCiAgICAgICAgICAgIGVuZC5zeW5jaHJvbml6ZSgpCiAgICAgICAgICAgIHRpbWVzLmFwcGVuZChzdGFydC5lbGFwc2VkX3RpbWUoZW5kKSAvIDEwMDAuMCkKICAgICAgICAgICAgZXh0cmVtYS5hcHBlbmQoKGZsb2F0KGJ1ZmZlci5taW4oKSksIGZsb2F0KGJ1ZmZlci5tYXgoKSkpKQoKICAgICAgICBtaXNtYXRjaGVkID0gZmFpbGluZ19pdGVyYXRpb25zKGV4dHJlbWEsIHdvcmxkX3NpemUpCiAgICAgICAgbWluZV9vayA9IG1pc21hdGNoZWQgPT0gMAogICAgICAgICMgRXZlcnkgcmFuaydzIHRpbWVzIGFuZCB2ZXJkaWN0LCBnYXRoZXJlZCwgc28gdGhlIHJlY29yZCBpcyB0aGUgc2FtZSBvbiBlYWNoIHJhbmsgYW5kIGEgcmFuayB0aGF0IGZhaWxlZAogICAgICAgICMgaXRzIGNoZWNrIGZhaWxzIHRoZSBzaXplIGZvciBhbGwgb2YgdGhlbS4KICAgICAgICBsb2NhbCA9IHRvcmNoLnRlbnNvcih0aW1lcyArIFsxLjAgaWYgbWluZV9vayBlbHNlIDAuMF0sIGR0eXBlPXRvcmNoLmZsb2F0NjQsIGRldmljZT1kZXZpY2UpCiAgICAgICAgc2xvdHMgPSBbdG9yY2guemVyb3NfbGlrZShsb2NhbCkgZm9yIF8gaW4gcmFuZ2Uod29ybGRfc2l6ZSldCiAgICAgICAgZGlzdC5hbGxfZ2F0aGVyKHNsb3RzLCBsb2NhbCkKICAgICAgICByb3dzID0gW3Nsb3QudG9saXN0KCkgZm9yIHNsb3QgaW4gc2xvdHNdCiAgICAgICAgdmVyaWZpZWQgPSBhbGwocm93Wy0xXSA9PSAxLjAgZm9yIHJvdyBpbiByb3dzKQogICAgICAgIHJlY29yZCA9IHN1bW1hcmlzZShzaXplLCB3b3JsZF9zaXplLCBbcm93WzotMV0gZm9yIHJvdyBpbiByb3dzXSwgdmVyaWZpZWQpCiAgICAgICAgZW1pdF9pbl90dXJuKGRpc3QsIHJhbmssIHdvcmxkX3NpemUsICJzaXplIiwgeyJsb2NhbF9taXNtYXRjaGVkX2l0ZXJhdGlvbnMiOiBtaXNtYXRjaGVkLCAqKnJlY29yZH0pCiAgICAgICAgZmFpbGVkID0gZmFpbGVkIG9yIG5vdCB2ZXJpZmllZAogICAgICAgIGRlbCBidWZmZXIKCiAgICBkaXN0LmRlc3Ryb3lfcHJvY2Vzc19ncm91cCgpCiAgICBlbWl0KHJhbmssICJkb25lIiwgZXhpdF9jb2RlPTEgaWYgZmFpbGVkIGVsc2UgMCkKICAgIHJldHVybiAxIGlmIGZhaWxlZCBlbHNlIDAKCgppZiBfX25hbWVfXyA9PSAiX19tYWluX18iOgogICAgc3lzLmV4aXQobWFpbigpKQo= | base64 -d \u003e/tmp/allreduce_bench.py\necho \"0e9e939db4864907a24fc3acef4959b7f1c0fb51cf77e3859bac9065fd6eee00  /tmp/allreduce_bench.py\" | sha256sum -c - \u003e/dev/null || exit 86\nexport BENCH_RUN_ID=c-22-allreduce-1pod4gpu-074245 BENCH_WARMUP=20 BENCH_ITERS=100 BENCH_SIZES=1048576,4194304,16777216,67108864,268435456\nexec torchrun --standalone --nproc-per-node=4 /tmp/allreduce_bench.py"
+                        ],
+                        "env": [
+                            {
+                                "name": "NVIDIA_DRIVER_CAPABILITIES",
+                                "value": "compute,utility"
+                            }
+                        ],
+                        "image": "docker.io/pytorch/pytorch@sha256:c8268a92a69bd500f8be0e665b2630ee006dadaf7bfbc24249141b15ff622755",
+                        "imagePullPolicy": "IfNotPresent",
+                        "name": "trainer",
+                        "resources": {
+                            "limits": {
+                                "nvidia.com/gpu": "4"
+                            },
+                            "requests": {
+                                "nvidia.com/gpu": "4"
+                            }
+                        },
+                        "terminationMessagePath": "/dev/termination-log",
+                        "terminationMessagePolicy": "File",
+                        "volumeMounts": [
+                            {
+                                "mountPath": "/dev/shm",
+                                "name": "dshm"
+                            },
+                            {
+                                "mountPath": "/var/run/secrets/kubernetes.io/serviceaccount",
+                                "name": "kube-api-access-x5rn2",
+                                "readOnly": true
+                            }
+                        ]
+                    }
+                ],
+                "dnsPolicy": "ClusterFirst",
+                "enableServiceLinks": true,
+                "nodeName": "ip-10-0-82-199.ap-northeast-2.compute.internal",
+                "nodeSelector": {
+                    "platform.lkhun9311.github.io/train": "true"
+                },
+                "preemptionPolicy": "PreemptLowerPriority",
+                "priority": 0,
+                "restartPolicy": "Never",
+                "schedulerName": "default-scheduler",
+                "securityContext": {},
+                "serviceAccount": "default",
+                "serviceAccountName": "default",
+                "terminationGracePeriodSeconds": 30,
+                "tolerations": [
+                    {
+                        "effect": "NoSchedule",
+                        "key": "nvidia.com/gpu",
+                        "operator": "Equal",
+                        "value": "present"
+                    },
+                    {
+                        "effect": "NoExecute",
+                        "key": "node.kubernetes.io/not-ready",
+                        "operator": "Exists",
+                        "tolerationSeconds": 300
+                    },
+                    {
+                        "effect": "NoExecute",
+                        "key": "node.kubernetes.io/unreachable",
+                        "operator": "Exists",
+                        "tolerationSeconds": 300
+                    },
+                    {
+                        "effect": "NoSchedule",
+                        "key": "nvidia.com/gpu",
+                        "operator": "Exists"
+                    }
+                ],
+                "volumes": [
+                    {
+                        "emptyDir": {
+                            "medium": "Memory",
+                            "sizeLimit": "1Gi"
+                        },
+                        "name": "dshm"
+                    },
+                    {
+                        "name": "kube-api-access-x5rn2",
+                        "projected": {
+                            "defaultMode": 420,
+                            "sources": [
+                                {
+                                    "serviceAccountToken": {
+                                        "expirationSeconds": 3607,
+                                        "path": "token"
+                                    }
+                                },
+                                {
+                                    "configMap": {
+                                        "items": [
+                                            {
+                                                "key": "ca.crt",
+                                                "path": "ca.crt"
+                                            }
+                                        ],
+                                        "name": "kube-root-ca.crt"
+                                    }
+                                },
+                                {
+                                    "downwardAPI": {
+                                        "items": [
+                                            {
+                                                "fieldRef": {
+                                                    "apiVersion": "v1",
+                                                    "fieldPath": "metadata.namespace"
+                                                },
+                                                "path": "namespace"
+                                            }
+                                        ]
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                ]
+            },
+            "status": {
+                "conditions": [
+                    {
+                        "lastProbeTime": null,
+                        "lastTransitionTime": "2026-10-29T07:43:15Z",
+                        "observedGeneration": 1,
+                        "status": "False",
+                        "type": "PodReadyToStartContainers"
+                    },
+                    {
+                        "lastProbeTime": null,
+                        "lastTransitionTime": "2026-10-29T07:42:46Z",
+                        "observedGeneration": 1,
+                        "reason": "PodCompleted",
+                        "status": "True",
+                        "type": "Initialized"
+                    },
+                    {
+                        "lastProbeTime": null,
+                        "lastTransitionTime": "2026-10-29T07:43:14Z",
+                        "observedGeneration": 1,
+                        "reason": "PodCompleted",
+                        "status": "False",
+                        "type": "Ready"
+                    },
+                    {
+                        "lastProbeTime": null,
+                        "lastTransitionTime": "2026-10-29T07:43:14Z",
+                        "observedGeneration": 1,
+                        "reason": "PodCompleted",
+                        "status": "False",
+                        "type": "ContainersReady"
+                    },
+                    {
+                        "lastProbeTime": null,
+                        "lastTransitionTime": "2026-10-29T07:42:46Z",
+                        "observedGeneration": 1,
+                        "status": "True",
+                        "type": "PodScheduled"
+                    }
+                ],
+                "containerStatuses": [
+                    {
+                        "allocatedResources": {
+                            "nvidia.com/gpu": "4"
+                        },
+                        "containerID": "containerd://dad3b43f13499e33bbe7d3b84f222b3de0dad6eeb1043737109b2c691d5de7d5",
+                        "image": "sha256:946241f40f56c5ac17b12be451a9ff6bf7163acaac37d1f15bbc7404f4394e57",
+                        "imageID": "docker.io/pytorch/pytorch@sha256:c8268a92a69bd500f8be0e665b2630ee006dadaf7bfbc24249141b15ff622755",
+                        "lastState": {},
+                        "name": "trainer",
+                        "ready": false,
+                        "resources": {
+                            "limits": {
+                                "nvidia.com/gpu": "4"
+                            },
+                            "requests": {
+                                "nvidia.com/gpu": "4"
+                            }
+                        },
+                        "restartCount": 0,
+                        "started": false,
+                        "state": {
+                            "terminated": {
+                                "containerID": "containerd://dad3b43f13499e33bbe7d3b84f222b3de0dad6eeb1043737109b2c691d5de7d5",
+                                "exitCode": 0,
+                                "finishedAt": "2026-10-29T07:43:14Z",
+                                "reason": "Completed",
+                                "startedAt": "2026-10-29T07:42:47Z"
+                            }
+                        },
+                        "user": {
+                            "linux": {
+                                "gid": 0,
+                                "supplementalGroups": [
+                                    0
+                                ],
+                                "uid": 0
+                            }
+                        },
+                        "volumeMounts": [
+                            {
+                                "mountPath": "/dev/shm",
+                                "name": "dshm"
+                            },
+                            {
+                                "mountPath": "/var/run/secrets/kubernetes.io/serviceaccount",
+                                "name": "kube-api-access-x5rn2",
+                                "readOnly": true,
+                                "recursiveReadOnly": "Disabled"
+                            }
+                        ]
+                    }
+                ],
+                "hostIP": "10.0.82.199",
+                "hostIPs": [
+                    {
+                        "ip": "10.0.82.199"
+                    }
+                ],
+                "observedGeneration": 1,
+                "phase": "Succeeded",
+                "podIP": "10.0.91.96",
+                "podIPs": [
+                    {
+                        "ip": "10.0.91.96"
+                    }
+                ],
+                "qosClass": "BestEffort",
+                "startTime": "2026-10-29T07:42:46Z"
+            }
+        }
+    ],
+    "kind": "List",
+    "metadata": {
+        "resourceVersion": ""
+    }
+}
