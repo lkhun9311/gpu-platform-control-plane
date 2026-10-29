@@ -433,7 +433,7 @@ shell-check: ## Parse every shell script under hack/ and .githooks/.
 	done; \
 	for f in hack/test/spot-lifecycle/*.py hack/serving-stub/*.py hack/eks-serve/holdcap-study/*.py hack/eks-serve/prefix-route-study/*.py \
 		experiments/distributed-partial-placement/*.py experiments/cpu-ddp/*.py \
-		experiments/multi-pod-ddp/*.py; do \
+		experiments/multi-pod-ddp/*.py experiments/gateway-replica-limit/*.py; do \
 		[ -f "$$f" ] || continue; \
 		python3 -m py_compile "$$f" || { echo "shell-check: $$f does not compile" >&2; fail=1; }; \
 	done; \
@@ -448,6 +448,7 @@ scorer-tests: ## Run the study scorers' own tests, which pin what each published
 	python3 -m unittest experiments/distributed-partial-placement/test_analyze.py
 	python3 -m unittest experiments/multi-pod-ddp/test_analyze.py
 	python3 -m unittest experiments/multi-gpu-throughput/test_analyze.py
+	python3 -m unittest experiments/gateway-replica-limit/test_score.py
 
 .PHONY: sweeper-tests
 sweeper-tests: ## Run the termination sweeper's tests, which pin what it terminates and that a refusal fails the invocation.
