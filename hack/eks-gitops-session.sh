@@ -115,7 +115,8 @@ log "API endpoint will admit $EGRESS_CIDR only"
 # The session installs no tools, so the ones that ran are part of the record: a rehearsal on other versions
 # rehearses a different script, which is how a kubectl wait cost a paid run before.
 # sed, not head: head exits after its lines, a producer still writing then takes SIGPIPE, and under pipefail that
-# status ended the session here, before the kill switch was armed, with no message saying why.
+# status would end the session here, before the kill switch is armed, with no message saying why.
+# No session is recorded as having stopped this way; a 20,000-line producer into head -2 exits 141 under this shell's options.
 {
   kubectl version --client 2>&1 | sed -n 1,2p
   helm version --short 2>&1

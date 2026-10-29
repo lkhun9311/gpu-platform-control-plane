@@ -22,8 +22,10 @@ case_() { # name, kubectl stub body, expected exit, expected output fragment
   else echo "FAIL  $1: exit $rc, wanted $3 and \"$4\""; sed 's/^/      /' <<<"$out"; failures=$((failures+1)); fi
 }
 
-case_ "an unreadable log fails both checks"  'echo "Error from server (Forbidden)" >&2; return 1' 1 "could not be read"
+case_ "an unreadable log fails both checks"  'echo "Error from server (Forbidden)" >&2; return 1' 1 "could not be read, so neither log check ran: Error from server (Forbidden)"
 case_ "an empty log fails both checks"       ':' 1 "is empty"
+# kubectl prints this notice on stderr when a Pod has more than one container; it is not a log line.
+case_ "a stderr notice with no log fails both checks" 'echo "Defaulted container \"manager\" out of: manager, sidecar" >&2' 1 "is empty"
 case_ "a healthy log passes both checks"     'echo "starting manager"' 0 "pass=2 fail=0"
 case_ "a TLS failure in the log fails"       'echo "remote error: tls: bad certificate"' 1 "TLS failure"
 case_ "a manager without its certificate fails" 'echo "admission validation is NOT running"' 1 "started without a certificate"

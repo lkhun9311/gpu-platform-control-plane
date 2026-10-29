@@ -418,3 +418,12 @@ H and imbalance come from the scorer alone.
 About $19 in all, and about $19.5 with run 1, inside the $40 ceiling.
 
 **Evidence:** `hack/prefix-route/2026-10-28-run2/`, listed in `SHA256SUMS`; `NOT-COMMITTED.sha256` holds the hashes of `terraform.log`, `seeded-key.txt`, `ttl.pid`, the study key `prefix-study-key.txt` and the 40 MB harness binary (its hash equals the run's `benchharness.sha256`). `session-stdout.log` is the session's terminal output.
+
+## Recorded after the result, 2026-10-29: the scorer also checks that both engines are the registered engine
+
+This records a change to `score.py`; it amends no rule above and changes no result.
+
+- **What changed.** A full-project audit showed that the validity line on prefix caching was the only check on the engines. A cell whose engines served another model, or ran `max_num_seqs: 1`, scored "observed on these traces", so an engine change could be read as routing's effect. The scorer now also requires each engine's logged `non-default args` to equal the args of profile v0.27.1-a10g-prefix-cache at the pinned revision (`REGISTERED_ENGINE_ARGS`), and its log to report vLLM 0.27.1. Otherwise the cell is invalid.
+- **Not a registered rule.** "Validity, per cell" above does not state it, and it was added after the result. It is a check on the evidence, of the kind "Apparatus" describes ("the profile ... with prefix caching on and nothing else changed"), and is not part of the registration.
+- **Effect on this page's result: none.** All 24 engine args files of run 2 parse to one identical dict equal to the pinned one, and all 24 engine logs report 0.27.1. Rescoring run 2 with the changed scorer prints output byte-identical to the scorer that produced the verdict above.
+- **The rehearsal.** The kind rehearsal's stub engines are not vLLM, so `rehearse-kind.sh` passes `--engine-unpinned`, and the output then says the pin was not checked. Any caller can pass the flag, so a run scored with it never gets "observed on these traces": where it would have, the verdict reads "rehearsal only, not a result" and the scorer exits 1.

@@ -136,3 +136,11 @@ no answer and 41 to 52 failed requests at 10 per second.
 - How a shared limiter (Redis, a sidecar, or a consistent-hash front) would behave. This measures the
   problem, not a fix.
 - Multi-node behaviour. kube-proxy's spreading on one node is the only routing tested.
+
+## Recorded after the result, 2026-10-29: the scorer also checks the registered load
+
+This records a change to `score.py`; it amends no check above and changes no result.
+
+- **What changed.** A full-project audit showed that nothing checked the registered load, "10 requests per second for 30 s". A run of five requests over 0.4 s per arm and repetition, with the counters agreeing, scored VALID. The scorer now voids a repetition that does not have exactly 300 requests, the first and last dispatched within one 0.1 s slot of 29.9 s apart. A review of that change found that count and endpoints alone still passed 299 requests dispatched at once and one 29.9 s later, so the scorer also voids a repetition in which any request was dispatched more than one slot off the schedule of one every 0.1 s.
+- **Not a registered check.** "Validity checks" above lists three, and this fourth was added after the result. It checks that the registered setup was the one that ran (see "Setup").
+- **Effect on this page's results: none.** Every repetition in both runs has 300 requests over 29.900 to 29.901 s, none dispatched more than 0.0011 s off the schedule, and the changed scorer prints output byte-identical to the one that scored them: `gateway-replica-limit-20261009T010205Z` VALID, `gateway-replica-limit-20261009T004928Z` VOID.
