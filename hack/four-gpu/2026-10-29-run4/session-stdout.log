@@ -1,0 +1,54 @@
+04:17:34Z  [session] API endpoint will admit 211.202.99.162/32 only
+04:17:35Z  [session] TRAIN_AZ: no zone pin: the nodes may land in any zone that offers the type, and the record says which they did
+04:17:35Z  [session] cluster gpu-platform does not exist
+04:17:35Z  [session] TRAIN=allreduce: 1 x g5.12xlarge of 4 GPUs, price ceiling $6.98, GPU budget 13800s
+04:17:36Z  [session] TTL kill switch armed: PID 1733863, fires in 310m, log /home/lkhun9311/workspace/gpu-cp-c-run4/ex/eks-session-20261029T041734Z/ttl-kill-switch.log
+04:17:36Z  [session] terraform init (cluster)
+04:18:04Z  [session] terraform apply (cluster) -- this is where the billing starts
+04:30:36Z  [session] cluster up in 752s
+04:30:39Z  [session] terraform init + apply (argo-bootstrap): the pinned argo-cd chart, installed by its own root
+   ok   Argo CD installed by its own Terraform root
+04:32:01Z  [session] runbook: apply
+   ok   runbook apply
+04:33:28Z  [session] runbook: seed-key
+   ok   runbook seed-key
+04:33:29Z  [session] runbook: verify
+   ok   runbook verify
+   ok   T1: gpu-platform-training synced at 89d749219cc836fb2704ca8b98ad400a7425ed4c
+   ok   T2: ClusterQueue gpu-train-a is Active and the only one
+   ok   T3: qualification job train-qualify admitted at 2026-10-29T04:33:49Z, 1 Pod(s) unplaced
+   ok   T4: g5.12xlarge On-Demand in ap-northeast-2 at $6.9744200000 an hour, ceiling $6.98
+   ok   T5: G and VT On-Demand vCPU in use 0 (none) plus 48 fits the quota of 52.0
+   ok   Z1: node group gpu has subnets in ap-northeast-2a ap-northeast-2c ap-northeast-2d
+   ok   GPU deadline armed for 230 min: gpu-ttl-gpu-platform-gpu-20261029043354
+04:33:55Z  [session] scaling gpu to 1 -- the nodes start billing here
+   ok   T6: ip-10-0-63-50.ap-northeast-2.compute.internal i-00ba7032b92e53215
+   ok   Z2: ip-10-0-63-50.ap-northeast-2.compute.internal ap-northeast-2a
+   ok   T7: qualification job train-qualify succeeded: admittedAt 2026-10-29T04:33:49Z, runningObservedAt 2026-10-29T04:36:18Z, admitToRunningSeconds 149.511
+   ok   Q: four distinct UUIDs, one driver, a 4 x 4 topology and 1 GiB of /dev/shm
+04:37:21Z  [session] == allreduce-1pod4gpu as c-warm
+04:39:21Z  [session] allreduce-1pod4gpu: phase 'Succeeded' after 119 s
+   ok   T7b: AR_WARM devices 4 nccl 2.21.5
+04:39:29Z  [session] == nccltests-1pod4gpu as c-smoke-nccltests-1pod4gpu-043929
+04:40:17Z  [session] nccltests-1pod4gpu: phase 'Succeeded' after 47 s
+04:40:25Z  [session] == allreduce-1pod4gpu as c-smoke-allreduce-1pod4gpu-044025
+04:40:57Z  [session] allreduce-1pod4gpu: phase 'Succeeded' after 32 s
+04:41:04Z  [session] == allreduce-4pod1gpu as c-smoke-allreduce-4pod1gpu-044104
+04:41:52Z  [session] allreduce-4pod1gpu: phase 'Succeeded' after 47 s
+04:42:01Z  [session] == ddp-1pod4gpu as c-smoke-ddp-1pod4gpu-044201
+04:42:25Z  [session] ddp-1pod4gpu: phase 'Succeeded' after 23 s
+04:42:33Z  [session] == ddp-4pod1gpu as c-smoke-ddp-4pod1gpu-044233
+04:43:05Z  [session] ddp-4pod1gpu: phase 'Succeeded' after 31 s
+04:43:14Z  [session] STOPPED: smoke job ddp-4pod1gpu is not valid: INVALID /home/lkhun9311/workspace/gpu-cp-c-run4/ex/eks-session-20261029T041734Z/c/jobs/00-smoke-ddp-4pod1gpu rank 1 has 0 steps record(s), want 1; rank 2 has 0 steps record(s), want 1; rank 3 has 0 steps record(s), want 1 
+   FAIL the arms stopped: smoke job ddp-4pod1gpu is not valid: INVALID /home/lkhun9311/workspace/gpu-cp-c-run4/ex/eks-session-20261029T041734Z/c/jobs/00-smoke-ddp-4pod1gpu rank 1 has 0 steps record(s), want 1; rank 2 has 0 steps record(s), want 1; rank 3 has 0 steps record(s), want 1 
+   FAIL T8: not every job was valid: 7 invalid line(s), see /home/lkhun9311/workspace/gpu-cp-c-run4/ex/eks-session-20261029T041734Z/c/verdict.txt
+04:43:14Z  [session] scaling gpu to 0
+   ok   S6 (GPU half): gpu scaled to 0 and i-00ba7032b92e53215 terminated
+04:52:36Z  [session] destroy: argo-bootstrap, then cluster
+05:25:23Z  [session] cluster destroy failed; looking for interfaces the VPC CNI left detached, which hold subnets and security groups
+05:25:25Z  [session] deleted eni-03a91e472ab5d5d2d, a detached interface the VPC CNI left in vpc-08710b9ced9c275a8
+05:25:25Z  [session] retrying the cluster destroy
+   ok   nothing that charges remains: no EKS cluster, instance, NAT gateway, EIP, volume, ASG, load balancer cluster log group or GPU deadline schedule
+05:25:38Z  [session] kill switch disarmed: destroy returned zero, every residue query was answered, and all were empty
+05:25:38Z  [session] evidence in /home/lkhun9311/workspace/gpu-cp-c-run4/ex/eks-session-20261029T041734Z
+05:25:38Z  [session] 2 check(s) failed

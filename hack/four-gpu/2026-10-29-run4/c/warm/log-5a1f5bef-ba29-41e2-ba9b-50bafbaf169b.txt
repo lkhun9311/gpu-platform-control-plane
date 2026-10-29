@@ -1,0 +1,1 @@
+AR_WARM devices 4 nccl 2.21.5
