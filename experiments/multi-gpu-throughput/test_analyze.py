@@ -266,6 +266,13 @@ class Identity(Base):
         edit_log(path, "pod-uid-0", lambda lines: lines + ['{"run_id": "c-a", "rank": 1, "ev'])
         self.assertFault(path, "does not parse")
 
+    # Reading a record after a cut NCCL line must not read a cut record as whole: it still fails the job.
+    def test_a_record_cut_in_half_after_an_nccl_fragment(self):
+        path = write_job(self.root, "a", "allreduce-1pod4gpu")
+        cut = nccl("c-a-0", 41, 0, "Channel 01/0 : 3[0] -> 1[0] [receive] via NE") + '{"run_id": "c-a", "rank": 1, "ev'
+        edit_log(path, "pod-uid-0", lambda lines: lines + [cut])
+        self.assertFault(path, "does not parse")
+
     def test_a_rank_missing(self):
         path = write_job(self.root, "a", "allreduce-1pod4gpu")
         edit_records(path, "pod-uid-0", lambda r: None if r["rank"] == 3 else r)
@@ -475,6 +482,19 @@ class CapturedJob(unittest.TestCase):
         job = analyze.judge_job(self.JOB, BENCH, STEP, None)
         self.assertEqual(job.faults, [])
         self.assertEqual(len(set(job.uuids.values())), 4)
+
+    # Run 3's four-Pod smoke job: every rank's 1 MiB record followed a cut NCCL INFO line in the merged log, and
+    # reading only lines that start with "{" lost it, which stopped that session.
+    # Mutation that turns it red: read records only from lines that start with "{" again.
+    RUN3 = Path(__file__).resolve().parents[2] / "hack/four-gpu/2026-10-29-run3/c/jobs/00-smoke-allreduce-4pod1gpu"
+
+    def test_the_smoke_job_whose_records_followed_nccl_fragments_is_whole(self):
+        # The hash run 3 was bought with, which its ranks report having run.
+        bench = "0e9e939db4864907a24fc3acef4959b7f1c0fb51cf77e3859bac9065fd6eee00"
+        job = analyze.judge_job(self.RUN3, bench, STEP, None)
+        self.assertEqual(job.faults, [])
+        self.assertEqual(job.transports, {r: ["NET"] for r in range(4)},
+                         "a cut 'via NE' was read as a transport of its own")
 
 
 class Qualification(Base):

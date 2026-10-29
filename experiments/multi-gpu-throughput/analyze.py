@@ -219,7 +219,8 @@ def attribute_transports(job: Job, uid: str, lines: list[str], pid_to_rank: dict
     """
     for m in nccl_lines(lines):
         rank = pid_to_rank.get(int(m["pid"]))
-        if rank is None:
+        if rank is None or record_text(m.group(0)) is not None:
+            # A line a record was appended to is a cut NCCL message: its via token stops mid-word ("via NE").
             continue
         channel = CHANNEL.search(m["msg"])
         if channel:
@@ -232,14 +233,31 @@ def attribute_transports(job: Job, uid: str, lines: list[str], pid_to_rank: dict
             job.stack_env[env["name"]] = env["value"]
 
 
+def record_text(line: str) -> str | None:
+    """The text of the record a log line carries, or None.
+
+    A record starts its line, or follows a cut NCCL INFO line. NCCL's threads write to stderr in the same Pod, and
+    a message they had begun without its newline took the record onto its line in the merged log: in run 3 every
+    rank's 1 MiB record followed "via NE" or "threadThresholds 8/8/6", the message's rest ("T/Socket/0") came on a
+    later line of its own, and reading only lines that start with "{" lost the record (run 3's smoke job).
+    Nothing NCCL prints contains '{"', so the record starts at its first occurrence.
+    """
+    if line.startswith("{"):
+        return line
+    if NCCL_LINE.match(line) and '{"' in line:
+        return line[line.index('{"'):]
+    return None
+
+
 def records_of(job: Job, uid: str, lines: list[str]) -> list[dict]:
     """The JSON records in one Pod's log; a line that looks like a record and does not parse fails the job."""
     out = []
     for n, line in enumerate(lines, 1):
-        if not line.startswith("{"):
+        text = record_text(line)
+        if text is None:
             continue
         try:
-            record = json.loads(line)
+            record = json.loads(text)
         except ValueError:
             job.fault(f"Pod {uid} log line {n} looks like a record and does not parse (an interleaved write?)")
             continue
