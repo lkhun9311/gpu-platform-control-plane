@@ -274,6 +274,14 @@ spec:
                   is relative to it.
                 format: date-time
                 type: string
+              targetUID:
+                description: |-
+                  targetUID is the UID of the target object observed when the run began.
+
+                  The target is named by kind, namespace and name, and a name outlives its object.
+                  A target deleted and recreated between two polls would otherwise be read as one object, and the new
+                  object's health credited as the old one's recovery, so a run that sees a different UID is refused.
+                type: string
               verdict:
                 description: |-
                   verdict is set only in phase Complete. An empty verdict beside phase Refused is the point: there is

@@ -283,6 +283,61 @@ var _ = Describe("WorkloadRun", func() {
 		Expect(run.Status.Reason).To(ContainSubstring("stopped existing"))
 	})
 
+	// The deletion above is seen because a poll lands while the name is free.
+	// Here the target is deleted and recreated healthy between two polls, so no poll ever sees NotFound, and
+	// before the run pinned the target's UID it credited the new object's health as the old one's recovery.
+	It("refuses when the target is replaced between two polls", func() {
+		createRun(60, 30, tgtName)
+		setTargetPhase("Degraded")
+		tick(0)
+		Expect(load().Status.TargetUID).NotTo(BeEmpty())
+
+		var old platformv1.InferenceDeployment
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: tgtName, Namespace: ns}, &old)).To(Succeed())
+		Expect(k8sClient.Delete(ctx, &old)).To(Succeed())
+		Eventually(func() bool {
+			var got platformv1.InferenceDeployment
+			return apierrors.IsNotFound(k8sClient.Get(ctx, types.NamespacedName{Name: tgtName, Namespace: ns}, &got))
+		}, "20s", "200ms").Should(BeTrue())
+		Expect(k8sClient.Create(ctx, &platformv1.InferenceDeployment{
+			Name: tgtName, Namespace: ns,
+			Spec: old.Spec,
+		})).To(Succeed())
+		setTargetPhase("Ready")
+
+		tick(5 * time.Second)
+		run := load()
+		Expect(run.Status.Phase).To(Equal(platformv1.WorkloadRunRefused))
+		Expect(run.Status.Reason).To(ContainSubstring("a different object"))
+		Expect(run.Status.RecoveredAtSeconds).To(BeNil())
+		Expect(run.Status.Verdict).To(BeEmpty())
+	})
+
+	// Ready with no ready replica and Ready with one are the same phase string and opposite health.
+	// The trail compared only the string, so a run could be awarded a recovery while its trail held a single
+	// healthy observation and nothing showing either the failure or the return.
+	It("records a change of health that leaves the phase unchanged", func() {
+		createRun(30, 25, tgtName)
+		setTargetPhase("Ready")
+		tick(0)
+
+		setTargetScaledToZero()
+		tick(5 * time.Second)
+		setTargetPhase("Ready")
+		tick(5 * time.Second)
+
+		run := load()
+		Expect(run.Status.RecoveredAtSeconds).NotTo(BeNil())
+		var healthy []bool
+		for _, o := range run.Status.Observations {
+			Expect(o.State).To(Equal("Ready"))
+			healthy = append(healthy, o.Healthy)
+		}
+		Expect(healthy).To(Equal([]bool{true, false, true}),
+			"the trail must show the failure and the recovery the verdict rests on")
+		Expect(run.Status.Observations[2].ElapsedSeconds).To(Equal(*run.Status.RecoveredAtSeconds))
+	})
+
 	It("does not re-judge a run that already reached a terminal state", func() {
 		// Degraded then Ready, so the run has a failure to recover from and reaches Complete. Starting it
 		// healthy would now end in Refused -- correctly, since nothing was observed to fail -- and this spec

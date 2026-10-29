@@ -130,10 +130,11 @@ func (r *WorkloadRunReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			run.Status.ObservedGeneration, run.Generation))
 	}
 
-	state, found, serving, err := r.observeTarget(ctx, &run)
+	seen, err := r.observeTarget(ctx, &run)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
+	state, found, serving := seen.state, seen.found, seen.serving
 
 	if run.Status.Phase == "" || run.Status.Phase == platformv1.WorkloadRunPending {
 		if !found {
@@ -145,6 +146,7 @@ func (r *WorkloadRunReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 		run.Status.Phase = platformv1.WorkloadRunObserving
 		run.Status.StartedAt = &metav1.Time{Time: now}
+		run.Status.TargetUID = seen.uid
 		run.Status.ObservedGeneration = run.Generation
 		r.record(&run, now, state, serving)
 		run.Status.LastObservedAt = &metav1.Time{Time: now}
@@ -169,6 +171,17 @@ func (r *WorkloadRunReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			"target %s %q was deleted during the window; a run cannot be evidence about an object that "+
 				"stopped existing, and calling that a failure to recover would blame the platform for it",
 			run.Spec.Target.Kind, targetKey(run.Spec.Target)))
+	}
+
+	// A deletion that falls between two polls is never seen as NotFound, so the refusal above misses it.
+	// The UID does not: a recreated object has a new one, and its health is not the old object's recovery.
+	// A run with no recorded UID began before this field existed, so its target's identity was never pinned
+	// and is refused the same way rather than adopted from whatever object holds the name now.
+	if seen.uid != run.Status.TargetUID {
+		return r.refuse(ctx, &run, fmt.Sprintf(
+			"target %s %q is a different object from the one this run began observing (UID %q, now %q); "+
+				"it was deleted and recreated, and the new object's health is not the old one's recovery",
+			run.Spec.Target.Kind, targetKey(run.Spec.Target), run.Status.TargetUID, seen.uid))
 	}
 
 	elapsed := int32(now.Sub(run.Status.StartedAt.Time).Seconds())
@@ -242,8 +255,11 @@ func (r *WorkloadRunReconciler) record(run *platformv1.WorkloadRun, now time.Tim
 		elapsed = int32(now.Sub(run.Status.StartedAt.Time).Seconds())
 	}
 
+	// A change in health is a change even when the phase string holds still.
+	// An InferenceDeployment stays Ready while its ready replicas go from zero and back, and comparing only the
+	// state let a run be awarded a recovery whose trail held no healthy observation to show for it.
 	n := len(run.Status.Observations)
-	if n == 0 || run.Status.Observations[n-1].State != state {
+	if n == 0 || run.Status.Observations[n-1].State != state || run.Status.Observations[n-1].Healthy != healthy {
 		run.Status.Observations = append(run.Status.Observations, platformv1.WorkloadRunObservation{
 			ElapsedSeconds: elapsed,
 			State:          state,
@@ -323,7 +339,7 @@ func isServing(kind, phase string, u *unstructured.Unstructured) (bool, error) {
 // Unstructured on purpose: the two watchable kinds report a phase in the same place and this reads that
 // place, rather than importing both types and teaching this controller their internals. What it must NOT
 // do is normalise -- the target's own vocabulary is what goes in the trail.
-func (r *WorkloadRunReconciler) observeTarget(ctx context.Context, run *platformv1.WorkloadRun) (string, bool, bool, error) {
+func (r *WorkloadRunReconciler) observeTarget(ctx context.Context, run *platformv1.WorkloadRun) (targetObservation, error) {
 	u := &unstructured.Unstructured{}
 	u.SetGroupVersionKind(schema.GroupVersionKind{
 		Group:   platformv1.GroupVersion.Group,
@@ -333,24 +349,37 @@ func (r *WorkloadRunReconciler) observeTarget(ctx context.Context, run *platform
 	key := types.NamespacedName{Name: run.Spec.Target.Name, Namespace: run.Spec.Target.Namespace}
 	if err := r.Get(ctx, key, u); err != nil {
 		if apierrors.IsNotFound(err) {
-			return "", false, false, nil
+			return targetObservation{}, nil
 		}
-		return "", false, false, err
+		return targetObservation{}, err
 	}
+	seen := targetObservation{found: true, uid: u.GetUID()}
 	phase, ok, err := unstructured.NestedString(u.Object, "status", "phase")
 	if err != nil {
-		return "", true, false, fmt.Errorf("read %s %q status.phase: %w", run.Spec.Target.Kind, key, err)
+		return seen, fmt.Errorf("read %s %q status.phase: %w", run.Spec.Target.Kind, key, err)
 	}
 	if !ok || phase == "" {
 		// A target that has not reported yet is a real state and is recorded as one. Treating it as absent
 		// would refuse every run that starts before its target's first reconcile.
-		return "NoPhase", true, false, nil
+		seen.state = "NoPhase"
+		return seen, nil
 	}
+	seen.state = phase
 	serving, err := isServing(run.Spec.Target.Kind, phase, u)
 	if err != nil {
-		return phase, true, false, fmt.Errorf("judge whether %s %q is serving: %w", run.Spec.Target.Kind, key, err)
+		return seen, fmt.Errorf("judge whether %s %q is serving: %w", run.Spec.Target.Kind, key, err)
 	}
-	return phase, true, serving, nil
+	seen.serving = serving
+	return seen, nil
+}
+
+// targetObservation is one poll's reading of the target.
+type targetObservation struct {
+	state   string
+	found   bool
+	serving bool
+	// uid tells this object from a later one recreated under the same name.
+	uid types.UID
 }
 
 func targetKey(t platformv1.WorkloadRunTarget) string {

@@ -18,6 +18,7 @@ package v1
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 )
 
 // A WorkloadRun is one injected failure, watched, and an evidence trail that refuses to be written when it
@@ -183,6 +184,13 @@ type WorkloadRunStatus struct {
 	// startedAt is when observation began. Every elapsedSeconds is relative to it.
 	// +optional
 	StartedAt *metav1.Time `json:"startedAt,omitempty"`
+	// targetUID is the UID of the target object observed when the run began.
+	//
+	// The target is named by kind, namespace and name, and a name outlives its object.
+	// A target deleted and recreated between two polls would otherwise be read as one object, and the new
+	// object's health credited as the old one's recovery, so a run that sees a different UID is refused.
+	// +optional
+	TargetUID types.UID `json:"targetUID,omitempty"`
 	// lastObservedAt is when the controller last actually looked.
 	//
 	// It exists so a GAP is detectable. Observations record only changes, so a trail with nothing in it for
