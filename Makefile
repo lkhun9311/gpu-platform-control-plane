@@ -226,9 +226,10 @@ docker-buildx: ## Build and push docker image for the manager for cross-platform
 	- $(CONTAINER_TOOL) buildx create --name gpu-platform-control-plane-builder
 	$(CONTAINER_TOOL) buildx use gpu-platform-control-plane-builder
 	@# The build's status is kept through the cleanup and returned: with a leading -, a failed build or push left the
-	@# target green and no image published (codex audit, 2026-10-28).
+	@# target green and no image published (codex audit, 2026-10-28). The builder's removal stays ignored, as it was,
+	@# so that under -e its failure cannot skip the file's removal or replace the build's status (codex review).
 	rc=0; $(CONTAINER_TOOL) buildx build --push --platform=$(PLATFORMS) --tag ${IMG} -f Dockerfile.cross . || rc=$$?; \
-	$(CONTAINER_TOOL) buildx rm gpu-platform-control-plane-builder; \
+	$(CONTAINER_TOOL) buildx rm gpu-platform-control-plane-builder || true; \
 	rm Dockerfile.cross; \
 	exit $$rc
 
