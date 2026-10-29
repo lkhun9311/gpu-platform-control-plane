@@ -1095,9 +1095,56 @@ log "destroy: argo-bootstrap, then cluster"
 terraform -chdir="$ARGO_DIR" destroy -auto-approve -input=false \
   -var="cluster_endpoint=$endpoint" -var="cluster_ca=$ca" >>"$EXDIR/terraform.log" 2>&1 ||
   log "warning: argo destroy returned non-zero; the cluster destroy below removes it anyway"
-terraform -chdir="$CLUSTER_DIR" destroy -auto-approve -input=false -lock-timeout=10m \
-  -var="region=$REGION" -var="cluster_name=$CLUSTER" $TF_TRAIN_VARS \
-  >>"$EXDIR/terraform.log" 2>&1 || {
+destroy_cluster() {
+  terraform -chdir="$CLUSTER_DIR" destroy -auto-approve -input=false -lock-timeout=10m \
+    -var="region=$REGION" -var="cluster_name=$CLUSTER" $TF_TRAIN_VARS \
+    >>"$EXDIR/terraform.log" 2>&1
+}
+# sweep_leaked_cni_enis deletes the network interfaces the VPC CNI left detached in this cluster's VPC.
+#
+# The CNI's interfaces outlive their node when it is terminated before the CNI releases them, and one detached
+# interface holds its subnet and security group: four-GPU run 3's destroy failed on exactly that (DependencyViolation,
+# 2026-10-29) with nothing left billing, and finished once the interface was deleted by hand.
+# They appear only after the node group is gone, which is inside the destroy, so the sweep runs after a failed
+# destroy and before its one retry. It returns non-zero when it deleted nothing, so a retry is made only when
+# something changed; an interface it cannot delete is named and stops the sweep.
+sweep_leaked_cni_enis() {
+  local vpc enis eni err
+  if ! vpc=$(aws ec2 describe-vpcs --region "$REGION" --filters "Name=tag:project,Values=gpu-platform-control-plane" \
+    --query 'Vpcs[].VpcId' --output text 2>&1); then
+    log "the CNI sweep could not list the cluster's VPC: $vpc"
+    return 1
+  fi
+  if [[ -z "$vpc" || "$vpc" == None ]]; then
+    log "the CNI sweep found no VPC left, so no interface can be holding it"
+    return 1
+  fi
+  if [[ "$vpc" == *[[:space:]]* ]]; then
+    log "the CNI sweep found more than one project VPC ($vpc) and deletes nothing it cannot attribute"
+    return 1
+  fi
+  if ! enis=$(aws ec2 describe-network-interfaces --region "$REGION" --filters "Name=vpc-id,Values=$vpc" \
+    "Name=status,Values=available" "Name=description,Values=aws-K8S-*" \
+    --query 'NetworkInterfaces[].NetworkInterfaceId' --output text 2>&1); then
+    log "the CNI sweep could not list $vpc's interfaces: $enis"
+    return 1
+  fi
+  if [[ -z "$enis" || "$enis" == None ]]; then
+    log "the CNI sweep found no detached aws-K8S interface in $vpc"
+    return 1
+  fi
+  for eni in $enis; do
+    if ! err=$(aws ec2 delete-network-interface --region "$REGION" --network-interface-id "$eni" 2>&1); then
+      log "the CNI sweep could not delete $eni: $err"
+      return 1
+    fi
+    log "deleted $eni, a detached interface the VPC CNI left in $vpc"
+  done
+}
+if ! destroy_cluster; then
+  log "cluster destroy failed; looking for interfaces the VPC CNI left detached, which hold subnets and security groups"
+  sweep_leaked_cni_enis && log "retrying the cluster destroy" && destroy_cluster
+fi || {
   if kill -0 "$KILL_PID" 2>/dev/null; then
     bad "CLUSTER DESTROY FAILED -- the kill switch at PID $KILL_PID will retry at TTL. Do not walk away."
   else
