@@ -294,6 +294,32 @@ func TestAStaleSnapshotDoesNotRewriteHistoryBackwards(t *testing.T) {
 	}
 }
 
+// A refusal ends a run without advancing lastObservedAt, so the Observing snapshot taken just before it carries
+// the same instant and passed the freshness check; it overwrote Refused with Observing (codex audit, 2026-10-28).
+// A terminal phase is now never followed by a non-terminal one.
+//
+// Mutation that turns this red: drop the terminal-phase condition from isAtLeastAsFresh.
+func TestAnEqualTimeSnapshotDoesNotUndoATerminalPhase(t *testing.T) {
+	s := openTemp(t)
+	start := projectedAt.Add(-time.Minute)
+	refused := runWith("uid-1", "r1", platformv1.WorkloadRunRefused, &start, projectedAt, obs(0, "Ready", true))
+	refused.Status.Reason = "the target was never observed unhealthy"
+	if _, err := s.ProjectWorkloadRuns([]platformv1.WorkloadRun{refused}, projectedAt); err != nil {
+		t.Fatalf("projection of the refused run: %v", err)
+	}
+	before := runWith("uid-1", "r1", platformv1.WorkloadRunObserving, &start, projectedAt, obs(0, "Ready", true))
+	p, err := s.ProjectWorkloadRuns([]platformv1.WorkloadRun{before}, projectedAt.Add(time.Hour))
+	if err != nil {
+		t.Fatalf("projecting the earlier snapshot should be a no-op, not an error: %v", err)
+	}
+	if got := phaseOf(t, s, "uid-1"); got != string(platformv1.WorkloadRunRefused) {
+		t.Fatalf("an Observing snapshot at the same instant moved the stored phase to %q", got)
+	}
+	if p.RunsStale != 1 || p.RunsWritten != 0 {
+		t.Fatalf("the snapshot was counted as written %d and stale %d, want 0 and 1", p.RunsWritten, p.RunsStale)
+	}
+}
+
 // The same position reported twice with different contents is a contradiction about the cluster, not a
 // duplicate of a fact. Settling it silently would leave a row that reads as evidence.
 func TestAContradictedPositionIsRefusedRatherThanResolved(t *testing.T) {
