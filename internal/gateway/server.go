@@ -401,6 +401,8 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !ok {
+		// RFC 9110 requires a 401 to carry the challenge, so a client can tell which credential was wanted.
+		w.Header().Set("WWW-Authenticate", `Bearer realm="gateway"`)
 		s.fail(w, "", "", http.StatusUnauthorized)
 		return
 	}

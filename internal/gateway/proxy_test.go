@@ -222,6 +222,9 @@ var _ = Describe("chat completions pipeline", func() {
 		s.Handler().ServeHTTP(rr, r)
 		Expect(rr.Code).To(Equal(http.StatusUnauthorized))
 		expectJSONError(rr, "unauthorized")
+		// RFC 9110 requires a 401 to name the scheme it wants; the metrics endpoint already did.
+		// Mutation that turns this red: drop the challenge from the 401 path.
+		Expect(rr.Header().Get("WWW-Authenticate")).To(HavePrefix("Bearer "))
 	})
 
 	It("returns 401 when the bearer token is unknown", func() {
@@ -233,6 +236,9 @@ var _ = Describe("chat completions pipeline", func() {
 		s.Handler().ServeHTTP(rr, r)
 		Expect(rr.Code).To(Equal(http.StatusUnauthorized))
 		expectJSONError(rr, "unauthorized")
+		// RFC 9110 requires a 401 to name the scheme it wants; the metrics endpoint already did.
+		// Mutation that turns this red: drop the challenge from the 401 path.
+		Expect(rr.Header().Get("WWW-Authenticate")).To(HavePrefix("Bearer "))
 	})
 
 	It("returns 403 when the tenant has no policy", func() {
