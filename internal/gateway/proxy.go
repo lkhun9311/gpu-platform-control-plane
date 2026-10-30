@@ -275,6 +275,8 @@ type statusRecorder struct {
 	// record's first-content stamp; both nil when the gateway records nothing.
 	onBody  func([]byte)
 	onFlush func()
+	// onActivity runs when the headers or a body byte reach the client, for the idle bound; nil when none applies.
+	onActivity func()
 }
 
 // WriteHeader records the status code and forwards it to the wrapped writer.
@@ -283,6 +285,9 @@ func (rec *statusRecorder) WriteHeader(c int) {
 	rec.answered = true
 	rec.markFirstByte()
 	rec.ResponseWriter.WriteHeader(c)
+	if rec.onActivity != nil {
+		rec.onActivity()
+	}
 }
 
 // markFirstByte stamps the instant the client first heard anything, and only the first time.
@@ -309,6 +314,9 @@ func (rec *statusRecorder) Write(b []byte) (int, error) {
 	}
 	if n > 0 && rec.onBody != nil {
 		rec.onBody(b[:n])
+	}
+	if n > 0 && rec.onActivity != nil {
+		rec.onActivity()
 	}
 	return n, err
 }

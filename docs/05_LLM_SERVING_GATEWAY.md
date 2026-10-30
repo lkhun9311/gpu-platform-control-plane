@@ -62,6 +62,8 @@ policy.spec.rateLimit       --> token-bucket config (nil → unlimited, logged +
 | upstream HTTP 5xx                               | passthrough | (upstream body, unmodified) |
 
 The two 429 sources are deliberately distinguishable — the M5 flagship's R3/R4 comparison depends on telling them apart in logs and metrics.
+A response whose upstream has sent its headers and then nothing for five minutes is ended, because a streaming engine sends headers before its first token and nothing else bounds the silence after them; the client sees its stream close, and the gateway logs why. The bound is on silence, not on length.
+
 `rate_limited` carries `Retry-After` set to the seconds until the tenant's next token, rounded up, plus 0 or 1 at random so clients refused together do not return together; an admission 429 carries a fixed `Retry-After: 5`, since the gateway cannot compute when pressure clears.
 
 ## M5 extension — KV-cache-aware admission guard

@@ -135,6 +135,10 @@ type Server struct {
 	//
 	// A field lets tests drive the same code path with a short bound.
 	responseHeaderTimeout time.Duration
+	// bodyIdleTimeout bounds the silence between an upstream's response headers and its next body byte, and between body bytes.
+	//
+	// Zero selects defaultBodyIdleTimeout, so production leaves it unset; tests shorten it.
+	bodyIdleTimeout time.Duration
 	// transport is the single outbound Transport every proxied request reuses, and transportOnce builds it on first use.
 	//
 	// The connection pool lives inside the Transport, so it is only a pool at all while one Transport outlives many requests.
@@ -318,6 +322,14 @@ func (s *Server) failReason(w http.ResponseWriter, tenant, model string, code in
 	requests.WithLabelValues(tenant, model, strconv.Itoa(code)).Inc()
 	w.Header().Set("Retry-After", "5")
 	writeJSONErrorCode(w, code, reason, http.StatusText(code))
+}
+
+// bodyIdleBound is the configured idle bound, or the default when none was set.
+func (s *Server) bodyIdleBound() time.Duration {
+	if s.bodyIdleTimeout > 0 {
+		return s.bodyIdleTimeout
+	}
+	return defaultBodyIdleTimeout
 }
 
 // retryAfterSeconds is the Retry-After for a tenant whose next token is wait away.
@@ -628,7 +640,19 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 
 	// 8. From here the response is the upstream's, passed through rather than composed.
 	onFirstBody, onBody := responseHooks(r, tr, res)
-	rec := &statusRecorder{ResponseWriter: w, code: http.StatusOK, onFirstBody: onFirstBody, onBody: onBody, onFlush: tr.flushed}
+	// The attempt runs under its own context so the idle bound can end it; cancelling it closes the upstream
+	// connection, the body copy fails, and every deferred release runs as for any other upstream failure.
+	attemptCtx, cancelAttempt := context.WithCancel(r.Context())
+	defer cancelAttempt()
+	r = r.WithContext(attemptCtx)
+	// Logged, because the client then sees its stream end with the 200 it already had, and nothing else says why.
+	idle := newIdleWatch(s.bodyIdleBound(), func() {
+		log.FromContext(ctx).Info("ending a response its upstream left silent past the idle bound",
+			"request_id", rid, "bound", s.bodyIdleBound().String())
+		cancelAttempt()
+	})
+	defer idle.stop()
+	rec := &statusRecorder{ResponseWriter: w, code: http.StatusOK, onFirstBody: onFirstBody, onBody: onBody, onFlush: tr.flushed, onActivity: idle.touch}
 	// Each candidate is tried until one answers, and the two conditions below are what make that safe rather
 	// than merely useful.
 	//
