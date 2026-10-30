@@ -62,6 +62,9 @@ policy.spec.rateLimit       --> token-bucket config (nil → unlimited, logged +
 | upstream HTTP 5xx                               | passthrough | (upstream body, unmodified) |
 
 The two 429 sources are deliberately distinguishable — the M5 flagship's R3/R4 comparison depends on telling them apart in logs and metrics.
+A response whose upstream has sent its headers and then nothing for five minutes is ended, because a streaming engine sends headers before its first token and nothing else bounds the silence after them; the client sees its stream close, and the gateway logs why. The bound is on silence, not on length.
+
+`rate_limited` carries `Retry-After` set to the seconds until the tenant's next token, rounded up, plus 0 or 1 at random so clients refused together do not return together; an admission 429 carries a fixed `Retry-After: 5`, since the gateway cannot compute when pressure clears.
 
 ## M5 extension — KV-cache-aware admission guard
 
@@ -78,8 +81,11 @@ The token bucket is static; it cannot protect a premium tenant's p99 from a *wit
 - `serial-prefill` holds a standard-tier request until no other standard-tier request on its backend is in prefill, and refuses it with 429 after `--admission-serial-prefill-max-hold`.
 - `fixed-spacing` admits standard-tier requests to a backend no closer together than `--admission-fixed-spacing`, holding each for at most `--admission-fixed-spacing-max-hold`.
 
+Both, and HoldCap, which uses serial-prefill's line, hand turns round-robin across tenants and in arrival order within one, so a tenant that queued many requests on a backend holds one turn per round rather than every turn ahead of a tenant that queued one. With a single standard tenant, as in every registered run, the order is the arrival order it was.
+
 `--bind-priority` writes the tenant tier's engine priority into every forwarded body (premium 0, standard 1), overwriting any caller value, and reports it in `X-Engine-Priority`. It only matters to an engine started with `--scheduling-policy=priority`.
 Without the flag, the gateway binds the tier anyway when every backend a request may still be sent to is an engine the controller reports in force, its `EngineInForce` condition True for the current generation (set once every serving Pod runs the template rendered from `spec.engine`), because every rendered engine schedules by priority; without a bound tier all requests reach it at one priority and the policy does nothing. The hold-cap product study measured that on EKS: the product's Off left the premium TTFT p99 at 6 to 10 s where the lab's off, which bound the tier, gave about 1.5 s (`hack/eks-serve/holdcap-study/runs/`). A request that may fall back to a backend the controller does not render stays unbound, since that engine may not accept a priority.
+Unbound does not mean caller-chosen: such a request that may still reach a rendered engine has any `priority` the caller sent removed, because the rendered head would otherwise schedule a standard tenant's -100 ahead of premium's 0. Only a request that can reach no rendered engine keeps the caller's field.
 
 Both are off by default. They are M5-b's successor mechanisms, shown correct on kind (`hack/test/rehearse-prospective-admission.sh`) (`docs/superpowers/specs/2026-10-06-m5b-stays-closed-and-what-a-successor-needs-first.md`). `prospective` has not been measured for protection. Priority binding has, only as a constant: every arm of the admission studies ran with `-bind-priority` (`hack/lib/prospective-pilot.sh`), so its own effect was not separated. `serial-prefill` and `fixed-spacing` were measured on an A10G: the hold alone left the premium tail at 0.99 of off's, with the engine's cap it cut it to about 0.30, and a fixed spacing tuned at that load tied within 15% (`docs/11_WHAT_THIS_MEASURED.md`, Finding 9).
 

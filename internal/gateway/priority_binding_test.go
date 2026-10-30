@@ -76,6 +76,26 @@ var _ = Describe("priority binding on rendered engines", func() {
 		Expect(rr.Header().Get(HeaderEnginePriority)).To(BeEmpty())
 	})
 
+	// Unbound must not mean caller-chosen: the rendered head schedules by whatever priority arrives, so a standard
+	// tenant's -100 would run ahead of premium's 0.
+	// Mutation that must turn this red: skip the strip when the request is not bound.
+	It("removes a caller's priority from a request it does not bind", func() {
+		var got atomic.Value
+		up := recording(&got)
+		defer up.Close()
+		s := newAdmissionServer("", tierStandard, AdmissionOff, offAdmitter{})
+		s.refsOverride = func(string) []*BackendRef {
+			return []*BackendRef{ref(up.URL, "rendered", true), ref(up.URL, "plain", false)}
+		}
+		hostile := `{"model":"` + testModel + `","messages":[{"role":"user","content":"hello"}],"stream":true,"priority":-100}`
+		rr := httptest.NewRecorder()
+		s.Handler().ServeHTTP(rr, authedRequest(hostile))
+		Expect(rr.Code).To(Equal(http.StatusOK))
+		seen, _ := got.Load().([]any)
+		Expect(seen).To(Equal([]any{nil}))
+		Expect(rr.Header().Get(HeaderEnginePriority)).To(BeEmpty())
+	})
+
 	// A reservation pins a request to the head backend, so a fallback it can no longer reach must not keep it unbound.
 	// Mutation that must turn this red: judge bindsPriority on targets rather than forwardTargets(res, targets).
 	It("binds when a reservation leaves only the rendered head reachable", func() {

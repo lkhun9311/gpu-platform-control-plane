@@ -32,7 +32,7 @@ const (
 // and whether a timer is set for the head of the line.
 type fixedSpacingLine struct {
 	last    time.Time
-	waiters []waiter
+	waiters *fairLine
 	armed   bool
 }
 
@@ -62,7 +62,7 @@ func (f *fixedSpacingAdmitter) Admit(context.Context, RequestMeta, *BackendRef, 
 // An admitted standard request carries an empty reservation: nothing it does later releases anything, but a
 // reservation is what keeps it on the backend whose clock it was charged to; without one the server kept the
 // fallback backends, which no spacing had been asked about (review of b80093c).
-func (f *fixedSpacingAdmitter) Reserve(ctx context.Context, _ RequestMeta, backend *BackendRef, _, tier string) (*reservation, bool, string) {
+func (f *fixedSpacingAdmitter) Reserve(ctx context.Context, _ RequestMeta, backend *BackendRef, tenant, tier string) (*reservation, bool, string) {
 	if tier == tierPremium {
 		return nil, true, reasonPremiumUnreserved
 	}
@@ -70,17 +70,17 @@ func (f *fixedSpacingAdmitter) Reserve(ctx context.Context, _ RequestMeta, backe
 	f.mu.Lock()
 	l := f.lines[key]
 	if l == nil {
-		l = &fixedSpacingLine{}
+		l = &fixedSpacingLine{waiters: newFairLine()}
 		f.lines[key] = l
 	}
 	now := time.Now()
-	if len(l.waiters) == 0 && (l.last.IsZero() || now.Sub(l.last) >= f.spacing) {
+	if l.waiters.len() == 0 && (l.last.IsZero() || now.Sub(l.last) >= f.spacing) {
 		l.last = now
 		f.mu.Unlock()
 		return &reservation{}, true, reasonFixedSpacingFree
 	}
 	turn := make(chan struct{})
-	l.waiters = append(l.waiters, waiter{turn: turn, since: now, maxHold: f.maxHold})
+	l.waiters.push(waiter{turn: turn, since: now, maxHold: f.maxHold, tenant: tenant})
 	f.arm(key, l, now)
 	f.mu.Unlock()
 
@@ -90,24 +90,24 @@ func (f *fixedSpacingAdmitter) Reserve(ctx context.Context, _ RequestMeta, backe
 	case <-turn:
 		return &reservation{}, true, reasonFixedSpacingWaited
 	case <-timer.C:
-		f.leave(key, turn)
+		f.leave(key, tenant, turn)
 		return nil, false, reasonFixedSpacingHoldTimeout
 	case <-ctx.Done():
-		f.leave(key, turn)
+		f.leave(key, tenant, turn)
 		return nil, false, reasonFixedSpacingClientGone
 	}
 }
 
 // arm sets one timer for the head of the line, at the last admission plus the spacing; the caller holds mu.
 func (f *fixedSpacingAdmitter) arm(key string, l *fixedSpacingLine, now time.Time) {
-	if l.armed || len(l.waiters) == 0 {
+	if l.armed || l.waiters.len() == 0 {
 		return
 	}
 	l.armed = true
 	time.AfterFunc(l.last.Add(f.spacing).Sub(now), func() { f.release(key) })
 }
 
-// release admits the head of the line if its spacing has passed, and sets the timer for the next one.
+// release admits the waiter whose turn it is if its spacing has passed, and sets the timer for the next one.
 // A head already past its hold is dropped, not admitted, and takes no slot: its own timer refuses it (v26 review, A14).
 func (f *fixedSpacingAdmitter) release(key string) {
 	f.mu.Lock()
@@ -115,12 +115,10 @@ func (f *fixedSpacingAdmitter) release(key string) {
 	l := f.lines[key]
 	l.armed = false
 	now := time.Now()
-	for len(l.waiters) > 0 && now.Sub(l.waiters[0].since) > l.waiters[0].maxHold {
-		l.waiters = l.waiters[1:]
-	}
-	if len(l.waiters) > 0 && now.Sub(l.last) >= f.spacing {
-		close(l.waiters[0].turn)
-		l.waiters = l.waiters[1:]
+	l.waiters.dropExpired(now)
+	if l.waiters.len() > 0 && now.Sub(l.last) >= f.spacing {
+		w, _ := l.waiters.pop(now)
+		close(w.turn)
 		l.last = now
 	}
 	f.arm(key, l, now)
@@ -128,16 +126,10 @@ func (f *fixedSpacingAdmitter) release(key string) {
 
 // leave takes a waiter out of line. One whose turn was handed to it as it gave up was counted as admitted, and that
 // slot is spent: the race is at the 25 s hold or a client's exit, and spending the slot only ever slows this arm.
-func (f *fixedSpacingAdmitter) leave(key string, turn chan struct{}) {
+func (f *fixedSpacingAdmitter) leave(key, tenant string, turn chan struct{}) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	l := f.lines[key]
-	for i, c := range l.waiters {
-		if c.turn == turn {
-			l.waiters = append(l.waiters[:i:i], l.waiters[i+1:]...)
-			return
-		}
-	}
+	f.lines[key].waiters.remove(tenant, turn)
 }
 
 // waiting reports how many standard requests wait on a backend, for tests.
@@ -145,7 +137,7 @@ func (f *fixedSpacingAdmitter) waiting(backend *BackendRef) int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if l := f.lines[backend.URL.String()]; l != nil {
-		return len(l.waiters)
+		return l.waiters.len()
 	}
 	return 0
 }

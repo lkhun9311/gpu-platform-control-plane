@@ -222,6 +222,9 @@ var _ = Describe("chat completions pipeline", func() {
 		s.Handler().ServeHTTP(rr, r)
 		Expect(rr.Code).To(Equal(http.StatusUnauthorized))
 		expectJSONError(rr, "unauthorized")
+		// RFC 9110 requires a 401 to name the scheme it wants; the metrics endpoint already did.
+		// Mutation that turns this red: drop the challenge from the 401 path.
+		Expect(rr.Header().Get("WWW-Authenticate")).To(HavePrefix("Bearer "))
 	})
 
 	It("returns 401 when the bearer token is unknown", func() {
@@ -233,6 +236,9 @@ var _ = Describe("chat completions pipeline", func() {
 		s.Handler().ServeHTTP(rr, r)
 		Expect(rr.Code).To(Equal(http.StatusUnauthorized))
 		expectJSONError(rr, "unauthorized")
+		// RFC 9110 requires a 401 to name the scheme it wants; the metrics endpoint already did.
+		// Mutation that turns this red: drop the challenge from the 401 path.
+		Expect(rr.Header().Get("WWW-Authenticate")).To(HavePrefix("Bearer "))
 	})
 
 	It("returns 403 when the tenant has no policy", func() {
@@ -274,6 +280,10 @@ var _ = Describe("chat completions pipeline", func() {
 		s.Handler().ServeHTTP(second, authedRequest(`{"model":"llama-3"}`))
 		Expect(second.Code).To(Equal(http.StatusTooManyRequests)) // none left
 		expectJSONError(second, "rate_limited")
+		// The bucket refills one token a minute, so the next token is about 60 s away, and the hint says so rather
+		// than leaving the client to guess; the second it may add spreads clients refused together.
+		// Mutation that turns this red: leave the RPM refusal without Retry-After, or report the delay floored.
+		Expect(second.Header().Get("Retry-After")).To(BeElementOf("60", "61"))
 	})
 
 	It("returns 400 for a malformed JSON body", func() {
@@ -914,6 +924,31 @@ var _ = Describe("readRequestMeta", func() {
 	It("estimates from the exact content key, not a case variant after it", func() {
 		long := strings.Repeat("a", 400)
 		body := `{"model":"llama-3","messages":[{"role":"user","content":"` + long + `","Content":"hi"}]}`
+		r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+		_, meta, err := readRequestMeta(r, false)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(meta.EstInputTokens).To(Equal(100))
+	})
+
+	// The engine renders tool definitions, documents, a caller's template and earlier tool calls into the prompt, so a
+	// request carrying "hi" beside a long tool schema was metered as one token and run as hundreds.
+	// Mutation that turns this red: count message content alone.
+	DescribeTable("counts every prompt-bearing field the engine renders",
+		func(body string) {
+			r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+			_, meta, err := readRequestMeta(r, false)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(meta.EstInputTokens).To(BeNumerically(">=", 100))
+		},
+		Entry("tools", `{"model":"m","messages":[{"role":"user","content":"hi"}],"tools":[{"type":"function","function":{"name":"f","description":"`+strings.Repeat("a", 400)+`"}}]}`),
+		Entry("documents", `{"model":"m","messages":[{"role":"user","content":"hi"}],"documents":[{"text":"`+strings.Repeat("a", 400)+`"}]}`),
+		Entry("chat_template", `{"model":"m","messages":[{"role":"user","content":"hi"}],"chat_template":"`+strings.Repeat("a", 400)+`"}`),
+		Entry("a message's tool_calls", `{"model":"m","messages":[{"role":"assistant","tool_calls":[{"id":"c","type":"function","function":{"name":"f","arguments":"`+strings.Repeat("a", 400)+`"}}]},{"role":"user","content":"hi"}]}`),
+	)
+
+	// The registered benchmark shape carries none of those fields, so its estimate must not move.
+	It("leaves a text-only request's estimate where it was", func() {
+		body := `{"model":"m","messages":[{"role":"user","content":"` + strings.Repeat("a", 400) + `"}],"stream":true,"max_tokens":64}`
 		r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
 		_, meta, err := readRequestMeta(r, false)
 		Expect(err).NotTo(HaveOccurred())
@@ -1624,6 +1659,49 @@ var _ = Describe("fallback on a retryable upstream status", func() {
 		// Mutation that turns this red: delete the release on the not-replayable guard.
 		Expect(rec.Code).To(Equal(http.StatusBadGateway), "the client was not told the backend failed")
 		Expect(rec.Body.Len()).NotTo(BeZero(), "the gateway's error envelope did not reach the client")
+	})
+
+	// The transport has a replay of its own, below tryBackends: a POST carrying Idempotency-Key is replayable to
+	// net/http, which resends it on a fresh connection when a pooled one dies after the request was written.
+	// No engine behind this gateway deduplicates by that key, so the resend runs the completion twice.
+	// Mutation that turns this red: stop removing the idempotency headers in the Director.
+	It("does not let the transport resend a POST that carried an idempotency key", func() {
+		var arrivals atomic.Int64
+		up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = io.ReadAll(r.Body)
+			// The second arrival is dropped after it was read in full, on the connection the first one warmed.
+			if arrivals.Add(1) == 2 {
+				if hj, ok := w.(http.Hijacker); ok {
+					if conn, _, err := hj.Hijack(); err == nil {
+						_ = conn.Close()
+					}
+				}
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+		}))
+		DeferCleanup(up.Close)
+		s := newAdmissionServer(up.URL, tierStandard, AdmissionOff, offAdmitter{})
+		body := `{"model":"` + testModel + `","messages":[{"role":"user","content":"hi"}]}`
+
+		warm := httptest.NewRecorder()
+		s.Handler().ServeHTTP(warm, authedRequest(body))
+		Expect(warm.Code).To(Equal(http.StatusOK))
+
+		for _, h := range []string{"Idempotency-Key", "X-Idempotency-Key"} {
+			arrivals.Store(1)
+			r := authedRequest(body)
+			r.Header.Set(h, "k-1")
+			rec := httptest.NewRecorder()
+			s.Handler().ServeHTTP(rec, r)
+			Expect(arrivals.Load()).To(Equal(int64(2)), h+": the backend received the completion again")
+			Expect(rec.Code).To(Equal(http.StatusBadGateway), h)
+			// Re-warm a connection for the next header.
+			arrivals.Store(0)
+			again := httptest.NewRecorder()
+			s.Handler().ServeHTTP(again, authedRequest(body))
+			Expect(again.Code).To(Equal(http.StatusOK))
+		}
 	})
 
 	// The client must be able to tell which side failed, which means the backend's status reaches them

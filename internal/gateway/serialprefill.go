@@ -36,12 +36,12 @@ const (
 	reasonSerialPrefillClientGone = "serial_prefill_client_gone"
 )
 
-// serialPrefillAdmitter keeps, per backend, whether a standard request is in prefill and who is waiting, in order.
+// serialPrefillAdmitter keeps, per backend, whether a standard request is in prefill and who is waiting, in turn.
 type serialPrefillAdmitter struct {
 	mu      sync.Mutex
 	maxHold time.Duration
 	busy    map[string]bool
-	waiters map[string][]waiter
+	waiters map[string]*fairLine
 }
 
 // waiter is a held request's turn, when it began waiting and how long it may wait, so a turn is never handed to one already past its hold.
@@ -50,6 +50,7 @@ type waiter struct {
 	turn    chan struct{}
 	since   time.Time
 	maxHold time.Duration
+	tenant  string
 }
 
 // NewSerialPrefillAdmitter returns the serial-prefill admitter with its longest hold.
@@ -58,7 +59,7 @@ func NewSerialPrefillAdmitter(maxHold time.Duration) Admitter {
 }
 
 func newSerialPrefillAdmitter(maxHold time.Duration) *serialPrefillAdmitter {
-	return &serialPrefillAdmitter{maxHold: maxHold, busy: map[string]bool{}, waiters: map[string][]waiter{}}
+	return &serialPrefillAdmitter{maxHold: maxHold, busy: map[string]bool{}, waiters: map[string]*fairLine{}}
 }
 
 // Admit refuses, as the prospective admitter's does: the server reaches a reserving admitter only through Reserve,
@@ -69,24 +70,29 @@ func (s *serialPrefillAdmitter) Admit(context.Context, RequestMeta, *BackendRef,
 
 // Reserve admits a premium request at once, and a standard one when its backend has no standard request in prefill,
 // waiting its turn behind those that arrived before it.
-func (s *serialPrefillAdmitter) Reserve(ctx context.Context, _ RequestMeta, backend *BackendRef, _, tier string) (*reservation, bool, string) {
-	return s.reserve(ctx, backend, tier, s.maxHold)
+func (s *serialPrefillAdmitter) Reserve(ctx context.Context, _ RequestMeta, backend *BackendRef, tenant, tier string) (*reservation, bool, string) {
+	return s.reserve(ctx, backend, tenant, tier, s.maxHold)
 }
 
 // reserve is Reserve with the hold passed in, so the hold-cap admitter can give each backend the hold from its own spec.
-func (s *serialPrefillAdmitter) reserve(ctx context.Context, backend *BackendRef, tier string, maxHold time.Duration) (*reservation, bool, string) {
+func (s *serialPrefillAdmitter) reserve(ctx context.Context, backend *BackendRef, tenant, tier string, maxHold time.Duration) (*reservation, bool, string) {
 	if tier == tierPremium {
 		return nil, true, reasonPremiumUnreserved
 	}
 	key := backend.URL.String()
 	s.mu.Lock()
-	if !s.busy[key] && len(s.waiters[key]) == 0 {
+	line := s.waiters[key]
+	if line == nil {
+		line = newFairLine()
+		s.waiters[key] = line
+	}
+	if !s.busy[key] && line.len() == 0 {
 		s.busy[key] = true
 		s.mu.Unlock()
 		return s.hold(key), true, reasonSerialPrefillFree
 	}
 	turn := make(chan struct{})
-	s.waiters[key] = append(s.waiters[key], waiter{turn: turn, since: time.Now(), maxHold: maxHold})
+	line.push(waiter{turn: turn, since: time.Now(), maxHold: maxHold, tenant: tenant})
 	s.mu.Unlock()
 
 	timer := time.NewTimer(maxHold)
@@ -95,10 +101,10 @@ func (s *serialPrefillAdmitter) reserve(ctx context.Context, backend *BackendRef
 	case <-turn:
 		return s.hold(key), true, reasonSerialPrefillWaited
 	case <-timer.C:
-		s.leave(key, turn)
+		s.leave(key, tenant, turn)
 		return nil, false, reasonSerialPrefillHoldTimeout
 	case <-ctx.Done():
-		s.leave(key, turn)
+		s.leave(key, tenant, turn)
 		return nil, false, reasonSerialPrefillClientGone
 	}
 }
@@ -108,21 +114,18 @@ func (s *serialPrefillAdmitter) hold(key string) *reservation {
 	return &reservation{releasePrefill: func() { s.next(key) }, onContent: true}
 }
 
-// next passes the backend to the longest waiter, or marks it free; the turn is handed over under the lock, so no
+// next passes the backend to the waiter whose turn it is, or marks it free; the turn is handed over under the lock, so no
 // request can slip in between a release and the waiter it was meant for.
 // A waiter already past its hold is skipped, not handed the turn: its own timer refuses it, and a turn and a timer
 // ready together would otherwise be decided at random (v26 review, A14).
 func (s *serialPrefillAdmitter) next(key string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	now := time.Now()
-	for w := s.waiters[key]; len(w) > 0; w = s.waiters[key] {
-		s.waiters[key] = w[1:]
-		if now.Sub(w[0].since) > w[0].maxHold {
-			continue
+	if line := s.waiters[key]; line != nil {
+		if w, ok := line.pop(time.Now()); ok {
+			close(w.turn)
+			return
 		}
-		close(w[0].turn)
-		return
 	}
 	s.busy[key] = false
 }
@@ -132,15 +135,11 @@ func (s *serialPrefillAdmitter) next(key string) {
 // A waiter no longer in line was either handed the turn, whose channel is then closed, or skipped by next for being
 // past its hold, whose channel is not; only the first may pass the turn on, or a skipped waiter's timeout admits a
 // second request beside the holder (review of 0057699).
-func (s *serialPrefillAdmitter) leave(key string, turn chan struct{}) {
+func (s *serialPrefillAdmitter) leave(key, tenant string, turn chan struct{}) {
 	s.mu.Lock()
-	w := s.waiters[key]
-	for i, c := range w {
-		if c.turn == turn {
-			s.waiters[key] = append(w[:i:i], w[i+1:]...)
-			s.mu.Unlock()
-			return
-		}
+	if line := s.waiters[key]; line != nil && line.remove(tenant, turn) {
+		s.mu.Unlock()
+		return
 	}
 	s.mu.Unlock()
 	select {
@@ -155,5 +154,8 @@ func (s *serialPrefillAdmitter) state(backend *BackendRef) (bool, int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	key := backend.URL.String()
-	return s.busy[key], len(s.waiters[key])
+	if line := s.waiters[key]; line != nil {
+		return s.busy[key], line.len()
+	}
+	return s.busy[key], 0
 }

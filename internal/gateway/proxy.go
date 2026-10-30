@@ -92,6 +92,8 @@ type RequestMeta struct {
 	// Choices is how many completions the request asks for: n when it is a whole JSON number, 1 when n is absent or null as the API defaults it.
 	// Any other n is 0, so a rule that must know the count refuses it instead of guessing.
 	Choices int
+	// CallerPriority is true when the body carries a top-level "priority" key, which the engine schedules by.
+	CallerPriority bool
 }
 
 // chatMessage is one entry in messages, keyed exactly as the body spells it.
@@ -130,14 +132,15 @@ func newRequestID() string {
 // That is what lets the caller populate http.Request.GetBody, which http.Transport needs to replay a request onto a fresh connection when it finds a pooled one already closed by the upstream.
 //
 // The reach is specifically the case where the write failed having sent nothing: shouldRetryRequest allows that retry on req.GetBody != nil alone, whereas every other stale-connection error additionally requires isReplayable, which is false for a POST without an Idempotency-Key (go1.25.7 net/http).
+// newReverseProxy's Director removes that key and its X- variant, so every forwarded POST is in that case.
 //
 // So this narrows the exposure the shared pool introduces rather than removing it, which is worth having because it is free.
 //
 // maxBodyBytes already bounds the buffer, so nothing here widens the memory exposure the single-reader version had.
 //
-// Only model and messages[].content are decoded.
+// Only model and messages[].content are decoded; the other prompt-bearing fields are measured by their raw length.
 //
-// The gateway routes on model and estimates admission cost from content, and must forward everything else untouched; modelling the whole schema would mean editing the gateway whenever the OpenAI API grows a field, and would silently drop any field not yet declared.
+// The gateway routes on model and estimates admission cost from what the engine renders into the prompt, and must forward everything else untouched; modelling the whole schema would mean editing the gateway whenever the OpenAI API grows a field, and would silently drop any field not yet declared.
 func readRequestMeta(r *http.Request, profile bool) (func() (io.ReadCloser, error), RequestMeta, error) {
 	// The nil first argument means MaxBytesReader will not write a response itself; the caller owns the status code.
 	//
@@ -176,12 +179,13 @@ func readRequestMeta(r *http.Request, profile bool) (func() (io.ReadCloser, erro
 		}
 	}
 
-	meta := RequestMeta{Model: model, Stream: string(keys["stream"]) == "true", Choices: requestedChoices(keys["n"])}
+	_, callerPriority := keys["priority"]
+	meta := RequestMeta{Model: model, Stream: string(keys["stream"]) == "true", Choices: requestedChoices(keys["n"]), CallerPriority: callerPriority}
 	var totalChars int
 	for _, m := range messages {
 		content := m["content"]
 		// An absent content field, or an explicit JSON null, carries no text and is not a non-text part either.
-		if len(content) == 0 || string(content) == "null" {
+		if len(content) == 0 || string(content) == jsonNull {
 			continue
 		}
 		var text string
@@ -197,6 +201,15 @@ func readRequestMeta(r *http.Request, profile bool) (func() (io.ReadCloser, erro
 		meta.NonTextContent = true
 		totalChars += len(content)
 	}
+	// The engine renders these into the prompt too, so leaving them out admitted a long tool schema beside "hi" as one token.
+	// Their raw JSON length is counted, which over-counts the punctuation the template drops and never under-counts the text.
+	// The benchmark profile refuses every one of them, so the registered arms' estimate is unchanged.
+	for _, m := range messages {
+		totalChars += renderedBytes(m["tool_calls"])
+	}
+	for _, k := range []string{"tools", "documents", "chat_template"} {
+		totalChars += renderedBytes(keys[k])
+	}
 	// Ceiling division, not floor: a conservative estimate must never read lower than the total byte length implies.
 	meta.EstInputTokens = (totalChars + 3) / 4
 
@@ -206,9 +219,22 @@ func readRequestMeta(r *http.Request, profile bool) (func() (io.ReadCloser, erro
 	return func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(buf)), nil }, meta, nil
 }
 
+// jsonNull is the JSON literal a field the caller set to nothing reads as.
+const jsonNull = "null"
+
+// renderedBytes is the length a prompt-bearing field adds to the estimate: its raw JSON, or nothing when it is empty.
+// An empty list or a null renders no text, and counting its brackets would make a tool-free request cost a token.
+func renderedBytes(raw json.RawMessage) int {
+	switch string(bytes.TrimSpace(raw)) {
+	case "", jsonNull, "[]", "{}", `""`:
+		return 0
+	}
+	return len(raw)
+}
+
 // requestedChoices reads n as RequestMeta.Choices defines it.
 func requestedChoices(raw json.RawMessage) int {
-	if len(raw) == 0 || string(raw) == "null" {
+	if len(raw) == 0 || string(raw) == jsonNull {
 		return 1
 	}
 	var n float64
@@ -252,6 +278,8 @@ type statusRecorder struct {
 	// record's first-content stamp; both nil when the gateway records nothing.
 	onBody  func([]byte)
 	onFlush func()
+	// onActivity runs when the headers or a body byte reach the client, for the idle bound; nil when none applies.
+	onActivity func()
 }
 
 // WriteHeader records the status code and forwards it to the wrapped writer.
@@ -260,6 +288,9 @@ func (rec *statusRecorder) WriteHeader(c int) {
 	rec.answered = true
 	rec.markFirstByte()
 	rec.ResponseWriter.WriteHeader(c)
+	if rec.onActivity != nil {
+		rec.onActivity()
+	}
 }
 
 // markFirstByte stamps the instant the client first heard anything, and only the first time.
@@ -286,6 +317,9 @@ func (rec *statusRecorder) Write(b []byte) (int, error) {
 	}
 	if n > 0 && rec.onBody != nil {
 		rec.onBody(b[:n])
+	}
+	if n > 0 && rec.onActivity != nil {
+		rec.onActivity()
 	}
 	return n, err
 }
@@ -559,6 +593,11 @@ func newReverseProxy(target *url.URL, transport http.RoundTripper, onErr func(co
 	p.Director = func(r *http.Request) { //nolint:staticcheck // same
 		director(r)
 		r.Header.Del("Authorization")
+		// Either header makes a POST replayable to net/http, which then resends it on a fresh connection when a
+		// pooled one dies after the request was written -- below tryBackends, so neverReachedBackend never sees it.
+		// No engine behind this gateway deduplicates by the key, so the promise it makes is one nothing upstream keeps.
+		r.Header.Del("Idempotency-Key")
+		r.Header.Del("X-Idempotency-Key")
 	}
 
 	// FlushInterval = -1 means "flush immediately, never buffer".

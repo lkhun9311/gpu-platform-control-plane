@@ -37,8 +37,8 @@ func (holdCapAdmitter) Admit(context.Context, RequestMeta, *BackendRef, string, 
 }
 
 // Reserve holds a standard request for its backend's turn, for at most that backend's hold.
-func (h holdCapAdmitter) Reserve(ctx context.Context, _ RequestMeta, backend *BackendRef, _, tier string) (*reservation, bool, string) {
-	return h.s.reserve(ctx, backend, tier, backend.MaxHold)
+func (h holdCapAdmitter) Reserve(ctx context.Context, _ RequestMeta, backend *BackendRef, tenant, tier string) (*reservation, bool, string) {
+	return h.s.reserve(ctx, backend, tenant, tier, backend.MaxHold)
 }
 
 // holdCapTargets is the candidates a request may be sent to once HoldCap is in play.
@@ -80,6 +80,16 @@ func allPriorityScheduled(targets []*BackendRef) bool {
 		}
 	}
 	return len(targets) > 0
+}
+
+// anyPriorityScheduled reports whether some backend a request may reach schedules by priority.
+func anyPriorityScheduled(targets []*BackendRef) bool {
+	for _, t := range targets {
+		if t.PriorityScheduled {
+			return true
+		}
+	}
+	return false
 }
 
 // admissionFor is the admitter and mode a request's head backend selects, and whether that is HoldCap.
