@@ -18,6 +18,7 @@ package gateway
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -75,7 +76,7 @@ var _ = Describe("bucketRegistry", func() {
 	})
 
 	// A refusal reports how long until a token is available, and does not spend the token it was refused.
-	// Mutation that turns this red: drop the Cancel, so each refusal pushes the next token further away.
+	// Mutation that turns this red: report the wait without the refusal, or spend a token on it.
 	It("reports the wait for the next token and keeps a refusal from consuming it", func() {
 		b := newBucketRegistry()
 		rl := &platformv1.GPUQuotaRateLimit{RequestsPerMinute: 6, Burst: 1}
@@ -87,6 +88,31 @@ var _ = Describe("bucketRegistry", func() {
 			Expect(ok).To(BeFalse())
 			Expect(wait).To(BeNumerically("~", 10*time.Second, time.Second))
 		}
+	})
+
+	// Refusals that overlap must leave the bucket where one refusal would: none of them is admitted, so none may spend.
+	// Reserve then Cancel did not: a reservation cancelled after a later one had been taken restores nothing, so
+	// overlapping refusals put the bucket in debt and a request after the refill was refused (codex review of the branch).
+	// Mutation that turns this red: compute the hint by reserving and cancelling.
+	It("does not let overlapping refusals spend the next token", func() {
+		b := newBucketRegistry()
+		// 6000 per minute is one token every 10 ms, so the refill is quick and the debt, if any, is many tokens deep.
+		rl := &platformv1.GPUQuotaRateLimit{RequestsPerMinute: 6000, Burst: 1}
+		Expect(b.Allow("t", rl)).To(BeTrue())
+		var wg sync.WaitGroup
+		for range 64 {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for range 50 {
+					b.Reserve("t", rl)
+				}
+			}()
+		}
+		wg.Wait()
+		time.Sleep(30 * time.Millisecond)
+		ok, _ := b.Reserve("t", rl)
+		Expect(ok).To(BeTrue(), "a request after the refill was refused, so the refusals before it had spent tokens")
 	})
 
 	// The endpoint-level check cannot see a floor: 59.99 s floored is 59, and the random second makes it 60 half the

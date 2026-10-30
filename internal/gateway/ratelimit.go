@@ -172,17 +172,17 @@ func (b *bucketRegistry) Reserve(tenant string, rl *platformv1.GPUQuotaRateLimit
 
 	// rate.Limiter is concurrency-safe on its own, so this runs outside the lock.
 	//
-	// Reserve rather than Allow, because only a reservation says how far away the next token is.
-	// A reservation that would have to wait is cancelled, which hands its token back: kept, every refusal would
-	// push the tenant's next token further out, and a client retrying on the hint would never reach it.
-	r := limiter.Reserve()
-	if !r.OK() {
-		// Only a burst of zero cannot be reserved, and the CRD's minimum of 1 rules it out; no wait is known.
+	// Allow decides, and the wait is read afterwards without taking anything.
+	// Reserving to learn the wait and cancelling on refusal was tried and put the bucket in debt: a reservation
+	// cancelled after a later one was taken restores nothing, so overlapping refusals spent tokens no request used
+	// (codex review of the branch).
+	if limiter.Allow() {
+		return true, 0
+	}
+	// The read can race a concurrent refill or spend, so the hint is approximate; it never moves the bucket.
+	missing := 1 - limiter.TokensAt(time.Now())
+	if missing <= 0 || limiter.Limit() <= 0 {
 		return false, 0
 	}
-	if d := r.Delay(); d > 0 {
-		r.Cancel()
-		return false, d
-	}
-	return true, 0
+	return false, time.Duration(missing / float64(limiter.Limit()) * float64(time.Second))
 }
