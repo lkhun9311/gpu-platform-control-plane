@@ -144,7 +144,7 @@ func TestSerialPrefillSkipsAWaiterPastItsHold(t *testing.T) {
 	key := serialBackend().URL.String()
 	late, fresh := make(chan struct{}), make(chan struct{})
 	s.busy[key] = true
-	s.waiters[key] = []waiter{{turn: late, since: time.Now().Add(-2 * time.Second), maxHold: time.Second}, {turn: fresh, since: time.Now(), maxHold: time.Second}}
+	s.waiters[key] = newFairLine(waiter{turn: late, since: time.Now().Add(-2 * time.Second), maxHold: time.Second}, waiter{turn: fresh, since: time.Now(), maxHold: time.Second})
 	s.next(key)
 	select {
 	case <-late:
@@ -166,9 +166,9 @@ func TestSerialPrefillASkippedWaiterDoesNotPassTheTurnOn(t *testing.T) {
 	key := serialBackend().URL.String()
 	late, fresh, third := make(chan struct{}), make(chan struct{}), make(chan struct{})
 	s.busy[key] = true
-	s.waiters[key] = []waiter{{turn: late, since: time.Now().Add(-2 * time.Second), maxHold: time.Second}, {turn: fresh, since: time.Now(), maxHold: time.Second}, {turn: third, since: time.Now(), maxHold: time.Second}}
+	s.waiters[key] = newFairLine(waiter{turn: late, since: time.Now().Add(-2 * time.Second), maxHold: time.Second}, waiter{turn: fresh, since: time.Now(), maxHold: time.Second}, waiter{turn: third, since: time.Now(), maxHold: time.Second})
 	s.next(key) // skips late, hands the turn to fresh
-	s.leave(key, late)
+	s.leave(key, "", late)
 	select {
 	case <-third:
 		t.Fatal("the skipped waiter's timeout passed the turn to a third request while fresh held it")
@@ -184,13 +184,13 @@ func TestSerialPrefillASkippedWaiterDoesNotPassTheTurnOn(t *testing.T) {
 // Mutation that turns it red: time the hold from the admitter's maxHold in reserve.
 func TestSerialPrefillRefusesByTheWaitersOwnHold(t *testing.T) {
 	s := newSerialPrefillAdmitter(5 * time.Second)
-	first, ok, _ := s.reserve(context.Background(), serialBackend(), tierStandard, 5*time.Second)
+	first, ok, _ := s.reserve(context.Background(), serialBackend(), "", tierStandard, 5*time.Second)
 	if !ok {
 		t.Fatal("the first request was not admitted on a free backend")
 	}
 	defer first.Done()
 	start := time.Now()
-	_, ok, reason := s.reserve(context.Background(), serialBackend(), tierStandard, 50*time.Millisecond)
+	_, ok, reason := s.reserve(context.Background(), serialBackend(), "", tierStandard, 50*time.Millisecond)
 	if ok || reason != reasonSerialPrefillHoldTimeout {
 		t.Fatalf("a waiter with a 50ms hold: admitted %v, reason %s; want a hold timeout", ok, reason)
 	}
@@ -206,7 +206,7 @@ func TestSerialPrefillNextJudgesAWaiterByItsOwnHold(t *testing.T) {
 	key := serialBackend().URL.String()
 	late := make(chan struct{})
 	s.busy[key] = true
-	s.waiters[key] = []waiter{{turn: late, since: time.Now().Add(-time.Second), maxHold: 50 * time.Millisecond}}
+	s.waiters[key] = newFairLine(waiter{turn: late, since: time.Now().Add(-time.Second), maxHold: 50 * time.Millisecond})
 	s.next(key)
 	select {
 	case <-late:

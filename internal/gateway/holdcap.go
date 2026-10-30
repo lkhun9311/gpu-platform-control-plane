@@ -37,8 +37,8 @@ func (holdCapAdmitter) Admit(context.Context, RequestMeta, *BackendRef, string, 
 }
 
 // Reserve holds a standard request for its backend's turn, for at most that backend's hold.
-func (h holdCapAdmitter) Reserve(ctx context.Context, _ RequestMeta, backend *BackendRef, _, tier string) (*reservation, bool, string) {
-	return h.s.reserve(ctx, backend, tier, backend.MaxHold)
+func (h holdCapAdmitter) Reserve(ctx context.Context, _ RequestMeta, backend *BackendRef, tenant, tier string) (*reservation, bool, string) {
+	return h.s.reserve(ctx, backend, tenant, tier, backend.MaxHold)
 }
 
 // holdCapTargets is the candidates a request may be sent to once HoldCap is in play.
