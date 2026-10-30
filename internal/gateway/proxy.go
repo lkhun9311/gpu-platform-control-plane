@@ -138,9 +138,9 @@ func newRequestID() string {
 //
 // maxBodyBytes already bounds the buffer, so nothing here widens the memory exposure the single-reader version had.
 //
-// Only model and messages[].content are decoded.
+// Only model and messages[].content are decoded; the other prompt-bearing fields are measured by their raw length.
 //
-// The gateway routes on model and estimates admission cost from content, and must forward everything else untouched; modelling the whole schema would mean editing the gateway whenever the OpenAI API grows a field, and would silently drop any field not yet declared.
+// The gateway routes on model and estimates admission cost from what the engine renders into the prompt, and must forward everything else untouched; modelling the whole schema would mean editing the gateway whenever the OpenAI API grows a field, and would silently drop any field not yet declared.
 func readRequestMeta(r *http.Request, profile bool) (func() (io.ReadCloser, error), RequestMeta, error) {
 	// The nil first argument means MaxBytesReader will not write a response itself; the caller owns the status code.
 	//
@@ -201,6 +201,15 @@ func readRequestMeta(r *http.Request, profile bool) (func() (io.ReadCloser, erro
 		meta.NonTextContent = true
 		totalChars += len(content)
 	}
+	// The engine renders these into the prompt too, so leaving them out admitted a long tool schema beside "hi" as one token.
+	// Their raw JSON length is counted, which over-counts the punctuation the template drops and never under-counts the text.
+	// The benchmark profile refuses every one of them, so the registered arms' estimate is unchanged.
+	for _, m := range messages {
+		totalChars += renderedBytes(m["tool_calls"])
+	}
+	for _, k := range []string{"tools", "documents", "chat_template"} {
+		totalChars += renderedBytes(keys[k])
+	}
 	// Ceiling division, not floor: a conservative estimate must never read lower than the total byte length implies.
 	meta.EstInputTokens = (totalChars + 3) / 4
 
@@ -208,6 +217,16 @@ func readRequestMeta(r *http.Request, profile bool) (func() (io.ReadCloser, erro
 	//
 	// The error return is always nil and exists only to match http.Request.GetBody's signature, so the factory can be assigned to it directly rather than wrapped at the call site.
 	return func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(buf)), nil }, meta, nil
+}
+
+// renderedBytes is the length a prompt-bearing field adds to the estimate: its raw JSON, or nothing when it is empty.
+// An empty list or a null renders no text, and counting its brackets would make a tool-free request cost a token.
+func renderedBytes(raw json.RawMessage) int {
+	switch string(bytes.TrimSpace(raw)) {
+	case "", "null", "[]", "{}", `""`:
+		return 0
+	}
+	return len(raw)
 }
 
 // requestedChoices reads n as RequestMeta.Choices defines it.

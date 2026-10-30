@@ -926,6 +926,31 @@ var _ = Describe("readRequestMeta", func() {
 		Expect(meta.EstInputTokens).To(Equal(100))
 	})
 
+	// The engine renders tool definitions, documents, a caller's template and earlier tool calls into the prompt, so a
+	// request carrying "hi" beside a long tool schema was metered as one token and run as hundreds.
+	// Mutation that turns this red: count message content alone.
+	DescribeTable("counts every prompt-bearing field the engine renders",
+		func(body string) {
+			r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+			_, meta, err := readRequestMeta(r, false)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(meta.EstInputTokens).To(BeNumerically(">=", 100))
+		},
+		Entry("tools", `{"model":"m","messages":[{"role":"user","content":"hi"}],"tools":[{"type":"function","function":{"name":"f","description":"`+strings.Repeat("a", 400)+`"}}]}`),
+		Entry("documents", `{"model":"m","messages":[{"role":"user","content":"hi"}],"documents":[{"text":"`+strings.Repeat("a", 400)+`"}]}`),
+		Entry("chat_template", `{"model":"m","messages":[{"role":"user","content":"hi"}],"chat_template":"`+strings.Repeat("a", 400)+`"}`),
+		Entry("a message's tool_calls", `{"model":"m","messages":[{"role":"assistant","tool_calls":[{"id":"c","type":"function","function":{"name":"f","arguments":"`+strings.Repeat("a", 400)+`"}}]},{"role":"user","content":"hi"}]}`),
+	)
+
+	// The registered benchmark shape carries none of those fields, so its estimate must not move.
+	It("leaves a text-only request's estimate where it was", func() {
+		body := `{"model":"m","messages":[{"role":"user","content":"` + strings.Repeat("a", 400) + `"}],"stream":true,"max_tokens":64}`
+		r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+		_, meta, err := readRequestMeta(r, false)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(meta.EstInputTokens).To(Equal(100))
+	})
+
 	It("routes on the exact model key, not a case variant after it", func() {
 		body := `{"model":"llama-3","Model":"other","messages":[]}`
 		r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
