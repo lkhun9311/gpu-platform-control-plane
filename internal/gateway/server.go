@@ -324,6 +324,25 @@ func (s *Server) failReason(w http.ResponseWriter, tenant, model string, code in
 	writeJSONErrorCode(w, code, reason, http.StatusText(code))
 }
 
+// settlePriority binds the tier's engine priority into the request when it should be bound, and otherwise removes a
+// caller's own priority from a request that may still reach an engine scheduling by it.
+func (s *Server) settlePriority(w http.ResponseWriter, r *http.Request, tr *requestTrace, meta RequestMeta, tier string,
+	holdCap bool, reachable []*BackendRef) error {
+	if s.bindsPriority(holdCap, reachable) {
+		p, err := bindEnginePriority(r, tier)
+		if err != nil {
+			return err
+		}
+		w.Header().Set(HeaderEnginePriority, strconv.Itoa(p))
+		tr.priority(p)
+		return nil
+	}
+	if meta.CallerPriority && anyPriorityScheduled(reachable) {
+		return stripEnginePriority(r)
+	}
+	return nil
+}
+
 // bodyIdleBound is the configured idle bound, or the default when none was set.
 func (s *Server) bodyIdleBound() time.Duration {
 	if s.bodyIdleTimeout > 0 {
@@ -623,19 +642,9 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	// attempt on every backend carries the same priority.
 	// Judged on the backends the request may still be sent to: a reservation pins it to the head, and a fallback it can
 	// no longer reach must not keep it unbound.
-	if s.bindsPriority(holdCap, forwardTargets(res, targets)) {
-		p, err := bindEnginePriority(r, tier)
-		if err != nil {
-			s.fail(w, tenant, meta.Model, http.StatusInternalServerError)
-			return
-		}
-		w.Header().Set(HeaderEnginePriority, strconv.Itoa(p))
-		tr.priority(p)
-	} else if meta.CallerPriority && anyPriorityScheduled(forwardTargets(res, targets)) {
-		if err := stripEnginePriority(r); err != nil {
-			s.fail(w, tenant, meta.Model, http.StatusInternalServerError)
-			return
-		}
+	if err := s.settlePriority(w, r, tr, meta, tier, holdCap, forwardTargets(res, targets)); err != nil {
+		s.fail(w, tenant, meta.Model, http.StatusInternalServerError)
+		return
 	}
 
 	// 8. From here the response is the upstream's, passed through rather than composed.

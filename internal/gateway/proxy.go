@@ -185,7 +185,7 @@ func readRequestMeta(r *http.Request, profile bool) (func() (io.ReadCloser, erro
 	for _, m := range messages {
 		content := m["content"]
 		// An absent content field, or an explicit JSON null, carries no text and is not a non-text part either.
-		if len(content) == 0 || string(content) == "null" {
+		if len(content) == 0 || string(content) == jsonNull {
 			continue
 		}
 		var text string
@@ -219,11 +219,14 @@ func readRequestMeta(r *http.Request, profile bool) (func() (io.ReadCloser, erro
 	return func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(buf)), nil }, meta, nil
 }
 
+// jsonNull is the JSON literal a field the caller set to nothing reads as.
+const jsonNull = "null"
+
 // renderedBytes is the length a prompt-bearing field adds to the estimate: its raw JSON, or nothing when it is empty.
 // An empty list or a null renders no text, and counting its brackets would make a tool-free request cost a token.
 func renderedBytes(raw json.RawMessage) int {
 	switch string(bytes.TrimSpace(raw)) {
-	case "", "null", "[]", "{}", `""`:
+	case "", jsonNull, "[]", "{}", `""`:
 		return 0
 	}
 	return len(raw)
@@ -231,7 +234,7 @@ func renderedBytes(raw json.RawMessage) int {
 
 // requestedChoices reads n as RequestMeta.Choices defines it.
 func requestedChoices(raw json.RawMessage) int {
-	if len(raw) == 0 || string(raw) == "null" {
+	if len(raw) == 0 || string(raw) == jsonNull {
 		return 1
 	}
 	var n float64
