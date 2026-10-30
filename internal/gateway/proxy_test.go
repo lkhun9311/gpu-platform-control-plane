@@ -1626,6 +1626,49 @@ var _ = Describe("fallback on a retryable upstream status", func() {
 		Expect(rec.Body.Len()).NotTo(BeZero(), "the gateway's error envelope did not reach the client")
 	})
 
+	// The transport has a replay of its own, below tryBackends: a POST carrying Idempotency-Key is replayable to
+	// net/http, which resends it on a fresh connection when a pooled one dies after the request was written.
+	// No engine behind this gateway deduplicates by that key, so the resend runs the completion twice.
+	// Mutation that turns this red: stop removing the idempotency headers in the Director.
+	It("does not let the transport resend a POST that carried an idempotency key", func() {
+		var arrivals atomic.Int64
+		up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = io.ReadAll(r.Body)
+			// The second arrival is dropped after it was read in full, on the connection the first one warmed.
+			if arrivals.Add(1) == 2 {
+				if hj, ok := w.(http.Hijacker); ok {
+					if conn, _, err := hj.Hijack(); err == nil {
+						_ = conn.Close()
+					}
+				}
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+		}))
+		DeferCleanup(up.Close)
+		s := newAdmissionServer(up.URL, tierStandard, AdmissionOff, offAdmitter{})
+		body := `{"model":"` + testModel + `","messages":[{"role":"user","content":"hi"}]}`
+
+		warm := httptest.NewRecorder()
+		s.Handler().ServeHTTP(warm, authedRequest(body))
+		Expect(warm.Code).To(Equal(http.StatusOK))
+
+		for _, h := range []string{"Idempotency-Key", "X-Idempotency-Key"} {
+			arrivals.Store(1)
+			r := authedRequest(body)
+			r.Header.Set(h, "k-1")
+			rec := httptest.NewRecorder()
+			s.Handler().ServeHTTP(rec, r)
+			Expect(arrivals.Load()).To(Equal(int64(2)), h+": the backend received the completion again")
+			Expect(rec.Code).To(Equal(http.StatusBadGateway), h)
+			// Re-warm a connection for the next header.
+			arrivals.Store(0)
+			again := httptest.NewRecorder()
+			s.Handler().ServeHTTP(again, authedRequest(body))
+			Expect(again.Code).To(Equal(http.StatusOK))
+		}
+	})
+
 	// The client must be able to tell which side failed, which means the backend's status reaches them
 	// unchanged rather than becoming ErrorHandler's 502.
 	//

@@ -132,6 +132,7 @@ func newRequestID() string {
 // That is what lets the caller populate http.Request.GetBody, which http.Transport needs to replay a request onto a fresh connection when it finds a pooled one already closed by the upstream.
 //
 // The reach is specifically the case where the write failed having sent nothing: shouldRetryRequest allows that retry on req.GetBody != nil alone, whereas every other stale-connection error additionally requires isReplayable, which is false for a POST without an Idempotency-Key (go1.25.7 net/http).
+// newReverseProxy's Director removes that key and its X- variant, so every forwarded POST is in that case.
 //
 // So this narrows the exposure the shared pool introduces rather than removing it, which is worth having because it is free.
 //
@@ -562,6 +563,11 @@ func newReverseProxy(target *url.URL, transport http.RoundTripper, onErr func(co
 	p.Director = func(r *http.Request) { //nolint:staticcheck // same
 		director(r)
 		r.Header.Del("Authorization")
+		// Either header makes a POST replayable to net/http, which then resends it on a fresh connection when a
+		// pooled one dies after the request was written -- below tryBackends, so neverReachedBackend never sees it.
+		// No engine behind this gateway deduplicates by the key, so the promise it makes is one nothing upstream keeps.
+		r.Header.Del("Idempotency-Key")
+		r.Header.Del("X-Idempotency-Key")
 	}
 
 	// FlushInterval = -1 means "flush immediately, never buffer".
