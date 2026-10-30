@@ -21,6 +21,15 @@ import score  # noqa: E402
 N = 200
 ORIGIN = 1_800_000_000_000_000_000
 A, B = score.BACKENDS
+# Two lines as vLLM 0.27.1 wrote them in the paid run 2,
+# hack/prefix-route/2026-10-28-run2/prefix-route-study/cells/control-944-LeastQueue/engine-a.log.
+REAL_ARGS_LINE = (
+    "(APIServer pid=1) INFO 10-28 06:05:59 [api_utils.py:273] non-default args: {'model_tag': 'Qwen/Qwen2.5-3B-Instruct', "
+    "'model': 'Qwen/Qwen2.5-3B-Instruct', 'dtype': 'half', 'revision': 'aa8e72537993ba99e69dfaafa59ed015b17504d1', "
+    "'tokenizer_revision': 'aa8e72537993ba99e69dfaafa59ed015b17504d1', 'max_model_len': 16384, "
+    "'served_model_name': ['Qwen/Qwen2.5-3B-Instruct'], 'gpu_memory_utilization': 0.9, 'enable_prefix_caching': True, "
+    "'max_num_batched_tokens': 512, 'max_num_seqs': 64, 'scheduling_policy': 'priority', 'async_scheduling': False}\n")
+REAL_VERSION_LINE = "(APIServer pid=1) INFO 10-28 06:05:59 [api_utils.py:345]  ▄▄ ▄█ █     █     █ ▀▄▀ █  version 0.27.1\n"
 
 
 def trace_rows(block: str) -> list[dict]:
@@ -103,7 +112,8 @@ def build(root: str) -> dict[str, str]:
                 write(os.path.join(d, f"metrics-engine-{f}-before.prom"), prom_engine(2, 100, 0))
                 write(os.path.join(d, f"metrics-engine-{f}-after.prom"),
                       prom_engine(2 + served, 100 + served * 1000, int(served * 1000 * h)))
-                write(os.path.join(d, f"engine-{f}-args.txt"), "non-default args: {'enable_prefix_caching': True}\n")
+                write(os.path.join(d, f"engine-{f}-args.txt"), REAL_ARGS_LINE)
+                write(os.path.join(d, f"engine-{f}.log"), REAL_VERSION_LINE + REAL_ARGS_LINE)
             write(os.path.join(d, "metrics-gateway-before.prom"), "")
             write(os.path.join(d, "metrics-gateway-after.prom"),
                   f'gpuaas_gateway_routing_decisions_total{{policy="{arm}"}} {N}\n')
@@ -121,10 +131,10 @@ class ScorerTest(unittest.TestCase):
         score.frozen_checksums = self._real
         shutil.rmtree(self.root)
 
-    def run_scorer(self) -> tuple[int, str]:
+    def run_scorer(self, *extra: str) -> tuple[int, str]:
         out = io.StringIO()
         with redirect_stdout(out):
-            rc = score.main(["score.py", self.root])
+            rc = score.main(["score.py", self.root, *extra])
         return rc, out.getvalue()
 
     def cell(self, block="shared-941", arm="PrefixAffinity") -> str:
@@ -146,6 +156,15 @@ class ScorerTest(unittest.TestCase):
         rc, out = self.run_scorer()
         self.assertEqual(rc, 0, out)
         self.assertEqual(out.splitlines()[0], "verdict: observed on these traces")
+
+    # Review of 981f6031: the flag is accepted from any caller, so a paid run scored with it once passed with exit 0
+    # while a treatment engine ran max_num_seqs 1.
+    def test_unpinned_pass_is_not_the_registered_verdict(self):
+        rc, out = self.run_scorer("--engine-unpinned")
+        self.assertEqual(rc, 1, out)
+        self.assertEqual(out.splitlines()[0], "verdict: rehearsal only, not a result: the traces met every line, "
+                         "but the engine pin was not checked")
+        self.assertIn("engine pin: NOT CHECKED", out)
 
     def test_missing_row(self):
         self.put_rows(self.rows()[1:])
@@ -210,8 +229,60 @@ class ScorerTest(unittest.TestCase):
         self.expect("fallback")
 
     def test_caching_off_in_args(self):
-        write(os.path.join(self.cell(), "engine-b-args.txt"), "non-default args: {'enable_prefix_caching': False}\n")
-        self.expect("did not report prefix caching on")
+        write(os.path.join(self.cell(), "engine-b-args.txt"),
+              REAL_ARGS_LINE.replace("'enable_prefix_caching': True", "'enable_prefix_caching': False"))
+        self.expect("differs in ['enable_prefix_caching']")
+
+    def test_caching_off_in_args_when_unpinned(self):
+        # The rehearsal skips the pin, and prefix caching must still be checked there.
+        write(os.path.join(self.cell(), "engine-b-args.txt"),
+              REAL_ARGS_LINE.replace("'enable_prefix_caching': True", "'enable_prefix_caching': False"))
+        rc, out = self.run_scorer("--engine-unpinned")
+        self.assertEqual(rc, 1, out)
+        self.assertIn("did not report prefix caching on", out.splitlines()[0], out)
+        self.assertIn("engine pin: NOT CHECKED", out)
+
+    # Audit finding 10: changing the treatment cell's engine to another model and max_num_seqs 1 scored exit 0,
+    # "observed on these traces", because only prefix caching was read from the args.
+    def test_another_model_in_one_cell(self):
+        write(os.path.join(self.cell(), "engine-a-args.txt"),
+              REAL_ARGS_LINE.replace("'model': 'Qwen/Qwen2.5-3B-Instruct'", "'model': 'Qwen/Qwen2.5-0.5B-Instruct'"))
+        self.expect("differs in ['model']")
+
+    def test_max_num_seqs_one_in_one_cell(self):
+        write(os.path.join(self.cell(), "engine-b-args.txt"), REAL_ARGS_LINE.replace("'max_num_seqs': 64", "'max_num_seqs': 1"))
+        self.expect("differs in ['max_num_seqs']")
+
+    def test_an_added_argument(self):
+        write(os.path.join(self.cell(), "engine-a-args.txt"), REAL_ARGS_LINE.replace("}\n", ", 'enforce_eager': True}\n"))
+        self.expect("differs in ['enforce_eager']")
+
+    def test_another_engine_version(self):
+        write(os.path.join(self.cell(), "engine-a.log"), REAL_VERSION_LINE.replace("0.27.1", "0.28.0") + REAL_ARGS_LINE)
+        self.expect("reports vLLM 0.28.0, not 0.27.1")
+
+    def test_no_engine_version(self):
+        write(os.path.join(self.cell(), "engine-b.log"), REAL_ARGS_LINE)
+        self.expect("reports vLLM no version")
+
+    def test_args_that_are_not_vllms_line(self):
+        write(os.path.join(self.cell(), "engine-a-args.txt"), "non-default args: {'model': \n")
+        self.expect("are not one 'non-default args: ' line")
+
+    def test_the_paid_run_meets_the_engine_pin(self):
+        # Every engine args file the paid run 2 committed must parse to the registered engine, or the pin would
+        # void the published result rather than guard it.
+        cells = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "prefix-route",
+                             "2026-10-28-run2", "prefix-route-study", "cells")
+        seen = 0
+        for cell in sorted(os.listdir(cells)):
+            for f in ("a", "b"):
+                with open(os.path.join(cells, cell, f"engine-{f}-args.txt")) as handle:
+                    self.assertEqual(score.engine_args(handle.read()), score.REGISTERED_ENGINE_ARGS, cell)
+                with open(os.path.join(cells, cell, f"engine-{f}.log")) as handle:
+                    self.assertEqual(score.VERSION_RE.search(handle.read()).group(1), score.REGISTERED_ENGINE_VERSION)
+                seen += 1
+        self.assertEqual(seen, 24)
 
     def test_capacity_outside_tolerance(self):
         path = os.path.join(self.cell(), "metrics-engine-a-after.prom")

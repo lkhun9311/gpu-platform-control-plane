@@ -884,7 +884,77 @@ var _ = Describe("readRequestMeta", func() {
 			`{"model":"llama-3","messages":[{"role":"user","content":"hi"}],"max_tokens":4,"min_tokens":null,"stream":true,"stream_options":{"include_usage":true}}`),
 		Entry("a min_tokens of zero, which is not the same as none",
 			`{"model":"llama-3","messages":[{"role":"user","content":"hi"}],"max_tokens":4,"min_tokens":0,"stream":true,"stream_options":{"include_usage":true}}`),
+		// DisallowUnknownFields matches keys case-insensitively, so each of these passed it as a known field.
+		Entry("a case variant of a top-level key beside the real one",
+			`{"model":"llama-3","messages":[{"role":"user","content":"a long prompt"}],"Messages":[{"role":"user","content":"hi"}],"max_tokens":4,"stream":true,"stream_options":{"include_usage":true}}`),
+		// Without the real key this body is refused earlier, for having no model, so the variant needs the real key beside it.
+		Entry("a case variant of a top-level key carrying the same value as the real one",
+			`{"Model":"llama-3","model":"llama-3","messages":[{"role":"user","content":"hi"}],"max_tokens":4,"stream":true,"stream_options":{"include_usage":true}}`),
+		Entry("a case variant of a message key",
+			`{"model":"llama-3","messages":[{"role":"user","content":"a long prompt","Content":"hi"}],"max_tokens":4,"stream":true,"stream_options":{"include_usage":true}}`),
+		Entry("a null stream_options, which has no keys for the exact-key check to refuse",
+			`{"model":"llama-3","messages":[{"role":"user","content":"hi"}],"max_tokens":4,"stream":true,"stream_options":null}`),
+		Entry("a case variant inside stream_options",
+			`{"model":"llama-3","messages":[{"role":"user","content":"hi"}],"max_tokens":4,"stream":true,"stream_options":{"include_usage":true,"Include_Usage":true}}`),
 	)
+
+	// Every field is read by the key the engine reads, and a case variant beside it is forwarded but not counted.
+	// encoding/json's struct decoding took the last key matching case-insensitively, so a long prompt under
+	// "messages" followed by a short one under "Messages" was admitted at the short one's cost and run at the
+	// long one's.
+	It("estimates from the exact messages key, not a case variant after it", func() {
+		long := strings.Repeat("a", 400)
+		body := `{"model":"llama-3","messages":[{"role":"user","content":"` + long + `"}],"Messages":[{"role":"user","content":"hi"}]}`
+		r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+		_, meta, err := readRequestMeta(r, false)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(meta.EstInputTokens).To(Equal(100))
+	})
+
+	It("estimates from the exact content key, not a case variant after it", func() {
+		long := strings.Repeat("a", 400)
+		body := `{"model":"llama-3","messages":[{"role":"user","content":"` + long + `","Content":"hi"}]}`
+		r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+		_, meta, err := readRequestMeta(r, false)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(meta.EstInputTokens).To(Equal(100))
+	})
+
+	It("routes on the exact model key, not a case variant after it", func() {
+		body := `{"model":"llama-3","Model":"other","messages":[]}`
+		r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+		_, meta, err := readRequestMeta(r, false)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(meta.Model).To(Equal("llama-3"))
+
+		// And a body whose only model key is a case variant names no model the engine would read.
+		r2 := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"Model":"llama-3","messages":[]}`))
+		_, _, err = readRequestMeta(r2, false)
+		Expect(err).To(MatchError(ErrNoModel))
+	})
+
+	// The struct decode refused a model or messages of the wrong type, and reading by key must keep refusing it.
+	DescribeTable("refuses a model or messages of the wrong type",
+		func(body string) {
+			r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+			_, _, err := readRequestMeta(r, false)
+			Expect(err).To(HaveOccurred())
+			Expect(err).NotTo(MatchError(ErrNoModel))
+		},
+		Entry("a numeric model", `{"model":7,"messages":[]}`),
+		Entry("messages as an object", `{"model":"llama-3","messages":{"role":"user"}}`),
+		Entry("a message that is a string", `{"model":"llama-3","messages":["hi"]}`),
+	)
+
+	// The exact-key check ran before the message count and decoded the absent value, so the refusal named a JSON
+	// syntax error in a body that had none.
+	It("refuses a body with no messages key by its message count, not by a JSON error", func() {
+		body := `{"model":"llama-3","max_tokens":4,"stream":true,"stream_options":{"include_usage":true}}`
+		r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+		_, _, err := readRequestMeta(r, true)
+		Expect(err).To(MatchError(ErrProfileViolation))
+		Expect(err.Error()).To(ContainSubstring("exactly one message, got 0"))
+	})
 
 	// Mutation that turns this red: rename MinTokens's json tag, so DisallowUnknownFields refuses the real field.
 	It("accepts min_tokens equal to max_tokens, the pilot's fixed output", func() {

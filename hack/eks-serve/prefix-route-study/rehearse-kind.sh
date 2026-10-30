@@ -143,7 +143,7 @@ for e in qwen-a qwen-b; do
 done
 
 log "runner"
-export CONTEXT EXDIR STUDY_REHEARSAL=1 STUDY_DEADLINE=$(($(date +%s) + 6 * 3600)) WAIT_ENGINE=300 SCORE_ARGS="--capacity-tokens $STUB_KV"
+export CONTEXT EXDIR STUDY_REHEARSAL=1 STUDY_DEADLINE=$(($(date +%s) + 6 * 3600)) WAIT_ENGINE=300 SCORE_ARGS="--capacity-tokens $STUB_KV --engine-unpinned"
 if ! "$HERE/run.sh"; then
   die "runner stopped: $(cat "$EXDIR/prefix-route-study/STOPPED" 2>/dev/null || echo 'no reason recorded')"
 fi

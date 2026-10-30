@@ -55,7 +55,7 @@ type Projection struct {
 
 // isAtLeastAsFresh reports whether this snapshot may advance the stored row.
 //
-// status.lastObservedAt is when the controller last actually looked (api/v1/workloadrun_types.go:180), which
+// status.lastObservedAt is when the controller last actually looked (api/v1/workloadrun_types.go:202), which
 // makes it the only honest basis for deciding which of two readings is later. A snapshot with none cannot
 // establish that it is newer, so it may create a row but never replace one.
 //
@@ -164,7 +164,7 @@ func (s *Store) ProjectWorkloadRuns(runs []platformv1.WorkloadRun, projectedAt t
 		// Without the WHERE, a projection holding an older snapshot would overwrite a Complete run with the
 		// Observing state it had minutes earlier -- the ledger rewriting its own history backwards, with
 		// every column still looking like a legitimate reading. status.lastObservedAt exists precisely to
-		// say when the controller last looked (api/v1/workloadrun_types.go:180), so it is what decides.
+		// say when the controller last looked (api/v1/workloadrun_types.go:202), so it is what decides.
 		//
 		// A NULL stored value loses to anything, and a run with no lastObservedAt at all can still be
 		// written once and then only replaced by a snapshot that has one.

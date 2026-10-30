@@ -6,8 +6,11 @@
 > as `GPUSignal=False` rather than as health, and with `--gpu-fault-evict-workloads` deactivates and later
 > reactivates the Kueue Workloads of GPU Pods on the node (`internal/controller/nodehealth_gpufault.go`). It is
 > unit-tested and rehearsed on kind against a fake exporter (every arm as predicted, labelled REHEARSAL);
-> its paid session is registered in `docs/superpowers/specs/2026-10-27-gpu-fault-reaction-design.md`, and no
-> card has yet been through it.
+> its paid session is registered in `docs/superpowers/specs/2026-10-27-gpu-fault-reaction-design.md`.
+> Run 2 of that session, on 2026-10-27, took it through a real card: the Xid 79 and double-bit ECC arms each reacted
+> in 5 of 5 repetitions inside every registered bound, both controls stayed quiet in 5 of 5, and the stale-latched
+> check failed because the platform's own taint kept the exporter from coming back (`hack/gpu-fault/2026-10-27-run2/`).
+> The faults were values injected into DCGM's cache on that card, not induced hardware failures.
 >
 > **Status (2026-08-07): built** — but the CR is hand-created (no automated intake pipeline creates it),
 > and there is **no GPU-specific fault detection in the health path**: nothing DCGM, Xid or ECC reports
@@ -73,7 +76,8 @@ status:
 | 3     | NCCL              | all-reduce single-node 2-GPU      | training-infra signal |
 | 4     | sign-off          | NodeHealth update                 | Ready / Quarantine    |
 
-⚠️ This paragraph used to describe a fallback: "when DCGM is unavailable the controller falls back to the Kubernetes node Ready condition and records that the GPU-level checks were not run". There is no fallback, because there is no DCGM path to fall back *from* — the string `DCGM` appears nowhere in `internal/controller/nodehealth_controller.go`. The controller always reads the Kubernetes node Ready condition, and it records nothing about skipped GPU checks. The DCGM code that does exist (`internal/queuelab/dcgm.go`) reads utilisation for the queuelab, not health for this controller. What the paragraph got right is the part that was never in doubt: no DCGM data is faked.
+⚠️ This paragraph used to describe a fallback: "when DCGM is unavailable the controller falls back to the Kubernetes node Ready condition and records that the GPU-level checks were not run". There is no fallback, because when this was written there was no DCGM path to fall back *from* — the string `DCGM` appeared nowhere in `internal/controller/nodehealth_controller.go`; it does now, only for the opt-in path below. The controller always reads the Kubernetes node Ready condition, and it records nothing about skipped GPU checks. The DCGM code that does exist (`internal/queuelab/dcgm.go`) reads utilisation for the queuelab, not health for this controller. What the paragraph got right is the part that was never in doubt: no DCGM data is faked.
+Since 2026-10-27 a DCGM health path does exist, opt-in behind `--gpu-fault-source=dcgm` (`internal/controller/gpufault_source.go`, `internal/controller/nodehealth_gpufault.go`); with it off, the default, the controller still reads only the node Ready condition and records nothing about skipped GPU checks, though the DCGM code is in its source either way; with it on, absent or stale DCGM data is reported as `GPUSignal=False` rather than read as health, as the header describes, so there is still no fallback.
 
 ## Scope at this milestone
 

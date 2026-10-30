@@ -20,10 +20,22 @@ def load(run, name):
         return json.load(f)
 
 
+class PollFormat(Exception):
+    """A poll file without the columns this scorer reads; the first run's files predate Amendment 1's done_s."""
+
+
+POLL_COLUMNS = ("t_s", "done_s", "status", "version")
+
+
 def poll(run, stem):
     with open(os.path.join(run, stem + ".tsv"), newline="") as f:
-        rows = [(float(r["t_s"]), float(r["done_s"]), int(r["status"]), r["version"])
-                for r in csv.DictReader(f, delimiter="\t")]
+        reader = csv.DictReader(f, delimiter="\t")
+        # A missing column used to surface as a KeyError traceback, which says the scorer broke rather than that
+        # the archive is one it was not written for.
+        absent = [c for c in POLL_COLUMNS if c not in (reader.fieldnames or [])]
+        if absent:
+            raise PollFormat(f"{stem}.tsv has no {', '.join(absent)} column, so it predates Amendment 1's poller")
+        rows = [(float(r["t_s"]), float(r["done_s"]), int(r["status"]), r["version"]) for r in reader]
     meta = load(run, stem + ".meta")
     return rows, meta
 
@@ -103,6 +115,9 @@ def main():
         except OSError:
             void(f"cycle {c} poll file is missing")
             continue
+        except PollFormat as err:
+            void(f"cycle {c}: {err}")
+            continue
         ok, window = coverage_ok(rows, meta)
         if not ok:
             void(f"cycle {c} recorded {len(rows)} of {meta['sent']} sent over a {window:.1f} s window at {meta['rate']}/s")
@@ -127,7 +142,7 @@ def main():
         final = max(rows, key=lambda r: r[1])[3] if rows else ""
         print(f"alias: {len(during)} answers while the alias said v2, {share_v1:.1%} of them v1; last answer v{final}"
               f" -> {'as registered' if share_v1 == 1.0 and final == '2' else 'MISSED'}")
-    except (OSError, KeyError) as err:
+    except (OSError, KeyError, PollFormat) as err:
         void(f"the alias step left no usable record ({err})")
 
     print("VALID" if valid else "VOID: a validity check failed, so no reading above is a result")

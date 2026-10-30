@@ -1,20 +1,24 @@
 """Scores experiment A, prefix-aware routing, against its registration.
 
 The registration is docs/superpowers/specs/2026-10-27-prefix-aware-routing-design.md; every constant and rule here
-is copied from it, and a rule it does not state is not applied. Where the evidence cannot support a figure the
-scorer refuses it, naming why, rather than reporting one.
+is copied from it, and a rule it does not state is not applied, with one exception the page records: the engine pin
+(REGISTERED_ENGINE_ARGS), added after the result as a check on the evidence ("Recorded after the result, 2026-10-29").
+Where the evidence cannot support a figure the scorer refuses it, naming why, rather than reporting one.
 
-    python3 hack/eks-serve/prefix-route-study/score.py <study dir> [--capacity-tokens N]
+    python3 hack/eks-serve/prefix-route-study/score.py <study dir> [--capacity-tokens N] [--engine-unpinned]
 
 <study dir> is what run.sh writes: study-id.txt, traces/<block>.jsonl and cells/<block>-<arm>/.
 --capacity-tokens exists for the kind rehearsal, whose stub engines model a smaller cache; the verdict prints the
-capacity it judged against, and the paid session never passes it.
+capacity it judged against, and the paid session never passes it. --engine-unpinned is the rehearsal's too, for the
+same stubs; the output then says the engine pin was not checked, and a run that would have passed is
+reported as a rehearsal, not a result, and exits 1.
 
 Exits 0 only on "observed on these traces"; 1 on any other verdict; 2 on a usage error.
 """
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import json
 import math
@@ -71,6 +75,28 @@ TIMEOUT_MS = 30_000
 # What must be the same in every cell; the gateway Pod is replaced per cell by design, so its UID is not here.
 IDENTITY_KEYS = ("argo", "images", "gatewayArgs", "gpuNodes")
 REGISTERED_GATEWAY_ARGS = [["/gateway"]]
+# The engine the registration names: profile v0.27.1-a10g-prefix-cache at the pinned revision, "nothing else changed".
+# Checking prefix caching alone let a cell whose engines served another model, or ran max_num_seqs 1, be scored as
+# routing's effect (audit finding 10), so the whole of what vLLM logs as its non-default args is pinned, as the
+# gateway's arguments are. These are the args every engine of the paid run 2 logged, all 24 of them identical.
+REGISTERED_ENGINE_ARGS = {
+    "model_tag": "Qwen/Qwen2.5-3B-Instruct",
+    "model": "Qwen/Qwen2.5-3B-Instruct",
+    "dtype": "half",
+    "revision": "aa8e72537993ba99e69dfaafa59ed015b17504d1",
+    "tokenizer_revision": "aa8e72537993ba99e69dfaafa59ed015b17504d1",
+    "max_model_len": 16384,
+    "served_model_name": ["Qwen/Qwen2.5-3B-Instruct"],
+    "gpu_memory_utilization": 0.9,
+    "enable_prefix_caching": True,
+    "max_num_batched_tokens": 512,
+    "max_num_seqs": 64,
+    "scheduling_policy": "priority",
+    "async_scheduling": False,
+}
+REGISTERED_ENGINE_VERSION = "0.27.1"
+ARGS_MARK = "non-default args: "
+VERSION_RE = re.compile(r"\bversion (\d+\.\d+\.\d+\S*)")
 
 
 def registered_order(block: str) -> tuple[str, ...]:
@@ -207,8 +233,20 @@ def ttft_ms(row: dict) -> float:
     return (row["firstTokenUnixNanos"] - scheduled) / 1e6
 
 
+def engine_args(text: str) -> dict | None:
+    """The dict vLLM logged after "non-default args: ", or None when the text is not exactly one such line."""
+    lines = [line for line in text.splitlines() if ARGS_MARK in line]
+    if len(lines) != 1:
+        return None
+    try:
+        parsed = ast.literal_eval(lines[0].split(ARGS_MARK, 1)[1].strip())
+    except (ValueError, SyntaxError):
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
 def score_cell(study_dir: str, study: str, block: str, arm: str, trace: list[dict], checksum: str,
-               capacity: int, identity: dict) -> dict:
+               capacity: int, identity: dict, pin_engine: bool = True) -> dict:
     """Every endpoint of one cell, after its completeness and validity lines; raises on the first that fails."""
     d = os.path.join(study_dir, "cells", f"{block}-{arm}")
     if not os.path.isdir(d):
@@ -266,8 +304,21 @@ def score_cell(study_dir: str, study: str, block: str, arm: str, trace: list[dic
         try:
             with open(os.path.join(d, f"engine-{f}-args.txt")) as handle:
                 args = handle.read()
+            with open(os.path.join(d, f"engine-{f}.log")) as handle:
+                version = VERSION_RE.search(handle.read())
         except OSError as exc:
             raise Unscorable(f"cell {block}-{arm}: engine {f}'s args: {exc}") from exc
+        if pin_engine:
+            parsed = engine_args(args)
+            if parsed is None:
+                raise Unscorable(f"cell {block}-{arm}: engine {f}'s args are not one {ARGS_MARK!r} line vLLM wrote")
+            if parsed != REGISTERED_ENGINE_ARGS:
+                moved = sorted(k for k in parsed.keys() | REGISTERED_ENGINE_ARGS.keys()
+                               if parsed.get(k) != REGISTERED_ENGINE_ARGS.get(k))
+                raise Invalid(f"cell {block}-{arm}: engine {f} is not the registered engine; it differs in {moved}")
+            if version is None or version.group(1) != REGISTERED_ENGINE_VERSION:
+                raise Invalid(f"cell {block}-{arm}: engine {f} reports vLLM "
+                              f"{version.group(1) if version else 'no version'}, not {REGISTERED_ENGINE_VERSION}")
         engines[b] = (before, after, args)
     gw_before = read_prom(os.path.join(d, "metrics-gateway-before.prom"), ())
     gw_after = read_prom(os.path.join(d, "metrics-gateway-after.prom"), (ROUTING,))
@@ -358,7 +409,11 @@ def shared_block_failures(cells: dict, block: str, bound: float) -> list[str]:
 def main(argv: list[str]) -> int:
     args = list(argv[1:])
     capacity = CAPACITY_TOKENS
-    usage = "usage: score.py <study dir> [--capacity-tokens N]"
+    usage = "usage: score.py <study dir> [--capacity-tokens N] [--engine-unpinned]"
+    # The kind rehearsal's stub engines are not vLLM, so it skips the engine pin; a run scored without the pin cannot pass.
+    pin_engine = "--engine-unpinned" not in args
+    if not pin_engine:
+        args.remove("--engine-unpinned")
     if "--capacity-tokens" in args:
         i = args.index("--capacity-tokens")
         try:
@@ -405,7 +460,8 @@ def main(argv: list[str]) -> int:
             if block in SHARED_BLOCKS:
                 bounds[block] = share_bound(trace)
             for arm in registered_order(block):
-                cells[(block, arm)] = score_cell(study_dir, study, block, arm, trace, checksum, capacity, identity)
+                cells[(block, arm)] = score_cell(study_dir, study, block, arm, trace, checksum, capacity, identity,
+                                                 pin_engine)
         except (Unscorable, Invalid) as exc:
             broken[block] = str(exc)
     lines = []
@@ -439,6 +495,8 @@ def main(argv: list[str]) -> int:
                     attribution = f"{b}'s gain over {a}, {gain:+.4f}, is not above the control's {ctrl_gain:+.4f}"
     lines.append("share bounds: " + ", ".join(f"{b} {bounds[b]:.4f}" for b in SHARED_BLOCKS if b in bounds))
     lines.append(f"capacity bar: {capacity} tokens")
+    if not pin_engine:
+        lines.append("engine pin: NOT CHECKED (--engine-unpinned, the kind rehearsal's stub engines)")
 
     # Precedence: a failure a complete, valid shared block shows stands whatever else is missing; then missing or invalid
     # evidence; then attribution; then the pass.
@@ -451,6 +509,9 @@ def main(argv: list[str]) -> int:
         verdict = f"inconclusive: {first}"
     elif attribution:
         verdict = f"not attributable to prefix affinity: {attribution}"
+    elif not pin_engine:
+        # Nothing stops a paid run's scoring from passing the flag, so an unpinned pass is never the registered verdict.
+        verdict = "rehearsal only, not a result: the traces met every line, but the engine pin was not checked"
     else:
         verdict = "observed on these traces"
     print(f"verdict: {verdict}")

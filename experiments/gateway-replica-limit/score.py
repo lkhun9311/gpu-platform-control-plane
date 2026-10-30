@@ -7,6 +7,8 @@ RUN_DIR holds one <arm>-<rep>.tsv per arm and repetition written by loadgen, and
 runner with the stub's served count and, for the restart arm, the deletion offset.
 Exit status is 0 when every validity check passed, 1 when any failed, so a caller cannot read a voided run
 as a result.
+One check is not in the registration: the registered load (REGISTERED_REQUESTS, one every SLOT_S over REGISTERED_SPAN_S),
+added after the result; README.md records it ("Recorded after the result, 2026-10-29").
 """
 import csv
 import os
@@ -19,6 +21,11 @@ SLOT_S = 0.1
 # The registration's arms and repetitions; a run missing any of them is incomplete, not a smaller result.
 REGISTERED_ARMS = ("R1-fresh", "R2-fresh", "R2-pinned")
 REGISTERED_REPS = 3
+# The registered load, "10 requests per second for 30 s": 300 requests, the first and last dispatched 29.9 s apart.
+# Without it five requests over 0.4 s passed every check above as a valid repetition (audit finding 11), and the limit
+# is only saturated, which is what the readings assume, while that load is offered.
+REGISTERED_REQUESTS = 300
+REGISTERED_SPAN_S = (REGISTERED_REQUESTS - 1) * SLOT_S
 
 
 def read_rows(path):
@@ -95,6 +102,20 @@ def main():
                 valid = False
             if late > SLOT_S:
                 print(f"  INVALID: a request was written {late:.3f} s after its dispatch, so the offered rate was not 10/s")
+                valid = False
+        sent = [r["sent"] for r in rows]
+        span = max(sent) - min(sent) if sent else 0.0
+        if len(rows) != REGISTERED_REQUESTS or abs(span - REGISTERED_SPAN_S) > SLOT_S:
+            print(f"  INVALID: {len(rows)} requests dispatched over {span:.3f} s, not the registered "
+                  f"{REGISTERED_REQUESTS} over {REGISTERED_SPAN_S:.1f} s")
+            valid = False
+        else:
+            # The count and the endpoints say nothing of the requests between them: 299 dispatched at once and one 29.9 s
+            # later passed both (review of fe5be6f7), and the limit is saturated only while the load is offered throughout.
+            off = max(abs(t - min(sent) - i * SLOT_S) for i, t in enumerate(sorted(sent)))
+            if off > SLOT_S:
+                print(f"  INVALID: a request was dispatched {off:.3f} s off the registered schedule of one every "
+                      f"{SLOT_S:.1f} s")
                 valid = False
         if stub != admitted:
             print(f"  INVALID: stub served {stub} but the client saw {admitted} answered 200")
