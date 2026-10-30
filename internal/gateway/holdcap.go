@@ -82,6 +82,16 @@ func allPriorityScheduled(targets []*BackendRef) bool {
 	return len(targets) > 0
 }
 
+// anyPriorityScheduled reports whether some backend a request may reach schedules by priority.
+func anyPriorityScheduled(targets []*BackendRef) bool {
+	for _, t := range targets {
+		if t.PriorityScheduled {
+			return true
+		}
+	}
+	return false
+}
+
 // admissionFor is the admitter and mode a request's head backend selects, and whether that is HoldCap.
 // A HoldCap backend replaces the process-wide mode for its requests, and the two never stack, because the cap was measured with serial-prefill alone.
 func (s *Server) admissionFor(targets []*BackendRef) (Admitter, AdmissionMode, bool) {

@@ -92,6 +92,8 @@ type RequestMeta struct {
 	// Choices is how many completions the request asks for: n when it is a whole JSON number, 1 when n is absent or null as the API defaults it.
 	// Any other n is 0, so a rule that must know the count refuses it instead of guessing.
 	Choices int
+	// CallerPriority is true when the body carries a top-level "priority" key, which the engine schedules by.
+	CallerPriority bool
 }
 
 // chatMessage is one entry in messages, keyed exactly as the body spells it.
@@ -176,7 +178,8 @@ func readRequestMeta(r *http.Request, profile bool) (func() (io.ReadCloser, erro
 		}
 	}
 
-	meta := RequestMeta{Model: model, Stream: string(keys["stream"]) == "true", Choices: requestedChoices(keys["n"])}
+	_, callerPriority := keys["priority"]
+	meta := RequestMeta{Model: model, Stream: string(keys["stream"]) == "true", Choices: requestedChoices(keys["n"]), CallerPriority: callerPriority}
 	var totalChars int
 	for _, m := range messages {
 		content := m["content"]

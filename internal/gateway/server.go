@@ -602,6 +602,11 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 		}
 		w.Header().Set(HeaderEnginePriority, strconv.Itoa(p))
 		tr.priority(p)
+	} else if meta.CallerPriority && anyPriorityScheduled(forwardTargets(res, targets)) {
+		if err := stripEnginePriority(r); err != nil {
+			s.fail(w, tenant, meta.Model, http.StatusInternalServerError)
+			return
+		}
 	}
 
 	// 8. From here the response is the upstream's, passed through rather than composed.
