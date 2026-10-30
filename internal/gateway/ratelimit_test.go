@@ -101,13 +101,11 @@ var _ = Describe("bucketRegistry", func() {
 		Expect(b.Allow("t", rl)).To(BeTrue())
 		var wg sync.WaitGroup
 		for range 64 {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
+			wg.Go(func() {
 				for range 50 {
 					b.Reserve("t", rl)
 				}
-			}()
+			})
 		}
 		wg.Wait()
 		time.Sleep(30 * time.Millisecond)
