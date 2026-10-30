@@ -74,6 +74,32 @@ var _ = Describe("bucketRegistry", func() {
 		Expect(b.Allow("t", rl)).To(BeFalse())
 	})
 
+	// A refusal reports how long until a token is available, and does not spend the token it was refused.
+	// Mutation that turns this red: drop the Cancel, so each refusal pushes the next token further away.
+	It("reports the wait for the next token and keeps a refusal from consuming it", func() {
+		b := newBucketRegistry()
+		rl := &platformv1.GPUQuotaRateLimit{RequestsPerMinute: 6, Burst: 1}
+		ok, wait := b.Reserve("t", rl)
+		Expect(ok).To(BeTrue())
+		Expect(wait).To(BeZero())
+		for range 3 {
+			ok, wait = b.Reserve("t", rl)
+			Expect(ok).To(BeFalse())
+			Expect(wait).To(BeNumerically("~", 10*time.Second, time.Second))
+		}
+	})
+
+	// The endpoint-level check cannot see a floor: 59.99 s floored is 59, and the random second makes it 60 half the
+	// time, which the check accepts. Many draws see both the bottom of the range and that nothing falls below it.
+	// Mutation that turns this red: floor the wait instead of rounding it up.
+	It("rounds the hint up and adds at most one second", func() {
+		seen := map[int]bool{}
+		for range 200 {
+			seen[retryAfterSeconds(10200*time.Millisecond)] = true
+		}
+		Expect(seen).To(Equal(map[int]bool{11: true, 12: true}))
+	})
+
 	It("returns true for an unlimited (nil) rate limit", func() {
 		b := newBucketRegistry()
 		Expect(b.Allow("t", nil)).To(BeTrue())

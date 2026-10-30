@@ -22,6 +22,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
+	"math/rand/v2"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -310,11 +312,21 @@ func (s *Server) failUnresolvedModel(w http.ResponseWriter, tenant, model string
 //
 // Why this cannot just be fail(): the admission guard's reasons ("input_rate_limit" here, "kv_cache_pressure" in Task 3) are not derivable from the HTTP status the way fail()'s errorCode mapping assumes, since both share status 429.
 //
-// Retry-After is set to 5s (design spec Config and API section) because an admission-guard 429 is expected to clear once bucket capacity or backend pressure recovers, unlike the RPM limiter's 429, which carries no such hint.
+// Retry-After is set to 5s (design spec Config and API section) because an admission-guard 429 is expected to clear once bucket capacity or backend pressure recovers, at a time the gateway cannot compute.
+// The RPM limiter's 429 can compute it, and carries retryAfterSeconds instead.
 func (s *Server) failReason(w http.ResponseWriter, tenant, model string, code int, reason string) {
 	requests.WithLabelValues(tenant, model, strconv.Itoa(code)).Inc()
 	w.Header().Set("Retry-After", "5")
 	writeJSONErrorCode(w, code, reason, http.StatusText(code))
+}
+
+// retryAfterSeconds is the Retry-After for a tenant whose next token is wait away.
+//
+// Rounded up, because the header counts whole seconds and a client retrying on the floor arrives before the token.
+// Up to one second is added at random, because clients refused in the same instant are told the same second and
+// would otherwise return together and be refused together.
+func retryAfterSeconds(wait time.Duration) int {
+	return int(math.Ceil(wait.Seconds())) + rand.IntN(2) //nolint:gosec // spreads retries; nothing depends on it being unpredictable
 }
 
 // resolveBackend resolves a model to its backend.
@@ -437,9 +449,12 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, tenant, "", http.StatusServiceUnavailable)
 		return
 	}
-	if !s.buckets.Allow(tenant, policy.Spec.RateLimit) {
+	if ok, wait := s.buckets.Reserve(tenant, policy.Spec.RateLimit); !ok {
 		// Counted separately from requests{code="429"}; the two answer different questions.
 		rateLimited.WithLabelValues(tenant).Inc()
+		if wait > 0 {
+			w.Header().Set("Retry-After", strconv.Itoa(retryAfterSeconds(wait)))
+		}
 		s.fail(w, tenant, "", http.StatusTooManyRequests)
 		return
 	}

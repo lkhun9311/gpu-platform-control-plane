@@ -280,6 +280,10 @@ var _ = Describe("chat completions pipeline", func() {
 		s.Handler().ServeHTTP(second, authedRequest(`{"model":"llama-3"}`))
 		Expect(second.Code).To(Equal(http.StatusTooManyRequests)) // none left
 		expectJSONError(second, "rate_limited")
+		// The bucket refills one token a minute, so the next token is about 60 s away, and the hint says so rather
+		// than leaving the client to guess; the second it may add spreads clients refused together.
+		// Mutation that turns this red: leave the RPM refusal without Retry-After, or report the delay floored.
+		Expect(second.Header().Get("Retry-After")).To(BeElementOf("60", "61"))
 	})
 
 	It("returns 400 for a malformed JSON body", func() {
