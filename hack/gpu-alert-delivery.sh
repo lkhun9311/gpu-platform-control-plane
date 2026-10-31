@@ -49,6 +49,7 @@ OUT=${OUT:-hack/gpu-alert-delivery-$(date -u +%Y%m%dT%H%M%SZ)}
 SYS=gpu-platform-control-plane-system
 NS=rehearsal
 PROM_POD=prometheus-kps-kube-prometheus-stack-prometheus-0
+PROM_URL=http://kps-kube-prometheus-stack-prometheus.monitoring.svc:9090
 
 # Refused before the evidence directory exists, so a run that never started leaves no directory to be mistaken for one.
 for tool in kind kubectl docker python3 "$HELM"; do
@@ -97,8 +98,10 @@ for d in docs:
 print(yaml.safe_dump_all(docs))' "$1"
 }
 
-# prom GETs a Prometheus API path from inside its own Pod, so no port-forward can drop out halfway through a run.
-prom() { k -n monitoring exec "$PROM_POD" -c prometheus -- wget -qO- "http://localhost:9090$1"; }
+# prom GETs a Prometheus API path through a busybox Pod in the cluster, so no port-forward can drop out halfway.
+# Not from the Prometheus container: its image carries no wget, which this script's second run found.
+# stderr goes to the log, so a failing exec is read there rather than as an empty answer.
+prom() { k -n monitoring exec deploy/probe -- wget -qO- "$PROM_URL$1" 2>>"$LOG"; }
 q() { python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1]))' "$1"; }
 
 # inject writes one field of the fake exporter's cache, as hack/lib/gpu-fault.sh does in fake mode.
@@ -106,7 +109,7 @@ inject() {
   local ip
   ip=$(k -n "$SYS" get pod -l app.kubernetes.io/component=dcgm-exporter -o jsonpath='{.items[0].status.podIP}')
   [ -n "$ip" ] || die "no fake exporter Pod to inject into"
-  k -n monitoring exec "$PROM_POD" -c prometheus -- \
+  k -n monitoring exec deploy/probe -- \
     wget -qO- --post-data '' "http://$ip:9400/inject?gpu=0&field=$1&value=$2" >>"$LOG" 2>&1 || die "inject field $1 value $2"
 }
 
@@ -249,6 +252,22 @@ metadata: {name: alert-sink, namespace: monitoring}
 spec:
   selector: {app: alert-sink}
   ports: [{port: 8080, targetPort: 8080}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: probe, namespace: monitoring}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: probe}}
+  template:
+    metadata: {labels: {app: probe}}
+    spec:
+      terminationGracePeriodSeconds: 1
+      containers:
+        - name: probe
+          image: busybox:1.37.0
+          imagePullPolicy: IfNotPresent
+          command: ["sleep", "86400"]
 EOF
 
 # ---------------------------------------------------------------- prometheus and alertmanager
@@ -290,6 +309,7 @@ EOF
 capped "$HELM" --kube-context "$CTX" install kps "$CHART" -n monitoring -f "$OUT/kps-values.yaml" --wait --timeout 15m \
   >>"$LOG" 2>&1 || die "helm install"
 k -n monitoring rollout status deploy/alert-sink --timeout=300s >>"$LOG" 2>&1 || die "sink not ready"
+k -n monitoring rollout status deploy/probe --timeout=300s >>"$LOG" 2>&1 || die "probe not ready"
 k -n monitoring wait --for=condition=Ready "pod/$PROM_POD" --timeout=300s >>"$LOG" 2>&1 || die "prometheus not ready"
 
 # ---------------------------------------------------------------- kueue, from the deployed configuration
