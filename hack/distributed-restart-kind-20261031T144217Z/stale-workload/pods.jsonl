@@ -1,0 +1,4 @@
+{"pod": "rst-stale-workload-144556-0-wtl5d", "uid": "fd9ab603-edf2-4d43-b44e-65a24e76d716", "node": "rst-worker2"}
+{"pod": "rst-stale-workload-144556-1-x8dnd", "uid": "a6669a78-b7f0-4542-b060-8572756d5de2", "node": "rst-worker"}
+{"pod": "rst-stale-workload-144556-0-z8wqz", "uid": "388139b4-cc14-4339-93a9-c857478b2b3f", "node": "rst-worker2"}
+{"pod": "rst-stale-workload-144556-1-4x944", "uid": "fedcd60f-4901-4481-8673-48f1ad1a10b3", "node": "rst-worker3"}

@@ -63,6 +63,14 @@ The operator, Kueue, cert-manager and CoreDNS are pinned to the control-plane no
 | `deactivated` | the Workload is deactivated by hand while both ranks run | no second attempt and no trigger over the following minute |
 | `node-lost` | rank 1's node container is frozen, then its Node deleted | no attempt 2 while its Pods remain, nor after, until the node is named in `platform.lkhun9311.github.io/fenced-nodes`; attempt 2 runs on the other two nodes and ends with the reference's parameters |
 
+The recorded run is `hack/distributed-restart-kind-20261031T144217Z`, of commit `65bf5f16`, and all 34 of its checks pass:
+
+```
+python3 experiments/distributed-restart/score_kind.py hack/distributed-restart-kind-20261031T144217Z
+```
+
+`rank-failed` resumed from step 5 and `stale-workload` from step 8, as their faults leave them; `node-lost` froze `rst-worker3`, which held rank 1, and attempt 2 resumed from step 3 on `rst-worker` and `rst-worker2`.
+Each restarted case ended with exactly the reference's parameters.
 The scorer refuses a run of uncommitted code.
 Five rehearsals on an uncommitted tree came before the recorded run, and two found defects in the harness, not in the controller.
 The trainer was started with `exec`, which made it the container's PID 1, and the kernel drops a `SIGKILL` that PID 1 sends itself: the killed ranks trained on and their jobs finished on attempt 1.
