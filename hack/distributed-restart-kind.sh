@@ -71,7 +71,9 @@ command -v kustomize >/dev/null || make kustomize >>"$LOG" 2>&1 || die "make kus
 for tool in docker kind kubectl kustomize python3; do command -v "$tool" >/dev/null || die "missing tool $tool"; done
 {
   echo "commit=$(git rev-parse HEAD)"
-  echo "dirty_files=$(git status --porcelain -- cmd internal api config experiments/distributed-restart hack/distributed-restart-kind.sh hack/kind-config-restart.yaml | wc -l)"
+  # Every tracked file, since go.mod, the Dockerfiles and the Makefile feed the images as much as the sources do, and
+  # untracked files only where a build would pick them up; this run's own evidence directory is untracked too.
+  echo "dirty_files=$(($(git status --porcelain --untracked-files=no | wc -l) + $(git status --porcelain -- cmd internal api config experiments/distributed-restart | grep -c '^??')))"
   echo "kind=$(kind version)"
   echo "kueue=$KUEUE_VERSION"
   echo "cert_manager=$CERT_MANAGER_VERSION"
@@ -132,7 +134,8 @@ pin='{"spec":{"template":{"spec":{"nodeSelector":{"node-role.kubernetes.io/contr
   "tolerations":[{"key":"node-role.kubernetes.io/control-plane","operator":"Exists","effect":"NoSchedule"}]}}}}'
 for dep in "$SYS/${OPDEP#*/}" kueue-system/kueue-controller-manager cert-manager/cert-manager \
   cert-manager/cert-manager-webhook cert-manager/cert-manager-cainjector kube-system/coredns; do
-  k -n "${dep%%/*}" patch deploy "${dep#*/}" --type=strategic -p "$pin" >>"$LOG" 2>&1 || die "pin $dep"
+  # Retried: Kueue's webhook mutates Deployments and refuses connections for a while after its own rollout.
+  retry k -n "${dep%%/*}" patch deploy "${dep#*/}" --type=strategic -p "$pin" >>"$LOG" 2>&1 || die "pin $dep"
   k -n "${dep%%/*}" rollout status deploy "${dep#*/}" --timeout=240s >>"$LOG" 2>&1 || die "rollout of pinned $dep"
 done
 k get pods -A -o wide >"$OUT/placement.txt" 2>>"$LOG"
@@ -333,10 +336,94 @@ finish() {
   k -n "$NS" delete mltrainingjob "$name" --wait=true --timeout=120s >>"$LOG" 2>&1 || log "  delete of $name did not finish"
 }
 
+# void_case ends a case whose fault could not be injected: its evidence would show a job that was never faulted.
+void_case() {
+  local name=$1 dir=$2
+  shift 2
+  log "  VOID case: $*"
+  echo "$*" >"$dir/VOID"
+  kill "${COLLECTORS[-1]}" 2>>"$LOG"
+  k -n "$NS" delete mltrainingjob "$name" --wait=true --timeout=120s >>"$LOG" 2>&1 || log "  delete of $name did not finish"
+}
+
 workload_of() { field "$1" "a[0].get('workloadName')"; }
 rank_node() {
   k -n "$NS" get pods -l "platform.lkhun9311.github.io/mltrainingjob=$1" \
     -o jsonpath="{range .items[?(@.metadata.annotations.batch\.kubernetes\.io/job-completion-index==\"$2\")]}{.spec.nodeName}{end}"
+}
+
+# drive runs one case: it returns 2 when the case is void (its job was refused, or its fault could not be injected),
+# and otherwise 0 or 1, both of which are recorded and scored; 1 is a state the case waited for and never reached.
+drive() {
+  local case=$1 name=$2 dir=$3
+  case "$case" in
+    reference)
+      submit "$name" "$dir" "" || return 2
+      wait_for "$name" "$dir" "s.get('phase') == 'Succeeded'" "$CASE_BUDGET"
+      ;;
+    rank-failed)
+      # Rank 1 dies with its shard of step 6 unsynced: the restart must resume from step 5 on a fresh attempt.
+      submit "$name" "$dir" "CKPT_FAULT=kill-before-fsync:6:1" || return 2
+      wait_for "$name" "$dir" "s.get('phase') == 'Succeeded' and len(a) == 2" "$CASE_BUDGET"
+      ;;
+    stale-workload)
+      # Rank 0 dies at step 8; attempt 1's Workload is held by a finalizer until the hold has been sampled.
+      submit "$name" "$dir" "CKPT_FAULT=kill-after-latest:8" || return 2
+      wait_for "$name" "$dir" "a[0].get('workloadName') if a else None" 120 || return 1
+      local wl
+      wl=$(workload_of "$name")
+      k -n "$NS" patch workload "$wl" --type=merge -p '{"metadata":{"finalizers":["rst.test/hold"]}}' >>"$LOG" 2>&1 || { void_case "$name" "$dir" "finalizer patch on $wl failed"; return 2; }
+      mark "$dir" "finalizer-added $wl"
+      # What it waits on first may be the Job, which foreground deletion keeps until its dependents are gone; the
+      # scorer reads from the samples that the held Workload is among what the attempt waited on.
+      wait_for "$name" "$dir" "a[0].get('state') == 'Stopping' and a[0].get('waitingFor')" 180 || return 1
+      mark "$dir" "hold-start"
+      # Long enough for the ranks' Pods to be gone, so what is left holding the attempt is the Workload.
+      hold "$name" "$dir" 60
+      mark "$dir" "hold-end"
+      k -n "$NS" patch workload "$wl" --type=json -p '[{"op":"remove","path":"/metadata/finalizers"}]' >>"$LOG" 2>&1 || { void_case "$name" "$dir" "finalizer removal from $wl failed"; return 2; }
+      wait_for "$name" "$dir" "s.get('phase') == 'Succeeded' and len(a) == 2" "$CASE_BUDGET"
+      ;;
+    deactivated)
+      submit "$name" "$dir" "" || return 2
+      wait_for "$name" "$dir" "a[0].get('allRanksReadyAt') if a else None" 180 || return 1
+      local dwl
+      dwl=$(workload_of "$name")
+      k -n "$NS" patch workload "$dwl" --type=merge -p '{"spec":{"active":false}}' >>"$LOG" 2>&1 ||
+        { void_case "$name" "$dir" "deactivating $dwl failed"; return 2; }
+      mark "$dir" "deactivated $dwl"
+      hold "$name" "$dir" 60
+      mark "$dir" "hold-end"
+      ;;
+    node-lost)
+      # Rank 1's node is frozen; rank 0's collective times out after 20 s and fails the attempt.
+      submit "$name" "$dir" "CKPT_COLLECTIVE_TIMEOUT=20" || return 2
+      wait_for "$name" "$dir" "a[0].get('allRanksReadyAt') if a else None" 180 || return 1
+      sleep 5
+      local victim
+      victim=$(rank_node "$name" 1)
+      [ -n "$victim" ] || { void_case "$name" "$dir" "no node for rank 1"; return 2; }
+      docker pause "$victim" >>"$LOG" 2>&1 || { void_case "$name" "$dir" "pausing $victim failed"; return 2; }
+      PAUSED=$victim
+      mark "$dir" "paused $victim"
+      # The frozen node's Pods cannot report gone, so the barrier waits on them, or on the Job they keep from going.
+      wait_for "$name" "$dir" "a[0].get('state') == 'Stopping' and a[0].get('waitingFor')" 240 || return 1
+      mark "$dir" "pods-hold-start"
+      hold "$name" "$dir" 20
+      mark "$dir" "pods-hold-end"
+      k delete node "$victim" --wait=false >>"$LOG" 2>&1 || { void_case "$name" "$dir" "deleting node $victim failed"; return 2; }
+      mark "$dir" "node-deleted $victim"
+      # Pod garbage collection removes the Pods of a Node that no longer exists; then only the fencing remains.
+      wait_for "$name" "$dir" "'to be fenced' in (a[0].get('waitingFor') or '')" 240 || return 1
+      mark "$dir" "fence-hold-start"
+      hold "$name" "$dir" 30
+      mark "$dir" "fence-hold-end"
+      k -n "$NS" annotate mltrainingjob "$name" "platform.lkhun9311.github.io/fenced-nodes=$victim" >>"$LOG" 2>&1 || { void_case "$name" "$dir" "annotating the fence failed"; return 2; }
+      mark "$dir" "fenced $victim"
+      wait_for "$name" "$dir" "s.get('phase') == 'Succeeded' and len(a) == 2" "$CASE_BUDGET"
+      ;;
+    *) log "unknown case $case"; echo "unknown case" >"$dir/VOID"; return 2 ;;
+  esac
 }
 
 run_case() {
@@ -345,71 +432,8 @@ run_case() {
   dir=$OUT/$case
   mkdir -p "$dir"
   log "== case $case as $name"
-  case "$case" in
-    reference)
-      submit "$name" "$dir" "" || return
-      wait_for "$name" "$dir" "s.get('phase') == 'Succeeded'" "$CASE_BUDGET"
-      ;;
-    rank-failed)
-      # Rank 1 dies with its shard of step 6 unsynced: the restart must resume from step 5 on a fresh attempt.
-      submit "$name" "$dir" "CKPT_FAULT=kill-before-fsync:6:1" || return
-      wait_for "$name" "$dir" "s.get('phase') == 'Succeeded' and len(a) == 2" "$CASE_BUDGET"
-      ;;
-    stale-workload)
-      # Rank 0 dies at step 8; attempt 1's Workload is held by a finalizer until the hold has been sampled.
-      submit "$name" "$dir" "CKPT_FAULT=kill-after-latest:8" || return
-      wait_for "$name" "$dir" "a[0].get('workloadName') if a else None" 120 || return
-      local wl
-      wl=$(workload_of "$name")
-      k -n "$NS" patch workload "$wl" --type=merge -p '{"metadata":{"finalizers":["rst.test/hold"]}}' >>"$LOG" 2>&1 || log "  finalizer patch failed"
-      mark "$dir" "finalizer-added $wl"
-      # What it waits on first may be the Job, which foreground deletion keeps until its dependents are gone; the
-      # scorer reads from the samples that the held Workload is among what the attempt waited on.
-      wait_for "$name" "$dir" "a[0].get('state') == 'Stopping' and a[0].get('waitingFor')" 180 || return
-      mark "$dir" "hold-start"
-      # Long enough for the ranks' Pods to be gone, so what is left holding the attempt is the Workload.
-      hold "$name" "$dir" 60
-      mark "$dir" "hold-end"
-      k -n "$NS" patch workload "$wl" --type=json -p '[{"op":"remove","path":"/metadata/finalizers"}]' >>"$LOG" 2>&1 || log "  finalizer remove failed"
-      wait_for "$name" "$dir" "s.get('phase') == 'Succeeded' and len(a) == 2" "$CASE_BUDGET"
-      ;;
-    deactivated)
-      submit "$name" "$dir" "" || return
-      wait_for "$name" "$dir" "a[0].get('allRanksReadyAt') if a else None" 180 || return
-      k -n "$NS" patch workload "$(workload_of "$name")" --type=merge -p '{"spec":{"active":false}}' >>"$LOG" 2>&1 || log "  deactivate failed"
-      mark "$dir" "deactivated"
-      hold "$name" "$dir" 60
-      mark "$dir" "hold-end"
-      ;;
-    node-lost)
-      # Rank 1's node is frozen; rank 0's collective times out after 20 s and fails the attempt.
-      submit "$name" "$dir" "CKPT_COLLECTIVE_TIMEOUT=20" || return
-      wait_for "$name" "$dir" "a[0].get('allRanksReadyAt') if a else None" 180 || return
-      sleep 5
-      local victim
-      victim=$(rank_node "$name" 1)
-      [ -n "$victim" ] || { log "  no node for rank 1"; return; }
-      docker pause "$victim" >>"$LOG" 2>&1 || { log "  pause $victim failed"; return; }
-      PAUSED=$victim
-      mark "$dir" "paused $victim"
-      # The frozen node's Pods cannot report gone, so the barrier waits on them, or on the Job they keep from going.
-      wait_for "$name" "$dir" "a[0].get('state') == 'Stopping' and a[0].get('waitingFor')" 240 || return
-      mark "$dir" "pods-hold-start"
-      hold "$name" "$dir" 20
-      mark "$dir" "pods-hold-end"
-      k delete node "$victim" --wait=false >>"$LOG" 2>&1 || log "  node delete failed"
-      mark "$dir" "node-deleted $victim"
-      # Pod garbage collection removes the Pods of a Node that no longer exists; then only the fencing remains.
-      wait_for "$name" "$dir" "'to be fenced' in (a[0].get('waitingFor') or '')" 240 || return
-      mark "$dir" "fence-hold-start"
-      hold "$name" "$dir" 30
-      mark "$dir" "fence-hold-end"
-      k -n "$NS" annotate mltrainingjob "$name" "platform.lkhun9311.github.io/fenced-nodes=$victim" >>"$LOG" 2>&1 || log "  annotate failed"
-      mark "$dir" "fenced $victim"
-      wait_for "$name" "$dir" "s.get('phase') == 'Succeeded' and len(a) == 2" "$CASE_BUDGET"
-      ;;
-    *) log "unknown case $case"; return ;;
-  esac
+  drive "$case" "$name" "$dir"
+  [ $? = 2 ] && return
   finish "$name" "$dir"
 }
 
