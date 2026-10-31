@@ -70,9 +70,9 @@ The eBPF and Nsight layers require a real GPU node and are **not implemented at 
 
 ## GPU alerts and what to do when they fire
 
-`config/prometheus/gpu_rules.yaml` holds five alerts and `config/prometheus/gpu_dashboard.json` the panels they are read beside.
+`config/prometheus/gpu_rules.yaml` holds six alerts and `config/prometheus/gpu_dashboard.json` the panels they are read beside.
 Three alerts describe the fleet: a card reporting a fault, a ClusterQueue out of GPU quota, and a queue that has stopped admitting.
-The other two describe the instruments, because each of the first three is silent when its input is missing, and silence reads as health.
+The other three describe the instruments, because each of the first three is silent when its input is missing, and silence reads as health.
 
 What they need deployed:
 
@@ -81,6 +81,7 @@ What they need deployed:
 | `DCGM_FI_DEV_XID_ERRORS`, `DCGM_FI_DEV_ECC_DBE_VOL_TOTAL`, `DCGM_FI_DEV_FB_USED` | `config/dcgm-exporter-ops` (exporter and its PodMonitor) | `config/dcgm-exporter` collects utilisation only; `GPUFaultFieldsNotCollected` fires |
 | `kueue_*` | `config/prometheus/kueue_monitor.yaml` | nothing in this repository scraped Kueue before it |
 | `kueue_cluster_queue_nominal_quota` and the other quota series | Kueue's `metrics.enableClusterQueueResources: true`, set by `config/kueue-controller/controller_manager_config.yaml` | the release file applied alone, as the kind harnesses do, leaves it off; `KueueGPUQuotaMetricsNotReported` fires |
+| `kube_node_status_capacity` | kube-state-metrics, from kube-prometheus-stack; not deployed by this repository | `GPUExporterNotReporting` has no node list and is silent, and nothing says so |
 
 There is no metric of which nodes are quarantined now.
 The operator exports counters of transitions (`gpuplatform_gpufault_transitions_total`, `gpuplatform_nodehealth_taint_total`), which a restart zeroes while the taints stay, so the dashboard shows them as transitions and the current state is read from the NodeHealth objects.
@@ -121,6 +122,16 @@ A card's DCGM fields carry a fault under the operator's own policy (`internal/gp
 A node exports `DCGM_FI_DEV_GPU_UTIL` but not the Xid and double-bit ECC fields, so `GPUFaultSignalPresent` cannot fire there.
 Deploy the exporter from `config/dcgm-exporter-ops` (or `config/dcgm-exporter-fault`), which collect them.
 The operator's fault path on the same node reports `FieldMissing` for the same reason.
+
+### GPUExporterNotReporting
+
+A node advertises `nvidia.com/gpu` (kube-state-metrics' `kube_node_status_capacity`) and no DCGM series carries its name in `Hostname`, so neither alert above can fire for its cards.
+It is the case `GPUFaultFieldsNotCollected` cannot see, because that alert needs the utilisation series the vanished exporter took with it.
+
+1. `kubectl -n gpu-platform-control-plane-system get pods -l app.kubernetes.io/component=dcgm-exporter -o wide` shows whether an exporter Pod runs on the node.
+   None: the DaemonSet's nodeSelector (`platform.lkhun9311.github.io/gpu=true`) or its tolerations do not match the node.
+2. A Pod that runs but is not reporting: its scrape target in Prometheus (`up` for the `dcgm-exporter` PodMonitor) and the exporter's log.
+3. Until it reports again, a fault on that node reaches the operator's `--gpu-fault-source=dcgm` path as `FieldMissing` and reaches no alert.
 
 ### KueueClusterQueueGPUQuotaExhausted
 

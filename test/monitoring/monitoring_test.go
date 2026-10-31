@@ -207,8 +207,9 @@ var notSeries = map[string]bool{
 
 // seriesNames returns the series an expression selects.
 //
-// It is a lexer, not a parser, and it is deliberately conservative in one direction: anything it cannot classify as a
-// function, an operator or a label is reported as a series, so an unfamiliar word fails the test rather than slipping by.
+// It is a lexer, not a parser, and it is deliberately conservative in one direction.
+// Anything it cannot classify as a function, an operator or a label is reported as a series, so an unfamiliar word
+// fails the test rather than slipping by.
 func seriesNames(expr string) []string {
 	s := quoted.ReplaceAllString(expr, " ")
 	s = braces.ReplaceAllString(s, " ")
@@ -226,11 +227,12 @@ func seriesNames(expr string) []string {
 }
 
 func TestSeriesNamesReadsSelectorsAndNothingElse(t *testing.T) {
-	got := seriesNames(`max by (Hostname, gpu) (label_replace(DCGM_FI_DEV_XID_ERRORS{job="x"} != 0, "field", "xid", "", ""))` +
+	got := seriesNames(`max by (Hostname, gpu) (label_replace(DCGM_FI_DEV_XID_ERRORS{job="x"} != 0,` +
+		` "field", "xid", "", ""))` +
 		` or on (cluster_queue) sum(increase(kueue_admitted_workloads_total[30m])) and kueue_pending_workloads offset 30m` +
 		` unless histogram_quantile(0.9, sum by (le) (rate(kueue_admission_wait_time_seconds_bucket[10m:1m])))`)
-	want := []string{"DCGM_FI_DEV_XID_ERRORS", "kueue_admission_wait_time_seconds_bucket", "kueue_admitted_workloads_total",
-		"kueue_pending_workloads"}
+	want := []string{"DCGM_FI_DEV_XID_ERRORS", "kueue_admission_wait_time_seconds_bucket",
+		"kueue_admitted_workloads_total", "kueue_pending_workloads"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("seriesNames = %v, want %v", got, want)
 	}
@@ -342,9 +344,15 @@ func kueueMetrics(t *testing.T) emitted {
 // builtins are series Prometheus writes itself for every target.
 var builtins = emitted{"up": false}
 
+// external are series from components this repository assumes and does not deploy, named one by one so each is a
+// decision someone wrote down, not a gap the lexer let through.
+// kube_node_status_capacity is kube-state-metrics', shipped by the kube-prometheus-stack the PodMonitors already need;
+// GPUExporterNotReporting reads it; the kind rehearsal in hack/gpu-alert-delivery.sh records it with nvidia_com_gpu.
+var external = emitted{"kube_node_status_capacity": false}
+
 func TestEverySeriesTheRulesAndDashboardReadIsOneSomethingEmits(t *testing.T) {
 	known := emitted{}
-	for _, src := range []emitted{dcgmFields(t), operatorMetrics(t), kueueMetrics(t), builtins} {
+	for _, src := range []emitted{dcgmFields(t), operatorMetrics(t), kueueMetrics(t), builtins, external} {
 		maps.Copy(known, src)
 	}
 	check := func(where, expr string) {
@@ -374,6 +382,58 @@ func TestTheOpsExporterCollectsWhatTheFaultPathReads(t *testing.T) {
 		if _, ok := fields[f]; !ok {
 			t.Errorf("%s does not collect %s, which internal/gpufault reads", opsExporter, f)
 		}
+	}
+}
+
+// GPUExporterNotReporting joins a node's name to the exporter's Hostname label, and dcgm-exporter fills Hostname from
+// $NODE_NAME, falling back to the Pod's own hostname, which is the Pod name.
+// Without NODE_NAME from spec.nodeName every GPU node would read as unwatched while its exporter reported normally.
+//
+// Mutation that turns this red: delete the NODE_NAME env from config/dcgm-exporter/daemonset.yaml, or read it from
+// another field.
+func TestTheExporterNamesTheNodeTheExporterAlertJoinsOn(t *testing.T) {
+	var ds struct {
+		Spec struct {
+			Template struct {
+				Spec struct {
+					Containers []struct {
+						Name string
+						Env  []struct {
+							Name      string
+							ValueFrom struct {
+								FieldRef struct {
+									FieldPath string `json:"fieldPath"`
+								} `json:"fieldRef"`
+							} `json:"valueFrom"`
+						}
+					}
+				}
+			}
+		}
+	}
+	if err := yaml.Unmarshal([]byte(readRepoFile(t, "config/dcgm-exporter/daemonset.yaml")), &ds); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, c := range ds.Spec.Template.Spec.Containers {
+		if c.Name != "exporter" {
+			continue
+		}
+		for _, e := range c.Env {
+			found = found || e.Name == "NODE_NAME" && e.ValueFrom.FieldRef.FieldPath == "spec.nodeName"
+		}
+	}
+	if !found {
+		t.Error("the exporter container does not set NODE_NAME from spec.nodeName, so its Hostname label is the Pod name")
+	}
+	joined := false
+	for _, r := range loadRules(t) {
+		if r.Alert == "GPUExporterNotReporting" {
+			joined = strings.Contains(r.Expr, `"node", "$1", "Hostname", "(.*)"`)
+		}
+	}
+	if !joined {
+		t.Errorf("%s has no GPUExporterNotReporting joining Hostname to node", rulesFile)
 	}
 }
 

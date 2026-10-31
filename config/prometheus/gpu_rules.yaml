@@ -3,6 +3,7 @@
 # Every series named here is one this repository's deployed components emit, and a test holds them to that
 # (test/monitoring/monitoring_test.go): the DCGM fields against config/dcgm-exporter-ops, the Kueue series against the
 # Kueue Go module, and nothing is named that only a plausible guess would produce.
+# The one exception is kube_node_status_capacity, from kube-state-metrics, which the test lists by name as an external input.
 #
 # Each alert below is silent when its input is absent, so each is paired with a rule that speaks when the input is
 # missing while the thing it describes is present.
@@ -72,6 +73,38 @@ spec:
               GPUFaultSignalPresent is blind on this node. Deploy the exporter from config/dcgm-exporter-ops, which collects
               DCGM_FI_DEV_XID_ERRORS and DCGM_FI_DEV_ECC_DBE_VOL_TOTAL.
             runbook_url: https://github.com/lkhun9311/gpu-platform-control-plane/blob/main/docs/06_OBSERVABILITY_BENCHMARK_FAILURE.md#gpufaultfieldsnotcollected
+
+        # GPUFaultFieldsNotCollected needs the utilisation series to exist, so an exporter that is gone altogether
+        # silences it together with GPUFaultSignalPresent, and three silent rules read as a healthy node.
+        # This one starts from what the node says it has instead of from what the exporter says: kube-state-metrics'
+        # capacity series names every node advertising nvidia.com/gpu, and any of those with no DCGM series is unwatched.
+        #
+        # It covers an exporter Pod that is deleted, unschedulable or crash-looping, and one whose scrape fails, because
+        # Prometheus marks a failed target's series stale at once and they then drop out of the right-hand side.
+        # Either DCGM field counts as present, so an exporter collecting the fault fields without utilisation is not
+        # called absent; GPUFaultFieldsNotCollected is what speaks for the fields.
+        #
+        # The join is Hostname to node: dcgm-exporter 3.3.9 sets Hostname from $NODE_NAME (GetHostname in its
+        # gpu_collector.go, read off the pinned image's binary), and config/dcgm-exporter sets NODE_NAME to spec.nodeName.
+        #
+        # PRECONDITION: kube-state-metrics, which kube-prometheus-stack ships and this repository does not deploy.
+        # Without it the left-hand side is empty and this rule is as silent as the ones it watches.
+        #
+        # 10 minutes, as for GPUFaultFieldsNotCollected, so a new node pulling the half-gigabyte exporter image does not page.
+        - alert: GPUExporterNotReporting
+          expr: |
+            (max by (node) (kube_node_status_capacity{resource="nvidia_com_gpu"}) > 0)
+              unless on (node)
+            label_replace(count by (Hostname) (DCGM_FI_DEV_GPU_UTIL or DCGM_FI_DEV_XID_ERRORS), "node", "$1", "Hostname", "(.*)")
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.node }} advertises nvidia.com/gpu and no DCGM exporter reports for it"
+            description: >-
+              No DCGM series carries Hostname={{ $labels.node }}, so GPUFaultSignalPresent and GPUFaultFieldsNotCollected
+              cannot fire for this node's cards. The exporter Pod is missing, not running, or not being scraped.
+            runbook_url: https://github.com/lkhun9311/gpu-platform-control-plane/blob/main/docs/06_OBSERVABILITY_BENCHMARK_FAILURE.md#gpuexporternotreporting
 
     - name: kueue.gpu
       rules:
