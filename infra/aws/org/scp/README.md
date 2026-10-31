@@ -57,7 +57,7 @@ no quota request and no operator attention is pointed.
 
 ### `deny-instance-family.json` — pin the accelerator families
 
-Denies `ec2:RunInstances` and `autoscaling:*` launches whose instance type is outside the three the study
+Denies `ec2:RunInstances` and `autoscaling:*` launches whose instance type is outside the families the study
 uses, and denies changing an EKS node group's instance types to anything else.
 
 **What this stops:** the same session switching from `g5.xlarge` at $1.237/hour to a `p5` at two orders of
@@ -69,6 +69,14 @@ FP8, MXFP8 and NVFP4 tensor cores; `g7e.2xlarge` lists at $4.135/hour and `g7e.1
 On-Demand in `ap-northeast-2` (AWS public price data, read 2026-10-31). It is still a G family, so it stays
 under the G/VT quota below and adds no uncapped family. The family is named rather than `g7*`, so G7 (RTX PRO
 4500) stays denied until something needs it.
+
+Applied to `p-bzjfxxsk` on 2026-11-01 with `aws organizations update-policy`, after IAM Access Analyzer returned
+no findings for the new document and the live content was read back to differ from it only by `g7e.*`.
+Dry runs from the lab account then returned `DryRunOperation` for `g7e.2xlarge`, `g7e.12xlarge` and `g5.xlarge`,
+and `UnauthorizedOperation` naming this policy for `m5.large`, with a real Amazon Linux 2023 AMI so that both arms
+passed EC2's own validation first.
+`describe-instance-types` reports EFA support from `g7e.8xlarge` and `g5.8xlarge` up; the smaller sizes of
+either family have none, so a multi-node EFA run cannot use `g5.xlarge`.
 
 Note the interaction with quota: the G/VT quota already caps G-family vCPU at 52. It does **not** cap P, Trn
 or Inf families, which have their own quotas and their own defaults. The SCP is what makes the family list
@@ -187,7 +195,7 @@ Root  ──  FullAWSAccess          (AWS creates and attaches this; removing it
       ──  deny-escape            no member account may leave the organization or close itself
 
 Lab OU ── deny-region            this lab runs in ap-northeast-2
-       ── deny-instance-family   this lab runs t3 / g4dn / g5
+       ── deny-instance-family   this lab runs t3 / g4dn / g5 / g7e
           │
           └── 007635145730       inherits all four
 ```
