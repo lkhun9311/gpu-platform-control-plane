@@ -225,48 +225,59 @@ On a job submitted with `--no-requeue`, the same command was refused with `Reque
 
 ## Step 4: a two-node job loses one node
 
-Transcripts: `evidence/2026-10-31/04-multinode-default.txt`, `04-multinode-requeue.txt` and `04-multinode-nokill.txt` in the same directory.
+Transcripts: `evidence/2026-10-31-rerun04/04-multinode-default.txt`, `04-multinode-requeue.txt` and `04-multinode-nokill.txt` in the same directory, with that run's `00-cluster.txt` and `00-accounting.txt` beside them.
+
+**Why step 4 has its own directory.**
+The first step-4 run, still kept under `evidence/2026-10-31/04-multinode-*.txt`, checked for a surviving rank with `pgrep -af 'sleep 900'`.
+That pattern matches the probe's own `bash -c` wrapper, so the probe always succeeded, and the claim "no `sleep 900` process was left on c1" rested on reading its output by eye rather than on the probe.
+The probe now lists only processes named exactly `sleep` (`pgrep -ax sleep`) and keeps the line `sleep 900`, so its own wrapper cannot match.
+Every variant runs it twice on the batch host: once while the job is alive, as a positive control, and once after the failure.
+Step 4 was rerun on a fresh cluster with the new probe; the other steps were not rerun, and their transcripts stay in `evidence/2026-10-31/`.
 
 Each variant is one batch job with `-N 2 --ntasks-per-node=1 --gres=gpu:1`, whose script is a single `srun` over both nodes, as a distributed training launch would be.
 Each ran on c1 and c2 with c1 as the batch host, and c2's container was stopped.
+In all three variants the positive control found the rank on c1 while the job ran (`120 sleep 900`, `200 sleep 900`, `343 sleep 900`), and the same probe after the failure printed `no sleep 900 process on c1`.
 
 **Default (`--no-requeue`): the whole job ends.**
-About 36 s after c2 died the job was marked `NODE_FAIL`, and the rank on the healthy node c1 was cancelled with it:
+About 36 s after c2 died (stopped at 11:40:31.5, `NODE_FAIL` at 11:41:07) the job was marked `NODE_FAIL`, and the rank on the healthy node c1 was cancelled with it:
 
 ```
 JobState=NODE_FAIL Reason=NodeDown FailedNode=c2
 srun: error: Node failure on c2
-slurmstepd-c1: error: *** STEP 32.0 ON c1 CANCELLED AT 2026-10-31T11:21:31 DUE TO NODE FAILURE, SEE SLURMCTLD LOG FOR DETAILS ***
+slurmstepd-c1: error: *** STEP 2.0 ON c1 CANCELLED AT 2026-10-31T11:41:07 DUE TO NODE FAILURE, SEE SLURMCTLD LOG FOR DETAILS ***
 srun: error: c1: task 0: Terminated
+root@c1$ pgrep -ax sleep | grep -E '^[0-9]+ sleep 900$' || echo no sleep 900 process on c1
+no sleep 900 process on c1
 ```
 
-No `sleep 900` process was left on c1 afterwards.
+No rank survived on c1.
 
 **`--requeue`: the whole job is requeued as a unit.**
-At 11:22:00, 23 s after c2 died, both ranks were cancelled and the job went back to `PENDING (BeginTime)`.
+At 11:41:44, 32 s after c2 died, both ranks were cancelled and the job went back to `PENDING (BeginTime)`; the probe then found no rank left on c1.
 After the two-minute delay it started again, on c1 and c3, with both ranks restarted from the beginning:
 
 ```
-[2026-10-31T11:22:00.001] requeue job JobId=33 due to failure of node c2
-    33 mn-requeue    alice   R       0:01     2   gres/gpu:1 c[1,3] c[1,3]
-rank 1 on c3 restart=1 at 11:24:17
-rank 0 on c1 restart=1 at 11:24:17
+[2026-10-31T11:41:44.000] requeue job JobId=3 due to failure of node c2
+     3 mn-requeue    alice   R       0:01     2   gres/gpu:1 c[1,3] c[1,3]
+rank 1 on c3 restart=1 at 11:43:51
+rank 0 on c1 restart=1 at 11:43:51
 ```
 
 **`--no-kill`: the allocation shrinks, but the step that used the dead node is still killed.**
 Slurm removed c2 from the job instead of ending it, and killed the step that spanned c2:
 
 ```
-[2026-10-31T11:24:48.001] error: Removing failed node c2 from JobId=34
-[2026-10-31T11:24:48.001] Killing JobId=34 StepId=0 due to failed node c2
+[2026-10-31T11:44:19.001] error: Removing failed node c2 from JobId=4
+[2026-10-31T11:44:19.001] Killing JobId=4 StepId=0 due to failed node c2
 srun: error: c1: task 0: Killed
+no sleep 900 process on c1
 ```
 
 The batch script then had nothing left to run, exited 1, and the job ended `FAILED` on one node (`NodeList=c1`, `NumNodes=1`).
-Keeping the allocation helps only a script that launches a new step on what is left; a two-rank step does not survive losing a rank under any of the three settings.
+Keeping the allocation helps only a script that launches a new step on what is left; a two-rank step did not survive losing a rank under any of the three settings.
 
-The time to detect the dead node was 23 to 36 s across the four stops in steps 3 and 4.
-It depends on where in the controller's ping cycle the node died, and was not measured beyond these four.
+The time to detect the dead node was 22 to 36 s across the four stops in step 3b and the rerun of step 4 (36, 36, 32 and 22 s).
+What makes it vary was not measured.
 
 ## Slurm behaviour mapped to this repository
 
@@ -281,9 +292,9 @@ It depends on where in the controller's ping cycle the node died, and was not me
 | Drain stops new placement and leaves the running job to finish | `03a-drain.txt` | the NodeHealth reconciler's `NoSchedule` taint `platform.lkhun9311.github.io/unhealthy` (`internal/controller/reconcile_helpers.go`) | **same** | both stop placement without evicting; neither kills what is running |
 | A node that stops answering is declared DOWN about 36 s later; a requeue-able job is requeued and restarts elsewhere, a non-requeue-able one ends `NODE_FAIL` | `03b-node-down.txt` | a NotReady node tainted by NodeHealth; the Pods on it are handled by Kubernetes' own node lifecycle, not by this repository | **not comparable** | this lab measured Slurm's detection and requeue; this repository has no measurement of what happens to a training Pod on a node that dies |
 | `scontrol requeue` restarts a job by hand, and is refused for a `--no-requeue` job | `03c-scontrol-requeue.txt` | none | **not comparable** | the repository has no operator command to requeue a running training job |
-| A two-node job loses one node: by default the whole job ends, including the healthy rank | `04-multinode-default.txt` | the distributed MLTrainingJob: one Indexed Job with `backoffLimit: 0` (`internal/controller/mltrainingjob_distributed.go`), where one rank's failure fails the whole Job (`experiments/multi-pod-ddp/README.md`, arm `one-rank-fails`) | **same** in outcome, **different** in cause | both end every rank when one is lost and do not retry; the repository's run killed a rank's process, not a node, so node loss itself was not tested there |
-| With `--requeue`, the two-node job is requeued as one unit and restarts on whichever two nodes are free | `04-multinode-requeue.txt` | none: `backoffLimit: 0` and no requeue path for a failed distributed MLTrainingJob | **different** | Slurm can retry the whole gang; the repository fails it and leaves the retry to the tenant |
-| With `--no-kill`, the allocation shrinks to the survivor but the spanning step is still killed | `04-multinode-nokill.txt` | none | **not comparable** | the repository has no notion of an allocation outliving its ranks |
+| A two-node job loses one node: by default the whole job ends, including the healthy rank | `evidence/2026-10-31-rerun04/04-multinode-default.txt` | the distributed MLTrainingJob: one Indexed Job with `backoffLimit: 0` (`internal/controller/mltrainingjob_distributed.go`), where one rank's failure fails the whole Job (`experiments/multi-pod-ddp/README.md`, arm `one-rank-fails`) | **same** in outcome, **different** in cause | both end every rank when one is lost and do not retry; the repository's run killed a rank's process, not a node, so node loss itself was not tested there |
+| With `--requeue`, the two-node job is requeued as one unit and restarts on whichever two nodes are free | `evidence/2026-10-31-rerun04/04-multinode-requeue.txt` | none: `backoffLimit: 0` and no requeue path for a failed distributed MLTrainingJob | **different** | Slurm can retry the whole gang; the repository fails it and leaves the retry to the tenant |
+| With `--no-kill`, the allocation shrinks to the survivor but the spanning step is still killed | `evidence/2026-10-31-rerun04/04-multinode-nokill.txt` | none | **not comparable** | the repository has no notion of an allocation outliving its ranks |
 
 ## What this does not show
 
@@ -292,5 +303,5 @@ It depends on where in the controller's ping cycle the node died, and was not me
 - **One host.** "Node failure" is a stopped container; a real node can fail partially, hang, or keep its processes running while its slurmd dies, and none of that was tried.
 - **No confinement.** With the cgroup plugin disabled, a job is not limited to its CPUs, memory or devices.
 - **No accounting at scale.** Two accounts, two users, two QoS levels and a few dozen jobs; nothing about scheduler throughput, backfill under load, or fair-share decay.
-- **Single runs.** Each behaviour was observed once in this evidence; timings such as the 23 to 36 s detection and the two-minute requeue delay are single observations, not distributions.
+- **Single runs.** Each behaviour was observed once in this evidence; timings such as the 22 to 36 s detection and the two-minute requeue delay are single observations, not distributions.
 - **Shared lab secrets.** The MUNGE key is baked into the local image and the database password is in `etc/slurmdbd.conf`; both are for this lab only, and the image is never pushed.

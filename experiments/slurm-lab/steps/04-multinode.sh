@@ -16,7 +16,16 @@ kill_one() {
 	note "job $id ($name) runs on: $nodes; batch host $batch; stopping $victim"
 	VICTIM=$victim
 	JOBID=$id
+	BATCH=$batch
+	note "Positive control: the same probe used after the failure, run on the batch host while its rank is alive, must list the rank's sleep."
+	probe_rank "$batch"
 	host "docker compose stop -t 0 $victim"
+}
+
+# probe_rank NODE lists processes named exactly sleep whose command line is "sleep 900", which is what each rank runs.
+# pgrep -x matches the process name, so the probe's own bash wrapper, whose name is bash, cannot match itself.
+probe_rank() {
+	at "$1" "pgrep -ax sleep | grep -E '^[0-9]+ sleep 900\$' || echo no sleep 900 process on $1"
 }
 
 for variant in default requeue nokill; do
@@ -40,7 +49,7 @@ for variant in default requeue nokill; do
 	at slurmctld "sacct -D -j $JOBID -o JobID%14,JobName%10,State,ExitCode,Start,End,NodeList"
 	at slurmctld "scontrol show job $JOBID | grep -E 'JobState|Requeue|Restarts|NodeList=|BatchHost|EligibleTime'"
 	at slurmctld "grep -hE 'JobId=$JOBID[^0-9]|$VICTIM' /var/log/slurm/slurmctld.log | grep -v debug | tail -8"
-	at c1 "pgrep -af 'sleep 900' || echo no sleep 900 process on c1"
+	probe_rank "$BATCH"
 	if [ "$variant" = requeue ]; then
 		note "Wait for the requeued job to start again on the nodes that are left."
 		trace 200 "squeue -h -j $JOBID -t R | grep -q ." "squeue -h -j $JOBID -o '%i %T %r %N'"
