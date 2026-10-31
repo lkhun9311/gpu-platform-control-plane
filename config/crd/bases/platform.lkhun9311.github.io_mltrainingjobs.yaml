@@ -78,6 +78,7 @@ spec:
                   Fixed at creation, and it cannot be combined with parallelism or completions other than 1.
                 properties:
                   maxRestarts:
+                    default: 0
                     description: |-
                       maxRestarts is how many times the whole job may be started again after an attempt fails, is evicted, or loses
                       a node; absent or 0 means the first failure fails the job, as before the field existed.
@@ -85,6 +86,9 @@ spec:
                       A restart starts every rank again from the workload's own checkpoint, so a value above 0 requires stateVolume.
                       The claim must be ReadWriteMany: ranks run on different nodes and all of them read and write it.
                       The bound is deliberate: a fault that recurs on every attempt is not one more restart will cure.
+
+                      The default stores an absent field as 0, because the Go type omits a 0 and the rule fixing distributed compares
+                      the stored object with what the controller sends back; without it an explicit 0 refuses every typed update.
                     format: int32
                     maximum: 10
                     minimum: 0
@@ -196,6 +200,100 @@ spec:
                   to refuse. So the field's presence means the window was observed, not merely that admission happened.
                 format: date-time
                 type: string
+              attempts:
+                description: |-
+                  attempts records every start of a distributed job with maxRestarts above 0, oldest first.
+
+                  The first entry is written before the first Job is created, which is also what freezes the fields baked into
+                  the Pod template: between two attempts no Job exists, and the presence of an attempt is what still says one ran.
+                  Absent for every other job.
+                items:
+                  description: |-
+                    TrainingAttempt is one start of a restartable distributed job: its Job, why it ended, and when each step was seen.
+
+                    Every time is this controller's observation, written on the reconcile that saw the event, so each carries that
+                    reconcile's lag. None of them is "training resumed": readiness is not training, and the first optimizer step of an
+                    attempt is in the workload's own record, which the experiment reads; the controller never writes it.
+                  properties:
+                    allRanksReadyAt:
+                      description: allRanksReadyAt is when the controller first saw
+                        every rank Ready, the same rule runningObservedAt uses.
+                      format: date-time
+                      type: string
+                    createdAt:
+                      description: createdAt is when the controller saw this attempt's
+                        Job created.
+                      format: date-time
+                      type: string
+                    failureObservedAt:
+                      description: failureObservedAt is when the controller saw the
+                        trigger.
+                      format: date-time
+                      type: string
+                    jobUID:
+                      description: jobUID is the UID of this attempt's Job, recorded
+                        once the controller sees it; deletes are conditioned on it.
+                      type: string
+                    nodes:
+                      description: |-
+                        nodes are the nodes this attempt's ranks were seen on.
+
+                        A node that stops answering cannot be shown to have stopped its rank, so the attempt waits for it to be fenced.
+                      items:
+                        type: string
+                      maxItems: 8
+                      type: array
+                      x-kubernetes-list-type: set
+                    number:
+                      description: number counts attempts from 1; attempt n+1 starts
+                        only after attempt n is Stopped.
+                      format: int32
+                      minimum: 1
+                      type: integer
+                    state:
+                      description: |-
+                        state is where the attempt is.
+
+                        Preparing: recorded, its Job not yet seen. Active: its Job exists. Stopping: a trigger was seen and the controller
+                        is retiring the Job and waiting for its Pods, its Workload and any unreachable node to be gone. Stopped: all of that
+                        is confirmed, and the next attempt may start or the job fails.
+                      enum:
+                      - Preparing
+                      - Active
+                      - Stopping
+                      - Stopped
+                      type: string
+                    stopConfirmedAt:
+                      description: stopConfirmedAt is when every condition for starting
+                        the next attempt was confirmed.
+                      format: date-time
+                      type: string
+                    trigger:
+                      description: |-
+                        trigger is why the attempt ended: RankFailed (the Job failed), NodeFault (the platform's GPU fault path
+                        handed its Workload over), or JobDeleted (its Job went away while it was running).
+                      enum:
+                      - RankFailed
+                      - NodeFault
+                      - JobDeleted
+                      type: string
+                    waitingFor:
+                      description: waitingFor says, while the attempt is Stopping,
+                        what it still waits on.
+                      type: string
+                    workloadName:
+                      description: workloadName and workloadUID identify this attempt's
+                        Kueue Workload; the next attempt waits until it is gone.
+                      type: string
+                    workloadUID:
+                      type: string
+                  required:
+                  - number
+                  - state
+                  type: object
+                maxItems: 11
+                type: array
+                x-kubernetes-list-type: atomic
               conditions:
                 description: |-
                   conditions represent the current state of the MLTrainingJob resource.

@@ -47,6 +47,11 @@ import (
 type MLTrainingJobReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
+
+	// APIReader reads around the informer cache, for the restart barrier: a cache that has not yet seen a Pod or a
+	// Workload answers NotFound, and NotFound is the answer that would start a new attempt next to a running rank.
+	// Nil falls back to the client, which only tests that drive Reconcile by hand do.
+	APIReader client.Reader
 }
 
 // +kubebuilder:rbac:groups=platform.lkhun9311.github.io,resources=mltrainingjobs,verbs=get;list;watch;create;update;patch;delete
@@ -99,6 +104,11 @@ func (r *MLTrainingJobReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return r.markFailed(ctx, &mltj, mltjReasonConflict, "a Job of the same name is not owned by this MLTrainingJob")
 	}
 	jobExists := !existing.CreationTimestamp.IsZero()
+
+	// A job that may restart runs its attempts through their own lifecycle; every other job keeps the path below.
+	if restartable(&mltj) {
+		return r.reconcileRestartable(ctx, &mltj)
+	}
 
 	// A distributed job's ranks resolve rank 0 through its Service as soon as they start, so the Service comes first.
 	//
@@ -242,6 +252,13 @@ func stateVolumeAt(sv *platformv1.StateVolume, dir string) bool {
 //
 // A later version that read anything off the client, the manager or the cluster would still render a Job for the reconciler and would panic or lie for a caller that has none of those.
 func BuildJob(mltj *platformv1.MLTrainingJob) *batchv1.Job {
+	return buildJob(mltj, 0)
+}
+
+// buildJob renders the Job for one attempt of a restartable distributed job, or, with attempt 0, the one Job every
+// other job has; attempt 0 must render byte for byte what BuildJob always rendered, because the termination canary
+// fingerprints that template.
+func buildJob(mltj *platformv1.MLTrainingJob, attempt int32) *batchv1.Job {
 	labels := map[string]string{kueueQueueLabel: mltj.Spec.Queue}
 	pod := corev1.PodSpec{
 		RestartPolicy: corev1.RestartPolicyNever,
@@ -298,7 +315,7 @@ func BuildJob(mltj *platformv1.MLTrainingJob) *batchv1.Job {
 		},
 	}
 	if mltj.Spec.Distributed != nil {
-		applyDistributed(job, mltj)
+		applyDistributed(job, mltj, attempt)
 	}
 	return job
 }

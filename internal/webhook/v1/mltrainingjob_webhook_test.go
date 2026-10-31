@@ -434,6 +434,91 @@ func TestTheClaimCheckFailsClosed(t *testing.T) {
 	}
 }
 
+func TestAClaimChangedBeforeTheJobExistsIsCheckedToo(t *testing.T) {
+	// Before the first Job the template is not yet written, so the claim may still change; a check only on create
+	// would let an accepted job be pointed at a claim the create would have refused.
+	// An unchanged claim is not read again, so a claim deleted after admission does not block the finalizer's update.
+	//
+	// Mutation that turns this red: drop the claim check from ValidateUpdate.
+	other := func(modes ...corev1.PersistentVolumeAccessMode) *corev1.PersistentVolumeClaim {
+		c := claim(modes...)
+		c.Name = "other"
+		return c
+	}
+	rows := []struct {
+		label string
+		objs  []runtime.Object
+		to    string
+		bad   string
+	}{
+		{"to ReadWriteOnce", []runtime.Object{claim(corev1.ReadWriteMany), other(corev1.ReadWriteOnce)}, "other", "ReadWriteMany"},
+		{"to a missing claim", []runtime.Object{claim(corev1.ReadWriteMany)}, "other", "not found"},
+		{"to ReadWriteMany", []runtime.Object{claim(corev1.ReadWriteMany), other(corev1.ReadWriteMany)}, "other", ""},
+		{"unchanged and since deleted", nil, "ckpt", ""},
+	}
+	for _, row := range rows {
+		t.Run(row.label, func(t *testing.T) {
+			oldJob := job(distributedWithClaim)
+			newJob := job(func(m *platformv1.MLTrainingJob) {
+				distributedWithClaim(m)
+				m.Spec.StateVolume.ClaimName = row.to
+			})
+			_, err := validatorWith(t, row.objs...).ValidateUpdate(context.Background(), oldJob, newJob)
+			switch {
+			case row.bad == "" && err != nil:
+				t.Fatalf("refused: %v", err)
+			case row.bad != "" && err == nil:
+				t.Fatal("accepted")
+			case row.bad != "" && !strings.Contains(err.Error(), row.bad):
+				t.Fatalf("error does not say %q: %v", row.bad, err)
+			}
+		})
+	}
+}
+
+func TestARestartableJobNeedsANameEveryAttemptsServiceCanCarry(t *testing.T) {
+	// Attempt n's rendezvous Service is <name>-ddp-a<n>, and the last attempt is maxRestarts+1, so the name must
+	// leave room for that suffix, not just for -ddp.
+	//
+	// Mutation that turns this red: check only <name>-ddp for a restartable job.
+	for _, row := range []struct {
+		name string
+		bad  bool
+	}{
+		{strings.Repeat("a", 55), false}, // 55 + len("-ddp-a10") = 63
+		{strings.Repeat("a", 56), true},
+	} {
+		v := validatorWith(t, claim(corev1.ReadWriteMany))
+		_, err := v.ValidateCreate(context.Background(), job(func(m *platformv1.MLTrainingJob) {
+			distributedWithClaim(m)
+			m.Name = row.name
+			m.Spec.Distributed.MaxRestarts = 9
+		}))
+		if row.bad != (err != nil) {
+			t.Fatalf("name of %d characters: err=%v, want refused=%v", len(row.name), err, row.bad)
+		}
+	}
+}
+
+func TestTemplateFieldsStayFrozenBetweenAttempts(t *testing.T) {
+	// Between two attempts no Job exists, which is exactly when the old rule let template fields change; the
+	// recorded attempt is what still says a run started under them.
+	//
+	// Mutation that turns this red: decide the freeze on the Job's existence alone.
+	v := validatorWith(t)
+	old := job(func(m *platformv1.MLTrainingJob) {
+		distributedWithClaim(m)
+		m.Status.Attempts = []platformv1.TrainingAttempt{{Number: 1, State: "Stopped"}}
+	})
+	_, err := v.ValidateUpdate(context.Background(), old, job(func(m *platformv1.MLTrainingJob) {
+		distributedWithClaim(m)
+		m.Spec.Image = "trainer:v2"
+	}))
+	if err == nil {
+		t.Fatal("changed the image between two attempts of one job")
+	}
+}
+
 func TestAnOrdinaryStateVolumeIsNotLookedUp(t *testing.T) {
 	// A single-Pod job's claim has always been left to the kubelet, where a missing one leaves the Pod Pending;
 	// reading it here would refuse jobs created before their claim, which nothing used to refuse.

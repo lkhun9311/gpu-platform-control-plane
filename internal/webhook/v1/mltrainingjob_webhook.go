@@ -102,9 +102,14 @@ func distributedName(mltj *platformv1.MLTrainingJob) field.ErrorList {
 		return nil
 	}
 	svc := mltj.Name + "-ddp"
+	// A restartable job's attempt n has a Service of its own, <name>-ddp-a<n>, and the last attempt is maxRestarts+1,
+	// so its name is the longest one the job will ever need.
+	if r := mltj.Spec.Distributed.MaxRestarts; r > 0 {
+		svc = fmt.Sprintf("%s-ddp-a%d", mltj.Name, r+1)
+	}
 	if msgs := validation.IsDNS1035Label(svc); len(msgs) > 0 {
 		return field.ErrorList{field.Invalid(field.NewPath("metadata", "name"), mltj.Name,
-			"a distributed job's rendezvous Service "+svc+" must be a DNS-1035 label (start with a letter, no dots, at most 59 characters before -ddp): "+strings.Join(msgs, "; "))}
+			"a distributed job's rendezvous Service "+svc+" must be a DNS-1035 label (start with a letter, no dots, at most 63 characters with its suffix): "+strings.Join(msgs, "; "))}
 	}
 	return nil
 }
@@ -119,7 +124,7 @@ func distributedName(mltj *platformv1.MLTrainingJob) field.ErrorList {
 // missing one leaves the Pod Pending, and refusing those here would refuse jobs nothing used to refuse.
 // ReadWriteMany is necessary, not sufficient: a claim that says RWX and is node-local in practice is caught by the
 // restart test that reads one rank's checkpoint from another node, not by anything an admission check can see.
-// Only on create, because neither distributed nor the claim's name can change once a Job exists.
+// On create, and on an update that changes the claim, which is possible only before the first Job.
 func (v *MLTrainingJobValidator) distributedClaim(ctx context.Context, mltj *platformv1.MLTrainingJob) (field.ErrorList, error) {
 	if mltj.Spec.Distributed == nil || mltj.Spec.StateVolume == nil {
 		return nil, nil
@@ -143,6 +148,14 @@ func (v *MLTrainingJobValidator) distributedClaim(ctx context.Context, mltj *pla
 	return nil, nil
 }
 
+// claimName is the state volume's claim, or "" without a state volume.
+func claimName(mltj *platformv1.MLTrainingJob) string {
+	if mltj.Spec.StateVolume == nil {
+		return ""
+	}
+	return mltj.Spec.StateVolume.ClaimName
+}
+
 // ValidateUpdate additionally refuses edits the controller has already stopped being able to apply.
 func (v *MLTrainingJobValidator) ValidateUpdate(
 	ctx context.Context, oldJob, newJob *platformv1.MLTrainingJob,
@@ -164,6 +177,16 @@ func (v *MLTrainingJobValidator) ValidateUpdate(
 
 	errs := validateRunnable(&newJob.Spec)
 
+	// Until the first Job the claim may still change, and a changed claim is held to the rule a create is.
+	// An unchanged one is not read again, so a claim deleted after admission cannot block an update that ends a deletion.
+	if claimName(oldJob) != claimName(newJob) {
+		claimErrs, err := v.distributedClaim(ctx, newJob)
+		if err != nil {
+			return nil, fmt.Errorf("read the state volume claim of %s/%s: %w", newJob.Namespace, newJob.Name, err)
+		}
+		errs = append(errs, claimErrs...)
+	}
+
 	// The pod template is written once, when the Job is created, because a batch/v1 Job's template is
 	// immutable afterwards. So the question is not whether the spec changed but whether the Job exists yet:
 	// before it does, every field is still free to change.
@@ -174,7 +197,10 @@ func (v *MLTrainingJobValidator) ValidateUpdate(
 		// same reason.
 		return nil, fmt.Errorf("check whether the owned job exists for %s/%s: %w", newJob.Namespace, newJob.Name, err)
 	}
-	if exists {
+	// A restartable job has no Job between two attempts, and a recorded attempt is what still says one started:
+	// the controller records the first before creating any Job, so there is no moment a run exists and this is false.
+	// It is read from the stored object, which a client cannot rewrite through this update.
+	if exists || len(oldJob.Status.Attempts) > 0 {
 		errs = append(errs, bakedFieldEdits(&oldJob.Spec, &newJob.Spec)...)
 	}
 

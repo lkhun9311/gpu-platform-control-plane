@@ -111,6 +111,10 @@ type Distributed struct {
 	// A restart starts every rank again from the workload's own checkpoint, so a value above 0 requires stateVolume.
 	// The claim must be ReadWriteMany: ranks run on different nodes and all of them read and write it.
 	// The bound is deliberate: a fault that recurs on every attempt is not one more restart will cure.
+	//
+	// The default stores an absent field as 0, because the Go type omits a 0 and the rule fixing distributed compares
+	// the stored object with what the controller sends back; without it an explicit 0 refuses every typed update.
+	// +kubebuilder:default=0
 	// +kubebuilder:validation:Minimum=0
 	// +kubebuilder:validation:Maximum=10
 	// +optional
@@ -208,6 +212,16 @@ type MLTrainingJobStatus struct {
 	// +optional
 	ReadyRanks *int32 `json:"readyRanks,omitempty"`
 
+	// attempts records every start of a distributed job with maxRestarts above 0, oldest first.
+	//
+	// The first entry is written before the first Job is created, which is also what freezes the fields baked into
+	// the Pod template: between two attempts no Job exists, and the presence of an attempt is what still says one ran.
+	// Absent for every other job.
+	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=11
+	// +optional
+	Attempts []TrainingAttempt `json:"attempts,omitempty"`
+
 	// conditions represent the current state of the MLTrainingJob resource.
 	//
 	// The status of each condition is one of True, False, or Unknown.
@@ -215,6 +229,71 @@ type MLTrainingJobStatus struct {
 	// +listMapKey=type
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+}
+
+// TrainingAttempt is one start of a restartable distributed job: its Job, why it ended, and when each step was seen.
+//
+// Every time is this controller's observation, written on the reconcile that saw the event, so each carries that
+// reconcile's lag. None of them is "training resumed": readiness is not training, and the first optimizer step of an
+// attempt is in the workload's own record, which the experiment reads; the controller never writes it.
+type TrainingAttempt struct {
+	// number counts attempts from 1; attempt n+1 starts only after attempt n is Stopped.
+	// +kubebuilder:validation:Minimum=1
+	// +required
+	Number int32 `json:"number"`
+
+	// state is where the attempt is.
+	//
+	// Preparing: recorded, its Job not yet seen. Active: its Job exists. Stopping: a trigger was seen and the controller
+	// is retiring the Job and waiting for its Pods, its Workload and any unreachable node to be gone. Stopped: all of that
+	// is confirmed, and the next attempt may start or the job fails.
+	// +kubebuilder:validation:Enum=Preparing;Active;Stopping;Stopped
+	// +required
+	State string `json:"state"`
+
+	// jobUID is the UID of this attempt's Job, recorded once the controller sees it; deletes are conditioned on it.
+	// +optional
+	JobUID string `json:"jobUID,omitempty"`
+
+	// workloadName and workloadUID identify this attempt's Kueue Workload; the next attempt waits until it is gone.
+	// +optional
+	WorkloadName string `json:"workloadName,omitempty"`
+	// +optional
+	WorkloadUID string `json:"workloadUID,omitempty"`
+
+	// nodes are the nodes this attempt's ranks were seen on.
+	//
+	// A node that stops answering cannot be shown to have stopped its rank, so the attempt waits for it to be fenced.
+	// +listType=set
+	// +kubebuilder:validation:MaxItems=8
+	// +optional
+	Nodes []string `json:"nodes,omitempty"`
+
+	// trigger is why the attempt ended: RankFailed (the Job failed), NodeFault (the platform's GPU fault path
+	// handed its Workload over), or JobDeleted (its Job went away while it was running).
+	// +kubebuilder:validation:Enum=RankFailed;NodeFault;JobDeleted
+	// +optional
+	Trigger string `json:"trigger,omitempty"`
+
+	// waitingFor says, while the attempt is Stopping, what it still waits on.
+	// +optional
+	WaitingFor string `json:"waitingFor,omitempty"`
+
+	// createdAt is when the controller saw this attempt's Job created.
+	// +optional
+	CreatedAt *metav1.Time `json:"createdAt,omitempty"`
+
+	// allRanksReadyAt is when the controller first saw every rank Ready, the same rule runningObservedAt uses.
+	// +optional
+	AllRanksReadyAt *metav1.Time `json:"allRanksReadyAt,omitempty"`
+
+	// failureObservedAt is when the controller saw the trigger.
+	// +optional
+	FailureObservedAt *metav1.Time `json:"failureObservedAt,omitempty"`
+
+	// stopConfirmedAt is when every condition for starting the next attempt was confirmed.
+	// +optional
+	StopConfirmedAt *metav1.Time `json:"stopConfirmedAt,omitempty"`
 }
 
 // +kubebuilder:object:root=true

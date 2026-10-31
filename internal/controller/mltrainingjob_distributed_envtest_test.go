@@ -430,5 +430,16 @@ var _ = Describe("MLTrainingJob distributed", func() {
 			u.Object["spec"].(map[string]any)["image"] = "trainer:v2"
 			Expect(k8sClient.Update(ctx, u)).To(Succeed())
 		})
+
+		// The Go type omits a zero, so the controller's first typed update sends distributed without the 0 the user wrote.
+		// Unless the schema stores the absent field as that same 0, the rule above reads the update as a change and refuses it.
+		It("lets a typed update through after a create that wrote maxRestarts 0", func() {
+			u := raw(map[string]any{"distributed": restarts(2, 0)})
+			Expect(k8sClient.Create(ctx, u)).To(Succeed())
+			var mltj platformv1.MLTrainingJob
+			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(u), &mltj)).To(Succeed())
+			mltj.Labels = map[string]string{"touched": "yes"}
+			Expect(k8sClient.Update(ctx, &mltj)).To(Succeed())
+		})
 	})
 })

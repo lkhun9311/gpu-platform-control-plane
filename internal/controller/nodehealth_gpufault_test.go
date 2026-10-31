@@ -23,6 +23,7 @@ import (
 	"testing"
 	"time"
 
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -409,6 +410,65 @@ func TestGPUFaultDeactivatesOnlyKueueGPUWorkOnTheFaultedNode(t *testing.T) {
 	wl = get("wl-1")
 	if !ptr.Deref(wl.Spec.Active, true) || wl.Annotations[annWorkloadReactivatedAt] == "" {
 		t.Fatalf("not reactivated after eviction: active=%v %v", wl.Spec.Active, wl.Annotations)
+	}
+}
+
+// A restartable distributed job restarts every rank together from a checkpoint; reactivating its Workload would
+// requeue the same attempt behind the restart lifecycle's back, so the fault path hands it over instead, in the same
+// patch as the deactivation, and never reactivates it.
+//
+// Mutation that turns this red: drop the handoff check in reactivateDisplaced, or never set the mark.
+func TestGPUFaultHandsARestartableJobsWorkloadToItsLifecycle(t *testing.T) {
+	mltj := &platformv1.MLTrainingJob{Name: "train", Namespace: "t", UID: "mltj-uid",
+		Spec: platformv1.MLTrainingJobSpec{Queue: "q", Image: "i", GPUCount: 1,
+			Distributed: &platformv1.Distributed{WorldSize: 2, MaxRestarts: 1},
+			StateVolume: &platformv1.StateVolume{ClaimName: "c", MountPath: "/c"}}}
+	job := &batchv1.Job{Name: "j", Namespace: "t", UID: "uid-r", OwnerReferences: []metav1.OwnerReference{{
+		APIVersion: platformv1.GroupVersion.String(), Kind: "MLTrainingJob", Name: "train", UID: "mltj-uid", Controller: new(true)}}}
+	g := newGFRig(t, true, mltj, job, gpuPod("rank-0", "gpu-1", "uid-r", "1"), workload("wl-r", "uid-r"))
+	g.scrape(faultAssessment(0, 1))
+	g.reconcile()
+	var wl kueuev1beta1.Workload
+	get := func() {
+		t.Helper()
+		if err := g.c.Get(context.Background(), types.NamespacedName{Namespace: "t", Name: "wl-r"}, &wl); err != nil {
+			t.Fatal(err)
+		}
+	}
+	get()
+	if ptr.Deref(wl.Spec.Active, true) || wl.Annotations[AnnRestartHandoff] == "" {
+		t.Fatalf("not deactivated and handed over: active=%v %v", wl.Spec.Active, wl.Annotations)
+	}
+	meta.SetStatusCondition(&wl.Status.Conditions, metav1.Condition{Type: kueuev1beta1.WorkloadEvicted, Status: metav1.ConditionTrue, Reason: "Deactivated"})
+	meta.SetStatusCondition(&wl.Status.Conditions, metav1.Condition{Type: kueuev1beta1.WorkloadQuotaReserved, Status: metav1.ConditionFalse, Reason: "Pending"})
+	if err := g.c.Status().Update(context.Background(), &wl); err != nil {
+		t.Fatal(err)
+	}
+	if err := g.c.Delete(context.Background(), &corev1.Pod{Name: "rank-0", Namespace: "t"}); err != nil {
+		t.Fatal(err)
+	}
+	g.reconcile()
+	get()
+	if ptr.Deref(wl.Spec.Active, true) {
+		t.Fatal("reactivated a Workload handed to the restart lifecycle")
+	}
+}
+
+// A job that cannot restart keeps being requeued as before, with no handoff mark.
+func TestGPUFaultDoesNotHandOverAJobThatCannotRestart(t *testing.T) {
+	mltj := &platformv1.MLTrainingJob{Name: "train", Namespace: "t", UID: "mltj-uid",
+		Spec: platformv1.MLTrainingJobSpec{Queue: "q", Image: "i", GPUCount: 1, Distributed: &platformv1.Distributed{WorldSize: 2}}}
+	job := &batchv1.Job{Name: "j", Namespace: "t", UID: "uid-r", OwnerReferences: []metav1.OwnerReference{{
+		APIVersion: platformv1.GroupVersion.String(), Kind: "MLTrainingJob", Name: "train", UID: "mltj-uid", Controller: new(true)}}}
+	g := newGFRig(t, true, mltj, job, gpuPod("rank-0", "gpu-1", "uid-r", "1"), workload("wl-r", "uid-r"))
+	g.scrape(faultAssessment(0, 1))
+	g.reconcile()
+	var wl kueuev1beta1.Workload
+	if err := g.c.Get(context.Background(), types.NamespacedName{Namespace: "t", Name: "wl-r"}, &wl); err != nil {
+		t.Fatal(err)
+	}
+	if ptr.Deref(wl.Spec.Active, true) || wl.Annotations[AnnRestartHandoff] != "" {
+		t.Fatalf("want deactivated without a handoff: active=%v %v", wl.Spec.Active, wl.Annotations)
 	}
 }
 
