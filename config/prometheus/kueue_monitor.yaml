@@ -1,0 +1,34 @@
+# Prometheus scraping Kueue, which nothing in this repository did before gpu_rules.yaml needed it.
+#
+# Kueue serves its metrics on the controller manager's secure endpoint, as this operator does, so the endpoint below is a
+# copy of monitor.yaml's: HTTPS with the scraper's service-account token, which controller-runtime's metrics filter
+# authorises against a ClusterRole granting get on the /metrics non-resource URL.
+# kube-prometheus-stack's Prometheus ClusterRole carries that grant, which is why no binding is shipped here.
+#
+# The Service is Kueue's own, from the vendored release (config/kueue-controller/manifests.yaml), selected by the labels
+# that release puts on it; the namespace is the one that release installs into.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: kueue-metrics-monitor
+  namespace: system
+  labels:
+    app.kubernetes.io/name: gpu-platform-control-plane
+    app.kubernetes.io/component: gpu-monitoring
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  namespaceSelector:
+    matchNames:
+      - kueue-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kueue
+      app.kubernetes.io/component: metrics-service
+  endpoints:
+    - path: /metrics
+      port: https
+      scheme: https
+      bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+      tlsConfig:
+        # Kueue's metrics certificate is self-signed unless cert-manager issues one, the same position monitor.yaml is in.
+        insecureSkipVerify: true

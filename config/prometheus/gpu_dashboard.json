@@ -1,0 +1,284 @@
+{
+ "title": "GPU Operations",
+ "uid": "gpu-platform-gpu-ops",
+ "description": "Per-card utilisation and memory, DCGM fault signals, the operator's quarantine transitions and Kueue's GPU quota. Every series is checked against what this repository's components emit by test/monitoring/monitoring_test.go.",
+ "tags": [
+  "gpu-platform"
+ ],
+ "timezone": "browser",
+ "schemaVersion": 39,
+ "refresh": "30s",
+ "time": {
+  "from": "now-3h",
+  "to": "now"
+ },
+ "templating": {
+  "list": [
+   {
+    "name": "datasource",
+    "type": "datasource",
+    "query": "prometheus",
+    "current": {
+     "text": "Prometheus",
+     "value": "Prometheus"
+    }
+   }
+  ]
+ },
+ "panels": [
+  {
+   "type": "row",
+   "title": "Per-card utilisation and memory",
+   "gridPos": {"h": 1, "w": 24, "x": 0, "y": 0}
+  },
+  {
+   "type": "timeseries",
+   "title": "GPU utilisation by card",
+   "description": "DCGM_FI_DEV_GPU_UTIL is the share of the last sample period in which a kernel ran, sampled once a second. A workload whose bursts share that period can read as idle in every sample (docs/06_OBSERVABILITY_BENCHMARK_FAILURE.md, 'What DCGM_FI_DEV_GPU_UTIL cannot see'). max by card collapses the per-Pod copies the exporter's Kubernetes mapping adds.",
+   "datasource": {"type": "prometheus", "uid": "${datasource}"},
+   "gridPos": {"h": 8, "w": 12, "x": 0, "y": 1},
+   "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100}},
+   "targets": [
+    {
+     "expr": "max by (Hostname, gpu) (DCGM_FI_DEV_GPU_UTIL)",
+     "legendFormat": "{{Hostname}} gpu{{gpu}}",
+     "refId": "A"
+    }
+   ]
+  },
+  {
+   "type": "timeseries",
+   "title": "Framebuffer memory used by card",
+   "description": "DCGM_FI_DEV_FB_USED, in MiB. Only the exporter from config/dcgm-exporter-ops collects it; config/dcgm-exporter and config/dcgm-exporter-fault do not, and against them this panel is empty rather than zero.",
+   "datasource": {"type": "prometheus", "uid": "${datasource}"},
+   "gridPos": {"h": 8, "w": 12, "x": 12, "y": 1},
+   "fieldConfig": {"defaults": {"unit": "mbytes", "min": 0}},
+   "targets": [
+    {
+     "expr": "max by (Hostname, gpu) (DCGM_FI_DEV_FB_USED)",
+     "legendFormat": "{{Hostname}} gpu{{gpu}}",
+     "refId": "A"
+    }
+   ]
+  },
+  {
+   "type": "row",
+   "title": "Fault signals (DCGM)",
+   "gridPos": {"h": 1, "w": 24, "x": 0, "y": 9}
+  },
+  {
+   "type": "stat",
+   "title": "Cards with a fault signal now",
+   "description": "The GPUFaultSignalPresent policy: a non-zero Xid other than the application Xids 13, 31, 43, 45 and 68, or a double-bit ECC count above zero. Reads 0 only while the fault fields are being scraped; with no fault field anywhere it says so instead, because zero faults and no observation are different facts.",
+   "datasource": {"type": "prometheus", "uid": "${datasource}"},
+   "gridPos": {"h": 6, "w": 6, "x": 0, "y": 10},
+   "fieldConfig": {
+    "defaults": {
+     "decimals": 0,
+     "noValue": "fault fields not scraped",
+     "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}
+    }
+   },
+   "targets": [
+    {
+     "expr": "count(max by (Hostname, gpu, UUID) ((DCGM_FI_DEV_XID_ERRORS != 0 != 13 != 31 != 43 != 45 != 68) or (DCGM_FI_DEV_ECC_DBE_VOL_TOTAL > 0))) or (0 * count(count by (UUID) (DCGM_FI_DEV_XID_ERRORS)))",
+     "refId": "A"
+    }
+   ]
+  },
+  {
+   "type": "stat",
+   "title": "Cards reporting the fault fields",
+   "description": "Cards whose exporter publishes DCGM_FI_DEV_XID_ERRORS. Compare with the number of cards in the utilisation panel: a card missing here is one whose faults nothing would see.",
+   "datasource": {"type": "prometheus", "uid": "${datasource}"},
+   "gridPos": {"h": 6, "w": 6, "x": 6, "y": 10},
+   "fieldConfig": {"defaults": {"decimals": 0, "noValue": "none"}},
+   "targets": [
+    {
+     "expr": "count(count by (UUID) (DCGM_FI_DEV_XID_ERRORS))",
+     "refId": "A"
+    }
+   ]
+  },
+  {
+   "type": "timeseries",
+   "title": "Last Xid by card",
+   "description": "DCGM_FI_DEV_XID_ERRORS holds the last Xid only, so a later application Xid replaces an earlier fatal one here; the operator latches the fatal one and this panel does not.",
+   "datasource": {"type": "prometheus", "uid": "${datasource}"},
+   "gridPos": {"h": 6, "w": 6, "x": 12, "y": 10},
+   "fieldConfig": {"defaults": {"decimals": 0, "min": 0}},
+   "targets": [
+    {
+     "expr": "max by (Hostname, gpu, UUID) (DCGM_FI_DEV_XID_ERRORS)",
+     "legendFormat": "{{Hostname}} gpu{{gpu}}",
+     "refId": "A"
+    }
+   ]
+  },
+  {
+   "type": "timeseries",
+   "title": "ECC error counts by card",
+   "description": "Volatile counts since the driver loaded. Double-bit errors are uncorrected and are a fault at any count; single-bit errors are corrected by the card and are never one here.",
+   "datasource": {"type": "prometheus", "uid": "${datasource}"},
+   "gridPos": {"h": 6, "w": 6, "x": 18, "y": 10},
+   "fieldConfig": {"defaults": {"decimals": 0, "min": 0}},
+   "targets": [
+    {
+     "expr": "max by (Hostname, gpu) (DCGM_FI_DEV_ECC_DBE_VOL_TOTAL)",
+     "legendFormat": "{{Hostname}} gpu{{gpu}} double-bit",
+     "refId": "A"
+    },
+    {
+     "expr": "max by (Hostname, gpu) (DCGM_FI_DEV_ECC_SBE_VOL_TOTAL)",
+     "legendFormat": "{{Hostname}} gpu{{gpu}} single-bit",
+     "refId": "B"
+    }
+   ]
+  },
+  {
+   "type": "row",
+   "title": "Quarantine transitions (operator)",
+   "gridPos": {"h": 1, "w": 24, "x": 0, "y": 16}
+  },
+  {
+   "type": "stat",
+   "title": "GPU fault latches and clears since start",
+   "description": "The operator exports no gauge of which nodes are quarantined now: its NodeHealth metrics are counters of transitions since the process started, and a restart zeroes them while the taints stay. For the current state read the NodeHealth objects (GPUHealthy condition) or the nodes' platform.lkhun9311.github.io/gpu-fault taint. Empty until the fault path, --gpu-fault-source=dcgm, has latched or cleared something.",
+   "datasource": {"type": "prometheus", "uid": "${datasource}"},
+   "gridPos": {"h": 6, "w": 6, "x": 0, "y": 17},
+   "fieldConfig": {"defaults": {"decimals": 0, "noValue": "none recorded"}},
+   "targets": [
+    {
+     "expr": "sum by (reason) (gpuplatform_gpufault_transitions_total)",
+     "legendFormat": "{{reason}}",
+     "refId": "A"
+    }
+   ]
+  },
+  {
+   "type": "stat",
+   "title": "Unhealthy-node taint transitions since start",
+   "description": "The readiness path's taint, platform.lkhun9311.github.io/unhealthy, applied and removed. A counter of transitions, not a count of nodes tainted now.",
+   "datasource": {"type": "prometheus", "uid": "${datasource}"},
+   "gridPos": {"h": 6, "w": 6, "x": 6, "y": 17},
+   "fieldConfig": {"defaults": {"decimals": 0, "noValue": "none recorded"}},
+   "targets": [
+    {
+     "expr": "sum by (action) (gpuplatform_nodehealth_taint_total)",
+     "legendFormat": "{{action}}",
+     "refId": "A"
+    }
+   ]
+  },
+  {
+   "type": "timeseries",
+   "title": "Fault path scrapes by result",
+   "description": "The operator's own scrapes of each node's exporter. Any result other than ok means the fault path is not seeing that node, and its NodeHealth says GPUSignal=False rather than healthy.",
+   "datasource": {"type": "prometheus", "uid": "${datasource}"},
+   "gridPos": {"h": 6, "w": 6, "x": 12, "y": 17},
+   "fieldConfig": {"defaults": {"unit": "reqps", "min": 0}},
+   "targets": [
+    {
+     "expr": "sum by (result) (rate(gpuplatform_gpufault_scrape_total[5m]))",
+     "legendFormat": "{{result}}",
+     "refId": "A"
+    }
+   ]
+  },
+  {
+   "type": "stat",
+   "title": "Workloads displaced and reactivated since start",
+   "description": "Kueue Workloads the operator deactivated off a faulted node and reactivated after, with --gpu-fault-evict-workloads.",
+   "datasource": {"type": "prometheus", "uid": "${datasource}"},
+   "gridPos": {"h": 6, "w": 6, "x": 18, "y": 17},
+   "fieldConfig": {"defaults": {"decimals": 0, "noValue": "none recorded"}},
+   "targets": [
+    {
+     "expr": "sum by (action) (gpuplatform_gpufault_workload_actions_total)",
+     "legendFormat": "{{action}}",
+     "refId": "A"
+    }
+   ]
+  },
+  {
+   "type": "row",
+   "title": "Kueue GPU quota and pending work",
+   "gridPos": {"h": 1, "w": 24, "x": 0, "y": 23}
+  },
+  {
+   "type": "stat",
+   "title": "Kueue scraped",
+   "description": "Whether Prometheus reaches Kueue at all, through config/prometheus/kueue_monitor.yaml. Every other panel in this row is empty when it does not.",
+   "datasource": {"type": "prometheus", "uid": "${datasource}"},
+   "gridPos": {"h": 7, "w": 4, "x": 0, "y": 24},
+   "fieldConfig": {
+    "defaults": {
+     "decimals": 0,
+     "noValue": "no target",
+     "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}
+    }
+   },
+   "targets": [
+    {
+     "expr": "sum(up{job=\"kueue-controller-manager-metrics-service\"})",
+     "refId": "A"
+    }
+   ]
+  },
+  {
+   "type": "timeseries",
+   "title": "GPU quota reserved and nominal, by ClusterQueue",
+   "description": "Summed over flavours. Kueue publishes these only with metrics.enableClusterQueueResources: true, which the release vendored in config/kueue-controller leaves off, so on that deployment this panel is empty and KueueGPUQuotaMetricsNotReported fires.",
+   "datasource": {"type": "prometheus", "uid": "${datasource}"},
+   "gridPos": {"h": 7, "w": 10, "x": 4, "y": 24},
+   "fieldConfig": {"defaults": {"decimals": 0, "min": 0}},
+   "targets": [
+    {
+     "expr": "sum by (cluster_queue) (kueue_cluster_queue_resource_reservation{resource=\"nvidia.com/gpu\"})",
+     "legendFormat": "{{cluster_queue}} reserved",
+     "refId": "A"
+    },
+    {
+     "expr": "sum by (cluster_queue) (kueue_cluster_queue_nominal_quota{resource=\"nvidia.com/gpu\"})",
+     "legendFormat": "{{cluster_queue}} nominal",
+     "refId": "B"
+    },
+    {
+     "expr": "sum by (cluster_queue) (kueue_cluster_queue_resource_pending{resource=\"nvidia.com/gpu\"})",
+     "legendFormat": "{{cluster_queue}} pending request",
+     "refId": "C"
+    }
+   ]
+  },
+  {
+   "type": "timeseries",
+   "title": "Pending workloads by ClusterQueue and status",
+   "description": "active: in the admission queue. inadmissible: an admission attempt failed and Kueue will not retry until something changes. A count, not an age; KueueWorkloadsPendingTooLong reads it with the admission counter to say how long a queue has gone without progress.",
+   "datasource": {"type": "prometheus", "uid": "${datasource}"},
+   "gridPos": {"h": 7, "w": 10, "x": 14, "y": 24},
+   "fieldConfig": {"defaults": {"decimals": 0, "min": 0}},
+   "targets": [
+    {
+     "expr": "sum by (cluster_queue, status) (kueue_pending_workloads)",
+     "legendFormat": "{{cluster_queue}} {{status}}",
+     "refId": "A"
+    }
+   ]
+  },
+  {
+   "type": "timeseries",
+   "title": "Admission wait p90, admitted workloads only",
+   "description": "Kueue observes this histogram when a workload is admitted, so a workload still waiting is not in it, and a queue that admits nothing shows no line rather than a long wait. Read it beside the pending panel, never instead of it.",
+   "datasource": {"type": "prometheus", "uid": "${datasource}"},
+   "gridPos": {"h": 7, "w": 24, "x": 0, "y": 31},
+   "fieldConfig": {"defaults": {"unit": "s", "min": 0}},
+   "targets": [
+    {
+     "expr": "histogram_quantile(0.9, sum by (cluster_queue, le) (rate(kueue_admission_wait_time_seconds_bucket[10m])))",
+     "legendFormat": "{{cluster_queue}}",
+     "refId": "A"
+    }
+   ]
+  }
+ ]
+}

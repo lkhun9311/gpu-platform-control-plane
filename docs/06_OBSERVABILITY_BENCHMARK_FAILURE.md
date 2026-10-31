@@ -68,6 +68,84 @@ This is the evidence center of the project — the proof that the platform actua
 
 The eBPF and Nsight layers require a real GPU node and are **not implemented at all today**. Xid and ECC are implemented as an opt-in health input since 2026-10-27, and on 2026-10-27 run 2 of their registered session took them through a real card with values injected into DCGM's cache, not induced hardware failures: both fault arms reacted in 5 of 5 repetitions and the stale-latched check failed (`docs/superpowers/specs/2026-10-27-gpu-fault-reaction-design.md`). The DCGM layer is different and this sentence has been wrong twice about it. It once said no code existed; the reader, the Pod-attribution resolver, the exporter deployment and the pre-spend gate all do. It then said no card had been rented; one has. In session `qlgpu-20260906-032038` the exporter named Pods on four A10Gs, the two cards the protocol used were busy in 541 and 559 of 663 samples, and the two held by the surplus occupier in 0 of 663 -- so a GPU-second in that session is an observed device-second. Everything earlier remains a second of reservation, and is labelled as one. Unmeasured layers are labeled, not faked.
 
+## GPU alerts and what to do when they fire
+
+`config/prometheus/gpu_rules.yaml` holds five alerts and `config/prometheus/gpu_dashboard.json` the panels they are read beside.
+Three alerts describe the fleet: a card reporting a fault, a ClusterQueue out of GPU quota, and a queue that has stopped admitting.
+The other two describe the instruments, because each of the first three is silent when its input is missing, and silence reads as health.
+
+What they need deployed:
+
+| input | deployed by | without it |
+|---|---|---|
+| `DCGM_FI_DEV_XID_ERRORS`, `DCGM_FI_DEV_ECC_DBE_VOL_TOTAL`, `DCGM_FI_DEV_FB_USED` | `config/dcgm-exporter-ops` (exporter and its PodMonitor) | `config/dcgm-exporter` collects utilisation only; `GPUFaultFieldsNotCollected` fires |
+| `kueue_*` | `config/prometheus/kueue_monitor.yaml` | nothing in this repository scraped Kueue before it |
+| `kueue_cluster_queue_nominal_quota` and the other quota series | Kueue's `metrics.enableClusterQueueResources: true` | the vendored release in `config/kueue-controller` leaves it off; `KueueGPUQuotaMetricsNotReported` fires |
+
+There is no metric of which nodes are quarantined now.
+The operator exports counters of transitions (`gpuplatform_gpufault_transitions_total`, `gpuplatform_nodehealth_taint_total`), which a restart zeroes while the taints stay, so the dashboard shows them as transitions and the current state is read from the NodeHealth objects.
+
+`hack/check-gpu-monitoring.sh` runs promtool over the rules, their unit tests in `config/prometheus/gpu_rules_test.yaml` and the dashboard's queries.
+`test/monitoring/monitoring_test.go` fails if any series the rules or the dashboard read is one nothing deployed emits, if the Xid alert and the operator disagree on which Xids are faults, or if a runbook link below stops resolving.
+
+**Rehearsed on kind `platform`, 2026-10-31, against a fake exporter, not a card.**
+A single Pod of `gpu-simulator:gpufault` with `FAKE_DCGM_ADDR=:9400`, labelled as the exporter so the PodMonitor from `config/dcgm-exporter-ops` selected it, was scraped every 15 s; the rule group was evaluated every 30 s, the kube-prometheus-stack default there.
+Values were written into the fake's cache through its `/inject` endpoint, the call `hack/lib/gpu-fault.sh` makes in fake mode.
+
+| step | time (UTC) | result |
+|---|---|---|
+| Xid 13 injected (application Xid, the control) | 10:52:26.7 | no alert in the following 100 s, while the series read 13 |
+| Xid 79 injected | 10:54:07.440 (call returned) | |
+| `GPUFaultSignalPresent` active, and firing at once (no `for`) | 10:54:33.333 (`activeAt`) | 25.9 s after the injection; the bound is one scrape plus one evaluation, 45 s |
+
+The fake reports `DCGM_FI_DEV_XID_ERRORS` and the ECC fields only, so `DCGM_FI_DEV_FB_USED` and `DCGM_FI_DEV_GPU_UTIL` were not exercised, and nor was `GPUFaultFieldsNotCollected`'s firing side.
+On the same cluster Kueue v0.18.3 was scraped through `config/prometheus/kueue_monitor.yaml` (`up` = 1); `kueue_pending_workloads` and `kueue_cluster_queue_status` were present and none of the quota series were, as its configuration predicts.
+`KueueGPUQuotaMetricsNotReported` went pending at 10:52:42.8 for all three active ClusterQueues and was firing when read at 11:07:45, and `GPUFaultSignalPresent` had resolved after Xid 0 was injected at 10:54:47.
+`KueueClusterQueueGPUQuotaExhausted` and `KueueWorkloadsPendingTooLong` have been exercised only by the promtool tests: the first needs the quota series this Kueue does not publish, and no queue there had pending work.
+
+### GPUFaultSignalPresent
+
+A card's DCGM fields carry a fault under the operator's own policy (`internal/gpufault/classify.go`): a non-zero Xid other than the application Xids 13, 31, 43, 45 and 68, or a double-bit ECC count above zero.
+
+1. Read the NodeHealth for the node: `kubectl get nodehealths -o wide`, then its `GPUHealthy` and `GPUSignal` conditions.
+   With `--gpu-fault-source=dcgm` the operator has already tainted the node `platform.lkhun9311.github.io/gpu-fault`, and with `--gpu-fault-evict-workloads` it has deactivated the Kueue Workloads of GPU Pods there.
+   Without the flag nothing has reacted, and the node still takes GPU work until someone taints or cordons it.
+2. Decide whether the card is to be repaired or the fault accepted.
+   A GPU reset or driver reload that leaves every fault field at zero releases the latch on the next fresh scrape.
+   To accept the fault instead, write the fingerprint from the NodeHealth's `gpufault.platform.lkhun9311.github.io/fingerprint` annotation into `gpufault.platform.lkhun9311.github.io/acknowledged`; a different fault later will not match it.
+3. Do not read a resolved alert as a recovered node.
+   The Xid field holds the last Xid only, so an application Xid after a fatal one resolves this alert while the operator, which latches, keeps the taint.
+
+### GPUFaultFieldsNotCollected
+
+A node exports `DCGM_FI_DEV_GPU_UTIL` but not the Xid and double-bit ECC fields, so `GPUFaultSignalPresent` cannot fire there.
+Deploy the exporter from `config/dcgm-exporter-ops` (or `config/dcgm-exporter-fault`), which collect them.
+The operator's fault path on the same node reports `FieldMissing` for the same reason.
+
+### KueueClusterQueueGPUQuotaExhausted
+
+The queue has reserved its whole nominal `nvidia.com/gpu` quota for fifteen minutes while workloads requesting GPUs are pending.
+
+1. `kubectl get clusterqueue <name> -o yaml` shows the reservation per flavour and whether the cohort lends.
+2. Find what holds the quota: `kubectl get workloads -A` filtered to the queue's LocalQueues, with their admission times.
+   A long-running job is the queue in use, and the decision below is about priority, not repair.
+3. The levers are the tenant's: raise the `GPUQuotaPolicy` that syncs this queue, lend from the cohort, or stop work.
+   Fifteen minutes is a convention, not a measured bound.
+
+### KueueGPUQuotaMetricsNotReported
+
+An active ClusterQueue has no `kueue_cluster_queue_nominal_quota` series, which means Kueue runs without `metrics.enableClusterQueueResources`.
+`KueueClusterQueueGPUQuotaExhausted` is blind on every queue until it is set in Kueue's `controller_manager_config.yaml`.
+
+### KueueWorkloadsPendingTooLong
+
+A ClusterQueue has had pending workloads for the whole of the last 30 minutes and admitted none in that time.
+Kueue publishes a pending count and no per-workload age, so this is a statement about the queue: its oldest pending workload has waited at least 30 minutes unless it was deleted and replaced inside the window.
+
+1. `kubectl get workloads -A` and the pending ones' `QuotaReserved` condition message say why Kueue is not admitting them.
+2. If the queue is also out of quota, `KueueClusterQueueGPUQuotaExhausted` is the cause and its runbook applies.
+3. If the workloads are `inadmissible`, Kueue has stopped retrying them; the condition message names the flavour or resource that cannot fit, often a request larger than the queue's whole quota.
+
 ## Failure reports (5)
 
 | ID     | Scenario           | Expected evidence                                            |
