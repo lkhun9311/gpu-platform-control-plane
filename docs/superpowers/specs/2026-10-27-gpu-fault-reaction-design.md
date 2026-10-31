@@ -391,3 +391,39 @@ At the zone's Spot price read before launch, $0.6822 an hour, that is about **$0
 **The evidence** is in `hack/gpu-fault/2026-10-27-run2/`, with a `SHA256SUMS` over every file in it. The three image archives, the source archive, the local scorer binary and the evidence tarball are not committed; `NOT-COMMITTED.sha256` records their hashes, and the files are kept on the owner's machine.
 
 **What follows**, none of it a re-run: the exporter's DaemonSet tolerates the platform's fault taint, with a test that fails when it does not; the scorer names an absent clause as not reached rather than as a reading; and the runner records the exporter's Pod and events when it does not return.
+
+## Amendment for run 3, drafted 2026-11-01: not approved, and nothing is bought from it until the owner approves it
+
+Run 2 measured the platform's reaction and could not show its recovery.
+Its stale-latched check failed because the exporter could not come back to a node the platform had tainted, and nothing in the session asked whether the node, once cleared, ran GPU work again.
+The first half is fixed on `dev` (`dbb0041c`: the exporter tolerates the fault taint, with a test that fails without it; the scorer names an unreached clause as not reached).
+Run 3 asks the second half, and it is the only new question: **after a latched fault is cleared by a fresh zero reading, does the platform put a CUDA training job back on that node, and does the card run it?**
+
+**What changes**, and only this:
+- the session is bought from a commit on `dev` that carries `dbb0041c` and this section;
+- a new registered check, `recovery`, runs after stale-latched in the checks phase, and only when stale-latched reached its clearing step;
+- the CUDA sample image `nvcr.io/nvidia/k8s/cuda-sample:vectoradd-cuda12.5.0`, pinned by its index digest `sha256:7c7540bdf1f942d4fb6db97069fd6c289471b54ac29e3c7fcdf914cf77af7d41` (read from nvcr.io on 2026-11-01), is pulled onto T in the platform phase, before any arm, so that its pull is never inside the check's timing;
+- the phases after the arms move by 180 s, the time the new check is given: checks end at 7,000 s, evidence at 7,120 s, the instance stops itself at 7,180 s; the sweeper's tag is set at the request plus 7,120 s and rewritten to `LaunchTime` + 7,150 s; the termination wait may run to `LaunchTime` + 7,480 s.
+
+**The `recovery` check.** Four clauses, each recorded in `checks/recovery/check.env`:
+- R1: the target is clear (`gf_is_clear`) once stale-latched's zero reading has been given; the time it was first seen clear is `t_clear`;
+- R2: the exporter Pod on T is Running and is not the Pod that served before stale-latched took it away, so the exporter really returned to a node that carried the taint;
+- R3: T's `allocatable` `nvidia.com/gpu` is 1;
+- R4: with H held off by the same hold taint the arms use, an `MLTrainingJob` named `gf-recovery`, `gpuCount: 1`, through the tenant's queue, running the pinned image's own entrypoint, `/cuda-samples/sample` (vectorAdd; read from the amd64 image's config on 2026-11-01), has its Pod placed on T, completes with exit code 0 and prints `Test PASSED`, within 180 s of its submission.
+  It goes through the product's path, `MLTrainingJob` and Kueue, rather than a bare Pod, because that is how a tenant's work would return to the node.
+  vectorAdd is the smallest program that allocates device memory, copies, launches a kernel and checks the result on the card; it says the card executes CUDA through the device plugin's allocation, and nothing about the card's health beyond that.
+- Recorded beside the clauses, not bounded: `t_submit`, the Pod's `PodScheduled` time, its completion time, the node, the exit code and the log.
+
+**Verdict.** `PASS` when all four hold; `FAIL` naming each clause that did not; `NOT-REACHED` when stale-latched never gave its zero reading or the checks phase ended before the check began, which is a step that did not run and never a reading.
+On the kind rehearsal the job image is the study's busybox, printing the marker, because there is no card; the session is labelled REHEARSAL there as everywhere else, and the check's line says the program was not CUDA.
+
+**Prediction P7.** The `recovery` check passes.
+**Falsifiers it adds:** the exporter does not return to a tainted node with the fix in place (R2); the job placed on H, or not placed inside 180 s while T is clear (R4); vectorAdd failing on a card the platform has just called healthy (R4).
+
+**What does not change:** the question, the topology, every arm and its repetitions, every endpoint, prediction and bound, the validity rules, the verdict rules for the arms and both stale checks, the falsifiers above, the smoke cell, the stop rule, the termination chain, the AMI, the instance type and the cost rate.
+The arms run again as registered; run 3's evidence is scored on its own and is not pooled with run 2's.
+
+**Cost.** The operating allowance by this page's convention becomes 7,150 + 900 s, 2.24 h, **$2.53** at $1.1324 per instance-hour.
+Run 2 ran 3,308 s for about **$0.63** at the zone's Spot price; run 3 adds the check and its pre-pull, so about the same is expected.
+
+**What it does not license**, beyond the list above: that a card which really faulted is healthy once DCGM reads zero, since the fault was injected into DCGM's cache and the card never faulted; that the device plugin would return to a tainted node, since it does not tolerate the fault taint and the session never restarts it; a burn-in, since one vectorAdd is one kernel; a recovery time, since one check is one observation.
