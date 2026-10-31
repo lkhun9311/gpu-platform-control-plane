@@ -4,7 +4,9 @@ Each case is one or two attempts of two gloo ranks under torchrun in the CPU tor
 in for the shared volume.
 A case passes only if the attempt that finishes ends with exactly the parameters of a run that was never interrupted,
 resumed from the step the case says it must, so loading a partial or a skewed checkpoint cannot pass by luck.
-The negative control drops the optimizer state and must fail that comparison, or the comparison proves nothing.
+Each negative control drops one saved component (optimizer, scheduler, sampler position, global RNG) and must fail that
+comparison: a component whose loss leaves the parameters equal is either not part of the result or not seen by the
+comparison, and either way the claim that restoring it matters would be unshown.
 
     python3 experiments/distributed-restart/check_protocol.py [IMAGE]
 
@@ -124,7 +126,10 @@ def main() -> int:
     resumed_case("kill-before-latest", "kill-before-latest:6", 5, reference)
     # LATEST names step 6 and rank 0 dies right after publishing it.
     resumed_case("kill-after-latest", "kill-after-latest:6", 6, reference)
-    resumed_case("no-optimizer", "kill-after-latest:6", 6, reference, load="no-optimizer")
+    # Step 6 is one batch into the second epoch and between the learning rate's first and second decays, so no component
+    # sits at a boundary where a fresh one would happen to coincide with the saved one.
+    for control in ("no-optimizer", "no-scheduler", "no-sampler", "no-rng"):
+        resumed_case(control, "kill-after-latest:6", 6, reference, load=control)
 
     # Rank 1 labels its shard of step 6 as step 7: the checkpoint is refused by every rank and LATEST stays at 5.
     state = fresh()

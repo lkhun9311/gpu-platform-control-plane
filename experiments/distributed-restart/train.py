@@ -32,6 +32,7 @@ import torch
 import torch.distributed as dist
 import torch.nn as nn
 from torch.nn.parallel import DistributedDataParallel as DDP
+from torch.utils.data import DistributedSampler, TensorDataset
 
 RUN_ID = os.environ.get("CKPT_RUN_ID", "unset")
 STEPS = int(os.environ.get("CKPT_STEPS", "40"))
@@ -39,7 +40,9 @@ STEPS = int(os.environ.get("CKPT_STEPS", "40"))
 # same name never reads its predecessor's checkpoints.
 ROOT = os.path.join(os.environ.get("CKPT_DIR", "/state"), os.environ.get("CKPT_JOB_ID", "job"))
 ATTEMPT = int(os.environ.get("TRAINING_ATTEMPT", "0"))
-# none | full | no-optimizer | no-data-rng, as in experiments/checkpoint-resume; the last two are negative controls.
+# none | full, or one negative control per saved component: no-optimizer | no-scheduler | no-sampler | no-rng.
+# Each control restores everything but its component, so a check that cannot tell it from full has shown that the
+# component does not affect the result, or that the check is blind.
 LOAD_MODE = os.environ.get("CKPT_LOAD", "full")
 # A fault to inject, "<point>:<step>[:<rank>]", once per volume; see FAULT_POINTS.
 FAULT = os.environ.get("CKPT_FAULT", "")
@@ -53,14 +56,22 @@ STEP_SLEEP = float(os.environ.get("CKPT_STEP_SLEEP", "0"))
 # was lost would hold its Pod Running, and the attempt unfailed, for all of it.
 COLLECTIVE_TIMEOUT = float(os.environ.get("CKPT_COLLECTIVE_TIMEOUT", "1800"))
 
-LOAD_MODES = ("none", "full", "no-optimizer", "no-data-rng")
+LOAD_MODES = ("none", "full", "no-optimizer", "no-scheduler", "no-sampler", "no-rng")
 # kill-before-fsync: the rank dies with its shard written but not synced or renamed.
 # kill-before-manifest: every shard is in place and rank 0 dies before writing the manifest.
 # kill-before-latest: the manifest is in place and rank 0 dies before LATEST names it.
 # kill-after-latest: LATEST names the new checkpoint and rank 0 dies right after.
 # skew: the rank labels its shard one step ahead, as a rank that ran ahead would; the manifest must be refused.
 FAULT_POINTS = ("kill-before-fsync", "kill-before-manifest", "kill-before-latest", "kill-after-latest", "skew")
-BATCH = 8
+BATCH = 4
+# 40 samples over two ranks is five batches an epoch, so the protocol check's resume at step 6 lands one batch into the
+# second epoch, where restoring the epoch without the position, or the position without the epoch, feeds other batches.
+DATASET_SIZE = 40
+# A decay every 4 steps rather than 3: a fresh StepLR resumed at step 6 would decay at step 9 either way if the period
+# divided 6, and dropping the scheduler state would then change nothing.
+# A step schedule rather than a cosine over CKPT_STEPS, because the skew and torn-shard cases publish step 5 from a
+# shorter attempt, and a schedule depending on the total would make that checkpoint differ from the reference's.
+LR_STEP, LR_GAMMA = 4, 0.5
 TRUE_W = torch.tensor([[1.0], [-2.0], [0.5], [3.0]])
 CKPT_DIR_RE = re.compile(r"^(\d{8})-([0-9a-f]{32})$")
 
@@ -292,6 +303,26 @@ def choose(rank: int, world: int) -> tuple[str, dict] | None:
     return None
 
 
+def synthetic_dataset() -> TensorDataset:
+    # Its own generator, so every rank and every attempt builds the same samples whatever the global RNG holds.
+    gen = torch.Generator().manual_seed(1234)
+    x = torch.randn(DATASET_SIZE, 4, generator=gen)
+    y = x @ TRUE_W + 0.5 + 0.1 * torch.randn(DATASET_SIZE, 1, generator=gen)
+    return TensorDataset(x, y)
+
+
+def capture(step: int, model: nn.Module, optimiser: torch.optim.Optimizer,
+            scheduler: torch.optim.lr_scheduler.LRScheduler, epoch: int, position: int) -> dict:
+    """This rank's whole training state after step, which every rank saves even where DDP replicates it."""
+    state = {"step": step, "model": model.state_dict(), "optimizer": optimiser.state_dict(),
+             "scheduler": scheduler.state_dict(), "sampler": {"epoch": epoch, "position": position},
+             "rng": torch.get_rng_state()}
+    # Kept for a GPU run of the same trainer; the CPU image has no CUDA, so nothing here has saved or restored it.
+    if torch.cuda.is_available():
+        state["cuda_rng"] = torch.cuda.get_rng_state_all()
+    return state
+
+
 def main() -> int:
     if LOAD_MODE not in LOAD_MODES:
         print(f"CKPT_LOAD={LOAD_MODE!r} is not one of {LOAD_MODES}", file=sys.stderr)
@@ -304,8 +335,16 @@ def main() -> int:
     os.makedirs(ROOT, exist_ok=True)
     fault = Fault(FAULT)
 
-    model = nn.Linear(4, 1)
-    data_rng = torch.Generator().manual_seed(1000 + rank)
+    # Dropout draws its masks from the global RNG, which is what makes that RNG part of the state a resume must restore.
+    model = nn.Sequential(nn.Linear(4, 8), nn.ReLU(), nn.Dropout(0.25), nn.Linear(8, 1))
+    dataset = synthetic_dataset()
+    # drop_last, so every rank takes the same number of batches an epoch and no rank waits on a collective alone.
+    sampler = DistributedSampler(dataset, num_replicas=world, rank=rank, shuffle=True, seed=0, drop_last=True)
+    batches = sampler.num_samples // BATCH
+    if batches == 0:
+        raise SystemExit(f"{DATASET_SIZE} samples over {world} ranks is not one batch of {BATCH} per rank")
+    # Batches already consumed in the current epoch; epoch and position together are the sampler's position.
+    epoch, position = 0, 0
     start_step = 0
     loaded = None
     chosen = choose(rank, world) if LOAD_MODE != "none" else None
@@ -314,8 +353,8 @@ def main() -> int:
         loaded = torch.load(os.path.join(ROOT, rel, f"rank-{rank}.pt"), weights_only=True)
         start_step = manifest["step"]
         model.load_state_dict(loaded["model"])
-        if LOAD_MODE != "no-data-rng":
-            data_rng.set_state(loaded["data_rng"])
+        if LOAD_MODE != "no-sampler":
+            epoch, position = loaded["sampler"]["epoch"], loaded["sampler"]["position"]
         emit(rank, "resume", from_dir=rel, from_step=start_step)
     else:
         # Recorded, so a restart that found nothing is never read as a resume.
@@ -324,26 +363,47 @@ def main() -> int:
     # Loaded before DDP wraps the model, because DDP broadcasts rank 0's parameters at construction.
     ddp = DDP(model)
     optimiser = torch.optim.SGD(ddp.parameters(), lr=0.05, momentum=0.9)
+    scheduler = torch.optim.lr_scheduler.StepLR(optimiser, step_size=LR_STEP, gamma=LR_GAMMA)
     if loaded is not None and LOAD_MODE != "no-optimizer":
         optimiser.load_state_dict(loaded["optimizer"])
+    if loaded is not None and LOAD_MODE != "no-scheduler":
+        scheduler.load_state_dict(loaded["scheduler"])
+    # Restored last, after building the model, so no draw made while constructing the run moves it off the saved state.
+    if loaded is not None and LOAD_MODE != "no-rng":
+        torch.set_rng_state(loaded["rng"])
+        # The CPU image has no CUDA, so this branch has never run in any check here; it is untested.
+        if torch.cuda.is_available() and "cuda_rng" in loaded:
+            torch.cuda.set_rng_state_all(loaded["cuda_rng"])
 
     emit(rank, "start", world_size=world, load_mode=LOAD_MODE, resumed_from_step=start_step, steps=STEPS,
-         fault=FAULT, torch_version=torch.__version__)
+         fault=FAULT, torch_version=torch.__version__, epoch=epoch, position=position,
+         lr=optimiser.param_groups[0]["lr"])
 
-    for step in range(start_step + 1, STEPS + 1):
-        x = torch.randn(BATCH, 4, generator=data_rng)
-        y = x @ TRUE_W + 0.5 + 0.1 * torch.randn(BATCH, 1, generator=data_rng)
-        optimiser.zero_grad()
-        loss = ((ddp(x) - y) ** 2).mean()
-        loss.backward()
-        optimiser.step()
-        # The first step record of an attempt is what the experiment reads as training resumed, not Pod readiness.
-        emit(rank, "step", step=step, loss=float(loss), digest=digest(model),
-             params=params(model) if step == STEPS else None)
-        save(rank, world, step, {"step": step, "model": model.state_dict(), "optimizer": optimiser.state_dict(),
-                                 "data_rng": data_rng.get_state()}, fault)
-        if STEP_SLEEP:
-            time.sleep(STEP_SLEEP)
+    ddp.train()
+    step = start_step
+    while step < STEPS:
+        # The sampler's permutation is seeded by seed + epoch, so the same epoch on a new attempt is the same order.
+        sampler.set_epoch(epoch)
+        # Indexed directly rather than through a DataLoader, whose every new iterator draws a base seed from the global
+        # RNG: re-entering an epoch on resume would spend a draw the uninterrupted run never made.
+        order = list(sampler)
+        while position < batches and step < STEPS:
+            x, y = dataset[order[position * BATCH:(position + 1) * BATCH]]
+            step += 1
+            position += 1
+            optimiser.zero_grad()
+            loss = ((ddp(x) - y) ** 2).mean()
+            loss.backward()
+            optimiser.step()
+            scheduler.step()
+            # The first step record of an attempt is what the experiment reads as training resumed, not Pod readiness.
+            emit(rank, "step", step=step, loss=float(loss), digest=digest(model),
+                 params=params(model) if step == STEPS else None)
+            save(rank, world, step, capture(step, model, optimiser, scheduler, epoch, position), fault)
+            if STEP_SLEEP:
+                time.sleep(STEP_SLEEP)
+        if position == batches:
+            epoch, position = epoch + 1, 0
 
     dist.destroy_process_group()
     return 0
