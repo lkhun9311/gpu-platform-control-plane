@@ -45,7 +45,6 @@ CHART=${CHART:-$HOME/.cache/helm/repository/kube-prometheus-stack-88.3.0.tgz}
 TAG=alert-delivery
 SIM=gpu-simulator:$TAG
 BUSYBOX=busybox:1.37.0
-PYTHON=python:3.12-slim
 OUT=${OUT:-hack/gpu-alert-delivery-$(date -u +%Y%m%dT%H%M%SZ)}
 SYS=gpu-platform-control-plane-system
 NS=rehearsal
@@ -195,9 +194,10 @@ kind create cluster --name "$CLUSTER" --config "$WORK/kind.yaml" >>"$LOG" 2>&1 |
 CREATED=1
 WORKER=$CLUSTER-worker
 echo "node_image=$(docker inspect "$WORKER" --format '{{.Config.Image}}')" >>"$OUT/provenance.txt"
-for img in "$SIM" "$BUSYBOX" "$PYTHON"; do
-  kind load docker-image "$img" --name "$CLUSTER" >>"$LOG" 2>&1 || die "kind load $img"
-done
+# Only the local build is loaded; busybox and python are pulled by the node.
+# A multi-platform image pulled into the host's Docker keeps index entries whose blobs it never fetched, and
+# kind load then fails on the first missing digest, as it did on this script's first run with busybox:1.37.0.
+kind load docker-image "$SIM" --name "$CLUSTER" >>"$LOG" 2>&1 || die "kind load $SIM"
 
 # ---------------------------------------------------------------- receiver
 log "== webhook sink"
