@@ -19,6 +19,24 @@ Its results are registered and published, and the file they were measured with s
 
 A volume with nothing on it is an explicit `restart_from_zero` record, never a resume.
 
+## What each rank saves
+
+Every rank writes its own shard with its whole training state, even where DDP replicates it, because a resume that restores only what a loss curve shows can still feed different batches or different dropout masks.
+
+| component | what it is | why a resume needs it |
+|---|---|---|
+| `model` | a 4-8-1 MLP with dropout 0.25 | the weights |
+| `optimizer` | SGD with momentum 0.9 | the momentum buffers and the current learning rate |
+| `scheduler` | `StepLR`, halving the learning rate every 4 steps | where the next decay falls |
+| `sampler` | the epoch and the number of batches already taken in it | `DistributedSampler(shuffle=True)` over a fixed 40-sample dataset gives each rank 5 batches of 4 an epoch, in an order seeded by the epoch |
+| `rng` | the global CPU RNG state | dropout draws its masks from it |
+| `cuda_rng` | every CUDA device's RNG state, only when CUDA is available | not exercised: the image is CPU-only, so this path has never run |
+
+The global RNG is restored after the model, the optimizer and the scheduler are built, so nothing drawn while constructing the attempt moves it.
+Batches are taken from the sampler's order directly rather than through a `DataLoader`, because each new `DataLoader` iterator draws a seed from the global RNG (checked in the image), and re-entering an epoch on resume would spend a draw the uninterrupted run never made.
+
+`CKPT_LOAD` selects what a resume restores: `full`, `none`, or one negative control per component, `no-optimizer`, `no-scheduler`, `no-sampler` and `no-rng`, each restoring everything except its component.
+
 ## Checked locally
 
 `check_protocol.py` runs `train.py` under `torchrun`, two gloo ranks, in the `cpu-ddp:torch251` image, with a fresh directory standing in for the volume.
@@ -39,9 +57,25 @@ Each case kills or corrupts at one point, starts a second attempt and requires i
 | rank 1's shard of the published step 6 truncated | 5; rank 0 accepts its own shard, rank 1 rejects its own, and both move on |
 | nothing on the volume | `restart_from_zero` |
 
-The negative control resumes from step 6 without the optimizer state and must end with different parameters, and does; without it, an equality test that always passed would look the same.
+A resume from step 5 starts at the second epoch's first batch; a resume from step 6 starts one batch into it, with the learning rate halved once and its next decay due after step 8.
 
-On 2026-10-31 every case passed, and each of three mutations of `train.py` failed at least one case.
+Each negative control is killed right after `LATEST` names step 6, resumes from it without one component, and must end with parameters different from the reference; without them, an equality test that always passed would look the same.
+
+The learning rate, epoch and position below are read from each control's `start` record in one run on 2026-11-01, where `full` started at learning rate 0.025, epoch 1, position 1; the rest follows from the code.
+
+| control | resumes without | how it starts |
+|---|---|---|
+| `no-optimizer` | the optimizer | learning rate 0.05 instead of 0.025, and no momentum |
+| `no-scheduler` | the scheduler | learning rate 0.025, but a fresh `StepLR` decays 4 steps after the resume, after step 10 rather than step 8 |
+| `no-sampler` | the epoch and position | epoch 0, position 0 instead of epoch 1, position 1 |
+| `no-rng` | the global RNG | the RNG as model construction left it, so different dropout masks |
+
+On 2026-11-01 every case passed, all four controls among them, and the check exited 0.
+Four mutations of `train.py`'s `full` resume each failed all six cases that compare a full resume with the reference (`kill-before-fsync`, `kill-before-manifest`, `kill-before-latest`, `kill-after-latest`, `skew` and `torn shard`): not restoring the scheduler, not restoring the sampler, restoring the epoch but not the position within it, and not restoring the global RNG.
+A fifth made `no-rng` restore the RNG as `full` does, and only `no-rng negative control` failed, with "matched the reference": a control that drops nothing is reported, not passed.
+Each mutation was reverted, and `train.py` was checked to be byte-identical to the committed file.
+
+On 2026-10-31, with the trainer that saved only the model, the optimizer and a per-rank data generator, every case passed, and each of three mutations of `train.py` failed at least one case.
 Accepting a skewed manifest failed the skew case: no rank recorded a refusal.
 Skipping the shard hash failed the torn-shard case: no rank rejected the truncated step 6, and rank 0 recorded a resume from it.
 Letting each rank decide alone also failed the torn-shard case, as a deadlock: rank 0 loaded step 6 while rank 1 waited for the next offer, and the attempt timed out.
@@ -63,7 +97,8 @@ The operator, Kueue, cert-manager and CoreDNS are pinned to the control-plane no
 | `deactivated` | the Workload is deactivated by hand while both ranks run | no second attempt and no trigger over the following minute |
 | `node-lost` | rank 1's node container is frozen, then its Node deleted | no attempt 2 while its Pods remain, nor after, until the node is named in `platform.lkhun9311.github.io/fenced-nodes`; attempt 2 runs on the other two nodes and ends with the reference's parameters |
 
-The recorded run is `hack/distributed-restart-kind-20261031T144217Z`, of commit `65bf5f16`, and all 34 of its checks pass:
+The recorded run is `hack/distributed-restart-kind-20261031T144217Z`, of commit `65bf5f16`, and all 34 of its checks pass.
+That commit's trainer saved the model, the optimizer and a per-rank data generator, not the scheduler, sampler position or global RNG above; the kind cases have not been run with the current trainer.
 
 ```
 python3 experiments/distributed-restart/score_kind.py hack/distributed-restart-kind-20261031T144217Z
@@ -83,3 +118,4 @@ Visibility across NFS clients, where a file renamed on one node may not yet appe
 A frozen node is not a node that keeps running cut off from the API server: its rank stops writing when it is frozen, so a rank still writing to the shared volume after the next attempt has started is not exercised.
 That is what the fencing acknowledgement exists for, and the barrier is shown to wait for it, not shown to have been needed.
 One run of each case is evidence that the path works, not a rate.
+Saving and restoring the CUDA RNG is written but has never run, because every check here uses the CPU image.
