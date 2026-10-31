@@ -99,6 +99,11 @@ It licenses statements about the real plugin and scheduler on those layouts, not
 The owner decided to apply now to an AI infrastructure engineering role whose duties are operating Kubernetes and Slurm GPU clusters, diagnosing GPU failures for fast recovery, quota management and distributed training; the decision, the posting and why are recorded outside this repository (storage `career/resume/personal/gpu-control-plane-42dot-2026-10-31.md`).
 That moves two free items ahead of the B0 campaign, which stays rehearsed and runs unattended later.
 
+**Superseded the same evening, after an adversarial review:** the track below was reordered around restarting a whole distributed job, checkpoint integrity and measured recovery, rather than more GPUs.
+In order: re-verify the exporter toleration already in `config/dcgm-exporter/daemonset.yaml` with alerting (3 days); change the `MLTrainingJob` contract, which today refuses `distributed` with `stateVolume` and runs distributed Jobs with `backoffLimit` 0, to whole-attempt retry with a fresh rendezvous and checkpoints on a shared volume (6 days); real-GPU recovery on two `g5.xlarge` and a spare in one zone, injected and instance-termination faults (5 days); plain Slurm on EC2 beside Kueue, compared on policy meaning (4 days); write-up and a design note (2 days); then, if approved, EFA with GPUDirect RDMA against TCP on two `g7e.12xlarge` (3 days).
+The record with costs and the AWS requests (G and VT On-Demand quota to 128 vCPU; the instance-family SCP widened to `g7e`) is in the storage file named above.
+The table below is kept as the earlier list.
+
 | id | item | what it adds | cost |
 |---|---|---|---|
 | M-42A-1 | Slurm against Kueue | the same jobs (single, gang, priority) through Slurm and Kueue: quota, preemption, node failure and partial placement compared, and a written judgement of when each fits | free, kind |
