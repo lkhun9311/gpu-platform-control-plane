@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/validation"
@@ -71,10 +72,17 @@ func newValidator(mgr ctrl.Manager) *MLTrainingJobValidator {
 
 // ValidateCreate refuses a spec that could never produce a runnable Job.
 func (v *MLTrainingJobValidator) ValidateCreate(
-	_ context.Context, mltj *platformv1.MLTrainingJob,
+	ctx context.Context, mltj *platformv1.MLTrainingJob,
 ) (admission.Warnings, error) {
 	errs := validateRunnable(&mltj.Spec)
 	errs = append(errs, distributedName(mltj)...)
+	claimErrs, err := v.distributedClaim(ctx, mltj)
+	if err != nil {
+		// Failing closed, for the same reason as the Job lookup on update: a check that stops applying whenever the
+		// API is briefly unreachable lets through exactly what it exists to catch.
+		return nil, fmt.Errorf("read the state volume claim of %s/%s: %w", mltj.Namespace, mltj.Name, err)
+	}
+	errs = append(errs, claimErrs...)
 	if len(errs) > 0 {
 		return nil, apierrors.NewInvalid(mltjGroupKind, mltj.Name, errs)
 	}
@@ -99,6 +107,40 @@ func distributedName(mltj *platformv1.MLTrainingJob) field.ErrorList {
 			"a distributed job's rendezvous Service "+svc+" must be a DNS-1035 label (start with a letter, no dots, at most 59 characters before -ddp): "+strings.Join(msgs, "; "))}
 	}
 	return nil
+}
+
+// +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get
+
+// distributedClaim refuses a distributed job whose state volume is not a claim every rank's node can mount.
+//
+// Ranks run on different nodes and each reads and writes the workload's checkpoints, so the claim must exist and be
+// ReadWriteMany.
+// It is read only for a distributed job: a single-Pod job's claim has always been left to the kubelet, where a
+// missing one leaves the Pod Pending, and refusing those here would refuse jobs nothing used to refuse.
+// ReadWriteMany is necessary, not sufficient: a claim that says RWX and is node-local in practice is caught by the
+// restart test that reads one rank's checkpoint from another node, not by anything an admission check can see.
+// Only on create, because neither distributed nor the claim's name can change once a Job exists.
+func (v *MLTrainingJobValidator) distributedClaim(ctx context.Context, mltj *platformv1.MLTrainingJob) (field.ErrorList, error) {
+	if mltj.Spec.Distributed == nil || mltj.Spec.StateVolume == nil {
+		return nil, nil
+	}
+	path := field.NewPath("spec", "stateVolume", "claimName")
+	name := mltj.Spec.StateVolume.ClaimName
+	var pvc corev1.PersistentVolumeClaim
+	err := v.Reader.Get(ctx, client.ObjectKey{Name: name, Namespace: mltj.Namespace}, &pvc)
+	switch {
+	case apierrors.IsNotFound(err):
+		return field.ErrorList{field.Invalid(path, name,
+			"claim not found: a distributed job's state volume must exist before the job, because every rank mounts it")}, nil
+	case err != nil:
+		return nil, err
+	}
+	if !slices.Contains(pvc.Spec.AccessModes, corev1.ReadWriteMany) {
+		return field.ErrorList{field.Invalid(path, name, fmt.Sprintf(
+			"a distributed job's state volume must be ReadWriteMany, because its ranks run on different nodes; this claim is %v",
+			pvc.Spec.AccessModes))}, nil
+	}
+	return nil, nil
 }
 
 // ValidateUpdate additionally refuses edits the controller has already stopped being able to apply.
