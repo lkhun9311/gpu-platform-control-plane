@@ -63,6 +63,13 @@ uses, and denies changing an EKS node group's instance types to anything else.
 **What this stops:** the same session switching from `g5.xlarge` at $1.237/hour to a `p5` at two orders of
 magnitude more, inside the approved Region, under the approved quota family.
 
+**Widened 2026-10-31 to `g7e.*`.** G7e carries NVIDIA RTX PRO 6000 Blackwell GPUs and is the cheapest family in
+Seoul with both EFA plus GPUDirect RDMA between instances (`g7e.12xlarge` and larger, two GPUs and up) and
+FP8, MXFP8 and NVFP4 tensor cores; `g7e.2xlarge` lists at $4.135/hour and `g7e.12xlarge` at $10.187/hour
+On-Demand in `ap-northeast-2` (AWS public price data, read 2026-10-31). It is still a G family, so it stays
+under the G/VT quota below and adds no uncapped family. The family is named rather than `g7*`, so G7 (RTX PRO
+4500) stays denied until something needs it.
+
 Note the interaction with quota: the G/VT quota already caps G-family vCPU at 52. It does **not** cap P, Trn
 or Inf families, which have their own quotas and their own defaults. The SCP is what makes the family list
 explicit rather than implied by which increases happened to be requested.

@@ -14,7 +14,7 @@ cd "$(dirname "$0")"
 DAYS="${DAYS:-7}"
 REGIONS="${REGIONS:-ap-northeast-2 us-east-1}"
 ALLOWED_REGIONS="ap-northeast-2 us-east-1"
-ALLOWED_TYPES="t3. g4dn. g5."
+ALLOWED_TYPES="t3. g4dn. g5. g7e."
 
 say() { printf '\n== %s\n' "$*"; }
 fail=0
@@ -108,7 +108,7 @@ for line in open('/tmp/scp-events.jsonl'):
         continue
     seen += 1
     blob = json.dumps(e.get('requestParameters') or {})
-    types = [t for t in ('t3.', 'g4dn.', 'g5.', 'p3.', 'p4d.', 'p5.', 'inf', 'trn', 'm5.', 'c5.') if t in blob]
+    types = [t for t in ('t3.', 'g4dn.', 'g5.', 'g7e.', 'p3.', 'p4d.', 'p5.', 'inf', 'trn', 'm5.', 'c5.') if t in blob]
     unapproved = [t for t in types if not t.startswith(allowed)]
     if unapproved:
         bad += 1
