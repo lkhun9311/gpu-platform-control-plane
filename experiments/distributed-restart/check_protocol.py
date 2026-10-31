@@ -111,7 +111,8 @@ def main() -> int:
         repeat = fresh()
         code, again = attempt(repeat, 1)
         shutil.rmtree(repeat, ignore_errors=True)
-        expect("reference repeats", final(again) == reference, "a second uninterrupted run ends identically")
+        expect("reference repeats", code == 0 and final(again) == reference,
+               f"exit {code}; a second uninterrupted run ends identically")
     finally:
         shutil.rmtree(state, ignore_errors=True)
 
@@ -134,7 +135,9 @@ def main() -> int:
         code, second = attempt(state, 2)
         resume = events(second, "resume")
         got_from = resume[0]["from_step"] if resume else None
-        expect("skew resume point", got_from == 5, f"resumed from {got_from}, want 5")
+        # The exit code as well: the last step record is written before the last save, so an attempt can report the
+        # right parameters and still fail.
+        expect("skew resume point", code == 0 and got_from == 5, f"exit {code}, resumed from {got_from}, want 5")
         expect("skew same training", final(second) == reference, "final parameters compared with the reference")
     finally:
         shutil.rmtree(state, ignore_errors=True)
@@ -143,6 +146,7 @@ def main() -> int:
     state = fresh()
     try:
         code, _ = attempt(state, 1, steps=6)
+        expect("torn shard setup", code == 0, f"exit {code} of the attempt that publishes step 6")
         latest = (state / "uid-test" / "LATEST").read_text().strip()
         shard = state / "uid-test" / latest / "rank-1.pt"
         shard.write_bytes(shard.read_bytes()[:100])
@@ -152,7 +156,7 @@ def main() -> int:
         got_from = resume[0]["from_step"] if resume else None
         own = sorted((r["rank"], r["own_shard_ok"]) for r in rejected)
         expect("torn shard rejected together", own == [(0, True), (1, False)], f"rejections {own}")
-        expect("torn shard resume point", got_from == 5, f"resumed from {got_from}, want 5")
+        expect("torn shard resume point", code == 0 and got_from == 5, f"exit {code}, resumed from {got_from}, want 5")
         expect("torn shard same training", final(second) == reference, "final parameters compared with the reference")
     finally:
         shutil.rmtree(state, ignore_errors=True)
