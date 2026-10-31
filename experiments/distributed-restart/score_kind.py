@@ -144,14 +144,17 @@ def main() -> int:
         inactive = [s for s in after if any(w["name"] == wl and w["active"] is False for w in s["workloads"])]
         check("deactivated the Workload was inactive through the minute after", bool(after) and len(inactive) == len(after),
               f"{len(inactive)} of {len(after)} samples show {wl} with active false")
+        # Stopped is read from what the cluster reported, not from step records going quiet: a log stream that broke
+        # would go quiet too. Kueue evicts by suspending the Job, and the Job controller then reports no active Pod.
         at = case.mark("deactivated")
-        late = [r for r in case.records if r.get("event") == "step" and at and r.get("ts", "") > at]
-        last_step = max((r["ts"] for r in late), default=None)
-        # Kueue evicts by suspending the Job, whose Pods get their termination grace period; past that, no rank steps.
-        settled = case.mark("hold-end")
-        stopped = last_step is None or (settled is not None and last_step < settled)
-        check("deactivated training stopped", stopped and case.status.get("phase") != "Succeeded",
-              f"last step record {last_step} against deactivation at {at}; phase {case.status.get('phase')}")
+        before = [r for r in case.records if r.get("event") == "step" and at and r.get("ts", "") < at]
+        name = (case.final.get("metadata") or {}).get("name")
+        end = [j for j in (after[-1]["jobs"] if after else []) if j["name"] == name]
+        check("deactivated training stopped",
+              bool(before) and len(end) == 1 and end[0].get("suspend") is True and end[0].get("active") == 0
+              and case.status.get("phase") not in ("Running", "Succeeded"),
+              f"{len(before)} step records before deactivation; at the end the Job is {end[0] if end else 'absent'}; "
+              f"phase {case.status.get('phase')}")
         check("deactivated no restart after an operator's deactivation", bool(after) and no_second_attempt(after)
               and all(not ((s.get("status") or {}).get("attempts") or [{}])[0].get("trigger") for s in after),
               f"{len(after)} samples over the minute after; attempts at the end {len(case.attempts)}")

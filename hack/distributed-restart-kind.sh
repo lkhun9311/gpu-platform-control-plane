@@ -226,7 +226,8 @@ print(json.dumps({
     "status": (mltj or {}).get("status"),
     "annotations": ((mltj or {}).get("metadata") or {}).get("annotations"),
     "jobs": [{"name": j["metadata"]["name"], "uid": j["metadata"]["uid"], "attempt": j["metadata"].get("labels", {}).get(attempt),
-              "deleting": "deletionTimestamp" in j["metadata"]} for j in jobs["items"]],
+              "deleting": "deletionTimestamp" in j["metadata"], "suspend": j["spec"].get("suspend"),
+              "active": (j.get("status") or {}).get("active", 0)} for j in jobs["items"]],
     "workloads": [{"name": w["metadata"]["name"], "uid": w["metadata"]["uid"], "finalizers": w["metadata"].get("finalizers"),
                    "deleting": "deletionTimestamp" in w["metadata"], "active": w["spec"].get("active", True)}
                   for w in wls["items"]],
@@ -266,6 +267,20 @@ wait_for() {
 hold() {
   local name=$1 dir=$2 seconds=$3 t0=$SECONDS
   while ((SECONDS - t0 < seconds)); do sample "$name" "$dir"; sleep 1; done
+}
+
+# wait_steps waits until the ranks' own records show n steps: Ready Pods are not yet training, and a fault injected
+# between the two would test a job that had not started.
+wait_steps() {
+  local name=$1 dir=$2 n=$3 t0=$SECONDS got
+  while ((SECONDS - t0 < 180)); do
+    sample "$name" "$dir"
+    got=$(cat "$dir"/log-*.txt 2>>"$LOG" | grep -c '"event": "step"')
+    [ "${got:-0}" -ge "$n" ] && return 0
+    sleep 1
+  done
+  log "  timed out after 180 s waiting for $n step records"
+  return 1
 }
 
 mark() { echo "{\"at\": \"$(now)\", \"mark\": \"$2\"}" >>"$1/marks.jsonl"; }
@@ -387,6 +402,8 @@ drive() {
     deactivated)
       submit "$name" "$dir" "" || return 2
       wait_for "$name" "$dir" "a[0].get('allRanksReadyAt') if a else None" 180 || return 1
+      # Three steps on each of the two ranks.
+      wait_steps "$name" "$dir" 6 || return 1
       local dwl
       dwl=$(workload_of "$name")
       k -n "$NS" patch workload "$dwl" --type=merge -p '{"spec":{"active":false}}' >>"$LOG" 2>&1 ||
@@ -399,7 +416,7 @@ drive() {
       # Rank 1's node is frozen; rank 0's collective times out after 20 s and fails the attempt.
       submit "$name" "$dir" "CKPT_COLLECTIVE_TIMEOUT=20" || return 2
       wait_for "$name" "$dir" "a[0].get('allRanksReadyAt') if a else None" 180 || return 1
-      sleep 5
+      wait_steps "$name" "$dir" 6 || return 1
       local victim
       victim=$(rank_node "$name" 1)
       [ -n "$victim" ] || { void_case "$name" "$dir" "no node for rank 1"; return 2; }
