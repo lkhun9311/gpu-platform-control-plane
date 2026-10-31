@@ -108,7 +108,7 @@ func (r *MLTrainingJobReconciler) reconcileRestartable(ctx context.Context, mltj
 	case attemptActive:
 		return r.runAttempt(ctx, mltj, cur)
 	case attemptStopping:
-		return r.stopAttempt(ctx, mltj, cur)
+		return r.stopAttempt(ctx, mltj)
 	default:
 		return r.afterStopped(ctx, mltj, cur)
 	}
@@ -165,8 +165,22 @@ func (r *MLTrainingJobReconciler) prepareAttempt(ctx context.Context, mltj *plat
 // runAttempt follows an Active attempt: it reports the phase as the ordinary path does, records the attempt's
 // Workload and nodes, and moves the attempt to Stopping on a trigger.
 func (r *MLTrainingJobReconciler) runAttempt(ctx context.Context, mltj *platformv1.MLTrainingJob, cur platformv1.TrainingAttempt) (ctrl.Result, error) {
+	// Kept in place for the whole attempt, as the ordinary path keeps its Service: ranks that have not yet started
+	// resolve rank 0 through it, and a Service lost before then would leave them unable to.
+	ready, rendezvous, err := r.ensureRendezvousServiceFor(ctx, mltj, cur.Number)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	var requeue time.Duration
+	if !ready {
+		requeue = rendezvousRetry
+		if rendezvous == nil {
+			requeue = time.Second
+		}
+	}
+
 	var job batchv1.Job
-	err := r.apiReader().Get(ctx, client.ObjectKeyFromObject(mltj), &job)
+	err = r.apiReader().Get(ctx, client.ObjectKeyFromObject(mltj), &job)
 	switch {
 	case apierrors.IsNotFound(err):
 		return r.trigger(ctx, mltj, triggerJobDeleted)
@@ -181,6 +195,11 @@ func (r *MLTrainingJobReconciler) runAttempt(ctx context.Context, mltj *platform
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("get workload of attempt %d: %w", cur.Number, err)
 	}
+	// Recorded before any trigger is acted on, so the first pass that sees a failure has not already lost the nodes
+	// the stop barrier must account for.
+	if err := r.discover(ctx, mltj, wl); err != nil {
+		return ctrl.Result{}, err
+	}
 	if jobFailed(&job) {
 		return r.trigger(ctx, mltj, triggerRankFailed)
 	}
@@ -188,13 +207,11 @@ func (r *MLTrainingJobReconciler) runAttempt(ctx context.Context, mltj *platform
 		return r.trigger(ctx, mltj, triggerNodeFault)
 	}
 
-	nodes, err := r.rankNodes(ctx, mltj, cur.Number)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
 	phase, cond := computeMLTJPhase(&job, wl, true)
-	if err := r.recordActive(ctx, mltj, wl, nodes, phase == mltjPhaseRunning); err != nil {
-		return ctrl.Result{}, err
+	if phase == mltjPhaseRunning {
+		if err := r.recordActive(ctx, mltj, nil, nil, true); err != nil {
+			return ctrl.Result{}, err
+		}
 	}
 	var admittedAt *metav1.Time
 	if wl != nil {
@@ -204,7 +221,20 @@ func (r *MLTrainingJobReconciler) runAttempt(ctx context.Context, mltj *platform
 	if job.Status.Ready != nil {
 		readyRanks = new(*job.Status.Ready)
 	}
-	return ctrl.Result{}, r.setMLTJPhase(ctx, mltj, phase, cond, admittedAt, readyRanks, nil)
+	return ctrl.Result{RequeueAfter: requeue}, r.setMLTJPhase(ctx, mltj, phase, cond, admittedAt, readyRanks, rendezvous)
+}
+
+// discover records the Workload and the nodes of the current attempt's Pods that are not yet recorded.
+//
+// It runs on every pass of an Active or Stopping attempt, before the barrier, so a Pod the barrier waits on has had
+// its node recorded first and a node that later stops answering cannot be left out of the fencing check.
+func (r *MLTrainingJobReconciler) discover(ctx context.Context, mltj *platformv1.MLTrainingJob, wl *kueuev1beta1.Workload) error {
+	cur := mltj.Status.Attempts[len(mltj.Status.Attempts)-1]
+	nodes, err := r.rankNodes(ctx, mltj, cur.Number)
+	if err != nil {
+		return err
+	}
+	return r.recordActive(ctx, mltj, wl, nodes, false)
 }
 
 // recordActive writes what the attempt learned while running: its Workload, the nodes its ranks were on, and the
@@ -257,7 +287,12 @@ func (r *MLTrainingJobReconciler) trigger(ctx context.Context, mltj *platformv1.
 }
 
 // stopAttempt retires the attempt's Job and confirms, on uncached reads, that nothing of the attempt is left.
-func (r *MLTrainingJobReconciler) stopAttempt(ctx context.Context, mltj *platformv1.MLTrainingJob, cur platformv1.TrainingAttempt) (ctrl.Result, error) {
+func (r *MLTrainingJobReconciler) stopAttempt(ctx context.Context, mltj *platformv1.MLTrainingJob) (ctrl.Result, error) {
+	if err := r.discover(ctx, mltj, nil); err != nil {
+		return ctrl.Result{}, err
+	}
+	// Read after discover, which may have just recorded a node the barrier must check.
+	cur := mltj.Status.Attempts[len(mltj.Status.Attempts)-1]
 	waiting, err := r.stopBarrier(ctx, mltj, cur)
 	if err != nil {
 		return ctrl.Result{}, err
@@ -319,16 +354,28 @@ func (r *MLTrainingJobReconciler) stopBarrier(ctx context.Context, mltj *platfor
 		return "pods " + strings.Join(names, ",") + " to be gone", nil
 	}
 
+	// Kueue finds a Job's Workload by the owner's name, so a Workload left by this attempt would be matched to the
+	// next attempt's Job of the same name and could hand it this attempt's state.
+	// Two reads, because either alone can miss it: the recorded one may have lost Kueue's job-uid label, and one
+	// created after the attempt's last Active pass was never recorded at all.
 	if cur.WorkloadName != "" {
 		var wl kueuev1beta1.Workload
 		err := r.apiReader().Get(ctx, types.NamespacedName{Name: cur.WorkloadName, Namespace: mltj.Namespace}, &wl)
 		switch {
 		case err == nil && string(wl.UID) == cur.WorkloadUID:
-			// Kueue finds a Job's Workload by the owner's name, so a Workload left by this attempt would be matched to the
-			// next attempt's Job of the same name and could hand it this attempt's state.
 			return "workload " + wl.Name + " to be gone", nil
 		case err != nil && !apierrors.IsNotFound(err):
 			return "", fmt.Errorf("get attempt %d workload: %w", cur.Number, err)
+		}
+	}
+	if cur.JobUID != "" {
+		var wls kueuev1beta1.WorkloadList
+		if err := r.apiReader().List(ctx, &wls, client.InNamespace(mltj.Namespace),
+			client.MatchingLabels{kueueJobUIDLabel: cur.JobUID}); err != nil {
+			return "", fmt.Errorf("list attempt %d workloads: %w", cur.Number, err)
+		}
+		if len(wls.Items) > 0 {
+			return "workload " + wls.Items[0].Name + " to be gone", nil
 		}
 	}
 
@@ -396,6 +443,8 @@ func (r *MLTrainingJobReconciler) afterStopped(ctx context.Context, mltj *platfo
 		return append(a, platformv1.TrainingAttempt{Number: cur.Number + 1, State: attemptPreparing})
 	})
 }
+
+// +kubebuilder:rbac:groups="",resources=services,verbs=delete
 
 // deleteAttemptService removes a stopped attempt's rendezvous Service, which nothing will resolve again.
 func (r *MLTrainingJobReconciler) deleteAttemptService(ctx context.Context, mltj *platformv1.MLTrainingJob, attempt int32) error {

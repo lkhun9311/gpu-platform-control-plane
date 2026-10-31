@@ -17,6 +17,8 @@ limitations under the License.
 package controller
 
 import (
+	"os"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -25,15 +27,19 @@ import (
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/rand"
+	"k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/yaml"
 
 	platformv1 "github.com/lkhun9311/gpu-mlops-platform-control-plane/api/v1"
 )
@@ -47,8 +53,43 @@ import (
 var _ = Describe("MLTrainingJob restart", func() {
 	const ns = "default"
 
+	// The reconciler acts as a user bound to config/rbac/role.yaml, the role the manager is deployed with.
+	// The suite's own clients are cluster admin, and a verb missing from the role would pass every spec here and then
+	// leave a deployed attempt stuck: the delete of a stopped attempt's Service did exactly that.
+	var asManager, asManagerUncached client.Client
+	BeforeEach(func() {
+		if asManager != nil {
+			return
+		}
+		raw, err := os.ReadFile(filepath.Join("..", "..", "config", "rbac", "role.yaml"))
+		Expect(err).NotTo(HaveOccurred())
+		role := &rbacv1.ClusterRole{}
+		Expect(yaml.Unmarshal(raw, role)).To(Succeed())
+		Expect(role.Rules).NotTo(BeEmpty())
+		const user = "restart-test-manager"
+		role.ObjectMeta = metav1.ObjectMeta{Name: user}
+		Expect(k8sClient.Create(ctx, role)).To(Succeed())
+		Expect(k8sClient.Create(ctx, &rbacv1.ClusterRoleBinding{
+			Name:     user,
+			RoleRef:  rbacv1.RoleRef{APIGroup: rbacv1.GroupName, Kind: "ClusterRole", Name: user},
+			Subjects: []rbacv1.Subject{{APIGroup: rbacv1.GroupName, Kind: rbacv1.UserKind, Name: user}},
+		})).To(Succeed())
+		imp := rest.CopyConfig(cfg)
+		imp.Impersonate = rest.ImpersonationConfig{UserName: user}
+		asManagerUncached, err = client.New(imp, client.Options{Scheme: scheme.Scheme})
+		Expect(err).NotTo(HaveOccurred())
+		asManager, err = client.New(imp, client.Options{Scheme: scheme.Scheme, Cache: &client.CacheOptions{
+			Reader:     workloadCache,
+			DisableFor: []client.Object{&platformv1.MLTrainingJob{}, &batchv1.Job{}, &corev1.Pod{}, &corev1.Node{}},
+		}})
+		Expect(err).NotTo(HaveOccurred())
+		// The binding is only worth anything if the server enforces it: the role must not reach what it was not given.
+		Expect(apierrors.IsForbidden(asManagerUncached.List(ctx, &rbacv1.ClusterRoleList{}))).To(BeTrue(),
+			"the impersonated user was not refused a list the role does not grant, so RBAC is not enforced here")
+	})
+
 	reconciler := func() *MLTrainingJobReconciler {
-		return &MLTrainingJobReconciler{Client: cachedClient, Scheme: cachedClient.Scheme(), APIReader: k8sClient}
+		return &MLTrainingJobReconciler{Client: asManager, Scheme: scheme.Scheme, APIReader: asManagerUncached}
 	}
 
 	step := func(key types.NamespacedName) {
@@ -325,6 +366,50 @@ var _ = Describe("MLTrainingJob restart", func() {
 		Expect(job2.Labels).To(HaveKeyWithValue(mltjAttemptLabel, "2"))
 		Expect(job2.Spec.Template.Spec.Subdomain).To(Equal(key.Name + "-ddp-a2"))
 		Expect(attempts(key)[0].State).To(Equal(attemptStopped), "attempt 1's record was rewritten")
+	})
+
+	It("waits on a rank's node and a Workload it first sees after the trigger", func() {
+		key := create(1)
+		job := untilActive(key)
+		mltj := getMLTJ(key)
+
+		// The failure is the first thing seen: no pass of the Active attempt ever recorded a node or a Workload.
+		failRank(job)
+		step(key)
+		Expect(last(key).State).To(Equal(attemptStopping))
+		Expect(last(key).Nodes).To(BeEmpty())
+
+		unreachable := node(corev1.ConditionFalse)
+		late := rankPod(mltj, 1, unreachable)
+		wl := workloadFor(job, nil)
+		step(key)
+		Expect(last(key).Nodes).To(ConsistOf(unreachable), "a rank seen only while stopping was not recorded")
+		collect(key)
+		Expect(k8sClient.Delete(ctx, late, client.GracePeriodSeconds(0))).To(Succeed())
+		Eventually(func() bool {
+			return apierrors.IsNotFound(k8sClient.Get(ctx, client.ObjectKeyFromObject(late), &corev1.Pod{}))
+		}, 10*time.Second, 50*time.Millisecond).Should(BeTrue())
+
+		// Found by the attempt's Job UID, uncached, even with the Job gone and no name recorded while it existed.
+		step(key)
+		Expect(last(key).WaitingFor).To(Equal("workload " + wl.Name + " to be gone"))
+		Expect(k8sClient.Delete(ctx, wl)).To(Succeed())
+
+		// Its Pod is gone from the API, but the node never said so: only the annotation releases the barrier.
+		step(key)
+		Expect(last(key).WaitingFor).To(ContainSubstring("node " + unreachable + " to be fenced"))
+	})
+
+	It("puts back the attempt's Service while the attempt runs", func() {
+		key := create(1)
+		untilActive(key)
+		svcKey := types.NamespacedName{Name: key.Name + "-ddp-a1", Namespace: ns}
+		Expect(k8sClient.Delete(ctx, &corev1.Service{Name: svcKey.Name, Namespace: ns})).To(Succeed())
+		Eventually(func() error {
+			step(key)
+			return k8sClient.Get(ctx, svcKey, &corev1.Service{})
+		}, 10*time.Second, 50*time.Millisecond).Should(Succeed())
+		Expect(last(key).State).To(Equal(attemptActive))
 	})
 
 	It("fails the job once maxRestarts is spent, and starts nothing more", func() {
