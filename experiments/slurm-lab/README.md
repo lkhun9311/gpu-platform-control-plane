@@ -2,13 +2,14 @@
 
 This is a local Slurm cluster in containers on one machine, at zero cost.
 It asks Slurm the questions this repository already asks Kueue and Kubernetes: who gets GPUs when they are short, what a tenant's quota does, what preemption does to the job it takes from, and what a dead node does to a single-node and a two-node job.
+Step 5 then runs real two-rank CPU training (gloo DDP) under Slurm, kills a node mid-training, and checks that the requeued job resumed from its checkpoint and ended with the same parameters as an uninterrupted run.
 It compares **policy meaning**, not speed.
 
 **The GPUs here are declared, not physical.**
 Each compute node advertises two GPUs that Slurm schedules, binds and accounts, and no GPU exists behind them.
 This is the same arrangement as the fake device plugin (`cmd/gpu-simulator`) this repository uses on kind.
 
-Every claim below cites a raw transcript under `evidence/2026-10-31/`.
+Every claim below cites a raw transcript under `evidence/2026-10-31/`, `evidence/2026-10-31-rerun04/` or, for step 5, `evidence/2026-11-01-train/`.
 Each transcript records the exact command, the UTC time it ran, its full output and its exit status.
 A prompt `alice@slurmctld$` means the command ran as user alice inside the slurmctld container (`docker compose exec -T -u alice slurmctld bash -c '…'`); `host$` means it ran on the host in this directory.
 
@@ -21,6 +22,9 @@ A prompt `alice@slurmctld$` means the command ran as user alice inside the slurm
 | MUNGE | authentication between daemons | Debian package `0.5.16-1.1~deb13u1` |
 | accounting database | MariaDB | `mariadb:11.4@sha256:d1891ede…` in `compose.yaml` |
 | compute nodes | `c1`, `c2`, `c3`: 4 CPUs, 2000 MB, 2 declared GPUs each | `etc/slurm.conf`, `etc/gres.conf` |
+| training (step 5) | CPU torch in a venv at `/opt/torch`, Debian's Python 3.13.5 | `torch==2.5.1+cpu` and every dependency at the version the Kubernetes trainer image has, in `Dockerfile` |
+| trainer (step 5) | `train.py`, copied from `experiments/distributed-restart/train.py` on branch `feat/distributed-restart` | commit `f7638229ff3c9f96a16ac483f60aad5724ca73ac`; step 5 refuses to run unless the copy hashes to that commit's file |
+| checkpoint volume (step 5) | Docker named volume `ckpt`, mounted at `/ckpt` on c1, c2, c3 and read-only on slurmctld | `compose.yaml` |
 
 The versions that actually ran are recorded in `evidence/2026-10-31/00-cluster.txt` (`dpkg-query` prints `24.11.5-4+deb13u1` for every Slurm package, and `scontrol --version` prints `slurm-wlm 24.11.5`).
 Apt packages are pinned by exact version; if the Debian archive stops carrying that version, the build fails rather than installing a different one.
@@ -53,10 +57,14 @@ KEEP=1 ./run.sh     # the same, leaving the cluster up for inspection
 docker compose down -v   # when finished with KEEP=1
 ```
 
-The steps can also be run one at a time against a running cluster, in order: `steps/00-fileless-gres.sh`, `steps/00-setup.sh`, `steps/01-gres.sh`, `steps/02-quota-preempt.sh`, `steps/03-node-failure.sh`, `steps/04-multinode.sh`.
+The steps can also be run one at a time against a running cluster, in order: `steps/00-fileless-gres.sh`, `steps/00-setup.sh`, `steps/01-gres.sh`, `steps/02-quota-preempt.sh`, `steps/03-node-failure.sh`, `steps/04-multinode.sh`, `steps/05-train-requeue.sh`.
 `steps/00-setup.sh` creates the accounts and QoS, so it runs once per fresh cluster.
-A full run takes about 15 minutes, most of it Slurm's requeue delay.
-Nothing is pulled except the two pinned base images, and nothing is pushed.
+Steps 0 to 4 took about 15 minutes, most of it Slurm's requeue delay; step 5 took about 8 minutes on its own (`evidence/2026-11-01-train/`, 23:41:54 to 23:49:58 UTC).
+Nothing is pulled except the two pinned base images and the pinned torch wheels, and nothing is pushed.
+
+The image is now tagged `slurmlab:24.11.5-torch251`, because step 5 added torch to it.
+Steps 0 to 4 in `evidence/2026-10-31*/` ran on the earlier `slurmlab:24.11.5`, which had no torch, and were not rerun on the new image.
+Step 5 ran on a fresh cluster after only `steps/00-setup.sh`, whose transcripts for that cluster are in `evidence/2026-11-01-train/`.
 
 ## Step 1: GRES placement and the `Resources` reason
 
@@ -279,6 +287,86 @@ Keeping the allocation helps only a script that launches a new step on what is l
 The time to detect the dead node was 22 to 36 s across the four stops in step 3b and the rerun of step 4 (36, 36, 32 and 22 s).
 What makes it vary was not measured.
 
+Step 4 shows that Slurm restarts a process, not that training resumes: its ranks only print and sleep.
+Step 5 answers the second question.
+
+## Step 5: a requeued two-node training job resumes from its checkpoint
+
+`train.sbatch` is one batch job with `-N 2 --ntasks-per-node=1 --requeue --open-mode=append`, whose script is a single `srun` starting one rank of `train.py` per node.
+`MASTER_ADDR` is the first host of `SLURM_JOB_NODELIST`, `RANK` is `SLURM_PROCID`, `WORLD_SIZE` is `SLURM_NTASKS`, and `TRAINING_ATTEMPT` is `SLURM_RESTART_COUNT`, defaulted to 0 because Slurm leaves it unset on the first start.
+Checkpoints go to `/ckpt/<job>/`, on the one volume every compute node mounts, so a requeued attempt on other nodes can read what the first attempt wrote.
+Each rank's JSON records go to `/ckpt/<job>/logs/attempt-<A>-rank-<R>.jsonl`, because a dead node's share of srun's forwarded output is lost with it.
+
+`train.py` is the trainer the Kubernetes whole-job restart uses, copied unchanged from commit `f7638229` of `feat/distributed-restart` (see its header).
+Its checkpoint protocol is that branch's: rank 0 publishes a manifest only after every rank's shard is verified, `LATEST` names the newest published checkpoint, and on resume every rank must accept the same one or all start from zero, which they record as `restart_from_zero`.
+That trainer was being changed while this copy was taken; what ran here is that one commit's file, and the step refuses to run if the copy no longer hashes to it.
+
+Three jobs ran, each 40 steps with a checkpoint after every step and one second's sleep between steps, as alice, on a fresh cluster (`evidence/2026-11-01-train/`):
+
+| job | what | transcript |
+|---|---|---|
+| 2 `tr-ref` | uninterrupted reference | `05a-train-reference.txt` |
+| 3 `tr-full` | `CKPT_LOAD=full`; c2 killed after rank 0 recorded 12 checkpoints | `05b-train-requeue.txt` |
+| 4 `tr-none` | the same, with `CKPT_LOAD=none`: the mutation, whose second attempt ignores every checkpoint | `05c-train-requeue-load-none.txt` |
+
+**Placement.**
+slurmctld, slurmdbd and MariaDB each run in their own container; only c1, c2 and c3 run slurmd, so killing a compute node never killed the controller.
+Both requeue jobs started on c1 and c2, with c1 as batch host and rank 0 (and so `MASTER_ADDR`), and rank 1 on c2.
+c2 was the node killed, with `docker compose kill c2` (SIGKILL to the whole container); just before it, the same transcript lists rank 1's `train.py` running on c2, and right after it `docker inspect` shows `exited exit=137 restarts=0`, so the compose restart policy did not bring it back.
+
+**What Slurm did (job 3).**
+
+```
+host$ docker compose kill c2                                   # 23:42:53.990
+[2026-10-31T23:43:08.001] error: Nodes c2 not responding
+[2026-10-31T23:43:24.000] requeue job JobId=3 due to failure of node c2
+[2026-10-31T23:43:24.000] error: Nodes c2 not responding, setting DOWN
+[2026-10-31T23:45:43.972] sched/backfill: _start_job: Started JobId=3 in gpu on c[1,3]
+```
+
+The job was requeued 30 s after the kill, waited for its `BeginTime` about two minutes later, and started again on c1 and c3 with `Restarts=1`, while `sinfo` showed c2 `down* Not responding`.
+`sacct -D` keeps both attempts under the same id:
+
+```
+             3    tr-full  NODE_FAIL      1:0        0 2026-10-31T23:42:41 2026-10-31T23:43:23          c[1-2]
+             3    tr-full  COMPLETED      0:0        1 2026-10-31T23:45:43 2026-10-31T23:46:14          c[1,3]
+```
+
+Job 4 did the same: requeued 31 s after its kill (23:46:29.8 to 23:47:01), restarted at 23:49:13 on c1 and c3.
+
+**What training did.**
+In job 3, both ranks of attempt 1 recorded `"event": "resume", "from_dir": "a0/00000012-bd1091ba…", "from_step": 12`, their first step record was step 13, and they trained to step 40.
+Step 12 was the last checkpoint attempt 0 published; it had reached step 12 and no further.
+The final parameters of both ranks were equal, value for value, to the reference's, and so was the state digest (`3c58b01c8a53faf1…` on every rank of both runs).
+In job 4, both ranks of attempt 1 recorded `restart_from_zero` and trained steps 1 to 40.
+
+**The scorer.**
+`score_requeue.py` reads the reference logs, the case logs and the case's `scontrol show job`, and exits 1 if any check fails.
+It requires effects, not the fault: `JobState=COMPLETED` with `Restarts` at least 1, one log per attempt from 0 to `Restarts`, every record carrying the attempt Slurm's restart count gave it, an attempt 0 that published a checkpoint and stopped before step 40, a final attempt whose every rank has one `resume` record with `from_step > 0` and none `restart_from_zero`, the same checkpoint on every rank, that checkpoint being attempt 0's last published one, the remaining steps trained in order, and final parameters equal to the reference's.
+On job 3 it printed `30 passed, 0 failed` and exited 0.
+On job 4 it printed `18 passed, 5 failed` and exited 1, failing on the `restart_from_zero` records and the missing `resume` records.
+`05-verdict.txt` records both exit statuses, and the step exits nonzero unless they are 0 and 1.
+
+**Why equal parameters are not enough.**
+Job 4's final parameters were also equal to the reference's on both ranks, because this trainer is deterministic and a restart from step 0 replays the same data.
+A check on the final parameters alone would have passed the mutation; only the resume record tells a resume from a rerun.
+The equality check was itself made to fail once, outside the step: with one final parameter of job 3's rank 1 moved by one float ulp in a scratch copy of the logs, the scorer printed `FAIL: attempt 1 rank 1 final parameters equal the reference's exactly` and exited 1.
+That copy was not kept.
+
+**How the node was returned.**
+`docker compose start c2`; c2 was `idle` at the first poll after the container started, with no `scontrol update`, because `ReturnToService=1` returns a node that was DOWN only for not responding when its slurmd registers.
+
+**What ended rank 0, and an ordering this depends on.**
+Rank 0 on c1 did not wait for Slurm: its gloo collective failed with `Connection closed by peer`, and srun printed `c1: task 0: Exited with exit code 1` before `Node failure on c2` (`/ckpt/slurm-tr-full-3.out` in `05b-train-requeue.txt`).
+The job was still requeued, because the batch step had not ended when slurmctld declared c2 DOWN: `sacct` shows `3.batch` ending at 23:43:24, the second of the requeue, and the attempt as `NODE_FAIL`.
+Had the batch script exited first, the attempt would have ended `FAILED` with exit 1; sbatch's documentation lists node failure, preemption and an explicit requeue as what `--requeue` covers, not a nonzero exit, and nothing in this lab sets `RequeueExit`.
+That ordering was not varied here, so whether a faster-failing script loses the requeue is not shown.
+
+**A launch detail.**
+The job variables are passed in sbatch's environment, not as `--export=ALL,VAR=…`.
+A job submitted the second way during development made slurmd on c1 log `_get_user_env: get env for user alice here` and then `fatal: clone: Operation not permitted`, after which compose restarted the container and slurmctld requeued the job (`Batch JobId=2 missing from batch node c1`).
+That run was a scratch smoke test whose transcript was not kept; the cause beyond those two log lines was not investigated.
+
 ## Slurm behaviour mapped to this repository
 
 | observed in Slurm | evidence | this repository's counterpart | same / different / not comparable | why |
@@ -293,15 +381,20 @@ What makes it vary was not measured.
 | A node that stops answering is declared DOWN about 36 s later; a requeue-able job is requeued and restarts elsewhere, a non-requeue-able one ends `NODE_FAIL` | `03b-node-down.txt` | a NotReady node tainted by NodeHealth; the Pods on it are handled by Kubernetes' own node lifecycle, not by this repository | **not comparable** | this lab measured Slurm's detection and requeue; this repository has no measurement of what happens to a training Pod on a node that dies |
 | `scontrol requeue` restarts a job by hand, and is refused for a `--no-requeue` job | `03c-scontrol-requeue.txt` | none | **not comparable** | the repository has no operator command to requeue a running training job |
 | A two-node job loses one node: by default the whole job ends, including the healthy rank | `evidence/2026-10-31-rerun04/04-multinode-default.txt` | the distributed MLTrainingJob: one Indexed Job with `backoffLimit: 0` (`internal/controller/mltrainingjob_distributed.go`), where one rank's failure fails the whole Job (`experiments/multi-pod-ddp/README.md`, arm `one-rank-fails`) | **same** in outcome, **different** in cause | both end every rank when one is lost and do not retry; the repository's run killed a rank's process, not a node, so node loss itself was not tested there |
-| With `--requeue`, the two-node job is requeued as one unit and restarts on whichever two nodes are free | `evidence/2026-10-31-rerun04/04-multinode-requeue.txt` | none: `backoffLimit: 0` and no requeue path for a failed distributed MLTrainingJob | **different** | Slurm can retry the whole gang; the repository fails it and leaves the retry to the tenant |
+| With `--requeue`, the two-node job is requeued as one unit and restarts on whichever two nodes are free | `evidence/2026-10-31-rerun04/04-multinode-requeue.txt` | none: `backoffLimit: 0` and no requeue path for a failed distributed MLTrainingJob | **different** | Slurm can retry the whole gang; the repository's code in this tree fails it and leaves the retry to the tenant. Slurm's retry restarts processes from the beginning of the script: whether training resumes is decided by the workload, which the next row tests |
+| With `--requeue`, a shared checkpoint volume and the trainer's checkpoint protocol, the requeued attempt resumed from attempt 0's last published checkpoint (step 12) and ended with parameters equal to an uninterrupted run's | `evidence/2026-11-01-train/05b-train-requeue.txt`, scored by `score_requeue.py` | none in this tree; the unmerged branch `feat/distributed-restart` adds a whole-job restart for distributed MLTrainingJobs (`distributed.maxRestarts`) that gives the same `train.py` a `TRAINING_ATTEMPT` | **not comparable** here | the trainer and its protocol are the same file, but that branch's restart path is not in this tree and its results were not read for this comparison; what this row shows is that Slurm's requeue supplies the two things that protocol needs, a new attempt number and the old attempt's ranks gone |
 | With `--no-kill`, the allocation shrinks to the survivor but the spanning step is still killed | `evidence/2026-10-31-rerun04/04-multinode-nokill.txt` | none | **not comparable** | the repository has no notion of an allocation outliving its ranks |
 
 ## What this does not show
 
 - **No real GPUs.** The GPUs are device nodes with no driver; nothing here says anything about CUDA, NCCL, GPU health checks or device faults.
-- **No real network.** All containers share one Docker bridge on one host; there is no fabric, no MPI and no PMIx, and the two-node steps only print and sleep.
+- **No real network.** All containers share one Docker bridge on one host; there is no fabric, no MPI and no PMIx; step 4's ranks only print and sleep, and step 5's ranks talk gloo over TCP on that bridge.
+- **Toy training.** Step 5 trains a 5-parameter linear model on CPU for 40 steps; it shows that the checkpoint protocol carried over a Slurm requeue, not anything about the size, speed or storage cost of real checkpoints.
+- **A local volume, not a shared filesystem.** The checkpoint volume is one Docker volume on one disk, which every container sees immediately; NFS or Lustre visibility delays, which the trainer retries for, were not exercised.
+- **Only the non-master node was killed.** In both step-5 kills the dead node ran rank 1; losing the batch host, which also runs rank 0 and the rendezvous, was not tried.
 - **One host.** "Node failure" is a stopped container; a real node can fail partially, hang, or keep its processes running while its slurmd dies, and none of that was tried.
 - **No confinement.** With the cgroup plugin disabled, a job is not limited to its CPUs, memory or devices.
 - **No accounting at scale.** Two accounts, two users, two QoS levels and a few dozen jobs; nothing about scheduler throughput, backfill under load, or fair-share decay.
-- **Single runs.** Each behaviour was observed once in this evidence; timings such as the 22 to 36 s detection and the two-minute requeue delay are single observations, not distributions.
+- **Single runs.** Each behaviour was observed once in this evidence; timings such as the 22 to 36 s detection (30 and 31 s in step 5) and the two-minute requeue delay are single observations, not distributions.
+  Step 5's resume was observed in one job, with the kill landing after step 12's checkpoint and before any step-13 record; a kill inside a checkpoint write was not aimed at.
 - **Shared lab secrets.** The MUNGE key is baked into the local image and the database password is in `etc/slurmdbd.conf`; both are for this lab only, and the image is never pushed.
