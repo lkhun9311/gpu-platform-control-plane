@@ -67,6 +67,9 @@ func TestRecoveryCheckPassesOnlyWhenEveryClauseHolds(t *testing.T) {
 		{"another image", "image=" + RecoveryImage, "image=nvcr.io/nvidia/k8s/cuda-sample:vectoradd-cuda12.5.0", passed, "not the registered"},
 		{"no marker", "", "", "Test FAILED\n", "does not say"},
 		{"too late", "t_finished=2023-11-14T22:13:30Z", "t_finished=2023-11-14T22:16:30Z", passed, "beyond the registered"},
+		// Submitted at …:20.250 and finished in the second that starts at …:16:20 (179.75 s later): the end of that
+		// second is 180.75 s, past the budget, and only the upper end may be compared.
+		{"late inside its last second", "t_finished=2023-11-14T22:13:30Z", "t_finished=2023-11-14T22:16:20Z", passed, "beyond the registered"},
 		{"unreadable time", "t_finished=2023-11-14T22:13:30Z", "t_finished=", passed, "unreadable"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
