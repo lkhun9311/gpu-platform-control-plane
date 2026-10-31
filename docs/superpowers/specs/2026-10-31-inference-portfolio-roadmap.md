@@ -110,7 +110,8 @@ That moves two free items ahead of the B0 campaign, which stays rehearsed and ru
 | M-42A-7 | F above | fragmentation on real GPUs | paid, approval |
 
 A second posting, for LLM inference optimization (engines, kernels, quantization, three years required), is recorded but not applied to; its experiments join C later.
-The account allows only t3, g4dn and g5, so FP8 tensor-core and Blackwell-only formats cannot be measured here.
+The account allows only t3, g4dn and g5, whose T4 and A10G have no FP8 tensor cores, so FP8 and the Blackwell-only formats (MXFP8, NVFP4) cannot be measured under the current policy.
+AWS itself offers them in Seoul (On-Demand, public price data read 2026-10-31): FP8 on g6 (L4, $0.9896 an hour for the smallest size) and g6e (L40S, $2.288), all three on g7e (RTX PRO 6000 Blackwell, $4.135); opening those families is the owner's decision, and vLLM's support for the RTX PRO 6000's compute capability 12.0 has to be checked before any purchase.
 
 | id | experiment | cost |
 |---|---|---|
