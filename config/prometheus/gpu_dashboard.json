@@ -234,7 +234,7 @@
   {
    "type": "timeseries",
    "title": "GPU quota reserved and nominal, by ClusterQueue",
-   "description": "Summed over flavours. Kueue publishes these only with metrics.enableClusterQueueResources: true, which the release vendored in config/kueue-controller leaves off, so on that deployment this panel is empty and KueueGPUQuotaMetricsNotReported fires.",
+   "description": "Summed over flavours. Kueue publishes these only with metrics.enableClusterQueueResources: true, which config/kueue-controller sets and the bare release file leaves off; where it is off this panel is empty and KueueGPUQuotaMetricsNotReported fires.",
    "datasource": {"type": "prometheus", "uid": "${datasource}"},
    "gridPos": {"h": 7, "w": 10, "x": 4, "y": 24},
    "fieldConfig": {"defaults": {"decimals": 0, "min": 0}},

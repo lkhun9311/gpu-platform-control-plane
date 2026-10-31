@@ -14,11 +14,36 @@ resources:
   # The shared flavor, included rather than copied, so the kind harnesses and EKS name one object in one file.
   - ../kueue
 
+# Kueue's configuration, the release's own text with one line changed: metrics.enableClusterQueueResources is on.
+# Without it Kueue publishes no kueue_cluster_queue_nominal_quota, resource_reservation or resource_pending, so
+# KueueClusterQueueGPUQuotaExhausted in config/prometheus/gpu_rules.yaml has no input and can never fire.
+#
+# The whole file replaces the release's ConfigMap data, because a patch cannot edit one line inside a string value.
+# A test holds the file to the release's text everywhere but that line, so a Kueue upgrade cannot leave it stale.
+#
+# behavior: replace keeps the release's ConfigMap name, so nothing in the Deployment changes when this file does.
+# The controller reads its configuration only at start, so a running Kueue would keep the old one; the annotation
+# patched onto the Pod template below is what rolls it, and a test holds its value to this file's sha256.
+configMapGenerator:
+  - name: kueue-manager-config
+    namespace: kueue-system
+    behavior: replace
+    files:
+      - controller_manager_config.yaml
+
 images:
   - name: registry.k8s.io/kueue/kueue
     digest: sha256:f0a6e65d300269ef525a07fdde8ce73df551856d881d1f0aadcf440dc6ea0b5a
 
 patches:
+  # The hash of controller_manager_config.yaml, so editing that file changes the Pod template and Kueue restarts on it.
+  - target:
+      kind: Deployment
+      name: kueue-controller-manager
+    patch: |-
+      - op: add
+        path: /spec/template/metadata/annotations/platform.lkhun9311.github.io~1kueue-config-sha256
+        value: 3703db20b8fee28a38ff8f481350a2ac290ad77399a2108ad1973410481d093e
   # Placement, on EKS only. Kueue copies a flavor's nodeLabels and tolerations into every Pod it admits on that
   # flavor, so a training Pod lands on a node of the gpu group and tolerates its taint, and BuildJob's template,
   # which the termination canary hashes, stays unchanged.

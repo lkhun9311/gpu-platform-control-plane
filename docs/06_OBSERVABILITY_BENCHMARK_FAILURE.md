@@ -80,7 +80,7 @@ What they need deployed:
 |---|---|---|
 | `DCGM_FI_DEV_XID_ERRORS`, `DCGM_FI_DEV_ECC_DBE_VOL_TOTAL`, `DCGM_FI_DEV_FB_USED` | `config/dcgm-exporter-ops` (exporter and its PodMonitor) | `config/dcgm-exporter` collects utilisation only; `GPUFaultFieldsNotCollected` fires |
 | `kueue_*` | `config/prometheus/kueue_monitor.yaml` | nothing in this repository scraped Kueue before it |
-| `kueue_cluster_queue_nominal_quota` and the other quota series | Kueue's `metrics.enableClusterQueueResources: true` | the vendored release in `config/kueue-controller` leaves it off; `KueueGPUQuotaMetricsNotReported` fires |
+| `kueue_cluster_queue_nominal_quota` and the other quota series | Kueue's `metrics.enableClusterQueueResources: true`, set by `config/kueue-controller/controller_manager_config.yaml` | the release file applied alone, as the kind harnesses do, leaves it off; `KueueGPUQuotaMetricsNotReported` fires |
 
 There is no metric of which nodes are quarantined now.
 The operator exports counters of transitions (`gpuplatform_gpufault_transitions_total`, `gpuplatform_nodehealth_taint_total`), which a restart zeroes while the taints stay, so the dashboard shows them as transitions and the current state is read from the NodeHealth objects.

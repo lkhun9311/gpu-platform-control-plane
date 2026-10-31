@@ -85,8 +85,8 @@ spec:
         # its place does not page, and nothing in this repository derives a better number.
         #
         # PRECONDITION: all three series exist only when Kueue runs with metrics.enableClusterQueueResources: true.
-        # The release this repository vendors (config/kueue-controller) leaves it commented out, so on that deployment this
-        # rule matches nothing; KueueGPUQuotaMetricsNotReported below is what says so.
+        # config/kueue-controller turns it on; the release file applied alone, as the kind harnesses do, leaves it
+        # commented out, and there this rule matches nothing; KueueGPUQuotaMetricsNotReported below is what says so.
         - alert: KueueClusterQueueGPUQuotaExhausted
           expr: |
             (
