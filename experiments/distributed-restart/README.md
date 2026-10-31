@@ -47,8 +47,31 @@ Skipping the shard hash failed the torn-shard case: no rank rejected the truncat
 Letting each rank decide alone also failed the torn-shard case, as a deadlock: rank 0 loaded step 6 while rank 1 waited for the next offer, and the attempt timed out.
 A timed-out attempt is a failed case, and its container is removed by name; the first version of the check crashed on the timeout instead, which reads as neither a pass nor a catch.
 
+## Through the controller, on kind
+
+`hack/distributed-restart-kind.sh` runs the same trainer as a restartable `MLTrainingJob` (`worldSize: 2`, `maxRestarts: 1`) on a throwaway cluster `rst`, and `score_kind.py` reads what it recorded.
+Kueue is v0.18.3, as on EKS, and the operator runs with its admission webhooks.
+Three workers each advertise one simulated GPU, so the two ranks run on two nodes and two are left when one is lost.
+Every worker mounts one host directory, offered as a `ReadWriteMany` hostPath volume: ranks on different nodes share a file system, without NFS's semantics.
+The operator, Kueue, cert-manager and CoreDNS are pinned to the control-plane node, so a frozen worker can take ranks with it and nothing else.
+
+| case | what happens | what must hold |
+|---|---|---|
+| `reference` | no fault | succeeds on attempt 1; its final parameters are the reference |
+| `rank-failed` | rank 1 is `SIGKILL`ed with its shard of step 6 unsynced | attempt 1 stops on `RankFailed`, attempt 2 resumes from step 5 under a rendezvous name attempt 1 never had, and ends with the reference's parameters |
+| `stale-workload` | rank 0 dies at step 8 while a finalizer holds attempt 1's Workload for 60 s | no Job of attempt 2 exists while it is held; then the same as above |
+| `deactivated` | the Workload is deactivated by hand while both ranks run | no second attempt and no trigger over the following minute |
+| `node-lost` | rank 1's node container is frozen, then its Node deleted | no attempt 2 while its Pods remain, nor after, until the node is named in `platform.lkhun9311.github.io/fenced-nodes`; attempt 2 runs on the other two nodes and ends with the reference's parameters |
+
+The scorer refuses a run of uncommitted code.
+Five rehearsals on an uncommitted tree came before the recorded run, and two found defects in the harness, not in the controller.
+The trainer was started with `exec`, which made it the container's PID 1, and the kernel drops a `SIGKILL` that PID 1 sends itself: the killed ranks trained on and their jobs finished on attempt 1.
+`train.py` now refuses to fire a kill fault as PID 1.
+And one rehearsal froze the worker a controller was most likely running on, after which nothing reconciled the job; where the controllers ran was not recorded, which is why it is now.
+
 ## What this does not show
 
-Every rank runs in one container on one local disk.
-Visibility across NFS clients, where a file renamed on one node may not yet appear on another, is the reason for the bounded retry in `shard_ok`, and it is not exercised here.
-That, a rank killed by losing its node rather than by `SIGKILL`, and the restart driven by the controller are the kind cases with an in-cluster NFS server, step 4 of the design.
+Visibility across NFS clients, where a file renamed on one node may not yet appear on another, is the reason for the bounded retry in `shard_ok`; neither the local check nor kind exercises it, and the shared volume on EFS is where it would.
+A frozen node is not a node that keeps running cut off from the API server: its rank stops writing when it is frozen, so a rank still writing to the shared volume after the next attempt has started is not exercised.
+That is what the fencing acknowledgement exists for, and the barrier is shown to wait for it, not shown to have been needed.
+One run of each case is evidence that the path works, not a rate.

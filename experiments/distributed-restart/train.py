@@ -35,8 +35,8 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 
 RUN_ID = os.environ.get("CKPT_RUN_ID", "unset")
 STEPS = int(os.environ.get("CKPT_STEPS", "40"))
-# The job's own directory on the shared volume; the runner names it after the MLTrainingJob's UID, so a recreated job
-# of the same name never reads its predecessor's checkpoints.
+# The job's own directory on the shared volume; the runner gives every job a name of its own, so a recreated job of the
+# same name never reads its predecessor's checkpoints.
 ROOT = os.path.join(os.environ.get("CKPT_DIR", "/state"), os.environ.get("CKPT_JOB_ID", "job"))
 ATTEMPT = int(os.environ.get("TRAINING_ATTEMPT", "0"))
 # none | full | no-optimizer | no-data-rng, as in experiments/checkpoint-resume; the last two are negative controls.
@@ -47,6 +47,11 @@ FAULT = os.environ.get("CKPT_FAULT", "")
 # NFS gives close-to-open consistency, so a file another client renamed may not be visible on the first look.
 VISIBILITY_RETRIES = int(os.environ.get("CKPT_VISIBILITY_RETRIES", "5"))
 VISIBILITY_WAIT = float(os.environ.get("CKPT_VISIBILITY_WAIT", "0.2"))
+# Seconds each step waits after its checkpoint, so a fault injected from outside lands while training is still running.
+STEP_SLEEP = float(os.environ.get("CKPT_STEP_SLEEP", "0"))
+# How long a collective waits for a peer before failing; torch's default is 30 minutes, and a rank whose peer's node
+# was lost would hold its Pod Running, and the attempt unfailed, for all of it.
+COLLECTIVE_TIMEOUT = float(os.environ.get("CKPT_COLLECTIVE_TIMEOUT", "1800"))
 
 LOAD_MODES = ("none", "full", "no-optimizer", "no-data-rng")
 # kill-before-fsync: the rank dies with its shard written but not synced or renamed.
@@ -166,6 +171,10 @@ class Fault:
         write_new(self.marker, b"1")
         emit(rank, "fault", point=self.point, step=step)
         if self.point != "skew":
+            # The kernel drops a signal PID 1 sends itself, so as a container's first process this kill would do nothing
+            # and the rank would train on, which is what the first kind rehearsal did when python was exec'd.
+            if os.getpid() == 1:
+                raise SystemExit("a kill fault cannot fire in PID 1; start train.py under a shell or torchrun")
             # A hard kill, not an exception: a node loss does not unwind either.
             os.kill(os.getpid(), signal.SIGKILL)
 
@@ -291,7 +300,7 @@ def main() -> int:
     world = int(os.environ["WORLD_SIZE"])
     torch.set_num_threads(1)
     torch.manual_seed(0)
-    dist.init_process_group(backend="gloo")
+    dist.init_process_group(backend="gloo", timeout=datetime.timedelta(seconds=COLLECTIVE_TIMEOUT))
     os.makedirs(ROOT, exist_ok=True)
     fault = Fault(FAULT)
 
@@ -333,6 +342,8 @@ def main() -> int:
              params=params(model) if step == STEPS else None)
         save(rank, world, step, {"step": step, "model": model.state_dict(), "optimizer": optimiser.state_dict(),
                                  "data_rng": data_rng.get_state()}, fault)
+        if STEP_SLEEP:
+            time.sleep(STEP_SLEEP)
 
     dist.destroy_process_group()
     return 0
