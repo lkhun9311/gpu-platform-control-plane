@@ -115,6 +115,8 @@ gf_log "== arms"
 gf_arms
 gf_log "== stale checks"
 gf_stale_checks || gf_log "the stale checks did not complete"
+gf_log "== recovery check"
+gf_recovery_check || gf_log "the recovery check did not complete"
 
 gf_log "== score"
 go run ./cmd/benchharness gpu-fault-verdict --dir "$OUT" --json "$OUT/verdict.json" | tee "$OUT/verdict.txt"

@@ -14,6 +14,7 @@
 #   GF_NS          the training namespace, whose GPUQuotaPolicy gives a ClusterQueue of one GPU
 #   GF_EXPORTER    the label selector of the exporter Pods
 #   GF_JOB_IMAGE   the job's image, already on the nodes
+#   GF_RECOVERY_IMAGE  the CUDA sample the recovery check runs on the card, pulled onto the target (dcgm mode only)
 #   GF_CONTEXT     a kube context, or empty for the current KUBECONFIG
 #   GF_ARMS_END    epoch seconds by which the last repetition must have finished, or empty for none
 #   GF_LOG         the session log
@@ -31,6 +32,8 @@ GF_OFFSET_S=900
 GF_PROBE_PERIOD=0.2
 GF_STALE_WAIT_S=15
 GF_LATCH_WAIT_S=10
+# Run 3's recovery check: the time its job is given from submission to completion, which the amendment registers.
+GF_RECOVERY_S=180
 # One repetition's longest path: start, settle, window, sentinel, reset.
 GF_REP_BUDGET_S=$((GF_START_S + GF_SETTLE_S + GF_WINDOW_S + GF_SENTINEL_S + GF_RESET_S))
 
@@ -486,6 +489,8 @@ gf_stale_checks() {
   gf_inject 230 79 >>"$d/inject.log" 2>&1
   gf_wait_until "$GF_LATCH_WAIT_S" gf_tainted "$GF_TARGET" || gf_log "stale-latched: no taint within ${GF_LATCH_WAIT_S}s"
   echo "before_latched=$(gf_nh_field "$GF_TARGET" ann:fingerprint)" >>"$d/check.env"
+  # The recovery check asks whether the exporter that returned is a new Pod, so the one about to leave is named here.
+  echo "before_exporter_pod=${GF_POD:-}" >>"$d/check.env"
   if gf_exporter_state down; then
     sleep "$GF_STALE_WAIT_S"
     gf_record_during "$d/check.env"
@@ -498,6 +503,101 @@ gf_stale_checks() {
     echo "after_latched=$(gf_nh_field "$GF_TARGET" ann:fingerprint)"
     echo "after_taint=$(gf_tainted "$GF_TARGET" && echo present || echo absent)"
   } >>"$d/check.env"
+}
+
+# gf_job_phase JOB echoes the phase of the job's Pods and the node each ran on, one line per Pod.
+gf_job_phase() {
+  gfk -n "$GF_NS" get pods -l "batch.kubernetes.io/job-name=$1" \
+    -o jsonpath='{range .items[*]}{.status.phase}{" "}{.spec.nodeName}{"\n"}{end}'
+}
+
+gf_job_finished() { case "$(gf_job_phase "$1")" in Succeeded\ *|Failed\ *) return 0 ;; *) return 1 ;; esac; }
+
+# gf_recovery_check runs the check run 3's amendment registers: once stale-latched's zero reading has cleared the
+# target, does a CUDA training job go back onto it through the product's path, and does the card run it.
+#
+# It runs only when stale-latched reached its clearing step; otherwise it records that it was not reached, which the
+# scorer must never read as a clause that failed.
+gf_recovery_check() {
+  local d="$GF_OUT/checks/recovery" latched="$GF_OUT/checks/stale-latched/check.env" job=gf-recovery
+  local image cmd t_clear="" t_submit pod_now recreated phase_node first
+  mkdir -p "$d" || return 1
+  gf_log "check recovery"
+  if ! grep -q '^after_taint=' "$latched" 2>>"$GF_LOG"; then
+    echo "reached=false" >"$d/check.env"
+    gf_log "recovery: not reached, because stale-latched never gave its zero reading"
+    return 0
+  fi
+  echo "reached=true" >"$d/check.env"
+  # R1 is read again here rather than inferred from stale-latched's reset having returned.
+  if gf_is_clear; then t_clear=$(gf_now); fi
+  # R2: on the card the exporter leaves and comes back as a new Pod; the fake toggles its exporter in place.
+  pod_now=$(gf_exporter_pod "$GF_TARGET" 2>>"$GF_LOG") || pod_now=""
+  case "$GF_MODE" in
+    fake) recreated=fake ;;
+    *)
+      if [ -n "$pod_now" ] && [ "$pod_now" != "$(sed -n 's/^before_exporter_pod=//p' "$latched")" ]; then recreated=yes; else recreated=no; fi
+      ;;
+  esac
+  {
+    echo "mode=$GF_MODE"
+    echo "target=$GF_TARGET"
+    echo "clear=$([ -n "$t_clear" ] && echo yes || echo no)"
+    echo "t_clear=$t_clear"
+    echo "exporter_pod=$pod_now"
+    echo "exporter_recreated=$recreated"
+    echo "allocatable=$(gf_allocatable)"
+  } >>"$d/check.env"
+  # R4 goes through MLTrainingJob and Kueue, with the healthy node held off so that T is the only place to run.
+  if [ "$GF_MODE" = dcgm ]; then
+    image=$GF_RECOVERY_IMAGE cmd='["/cuda-samples/sample"]'
+  else
+    image=$GF_JOB_IMAGE cmd='["sh", "-c", "echo rehearsal, not CUDA; echo Test PASSED"]'
+  fi
+  gfk taint node "$GF_HEALTHY" gpufault-study/hold=true:NoSchedule --overwrite >/dev/null ||
+    { echo "submitted=no" >>"$d/check.env"; return 1; }
+  t_submit=$(gf_now)
+  if cat <<EOF | gfk apply -f - >>"$d/submit.log" 2>&1
+apiVersion: platform.lkhun9311.github.io/v1
+kind: MLTrainingJob
+metadata:
+  name: $job
+  namespace: $GF_NS
+spec:
+  queue: gpu-$GF_NS
+  image: $image
+  command: $cmd
+  gpuCount: 1
+  parallelism: 1
+  completions: 1
+EOF
+  then
+    echo "submitted=yes" >>"$d/check.env"
+    gf_wait_until "$GF_RECOVERY_S" gf_job_finished "$job" || gf_log "recovery: the job did not finish within ${GF_RECOVERY_S}s"
+  else
+    echo "submitted=no" >>"$d/check.env"
+  fi
+  phase_node=$(gf_job_phase "$job")
+  # A job that was retried has more than one Pod; the count is recorded so the scorer can refuse that, and the
+  # first Pod is the one described.
+  first=$(head -n 1 <<<"$phase_node")
+  {
+    echo "image=$image"
+    echo "t_submit=$t_submit"
+    echo "t_end=$(gf_now)"
+    echo "job_pods=$(grep -c . <<<"$phase_node")"
+    echo "job_phase=$([ -n "$first" ] && echo "${first%% *}")"
+    echo "job_node=$([ -n "$first" ] && echo "${first#* }")"
+    echo "exit_code=$(gfk -n "$GF_NS" get pods -l "batch.kubernetes.io/job-name=$job" -o jsonpath='{.items[0].status.containerStatuses[0].state.terminated.exitCode}' 2>>"$GF_LOG")"
+    echo "t_scheduled=$(gfk -n "$GF_NS" get pods -l "batch.kubernetes.io/job-name=$job" -o jsonpath='{.items[0].status.conditions[?(@.type=="PodScheduled")].lastTransitionTime}' 2>>"$GF_LOG")"
+    echo "t_finished=$(gfk -n "$GF_NS" get pods -l "batch.kubernetes.io/job-name=$job" -o jsonpath='{.items[0].status.containerStatuses[0].state.terminated.finishedAt}' 2>>"$GF_LOG")"
+    echo "budget_s=$GF_RECOVERY_S"
+  } >>"$d/check.env"
+  gfk -n "$GF_NS" logs -l "batch.kubernetes.io/job-name=$job" --tail=-1 >"$d/job.log" 2>&1
+  gfk -n "$GF_NS" get workloads.kueue.x-k8s.io,jobs.batch,pods,mltrainingjobs -o yaml >"$d/final-objects.yaml" 2>&1
+  gfk -n "$GF_NS" get events --sort-by=.lastTimestamp >"$d/events.txt" 2>&1
+  gfk taint node "$GF_HEALTHY" gpufault-study/hold- >/dev/null || gf_log "recovery: could not remove the hold taint from $GF_HEALTHY"
+  gfk -n "$GF_NS" delete mltrainingjob "$job" --wait=true --timeout=60s >>"$d/submit.log" 2>&1 || gf_log "recovery: $job not deleted"
 }
 
 # ------------------------------------------------------------------------------------------------ the platform
