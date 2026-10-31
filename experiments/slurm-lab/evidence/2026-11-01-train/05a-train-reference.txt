@@ -1,0 +1,113 @@
+# transcript 05a-train-reference.txt, slurm-lab, written by steps/05-train-requeue.sh
+# Placement: slurmctld runs in its own container and is never a compute node; c1..c3 are the only slurmd containers.
+
+host$ docker compose ps --format '{{.Service}} {{.Name}} {{.State}}'
+# at 2026-10-31T23:41:54.745Z
+c1 slurmlab-c1-1 running
+c2 slurmlab-c2-1 running
+c3 slurmlab-c3-1 running
+mariadb slurmlab-mariadb-1 running
+slurmctld slurmlab-slurmctld-1 running
+slurmdbd slurmlab-slurmdbd-1 running
+# exit 0
+
+root@slurmctld$ sinfo -N -o '%N %T %E'
+# at 2026-10-31T23:41:54.791Z
+NODELIST STATE REASON
+c1 idle none
+c2 idle none
+c3 idle none
+# exit 0
+
+root@c1$ /opt/torch/bin/python -c 'import torch, sys; print(torch.__version__, sys.version.split()[0])'
+# at 2026-10-31T23:41:54.845Z
+/opt/torch/lib/python3.13/site-packages/torch/_subclasses/functional_tensor.py:295: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at ../torch/csrc/utils/tensor_numpy.cpp:84.)
+  cpu = _conversion_method_template(device=torch.device("cpu"))
+2.5.1+cpu 3.13.5
+# exit 0
+# train.py below its header hashes to abbfa46593dbd7b690abaf40ee6615c40df38b1a31c946bf24aa3096d9066abd, the pinned file of commit f7638229.
+
+alice@slurmctld$ CKPT_JOB_ID=tr-ref-234154 CKPT_LOAD=full CKPT_STEPS=40 CKPT_STEP_SLEEP=1 sbatch -J tr-ref /opt/lab/train.sbatch
+# at 2026-10-31T23:41:55.478Z
+Submitted batch job 2
+# exit 0
+# job 2 (tr-ref) writes /ckpt/tr-ref-234154
+
+# trace: probe [squeue -h -j 2 -o '%i %T %r %N'] until [! squeue -h -j 2 | grep -q .], at most 300s
+## seen at 2026-10-31T23:41:55.635Z
+2 PENDING None 
+## seen at 2026-10-31T23:41:56.745Z
+2 RUNNING None c[1-2]
+# trace ended: condition met after 39s
+
+root@slurmctld$ scontrol show job 2
+# at 2026-10-31T23:42:38.722Z
+JobId=2 JobName=tr-ref
+   UserId=alice(2001) GroupId=alice(2001) MCS_label=N/A
+   Priority=1 Nice=0 Account=teama QOS=normal
+   JobState=COMPLETED Reason=None Dependency=(null)
+   Requeue=1 Restarts=0 BatchFlag=1 Reboot=0 ExitCode=0:0
+   RunTime=00:00:43 TimeLimit=UNLIMITED TimeMin=N/A
+   SubmitTime=2026-10-31T23:41:55 EligibleTime=2026-10-31T23:41:55
+   AccrueTime=2026-10-31T23:41:55
+   StartTime=2026-10-31T23:41:55 EndTime=2026-10-31T23:42:38 Deadline=N/A
+   PreemptEligibleTime=2026-10-31T23:41:55 PreemptTime=None
+   SuspendTime=None SecsPreSuspend=0 LastSchedEval=2026-10-31T23:41:55 Scheduler=Main
+   Partition=gpu AllocNode:Sid=slurmctld:264
+   ReqNodeList=(null) ExcNodeList=(null)
+   NodeList=c[1-2]
+   BatchHost=c1
+   NumNodes=2 NumCPUs=2 NumTasks=2 CPUs/Task=1 ReqB:S:C:T=0:0:*:*
+   ReqTRES=cpu=2,mem=4000M,node=2,billing=2
+   AllocTRES=cpu=2,node=2,billing=2
+   Socks/Node=* NtasksPerN:B:S:C=1:0:*:* CoreSpec=*
+   MinCPUsNode=1 MinMemoryNode=0 MinTmpDiskNode=0
+   Features=(null) DelayBoot=00:00:00
+   OverSubscribe=OK Contiguous=0 Licenses=(null) Network=(null)
+   Command=/opt/lab/train.sbatch
+   WorkDir=/home/alice
+   StdErr=/ckpt/slurm-tr-ref-2.out
+   StdIn=/dev/null
+   StdOut=/ckpt/slurm-tr-ref-2.out
+   
+
+# exit 0
+
+root@slurmctld$ sacct -D -j 2 -o JobID%14,JobName%10,State,ExitCode,Restarts,Start,End,NodeList
+# at 2026-10-31T23:42:38.777Z
+         JobID    JobName      State ExitCode Restarts               Start                 End        NodeList 
+-------------- ---------- ---------- -------- -------- ------------------- ------------------- --------------- 
+             2     tr-ref  COMPLETED      0:0        0 2026-10-31T23:41:55 2026-10-31T23:42:38          c[1-2] 
+       2.batch      batch  COMPLETED      0:0          2026-10-31T23:41:55 2026-10-31T23:42:38              c1 
+           2.0       bash  COMPLETED      0:0          2026-10-31T23:41:56 2026-10-31T23:42:38          c[1-2] 
+# exit 0
+
+host$ ls -l /home/lkhun9311/workspace/gpu-platform-control-plane/.claude/worktrees/agent-a8219ee35096b18a0/experiments/slurm-lab/evidence/2026-11-01-train/05-tr-ref-logs
+# at 2026-10-31T23:42:38.912Z
+total 56
+-rw-r--r-- 1 lkhun9311 lkhun9311   280 Nov  1 08:41 attempt-0-rank-0.err
+-rw-r--r-- 1 lkhun9311 lkhun9311    49 Nov  1 08:41 attempt-0-rank-0.host
+-rw-r--r-- 1 lkhun9311 lkhun9311 16698 Nov  1 08:42 attempt-0-rank-0.jsonl
+-rw-r--r-- 1 lkhun9311 lkhun9311   280 Nov  1 08:41 attempt-0-rank-1.err
+-rw-r--r-- 1 lkhun9311 lkhun9311    49 Nov  1 08:41 attempt-0-rank-1.host
+-rw-r--r-- 1 lkhun9311 lkhun9311 16707 Nov  1 08:42 attempt-0-rank-1.jsonl
+# exit 0
+
+root@slurmctld$ cat /ckpt/slurm-tr-ref-2.out
+# at 2026-10-31T23:42:38.921Z
+attempt=0 job=2 nodes=c[1-2] master=c1 batch_host=c1 load=full at=2026-10-31T23:41:56Z
+# exit 0
+
+root@slurmctld$ cat /ckpt/tr-ref-234154/logs/*.host
+# at 2026-10-31T23:42:38.974Z
+rank=0 host=c1 attempt=0 at=2026-10-31T23:41:56Z
+rank=1 host=c2 attempt=0 at=2026-10-31T23:41:56Z
+# exit 0
+
+root@slurmctld$ cat /ckpt/tr-ref-234154/LATEST; echo; ls /ckpt/tr-ref-234154
+# at 2026-10-31T23:42:39.028Z
+a0/00000040-c95ec81494784b28910c487828ec5fe6
+LATEST
+a0
+logs
+# exit 0
