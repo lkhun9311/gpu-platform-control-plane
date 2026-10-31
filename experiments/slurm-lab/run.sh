@@ -20,7 +20,7 @@ if [ "$n" != 3 ]; then
 	exit 1
 fi
 
-for s in steps/00-fileless-gres.sh steps/00-setup.sh steps/01-gres.sh steps/02-quota-preempt.sh steps/03-node-failure.sh steps/04-multinode.sh; do
+for s in steps/00-fileless-gres.sh steps/00-setup.sh steps/01-gres.sh steps/02-quota-preempt.sh steps/03-node-failure.sh steps/04-multinode.sh steps/05-train-requeue.sh; do
 	echo "== $s"
 	bash "$s"
 done
