@@ -173,10 +173,12 @@ gf_is_clear() {
 }
 
 # gf_reset injects the baseline into every field the smoke cell passed and waits for the platform to clear.
+# It returns 2 when an injection failed and 1 when the platform did not clear, because a clear that happened without
+# the zero having been given is not the clear the recovery check asks about.
 gf_reset() {
   local f
   for f in $GF_FIELDS; do
-    gf_inject "$f" 0 >/dev/null || { echo "reset: injecting $f=0 failed" >&2; return 1; }
+    gf_inject "$f" 0 >/dev/null || { echo "reset: injecting $f=0 failed" >&2; return 2; }
   done
   [ -z "${GF_OPERATOR_UP:-}" ] && return 0
   gf_wait_until "$GF_RESET_S" gf_is_clear
@@ -498,8 +500,10 @@ gf_stale_checks() {
   fi
   # A restarted real host engine starts from an empty cache; the fake keeps its cache. The baseline is injected
   # either way, so what clears the latch is a fresh zero reading, never the exporter's return alone.
-  gf_reset
+  local rc=0
+  gf_reset || rc=$?
   {
+    echo "zero_given=$([ "$rc" -ne 2 ] && echo yes || echo no)"
     echo "after_latched=$(gf_nh_field "$GF_TARGET" ann:fingerprint)"
     echo "after_taint=$(gf_tainted "$GF_TARGET" && echo present || echo absent)"
   } >>"$d/check.env"
@@ -523,7 +527,7 @@ gf_recovery_check() {
   local image cmd t_clear="" t_submit pod_now recreated phase_node first
   mkdir -p "$d" || return 1
   gf_log "check recovery"
-  if ! grep -q '^after_taint=' "$latched" 2>>"$GF_LOG"; then
+  if ! grep -qx 'zero_given=yes' "$latched" 2>>"$GF_LOG"; then
     echo "reached=false" >"$d/check.env"
     gf_log "recovery: not reached, because stale-latched never gave its zero reading"
     return 0

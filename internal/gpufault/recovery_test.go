@@ -19,6 +19,7 @@ package gpufault
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -71,6 +72,9 @@ func TestRecoveryCheckPassesOnlyWhenEveryClauseHolds(t *testing.T) {
 		// second is 180.75 s, past the budget, and only the upper end may be compared.
 		{"late inside its last second", "t_finished=2023-11-14T22:13:30Z", "t_finished=2023-11-14T22:16:20Z", passed, "beyond the registered"},
 		{"unreadable time", "t_finished=2023-11-14T22:13:30Z", "t_finished=", passed, "unreadable"},
+		// A runner that gave itself 300 s and finished at 200 s ran another check than the one registered.
+		{"a budget of its own", "budget_s=180\n", "budget_s=300\n", passed, "not the registered 180"},
+		{"late under a budget of its own", "t_finished=2023-11-14T22:13:30Z\nbudget_s=180", "t_finished=2023-11-14T22:16:40Z\nbudget_s=300", passed, "beyond the registered 180"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			env := recoveryOnCard
@@ -131,5 +135,30 @@ func TestRecoveryImageIsTheOneTheRunnerPins(t *testing.T) {
 	}
 	if !strings.Contains(string(b), "GF_RECOVERY_IMAGE="+RecoveryImage+"\n") {
 		t.Fatalf("the instance runner does not export GF_RECOVERY_IMAGE=%s", RecoveryImage)
+	}
+	lib, err := os.ReadFile("../../hack/lib/gpu-fault.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(lib), "\nGF_RECOVERY_S="+strconv.Itoa(RecoveryBudgetSeconds)+"\n") {
+		t.Fatalf("hack/lib/gpu-fault.sh does not give the job the scorer's %d s", RecoveryBudgetSeconds)
+	}
+}
+
+// A zero reading that was never injected cannot have cleared anything, and must not be described as one that did not.
+func TestStaleLatchedNamesAZeroThatWasNeverInjected(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "stale-latched")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	env := "before_latched=GPU-a/DCGM_FI_DEV_XID_ERRORS=79\nduring_signal_status=False\nduring_signal_reason=NoExporter\n" +
+		"during_healthy_status=False\nduring_taint=present\nduring_latched=GPU-a/DCGM_FI_DEV_XID_ERRORS=79\n" +
+		"zero_given=no\nafter_latched=\nafter_taint=absent\n"
+	if err := os.WriteFile(filepath.Join(dir, "check.env"), []byte(env), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c := judgeStaleCheck(dir, "stale-latched")
+	if reasons := strings.Join(c.Reasons, "; "); c.Verdict != "FAIL" || !strings.Contains(reasons, "injecting the zero reading failed") {
+		t.Fatalf("read as %s %q", c.Verdict, reasons)
 	}
 }
