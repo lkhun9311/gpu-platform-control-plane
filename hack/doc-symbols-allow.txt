@@ -107,3 +107,8 @@ ResourceCount	CloudWatch AWS/Usage metric name, cited by the NCCL groundwork des
 config/argocd/kueue-crds.yaml	the Application that installed four Kueue CRDs and no controller, removed by the NCCL groundwork build; designs written before it cite it
 DistNetworkError	the torch.distributed exception a bad-address rank records, quoted from run evidence
 terraform.log	the paid session's Terraform output, written under its evidence directory and left out of the committed copy
+AssocGrpGRES	a Slurm pending reason, quoted from experiments/slurm-lab/evidence/2026-10-31/02a-account-quota.txt, which the scan does not read
+QOSGrpGRES	a Slurm pending reason, quoted from experiments/slurm-lab/evidence/2026-10-31/02b-qos-quota.txt, which the scan does not read
+BeginTime	a Slurm pending reason, quoted from experiments/slurm-lab/evidence/2026-10-31/02c-preempt-requeue.txt, which the scan does not read
+ReqNodeNotAvail	a Slurm pending reason, quoted from experiments/slurm-lab/evidence/2026-10-31/03a-drain.txt, which the scan does not read
+PREEMPTED	a Slurm job state, quoted from experiments/slurm-lab/evidence/2026-10-31/02d-preempt-cancel.txt, which the scan does not read

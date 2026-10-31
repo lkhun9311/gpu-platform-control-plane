@@ -1,0 +1,59 @@
+# transcript 02e-preempt-norequeue.txt, slurm-lab, written by steps/02-quota-preempt.sh
+# PreemptMode REQUEUE again, but the preemptable job was submitted with --no-requeue.
+
+root@slurmctld$ sacctmgr show qos format=Name,Priority,Preempt,PreemptMode
+# at 2026-10-31T11:13:53.524Z
+      Name   Priority    Preempt PreemptMode 
+---------- ---------- ---------- ----------- 
+    normal          0                cluster 
+      high        100     normal     cluster 
+# exit 0
+
+bob@slurmctld$ sbatch -J b-noreq-1 --no-requeue --gres=gpu:2 --wrap 'sleep 900'
+# at 2026-10-31T11:13:53.578Z
+Submitted batch job 20
+# exit 0
+
+bob@slurmctld$ sbatch -J b-noreq-2 --no-requeue --gres=gpu:2 --wrap 'sleep 900'
+# at 2026-10-31T11:13:53.632Z
+Submitted batch job 21
+# exit 0
+
+bob@slurmctld$ sbatch -J b-noreq-3 --no-requeue --gres=gpu:2 --wrap 'sleep 900'
+# at 2026-10-31T11:13:53.687Z
+Submitted batch job 22
+# exit 0
+# waited 3s for: [ $(squeue -h -u bob -t R | wc -l) -eq 3 ]
+
+alice@slurmctld$ sbatch -J a-urgent3 --qos=high --gres=gpu:2 --wrap 'sleep 30'
+# at 2026-10-31T11:13:56.942Z
+Submitted batch job 23
+# exit 0
+# waited 2s for: squeue -h -n a-urgent3 -t R | grep -q .
+
+root@slurmctld$ squeue -o '%.6i %.10j %.8u %.6q %.3t %.10M %.12b %N %R'
+# at 2026-10-31T11:13:59.159Z
+ JOBID       NAME     USER    QOS  ST       TIME TRES_PER_NOD NODELIST NODELIST(REASON)
+    23  a-urgent3    alice   high   R       0:00   gres/gpu:2 c1 c1
+    21  b-noreq-2      bob normal   R       0:03   gres/gpu:2 c2 c2
+    22  b-noreq-3      bob normal   R       0:03   gres/gpu:2 c3 c3
+# exit 0
+
+root@slurmctld$ sacct -X -u alice,bob -n -S now-2minutes -o JobID,JobName%10,User,QOS,State,ExitCode,Start,End | grep -E 'noreq|urgent3'
+# at 2026-10-31T11:13:59.223Z
+20            b-noreq-1       bob     normal  PREEMPTED      0:0 2026-10-31T11:13:56 2026-10-31T11:13:59 
+21            b-noreq-2       bob     normal    RUNNING      0:0 2026-10-31T11:13:56             Unknown 
+22            b-noreq-3       bob     normal    RUNNING      0:0 2026-10-31T11:13:56             Unknown 
+23            a-urgent3     alice       high    RUNNING      0:0 2026-10-31T11:13:59             Unknown 
+# exit 0
+
+root@slurmctld$ grep -hiE 'preempt' /var/log/slurm/slurmctld.log | tail -2
+# at 2026-10-31T11:13:59.286Z
+[2026-10-31T11:13:53.001] preempted JobId=16 has been killed to reclaim resources for JobId=19
+[2026-10-31T11:13:59.001] slurm_job_preempt: preempted JobId=20 had to be killed
+# exit 0
+
+root@slurmctld$ scancel -u alice; scancel -u bob
+# at 2026-10-31T11:13:59.345Z
+# exit 0
+# waited 0s for: [ -z "$(squeue -h)" ]
