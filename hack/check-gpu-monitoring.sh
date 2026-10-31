@@ -15,6 +15,8 @@ command -v "$PROMTOOL" >/dev/null 2>&1 || [ -x "$PROMTOOL" ] || {
   echo "promtool not found. Set PROMTOOL=/path/to/promtool" >&2
   exit 1
 }
+# Resolved now, because step 2 runs from the temporary directory, where a relative path names nothing.
+PROMTOOL="$(realpath "$(command -v "$PROMTOOL")")"
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT

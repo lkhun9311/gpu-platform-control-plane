@@ -137,6 +137,9 @@ spec:
         # The offset term demands that the window be full.
         # min_over_time reads only the samples that exist, so on a Prometheus or a queue younger than 30 minutes it would
         # call one minute of backlog thirty, and the promtool test caught exactly that.
+        # A counter series that exists now and did not 30 minutes ago is an admission too.
+        # Kueue creates each cluster_queue and priority_class series on its first increment (pkg/metrics AdmittedWorkload),
+        # so that series starts at 1 and increase() over it reads 0.
         # Both statuses count: "inadmissible" is a workload Kueue has stopped retrying, which is the stall at its worst.
         # 30 minutes is a convention, like the 15 above.
         - alert: KueueWorkloadsPendingTooLong
@@ -146,6 +149,8 @@ spec:
             (sum by (cluster_queue) (kueue_pending_workloads offset 30m) > 0)
               unless on (cluster_queue)
             (sum by (cluster_queue) (increase(kueue_admitted_workloads_total[30m])) > 0)
+              unless on (cluster_queue)
+            count by (cluster_queue) (kueue_admitted_workloads_total unless kueue_admitted_workloads_total offset 30m)
           for: 1m
           labels:
             severity: warning

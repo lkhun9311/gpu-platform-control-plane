@@ -82,6 +82,7 @@
    "targets": [
     {
      "expr": "count(max by (Hostname, gpu, UUID) ((DCGM_FI_DEV_XID_ERRORS != 0 != 13 != 31 != 43 != 45 != 68) or (DCGM_FI_DEV_ECC_DBE_VOL_TOTAL > 0))) or (0 * count(count by (UUID) (DCGM_FI_DEV_XID_ERRORS)))",
+     "instant": true,
      "refId": "A"
     }
    ]
@@ -96,6 +97,7 @@
    "targets": [
     {
      "expr": "count(count by (UUID) (DCGM_FI_DEV_XID_ERRORS))",
+     "instant": true,
      "refId": "A"
     }
    ]
@@ -151,6 +153,7 @@
     {
      "expr": "sum by (reason) (gpuplatform_gpufault_transitions_total)",
      "legendFormat": "{{reason}}",
+     "instant": true,
      "refId": "A"
     }
    ]
@@ -166,6 +169,7 @@
     {
      "expr": "sum by (action) (gpuplatform_nodehealth_taint_total)",
      "legendFormat": "{{action}}",
+     "instant": true,
      "refId": "A"
     }
    ]
@@ -196,6 +200,7 @@
     {
      "expr": "sum by (action) (gpuplatform_gpufault_workload_actions_total)",
      "legendFormat": "{{action}}",
+     "instant": true,
      "refId": "A"
     }
    ]
@@ -221,6 +226,7 @@
    "targets": [
     {
      "expr": "sum(up{job=\"kueue-controller-manager-metrics-service\"})",
+     "instant": true,
      "refId": "A"
     }
    ]

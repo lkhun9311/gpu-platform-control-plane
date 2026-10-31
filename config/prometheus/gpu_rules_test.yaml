@@ -156,6 +156,12 @@ tests:
         values: '3x60'
       - series: 'kueue_admitted_workloads_total{cluster_queue="cq-q"}'
         values: '5x19 6x40'
+      # cq-s: three pending throughout, and its first admission at minute 20.
+      # Kueue creates a counter series on its first increment, so the series appears already at 1 and increase() reads 0.
+      - series: 'kueue_pending_workloads{cluster_queue="cq-s",status="active"}'
+        values: '3x60'
+      - series: 'kueue_admitted_workloads_total{cluster_queue="cq-s",priority_class="high"}'
+        values: '_x19 1x40'
       # cq-r: nothing pending until minute 20; at minute 40 its backlog is twenty minutes old.
       - series: 'kueue_pending_workloads{cluster_queue="cq-r",status="active"}'
         values: '0x19 2x40'
@@ -196,5 +202,12 @@ tests:
               summary: "ClusterQueue cq-r has had pending workloads for 30 minutes and admitted none"
               description: >-
                 2 workload(s) pending at the lowest point of the last 30 minutes, and no admission on this queue in
+                that time.
+              runbook_url: https://github.com/lkhun9311/gpu-platform-control-plane/blob/main/docs/06_OBSERVABILITY_BENCHMARK_FAILURE.md#kueueworkloadspendingtoolong
+          - exp_labels: {severity: warning, cluster_queue: cq-s}
+            exp_annotations:
+              summary: "ClusterQueue cq-s has had pending workloads for 30 minutes and admitted none"
+              description: >-
+                3 workload(s) pending at the lowest point of the last 30 minutes, and no admission on this queue in
                 that time.
               runbook_url: https://github.com/lkhun9311/gpu-platform-control-plane/blob/main/docs/06_OBSERVABILITY_BENCHMARK_FAILURE.md#kueueworkloadspendingtoolong

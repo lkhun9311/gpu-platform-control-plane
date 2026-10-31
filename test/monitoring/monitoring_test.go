@@ -146,6 +146,47 @@ func dashboardExprs(t *testing.T) []string {
 	return out
 }
 
+func TestEveryStatPanelAsksForTheCurrentValue(t *testing.T) {
+	// A stat panel shows one number for now.
+	// Run as a range query, Grafana reduces it to the last non-null value of the window, so a series that stopped being
+	// scraped keeps showing its last reading, a green 0 faults among them, instead of the panel's no-data text.
+	//
+	// Mutation that turns this red: delete one "instant": true from gpu_dashboard.json.
+	type panel struct {
+		Type    string `json:"type"`
+		Title   string `json:"title"`
+		Targets []struct {
+			Instant bool `json:"instant"`
+		} `json:"targets"`
+		Panels []panel `json:"panels"`
+	}
+	var dash struct {
+		Panels []panel `json:"panels"`
+	}
+	if err := yaml.Unmarshal([]byte(readRepoFile(t, dashboardFile)), &dash); err != nil {
+		t.Fatalf("parse %s: %v", dashboardFile, err)
+	}
+	stats := 0
+	var walk func([]panel)
+	walk = func(ps []panel) {
+		for _, p := range ps {
+			if p.Type == "stat" {
+				for i, tg := range p.Targets {
+					stats++
+					if !tg.Instant {
+						t.Errorf("stat panel %q target %d is a range query; set \"instant\": true", p.Title, i)
+					}
+				}
+			}
+			walk(p.Panels)
+		}
+	}
+	walk(dash.Panels)
+	if stats == 0 {
+		t.Fatalf("%s has no stat panel targets, so this test checked nothing", dashboardFile)
+	}
+}
+
 var (
 	quoted = regexp.MustCompile(`"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'`)
 	braces = regexp.MustCompile(`\{[^{}]*\}`)

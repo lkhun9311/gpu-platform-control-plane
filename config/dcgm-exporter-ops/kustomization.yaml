@@ -35,3 +35,14 @@ patches:
           DCGM_FI_DEV_XID_ERRORS, gauge, Value of the last XID error encountered.
           DCGM_FI_DEV_ECC_DBE_VOL_TOTAL, counter, Total number of double-bit volatile ECC errors.
           DCGM_FI_DEV_ECC_SBE_VOL_TOTAL, counter, Total number of single-bit volatile ECC errors.
+  # The base mounts the CSV with subPath, which a running Pod never sees change, and the ConfigMap's name is fixed.
+  # So applying this over a running base would leave the exporters on the old field list; changing the Pod template
+  # is what rolls them, and the value names the field list so a later edit of the CSV must change it too.
+  - target:
+      kind: DaemonSet
+      name: dcgm-exporter
+    patch: |-
+      - op: add
+        path: /spec/template/metadata/annotations
+        value:
+          platform.lkhun9311.github.io/dcgm-fields: util-fb-xid-ecc
