@@ -92,3 +92,32 @@ It licenses statements about the real plugin and scheduler on those layouts, not
 - `internal/gateway/priority.go` maps every non-premium tier to one engine priority; A needs a batch class with its own meaning.
 - The CRD refuses HoldCap on the prefix-cache profile; B4 lifts that only after a combined profile passes conformance on a real engine.
 - The gateway is fixed at `replicas: 1`; B decides how admission state survives more than one.
+- `docs/00_PORTFOLIO_OVERVIEW.md` still says the DCGM fault path "has not been scored on a card", while run 2 of 2026-10-27 scored it on one (`hack/gpu-fault/2026-10-27-run2/verdict.txt`: Xid 79 and double-bit ECC each reacted 5 of 5); the overview has to follow the record.
+
+## Added 2026-10-31: an operations track for an AI infrastructure application
+
+The owner decided to apply now to an AI infrastructure engineering role whose duties are operating Kubernetes and Slurm GPU clusters, diagnosing GPU failures for fast recovery, quota management and distributed training; the decision, the posting and why are recorded outside this repository (storage `career/resume/personal/gpu-control-plane-42dot-2026-10-31.md`).
+That moves two free items ahead of the B0 campaign, which stays rehearsed and runs unattended later.
+
+| id | item | what it adds | cost |
+|---|---|---|---|
+| M-42A-1 | Slurm against Kueue | the same jobs (single, gang, priority) through Slurm and Kueue: quota, preemption, node failure and partial placement compared, and a written judgement of when each fits | free, kind |
+| M-42A-2 | close the recovery leg | the toleration fix for the platform's own taint keeping the exporter away, rehearsed on kind, then time from fault cleared to node back and work readmitted | free; a paid recheck needs approval |
+| M-42A-3 | dashboards and alerts | GPU use, quota, queueing and node health from the existing metrics, with three alerts (Xid or ECC, quota exhausted, queue wait) | free |
+| M-42A-4 | a design for thousands of GPUs across sites | failure domains, control-plane placement, bandwidth, quota and capacity arithmetic, recovery of training on the loss of a site; what cannot be shown here is marked as design | free |
+| M-42A-5 | Linux diagnosis cases | cgroup v2 memory limits and OOM, GPU memory exhaustion, reading Xid from kernel logs, reproduced and written up | free |
+| M-42A-6 | two-node NCCL and checkpoint resume | inter-node all-reduce and DDP resume time on two g5 instances | paid, approval |
+| M-42A-7 | F above | fragmentation on real GPUs | paid, approval |
+
+A second posting, for LLM inference optimization (engines, kernels, quantization, three years required), is recorded but not applied to; its experiments join C later.
+The account allows only t3, g4dn and g5, so FP8 tensor-core and Blackwell-only formats cannot be measured here.
+
+| id | experiment | cost |
+|---|---|---|
+| X-42O-1 | quantization on A10G with vLLM: BF16 against AWQ and GPTQ, latency, throughput, memory and a short quality check | paid |
+| X-42O-2 | speculative decoding: acceptance rate against time per output token and throughput, and the load where the gain disappears | paid |
+| X-42O-3 | profiling the decode step with Nsight Systems and py-spy | paid |
+| X-42O-4 | long context and multi-turn: prefix caching and KV cache size against time to first token, joined to the routing study's Run 2 | paid |
+| X-42O-5 | prefill and decode split through llm-d on two GPUs, joined to B | paid |
+| X-42O-6 | one Triton kernel (fused RMSNorm or rotary) against PyTorch | paid, small |
+| X-42O-7 | llama.cpp quantized models measured on a local CPU, the on-device angle | free |
