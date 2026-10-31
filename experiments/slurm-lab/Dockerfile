@@ -17,6 +17,21 @@ RUN apt-get update \
       procps iproute2 \
  && rm -rf /var/lib/apt/lists/*
 
+# The CPU torch the Kubernetes trainer image uses (experiments/distributed-restart/Dockerfile on feat/distributed-restart), so steps/05-train-requeue.sh runs the same trainer under Slurm.
+# Its own layer after the Slurm one, so a change to the Slurm packages or the configuration below does not download torch again.
+# Every dependency is pinned to the version pip freeze printed in that image; Python itself is Debian's 3.13 here and 3.12 there.
+# A venv, because Debian marks its system Python as externally managed and refuses pip installs into it.
+ARG PYTHON_VERSION=3.13.5-1
+RUN apt-get update \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      python3=${PYTHON_VERSION} python3-venv=${PYTHON_VERSION} \
+ && rm -rf /var/lib/apt/lists/* \
+ && python3 -m venv /opt/torch \
+ && /opt/torch/bin/pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu \
+      --extra-index-url https://pypi.org/simple \
+      torch==2.5.1+cpu filelock==3.32.3 fsspec==2026.7.0 Jinja2==3.1.6 MarkupSafe==3.0.3 mpmath==1.3.0 \
+      networkx==3.6.1 setuptools==78.1.0 sympy==1.13.1 typing_extensions==4.16.0
+
 # Every container is built from this one layer, so they all share this key and can authenticate to each other.
 # It is a lab key baked into a local image that is never pushed; it must not be reused anywhere real.
 RUN dd if=/dev/urandom bs=1 count=1024 of=/etc/munge/munge.key 2>/dev/null \

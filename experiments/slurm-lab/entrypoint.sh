@@ -24,6 +24,8 @@ slurmd)
 	# Major 240 is in the range Linux reserves for local experimental use, so no driver answers it and the container's device cgroup refuses opening it.
 	# These nodes exist only so Slurm can count and bind them; there is no GPU behind them.
 	for i in 0 1; do [ -e /dev/labgpu$i ] || mknod /dev/labgpu$i c 240 $i; done
+	# A fresh named volume belongs to root, and the training jobs run as alice.
+	if [ -d /ckpt ]; then chown alice:alice /ckpt; fi
 	until bash -c '</dev/tcp/slurmctld/6817' 2>/dev/null; do sleep 1; done
 	exec /usr/sbin/slurmd -D -vv
 	;;
