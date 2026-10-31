@@ -131,7 +131,10 @@ A policy applies only when every deployment serving the model in the namespace n
 - A routed response carries `X-Routing-Policy`, `X-Routing-Backend`, `X-Routing-Reason`, `X-Routing-Load` and, under `PrefixAffinity`, `X-Routing-Match`; `gpuaas_gateway_routing_decisions_total` and `gpuaas_gateway_routing_outstanding_requests` count the decisions and the outstanding requests per backend.
 - The engine profile `v0.27.1-a10g-prefix-cache` is the measured profile with vLLM's prefix caching on; the CRD refuses HoldCap on it.
 
-What the evidence licenses: nothing yet. None of the three policies has been measured; `docs/superpowers/specs/2026-10-27-prefix-aware-routing-design.md` registers the study that would, on two A10Gs, and it has been rehearsed on kind only.
+What the evidence licenses: the registered study in `docs/superpowers/specs/2026-10-27-prefix-aware-routing-design.md` ran all twelve cells on two A10Gs on 2026-10-28, and its verdict is **NOT MET**.
+`PrefixAffinity` raised the engines' prefix-cache hit ratio to 0.819 to 0.831 against at most 0.554, and its TTFT p50 to about 80 ms against 104.7 to 504.2 ms, in all three shared blocks.
+In `shared-942` its TTFT p99 was not below both other arms' and its worse backend's p99 was above `RoundRobin`'s, and one failed block decides the verdict ("Run 2" in that page).
+So the claim it would have licensed, a lower p99 without a hot backend, is not made.
 The index and the outstanding counts live in one gateway process, so a second replica would route on its own view.
 
 ## Open WebUI principle
