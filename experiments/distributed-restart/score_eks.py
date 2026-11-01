@@ -131,6 +131,12 @@ class Case:
         before = self.dir / "nodes-before.json"
         self.up_before = {n["metadata"]["name"] for n in json.loads(before.read_text()).get("items", [])} if before.exists() else set()
         self.terminated = (self.spec.get("target") or {}).get("node") if self.kind.startswith("terminate") else None
+        # A replacement can come back under the terminated node's name, and it is another machine with its own clock.
+        after = self.dir / "nodes-after.json"
+        uids_before = {n["metadata"]["name"]: n["metadata"].get("uid") for n in json.loads(before.read_text()).get("items", [])} if before.exists() else {}
+        uids_after = {n["metadata"]["name"]: n["metadata"].get("uid") for n in json.loads(after.read_text()).get("items", [])} if after.exists() else {}
+        self.name_reused = bool(self.terminated and self.terminated in uids_before and self.terminated in uids_after
+                                and uids_before[self.terminated] != uids_after[self.terminated])
         # Each record is tagged with the node its Pod ran on, which decides whose clock its timestamp is.
         # A Pod's log may be in several files, because a stream that broke while the Pod ran is read again from its
         # start, so the same record can appear twice and is counted once.
@@ -191,15 +197,24 @@ class Case:
 
     # --- clocks -------------------------------------------------------------------------------------------------------
 
-    def clock(self, node: str | None) -> tuple[float, float]:
+    def clock(self, node: str | None, attempt: int | None = None) -> tuple[float, float]:
         """Seconds the node's clock runs ahead of the runner's and the uncertainty of that, refusing a doubtful clock.
 
         The median of probes that disagree hides the disagreement: probes at -1.9 s and +1.9 s, each within the
         registered offset, had a median of zero and were accepted (codex review of f57e11a1).
+        When a replacement took the terminated node's name, the name is two machines: attempt 1's records and the
+        probes before the fault are the old one's, attempt 2's and the probes after it the new one's.
         """
         if not node:
             void("a record whose node is unknown, so its clock cannot be corrected")
         probes = [p for p in self.clocks if p.get("node") == node]
+        if self.name_reused and node == self.terminated:
+            if attempt not in (1, 2):
+                void(f"{node} is two machines, and a time on it belongs to neither attempt")
+            side = "before" if attempt == 1 else "after"
+            probes = [p for p in probes if p.get("when") == side]
+            if not probes:
+                void(f"no probe {side} the fault of the machine named {node} then")
         if not probes:
             void(f"no clock probe of {node}")
         offsets, low, high = [], math.inf, -math.inf
@@ -216,10 +231,12 @@ class Case:
         # have stayed: probed on both sides, except where the node did not exist, the replacement before and the
         # terminated node after.
         whens = {p.get("when") for p in probes}
-        if node in self.up_before and "before" not in whens:
-            void(f"no probe of {node} before the fault, though it was up then")
-        if node != self.terminated and "after" not in whens:
-            void(f"no probe of {node} after the recovery, though it was not the node terminated")
+        # Each of a reused name's two machines exists on one side of the fault only, and was required its side above.
+        if not (self.name_reused and node == self.terminated):
+            if node in self.up_before and "before" not in whens:
+                void(f"no probe of {node} before the fault, though it was up then")
+            if node != self.terminated and "after" not in whens:
+                void(f"no probe of {node} after the recovery, though it was not the node terminated")
         # Each probe puts the offset within half its bracket of the truth, so two probes of a clock that held agree
         # within the bracket; probes further apart mean the clock stepped or a probe was wrong.
         if max(offsets) - min(offsets) > CLOCK_BRACKET_S:
@@ -230,11 +247,11 @@ class Case:
         estimate = statistics.median(offsets)
         return estimate, max(estimate - low, high - estimate)
 
-    def offset(self, node: str | None) -> float:
-        return self.clock(node)[0]
+    def offset(self, node: str | None, attempt: int | None = None) -> float:
+        return self.clock(node, attempt)[0]
 
     def runner_time(self, record: dict) -> float:
-        return epoch(record["ts"]) - self.offset(record["_node"])
+        return epoch(record["ts"]) - self.offset(record["_node"], record.get("attempt"))
 
     # --- the checks, in order -----------------------------------------------------------------------------------------
 
@@ -540,7 +557,7 @@ class Case:
         self.figures.update({
             "recovery_s": max(firsts.values()) - fault,
             # How far the recovery can be off for the clocks alone: the fault's clock and the worst of attempt 2's.
-            "clock_uncertainty_s": fault_uncertainty + max(self.clock(n)[1] for n in nodes),
+            "clock_uncertainty_s": fault_uncertainty + max(self.clock(n, 2)[1] for n in nodes),
             "lost_steps": lost_from - resumed["from_step"],
             "class": self.recovery_class(fault),
             "params_gap": gap,

@@ -368,7 +368,8 @@ def defect(out: pathlib.Path, name: str, case: str) -> None:
         rows = [json.loads(line) for line in (d / "timeline.jsonl").read_text().splitlines()]
         rows.insert(1, {**rows[-1], "observed": iso(fenced - 20)})
         (d / "timeline.jsonl").write_text("".join(json.dumps(r, sort_keys=True) + "\n" for r in rows))
-    elif name in ("wait-on-spare", "name-reused", "spare-on-replacement", "on-terminated-node"):
+    elif name in ("wait-on-spare", "name-reused", "name-reused-other-clock", "name-reused-unprobed", "spare-on-replacement",
+                  "on-terminated-node"):
         # Attempt 2's rank 1 is moved to another node, in the controller's status and in the collector's Pod list alike.
         spare, target, fourth = "ip-10-0-64-13", "ip-10-0-64-12", "ip-10-0-64-14"
         to = {"wait-on-spare": spare, "spare-on-replacement": fourth}.get(name, target)
@@ -382,12 +383,16 @@ def defect(out: pathlib.Path, name: str, case: str) -> None:
                                                               "spec": {"providerID": f"aws:///ap-northeast-2a/{NODES[spare][0]}"}}))
             probes += [{**p, "node": spare, "node_time": p["node_time"] - NODES["ip-10-0-64-11"][1] + NODES[spare][1]}
                        for p in probes if p["node"] == "ip-10-0-64-11"]
-        elif name == "name-reused":
+        elif name in ("name-reused", "name-reused-other-clock", "name-reused-unprobed"):
             # The machine the group launched took the terminated node's name: same name, another Node.
+            # Another machine has its own clock, so in the second variant it runs a second ahead of the one it replaced,
+            # each within the registered offset, which pooled under one name read as a clock that moved.
+            new = NODES[target][1] + (1.0 if name == "name-reused-other-clock" else 0.0)
             edit_json(d / "nodes-after.json", lambda n: n["items"].append({"metadata": {"name": target, "uid": f"uid-{target}-new"},
                                                                            "spec": {"providerID": "aws:///ap-northeast-2a/i-0bbb0000000000009"}}))
-            probes += [{**p, "node": target, "node_time": p["node_time"] - NODES["ip-10-0-64-11"][1] + NODES[target][1]}
-                       for p in probes if p["node"] == "ip-10-0-64-11" and p["when"] == "after"]
+            # Unprobed, the new machine has only the old one's probes from before the fault, which are not its clock.
+            probes += [{**p, "node": target, "node_time": p["node_time"] - NODES["ip-10-0-64-11"][1] + new}
+                       for p in probes if p["node"] == "ip-10-0-64-11" and p["when"] == "after" and name != "name-reused-unprobed"]
         elif name == "on-terminated-node":
             # The target is still there afterwards, as the same Node, and attempt 2 ran on it.
             edit_json(d / "nodes-after.json", lambda n: n["items"].append({"metadata": {"name": target, "uid": node_uid(target, case)},

@@ -747,6 +747,8 @@ score wrong-fault-step no-rng-control VOID "attempt 1's fault was 'kill-after-la
 # The recovery class is read from Node UIDs and the nodes the runner prepared, not from names alone.
 score wait-on-spare terminate-wait-1 VOID "terminate-wait recovered on ['ip-10-0-64-11', 'ip-10-0-64-13'], every one up before the fault"
 score name-reused terminate-spare-2 ACCEPTED '"class": "replacement"'
+score name-reused-other-clock terminate-spare-2 ACCEPTED '"class": "replacement"'
+score name-reused-unprobed terminate-spare-2 VOID "no probe after the fault of the machine named ip-10-0-64-12 then"
 score on-terminated-node terminate-spare-3 VOID "attempt 2 ran on ip-10-0-64-12, the node that was terminated"
 score spare-unprepared dcgm-2 VOID "attempt 2 ran on ['ip-10-0-64-13'], up before the fault but not prepared before it"
 score no-nodes-after rank-kill-3 VOID "the nodes after the recovery were not recorded"
