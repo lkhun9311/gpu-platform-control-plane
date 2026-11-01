@@ -4,8 +4,8 @@
 
 Three checks, each read from a record the runner did not write, so a runner that wrote the expected marks without
 doing what they say is still caught:
-  1. consecutive cases: replaying the watch events (watch_events.py), every object of a case was DELETED before the
-     next case's MLTrainingJob was ADDED;
+  1. consecutive cases: replaying each resource's list-then-watch history (watch_events.py) in resourceVersion order,
+     no object of a case existed at the resourceVersion the next case's MLTrainingJob was created at;
   2. the fence: each termination case's fence-request mark is no earlier than the aws stub's first `terminated` answer
      for that instance (state/calls.log), and its target is the instance the stub killed;
   3. the case's own budget: from its MLTrainingJob's ADDED event to the runner's last sample of it, which for a
@@ -26,6 +26,35 @@ CASE_BUDGET = 720
 
 def ts(s: str) -> float:
     return datetime.datetime.fromisoformat(s.replace("Z", "+00:00")).timestamp()
+
+
+def replay(events: list[dict], res: str, prev: str, sub: int) -> list[str] | None:
+    """The names containing PREV that RES held at resourceVersion SUB, or None when its history does not show that.
+
+    It shows it only when a list at or before SUB starts a run of the stream's records, with no GAP in it, that reaches a
+    record at or past SUB: a watch delivers in resourceVersion order, so every change before SUB came before that record,
+    and a recorder that died or a watch that never caught up is unknown rather than empty (codex review of 6ea63fee).
+    """
+    mine = [e for e in events if e["res"] == res and "rv" in e]
+    known: set[str] | None = None
+    for e in mine:
+        rv = int(e["rv"])
+        if e["type"] == "GAP":
+            known = None
+        elif e["type"] == "LISTED":
+            # A list after the submission follows a GAP, so nothing before it is continuous.
+            if rv > sub:
+                return None
+            known = {n for n in e.get("names") or [] if prev in n}
+        elif known is None:
+            continue
+        elif rv >= sub and e["type"] in ("ADDED", "MODIFIED", "DELETED", "BOOKMARK"):
+            return sorted(known)
+        elif e["type"] in ("ADDED", "MODIFIED") and prev in (e.get("name") or ""):
+            known.add(e["name"])
+        elif e["type"] == "DELETED":
+            known.discard(e.get("name"))
+    return None
 
 
 def jsonl(path: pathlib.Path) -> list[dict]:
@@ -58,57 +87,34 @@ def main(argv: list[str]) -> int:
             if spec.exists():
                 started.append((case, json.loads(spec.read_text())["name"]))
 
-        # 1. consecutive cases
+        # 1. consecutive cases, replayed in resourceVersion order, which etcd makes one order across every resource.
         for (pcase, prev), (case, cur) in zip(started, started[1:]):
-            added = [e for e in events if e["res"].startswith("mltrainingjob") and e["type"] == "ADDED" and e["name"] == cur]
-            if not added:
-                report(False, f"{run.name}: no ADDED event of {case}'s MLTrainingJob {cur}, so its submission is not placed")
+            added = [e for e in events if e["res"] == "mltrainingjobs" and e["type"] == "ADDED" and e.get("name") == cur]
+            if not added or "rv" not in added[0]:
+                report(False, f"{run.name}: no ADDED event with a resourceVersion of {case}'s MLTrainingJob {cur}, so its submission is not placed")
                 continue
-            t = ts(added[0]["received"])
-            live: dict[tuple[str, str], float] = {}
-            # A resource is unknown before its first list, from a GAP to the list after it, and while its watch is down:
-            # a resumed watch delivers what happened meanwhile only after it starts again (codex review of b6051665).
-            unknown: set[str] = set(streams)
-            resumed_at: dict[str, float] = {}
-            for e in events:
-                if ts(e["received"]) >= t:
-                    break
-                if e["type"] in ("WATCH-END", "GAP"):
-                    unknown.add(e["res"])
-                elif e["type"] == "WATCH-START" and e["res"] in resumed_at:
-                    resumed_at[e["res"]] = ts(e["received"])
-                    unknown.discard(e["res"])
-                elif e["type"] == "LISTED":
-                    resumed_at[e["res"]] = ts(e["received"])
-                    unknown.discard(e["res"])
-                    for key in [k for k in live if k[0] == e["res"]]:
-                        del live[key]
-                    for n in e.get("names") or []:
-                        if prev in n:
-                            live[(e["res"], n)] = ts(e["received"])
-                elif e["type"] in ("ADDED", "MODIFIED") and prev in (e.get("name") or ""):
-                    live[(e["res"], e["name"])] = ts(e["received"])
-                elif e["type"] == "DELETED":
-                    live.pop((e["res"], e.get("name")), None)
-            gone = [ts(e["received"]) for e in events if e["type"] == "DELETED" and prev in (e.get("name") or "")]
-            # A watch resumed within two seconds of the submission may not yet have delivered what it missed.
-            unknown |= {r for r, at in resumed_at.items() if t - at < 2}
-            # What was left is then unknown, which is a failure and never an absence.
+            sub = int(added[0]["rv"])
+            unknown, live = [], []
+            for res in sorted(streams):
+                state = replay(events, res, prev, sub)
+                if state is None:
+                    unknown.append(res)
+                else:
+                    live += [(res, n) for n in state]
             if unknown:
-                report(False, f"{run.name}: the history of {sorted(unknown)} was not continuous up to {case}'s submission "
-                              f"(no list yet, a gap, or a watch down or just resumed), so what was left is unknown")
+                report(False, f"{run.name}: the history of {unknown} is not shown continuous from a list to past {case}'s submission "
+                              f"(resourceVersion {sub}), so what was left is unknown")
             elif live:
-                report(False, f"{run.name}: {case} was submitted at {added[0]['received']} while {pcase}'s {sorted(live)} still existed")
+                report(False, f"{run.name}: {case} was submitted at resourceVersion {sub} while {pcase}'s {sorted(live)} still existed")
             else:
-                last = max(gone) if gone else None
-                report(True, f"{run.name}: nothing of {pcase} existed when {case} was submitted; its last object was deleted "
-                             + (f"{t - last:.1f} s before" if last else "with no DELETED event recorded"))
-            # Any sight of the previous case's objects after the submission is a leftover, a relist's included.
-            late = [e for e in events if ts(e["received"]) > t and (
-                (e["type"] in ("ADDED", "MODIFIED", "DELETED") and prev in (e.get("name") or ""))
-                or (e["type"] == "LISTED" and any(prev in n for n in e.get("names") or [])))]
+                last = max((int(e["rv"]) for e in events if e["type"] == "DELETED" and prev in (e.get("name") or "")), default=None)
+                report(True, f"{run.name}: nothing of {pcase} existed when {case} was submitted at resourceVersion {sub}; "
+                             + (f"its last object was deleted at {last}" if last else "no DELETED event of it was recorded"))
+            # Any change to the previous case's objects after the submission is a leftover.
+            late = [e for e in events if e["type"] in ("ADDED", "MODIFIED", "DELETED") and "rv" in e and int(e["rv"]) > sub
+                    and prev in (e.get("name") or "")]
             if late:
-                report(False, f"{run.name}: {pcase}'s objects were seen {len(late)} time(s) after {case} was submitted, first {late[0].get('name') or late[0].get('names')}")
+                report(False, f"{run.name}: {pcase}'s objects changed {len(late)} time(s) after {case} was submitted, first {late[0].get('name')}")
 
         # 2. the fence against the stub's answers
         for case, name in started:

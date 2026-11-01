@@ -639,8 +639,12 @@ print(json.dumps([f for f in json.load(sys.stdin)["metadata"].get("finalizers", 
 done
 
 log "== what the runner's own files cannot show (check_lifecycle.py)"
+# The check is first shown to fail on fixtures with a leftover, a gap and a recorder that never caught up.
+python3 hack/test/restart-kind/check_lifecycle_selftest.py >"$OUT/lifecycle-check-selftest.txt" 2>&1
+SELFTEST_RC=$?
 python3 hack/test/restart-kind/check_lifecycle.py "$OUT" >"$OUT/lifecycle-check.txt" 2>&1
 CHECK_RC=$?
+[ "$SELFTEST_RC" = 0 ] || { log "the lifecycle check's own fixtures did not come out as they must (lifecycle-check-selftest.txt)"; CHECK_RC=1; }
 echo "exit=$CHECK_RC" >>"$OUT/lifecycle-check.txt"
 tee -a "$LOG" <"$OUT/lifecycle-check.txt"
 k -n "$RESTART_NS" get mltrainingjobs,jobs.batch,pods,workloads.kueue.x-k8s.io -o wide >"$OUT/train-a-at-end.txt" 2>&1
