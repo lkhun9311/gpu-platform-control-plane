@@ -758,6 +758,11 @@ for want in "replacement: recovery median 71.0 s" "spare: recovery median 71.0 s
 done
 
 score missing-rank rank-kill-2 FAILED "attempt 2 has start records from ranks [0]"
+# The runner reads the final status after its budget has run out, so the end is judged by the job's own stamps.
+score ended-after-budget terminate-wait-1 FAILED "censored at its budget: the job ended 'Succeeded' 721 s after its creation"
+score failed-after-budget rank-kill-2 FAILED "censored at its budget: the job ended 'Failed' 721 s after its creation"
+score ended-at-budget terminate-wait-1 ACCEPTED "recovery"
+score no-end-time dcgm-1 VOID "no creation time or no end time"
 score restart-from-zero rank-kill-3 FAILED "restarted from step zero"
 score resume-from-step-zero terminate-spare-1 FAILED "resumed from step 0, which is not a resume"
 score split-resume dcgm-2 FAILED "resumed from different checkpoints"
@@ -876,7 +881,7 @@ for f in d.glob("log-*"):
     open(f, "w").write("".join(json.dumps({**r, "params": params} if r.get("params") else r) + "\n" for r in rows))' "$work/run-blind"
 line="$(python3 experiments/distributed-restart/score_eks.py "$work/run-blind" | grep '^[A-Z]* *no-rng-control')"
 if [[ "$line" == FAILED*"dropping the RNG left the parameters within"* ]]; then ok "a control equal to the reference is FAILED"; else bad "the blind control: $line"; fi
-for refusal in dirty:"uncommitted change" unapproved:"is not the approved"; do
+for refusal in dirty:"uncommitted change" unapproved:"is not the approved" no-budget:"no registered case budget"; do
   run="$work/run-${refusal%%:*}"
   python3 hack/test/restart-session/make_fixture.py "$run" "${refusal%%:*}" reference
   out="$(python3 experiments/distributed-restart/score_eks.py "$run" 2>&1)"
