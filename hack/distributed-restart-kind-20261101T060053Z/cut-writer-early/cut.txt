@@ -1,0 +1,1 @@
+victim=rst-worker2 control_plane_ipv4=172.18.0.9 control_plane_ipv6=fc00:f853:ccd:e793::9

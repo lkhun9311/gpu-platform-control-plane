@@ -1,0 +1,4 @@
+{"pod": "rst-cut-writer-055539-0-mghvs", "uid": "7ce9918b-d4fc-4df7-88d9-36eee62eec07", "node": "rst-worker3", "attempt": "1", "rank": "0"}
+{"pod": "rst-cut-writer-055539-1-5g6dq", "uid": "53c3ed2a-2fea-4beb-8a8d-711cf02abbaf", "node": "rst-worker", "attempt": "1", "rank": "1"}
+{"pod": "rst-cut-writer-055539-0-s2cns", "uid": "bfd82b91-de8d-44be-94c8-58c2fda12b6c", "node": "rst-worker3", "attempt": "2", "rank": "0"}
+{"pod": "rst-cut-writer-055539-1-sldlf", "uid": "eefb3e27-c79e-4658-ab2f-94f6b5aa5486", "node": "rst-worker2", "attempt": "2", "rank": "1"}
