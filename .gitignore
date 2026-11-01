@@ -263,3 +263,7 @@ custom-gcl
 
 # The sweeper Lambda package terraform builds in infra/aws/bootstrap (sweeper.tf); rebuilt on every plan.
 infra/aws/bootstrap/.build/
+
+# The kind restart rehearsal's aws stub and autoscaler state is evidence: check_lifecycle.py reads the stub's answers
+# from state/calls.log, so it is re-included after the state/ rule above, which would otherwise win.
+!/hack/restart-lifecycle-kind-*/state/
