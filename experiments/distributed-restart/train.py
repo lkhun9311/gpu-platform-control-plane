@@ -357,28 +357,31 @@ def manifest_ok(rel: str, world: int) -> dict | None:
 def shard_ok(rel: str, manifest: dict, rank: int) -> bool:
     entry = next(s for s in manifest["shards"] if s["rank"] == rank)
     path = os.path.join(ROOT, rel, entry["file"])
-    errors = []
+    errors: list[int | None] = []
+    listed: list[bool | str] = []
     for attempt in range(VISIBILITY_RETRIES + 1):
         try:
             os.stat(path)
         except OSError as exc:
-            # Absent and unreadable are both retried, as before, but recorded apart: ENOENT is what a client's cached
-            # absence gives, and any other error is something else.
+            # Absent and unreadable are both retried, but recorded apart: ENOENT is what a client's cached absence gives,
+            # and any other error is something else.
             errors.append(exc.errno)
+            # Opening the directory makes an NFS client ask the server for it and drop what it cached as absent there.
+            # A lookup alone trusts a cached absence until the directory's cached attributes expire, 30 to 60 s under the
+            # options EFS recommends, and in the first kind run over NFS a rank on a node that had looked its shard up
+            # before the shard existed refused every checkpoint through all six looks, while the listing named it.
+            # Whether the listing names the shard also separates a shard the server lacks from one the client hid.
+            try:
+                listed.append(entry["file"] in os.listdir(os.path.dirname(path)))
+            except OSError as list_exc:
+                listed.append(f"error {list_exc.errno}")
         else:
             ok = sha256_file(path) == (entry["sha256"], entry["size"])
             # Every look is counted, so a retry that ran is recorded and one that never ran is not inferred.
-            emit(rank, "shard_check", dir=rel, looks=attempt + 1, visible=True, hash_ok=ok, errors=errors)
+            emit(rank, "shard_check", dir=rel, looks=attempt + 1, visible=True, hash_ok=ok, errors=errors, listed=listed)
             return ok
         if attempt < VISIBILITY_RETRIES:
             time.sleep(VISIBILITY_WAIT)
-    # Only after the last look: opening the directory makes an NFS client ask the server, so whether the name is listed
-    # separates a shard the server lacks from one this client still caches as absent; doing it earlier would change
-    # what the looks above measure.
-    try:
-        listed = entry["file"] in os.listdir(os.path.dirname(path))
-    except OSError as exc:
-        listed = f"error {exc.errno}"
     emit(rank, "shard_check", dir=rel, looks=VISIBILITY_RETRIES + 1, visible=False, hash_ok=False, errors=errors,
          listed=listed)
     return False
