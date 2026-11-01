@@ -130,7 +130,7 @@ Verdicts:
 ## ADR 3 — Admitting GPU batch work: Kueue or Slurm
 
 **Status: a decision made before measurement, now set beside a containerised Slurm lab's observations.**
-Written before any Slurm ran here; since then the unmerged branch `feat/slurm-lab` has run Slurm 24.11 in containers on one host with fake GPUs and cgroups off, and maps what it observed onto this repository in its README ("Slurm behaviour mapped to this repository").
+Written before any Slurm ran here; since then `experiments/slurm-lab/` has run Slurm 24.11 in containers on one host with fake GPUs and cgroups off, and maps what it observed onto this repository in its README ("Slurm behaviour mapped to this repository").
 That lab is single runs of policy behaviour, not a measured comparison, and no sentence here should be read as a verdict on Slurm.
 
 ### Context
@@ -144,7 +144,7 @@ Every tenant ClusterQueue joins one cohort, `gpu-platform`, so idle quota can be
 | option | where it stands in this project |
 |---|---|
 | Kueue on Kubernetes | built, and measured in the rows below |
-| Slurm, standalone or beside Kubernetes | not deployed; a containerised lab on one host observed GRES placement, account and QoS limits, preemption, drain, node loss and a requeued two-node training job resuming from its checkpoint, one run each, on `feat/slurm-lab` |
+| Slurm, standalone or beside Kubernetes | not deployed; a containerised lab on one host observed GRES placement, account and QoS limits, preemption, drain, node loss and a requeued two-node training job resuming from its checkpoint, one run each (`experiments/slurm-lab/README.md`) |
 
 ### Decision, before measurement
 
