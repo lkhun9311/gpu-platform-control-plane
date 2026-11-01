@@ -111,10 +111,12 @@ def main(argv: list[str]) -> int:
                 report(True, f"{run.name}: nothing of {pcase} existed when {case} was submitted at resourceVersion {sub}; "
                              + (f"its last object was deleted at {last}" if last else "no DELETED event of it was recorded"))
             # Any change to the previous case's objects after the submission is a leftover.
-            late = [e for e in events if e["type"] in ("ADDED", "MODIFIED", "DELETED") and "rv" in e and int(e["rv"]) > sub
-                    and prev in (e.get("name") or "")]
+            # A list after the submission that still holds one is a leftover too (codex review of 66757add).
+            late = [e for e in events if "rv" in e and int(e["rv"]) > sub and (
+                (e["type"] in ("ADDED", "MODIFIED", "DELETED") and prev in (e.get("name") or ""))
+                or (e["type"] == "LISTED" and any(prev in n for n in e.get("names") or [])))]
             if late:
-                report(False, f"{run.name}: {pcase}'s objects changed {len(late)} time(s) after {case} was submitted, first {late[0].get('name')}")
+                report(False, f"{run.name}: {pcase}'s objects were seen {len(late)} time(s) after {case} was submitted, first {late[0].get('name') or late[0].get('names')}")
 
         # 2. the fence against the stub's answers
         for case, name in started:

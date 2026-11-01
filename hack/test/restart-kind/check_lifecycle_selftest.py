@@ -11,11 +11,15 @@ STREAMS = ("mltrainingjobs", "jobs", "pods", "workloads")
 
 
 def ev(res, kind, rv, at, **kw):
-    return {"received": f"2026-11-01T10:00:{at:02d}+00:00", "res": res, "type": kind, "rv": str(rv), **kw}
+    return {"received": f"2026-11-01T10:{at // 60:02d}:{at % 60:02d}+00:00", "res": res, "type": kind, "rv": str(rv), **kw}
 
 
 def run(extra=(), drop=()):
-    d = pathlib.Path(tempfile.mkdtemp())
+    with tempfile.TemporaryDirectory() as tmp:
+        return run_in(pathlib.Path(tmp), extra, drop)
+
+
+def run_in(d, extra, drop):
     r = d / "run-x"
     for case, n in (("reference", P), ("rank-kill-1", C)):
         (r / case).mkdir(parents=True)
@@ -45,7 +49,9 @@ cases = {
     "a gap across the submission": (run(extra=[("pods", ev("pods", "GAP", 50, 53)), ("pods", ev("pods", "LISTED", 70, 55, names=[]))],
                                         drop=(("pods", "bookmark"),)), "FAIL"),
     "a gap before the submission, listed again": (run(extra=[("pods", ev("pods", "GAP", 50, 51)), ("pods", ev("pods", "LISTED", 55, 52, names=[]))]), "OK"),
-    "a change after the submission": (run(extra=[("pods", ev("pods", "MODIFIED", 70, 58, name=P + "-0-zzz"))]), "changed"),
+    "a change after the submission": (run(extra=[("pods", ev("pods", "MODIFIED", 70, 58, name=P + "-0-zzz"))]), "seen 1 time(s)"),
+    "a relist after the submission still holding one": (run(extra=[("pods", ev("pods", "GAP", 61, 60)),
+                                                                   ("pods", ev("pods", "LISTED", 80, 61, names=[P + "-0-zzz"]))]), "seen 1 time(s)"),
 }
 bad = 0
 for k, (got, want) in cases.items():
