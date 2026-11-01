@@ -9,7 +9,7 @@
 #   deadline   the GPU deadline as at()'s argument, UTC, which the scheduler calls answer with
 set -uo pipefail
 state="${RSTK_STATE:?RSTK_STATE names no state directory, so no answer could come from the kind cluster}"
-printf '%s aws %s\n' "$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)" "$*" >>"$state/calls.log"
+printf '%s aws %s\n' "$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)" "$*" >>"$state/calls.log"
 
 # A credential in the environment would mean the caller expected real AWS somewhere; nothing here may use one.
 if [[ -n "${AWS_PROFILE:-}${AWS_ACCESS_KEY_ID:-}${AWS_SECRET_ACCESS_KEY:-}${AWS_SESSION_TOKEN:-}" ]]; then
@@ -82,7 +82,7 @@ case "${1:-} ${2:-}" in
       answer=running
     fi
     # The answer is recorded beside the call, so the fence can be checked against what EC2 said, not only against marks.
-    printf '%s answer %s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%S.%6NZ)" "$id" "$answer" >>"$state/calls.log"
+    printf '%s answer %s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)" "$id" "$answer" >>"$state/calls.log"
     echo "$answer"
     ;;
   "eks update-nodegroup-config")
