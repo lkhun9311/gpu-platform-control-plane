@@ -117,11 +117,12 @@ session "another zone" "TRAIN=restart is registered in ap-northeast-2a, and TRAI
 session "no approved hash" "needs APPROVED_TRAIN_SHA256" APPROVED_TRAIN_SHA256=
 session "another train.py" "not the approved" APPROVED_TRAIN_SHA256="$(printf '%064d' 0)"
 session "a deadline too short" "needs TTL_MINUTES of at least 684" TTL_MINUTES=600
-session "a credential expiring first" "the credential expires in" STUB_CRED_MIN=300
+# The refusal's own words, not "expires in", which the line a passing credential prints contains too.
+session "a credential expiring first" "and the session needs 740; authenticate again first" STUB_CRED_MIN=300
 session "a credential with no expiry" "carries no expiry" STUB_CRED_NOEXP=1
 session "the quota short" "plus 12 is above the quota of 8" STUB_QUOTA=8
 # Three g5.12xlarge another session left running hold 144 of the 128, so the twelve this one asks for cannot fit.
-session "the quota used by others" "in use 144" \
+session "the quota used by others" "plus 12 is above the quota of 128" \
   STUB_RUNNING='[["i-0123456789abcdef0", "g5.12xlarge", null], ["i-0123456789abcdef1", "g5.12xlarge", null], ["i-0123456789abcdef2", "g5.12xlarge", null]]'
 session "the price over the ceiling" "above the ceiling of \$1.40" STUB_PRICE=1.5000000000
 session "with SERVE" "would buy GPUs in two groups" SERVE=yes
