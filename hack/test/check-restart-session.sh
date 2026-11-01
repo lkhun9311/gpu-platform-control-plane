@@ -282,7 +282,8 @@ import json, sys
 s = json.loads(sys.stdin.read())["spec"]
 print(s["image"], s["distributed"], s["stateVolume"], s["gpuClass"])' <<<"$out")"
 for want in 'CKPT_JOB_ID=rst-rank-kill-1-0a1b2c3d' 'CKPT_BACKEND=nccl' 'CKPT_FAULT=kill-before-fsync:12:1' \
-  'NCCL_DEBUG_FILE="$nccl_dir/a${TRAINING_ATTEMPT}-r${RANK}-%h.%p.log"' 'mkdir -p "$nccl_dir"' '|| exit 87' 'CKPT_COLLECTIVE_TIMEOUT=60'; do
+  'NCCL_DEBUG_FILE="$nccl_dir/a${TRAINING_ATTEMPT}-r${RANK}-%h.%p.log"' 'mkdir -p "$nccl_dir"' '|| exit 87' 'CKPT_COLLECTIVE_TIMEOUT=60' \
+  'CKPT_RENDEZVOUS_TIMEOUT=600'; do
   if grep -qF -- "$want" <<<"$body"; then ok "the job's command has $want"; else bad "the job's command lacks $want"; fi
 done
 if grep -qE '(^|[^a-z])exec ' <<<"$body"; then bad "the job's command execs, so the trainer would be PID 1"; else ok "the job's command never execs"; fi
