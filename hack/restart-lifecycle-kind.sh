@@ -30,7 +30,8 @@ TAG=rstlife
 IMG=distributed-restart:torch251
 CERT_MANAGER_VERSION=v1.21.1
 RUNS="${RUNS:-a b c d}"
-OUT=hack/restart-lifecycle-kind-$(date -u +%Y%m%dT%H%M%SZ)
+# RSTK_OUT moves the evidence elsewhere, which hack/test/check-restart-kind-driver.sh needs to run the driver's refusals.
+OUT=${RSTK_OUT:-hack/restart-lifecycle-kind-$(date -u +%Y%m%dT%H%M%SZ)}
 LOG=$OUT/log.txt
 export RSTK_STATE="$OUT/state"
 mkdir -p "$RSTK_STATE/killed" "$RSTK_STATE/unlaunched" "$RSTK_STATE/gone"
@@ -57,6 +58,8 @@ retry() {
   for _ in $(seq 1 40); do "$@" && return 0; sleep 3; done
   return 1
 }
+# shellcheck source=hack/lib/restart-kind-driver.sh
+. hack/lib/restart-kind-driver.sh
 BG=()
 # Set only once this invocation has found no cluster of the name and is about to create one, so a refusal never removes
 # a cluster it did not make (codex review of 69ec494f).
@@ -100,7 +103,12 @@ die() {
 
 for r in $RUNS; do case "$r" in a | b | c | d) ;; *) die "run '$r' is not a, b, c or d" ;; esac; done
 for tool in docker kind kubectl python3 make; do command -v "$tool" >/dev/null || die "missing tool $tool"; done
-grep -qx "$CLUSTER" <<<"$(kind get clusters 2>>"$LOG")" && die "a cluster $CLUSTER already exists; delete it by hand after checking it is not someone else's"
+rstk_cluster_listed "$CLUSTER" 2>>"$LOG"
+case $? in
+  0) die "a cluster $CLUSTER already exists; delete it by hand after checking it is not someone else's" ;;
+  1) ;;
+  *) die "could not tell whether a cluster $CLUSTER exists, so none is created and none removed (see $LOG)" ;;
+esac
 
 # No AWS call may reach AWS: the stub is first on PATH, and no profile or credential file is left for a real CLI.
 unset AWS_PROFILE AWS_DEFAULT_PROFILE AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
