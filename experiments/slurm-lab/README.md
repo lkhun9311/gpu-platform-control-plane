@@ -65,6 +65,8 @@ Nothing is pulled except the two pinned base images and the pinned torch wheels,
 The image is now tagged `slurmlab:24.11.5-torch251`, because step 5 added torch to it.
 Steps 0 to 4 in `evidence/2026-10-31*/` ran on the earlier `slurmlab:24.11.5`, which had no torch, and were not rerun on the new image.
 Step 5 ran on a fresh cluster after only `steps/00-setup.sh`, whose transcripts for that cluster are in `evidence/2026-11-01-train/`.
+The first recording of `00-cluster.txt` and `00-accounting.txt` there had a missing space in the `docker image inspect` line, so the image ID was never captured.
+Both were rewritten on 2026-11-01 at 05:21 UTC by rerunning `steps/00-setup.sh` on a second fresh cluster from the same image (`sha256:1691aad9bffb…`), so those two files are not from the cluster step 5 ran on.
 
 ## Step 1: GRES placement and the `Resources` reason
 

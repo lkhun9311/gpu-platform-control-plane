@@ -2,7 +2,7 @@
 # Two tenants as two accounts, one user each; two QoS levels, high preempting normal.
 
 root@slurmctld$ sacctmgr -i add account teama Description=tenant-a Organization=lab
-# at 2026-10-31T23:41:44.603Z
+# at 2026-11-01T05:21:25.376Z
  Adding Account(s)
   teama
  Settings
@@ -14,7 +14,7 @@ root@slurmctld$ sacctmgr -i add account teama Description=tenant-a Organization=
 # exit 0
 
 root@slurmctld$ sacctmgr -i add account teamb Description=tenant-b Organization=lab
-# at 2026-10-31T23:41:44.709Z
+# at 2026-11-01T05:21:25.476Z
  Adding Account(s)
   teamb
  Settings
@@ -26,7 +26,7 @@ root@slurmctld$ sacctmgr -i add account teamb Description=tenant-b Organization=
 # exit 0
 
 root@slurmctld$ sacctmgr -i add user alice Account=teama
-# at 2026-10-31T23:41:44.767Z
+# at 2026-11-01T05:21:25.532Z
  Adding User(s)
   alice
  Settings
@@ -35,7 +35,7 @@ root@slurmctld$ sacctmgr -i add user alice Account=teama
 # exit 0
 
 root@slurmctld$ sacctmgr -i add user bob Account=teamb
-# at 2026-10-31T23:41:44.829Z
+# at 2026-11-01T05:21:25.593Z
  Adding User(s)
   bob
  Settings
@@ -44,7 +44,7 @@ root@slurmctld$ sacctmgr -i add user bob Account=teamb
 # exit 0
 
 root@slurmctld$ sacctmgr -i add qos high Priority=100 Preempt=normal
-# at 2026-10-31T23:41:44.889Z
+# at 2026-11-01T05:21:25.652Z
  Adding QOS(s)
   high
  Settings
@@ -54,14 +54,14 @@ root@slurmctld$ sacctmgr -i add qos high Priority=100 Preempt=normal
 # exit 0
 
 root@slurmctld$ sacctmgr -i modify user where name=alice,bob set QOS=normal,high DefaultQOS=normal
-# at 2026-10-31T23:41:44.948Z
+# at 2026-11-01T05:21:25.709Z
  Modified user associations...
   C = lab        A = teama                U = alice    
   C = lab        A = teamb                U = bob      
 # exit 0
 
 root@slurmctld$ sacctmgr show assoc format=Cluster,Account,User,GrpTRES,QOS,DefaultQOS
-# at 2026-10-31T23:41:45.010Z
+# at 2026-11-01T05:21:25.765Z
    Cluster    Account       User       GrpTRES                  QOS   Def QOS 
 ---------- ---------- ---------- ------------- -------------------- --------- 
        lab       root                                        normal           
@@ -73,7 +73,7 @@ root@slurmctld$ sacctmgr show assoc format=Cluster,Account,User,GrpTRES,QOS,Defa
 # exit 0
 
 root@slurmctld$ sacctmgr show qos format=Name,Priority,Preempt,PreemptMode,GrpTRES
-# at 2026-10-31T23:41:45.067Z
+# at 2026-11-01T05:21:25.823Z
       Name   Priority    Preempt PreemptMode       GrpTRES 
 ---------- ---------- ---------- ----------- ------------- 
     normal          0                cluster               
