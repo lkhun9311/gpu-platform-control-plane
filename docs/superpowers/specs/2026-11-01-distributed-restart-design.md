@@ -147,7 +147,7 @@ These are not built by this apparatus, and each one alone stops the session.
   Both are fixed, and `hack/distributed-restart-kind-20261101T092646Z` and `hack/distributed-restart-kind-20261101T093539Z` pass all their checks.
   The second fix is a mitigation measured on Linux 7.0 against ganesha; whether EFS and the EKS kernel need it, or more, is not shown, and the paid session's restarts are where that would be paid for.
   The API-cut case of step 4 has since run on kind as `cut-writer`, with an early-fence control (`experiments/distributed-restart/README.md`, `hack/distributed-restart-kind-20261101T055239Z`).
-- **The case procedure itself has run end to end on kind.** The tests exercise the runner's helpers and a scorer fixture, not `restart_run` (C2).
+- **The case procedure itself has not yet run end to end on kind.** The tests exercise the runner's helpers and a scorer fixture, not `restart_run` (C2).
   Its rehearsal runs `smoke` through the real runner on kind, CPU ranks over the NFS server above, with only the EC2, Auto Scaling and DCGM calls replaced, plus a timeout, an unconfirmed retirement and consecutive cases; it is not yet recorded, and until it is this section cannot be approved.
 - **The owner's approval of this section, with the stage, the case list and the cost ceiling below.**
 
