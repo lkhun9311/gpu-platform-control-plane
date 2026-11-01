@@ -57,6 +57,9 @@ retry() {
   return 1
 }
 BG=()
+# Set only once this invocation has found no cluster of the name and is about to create one, so a refusal never removes
+# a cluster it did not make (codex review of 69ec494f).
+OWNED=""
 cleanup() {
   local p listed
   for p in "${BG[@]}"; do kill "$p" 2>>"$LOG"; done
@@ -64,6 +67,7 @@ cleanup() {
     set_deleg "$DELEG_WAS" >>"$LOG" 2>&1 || log "cleanup: restoring $DELEG to $DELEG_WAS FAILED"
     log "cleanup: $DELEG is now $(cat "$DELEG" 2>&1), was $DELEG_WAS"
   fi
+  [ -n "$OWNED" ] || { log "cleanup: $CLUSTER was not created by this run, so it is left alone"; return; }
   [ "${KEEP:-0}" = 1 ] && { log "cleanup: KEEP=1, leaving $CLUSTER"; return; }
   # The workers go first, while the NFS server still answers (hack/distributed-restart-kind.sh, STORAGE=nfs).
   for p in $ALL_WORKERS; do
@@ -107,7 +111,10 @@ export PATH="$PWD/hack/test/restart-kind/stubs:$PATH"
 . hack/lib/restart-session.sh
 # shellcheck source=hack/lib/restart-kind-shims.sh
 . hack/lib/restart-kind-shims.sh
-why="$(rstk_install 2>&1)" || die "the substitutions did not apply: $why"
+# In this shell, not a command substitution: a subshell would install them and throw them away (codex review of 69ec494f).
+rstk_install 2>>"$LOG" || die "the substitutions did not apply; see $LOG"
+[ "$RESTART_IMAGE" = "$IMG" ] && declare -f train_qualify_nodes | grep -qF component=dcgm-exporter ||
+  die "the substitutions are not in force in the driver's shell"
 # The registered case list, kept so a run of the registered stage uses it after a scenario run chose its own cases.
 eval "rstk_registered_cases() $(declare -f restart_cases | tail -n +2)"
 
@@ -147,6 +154,7 @@ log "== cluster $CLUSTER"
   echo "  - role: control-plane"
   for _ in $ALL_WORKERS; do echo "  - role: worker"; done
 } >"$OUT/kind-config.yaml"
+OWNED=1
 kind create cluster --name "$CLUSTER" --config "$OUT/kind-config.yaml" >>"$LOG" 2>&1 || die "kind create"
 echo "node_image=$(docker inspect "$CPU_NODE" --format '{{.Config.Image}}')" >>"$OUT/provenance.txt"
 for img in controller:$TAG gpu-simulator:$TAG "$IMG"; do
@@ -602,9 +610,12 @@ done
 
 log "== what the runner's own files cannot show (check_lifecycle.py)"
 python3 hack/test/restart-kind/check_lifecycle.py "$OUT" >"$OUT/lifecycle-check.txt" 2>&1
-echo "exit=$?" >>"$OUT/lifecycle-check.txt"
+CHECK_RC=$?
+echo "exit=$CHECK_RC" >>"$OUT/lifecycle-check.txt"
 tee -a "$LOG" <"$OUT/lifecycle-check.txt"
 k -n "$RESTART_NS" get mltrainingjobs,jobs.batch,pods,workloads.kueue.x-k8s.io -o wide >"$OUT/train-a-at-end.txt" 2>&1
 cp "$RSTK_STATE/calls.log" "$OUT/aws-calls.log" 2>>"$LOG"
 log "unimplemented aws calls: $(grep -c '^UNIMPLEMENTED' "$RSTK_STATE/calls.log")"
 echo "host_nfs_mounts_at_end=$(grep -c ' nfs4\? ' /proc/mounts)" >>"$OUT/provenance.txt"
+# The rehearsal fails when what the runner's files cannot show did not hold (codex review of 69ec494f).
+exit "$CHECK_RC"

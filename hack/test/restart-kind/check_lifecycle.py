@@ -41,6 +41,11 @@ def main(argv: list[str]) -> int:
         print(("OK   " if ok else "FAIL ") + msg)
         fails += 0 if ok else 1
 
+    # Every one of the four streams is required, because a missing Pods stream would leave only the parent's events to
+    # replay, and a Pod that outlived its job would not be seen (codex review of 69ec494f).
+    streams = {"mltrainingjobs", "jobs", "pods", "workloads"}
+    missing = sorted(r for r in streams if not (out / f"events-{r}.jsonl").exists())
+    report(not missing, f"watch streams present: {sorted(streams - set(missing))}, missing {missing}")
     events = sorted((e for p in sorted(out.glob("events-*.jsonl")) for e in jsonl(p)), key=lambda e: ts(e["received"]))
     calls = (out / "state" / "calls.log").read_text().splitlines() if (out / "state" / "calls.log").exists() else []
     answers = [l.split() for l in calls if " answer " in l]
@@ -74,9 +79,14 @@ def main(argv: list[str]) -> int:
                 elif e["type"] == "DELETED":
                     live.pop((e["res"], e.get("name")), None)
             gone = [ts(e["received"]) for e in events if e["type"] == "DELETED" and prev in (e.get("name") or "")]
-            # A watch that restarted just before the submission had not listed everything again, so absence is unknown.
-            if any(t - 5 <= r <= t for r in restarts):
-                report(False, f"{run.name}: a watch restarted within 5 s before {case} was submitted, so what was left is unknown")
+            # A watch that ended or restarted between the previous case's submission and this one may have missed a
+            # deletion or not yet listed again, so what was left is unknown, which is a failure and never an absence.
+            prev_added = [ts(e["received"]) for e in events if e["type"] == "ADDED" and e.get("name") == prev]
+            since = min(prev_added) if prev_added else 0.0
+            gaps = [e for e in events if e["type"] in ("WATCH-START", "WATCH-END") and since <= ts(e["received"]) <= t]
+            if gaps:
+                report(False, f"{run.name}: a watch of {sorted({g['res'] for g in gaps})} ended or restarted between {pcase} and {case}, "
+                              f"so what was left when {case} was submitted is unknown")
             elif live:
                 report(False, f"{run.name}: {case} was submitted at {added[0]['received']} while {pcase}'s {sorted(live)} still existed")
             else:
