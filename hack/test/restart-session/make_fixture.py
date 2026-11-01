@@ -137,7 +137,8 @@ def case_dir(out: pathlib.Path, name: str, kind: str, n: int) -> None:
         else:
             case["target"] = {"rank": 1, "node": nodes[1], "instance": NODES[nodes[1]][0]}
             marks += [{"at": iso(t_fault), "mark": "fault-start"}, {"at": iso(t_fault + 0.4), "mark": "fault-end"},
-                      {"at": iso(t_fault + 30), "mark": "terminated-read"}, {"at": iso(t_fault + 31), "mark": "fenced"}]
+                      {"at": iso(t_fault + 30), "mark": "terminated-read"}, {"at": iso(t_fault + 30.5), "mark": "fence-request"},
+                      {"at": iso(t_fault + 31), "mark": "fenced"}]
             annotations["platform.lkhun9311.github.io/fenced-nodes"] = nodes[1]
             # The terminated node's object is gone by the end, and the group has launched one in its place.
             after = [x for x in before if x != nodes[1]] + [nodes[3]]
@@ -341,6 +342,16 @@ def defect(out: pathlib.Path, name: str, case: str) -> None:
         edit_json_lines(d / "marks.jsonl", lambda m: None if m["mark"] == "terminated-read" else m)
     elif name == "no-fenced-mark":
         edit_json_lines(d / "marks.jsonl", lambda m: None if m["mark"] == "fenced" else m)
+    elif name == "no-fence-request-mark":
+        edit_json_lines(d / "marks.jsonl", lambda m: None if m["mark"] == "fence-request" else m)
+    elif name == "slow-annotate":
+        # The annotate call took ten seconds to return, and the controller, seeing the annotation, created attempt 2
+        # two seconds into it: a correct barrier, which only the response time would make look early.
+        marks = [json.loads(line) for line in (d / "marks.jsonl").read_text().splitlines()]
+        request = next(epoch(m["at"]) for m in marks if m["mark"] == "fence-request")
+        edit_json_lines(d / "marks.jsonl", lambda m: {**m, "at": iso(request + 10)} if m["mark"] == "fenced" else m)
+        edit_json(d / "final-mltj.json", lambda m: m["status"]["attempts"][1].update(createdAt=api_time(request + 2)))
+        edit_json_lines(d / "timeline.jsonl", lambda r: r if epoch(r["observed"]) < request or epoch(r["observed"]) > request + 10 else None)
     elif name == "fence-before-terminated":
         # The runner fenced ten seconds after the call, twenty before EC2 said terminated.
         start = next(epoch(m["at"]) for m in map(json.loads, (d / "marks.jsonl").read_text().splitlines()) if m["mark"] == "fault-start")

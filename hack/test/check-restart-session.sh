@@ -383,11 +383,14 @@ score readback-not-79 dcgm-1 VOID "read back as '0', not 79"
 score not-latched dcgm-2 VOID "latched False"
 score no-terminated-mark terminate-wait-5 VOID "no mark of the termination call or of EC2"
 # The fence is the runner's to write after EC2 says terminated (VOID otherwise); attempt 2 before it is the platform's failure.
-score no-fenced-mark terminate-wait-2 VOID "no fenced mark"
+score no-fenced-mark terminate-wait-2 VOID "no fence-request or fenced mark"
 score fence-before-terminated terminate-spare-1 VOID "before EC2 reported the instance terminated"
 score no-fence-annotation terminate-spare-3 VOID "the job's fenced-nodes annotation is '', not naming the target ip-10-0-64-12"
 score created-before-fence terminate-wait-3 FAILED "attempt 2 was created at"
 score seen-before-fence terminate-spare-2 FAILED "attempt 2 was already in the job's status at"
+# The annotation can take effect before the call returns, so the barrier is judged from the request, not the response.
+score no-fence-request-mark terminate-wait-2 VOID "no fence-request or fenced mark"
+score slow-annotate terminate-wait-1 ACCEPTED '"class": "replacement"'
 score no-timeline terminate-wait-4 VOID "no timeline of the job's status"
 score no-created-at terminate-wait-5 VOID "attempt 2 has no createdAt"
 score null-observed terminate-wait-1 VOID "its evidence could not be read: AttributeError"
