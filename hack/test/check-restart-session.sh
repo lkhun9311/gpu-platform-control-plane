@@ -436,6 +436,26 @@ EOF
 out="$(lib gone-unread 'restart_probe_all "$RESTART_OUT" before; echo "rc=$?"')"
 if [[ "$out" == *"rc=1" ]]; then ok "a group whose Nodes cannot be read is no clock read"; else bad "the unreadable group: $out"; fi
 
+# Stopping the collector stops the log follows it started: with no request timeout a follow of a Pod on a dead node
+# would otherwise outlive the case and keep writing into its evidence (codex review of bf0ea420).
+mkdir -p "$work/rules/follow-leak"
+cat >"$work/rules/follow-leak/kubectl.sh" <<'EOF'
+case "$*" in
+  *"get pods -l platform.lkhun9311.github.io/mltrainingjob="*"-o json"*)
+    echo '{"items": [{"metadata": {"uid": "u0", "name": "rp0", "annotations": {"batch.kubernetes.io/job-completion-index": "0"}}, "spec": {"nodeName": "node-a"}, "status": {"containerStatuses": [{"state": {"running": {"startedAt": "t"}}}]}}]}' ;;
+  *"logs -f rp0"*) exec -a rstk-follow-leak-probe sleep 300 ;;
+esac
+EOF
+out="$(lib follow-leak 'restart_collect "$RESTART_OUT" rst-x & c=$!; sleep 3; kill $c; wait $c; sleep 1; echo "rc=$?"')"
+started="$(grep -c 'logs -f rp0' "$work/follow-leak.calls")"
+leaked="$(pgrep -f '[r]stk-follow-leak-probe' | wc -l)"
+if [[ "$started" -ge 1 && "$leaked" == 0 ]]; then
+  ok "stopping the collector stops its $started log follow(s)"
+else
+  bad "$leaked of $started log follow(s) outlived the collector: $out"
+  pgrep -f '[r]stk-follow-leak-probe' | xargs -r kill
+fi
+
 # Retirement waits for the job's objects, and an API error is not their absence.
 mkdir -p "$work/rules/retire"
 cat >"$work/rules/retire/kubectl.sh" <<'EOF'

@@ -1022,13 +1022,19 @@ for p in json.load(sys.stdin)["items"]:
       printf '{"uid": "%s", "pod": "%s", "node": "%s", "index": "%s", "attempt_token": "%s", "observed": "%s"}\n' \
         "$uid" "$pod" "$node" "$index" "$token" "$(date -u +%Y-%m-%dT%H:%M:%S.%6NZ)" >>"$dir/pods.jsonl"
       (
-        local n=0
+        local n=0 follow="" rc
+        # The follow runs in the background and is waited for, so stopping this reader stops it too: with no request
+        # timeout a follow of a Pod on a dead node would otherwise outlive the case (codex review of bf0ea420).
+        trap 'kill $follow 2>>"$dir/collector.log"; exit 0' TERM
         while :; do
           n=$((n + 1))
           # No request timeout, unlike rk: kubectl's 20 s cut every follow, so each Pod's log was read again from its start
           # every 20 s and the 20 reads allowed below ended at about 400 s of the Pod's life (the kind rehearsal).
-          kubectl --context "$RESTART_CONTEXT" -n "$RESTART_NS" logs -f "$pod" >"$dir/log-$uid.$n.txt" 2>>"$dir/collector.log"
-          printf '{"uid": "%s", "stream": %d, "exit": %d, "at": "%s"}\n' "$uid" "$n" "$?" "$(date -u +%Y-%m-%dT%H:%M:%S.%6NZ)" >>"$dir/streams.jsonl"
+          kubectl --context "$RESTART_CONTEXT" -n "$RESTART_NS" logs -f "$pod" >"$dir/log-$uid.$n.txt" 2>>"$dir/collector.log" &
+          follow=$!
+          wait "$follow"
+          rc=$?
+          printf '{"uid": "%s", "stream": %d, "exit": %d, "at": "%s"}\n' "$uid" "$n" "$rc" "$(date -u +%Y-%m-%dT%H:%M:%S.%6NZ)" >>"$dir/streams.jsonl"
           # A stream that ended with its container is complete; one that ended while it runs is read again in full.
           [[ "$(rk -n "$RESTART_NS" get pod "$pod" -o jsonpath='{.status.containerStatuses[0].state.running}' 2>>"$dir/collector.log")" != "" ]] || break
           ((n < 20)) || break
