@@ -169,11 +169,13 @@ def observed_window(case: Case, start: str, end: str) -> tuple[list[dict], str]:
 
     A sample whose reads failed stands in empty lists for what it could not read, so it cannot vouch that nothing existed;
     and a window observed only at its ends says nothing about its middle.
+    A sample counts only if its reads began inside the window: one begun before it may hold a status read before the
+    state the window starts from.
     """
     a, b = case.at(start), case.at(end)
     if a is None or b is None:
         return [], f"mark {start if a is None else end} missing"
-    inside = [s for s in case.timeline if a <= ts(s["observed"]) <= b]
+    inside = [s for s in case.timeline if a <= (ts(s.get("started")) or -math.inf) and ts(s["observed"]) <= b]
     failed = [s for s in inside if s.get("errors")]
     times = [a] + [ts(s["observed"]) for s in inside] + [b]
     gap = max(y - x for x, y in zip(times, times[1:]))

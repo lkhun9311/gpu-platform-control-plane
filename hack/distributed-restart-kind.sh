@@ -468,12 +468,15 @@ cut_writer() {
   # The kubelet, kube-proxy and kindnet run in the node's root namespace and reach the API server at the control plane's
   # address; Pods reach it through the Service, whose DNAT leaves that address for FORWARD; and the API server reaches the
   # kubelet on 10250 for logs and exec.
+  # The inbound half of connections already open is dropped too: a receiver takes data whose ACKs never leave, so a watch
+  # the kubelet already holds could otherwise still hear of its Pod's deletion and stop the rank this case keeps running.
   # Pod-to-Pod traffic, gloo's and DNS's, is addressed to Pods and is not matched, and the volume is a bind mount.
   for fam in 4 6; do
     ipt=iptables ip=$cp4
     [ "$fam" = 6 ] && { ipt=ip6tables ip=$cp6; }
     [ -n "$ip" ] || continue
     { docker exec "$victim" "$ipt" -I OUTPUT 1 -d "$ip" -p tcp --dport 6443 -j DROP &&
+      docker exec "$victim" "$ipt" -I INPUT 1 -s "$ip" -p tcp --sport 6443 -j DROP &&
       docker exec "$victim" "$ipt" -I FORWARD 1 -d "$ip" -p tcp --dport 6443 -j DROP &&
       docker exec "$victim" "$ipt" -I INPUT 1 -s "$ip" -p tcp --dport 10250 -j DROP; } >>"$LOG" 2>&1 ||
       { void_case "$name" "$dir" "inserting the IPv$fam rules on $victim failed"; return 2; }
@@ -490,6 +493,8 @@ cut_writer() {
     sleep 1
   done
   { [ "$ready" = Unknown ] || [ "$ready" = False ]; } || { log "  $victim not seen not Ready 180 s after the cut (last '$ready')"; return 1; }
+  # One more sample before the deletion, so the timeline the scorer reads holds the not-Ready Node and not only this loop.
+  sample "$name" "$dir"
   mark "$dir" "notready $victim $ready"
 
   mark "$dir" "node-delete-start $victim"
