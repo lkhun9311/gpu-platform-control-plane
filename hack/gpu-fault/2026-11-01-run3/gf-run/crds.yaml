@@ -1,0 +1,1941 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.20.1
+  name: gpuquotapolicies.platform.lkhun9311.github.io
+spec:
+  group: platform.lkhun9311.github.io
+  names:
+    kind: GPUQuotaPolicy
+    listKind: GPUQuotaPolicyList
+    plural: gpuquotapolicies
+    singular: gpuquotapolicy
+  scope: Cluster
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.tenant
+      name: Tenant
+      type: string
+    - jsonPath: .spec.targetNamespace
+      name: Namespace
+      type: string
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1
+    schema:
+      openAPIV3Schema:
+        description: GPUQuotaPolicy is the Schema for the gpuquotapolicies API
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: spec defines the desired state of GPUQuotaPolicy
+            properties:
+              gpuClass:
+                description: |-
+                  gpuClass records the GPU class (e.g. "l40s") this policy is intended for.
+
+                  Empty means all classes.
+
+                  NOTE: per-class quota scoping is not yet enforced.
+
+                  This milestone caps a single aggregate ceiling (requests.nvidia.com/gpu) regardless of class; the field is recorded for a later milestone that will enforce per-class resource keys (see the gpuClass note in the reconciler).
+                type: string
+              limits:
+                description: limits is the quota ceiling for this tenant in the target
+                  namespace.
+                properties:
+                  gpuCount:
+                    description: |-
+                      gpuCount is the maximum number of GPUs (nvidia.com/gpu) allowed.
+
+                      Locally this is backed by simulated capacity, not real hardware.
+                    format: int32
+                    minimum: 0
+                    type: integer
+                required:
+                - gpuCount
+                type: object
+              rateLimit:
+                description: |-
+                  rateLimit caps the per-tenant serving request rate enforced at the gateway (admission Layer 4).
+
+                  It is optional: a policy without rateLimit means the tenant has no gateway rate limit.
+                properties:
+                  burst:
+                    description: burst is the maximum momentary burst the bucket allows
+                      above the sustained rate.
+                    format: int32
+                    minimum: 1
+                    type: integer
+                  requestsPerMinute:
+                    description: requestsPerMinute is the sustained request rate allowed
+                      for the tenant.
+                    format: int32
+                    minimum: 1
+                    type: integer
+                required:
+                - burst
+                - requestsPerMinute
+                type: object
+              targetNamespace:
+                description: |-
+                  targetNamespace is the namespace into which quota objects are synced.
+
+                  It is immutable: a policy enforces quota in exactly one namespace for its lifetime.
+
+                  Changing it would orphan the ResourceQuota already synced into the old namespace (the reconciler only ever reconciles the namespace named here), so migration is done by deleting and recreating the policy rather than mutating this field.
+                type: string
+                x-kubernetes-validations:
+                - message: targetNamespace is immutable
+                  rule: self == oldSelf
+              tenant:
+                description: |-
+                  tenant is the logical tenant (team/org) this policy applies to.
+
+                  It is distinct from targetNamespace, but the platform supports one policy per tenant, not a tenant across namespaces.
+                  A second training policy for the same tenant is Degraded, because the cluster-scoped gpu-<tenant> ClusterQueue already belongs to the first.
+                  The gateway rate-limits and routes a tenant by its oldest policy alone, so models in another policy's namespace are unreachable under that tenant.
+
+                  It is immutable, for the reason targetNamespace is: the Kueue queues are named after the tenant, so changing it created gpu-<new> queues beside the gpu-<old> ones.
+                  The old queues kept their nominal quota and stayed owned by the policy, which still exists, so nothing removed them and the tenant held two reservations.
+                  To rename a tenant, delete the policy and create it again.
+                type: string
+                x-kubernetes-validations:
+                - message: tenant is immutable
+                  rule: self == oldSelf
+              trainingQuota:
+                description: |-
+                  trainingQuota, when true, also publishes this tenant's GPU ceiling as a Kueue ClusterQueue for training admission.
+
+                  Training GPU quota then lives in Kueue rather than the namespace ResourceQuota, so the same GPUs are not counted twice.
+
+                  It is immutable, for the reason targetNamespace is: changing it in place moved the ceiling from one ledger to the other in a single reconcile, and GPU Pods already running under the namespace ResourceQuota stayed running with Kueue never counting them.
+
+                  To change it, delete the policy, let the namespace's GPU workloads finish or be removed, and create the policy again in the other mode.
+                  Creating a policy over a namespace that still runs GPU Pods is not checked, so the drain is the operator's step.
+                type: boolean
+            required:
+            - limits
+            - targetNamespace
+            - tenant
+            type: object
+            x-kubernetes-validations:
+            - message: 'trainingQuota is immutable: delete the policy, drain the namespace''s
+                GPU workloads, and create it again in the other mode'
+              rule: (has(self.trainingQuota) && self.trainingQuota) == (has(oldSelf.trainingQuota)
+                && oldSelf.trainingQuota)
+          status:
+            description: status defines the observed state of GPUQuotaPolicy
+            properties:
+              conditions:
+                description: |-
+                  conditions represent the current state of the GPUQuotaPolicy resource.
+
+                  The status of each condition is one of True, False, or Unknown.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              lastTransitionTime:
+                description: lastTransitionTime is the time the phase last changed.
+                format: date-time
+                type: string
+              observedGeneration:
+                description: observedGeneration is the most recent generation observed
+                  by the controller.
+                format: int64
+                type: integer
+              phase:
+                description: phase is the high-level sync state of the policy.
+                enum:
+                - Pending
+                - Synced
+                - Degraded
+                type: string
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.20.1
+  name: gpusharingbenchmarks.platform.lkhun9311.github.io
+spec:
+  group: platform.lkhun9311.github.io
+  names:
+    kind: GpuSharingBenchmark
+    listKind: GpuSharingBenchmarkList
+    plural: gpusharingbenchmarks
+    singular: gpusharingbenchmark
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.sharingMode
+      name: Mode
+      type: string
+    - jsonPath: .spec.gpuClass
+      name: Class
+      type: string
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .status.result.interferenceRatio
+      name: Ratio
+      type: string
+    name: v1
+    schema:
+      openAPIV3Schema:
+        description: GpuSharingBenchmark declares one A/B contention experiment and
+          records its result.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: spec defines the desired state of GpuSharingBenchmark
+            properties:
+              baseline:
+                description: baseline is the latency-sensitive victim whose p99 the
+                  experiment reports.
+                properties:
+                  inputTokens:
+                    description: inputTokens is the prompt length per request.
+                    format: int32
+                    minimum: 1
+                    type: integer
+                  model:
+                    description: model is the served model name.
+                    type: string
+                  outputTokens:
+                    description: |-
+                      outputTokens is the requested generation CEILING per request, not a guaranteed length.
+
+                      The load generator sends it as the engine's max_tokens, which is an upper bound: a response that hits a
+                      stop condition earlier is shorter, and nothing makes the engine emit this many. So a run whose
+                      responses average well under this value has not violated the protocol, and a reading that assumed this
+                      many tokens per response would be wrong about the work the card did.
+
+                      This comment said "the generation length per request" until 2026-09-30, which is a promise the sender
+                      does not keep -- and field comments are copied into the generated CRD description, so it was a promise
+                      shipped to operators. Recorded here rather than silently corrected because the wording is what a reader
+                      would have relied on.
+                    format: int32
+                    minimum: 1
+                    type: integer
+                  qps:
+                    description: |-
+                      qps is the arrival rate as a positive plain decimal string (e.g. "2.0", "0.01").
+
+                      A string rather than a float: the value appears verbatim in the report, and a float would print back
+                      differently than it was written. The cost of that choice is that the spelling is part of the
+                      experiment's identity -- "2" and "2.00" name the same rate and are different values to the
+                      immutability rule -- which is accepted deliberately and is why the grammar is narrow.
+
+                      The pattern admits only digits with at most one decimal point, and the second rule refuses every
+                      spelling of zero. Without them the field was an unrestricted string: "", " 2.0", "NaN", "-1", "2e0",
+                      "0" and "abc" were all accepted, measured against a real apiserver.
+
+                      Zero is refused rather than read as "this side is off". The control condition is the harness running
+                      the baseline with the contender disabled; the registered rate describes the active condition, and a
+                      zero that meant absence would make one field carry two meanings.
+                    maxLength: 16
+                    pattern: ^[0-9]+(\.[0-9]+)?$
+                    type: string
+                    x-kubernetes-validations:
+                    - message: qps must be greater than zero; a control condition
+                        is the harness disabling the contender, not a rate of zero
+                      rule: self.matches('[1-9]')
+                  tenant:
+                    description: |-
+                      tenant must resolve through the identity chain: a GPUQuotaPolicy with this spec.tenant, and an entry in
+                      the gateway-api-keys Secret.
+
+                      The harness resolves both tenants before starting load and fails the benchmark with
+                      TenantNotProvisioned rather than proceeding, because a run that quietly bypasses the gateway identity
+                      model is not measuring this platform.
+                    type: string
+                required:
+                - inputTokens
+                - model
+                - outputTokens
+                - qps
+                - tenant
+                type: object
+              contender:
+                description: contender is the noisy neighbour placed alongside the
+                  baseline.
+                properties:
+                  inputTokens:
+                    description: inputTokens is the prompt length per request.
+                    format: int32
+                    minimum: 1
+                    type: integer
+                  model:
+                    description: model is the served model name.
+                    type: string
+                  outputTokens:
+                    description: |-
+                      outputTokens is the requested generation CEILING per request, not a guaranteed length.
+
+                      The load generator sends it as the engine's max_tokens, which is an upper bound: a response that hits a
+                      stop condition earlier is shorter, and nothing makes the engine emit this many. So a run whose
+                      responses average well under this value has not violated the protocol, and a reading that assumed this
+                      many tokens per response would be wrong about the work the card did.
+
+                      This comment said "the generation length per request" until 2026-09-30, which is a promise the sender
+                      does not keep -- and field comments are copied into the generated CRD description, so it was a promise
+                      shipped to operators. Recorded here rather than silently corrected because the wording is what a reader
+                      would have relied on.
+                    format: int32
+                    minimum: 1
+                    type: integer
+                  qps:
+                    description: |-
+                      qps is the arrival rate as a positive plain decimal string (e.g. "2.0", "0.01").
+
+                      A string rather than a float: the value appears verbatim in the report, and a float would print back
+                      differently than it was written. The cost of that choice is that the spelling is part of the
+                      experiment's identity -- "2" and "2.00" name the same rate and are different values to the
+                      immutability rule -- which is accepted deliberately and is why the grammar is narrow.
+
+                      The pattern admits only digits with at most one decimal point, and the second rule refuses every
+                      spelling of zero. Without them the field was an unrestricted string: "", " 2.0", "NaN", "-1", "2e0",
+                      "0" and "abc" were all accepted, measured against a real apiserver.
+
+                      Zero is refused rather than read as "this side is off". The control condition is the harness running
+                      the baseline with the contender disabled; the registered rate describes the active condition, and a
+                      zero that meant absence would make one field carry two meanings.
+                    maxLength: 16
+                    pattern: ^[0-9]+(\.[0-9]+)?$
+                    type: string
+                    x-kubernetes-validations:
+                    - message: qps must be greater than zero; a control condition
+                        is the harness disabling the contender, not a rate of zero
+                      rule: self.matches('[1-9]')
+                  tenant:
+                    description: |-
+                      tenant must resolve through the identity chain: a GPUQuotaPolicy with this spec.tenant, and an entry in
+                      the gateway-api-keys Secret.
+
+                      The harness resolves both tenants before starting load and fails the benchmark with
+                      TenantNotProvisioned rather than proceeding, because a run that quietly bypasses the gateway identity
+                      model is not measuring this platform.
+                    type: string
+                required:
+                - inputTokens
+                - model
+                - outputTokens
+                - qps
+                - tenant
+                type: object
+              gpuClass:
+                description: |-
+                  gpuClass is the GPU class the experiment runs on (e.g. "a10g").
+
+                  Spelled as in the rest of api/v1, so one vocabulary covers quota, serving and this.
+
+                  Recorded, not enforced: it reaches the compiled plan and the CR's digest, but compile-plan does not export it,
+                  the runner never checks the card against it, and nothing refuses a class the harness cannot run.
+                  Carrying it to the run needs the paid wrapper, a hardware check and a rehearsal mode, and is not built.
+                type: string
+              load:
+                description: load is the arrival protocol every run obeys.
+                properties:
+                  generator:
+                    description: generator is the pinned load tool and version (e.g.
+                      "genai-perf vX.Y").
+                    type: string
+                  mode:
+                    description: |-
+                      mode is openLoop and nothing else.
+
+                      A closed-loop client waits for each response before sending the next request, so its own queueing delay
+                      suppresses the arrivals that would have revealed it -- coordinated omission. Tail-latency claims from
+                      closed-loop load are invalid, so the enum admits one value instead of leaving the choice open.
+                    enum:
+                    - openLoop
+                    type: string
+                  retries:
+                    description: |-
+                      retries must be zero.
+
+                      A retry replaces a slow response with a fast one and repairs the tail the experiment exists to measure.
+                      The CEL rule on the spec refuses any other value.
+                    format: int32
+                    minimum: 0
+                    type: integer
+                  streaming:
+                    description: |-
+                      streaming says whether the generator streams responses.
+
+                      Required, and serialized even when false, for the reason given on warmupRequests: an omitempty zero
+                      vanishes on a Go round-trip and the whole-spec immutability comparison then sees a field that has
+                      disappeared. An object created with an explicit streaming: false was frozen against every later
+                      update, including to fields documented as mutable -- confirmed against a real apiserver before this
+                      change.
+                    type: boolean
+                  timeoutMs:
+                    description: timeoutMs is the per-request timeout; a timeout is
+                      recorded as an error and never dropped.
+                    format: int32
+                    minimum: 1
+                    type: integer
+                required:
+                - generator
+                - mode
+                - retries
+                - streaming
+                - timeoutMs
+                type: object
+              minRequestsPerRun:
+                description: |-
+                  minRequestsPerRun is the sample-size floor for the victim tenant in one run.
+
+                  A p99 needs the tail populated; below a thousand requests the figure is decided by a handful of
+                  samples.
+
+                  Recorded, not enforced: compile-plan checks it against the harness floor of 100 and exports nothing, and the
+                  scorer applies its own constant floor of 100 per repetition, so a run short of this value is not refused.
+                  Enforcing it means the paid wrapper, the scorer's reading 4b for the victim alone, and the pre-purchase plan
+                  check, and is not built.
+                format: int32
+                minimum: 1000
+                type: integer
+              repetitions:
+                description: |-
+                  repetitions is how many times each condition is run.
+
+                  At least five: a p99 from three repetitions is noise, and the report is a median-of-runs with a
+                  bootstrap interval rather than a best run.
+                format: int32
+                minimum: 5
+                type: integer
+              sharingMode:
+                description: |-
+                  sharingMode is the topology under test.
+
+                  sharedInstance means both tenants reach ONE vLLM instance through the gateway, so the contention is in
+                  a shared KV-cache pool and the vLLM waiting queue. timeSlicing and mps put separate pods on one GPU,
+                  where the contention is GPU time and the KV caches are separate. They answer different questions and
+                  their numbers are not comparable, which is why the mode is part of the experiment's identity below.
+                enum:
+                - exclusive
+                - timeSlicing
+                - mps
+                - sharedInstance
+                type: string
+              warmupRequests:
+                description: |-
+                  warmupRequests are sent before measurement starts and are not counted.
+
+                  Required, and serialized even at zero. As an optional field with omitempty it was the second half of a
+                  trap: the whole spec is compared against oldSelf on update, that comparison is over API values and
+                  counts field presence, and a Go round-trip drops an omitempty zero -- so an object created with an
+                  explicit zero could never be updated again, for any field. Making it required removes the only
+                  remaining optional field in the spec alongside streaming.
+                format: int32
+                minimum: 0
+                type: integer
+            required:
+            - baseline
+            - contender
+            - gpuClass
+            - load
+            - minRequestsPerRun
+            - repetitions
+            - sharingMode
+            - warmupRequests
+            type: object
+          status:
+            description: status defines the observed state of GpuSharingBenchmark
+            properties:
+              conditions:
+                description: |-
+                  conditions represent the current state of the GpuSharingBenchmark resource.
+
+                  The status of each condition is one of True, False, or Unknown.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              observedGeneration:
+                description: observedGeneration is the most recent generation observed.
+                format: int64
+                type: integer
+              phase:
+                description: |-
+                  phase is the high-level state of the experiment.
+
+                  Completed requires result.reportUri -- a benchmark that finished without saying where its report is has
+                  not completed, it has stopped.
+                enum:
+                - Pending
+                - Running
+                - Completed
+                - Failed
+                type: string
+              result:
+                description: result is written only by a real-GPU run.
+                properties:
+                  baselineP99Ms:
+                    description: |-
+                      baselineP99Ms is the MEDIAN of the per-repetition victim TTFT p99s with the contender absent.
+
+                      A median of repetition-level tails, not a p99 pooled over every request of every repetition. Pooling
+                      re-weights repetitions by how many requests each happened to complete, which answers a different
+                      question from the one this type registered by giving repetitions equal standing.
+                    format: int64
+                    type: integer
+                  colocatedP99Ms:
+                    description: colocatedP99Ms is the same median with the contender
+                      present.
+                    format: int64
+                    type: integer
+                  interferenceRatio:
+                    description: interferenceRatio is colocatedP99Ms / baselineP99Ms
+                      as a decimal string.
+                    type: string
+                  interferenceRatioCI95:
+                    description: |-
+                      interferenceRatioCI95 is the nominal bootstrap 95% interval for interferenceRatio, e.g. "1.82-2.31".
+
+                      This is the primary reported object of the experiment, fixed by the design spec third amendment of
+                      2026-09-30 before any result existed that could influence the choice. The baseline is measured rather
+                      than known, so an interval on the colocated tail alone cannot bound the relative interference the
+                      benchmark exists to report.
+
+                      It comes from a PAIRED repetition bootstrap: complete (baseline, colocated) repetition blocks are
+                      resampled with replacement, both medians and their ratio recomputed, and the 2.5th and 97.5th
+                      percentiles taken. Pairing is by the repetition identity the run schedule records, never inferred from
+                      two arrays having equal length.
+
+                      NOMINAL, and the word is load-bearing. Five repetitions are enough to compute this interval and not
+                      enough to establish 95% coverage, and more bootstrap draws do not create more repetitions. The report
+                      this points at must publish every per-repetition p99 so a reader can see the sample it came from.
+                    type: string
+                  p99CI95:
+                    description: |-
+                      p99CI95 is the nominal bootstrap 95% interval for the colocated median p99, in milliseconds,
+                      e.g. "2210-2440".
+
+                      Recorded beside the ratio because a ratio without a spread invites a reader to treat run-to-run
+                      variation as an effect. It is NOT the interval for the ratio: this one carries no uncertainty from the
+                      denominator, so it cannot bound the quantity the experiment reports. That is interferenceRatioCI95.
+                      The units stay milliseconds for exactly this reason -- redefining this field as a dimensionless ratio
+                      would silently change the meaning of a field whose description ships to operators in the CRD.
+                    type: string
+                  reportUri:
+                    description: reportUri points at the committed report and its
+                      raw data.
+                    type: string
+                type: object
+            type: object
+            x-kubernetes-validations:
+            - message: phase Completed requires a non-empty status.result.reportUri
+                and a non-empty status.result.interferenceRatioCI95
+              rule: '!has(self.phase) || self.phase != ''Completed'' || (has(self.result)
+                && has(self.result.reportUri) && size(self.result.reportUri) > 0 &&
+                has(self.result.interferenceRatioCI95) && size(self.result.interferenceRatioCI95)
+                > 0)'
+        required:
+        - spec
+        type: object
+        x-kubernetes-validations:
+        - message: spec.load.retries must be 0; a retry repairs the tail latency this
+            benchmark measures
+          rule: self.spec.load.retries == 0
+        - message: sharedInstance means one vLLM instance, so baseline.model and contender.model
+            must be equal
+          rule: self.spec.sharingMode != 'sharedInstance' || self.spec.baseline.model
+            == self.spec.contender.model
+        - message: baseline.tenant and contender.tenant must differ; one tenant on
+            both sides measures intra-tenant contention, not isolation between tenants
+          rule: self.spec.baseline.tenant != self.spec.contender.tenant
+        - message: the spec is a registration and is immutable once created; register
+            a new GpuSharingBenchmark rather than editing this one
+          rule: self.spec == oldSelf.spec
+    served: true
+    storage: true
+    subresources:
+      status: {}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.20.1
+  name: inferencedeployments.platform.lkhun9311.github.io
+spec:
+  group: platform.lkhun9311.github.io
+  names:
+    kind: InferenceDeployment
+    listKind: InferenceDeploymentList
+    plural: inferencedeployments
+    singular: inferencedeployment
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.model.name
+      name: Model
+      type: string
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .status.readyReplicas
+      name: Ready
+      type: integer
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1
+    schema:
+      openAPIV3Schema:
+        description: InferenceDeployment is the Schema for the inferencedeployments
+          API
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: spec defines the desired state of InferenceDeployment
+            properties:
+              admission:
+                description: |-
+                  admission selects how the gateway admits requests to this deployment.
+                  Absent leaves the gateway's own process-wide mode in charge.
+                properties:
+                  maxHold:
+                    description: |-
+                      maxHold is how long a standard request may wait for its turn before it is refused with 429.
+                      It has no default: zero would refuse every request that ever had to wait.
+                    type: string
+                  mode:
+                    description: |-
+                      mode is Off or HoldCap.
+                      HoldCap pairs the gateway's serial-prefill admission with the engine's --long-prefill-token-threshold=384.
+                      It was measured on one A10G, one engine version, one model (Qwen2.5-3B-Instruct) and one streaming load, in three registered blocks, against no admission.
+                      There its premium-tier p99 time to first token was about 0.30 of no admission.
+                      A fixed spacing tuned for that load tied with it within the registered 15%, so HoldCap offers protection that needs no tuning, not the lowest tail and not an SLO.
+                      It raises standard-tier latency, refuses a standard request held longer than maxHold, and refuses standard requests that do not stream or ask for other than one choice.
+                    enum:
+                    - "Off"
+                    - HoldCap
+                    type: string
+                required:
+                - mode
+                type: object
+                x-kubernetes-validations:
+                - message: admission.maxHold must lie between 1s and 25s, the longest
+                    hold measured
+                  rule: '!has(self.maxHold) || (duration(self.maxHold) >= duration(''1s'')
+                    && duration(self.maxHold) <= duration(''25s''))'
+              engine:
+                description: |-
+                  engine has the controller render an engine itself instead of the generic serving container.
+                  Absent keeps the generic container, unchanged.
+                properties:
+                  vllm:
+                    description: vllm renders the pinned vLLM profile.
+                    properties:
+                      modelRevision:
+                        description: modelRevision pins the model and tokenizer to
+                          a Hub commit, as the admission sessions' engine validator
+                          required.
+                        pattern: ^[0-9a-f]{40}$
+                        type: string
+                      profile:
+                        description: |-
+                          profile is the engine configuration measured on one A10G with Qwen2.5-3B-Instruct.
+                          v0.27.1-a10g-prefix-cache is the same configuration with prefix caching on, for the prefix-aware routing study.
+                        enum:
+                        - v0.27.1-a10g
+                        - v0.27.1-a10g-prefix-cache
+                        type: string
+                    required:
+                    - modelRevision
+                    - profile
+                    type: object
+                required:
+                - vllm
+                type: object
+              gpuClass:
+                description: |-
+                  gpuClass is the illustrative GPU class (e.g. "l40s").
+
+                  Locally this is backed by simulated capacity (see the dev runbook).
+                type: string
+              gpuCount:
+                description: |-
+                  gpuCount is the number of GPUs (nvidia.com/gpu) per replica.
+
+                  Locally this is backed by simulated capacity, not real hardware.
+                format: int32
+                minimum: 0
+                type: integer
+              image:
+                description: image is the serving runtime container image (e.g. "vllm/vllm-openai:v0.6.0").
+                type: string
+              model:
+                description: model is the model to serve.
+                properties:
+                  name:
+                    description: name is the logical model name.
+                    type: string
+                  storageUri:
+                    description: storageUri is where the model weights live (e.g.
+                      "s3://bucket/model", "pvc://claim/path").
+                    type: string
+                required:
+                - name
+                - storageUri
+                type: object
+              port:
+                default: 8080
+                description: port is the serving container port.
+                format: int32
+                maximum: 65535
+                minimum: 1
+                type: integer
+              replicas:
+                description: |-
+                  replicas is the fixed number of serving replicas.
+
+                  Autoscaling lands in M4.
+                format: int32
+                minimum: 0
+                type: integer
+              routing:
+                description: |-
+                  routing selects how the gateway spreads this model's requests across the InferenceDeployments serving it.
+                  It applies only when every deployment serving the model in the namespace names the same policy and none is HoldCap.
+                  Absent keeps the gateway's ordering: the oldest deployment serves and the others are fallback.
+                properties:
+                  policy:
+                    description: |-
+                      policy is RoundRobin, LeastQueue or PrefixAffinity.
+                      LeastQueue picks the deployment with the fewest requests the gateway has outstanding on it.
+                      PrefixAffinity picks the deployment the gateway last sent the longest run of this prompt's leading text to, an approximation of the engine's prefix cache, and falls back to LeastQueue when that deployment is busier by more than the matched prefix would save.
+                      None of them was measured before docs/superpowers/specs/2026-10-27-prefix-aware-routing-design.md registered a study of all three.
+                    enum:
+                    - RoundRobin
+                    - LeastQueue
+                    - PrefixAffinity
+                    type: string
+                required:
+                - policy
+                type: object
+            required:
+            - gpuCount
+            - image
+            - model
+            - replicas
+            type: object
+            x-kubernetes-validations:
+            - message: 'admission.mode HoldCap requires spec.engine: the cap is guaranteed
+                only on an engine this controller renders'
+              rule: '!has(self.admission) || self.admission.mode != ''HoldCap'' ||
+                has(self.engine)'
+            - message: admission.maxHold is set exactly when admission.mode is HoldCap
+              rule: '!has(self.admission) || has(self.admission.maxHold) == (self.admission.mode
+                == ''HoldCap'')'
+            - message: 'admission.mode HoldCap requires replicas at most 1: serial-prefill
+                keys on the Service, so two engines behind it would be serialized
+                as one'
+              rule: '!has(self.admission) || self.admission.mode != ''HoldCap'' ||
+                self.replicas <= 1'
+            - message: 'spec.engine requires gpuCount 1: its only profile is one engine
+                on one A10G'
+              rule: '!has(self.engine) || self.gpuCount == 1'
+            - message: spec.engine requires model.storageUri of the form hf://<org>/<repo>
+              rule: '!has(self.engine) || self.model.storageUri.matches(''^hf://[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$'')'
+            - message: spec.engine requires spec.image pinned to the vLLM v0.27.1
+                digest the profile was measured on, from any registry
+              rule: '!has(self.engine) || self.image.endsWith(''@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967'')'
+            - message: 'admission.mode HoldCap requires engine profile v0.27.1-a10g:
+                HoldCap was measured with prefix caching off'
+              rule: '!has(self.admission) || self.admission.mode != ''HoldCap'' ||
+                !has(self.engine) || self.engine.vllm.profile == ''v0.27.1-a10g'''
+          status:
+            description: status defines the observed state of InferenceDeployment
+            properties:
+              admission:
+                description: admission is the admission in force for this deployment;
+                  absent when the spec asks for none.
+                properties:
+                  mode:
+                    description: mode is HoldCap only once a rollout of an engine
+                      rendered with the cap has completed; otherwise Off.
+                    enum:
+                    - "Off"
+                    - HoldCap
+                    type: string
+                  observedGeneration:
+                    description: observedGeneration is the generation this mode was
+                      decided for; the gateway trusts it only when it is current.
+                    format: int64
+                    type: integer
+                required:
+                - mode
+                - observedGeneration
+                type: object
+              conditions:
+                description: |-
+                  conditions represent the current state of the InferenceDeployment resource.
+
+                  The status of each condition is one of True, False, or Unknown.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              lastTransitionTime:
+                description: lastTransitionTime is the time the phase last changed.
+                format: date-time
+                type: string
+              observedGeneration:
+                description: observedGeneration is the most recent generation observed
+                  by the controller.
+                format: int64
+                type: integer
+              phase:
+                description: phase is the high-level serving state.
+                enum:
+                - Pending
+                - Progressing
+                - Ready
+                - Degraded
+                type: string
+              readyReplicas:
+                description: readyReplicas is the observed number of ready serving
+                  replicas (populated in M4).
+                format: int32
+                type: integer
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.20.1
+  name: mltrainingjobs.platform.lkhun9311.github.io
+spec:
+  group: platform.lkhun9311.github.io
+  names:
+    kind: MLTrainingJob
+    listKind: MLTrainingJobList
+    plural: mltrainingjobs
+    singular: mltrainingjob
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.queue
+      name: Queue
+      type: string
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .status.readyRanks
+      name: Ready Ranks
+      type: integer
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1
+    schema:
+      openAPIV3Schema:
+        description: MLTrainingJob is the Schema for the mltrainingjobs API
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: spec defines the desired state of MLTrainingJob
+            properties:
+              command:
+                description: command overrides the container entrypoint.
+                items:
+                  type: string
+                type: array
+              completions:
+                default: 1
+                description: completions is the batch/v1 Job completions (successful
+                  pods required).
+                format: int32
+                minimum: 0
+                type: integer
+              distributed:
+                description: |-
+                  distributed runs the job as worldSize Pods, one training process each, that find each other through the platform.
+
+                  Each Pod gets WORLD_SIZE, RANK, MASTER_ADDR and MASTER_PORT (29500), and rank 0 is reachable at MASTER_ADDR.
+                  The command must start exactly one process per Pod: a launcher that starts its own group per Pod, such as
+                  torchrun --standalone, would train each Pod alone and still print a result.
+                  Any rank failing ends the whole attempt; there is never a per-rank retry, because a replaced rank cannot rejoin a
+                  group whose other ranks are mid-step.
+                  With maxRestarts above 0 the whole job is started again, every rank together, from what the workload wrote to
+                  stateVolume; with 0, the default, the first failure fails the job.
+                  Fixed at creation, and it cannot be combined with parallelism or completions other than 1.
+                properties:
+                  maxRestarts:
+                    default: 0
+                    description: |-
+                      maxRestarts is how many times the whole job may be started again after an attempt fails, is evicted, or loses
+                      a node; absent or 0 means the first failure fails the job, as before the field existed.
+
+                      A restart starts every rank again from the workload's own checkpoint, so a value above 0 requires stateVolume.
+                      The claim must be ReadWriteMany: ranks run on different nodes and all of them read and write it.
+                      The bound is deliberate: a fault that recurs on every attempt is not one more restart will cure.
+
+                      The default stores an absent field as 0, because the Go type omits a 0 and the rule fixing distributed compares
+                      the stored object with what the controller sends back; without it an explicit 0 refuses every typed update.
+                    format: int32
+                    maximum: 10
+                    minimum: 0
+                    type: integer
+                  worldSize:
+                    description: |-
+                      worldSize is the number of Pods, and so of ranks; rank i runs in the Pod with completion index i.
+
+                      gpuCount stays per Pod, so the queue must admit worldSize times gpuCount.
+                    format: int32
+                    maximum: 8
+                    minimum: 2
+                    type: integer
+                required:
+                - worldSize
+                type: object
+              gpuClass:
+                description: |-
+                  gpuClass is the illustrative GPU class (e.g. "l40s").
+
+                  Locally this is backed by simulated capacity (see the dev runbook).
+                type: string
+              gpuCount:
+                description: |-
+                  gpuCount is the number of GPUs (nvidia.com/gpu) per pod.
+
+                  Locally this is backed by simulated capacity, not real hardware.
+                format: int32
+                minimum: 0
+                type: integer
+              image:
+                description: image is the training container image.
+                type: string
+              parallelism:
+                default: 1
+                description: parallelism is the batch/v1 Job parallelism (concurrent
+                  pods).
+                format: int32
+                minimum: 0
+                type: integer
+              queue:
+                description: queue is the Kueue LocalQueue name (same namespace) this
+                  job is admitted through.
+                type: string
+              stateVolume:
+                description: |-
+                  stateVolume mounts storage that outlives the Pod, so a replacement can read what its predecessor wrote.
+
+                  Absent means every Pod starts from nothing, which is what every job in this repository did before the
+                  field existed and what all of them still do unless they ask otherwise.
+                properties:
+                  claimName:
+                    description: claimName is a PersistentVolumeClaim that already
+                      exists in the job's own namespace.
+                    minLength: 1
+                    type: string
+                  mountPath:
+                    description: mountPath is where the claim appears inside the trainer
+                      container.
+                    pattern: ^/
+                    type: string
+                required:
+                - claimName
+                - mountPath
+                type: object
+            required:
+            - gpuCount
+            - image
+            - queue
+            type: object
+            x-kubernetes-validations:
+            - message: distributed is fixed at creation, because the world size is
+                built into every rank's environment; delete and recreate the MLTrainingJob
+                to change it
+              rule: has(self.distributed) == has(oldSelf.distributed) && (!has(self.distributed)
+                || self.distributed == oldSelf.distributed)
+            - message: with distributed set, leave parallelism and completions at
+                1; the controller runs worldSize Pods
+              rule: '!has(self.distributed) || ((!has(self.parallelism) || self.parallelism
+                == 1) && (!has(self.completions) || self.completions == 1))'
+            - message: 'distributed.maxRestarts above 0 needs stateVolume: a restart
+                that cannot read a checkpoint starts from step zero and would be reported
+                as recovery'
+              rule: '!has(self.distributed) || !has(self.distributed.maxRestarts)
+                || self.distributed.maxRestarts == 0 || has(self.stateVolume)'
+          status:
+            description: status defines the observed state of MLTrainingJob
+            properties:
+              admitToRunningSeconds:
+                description: |-
+                  admitToRunningSeconds is how long the tenant waited between having quota and using it.
+
+                  This is the quantity a quota owner cares about and the platform has never reported. The queuelab
+                  measured it under preemption -- 2.180 s when the preempted borrower honoured SIGTERM and 31.213 s when
+                  it did not -- and the admission webhook caps terminationGracePeriodSeconds because of that. Capping
+                  the worst case without reporting the actual one leaves the tenant who paid it unable to see the bill.
+
+                  A string so the value round-trips through YAML exactly, the same reason RunManifest.matchTolerance is
+                  one. Empty when the window was not observed, in which case the AdmitToRunningObserved condition says
+                  why -- absent and zero must not look alike.
+                type: string
+              admittedAt:
+                description: |-
+                  admittedAt is when Kueue admitted this job's Workload, taken from Kueue's own condition stamp.
+
+                  It is recorded ONLY on a reconcile that saw this job admitted and not yet running. A controller that
+                  was down across the whole admission-to-running window can still read Kueue's stamp afterwards, and
+                  using it then would report a duration nobody watched -- which is the defect queuelab's ledger exists
+                  to refuse. So the field's presence means the window was observed, not merely that admission happened.
+                format: date-time
+                type: string
+              attempts:
+                description: |-
+                  attempts records every start of a distributed job with maxRestarts above 0, oldest first.
+
+                  The first entry is written before the first Job is created, which is also what freezes the fields baked into
+                  the Pod template: between two attempts no Job exists, and the presence of an attempt is what still says one ran.
+                  Absent for every other job.
+                items:
+                  description: |-
+                    TrainingAttempt is one start of a restartable distributed job: its Job, why it ended, and when each step was seen.
+
+                    Every time is this controller's observation, written on the reconcile that saw the event, so each carries that
+                    reconcile's lag. None of them is "training resumed": readiness is not training, and the first optimizer step of an
+                    attempt is in the workload's own record, which the experiment reads; the controller never writes it.
+                  properties:
+                    allRanksReadyAt:
+                      description: allRanksReadyAt is when the controller first saw
+                        every rank Ready, the same rule runningObservedAt uses.
+                      format: date-time
+                      type: string
+                    createdAt:
+                      description: createdAt is when the controller saw this attempt's
+                        Job created.
+                      format: date-time
+                      type: string
+                    failureObservedAt:
+                      description: failureObservedAt is when the controller saw the
+                        trigger.
+                      format: date-time
+                      type: string
+                    jobUID:
+                      description: jobUID is the UID of this attempt's Job, recorded
+                        once the controller sees it; deletes are conditioned on it.
+                      type: string
+                    nodes:
+                      description: |-
+                        nodes are the nodes this attempt's ranks were seen on.
+
+                        A node that stops answering cannot be shown to have stopped its rank, so the attempt waits for it to be fenced.
+                      items:
+                        type: string
+                      maxItems: 8
+                      type: array
+                      x-kubernetes-list-type: set
+                    number:
+                      description: number counts attempts from 1; attempt n+1 starts
+                        only after attempt n is Stopped.
+                      format: int32
+                      minimum: 1
+                      type: integer
+                    state:
+                      description: |-
+                        state is where the attempt is.
+
+                        Preparing: recorded, its Job not yet seen. Active: its Job exists. Stopping: a trigger was seen and the controller
+                        is retiring the Job and waiting for its Pods, its Workload and any unreachable node to be gone. Stopped: all of that
+                        is confirmed, and the next attempt may start or the job fails.
+                      enum:
+                      - Preparing
+                      - Active
+                      - Stopping
+                      - Stopped
+                      type: string
+                    stopConfirmedAt:
+                      description: stopConfirmedAt is when every condition for starting
+                        the next attempt was confirmed.
+                      format: date-time
+                      type: string
+                    trigger:
+                      description: |-
+                        trigger is why the attempt ended: RankFailed (the Job failed), NodeFault (the platform's GPU fault path
+                        handed its Workload over), or JobDeleted (its Job went away while it was running).
+                      enum:
+                      - RankFailed
+                      - NodeFault
+                      - JobDeleted
+                      type: string
+                    waitingFor:
+                      description: waitingFor says, while the attempt is Stopping,
+                        what it still waits on.
+                      type: string
+                    workloadName:
+                      description: workloadName and workloadUID identify this attempt's
+                        Kueue Workload; the next attempt waits until it is gone.
+                      type: string
+                    workloadUID:
+                      type: string
+                  required:
+                  - number
+                  - state
+                  type: object
+                maxItems: 11
+                type: array
+                x-kubernetes-list-type: atomic
+              conditions:
+                description: |-
+                  conditions represent the current state of the MLTrainingJob resource.
+
+                  The status of each condition is one of True, False, or Unknown.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              lastTransitionTime:
+                description: lastTransitionTime is the time the phase last changed.
+                format: date-time
+                type: string
+              observedGeneration:
+                description: observedGeneration is the most recent generation observed
+                  by the controller.
+                format: int64
+                type: integer
+              phase:
+                description: phase tracks the Kueue admission and run lifecycle.
+                enum:
+                - Pending
+                - Admitted
+                - Running
+                - Succeeded
+                - Failed
+                type: string
+              readyRanks:
+                description: |-
+                  readyRanks is how many of a distributed job's Pods were Ready and not terminating at the last reconcile.
+
+                  A snapshot, not a claim that the group formed: ranks that finish in seconds may never all be Ready at once.
+                  Only the workload's own output can say the ranks communicated.
+                  Absent for a job without distributed, and for one whose Job has not reported readiness; 0 is written as 0.
+                format: int32
+                type: integer
+              runningObservedAt:
+                description: |-
+                  runningObservedAt is when this controller first saw the job Running: one ready Pod, or for a
+                  distributed job every rank ready or succeeded with at least one still ready.
+
+                  A distributed job used to be stamped on its first ready rank, which for a rank waiting at the
+                  rendezvous for a peer with no node is not the start of any work. The field is written once, so a job
+                  stamped under that rule before the change keeps its stamp.
+
+                  Named for what it is. Unlike admittedAt it is not a stamp written by the component that acted: it is
+                  this controller's observation, and it carries the watch lag between the kubelet starting a Pod and
+                  this reconcile seeing it. The two ends of admitToRunningSeconds are therefore read on different
+                  clocks, which is the same thing queuelab reports on two clocks and for the same reason.
+
+                  It used to say "an active Pod", and that was the defect, not just the wording: the phase read
+                  .status.active, which counts PENDING Pods, so this field was stamped for Pods no node had accepted.
+                  It now follows .status.ready, which counts active Pods whose Ready condition is true. That is
+                  stricter than "scheduled", so the lag this carries includes readiness as well as the watch -- and a
+                  job that finishes without ever being seen ready records no time here at all, with the
+                  AdmitToRunningObserved condition saying RunningNotObserved rather than leaving the field silently
+                  empty.
+                format: date-time
+                type: string
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.20.1
+  name: nodehealths.platform.lkhun9311.github.io
+spec:
+  group: platform.lkhun9311.github.io
+  names:
+    kind: NodeHealth
+    listKind: NodeHealthList
+    plural: nodehealths
+    singular: nodehealth
+  scope: Cluster
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.nodeName
+      name: Node
+      type: string
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1
+    schema:
+      openAPIV3Schema:
+        description: NodeHealth is the Schema for the nodehealths API
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: spec defines the desired state of NodeHealth
+            properties:
+              gpuClass:
+                description: |-
+                  gpuClass is the illustrative GPU class of the node (e.g. "l40s").
+
+                  Locally this is backed by simulated capacity (see the dev runbook).
+                type: string
+              nodeName:
+                description: |-
+                  nodeName is the name of the target Node object this resource tracks.
+
+                  It is immutable: a NodeHealth manages the unhealthy taint on exactly one node for its lifetime.
+
+                  Changing it would orphan the taint already applied to the old node, since cleanup only ever targets the node named here.
+                type: string
+                x-kubernetes-validations:
+                - message: nodeName is immutable
+                  rule: self == oldSelf
+            required:
+            - nodeName
+            type: object
+          status:
+            description: status defines the observed state of NodeHealth
+            properties:
+              conditions:
+                description: |-
+                  conditions represent the current state of the NodeHealth resource.
+
+                  The status of each condition is one of True, False, or Unknown.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              faultSignal:
+                description: |-
+                  faultSignal records the origin of the current fault signal.
+
+                  It is recorded for honesty: locally the signal is simulated, not a real hardware signal.
+                properties:
+                  code:
+                    description: code is an optional fault code.
+                    type: string
+                  source:
+                    description: source is the origin of the signal (e.g. "simulated").
+                    type: string
+                type: object
+              lastTransitionTime:
+                description: lastTransitionTime is the time the phase last changed.
+                format: date-time
+                type: string
+              observedGeneration:
+                description: observedGeneration is the most recent generation observed
+                  by the controller.
+                format: int64
+                type: integer
+              phase:
+                description: |-
+                  phase is the high-level health state of the node.
+
+                  Pending means no target node was found. Ready and Quarantine follow the node's own Ready condition, and
+                  Quarantine is the one that carries the unhealthy taint.
+
+                  The enum lists exactly the three values the controller can produce. It used to also admit Intake and
+                  Degraded, "reserved" for the lifecycle stages in docs/03 and emitted by nothing: there is one health
+                  signal here -- whether the node's Ready condition is True, with False, Unknown and absent deliberately
+                  collapsed together (isNodeReady) -- so no fourth or fifth state could be derived from it, and the GPU
+                  checks that would distinguish them need hardware this project does not have. A status value with no
+                  transition criteria and no operational meaning is a promise the type cannot keep, so it is not in the
+                  contract. Adding either back, with a definition and something that emits it, is the honest additive
+                  change.
+                enum:
+                - Pending
+                - Ready
+                - Quarantine
+                type: string
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.20.1
+  name: workloadruns.platform.lkhun9311.github.io
+spec:
+  group: platform.lkhun9311.github.io
+  names:
+    kind: WorkloadRun
+    listKind: WorkloadRunList
+    plural: workloadruns
+    singular: workloadrun
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.scenario
+      name: Scenario
+      type: string
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .status.verdict
+      name: Verdict
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1
+    schema:
+      openAPIV3Schema:
+        description: WorkloadRun is one injected failure and the evidence trail assembled
+          while it was watched.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: |-
+              WorkloadRunSpec declares what was injected, what is being watched, and what would count as recovery.
+
+              The expectation is DECLARED BEFORE the run rather than read off the result, which is the same reason the
+              benchmark harness freezes its manifest: a threshold chosen after seeing the number is not a threshold.
+
+              The deadline-inside-the-window rule is expressed here, at the type, because it relates two fields and a
+              per-field marker cannot see its sibling.
+
+              recoversWithinSeconds' own comment has said "it must not exceed observationWindowSeconds" since this type
+              was written, and nothing enforced it: there is no WorkloadRun webhook, and the only CEL rules on this type
+              were the two immutability rules. A run created with a deadline past its window is accepted today and then
+              asks for a verdict about a moment it stopped watching before -- the reconciler compares
+              status.recoveredAtSeconds against the deadline and would report a fail for a recovery it was never
+              watching for. A constraint a document states and no machine checks is the shape this repository keeps
+              finding; this one it stated about itself.
+            properties:
+              observationWindowSeconds:
+                description: |-
+                  observationWindowSeconds is how long to watch after the run starts.
+
+                  The window bounds the CLAIM as much as the work: a verdict says what happened inside it and nothing
+                  about after, and a run that recovers one second late is a fail rather than a slow pass.
+                format: int32
+                maximum: 3600
+                minimum: 5
+                type: integer
+              recoversWithinSeconds:
+                description: |-
+                  recoversWithinSeconds is the deadline the target must be observed healthy by, measured from the run's
+                  start. It must not exceed observationWindowSeconds, or the run would be asked to judge a deadline it
+                  stopped watching before.
+                format: int32
+                minimum: 1
+                type: integer
+              scenario:
+                description: |-
+                  scenario is the failure to inject. Immutable: a run is evidence about one injection, and editing it
+                  would leave observations attributed to an event that did not happen.
+                enum:
+                - ServingPodKilled
+                - DegradedNode
+                type: string
+                x-kubernetes-validations:
+                - message: scenario is immutable
+                  rule: self == oldSelf
+              target:
+                description: target is the object to watch.
+                properties:
+                  kind:
+                    description: kind is the target's kind. Only the kinds a scenario
+                      can actually act on are accepted.
+                    enum:
+                    - InferenceDeployment
+                    - NodeHealth
+                    type: string
+                  name:
+                    description: name is the target's name.
+                    minLength: 1
+                    type: string
+                  namespace:
+                    description: namespace is the target's namespace; empty for cluster-scoped
+                      kinds.
+                    type: string
+                required:
+                - kind
+                - name
+                type: object
+                x-kubernetes-validations:
+                - message: target is immutable
+                  rule: self == oldSelf
+            required:
+            - observationWindowSeconds
+            - recoversWithinSeconds
+            - scenario
+            - target
+            type: object
+            x-kubernetes-validations:
+            - message: 'recoversWithinSeconds must not exceed observationWindowSeconds:
+                the run would be asked to judge a deadline it stopped watching before'
+              rule: self.recoversWithinSeconds <= self.observationWindowSeconds
+          status:
+            description: WorkloadRunStatus is the evidence trail.
+            properties:
+              conditions:
+                description: conditions carries the standard machine-readable summary.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              lastObservedAt:
+                description: |-
+                  lastObservedAt is when the controller last actually looked.
+
+                  It exists so a GAP is detectable. Observations record only changes, so a trail with nothing in it for
+                  twenty seconds is indistinguishable from a platform that was steady for twenty seconds -- unless the
+                  controller also says when it last looked. A run whose gap exceeds what its poll interval allows is
+                  refused rather than concluded, because "nobody was watching" and "nothing happened" are the two facts
+                  an evidence trail exists to keep apart.
+                format: date-time
+                type: string
+              observations:
+                description: |-
+                  observations is the trail, in the order they were seen.
+
+                  Only CHANGES are appended. A trail that recorded every poll would say how often the controller ran
+                  rather than what the platform did.
+                items:
+                  description: WorkloadRunObservation is one thing the controller
+                    saw, stamped against the run's own start.
+                  properties:
+                    elapsedSeconds:
+                      description: |-
+                        elapsedSeconds is when it was seen, measured from startedAt rather than in wall-clock, so a trail can
+                        be read without knowing when the run happened.
+                      format: int32
+                      type: integer
+                    healthy:
+                      description: healthy is this controller's reading of state,
+                        kept beside it rather than replacing it.
+                      type: boolean
+                    state:
+                      description: |-
+                        state is what the target reported. Recorded verbatim rather than normalised: a controller that
+                        rewrote the target's own vocabulary would be summarising, which is what this type exists to stop.
+                      type: string
+                  required:
+                  - elapsedSeconds
+                  - healthy
+                  - state
+                  type: object
+                type: array
+                x-kubernetes-list-type: atomic
+              observedGeneration:
+                description: observedGeneration is the spec generation this status
+                  describes.
+                format: int64
+                type: integer
+              observedUnhealthy:
+                description: |-
+                  observedUnhealthy records that the target was seen in a non-healthy state at least once.
+
+                  Without it a recovery cannot be told from a target that was never broken. Every run starts with its
+                  target healthy, so "first healthy observation" is second zero -- and a run whose target never came
+                  back would report Recovered at 0s on the strength of the state it began in.
+                type: boolean
+              phase:
+                description: phase is the run's lifecycle position.
+                enum:
+                - Pending
+                - Observing
+                - Complete
+                - Refused
+                type: string
+              reason:
+                description: |-
+                  reason explains the phase, and for Refused it names which part of the observation is missing so the
+                  reader knows whether to re-run or to fix something.
+                type: string
+              recoveredAtSeconds:
+                description: recoveredAtSeconds is when the target was first observed
+                  healthy AFTER being observed unhealthy.
+                format: int32
+                type: integer
+              startedAt:
+                description: startedAt is when observation began. Every elapsedSeconds
+                  is relative to it.
+                format: date-time
+                type: string
+              targetUID:
+                description: |-
+                  targetUID is the UID of the target object observed when the run began.
+
+                  The target is named by kind, namespace and name, and a name outlives its object.
+                  A target deleted and recreated between two polls would otherwise be read as one object, and the new
+                  object's health credited as the old one's recovery, so a run that sees a different UID is refused.
+                type: string
+              verdict:
+                description: |-
+                  verdict is set only in phase Complete. An empty verdict beside phase Refused is the point: there is
+                  no answer, rather than an answer of "no".
+                enum:
+                - Recovered
+                - NotRecovered
+                type: string
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

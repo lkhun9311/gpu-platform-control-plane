@@ -1,0 +1,124 @@
+apiVersion: v1
+data:
+  queuelab-metrics.csv: |-
+    # Format,          Prometheus metric type, help message
+    DCGM_FI_DEV_GPU_UTIL, gauge, GPU utilization (in %).
+    DCGM_FI_DEV_XID_ERRORS, gauge, Value of the last XID error encountered.
+    DCGM_FI_DEV_ECC_DBE_VOL_TOTAL, counter, Total number of double-bit volatile ECC errors.
+    DCGM_FI_DEV_ECC_SBE_VOL_TOTAL, counter, Total number of single-bit volatile ECC errors.
+kind: ConfigMap
+metadata:
+  labels:
+    app.kubernetes.io/component: dcgm-exporter
+    app.kubernetes.io/name: gpu-platform-control-plane
+  name: dcgm-exporter-metrics
+  namespace: gpu-platform-control-plane-system
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/component: dcgm-exporter
+    app.kubernetes.io/name: gpu-platform-control-plane
+  name: dcgm-exporter
+  namespace: gpu-platform-control-plane-system
+spec:
+  clusterIP: None
+  ports:
+  - name: metrics
+    port: 9400
+    targetPort: metrics
+  selector:
+    app.kubernetes.io/component: dcgm-exporter
+    app.kubernetes.io/name: gpu-platform-control-plane
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  labels:
+    app.kubernetes.io/component: dcgm-exporter
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: gpu-platform-control-plane
+  name: dcgm-exporter
+  namespace: gpu-platform-control-plane-system
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: dcgm-exporter
+      app.kubernetes.io/name: gpu-platform-control-plane
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: dcgm-exporter
+        app.kubernetes.io/name: gpu-platform-control-plane
+    spec:
+      containers:
+      - args:
+        - -f
+        - /etc/dcgm-exporter/queuelab-metrics.csv
+        - -c
+        - "1000"
+        - -r
+        - localhost:5555
+        env:
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        - name: DCGM_EXPORTER_KUBERNETES
+          value: "true"
+        image: nvcr.io/nvidia/k8s/dcgm-exporter:3.3.9-3.6.1-ubuntu22.04@sha256:3d4e0dfa5fc4d7d12689d29fc6b56cd6c610750e8d187a393882e341fbba6c12
+        name: exporter
+        ports:
+        - containerPort: 9400
+          name: metrics
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: metrics
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        resources:
+          limits:
+            memory: 512Mi
+          requests:
+            cpu: 100m
+            memory: 128Mi
+        securityContext:
+          privileged: true
+        volumeMounts:
+        - mountPath: /var/lib/kubelet/pod-resources
+          name: pod-resources
+          readOnly: true
+        - mountPath: /etc/dcgm-exporter/queuelab-metrics.csv
+          name: metrics-config
+          subPath: queuelab-metrics.csv
+      - command:
+        - nv-hostengine
+        - -n
+        - --log-level
+        - ERROR
+        - -f
+        - /tmp/nv-hostengine.log
+        image: nvcr.io/nvidia/k8s/dcgm-exporter:3.3.9-3.6.1-ubuntu22.04@sha256:3d4e0dfa5fc4d7d12689d29fc6b56cd6c610750e8d187a393882e341fbba6c12
+        name: hostengine
+        securityContext:
+          privileged: true
+      nodeSelector:
+        platform.lkhun9311.github.io/gpu: "true"
+      tolerations:
+      - effect: NoSchedule
+        key: nvidia.com/gpu
+        operator: Exists
+      - effect: NoSchedule
+        key: platform.lkhun9311.github.io/gpu-fault
+        operator: Exists
+      volumes:
+      - hostPath:
+          path: /var/lib/kubelet/pod-resources
+        name: pod-resources
+      - configMap:
+          name: dcgm-exporter-metrics
+        name: metrics-config
+  updateStrategy:
+    type: RollingUpdate

@@ -1,0 +1,51 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  labels:
+    app.kubernetes.io/component: gpu-simulator
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: gpu-platform-control-plane
+  name: gpu-simulator
+  namespace: gpu-platform-control-plane-system
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: gpu-simulator
+      app.kubernetes.io/name: gpu-platform-control-plane
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: gpu-simulator
+        app.kubernetes.io/name: gpu-platform-control-plane
+    spec:
+      containers:
+      - command:
+        - /gpu-simulator
+        env:
+        - name: FAKE_GPU_COUNT
+          value: "1"
+        image: gpu-simulator:latest
+        name: gpu-simulator
+        resources:
+          limits:
+            cpu: 100m
+            memory: 64Mi
+          requests:
+            cpu: 10m
+            memory: 32Mi
+        securityContext:
+          privileged: true
+          runAsNonRoot: false
+          runAsUser: 0
+        volumeMounts:
+        - mountPath: /var/lib/kubelet/device-plugins
+          name: device-plugins
+      priorityClassName: system-node-critical
+      terminationGracePeriodSeconds: 5
+      tolerations:
+      - operator: Exists
+      volumes:
+      - hostPath:
+          path: /var/lib/kubelet/device-plugins
+          type: Directory
+        name: device-plugins
