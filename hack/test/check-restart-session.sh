@@ -407,6 +407,35 @@ fi
 out="$(lib noexporter 'restart_probe_all "$RESTART_OUT" before; echo "rc=$?"')"
 if [[ "$out" == *"no exporter Pod was Running"*"rc=1" ]]; then ok "a probe of no node fails"; else bad "the probe of no node: $out"; fi
 
+# An exporter Pod still listed Running on a Node the group no longer has is not probed: on kind the scale-in to two left
+# one for seconds, its probe failed, and terminate-wait-1 was VOID before its fault.
+mkdir -p "$work/rules/gone"
+cat >"$work/rules/gone/kubectl.sh" <<'EOF'
+case "$*" in
+  *"get nodes -l eks.amazonaws.com/nodegroup=gpu"*) echo "node-a" ;;
+  *"component=dcgm-exporter"*) printf 'node-a dcgm-a\nnode-gone dcgm-x\n' ;;
+  *"exec dcgm-a -c exporter -- date"*) date +%s.%N ;;
+  *"exec dcgm-x"*) echo 'error: unable to upgrade connection: pods "node-gone" not found' >&2; exit 1 ;;
+esac
+EOF
+out="$(lib gone 'restart_probe_all "$RESTART_OUT" before; echo "rc=$?"')"
+probed="$(python3 -c 'import json, sys; print(" ".join(json.loads(l)["node"] for l in open(sys.argv[1])))' "$work/out/gone/clock.jsonl" 2>&1)"
+if [[ "$out" == "rc=0" && "$probed" == node-a ]] && ! grep -q 'exec dcgm-x' "$work/gone.calls"; then
+  ok "an exporter left on a Node the group no longer has is not probed"
+else
+  bad "the exporter on a gone Node: $out; probed '$probed'; $(grep -c 'exec dcgm-x' "$work/gone.calls") exec(s) into it"
+fi
+mkdir -p "$work/rules/gone-unread"
+cat >"$work/rules/gone-unread/kubectl.sh" <<'EOF'
+case "$*" in
+  *"get nodes -l eks.amazonaws.com/nodegroup=gpu"*) echo "Unable to connect to the server" >&2; exit 1 ;;
+  *"component=dcgm-exporter"*) echo 'node-a dcgm-a' ;;
+  *"exec dcgm-a -c exporter -- date"*) date +%s.%N ;;
+esac
+EOF
+out="$(lib gone-unread 'restart_probe_all "$RESTART_OUT" before; echo "rc=$?"')"
+if [[ "$out" == *"rc=1" ]]; then ok "a group whose Nodes cannot be read is no clock read"; else bad "the unreadable group: $out"; fi
+
 # Retirement waits for the job's objects, and an API error is not their absence.
 mkdir -p "$work/rules/retire"
 cat >"$work/rules/retire/kubectl.sh" <<'EOF'
@@ -451,6 +480,7 @@ runner() {
 mkdir -p "$work/rules/void-retire"
 cat >"$work/rules/void-retire/kubectl.sh" <<'EOF'
 case "$*" in
+  *"get nodes -l eks.amazonaws.com/nodegroup=gpu"*) echo "node-a" ;;
   *"component=dcgm-exporter"*) echo "node-a dcgm-a" ;;
   *"exec dcgm-a -c exporter -- date"*) date +%s.%N ;;
   *"get mltrainingjob rst-dcgm-1"*"-o name"*) echo "Unable to connect to the server" >&2; exit 1 ;;
@@ -472,6 +502,7 @@ fi
 mkdir -p "$work/rules/run-retire"
 cat >"$work/rules/run-retire/kubectl.sh" <<'EOF'
 case "$*" in
+  *"get nodes -l eks.amazonaws.com/nodegroup=gpu"*) echo "node-a" ;;
   *"component=dcgm-exporter"*) echo "node-a dcgm-a" ;;
   *"exec dcgm-a -c exporter -- date"*) date +%s.%N ;;
   *"get mltrainingjob rst-reference"*"-o name"*) echo "Unable to connect to the server" >&2; exit 1 ;;
@@ -498,6 +529,7 @@ case "$*" in
   *"logs -f rp0"*) echo '{"ts": "t", "attempt": 1, "rank": 0, "event": "step", "step": 12}' ;;
   *"logs -f rp1"*) echo '{"ts": "t", "attempt": 1, "rank": 1, "event": "step", "step": 12}' ;;
   *"spec.nodeName=node-b,status.phase=Running"*) echo "dcgm-b " ;;
+  *"get nodes -l eks.amazonaws.com/nodegroup=gpu"*) printf 'node-a\nnode-b\n' ;;
   *"component=dcgm-exporter"*) printf 'node-a dcgm-a\nnode-b dcgm-b\n' ;;
   *"-c exporter -- date"*) date +%s.%N ;;
   *"-- cat /state/"*"/LATEST"*) echo "a1/00000012-0123456789abcdef0123456789abcdef" ;;

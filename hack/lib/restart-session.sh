@@ -424,10 +424,23 @@ restart_clock_probe() {
   printf '{"node": "%s", "pod": "%s", "before": %s, "node_time": %s, "after": %s}\n' "$node" "$pod" "$before" "$t" "$after"
 }
 
-# restart_exporters: "node pod" for every Running exporter Pod, the clock and fault path's way onto each GPU node.
+# restart_exporters: "node pod" for every Running exporter Pod on a Node the GPU group has now, the clock and fault
+# path's way onto each GPU node; fails when either list cannot be read.
+#
+# A Pod stays listed Running for a while after its Node is deleted, so a node the group just scaled in or lost would
+# otherwise be probed, fail, and void the next case before its fault, as terminate-wait-1 was on the kind rehearsal.
 restart_exporters() {
-  rk -n "$RESTART_SYS" get pods -l app.kubernetes.io/component=dcgm-exporter --field-selector status.phase=Running \
-    -o jsonpath='{range .items[*]}{.spec.nodeName}{" "}{.metadata.name}{"\n"}{end}'
+  local nodes pods
+  nodes="$(rk get nodes -l "eks.amazonaws.com/nodegroup=$RESTART_GROUP" -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>&1)" || {
+    echo "could not list the GPU nodes: ${nodes:0:200}" >&2
+    return 1
+  }
+  pods="$(rk -n "$RESTART_SYS" get pods -l app.kubernetes.io/component=dcgm-exporter --field-selector status.phase=Running \
+    -o jsonpath='{range .items[*]}{.spec.nodeName}{" "}{.metadata.name}{"\n"}{end}' 2>&1)" || {
+    echo "could not list the exporters: ${pods:0:200}" >&2
+    return 1
+  }
+  awk 'NR == FNR {if (NF) up[$1] = 1; next} ($1 in up) {print}' <(printf '%s\n' "$nodes") <(printf '%s\n' "$pods")
 }
 
 # restart_probe_all DIR LABEL: a probe of every GPU node's clock, appended to DIR/clock.jsonl; fails if any cannot be read.
