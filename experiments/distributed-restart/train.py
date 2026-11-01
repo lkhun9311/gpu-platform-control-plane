@@ -366,10 +366,11 @@ def shard_ok(rel: str, manifest: dict, rank: int) -> bool:
             # Absent and unreadable are both retried, but recorded apart: ENOENT is what a client's cached absence gives,
             # and any other error is something else.
             errors.append(exc.errno)
-            # Opening the directory makes an NFS client ask the server for it and drop what it cached as absent there.
-            # A lookup alone trusts a cached absence until the directory's cached attributes expire, 30 to 60 s under the
-            # options EFS recommends, and in the first kind run over NFS a rank on a node that had looked its shard up
-            # before the shard existed refused every checkpoint through all six looks, while the listing named it.
+            # The directory is listed before the next look, because looking again alone did not help: in the first kind
+            # run over NFS, a rank on a node that had looked its shard up before the shard existed refused every
+            # checkpoint through all six looks while a listing of the same directory named the shard.
+            # With the listing, the next look found it in every kind run since; which change in the client's cache does
+            # that is not established, so this is a mitigation measured on Linux 7.0 against ganesha, not a guarantee.
             # Whether the listing names the shard also separates a shard the server lacks from one the client hid.
             try:
                 listed.append(entry["file"] in os.listdir(os.path.dirname(path)))
