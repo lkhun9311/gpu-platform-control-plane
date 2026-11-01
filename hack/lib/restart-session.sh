@@ -1213,7 +1213,7 @@ restart_void_case() {
   fi
   restart_retire "$name" $((retire_dl - SECONDS)) >>"$dir/case.log" || {
     echo "retirement of the VOID case $name was not confirmed; its files are left on the volume and nothing more may start" >>"$dir/case.log"
-    restart_list_shared "$dir" "$job_id"
+    restart_read_shared "$dir" "$job_id"
     return 2
   }
   restart_case_files "$dir" "$job_id"
@@ -1226,15 +1226,24 @@ restart_list_shared() {
   rkt 30 -n "$RESTART_NS" exec rst-reader -- find "$RESTART_MOUNT/$2" -type f >"$1/shared-files.txt" 2>>"$1/case.log"
 }
 
-# restart_case_files DIR JOB_ID: a retired case's NCCL logs copied, its files listed, and its directory deleted.
+# restart_read_shared DIR JOB_ID: the case's NCCL logs copied into DIR/nccl and its files listed, both read-only.
 #
-# Three calls of at most 30 s, and the verdict's 30 s after the reset, are RESTART_FILES_BUDGET.
-restart_case_files() {
+# An unretired case is read this way too: its logs were once left on the volume with it, and score_eks.py then voided a
+# case that had recovered for having no NCCL log, a reason that named the transport when only the copy was missing
+# (the kind rehearsal).
+restart_read_shared() {
   local dir="$1" job_id="$2"
   mkdir -p "$dir/nccl"
   rkt 30 -n "$RESTART_NS" exec rst-reader -- tar -C "$RESTART_MOUNT/$job_id" -cf - nccl 2>>"$dir/case.log" | tar -C "$dir" -xf - 2>>"$dir/case.log"
   restart_list_shared "$dir" "$job_id"
-  rkt 30 -n "$RESTART_NS" exec rst-reader -- rm -rf "$RESTART_MOUNT/$job_id" >>"$dir/case.log" 2>&1
+}
+
+# restart_case_files DIR JOB_ID: a retired case's NCCL logs copied, its files listed, and its directory deleted.
+#
+# Three calls of at most 30 s, and the verdict's 30 s after the reset, are RESTART_FILES_BUDGET.
+restart_case_files() {
+  restart_read_shared "$1" "$2"
+  rkt 30 -n "$RESTART_NS" exec rst-reader -- rm -rf "$RESTART_MOUNT/$2" >>"$1/case.log" 2>&1
 }
 
 # restart_run_case CASE SLOT_DEADLINE: one registered case, from submission to its retirement, inside the slot
@@ -1325,10 +1334,10 @@ restart_run_case() {
   # The writers are stopped before their files are copied and deleted.
   # A case whose retirement cannot be confirmed may still be writing and still hold GPUs and quota, so its files stay on
   # the volume and the run stops (codex review of 830f64af).
-  # Their listing is still written, read-only, so the scorer is not left without it.
+  # Their NCCL logs and listing are still read, read-only, so the scorer is not left without them.
   restart_retire "$name" $((retire_dl - SECONDS)) >>"$dir/case.log" || {
     echo "retirement of $name was not confirmed; its files are left on the volume" >>"$dir/case.log"
-    restart_list_shared "$dir" "$job_id"
+    restart_read_shared "$dir" "$job_id"
     return 2
   }
   restart_case_files "$dir" "$job_id"

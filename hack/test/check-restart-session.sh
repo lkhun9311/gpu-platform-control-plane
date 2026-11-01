@@ -538,6 +538,17 @@ else
   bad "the unretired case: missing${missing:- nothing}; no-rng-control: $(cat "$work/out/run-retire/no-rng-control/NOTRUN" 2>&1)"
 fi
 
+# An unretired case's NCCL logs are still copied, read-only, as its listing is: on the kind rehearsal they were not, and
+# score_eks.py voided a case that had recovered for "no NCCL log", which said the transport was unknown when it was
+# only left on the volume.
+for c in void-retire:dcgm-1 run-retire:reference; do
+  if grep -q "exec rst-reader -- tar -C /state/rst-${c#*:}-" "$work/${c%%:*}.calls" && [[ -d "$work/out/${c%%:*}/${c#*:}/nccl" ]]; then
+    ok "${c%%:*}: the unretired case's NCCL logs are copied though its files stay on the volume"
+  else
+    bad "${c%%:*}: the unretired case's NCCL logs were not copied"
+  fi
+done
+
 # A cluster on which a case reaches its fault: two ranks stepping on node-a and node-b, LATEST at step 12, an exporter on
 # each node, and a host engine that accepts the injection; each case below overrides one answer and sources the rest.
 cat >"$work/fullcase.sh" <<'EOF'
