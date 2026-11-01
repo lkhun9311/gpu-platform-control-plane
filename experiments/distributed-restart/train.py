@@ -259,11 +259,16 @@ def save(rank: int, world: int, step: int, state: dict, fault: Fault) -> None:
     # Monotonic, so the checkpoint cost the record carries is this rank's own interval and no clock step can move it.
     started = time.monotonic()
     # The ranks agree on the step and on a name nothing has used; rank 0's choice is the one that counts.
-    ident = broadcast_json([step, uuid.uuid4().hex], rank)
+    # Rank 0 alone creates the directory, before it names it to the others.
+    # When every rank created it, on NFS one rank's client could look the name up absent, lose the mkdir to another
+    # node's, and then keep finding it absent from its cache: the first kind run over NFS died that way at step 1.
+    name = uuid.uuid4().hex
+    if rank == 0:
+        os.mkdir(os.path.join(ROOT, f"a{ATTEMPT}", f"{step:08d}-{name}"))
+    ident = broadcast_json([step, name], rank)
     if ident[0] != step:
         raise RuntimeError(f"rank {rank} is at step {step}, rank 0 at step {ident[0]}")
     ckpt = os.path.join(ROOT, f"a{ATTEMPT}", f"{step:08d}-{ident[1]}")
-    os.makedirs(ckpt, exist_ok=True)
     if SHARD_DELAY:
         time.sleep(SHARD_DELAY)
 
@@ -507,7 +512,10 @@ def train() -> int:
     torch.set_num_threads(1)
     torch.manual_seed(0)
     dist.init_process_group(backend=BACKEND, timeout=datetime.timedelta(seconds=COLLECTIVE_TIMEOUT))
-    os.makedirs(ROOT, exist_ok=True)
+    # Rank 0 alone creates the job's and the attempt's directories, and the others wait for it, for the reason save gives.
+    if rank == 0:
+        os.makedirs(os.path.join(ROOT, f"a{ATTEMPT}"), exist_ok=True)
+    dist.barrier()
     fault = Fault(FAULT)
     # One fixed buffer, made once, so what a save's timing includes is the write and not building the bytes.
     ballast = torch.full((BALLAST_MB << 20,), 7, dtype=torch.uint8, device=device) if BALLAST_MB else None
