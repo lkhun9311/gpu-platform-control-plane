@@ -1,0 +1,88 @@
+apiVersion: v1
+items:
+- apiVersion: platform.lkhun9311.github.io/v1
+  kind: NodeHealth
+  metadata:
+    annotations:
+      gpufault.platform.lkhun9311.github.io/reading: fake-gpu-0/DCGM_FI_DEV_XID_ERRORS=0,fake-gpu-0/DCGM_FI_DEV_ECC_DBE_VOL_TOTAL=0,fake-gpu-0/DCGM_FI_DEV_ECC_SBE_VOL_TOTAL=0
+      gpufault.platform.lkhun9311.github.io/reading-at: "2026-10-31T23:56:56.42206521Z"
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"platform.lkhun9311.github.io/v1","kind":"NodeHealth","metadata":{"annotations":{},"name":"gf-healthy"},"spec":{"nodeName":"gpufault-control-plane"}}
+    creationTimestamp: "2026-10-31T23:56:36Z"
+    finalizers:
+    - nodehealth.platform.lkhun9311.github.io/finalizer
+    generation: 1
+    name: gf-healthy
+    resourceVersion: "1251"
+    uid: c3a8be05-a7dd-4e31-9618-89c4056930b4
+  spec:
+    nodeName: gpufault-control-plane
+  status:
+    conditions:
+    - lastTransitionTime: "2026-10-31T23:56:56Z"
+      message: Target node is Ready
+      observedGeneration: 1
+      reason: NodeReady
+      status: "True"
+      type: Ready
+    - lastTransitionTime: "2026-10-31T23:56:56Z"
+      message: 1 card(s) read within 5s
+      observedGeneration: 1
+      reason: Fresh
+      status: "True"
+      type: GPUSignal
+    - lastTransitionTime: "2026-10-31T23:56:56Z"
+      message: no fault field set on any card
+      observedGeneration: 1
+      reason: NoFault
+      status: "True"
+      type: GPUHealthy
+    lastTransitionTime: "2026-10-31T23:56:56Z"
+    observedGeneration: 1
+    phase: Ready
+- apiVersion: platform.lkhun9311.github.io/v1
+  kind: NodeHealth
+  metadata:
+    annotations:
+      gpufault.platform.lkhun9311.github.io/cleared-at: "2026-11-01T00:01:23.429330345Z"
+      gpufault.platform.lkhun9311.github.io/observed-at: "2026-10-31T23:59:22.421780582Z"
+      gpufault.platform.lkhun9311.github.io/reading: fake-gpu-0/DCGM_FI_DEV_XID_ERRORS=0,fake-gpu-0/DCGM_FI_DEV_ECC_DBE_VOL_TOTAL=0,fake-gpu-0/DCGM_FI_DEV_ECC_SBE_VOL_TOTAL=1
+      gpufault.platform.lkhun9311.github.io/reading-at: "2026-11-01T00:01:36.421502751Z"
+      gpufault.platform.lkhun9311.github.io/tainted-at: "2026-10-31T23:59:22.432720113Z"
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"platform.lkhun9311.github.io/v1","kind":"NodeHealth","metadata":{"annotations":{},"name":"gf-target"},"spec":{"nodeName":"gpufault-worker"}}
+    creationTimestamp: "2026-10-31T23:56:36Z"
+    finalizers:
+    - nodehealth.platform.lkhun9311.github.io/finalizer
+    generation: 1
+    name: gf-target
+    resourceVersion: "2195"
+    uid: 9712f80c-6cf3-475a-8a1d-4a3aba896e7a
+  spec:
+    nodeName: gpufault-worker
+  status:
+    conditions:
+    - lastTransitionTime: "2026-10-31T23:56:56Z"
+      message: Target node is Ready
+      observedGeneration: 1
+      reason: NodeReady
+      status: "True"
+      type: Ready
+    - lastTransitionTime: "2026-10-31T23:56:56Z"
+      message: 1 card(s) read within 5s
+      observedGeneration: 1
+      reason: Fresh
+      status: "True"
+      type: GPUSignal
+    - lastTransitionTime: "2026-11-01T00:01:23Z"
+      message: no fault field set on any card
+      observedGeneration: 1
+      reason: NoFault
+      status: "True"
+      type: GPUHealthy
+    lastTransitionTime: "2026-11-01T00:01:23Z"
+    observedGeneration: 1
+    phase: Ready
+kind: List
+metadata:
+  resourceVersion: ""

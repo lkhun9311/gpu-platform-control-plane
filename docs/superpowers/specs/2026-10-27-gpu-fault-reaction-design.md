@@ -426,4 +426,9 @@ The arms run again as registered; run 3's evidence is scored on its own and is n
 **Cost.** The operating allowance by this page's convention becomes 7,150 + 900 s, 2.24 h, **$2.53** at $1.1324 per instance-hour.
 Run 2 ran 3,308 s for about **$0.63** at the zone's Spot price; run 3 adds the check and its pre-pull, so about the same is expected.
 
+**Rehearsed on kind, 2026-11-01**, from `4726f072` with one block (`GF_BLOCKS=1`): `hack/gpu-fault-rehearsal-20261031T235244Z/`.
+The label is REHEARSAL and the four arms are UNJUDGED with one repetition each, as one block must leave them; stale-healthy, stale-latched and recovery each PASS, and the recovery line says its job was busybox, not CUDA.
+`dirty_files=1` in its provenance is the rehearsal's own evidence directory, which exists before the line is written.
+It shows the procedure, the gate on `zero_given` and the scorer working together; it shows nothing about a card.
+
 **What it does not license**, beyond the list above: that a card which really faulted is healthy once DCGM reads zero, since the fault was injected into DCGM's cache and the card never faulted; that the device plugin would return to a tainted node, since it does not tolerate the fault taint and the session never restarts it; a burn-in, since one vectorAdd is one kernel; a recovery time, since one check is one observation.
