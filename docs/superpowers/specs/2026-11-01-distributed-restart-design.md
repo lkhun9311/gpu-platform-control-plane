@@ -1,6 +1,6 @@
 # Distributed restart: a distributed MLTrainingJob survives the loss of a rank by restarting the whole job from a checkpoint
 
-Written 2026-11-01. Status: **built and run on kind; not yet run on GPUs.** The controller, webhook and trainer protocol were merged to `dev` in #465, and what ran is in `experiments/distributed-restart/README.md`: the kind cases, including a rank cut from the API server that kept writing until it was fenced, and the checkpoint protocol's local check. The paid GPU session is not designed here yet.
+Written 2026-11-01. Status: **built and run on kind; not yet run on GPUs.** The controller, webhook and trainer protocol were merged to `dev` in #465, and what ran is in `experiments/distributed-restart/README.md`: the kind cases, including a rank cut from the API server that kept writing until it was fenced, and the checkpoint protocol's local check. The paid GPU session's apparatus is the DRAFT section "The paid session: apparatus" below, not yet approved.
 Until this line it said: "DRAFT v2 (revised after a cold attack, 2026-11-01; the findings and answers are at the end), design only; nothing below is built or measured yet". The text below is that draft, and every file:line in it is at `origin/dev` `6647d9bd`, before the merge.
 Engines: the contract was attacked and redesigned with codex `gpt-6-astra` (2026-10-31, read-only); the choice of a same-name Job below departs from its proposal and says why.
 
@@ -137,8 +137,9 @@ These are not built by this apparatus, and each one alone stops the session.
 
 - **The restart controller is not on `main`.** Argo deploys the operator from `main` (`config/argocd/operator.yaml`), whose image pin is commit `0390a228`, built from `3963f2ac3346` on 2026-10-30; the restart controller is `7ddad46b` and `65874ddb`, 2026-10-31, on `dev` only, and `origin/main`'s API has no `maxRestarts` (A2).
   Promotion to `main` and the CI image pin are the owner's step; the runner refuses before it buys anything when the deployed CRD lacks `distributed.maxRestarts` or the operator Pod's image digest is not the one `main` pins.
-- **Design steps 3 and 4 are not finished.** The kind cases ran on a shared host directory, "without NFS's semantics" (`hack/kind-config-restart.yaml`), and the node-lost case froze a whole worker rather than cutting one from the API server while it kept writing (A16).
-  The torn-checkpoint cases against an in-cluster NFS server and the API-cut case are what this design ordered before a GPU; the GPU session does not replace them, and EFS is where their absence would be paid for.
+- **Design step 3 is not finished.** The kind cases ran on a shared host directory, "without NFS's semantics" (`hack/kind-config-restart.yaml`) (A16).
+  The torn-checkpoint cases against an in-cluster NFS server are what this design ordered before a GPU; the GPU session does not replace them, and EFS is where their absence would be paid for.
+  The API-cut case of step 4 has since run on kind as `cut-writer`, with an early-fence control (`experiments/distributed-restart/README.md`, `hack/distributed-restart-kind-20261101T055239Z`).
 - **The owner's approval of this section, with the case list and the cost ceiling below.**
 
 The quota is not a blocker any more: `L-DB2E81BA` (Running On-Demand G and VT instances) in ap-northeast-2 reads **128 vCPU**, the increase request closed at 128 on 2026-11-01 (`aws service-quotas get-service-quota`, `list-requested-service-quota-change-history-by-quota`).
