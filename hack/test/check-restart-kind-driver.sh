@@ -78,13 +78,35 @@ sleep 0.5
 before="$(wc -l <"$work/ticks")"
 sleep 1.5
 after="$(wc -l <"$work/ticks")"
-if [[ "$before" -gt 0 && "$before" == "$after" ]] && ! kill -0 "$pid" 2>&1 | grep -qv 'No such process'; then
+# kill -0's status, not its output: a live process makes it print nothing, which a grep for its error read as gone
+# (codex review of 8caf0d6e).
+if [[ "$before" -gt 0 && "$before" == "$after" ]] && ! kill -0 "$pid" 2>>"$work/kill0.err"; then
   ok "stopping a helper stops its command substitution's loop ($before ticks, none after)"
 else
   bad "a helper's loop went on after it was stopped: $before ticks, then $after"
 fi
 # A survivor would otherwise hold this script's output open after it ends.
 for p in $tree; do kill -KILL "$p" 2>&1 | grep -v 'No such process'; done
+# A helper whose shell takes a second to finish on TERM: rstk_kill_tree returns only once it has, so the cluster is not
+# torn down under a helper still running (codex review of 8caf0d6e: the wait ran in a pipeline's subshell and waited
+# for nothing).
+helper2() {
+  trap 'sleep 1; echo done >"$work/waited"; exit 0' TERM
+  while :; do sleep 0.1; done
+}
+helper2 &
+pid=$!
+# A watchdog, so a helper that is never stopped cannot hang this check.
+(
+  sleep 8
+  kill -KILL "$pid" 2>>"$work/watchdog.err"
+) &
+dog=$!
+sleep 0.5
+rstk_kill_tree "$pid"
+if [[ -s "$work/waited" ]]; then ok "rstk_kill_tree waits for the helper to finish"; else bad "rstk_kill_tree returned before the helper finished"; fi
+if kill -0 "$pid" 2>>"$work/kill0.err"; then bad "the helper still runs after rstk_kill_tree"; else ok "the helper is gone after rstk_kill_tree"; fi
+rstk_kill_tree "$dog"
 if grep -qE 'kill "\$p" 2>>' hack/restart-lifecycle-kind.sh || ! grep -q 'rstk_kill_tree "\$p"' hack/restart-lifecycle-kind.sh; then
   bad "the driver's cleanup stops its helpers some other way than rstk_kill_tree"
 else
