@@ -57,6 +57,13 @@ STEP_SLEEP = float(os.environ.get("CKPT_STEP_SLEEP", "0"))
 # How long a collective waits for a peer before failing; torch's default is 30 minutes, and a rank whose peer's node
 # was lost would hold its Pod Running, and the attempt unfailed, for all of it.
 COLLECTIVE_TIMEOUT = float(os.environ.get("CKPT_COLLECTIVE_TIMEOUT", "1800"))
+# How long the ranks wait for each other to join before training, or unset to bound the join by COLLECTIVE_TIMEOUT too.
+# A restarted attempt can start one rank on a surviving node minutes before its peer's replacement node exists.
+# Bounded by the collective timeout, that rank failed the attempt at 61 s with "1/2 clients joined", the kind rehearsal's
+# terminate-wait-1 of 2026-11-01, so a case built to recover on a replacement could not.
+# Only the join waits this long: a peer lost after it is still noticed at COLLECTIVE_TIMEOUT.
+_RENDEZVOUS = os.environ.get("CKPT_RENDEZVOUS_TIMEOUT", "")
+RENDEZVOUS_TIMEOUT = float(_RENDEZVOUS) if _RENDEZVOUS else None
 # Seconds between heartbeat writes to the shared volume, 0 for none.
 # The kind case cut-writer reads them from the host to show when each attempt's ranks last wrote, which a rank's stdout
 # cannot show once its node is cut off from the API server that streams it.
@@ -506,6 +513,13 @@ def train() -> int:
     if BALLAST_MB < 0:
         print(f"CKPT_BALLAST_MB={BALLAST_MB} is negative", file=sys.stderr)
         return 2
+    if RENDEZVOUS_TIMEOUT is not None and RENDEZVOUS_TIMEOUT <= 0:
+        print(f"CKPT_RENDEZVOUS_TIMEOUT={RENDEZVOUS_TIMEOUT} is not positive", file=sys.stderr)
+        return 2
+    # Under torchrun the agent's store already listens on MASTER_PORT, so a second store on rank 0 could not bind it.
+    if RENDEZVOUS_TIMEOUT is not None and os.environ.get("TORCHELASTIC_USE_AGENT_STORE"):
+        print("CKPT_RENDEZVOUS_TIMEOUT needs train.py started directly, not under torchrun", file=sys.stderr)
+        return 2
     rank = int(os.environ["RANK"])
     world = int(os.environ["WORLD_SIZE"])
     device = select_device(rank)
@@ -515,7 +529,16 @@ def train() -> int:
     COMM_DEVICE = device
     torch.set_num_threads(1)
     torch.manual_seed(0)
-    dist.init_process_group(backend=BACKEND, timeout=datetime.timedelta(seconds=COLLECTIVE_TIMEOUT))
+    collective = datetime.timedelta(seconds=COLLECTIVE_TIMEOUT)
+    if RENDEZVOUS_TIMEOUT is None:
+        dist.init_process_group(backend=BACKEND, timeout=collective)
+    else:
+        # The store env:// would build, with its own wait for every rank to connect, from whichever side arrives first.
+        # Every later store operation, which the process group's own exchanges wait on, is back at the collective timeout.
+        store = dist.TCPStore(os.environ["MASTER_ADDR"], int(os.environ["MASTER_PORT"]), world, rank == 0,
+                              timeout=datetime.timedelta(seconds=RENDEZVOUS_TIMEOUT), wait_for_workers=True)
+        store.set_timeout(collective)
+        dist.init_process_group(backend=BACKEND, store=store, rank=rank, world_size=world, timeout=collective)
     # Rank 0 alone creates the job's and the attempt's directories, and the others wait for it, for the reason save gives.
     if rank == 0:
         os.makedirs(os.path.join(ROOT, f"a{ATTEMPT}"), exist_ok=True)
