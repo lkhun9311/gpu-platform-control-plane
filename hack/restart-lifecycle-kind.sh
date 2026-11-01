@@ -66,7 +66,8 @@ BG=()
 OWNED=""
 cleanup() {
   local p listed
-  for p in "${BG[@]}"; do kill "$p" 2>>"$LOG"; done
+  # Each helper's whole process tree, its command substitutions' loops included, so none polls a cluster that is gone.
+  for p in "${BG[@]}"; do rstk_kill_tree "$p" >>"$LOG" 2>&1; done
   if [ -n "$DELEG_WAS" ]; then
     set_deleg "$DELEG_WAS" >>"$LOG" 2>&1 || log "cleanup: restoring $DELEG to $DELEG_WAS FAILED"
     log "cleanup: $DELEG is now $(cat "$DELEG" 2>&1), was $DELEG_WAS"

@@ -7,6 +7,7 @@
 #
 # Parts:
 #   1. a kind cluster list that cannot be read stops the driver before it creates or removes anything;
+#   2. stopping a helper stops its whole process tree, its command substitutions' loops included;
 set -uo pipefail
 cd "$(dirname "$0")/../.." || exit 1
 
@@ -56,6 +57,37 @@ if [[ "$rc" != 0 && "$touched" == 0 && "$(cat "$work/evidence/VOID" 2>&1)" == "c
   ok "an unreadable cluster list stops the driver before it builds, creates or removes anything"
 else
   bad "with the cluster list unreadable the driver exited $rc after $touched build, create or remove call(s): $(tail -2 <<<"$out")"
+fi
+
+# --- 2. a helper's whole process tree -------------------------------------------------------------------------------
+# A helper like hold_quota: its own loop waits in a command substitution, which loops itself and ticks a file.
+helper() {
+  local m
+  m=$(while :; do echo tick >>"$work/ticks"; sleep 0.2; done)
+  echo "$m"
+}
+: >"$work/ticks"
+helper &
+pid=$!
+sleep 1
+# Read before the kill, so a loop that survives can still be found and stopped once it has been measured.
+tree="$(rstk_descendants "$pid")"
+rstk_kill_tree "$pid"
+sleep 0.5
+before="$(wc -l <"$work/ticks")"
+sleep 1.5
+after="$(wc -l <"$work/ticks")"
+if [[ "$before" -gt 0 && "$before" == "$after" ]] && ! kill -0 "$pid" 2>&1 | grep -qv 'No such process'; then
+  ok "stopping a helper stops its command substitution's loop ($before ticks, none after)"
+else
+  bad "a helper's loop went on after it was stopped: $before ticks, then $after"
+fi
+# A survivor would otherwise hold this script's output open after it ends.
+for p in $tree; do kill -KILL "$p" 2>&1 | grep -v 'No such process'; done
+if grep -qE 'kill "\$p" 2>>' hack/restart-lifecycle-kind.sh || ! grep -q 'rstk_kill_tree "\$p"' hack/restart-lifecycle-kind.sh; then
+  bad "the driver's cleanup stops its helpers some other way than rstk_kill_tree"
+else
+  ok "the driver's cleanup stops each helper with rstk_kill_tree"
 fi
 
 if ((fails)); then

@@ -19,3 +19,33 @@ rstk_cluster_listed() {
   if grep -qx -- "$1" <<<"$listed"; then return 0; fi
   return 1
 }
+
+# rstk_descendants PID: every process below PID, deepest last, one per line.
+rstk_descendants() {
+  local child
+  for child in $(pgrep -P "$1"); do
+    echo "$child"
+    rstk_descendants "$child"
+  done
+}
+
+# rstk_kill_tree PID: PID and every process below it stopped, and PID waited for when it is this shell's child.
+#
+# Killing only the helper's own shell left the command substitution it was waiting in, a loop of its own, polling
+# kubectl after the cluster was gone (codex review against origin/dev).
+# The tree is read before anything is killed, because a killed parent's children are reparented away from it.
+rstk_kill_tree() {
+  local pid="$1" tree p
+  tree="$(rstk_descendants "$pid")"
+  kill -TERM "$pid" 2>&1 | grep -v 'No such process'
+  for p in $tree; do
+    kill -TERM "$p" 2>&1 | grep -v 'No such process'
+  done
+  wait "$pid" 2>&1 | grep -v 'is not a child of this shell'
+  # Anything that ignored TERM is killed outright, so no helper survives its cleanup.
+  for p in $tree; do
+    if kill -0 "$p" 2>&1 | grep -q .; then continue; fi
+    kill -KILL "$p" 2>&1 | grep -v 'No such process'
+  done
+  return 0
+}
