@@ -129,8 +129,9 @@ Verdicts:
 
 ## ADR 3 — Admitting GPU batch work: Kueue or Slurm
 
-**Status: a pre-measurement decision. Slurm has not been run in this project.**
-Nothing below is a measured comparison, and no sentence here should be read as a verdict on Slurm.
+**Status: a decision made before measurement, now set beside a containerised Slurm lab's observations.**
+Written before any Slurm ran here; since then the unmerged branch `feat/slurm-lab` has run Slurm 24.11 in containers on one host with fake GPUs and cgroups off, and maps what it observed onto this repository in its README ("Slurm behaviour mapped to this repository").
+That lab is single runs of policy behaviour, not a measured comparison, and no sentence here should be read as a verdict on Slurm.
 
 ### Context
 
@@ -143,7 +144,7 @@ Every tenant ClusterQueue joins one cohort, `gpu-platform`, so idle quota can be
 | option | where it stands in this project |
 |---|---|
 | Kueue on Kubernetes | built, and measured in the rows below |
-| Slurm, standalone or beside Kubernetes | not deployed, not measured |
+| Slurm, standalone or beside Kubernetes | not deployed; a containerised lab on one host observed GRES placement, account and QoS limits, preemption, drain, node loss and a requeued two-node training job resuming from its checkpoint, one run each, on `feat/slurm-lab` |
 
 ### Decision, before measurement
 
@@ -176,7 +177,7 @@ Each dimension is a question for a run, not a claim about either system.
 
 ### What was not measured
 
-- Everything about Slurm in this project.
+- Slurm on real nodes: GPU isolation through cgroups, real device health, a shared filesystem, fair-share, scheduler throughput, and the same drain-to-running hop stamps the Kueue side has; the container lab answers none of these.
 - Kueue at more than two ranks, with other jobs in the cohort, or with `blockAdmission` [W:467].
 - Kueue under many tenants or at the scale of thousands of GPUs: every Kueue measurement here is on one or two nodes.
 
