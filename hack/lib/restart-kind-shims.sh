@@ -96,14 +96,19 @@ rstk_unlaunch() {
 # rstk_launch CONTAINER: a new instance on CONTAINER, joined as a new Node: a fresh instance ID as its providerID, the GPU
 # group's labels and taint as EKS registers them, and so a Node UID no earlier node had.
 rstk_launch() {
-  local c="$1" n id flags
+  local c="$1" n id flags ip
   n=$(($(wc -l <"$RSTK_STATE/instances") + 1))
   id="$(printf 'i-0c%015x' "$n")"
   rstk_unlaunch "$c" || return 1
   # The pristine flags are kept at the first launch, so each launch writes its own and never edits an earlier one's.
   docker exec "$c" sh -c '[ -e /var/lib/kubelet/kubeadm-flags.env.kind ] || cp /var/lib/kubelet/kubeadm-flags.env /var/lib/kubelet/kubeadm-flags.env.kind' || return 1
-  flags="--provider-id=aws:///ap-northeast-2a/$id --node-labels=eks.amazonaws.com/nodegroup=gpu,platform.lkhun9311.github.io/gpu=true,platform.lkhun9311.github.io/train=true --register-with-taints=nvidia.com/gpu=present:NoSchedule"
-  docker exec "$c" sh -c "sed -e 's|--provider-id=[^ \"]*||; s|--node-labels=[^ \"]*||; s|\"\$| $flags\"|' /var/lib/kubelet/kubeadm-flags.env.kind >/var/lib/kubelet/kubeadm-flags.env" || return 1
+  # A recycled container can come back on another address, so the kubelet is told the one it has now.
+  ip="$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$c")" && [[ -n "$ip" ]] || {
+    echo "no address for $c" >&2
+    return 1
+  }
+  flags="--node-ip=$ip --provider-id=aws:///ap-northeast-2a/$id --node-labels=eks.amazonaws.com/nodegroup=gpu,platform.lkhun9311.github.io/gpu=true,platform.lkhun9311.github.io/train=true --register-with-taints=nvidia.com/gpu=present:NoSchedule"
+  docker exec "$c" sh -c "sed -e 's|--node-ip=[^ \"]*||; s|--provider-id=[^ \"]*||; s|--node-labels=[^ \"]*||; s|\"\$| $flags\"|' /var/lib/kubelet/kubeadm-flags.env.kind >/var/lib/kubelet/kubeadm-flags.env" || return 1
   docker exec "$c" grep -qF -- "--provider-id=aws:///ap-northeast-2a/$id " /var/lib/kubelet/kubeadm-flags.env || {
     echo "the kubelet flags of $c do not carry $id" >&2
     return 1
@@ -130,6 +135,7 @@ rstk_asg_loop() {
       if rstk_k delete node "$c" --ignore-not-found --wait=false >>"$RSTK_STATE/asg.log" 2>&1; then
         date +%s >"$RSTK_STATE/gone/$id"
         printf '%s deleted the Node of terminated %s (%s)\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$id" "$c" >>"$RSTK_STATE/asg.log"
+        rstk_recycle "$c" >>"$RSTK_STATE/asg.log" 2>&1 || printf '%s could not recycle %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$c" >>"$RSTK_STATE/asg.log"
       fi
     done
     desired="$(cat "$RSTK_STATE/desired")"
@@ -166,6 +172,20 @@ rstk_asg_loop() {
     fi
     sleep 2
   done
+}
+
+# rstk_recycle CONTAINER: a killed container started again as a machine not yet launched, because the host's inotify
+# limit holds the cluster to five nodes and the runs terminate more machines than the pool holds.
+# Its kubelet is given a flag it refuses before the start, so the dead instance's Node cannot come back under its old
+# providerID; rstk_launch later writes it a new identity.
+rstk_recycle() {
+  local c="$1" f
+  f="$(mktemp)" || return 1
+  echo 'KUBELET_KUBEADM_ARGS="--rehearsal-not-launched"' >"$f"
+  docker cp "$f" "$c:/var/lib/kubelet/kubeadm-flags.env" || { rm -f "$f"; return 1; }
+  rm -f "$f"
+  docker start "$c" || return 1
+  printf '%s recycled %s into the pool\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$c"
 }
 
 # rstk_pool: the GPU containers that are running and hold no launched instance, in name order.

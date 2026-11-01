@@ -37,12 +37,13 @@ mkdir -p "$RSTK_STATE/killed" "$RSTK_STATE/unlaunched" "$RSTK_STATE/gone"
 : >"$RSTK_STATE/instances"
 : >"$RSTK_STATE/launch_delays"
 echo 0 >"$RSTK_STATE/desired"
-# The first worker is the CPU node; the next three are the purchased GPU nodes, and the last two the autoscaler's pool,
-# which with the nodes it takes back covers the two terminations of runs a and b.
-# Eight workers failed to join (a kubelet never answered its health check), so the cluster is kept to six.
-CPU_NODE=$CLUSTER-worker
-export RSTK_GPU_CONTAINERS="$CLUSTER-worker2 $CLUSTER-worker3 $CLUSTER-worker4 $CLUSTER-worker5 $CLUSTER-worker6"
-ALL_WORKERS="$CPU_NODE $RSTK_GPU_CONTAINERS"
+# The host's inotify instances are shared with the other kind clusters, and kernel parameters are not changed here: with
+# eight workers a kubelet never came up, and with six three kube-proxies crash-looped, so the cluster is five nodes.
+# The control plane is also the CPU node the reader lands on; three workers are the purchased GPU nodes and the fourth
+# the autoscaler's pool, which killed machines rejoin (rstk_recycle).
+CPU_NODE=$CLUSTER-control-plane
+export RSTK_GPU_CONTAINERS="$CLUSTER-worker $CLUSTER-worker2 $CLUSTER-worker3 $CLUSTER-worker4"
+ALL_WORKERS="$RSTK_GPU_CONTAINERS"
 GANESHA_IMG=registry.k8s.io/sig-storage/nfs-provisioner@sha256:c825f3d5e28bde099bd7a3daace28772d412c9157ad47fa752a9ad0baafc118d
 EFS_OPTS="nfsvers=4.1 rsize=1048576 wsize=1048576 hard timeo=600 retrans=2 noresvport"
 EXPORT=/var/local/rstlife-export
@@ -161,6 +162,15 @@ for img in controller:$TAG gpu-simulator:$TAG "$IMG"; do
   kind load docker-image "$img" --name "$CLUSTER" >>"$LOG" 2>&1 || die "kind load $img"
 done
 k label node "$CPU_NODE" eks.amazonaws.com/nodegroup=cpu >>"$LOG" 2>&1 || die "label the CPU node"
+# Untainted, so restart_reader's Pod, which tolerates nothing, can land on it; the ranks select the GPU nodes' train label.
+k taint node "$CPU_NODE" node-role.kubernetes.io/control-plane:NoSchedule- >>"$LOG" 2>&1 || die "untaint the CPU node"
+# A kube-proxy that cannot start is a node whose Services do not work, which is how the host's inotify limit showed.
+for _ in $(seq 1 40); do
+  bad=$(k -n kube-system get pods -l k8s-app=kube-proxy -o jsonpath='{range .items[*]}{.status.containerStatuses[0].ready}{"\n"}{end}' 2>>"$LOG" | grep -vc true)
+  [ "$bad" = 0 ] && break
+  sleep 3
+done
+[ "$bad" = 0 ] || die "$bad kube-proxy Pod(s) not ready; the host's inotify instances may be exhausted"
 k apply -f "https://github.com/cert-manager/cert-manager/releases/download/$CERT_MANAGER_VERSION/cert-manager.yaml" >>"$LOG" 2>&1 || die "cert-manager"
 k -n cert-manager wait --for=condition=Available deploy --all --timeout=300s >>"$LOG" 2>&1 || die "cert-manager Available"
 # Kueue as EKS deploys it: the vendored release and this repository's gpu ResourceFlavor with the train label and the
@@ -439,7 +449,7 @@ log "== the GPU nodes"
 # Every GPU container leaves the cluster first, so each node of the group is a Node object made by a launch, and the
 # first three are launched as the purchase.
 for c in $RSTK_GPU_CONTAINERS; do rstk_unlaunch "$c" >>"$LOG" 2>&1 || die "taking back $c"; done
-for c in $CLUSTER-worker2 $CLUSTER-worker3 $CLUSTER-worker4; do rstk_launch "$c" >>"$LOG" 2>&1 || die "launching $c"; done
+for c in $CLUSTER-worker $CLUSTER-worker2 $CLUSTER-worker3; do rstk_launch "$c" >>"$LOG" 2>&1 || die "launching $c"; done
 echo 3 >"$RSTK_STATE/desired"
 rstk_asg_loop >>"$RSTK_STATE/asg.log" 2>&1 &
 BG+=($!)
