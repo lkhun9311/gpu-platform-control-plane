@@ -7,6 +7,9 @@ was submitted; a sampler polling every few seconds could miss an object that liv
 A watch the API server ends is restarted, and each start is written as WATCH-START, after which kubectl lists every
 existing object again as ADDED; the replay clears that resource's objects at each start, so an object deleted while no
 watch ran is not carried as alive.
+After each start a separate list is taken and written as LISTED with every name in it, so the replay knows the
+resource's whole state again from that moment; between a WATCH-START and its LISTED the state is unknown, which is a
+failure of the check, never an absence (codex review of the checker's first form).
 """
 
 from __future__ import annotations
@@ -29,6 +32,14 @@ def main(argv: list[str]) -> int:
             out.write(json.dumps({"received": now(), "res": res, "type": "WATCH-START"}) + "\n")
             proc = subprocess.Popen(["kubectl", "--context", ctx, "-n", ns, "get", res, "--watch", "--output-watch-events",
                                      "-o", "json"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            listed = subprocess.run(["kubectl", "--context", ctx, "-n", ns, "get", res, "-o", "json"],
+                                    capture_output=True, text=True, timeout=60)
+            if listed.returncode == 0:
+                names = [i["metadata"]["name"] for i in json.loads(listed.stdout).get("items", [])]
+                out.write(json.dumps({"received": now(), "res": res, "type": "LISTED", "names": names}) + "\n")
+            else:
+                out.write(json.dumps({"received": now(), "res": res, "type": "LIST-FAILED",
+                                      "stderr": listed.stderr[:300]}) + "\n")
             buf, dec = "", json.JSONDecoder()
             for chunk in iter(lambda: proc.stdout.readline(), ""):
                 buf += chunk

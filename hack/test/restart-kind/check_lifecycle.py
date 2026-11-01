@@ -67,36 +67,45 @@ def main(argv: list[str]) -> int:
             t = ts(added[0]["received"])
             live: dict[tuple[str, str], float] = {}
             restarts = []
+            # A resource whose watch restarted is unknown until a list taken after the restart says what it held.
+            unknown: set[str] = set()
             for e in events:
                 if ts(e["received"]) >= t:
                     break
                 if e["type"] == "WATCH-START":
                     restarts.append(ts(e["received"]))
+                    unknown.add(e["res"])
                     for key in [k for k in live if k[0] == e["res"]]:
                         del live[key]
+                elif e["type"] == "LISTED":
+                    unknown.discard(e["res"])
+                    for key in [k for k in live if k[0] == e["res"]]:
+                        del live[key]
+                    for n in e.get("names") or []:
+                        if prev in n:
+                            live[(e["res"], n)] = ts(e["received"])
                 elif e["type"] in ("ADDED", "MODIFIED") and prev in (e.get("name") or ""):
                     live[(e["res"], e["name"])] = ts(e["received"])
                 elif e["type"] == "DELETED":
                     live.pop((e["res"], e.get("name")), None)
             gone = [ts(e["received"]) for e in events if e["type"] == "DELETED" and prev in (e.get("name") or "")]
-            # A watch that ended or restarted between the previous case's submission and this one may have missed a
-            # deletion or not yet listed again, so what was left is unknown, which is a failure and never an absence.
-            prev_added = [ts(e["received"]) for e in events if e["type"] == "ADDED" and e.get("name") == prev]
-            since = min(prev_added) if prev_added else 0.0
-            gaps = [e for e in events if e["type"] in ("WATCH-START", "WATCH-END") and since <= ts(e["received"]) <= t]
-            if gaps:
-                report(False, f"{run.name}: a watch of {sorted({g['res'] for g in gaps})} ended or restarted between {pcase} and {case}, "
-                              f"so what was left when {case} was submitted is unknown")
+            # A watch that restarted and had not been listed again by the submission leaves what was left unknown,
+            # which is a failure and never an absence.
+            if unknown:
+                report(False, f"{run.name}: the watch of {sorted(unknown)} restarted and was not listed again before {case} was "
+                              f"submitted, so what was left is unknown")
             elif live:
                 report(False, f"{run.name}: {case} was submitted at {added[0]['received']} while {pcase}'s {sorted(live)} still existed")
             else:
                 last = max(gone) if gone else None
                 report(True, f"{run.name}: nothing of {pcase} existed when {case} was submitted; its last object was deleted "
                              + (f"{t - last:.1f} s before" if last else "with no DELETED event recorded"))
-            late = [e for e in events if ts(e["received"]) > t and e["type"] == "ADDED" and prev in (e.get("name") or "")
-                    and not any(abs(ts(e["received"]) - r) < 5 for r in restarts)]
+            # Any sight of the previous case's objects after the submission is a leftover, a relist's included.
+            late = [e for e in events if ts(e["received"]) > t and (
+                (e["type"] in ("ADDED", "MODIFIED", "DELETED") and prev in (e.get("name") or ""))
+                or (e["type"] == "LISTED" and any(prev in n for n in e.get("names") or [])))]
             if late:
-                report(False, f"{run.name}: {len(late)} object(s) of {pcase} were ADDED after {case} was submitted, first {late[0]['name']}")
+                report(False, f"{run.name}: {pcase}'s objects were seen {len(late)} time(s) after {case} was submitted, first {late[0].get('name') or late[0].get('names')}")
 
         # 2. the fence against the stub's answers
         for case, name in started:
