@@ -1,0 +1,167 @@
+{
+    "apiVersion": "batch/v1",
+    "kind": "Job",
+    "metadata": {
+        "creationTimestamp": "2026-10-31T14:50:43Z",
+        "generation": 2,
+        "labels": {
+            "kueue.x-k8s.io/queue-name": "gpu-rst",
+            "platform.lkhun9311.github.io/mltrainingjob-attempt": "2",
+            "platform.lkhun9311.github.io/mltrainingjob-uid": "251d4592-bdd5-4fda-8bc0-e125240b83a1"
+        },
+        "name": "rst-node-lost-144841",
+        "namespace": "rst",
+        "ownerReferences": [
+            {
+                "apiVersion": "platform.lkhun9311.github.io/v1",
+                "blockOwnerDeletion": true,
+                "controller": true,
+                "kind": "MLTrainingJob",
+                "name": "rst-node-lost-144841",
+                "uid": "251d4592-bdd5-4fda-8bc0-e125240b83a1"
+            }
+        ],
+        "resourceVersion": "3642",
+        "uid": "6a6e5e04-294b-4fa6-8b96-f873f8d900fd"
+    },
+    "spec": {
+        "backoffLimit": 0,
+        "completionMode": "Indexed",
+        "completions": 2,
+        "manualSelector": false,
+        "parallelism": 2,
+        "podReplacementPolicy": "TerminatingOrFailed",
+        "selector": {
+            "matchLabels": {
+                "batch.kubernetes.io/controller-uid": "6a6e5e04-294b-4fa6-8b96-f873f8d900fd"
+            }
+        },
+        "suspend": false,
+        "template": {
+            "metadata": {
+                "annotations": {
+                    "kueue.x-k8s.io/workload": "job-rst-node-lost-144841-6bfab"
+                },
+                "labels": {
+                    "batch.kubernetes.io/controller-uid": "6a6e5e04-294b-4fa6-8b96-f873f8d900fd",
+                    "batch.kubernetes.io/job-name": "rst-node-lost-144841",
+                    "controller-uid": "6a6e5e04-294b-4fa6-8b96-f873f8d900fd",
+                    "job-name": "rst-node-lost-144841",
+                    "kueue.x-k8s.io/cluster-queue-name": "gpu-rst",
+                    "kueue.x-k8s.io/local-queue-name": "gpu-rst",
+                    "kueue.x-k8s.io/podset": "main",
+                    "platform.lkhun9311.github.io/mltrainingjob": "rst-node-lost-144841",
+                    "platform.lkhun9311.github.io/mltrainingjob-attempt": "2",
+                    "platform.lkhun9311.github.io/mltrainingjob-uid": "251d4592-bdd5-4fda-8bc0-e125240b83a1"
+                }
+            },
+            "spec": {
+                "containers": [
+                    {
+                        "command": [
+                            "sh",
+                            "-c",
+                            "export CKPT_RUN_ID=rst-node-lost-144841 CKPT_DIR=/shared CKPT_JOB_ID=rst-node-lost-144841 CKPT_STEPS=20 CKPT_STEP_SLEEP=1 OMP_NUM_THREADS=1 CKPT_COLLECTIVE_TIMEOUT=20\npython /work/train.py\n"
+                        ],
+                        "env": [
+                            {
+                                "name": "NVIDIA_DRIVER_CAPABILITIES",
+                                "value": "compute,utility"
+                            },
+                            {
+                                "name": "WORLD_SIZE",
+                                "value": "2"
+                            },
+                            {
+                                "name": "MASTER_ADDR",
+                                "value": "rst-node-lost-144841-0.rst-node-lost-144841-ddp-a2.rst.svc"
+                            },
+                            {
+                                "name": "MASTER_PORT",
+                                "value": "29500"
+                            },
+                            {
+                                "name": "RANK",
+                                "valueFrom": {
+                                    "fieldRef": {
+                                        "apiVersion": "v1",
+                                        "fieldPath": "metadata.annotations['batch.kubernetes.io/job-completion-index']"
+                                    }
+                                }
+                            },
+                            {
+                                "name": "TRAINING_ATTEMPT",
+                                "value": "2"
+                            }
+                        ],
+                        "image": "distributed-restart:torch251",
+                        "imagePullPolicy": "IfNotPresent",
+                        "name": "trainer",
+                        "resources": {
+                            "limits": {
+                                "nvidia.com/gpu": "1"
+                            }
+                        },
+                        "terminationMessagePath": "/dev/termination-log",
+                        "terminationMessagePolicy": "File",
+                        "volumeMounts": [
+                            {
+                                "mountPath": "/shared",
+                                "name": "state"
+                            }
+                        ]
+                    }
+                ],
+                "dnsPolicy": "ClusterFirst",
+                "restartPolicy": "Never",
+                "schedulerName": "default-scheduler",
+                "securityContext": {},
+                "subdomain": "rst-node-lost-144841-ddp-a2",
+                "terminationGracePeriodSeconds": 30,
+                "volumes": [
+                    {
+                        "name": "state",
+                        "persistentVolumeClaim": {
+                            "claimName": "shared"
+                        }
+                    }
+                ]
+            }
+        }
+    },
+    "status": {
+        "completedIndexes": "0,1",
+        "completionTime": "2026-10-31T14:51:05Z",
+        "conditions": [
+            {
+                "lastProbeTime": "2026-10-31T14:50:43Z",
+                "lastTransitionTime": "2026-10-31T14:50:43Z",
+                "message": "Job resumed",
+                "reason": "JobResumed",
+                "status": "False",
+                "type": "Suspended"
+            },
+            {
+                "lastProbeTime": "2026-10-31T14:51:05Z",
+                "lastTransitionTime": "2026-10-31T14:51:05Z",
+                "message": "Reached expected number of succeeded pods",
+                "reason": "CompletionsReached",
+                "status": "True",
+                "type": "SuccessCriteriaMet"
+            },
+            {
+                "lastProbeTime": "2026-10-31T14:51:05Z",
+                "lastTransitionTime": "2026-10-31T14:51:05Z",
+                "message": "Reached expected number of succeeded pods",
+                "reason": "CompletionsReached",
+                "status": "True",
+                "type": "Complete"
+            }
+        ],
+        "ready": 0,
+        "startTime": "2026-10-31T14:50:43Z",
+        "succeeded": 2,
+        "terminating": 0,
+        "uncountedTerminatedPods": {}
+    }
+}

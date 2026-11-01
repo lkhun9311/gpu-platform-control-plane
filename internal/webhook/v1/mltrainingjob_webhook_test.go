@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -370,5 +371,163 @@ func TestAnOrdinaryJobKeepsTheNamesItAlwaysHad(t *testing.T) {
 		if _, err := v.ValidateCreate(context.Background(), job(func(m *platformv1.MLTrainingJob) { m.Name = name })); err != nil {
 			t.Fatalf("refused the non-distributed name %q: %v", name, err)
 		}
+	}
+}
+
+// claim is a PersistentVolumeClaim named "ckpt" in the job's namespace with the given access modes and nothing else,
+// so the access mode is the only thing a row varies.
+func claim(modes ...corev1.PersistentVolumeAccessMode) *corev1.PersistentVolumeClaim {
+	return &corev1.PersistentVolumeClaim{Name: "ckpt", Namespace: "default",
+		Spec: corev1.PersistentVolumeClaimSpec{AccessModes: modes}}
+}
+
+// distributedWithClaim is a distributed job that restarts and keeps its checkpoints on claim "ckpt".
+func distributedWithClaim(m *platformv1.MLTrainingJob) {
+	m.Spec.Distributed = &platformv1.Distributed{WorldSize: 2, MaxRestarts: 1}
+	m.Spec.StateVolume = &platformv1.StateVolume{ClaimName: "ckpt", MountPath: "/ckpt"}
+}
+
+func TestADistributedStateVolumeMustBeReadWriteMany(t *testing.T) {
+	// Ranks run on different nodes and every one of them reads and writes the checkpoint, so a claim only one
+	// node can mount would leave all but one rank Pending — or, on a provisioner that ignores the mode, give each
+	// node its own copy and a restart that loads a checkpoint nobody else wrote.
+	//
+	// Mutation that turns this red: return nil from the access-mode check.
+	rows := []struct {
+		label string
+		objs  []runtime.Object
+		bad   string
+	}{
+		{"ReadWriteOnce", []runtime.Object{claim(corev1.ReadWriteOnce)}, "ReadWriteMany"},
+		{"ReadWriteOncePod", []runtime.Object{claim(corev1.ReadWriteOncePod)}, "ReadWriteMany"},
+		{"no claim", nil, "not found"},
+		{"ReadWriteMany", []runtime.Object{claim(corev1.ReadWriteMany)}, ""},
+		{"ReadWriteMany among others", []runtime.Object{claim(corev1.ReadWriteOnce, corev1.ReadWriteMany)}, ""},
+	}
+	for _, row := range rows {
+		t.Run(row.label, func(t *testing.T) {
+			_, err := validatorWith(t, row.objs...).ValidateCreate(context.Background(), job(distributedWithClaim))
+			switch {
+			case row.bad == "" && err != nil:
+				t.Fatalf("refused: %v", err)
+			case row.bad != "" && err == nil:
+				t.Fatal("accepted")
+			case row.bad != "":
+				if !strings.Contains(err.Error(), row.bad) {
+					t.Fatalf("error does not say %q: %v", row.bad, err)
+				}
+				if got := causes(t, err); len(got) != 1 || got[0] != "spec.stateVolume.claimName" {
+					t.Fatalf("blamed %v, want exactly [spec.stateVolume.claimName]", got)
+				}
+			}
+		})
+	}
+}
+
+func TestTheClaimCheckFailsClosed(t *testing.T) {
+	// A lookup that fails must not read as a claim that is fine.
+	//
+	// Mutation that turns this red: treat a lookup error as success.
+	v := &MLTrainingJobValidator{Reader: erroringClient{}}
+	if _, err := v.ValidateCreate(context.Background(), job(distributedWithClaim)); err == nil {
+		t.Fatal("admitted a distributed stateVolume without reading its claim")
+	}
+}
+
+func TestAClaimChangedBeforeTheJobExistsIsCheckedToo(t *testing.T) {
+	// Before the first Job the template is not yet written, so the claim may still change; a check only on create
+	// would let an accepted job be pointed at a claim the create would have refused.
+	// An unchanged claim is not read again, so a claim deleted after admission does not block the finalizer's update.
+	//
+	// Mutation that turns this red: drop the claim check from ValidateUpdate.
+	other := func(modes ...corev1.PersistentVolumeAccessMode) *corev1.PersistentVolumeClaim {
+		c := claim(modes...)
+		c.Name = "other"
+		return c
+	}
+	rows := []struct {
+		label string
+		objs  []runtime.Object
+		to    string
+		bad   string
+	}{
+		{"to ReadWriteOnce", []runtime.Object{claim(corev1.ReadWriteMany), other(corev1.ReadWriteOnce)}, "other", "ReadWriteMany"},
+		{"to a missing claim", []runtime.Object{claim(corev1.ReadWriteMany)}, "other", "not found"},
+		{"to ReadWriteMany", []runtime.Object{claim(corev1.ReadWriteMany), other(corev1.ReadWriteMany)}, "other", ""},
+		{"unchanged and since deleted", nil, "ckpt", ""},
+	}
+	for _, row := range rows {
+		t.Run(row.label, func(t *testing.T) {
+			oldJob := job(distributedWithClaim)
+			newJob := job(func(m *platformv1.MLTrainingJob) {
+				distributedWithClaim(m)
+				m.Spec.StateVolume.ClaimName = row.to
+			})
+			_, err := validatorWith(t, row.objs...).ValidateUpdate(context.Background(), oldJob, newJob)
+			switch {
+			case row.bad == "" && err != nil:
+				t.Fatalf("refused: %v", err)
+			case row.bad != "" && err == nil:
+				t.Fatal("accepted")
+			case row.bad != "" && !strings.Contains(err.Error(), row.bad):
+				t.Fatalf("error does not say %q: %v", row.bad, err)
+			}
+		})
+	}
+}
+
+func TestARestartableJobNeedsANameEveryAttemptsServiceCanCarry(t *testing.T) {
+	// Attempt n's rendezvous Service is <name>-ddp-a<n>, and the last attempt is maxRestarts+1, so the name must
+	// leave room for that suffix, not just for -ddp.
+	//
+	// Mutation that turns this red: check only <name>-ddp for a restartable job.
+	for _, row := range []struct {
+		name string
+		bad  bool
+	}{
+		{strings.Repeat("a", 55), false}, // 55 + len("-ddp-a10") = 63
+		{strings.Repeat("a", 56), true},
+	} {
+		v := validatorWith(t, claim(corev1.ReadWriteMany))
+		_, err := v.ValidateCreate(context.Background(), job(func(m *platformv1.MLTrainingJob) {
+			distributedWithClaim(m)
+			m.Name = row.name
+			m.Spec.Distributed.MaxRestarts = 9
+		}))
+		if row.bad != (err != nil) {
+			t.Fatalf("name of %d characters: err=%v, want refused=%v", len(row.name), err, row.bad)
+		}
+	}
+}
+
+func TestTemplateFieldsStayFrozenBetweenAttempts(t *testing.T) {
+	// Between two attempts no Job exists, which is exactly when the old rule let template fields change; the
+	// recorded attempt is what still says a run started under them.
+	//
+	// Mutation that turns this red: decide the freeze on the Job's existence alone.
+	v := validatorWith(t)
+	old := job(func(m *platformv1.MLTrainingJob) {
+		distributedWithClaim(m)
+		m.Status.Attempts = []platformv1.TrainingAttempt{{Number: 1, State: "Stopped"}}
+	})
+	_, err := v.ValidateUpdate(context.Background(), old, job(func(m *platformv1.MLTrainingJob) {
+		distributedWithClaim(m)
+		m.Spec.Image = "trainer:v2"
+	}))
+	if err == nil {
+		t.Fatal("changed the image between two attempts of one job")
+	}
+}
+
+func TestAnOrdinaryStateVolumeIsNotLookedUp(t *testing.T) {
+	// A single-Pod job's claim has always been left to the kubelet, where a missing one leaves the Pod Pending;
+	// reading it here would refuse jobs created before their claim, which nothing used to refuse.
+	//
+	// Mutation that turns this red: check the claim whether or not the job is distributed.
+	v := &MLTrainingJobValidator{Reader: erroringClient{}}
+	if _, err := v.ValidateCreate(context.Background(), job(func(m *platformv1.MLTrainingJob) {
+		m.Spec.StateVolume = &platformv1.StateVolume{ClaimName: "ckpt", MountPath: "/ckpt"}
+	})); err != nil {
+		t.Fatalf("an ordinary job's claim was read: %v", err)
 	}
 }

@@ -1,0 +1,17 @@
+/usr/local/lib/python3.12/site-packages/torch/_subclasses/functional_tensor.py:295: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at ../torch/csrc/utils/tensor_numpy.cpp:84.)
+  cpu = _conversion_method_template(device=torch.device("cpu"))
+{"ts": "2026-10-31T14:45:21.807178+00:00", "run_id": "rst-rank-failed-144520", "attempt": 1, "rank": 1, "event": "restart_from_zero", "load_mode": "full"}
+{"ts": "2026-10-31T14:45:22.144680+00:00", "run_id": "rst-rank-failed-144520", "attempt": 1, "rank": 1, "event": "start", "world_size": 2, "load_mode": "full", "resumed_from_step": 0, "steps": 20, "fault": "kill-before-fsync:6:1", "torch_version": "2.5.1+cpu"}
+{"ts": "2026-10-31T14:45:22.145880+00:00", "run_id": "rst-rank-failed-144520", "attempt": 1, "rank": 1, "event": "step", "step": 1, "loss": 9.108428955078125, "digest": "6969f25baaf6fb81336db2594331d9ead56c8a5f31186e9a68be5833ad424643", "params": null}
+{"ts": "2026-10-31T14:45:22.147284+00:00", "run_id": "rst-rank-failed-144520", "attempt": 1, "rank": 1, "event": "checkpoint", "step": 1, "dir": "a1/00000001-00f6e155919745059db59468ced84907"}
+{"ts": "2026-10-31T14:45:23.148640+00:00", "run_id": "rst-rank-failed-144520", "attempt": 1, "rank": 1, "event": "step", "step": 2, "loss": 21.491573333740234, "digest": "c2b9b1d0c4e24a46981a284eda05dfd9c13e891d4b086cfff7d697ffbdf296cf", "params": null}
+{"ts": "2026-10-31T14:45:23.149804+00:00", "run_id": "rst-rank-failed-144520", "attempt": 1, "rank": 1, "event": "checkpoint", "step": 2, "dir": "a1/00000002-613126a25c6441a59c21254a92734bdd"}
+{"ts": "2026-10-31T14:45:24.150784+00:00", "run_id": "rst-rank-failed-144520", "attempt": 1, "rank": 1, "event": "step", "step": 3, "loss": 13.40946102142334, "digest": "9c12348945211a5ad36dbb685bdb81ba6ce7f4004ae4a508b849c13c54391004", "params": null}
+{"ts": "2026-10-31T14:45:24.152045+00:00", "run_id": "rst-rank-failed-144520", "attempt": 1, "rank": 1, "event": "checkpoint", "step": 3, "dir": "a1/00000003-b3119e3cc53b4444ad892395866d9e27"}
+{"ts": "2026-10-31T14:45:25.153215+00:00", "run_id": "rst-rank-failed-144520", "attempt": 1, "rank": 1, "event": "step", "step": 4, "loss": 3.969231605529785, "digest": "a1934ea4ad9af3186bed3adfbba165f1532e901030d8c9b4e34f0f950b9a0c00", "params": null}
+{"ts": "2026-10-31T14:45:25.154670+00:00", "run_id": "rst-rank-failed-144520", "attempt": 1, "rank": 1, "event": "checkpoint", "step": 4, "dir": "a1/00000004-7c5505485149449abb0e9dce02001334"}
+{"ts": "2026-10-31T14:45:26.155873+00:00", "run_id": "rst-rank-failed-144520", "attempt": 1, "rank": 1, "event": "step", "step": 5, "loss": 1.2955631017684937, "digest": "68375050e13633538cc004aef7d0271b11dfc8edfc6e51c12d637dbf8d1e9f70", "params": null}
+{"ts": "2026-10-31T14:45:26.158543+00:00", "run_id": "rst-rank-failed-144520", "attempt": 1, "rank": 1, "event": "checkpoint", "step": 5, "dir": "a1/00000005-39953cd05f704d15b11059899e4e1926"}
+{"ts": "2026-10-31T14:45:27.159818+00:00", "run_id": "rst-rank-failed-144520", "attempt": 1, "rank": 1, "event": "step", "step": 6, "loss": 0.14475201070308685, "digest": "4d1e4648f6002d4ca9729aefdd0d9f312c70246d7bdf24d26d4ea5c6d5a90eee", "params": null}
+{"ts": "2026-10-31T14:45:27.160687+00:00", "run_id": "rst-rank-failed-144520", "attempt": 1, "rank": 1, "event": "fault", "point": "kill-before-fsync", "step": 6}
+Killed

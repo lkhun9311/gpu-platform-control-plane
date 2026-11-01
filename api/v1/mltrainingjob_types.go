@@ -33,7 +33,7 @@ import (
 // The distributed rules sit on the spec, not on the field, because a rule on an absent optional field is never evaluated.
 // +kubebuilder:validation:XValidation:rule="has(self.distributed) == has(oldSelf.distributed) && (!has(self.distributed) || self.distributed == oldSelf.distributed)",message="distributed is fixed at creation, because the world size is built into every rank's environment; delete and recreate the MLTrainingJob to change it"
 // +kubebuilder:validation:XValidation:rule="!has(self.distributed) || ((!has(self.parallelism) || self.parallelism == 1) && (!has(self.completions) || self.completions == 1))",message="with distributed set, leave parallelism and completions at 1; the controller runs worldSize Pods"
-// +kubebuilder:validation:XValidation:rule="!has(self.distributed) || !has(self.stateVolume)",message="stateVolume cannot be combined with distributed: one claim cannot follow ranks onto different nodes"
+// +kubebuilder:validation:XValidation:rule="!has(self.distributed) || !has(self.distributed.maxRestarts) || self.distributed.maxRestarts == 0 || has(self.stateVolume)",message="distributed.maxRestarts above 0 needs stateVolume: a restart that cannot read a checkpoint starts from step zero and would be reported as recovery"
 type MLTrainingJobSpec struct {
 	// queue is the Kueue LocalQueue name (same namespace) this job is admitted through.
 	// +required
@@ -84,8 +84,11 @@ type MLTrainingJobSpec struct {
 	// Each Pod gets WORLD_SIZE, RANK, MASTER_ADDR and MASTER_PORT (29500), and rank 0 is reachable at MASTER_ADDR.
 	// The command must start exactly one process per Pod: a launcher that starts its own group per Pod, such as
 	// torchrun --standalone, would train each Pod alone and still print a result.
-	// Any rank failing fails the whole job; there is no per-rank retry and no restart.
-	// Fixed at creation, and it cannot be combined with stateVolume, or with parallelism or completions other than 1.
+	// Any rank failing ends the whole attempt; there is never a per-rank retry, because a replaced rank cannot rejoin a
+	// group whose other ranks are mid-step.
+	// With maxRestarts above 0 the whole job is started again, every rank together, from what the workload wrote to
+	// stateVolume; with 0, the default, the first failure fails the job.
+	// Fixed at creation, and it cannot be combined with parallelism or completions other than 1.
 	// +optional
 	Distributed *Distributed `json:"distributed,omitempty"`
 }
@@ -101,6 +104,21 @@ type Distributed struct {
 	// +kubebuilder:validation:Maximum=8
 	// +required
 	WorldSize int32 `json:"worldSize"`
+
+	// maxRestarts is how many times the whole job may be started again after an attempt fails, is evicted, or loses
+	// a node; absent or 0 means the first failure fails the job, as before the field existed.
+	//
+	// A restart starts every rank again from the workload's own checkpoint, so a value above 0 requires stateVolume.
+	// The claim must be ReadWriteMany: ranks run on different nodes and all of them read and write it.
+	// The bound is deliberate: a fault that recurs on every attempt is not one more restart will cure.
+	//
+	// The default stores an absent field as 0, because the Go type omits a 0 and the rule fixing distributed compares
+	// the stored object with what the controller sends back; without it an explicit 0 refuses every typed update.
+	// +kubebuilder:default=0
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=10
+	// +optional
+	MaxRestarts int32 `json:"maxRestarts,omitempty"`
 }
 
 // StateVolume attaches an EXISTING PersistentVolumeClaim to the trainer container.
@@ -194,6 +212,16 @@ type MLTrainingJobStatus struct {
 	// +optional
 	ReadyRanks *int32 `json:"readyRanks,omitempty"`
 
+	// attempts records every start of a distributed job with maxRestarts above 0, oldest first.
+	//
+	// The first entry is written before the first Job is created, which is also what freezes the fields baked into
+	// the Pod template: between two attempts no Job exists, and the presence of an attempt is what still says one ran.
+	// Absent for every other job.
+	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=11
+	// +optional
+	Attempts []TrainingAttempt `json:"attempts,omitempty"`
+
 	// conditions represent the current state of the MLTrainingJob resource.
 	//
 	// The status of each condition is one of True, False, or Unknown.
@@ -201,6 +229,71 @@ type MLTrainingJobStatus struct {
 	// +listMapKey=type
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+}
+
+// TrainingAttempt is one start of a restartable distributed job: its Job, why it ended, and when each step was seen.
+//
+// Every time is this controller's observation, written on the reconcile that saw the event, so each carries that
+// reconcile's lag. None of them is "training resumed": readiness is not training, and the first optimizer step of an
+// attempt is in the workload's own record, which the experiment reads; the controller never writes it.
+type TrainingAttempt struct {
+	// number counts attempts from 1; attempt n+1 starts only after attempt n is Stopped.
+	// +kubebuilder:validation:Minimum=1
+	// +required
+	Number int32 `json:"number"`
+
+	// state is where the attempt is.
+	//
+	// Preparing: recorded, its Job not yet seen. Active: its Job exists. Stopping: a trigger was seen and the controller
+	// is retiring the Job and waiting for its Pods, its Workload and any unreachable node to be gone. Stopped: all of that
+	// is confirmed, and the next attempt may start or the job fails.
+	// +kubebuilder:validation:Enum=Preparing;Active;Stopping;Stopped
+	// +required
+	State string `json:"state"`
+
+	// jobUID is the UID of this attempt's Job, recorded once the controller sees it; deletes are conditioned on it.
+	// +optional
+	JobUID string `json:"jobUID,omitempty"`
+
+	// workloadName and workloadUID identify this attempt's Kueue Workload; the next attempt waits until it is gone.
+	// +optional
+	WorkloadName string `json:"workloadName,omitempty"`
+	// +optional
+	WorkloadUID string `json:"workloadUID,omitempty"`
+
+	// nodes are the nodes this attempt's ranks were seen on.
+	//
+	// A node that stops answering cannot be shown to have stopped its rank, so the attempt waits for it to be fenced.
+	// +listType=set
+	// +kubebuilder:validation:MaxItems=8
+	// +optional
+	Nodes []string `json:"nodes,omitempty"`
+
+	// trigger is why the attempt ended: RankFailed (the Job failed), NodeFault (the platform's GPU fault path
+	// handed its Workload over), or JobDeleted (its Job went away while it was running).
+	// +kubebuilder:validation:Enum=RankFailed;NodeFault;JobDeleted
+	// +optional
+	Trigger string `json:"trigger,omitempty"`
+
+	// waitingFor says, while the attempt is Stopping, what it still waits on.
+	// +optional
+	WaitingFor string `json:"waitingFor,omitempty"`
+
+	// createdAt is when the controller saw this attempt's Job created.
+	// +optional
+	CreatedAt *metav1.Time `json:"createdAt,omitempty"`
+
+	// allRanksReadyAt is when the controller first saw every rank Ready, the same rule runningObservedAt uses.
+	// +optional
+	AllRanksReadyAt *metav1.Time `json:"allRanksReadyAt,omitempty"`
+
+	// failureObservedAt is when the controller saw the trigger.
+	// +optional
+	FailureObservedAt *metav1.Time `json:"failureObservedAt,omitempty"`
+
+	// stopConfirmedAt is when every condition for starting the next attempt was confirmed.
+	// +optional
+	StopConfirmedAt *metav1.Time `json:"stopConfirmedAt,omitempty"`
 }
 
 // +kubebuilder:object:root=true

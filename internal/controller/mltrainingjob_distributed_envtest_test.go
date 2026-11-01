@@ -374,6 +374,8 @@ var _ = Describe("MLTrainingJob distributed", func() {
 			return u
 		}
 		world := func(n int64) map[string]any { return map[string]any{"worldSize": n} }
+		restarts := func(n, r int64) map[string]any { return map[string]any{"worldSize": n, "maxRestarts": r} }
+		vol := map[string]any{"claimName": "c", "mountPath": "/s"}
 
 		DescribeTable("refuses at create",
 			func(spec map[string]any, wantInMessage string) {
@@ -387,14 +389,20 @@ var _ = Describe("MLTrainingJob distributed", func() {
 			Entry("explicit parallelism 0", map[string]any{"distributed": world(2), "parallelism": int64(0)}, "leave parallelism and completions at 1"),
 			Entry("parallelism 2", map[string]any{"distributed": world(2), "parallelism": int64(2)}, "leave parallelism and completions at 1"),
 			Entry("completions 2", map[string]any{"distributed": world(2), "completions": int64(2)}, "leave parallelism and completions at 1"),
-			Entry("stateVolume", map[string]any{"distributed": world(2),
-				"stateVolume": map[string]any{"claimName": "c", "mountPath": "/s"}}, "stateVolume cannot be combined"),
+			// A restart that cannot read a checkpoint restarts from step zero and would be reported as recovery.
+			Entry("maxRestarts without stateVolume", map[string]any{"distributed": restarts(2, 1)}, "maxRestarts above 0 needs stateVolume"),
+			Entry("maxRestarts -1", map[string]any{"distributed": restarts(2, -1), "stateVolume": vol}, "maxRestarts"),
+			Entry("maxRestarts 11", map[string]any{"distributed": restarts(2, 11), "stateVolume": vol}, "maxRestarts"),
 		)
 
 		It("accepts the shapes it is meant to", func() {
 			Expect(k8sClient.Create(ctx, raw(map[string]any{"distributed": world(2)}))).To(Succeed())
 			Expect(k8sClient.Create(ctx, raw(map[string]any{"distributed": world(8), "parallelism": int64(1), "completions": int64(1)}))).To(Succeed())
 			Expect(k8sClient.Create(ctx, raw(map[string]any{"parallelism": int64(2)}))).To(Succeed())
+			// The claim's access mode is the validating webhook's to check; the schema only stops refusing the pair.
+			Expect(k8sClient.Create(ctx, raw(map[string]any{"distributed": world(2), "stateVolume": vol}))).To(Succeed())
+			Expect(k8sClient.Create(ctx, raw(map[string]any{"distributed": restarts(2, 10), "stateVolume": vol}))).To(Succeed())
+			Expect(k8sClient.Create(ctx, raw(map[string]any{"distributed": restarts(2, 0)}))).To(Succeed())
 		})
 
 		DescribeTable("refuses changing distributed after creation",
@@ -411,6 +419,9 @@ var _ = Describe("MLTrainingJob distributed", func() {
 			Entry("adding it", map[string]any{}, map[string]any{"distributed": world(2)}),
 			Entry("removing it", map[string]any{"distributed": world(2)}, map[string]any{}),
 			Entry("changing worldSize", map[string]any{"distributed": world(2)}, map[string]any{"distributed": world(3)}),
+			// The restart budget is part of the contract a running job was admitted under.
+			Entry("changing maxRestarts", map[string]any{"distributed": restarts(2, 1), "stateVolume": vol},
+				map[string]any{"distributed": restarts(2, 2), "stateVolume": vol}),
 		)
 
 		It("accepts an update that leaves distributed as it was", func() {
@@ -418,6 +429,17 @@ var _ = Describe("MLTrainingJob distributed", func() {
 			Expect(k8sClient.Create(ctx, u)).To(Succeed())
 			u.Object["spec"].(map[string]any)["image"] = "trainer:v2"
 			Expect(k8sClient.Update(ctx, u)).To(Succeed())
+		})
+
+		// The Go type omits a zero, so the controller's first typed update sends distributed without the 0 the user wrote.
+		// Unless the schema stores the absent field as that same 0, the rule above reads the update as a change and refuses it.
+		It("lets a typed update through after a create that wrote maxRestarts 0", func() {
+			u := raw(map[string]any{"distributed": restarts(2, 0)})
+			Expect(k8sClient.Create(ctx, u)).To(Succeed())
+			var mltj platformv1.MLTrainingJob
+			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(u), &mltj)).To(Succeed())
+			mltj.Labels = map[string]string{"touched": "yes"}
+			Expect(k8sClient.Update(ctx, &mltj)).To(Succeed())
 		})
 	})
 })

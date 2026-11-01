@@ -73,9 +73,12 @@ func RendezvousServiceName(mltj *platformv1.MLTrainingJob) string {
 // applyDistributed turns the ordinary single-template Job into one Indexed Job of worldSize ranks.
 //
 // It only adds to what BuildJob rendered, so a job without distributed never reaches it and renders as it always did.
-func applyDistributed(job *batchv1.Job, mltj *platformv1.MLTrainingJob) {
+//
+// attempt is 0 for every job that cannot restart, and renders what it always did; a restartable job's attempt n gets a
+// rendezvous Service of its own, the attempt on its Pods' labels and TRAINING_ATTEMPT in their environment.
+func applyDistributed(job *batchv1.Job, mltj *platformv1.MLTrainingJob, attempt int32) {
 	world := mltj.Spec.Distributed.WorldSize
-	svc := RendezvousServiceName(mltj)
+	svc := rendezvousServiceNameFor(mltj, attempt)
 
 	// Indexed gives each Pod a stable index, hostname <job>-<index> and the annotation RANK is read from.
 	job.Spec.CompletionMode = new(batchv1.IndexedCompletion)
@@ -98,19 +101,52 @@ func applyDistributed(job *batchv1.Job, mltj *platformv1.MLTrainingJob) {
 			FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.annotations['" + jobCompletionIndexAnnotation + "']"},
 		}},
 	)
+	if attempt > 0 {
+		n := strconv.Itoa(int(attempt))
+		tmpl.Labels[mltjAttemptLabel] = n
+		job.Labels[mltjAttemptLabel] = n
+		job.Labels[mltjUIDLabel] = string(mltj.UID)
+		// The workload namespaces its checkpoints by attempt, so a rollback that revisits a step writes somewhere new.
+		c.Env = append(c.Env, corev1.EnvVar{Name: "TRAINING_ATTEMPT", Value: n})
+	}
+}
+
+// mltjAttemptLabel carries a restartable job's attempt number on its Job and Pods.
+//
+// With the UID label it is the attempt's token: what the barrier lists to prove a retired attempt left nothing behind,
+// and what a Job found after a lost create response is adopted by.
+const mltjAttemptLabel = "platform.lkhun9311.github.io/mltrainingjob-attempt"
+
+// rendezvousServiceNameFor is the attempt's rendezvous Service: the job's one Service for attempt 0, and a Service of
+// the attempt's own otherwise, so a resolver still caching the retired attempt's rank-0 address is asked a name that
+// address never had.
+func rendezvousServiceNameFor(mltj *platformv1.MLTrainingJob, attempt int32) string {
+	if attempt == 0 {
+		return RendezvousServiceName(mltj)
+	}
+	return fmt.Sprintf("%s-a%d", RendezvousServiceName(mltj), attempt)
 }
 
 // BuildRendezvousService renders the headless Service a distributed job's ranks resolve each other through.
 //
 // publishNotReadyAddresses is what lets rank 0 be found before it is Ready: a rank waiting in rendezvous is not Ready, and without it every rank would wait for an address that is only published once the wait is over.
 func BuildRendezvousService(mltj *platformv1.MLTrainingJob) *corev1.Service {
+	return buildRendezvousService(mltj, 0)
+}
+
+// buildRendezvousService renders the Service for one attempt; attempt 0 is the Service every job has always had.
+func buildRendezvousService(mltj *platformv1.MLTrainingJob, attempt int32) *corev1.Service {
+	selector := map[string]string{mltjNameLabel: mltj.Name, mltjUIDLabel: string(mltj.UID)}
+	if attempt > 0 {
+		selector[mltjAttemptLabel] = strconv.Itoa(int(attempt))
+	}
 	return &corev1.Service{
-		Name: RendezvousServiceName(mltj), Namespace: mltj.Namespace,
+		Name: rendezvousServiceNameFor(mltj, attempt), Namespace: mltj.Namespace,
 		Labels: map[string]string{mltjNameLabel: mltj.Name},
 		Spec: corev1.ServiceSpec{
 			ClusterIP:                corev1.ClusterIPNone,
 			PublishNotReadyAddresses: true,
-			Selector:                 map[string]string{mltjNameLabel: mltj.Name, mltjUIDLabel: string(mltj.UID)},
+			Selector:                 selector,
 			// Protocol and targetPort are spelled out because the API server defaults both, and the drift check compares against what it stored.
 			Ports: []corev1.ServicePort{{
 				Name: "rendezvous", Protocol: corev1.ProtocolTCP,
@@ -130,7 +166,14 @@ func BuildRendezvousService(mltj *platformv1.MLTrainingJob) *corev1.Service {
 func (r *MLTrainingJobReconciler) ensureRendezvousService(
 	ctx context.Context, mltj *platformv1.MLTrainingJob,
 ) (ready bool, cond *metav1.Condition, err error) {
-	desired := BuildRendezvousService(mltj)
+	return r.ensureRendezvousServiceFor(ctx, mltj, 0)
+}
+
+// ensureRendezvousServiceFor is ensureRendezvousService for one attempt of a restartable job.
+func (r *MLTrainingJobReconciler) ensureRendezvousServiceFor(
+	ctx context.Context, mltj *platformv1.MLTrainingJob, attempt int32,
+) (ready bool, cond *metav1.Condition, err error) {
+	desired := buildRendezvousService(mltj, attempt)
 	key := types.NamespacedName{Name: desired.Name, Namespace: desired.Namespace}
 
 	var svc corev1.Service

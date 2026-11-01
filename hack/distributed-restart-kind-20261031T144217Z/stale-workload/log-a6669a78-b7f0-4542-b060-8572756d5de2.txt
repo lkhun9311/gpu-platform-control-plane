@@ -1,0 +1,33 @@
+/usr/local/lib/python3.12/site-packages/torch/_subclasses/functional_tensor.py:295: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at ../torch/csrc/utils/tensor_numpy.cpp:84.)
+  cpu = _conversion_method_template(device=torch.device("cpu"))
+{"ts": "2026-10-31T14:45:57.832870+00:00", "run_id": "rst-stale-workload-144556", "attempt": 1, "rank": 1, "event": "restart_from_zero", "load_mode": "full"}
+{"ts": "2026-10-31T14:45:58.167783+00:00", "run_id": "rst-stale-workload-144556", "attempt": 1, "rank": 1, "event": "start", "world_size": 2, "load_mode": "full", "resumed_from_step": 0, "steps": 20, "fault": "kill-after-latest:8", "torch_version": "2.5.1+cpu"}
+{"ts": "2026-10-31T14:45:58.177266+00:00", "run_id": "rst-stale-workload-144556", "attempt": 1, "rank": 1, "event": "step", "step": 1, "loss": 9.108428955078125, "digest": "6969f25baaf6fb81336db2594331d9ead56c8a5f31186e9a68be5833ad424643", "params": null}
+{"ts": "2026-10-31T14:45:58.178587+00:00", "run_id": "rst-stale-workload-144556", "attempt": 1, "rank": 1, "event": "checkpoint", "step": 1, "dir": "a1/00000001-78e5d575200643f0aaf8897525d0f491"}
+{"ts": "2026-10-31T14:45:59.179945+00:00", "run_id": "rst-stale-workload-144556", "attempt": 1, "rank": 1, "event": "step", "step": 2, "loss": 21.491573333740234, "digest": "c2b9b1d0c4e24a46981a284eda05dfd9c13e891d4b086cfff7d697ffbdf296cf", "params": null}
+{"ts": "2026-10-31T14:45:59.181075+00:00", "run_id": "rst-stale-workload-144556", "attempt": 1, "rank": 1, "event": "checkpoint", "step": 2, "dir": "a1/00000002-f32ee353471c434abd3082ba5a1a3720"}
+{"ts": "2026-10-31T14:46:00.182395+00:00", "run_id": "rst-stale-workload-144556", "attempt": 1, "rank": 1, "event": "step", "step": 3, "loss": 13.40946102142334, "digest": "9c12348945211a5ad36dbb685bdb81ba6ce7f4004ae4a508b849c13c54391004", "params": null}
+{"ts": "2026-10-31T14:46:00.183553+00:00", "run_id": "rst-stale-workload-144556", "attempt": 1, "rank": 1, "event": "checkpoint", "step": 3, "dir": "a1/00000003-6a5d8f1f1c9141208d08bfa8ad13a6e2"}
+{"ts": "2026-10-31T14:46:01.184555+00:00", "run_id": "rst-stale-workload-144556", "attempt": 1, "rank": 1, "event": "step", "step": 4, "loss": 3.969231605529785, "digest": "a1934ea4ad9af3186bed3adfbba165f1532e901030d8c9b4e34f0f950b9a0c00", "params": null}
+{"ts": "2026-10-31T14:46:01.185734+00:00", "run_id": "rst-stale-workload-144556", "attempt": 1, "rank": 1, "event": "checkpoint", "step": 4, "dir": "a1/00000004-4ee93b55423d4f9ca4e9bd4c7c1066f1"}
+{"ts": "2026-10-31T14:46:02.186742+00:00", "run_id": "rst-stale-workload-144556", "attempt": 1, "rank": 1, "event": "step", "step": 5, "loss": 1.2955631017684937, "digest": "68375050e13633538cc004aef7d0271b11dfc8edfc6e51c12d637dbf8d1e9f70", "params": null}
+{"ts": "2026-10-31T14:46:02.188727+00:00", "run_id": "rst-stale-workload-144556", "attempt": 1, "rank": 1, "event": "checkpoint", "step": 5, "dir": "a1/00000005-474f22807f464ecca656780ce7477ee6"}
+{"ts": "2026-10-31T14:46:03.189971+00:00", "run_id": "rst-stale-workload-144556", "attempt": 1, "rank": 1, "event": "step", "step": 6, "loss": 0.14475201070308685, "digest": "4d1e4648f6002d4ca9729aefdd0d9f312c70246d7bdf24d26d4ea5c6d5a90eee", "params": null}
+{"ts": "2026-10-31T14:46:03.191119+00:00", "run_id": "rst-stale-workload-144556", "attempt": 1, "rank": 1, "event": "checkpoint", "step": 6, "dir": "a1/00000006-f6fde5cd41184f8ab7d398325c5aeb45"}
+{"ts": "2026-10-31T14:46:04.192209+00:00", "run_id": "rst-stale-workload-144556", "attempt": 1, "rank": 1, "event": "step", "step": 7, "loss": 0.5368534326553345, "digest": "02f18f092ddf7cb7b5d8469b04508f419a84805c77184aa68ef1171151a08b44", "params": null}
+{"ts": "2026-10-31T14:46:04.193433+00:00", "run_id": "rst-stale-workload-144556", "attempt": 1, "rank": 1, "event": "checkpoint", "step": 7, "dir": "a1/00000007-db43f811188f47918963a63775eac437"}
+{"ts": "2026-10-31T14:46:05.194697+00:00", "run_id": "rst-stale-workload-144556", "attempt": 1, "rank": 1, "event": "step", "step": 8, "loss": 1.9936628341674805, "digest": "5b3b2637904e4fbc149c44db6b93f35ea82b6409a6094f047520432d57f22717", "params": null}
+[rank1]: Traceback (most recent call last):
+[rank1]:   File "/work/train.py", line 353, in <module>
+[rank1]:     sys.exit(main())
+[rank1]:              ^^^^^^
+[rank1]:   File "/work/train.py", line 343, in main
+[rank1]:     save(rank, world, step, {"step": step, "model": model.state_dict(), "optimizer": optimiser.state_dict(),
+[rank1]:   File "/work/train.py", line 227, in save
+[rank1]:     dist.barrier()
+[rank1]:   File "/usr/local/lib/python3.12/site-packages/torch/distributed/c10d_logger.py", line 83, in wrapper
+[rank1]:     return func(*args, **kwargs)
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/usr/local/lib/python3.12/site-packages/torch/distributed/distributed_c10d.py", line 4164, in barrier
+[rank1]:     work.wait()
+[rank1]: RuntimeError: [../third_party/gloo/gloo/transport/tcp/pair.cc:534] Connection closed by peer [10.244.2.9]:12201

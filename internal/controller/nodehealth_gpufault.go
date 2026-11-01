@@ -22,10 +22,12 @@ import (
 	"slices"
 	"time"
 
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/events"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -367,6 +369,10 @@ func (r *NodeHealthReconciler) displaceGPUWork(ctx context.Context, nh *platform
 				"pod %s/%s uses a GPU on the faulted node and its Job has no Kueue Workload", p.Namespace, p.Name)
 			continue
 		}
+		handoff, err := r.restartLifecycleOwns(ctx, p.Namespace, owner)
+		if err != nil {
+			return err
+		}
 		for j := range wls.Items {
 			wl := &wls.Items[j]
 			if !ptr.Deref(wl.Spec.Active, true) {
@@ -382,6 +388,11 @@ func (r *NodeHealthReconciler) displaceGPUWork(ctx context.Context, nh *platform
 			wl.Annotations[annWorkloadDeactivatedNode] = nh.Spec.NodeName
 			wl.Annotations[annWorkloadFingerprint] = fp
 			delete(wl.Annotations, annWorkloadReactivatedAt)
+			// In the same patch as the deactivation, so there is no moment the Workload is deactivated by this path and
+			// not yet marked as handed over, in which reactivateDisplaced could requeue it.
+			if handoff {
+				wl.Annotations[AnnRestartHandoff] = fp
+			}
 			if err := r.Patch(ctx, wl, client.MergeFrom(base)); err != nil {
 				return fmt.Errorf("deactivate workload %s/%s: %w", wl.Namespace, wl.Name, err)
 			}
@@ -392,6 +403,29 @@ func (r *NodeHealthReconciler) displaceGPUWork(ctx context.Context, nh *platform
 		}
 	}
 	return nil
+}
+
+// restartLifecycleOwns reports whether a Pod's Job belongs to a distributed MLTrainingJob that restarts.
+//
+// Read uncached, like the Pod list above. A Job or MLTrainingJob that cannot be found is not a restartable one: the
+// fault path then does what it always did, which is the safe direction, because requeueing is what it did before.
+func (r *NodeHealthReconciler) restartLifecycleOwns(ctx context.Context, ns string, jobRef *metav1.OwnerReference) (bool, error) {
+	var job batchv1.Job
+	if err := r.GPUFault.APIReader.Get(ctx, types.NamespacedName{Namespace: ns, Name: jobRef.Name}, &job); err != nil {
+		return false, client.IgnoreNotFound(err)
+	}
+	if job.UID != jobRef.UID {
+		return false, nil
+	}
+	owner := metav1.GetControllerOf(&job)
+	if owner == nil || owner.Kind != "MLTrainingJob" || owner.APIVersion != platformv1.GroupVersion.String() {
+		return false, nil
+	}
+	var mltj platformv1.MLTrainingJob
+	if err := r.GPUFault.APIReader.Get(ctx, types.NamespacedName{Namespace: ns, Name: owner.Name}, &mltj); err != nil {
+		return false, client.IgnoreNotFound(err)
+	}
+	return mltj.UID == owner.UID && restartable(&mltj), nil
 }
 
 // requestsGPU reports whether any container asks for a GPU, by request or by limit.
@@ -423,7 +457,9 @@ func (r *NodeHealthReconciler) reactivateDisplaced(ctx context.Context, nh *plat
 	}
 	for i := range wls.Items {
 		wl := &wls.Items[i]
+		// A Workload handed to the restart lifecycle is that lifecycle's: its attempt is retired and a new one admitted.
 		if wl.Annotations[annWorkloadDeactivatedNode] != nh.Spec.NodeName || wl.Annotations[annWorkloadReactivatedAt] != "" ||
+			wl.Annotations[AnnRestartHandoff] != "" ||
 			ptr.Deref(wl.Spec.Active, true) ||
 			!meta.IsStatusConditionTrue(wl.Status.Conditions, kueuev1beta1.WorkloadEvicted) ||
 			meta.IsStatusConditionTrue(wl.Status.Conditions, kueuev1beta1.WorkloadQuotaReserved) {
@@ -432,7 +468,8 @@ func (r *NodeHealthReconciler) reactivateDisplaced(ctx context.Context, nh *plat
 		base := wl.DeepCopy()
 		wl.Spec.Active = new(true)
 		wl.Annotations[annWorkloadReactivatedAt] = cfg.now().UTC().Format(time.RFC3339Nano)
-		if err := r.Patch(ctx, wl, client.MergeFrom(base)); err != nil {
+		// Optimistic, so a Workload changed since this pass read it (by Kueue, or handed over) is reread, not overwritten.
+		if err := r.Patch(ctx, wl, client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{})); err != nil {
 			return fmt.Errorf("reactivate workload %s/%s: %w", wl.Namespace, wl.Name, err)
 		}
 		gpuFaultWorkloadActionsTotal.WithLabelValues("reactivated").Inc()
