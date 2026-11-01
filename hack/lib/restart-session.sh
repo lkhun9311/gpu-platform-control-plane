@@ -486,7 +486,8 @@ restart_read_latest() {
 # restart_fault_window POD JOB_ID DIR WAIT: 0 once LATEST names a step of at least RESTART_FAULT_MIN_STEP and no rank has
 # recorded RESTART_FAULT_MAX_STEP; 1 if a rank got there first, so the fault would land too late; 2 when the wait ran out.
 #
-# The maximum is checked last, immediately before the caller injects, so a slow log stream cannot hide a late window.
+# The maximum is checked after the minimum, so a slow log stream cannot hide a late window; the window can still close
+# while the caller resolves its targets, so restart_external_fault reads it again with restart_fault_recheck last.
 restart_fault_window() {
   local pod="$1" job_id="$2" dir="$3" wait="$4" deadline=$((SECONDS + $4)) latest="" high
   while ((SECONDS < deadline)); do
@@ -511,6 +512,90 @@ print(max([json.loads(l)["step"] for l in sys.stdin if json.loads(l).get("event"
   done
   echo "LATEST named no step of $RESTART_FAULT_MIN_STEP or later within ${wait}s (last: ${latest:-unread})"
   return 2
+}
+
+# restart_fault_recheck POD JOB_ID DIR NAME: the last read before an external fault: the job not ended, no rank's
+# record and not LATEST at or past RESTART_FAULT_MAX_STEP; prints LATEST's "STEP NAME", or why the fault is refused.
+#
+# LATEST is read last, because the volume is ahead of the logs and the step it names is the one the fault lands after.
+restart_fault_recheck() {
+  local pod="$1" job_id="$2" dir="$3" name="$4" phase high latest
+  phase="$(rk -n "$RESTART_NS" get mltrainingjob "$name" -o jsonpath='{.status.phase}' 2>&1)" || {
+    echo "could not read the job's phase: ${phase:0:200}"
+    return 1
+  }
+  case "$phase" in
+    Succeeded | Failed)
+      echo "the job had already ended $phase"
+      return 1
+      ;;
+  esac
+  high="$(restart_records "$dir" | python3 -c '
+import json, sys
+print(max([json.loads(l)["step"] for l in sys.stdin if json.loads(l).get("event") == "step"], default=0))')"
+  if ((high >= RESTART_FAULT_MAX_STEP)); then
+    echo "a rank recorded step $high, at or past $RESTART_FAULT_MAX_STEP"
+    return 1
+  fi
+  latest="$(restart_read_latest "$pod" "$job_id" 2>&1)" || {
+    echo "${latest:0:200}"
+    return 1
+  }
+  if ((${latest%% *} >= RESTART_FAULT_MAX_STEP)); then
+    echo "LATEST names step ${latest%% *}, at or past $RESTART_FAULT_MAX_STEP"
+    return 1
+  fi
+  echo "$latest"
+}
+
+# restart_external_fault KIND DIR NAME JOB_ID POD0 NODE1 WINDOW RUN_DEADLINE SLOT_DEADLINE: the dcgm or termination
+# fault on rank 1's node, delivered only if the last read before it still finds the window open.
+#
+# Every target is resolved first, the instance, the exporter Pod and the GPU deadline, so the read that decides the
+# fault is the last call before it; once the window had been seen open, a node read, an exporter lookup and two
+# scheduler calls had run before the injection, and the trainer steps every two seconds.
+# The step that last read saw is written to case.json after the fault, so the write is not between the read and it.
+restart_external_fault() {
+  local kind="$1" dir="$2" name="$3" job_id="$4" pod0="$5" node1="$6" window="$7" run_dl="$8" slot_dl="$9" instance last out rc=0
+  rk get nodes -o json >"$dir/nodes-before.json" 2>>"$dir/case.log"
+  instance="$(python3 -c '
+import json, sys
+n = [n for n in json.load(open(sys.argv[1]))["items"] if n["metadata"]["name"] == sys.argv[2]]
+print(n[0]["spec"]["providerID"].rsplit("/", 1)[-1] if n else "")' "$dir/nodes-before.json" "$node1" 2>>"$dir/case.log")"
+  if [[ "$kind" == dcgm ]]; then
+    restart_gf_env "$node1" "$dir" || return 1
+  else
+    # The replacement the termination starts is joined and warmed in the next slot's share, so the deadline must
+    # cover this slot's rest and that share.
+    out="$(restart_deadline_ok $((slot_dl - SECONDS + RESTART_REPLENISH_BUDGET + RESTART_WARM_BUDGET)))" || {
+      echo "$out"
+      return 1
+    }
+  fi
+  if last="$(restart_fault_recheck "$pod0" "$job_id" "$dir" "$name")"; then
+    if [[ "$kind" == dcgm ]]; then
+      restart_dcgm_fault "$node1" "$dir"
+    else
+      restart_terminate_and_fence "$instance" "$node1" "$name" "$dir" $((run_dl - SECONDS))
+    fi
+    rc=$?
+  else
+    restart_mark "$dir" "fault-refused"
+    echo "refused at the last read before the fault: $last"
+    rc=1
+  fi
+  python3 -c '
+import json, re, sys
+c = json.load(open(sys.argv[1]))
+c["target"] = {"rank": 1, "node": sys.argv[2], "instance": sys.argv[3]}
+c["published_at_window"] = sys.argv[4]
+c["last_read_before_fault"] = sys.argv[5]
+m = re.match(r"(\d+) a\d+/", sys.argv[5]) or re.match(r"LATEST names step (\d+)", sys.argv[5])
+c["step_before_fault"] = int(m.group(1)) if m else None
+if sys.argv[6] == "0":
+    c["published_at_fault"] = sys.argv[5]
+json.dump(c, open(sys.argv[1], "w"))' "$dir/case.json" "$node1" "$instance" "$window" "$last" "$rc" 2>>"$dir/case.log"
+  return "$rc"
 }
 
 # restart_mark DIR MARK: a line of marks.jsonl, at this machine's clock.
@@ -562,9 +647,15 @@ restart_terminate_and_fence() {
 
 # restart_dcgm_fault NODE DIR: XID 79 into the host engine on NODE, with the node's own time in the same exec, then the
 # readback, the latch and the taint, all written to DIR/dcgm.json before anything resets them.
+#
+# The exporter Pod is resolved by the caller, with restart_gf_env, before its last read of the published step, so no
+# lookup sits between that read and the injection.
 restart_dcgm_fault() {
   local node="$1" dir="$2" out t rb latched=false tainted=false
-  restart_gf_env "$node" "$dir" || return 1
+  [[ "${GF_TARGET:-}" == "$node" && -n "${GF_POD:-}" ]] || {
+    echo "the fault path is not pointed at $node; restart_gf_env comes first"
+    return 1
+  }
   restart_mark "$dir" "fault-start"
   out="$(rk -n "$RESTART_SYS" exec "$GF_POD" -c hostengine -- sh -c \
     "date +%s.%N; dcgmi test --inject --gpuid 0 -f 230 -v 79 --offset $GF_OFFSET_S" 2>&1)" || {
@@ -999,7 +1090,7 @@ restart_void_case() {
 # The retirement's deadline is counted back from the slot's end, past the files and the reset, so a run or an evidence
 # read that ran long takes from the retirement's share and never pushes the files or the reset past the slot.
 restart_run_case() {
-  local case="$1" slot_dl="$2" kind="${1%-[0-9]*}" name dir job_id deadline collector rank0 rank1 node1 pod0 rc instance window out probed=""
+  local case="$1" slot_dl="$2" kind="${1%-[0-9]*}" name dir job_id deadline collector rank0 rank1 node1 pod0 rc window out probed=""
   local retire_dl=$(($2 - RESTART_FILES_BUDGET))
   [[ "${1%-[0-9]*}" != dcgm ]] || retire_dl=$((retire_dl - RESTART_RESET_BUDGET))
   name="rst-$case-$(date -u +%H%M%S)"
@@ -1051,25 +1142,7 @@ restart_run_case() {
       restart_void_case "$dir" "$name" "$collector" "$retire_dl" "no fault window: $window"
       return
     }
-    rk get nodes -o json >"$dir/nodes-before.json" 2>>"$dir/case.log"
-    instance="$(python3 -c '
-import json, sys
-n = [n for n in json.load(open(sys.argv[1]))["items"] if n["metadata"]["name"] == sys.argv[2]]
-print(n[0]["spec"]["providerID"].rsplit("/", 1)[-1] if n else "")' "$dir/nodes-before.json" "$node1")"
-    python3 -c '
-import json, sys
-c = json.load(open(sys.argv[1]))
-c["target"] = {"rank": 1, "node": sys.argv[2], "instance": sys.argv[3]}
-c["published_at_fault"] = sys.argv[4]
-json.dump(c, open(sys.argv[1], "w"))' "$dir/case.json" "$node1" "$instance" "$window"
-    if [[ "$kind" == dcgm ]]; then
-      out="$(restart_dcgm_fault "$node1" "$dir")"
-    else
-      # The replacement the termination starts is joined and warmed in the next slot's share, so the deadline must
-      # cover this slot's rest and that share.
-      out="$(restart_deadline_ok $((slot_dl - SECONDS + RESTART_REPLENISH_BUDGET + RESTART_WARM_BUDGET)))" &&
-        out="$(restart_terminate_and_fence "$instance" "$node1" "$name" "$dir" $((deadline - SECONDS)))"
-    fi
+    out="$(restart_external_fault "$kind" "$dir" "$name" "$job_id" "$pod0" "$node1" "$window" "$deadline" "$slot_dl")"
     rc=$?
     echo "$out" >>"$dir/case.log"
     if ((rc != 0)); then

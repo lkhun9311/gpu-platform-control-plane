@@ -440,6 +440,63 @@ else
   bad "the failed probe before the fault: VOID '$(cat "$work/out/probe-before/dcgm-1/VOID" 2>&1)', $(grep -c hostengine "$work/probe-before.calls") injection call(s)"
 fi
 
+# The window is read again as the last call before a termination: the node read sleeps two seconds, the trainer passes
+# step 25 meanwhile, and the termination is refused although the window was open when first read.
+# window-rules NAME LATE: rules where LATEST names step 12 until two seconds after its first read, then 26 when LATE.
+window_rules() {
+  mkdir -p "$work/rules/$1" "$work/out/$1"
+  cat >"$work/rules/$1/kubectl.sh" <<EOF
+case "\$*" in
+  *"get nodes -o json"*) sleep 2; . "$work/fullcase.sh" "\$@" ;;
+  *"-- cat /state/"*"/LATEST"*)
+    [[ -e "\$STUB_RULES/t0" ]] || date +%s >"\$STUB_RULES/t0"
+    if [[ "$2" == yes ]] && ((\$(date +%s) - \$(cat "\$STUB_RULES/t0") >= 2)); then echo "a1/00000026-0123456789abcdef0123456789abcdef"; else echo "a1/00000012-0123456789abcdef0123456789abcdef"; fi ;;
+  *"get mltrainingjob"*"status.phase"*) echo Running ;;
+  *) . "$work/fullcase.sh" "\$@" ;;
+esac
+EOF
+  cat >"$work/rules/$1/aws.sh" <<'EOF'
+case "$*" in
+  "scheduler list-schedules"*) echo "gpu-ttl-gpu-platform-gpu-1" ;;
+  "scheduler get-schedule"*) echo "at($(date -u -d '+600 minutes' +%Y-%m-%dT%H:%M:%S))" ;;
+  "ec2 terminate-instances"*) echo "TERMINATINGINSTANCES" ;;
+  "ec2 describe-instances"*) echo terminated ;;
+esac
+EOF
+  echo '{"kind": "terminate-wait", "name": "rst-t", "job_id": "job-t", "target": {}}' >"$work/out/$1/case.json"
+}
+external='window="$(restart_fault_window rp0 job-t "$RESTART_OUT" 5)" || { echo "window shut: $window"; exit 1; }
+restart_external_fault terminate-wait "$RESTART_OUT" rst-t job-t rp0 node-b "$window" $((SECONDS + 30)) $((SECONDS + 60)); echo "rc=$?"'
+window_rules late yes
+out="$(lib late "$external")"
+case_json="$(python3 -c 'import json, sys; c = json.load(open(sys.argv[1])); print(c.get("step_before_fault"), c.get("published_at_window", "")[:2], "published_at_fault" in c)' "$work/out/late/case.json")"
+if [[ "$out" == *"refused at the last read before the fault: LATEST names step 26, at or past 25"*"rc=1" && "$case_json" == "26 12 False" ]] &&
+  grep -q '"fault-refused"' "$work/out/late/marks.jsonl" && ! grep -q 'terminate-instances' "$work/late.calls"; then
+  ok "a window that closed while the targets were resolved refuses the termination, and step 26 is recorded"
+else
+  bad "the window that closed late: $out; case.json $case_json; $(grep -c terminate-instances "$work/late.calls") termination(s)"
+fi
+# The same with the trainer still before step 25: the termination goes ahead, after every lookup and the last read.
+window_rules ontime no
+out="$(lib ontime "$external")"
+order="$(grep -oE 'get nodes -o json|get-schedule|/LATEST|terminate-instances' "$work/ontime.calls" | tail -4 | paste -sd' ')"
+case_json="$(python3 -c 'import json, sys; c = json.load(open(sys.argv[1])); print(c.get("step_before_fault"), c.get("published_at_fault", "")[:3])' "$work/out/ontime/case.json")"
+if [[ "$out" == *"terminated and node-b fenced"*"rc=0" && "$order" == "get nodes -o json get-schedule /LATEST terminate-instances" && "$case_json" == "12 12 " ]]; then
+  ok "an open window is read last, after the node read and the deadline, then the instance is terminated: $order"
+else
+  bad "the window read on time: $out; order '$order'; case.json $case_json"
+fi
+# A job that has already ended is not faulted, whatever LATEST says.
+mkdir -p "$work/rules/ended"
+cat >"$work/rules/ended/kubectl.sh" <<EOF
+case "\$*" in
+  *"get mltrainingjob"*"status.phase"*) echo Succeeded ;;
+  *) . "$work/fullcase.sh" "\$@" ;;
+esac
+EOF
+out="$(lib ended 'restart_fault_recheck rp0 job-t "$RESTART_OUT" rst-t; echo "rc=$?"')"
+if [[ "$out" == *"the job had already ended Succeeded"*"rc=1" ]]; then ok "a job that has ended refuses the fault"; else bad "the ended job: $out"; fi
+
 # --- 3. the scorer --------------------------------------------------------------------------------------------------
 # score DEFECT CASE WANT_KIND WANT_TEXT: a run generated with one defect in one case; that case's line must carry the
 # verdict and the text, and the run's exit must not be 0.
