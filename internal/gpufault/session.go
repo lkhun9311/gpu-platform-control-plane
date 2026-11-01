@@ -23,7 +23,9 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
+	"time"
 )
 
 // ScoreSession scores every repetition under dir/reps and reads dir/smoke.env for arms the smoke cell stopped.
@@ -68,7 +70,76 @@ func ScoreSession(dir string) (Report, error) {
 	for _, name := range StaleChecks {
 		r.Checks = append(r.Checks, judgeStaleCheck(filepath.Join(dir, "checks", name), name))
 	}
+	r.Checks = append(r.Checks, judgeRecoveryCheck(filepath.Join(dir, "checks", "recovery")))
 	return r, nil
+}
+
+// RecoveryImage is the CUDA sample run 3's amendment pins; a card session that ran anything else ran another check.
+const RecoveryImage = "nvcr.io/nvidia/k8s/cuda-sample:vectoradd-cuda12.5.0@sha256:7c7540bdf1f942d4fb6db97069fd6c289471b54ac29e3c7fcdf914cf77af7d41"
+
+// RecoveryBudgetSeconds is the time the amendment gives the recovery job from submission to completion.
+const RecoveryBudgetSeconds = 180
+
+// recordedYes is how the runner writes a clause that held in checks/recovery/check.env.
+const recordedYes = "yes"
+
+// recoveryMarker is what NVIDIA's vectorAdd prints once it has checked the kernel's result on the card.
+const recoveryMarker = "Test PASSED"
+
+// judgeRecoveryCheck reads the check run 3's amendment registers: after a latched fault is cleared by a fresh zero
+// reading, the platform puts a CUDA training job back on the node and the card runs it.
+//
+// A check that was not reached is NOT-REACHED, never FAIL, because no clause was read; a session from before the
+// amendment has no record at all and is NOT-RUN.
+func judgeRecoveryCheck(dir string) CheckResult {
+	const name = "recovery"
+	env, err := readEnv(filepath.Join(dir, "check.env"))
+	if err != nil {
+		return CheckResult{Name: name, Verdict: "NOT-RUN", Reasons: []string{err.Error()}}
+	}
+	if env["reached"] != "true" {
+		why := "stale-latched never gave its zero reading"
+		if env["reason"] == "deadline" {
+			why = "the checks phase had too little time left to begin it"
+		}
+		return CheckResult{Name: name, Verdict: "NOT-REACHED", Reasons: []string{why}}
+	}
+	c := CheckResult{Name: name, Verdict: "PASS"}
+	expect := func(ok bool, f string, a ...any) {
+		if !ok {
+			c.Verdict = "FAIL"
+			c.Reasons = append(c.Reasons, fmt.Sprintf(f, a...))
+		}
+	}
+	card := env["mode"] == "dcgm"
+	expect(env["clear"] == recordedYes, "R1: the target was not clear after stale-latched's zero reading")
+	if card {
+		expect(env["exporter_recreated"] == recordedYes, "R2: the exporter on the target is %q, not a new Pod (recreated %s)", env["exporter_pod"], env["exporter_recreated"])
+		expect(env["image"] == RecoveryImage, "R4: the job ran %q, not the registered %s", env["image"], RecoveryImage)
+	}
+	expect(env["allocatable"] == "1", "R3: the target's allocatable nvidia.com/gpu is %q, want 1", env["allocatable"])
+	expect(env["submitted"] == recordedYes, "R4: the job was never submitted")
+	expect(env["job_pods"] == "1", "R4: the job has %s Pods, want exactly one", env["job_pods"])
+	expect(env["job_phase"] == "Succeeded" && env["exit_code"] == "0", "R4: the job's Pod is %q with exit code %q", env["job_phase"], env["exit_code"])
+	expect(env["job_node"] != "" && env["job_node"] == env["target"], "R4: the job ran on %q, not on the target %q", env["job_node"], env["target"])
+	log, err := os.ReadFile(filepath.Join(dir, "job.log"))
+	expect(err == nil && strings.Contains(string(log), recoveryMarker), "R4: the job's log does not say %q", recoveryMarker)
+	// The bound is the registration's, not the record's: a runner given another budget ran another check.
+	expect(env["budget_s"] == strconv.Itoa(RecoveryBudgetSeconds), "R4: the runner gave the job %q s, not the registered %d s", env["budget_s"], RecoveryBudgetSeconds)
+	submit, errS := strconv.ParseFloat(env["t_submit"], 64)
+	finished, errF := time.Parse(time.RFC3339, env["t_finished"])
+	if errS != nil || errF != nil {
+		expect(false, "R4: the submission or completion time is unreadable: %q, %q", env["t_submit"], env["t_finished"])
+	} else {
+		// finishedAt has whole seconds, so the completion is taken as the end of its second: an upper end, as every
+		// other figure in this study is.
+		took := float64(finished.Unix()+1) - submit
+		expect(took <= RecoveryBudgetSeconds, "R4: the job finished %.0f s after its submission, beyond the registered %d s", took, RecoveryBudgetSeconds)
+	}
+	if !card {
+		c.Reasons = append(c.Reasons, "rehearsal: the job was the study's busybox printing the marker, not CUDA on a card")
+	}
+	return c
 }
 
 // StaleChecks are the two registered cells that take the exporter away with the operator running.
@@ -103,9 +174,14 @@ func judgeStaleCheck(dir, name string) CheckResult {
 			"stale data released the fault: GPUHealthy %s, taint %s, latched %q", env["during_healthy_status"], env["during_taint"], env["during_latched"])
 		// The runner writes the after_* lines only once it has injected zero, so their absence is a step that did
 		// not run, which fails the clause but is not a reading that failed to clear.
-		if _, reached := env["after_taint"]; !reached {
+		_, reached := env["after_taint"]
+		switch {
+		case !reached:
 			expect(false, "the clearing step was never reached: no fresh zero reading was given after the exporter left (see the runner's log)")
-		} else {
+		case env["zero_given"] == "no":
+			// Sessions before run 3 do not record zero_given, and are read as they were.
+			expect(false, "the clearing step was never reached: injecting the zero reading failed (see the runner's log)")
+		default:
 			expect(env["after_latched"] == "" && env["after_taint"] == "absent",
 				"a fresh zero reading did not clear it: latched %q, taint %s", env["after_latched"], env["after_taint"])
 		}

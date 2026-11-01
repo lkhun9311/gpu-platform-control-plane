@@ -452,8 +452,12 @@ func TestStaleChecks(t *testing.T) {
 	write(t, dir, "stale-healthy", healthy)
 	write(t, dir, "stale-latched", latched)
 	r, _ := ScoreSession(dir)
+	stale := map[string]bool{}
+	for _, name := range StaleChecks {
+		stale[name] = true
+	}
 	for _, c := range r.Checks {
-		if c.Verdict != "PASS" {
+		if stale[c.Name] && c.Verdict != "PASS" {
 			t.Fatalf("%s: %s %v", c.Name, c.Verdict, c.Reasons)
 		}
 	}

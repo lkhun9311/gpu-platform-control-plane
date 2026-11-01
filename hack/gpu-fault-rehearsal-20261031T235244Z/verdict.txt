@@ -1,0 +1,10 @@
+GPU FAULT REACTION: REHEARSAL
+P5 (allocatable unchanged by injection): held
+arm xid    UNJUDGED               valid 1 of 1
+arm ecc    UNJUDGED               valid 1 of 1
+arm benign UNJUDGED               valid 1 of 1
+arm none   UNJUDGED               valid 1 of 1
+check stale-healthy  PASS
+check stale-latched  PASS
+check recovery       PASS
+    - rehearsal: the job was the study's busybox printing the marker, not CUDA on a card

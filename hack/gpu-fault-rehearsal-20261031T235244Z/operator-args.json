@@ -1,0 +1,1 @@
+["--leader-elect","--health-probe-bind-address=:8081","--gpu-fault-source=dcgm","--gpu-fault-evict-workloads","--gpu-fault-exporter-selector=app.kubernetes.io/component=gpu-simulator"]
