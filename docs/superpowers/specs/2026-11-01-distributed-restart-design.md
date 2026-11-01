@@ -137,8 +137,11 @@ These are not built by this apparatus, and each one alone stops the session.
 
 - **The restart controller is not on `main`.** Argo deploys the operator from `main` (`config/argocd/operator.yaml`), whose image pin is commit `0390a228`, built from `3963f2ac3346` on 2026-10-30; the restart controller is `7ddad46b` and `65874ddb`, 2026-10-31, on `dev` only, and `origin/main`'s API has no `maxRestarts` (A2).
   Promotion to `main` and the CI image pin are the owner's step; the runner refuses before it buys anything when the deployed CRD lacks `distributed.maxRestarts` or the operator Pod's image digest is not the one `main` pins.
-- **Design step 3 is not finished.** The kind cases ran on a shared host directory, "without NFS's semantics" (`hack/kind-config-restart.yaml`) (A16).
-  The torn-checkpoint cases against an in-cluster NFS server are what this design ordered before a GPU; the GPU session does not replace them, and EFS is where their absence would be paid for.
+- **Design step 3 has run on kind over NFS, against ganesha and not EFS.** The kind cases first ran on a shared host directory, "without NFS's semantics" (`hack/kind-config-restart.yaml`) (A16).
+  The torn-checkpoint cases now run against an in-cluster NFS-Ganesha server with the mount options AWS recommends for EFS (`STORAGE=nfs`; `experiments/distributed-restart/README.md`, "Over NFS, on kind").
+  They found two defects in the trainer that the host directory could not: every rank creating the shared directories killed the reference at step 1 (`hack/distributed-restart-kind-20261101T090308Z`), and a rank whose node cached its shard's name as absent refused every checkpoint through the bounded retry and restarted from step zero (`hack/distributed-restart-kind-20261101T091435Z`).
+  Both are fixed, and `hack/distributed-restart-kind-20261101T092646Z` and `hack/distributed-restart-kind-20261101T093539Z` pass all their checks.
+  The second fix is a mitigation measured on Linux 7.0 against ganesha; whether EFS and the EKS kernel need it, or more, is not shown, and the paid session's restarts are where that would be paid for.
   The API-cut case of step 4 has since run on kind as `cut-writer`, with an early-fence control (`experiments/distributed-restart/README.md`, `hack/distributed-restart-kind-20261101T055239Z`).
 - **The owner's approval of this section, with the case list and the cost ceiling below.**
 
