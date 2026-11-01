@@ -141,7 +141,8 @@ ERRORS=$(promq 'sum(controller_runtime_reconcile_errors_total{controller="mltrai
 
 THROUGHPUT=null
 if [ -n "$T_DRAINED" ] && [ "$(echo "$DRAIN_MS > 0" | bc 2>/dev/null)" = "1" ]; then
-  THROUGHPUT=$(echo "scale=1; $RECONCILES / ($DRAIN_MS / 1000)" | bc 2>/dev/null || echo null)
+  # Multiply before dividing: bc applies scale=1 to the inner division too, and 10,054 ms truncated to 10.0 s once printed 143.7 for 142.9.
+  THROUGHPUT=$(echo "scale=1; $RECONCILES * 1000 / $DRAIN_MS" | bc 2>/dev/null || echo null)
 fi
 
 echo

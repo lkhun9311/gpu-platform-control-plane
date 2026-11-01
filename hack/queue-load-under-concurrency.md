@@ -25,7 +25,7 @@ and the harness records the interval it actually achieved rather than the one it
 | peak queue depth | 0 | **600** |
 | drain | 10,054 ms | 11,570 ms |
 | reconciles | 1,437 | 1,857 |
-| reconciles/sec, one burst each, reconciles not jobs | 143.7, never saturated | **160.5**, saturated |
+| reconciles/sec, one burst each, reconciles not jobs | 142.9 (printed 143.7 by a truncating division), never saturated | **160.5**, saturated |
 | sampling | 5s poll of a 15s scrape | 203 ms, measured |
 
 600 MLTrainingJobs, 32 concurrent writers, `MaxConcurrentReconciles=1` (controller-runtime's default, unset
