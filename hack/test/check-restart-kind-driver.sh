@@ -154,6 +154,17 @@ if grep -q 'check_outcomes.py "\$OUT" \$RUNS' hack/restart-lifecycle-kind.sh && 
 else
   bad "the driver's exit status does not need the outcome check"
 fi
+# break_clocks and mend_clocks act on the exporters restart_exporters lists, those on nodes the group has now: an exporter
+# left listed on a removed node cannot be exec'd into, and counting that as a failed injection failed a rehearsal whose
+# every live clock was broken (codex review of 83b369ec).
+for f in break_clocks mend_clocks; do
+  body="$(sed -n "/^$f() {/,/^}/p" hack/restart-lifecycle-kind.sh)"
+  if grep -q 'restart_exporters' <<<"$body" && ! grep -q 'component=dcgm-exporter' <<<"$body"; then
+    ok "$f acts only on the exporters of the group's current nodes"
+  else
+    bad "$f lists exporters by label, the stale ones on removed nodes included"
+  fi
+done
 # Each way an injection can fail is recorded: hold_quota's lowering and restoring, stick_pod's patch, and break_clocks'
 # exec on a Pod and its having broken none.
 for c in hold_quota:2 stick_pod:1 break_clocks:2; do

@@ -604,9 +604,11 @@ stick_pod() {
 break_clocks() {
   local p pods broken=0
   until [ -e "$RESTART_OUT/run.log" ] && grep -q '^reference: ' "$RESTART_OUT/run.log"; do sleep 1; done
-  pods=$(k -n "$SYS" get pods -l app.kubernetes.io/component=dcgm-exporter -o name 2>>"$LOG") || pods=""
+  # The exporters of the group's current nodes, as the runner probes them: one still listed on a removed node cannot be
+  # exec'd into, and is no clock a case would read (codex review of 83b369ec).
+  pods=$(restart_exporters 2>>"$LOG" | awk '{print $2}') || pods=""
   for p in $pods; do
-    if k -n "$SYS" exec "${p#*/}" -c exporter -- sh -c 'printf "#!/bin/sh\necho rehearsal: this clock is made unreadable >&2\nexit 1\n" >/ctl/date && chmod +x /ctl/date' >>"$LOG" 2>&1; then
+    if k -n "$SYS" exec "$p" -c exporter -- sh -c 'printf "#!/bin/sh\necho rehearsal: this clock is made unreadable >&2\nexit 1\n" >/ctl/date && chmod +x /ctl/date' >>"$LOG" 2>&1; then
       broken=$((broken + 1))
     else
       log "break_clocks: $p not broken"
@@ -624,8 +626,8 @@ break_clocks() {
 
 mend_clocks() {
   local p
-  for p in $(k -n "$SYS" get pods -l app.kubernetes.io/component=dcgm-exporter -o name); do
-    k -n "$SYS" exec "${p#*/}" -c exporter -- rm -f /ctl/date >>"$LOG" 2>&1 || log "mend_clocks: $p not mended"
+  for p in $(restart_exporters 2>>"$LOG" | awk '{print $2}'); do
+    k -n "$SYS" exec "$p" -c exporter -- rm -f /ctl/date >>"$LOG" 2>&1 || log "mend_clocks: $p not mended"
   done
 }
 
