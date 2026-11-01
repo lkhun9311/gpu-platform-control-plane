@@ -80,6 +80,9 @@ const RecoveryImage = "nvcr.io/nvidia/k8s/cuda-sample:vectoradd-cuda12.5.0@sha25
 // RecoveryBudgetSeconds is the time the amendment gives the recovery job from submission to completion.
 const RecoveryBudgetSeconds = 180
 
+// recordedYes is how the runner writes a clause that held in checks/recovery/check.env.
+const recordedYes = "yes"
+
 // recoveryMarker is what NVIDIA's vectorAdd prints once it has checked the kernel's result on the card.
 const recoveryMarker = "Test PASSED"
 
@@ -109,13 +112,13 @@ func judgeRecoveryCheck(dir string) CheckResult {
 		}
 	}
 	card := env["mode"] == "dcgm"
-	expect(env["clear"] == "yes", "R1: the target was not clear after stale-latched's zero reading")
+	expect(env["clear"] == recordedYes, "R1: the target was not clear after stale-latched's zero reading")
 	if card {
-		expect(env["exporter_recreated"] == "yes", "R2: the exporter on the target is %q, not a new Pod (recreated %s)", env["exporter_pod"], env["exporter_recreated"])
+		expect(env["exporter_recreated"] == recordedYes, "R2: the exporter on the target is %q, not a new Pod (recreated %s)", env["exporter_pod"], env["exporter_recreated"])
 		expect(env["image"] == RecoveryImage, "R4: the job ran %q, not the registered %s", env["image"], RecoveryImage)
 	}
 	expect(env["allocatable"] == "1", "R3: the target's allocatable nvidia.com/gpu is %q, want 1", env["allocatable"])
-	expect(env["submitted"] == "yes", "R4: the job was never submitted")
+	expect(env["submitted"] == recordedYes, "R4: the job was never submitted")
 	expect(env["job_pods"] == "1", "R4: the job has %s Pods, want exactly one", env["job_pods"])
 	expect(env["job_phase"] == "Succeeded" && env["exit_code"] == "0", "R4: the job's Pod is %q with exit code %q", env["job_phase"], env["exit_code"])
 	expect(env["job_node"] != "" && env["job_node"] == env["target"], "R4: the job ran on %q, not on the target %q", env["job_node"], env["target"])
