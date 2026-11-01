@@ -106,7 +106,7 @@ On a HoldCap backend:
 `gpuaas_gateway_backend_admission_mode{namespace,name,mode}` shows, per backend, whether it gets `hold-cap` or the process-wide mode (`gateway`).
 
 What the evidence licenses: HoldCap was measured on one A10G, one engine version, one model (Qwen2.5-3B-Instruct) and one streaming load, in three registered blocks, against no admission (`docs/11_WHAT_THIS_MEASURED.md`, Finding 9).
-A fixed spacing tuned for that load tied with it within the registered 15%, so HoldCap offers protection that needs no tuning, not the lowest tail and not an SLO.
+A fixed spacing tuned for that load tied with it within the registered 15%, so HoldCap offers protection that needs no spacing retuned to the load, within the loads and prompt lengths measured and with its own cap and `maxHold` still configured, not the lowest tail and not an SLO.
 It raises standard-tier latency and refuses a standard request held longer than `maxHold`.
 
 The rendering itself was checked on a real engine on 2026-10-11 (`hack/holdcap-conformance/runs/20261011T030610Z/README.md`).

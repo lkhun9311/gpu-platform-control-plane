@@ -33,7 +33,7 @@ and that is a configuration an operator supplies or does not.
 
 ---
 
-## Finding 1 — reservation does not track use, and the gap reached 4x
+## Finding 1 — reservation does not track use, and the gap reached 4x for a workload programmed to idle three quarters of the time
 
 Two arms were given identical GPU quota and differed only in how much of their service they spent computing.
 
@@ -48,7 +48,7 @@ the document fixed *before* the run.
 
 **Why it matters.** Schedulers admit on reservation. Quota systems count reservation. Cloud invoices bill
 reservation. All three can be correct and all three can be useless at once: this pair of runs is
-indistinguishable to every reservation-based figure and differs fourfold in what the card actually did.
+indistinguishable to every reservation-based figure and differs fourfold in sampled device busy-time, by a synthetic kernel's programmed duty cycle; busy-time is not useful work, and no cost or throughput saving was measured.
 
 **What it does not say.** Nothing about whether the utilisation figure itself is trustworthy at finer
 resolution, and nothing about multi-tenant interference — both arms ran alone.
@@ -57,7 +57,7 @@ resolution, and nothing about multi-tenant interference — both arms ran alone.
 
 ---
 
-## Finding 2 — a fake device plugin reproduces real-hardware scheduling measurements
+## Finding 2 — a fake device plugin reproduced one real-hardware scheduling measurement
 
 The same queue-policy experiment was run twice: once on kind with a device plugin this repository wrote
 (kubelet device-plugin v1beta1 gRPC, `cmd/gpu-simulator`), once on four rented A10Gs.
@@ -68,9 +68,9 @@ The same queue-policy experiment was run twice: once on kind with a device plugi
 | GPU-second difference | 30.0 | **30.0** |
 
 **Why it matters.** The scheduler does not know the devices are fake. It admits, places and preempts from
-`allocatable` and pod requests, which are identical in shape either way. So **scheduling, queueing and
-preemption questions can be answered rigorously for $0**, and a rented card adds no information to them.
-That is a methodological result, not a convenience: it says which questions need hardware and which do not.
+`allocatable` and pod requests, which are identical in shape either way. So **a scheduling question that depends
+only on those inputs can be answered for $0**: this one queue-policy contrast came out 29.0 s on kind and 28.8 s on the cards, and the rented card added no information to it.
+That is a methodological result, not a convenience, but one agreement, not a proof: a real plugin's restart, an allocation failure or CUDA teardown at preemption are inputs the fake device does not have.
 
 **What it does not say.** Nothing about anything downstream of placement — utilisation, throughput, memory,
 interconnect. For those the fake device is not merely weaker evidence; it is no evidence.
@@ -235,7 +235,7 @@ retroactively confirms it.
 The three-arm admission guard was declared **INVALID** by its own pre-registered checks, and the word covers
 two different things. Two of the three checks were void: arm B admitted nothing, so it was not a control
 (`hack/m5d-writeup.md:94`). The third, the absolute check, compared what it was meant to compare and
-**failed**: the guarded premium tail was 83.7x an uncontended baseline against a 1.25x target. So the
+**failed**: the guarded premium tail was 83.7x an uncontended baseline against a 1.25x target, with a KV-occupancy threshold this load could never reach, so the refusals came from the queue condition alone. So the
 protection did not merely go unmeasured; where it was measured, it failed, and no protection claim was made.
 The 1.25x itself had no derivation, which "What the targets were based on" below takes up.
 
@@ -279,7 +279,7 @@ SIGTERM **did not exist**, because every workload in the study ignored it.
 ## Finding 6 — the platform reports a job it never placed as running
 
 A 2-GPU job, 2 GPUs free, quota reserved, and no node able to take it. Across 25 pre-registered trials on
-two worker nodes:
+two kind worker nodes with 2 simulated GPUs each:
 
 | arm | headroom | outcome | samples where the CR said `Running` while unscheduled |
 |---|---|---|---:|
@@ -313,7 +313,7 @@ Repacking one holder — no added GPU, no added quota, demand 2 → 3 → 2 — 
 in 5/5 trials, though every one of those five breaches the study's own 5 s collection-gap rule and is
 reported as evidence rather than as a pass (`experiments/fragmentation/README.md`).
 A registered rerun on 2026-10-23, with a sampler the intervention could not pause, gave five R trials that
-meet the rule: the same Pod scheduled 0.51–1.43 s after the deletion in each, with the middle state in the
+meet the rule: the same Pod scheduled 0.51–1.43 s after the deletion in each, on simulated devices, with no training being moved, with the middle state in the
 timeline itself; its five F trials, the same session's control, never scheduled and showed the CR `Running`
 while unscheduled in 0 samples, where each F trial on 2026-09-24 showed 145.
 
@@ -430,7 +430,7 @@ Measured on one A10G at a time, the frozen load and three registered blocks each
 What was not measured at the frozen load, and stands only as the replay's prediction — a scheduler model fitted on 282,897 archived steps, which matched every measured prefill median within 3%: that at 8,192 tokens the 1.74 s spacing loses the premium tail entirely, and that on a heavier trace hold-cap's contender p95 reaches the 25 s limit. The main study that would have measured both was stopped at its own purchase gate, because the replay predicted the second.
 C3 then asked the first question at a lighter load and measured it: a spacing frozen at the reference length lost the premium tail at the long length, where hold-cap did not.
 
-**Why it matters.** The rule that works is a combination neither half of which works alone, and its advantage over a fixed clock is not a lower tail but that it needs no tuning: at the load it was tuned for, a well-chosen spacing does as well, and 80 ms narrower than that choice its tail is more than twice hold-cap's.
+**Why it matters.** The rule that works is a combination neither half of which works alone, and its advantage over a fixed clock is not a lower tail but that it needs no spacing retuned to the load, within the loads and prompt lengths measured: at the load it was tuned for, a well-chosen spacing does as well, and 80 ms narrower than that choice its tail is more than twice hold-cap's.
 At the frozen load only narrower spacings were measured, so how a wider one fares there is not known.
 C3 measured what that tuning costs when the load moves: the prompt grew past what the spacing was frozen for, and the spacing's pooled tail went to about three times hold-cap's.
 

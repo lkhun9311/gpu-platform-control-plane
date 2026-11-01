@@ -47,8 +47,10 @@ counter delta readable.
 }
 ```
 
-Twenty requests, twenty successes, and a counter delta of exactly twenty. The retry path engages, and the
-metric an operator would rely on records it.
+Twenty requests, twenty successes, and a counter delta of exactly twenty, each to a stub spare after a
+connection to the head was never made. The retry path engages for that case, and the metric an operator would
+rely on records it; a stream cut mid-response, a hung engine or a loaded spare was not exercised, and the
+gateway does not fall back once a byte has been written (`internal/gateway/proxy.go`).
 
 The steady state also asserts what makes the two objects alternatives at all: both have endpoints, both
 serve the same model name, and the head really is the older of the two — oldest-first is the routing order,

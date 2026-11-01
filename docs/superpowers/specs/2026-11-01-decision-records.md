@@ -94,9 +94,9 @@ All-reduce bus bandwidth, GB/s, median of five jobs [NCCL:551]:
 | 64 MiB | 3.07 | 1.62 | [NCCL:558] |
 | 256 MiB | 3.06 | 1.67 | [NCCL:559] |
 
-NVIDIA's nccl-tests in the one-Pod layout reported 3.88, 3.24, 3.32, 3.27 and 3.05 GB/s at the same sizes [NCCL:555-559]; its ratio to torch's figure is reported and not judged [NCCL:571].
+NVIDIA's nccl-tests in the one-Pod layout reported 3.88, 3.24, 3.32, 3.27 and 3.05 GB/s at the same sizes [NCCL:555-559], with a different timer and warm-up history from torch's bench [NCCL:120-121]; its ratio to torch's figure is reported and not judged [NCCL:571].
 
-DDP step, synthetic model, ms, median of five jobs' medians [NCCL:561]:
+DDP step, synthetic model, forward and backward only with no optimizer step or data loading, ms, median of five jobs' medians [NCCL:561]:
 
 | | one Pod of four | four Pods of one | source |
 |---|---:|---:|---|

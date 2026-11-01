@@ -292,11 +292,11 @@ What makes it vary was not measured.
 Step 4 shows that Slurm restarts a process, not that training resumes: its ranks only print and sleep.
 Step 5 answers the second question.
 
-## Step 5: a requeued two-node training job resumes from its checkpoint
+## Step 5: a requeued two-node training job resumes from its checkpoint (two containers on one host, a CPU toy model)
 
 `train.sbatch` is one batch job with `-N 2 --ntasks-per-node=1 --requeue --open-mode=append`, whose script is a single `srun` starting one rank of `train.py` per node.
 `MASTER_ADDR` is the first host of `SLURM_JOB_NODELIST`, `RANK` is `SLURM_PROCID`, `WORLD_SIZE` is `SLURM_NTASKS`, and `TRAINING_ATTEMPT` is `SLURM_RESTART_COUNT`, defaulted to 0 because Slurm leaves it unset on the first start.
-Checkpoints go to `/ckpt/<job>/`, on the one volume every compute node mounts, so a requeued attempt on other nodes can read what the first attempt wrote.
+Checkpoints go to `/ckpt/<job>/`, on the one volume every compute node mounts (a local Docker volume, not NFS or Lustre), so a requeued attempt on other nodes can read what the first attempt wrote.
 Each rank's JSON records go to `/ckpt/<job>/logs/attempt-<A>-rank-<R>.jsonl`, because a dead node's share of srun's forwarded output is lost with it.
 
 `train.py` is the trainer the Kubernetes whole-job restart uses, copied unchanged from commit `f7638229` of `feat/distributed-restart` (see its header).
@@ -327,7 +327,7 @@ host$ docker compose kill c2                                   # 23:42:53.990
 [2026-10-31T23:45:43.972] sched/backfill: _start_job: Started JobId=3 in gpu on c[1,3]
 ```
 
-The job was requeued 30 s after the kill, waited for its `BeginTime` about two minutes later, and started again on c1 and c3 with `Restarts=1`, while `sinfo` showed c2 `down* Not responding`.
+The job was requeued 30 s after the kill, in one observation of killing the container that ran rank 1 rather than the batch host, with the batch step still alive when c2 went DOWN (see "What ended rank 0" below); it waited for its `BeginTime` about two minutes later, and started again on c1 and c3 with `Restarts=1`, while `sinfo` showed c2 `down* Not responding`.
 `sacct -D` keeps both attempts under the same id:
 
 ```
@@ -346,7 +346,7 @@ In job 4, both ranks of attempt 1 recorded `restart_from_zero` and trained steps
 **The scorer.**
 `score_requeue.py` reads the reference logs, the case logs and the case's `scontrol show job`, and exits 1 if any check fails.
 It requires effects, not the fault: `JobState=COMPLETED` with `Restarts` at least 1, one log per attempt from 0 to `Restarts`, every record carrying the attempt Slurm's restart count gave it, an attempt 0 that published a checkpoint and stopped before step 40, a final attempt whose every rank has one `resume` record with `from_step > 0` and none `restart_from_zero`, the same checkpoint on every rank, that checkpoint being attempt 0's last published one, the remaining steps trained in order, and final parameters equal to the reference's.
-On job 3 it printed `30 passed, 0 failed` and exited 0.
+On job 3 it printed `30 passed, 0 failed` and exited 0: 30 checks of one job, one kill of the non-master container, not 30 trials.
 On job 4 it printed `18 passed, 5 failed` and exited 1, failing on the `restart_from_zero` records and the missing `resume` records.
 `05-verdict.txt` records both exit statuses, and the step exits nonzero unless they are 0 and 1.
 

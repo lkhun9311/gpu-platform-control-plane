@@ -40,7 +40,7 @@ benchharness stub. Six runs: three that exposed the comparison defect below, thr
 ```
 
 Across the three corrected runs the client's view and the gateway's delta agree exactly every time, and the
-timings barely move:
+timings barely move; each is known only to within one client sample, 419.4 ms apart in run 3's record above and three samples in all, and is a stub's replacement on kind including endpoint propagation, not a GPU engine's recovery:
 
 | run | first error | recovery | client failed | never answered | gateway 5xx delta |
 |---|---|---|---|---|---|

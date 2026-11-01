@@ -70,7 +70,7 @@ The eBPF and Nsight layers require a real GPU node and are **not implemented at 
 
 ## GPU alerts and what to do when they fire
 
-`config/prometheus/gpu_rules.yaml` holds six alerts and `config/prometheus/gpu_dashboard.json` the panels they are read beside.
+`config/prometheus/gpu_rules.yaml` holds six alerts and `config/prometheus/gpu_dashboard.json` the panels they are read beside; four of the six have been delivered to a test webhook, on kind with simulated GPUs and a fake exporter, and the other two and the utilisation and memory panels have not been exercised end to end (below).
 Three alerts describe the fleet: a card reporting a fault, a ClusterQueue out of GPU quota, and a queue that has stopped admitting.
 The other three describe the instruments, because each of the first three is silent when its input is missing, and silence reads as health.
 
@@ -122,7 +122,7 @@ Rules were evaluated every 30 s and the exporter scraped every 15 s.
 | `KueueClusterQueueGPUQuotaExhausted` | 23:55:38.67 second Job created against a queue of one GPU (pending from 23:56:11.85) | 00:11:11.85 | 00:11:21.86 (+10.0 s) | 00:27:25.42 admitted Job deleted | 00:27:41.85 | 00:27:51.89 (+10.0 s) |
 | `KueueWorkloadsPendingTooLong` | 23:55:38.67, the same Job | 00:27:11.85 (pending from 00:26:11.85) | 00:27:21.85 (+10.0 s) | 00:27:25.42, the same deletion | 00:27:41.85 | 00:27:51.86 (+10.0 s) |
 
-Every firing and every resolution reached the receiver exactly once: ten bodies, five firing and five resolved.
+Every firing and every resolution reached the receiver exactly once in this one run, with every request answered 200: ten bodies, five firing and five resolved, for four distinct alerts.
 Each arrived 10.0 s after Prometheus's evaluation, which is the configured `group_wait`; the hop itself is not separable from it in this data, and an operator's Alertmanager with the chart's defaults (30 s, 5 min) would add those instead.
 Xid 13, injected at 23:55:53.79, raised nothing in the 90 s that followed.
 `GPUExporterNotReporting` went pending 44 s after the exporter Pod was gone, the time for the PodMonitor's target to drop and its series to go stale, and fired ten minutes later, as its `for` says.

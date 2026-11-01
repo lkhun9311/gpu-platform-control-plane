@@ -34,9 +34,9 @@ A row marked ASSUMPTION is a value I chose for the design; changing it changes t
 | synchronous checkpoint stall C | 60 s | ASSUMPTION, a target the storage must meet |
 | restart cost R | 10 min, from fault to the job stepping again | ASSUMPTION; its parts are in "Recovery time" |
 | training-data read per node | 0.5 GB/s, multi-camera video and lidar | ASSUMPTION |
-| fault detect, injected Xid 79, one node | median 1.627 s (1.051 to 1.758) | measured, `hack/gpu-fault/2026-10-27-run2/verdict.txt:4` |
-| fault value to job bound elsewhere, Xid 79 | median 2.502 s (1.926 to 2.634) | measured, `hack/gpu-fault/2026-10-27-run2/verdict.txt:5` |
-| DDP synced step, 4 × A10G, one Pod (SHM) vs four Pods (NET) | 133.87 ms vs 249.00 ms | measured, `docs/superpowers/specs/2026-10-27-four-gpu-nccl-design.md:565` |
+| fault detect, Xid 79 injected into DCGM's cache, one node | median 1.627 s (1.051 to 1.758), upper ends of truncation intervals over five injections, not point times | measured, `hack/gpu-fault/2026-10-27-run2/verdict.txt:4` |
+| fault value to job bound elsewhere, Xid 79 injected | median 2.502 s (1.926 to 2.634), upper ends of truncation intervals over five injections, not point times | measured, `hack/gpu-fault/2026-10-27-run2/verdict.txt:5` |
+| DDP synced step, 4 × A10G, one Pod (SHM) vs four Pods (NET), synthetic model, forward and backward only, no optimizer step | 133.87 ms vs 249.00 ms | measured, `docs/superpowers/specs/2026-10-27-four-gpu-nccl-design.md:565` |
 
 ## Shape
 
@@ -200,10 +200,10 @@ The stages, and which of them this repository has measured:
 
 | stage | what happens | measured here | at fleet scale |
 |---|---|---|---|
-| 1. detect | DCGM exporter on each node; the operator scrapes each one every 1 s, and a reading older than 5 s is not fresh (`docs/superpowers/specs/2026-10-27-gpu-fault-reaction-design.md:47`) | Xid 79 injected into DCGM's cache: detect median 1.627 s; uncorrectable ECC: 1.448 s (`hack/gpu-fault/2026-10-27-run2/verdict.txt:4`, `hack/gpu-fault/2026-10-27-run2/verdict.txt:17`) | the same per node; 128 scrapes a second from one operator is not measured |
+| 1. detect | DCGM exporter on each node; the operator scrapes each one every 1 s, and a reading older than 5 s is not fresh (`docs/superpowers/specs/2026-10-27-gpu-fault-reaction-design.md:47`) | Xid 79 injected into DCGM's cache: detect median 1.627 s; uncorrectable ECC: 1.448 s; both upper ends of truncation intervals, five injections each (`hack/gpu-fault/2026-10-27-run2/verdict.txt:4`, `hack/gpu-fault/2026-10-27-run2/verdict.txt:17`) | the same per node; 128 scrapes a second from one operator is not measured |
 | 2. quarantine | the node is tainted so nothing new lands on it; Slurm drains it with a reason | latch to taint 0.008 s (`hack/gpu-fault/2026-10-27-run2/verdict.txt:15`) | identical mechanism |
 | 3. drain the job | the workload is evicted and its quota released | taint to eviction request 0.093 s, to quota release 0.774 s (`hack/gpu-fault/2026-10-27-run2/verdict.txt:6`, `hack/gpu-fault/2026-10-27-run2/verdict.txt:11`) | a real trainer must stop; before this repository's trainer fix a rank blocked in rendezvous held its device 28.9 s past the quota release (`docs/11_WHAT_THIS_MEASURED.md:461`), and after it, released within the same second (`docs/11_WHAT_THIS_MEASURED.md:476`) |
-| 4. requeue from checkpoint | Kueue re-admits; Slurm requeues the job on spare nodes | re-admission 1.000 s, value-to-placement 2.502 s (`hack/gpu-fault/2026-10-27-run2/verdict.txt:12`, `hack/gpu-fault/2026-10-27-run2/verdict.txt:5`), for a one-GPU `busybox` job with no checkpoint (`docs/superpowers/specs/2026-10-27-gpu-fault-reaction-design.md:108`) that re-landed on a simulated device (`docs/superpowers/specs/2026-10-27-gpu-fault-reaction-design.md:192`) | dominated by R, 10 min (ASSUMPTION), not by detection |
+| 4. requeue from checkpoint | Kueue re-admits; Slurm requeues the job on spare nodes | re-admission 1.000 s (the upper end of an interval between two whole-second times, so anywhere from 0 to 1 s), value-to-placement 2.502 s (an upper end too) (`hack/gpu-fault/2026-10-27-run2/verdict.txt:12`, `hack/gpu-fault/2026-10-27-run2/verdict.txt:5`), for a one-GPU `busybox` job with no checkpoint (`docs/superpowers/specs/2026-10-27-gpu-fault-reaction-design.md:108`) that re-landed on a simulated device (`docs/superpowers/specs/2026-10-27-gpu-fault-reaction-design.md:192`) | dominated by R, 10 min (ASSUMPTION), not by detection |
 | 5. repair | reset the GPU or reboot; if the fault recurs, swap the part | not measured | soft 4 h, hardware 5 days (ASSUMPTION) |
 | 6. burn-in | DCGM diagnostic at its longest level, a single-node NCCL all-reduce against a floor, a multi-node test beside known-good nodes, a short training-like stress | not measured | the gate for stage 7 |
 | 7. re-admission | the node returns to its pool | not measured | by a person, or by a burn-in pass record, never by a reading of zero |
@@ -250,9 +250,9 @@ Nodes out of service then follow a Poisson distribution with mean 0.512 × 2.58 
 | one SU, 32 | 0.33 | 0.956 | 0.995 | 1.000 | 1.000 |
 
 **How many spares keep a job's world size.** A job keeps its node count after a failure if its pool holds as many spares as nodes are out.
-- Pooled over a site's Slurm pool of 48 nodes, 2 spares cover 98.6% of the time and 3 cover 99.8%.
+- Pooled over a site's Slurm pool of 48 nodes, 2 spares cover 98.6% of the time and 3 cover 99.8%, in the Poisson model above with assumed independent failures and assumed repair times, not a measured availability.
   A 32-node job then restarts at full size, but a replacement may sit in the other SU, behind the spine.
-- Kept under one SU's leaves, 2 spares per SU cover 99.5% each; with an SU of 32 nodes, that makes the largest topology-local job 30 nodes, not 32.
+- Kept under one SU's leaves, 2 spares per SU cover 99.5% each in the same model; with an SU of 32 nodes, that makes the largest topology-local job 30 nodes, not 32.
   Topology locality therefore costs either two nodes of job size per SU or a step-time penalty after a failure, and which is cheaper is a measurement on the fleet's own model, not something this note can settle.
 - Spares are not idle: they run `scavenger` QoS or lowest-priority Kueue work, preempted when a training job needs them, so their cost is a preemption, not dark GPUs.
 - A rack failure takes 4 nodes at once, which no per-SU budget of 2 covers; that case is a wait or a shrink, decided by a person, and the design says so rather than sizing spares for it.
@@ -285,8 +285,8 @@ Shrinking instead of waiting is allowed only for jobs whose training code change
 | synchronisation cost 130.02 ms vs 245.02 ms | `docs/superpowers/specs/2026-10-27-four-gpu-nccl-design.md:567` | the same direction | the same |
 | bus bandwidth about 3.06 GB/s (one Pod) and 1.67 GB/s (four Pods) at 256 MiB | `docs/superpowers/specs/2026-10-27-four-gpu-nccl-design.md:559` | to say what the cards measured were, and why they are not this design's nodes | any bandwidth figure for an NVSwitch node or an RDMA fabric |
 | every card pair PHB, no peer reads | `docs/superpowers/specs/2026-10-27-four-gpu-nccl-design.md:547` | the same | the same |
-| detect 1.627 s (Xid), 1.448 s (ECC) | `hack/gpu-fault/2026-10-27-run2/verdict.txt:4`, `hack/gpu-fault/2026-10-27-run2/verdict.txt:17` | that detection is seconds and R is not set by it | a real fault through NVML; 128 nodes scraped by one operator; fault storms |
-| value to job placed 2.502 s; taint 0.008 s; eviction request 0.093 s; quota release 0.774 s; re-admission 1.000 s | `hack/gpu-fault/2026-10-27-run2/verdict.txt:5`, `hack/gpu-fault/2026-10-27-run2/verdict.txt:15`, `hack/gpu-fault/2026-10-27-run2/verdict.txt:6`, `hack/gpu-fault/2026-10-27-run2/verdict.txt:11`, `hack/gpu-fault/2026-10-27-run2/verdict.txt:12` | the shape of stages 2 to 4 | a 32-node job's stop, pull, rendezvous and checkpoint load, which are the 10 min |
+| detect 1.627 s (Xid), 1.448 s (ECC), medians of interval upper ends, faults injected into DCGM's cache | `hack/gpu-fault/2026-10-27-run2/verdict.txt:4`, `hack/gpu-fault/2026-10-27-run2/verdict.txt:17` | that detection is seconds and R is not set by it | a real fault through NVML; 128 nodes scraped by one operator; fault storms |
+| value to job placed 2.502 s; taint 0.008 s; eviction request 0.093 s; quota release 0.774 s; re-admission 1.000 s; all medians of interval upper ends, re-admission between whole-second stamps | `hack/gpu-fault/2026-10-27-run2/verdict.txt:5`, `hack/gpu-fault/2026-10-27-run2/verdict.txt:15`, `hack/gpu-fault/2026-10-27-run2/verdict.txt:6`, `hack/gpu-fault/2026-10-27-run2/verdict.txt:11`, `hack/gpu-fault/2026-10-27-run2/verdict.txt:12` | the shape of stages 2 to 4 | a 32-node job's stop, pull, rendezvous and checkpoint load, which are the 10 min |
 | lost work 15 s with no checkpoint | `hack/gpu-fault/2026-10-27-run2/verdict.txt:10` | that without a checkpoint the loss is the runtime | anything about a checkpointed job's loss |
 | benign and no-change arms quiet, 5 of 5 each | `hack/gpu-fault/2026-10-27-run2/verdict.txt:29-32` | that the latch distinguishes a correctable from an uncorrectable ECC value | a false-positive rate |
 | stale-healthy PASS; stale-latched FAIL from the taint toleration | `hack/gpu-fault/2026-10-27-run2/verdict.txt:33-34` | the rule that missing data neither sets nor clears, and that diagnostic agents tolerate the quarantine taint | — |
