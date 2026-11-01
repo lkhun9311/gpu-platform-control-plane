@@ -64,12 +64,17 @@ case "${1:-} ${2:-}" in
       echo "An error occurred (InvalidInstanceID.NotFound): The instance ID '$id' does not exist" >&2
       exit 254
     }
-    running="$(docker inspect -f '{{.State.Running}}' "$c" 2>&1)" || {
+    running="$(docker inspect -f '{{.State.Running}} {{.State.StartedAt}}' "$c" 2>&1)" || {
       echo "could not inspect $c: $running" >&2
       exit 254
     }
-    # Terminated only when the container is in fact not running, and never before the shutdown interval.
-    if [[ -f "$state/killed/$id" && "$running" == false ]] && (($(date +%s) - $(cat "$state/killed/$id") >= SHUTDOWN_S)); then
+    # The machine is off when its container is stopped, or when the container was started again after the kill, which
+    # the fake autoscaler does to reuse it as another instance (rstk_recycle; codex review of 34c03bc1).
+    started="$(date -d "${running#* }" +%s 2>&1)" || started=0
+    off=false
+    [[ -f "$state/killed/$id" ]] && { [[ "${running%% *}" == false ]] || ((started > $(cat "$state/killed/$id"))); } && off=true
+    # Terminated only when the machine is in fact off, and never before the shutdown interval.
+    if [[ "$off" == true ]] && (($(date +%s) - $(cat "$state/killed/$id") >= SHUTDOWN_S)); then
       answer=terminated
     elif [[ -f "$state/killed/$id" ]]; then
       answer=shutting-down
