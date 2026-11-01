@@ -99,8 +99,10 @@ session() {
   fi
   if ((rc == 0)); then
     bad "$name: the session exited 0"
-  elif [[ "$want" != - && "$out" != *"$want"* ]]; then
-    bad "$name: no '$want' in: $(tail -3 <<<"$out")"
+  # Judged on the line the session died with, not anywhere in its output: a refusal that only logs its reason and goes
+  # on prints the same words, and passed this check until a mutation showed it.
+  elif [[ "$want" != - && "$(grep 'FATAL' <<<"$out" | tail -1)" != *"$want"* ]]; then
+    bad "$name: the session did not die with '$want': $(grep 'FATAL' <<<"$out" | tail -1 | cut -c1-200)"
   elif [[ ! -s "$work/$name/session.log" ]]; then
     bad "$name: the session wrote no log, so nothing shows where it stopped"
   elif grep -q 'terraform init\|TTL kill switch armed' "$work/$name/session.log"; then
