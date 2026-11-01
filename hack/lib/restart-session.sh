@@ -432,19 +432,25 @@ restart_exporters() {
 
 # restart_probe_all DIR LABEL: a probe of every GPU node's clock, appended to DIR/clock.jsonl; fails if any cannot be read.
 restart_probe_all() {
-  local dir="$1" label="$2" rows node pod line fails=0
+  local dir="$1" label="$2" rows node pod line fails=0 probed=0
   rows="$(restart_exporters 2>&1)" || {
     echo "could not list the exporters: ${rows:0:200}" >&2
     return 1
   }
   while read -r node pod; do
     [[ -n "$node" ]] || continue
+    probed=$((probed + 1))
     if line="$(restart_clock_probe "$pod" "$node")"; then
       python3 -c 'import json, sys; r = json.loads(sys.argv[1]); r["when"] = sys.argv[2]; print(json.dumps(r))' "$line" "$label" >>"$dir/clock.jsonl"
     else
       fails=$((fails + 1))
     fi
   done <<<"$rows"
+  # No exporter listed is no clock read, not every clock read.
+  if ((probed == 0)); then
+    echo "no exporter Pod was Running, so no node's clock was read" >&2
+    return 1
+  fi
   ((fails == 0))
 }
 
@@ -1023,7 +1029,16 @@ restart_run_case() {
     [[ "$(restart_records "$dir" | grep -c '"event": "step"')" -ge 2 ]] && break
     sleep "$RESTART_POLL"
   done
-  restart_probe_all "$dir" before || echo "a clock probe before the fault failed" >>"$dir/case.log"
+  # A fault whose nodes' clocks were not read before it cannot be placed on the runner's clock, and the scorer would void
+  # the case after the fault had cost a node, so the case is VOID before its fault and retired instead.
+  # The reference has no fault and no recovery to time, so for it a failed probe is only logged.
+  if ! out="$(restart_probe_all "$dir" before 2>&1)"; then
+    if [[ "$kind" != reference ]]; then
+      restart_void_case "$dir" "$name" "$collector" "$retire_dl" "VOID-before-fault: a clock probe before the fault failed, so nothing was injected: ${out:0:200}"
+      return
+    fi
+    echo "a clock probe before the fault failed: $out" >>"$dir/case.log"
+  fi
 
   if [[ "$kind" == dcgm || "$kind" == terminate-* ]]; then
     rank0="$(restart_rank_pod "$dir" 0)" && rank1="$(restart_rank_pod "$dir" 1)" || {

@@ -343,6 +343,9 @@ sys.exit(0 if r["before"] <= r["node_time"] <= r["after"] and r["node"] == "node
 else
   bad "the clock probe: $out"
 fi
+# An empty exporter list reads no clock, which is not every clock read.
+out="$(lib noexporter 'restart_probe_all "$RESTART_OUT" before; echo "rc=$?"')"
+if [[ "$out" == *"no exporter Pod was Running"*"rc=1" ]]; then ok "a probe of no node fails"; else bad "the probe of no node: $out"; fi
 
 # Retirement waits for the job's objects, and an API error is not their absence.
 mkdir -p "$work/rules/retire"
@@ -400,6 +403,41 @@ if [[ "$(cat "$work/out/void-retire/dcgm-1/VOID")" == "the ranks' Pods were neve
   ok "an early VOID whose retirement failed leaves the next case NOTRUN and the group untouched"
 else
   bad "the early VOID with a failed retirement: $(tail -3 <<<"$out"); terminate-wait-1: $(cat "$work/out/void-retire/terminate-wait-1/NOTRUN" 2>&1)"
+fi
+
+# A cluster on which a case reaches its fault: two ranks stepping on node-a and node-b, LATEST at step 12, an exporter on
+# each node, and a host engine that accepts the injection; each case below overrides one answer and sources the rest.
+cat >"$work/fullcase.sh" <<'EOF'
+case "$*" in
+  *"get pods -l platform.lkhun9311.github.io/mltrainingjob="*"-o json"*)
+    echo '{"items": [
+      {"metadata": {"uid": "u0", "name": "rp0", "annotations": {"batch.kubernetes.io/job-completion-index": "0"}}, "spec": {"nodeName": "node-a"}, "status": {"containerStatuses": [{"state": {"running": {"startedAt": "t"}}}]}},
+      {"metadata": {"uid": "u1", "name": "rp1", "annotations": {"batch.kubernetes.io/job-completion-index": "1"}}, "spec": {"nodeName": "node-b"}, "status": {"containerStatuses": [{"state": {"running": {"startedAt": "t"}}}]}}]}' ;;
+  *"logs -f rp0"*) echo '{"ts": "t", "attempt": 1, "rank": 0, "event": "step", "step": 12}' ;;
+  *"logs -f rp1"*) echo '{"ts": "t", "attempt": 1, "rank": 1, "event": "step", "step": 12}' ;;
+  *"spec.nodeName=node-b,status.phase=Running"*) echo "dcgm-b " ;;
+  *"component=dcgm-exporter"*) printf 'node-a dcgm-a\nnode-b dcgm-b\n' ;;
+  *"-c exporter -- date"*) date +%s.%N ;;
+  *"-- cat /state/"*"/LATEST"*) echo "a1/00000012-0123456789abcdef0123456789abcdef" ;;
+  *"get nodes -o json"*) echo '{"items": [{"metadata": {"name": "node-b"}, "spec": {"providerID": "aws:///ap-northeast-2a/i-0bbbbbbbbbbbbbbbb"}}]}' ;;
+  *"-c hostengine -- sh -c"*) date +%s.%N; echo "injected" ;;
+esac
+EOF
+
+# A failed clock probe before the fault voids the case before anything is injected, and retires it.
+mkdir -p "$work/rules/probe-before"
+cat >"$work/rules/probe-before/kubectl.sh" <<EOF
+case "\$*" in
+  *"-c exporter -- date"*) echo "error: container not found" >&2; exit 1 ;;
+  *) . "$work/fullcase.sh" "\$@" ;;
+esac
+EOF
+out="$(runner probe-before dcgm-1)"
+if [[ "$(cat "$work/out/probe-before/dcgm-1/VOID" 2>&1)" == "VOID-before-fault: a clock probe before the fault failed"* ]] &&
+  grep -q 'delete mltrainingjob rst-dcgm-1' "$work/probe-before.calls" && ! grep -q 'hostengine' "$work/probe-before.calls"; then
+  ok "a case whose clocks were not read before its fault is VOID before it, retired, and never injected"
+else
+  bad "the failed probe before the fault: VOID '$(cat "$work/out/probe-before/dcgm-1/VOID" 2>&1)', $(grep -c hostengine "$work/probe-before.calls") injection call(s)"
 fi
 
 # --- 3. the scorer --------------------------------------------------------------------------------------------------
