@@ -357,20 +357,25 @@ fi
 if [[ "$SERVE" == yes || -n "$TRAIN" || "$STUDY" == prefixroute ]]; then
   # The nightly destroy removes the whole cluster and neither deadline covers it. Its cron has been seen to drift
   # by hours, so a time window is not enough: a destroy run queued or in progress refuses too, and the residual
-  # risk -- a late cron firing inside the session -- is the operator's to rule out by disabling the schedule.
-  now_min=$((10#$(date -u +%H) * 60 + 10#$(date -u +%M)))
-  destroy_min=$((18 * 60))
-  ((destroy_min <= now_min - 120)) && destroy_min=$((destroy_min + 1440))
-  if ((destroy_min - now_min < TTL_MINUTES + 120 && destroy_min - now_min > -120)); then
-    die "the nightly destroy (.github/workflows/destroy.yml, 18:00 UTC) falls within two hours of this session's ${TTL_MINUTES} min; disable its schedule for today or start later"
-  fi
-  if command -v gh >/dev/null 2>&1; then
-    destroy_runs="$(gh run list --workflow destroy.yml --limit 5 --json status --jq '[.[] | select(.status != "completed")] | length' 2>&1)" ||
-      die "could not ask GitHub whether a destroy run is pending ($destroy_runs)"
-    [[ "$destroy_runs" == 0 ]] || die "$destroy_runs destroy workflow run(s) are queued or in progress; wait for them"
+  # risk -- a late cron firing inside the session -- is the operator's to rule out by disabling the workflow.
+  # Disabled by hand, its schedule cannot fire at all, so only then is the window not enforced; the pending-run check
+  # holds either way, because disabling a workflow does not cancel a run already queued.
+  command -v gh >/dev/null 2>&1 || die "gh is needed to check the nightly destroy workflow before buying a card"
+  destroy_state="$(gh api repos/lkhun9311/gpu-platform-control-plane/actions/workflows/destroy.yml --jq .state 2>&1)" ||
+    die "could not read the nightly destroy workflow's state ($destroy_state)"
+  if [[ "$destroy_state" == disabled_manually ]]; then
+    log "the nightly destroy workflow is disabled_manually, so its 18:00 UTC window is not enforced"
   else
-    die "gh is needed to check for a pending destroy workflow run before buying a card"
+    now_min=$((10#$(date -u +%H) * 60 + 10#$(date -u +%M)))
+    destroy_min=$((18 * 60))
+    ((destroy_min <= now_min - 120)) && destroy_min=$((destroy_min + 1440))
+    if ((destroy_min - now_min < TTL_MINUTES + 120 && destroy_min - now_min > -120)); then
+      die "the nightly destroy (.github/workflows/destroy.yml, 18:00 UTC, state '$destroy_state') falls within two hours of this session's ${TTL_MINUTES} min; disable the workflow (gh workflow disable destroy.yml) or start later"
+    fi
   fi
+  destroy_runs="$(gh run list --workflow destroy.yml --limit 5 --json status --jq '[.[] | select(.status != "completed")] | length' 2>&1)" ||
+    die "could not ask GitHub whether a destroy run is pending ($destroy_runs)"
+  [[ "$destroy_runs" == 0 ]] || die "$destroy_runs destroy workflow run(s) are queued or in progress; wait for them"
 fi
 
 # --- The kill switch, armed before anything is created ------------------------------------------------

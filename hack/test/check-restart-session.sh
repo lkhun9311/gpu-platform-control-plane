@@ -63,6 +63,14 @@ esac
 EOF
 chmod +x "$work/bin/stub"
 for t in aws terraform kubectl helm gh; do ln -s stub "$work/bin/$t"; done
+# The UTC hour and minute the destroy window is judged at, when STUB_UTC_HM names them; every other date is the real one.
+cat >"$work/bin/date" <<'EOF'
+#!/usr/bin/env bash
+if [[ -n "${STUB_UTC_HM:-}" && "$*" == "-u +%H" ]]; then echo "${STUB_UTC_HM%:*}"; exit 0; fi
+if [[ -n "${STUB_UTC_HM:-}" && "$*" == "-u +%M" ]]; then echo "${STUB_UTC_HM#*:}"; exit 0; fi
+exec /usr/bin/date "$@"
+EOF
+chmod +x "$work/bin/date"
 
 # --- 1. the session's refusals ------------------------------------------------------------------------------------
 # A copy holding only what the session reads before Terraform, committed, because a dirty tree is one of the refusals;
@@ -138,7 +146,7 @@ session "with SERVE" "would buy GPUs in two groups" SERVE=yes
 touch "$repo/stray-edit"
 session "a dirty tree" "uncommitted change(s), and the run's provenance is a commit"
 rm -f "$repo/stray-edit"
-# Every refusal passed: the next stop is the destroy-window check or the stub gh, both before the kill switch.
+# Every refusal passed: the next stop is the stub gh refusing to read the destroy workflow, before the kill switch.
 session "every refusal passed" -
 log="$work/every refusal passed/session.log"
 if grep -q 'terraform variables for every apply and destroy: .*-var=gpu_max_nodes=3 -var=gpu_availability_zone=ap-northeast-2a -var=efs_enabled=true' "$log"; then
@@ -160,6 +168,33 @@ passes() {
 }
 passes "the full stage" "RESTART_STAGE=full: TTL_MINUTES 524 covers its 524" RESTART_STAGE=full TTL_MINUTES=524
 passes "the longest deadline" "the credential expires in 719 minutes, at least the 700" TTL_MINUTES=660
+
+# The nightly destroy at 17:00 UTC, an hour before it: refused while the workflow is enabled, not enforced once it is
+# disabled by hand, and a destroy run already queued refuses either way.
+# gh_rules NAME STATE RUNS: a gh whose workflow read answers STATE (or fails for "-") and whose run list answers RUNS.
+gh_rules() {
+  mkdir -p "$work/rules/$1"
+  cat >"$work/rules/$1/gh.sh" <<EOF
+case "\$*" in
+  "api repos/lkhun9311/gpu-platform-control-plane/actions/workflows/destroy.yml --jq .state")
+    if [[ "$2" == - ]]; then echo "HTTP 401: Bad credentials" >&2; exit 1; fi
+    echo "$2" ;;
+  "run list --workflow destroy.yml"*) echo "$3" ;;
+  *) echo "unexpected gh \$*" >&2; exit 1 ;;
+esac
+EOF
+}
+gh_rules destroy-active active 0
+gh_rules destroy-disabled disabled_manually 1
+gh_rules destroy-unreadable - 0
+session "the destroy enabled, within its window" "falls within two hours of this session's 300 min" STUB_UTC_HM=17:00 STUB_RULES="$work/rules/destroy-active"
+session "the destroy disabled by hand, a run queued" "1 destroy workflow run(s) are queued or in progress" STUB_UTC_HM=17:00 STUB_RULES="$work/rules/destroy-disabled"
+if grep -qF "the nightly destroy workflow is disabled_manually, so its 18:00 UTC window is not enforced" "$work/the destroy disabled by hand, a run queued/session.log"; then
+  ok "a destroy disabled by hand lifts the window and says so"
+else
+  bad "the disabled destroy did not log that its window was lifted"
+fi
+session "the destroy's state unreadable" "could not read the nightly destroy workflow's state (HTTP 401: Bad credentials)" STUB_UTC_HM=17:00 STUB_RULES="$work/rules/destroy-unreadable"
 
 # --- 2. the library's functions ------------------------------------------------------------------------------------
 # lib CASE SCRIPT: runs SCRIPT in a fresh shell with the library sourced, the stubs first on PATH, and the rules of
