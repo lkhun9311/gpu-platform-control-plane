@@ -102,7 +102,42 @@ Values were written into the fake's cache through its `/inject` endpoint, the ca
 The fake reports `DCGM_FI_DEV_XID_ERRORS` and the ECC fields only, so `DCGM_FI_DEV_FB_USED` and `DCGM_FI_DEV_GPU_UTIL` were not exercised, and nor was `GPUFaultFieldsNotCollected`'s firing side.
 On the same cluster Kueue v0.18.3 was scraped through `config/prometheus/kueue_monitor.yaml` (`up` = 1); `kueue_pending_workloads` and `kueue_cluster_queue_status` were present and none of the quota series were, as its configuration predicts.
 `KueueGPUQuotaMetricsNotReported` went pending at 10:52:42.8 for all three active ClusterQueues and was firing when read at 11:07:45, and `GPUFaultSignalPresent` had resolved after Xid 0 was injected at 10:54:47.
-`KueueClusterQueueGPUQuotaExhausted` and `KueueWorkloadsPendingTooLong` have been exercised only by the promtool tests: the first needs the quota series this Kueue does not publish, and no queue there had pending work.
+On `platform`, `KueueClusterQueueGPUQuotaExhausted` and `KueueWorkloadsPendingTooLong` were not exercised: the first needs the quota series that Kueue does not publish, and no queue there had pending work.
+The rehearsal below exercises both.
+
+**Delivered to a receiver on a throwaway kind cluster `mon`, 2026-10-31 23:55 to 2026-11-01 00:28 UTC, commit `7b7f1b6b`, clean tree.**
+`hack/gpu-alert-delivery.sh` created the cluster, ran it and deleted it; the evidence is `hack/gpu-alert-delivery-20261031T235222Z/`.
+Prometheus and Alertmanager came from kube-prometheus-stack 88.3.0, the chart `platform` runs, with kube-state-metrics on.
+Alertmanager's only receiver was a webhook into a Pod that printed each request body with its arrival time (`sink.jsonl`), with `group_by: ['...']`, `group_wait: 10s`, `group_interval: 30s` and `send_resolved: true`.
+Kueue came from `config/kueue-controller`, so its configuration was the one EKS gets; Prometheus held `kueue_cluster_queue_nominal_quota` for the test queue before anything was induced, and `KueueGPUQuotaMetricsNotReported` never went pending in the run.
+The GPU was gpu-simulator's fake `nvidia.com/gpu` on the worker, and the exporter a second gpu-simulator serving the fake DCGM fields, scraped through the PodMonitor from `config/dcgm-exporter-ops`.
+Rules were evaluated every 30 s and the exporter scraped every 15 s.
+"Fired" is the first `ALERTS{alertstate="firing"}` sample, stamped with the evaluation that wrote it; "resolved" is the `endsAt` Prometheus sent; "received" is the sink's clock, which is the same host clock.
+
+| alert | induced (UTC) | fired | received firing | resolution induced | resolved | received resolved |
+|---|---|---|---|---|---|---|
+| `GPUFaultSignalPresent`, Xid 79 | 23:57:23.90 Xid 79 injected | 23:57:30.81 | 23:57:40.82 (+10.0 s) | 23:57:44.25 Xid 0 | 23:58:00.81 | 23:58:10.82 (+10.0 s) |
+| `GPUFaultSignalPresent`, double-bit ECC | 23:58:14.64 ECC 1 injected | 23:58:30.81 | 23:58:40.81 (+10.0 s) | 23:58:45.29 ECC 0 | 23:59:00.81 | 23:59:10.81 (+10.0 s) |
+| `GPUExporterNotReporting` | 23:59:15.36 exporter scaled to 0, Pod gone 23:59:16.45 | 00:10:00.81 (pending from 00:00:00.81) | 00:10:10.81 (+10.0 s) | 00:10:13.19 scaled to 1 | 00:10:30.81 | 00:10:40.81 (+10.0 s) |
+| `KueueClusterQueueGPUQuotaExhausted` | 23:55:38.67 second Job created against a queue of one GPU (pending from 23:56:11.85) | 00:11:11.85 | 00:11:21.86 (+10.0 s) | 00:27:25.42 admitted Job deleted | 00:27:41.85 | 00:27:51.89 (+10.0 s) |
+| `KueueWorkloadsPendingTooLong` | 23:55:38.67, the same Job | 00:27:11.85 (pending from 00:26:11.85) | 00:27:21.85 (+10.0 s) | 00:27:25.42, the same deletion | 00:27:41.85 | 00:27:51.86 (+10.0 s) |
+
+Every firing and every resolution reached the receiver exactly once: ten bodies, five firing and five resolved.
+Each arrived 10.0 s after Prometheus's evaluation, which is the configured `group_wait`; the hop itself is not separable from it in this data, and an operator's Alertmanager with the chart's defaults (30 s, 5 min) would add those instead.
+Xid 13, injected at 23:55:53.79, raised nothing in the 90 s that followed.
+`GPUExporterNotReporting` went pending 44 s after the exporter Pod was gone, the time for the PodMonitor's target to drop and its series to go stale, and fired ten minutes later, as its `for` says.
+`KueueWorkloadsPendingTooLong` fired 31 min 33 s after the queue's only admission was observed (23:55:38.63).
+That admission created Kueue's counter series, which the rule counts as an admission for a full 30-minute window, so the rule went pending only at 00:26:11.85 and then held for its one-minute `for`.
+
+After the run, on the same cluster, the line in `controller_manager_config.yaml` was commented out again by hand and Kueue restarted (`mutation-kueue-config.txt`).
+`kueue_cluster_queue_nominal_quota` for the queue went from one series to none, and `KueueGPUQuotaMetricsNotReported` went pending within a minute; so the line is what produces the quota alert's input.
+
+What this does not show:
+
+- A human receiver. The webhook is the last hop shown; no email, Slack or pager route is configured anywhere in this repository.
+- EKS. This was kind, with simulated GPUs, a fake exporter and Prometheus inside the cluster; EKS has no Prometheus deployed by this repository at all.
+- A real DCGM exporter disappearing. The fake's Hostname is `$NODE_NAME`, as the real 3.3.9 binary's is (read off its `GetHostname`), but no real exporter was removed from a real card.
+- Alertmanager's own failure, a receiver answering an error, or a notification lost and retried; every request here was answered 200.
 
 ### GPUFaultSignalPresent
 
