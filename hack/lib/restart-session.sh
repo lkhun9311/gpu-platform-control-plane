@@ -612,8 +612,11 @@ json.dump(c, open(sys.argv[1], "w"))' "$dir/case.json" "$node1" "$instance" "$wi
 }
 
 # restart_mark DIR MARK: a line of marks.jsonl, at this machine's clock.
+#
+# Every timestamp here asks date for %N, never %6N: uutils date 0.8.0, the date of the machine the paid session runs from,
+# prints %6N as the whole nanosecond count without its leading zeros, which read a mark at .078 s as .78 s.
 restart_mark() {
-  printf '{"at": "%s", "mark": "%s"}\n' "$(date -u +%Y-%m-%dT%H:%M:%S.%6NZ)" "$2" >>"$1/marks.jsonl"
+  printf '{"at": "%s", "mark": "%s"}\n' "$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)" "$2" >>"$1/marks.jsonl"
 }
 
 # restart_terminate_and_fence INSTANCE NODE MLTJ DIR WAIT_SECONDS: ends the instance and, only once EC2 says it is
@@ -925,7 +928,7 @@ EOF
       ((left >= 1)) || left=1
       if out="$(rk -n "$RESTART_NS" wait --for=jsonpath='{.status.phase}'=Succeeded "pod/$pod" --timeout="${left}s" 2>&1)"; then
         echo "$node $uid" >>"$warmed"
-        printf '{"node": "%s", "uid": "%s", "prepared_at": "%s"}\n' "$node" "$uid" "$(date -u +%Y-%m-%dT%H:%M:%S.%6NZ)" >>"$RESTART_OUT/nodes-prepared.jsonl"
+        printf '{"node": "%s", "uid": "%s", "prepared_at": "%s"}\n' "$node" "$uid" "$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)" >>"$RESTART_OUT/nodes-prepared.jsonl"
       else
         failed="the warm-up on $node did not succeed by the warm deadline (${left}s left): ${out:0:200}"
       fi
@@ -1020,7 +1023,7 @@ for p in json.load(sys.stdin)["items"]:
       # The attempt label is the controller's own (mltjAttemptLabel in internal/controller/mltrainingjob_distributed.go),
       # so which attempt a Pod ran is read from the controller and not inferred from the order Pods were seen in.
       printf '{"uid": "%s", "pod": "%s", "node": "%s", "index": "%s", "attempt_token": "%s", "observed": "%s"}\n' \
-        "$uid" "$pod" "$node" "$index" "$token" "$(date -u +%Y-%m-%dT%H:%M:%S.%6NZ)" >>"$dir/pods.jsonl"
+        "$uid" "$pod" "$node" "$index" "$token" "$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)" >>"$dir/pods.jsonl"
       (
         local n=0 follow="" rc
         # The follow runs in the background and is waited for, so stopping this reader stops it too: with no request
@@ -1034,7 +1037,7 @@ for p in json.load(sys.stdin)["items"]:
           follow=$!
           wait "$follow"
           rc=$?
-          printf '{"uid": "%s", "stream": %d, "exit": %d, "at": "%s"}\n' "$uid" "$n" "$rc" "$(date -u +%Y-%m-%dT%H:%M:%S.%6NZ)" >>"$dir/streams.jsonl"
+          printf '{"uid": "%s", "stream": %d, "exit": %d, "at": "%s"}\n' "$uid" "$n" "$rc" "$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)" >>"$dir/streams.jsonl"
           # A stream that ended with its container is complete; one that ended while it runs is read again in full.
           [[ "$(rk -n "$RESTART_NS" get pod "$pod" -o jsonpath='{.status.containerStatuses[0].state.running}' 2>>"$dir/collector.log")" != "" ]] || break
           ((n < 20)) || break

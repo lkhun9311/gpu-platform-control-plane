@@ -70,6 +70,14 @@ cat >"$work/bin/date" <<'EOF'
 #!/usr/bin/env bash
 if [[ -n "${STUB_UTC_HM:-}" && "$*" == "-u +%H" ]]; then echo "${STUB_UTC_HM%:*}"; exit 0; fi
 if [[ -n "${STUB_UTC_HM:-}" && "$*" == "-u +%M" ]]; then echo "${STUB_UTC_HM#*:}"; exit 0; fi
+# With STUB_UUTILS_NS the nanoseconds are fixed and a width-limited %6N or %3N prints them as uutils date 0.8.0 does, the
+# whole count with its leading zeros dropped, so .001229623 came out as .1229623 on the host that runs the paid session.
+if [[ -n "${STUB_UUTILS_NS:-}" && "${1:-}" == -u && "${2:-}" == +* ]]; then
+  fmt="${2#+}"
+  fmt="${fmt//%6N/$((10#$STUB_UUTILS_NS))}"
+  fmt="${fmt//%3N/$((10#$STUB_UUTILS_NS))}"
+  exec /usr/bin/date -u "+${fmt//%N/$STUB_UUTILS_NS}"
+fi
 exec /usr/bin/date "$@"
 EOF
 chmod +x "$work/bin/date"
@@ -455,6 +463,13 @@ else
   bad "$leaked of $started log follow(s) outlived the collector: $out"
   pgrep -f '[r]stk-follow-leak-probe' | xargs -r kill
 fi
+
+# A mark's fraction is the time's, whatever date prints for a width-limited %N: uutils date 0.8.0 prints %6N as the whole
+# nanosecond count without its leading zeros, which put a mark taken at .0784 s at .784 s in the kind rehearsal.
+out="$(lib uutils 'STUB_UUTILS_NS=001229623 restart_mark "$RESTART_OUT" probe; python3 -c "import json, sys; print(json.loads(open(sys.argv[1]).read())[\"at\"])" "$RESTART_OUT/marks.jsonl"')"
+if [[ "$out" =~ \.001229623Z$ ]]; then ok "a mark keeps its fraction under uutils date: $out"; else bad "a mark taken at .001229623 s reads '$out'"; fi
+widths="$(grep -vE '^[[:space:]]*#' hack/lib/restart-session.sh | grep -cE '%[0-9]N')"
+if [[ "$widths" == 0 ]]; then ok "the restart runner asks date for no width-limited fraction"; else bad "the restart runner asks date for a width-limited fraction on $widths line(s)"; fi
 
 # Retirement waits for the job's objects, and an API error is not their absence.
 mkdir -p "$work/rules/retire"
