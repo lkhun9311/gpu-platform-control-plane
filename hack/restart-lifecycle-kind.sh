@@ -37,9 +37,11 @@ mkdir -p "$RSTK_STATE/killed" "$RSTK_STATE/unlaunched" "$RSTK_STATE/gone"
 : >"$RSTK_STATE/instances"
 : >"$RSTK_STATE/launch_delays"
 echo 0 >"$RSTK_STATE/desired"
-# The first worker is the CPU node; the next three are the purchased GPU nodes, and the last four the autoscaler's pool.
+# The first worker is the CPU node; the next three are the purchased GPU nodes, and the last two the autoscaler's pool,
+# which with the nodes it takes back covers the two terminations of runs a and b.
+# Eight workers failed to join (a kubelet never answered its health check), so the cluster is kept to six.
 CPU_NODE=$CLUSTER-worker
-export RSTK_GPU_CONTAINERS="$CLUSTER-worker2 $CLUSTER-worker3 $CLUSTER-worker4 $CLUSTER-worker5 $CLUSTER-worker6 $CLUSTER-worker7 $CLUSTER-worker8"
+export RSTK_GPU_CONTAINERS="$CLUSTER-worker2 $CLUSTER-worker3 $CLUSTER-worker4 $CLUSTER-worker5 $CLUSTER-worker6"
 ALL_WORKERS="$CPU_NODE $RSTK_GPU_CONTAINERS"
 GANESHA_IMG=registry.k8s.io/sig-storage/nfs-provisioner@sha256:c825f3d5e28bde099bd7a3daace28772d412c9157ad47fa752a9ad0baafc118d
 EFS_OPTS="nfsvers=4.1 rsize=1048576 wsize=1048576 hard timeo=600 retrans=2 noresvport"
