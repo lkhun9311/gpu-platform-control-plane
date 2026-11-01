@@ -327,6 +327,13 @@ score no-fault-record rank-kill-1 VOID "fault records from ranks []"
 score no-clock-probe terminate-wait-2 VOID "no clock probe of"
 score skewed-clock dcgm-1 VOID "beyond 2.0 s"
 score slow-probe terminate-spare-2 VOID "wider than 0.5 s"
+# Probes of one clock agree within the bracket, and a node up on both sides of the fault is probed on both.
+score clock-disagree dcgm-1 VOID "the probes of ip-10-0-64-11 disagree by 3.800 s (-1.900 to +1.900 s), beyond 0.5 s"
+score clock-no-before rank-kill-2 VOID "no probe of ip-10-0-64-11 before the fault, though it was up then"
+score clock-no-after terminate-wait-1 VOID "no probe of ip-10-0-64-11 after the recovery, though it was not the node terminated"
+# The offsets' uncertainty is reported: half of each probe's bracket, 0.05 s here, for the fault's node and attempt 2's.
+score none rank-kill-1 ACCEPTED '"clock_uncertainty_s": 0.1,'
+score none terminate-spare-1 ACCEPTED '"clock_uncertainty_s": 0.05,'
 score no-nccl-log rank-kill-4 VOID "no NCCL log of attempt 1 rank 0"
 score one-nccl-log-missing dcgm-4 VOID "no NCCL log of attempt 2 rank 1"
 score shm-transport rank-kill-5 VOID "['SHM/direct/direct'], not only the registered NET/Socket"

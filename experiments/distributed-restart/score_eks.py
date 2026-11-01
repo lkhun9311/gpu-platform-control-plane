@@ -122,6 +122,9 @@ class Case:
         self.pods = {p["uid"]: p for p in jsonl(self.dir / "pods.jsonl")}
         self.marks = {m["mark"]: m["at"] for m in jsonl(self.dir / "marks.jsonl")}
         self.clocks = jsonl(self.dir / "clock.jsonl")
+        before = self.dir / "nodes-before.json"
+        self.up_before = {n["metadata"]["name"] for n in json.loads(before.read_text()).get("items", [])} if before.exists() else set()
+        self.terminated = (self.spec.get("target") or {}).get("node") if self.kind.startswith("terminate") else None
         # Each record is tagged with the node its Pod ran on, which decides whose clock its timestamp is.
         # A Pod's log may be in several files, because a stream that broke while the Pod ran is read again from its
         # start, so the same record can appear twice and is counted once.
@@ -182,14 +185,18 @@ class Case:
 
     # --- clocks -------------------------------------------------------------------------------------------------------
 
-    def offset(self, node: str | None) -> float:
-        """Seconds the node's clock runs ahead of the runner's, from the probes of that node, refusing a doubtful one."""
+    def clock(self, node: str | None) -> tuple[float, float]:
+        """Seconds the node's clock runs ahead of the runner's and the uncertainty of that, refusing a doubtful clock.
+
+        The median of probes that disagree hides the disagreement: probes at -1.9 s and +1.9 s, each within the
+        registered offset, had a median of zero and were accepted (codex review of f57e11a1).
+        """
         if not node:
             void("a record whose node is unknown, so its clock cannot be corrected")
         probes = [p for p in self.clocks if p.get("node") == node]
         if not probes:
             void(f"no clock probe of {node}")
-        offsets = []
+        offsets, low, high = [], math.inf, -math.inf
         for p in probes:
             bracket = p["after"] - p["before"]
             if bracket < 0 or bracket > CLOCK_BRACKET_S:
@@ -198,7 +205,27 @@ class Case:
             if abs(off) > CLOCK_OFFSET_S:
                 void(f"{node}'s clock is {off:+.3f} s from the runner's, beyond {CLOCK_OFFSET_S} s")
             offsets.append(off)
-        return statistics.median(offsets)
+            low, high = min(low, off - bracket / 2), max(high, off + bracket / 2)
+        # A figure subtracts a time before the fault from one after it, so a clock that moved in between must be seen to
+        # have stayed: probed on both sides, except where the node did not exist, the replacement before and the
+        # terminated node after.
+        whens = {p.get("when") for p in probes}
+        if node in self.up_before and "before" not in whens:
+            void(f"no probe of {node} before the fault, though it was up then")
+        if node != self.terminated and "after" not in whens:
+            void(f"no probe of {node} after the recovery, though it was not the node terminated")
+        # Each probe puts the offset within half its bracket of the truth, so two probes of a clock that held agree
+        # within the bracket; probes further apart mean the clock stepped or a probe was wrong.
+        if max(offsets) - min(offsets) > CLOCK_BRACKET_S:
+            void(f"the probes of {node} disagree by {max(offsets) - min(offsets):.3f} s "
+                 f"({min(offsets):+.3f} to {max(offsets):+.3f} s), beyond {CLOCK_BRACKET_S} s")
+        # The true offset lies within some probe's bracket, so the median is off from it by at most its distance to the
+        # far end of all of them.
+        estimate = statistics.median(offsets)
+        return estimate, max(estimate - low, high - estimate)
+
+    def offset(self, node: str | None) -> float:
+        return self.clock(node)[0]
 
     def runner_time(self, record: dict) -> float:
         return epoch(record["ts"]) - self.offset(record["_node"])
@@ -355,15 +382,19 @@ class Case:
         if "fault-start" not in self.marks or "terminated-read" not in self.marks:
             void("no mark of the termination call or of EC2 reporting the instance terminated")
 
-    def fault_time(self) -> float:
-        """The fault on the runner's clock: the trainer's own record, the node's time in the injecting exec, or the
-        mark taken before the termination call, so the call's own latency is inside the recovery."""
+    def fault_time(self) -> tuple[float, float]:
+        """The fault on the runner's clock, and its uncertainty: the trainer's own record, the node's time in the
+        injecting exec, or the mark taken before the termination call, so the call's own latency is inside the recovery.
+
+        The mark is the runner's own clock, so it adds no uncertainty of a probe's.
+        """
         if self.kind in ("rank-kill", "no-rng-control"):
-            return self.runner_time(self.rec("fault", 1)[0])
+            record = self.rec("fault", 1)[0]
+            return self.runner_time(record), self.clock(record["_node"])[1]
         if self.kind == "dcgm":
             dcgm = json.loads((self.dir / "dcgm.json").read_text())
-            return self.runner_time({"ts": dcgm["injected_at"], "_node": dcgm["node"]})
-        return epoch(self.marks["fault-start"])
+            return self.runner_time({"ts": dcgm["injected_at"], "_node": dcgm["node"]}), self.clock(dcgm["node"])[1]
+        return epoch(self.marks["fault-start"]), 0.0
 
     def recovery_class(self) -> str:
         a1 = set(self.attempts[0].get("nodes") or [])
@@ -415,15 +446,18 @@ class Case:
         for rank, g in sorted(gaps.items()):
             if g > PARAM_TOLERANCE:
                 failed(f"the resumed run's rank {rank} ended {g:.3g} from the reference, beyond {PARAM_TOLERANCE}")
-        fault = self.fault_time()
-        firsts = {}
+        fault, fault_uncertainty = self.fault_time()
+        firsts, nodes = {}, set()
         for r in self.rec("step", 2):
             firsts[r["rank"]] = min(firsts.get(r["rank"], float("inf")), self.runner_time(r))
+            nodes.add(r["_node"])
         if sorted(firsts) != list(range(WORLD)):
             failed(f"attempt 2 has step records from ranks {sorted(firsts)}, want every rank of {WORLD}")
         lost_from = max(r["step"] for r in self.rec("step", 1))
         self.figures.update({
             "recovery_s": max(firsts.values()) - fault,
+            # How far the recovery can be off for the clocks alone: the fault's clock and the worst of attempt 2's.
+            "clock_uncertainty_s": fault_uncertainty + max(self.clock(n)[1] for n in nodes),
             "lost_steps": lost_from - resumed["from_step"],
             "class": self.recovery_class(),
             "params_gap": gap,

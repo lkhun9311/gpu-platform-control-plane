@@ -247,6 +247,13 @@ def defect(out: pathlib.Path, name: str, case: str) -> None:
         (d / "clock.jsonl").write_text("")
     elif name == "skewed-clock":
         edit_json_lines(d / "clock.jsonl", lambda p: {**p, "node_time": p["node_time"] + 5})
+    elif name == "clock-disagree":
+        # Each probe alone is within the registered offset, and their median is zero, but the clock moved 3.8 s between them.
+        edit_json_lines(d / "clock.jsonl", lambda p: {**p, "node_time": (p["before"] + p["after"]) / 2 + (-1.9 if p["when"] == "before" else 1.9)}
+                        if p["node"] == "ip-10-0-64-11" else p)
+    elif name in ("clock-no-before", "clock-no-after"):
+        gone = name.rsplit("-", 1)[1]
+        edit_json_lines(d / "clock.jsonl", lambda p: None if p["node"] == "ip-10-0-64-11" and p["when"] == gone else p)
     elif name == "slow-probe":
         edit_json_lines(d / "clock.jsonl", lambda p: {**p, "after": p["before"] + 0.9})
     elif name == "no-nccl-log":
