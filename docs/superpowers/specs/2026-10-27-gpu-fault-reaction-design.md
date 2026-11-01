@@ -441,7 +441,7 @@ It shows the procedure, the gate on `zero_given` and the scorer working together
 **Verdict: `GPU FAULT REACTION: RESULT`**, from `0994a106`, the merge to `dev` that carries the approved amendment.
 A scorer I rebuilt from that commit prints the same report as the session's, apart from the `termination=confirmed` line the session appends.
 
-| arm | verdict | valid | detect, median (min–max) | end to end, median (min–max) |
+| arm | verdict | valid | detect, median (min–max) | end to end, to the busybox job placed on H's simulated device, median (min–max) |
 |---|---|---:|---|---|
 | `xid` (Xid 79) | REACTED | 5 of 5 | 1.634 s (1.213–1.999) | 2.803 s (2.381–3.168) |
 | `ecc` (DBE 1) | REACTED | 5 of 5 | 1.666 s (1.182–1.984) | 2.834 s (2.351–3.153) |
