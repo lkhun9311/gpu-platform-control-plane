@@ -17,8 +17,9 @@ watch is the visibility provocation.
 A Linux NFS client that looks a name up and finds it absent caches that answer, and keeps giving it for as long as it
 trusts its cached attributes of the directory, even after another client has renamed a file to that name.
 A rank never looks a shard's name up before the shard exists, so the trainer alone does not create that state; this does.
-It finds the checkpoint directories through a second claim with other mount options, which the kernel gives a cache of
-its own, because listing the directories through the watched claim could refresh the very attributes being tested.
+It finds the checkpoint directories through a second claim mounted with no cache at all, which the kernel keeps apart
+from the watched claim's: listing through the watched claim could refresh the very attributes being tested, and listing
+through a caching claim could keep missing the job's directories for as long as that claim caches their absence.
 """
 
 from __future__ import annotations
@@ -33,7 +34,7 @@ import time
 
 CKPT_DIR_RE = re.compile(r"^(\d{8})-([0-9a-f]{32})$")
 NODE = os.environ.get("NODE_NAME", "")
-# Where the job's claim and the other claim are mounted.
+# Where the job's claim and the uncached discovery claim are mounted.
 WATCH = "/watch"
 LIST = "/list"
 

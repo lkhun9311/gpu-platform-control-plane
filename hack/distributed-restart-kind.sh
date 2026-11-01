@@ -48,6 +48,9 @@ EFS_OPTS="nfsvers=4.1 rsize=1048576 wsize=1048576 hard timeo=600 retrans=2 nores
 # The provocation: the same, with directory and file attributes cached for ten minutes, so a name a node once found absent
 # stays absent to it for the whole case.
 LONG_OPTS="$EFS_OPTS actimeo=600"
+# The probers' discovery claim: nothing cached, so a prober finds a checkpoint directory as soon as the server has it,
+# whatever it looked up before, and its listings never touch the cache of the claim under test.
+FRESH_OPTS="$EFS_OPTS lookupcache=none actimeo=0"
 DELEG=/sys/module/nfsv4/parameters/directory_delegations
 DELEG_WAS=""
 # set_deleg writes the host kernel's parameter from a throwaway privileged container: kind nodes mount /sys read-only,
@@ -156,6 +159,7 @@ for tool in docker kind kubectl kustomize python3; do command -v "$tool" >/dev/n
     echo "nfs_server_image=$GANESHA_IMG"
     echo "nfs_efs_options=$EFS_OPTS"
     echo "nfs_long_options=$LONG_OPTS"
+    echo "nfs_fresh_options=$FRESH_OPTS"
     echo "host_kernel=$(uname -r)"
   fi
 } >"$OUT/provenance.txt"
@@ -234,12 +238,15 @@ if [ "$STORAGE" = nfs ]; then
   # and the client then fails directory reads with EREMOTEIO, which a rank would report as a crash of its own.
   # Turning the client's request off gives it no directory delegations, which is also what it has against a server that
   # grants none; the parameter is the host kernel's, so it is recorded here and put back on exit.
-  docker exec "$CLUSTER-control-plane" sh -c "[ -e $DELEG ] || modprobe nfsv4" >>"$LOG" 2>&1 || die "loading nfsv4"
-  DELEG_WAS=$(cat "$DELEG" 2>>"$LOG") || die "reading $DELEG"
-  set_deleg N >>"$LOG" 2>&1 || die "setting $DELEG"
-  echo "directory_delegations_was=$DELEG_WAS" >>"$OUT/provenance.txt"
-  echo "directory_delegations_run=$(cat "$DELEG" 2>>"$LOG")" >>"$OUT/provenance.txt"
-  [ "$(cat "$DELEG")" = N ] || die "$DELEG is not N after setting it"
+  docker exec "$CLUSTER-control-plane" sh -c "modprobe nfsv4" >>"$LOG" 2>&1 || die "loading nfsv4"
+  # A kernel whose client never asks for directory delegations has no such parameter, and nothing to turn off.
+  if [ -e "$DELEG" ]; then
+    DELEG_WAS=$(cat "$DELEG" 2>>"$LOG") || die "reading $DELEG"
+    set_deleg N >>"$LOG" 2>&1 || die "setting $DELEG"
+    [ "$(cat "$DELEG")" = N ] || die "$DELEG is not N after setting it"
+  fi
+  echo "directory_delegations_was=${DELEG_WAS:-absent}" >>"$OUT/provenance.txt"
+  echo "directory_delegations_run=$(cat "$DELEG" 2>>"$LOG" || echo absent)" >>"$OUT/provenance.txt"
   # shellcheck disable=SC2317  # called through retry
   apply_nfs() {
     cat <<EOF | k apply -f - >>"$LOG" 2>&1
@@ -347,7 +354,8 @@ EOF
 fi
 
 # volumes_yaml prints the claims the ranks mount: in hostpath mode one claim on the host directory every worker binds, and
-# in nfs mode two on the NFS server, shared with the EFS options and shared-long with the provocation's.
+# in nfs mode three on the NFS server: shared with the EFS options, shared-long with the provocation's, and shared-fresh,
+# with no cache, for the probers' discovery.
 volumes_yaml() {
   if [ "$STORAGE" = hostpath ]; then
     cat <<EOF
@@ -384,9 +392,10 @@ EOF
     return
   fi
   local claim opts o
-  for claim in shared shared-long; do
+  for claim in shared shared-long shared-fresh; do
     opts=$EFS_OPTS
     [ "$claim" = shared-long ] && opts=$LONG_OPTS
+    [ "$claim" = shared-fresh ] && opts=$FRESH_OPTS
     cat <<EOF
 ---
 apiVersion: v1
@@ -454,6 +463,7 @@ for _ in $(seq 1 60); do
   lq=$(k -n "$NS" get localqueue "gpu-$NS" -o name 2>>"$LOG")
   bound=$(k -n "$NS" get pvc shared -o jsonpath='{.status.phase}')
   [ "$STORAGE" = nfs ] && [ "$bound" = Bound ] && bound=$(k -n "$NS" get pvc shared-long -o jsonpath='{.status.phase}')
+  [ "$STORAGE" = nfs ] && [ "$bound" = Bound ] && bound=$(k -n "$NS" get pvc shared-fresh -o jsonpath='{.status.phase}')
   [ -n "$lq" ] && [ "$bound" = Bound ] && break
   sleep 3
 done
@@ -833,10 +843,9 @@ cut_writer() {
 
 WORKERS=("$CLUSTER-worker" "$CLUSTER-worker2" "$CLUSTER-worker3")
 
-# helper_pod starts one nfs_probe.py Pod on a node, with the job's claim at /watch and the other claim at /list.
+# helper_pod starts one nfs_probe.py Pod on a node, with the job's claim at /watch and the uncached claim at /list.
 helper_pod() {
-  local pod=$1 node=$2 claim=$3 mode=$4 job=$5 other=shared
-  [ "$claim" = shared ] && other=shared-long
+  local pod=$1 node=$2 claim=$3 mode=$4 job=$5 other=shared-fresh
   k -n "$NS" create configmap nfs-probe --from-file=experiments/distributed-restart/nfs_probe.py --dry-run=client -o yaml |
     k apply -f - >>"$LOG" 2>&1 || return 1
   cat <<EOF | k apply -f - >>"$LOG" 2>&1
