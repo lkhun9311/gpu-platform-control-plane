@@ -9,6 +9,6 @@ trap 'rm -f "$fixture"' EXIT
 echo 'NodeName=c[1-3] Name=gpu Count=2' >"$fixture"
 note "gres.conf replaced by one line with no File=:"
 host "cat $fixture"
-host "docker run --rm --hostname c1 --entrypoint bash -v $fixture:/etc/slurm/gres.conf:ro slurmlab:24.11.5-torch251-c 'mkdir -p /run/munge; chown munge:munge /run/munge; runuser -u munge -- /usr/sbin/munged; slurmd -G 2>&1 | grep -iE \"gres|gpu\"'"
+host "docker run --rm --hostname c1 --entrypoint bash -v $fixture:/etc/slurm/gres.conf:ro slurmlab:24.11.5-torch251 -c 'mkdir -p /run/munge; chown munge:munge /run/munge; runuser -u munge -- /usr/sbin/munged; slurmd -G 2>&1 | grep -iE \"gres|gpu\"'"
 note "The committed gres.conf, with the device nodes the entrypoint would create made by hand:"
-host "docker run --rm --hostname c1 --entrypoint bash slurmlab:24.11.5-torch251-c 'mknod /dev/labgpu0 c 240 0; mknod /dev/labgpu1 c 240 1; mkdir -p /run/munge; chown munge:munge /run/munge; runuser -u munge -- /usr/sbin/munged; slurmd -G 2>&1 | grep -iE \"gres|gpu\"'"
+host "docker run --rm --hostname c1 --entrypoint bash slurmlab:24.11.5-torch251 -c 'mknod /dev/labgpu0 c 240 0; mknod /dev/labgpu1 c 240 1; mkdir -p /run/munge; chown munge:munge /run/munge; runuser -u munge -- /usr/sbin/munged; slurmd -G 2>&1 | grep -iE \"gres|gpu\"'"

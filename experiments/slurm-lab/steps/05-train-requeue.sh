@@ -113,9 +113,20 @@ note "Mutation: CKPT_LOAD=none, so the requeued attempt ignores the checkpoint a
 requeue_case tr-none none
 none_rc=$?
 
+none_out=$OUT
+# Exit 1 alone is not the mutation caught: a scorer that crashed on missing logs, or a requeued attempt that never
+# ran, exits 1 too. The control counts only when the scorer finished, and failed because both ranks restarted from
+# zero and neither resumed.
+none_caught=0
+if ! grep -q '^Traceback' "$none_out" && grep -qE '^[0-9]+ passed, [1-9][0-9]* failed$' "$none_out" &&
+	[ "$(grep -cE '^FAIL: attempt [1-9][0-9]* rank [01] did not restart from zero' "$none_out")" = 2 ] &&
+	[ "$(grep -cE '^FAIL: attempt [1-9][0-9]* rank [01] has one resume record with from_step > 0' "$none_out")" = 2 ]; then
+	none_caught=1
+fi
+
 out 05-verdict.txt
-note "full case scorer exit $full_rc (expected 0); load-none mutation scorer exit $none_rc (expected 1)"
-if [ "$full_rc" = 0 ] && [ "$none_rc" = 1 ]; then
+note "full case scorer exit $full_rc (expected 0); load-none mutation scorer exit $none_rc (expected 1), caught for the expected reason: $none_caught"
+if [ "$full_rc" = 0 ] && [ "$none_rc" = 1 ] && [ "$none_caught" = 1 ]; then
 	note "PASS: the resume was scored as a resume, and a restart from zero was caught"
 	cat "$OUT"
 	exit 0

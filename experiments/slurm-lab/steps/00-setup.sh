@@ -5,7 +5,7 @@ source "$(dirname "$0")/lib.sh"
 
 out 00-cluster.txt
 host "docker compose images"
-host "docker image inspect slurmlab:24.11.5-torch251--format '{{.Id}} {{.Created}}'"
+host "docker image inspect slurmlab:24.11.5-torch251 --format '{{.Id}} {{.Created}}'"
 at slurmctld "dpkg-query -W slurmctld slurmd slurmdbd slurm-client munge"
 at slurmctld "scontrol --version"
 at mariadb "mariadb --version"
