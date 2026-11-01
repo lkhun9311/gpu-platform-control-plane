@@ -13,6 +13,7 @@ import datetime
 import json
 import math
 import pathlib
+import re
 import sys
 
 FAILED: list[str] = []
@@ -240,6 +241,16 @@ def counters(text: str, chain: str, address: str, port: str) -> list[int]:
     return found
 
 
+def unfenced(waiting: str | None) -> list[str]:
+    """The node names a barrier's "node a,b to be fenced (...)" names, or none.
+
+    Names are compared whole: "rst-worker" is a substring of "rst-worker2", and a barrier waiting for the wrong node
+    would otherwise read as waiting for the right one.
+    """
+    match = re.match(r"node (\S+) to be fenced", waiting or "")
+    return match.group(1).split(",") if match else []
+
+
 def iso(t: float | None) -> str:
     return "none" if t is None else datetime.datetime.fromtimestamp(t, datetime.timezone.utc).isoformat(timespec="milliseconds")
 
@@ -321,7 +332,7 @@ def cut_writer(case: Case, reference: list[float] | None) -> None:
     check(f"{c} no second attempt from the Node's deletion until the fence", bool(held) and no_second_attempt(held), detail)
     fenced, detail = observed_window(case, "fence-hold-start", "fence-hold-end")
     says = sorted({((s.get("status") or {}).get("attempts") or [{}])[0].get("waitingFor") or "" for s in fenced})
-    check(f"{c} the barrier named the cut node", bool(fenced) and all(victim in w and "to be fenced" in w for w in says),
+    check(f"{c} the barrier named the cut node", bool(fenced) and all(victim in unfenced(w) for w in says),
           f"{detail}; {says}")
     t_decoy = case.at("decoy-annotated")
     decoyed = [s for s in fenced if t_decoy is not None and ts(s["observed"]) > t_decoy
@@ -447,7 +458,7 @@ def main() -> int:
             check(f"node-lost no second attempt {what}", bool(held) and no_second_attempt(held), f"{len(held)} samples")
         fenced = case.window("fence-hold-start", "fence-hold-end")
         says = {((s.get("status") or {}).get("attempts") or [{}])[0].get("waitingFor") for s in fenced}
-        check("node-lost the barrier named the unfenced node", bool(fenced) and all(victim and victim in (w or "") for w in says),
+        check("node-lost the barrier named the unfenced node", bool(fenced) and all(victim and victim in unfenced(w) for w in says),
               f"{sorted(w or '' for w in says)}")
 
     for name in ("cut-writer", "cut-writer-early"):
