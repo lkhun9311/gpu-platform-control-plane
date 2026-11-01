@@ -165,11 +165,18 @@ k apply -f "https://github.com/cert-manager/cert-manager/releases/download/$CERT
 k -n cert-manager wait --for=condition=Available deploy --all --timeout=300s >>"$LOG" 2>&1 || die "cert-manager Available"
 # Kueue as EKS deploys it: the vendored release and this repository's gpu ResourceFlavor with the train label and the
 # GPU taint's toleration, so the ranks land only on GPU nodes and tolerate their taint as on EKS.
-# shellcheck disable=SC2317  # called through retry
-apply_kueue() { kubectl kustomize config/kueue-controller | k apply --server-side -f - >>"$LOG" 2>&1; }
-retry apply_kueue || die "kueue"
+# Kueue's webhook validates the flavor, so everything but the flavor goes first, as Argo's sync waves order it on EKS.
+kubectl kustomize config/kueue-controller >"$OUT/kueue.yaml" 2>>"$LOG" || die "rendering config/kueue-controller"
+python3 -c '
+import sys
+docs = open(sys.argv[1]).read().split("\n---\n")
+print("\n---\n".join(d for d in docs if "\nkind: ResourceFlavor\n" not in "\n" + d + "\n"))' "$OUT/kueue.yaml" >"$OUT/kueue-without-flavor.yaml" || die "splitting the flavor out"
+k apply --server-side -f "$OUT/kueue-without-flavor.yaml" >>"$LOG" 2>&1 || die "kueue"
 k -n kueue-system wait --for=condition=Available deploy/kueue-controller-manager --timeout=300s >>"$LOG" 2>&1 || die "kueue Available"
+# shellcheck disable=SC2317  # called through retry
+apply_kueue() { k apply --server-side -f "$OUT/kueue.yaml" >>"$LOG" 2>&1; }
 retry apply_kueue || die "kueue's flavor once its webhook answers"
+k get resourceflavor gpu -o jsonpath='{.spec.nodeLabels}' 2>>"$LOG" | grep -q train || die "the gpu flavor carries no train nodeLabel"
 kubectl kustomize config/crd | k apply --server-side -f - >>"$LOG" 2>&1 || die "CRDs"
 # shellcheck disable=SC2317  # called through retry
 apply_operator() { kubectl kustomize config/operator-webhook | k apply --server-side -f - >>"$LOG" 2>&1; }
