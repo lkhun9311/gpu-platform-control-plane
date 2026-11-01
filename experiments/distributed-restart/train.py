@@ -24,7 +24,9 @@ import json
 import os
 import re
 import signal
+import socket
 import sys
+import threading
 import time
 import uuid
 
@@ -55,6 +57,14 @@ STEP_SLEEP = float(os.environ.get("CKPT_STEP_SLEEP", "0"))
 # How long a collective waits for a peer before failing; torch's default is 30 minutes, and a rank whose peer's node
 # was lost would hold its Pod Running, and the attempt unfailed, for all of it.
 COLLECTIVE_TIMEOUT = float(os.environ.get("CKPT_COLLECTIVE_TIMEOUT", "1800"))
+# Seconds between heartbeat writes to the shared volume, 0 for none.
+# The kind case cut-writer reads them from the host to show when each attempt's ranks last wrote, which a rank's stdout
+# cannot show once its node is cut off from the API server that streams it.
+HEARTBEAT = float(os.environ.get("CKPT_HEARTBEAT", "0"))
+# When set, a rank whose training loop raises keeps its heartbeat writing until the process is killed, instead of exiting.
+# It stands in for a process the platform cannot reach and that does not exit, such as one blocked in a collective under
+# torch's 30-minute default while a background writer runs; it is the writer the fencing acknowledgement exists for.
+LINGER = os.environ.get("CKPT_LINGER", "") == "1"
 
 LOAD_MODES = ("none", "full", "no-optimizer", "no-scheduler", "no-sampler", "no-rng")
 # kill-before-fsync: the rank dies with its shard written but not synced or renamed.
@@ -157,6 +167,43 @@ def write_new(path: str, data: bytes) -> None:
         os.fsync(handle.fileno())
     os.replace(tmp, path)
     fsync_dir(os.path.dirname(path))
+
+
+class Heartbeat:
+    """Appends one record of this rank's attempt to the shared volume every HEARTBEAT seconds until stopped or killed.
+
+    The records live under the attempt's own directory, which no checkpoint path matches, so a heartbeat never reaches
+    what a resume reads.
+    """
+
+    def __init__(self, rank: int) -> None:
+        self.rank, self.phase, self.seq = rank, "training", 0
+        self.path = os.path.join(ROOT, f"a{ATTEMPT}", f"heartbeat-rank-{rank}.jsonl")
+        self.stopped = threading.Event()
+        # A daemon thread, so a rank exiting for any reason but lingering is never held open by its heartbeat.
+        self.thread = threading.Thread(target=self.run, name="heartbeat", daemon=True)
+
+    def start(self) -> None:
+        os.makedirs(os.path.dirname(self.path), exist_ok=True)
+        self.thread.start()
+
+    def run(self) -> None:
+        while not self.stopped.is_set():
+            self.seq += 1
+            record = {"ts": datetime.datetime.now(datetime.timezone.utc).isoformat(), "attempt": ATTEMPT,
+                      "rank": self.rank, "seq": self.seq, "phase": self.phase, "host": socket.gethostname(),
+                      "pid": os.getpid()}
+            # Opened, synced and closed each time, so every record reaches the volume as its own write and the file's
+            # mtime on the host moves with it.
+            with open(self.path, "a") as handle:
+                handle.write(json.dumps(record) + "\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+            self.stopped.wait(HEARTBEAT)
+
+    def stop(self) -> None:
+        self.stopped.set()
+        self.thread.join()
 
 
 class Fault:
@@ -324,6 +371,27 @@ def capture(step: int, model: nn.Module, optimiser: torch.optim.Optimizer,
 
 
 def main() -> int:
+    if HEARTBEAT <= 0:
+        return train()
+    rank = int(os.environ["RANK"])
+    # Started before the process group, so an attempt's first write to the volume is as early as its process can make it.
+    heartbeat = Heartbeat(rank)
+    heartbeat.start()
+    try:
+        code = train()
+    except Exception as exc:
+        if not LINGER:
+            raise
+        heartbeat.phase = "lingering"
+        emit(rank, "lingering", error=repr(exc)[:300])
+        # Never returns: only a kill from outside ends this process, as only fencing ends a writer the platform cannot reach.
+        while True:
+            time.sleep(3600)
+    heartbeat.stop()
+    return code
+
+
+def train() -> int:
     if LOAD_MODE not in LOAD_MODES:
         print(f"CKPT_LOAD={LOAD_MODE!r} is not one of {LOAD_MODES}", file=sys.stderr)
         return 2
