@@ -9,10 +9,15 @@
 #   cut-writer and its negative control cut-writer-early each remove a node too, so each runs on a cluster of its own:
 #   hack/distributed-restart-kind.sh reference cut-writer
 #   hack/distributed-restart-kind.sh reference cut-writer-early
+# STORAGE=nfs runs the nfs-* cases on a cluster `rstnfs` whose ranks share the volume only through an NFS-Ganesha server
+# Pod, mounted by each worker's kernel client with the options AWS recommends for EFS:
+#   STORAGE=nfs hack/distributed-restart-kind.sh reference nfs-kill-before-fsync ...
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 
+STORAGE=${STORAGE:-hostpath}
 CLUSTER=rst
+[ "$STORAGE" = nfs ] && CLUSTER=rstnfs
 CONTEXT=kind-$CLUSTER
 NS=rst
 SYS=gpu-platform-control-plane-system
@@ -25,9 +30,29 @@ CASE_BUDGET=420
 OUT=hack/distributed-restart-kind-$(date -u +%Y%m%dT%H%M%SZ)
 LOG=$OUT/log.txt
 mkdir -p "$OUT"
-# The ranks write as root inside the kind nodes, so the host directory is emptied from a node before it is removed.
-SHARED=$(mktemp -d "${TMPDIR:-/tmp}/rst-shared-XXXXXX")
-chmod 777 "$SHARED"
+SHARED=""
+if [ "$STORAGE" = hostpath ]; then
+  # The ranks write as root inside the kind nodes, so the host directory is emptied from a node before it is removed.
+  SHARED=$(mktemp -d "${TMPDIR:-/tmp}/rst-shared-XXXXXX")
+  chmod 777 "$SHARED"
+fi
+# The NFS server's export, a directory on the control-plane node's /var, which kind backs with a host volume: ganesha's
+# VFS layer needs file handles, and the container's overlay root file system gives none.
+EXPORT=/var/local/rstnfs-export
+# NFS-Ganesha 4.0.8, the userspace server inside the sig-storage nfs-provisioner image, pinned by digest; it is run as a
+# plain server with the config below, not as a provisioner, and it needs no nfsd module on the host.
+GANESHA_IMG=registry.k8s.io/sig-storage/nfs-provisioner@sha256:c825f3d5e28bde099bd7a3daace28772d412c9157ad47fa752a9ad0baafc118d
+# The options AWS recommends for mounting EFS on Linux (docs.aws.amazon.com/efs/latest/ug/mounting-fs-nfs-mount-settings.html,
+# read 2026-11-01); attribute caching is left at the kernel's defaults, as that page advises.
+EFS_OPTS="nfsvers=4.1 rsize=1048576 wsize=1048576 hard timeo=600 retrans=2 noresvport"
+# The provocation: the same, with directory and file attributes cached for ten minutes, so a name a node once found absent
+# stays absent to it for the whole case.
+LONG_OPTS="$EFS_OPTS actimeo=600"
+DELEG=/sys/module/nfsv4/parameters/directory_delegations
+DELEG_WAS=""
+# set_deleg writes the host kernel's parameter from a throwaway privileged container: kind nodes mount /sys read-only,
+# and the parameter is the host's either way.
+set_deleg() { docker run --rm --privileged --network none --entrypoint sh "$IMG" -c "echo $1 > $DELEG"; }
 
 CASES=("$@")
 [ ${#CASES[@]} -gt 0 ] || CASES=(reference rank-failed stale-workload deactivated node-lost)
@@ -42,15 +67,29 @@ cleanup() {
   [ -n "${SAMPLER:-}" ] && { kill "$SAMPLER" 2>>"$LOG" || log "cleanup: sampler $SAMPLER not killed"; }
   # A paused node container cannot be deleted cleanly, and left paused it holds its memory after the run.
   [ -n "$PAUSED" ] && { docker unpause "$PAUSED" >>"$LOG" 2>&1 || log "cleanup: unpause $PAUSED failed"; }
-  # Any running worker will do, since they all mount the same directory; a case may have killed one of them.
-  local emptied=""
-  for n in "$CLUSTER-worker" "$CLUSTER-worker2" "$CLUSTER-worker3"; do
-    [ "$(docker inspect -f '{{.State.Running}}' "$n" 2>>"$LOG")" = true ] || continue
-    docker exec "$n" sh -c 'find /shared -mindepth 1 -delete' >>"$LOG" 2>&1 && { emptied=$n; break; }
-  done
-  [ -n "$emptied" ] || log "cleanup: emptying /shared failed: no running worker could"
-  rmdir "$SHARED" 2>>"$LOG" || log "cleanup: $SHARED not removed"
+  if [ "$STORAGE" = hostpath ]; then
+    # Any running worker will do, since they all mount the same directory; a case may have killed one of them.
+    local emptied=""
+    for n in "$CLUSTER-worker" "$CLUSTER-worker2" "$CLUSTER-worker3"; do
+      [ "$(docker inspect -f '{{.State.Running}}' "$n" 2>>"$LOG")" = true ] || continue
+      docker exec "$n" sh -c 'find /shared -mindepth 1 -delete' >>"$LOG" 2>&1 && { emptied=$n; break; }
+    done
+    [ -n "$emptied" ] || log "cleanup: emptying /shared failed: no running worker could"
+    rmdir "$SHARED" 2>>"$LOG" || log "cleanup: $SHARED not removed"
+  fi
+  # The parameter belongs to the host's kernel, not to the cluster, so it is put back whether or not the cluster stays.
+  if [ -n "$DELEG_WAS" ]; then
+    set_deleg "$DELEG_WAS" >>"$LOG" 2>&1 || log "cleanup: restoring $DELEG to $DELEG_WAS FAILED"
+    log "cleanup: $DELEG is now $(cat "$DELEG" 2>&1), was $DELEG_WAS"
+  fi
   [ "${KEEP:-0}" = 1 ] && { log "cleanup: KEEP=1, leaving $CLUSTER"; return; }
+  if [ "$STORAGE" = nfs ]; then
+    # The workers go first, while the server still answers: a worker removed after the server is gone keeps its exiting
+    # processes waiting on the NFS client's goodbye to it, which a rehearsal saw last minutes and block the removal.
+    for n in "$CLUSTER-worker" "$CLUSTER-worker2" "$CLUSTER-worker3"; do
+      docker rm -f "$n" >>"$LOG" 2>&1 || log "cleanup: removing $n failed"
+    done
+  fi
   local listed
   listed=$(kind get clusters 2>>"$LOG") || log "cleanup: kind get clusters failed"
   if grep -qx "$CLUSTER" <<<"$listed"; then
@@ -77,20 +116,25 @@ retry() {
 # A case name the script does not know, or one given twice, would otherwise run as nothing and be scored as absent.
 # Each of node-lost, cut-writer and cut-writer-early takes a worker away for good, and three workers leave a world size
 # of two only one node to lose, so a run holds at most one of them.
+# The nfs-* cases need the NFS server and its claims, and the others read the hostPath directory from the host, so each
+# storage runs its own cases and reference runs on either.
+case "$STORAGE" in hostpath | nfs) ;; *) die "STORAGE='$STORAGE' is neither hostpath nor nfs" ;; esac
 seen=" "
 removing=0
 for c in "${CASES[@]}"; do
-  case "$c" in
-    reference | rank-failed | stale-workload | deactivated) ;;
-    node-lost | cut-writer | cut-writer-early) removing=$((removing + 1)) ;;
-    *) die "unknown case '$c'" ;;
+  case "$STORAGE:$c" in
+    *:reference | hostpath:rank-failed | hostpath:stale-workload | hostpath:deactivated) ;;
+    hostpath:node-lost | hostpath:cut-writer | hostpath:cut-writer-early) removing=$((removing + 1)) ;;
+    nfs:nfs-kill-before-fsync | nfs:nfs-kill-before-manifest | nfs:nfs-kill-before-latest | nfs:nfs-kill-after-latest) ;;
+    nfs:nfs-corrupt-published | nfs:nfs-vis-efs | nfs:nfs-vis-long) ;;
+    *) die "case '$c' is unknown under STORAGE=$STORAGE" ;;
   esac
   case "$seen" in *" $c "*) die "case '$c' given twice" ;; esac
   seen="$seen$c "
 done
 [ "$removing" -le 1 ] || die "more than one of node-lost, cut-writer and cut-writer-early in one run"
 # The scorer compares every restarted case with the reference of its own run.
-case "$seen" in *" reference "*) ;; *" rank-failed "* | *" stale-workload "* | *" node-lost "* | *" cut-writer "* | *" cut-writer-early "*)
+case "$seen" in *" reference "*) ;; *" rank-failed "* | *" stale-workload "* | *" node-lost "* | *" cut-writer "* | *" cut-writer-early "* | *" nfs-"*)
   die "a restarted case needs reference in the same run" ;; esac
 
 export PATH="$PWD/bin:$PATH"
@@ -107,6 +151,13 @@ for tool in docker kind kubectl kustomize python3; do command -v "$tool" >/dev/n
   echo "train_py_sha256=$(sha256sum experiments/distributed-restart/train.py | cut -d' ' -f1)"
   echo "steps=$STEPS"
   echo "cases=${CASES[*]}"
+  echo "storage=$STORAGE"
+  if [ "$STORAGE" = nfs ]; then
+    echo "nfs_server_image=$GANESHA_IMG"
+    echo "nfs_efs_options=$EFS_OPTS"
+    echo "nfs_long_options=$LONG_OPTS"
+    echo "host_kernel=$(uname -r)"
+  fi
 } >"$OUT/provenance.txt"
 log "provenance: $(tr '\n' ' ' <"$OUT/provenance.txt")"
 
@@ -118,7 +169,11 @@ make docker-build-gpu-simulator GPU_SIMULATOR_IMG=gpu-simulator:$TAG >>"$LOG" 2>
 
 log "== cluster $CLUSTER"
 grep -qx "$CLUSTER" <<<"$(kind get clusters 2>>"$LOG")" && { kind delete cluster --name "$CLUSTER" >>"$LOG" 2>&1 || die "delete old cluster"; }
-sed "s|SHARED_DIR|$SHARED|" hack/kind-config-restart.yaml >"$OUT/kind-config.yaml"
+if [ "$STORAGE" = nfs ]; then
+  cp hack/kind-config-restart-nfs.yaml "$OUT/kind-config.yaml"
+else
+  sed "s|SHARED_DIR|$SHARED|" hack/kind-config-restart.yaml >"$OUT/kind-config.yaml"
+fi
 kind create cluster --name "$CLUSTER" --config "$OUT/kind-config.yaml" >>"$LOG" 2>&1 || die "kind create"
 echo "node_image=$(docker inspect "$CLUSTER-worker" --format '{{.Config.Image}}')" >>"$OUT/provenance.txt"
 for img in controller:$TAG gpu-simulator:$TAG "$IMG"; do
@@ -172,26 +227,130 @@ for ns in "$SYS" kueue-system cert-manager kube-system; do
   [ "$off" = 0 ] || die "$off controller Pod(s) in $ns run off the control plane (see placement.txt)"
 done
 
-log "== queue and shared volume"
-k apply -f config/kueue/resourceflavor.yaml >>"$LOG" 2>&1 || die "resource flavor"
-# shellcheck disable=SC2317  # called through retry
-apply_setup() {
-  cat <<EOF | k apply -f - >>"$LOG" 2>&1
+NFS_IP=""
+if [ "$STORAGE" = nfs ]; then
+  log "== nfs server"
+  # Kernel 7.0's NFS client asks for directory delegations, ganesha 4.0.8 answers that operation with NFS4ERR_OP_ILLEGAL,
+  # and the client then fails directory reads with EREMOTEIO, which a rank would report as a crash of its own.
+  # Turning the client's request off gives it no directory delegations, which is also what it has against a server that
+  # grants none; the parameter is the host kernel's, so it is recorded here and put back on exit.
+  docker exec "$CLUSTER-control-plane" sh -c "[ -e $DELEG ] || modprobe nfsv4" >>"$LOG" 2>&1 || die "loading nfsv4"
+  DELEG_WAS=$(cat "$DELEG" 2>>"$LOG") || die "reading $DELEG"
+  set_deleg N >>"$LOG" 2>&1 || die "setting $DELEG"
+  echo "directory_delegations_was=$DELEG_WAS" >>"$OUT/provenance.txt"
+  echo "directory_delegations_run=$(cat "$DELEG" 2>>"$LOG")" >>"$OUT/provenance.txt"
+  [ "$(cat "$DELEG")" = N ] || die "$DELEG is not N after setting it"
+  # shellcheck disable=SC2317  # called through retry
+  apply_nfs() {
+    cat <<EOF | k apply -f - >>"$LOG" 2>&1
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: $NS
+  name: nfs
 ---
-apiVersion: platform.lkhun9311.github.io/v1
-kind: GPUQuotaPolicy
+apiVersion: v1
+kind: ConfigMap
 metadata:
-  name: $NS-quota
+  name: ganesha
+  namespace: nfs
+data:
+  ganesha.conf: |
+    NFS_CORE_PARAM {
+      Protocols = 4;
+      NFS_Port = 2049;
+      Enable_NLM = false;
+      Enable_RQUOTA = false;
+    }
+    NFSV4 {
+      # Without a grace period a restarted server serves at once; no case restarts it.
+      Graceless = true;
+      Minor_Versions = 1, 2;
+      # The ranks write as root and the scorer reads owners nowhere, so ids pass as numbers and need no idmapd.
+      Allow_Numeric_Owners = true;
+      Only_Numeric_Owners = true;
+      Delegations = false;
+      RecoveryRoot = /var/lib/nfs/ganesha;
+    }
+    EXPORT {
+      Export_Id = 1;
+      Path = /export;
+      Pseudo = /;
+      Access_Type = RW;
+      Squash = No_Root_Squash;
+      Protocols = 4;
+      Transports = TCP;
+      SecType = sys;
+      FSAL { Name = VFS; }
+    }
+    LOG { Default_Log_Level = EVENT; }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ganesha
+  namespace: nfs
 spec:
-  tenant: $NS
-  targetNamespace: $NS
-  limits:
-    gpuCount: 2
-  trainingQuota: true
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels: {app: ganesha}
+  template:
+    metadata:
+      labels: {app: ganesha}
+    spec:
+      # On the control plane with the controllers, so no case that takes a worker takes the server.
+      nodeSelector: {node-role.kubernetes.io/control-plane: ""}
+      tolerations:
+        - {key: node-role.kubernetes.io/control-plane, operator: Exists, effect: NoSchedule}
+      containers:
+        - name: ganesha
+          image: $GANESHA_IMG
+          command: ["sh", "-c", "mkdir -p /usr/local/var/run/ganesha /var/lib/nfs/ganesha && exec ganesha.nfsd -F -L /dev/stdout -f /etc/ganesha/ganesha.conf -p /usr/local/var/run/ganesha/ganesha.pid"]
+          securityContext: {privileged: true}
+          ports: [{containerPort: 2049}]
+          volumeMounts:
+            - {name: export, mountPath: /export}
+            - {name: config, mountPath: /etc/ganesha}
+            - {name: state, mountPath: /var/lib/nfs/ganesha}
+      volumes:
+        - name: export
+          hostPath: {path: $EXPORT, type: DirectoryOrCreate}
+        - name: config
+          configMap: {name: ganesha}
+        - name: state
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ganesha
+  namespace: nfs
+spec:
+  selector: {app: ganesha}
+  ports: [{name: nfs, port: 2049}]
+EOF
+  }
+  retry apply_nfs || die "nfs server"
+  k -n nfs rollout status deploy/ganesha --timeout=240s >>"$LOG" 2>&1 || die "nfs server rollout"
+  # The kubelet mounts from the node's own network namespace, which resolves no cluster names, so the PV names the address.
+  NFS_IP=$(k -n nfs get svc ganesha -o jsonpath='{.spec.clusterIP}' 2>>"$LOG")
+  [ -n "$NFS_IP" ] || die "no ClusterIP for the nfs server"
+  echo "nfs_server=$NFS_IP" >>"$OUT/provenance.txt"
+  # A mount from a worker's root namespace, as the kubelet will make it, before any case depends on one.
+  # shellcheck disable=SC2317  # called through retry
+  try_mount() {
+    docker exec "$CLUSTER-worker" sh -c "mkdir -p /mnt/nfscheck && mount -t nfs -o $(tr ' ' , <<<"$EFS_OPTS") $NFS_IP:/ /mnt/nfscheck &&
+      ls /mnt/nfscheck && umount /mnt/nfscheck" >>"$LOG" 2>&1
+  }
+  retry try_mount || die "a worker cannot mount $NFS_IP:/"
+fi
+
+# volumes_yaml prints the claims the ranks mount: in hostpath mode one claim on the host directory every worker binds, and
+# in nfs mode two on the NFS server, shared with the EFS options and shared-long with the provocation's.
+volumes_yaml() {
+  if [ "$STORAGE" = hostpath ]; then
+    cat <<EOF
 ---
 apiVersion: v1
 kind: PersistentVolume
@@ -222,12 +381,79 @@ spec:
     requests:
       storage: 1Gi
 EOF
+    return
+  fi
+  local claim opts o
+  for claim in shared shared-long; do
+    opts=$EFS_OPTS
+    [ "$claim" = shared-long ] && opts=$LONG_OPTS
+    cat <<EOF
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: rstnfs-$claim
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes: ["ReadWriteMany"]
+  storageClassName: ""
+  mountOptions:
+EOF
+    for o in $opts; do echo "    - $o"; done
+    cat <<EOF
+  nfs:
+    server: $NFS_IP
+    path: /
+  claimRef:
+    namespace: $NS
+    name: $claim
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: $claim
+  namespace: $NS
+spec:
+  accessModes: ["ReadWriteMany"]
+  storageClassName: ""
+  volumeName: rstnfs-$claim
+  resources:
+    requests:
+      storage: 1Gi
+EOF
+  done
+}
+
+log "== queue and shared volume"
+k apply -f config/kueue/resourceflavor.yaml >>"$LOG" 2>&1 || die "resource flavor"
+# shellcheck disable=SC2317  # called through retry
+apply_setup() {
+  cat <<EOF | k apply -f - >>"$LOG" 2>&1
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: $NS
+---
+apiVersion: platform.lkhun9311.github.io/v1
+kind: GPUQuotaPolicy
+metadata:
+  name: $NS-quota
+spec:
+  tenant: $NS
+  targetNamespace: $NS
+  limits:
+    gpuCount: 2
+  trainingQuota: true
+$(volumes_yaml)
+EOF
 }
 retry apply_setup || die "queue and volume"
 lq=""
 for _ in $(seq 1 60); do
   lq=$(k -n "$NS" get localqueue "gpu-$NS" -o name 2>>"$LOG")
   bound=$(k -n "$NS" get pvc shared -o jsonpath='{.status.phase}')
+  [ "$STORAGE" = nfs ] && [ "$bound" = Bound ] && bound=$(k -n "$NS" get pvc shared-long -o jsonpath='{.status.phase}')
   [ -n "$lq" ] && [ "$bound" = Bound ] && break
   sleep 3
 done
@@ -323,9 +549,29 @@ wait_events() {
 
 mark() { echo "{\"at\": \"$(now)\", \"mark\": \"$2\"}" >>"$1/marks.jsonl"; }
 
-# listing prints every file and directory of a job's tree on the shared volume as "<mtime> <size> <path>", read from the
-# host side of the bind mount, so it needs no node and no API server.
-listing() { (cd "$SHARED" && find "$1" -printf '%T@ %s %p\n' | sort -k3) 2>>"$LOG"; }
+# vol runs a shell command in the volume's root as the storage itself holds it: the host side of the bind mount, or the
+# NFS server's export directory on the control-plane node, read below the server and so through no client's cache.
+vol() {
+  if [ "$STORAGE" = nfs ]; then
+    docker exec "$CLUSTER-control-plane" sh -c "cd $EXPORT && $1"
+  else
+    (cd "$SHARED" && sh -c "$1")
+  fi
+}
+
+# listing prints every file and directory of a job's tree on the shared volume as "<mtime> <size> <path>", read where vol
+# reads, so it needs no worker and no API server.
+listing() { vol "find '$1' -printf '%T@ %s %p\n' | sort -k3" 2>>"$LOG"; }
+
+# snapshot records, from the storage side, what a restarted attempt will find: every path with its size, what LATEST
+# names, every MANIFEST, and the sha256 of every shard and temporary shard file.
+snapshot() {
+  local name=$1 dir=$2 tag=$3
+  listing "$name" >"$dir/listing-$tag.txt"
+  vol "cat '$name/LATEST'" >"$dir/latest-$tag.txt" 2>>"$LOG" || log "  no LATEST in the $tag snapshot"
+  vol "for m in '$name'/a*/*/MANIFEST; do [ -e \"\$m\" ] && { echo \"\$m\"; cat \"\$m\"; echo; }; done" >"$dir/manifests-$tag.txt" 2>>"$LOG"
+  vol "find '$name' -type f -name 'rank-*.pt*' -exec sha256sum {} +" >"$dir/shards-$tag.txt" 2>>"$LOG"
+}
 
 # The background sampler keeps sampling while the foreground acts, so no stretch of a case goes unobserved between the
 # actions it takes; it writes its own file, which the scorer merges with the foreground's.
@@ -364,12 +610,24 @@ for p in json.load(open(sys.argv[1]))["items"]:
       echo "{\"pod\": \"$pod\", \"uid\": \"$uid\", \"node\": \"$node\", \"attempt\": \"$attempt\", \"rank\": \"$index\"}" >>"$dir/pods.jsonl"
       k -n "$NS" logs -f "$pod" >"$dir/log-$uid.txt" 2>>"$LOG" &
     done
+    # How each rank's container ended, once: a kill fault's record is written before the kill, so only the exit code
+    # shows that the signal, and not some other exit, ended the rank.
+    python3 - "$dir/.pods.json" "$dir/exits.jsonl" <<'PY' 2>>"$LOG"
+import json, os, sys
+seen = {json.loads(l)["uid"] for l in open(sys.argv[2])} if os.path.exists(sys.argv[2]) else set()
+with open(sys.argv[2], "a") as out:
+    for p in json.load(open(sys.argv[1]))["items"]:
+        t = ((p.get("status", {}).get("containerStatuses") or [{}])[0].get("state") or {}).get("terminated")
+        if t and p["metadata"]["uid"] not in seen:
+            out.write(json.dumps({"uid": p["metadata"]["uid"], "pod": p["metadata"]["name"], "exit": t.get("exitCode"),
+                                  "reason": t.get("reason"), "finished": t.get("finishedAt")}) + "\n")
+PY
     sleep 1
   done
 }
 
 submit() {
-  local name=$1 dir=$2 env=$3
+  local name=$1 dir=$2 env=$3 claim=${4:-shared}
   cat <<EOF >"$dir/mltrainingjob.yaml"
 apiVersion: platform.lkhun9311.github.io/v1
 kind: MLTrainingJob
@@ -384,7 +642,7 @@ spec:
     worldSize: 2
     maxRestarts: 1
   stateVolume:
-    claimName: shared
+    claimName: $claim
     mountPath: /shared
   command:
     - sh
@@ -408,10 +666,13 @@ finish() {
   stop_sampler
   k -n "$NS" get mltrainingjob "$name" -o json >"$dir/final-mltj.json" 2>>"$LOG"
   k -n "$NS" get job "$name" -o json >"$dir/final-job.json" 2>>"$LOG"
-  # Read from the host side of the bind mount, which every node shares, so a node a case killed is not needed for it.
-  (cd "$SHARED" && find "$name" -type f | sort) >"$dir/shared-files.txt" 2>>"$LOG"
+  # Read where the storage holds it, so a node a case killed is not needed for it.
+  vol "find '$name' -type f | sort" >"$dir/shared-files.txt" 2>>"$LOG"
   listing "$name" >"$dir/listing-final.txt"
-  if compgen -G "$SHARED/$name/a*/heartbeat-rank-*.jsonl" >/dev/null; then
+  if [ "$STORAGE" = nfs ]; then
+    snapshot "$name" "$dir" final
+    nfs_case_end "$dir"
+  elif compgen -G "$SHARED/$name/a*/heartbeat-rank-*.jsonl" >/dev/null; then
     mkdir -p "$dir/volume"
     for f in "$SHARED/$name"/a*/heartbeat-rank-*.jsonl; do
       cp "$f" "$dir/volume/$(basename "$(dirname "$f")")-$(basename "$f")" 2>>"$LOG" || log "  copying $f failed"
@@ -434,6 +695,22 @@ void_case() {
 }
 
 workload_of() { field "$1" "a[0].get('workloadName')"; }
+
+# hold_workload appends the test's finalizer to a Workload; set as a whole list it would remove Kueue's own
+# kueue.x-k8s.io/resource-in-use, which the stale-workload runs up to 2026-11-01 did.
+hold_workload() {
+  k -n "$NS" patch workload "$1" --type=json -p '[{"op":"add","path":"/metadata/finalizers/-","value":"rst.test/hold"}]' >>"$LOG" 2>&1
+}
+
+# release_workload removes only the test's finalizer, by its index, with a test op that fails the patch if the index no
+# longer holds it.
+release_workload() {
+  local i
+  i=$(k -n "$NS" get workload "$1" -o json 2>>"$LOG" |
+    python3 -c 'import json,sys; print(json.load(sys.stdin)["metadata"]["finalizers"].index("rst.test/hold"))' 2>>"$LOG") || return 1
+  k -n "$NS" patch workload "$1" --type=json \
+    -p "[{\"op\":\"test\",\"path\":\"/metadata/finalizers/$i\",\"value\":\"rst.test/hold\"},{\"op\":\"remove\",\"path\":\"/metadata/finalizers/$i\"}]" >>"$LOG" 2>&1
+}
 rank_node() {
   k -n "$NS" get pods -l "platform.lkhun9311.github.io/mltrainingjob=$1" \
     -o jsonpath="{range .items[?(@.metadata.annotations.batch\.kubernetes\.io/job-completion-index==\"$2\")]}{.spec.nodeName}{end}"
@@ -554,6 +831,133 @@ cut_writer() {
   wait_for "$name" "$dir" "s.get('phase') == 'Succeeded' and len(a) == 2" "$CASE_BUDGET"
 }
 
+WORKERS=("$CLUSTER-worker" "$CLUSTER-worker2" "$CLUSTER-worker3")
+
+# helper_pod starts one nfs_probe.py Pod on a node, with the job's claim at /watch and the other claim at /list.
+helper_pod() {
+  local pod=$1 node=$2 claim=$3 mode=$4 job=$5 other=shared
+  [ "$claim" = shared ] && other=shared-long
+  k -n "$NS" create configmap nfs-probe --from-file=experiments/distributed-restart/nfs_probe.py --dry-run=client -o yaml |
+    k apply -f - >>"$LOG" 2>&1 || return 1
+  cat <<EOF | k apply -f - >>"$LOG" 2>&1
+apiVersion: v1
+kind: Pod
+metadata:
+  name: $pod
+  namespace: $NS
+  labels: {rst.test/helper: "$job"}
+spec:
+  # Placed by name: a cordoned node still runs it, and no scheduler decides where the cache it poisons lives.
+  nodeName: $node
+  restartPolicy: Never
+  terminationGracePeriodSeconds: 1
+  containers:
+    - name: probe
+      image: $IMG
+      command: ["python", "/probe/nfs_probe.py", "$mode", "$job"]
+      env:
+        - {name: NODE_NAME, value: $node}
+      volumeMounts:
+        - {name: watch, mountPath: /watch}
+        - {name: list, mountPath: /list}
+        - {name: probe, mountPath: /probe}
+  volumes:
+    - name: watch
+      persistentVolumeClaim: {claimName: $claim}
+    - name: list
+      persistentVolumeClaim: {claimName: $other}
+    - name: probe
+      configMap: {name: nfs-probe}
+EOF
+}
+
+# a1_node prints the node attempt 1's rank ran on, from the Pods the collector recorded.
+a1_node() {
+  python3 -c 'import json,sys
+for l in open(sys.argv[1]):
+    p=json.loads(l)
+    if p["attempt"]=="1" and p["rank"]==sys.argv[2]:
+        print(p["node"]); break' "$1/pods.jsonl" "$2" 2>>"$LOG"
+}
+
+# nfs_case_end keeps every helper Pod's records and removes the Pods, and uncordons every worker, so the next case starts
+# from three schedulable nodes.
+nfs_case_end() {
+  local dir=$1 p
+  for p in $(k -n "$NS" get pods -l rst.test/helper -o name 2>>"$LOG"); do
+    k -n "$NS" logs "$p" >"$dir/helper-${p#pod/}.txt" 2>>"$LOG" || log "  logs of $p failed"
+  done
+  k -n "$NS" delete pods -l rst.test/helper --wait=true --timeout=60s >>"$LOG" 2>&1 || log "  deleting helper Pods failed"
+  for p in "${WORKERS[@]}"; do k uncordon "$p" >>"$LOG" 2>&1 || log "  uncordon $p failed"; done
+}
+
+# nfs_restart runs a restart case on the NFS claims.
+# Attempt 1's Workload is held by a finalizer from admission, so attempt 2 cannot start until attempt 1's Pods are gone,
+# the storage has been read as attempt 2 will find it, and the case's between-attempt action is done and recorded.
+# Cordoning a node makes attempt 2 run on the other two, so a shard is read back by a client other than its writer.
+nfs_restart() {
+  local case=$1 name=$2 dir=$3 claim=$4 env=$5 cordon=$6 helpers=$7 wl t0 left node idle n
+  # Helpers on every worker hold the claim mounted from before attempt 1 starts, so each node's client cache of it,
+  # which the kubelet would drop with its last mount, lives on from attempt 1 into attempt 2.
+  if [ "$helpers" != none ]; then
+    for n in "${WORKERS[@]}"; do
+      helper_pod "$helpers-${n##*-}" "$n" "$claim" "$helpers" "$name" || { void_case "$name" "$dir" "$helpers helper on $n not created"; return 2; }
+    done
+    for n in "${WORKERS[@]}"; do
+      k -n "$NS" wait --for=condition=Ready "pod/$helpers-${n##*-}" --timeout=120s >>"$LOG" 2>&1 ||
+        { void_case "$name" "$dir" "$helpers helper on $n not Ready"; return 2; }
+    done
+    mark "$dir" "helpers-ready $helpers"
+  fi
+  submit "$name" "$dir" "$env" "$claim" || return 2
+  start_sampler "$name" "$dir"
+  wait_for "$name" "$dir" "a[0].get('workloadName') if a else None" 120 || return 1
+  wl=$(workload_of "$name")
+  hold_workload "$wl" || { void_case "$name" "$dir" "finalizer patch on $wl failed"; return 2; }
+  mark "$dir" "finalizer-added $wl"
+  wait_events "$name" "$dir" fault 1 || return 1
+  mark "$dir" "fault-seen"
+  wait_for "$name" "$dir" "a[0].get('state') == 'Stopping'" 180 || return 1
+  # The surviving rank fails its next collective and exits; until then it is a writer, and the snapshot would race it.
+  t0=$SECONDS left=x
+  while ((SECONDS - t0 < 180)); do
+    sample "$name" "$dir"
+    left=$(k -n "$NS" get pods -l "platform.lkhun9311.github.io/mltrainingjob=$name" -o name 2>>"$LOG") || left=read-failed
+    [ -z "$left" ] && break
+    sleep 1
+  done
+  [ -z "$left" ] || { log "  attempt 1's Pods still there 180 s after Stopping: $left"; return 1; }
+  mark "$dir" "a1-gone"
+  if [ "$case" = nfs-corrupt-published ]; then
+    idle=""
+    for n in "${WORKERS[@]}"; do
+      [ "$n" = "$(a1_node "$dir" 0)" ] || [ "$n" = "$(a1_node "$dir" 1)" ] || idle=$n
+    done
+    [ -n "$idle" ] || { void_case "$name" "$dir" "no worker idle in attempt 1"; return 2; }
+    # Both writer nodes read both shards of the published step 6 into their caches, so whichever node a rank of
+    # attempt 2 lands on holds that rank's shard as it was before the corruption.
+    for n in "${WORKERS[@]}"; do
+      [ "$n" = "$idle" ] && continue
+      k -n "$NS" exec "keep-${n##*-}" -- python /probe/nfs_probe.py warm "$name" >"$dir/helper-warm-${n##*-}.txt" 2>>"$LOG" ||
+        { void_case "$name" "$dir" "warming the cache on $n failed"; return 2; }
+    done
+    mark "$dir" "warmed"
+    k -n "$NS" exec "keep-${idle##*-}" -- python /probe/nfs_probe.py corrupt "$name" >"$dir/helper-corrupt.txt" 2>>"$LOG" ||
+      { void_case "$name" "$dir" "corrupting from $idle failed"; return 2; }
+    mark "$dir" "corrupted-from $idle"
+    cordon=$idle
+  fi
+  snapshot "$name" "$dir" held
+  mark "$dir" "snapshot"
+  case "$cordon" in rank0) node=$(a1_node "$dir" 0) ;; rank1) node=$(a1_node "$dir" 1) ;; *) node=$cordon ;; esac
+  [ -n "$node" ] || { void_case "$name" "$dir" "no node to cordon for '$cordon'"; return 2; }
+  k cordon "$node" >>"$LOG" 2>&1 || { void_case "$name" "$dir" "cordoning $node failed"; return 2; }
+  mark "$dir" "cordoned $node"
+  release_workload "$wl" || { void_case "$name" "$dir" "finalizer removal from $wl failed"; return 2; }
+  mark "$dir" "released"
+  wait_for "$name" "$dir" "s.get('phase') == 'Succeeded' and len(a) == 2" "$CASE_BUDGET"
+}
+
 # drive runs one case: it returns 2 when the case is void (its job was refused, or its fault could not be injected),
 # and otherwise 0 or 1, both of which are recorded and scored; 1 is a state the case waited for and never reached.
 drive() {
@@ -574,7 +978,7 @@ drive() {
       wait_for "$name" "$dir" "a[0].get('workloadName') if a else None" 120 || return 1
       local wl
       wl=$(workload_of "$name")
-      k -n "$NS" patch workload "$wl" --type=merge -p '{"metadata":{"finalizers":["rst.test/hold"]}}' >>"$LOG" 2>&1 || { void_case "$name" "$dir" "finalizer patch on $wl failed"; return 2; }
+      hold_workload "$wl" || { void_case "$name" "$dir" "finalizer patch on $wl failed"; return 2; }
       mark "$dir" "finalizer-added $wl"
       # What it waits on first may be the Job, which foreground deletion keeps until its dependents are gone; the
       # scorer reads from the samples that the held Workload is among what the attempt waited on.
@@ -583,7 +987,7 @@ drive() {
       # Long enough for the ranks' Pods to be gone, so what is left holding the attempt is the Workload.
       hold "$name" "$dir" 60
       mark "$dir" "hold-end"
-      k -n "$NS" patch workload "$wl" --type=json -p '[{"op":"remove","path":"/metadata/finalizers"}]' >>"$LOG" 2>&1 || { void_case "$name" "$dir" "finalizer removal from $wl failed"; return 2; }
+      release_workload "$wl" || { void_case "$name" "$dir" "finalizer removal from $wl failed"; return 2; }
       wait_for "$name" "$dir" "s.get('phase') == 'Succeeded' and len(a) == 2" "$CASE_BUDGET"
       ;;
     deactivated)
@@ -626,6 +1030,19 @@ drive() {
       mark "$dir" "fenced $victim"
       wait_for "$name" "$dir" "s.get('phase') == 'Succeeded' and len(a) == 2" "$CASE_BUDGET"
       ;;
+    # Each kill leaves step 6 in a different state; rank 1's node is cordoned, so attempt 2's rank 1 reads its shard
+    # through another node's client than the one that wrote it.
+    nfs-kill-before-fsync) nfs_restart "$case" "$name" "$dir" shared "CKPT_FAULT=kill-before-fsync:6:1" rank1 none ;;
+    nfs-kill-before-manifest) nfs_restart "$case" "$name" "$dir" shared "CKPT_FAULT=kill-before-manifest:6" rank1 none ;;
+    nfs-kill-before-latest) nfs_restart "$case" "$name" "$dir" shared "CKPT_FAULT=kill-before-latest:6" rank1 none ;;
+    nfs-kill-after-latest) nfs_restart "$case" "$name" "$dir" shared "CKPT_FAULT=kill-after-latest:6" rank1 none ;;
+    # Step 6 is published and read into both writer nodes' caches; then bytes in the middle of rank 1's shard are changed,
+    # its size kept, through the idle node's client, which is then cordoned, so attempt 2 reads on the warm nodes.
+    nfs-corrupt-published) nfs_restart "$case" "$name" "$dir" shared "CKPT_FAULT=kill-after-latest:6" idle keep ;;
+    # Probers on every worker look each shard name up before the shard exists; rank 0's node is cordoned, so attempt 2
+    # runs on the node no rank wrote from and on rank 1's.
+    nfs-vis-efs) nfs_restart "$case" "$name" "$dir" shared "CKPT_FAULT=kill-after-latest:8 CKPT_SHARD_DELAY=1" rank0 watch ;;
+    nfs-vis-long) nfs_restart "$case" "$name" "$dir" shared-long "CKPT_FAULT=kill-after-latest:8 CKPT_SHARD_DELAY=1" rank0 watch ;;
     cut-writer | cut-writer-early)
       # A 12 s step keeps attempt 1 training through the cut, the Node going not Ready, its deletion and Pod garbage
       # collection, so the attempt fails because a rank's Pod vanished, not because its training ended first.
@@ -647,7 +1064,11 @@ run_case() {
   mkdir -p "$dir"
   log "== case $case as $name"
   drive "$case" "$name" "$dir"
-  [ $? = 2 ] && return
+  if [ $? = 2 ]; then
+    # A void case may leave helper Pods and a cordoned node, which would decide where the next case runs.
+    [ "$STORAGE" = nfs ] && nfs_case_end "$dir"
+    return
+  fi
   finish "$name" "$dir"
 }
 
