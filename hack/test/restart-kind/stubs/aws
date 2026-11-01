@@ -1,0 +1,116 @@
+#!/usr/bin/env bash
+# The aws CLI as the restart runner calls it, answered by a kind cluster instead of AWS, for
+# hack/restart-lifecycle-kind.sh; every call is recorded, and any call it does not implement is refused loudly.
+#
+# State lives in RSTK_STATE, which hack/lib/restart-kind-shims.sh and the fake autoscaler share:
+#   instances  one line per launched instance, "instance-id container", appended at each launch
+#   killed/ID  the epoch second the instance's container was killed
+#   desired    the group's desired size
+#   deadline   the GPU deadline as at()'s argument, UTC, which the scheduler calls answer with
+set -uo pipefail
+state="${RSTK_STATE:?RSTK_STATE names no state directory, so no answer could come from the kind cluster}"
+printf '%s aws %s\n' "$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)" "$*" >>"$state/calls.log"
+
+# A credential in the environment would mean the caller expected real AWS somewhere; nothing here may use one.
+if [[ -n "${AWS_PROFILE:-}${AWS_ACCESS_KEY_ID:-}${AWS_SECRET_ACCESS_KEY:-}${AWS_SESSION_TOKEN:-}" ]]; then
+  echo "the kind aws stub refuses to run with AWS_PROFILE or an AWS credential in the environment" >&2
+  exit 99
+fi
+
+# arg FLAG: the value after FLAG in the call, or nothing.
+arg() {
+  local want="$1" prev=""
+  for a in "${ARGS[@]}"; do
+    [[ "$prev" == "$want" ]] && {
+      echo "$a"
+      return 0
+    }
+    prev="$a"
+  done
+  return 1
+}
+ARGS=("$@")
+# Seconds EC2 reports shutting-down before terminated; real terminations take tens of seconds.
+# Longer than the fake autoscaler's removal of the dead Node (RSTK_NODE_GONE_S), so the fence is the last condition of
+# the controller's stop barrier to clear, and a controller that started attempt 2 without it would be seen doing so.
+SHUTDOWN_S="${RSTK_SHUTDOWN_S:-60}"
+
+container_of() { awk -v i="$1" '$1 == i {c = $2} END {if (c == "") exit 1; print c}' "$state/instances"; }
+
+case "${1:-} ${2:-}" in
+  "ec2 terminate-instances")
+    id="$(arg --instance-ids)" || {
+      echo "terminate-instances without --instance-ids" >&2
+      exit 252
+    }
+    c="$(container_of "$id")" || {
+      echo "An error occurred (InvalidInstanceID.NotFound): The instance ID '$id' does not exist" >&2
+      exit 254
+    }
+    # docker kill is a power cut: the node's processes, its kubelet and its NFS client die together.
+    out="$(docker kill "$c" 2>&1)" || {
+      echo "the kind node $c could not be killed: $out" >&2
+      exit 254
+    }
+    date +%s >"$state/killed/$id"
+    printf 'TERMINATINGINSTANCES\t%s\nCURRENTSTATE\t32\tshutting-down\nPREVIOUSSTATE\t16\trunning\n' "$id"
+    ;;
+  "ec2 describe-instances")
+    id="$(arg --instance-ids)" || {
+      echo "describe-instances without --instance-ids is not implemented here" >&2
+      exit 99
+    }
+    c="$(container_of "$id")" || {
+      echo "An error occurred (InvalidInstanceID.NotFound): The instance ID '$id' does not exist" >&2
+      exit 254
+    }
+    running="$(docker inspect -f '{{.State.Running}}' "$c" 2>&1)" || {
+      echo "could not inspect $c: $running" >&2
+      exit 254
+    }
+    # Terminated only when the container is in fact not running, and never before the shutdown interval.
+    if [[ -f "$state/killed/$id" && "$running" == false ]] && (($(date +%s) - $(cat "$state/killed/$id") >= SHUTDOWN_S)); then
+      answer=terminated
+    elif [[ -f "$state/killed/$id" ]]; then
+      answer=shutting-down
+    else
+      answer=running
+    fi
+    # The answer is recorded beside the call, so the fence can be checked against what EC2 said, not only against marks.
+    printf '%s answer %s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%S.%6NZ)" "$id" "$answer" >>"$state/calls.log"
+    echo "$answer"
+    ;;
+  "eks update-nodegroup-config")
+    cfg="$(arg --scaling-config)" || {
+      echo "update-nodegroup-config without --scaling-config" >&2
+      exit 252
+    }
+    want="$(sed -n 's/.*desiredSize=\([0-9]*\).*/\1/p' <<<"$cfg")"
+    [[ -n "$want" ]] || {
+      echo "no desiredSize in '$cfg'" >&2
+      exit 252
+    }
+    echo "$want" >"$state/desired"
+    printf '{"update": {"id": "kind-%s", "status": "InProgress", "type": "ConfigUpdate"}}\n' "$(date +%s)"
+    ;;
+  "scheduler list-schedules")
+    [[ -s "$state/deadline" ]] || exit 0
+    echo "gpu-ttl-$(arg --name-prefix | sed 's/^gpu-ttl-//; s/-$//')-kind"
+    ;;
+  "scheduler get-schedule")
+    [[ -s "$state/deadline" ]] || {
+      echo "An error occurred (ResourceNotFoundException): no schedule" >&2
+      exit 254
+    }
+    echo "at($(cat "$state/deadline"))"
+    ;;
+  "cloudwatch get-metric-statistics")
+    echo "the kind rehearsal has no EFS, so there is no burst credit balance to read" >&2
+    exit 254
+    ;;
+  *)
+    echo "the kind aws stub does not implement 'aws $*'; refusing rather than answering empty" >&2
+    printf 'UNIMPLEMENTED aws %s\n' "$*" >>"$state/calls.log"
+    exit 99
+    ;;
+esac
