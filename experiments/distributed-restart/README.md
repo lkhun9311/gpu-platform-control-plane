@@ -165,7 +165,7 @@ The drop rules counted 966 IPv4 and 921 IPv6 packets from the node to the API se
 Attempt 2 resumed every rank from step 13, ran on `rst-worker2` and `rst-worker3`, and ended with exactly the reference's parameters on both ranks.
 
 The negative control is `hack/distributed-restart-kind-20261101T060053Z`, of the same commit, and all 26 of its checks pass.
-Its fence was written at 06:07:12.151 while rank 1 on `rst-worker2` was still writing; attempt 2's Job was created in that second and wrote first at 06:07:13.413, and rank 1 went on writing 42 records over 20.5 s after that, the last at 06:07:34.318, until its node was killed at 06:07:34.713.
+Its fence was written at 06:07:12.151 while rank 1 on `rst-worker2` was still writing; attempt 2's Job was created in that second and wrote first at 06:07:13.413, and rank 1 went on writing 42 records after that, 20.5 s from the first of them to the last and 20.9 s after attempt 2's first write, the last at 06:07:34.318, until its node was killed at 06:07:34.713.
 Scored as `cut-writer`, the same evidence fails exactly the two checks that compare attempt 1's writes with the fence and with attempt 2's first write, and nothing else.
 So the checks that pass on the recorded run can see the overlap they exist to rule out.
 
