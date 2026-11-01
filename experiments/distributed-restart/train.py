@@ -495,12 +495,14 @@ def train() -> int:
     if loaded is not None and LOAD_MODE != "no-rng":
         # map_location moved every tensor to the device, and the RNG setters take CPU byte tensors only.
         torch.set_rng_state(loaded["rng"].cpu())
-        # Only the nccl mode has CUDA, and on a GPU the dropout masks come from this generator, not the global one.
-        # A checkpoint written without it, by a CPU attempt, is refused rather than resumed with a fresh CUDA RNG.
-        if torch.cuda.is_available():
-            if "cuda_rng" not in loaded:
-                emit(rank, "refused", reason=f"{rel} holds no CUDA RNG state and this attempt trains on CUDA")
-                return 3
+        # On a CUDA device the dropout masks come from the CUDA generator, not the global one, so a checkpoint written
+        # without its state, by a CPU attempt, is refused rather than resumed with a fresh CUDA RNG.
+        # Judged by the device this attempt trains on, not by whether the host has CUDA: gloo on a GPU host trains on
+        # the CPU and resumes a CPU checkpoint as it always did (codex review of 7e73d914).
+        if device.type == "cuda" and "cuda_rng" not in loaded:
+            emit(rank, "refused", reason=f"{rel} holds no CUDA RNG state and this attempt trains on CUDA")
+            return 3
+        if torch.cuda.is_available() and "cuda_rng" in loaded:
             torch.cuda.set_rng_state_all([s.cpu() for s in loaded["cuda_rng"]])
 
     cuda = {}
