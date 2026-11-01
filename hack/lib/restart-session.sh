@@ -967,6 +967,25 @@ restart_efs_credits() {
   printf '%s %s %s\n' "$2" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$v" >>"$1/efs-credits.txt"
 }
 
+# restart_void_case DIR NAME COLLECTOR RETIRE_DEADLINE REASON: the case VOID for REASON, its collector stopped and its
+# job retired; 1 once the retirement is confirmed, 2 when it is not.
+#
+# A VOID case that may still hold Pods, Workloads and GPUs shares the queue and the nodes with whatever starts next,
+# exactly as a censored one does, so its unconfirmed retirement stops every later submission the same way.
+restart_void_case() {
+  local dir="$1" name="$2" collector="$3" retire_dl="$4"
+  echo "$5" >"$dir/VOID"
+  if [[ -n "$collector" ]]; then
+    kill "$collector" 2>>"$dir/case.log"
+    wait "$collector" 2>>"$dir/case.log"
+  fi
+  restart_retire "$name" $((retire_dl - SECONDS)) >>"$dir/case.log" || {
+    echo "retirement of the VOID case $name was not confirmed; nothing more may start" >>"$dir/case.log"
+    return 2
+  }
+  return 1
+}
+
 # restart_run_case CASE SLOT_DEADLINE: one registered case, from submission to its retirement, inside the slot
 # restart_run gave it, which ends at SLOT_DEADLINE (in SECONDS); 0 when it ran (whatever its verdict), 1 when it could
 # not be run and is VOID, 2 when its retirement or its DCGM reset was not confirmed and nothing more may start.
@@ -988,9 +1007,10 @@ restart_run_case() {
   restart_efs_credits "$dir" before
   rk get nodes -o json >"$dir/nodes-before.json" 2>>"$dir/case.log"
   # The case's own budget starts at the create and is the registered censoring bound, so it is never shortened to fit.
+  # A create whose answer was lost may still have made the job, so a refused create is retired like any other VOID.
   out="$(rk apply -f "$dir/mltrainingjob.json" 2>&1)" || {
-    echo "create refused: ${out:0:300}" >"$dir/VOID"
-    return 1
+    restart_void_case "$dir" "$name" "" "$retire_dl" "create refused: ${out:0:300}"
+    return
   }
   deadline=$((SECONDS + RESTART_CASE_BUDGET))
   restart_collect "$dir" "$name" &
@@ -1007,18 +1027,14 @@ restart_run_case() {
 
   if [[ "$kind" == dcgm || "$kind" == terminate-* ]]; then
     rank0="$(restart_rank_pod "$dir" 0)" && rank1="$(restart_rank_pod "$dir" 1)" || {
-      echo "the ranks' Pods were never seen" >"$dir/VOID"
-      kill "$collector" 2>>"$dir/case.log"
-      restart_retire "$name" $((retire_dl - SECONDS)) >>"$dir/case.log"
-      return 1
+      restart_void_case "$dir" "$name" "$collector" "$retire_dl" "the ranks' Pods were never seen"
+      return
     }
     pod0="$(awk '{print $2}' <<<"$rank0")"
     node1="$(awk '{print $3}' <<<"$rank1")"
     window="$(restart_fault_window "$pod0" "$job_id" "$dir" $((deadline - SECONDS)))" || {
-      echo "no fault window: $window" >"$dir/VOID"
-      kill "$collector" 2>>"$dir/case.log"
-      restart_retire "$name" $((retire_dl - SECONDS)) >>"$dir/case.log"
-      return 1
+      restart_void_case "$dir" "$name" "$collector" "$retire_dl" "no fault window: $window"
+      return
     }
     rk get nodes -o json >"$dir/nodes-before.json" 2>>"$dir/case.log"
     instance="$(python3 -c '

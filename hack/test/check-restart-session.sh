@@ -369,6 +369,39 @@ EOF
 out="$(lib deadline 'restart_deadline_ok 1020; echo "rc=$?"; restart_deadline_ok 300; echo "rc=$?"')"
 if [[ "$out" == *"nothing more starts"*"rc=1"*"min away"*"rc=0" ]]; then ok "a case longer than the deadline's remainder is not started"; else bad "the deadline: $out"; fi
 
+# --- the case procedure under restart_run, with the group, deadline and scorer steps replaced by functions ---------
+# The shares are cut to seconds so a case's waits end at once; the real restart_run_case runs only for the case named.
+RUNNER_PRELUDE='RESTART_STAGE=smoke RESTART_REQUALIFY_BUDGET=1 RESTART_REPLENISH_BUDGET=1 RESTART_WARM_BUDGET=1 RESTART_SUBMIT_BUDGET=1
+RESTART_CASE_BUDGET=2 RESTART_EVIDENCE_BUDGET=1 RESTART_RETIRE_BUDGET=2 RESTART_FILES_BUDGET=1 RESTART_RESET_BUDGET=1
+restart_deadline_ok() { echo "deadline stub"; }
+restart_wait_group() { echo "group stub"; }
+restart_prepare_nodes() { echo "prepare stub"; }
+restart_verdict() { if [[ -e "$RESTART_OUT/$1/VOID" ]]; then echo VOID; else echo ACCEPTED; fi; }
+eval "$(declare -f restart_run_case | sed "1s/restart_run_case/real_run_case/")"
+restart_run_case() { if [[ "$1" == "$REAL_CASE" ]]; then real_run_case "$@"; else return 0; fi; }'
+# runner NAME REAL_CASE: restart_run over smoke with only REAL_CASE run for real, against $work/rules/NAME.
+runner() {
+  lib "$1" "REAL_CASE=$2; $RUNNER_PRELUDE"$'\n''restart_run "$RESTART_OUT/warmed.txt"; echo "rc=$?"'
+}
+
+# A case VOID before its fault whose retirement cannot be confirmed stops every later submission.
+mkdir -p "$work/rules/void-retire"
+cat >"$work/rules/void-retire/kubectl.sh" <<'EOF'
+case "$*" in
+  *"component=dcgm-exporter"*) echo "node-a dcgm-a" ;;
+  *"exec dcgm-a -c exporter -- date"*) date +%s.%N ;;
+  *"get mltrainingjob rst-dcgm-1"*"-o name"*) echo "Unable to connect to the server" >&2; exit 1 ;;
+esac
+EOF
+out="$(runner void-retire dcgm-1)"
+if [[ "$(cat "$work/out/void-retire/dcgm-1/VOID")" == "the ranks' Pods were never seen" &&
+  "$(cat "$work/out/void-retire/terminate-wait-1/NOTRUN" 2>&1)" == "dcgm-1 could not be retired"* ]] &&
+  ! grep -q 'update-nodegroup-config' "$work/void-retire.calls"; then
+  ok "an early VOID whose retirement failed leaves the next case NOTRUN and the group untouched"
+else
+  bad "the early VOID with a failed retirement: $(tail -3 <<<"$out"); terminate-wait-1: $(cat "$work/out/void-retire/terminate-wait-1/NOTRUN" 2>&1)"
+fi
+
 # --- 3. the scorer --------------------------------------------------------------------------------------------------
 # score DEFECT CASE WANT_KIND WANT_TEXT: a run generated with one defect in one case; that case's line must carry the
 # verdict and the text, and the run's exit must not be 0.
