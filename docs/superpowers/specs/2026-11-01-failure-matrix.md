@@ -33,7 +33,7 @@ Five repetitions give a median and a range, not a rate [GF:102-103].
 | 9 | a distributed job with one rank placed | injected (squatter Pod) | kind, simulated devices | reported Running for 598.1 of 598.1 s [W:453] | fixed in code, re-measured |
 | 10 | one rank fails, or rendezvous fails | injected (environment variables) | kind on CPU; EKS on two g5.xlarge | whole job Failed, peer ended by SIGTERM [DDP:157] | **no**: the job ends Failed by design |
 | 11 | a training process is killed mid-run | injected (self SIGKILL) | kind, CPU, one Pod | resumed run bit-identical, diff 0 [CR:83] | yes, from a node-local volume |
-| 12 | a distributed job loses a rank and needs its state | not run | — | refused by the API [API:36] | no path exists |
+| 12 | a distributed job loses a rank and needs its state | injected (rank SIGKILL, held Workload, frozen node) | kind, CPU gloo, three workers; on an unmerged branch | whole job restarted and resumed from its last complete checkpoint, parameters equal to an uninterrupted run, 34 of 34 checks [RST] | on `dev`, no: refused by the API [API:36]; on `feat/distributed-restart`, yes |
 | 13 | the llm-d router's endpoint picker dies | injected | kind | uncounted rehearsal, not a result | — |
 
 ## Row 1 — Xid 79 reported by DCGM
@@ -174,13 +174,20 @@ Five repetitions give a median and a range, not a rate [GF:102-103].
 | known gaps | no GPUs or NCCL, and a checkpoint of bytes [CR:106]; losing the node is not tested, because the kind provisioner's volume binds to one node and the replacement lands where the first Pod ran [CR:107-108]; a kill in the middle of a write is not attacked [CR:109-110] |
 | evidence | `hack/checkpoint-resume-20261009T020455Z/` [CR:75] |
 
-## Row 12 — a distributed job that needs its state back: no path exists
+## Row 12 — a distributed job that needs its state back: none on `dev`, a whole-job restart on an unmerged branch
 
-| field | value |
+On `dev` there is no path.
+The API refuses `stateVolume` with `distributed`, "one claim cannot follow ranks onto different nodes" [API:36], and a distributed job's Job has `backoffLimit` 0, because a replaced rank cannot rejoin a group mid-step [DIST:85-86]; so rows 10 and 11 do not combine there.
+
+The branch `feat/distributed-restart` adds one, written after this matrix: a `ReadWriteMany` state volume, `distributed.maxRestarts`, and a controller that stops every rank of an attempt, waits until no Pod, Workload or unfenced node of it remains, and starts the next attempt under a new rendezvous name.
+
+| field | value, on that branch |
 |---|---|
-| status | not run, and not runnable on this platform as it stands |
-| why | the API refuses `stateVolume` with `distributed`, "one claim cannot follow ranks onto different nodes" [API:36]; a distributed job's Job has `backoffLimit` 0, because a replaced rank cannot rejoin a group mid-step [DIST:85-86] |
-| consequence | rows 10 and 11 do not combine: a multi-Pod job that loses a rank ends Failed and has no platform-provided state to resume from. Row 11's resume is single-Pod only |
+| how injected | rank 1 `SIGKILL`ed before its shard was synced; rank 0 killed while a finalizer held the old Workload; rank 1's node container frozen, then its Node deleted; a Workload deactivated by hand [RST] |
+| where | kind, Kueue v0.18.3, three workers with one simulated GPU each, two CPU gloo ranks sharing a hostPath `ReadWriteMany` volume |
+| what was seen | each restarted case resumed from its last complete checkpoint (steps 5, 8 and 3) and ended with the uninterrupted run's parameters exactly; no second attempt while the old Workload or the lost node's Pods remained, nor before the node was fenced; the hand deactivation stopped the job without a restart; 34 of 34 checks [RST] |
+| the checkpoint | every rank saves model, optimizer, scheduler, sampler position and RNG; rank 0 publishes a manifest only after verifying every shard, and the ranks agree collectively on what to load; 34 local checks over 12 cases, each component's omission caught by a negative control [RST-CK] |
+| not shown | NFS or EFS visibility, a cut-off node that keeps writing, a real GPU, a rate: one run per case |
 | also not measured | what rows 1 and 2's eviction path does to a multi-Pod job: every fault repetition used a one-GPU, one-Pod job [GF:108] |
 
 ## Row 13 — the llm-d router's endpoint picker dies: an uncounted rehearsal of a draft registration, not a result
@@ -201,10 +208,10 @@ Setup: kind cluster `llmd-ha`, llm-d-router-standalone v1.0.0, priority routing 
 ## What no row covers
 
 - A real GPU hardware fault, a GPU reset, or a node reboot: every GPU fault above was injected into DCGM's cache [GF:233].
-- Losing a GPU node with a job on it.
+- Losing a real GPU node with a job on it; row 12's frozen node is a kind container with a simulated device.
 - An NCCL hang or timeout inside a running collective.
 - Many nodes faulting at once [GF:235].
-- Slurm: this project has not run it.
+- Slurm on real nodes. A containerised Slurm lab on one host, on the unmerged branch `feat/slurm-lab`, requeued a two-node CPU training job after a node was killed, and the requeued job resumed from its last checkpoint with equal final parameters, one run [SLURM]; its GPUs are fake and its cgroups off.
 
 ## Sources
 
@@ -225,3 +232,6 @@ Setup: kind cluster `llmd-ha`, llm-d-router-standalone v1.0.0, priority routing 
 | FR | `experiments/fragmentation/README.md` |
 | ST | `docs/superpowers/specs/2026-10-22-stranding-where-packing-should-lose-design.md` |
 | LLMD | branch feat/llmd-failover-repro at f93d4be3, experiments/llmd-failover/evidence/2026-10-31-failopen-body/README.md |
+| RST | branch feat/distributed-restart at 9541aadc, experiments/distributed-restart/README.md and hack/distributed-restart-kind-20261101T003147Z/ |
+| RST-CK | branch feat/distributed-restart at 9541aadc, experiments/distributed-restart/check_protocol.py |
+| SLURM | branch feat/slurm-lab at b3fe8237, experiments/slurm-lab/README.md and experiments/slurm-lab/evidence/2026-11-01-train/ |
