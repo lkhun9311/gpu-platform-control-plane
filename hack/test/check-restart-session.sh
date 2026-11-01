@@ -633,10 +633,15 @@ mkdir -p "$work/rules/taint-unreadable"
 cat >"$work/rules/taint-unreadable/kubectl.sh" <<'EOF'
 case "$*" in
   *"get node node-x"*) echo "the server is currently unable to handle the request" >&2; exit 1 ;;
+  *"get nodehealths -o json"*)
+    echo '{"items": [{"metadata": {}, "spec": {"nodeName": "node-x"}, "status": {"conditions": [{"type": "GPUHealthy", "status": "True"}, {"type": "GPUSignal", "status": "True"}]}}]}' ;;
 esac
 EOF
 out="$(lib taint-unreadable 'gf_tainted node-x; echo "rc=$?"; echo "word=$(gf_taint_word node-x)"')"
 if [[ "$out" == *"rc=2"*"word=unreadable"* ]]; then ok "an unreadable taint is neither tainted nor absent"; else bad "an unreadable taint: $out"; fi
+# A healthy NodeHealth on a node whose taints cannot be read is not shown clear: `! gf_tainted` once took 2 for clear.
+out="$(lib taint-unreadable 'GF_TARGET=node-x; gf_is_clear; echo "clear=$?"')"
+if [[ "$out" == *"clear=1" ]]; then ok "a healthy signal on an unreadable taint is not clear"; else bad "an unreadable taint read as clear: $out"; fi
 
 # --- 3. the scorer --------------------------------------------------------------------------------------------------
 # score DEFECT CASE WANT_KIND WANT_TEXT: a run generated with one defect in one case; that case's line must carry the

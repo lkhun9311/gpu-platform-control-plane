@@ -178,9 +178,16 @@ gf_wait_until() {
   "$@"
 }
 
+# gf_is_clear: the target's NodeHealth is healthy with a fresh signal, no latched fingerprint, and no fault taint, each
+# read and not merely unread.
+# An empty fingerprint from a failed read, and `! gf_tainted` on an unreadable node (2), both once passed for clear.
 gf_is_clear() {
-  [ "$(gf_nh_field "$GF_TARGET" cond:GPUHealthy.status)" = True ] && [ "$(gf_nh_field "$GF_TARGET" cond:GPUSignal.status)" = True ] &&
-    [ -z "$(gf_nh_field "$GF_TARGET" ann:fingerprint)" ] && ! gf_tainted "$GF_TARGET"
+  local fp rc=0
+  [ "$(gf_nh_field "$GF_TARGET" cond:GPUHealthy.status)" = True ] && [ "$(gf_nh_field "$GF_TARGET" cond:GPUSignal.status)" = True ] || return 1
+  fp=$(gf_nh_field "$GF_TARGET" ann:fingerprint) || return 1
+  [ -z "$fp" ] || return 1
+  gf_tainted "$GF_TARGET" || rc=$?
+  [ "$rc" = 1 ]
 }
 
 # gf_reset injects the baseline into every field the smoke cell passed and waits for the platform to clear.
