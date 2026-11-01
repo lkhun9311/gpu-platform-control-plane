@@ -1,6 +1,7 @@
 # Distributed restart: a distributed MLTrainingJob survives the loss of a rank by restarting the whole job from a checkpoint
 
-Written 2026-11-01. Status: **DRAFT v2** (revised after a cold attack, 2026-11-01; the findings and answers are at the end), design only; nothing below is built or measured yet, and every file:line is at `origin/dev` `6647d9bd`.
+Written 2026-11-01. Status: **built and run on kind; not yet run on GPUs.** The controller, webhook and trainer protocol were merged to `dev` in #465, and what ran is in `experiments/distributed-restart/README.md`: the kind cases, including a rank cut from the API server that kept writing until it was fenced, and the checkpoint protocol's local check. The paid GPU session is not designed here yet.
+Until this line it said: "DRAFT v2 (revised after a cold attack, 2026-11-01; the findings and answers are at the end), design only; nothing below is built or measured yet". The text below is that draft, and every file:line in it is at `origin/dev` `6647d9bd`, before the merge.
 Engines: the contract was attacked and redesigned with codex `gpt-6-astra` (2026-10-31, read-only); the choice of a same-name Job below departs from its proposal and says why.
 
 ## The problem
