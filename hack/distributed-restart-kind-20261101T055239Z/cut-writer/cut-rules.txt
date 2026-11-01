@@ -1,0 +1,59 @@
+-P INPUT ACCEPT
+-P FORWARD ACCEPT
+-P OUTPUT ACCEPT
+-N KUBE-EXTERNAL-SERVICES
+-N KUBE-FIREWALL
+-N KUBE-FORWARD
+-N KUBE-KUBELET-CANARY
+-N KUBE-NODEPORTS
+-N KUBE-PROXY-CANARY
+-N KUBE-PROXY-FIREWALL
+-N KUBE-SERVICES
+-A INPUT -s 172.18.0.10/32 -p tcp -m tcp --dport 10250 -j DROP
+-A INPUT -s 172.18.0.10/32 -p tcp -m tcp --sport 6443 -j DROP
+-A INPUT -m conntrack --ctstate NEW -m comment --comment "kubernetes load balancer firewall" -j KUBE-PROXY-FIREWALL
+-A INPUT -m comment --comment "kubernetes health check service ports" -j KUBE-NODEPORTS
+-A INPUT -m conntrack --ctstate NEW -m comment --comment "kubernetes externally-visible service portals" -j KUBE-EXTERNAL-SERVICES
+-A INPUT -j KUBE-FIREWALL
+-A FORWARD -d 172.18.0.10/32 -p tcp -m tcp --dport 6443 -j DROP
+-A FORWARD -m conntrack --ctstate NEW -m comment --comment "kubernetes load balancer firewall" -j KUBE-PROXY-FIREWALL
+-A FORWARD -m comment --comment "kubernetes forwarding rules" -j KUBE-FORWARD
+-A FORWARD -m conntrack --ctstate NEW -m comment --comment "kubernetes service portals" -j KUBE-SERVICES
+-A FORWARD -m conntrack --ctstate NEW -m comment --comment "kubernetes externally-visible service portals" -j KUBE-EXTERNAL-SERVICES
+-A OUTPUT -d 172.18.0.10/32 -p tcp -m tcp --dport 6443 -j DROP
+-A OUTPUT -m conntrack --ctstate NEW -m comment --comment "kubernetes load balancer firewall" -j KUBE-PROXY-FIREWALL
+-A OUTPUT -m conntrack --ctstate NEW -m comment --comment "kubernetes service portals" -j KUBE-SERVICES
+-A OUTPUT -j KUBE-FIREWALL
+-A KUBE-FIREWALL ! -s 127.0.0.0/8 -d 127.0.0.0/8 -m comment --comment "block incoming localnet connections" -m conntrack ! --ctstate RELATED,ESTABLISHED,DNAT -j DROP
+-A KUBE-FORWARD -m conntrack --ctstate INVALID -m nfacct --nfacct-name  ct_state_invalid_dropped_pkts -j DROP
+-A KUBE-FORWARD -m comment --comment "kubernetes forwarding rules" -m mark --mark 0x4000/0x4000 -j ACCEPT
+-A KUBE-FORWARD -m comment --comment "kubernetes forwarding conntrack rule" -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+-P INPUT ACCEPT
+-P FORWARD ACCEPT
+-P OUTPUT ACCEPT
+-N KUBE-EXTERNAL-SERVICES
+-N KUBE-FIREWALL
+-N KUBE-FORWARD
+-N KUBE-KUBELET-CANARY
+-N KUBE-NODEPORTS
+-N KUBE-PROXY-CANARY
+-N KUBE-PROXY-FIREWALL
+-N KUBE-SERVICES
+-A INPUT -s fc00:f853:ccd:e793::a/128 -p tcp -m tcp --dport 10250 -j DROP
+-A INPUT -s fc00:f853:ccd:e793::a/128 -p tcp -m tcp --sport 6443 -j DROP
+-A INPUT -j KUBE-FIREWALL
+-A INPUT -m conntrack --ctstate NEW -m comment --comment "kubernetes load balancer firewall" -j KUBE-PROXY-FIREWALL
+-A INPUT -m comment --comment "kubernetes health check service ports" -j KUBE-NODEPORTS
+-A INPUT -m conntrack --ctstate NEW -m comment --comment "kubernetes externally-visible service portals" -j KUBE-EXTERNAL-SERVICES
+-A FORWARD -d fc00:f853:ccd:e793::a/128 -p tcp -m tcp --dport 6443 -j DROP
+-A FORWARD -m conntrack --ctstate NEW -m comment --comment "kubernetes load balancer firewall" -j KUBE-PROXY-FIREWALL
+-A FORWARD -m comment --comment "kubernetes forwarding rules" -j KUBE-FORWARD
+-A FORWARD -m conntrack --ctstate NEW -m comment --comment "kubernetes service portals" -j KUBE-SERVICES
+-A FORWARD -m conntrack --ctstate NEW -m comment --comment "kubernetes externally-visible service portals" -j KUBE-EXTERNAL-SERVICES
+-A OUTPUT -d fc00:f853:ccd:e793::a/128 -p tcp -m tcp --dport 6443 -j DROP
+-A OUTPUT -j KUBE-FIREWALL
+-A OUTPUT -m conntrack --ctstate NEW -m comment --comment "kubernetes load balancer firewall" -j KUBE-PROXY-FIREWALL
+-A OUTPUT -m conntrack --ctstate NEW -m comment --comment "kubernetes service portals" -j KUBE-SERVICES
+-A KUBE-FORWARD -m conntrack --ctstate INVALID -m nfacct --nfacct-name  ct_state_invalid_dropped_pkts -j DROP
+-A KUBE-FORWARD -m comment --comment "kubernetes forwarding rules" -m mark --mark 0x4000/0x4000 -j ACCEPT
+-A KUBE-FORWARD -m comment --comment "kubernetes forwarding conntrack rule" -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT

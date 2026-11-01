@@ -1,0 +1,105 @@
+{
+    "apiVersion": "platform.lkhun9311.github.io/v1",
+    "kind": "MLTrainingJob",
+    "metadata": {
+        "annotations": {
+            "kubectl.kubernetes.io/last-applied-configuration": "{\"apiVersion\":\"platform.lkhun9311.github.io/v1\",\"kind\":\"MLTrainingJob\",\"metadata\":{\"annotations\":{},\"name\":\"rst-cut-writer-055539\",\"namespace\":\"rst\"},\"spec\":{\"command\":[\"sh\",\"-c\",\"export CKPT_RUN_ID=rst-cut-writer-055539 CKPT_DIR=/shared CKPT_JOB_ID=rst-cut-writer-055539 CKPT_STEPS=20 CKPT_STEP_SLEEP=1 OMP_NUM_THREADS=1 CKPT_STEP_SLEEP=12 CKPT_HEARTBEAT=0.5 CKPT_LINGER=1\\npython /work/train.py\\n\"],\"distributed\":{\"maxRestarts\":1,\"worldSize\":2},\"gpuCount\":1,\"image\":\"distributed-restart:torch251\",\"queue\":\"gpu-rst\",\"stateVolume\":{\"claimName\":\"shared\",\"mountPath\":\"/shared\"}}}\n",
+            "platform.lkhun9311.github.io/fenced-nodes": "rst-worker",
+            "rst.test/poke": "1"
+        },
+        "creationTimestamp": "2026-11-01T05:55:39Z",
+        "finalizers": [
+            "mltrainingjob.platform.lkhun9311.github.io/finalizer"
+        ],
+        "generation": 1,
+        "name": "rst-cut-writer-055539",
+        "namespace": "rst",
+        "resourceVersion": "3012",
+        "uid": "11344805-2aa3-43fd-a0cf-2ac0c4180046"
+    },
+    "spec": {
+        "command": [
+            "sh",
+            "-c",
+            "export CKPT_RUN_ID=rst-cut-writer-055539 CKPT_DIR=/shared CKPT_JOB_ID=rst-cut-writer-055539 CKPT_STEPS=20 CKPT_STEP_SLEEP=1 OMP_NUM_THREADS=1 CKPT_STEP_SLEEP=12 CKPT_HEARTBEAT=0.5 CKPT_LINGER=1\npython /work/train.py\n"
+        ],
+        "completions": 1,
+        "distributed": {
+            "maxRestarts": 1,
+            "worldSize": 2
+        },
+        "gpuCount": 1,
+        "image": "distributed-restart:torch251",
+        "parallelism": 1,
+        "queue": "gpu-rst",
+        "stateVolume": {
+            "claimName": "shared",
+            "mountPath": "/shared"
+        }
+    },
+    "status": {
+        "admitToRunningSeconds": "1.559",
+        "admittedAt": "2026-11-01T05:55:39Z",
+        "attempts": [
+            {
+                "allRanksReadyAt": "2026-11-01T05:55:40Z",
+                "createdAt": "2026-11-01T05:55:39Z",
+                "failureObservedAt": "2026-11-01T05:57:36Z",
+                "jobUID": "247951ed-7bbc-473b-bbe4-851631c00f11",
+                "nodes": [
+                    "rst-worker",
+                    "rst-worker3"
+                ],
+                "number": 1,
+                "state": "Stopped",
+                "stopConfirmedAt": "2026-11-01T05:58:43Z",
+                "trigger": "RankFailed",
+                "workloadName": "job-rst-cut-writer-055539-861e8",
+                "workloadUID": "d282fcea-1782-477f-b729-dc800314fd51"
+            },
+            {
+                "allRanksReadyAt": "2026-11-01T05:58:44Z",
+                "createdAt": "2026-11-01T05:58:43Z",
+                "jobUID": "c67bb93a-9b3c-4bf4-bda2-7884d9fddc92",
+                "nodes": [
+                    "rst-worker2",
+                    "rst-worker3"
+                ],
+                "number": 2,
+                "state": "Active",
+                "workloadName": "job-rst-cut-writer-055539-ef975",
+                "workloadUID": "7981efaf-c3df-4421-b75d-741b97c8b121"
+            }
+        ],
+        "conditions": [
+            {
+                "lastTransitionTime": "2026-11-01T05:58:43Z",
+                "message": "",
+                "observedGeneration": 1,
+                "reason": "JobComplete",
+                "status": "True",
+                "type": "Admitted"
+            },
+            {
+                "lastTransitionTime": "2026-11-01T05:55:39Z",
+                "message": "",
+                "observedGeneration": 1,
+                "reason": "ServiceOwned",
+                "status": "True",
+                "type": "RendezvousService"
+            },
+            {
+                "lastTransitionTime": "2026-11-01T05:55:40Z",
+                "message": "the tenant waited 1.559s between Kueue admitting this job and this controller seeing it run; the admission end is Kueue's own stamp and the running end is this controller's observation, so the interval carries one watch lag",
+                "reason": "Observed",
+                "status": "True",
+                "type": "AdmitToRunningObserved"
+            }
+        ],
+        "lastTransitionTime": "2026-11-01T06:00:12Z",
+        "observedGeneration": 1,
+        "phase": "Succeeded",
+        "readyRanks": 0,
+        "runningObservedAt": "2026-11-01T05:55:40Z"
+    }
+}
