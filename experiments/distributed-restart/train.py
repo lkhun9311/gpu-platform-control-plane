@@ -72,6 +72,10 @@ BACKENDS = ("gloo", "nccl")
 # MiB of fixed bytes added to every shard, so the checkpoint cost the paid session measures on EFS is that of a stated
 # size rather than of a 4-8-1 MLP's few kilobytes; 0 adds nothing and leaves the shard as it was.
 BALLAST_MB = int(os.environ.get("CKPT_BALLAST_MB", "0"))
+# Seconds a rank waits after creating a checkpoint's directory before writing its shard, 0 for none.
+# The kind visibility cases use it so a prober on another node can look a shard's name up before it exists, which is
+# what leaves that node's NFS client caching the name as absent; nothing else sets it.
+SHARD_DELAY = float(os.environ.get("CKPT_SHARD_DELAY", "0"))
 
 LOAD_MODES = ("none", "full", "no-optimizer", "no-scheduler", "no-sampler", "no-rng")
 # kill-before-fsync: the rank dies with its shard written but not synced or renamed.
@@ -151,7 +155,9 @@ def gather_json(obj: object, world: int) -> list:
 
 
 def fsync_dir(path: str) -> None:
-    # A rename is durable only once the directory holding the new name is synced.
+    # On a local file system a rename is durable only once the directory holding the new name is synced.
+    # On NFS the Linux client's directory fsync does nothing, because it sends every directory operation to the server
+    # synchronously, so this adds no boundary there.
     fd = os.open(path, os.O_RDONLY)
     try:
         os.fsync(fd)
@@ -253,11 +259,18 @@ def save(rank: int, world: int, step: int, state: dict, fault: Fault) -> None:
     # Monotonic, so the checkpoint cost the record carries is this rank's own interval and no clock step can move it.
     started = time.monotonic()
     # The ranks agree on the step and on a name nothing has used; rank 0's choice is the one that counts.
-    ident = broadcast_json([step, uuid.uuid4().hex], rank)
+    # Rank 0 alone creates the directory, before it names it to the others.
+    # When every rank created it, on NFS one rank's client could look the name up absent, lose the mkdir to another
+    # node's, and then keep finding it absent from its cache: the first kind run over NFS died that way at step 1.
+    name = uuid.uuid4().hex
+    if rank == 0:
+        os.mkdir(os.path.join(ROOT, f"a{ATTEMPT}", f"{step:08d}-{name}"))
+    ident = broadcast_json([step, name], rank)
     if ident[0] != step:
         raise RuntimeError(f"rank {rank} is at step {step}, rank 0 at step {ident[0]}")
     ckpt = os.path.join(ROOT, f"a{ATTEMPT}", f"{step:08d}-{ident[1]}")
-    os.makedirs(ckpt, exist_ok=True)
+    if SHARD_DELAY:
+        time.sleep(SHARD_DELAY)
 
     labelled = dict(state)
     if fault.due("skew", step, rank):
@@ -314,13 +327,15 @@ def candidates() -> list[str]:
     # Newest step first; between two of the same step, which can exist after a rollback, the later attempt's.
     found.sort(key=lambda f: (f[0], int(f[1].split("/")[0][1:])), reverse=True)
     ordered = [rel for _, rel in found]
-    latest = os.path.join(ROOT, "LATEST")
+    latest, named = os.path.join(ROOT, "LATEST"), None
     if os.path.exists(latest):
         with open(latest) as handle:
             named = handle.read().strip()
         if named in ordered:
             ordered.remove(named)
         ordered.insert(0, named)
+    # What rank 0 found, so a checkpoint skipped for a manifest it could not see is on record and not inferred.
+    emit(0, "candidates", latest=named, offered=ordered)
     return ordered
 
 
@@ -331,9 +346,10 @@ def manifest_ok(rel: str, world: int) -> dict | None:
     except (OSError, ValueError):
         return None
     shards = manifest.get("shards", [])
+    # Each shard must be named as the loader names it, so the file a rank hashes is the file it then loads.
     if (manifest.get("world_size") != world or len(shards) != world
             or sorted(s["rank"] for s in shards) != list(range(world))
-            or any(s["step"] != manifest.get("step") for s in shards)):
+            or any(s["step"] != manifest.get("step") or s["file"] != f"rank-{s['rank']}.pt" for s in shards)):
         return None
     return manifest
 
@@ -341,12 +357,61 @@ def manifest_ok(rel: str, world: int) -> dict | None:
 def shard_ok(rel: str, manifest: dict, rank: int) -> bool:
     entry = next(s for s in manifest["shards"] if s["rank"] == rank)
     path = os.path.join(ROOT, rel, entry["file"])
+    errors: list[int | None] = []
+    listed: list[bool | str] = []
     for attempt in range(VISIBILITY_RETRIES + 1):
-        if os.path.exists(path):
-            return sha256_file(path) == (entry["sha256"], entry["size"])
+        try:
+            os.stat(path)
+        except OSError as exc:
+            # Absent and unreadable are both retried, but recorded apart: ENOENT is what a client's cached absence gives,
+            # and any other error is something else.
+            errors.append(exc.errno)
+            # The directory is listed before the next look, because looking again alone did not help: in the first kind
+            # run over NFS, a rank on a node that had looked its shard up before the shard existed refused every
+            # checkpoint through all six looks while a listing of the same directory named the shard.
+            # With the listing, the next look found it in every kind run since; which change in the client's cache does
+            # that is not established, so this is a mitigation measured on Linux 7.0 against ganesha, not a guarantee.
+            # Whether the listing names the shard also separates a shard the server lacks from one the client hid.
+            try:
+                listed.append(entry["file"] in os.listdir(os.path.dirname(path)))
+            except OSError as list_exc:
+                listed.append(f"error {list_exc.errno}")
+        else:
+            ok = sha256_file(path) == (entry["sha256"], entry["size"])
+            # Every look is counted, so a retry that ran is recorded and one that never ran is not inferred.
+            emit(rank, "shard_check", dir=rel, looks=attempt + 1, visible=True, hash_ok=ok, errors=errors, listed=listed)
+            return ok
         if attempt < VISIBILITY_RETRIES:
             time.sleep(VISIBILITY_WAIT)
+    emit(rank, "shard_check", dir=rel, looks=VISIBILITY_RETRIES + 1, visible=False, hash_ok=False, errors=errors,
+         listed=listed)
     return False
+
+
+def volume() -> dict:
+    """The mount holding ROOT, as /proc/self/mountinfo describes it, or {} when none is found.
+
+    Recorded so a run that meant to write through NFS can be refused when a rank wrote to something else, such as a
+    hostPath the runner fell back to; the super options are what the client actually uses, not what was asked for.
+    """
+    best: dict = {}
+    try:
+        with open("/proc/self/mountinfo") as handle:
+            for line in handle:
+                fields = line.split()
+                # The fields after the separator " - " are the file system type, the source and the super options.
+                sep = fields.index("-")
+                point = fields[4]
+                if (ROOT == point or ROOT.startswith(point.rstrip("/") + "/")) and len(point) >= len(best.get("point", "")):
+                    best = {"point": point, "mount_options": fields[5], "fstype": fields[sep + 1],
+                            "source": fields[sep + 2], "super_options": fields[sep + 3] if len(fields) > sep + 3 else ""}
+        # The device number names the client's cache of that mount: two Pods on one node whose mounts share it see the
+        # same cached names, which is what the kind visibility cases rely on and check.
+        if best:
+            best["dev"] = os.stat(best["point"]).st_dev
+    except (OSError, ValueError, IndexError):
+        return {}
+    return best
 
 
 def choose(rank: int, world: int) -> tuple[str, dict] | None:
@@ -451,7 +516,10 @@ def train() -> int:
     torch.set_num_threads(1)
     torch.manual_seed(0)
     dist.init_process_group(backend=BACKEND, timeout=datetime.timedelta(seconds=COLLECTIVE_TIMEOUT))
-    os.makedirs(ROOT, exist_ok=True)
+    # Rank 0 alone creates the job's and the attempt's directories, and the others wait for it, for the reason save gives.
+    if rank == 0:
+        os.makedirs(os.path.join(ROOT, f"a{ATTEMPT}"), exist_ok=True)
+    dist.barrier()
     fault = Fault(FAULT)
     # One fixed buffer, made once, so what a save's timing includes is the write and not building the bytes.
     ballast = torch.full((BALLAST_MB << 20,), 7, dtype=torch.uint8, device=device) if BALLAST_MB else None
@@ -475,6 +543,11 @@ def train() -> int:
         # Mapped to this rank's device, because a shard written on another node's cuda:0 names a device by number only.
         loaded = torch.load(os.path.join(ROOT, rel, f"rank-{rank}.pt"), weights_only=True, map_location=device)
         start_step = manifest["step"]
+        # The hash bound the bytes to the manifest when they were checked; the step inside them is checked too, because
+        # the file is reopened to load it and a shard that says another step is not the checkpoint the ranks agreed on.
+        if loaded.get("step") != start_step:
+            emit(rank, "refused", reason=f"{rel} rank-{rank}.pt holds step {loaded.get('step')}, its manifest {start_step}")
+            return 3
         model.load_state_dict(loaded["model"])
         if LOAD_MODE != "no-sampler":
             epoch, position = loaded["sampler"]["epoch"], loaded["sampler"]["position"]
@@ -514,7 +587,8 @@ def train() -> int:
                 "nccl_env": {k: v for k, v in sorted(os.environ.items()) if k.startswith("NCCL_")}}
     emit(rank, "start", world_size=world, load_mode=LOAD_MODE, resumed_from_step=start_step, steps=STEPS,
          fault=FAULT, torch_version=torch.__version__, epoch=epoch, position=position,
-         lr=optimiser.param_groups[0]["lr"], backend=BACKEND, device=str(device), ballast_mb=BALLAST_MB, **cuda)
+         lr=optimiser.param_groups[0]["lr"], backend=BACKEND, device=str(device), ballast_mb=BALLAST_MB,
+         volume=volume(), visibility_retries=VISIBILITY_RETRIES, shard_delay=SHARD_DELAY, **cuda)
 
     ddp.train()
     step = start_step

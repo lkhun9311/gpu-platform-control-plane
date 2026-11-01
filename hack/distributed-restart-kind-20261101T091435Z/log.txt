@@ -1,0 +1,656 @@
+09:14:35 provenance: commit=e5022c48a587d224567519ef6c27fdbb2934090b dirty_files=0 kind=kind v0.33.0 go1.25.7 linux/amd64 kueue=v0.18.3 cert_manager=v1.21.1 train_py_sha256=2cdf9a7655a31073304666a792fcdbf2a58a34f3530f6bc3ce68425ed411c280 steps=20 cases=reference nfs-kill-before-fsync nfs-kill-before-manifest nfs-kill-before-latest nfs-kill-after-latest nfs-corrupt-published nfs-vis-efs nfs-vis-long storage=nfs nfs_server_image=registry.k8s.io/sig-storage/nfs-provisioner@sha256:c825f3d5e28bde099bd7a3daace28772d412c9157ad47fa752a9ad0baafc118d nfs_efs_options=nfsvers=4.1 rsize=1048576 wsize=1048576 hard timeo=600 retrans=2 noresvport nfs_long_options=nfsvers=4.1 rsize=1048576 wsize=1048576 hard timeo=600 retrans=2 noresvport actimeo=600 nfs_fresh_options=nfsvers=4.1 rsize=1048576 wsize=1048576 hard timeo=600 retrans=2 noresvport lookupcache=none actimeo=0 host_kernel=7.0.0-31-generic 
+09:14:35 == images
+DEPRECATED: The legacy builder is deprecated and will be removed in a future release.
+            Install the buildx component to build images with BuildKit:
+            https://docs.docker.com/go/buildx/
+
+sha256:68e30a787cabfdca44a213cc1f634d41f66e46632bc6a47360c78d02aa756a64
+docker build -t controller:rst .
+DEPRECATED: The legacy builder is deprecated and will be removed in a future release.
+            Install the buildx component to build images with BuildKit:
+            https://docs.docker.com/go/buildx/
+
+Sending build context to Docker daemon  3.061MB
+Step 1/14 : FROM golang:1.27.3@sha256:957861185dbf29d93668ace41e011d091c6e779953d47f0316ef2cc58e28fe2b AS builder
+ ---> 957861185dbf
+Step 2/14 : ARG TARGETOS
+ ---> Using cache
+ ---> a38e89fd304b
+Step 3/14 : ARG TARGETARCH
+ ---> Using cache
+ ---> df7229e5f3ec
+Step 4/14 : WORKDIR /workspace
+ ---> Using cache
+ ---> e0f3b83f69f4
+Step 5/14 : COPY go.mod go.mod
+ ---> Using cache
+ ---> c2ed1be935e8
+Step 6/14 : COPY go.sum go.sum
+ ---> Using cache
+ ---> 3d64437e64c0
+Step 7/14 : RUN go mod download
+ ---> Using cache
+ ---> e5ea0e053d8e
+Step 8/14 : COPY . .
+ ---> Using cache
+ ---> 197cbfe9e3e4
+Step 9/14 : RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o manager cmd/main.go
+ ---> Using cache
+ ---> de7291c5b80e
+Step 10/14 : FROM gcr.io/distroless/static:nonroot@sha256:18f4cc26c9ffa7f20a359298be7deadac5c607c8e03a02b8119f1a5fc2f82c99
+ ---> 18f4cc26c9ff
+Step 11/14 : WORKDIR /
+ ---> Using cache
+ ---> cbe4ce95f554
+Step 12/14 : COPY --from=builder /workspace/manager .
+ ---> Using cache
+ ---> cd9c80d36db9
+Step 13/14 : USER 65532:65532
+ ---> Using cache
+ ---> f9b9010d9649
+Step 14/14 : ENTRYPOINT ["/manager"]
+ ---> Using cache
+ ---> c8c4ee139583
+Successfully built c8c4ee139583
+Successfully tagged controller:rst
+docker build -t gpu-simulator:rst -f Dockerfile.gpu-simulator .
+DEPRECATED: The legacy builder is deprecated and will be removed in a future release.
+            Install the buildx component to build images with BuildKit:
+            https://docs.docker.com/go/buildx/
+
+Sending build context to Docker daemon  3.061MB
+Step 1/14 : FROM golang:1.27.3@sha256:957861185dbf29d93668ace41e011d091c6e779953d47f0316ef2cc58e28fe2b AS builder
+ ---> 957861185dbf
+Step 2/14 : ARG TARGETOS
+ ---> Using cache
+ ---> a38e89fd304b
+Step 3/14 : ARG TARGETARCH
+ ---> Using cache
+ ---> df7229e5f3ec
+Step 4/14 : WORKDIR /workspace
+ ---> Using cache
+ ---> e0f3b83f69f4
+Step 5/14 : COPY go.mod go.mod
+ ---> Using cache
+ ---> c2ed1be935e8
+Step 6/14 : COPY go.sum go.sum
+ ---> Using cache
+ ---> 3d64437e64c0
+Step 7/14 : RUN go mod download
+ ---> Using cache
+ ---> e5ea0e053d8e
+Step 8/14 : COPY . .
+ ---> Using cache
+ ---> 197cbfe9e3e4
+Step 9/14 : RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o gpu-simulator ./cmd/gpu-simulator
+ ---> Using cache
+ ---> bfa57454c78f
+Step 10/14 : FROM gcr.io/distroless/static:nonroot@sha256:18f4cc26c9ffa7f20a359298be7deadac5c607c8e03a02b8119f1a5fc2f82c99
+ ---> 18f4cc26c9ff
+Step 11/14 : WORKDIR /
+ ---> Using cache
+ ---> cbe4ce95f554
+Step 12/14 : COPY --from=builder /workspace/gpu-simulator .
+ ---> Using cache
+ ---> 5f140892e5a2
+Step 13/14 : USER 65532:65532
+ ---> Using cache
+ ---> 3b6f93bd5651
+Step 14/14 : ENTRYPOINT ["/gpu-simulator"]
+ ---> Using cache
+ ---> d1681e50fc01
+Successfully built d1681e50fc01
+Successfully tagged gpu-simulator:rst
+09:14:37 == cluster rstnfs
+Creating cluster "rstnfs" ...
+ • Ensuring node image (kindest/node:v1.37.0) 🖼️  ...
+ ✓ Ensuring node image (kindest/node:v1.37.0) 🖼️
+ • Preparing nodes 📦 📦 📦 📦   ...
+ ✓ Preparing nodes 📦 📦 📦 📦 
+ • Writing configuration 📜  ...
+ ✓ Writing configuration 📜
+ • Starting control-plane 🕹️  ...
+ ✓ Starting control-plane 🕹️
+ • Installing CNI 🔌  ...
+ ✓ Installing CNI 🔌
+ • Installing StorageClass 💾  ...
+ ✓ Installing StorageClass 💾
+ • Joining worker nodes 🚜  ...
+ ✓ Joining worker nodes 🚜
+Set kubectl context to "kind-rstnfs"
+You can now use your cluster with:
+
+kubectl cluster-info --context kind-rstnfs
+
+Have a question, bug, or feature request? Let us know! https://kind.sigs.k8s.io/#community 🙂
+Image: "controller:rst" with ID "sha256:c8c4ee139583d4a02a15bae954e673140d66bc89436286bae9165fde7da9d66b" not yet present on node "rstnfs-worker3", loading...
+Image: "controller:rst" with ID "sha256:c8c4ee139583d4a02a15bae954e673140d66bc89436286bae9165fde7da9d66b" not yet present on node "rstnfs-worker", loading...
+Image: "controller:rst" with ID "sha256:c8c4ee139583d4a02a15bae954e673140d66bc89436286bae9165fde7da9d66b" not yet present on node "rstnfs-control-plane", loading...
+Image: "controller:rst" with ID "sha256:c8c4ee139583d4a02a15bae954e673140d66bc89436286bae9165fde7da9d66b" not yet present on node "rstnfs-worker2", loading...
+Image: "gpu-simulator:rst" with ID "sha256:d1681e50fc01e081fb59b8449af7a57aeab863c3991c7af7d56d4893776d07b5" not yet present on node "rstnfs-worker3", loading...
+Image: "gpu-simulator:rst" with ID "sha256:d1681e50fc01e081fb59b8449af7a57aeab863c3991c7af7d56d4893776d07b5" not yet present on node "rstnfs-worker", loading...
+Image: "gpu-simulator:rst" with ID "sha256:d1681e50fc01e081fb59b8449af7a57aeab863c3991c7af7d56d4893776d07b5" not yet present on node "rstnfs-control-plane", loading...
+Image: "gpu-simulator:rst" with ID "sha256:d1681e50fc01e081fb59b8449af7a57aeab863c3991c7af7d56d4893776d07b5" not yet present on node "rstnfs-worker2", loading...
+Image: "distributed-restart:torch251" with ID "sha256:68e30a787cabfdca44a213cc1f634d41f66e46632bc6a47360c78d02aa756a64" not yet present on node "rstnfs-worker3", loading...
+Image: "distributed-restart:torch251" with ID "sha256:68e30a787cabfdca44a213cc1f634d41f66e46632bc6a47360c78d02aa756a64" not yet present on node "rstnfs-worker", loading...
+Image: "distributed-restart:torch251" with ID "sha256:68e30a787cabfdca44a213cc1f634d41f66e46632bc6a47360c78d02aa756a64" not yet present on node "rstnfs-control-plane", loading...
+Image: "distributed-restart:torch251" with ID "sha256:68e30a787cabfdca44a213cc1f634d41f66e46632bc6a47360c78d02aa756a64" not yet present on node "rstnfs-worker2", loading...
+namespace/cert-manager created
+customresourcedefinition.apiextensions.k8s.io/challenges.acme.cert-manager.io created
+customresourcedefinition.apiextensions.k8s.io/orders.acme.cert-manager.io created
+customresourcedefinition.apiextensions.k8s.io/certificaterequests.cert-manager.io created
+customresourcedefinition.apiextensions.k8s.io/certificates.cert-manager.io created
+customresourcedefinition.apiextensions.k8s.io/clusterissuers.cert-manager.io created
+customresourcedefinition.apiextensions.k8s.io/issuers.cert-manager.io created
+serviceaccount/cert-manager-cainjector created
+serviceaccount/cert-manager created
+serviceaccount/cert-manager-webhook created
+clusterrole.rbac.authorization.k8s.io/cert-manager-cainjector created
+clusterrole.rbac.authorization.k8s.io/cert-manager-controller-issuers created
+clusterrole.rbac.authorization.k8s.io/cert-manager-controller-clusterissuers created
+clusterrole.rbac.authorization.k8s.io/cert-manager-controller-certificates created
+clusterrole.rbac.authorization.k8s.io/cert-manager-controller-orders created
+clusterrole.rbac.authorization.k8s.io/cert-manager-controller-challenges created
+clusterrole.rbac.authorization.k8s.io/cert-manager-controller-ingress-shim created
+clusterrole.rbac.authorization.k8s.io/cert-manager-cluster-view created
+clusterrole.rbac.authorization.k8s.io/cert-manager-view created
+clusterrole.rbac.authorization.k8s.io/cert-manager-edit created
+clusterrole.rbac.authorization.k8s.io/cert-manager-controller-approve:cert-manager-io created
+clusterrole.rbac.authorization.k8s.io/cert-manager-controller-certificatesigningrequests created
+clusterrole.rbac.authorization.k8s.io/cert-manager-webhook:subjectaccessreviews created
+clusterrolebinding.rbac.authorization.k8s.io/cert-manager-cainjector created
+clusterrolebinding.rbac.authorization.k8s.io/cert-manager-controller-issuers created
+clusterrolebinding.rbac.authorization.k8s.io/cert-manager-controller-clusterissuers created
+clusterrolebinding.rbac.authorization.k8s.io/cert-manager-controller-certificates created
+clusterrolebinding.rbac.authorization.k8s.io/cert-manager-controller-orders created
+clusterrolebinding.rbac.authorization.k8s.io/cert-manager-controller-challenges created
+clusterrolebinding.rbac.authorization.k8s.io/cert-manager-controller-ingress-shim created
+clusterrolebinding.rbac.authorization.k8s.io/cert-manager-controller-approve:cert-manager-io created
+clusterrolebinding.rbac.authorization.k8s.io/cert-manager-controller-certificatesigningrequests created
+clusterrolebinding.rbac.authorization.k8s.io/cert-manager-webhook:subjectaccessreviews created
+role.rbac.authorization.k8s.io/cert-manager-cainjector:leaderelection created
+role.rbac.authorization.k8s.io/cert-manager:leaderelection created
+role.rbac.authorization.k8s.io/cert-manager-webhook:dynamic-serving created
+rolebinding.rbac.authorization.k8s.io/cert-manager-cainjector:leaderelection created
+rolebinding.rbac.authorization.k8s.io/cert-manager:leaderelection created
+rolebinding.rbac.authorization.k8s.io/cert-manager-webhook:dynamic-serving created
+service/cert-manager-cainjector created
+service/cert-manager created
+service/cert-manager-webhook created
+deployment.apps/cert-manager-cainjector created
+deployment.apps/cert-manager created
+deployment.apps/cert-manager-webhook created
+mutatingwebhookconfiguration.admissionregistration.k8s.io/cert-manager-webhook created
+validatingwebhookconfiguration.admissionregistration.k8s.io/cert-manager-webhook created
+deployment.apps/cert-manager condition met
+deployment.apps/cert-manager-cainjector condition met
+deployment.apps/cert-manager-webhook condition met
+namespace/kueue-system serverside-applied
+customresourcedefinition.apiextensions.k8s.io/admissionchecks.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/clusterqueues.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/cohorts.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/localqueues.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/multikueueclusters.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/multikueueconfigs.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/provisioningrequestconfigs.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/resourceflavors.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/topologies.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/workloadpriorityclasses.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/workloads.kueue.x-k8s.io serverside-applied
+serviceaccount/kueue-controller-manager serverside-applied
+role.rbac.authorization.k8s.io/kueue-leader-election-role serverside-applied
+role.rbac.authorization.k8s.io/kueue-manager-clusterprofiles-role serverside-applied
+role.rbac.authorization.k8s.io/kueue-manager-secrets-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-batch-admin-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-batch-user-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-clusterqueue-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-clusterqueue-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-cohort-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-cohort-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-jaxjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-jaxjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-job-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-job-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-jobset-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-jobset-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-leaderworkerset-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-leaderworkerset-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-localqueue-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-localqueue-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-manager-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-metrics-auth-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-metrics-reader serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-mpijob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-mpijob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-paddlejob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-paddlejob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-pending-workloads-cq-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-pending-workloads-lq-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-pytorchjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-pytorchjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-raycluster-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-raycluster-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-rayjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-rayjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-rayservice-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-rayservice-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-resourceflavor-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-resourceflavor-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-sparkapplication-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-sparkapplication-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-tfjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-tfjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-topology-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-topology-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-trainjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-trainjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-workload-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-workload-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-xgboostjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-xgboostjob-viewer-role serverside-applied
+rolebinding.rbac.authorization.k8s.io/kueue-visibility-server-auth-reader serverside-applied
+rolebinding.rbac.authorization.k8s.io/kueue-leader-election-rolebinding serverside-applied
+rolebinding.rbac.authorization.k8s.io/kueue-manager-clusterprofiles-rolebinding serverside-applied
+rolebinding.rbac.authorization.k8s.io/kueue-manager-secrets-rolebinding serverside-applied
+clusterrolebinding.rbac.authorization.k8s.io/kueue-manager-rolebinding serverside-applied
+clusterrolebinding.rbac.authorization.k8s.io/kueue-metrics-auth-rolebinding serverside-applied
+configmap/kueue-manager-config serverside-applied
+secret/kueue-webhook-server-cert serverside-applied
+service/kueue-controller-manager-metrics-service serverside-applied
+service/kueue-visibility-server serverside-applied
+service/kueue-webhook-service serverside-applied
+deployment.apps/kueue-controller-manager serverside-applied
+apiservice.apiregistration.k8s.io/v1beta1.visibility.kueue.x-k8s.io serverside-applied
+apiservice.apiregistration.k8s.io/v1beta2.visibility.kueue.x-k8s.io serverside-applied
+mutatingwebhookconfiguration.admissionregistration.k8s.io/kueue-mutating-webhook-configuration serverside-applied
+validatingwebhookconfiguration.admissionregistration.k8s.io/kueue-validating-webhook-configuration serverside-applied
+deployment.apps/kueue-controller-manager condition met
+customresourcedefinition.apiextensions.k8s.io/gpuquotapolicies.platform.lkhun9311.github.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/gpusharingbenchmarks.platform.lkhun9311.github.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/inferencedeployments.platform.lkhun9311.github.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/mltrainingjobs.platform.lkhun9311.github.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/nodehealths.platform.lkhun9311.github.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/workloadruns.platform.lkhun9311.github.io serverside-applied
+namespace/gpu-platform-control-plane-system serverside-applied
+serviceaccount/gpu-platform-control-plane-controller-manager serverside-applied
+role.rbac.authorization.k8s.io/gpu-platform-control-plane-leader-election-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-gpuquotapolicy-admin-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-gpuquotapolicy-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-gpuquotapolicy-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-inferencedeployment-admin-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-inferencedeployment-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-inferencedeployment-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-manager-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-metrics-auth-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-metrics-reader serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-mltrainingjob-admin-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-mltrainingjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-mltrainingjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-nodehealth-admin-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-nodehealth-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-nodehealth-viewer-role serverside-applied
+rolebinding.rbac.authorization.k8s.io/gpu-platform-control-plane-leader-election-rolebinding serverside-applied
+clusterrolebinding.rbac.authorization.k8s.io/gpu-platform-control-plane-manager-rolebinding serverside-applied
+clusterrolebinding.rbac.authorization.k8s.io/gpu-platform-control-plane-metrics-auth-rolebinding serverside-applied
+service/gpu-platform-control-plane-webhook-service serverside-applied
+certificate.cert-manager.io/gpu-platform-control-plane-serving-cert serverside-applied
+issuer.cert-manager.io/gpu-platform-control-plane-selfsigned-issuer serverside-applied
+validatingwebhookconfiguration.admissionregistration.k8s.io/gpu-platform-control-plane-validating-webhook-configuration serverside-applied
+Error from server (InternalError): Internal error occurred: failed calling webhook "mdeployment.kb.io": failed to call webhook: Post "https://kueue-webhook-service.kueue-system.svc:443/mutate-apps-v1-deployment?timeout=10s": dial tcp 10.96.144.91:443: connect: connection refused
+namespace/gpu-platform-control-plane-system serverside-applied
+serviceaccount/gpu-platform-control-plane-controller-manager serverside-applied
+role.rbac.authorization.k8s.io/gpu-platform-control-plane-leader-election-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-gpuquotapolicy-admin-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-gpuquotapolicy-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-gpuquotapolicy-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-inferencedeployment-admin-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-inferencedeployment-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-inferencedeployment-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-manager-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-metrics-auth-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-metrics-reader serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-mltrainingjob-admin-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-mltrainingjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-mltrainingjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-nodehealth-admin-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-nodehealth-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-nodehealth-viewer-role serverside-applied
+rolebinding.rbac.authorization.k8s.io/gpu-platform-control-plane-leader-election-rolebinding serverside-applied
+clusterrolebinding.rbac.authorization.k8s.io/gpu-platform-control-plane-manager-rolebinding serverside-applied
+clusterrolebinding.rbac.authorization.k8s.io/gpu-platform-control-plane-metrics-auth-rolebinding serverside-applied
+service/gpu-platform-control-plane-webhook-service serverside-applied
+deployment.apps/gpu-platform-control-plane-controller-manager serverside-applied
+certificate.cert-manager.io/gpu-platform-control-plane-serving-cert serverside-applied
+issuer.cert-manager.io/gpu-platform-control-plane-selfsigned-issuer serverside-applied
+validatingwebhookconfiguration.admissionregistration.k8s.io/gpu-platform-control-plane-validating-webhook-configuration serverside-applied
+deployment.apps/gpu-platform-control-plane-controller-manager image updated
+deployment.apps/gpu-platform-control-plane-controller-manager patched
+Waiting for deployment "gpu-platform-control-plane-controller-manager" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "gpu-platform-control-plane-controller-manager" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "gpu-platform-control-plane-controller-manager" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "gpu-platform-control-plane-controller-manager" rollout to finish: 1 old replicas are pending termination...
+deployment "gpu-platform-control-plane-controller-manager" successfully rolled out
+daemonset.apps/gpu-simulator created
+daemonset.apps/gpu-simulator image updated
+daemonset.apps/gpu-simulator patched
+Waiting for daemon set "gpu-simulator" rollout to finish: 0 out of 4 new pods have been updated...
+Waiting for daemon set "gpu-simulator" rollout to finish: 1 out of 4 new pods have been updated...
+Waiting for daemon set "gpu-simulator" rollout to finish: 2 out of 4 new pods have been updated...
+Waiting for daemon set "gpu-simulator" rollout to finish: 3 out of 4 new pods have been updated...
+Waiting for daemon set "gpu-simulator" rollout to finish: 0 of 4 updated pods are available...
+Waiting for daemon set "gpu-simulator" rollout to finish: 1 of 4 updated pods are available...
+Waiting for daemon set "gpu-simulator" rollout to finish: 2 of 4 updated pods are available...
+Waiting for daemon set "gpu-simulator" rollout to finish: 3 of 4 updated pods are available...
+daemon set "gpu-simulator" successfully rolled out
+deployment.apps/gpu-platform-control-plane-controller-manager patched
+Waiting for deployment "gpu-platform-control-plane-controller-manager" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "gpu-platform-control-plane-controller-manager" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "gpu-platform-control-plane-controller-manager" rollout to finish: 1 old replicas are pending termination...
+deployment "gpu-platform-control-plane-controller-manager" successfully rolled out
+deployment.apps/kueue-controller-manager patched
+Waiting for deployment "kueue-controller-manager" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "kueue-controller-manager" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "kueue-controller-manager" rollout to finish: 1 old replicas are pending termination...
+deployment "kueue-controller-manager" successfully rolled out
+Error from server (InternalError): Internal error occurred: failed calling webhook "mdeployment.kb.io": failed to call webhook: Post "https://kueue-webhook-service.kueue-system.svc:443/mutate-apps-v1-deployment?timeout=10s": dial tcp 10.96.144.91:443: connect: connection refused
+deployment.apps/cert-manager patched
+Waiting for deployment "cert-manager" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "cert-manager" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "cert-manager" rollout to finish: 1 old replicas are pending termination...
+deployment "cert-manager" successfully rolled out
+deployment.apps/cert-manager-webhook patched
+Waiting for deployment "cert-manager-webhook" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "cert-manager-webhook" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "cert-manager-webhook" rollout to finish: 1 old replicas are pending termination...
+deployment "cert-manager-webhook" successfully rolled out
+deployment.apps/cert-manager-cainjector patched
+Waiting for deployment "cert-manager-cainjector" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "cert-manager-cainjector" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "cert-manager-cainjector" rollout to finish: 1 old replicas are pending termination...
+deployment "cert-manager-cainjector" successfully rolled out
+deployment.apps/coredns patched
+Waiting for deployment spec update to be observed...
+Waiting for deployment "coredns" rollout to finish: 1 out of 2 new replicas have been updated...
+Waiting for deployment "coredns" rollout to finish: 1 out of 2 new replicas have been updated...
+Waiting for deployment "coredns" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "coredns" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "coredns" rollout to finish: 1 old replicas are pending termination...
+deployment "coredns" successfully rolled out
+09:17:02 == nfs server
+namespace/nfs created
+configmap/ganesha created
+deployment.apps/ganesha created
+service/ganesha created
+Waiting for deployment "ganesha" rollout to finish: 0 of 1 updated replicas are available...
+deployment "ganesha" successfully rolled out
+09:17:13 == queue and shared volume
+Warning: This version is deprecated. Use v1beta2 instead.
+resourceflavor.kueue.x-k8s.io/gpu created
+namespace/rst created
+gpuquotapolicy.platform.lkhun9311.github.io/rst-quota created
+persistentvolume/rstnfs-shared created
+persistentvolumeclaim/shared created
+persistentvolume/rstnfs-shared-long created
+persistentvolumeclaim/shared-long created
+persistentvolume/rstnfs-shared-fresh created
+persistentvolumeclaim/shared-fresh created
+Error from server (NotFound): localqueues.kueue.x-k8s.io "gpu-rst" not found
+09:17:17 == case reference as rst-reference-091717
+mltrainingjob.platform.lkhun9311.github.io/rst-reference-091717 created
+/home/lkhun9311/workspace/gpu-cp-nfs/hack/distributed-restart-kind.sh: line 1: kill: (3049133) - No such process
+No resources found
+node/rstnfs-worker already uncordoned
+node/rstnfs-worker2 already uncordoned
+node/rstnfs-worker3 already uncordoned
+09:17:48   phase 'Succeeded', attempts 1
+mltrainingjob.platform.lkhun9311.github.io "rst-reference-091717" deleted from rst namespace
+09:17:48 == case nfs-kill-before-fsync as rst-nfs-kill-before-fsync-091748
+mltrainingjob.platform.lkhun9311.github.io/rst-nfs-kill-before-fsync-091748 created
+workload.kueue.x-k8s.io/job-rst-nfs-kill-before-fsync-091748-e1884 patched
+cat: 'hack/distributed-restart-kind-20261101T091435Z/nfs-kill-before-fsync/log-*.txt': No such file or directory
+node/rstnfs-worker3 cordoned
+workload.kueue.x-k8s.io/job-rst-nfs-kill-before-fsync-091748-e1884 patched
+/home/lkhun9311/workspace/gpu-cp-nfs/hack/distributed-restart-kind.sh: line 1: kill: (3059189) - No such process
+No resources found
+node/rstnfs-worker already uncordoned
+node/rstnfs-worker2 already uncordoned
+node/rstnfs-worker3 uncordoned
+09:18:24   phase 'Succeeded', attempts 2
+mltrainingjob.platform.lkhun9311.github.io "rst-nfs-kill-before-fsync-091748" deleted from rst namespace
+09:18:24 == case nfs-kill-before-manifest as rst-nfs-kill-before-manifest-091824
+mltrainingjob.platform.lkhun9311.github.io/rst-nfs-kill-before-manifest-091824 created
+workload.kueue.x-k8s.io/job-rst-nfs-kill-before-manifest-091824-bf074 patched
+cat: 'hack/distributed-restart-kind-20261101T091435Z/nfs-kill-before-manifest/log-*.txt': No such file or directory
+node/rstnfs-worker3 cordoned
+workload.kueue.x-k8s.io/job-rst-nfs-kill-before-manifest-091824-bf074 patched
+/home/lkhun9311/workspace/gpu-cp-nfs/hack/distributed-restart-kind.sh: line 1: kill: (3071483) - No such process
+No resources found
+node/rstnfs-worker already uncordoned
+node/rstnfs-worker2 already uncordoned
+node/rstnfs-worker3 uncordoned
+09:19:02   phase 'Succeeded', attempts 2
+mltrainingjob.platform.lkhun9311.github.io "rst-nfs-kill-before-manifest-091824" deleted from rst namespace
+09:19:02 == case nfs-kill-before-latest as rst-nfs-kill-before-latest-091902
+mltrainingjob.platform.lkhun9311.github.io/rst-nfs-kill-before-latest-091902 created
+workload.kueue.x-k8s.io/job-rst-nfs-kill-before-latest-091902-c7210 patched
+cat: 'hack/distributed-restart-kind-20261101T091435Z/nfs-kill-before-latest/log-*.txt': No such file or directory
+node/rstnfs-worker cordoned
+workload.kueue.x-k8s.io/job-rst-nfs-kill-before-latest-091902-c7210 patched
+/home/lkhun9311/workspace/gpu-cp-nfs/hack/distributed-restart-kind.sh: line 1: kill: (3084709) - No such process
+No resources found
+node/rstnfs-worker uncordoned
+node/rstnfs-worker2 already uncordoned
+node/rstnfs-worker3 already uncordoned
+09:19:39   phase 'Succeeded', attempts 2
+mltrainingjob.platform.lkhun9311.github.io "rst-nfs-kill-before-latest-091902" deleted from rst namespace
+09:19:39 == case nfs-kill-after-latest as rst-nfs-kill-after-latest-091939
+mltrainingjob.platform.lkhun9311.github.io/rst-nfs-kill-after-latest-091939 created
+workload.kueue.x-k8s.io/job-rst-nfs-kill-after-latest-091939-6e35d patched
+cat: 'hack/distributed-restart-kind-20261101T091435Z/nfs-kill-after-latest/log-*.txt': No such file or directory
+node/rstnfs-worker3 cordoned
+workload.kueue.x-k8s.io/job-rst-nfs-kill-after-latest-091939-6e35d patched
+/home/lkhun9311/workspace/gpu-cp-nfs/hack/distributed-restart-kind.sh: line 1: kill: (3096955) - No such process
+No resources found
+node/rstnfs-worker already uncordoned
+node/rstnfs-worker2 already uncordoned
+node/rstnfs-worker3 uncordoned
+09:20:16   phase 'Succeeded', attempts 2
+mltrainingjob.platform.lkhun9311.github.io "rst-nfs-kill-after-latest-091939" deleted from rst namespace
+09:20:16 == case nfs-corrupt-published as rst-nfs-corrupt-published-092016
+configmap/nfs-probe created
+pod/keep-worker created
+configmap/nfs-probe unchanged
+pod/keep-worker2 created
+configmap/nfs-probe unchanged
+pod/keep-worker3 created
+pod/keep-worker condition met
+pod/keep-worker2 condition met
+pod/keep-worker3 condition met
+mltrainingjob.platform.lkhun9311.github.io/rst-nfs-corrupt-published-092016 created
+workload.kueue.x-k8s.io/job-rst-nfs-corrupt-published-092016-29d66 patched
+cat: 'hack/distributed-restart-kind-20261101T091435Z/nfs-corrupt-published/log-*.txt': No such file or directory
+node/rstnfs-worker3 cordoned
+workload.kueue.x-k8s.io/job-rst-nfs-corrupt-published-092016-29d66 patched
+/home/lkhun9311/workspace/gpu-cp-nfs/hack/distributed-restart-kind.sh: line 1: kill: (3110320) - No such process
+pod "keep-worker" deleted from rst namespace
+pod "keep-worker2" deleted from rst namespace
+pod "keep-worker3" deleted from rst namespace
+node/rstnfs-worker already uncordoned
+node/rstnfs-worker2 already uncordoned
+node/rstnfs-worker3 uncordoned
+09:20:56   phase 'Succeeded', attempts 2
+mltrainingjob.platform.lkhun9311.github.io "rst-nfs-corrupt-published-092016" deleted from rst namespace
+09:20:56 == case nfs-vis-efs as rst-nfs-vis-efs-092056
+configmap/nfs-probe unchanged
+pod/watch-worker created
+configmap/nfs-probe unchanged
+pod/watch-worker2 created
+configmap/nfs-probe unchanged
+pod/watch-worker3 created
+pod/watch-worker condition met
+pod/watch-worker2 condition met
+pod/watch-worker3 condition met
+mltrainingjob.platform.lkhun9311.github.io/rst-nfs-vis-efs-092056 created
+workload.kueue.x-k8s.io/job-rst-nfs-vis-efs-092056-30bdf patched
+cat: 'hack/distributed-restart-kind-20261101T091435Z/nfs-vis-efs/log-*.txt': No such file or directory
+node/rstnfs-worker cordoned
+workload.kueue.x-k8s.io/job-rst-nfs-vis-efs-092056-30bdf patched
+/home/lkhun9311/workspace/gpu-cp-nfs/hack/distributed-restart-kind.sh: line 1: kill: (3126544) - No such process
+pod "watch-worker" deleted from rst namespace
+pod "watch-worker2" deleted from rst namespace
+pod "watch-worker3" deleted from rst namespace
+node/rstnfs-worker uncordoned
+node/rstnfs-worker2 already uncordoned
+node/rstnfs-worker3 already uncordoned
+09:22:19   phase 'Succeeded', attempts 2
+mltrainingjob.platform.lkhun9311.github.io "rst-nfs-vis-efs-092056" deleted from rst namespace
+09:22:19 == case nfs-vis-long as rst-nfs-vis-long-092219
+configmap/nfs-probe unchanged
+pod/watch-worker created
+configmap/nfs-probe unchanged
+pod/watch-worker2 created
+configmap/nfs-probe unchanged
+pod/watch-worker3 created
+pod/watch-worker condition met
+pod/watch-worker2 condition met
+pod/watch-worker3 condition met
+mltrainingjob.platform.lkhun9311.github.io/rst-nfs-vis-long-092219 created
+workload.kueue.x-k8s.io/job-rst-nfs-vis-long-092219-fef2c patched
+cat: 'hack/distributed-restart-kind-20261101T091435Z/nfs-vis-long/log-*.txt': No such file or directory
+node/rstnfs-worker cordoned
+workload.kueue.x-k8s.io/job-rst-nfs-vis-long-092219-fef2c patched
+/home/lkhun9311/workspace/gpu-cp-nfs/hack/distributed-restart-kind.sh: line 1: kill: (3153613) - No such process
+pod "watch-worker" deleted from rst namespace
+pod "watch-worker2" deleted from rst namespace
+pod "watch-worker3" deleted from rst namespace
+node/rstnfs-worker uncordoned
+node/rstnfs-worker2 already uncordoned
+node/rstnfs-worker3 already uncordoned
+09:23:18   phase 'Succeeded', attempts 2
+mltrainingjob.platform.lkhun9311.github.io "rst-nfs-vis-long-092219" deleted from rst namespace
+09:23:18 == done; scoring
+ok   ran committed code: commit e5022c48, 0 uncommitted file(s) in what it runs
+ok   the run's cases are known, each once: scoring ['reference', 'nfs-kill-before-fsync', 'nfs-kill-before-manifest', 'nfs-kill-before-latest', 'nfs-kill-after-latest', 'nfs-corrupt-published', 'nfs-vis-efs', 'nfs-vis-long']; unknown []
+ok   the run has the reference its restarts are compared with: cases ['reference', 'nfs-kill-before-fsync', 'nfs-kill-before-manifest', 'nfs-kill-before-latest', 'nfs-kill-after-latest', 'nfs-corrupt-published', 'nfs-vis-efs', 'nfs-vis-long']
+ok   every case ran on the storage it is written for: storage nfs; out of place []
+ok   reference recorded: evidence present
+ok   reference succeeded on attempt 1: phase Succeeded, attempts 1
+ok   reference has final parameters on every rank, and they agree: ranks [0, 1] of world size 2 recorded final parameters
+ok   reference every rank wrote through NFS 4.1 with the shared claim's options: a1r0 nfs4 dev 7340194 clientaddr 172.18.0.11; a1r1 nfs4 dev 7340195 clientaddr 172.18.0.10
+ok   nfs-kill-before-fsync recorded: evidence present
+ok   nfs-kill-before-fsync every rank wrote through NFS 4.1 with the shared claim's options: a1r0 nfs4 dev 7340193 clientaddr 172.18.0.10; a1r1 nfs4 dev 7340195 clientaddr 172.18.0.8; a2r0 nfs4 dev 7340193 clientaddr 172.18.0.10; a2r1 nfs4 dev 7340229 clientaddr 172.18.0.11
+ok   nfs-kill-before-fsync every record is this job's and each attempt ran one Pod per rank: 95 records, 0 of another run; Pods by attempt {1: [0, 1], 2: [0, 1]}
+ok   nfs-kill-before-fsync kill-before-fsync fired once at step 6 on rank 1, and SIGKILL ended that rank: fault records [(1, 1, 'kill-before-fsync', 6)]; rank 1's container exits [(137, 'Error')]
+ok   nfs-kill-before-fsync attempt 2 began only after the storage was read and the hold released: 26 samples over 9.7 s, longest unobserved 0.6 s, 0 with failed reads; hold from 2026-11-01T09:17:48.713+00:00, fault 2026-11-01T09:17:55.255+00:00, released 2026-11-01T09:17:58.452+00:00, attempt 2's Job 2026-11-01T09:17:58.000+00:00
+ok   nfs-kill-before-fsync the storage held the registered state of step 6 before attempt 2: step 6 at a1/00000006-a23fc6020f324c58a6db1d9a9013aace holds ['rank-0.pt', 'rank-1.pt.tmp-b6131412222449e88dd126b67ee019f1']; LATEST names a1/00000005-f3947aaf5e794c13845a8f83d001b300
+info nfs-kill-before-fsync step 6's files as the storage held them: {'rank-0.pt': 9084, 'rank-1.pt.tmp-b6131412222449e88dd126b67ee019f1': 9084}: the killed rank's temporary file is what its close flushed, not bytes a lost client failed to send
+ok   nfs-kill-before-fsync attempt 2's rank 1 read through another client than the one that wrote its shard: rank 1 on rstnfs-worker3 (clientaddr 172.18.0.8) then rstnfs-worker2 (clientaddr 172.18.0.11); cordoned rstnfs-worker3
+ok   nfs-kill-before-fsync succeeded on attempt 2: phase Succeeded, attempts 2
+ok   nfs-kill-before-fsync attempt 1 stopped by a failed rank: state Stopped, trigger RankFailed
+ok   nfs-kill-before-fsync every rank resumed from step 5: attempt 2 resumed from 5; by rank {1: ('a1/00000005-f3947aaf5e794c13845a8f83d001b300', 5), 0: ('a1/00000005-f3947aaf5e794c13845a8f83d001b300', 5)} of world size 2
+ok   nfs-kill-before-fsync same training as the reference on every rank: ranks [0, 1] of world size 2 recorded final parameters; each equals the uninterrupted run's
+ok   nfs-kill-before-fsync attempt 2 rendezvous is a name attempt 1 never had: MASTER_ADDR rst-nfs-kill-before-fsync-091748-0.rst-nfs-kill-before-fsync-091748-ddp-a2.rst.svc
+ok   nfs-kill-before-fsync every rank loaded only a checkpoint complete on the storage, after its own check passed: resumes by rank [0, 1] from ['a1/00000005-f3947aaf5e794c13845a8f83d001b300']; every shard matches; each resume preceded by a passing shard_check: True
+info nfs-kill-before-fsync shard checks in attempt 2: 2 records; looks [1, 1]; invisible []
+ok   nfs-kill-before-manifest recorded: evidence present
+ok   nfs-kill-before-manifest every rank wrote through NFS 4.1 with the shared claim's options: a1r0 nfs4 dev 7340193 clientaddr 172.18.0.10; a1r1 nfs4 dev 7340195 clientaddr 172.18.0.8; a2r0 nfs4 dev 7340193 clientaddr 172.18.0.10; a2r1 nfs4 dev 7340195 clientaddr 172.18.0.11
+ok   nfs-kill-before-manifest every record is this job's and each attempt ran one Pod per rank: 95 records, 0 of another run; Pods by attempt {1: [0, 1], 2: [0, 1]}
+ok   nfs-kill-before-manifest kill-before-manifest fired once at step 6 on rank 0, and SIGKILL ended that rank: fault records [(1, 0, 'kill-before-manifest', 6)]; rank 0's container exits [(137, 'Error')]
+ok   nfs-kill-before-manifest attempt 2 began only after the storage was read and the hold released: 26 samples over 9.8 s, longest unobserved 0.6 s, 0 with failed reads; hold from 2026-11-01T09:18:25.198+00:00, fault 2026-11-01T09:18:31.643+00:00, released 2026-11-01T09:18:34.960+00:00, attempt 2's Job 2026-11-01T09:18:35.000+00:00
+ok   nfs-kill-before-manifest the storage held the registered state of step 6 before attempt 2: step 6 at a1/00000006-7085528f5fbb4691aa094564b36a0d6e holds ['rank-0.pt', 'rank-1.pt']; LATEST names a1/00000005-8e29d75a04b74f49a0390229eed8ff7a
+ok   nfs-kill-before-manifest attempt 2's rank 1 read through another client than the one that wrote its shard: rank 1 on rstnfs-worker3 (clientaddr 172.18.0.8) then rstnfs-worker2 (clientaddr 172.18.0.11); cordoned rstnfs-worker3
+ok   nfs-kill-before-manifest succeeded on attempt 2: phase Succeeded, attempts 2
+ok   nfs-kill-before-manifest attempt 1 stopped by a failed rank: state Stopped, trigger RankFailed
+ok   nfs-kill-before-manifest every rank resumed from step 5: attempt 2 resumed from 5; by rank {0: ('a1/00000005-8e29d75a04b74f49a0390229eed8ff7a', 5), 1: ('a1/00000005-8e29d75a04b74f49a0390229eed8ff7a', 5)} of world size 2
+ok   nfs-kill-before-manifest same training as the reference on every rank: ranks [0, 1] of world size 2 recorded final parameters; each equals the uninterrupted run's
+ok   nfs-kill-before-manifest attempt 2 rendezvous is a name attempt 1 never had: MASTER_ADDR rst-nfs-kill-before-manifest-091824-0.rst-nfs-kill-before-manifest-091824-ddp-a2.rst.svc
+ok   nfs-kill-before-manifest every rank loaded only a checkpoint complete on the storage, after its own check passed: resumes by rank [0, 1] from ['a1/00000005-8e29d75a04b74f49a0390229eed8ff7a']; every shard matches; each resume preceded by a passing shard_check: True
+info nfs-kill-before-manifest shard checks in attempt 2: 2 records; looks [1, 1]; invisible []
+ok   nfs-kill-before-latest recorded: evidence present
+ok   nfs-kill-before-latest every rank wrote through NFS 4.1 with the shared claim's options: a1r0 nfs4 dev 7340194 clientaddr 172.18.0.8; a1r1 nfs4 dev 7340201 clientaddr 172.18.0.10; a2r0 nfs4 dev 7340193 clientaddr 172.18.0.8; a2r1 nfs4 dev 7340239 clientaddr 172.18.0.11
+ok   nfs-kill-before-latest every record is this job's and each attempt ran one Pod per rank: 95 records, 0 of another run; Pods by attempt {1: [0, 1], 2: [0, 1]}
+ok   nfs-kill-before-latest kill-before-latest fired once at step 6 on rank 0, and SIGKILL ended that rank: fault records [(1, 0, 'kill-before-latest', 6)]; rank 0's container exits [(137, 'Error')]
+ok   nfs-kill-before-latest attempt 2 began only after the storage was read and the hold released: 29 samples over 10.9 s, longest unobserved 0.6 s, 0 with failed reads; hold from 2026-11-01T09:19:02.647+00:00, fault 2026-11-01T09:19:09.167+00:00, released 2026-11-01T09:19:13.567+00:00, attempt 2's Job 2026-11-01T09:19:13.000+00:00
+ok   nfs-kill-before-latest the storage held the registered state of step 6 before attempt 2: step 6 at a1/00000006-c8741f03cb7c4ea98cea368b0ebbe5fb holds ['MANIFEST', 'rank-0.pt', 'rank-1.pt']; LATEST names a1/00000005-7f888d0f8e724eac875527b31c2998c3; shards differing from the manifest []
+ok   nfs-kill-before-latest attempt 2's rank 1 read through another client than the one that wrote its shard: rank 1 on rstnfs-worker (clientaddr 172.18.0.10) then rstnfs-worker2 (clientaddr 172.18.0.11); cordoned rstnfs-worker
+ok   nfs-kill-before-latest succeeded on attempt 2: phase Succeeded, attempts 2
+ok   nfs-kill-before-latest attempt 1 stopped by a failed rank: state Stopped, trigger RankFailed
+ok   nfs-kill-before-latest every rank resumed from step 5: attempt 2 resumed from 5; by rank {1: ('a1/00000005-7f888d0f8e724eac875527b31c2998c3', 5), 0: ('a1/00000005-7f888d0f8e724eac875527b31c2998c3', 5)} of world size 2
+ok   nfs-kill-before-latest same training as the reference on every rank: ranks [0, 1] of world size 2 recorded final parameters; each equals the uninterrupted run's
+ok   nfs-kill-before-latest attempt 2 rendezvous is a name attempt 1 never had: MASTER_ADDR rst-nfs-kill-before-latest-091902-0.rst-nfs-kill-before-latest-091902-ddp-a2.rst.svc
+ok   nfs-kill-before-latest every rank loaded only a checkpoint complete on the storage, after its own check passed: resumes by rank [0, 1] from ['a1/00000005-7f888d0f8e724eac875527b31c2998c3']; every shard matches; each resume preceded by a passing shard_check: True
+info nfs-kill-before-latest shard checks in attempt 2: 2 records; looks [1, 1]; invisible []
+ok   nfs-kill-after-latest recorded: evidence present
+ok   nfs-kill-after-latest every rank wrote through NFS 4.1 with the shared claim's options: a1r0 nfs4 dev 7340193 clientaddr 172.18.0.10; a1r1 nfs4 dev 7340239 clientaddr 172.18.0.8; a2r0 nfs4 dev 7340201 clientaddr 172.18.0.10; a2r1 nfs4 dev 7340196 clientaddr 172.18.0.11
+ok   nfs-kill-after-latest every record is this job's and each attempt ran one Pod per rank: 91 records, 0 of another run; Pods by attempt {1: [0, 1], 2: [0, 1]}
+ok   nfs-kill-after-latest kill-after-latest fired once at step 6 on rank 0, and SIGKILL ended that rank: fault records [(1, 0, 'kill-after-latest', 6)]; rank 0's container exits [(137, 'Error')]
+ok   nfs-kill-after-latest attempt 2 began only after the storage was read and the hold released: 26 samples over 9.7 s, longest unobserved 0.6 s, 0 with failed reads; hold from 2026-11-01T09:19:40.236+00:00, fault 2026-11-01T09:19:46.834+00:00, released 2026-11-01T09:19:49.952+00:00, attempt 2's Job 2026-11-01T09:19:50.000+00:00
+ok   nfs-kill-after-latest the storage held the registered state of step 6 before attempt 2: step 6 at a1/00000006-1058f17d8b0845eaa6c94fe9dcd845af holds ['MANIFEST', 'rank-0.pt', 'rank-1.pt']; LATEST names a1/00000006-1058f17d8b0845eaa6c94fe9dcd845af; shards differing from the manifest []
+ok   nfs-kill-after-latest attempt 2's rank 1 read through another client than the one that wrote its shard: rank 1 on rstnfs-worker3 (clientaddr 172.18.0.8) then rstnfs-worker2 (clientaddr 172.18.0.11); cordoned rstnfs-worker3
+ok   nfs-kill-after-latest succeeded on attempt 2: phase Succeeded, attempts 2
+ok   nfs-kill-after-latest attempt 1 stopped by a failed rank: state Stopped, trigger RankFailed
+ok   nfs-kill-after-latest every rank resumed from step 6: attempt 2 resumed from 6; by rank {0: ('a1/00000006-1058f17d8b0845eaa6c94fe9dcd845af', 6), 1: ('a1/00000006-1058f17d8b0845eaa6c94fe9dcd845af', 6)} of world size 2
+ok   nfs-kill-after-latest same training as the reference on every rank: ranks [0, 1] of world size 2 recorded final parameters; each equals the uninterrupted run's
+ok   nfs-kill-after-latest attempt 2 rendezvous is a name attempt 1 never had: MASTER_ADDR rst-nfs-kill-after-latest-091939-0.rst-nfs-kill-after-latest-091939-ddp-a2.rst.svc
+ok   nfs-kill-after-latest every rank loaded only a checkpoint complete on the storage, after its own check passed: resumes by rank [0, 1] from ['a1/00000006-1058f17d8b0845eaa6c94fe9dcd845af']; every shard matches; each resume preceded by a passing shard_check: True
+info nfs-kill-after-latest shard checks in attempt 2: 2 records; looks [1, 1]; invisible []
+ok   nfs-corrupt-published recorded: evidence present
+ok   nfs-corrupt-published every rank wrote through NFS 4.1 with the shared claim's options: a1r0 nfs4 dev 7340194 clientaddr 172.18.0.10; a1r1 nfs4 dev 7340196 clientaddr 172.18.0.11; a2r0 nfs4 dev 7340194 clientaddr 172.18.0.10; a2r1 nfs4 dev 7340196 clientaddr 172.18.0.11
+ok   nfs-corrupt-published every record is this job's and each attempt ran one Pod per rank: 99 records, 0 of another run; Pods by attempt {1: [0, 1], 2: [0, 1]}
+ok   nfs-corrupt-published kill-after-latest fired once at step 6 on rank 0, and SIGKILL ended that rank: fault records [(1, 0, 'kill-after-latest', 6)]; rank 0's container exits [(137, 'Error')]
+ok   nfs-corrupt-published attempt 2 began only after the storage was read and the hold released: 27 samples over 10.0 s, longest unobserved 0.6 s, 0 with failed reads; hold from 2026-11-01T09:20:17.558+00:00, fault 2026-11-01T09:20:24.118+00:00, released 2026-11-01T09:20:27.547+00:00, attempt 2's Job 2026-11-01T09:20:27.000+00:00
+ok   nfs-corrupt-published the storage held the registered state of step 6 before attempt 2: step 6 at a1/00000006-e7d5d78dcc0640c1a9c2a900c9667a28 holds ['MANIFEST', 'rank-0.pt', 'rank-1.pt']; LATEST names a1/00000006-e7d5d78dcc0640c1a9c2a900c9667a28; shards differing from the manifest []; rank-1.pt stored sha bdcbc91c9350, size 9084, manifest sha 16d8f94e1bb3 size 9084
+ok   nfs-corrupt-published attempt 2 read in the caches that held step 6 as published: attempt 1 on ['rstnfs-worker', 'rstnfs-worker2'], attempt 2 on {0: 'rstnfs-worker', 1: 'rstnfs-worker2'}; warm caches {'rstnfs-worker': 7340194, 'rstnfs-worker2': 7340196}, attempt 2 devices {0: 7340194, 1: 7340196}; 2 warm reads of rank 1's published shard
+ok   nfs-corrupt-published both ranks refused step 6 together, rank 1 for its changed bytes: rejections [(0, True), (1, False)]; rank 1's check of it [(True, False)]
+ok   nfs-corrupt-published succeeded on attempt 2: phase Succeeded, attempts 2
+ok   nfs-corrupt-published attempt 1 stopped by a failed rank: state Stopped, trigger RankFailed
+ok   nfs-corrupt-published every rank resumed from step 5: attempt 2 resumed from 5; by rank {0: ('a1/00000005-ba499b98b2174d04b090dbd0c0152013', 5), 1: ('a1/00000005-ba499b98b2174d04b090dbd0c0152013', 5)} of world size 2
+ok   nfs-corrupt-published same training as the reference on every rank: ranks [0, 1] of world size 2 recorded final parameters; each equals the uninterrupted run's
+ok   nfs-corrupt-published attempt 2 rendezvous is a name attempt 1 never had: MASTER_ADDR rst-nfs-corrupt-published-092016-0.rst-nfs-corrupt-published-092016-ddp-a2.rst.svc
+ok   nfs-corrupt-published every rank loaded only a checkpoint complete on the storage, after its own check passed: resumes by rank [0, 1] from ['a1/00000005-ba499b98b2174d04b090dbd0c0152013']; every shard matches; each resume preceded by a passing shard_check: True
+info nfs-corrupt-published shard checks in attempt 2: 4 records; looks [1, 1, 1, 1]; invisible []
+ok   nfs-vis-efs recorded: evidence present
+ok   nfs-vis-efs every rank wrote through NFS 4.1 with the shared claim's options: a1r0 nfs4 dev 7340195 clientaddr 172.18.0.10; a1r1 nfs4 dev 7340244 clientaddr 172.18.0.8; a2r0 nfs4 dev 7340244 clientaddr 172.18.0.8; a2r1 nfs4 dev 7340231 clientaddr 172.18.0.11
+ok   nfs-vis-efs every record is this job's and each attempt ran one Pod per rank: 153 records, 0 of another run; Pods by attempt {1: [0, 1], 2: [0, 1]}
+ok   nfs-vis-efs kill-after-latest fired once at step 8 on rank 0, and SIGKILL ended that rank: fault records [(1, 0, 'kill-after-latest', 8)]; rank 0's container exits [(137, 'Error')]
+ok   nfs-vis-efs attempt 2 began only after the storage was read and the hold released: 51 samples over 19.9 s, longest unobserved 0.6 s, 0 with failed reads; hold from 2026-11-01T09:20:57.780+00:00, fault 2026-11-01T09:21:14.368+00:00, released 2026-11-01T09:21:17.702+00:00, attempt 2's Job 2026-11-01T09:21:17.000+00:00
+ok   nfs-vis-efs the storage held the registered state of step 8 before attempt 2: step 8 at a1/00000008-218ee32b31ae49e0b70bd9aa9e65de26 holds ['MANIFEST', 'rank-0.pt', 'rank-1.pt']; LATEST names a1/00000008-218ee32b31ae49e0b70bd9aa9e65de26; shards differing from the manifest []
+ok   nfs-vis-efs succeeded on attempt 2: phase Succeeded, attempts 2
+ok   nfs-vis-efs every rank resumed from one checkpoint, or every rank restarted from zero: resumes {}; restarted from zero [0, 1]
+ok   nfs-vis-efs same training as the reference on every rank: ranks [0, 1] recorded final parameters
+ok   nfs-vis-efs every rank loaded only a checkpoint complete on the storage, after its own check passed: resumes by rank [] from []; every shard matches; each resume preceded by a passing shard_check: True
+info nfs-vis-efs shard checks in attempt 2: 16 records; looks [1, 1, 1, 1, 1, 1, 1, 1, 6, 6, 6, 6, 6, 6, 6, 6]; invisible [(1, 'a1/00000008-218ee32b31ae49e0b70bd9aa9e65de26', [2, 2, 2, 2, 2, 2], True), (1, 'a1/00000007-2b9f1b9665164f5f827d78901f75d0aa', [2, 2, 2, 2, 2, 2], True), (1, 'a1/00000006-4bfed02cb8454a97b3ea391be20c1d03', [2, 2, 2, 2, 2, 2], True), (1, 'a1/00000005-51341226bc784ff288d7be1535644f8c', [2, 2, 2, 2, 2, 2], True), (1, 'a1/00000004-0d947ed4ee3245c188b84e54b0d3a819', [2, 2, 2, 2, 2, 2], True), (1, 'a1/00000003-bf8738da3e4d47e1a9768893c1410d7b', [2, 2, 2, 2, 2, 2], True), (1, 'a1/00000002-b883ba4d2fbd431f947d29f08b4229ef', [2, 2, 2, 2, 2, 2], True), (1, 'a1/00000001-fd46216e66e94d799d02917c9cbee953', [2, 2, 2, 2, 2, 2], True)]
+ok   nfs-vis-efs a prober watched on every worker before the first checkpoint: probers started on ['rstnfs-worker', 'rstnfs-worker2', 'rstnfs-worker3']; first checkpoint 2026-11-01T09:21:00.191+00:00
+ok   nfs-vis-efs attempt 2 ran a rank where no shard was written, in a cache the prober had told its shard was absent: attempt 1 {0: 'rstnfs-worker', 1: 'rstnfs-worker3'}, attempt 2 {0: 'rstnfs-worker3', 1: 'rstnfs-worker2'}; ranks on such a node [1], sharing the prober's cache [1]; first offer a1/00000008-218ee32b31ae49e0b70bd9aa9e65de26; with an absent lookup of their own shard there through the registered mounts [1]
+info nfs-vis-efs probers' delays from a shard's mtime to first seeing it, after having looked it up absent: 48 shards, min 0.0 s, max 27.0 s; never seen before the case ended: 0 []
+ok   nfs-vis-long recorded: evidence present
+ok   nfs-vis-long every rank wrote through NFS 4.1 with the shared-long claim's options: a1r0 nfs4 dev 7340193 clientaddr 172.18.0.10; a1r1 nfs4 dev 7340200 clientaddr 172.18.0.11; a2r0 nfs4 dev 8388830 clientaddr 172.18.0.8; a2r1 nfs4 dev 7340200 clientaddr 172.18.0.11
+ok   nfs-vis-long every record is this job's and each attempt ran one Pod per rank: 91 records, 0 of another run; Pods by attempt {1: [0, 1], 2: [0, 1]}
+ok   nfs-vis-long kill-after-latest fired once at step 8 on rank 0, and SIGKILL ended that rank: fault records [(1, 0, 'kill-after-latest', 8)]; rank 0's container exits [(137, 'Error')]
+ok   nfs-vis-long attempt 2 began only after the storage was read and the hold released: 52 samples over 20.0 s, longest unobserved 0.6 s, 0 with failed reads; hold from 2026-11-01T09:22:20.889+00:00, fault 2026-11-01T09:22:37.372+00:00, released 2026-11-01T09:22:40.845+00:00, attempt 2's Job 2026-11-01T09:22:40.000+00:00
+ok   nfs-vis-long the storage held the registered state of step 8 before attempt 2: step 8 at a1/00000008-eee9b20b82024b618bd510879bf421e0 holds ['MANIFEST', 'rank-0.pt', 'rank-1.pt']; LATEST names a1/00000008-eee9b20b82024b618bd510879bf421e0; shards differing from the manifest []
+ok   nfs-vis-long succeeded on attempt 2: phase Succeeded, attempts 2
+ok   nfs-vis-long every rank resumed from one checkpoint, or every rank restarted from zero: resumes {1: ('a1/00000008-eee9b20b82024b618bd510879bf421e0', 8), 0: ('a1/00000008-eee9b20b82024b618bd510879bf421e0', 8)}; restarted from zero []
+ok   nfs-vis-long same training as the reference on every rank: ranks [0, 1] recorded final parameters
+ok   nfs-vis-long every rank loaded only a checkpoint complete on the storage, after its own check passed: resumes by rank [0, 1] from ['a1/00000008-eee9b20b82024b618bd510879bf421e0']; every shard matches; each resume preceded by a passing shard_check: True
+info nfs-vis-long shard checks in attempt 2: 2 records; looks [1, 1]; invisible []
+ok   nfs-vis-long a prober watched on every worker before the first checkpoint: probers started on ['rstnfs-worker', 'rstnfs-worker2', 'rstnfs-worker3']; first checkpoint 2026-11-01T09:22:23.211+00:00
+ok   nfs-vis-long attempt 2 ran a rank where no shard was written, in a cache the prober had told its shard was absent: attempt 1 {0: 'rstnfs-worker', 1: 'rstnfs-worker2'}, attempt 2 {0: 'rstnfs-worker3', 1: 'rstnfs-worker2'}; ranks on such a node [0], sharing the prober's cache [0]; first offer a1/00000008-eee9b20b82024b618bd510879bf421e0; with an absent lookup of their own shard there through the registered mounts [0]
+info nfs-vis-long probers' delays from a shard's mtime to first seeing it, after having looked it up absent: 48 shards, min 0.0 s, max 19.2 s; never seen before the case ended: 0 []
+FAIL nfs-vis-long a rank found its shard absent through every look while its directory listed it: 0 such checks: []
+1 failed
+/home/lkhun9311/workspace/gpu-cp-nfs/hack/distributed-restart-kind.sh: line 69: kill: (3048733) - No such process
+/home/lkhun9311/workspace/gpu-cp-nfs/hack/distributed-restart-kind.sh: line 69: kill: (3053987) - No such process
+/home/lkhun9311/workspace/gpu-cp-nfs/hack/distributed-restart-kind.sh: line 69: kill: (3066500) - No such process
+/home/lkhun9311/workspace/gpu-cp-nfs/hack/distributed-restart-kind.sh: line 69: kill: (3079452) - No such process
+/home/lkhun9311/workspace/gpu-cp-nfs/hack/distributed-restart-kind.sh: line 69: kill: (3091996) - No such process
+/home/lkhun9311/workspace/gpu-cp-nfs/hack/distributed-restart-kind.sh: line 69: kill: (3105321) - No such process
+/home/lkhun9311/workspace/gpu-cp-nfs/hack/distributed-restart-kind.sh: line 69: kill: (3119096) - No such process
+/home/lkhun9311/workspace/gpu-cp-nfs/hack/distributed-restart-kind.sh: line 69: kill: (3145516) - No such process
+09:23:19 cleanup: /sys/module/nfsv4/parameters/directory_delegations is now Y, was Y
+rstnfs-worker
+rstnfs-worker2
+rstnfs-worker3
+Deleting cluster "rstnfs" ...
+Deleted nodes: ["rstnfs-control-plane"]
+09:23:20 cleanup: deleted rstnfs

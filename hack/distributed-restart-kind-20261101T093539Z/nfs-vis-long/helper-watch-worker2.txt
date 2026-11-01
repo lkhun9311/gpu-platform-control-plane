@@ -1,0 +1,19 @@
+{"ts": "2026-11-01T09:39:53.514096+00:00", "node": "rstnfs-worker2", "event": "probe_start", "watch": {"point": "/watch", "fstype": "nfs4", "source": "10.96.222.253:/", "super_options": "rw,vers=4.1,rsize=1048576,wsize=1048576,namlen=255,acregmin=600,acregmax=600,acdirmin=600,acdirmax=600,hard,noresvport,fatal_neterrors=ENETDOWN:ENETUNREACH,proto=tcp,timeo=600,retrans=2,sec=sys,clientaddr=172.18.0.9,local_lock=none,addr=10.96.222.253", "dev": 7340204}, "list": {"point": "/list", "fstype": "nfs4", "source": "10.96.222.253:/", "super_options": "rw,vers=4.1,rsize=1048576,wsize=1048576,namlen=255,acregmin=0,acregmax=0,acdirmin=0,acdirmax=0,hard,noresvport,fatal_neterrors=ENETDOWN:ENETUNREACH,proto=tcp,timeo=600,retrans=2,sec=sys,clientaddr=172.18.0.9,lookupcache=none,local_lock=none,addr=10.96.222.253", "dev": 7340203}}
+{"ts": "2026-11-01T09:39:55.422201+00:00", "node": "rstnfs-worker2", "event": "probe", "dir": "a1/00000001-7d450c683c2b493ca19c6f22353cadd9", "rank": 0, "exists": false}
+{"ts": "2026-11-01T09:39:55.422280+00:00", "node": "rstnfs-worker2", "event": "probe", "dir": "a1/00000001-7d450c683c2b493ca19c6f22353cadd9", "rank": 1, "exists": false}
+{"ts": "2026-11-01T09:39:57.431887+00:00", "node": "rstnfs-worker2", "event": "probe", "dir": "a1/00000002-4bb912b4b4784c5e9861ac30c7ab7ae5", "rank": 0, "exists": false}
+{"ts": "2026-11-01T09:39:57.431960+00:00", "node": "rstnfs-worker2", "event": "probe", "dir": "a1/00000002-4bb912b4b4784c5e9861ac30c7ab7ae5", "rank": 1, "exists": false}
+{"ts": "2026-11-01T09:39:59.441285+00:00", "node": "rstnfs-worker2", "event": "probe", "dir": "a1/00000003-6dcff66619db4507b40f597eba7c0359", "rank": 0, "exists": false}
+{"ts": "2026-11-01T09:39:59.441356+00:00", "node": "rstnfs-worker2", "event": "probe", "dir": "a1/00000003-6dcff66619db4507b40f597eba7c0359", "rank": 1, "exists": false}
+{"ts": "2026-11-01T09:40:01.450463+00:00", "node": "rstnfs-worker2", "event": "probe", "dir": "a1/00000004-a2e994b63e85491d9e2384b9ea0cc0c7", "rank": 0, "exists": false}
+{"ts": "2026-11-01T09:40:01.450545+00:00", "node": "rstnfs-worker2", "event": "probe", "dir": "a1/00000004-a2e994b63e85491d9e2384b9ea0cc0c7", "rank": 1, "exists": false}
+{"ts": "2026-11-01T09:40:03.560510+00:00", "node": "rstnfs-worker2", "event": "probe", "dir": "a1/00000005-54386ce1d1f643f887769421d50aa944", "rank": 0, "exists": false}
+{"ts": "2026-11-01T09:40:03.560591+00:00", "node": "rstnfs-worker2", "event": "probe", "dir": "a1/00000005-54386ce1d1f643f887769421d50aa944", "rank": 1, "exists": false}
+{"ts": "2026-11-01T09:40:05.570903+00:00", "node": "rstnfs-worker2", "event": "probe", "dir": "a1/00000006-223b57692dc949759e66ab040a9aa24e", "rank": 0, "exists": false}
+{"ts": "2026-11-01T09:40:05.570965+00:00", "node": "rstnfs-worker2", "event": "probe", "dir": "a1/00000006-223b57692dc949759e66ab040a9aa24e", "rank": 1, "exists": false}
+{"ts": "2026-11-01T09:40:07.581357+00:00", "node": "rstnfs-worker2", "event": "probe", "dir": "a1/00000007-42c4eef63032440ab14b6da5a34c661c", "rank": 0, "exists": false}
+{"ts": "2026-11-01T09:40:07.581439+00:00", "node": "rstnfs-worker2", "event": "probe", "dir": "a1/00000007-42c4eef63032440ab14b6da5a34c661c", "rank": 1, "exists": false}
+{"ts": "2026-11-01T09:40:09.591584+00:00", "node": "rstnfs-worker2", "event": "probe", "dir": "a1/00000008-c9d45437e4494d4bb4ef3b1ed22d8fdb", "rank": 0, "exists": false}
+{"ts": "2026-11-01T09:40:09.591650+00:00", "node": "rstnfs-worker2", "event": "probe", "dir": "a1/00000008-c9d45437e4494d4bb4ef3b1ed22d8fdb", "rank": 1, "exists": false}
+{"ts": "2026-11-01T09:40:16.427235+00:00", "node": "rstnfs-worker2", "event": "probe", "dir": "a1/00000008-c9d45437e4494d4bb4ef3b1ed22d8fdb", "rank": 0, "exists": true}
+{"ts": "2026-11-01T09:40:16.427271+00:00", "node": "rstnfs-worker2", "event": "probe", "dir": "a1/00000008-c9d45437e4494d4bb4ef3b1ed22d8fdb", "rank": 1, "exists": true}

@@ -1,0 +1,4 @@
+{"uid": "2392ac68-7a49-42e5-ad64-86f9af8c1ce7", "pod": "rst-nfs-kill-before-manifest-091824-0-kvp9d", "exit": 137, "reason": "Error", "finished": "2026-11-01T09:18:31Z"}
+{"uid": "7f7de096-8a83-473f-8d2d-e2ec77a20935", "pod": "rst-nfs-kill-before-manifest-091824-1-kpg2j", "exit": 1, "reason": "Error", "finished": "2026-11-01T09:18:31Z"}
+{"uid": "352e2aa0-ffc3-49b3-b938-34a505d996d1", "pod": "rst-nfs-kill-before-manifest-091824-0-8g2pl", "exit": 0, "reason": "Completed", "finished": "2026-11-01T09:18:52Z"}
+{"uid": "de21a1e9-a247-4b45-b2f0-3115bb5529b0", "pod": "rst-nfs-kill-before-manifest-091824-1-26kqm", "exit": 0, "reason": "Completed", "finished": "2026-11-01T09:18:52Z"}

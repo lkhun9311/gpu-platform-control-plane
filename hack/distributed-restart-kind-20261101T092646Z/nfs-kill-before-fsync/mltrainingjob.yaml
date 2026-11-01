@@ -1,0 +1,21 @@
+apiVersion: platform.lkhun9311.github.io/v1
+kind: MLTrainingJob
+metadata:
+  name: rst-nfs-kill-before-fsync-093000
+  namespace: rst
+spec:
+  queue: gpu-rst
+  image: distributed-restart:torch251
+  gpuCount: 1
+  distributed:
+    worldSize: 2
+    maxRestarts: 1
+  stateVolume:
+    claimName: shared
+    mountPath: /shared
+  command:
+    - sh
+    - -c
+    - |
+      export CKPT_RUN_ID=rst-nfs-kill-before-fsync-093000 CKPT_DIR=/shared CKPT_JOB_ID=rst-nfs-kill-before-fsync-093000 CKPT_STEPS=20 CKPT_STEP_SLEEP=1 OMP_NUM_THREADS=1 CKPT_FAULT=kill-before-fsync:6:1
+      python /work/train.py

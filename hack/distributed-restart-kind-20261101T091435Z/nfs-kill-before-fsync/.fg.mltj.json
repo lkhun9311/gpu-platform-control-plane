@@ -1,0 +1,103 @@
+{
+    "apiVersion": "platform.lkhun9311.github.io/v1",
+    "kind": "MLTrainingJob",
+    "metadata": {
+        "annotations": {
+            "kubectl.kubernetes.io/last-applied-configuration": "{\"apiVersion\":\"platform.lkhun9311.github.io/v1\",\"kind\":\"MLTrainingJob\",\"metadata\":{\"annotations\":{},\"name\":\"rst-nfs-kill-before-fsync-091748\",\"namespace\":\"rst\"},\"spec\":{\"command\":[\"sh\",\"-c\",\"export CKPT_RUN_ID=rst-nfs-kill-before-fsync-091748 CKPT_DIR=/shared CKPT_JOB_ID=rst-nfs-kill-before-fsync-091748 CKPT_STEPS=20 CKPT_STEP_SLEEP=1 OMP_NUM_THREADS=1 CKPT_FAULT=kill-before-fsync:6:1\\npython /work/train.py\\n\"],\"distributed\":{\"maxRestarts\":1,\"worldSize\":2},\"gpuCount\":1,\"image\":\"distributed-restart:torch251\",\"queue\":\"gpu-rst\",\"stateVolume\":{\"claimName\":\"shared\",\"mountPath\":\"/shared\"}}}\n"
+        },
+        "creationTimestamp": "2026-11-01T09:17:48Z",
+        "finalizers": [
+            "mltrainingjob.platform.lkhun9311.github.io/finalizer"
+        ],
+        "generation": 1,
+        "name": "rst-nfs-kill-before-fsync-091748",
+        "namespace": "rst",
+        "resourceVersion": "2385",
+        "uid": "1881122c-e439-4c0c-b03d-068e76b979c4"
+    },
+    "spec": {
+        "command": [
+            "sh",
+            "-c",
+            "export CKPT_RUN_ID=rst-nfs-kill-before-fsync-091748 CKPT_DIR=/shared CKPT_JOB_ID=rst-nfs-kill-before-fsync-091748 CKPT_STEPS=20 CKPT_STEP_SLEEP=1 OMP_NUM_THREADS=1 CKPT_FAULT=kill-before-fsync:6:1\npython /work/train.py\n"
+        ],
+        "completions": 1,
+        "distributed": {
+            "maxRestarts": 1,
+            "worldSize": 2
+        },
+        "gpuCount": 1,
+        "image": "distributed-restart:torch251",
+        "parallelism": 1,
+        "queue": "gpu-rst",
+        "stateVolume": {
+            "claimName": "shared",
+            "mountPath": "/shared"
+        }
+    },
+    "status": {
+        "admitToRunningSeconds": "1.522",
+        "admittedAt": "2026-11-01T09:17:48Z",
+        "attempts": [
+            {
+                "allRanksReadyAt": "2026-11-01T09:17:49Z",
+                "createdAt": "2026-11-01T09:17:48Z",
+                "failureObservedAt": "2026-11-01T09:17:58Z",
+                "jobUID": "c319ffd1-b373-49a3-89e3-9bf12dcf051c",
+                "nodes": [
+                    "rstnfs-worker",
+                    "rstnfs-worker3"
+                ],
+                "number": 1,
+                "state": "Stopped",
+                "stopConfirmedAt": "2026-11-01T09:17:58Z",
+                "trigger": "RankFailed",
+                "workloadName": "job-rst-nfs-kill-before-fsync-091748-e1884",
+                "workloadUID": "6360dd17-1b6a-4240-b923-6a1db12bd2b5"
+            },
+            {
+                "allRanksReadyAt": "2026-11-01T09:18:00Z",
+                "createdAt": "2026-11-01T09:17:58Z",
+                "jobUID": "10b13216-ae27-4f93-a79a-8a287fd98857",
+                "nodes": [
+                    "rstnfs-worker",
+                    "rstnfs-worker2"
+                ],
+                "number": 2,
+                "state": "Active",
+                "workloadName": "job-rst-nfs-kill-before-fsync-091748-acd5a",
+                "workloadUID": "2bbe5a6f-9496-40e1-9aca-ff07d08c1fe0"
+            }
+        ],
+        "conditions": [
+            {
+                "lastTransitionTime": "2026-11-01T09:17:58Z",
+                "message": "",
+                "observedGeneration": 1,
+                "reason": "QuotaReserved",
+                "status": "True",
+                "type": "Admitted"
+            },
+            {
+                "lastTransitionTime": "2026-11-01T09:17:48Z",
+                "message": "",
+                "observedGeneration": 1,
+                "reason": "ServiceOwned",
+                "status": "True",
+                "type": "RendezvousService"
+            },
+            {
+                "lastTransitionTime": "2026-11-01T09:17:49Z",
+                "message": "the tenant waited 1.522s between Kueue admitting this job and this controller seeing it run; the admission end is Kueue's own stamp and the running end is this controller's observation, so the interval carries one watch lag",
+                "reason": "Observed",
+                "status": "True",
+                "type": "AdmitToRunningObserved"
+            }
+        ],
+        "lastTransitionTime": "2026-11-01T09:18:17Z",
+        "observedGeneration": 1,
+        "phase": "Admitted",
+        "readyRanks": 0,
+        "runningObservedAt": "2026-11-01T09:17:49Z"
+    }
+}

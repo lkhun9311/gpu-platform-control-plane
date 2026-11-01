@@ -1,0 +1,18 @@
+commit=fcc3a67609a920dbf690503b60412f2ab056778f
+dirty_files=0
+kind=kind v0.33.0 go1.25.7 linux/amd64
+kueue=v0.18.3
+cert_manager=v1.21.1
+train_py_sha256=30ee3f82ff6407a8f9189c1e14297e2110ac7cc6a4c0fd05d702cff8cb095ccf
+steps=20
+cases=reference
+storage=nfs
+nfs_server_image=registry.k8s.io/sig-storage/nfs-provisioner@sha256:c825f3d5e28bde099bd7a3daace28772d412c9157ad47fa752a9ad0baafc118d
+nfs_efs_options=nfsvers=4.1 rsize=1048576 wsize=1048576 hard timeo=600 retrans=2 noresvport
+nfs_long_options=nfsvers=4.1 rsize=1048576 wsize=1048576 hard timeo=600 retrans=2 noresvport actimeo=600
+host_kernel=7.0.0-31-generic
+workload_image=sha256:b8958491cb6b5f00b847affa28c66ebf061a215b668c6ad05043d3b2eb44b10b
+node_image=kindest/node:v1.37.0@sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5
+directory_delegations_was=Y
+directory_delegations_run=N
+nfs_server=10.96.4.70
