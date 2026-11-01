@@ -70,13 +70,21 @@ cleanup() {
   fi
   [ -n "$OWNED" ] || { log "cleanup: $CLUSTER was not created by this run, so it is left alone"; return; }
   [ "${KEEP:-0}" = 1 ] && { log "cleanup: KEEP=1, leaving $CLUSTER"; return; }
+  # The control plane is an NFS client too, through the reader Pod, and the server runs on it: removed together, the
+  # client's goodbye to its own dead server held the container for minutes (the first full rehearsal), so every Pod
+  # mounting the volume goes while the server still answers.
+  k -n "$RESTART_NS" delete pods --all --wait=true --timeout=120s >>"$LOG" 2>&1 || log "cleanup: the training namespace's Pods did not all go"
   # The workers go first, while the NFS server still answers (hack/distributed-restart-kind.sh, STORAGE=nfs).
   for p in $ALL_WORKERS; do
     docker rm -f "$p" >>"$LOG" 2>&1 || log "cleanup: removing $p failed"
   done
   listed=$(kind get clusters 2>>"$LOG") || log "cleanup: kind get clusters failed"
   if grep -qx "$CLUSTER" <<<"$listed"; then
-    kind delete cluster --name "$CLUSTER" >>"$LOG" 2>&1 || log "cleanup: kind delete failed"
+    for p in 1 2 3 4 5; do
+      kind delete cluster --name "$CLUSTER" >>"$LOG" 2>&1 && break
+      log "cleanup: kind delete failed (try $p), retrying in 60 s"
+      sleep 60
+    done
     listed=$(kind get clusters 2>>"$LOG")
     if grep -qx "$CLUSTER" <<<"$listed"; then log "cleanup: $CLUSTER STILL EXISTS"; else log "cleanup: deleted $CLUSTER"; fi
   fi
@@ -563,7 +571,9 @@ stick_pod() {
     pod=$(k -n "$RESTART_NS" get pods -l "platform.lkhun9311.github.io/mltrainingjob=$m,platform.lkhun9311.github.io/mltrainingjob-attempt=2" -o name 2>>"$LOG" | head -1)
     [ -n "$pod" ] || sleep 1
   done
-  k -n "$RESTART_NS" patch "$pod" --type=json -p "[{\"op\":\"add\",\"path\":\"/metadata/finalizers\",\"value\":[\"$STUCK\"]}]" >>"$LOG" 2>&1 ||
+  # Appended, never set: a Job's Pod carries the Job controller's tracking finalizer, and replacing the list once made the
+  # controller lose the Pod and start a second rank 0, so attempt 2 failed instead of finishing (the first rehearsal).
+  k -n "$RESTART_NS" patch "$pod" --type=json -p "[{\"op\":\"add\",\"path\":\"/metadata/finalizers/-\",\"value\":\"$STUCK\"}]" >>"$LOG" 2>&1 ||
     { log "stick_pod: could not add $STUCK to $pod"; return 1; }
   echo "$pod" >"$OUT/stuck.txt"
   log "stick_pod: $STUCK on $pod of $m at $(date -u +%H:%M:%S)"
@@ -572,7 +582,7 @@ stick_pod() {
 # break_clocks: once the run's reference is scored, every exporter sidecar's date fails, so no node's clock can be read.
 break_clocks() {
   local p
-  until grep -q '^reference: ' "$RESTART_OUT/run.log" 2>>"$LOG"; do sleep 1; done
+  until [ -e "$RESTART_OUT/run.log" ] && grep -q '^reference: ' "$RESTART_OUT/run.log"; do sleep 1; done
   for p in $(k -n "$SYS" get pods -l app.kubernetes.io/component=dcgm-exporter -o name); do
     k -n "$SYS" exec "${p#*/}" -c exporter -- sh -c 'printf "#!/bin/sh\necho rehearsal: this clock is made unreadable >&2\nexit 1\n" >/ctl/date && chmod +x /ctl/date' >>"$LOG" 2>&1 ||
       log "break_clocks: $p not broken"
@@ -609,7 +619,10 @@ for r in $RUNS; do
       run_stage c "reference rank-kill-1 rank-kill-2"
       if [ -s "$OUT/stuck.txt" ]; then
         stuck=$(cat "$OUT/stuck.txt")
-        k -n "$RESTART_NS" patch "$stuck" --type=json -p '[{"op":"remove","path":"/metadata/finalizers"}]' >>"$LOG" 2>&1 || log "could not remove $STUCK from $stuck"
+        fins=$(k -n "$RESTART_NS" get "$stuck" -o json 2>>"$LOG" | python3 -c '
+import json, sys
+print(json.dumps([f for f in json.load(sys.stdin)["metadata"].get("finalizers", []) if f != sys.argv[1]]))' "$STUCK")
+        k -n "$RESTART_NS" patch "$stuck" --type=merge -p "{\"metadata\":{\"finalizers\":${fins:-[]}}}" >>"$LOG" 2>&1 || log "could not remove $STUCK from $stuck"
         if k -n "$RESTART_NS" wait --for=delete "$stuck" --timeout=120s >>"$LOG" 2>&1; then log "removed $STUCK from $stuck, and it is gone"; else log "removed $STUCK from $stuck, and it is STILL there"; fi
       fi
       ;;
