@@ -5,7 +5,7 @@
 # Each substitution sits at the AWS or GPU boundary and nowhere else, and each is the real function with the smallest
 # textual change, asserted to have applied, because a substitution that silently did not apply would rehearse the
 # original against the wrong answer and read as a pass.
-# hack/test/restart-kind/bin/aws answers the runner's AWS calls; this file gives the kind side of the same state.
+# hack/test/restart-kind/stubs/aws answers the runner's AWS calls; this file gives the kind side of the same state.
 #
 # WHAT THE CALLER PROVIDES: RSTK_STATE (the state directory the aws stub shares), RESTART_CONTEXT, and the four
 # libraries sourced.
