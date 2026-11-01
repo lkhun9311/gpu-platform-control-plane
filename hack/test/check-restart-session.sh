@@ -390,6 +390,12 @@ score created-before-fence terminate-wait-3 FAILED "attempt 2 was created at"
 score seen-before-fence terminate-spare-2 FAILED "attempt 2 was already in the job's status at"
 score no-timeline terminate-wait-4 VOID "no timeline of the job's status"
 score no-created-at terminate-wait-5 VOID "attempt 2 has no createdAt"
+score null-observed terminate-wait-1 VOID "its evidence could not be read: AttributeError"
+out="$(python3 experiments/distributed-restart/score_eks.py "$work/run-null-observed-terminate-wait-1" 2>&1)"
+if grep -q '^ACCEPTED terminate-wait-2 ' <<<"$out" && grep -q '^summary' <<<"$out"; then ok "the cases after a null field are still scored"; else bad "the report after a null field: $(tail -2 <<<"$out")"; fi
+# The in-trainer fault is the registered one, at the registered step, not only from the registered rank.
+score wrong-fault-point rank-kill-3 VOID "attempt 1's fault was 'kill-after-latest' at step 12, not the registered 'kill-before-fsync' at step 12"
+score wrong-fault-step no-rng-control VOID "attempt 1's fault was 'kill-after-latest' at step 20, not the registered 'kill-after-latest' at step 12"
 # The recovery class is read from Node UIDs and the nodes the runner prepared, not from names alone.
 score wait-on-spare terminate-wait-1 VOID "terminate-wait recovered on ['ip-10-0-64-11', 'ip-10-0-64-13'], every one up before the fault"
 score name-reused terminate-spare-2 ACCEPTED '"class": "replacement"'

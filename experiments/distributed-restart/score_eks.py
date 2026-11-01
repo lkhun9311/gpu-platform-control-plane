@@ -42,6 +42,8 @@ TRIGGER = {"no-rng-control": "RankFailed", "rank-kill": "RankFailed", "dcgm": "N
            "terminate-spare": "RankFailed", "terminate-wait": "RankFailed"}
 # The registered in-trainer faults resume from a step the fault fixes; the external ones from whatever LATEST named.
 RESUME_FROM = {"no-rng-control": 12, "rank-kill": 11}
+# The registered in-trainer faults, as CKPT_FAULT names them in restart_case_env: the point, the step and the rank.
+IN_TRAINER_FAULT = {"no-rng-control": ("kill-after-latest", 12, 0), "rank-kill": ("kill-before-fsync", 12, 1)}
 EXTERNAL_MIN_STEP = 10
 FENCE_ANNOTATION = "platform.lkhun9311.github.io/fenced-nodes"
 
@@ -364,11 +366,14 @@ class Case:
         Checked first, so a fault that never landed is VOID rather than read as a recovery that failed or, worse, as
         one that succeeded because nothing happened.
         """
-        if self.kind in ("rank-kill", "no-rng-control"):
-            want = 1 if self.kind == "rank-kill" else 0
+        if self.kind in IN_TRAINER_FAULT:
+            point, step, want = IN_TRAINER_FAULT[self.kind]
             fired = self.rec("fault", 1)
             if len(fired) != 1 or fired[0]["rank"] != want:
                 void(f"attempt 1 has fault records from ranks {[r['rank'] for r in fired]}, want exactly one, from rank {want}")
+            # Another point is another fault: kill-after-latest leaves step 12 published and kill-before-fsync does not.
+            if (fired[0].get("point"), fired[0].get("step")) != (point, step):
+                void(f"attempt 1's fault was {fired[0].get('point')!r} at step {fired[0].get('step')}, not the registered {point!r} at step {step}")
             return
         target = self.spec.get("target") or {}
         rank1 = sorted((p for p in self.pods.values() if str(p.get("index")) == "1"), key=lambda p: p.get("observed", ""))
@@ -591,7 +596,7 @@ def main(argv: list[str]) -> int:
             verdicts[name] = ("ACCEPTED", "", False)
         except Verdict as v:
             verdicts[name] = (v.kind, v.reason, v.censored)
-        except (ValueError, KeyError, TypeError, IndexError, OSError) as exc:
+        except (ValueError, KeyError, TypeError, IndexError, AttributeError, OSError) as exc:
             # Evidence that cannot be read is that case's VOID, never the end of the report: an empty file left by
             # one failed kubectl call would otherwise leave every other case without a verdict (codex review of 830f64af).
             verdicts[name] = ("VOID", f"its evidence could not be read: {type(exc).__name__}: {str(exc)[:120]}", False)

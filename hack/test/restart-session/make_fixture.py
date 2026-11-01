@@ -391,6 +391,14 @@ def defect(out: pathlib.Path, name: str, case: str) -> None:
         (d / "nodes-after.json").unlink()
     elif name == "no-created-at":
         edit_json(d / "final-mltj.json", lambda m: m["status"]["attempts"][1].pop("createdAt"))
+    elif name == "null-observed":
+        # A sample whose time is null, as a runner bug or a truncated write could leave; it must void its case only.
+        edit_json_lines(d / "timeline.jsonl", lambda s: {**s, "observed": None})
+    elif name == "wrong-fault-point":
+        # The rank the registration names fired, at the registered step, but another fault than the registered one.
+        edit_records(d, lambda r: {**r, "point": "kill-after-latest"} if r["event"] == "fault" else r)
+    elif name == "wrong-fault-step":
+        edit_records(d, lambda r: {**r, "step": 20} if r["event"] == "fault" else r)
     elif name == "no-timeline":
         (d / "timeline.jsonl").unlink()
     elif name == "cpu-backend":
