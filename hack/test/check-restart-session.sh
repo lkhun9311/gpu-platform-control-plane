@@ -223,7 +223,7 @@ EOF
 out="$(lib fence 'restart_terminate_and_fence i-0abc0123456789def ip-10-0-64-12 rst-t1 "$RESTART_OUT" 30')"
 marks="$(python3 -c 'import json, sys; print(" ".join(json.loads(l)["mark"] for l in open(sys.argv[1])))' "$work/out/fence/marks.jsonl")"
 annotations="$(grep -c 'annotate mltrainingjob rst-t1 platform.lkhun9311.github.io/fenced-nodes=ip-10-0-64-12' "$work/fence.calls")"
-if [[ "$marks" == "fault-start fault-end terminated-read fenced" && "$annotations" == 1 && "$out" == *"fenced"* ]]; then
+if [[ "$marks" == "fault-start fault-end terminated-read fence-request fenced" && "$annotations" == 1 && "$out" == *"fenced"* ]]; then
   ok "the node is fenced once, after EC2 said terminated: $marks"
 else
   bad "the fencing order was '$marks' with $annotations annotation(s): $out"

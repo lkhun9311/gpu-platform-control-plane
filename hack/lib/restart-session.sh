@@ -637,6 +637,9 @@ restart_terminate_and_fence() {
     fi
     sleep "$RESTART_POLL"
   done
+  # Marked before the call too, because the controller can see the annotation and start attempt 2 before the call
+  # returns, so the barrier is judged against this mark and not against "fenced".
+  restart_mark "$dir" "fence-request"
   out="$(rk -n "$RESTART_NS" annotate mltrainingjob "$mltj" "$RESTART_FENCED_ANN=$node" --overwrite 2>&1)" || {
     echo "$instance is terminated, and the fencing of $node could not be written: ${out:0:200}"
     return 1
