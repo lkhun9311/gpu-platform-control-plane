@@ -112,3 +112,4 @@ QOSGrpGRES	a Slurm pending reason, quoted from experiments/slurm-lab/evidence/20
 BeginTime	a Slurm pending reason, quoted from experiments/slurm-lab/evidence/2026-10-31/02c-preempt-requeue.txt, which the scan does not read
 ReqNodeNotAvail	a Slurm pending reason, quoted from experiments/slurm-lab/evidence/2026-10-31/03a-drain.txt, which the scan does not read
 PREEMPTED	a Slurm job state, quoted from experiments/slurm-lab/evidence/2026-10-31/02d-preempt-cancel.txt, which the scan does not read
+RequeueExit	a slurm.conf parameter named in experiments/slurm-lab/README.md because this lab does not set it
