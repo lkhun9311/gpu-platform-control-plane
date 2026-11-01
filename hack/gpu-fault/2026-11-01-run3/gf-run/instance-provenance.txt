@@ -1,0 +1,4 @@
+commit=0994a106fa0104020db09fe3a3a68ea8aaec437b
+launch_time_epoch=1793500566
+driver=595.91.07
+bringup_rc=0

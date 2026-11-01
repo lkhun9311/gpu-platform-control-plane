@@ -1,0 +1,163 @@
+{
+    "apiVersion": "platform.lkhun9311.github.io/v1",
+    "kind": "NodeHealth",
+    "metadata": {
+        "annotations": {
+            "kubectl.kubernetes.io/last-applied-configuration": "{\"apiVersion\":\"platform.lkhun9311.github.io/v1\",\"kind\":\"NodeHealth\",\"metadata\":{\"annotations\":{},\"name\":\"gf-healthy\"},\"spec\":{\"nodeName\":\"m5cgpu-control-plane\"}}\n"
+        },
+        "creationTimestamp": "2026-11-01T02:41:53Z",
+        "finalizers": [
+            "nodehealth.platform.lkhun9311.github.io/finalizer"
+        ],
+        "generation": 1,
+        "name": "gf-healthy",
+        "resourceVersion": "1259",
+        "uid": "f466f3da-f680-4a3b-b58b-2d297223e75b"
+    },
+    "spec": {
+        "nodeName": "m5cgpu-control-plane"
+    },
+    "status": {
+        "conditions": [
+            {
+                "lastTransitionTime": "2026-11-01T02:41:53Z",
+                "message": "Target node is Ready",
+                "observedGeneration": 1,
+                "reason": "NodeReady",
+                "status": "True",
+                "type": "Ready"
+            },
+            {
+                "lastTransitionTime": "2026-11-01T02:41:53Z",
+                "message": "no Running, Ready Pod matching app.kubernetes.io/component=dcgm-exporter in gpu-platform-control-plane-system on this node",
+                "observedGeneration": 1,
+                "reason": "NoExporter",
+                "status": "False",
+                "type": "GPUSignal"
+            },
+            {
+                "lastTransitionTime": "2026-11-01T02:41:53Z",
+                "message": "no fresh reading of this node's cards: NoExporter",
+                "observedGeneration": 1,
+                "reason": "SignalNotFresh",
+                "status": "Unknown",
+                "type": "GPUHealthy"
+            }
+        ],
+        "lastTransitionTime": "2026-11-01T02:41:53Z",
+        "observedGeneration": 1,
+        "phase": "Ready"
+    }
+}
+{
+    "apiVersion": "platform.lkhun9311.github.io/v1",
+    "kind": "NodeHealth",
+    "metadata": {
+        "annotations": {
+            "gpufault.platform.lkhun9311.github.io/cleared-at": "2026-11-01T03:23:00.83942169Z",
+            "gpufault.platform.lkhun9311.github.io/observed-at": "2026-11-01T03:20:59.830929412Z",
+            "gpufault.platform.lkhun9311.github.io/reading": "GPU-1c9e2010-806b-5c92-c49f-f807c513daa7/DCGM_FI_DEV_XID_ERRORS=0,GPU-1c9e2010-806b-5c92-c49f-f807c513daa7/DCGM_FI_DEV_ECC_DBE_VOL_TOTAL=0,GPU-1c9e2010-806b-5c92-c49f-f807c513daa7/DCGM_FI_DEV_ECC_SBE_VOL_TOTAL=0",
+            "gpufault.platform.lkhun9311.github.io/reading-at": "2026-11-01T03:23:00.830720785Z",
+            "gpufault.platform.lkhun9311.github.io/tainted-at": "2026-11-01T03:20:59.838440013Z",
+            "kubectl.kubernetes.io/last-applied-configuration": "{\"apiVersion\":\"platform.lkhun9311.github.io/v1\",\"kind\":\"NodeHealth\",\"metadata\":{\"annotations\":{},\"name\":\"gf-target\"},\"spec\":{\"nodeName\":\"m5cgpu-worker\"}}\n"
+        },
+        "creationTimestamp": "2026-11-01T02:41:53Z",
+        "finalizers": [
+            "nodehealth.platform.lkhun9311.github.io/finalizer"
+        ],
+        "generation": 1,
+        "name": "gf-target",
+        "resourceVersion": "8506",
+        "uid": "ffad0a8a-8626-4d20-999c-011592a63419"
+    },
+    "spec": {
+        "nodeName": "m5cgpu-worker"
+    },
+    "status": {
+        "conditions": [
+            {
+                "lastTransitionTime": "2026-11-01T02:41:53Z",
+                "message": "Target node is Ready",
+                "observedGeneration": 1,
+                "reason": "NodeReady",
+                "status": "True",
+                "type": "Ready"
+            },
+            {
+                "lastTransitionTime": "2026-11-01T02:41:53Z",
+                "message": "1 card(s) read within 5s",
+                "observedGeneration": 1,
+                "reason": "Fresh",
+                "status": "True",
+                "type": "GPUSignal"
+            },
+            {
+                "lastTransitionTime": "2026-11-01T03:23:00Z",
+                "message": "no fault field set on any card",
+                "observedGeneration": 1,
+                "reason": "NoFault",
+                "status": "True",
+                "type": "GPUHealthy"
+            }
+        ],
+        "lastTransitionTime": "2026-11-01T03:23:00Z",
+        "observedGeneration": 1,
+        "phase": "Ready"
+    }
+}
+{
+    "apiVersion": "platform.lkhun9311.github.io/v1",
+    "kind": "NodeHealth",
+    "metadata": {
+        "annotations": {
+            "gpufault.platform.lkhun9311.github.io/cleared-at": "2026-11-01T03:23:00.83942169Z",
+            "gpufault.platform.lkhun9311.github.io/observed-at": "2026-11-01T03:20:59.830929412Z",
+            "gpufault.platform.lkhun9311.github.io/reading": "GPU-1c9e2010-806b-5c92-c49f-f807c513daa7/DCGM_FI_DEV_XID_ERRORS=0,GPU-1c9e2010-806b-5c92-c49f-f807c513daa7/DCGM_FI_DEV_ECC_DBE_VOL_TOTAL=0,GPU-1c9e2010-806b-5c92-c49f-f807c513daa7/DCGM_FI_DEV_ECC_SBE_VOL_TOTAL=1",
+            "gpufault.platform.lkhun9311.github.io/reading-at": "2026-11-01T03:23:17.83127165Z",
+            "gpufault.platform.lkhun9311.github.io/tainted-at": "2026-11-01T03:20:59.838440013Z",
+            "kubectl.kubernetes.io/last-applied-configuration": "{\"apiVersion\":\"platform.lkhun9311.github.io/v1\",\"kind\":\"NodeHealth\",\"metadata\":{\"annotations\":{},\"name\":\"gf-target\"},\"spec\":{\"nodeName\":\"m5cgpu-worker\"}}\n"
+        },
+        "creationTimestamp": "2026-11-01T02:41:53Z",
+        "finalizers": [
+            "nodehealth.platform.lkhun9311.github.io/finalizer"
+        ],
+        "generation": 1,
+        "name": "gf-target",
+        "resourceVersion": "8591",
+        "uid": "ffad0a8a-8626-4d20-999c-011592a63419"
+    },
+    "spec": {
+        "nodeName": "m5cgpu-worker"
+    },
+    "status": {
+        "conditions": [
+            {
+                "lastTransitionTime": "2026-11-01T02:41:53Z",
+                "message": "Target node is Ready",
+                "observedGeneration": 1,
+                "reason": "NodeReady",
+                "status": "True",
+                "type": "Ready"
+            },
+            {
+                "lastTransitionTime": "2026-11-01T02:41:53Z",
+                "message": "1 card(s) read within 5s",
+                "observedGeneration": 1,
+                "reason": "Fresh",
+                "status": "True",
+                "type": "GPUSignal"
+            },
+            {
+                "lastTransitionTime": "2026-11-01T03:23:00Z",
+                "message": "no fault field set on any card",
+                "observedGeneration": 1,
+                "reason": "NoFault",
+                "status": "True",
+                "type": "GPUHealthy"
+            }
+        ],
+        "lastTransitionTime": "2026-11-01T03:23:00Z",
+        "observedGeneration": 1,
+        "phase": "Ready"
+    }
+}

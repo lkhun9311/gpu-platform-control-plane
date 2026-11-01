@@ -1,0 +1,116 @@
+{
+    "apiVersion": "kueue.x-k8s.io/v1beta2",
+    "kind": "Workload",
+    "metadata": {
+        "creationTimestamp": "2026-11-01T03:25:19Z",
+        "finalizers": [
+            "kueue.x-k8s.io/resource-in-use"
+        ],
+        "generation": 1,
+        "labels": {
+            "kueue.x-k8s.io/job-uid": "62a35969-5ef8-4c46-92a5-66c3d5367b7d"
+        },
+        "name": "job-gf-20-none-84d7b",
+        "namespace": "gpufault",
+        "ownerReferences": [
+            {
+                "apiVersion": "batch/v1",
+                "blockOwnerDeletion": true,
+                "controller": true,
+                "kind": "Job",
+                "name": "gf-20-none",
+                "uid": "62a35969-5ef8-4c46-92a5-66c3d5367b7d"
+            }
+        ],
+        "resourceVersion": "8907",
+        "uid": "4c10ad9a-320c-49f9-a1e2-eed783c5f017"
+    },
+    "spec": {
+        "active": true,
+        "podSets": [
+            {
+                "count": 1,
+                "name": "main",
+                "template": {
+                    "metadata": {
+                        "labels": {
+                            "batch.kubernetes.io/job-name": "gf-20-none"
+                        }
+                    },
+                    "spec": {
+                        "containers": [
+                            {
+                                "command": [
+                                    "sh",
+                                    "-c",
+                                    "trap 'exit 143' TERM; while true; do sleep 1; done"
+                                ],
+                                "env": [
+                                    {
+                                        "name": "NVIDIA_DRIVER_CAPABILITIES",
+                                        "value": "compute,utility"
+                                    }
+                                ],
+                                "image": "gpufault-job:busybox",
+                                "imagePullPolicy": "IfNotPresent",
+                                "name": "trainer",
+                                "resources": {
+                                    "limits": {
+                                        "nvidia.com/gpu": "1"
+                                    }
+                                },
+                                "terminationMessagePath": "/dev/termination-log",
+                                "terminationMessagePolicy": "File"
+                            }
+                        ],
+                        "dnsPolicy": "ClusterFirst",
+                        "restartPolicy": "Never",
+                        "schedulerName": "default-scheduler",
+                        "securityContext": {},
+                        "terminationGracePeriodSeconds": 30
+                    }
+                },
+                "topologyRequest": {
+                    "podIndexLabel": "batch.kubernetes.io/job-completion-index"
+                }
+            }
+        ],
+        "priority": 0,
+        "queueName": "gpu-gpufault"
+    },
+    "status": {
+        "admission": {
+            "clusterQueue": "gpu-gpufault",
+            "podSetAssignments": [
+                {
+                    "count": 1,
+                    "flavors": {
+                        "nvidia.com/gpu": "gpu"
+                    },
+                    "name": "main",
+                    "resourceUsage": {
+                        "nvidia.com/gpu": "1"
+                    }
+                }
+            ]
+        },
+        "conditions": [
+            {
+                "lastTransitionTime": "2026-11-01T03:25:19Z",
+                "message": "Quota reserved in ClusterQueue gpu-gpufault",
+                "observedGeneration": 1,
+                "reason": "QuotaReserved",
+                "status": "True",
+                "type": "QuotaReserved"
+            },
+            {
+                "lastTransitionTime": "2026-11-01T03:25:19Z",
+                "message": "The workload is admitted",
+                "observedGeneration": 1,
+                "reason": "Admitted",
+                "status": "True",
+                "type": "Admitted"
+            }
+        ]
+    }
+}

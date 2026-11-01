@@ -1,0 +1,110 @@
+docker build -t controller:gpufault .
+DEPRECATED: The legacy builder is deprecated and will be removed in a future release.
+            Install the buildx component to build images with BuildKit:
+            https://docs.docker.com/go/buildx/
+
+Sending build context to Docker daemon  3.061MB
+Step 1/14 : FROM golang:1.27.3@sha256:957861185dbf29d93668ace41e011d091c6e779953d47f0316ef2cc58e28fe2b AS builder
+ ---> 957861185dbf
+Step 2/14 : ARG TARGETOS
+ ---> Using cache
+ ---> a38e89fd304b
+Step 3/14 : ARG TARGETARCH
+ ---> Using cache
+ ---> df7229e5f3ec
+Step 4/14 : WORKDIR /workspace
+ ---> Using cache
+ ---> e0f3b83f69f4
+Step 5/14 : COPY go.mod go.mod
+ ---> Using cache
+ ---> c2ed1be935e8
+Step 6/14 : COPY go.sum go.sum
+ ---> Using cache
+ ---> 3d64437e64c0
+Step 7/14 : RUN go mod download
+ ---> Using cache
+ ---> e5ea0e053d8e
+Step 8/14 : COPY . .
+ ---> 197cbfe9e3e4
+Step 9/14 : RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o manager cmd/main.go
+ ---> Running in 52cb85b640c5
+ ---> Removed intermediate container 52cb85b640c5
+ ---> de7291c5b80e
+Step 10/14 : FROM gcr.io/distroless/static:nonroot@sha256:18f4cc26c9ffa7f20a359298be7deadac5c607c8e03a02b8119f1a5fc2f82c99
+ ---> 18f4cc26c9ff
+Step 11/14 : WORKDIR /
+ ---> Using cache
+ ---> cbe4ce95f554
+Step 12/14 : COPY --from=builder /workspace/manager .
+ ---> cd9c80d36db9
+Step 13/14 : USER 65532:65532
+ ---> Running in 1fbca66cdd0d
+ ---> Removed intermediate container 1fbca66cdd0d
+ ---> f9b9010d9649
+Step 14/14 : ENTRYPOINT ["/manager"]
+ ---> Running in 5fb7859a807e
+ ---> Removed intermediate container 5fb7859a807e
+ ---> c8c4ee139583
+Successfully built c8c4ee139583
+Successfully tagged controller:gpufault
+docker build -t gpu-simulator:gpufault -f Dockerfile.gpu-simulator .
+DEPRECATED: The legacy builder is deprecated and will be removed in a future release.
+            Install the buildx component to build images with BuildKit:
+            https://docs.docker.com/go/buildx/
+
+Sending build context to Docker daemon  3.061MB
+Step 1/14 : FROM golang:1.27.3@sha256:957861185dbf29d93668ace41e011d091c6e779953d47f0316ef2cc58e28fe2b AS builder
+ ---> 957861185dbf
+Step 2/14 : ARG TARGETOS
+ ---> Using cache
+ ---> a38e89fd304b
+Step 3/14 : ARG TARGETARCH
+ ---> Using cache
+ ---> df7229e5f3ec
+Step 4/14 : WORKDIR /workspace
+ ---> Using cache
+ ---> e0f3b83f69f4
+Step 5/14 : COPY go.mod go.mod
+ ---> Using cache
+ ---> c2ed1be935e8
+Step 6/14 : COPY go.sum go.sum
+ ---> Using cache
+ ---> 3d64437e64c0
+Step 7/14 : RUN go mod download
+ ---> Using cache
+ ---> e5ea0e053d8e
+Step 8/14 : COPY . .
+ ---> Using cache
+ ---> 197cbfe9e3e4
+Step 9/14 : RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o gpu-simulator ./cmd/gpu-simulator
+ ---> Running in 1a2336920072
+ ---> Removed intermediate container 1a2336920072
+ ---> bfa57454c78f
+Step 10/14 : FROM gcr.io/distroless/static:nonroot@sha256:18f4cc26c9ffa7f20a359298be7deadac5c607c8e03a02b8119f1a5fc2f82c99
+ ---> 18f4cc26c9ff
+Step 11/14 : WORKDIR /
+ ---> Using cache
+ ---> cbe4ce95f554
+Step 12/14 : COPY --from=builder /workspace/gpu-simulator .
+ ---> Using cache
+ ---> 5f140892e5a2
+Step 13/14 : USER 65532:65532
+ ---> Using cache
+ ---> 3b6f93bd5651
+Step 14/14 : ENTRYPOINT ["/gpu-simulator"]
+ ---> Using cache
+ ---> d1681e50fc01
+Successfully built d1681e50fc01
+Successfully tagged gpu-simulator:gpufault
+1.36: Pulling from library/busybox
+Digest: sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662
+Status: Image is up to date for busybox:1.36
+docker.io/library/busybox:1.36
+DEPRECATED: The legacy builder is deprecated and will be removed in a future release.
+            Install the buildx component to build images with BuildKit:
+            https://docs.docker.com/go/buildx/
+
+sha256:c28bbc10d309bf274b27333a8bd86969479fe2d2c696c04787bea0bf9408e0b2
+hack/gpu-fault-20261101T023134Z/images/controller.tar.gz: one manifest, no attestation
+hack/gpu-fault-20261101T023134Z/images/gpu-simulator.tar.gz: one manifest, no attestation
+hack/gpu-fault-20261101T023134Z/images/job.tar.gz: one manifest, no attestation

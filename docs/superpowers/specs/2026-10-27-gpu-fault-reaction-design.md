@@ -435,3 +435,32 @@ The label is REHEARSAL and the four arms are UNJUDGED with one repetition each, 
 It shows the procedure, the gate on `zero_given` and the scorer working together; it shows nothing about a card.
 
 **What it does not license**, beyond the list above: that a card which really faulted is healthy once DCGM reads zero, since the fault was injected into DCGM's cache and the card never faulted; that the device plugin would return to a tainted node, since it does not tolerate the fault taint and the session never restarts it; a burn-in, since one vectorAdd is one kernel; a recovery time, since one check is one observation.
+
+## Result, 2026-11-01: run 3 is a RESULT; both fault arms REACTED, both stale checks PASS, and the recovery check PASSES
+
+**Verdict: `GPU FAULT REACTION: RESULT`**, from `0994a106`, the merge to `dev` that carries the approved amendment.
+A scorer I rebuilt from that commit prints the same report as the session's, apart from the `termination=confirmed` line the session appends.
+
+| arm | verdict | valid | detect, median (min–max) | end to end, median (min–max) |
+|---|---|---:|---|---|
+| `xid` (Xid 79) | REACTED | 5 of 5 | 1.634 s (1.213–1.999) | 2.803 s (2.381–3.168) |
+| `ecc` (DBE 1) | REACTED | 5 of 5 | 1.666 s (1.182–1.984) | 2.834 s (2.351–3.153) |
+| `benign` (SBE 1) | QUIET | 5 of 5 | — | — |
+| `none` | QUIET | 5 of 5 | — | — |
+
+Every figure is an upper end of a truncation interval, as "Endpoints, with units" defines them; the other hops are in `verdict.txt`.
+- **P1** held: the largest detect upper end is 1.999 s, under 2.8 s.
+- **P2 to P5** held as in run 2: every hop present and in order, the job placed on H inside W, no control produced an action, and `allocatable` unchanged by injection.
+- **P6, stale-healthy: PASS. Stale-latched: PASS.** With the toleration of `dbb0041c`, the exporter came back to the tainted node as a new Pod, and the zero reading it then served cleared the latch (`zero_given=yes`, `after_taint=absent`).
+- **P7, recovery: PASS.** Once the target was clear, `gf-recovery` was placed on T, the pinned vectorAdd ran on the A10G and printed `Test PASSED`, and the Pod completed with exit code 0; from submission to the end of its completion second, at most 1.99 s, against the registered 180 s. One observation.
+
+**One thing the log carries that the check does not explain.** After vectorAdd's `Done`, the job's log has three lines, `ERROR: driverInitFileInfo 578 result=11`, `ERROR: init 664 result=11` and `ERROR: init 250 result=11`, with no newline between them. The program had already printed its result and the container exited 0; where the lines come from was not established, and they are recorded here rather than read as either harmless or a fault.
+
+**What it says.** On this platform, a node quarantined for a DCGM-reported fault returns to service once a fresh zero reading arrives, without an operator: the exporter returns to the tainted node, the latch clears, the taint is removed, and a CUDA job sent through `MLTrainingJob` and Kueue runs on the card. Run 2 could show the reaction only; run 3 shows the whole path from the value in DCGM to work running on the same card again.
+
+**What it does not say**, as listed for the amendment and the page: the fault was injected into DCGM's cache, so nothing here is about a card that really faulted; the device plugin was never restarted on the tainted node; one card, one driver (595.91.07); five repetitions per arm and one recovery observation.
+
+**The purchase.** One g5.2xlarge Spot instance, `i-0b97d6cfdec264c66`, in ap-northeast-2a, on the pinned AMI. `LaunchTime` 02:36:06Z; the session asked EC2 to terminate it at 03:28:42Z, 3,156 s later, and its wait confirmed `terminated` (`termination.txt`).
+At the zone's Spot price read before launch, $0.682 an hour, that is about **$0.60**.
+
+**The evidence** is in `hack/gpu-fault/2026-11-01-run3/`, with a `SHA256SUMS` over every file in it. The three image archives, the source archive, the local scorer binary and the evidence tarball are not committed; `NOT-COMMITTED.sha256` records their hashes, and the files are kept on the owner's machine.

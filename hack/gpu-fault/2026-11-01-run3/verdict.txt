@@ -1,0 +1,36 @@
+GPU FAULT REACTION: RESULT
+P5 (allocatable unchanged by injection): held
+arm xid    REACTED                valid 5 of 5
+    detect         median    1.634 s  min    1.213  max    1.999   (upper ends)
+    end_to_end     median    2.803 s  min    2.381  max    3.168   (upper ends)
+    evict_request  median    0.095 s  min    0.094  max    0.098   (upper ends)
+    exporter_lag   median    0.779 s  min    0.264  max    1.047   (upper ends)
+    job_suspend    median    1.064 s  min    1.064  max    1.065   (upper ends)
+    kueue_evict    median    0.064 s  min    0.064  max    0.065   (upper ends)
+    lost_work      median   15.000 s  min   15.000  max   15.000   (upper ends)
+    quota_release  median    1.064 s  min    1.064  max    1.065   (upper ends)
+    readmit        median    1.000 s  min    1.000  max    1.000   (upper ends)
+    running        median    2.803 s  min    2.381  max    3.168   (upper ends)
+    stop           median    1.064 s  min    1.064  max    1.065   (upper ends)
+    taint          median    0.009 s  min    0.008  max    0.011   (upper ends)
+arm ecc    REACTED                valid 5 of 5
+    detect         median    1.666 s  min    1.182  max    1.984   (upper ends)
+    end_to_end     median    2.834 s  min    2.351  max    3.153   (upper ends)
+    evict_request  median    0.095 s  min    0.095  max    0.099   (upper ends)
+    exporter_lag   median    0.787 s  min    0.263  max    1.045   (upper ends)
+    job_suspend    median    1.065 s  min    1.062  max    1.065   (upper ends)
+    kueue_evict    median    0.065 s  min    0.062  max    0.065   (upper ends)
+    lost_work      median   15.000 s  min   14.000  max   16.000   (upper ends)
+    quota_release  median    1.065 s  min    1.062  max    1.065   (upper ends)
+    readmit        median    1.000 s  min    1.000  max    1.000   (upper ends)
+    running        median    2.834 s  min    2.351  max    3.153   (upper ends)
+    stop           median    1.065 s  min    1.062  max    1.065   (upper ends)
+    taint          median    0.009 s  min    0.008  max    0.010   (upper ends)
+arm benign QUIET                  valid 5 of 5
+    - 5 fully observed window(s); this is a count, not a rate
+arm none   QUIET                  valid 5 of 5
+    - 5 fully observed window(s); this is a count, not a rate
+check stale-healthy  PASS
+check stale-latched  PASS
+check recovery       PASS
+termination=confirmed

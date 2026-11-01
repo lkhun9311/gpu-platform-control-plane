@@ -1,0 +1,394 @@
+LAST SEEN   TYPE      REASON                    OBJECT                            MESSAGE
+30m         Warning   GPUFaultDeactivated       workload/job-gf-08-xid-c526c      its pod gf-08-xid-btp9g ran on node m5cgpu-worker, which carries GPU fault GPU-1c9e2010-806b-5c92-c49f-f807c513daa7/DCGM_FI_DEV_XID_ERRORS=79
+21m         Normal    Started                   job/gf-12-ecc                     Admitted by clusterQueue gpu-gpufault
+9m59s       Normal    Started                   job/gf-17-xid                     Admitted by clusterQueue gpu-gpufault
+9m45s       Normal    Stopped                   job/gf-17-xid                     The workload is deactivated
+12m         Normal    Started                   job/gf-16-benign                  Admitted by clusterQueue gpu-gpufault
+12m         Normal    CreatedWorkload           job/gf-16-benign                  Created Workload: gpufault/job-gf-16-benign-619f3
+9m45s       Normal    Started                   job/gf-17-xid                     Admitted by clusterQueue gpu-gpufault
+7m42s       Normal    CreatedWorkload           job/gf-18-ecc                     Created Workload: gpufault/job-gf-18-ecc-7b9a6
+7m42s       Normal    Started                   job/gf-18-ecc                     Admitted by clusterQueue gpu-gpufault
+7m28s       Normal    Stopped                   job/gf-18-ecc                     The workload is deactivated
+7m28s       Normal    Started                   job/gf-18-ecc                     Admitted by clusterQueue gpu-gpufault
+46m         Normal    CreatedWorkload           job/gf-01-xid                     Created Workload: gpufault/job-gf-01-xid-e736c
+46m         Normal    Started                   job/gf-01-xid                     Admitted by clusterQueue gpu-gpufault
+5m25s       Normal    CreatedWorkload           job/gf-19-benign                  Created Workload: gpufault/job-gf-19-benign-fd676
+5m25s       Normal    Started                   job/gf-19-benign                  Admitted by clusterQueue gpu-gpufault
+46m         Normal    Stopped                   job/gf-01-xid                     The workload is deactivated
+14m         Normal    Started                   job/gf-15-ecc                     Admitted by clusterQueue gpu-gpufault
+46m         Normal    Started                   job/gf-01-xid                     Admitted by clusterQueue gpu-gpufault
+3m9s        Normal    CreatedWorkload           job/gf-20-none                    Created Workload: gpufault/job-gf-20-none-84d7b
+14m         Normal    Stopped                   job/gf-15-ecc                     The workload is deactivated
+3m9s        Normal    Started                   job/gf-20-none                    Admitted by clusterQueue gpu-gpufault
+4s          Normal    CreatedWorkload           job/gf-recovery                   Created Workload: gpufault/job-gf-recovery-a987e
+14m         Normal    Started                   job/gf-15-ecc                     Admitted by clusterQueue gpu-gpufault
+14m         Normal    CreatedWorkload           job/gf-15-ecc                     Created Workload: gpufault/job-gf-15-ecc-e2e0c
+4s          Normal    Started                   job/gf-recovery                   Admitted by clusterQueue gpu-gpufault
+0s          Normal    FinishedWorkload          job/gf-recovery                   Workload 'gpufault/job-gf-recovery-a987e' is declared finished
+46m         Normal    QuotaReserved             workload/job-gf-01-xid-e736c      Quota reserved in ClusterQueue gpu-gpufault, wait time since queued was 1s
+46m         Normal    Admitted                  workload/job-gf-01-xid-e736c      Admitted by ClusterQueue gpu-gpufault, wait time since reservation was 0s
+46m         Warning   GPUFaultDeactivated       workload/job-gf-01-xid-e736c      its pod gf-01-xid-xln6h ran on node m5cgpu-worker, which carries GPU fault GPU-1c9e2010-806b-5c92-c49f-f807c513daa7/DCGM_FI_DEV_XID_ERRORS=79
+46m         Normal    EvictedDueToDeactivated   workload/job-gf-01-xid-e736c      The workload is deactivated
+44m         Normal    CreatedWorkload           job/gf-02-ecc                     Created Workload: gpufault/job-gf-02-ecc-ea0aa
+44m         Normal    Started                   job/gf-02-ecc                     Admitted by clusterQueue gpu-gpufault
+9m45s       Normal    QuotaReserved             workload/job-gf-17-xid-70c95      Quota reserved in ClusterQueue gpu-gpufault, wait time since queued was 0s
+46m         Normal    GPUFaultReactivated       workload/job-gf-01-xid-e736c      evicted from faulted node m5cgpu-worker; requeued so Kueue can admit it again
+44m         Normal    Stopped                   job/gf-02-ecc                     The workload is deactivated
+46m         Normal    QuotaReserved             workload/job-gf-01-xid-e736c      Quota reserved in ClusterQueue gpu-gpufault, wait time since queued was 0s
+44m         Normal    Started                   job/gf-02-ecc                     Admitted by clusterQueue gpu-gpufault
+46m         Normal    Admitted                  workload/job-gf-01-xid-e736c      Admitted by ClusterQueue gpu-gpufault, wait time since reservation was 0s
+44m         Normal    QuotaReserved             workload/job-gf-02-ecc-ea0aa      Quota reserved in ClusterQueue gpu-gpufault, wait time since queued was 1s
+44m         Normal    Admitted                  workload/job-gf-02-ecc-ea0aa      Admitted by ClusterQueue gpu-gpufault, wait time since reservation was 0s
+30m         Normal    Started                   job/gf-08-xid                     Admitted by clusterQueue gpu-gpufault
+16m         Normal    Started                   job/gf-14-xid                     Admitted by clusterQueue gpu-gpufault
+44m         Normal    EvictedDueToDeactivated   workload/job-gf-02-ecc-ea0aa      The workload is deactivated
+16m         Normal    Stopped                   job/gf-14-xid                     The workload is deactivated
+41m         Normal    CreatedWorkload           job/gf-03-benign                  Created Workload: gpufault/job-gf-03-benign-ee0b2
+41m         Normal    Started                   job/gf-03-benign                  Admitted by clusterQueue gpu-gpufault
+44m         Normal    GPUFaultReactivated       workload/job-gf-02-ecc-ea0aa      evicted from faulted node m5cgpu-worker; requeued so Kueue can admit it again
+44m         Normal    QuotaReserved             workload/job-gf-02-ecc-ea0aa      Quota reserved in ClusterQueue gpu-gpufault, wait time since queued was 0s
+16m         Normal    Started                   job/gf-14-xid                     Admitted by clusterQueue gpu-gpufault
+16m         Normal    CreatedWorkload           job/gf-14-xid                     Created Workload: gpufault/job-gf-14-xid-e728d
+44m         Normal    Admitted                  workload/job-gf-02-ecc-ea0aa      Admitted by ClusterQueue gpu-gpufault, wait time since reservation was 0s
+41m         Normal    QuotaReserved             workload/job-gf-03-benign-ee0b2   Quota reserved in ClusterQueue gpu-gpufault, wait time since queued was 0s
+41m         Normal    Admitted                  workload/job-gf-03-benign-ee0b2   Admitted by ClusterQueue gpu-gpufault, wait time since reservation was 0s
+39m         Normal    QuotaReserved             workload/job-gf-04-none-2edf7     Quota reserved in ClusterQueue gpu-gpufault, wait time since queued was 1s
+39m         Normal    CreatedWorkload           job/gf-04-none                    Created Workload: gpufault/job-gf-04-none-2edf7
+39m         Normal    Started                   job/gf-04-none                    Admitted by clusterQueue gpu-gpufault
+39m         Normal    Admitted                  workload/job-gf-04-none-2edf7     Admitted by ClusterQueue gpu-gpufault, wait time since reservation was 0s
+37m         Normal    QuotaReserved             workload/job-gf-05-ecc-1a1f0      Quota reserved in ClusterQueue gpu-gpufault, wait time since queued was 1s
+37m         Normal    Admitted                  workload/job-gf-05-ecc-1a1f0      Admitted by ClusterQueue gpu-gpufault, wait time since reservation was 0s
+37m         Warning   GPUFaultDeactivated       workload/job-gf-05-ecc-1a1f0      its pod gf-05-ecc-kqb2b ran on node m5cgpu-worker, which carries GPU fault GPU-1c9e2010-806b-5c92-c49f-f807c513daa7/DCGM_FI_DEV_ECC_DBE_VOL_TOTAL=1
+37m         Normal    EvictedDueToDeactivated   workload/job-gf-05-ecc-1a1f0      The workload is deactivated
+37m         Normal    GPUFaultReactivated       workload/job-gf-05-ecc-1a1f0      evicted from faulted node m5cgpu-worker; requeued so Kueue can admit it again
+37m         Normal    QuotaReserved             workload/job-gf-05-ecc-1a1f0      Quota reserved in ClusterQueue gpu-gpufault, wait time since queued was 0s
+37m         Normal    Admitted                  workload/job-gf-05-ecc-1a1f0      Admitted by ClusterQueue gpu-gpufault, wait time since reservation was 0s
+35m         Normal    QuotaReserved             workload/job-gf-06-benign-94842   Quota reserved in ClusterQueue gpu-gpufault, wait time since queued was 0s
+19m         Normal    Started                   job/gf-13-none                    Admitted by clusterQueue gpu-gpufault
+19m         Normal    CreatedWorkload           job/gf-13-none                    Created Workload: gpufault/job-gf-13-none-c8b78
+35m         Normal    Admitted                  workload/job-gf-06-benign-94842   Admitted by ClusterQueue gpu-gpufault, wait time since reservation was 0s
+32m         Normal    QuotaReserved             workload/job-gf-07-none-8ba4a     Quota reserved in ClusterQueue gpu-gpufault, wait time since queued was 0s
+37m         Normal    CreatedWorkload           job/gf-05-ecc                     Created Workload: gpufault/job-gf-05-ecc-1a1f0
+37m         Normal    Started                   job/gf-05-ecc                     Admitted by clusterQueue gpu-gpufault
+32m         Normal    Admitted                  workload/job-gf-07-none-8ba4a     Admitted by ClusterQueue gpu-gpufault, wait time since reservation was 0s
+30m         Normal    QuotaReserved             workload/job-gf-08-xid-c526c      Quota reserved in ClusterQueue gpu-gpufault, wait time since queued was 0s
+37m         Normal    Stopped                   job/gf-05-ecc                     The workload is deactivated
+30m         Normal    Admitted                  workload/job-gf-08-xid-c526c      Admitted by ClusterQueue gpu-gpufault, wait time since reservation was 0s
+37m         Normal    Started                   job/gf-05-ecc                     Admitted by clusterQueue gpu-gpufault
+9m59s       Normal    CreatedWorkload           job/gf-17-xid                     Created Workload: gpufault/job-gf-17-xid-70c95
+30m         Normal    EvictedDueToDeactivated   workload/job-gf-08-xid-c526c      The workload is deactivated
+30m         Normal    GPUFaultReactivated       workload/job-gf-08-xid-c526c      evicted from faulted node m5cgpu-worker; requeued so Kueue can admit it again
+21m         Normal    Stopped                   job/gf-12-ecc                     The workload is deactivated
+30m         Normal    QuotaReserved             workload/job-gf-08-xid-c526c      Quota reserved in ClusterQueue gpu-gpufault, wait time since queued was 0s
+30m         Normal    Admitted                  workload/job-gf-08-xid-c526c      Admitted by ClusterQueue gpu-gpufault, wait time since reservation was 0s
+21m         Normal    Started                   job/gf-12-ecc                     Admitted by clusterQueue gpu-gpufault
+35m         Normal    CreatedWorkload           job/gf-06-benign                  Created Workload: gpufault/job-gf-06-benign-94842
+35m         Normal    Started                   job/gf-06-benign                  Admitted by clusterQueue gpu-gpufault
+21m         Normal    CreatedWorkload           job/gf-12-ecc                     Created Workload: gpufault/job-gf-12-ecc-ace0b
+28m         Normal    QuotaReserved             workload/job-gf-09-benign-5d8e1   Quota reserved in ClusterQueue gpu-gpufault, wait time since queued was 1s
+28m         Normal    Admitted                  workload/job-gf-09-benign-5d8e1   Admitted by ClusterQueue gpu-gpufault, wait time since reservation was 0s
+25m         Normal    QuotaReserved             workload/job-gf-10-none-e1aab     Quota reserved in ClusterQueue gpu-gpufault, wait time since queued was 1s
+25m         Normal    Admitted                  workload/job-gf-10-none-e1aab     Admitted by ClusterQueue gpu-gpufault, wait time since reservation was 0s
+23m         Normal    QuotaReserved             workload/job-gf-11-xid-620cf      Quota reserved in ClusterQueue gpu-gpufault, wait time since queued was 0s
+23m         Normal    Admitted                  workload/job-gf-11-xid-620cf      Admitted by ClusterQueue gpu-gpufault, wait time since reservation was 0s
+23m         Warning   GPUFaultDeactivated       workload/job-gf-11-xid-620cf      its pod gf-11-xid-5zwxh ran on node m5cgpu-worker, which carries GPU fault GPU-1c9e2010-806b-5c92-c49f-f807c513daa7/DCGM_FI_DEV_XID_ERRORS=79
+32m         Normal    CreatedWorkload           job/gf-07-none                    Created Workload: gpufault/job-gf-07-none-8ba4a
+32m         Normal    Started                   job/gf-07-none                    Admitted by clusterQueue gpu-gpufault
+23m         Normal    EvictedDueToDeactivated   workload/job-gf-11-xid-620cf      The workload is deactivated
+23m         Normal    GPUFaultReactivated       workload/job-gf-11-xid-620cf      evicted from faulted node m5cgpu-worker; requeued so Kueue can admit it again
+4s          Normal    Admitted                  workload/job-gf-recovery-a987e    Admitted by ClusterQueue gpu-gpufault, wait time since reservation was 0s
+23m         Normal    QuotaReserved             workload/job-gf-11-xid-620cf      Quota reserved in ClusterQueue gpu-gpufault, wait time since queued was 0s
+4s          Normal    QuotaReserved             workload/job-gf-recovery-a987e    Quota reserved in ClusterQueue gpu-gpufault, wait time since queued was 0s
+3m9s        Normal    Admitted                  workload/job-gf-20-none-84d7b     Admitted by ClusterQueue gpu-gpufault, wait time since reservation was 0s
+3m9s        Normal    QuotaReserved             workload/job-gf-20-none-84d7b     Quota reserved in ClusterQueue gpu-gpufault, wait time since queued was 1s
+5m25s       Normal    Admitted                  workload/job-gf-19-benign-fd676   Admitted by ClusterQueue gpu-gpufault, wait time since reservation was 0s
+5m25s       Normal    QuotaReserved             workload/job-gf-19-benign-fd676   Quota reserved in ClusterQueue gpu-gpufault, wait time since queued was 1s
+7m28s       Normal    Admitted                  workload/job-gf-18-ecc-7b9a6      Admitted by ClusterQueue gpu-gpufault, wait time since reservation was 0s
+7m28s       Normal    QuotaReserved             workload/job-gf-18-ecc-7b9a6      Quota reserved in ClusterQueue gpu-gpufault, wait time since queued was 0s
+7m28s       Normal    GPUFaultReactivated       workload/job-gf-18-ecc-7b9a6      evicted from faulted node m5cgpu-worker; requeued so Kueue can admit it again
+7m28s       Normal    EvictedDueToDeactivated   workload/job-gf-18-ecc-7b9a6      The workload is deactivated
+30m         Normal    CreatedWorkload           job/gf-08-xid                     Created Workload: gpufault/job-gf-08-xid-c526c
+30m         Normal    Started                   job/gf-08-xid                     Admitted by clusterQueue gpu-gpufault
+7m28s       Warning   GPUFaultDeactivated       workload/job-gf-18-ecc-7b9a6      its pod gf-18-ecc-8nmqr ran on node m5cgpu-worker, which carries GPU fault GPU-1c9e2010-806b-5c92-c49f-f807c513daa7/DCGM_FI_DEV_ECC_DBE_VOL_TOTAL=1
+7m42s       Normal    Admitted                  workload/job-gf-18-ecc-7b9a6      Admitted by ClusterQueue gpu-gpufault, wait time since reservation was 0s
+30m         Normal    Stopped                   job/gf-08-xid                     The workload is deactivated
+7m42s       Normal    QuotaReserved             workload/job-gf-18-ecc-7b9a6      Quota reserved in ClusterQueue gpu-gpufault, wait time since queued was 0s
+44m         Warning   GPUFaultDeactivated       workload/job-gf-02-ecc-ea0aa      its pod gf-02-ecc-gxrt7 ran on node m5cgpu-worker, which carries GPU fault GPU-1c9e2010-806b-5c92-c49f-f807c513daa7/DCGM_FI_DEV_ECC_DBE_VOL_TOTAL=1
+9m45s       Normal    EvictedDueToDeactivated   workload/job-gf-17-xid-70c95      The workload is deactivated
+23m         Normal    Admitted                  workload/job-gf-11-xid-620cf      Admitted by ClusterQueue gpu-gpufault, wait time since reservation was 0s
+9m45s       Normal    GPUFaultReactivated       workload/job-gf-17-xid-70c95      evicted from faulted node m5cgpu-worker; requeued so Kueue can admit it again
+9m45s       Normal    Admitted                  workload/job-gf-17-xid-70c95      Admitted by ClusterQueue gpu-gpufault, wait time since reservation was 0s
+9m45s       Warning   GPUFaultDeactivated       workload/job-gf-17-xid-70c95      its pod gf-17-xid-64tml ran on node m5cgpu-worker, which carries GPU fault GPU-1c9e2010-806b-5c92-c49f-f807c513daa7/DCGM_FI_DEV_XID_ERRORS=79
+9m59s       Normal    Admitted                  workload/job-gf-17-xid-70c95      Admitted by ClusterQueue gpu-gpufault, wait time since reservation was 0s
+9m59s       Normal    QuotaReserved             workload/job-gf-17-xid-70c95      Quota reserved in ClusterQueue gpu-gpufault, wait time since queued was 0s
+28m         Normal    CreatedWorkload           job/gf-09-benign                  Created Workload: gpufault/job-gf-09-benign-5d8e1
+28m         Normal    Started                   job/gf-09-benign                  Admitted by clusterQueue gpu-gpufault
+12m         Normal    Admitted                  workload/job-gf-16-benign-619f3   Admitted by ClusterQueue gpu-gpufault, wait time since reservation was 0s
+12m         Normal    QuotaReserved             workload/job-gf-16-benign-619f3   Quota reserved in ClusterQueue gpu-gpufault, wait time since queued was 1s
+14m         Normal    Admitted                  workload/job-gf-15-ecc-e2e0c      Admitted by ClusterQueue gpu-gpufault, wait time since reservation was 0s
+14m         Normal    QuotaReserved             workload/job-gf-15-ecc-e2e0c      Quota reserved in ClusterQueue gpu-gpufault, wait time since queued was 0s
+14m         Normal    GPUFaultReactivated       workload/job-gf-15-ecc-e2e0c      evicted from faulted node m5cgpu-worker; requeued so Kueue can admit it again
+14m         Normal    EvictedDueToDeactivated   workload/job-gf-15-ecc-e2e0c      The workload is deactivated
+14m         Warning   GPUFaultDeactivated       workload/job-gf-15-ecc-e2e0c      its pod gf-15-ecc-8bggn ran on node m5cgpu-worker, which carries GPU fault GPU-1c9e2010-806b-5c92-c49f-f807c513daa7/DCGM_FI_DEV_ECC_DBE_VOL_TOTAL=1
+14m         Normal    Admitted                  workload/job-gf-15-ecc-e2e0c      Admitted by ClusterQueue gpu-gpufault, wait time since reservation was 0s
+25m         Normal    CreatedWorkload           job/gf-10-none                    Created Workload: gpufault/job-gf-10-none-e1aab
+25m         Normal    Started                   job/gf-10-none                    Admitted by clusterQueue gpu-gpufault
+14m         Normal    QuotaReserved             workload/job-gf-15-ecc-e2e0c      Quota reserved in ClusterQueue gpu-gpufault, wait time since queued was 1s
+16m         Normal    Admitted                  workload/job-gf-14-xid-e728d      Admitted by ClusterQueue gpu-gpufault, wait time since reservation was 0s
+16m         Normal    QuotaReserved             workload/job-gf-14-xid-e728d      Quota reserved in ClusterQueue gpu-gpufault, wait time since queued was 0s
+16m         Normal    GPUFaultReactivated       workload/job-gf-14-xid-e728d      evicted from faulted node m5cgpu-worker; requeued so Kueue can admit it again
+16m         Normal    EvictedDueToDeactivated   workload/job-gf-14-xid-e728d      The workload is deactivated
+16m         Warning   GPUFaultDeactivated       workload/job-gf-14-xid-e728d      its pod gf-14-xid-29jl4 ran on node m5cgpu-worker, which carries GPU fault GPU-1c9e2010-806b-5c92-c49f-f807c513daa7/DCGM_FI_DEV_XID_ERRORS=79
+16m         Normal    Admitted                  workload/job-gf-14-xid-e728d      Admitted by ClusterQueue gpu-gpufault, wait time since reservation was 0s
+16m         Normal    QuotaReserved             workload/job-gf-14-xid-e728d      Quota reserved in ClusterQueue gpu-gpufault, wait time since queued was 0s
+19m         Normal    Admitted                  workload/job-gf-13-none-c8b78     Admitted by ClusterQueue gpu-gpufault, wait time since reservation was 0s
+19m         Normal    QuotaReserved             workload/job-gf-13-none-c8b78     Quota reserved in ClusterQueue gpu-gpufault, wait time since queued was 0s
+21m         Normal    Admitted                  workload/job-gf-12-ecc-ace0b      Admitted by ClusterQueue gpu-gpufault, wait time since reservation was 0s
+21m         Normal    QuotaReserved             workload/job-gf-12-ecc-ace0b      Quota reserved in ClusterQueue gpu-gpufault, wait time since queued was 0s
+21m         Normal    GPUFaultReactivated       workload/job-gf-12-ecc-ace0b      evicted from faulted node m5cgpu-worker; requeued so Kueue can admit it again
+23m         Normal    CreatedWorkload           job/gf-11-xid                     Created Workload: gpufault/job-gf-11-xid-620cf
+23m         Normal    Started                   job/gf-11-xid                     Admitted by clusterQueue gpu-gpufault
+21m         Normal    EvictedDueToDeactivated   workload/job-gf-12-ecc-ace0b      The workload is deactivated
+21m         Warning   GPUFaultDeactivated       workload/job-gf-12-ecc-ace0b      its pod gf-12-ecc-4gd26 ran on node m5cgpu-worker, which carries GPU fault GPU-1c9e2010-806b-5c92-c49f-f807c513daa7/DCGM_FI_DEV_ECC_DBE_VOL_TOTAL=1
+23m         Normal    Stopped                   job/gf-11-xid                     The workload is deactivated
+21m         Normal    Admitted                  workload/job-gf-12-ecc-ace0b      Admitted by ClusterQueue gpu-gpufault, wait time since reservation was 0s
+23m         Normal    Started                   job/gf-11-xid                     Admitted by clusterQueue gpu-gpufault
+21m         Normal    QuotaReserved             workload/job-gf-12-ecc-ace0b      Quota reserved in ClusterQueue gpu-gpufault, wait time since queued was 1s
+46m         Normal    Scheduled                 pod/gf-01-xid-xln6h               Successfully assigned gpufault/gf-01-xid-xln6h to m5cgpu-worker
+46m         Normal    SuccessfulCreate          job/gf-01-xid                     Created pod: gf-01-xid-xln6h
+46m         Normal    Started                   pod/gf-01-xid-xln6h               Started container trainer
+46m         Normal    Created                   pod/gf-01-xid-xln6h               Created container trainer
+46m         Normal    Pulled                    pod/gf-01-xid-xln6h               Container image "gpufault-job:busybox" already present on machine
+46m         Normal    Started                   pod/gf-01-xid-fkzbq               Started container trainer
+46m         Normal    Pulled                    pod/gf-01-xid-fkzbq               Container image "gpufault-job:busybox" already present on machine
+46m         Normal    Created                   pod/gf-01-xid-fkzbq               Created container trainer
+46m         Normal    Killing                   pod/gf-01-xid-xln6h               Stopping container trainer
+46m         Normal    Suspended                 job/gf-01-xid                     Job suspended
+46m         Normal    Scheduled                 pod/gf-01-xid-fkzbq               Successfully assigned gpufault/gf-01-xid-fkzbq to m5cgpu-control-plane
+46m         Normal    Resumed                   job/gf-01-xid                     Job resumed
+46m         Normal    SuccessfulDelete          job/gf-01-xid                     Deleted pod: gf-01-xid-xln6h
+46m         Normal    SuccessfulCreate          job/gf-01-xid                     Created pod: gf-01-xid-fkzbq
+44m         Normal    Killing                   pod/gf-01-xid-fkzbq               Stopping container trainer
+44m         Normal    Pulled                    pod/gf-02-ecc-gxrt7               Container image "gpufault-job:busybox" already present on machine
+44m         Normal    SuccessfulCreate          job/gf-02-ecc                     Created pod: gf-02-ecc-gxrt7
+44m         Normal    Started                   pod/gf-02-ecc-gxrt7               Started container trainer
+44m         Normal    Created                   pod/gf-02-ecc-gxrt7               Created container trainer
+44m         Normal    Scheduled                 pod/gf-02-ecc-gxrt7               Successfully assigned gpufault/gf-02-ecc-gxrt7 to m5cgpu-worker
+44m         Normal    SuccessfulCreate          job/gf-02-ecc                     Created pod: gf-02-ecc-2lg2k
+44m         Normal    Started                   pod/gf-02-ecc-2lg2k               Started container trainer
+44m         Normal    Pulled                    pod/gf-02-ecc-2lg2k               Container image "gpufault-job:busybox" already present on machine
+44m         Normal    Created                   pod/gf-02-ecc-2lg2k               Created container trainer
+44m         Normal    Scheduled                 pod/gf-02-ecc-2lg2k               Successfully assigned gpufault/gf-02-ecc-2lg2k to m5cgpu-control-plane
+44m         Normal    Killing                   pod/gf-02-ecc-gxrt7               Stopping container trainer
+44m         Normal    Suspended                 job/gf-02-ecc                     Job suspended
+44m         Normal    Resumed                   job/gf-02-ecc                     Job resumed
+44m         Normal    SuccessfulDelete          job/gf-02-ecc                     Deleted pod: gf-02-ecc-gxrt7
+42m         Normal    Killing                   pod/gf-02-ecc-2lg2k               Stopping container trainer
+41m         Normal    Pulled                    pod/gf-03-benign-q7t24            Container image "gpufault-job:busybox" already present on machine
+41m         Normal    Created                   pod/gf-03-benign-q7t24            Created container trainer
+41m         Normal    Suspended                 job/gf-03-benign                  Job suspended
+41m         Normal    Scheduled                 pod/gf-03-benign-q7t24            Successfully assigned gpufault/gf-03-benign-q7t24 to m5cgpu-worker
+41m         Normal    SuccessfulCreate          job/gf-03-benign                  Created pod: gf-03-benign-q7t24
+41m         Normal    Resumed                   job/gf-03-benign                  Job resumed
+41m         Normal    Started                   pod/gf-03-benign-q7t24            Started container trainer
+39m         Normal    Killing                   pod/gf-03-benign-q7t24            Stopping container trainer
+39m         Normal    Resumed                   job/gf-04-none                    Job resumed
+39m         Normal    Scheduled                 pod/gf-04-none-57kzq              Successfully assigned gpufault/gf-04-none-57kzq to m5cgpu-worker
+39m         Normal    Suspended                 job/gf-04-none                    Job suspended
+39m         Normal    SuccessfulCreate          job/gf-04-none                    Created pod: gf-04-none-57kzq
+39m         Normal    Started                   pod/gf-04-none-57kzq              Started container trainer
+39m         Normal    Pulled                    pod/gf-04-none-57kzq              Container image "gpufault-job:busybox" already present on machine
+39m         Normal    Created                   pod/gf-04-none-57kzq              Created container trainer
+37m         Normal    Killing                   pod/gf-04-none-57kzq              Stopping container trainer
+37m         Normal    Scheduled                 pod/gf-05-ecc-kqb2b               Successfully assigned gpufault/gf-05-ecc-kqb2b to m5cgpu-worker
+37m         Normal    SuccessfulCreate          job/gf-05-ecc                     Created pod: gf-05-ecc-kqb2b
+37m         Normal    Pulled                    pod/gf-05-ecc-kqb2b               Container image "gpufault-job:busybox" already present on machine
+37m         Normal    Started                   pod/gf-05-ecc-kqb2b               Started container trainer
+37m         Normal    Created                   pod/gf-05-ecc-kqb2b               Created container trainer
+37m         Normal    Started                   pod/gf-05-ecc-58z99               Started container trainer
+37m         Normal    Scheduled                 pod/gf-05-ecc-58z99               Successfully assigned gpufault/gf-05-ecc-58z99 to m5cgpu-control-plane
+37m         Normal    Created                   pod/gf-05-ecc-58z99               Created container trainer
+37m         Normal    Killing                   pod/gf-05-ecc-kqb2b               Stopping container trainer
+37m         Normal    Suspended                 job/gf-05-ecc                     Job suspended
+37m         Normal    Pulled                    pod/gf-05-ecc-58z99               Container image "gpufault-job:busybox" already present on machine
+37m         Normal    Resumed                   job/gf-05-ecc                     Job resumed
+37m         Normal    SuccessfulDelete          job/gf-05-ecc                     Deleted pod: gf-05-ecc-kqb2b
+37m         Normal    SuccessfulCreate          job/gf-05-ecc                     Created pod: gf-05-ecc-58z99
+35m         Normal    Killing                   pod/gf-05-ecc-58z99               Stopping container trainer
+35m         Normal    Scheduled                 pod/gf-06-benign-kssd7            Successfully assigned gpufault/gf-06-benign-kssd7 to m5cgpu-worker
+35m         Normal    Resumed                   job/gf-06-benign                  Job resumed
+35m         Normal    Created                   pod/gf-06-benign-kssd7            Created container trainer
+35m         Normal    Started                   pod/gf-06-benign-kssd7            Started container trainer
+35m         Normal    Pulled                    pod/gf-06-benign-kssd7            Container image "gpufault-job:busybox" already present on machine
+35m         Normal    Suspended                 job/gf-06-benign                  Job suspended
+35m         Normal    SuccessfulCreate          job/gf-06-benign                  Created pod: gf-06-benign-kssd7
+32m         Normal    Killing                   pod/gf-06-benign-kssd7            Stopping container trainer
+32m         Normal    Scheduled                 pod/gf-07-none-677mp              Successfully assigned gpufault/gf-07-none-677mp to m5cgpu-worker
+32m         Normal    Pulled                    pod/gf-07-none-677mp              Container image "gpufault-job:busybox" already present on machine
+32m         Normal    Created                   pod/gf-07-none-677mp              Created container trainer
+32m         Normal    Started                   pod/gf-07-none-677mp              Started container trainer
+32m         Normal    Suspended                 job/gf-07-none                    Job suspended
+32m         Normal    SuccessfulCreate          job/gf-07-none                    Created pod: gf-07-none-677mp
+32m         Normal    Resumed                   job/gf-07-none                    Job resumed
+30m         Normal    Killing                   pod/gf-07-none-677mp              Stopping container trainer
+30m         Normal    Pulled                    pod/gf-08-xid-btp9g               Container image "gpufault-job:busybox" already present on machine
+30m         Normal    Scheduled                 pod/gf-08-xid-btp9g               Successfully assigned gpufault/gf-08-xid-btp9g to m5cgpu-worker
+30m         Normal    Created                   pod/gf-08-xid-btp9g               Created container trainer
+30m         Normal    SuccessfulCreate          job/gf-08-xid                     Created pod: gf-08-xid-btp9g
+30m         Normal    Started                   pod/gf-08-xid-btp9g               Started container trainer
+30m         Normal    Killing                   pod/gf-08-xid-btp9g               Stopping container trainer
+30m         Normal    Scheduled                 pod/gf-08-xid-lxwxm               Successfully assigned gpufault/gf-08-xid-lxwxm to m5cgpu-control-plane
+30m         Normal    Pulled                    pod/gf-08-xid-lxwxm               Container image "gpufault-job:busybox" already present on machine
+30m         Normal    Created                   pod/gf-08-xid-lxwxm               Created container trainer
+30m         Normal    Started                   pod/gf-08-xid-lxwxm               Started container trainer
+30m         Normal    Suspended                 job/gf-08-xid                     Job suspended
+30m         Normal    Resumed                   job/gf-08-xid                     Job resumed
+30m         Normal    SuccessfulDelete          job/gf-08-xid                     Deleted pod: gf-08-xid-btp9g
+30m         Normal    SuccessfulCreate          job/gf-08-xid                     Created pod: gf-08-xid-lxwxm
+28m         Normal    Killing                   pod/gf-08-xid-lxwxm               Stopping container trainer
+28m         Normal    SuccessfulCreate          job/gf-09-benign                  Created pod: gf-09-benign-ppzvp
+28m         Normal    Scheduled                 pod/gf-09-benign-ppzvp            Successfully assigned gpufault/gf-09-benign-ppzvp to m5cgpu-worker
+28m         Normal    Resumed                   job/gf-09-benign                  Job resumed
+28m         Normal    Suspended                 job/gf-09-benign                  Job suspended
+28m         Normal    Pulled                    pod/gf-09-benign-ppzvp            Container image "gpufault-job:busybox" already present on machine
+28m         Normal    Created                   pod/gf-09-benign-ppzvp            Created container trainer
+28m         Normal    Started                   pod/gf-09-benign-ppzvp            Started container trainer
+26m         Normal    Killing                   pod/gf-09-benign-ppzvp            Stopping container trainer
+26m         Normal    Suspended                 job/gf-10-none                    Job suspended
+26m         Normal    Scheduled                 pod/gf-10-none-997cr              Successfully assigned gpufault/gf-10-none-997cr to m5cgpu-worker
+26m         Normal    Resumed                   job/gf-10-none                    Job resumed
+26m         Normal    SuccessfulCreate          job/gf-10-none                    Created pod: gf-10-none-997cr
+25m         Normal    Started                   pod/gf-10-none-997cr              Started container trainer
+25m         Normal    Created                   pod/gf-10-none-997cr              Created container trainer
+25m         Normal    Pulled                    pod/gf-10-none-997cr              Container image "gpufault-job:busybox" already present on machine
+23m         Normal    Killing                   pod/gf-10-none-997cr              Stopping container trainer
+23m         Normal    Scheduled                 pod/gf-11-xid-5zwxh               Successfully assigned gpufault/gf-11-xid-5zwxh to m5cgpu-worker
+23m         Normal    Pulled                    pod/gf-11-xid-5zwxh               Container image "gpufault-job:busybox" already present on machine
+23m         Normal    Created                   pod/gf-11-xid-5zwxh               Created container trainer
+23m         Normal    Started                   pod/gf-11-xid-5zwxh               Started container trainer
+23m         Normal    SuccessfulCreate          job/gf-11-xid                     Created pod: gf-11-xid-5zwxh
+23m         Normal    Pulled                    pod/gf-11-xid-b9j64               Container image "gpufault-job:busybox" already present on machine
+23m         Normal    Scheduled                 pod/gf-11-xid-b9j64               Successfully assigned gpufault/gf-11-xid-b9j64 to m5cgpu-control-plane
+23m         Normal    Created                   pod/gf-11-xid-b9j64               Created container trainer
+23m         Normal    Started                   pod/gf-11-xid-b9j64               Started container trainer
+23m         Normal    Suspended                 job/gf-11-xid                     Job suspended
+23m         Normal    Killing                   pod/gf-11-xid-5zwxh               Stopping container trainer
+23m         Normal    Resumed                   job/gf-11-xid                     Job resumed
+23m         Normal    SuccessfulDelete          job/gf-11-xid                     Deleted pod: gf-11-xid-5zwxh
+23m         Normal    SuccessfulCreate          job/gf-11-xid                     Created pod: gf-11-xid-b9j64
+21m         Normal    Killing                   pod/gf-11-xid-b9j64               Stopping container trainer
+21m         Normal    Scheduled                 pod/gf-12-ecc-4gd26               Successfully assigned gpufault/gf-12-ecc-4gd26 to m5cgpu-worker
+21m         Normal    SuccessfulCreate          job/gf-12-ecc                     Created pod: gf-12-ecc-4gd26
+21m         Normal    Pulled                    pod/gf-12-ecc-4gd26               Container image "gpufault-job:busybox" already present on machine
+21m         Normal    Started                   pod/gf-12-ecc-4gd26               Started container trainer
+21m         Normal    Created                   pod/gf-12-ecc-4gd26               Created container trainer
+21m         Normal    Killing                   pod/gf-12-ecc-4gd26               Stopping container trainer
+21m         Normal    Scheduled                 pod/gf-12-ecc-6tvrc               Successfully assigned gpufault/gf-12-ecc-6tvrc to m5cgpu-control-plane
+21m         Normal    Pulled                    pod/gf-12-ecc-6tvrc               Container image "gpufault-job:busybox" already present on machine
+21m         Normal    Created                   pod/gf-12-ecc-6tvrc               Created container trainer
+21m         Normal    Started                   pod/gf-12-ecc-6tvrc               Started container trainer
+21m         Normal    Suspended                 job/gf-12-ecc                     Job suspended
+21m         Normal    SuccessfulCreate          job/gf-12-ecc                     Created pod: gf-12-ecc-6tvrc
+21m         Normal    Resumed                   job/gf-12-ecc                     Job resumed
+21m         Normal    SuccessfulDelete          job/gf-12-ecc                     Deleted pod: gf-12-ecc-4gd26
+19m         Normal    Killing                   pod/gf-12-ecc-6tvrc               Stopping container trainer
+19m         Normal    SuccessfulCreate          job/gf-13-none                    Created pod: gf-13-none-bpkt4
+19m         Normal    Pulled                    pod/gf-13-none-bpkt4              Container image "gpufault-job:busybox" already present on machine
+19m         Normal    Created                   pod/gf-13-none-bpkt4              Created container trainer
+19m         Normal    Started                   pod/gf-13-none-bpkt4              Started container trainer
+19m         Normal    Suspended                 job/gf-13-none                    Job suspended
+19m         Normal    Scheduled                 pod/gf-13-none-bpkt4              Successfully assigned gpufault/gf-13-none-bpkt4 to m5cgpu-worker
+19m         Normal    Resumed                   job/gf-13-none                    Job resumed
+16m         Normal    Killing                   pod/gf-13-none-bpkt4              Stopping container trainer
+16m         Normal    SuccessfulCreate          job/gf-14-xid                     Created pod: gf-14-xid-29jl4
+16m         Normal    Scheduled                 pod/gf-14-xid-29jl4               Successfully assigned gpufault/gf-14-xid-29jl4 to m5cgpu-worker
+16m         Normal    Pulled                    pod/gf-14-xid-29jl4               Container image "gpufault-job:busybox" already present on machine
+16m         Normal    Created                   pod/gf-14-xid-29jl4               Created container trainer
+16m         Normal    Started                   pod/gf-14-xid-29jl4               Started container trainer
+16m         Normal    Resumed                   job/gf-14-xid                     Job resumed
+16m         Normal    Started                   pod/gf-14-xid-2j5l2               Started container trainer
+16m         Normal    Killing                   pod/gf-14-xid-29jl4               Stopping container trainer
+16m         Normal    Scheduled                 pod/gf-14-xid-2j5l2               Successfully assigned gpufault/gf-14-xid-2j5l2 to m5cgpu-control-plane
+16m         Normal    SuccessfulCreate          job/gf-14-xid                     Created pod: gf-14-xid-2j5l2
+16m         Normal    SuccessfulDelete          job/gf-14-xid                     Deleted pod: gf-14-xid-29jl4
+16m         Normal    Pulled                    pod/gf-14-xid-2j5l2               Container image "gpufault-job:busybox" already present on machine
+16m         Normal    Created                   pod/gf-14-xid-2j5l2               Created container trainer
+16m         Normal    Suspended                 job/gf-14-xid                     Job suspended
+14m         Normal    Killing                   pod/gf-14-xid-2j5l2               Stopping container trainer
+14m         Normal    SuccessfulCreate          job/gf-15-ecc                     Created pod: gf-15-ecc-8bggn
+14m         Normal    Scheduled                 pod/gf-15-ecc-8bggn               Successfully assigned gpufault/gf-15-ecc-8bggn to m5cgpu-worker
+14m         Normal    Started                   pod/gf-15-ecc-8bggn               Started container trainer
+14m         Normal    Created                   pod/gf-15-ecc-8bggn               Created container trainer
+14m         Normal    Pulled                    pod/gf-15-ecc-8bggn               Container image "gpufault-job:busybox" already present on machine
+14m         Normal    Started                   pod/gf-15-ecc-bhm7x               Started container trainer
+14m         Normal    Scheduled                 pod/gf-15-ecc-bhm7x               Successfully assigned gpufault/gf-15-ecc-bhm7x to m5cgpu-control-plane
+14m         Normal    Pulled                    pod/gf-15-ecc-bhm7x               Container image "gpufault-job:busybox" already present on machine
+14m         Normal    Created                   pod/gf-15-ecc-bhm7x               Created container trainer
+14m         Normal    SuccessfulDelete          job/gf-15-ecc                     Deleted pod: gf-15-ecc-8bggn
+14m         Normal    Resumed                   job/gf-15-ecc                     Job resumed
+14m         Normal    SuccessfulCreate          job/gf-15-ecc                     Created pod: gf-15-ecc-bhm7x
+14m         Normal    Suspended                 job/gf-15-ecc                     Job suspended
+14m         Normal    Killing                   pod/gf-15-ecc-8bggn               Stopping container trainer
+12m         Normal    Killing                   pod/gf-15-ecc-bhm7x               Stopping container trainer
+12m         Normal    Suspended                 job/gf-16-benign                  Job suspended
+12m         Normal    Started                   pod/gf-16-benign-mc759            Started container trainer
+12m         Normal    Created                   pod/gf-16-benign-mc759            Created container trainer
+12m         Normal    Scheduled                 pod/gf-16-benign-mc759            Successfully assigned gpufault/gf-16-benign-mc759 to m5cgpu-worker
+12m         Normal    Pulled                    pod/gf-16-benign-mc759            Container image "gpufault-job:busybox" already present on machine
+12m         Normal    Resumed                   job/gf-16-benign                  Job resumed
+12m         Normal    SuccessfulCreate          job/gf-16-benign                  Created pod: gf-16-benign-mc759
+10m         Normal    Killing                   pod/gf-16-benign-mc759            Stopping container trainer
+9m59s       Normal    Pulled                    pod/gf-17-xid-64tml               Container image "gpufault-job:busybox" already present on machine
+9m59s       Normal    Scheduled                 pod/gf-17-xid-64tml               Successfully assigned gpufault/gf-17-xid-64tml to m5cgpu-worker
+9m59s       Normal    Started                   pod/gf-17-xid-64tml               Started container trainer
+9m59s       Normal    Created                   pod/gf-17-xid-64tml               Created container trainer
+9m59s       Normal    SuccessfulCreate          job/gf-17-xid                     Created pod: gf-17-xid-64tml
+9m45s       Normal    Pulled                    pod/gf-17-xid-hmflf               Container image "gpufault-job:busybox" already present on machine
+9m45s       Normal    Started                   pod/gf-17-xid-hmflf               Started container trainer
+9m45s       Normal    Resumed                   job/gf-17-xid                     Job resumed
+9m45s       Normal    SuccessfulCreate          job/gf-17-xid                     Created pod: gf-17-xid-hmflf
+9m45s       Normal    SuccessfulDelete          job/gf-17-xid                     Deleted pod: gf-17-xid-64tml
+9m45s       Normal    Suspended                 job/gf-17-xid                     Job suspended
+9m45s       Normal    Killing                   pod/gf-17-xid-64tml               Stopping container trainer
+9m45s       Normal    Scheduled                 pod/gf-17-xid-hmflf               Successfully assigned gpufault/gf-17-xid-hmflf to m5cgpu-control-plane
+9m45s       Normal    Created                   pod/gf-17-xid-hmflf               Created container trainer
+7m44s       Normal    Killing                   pod/gf-17-xid-hmflf               Stopping container trainer
+7m42s       Normal    Scheduled                 pod/gf-18-ecc-8nmqr               Successfully assigned gpufault/gf-18-ecc-8nmqr to m5cgpu-worker
+7m42s       Normal    Created                   pod/gf-18-ecc-8nmqr               Created container trainer
+7m42s       Normal    SuccessfulCreate          job/gf-18-ecc                     Created pod: gf-18-ecc-8nmqr
+7m42s       Normal    Pulled                    pod/gf-18-ecc-8nmqr               Container image "gpufault-job:busybox" already present on machine
+7m41s       Normal    Started                   pod/gf-18-ecc-8nmqr               Started container trainer
+7m28s       Normal    Scheduled                 pod/gf-18-ecc-tlzn5               Successfully assigned gpufault/gf-18-ecc-tlzn5 to m5cgpu-control-plane
+7m28s       Normal    Pulled                    pod/gf-18-ecc-tlzn5               Container image "gpufault-job:busybox" already present on machine
+7m28s       Normal    Resumed                   job/gf-18-ecc                     Job resumed
+7m28s       Normal    SuccessfulCreate          job/gf-18-ecc                     Created pod: gf-18-ecc-tlzn5
+7m28s       Normal    SuccessfulDelete          job/gf-18-ecc                     Deleted pod: gf-18-ecc-8nmqr
+7m28s       Normal    Killing                   pod/gf-18-ecc-8nmqr               Stopping container trainer
+7m28s       Normal    Suspended                 job/gf-18-ecc                     Job suspended
+7m28s       Normal    Started                   pod/gf-18-ecc-tlzn5               Started container trainer
+7m28s       Normal    Created                   pod/gf-18-ecc-tlzn5               Created container trainer
+5m27s       Normal    Killing                   pod/gf-18-ecc-tlzn5               Stopping container trainer
+5m25s       Normal    Resumed                   job/gf-19-benign                  Job resumed
+5m25s       Normal    Pulled                    pod/gf-19-benign-r7tng            Container image "gpufault-job:busybox" already present on machine
+5m25s       Normal    Suspended                 job/gf-19-benign                  Job suspended
+5m25s       Normal    SuccessfulCreate          job/gf-19-benign                  Created pod: gf-19-benign-r7tng
+5m25s       Normal    Scheduled                 pod/gf-19-benign-r7tng            Successfully assigned gpufault/gf-19-benign-r7tng to m5cgpu-worker
+5m24s       Normal    Started                   pod/gf-19-benign-r7tng            Started container trainer
+5m24s       Normal    Created                   pod/gf-19-benign-r7tng            Created container trainer
+3m11s       Normal    Killing                   pod/gf-19-benign-r7tng            Stopping container trainer
+3m9s        Normal    Suspended                 job/gf-20-none                    Job suspended
+3m9s        Normal    Scheduled                 pod/gf-20-none-fdssc              Successfully assigned gpufault/gf-20-none-fdssc to m5cgpu-worker
+3m9s        Normal    Resumed                   job/gf-20-none                    Job resumed
+3m9s        Normal    SuccessfulCreate          job/gf-20-none                    Created pod: gf-20-none-fdssc
+3m8s        Normal    Started                   pod/gf-20-none-fdssc              Started container trainer
+3m8s        Normal    Created                   pod/gf-20-none-fdssc              Created container trainer
+3m8s        Normal    Pulled                    pod/gf-20-none-fdssc              Container image "gpufault-job:busybox" already present on machine
+54s         Normal    Killing                   pod/gf-20-none-fdssc              Stopping container trainer
+4s          Normal    Scheduled                 pod/gf-recovery-g2hnw             Successfully assigned gpufault/gf-recovery-g2hnw to m5cgpu-worker
+4s          Normal    Pulled                    pod/gf-recovery-g2hnw             Container image "nvcr.io/nvidia/k8s/cuda-sample:vectoradd-cuda12.5.0@sha256:7c7540bdf1f942d4fb6db97069fd6c289471b54ac29e3c7fcdf914cf77af7d41" already present on machine
+4s          Normal    Created                   pod/gf-recovery-g2hnw             Created container trainer
+4s          Normal    Started                   pod/gf-recovery-g2hnw             Started container trainer
+4s          Normal    Suspended                 job/gf-recovery                   Job suspended
+4s          Normal    SuccessfulCreate          job/gf-recovery                   Created pod: gf-recovery-g2hnw
+4s          Normal    Resumed                   job/gf-recovery                   Job resumed
+0s          Normal    Completed                 job/gf-recovery                   Job completed
