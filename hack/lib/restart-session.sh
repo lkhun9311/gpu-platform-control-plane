@@ -1012,7 +1012,9 @@ for p in json.load(sys.stdin)["items"]:
         local n=0
         while :; do
           n=$((n + 1))
-          rk -n "$RESTART_NS" logs -f "$pod" >"$dir/log-$uid.$n.txt" 2>>"$dir/collector.log"
+          # No request timeout, unlike rk: kubectl's 20 s cut every follow, so each Pod's log was read again from its start
+          # every 20 s and the 20 reads allowed below ended at about 400 s of the Pod's life (the kind rehearsal).
+          kubectl --context "$RESTART_CONTEXT" -n "$RESTART_NS" logs -f "$pod" >"$dir/log-$uid.$n.txt" 2>>"$dir/collector.log"
           printf '{"uid": "%s", "stream": %d, "exit": %d, "at": "%s"}\n' "$uid" "$n" "$?" "$(date -u +%Y-%m-%dT%H:%M:%S.%6NZ)" >>"$dir/streams.jsonl"
           # A stream that ended with its container is complete; one that ended while it runs is read again in full.
           [[ "$(rk -n "$RESTART_NS" get pod "$pod" -o jsonpath='{.status.containerStatuses[0].state.running}' 2>>"$dir/collector.log")" != "" ]] || break

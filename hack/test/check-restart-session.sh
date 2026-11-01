@@ -521,6 +521,15 @@ if [[ "$(cat "$work/out/probe-before/dcgm-1/VOID" 2>&1)" == "VOID-before-fault: 
 else
   bad "the failed probe before the fault: VOID '$(cat "$work/out/probe-before/dcgm-1/VOID" 2>&1)', $(grep -c hostengine "$work/probe-before.calls") injection call(s)"
 fi
+# A follow carries no request timeout: kubectl's 20 s one cut every stream on the kind rehearsal, each was read again from
+# the start, and the 20 restarts the collector allows then ended its coverage of any Pod that ran past about 400 s.
+follows="$(grep -c 'logs -f' "$work/probe-before.calls")"
+timed="$(grep 'logs -f' "$work/probe-before.calls" | grep -c -- '--request-timeout')"
+if [[ "$follows" -ge 2 && "$timed" == 0 ]]; then
+  ok "the collector's $follows log follows carry no request timeout"
+else
+  bad "$timed of the collector's $follows log follows carry a request timeout, which ends each stream after it"
+fi
 tokens="$(python3 -c 'import json, sys; print(" ".join(json.loads(l).get("attempt_token", "absent") for l in open(sys.argv[1])))' "$work/out/probe-before/dcgm-1/pods.jsonl" 2>&1)"
 if [[ "$tokens" == "1 1" ]]; then
   ok "each Pod's line carries the controller's attempt label: $tokens"
