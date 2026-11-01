@@ -7,7 +7,7 @@
 # Modelled on hack/test/check-mps-capability-session.sh, whose stub it reuses in shape. What it pins:
 # - every pre-purchase refusal stops before run-instances;
 # - the launch is the pinned AMI on a g5.2xlarge at the $1.1324 cap, terminating on shutdown, carrying the sweeper's
-#   tag at the request plus 6,940 s, rewritten to LaunchTime plus 6,970 s; LaunchTime is handed to the instance;
+#   tag at the request plus 7,120 s, rewritten to LaunchTime plus 7,150 s (run 3's amendment); LaunchTime is handed to the instance;
 # - the rendered user-data has no placeholder, parses, carries the spliced bring-up, runs the instance procedure
 #   under the registered phase arithmetic, and fits EC2's 16 KB;
 # - the end: the instance is terminated, the evidence is scored by the real scorer, and an unconfirmed termination
@@ -185,12 +185,12 @@ session "a whole session"
 grep -q "^GPU FAULT REACTION: NO-EVIDENCE" "$STUB/out/verdict.txt" 2>/dev/null && grep -qx "termination=confirmed" "$STUB/out/verdict.txt" &&
   ok "the real scorer read the returned evidence, and the termination is recorded" || bad "the verdict: $(head -3 "$STUB/out/verdict.txt" 2>/dev/null | paste -sd';')"
 tag_at_launch=$(grep '^ec2 run-instances' "$STUB/calls.log" | grep -o 'Key=study-deadline,Value=[0-9TZ:-]*' | head -1 | sed 's/.*Value=//')
-want_lo=$(( t0 + 6940 )); got=$(date -u -d "$tag_at_launch" +%s 2>/dev/null || echo 0)
-(( got >= want_lo && got <= want_lo + 120 )) && ok "the launch carries the sweeper's tag at the request plus 6,940 s ($tag_at_launch)" || bad "the launch's tag is '$tag_at_launch'"
+want_lo=$(( t0 + 7120 )); got=$(date -u -d "$tag_at_launch" +%s 2>/dev/null || echo 0)
+(( got >= want_lo && got <= want_lo + 120 )) && ok "the launch carries the sweeper's tag at the request plus 7,120 s ($tag_at_launch)" || bad "the launch's tag is '$tag_at_launch'"
 lt_epoch=$(date -u -d "$LT" +%s)
-want_tag=$(date -u -d "@$(( lt_epoch + 6970 ))" +%Y-%m-%dT%H:%M:%SZ)
+want_tag=$(date -u -d "@$(( lt_epoch + 7150 ))" +%Y-%m-%dT%H:%M:%SZ)
 grep -q "^ec2 create-tags .*--resources i-0gpufault --tags Key=study-deadline,Value=$want_tag" "$STUB/calls.log" &&
-  ok "the tag is rewritten to LaunchTime plus 6,970 s ($want_tag)" || bad "the tag rewrite was: $(grep create-tags "$STUB/calls.log")"
+  ok "the tag is rewritten to LaunchTime plus 7,150 s ($want_tag)" || bad "the tag rewrite was: $(grep create-tags "$STUB/calls.log")"
 grep -q '^s3 cp --only-show-errors .*launch-time.txt s3://gpufault-gpu-007635145730/.*/launch-time.txt' "$STUB/calls.log" &&
   ok "LaunchTime is handed to the instance through the run's prefix" || bad "LaunchTime was not uploaded"
 grep -q '^ec2 run-instances .*--image-id ami-097edab977037f65f --instance-type g5.2xlarge .*--instance-initiated-shutdown-behavior terminate' "$STUB/calls.log" &&
@@ -211,9 +211,9 @@ bash -n "$ud" && ok "the user-data parses" || bad "the user-data does not parse"
 grep -qx 'docker exec m5cgpu-worker systemctl restart containerd || exit 1' "$ud" && ok "the user-data carries the bring-up spliced from hack/m5c-gpu-session.sh" ||
   bad "the bring-up is not in the user-data"
 # shellcheck disable=SC2016
-grep -q 'P1=$(( L + 720 )); P2=$(( L + 1320 )); P3=$(( L + 6520 )); P4=$(( L + 6820 )); EV=$(( L + 6940 ))' "$ud" &&
-  ok "the phases end at 720, 1,320, 6,520 and 6,820 s after LaunchTime and the evidence at 6,940 s" || bad "the phase arithmetic is not the registered one"
-grep -q '( sleep 7000; shutdown -h now ) &' "$ud" && ok "the first backstop stops the instance at 7,000 s" || bad "no 7,000 s backstop"
+grep -q 'P1=$(( L + 720 )); P2=$(( L + 1320 )); P3=$(( L + 6520 )); P4=$(( L + 7000 )); EV=$(( L + 7120 ))' "$ud" &&
+  ok "the phases end at 720, 1,320, 6,520 and 7,000 s after LaunchTime and the evidence at 7,120 s" || bad "the phase arithmetic is not the registered one"
+grep -q '( sleep 7180; shutdown -h now ) &' "$ud" && ok "the first backstop stops the instance at 7,180 s" || bad "no 7,180 s backstop"
 # shellcheck disable=SC2016
 grep -q 'GF_ARMS_END="$P3" GF_CHECKS_END="$P4"' "$ud" && grep -q 'bash hack/gpu-fault-instance.sh' "$ud" &&
   ok "the instance procedure runs under the phase deadlines" || bad "the instance procedure is not run with its deadlines"
