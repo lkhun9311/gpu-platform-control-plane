@@ -715,6 +715,8 @@ score manifest-unlisted terminate-wait-3 VOID "the volume's listing has no /rst-
 score no-volume-listing dcgm-4 VOID "no listing of the job's files on the volume"
 score resume-gap terminate-spare-5 FAILED "rank 0 of attempt 2 resumed from step 13, and its steps lack [14, 15]"
 score timed-out terminate-wait-4 FAILED "censored at its budget: the job ended 'Pending', not Succeeded"
+# A recovery censored at its budget stays FAILED when the nodes read afterwards are unreadable: the outcome is judged first.
+score timed-out-nodes-unread rank-kill-3 FAILED "censored at its budget: the job ended 'Pending', not Succeeded"
 score job-failed rank-kill-2 FAILED "not recovered: the job ended 'Failed', not Succeeded"
 # The summary keeps a recovery cut off by its budget apart from one that ended wrong, and both apart from VOID.
 for want in "timed-out terminate-wait-4:terminate-wait: 5 registered, 4 ACCEPTED, 1 FAILED (1 censored at their budget, 0 not recovered), 0 VOID" \

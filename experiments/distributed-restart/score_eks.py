@@ -21,6 +21,7 @@ refused (dirty tree, a trainer other than the approved one, no registration).
 
 from __future__ import annotations
 
+import functools
 import json
 import math
 import pathlib
@@ -131,12 +132,6 @@ class Case:
         before = self.dir / "nodes-before.json"
         self.up_before = {n["metadata"]["name"] for n in json.loads(before.read_text()).get("items", [])} if before.exists() else set()
         self.terminated = (self.spec.get("target") or {}).get("node") if self.kind.startswith("terminate") else None
-        # A replacement can come back under the terminated node's name, and it is another machine with its own clock.
-        after = self.dir / "nodes-after.json"
-        uids_before = {n["metadata"]["name"]: n["metadata"].get("uid") for n in json.loads(before.read_text()).get("items", [])} if before.exists() else {}
-        uids_after = {n["metadata"]["name"]: n["metadata"].get("uid") for n in json.loads(after.read_text()).get("items", [])} if after.exists() else {}
-        self.name_reused = bool(self.terminated and self.terminated in uids_before and self.terminated in uids_after
-                                and uids_before[self.terminated] != uids_after[self.terminated])
         # Each record is tagged with the node its Pod ran on, which decides whose clock its timestamp is.
         # A Pod's log may be in several files, because a stream that broke while the Pod ran is read again from its
         # start, so the same record can appear twice and is counted once.
@@ -196,6 +191,22 @@ class Case:
                 if r.get("event") == event and r.get("attempt") == attempt and (rank is None or r.get("rank") == rank)]
 
     # --- clocks -------------------------------------------------------------------------------------------------------
+
+    @functools.cached_property
+    def name_reused(self) -> bool:
+        """The terminated node's name came back as another Node, a replacement with its own clock.
+
+        Read when a clock is, not when the case is loaded, so a node list the runner could not write afterwards cannot
+        turn a recovery already judged censored into VOID before its outcome is read (codex review of 0f8e3811).
+        """
+        if not self.terminated:
+            return False
+        uids = []
+        for f in ("nodes-before.json", "nodes-after.json"):
+            items = json.loads((self.dir / f).read_text()).get("items", []) if (self.dir / f).exists() else []
+            uids.append({n["metadata"]["name"]: n["metadata"].get("uid") for n in items})
+        before, after = uids
+        return self.terminated in before and self.terminated in after and before[self.terminated] != after[self.terminated]
 
     def clock(self, node: str | None, attempt: int | None = None) -> tuple[float, float]:
         """Seconds the node's clock runs ahead of the runner's and the uncertainty of that, refusing a doubtful clock.
