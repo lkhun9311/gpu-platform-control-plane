@@ -8,8 +8,11 @@ What is generated and what is copied:
   g5.xlarge over the VPC network), with only the host, the rank numbers and the address substituted;
 - the line on which NCCL output and a trainer record share a line is the shape of
   hack/four-gpu/2026-10-29-run5/c/jobs/03-allreduce-4pod1gpu-5, line 46;
-- the trainer records have the fields experiments/distributed-restart/train.py emits, and the MLTrainingJob status the
-  fields api/v1 TrainingAttempt has, with the trigger on the attempt that was stopped, as the controller writes it.
+- the trainer records have the fields experiments/distributed-restart/train.py emits, every rank's final parameters
+  included, and the MLTrainingJob status the fields api/v1 TrainingAttempt has, with the trigger on the attempt that
+  was stopped, as the controller writes it;
+- the other files are those hack/lib/restart-session.sh writes, in its shapes: pods.jsonl, marks.jsonl, clock.jsonl,
+  timeline.jsonl, shared-files.txt, nodes-before.json and nodes-after.json per case, nodes-prepared.jsonl per run.
 Times are synthetic: every node's clock runs a fixed offset from the runner's, and every probe sees it.
 """
 
@@ -49,15 +52,30 @@ def nccl_log(host: str, rank: int, world: int, transport: str = "NET/Socket/0", 
 class Rank:
     """One rank of one attempt: its Pod, its node and the records it prints."""
 
-    def __init__(self, attempt: int, rank: int, node: str, uid: str) -> None:
-        self.attempt, self.rank, self.node, self.uid = attempt, rank, node, uid
+    def __init__(self, run_id: str, attempt: int, rank: int, node: str, uid: str) -> None:
+        self.run_id, self.attempt, self.rank, self.node, self.uid = run_id, attempt, rank, node, uid
         self.records: list[dict] = []
 
     def emit(self, t_runner: float, event: str, **fields) -> None:
-        r = {"ts": iso(t_runner + NODES[self.node][1]), "run_id": "fixture", "attempt": self.attempt, "rank": self.rank,
+        r = {"ts": iso(t_runner + NODES[self.node][1]), "run_id": self.run_id, "attempt": self.attempt, "rank": self.rank,
              "event": event}
         r.update(fields)
         self.records.append(r)
+
+
+def api_time(t: float) -> str:
+    """A time as the API server writes a metav1.Time: whole seconds, truncated, with a Z."""
+    return datetime.datetime.fromtimestamp(int(t), datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def node_uid(node: str, case: str) -> str:
+    # The fourth node is the one the group launches after a termination, so it is a new machine, and a new Node, per case.
+    return f"uid-{node}-{case}" if node == list(NODES)[3] else f"uid-{node}"
+
+
+def node_list(names: list[str], case: str) -> dict:
+    return {"items": [{"metadata": {"name": n, "uid": node_uid(n, case)},
+                       "spec": {"providerID": f"aws:///ap-northeast-2a/{NODES[n][0]}"}} for n in names]}
 
 
 def train(r: Rank, t: float, first: int, last: int, final: list[float] | None) -> float:
@@ -73,17 +91,25 @@ def case_dir(out: pathlib.Path, name: str, kind: str, n: int) -> None:
     (d / "nccl").mkdir(parents=True)
     t0 = BASE + n * 1000
     nodes = list(NODES)
-    a1 = [Rank(1, 0, nodes[0], f"{name}-a1-r0"), Rank(1, 1, nodes[1], f"{name}-a1-r1")]
-    case = {"kind": kind, "name": name, "job_id": f"rst-{name}-x", "target": {}}
-    marks, attempts, probes = [], [], []
+    # The runner names the job rst-<case>-<time> and the trainer's run_id is that name (CKPT_RUN_ID in restart_render_job).
+    job = f"rst-{name}-010000"
+    a1 = [Rank(job, 1, 0, nodes[0], f"{name}-a1-r0"), Rank(job, 1, 1, nodes[1], f"{name}-a1-r1")]
+    case = {"kind": kind, "name": job, "job_id": f"{job}-0a1b2c3d", "target": {}}
+    marks, attempts, probes, timeline = [], [], [], []
+    annotations: dict[str, str] = {}
     trigger = {"no-rng-control": "RankFailed", "rank-kill": "RankFailed", "dcgm": "NodeFault"}.get(kind, "RankFailed")
     for r in a1:
         r.emit(t0, "start", world_size=2, backend="nccl", device="cuda:0", ballast_mb=16)
+    # terminate-wait runs with the group at two, so no node is up before the fault but the two attempt 1 runs on.
+    before = nodes[:2] if kind == "terminate-wait" else nodes[:3]
+    after = list(before)
+    published = []
     if kind == "reference":
         for r in a1:
-            train(r, t0 + 1, 1, STEPS, PARAMS if r.rank == 0 else None)
-        attempts = [{"number": 1, "state": "Succeeded", "nodes": nodes[:2]}]
+            train(r, t0 + 1, 1, STEPS, PARAMS)
+        attempts = [{"number": 1, "state": "Succeeded", "nodes": nodes[:2], "createdAt": api_time(t0 - 5)}]
         ranks = a1
+        t_end = t0 + 1 + STEPS * 2.3
     else:
         stop = {"no-rng-control": 12, "rank-kill": 12}.get(kind, 14)
         resume = {"no-rng-control": 12, "rank-kill": 11}.get(kind, 13)
@@ -92,10 +118,14 @@ def case_dir(out: pathlib.Path, name: str, kind: str, n: int) -> None:
             # The step the fault interrupts is recorded and never checkpointed, which is the step a restart loses.
             r.emit(t0 + 1 + (stop - 1) * 2.3, "step", step=stop, loss=0.5, digest="0" * 64, params=None)
         t_fault = t0 + 1 + (stop - 1) * 2.3 + 0.05
+        t_create = t_fault + 20
         if kind == "rank-kill":
             a1[1].emit(t_fault, "fault", point="kill-before-fsync", step=12)
         elif kind == "no-rng-control":
             a1[0].emit(t_fault, "fault", point="kill-after-latest", step=12)
+            # kill-after-latest dies after LATEST names step 12 and before the barrier, so its manifest is on the volume
+            # and no rank recorded the checkpoint.
+            published.append(f"a1/{12:08d}-{'c' * 32}")
         elif kind == "dcgm":
             case["target"] = {"rank": 1, "node": nodes[1], "instance": NODES[nodes[1]][0]}
             json.dump({"node": nodes[1], "injected_at": iso(t_fault + NODES[nodes[1]][1]), "readback": "79", "latched": True,
@@ -104,24 +134,37 @@ def case_dir(out: pathlib.Path, name: str, kind: str, n: int) -> None:
             case["target"] = {"rank": 1, "node": nodes[1], "instance": NODES[nodes[1]][0]}
             marks += [{"at": iso(t_fault), "mark": "fault-start"}, {"at": iso(t_fault + 0.4), "mark": "fault-end"},
                       {"at": iso(t_fault + 30), "mark": "terminated-read"}, {"at": iso(t_fault + 31), "mark": "fenced"}]
+            annotations["platform.lkhun9311.github.io/fenced-nodes"] = nodes[1]
+            # The terminated node's object is gone by the end, and the group has launched one in its place.
+            after = [x for x in before if x != nodes[1]] + [nodes[3]]
+            t_create = t_fault + 40
         # Where attempt 2 runs decides its class: the spare for terminate-spare and dcgm, a replacement for terminate-wait.
         second = {"terminate-wait": nodes[3], "terminate-spare": nodes[2], "dcgm": nodes[2]}.get(kind, nodes[1])
-        a2 = [Rank(2, 0, nodes[0], f"{name}-a2-r0"), Rank(2, 1, second, f"{name}-a2-r1")]
+        a2 = [Rank(job, 2, 0, nodes[0], f"{name}-a2-r0"), Rank(job, 2, 1, second, f"{name}-a2-r1")]
         t2 = t_fault + 70
         final = [p + 0.5 for p in PARAMS] if kind == "no-rng-control" else PARAMS
         for r in a2:
             r.emit(t2, "resume", from_dir=f"a1/{resume:08d}-{'c' * 32}", from_step=resume)
             r.emit(t2 + 0.1, "start", world_size=2, backend="nccl", device="cuda:0", ballast_mb=16)
-            train(r, t2 + 1, resume + 1, STEPS, final if r.rank == 0 else None)
-        attempts = [{"number": 1, "state": "Stopped", "trigger": trigger, "nodes": nodes[:2]},
-                    {"number": 2, "state": "Succeeded", "nodes": sorted({nodes[0], second})}]
+            train(r, t2 + 1, resume + 1, STEPS, final)
+        attempts = [{"number": 1, "state": "Stopped", "trigger": trigger, "nodes": nodes[:2], "createdAt": api_time(t0 - 5)},
+                    {"number": 2, "state": "Succeeded", "nodes": sorted({nodes[0], second}), "createdAt": api_time(t_create)}]
         ranks = a1 + a2
-    before = [n for n in nodes if n != nodes[3]]
+        t_end = t2 + 1 + (STEPS - resume) * 2.3
+        timeline.append({"observed": iso(t_fault - 1), "status": {"phase": "Running", "attempts": [{**attempts[0], "state": "Active"}]},
+                         "annotations": None})
+        timeline.append({"observed": iso(t_create + 3), "status": {"phase": "Running", "attempts": [attempts[0], {**attempts[1], "state": "Active"}]},
+                         "annotations": dict(annotations) or None})
+    first = {k: v for k, v in attempts[0].items() if k != "trigger"}
+    timeline.insert(0, {"observed": iso(t0 + 2), "status": {"phase": "Running", "attempts": [{**first, "state": "Active"}]},
+                        "annotations": None})
+    timeline.append({"observed": iso(t_end + 2), "status": {"phase": "Succeeded", "attempts": attempts},
+                     "annotations": dict(annotations) or None})
     for node in nodes:
         when = []
         if node in before:
             when.append("before")
-        if not (kind.startswith("terminate") and node == nodes[1]):
+        if node in after:
             when.append("after")
         for w in when:
             t = t0 + (0 if w == "before" else 200)
@@ -135,7 +178,7 @@ def case_dir(out: pathlib.Path, name: str, kind: str, n: int) -> None:
             nccl_log(f"{name}-{r.rank}", r.rank, 2))
     with open(d / "pods.jsonl", "w") as f:
         for i, r in enumerate(ranks):
-            f.write(json.dumps({"uid": r.uid, "pod": f"{name}-{r.rank}-{r.attempt}", "node": r.node, "index": str(r.rank),
+            f.write(json.dumps({"uid": r.uid, "pod": f"{job}-{r.rank}-{r.attempt}", "node": r.node, "index": str(r.rank),
                                 "observed": iso(t0 + i)}) + "\n")
     with open(d / "clock.jsonl", "w") as f:
         for p in probes:
@@ -143,10 +186,21 @@ def case_dir(out: pathlib.Path, name: str, kind: str, n: int) -> None:
     with open(d / "marks.jsonl", "w") as f:
         for m in marks:
             f.write(json.dumps(m) + "\n")
+    with open(d / "timeline.jsonl", "w") as f:
+        for s in timeline:
+            f.write(json.dumps(s, sort_keys=True) + "\n")
+    # What `find` on the job's directory lists once its writers are retired: every published checkpoint's manifest and
+    # shards, LATEST, and the NCCL logs.
+    published += sorted({rec["dir"] for r in ranks for rec in r.records if rec["event"] == "checkpoint"})
+    root = f"/state/{case['job_id']}"
+    listing = [f"{root}/LATEST"] + [f"{root}/{p}/{f}" for p in published for f in ("MANIFEST", "rank-0.pt", "rank-1.pt")]
+    listing += [f"{root}/nccl/{f.name}" for f in sorted((d / "nccl").glob("*.log"))]
+    (d / "shared-files.txt").write_text("".join(line + "\n" for line in listing))
     json.dump(case, open(d / "case.json", "w"))
-    json.dump({"status": {"phase": "Succeeded", "attempts": attempts}}, open(d / "final-mltj.json", "w"))
-    json.dump({"items": [{"metadata": {"name": n}, "spec": {"providerID": f"aws:///ap-northeast-2a/{NODES[n][0]}"}}
-                         for n in before]}, open(d / "nodes-before.json", "w"))
+    json.dump({"metadata": {"name": job, "annotations": annotations}, "status": {"phase": "Succeeded", "attempts": attempts}},
+              open(d / "final-mltj.json", "w"))
+    json.dump(node_list(before, name), open(d / "nodes-before.json", "w"))
+    json.dump(node_list(after, name), open(d / "nodes-after.json", "w"))
 
 
 def cases() -> list[tuple[str, str]]:
@@ -278,6 +332,10 @@ def main(argv: list[str]) -> int:
         f"steps={STEPS}\ncases={' '.join(n for n, _ in names)}\n")
     for i, (name, kind) in enumerate(names):
         case_dir(out, name, kind, i)
+    # The runner prepares the three nodes it bought before the first case; a replacement is prepared after its case.
+    with open(out / "nodes-prepared.jsonl", "w") as f:
+        for node in list(NODES)[:3]:
+            f.write(json.dumps({"node": node, "prepared_at": iso(BASE - 600)}) + "\n")
     if len(argv) == 4:
         defect(out, argv[2], argv[3])
     return 0
