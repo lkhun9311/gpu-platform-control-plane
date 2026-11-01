@@ -642,6 +642,8 @@ restart_terminate_and_fence() {
     return 1
   }
   restart_mark "$dir" "fenced"
+  # Sampled at once, because the case loop does not sample while the fencing is waited for.
+  restart_sample "$mltj" "$dir"
   echo "$instance terminated and $node fenced"
 }
 
@@ -841,14 +843,19 @@ restart_fault_path_ready() {
 # The warm-ups run in parallel, because each node pulls its own copy of the image and the budget is one deadline for all
 # of them; warming the three first nodes one after another, each under its own 900 s, had summed to 2,700 s, not 900.
 restart_prepare_nodes() {
-  local warmed="$1" deadline="$2" nodes node pod out left entry failed="" warming=()
-  nodes="$(rk get nodes -l "eks.amazonaws.com/nodegroup=$RESTART_GROUP" -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>&1)" || {
+  local warmed="$1" deadline="$2" nodes node uid pod out left entry failed="" warming=()
+  # A node is known by name and UID, because a replacement can come back under a name an earlier node had.
+  nodes="$(rk get nodes -l "eks.amazonaws.com/nodegroup=$RESTART_GROUP" -o jsonpath='{range .items[*]}{.metadata.name}{" "}{.metadata.uid}{"\n"}{end}' 2>&1)" || {
     echo "could not list the GPU nodes: ${nodes:0:200}"
     return 1
   }
-  while read -r node; do
+  while read -r node uid; do
     [[ -n "$node" ]] || continue
-    grep -qx "$node" "$warmed" && continue
+    [[ -n "$uid" ]] || {
+      failed="the GPU node $node was listed with no UID"
+      break
+    }
+    grep -qx "$node $uid" "$warmed" && continue
     out="$(rk apply -f - 2>&1 <<EOF
 apiVersion: platform.lkhun9311.github.io/v1
 kind: NodeHealth
@@ -865,16 +872,16 @@ EOF
       failed="$pod"
       break
     }
-    warming+=("$node $pod")
+    warming+=("$node $uid $pod")
   done <<<"$nodes"
   for entry in "${warming[@]}"; do
-    node="${entry% *}" pod="${entry#* }"
+    read -r node uid pod <<<"$entry"
     if [[ -z "$failed" ]]; then
       left=$((deadline - SECONDS))
       ((left >= 1)) || left=1
       if out="$(rk -n "$RESTART_NS" wait --for=jsonpath='{.status.phase}'=Succeeded "pod/$pod" --timeout="${left}s" 2>&1)"; then
-        echo "$node" >>"$warmed"
-        printf '{"node": "%s", "prepared_at": "%s"}\n' "$node" "$(date -u +%Y-%m-%dT%H:%M:%S.%6NZ)" >>"$RESTART_OUT/nodes-prepared.jsonl"
+        echo "$node $uid" >>"$warmed"
+        printf '{"node": "%s", "uid": "%s", "prepared_at": "%s"}\n' "$node" "$uid" "$(date -u +%Y-%m-%dT%H:%M:%S.%6NZ)" >>"$RESTART_OUT/nodes-prepared.jsonl"
       else
         failed="the warm-up on $node did not succeed by the warm deadline (${left}s left): ${out:0:200}"
       fi
@@ -959,14 +966,17 @@ for p in json.load(sys.stdin)["items"]:
     cs = (p.get("status", {}).get("containerStatuses") or [{}])[0]
     if cs.get("state", {}).get("running") or cs.get("state", {}).get("terminated"):
         ann = p["metadata"].get("annotations", {})
-        print(p["metadata"]["uid"], p["metadata"]["name"], p["spec"].get("nodeName") or "-", ann.get("batch.kubernetes.io/job-completion-index", "-"))
+        token = (p["metadata"].get("labels") or {}).get("platform.lkhun9311.github.io/mltrainingjob-attempt") or "-"
+        print(p["metadata"]["uid"], p["metadata"]["name"], p["spec"].get("nodeName") or "-", ann.get("batch.kubernetes.io/job-completion-index", "-"), token)
 ' 2>>"$dir/collector.log")"
-    while read -r uid pod node index; do
+    while read -r uid pod node index token; do
       [[ -n "$uid" ]] || continue
       case "$started" in *" $uid "*) continue ;; esac
       started="$started$uid "
-      printf '{"uid": "%s", "pod": "%s", "node": "%s", "index": "%s", "observed": "%s"}\n' \
-        "$uid" "$pod" "$node" "$index" "$(date -u +%Y-%m-%dT%H:%M:%S.%6NZ)" >>"$dir/pods.jsonl"
+      # The attempt label is the controller's own (mltjAttemptLabel in internal/controller/mltrainingjob_distributed.go),
+      # so which attempt a Pod ran is read from the controller and not inferred from the order Pods were seen in.
+      printf '{"uid": "%s", "pod": "%s", "node": "%s", "index": "%s", "attempt_token": "%s", "observed": "%s"}\n' \
+        "$uid" "$pod" "$node" "$index" "$token" "$(date -u +%Y-%m-%dT%H:%M:%S.%6NZ)" >>"$dir/pods.jsonl"
       (
         local n=0
         while :; do
@@ -1132,23 +1142,47 @@ restart_efs_credits() {
   printf '%s %s %s\n' "$2" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$v" >>"$1/efs-credits.txt"
 }
 
-# restart_void_case DIR NAME COLLECTOR RETIRE_DEADLINE REASON: the case VOID for REASON, its collector stopped and its
-# job retired; 1 once the retirement is confirmed, 2 when it is not.
+# restart_void_case DIR NAME JOB_ID COLLECTOR RETIRE_DEADLINE REASON: the case VOID for REASON, its evidence read, its
+# collector stopped and its job retired; 1 once the retirement is confirmed, 2 when it is not.
 #
 # A VOID case that may still hold Pods, Workloads and GPUs shares the queue and the nodes with whatever starts next,
 # exactly as a censored one does, so its unconfirmed retirement stops every later submission the same way.
+# The job, the nodes and a timeline sample are read before the retirement deletes the job, so a VOID case leaves the
+# same evidence files as one that ran.
 restart_void_case() {
-  local dir="$1" name="$2" collector="$3" retire_dl="$4"
-  echo "$5" >"$dir/VOID"
+  local dir="$1" name="$2" job_id="$3" collector="$4" retire_dl="$5"
+  echo "$6" >"$dir/VOID"
+  restart_sample "$name" "$dir"
+  rk -n "$RESTART_NS" get mltrainingjob "$name" -o json >"$dir/final-mltj.json" 2>>"$dir/case.log"
+  rk get nodes -o json >"$dir/nodes-after.json" 2>>"$dir/case.log"
   if [[ -n "$collector" ]]; then
     kill "$collector" 2>>"$dir/case.log"
     wait "$collector" 2>>"$dir/case.log"
   fi
   restart_retire "$name" $((retire_dl - SECONDS)) >>"$dir/case.log" || {
-    echo "retirement of the VOID case $name was not confirmed; nothing more may start" >>"$dir/case.log"
+    echo "retirement of the VOID case $name was not confirmed; its files are left on the volume and nothing more may start" >>"$dir/case.log"
+    restart_list_shared "$dir" "$job_id"
     return 2
   }
+  restart_case_files "$dir" "$job_id"
   return 1
+}
+
+# restart_list_shared DIR JOB_ID: the case's files on the volume listed into DIR/shared-files.txt, read-only, so a case
+# whose writers may still run is listed without touching what they write.
+restart_list_shared() {
+  rkt 30 -n "$RESTART_NS" exec rst-reader -- find "$RESTART_MOUNT/$2" -type f >"$1/shared-files.txt" 2>>"$1/case.log"
+}
+
+# restart_case_files DIR JOB_ID: a retired case's NCCL logs copied, its files listed, and its directory deleted.
+#
+# Three calls of at most 30 s, and the verdict's 30 s after the reset, are RESTART_FILES_BUDGET.
+restart_case_files() {
+  local dir="$1" job_id="$2"
+  mkdir -p "$dir/nccl"
+  rkt 30 -n "$RESTART_NS" exec rst-reader -- tar -C "$RESTART_MOUNT/$job_id" -cf - nccl 2>>"$dir/case.log" | tar -C "$dir" -xf - 2>>"$dir/case.log"
+  restart_list_shared "$dir" "$job_id"
+  rkt 30 -n "$RESTART_NS" exec rst-reader -- rm -rf "$RESTART_MOUNT/$job_id" >>"$dir/case.log" 2>&1
 }
 
 # restart_run_case CASE SLOT_DEADLINE: one registered case, from submission to its retirement, inside the slot
@@ -1174,7 +1208,7 @@ restart_run_case() {
   # The case's own budget starts at the create and is the registered censoring bound, so it is never shortened to fit.
   # A create whose answer was lost may still have made the job, so a refused create is retired like any other VOID.
   out="$(rk apply -f "$dir/mltrainingjob.json" 2>&1)" || {
-    restart_void_case "$dir" "$name" "" "$retire_dl" "create refused: ${out:0:300}"
+    restart_void_case "$dir" "$name" "$job_id" "" "$retire_dl" "create refused: ${out:0:300}"
     return
   }
   deadline=$((SECONDS + RESTART_CASE_BUDGET))
@@ -1193,7 +1227,7 @@ restart_run_case() {
   # The reference has no fault and no recovery to time, so for it a failed probe is only logged.
   if ! out="$(restart_probe_all "$dir" before 2>&1)"; then
     if [[ "$kind" != reference ]]; then
-      restart_void_case "$dir" "$name" "$collector" "$retire_dl" "VOID-before-fault: a clock probe before the fault failed, so nothing was injected: ${out:0:200}"
+      restart_void_case "$dir" "$name" "$job_id" "$collector" "$retire_dl" "VOID-before-fault: a clock probe before the fault failed, so nothing was injected: ${out:0:200}"
       return
     fi
     echo "a clock probe before the fault failed: $out" >>"$dir/case.log"
@@ -1201,13 +1235,13 @@ restart_run_case() {
 
   if [[ "$kind" == dcgm || "$kind" == terminate-* ]]; then
     rank0="$(restart_rank_pod "$dir" 0)" && rank1="$(restart_rank_pod "$dir" 1)" || {
-      restart_void_case "$dir" "$name" "$collector" "$retire_dl" "the ranks' Pods were never seen"
+      restart_void_case "$dir" "$name" "$job_id" "$collector" "$retire_dl" "the ranks' Pods were never seen"
       return
     }
     pod0="$(awk '{print $2}' <<<"$rank0")"
     node1="$(awk '{print $3}' <<<"$rank1")"
     window="$(restart_fault_window "$pod0" "$job_id" "$dir" $((deadline - SECONDS)))" || {
-      restart_void_case "$dir" "$name" "$collector" "$retire_dl" "no fault window: $window"
+      restart_void_case "$dir" "$name" "$job_id" "$collector" "$retire_dl" "no fault window: $window"
       return
     }
     out="$(restart_external_fault "$kind" "$dir" "$name" "$job_id" "$pod0" "$node1" "$window" "$deadline" "$slot_dl")"
@@ -1239,15 +1273,13 @@ restart_run_case() {
   # The writers are stopped before their files are copied and deleted.
   # A case whose retirement cannot be confirmed may still be writing and still hold GPUs and quota, so its files stay on
   # the volume and the run stops (codex review of 830f64af).
+  # Their listing is still written, read-only, so the scorer is not left without it.
   restart_retire "$name" $((retire_dl - SECONDS)) >>"$dir/case.log" || {
     echo "retirement of $name was not confirmed; its files are left on the volume" >>"$dir/case.log"
+    restart_list_shared "$dir" "$job_id"
     return 2
   }
-  # Three calls of at most 30 s, and the verdict's 30 s after the reset, are RESTART_FILES_BUDGET.
-  mkdir -p "$dir/nccl"
-  rkt 30 -n "$RESTART_NS" exec rst-reader -- tar -C "$RESTART_MOUNT/$job_id" -cf - nccl 2>>"$dir/case.log" | tar -C "$dir" -xf - 2>>"$dir/case.log"
-  rkt 30 -n "$RESTART_NS" exec rst-reader -- find "$RESTART_MOUNT/$job_id" -type f >"$dir/shared-files.txt" 2>>"$dir/case.log"
-  rkt 30 -n "$RESTART_NS" exec rst-reader -- rm -rf "$RESTART_MOUNT/$job_id" >>"$dir/case.log" 2>&1
+  restart_case_files "$dir" "$job_id"
   if [[ "$kind" == dcgm && -n "${node1:-}" ]]; then
     # A node left latched is a node the next case cannot use, so the run stops rather than measure accumulated damage.
     restart_dcgm_reset "$node1" "$dir" >>"$dir/case.log" 2>&1 || {
