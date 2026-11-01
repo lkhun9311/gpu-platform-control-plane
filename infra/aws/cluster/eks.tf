@@ -51,7 +51,9 @@ module "eks" {
   #
   # These move with var.cluster_version and are not independent choices. An add-on built for another minor
   # fails CreateAddon at apply rather than warning, so re-resolve all three whenever the version changes.
-  cluster_addons = {
+  #
+  # The EFS CSI driver joins them only when var.efs_enabled builds the restart session's volume; efs.tf holds it.
+  cluster_addons = merge({
     coredns = {
       addon_version = "v1.13.2-eksbuild.21"
     }
@@ -76,7 +78,7 @@ module "eks" {
     aws-ebs-csi-driver = {
       service_account_role_arn = aws_iam_role.ebs_csi.arn
     }
-  }
+  }, local.efs_addon)
 
   vpc_id = module.vpc.vpc_id
 

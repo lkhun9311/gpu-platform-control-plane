@@ -79,7 +79,9 @@ expect() {
 scenario
 expect "two nodes" 0 "gpu_max_nodes 2" -- train_node_count_refusal 2
 expect "a fractional count" 1 "not a whole number" -- train_node_count_refusal 1.5
-expect "three nodes" 1 "outside" -- train_node_count_refusal 3
+expect "three nodes, the restart session's" 0 "gpu_max_nodes 3" -- train_node_count_refusal 3
+expect "four nodes" 1 "outside the 1 to 3" -- train_node_count_refusal 4
+expect "zero nodes" 1 "outside the 1 to 3" -- train_node_count_refusal 0
 expect "no count" 1 "not a whole number" -- train_node_count_refusal ""
 
 # --- a cluster this session creates ------------------------------------------------------------------------------

@@ -226,7 +226,7 @@ variable "api_public_access_cidrs" {
 }
 
 variable "gpu_max_nodes" {
-  description = "max_size for the queuelab GPU node group. 2 enables the two-node axis and requires 96 vCPU of G/VT quota."
+  description = "max_size for the gpu node group. 2 enables queuelab's two-node axis; 3 is the distributed restart session's two ranks and a spare."
   type        = number
 
   # 1, and this default is a statement about the ACCOUNT rather than about the experiment.
@@ -244,9 +244,14 @@ variable "gpu_max_nodes" {
   # a gate and not a note.
   default = 1
 
+  # Three is the distributed restart session's two ranks plus one spare, all in this group so all three carry the
+  # train label Kueue's gpu flavor selects on (docs/superpowers/specs/2026-11-01-distributed-restart-design.md,
+  # "The paid session: apparatus").
+  # It is widened no further, because no registered session asks for four, and the quota precondition in
+  # placement.tf still refuses three of an instance type the account cannot hold.
   validation {
-    condition     = var.gpu_max_nodes >= 1 && var.gpu_max_nodes <= 2
-    error_message = "The protocol uses one or two workers. Anything else is not a configuration this study describes."
+    condition     = var.gpu_max_nodes >= 1 && var.gpu_max_nodes <= 3
+    error_message = "The protocols use one to three workers: queuelab one or two, the distributed restart session three. Anything else is not a configuration a registered session describes."
   }
 
   # A number type accepts 1.5, which the range check passes and EKS would refuse only at apply, on the meter.
@@ -254,4 +259,18 @@ variable "gpu_max_nodes" {
     condition     = floor(var.gpu_max_nodes) == var.gpu_max_nodes
     error_message = "gpu_max_nodes is a count of nodes and must be a whole number."
   }
+}
+
+variable "efs_enabled" {
+  description = "Build the shared EFS volume, its mount targets in the gpu group's subnets, and the EFS CSI driver. Off unless a session asks."
+  type        = bool
+  nullable    = false
+
+  # Off, so every existing session plans exactly the resources it planned before this variable existed.
+  #
+  # Only the distributed restart session needs a ReadWriteMany volume shared by ranks on different nodes
+  # (docs/superpowers/specs/2026-11-01-distributed-restart-design.md, "The paid session: apparatus").
+  # efs.tf refuses it without gpu_availability_zone, because the mount targets follow the gpu group's subnets and an
+  # unpinned group would spread the ranks over zones the restart session promises not to cross.
+  default = false
 }
