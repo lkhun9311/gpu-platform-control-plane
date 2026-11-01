@@ -277,6 +277,38 @@ def defect(out: pathlib.Path, name: str, case: str) -> None:
         change = {"rank1-params-nan": lambda p: [float("nan")] * len(p), "rank1-params-off": lambda p: [v + 1e-3 for v in p],
                   "rank1-params-missing": lambda p: None}[name]
         edit_records(d, lambda r: {**r, "params": change(r["params"])} if r.get("params") and r["rank"] == 1 else r)
+    elif name == "foreign-run-id":
+        edit_records(d, lambda r: {**r, "run_id": "rst-another-job"})
+    elif name == "world-99":
+        edit_records(d, lambda r: {**r, "world_size": 99} if r["event"] == "start" else r)
+    elif name == "unlisted-pod":
+        log = next(d.glob("log-*a2-r1*"))
+        log.rename(d / log.name.replace("a2-r1", "a2-r9"))
+    elif name == "rank-not-index":
+        # Attempt 2's rank-1 records come from a Pod the collector saw as index 0.
+        edit_json_lines(d / "pods.jsonl", lambda p: {**p, "index": "0"} if p["uid"].endswith("a2-r1") else p)
+    elif name == "pod-off-attempt-nodes":
+        edit_json_lines(d / "pods.jsonl", lambda p: {**p, "node": "ip-10-0-64-14"} if p["uid"].endswith("a2-r1") else p)
+    elif name == "pod-two-attempts":
+        # One Pod's log holds records of both attempts, which no Pod of an Indexed Job recreated per attempt can print.
+        a1 = next(d.glob("log-*a1-r1*"))
+        a2 = next(d.glob("log-*a2-r1*"))
+        a1.write_text(a1.read_text() + a2.read_text())
+        a2.unlink()
+    elif name == "pods-out-of-order":
+        edit_json_lines(d / "pods.jsonl", lambda p: {**p, "observed": "2026-11-01T00:00:00+00:00"} if "-a2-" in p["uid"] else p)
+    elif name == "resume-later-attempt":
+        edit_records(d, lambda r: {**r, "from_dir": r["from_dir"].replace("a1/", "a2/")} if r["event"] == "resume" else r)
+    elif name == "resume-dir-step-mismatch":
+        edit_records(d, lambda r: {**r, "from_dir": r["from_dir"].replace("/00000013-", "/00000012-")} if r["event"] == "resume" else r)
+    elif name == "manifest-unlisted":
+        listing = d / "shared-files.txt"
+        listing.write_text("".join(line + "\n" for line in listing.read_text().splitlines() if not line.endswith("/00000013-" + "c" * 32 + "/MANIFEST")))
+    elif name == "no-volume-listing":
+        (d / "shared-files.txt").unlink()
+    elif name == "resume-gap":
+        # Steps 14 and 15 of attempt 2 are missing, so its first step is not the one after the checkpoint it names.
+        edit_records(d, lambda r: None if r["attempt"] == 2 and r["event"] in ("step", "checkpoint") and r["step"] in (14, 15) else r)
     elif name == "rank1-no-final-step":
         edit_records(d, lambda r: None if r["rank"] == 1 and r["event"] in ("step", "checkpoint") and r["step"] == STEPS else r)
     elif name == "timed-out":

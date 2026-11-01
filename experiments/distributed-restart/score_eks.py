@@ -134,8 +134,47 @@ class Case:
                 if key in seen:
                     continue
                 seen.add(key)
-                r["_node"] = node
+                r["_node"], r["_uid"] = node, uid
                 self.records.append(r)
+
+    def bind(self) -> None:
+        """Every record is this case's: its job's run_id, from a Pod the collector listed, of the rank that Pod's index is,
+        of one attempt per Pod, and from a Pod on a node the controller recorded for that attempt.
+
+        Records were associated by their file's name alone, so a record of another job or of a rank its Pod did not hold
+        was scored as this case's (codex review of f57e11a1).
+        Any of these is VOID: the evidence is not shown to be the case's, which says nothing of how the platform recovered.
+        """
+        job = self.spec.get("name")
+        held: dict[str, set] = {}
+        for r in self.records:
+            # train.py's run_id is CKPT_RUN_ID, which the runner sets to the job's name (restart_render_job).
+            if r.get("run_id") != job:
+                void(f"a record of run {r.get('run_id')!r} is among the logs of job {job!r}")
+            pod = self.pods.get(r["_uid"])
+            if pod is None:
+                void(f"a log of Pod {r['_uid']}, which the collector never listed")
+            if str(r.get("rank")) != str(pod.get("index")):
+                void(f"a record of rank {r.get('rank')} from Pod {r['_uid']}, whose index is {pod.get('index')}")
+            held.setdefault(r["_uid"], set()).add(r.get("attempt"))
+        owner: dict[tuple, str] = {}
+        seen_at: dict[int, list[float]] = {}
+        for uid, attempts in sorted(held.items()):
+            # An Indexed Job is recreated per attempt and runs each index once, so one Pod prints one attempt.
+            if len(attempts) != 1:
+                void(f"Pod {uid} holds records of attempts {sorted(attempts, key=str)}")
+            (a,), pod = attempts, self.pods[uid]
+            key = (a, str(pod.get("index")))
+            if key in owner:
+                void(f"attempt {a} rank {key[1]} has records from two Pods, {owner[key]} and {uid}")
+            owner[key] = uid
+            nodes = (self.attempts[a - 1].get("nodes") or []) if isinstance(a, int) and 0 < a <= len(self.attempts) else []
+            if nodes and pod.get("node") not in nodes:
+                void(f"Pod {uid} of attempt {a} ran on {pod.get('node')}, which is not among the nodes the controller recorded for attempt {a}, {nodes}")
+            seen_at.setdefault(a, []).append(epoch(pod["observed"]))
+        # The next attempt's Job exists only after the previous one is stopped, so its Pods cannot be seen first.
+        if 1 in seen_at and 2 in seen_at and min(seen_at[2]) < max(seen_at[1]):
+            void("a Pod of attempt 2 was seen before a Pod of attempt 1, so which attempt each Pod ran cannot be trusted")
 
     def rec(self, event: str, attempt: int, rank: int | None = None) -> list[dict]:
         return [r for r in self.records
@@ -181,6 +220,9 @@ class Case:
             if ranks != list(range(WORLD)):
                 failed(f"attempt {a} has start records from ranks {ranks}, want every rank of {WORLD}")
             for r in starts:
+                # A rank of another world size is not the registered case, whatever it recovered.
+                if r.get("world_size") != WORLD:
+                    void(f"attempt {a} rank {r['rank']} started with world size {r.get('world_size')!r}, not {WORLD}")
                 if r.get("backend") != "nccl" or not str(r.get("device", "")).startswith("cuda"):
                     void(f"attempt {a} rank {r['rank']} trained with {r.get('backend')!r} on {r.get('device')!r}, not nccl on cuda")
 
@@ -253,6 +295,32 @@ class Case:
             failed(f"attempt 2 resumed from step {from_step}, and this fault leaves step {want}")
         if want is None and from_step < EXTERNAL_MIN_STEP:
             void(f"attempt 2 resumed from step {from_step}: the fault came before the published step {EXTERNAL_MIN_STEP} it waits for")
+        # train.py names a checkpoint a<attempt>/<step>-<uuid> and never revisits it, so the name says which attempt
+        # wrote it and at which step; a resume from attempt 2's own directory, or one whose name and step disagree,
+        # is not a resume from what attempt 1 published.
+        named = re.fullmatch(r"a(\d+)/(\d{8})-[0-9a-f]{32}", str(from_dir))
+        if not named or int(named.group(1)) >= 2:
+            failed(f"attempt 2 resumed from {from_dir!r}, which is not a checkpoint of an earlier attempt")
+        if int(named.group(2)) != from_step:
+            failed(f"attempt 2 resumed from {from_dir!r}, which names step {int(named.group(2))} and the ranks say {from_step}")
+        # The runner lists the job's files after its writers are retired and before it deletes them (shared-files.txt).
+        # No checkpoint record shows a published manifest in general, because kill-after-latest publishes one and dies
+        # before the barrier any rank records a checkpoint after.
+        listing = self.dir / "shared-files.txt"
+        if not listing.exists():
+            void("no listing of the job's files on the volume, so the checkpoint resumed from is not shown to be published")
+        manifest = f"/{self.spec.get('job_id')}/{from_dir}/MANIFEST"
+        if not any(line.strip().endswith(manifest) for line in listing.read_text().splitlines()):
+            void(f"the volume's listing has no {manifest}, so the checkpoint resumed from is not shown to be published")
+        # The first step after a resume is the one after the checkpoint, and every step to the last follows once.
+        for rank in range(WORLD):
+            steps = sorted(r.get("step") for r in self.rec("step", 2, rank))
+            want_steps = list(range(from_step + 1, self.steps + 1))
+            if steps != want_steps:
+                lack = sorted(set(want_steps) - set(steps))
+                extra = sorted(set(steps) - set(want_steps), key=str)
+                failed(f"rank {rank} of attempt 2 resumed from step {from_step}, and its steps lack {lack[:5]}"
+                       + (f" and add {extra[:5]}" if extra else "") + (" and repeat some" if len(set(steps)) != len(steps) else ""))
         return {"from_dir": from_dir, "from_step": from_step}
 
     def check_delivered(self) -> None:
@@ -312,6 +380,7 @@ class Case:
 
     def score(self) -> None:
         self.load()
+        self.bind()
         if self.kind == "reference":
             if not self.records:
                 void("no rank recorded anything")
