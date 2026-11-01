@@ -1,4 +1,4 @@
-# FR-004 kind chaos: a node degrades and the platform stops scheduling onto it
+# FR-004 kind chaos: a node's kubelet stops and the platform taints it against scheduling
 
 This procedure runs the FR-004 failure scenario from
 [`docs/06_OBSERVABILITY_BENCHMARK_FAILURE.md`](../docs/06_OBSERVABILITY_BENCHMARK_FAILURE.md), which has
@@ -82,7 +82,7 @@ and the operator's own reaction was below the harness resolution every time.
 What this establishes:
 
 - the operator moved `NodeHealth` to `Quarantine` with `faultSignal: node-not-ready`
-- the unhealthy taint was applied, and a pod created afterwards landed on `platform-worker` instead
+- the unhealthy taint was applied, and a pod created afterwards landed on `platform-worker` instead; Kubernetes' own node lifecycle also taints a node whose kubelet stops reporting, and no run removed either taint, so this does not show that the platform's taint alone kept the pod off
 - restarting kubelet returned the node to `Ready` and the taint was withdrawn without intervention
 
 What it does **not** establish: a reaction time. Both of the operator's transitions completed faster than
