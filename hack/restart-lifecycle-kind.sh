@@ -464,8 +464,8 @@ BG+=($!)
 
 # Every event of the training namespace's MLTrainingJobs, Jobs, Pods and Workloads, as received, so check_lifecycle.py
 # can replay what existed when each case was submitted.
-for res in mltrainingjobs jobs.batch pods workloads.kueue.x-k8s.io; do
-  python3 hack/test/restart-kind/watch_events.py "$CONTEXT" "$RESTART_NS" "$res" "$OUT/events-${res%%.*}.jsonl" 2>>"$LOG" &
+for res in mltrainingjobs:/apis/platform.lkhun9311.github.io/v1 jobs:/apis/batch/v1 pods:/api/v1 workloads:/apis/kueue.x-k8s.io/v1beta2; do
+  python3 hack/test/restart-kind/watch_events.py "$CONTEXT" "${res%%:*}" "${res#*:}/namespaces/$RESTART_NS/${res%%:*}" "$OUT/events-${res%%:*}.jsonl" 2>>"$LOG" &
   BG+=($!)
 done
 echo "host_nfs_mounts_at_start=$(grep -c ' nfs4\? ' /proc/mounts)" >>"$OUT/provenance.txt"

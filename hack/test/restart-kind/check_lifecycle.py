@@ -66,18 +66,20 @@ def main(argv: list[str]) -> int:
                 continue
             t = ts(added[0]["received"])
             live: dict[tuple[str, str], float] = {}
-            restarts = []
-            # A resource whose watch restarted is unknown until a list taken after the restart says what it held.
-            unknown: set[str] = set()
+            # A resource is unknown before its first list, from a GAP to the list after it, and while its watch is down:
+            # a resumed watch delivers what happened meanwhile only after it starts again (codex review of b6051665).
+            unknown: set[str] = set(streams)
+            resumed_at: dict[str, float] = {}
             for e in events:
                 if ts(e["received"]) >= t:
                     break
-                if e["type"] == "WATCH-START":
-                    restarts.append(ts(e["received"]))
+                if e["type"] in ("WATCH-END", "GAP"):
                     unknown.add(e["res"])
-                    for key in [k for k in live if k[0] == e["res"]]:
-                        del live[key]
+                elif e["type"] == "WATCH-START" and e["res"] in resumed_at:
+                    resumed_at[e["res"]] = ts(e["received"])
+                    unknown.discard(e["res"])
                 elif e["type"] == "LISTED":
+                    resumed_at[e["res"]] = ts(e["received"])
                     unknown.discard(e["res"])
                     for key in [k for k in live if k[0] == e["res"]]:
                         del live[key]
@@ -89,11 +91,12 @@ def main(argv: list[str]) -> int:
                 elif e["type"] == "DELETED":
                     live.pop((e["res"], e.get("name")), None)
             gone = [ts(e["received"]) for e in events if e["type"] == "DELETED" and prev in (e.get("name") or "")]
-            # A watch that restarted and had not been listed again by the submission leaves what was left unknown,
-            # which is a failure and never an absence.
+            # A watch resumed within two seconds of the submission may not yet have delivered what it missed.
+            unknown |= {r for r, at in resumed_at.items() if t - at < 2}
+            # What was left is then unknown, which is a failure and never an absence.
             if unknown:
-                report(False, f"{run.name}: the watch of {sorted(unknown)} restarted and was not listed again before {case} was "
-                              f"submitted, so what was left is unknown")
+                report(False, f"{run.name}: the history of {sorted(unknown)} was not continuous up to {case}'s submission "
+                              f"(no list yet, a gap, or a watch down or just resumed), so what was left is unknown")
             elif live:
                 report(False, f"{run.name}: {case} was submitted at {added[0]['received']} while {pcase}'s {sorted(live)} still existed")
             else:

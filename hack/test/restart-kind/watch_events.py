@@ -1,15 +1,17 @@
-"""Records one resource's watch events in a namespace, each with the moment it was received, until killed.
+"""Records one resource's history in a namespace, as a list and then a watch from that list's resourceVersion, each
+event with the moment it was received, until killed.
 
-    python3 hack/test/restart-kind/watch_events.py CONTEXT NAMESPACE RESOURCE OUT.jsonl
+    python3 hack/test/restart-kind/watch_events.py CONTEXT NAME API_PATH OUT.jsonl
 
+NAME labels the records; API_PATH is the namespaced collection, such as /api/v1/namespaces/train-a/pods.
 hack/restart-lifecycle-kind.sh runs one per resource so that check_lifecycle.py can replay what existed when each case
 was submitted; a sampler polling every few seconds could miss an object that lived between two samples.
-A watch the API server ends is restarted, and each start is written as WATCH-START, after which kubectl lists every
-existing object again as ADDED; the replay clears that resource's objects at each start, so an object deleted while no
-watch ran is not carried as alive.
-After each start a separate list is taken and written as LISTED with every name in it, so the replay knows the
-resource's whole state again from that moment; between a WATCH-START and its LISTED the state is unknown, which is a
-failure of the check, never an absence (codex review of the checker's first form).
+
+The watch starts from the list's resourceVersion and, when the API server ends it, resumes from the last resourceVersion
+it delivered, so no change between the list and the watch, or between two watches, goes unseen (codex review of
+b6051665: two independently timed requests did not establish one history).
+Only when a resume is refused as too old is the resource listed again; that is written as a GAP, which the checker reads
+as not knowing what existed from the end of the previous watch to the new LISTED, never as an absence.
 """
 
 from __future__ import annotations
@@ -26,45 +28,50 @@ def now() -> str:
 
 
 def main(argv: list[str]) -> int:
-    ctx, ns, res, path = argv[1:5]
-    with open(path, "a", buffering=1) as out:
+    ctx, name, path, out_path = argv[1:5]
+    kubectl = ["kubectl", "--context", ctx, "--request-timeout=0"]
+    with open(out_path, "a", buffering=1) as out:
+        def write(record: dict) -> None:
+            out.write(json.dumps({"received": now(), "res": name, **record}) + "\n")
+
+        rv = None
         while True:
-            out.write(json.dumps({"received": now(), "res": res, "type": "WATCH-START"}) + "\n")
-            proc = subprocess.Popen(["kubectl", "--context", ctx, "-n", ns, "get", res, "--watch", "--output-watch-events",
-                                     "-o", "json"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-            listed = subprocess.run(["kubectl", "--context", ctx, "-n", ns, "get", res, "-o", "json"],
-                                    capture_output=True, text=True, timeout=60)
-            if listed.returncode == 0:
-                names = [i["metadata"]["name"] for i in json.loads(listed.stdout).get("items", [])]
-                out.write(json.dumps({"received": now(), "res": res, "type": "LISTED", "names": names}) + "\n")
-            else:
-                out.write(json.dumps({"received": now(), "res": res, "type": "LIST-FAILED",
-                                      "stderr": listed.stderr[:300]}) + "\n")
-            buf, dec = "", json.JSONDecoder()
-            for chunk in iter(lambda: proc.stdout.readline(), ""):
-                buf += chunk
-                while True:
-                    stripped = buf.lstrip()
-                    if not stripped:
-                        buf = ""
-                        break
-                    try:
-                        event, end = dec.raw_decode(stripped)
-                    except ValueError:
-                        break
-                    buf = stripped[end:]
-                    obj = event.get("object") or {}
-                    meta = obj.get("metadata") or {}
-                    out.write(json.dumps({
-                        "received": now(), "res": res, "type": event.get("type"), "name": meta.get("name"),
-                        "uid": meta.get("uid"), "deleting": "deletionTimestamp" in meta,
-                        "finalizers": meta.get("finalizers"), "labels": meta.get("labels"),
-                        "phase": (obj.get("status") or {}).get("phase"),
-                    }) + "\n")
+            if rv is None:
+                listed = subprocess.run(kubectl + ["get", "--raw", path], capture_output=True, text=True, timeout=60)
+                if listed.returncode != 0:
+                    write({"type": "LIST-FAILED", "stderr": listed.stderr[:300]})
+                    time.sleep(1)
+                    continue
+                body = json.loads(listed.stdout)
+                rv = body["metadata"]["resourceVersion"]
+                write({"type": "LISTED", "resourceVersion": rv, "names": [i["metadata"]["name"] for i in body.get("items", [])]})
+            write({"type": "WATCH-START", "resourceVersion": rv})
+            proc = subprocess.Popen(kubectl + ["get", "--raw", f"{path}?watch=1&allowWatchBookmarks=true&resourceVersion={rv}"],
+                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            gone = False
+            for line in iter(proc.stdout.readline, ""):
+                if not line.strip():
+                    continue
+                event = json.loads(line)
+                obj = event.get("object") or {}
+                meta = obj.get("metadata") or {}
+                if event.get("type") == "ERROR":
+                    # 410 Gone: the resume point has been compacted away, so only a new list can say what exists.
+                    gone = obj.get("code") == 410
+                    write({"type": "WATCH-ERROR", "code": obj.get("code"), "message": str(obj.get("message"))[:200]})
+                    break
+                rv = meta.get("resourceVersion") or rv
+                if event.get("type") == "BOOKMARK":
+                    continue
+                write({"type": event.get("type"), "name": meta.get("name"), "uid": meta.get("uid"),
+                       "deleting": "deletionTimestamp" in meta, "finalizers": meta.get("finalizers"),
+                       "labels": meta.get("labels"), "phase": (obj.get("status") or {}).get("phase")})
+            proc.kill()
             proc.wait()
-            out.write(json.dumps({"received": now(), "res": res, "type": "WATCH-END", "exit": proc.returncode,
-                                  "stderr": (proc.stderr.read() or "")[:300]}) + "\n")
-            time.sleep(1)
+            write({"type": "WATCH-END", "exit": proc.returncode, "stderr": (proc.stderr.read() or "")[:300]})
+            if gone:
+                write({"type": "GAP"})
+                rv = None
 
 
 if __name__ == "__main__":
