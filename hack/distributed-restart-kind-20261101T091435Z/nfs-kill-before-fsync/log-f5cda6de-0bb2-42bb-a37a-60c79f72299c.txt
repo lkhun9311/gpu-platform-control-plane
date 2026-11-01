@@ -1,0 +1,36 @@
+/usr/local/lib/python3.12/site-packages/torch/_subclasses/functional_tensor.py:295: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at ../torch/csrc/utils/tensor_numpy.cpp:84.)
+  cpu = _conversion_method_template(device=torch.device("cpu"))
+{"ts": "2026-11-01T09:17:49.755017+00:00", "run_id": "rst-nfs-kill-before-fsync-091748", "attempt": 1, "rank": 0, "event": "candidates", "latest": null, "offered": []}
+{"ts": "2026-11-01T09:17:49.755328+00:00", "run_id": "rst-nfs-kill-before-fsync-091748", "attempt": 1, "rank": 0, "event": "restart_from_zero", "load_mode": "full"}
+{"ts": "2026-11-01T09:17:50.110075+00:00", "run_id": "rst-nfs-kill-before-fsync-091748", "attempt": 1, "rank": 0, "event": "start", "world_size": 2, "load_mode": "full", "resumed_from_step": 0, "steps": 20, "fault": "kill-before-fsync:6:1", "torch_version": "2.5.1+cpu", "epoch": 0, "position": 0, "lr": 0.05, "backend": "gloo", "device": "cpu", "ballast_mb": 0, "volume": {"point": "/shared", "mount_options": "rw,relatime", "fstype": "nfs4", "source": "10.96.82.108:/", "super_options": "rw,vers=4.1,rsize=1048576,wsize=1048576,namlen=255,hard,noresvport,fatal_neterrors=ENETDOWN:ENETUNREACH,proto=tcp,timeo=600,retrans=2,sec=sys,clientaddr=172.18.0.10,local_lock=none,addr=10.96.82.108", "dev": 7340193}, "visibility_retries": 5, "shard_delay": 0.0}
+{"ts": "2026-11-01T09:17:50.114537+00:00", "run_id": "rst-nfs-kill-before-fsync-091748", "attempt": 1, "rank": 0, "event": "step", "step": 1, "loss": 20.675674438476562, "digest": "281376d89323e8ca96cfd659d02825874e2ef3bfb7540e0cb2ccec5a1b6fe739", "params": null}
+{"ts": "2026-11-01T09:17:50.138492+00:00", "run_id": "rst-nfs-kill-before-fsync-091748", "attempt": 1, "rank": 0, "event": "checkpoint", "step": 1, "dir": "a1/00000001-45c9d3dbbd5c49aba280c92701d5b6f8", "save_s": 0.023874393664300442}
+{"ts": "2026-11-01T09:17:51.140013+00:00", "run_id": "rst-nfs-kill-before-fsync-091748", "attempt": 1, "rank": 0, "event": "step", "step": 2, "loss": 9.387578010559082, "digest": "67bc721943eef12ca69d156e0b1180b703e06bfcc82376feb6abfee94bce4eeb", "params": null}
+{"ts": "2026-11-01T09:17:51.164540+00:00", "run_id": "rst-nfs-kill-before-fsync-091748", "attempt": 1, "rank": 0, "event": "checkpoint", "step": 2, "dir": "a1/00000002-a5844a82adc54c448afee4a1e5fb59b8", "save_s": 0.024440613575279713}
+{"ts": "2026-11-01T09:17:52.165727+00:00", "run_id": "rst-nfs-kill-before-fsync-091748", "attempt": 1, "rank": 0, "event": "step", "step": 3, "loss": 31.876117706298828, "digest": "afdeeb5ec57634dce0e6b7bccf55587a85b0055391dab70eaaf6373148118081", "params": null}
+{"ts": "2026-11-01T09:17:52.191327+00:00", "run_id": "rst-nfs-kill-before-fsync-091748", "attempt": 1, "rank": 0, "event": "checkpoint", "step": 3, "dir": "a1/00000003-b9793b2c5326420c8b48d38363e42584", "save_s": 0.025522574316710234}
+{"ts": "2026-11-01T09:17:53.192629+00:00", "run_id": "rst-nfs-kill-before-fsync-091748", "attempt": 1, "rank": 0, "event": "step", "step": 4, "loss": 14.188834190368652, "digest": "b07b1f3661c883767febd4ca14853328a5c882ae576c8c0d576dc3af7f9a908e", "params": null}
+{"ts": "2026-11-01T09:17:53.216481+00:00", "run_id": "rst-nfs-kill-before-fsync-091748", "attempt": 1, "rank": 0, "event": "checkpoint", "step": 4, "dir": "a1/00000004-990b821c3f7248ca9bc5b3efbef07235", "save_s": 0.023776934016495943}
+{"ts": "2026-11-01T09:17:54.217650+00:00", "run_id": "rst-nfs-kill-before-fsync-091748", "attempt": 1, "rank": 0, "event": "step", "step": 5, "loss": 8.523945808410645, "digest": "bb8a93dc5f65c0d6d06c90e48ee8d5a815a74f7411caea001c1ca26335ea1433", "params": null}
+{"ts": "2026-11-01T09:17:54.241753+00:00", "run_id": "rst-nfs-kill-before-fsync-091748", "attempt": 1, "rank": 0, "event": "checkpoint", "step": 5, "dir": "a1/00000005-f3947aaf5e794c13845a8f83d001b300", "save_s": 0.024027355015277863}
+{"ts": "2026-11-01T09:17:55.243370+00:00", "run_id": "rst-nfs-kill-before-fsync-091748", "attempt": 1, "rank": 0, "event": "step", "step": 6, "loss": 5.633176803588867, "digest": "506de6d02d3b2e1388d283125b41980fe4dd0c0a0e6c80ea5be96ffac971e3de", "params": null}
+[rank0]: Traceback (most recent call last):
+[rank0]:   File "/work/train.py", line 621, in <module>
+[rank0]:     sys.exit(main())
+[rank0]:              ^^^^^^
+[rank0]:   File "/work/train.py", line 476, in main
+[rank0]:     return train()
+[rank0]:            ^^^^^^^
+[rank0]:   File "/work/train.py", line 610, in train
+[rank0]:     save(rank, world, step, capture(step, model, optimiser, scheduler, epoch, position, ballast), fault)
+[rank0]:   File "/work/train.py", line 291, in save
+[rank0]:     reports = gather_json({"rank": rank, "step": labelled["step"], "file": os.path.basename(shard),
+[rank0]:               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/work/train.py", line 148, in gather_json
+[rank0]:     dist.all_gather(sizes, torch.tensor([len(data)], device=COMM_DEVICE))
+[rank0]:   File "/usr/local/lib/python3.12/site-packages/torch/distributed/c10d_logger.py", line 83, in wrapper
+[rank0]:     return func(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/usr/local/lib/python3.12/site-packages/torch/distributed/distributed_c10d.py", line 3346, in all_gather
+[rank0]:     work.wait()
+[rank0]: RuntimeError: [../third_party/gloo/gloo/transport/tcp/pair.cc:534] Connection closed by peer [10.244.2.6]:54180
