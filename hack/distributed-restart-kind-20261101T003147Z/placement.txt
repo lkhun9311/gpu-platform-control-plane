@@ -1,0 +1,25 @@
+NAMESPACE                           NAME                                                             READY   STATUS    RESTARTS   AGE     IP            NODE                NOMINATED NODE   READINESS GATES
+cert-manager                        cert-manager-6bdf656698-qtq67                                    1/1     Running   0          31s     10.244.0.8    rst-control-plane   <none>           <none>
+cert-manager                        cert-manager-cainjector-6c647cc946-5nmhh                         1/1     Running   0          15s     10.244.0.10   rst-control-plane   <none>           <none>
+cert-manager                        cert-manager-webhook-597d685979-pm42l                            1/1     Running   0          25s     10.244.0.9    rst-control-plane   <none>           <none>
+gpu-platform-control-plane-system   gpu-platform-control-plane-controller-manager-5c9947948f-p2x8p   1/1     Running   0          61s     10.244.0.6    rst-control-plane   <none>           <none>
+gpu-platform-control-plane-system   gpu-simulator-74hbn                                              1/1     Running   0          68s     10.244.3.3    rst-worker2         <none>           <none>
+gpu-platform-control-plane-system   gpu-simulator-jrxqs                                              1/1     Running   0          68s     10.244.1.5    rst-worker3         <none>           <none>
+gpu-platform-control-plane-system   gpu-simulator-ls2lr                                              1/1     Running   0          68s     10.244.2.4    rst-worker          <none>           <none>
+gpu-platform-control-plane-system   gpu-simulator-wl7ch                                              1/1     Running   0          68s     10.244.0.5    rst-control-plane   <none>           <none>
+kube-system                         coredns-84dc4f465b-k8jtr                                         1/1     Running   0          11s     10.244.0.12   rst-control-plane   <none>           <none>
+kube-system                         coredns-84dc4f465b-rwzww                                         1/1     Running   0          11s     10.244.0.11   rst-control-plane   <none>           <none>
+kube-system                         etcd-rst-control-plane                                           1/1     Running   0          2m21s   172.18.0.8    rst-control-plane   <none>           <none>
+kube-system                         kindnet-6xlgw                                                    1/1     Running   0          2m14s   172.18.0.11   rst-worker          <none>           <none>
+kube-system                         kindnet-92j76                                                    1/1     Running   0          2m14s   172.18.0.9    rst-worker2         <none>           <none>
+kube-system                         kindnet-jzk6q                                                    1/1     Running   0          2m14s   172.18.0.10   rst-worker3         <none>           <none>
+kube-system                         kindnet-s8c5w                                                    1/1     Running   0          2m15s   172.18.0.8    rst-control-plane   <none>           <none>
+kube-system                         kube-apiserver-rst-control-plane                                 1/1     Running   0          2m21s   172.18.0.8    rst-control-plane   <none>           <none>
+kube-system                         kube-controller-manager-rst-control-plane                        1/1     Running   0          2m21s   172.18.0.8    rst-control-plane   <none>           <none>
+kube-system                         kube-proxy-2ghhn                                                 1/1     Running   0          2m14s   172.18.0.9    rst-worker2         <none>           <none>
+kube-system                         kube-proxy-5ggfx                                                 1/1     Running   0          2m15s   172.18.0.8    rst-control-plane   <none>           <none>
+kube-system                         kube-proxy-7x7nr                                                 1/1     Running   0          2m14s   172.18.0.11   rst-worker          <none>           <none>
+kube-system                         kube-proxy-b8ls6                                                 1/1     Running   0          2m14s   172.18.0.10   rst-worker3         <none>           <none>
+kube-system                         kube-scheduler-rst-control-plane                                 1/1     Running   0          2m21s   172.18.0.8    rst-control-plane   <none>           <none>
+kueue-system                        kueue-controller-manager-5f87448ccd-5g2x8                        1/1     Running   0          49s     10.244.0.7    rst-control-plane   <none>           <none>
+local-path-storage                  local-path-provisioner-75f7fc7dc5-7wrgr                          1/1     Running   0          2m15s   10.244.0.2    rst-control-plane   <none>           <none>

@@ -1,0 +1,32 @@
+/usr/local/lib/python3.12/site-packages/torch/_subclasses/functional_tensor.py:295: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at ../torch/csrc/utils/tensor_numpy.cpp:84.)
+  cpu = _conversion_method_template(device=torch.device("cpu"))
+{"ts": "2026-11-01T00:34:52.627033+00:00", "run_id": "rst-rank-failed-003451", "attempt": 1, "rank": 0, "event": "restart_from_zero", "load_mode": "full"}
+{"ts": "2026-11-01T00:34:52.961680+00:00", "run_id": "rst-rank-failed-003451", "attempt": 1, "rank": 0, "event": "start", "world_size": 2, "load_mode": "full", "resumed_from_step": 0, "steps": 20, "fault": "kill-before-fsync:6:1", "torch_version": "2.5.1+cpu", "epoch": 0, "position": 0, "lr": 0.05}
+{"ts": "2026-11-01T00:34:52.968620+00:00", "run_id": "rst-rank-failed-003451", "attempt": 1, "rank": 0, "event": "step", "step": 1, "loss": 20.675674438476562, "digest": "281376d89323e8ca96cfd659d02825874e2ef3bfb7540e0cb2ccec5a1b6fe739", "params": null}
+{"ts": "2026-11-01T00:34:52.969763+00:00", "run_id": "rst-rank-failed-003451", "attempt": 1, "rank": 0, "event": "checkpoint", "step": 1, "dir": "a1/00000001-975542a675e845ddb36e08ed5c4de5e7"}
+{"ts": "2026-11-01T00:34:53.971221+00:00", "run_id": "rst-rank-failed-003451", "attempt": 1, "rank": 0, "event": "step", "step": 2, "loss": 9.387578010559082, "digest": "67bc721943eef12ca69d156e0b1180b703e06bfcc82376feb6abfee94bce4eeb", "params": null}
+{"ts": "2026-11-01T00:34:53.973178+00:00", "run_id": "rst-rank-failed-003451", "attempt": 1, "rank": 0, "event": "checkpoint", "step": 2, "dir": "a1/00000002-a53f908a5db94cea9cf1f1a34307b8e8"}
+{"ts": "2026-11-01T00:34:54.974389+00:00", "run_id": "rst-rank-failed-003451", "attempt": 1, "rank": 0, "event": "step", "step": 3, "loss": 31.876117706298828, "digest": "afdeeb5ec57634dce0e6b7bccf55587a85b0055391dab70eaaf6373148118081", "params": null}
+{"ts": "2026-11-01T00:34:54.976073+00:00", "run_id": "rst-rank-failed-003451", "attempt": 1, "rank": 0, "event": "checkpoint", "step": 3, "dir": "a1/00000003-2e8912133bc8493b8abb6097d4731658"}
+{"ts": "2026-11-01T00:34:55.977782+00:00", "run_id": "rst-rank-failed-003451", "attempt": 1, "rank": 0, "event": "step", "step": 4, "loss": 14.188834190368652, "digest": "b07b1f3661c883767febd4ca14853328a5c882ae576c8c0d576dc3af7f9a908e", "params": null}
+{"ts": "2026-11-01T00:34:55.979439+00:00", "run_id": "rst-rank-failed-003451", "attempt": 1, "rank": 0, "event": "checkpoint", "step": 4, "dir": "a1/00000004-20f668e6aff3461cbce4598d7a2a5efe"}
+{"ts": "2026-11-01T00:34:56.980920+00:00", "run_id": "rst-rank-failed-003451", "attempt": 1, "rank": 0, "event": "step", "step": 5, "loss": 8.523945808410645, "digest": "bb8a93dc5f65c0d6d06c90e48ee8d5a815a74f7411caea001c1ca26335ea1433", "params": null}
+{"ts": "2026-11-01T00:34:56.982277+00:00", "run_id": "rst-rank-failed-003451", "attempt": 1, "rank": 0, "event": "checkpoint", "step": 5, "dir": "a1/00000005-06a3f887f88f42c9bdc42332dbe8e5b3"}
+{"ts": "2026-11-01T00:34:57.983949+00:00", "run_id": "rst-rank-failed-003451", "attempt": 1, "rank": 0, "event": "step", "step": 6, "loss": 5.633176803588867, "digest": "506de6d02d3b2e1388d283125b41980fe4dd0c0a0e6c80ea5be96ffac971e3de", "params": null}
+[rank0]: Traceback (most recent call last):
+[rank0]:   File "/work/train.py", line 413, in <module>
+[rank0]:     sys.exit(main())
+[rank0]:              ^^^^^^
+[rank0]:   File "/work/train.py", line 402, in main
+[rank0]:     save(rank, world, step, capture(step, model, optimiser, scheduler, epoch, position), fault)
+[rank0]:   File "/work/train.py", line 218, in save
+[rank0]:     reports = gather_json({"rank": rank, "step": labelled["step"], "file": os.path.basename(shard),
+[rank0]:               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/work/train.py", line 123, in gather_json
+[rank0]:     dist.all_gather(sizes, torch.tensor([len(data)]))
+[rank0]:   File "/usr/local/lib/python3.12/site-packages/torch/distributed/c10d_logger.py", line 83, in wrapper
+[rank0]:     return func(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/usr/local/lib/python3.12/site-packages/torch/distributed/distributed_c10d.py", line 3346, in all_gather
+[rank0]:     work.wait()
+[rank0]: RuntimeError: [../third_party/gloo/gloo/transport/tcp/pair.cc:525] Read error [10.244.1.6]:51109: Connection reset by peer

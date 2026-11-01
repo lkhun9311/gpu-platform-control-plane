@@ -1,0 +1,24 @@
+/usr/local/lib/python3.12/site-packages/torch/_subclasses/functional_tensor.py:295: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at ../torch/csrc/utils/tensor_numpy.cpp:84.)
+  cpu = _conversion_method_template(device=torch.device("cpu"))
+{"ts": "2026-11-01T00:38:14.091623+00:00", "run_id": "rst-node-lost-003812", "attempt": 1, "rank": 0, "event": "restart_from_zero", "load_mode": "full"}
+{"ts": "2026-11-01T00:38:14.422338+00:00", "run_id": "rst-node-lost-003812", "attempt": 1, "rank": 0, "event": "start", "world_size": 2, "load_mode": "full", "resumed_from_step": 0, "steps": 20, "fault": "", "torch_version": "2.5.1+cpu", "epoch": 0, "position": 0, "lr": 0.05}
+{"ts": "2026-11-01T00:38:14.423600+00:00", "run_id": "rst-node-lost-003812", "attempt": 1, "rank": 0, "event": "step", "step": 1, "loss": 20.675674438476562, "digest": "281376d89323e8ca96cfd659d02825874e2ef3bfb7540e0cb2ccec5a1b6fe739", "params": null}
+{"ts": "2026-11-01T00:38:14.425110+00:00", "run_id": "rst-node-lost-003812", "attempt": 1, "rank": 0, "event": "checkpoint", "step": 1, "dir": "a1/00000001-ff309365eaaf4b03abdcdacd59751a13"}
+{"ts": "2026-11-01T00:38:15.426548+00:00", "run_id": "rst-node-lost-003812", "attempt": 1, "rank": 0, "event": "step", "step": 2, "loss": 9.387578010559082, "digest": "67bc721943eef12ca69d156e0b1180b703e06bfcc82376feb6abfee94bce4eeb", "params": null}
+{"ts": "2026-11-01T00:38:15.428577+00:00", "run_id": "rst-node-lost-003812", "attempt": 1, "rank": 0, "event": "checkpoint", "step": 2, "dir": "a1/00000002-951f902be00c4cca9cedb7144b4ddfcc"}
+{"ts": "2026-11-01T00:38:16.429886+00:00", "run_id": "rst-node-lost-003812", "attempt": 1, "rank": 0, "event": "step", "step": 3, "loss": 31.876117706298828, "digest": "afdeeb5ec57634dce0e6b7bccf55587a85b0055391dab70eaaf6373148118081", "params": null}
+{"ts": "2026-11-01T00:38:16.431311+00:00", "run_id": "rst-node-lost-003812", "attempt": 1, "rank": 0, "event": "checkpoint", "step": 3, "dir": "a1/00000003-9d521300f6b446759964d848b0be82d9"}
+[rank0]: Traceback (most recent call last):
+[rank0]:   File "/work/train.py", line 413, in <module>
+[rank0]:     sys.exit(main())
+[rank0]:              ^^^^^^
+[rank0]:   File "/work/train.py", line 396, in main
+[rank0]:     loss.backward()
+[rank0]:   File "/usr/local/lib/python3.12/site-packages/torch/_tensor.py", line 581, in backward
+[rank0]:     torch.autograd.backward(
+[rank0]:   File "/usr/local/lib/python3.12/site-packages/torch/autograd/__init__.py", line 347, in backward
+[rank0]:     _engine_run_backward(
+[rank0]:   File "/usr/local/lib/python3.12/site-packages/torch/autograd/graph.py", line 825, in _engine_run_backward
+[rank0]:     return Variable._execution_engine.run_backward(  # Calls into the C++ engine to run the backward pass
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]: RuntimeError: [../third_party/gloo/gloo/transport/tcp/unbound_buffer.cc:81] Timed out waiting 20000ms for recv operation to complete

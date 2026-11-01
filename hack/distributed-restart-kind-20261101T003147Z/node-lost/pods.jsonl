@@ -1,0 +1,4 @@
+{"pod": "rst-node-lost-003812-0-fwbq7", "uid": "f0ce09de-22e0-41ac-b251-86ba2a87b210", "node": "rst-worker2"}
+{"pod": "rst-node-lost-003812-1-bh2dq", "uid": "7193ade9-6773-4e40-8ba3-c4361a54e30d", "node": "rst-worker3"}
+{"pod": "rst-node-lost-003812-0-bbqfl", "uid": "5a097dd6-f013-49e0-99c6-45eaf0157109", "node": "rst-worker2"}
+{"pod": "rst-node-lost-003812-1-r85nl", "uid": "5a04625f-b732-4a0f-8bc8-8627c73a9f22", "node": "rst-worker"}

@@ -1,0 +1,10 @@
+commit=e2d21e9d0e12b93d8c31858519bf84fd642a1144
+dirty_files=0
+kind=kind v0.33.0 go1.25.7 linux/amd64
+kueue=v0.18.3
+cert_manager=v1.21.1
+train_py_sha256=7f20e14d5a9f27ff142707163ec18a339abaec70fd0462f7ad32ae9d3311a36c
+steps=20
+cases=reference rank-failed stale-workload deactivated node-lost
+workload_image=sha256:1992c69d805e5dadbc5db29cf30b20d029bf5e61f2e91c373e4cf6a3a7a71fe3
+node_image=kindest/node:v1.37.0@sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5

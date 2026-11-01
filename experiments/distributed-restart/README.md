@@ -97,14 +97,14 @@ The operator, Kueue, cert-manager and CoreDNS are pinned to the control-plane no
 | `deactivated` | the Workload is deactivated by hand while both ranks run | no second attempt and no trigger over the following minute |
 | `node-lost` | rank 1's node container is frozen, then its Node deleted | no attempt 2 while its Pods remain, nor after, until the node is named in `platform.lkhun9311.github.io/fenced-nodes`; attempt 2 runs on the other two nodes and ends with the reference's parameters |
 
-The recorded run is `hack/distributed-restart-kind-20261031T144217Z`, of commit `65bf5f16`, and all 34 of its checks pass.
-That commit's trainer saved the model, the optimizer and a per-rank data generator, not the scheduler, sampler position or global RNG above; the kind cases have not been run with the current trainer.
+The recorded run is `hack/distributed-restart-kind-20261101T003147Z`, of commit `e2d21e9d`, whose trainer saves everything listed above, and all 34 of its checks pass.
+An earlier run, `hack/distributed-restart-kind-20261031T144217Z` of commit `65bf5f16`, also passed all 34 with the trainer before it, which saved the model, the optimizer and a per-rank data generator only; it is kept as the record of that trainer.
 
 ```
-python3 experiments/distributed-restart/score_kind.py hack/distributed-restart-kind-20261031T144217Z
+python3 experiments/distributed-restart/score_kind.py hack/distributed-restart-kind-20261101T003147Z
 ```
 
-`rank-failed` resumed from step 5 and `stale-workload` from step 8, as their faults leave them; `node-lost` froze `rst-worker3`, which held rank 1, and attempt 2 resumed from step 3 on `rst-worker` and `rst-worker2`.
+In both runs `rank-failed` resumed from step 5 and `stale-workload` from step 8, as their faults leave them; `node-lost` froze `rst-worker3`, which held rank 1, and attempt 2 resumed from step 3 on `rst-worker` and `rst-worker2`.
 Each restarted case ended with exactly the reference's parameters.
 The scorer refuses a run of uncommitted code.
 Five rehearsals on an uncommitted tree came before the recorded run, and two found defects in the harness, not in the controller.

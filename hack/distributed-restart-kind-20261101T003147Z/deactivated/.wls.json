@@ -1,0 +1,179 @@
+{
+    "apiVersion": "v1",
+    "items": [
+        {
+            "apiVersion": "kueue.x-k8s.io/v1beta2",
+            "kind": "Workload",
+            "metadata": {
+                "creationTimestamp": "2026-11-01T00:37:02Z",
+                "finalizers": [
+                    "kueue.x-k8s.io/resource-in-use"
+                ],
+                "generation": 2,
+                "labels": {
+                    "kueue.x-k8s.io/job-uid": "7f952626-109f-4322-953e-f52d4b6bcd4d"
+                },
+                "name": "job-rst-deactivated-003702-9d868",
+                "namespace": "rst",
+                "ownerReferences": [
+                    {
+                        "apiVersion": "batch/v1",
+                        "blockOwnerDeletion": true,
+                        "controller": true,
+                        "kind": "Job",
+                        "name": "rst-deactivated-003702",
+                        "uid": "7f952626-109f-4322-953e-f52d4b6bcd4d"
+                    }
+                ],
+                "resourceVersion": "2889",
+                "uid": "9d2d6edc-2dfd-4b6b-a089-5fcbb6d589ed"
+            },
+            "spec": {
+                "active": false,
+                "podSets": [
+                    {
+                        "count": 2,
+                        "name": "main",
+                        "template": {
+                            "metadata": {
+                                "labels": {
+                                    "batch.kubernetes.io/job-name": "rst-deactivated-003702",
+                                    "platform.lkhun9311.github.io/mltrainingjob": "rst-deactivated-003702",
+                                    "platform.lkhun9311.github.io/mltrainingjob-attempt": "1",
+                                    "platform.lkhun9311.github.io/mltrainingjob-uid": "5551baaa-5e60-4b8a-9472-506c629781fb"
+                                }
+                            },
+                            "spec": {
+                                "containers": [
+                                    {
+                                        "command": [
+                                            "sh",
+                                            "-c",
+                                            "export CKPT_RUN_ID=rst-deactivated-003702 CKPT_DIR=/shared CKPT_JOB_ID=rst-deactivated-003702 CKPT_STEPS=20 CKPT_STEP_SLEEP=1 OMP_NUM_THREADS=1 \npython /work/train.py\n"
+                                        ],
+                                        "env": [
+                                            {
+                                                "name": "NVIDIA_DRIVER_CAPABILITIES",
+                                                "value": "compute,utility"
+                                            },
+                                            {
+                                                "name": "WORLD_SIZE",
+                                                "value": "2"
+                                            },
+                                            {
+                                                "name": "MASTER_ADDR",
+                                                "value": "rst-deactivated-003702-0.rst-deactivated-003702-ddp-a1.rst.svc"
+                                            },
+                                            {
+                                                "name": "MASTER_PORT",
+                                                "value": "29500"
+                                            },
+                                            {
+                                                "name": "RANK",
+                                                "valueFrom": {
+                                                    "fieldRef": {
+                                                        "apiVersion": "v1",
+                                                        "fieldPath": "metadata.annotations['batch.kubernetes.io/job-completion-index']"
+                                                    }
+                                                }
+                                            },
+                                            {
+                                                "name": "TRAINING_ATTEMPT",
+                                                "value": "1"
+                                            }
+                                        ],
+                                        "image": "distributed-restart:torch251",
+                                        "imagePullPolicy": "IfNotPresent",
+                                        "name": "trainer",
+                                        "resources": {
+                                            "limits": {
+                                                "nvidia.com/gpu": "1"
+                                            }
+                                        },
+                                        "terminationMessagePath": "/dev/termination-log",
+                                        "terminationMessagePolicy": "File",
+                                        "volumeMounts": [
+                                            {
+                                                "mountPath": "/shared",
+                                                "name": "state"
+                                            }
+                                        ]
+                                    }
+                                ],
+                                "dnsPolicy": "ClusterFirst",
+                                "restartPolicy": "Never",
+                                "schedulerName": "default-scheduler",
+                                "securityContext": {},
+                                "subdomain": "rst-deactivated-003702-ddp-a1",
+                                "terminationGracePeriodSeconds": 30,
+                                "volumes": [
+                                    {
+                                        "name": "state",
+                                        "persistentVolumeClaim": {
+                                            "claimName": "shared"
+                                        }
+                                    }
+                                ]
+                            }
+                        },
+                        "topologyRequest": {
+                            "podIndexLabel": "batch.kubernetes.io/job-completion-index"
+                        }
+                    }
+                ],
+                "priority": 0,
+                "queueName": "gpu-rst"
+            },
+            "status": {
+                "accumulatedPastExecutionTimeSeconds": 5,
+                "conditions": [
+                    {
+                        "lastTransitionTime": "2026-11-01T00:37:07Z",
+                        "message": "The workload is deactivated",
+                        "observedGeneration": 2,
+                        "reason": "Pending",
+                        "status": "False",
+                        "type": "QuotaReserved"
+                    },
+                    {
+                        "lastTransitionTime": "2026-11-01T00:37:06Z",
+                        "message": "The workload is deactivated",
+                        "observedGeneration": 2,
+                        "reason": "Deactivated",
+                        "status": "True",
+                        "type": "Evicted"
+                    },
+                    {
+                        "lastTransitionTime": "2026-11-01T00:37:07Z",
+                        "message": "The workload has no reservation",
+                        "observedGeneration": 2,
+                        "reason": "NoReservation",
+                        "status": "False",
+                        "type": "Admitted"
+                    },
+                    {
+                        "lastTransitionTime": "2026-11-01T00:37:07Z",
+                        "message": "The workload is deactivated",
+                        "observedGeneration": 2,
+                        "reason": "Deactivated",
+                        "status": "False",
+                        "type": "Requeued"
+                    }
+                ],
+                "schedulingStats": {
+                    "evictions": [
+                        {
+                            "count": 1,
+                            "reason": "Deactivated",
+                            "underlyingCause": ""
+                        }
+                    ]
+                }
+            }
+        }
+    ],
+    "kind": "List",
+    "metadata": {
+        "resourceVersion": ""
+    }
+}
