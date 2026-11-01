@@ -32,6 +32,10 @@ NODES = {"ip-10-0-64-11": ("i-0aaa0000000000001", 0.25), "ip-10-0-64-12": ("i-0a
 PARAMS = [0.125 * i - 1.0 for i in range(49)]
 
 
+def epoch(ts: str) -> float:
+    return datetime.datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp()
+
+
 def iso(t: float) -> str:
     return datetime.datetime.fromtimestamp(t, datetime.timezone.utc).isoformat()
 
@@ -330,6 +334,28 @@ def defect(out: pathlib.Path, name: str, case: str) -> None:
         edit_json(d / "dcgm.json", lambda x: x.update(latched=False))
     elif name == "no-terminated-mark":
         edit_json_lines(d / "marks.jsonl", lambda m: None if m["mark"] == "terminated-read" else m)
+    elif name == "no-fenced-mark":
+        edit_json_lines(d / "marks.jsonl", lambda m: None if m["mark"] == "fenced" else m)
+    elif name == "fence-before-terminated":
+        # The runner fenced ten seconds after the call, twenty before EC2 said terminated.
+        start = next(epoch(m["at"]) for m in map(json.loads, (d / "marks.jsonl").read_text().splitlines()) if m["mark"] == "fault-start")
+        edit_json_lines(d / "marks.jsonl", lambda m: {**m, "at": iso(start + 10)} if m["mark"] == "fenced" else m)
+    elif name == "no-fence-annotation":
+        edit_json(d / "final-mltj.json", lambda m: m["metadata"].update(annotations={}))
+    elif name == "created-before-fence":
+        # The controller created attempt 2 26 s before the fence, and its status says so in whole seconds.
+        fenced = next(epoch(m["at"]) for m in map(json.loads, (d / "marks.jsonl").read_text().splitlines()) if m["mark"] == "fenced")
+        edit_json(d / "final-mltj.json", lambda m: m["status"]["attempts"][1].update(createdAt=api_time(fenced - 26)))
+    elif name == "seen-before-fence":
+        # A sample the runner took before the fence already shows attempt 2.
+        fenced = next(epoch(m["at"]) for m in map(json.loads, (d / "marks.jsonl").read_text().splitlines()) if m["mark"] == "fenced")
+        rows = [json.loads(line) for line in (d / "timeline.jsonl").read_text().splitlines()]
+        rows.insert(1, {**rows[-1], "observed": iso(fenced - 20)})
+        (d / "timeline.jsonl").write_text("".join(json.dumps(r, sort_keys=True) + "\n" for r in rows))
+    elif name == "no-created-at":
+        edit_json(d / "final-mltj.json", lambda m: m["status"]["attempts"][1].pop("createdAt"))
+    elif name == "no-timeline":
+        (d / "timeline.jsonl").unlink()
     elif name == "cpu-backend":
         edit_records(d, lambda r: {**r, "backend": "gloo", "device": "cpu"} if r["event"] == "start" else r)
     elif name == "missing-case":

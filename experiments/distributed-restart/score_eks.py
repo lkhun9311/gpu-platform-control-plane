@@ -40,6 +40,7 @@ TRIGGER = {"no-rng-control": "RankFailed", "rank-kill": "RankFailed", "dcgm": "N
 # The registered in-trainer faults resume from a step the fault fixes; the external ones from whatever LATEST named.
 RESUME_FROM = {"no-rng-control": 12, "rank-kill": 11}
 EXTERNAL_MIN_STEP = 10
+FENCE_ANNOTATION = "platform.lkhun9311.github.io/fenced-nodes"
 
 
 class Verdict(Exception):
@@ -381,6 +382,42 @@ class Case:
             void(f"the terminated instance {target.get('instance')!r} is not the target node's {pid.get(target.get('node'))!r}")
         if "fault-start" not in self.marks or "terminated-read" not in self.marks:
             void("no mark of the termination call or of EC2 reporting the instance terminated")
+        # The fence is the runner's part of the fault: written only once EC2 describes the instance as terminated, it
+        # is what the registration lets release the stop barrier, so a fence missing or written before that is VOID,
+        # the apparatus not delivering the registered fault, and says nothing about the platform.
+        if "fenced" not in self.marks:
+            void("no fenced mark, so the acknowledgement the next attempt waits for is not shown to have been written")
+        start, read, fenced = (epoch(self.marks[m]) for m in ("fault-start", "terminated-read", "fenced"))
+        if not start <= read <= fenced:
+            void(f"the marks are fault-start {self.marks['fault-start']}, terminated-read {self.marks['terminated-read']} "
+                 f"and fenced {self.marks['fenced']}: the fence came before EC2 reported the instance terminated, "
+                 f"or EC2 before the call")
+        ack = str(((self.final.get("metadata") or {}).get("annotations") or {}).get(FENCE_ANNOTATION, ""))
+        if target.get("node") not in ack.split(","):
+            void(f"the job's fenced-nodes annotation is {ack!r}, not naming the target {target.get('node')}")
+
+    def check_barrier(self) -> None:
+        """Attempt 2 of a termination case was created only after the fence, on the runner's clock where it can be.
+
+        FAILED, not VOID: the fence was delivered (check_delivered), and starting the next attempt before it is the
+        platform's stop barrier letting a node that may still write the volume share it with the new attempt.
+        """
+        fenced = epoch(self.marks["fenced"])
+        timeline = jsonl(self.dir / "timeline.jsonl")
+        if not timeline:
+            void("no timeline of the job's status, so when attempt 2 appeared is not shown")
+        # The runner's samples are on its own clock, as the mark is, so one taken before the fence decides it exactly.
+        for s in timeline:
+            if epoch(s["observed"]) < fenced and len((s.get("status") or {}).get("attempts") or []) >= 2:
+                failed(f"attempt 2 was already in the job's status at {s['observed']}, before the fence at {self.marks['fenced']}")
+        created = self.attempts[1].get("createdAt")
+        if not created:
+            void("attempt 2 has no createdAt, so when it was created is not shown")
+        # createdAt is the controller's clock, which nothing probes, in whole seconds truncated, so it is allowed the
+        # second and the registered largest offset before it is read as earlier than the fence.
+        if epoch(created) + 1 + CLOCK_OFFSET_S < fenced:
+            failed(f"attempt 2 was created at {created}, before the fence at {self.marks['fenced']} by more than the "
+                   f"{CLOCK_OFFSET_S} s an unprobed clock is allowed")
 
     def fault_time(self) -> tuple[float, float]:
         """The fault on the runner's clock, and its uncertainty: the trainer's own record, the node's time in the
@@ -431,6 +468,8 @@ class Case:
         # that timed out lacks attempt 2's records by its nature, and is FAILED, censored, not VOID for lacking them.
         self.check_delivered()
         self.check_job(2)
+        if self.kind.startswith("terminate"):
+            self.check_barrier()
         self.check_starts(2)
         self.check_transport(2)
         resumed = self.check_resume()
