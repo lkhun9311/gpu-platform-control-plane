@@ -32,6 +32,8 @@ docs/superpowers/*
 !/hack/holdcap-conformance/runs/*/README.md
 !/hack/eks-serve/runs/*/README.md
 !/hack/eks-serve/holdcap-study/runs/*/README.md
+# The kind rehearsal of the restart runner says what it substituted and what it does not show beside its evidence.
+!/hack/restart-lifecycle-kind-*/README.md
 !/hack/chaos-fr002b-backend-fallback.md
 !/hack/argocd-kind.md
 !/hack/kueue-deployment-integration.md
