@@ -70,6 +70,14 @@ cat >"$work/bin/date" <<'EOF'
 #!/usr/bin/env bash
 if [[ -n "${STUB_UTC_HM:-}" && "$*" == "-u +%H" ]]; then echo "${STUB_UTC_HM%:*}"; exit 0; fi
 if [[ -n "${STUB_UTC_HM:-}" && "$*" == "-u +%M" ]]; then echo "${STUB_UTC_HM#*:}"; exit 0; fi
+# With STUB_UUTILS_NS the nanoseconds are fixed and a width-limited %6N or %3N prints them as uutils date 0.8.0 does, the
+# whole count with its leading zeros dropped, so .001229623 came out as .1229623 on the host that runs the paid session.
+if [[ -n "${STUB_UUTILS_NS:-}" && "${1:-}" == -u && "${2:-}" == +* ]]; then
+  fmt="${2#+}"
+  fmt="${fmt//%6N/$((10#$STUB_UUTILS_NS))}"
+  fmt="${fmt//%3N/$((10#$STUB_UUTILS_NS))}"
+  exec /usr/bin/date -u "+${fmt//%N/$STUB_UUTILS_NS}"
+fi
 exec /usr/bin/date "$@"
 EOF
 chmod +x "$work/bin/date"
@@ -407,6 +415,62 @@ fi
 out="$(lib noexporter 'restart_probe_all "$RESTART_OUT" before; echo "rc=$?"')"
 if [[ "$out" == *"no exporter Pod was Running"*"rc=1" ]]; then ok "a probe of no node fails"; else bad "the probe of no node: $out"; fi
 
+# An exporter Pod still listed Running on a Node the group no longer has is not probed: on kind the scale-in to two left
+# one for seconds, its probe failed, and terminate-wait-1 was VOID before its fault.
+mkdir -p "$work/rules/gone"
+cat >"$work/rules/gone/kubectl.sh" <<'EOF'
+case "$*" in
+  *"get nodes -l eks.amazonaws.com/nodegroup=gpu"*) echo "node-a" ;;
+  *"component=dcgm-exporter"*) printf 'node-a dcgm-a\nnode-gone dcgm-x\n' ;;
+  *"exec dcgm-a -c exporter -- date"*) date +%s.%N ;;
+  *"exec dcgm-x"*) echo 'error: unable to upgrade connection: pods "node-gone" not found' >&2; exit 1 ;;
+esac
+EOF
+out="$(lib gone 'restart_probe_all "$RESTART_OUT" before; echo "rc=$?"')"
+probed="$(python3 -c 'import json, sys; print(" ".join(json.loads(l)["node"] for l in open(sys.argv[1])))' "$work/out/gone/clock.jsonl" 2>&1)"
+if [[ "$out" == "rc=0" && "$probed" == node-a ]] && ! grep -q 'exec dcgm-x' "$work/gone.calls"; then
+  ok "an exporter left on a Node the group no longer has is not probed"
+else
+  bad "the exporter on a gone Node: $out; probed '$probed'; $(grep -c 'exec dcgm-x' "$work/gone.calls") exec(s) into it"
+fi
+mkdir -p "$work/rules/gone-unread"
+cat >"$work/rules/gone-unread/kubectl.sh" <<'EOF'
+case "$*" in
+  *"get nodes -l eks.amazonaws.com/nodegroup=gpu"*) echo "Unable to connect to the server" >&2; exit 1 ;;
+  *"component=dcgm-exporter"*) echo 'node-a dcgm-a' ;;
+  *"exec dcgm-a -c exporter -- date"*) date +%s.%N ;;
+esac
+EOF
+out="$(lib gone-unread 'restart_probe_all "$RESTART_OUT" before; echo "rc=$?"')"
+if [[ "$out" == *"rc=1" ]]; then ok "a group whose Nodes cannot be read is no clock read"; else bad "the unreadable group: $out"; fi
+
+# Stopping the collector stops the log follows it started: with no request timeout a follow of a Pod on a dead node
+# would otherwise outlive the case and keep writing into its evidence (codex review of bf0ea420).
+mkdir -p "$work/rules/follow-leak"
+cat >"$work/rules/follow-leak/kubectl.sh" <<'EOF'
+case "$*" in
+  *"get pods -l platform.lkhun9311.github.io/mltrainingjob="*"-o json"*)
+    echo '{"items": [{"metadata": {"uid": "u0", "name": "rp0", "annotations": {"batch.kubernetes.io/job-completion-index": "0"}}, "spec": {"nodeName": "node-a"}, "status": {"containerStatuses": [{"state": {"running": {"startedAt": "t"}}}]}}]}' ;;
+  *"logs -f rp0"*) exec -a rstk-follow-leak-probe sleep 300 ;;
+esac
+EOF
+out="$(lib follow-leak 'restart_collect "$RESTART_OUT" rst-x & c=$!; sleep 3; kill $c; wait $c; sleep 1; echo "rc=$?"')"
+started="$(grep -c 'logs -f rp0' "$work/follow-leak.calls")"
+leaked="$(pgrep -f '[r]stk-follow-leak-probe' | wc -l)"
+if [[ "$started" -ge 1 && "$leaked" == 0 ]]; then
+  ok "stopping the collector stops its $started log follow(s)"
+else
+  bad "$leaked of $started log follow(s) outlived the collector: $out"
+  pgrep -f '[r]stk-follow-leak-probe' | xargs -r kill
+fi
+
+# A mark's fraction is the time's, whatever date prints for a width-limited %N: uutils date 0.8.0 prints %6N as the whole
+# nanosecond count without its leading zeros, which put a mark taken at .0784 s at .784 s in the kind rehearsal.
+out="$(lib uutils 'STUB_UUTILS_NS=001229623 restart_mark "$RESTART_OUT" probe; python3 -c "import json, sys; print(json.loads(open(sys.argv[1]).read())[\"at\"])" "$RESTART_OUT/marks.jsonl"')"
+if [[ "$out" =~ \.001229623Z$ ]]; then ok "a mark keeps its fraction under uutils date: $out"; else bad "a mark taken at .001229623 s reads '$out'"; fi
+widths="$(grep -vE '^[[:space:]]*#' hack/lib/restart-session.sh | grep -cE '%[0-9]N')"
+if [[ "$widths" == 0 ]]; then ok "the restart runner asks date for no width-limited fraction"; else bad "the restart runner asks date for a width-limited fraction on $widths line(s)"; fi
+
 # Retirement waits for the job's objects, and an API error is not their absence.
 mkdir -p "$work/rules/retire"
 cat >"$work/rules/retire/kubectl.sh" <<'EOF'
@@ -451,6 +515,7 @@ runner() {
 mkdir -p "$work/rules/void-retire"
 cat >"$work/rules/void-retire/kubectl.sh" <<'EOF'
 case "$*" in
+  *"get nodes -l eks.amazonaws.com/nodegroup=gpu"*) echo "node-a" ;;
   *"component=dcgm-exporter"*) echo "node-a dcgm-a" ;;
   *"exec dcgm-a -c exporter -- date"*) date +%s.%N ;;
   *"get mltrainingjob rst-dcgm-1"*"-o name"*) echo "Unable to connect to the server" >&2; exit 1 ;;
@@ -472,6 +537,7 @@ fi
 mkdir -p "$work/rules/run-retire"
 cat >"$work/rules/run-retire/kubectl.sh" <<'EOF'
 case "$*" in
+  *"get nodes -l eks.amazonaws.com/nodegroup=gpu"*) echo "node-a" ;;
   *"component=dcgm-exporter"*) echo "node-a dcgm-a" ;;
   *"exec dcgm-a -c exporter -- date"*) date +%s.%N ;;
   *"get mltrainingjob rst-reference"*"-o name"*) echo "Unable to connect to the server" >&2; exit 1 ;;
@@ -487,6 +553,17 @@ else
   bad "the unretired case: missing${missing:- nothing}; no-rng-control: $(cat "$work/out/run-retire/no-rng-control/NOTRUN" 2>&1)"
 fi
 
+# An unretired case's NCCL logs are still copied, read-only, as its listing is: on the kind rehearsal they were not, and
+# score_eks.py voided a case that had recovered for "no NCCL log", which said the transport was unknown when it was
+# only left on the volume.
+for c in void-retire:dcgm-1 run-retire:reference; do
+  if grep -q "exec rst-reader -- tar -C /state/rst-${c#*:}-" "$work/${c%%:*}.calls" && [[ -d "$work/out/${c%%:*}/${c#*:}/nccl" ]]; then
+    ok "${c%%:*}: the unretired case's NCCL logs are copied though its files stay on the volume"
+  else
+    bad "${c%%:*}: the unretired case's NCCL logs were not copied"
+  fi
+done
+
 # A cluster on which a case reaches its fault: two ranks stepping on node-a and node-b, LATEST at step 12, an exporter on
 # each node, and a host engine that accepts the injection; each case below overrides one answer and sources the rest.
 cat >"$work/fullcase.sh" <<'EOF'
@@ -498,6 +575,7 @@ case "$*" in
   *"logs -f rp0"*) echo '{"ts": "t", "attempt": 1, "rank": 0, "event": "step", "step": 12}' ;;
   *"logs -f rp1"*) echo '{"ts": "t", "attempt": 1, "rank": 1, "event": "step", "step": 12}' ;;
   *"spec.nodeName=node-b,status.phase=Running"*) echo "dcgm-b " ;;
+  *"get nodes -l eks.amazonaws.com/nodegroup=gpu"*) printf 'node-a\nnode-b\n' ;;
   *"component=dcgm-exporter"*) printf 'node-a dcgm-a\nnode-b dcgm-b\n' ;;
   *"-c exporter -- date"*) date +%s.%N ;;
   *"-- cat /state/"*"/LATEST"*) echo "a1/00000012-0123456789abcdef0123456789abcdef" ;;
@@ -520,6 +598,15 @@ if [[ "$(cat "$work/out/probe-before/dcgm-1/VOID" 2>&1)" == "VOID-before-fault: 
   ok "a case whose clocks were not read before its fault is VOID before it, retired, and never injected"
 else
   bad "the failed probe before the fault: VOID '$(cat "$work/out/probe-before/dcgm-1/VOID" 2>&1)', $(grep -c hostengine "$work/probe-before.calls") injection call(s)"
+fi
+# A follow carries no request timeout: kubectl's 20 s one cut every stream on the kind rehearsal, each was read again from
+# the start, and the 20 restarts the collector allows then ended its coverage of any Pod that ran past about 400 s.
+follows="$(grep -c 'logs -f' "$work/probe-before.calls")"
+timed="$(grep 'logs -f' "$work/probe-before.calls" | grep -c -- '--request-timeout')"
+if [[ "$follows" -ge 2 && "$timed" == 0 ]]; then
+  ok "the collector's $follows log follows carry no request timeout"
+else
+  bad "$timed of the collector's $follows log follows carry a request timeout, which ends each stream after it"
 fi
 tokens="$(python3 -c 'import json, sys; print(" ".join(json.loads(l).get("attempt_token", "absent") for l in open(sys.argv[1])))' "$work/out/probe-before/dcgm-1/pods.jsonl" 2>&1)"
 if [[ "$tokens" == "1 1" ]]; then

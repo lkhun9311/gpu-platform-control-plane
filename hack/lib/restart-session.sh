@@ -424,10 +424,23 @@ restart_clock_probe() {
   printf '{"node": "%s", "pod": "%s", "before": %s, "node_time": %s, "after": %s}\n' "$node" "$pod" "$before" "$t" "$after"
 }
 
-# restart_exporters: "node pod" for every Running exporter Pod, the clock and fault path's way onto each GPU node.
+# restart_exporters: "node pod" for every Running exporter Pod on a Node the GPU group has now, the clock and fault
+# path's way onto each GPU node; fails when either list cannot be read.
+#
+# A Pod stays listed Running for a while after its Node is deleted, so a node the group just scaled in or lost would
+# otherwise be probed, fail, and void the next case before its fault, as terminate-wait-1 was on the kind rehearsal.
 restart_exporters() {
-  rk -n "$RESTART_SYS" get pods -l app.kubernetes.io/component=dcgm-exporter --field-selector status.phase=Running \
-    -o jsonpath='{range .items[*]}{.spec.nodeName}{" "}{.metadata.name}{"\n"}{end}'
+  local nodes pods
+  nodes="$(rk get nodes -l "eks.amazonaws.com/nodegroup=$RESTART_GROUP" -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>&1)" || {
+    echo "could not list the GPU nodes: ${nodes:0:200}" >&2
+    return 1
+  }
+  pods="$(rk -n "$RESTART_SYS" get pods -l app.kubernetes.io/component=dcgm-exporter --field-selector status.phase=Running \
+    -o jsonpath='{range .items[*]}{.spec.nodeName}{" "}{.metadata.name}{"\n"}{end}' 2>&1)" || {
+    echo "could not list the exporters: ${pods:0:200}" >&2
+    return 1
+  }
+  awk 'NR == FNR {if (NF) up[$1] = 1; next} ($1 in up) {print}' <(printf '%s\n' "$nodes") <(printf '%s\n' "$pods")
 }
 
 # restart_probe_all DIR LABEL: a probe of every GPU node's clock, appended to DIR/clock.jsonl; fails if any cannot be read.
@@ -599,8 +612,11 @@ json.dump(c, open(sys.argv[1], "w"))' "$dir/case.json" "$node1" "$instance" "$wi
 }
 
 # restart_mark DIR MARK: a line of marks.jsonl, at this machine's clock.
+#
+# Every timestamp here asks date for %N, never %6N: uutils date 0.8.0, the date of the machine the paid session runs from,
+# prints %6N as the whole nanosecond count without its leading zeros, which read a mark at .078 s as .78 s.
 restart_mark() {
-  printf '{"at": "%s", "mark": "%s"}\n' "$(date -u +%Y-%m-%dT%H:%M:%S.%6NZ)" "$2" >>"$1/marks.jsonl"
+  printf '{"at": "%s", "mark": "%s"}\n' "$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)" "$2" >>"$1/marks.jsonl"
 }
 
 # restart_terminate_and_fence INSTANCE NODE MLTJ DIR WAIT_SECONDS: ends the instance and, only once EC2 says it is
@@ -912,7 +928,7 @@ EOF
       ((left >= 1)) || left=1
       if out="$(rk -n "$RESTART_NS" wait --for=jsonpath='{.status.phase}'=Succeeded "pod/$pod" --timeout="${left}s" 2>&1)"; then
         echo "$node $uid" >>"$warmed"
-        printf '{"node": "%s", "uid": "%s", "prepared_at": "%s"}\n' "$node" "$uid" "$(date -u +%Y-%m-%dT%H:%M:%S.%6NZ)" >>"$RESTART_OUT/nodes-prepared.jsonl"
+        printf '{"node": "%s", "uid": "%s", "prepared_at": "%s"}\n' "$node" "$uid" "$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)" >>"$RESTART_OUT/nodes-prepared.jsonl"
       else
         failed="the warm-up on $node did not succeed by the warm deadline (${left}s left): ${out:0:200}"
       fi
@@ -1007,13 +1023,21 @@ for p in json.load(sys.stdin)["items"]:
       # The attempt label is the controller's own (mltjAttemptLabel in internal/controller/mltrainingjob_distributed.go),
       # so which attempt a Pod ran is read from the controller and not inferred from the order Pods were seen in.
       printf '{"uid": "%s", "pod": "%s", "node": "%s", "index": "%s", "attempt_token": "%s", "observed": "%s"}\n' \
-        "$uid" "$pod" "$node" "$index" "$token" "$(date -u +%Y-%m-%dT%H:%M:%S.%6NZ)" >>"$dir/pods.jsonl"
+        "$uid" "$pod" "$node" "$index" "$token" "$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)" >>"$dir/pods.jsonl"
       (
-        local n=0
+        local n=0 follow="" rc
+        # The follow runs in the background and is waited for, so stopping this reader stops it too: with no request
+        # timeout a follow of a Pod on a dead node would otherwise outlive the case (codex review of bf0ea420).
+        trap 'kill $follow 2>>"$dir/collector.log"; exit 0' TERM
         while :; do
           n=$((n + 1))
-          rk -n "$RESTART_NS" logs -f "$pod" >"$dir/log-$uid.$n.txt" 2>>"$dir/collector.log"
-          printf '{"uid": "%s", "stream": %d, "exit": %d, "at": "%s"}\n' "$uid" "$n" "$?" "$(date -u +%Y-%m-%dT%H:%M:%S.%6NZ)" >>"$dir/streams.jsonl"
+          # No request timeout, unlike rk: kubectl's 20 s cut every follow, so each Pod's log was read again from its start
+          # every 20 s and the 20 reads allowed below ended at about 400 s of the Pod's life (the kind rehearsal).
+          kubectl --context "$RESTART_CONTEXT" -n "$RESTART_NS" logs -f "$pod" >"$dir/log-$uid.$n.txt" 2>>"$dir/collector.log" &
+          follow=$!
+          wait "$follow"
+          rc=$?
+          printf '{"uid": "%s", "stream": %d, "exit": %d, "at": "%s"}\n' "$uid" "$n" "$rc" "$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)" >>"$dir/streams.jsonl"
           # A stream that ended with its container is complete; one that ended while it runs is read again in full.
           [[ "$(rk -n "$RESTART_NS" get pod "$pod" -o jsonpath='{.status.containerStatuses[0].state.running}' 2>>"$dir/collector.log")" != "" ]] || break
           ((n < 20)) || break
@@ -1192,7 +1216,7 @@ restart_void_case() {
   fi
   restart_retire "$name" $((retire_dl - SECONDS)) >>"$dir/case.log" || {
     echo "retirement of the VOID case $name was not confirmed; its files are left on the volume and nothing more may start" >>"$dir/case.log"
-    restart_list_shared "$dir" "$job_id"
+    restart_read_shared "$dir" "$job_id"
     return 2
   }
   restart_case_files "$dir" "$job_id"
@@ -1205,15 +1229,24 @@ restart_list_shared() {
   rkt 30 -n "$RESTART_NS" exec rst-reader -- find "$RESTART_MOUNT/$2" -type f >"$1/shared-files.txt" 2>>"$1/case.log"
 }
 
-# restart_case_files DIR JOB_ID: a retired case's NCCL logs copied, its files listed, and its directory deleted.
+# restart_read_shared DIR JOB_ID: the case's NCCL logs copied into DIR/nccl and its files listed, both read-only.
 #
-# Three calls of at most 30 s, and the verdict's 30 s after the reset, are RESTART_FILES_BUDGET.
-restart_case_files() {
+# An unretired case is read this way too: its logs were once left on the volume with it, and score_eks.py then voided a
+# case that had recovered for having no NCCL log, a reason that named the transport when only the copy was missing
+# (the kind rehearsal).
+restart_read_shared() {
   local dir="$1" job_id="$2"
   mkdir -p "$dir/nccl"
   rkt 30 -n "$RESTART_NS" exec rst-reader -- tar -C "$RESTART_MOUNT/$job_id" -cf - nccl 2>>"$dir/case.log" | tar -C "$dir" -xf - 2>>"$dir/case.log"
   restart_list_shared "$dir" "$job_id"
-  rkt 30 -n "$RESTART_NS" exec rst-reader -- rm -rf "$RESTART_MOUNT/$job_id" >>"$dir/case.log" 2>&1
+}
+
+# restart_case_files DIR JOB_ID: a retired case's NCCL logs copied, its files listed, and its directory deleted.
+#
+# Three calls of at most 30 s, and the verdict's 30 s after the reset, are RESTART_FILES_BUDGET.
+restart_case_files() {
+  restart_read_shared "$1" "$2"
+  rkt 30 -n "$RESTART_NS" exec rst-reader -- rm -rf "$RESTART_MOUNT/$2" >>"$1/case.log" 2>&1
 }
 
 # restart_run_case CASE SLOT_DEADLINE: one registered case, from submission to its retirement, inside the slot
@@ -1304,10 +1337,10 @@ restart_run_case() {
   # The writers are stopped before their files are copied and deleted.
   # A case whose retirement cannot be confirmed may still be writing and still hold GPUs and quota, so its files stay on
   # the volume and the run stops (codex review of 830f64af).
-  # Their listing is still written, read-only, so the scorer is not left without it.
+  # Their NCCL logs and listing are still read, read-only, so the scorer is not left without them.
   restart_retire "$name" $((retire_dl - SECONDS)) >>"$dir/case.log" || {
     echo "retirement of $name was not confirmed; its files are left on the volume" >>"$dir/case.log"
-    restart_list_shared "$dir" "$job_id"
+    restart_read_shared "$dir" "$job_id"
     return 2
   }
   restart_case_files "$dir" "$job_id"

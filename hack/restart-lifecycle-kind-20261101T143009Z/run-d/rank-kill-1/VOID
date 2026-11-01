@@ -1,0 +1,3 @@
+VOID-before-fault: a clock probe before the fault failed, so nothing was injected: could not read the clock of rstlife-worker through gpu-simulator-pb4rc: rehearsal: this clock is made unreadable
+command terminated with exit code 1
+could not read the clock of rstlife-worker2 through

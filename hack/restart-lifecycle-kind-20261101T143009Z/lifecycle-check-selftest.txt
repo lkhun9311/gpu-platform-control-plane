@@ -1,0 +1,8 @@
+ok   clean: OK   run-x: nothing of reference existed when rank-kill-1 was submitted at resourceVersion 60; its last object was deleted at 51
+ok   a leftover Pod: FAIL run-x: rank-kill-1 was submitted at resourceVersion 60 while reference's [('pods', 'rst-reference-100000-0-abc')] still existed
+ok   a recorder that never caught up: FAIL run-x: the history of ['pods'] is not shown continuous from a list to past rank-kill-1's submission (resourceVersion 60), so what was left is unknown
+ok   a watch resumed from its resourceVersion: OK   run-x: nothing of reference existed when rank-kill-1 was submitted at resourceVersion 60; its last object was deleted at 51
+ok   a gap across the submission: FAIL run-x: the history of ['pods'] is not shown continuous from a list to past rank-kill-1's submission (resourceVersion 60), so what was left is unknown
+ok   a gap before the submission, listed again: OK   run-x: nothing of reference existed when rank-kill-1 was submitted at resourceVersion 60; its last object was deleted at 51
+ok   a change after the submission: OK   run-x: nothing of reference existed when rank-kill-1 was submitted at resourceVersion 60; its last object was deleted at 51 | FAIL run-x: reference's objec
+ok   a relist after the submission still holding one: OK   run-x: nothing of reference existed when rank-kill-1 was submitted at resourceVersion 60; its last object was deleted at 51 | FAIL run-x: reference's objec
