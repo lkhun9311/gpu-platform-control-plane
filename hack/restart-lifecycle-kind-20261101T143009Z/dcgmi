@@ -1,0 +1,18 @@
+#!/usr/local/bin/python
+"""dcgmi as hack/lib/restart-session.sh and hack/lib/gpu-fault.sh call it, answered by the gpu-simulator's fake DCGM."""
+import sys
+import urllib.request
+
+args = sys.argv[1:]
+if args[:2] == ["test", "--inject"]:
+    opts = dict(zip(args[2::2], args[3::2]))
+    unknown = set(opts) - {"--gpuid", "-f", "-v", "--offset"}
+    if unknown or len(args[2:]) % 2:
+        sys.exit(f"dcgmi shim: {' '.join(args)} has options it does not implement")
+    q = f"gpu={opts.get('--gpuid', '0')}&field={opts['-f']}&value={opts['-v']}&offset={opts.get('--offset', '1')}"
+    print(urllib.request.urlopen(urllib.request.Request(f"http://127.0.0.1:9400/inject?{q}", data=b"", method="POST"), timeout=10).read().decode().strip())
+elif args[:2] == ["dmon", "-e"] and args[3:] == ["-i", "0", "-c", "1"]:
+    v = urllib.request.urlopen(f"http://127.0.0.1:9400/introspect?gpu=0&field={args[2]}", timeout=10).read().decode().strip()
+    print("#Entity   FIELD\nID\nGPU 0     " + v)
+else:
+    sys.exit(f"dcgmi shim: {' '.join(args)} is not implemented")

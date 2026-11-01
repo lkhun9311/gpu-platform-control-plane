@@ -1,0 +1,12 @@
+ACCEPTED reference {"checkpoint": {"a1": {"max_s": 0.064, "median_s": 0.052, "saves": 60}}}
+ACCEPTED no-rng-control {"checkpoint": {"a1": {"max_s": 0.052, "median_s": 0.049, "saves": 22}, "a2": {"max_s": 0.055, "median_s": 0.052, "saves": 36}}, "from_dir": "a1/00000012-fb2a8045414b4cb4a089c9e5c698375b", "from_step": 12, "params_gap": 0.074}
+ACCEPTED dcgm-1 {"checkpoint": {"a1": {"max_s": 0.073, "median_s": 0.057, "saves": 50}, "a2": {"max_s": 0.049, "median_s": 0.048, "saves": 10}}, "class": "spare", "clock_uncertainty_s": 0.107, "from_dir": "a1/00000025-fa51dccad186431fbc3cd92e324b3b71", "from_step": 25, "lost_steps": 0, "params_gap": 0.0, "recovery_s": 34.102}
+FAILED   terminate-wait-1: not recovered: the job ended 'Failed', not Succeeded, within its budget
+summary
+  reference: 1 registered, 1 ACCEPTED, 0 FAILED (0 censored at their budget, 0 not recovered), 0 VOID, 0 NOTRUN
+  no-rng-control: 1 registered, 1 ACCEPTED, 0 FAILED (0 censored at their budget, 0 not recovered), 0 VOID, 0 NOTRUN
+  dcgm: 1 registered, 1 ACCEPTED, 0 FAILED (0 censored at their budget, 0 not recovered), 0 VOID, 0 NOTRUN
+    spare: recovery median 34.1 s, range 34.1 to 34.1 s, lost steps [0], over 1 accepted; the 0 FAILED censored at their budget, the 0 not recovered and the 0 VOID are not in these figures
+  terminate-wait: 1 registered, 0 ACCEPTED, 1 FAILED (0 censored at their budget, 1 not recovered), 0 VOID, 0 NOTRUN
+  checkpoint cost: median 0.052 s, max 0.073 s over 120 saves
+exit=1

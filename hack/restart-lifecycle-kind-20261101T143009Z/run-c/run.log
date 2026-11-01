@@ -1,0 +1,3 @@
+reference: ACCEPTED
+rank-kill-1: ACCEPTED
+stopped early: rank-kill-1 could not be retired or its DCGM fault reset; see hack/restart-lifecycle-kind-20261101T143009Z/run-c/rank-kill-1/case.log
