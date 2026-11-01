@@ -169,6 +169,26 @@ run "efs_with_one_mount_target_in_the_pinned_zone" {
     error_message = "efs_enabled must add the pinned EFS CSI addon to the cluster's addons."
   }
 
+  # The mock replaces the rendered JSON with "{}", so the trust is asserted on the document's inputs, which plan keeps.
+  # jsonencode on both sides, because the inputs are sets and lists of objects and a literal is a tuple of objects.
+  assert {
+    condition = jsonencode([for s in data.aws_iam_policy_document.efs_csi_assume[0].statement : {
+      effect     = s.effect
+      actions    = sort(s.actions)
+      principals = [for p in s.principals : { type = p.type, identifiers = sort(p.identifiers) }]
+      conditions = { for c in s.condition : c.variable => { test = c.test, values = sort(c.values) } }
+      }]) == jsonencode([{
+      effect     = "Allow"
+      actions    = ["sts:AssumeRoleWithWebIdentity"]
+      principals = [{ type = "Federated", identifiers = ["arn:aws:iam::000000000000:oidc-provider/oidc.example.invalid/id/TEST"] }]
+      conditions = {
+        "oidc.example.invalid/id/TEST:aud" = { test = "StringEquals", values = ["sts.amazonaws.com"] }
+        "oidc.example.invalid/id/TEST:sub" = { test = "StringEquals", values = ["system:serviceaccount:kube-system:efs-csi-controller-sa"] }
+      }
+    }])
+    error_message = "The CSI role must trust the cluster's OIDC provider for the controller's service account alone."
+  }
+
   assert {
     condition     = output.efs_file_system_id == aws_efs_file_system.shared[0].id
     error_message = "The output the session renders its volume from must name the planned file system."

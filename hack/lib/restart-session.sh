@@ -26,42 +26,137 @@ RESTART_BALLAST_MB=16
 RESTART_COLLECTIVE_TIMEOUT=60
 # One case from submission to its verdict; a case that has not succeeded by then is FAILED, censored at this budget.
 RESTART_CASE_BUDGET=720
-# Retiring a case, resetting a DCGM fault and qualifying the group again, between two cases.
-RESTART_BETWEEN_BUDGET=300
-# A termination case's lost node coming back, joining, and being warmed before the next case may start.
+# The other shares of one case's slot, each a limit the runner enforces, so restart_gpu_budget is the sum of what can
+# really run and not of what usually does.
+# Before submission: reading the deadline, rendering, the credit read (20 s), the node read (20 s) and the create (20 s).
+RESTART_SUBMIT_BUDGET=120
+# After the run: the clock probes (an exporter list of 20 s and 10 s per node), two reads of 20 s, the credit read of
+# 20 s, the 5 s pause and the collector's stop.
+RESTART_EVIDENCE_BUDGET=120
+# The case's job deleted and its Jobs, Pods and Workloads seen gone.
+RESTART_RETIRE_BUDGET=300
+# Copying the NCCL logs, listing and deleting the case's files, and scoring it: four calls of at most 30 s.
+RESTART_FILES_BUDGET=120
+# A dcgm case's baseline injection and the 120 s wait for the node to read clear, with 60 s for the calls around it.
+RESTART_RESET_BUDGET=180
+# The group seen at its count and qualified again when no node was lost.
+RESTART_REQUALIFY_BUDGET=300
+# A lost node's replacement launched, joined and qualified, or the group scaled in to two.
 RESTART_REPLENISH_BUDGET=900
+# Warming every unprepared node, in parallel under one deadline, because each pulls its own 3.3 GB copy of the image.
 RESTART_WARM_BUDGET=900
+# Every GPU node's exporter serving the fault fields and its NodeHealth reading a fresh, healthy signal.
+RESTART_SIGNAL_BUDGET=180
+# The longest a credential can be asked to cover: the SSO permission set's SessionDuration is PT12H (720 min, read in
+# gpu-lab), and 20 min of it are left for the time between the login and this check.
+RESTART_CREDENTIAL_MAX_MIN=700
 # An external fault waits for a published checkpoint of at least this step, and is refused once this step has run.
 RESTART_FAULT_MIN_STEP=10
 RESTART_FAULT_MAX_STEP=25
 RESTART_CLAIM=restart-shared
 RESTART_MOUNT=/state
-RESTART_REPS=5
+# The full stage's repetitions per kind, fixed here and not chosen at run time.
+# The registration asked for 5, and 5 cannot run in one session: restart_gpu_budget is 6,840 + 9,900 x REPS seconds
+# for the full stage, the session adds 1,200 s of syncs and a 3,600 s margin, and TTL_MINUTES plus the 40-minute
+# destroy must stay within RESTART_CREDENTIAL_MAX_MIN, so 11,640 + 9,900 x REPS <= 660 x 60 = 39,600.
+# REPS = 2 needs TTL_MINUTES 524 (564 with the destroy); REPS = 3 needs 689 (729), which no 720-minute credential covers.
+RESTART_REPS=2
 RESTART_POLL="${RESTART_POLL:-1}"
 RESTART_FENCED_ANN=platform.lkhun9311.github.io/fenced-nodes
 RESTART_FAULT_FLAGS=(--gpu-fault-source=dcgm --gpu-fault-evict-workloads)
 # The commit whose fix the restart controller needs; a deployed revision without it is not the controller this tests.
 RESTART_CONTROLLER_COMMIT=65874ddb
 
-# restart_cases: the registered cases, in the registered order, one per line.
+# restart_cases: the cases of RESTART_STAGE, in the registered order, one per line; fails for any other stage.
+#
+# smoke is the first paid stage, run and inspected before anything else is bought: the two cases every other one is
+# compared with, and one of each external fault, the DCGM path and a termination that can only recover on a replacement.
+# full is the registered kinds at RESTART_REPS each.
 restart_cases() {
   local kind i
-  echo reference
-  echo no-rng-control
-  for kind in rank-kill dcgm terminate-spare terminate-wait; do
-    for ((i = 1; i <= RESTART_REPS; i++)); do echo "$kind-$i"; done
-  done
+  case "${RESTART_STAGE:-}" in
+    smoke) printf '%s\n' reference no-rng-control dcgm-1 terminate-wait-1 ;;
+    full)
+      echo reference
+      echo no-rng-control
+      for kind in rank-kill dcgm terminate-spare terminate-wait; do
+        for ((i = 1; i <= RESTART_REPS; i++)); do echo "$kind-$i"; done
+      done
+      ;;
+    *)
+      echo "RESTART_STAGE is '${RESTART_STAGE:-}', not smoke or full" >&2
+      return 1
+      ;;
+  esac
 }
 
-# restart_gpu_budget: the seconds from the GPU purchase to its verified end, every bounded wait included.
+# restart_pre_seconds CASE PREVIOUS: the share of CASE's slot before its submission, which depends on what the
+# previous case left: a lost node to replace and warm, a group to scale in to two, or only a group to qualify again.
+restart_pre_seconds() {
+  local kind="${1%-[0-9]*}" prev="${2%-[0-9]*}"
+  if [[ "$prev" == terminate-* ]]; then
+    echo $((RESTART_REPLENISH_BUDGET + RESTART_WARM_BUDGET))
+  elif [[ "$kind" == terminate-wait ]]; then
+    echo "$RESTART_REPLENISH_BUDGET"
+  else
+    echo "$RESTART_REQUALIFY_BUDGET"
+  fi
+}
+
+# restart_slot_seconds CASE PREVIOUS: CASE's whole slot, from the group check before it to its verdict, every share an
+# enforced limit; restart_run gives the slot one absolute deadline.
+restart_slot_seconds() {
+  local reset=0
+  [[ "${1%-[0-9]*}" != dcgm ]] || reset="$RESTART_RESET_BUDGET"
+  echo $(($(restart_pre_seconds "$1" "$2") + RESTART_SUBMIT_BUDGET + RESTART_CASE_BUDGET + RESTART_EVIDENCE_BUDGET +
+    RESTART_RETIRE_BUDGET + RESTART_FILES_BUDGET + reset))
+}
+
+# restart_prep_seconds: from the purchase to the first case, each wait the session's own bound.
+#
+# T6 waits WAIT_GPU_NODE + WAIT_GPU_PLUGIN under one deadline, T7 waits WAIT_QUAL_RUN, the three nodes are warmed in
+# parallel under RESTART_WARM_BUDGET, and the fault path's readiness is given RESTART_SIGNAL_BUDGET.
+restart_prep_seconds() {
+  echo $((WAIT_GPU_NODE + WAIT_GPU_PLUGIN + WAIT_QUAL_RUN + RESTART_WARM_BUDGET + RESTART_SIGNAL_BUDGET))
+}
+
+# restart_gpu_budget: the seconds from the GPU purchase to its verified end, the sum of the enforced limits of the
+# preparation, every case's slot and the scale-down.
 #
 # WAIT_GPU_NODE, WAIT_GPU_PLUGIN, WAIT_QUAL_RUN and WAIT_GPU_GONE are the session's, read from its environment.
 restart_gpu_budget() {
-  local n terminate
-  n="$(restart_cases | wc -l)"
-  terminate="$(restart_cases | grep -c '^terminate-')"
-  echo $((WAIT_GPU_NODE + WAIT_GPU_PLUGIN + WAIT_QUAL_RUN + RESTART_WARM_BUDGET + n * (RESTART_CASE_BUDGET + RESTART_BETWEEN_BUDGET) +
-    terminate * RESTART_REPLENISH_BUDGET + WAIT_GPU_GONE + 300))
+  local cases case prev="" total
+  cases="$(restart_cases)" || return 1
+  total="$(restart_prep_seconds)"
+  for case in $cases; do
+    total=$((total + $(restart_slot_seconds "$case" "$prev")))
+    prev="$case"
+  done
+  # The scale-down's wait for every instance to end, and 300 s for the calls around it.
+  echo $((total + WAIT_GPU_GONE + 300))
+}
+
+# restart_ttl_refusal STAGE TTL_MINUTES GPU_BUDGET SESSION_SECONDS: TTL_MINUTES covers the session's waits, and it and
+# the destroy after it fit in a credential the account can issue.
+#
+# The scale-down and the fencing are AWS calls, so a session that outlives every credential the account can issue
+# would end with nothing able to stop its nodes but the deadlines; such a stage is refused whatever the credential now.
+restart_ttl_refusal() {
+  local stage="$1" ttl="$2" need
+  need=$((($3 + $4 + 3600 + 59) / 60))
+  if ((need + 40 > RESTART_CREDENTIAL_MAX_MIN)); then
+    echo "RESTART_STAGE=$stage needs TTL_MINUTES of at least $need, and with the 40-minute destroy $((need + 40)) min of credential, more than the $RESTART_CREDENTIAL_MAX_MIN a fresh 720-minute credential covers; it cannot run as one session"
+    return 1
+  fi
+  if ((ttl < need)); then
+    echo "TRAIN=restart with RESTART_STAGE=$stage needs TTL_MINUTES of at least $need for its waits; it is $ttl"
+    return 1
+  fi
+  if ((ttl + 40 > RESTART_CREDENTIAL_MAX_MIN)); then
+    echo "TTL_MINUTES=$ttl and the 40-minute destroy need $((ttl + 40)) min of credential, more than the $RESTART_CREDENTIAL_MAX_MIN a fresh 720-minute credential covers; RESTART_STAGE=$stage needs only $need"
+    return 1
+  fi
+  echo "RESTART_STAGE=$stage: TTL_MINUTES $ttl covers its $need, and with the destroy fits the $RESTART_CREDENTIAL_MAX_MIN-minute credential limit"
 }
 
 # restart_zone_refusal ZONE: the registered zone and no other, because every figure inherits it.
@@ -221,6 +316,24 @@ print(json.dumps({
 
 rk() { kubectl --context "$RESTART_CONTEXT" --request-timeout=20s "$@"; }
 
+# rkd DEADLINE ARGS...: rk whose request cannot outlive DEADLINE (in SECONDS) by more than a second, so a poll that
+# starts just before its phase's deadline does not carry the phase into the next one's share.
+rkd() {
+  local t=$(($1 - SECONDS))
+  shift
+  ((t <= 20)) || t=20
+  ((t >= 1)) || t=1
+  kubectl --context "$RESTART_CONTEXT" --request-timeout="${t}s" "$@"
+}
+
+# rkt SECONDS ARGS...: rk ended after SECONDS whatever it is doing, for an exec or a stream a request timeout does not
+# bound.
+rkt() {
+  local t="$1"
+  shift
+  timeout "$t" kubectl --context "$RESTART_CONTEXT" --request-timeout=20s "$@"
+}
+
 # restart_operator_gate: the operator running on the cluster is the restart controller, before any GPU is bought.
 #
 # Argo deploys the operator from main, whatever this checkout holds, so the deployed revision is read from Argo, its
@@ -299,7 +412,7 @@ sys.exit(0 if "maxRestarts" in d else 1)' "$crd" 2>&1 || {
 restart_clock_probe() {
   local pod="$1" node="$2" before after t
   before="$(date +%s.%N)"
-  t="$(kubectl --context "$RESTART_CONTEXT" --request-timeout=10s -n "$RESTART_SYS" exec "$pod" -c exporter -- date +%s.%N 2>&1)" || {
+  t="$(timeout 10 kubectl --context "$RESTART_CONTEXT" --request-timeout=10s -n "$RESTART_SYS" exec "$pod" -c exporter -- date +%s.%N 2>&1)" || {
     echo "could not read the clock of $node through $pod: ${t:0:200}" >&2
     return 1
   }
@@ -319,19 +432,25 @@ restart_exporters() {
 
 # restart_probe_all DIR LABEL: a probe of every GPU node's clock, appended to DIR/clock.jsonl; fails if any cannot be read.
 restart_probe_all() {
-  local dir="$1" label="$2" rows node pod line fails=0
+  local dir="$1" label="$2" rows node pod line fails=0 probed=0
   rows="$(restart_exporters 2>&1)" || {
     echo "could not list the exporters: ${rows:0:200}" >&2
     return 1
   }
   while read -r node pod; do
     [[ -n "$node" ]] || continue
+    probed=$((probed + 1))
     if line="$(restart_clock_probe "$pod" "$node")"; then
       python3 -c 'import json, sys; r = json.loads(sys.argv[1]); r["when"] = sys.argv[2]; print(json.dumps(r))' "$line" "$label" >>"$dir/clock.jsonl"
     else
       fails=$((fails + 1))
     fi
   done <<<"$rows"
+  # No exporter listed is no clock read, not every clock read.
+  if ((probed == 0)); then
+    echo "no exporter Pod was Running, so no node's clock was read" >&2
+    return 1
+  fi
   ((fails == 0))
 }
 
@@ -367,7 +486,8 @@ restart_read_latest() {
 # restart_fault_window POD JOB_ID DIR WAIT: 0 once LATEST names a step of at least RESTART_FAULT_MIN_STEP and no rank has
 # recorded RESTART_FAULT_MAX_STEP; 1 if a rank got there first, so the fault would land too late; 2 when the wait ran out.
 #
-# The maximum is checked last, immediately before the caller injects, so a slow log stream cannot hide a late window.
+# The maximum is checked after the minimum, so a slow log stream cannot hide a late window; the window can still close
+# while the caller resolves its targets, so restart_external_fault reads it again with restart_fault_recheck last.
 restart_fault_window() {
   local pod="$1" job_id="$2" dir="$3" wait="$4" deadline=$((SECONDS + $4)) latest="" high
   while ((SECONDS < deadline)); do
@@ -392,6 +512,90 @@ print(max([json.loads(l)["step"] for l in sys.stdin if json.loads(l).get("event"
   done
   echo "LATEST named no step of $RESTART_FAULT_MIN_STEP or later within ${wait}s (last: ${latest:-unread})"
   return 2
+}
+
+# restart_fault_recheck POD JOB_ID DIR NAME: the last read before an external fault: the job not ended, no rank's
+# record and not LATEST at or past RESTART_FAULT_MAX_STEP; prints LATEST's "STEP NAME", or why the fault is refused.
+#
+# LATEST is read last, because the volume is ahead of the logs and the step it names is the one the fault lands after.
+restart_fault_recheck() {
+  local pod="$1" job_id="$2" dir="$3" name="$4" phase high latest
+  phase="$(rk -n "$RESTART_NS" get mltrainingjob "$name" -o jsonpath='{.status.phase}' 2>&1)" || {
+    echo "could not read the job's phase: ${phase:0:200}"
+    return 1
+  }
+  case "$phase" in
+    Succeeded | Failed)
+      echo "the job had already ended $phase"
+      return 1
+      ;;
+  esac
+  high="$(restart_records "$dir" | python3 -c '
+import json, sys
+print(max([json.loads(l)["step"] for l in sys.stdin if json.loads(l).get("event") == "step"], default=0))')"
+  if ((high >= RESTART_FAULT_MAX_STEP)); then
+    echo "a rank recorded step $high, at or past $RESTART_FAULT_MAX_STEP"
+    return 1
+  fi
+  latest="$(restart_read_latest "$pod" "$job_id" 2>&1)" || {
+    echo "${latest:0:200}"
+    return 1
+  }
+  if ((${latest%% *} >= RESTART_FAULT_MAX_STEP)); then
+    echo "LATEST names step ${latest%% *}, at or past $RESTART_FAULT_MAX_STEP"
+    return 1
+  fi
+  echo "$latest"
+}
+
+# restart_external_fault KIND DIR NAME JOB_ID POD0 NODE1 WINDOW RUN_DEADLINE SLOT_DEADLINE: the dcgm or termination
+# fault on rank 1's node, delivered only if the last read before it still finds the window open.
+#
+# Every target is resolved first, the instance, the exporter Pod and the GPU deadline, so the read that decides the
+# fault is the last call before it; once the window had been seen open, a node read, an exporter lookup and two
+# scheduler calls had run before the injection, and the trainer steps every two seconds.
+# The step that last read saw is written to case.json after the fault, so the write is not between the read and it.
+restart_external_fault() {
+  local kind="$1" dir="$2" name="$3" job_id="$4" pod0="$5" node1="$6" window="$7" run_dl="$8" slot_dl="$9" instance last out rc=0
+  rk get nodes -o json >"$dir/nodes-before.json" 2>>"$dir/case.log"
+  instance="$(python3 -c '
+import json, sys
+n = [n for n in json.load(open(sys.argv[1]))["items"] if n["metadata"]["name"] == sys.argv[2]]
+print(n[0]["spec"]["providerID"].rsplit("/", 1)[-1] if n else "")' "$dir/nodes-before.json" "$node1" 2>>"$dir/case.log")"
+  if [[ "$kind" == dcgm ]]; then
+    restart_gf_env "$node1" "$dir" || return 1
+  else
+    # The replacement the termination starts is joined and warmed in the next slot's share, so the deadline must
+    # cover this slot's rest and that share.
+    out="$(restart_deadline_ok $((slot_dl - SECONDS + RESTART_REPLENISH_BUDGET + RESTART_WARM_BUDGET)))" || {
+      echo "$out"
+      return 1
+    }
+  fi
+  if last="$(restart_fault_recheck "$pod0" "$job_id" "$dir" "$name")"; then
+    if [[ "$kind" == dcgm ]]; then
+      restart_dcgm_fault "$node1" "$dir"
+    else
+      restart_terminate_and_fence "$instance" "$node1" "$name" "$dir" $((run_dl - SECONDS))
+    fi
+    rc=$?
+  else
+    restart_mark "$dir" "fault-refused"
+    echo "refused at the last read before the fault: $last"
+    rc=1
+  fi
+  python3 -c '
+import json, re, sys
+c = json.load(open(sys.argv[1]))
+c["target"] = {"rank": 1, "node": sys.argv[2], "instance": sys.argv[3]}
+c["published_at_window"] = sys.argv[4]
+c["last_read_before_fault"] = sys.argv[5]
+m = re.match(r"(\d+) a\d+/", sys.argv[5]) or re.match(r"LATEST names step (\d+)", sys.argv[5])
+c["step_before_fault"] = int(m.group(1)) if m else None
+if sys.argv[6] == "0":
+    c["published_at_fault"] = sys.argv[5]
+json.dump(c, open(sys.argv[1], "w"))' "$dir/case.json" "$node1" "$instance" "$window" "$last" "$rc" 2>>"$dir/case.log"
+  return "$rc"
 }
 
 # restart_mark DIR MARK: a line of marks.jsonl, at this machine's clock.
@@ -433,19 +637,30 @@ restart_terminate_and_fence() {
     fi
     sleep "$RESTART_POLL"
   done
+  # Marked before the call too, because the controller can see the annotation and start attempt 2 before the call
+  # returns, so the barrier is judged against this mark and not against "fenced".
+  restart_mark "$dir" "fence-request"
   out="$(rk -n "$RESTART_NS" annotate mltrainingjob "$mltj" "$RESTART_FENCED_ANN=$node" --overwrite 2>&1)" || {
     echo "$instance is terminated, and the fencing of $node could not be written: ${out:0:200}"
     return 1
   }
   restart_mark "$dir" "fenced"
+  # Sampled at once, because the case loop does not sample while the fencing is waited for.
+  restart_sample "$mltj" "$dir"
   echo "$instance terminated and $node fenced"
 }
 
 # restart_dcgm_fault NODE DIR: XID 79 into the host engine on NODE, with the node's own time in the same exec, then the
 # readback, the latch and the taint, all written to DIR/dcgm.json before anything resets them.
+#
+# The exporter Pod is resolved by the caller, with restart_gf_env, before its last read of the published step, so no
+# lookup sits between that read and the injection.
 restart_dcgm_fault() {
   local node="$1" dir="$2" out t rb latched=false tainted=false
-  restart_gf_env "$node" "$dir" || return 1
+  [[ "${GF_TARGET:-}" == "$node" && -n "${GF_POD:-}" ]] || {
+    echo "the fault path is not pointed at $node; restart_gf_env comes first"
+    return 1
+  }
   restart_mark "$dir" "fault-start"
   out="$(rk -n "$RESTART_SYS" exec "$GF_POD" -c hostengine -- sh -c \
     "date +%s.%N; dcgmi test --inject --gpuid 0 -f 230 -v 79 --offset $GF_OFFSET_S" 2>&1)" || {
@@ -506,7 +721,7 @@ restart_dcgm_reset() {
 # The fault path is off unless the operator's flags say otherwise, and Argo self-heals the operator back to main's
 # flags, so both Applications that would do it lose their automated sync first; it is a recorded deviation from main.
 restart_enable_fault_path() {
-  local app phase dep args out
+  local app phase dep out
   for app in gpu-platform-root gpu-platform-operator; do
     phase="$(rk -n argocd get application "$app" -o jsonpath='{.status.operationState.phase}' 2>&1)" || {
       echo "could not read $app: ${phase:0:200}"
@@ -544,30 +759,134 @@ restart_enable_fault_path() {
     return 1
   }
   sleep 90
-  args="$(rk -n "$RESTART_SYS" get pods -l control-plane=controller-manager -o jsonpath='{range .items[*]}{.spec.containers[0].args}{"\n"}{end}' 2>&1)" || {
-    echo "could not read the operator Pods' args: ${args:0:200}"
+  out="$(restart_operator_flags_ok)" || {
+    echo "90 s later: $out"
     return 1
   }
-  if [[ -z "$args" ]] || grep -qv -- "${RESTART_FAULT_FLAGS[1]}" <<<"$args"; then
-    echo "90 s later not every operator Pod runs with the fault flags: $args"
-    return 1
-  fi
   echo "the operator runs with ${RESTART_FAULT_FLAGS[*]} 90 s after the change, and Argo's automated sync is off"
 }
 
-# restart_prepare_nodes WARMED_FILE: a NodeHealth and a warm-up for every GPU node not yet prepared.
+# restart_operator_flags_ok: every operator Pod runs its manager with both RESTART_FAULT_FLAGS; prints why not.
 #
-# Run between cases, never inside one, so a replacement's first pull and first mount are part of the recovery it is
-# measured in, and are done before it can be some later case's spare.
-restart_prepare_nodes() {
-  local warmed="$1" nodes node out
+# Each flag is checked on its own, as a whole argument: the check this replaced looked for the second flag only, so an
+# operator watching DCGM without evicting, or evicting with no source, passed it.
+restart_operator_flags_ok() {
+  local args line flag
+  args="$(rk -n "$RESTART_SYS" get pods -l control-plane=controller-manager -o jsonpath='{range .items[*]}{.metadata.name}{" "}{.spec.containers[0].args}{"\n"}{end}' 2>&1)" || {
+    echo "could not read the operator Pods' args: ${args:0:200}"
+    return 1
+  }
+  [[ -n "$args" ]] || {
+    echo "no operator Pod to read the fault flags from"
+    return 1
+  }
+  while read -r line; do
+    [[ -n "$line" ]] || continue
+    for flag in "${RESTART_FAULT_FLAGS[@]}"; do
+      [[ "$line" == *"\"$flag\""* ]] || {
+        echo "${line%% *} runs without $flag: ${line#* }"
+        return 1
+      }
+    done
+  done <<<"$args"
+}
+
+# restart_fault_path_ready WAIT: before the first case, the operator still runs with both fault flags, and on every GPU
+# node the exporter serves the three fields the fault path classifies and the node's NodeHealth reads a fresh, healthy,
+# untainted signal within WAIT seconds.
+#
+# GPUSignal True is the operator's own word that it scraped that node, so this shows the path end to end except the
+# fault itself.
+# What it cannot show without a fault: that an XID written into the host engine reaches the exporter, and that the
+# operator latches, taints and evicts on it; the first dcgm case shows that, and the scorer voids it when it does not.
+restart_fault_path_ready() {
+  local saved rc
+  # gpu-fault.sh's kubectl calls carry no timeout of their own, and a polling deadline only bounds the gaps between
+  # them, so for this gate each call is cut at what is left of WAIT and the gate cannot eat into the cases' time.
+  saved="$(declare -f gfk)"
+  RESTART_GFK_DEADLINE=$((SECONDS + $1))
+  gfk() { restart_gfk_bounded "$@"; }
+  restart_fault_path_check "$1"
+  rc=$?
+  eval "$saved"
+  return "$rc"
+}
+
+# restart_gfk_bounded ARGS...: gpu-fault.sh's kubectl, ended at RESTART_GFK_DEADLINE (in SECONDS), and refused after it.
+restart_gfk_bounded() {
+  local t=$((RESTART_GFK_DEADLINE - SECONDS))
+  ((t >= 1)) || {
+    echo "the fault path check's deadline has passed" >&2
+    return 124
+  }
+  timeout "$t" kubectl ${GF_CONTEXT:+--context "$GF_CONTEXT"} "$@"
+}
+
+# restart_fault_path_check WAIT: restart_fault_path_ready's checks, with gfk already bounded.
+restart_fault_path_check() {
+  local deadline=$((SECONDS + $1)) nodes node metrics f missing out left
+  out="$(restart_operator_flags_ok)" || {
+    echo "$out"
+    return 1
+  }
   nodes="$(rk get nodes -l "eks.amazonaws.com/nodegroup=$RESTART_GROUP" -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>&1)" || {
     echo "could not list the GPU nodes: ${nodes:0:200}"
     return 1
   }
+  [[ -n "$nodes" ]] || {
+    echo "no GPU node to check the fault path on"
+    return 1
+  }
   while read -r node; do
     [[ -n "$node" ]] || continue
-    grep -qx "$node" "$warmed" && continue
+    restart_gf_env "$node" "$RESTART_OUT" || return 1
+    metrics="$(gf_metrics 2>&1)" || {
+      echo "the exporter on $node could not be scraped: ${metrics:0:200}"
+      return 1
+    }
+    missing=""
+    for f in 230 311 310; do
+      grep -q "^${GF_FIELD_NAME[$f]}{" <<<"$metrics" || missing="$missing ${GF_FIELD_NAME[$f]}"
+    done
+    [[ -z "$missing" ]] || {
+      echo "the exporter on $node serves no$missing"
+      return 1
+    }
+    left=$((deadline - SECONDS))
+    # A floor of one second here once let a gate whose budget was gone still pass, a second at a time per node.
+    ((left >= 1)) || {
+      echo "the fault path check ran out of its ${1} s before the NodeHealth of $node was read"
+      return 1
+    }
+    gf_wait_until "$left" gf_is_clear || {
+      echo "the NodeHealth of $node did not read a fresh, healthy GPU signal on an untainted node by the deadline"
+      return 1
+    }
+  done <<<"$nodes"
+  echo "the operator runs with ${RESTART_FAULT_FLAGS[*]}, and every GPU node's exporter serves the fault fields and its NodeHealth reads a fresh, healthy signal"
+}
+
+# restart_prepare_nodes WARMED_FILE DEADLINE: a NodeHealth and a warm-up for every GPU node not yet prepared, all
+# finished by DEADLINE (in SECONDS).
+#
+# Run between cases, never inside one, so a replacement's first pull and first mount are part of the recovery it is
+# measured in, and are done before it can be some later case's spare.
+# The warm-ups run in parallel, because each node pulls its own copy of the image and the budget is one deadline for all
+# of them; warming the three first nodes one after another, each under its own 900 s, had summed to 2,700 s, not 900.
+restart_prepare_nodes() {
+  local warmed="$1" deadline="$2" nodes node uid pod out left entry failed="" warming=()
+  # A node is known by name and UID, because a replacement can come back under a name an earlier node had.
+  nodes="$(rk get nodes -l "eks.amazonaws.com/nodegroup=$RESTART_GROUP" -o jsonpath='{range .items[*]}{.metadata.name}{" "}{.metadata.uid}{"\n"}{end}' 2>&1)" || {
+    echo "could not list the GPU nodes: ${nodes:0:200}"
+    return 1
+  }
+  while read -r node uid; do
+    [[ -n "$node" ]] || continue
+    [[ -n "$uid" ]] || {
+      failed="the GPU node $node was listed with no UID"
+      break
+    }
+    grep -qx "$node $uid" "$warmed" && continue
     out="$(rk apply -f - 2>&1 <<EOF
 apiVersion: platform.lkhun9311.github.io/v1
 kind: NodeHealth
@@ -577,22 +896,40 @@ spec:
   nodeName: $node
 EOF
 )" || {
-      echo "could not create the NodeHealth of $node: ${out:0:200}"
-      return 1
+      failed="could not create the NodeHealth of $node: ${out:0:200}"
+      break
     }
-    out="$(restart_warm_node "$node")" || {
-      echo "$out"
-      return 1
+    pod="$(restart_warm_start "$node")" || {
+      failed="$pod"
+      break
     }
-    echo "$node" >>"$warmed"
-    printf '{"node": "%s", "prepared_at": "%s"}\n' "$node" "$(date -u +%Y-%m-%dT%H:%M:%S.%6NZ)" >>"$RESTART_OUT/nodes-prepared.jsonl"
+    warming+=("$node $uid $pod")
   done <<<"$nodes"
+  for entry in "${warming[@]}"; do
+    read -r node uid pod <<<"$entry"
+    if [[ -z "$failed" ]]; then
+      left=$((deadline - SECONDS))
+      ((left >= 1)) || left=1
+      if out="$(rk -n "$RESTART_NS" wait --for=jsonpath='{.status.phase}'=Succeeded "pod/$pod" --timeout="${left}s" 2>&1)"; then
+        echo "$node $uid" >>"$warmed"
+        printf '{"node": "%s", "uid": "%s", "prepared_at": "%s"}\n' "$node" "$uid" "$(date -u +%Y-%m-%dT%H:%M:%S.%6NZ)" >>"$RESTART_OUT/nodes-prepared.jsonl"
+      else
+        failed="the warm-up on $node did not succeed by the warm deadline (${left}s left): ${out:0:200}"
+      fi
+    fi
+    # Every warm-up Pod started is deleted, the ones after a failure included.
+    rk -n "$RESTART_NS" delete pod "$pod" --wait=false >>"$RESTART_OUT/warm.log" 2>&1
+  done
+  [[ -z "$failed" ]] || {
+    echo "$failed"
+    return 1
+  }
   echo "every GPU node has a NodeHealth and has pulled the image and mounted the volume"
 }
 
-# restart_warm_node NODE: a Pod on NODE, with no GPU, that imports torch from the pinned image and writes and reads the
-# shared volume, so that node's first pull and first mount are not inside a measured recovery.
-restart_warm_node() {
+# restart_warm_start NODE: a Pod on NODE, with no GPU, that imports torch from the pinned image and writes and reads the
+# shared volume, so that node's first pull and first mount are not inside a measured recovery; prints the Pod's name.
+restart_warm_start() {
   local node="$1" pod out
   pod="rst-warm-$(tr -dc 'a-z0-9' <<<"$node" | tail -c 20)"
   out="$(rk -n "$RESTART_NS" apply -f - 2>&1 <<EOF
@@ -623,14 +960,7 @@ EOF
     echo "could not create the warm-up Pod on $node: ${out:0:200}"
     return 1
   }
-  out="$(rk -n "$RESTART_NS" wait --for=jsonpath='{.status.phase}'=Succeeded "pod/$pod" --timeout="${RESTART_WARM_BUDGET}s" 2>&1)"
-  local rc=$?
-  rk -n "$RESTART_NS" delete pod "$pod" --wait=false >>"$RESTART_OUT/warm.log" 2>&1
-  ((rc == 0)) || {
-    echo "the warm-up on $node did not succeed within ${RESTART_WARM_BUDGET}s: ${out:0:200}"
-    return 1
-  }
-  echo "$node warmed"
+  echo "$pod"
 }
 
 # restart_deadline_ok SECONDS: the GPU deadline leaves at least SECONDS, or nothing more may start.
@@ -667,14 +997,17 @@ for p in json.load(sys.stdin)["items"]:
     cs = (p.get("status", {}).get("containerStatuses") or [{}])[0]
     if cs.get("state", {}).get("running") or cs.get("state", {}).get("terminated"):
         ann = p["metadata"].get("annotations", {})
-        print(p["metadata"]["uid"], p["metadata"]["name"], p["spec"].get("nodeName") or "-", ann.get("batch.kubernetes.io/job-completion-index", "-"))
+        token = (p["metadata"].get("labels") or {}).get("platform.lkhun9311.github.io/mltrainingjob-attempt") or "-"
+        print(p["metadata"]["uid"], p["metadata"]["name"], p["spec"].get("nodeName") or "-", ann.get("batch.kubernetes.io/job-completion-index", "-"), token)
 ' 2>>"$dir/collector.log")"
-    while read -r uid pod node index; do
+    while read -r uid pod node index token; do
       [[ -n "$uid" ]] || continue
       case "$started" in *" $uid "*) continue ;; esac
       started="$started$uid "
-      printf '{"uid": "%s", "pod": "%s", "node": "%s", "index": "%s", "observed": "%s"}\n' \
-        "$uid" "$pod" "$node" "$index" "$(date -u +%Y-%m-%dT%H:%M:%S.%6NZ)" >>"$dir/pods.jsonl"
+      # The attempt label is the controller's own (mltjAttemptLabel in internal/controller/mltrainingjob_distributed.go),
+      # so which attempt a Pod ran is read from the controller and not inferred from the order Pods were seen in.
+      printf '{"uid": "%s", "pod": "%s", "node": "%s", "index": "%s", "attempt_token": "%s", "observed": "%s"}\n' \
+        "$uid" "$pod" "$node" "$index" "$token" "$(date -u +%Y-%m-%dT%H:%M:%S.%6NZ)" >>"$dir/pods.jsonl"
       (
         local n=0
         while :; do
@@ -696,13 +1029,13 @@ for p in json.load(sys.stdin)["items"]:
 # A case censored at its budget may still be running or restarting; its writers stop before its state is deleted, and
 # the next case does not share the queue or the nodes with it.
 restart_retire() {
-  local name="$1" wait="$2" deadline=$((SECONDS + $2)) left mltj jobs pods
-  rk -n "$RESTART_NS" delete mltrainingjob "$name" --ignore-not-found --wait=false >>"$RESTART_OUT/retire.log" 2>&1
+  local name="$1" wait="$2" deadline=$((SECONDS + $2)) left="not polled before the deadline" mltj jobs pods
+  rkd "$deadline" -n "$RESTART_NS" delete mltrainingjob "$name" --ignore-not-found --wait=false >>"$RESTART_OUT/retire.log" 2>&1
   while ((SECONDS < deadline)); do
     # Each read must succeed: a read that failed says nothing about what is left, and is not taken as nothing.
-    if mltj="$(rk -n "$RESTART_NS" get mltrainingjob "$name" --ignore-not-found -o name 2>&1)" &&
-      jobs="$(rk -n "$RESTART_NS" get jobs.batch,workloads.kueue.x-k8s.io -o name 2>&1)" &&
-      pods="$(rk -n "$RESTART_NS" get pods -l "platform.lkhun9311.github.io/mltrainingjob=$name" -o name 2>&1)"; then
+    if mltj="$(rkd "$deadline" -n "$RESTART_NS" get mltrainingjob "$name" --ignore-not-found -o name 2>&1)" &&
+      jobs="$(rkd "$deadline" -n "$RESTART_NS" get jobs.batch,workloads.kueue.x-k8s.io -o name 2>&1)" &&
+      pods="$(rkd "$deadline" -n "$RESTART_NS" get pods -l "platform.lkhun9311.github.io/mltrainingjob=$name" -o name 2>&1)"; then
       left="$(printf '%s\n%s\n%s\n' "$mltj" "$(grep -F "$name" <<<"$jobs")" "$pods" | sed '/^$/d' | paste -sd' ')"
       if [[ -z "$left" ]]; then
         echo "$name retired"
@@ -762,7 +1095,7 @@ EOF
 restart_wait_group() {
   local want="$1" wait="$2" deadline=$((SECONDS + $2)) n="" ids tainted
   while ((SECONDS < deadline)); do
-    n="$(rk get nodes -l "eks.amazonaws.com/nodegroup=$RESTART_GROUP" -o name 2>&1 | grep -c '^node/')"
+    n="$(rkd "$deadline" get nodes -l "eks.amazonaws.com/nodegroup=$RESTART_GROUP" -o name 2>&1 | grep -c '^node/')"
     ((n == want)) && break
     sleep "$RESTART_POLL"
   done
@@ -770,13 +1103,18 @@ restart_wait_group() {
     echo "the group held $n node(s), not $want, within ${wait}s"
     return 1
   }
-  ids="$(train_qualify_nodes "$RESTART_CONTEXT" "$RESTART_GROUP" "$want" $((deadline - SECONDS > 60 ? deadline - SECONDS : 60)) 1)" || {
+  # What is left of the deadline and no more: a floor here would let the qualification run past the share it was given.
+  ids="$(train_qualify_nodes "$RESTART_CONTEXT" "$RESTART_GROUP" "$want" $((deadline - SECONDS > 1 ? deadline - SECONDS : 1)) 1)" || {
     echo "$ids"
     return 1
   }
   awk '{print $2}' <<<"$ids" >>"$RESTART_INSTANCES_FILE"
-  tainted="$(rk get nodes -l "eks.amazonaws.com/nodegroup=$RESTART_GROUP" -o jsonpath='{range .items[*]}{.metadata.name}{" "}{.spec.taints[*].key}{"\n"}{end}' 2>&1 |
-    grep -F 'platform.lkhun9311.github.io/gpu-fault')"
+  # Read first and filtered after, because a failed read piped into the filter came out as "no node tainted".
+  tainted="$(rkd $((SECONDS + 20)) get nodes -l "eks.amazonaws.com/nodegroup=$RESTART_GROUP" -o jsonpath='{range .items[*]}{.metadata.name}{" "}{.spec.taints[*].key}{"\n"}{end}' 2>&1)" || {
+    echo "could not read the GPU nodes' taints: ${tainted:0:200}"
+    return 1
+  }
+  tainted="$(grep -F 'platform.lkhun9311.github.io/gpu-fault' <<<"$tainted")"
   [[ -z "$tainted" ]] || {
     echo "a node still carries the fault taint: $tainted"
     return 1
@@ -828,34 +1166,81 @@ print(r["uid"], r["pod"], r["node"])' "$1/pods.jsonl" "$2"
 # restart_efs_credits DIR LABEL: the file system's burst credit balance, read-only, since bursting throughput depends on it.
 restart_efs_credits() {
   local v
-  v="$(aws cloudwatch get-metric-statistics --region "$RESTART_REGION" --namespace AWS/EFS --metric-name BurstCreditBalance \
+  v="$(timeout 20 aws cloudwatch get-metric-statistics --region "$RESTART_REGION" --namespace AWS/EFS --metric-name BurstCreditBalance \
     --dimensions "Name=FileSystemId,Value=$RESTART_FS_ID" --start-time "$(date -u -d '-15 min' +%Y-%m-%dT%H:%M:%SZ)" \
     --end-time "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --period 60 --statistics Minimum --query 'sort_by(Datapoints, &Timestamp)[-1].Minimum' \
     --output text 2>&1)" || v="unread: ${v:0:120}"
   printf '%s %s %s\n' "$2" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$v" >>"$1/efs-credits.txt"
 }
 
-# restart_run_case CASE: one registered case, from submission to its retirement; 0 when it ran (whatever its verdict),
-# 1 when it could not be run and is VOID, 3 when it was not started because the GPU deadline could not cover it.
+# restart_void_case DIR NAME JOB_ID COLLECTOR RETIRE_DEADLINE REASON: the case VOID for REASON, its evidence read, its
+# collector stopped and its job retired; 1 once the retirement is confirmed, 2 when it is not.
+#
+# A VOID case that may still hold Pods, Workloads and GPUs shares the queue and the nodes with whatever starts next,
+# exactly as a censored one does, so its unconfirmed retirement stops every later submission the same way.
+# The job, the nodes and a timeline sample are read before the retirement deletes the job, so a VOID case leaves the
+# same evidence files as one that ran.
+restart_void_case() {
+  local dir="$1" name="$2" job_id="$3" collector="$4" retire_dl="$5"
+  echo "$6" >"$dir/VOID"
+  restart_sample "$name" "$dir"
+  rk -n "$RESTART_NS" get mltrainingjob "$name" -o json >"$dir/final-mltj.json" 2>>"$dir/case.log"
+  rk get nodes -o json >"$dir/nodes-after.json" 2>>"$dir/case.log"
+  if [[ -n "$collector" ]]; then
+    kill "$collector" 2>>"$dir/case.log"
+    wait "$collector" 2>>"$dir/case.log"
+  fi
+  restart_retire "$name" $((retire_dl - SECONDS)) >>"$dir/case.log" || {
+    echo "retirement of the VOID case $name was not confirmed; its files are left on the volume and nothing more may start" >>"$dir/case.log"
+    restart_list_shared "$dir" "$job_id"
+    return 2
+  }
+  restart_case_files "$dir" "$job_id"
+  return 1
+}
+
+# restart_list_shared DIR JOB_ID: the case's files on the volume listed into DIR/shared-files.txt, read-only, so a case
+# whose writers may still run is listed without touching what they write.
+restart_list_shared() {
+  rkt 30 -n "$RESTART_NS" exec rst-reader -- find "$RESTART_MOUNT/$2" -type f >"$1/shared-files.txt" 2>>"$1/case.log"
+}
+
+# restart_case_files DIR JOB_ID: a retired case's NCCL logs copied, its files listed, and its directory deleted.
+#
+# Three calls of at most 30 s, and the verdict's 30 s after the reset, are RESTART_FILES_BUDGET.
+restart_case_files() {
+  local dir="$1" job_id="$2"
+  mkdir -p "$dir/nccl"
+  rkt 30 -n "$RESTART_NS" exec rst-reader -- tar -C "$RESTART_MOUNT/$job_id" -cf - nccl 2>>"$dir/case.log" | tar -C "$dir" -xf - 2>>"$dir/case.log"
+  restart_list_shared "$dir" "$job_id"
+  rkt 30 -n "$RESTART_NS" exec rst-reader -- rm -rf "$RESTART_MOUNT/$job_id" >>"$dir/case.log" 2>&1
+}
+
+# restart_run_case CASE SLOT_DEADLINE: one registered case, from submission to its retirement, inside the slot
+# restart_run gave it, which ends at SLOT_DEADLINE (in SECONDS); 0 when it ran (whatever its verdict), 1 when it could
+# not be run and is VOID, 2 when its retirement or its DCGM reset was not confirmed and nothing more may start.
+#
+# The retirement's deadline is counted back from the slot's end, past the files and the reset, so a run or an evidence
+# read that ran long takes from the retirement's share and never pushes the files or the reset past the slot.
 restart_run_case() {
-  local case="$1" kind="${1%-[0-9]*}" name dir job_id deadline collector rank0 rank1 node1 pod0 rc instance window out probed=""
+  local case="$1" slot_dl="$2" kind="${1%-[0-9]*}" name dir job_id deadline collector rank0 rank1 node1 pod0 rc window out probed=""
+  local retire_dl=$(($2 - RESTART_FILES_BUDGET))
+  [[ "${1%-[0-9]*}" != dcgm ]] || retire_dl=$((retire_dl - RESTART_RESET_BUDGET))
   name="rst-$case-$(date -u +%H%M%S)"
   job_id="$name-$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')"
   dir="$RESTART_OUT/$case"
   mkdir -p "$dir"
-  out="$(restart_deadline_ok $((RESTART_CASE_BUDGET + RESTART_BETWEEN_BUDGET)))" || {
-    echo "$out" >"$dir/NOTRUN"
-    return 3
-  }
   restart_render_job "$name" "$RESTART_NS" "$RESTART_QUEUE" "$job_id" "$case" >"$dir/mltrainingjob.json" || {
     echo "the job could not be rendered" >"$dir/VOID"
     return 1
   }
   restart_efs_credits "$dir" before
   rk get nodes -o json >"$dir/nodes-before.json" 2>>"$dir/case.log"
+  # The case's own budget starts at the create and is the registered censoring bound, so it is never shortened to fit.
+  # A create whose answer was lost may still have made the job, so a refused create is retired like any other VOID.
   out="$(rk apply -f "$dir/mltrainingjob.json" 2>&1)" || {
-    echo "create refused: ${out:0:300}" >"$dir/VOID"
-    return 1
+    restart_void_case "$dir" "$name" "$job_id" "" "$retire_dl" "create refused: ${out:0:300}"
+    return
   }
   deadline=$((SECONDS + RESTART_CASE_BUDGET))
   restart_collect "$dir" "$name" &
@@ -868,40 +1253,29 @@ restart_run_case() {
     [[ "$(restart_records "$dir" | grep -c '"event": "step"')" -ge 2 ]] && break
     sleep "$RESTART_POLL"
   done
-  restart_probe_all "$dir" before || echo "a clock probe before the fault failed" >>"$dir/case.log"
+  # A fault whose nodes' clocks were not read before it cannot be placed on the runner's clock, and the scorer would void
+  # the case after the fault had cost a node, so the case is VOID before its fault and retired instead.
+  # The reference has no fault and no recovery to time, so for it a failed probe is only logged.
+  if ! out="$(restart_probe_all "$dir" before 2>&1)"; then
+    if [[ "$kind" != reference ]]; then
+      restart_void_case "$dir" "$name" "$job_id" "$collector" "$retire_dl" "VOID-before-fault: a clock probe before the fault failed, so nothing was injected: ${out:0:200}"
+      return
+    fi
+    echo "a clock probe before the fault failed: $out" >>"$dir/case.log"
+  fi
 
   if [[ "$kind" == dcgm || "$kind" == terminate-* ]]; then
     rank0="$(restart_rank_pod "$dir" 0)" && rank1="$(restart_rank_pod "$dir" 1)" || {
-      echo "the ranks' Pods were never seen" >"$dir/VOID"
-      kill "$collector" 2>>"$dir/case.log"
-      restart_retire "$name" "$RESTART_BETWEEN_BUDGET" >>"$dir/case.log"
-      return 1
+      restart_void_case "$dir" "$name" "$job_id" "$collector" "$retire_dl" "the ranks' Pods were never seen"
+      return
     }
     pod0="$(awk '{print $2}' <<<"$rank0")"
     node1="$(awk '{print $3}' <<<"$rank1")"
     window="$(restart_fault_window "$pod0" "$job_id" "$dir" $((deadline - SECONDS)))" || {
-      echo "no fault window: $window" >"$dir/VOID"
-      kill "$collector" 2>>"$dir/case.log"
-      restart_retire "$name" "$RESTART_BETWEEN_BUDGET" >>"$dir/case.log"
-      return 1
+      restart_void_case "$dir" "$name" "$job_id" "$collector" "$retire_dl" "no fault window: $window"
+      return
     }
-    rk get nodes -o json >"$dir/nodes-before.json" 2>>"$dir/case.log"
-    instance="$(python3 -c '
-import json, sys
-n = [n for n in json.load(open(sys.argv[1]))["items"] if n["metadata"]["name"] == sys.argv[2]]
-print(n[0]["spec"]["providerID"].rsplit("/", 1)[-1] if n else "")' "$dir/nodes-before.json" "$node1")"
-    python3 -c '
-import json, sys
-c = json.load(open(sys.argv[1]))
-c["target"] = {"rank": 1, "node": sys.argv[2], "instance": sys.argv[3]}
-c["published_at_fault"] = sys.argv[4]
-json.dump(c, open(sys.argv[1], "w"))' "$dir/case.json" "$node1" "$instance" "$window"
-    if [[ "$kind" == dcgm ]]; then
-      out="$(restart_dcgm_fault "$node1" "$dir")"
-    else
-      out="$(restart_deadline_ok $((deadline - SECONDS + RESTART_REPLENISH_BUDGET)))" &&
-        out="$(restart_terminate_and_fence "$instance" "$node1" "$name" "$dir" $((deadline - SECONDS)))"
-    fi
+    out="$(restart_external_fault "$kind" "$dir" "$name" "$job_id" "$pod0" "$node1" "$window" "$deadline" "$slot_dl")"
     rc=$?
     echo "$out" >>"$dir/case.log"
     if ((rc != 0)); then
@@ -930,14 +1304,13 @@ json.dump(c, open(sys.argv[1], "w"))' "$dir/case.json" "$node1" "$instance" "$wi
   # The writers are stopped before their files are copied and deleted.
   # A case whose retirement cannot be confirmed may still be writing and still hold GPUs and quota, so its files stay on
   # the volume and the run stops (codex review of 830f64af).
-  restart_retire "$name" "$RESTART_BETWEEN_BUDGET" >>"$dir/case.log" || {
+  # Their listing is still written, read-only, so the scorer is not left without it.
+  restart_retire "$name" $((retire_dl - SECONDS)) >>"$dir/case.log" || {
     echo "retirement of $name was not confirmed; its files are left on the volume" >>"$dir/case.log"
+    restart_list_shared "$dir" "$job_id"
     return 2
   }
-  mkdir -p "$dir/nccl"
-  rk -n "$RESTART_NS" exec rst-reader -- tar -C "$RESTART_MOUNT/$job_id" -cf - nccl 2>>"$dir/case.log" | tar -C "$dir" -xf - 2>>"$dir/case.log"
-  rk -n "$RESTART_NS" exec rst-reader -- find "$RESTART_MOUNT/$job_id" -type f >"$dir/shared-files.txt" 2>>"$dir/case.log"
-  rk -n "$RESTART_NS" exec rst-reader -- rm -rf "$RESTART_MOUNT/$job_id" >>"$dir/case.log" 2>&1
+  restart_case_files "$dir" "$job_id"
   if [[ "$kind" == dcgm && -n "${node1:-}" ]]; then
     # A node left latched is a node the next case cannot use, so the run stops rather than measure accumulated damage.
     restart_dcgm_reset "$node1" "$dir" >>"$dir/case.log" 2>&1 || {
@@ -950,57 +1323,74 @@ json.dump(c, open(sys.argv[1], "w"))' "$dir/case.json" "$node1" "$instance" "$wi
 
 # restart_verdict CASE: the scorer's verdict on one case of the run so far: ACCEPTED, FAILED, VOID or NOTRUN.
 restart_verdict() {
-  python3 experiments/distributed-restart/score_eks.py --partial "$RESTART_OUT" 2>>"$RESTART_OUT/score.log" |
+  timeout 30 python3 experiments/distributed-restart/score_eks.py --partial "$RESTART_OUT" 2>>"$RESTART_OUT/score.log" |
     awk -v c="$1" '$2 == c || $2 == c ":" {print $1; exit}'
 }
 
-# restart_run WARMED_FILE: every registered case in order, scored as it ends, stopping the spending on the
+# restart_notrun CASE REASON: the case recorded as not started, with why.
+restart_notrun() {
+  mkdir -p "$RESTART_OUT/$1"
+  echo "$2" >"$RESTART_OUT/$1/NOTRUN"
+}
+
+# restart_run WARMED_FILE: every case of the stage in order, scored as it ends, stopping the spending on the
 # registration's abort conditions; a case not run is recorded as such, never left absent.
+#
+# Each case runs in a slot with one absolute deadline, and the share before its submission has one too, both the
+# shares restart_gpu_budget adds up, so the session's deadline was sized for what can run and not for what usually does.
 restart_run() {
-  local warmed="$1" case kind verdict void_run=0 stop="" want=3 out
-  for case in $(restart_cases); do
+  local warmed="$1" cases case kind verdict void_run=0 stop="" want=3 out prev="" slot slot_dl pre_dl reserve rc
+  cases="$(restart_cases 2>&1)" || {
+    echo "stopped early: $cases"
+    return 1
+  }
+  for case in $cases; do
     kind="${case%-[0-9]*}"
     if [[ -n "$stop" ]]; then
-      mkdir -p "$RESTART_OUT/$case"
-      echo "$stop" >"$RESTART_OUT/$case/NOTRUN"
+      restart_notrun "$case" "$stop"
       continue
     fi
-    # terminate-wait's five cases run with no spare: the group at two, so attempt 2 can only start on a replacement.
-    if [[ "$kind" == terminate-wait && "$want" == 3 ]]; then
-      want=2
-      # Checked before the group is touched: after the one-shot deadline has fired, any desired size above zero is a
-      # purchase with no deadline behind it (codex review of 830f64af).
-      out="$(restart_deadline_ok $((RESTART_REPLENISH_BUDGET + RESTART_CASE_BUDGET + RESTART_BETWEEN_BUDGET)))" || {
-        stop="$out"
-        mkdir -p "$RESTART_OUT/$case"
-        echo "$stop" >"$RESTART_OUT/$case/NOTRUN"
-        continue
-      }
-      out="$(aws eks update-nodegroup-config --region "$RESTART_REGION" --cluster-name "$RESTART_CLUSTER" --nodegroup-name "$RESTART_GROUP" \
-        --scaling-config minSize=0,maxSize=3,desiredSize=2 2>&1)" || {
-        stop="the group could not be scaled to two for terminate-wait: ${out:0:200}"
-        mkdir -p "$RESTART_OUT/$case"
-        echo "$stop" >"$RESTART_OUT/$case/NOTRUN"
-        continue
-      }
-    fi
-    # After a termination the group's replacement has to join and be warmed before the next case may start.
-    local between="$RESTART_BETWEEN_BUDGET"
-    [[ "$kind" != terminate-* ]] || between="$RESTART_REPLENISH_BUDGET"
-    out="$(restart_wait_group "$want" "$between")" &&
-      out="$(restart_prepare_nodes "$warmed")" || {
-      stop="before $case: $out"
-      mkdir -p "$RESTART_OUT/$case"
-      echo "$stop" >"$RESTART_OUT/$case/NOTRUN"
+    slot="$(restart_slot_seconds "$case" "$prev")"
+    slot_dl=$((SECONDS + slot))
+    pre_dl=$((SECONDS + $(restart_pre_seconds "$case" "$prev")))
+    # After a termination the warm-up of the replacement has its own share, which the group's wait may not take.
+    reserve=0
+    [[ "${prev%-[0-9]*}" != terminate-* ]] || reserve="$RESTART_WARM_BUDGET"
+    prev="$case"
+    # No slot starts that the GPU deadline cannot cover whole: the deadline fires once, and a replacement the group
+    # launches on its own after it would run with none (A20, B7).
+    out="$(restart_deadline_ok "$slot")" || {
+      stop="$out"
+      restart_notrun "$case" "$stop"
       continue
     }
-    restart_run_case "$case"
-    local rc=$?
+    # terminate-wait runs with no spare: the group at two, so attempt 2 can only start on a replacement.
+    # The slot's deadline check above comes first: after the one-shot deadline has fired, any desired size above zero is
+    # a purchase with no deadline behind it (codex review of 830f64af).
+    if [[ "$kind" == terminate-wait && "$want" == 3 ]]; then
+      want=2
+      out="$(timeout 60 aws eks update-nodegroup-config --region "$RESTART_REGION" --cluster-name "$RESTART_CLUSTER" --nodegroup-name "$RESTART_GROUP" \
+        --scaling-config minSize=0,maxSize=3,desiredSize=2 2>&1)" || {
+        stop="the group could not be scaled to two for terminate-wait: ${out:0:200}"
+        restart_notrun "$case" "$stop"
+        continue
+      }
+    fi
+    out="$(restart_wait_group "$want" $((pre_dl - reserve - SECONDS)))" &&
+      out="$(restart_prepare_nodes "$warmed" "$pre_dl")" || {
+      stop="before $case: $out"
+      restart_notrun "$case" "$stop"
+      continue
+    }
+    restart_run_case "$case" "$slot_dl"
+    rc=$?
     verdict="$(restart_verdict "$case")"
     echo "$case: ${verdict:-no verdict}"
     ((rc != 2)) || stop="$case could not be retired or its DCGM fault reset; see $RESTART_OUT/$case/case.log"
     if [[ "$verdict" == VOID || -z "$verdict" ]]; then void_run=$((void_run + 1)); else void_run=0; fi
-    if [[ "$case" == reference || "$case" == no-rng-control ]] && [[ "$verdict" != ACCEPTED ]]; then
+    if [[ -n "$stop" ]]; then
+      :
+    elif [[ "$case" == reference || "$case" == no-rng-control ]] && [[ "$verdict" != ACCEPTED ]]; then
       stop="$case was ${verdict:-unscored}, and every measured case is compared with it"
     elif ((void_run >= 2)); then
       stop="two cases in a row were VOID"

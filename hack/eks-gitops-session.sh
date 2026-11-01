@@ -63,8 +63,11 @@
 #   TRAIN=restart     instead buys THREE g5.xlarge in the `gpu` group in ap-northeast-2a, builds the EFS volume, and runs the
 #                     distributed restart session's registered cases (docs/superpowers/specs/2026-11-01-distributed-restart-design.md,
 #                     "The paid session: apparatus"); needs TRAIN_AZ=ap-northeast-2a, APPROVED_TRAIN_SHA256 of
-#                     experiments/distributed-restart/train.py, a clean tree, and a credential and TTL_MINUTES that cover
-#                     its waits. The DRAFT registration is not approved, and nothing here is an approval
+#                     experiments/distributed-restart/train.py, a clean tree, RESTART_STAGE, and a credential and
+#                     TTL_MINUTES that cover its waits. The DRAFT registration is not approved, and nothing here is an approval
+#   RESTART_STAGE     with TRAIN=restart, `smoke` (reference, no-rng-control, dcgm-1, terminate-wait-1: the first paid
+#                     stage, inspected before anything else is bought) or `full` (every kind at hack/lib/restart-session.sh's
+#                     RESTART_REPS); a stage whose TTL_MINUTES and destroy outlive a 720-minute credential is refused
 
 set -euo pipefail
 
@@ -284,7 +287,7 @@ case "$TRAIN" in
     log "TRAIN=allreduce: $TRAIN_NODES x $TRAIN_INSTANCE_TYPE of $TRAIN_GPUS_PER_NODE GPUs, price ceiling \$$TRAIN_MAX_PRICE, GPU budget ${TRAIN_GPU_BUDGET}s"
     ;;
   restart)
-    # The distributed restart session: three g5.xlarge, two ranks and a spare, an EFS volume, 22 registered cases.
+    # The distributed restart session: three g5.xlarge, two ranks and a spare, an EFS volume, the stage's cases.
     [[ -z "$SERVE$STUDY" ]] || die "TRAIN=restart with SERVE or STUDY would buy GPUs in two groups under one deadline; run one"
     # shellcheck source=hack/lib/train-session.sh
     . hack/lib/train-session.sh
@@ -306,11 +309,14 @@ case "$TRAIN" in
     why="$(train_node_count_refusal "$TRAIN_NODES")" || die "$why"
     why="$(restart_zone_refusal "$TRAIN_AZ")" || die "$why"
     log "TRAIN_AZ: $why"
-    TRAIN_GPU_BUDGET="$(restart_gpu_budget)"
+    # The stage is named, never defaulted, because which cases are bought is the owner's decision, not this script's.
+    RESTART_STAGE="${RESTART_STAGE:-}"
+    TRAIN_GPU_BUDGET="$(restart_gpu_budget 2>&1)" ||
+      die "TRAIN=restart needs RESTART_STAGE=smoke, run and inspected first, or RESTART_STAGE=full: $TRAIN_GPU_BUDGET"
     TRAIN_BUDGET=$((WAIT_TRAIN_SYNC + WAIT_TRAIN_QUEUE + WAIT_QUAL_HELD + TRAIN_GPU_BUDGET))
-    if ((TTL_MINUTES * 60 < TRAIN_BUDGET + 3600)); then
-      die "TRAIN=restart needs TTL_MINUTES of at least $(((TRAIN_BUDGET + 3600 + 59) / 60)) for its waits; it is $TTL_MINUTES"
-    fi
+    why="$(restart_ttl_refusal "$RESTART_STAGE" "$TTL_MINUTES" "$TRAIN_GPU_BUDGET" $((WAIT_TRAIN_SYNC + WAIT_TRAIN_QUEUE + WAIT_QUAL_HELD)))" ||
+      die "$why"
+    log "$why"
     # The credential must outlive the watchdog's destroy too, which starts at TTL_MINUTES and is given 40 minutes.
     why="$(restart_credential_refusal $((TTL_MINUTES + 40)))" || die "$why"
     log "$why"
@@ -351,20 +357,25 @@ fi
 if [[ "$SERVE" == yes || -n "$TRAIN" || "$STUDY" == prefixroute ]]; then
   # The nightly destroy removes the whole cluster and neither deadline covers it. Its cron has been seen to drift
   # by hours, so a time window is not enough: a destroy run queued or in progress refuses too, and the residual
-  # risk -- a late cron firing inside the session -- is the operator's to rule out by disabling the schedule.
-  now_min=$((10#$(date -u +%H) * 60 + 10#$(date -u +%M)))
-  destroy_min=$((18 * 60))
-  ((destroy_min <= now_min - 120)) && destroy_min=$((destroy_min + 1440))
-  if ((destroy_min - now_min < TTL_MINUTES + 120 && destroy_min - now_min > -120)); then
-    die "the nightly destroy (.github/workflows/destroy.yml, 18:00 UTC) falls within two hours of this session's ${TTL_MINUTES} min; disable its schedule for today or start later"
-  fi
-  if command -v gh >/dev/null 2>&1; then
-    destroy_runs="$(gh run list --workflow destroy.yml --limit 5 --json status --jq '[.[] | select(.status != "completed")] | length' 2>&1)" ||
-      die "could not ask GitHub whether a destroy run is pending ($destroy_runs)"
-    [[ "$destroy_runs" == 0 ]] || die "$destroy_runs destroy workflow run(s) are queued or in progress; wait for them"
+  # risk -- a late cron firing inside the session -- is the operator's to rule out by disabling the workflow.
+  # Disabled by hand, its schedule cannot fire at all, so only then is the window not enforced; the pending-run check
+  # holds either way, because disabling a workflow does not cancel a run already queued.
+  command -v gh >/dev/null 2>&1 || die "gh is needed to check the nightly destroy workflow before buying a card"
+  destroy_state="$(gh api repos/lkhun9311/gpu-platform-control-plane/actions/workflows/destroy.yml --jq .state 2>&1)" ||
+    die "could not read the nightly destroy workflow's state ($destroy_state)"
+  if [[ "$destroy_state" == disabled_manually ]]; then
+    log "the nightly destroy workflow is disabled_manually, so its 18:00 UTC window is not enforced"
   else
-    die "gh is needed to check for a pending destroy workflow run before buying a card"
+    now_min=$((10#$(date -u +%H) * 60 + 10#$(date -u +%M)))
+    destroy_min=$((18 * 60))
+    ((destroy_min <= now_min - 120)) && destroy_min=$((destroy_min + 1440))
+    if ((destroy_min - now_min < TTL_MINUTES + 120 && destroy_min - now_min > -120)); then
+      die "the nightly destroy (.github/workflows/destroy.yml, 18:00 UTC, state '$destroy_state') falls within two hours of this session's ${TTL_MINUTES} min; disable the workflow (gh workflow disable destroy.yml) or start later"
+    fi
   fi
+  destroy_runs="$(gh run list --workflow destroy.yml --limit 5 --json status --jq '[.[] | select(.status != "completed")] | length' 2>&1)" ||
+    die "could not ask GitHub whether a destroy run is pending ($destroy_runs)"
+  [[ "$destroy_runs" == 0 ]] || die "$destroy_runs destroy workflow run(s) are queued or in progress; wait for them"
 fi
 
 # --- The kill switch, armed before anything is created ------------------------------------------------
@@ -982,19 +993,24 @@ train_run_restart() {
     echo "ballast_mb=$RESTART_BALLAST_MB"
     echo "collective_timeout=$RESTART_COLLECTIVE_TIMEOUT"
     echo "case_budget=$RESTART_CASE_BUDGET"
+    echo "stage=$RESTART_STAGE"
+    echo "gpu_budget_s=$TRAIN_GPU_BUDGET"
     echo "efs=$RESTART_FS_ID"
     echo "train_az=$TRAIN_AZ"
     echo "nodes=$(paste -sd' ' <<<"$ids")"
     echo "node_zones=$(paste -sd' ' <<<"$zones")"
     echo "cases=$(restart_cases | paste -sd' ')"
   } >"$RESTART_OUT/provenance.txt"
-  out="$(restart_prepare_nodes "$warmed")" || { bad "R5: $out"; return 1; }
+  # The three first nodes are warmed in parallel under one RESTART_WARM_BUDGET, the share restart_gpu_budget gives them.
+  out="$(restart_prepare_nodes "$warmed" $((SECONDS + RESTART_WARM_BUDGET)))" || { bad "R5: $out"; return 1; }
   ok "R5: $out"
+  out="$(restart_fault_path_ready "$RESTART_SIGNAL_BUDGET")" || { bad "R6: $out"; return 1; }
+  ok "R6: $out"
   restart_run "$warmed" 2>&1 | tee -a "$RESTART_OUT/run.log" "$EXDIR/session.log"
   if python3 experiments/distributed-restart/score_eks.py "$RESTART_OUT" >"$RESTART_OUT/verdict.txt" 2>&1; then
-    ok "R6: every registered case ACCEPTED ($RESTART_OUT/verdict.txt)"
+    ok "R7: every registered case ACCEPTED ($RESTART_OUT/verdict.txt)"
   else
-    bad "R6: not every registered case was accepted: $(grep -cE '^(FAILED|VOID|NOTRUN|REFUSED)' "$RESTART_OUT/verdict.txt") line(s), see $RESTART_OUT/verdict.txt"
+    bad "R7: not every registered case was accepted: $(grep -cE '^(FAILED|VOID|NOTRUN|REFUSED)' "$RESTART_OUT/verdict.txt") line(s), see $RESTART_OUT/verdict.txt"
   fi
 }
 
