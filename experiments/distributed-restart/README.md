@@ -38,6 +38,23 @@ Batches are taken from the sampler's order directly rather than through a `DataL
 
 `CKPT_LOAD` selects what a resume restores: `full`, `none`, or one negative control per component, `no-optimizer`, `no-scheduler`, `no-sampler` and `no-rng`, each restoring everything except its component.
 
+## The NCCL mode
+
+`CKPT_BACKEND=nccl` trains on `cuda:0` with NCCL and is what the paid session would run; the default, `gloo`, is the CPU path every check below runs, and it does what it did before the setting existed.
+In NCCL mode the collectives that agree on a checkpoint move CUDA tensors, the shards are loaded onto the rank's device, and the CUDA RNG is saved and restored; a resume from a checkpoint without CUDA RNG state is refused.
+The controller sets no `LOCAL_RANK` and each Pod sees one GPU, so the device is `cuda:0` unless a launcher says otherwise.
+Without CUDA it refuses on every rank before any process group exists, with a `refused` record, rather than fall back to gloo and be reported as a GPU run.
+`CKPT_BALLAST_MB` adds that many MiB of fixed bytes to every shard, so a checkpoint's cost is measured at a stated size; it is saved and never restored.
+Every `checkpoint` record carries `save_s`, the rank's monotonic time from agreeing on the checkpoint to the barrier after `LATEST`.
+
+`Dockerfile.cuda` puts `train.py` on the pinned CUDA torch image the EKS training sessions use; it is built locally and pushed nowhere.
+None of this has run on a GPU.
+`check_cuda_mode.py` shows on CPU what can be shown there: the NCCL mode refuses without CUDA and writes nothing, an unknown backend and a negative ballast are refused, the default records `gloo` on `cpu`, every checkpoint carries its cost, and a resume with one MiB of ballast ends on the reference's parameters.
+
+```
+python3 experiments/distributed-restart/check_cuda_mode.py
+```
+
 ## Checked locally
 
 `check_protocol.py` runs `train.py` under `torchrun`, two gloo ranks, in the `cpu-ddp:torch251` image, with a fresh directory standing in for the volume.
