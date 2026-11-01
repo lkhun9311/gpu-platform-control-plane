@@ -800,6 +800,30 @@ restart_operator_flags_ok() {
 # What it cannot show without a fault: that an XID written into the host engine reaches the exporter, and that the
 # operator latches, taints and evicts on it; the first dcgm case shows that, and the scorer voids it when it does not.
 restart_fault_path_ready() {
+  local saved rc
+  # gpu-fault.sh's kubectl calls carry no timeout of their own, and a polling deadline only bounds the gaps between
+  # them, so for this gate each call is cut at what is left of WAIT and the gate cannot eat into the cases' time.
+  saved="$(declare -f gfk)"
+  RESTART_GFK_DEADLINE=$((SECONDS + $1))
+  gfk() { restart_gfk_bounded "$@"; }
+  restart_fault_path_check "$1"
+  rc=$?
+  eval "$saved"
+  return "$rc"
+}
+
+# restart_gfk_bounded ARGS...: gpu-fault.sh's kubectl, ended at RESTART_GFK_DEADLINE (in SECONDS), and refused after it.
+restart_gfk_bounded() {
+  local t=$((RESTART_GFK_DEADLINE - SECONDS))
+  ((t >= 1)) || {
+    echo "the fault path check's deadline has passed" >&2
+    return 124
+  }
+  timeout "$t" kubectl ${GF_CONTEXT:+--context "$GF_CONTEXT"} "$@"
+}
+
+# restart_fault_path_check WAIT: restart_fault_path_ready's checks, with gfk already bounded.
+restart_fault_path_check() {
   local deadline=$((SECONDS + $1)) nodes node metrics f missing out left
   out="$(restart_operator_flags_ok)" || {
     echo "$out"
@@ -829,7 +853,11 @@ restart_fault_path_ready() {
       return 1
     }
     left=$((deadline - SECONDS))
-    ((left >= 1)) || left=1
+    # A floor of one second here once let a gate whose budget was gone still pass, a second at a time per node.
+    ((left >= 1)) || {
+      echo "the fault path check ran out of its ${1} s before the NodeHealth of $node was read"
+      return 1
+    }
     gf_wait_until "$left" gf_is_clear || {
       echo "the NodeHealth of $node did not read a fresh, healthy GPU signal on an untainted node by the deadline"
       return 1

@@ -587,8 +587,8 @@ if [[ "$out" == *"the job had already ended Succeeded"*"rc=1" ]]; then ok "a job
 
 # Before the first case: both fault flags on the operator, the three fault fields on every exporter, and every
 # NodeHealth reading a fresh, healthy signal.
-# ready_rules NAME ARGS NODE_B_METRICS SIGNAL: two GPU nodes; the operator's args, node-b's scrape and both nodes'
-# GPUSignal as given.
+# ready_rules NAME ARGS NODE_B_METRICS SIGNAL [SLOW]: two GPU nodes; the operator's args, node-b's scrape and both nodes'
+# GPUSignal as given, node-b's scrape answering after SLOW seconds.
 ready_rules() {
   mkdir -p "$work/rules/$1"
   cat >"$work/rules/$1/kubectl.sh" <<EOF
@@ -598,7 +598,7 @@ case "\$*" in
   *"spec.nodeName=node-a,status.phase=Running"*) echo "dcgm-a " ;;
   *"spec.nodeName=node-b,status.phase=Running"*) echo "dcgm-b " ;;
   *"get --raw"*"dcgm-a:9400/proxy/metrics"*) printf '%s{gpu="0"} 0\n' DCGM_FI_DEV_XID_ERRORS DCGM_FI_DEV_ECC_DBE_VOL_TOTAL DCGM_FI_DEV_ECC_SBE_VOL_TOTAL ;;
-  *"get --raw"*"dcgm-b:9400/proxy/metrics"*) printf '%s{gpu="0"} 0\n' $3 ;;
+  *"get --raw"*"dcgm-b:9400/proxy/metrics"*) sleep ${5:-0}; printf '%s{gpu="0"} 0\n' $3 ;;
   *"get nodehealths -o json"*)
     echo '{"items": [{"metadata": {}, "spec": {"nodeName": "node-a"}, "status": {"conditions": [{"type": "GPUHealthy", "status": "True"}, {"type": "GPUSignal", "status": "$4"}]}},
                      {"metadata": {}, "spec": {"nodeName": "node-b"}, "status": {"conditions": [{"type": "GPUHealthy", "status": "True"}, {"type": "GPUSignal", "status": "$4"}]}}]}' ;;
@@ -611,14 +611,32 @@ ready_rules ready "$both" "$fields" True
 ready_rules one-flag '["--leader-elect","--gpu-fault-evict-workloads"]' "$fields" True
 ready_rules no-ecc "$both" DCGM_FI_DEV_XID_ERRORS True
 ready_rules no-signal "$both" "$fields" False
+# A scrape that answers after the whole readiness budget has gone must fail it, not carry preparation past its deadline.
+ready_rules slow-scrape "$both" "$fields" True 6
 for c in ready:"every GPU node's exporter serves the fault fields"*"rc=0" one-flag:"operator-0 runs without --gpu-fault-source=dcgm"*"rc=1" \
   no-ecc:"the exporter on node-b serves no DCGM_FI_DEV_ECC_DBE_VOL_TOTAL DCGM_FI_DEV_ECC_SBE_VOL_TOTAL"*"rc=1" \
-  no-signal:"the NodeHealth of node-a did not read a fresh, healthy GPU signal"*"rc=1"; do
+  no-signal:"the NodeHealth of node-a did not read a fresh, healthy GPU signal"*"rc=1" \
+  slow-scrape:"the exporter on node-b could not be scraped"*"rc=1"; do
   name="${c%%:*}" want="${c#*:}"
-  out="$(lib "$name" 'restart_fault_path_ready 1; echo "rc=$?"')"
+  start=$SECONDS
+  out="$(lib "$name" 'restart_fault_path_ready 4; echo "rc=$?"')"
+  # The budget is 4 s and the slow scrape 6 s, so a gate that waited the scrape out took at least 6.
+  ((SECONDS - start < 6)) || out="$out (took $((SECONDS - start)) s of a 4 s budget)"
+  # A pass that a refused read let through is not a pass, so the healthy case must not have met the deadline at all.
+  [[ "$name" != ready || "$out" != *"deadline has passed"* ]] || out="$out (a read was refused at the deadline)"
   # shellcheck disable=SC2053  # the right side is a pattern on purpose
   if [[ "$out" == *$want ]]; then ok "fault path readiness, $name: $(head -1 <<<"$out" | cut -c1-120)"; else bad "fault path readiness, $name: $out"; fi
 done
+
+# A node whose taints cannot be read is neither tainted nor clear, and its record says so rather than absent.
+mkdir -p "$work/rules/taint-unreadable"
+cat >"$work/rules/taint-unreadable/kubectl.sh" <<'EOF'
+case "$*" in
+  *"get node node-x"*) echo "the server is currently unable to handle the request" >&2; exit 1 ;;
+esac
+EOF
+out="$(lib taint-unreadable 'gf_tainted node-x; echo "rc=$?"; echo "word=$(gf_taint_word node-x)"')"
+if [[ "$out" == *"rc=2"*"word=unreadable"* ]]; then ok "an unreadable taint is neither tainted nor absent"; else bad "an unreadable taint: $out"; fi
 
 # --- 3. the scorer --------------------------------------------------------------------------------------------------
 # score DEFECT CASE WANT_KIND WANT_TEXT: a run generated with one defect in one case; that case's line must carry the

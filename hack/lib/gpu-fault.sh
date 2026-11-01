@@ -156,8 +156,19 @@ elif path.startswith("ann:"):
 ' "$1" "$2"
 }
 
+# gf_tainted NODE: 0 when the node carries the fault taint, 1 when it does not, 2 when its taints could not be read.
+# A failed read was once 1 through the pipe, so `! gf_tainted` called an unreadable node clear and a record said absent.
 gf_tainted() {
-  gfk get node "$1" -o jsonpath='{range .spec.taints[*]}{.key}{"\n"}{end}' | grep -qx 'platform.lkhun9311.github.io/gpu-fault'
+  local taints
+  taints=$(gfk get node "$1" -o jsonpath='{range .spec.taints[*]}{.key}{"\n"}{end}') || return 2
+  grep -qx 'platform.lkhun9311.github.io/gpu-fault' <<<"$taints"
+}
+
+# gf_taint_word NODE: gf_tainted as the word a record carries, present, absent or unreadable.
+gf_taint_word() {
+  local rc=0
+  gf_tainted "$1" || rc=$?
+  case $rc in 0) echo present ;; 1) echo absent ;; *) echo unreadable ;; esac
 }
 
 # gf_wait_until SECONDS CMD... polls CMD every half second until it succeeds or SECONDS pass.
@@ -452,7 +463,7 @@ gf_record_during() {
     echo "during_signal_status=$(gf_nh_field "$GF_TARGET" cond:GPUSignal.status)"
     echo "during_signal_reason=$(gf_nh_field "$GF_TARGET" cond:GPUSignal.reason)"
     echo "during_healthy_status=$(gf_nh_field "$GF_TARGET" cond:GPUHealthy.status)"
-    echo "during_taint=$(gf_tainted "$GF_TARGET" && echo present || echo absent)"
+    echo "during_taint=$(gf_taint_word "$GF_TARGET")"
     echo "during_latched=$(gf_nh_field "$GF_TARGET" ann:fingerprint)"
   } >>"$file"
 }
@@ -505,7 +516,7 @@ gf_stale_checks() {
   {
     echo "zero_given=$([ "$rc" -ne 2 ] && echo yes || echo no)"
     echo "after_latched=$(gf_nh_field "$GF_TARGET" ann:fingerprint)"
-    echo "after_taint=$(gf_tainted "$GF_TARGET" && echo present || echo absent)"
+    echo "after_taint=$(gf_taint_word "$GF_TARGET")"
   } >>"$d/check.env"
 }
 
