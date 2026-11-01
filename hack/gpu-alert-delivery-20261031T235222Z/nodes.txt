@@ -1,0 +1,3 @@
+NAME                GPU
+mon-control-plane   <none>
+mon-worker          1

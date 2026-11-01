@@ -1,0 +1,12 @@
+# Mutation of part A on the live cluster: the enableClusterQueueResources line commented out again, Kueue restarted.
+2026-11-01T00:28:38Z before: count of kueue_cluster_queue_nominal_quota series: 1 ['1']
+configmap/kueue-manager-config replaced
+deployment.apps/kueue-controller-manager restarted
+Waiting for deployment "kueue-controller-manager" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "kueue-controller-manager" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "kueue-controller-manager" rollout to finish: 1 old replicas are pending termination...
+deployment "kueue-controller-manager" successfully rolled out
+2026-11-01T00:28:49Z kueue restarted without the line
+2026-11-01T00:29:48Z after: count of kueue_cluster_queue_nominal_quota series: 0 []
+2026-11-01T00:29:48Z after: kueue_cluster_queue_status for cq-gpu: 1 ['1']
+2026-11-01T00:29:48Z after: ALERTS KueueGPUQuotaMetricsNotReported for cq-gpu: 1 ['pending']
