@@ -272,6 +272,13 @@ def defect(out: pathlib.Path, name: str, case: str) -> None:
         edit_records(d, lambda r: {**r, "params": [p + 1e-3 for p in r["params"]]} if r.get("params") else r)
     elif name == "params-nan":
         edit_records(d, lambda r: {**r, "params": [float("nan")] * len(r["params"])} if r.get("params") else r)
+    elif name in ("rank1-params-nan", "rank1-params-off", "rank1-params-missing"):
+        # Only rank 1's last step changes, so a scorer reading rank 0 alone sees a run that ended right.
+        change = {"rank1-params-nan": lambda p: [float("nan")] * len(p), "rank1-params-off": lambda p: [v + 1e-3 for v in p],
+                  "rank1-params-missing": lambda p: None}[name]
+        edit_records(d, lambda r: {**r, "params": change(r["params"])} if r.get("params") and r["rank"] == 1 else r)
+    elif name == "rank1-no-final-step":
+        edit_records(d, lambda r: None if r["rank"] == 1 and r["event"] in ("step", "checkpoint") and r["step"] == STEPS else r)
     elif name == "timed-out":
         # What a recovery that never came looks like: no attempt 2 records, the job still Pending at the budget.
         edit_records(d, lambda r: None if r["attempt"] == 2 else r)

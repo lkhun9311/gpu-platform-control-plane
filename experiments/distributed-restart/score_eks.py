@@ -206,18 +206,34 @@ class Case:
                 if not networks or any(n != "Socket" for n in networks):
                     void(f"attempt {a} rank {rank}'s network was {sorted(set(networks)) or 'never named'}, not Socket")
 
-    def final_params(self, attempt: int) -> list[float] | None:
-        last = [r for r in self.rec("step", attempt, 0) if r.get("step") == self.steps and r.get("params") is not None]
-        return last[-1]["params"] if last else None
+    def final_params(self, attempt: int) -> dict[int, list[float]]:
+        """Every rank's parameters at the last step of the attempt, each required and finite, as score_kind.py reads them.
 
-    def params_gap(self, attempt: int) -> float:
-        got = self.final_params(attempt)
-        if got is None or self.reference is None or len(got) != len(self.reference):
-            failed(f"attempt {attempt} has no final parameters comparable with the reference's")
-        # A NaN is not greater than any tolerance, so a run that diverged would otherwise compare as equal.
-        if not all(math.isfinite(v) for v in got):
-            failed(f"attempt {attempt}'s final parameters are not all finite")
-        return max(abs(a - b) for a, b in zip(got, self.reference))
+        Reading rank 0 alone accepted a run whose rank 1 ended with NaN or never reached the last step (codex review of
+        f57e11a1), and train.py records them on every rank.
+        """
+        out = {}
+        for rank in range(WORLD):
+            last = [r for r in self.rec("step", attempt, rank) if r.get("step") == self.steps and r.get("params") is not None]
+            if not last:
+                failed(f"rank {rank} of attempt {attempt} recorded no final parameters at step {self.steps}")
+            got = last[-1]["params"]
+            # A NaN is not greater than any tolerance, so a run that diverged would otherwise compare as equal.
+            if not isinstance(got, list) or not all(isinstance(v, (int, float)) and math.isfinite(v) for v in got):
+                failed(f"attempt {attempt}: rank {rank}'s final parameters are not all finite")
+            out[rank] = got
+        return out
+
+    def params_gap(self, attempt: int) -> dict[int, float]:
+        """Each rank's largest difference from the reference on any component."""
+        if self.reference is None:
+            failed("there is no accepted reference to compare the final parameters with")
+        gaps = {}
+        for rank, got in self.final_params(attempt).items():
+            if len(got) != len(self.reference):
+                failed(f"rank {rank}'s final parameters have {len(got)} components, the reference's {len(self.reference)}")
+            gaps[rank] = max(abs(a - b) for a, b in zip(got, self.reference))
+        return gaps
 
     def check_resume(self) -> dict:
         if self.rec("restart_from_zero", 2):
@@ -303,8 +319,12 @@ class Case:
             self.check_starts(1)
             self.check_transport(1)
             got = self.final_params(1)
-            if got is None or not all(math.isfinite(v) for v in got):
-                failed("no finite final parameters")
+            # DDP keeps every rank's parameters equal, so ranks that disagree did not train one model.
+            if any(len(p) != len(got[0]) for p in got.values()):
+                failed("the ranks' final parameters have different sizes")
+            spread = max(abs(a - b) for p in got.values() for a, b in zip(p, got[0]))
+            if spread > PARAM_TOLERANCE:
+                failed(f"the ranks ended {spread:.3g} apart, beyond {PARAM_TOLERANCE}")
             self.figures["checkpoint_s"] = self.save_costs(1)
             return
         # Delivery, then the outcome, then the evidence the figures need, then what the recovery restored: a recovery
@@ -314,15 +334,18 @@ class Case:
         self.check_starts(2)
         self.check_transport(2)
         resumed = self.check_resume()
-        gap = self.params_gap(2)
+        gaps = self.params_gap(2)
+        gap = max(gaps.values())
         if self.kind == "no-rng-control":
             # A control the comparison cannot tell from a full resume shows the comparison is blind, not that RNG is moot.
-            if gap <= PARAM_TOLERANCE:
-                failed(f"dropping the RNG left the parameters within {PARAM_TOLERANCE} of the reference ({gap:.3g})")
+            # Every rank must differ: a rank that matched the reference is one the comparison could not see the RNG through.
+            if min(gaps.values()) <= PARAM_TOLERANCE:
+                failed(f"dropping the RNG left the parameters within {PARAM_TOLERANCE} of the reference ({min(gaps.values()):.3g})")
             self.figures.update({"params_gap": gap, **resumed})
             return
-        if gap > PARAM_TOLERANCE:
-            failed(f"the resumed run ended {gap:.3g} from the reference, beyond {PARAM_TOLERANCE}")
+        for rank, g in sorted(gaps.items()):
+            if g > PARAM_TOLERANCE:
+                failed(f"the resumed run's rank {rank} ended {g:.3g} from the reference, beyond {PARAM_TOLERANCE}")
         fault = self.fault_time()
         firsts = {}
         for r in self.rec("step", 2):
@@ -387,7 +410,7 @@ def main(argv: list[str]) -> int:
             verdicts[name] = ("VOID", f"its evidence could not be read: {type(exc).__name__}: {str(exc)[:120]}")
         scored[name] = case
         if name == "reference":
-            reference = case.final_params(1) if verdicts[name][0] == "ACCEPTED" else None
+            reference = case.final_params(1)[0] if verdicts[name][0] == "ACCEPTED" else None
 
     for name in cases:
         kind, reason = verdicts[name]
