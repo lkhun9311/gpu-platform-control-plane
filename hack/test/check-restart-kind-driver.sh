@@ -5,9 +5,10 @@
 #
 #   bash hack/test/check-restart-kind-driver.sh
 #
-# Parts:
+# Three parts:
 #   1. a kind cluster list that cannot be read stops the driver before it creates or removes anything;
 #   2. stopping a helper stops its whole process tree, its command substitutions' loops included;
+#   3. check_outcomes.py passes the recorded rehearsal and fails each way a scenario can come out wrong.
 set -uo pipefail
 cd "$(dirname "$0")/../.." || exit 1
 
@@ -89,6 +90,55 @@ if grep -qE 'kill "\$p" 2>>' hack/restart-lifecycle-kind.sh || ! grep -q 'rstk_k
 else
   ok "the driver's cleanup stops each helper with rstk_kill_tree"
 fi
+
+# --- 3. the scenarios' outcomes -------------------------------------------------------------------------------------
+rec=hack/restart-lifecycle-kind-20261101T143009Z
+fixture() {
+  rm -rf "$work/out"
+  mkdir -p "$work/out"
+  cp -r "$rec"/run-a "$rec"/run-b "$rec"/run-c "$rec"/run-d "$rec"/quota-hold.txt "$rec"/stuck.txt "$rec"/clocks-broken.txt "$work/out/"
+}
+outcomes() { python3 hack/test/restart-kind/check_outcomes.py "$work/out" a b c d; }
+fixture
+if out="$(outcomes)"; then ok "the recorded rehearsal comes out as its scenarios require"; else bad "the recorded rehearsal: $(grep FAIL <<<"$out")"; fi
+# defect NAME SETUP WANT: the fixture broken by SETUP must fail with WANT in its FAIL line.
+defect() {
+  fixture
+  (cd "$work/out" && eval "$2")
+  if out="$(outcomes)"; then
+    bad "$1 passed the outcome check"
+  elif grep '^FAIL' <<<"$out" | grep -qF -- "$3"; then
+    ok "$1 fails: $(grep '^FAIL' <<<"$out" | grep -F -- "$3" | head -1)"
+  else
+    bad "$1 failed, but not for '$3': $(grep '^FAIL' <<<"$out" | head -2)"
+  fi
+}
+defect "a case never submitted" 'rm run-b/rank-kill-2/case.json' "run-b/rank-kill-2: no case.json"
+defect "a case with no directory" 'rm -r run-a/dcgm-1' "run-a/dcgm-1: no directory"
+defect "a scorer that refused the run" 'sed -i "s/^exit=1$/exit=2/" run-a/verdict.txt' "run-a: the scorer exited 2"
+defect "a scorer whose status was not read" 'sed -i "/^exit=/d" run-c/verdict.txt' "run-c: no scorer exit status"
+defect "a censored case that ran to the end" 'sed -i "s/^FAILED   rank-kill-1: censored.*/ACCEPTED rank-kill-1 {}/" run-b/verdict.txt' "run-b/rank-kill-1: ACCEPTED"
+defect "a VOID that was not before its fault" 'sed -i "s/VOID-before-fault/VOID-after/" run-d/verdict.txt' "run-d/rank-kill-1"
+defect "a stop that was not the retirement's" 'sed -i "s/could not be retired/was skipped/" run-c/verdict.txt' "run-c/rank-kill-2"
+defect "a quota never lowered" 'sed -i "/^lowered /d" quota-hold.txt' "run-b: quota-hold.txt"
+defect "a finalizer never put on" 'rm stuck.txt' "run-c: no stuck.txt"
+defect "clocks never broken" 'rm clocks-broken.txt' "run-d: no clocks-broken.txt"
+defect "a failed injection" 'echo "2026-11-01T00:00:00Z hold_quota: the quota could not be lowered" >injection-failed.txt' "an injection failed"
+fixture
+if out="$(python3 hack/test/restart-kind/check_outcomes.py "$work/out")"; then bad "no run named passed"; else ok "no run named fails"; fi
+# The driver exits on the outcome check as well as the lifecycle check.
+if grep -q 'check_outcomes.py "\$OUT" \$RUNS' hack/restart-lifecycle-kind.sh && grep -q '\[ "\$CHECK_RC" = 0 \] && \[ "\$OUTCOMES_RC" = 0 \] || exit 1' hack/restart-lifecycle-kind.sh; then
+  ok "the driver's exit status needs both the lifecycle and the outcome check"
+else
+  bad "the driver's exit status does not need the outcome check"
+fi
+# Each way an injection can fail is recorded: hold_quota's lowering and restoring, stick_pod's patch, and break_clocks'
+# exec on a Pod and its having broken none.
+for c in hold_quota:2 stick_pod:1 break_clocks:2; do
+  f="${c%%:*}"
+  n="$(sed -n "/^$f() {/,/^}/p" hack/restart-lifecycle-kind.sh | grep -c rstk_injection_failed)"
+  if [[ "$n" == "${c#*:}" ]]; then ok "$f records each of its $n failed injections"; else bad "$f records $n failed injection(s), want ${c#*:}"; fi
+done
 
 if ((fails)); then
   echo "check-restart-kind-driver: $fails failure(s)"

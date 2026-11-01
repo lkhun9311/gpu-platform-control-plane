@@ -559,13 +559,21 @@ hold_quota() {
     n=$(k -n "$RESTART_NS" get pods -l "platform.lkhun9311.github.io/mltrainingjob=$m" --field-selector status.phase=Running -o name 2>>"$LOG" | grep -c .)
     sleep 1
   done
-  k patch gpuquotapolicy train-a-quota --type=merge -p '{"spec":{"limits":{"gpuCount":1}}}' >>"$LOG" 2>&1 || log "hold_quota: lowering failed"
+  k patch gpuquotapolicy train-a-quota --type=merge -p '{"spec":{"limits":{"gpuCount":1}}}' >>"$LOG" 2>&1 || {
+    log "hold_quota: lowering failed"
+    rstk_injection_failed "$OUT" "hold_quota: the quota of $m could not be lowered"
+    return 1
+  }
   sleep 5
   cq=$(k get clusterqueues -o json 2>>"$LOG" | python3 -c 'import json,sys; print([(c["metadata"]["name"], c["spec"]["resourceGroups"]) for c in json.load(sys.stdin)["items"]])')
   log "hold_quota: $m running on two GPUs, quota lowered to 1 at $(date -u +%H:%M:%S); clusterqueues: $cq; resourcequotas: $(k -n "$RESTART_NS" get resourcequota -o jsonpath='{range .items[*]}{.metadata.name}={.spec.hard}{" "}{end}' 2>&1)"
   echo "lowered $(date -u +%Y-%m-%dT%H:%M:%SZ) $m" >>"$OUT/quota-hold.txt"
   while k -n "$RESTART_NS" get mltrainingjob "$m" -o name >/dev/null 2>>"$OUT/quota-hold.err"; do sleep 1; done
-  k patch gpuquotapolicy train-a-quota --type=merge -p '{"spec":{"limits":{"gpuCount":4}}}' >>"$LOG" 2>&1 || log "hold_quota: restoring failed"
+  k patch gpuquotapolicy train-a-quota --type=merge -p '{"spec":{"limits":{"gpuCount":4}}}' >>"$LOG" 2>&1 || {
+    log "hold_quota: restoring failed"
+    rstk_injection_failed "$OUT" "hold_quota: the quota could not be restored after $m"
+    return 1
+  }
   echo "restored $(date -u +%Y-%m-%dT%H:%M:%SZ) $m" >>"$OUT/quota-hold.txt"
   log "hold_quota: $m gone, quota restored to 4 at $(date -u +%H:%M:%S)"
 }
@@ -583,19 +591,33 @@ stick_pod() {
   # Appended, never set: a Job's Pod carries the Job controller's tracking finalizer, and replacing the list once made the
   # controller lose the Pod and start a second rank 0, so attempt 2 failed instead of finishing (the first rehearsal).
   k -n "$RESTART_NS" patch "$pod" --type=json -p "[{\"op\":\"add\",\"path\":\"/metadata/finalizers/-\",\"value\":\"$STUCK\"}]" >>"$LOG" 2>&1 ||
-    { log "stick_pod: could not add $STUCK to $pod"; return 1; }
+    {
+      log "stick_pod: could not add $STUCK to $pod"
+      rstk_injection_failed "$OUT" "stick_pod: no finalizer on $pod"
+      return 1
+    }
   echo "$pod" >"$OUT/stuck.txt"
   log "stick_pod: $STUCK on $pod of $m at $(date -u +%H:%M:%S)"
 }
 
 # break_clocks: once the run's reference is scored, every exporter sidecar's date fails, so no node's clock can be read.
 break_clocks() {
-  local p
+  local p pods broken=0
   until [ -e "$RESTART_OUT/run.log" ] && grep -q '^reference: ' "$RESTART_OUT/run.log"; do sleep 1; done
-  for p in $(k -n "$SYS" get pods -l app.kubernetes.io/component=dcgm-exporter -o name); do
-    k -n "$SYS" exec "${p#*/}" -c exporter -- sh -c 'printf "#!/bin/sh\necho rehearsal: this clock is made unreadable >&2\nexit 1\n" >/ctl/date && chmod +x /ctl/date' >>"$LOG" 2>&1 ||
+  pods=$(k -n "$SYS" get pods -l app.kubernetes.io/component=dcgm-exporter -o name 2>>"$LOG") || pods=""
+  for p in $pods; do
+    if k -n "$SYS" exec "${p#*/}" -c exporter -- sh -c 'printf "#!/bin/sh\necho rehearsal: this clock is made unreadable >&2\nexit 1\n" >/ctl/date && chmod +x /ctl/date' >>"$LOG" 2>&1; then
+      broken=$((broken + 1))
+    else
       log "break_clocks: $p not broken"
+      rstk_injection_failed "$OUT" "break_clocks: $p not broken"
+    fi
   done
+  # No exporter listed is no clock broken, which the scenario would then not exercise.
+  [ "$broken" -gt 0 ] || {
+    rstk_injection_failed "$OUT" "break_clocks: no exporter's clock was broken"
+    return 1
+  }
   log "break_clocks: every exporter's date fails from $(date -u +%H:%M:%S)"
   echo "broken $(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$OUT/clocks-broken.txt"
 }
@@ -660,5 +682,14 @@ k -n "$RESTART_NS" get mltrainingjobs,jobs.batch,pods,workloads.kueue.x-k8s.io -
 cp "$RSTK_STATE/calls.log" "$OUT/aws-calls.log" 2>>"$LOG"
 log "unimplemented aws calls: $(grep -c '^UNIMPLEMENTED' "$RSTK_STATE/calls.log")"
 echo "host_nfs_mounts_at_end=$(grep -c ' nfs4\? ' /proc/mounts)" >>"$OUT/provenance.txt"
-# The rehearsal fails when what the runner's files cannot show did not hold (codex review of 69ec494f).
-exit "$CHECK_RC"
+# Each run must also have come out as its scenario requires: its cases started, its scorer's exit read, its injection
+# done (codex review against origin/dev).
+# shellcheck disable=SC2086  # RUNS is a list of run names
+python3 hack/test/restart-kind/check_outcomes.py "$OUT" $RUNS >"$OUT/outcomes-check.txt" 2>&1
+OUTCOMES_RC=$?
+echo "exit=$OUTCOMES_RC" >>"$OUT/outcomes-check.txt"
+tee -a "$LOG" <"$OUT/outcomes-check.txt"
+# The rehearsal fails when what the runner's files cannot show did not hold (codex review of 69ec494f), or a scenario
+# did not come out as it must.
+[ "$CHECK_RC" = 0 ] && [ "$OUTCOMES_RC" = 0 ] || exit 1
+exit 0

@@ -49,3 +49,8 @@ rstk_kill_tree() {
   done
   return 0
 }
+
+# rstk_injection_failed OUT WHAT: a scenario's fault injection failed, recorded so the rehearsal cannot report success.
+rstk_injection_failed() {
+  echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) $2" >>"$1/injection-failed.txt"
+}
