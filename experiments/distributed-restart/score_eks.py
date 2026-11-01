@@ -129,8 +129,6 @@ class Case:
         self.pods = {p["uid"]: p for p in jsonl(self.dir / "pods.jsonl")}
         self.marks = {m["mark"]: m["at"] for m in jsonl(self.dir / "marks.jsonl")}
         self.clocks = jsonl(self.dir / "clock.jsonl")
-        before = self.dir / "nodes-before.json"
-        self.up_before = {n["metadata"]["name"] for n in json.loads(before.read_text()).get("items", [])} if before.exists() else set()
         self.terminated = (self.spec.get("target") or {}).get("node") if self.kind.startswith("terminate") else None
         # Each record is tagged with the node its Pod ran on, which decides whose clock its timestamp is.
         # A Pod's log may be in several files, because a stream that broke while the Pod ran is read again from its
@@ -191,6 +189,13 @@ class Case:
                 if r.get("event") == event and r.get("attempt") == attempt and (rank is None or r.get("rank") == rank)]
 
     # --- clocks -------------------------------------------------------------------------------------------------------
+
+    @functools.cached_property
+    def up_before(self) -> set[str]:
+        """The nodes up before the fault, read when a clock needs them and not when the case is loaded, for the same
+        reason as name_reused (codex review of 35ba9c4a)."""
+        before = self.dir / "nodes-before.json"
+        return {n["metadata"]["name"] for n in json.loads(before.read_text()).get("items", [])} if before.exists() else set()
 
     @functools.cached_property
     def name_reused(self) -> bool:

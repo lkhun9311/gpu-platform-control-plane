@@ -717,6 +717,7 @@ score resume-gap terminate-spare-5 FAILED "rank 0 of attempt 2 resumed from step
 score timed-out terminate-wait-4 FAILED "censored at its budget: the job ended 'Pending', not Succeeded"
 # A recovery censored at its budget stays FAILED when the nodes read afterwards are unreadable: the outcome is judged first.
 score timed-out-nodes-unread rank-kill-3 FAILED "censored at its budget: the job ended 'Pending', not Succeeded"
+score timed-out-nodes-before-unread rank-kill-2 FAILED "censored at its budget: the job ended 'Pending', not Succeeded"
 score job-failed rank-kill-2 FAILED "not recovered: the job ended 'Failed', not Succeeded"
 # The summary keeps a recovery cut off by its budget apart from one that ended wrong, and both apart from VOID.
 for want in "timed-out terminate-wait-4:terminate-wait: 5 registered, 4 ACCEPTED, 1 FAILED (1 censored at their budget, 0 not recovered), 0 VOID" \
