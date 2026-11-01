@@ -77,7 +77,7 @@ It does not assume HoldCap explains the NOT MET p99; that is what the ablation a
 Findings 6 and 8 ran on simulated devices; their own "what it needs" row asks for real devices, an arrival process and more than three workers.
 What changes on AWS, and has to be registered before a cell:
 
-- **Layouts are not free to choose.** The SCP allows g4dn and g5; their nodes carry 1, 4 or 8 GPUs, so the 2-device worker of C1 and the 3- and 2-device workers of C2 and C3 do not exist as instances. A layout is built from a 4-GPU node with some devices held by a placeholder Pod, and that placeholder is part of the treatment, not invisible: it is a workload the scheduler sees.
+- **Layouts are not free to choose.** The SCP allowed g4dn and g5 when this was written (g7e was added on 2026-11-01, `infra/aws/org/scp/README.md`); g4dn and g5 nodes carry 1, 4 or 8 GPUs, so the 2-device worker of C1 and the 3- and 2-device workers of C2 and C3 do not exist as instances. A layout is built from a 4-GPU node with some devices held by a placeholder Pod, and that placeholder is part of the treatment, not invisible: it is a workload the scheduler sees.
 - **The device plugin is NVIDIA's, not the simulator.** Advertised counts, health and restart behaviour come from the real plugin; Finding 6's phase fix (the phase reads `job.Status.Ready`) must be re-checked on it rather than assumed.
 - **Utilisation becomes observable.** DCGM reports what stranded devices did, so stranded GPU-seconds can be priced, which simulated devices could not give.
 - **An arrival process replaces the fixed sequence**, or the run repeats the registered sequences and says it did.
@@ -102,6 +102,7 @@ That moves two free items ahead of the B0 campaign, which stays rehearsed and ru
 **Superseded the same evening, after an adversarial review:** the track below was reordered around restarting a whole distributed job, checkpoint integrity and measured recovery, rather than more GPUs.
 In order: re-verify the exporter toleration already in `config/dcgm-exporter/daemonset.yaml` with alerting (3 days); change the `MLTrainingJob` contract, which today refuses `distributed` with `stateVolume` and runs distributed Jobs with `backoffLimit` 0, to whole-attempt retry with a fresh rendezvous and checkpoints on a shared volume (6 days); real-GPU recovery on two `g5.xlarge` and a spare in one zone, injected and instance-termination faults (5 days); plain Slurm on EC2 beside Kueue, compared on policy meaning (4 days); write-up and a design note (2 days); then, if approved, EFA with GPUDirect RDMA against TCP on two `g7e.12xlarge` (3 days).
 The record with costs and the AWS requests (G and VT On-Demand quota to 128 vCPU; the instance-family SCP widened to `g7e`) is in the storage file named above.
+Where it stands on 2026-11-01: the contract change is merged (`docs/superpowers/specs/2026-11-01-distributed-restart-design.md`, run on kind in `experiments/distributed-restart/README.md`); dashboards and alerts are merged with a delivery rehearsal (`docs/06_OBSERVABILITY_BENCHMARK_FAILURE.md`); a container Slurm lab is merged (`experiments/slurm-lab/README.md`); the SCP allows `g7e`; the quota request to 128 vCPU is open.
 The table below is kept as the earlier list.
 
 | id | item | what it adds | cost |
