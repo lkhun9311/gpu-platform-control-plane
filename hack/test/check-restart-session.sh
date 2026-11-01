@@ -42,7 +42,8 @@ fi
 case "$tool $*" in
   "aws configure export-credentials"*)
     if [[ -n "${STUB_CRED_NOEXP:-}" ]]; then echo '{"Version": 1, "AccessKeyId": "AKIA"}'; exit 0; fi
-    printf '{"Version": 1, "AccessKeyId": "ASIA", "Expiration": "%s"}\n' "$(date -u -d "+${STUB_CRED_MIN:-900} minutes" +%Y-%m-%dT%H:%M:%SZ)" ;;
+    # A fresh SSO credential lasts the permission set's SessionDuration, PT12H, so 720 minutes is the most any stub may claim.
+    printf '{"Version": 1, "AccessKeyId": "ASIA", "Expiration": "%s"}\n' "$(date -u -d "+${STUB_CRED_MIN:-720} minutes" +%Y-%m-%dT%H:%M:%SZ)" ;;
   "aws eks describe-cluster"*)
     echo "An error occurred (ResourceNotFoundException) when calling the DescribeCluster operation: No cluster found" >&2
     exit 254 ;;
@@ -86,7 +87,7 @@ session() {
   : >"$STUB_CALLS"
   mkdir -p "$work/home"
   out="$(env -i HOME="$work/home" PATH="$work/bin:/usr/bin:/bin" STUB_CALLS="$STUB_CALLS" SESSION_CONFIRM=yes AWS_PROFILE=stub \
-    EGRESS_CIDR=192.0.2.1/32 EXDIR="$work/$name" TRAIN=restart TRAIN_AZ=ap-northeast-2a APPROVED_TRAIN_SHA256="$sha" TTL_MINUTES=700 "$@" \
+    EGRESS_CIDR=192.0.2.1/32 EXDIR="$work/$name" TRAIN=restart RESTART_STAGE=smoke TRAIN_AZ=ap-northeast-2a APPROVED_TRAIN_SHA256="$sha" TTL_MINUTES=300 "$@" \
     timeout 60 bash "$repo/hack/eks-gitops-session.sh" 2>&1)"
   rc=$?
   # A watchdog would be a detached process naming this case's directory; one left alive would fire at its TTL.
@@ -118,9 +119,15 @@ session "no zone" "TRAIN=restart is registered in ap-northeast-2a" TRAIN_AZ=
 session "another zone" "TRAIN=restart is registered in ap-northeast-2a, and TRAIN_AZ is 'ap-northeast-2c'" TRAIN_AZ=ap-northeast-2c
 session "no approved hash" "needs APPROVED_TRAIN_SHA256" APPROVED_TRAIN_SHA256=
 session "another train.py" "not the approved" APPROVED_TRAIN_SHA256="$(printf '%064d' 0)"
-session "a deadline too short" "needs TTL_MINUTES of at least 684" TTL_MINUTES=600
+session "no stage" "TRAIN=restart needs RESTART_STAGE=smoke, run and inspected first, or RESTART_STAGE=full" RESTART_STAGE=
+session "an unknown stage" "RESTART_STAGE is 'all', not smoke or full" RESTART_STAGE=all
+session "a deadline too short" "with RESTART_STAGE=smoke needs TTL_MINUTES of at least 288 for its waits; it is 280" TTL_MINUTES=280
+# A deadline the stage needs, and more than a fresh credential can cover with the destroy after it.
+session "a deadline past the credential limit" "TTL_MINUTES=670 and the 40-minute destroy need 710 min of credential, more than the 700" TTL_MINUTES=670
 # The refusal's own words, not "expires in", which the line a passing credential prints contains too.
-session "a credential expiring first" "and the session needs 740; authenticate again first" STUB_CRED_MIN=300
+session "a credential expiring first" "and the session needs 340; authenticate again first" STUB_CRED_MIN=300
+# One minute short of the longest deadline a fresh credential allows: the check reads whole minutes left, rounded down.
+session "a credential a minute short" "expires in 698 minutes and the session needs 700" STUB_CRED_MIN=699 TTL_MINUTES=660
 session "a credential with no expiry" "carries no expiry" STUB_CRED_NOEXP=1
 session "the quota short" "plus 12 is above the quota of 8" STUB_QUOTA=8
 # Three g5.12xlarge another session left running hold 144 of the 128, so the twelve this one asks for cannot fit.
@@ -139,9 +146,20 @@ if grep -q 'terraform variables for every apply and destroy: .*-var=gpu_max_node
 else
   bad "no restart terraform variables in the log of the run that passed every refusal: $(grep 'terraform variables' "$log")"
 fi
-for want in "credential expires in" "fits the quota of 128" "On-Demand in ap-northeast-2 at \$1.237"; do
+for want in "credential expires in" "fits the quota of 128" "On-Demand in ap-northeast-2 at \$1.237" "RESTART_STAGE=smoke: TTL_MINUTES 300 covers its 288" \
+  "GPU budget 12480s"; do
   if grep -qF "$want" "$log"; then ok "the passing run logged '$want'"; else bad "the passing run did not log '$want'"; fi
 done
+# The full stage at its fixed repetitions, and the longest deadline, each pass a fresh 720-minute credential.
+# passes NAME WANT [VAR=VALUE...]: the session got past every refusal before the destroy check and logged WANT.
+passes() {
+  local name="$1" want="$2"
+  shift 2
+  session "$name" - "$@"
+  if grep -qF "$want" "$work/$name/session.log"; then ok "$name: logged '$want'"; else bad "$name: did not log '$want': $(grep -F 'RESTART_STAGE' "$work/$name/session.log" | tail -1)"; fi
+}
+passes "the full stage" "RESTART_STAGE=full: TTL_MINUTES 524 covers its 524" RESTART_STAGE=full TTL_MINUTES=524
+passes "the longest deadline" "the credential expires in 719 minutes, at least the 700" TTL_MINUTES=660
 
 # --- 2. the library's functions ------------------------------------------------------------------------------------
 # lib CASE SCRIPT: runs SCRIPT in a fresh shell with the library sourced, the stubs first on PATH, and the rules of
@@ -152,7 +170,7 @@ lib() {
   STUB_CALLS="$work/$name.calls" STUB_RULES="$work/rules/$name" PATH="$work/bin:$PATH" RESTART_POLL=0 \
     RESTART_CONTEXT=stub RESTART_REGION=ap-northeast-2 RESTART_CLUSTER=gpu-platform RESTART_GROUP=gpu RESTART_NS=train-a \
     RESTART_QUEUE=gpu-train-a RESTART_SYS=gpu-platform-control-plane-system RESTART_OUT="$work/out/$name" \
-    bash -c ". hack/lib/train-session.sh; . hack/lib/gpu-ttl.sh; . hack/lib/restart-session.sh; $script" 2>&1
+    bash -c ". hack/lib/train-session.sh; . hack/lib/gpu-ttl.sh; . hack/lib/gpu-fault.sh; . hack/lib/restart-session.sh; $script" 2>&1
 }
 
 # The termination fences only on EC2's own `terminated`: shutting-down, then an unreadable answer, then terminated.
@@ -222,8 +240,66 @@ decoded="$(sed -n 's/^echo \([A-Za-z0-9+\/=]*\) | base64 -d >\/tmp\/train.py$/\1
 if [[ "$decoded" == "$sha" ]]; then ok "the carried trainer is the committed train.py"; else bad "the carried trainer hashes to $decoded"; fi
 out="$(lib render2 'restart_render_job x train-a gpu-train-a x-1 fsdp-1; echo "rc=$?"')"
 if [[ "$out" == *"not a registered case"*"rc=1" ]]; then ok "an unregistered case is refused"; else bad "an unregistered case: $out"; fi
-out="$(lib cases 'restart_cases | paste -sd" "; restart_cases | wc -l')"
-if [[ "$out" == "reference no-rng-control rank-kill-1 "*" terminate-wait-5"$'\n'"22" ]]; then ok "22 cases, in the registered order"; else bad "the cases: $out"; fi
+out="$(lib cases 'RESTART_STAGE=smoke restart_cases | paste -sd" "; RESTART_STAGE=full restart_cases | paste -sd" "; RESTART_STAGE= restart_cases; echo "rc=$?"')"
+want_cases="reference no-rng-control dcgm-1 terminate-wait-1"$'\n'"reference no-rng-control rank-kill-1 rank-kill-2 dcgm-1 dcgm-2 terminate-spare-1 terminate-spare-2 terminate-wait-1 terminate-wait-2"
+if [[ "$out" == "$want_cases"$'\n'*"not smoke or full"*"rc=1" ]]; then ok "smoke's four cases, full's ten in the registered order, and no stage refused"; else bad "the cases: $out"; fi
+
+# The budget is the sum of the enforced shares: preparation 4,080 s, each slot its pre share, 1,380 s of submission,
+# run, evidence, retirement and files, 180 s more for a DCGM reset, and 900 s of scale-down.
+budget() {
+  lib budget "WAIT_GPU_NODE=900 WAIT_GPU_PLUGIN=600 WAIT_QUAL_RUN=1500 WAIT_GPU_GONE=600; $1"
+}
+out="$(budget 'RESTART_STAGE=smoke; prev=; for c in $(restart_cases); do printf "%s=%s " $c $(restart_slot_seconds $c "$prev"); prev=$c; done; restart_gpu_budget')"
+if [[ "$out" == "reference=1680 no-rng-control=1680 dcgm-1=1860 terminate-wait-1=2280 12480" ]]; then
+  ok "smoke's slots and its GPU budget: $out"
+else
+  bad "smoke's slots: $out"
+fi
+out="$(budget 'RESTART_STAGE=full; restart_gpu_budget; restart_ttl_refusal full 524 "$(restart_gpu_budget)" 1200; echo "rc=$?"')"
+if [[ "$out" == "26640"$'\n'*"covers its 524"*"rc=0" ]]; then ok "full at its two repetitions fits: $(tail -2 <<<"$out" | head -1)"; else bad "full at two: $out"; fi
+# The registered five, and three, are refused whatever TTL_MINUTES says, because no credential the account issues covers them.
+for reps in 3:689:729 5:1019:1059; do
+  out="$(budget "RESTART_STAGE=full RESTART_REPS=${reps%%:*}; restart_ttl_refusal full 660 \"\$(restart_gpu_budget)\" 1200; echo \"rc=\$?\"")"
+  want="needs TTL_MINUTES of at least $(cut -d: -f2 <<<"$reps"), and with the 40-minute destroy ${reps##*:} min of credential"
+  if [[ "$out" == *"$want"*"cannot run as one session"*"rc=1" ]]; then ok "full at ${reps%%:*} repetitions is refused: $want"; else bad "full at ${reps%%:*}: $out"; fi
+done
+
+# The first nodes are warmed in parallel under one deadline: every warm-up Pod is created before the first wait, and
+# each wait is given what is left of the one deadline, not a budget of its own.
+mkdir -p "$work/rules/warm" "$work/out/warm"
+cat >"$work/rules/warm/kubectl.sh" <<'EOF'
+case "$*" in
+  *"get nodes"*) printf 'node-a\nnode-b\nnode-c\n' ;;
+  *" wait "*) sleep 1 ;;
+esac
+EOF
+: >"$work/out/warm/warmed.txt"
+out="$(lib warm 'restart_prepare_nodes "$RESTART_OUT/warmed.txt" $((SECONDS + 30)); echo "rc=$?"')"
+last_create="$(grep -n 'apply -f -' "$work/warm.calls" | tail -1 | cut -d: -f1)"
+first_wait="$(grep -n ' wait ' "$work/warm.calls" | head -1 | cut -d: -f1)"
+timeouts="$(grep -oE -- '--timeout=[0-9]+s' "$work/warm.calls" | paste -sd' ')"
+if [[ "$out" == *"rc=0" && "$last_create" -lt "$first_wait" && "$timeouts" =~ ^--timeout=(30|29)s\ --timeout=(29|28)s\ --timeout=(28|27)s$ &&
+  "$(paste -sd' ' "$work/out/warm/warmed.txt")" == "node-a node-b node-c" ]]; then
+  ok "three warm-ups started before the first wait, each wait the rest of one deadline: $timeouts"
+else
+  bad "the parallel warm-up: $out; create at $last_create, first wait at $first_wait, $timeouts"
+fi
+
+# A failed read of the taints is not "no node tainted".
+mkdir -p "$work/rules/taints"
+cat >"$work/rules/taints/kubectl.sh" <<'EOF'
+case "$*" in
+  *"jsonpath"*"taints"*) echo "Unable to connect to the server" >&2; exit 1 ;;
+  *"get nodes"*"-o name"*) printf 'node/a\nnode/b\n' ;;
+  *"get nodes -l eks.amazonaws.com/nodegroup=gpu -o json"*)
+    echo '{"items": [{"metadata": {"name": "a"}, "spec": {"providerID": "aws:///x/i-0a"}, "status": {"conditions": [{"type": "Ready", "status": "True"}], "allocatable": {"nvidia.com/gpu": "1"}}},
+                     {"metadata": {"name": "b"}, "spec": {"providerID": "aws:///x/i-0b"}, "status": {"conditions": [{"type": "Ready", "status": "True"}], "allocatable": {"nvidia.com/gpu": "1"}}}]}' ;;
+  *"get pods -A -l app.kubernetes.io/component=nvidia-device-plugin"*)
+    echo '{"items": [{"spec": {"nodeName": "a"}, "status": {"conditions": [{"type": "Ready", "status": "True"}]}}, {"spec": {"nodeName": "b"}, "status": {"conditions": [{"type": "Ready", "status": "True"}]}}]}' ;;
+esac
+EOF
+out="$(lib taints 'RESTART_INSTANCES_FILE="$RESTART_OUT/instances"; TRAIN_POLL=0; restart_wait_group 2 5; echo "rc=$?"')"
+if [[ "$out" == *"could not read the GPU nodes' taints"*"rc=1" ]]; then ok "an unreadable taint list refuses the group"; else bad "the unreadable taints: $out"; fi
 out="$(lib volume 'restart_render_volume "" train-a; echo "rc=$?"; restart_render_volume fs-0123456789abcdef0 train-a | grep -c "volumeHandle: fs-0123456789abcdef0\|ReadWriteMany"')"
 if [[ "$out" == *"is not one"*"rc=1"*"3" ]]; then ok "the volume refuses an empty file system ID and renders a RWX volume naming it"; else bad "the volume: $out"; fi
 
