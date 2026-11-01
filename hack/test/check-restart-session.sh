@@ -170,9 +170,14 @@ if [[ "$marks" == "fault-start fault-end terminated-read fenced" && "$annotation
 else
   bad "the fencing order was '$marks' with $annotations annotation(s): $out"
 fi
-first_describe=$(grep -n 'describe-instances' "$work/fence.calls" | tail -1 | cut -d: -f1)
+describes=$(grep -c 'describe-instances' "$work/fence.calls")
+last_describe=$(grep -n 'describe-instances' "$work/fence.calls" | tail -1 | cut -d: -f1)
 annotate_at=$(grep -n 'annotate' "$work/fence.calls" | cut -d: -f1)
-if [[ -n "$annotate_at" && "$annotate_at" -gt "$first_describe" ]]; then ok "the annotation follows the third describe"; else bad "the annotation did not follow the describes"; fi
+if [[ "$describes" == 3 && -n "$annotate_at" && "$annotate_at" -gt "$last_describe" ]]; then
+  ok "the annotation follows the third describe, the first to say terminated"
+else
+  bad "$describes describe(s) before the annotation, want 3: neither shutting-down nor an unreadable answer is off"
+fi
 
 mkdir -p "$work/rules/never"
 cat >"$work/rules/never/aws.sh" <<'EOF'
