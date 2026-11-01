@@ -20,16 +20,16 @@ FAILED: list[str] = []
 NFS_CASES = ("nfs-kill-before-fsync", "nfs-kill-before-manifest", "nfs-kill-before-latest", "nfs-kill-after-latest",
              "nfs-corrupt-published", "nfs-vis-efs", "nfs-vis-long")
 CASES = ("reference", "rank-failed", "stale-workload", "deactivated", "node-lost", "cut-writer", "cut-writer-early") + NFS_CASES
-# Each NFS case's fault as (point, step, rank), and the step attempt 2 must resume from; None where the case observes
-# rather than predicts, as the visibility cases do.
+# Each NFS case's fault as (point, step, rank), and the step attempt 2 must resume from.
+# The visibility cases must resume from the step LATEST names: a probed cache may delay a shard, never lose it.
 NFS_FAULTS = {
     "nfs-kill-before-fsync": (("kill-before-fsync", 6, 1), 5),
     "nfs-kill-before-manifest": (("kill-before-manifest", 6, 0), 5),
     "nfs-kill-before-latest": (("kill-before-latest", 6, 0), 5),
     "nfs-kill-after-latest": (("kill-after-latest", 6, 0), 6),
     "nfs-corrupt-published": (("kill-after-latest", 6, 0), 5),
-    "nfs-vis-efs": (("kill-after-latest", 8, 0), None),
-    "nfs-vis-long": (("kill-after-latest", 8, 0), None),
+    "nfs-vis-efs": (("kill-after-latest", 8, 0), 8),
+    "nfs-vis-long": (("kill-after-latest", 8, 0), 8),
 }
 # The options AWS recommends for EFS, as the kernel reports them in a mount's super options.
 EFS_SUPER = ("vers=4.1", "rsize=1048576", "wsize=1048576", "hard", "timeo=600", "retrans=2", "noresvport")
@@ -602,10 +602,7 @@ def nfs_case(case: Case, reference: list[float] | None, provenance: dict) -> Non
               and own[0].get("hash_ok") is False,
               f"rejections {rejected}; rank 1's check of it {[(r.get('visible'), r.get('hash_ok')) for r in own]}")
 
-    if want is not None:
-        restarted(case, reference, want)
-    else:
-        vis_outcome(case, reference)
+    restarted(case, reference, want)
 
     # A resume is trusted only if what it loaded was complete on the storage when attempt 2 started.
     resumes = [r for r in case.records if r.get("event") == "resume" and r.get("attempt") == 2]
@@ -636,23 +633,6 @@ def nfs_case(case: Case, reference: list[float] | None, provenance: dict) -> Non
         vis(case, job, n1, n2, s2, checks, provenance)
 
 
-def vis_outcome(case: Case, reference: list[float] | None) -> None:
-    """A visibility case's end: attempt 2 succeeded, its ranks agreed on where to start, and it trained as the reference."""
-    c = case.name
-    a = case.attempts
-    check(f"{c} succeeded on attempt 2", case.status.get("phase") == "Succeeded" and len(a) == 2,
-          f"phase {case.status.get('phase')}, attempts {len(a)}")
-    resumes = case.rank_resumes(2)
-    zero = sorted({r.get("rank") for r in case.records if r.get("event") == "restart_from_zero" and r.get("attempt") == 2})
-    together = (sorted(resumes) == list(range(case.world())) and len(set(resumes.values())) == 1 and not zero) or \
-        (not resumes and zero == list(range(case.world())))
-    check(f"{c} every rank resumed from one checkpoint, or every rank restarted from zero", together,
-          f"resumes {resumes}; restarted from zero {zero}")
-    params = case.rank_params(2)
-    same = reference is not None and sorted(params) == list(range(case.world())) and all(p == reference for p in params.values())
-    check(f"{c} same training as the reference on every rank", same, f"ranks {sorted(params)} recorded final parameters")
-
-
 def vis(case: Case, job: str, n1: dict[int, str], n2: dict[int, str], s2: dict[int, dict], checks: list[dict],
         provenance: dict) -> None:
     c = case.name
@@ -669,7 +649,9 @@ def vis(case: Case, job: str, n1: dict[int, str], n2: dict[int, str], s2: dict[i
     shared = [r for r in fresh if (started.get(n2[r], {}).get("watch") or {}).get("dev") == s2.get(r, {}).get("dev")]
     # The provocation took only if that node's prober looked the rank's shard of the checkpoint attempt 2 was offered
     # first up and found it absent, through a mount with the case's options, while discovering through an uncached one.
-    first = next((r.get("latest") for r in case.records if r.get("event") == "candidates" and r.get("attempt") == 2), None)
+    # The first offer, which is LATEST's checkpoint when rank 0 could read LATEST and the newest manifest otherwise.
+    first = next(((r.get("offered") or [None])[0] for r in case.records
+                  if r.get("event") == "candidates" and r.get("attempt") == 2), None)
     claim = "shared-long" if c == "nfs-vis-long" else "shared"
     poisoned = [r for r in shared
                 if any(p.get("event") == "probe" and p["node"] == n2[r] and p["dir"] == first and p["rank"] == r
@@ -698,11 +680,20 @@ def vis(case: Case, job: str, n1: dict[int, str], n2: dict[int, str], s2: dict[i
     info(f"{c} probers' delays from a shard's mtime to first seeing it, after having looked it up absent",
          f"{len(delays)} shards, min {min(delays, default=float('nan')):.1f} s, max {max(delays, default=float('nan')):.1f} s; "
          f"never seen before the case ended: {len(never)} {never[:6]}")
-    if c == "nfs-vis-long":
-        hidden = [r for r in checks if r.get("visible") is False and r.get("listed") is True
-                  and r.get("looks") == (r.get("errors") and len(r["errors"])) and set(r.get("errors") or []) == {2}]
-        check(f"{c} a rank found its shard absent through every look while its directory listed it", bool(hidden),
-              f"{len(hidden)} such checks: {[(r.get('rank'), r.get('dir'), r.get('looks')) for r in hidden]}")
+    # A shard the storage held as its manifest says, refused because the rank could not see it, is a checkpoint lost to
+    # the client's cache; the first recorded run over NFS lost every checkpoint of attempt 1 that way.
+    files, _, manifests, shas = snapshot(case, "held")
+    lost = []
+    for r in checks:
+        m = manifests.get(f"{job}/{r.get('dir')}/MANIFEST") or {}
+        entry = next((s for s in m.get("shards", []) if s["rank"] == r.get("rank")), None)
+        if r.get("visible") is False and entry and shas.get(f"{job}/{r['dir']}/{entry['file']}") == entry["sha256"]:
+            lost.append((r.get("rank"), r.get("dir"), r.get("looks"), r.get("listed")))
+    check(f"{c} no rank refused a shard the storage held as its manifest says", not lost,
+          f"{len(lost)} such refusals {lost[:4]}")
+    recovered = [(r.get("rank"), r.get("dir"), r.get("looks"), r.get("errors")) for r in checks
+                 if r.get("visible") is True and (r.get("looks") or 0) > 1]
+    info(f"{c} shard checks that found their shard on a later look", f"{len(recovered)}: {recovered}")
 
 
 def main() -> int:
