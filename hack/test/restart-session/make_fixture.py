@@ -352,6 +352,38 @@ def defect(out: pathlib.Path, name: str, case: str) -> None:
         rows = [json.loads(line) for line in (d / "timeline.jsonl").read_text().splitlines()]
         rows.insert(1, {**rows[-1], "observed": iso(fenced - 20)})
         (d / "timeline.jsonl").write_text("".join(json.dumps(r, sort_keys=True) + "\n" for r in rows))
+    elif name in ("wait-on-spare", "name-reused", "spare-on-replacement", "on-terminated-node"):
+        # Attempt 2's rank 1 is moved to another node, in the controller's status and in the collector's Pod list alike.
+        spare, target, fourth = "ip-10-0-64-13", "ip-10-0-64-12", "ip-10-0-64-14"
+        to = {"wait-on-spare": spare, "spare-on-replacement": fourth}.get(name, target)
+        edit_json(d / "final-mltj.json", lambda m: m["status"]["attempts"][1].update(nodes=sorted({"ip-10-0-64-11", to})))
+        edit_json_lines(d / "pods.jsonl", lambda p: {**p, "node": to} if p["uid"].endswith("a2-r1") else p)
+        probes = [json.loads(line) for line in (d / "clock.jsonl").read_text().splitlines()]
+        if name == "wait-on-spare":
+            # The group held a third node before the fault, which terminate-wait registers it does not.
+            for f in ("nodes-before.json", "nodes-after.json"):
+                edit_json(d / f, lambda n: n["items"].append({"metadata": {"name": spare, "uid": node_uid(spare, case)},
+                                                              "spec": {"providerID": f"aws:///ap-northeast-2a/{NODES[spare][0]}"}}))
+            probes += [{**p, "node": spare, "node_time": p["node_time"] - NODES["ip-10-0-64-11"][1] + NODES[spare][1]}
+                       for p in probes if p["node"] == "ip-10-0-64-11"]
+        elif name == "name-reused":
+            # The machine the group launched took the terminated node's name: same name, another Node.
+            edit_json(d / "nodes-after.json", lambda n: n["items"].append({"metadata": {"name": target, "uid": f"uid-{target}-new"},
+                                                                           "spec": {"providerID": "aws:///ap-northeast-2a/i-0bbb0000000000009"}}))
+            probes += [{**p, "node": target, "node_time": p["node_time"] - NODES["ip-10-0-64-11"][1] + NODES[target][1]}
+                       for p in probes if p["node"] == "ip-10-0-64-11" and p["when"] == "after"]
+        elif name == "on-terminated-node":
+            # The target is still there afterwards, as the same Node, and attempt 2 ran on it.
+            edit_json(d / "nodes-after.json", lambda n: n["items"].append({"metadata": {"name": target, "uid": node_uid(target, case)},
+                                                                           "spec": {"providerID": f"aws:///ap-northeast-2a/{NODES[target][0]}"}}))
+        (d / "clock.jsonl").write_text("".join(json.dumps(p) + "\n" for p in probes))
+    elif name == "spare-unprepared":
+        edit_json_lines(out / "nodes-prepared.jsonl", lambda p: None if p["node"] == "ip-10-0-64-13" else p)
+    elif name in ("drop-node-before", "drop-node-after"):
+        which, node = ("nodes-before.json", "ip-10-0-64-11") if name == "drop-node-before" else ("nodes-after.json", "ip-10-0-64-13")
+        edit_json(d / which, lambda n: n.update(items=[i for i in n["items"] if i["metadata"]["name"] != node]))
+    elif name == "no-nodes-after":
+        (d / "nodes-after.json").unlink()
     elif name == "no-created-at":
         edit_json(d / "final-mltj.json", lambda m: m["status"]["attempts"][1].pop("createdAt"))
     elif name == "no-timeline":

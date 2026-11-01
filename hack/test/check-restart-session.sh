@@ -377,6 +377,19 @@ score created-before-fence terminate-wait-3 FAILED "attempt 2 was created at"
 score seen-before-fence terminate-spare-2 FAILED "attempt 2 was already in the job's status at"
 score no-timeline terminate-wait-4 VOID "no timeline of the job's status"
 score no-created-at terminate-wait-5 VOID "attempt 2 has no createdAt"
+# The recovery class is read from Node UIDs and the nodes the runner prepared, not from names alone.
+score wait-on-spare terminate-wait-1 VOID "terminate-wait recovered on ['ip-10-0-64-11', 'ip-10-0-64-13'], every one up before the fault"
+score name-reused terminate-spare-2 ACCEPTED '"class": "replacement"'
+score on-terminated-node terminate-spare-3 VOID "attempt 2 ran on ip-10-0-64-12, the node that was terminated"
+score spare-unprepared dcgm-2 VOID "attempt 2 ran on ['ip-10-0-64-13'], up before the fault but not prepared before it"
+score no-nodes-after rank-kill-3 VOID "the nodes after the recovery were not recorded"
+score drop-node-before rank-kill-4 VOID "attempt 1's nodes ['ip-10-0-64-11'] are not among the nodes before the fault"
+score drop-node-after dcgm-4 VOID "attempt 2's nodes ['ip-10-0-64-13'] are not among the nodes after the recovery"
+# A terminate-spare that recovered on a replacement is reported as one, and said so apart from the spare figures.
+score spare-on-replacement terminate-spare-4 ACCEPTED '"class": "replacement"'
+out="$(python3 experiments/distributed-restart/score_eks.py "$work/run-spare-on-replacement-terminate-spare-4" 2>&1)"
+want="terminate-spare: 1 of 5 accepted recovered on a replacement, not the spare"
+if grep -qF "$want" <<<"$out"; then ok "the summary says '$want'"; else bad "the summary lacks '$want': $(grep -A3 'terminate-spare:' <<<"$out" | paste -sd'|')"; fi
 score cpu-backend rank-kill-1 VOID "trained with 'gloo' on 'cpu'"
 score missing-case dcgm-3 VOID "its directory is missing"
 score voided terminate-spare-1 VOID "the runner voided it"

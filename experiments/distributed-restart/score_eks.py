@@ -433,18 +433,45 @@ class Case:
             return self.runner_time({"ts": dcgm["injected_at"], "_node": dcgm["node"]}), self.clock(dcgm["node"])[1]
         return epoch(self.marks["fault-start"]), 0.0
 
-    def recovery_class(self) -> str:
+    def recovery_class(self, fault: float) -> str:
+        """same-nodes, spare or replacement, by the Node each name was, read from the cluster before and after.
+
+        Names alone called a replacement that took the terminated node's name same-nodes, and a terminate-wait that
+        recovered on a node up before the fault a spare (codex review of f57e11a1).
+        A Node's UID is new for every Node object, so a machine the group launched is told apart whatever its name.
+        """
         a1 = set(self.attempts[0].get("nodes") or [])
         a2 = set(self.attempts[1].get("nodes") or [])
-        nodes = json.loads((self.dir / "nodes-before.json").read_text()) if (self.dir / "nodes-before.json").exists() else None
-        if not a1 or not a2 or nodes is None:
-            void("the attempts' nodes or the nodes before the fault were not recorded")
-        before = {n["metadata"]["name"] for n in nodes.get("items", [])}
-        if a2 <= a1:
+        if not a1 or not a2:
+            void("the attempts' nodes were not recorded")
+        for name in ("nodes-before.json", "nodes-after.json"):
+            if not (self.dir / name).exists():
+                void(f"the nodes {'before the fault' if 'before' in name else 'after the recovery'} were not recorded")
+        before = {n["metadata"]["name"]: n["metadata"]["uid"] for n in json.loads((self.dir / "nodes-before.json").read_text())["items"]}
+        after = {n["metadata"]["name"]: n["metadata"]["uid"] for n in json.loads((self.dir / "nodes-after.json").read_text())["items"]}
+        if not a1 <= set(before):
+            void(f"attempt 1's nodes {sorted(a1 - set(before))} are not among the nodes before the fault")
+        if not a2 <= set(after):
+            void(f"attempt 2's nodes {sorted(a2 - set(after))} are not among the nodes after the recovery, so which machines they were is not shown")
+        if self.terminated and after.get(self.terminated) == before.get(self.terminated) and self.terminated in a2:
+            void(f"attempt 2 ran on {self.terminated}, the node that was terminated, as the same Node")
+        new = sorted(n for n in a2 if after[n] not in set(before.values()))
+        # terminate-wait runs with the group at two, so its recovery must wait for a machine the group launches.
+        if self.kind == "terminate-wait" and not new:
+            void(f"terminate-wait recovered on {sorted(a2)}, every one up before the fault, so no replacement was waited for")
+        if new:
+            return "replacement"
+        if {after[n] for n in a2} <= {before[n] for n in a1}:
             return "same-nodes"
-        if a2 <= before:
-            return "spare"
-        return "replacement"
+        # A spare is a node up and prepared before the fault; one up but never prepared had its first pull and mount
+        # inside the recovery, which is neither what a spare nor what a replacement registers.
+        prepared: dict[str, float] = {}
+        for row in jsonl(self.dir.parent / "nodes-prepared.jsonl"):
+            prepared[row["node"]] = min(prepared.get(row["node"], math.inf), epoch(row["prepared_at"]))
+        late = sorted(n for n in a2 - a1 if prepared.get(n, math.inf) > fault)
+        if late:
+            void(f"attempt 2 ran on {late}, up before the fault but not prepared before it (nodes-prepared.jsonl)")
+        return "spare"
 
     def score(self) -> None:
         self.load()
@@ -498,7 +525,7 @@ class Case:
             # How far the recovery can be off for the clocks alone: the fault's clock and the worst of attempt 2's.
             "clock_uncertainty_s": fault_uncertainty + max(self.clock(n)[1] for n in nodes),
             "lost_steps": lost_from - resumed["from_step"],
-            "class": self.recovery_class(),
+            "class": self.recovery_class(fault),
             "params_gap": gap,
             "checkpoint_s": self.save_costs(1) + self.save_costs(2),
             **resumed,
@@ -577,7 +604,14 @@ def main(argv: list[str]) -> int:
                 print(f"    {cls}: recovery median {statistics.median(rec):.1f} s, range {min(rec):.1f} to {max(rec):.1f} s, "
                       f"lost steps {sorted(lost)}, over {len(rec)} accepted; the {counts['FAILED']} FAILED are censored at "
                       f"their budget and not in these figures")
-    costs = [c for n in cases if verdicts[n][0] == "ACCEPTED" for c in scored[n].figures.get("checkpoint_s", [])]
+        # The registration counts a terminate-spare that recovered on a replacement as a replacement, never as a spare,
+        # and says so here, so a spare figure over fewer cases than ran is not read as every spare recovery.
+        if kind == "terminate-spare":
+            moved = [n for n in names if verdicts[n][0] == "ACCEPTED" and scored[n].figures.get("class") == "replacement"]
+            if moved:
+                print(f"    terminate-spare: {len(moved)} of {counts['ACCEPTED']} accepted recovered on a replacement, not the "
+                      f"spare ({', '.join(moved)}), and are in its replacement figures only")
+    costs =[c for n in cases if verdicts[n][0] == "ACCEPTED" for c in scored[n].figures.get("checkpoint_s", [])]
     if costs:
         print(f"  checkpoint cost: median {statistics.median(costs):.3f} s, max {max(costs):.3f} s over {len(costs)} saves")
     return 0 if all(v[0] == "ACCEPTED" for v in verdicts.values()) else 1
