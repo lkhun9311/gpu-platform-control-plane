@@ -1,0 +1,19 @@
+# The trainer's NCCL mode, on the CUDA torch image every EKS training session of this repository already pins.
+#
+# torch 2.5.1+cu124, CUDA 12.4 and NCCL 2.21.5, as its ranks recorded in hack/four-gpu, so the torch version is the CPU
+# image's (Dockerfile, torch==2.5.1) and the two modes differ in device and backend only.
+# By digest, because a tag can move between the rehearsal and the paid session.
+#
+# This image is not pushed anywhere.
+# The paid session runs the same base image with train.py carried in the command and checked by its sha256
+# (hack/lib/ddp-arms.sh, ddp_prelude_for), so nothing has to be published to run it; this file makes the same thing
+# buildable locally, where torch's import and the nccl refusal on a machine without a GPU can be tried.
+FROM docker.io/pytorch/pytorch@sha256:c8268a92a69bd500f8be0e665b2630ee006dadaf7bfbc24249141b15ff622755
+
+WORKDIR /work
+
+COPY train.py /work/train.py
+
+# A launcher, not exec: as a container's PID 1 the trainer refuses to fire a kill fault, because the kernel drops a
+# SIGKILL that PID 1 sends itself.
+CMD ["sh", "-c", "python /work/train.py"]

@@ -1,4 +1,4 @@
-"""Multi-rank gloo DDP whose checkpoint survives a whole-job restart on a shared volume.
+"""Multi-rank DDP, gloo on CPU or NCCL on CUDA, whose checkpoint survives a whole-job restart on a shared volume.
 
 experiments/checkpoint-resume/train.py proved one Pod can resume the same training from a node-local volume.
 A restartable distributed MLTrainingJob starts every rank again, on other nodes, reading what all ranks wrote to a
@@ -65,6 +65,13 @@ HEARTBEAT = float(os.environ.get("CKPT_HEARTBEAT", "0"))
 # It stands in for a process the platform cannot reach and that does not exit, such as one blocked in a collective under
 # torch's 30-minute default while a background writer runs; it is the writer the fencing acknowledgement exists for.
 LINGER = os.environ.get("CKPT_LINGER", "") == "1"
+# gloo on CPU, which every local and kind check runs, or nccl on one CUDA device per rank, which the paid session runs.
+# The default is gloo so that nothing that ran before this setting existed runs differently now.
+BACKEND = os.environ.get("CKPT_BACKEND", "gloo")
+BACKENDS = ("gloo", "nccl")
+# MiB of fixed bytes added to every shard, so the checkpoint cost the paid session measures on EFS is that of a stated
+# size rather than of a 4-8-1 MLP's few kilobytes; 0 adds nothing and leaves the shard as it was.
+BALLAST_MB = int(os.environ.get("CKPT_BALLAST_MB", "0"))
 
 LOAD_MODES = ("none", "full", "no-optimizer", "no-scheduler", "no-sampler", "no-rng")
 # kill-before-fsync: the rank dies with its shard written but not synced or renamed.
@@ -84,6 +91,9 @@ DATASET_SIZE = 40
 LR_STEP, LR_GAMMA = 4, 0.5
 TRUE_W = torch.tensor([[1.0], [-2.0], [0.5], [3.0]])
 CKPT_DIR_RE = re.compile(r"^(\d{8})-([0-9a-f]{32})$")
+# Where the tensors of this rank's collectives live: NCCL moves only CUDA tensors, gloo these CPU ones.
+# main sets it once, before the process group exists, and gloo keeps the CPU device every check has always used.
+COMM_DEVICE = torch.device("cpu")
 
 
 def emit(rank: int, event: str, **fields: object) -> None:
@@ -119,9 +129,10 @@ def broadcast_json(obj: object, rank: int) -> object:
     Spelled with tensors because torch's object collectives decode through numpy, which the CPU torch image lacks.
     """
     data = json.dumps(obj).encode() if rank == 0 else b""
-    size = torch.tensor([len(data)])
+    size = torch.tensor([len(data)], device=COMM_DEVICE)
     dist.broadcast(size, src=0)
-    buf = torch.tensor(list(data), dtype=torch.uint8) if rank == 0 else torch.empty(int(size.item()), dtype=torch.uint8)
+    buf = (torch.tensor(list(data), dtype=torch.uint8, device=COMM_DEVICE) if rank == 0
+           else torch.empty(int(size.item()), dtype=torch.uint8, device=COMM_DEVICE))
     dist.broadcast(buf, src=0)
     return json.loads(bytes(buf.tolist()))
 
@@ -129,12 +140,12 @@ def broadcast_json(obj: object, rank: int) -> object:
 def gather_json(obj: object, world: int) -> list:
     """Every rank's obj, in rank order, on every rank."""
     data = json.dumps(obj).encode()
-    sizes = [torch.zeros(1, dtype=torch.long) for _ in range(world)]
-    dist.all_gather(sizes, torch.tensor([len(data)]))
+    sizes = [torch.zeros(1, dtype=torch.long, device=COMM_DEVICE) for _ in range(world)]
+    dist.all_gather(sizes, torch.tensor([len(data)], device=COMM_DEVICE))
     width = max(int(s.item()) for s in sizes)
-    padded = torch.zeros(width, dtype=torch.uint8)
-    padded[:len(data)] = torch.tensor(list(data), dtype=torch.uint8)
-    bufs = [torch.zeros(width, dtype=torch.uint8) for _ in range(world)]
+    padded = torch.zeros(width, dtype=torch.uint8, device=COMM_DEVICE)
+    padded[:len(data)] = torch.tensor(list(data), dtype=torch.uint8, device=COMM_DEVICE)
+    bufs = [torch.zeros(width, dtype=torch.uint8, device=COMM_DEVICE) for _ in range(world)]
     dist.all_gather(bufs, padded)
     return [json.loads(bytes(b[:int(s.item())].tolist())) for b, s in zip(bufs, sizes)]
 
@@ -239,6 +250,8 @@ class Fault:
 
 def save(rank: int, world: int, step: int, state: dict, fault: Fault) -> None:
     """Writes one checkpoint of every rank's state and publishes it, or refuses it with every rank knowing."""
+    # Monotonic, so the checkpoint cost the record carries is this rank's own interval and no clock step can move it.
+    started = time.monotonic()
     # The ranks agree on the step and on a name nothing has used; rank 0's choice is the one that counts.
     ident = broadcast_json([step, uuid.uuid4().hex], rank)
     if ident[0] != step:
@@ -283,7 +296,8 @@ def save(rank: int, world: int, step: int, state: dict, fault: Fault) -> None:
             fault.fire(rank, step)
     # Held until LATEST names this checkpoint, so no rank runs ahead of what a restart would resume from.
     dist.barrier()
-    emit(rank, "checkpoint", step=step, dir=os.path.relpath(ckpt, ROOT))
+    # Through the barrier, so the cost is what training waited for: the slowest rank's write and the publication.
+    emit(rank, "checkpoint", step=step, dir=os.path.relpath(ckpt, ROOT), save_s=time.monotonic() - started)
 
 
 def candidates() -> list[str]:
@@ -342,7 +356,7 @@ def choose(rank: int, world: int) -> tuple[str, dict] | None:
     for i in range(count):
         rel, manifest = broadcast_json([offers[i], manifest_ok(offers[i], world)] if rank == 0 else None, rank)
         ok = manifest is not None and shard_ok(rel, manifest, rank)
-        verdict = torch.tensor([1 if ok else 0])
+        verdict = torch.tensor([1 if ok else 0], device=COMM_DEVICE)
         dist.all_reduce(verdict, op=dist.ReduceOp.MIN)
         if verdict.item() == 1:
             return rel, manifest
@@ -359,15 +373,41 @@ def synthetic_dataset() -> TensorDataset:
 
 
 def capture(step: int, model: nn.Module, optimiser: torch.optim.Optimizer,
-            scheduler: torch.optim.lr_scheduler.LRScheduler, epoch: int, position: int) -> dict:
+            scheduler: torch.optim.lr_scheduler.LRScheduler, epoch: int, position: int,
+            ballast: torch.Tensor | None = None) -> dict:
     """This rank's whole training state after step, which every rank saves even where DDP replicates it."""
     state = {"step": step, "model": model.state_dict(), "optimizer": optimiser.state_dict(),
              "scheduler": scheduler.state_dict(), "sampler": {"epoch": epoch, "position": position},
              "rng": torch.get_rng_state()}
-    # Kept for a GPU run of the same trainer; the CPU image has no CUDA, so nothing here has saved or restored it.
+    # Saved whenever CUDA is present, which only the nccl mode's image provides; no CPU check saves or restores it.
     if torch.cuda.is_available():
         state["cuda_rng"] = torch.cuda.get_rng_state_all()
+    # Saved and never restored: it is there to give the write its size, and loading it would change nothing.
+    if ballast is not None:
+        state["ballast"] = ballast
     return state
+
+
+def select_device(rank: int) -> torch.device | None:
+    """The device this rank trains and communicates on, or None, with a refusal recorded, when the backend cannot run.
+
+    Decided before the process group exists, so a rank that refuses leaves its peers a failed rendezvous to report
+    rather than a collective that waits the whole COLLECTIVE_TIMEOUT for it.
+    """
+    if BACKEND == "gloo":
+        return torch.device("cpu")
+    # A CPU image would otherwise reach init_process_group and fail inside NCCL, or worse, a gloo fallback in some later
+    # edit would train on the CPU and be reported as a GPU run.
+    if not torch.cuda.is_available():
+        emit(rank, "refused", reason="CKPT_BACKEND=nccl and CUDA is not available")
+        return None
+    local = os.environ.get("LOCAL_RANK", "0")
+    # One rank per GPU: a LOCAL_RANK naming a device the Pod cannot see would put two ranks on one card.
+    if not local.isdigit() or int(local) >= torch.cuda.device_count():
+        emit(rank, "refused", reason=f"LOCAL_RANK={local!r} with {torch.cuda.device_count()} visible device(s)")
+        return None
+    torch.cuda.set_device(int(local))
+    return torch.device("cuda", int(local))
 
 
 def main() -> int:
@@ -395,16 +435,30 @@ def train() -> int:
     if LOAD_MODE not in LOAD_MODES:
         print(f"CKPT_LOAD={LOAD_MODE!r} is not one of {LOAD_MODES}", file=sys.stderr)
         return 2
+    if BACKEND not in BACKENDS:
+        print(f"CKPT_BACKEND={BACKEND!r} is not one of {BACKENDS}", file=sys.stderr)
+        return 2
+    if BALLAST_MB < 0:
+        print(f"CKPT_BALLAST_MB={BALLAST_MB} is negative", file=sys.stderr)
+        return 2
     rank = int(os.environ["RANK"])
     world = int(os.environ["WORLD_SIZE"])
+    device = select_device(rank)
+    if device is None:
+        return 3
+    global COMM_DEVICE
+    COMM_DEVICE = device
     torch.set_num_threads(1)
     torch.manual_seed(0)
-    dist.init_process_group(backend="gloo", timeout=datetime.timedelta(seconds=COLLECTIVE_TIMEOUT))
+    dist.init_process_group(backend=BACKEND, timeout=datetime.timedelta(seconds=COLLECTIVE_TIMEOUT))
     os.makedirs(ROOT, exist_ok=True)
     fault = Fault(FAULT)
+    # One fixed buffer, made once, so what a save's timing includes is the write and not building the bytes.
+    ballast = torch.full((BALLAST_MB << 20,), 7, dtype=torch.uint8, device=device) if BALLAST_MB else None
 
     # Dropout draws its masks from the global RNG, which is what makes that RNG part of the state a resume must restore.
-    model = nn.Sequential(nn.Linear(4, 8), nn.ReLU(), nn.Dropout(0.25), nn.Linear(8, 1))
+    # Built on the CPU and then moved, so its initial weights come from the same CPU draws under either backend.
+    model = nn.Sequential(nn.Linear(4, 8), nn.ReLU(), nn.Dropout(0.25), nn.Linear(8, 1)).to(device)
     dataset = synthetic_dataset()
     # drop_last, so every rank takes the same number of batches an epoch and no rank waits on a collective alone.
     sampler = DistributedSampler(dataset, num_replicas=world, rank=rank, shuffle=True, seed=0, drop_last=True)
@@ -418,7 +472,8 @@ def train() -> int:
     chosen = choose(rank, world) if LOAD_MODE != "none" else None
     if chosen is not None:
         rel, manifest = chosen
-        loaded = torch.load(os.path.join(ROOT, rel, f"rank-{rank}.pt"), weights_only=True)
+        # Mapped to this rank's device, because a shard written on another node's cuda:0 names a device by number only.
+        loaded = torch.load(os.path.join(ROOT, rel, f"rank-{rank}.pt"), weights_only=True, map_location=device)
         start_step = manifest["step"]
         model.load_state_dict(loaded["model"])
         if LOAD_MODE != "no-sampler":
@@ -429,7 +484,7 @@ def train() -> int:
         emit(rank, "restart_from_zero", load_mode=LOAD_MODE)
 
     # Loaded before DDP wraps the model, because DDP broadcasts rank 0's parameters at construction.
-    ddp = DDP(model)
+    ddp = DDP(model, device_ids=[device.index]) if device.type == "cuda" else DDP(model)
     optimiser = torch.optim.SGD(ddp.parameters(), lr=0.05, momentum=0.9)
     scheduler = torch.optim.lr_scheduler.StepLR(optimiser, step_size=LR_STEP, gamma=LR_GAMMA)
     if loaded is not None and LOAD_MODE != "no-optimizer":
@@ -438,14 +493,28 @@ def train() -> int:
         scheduler.load_state_dict(loaded["scheduler"])
     # Restored last, after building the model, so no draw made while constructing the run moves it off the saved state.
     if loaded is not None and LOAD_MODE != "no-rng":
-        torch.set_rng_state(loaded["rng"])
-        # The CPU image has no CUDA, so this branch has never run in any check here; it is untested.
+        # map_location moved every tensor to the device, and the RNG setters take CPU byte tensors only.
+        torch.set_rng_state(loaded["rng"].cpu())
+        # On a CUDA device the dropout masks come from the CUDA generator, not the global one, so a checkpoint written
+        # without its state, by a CPU attempt, is refused rather than resumed with a fresh CUDA RNG.
+        # Judged by the device this attempt trains on, not by whether the host has CUDA: gloo on a GPU host trains on
+        # the CPU and resumes a CPU checkpoint as it always did (codex review of 7e73d914).
+        if device.type == "cuda" and "cuda_rng" not in loaded:
+            emit(rank, "refused", reason=f"{rel} holds no CUDA RNG state and this attempt trains on CUDA")
+            return 3
         if torch.cuda.is_available() and "cuda_rng" in loaded:
-            torch.cuda.set_rng_state_all(loaded["cuda_rng"])
+            torch.cuda.set_rng_state_all([s.cpu() for s in loaded["cuda_rng"]])
 
+    cuda = {}
+    if device.type == "cuda":
+        # Which card and which libraries trained this attempt, read by the paid session's scorer.
+        props = torch.cuda.get_device_properties(device)
+        cuda = {"device_name": props.name, "gpu_uuid": str(props.uuid), "cuda_version": torch.version.cuda,
+                "nccl_version": ".".join(str(p) for p in torch.cuda.nccl.version()),
+                "nccl_env": {k: v for k, v in sorted(os.environ.items()) if k.startswith("NCCL_")}}
     emit(rank, "start", world_size=world, load_mode=LOAD_MODE, resumed_from_step=start_step, steps=STEPS,
          fault=FAULT, torch_version=torch.__version__, epoch=epoch, position=position,
-         lr=optimiser.param_groups[0]["lr"])
+         lr=optimiser.param_groups[0]["lr"], backend=BACKEND, device=str(device), ballast_mb=BALLAST_MB, **cuda)
 
     ddp.train()
     step = start_step
@@ -457,6 +526,7 @@ def train() -> int:
         order = list(sampler)
         while position < batches and step < STEPS:
             x, y = dataset[order[position * BATCH:(position + 1) * BATCH]]
+            x, y = x.to(device), y.to(device)
             step += 1
             position += 1
             optimiser.zero_grad()
@@ -467,7 +537,7 @@ def train() -> int:
             # The first step record of an attempt is what the experiment reads as training resumed, not Pod readiness.
             emit(rank, "step", step=step, loss=float(loss), digest=digest(model),
                  params=params(model) if step == STEPS else None)
-            save(rank, world, step, capture(step, model, optimiser, scheduler, epoch, position), fault)
+            save(rank, world, step, capture(step, model, optimiser, scheduler, epoch, position, ballast), fault)
             if STEP_SLEEP:
                 time.sleep(STEP_SLEEP)
         if position == batches:

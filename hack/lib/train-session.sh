@@ -24,8 +24,9 @@ train_node_count_refusal() {
     echo "gpu_max_nodes '$n' is not a whole number of nodes"
     return 1
   fi
-  if ((n < 1 || n > 2)); then
-    echo "gpu_max_nodes $n is outside the 1 to 2 the cluster root accepts"
+  # The same 1 to 3 as infra/aws/cluster/variables.tf, whose comment says why three.
+  if ((n < 1 || n > 3)); then
+    echo "gpu_max_nodes $n is outside the 1 to 3 the cluster root accepts"
     return 1
   fi
   echo "gpu_max_nodes $n"
