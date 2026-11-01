@@ -43,8 +43,9 @@ Two limits, both recorded in the run's own record:
 ## What it does establish
 
 **This operator absorbs about 144 reconciles per second at a p99 of 24.5ms with a single worker, and
-sustained zero errors across 1,437 reconciles.** That number is the ceiling any capacity argument has to
-start from, and it did not exist before this run.
+sustained zero errors across 1,437 reconciles**, in one 400-object burst. Because the queue never backed up,
+that is a rate the operator kept up with, not a demonstrated ceiling, and it counts reconciles, not jobs; it is
+where a capacity argument starts, and it did not exist before this run.
 
 ## What would actually stress it
 
