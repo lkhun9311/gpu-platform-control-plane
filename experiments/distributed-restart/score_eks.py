@@ -11,6 +11,9 @@ went well would report the fast half of the distribution as the whole.
 VOID means the apparatus did not deliver what the case registers (the fault did not reach its target, the evidence is
 missing, a clock cannot be trusted, NCCL ran over a transport nobody registered); FAILED means it did and the platform
 or the trainer did not recover as the case requires.
+A FAILED case is one of two: censored, when the job was still short of an end at its budget, so its recovery time is
+known only to exceed the budget; or not recovered, when the job ended, or recovered, other than as the case requires.
+The summary counts them apart, because a censored recovery is a slow one and the other is a wrong one.
 
 Exit 0 when every registered case is ACCEPTED, 1 when the run is complete and some case is not, 2 when the run itself is
 refused (dirty tree, a trainer other than the approved one, no registration).
@@ -44,19 +47,19 @@ FENCE_ANNOTATION = "platform.lkhun9311.github.io/fenced-nodes"
 
 
 class Verdict(Exception):
-    """The first condition a case did not meet, as VOID or FAILED."""
+    """The first condition a case did not meet, as VOID or FAILED, and for FAILED whether it is censored at its budget."""
 
-    def __init__(self, kind: str, reason: str) -> None:
+    def __init__(self, kind: str, reason: str, censored: bool = False) -> None:
         super().__init__(reason)
-        self.kind, self.reason = kind, reason
+        self.kind, self.reason, self.censored = kind, reason, censored
 
 
 def void(reason: str) -> None:
     raise Verdict("VOID", reason)
 
 
-def failed(reason: str) -> None:
-    raise Verdict("FAILED", reason)
+def failed(reason: str, censored: bool = False) -> None:
+    raise Verdict("FAILED", reason, censored)
 
 
 def records_in(text: str) -> list[dict]:
@@ -234,8 +237,12 @@ class Case:
     # --- the checks, in order -----------------------------------------------------------------------------------------
 
     def check_job(self, want_attempts: int) -> None:
-        if self.status.get("phase") != "Succeeded":
-            failed(f"the job ended {self.status.get('phase')!r}, not Succeeded, within its budget")
+        phase = self.status.get("phase")
+        if phase == "Failed":
+            failed(f"not recovered: the job ended {phase!r}, not Succeeded, within its budget")
+        # Anything short of an end is a recovery the budget cut off: censored, never a recovery that failed.
+        if phase != "Succeeded":
+            failed(f"censored at its budget: the job ended {phase!r}, not Succeeded, within its budget", censored=True)
         if len(self.attempts) != want_attempts:
             failed(f"{len(self.attempts)} attempt(s), want {want_attempts}")
         if want_attempts == 2 and self.attempts[0].get("trigger") != TRIGGER[self.kind]:
@@ -490,6 +497,7 @@ class Case:
             if spread > PARAM_TOLERANCE:
                 failed(f"the ranks ended {spread:.3g} apart, beyond {PARAM_TOLERANCE}")
             self.figures["checkpoint_s"] = self.save_costs(1)
+            self.figures["checkpoint"] = self.checkpoint_stats(1)
             return
         # Delivery, then the outcome, then the evidence the figures need, then what the recovery restored: a recovery
         # that timed out lacks attempt 2's records by its nature, and is FAILED, censored, not VOID for lacking them.
@@ -507,7 +515,7 @@ class Case:
             # Every rank must differ: a rank that matched the reference is one the comparison could not see the RNG through.
             if min(gaps.values()) <= PARAM_TOLERANCE:
                 failed(f"dropping the RNG left the parameters within {PARAM_TOLERANCE} of the reference ({min(gaps.values()):.3g})")
-            self.figures.update({"params_gap": gap, **resumed})
+            self.figures.update({"params_gap": gap, "checkpoint": self.checkpoint_stats(2), **resumed})
             return
         for rank, g in sorted(gaps.items()):
             if g > PARAM_TOLERANCE:
@@ -528,6 +536,7 @@ class Case:
             "class": self.recovery_class(fault),
             "params_gap": gap,
             "checkpoint_s": self.save_costs(1) + self.save_costs(2),
+            "checkpoint": self.checkpoint_stats(2),
             **resumed,
         })
         if self.figures["recovery_s"] <= 0:
@@ -535,6 +544,15 @@ class Case:
 
     def save_costs(self, attempt: int) -> list[float]:
         return [r["save_s"] for r in self.rec("checkpoint", attempt) if isinstance(r.get("save_s"), (int, float))]
+
+    def checkpoint_stats(self, attempts: int) -> dict:
+        """Every rank's save cost, as median and maximum per attempt, which the registration names as the figure."""
+        out = {}
+        for a in range(1, attempts + 1):
+            costs = self.save_costs(a)
+            out[f"a{a}"] = ({"saves": len(costs), "median_s": round(statistics.median(costs), 3), "max_s": round(max(costs), 3)}
+                            if costs else {"saves": 0})
+        return out
 
 
 def main(argv: list[str]) -> int:
@@ -561,7 +579,7 @@ def main(argv: list[str]) -> int:
         return 2
 
     steps = int(prov["steps"])
-    verdicts: dict[str, tuple[str, str]] = {}
+    verdicts: dict[str, tuple[str, str, bool]] = {}
     scored: dict[str, Case] = {}
     reference: list[float] | None = None
     if partial:
@@ -570,19 +588,19 @@ def main(argv: list[str]) -> int:
         case = Case(run, name, reference, steps)
         try:
             case.score()
-            verdicts[name] = ("ACCEPTED", "")
+            verdicts[name] = ("ACCEPTED", "", False)
         except Verdict as v:
-            verdicts[name] = (v.kind, v.reason)
+            verdicts[name] = (v.kind, v.reason, v.censored)
         except (ValueError, KeyError, TypeError, IndexError, OSError) as exc:
             # Evidence that cannot be read is that case's VOID, never the end of the report: an empty file left by
             # one failed kubectl call would otherwise leave every other case without a verdict (codex review of 830f64af).
-            verdicts[name] = ("VOID", f"its evidence could not be read: {type(exc).__name__}: {str(exc)[:120]}")
+            verdicts[name] = ("VOID", f"its evidence could not be read: {type(exc).__name__}: {str(exc)[:120]}", False)
         scored[name] = case
         if name == "reference":
             reference = case.final_params(1)[0] if verdicts[name][0] == "ACCEPTED" else None
 
     for name in cases:
-        kind, reason = verdicts[name]
+        kind, reason, _ = verdicts[name]
         fig = scored[name].figures
         shown = {k: (round(v, 3) if isinstance(v, float) else v) for k, v in fig.items() if k != "checkpoint_s"}
         print(f"{kind:8} {name}" + (f": {reason}" if reason else f" {json.dumps(shown, sort_keys=True)}"))
@@ -593,7 +611,10 @@ def main(argv: list[str]) -> int:
         if not names:
             continue
         counts = {v: sum(1 for n in names if verdicts[n][0] == v) for v in ("ACCEPTED", "FAILED", "VOID", "NOTRUN")}
-        print(f"  {kind}: {len(names)} registered, " + ", ".join(f"{c} {v}" for v, c in counts.items()))
+        censored = sum(1 for n in names if verdicts[n][0] == "FAILED" and verdicts[n][2])
+        wrong = counts["FAILED"] - censored
+        print(f"  {kind}: {len(names)} registered, {counts['ACCEPTED']} ACCEPTED, {counts['FAILED']} FAILED ({censored} censored "
+              f"at their budget, {wrong} not recovered), {counts['VOID']} VOID, {counts['NOTRUN']} NOTRUN")
         # Per recovery class, because spare and replacement recoveries are different claims and are never pooled.
         for cls in ("same-nodes", "spare", "replacement"):
             rec = [scored[n].figures["recovery_s"] for n in names
@@ -602,8 +623,8 @@ def main(argv: list[str]) -> int:
                     if verdicts[n][0] == "ACCEPTED" and scored[n].figures.get("class") == cls]
             if rec:
                 print(f"    {cls}: recovery median {statistics.median(rec):.1f} s, range {min(rec):.1f} to {max(rec):.1f} s, "
-                      f"lost steps {sorted(lost)}, over {len(rec)} accepted; the {counts['FAILED']} FAILED are censored at "
-                      f"their budget and not in these figures")
+                      f"lost steps {sorted(lost)}, over {len(rec)} accepted; the {censored} FAILED censored at their budget, "
+                      f"the {wrong} not recovered and the {counts['VOID']} VOID are not in these figures")
         # The registration counts a terminate-spare that recovered on a replacement as a replacement, never as a spare,
         # and says so here, so a spare figure over fewer cases than ran is not read as every spare recovery.
         if kind == "terminate-spare":
@@ -611,7 +632,7 @@ def main(argv: list[str]) -> int:
             if moved:
                 print(f"    terminate-spare: {len(moved)} of {counts['ACCEPTED']} accepted recovered on a replacement, not the "
                       f"spare ({', '.join(moved)}), and are in its replacement figures only")
-    costs =[c for n in cases if verdicts[n][0] == "ACCEPTED" for c in scored[n].figures.get("checkpoint_s", [])]
+    costs = [c for n in cases if verdicts[n][0] == "ACCEPTED" for c in scored[n].figures.get("checkpoint_s", [])]
     if costs:
         print(f"  checkpoint cost: median {statistics.median(costs):.3f} s, max {max(costs):.3f} s over {len(costs)} saves")
     return 0 if all(v[0] == "ACCEPTED" for v in verdicts.values()) else 1

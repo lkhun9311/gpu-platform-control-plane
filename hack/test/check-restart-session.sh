@@ -364,7 +364,20 @@ score resume-dir-step-mismatch dcgm-5 FAILED "names step 12 and the ranks say 13
 score manifest-unlisted terminate-wait-3 VOID "the volume's listing has no /rst-terminate-wait-3-010000-0a1b2c3d/a1/00000013-"
 score no-volume-listing dcgm-4 VOID "no listing of the job's files on the volume"
 score resume-gap terminate-spare-5 FAILED "rank 0 of attempt 2 resumed from step 13, and its steps lack [14, 15]"
-score timed-out terminate-wait-4 FAILED "ended 'Pending', not Succeeded"
+score timed-out terminate-wait-4 FAILED "censored at its budget: the job ended 'Pending', not Succeeded"
+score job-failed rank-kill-2 FAILED "not recovered: the job ended 'Failed', not Succeeded"
+# The summary keeps a recovery cut off by its budget apart from one that ended wrong, and both apart from VOID.
+for want in "timed-out terminate-wait-4:terminate-wait: 5 registered, 4 ACCEPTED, 1 FAILED (1 censored at their budget, 0 not recovered), 0 VOID" \
+  "job-failed rank-kill-2:rank-kill: 5 registered, 4 ACCEPTED, 1 FAILED (0 censored at their budget, 1 not recovered), 0 VOID" \
+  "manifest-unlisted terminate-wait-3:terminate-wait: 5 registered, 4 ACCEPTED, 0 FAILED (0 censored at their budget, 0 not recovered), 1 VOID"; do
+  run="$work/run-${want%%:*}"
+  run="${run/ /-}"
+  out="$(python3 experiments/distributed-restart/score_eks.py "$run" 2>&1)"
+  if grep -qF "${want#*:}" <<<"$out"; then ok "the summary says '${want#*:}'"; else bad "the summary lacks '${want#*:}': $(grep ' registered, ' <<<"$out" | paste -sd'|')"; fi
+done
+# Checkpoint cost per attempt, median and maximum, as the registration promises, beside each accepted case.
+score none rank-kill-2 ACCEPTED '"checkpoint": {"a1": {"max_s": 0.091, "median_s": 0.086, "saves": 22}, "a2": {"max_s": 0.11, "median_s": 0.101, "saves": 38}}'
+score none reference ACCEPTED '"checkpoint": {"a1": {"max_s": 0.11, "median_s": 0.096, "saves": 60}}'
 score wrong-instance terminate-spare-5 VOID "is not the target node's"
 score readback-not-79 dcgm-1 VOID "read back as '0', not 79"
 score not-latched dcgm-2 VOID "latched False"

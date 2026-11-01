@@ -326,6 +326,11 @@ def defect(out: pathlib.Path, name: str, case: str) -> None:
         # What a recovery that never came looks like: no attempt 2 records, the job still Pending at the budget.
         edit_records(d, lambda r: None if r["attempt"] == 2 else r)
         edit_json(d / "final-mltj.json", lambda m: (m["status"].update(phase="Pending"), m["status"]["attempts"][1].update(state="Preparing")))
+    elif name == "job-failed":
+        # The controller gave up: the job ended Failed within its budget, which is a recovery that did not happen, not a
+        # recovery cut off by the budget.
+        edit_records(d, lambda r: None if r["attempt"] == 2 else r)
+        edit_json(d / "final-mltj.json", lambda m: (m["status"].update(phase="Failed"), m["status"]["attempts"].pop()))
     elif name == "wrong-instance":
         edit_json(d / "case.json", lambda c: c["target"].update(instance="i-0fff0000000000009"))
     elif name == "readback-not-79":
