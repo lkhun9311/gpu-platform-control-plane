@@ -1,7 +1,8 @@
 # The trainer's side of a whole-job restart
 
 A restartable distributed `MLTrainingJob` (`distributed.maxRestarts` above 0) starts every rank again after a failure, on whatever nodes Kueue admits it to.
-The controller guarantees that no rank of the old attempt still runs and gives the new one `TRAINING_ATTEMPT`.
+The controller gives the new attempt `TRAINING_ATTEMPT` and starts it only after its stop barrier clears: the old Job, its Pods and its Workload are gone, and every node that held a rank is either still Ready, so its kubelet reported the Pods stopped, or named in the `platform.lkhun9311.github.io/fenced-nodes` annotation.
+That annotation is an operator's acknowledgement that the machine is off, and the controller cannot verify it; for a node it cannot reach, "no rank of the old attempt still runs" holds only as far as that acknowledgement is true.
 What the ranks load is the workload's business, and `train.py` here is the protocol this repository's experiments will use, from `docs/superpowers/specs/2026-11-01-distributed-restart-design.md`.
 
 `experiments/checkpoint-resume/train.py` is not changed.
@@ -99,6 +100,8 @@ The operator, Kueue, cert-manager and CoreDNS are pinned to the control-plane no
 
 The recorded run is `hack/distributed-restart-kind-20261101T003147Z`, of commit `e2d21e9d`, whose trainer saves everything listed above, and all 34 of its checks pass.
 An earlier run, `hack/distributed-restart-kind-20261031T144217Z` of commit `65bf5f16`, also passed all 34 with the trainer before it, which saved the model, the optimizer and a per-rank data generator only; it is kept as the record of that trainer.
+Every resume and final-parameter check reads every rank: each rank of the world size must record a resume from the same checkpoint and final parameters equal to the reference's, and a case with a rank missing fails.
+The scorer first read rank 0 alone, and a copy of the recorded run with every rank-1 record removed passed all 34 checks under it; under the per-rank scorer that copy fails 7, and both runs above, re-scored with it on 2026-11-01, still pass all 34.
 
 ```
 python3 experiments/distributed-restart/score_kind.py hack/distributed-restart-kind-20261101T003147Z

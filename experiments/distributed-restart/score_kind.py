@@ -58,15 +58,42 @@ class Case:
             return []
         return [s for s in self.timeline if a <= s["observed"] <= b]
 
+    def world(self) -> int:
+        return int(((self.final.get("spec") or {}).get("distributed") or {}).get("worldSize") or 0)
+
+    def rank_params(self, attempt: int) -> dict[int, list[float]]:
+        """Every rank's last recorded parameters in the attempt, by rank."""
+        out: dict[int, list[float]] = {}
+        for r in self.records:
+            if r.get("event") == "step" and r.get("attempt") == attempt and r.get("params") is not None:
+                out[r.get("rank")] = r["params"]
+        return out
+
     def final_params(self, attempt: int) -> list[float] | None:
-        last = [r for r in self.records if r.get("event") == "step" and r.get("rank") == 0 and r.get("attempt") == attempt
-                and r.get("params") is not None]
-        return last[-1]["params"] if last else None
+        """The attempt's final parameters, only if every rank recorded them and they agree.
+
+        Reading rank 0 alone let a run pass whose other ranks never finished, or finished with something else.
+        """
+        got = self.rank_params(attempt)
+        if self.world() < 1 or sorted(got) != list(range(self.world())):
+            return None
+        first = got[0]
+        return first if all(p == first for p in got.values()) else None
+
+    def rank_resumes(self, attempt: int) -> dict[int, tuple[str, int]]:
+        """Every rank's first resume record in the attempt, as (checkpoint directory, step), by rank."""
+        out: dict[int, tuple[str, int]] = {}
+        for r in self.records:
+            if r.get("event") == "resume" and r.get("attempt") == attempt and r.get("rank") not in out:
+                out[r.get("rank")] = (r.get("from_dir"), r.get("from_step"))
+        return out
 
     def resume_from(self, attempt: int) -> int | None:
-        found = [r["from_step"] for r in self.records if r.get("event") == "resume" and r.get("attempt") == attempt
-                 and r.get("rank") == 0]
-        return found[0] if found else None
+        """The step the attempt resumed from, only if every rank resumed and all from the same checkpoint."""
+        got = self.rank_resumes(attempt)
+        if self.world() < 1 or sorted(got) != list(range(self.world())) or len(set(got.values())) != 1:
+            return None
+        return got[0][1]
 
 
 def present(case: Case) -> bool:
@@ -88,13 +115,17 @@ def restarted(case: Case, reference: list[float] | None, want_from: int | None) 
     check(f"{case.name} attempt 1 stopped by a failed rank", a[0].get("state") == "Stopped" and a[0].get("trigger") == "RankFailed",
           f"state {a[0].get('state')}, trigger {a[0].get('trigger')}")
     got = case.resume_from(2)
+    resumes = f"attempt 2 resumed from {got}; by rank {case.rank_resumes(2)} of world size {case.world()}"
     if want_from is not None:
-        check(f"{case.name} resumed from step {want_from}", got == want_from, f"attempt 2 resumed from {got}")
+        check(f"{case.name} every rank resumed from step {want_from}", got == want_from, resumes)
     else:
-        check(f"{case.name} resumed from a checkpoint", got is not None, f"attempt 2 resumed from {got}")
-    params = case.final_params(2)
-    check(f"{case.name} same training as the reference", reference is not None and params == reference,
-          "final parameters equal the uninterrupted run's" if params == reference else "final parameters differ or are missing")
+        check(f"{case.name} every rank resumed from one checkpoint", got is not None, resumes)
+    params = case.rank_params(2)
+    same = (reference is not None and sorted(params) == list(range(case.world()))
+            and all(p == reference for p in params.values()))
+    check(f"{case.name} same training as the reference on every rank", same,
+          f"ranks {sorted(params)} of world size {case.world()} recorded final parameters; "
+          + ("each equals the uninterrupted run's" if same else "some differ, are missing, or there is no reference"))
     job = json.loads((case.dir / "final-job.json").read_text()) if (case.dir / "final-job.json").exists() else {}
     env = {e["name"]: e.get("value") for e in (((job.get("spec") or {}).get("template") or {}).get("spec") or {}).get("containers", [{}])[0].get("env", [])}
     check(f"{case.name} attempt 2 rendezvous is a name attempt 1 never had", "-ddp-a2." in (env.get("MASTER_ADDR") or ""),
@@ -117,7 +148,8 @@ def main() -> int:
         reference = case.final_params(1)
         check("reference succeeded on attempt 1", case.status.get("phase") == "Succeeded" and len(case.attempts) == 1,
               f"phase {case.status.get('phase')}, attempts {len(case.attempts)}")
-        check("reference has final parameters", reference is not None, "rank 0's last step record")
+        check("reference has final parameters on every rank, and they agree", reference is not None,
+              f"ranks {sorted(case.rank_params(1))} of world size {case.world()} recorded final parameters")
 
     case = Case(root, "rank-failed")
     if present(case):
