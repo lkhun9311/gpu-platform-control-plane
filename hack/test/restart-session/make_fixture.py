@@ -235,6 +235,9 @@ def defect(out: pathlib.Path, name: str, case: str) -> None:
     elif name == "missing-case":
         import shutil
         shutil.rmtree(d)
+    elif name == "empty-final":
+        # What one failed `kubectl get` leaves: the file exists and holds nothing.
+        (d / "final-mltj.json").write_text("")
     elif name == "voided":
         (d / "VOID").write_text("the runner could not deliver the fault")
     elif name == "dirty":

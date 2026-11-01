@@ -379,6 +379,12 @@ print(max([json.loads(l)["step"] for l in sys.stdin if json.loads(l).get("event"
         echo "a rank recorded step $high, at or past $RESTART_FAULT_MAX_STEP, before the fault"
         return 1
       fi
+      # The volume is ahead of a lagging log stream, so the published step is held to the maximum too (codex review
+      # of 830f64af).
+      if ((${latest%% *} >= RESTART_FAULT_MAX_STEP)); then
+        echo "LATEST names step ${latest%% *}, at or past $RESTART_FAULT_MAX_STEP, before the fault"
+        return 1
+      fi
       echo "$latest"
       return 0
     fi
@@ -922,7 +928,12 @@ json.dump(c, open(sys.argv[1], "w"))' "$dir/case.json" "$node1" "$instance" "$wi
   wait "$collector" 2>>"$dir/case.log"
 
   # The writers are stopped before their files are copied and deleted.
-  restart_retire "$name" "$RESTART_BETWEEN_BUDGET" >>"$dir/case.log" || echo "retirement did not finish" >>"$dir/case.log"
+  # A case whose retirement cannot be confirmed may still be writing and still hold GPUs and quota, so its files stay on
+  # the volume and the run stops (codex review of 830f64af).
+  restart_retire "$name" "$RESTART_BETWEEN_BUDGET" >>"$dir/case.log" || {
+    echo "retirement of $name was not confirmed; its files are left on the volume" >>"$dir/case.log"
+    return 2
+  }
   mkdir -p "$dir/nccl"
   rk -n "$RESTART_NS" exec rst-reader -- tar -C "$RESTART_MOUNT/$job_id" -cf - nccl 2>>"$dir/case.log" | tar -C "$dir" -xf - 2>>"$dir/case.log"
   rk -n "$RESTART_NS" exec rst-reader -- find "$RESTART_MOUNT/$job_id" -type f >"$dir/shared-files.txt" 2>>"$dir/case.log"
@@ -957,6 +968,14 @@ restart_run() {
     # terminate-wait's five cases run with no spare: the group at two, so attempt 2 can only start on a replacement.
     if [[ "$kind" == terminate-wait && "$want" == 3 ]]; then
       want=2
+      # Checked before the group is touched: after the one-shot deadline has fired, any desired size above zero is a
+      # purchase with no deadline behind it (codex review of 830f64af).
+      out="$(restart_deadline_ok $((RESTART_REPLENISH_BUDGET + RESTART_CASE_BUDGET + RESTART_BETWEEN_BUDGET)))" || {
+        stop="$out"
+        mkdir -p "$RESTART_OUT/$case"
+        echo "$stop" >"$RESTART_OUT/$case/NOTRUN"
+        continue
+      }
       out="$(aws eks update-nodegroup-config --region "$RESTART_REGION" --cluster-name "$RESTART_CLUSTER" --nodegroup-name "$RESTART_GROUP" \
         --scaling-config minSize=0,maxSize=3,desiredSize=2 2>&1)" || {
         stop="the group could not be scaled to two for terminate-wait: ${out:0:200}"
@@ -979,7 +998,7 @@ restart_run() {
     local rc=$?
     verdict="$(restart_verdict "$case")"
     echo "$case: ${verdict:-no verdict}"
-    ((rc != 2)) || stop="the DCGM fault of $case could not be reset; see $RESTART_OUT/$case/case.log"
+    ((rc != 2)) || stop="$case could not be retired or its DCGM fault reset; see $RESTART_OUT/$case/case.log"
     if [[ "$verdict" == VOID || -z "$verdict" ]]; then void_run=$((void_run + 1)); else void_run=0; fi
     if [[ "$case" == reference || "$case" == no-rng-control ]] && [[ "$verdict" != ACCEPTED ]]; then
       stop="$case was ${verdict:-unscored}, and every measured case is compared with it"

@@ -230,6 +230,14 @@ if [[ "$out" == "12 a1/00000012-"*"rc=0" ]]; then ok "the window opens on LATEST
 printf '{"ts": "t", "attempt": 1, "rank": 1, "event": "step", "step": 25}\n' >>"$work/out/window/log-u.1.txt"
 out="$(lib window 'restart_fault_window rst-0 job-x "$RESTART_OUT" 5; echo "rc=$?"')"
 if [[ "$out" == *"at or past 25"*"rc=1" ]]; then ok "a rank past step 25 closes the window"; else bad "the late window: $out"; fi
+# The volume can be ahead of a lagging log stream: LATEST past the maximum closes the window even when no log says so.
+mkdir -p "$work/rules/ahead" "$work/out/ahead"
+cat >"$work/rules/ahead/kubectl.sh" <<'EOF'
+case "$*" in *"exec"*"LATEST"*) echo "a1/00000027-0123456789abcdef0123456789abcdef" ;; esac
+EOF
+printf '{"ts": "t", "attempt": 1, "rank": 0, "event": "step", "step": 20}\n' >"$work/out/ahead/log-u.1.txt"
+out="$(lib ahead 'restart_fault_window rst-0 job-x "$RESTART_OUT" 5; echo "rc=$?"')"
+if [[ "$out" == *"LATEST names step 27"*"rc=1" ]]; then ok "LATEST past step 25 closes the window though the logs lag"; else bad "the window ahead of the logs: $out"; fi
 mkdir -p "$work/rules/early"
 cat >"$work/rules/early/kubectl.sh" <<'EOF'
 case "$*" in *"exec"*"LATEST"*) echo "a1/00000004-0123456789abcdef0123456789abcdef" ;; esac
@@ -329,6 +337,10 @@ score no-terminated-mark terminate-wait-5 VOID "no mark of the termination call 
 score cpu-backend rank-kill-1 VOID "trained with 'gloo' on 'cpu'"
 score missing-case dcgm-3 VOID "its directory is missing"
 score voided terminate-spare-1 VOID "the runner voided it"
+score empty-final dcgm-4 VOID "its evidence could not be read"
+# The case after the unreadable one still gets its verdict, so one bad file does not end the report.
+out="$(python3 experiments/distributed-restart/score_eks.py "$work/run-empty-final-dcgm-4" 2>&1)"
+if grep -q '^ACCEPTED dcgm-5 ' <<<"$out" && grep -q '^summary' <<<"$out"; then ok "the cases after an unreadable one are still scored"; else bad "the report after an unreadable case: $(tail -2 <<<"$out")"; fi
 score interleaved rank-kill-1 ACCEPTED '"recovery_s": 71.0'
 score duplicate-stream rank-kill-2 ACCEPTED '"lost_steps": 1'
 # The control must differ from the reference; a control that matched it shows the comparison is blind.

@@ -381,6 +381,10 @@ def main(argv: list[str]) -> int:
             verdicts[name] = ("ACCEPTED", "")
         except Verdict as v:
             verdicts[name] = (v.kind, v.reason)
+        except (ValueError, KeyError, TypeError, IndexError, OSError) as exc:
+            # Evidence that cannot be read is that case's VOID, never the end of the report: an empty file left by
+            # one failed kubectl call would otherwise leave every other case without a verdict (codex review of 830f64af).
+            verdicts[name] = ("VOID", f"its evidence could not be read: {type(exc).__name__}: {str(exc)[:120]}")
         scored[name] = case
         if name == "reference":
             reference = case.final_params(1) if verdicts[name][0] == "ACCEPTED" else None
