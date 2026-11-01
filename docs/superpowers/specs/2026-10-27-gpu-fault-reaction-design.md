@@ -392,7 +392,10 @@ At the zone's Spot price read before launch, $0.6822 an hour, that is about **$0
 
 **What follows**, none of it a re-run: the exporter's DaemonSet tolerates the platform's fault taint, with a test that fails when it does not; the scorer names an absent clause as not reached rather than as a reading; and the runner records the exporter's Pod and events when it does not return.
 
-## Amendment for run 3, drafted 2026-11-01: not approved, and nothing is bought from it until the owner approves it
+## Amendment for run 3, approved by the owner on 2026-11-01
+
+**Approved and frozen for purchase, 2026-11-01, at the commit that carries this line.** The owner approved run 3 on 2026-11-01 ("승인", in answer to the report of this amendment, its rehearsal and its cost); nothing below changes after this commit, and run 3 is bought once, from the merge of this commit to `dev`.
+Until this line, the heading said: "drafted 2026-11-01: not approved, and nothing is bought from it until the owner approves it".
 
 Run 2 measured the platform's reaction and could not show its recovery.
 Its stale-latched check failed because the exporter could not come back to a node the platform had tainted, and nothing in the session asked whether the node, once cleared, ran GPU work again.
