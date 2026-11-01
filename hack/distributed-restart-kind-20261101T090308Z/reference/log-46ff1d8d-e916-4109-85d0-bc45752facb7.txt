@@ -1,0 +1,26 @@
+/usr/local/lib/python3.12/site-packages/torch/_subclasses/functional_tensor.py:295: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at ../torch/csrc/utils/tensor_numpy.cpp:84.)
+  cpu = _conversion_method_template(device=torch.device("cpu"))
+{"ts": "2026-11-01T09:05:47.600150+00:00", "run_id": "rst-reference-090546", "attempt": 1, "rank": 0, "event": "candidates", "latest": null, "offered": []}
+{"ts": "2026-11-01T09:05:47.600531+00:00", "run_id": "rst-reference-090546", "attempt": 1, "rank": 0, "event": "restart_from_zero", "load_mode": "full"}
+{"ts": "2026-11-01T09:05:47.939937+00:00", "run_id": "rst-reference-090546", "attempt": 1, "rank": 0, "event": "start", "world_size": 2, "load_mode": "full", "resumed_from_step": 0, "steps": 20, "fault": "", "torch_version": "2.5.1+cpu", "epoch": 0, "position": 0, "lr": 0.05, "backend": "gloo", "device": "cpu", "ballast_mb": 0, "volume": {"point": "/shared", "mount_options": "rw,relatime", "fstype": "nfs4", "source": "10.96.4.70:/", "super_options": "rw,vers=4.1,rsize=1048576,wsize=1048576,namlen=255,hard,noresvport,fatal_neterrors=ENETDOWN:ENETUNREACH,proto=tcp,timeo=600,retrans=2,sec=sys,clientaddr=172.18.0.8,local_lock=none,addr=10.96.4.70", "dev": 7340197}, "visibility_retries": 5, "shard_delay": 0.0}
+{"ts": "2026-11-01T09:05:47.950950+00:00", "run_id": "rst-reference-090546", "attempt": 1, "rank": 0, "event": "step", "step": 1, "loss": 20.675674438476562, "digest": "281376d89323e8ca96cfd659d02825874e2ef3bfb7540e0cb2ccec5a1b6fe739", "params": null}
+[rank0]: Traceback (most recent call last):
+[rank0]:   File "/work/train.py", line 613, in <module>
+[rank0]:     sys.exit(main())
+[rank0]:              ^^^^^^
+[rank0]:   File "/work/train.py", line 471, in main
+[rank0]:     return train()
+[rank0]:            ^^^^^^^
+[rank0]:   File "/work/train.py", line 602, in train
+[rank0]:     save(rank, world, step, capture(step, model, optimiser, scheduler, epoch, position, ballast), fault)
+[rank0]:   File "/work/train.py", line 286, in save
+[rank0]:     reports = gather_json({"rank": rank, "step": labelled["step"], "file": os.path.basename(shard),
+[rank0]:               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/work/train.py", line 148, in gather_json
+[rank0]:     dist.all_gather(sizes, torch.tensor([len(data)], device=COMM_DEVICE))
+[rank0]:   File "/usr/local/lib/python3.12/site-packages/torch/distributed/c10d_logger.py", line 83, in wrapper
+[rank0]:     return func(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/usr/local/lib/python3.12/site-packages/torch/distributed/distributed_c10d.py", line 3346, in all_gather
+[rank0]:     work.wait()
+[rank0]: RuntimeError: [../third_party/gloo/gloo/transport/tcp/pair.cc:534] Connection closed by peer [10.244.1.5]:19845
