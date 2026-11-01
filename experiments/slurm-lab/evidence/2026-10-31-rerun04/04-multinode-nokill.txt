@@ -1,0 +1,146 @@
+# transcript 04-multinode-nokill.txt, slurm-lab, written by steps/04-multinode.sh
+# Variant nokill: a two-node job with flags [--no-kill --no-requeue]; one of its two nodes is stopped while it runs.
+
+alice@slurmctld$ sbatch -J mn-nokill -N 2 --ntasks-per-node=1 --gres=gpu:1 --open-mode=append --no-kill --no-requeue --wrap "srun bash -c 'echo rank \$SLURM_PROCID on \$(hostname) restart=\${SLURM_RESTART_COUNT:-0} at \$(date -u +%T); sleep 900'"
+# at 2026-10-31T11:43:52.442Z
+Submitted batch job 4
+# exit 0
+# waited 2s for: squeue -h -n mn-nokill -t R | grep -q .
+
+root@slurmctld$ squeue -o '%.6i %.10j %.8u %.3t %.10M %.5D %.12b %N %R'
+# at 2026-10-31T11:43:56.715Z
+ JOBID       NAME     USER  ST       TIME NODES TRES_PER_NOD NODELIST NODELIST(REASON)
+     4  mn-nokill    alice   R       0:02     2   gres/gpu:1 c[1-2] c[1-2]
+# exit 0
+# job 4 (mn-nokill) runs on: c1 c2 ; batch host c1; stopping c2
+# Positive control: the same probe used after the failure, run on the batch host while its rank is alive, must list the rank's sleep.
+
+root@c1$ pgrep -ax sleep | grep -E '^[0-9]+ sleep 900$' || echo no sleep 900 process on c1
+# at 2026-10-31T11:43:56.938Z
+343 sleep 900
+# exit 0
+
+host$ docker compose stop -t 0 c2
+# at 2026-10-31T11:43:57.001Z
+ Container slurmlab-c2-1 Stopping 
+ Container slurmlab-c2-1 Stopped 
+# exit 0
+
+# trace: probe [sinfo -h -n c2 -o '%T %E'; squeue -h -j 4 -o '%i %T %r %N'; sacct -n -j 4 -o JobID%12,State,NodeList | grep -v batch] until [! scontrol show hostnames $(squeue -h -j 4 -t R -o %N) | grep -qx c2], at most 200s
+## seen at 2026-10-31T11:43:57.264Z
+allocated none
+4 RUNNING None c[1-2]
+           4    RUNNING          c[1-2] 
+         4.0    RUNNING          c[1-2] 
+## seen at 2026-10-31T11:44:05.131Z
+allocated* none
+4 RUNNING None c[1-2]
+           4    RUNNING          c[1-2] 
+         4.0    RUNNING          c[1-2] 
+## seen at 2026-10-31T11:44:19.500Z
+down* Not responding
+           4   RESIZING          c[1-2] 
+         4.0   RESIZING          c[1-2] 
+           4     FAILED              c1 
+# trace ended: condition met after 20s
+
+root@slurmctld$ squeue -o '%.6i %.10j %.8u %.3t %.10M %.5D %.12b %N %R'
+# at 2026-10-31T11:44:19.555Z
+ JOBID       NAME     USER  ST       TIME NODES TRES_PER_NOD NODELIST NODELIST(REASON)
+# exit 0
+
+root@slurmctld$ sacct -D -j 4 -o JobID%14,JobName%10,State,ExitCode,Start,End,NodeList
+# at 2026-10-31T11:44:19.608Z
+         JobID    JobName      State ExitCode               Start                 End        NodeList 
+-------------- ---------- ---------- -------- ------------------- ------------------- --------------- 
+             4  mn-nokill   RESIZING      0:0 2026-10-31T11:43:54 2026-10-31T11:44:19          c[1-2] 
+       4.batch      batch   RESIZING      0:0 2026-10-31T11:43:54 2026-10-31T11:44:19              c1 
+           4.0       bash   RESIZING      0:0 2026-10-31T11:43:54 2026-10-31T11:44:19          c[1-2] 
+             4  mn-nokill     FAILED      1:0 2026-10-31T11:44:19 2026-10-31T11:44:19              c1 
+# exit 0
+
+root@slurmctld$ scontrol show job 4 | grep -E 'JobState|Requeue|Restarts|NodeList=|BatchHost|EligibleTime'
+# at 2026-10-31T11:44:19.666Z
+   JobState=FAILED Reason=NonZeroExitCode Dependency=(null)
+   Requeue=0 Restarts=0 BatchFlag=1 Reboot=0 ExitCode=1:0
+   SubmitTime=2026-10-31T11:43:52 EligibleTime=2026-10-31T11:43:52
+   PreemptEligibleTime=2026-10-31T11:43:54 PreemptTime=None
+   ReqNodeList=(null) ExcNodeList=(null)
+   NodeList=c1
+   BatchHost=c1
+# exit 0
+
+root@slurmctld$ grep -hE 'JobId=4[^0-9]|c2' /var/log/slurm/slurmctld.log | grep -v debug | tail -8
+# at 2026-10-31T11:44:19.723Z
+[2026-10-31T11:44:05.001] error: Nodes c2 not responding
+[2026-10-31T11:44:12.001] error: Nodes c2 not responding
+[2026-10-31T11:44:17.000] error: Nodes c2 not responding
+[2026-10-31T11:44:19.001] error: Removing failed node c2 from JobId=4
+[2026-10-31T11:44:19.001] Killing JobId=4 StepId=0 due to failed node c2
+[2026-10-31T11:44:19.001] error: Nodes c2 not responding, setting DOWN
+[2026-10-31T11:44:19.003] _job_complete: JobId=4 WEXITSTATUS 1
+[2026-10-31T11:44:19.004] _job_complete: JobId=4 done
+# exit 0
+
+root@c1$ pgrep -ax sleep | grep -E '^[0-9]+ sleep 900$' || echo no sleep 900 process on c1
+# at 2026-10-31T11:44:19.779Z
+no sleep 900 process on c1
+# exit 0
+# With --no-kill the allocation shrinks to the surviving node; the step that spanned both nodes is examined.
+
+root@slurmctld$ scontrol show job 4 | grep -E 'JobState|NumNodes|NodeList='
+# at 2026-10-31T11:44:19.835Z
+   JobState=FAILED Reason=NonZeroExitCode Dependency=(null)
+   ReqNodeList=(null) ExcNodeList=(null)
+   NodeList=c1
+   NumNodes=1 NumCPUs=1 NumTasks=2 CPUs/Task=1 ReqB:S:C:T=0:0:*:*
+# exit 0
+
+root@slurmctld$ sacct -j 4 -o JobID%14,State,ExitCode,NodeList
+# at 2026-10-31T11:44:19.888Z
+         JobID      State ExitCode        NodeList 
+-------------- ---------- -------- --------------- 
+             4   RESIZING      0:0          c[1-2] 
+       4.batch   RESIZING      0:0              c1 
+           4.0   RESIZING      0:0          c[1-2] 
+             4     FAILED      1:0              c1 
+# exit 0
+
+host$ docker compose start c2
+# at 2026-10-31T11:44:19.942Z
+ Container slurmlab-c2-1 Starting 
+ Container slurmlab-c2-1 Started 
+# exit 0
+# waited 0s for: sinfo -h -n c2 -o %T | grep -qE 'idle|mixed|alloc'
+
+root@slurmctld$ sinfo -N -o '%N %T %E'
+# at 2026-10-31T11:44:20.155Z
+NODELIST STATE REASON
+c1 idle none
+c2 idle none
+c3 idle none
+# exit 0
+
+root@c1$ cat /home/alice/slurm-4.out 2>/dev/null || echo no output file on c1
+# at 2026-10-31T11:44:20.208Z
+rank 0 on c1 restart=0 at 11:43:54
+rank 1 on c2 restart=0 at 11:43:54
+srun: error: Node failure on c2
+srun: error: c1: task 0: Killed
+srun: Force Terminated StepId=4.0
+# exit 0
+
+root@c2$ cat /home/alice/slurm-4.out 2>/dev/null || echo no output file on c2
+# at 2026-10-31T11:44:20.260Z
+no output file on c2
+# exit 0
+
+root@c3$ cat /home/alice/slurm-4.out 2>/dev/null || echo no output file on c3
+# at 2026-10-31T11:44:20.311Z
+no output file on c3
+# exit 0
+
+root@slurmctld$ scancel -u alice
+# at 2026-10-31T11:44:20.364Z
+# exit 0
+# waited 0s for: [ -z "$(squeue -h)" ]

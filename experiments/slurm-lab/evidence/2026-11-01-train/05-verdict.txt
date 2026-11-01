@@ -1,0 +1,3 @@
+# transcript 05-verdict.txt, slurm-lab, written by steps/05-train-requeue.sh
+# full case scorer exit 0 (expected 0); load-none mutation scorer exit 1 (expected 1)
+# PASS: the resume was scored as a resume, and a restart from zero was caught

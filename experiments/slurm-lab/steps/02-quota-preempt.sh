@@ -1,0 +1,107 @@
+#!/usr/bin/env bash
+# Step 2: per-account GPU limits (GrpTRES) as the counterpart of a ClusterQueue's nominal quota, and QoS preemption.
+source "$(dirname "$0")/lib.sh"
+
+out 02a-account-quota.txt
+note "teama may hold 2 GPUs at once and teamb 4; the cluster has 6."
+at slurmctld "sacctmgr -i modify account teama set GrpTRES=gres/gpu=2"
+at slurmctld "sacctmgr -i modify account teamb set GrpTRES=gres/gpu=4"
+at slurmctld "sacctmgr show assoc where account=teama,teamb format=Account,User,GrpTRES"
+at slurmctld -u alice "sbatch -J a-first --gres=gpu:2 --wrap 'sleep 900'"
+wait_until 30 "squeue -h -n a-first -t R | grep -q ."
+note "alice's account is at its limit; her next 1-GPU job must wait although 4 GPUs are free."
+at slurmctld -u alice "sbatch -J a-second --gres=gpu:1 --wrap 'sleep 900'"
+wait_until 30 "squeue -h -n a-second -o %r | grep -q AssocGrp"
+at slurmctld "sinfo -N -O NodeList:6,StateLong:10,Gres:10,GresUsed:24"
+at slurmctld "squeue -o '%.6i %.10j %.8u %.8a %.3t %.12b %N %R'"
+at slurmctld "scontrol show job \$(squeue -h -n a-second -o %i) | grep -E 'JobState|Reason'"
+note "bob's account has its own limit and runs beside alice; alice's idle headroom is not lent to bob and bob's is not lent to alice."
+at slurmctld -u bob "sbatch -J b-first --gres=gpu:2 --wrap 'sleep 900'"
+at slurmctld -u bob "sbatch -J b-second --gres=gpu:2 --wrap 'sleep 900'"
+wait_until 30 "[ \$(squeue -h -u bob -t R | wc -l) -eq 2 ]"
+at slurmctld "squeue -o '%.6i %.10j %.8u %.8a %.3t %.12b %N %R'"
+note "Raising teama's limit to 3 removes the quota reason; the cluster is now full, so the job's reason becomes Resources instead."
+at slurmctld "sacctmgr -i modify account teama set GrpTRES=gres/gpu=3"
+wait_until 30 "squeue -h -n a-second -o %r | grep -q Resources"
+at slurmctld "squeue -o '%.6i %.10j %.8u %.8a %.3t %.12b %N %R'"
+note "Ending one of bob's jobs frees capacity, and the same job starts without being resubmitted."
+at slurmctld -u bob "scancel -n b-second"
+wait_until 30 "squeue -h -n a-second -t R | grep -q ."
+at slurmctld "squeue -o '%.6i %.10j %.8u %.8a %.3t %.12b %N %R'"
+at slurmctld "scancel -u alice; scancel -u bob"
+wait_until 30 "[ -z \"\$(squeue -h)\" ]"
+
+out 02b-qos-quota.txt
+note "The same kind of limit on a QoS rather than an account: QoS high may hold 2 GPUs across every account."
+at slurmctld "sacctmgr -i modify account teama,teamb set GrpTRES=gres/gpu=-1"
+at slurmctld "sacctmgr -i modify qos high set GrpTRES=gres/gpu=2"
+at slurmctld -u alice "sbatch -J a-high --qos=high --gres=gpu:2 --wrap 'sleep 900'"
+wait_until 30 "squeue -h -n a-high -t R | grep -q ."
+at slurmctld -u bob "sbatch -J b-high --qos=high --gres=gpu:1 --wrap 'sleep 900'"
+wait_until 30 "squeue -h -n b-high -o %r | grep -q QOSGrp"
+at slurmctld "squeue -o '%.6i %.10j %.8u %.8a %.6q %.3t %.12b %N %R'"
+at slurmctld "scancel -u alice; scancel -u bob"
+wait_until 30 "[ -z \"\$(squeue -h)\" ]"
+at slurmctld "sacctmgr -i modify qos high set GrpTRES=gres/gpu=-1"
+
+out 02c-preempt-requeue.txt
+note "PreemptType=preempt/qos, PreemptMode=REQUEUE cluster-wide; QoS high lists normal as preemptable."
+at slurmctld "scontrol show config | grep -E '^Preempt|^JobRequeue|^PriorityType'"
+at slurmctld "sacctmgr show qos format=Name,Priority,Preempt,PreemptMode"
+note "bob fills all six GPUs with normal-QoS, requeue-able jobs."
+for i in 1 2 3; do
+	at slurmctld -u bob "sbatch -J b-norm-$i --requeue --open-mode=append --gres=gpu:2 --wrap 'echo start \$(date -u +%T) on \$(hostname) restart=\${SLURM_RESTART_COUNT:-0}; sleep 900'"
+done
+wait_until 30 "[ \$(squeue -h -u bob -t R | wc -l) -eq 3 ]"
+at slurmctld "squeue -o '%.6i %.10j %.8u %.6q %.3t %.10M %.12b %N %R'"
+note "alice submits a high-QoS 2-GPU job that runs for 30 s."
+at slurmctld -u alice "sbatch -J a-urgent --qos=high --gres=gpu:2 --wrap 'sleep 30'"
+wait_until 30 "squeue -h -n a-urgent -t R | grep -q ."
+at slurmctld "squeue -o '%.6i %.10j %.8u %.6q %.3t %.10M %.12b %N %R'"
+at slurmctld "sacct -X -o JobID,JobName%10,User,QOS,State,Start,End,NodeList"
+victim=$(docker compose exec -T slurmctld squeue -h -u bob -t PD -o %i | head -1)
+note "victim job id, the one bob job squeue lists as pending: ${victim:-none}"
+at slurmctld "scontrol show job ${victim:-0} | grep -E 'JobState|Reason|Requeue|Restarts|BatchFlag|SubmitTime|EligibleTime|StartTime|PreemptTime'"
+note "After alice's job ends, the requeued job runs again in place of hers."
+wait_until 180 "squeue -h -j ${victim:-0} -t R | grep -q ."
+at slurmctld "squeue -o '%.6i %.10j %.8u %.6q %.3t %.10M %.12b %N %R'"
+at slurmctld "scontrol show job ${victim:-0} | grep -E 'JobState|Requeue|Restarts|StartTime'"
+at slurmctld "sacct -D -j ${victim:-0} -o JobID,JobName%10,State,Start,End,NodeList"
+victim_node=$(docker compose exec -T slurmctld squeue -h -j "${victim:-0}" -o %N)
+note "The job's own output, appended across both runs, on the node its batch step ran on now (${victim_node:-none}):"
+at "${victim_node:-c1}" "cat /home/bob/slurm-${victim:-0}.out"
+at slurmctld "grep -hE 'JobId=${victim:-0}[^0-9]' /var/log/slurm/slurmctld.log | grep -iE 'preempt|requeu'"
+at slurmctld "scancel -u alice; scancel -u bob"
+wait_until 30 "[ -z \"\$(squeue -h)\" ]"
+
+out 02d-preempt-cancel.txt
+note "The same contention with QoS normal's PreemptMode set to CANCEL: the preempted job is ended, not requeued."
+at slurmctld "sacctmgr -i modify qos normal set PreemptMode=cancel"
+at slurmctld "sacctmgr show qos format=Name,Priority,Preempt,PreemptMode"
+for i in 1 2 3; do
+	at slurmctld -u bob "sbatch -J b-cancel-$i --requeue --gres=gpu:2 --wrap 'sleep 900'"
+done
+wait_until 30 "[ \$(squeue -h -u bob -t R | wc -l) -eq 3 ]"
+at slurmctld -u alice "sbatch -J a-urgent2 --qos=high --gres=gpu:2 --wrap 'sleep 30'"
+wait_until 30 "squeue -h -n a-urgent2 -t R | grep -q ."
+at slurmctld "squeue -o '%.6i %.10j %.8u %.6q %.3t %.10M %.12b %N %R'"
+at slurmctld "sacct -X -u alice,bob -n -S now-2minutes -o JobID,JobName%10,User,QOS,State,ExitCode,Start,End | grep -E 'cancel|urgent2'"
+at slurmctld "grep -hiE 'preempt' /var/log/slurm/slurmctld.log | tail -2"
+at slurmctld "sacctmgr -i modify qos normal set PreemptMode=cluster"
+at slurmctld "scancel -u alice; scancel -u bob"
+wait_until 30 "[ -z \"\$(squeue -h)\" ]"
+
+out 02e-preempt-norequeue.txt
+note "PreemptMode REQUEUE again, but the preemptable job was submitted with --no-requeue."
+at slurmctld "sacctmgr show qos format=Name,Priority,Preempt,PreemptMode"
+for i in 1 2 3; do
+	at slurmctld -u bob "sbatch -J b-noreq-$i --no-requeue --gres=gpu:2 --wrap 'sleep 900'"
+done
+wait_until 30 "[ \$(squeue -h -u bob -t R | wc -l) -eq 3 ]"
+at slurmctld -u alice "sbatch -J a-urgent3 --qos=high --gres=gpu:2 --wrap 'sleep 30'"
+wait_until 30 "squeue -h -n a-urgent3 -t R | grep -q ."
+at slurmctld "squeue -o '%.6i %.10j %.8u %.6q %.3t %.10M %.12b %N %R'"
+at slurmctld "sacct -X -u alice,bob -n -S now-2minutes -o JobID,JobName%10,User,QOS,State,ExitCode,Start,End | grep -E 'noreq|urgent3'"
+at slurmctld "grep -hiE 'preempt' /var/log/slurm/slurmctld.log | tail -2"
+at slurmctld "scancel -u alice; scancel -u bob"
+wait_until 30 "[ -z \"\$(squeue -h)\" ]"

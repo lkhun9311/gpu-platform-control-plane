@@ -1,0 +1,87 @@
+# transcript 00-cluster.txt, slurm-lab, written by steps/00-setup.sh
+
+host$ docker compose images
+# at 2026-10-31T11:10:48.055Z
+CONTAINER              REPOSITORY          TAG                 PLATFORM            IMAGE ID            SIZE                CREATED
+slurmlab-c1-1          slurmlab            24.11.5             linux/amd64         88cdd8fb7d8f        49.9MB              16 minutes ago
+slurmlab-c2-1          slurmlab            24.11.5             linux/amd64         88cdd8fb7d8f        49.9MB              16 minutes ago
+slurmlab-c3-1          slurmlab            24.11.5             linux/amd64         88cdd8fb7d8f        49.9MB              16 minutes ago
+slurmlab-mariadb-1     mariadb             <none>              linux/amd64         d1891ede5a55        103MB               4 days ago
+slurmlab-slurmctld-1   slurmlab            24.11.5             linux/amd64         88cdd8fb7d8f        49.9MB              16 minutes ago
+slurmlab-slurmdbd-1    slurmlab            24.11.5             linux/amd64         88cdd8fb7d8f        49.9MB              16 minutes ago
+# exit 0
+
+host$ docker image inspect slurmlab:24.11.5 --format '{{.Id}} {{.Created}}'
+# at 2026-10-31T11:10:48.138Z
+sha256:88cdd8fb7d8f6f24be7f65f8f544403e98747d522a1168e8e1d74b82ec5e0dc0 2026-10-31T19:54:12.811901555+09:00
+# exit 0
+
+root@slurmctld$ dpkg-query -W slurmctld slurmd slurmdbd slurm-client munge
+# at 2026-10-31T11:10:48.158Z
+munge	0.5.16-1.1~deb13u1
+slurm-client	24.11.5-4+deb13u1
+slurmctld	24.11.5-4+deb13u1
+slurmd	24.11.5-4+deb13u1
+slurmdbd	24.11.5-4+deb13u1
+# exit 0
+
+root@slurmctld$ scontrol --version
+# at 2026-10-31T11:10:48.214Z
+slurm-wlm 24.11.5
+# exit 0
+
+root@mariadb$ mariadb --version
+# at 2026-10-31T11:10:48.268Z
+mariadb from 11.4.13-MariaDB, client 15.2 for debian-linux-gnu (x86_64) using  EditLine wrapper
+# exit 0
+
+root@slurmctld$ cat /etc/slurm/gres.conf
+# at 2026-10-31T11:10:48.326Z
+# Two GPUs per node, declared, not physical.
+# Slurm 24.11 drops a GPU GRES that has no File= ("Ignoring file-less GPU"), so File= names device nodes the entrypoint creates with no driver behind them.
+# Slurm schedules, binds and accounts these as GPUs; nothing in a job can reach a real GPU through them.
+NodeName=c[1-3] Name=gpu File=/dev/labgpu[0-1]
+# exit 0
+
+root@c1$ ls -l /dev/labgpu*
+# at 2026-10-31T11:10:48.379Z
+crw-r--r-- 1 root root 240, 0 Oct 31 11:10 /dev/labgpu0
+crw-r--r-- 1 root root 240, 1 Oct 31 11:10 /dev/labgpu1
+# exit 0
+
+root@slurmctld$ sinfo -N -o '%N %T %c %m %G'
+# at 2026-10-31T11:10:48.435Z
+NODELIST STATE CPUS MEMORY GRES
+c1 idle 4 2000 gpu:2
+c2 idle 4 2000 gpu:2
+c3 idle 4 2000 gpu:2
+# exit 0
+
+root@slurmctld$ scontrol show node c1
+# at 2026-10-31T11:10:48.492Z
+NodeName=c1 Arch=x86_64 CoresPerSocket=1 
+   CPUAlloc=0 CPUEfctv=4 CPUTot=4 CPULoad=2.63
+   AvailableFeatures=(null)
+   ActiveFeatures=(null)
+   Gres=gpu:2
+   NodeAddr=c1 NodeHostName=c1 Version=24.11.5
+   OS=Linux 7.0.0-31-generic #31-Ubuntu SMP PREEMPT_DYNAMIC Sat Aug  1 04:26:38 UTC 2026 
+   RealMemory=2000 AllocMem=0 FreeMem=2621 Sockets=4 Boards=1
+   State=IDLE ThreadsPerCore=1 TmpDisk=0 Weight=1 Owner=N/A MCS_label=N/A
+   Partitions=gpu 
+   BootTime=2026-09-15T11:28:39 SlurmdStartTime=2026-10-31T11:10:46
+   LastBusyTime=2026-10-31T11:10:47 ResumeAfterTime=None
+   CfgTRES=cpu=4,mem=2000M,billing=4,gres/gpu=2
+   AllocTRES=
+   CurrentWatts=0 AveWatts=0
+   
+
+# exit 0
+# A job given one declared GPU: Slurm binds and exports it, and the device behind it cannot be opened.
+
+root@slurmctld$ srun -w c1 --gres=gpu:1 bash -c 'echo host=$(hostname) CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES; cat /dev/labgpu0'
+# at 2026-10-31T11:10:48.546Z
+srun: error: c1: task 0: Exited with exit code 1
+cat: /dev/labgpu0: Operation not permitted
+host=c1 CUDA_VISIBLE_DEVICES=0
+# exit 1

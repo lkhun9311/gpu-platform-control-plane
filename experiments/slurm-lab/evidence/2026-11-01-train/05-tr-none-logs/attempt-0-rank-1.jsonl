@@ -1,0 +1,26 @@
+{"ts": "2026-10-31T23:46:17.898000+00:00", "run_id": "4", "attempt": 0, "rank": 1, "event": "restart_from_zero", "load_mode": "none"}
+{"ts": "2026-10-31T23:46:18.172029+00:00", "run_id": "4", "attempt": 0, "rank": 1, "event": "start", "world_size": 2, "load_mode": "none", "resumed_from_step": 0, "steps": 40, "fault": "", "torch_version": "2.5.1+cpu"}
+{"ts": "2026-10-31T23:46:18.173080+00:00", "run_id": "4", "attempt": 0, "rank": 1, "event": "step", "step": 1, "loss": 9.108428955078125, "digest": "6969f25baaf6fb81336db2594331d9ead56c8a5f31186e9a68be5833ad424643", "params": null}
+{"ts": "2026-10-31T23:46:18.209962+00:00", "run_id": "4", "attempt": 0, "rank": 1, "event": "checkpoint", "step": 1, "dir": "a0/00000001-0d39b4cccfab48439f78116ff973b897"}
+{"ts": "2026-10-31T23:46:19.211000+00:00", "run_id": "4", "attempt": 0, "rank": 1, "event": "step", "step": 2, "loss": 21.491573333740234, "digest": "c2b9b1d0c4e24a46981a284eda05dfd9c13e891d4b086cfff7d697ffbdf296cf", "params": null}
+{"ts": "2026-10-31T23:46:19.252415+00:00", "run_id": "4", "attempt": 0, "rank": 1, "event": "checkpoint", "step": 2, "dir": "a0/00000002-f31a8e07d94e4b068b8b19ab04380092"}
+{"ts": "2026-10-31T23:46:20.253303+00:00", "run_id": "4", "attempt": 0, "rank": 1, "event": "step", "step": 3, "loss": 13.40946102142334, "digest": "9c12348945211a5ad36dbb685bdb81ba6ce7f4004ae4a508b849c13c54391004", "params": null}
+{"ts": "2026-10-31T23:46:20.284388+00:00", "run_id": "4", "attempt": 0, "rank": 1, "event": "checkpoint", "step": 3, "dir": "a0/00000003-3e29daf4a3304fd8a7f81871f5c4f06b"}
+{"ts": "2026-10-31T23:46:21.285331+00:00", "run_id": "4", "attempt": 0, "rank": 1, "event": "step", "step": 4, "loss": 3.969231605529785, "digest": "a1934ea4ad9af3186bed3adfbba165f1532e901030d8c9b4e34f0f950b9a0c00", "params": null}
+{"ts": "2026-10-31T23:46:21.316789+00:00", "run_id": "4", "attempt": 0, "rank": 1, "event": "checkpoint", "step": 4, "dir": "a0/00000004-dc2e6cc67988484c9e339b00ecb10614"}
+{"ts": "2026-10-31T23:46:22.317687+00:00", "run_id": "4", "attempt": 0, "rank": 1, "event": "step", "step": 5, "loss": 1.2955631017684937, "digest": "68375050e13633538cc004aef7d0271b11dfc8edfc6e51c12d637dbf8d1e9f70", "params": null}
+{"ts": "2026-10-31T23:46:22.349134+00:00", "run_id": "4", "attempt": 0, "rank": 1, "event": "checkpoint", "step": 5, "dir": "a0/00000005-5097937f33c9438092993856c749f585"}
+{"ts": "2026-10-31T23:46:23.350203+00:00", "run_id": "4", "attempt": 0, "rank": 1, "event": "step", "step": 6, "loss": 0.14475201070308685, "digest": "4d1e4648f6002d4ca9729aefdd0d9f312c70246d7bdf24d26d4ea5c6d5a90eee", "params": null}
+{"ts": "2026-10-31T23:46:23.387612+00:00", "run_id": "4", "attempt": 0, "rank": 1, "event": "checkpoint", "step": 6, "dir": "a0/00000006-f577a18546994a52a41f4d340c959012"}
+{"ts": "2026-10-31T23:46:24.388514+00:00", "run_id": "4", "attempt": 0, "rank": 1, "event": "step", "step": 7, "loss": 0.5368534326553345, "digest": "02f18f092ddf7cb7b5d8469b04508f419a84805c77184aa68ef1171151a08b44", "params": null}
+{"ts": "2026-10-31T23:46:24.419808+00:00", "run_id": "4", "attempt": 0, "rank": 1, "event": "checkpoint", "step": 7, "dir": "a0/00000007-8648901eb349494484adb5d809a59ead"}
+{"ts": "2026-10-31T23:46:25.420733+00:00", "run_id": "4", "attempt": 0, "rank": 1, "event": "step", "step": 8, "loss": 1.9936628341674805, "digest": "5b3b2637904e4fbc149c44db6b93f35ea82b6409a6094f047520432d57f22717", "params": null}
+{"ts": "2026-10-31T23:46:25.462219+00:00", "run_id": "4", "attempt": 0, "rank": 1, "event": "checkpoint", "step": 8, "dir": "a0/00000008-e3b52fbca19145c78630d3bb992fa75f"}
+{"ts": "2026-10-31T23:46:26.463284+00:00", "run_id": "4", "attempt": 0, "rank": 1, "event": "step", "step": 9, "loss": 3.8439977169036865, "digest": "10aac49a6ecf5441713f5b69d7917dabc14a4bca674e623b127816a17d80b665", "params": null}
+{"ts": "2026-10-31T23:46:26.494649+00:00", "run_id": "4", "attempt": 0, "rank": 1, "event": "checkpoint", "step": 9, "dir": "a0/00000009-17af237f3fa7458a8815af239472488c"}
+{"ts": "2026-10-31T23:46:27.495689+00:00", "run_id": "4", "attempt": 0, "rank": 1, "event": "step", "step": 10, "loss": 5.347487449645996, "digest": "62671c159adefbaa2670ae13a94b4bdcf9052f8b4ef65ddcb9253c1b50c13714", "params": null}
+{"ts": "2026-10-31T23:46:27.531749+00:00", "run_id": "4", "attempt": 0, "rank": 1, "event": "checkpoint", "step": 10, "dir": "a0/00000010-eb364ad6b3ee4b93a62ef72850306b6d"}
+{"ts": "2026-10-31T23:46:28.532789+00:00", "run_id": "4", "attempt": 0, "rank": 1, "event": "step", "step": 11, "loss": 15.703547477722168, "digest": "772237fe6e322361b8f0cb4e310edd47f748ed84e6d90586fbd238b62b305b77", "params": null}
+{"ts": "2026-10-31T23:46:28.564134+00:00", "run_id": "4", "attempt": 0, "rank": 1, "event": "checkpoint", "step": 11, "dir": "a0/00000011-75e24e4d66214040a32e41e2cbfc4880"}
+{"ts": "2026-10-31T23:46:29.565088+00:00", "run_id": "4", "attempt": 0, "rank": 1, "event": "step", "step": 12, "loss": 10.383660316467285, "digest": "c927a4c50ed5510b6c84efdd5bc8e4af27dc3cfa289a8caf603f35b34980133c", "params": null}
+{"ts": "2026-10-31T23:46:29.596646+00:00", "run_id": "4", "attempt": 0, "rank": 1, "event": "checkpoint", "step": 12, "dir": "a0/00000012-8c8cf5e60e5f4809927c75081c536d46"}

@@ -1,0 +1,105 @@
+# transcript 01-gres.txt, slurm-lab, written by steps/01-gres.sh
+# Holders: one GPU on c1 and one on c2, so only c3 has two free; four GPUs are free in total.
+
+alice@slurmctld$ sbatch -J hold-c1 -w c1 --gres=gpu:1 --wrap 'sleep 900'
+# at 2026-10-31T11:10:49.141Z
+Submitted batch job 2
+# exit 0
+
+alice@slurmctld$ sbatch -J hold-c2 -w c2 --gres=gpu:1 --wrap 'sleep 900'
+# at 2026-10-31T11:10:49.196Z
+Submitted batch job 3
+# exit 0
+# waited 1s for: [ $(squeue -h -t R -u alice | wc -l) -eq 2 ]
+
+root@slurmctld$ sinfo -N -O NodeList:6,StateLong:10,Gres:10,GresUsed:24
+# at 2026-10-31T11:10:50.348Z
+NODELISTATE     GRES      GRES_USED               
+c1    mixed     gpu:2     gpu:1                   
+c2    mixed     gpu:2     gpu:1                   
+c3    idle      gpu:2     gpu:0                   
+# exit 0
+# A 2-GPU job with no node pin: the only node it fits is c3.
+
+alice@slurmctld$ sbatch -J two-gpu --gres=gpu:2 --wrap 'echo CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES; sleep 900'
+# at 2026-10-31T11:10:50.402Z
+Submitted batch job 4
+# exit 0
+# waited 3s for: squeue -h -n two-gpu -t R | grep -q .
+
+root@slurmctld$ squeue -o '%.6i %.10j %.8u %.3t %.12b %N %R'
+# at 2026-10-31T11:10:53.653Z
+ JOBID       NAME     USER  ST TRES_PER_NOD NODELIST NODELIST(REASON)
+     4    two-gpu    alice   R   gres/gpu:2 c3 c3
+     2    hold-c1    alice   R   gres/gpu:1 c1 c1
+     3    hold-c2    alice   R   gres/gpu:1 c2 c2
+# exit 0
+
+root@slurmctld$ scontrol -d show job $(squeue -h -n two-gpu -o %i) | grep -E 'JobState|NodeList=|GRES=|TresPerNode'
+# at 2026-10-31T11:10:53.707Z
+   JobState=RUNNING Reason=None Dependency=(null)
+   ReqNodeList=(null) ExcNodeList=(null)
+   NodeList=c3
+   JOB_GRES=gpu:2
+     Nodes=c3 CPU_IDs=0 Mem=0 GRES=gpu:2(IDX:0-1)
+   TresPerNode=gres/gpu:2
+# exit 0
+# Now two GPUs are free in total, one on c1 and one on c2, and no node has two.
+
+root@slurmctld$ sinfo -N -O NodeList:6,StateLong:10,Gres:10,GresUsed:24
+# at 2026-10-31T11:10:53.766Z
+NODELISTATE     GRES      GRES_USED               
+c1    mixed     gpu:2     gpu:1                   
+c2    mixed     gpu:2     gpu:1                   
+c3    mixed     gpu:2     gpu:2                   
+# exit 0
+
+alice@slurmctld$ sbatch -J two-gpu-b --gres=gpu:2 --wrap 'sleep 60'
+# at 2026-10-31T11:10:53.825Z
+Submitted batch job 5
+# exit 0
+# waited 2s for: squeue -h -n two-gpu-b -o %r | grep -q Resources
+
+root@slurmctld$ squeue -o '%.6i %.10j %.8u %.3t %.12b %N %R'
+# at 2026-10-31T11:10:56.030Z
+ JOBID       NAME     USER  ST TRES_PER_NOD NODELIST NODELIST(REASON)
+     5  two-gpu-b    alice  PD   gres/gpu:2  (Resources)
+     4    two-gpu    alice   R   gres/gpu:2 c3 c3
+     2    hold-c1    alice   R   gres/gpu:1 c1 c1
+     3    hold-c2    alice   R   gres/gpu:1 c2 c2
+# exit 0
+
+root@slurmctld$ scontrol show job $(squeue -h -n two-gpu-b -o %i) | grep -E 'JobState|Reason|TresPerNode'
+# at 2026-10-31T11:10:56.085Z
+   JobState=PENDING Reason=Resources Dependency=(null)
+   TresPerNode=gres/gpu:2
+# exit 0
+# Freeing c1's holder gives c1 two free GPUs, and the pending job starts there without being resubmitted.
+
+alice@slurmctld$ scancel -n hold-c1
+# at 2026-10-31T11:10:56.142Z
+# exit 0
+# waited 0s for: squeue -h -n two-gpu-b -t R | grep -q .
+
+root@slurmctld$ squeue -o '%.6i %.10j %.8u %.3t %.12b %N %R'
+# at 2026-10-31T11:10:56.247Z
+ JOBID       NAME     USER  ST TRES_PER_NOD NODELIST NODELIST(REASON)
+     5  two-gpu-b    alice   R   gres/gpu:2 c1 c1
+     4    two-gpu    alice   R   gres/gpu:2 c3 c3
+     3    hold-c2    alice   R   gres/gpu:1 c2 c2
+# exit 0
+
+alice@slurmctld$ scancel -u alice
+# at 2026-10-31T11:10:56.302Z
+# exit 0
+# waited 0s for: [ -z "$(squeue -h)" ]
+
+root@slurmctld$ sacct -X -u alice -o JobID,JobName%10,State,AllocTRES%40,NodeList
+# at 2026-10-31T11:10:56.405Z
+JobID           JobName      State                                AllocTRES        NodeList 
+------------ ---------- ---------- ---------------------------------------- --------------- 
+2               hold-c1 CANCELLED+        billing=1,cpu=1,gres/gpu=1,node=1              c1 
+3               hold-c2 CANCELLED+        billing=1,cpu=1,gres/gpu=1,node=1              c2 
+4               two-gpu CANCELLED+        billing=1,cpu=1,gres/gpu=2,node=1              c3 
+5             two-gpu-b CANCELLED+        billing=1,cpu=1,gres/gpu=2,node=1              c1 
+# exit 0

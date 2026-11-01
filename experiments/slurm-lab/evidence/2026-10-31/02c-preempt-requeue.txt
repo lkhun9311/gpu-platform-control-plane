@@ -1,0 +1,137 @@
+# transcript 02c-preempt-requeue.txt, slurm-lab, written by steps/02-quota-preempt.sh
+# PreemptType=preempt/qos, PreemptMode=REQUEUE cluster-wide; QoS high lists normal as preemptable.
+
+root@slurmctld$ scontrol show config | grep -E '^Preempt|^JobRequeue|^PriorityType'
+# at 2026-10-31T11:11:40.220Z
+JobRequeue              = 1
+PreemptMode             = REQUEUE
+PreemptParameters       = (null)
+PreemptType             = preempt/qos
+PreemptExemptTime       = 00:00:00
+PriorityType            = priority/multifactor
+# exit 0
+
+root@slurmctld$ sacctmgr show qos format=Name,Priority,Preempt,PreemptMode
+# at 2026-10-31T11:11:40.275Z
+      Name   Priority    Preempt PreemptMode 
+---------- ---------- ---------- ----------- 
+    normal          0                cluster 
+      high        100     normal     cluster 
+# exit 0
+# bob fills all six GPUs with normal-QoS, requeue-able jobs.
+
+bob@slurmctld$ sbatch -J b-norm-1 --requeue --open-mode=append --gres=gpu:2 --wrap 'echo start $(date -u +%T) on $(hostname) restart=${SLURM_RESTART_COUNT:-0}; sleep 900'
+# at 2026-10-31T11:11:40.331Z
+Submitted batch job 12
+# exit 0
+
+bob@slurmctld$ sbatch -J b-norm-2 --requeue --open-mode=append --gres=gpu:2 --wrap 'echo start $(date -u +%T) on $(hostname) restart=${SLURM_RESTART_COUNT:-0}; sleep 900'
+# at 2026-10-31T11:11:40.387Z
+Submitted batch job 13
+# exit 0
+
+bob@slurmctld$ sbatch -J b-norm-3 --requeue --open-mode=append --gres=gpu:2 --wrap 'echo start $(date -u +%T) on $(hostname) restart=${SLURM_RESTART_COUNT:-0}; sleep 900'
+# at 2026-10-31T11:11:40.444Z
+Submitted batch job 14
+# exit 0
+# waited 2s for: [ $(squeue -h -u bob -t R | wc -l) -eq 3 ]
+
+root@slurmctld$ squeue -o '%.6i %.10j %.8u %.6q %.3t %.10M %.12b %N %R'
+# at 2026-10-31T11:11:42.658Z
+ JOBID       NAME     USER    QOS  ST       TIME TRES_PER_NOD NODELIST NODELIST(REASON)
+    12   b-norm-1      bob normal   R       0:00   gres/gpu:2 c1 c1
+    13   b-norm-2      bob normal   R       0:00   gres/gpu:2 c2 c2
+    14   b-norm-3      bob normal   R       0:00   gres/gpu:2 c3 c3
+# exit 0
+# alice submits a high-QoS 2-GPU job that runs for 30 s.
+
+alice@slurmctld$ sbatch -J a-urgent --qos=high --gres=gpu:2 --wrap 'sleep 30'
+# at 2026-10-31T11:11:42.713Z
+Submitted batch job 15
+# exit 0
+# waited 3s for: squeue -h -n a-urgent -t R | grep -q .
+
+root@slurmctld$ squeue -o '%.6i %.10j %.8u %.6q %.3t %.10M %.12b %N %R'
+# at 2026-10-31T11:11:45.966Z
+ JOBID       NAME     USER    QOS  ST       TIME TRES_PER_NOD NODELIST NODELIST(REASON)
+    12   b-norm-1      bob normal  PD       0:00   gres/gpu:2  (BeginTime)
+    15   a-urgent    alice   high   R       0:01   gres/gpu:2 c1 c1
+    13   b-norm-2      bob normal   R       0:04   gres/gpu:2 c2 c2
+    14   b-norm-3      bob normal   R       0:04   gres/gpu:2 c3 c3
+# exit 0
+
+root@slurmctld$ sacct -X -o JobID,JobName%10,User,QOS,State,Start,End,NodeList
+# at 2026-10-31T11:11:46.022Z
+JobID           JobName      User        QOS      State               Start                 End        NodeList 
+------------ ---------- --------- ---------- ---------- ------------------- ------------------- --------------- 
+1                  bash      root     normal     FAILED 2026-10-31T11:10:48 2026-10-31T11:10:48              c1 
+2               hold-c1     alice     normal CANCELLED+ 2026-10-31T11:10:50 2026-10-31T11:10:56              c1 
+3               hold-c2     alice     normal CANCELLED+ 2026-10-31T11:10:50 2026-10-31T11:10:56              c2 
+4               two-gpu     alice     normal CANCELLED+ 2026-10-31T11:10:53 2026-10-31T11:10:56              c3 
+5             two-gpu-b     alice     normal CANCELLED+ 2026-10-31T11:10:56 2026-10-31T11:10:56              c1 
+6               a-first     alice     normal CANCELLED+ 2026-10-31T11:10:59 2026-10-31T11:11:36              c1 
+7              a-second     alice     normal CANCELLED+ 2026-10-31T11:11:36 2026-10-31T11:11:36              c3 
+8               b-first       bob     normal CANCELLED+ 2026-10-31T11:11:05 2026-10-31T11:11:36              c2 
+9              b-second       bob     normal CANCELLED+ 2026-10-31T11:11:05 2026-10-31T11:11:36              c3 
+10               a-high     alice       high CANCELLED+ 2026-10-31T11:11:36 2026-10-31T11:11:40              c1 
+11               b-high       bob       high CANCELLED+                None 2026-10-31T11:11:40   None assigned 
+12             b-norm-1       bob     normal  PREEMPTED 2026-10-31T11:11:42 2026-10-31T11:11:45              c1 
+13             b-norm-2       bob     normal    RUNNING 2026-10-31T11:11:42             Unknown              c2 
+14             b-norm-3       bob     normal    RUNNING 2026-10-31T11:11:42             Unknown              c3 
+15             a-urgent     alice       high    RUNNING 2026-10-31T11:11:45             Unknown              c1 
+# exit 0
+# victim job id, the one bob job squeue lists as pending: 12
+
+root@slurmctld$ scontrol show job 12 | grep -E 'JobState|Reason|Requeue|Restarts|BatchFlag|SubmitTime|EligibleTime|StartTime|PreemptTime'
+# at 2026-10-31T11:11:46.124Z
+   JobState=PENDING Reason=BeginTime Dependency=(null)
+   Requeue=1 Restarts=1 BatchFlag=1 Reboot=0 ExitCode=0:0
+   SubmitTime=2026-10-31T11:11:45 EligibleTime=2026-10-31T11:13:46
+   StartTime=2026-10-31T11:13:46 EndTime=Unknown Deadline=N/A
+# exit 0
+# After alice's job ends, the requeued job runs again in place of hers.
+# waited 115s for: squeue -h -j 12 -t R | grep -q .
+
+root@slurmctld$ squeue -o '%.6i %.10j %.8u %.6q %.3t %.10M %.12b %N %R'
+# at 2026-10-31T11:13:47.026Z
+ JOBID       NAME     USER    QOS  ST       TIME TRES_PER_NOD NODELIST NODELIST(REASON)
+    12   b-norm-1      bob normal   R       0:00   gres/gpu:2 c1 c1
+    13   b-norm-2      bob normal   R       2:05   gres/gpu:2 c2 c2
+    14   b-norm-3      bob normal   R       2:05   gres/gpu:2 c3 c3
+# exit 0
+
+root@slurmctld$ scontrol show job 12 | grep -E 'JobState|Requeue|Restarts|StartTime'
+# at 2026-10-31T11:13:47.083Z
+   JobState=RUNNING Reason=None Dependency=(null)
+   Requeue=1 Restarts=1 BatchFlag=1 Reboot=0 ExitCode=0:0
+   StartTime=2026-10-31T11:13:47 EndTime=Unknown Deadline=N/A
+# exit 0
+
+root@slurmctld$ sacct -D -j 12 -o JobID,JobName%10,State,Start,End,NodeList
+# at 2026-10-31T11:13:47.143Z
+JobID           JobName      State               Start                 End        NodeList 
+------------ ---------- ---------- ------------------- ------------------- --------------- 
+12             b-norm-1  PREEMPTED 2026-10-31T11:11:42 2026-10-31T11:11:45              c1 
+12.batch          batch  CANCELLED 2026-10-31T11:11:42 2026-10-31T11:11:45              c1 
+12             b-norm-1    RUNNING 2026-10-31T11:13:47             Unknown              c1 
+12.batch          batch    RUNNING 2026-10-31T11:13:47             Unknown              c1 
+# exit 0
+# The job's own output, appended across both runs, on the node its batch step ran on now (c1):
+
+root@c1$ cat /home/bob/slurm-12.out
+# at 2026-10-31T11:13:47.255Z
+start 11:11:42 on c1 restart=0
+slurmstepd-c1: error: *** JOB 12 ON c1 CANCELLED AT 2026-10-31T11:11:45 DUE TO PREEMPTION ***
+start 11:13:47 on c1 restart=1
+# exit 0
+
+root@slurmctld$ grep -hE 'JobId=12[^0-9]' /var/log/slurm/slurmctld.log | grep -iE 'preempt|requeu'
+# at 2026-10-31T11:13:47.311Z
+[2026-10-31T11:11:45.001] debug:  _job_requeue_op: JobId=12 state 0x8000 reason 0 priority 1
+[2026-10-31T11:11:45.001] preempted JobId=12 has been requeued to reclaim resources for JobId=15
+# exit 0
+
+root@slurmctld$ scancel -u alice; scancel -u bob
+# at 2026-10-31T11:13:47.367Z
+# exit 0
+# waited 0s for: [ -z "$(squeue -h)" ]

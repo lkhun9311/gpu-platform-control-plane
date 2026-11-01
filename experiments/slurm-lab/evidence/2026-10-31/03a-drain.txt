@@ -1,0 +1,112 @@
+# transcript 03a-drain.txt, slurm-lab, written by steps/03-node-failure.sh
+
+bob@slurmctld$ sbatch -J on-c2 -w c2 --gres=gpu:1 --wrap 'sleep 60'
+# at 2026-10-31T11:13:59.476Z
+Submitted batch job 24
+# exit 0
+# waited 4s for: squeue -h -n on-c2 -t R | grep -q .
+
+root@slurmctld$ squeue -o '%.6i %.10j %.8u %.3t %.10M %.12b %N %R'
+# at 2026-10-31T11:14:03.794Z
+ JOBID       NAME     USER  ST       TIME TRES_PER_NOD NODELIST NODELIST(REASON)
+    24      on-c2      bob   R       0:01   gres/gpu:1 c2 c2
+# exit 0
+# Drain c2 while its job runs.
+
+root@slurmctld$ scontrol update nodename=c2 state=drain reason='lab: drain while a job runs'
+# at 2026-10-31T11:14:03.848Z
+# exit 0
+
+root@slurmctld$ sinfo -N -o '%N %T %G %E'
+# at 2026-10-31T11:14:03.904Z
+NODELIST STATE GRES REASON
+c1 idle gpu:2 none
+c2 draining gpu:2 lab: drain while a job runs
+c3 idle gpu:2 none
+# exit 0
+
+root@slurmctld$ squeue -o '%.6i %.10j %.8u %.3t %.10M %.12b %N %R'
+# at 2026-10-31T11:14:03.958Z
+ JOBID       NAME     USER  ST       TIME TRES_PER_NOD NODELIST NODELIST(REASON)
+    24      on-c2      bob   R       0:02   gres/gpu:1 c2 c2
+# exit 0
+# A job that names c2 cannot start there; an unpinned 2-GPU job goes elsewhere.
+
+bob@slurmctld$ sbatch -J wants-c2 -w c2 --gres=gpu:1 --wrap 'sleep 30'
+# at 2026-10-31T11:14:04.012Z
+Submitted batch job 25
+# exit 0
+
+bob@slurmctld$ sbatch -J anywhere --gres=gpu:2 --wrap 'sleep 30'
+# at 2026-10-31T11:14:04.065Z
+Submitted batch job 26
+# exit 0
+# waited 1s for: squeue -h -n anywhere -t R | grep -q .
+
+root@slurmctld$ squeue -o '%.6i %.10j %.8u %.3t %.10M %.12b %N %R'
+# at 2026-10-31T11:14:05.214Z
+ JOBID       NAME     USER  ST       TIME TRES_PER_NOD NODELIST NODELIST(REASON)
+    25   wants-c2      bob  PD       0:00   gres/gpu:1  (ReqNodeNotAvail, May be reserved for other job)
+    26   anywhere      bob   R       0:00   gres/gpu:2 c1 c1
+    24      on-c2      bob   R       0:03   gres/gpu:1 c2 c2
+# exit 0
+# The running job is left to finish; c2 moves from draining to drained only when it has.
+
+# trace: probe [sinfo -h -n c2 -o '%T'; scontrol show node c2 | grep -oE 'State=[^ ]+'; squeue -h -n on-c2 -o '%i %T'] until [! squeue -h -n on-c2 | grep -q .], at most 120s
+## seen at 2026-10-31T11:14:05.324Z
+draining
+State=MIXED+DRAIN
+24 RUNNING
+## seen at 2026-10-31T11:15:03.752Z
+draining
+State=IDLE+DRAIN
+# trace ended: condition met after 53s
+
+root@slurmctld$ sinfo -N -o '%N %T %G %E'
+# at 2026-10-31T11:15:03.806Z
+NODELIST STATE GRES REASON
+c1 idle gpu:2 none
+c2 drained gpu:2 lab: drain while a job runs
+c3 idle gpu:2 none
+# exit 0
+
+root@slurmctld$ scontrol show node c2 | grep -E 'State=|Reason='
+# at 2026-10-31T11:15:03.862Z
+   State=IDLE+DRAIN ThreadsPerCore=1 TmpDisk=0 Weight=1 Owner=N/A MCS_label=N/A
+   Reason=lab: drain while a job runs [root@2026-10-31T11:14:03]
+# exit 0
+
+root@slurmctld$ sacct -X -n -j $(sacct -X -n -P -o JobID,JobName | grep '|on-c2$' | cut -d'|' -f1) -o JobID,JobName,State,ExitCode,Start,End,NodeList
+# at 2026-10-31T11:15:03.918Z
+24                on-c2  COMPLETED      0:0 2026-10-31T11:14:02 2026-10-31T11:15:03              c2 
+# exit 0
+
+root@slurmctld$ squeue -o '%.6i %.10j %.8u %.3t %.10M %.12b %N %R'
+# at 2026-10-31T11:15:03.976Z
+ JOBID       NAME     USER  ST       TIME TRES_PER_NOD NODELIST NODELIST(REASON)
+    25   wants-c2      bob  PD       0:00   gres/gpu:1  (ReqNodeNotAvail, May be reserved for other job)
+# exit 0
+
+root@slurmctld$ scontrol update nodename=c2 state=resume
+# at 2026-10-31T11:15:04.030Z
+# exit 0
+# waited 2s for: squeue -h -n wants-c2 -t R,CD | grep -q . || sacct -X -n -P -o JobName,State | grep -q '^wants-c2|COMPLETED'
+
+root@slurmctld$ sinfo -N -o '%N %T %G %E'
+# at 2026-10-31T11:15:06.239Z
+NODELIST STATE GRES REASON
+c1 idle gpu:2 none
+c2 mixed gpu:2 none
+c3 idle gpu:2 none
+# exit 0
+
+root@slurmctld$ squeue -o '%.6i %.10j %.8u %.3t %.10M %.12b %N %R'
+# at 2026-10-31T11:15:06.293Z
+ JOBID       NAME     USER  ST       TIME TRES_PER_NOD NODELIST NODELIST(REASON)
+    25   wants-c2      bob   R       0:00   gres/gpu:1 c2 c2
+# exit 0
+
+root@slurmctld$ scancel -u bob
+# at 2026-10-31T11:15:06.347Z
+# exit 0
+# waited 0s for: [ -z "$(squeue -h)" ]
