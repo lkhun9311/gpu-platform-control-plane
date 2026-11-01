@@ -1,0 +1,347 @@
+apiVersion: v1
+items:
+- apiVersion: kueue.x-k8s.io/v1beta2
+  kind: Workload
+  metadata:
+    creationTimestamp: "2026-11-01T03:28:24Z"
+    finalizers:
+    - kueue.x-k8s.io/resource-in-use
+    generation: 1
+    labels:
+      kueue.x-k8s.io/job-uid: 2e8e23df-b9c7-4f3b-b6cc-97629ef9c01c
+    name: job-gf-recovery-a987e
+    namespace: gpufault
+    ownerReferences:
+    - apiVersion: batch/v1
+      blockOwnerDeletion: true
+      controller: true
+      kind: Job
+      name: gf-recovery
+      uid: 2e8e23df-b9c7-4f3b-b6cc-97629ef9c01c
+    resourceVersion: "9478"
+    uid: 6d1f4676-2169-44ca-a04a-b09792b99a1b
+  spec:
+    active: true
+    podSets:
+    - count: 1
+      name: main
+      template:
+        metadata:
+          labels:
+            batch.kubernetes.io/job-name: gf-recovery
+        spec:
+          containers:
+          - command:
+            - /cuda-samples/sample
+            env:
+            - name: NVIDIA_DRIVER_CAPABILITIES
+              value: compute,utility
+            image: nvcr.io/nvidia/k8s/cuda-sample:vectoradd-cuda12.5.0@sha256:7c7540bdf1f942d4fb6db97069fd6c289471b54ac29e3c7fcdf914cf77af7d41
+            imagePullPolicy: IfNotPresent
+            name: trainer
+            resources:
+              limits:
+                nvidia.com/gpu: "1"
+            terminationMessagePath: /dev/termination-log
+            terminationMessagePolicy: File
+          dnsPolicy: ClusterFirst
+          restartPolicy: Never
+          schedulerName: default-scheduler
+          securityContext: {}
+          terminationGracePeriodSeconds: 30
+      topologyRequest:
+        podIndexLabel: batch.kubernetes.io/job-completion-index
+    priority: 0
+    queueName: gpu-gpufault
+  status:
+    admission:
+      clusterQueue: gpu-gpufault
+      podSetAssignments:
+      - count: 1
+        flavors:
+          nvidia.com/gpu: gpu
+        name: main
+        resourceUsage:
+          nvidia.com/gpu: "1"
+    conditions:
+    - lastTransitionTime: "2026-11-01T03:28:24Z"
+      message: Quota reserved in ClusterQueue gpu-gpufault
+      observedGeneration: 1
+      reason: QuotaReserved
+      status: "True"
+      type: QuotaReserved
+    - lastTransitionTime: "2026-11-01T03:28:24Z"
+      message: The workload is admitted
+      observedGeneration: 1
+      reason: Admitted
+      status: "True"
+      type: Admitted
+- apiVersion: batch/v1
+  kind: Job
+  metadata:
+    creationTimestamp: "2026-11-01T03:28:24Z"
+    generation: 2
+    labels:
+      kueue.x-k8s.io/queue-name: gpu-gpufault
+    name: gf-recovery
+    namespace: gpufault
+    ownerReferences:
+    - apiVersion: platform.lkhun9311.github.io/v1
+      blockOwnerDeletion: true
+      controller: true
+      kind: MLTrainingJob
+      name: gf-recovery
+      uid: f546ec55-1330-484d-a803-a3217c0d0c35
+    resourceVersion: "9516"
+    uid: 2e8e23df-b9c7-4f3b-b6cc-97629ef9c01c
+  spec:
+    backoffLimit: 6
+    completionMode: NonIndexed
+    completions: 1
+    manualSelector: false
+    parallelism: 1
+    podReplacementPolicy: TerminatingOrFailed
+    selector:
+      matchLabels:
+        batch.kubernetes.io/controller-uid: 2e8e23df-b9c7-4f3b-b6cc-97629ef9c01c
+    suspend: false
+    template:
+      metadata:
+        annotations:
+          kueue.x-k8s.io/workload: job-gf-recovery-a987e
+        creationTimestamp: null
+        labels:
+          batch.kubernetes.io/controller-uid: 2e8e23df-b9c7-4f3b-b6cc-97629ef9c01c
+          batch.kubernetes.io/job-name: gf-recovery
+          controller-uid: 2e8e23df-b9c7-4f3b-b6cc-97629ef9c01c
+          job-name: gf-recovery
+          kueue.x-k8s.io/cluster-queue-name: gpu-gpufault
+          kueue.x-k8s.io/local-queue-name: gpu-gpufault
+          kueue.x-k8s.io/podset: main
+      spec:
+        containers:
+        - command:
+          - /cuda-samples/sample
+          env:
+          - name: NVIDIA_DRIVER_CAPABILITIES
+            value: compute,utility
+          image: nvcr.io/nvidia/k8s/cuda-sample:vectoradd-cuda12.5.0@sha256:7c7540bdf1f942d4fb6db97069fd6c289471b54ac29e3c7fcdf914cf77af7d41
+          imagePullPolicy: IfNotPresent
+          name: trainer
+          resources:
+            limits:
+              nvidia.com/gpu: "1"
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+        dnsPolicy: ClusterFirst
+        restartPolicy: Never
+        schedulerName: default-scheduler
+        securityContext: {}
+        terminationGracePeriodSeconds: 30
+  status:
+    conditions:
+    - lastProbeTime: "2026-11-01T03:28:24Z"
+      lastTransitionTime: "2026-11-01T03:28:24Z"
+      message: Job resumed
+      reason: JobResumed
+      status: "False"
+      type: Suspended
+    - lastProbeTime: "2026-11-01T03:28:28Z"
+      lastTransitionTime: "2026-11-01T03:28:28Z"
+      message: Reached expected number of succeeded pods
+      reason: CompletionsReached
+      status: "True"
+      type: SuccessCriteriaMet
+    ready: 0
+    startTime: "2026-11-01T03:28:24Z"
+    terminating: 0
+    uncountedTerminatedPods:
+      succeeded:
+      - f44187f8-3b0c-4415-be9c-eaff7ffbb59d
+- apiVersion: v1
+  kind: Pod
+  metadata:
+    annotations:
+      kueue.x-k8s.io/workload: job-gf-recovery-a987e
+    creationTimestamp: "2026-11-01T03:28:24Z"
+    generateName: gf-recovery-
+    labels:
+      batch.kubernetes.io/controller-uid: 2e8e23df-b9c7-4f3b-b6cc-97629ef9c01c
+      batch.kubernetes.io/job-name: gf-recovery
+      controller-uid: 2e8e23df-b9c7-4f3b-b6cc-97629ef9c01c
+      job-name: gf-recovery
+      kueue.x-k8s.io/cluster-queue-name: gpu-gpufault
+      kueue.x-k8s.io/local-queue-name: gpu-gpufault
+      kueue.x-k8s.io/podset: main
+    name: gf-recovery-g2hnw
+    namespace: gpufault
+    ownerReferences:
+    - apiVersion: batch/v1
+      blockOwnerDeletion: true
+      controller: true
+      kind: Job
+      name: gf-recovery
+      uid: 2e8e23df-b9c7-4f3b-b6cc-97629ef9c01c
+    resourceVersion: "9517"
+    uid: f44187f8-3b0c-4415-be9c-eaff7ffbb59d
+  spec:
+    containers:
+    - command:
+      - /cuda-samples/sample
+      env:
+      - name: NVIDIA_DRIVER_CAPABILITIES
+        value: compute,utility
+      image: nvcr.io/nvidia/k8s/cuda-sample:vectoradd-cuda12.5.0@sha256:7c7540bdf1f942d4fb6db97069fd6c289471b54ac29e3c7fcdf914cf77af7d41
+      imagePullPolicy: IfNotPresent
+      name: trainer
+      resources:
+        limits:
+          nvidia.com/gpu: "1"
+        requests:
+          nvidia.com/gpu: "1"
+      terminationMessagePath: /dev/termination-log
+      terminationMessagePolicy: File
+      volumeMounts:
+      - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+        name: kube-api-access-mzbnp
+        readOnly: true
+    dnsPolicy: ClusterFirst
+    enableServiceLinks: true
+    nodeName: m5cgpu-worker
+    preemptionPolicy: PreemptLowerPriority
+    priority: 0
+    restartPolicy: Never
+    schedulerName: default-scheduler
+    securityContext: {}
+    serviceAccount: default
+    serviceAccountName: default
+    terminationGracePeriodSeconds: 30
+    tolerations:
+    - effect: NoExecute
+      key: node.kubernetes.io/not-ready
+      operator: Exists
+      tolerationSeconds: 300
+    - effect: NoExecute
+      key: node.kubernetes.io/unreachable
+      operator: Exists
+      tolerationSeconds: 300
+    volumes:
+    - name: kube-api-access-mzbnp
+      projected:
+        defaultMode: 420
+        sources:
+        - serviceAccountToken:
+            expirationSeconds: 3607
+            path: token
+        - configMap:
+            items:
+            - key: ca.crt
+              path: ca.crt
+            name: kube-root-ca.crt
+        - downwardAPI:
+            items:
+            - fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.namespace
+              path: namespace
+  status:
+    conditions:
+    - lastProbeTime: null
+      lastTransitionTime: "2026-11-01T03:28:27Z"
+      status: "False"
+      type: PodReadyToStartContainers
+    - lastProbeTime: null
+      lastTransitionTime: "2026-11-01T03:28:24Z"
+      reason: PodCompleted
+      status: "True"
+      type: Initialized
+    - lastProbeTime: null
+      lastTransitionTime: "2026-11-01T03:28:26Z"
+      reason: PodCompleted
+      status: "False"
+      type: Ready
+    - lastProbeTime: null
+      lastTransitionTime: "2026-11-01T03:28:26Z"
+      reason: PodCompleted
+      status: "False"
+      type: ContainersReady
+    - lastProbeTime: null
+      lastTransitionTime: "2026-11-01T03:28:24Z"
+      status: "True"
+      type: PodScheduled
+    containerStatuses:
+    - containerID: containerd://825cba6a5984a0fe366592e7cde9bf30fddf66295bbe177f598eedf556ab9f0a
+      image: sha256:16f6bb89e9d89e918e9a6efb617f5f3d116404040c1ad6692c14fbe1de17f097
+      imageID: nvcr.io/nvidia/k8s/cuda-sample@sha256:7c7540bdf1f942d4fb6db97069fd6c289471b54ac29e3c7fcdf914cf77af7d41
+      lastState: {}
+      name: trainer
+      ready: false
+      restartCount: 0
+      started: false
+      state:
+        terminated:
+          containerID: containerd://825cba6a5984a0fe366592e7cde9bf30fddf66295bbe177f598eedf556ab9f0a
+          exitCode: 0
+          finishedAt: "2026-11-01T03:28:25Z"
+          reason: Completed
+          startedAt: "2026-11-01T03:28:24Z"
+      volumeMounts:
+      - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+        name: kube-api-access-mzbnp
+        readOnly: true
+        recursiveReadOnly: Disabled
+    hostIP: 172.18.0.3
+    hostIPs:
+    - ip: 172.18.0.3
+    phase: Succeeded
+    podIP: 10.244.1.29
+    podIPs:
+    - ip: 10.244.1.29
+    qosClass: BestEffort
+    startTime: "2026-11-01T03:28:24Z"
+- apiVersion: platform.lkhun9311.github.io/v1
+  kind: MLTrainingJob
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"platform.lkhun9311.github.io/v1","kind":"MLTrainingJob","metadata":{"annotations":{},"name":"gf-recovery","namespace":"gpufault"},"spec":{"command":["/cuda-samples/sample"],"completions":1,"gpuCount":1,"image":"nvcr.io/nvidia/k8s/cuda-sample:vectoradd-cuda12.5.0@sha256:7c7540bdf1f942d4fb6db97069fd6c289471b54ac29e3c7fcdf914cf77af7d41","parallelism":1,"queue":"gpu-gpufault"}}
+    creationTimestamp: "2026-11-01T03:28:24Z"
+    finalizers:
+    - mltrainingjob.platform.lkhun9311.github.io/finalizer
+    generation: 1
+    name: gf-recovery
+    namespace: gpufault
+    resourceVersion: "9520"
+    uid: f546ec55-1330-484d-a803-a3217c0d0c35
+  spec:
+    command:
+    - /cuda-samples/sample
+    completions: 1
+    gpuCount: 1
+    image: nvcr.io/nvidia/k8s/cuda-sample:vectoradd-cuda12.5.0@sha256:7c7540bdf1f942d4fb6db97069fd6c289471b54ac29e3c7fcdf914cf77af7d41
+    parallelism: 1
+    queue: gpu-gpufault
+  status:
+    admitToRunningSeconds: "2.509"
+    admittedAt: "2026-11-01T03:28:24Z"
+    conditions:
+    - lastTransitionTime: "2026-11-01T03:28:24Z"
+      message: ""
+      observedGeneration: 1
+      reason: JobComplete
+      status: "True"
+      type: Admitted
+    - lastTransitionTime: "2026-11-01T03:28:26Z"
+      message: the tenant waited 2.509s between Kueue admitting this job and this
+        controller seeing it run; the admission end is Kueue's own stamp and the running
+        end is this controller's observation, so the interval carries one watch lag
+      reason: Observed
+      status: "True"
+      type: AdmitToRunningObserved
+    lastTransitionTime: "2026-11-01T03:28:28Z"
+    observedGeneration: 1
+    phase: Succeeded
+    runningObservedAt: "2026-11-01T03:28:26Z"
+kind: List
+metadata:
+  resourceVersion: ""

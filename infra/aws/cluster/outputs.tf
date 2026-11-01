@@ -25,3 +25,12 @@ output "cluster_ca" {
   description = "Base64 CA bundle for the cluster's API server, for the Kubernetes and Helm providers in infra/aws/argo-bootstrap."
   value       = module.eks.cluster_certificate_authority_data
 }
+
+# The file system the restart session's PersistentVolume names, or empty when efs_enabled is off.
+#
+# Empty rather than null, so `terraform output -raw` prints nothing instead of failing, and the session refuses an
+# empty ID by its own check, with a message that says the volume was not built.
+output "efs_file_system_id" {
+  description = "ID of the restart session's EFS file system, empty when efs_enabled is false."
+  value       = try(aws_efs_file_system.shared[0].id, "")
+}

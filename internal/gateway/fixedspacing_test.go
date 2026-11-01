@@ -136,7 +136,7 @@ func TestFixedSpacingDropsAHeadPastItsHold(t *testing.T) {
 	key := serialBackend().URL.String()
 	late, fresh := make(chan struct{}), make(chan struct{})
 	before := time.Now().Add(-time.Minute)
-	f.lines[key] = &fixedSpacingLine{last: before, waiters: []waiter{{turn: late, since: time.Now().Add(-2 * time.Second), maxHold: time.Second}, {turn: fresh, since: time.Now(), maxHold: time.Second}}, armed: true}
+	f.lines[key] = &fixedSpacingLine{last: before, waiters: newFairLine(waiter{turn: late, since: time.Now().Add(-2 * time.Second), maxHold: time.Second}, waiter{turn: fresh, since: time.Now(), maxHold: time.Second}), armed: true}
 	f.release(key)
 	select {
 	case <-late:

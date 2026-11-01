@@ -1,0 +1,58 @@
+# Local only: the image is built here, tagged under a local name and never pushed.
+name: slurmlab
+
+x-slurm: &slurm
+  # The tag names torch because the image now carries it; the earlier slurmlab:24.11.5 had none.
+  image: slurmlab:24.11.5-torch251
+  build: .
+  restart: on-failure
+
+services:
+  mariadb:
+    image: mariadb:11.4@sha256:d1891ede5a559f1086f55053bb8cc1569b0298338c4d72d71725a7f74f6ba620
+    hostname: mariadb
+    environment:
+      MARIADB_RANDOM_ROOT_PASSWORD: "yes"
+      MARIADB_DATABASE: slurm_acct_db
+      MARIADB_USER: slurm
+      MARIADB_PASSWORD: slurmlab
+    # slurmdbd's own documentation asks for a larger InnoDB buffer and lock wait than the defaults.
+    command: ["--innodb-buffer-pool-size=256M", "--innodb-lock-wait-timeout=900"]
+
+  slurmdbd:
+    <<: *slurm
+    hostname: slurmdbd
+    command: ["slurmdbd"]
+    depends_on: [mariadb]
+
+  slurmctld:
+    <<: *slurm
+    hostname: slurmctld
+    command: ["slurmctld"]
+    depends_on: [slurmdbd]
+    # Read-only here, so the evidence of a training run can be read even while a compute node is dead.
+    volumes:
+      - ckpt:/ckpt:ro
+      # sbatch reads the job script on the submitting host, which is this container.
+      - ./train.sbatch:/opt/lab/train.sbatch:ro
+
+  # The compute nodes are unprivileged; cgroup.conf disables the cgroup plugin rather than granting them cgroupfs.
+  c1: &compute
+    <<: *slurm
+    hostname: c1
+    command: ["slurmd"]
+    depends_on: [slurmctld]
+    # One volume shared by every compute node, standing in for the shared filesystem a requeued job needs to find its checkpoints on other nodes.
+    volumes:
+      - ckpt:/ckpt
+      # Mounted rather than copied into the image, so the file that runs is the committed one the step hashes.
+      - ./train.py:/opt/lab/train.py:ro
+  c2:
+    <<: *compute
+    hostname: c2
+  c3:
+    <<: *compute
+    hostname: c3
+
+volumes:
+  ckpt:

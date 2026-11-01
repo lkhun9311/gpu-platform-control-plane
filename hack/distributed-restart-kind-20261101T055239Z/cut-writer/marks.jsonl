@@ -1,0 +1,12 @@
+{"at": "2026-11-01T05:55:53.517+00:00", "mark": "cut-start rst-worker"}
+{"at": "2026-11-01T05:55:53.671+00:00", "mark": "cut rst-worker"}
+{"at": "2026-11-01T05:56:35.989+00:00", "mark": "notready rst-worker Unknown"}
+{"at": "2026-11-01T05:56:35.995+00:00", "mark": "node-delete-start rst-worker"}
+{"at": "2026-11-01T05:56:36.027+00:00", "mark": "node-deleted rst-worker"}
+{"at": "2026-11-01T05:58:07.310+00:00", "mark": "fence-hold-start"}
+{"at": "2026-11-01T05:58:17.465+00:00", "mark": "decoy-annotated"}
+{"at": "2026-11-01T05:58:37.735+00:00", "mark": "fence-hold-end"}
+{"at": "2026-11-01T05:58:37.794+00:00", "mark": "kill-start rst-worker"}
+{"at": "2026-11-01T05:58:38.038+00:00", "mark": "killed rst-worker"}
+{"at": "2026-11-01T05:58:43.807+00:00", "mark": "fence-start rst-worker"}
+{"at": "2026-11-01T05:58:43.847+00:00", "mark": "fenced rst-worker"}

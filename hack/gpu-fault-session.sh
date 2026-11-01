@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# The GPU fault-reaction session: one g5.2xlarge Spot instance, one attempt, stopped by itself 7,000 s after launch.
+# The GPU fault-reaction session: one g5.2xlarge Spot instance, one attempt, stopped by itself 7,180 s after launch.
 #
 #   SESSION_CONFIRM=yes AWS_PROFILE=gpu-lab GPU_FAULT_AMI_ID=ami-... bash hack/gpu-fault-session.sh
 #
@@ -11,10 +11,10 @@
 # by hack/gpu-fault-instance.sh.
 #
 # THE CLOCK. Every deadline counts from EC2's LaunchTime, read right after the launch and written to the run's S3
-# prefix for the instance to read. The instance's phases end at 720, 1,320, 6,520 and 6,820 s after it, its evidence
-# at 6,940 s, and it shuts itself down at 7,000 s. The launch carries the termination sweeper's study-deadline tag
-# at the request plus 6,940 s, rewritten to LaunchTime plus 6,970 s once LaunchTime is known, so the sweeper cannot
-# cut the evidence step.
+# prefix for the instance to read. The instance's phases end at 720, 1,320, 6,520 and 7,000 s after it, its evidence
+# at 7,120 s, and it shuts itself down at 7,180 s. The launch carries the termination sweeper's study-deadline tag
+# at the request plus 7,120 s, rewritten to LaunchTime plus 7,150 s once LaunchTime is known, so the sweeper cannot
+# cut the evidence step. Run 3's amendment moved everything after the arms by the 180 s its recovery check is given.
 #
 # NOTHING HERE IS A DEFAULT A CALLER CAN MOVE: the registration fixes the instance, the arms and the stop, so each is
 # a constant, and a caller who sets one is refused rather than ignored.
@@ -30,15 +30,15 @@ MAX_PRICE_FIXED=1.1324
 STUDY_ID=gpu-fault-2026-10-27
 STACK=gpufault-gpu
 PURPOSE=gpu-fault
-TAG_AT_LAUNCH_S=6940
-TAG_FROM_LAUNCH_S=6970
-STOP_FROM_LAUNCH_S=7000
+TAG_AT_LAUNCH_S=7120
+TAG_FROM_LAUNCH_S=7150
+STOP_FROM_LAUNCH_S=7180
 PHASE_BRINGUP_S=720
 PHASE_PLATFORM_S=1320
 PHASE_ARMS_S=6520
-PHASE_CHECKS_S=6820
-EVIDENCE_S=6940
-TERMINATION_S=7300
+PHASE_CHECKS_S=7000
+EVIDENCE_S=7120
+TERMINATION_S=7480
 LAUNCHTIME_WAIT_S=180
 SWEEPER_MIN_RUNS=4
 # The session's end of the termination wait plus 30 minutes of headroom, in minutes.

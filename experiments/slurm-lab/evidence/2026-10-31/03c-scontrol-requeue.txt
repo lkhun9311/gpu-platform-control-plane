@@ -1,0 +1,65 @@
+# transcript 03c-scontrol-requeue.txt, slurm-lab, written by steps/03-node-failure.sh
+# The same requeue by hand, on the job from 03b once it is running again.
+# waited 0s for: squeue -h -n rq-yes -t R | grep -q .
+
+root@slurmctld$ squeue -o '%.6i %.10j %.8u %.3t %.10M %.12b %N %R'
+# at 2026-10-31T11:18:18.483Z
+ JOBID       NAME     USER  ST       TIME TRES_PER_NOD NODELIST NODELIST(REASON)
+    29     rq-yes    alice   R       0:01   gres/gpu:1 c1 c1
+# exit 0
+
+root@slurmctld$ scontrol requeue $(squeue -h -n rq-yes -o %i)
+# at 2026-10-31T11:18:18.536Z
+# exit 0
+
+root@slurmctld$ squeue -o '%.6i %.10j %.8u %.3t %.10M %.12b %N %R'
+# at 2026-10-31T11:18:18.593Z
+ JOBID       NAME     USER  ST       TIME TRES_PER_NOD NODELIST NODELIST(REASON)
+    29     rq-yes    alice  PD       0:00   gres/gpu:1  (BeginTime)
+# exit 0
+
+root@slurmctld$ scontrol show job $(squeue -h -n rq-yes -o %i) | grep -E 'JobState|Reason|Requeue|Restarts|EligibleTime|StartTime'
+# at 2026-10-31T11:18:18.648Z
+   JobState=PENDING Reason=BeginTime Dependency=(null)
+   Requeue=1 Restarts=2 BatchFlag=1 Reboot=0 ExitCode=0:0
+   SubmitTime=2026-10-31T11:18:18 EligibleTime=2026-10-31T11:20:19
+   StartTime=2026-10-31T11:20:19 EndTime=Unknown Deadline=N/A
+# exit 0
+
+# trace: probe [squeue -h -n rq-yes -o '%i %T %r %N'] until [squeue -h -n rq-yes -t R | grep -q .], at most 180s
+## seen at 2026-10-31T11:18:18.753Z
+29 PENDING BeginTime 
+## seen at 2026-10-31T11:20:47.291Z
+29 RUNNING None c1
+# trace ended: condition met after 133s
+
+root@slurmctld$ scontrol show job $(squeue -h -n rq-yes -o %i) | grep -E 'JobState|Restarts|StartTime'
+# at 2026-10-31T11:20:47.356Z
+   JobState=RUNNING Reason=None Dependency=(null)
+   Requeue=1 Restarts=2 BatchFlag=1 Reboot=0 ExitCode=0:0
+   StartTime=2026-10-31T11:20:47 EndTime=Unknown Deadline=N/A
+# exit 0
+# scontrol requeue on a --no-requeue job, for contrast.
+
+alice@slurmctld$ sbatch -J rq-no-2 --no-requeue --gres=gpu:1 --wrap 'sleep 900'
+# at 2026-10-31T11:20:47.421Z
+Submitted batch job 31
+# exit 0
+# waited 3s for: squeue -h -n rq-no-2 -t R | grep -q .
+
+root@slurmctld$ scontrol requeue $(squeue -h -n rq-no-2 -o %i)
+# at 2026-10-31T11:20:50.708Z
+Requested operation is presently disabled for job 31
+# exit 1
+
+root@slurmctld$ squeue -o '%.6i %.10j %.8u %.3t %.10M %.12b %N %R'
+# at 2026-10-31T11:20:50.776Z
+ JOBID       NAME     USER  ST       TIME TRES_PER_NOD NODELIST NODELIST(REASON)
+    31    rq-no-2    alice   R       0:00   gres/gpu:1 c1 c1
+    29     rq-yes    alice   R       0:03   gres/gpu:1 c1 c1
+# exit 0
+
+root@slurmctld$ scancel -u alice; scancel -u bob
+# at 2026-10-31T11:20:50.841Z
+# exit 0
+# waited 0s for: [ -z "$(squeue -h)" ]

@@ -1,0 +1,21 @@
+/usr/local/lib/python3.12/site-packages/torch/_subclasses/functional_tensor.py:295: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at ../torch/csrc/utils/tensor_numpy.cpp:84.)
+  cpu = _conversion_method_template(device=torch.device("cpu"))
+{"ts": "2026-10-31T14:45:57.832848+00:00", "run_id": "rst-stale-workload-144556", "attempt": 1, "rank": 0, "event": "restart_from_zero", "load_mode": "full"}
+{"ts": "2026-10-31T14:45:58.175929+00:00", "run_id": "rst-stale-workload-144556", "attempt": 1, "rank": 0, "event": "start", "world_size": 2, "load_mode": "full", "resumed_from_step": 0, "steps": 20, "fault": "kill-after-latest:8", "torch_version": "2.5.1+cpu"}
+{"ts": "2026-10-31T14:45:58.177057+00:00", "run_id": "rst-stale-workload-144556", "attempt": 1, "rank": 0, "event": "step", "step": 1, "loss": 7.50014591217041, "digest": "6969f25baaf6fb81336db2594331d9ead56c8a5f31186e9a68be5833ad424643", "params": null}
+{"ts": "2026-10-31T14:45:58.178589+00:00", "run_id": "rst-stale-workload-144556", "attempt": 1, "rank": 0, "event": "checkpoint", "step": 1, "dir": "a1/00000001-78e5d575200643f0aaf8897525d0f491"}
+{"ts": "2026-10-31T14:45:59.179926+00:00", "run_id": "rst-stale-workload-144556", "attempt": 1, "rank": 0, "event": "step", "step": 2, "loss": 16.01248550415039, "digest": "c2b9b1d0c4e24a46981a284eda05dfd9c13e891d4b086cfff7d697ffbdf296cf", "params": null}
+{"ts": "2026-10-31T14:45:59.181068+00:00", "run_id": "rst-stale-workload-144556", "attempt": 1, "rank": 0, "event": "checkpoint", "step": 2, "dir": "a1/00000002-f32ee353471c434abd3082ba5a1a3720"}
+{"ts": "2026-10-31T14:46:00.182180+00:00", "run_id": "rst-stale-workload-144556", "attempt": 1, "rank": 0, "event": "step", "step": 3, "loss": 13.970389366149902, "digest": "9c12348945211a5ad36dbb685bdb81ba6ce7f4004ae4a508b849c13c54391004", "params": null}
+{"ts": "2026-10-31T14:46:00.183547+00:00", "run_id": "rst-stale-workload-144556", "attempt": 1, "rank": 0, "event": "checkpoint", "step": 3, "dir": "a1/00000003-6a5d8f1f1c9141208d08bfa8ad13a6e2"}
+{"ts": "2026-10-31T14:46:01.184562+00:00", "run_id": "rst-stale-workload-144556", "attempt": 1, "rank": 0, "event": "step", "step": 4, "loss": 7.558557033538818, "digest": "a1934ea4ad9af3186bed3adfbba165f1532e901030d8c9b4e34f0f950b9a0c00", "params": null}
+{"ts": "2026-10-31T14:46:01.185739+00:00", "run_id": "rst-stale-workload-144556", "attempt": 1, "rank": 0, "event": "checkpoint", "step": 4, "dir": "a1/00000004-4ee93b55423d4f9ca4e9bd4c7c1066f1"}
+{"ts": "2026-10-31T14:46:02.186750+00:00", "run_id": "rst-stale-workload-144556", "attempt": 1, "rank": 0, "event": "step", "step": 5, "loss": 3.692164897918701, "digest": "68375050e13633538cc004aef7d0271b11dfc8edfc6e51c12d637dbf8d1e9f70", "params": null}
+{"ts": "2026-10-31T14:46:02.188723+00:00", "run_id": "rst-stale-workload-144556", "attempt": 1, "rank": 0, "event": "checkpoint", "step": 5, "dir": "a1/00000005-474f22807f464ecca656780ce7477ee6"}
+{"ts": "2026-10-31T14:46:03.189997+00:00", "run_id": "rst-stale-workload-144556", "attempt": 1, "rank": 0, "event": "step", "step": 6, "loss": 0.7242053747177124, "digest": "4d1e4648f6002d4ca9729aefdd0d9f312c70246d7bdf24d26d4ea5c6d5a90eee", "params": null}
+{"ts": "2026-10-31T14:46:03.191110+00:00", "run_id": "rst-stale-workload-144556", "attempt": 1, "rank": 0, "event": "checkpoint", "step": 6, "dir": "a1/00000006-f6fde5cd41184f8ab7d398325c5aeb45"}
+{"ts": "2026-10-31T14:46:04.192210+00:00", "run_id": "rst-stale-workload-144556", "attempt": 1, "rank": 0, "event": "step", "step": 7, "loss": 0.5199922919273376, "digest": "02f18f092ddf7cb7b5d8469b04508f419a84805c77184aa68ef1171151a08b44", "params": null}
+{"ts": "2026-10-31T14:46:04.193423+00:00", "run_id": "rst-stale-workload-144556", "attempt": 1, "rank": 0, "event": "checkpoint", "step": 7, "dir": "a1/00000007-db43f811188f47918963a63775eac437"}
+{"ts": "2026-10-31T14:46:05.194736+00:00", "run_id": "rst-stale-workload-144556", "attempt": 1, "rank": 0, "event": "step", "step": 8, "loss": 2.396033525466919, "digest": "5b3b2637904e4fbc149c44db6b93f35ea82b6409a6094f047520432d57f22717", "params": null}
+{"ts": "2026-10-31T14:46:05.196016+00:00", "run_id": "rst-stale-workload-144556", "attempt": 1, "rank": 0, "event": "fault", "point": "kill-after-latest", "step": 8}
+Killed

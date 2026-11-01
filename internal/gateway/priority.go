@@ -57,30 +57,49 @@ func enginePriorityForTier(tier string) int {
 // GetBody and the transport sends ContentLength; leaving either on the old bytes would forward the old
 // priority or a truncated body.
 func bindEnginePriority(r *http.Request, tier string) (int, error) {
+	p := enginePriorityForTier(tier)
+	return p, rewritePriority(r, func(fields map[string]json.RawMessage) {
+		fields["priority"] = json.RawMessage(strconv.Itoa(p))
+	})
+}
+
+// stripEnginePriority removes a caller's "priority" from an unbound request that may still reach a rendered engine.
+//
+// Not binding is a judgement that some reachable engine may not schedule by priority, not permission for the
+// caller to choose: the head can still be a rendered engine, and a standard tenant's -100 there runs ahead of
+// premium's 0. Removed rather than replaced, because an absent priority is what a first-come engine accepts and
+// what a priority engine schedules as 0.
+// A request that can reach only engines the controller did not render keeps its field, as it did before binding
+// existed: the gateway does not know how those engines schedule.
+func stripEnginePriority(r *http.Request) error {
+	return rewritePriority(r, func(fields map[string]json.RawMessage) { delete(fields, "priority") })
+}
+
+// rewritePriority applies edit to the body's top-level fields and replaces the body with the result.
+func rewritePriority(r *http.Request, edit func(map[string]json.RawMessage)) error {
 	if r.GetBody == nil {
-		return 0, fmt.Errorf("the request body cannot be rewound, so its priority cannot be rewritten")
+		return fmt.Errorf("the request body cannot be rewound, so its priority cannot be rewritten")
 	}
 	rc, err := r.GetBody()
 	if err != nil {
-		return 0, err
+		return err
 	}
 	raw, err := io.ReadAll(rc)
 	_ = rc.Close()
 	if err != nil {
-		return 0, err
+		return err
 	}
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &fields); err != nil {
-		return 0, fmt.Errorf("the request body is not a JSON object: %w", err)
+		return fmt.Errorf("the request body is not a JSON object: %w", err)
 	}
-	p := enginePriorityForTier(tier)
-	fields["priority"] = json.RawMessage(strconv.Itoa(p))
+	edit(fields)
 	out, err := json.Marshal(fields)
 	if err != nil {
-		return 0, err
+		return err
 	}
 	r.GetBody = func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(out)), nil }
 	r.Body, _ = r.GetBody()
 	r.ContentLength = int64(len(out))
-	return p, nil
+	return nil
 }

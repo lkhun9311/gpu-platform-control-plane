@@ -1,0 +1,29 @@
+# Prometheus scrapes each exporter Pod directly, so every sample keeps the node it was read on.
+#
+# A PodMonitor rather than a ServiceMonitor over the headless Service beside the DaemonSet: the result is the same set of
+# endpoints, and a PodMonitor does not depend on the Service staying headless, which config/dcgm-exporter/service.yaml
+# keeps for a reason of its own.
+#
+# The labels a fault alert is read by -- Hostname, gpu, UUID -- come from the exporter itself, so no relabelling is
+# needed, and none is done that could rename them away from what gpu_rules.yaml groups by.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: dcgm-exporter
+  namespace: system
+  labels:
+    app.kubernetes.io/name: gpu-platform-control-plane
+    app.kubernetes.io/component: dcgm-exporter
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: gpu-platform-control-plane
+      app.kubernetes.io/component: dcgm-exporter
+  podMetricsEndpoints:
+    # Named, as the DaemonSet names it, so a renumbered port cannot point the scrape somewhere else.
+    - port: metrics
+      path: /metrics
+      # The exporter collects once a second (-c 1000); 15 s keeps a fault's first sample within one scrape of the
+      # collection that carried it without storing fifteen copies of every reading.
+      interval: 15s

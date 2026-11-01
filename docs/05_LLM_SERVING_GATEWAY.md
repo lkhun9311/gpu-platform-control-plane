@@ -62,6 +62,9 @@ policy.spec.rateLimit       --> token-bucket config (nil → unlimited, logged +
 | upstream HTTP 5xx                               | passthrough | (upstream body, unmodified) |
 
 The two 429 sources are deliberately distinguishable — the M5 flagship's R3/R4 comparison depends on telling them apart in logs and metrics.
+A response whose upstream has sent its headers and then nothing for five minutes is ended, because a streaming engine sends headers before its first token and nothing else bounds the silence after them; the client sees its stream close, and the gateway logs why. The bound is on silence, not on length.
+
+`rate_limited` carries `Retry-After` set to the seconds until the tenant's next token, rounded up, plus 0 or 1 at random so clients refused together do not return together; an admission 429 carries a fixed `Retry-After: 5`, since the gateway cannot compute when pressure clears.
 
 ## M5 extension — KV-cache-aware admission guard
 
@@ -78,8 +81,11 @@ The token bucket is static; it cannot protect a premium tenant's p99 from a *wit
 - `serial-prefill` holds a standard-tier request until no other standard-tier request on its backend is in prefill, and refuses it with 429 after `--admission-serial-prefill-max-hold`.
 - `fixed-spacing` admits standard-tier requests to a backend no closer together than `--admission-fixed-spacing`, holding each for at most `--admission-fixed-spacing-max-hold`.
 
+Both, and HoldCap, which uses serial-prefill's line, hand turns round-robin across tenants and in arrival order within one, so a tenant that queued many requests on a backend holds one turn per round rather than every turn ahead of a tenant that queued one. With a single standard tenant, as in every registered run, the order is the arrival order it was.
+
 `--bind-priority` writes the tenant tier's engine priority into every forwarded body (premium 0, standard 1), overwriting any caller value, and reports it in `X-Engine-Priority`. It only matters to an engine started with `--scheduling-policy=priority`.
 Without the flag, the gateway binds the tier anyway when every backend a request may still be sent to is an engine the controller reports in force, its `EngineInForce` condition True for the current generation (set once every serving Pod runs the template rendered from `spec.engine`), because every rendered engine schedules by priority; without a bound tier all requests reach it at one priority and the policy does nothing. The hold-cap product study measured that on EKS: the product's Off left the premium TTFT p99 at 6 to 10 s where the lab's off, which bound the tier, gave about 1.5 s (`hack/eks-serve/holdcap-study/runs/`). A request that may fall back to a backend the controller does not render stays unbound, since that engine may not accept a priority.
+Unbound does not mean caller-chosen: such a request that may still reach a rendered engine has any `priority` the caller sent removed, because the rendered head would otherwise schedule a standard tenant's -100 ahead of premium's 0. Only a request that can reach no rendered engine keeps the caller's field.
 
 Both are off by default. They are M5-b's successor mechanisms, shown correct on kind (`hack/test/rehearse-prospective-admission.sh`) (`docs/superpowers/specs/2026-10-06-m5b-stays-closed-and-what-a-successor-needs-first.md`). `prospective` has not been measured for protection. Priority binding has, only as a constant: every arm of the admission studies ran with `-bind-priority` (`hack/lib/prospective-pilot.sh`), so its own effect was not separated. `serial-prefill` and `fixed-spacing` were measured on an A10G: the hold alone left the premium tail at 0.99 of off's, with the engine's cap it cut it to about 0.30, and a fixed spacing tuned at that load tied within 15% (`docs/11_WHAT_THIS_MEASURED.md`, Finding 9).
 
@@ -100,7 +106,7 @@ On a HoldCap backend:
 `gpuaas_gateway_backend_admission_mode{namespace,name,mode}` shows, per backend, whether it gets `hold-cap` or the process-wide mode (`gateway`).
 
 What the evidence licenses: HoldCap was measured on one A10G, one engine version, one model (Qwen2.5-3B-Instruct) and one streaming load, in three registered blocks, against no admission (`docs/11_WHAT_THIS_MEASURED.md`, Finding 9).
-A fixed spacing tuned for that load tied with it within the registered 15%, so HoldCap offers protection that needs no tuning, not the lowest tail and not an SLO.
+A fixed spacing tuned for that load tied with it within the registered 15%, so HoldCap offers protection that needs no spacing retuned to the load, within the loads and prompt lengths measured and with its own cap and `maxHold` still configured, not the lowest tail and not an SLO.
 It raises standard-tier latency and refuses a standard request held longer than `maxHold`.
 
 The rendering itself was checked on a real engine on 2026-10-11 (`hack/holdcap-conformance/runs/20261011T030610Z/README.md`).
@@ -125,7 +131,10 @@ A policy applies only when every deployment serving the model in the namespace n
 - A routed response carries `X-Routing-Policy`, `X-Routing-Backend`, `X-Routing-Reason`, `X-Routing-Load` and, under `PrefixAffinity`, `X-Routing-Match`; `gpuaas_gateway_routing_decisions_total` and `gpuaas_gateway_routing_outstanding_requests` count the decisions and the outstanding requests per backend.
 - The engine profile `v0.27.1-a10g-prefix-cache` is the measured profile with vLLM's prefix caching on; the CRD refuses HoldCap on it.
 
-What the evidence licenses: nothing yet. None of the three policies has been measured; `docs/superpowers/specs/2026-10-27-prefix-aware-routing-design.md` registers the study that would, on two A10Gs, and it has been rehearsed on kind only.
+What the evidence licenses: the registered study in `docs/superpowers/specs/2026-10-27-prefix-aware-routing-design.md` ran all twelve cells on two A10Gs on 2026-10-28, and its verdict is **NOT MET**.
+`PrefixAffinity` raised the engines' prefix-cache hit ratio to 0.819 to 0.831 against at most 0.554, and its TTFT p50 to about 80 ms against 104.7 to 504.2 ms, in all three shared blocks.
+In `shared-942` its TTFT p99 was not below both other arms' and its worse backend's p99 was above `RoundRobin`'s, and one failed block decides the verdict ("Run 2" in that page).
+So the claim it would have licensed, a lower p99 without a hot backend, is not made.
 The index and the outstanding counts live in one gateway process, so a second replica would route on its own view.
 
 ## Open WebUI principle

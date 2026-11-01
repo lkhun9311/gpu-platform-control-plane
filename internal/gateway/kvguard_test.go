@@ -347,6 +347,35 @@ var _ = Describe("pressureState", func() {
 		p.observe(kvSample{CacheUsage: 0.5, Waiting: 0}, base.Add(34*time.Second))
 		Expect(p.Engaged()).To(BeTrue())
 	})
+
+	// releasesAt engages p on waiting depth, then holds waiting at w for the sustain window and reports whether it released.
+	releasesAt := func(thresh, w int) bool {
+		c := cfg
+		c.waitingThresh = thresh
+		p := newPressureState(c)
+		p.observe(kvSample{CacheUsage: 0.1, Waiting: thresh + 1}, base)
+		p.observe(kvSample{CacheUsage: 0.1, Waiting: thresh + 1}, base.Add(2*time.Second))
+		Expect(p.Engaged()).To(BeTrue())
+		p.observe(kvSample{CacheUsage: 0.1, Waiting: w}, base.Add(4*time.Second))
+		p.observe(kvSample{CacheUsage: 0.1, Waiting: w}, base.Add(34*time.Second))
+		return !p.Engaged()
+	}
+
+	It("releases a waiting threshold of 1 once nothing is waiting", func() {
+		// Integer halving made the condition waiting < 0, so a backend engaged at this threshold stayed engaged after it drained.
+		Expect(releasesAt(1, 0)).To(BeTrue())
+	})
+
+	It("halves an odd waiting threshold exactly rather than rounding it down", func() {
+		// Half of 3 is 1.5, so one waiting request is below it.
+		Expect(releasesAt(3, 1)).To(BeTrue())
+		Expect(releasesAt(3, 2)).To(BeFalse())
+	})
+
+	It("keeps an even waiting threshold's release point where it was", func() {
+		Expect(releasesAt(8, 3)).To(BeTrue())
+		Expect(releasesAt(8, 4)).To(BeFalse())
+	})
 })
 
 // --- Scraper hardening ---------------------------------------------------------
@@ -722,6 +751,31 @@ var _ = Describe("scraperManager lifecycle", func() {
 		m.Register(ref)
 		m.Register(ref)
 		Expect(m.scrapers).To(HaveLen(1))
+	})
+
+	It("Register moves the scraper to a backend's new URL rather than scraping the old one", func() {
+		var oldHits, newHits atomic.Int64
+		serve := func(hits *atomic.Int64) *httptest.Server {
+			return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				hits.Add(1)
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(minimalValidMetrics))
+			}))
+		}
+		oldUp, newUp := serve(&oldHits), serve(&newHits)
+		defer oldUp.Close()
+		defer newUp.Close()
+		m := newScraperManager(scraperConfig{scrapeInterval: 5 * time.Millisecond, maxStaleness: time.Hour, httpTimeout: time.Second, clock: time.Now})
+		defer m.Stop()
+
+		m.Register(newTestRef("kvguard-move-ns", "kvguard-move-backend", oldUp.URL))
+		Eventually(oldHits.Load).Should(BeNumerically(">", 0))
+		// Same namespace and name, so the same key: the serving port changed under a backend that kept its identity.
+		m.Register(newTestRef("kvguard-move-ns", "kvguard-move-backend", newUp.URL))
+		Eventually(newHits.Load).Should(BeNumerically(">", 0))
+		Expect(m.scrapers).To(HaveLen(1))
+		settled := oldHits.Load()
+		Consistently(oldHits.Load, 50*time.Millisecond).Should(Equal(settled))
 	})
 
 	It("Unregister stops the scraper and removes it from lookup", func() {

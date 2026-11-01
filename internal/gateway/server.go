@@ -22,6 +22,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
+	"math/rand/v2"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -133,6 +135,10 @@ type Server struct {
 	//
 	// A field lets tests drive the same code path with a short bound.
 	responseHeaderTimeout time.Duration
+	// bodyIdleTimeout bounds the silence between an upstream's response headers and its next body byte, and between body bytes.
+	//
+	// Zero selects defaultBodyIdleTimeout, so production leaves it unset; tests shorten it.
+	bodyIdleTimeout time.Duration
 	// transport is the single outbound Transport every proxied request reuses, and transportOnce builds it on first use.
 	//
 	// The connection pool lives inside the Transport, so it is only a pool at all while one Transport outlives many requests.
@@ -310,11 +316,48 @@ func (s *Server) failUnresolvedModel(w http.ResponseWriter, tenant, model string
 //
 // Why this cannot just be fail(): the admission guard's reasons ("input_rate_limit" here, "kv_cache_pressure" in Task 3) are not derivable from the HTTP status the way fail()'s errorCode mapping assumes, since both share status 429.
 //
-// Retry-After is set to 5s (design spec Config and API section) because an admission-guard 429 is expected to clear once bucket capacity or backend pressure recovers, unlike the RPM limiter's 429, which carries no such hint.
+// Retry-After is set to 5s (design spec Config and API section) because an admission-guard 429 is expected to clear once bucket capacity or backend pressure recovers, at a time the gateway cannot compute.
+// The RPM limiter's 429 can compute it, and carries retryAfterSeconds instead.
 func (s *Server) failReason(w http.ResponseWriter, tenant, model string, code int, reason string) {
 	requests.WithLabelValues(tenant, model, strconv.Itoa(code)).Inc()
 	w.Header().Set("Retry-After", "5")
 	writeJSONErrorCode(w, code, reason, http.StatusText(code))
+}
+
+// settlePriority binds the tier's engine priority into the request when it should be bound, and otherwise removes a
+// caller's own priority from a request that may still reach an engine scheduling by it.
+func (s *Server) settlePriority(w http.ResponseWriter, r *http.Request, tr *requestTrace, meta RequestMeta, tier string,
+	holdCap bool, reachable []*BackendRef) error {
+	if s.bindsPriority(holdCap, reachable) {
+		p, err := bindEnginePriority(r, tier)
+		if err != nil {
+			return err
+		}
+		w.Header().Set(HeaderEnginePriority, strconv.Itoa(p))
+		tr.priority(p)
+		return nil
+	}
+	if meta.CallerPriority && anyPriorityScheduled(reachable) {
+		return stripEnginePriority(r)
+	}
+	return nil
+}
+
+// bodyIdleBound is the configured idle bound, or the default when none was set.
+func (s *Server) bodyIdleBound() time.Duration {
+	if s.bodyIdleTimeout > 0 {
+		return s.bodyIdleTimeout
+	}
+	return defaultBodyIdleTimeout
+}
+
+// retryAfterSeconds is the Retry-After for a tenant whose next token is wait away.
+//
+// Rounded up, because the header counts whole seconds and a client retrying on the floor arrives before the token.
+// Up to one second is added at random, because clients refused in the same instant are told the same second and
+// would otherwise return together and be refused together.
+func retryAfterSeconds(wait time.Duration) int {
+	return int(math.Ceil(wait.Seconds())) + rand.IntN(2) //nolint:gosec // spreads retries; nothing depends on it being unpredictable
 }
 
 // resolveBackend resolves a model to its backend.
@@ -401,6 +444,8 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !ok {
+		// RFC 9110 requires a 401 to carry the challenge, so a client can tell which credential was wanted.
+		w.Header().Set("WWW-Authenticate", `Bearer realm="gateway"`)
 		s.fail(w, "", "", http.StatusUnauthorized)
 		return
 	}
@@ -435,9 +480,12 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, tenant, "", http.StatusServiceUnavailable)
 		return
 	}
-	if !s.buckets.Allow(tenant, policy.Spec.RateLimit) {
+	if ok, wait := s.buckets.Reserve(tenant, policy.Spec.RateLimit); !ok {
 		// Counted separately from requests{code="429"}; the two answer different questions.
 		rateLimited.WithLabelValues(tenant).Inc()
+		if wait > 0 {
+			w.Header().Set("Retry-After", strconv.Itoa(retryAfterSeconds(wait)))
+		}
 		s.fail(w, tenant, "", http.StatusTooManyRequests)
 		return
 	}
@@ -594,19 +642,26 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	// attempt on every backend carries the same priority.
 	// Judged on the backends the request may still be sent to: a reservation pins it to the head, and a fallback it can
 	// no longer reach must not keep it unbound.
-	if s.bindsPriority(holdCap, forwardTargets(res, targets)) {
-		p, err := bindEnginePriority(r, tier)
-		if err != nil {
-			s.fail(w, tenant, meta.Model, http.StatusInternalServerError)
-			return
-		}
-		w.Header().Set(HeaderEnginePriority, strconv.Itoa(p))
-		tr.priority(p)
+	if err := s.settlePriority(w, r, tr, meta, tier, holdCap, forwardTargets(res, targets)); err != nil {
+		s.fail(w, tenant, meta.Model, http.StatusInternalServerError)
+		return
 	}
 
 	// 8. From here the response is the upstream's, passed through rather than composed.
 	onFirstBody, onBody := responseHooks(r, tr, res)
-	rec := &statusRecorder{ResponseWriter: w, code: http.StatusOK, onFirstBody: onFirstBody, onBody: onBody, onFlush: tr.flushed}
+	// The attempt runs under its own context so the idle bound can end it; cancelling it closes the upstream
+	// connection, the body copy fails, and every deferred release runs as for any other upstream failure.
+	attemptCtx, cancelAttempt := context.WithCancel(r.Context())
+	defer cancelAttempt()
+	r = r.WithContext(attemptCtx)
+	// Logged, because the client then sees its stream end with the 200 it already had, and nothing else says why.
+	idle := newIdleWatch(s.bodyIdleBound(), func() {
+		log.FromContext(ctx).Info("ending a response its upstream left silent past the idle bound",
+			"request_id", rid, "bound", s.bodyIdleBound().String())
+		cancelAttempt()
+	})
+	defer idle.stop()
+	rec := &statusRecorder{ResponseWriter: w, code: http.StatusOK, onFirstBody: onFirstBody, onBody: onBody, onFlush: tr.flushed, onActivity: idle.touch}
 	// Each candidate is tried until one answers, and the two conditions below are what make that safe rather
 	// than merely useful.
 	//

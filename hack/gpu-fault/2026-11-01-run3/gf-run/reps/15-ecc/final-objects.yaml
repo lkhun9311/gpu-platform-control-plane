@@ -1,0 +1,366 @@
+apiVersion: v1
+items:
+- apiVersion: kueue.x-k8s.io/v1beta2
+  kind: Workload
+  metadata:
+    annotations:
+      gpufault.platform.lkhun9311.github.io/deactivated-at: "2026-11-01T03:14:09.935208486Z"
+      gpufault.platform.lkhun9311.github.io/deactivated-fingerprint: GPU-1c9e2010-806b-5c92-c49f-f807c513daa7/DCGM_FI_DEV_ECC_DBE_VOL_TOTAL=1
+      gpufault.platform.lkhun9311.github.io/deactivated-node: m5cgpu-worker
+      gpufault.platform.lkhun9311.github.io/reactivated-at: "2026-11-01T03:14:10.136671975Z"
+    creationTimestamp: "2026-11-01T03:13:55Z"
+    finalizers:
+    - kueue.x-k8s.io/resource-in-use
+    generation: 3
+    labels:
+      kueue.x-k8s.io/job-uid: bb7479e1-df4d-4791-b58f-dd308025c4d5
+    name: job-gf-15-ecc-e2e0c
+    namespace: gpufault
+    ownerReferences:
+    - apiVersion: batch/v1
+      blockOwnerDeletion: true
+      controller: true
+      kind: Job
+      name: gf-15-ecc
+      uid: bb7479e1-df4d-4791-b58f-dd308025c4d5
+    resourceVersion: "6967"
+    uid: ff224d8b-cc72-4fcf-af21-aa8b3118974f
+  spec:
+    active: true
+    podSets:
+    - count: 1
+      name: main
+      template:
+        metadata:
+          labels:
+            batch.kubernetes.io/job-name: gf-15-ecc
+        spec:
+          containers:
+          - command:
+            - sh
+            - -c
+            - trap 'exit 143' TERM; while true; do sleep 1; done
+            env:
+            - name: NVIDIA_DRIVER_CAPABILITIES
+              value: compute,utility
+            image: gpufault-job:busybox
+            imagePullPolicy: IfNotPresent
+            name: trainer
+            resources:
+              limits:
+                nvidia.com/gpu: "1"
+            terminationMessagePath: /dev/termination-log
+            terminationMessagePolicy: File
+          dnsPolicy: ClusterFirst
+          restartPolicy: Never
+          schedulerName: default-scheduler
+          securityContext: {}
+          terminationGracePeriodSeconds: 30
+      topologyRequest:
+        podIndexLabel: batch.kubernetes.io/job-completion-index
+    priority: 0
+    queueName: gpu-gpufault
+  status:
+    accumulatedPastExecutionTimeSeconds: 15
+    admission:
+      clusterQueue: gpu-gpufault
+      podSetAssignments:
+      - count: 1
+        flavors:
+          nvidia.com/gpu: gpu
+        name: main
+        resourceUsage:
+          nvidia.com/gpu: "1"
+    conditions:
+    - lastTransitionTime: "2026-11-01T03:14:10Z"
+      message: Quota reserved in ClusterQueue gpu-gpufault
+      observedGeneration: 3
+      reason: QuotaReserved
+      status: "True"
+      type: QuotaReserved
+    - lastTransitionTime: "2026-11-01T03:14:10Z"
+      message: 'Previously: The workload is deactivated'
+      observedGeneration: 3
+      reason: QuotaReserved
+      status: "False"
+      type: Evicted
+    - lastTransitionTime: "2026-11-01T03:14:10Z"
+      message: The workload is admitted
+      observedGeneration: 3
+      reason: Admitted
+      status: "True"
+      type: Admitted
+    - lastTransitionTime: "2026-11-01T03:14:10Z"
+      message: The workload was reactivated
+      observedGeneration: 3
+      reason: Reactivated
+      status: "True"
+      type: Requeued
+    schedulingStats:
+      evictions:
+      - count: 1
+        reason: Deactivated
+        underlyingCause: ""
+- apiVersion: batch/v1
+  kind: Job
+  metadata:
+    creationTimestamp: "2026-11-01T03:13:55Z"
+    generation: 5
+    labels:
+      kueue.x-k8s.io/queue-name: gpu-gpufault
+    name: gf-15-ecc
+    namespace: gpufault
+    ownerReferences:
+    - apiVersion: platform.lkhun9311.github.io/v1
+      blockOwnerDeletion: true
+      controller: true
+      kind: MLTrainingJob
+      name: gf-15-ecc
+      uid: 615ed833-dbd2-4e42-9d7a-ed392b2abb49
+    resourceVersion: "6992"
+    uid: bb7479e1-df4d-4791-b58f-dd308025c4d5
+  spec:
+    backoffLimit: 6
+    completionMode: NonIndexed
+    completions: 1
+    manualSelector: false
+    parallelism: 1
+    podReplacementPolicy: TerminatingOrFailed
+    selector:
+      matchLabels:
+        batch.kubernetes.io/controller-uid: bb7479e1-df4d-4791-b58f-dd308025c4d5
+    suspend: false
+    template:
+      metadata:
+        annotations:
+          kueue.x-k8s.io/workload: job-gf-15-ecc-e2e0c
+        creationTimestamp: null
+        labels:
+          batch.kubernetes.io/controller-uid: bb7479e1-df4d-4791-b58f-dd308025c4d5
+          batch.kubernetes.io/job-name: gf-15-ecc
+          controller-uid: bb7479e1-df4d-4791-b58f-dd308025c4d5
+          job-name: gf-15-ecc
+          kueue.x-k8s.io/cluster-queue-name: gpu-gpufault
+          kueue.x-k8s.io/local-queue-name: gpu-gpufault
+          kueue.x-k8s.io/podset: main
+      spec:
+        containers:
+        - command:
+          - sh
+          - -c
+          - trap 'exit 143' TERM; while true; do sleep 1; done
+          env:
+          - name: NVIDIA_DRIVER_CAPABILITIES
+            value: compute,utility
+          image: gpufault-job:busybox
+          imagePullPolicy: IfNotPresent
+          name: trainer
+          resources:
+            limits:
+              nvidia.com/gpu: "1"
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+        dnsPolicy: ClusterFirst
+        restartPolicy: Never
+        schedulerName: default-scheduler
+        securityContext: {}
+        terminationGracePeriodSeconds: 30
+  status:
+    active: 1
+    conditions:
+    - lastProbeTime: "2026-11-01T03:14:10Z"
+      lastTransitionTime: "2026-11-01T03:14:10Z"
+      message: Job resumed
+      reason: JobResumed
+      status: "False"
+      type: Suspended
+    ready: 1
+    startTime: "2026-11-01T03:14:10Z"
+    terminating: 0
+    uncountedTerminatedPods: {}
+- apiVersion: v1
+  kind: Pod
+  metadata:
+    annotations:
+      kueue.x-k8s.io/workload: job-gf-15-ecc-e2e0c
+    creationTimestamp: "2026-11-01T03:14:10Z"
+    finalizers:
+    - batch.kubernetes.io/job-tracking
+    generateName: gf-15-ecc-
+    labels:
+      batch.kubernetes.io/controller-uid: bb7479e1-df4d-4791-b58f-dd308025c4d5
+      batch.kubernetes.io/job-name: gf-15-ecc
+      controller-uid: bb7479e1-df4d-4791-b58f-dd308025c4d5
+      job-name: gf-15-ecc
+      kueue.x-k8s.io/cluster-queue-name: gpu-gpufault
+      kueue.x-k8s.io/local-queue-name: gpu-gpufault
+      kueue.x-k8s.io/podset: main
+    name: gf-15-ecc-bhm7x
+    namespace: gpufault
+    ownerReferences:
+    - apiVersion: batch/v1
+      blockOwnerDeletion: true
+      controller: true
+      kind: Job
+      name: gf-15-ecc
+      uid: bb7479e1-df4d-4791-b58f-dd308025c4d5
+    resourceVersion: "6990"
+    uid: 87bbc7d5-8537-49ec-ba90-666ad22edeeb
+  spec:
+    containers:
+    - command:
+      - sh
+      - -c
+      - trap 'exit 143' TERM; while true; do sleep 1; done
+      env:
+      - name: NVIDIA_DRIVER_CAPABILITIES
+        value: compute,utility
+      image: gpufault-job:busybox
+      imagePullPolicy: IfNotPresent
+      name: trainer
+      resources:
+        limits:
+          nvidia.com/gpu: "1"
+        requests:
+          nvidia.com/gpu: "1"
+      terminationMessagePath: /dev/termination-log
+      terminationMessagePolicy: File
+      volumeMounts:
+      - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+        name: kube-api-access-2mmbf
+        readOnly: true
+    dnsPolicy: ClusterFirst
+    enableServiceLinks: true
+    nodeName: m5cgpu-control-plane
+    preemptionPolicy: PreemptLowerPriority
+    priority: 0
+    restartPolicy: Never
+    schedulerName: default-scheduler
+    securityContext: {}
+    serviceAccount: default
+    serviceAccountName: default
+    terminationGracePeriodSeconds: 30
+    tolerations:
+    - effect: NoExecute
+      key: node.kubernetes.io/not-ready
+      operator: Exists
+      tolerationSeconds: 300
+    - effect: NoExecute
+      key: node.kubernetes.io/unreachable
+      operator: Exists
+      tolerationSeconds: 300
+    volumes:
+    - name: kube-api-access-2mmbf
+      projected:
+        defaultMode: 420
+        sources:
+        - serviceAccountToken:
+            expirationSeconds: 3607
+            path: token
+        - configMap:
+            items:
+            - key: ca.crt
+              path: ca.crt
+            name: kube-root-ca.crt
+        - downwardAPI:
+            items:
+            - fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.namespace
+              path: namespace
+  status:
+    conditions:
+    - lastProbeTime: null
+      lastTransitionTime: "2026-11-01T03:14:11Z"
+      status: "True"
+      type: PodReadyToStartContainers
+    - lastProbeTime: null
+      lastTransitionTime: "2026-11-01T03:14:10Z"
+      status: "True"
+      type: Initialized
+    - lastProbeTime: null
+      lastTransitionTime: "2026-11-01T03:14:11Z"
+      status: "True"
+      type: Ready
+    - lastProbeTime: null
+      lastTransitionTime: "2026-11-01T03:14:11Z"
+      status: "True"
+      type: ContainersReady
+    - lastProbeTime: null
+      lastTransitionTime: "2026-11-01T03:14:10Z"
+      status: "True"
+      type: PodScheduled
+    containerStatuses:
+    - containerID: containerd://356d5affdb9f7c758c9d4b6b109d7d8e2ed79d3e0d923633b58b323d9ca25c86
+      image: docker.io/library/gpufault-job:busybox
+      imageID: docker.io/library/import-2026-11-01@sha256:c28bbc10d309bf274b27333a8bd86969479fe2d2c696c04787bea0bf9408e0b2
+      lastState: {}
+      name: trainer
+      ready: true
+      restartCount: 0
+      started: true
+      state:
+        running:
+          startedAt: "2026-11-01T03:14:10Z"
+      volumeMounts:
+      - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+        name: kube-api-access-2mmbf
+        readOnly: true
+        recursiveReadOnly: Disabled
+    hostIP: 172.18.0.2
+    hostIPs:
+    - ip: 172.18.0.2
+    phase: Running
+    podIP: 10.244.0.13
+    podIPs:
+    - ip: 10.244.0.13
+    qosClass: BestEffort
+    startTime: "2026-11-01T03:14:10Z"
+- apiVersion: platform.lkhun9311.github.io/v1
+  kind: MLTrainingJob
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"platform.lkhun9311.github.io/v1","kind":"MLTrainingJob","metadata":{"annotations":{},"name":"gf-15-ecc","namespace":"gpufault"},"spec":{"command":["sh","-c","trap 'exit 143' TERM; while true; do sleep 1; done"],"completions":1,"gpuCount":1,"image":"gpufault-job:busybox","parallelism":1,"queue":"gpu-gpufault"}}
+    creationTimestamp: "2026-11-01T03:13:55Z"
+    finalizers:
+    - mltrainingjob.platform.lkhun9311.github.io/finalizer
+    generation: 1
+    name: gf-15-ecc
+    namespace: gpufault
+    resourceVersion: "6993"
+    uid: 615ed833-dbd2-4e42-9d7a-ed392b2abb49
+  spec:
+    command:
+    - sh
+    - -c
+    - trap 'exit 143' TERM; while true; do sleep 1; done
+    completions: 1
+    gpuCount: 1
+    image: gpufault-job:busybox
+    parallelism: 1
+    queue: gpu-gpufault
+  status:
+    admitToRunningSeconds: "3.258"
+    admittedAt: "2026-11-01T03:13:55Z"
+    conditions:
+    - lastTransitionTime: "2026-11-01T03:14:10Z"
+      message: ""
+      observedGeneration: 1
+      reason: PodsRunning
+      status: "True"
+      type: Admitted
+    - lastTransitionTime: "2026-11-01T03:13:58Z"
+      message: the tenant waited 3.258s between Kueue admitting this job and this
+        controller seeing it run; the admission end is Kueue's own stamp and the running
+        end is this controller's observation, so the interval carries one watch lag
+      reason: Observed
+      status: "True"
+      type: AdmitToRunningObserved
+    lastTransitionTime: "2026-11-01T03:14:12Z"
+    observedGeneration: 1
+    phase: Running
+    runningObservedAt: "2026-11-01T03:13:58Z"
+kind: List
+metadata:
+  resourceVersion: ""

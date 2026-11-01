@@ -19,14 +19,15 @@ created            400 objects in 5,312ms      (75 objects/sec)
 reconciles         1,437
 peak queue depth   0
 drain              10,054ms
-throughput         143.7 reconciles/sec
+throughput         143.7 reconciles/sec   (as printed; 1,437 / 10.054 s is 142.9, see below)
 reconcile p99      24.5ms
 errors             0
 ```
 
 ## The queue never backed up, and the reason is the load generator
 
-143.7 reconciles per second against 75 objects per second of creation. **The operator consumed work faster
+142.9 reconciles per second against 75 objects per second of creation.
+The run printed 143.7: its `bc` truncated the 10,054 ms drain to 10.0 s before dividing, which the script no longer does. **The operator consumed work faster
 than `kubectl apply` produced it**, so the queue had nothing to accumulate.
 
 That is a real measurement of absorption rate and a failed attempt at the thing it set out to test. Reading
@@ -43,8 +44,9 @@ Two limits, both recorded in the run's own record:
 ## What it does establish
 
 **This operator absorbs about 144 reconciles per second at a p99 of 24.5ms with a single worker, and
-sustained zero errors across 1,437 reconciles.** That number is the ceiling any capacity argument has to
-start from, and it did not exist before this run.
+sustained zero errors across 1,437 reconciles**, in one 400-object burst. Because the queue never backed up,
+that is a rate the operator kept up with, not a demonstrated ceiling, and it counts reconciles, not jobs; it is
+where a capacity argument starts, and it did not exist before this run.
 
 ## What would actually stress it
 

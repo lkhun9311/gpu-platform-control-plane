@@ -25,7 +25,7 @@ and the harness records the interval it actually achieved rather than the one it
 | peak queue depth | 0 | **600** |
 | drain | 10,054 ms | 11,570 ms |
 | reconciles | 1,437 | 1,857 |
-| reconciles/sec | 143.7 | **160.5** |
+| reconciles/sec, one burst each, reconciles not jobs | 142.9 (printed 143.7 by a truncating division), never saturated | **160.5**, saturated |
 | sampling | 5s poll of a 15s scrape | 203 ms, measured |
 
 600 MLTrainingJobs, 32 concurrent writers, `MaxConcurrentReconciles=1` (controller-runtime's default, unset
@@ -38,11 +38,12 @@ and the harness cannot say how quickly it got there — only that it was full wi
 ## What it establishes
 
 **The operator is the bottleneck, and its absorption rate is about 160 reconciles per second** on this
-cluster with one concurrent reconcile. That is the number to know before running it anywhere real: at 600
-objects it takes about 11.6 seconds to work through the backlog, and the relationship is linear in the number
-of objects while the per-item cost stays flat.
+cluster with one concurrent reconcile, in one 600-object burst: 1,857 reconciles for 600 jobs, so a job is about
+three reconciles. That is the number to know before running it anywhere real: at 600 objects it took about 11.6
+seconds to work through the backlog; two burst sizes, measured with different generators and samplers, are
+consistent with a linear relationship but do not establish one, nor a sustained rate.
 
-**The per-item cost is flat**, which is the point of the field index added earlier. Draining 600 items took
+**The per-item cost looked flat across those two runs**, which is the point of the field index added earlier. Draining 600 items took
 11.6 s where 400 took 10.1 s: 1.5× the objects for 1.15× the time, not 2.25× as a quadratic per-item cost
 would give. This is consistent with the index working and is not proof the previous code was quadratic — that
 would need running a knowingly slower operator, which is a separate exercise.

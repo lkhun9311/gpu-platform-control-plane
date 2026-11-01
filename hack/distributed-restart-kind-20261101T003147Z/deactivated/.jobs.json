@@ -1,0 +1,150 @@
+{
+    "apiVersion": "v1",
+    "items": [
+        {
+            "apiVersion": "batch/v1",
+            "kind": "Job",
+            "metadata": {
+                "creationTimestamp": "2026-11-01T00:37:02Z",
+                "generation": 4,
+                "labels": {
+                    "kueue.x-k8s.io/queue-name": "gpu-rst",
+                    "platform.lkhun9311.github.io/mltrainingjob-attempt": "1",
+                    "platform.lkhun9311.github.io/mltrainingjob-uid": "5551baaa-5e60-4b8a-9472-506c629781fb"
+                },
+                "name": "rst-deactivated-003702",
+                "namespace": "rst",
+                "ownerReferences": [
+                    {
+                        "apiVersion": "platform.lkhun9311.github.io/v1",
+                        "blockOwnerDeletion": true,
+                        "controller": true,
+                        "kind": "MLTrainingJob",
+                        "name": "rst-deactivated-003702",
+                        "uid": "5551baaa-5e60-4b8a-9472-506c629781fb"
+                    }
+                ],
+                "resourceVersion": "2955",
+                "uid": "7f952626-109f-4322-953e-f52d4b6bcd4d"
+            },
+            "spec": {
+                "backoffLimit": 0,
+                "completionMode": "Indexed",
+                "completions": 2,
+                "manualSelector": false,
+                "parallelism": 2,
+                "podReplacementPolicy": "TerminatingOrFailed",
+                "selector": {
+                    "matchLabels": {
+                        "batch.kubernetes.io/controller-uid": "7f952626-109f-4322-953e-f52d4b6bcd4d"
+                    }
+                },
+                "suspend": true,
+                "template": {
+                    "metadata": {
+                        "labels": {
+                            "batch.kubernetes.io/controller-uid": "7f952626-109f-4322-953e-f52d4b6bcd4d",
+                            "batch.kubernetes.io/job-name": "rst-deactivated-003702",
+                            "controller-uid": "7f952626-109f-4322-953e-f52d4b6bcd4d",
+                            "job-name": "rst-deactivated-003702",
+                            "platform.lkhun9311.github.io/mltrainingjob": "rst-deactivated-003702",
+                            "platform.lkhun9311.github.io/mltrainingjob-attempt": "1",
+                            "platform.lkhun9311.github.io/mltrainingjob-uid": "5551baaa-5e60-4b8a-9472-506c629781fb"
+                        }
+                    },
+                    "spec": {
+                        "containers": [
+                            {
+                                "command": [
+                                    "sh",
+                                    "-c",
+                                    "export CKPT_RUN_ID=rst-deactivated-003702 CKPT_DIR=/shared CKPT_JOB_ID=rst-deactivated-003702 CKPT_STEPS=20 CKPT_STEP_SLEEP=1 OMP_NUM_THREADS=1 \npython /work/train.py\n"
+                                ],
+                                "env": [
+                                    {
+                                        "name": "NVIDIA_DRIVER_CAPABILITIES",
+                                        "value": "compute,utility"
+                                    },
+                                    {
+                                        "name": "WORLD_SIZE",
+                                        "value": "2"
+                                    },
+                                    {
+                                        "name": "MASTER_ADDR",
+                                        "value": "rst-deactivated-003702-0.rst-deactivated-003702-ddp-a1.rst.svc"
+                                    },
+                                    {
+                                        "name": "MASTER_PORT",
+                                        "value": "29500"
+                                    },
+                                    {
+                                        "name": "RANK",
+                                        "valueFrom": {
+                                            "fieldRef": {
+                                                "apiVersion": "v1",
+                                                "fieldPath": "metadata.annotations['batch.kubernetes.io/job-completion-index']"
+                                            }
+                                        }
+                                    },
+                                    {
+                                        "name": "TRAINING_ATTEMPT",
+                                        "value": "1"
+                                    }
+                                ],
+                                "image": "distributed-restart:torch251",
+                                "imagePullPolicy": "IfNotPresent",
+                                "name": "trainer",
+                                "resources": {
+                                    "limits": {
+                                        "nvidia.com/gpu": "1"
+                                    }
+                                },
+                                "terminationMessagePath": "/dev/termination-log",
+                                "terminationMessagePolicy": "File",
+                                "volumeMounts": [
+                                    {
+                                        "mountPath": "/shared",
+                                        "name": "state"
+                                    }
+                                ]
+                            }
+                        ],
+                        "dnsPolicy": "ClusterFirst",
+                        "restartPolicy": "Never",
+                        "schedulerName": "default-scheduler",
+                        "securityContext": {},
+                        "subdomain": "rst-deactivated-003702-ddp-a1",
+                        "terminationGracePeriodSeconds": 30,
+                        "volumes": [
+                            {
+                                "name": "state",
+                                "persistentVolumeClaim": {
+                                    "claimName": "shared"
+                                }
+                            }
+                        ]
+                    }
+                }
+            },
+            "status": {
+                "conditions": [
+                    {
+                        "lastProbeTime": "2026-11-01T00:37:07Z",
+                        "lastTransitionTime": "2026-11-01T00:37:07Z",
+                        "message": "Job suspended",
+                        "reason": "JobSuspended",
+                        "status": "True",
+                        "type": "Suspended"
+                    }
+                ],
+                "ready": 0,
+                "terminating": 0,
+                "uncountedTerminatedPods": {}
+            }
+        }
+    ],
+    "kind": "List",
+    "metadata": {
+        "resourceVersion": ""
+    }
+}

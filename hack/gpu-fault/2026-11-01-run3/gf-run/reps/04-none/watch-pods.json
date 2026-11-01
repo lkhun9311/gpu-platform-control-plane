@@ -1,0 +1,213 @@
+{
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "metadata": {
+        "annotations": {
+            "kueue.x-k8s.io/workload": "job-gf-04-none-2edf7"
+        },
+        "creationTimestamp": "2026-11-01T02:48:45Z",
+        "finalizers": [
+            "batch.kubernetes.io/job-tracking"
+        ],
+        "generateName": "gf-04-none-",
+        "labels": {
+            "batch.kubernetes.io/controller-uid": "53b3e260-515c-43b0-96e4-f0bd2fe86414",
+            "batch.kubernetes.io/job-name": "gf-04-none",
+            "controller-uid": "53b3e260-515c-43b0-96e4-f0bd2fe86414",
+            "job-name": "gf-04-none",
+            "kueue.x-k8s.io/cluster-queue-name": "gpu-gpufault",
+            "kueue.x-k8s.io/local-queue-name": "gpu-gpufault",
+            "kueue.x-k8s.io/podset": "main"
+        },
+        "name": "gf-04-none-57kzq",
+        "namespace": "gpufault",
+        "ownerReferences": [
+            {
+                "apiVersion": "batch/v1",
+                "blockOwnerDeletion": true,
+                "controller": true,
+                "kind": "Job",
+                "name": "gf-04-none",
+                "uid": "53b3e260-515c-43b0-96e4-f0bd2fe86414"
+            }
+        ],
+        "resourceVersion": "2520",
+        "uid": "b6ef5019-73c0-485a-aa9a-35264066f9a9"
+    },
+    "spec": {
+        "containers": [
+            {
+                "command": [
+                    "sh",
+                    "-c",
+                    "trap 'exit 143' TERM; while true; do sleep 1; done"
+                ],
+                "env": [
+                    {
+                        "name": "NVIDIA_DRIVER_CAPABILITIES",
+                        "value": "compute,utility"
+                    }
+                ],
+                "image": "gpufault-job:busybox",
+                "imagePullPolicy": "IfNotPresent",
+                "name": "trainer",
+                "resources": {
+                    "limits": {
+                        "nvidia.com/gpu": "1"
+                    },
+                    "requests": {
+                        "nvidia.com/gpu": "1"
+                    }
+                },
+                "terminationMessagePath": "/dev/termination-log",
+                "terminationMessagePolicy": "File",
+                "volumeMounts": [
+                    {
+                        "mountPath": "/var/run/secrets/kubernetes.io/serviceaccount",
+                        "name": "kube-api-access-ck64z",
+                        "readOnly": true
+                    }
+                ]
+            }
+        ],
+        "dnsPolicy": "ClusterFirst",
+        "enableServiceLinks": true,
+        "nodeName": "m5cgpu-worker",
+        "preemptionPolicy": "PreemptLowerPriority",
+        "priority": 0,
+        "restartPolicy": "Never",
+        "schedulerName": "default-scheduler",
+        "securityContext": {},
+        "serviceAccount": "default",
+        "serviceAccountName": "default",
+        "terminationGracePeriodSeconds": 30,
+        "tolerations": [
+            {
+                "effect": "NoExecute",
+                "key": "node.kubernetes.io/not-ready",
+                "operator": "Exists",
+                "tolerationSeconds": 300
+            },
+            {
+                "effect": "NoExecute",
+                "key": "node.kubernetes.io/unreachable",
+                "operator": "Exists",
+                "tolerationSeconds": 300
+            }
+        ],
+        "volumes": [
+            {
+                "name": "kube-api-access-ck64z",
+                "projected": {
+                    "defaultMode": 420,
+                    "sources": [
+                        {
+                            "serviceAccountToken": {
+                                "expirationSeconds": 3607,
+                                "path": "token"
+                            }
+                        },
+                        {
+                            "configMap": {
+                                "items": [
+                                    {
+                                        "key": "ca.crt",
+                                        "path": "ca.crt"
+                                    }
+                                ],
+                                "name": "kube-root-ca.crt"
+                            }
+                        },
+                        {
+                            "downwardAPI": {
+                                "items": [
+                                    {
+                                        "fieldRef": {
+                                            "apiVersion": "v1",
+                                            "fieldPath": "metadata.namespace"
+                                        },
+                                        "path": "namespace"
+                                    }
+                                ]
+                            }
+                        }
+                    ]
+                }
+            }
+        ]
+    },
+    "status": {
+        "conditions": [
+            {
+                "lastProbeTime": null,
+                "lastTransitionTime": "2026-11-01T02:48:47Z",
+                "status": "True",
+                "type": "PodReadyToStartContainers"
+            },
+            {
+                "lastProbeTime": null,
+                "lastTransitionTime": "2026-11-01T02:48:45Z",
+                "status": "True",
+                "type": "Initialized"
+            },
+            {
+                "lastProbeTime": null,
+                "lastTransitionTime": "2026-11-01T02:48:47Z",
+                "status": "True",
+                "type": "Ready"
+            },
+            {
+                "lastProbeTime": null,
+                "lastTransitionTime": "2026-11-01T02:48:47Z",
+                "status": "True",
+                "type": "ContainersReady"
+            },
+            {
+                "lastProbeTime": null,
+                "lastTransitionTime": "2026-11-01T02:48:45Z",
+                "status": "True",
+                "type": "PodScheduled"
+            }
+        ],
+        "containerStatuses": [
+            {
+                "containerID": "containerd://a7af72d9b72919e283e4b21c3dd33cc97829c7ac45d1595212d3fa775449eeb4",
+                "image": "docker.io/library/gpufault-job:busybox",
+                "imageID": "docker.io/library/import-2026-11-01@sha256:c28bbc10d309bf274b27333a8bd86969479fe2d2c696c04787bea0bf9408e0b2",
+                "lastState": {},
+                "name": "trainer",
+                "ready": true,
+                "restartCount": 0,
+                "started": true,
+                "state": {
+                    "running": {
+                        "startedAt": "2026-11-01T02:48:46Z"
+                    }
+                },
+                "volumeMounts": [
+                    {
+                        "mountPath": "/var/run/secrets/kubernetes.io/serviceaccount",
+                        "name": "kube-api-access-ck64z",
+                        "readOnly": true,
+                        "recursiveReadOnly": "Disabled"
+                    }
+                ]
+            }
+        ],
+        "hostIP": "172.18.0.3",
+        "hostIPs": [
+            {
+                "ip": "172.18.0.3"
+            }
+        ],
+        "phase": "Running",
+        "podIP": "10.244.1.10",
+        "podIPs": [
+            {
+                "ip": "10.244.1.10"
+            }
+        ],
+        "qosClass": "BestEffort",
+        "startTime": "2026-11-01T02:48:45Z"
+    }
+}

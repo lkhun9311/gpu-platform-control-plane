@@ -548,7 +548,7 @@ The scorer's verdict (`c/verdict.txt`) ends "PASS".
 
 **E2, transport.** In every job, smoke and registered, every rank of `nccltests-1pod4gpu`, `allreduce-1pod4gpu` and `ddp-1pod4gpu` logged SHM, and every rank of `allreduce-4pod1gpu` and `ddp-4pod1gpu` logged NET; the stack set no NCCL variable of its own in any job.
 
-**E1, bus bandwidth, GB/s:** the median of five jobs, each job's figure in brackets, as the verdict prints them.
+**E1, bus bandwidth, GB/s:** the median of five jobs, each job's figure in brackets, as the verdict prints them; the `nccltests` column and the two torch columns come from different timers and warm-up histories ("nccl-tests", above), so they are not an apples-to-apples pair.
 
 | Size | `nccltests-1pod4gpu` | `allreduce-1pod4gpu` | `allreduce-4pod1gpu` |
 |---|---|---|---|
@@ -558,7 +558,7 @@ The scorer's verdict (`c/verdict.txt`) ends "PASS".
 | 64 MiB | 3.27 [3.27, 3.27, 3.27, 3.27, 3.28] | 3.07 [3.07, 3.07, 3.07, 3.07, 3.07] | 1.62 [1.59, 1.67, 1.66, 1.56, 1.62] |
 | 256 MiB | 3.05 [3.05, 3.05, 3.03, 3.05, 3.05] | 3.06 [3.05, 3.06, 3.06, 3.06, 3.06] | 1.67 [1.66, 1.67, 1.68, 1.67, 1.68] |
 
-**E4, DDP step, ms**, the median of five jobs' medians.
+**E4, DDP step, ms**, the median of five jobs' medians, for a synthetic four-layer model doing forward and backward only: no optimizer step, no data loading, no checkpoint, so not a training throughput.
 
 | | `ddp-1pod4gpu` | `ddp-4pod1gpu` |
 |---|---|---|
@@ -568,7 +568,7 @@ The scorer's verdict (`c/verdict.txt`) ends "PASS".
 
 Every rank of every DDP job reported one bucket of 268,500,992 bytes, rebuilt into four of 67,125,248.
 
-**E6, nccl-tests over torch, one Pod of four, reported and not judged:** 1.207 at 1 MiB, 1.098 at 4 MiB, 1.087 at 16 MiB, 1.065 at 64 MiB and 0.996 at 256 MiB.
+**E6, nccl-tests over torch, one Pod of four, reported and not judged:** 1.207 at 1 MiB, 1.098 at 4 MiB, 1.087 at 16 MiB, 1.065 at 64 MiB and 0.996 at 256 MiB; nccl-tests times 100 back-to-back operations with one timer after warming only 1 and 256 MiB, while torch takes a per-operation median after warming each size, so the ratio mixes the instruments' differences with the frameworks' and does not isolate torch's overhead.
 
 **Verdicts.**
 - **V1:** one Pod of four reached higher bus bandwidth than four Pods of one at every size, 1, 4, 16, 64 and 256 MiB: at each, every one of the five one-Pod figures exceeds every one of the four-Pod figures.

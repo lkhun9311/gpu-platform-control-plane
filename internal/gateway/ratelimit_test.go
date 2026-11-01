@@ -18,6 +18,7 @@ package gateway
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -72,6 +73,55 @@ var _ = Describe("bucketRegistry", func() {
 		rl := &platformv1.GPUQuotaRateLimit{RequestsPerMinute: 60, Burst: 1}
 		Expect(b.Allow("t", rl)).To(BeTrue())
 		Expect(b.Allow("t", rl)).To(BeFalse())
+	})
+
+	// A refusal reports how long until a token is available, and does not spend the token it was refused.
+	// Mutation that turns this red: report the wait without the refusal, or spend a token on it.
+	It("reports the wait for the next token and keeps a refusal from consuming it", func() {
+		b := newBucketRegistry()
+		rl := &platformv1.GPUQuotaRateLimit{RequestsPerMinute: 6, Burst: 1}
+		ok, wait := b.Reserve("t", rl)
+		Expect(ok).To(BeTrue())
+		Expect(wait).To(BeZero())
+		for range 3 {
+			ok, wait = b.Reserve("t", rl)
+			Expect(ok).To(BeFalse())
+			Expect(wait).To(BeNumerically("~", 10*time.Second, time.Second))
+		}
+	})
+
+	// Refusals that overlap must leave the bucket where one refusal would: none of them is admitted, so none may spend.
+	// Reserve then Cancel did not: a reservation cancelled after a later one had been taken restores nothing, so
+	// overlapping refusals put the bucket in debt and a request after the refill was refused (codex review of the branch).
+	// Mutation that turns this red: compute the hint by reserving and cancelling.
+	It("does not let overlapping refusals spend the next token", func() {
+		b := newBucketRegistry()
+		// 6000 per minute is one token every 10 ms, so the refill is quick and the debt, if any, is many tokens deep.
+		rl := &platformv1.GPUQuotaRateLimit{RequestsPerMinute: 6000, Burst: 1}
+		Expect(b.Allow("t", rl)).To(BeTrue())
+		var wg sync.WaitGroup
+		for range 64 {
+			wg.Go(func() {
+				for range 50 {
+					b.Reserve("t", rl)
+				}
+			})
+		}
+		wg.Wait()
+		time.Sleep(30 * time.Millisecond)
+		ok, _ := b.Reserve("t", rl)
+		Expect(ok).To(BeTrue(), "a request after the refill was refused, so the refusals before it had spent tokens")
+	})
+
+	// The endpoint-level check cannot see a floor: 59.99 s floored is 59, and the random second makes it 60 half the
+	// time, which the check accepts. Many draws see both the bottom of the range and that nothing falls below it.
+	// Mutation that turns this red: floor the wait instead of rounding it up.
+	It("rounds the hint up and adds at most one second", func() {
+		seen := map[int]bool{}
+		for range 200 {
+			seen[retryAfterSeconds(10200*time.Millisecond)] = true
+		}
+		Expect(seen).To(Equal(map[int]bool{11: true, 12: true}))
 	})
 
 	It("returns true for an unlimited (nil) rate limit", func() {

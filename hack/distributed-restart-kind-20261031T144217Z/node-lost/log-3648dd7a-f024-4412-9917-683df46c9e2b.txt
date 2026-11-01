@@ -1,0 +1,24 @@
+/usr/local/lib/python3.12/site-packages/torch/_subclasses/functional_tensor.py:295: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at ../torch/csrc/utils/tensor_numpy.cpp:84.)
+  cpu = _conversion_method_template(device=torch.device("cpu"))
+{"ts": "2026-10-31T14:48:42.782413+00:00", "run_id": "rst-node-lost-144841", "attempt": 1, "rank": 1, "event": "restart_from_zero", "load_mode": "full"}
+{"ts": "2026-10-31T14:48:43.136468+00:00", "run_id": "rst-node-lost-144841", "attempt": 1, "rank": 1, "event": "start", "world_size": 2, "load_mode": "full", "resumed_from_step": 0, "steps": 20, "fault": "", "torch_version": "2.5.1+cpu"}
+{"ts": "2026-10-31T14:48:43.137904+00:00", "run_id": "rst-node-lost-144841", "attempt": 1, "rank": 1, "event": "step", "step": 1, "loss": 9.108428955078125, "digest": "6969f25baaf6fb81336db2594331d9ead56c8a5f31186e9a68be5833ad424643", "params": null}
+{"ts": "2026-10-31T14:48:43.139238+00:00", "run_id": "rst-node-lost-144841", "attempt": 1, "rank": 1, "event": "checkpoint", "step": 1, "dir": "a1/00000001-54926d788b374eccbdfaeb798b22600b"}
+{"ts": "2026-10-31T14:48:44.140622+00:00", "run_id": "rst-node-lost-144841", "attempt": 1, "rank": 1, "event": "step", "step": 2, "loss": 21.491573333740234, "digest": "c2b9b1d0c4e24a46981a284eda05dfd9c13e891d4b086cfff7d697ffbdf296cf", "params": null}
+{"ts": "2026-10-31T14:48:44.141913+00:00", "run_id": "rst-node-lost-144841", "attempt": 1, "rank": 1, "event": "checkpoint", "step": 2, "dir": "a1/00000002-195fe4a484be4444a3983206e49e4185"}
+{"ts": "2026-10-31T14:48:45.142921+00:00", "run_id": "rst-node-lost-144841", "attempt": 1, "rank": 1, "event": "step", "step": 3, "loss": 13.40946102142334, "digest": "9c12348945211a5ad36dbb685bdb81ba6ce7f4004ae4a508b849c13c54391004", "params": null}
+{"ts": "2026-10-31T14:48:45.143911+00:00", "run_id": "rst-node-lost-144841", "attempt": 1, "rank": 1, "event": "checkpoint", "step": 3, "dir": "a1/00000003-d426850fe25b43c69f316e4f40af1926"}
+[rank1]: Traceback (most recent call last):
+[rank1]:   File "/work/train.py", line 353, in <module>
+[rank1]:     sys.exit(main())
+[rank1]:              ^^^^^^
+[rank1]:   File "/work/train.py", line 338, in main
+[rank1]:     loss.backward()
+[rank1]:   File "/usr/local/lib/python3.12/site-packages/torch/_tensor.py", line 581, in backward
+[rank1]:     torch.autograd.backward(
+[rank1]:   File "/usr/local/lib/python3.12/site-packages/torch/autograd/__init__.py", line 347, in backward
+[rank1]:     _engine_run_backward(
+[rank1]:   File "/usr/local/lib/python3.12/site-packages/torch/autograd/graph.py", line 825, in _engine_run_backward
+[rank1]:     return Variable._execution_engine.run_backward(  # Calls into the C++ engine to run the backward pass
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]: RuntimeError: [../third_party/gloo/gloo/transport/tcp/pair.cc:534] Connection closed by peer [10.244.2.12]:34992

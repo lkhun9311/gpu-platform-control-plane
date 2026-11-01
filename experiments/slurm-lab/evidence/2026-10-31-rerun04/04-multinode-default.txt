@@ -1,0 +1,127 @@
+# transcript 04-multinode-default.txt, slurm-lab, written by steps/04-multinode.sh
+# Variant default: a two-node job with flags [--no-requeue]; one of its two nodes is stopped while it runs.
+
+alice@slurmctld$ sbatch -J mn-default -N 2 --ntasks-per-node=1 --gres=gpu:1 --open-mode=append --no-requeue --wrap "srun bash -c 'echo rank \$SLURM_PROCID on \$(hostname) restart=\${SLURM_RESTART_COUNT:-0} at \$(date -u +%T); sleep 900'"
+# at 2026-10-31T11:40:26.971Z
+Submitted batch job 2
+# exit 0
+# waited 2s for: squeue -h -n mn-default -t R | grep -q .
+
+root@slurmctld$ squeue -o '%.6i %.10j %.8u %.3t %.10M %.5D %.12b %N %R'
+# at 2026-10-31T11:40:31.189Z
+ JOBID       NAME     USER  ST       TIME NODES TRES_PER_NOD NODELIST NODELIST(REASON)
+     2 mn-default    alice   R       0:02     2   gres/gpu:1 c[1-2] c[1-2]
+# exit 0
+# job 2 (mn-default) runs on: c1 c2 ; batch host c1; stopping c2
+# Positive control: the same probe used after the failure, run on the batch host while its rank is alive, must list the rank's sleep.
+
+root@c1$ pgrep -ax sleep | grep -E '^[0-9]+ sleep 900$' || echo no sleep 900 process on c1
+# at 2026-10-31T11:40:31.422Z
+120 sleep 900
+# exit 0
+
+host$ docker compose stop -t 0 c2
+# at 2026-10-31T11:40:31.480Z
+ Container slurmlab-c2-1 Stopping 
+ Container slurmlab-c2-1 Stopped 
+# exit 0
+
+# trace: probe [sinfo -h -n c2 -o '%T %E'; squeue -h -j 2 -o '%i %T %r %N'; sacct -n -j 2 -o JobID%12,State,NodeList | grep -v batch] until [! scontrol show hostnames $(squeue -h -j 2 -t R -o %N) | grep -qx c2], at most 200s
+## seen at 2026-10-31T11:40:31.751Z
+allocated none
+2 RUNNING None c[1-2]
+           2    RUNNING          c[1-2] 
+         2.0    RUNNING          c[1-2] 
+## seen at 2026-10-31T11:40:54.144Z
+allocated* none
+2 RUNNING None c[1-2]
+           2    RUNNING          c[1-2] 
+         2.0    RUNNING          c[1-2] 
+## seen at 2026-10-31T11:41:07.580Z
+down* Not responding
+           2  NODE_FAIL          c[1-2] 
+         2.0  CANCELLED          c[1-2] 
+# trace ended: condition met after 32s
+
+root@slurmctld$ squeue -o '%.6i %.10j %.8u %.3t %.10M %.5D %.12b %N %R'
+# at 2026-10-31T11:41:07.634Z
+ JOBID       NAME     USER  ST       TIME NODES TRES_PER_NOD NODELIST NODELIST(REASON)
+# exit 0
+
+root@slurmctld$ sacct -D -j 2 -o JobID%14,JobName%10,State,ExitCode,Start,End,NodeList
+# at 2026-10-31T11:41:07.687Z
+         JobID    JobName      State ExitCode               Start                 End        NodeList 
+-------------- ---------- ---------- -------- ------------------- ------------------- --------------- 
+             2 mn-default  NODE_FAIL      1:0 2026-10-31T11:40:29 2026-10-31T11:41:06          c[1-2] 
+       2.batch      batch  CANCELLED     0:15 2026-10-31T11:40:29 2026-10-31T11:41:07              c1 
+           2.0       bash  CANCELLED     0:15 2026-10-31T11:40:29 2026-10-31T11:41:07          c[1-2] 
+# exit 0
+
+root@slurmctld$ scontrol show job 2 | grep -E 'JobState|Requeue|Restarts|NodeList=|BatchHost|EligibleTime'
+# at 2026-10-31T11:41:07.744Z
+   JobState=NODE_FAIL Reason=NodeDown FailedNode=c2 Dependency=(null)
+   Requeue=0 Restarts=0 BatchFlag=1 Reboot=0 ExitCode=0:1
+   SubmitTime=2026-10-31T11:40:27 EligibleTime=2026-10-31T11:40:27
+   PreemptEligibleTime=2026-10-31T11:40:29 PreemptTime=None
+   ReqNodeList=(null) ExcNodeList=(null)
+   NodeList=c[1-2]
+   BatchHost=c1
+# exit 0
+
+root@slurmctld$ grep -hE 'JobId=2[^0-9]|c2' /var/log/slurm/slurmctld.log | grep -v debug | tail -8
+# at 2026-10-31T11:41:07.797Z
+[2026-10-31T11:40:27.017] _slurm_rpc_submit_batch_job: JobId=2 InitPrio=1 usec=215
+[2026-10-31T11:40:29.001] sched: Allocate JobId=2 NodeList=c[1-2] #CPUs=2 Partition=gpu
+[2026-10-31T11:40:53.011] agent/is_node_resp: node:c2 RPC:REQUEST_PING : Communication connection failure
+[2026-10-31T11:40:54.000] error: Nodes c2 not responding
+[2026-10-31T11:41:07.000] Killing JobId=2 on failed node c2
+[2026-10-31T11:41:07.000] error: Nodes c2 not responding, setting DOWN
+# exit 0
+
+root@c1$ pgrep -ax sleep | grep -E '^[0-9]+ sleep 900$' || echo no sleep 900 process on c1
+# at 2026-10-31T11:41:07.854Z
+no sleep 900 process on c1
+# exit 0
+
+host$ docker compose start c2
+# at 2026-10-31T11:41:07.909Z
+ Container slurmlab-c2-1 Starting 
+ Container slurmlab-c2-1 Started 
+# exit 0
+# waited 0s for: sinfo -h -n c2 -o %T | grep -qE 'idle|mixed|alloc'
+
+root@slurmctld$ sinfo -N -o '%N %T %E'
+# at 2026-10-31T11:41:08.119Z
+NODELIST STATE REASON
+c1 idle none
+c2 idle none
+c3 idle none
+# exit 0
+
+root@c1$ cat /home/alice/slurm-2.out 2>/dev/null || echo no output file on c1
+# at 2026-10-31T11:41:08.178Z
+rank 0 on c1 restart=0 at 11:40:29
+rank 1 on c2 restart=0 at 11:40:29
+srun: error: Node failure on c2
+srun: Job step aborted: Waiting up to 7 seconds for job step to finish.
+slurmstepd-c1: error: *** JOB 2 ON c1 CANCELLED AT 2026-10-31T11:41:07 DUE TO NODE FAILURE, SEE SLURMCTLD LOG FOR DETAILS ***
+slurmstepd-c1: error: *** STEP 2.0 ON c1 CANCELLED AT 2026-10-31T11:41:07 DUE TO NODE FAILURE, SEE SLURMCTLD LOG FOR DETAILS ***
+srun: got SIGCONT
+srun: forcing job termination
+srun: error: c1: task 0: Terminated
+# exit 0
+
+root@c2$ cat /home/alice/slurm-2.out 2>/dev/null || echo no output file on c2
+# at 2026-10-31T11:41:08.230Z
+no output file on c2
+# exit 0
+
+root@c3$ cat /home/alice/slurm-2.out 2>/dev/null || echo no output file on c3
+# at 2026-10-31T11:41:08.280Z
+no output file on c3
+# exit 0
+
+root@slurmctld$ scancel -u alice
+# at 2026-10-31T11:41:08.333Z
+# exit 0
+# waited 0s for: [ -z "$(squeue -h)" ]

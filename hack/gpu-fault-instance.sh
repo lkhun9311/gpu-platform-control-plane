@@ -16,6 +16,8 @@ mkdir -p "$GF_OUT/reps" "$GF_OUT/checks" || exit 1
 export GF_MODE=dcgm GF_TARGET=m5cgpu-worker GF_HEALTHY=m5cgpu-control-plane GF_CONTEXT=""
 export GF_SYS=gpu-platform-control-plane-system GF_NS=gpufault GF_EXPORTER=app.kubernetes.io/component=dcgm-exporter
 export GF_JOB_IMAGE=gpufault-job:busybox GF_LOG=$GF_OUT/log.txt GF_EMPTY_BODY=$GF_OUT/empty-body.json
+# Run 3's recovery check runs NVIDIA's vectorAdd sample, pinned by the index digest the amendment records.
+export GF_RECOVERY_IMAGE=nvcr.io/nvidia/k8s/cuda-sample:vectoradd-cuda12.5.0@sha256:7c7540bdf1f942d4fb6db97069fd6c289471b54ac29e3c7fcdf914cf77af7d41
 echo '{}' >"$GF_EMPTY_BODY"
 # shellcheck source=hack/lib/gpu-fault.sh
 . hack/lib/gpu-fault.sh
@@ -59,6 +61,9 @@ for n in "$GF_TARGET" "$GF_HEALTHY"; do
   gf_wait_until 180 sh -c "[ \"\$(kubectl get node $n -o jsonpath='{.status.allocatable.nvidia\\.com/gpu}')\" = 1 ]" ||
     stop platform "$n does not advertise one nvidia.com/gpu"
 done
+# Pulled onto T now, so that the recovery check's time is the platform's and the card's, never the registry's.
+docker exec m5cgpu-worker crictl pull "$GF_RECOVERY_IMAGE" >>"$GF_LOG" 2>&1 || stop platform "pull the recovery image onto $GF_TARGET"
+echo "recovery_image=$GF_RECOVERY_IMAGE" >>"$GF_OUT/provenance.txt"
 gfk kustomize config/dcgm-exporter-fault >"$GF_OUT/exporter.yaml" || stop platform "render the study exporter"
 gfk apply -f "$GF_OUT/exporter.yaml" >>"$GF_LOG" 2>&1 || stop platform "the study exporter"
 
@@ -75,6 +80,12 @@ gf_arms
 phase arms done
 if [ $(( $(date +%s) + 240 )) -le "$GF_CHECKS_END" ]; then
   gf_stale_checks || gf_log "the stale checks did not complete"
+  # The recovery job is given GF_RECOVERY_S, and its bookkeeping a little more, inside the checks phase.
+  if [ $(( $(date +%s) + GF_RECOVERY_S + 30 )) -le "$GF_CHECKS_END" ]; then
+    gf_recovery_check || gf_log "the recovery check did not complete"
+  else
+    mkdir -p "$GF_OUT/checks/recovery" && printf 'reached=false\nreason=deadline\n' >"$GF_OUT/checks/recovery/check.env"
+  fi
   phase checks done
 else
   phase checks "not run: fewer than 240 s left before $GF_CHECKS_END"

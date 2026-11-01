@@ -64,8 +64,10 @@ check() {
 
 check 1 accepted
 check 2 accepted
+check 3 accepted
 check 1.5 "must be a whole number"
-check 3 "one or two workers"
+check 0 "one to three workers"
+check 4 "one to three workers"
 
 if [[ $fails -ne 0 ]]; then
   echo "check-gpu-max-nodes-validation: $fails failure(s)"

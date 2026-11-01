@@ -1,0 +1,20 @@
+# Three workers, so a job of world size 2 can lose one node and still be admitted on the two that are left.
+# Every worker mounts the same host directory at /shared, which a hostPath PersistentVolume offers as ReadWriteMany:
+# the ranks on different nodes then read and write one file system, as they would on EFS, without NFS's semantics.
+# hack/distributed-restart-kind.sh replaces /tmp/rst-shared-qX2uIS with a directory of its own before creating the cluster.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+  - role: worker
+    extraMounts:
+      - hostPath: /tmp/rst-shared-qX2uIS
+        containerPath: /shared
+  - role: worker
+    extraMounts:
+      - hostPath: /tmp/rst-shared-qX2uIS
+        containerPath: /shared
+  - role: worker
+    extraMounts:
+      - hostPath: /tmp/rst-shared-qX2uIS
+        containerPath: /shared

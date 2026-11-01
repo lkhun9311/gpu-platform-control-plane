@@ -1,0 +1,45 @@
+# transcript 02b-qos-quota.txt, slurm-lab, written by steps/02-quota-preempt.sh
+# The same kind of limit on a QoS rather than an account: QoS high may hold 2 GPUs across every account.
+
+root@slurmctld$ sacctmgr -i modify account teama,teamb set GrpTRES=gres/gpu=-1
+# at 2026-10-31T11:11:36.526Z
+ Modified account associations...
+  C = lab        A = teama of root
+  C = lab        A = teamb of root
+# exit 0
+
+root@slurmctld$ sacctmgr -i modify qos high set GrpTRES=gres/gpu=2
+# at 2026-10-31T11:11:36.583Z
+ Modified qos...
+  high
+# exit 0
+
+alice@slurmctld$ sbatch -J a-high --qos=high --gres=gpu:2 --wrap 'sleep 900'
+# at 2026-10-31T11:11:36.642Z
+Submitted batch job 10
+# exit 0
+# waited 1s for: squeue -h -n a-high -t R | grep -q .
+
+bob@slurmctld$ sbatch -J b-high --qos=high --gres=gpu:1 --wrap 'sleep 900'
+# at 2026-10-31T11:11:37.797Z
+Submitted batch job 11
+# exit 0
+# waited 2s for: squeue -h -n b-high -o %r | grep -q QOSGrp
+
+root@slurmctld$ squeue -o '%.6i %.10j %.8u %.8a %.6q %.3t %.12b %N %R'
+# at 2026-10-31T11:11:40.003Z
+ JOBID       NAME     USER  ACCOUNT    QOS  ST TRES_PER_NOD NODELIST NODELIST(REASON)
+    11     b-high      bob    teamb   high  PD   gres/gpu:1  (QOSGrpGRES)
+    10     a-high    alice    teama   high   R   gres/gpu:2 c1 c1
+# exit 0
+
+root@slurmctld$ scancel -u alice; scancel -u bob
+# at 2026-10-31T11:11:40.056Z
+# exit 0
+# waited 0s for: [ -z "$(squeue -h)" ]
+
+root@slurmctld$ sacctmgr -i modify qos high set GrpTRES=gres/gpu=-1
+# at 2026-10-31T11:11:40.161Z
+ Modified qos...
+  high
+# exit 0

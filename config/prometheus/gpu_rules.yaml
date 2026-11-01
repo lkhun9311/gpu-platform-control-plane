@@ -1,0 +1,195 @@
+# Alerts for GPU operations: a card reporting a fault, a ClusterQueue out of GPU quota, and work that is not being admitted.
+#
+# Every series named here is one this repository's deployed components emit, and a test holds them to that
+# (test/monitoring/monitoring_test.go): the DCGM fields against config/dcgm-exporter-ops, the Kueue series against the
+# Kueue Go module, and nothing is named that only a plausible guess would produce.
+# The one exception is kube_node_status_capacity, from kube-state-metrics, which the test lists by name as an external input.
+#
+# Each alert below is silent when its input is absent, so each is paired with a rule that speaks when the input is
+# missing while the thing it describes is present.
+# Without the pair, "no alert" would mean both "healthy" and "not observed", and only one of those is good news.
+#
+# The runbook_url of every alert is a heading in docs/06_OBSERVABILITY_BENCHMARK_FAILURE.md.
+# It names the main branch because that is where an operator's browser lands; the test checks the heading in this tree.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: gpu-rules
+  namespace: system
+  labels:
+    app.kubernetes.io/name: gpu-platform-control-plane
+    app.kubernetes.io/component: gpu-monitoring
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  groups:
+    - name: gpu.faults
+      rules:
+        # The same policy the operator applies (internal/gpufault/classify.go, Assess), restated in PromQL.
+        # A non-zero Xid is a fault unless it is one of the application Xids 13, 31, 43, 45 and 68, which NVIDIA's device
+        # plugin ignores; a double-bit ECC count above zero is a fault; the single-bit count is never one.
+        # The test derives the excluded Xids from Assess itself, so the two cannot drift apart unnoticed.
+        #
+        # Chained filter comparisons keep only the samples that pass every one, which is the "not in this set" PromQL lacks.
+        #
+        # WHAT THIS IS NOT. It is the signal, not the quarantine.
+        # DCGM_FI_DEV_XID_ERRORS holds the LAST Xid only, so an application Xid arriving after a fatal one replaces it and this
+        # alert resolves while the operator, which latches, keeps the node tainted until the fields read zero or the fault is
+        # acknowledged.
+        # A resolved alert therefore does not say the node is back; the NodeHealth's GPUHealthy condition does.
+        #
+        # No "for": the operator taints on the first scrape that carries a fault, and a fatal Xid does not flicker.
+        # The field holds its value until something writes another, so waiting would only delay the page.
+        - alert: GPUFaultSignalPresent
+          expr: |
+            max by (Hostname, gpu, UUID, field) (
+              label_replace(DCGM_FI_DEV_XID_ERRORS != 0 != 13 != 31 != 43 != 45 != 68, "field", "xid", "", "")
+                or
+              label_replace(DCGM_FI_DEV_ECC_DBE_VOL_TOTAL > 0, "field", "ecc_dbe", "", "")
+            )
+          labels:
+            severity: critical
+          annotations:
+            summary: "GPU {{ $labels.gpu }} on {{ $labels.Hostname }} reports a fault ({{ $labels.field }} = {{ $value }})"
+            description: >-
+              DCGM reports a fault the platform's own policy treats as a card fault: a non-application Xid, or a
+              double-bit ECC count above zero. With --gpu-fault-source=dcgm the operator has already tainted the node
+              platform.lkhun9311.github.io/gpu-fault; without it nothing has reacted, and this alert is the only notice.
+            runbook_url: https://github.com/lkhun9311/gpu-platform-control-plane/blob/main/docs/06_OBSERVABILITY_BENCHMARK_FAILURE.md#gpufaultsignalpresent
+
+        # GPUFaultSignalPresent cannot fire for a card whose exporter does not collect the fault fields.
+        # config/dcgm-exporter collects utilisation alone, on purpose, so a fleet deployed from it reads as fault-free forever.
+        # This says so for each node that reports utilisation and no Xid field: the exporter is there, the fault fields are not.
+        - alert: GPUFaultFieldsNotCollected
+          expr: |
+            count by (Hostname) (DCGM_FI_DEV_GPU_UTIL)
+              unless on (Hostname)
+            (count by (Hostname) (DCGM_FI_DEV_XID_ERRORS) and on (Hostname) count by (Hostname) (DCGM_FI_DEV_ECC_DBE_VOL_TOTAL))
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.Hostname }} exports GPU utilisation but not the Xid or double-bit ECC field"
+            description: >-
+              GPUFaultSignalPresent is blind on this node. Deploy the exporter from config/dcgm-exporter-ops, which collects
+              DCGM_FI_DEV_XID_ERRORS and DCGM_FI_DEV_ECC_DBE_VOL_TOTAL.
+            runbook_url: https://github.com/lkhun9311/gpu-platform-control-plane/blob/main/docs/06_OBSERVABILITY_BENCHMARK_FAILURE.md#gpufaultfieldsnotcollected
+
+        # GPUFaultFieldsNotCollected needs the utilisation series to exist, so an exporter that is gone altogether
+        # silences it together with GPUFaultSignalPresent, and three silent rules read as a healthy node.
+        # This one starts from what the node says it has instead of from what the exporter says: kube-state-metrics'
+        # capacity series names every node advertising nvidia.com/gpu, and any of those with no DCGM series is unwatched.
+        #
+        # It covers an exporter Pod that is deleted, unschedulable or crash-looping, and one whose scrape fails, because
+        # Prometheus marks a failed target's series stale at once and they then drop out of the right-hand side.
+        # Either DCGM field counts as present, so an exporter collecting the fault fields without utilisation is not
+        # called absent; GPUFaultFieldsNotCollected is what speaks for the fields.
+        #
+        # The join is Hostname to node: dcgm-exporter 3.3.9 sets Hostname from $NODE_NAME (GetHostname in its
+        # gpu_collector.go, read off the pinned image's binary), and config/dcgm-exporter sets NODE_NAME to spec.nodeName.
+        #
+        # PRECONDITION: kube-state-metrics, which kube-prometheus-stack ships and this repository does not deploy.
+        # Without it the left-hand side is empty and this rule is as silent as the ones it watches.
+        #
+        # 10 minutes, as for GPUFaultFieldsNotCollected, so a new node pulling the half-gigabyte exporter image does not page.
+        - alert: GPUExporterNotReporting
+          expr: |
+            (max by (node) (kube_node_status_capacity{resource="nvidia_com_gpu"}) > 0)
+              unless on (node)
+            label_replace(count by (Hostname) (DCGM_FI_DEV_GPU_UTIL or DCGM_FI_DEV_XID_ERRORS), "node", "$1", "Hostname", "(.*)")
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.node }} advertises nvidia.com/gpu and no DCGM exporter reports for it"
+            description: >-
+              No DCGM series carries Hostname={{ $labels.node }}, so GPUFaultSignalPresent and GPUFaultFieldsNotCollected
+              cannot fire for this node's cards. The exporter Pod is missing, not running, or not being scraped.
+            runbook_url: https://github.com/lkhun9311/gpu-platform-control-plane/blob/main/docs/06_OBSERVABILITY_BENCHMARK_FAILURE.md#gpuexporternotreporting
+
+    - name: kueue.gpu
+      rules:
+        # Quota is reserved up to the nominal amount and someone is waiting for more of it.
+        # Reservation is the side admission is decided on: Kueue reserves quota before a workload is admitted, so a queue
+        # whose reservation meets its nominal quota admits nothing more unless its cohort lends.
+        # The pending half is what makes it an incident: a queue sitting at its quota with nobody waiting is a queue in use.
+        #
+        # Summed over flavours, because quota is configured per flavour and the question is about the queue.
+        # 15 minutes is a convention, not a measurement: it is long enough that one large job finishing and the next taking
+        # its place does not page, and nothing in this repository derives a better number.
+        #
+        # PRECONDITION: all three series exist only when Kueue runs with metrics.enableClusterQueueResources: true.
+        # config/kueue-controller turns it on; the release file applied alone, as the kind harnesses do, leaves it
+        # commented out, and there this rule matches nothing; KueueGPUQuotaMetricsNotReported below is what says so.
+        - alert: KueueClusterQueueGPUQuotaExhausted
+          expr: |
+            (
+              sum by (cluster_queue) (kueue_cluster_queue_resource_reservation{resource="nvidia.com/gpu"})
+                >= on (cluster_queue)
+              sum by (cluster_queue) (kueue_cluster_queue_nominal_quota{resource="nvidia.com/gpu"})
+            )
+              and on (cluster_queue)
+            (sum by (cluster_queue) (kueue_cluster_queue_resource_pending{resource="nvidia.com/gpu"}) > 0)
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "ClusterQueue {{ $labels.cluster_queue }} has reserved all its GPU quota and GPU work is waiting"
+            description: >-
+              Reserved nvidia.com/gpu has been at or above the nominal quota for fifteen minutes while workloads requesting
+              GPUs are pending. Nothing more will be admitted on this queue until a reservation is released or the cohort lends.
+            runbook_url: https://github.com/lkhun9311/gpu-platform-control-plane/blob/main/docs/06_OBSERVABILITY_BENCHMARK_FAILURE.md#kueueclusterqueuegpuquotaexhausted
+
+        # The quota alert above is blind without enableClusterQueueResources, and a blind alert reads as a queue with room.
+        # kueue_cluster_queue_status is always emitted, so an active queue with no nominal-quota series is a queue whose
+        # quota nothing is reporting.
+        - alert: KueueGPUQuotaMetricsNotReported
+          expr: |
+            (kueue_cluster_queue_status{status="active"} == 1)
+              unless on (cluster_queue)
+            kueue_cluster_queue_nominal_quota
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "ClusterQueue {{ $labels.cluster_queue }} is active but Kueue reports no quota series for it"
+            description: >-
+              Kueue is running without metrics.enableClusterQueueResources, so KueueClusterQueueGPUQuotaExhausted cannot
+              fire for any queue.
+            runbook_url: https://github.com/lkhun9311/gpu-platform-control-plane/blob/main/docs/06_OBSERVABILITY_BENCHMARK_FAILURE.md#kueuegpuquotametricsnotreported
+
+        # Workloads have been pending for the whole of the last 30 minutes and the queue admitted none in that time.
+        #
+        # Kueue publishes how many workloads are pending, not how long any one has waited: its wait-time histograms are
+        # observed at admission, so a workload that is never admitted never appears in them. What can be said from the
+        # gauge and the admission counter is that the queue made no progress for 30 minutes while it had work, which
+        # implies the oldest pending workload has waited at least that long, unless it was deleted and replaced inside the
+        # window. That exception is why the summary speaks of the queue, not of a workload.
+        #
+        # min_over_time over a subquery rather than "for": "for" would add its own duration to the admission window, so a
+        # 30-minute threshold would have meant no admission for up to an hour.
+        # The offset term demands that the window be full.
+        # min_over_time reads only the samples that exist, so on a Prometheus or a queue younger than 30 minutes it would
+        # call one minute of backlog thirty, and the promtool test caught exactly that.
+        # A counter series that exists now and did not 30 minutes ago is an admission too.
+        # Kueue creates each cluster_queue and priority_class series on its first increment (pkg/metrics AdmittedWorkload),
+        # so that series starts at 1 and increase() over it reads 0.
+        # Both statuses count: "inadmissible" is a workload Kueue has stopped retrying, which is the stall at its worst.
+        # 30 minutes is a convention, like the 15 above.
+        - alert: KueueWorkloadsPendingTooLong
+          expr: |
+            (min_over_time((sum by (cluster_queue) (kueue_pending_workloads))[30m:1m]) > 0)
+              and on (cluster_queue)
+            (sum by (cluster_queue) (kueue_pending_workloads offset 30m) > 0)
+              unless on (cluster_queue)
+            (sum by (cluster_queue) (increase(kueue_admitted_workloads_total[30m])) > 0)
+              unless on (cluster_queue)
+            count by (cluster_queue) (kueue_admitted_workloads_total unless kueue_admitted_workloads_total offset 30m)
+          for: 1m
+          labels:
+            severity: warning
+          annotations:
+            summary: "ClusterQueue {{ $labels.cluster_queue }} has had pending workloads for 30 minutes and admitted none"
+            description: >-
+              {{ $value }} workload(s) pending at the lowest point of the last 30 minutes, and no admission on this queue in
+              that time.
+            runbook_url: https://github.com/lkhun9311/gpu-platform-control-plane/blob/main/docs/06_OBSERVABILITY_BENCHMARK_FAILURE.md#kueueworkloadspendingtoolong

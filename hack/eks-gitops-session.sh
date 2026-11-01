@@ -60,6 +60,11 @@
 #   APPROVED_STEP_SHA256   with TRAIN=allreduce, the sha256 of experiments/multi-gpu-throughput/ddp_step_bench.py
 #   NCCLTESTS_IMAGE   with TRAIN=allreduce, the nccl-tests image built from experiments/multi-gpu-throughput/nccl-tests,
 #                     named by digest (repository@sha256:...)
+#   TRAIN=restart     instead buys THREE g5.xlarge in the `gpu` group in ap-northeast-2a, builds the EFS volume, and runs the
+#                     distributed restart session's registered cases (docs/superpowers/specs/2026-11-01-distributed-restart-design.md,
+#                     "The paid session: apparatus"); needs TRAIN_AZ=ap-northeast-2a, APPROVED_TRAIN_SHA256 of
+#                     experiments/distributed-restart/train.py, a clean tree, and a credential and TTL_MINUTES that cover
+#                     its waits. The DRAFT registration is not approved, and nothing here is an approval
 
 set -euo pipefail
 
@@ -278,7 +283,52 @@ case "$TRAIN" in
     [[ -z "$TRAIN_AZ" ]] || TF_TRAIN_VARS="$TF_TRAIN_VARS -var=gpu_availability_zone=$TRAIN_AZ"
     log "TRAIN=allreduce: $TRAIN_NODES x $TRAIN_INSTANCE_TYPE of $TRAIN_GPUS_PER_NODE GPUs, price ceiling \$$TRAIN_MAX_PRICE, GPU budget ${TRAIN_GPU_BUDGET}s"
     ;;
-  *) die "TRAIN=$TRAIN is not a training mode this session runs (ddp, allreduce)" ;;
+  restart)
+    # The distributed restart session: three g5.xlarge, two ranks and a spare, an EFS volume, 22 registered cases.
+    [[ -z "$SERVE$STUDY" ]] || die "TRAIN=restart with SERVE or STUDY would buy GPUs in two groups under one deadline; run one"
+    # shellcheck source=hack/lib/train-session.sh
+    . hack/lib/train-session.sh
+    # shellcheck source=hack/lib/ddp-arms.sh
+    . hack/lib/ddp-arms.sh
+    # shellcheck source=hack/lib/gpu-fault.sh
+    . hack/lib/gpu-fault.sh
+    # shellcheck source=hack/lib/restart-session.sh
+    . hack/lib/restart-session.sh
+    TRAIN_NODES=3
+    # The provenance is a commit: the trainer is hashed from this tree and the scorer refuses a dirty one afterwards,
+    # so a dirty tree is refused here, before anything is spent on a run the scorer would refuse.
+    why="$(restart_clean_tree_refusal)" || die "$why"
+    log "$why"
+    [[ "${APPROVED_TRAIN_SHA256:-}" =~ ^[0-9a-f]{64}$ ]] ||
+      die "TRAIN=restart needs APPROVED_TRAIN_SHA256, the $RESTART_TRAIN_PY hash the registration approved"
+    train_sha="$(sha256sum "$RESTART_TRAIN_PY" | cut -d' ' -f1)"
+    [[ "$train_sha" == "$APPROVED_TRAIN_SHA256" ]] || die "$RESTART_TRAIN_PY is $train_sha, not the approved $APPROVED_TRAIN_SHA256"
+    why="$(train_node_count_refusal "$TRAIN_NODES")" || die "$why"
+    why="$(restart_zone_refusal "$TRAIN_AZ")" || die "$why"
+    log "TRAIN_AZ: $why"
+    TRAIN_GPU_BUDGET="$(restart_gpu_budget)"
+    TRAIN_BUDGET=$((WAIT_TRAIN_SYNC + WAIT_TRAIN_QUEUE + WAIT_QUAL_HELD + TRAIN_GPU_BUDGET))
+    if ((TTL_MINUTES * 60 < TRAIN_BUDGET + 3600)); then
+      die "TRAIN=restart needs TTL_MINUTES of at least $(((TRAIN_BUDGET + 3600 + 59) / 60)) for its waits; it is $TTL_MINUTES"
+    fi
+    # The credential must outlive the watchdog's destroy too, which starts at TTL_MINUTES and is given 40 minutes.
+    why="$(restart_credential_refusal $((TTL_MINUTES + 40)))" || die "$why"
+    log "$why"
+    why="$(train_require_new_cluster "$CLUSTER" "$REGION" "${KEEP_UP:-}")" || die "$why"
+    log "$why"
+    # Read before anything is built, and again at T4 and T5 before the nodes are bought: a cluster built for a session
+    # that cannot buy its nodes is the session's cheapest way to waste money, not a free one.
+    why="$(train_quota_gate "$REGION" $((4 * TRAIN_NODES)))" || die "$why"
+    log "$why"
+    why="$(train_price_gate "$REGION" "$TRAIN_INSTANCE_TYPE" "$TRAIN_MAX_PRICE")" || die "$why"
+    log "$why"
+    # Passed to every apply and destroy of the cluster root, the watchdog's included, so each plans the same resources.
+    TF_TRAIN_VARS="-var=gpu_node_instance_type=$TRAIN_INSTANCE_TYPE -var=gpu_max_nodes=$TRAIN_NODES -var=gpu_availability_zone=$TRAIN_AZ -var=efs_enabled=true"
+    log "TRAIN=restart: $TRAIN_NODES x $TRAIN_INSTANCE_TYPE in $TRAIN_AZ, price ceiling \$$TRAIN_MAX_PRICE, GPU budget ${TRAIN_GPU_BUDGET}s"
+    # Logged, because the watchdog's destroy is built from them and is the one command no test can watch run.
+    log "terraform variables for every apply and destroy: $TF_TRAIN_VARS"
+    ;;
+  *) die "TRAIN=$TRAIN is not a training mode this session runs (ddp, allreduce, restart)" ;;
 esac
 
 # --- STUDY=prefixroute: what must hold before anything is built -------------------------------------------
@@ -693,6 +743,9 @@ train_run() {
   ok "T1: $why"
   why="$(train_only_clusterqueue "$CLUSTER" "$TRAIN_QUEUE" "$WAIT_TRAIN_QUEUE")" || { bad "T2: $why"; return 1; }
   ok "T2: $why"
+  if [[ "$TRAIN" == restart ]]; then
+    restart_before_purchase || return 1
+  fi
 
   if [[ "$TRAIN" == allreduce ]]; then
     AR_CONTEXT="$CLUSTER" AR_NS="$TRAIN_NS" AR_QUEUE="$TRAIN_QUEUE" AR_TORCH_IMAGE="$TRAIN_IMAGE"
@@ -792,6 +845,10 @@ train_run() {
     train_run_allreduce "$ids" "$zones"
     return
   fi
+  if [[ "$TRAIN" == restart ]]; then
+    train_run_restart "$ids" "$zones"
+    return
+  fi
 
   # The arms, as experiments/multi-pod-ddp/ registers them, with the provenance the analyzer reads its bar from.
   {
@@ -881,6 +938,63 @@ PY
     ok "T8: every registered job valid ($AR_OUT/verdict.txt)"
   else
     bad "T8: not every job was valid: $(grep -cE '^INVALID' "$AR_OUT/verdict.txt") invalid line(s), see $AR_OUT/verdict.txt"
+  fi
+}
+
+# restart_before_purchase: what TRAIN=restart needs from the cluster before any GPU node exists (R1 to R4).
+#
+# The volume, the operator and the fault path are all checkable with no GPU, so a cluster that cannot run the
+# registered cases is found while it costs a control plane, not three cards.
+# Every failure is a bad(), because train_run runs as a condition, where a helper's non-zero status alone ends nothing.
+restart_before_purchase() {
+  local why fs
+  RESTART_CONTEXT="$CLUSTER" RESTART_REGION="$REGION" RESTART_CLUSTER="$CLUSTER" RESTART_GROUP="$TRAIN_GROUP"
+  RESTART_NS="$TRAIN_NS" RESTART_QUEUE="$TRAIN_QUEUE" RESTART_OUT="$EXDIR/restart" RESTART_SYS=gpu-platform-control-plane-system
+  RESTART_INSTANCES_FILE="$GPU_INSTANCES_FILE"
+  mkdir -p "$RESTART_OUT"
+  fs="$(terraform -chdir="$CLUSTER_DIR" output -raw efs_file_system_id 2>>"$EXDIR/session.log")"
+  RESTART_FS_ID="$fs"
+  why="$(restart_render_volume "$fs" "$TRAIN_NS" 2>&1 >"$RESTART_OUT/volume.yaml")" || { bad "R1: $why"; return 1; }
+  why="$(kc apply -f "$RESTART_OUT/volume.yaml" 2>&1)" || { bad "R1: the volume was refused: ${why:0:300}"; return 1; }
+  why="$(kc -n "$TRAIN_NS" wait --for=jsonpath='{.status.phase}'=Bound "pvc/$RESTART_CLAIM" --timeout=120s 2>&1)" ||
+    { bad "R1: the claim did not bind: ${why:0:300}"; return 1; }
+  ok "R1: $RESTART_CLAIM is Bound to $fs"
+  why="$(restart_operator_gate)" || { bad "R2: $why"; return 1; }
+  ok "R2: $why"
+  why="$(restart_reader)" || { bad "R3: $why"; return 1; }
+  ok "R3: $why"
+  why="$(restart_enable_fault_path)" || { bad "R4: $why"; return 1; }
+  ok "R4: $why"
+}
+
+# train_run_restart IDS ZONES: the registered cases on the three qualified nodes, scored as they end and at the end.
+train_run_restart() {
+  local ids="$1" zones="$2" warmed="$EXDIR/restart/warmed.txt" out
+  : >"$warmed"
+  {
+    echo "commit=$(git rev-parse HEAD)"
+    echo "dirty_files=$(git status --porcelain | wc -l)"
+    echo "train_py_sha256=$(sha256sum "$RESTART_TRAIN_PY" | cut -d' ' -f1)"
+    echo "approved_train_py_sha256=$APPROVED_TRAIN_SHA256"
+    echo "workload_image=$RESTART_IMAGE"
+    echo "steps=$RESTART_STEPS"
+    echo "step_sleep=$RESTART_STEP_SLEEP"
+    echo "ballast_mb=$RESTART_BALLAST_MB"
+    echo "collective_timeout=$RESTART_COLLECTIVE_TIMEOUT"
+    echo "case_budget=$RESTART_CASE_BUDGET"
+    echo "efs=$RESTART_FS_ID"
+    echo "train_az=$TRAIN_AZ"
+    echo "nodes=$(paste -sd' ' <<<"$ids")"
+    echo "node_zones=$(paste -sd' ' <<<"$zones")"
+    echo "cases=$(restart_cases | paste -sd' ')"
+  } >"$RESTART_OUT/provenance.txt"
+  out="$(restart_prepare_nodes "$warmed")" || { bad "R5: $out"; return 1; }
+  ok "R5: $out"
+  restart_run "$warmed" 2>&1 | tee -a "$RESTART_OUT/run.log" "$EXDIR/session.log"
+  if python3 experiments/distributed-restart/score_eks.py "$RESTART_OUT" >"$RESTART_OUT/verdict.txt" 2>&1; then
+    ok "R6: every registered case ACCEPTED ($RESTART_OUT/verdict.txt)"
+  else
+    bad "R6: not every registered case was accepted: $(grep -cE '^(FAILED|VOID|NOTRUN|REFUSED)' "$RESTART_OUT/verdict.txt") line(s), see $RESTART_OUT/verdict.txt"
   fi
 }
 

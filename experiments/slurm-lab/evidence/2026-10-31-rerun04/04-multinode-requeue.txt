@@ -1,0 +1,154 @@
+# transcript 04-multinode-requeue.txt, slurm-lab, written by steps/04-multinode.sh
+# Variant requeue: a two-node job with flags [--requeue]; one of its two nodes is stopped while it runs.
+
+alice@slurmctld$ sbatch -J mn-requeue -N 2 --ntasks-per-node=1 --gres=gpu:1 --open-mode=append --requeue --wrap "srun bash -c 'echo rank \$SLURM_PROCID on \$(hostname) restart=\${SLURM_RESTART_COUNT:-0} at \$(date -u +%T); sleep 900'"
+# at 2026-10-31T11:41:08.437Z
+Submitted batch job 3
+# exit 0
+# waited 1s for: squeue -h -n mn-requeue -t R | grep -q .
+
+root@slurmctld$ squeue -o '%.6i %.10j %.8u %.3t %.10M %.5D %.12b %N %R'
+# at 2026-10-31T11:41:11.597Z
+ JOBID       NAME     USER  ST       TIME NODES TRES_PER_NOD NODELIST NODELIST(REASON)
+     3 mn-requeue    alice   R       0:03     2   gres/gpu:1 c[1-2] c[1-2]
+# exit 0
+# job 3 (mn-requeue) runs on: c1 c2 ; batch host c1; stopping c2
+# Positive control: the same probe used after the failure, run on the batch host while its rank is alive, must list the rank's sleep.
+
+root@c1$ pgrep -ax sleep | grep -E '^[0-9]+ sleep 900$' || echo no sleep 900 process on c1
+# at 2026-10-31T11:41:11.828Z
+200 sleep 900
+# exit 0
+
+host$ docker compose stop -t 0 c2
+# at 2026-10-31T11:41:11.880Z
+ Container slurmlab-c2-1 Stopping 
+ Container slurmlab-c2-1 Stopped 
+# exit 0
+
+# trace: probe [sinfo -h -n c2 -o '%T %E'; squeue -h -j 3 -o '%i %T %r %N'; sacct -n -j 3 -o JobID%12,State,NodeList | grep -v batch] until [! scontrol show hostnames $(squeue -h -j 3 -t R -o %N) | grep -qx c2], at most 200s
+## seen at 2026-10-31T11:41:12.128Z
+allocated none
+3 RUNNING None c[1-2]
+           3    RUNNING          c[1-2] 
+         3.0    RUNNING          c[1-2] 
+## seen at 2026-10-31T11:41:31.190Z
+allocated* none
+3 RUNNING None c[1-2]
+           3    RUNNING          c[1-2] 
+         3.0    RUNNING          c[1-2] 
+## seen at 2026-10-31T11:41:44.587Z
+down* Not responding
+3 PENDING BeginTime 
+           3    PENDING   None assigned 
+# trace ended: condition met after 29s
+
+root@slurmctld$ squeue -o '%.6i %.10j %.8u %.3t %.10M %.5D %.12b %N %R'
+# at 2026-10-31T11:41:44.653Z
+ JOBID       NAME     USER  ST       TIME NODES TRES_PER_NOD NODELIST NODELIST(REASON)
+     3 mn-requeue    alice  PD       0:00     2   gres/gpu:1  (BeginTime)
+# exit 0
+
+root@slurmctld$ sacct -D -j 3 -o JobID%14,JobName%10,State,ExitCode,Start,End,NodeList
+# at 2026-10-31T11:41:44.717Z
+         JobID    JobName      State ExitCode               Start                 End        NodeList 
+-------------- ---------- ---------- -------- ------------------- ------------------- --------------- 
+             3 mn-requeue  NODE_FAIL      1:0 2026-10-31T11:41:08 2026-10-31T11:41:43          c[1-2] 
+       3.batch      batch  CANCELLED     0:15 2026-10-31T11:41:08 2026-10-31T11:41:44              c1 
+           3.0       bash  CANCELLED     0:15 2026-10-31T11:41:09 2026-10-31T11:41:44          c[1-2] 
+             3 mn-requeue    PENDING      0:0             Unknown             Unknown   None assigned 
+# exit 0
+
+root@slurmctld$ scontrol show job 3 | grep -E 'JobState|Requeue|Restarts|NodeList=|BatchHost|EligibleTime'
+# at 2026-10-31T11:41:44.782Z
+   JobState=PENDING Reason=BeginTime Dependency=(null)
+   Requeue=1 Restarts=1 BatchFlag=1 Reboot=0 ExitCode=0:0
+   SubmitTime=2026-10-31T11:41:44 EligibleTime=2026-10-31T11:43:45
+   ReqNodeList=(null) ExcNodeList=(null)
+   NodeList=
+# exit 0
+
+root@slurmctld$ grep -hE 'JobId=3[^0-9]|c2' /var/log/slurm/slurmctld.log | grep -v debug | tail -8
+# at 2026-10-31T11:41:44.840Z
+[2026-10-31T11:41:08.073] node c2 returned to service
+[2026-10-31T11:41:08.483] _slurm_rpc_submit_batch_job: JobId=3 InitPrio=1 usec=222
+[2026-10-31T11:41:09.000] sched: Allocate JobId=3 NodeList=c[1-2] #CPUs=2 Partition=gpu
+[2026-10-31T11:41:30.013] agent/is_node_resp: node:c2 RPC:REQUEST_PING : Communication connection failure
+[2026-10-31T11:41:31.000] error: Nodes c2 not responding
+[2026-10-31T11:41:44.000] requeue job JobId=3 due to failure of node c2
+[2026-10-31T11:41:44.000] error: Nodes c2 not responding, setting DOWN
+[2026-10-31T11:41:44.001] job_step_signal: JobId=3 is in state COMPLETING, cannot signal steps
+# exit 0
+
+root@c1$ pgrep -ax sleep | grep -E '^[0-9]+ sleep 900$' || echo no sleep 900 process on c1
+# at 2026-10-31T11:41:44.891Z
+no sleep 900 process on c1
+# exit 0
+# Wait for the requeued job to start again on the nodes that are left.
+
+# trace: probe [squeue -h -j 3 -o '%i %T %r %N'] until [squeue -h -j 3 -t R | grep -q .], at most 200s
+## seen at 2026-10-31T11:41:44.991Z
+3 PENDING BeginTime 
+## seen at 2026-10-31T11:43:51.649Z
+3 RUNNING None c[1,3]
+# trace ended: condition met after 114s
+
+root@slurmctld$ squeue -o '%.6i %.10j %.8u %.3t %.10M %.5D %.12b %N %R'
+# at 2026-10-31T11:43:51.703Z
+ JOBID       NAME     USER  ST       TIME NODES TRES_PER_NOD NODELIST NODELIST(REASON)
+     3 mn-requeue    alice   R       0:01     2   gres/gpu:1 c[1,3] c[1,3]
+# exit 0
+
+root@slurmctld$ scontrol show job 3 | grep -E 'JobState|Restarts|NodeList=|BatchHost'
+# at 2026-10-31T11:43:51.760Z
+   JobState=RUNNING Reason=None Dependency=(null)
+   Requeue=1 Restarts=1 BatchFlag=1 Reboot=0 ExitCode=0:0
+   ReqNodeList=(null) ExcNodeList=(null)
+   NodeList=c[1,3]
+   BatchHost=c1
+# exit 0
+
+host$ docker compose start c2
+# at 2026-10-31T11:43:51.819Z
+ Container slurmlab-c2-1 Starting 
+ Container slurmlab-c2-1 Started 
+# exit 0
+# waited 0s for: sinfo -h -n c2 -o %T | grep -qE 'idle|mixed|alloc'
+
+root@slurmctld$ sinfo -N -o '%N %T %E'
+# at 2026-10-31T11:43:52.036Z
+NODELIST STATE REASON
+c1 mixed none
+c2 idle none
+c3 mixed none
+# exit 0
+
+root@c1$ cat /home/alice/slurm-3.out 2>/dev/null || echo no output file on c1
+# at 2026-10-31T11:43:52.094Z
+rank 1 on c2 restart=0 at 11:41:09
+rank 0 on c1 restart=0 at 11:41:09
+srun: error: Node failure on c2
+srun: Job step aborted: Waiting up to 7 seconds for job step to finish.
+slurmstepd-c1: error: *** JOB 3 ON c1 CANCELLED AT 2026-10-31T11:41:44 DUE TO NODE FAILURE, SEE SLURMCTLD LOG FOR DETAILS ***
+slurmstepd-c1: error: *** STEP 3.0 ON c1 CANCELLED AT 2026-10-31T11:41:44 DUE TO NODE FAILURE, SEE SLURMCTLD LOG FOR DETAILS ***
+srun: got SIGCONT
+srun: forcing job termination
+srun: error: c1: task 0: Terminated
+rank 1 on c3 restart=1 at 11:43:51
+rank 0 on c1 restart=1 at 11:43:51
+# exit 0
+
+root@c2$ cat /home/alice/slurm-3.out 2>/dev/null || echo no output file on c2
+# at 2026-10-31T11:43:52.149Z
+no output file on c2
+# exit 0
+
+root@c3$ cat /home/alice/slurm-3.out 2>/dev/null || echo no output file on c3
+# at 2026-10-31T11:43:52.207Z
+no output file on c3
+# exit 0
+
+root@slurmctld$ scancel -u alice
+# at 2026-10-31T11:43:52.264Z
+# exit 0
+# waited 0s for: [ -z "$(squeue -h)" ]

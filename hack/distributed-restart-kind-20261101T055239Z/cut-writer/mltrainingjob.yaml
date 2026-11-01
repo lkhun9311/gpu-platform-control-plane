@@ -1,0 +1,21 @@
+apiVersion: platform.lkhun9311.github.io/v1
+kind: MLTrainingJob
+metadata:
+  name: rst-cut-writer-055539
+  namespace: rst
+spec:
+  queue: gpu-rst
+  image: distributed-restart:torch251
+  gpuCount: 1
+  distributed:
+    worldSize: 2
+    maxRestarts: 1
+  stateVolume:
+    claimName: shared
+    mountPath: /shared
+  command:
+    - sh
+    - -c
+    - |
+      export CKPT_RUN_ID=rst-cut-writer-055539 CKPT_DIR=/shared CKPT_JOB_ID=rst-cut-writer-055539 CKPT_STEPS=20 CKPT_STEP_SLEEP=1 OMP_NUM_THREADS=1 CKPT_STEP_SLEEP=12 CKPT_HEARTBEAT=0.5 CKPT_LINGER=1
+      python /work/train.py

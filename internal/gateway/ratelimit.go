@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"time"
 
 	// Prefer Google's vetted token-bucket limiter over a hand-rolled one (design spec Components section).
 	"golang.org/x/time/rate"
@@ -106,20 +107,27 @@ func newBucketRegistry() *bucketRegistry {
 	return &bucketRegistry{buckets: make(map[string]*trackedBucket)}
 }
 
-// Allow reports whether tenant may issue a request now, consuming one token if so.
-//
-// false means the tenant is over its limit and the caller translates it to a 429 rate_limited.
-//
 // configured reports whether the registry was ever installed, so a caller can tell an unfinished Server from
 // a tenant that is genuinely over budget. Nil-safe by design: that is the only case it exists to answer.
 func (b *bucketRegistry) configured() bool { return b != nil }
 
+// Allow reports whether tenant may issue a request now, consuming one token if so.
+//
+// false means the tenant is over its limit and the caller translates it to a 429 rate_limited.
+func (b *bucketRegistry) Allow(tenant string, rl *platformv1.GPUQuotaRateLimit) bool {
+	ok, _ := b.Reserve(tenant, rl)
+	return ok
+}
+
+// Reserve is Allow that also reports, on a refusal, how long until the tenant's next token, for Retry-After.
+// A refusal with no wait to report returns zero, and the caller then sends no hint rather than a made-up one.
+//
 // Design rationale (design spec Components and Request flow step 4).
 //
 //   - a nil rateLimit means an unlimited tenant, so always allow
 //   - per-second rate = requestsPerMinute / 60, since feeding the per-minute value straight in would run 60× fast
 //   - on a policy change, refresh via SetLimit/SetBurst instead of rebuilding, which preserves accumulated tokens
-func (b *bucketRegistry) Allow(tenant string, rl *platformv1.GPUQuotaRateLimit) bool {
+func (b *bucketRegistry) Reserve(tenant string, rl *platformv1.GPUQuotaRateLimit) (bool, time.Duration) {
 	// A nil REGISTRY is an assembly fault, not a runtime state: main always calls InitRateLimiter, and a
 	// Server without it is one nobody finished building. It is refused rather than allowed because a limiter
 	// that cannot function must not answer "within budget" — that would serve unlimited traffic under a
@@ -128,11 +136,11 @@ func (b *bucketRegistry) Allow(tenant string, rl *platformv1.GPUQuotaRateLimit) 
 	// The comment on InitRateLimiter claimed the gateway guarded this case. It did not: with a non-nil policy
 	// the next line dereferenced b and the request panicked.
 	if b == nil {
-		return false
+		return false, 0
 	}
 	// A nil rl means this tenant has no gateway rate limit, so it always passes.
 	if rl == nil {
-		return true
+		return true, 0
 	}
 
 	// Convert the per-minute policy value to a per-second refill rate, going through float64 first so integer division does not truncate the fraction.
@@ -164,6 +172,17 @@ func (b *bucketRegistry) Allow(tenant string, rl *platformv1.GPUQuotaRateLimit) 
 
 	// rate.Limiter is concurrency-safe on its own, so this runs outside the lock.
 	//
-	// It consumes a token and reports true, or reports false when none is available.
-	return limiter.Allow()
+	// Allow decides, and the wait is read afterwards without taking anything.
+	// Reserving to learn the wait and cancelling on refusal was tried and put the bucket in debt: a reservation
+	// cancelled after a later one was taken restores nothing, so overlapping refusals spent tokens no request used
+	// (codex review of the branch).
+	if limiter.Allow() {
+		return true, 0
+	}
+	// The read can race a concurrent refill or spend, so the hint is approximate; it never moves the bucket.
+	missing := 1 - limiter.TokensAt(time.Now())
+	if missing <= 0 || limiter.Limit() <= 0 {
+		return false, 0
+	}
+	return false, time.Duration(missing / float64(limiter.Limit()) * float64(time.Second))
 }

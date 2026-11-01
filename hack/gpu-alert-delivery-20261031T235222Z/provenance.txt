@@ -1,0 +1,9 @@
+commit=7b7f1b6b1f44f635d318c8bb5e7efe0ca402a39c
+dirty_files=0
+kind=kind v0.33.0 go1.25.7 linux/amd64
+kubectl=v1.36.3
+helm=v3.16.3+gcfd0749
+chart=kube-prometheus-stack-88.3.0.tgz sha256=5609de52e7af33792e6c6678b9443cacaec0cd81feacc956f6da0209a7463cba
+kueue=v0.18.3 from config/kueue-controller
+gpu_simulator_image=sha256:d1681e50fc01e081fb59b8449af7a57aeab863c3991c7af7d56d4893776d07b5
+node_image=kindest/node:v1.37.0@sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5

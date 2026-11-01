@@ -85,7 +85,7 @@ this record.
 | 1. train | v1 0.995, v2 0.615 — the same accuracies, and the same v1 weights hash `00e666…`, as the first run |
 | 2. gate | v1 promoted; **v2 refused**, alias unmoved |
 | 3. lineage | all seven links held |
-| 4. rollback ×3 | **0 non-200** in 921, 946 and 938 requests; the last v2 answer **completed** 11.82, 12.00 and 11.95 s after the rollback edit, the first v1 answer 10.87, 11.10 and 11.00 s after it |
+| 4. rollback ×3, one replica of a `Linear(8, 1)` CPU model, by a direct edit | **0 non-200** in 921, 946 and 938 requests; the last v2 answer **completed** 11.82, 12.00 and 11.95 s after the rollback edit, the first v1 answer 10.87, 11.10 and 11.00 s after it |
 | 5. alias trap | **every answer was still v1** after the alias was forced to v2, 1,202 of 1,202 (an upper bound on the count, see below); v2 after a restart |
 
 A second review then found the new window ended after the poller had drained its outstanding answers, so a slow
@@ -129,7 +129,8 @@ plus this experiment's own files, uncommitted at run time and committed unchange
   that do not match what was registered — the rehearsal showed it exits rather than serves.
 - **The gate stopped the bad model; nothing stopped an operator.** Editing `storageUri` put v2 in front of users
   with no check at all, and the rollback was the same edit in reverse. The rule exists only where something calls it.
-- **Rollback cost no errors, and about 11 to 12 seconds.** For roughly one second in each cycle both versions
+- **Rollback cost no errors, and about 11 to 12 seconds**, for a one-replica `Linear(8, 1)` CPU model polled 20
+  times a second, rolled back by editing the `InferenceDeployment` directly, not through Git or Argo CD. For roughly one second in each cycle both versions
   answered: the rolling update starts the new Pod before it removes the old one, so "rolled back" is a window,
   not an instant.
 - **The registry and the cluster disagreed for as long as nobody restarted the Pod.** Moving `champion` to v2 is

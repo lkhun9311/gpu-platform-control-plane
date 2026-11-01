@@ -1,0 +1,81 @@
+# transcript 00-accounting.txt, slurm-lab, written by steps/00-setup.sh
+# Two tenants as two accounts, one user each; two QoS levels, high preempting normal.
+
+root@slurmctld$ sacctmgr -i add account teama Description=tenant-a Organization=lab
+# at 2026-11-01T05:21:25.376Z
+ Adding Account(s)
+  teama
+ Settings
+  Description     = tenant-a
+  Organization    = lab
+ Associations =
+  C = lab        A = teama               
+ Settings
+# exit 0
+
+root@slurmctld$ sacctmgr -i add account teamb Description=tenant-b Organization=lab
+# at 2026-11-01T05:21:25.476Z
+ Adding Account(s)
+  teamb
+ Settings
+  Description     = tenant-b
+  Organization    = lab
+ Associations =
+  C = lab        A = teamb               
+ Settings
+# exit 0
+
+root@slurmctld$ sacctmgr -i add user alice Account=teama
+# at 2026-11-01T05:21:25.532Z
+ Adding User(s)
+  alice
+ Settings
+ Associations =
+  C = lab        A = teama                U = alice    
+# exit 0
+
+root@slurmctld$ sacctmgr -i add user bob Account=teamb
+# at 2026-11-01T05:21:25.593Z
+ Adding User(s)
+  bob
+ Settings
+ Associations =
+  C = lab        A = teamb                U = bob      
+# exit 0
+
+root@slurmctld$ sacctmgr -i add qos high Priority=100 Preempt=normal
+# at 2026-11-01T05:21:25.652Z
+ Adding QOS(s)
+  high
+ Settings
+  Description    = high
+  Preempt                  = normal
+  Priority                 = 100
+# exit 0
+
+root@slurmctld$ sacctmgr -i modify user where name=alice,bob set QOS=normal,high DefaultQOS=normal
+# at 2026-11-01T05:21:25.709Z
+ Modified user associations...
+  C = lab        A = teama                U = alice    
+  C = lab        A = teamb                U = bob      
+# exit 0
+
+root@slurmctld$ sacctmgr show assoc format=Cluster,Account,User,GrpTRES,QOS,DefaultQOS
+# at 2026-11-01T05:21:25.765Z
+   Cluster    Account       User       GrpTRES                  QOS   Def QOS 
+---------- ---------- ---------- ------------- -------------------- --------- 
+       lab       root                                        normal           
+       lab       root       root                             normal           
+       lab      teama                                        normal           
+       lab      teama      alice                        high,normal    normal 
+       lab      teamb                                        normal           
+       lab      teamb        bob                        high,normal    normal 
+# exit 0
+
+root@slurmctld$ sacctmgr show qos format=Name,Priority,Preempt,PreemptMode,GrpTRES
+# at 2026-11-01T05:21:25.823Z
+      Name   Priority    Preempt PreemptMode       GrpTRES 
+---------- ---------- ---------- ----------- ------------- 
+    normal          0                cluster               
+      high        100     normal     cluster               
+# exit 0

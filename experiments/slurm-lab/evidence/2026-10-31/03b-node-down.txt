@@ -1,0 +1,136 @@
+# transcript 03b-node-down.txt, slurm-lab, written by steps/03-node-failure.sh
+# c1 and c2 are held briefly so the two test jobs land on c3; then the holders end and c1 and c2 are free.
+
+bob@slurmctld$ sbatch -J hold-1 -w c1 --gres=gpu:2 --wrap 'sleep 900'
+# at 2026-10-31T11:15:06.453Z
+Submitted batch job 27
+# exit 0
+
+bob@slurmctld$ sbatch -J hold-2 -w c2 --gres=gpu:2 --wrap 'sleep 900'
+# at 2026-10-31T11:15:06.508Z
+Submitted batch job 28
+# exit 0
+# waited 3s for: [ $(squeue -h -u bob -t R | wc -l) -eq 2 ]
+
+alice@slurmctld$ sbatch -J rq-yes --requeue --open-mode=append --gres=gpu:1 --wrap 'echo start $(date -u +%T) on $(hostname) restart=${SLURM_RESTART_COUNT:-0}; sleep 900'
+# at 2026-10-31T11:15:09.761Z
+Submitted batch job 29
+# exit 0
+
+alice@slurmctld$ sbatch -J rq-no --no-requeue --gres=gpu:1 --wrap 'sleep 900'
+# at 2026-10-31T11:15:09.817Z
+Submitted batch job 30
+# exit 0
+# waited 2s for: [ $(squeue -h -u alice -t R | wc -l) -eq 2 ]
+
+bob@slurmctld$ scancel -n hold-1; scancel -n hold-2
+# at 2026-10-31T11:15:12.020Z
+# exit 0
+# waited 0s for: [ -z "$(squeue -h -u bob)" ]
+
+root@slurmctld$ squeue -o '%.6i %.10j %.8u %.3t %.10M %.12b %N %R'
+# at 2026-10-31T11:15:12.124Z
+ JOBID       NAME     USER  ST       TIME TRES_PER_NOD NODELIST NODELIST(REASON)
+    29     rq-yes    alice   R       0:00   gres/gpu:1 c3 c3
+    30      rq-no    alice   R       0:00   gres/gpu:1 c3 c3
+# exit 0
+# Stop c3's container: its slurmd and the job processes on it end without a word to slurmctld.
+
+host$ docker compose stop -t 0 c3
+# at 2026-10-31T11:15:12.182Z
+ Container slurmlab-c3-1 Stopping 
+ Container slurmlab-c3-1 Stopped 
+# exit 0
+
+# trace: probe [sinfo -h -n c3 -o '%T %E'; squeue -h -u alice -o '%i %j %T %r %N'] until [squeue -h -n rq-yes -t R -o %N | grep -qv c3], at most 180s
+## seen at 2026-10-31T11:15:12.438Z
+allocated none
+29 rq-yes RUNNING None c3
+30 rq-no RUNNING None c3
+## seen at 2026-10-31T11:15:34.441Z
+allocated* none
+29 rq-yes RUNNING None c3
+30 rq-no RUNNING None c3
+## seen at 2026-10-31T11:15:48.747Z
+down* Not responding
+29 rq-yes PENDING None 
+## seen at 2026-10-31T11:16:17.395Z
+down* Not responding
+29 rq-yes PENDING BeginTime 
+## seen at 2026-10-31T11:18:17.666Z
+down* Not responding
+29 rq-yes RUNNING None c1
+# trace ended: condition met after 163s
+
+root@slurmctld$ sinfo -N -o '%N %T %E'
+# at 2026-10-31T11:18:17.721Z
+NODELIST STATE REASON
+c1 mixed none
+c2 idle none
+c3 down* Not responding
+# exit 0
+
+root@slurmctld$ scontrol show job $(squeue -h -n rq-yes -o %i) | grep -E 'JobState|Requeue|Restarts|SubmitTime|EligibleTime|StartTime|NodeList='
+# at 2026-10-31T11:18:17.776Z
+   JobState=RUNNING Reason=None Dependency=(null)
+   Requeue=1 Restarts=1 BatchFlag=1 Reboot=0 ExitCode=0:0
+   SubmitTime=2026-10-31T11:15:47 EligibleTime=2026-10-31T11:17:48
+   StartTime=2026-10-31T11:18:17 EndTime=Unknown Deadline=N/A
+   PreemptEligibleTime=2026-10-31T11:18:17 PreemptTime=None
+   ReqNodeList=(null) ExcNodeList=(null)
+   NodeList=c1
+# exit 0
+
+root@slurmctld$ sacct -D -n -u alice -S now-10minutes -o JobID,JobName,State,ExitCode,Start,End,NodeList | grep -E 'rq-'
+# at 2026-10-31T11:18:17.832Z
+29               rq-yes  NODE_FAIL      1:0 2026-10-31T11:15:12 2026-10-31T11:15:47              c3 
+30                rq-no  NODE_FAIL      1:0 2026-10-31T11:15:12 2026-10-31T11:15:47              c3 
+29               rq-yes    RUNNING      0:0 2026-10-31T11:18:17             Unknown              c1 
+# exit 0
+
+root@slurmctld$ grep -hE 'c3|NODE_FAIL|Requeu' /var/log/slurm/slurmctld.log | grep -vE 'debug' | tail -15
+# at 2026-10-31T11:18:17.887Z
+[2026-10-31T11:10:53.001] sched: Allocate JobId=4 NodeList=c3 #CPUs=1 Partition=gpu
+[2026-10-31T11:11:05.001] sched: Allocate JobId=9 NodeList=c3 #CPUs=1 Partition=gpu
+[2026-10-31T11:11:36.331] sched: Allocate JobId=7 NodeList=c3 #CPUs=1 Partition=gpu
+[2026-10-31T11:11:42.001] sched: Allocate JobId=14 NodeList=c3 #CPUs=1 Partition=gpu
+[2026-10-31T11:11:45.023] Requeuing JobId=12
+[2026-10-31T11:13:50.001] sched: Allocate JobId=18 NodeList=c3 #CPUs=1 Partition=gpu
+[2026-10-31T11:13:56.001] sched: Allocate JobId=22 NodeList=c3 #CPUs=1 Partition=gpu
+[2026-10-31T11:15:12.001] sched: Allocate JobId=29 NodeList=c3 #CPUs=1 Partition=gpu
+[2026-10-31T11:15:12.001] sched: Allocate JobId=30 NodeList=c3 #CPUs=1 Partition=gpu
+[2026-10-31T11:15:34.013] agent/is_node_resp: node:c3 RPC:REQUEST_PING : Communication connection failure
+[2026-10-31T11:15:35.000] error: Nodes c3 not responding
+[2026-10-31T11:15:48.000] requeue job JobId=29 due to failure of node c3
+[2026-10-31T11:15:48.000] Requeuing JobId=29
+[2026-10-31T11:15:48.000] Killing JobId=30 on failed node c3
+[2026-10-31T11:15:48.000] error: Nodes c3 not responding, setting DOWN
+# exit 0
+# Output of the requeued job's second run, on c1; nothing is shared between nodes, so the first run's output is on c3's disk.
+
+root@c1$ cat /home/alice/slurm-29.out
+# at 2026-10-31T11:18:18.038Z
+start 11:18:17 on c1 restart=1
+# exit 0
+# Bring c3 back; ReturnToService=1 returns a node that was DOWN only for not responding.
+
+host$ docker compose start c3
+# at 2026-10-31T11:18:18.090Z
+ Container slurmlab-c3-1 Starting 
+ Container slurmlab-c3-1 Started 
+# exit 0
+# waited 0s for: sinfo -h -n c3 -o %T | grep -qE 'idle|mixed'
+
+root@slurmctld$ sinfo -N -o '%N %T %E'
+# at 2026-10-31T11:18:18.324Z
+NODELIST STATE REASON
+c1 mixed none
+c2 idle none
+c3 idle none
+# exit 0
+# The first run's output, still on c3's disk because the container was stopped, not removed.
+
+root@c3$ cat /home/alice/slurm-29.out
+# at 2026-10-31T11:18:18.380Z
+start 11:15:12 on c3 restart=0
+# exit 0

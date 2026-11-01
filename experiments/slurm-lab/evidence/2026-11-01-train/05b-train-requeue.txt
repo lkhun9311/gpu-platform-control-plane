@@ -1,0 +1,362 @@
+# transcript 05b-train-requeue.txt, slurm-lab, written by steps/05-train-requeue.sh
+# Case: CKPT_LOAD=full. The scorer must pass.
+
+alice@slurmctld$ CKPT_JOB_ID=tr-full-234154 CKPT_LOAD=full CKPT_STEPS=40 CKPT_STEP_SLEEP=1 sbatch -J tr-full /opt/lab/train.sbatch
+# at 2026-10-31T23:42:39.082Z
+Submitted batch job 3
+# exit 0
+# job 3 (tr-full) writes /ckpt/tr-full-234154
+# Wait until rank 0 has recorded 12 published checkpoints, so the kill lands mid-training.
+
+# trace: probe [squeue -h -j 3 -o '%i %T %r %N'; cat /ckpt/tr-full-234154/LATEST 2>&1] until [[ $(grep -c '"event": "checkpoint"' /ckpt/tr-full-234154/logs/attempt-0-rank-0.jsonl) -ge 12 ]], at most 300s
+## seen at 2026-10-31T23:42:39.230Z
+3 PENDING None 
+cat: /ckpt/tr-full-234154/LATEST: No such file or directory
+## seen at 2026-10-31T23:42:41.431Z
+3 RUNNING None c[1-2]
+cat: /ckpt/tr-full-234154/LATEST: No such file or directory
+## seen at 2026-10-31T23:42:42.537Z
+3 RUNNING None c[1-2]
+a0/00000001-07871f29378f4c119e27cd1cd8bf6257
+## seen at 2026-10-31T23:42:43.641Z
+3 RUNNING None c[1-2]
+a0/00000002-8e66513b99504369b05e02d8fa2af126
+## seen at 2026-10-31T23:42:44.755Z
+3 RUNNING None c[1-2]
+a0/00000003-8eda922780ef464a94ff7d9020b22801
+## seen at 2026-10-31T23:42:45.876Z
+3 RUNNING None c[1-2]
+a0/00000004-508b18322f714606ada8f53657109661
+## seen at 2026-10-31T23:42:46.999Z
+3 RUNNING None c[1-2]
+a0/00000005-1b8130b840d04a6d8b91cd59bdeed0c3
+## seen at 2026-10-31T23:42:48.122Z
+3 RUNNING None c[1-2]
+a0/00000006-250cfa19b10b4b15966a743313d97f3b
+## seen at 2026-10-31T23:42:49.242Z
+3 RUNNING None c[1-2]
+a0/00000007-c1242203710b411087c600ee9cc9c5a1
+## seen at 2026-10-31T23:42:50.366Z
+3 RUNNING None c[1-2]
+a0/00000008-36cae8b5a3014a69990ae801ad62566d
+## seen at 2026-10-31T23:42:51.490Z
+3 RUNNING None c[1-2]
+a0/00000010-fbba52e0f6124e259c32fccfa74bb2fe
+## seen at 2026-10-31T23:42:52.614Z
+3 RUNNING None c[1-2]
+a0/00000011-4fab0fcbac3545c48d35d0181032240e
+## seen at 2026-10-31T23:42:53.734Z
+3 RUNNING None c[1-2]
+a0/00000012-bd1091ba103743f49f7dd813976c88f9
+# trace ended: condition met after 13s
+# job 3 runs on: c1 c2 ; batch host and rank 0 on c1; killing c2, which runs rank 1 and not the controller
+
+root@slurmctld$ scontrol show job 3 | grep -E 'JobState|Restarts|NodeList=|BatchHost'
+# at 2026-10-31T23:42:53.882Z
+   JobState=RUNNING Reason=None Dependency=(null)
+   Requeue=1 Restarts=0 BatchFlag=1 Reboot=0 ExitCode=0:0
+   ReqNodeList=(null) ExcNodeList=(null)
+   NodeList=c[1-2]
+   BatchHost=c1
+# exit 0
+# Positive control: the rank on the node about to be killed is a running train.py.
+
+root@c2$ ps -eo pid,ppid,args | awk '$4 == "/opt/lab/train.py"' | grep . || echo no train.py process on c2
+# at 2026-10-31T23:42:53.935Z
+    137     134 /opt/torch/bin/python /opt/lab/train.py
+# exit 0
+
+host$ docker compose kill c2
+# at 2026-10-31T23:42:53.990Z
+ Container slurmlab-c2-1 Killing 
+ Container slurmlab-c2-1 Killed 
+# exit 0
+
+host$ docker inspect -f '{{.State.Status}} exit={{.State.ExitCode}} restarts={{.RestartCount}}' slurmlab-c2-1
+# at 2026-10-31T23:42:54.158Z
+exited exit=137 restarts=0
+# exit 0
+# Wait for Slurm to notice, requeue the job and start it again.
+
+# trace: probe [sinfo -h -n c2 -o '%T %E'; squeue -h -j 3 -o '%i %T %r %N'; scontrol show job 3 | grep -oE 'Restarts=[0-9]+'] until [scontrol show job 3 | grep -q 'Restarts=[1-9]' && squeue -h -j 3 -t R | grep -q .], at most 400s
+## seen at 2026-10-31T23:42:54.223Z
+allocated none
+3 RUNNING None c[1-2]
+Restarts=0
+## seen at 2026-10-31T23:43:07.637Z
+allocated* none
+3 RUNNING None c[1-2]
+Restarts=0
+## seen at 2026-10-31T23:43:24.408Z
+down* Not responding
+3 PENDING BeginTime 
+Restarts=1
+## seen at 2026-10-31T23:45:44.023Z
+down* Not responding
+3 RUNNING None c[1,3]
+Restarts=1
+# trace ended: condition met after 152s
+
+root@slurmctld$ grep -hE 'JobId=3[^0-9]|c2' /var/log/slurm/slurmctld.log | grep -v debug | tail -12
+# at 2026-10-31T23:45:44.084Z
+[2026-10-31T23:42:39.128] _slurm_rpc_submit_batch_job: JobId=3 InitPrio=1 usec=202
+[2026-10-31T23:42:41.001] sched: Allocate JobId=3 NodeList=c[1-2] #CPUs=2 Partition=gpu
+[2026-10-31T23:43:06.764] agent/is_node_resp: node:c2 RPC:REQUEST_SIGNAL_TASKS : Communication connection failure
+[2026-10-31T23:43:08.001] error: Nodes c2 not responding
+[2026-10-31T23:43:11.000] error: Nodes c2 not responding
+[2026-10-31T23:43:24.000] requeue job JobId=3 due to failure of node c2
+[2026-10-31T23:43:24.000] error: Nodes c2 not responding, setting DOWN
+[2026-10-31T23:45:43.972] sched/backfill: _start_job: Started JobId=3 in gpu on c[1,3]
+# exit 0
+
+root@slurmctld$ sinfo -N -o '%N %T %E'
+# at 2026-10-31T23:45:44.139Z
+NODELIST STATE REASON
+c1 mixed none
+c2 down* Not responding
+c3 mixed none
+# exit 0
+
+root@slurmctld$ scontrol show job 3 | grep -E 'JobState|Restarts|NodeList=|BatchHost'
+# at 2026-10-31T23:45:44.196Z
+   JobState=RUNNING Reason=None Dependency=(null)
+   Requeue=1 Restarts=1 BatchFlag=1 Reboot=0 ExitCode=0:0
+   ReqNodeList=(null) ExcNodeList=(null)
+   NodeList=c[1,3]
+   BatchHost=c1
+# exit 0
+# Wait for the requeued attempt to finish.
+
+# trace: probe [squeue -h -j 3 -o '%i %T %r %N'; cat /ckpt/tr-full-234154/LATEST 2>&1] until [! squeue -h -j 3 | grep -q .], at most 300s
+## seen at 2026-10-31T23:45:44.306Z
+3 RUNNING None c[1,3]
+a0/00000012-bd1091ba103743f49f7dd813976c88f9
+## seen at 2026-10-31T23:45:45.413Z
+3 RUNNING None c[1,3]
+a1/00000013-2c62fe6f1cc24206b8c0c88698cb44c2
+## seen at 2026-10-31T23:45:46.522Z
+3 RUNNING None c[1,3]
+a1/00000014-c6feb60efb124814a379ff48f70a7bae
+## seen at 2026-10-31T23:45:47.629Z
+3 RUNNING None c[1,3]
+a1/00000015-de7ef3b48f5441899a63d33d7b6fa000
+## seen at 2026-10-31T23:45:48.733Z
+3 RUNNING None c[1,3]
+a1/00000016-8845fcd7983a464da8239fbf6df3bfb2
+## seen at 2026-10-31T23:45:49.839Z
+3 RUNNING None c[1,3]
+a1/00000017-a04e7cdabad54514abccac593f4beeaa
+## seen at 2026-10-31T23:45:50.948Z
+3 RUNNING None c[1,3]
+a1/00000018-8e80edc6ba494cfaa31eb98ed57064b0
+## seen at 2026-10-31T23:45:52.055Z
+3 RUNNING None c[1,3]
+a1/00000019-7de36e11c9654e00a44dc4d1a4b96917
+## seen at 2026-10-31T23:45:53.161Z
+3 RUNNING None c[1,3]
+a1/00000020-e12c4165dda34c2fa85064fe3d2654e3
+## seen at 2026-10-31T23:45:54.271Z
+3 RUNNING None c[1,3]
+a1/00000021-256a485bdfa84a7998ed388d78b51a17
+## seen at 2026-10-31T23:45:55.377Z
+3 RUNNING None c[1,3]
+a1/00000022-de1193ce080d4bbaa96c74da7f2f6811
+## seen at 2026-10-31T23:45:56.484Z
+3 RUNNING None c[1,3]
+a1/00000023-36c31a9b72924a2d921578e717e4fd40
+## seen at 2026-10-31T23:45:57.591Z
+3 RUNNING None c[1,3]
+a1/00000024-18d69f340b3f4af3b253ee5ed1fa15a4
+## seen at 2026-10-31T23:45:58.694Z
+3 RUNNING None c[1,3]
+a1/00000025-29d7c9b18cbf4e91a7b93ad2ad7033eb
+## seen at 2026-10-31T23:45:59.805Z
+3 RUNNING None c[1,3]
+a1/00000027-6561208322564586b0a801f9d1b8a264
+## seen at 2026-10-31T23:46:00.910Z
+3 RUNNING None c[1,3]
+a1/00000028-98cb8367a94741b296cbe8931d25a6fb
+## seen at 2026-10-31T23:46:02.017Z
+3 RUNNING None c[1,3]
+a1/00000029-67ee62d691ea489a9ae789dd8f2037d5
+## seen at 2026-10-31T23:46:03.124Z
+3 RUNNING None c[1,3]
+a1/00000030-f1d0e6f6962744aabae5b950a03a2ba7
+## seen at 2026-10-31T23:46:04.235Z
+3 RUNNING None c[1,3]
+a1/00000031-e4d51151438a4d44943582f64cb49428
+## seen at 2026-10-31T23:46:05.359Z
+3 RUNNING None c[1,3]
+a1/00000032-5313338ea3104805ba6fa2b4b6007eb7
+## seen at 2026-10-31T23:46:06.467Z
+3 RUNNING None c[1,3]
+a1/00000033-d1494cc23f504a698aa6c4f88f187535
+## seen at 2026-10-31T23:46:07.574Z
+3 RUNNING None c[1,3]
+a1/00000034-2afb199187f94435b184ea23e3718de5
+## seen at 2026-10-31T23:46:08.683Z
+3 RUNNING None c[1,3]
+a1/00000035-bf92378c15214472a9b965898cd4665c
+## seen at 2026-10-31T23:46:09.791Z
+3 RUNNING None c[1,3]
+a1/00000036-40c66d37fed94ddbabe449855b84c10f
+## seen at 2026-10-31T23:46:10.899Z
+3 RUNNING None c[1,3]
+a1/00000037-fd197fc1f087409b9e050e9ea00aed22
+## seen at 2026-10-31T23:46:12.008Z
+3 RUNNING None c[1,3]
+a1/00000038-b226a4cc9e2746338cb0c2edf7b6c503
+## seen at 2026-10-31T23:46:13.116Z
+3 RUNNING None c[1,3]
+a1/00000039-ffa66156017b4ded8a772abbb18e46ed
+## seen at 2026-10-31T23:46:14.226Z
+3 RUNNING None c[1,3]
+a1/00000040-e1bfe591fa3140608e4597c7772ab6e2
+## seen at 2026-10-31T23:46:15.341Z
+a1/00000040-e1bfe591fa3140608e4597c7772ab6e2
+# trace ended: condition met after 28s
+
+root@slurmctld$ scontrol show job 3
+# at 2026-10-31T23:46:15.396Z
+JobId=3 JobName=tr-full
+   UserId=alice(2001) GroupId=alice(2001) MCS_label=N/A
+   Priority=1 Nice=0 Account=teama QOS=normal
+   JobState=COMPLETED Reason=None Dependency=(null)
+   Requeue=1 Restarts=1 BatchFlag=1 Reboot=0 ExitCode=0:0
+   RunTime=00:00:31 TimeLimit=UNLIMITED TimeMin=N/A
+   SubmitTime=2026-10-31T23:43:24 EligibleTime=2026-10-31T23:45:25
+   AccrueTime=2026-10-31T23:45:25
+   StartTime=2026-10-31T23:45:43 EndTime=2026-10-31T23:46:14 Deadline=N/A
+   PreemptEligibleTime=2026-10-31T23:45:43 PreemptTime=None
+   SuspendTime=None SecsPreSuspend=0 LastSchedEval=2026-10-31T23:45:43 Scheduler=Backfill
+   Partition=gpu AllocNode:Sid=slurmctld:943
+   ReqNodeList=(null) ExcNodeList=(null)
+   NodeList=c[1,3]
+   BatchHost=c1
+   NumNodes=2 NumCPUs=2 NumTasks=2 CPUs/Task=1 ReqB:S:C:T=0:0:*:*
+   ReqTRES=cpu=2,mem=4000M,node=2,billing=2
+   AllocTRES=cpu=2,node=2,billing=2
+   Socks/Node=* NtasksPerN:B:S:C=1:0:*:* CoreSpec=*
+   MinCPUsNode=1 MinMemoryNode=0 MinTmpDiskNode=0
+   Features=(null) DelayBoot=00:00:00
+   OverSubscribe=OK Contiguous=0 Licenses=(null) Network=(null)
+   Command=/opt/lab/train.sbatch
+   WorkDir=/home/alice
+   StdErr=/ckpt/slurm-tr-full-3.out
+   StdIn=/dev/null
+   StdOut=/ckpt/slurm-tr-full-3.out
+   
+
+# exit 0
+
+root@slurmctld$ sacct -D -j 3 -o JobID%14,JobName%10,State,ExitCode,Restarts,Start,End,NodeList
+# at 2026-10-31T23:46:15.451Z
+         JobID    JobName      State ExitCode Restarts               Start                 End        NodeList 
+-------------- ---------- ---------- -------- -------- ------------------- ------------------- --------------- 
+             3    tr-full  NODE_FAIL      1:0        0 2026-10-31T23:42:41 2026-10-31T23:43:23          c[1-2] 
+       3.batch      batch     FAILED      1:0          2026-10-31T23:42:41 2026-10-31T23:43:24              c1 
+           3.0       bash     FAILED      1:0          2026-10-31T23:42:41 2026-10-31T23:43:24          c[1-2] 
+             3    tr-full  COMPLETED      0:0        1 2026-10-31T23:45:43 2026-10-31T23:46:14          c[1,3] 
+       3.batch      batch  COMPLETED      0:0          2026-10-31T23:45:43 2026-10-31T23:46:14              c1 
+           3.0       bash  COMPLETED      0:0          2026-10-31T23:45:43 2026-10-31T23:46:14          c[1,3] 
+# exit 0
+
+host$ ls -l /home/lkhun9311/workspace/gpu-platform-control-plane/.claude/worktrees/agent-a8219ee35096b18a0/experiments/slurm-lab/evidence/2026-11-01-train/05-tr-full-logs
+# at 2026-10-31T23:46:15.597Z
+total 72
+-rw-r--r-- 1 lkhun9311 lkhun9311  1916 Nov  1 08:42 attempt-0-rank-0.err
+-rw-r--r-- 1 lkhun9311 lkhun9311    49 Nov  1 08:42 attempt-0-rank-0.host
+-rw-r--r-- 1 lkhun9311 lkhun9311  5211 Nov  1 08:42 attempt-0-rank-0.jsonl
+-rw-r--r-- 1 lkhun9311 lkhun9311   280 Nov  1 08:42 attempt-0-rank-1.err
+-rw-r--r-- 1 lkhun9311 lkhun9311    49 Nov  1 08:42 attempt-0-rank-1.host
+-rw-r--r-- 1 lkhun9311 lkhun9311  5216 Nov  1 08:42 attempt-0-rank-1.jsonl
+-rw-r--r-- 1 lkhun9311 lkhun9311   280 Nov  1 08:45 attempt-1-rank-0.err
+-rw-r--r-- 1 lkhun9311 lkhun9311    49 Nov  1 08:45 attempt-1-rank-0.host
+-rw-r--r-- 1 lkhun9311 lkhun9311 11886 Nov  1 08:46 attempt-1-rank-0.jsonl
+-rw-r--r-- 1 lkhun9311 lkhun9311   280 Nov  1 08:45 attempt-1-rank-1.err
+-rw-r--r-- 1 lkhun9311 lkhun9311    49 Nov  1 08:45 attempt-1-rank-1.host
+-rw-r--r-- 1 lkhun9311 lkhun9311 11890 Nov  1 08:46 attempt-1-rank-1.jsonl
+# exit 0
+
+root@slurmctld$ cat /ckpt/slurm-tr-full-3.out
+# at 2026-10-31T23:46:15.606Z
+attempt=0 job=3 nodes=c[1-2] master=c1 batch_host=c1 load=full at=2026-10-31T23:42:41Z
+srun: error: c1: task 0: Exited with exit code 1
+srun: Terminating StepId=3.0
+srun: error: Node failure on c2
+slurmstepd-c1: error: *** JOB 3 ON c1 CANCELLED AT 2026-10-31T23:43:24 DUE TO NODE FAILURE, SEE SLURMCTLD LOG FOR DETAILS ***
+attempt=1 job=3 nodes=c[1,3] master=c1 batch_host=c1 load=full at=2026-10-31T23:45:43Z
+# exit 0
+
+root@slurmctld$ cat /ckpt/tr-full-234154/logs/*.host
+# at 2026-10-31T23:46:15.660Z
+rank=0 host=c1 attempt=0 at=2026-10-31T23:42:41Z
+rank=1 host=c2 attempt=0 at=2026-10-31T23:42:41Z
+rank=0 host=c1 attempt=1 at=2026-10-31T23:45:44Z
+rank=1 host=c3 attempt=1 at=2026-10-31T23:45:44Z
+# exit 0
+
+root@slurmctld$ cat /ckpt/tr-full-234154/LATEST; echo; ls /ckpt/tr-full-234154
+# at 2026-10-31T23:46:15.712Z
+a1/00000040-e1bfe591fa3140608e4597c7772ab6e2
+LATEST
+a0
+a1
+logs
+# exit 0
+# Return the killed node: start its container; ReturnToService=1 lets a node DOWN for not responding return when its slurmd registers.
+
+root@slurmctld$ sinfo -h -n c2 -o '%N %T %E'
+# at 2026-10-31T23:46:15.765Z
+c2 down* Not responding
+# exit 0
+
+host$ docker compose start c2
+# at 2026-10-31T23:46:15.820Z
+ Container slurmlab-c2-1 Starting 
+ Container slurmlab-c2-1 Started 
+# exit 0
+# waited 0s for: sinfo -h -n c2 -o %T | grep -qx idle
+
+root@slurmctld$ sinfo -N -o '%N %T %E'
+# at 2026-10-31T23:46:16.037Z
+NODELIST STATE REASON
+c1 idle none
+c2 idle none
+c3 idle none
+# exit 0
+# Score: reference against this case.
+
+host$ python3 score_requeue.py /home/lkhun9311/workspace/gpu-platform-control-plane/.claude/worktrees/agent-a8219ee35096b18a0/experiments/slurm-lab/evidence/2026-11-01-train/05-tr-ref-logs /home/lkhun9311/workspace/gpu-platform-control-plane/.claude/worktrees/agent-a8219ee35096b18a0/experiments/slurm-lab/evidence/2026-11-01-train/05-tr-full-logs /home/lkhun9311/workspace/gpu-platform-control-plane/.claude/worktrees/agent-a8219ee35096b18a0/experiments/slurm-lab/evidence/2026-11-01-train/05-tr-full-scontrol.txt 40
+ok:   reference has exactly attempt 0 for ranks 0..1: [(0, 0), (0, 1)]
+ok:   reference rank 0 ran steps 1..40 in order (saw 40 step records)
+ok:   reference rank 0 did not resume from anything
+ok:   reference rank 0 recorded final parameters
+ok:   reference rank 1 ran steps 1..40 in order (saw 40 step records)
+ok:   reference rank 1 did not resume from anything
+ok:   reference rank 1 recorded final parameters
+ok:   reference ranks 0 and 1 ended with identical parameters
+ok:   scontrol JobState is COMPLETED (COMPLETED)
+ok:   scontrol Restarts is at least 1 (1)
+ok:   the case has one log per attempt 0..Restarts ([0, 1], Restarts=1)
+ok:   a second attempt wrote training records (last attempt 1)
+ok:   attempt 0 rank 0: every record carries attempt 0 (TRAINING_ATTEMPT from SLURM_RESTART_COUNT)
+ok:   attempt 0 rank 1: every record carries attempt 0 (TRAINING_ATTEMPT from SLURM_RESTART_COUNT)
+ok:   attempt 1 rank 0: every record carries attempt 1 (TRAINING_ATTEMPT from SLURM_RESTART_COUNT)
+ok:   attempt 1 rank 1: every record carries attempt 1 (TRAINING_ATTEMPT from SLURM_RESTART_COUNT)
+ok:   attempt 0 published a checkpoint before the fault (last 12)
+ok:   attempt 0 was interrupted mid-training (highest step reached 12 of 40)
+ok:   attempt 1 rank 0 did not restart from zero (0 restart_from_zero records)
+ok:   attempt 1 rank 0 has one resume record with from_step > 0 ([(12, 'a0/00000012-bd1091ba103743f49f7dd813976c88f9')])
+ok:   attempt 1 rank 0 trained steps 13..40 in order
+ok:   attempt 1 rank 0 final parameters equal the reference's exactly
+ok:   attempt 1 rank 0 final state digest equals the reference's
+ok:   attempt 1 rank 1 did not restart from zero (0 restart_from_zero records)
+ok:   attempt 1 rank 1 has one resume record with from_step > 0 ([(12, 'a0/00000012-bd1091ba103743f49f7dd813976c88f9')])
+ok:   attempt 1 rank 1 trained steps 13..40 in order
+ok:   attempt 1 rank 1 final parameters equal the reference's exactly
+ok:   attempt 1 rank 1 final state digest equals the reference's
+ok:   every rank resumed from the same checkpoint ([(12, 'a0/00000012-bd1091ba103743f49f7dd813976c88f9')])
+ok:   the resume step 12 (a0/00000012-bd1091ba103743f49f7dd813976c88f9) is the last published checkpoint of attempt 0 (last record 12, reached 12)
+30 passed, 0 failed
+# exit 0

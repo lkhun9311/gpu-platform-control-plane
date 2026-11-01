@@ -1,0 +1,207 @@
+{
+  "events": [
+    [
+      "2026-10-31T23:55:33.519632310Z",
+      "start"
+    ],
+    [
+      "2026-10-31T23:55:33.563603755Z",
+      "created job hold-a"
+    ],
+    [
+      "2026-10-31T23:55:38.625225045Z",
+      "hold-a admitted (spec.suspend false)"
+    ],
+    [
+      "2026-10-31T23:55:38.667445899Z",
+      "created job hold-b, which cannot fit: quota exhausted with a workload pending"
+    ],
+    [
+      "2026-10-31T23:55:53.786495115Z",
+      "injected Xid 13 (control: an application Xid)"
+    ],
+    [
+      "2026-10-31T23:57:23.837432766Z",
+      "90 s after Xid 13, GPUFaultSignalPresent inactive"
+    ],
+    [
+      "2026-10-31T23:57:23.902120333Z",
+      "injected Xid 79"
+    ],
+    [
+      "2026-10-31T23:57:34.47225889Z",
+      "observed GPUFaultSignalPresent firing (xid)"
+    ],
+    [
+      "2026-10-31T23:57:44.182947273Z",
+      "sink holds a firing GPUFaultSignalPresent"
+    ],
+    [
+      "2026-10-31T23:57:44.249325360Z",
+      "injected Xid 0"
+    ],
+    [
+      "2026-10-31T23:58:14.533797330Z",
+      "sink holds a resolved GPUFaultSignalPresent"
+    ],
+    [
+      "2026-10-31T23:58:14.637425221Z",
+      "injected double-bit ECC 1"
+    ],
+    [
+      "2026-10-31T23:58:44.927508361Z",
+      "sink holds a second firing GPUFaultSignalPresent"
+    ],
+    [
+      "2026-10-31T23:58:45.29163122Z",
+      "injected double-bit ECC 0"
+    ],
+    [
+      "2026-10-31T23:59:15.318411089Z",
+      "sink holds a second resolved GPUFaultSignalPresent"
+    ],
+    [
+      "2026-10-31T23:59:15.356486902Z",
+      "scaled fake-dcgm-exporter to 0"
+    ],
+    [
+      "2026-10-31T23:59:16.453798082Z",
+      "exporter Pod gone"
+    ],
+    [
+      "2026-11-01T00:10:02.998262579Z",
+      "observed GPUExporterNotReporting firing"
+    ],
+    [
+      "2026-11-01T00:10:13.151830245Z",
+      "sink holds a firing GPUExporterNotReporting"
+    ],
+    [
+      "2026-11-01T00:10:13.187647719Z",
+      "scaled fake-dcgm-exporter to 1"
+    ],
+    [
+      "2026-11-01T00:10:13.764565422Z",
+      "exporter rollout complete"
+    ],
+    [
+      "2026-11-01T00:10:44.109697081Z",
+      "sink holds a resolved GPUExporterNotReporting"
+    ],
+    [
+      "2026-11-01T00:11:14.508441432Z",
+      "observed KueueClusterQueueGPUQuotaExhausted firing"
+    ],
+    [
+      "2026-11-01T00:11:24.659659298Z",
+      "sink holds a firing KueueClusterQueueGPUQuotaExhausted"
+    ],
+    [
+      "2026-11-01T00:27:15.180000101Z",
+      "observed KueueWorkloadsPendingTooLong firing"
+    ],
+    [
+      "2026-11-01T00:27:25.331131167Z",
+      "sink holds a firing KueueWorkloadsPendingTooLong"
+    ],
+    [
+      "2026-11-01T00:27:25.384497863Z",
+      "KueueGPUQuotaMetricsNotReported inactive throughout the queue phase"
+    ],
+    [
+      "2026-11-01T00:27:25.420808437Z",
+      "deleted job hold-a, so hold-b is admitted and nothing waits"
+    ],
+    [
+      "2026-11-01T00:27:55.773805733Z",
+      "sink holds a resolved KueueClusterQueueGPUQuotaExhausted"
+    ],
+    [
+      "2026-11-01T00:27:55.825290069Z",
+      "sink holds a resolved KueueWorkloadsPendingTooLong"
+    ]
+  ],
+  "alerts": [
+    {
+      "labels": {
+        "Hostname": "mon-worker",
+        "UUID": "fake-gpu-0",
+        "alertname": "GPUFaultSignalPresent",
+        "field": "xid",
+        "gpu": "0",
+        "severity": "critical"
+      },
+      "prometheus_first_firing_eval": "2026-10-31T23:57:30.806000+00:00",
+      "prometheus_last_firing_eval": "2026-10-31T23:57:30.806000+00:00",
+      "received_firing_at": "2026-10-31T23:57:40.820000+00:00",
+      "startsAt": "2026-10-31T23:57:30.806Z",
+      "firing_to_received_s": 10.0,
+      "received_resolved_at": "2026-10-31T23:58:10.815000+00:00",
+      "endsAt": "2026-10-31T23:58:00.806Z",
+      "resolved_to_received_s": 10.0
+    },
+    {
+      "labels": {
+        "Hostname": "mon-worker",
+        "UUID": "fake-gpu-0",
+        "alertname": "GPUFaultSignalPresent",
+        "field": "ecc_dbe",
+        "gpu": "0",
+        "severity": "critical"
+      },
+      "prometheus_first_firing_eval": "2026-10-31T23:58:30.806000+00:00",
+      "prometheus_last_firing_eval": "2026-10-31T23:58:30.806000+00:00",
+      "received_firing_at": "2026-10-31T23:58:40.810000+00:00",
+      "startsAt": "2026-10-31T23:58:30.806Z",
+      "firing_to_received_s": 10.0,
+      "received_resolved_at": "2026-10-31T23:59:10.811000+00:00",
+      "endsAt": "2026-10-31T23:59:00.806Z",
+      "resolved_to_received_s": 10.0
+    },
+    {
+      "labels": {
+        "alertname": "GPUExporterNotReporting",
+        "node": "mon-worker",
+        "severity": "warning"
+      },
+      "prometheus_first_firing_eval": "2026-11-01T00:10:00.806000+00:00",
+      "prometheus_last_firing_eval": "2026-11-01T00:10:00.806000+00:00",
+      "received_firing_at": "2026-11-01T00:10:10.811000+00:00",
+      "startsAt": "2026-11-01T00:10:00.806Z",
+      "firing_to_received_s": 10.0,
+      "received_resolved_at": "2026-11-01T00:10:40.811000+00:00",
+      "endsAt": "2026-11-01T00:10:30.806Z",
+      "resolved_to_received_s": 10.0
+    },
+    {
+      "labels": {
+        "alertname": "KueueClusterQueueGPUQuotaExhausted",
+        "cluster_queue": "cq-gpu",
+        "severity": "warning"
+      },
+      "prometheus_first_firing_eval": "2026-11-01T00:11:11.850000+00:00",
+      "prometheus_last_firing_eval": "2026-11-01T00:27:11.850000+00:00",
+      "received_firing_at": "2026-11-01T00:11:21.855000+00:00",
+      "startsAt": "2026-11-01T00:11:11.85Z",
+      "firing_to_received_s": 10.0,
+      "received_resolved_at": "2026-11-01T00:27:51.890000+00:00",
+      "endsAt": "2026-11-01T00:27:41.85Z",
+      "resolved_to_received_s": 10.0
+    },
+    {
+      "labels": {
+        "alertname": "KueueWorkloadsPendingTooLong",
+        "cluster_queue": "cq-gpu",
+        "severity": "warning"
+      },
+      "prometheus_first_firing_eval": "2026-11-01T00:27:11.850000+00:00",
+      "prometheus_last_firing_eval": "2026-11-01T00:27:11.850000+00:00",
+      "received_firing_at": "2026-11-01T00:27:21.854000+00:00",
+      "startsAt": "2026-11-01T00:27:11.85Z",
+      "firing_to_received_s": 10.0,
+      "received_resolved_at": "2026-11-01T00:27:51.856000+00:00",
+      "endsAt": "2026-11-01T00:27:41.85Z",
+      "resolved_to_received_s": 10.0
+    }
+  ]
+}

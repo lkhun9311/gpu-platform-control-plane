@@ -68,6 +68,8 @@ m7/fr002
     2  20s      Ready    true     2026-09-30T13:17:54+09:00
 ```
 
+`ELAPSED` counts from the recorder's start, about 8 s before `hack/m7-evidence-trail.sh` deleted the Pod, and the target was a GPU-less stub told to delay its readiness by 8 s; so "Ready at 20s" is a point on the run's clock, not an outage duration or a serving recovery time.
+
 ## What this does not close
 
 - Two of six tables. `model_versions`, `deployment_runs`, `benchmark_runs` and

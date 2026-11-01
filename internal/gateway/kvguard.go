@@ -235,7 +235,8 @@ func (p *pressureState) resetConsecutive() {
 //     releaseSustain, measured from when the unbroken streak began (checked only while engaged).
 func (p *pressureState) observe(sample kvSample, now time.Time) {
 	over := sample.CacheUsage > p.cfg.engageUsage || sample.Waiting > p.cfg.waitingThresh
-	under := sample.CacheUsage < p.cfg.releaseUsage && sample.Waiting < p.cfg.waitingThresh/2
+	// Doubled rather than halved, because integer halving rounds a threshold of 1 down to 0 and nothing waits fewer than 0.
+	under := sample.CacheUsage < p.cfg.releaseUsage && 2*sample.Waiting < p.cfg.waitingThresh
 
 	if !p.engaged {
 		if over {
@@ -648,24 +649,46 @@ func deleteBackendGauges(ref BackendRef) {
 // idempotent, so a caller that registers the same backend on every routed request (this
 // package's chosen wiring, design spec Config and API section) only actually starts a scraper
 // on the first such call.
+//
+// The key is namespace/name, which survives a change of serving port or model.
+// So a registered scraper is replaced when its copy of the URL or model no longer matches: kept, it scraped the old
+// port while requests went to the new one, and continuous routing meant idle eviction never removed it.
 func (m *scraperManager) Register(backend *BackendRef) {
 	key := backendKey(backend)
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	// A stopped manager starts nothing. The check is here rather than at the call site because Register runs
 	// on the request path and the request path does not know the process is shutting down.
 	if m.stopped {
+		m.mu.Unlock()
 		return
 	}
 	// Stamped before the early return, because the point is to record that this backend is still being routed
 	// to — which is exactly the case where a scraper already exists.
 	m.lastRouted[key] = m.cfg.clock()
-	if _, ok := m.scrapers[key]; ok {
+	old, ok := m.scrapers[key]
+	if ok && sameScrapeTarget(old.ref, *backend) {
+		m.mu.Unlock()
 		return
 	}
 	s := newBackendScraper(*backend, m.cfg)
 	m.scrapers[key] = s
 	go s.run()
+	m.mu.Unlock()
+	if !ok {
+		return
+	}
+	// Stopped outside the lock, because Stop waits out an in-flight scrape and every routed request takes this lock.
+	old.Stop()
+	// A changed model leaves the old scraper's gauges under a label set nothing will write again.
+	// An unchanged one shares its labels with the new scraper, whose next tick overwrites whatever the old one wrote last.
+	if old.ref.Model != backend.Model {
+		deleteBackendGauges(old.ref)
+	}
+}
+
+// sameScrapeTarget reports whether a scraper built for a still scrapes what b now names.
+func sameScrapeTarget(a, b BackendRef) bool {
+	return a.Model == b.Model && a.URL.String() == b.URL.String()
 }
 
 // Unregister stops backend's scraper and deletes its stale metric labels.

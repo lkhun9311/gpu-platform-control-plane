@@ -1,0 +1,105 @@
+{
+    "apiVersion": "batch/v1",
+    "kind": "Job",
+    "metadata": {
+        "creationTimestamp": "2026-11-01T03:23:03Z",
+        "generation": 2,
+        "labels": {
+            "kueue.x-k8s.io/queue-name": "gpu-gpufault"
+        },
+        "name": "gf-19-benign",
+        "namespace": "gpufault",
+        "ownerReferences": [
+            {
+                "apiVersion": "platform.lkhun9311.github.io/v1",
+                "blockOwnerDeletion": true,
+                "controller": true,
+                "kind": "MLTrainingJob",
+                "name": "gf-19-benign",
+                "uid": "674d386f-e03b-493d-bbd9-c68c6119d1ba"
+            }
+        ],
+        "resourceVersion": "8562",
+        "uid": "bdf10725-8c52-4898-91d9-402f35e02640"
+    },
+    "spec": {
+        "backoffLimit": 6,
+        "completionMode": "NonIndexed",
+        "completions": 1,
+        "manualSelector": false,
+        "parallelism": 1,
+        "podReplacementPolicy": "TerminatingOrFailed",
+        "selector": {
+            "matchLabels": {
+                "batch.kubernetes.io/controller-uid": "bdf10725-8c52-4898-91d9-402f35e02640"
+            }
+        },
+        "suspend": false,
+        "template": {
+            "metadata": {
+                "annotations": {
+                    "kueue.x-k8s.io/workload": "job-gf-19-benign-fd676"
+                },
+                "creationTimestamp": null,
+                "labels": {
+                    "batch.kubernetes.io/controller-uid": "bdf10725-8c52-4898-91d9-402f35e02640",
+                    "batch.kubernetes.io/job-name": "gf-19-benign",
+                    "controller-uid": "bdf10725-8c52-4898-91d9-402f35e02640",
+                    "job-name": "gf-19-benign",
+                    "kueue.x-k8s.io/cluster-queue-name": "gpu-gpufault",
+                    "kueue.x-k8s.io/local-queue-name": "gpu-gpufault",
+                    "kueue.x-k8s.io/podset": "main"
+                }
+            },
+            "spec": {
+                "containers": [
+                    {
+                        "command": [
+                            "sh",
+                            "-c",
+                            "trap 'exit 143' TERM; while true; do sleep 1; done"
+                        ],
+                        "env": [
+                            {
+                                "name": "NVIDIA_DRIVER_CAPABILITIES",
+                                "value": "compute,utility"
+                            }
+                        ],
+                        "image": "gpufault-job:busybox",
+                        "imagePullPolicy": "IfNotPresent",
+                        "name": "trainer",
+                        "resources": {
+                            "limits": {
+                                "nvidia.com/gpu": "1"
+                            }
+                        },
+                        "terminationMessagePath": "/dev/termination-log",
+                        "terminationMessagePolicy": "File"
+                    }
+                ],
+                "dnsPolicy": "ClusterFirst",
+                "restartPolicy": "Never",
+                "schedulerName": "default-scheduler",
+                "securityContext": {},
+                "terminationGracePeriodSeconds": 30
+            }
+        }
+    },
+    "status": {
+        "active": 1,
+        "conditions": [
+            {
+                "lastProbeTime": "2026-11-01T03:23:03Z",
+                "lastTransitionTime": "2026-11-01T03:23:03Z",
+                "message": "Job resumed",
+                "reason": "JobResumed",
+                "status": "False",
+                "type": "Suspended"
+            }
+        ],
+        "ready": 1,
+        "startTime": "2026-11-01T03:23:03Z",
+        "terminating": 0,
+        "uncountedTerminatedPods": {}
+    }
+}

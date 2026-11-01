@@ -1,0 +1,114 @@
+# transcript 02a-account-quota.txt, slurm-lab, written by steps/02-quota-preempt.sh
+# teama may hold 2 GPUs at once and teamb 4; the cluster has 6.
+
+root@slurmctld$ sacctmgr -i modify account teama set GrpTRES=gres/gpu=2
+# at 2026-10-31T11:10:56.470Z
+ Modified account associations...
+  C = lab        A = teama of root
+# exit 0
+
+root@slurmctld$ sacctmgr -i modify account teamb set GrpTRES=gres/gpu=4
+# at 2026-10-31T11:10:56.529Z
+ Modified account associations...
+  C = lab        A = teamb of root
+# exit 0
+
+root@slurmctld$ sacctmgr show assoc where account=teama,teamb format=Account,User,GrpTRES
+# at 2026-10-31T11:10:56.586Z
+   Account       User       GrpTRES 
+---------- ---------- ------------- 
+     teama               gres/gpu=2 
+     teama      alice               
+     teamb               gres/gpu=4 
+     teamb        bob               
+# exit 0
+
+alice@slurmctld$ sbatch -J a-first --gres=gpu:2 --wrap 'sleep 900'
+# at 2026-10-31T11:10:56.644Z
+Submitted batch job 6
+# exit 0
+# waited 4s for: squeue -h -n a-first -t R | grep -q .
+# alice's account is at its limit; her next 1-GPU job must wait although 4 GPUs are free.
+
+alice@slurmctld$ sbatch -J a-second --gres=gpu:1 --wrap 'sleep 900'
+# at 2026-10-31T11:11:00.951Z
+Submitted batch job 7
+# exit 0
+# waited 1s for: squeue -h -n a-second -o %r | grep -q AssocGrp
+
+root@slurmctld$ sinfo -N -O NodeList:6,StateLong:10,Gres:10,GresUsed:24
+# at 2026-10-31T11:11:02.103Z
+NODELISTATE     GRES      GRES_USED               
+c1    mixed     gpu:2     gpu:2                   
+c2    idle      gpu:2     gpu:0                   
+c3    idle      gpu:2     gpu:0                   
+# exit 0
+
+root@slurmctld$ squeue -o '%.6i %.10j %.8u %.8a %.3t %.12b %N %R'
+# at 2026-10-31T11:11:02.160Z
+ JOBID       NAME     USER  ACCOUNT  ST TRES_PER_NOD NODELIST NODELIST(REASON)
+     7   a-second    alice    teama  PD   gres/gpu:1  (AssocGrpGRES)
+     6    a-first    alice    teama   R   gres/gpu:2 c1 c1
+# exit 0
+
+root@slurmctld$ scontrol show job $(squeue -h -n a-second -o %i) | grep -E 'JobState|Reason'
+# at 2026-10-31T11:11:02.214Z
+   JobState=PENDING Reason=AssocGrpGRES Dependency=(null)
+# exit 0
+# bob's account has its own limit and runs beside alice; alice's idle headroom is not lent to bob and bob's is not lent to alice.
+
+bob@slurmctld$ sbatch -J b-first --gres=gpu:2 --wrap 'sleep 900'
+# at 2026-10-31T11:11:02.271Z
+Submitted batch job 8
+# exit 0
+
+bob@slurmctld$ sbatch -J b-second --gres=gpu:2 --wrap 'sleep 900'
+# at 2026-10-31T11:11:02.325Z
+Submitted batch job 9
+# exit 0
+# waited 3s for: [ $(squeue -h -u bob -t R | wc -l) -eq 2 ]
+
+root@slurmctld$ squeue -o '%.6i %.10j %.8u %.8a %.3t %.12b %N %R'
+# at 2026-10-31T11:11:05.592Z
+ JOBID       NAME     USER  ACCOUNT  ST TRES_PER_NOD NODELIST NODELIST(REASON)
+     7   a-second    alice    teama  PD   gres/gpu:1  (AssocGrpGRES)
+     8    b-first      bob    teamb   R   gres/gpu:2 c2 c2
+     9   b-second      bob    teamb   R   gres/gpu:2 c3 c3
+     6    a-first    alice    teama   R   gres/gpu:2 c1 c1
+# exit 0
+# Raising teama's limit to 3 removes the quota reason; the cluster is now full, so the job's reason becomes Resources instead.
+
+root@slurmctld$ sacctmgr -i modify account teama set GrpTRES=gres/gpu=3
+# at 2026-10-31T11:11:05.647Z
+ Modified account associations...
+  C = lab        A = teama of root
+# exit 0
+# TIMEOUT after 30s waiting for: squeue -h -n a-second -o %r | grep -q Resources
+
+root@slurmctld$ squeue -o '%.6i %.10j %.8u %.8a %.3t %.12b %N %R'
+# at 2026-10-31T11:11:36.208Z
+ JOBID       NAME     USER  ACCOUNT  ST TRES_PER_NOD NODELIST NODELIST(REASON)
+     7   a-second    alice    teama  PD   gres/gpu:1  (None)
+     8    b-first      bob    teamb   R   gres/gpu:2 c2 c2
+     9   b-second      bob    teamb   R   gres/gpu:2 c3 c3
+     6    a-first    alice    teama   R   gres/gpu:2 c1 c1
+# exit 0
+# Ending one of bob's jobs frees capacity, and the same job starts without being resubmitted.
+
+bob@slurmctld$ scancel -n b-second
+# at 2026-10-31T11:11:36.263Z
+# exit 0
+# waited 0s for: squeue -h -n a-second -t R | grep -q .
+
+root@slurmctld$ squeue -o '%.6i %.10j %.8u %.8a %.3t %.12b %N %R'
+# at 2026-10-31T11:11:36.364Z
+ JOBID       NAME     USER  ACCOUNT  ST TRES_PER_NOD NODELIST NODELIST(REASON)
+     7   a-second    alice    teama   R   gres/gpu:1 c3 c3
+     8    b-first      bob    teamb   R   gres/gpu:2 c2 c2
+     6    a-first    alice    teama   R   gres/gpu:2 c1 c1
+# exit 0
+
+root@slurmctld$ scancel -u alice; scancel -u bob
+# at 2026-10-31T11:11:36.418Z
+# exit 0
+# waited 0s for: [ -z "$(squeue -h)" ]

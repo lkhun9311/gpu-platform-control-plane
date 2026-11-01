@@ -1,0 +1,9 @@
+commit=4726f072a727816a7299f229237b790bfa266ea4
+dirty_files=1
+mode=fake
+kind=kind v0.33.0 go1.25.7 linux/amd64
+kueue=v0.18.3
+blocks=1
+image controller:gpufault=sha256:3adc6a4eb19dcbd52ab3d3179b192d26b74309252dbaa19abf49644c9253180a
+image gpu-simulator:gpufault=sha256:d1681e50fc01e081fb59b8449af7a57aeab863c3991c7af7d56d4893776d07b5
+image gpufault-job:busybox=sha256:c28bbc10d309bf274b27333a8bd86969479fe2d2c696c04787bea0bf9408e0b2

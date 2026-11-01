@@ -1,0 +1,56 @@
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ClusterQueue
+metadata:
+  annotations:
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"kueue.x-k8s.io/v1beta1","kind":"ClusterQueue","metadata":{"annotations":{},"name":"cq-gpu"},"spec":{"namespaceSelector":{},"resourceGroups":[{"coveredResources":["nvidia.com/gpu"],"flavors":[{"name":"gpu","resources":[{"name":"nvidia.com/gpu","nominalQuota":1}]}]}]}}
+  creationTimestamp: "2026-10-31T23:54:11Z"
+  finalizers:
+  - kueue.x-k8s.io/resource-in-use
+  generation: 1
+  name: cq-gpu
+  resourceVersion: "1514"
+  uid: 9bdd4146-f46b-4cde-b088-af97922ccd69
+spec:
+  flavorFungibility:
+    whenCanBorrow: MayStopSearch
+    whenCanPreempt: TryNextFlavor
+  namespaceSelector: {}
+  preemption:
+    borrowWithinCohort:
+      policy: Never
+    reclaimWithinCohort: Never
+    withinClusterQueue: Never
+  queueingStrategy: BestEffortFIFO
+  resourceGroups:
+  - coveredResources:
+    - nvidia.com/gpu
+    flavors:
+    - name: gpu
+      resources:
+      - name: nvidia.com/gpu
+        nominalQuota: "1"
+  stopPolicy: None
+status:
+  admittedWorkloads: 1
+  conditions:
+  - lastTransitionTime: "2026-10-31T23:54:11Z"
+    message: Can admit new workloads
+    observedGeneration: 1
+    reason: Ready
+    status: "True"
+    type: Active
+  flavorsReservation:
+  - name: gpu
+    resources:
+    - borrowed: "0"
+      name: nvidia.com/gpu
+      total: "1"
+  flavorsUsage:
+  - name: gpu
+    resources:
+    - borrowed: "0"
+      name: nvidia.com/gpu
+      total: "1"
+  pendingWorkloads: 1
+  reservingWorkloads: 1

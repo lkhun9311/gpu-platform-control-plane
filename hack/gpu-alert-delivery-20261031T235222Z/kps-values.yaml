@@ -1,0 +1,29 @@
+defaultRules: {create: false}
+grafana: {enabled: false}
+nodeExporter: {enabled: false}
+prometheus-node-exporter: {enabled: false}
+kubeStateMetrics: {enabled: true}
+prometheus:
+  prometheusSpec:
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    serviceMonitorSelectorNilUsesHelmValues: false
+    retention: 6h
+alertmanager:
+  enabled: true
+  config:
+    global: {resolve_timeout: 5m}
+    inhibit_rules: []
+    templates: []
+    route:
+      receiver: sink
+      group_by: ['...']
+      group_wait: 10s
+      group_interval: 30s
+      repeat_interval: 12h
+      routes: []
+    receivers:
+      - name: sink
+        webhook_configs:
+          - url: http://alert-sink.monitoring.svc:8080/
+            send_resolved: true
