@@ -508,6 +508,14 @@ def torn_state(c: str, job: str, step: int, files: dict, latest: str, manifests:
         ok = has_manifest and prev
     else:
         ok = has_manifest and latest == rel
+    if has_manifest:
+        # A published step must be whole on the storage, every shard as its manifest says, except the one the corrupt
+        # case changed on purpose, which the lines below judge.
+        wrong = [s["file"] for s in manifests[f"{job}/{rel}/MANIFEST"]["shards"]
+                 if not (c == "nfs-corrupt-published" and s["rank"] == 1)
+                 and (shas.get(f"{job}/{rel}/{s['file']}") != s["sha256"] or files.get(f"{job}/{rel}/{s['file']}", (0, -1))[1] != s["size"])]
+        ok = ok and not wrong
+        detail += f"; shards differing from the manifest {wrong}"
     if c == "nfs-corrupt-published" and has_manifest:
         entry = next((s for s in manifests[f"{job}/{rel}/MANIFEST"]["shards"] if s["rank"] == 1), {})
         stored = shas.get(f"{job}/{rel}/rank-1.pt")
@@ -625,7 +633,7 @@ def nfs_case(case: Case, reference: list[float] | None, provenance: dict) -> Non
          f"invisible {[(r.get('rank'), r.get('dir'), r.get('errors'), r.get('listed')) for r in checks if not r.get('visible')]}")
 
     if c.startswith("nfs-vis-"):
-        vis(case, job, n1, n2, s2, checks)
+        vis(case, job, n1, n2, s2, checks, provenance)
 
 
 def vis_outcome(case: Case, reference: list[float] | None) -> None:
@@ -645,7 +653,8 @@ def vis_outcome(case: Case, reference: list[float] | None) -> None:
     check(f"{c} same training as the reference on every rank", same, f"ranks {sorted(params)} recorded final parameters")
 
 
-def vis(case: Case, job: str, n1: dict[int, str], n2: dict[int, str], s2: dict[int, dict], checks: list[dict]) -> None:
+def vis(case: Case, job: str, n1: dict[int, str], n2: dict[int, str], s2: dict[int, dict], checks: list[dict],
+        provenance: dict) -> None:
     c = case.name
     probes = helper_records(case, "watch")
     started = {r["node"]: r for r in probes if r.get("event") == "probe_start"}
@@ -658,8 +667,19 @@ def vis(case: Case, job: str, n1: dict[int, str], n2: dict[int, str], s2: dict[i
     # prober's cache there.
     fresh = [r for r, n in n2.items() if n not in n1.values()]
     shared = [r for r in fresh if (started.get(n2[r], {}).get("watch") or {}).get("dev") == s2.get(r, {}).get("dev")]
-    check(f"{c} attempt 2 ran a rank where no shard was written, in the prober's cache there", bool(shared),
-          f"attempt 1 {n1}, attempt 2 {n2}; ranks on such a node {fresh}, sharing the prober's cache {shared}")
+    # The provocation took only if that node's prober looked the rank's shard of the checkpoint attempt 2 was offered
+    # first up and found it absent, through a mount with the case's options, while discovering through an uncached one.
+    first = next((r.get("latest") for r in case.records if r.get("event") == "candidates" and r.get("attempt") == 2), None)
+    claim = "shared-long" if c == "nfs-vis-long" else "shared"
+    poisoned = [r for r in shared
+                if any(p.get("event") == "probe" and p["node"] == n2[r] and p["dir"] == first and p["rank"] == r
+                       and p.get("exists") is False for p in probes)
+                and not mount_problems(started[n2[r]].get("watch") or {}, provenance, claim)
+                and "lookupcache=none" in super_words(started[n2[r]].get("list") or {})]
+    check(f"{c} attempt 2 ran a rank where no shard was written, in a cache the prober had told its shard was absent",
+          bool(poisoned),
+          f"attempt 1 {n1}, attempt 2 {n2}; ranks on such a node {fresh}, sharing the prober's cache {shared}; "
+          f"first offer {first}; with an absent lookup of their own shard there through the registered mounts {poisoned}")
     # How long each prober saw a shard absent after the storage had it: from the shard's mtime to the prober's first
     # record of it present, which is the cache's view, not the server's.
     final = listing(case, "listing-final.txt")
