@@ -238,7 +238,8 @@ if [ "$STORAGE" = nfs ]; then
   # and the client then fails directory reads with EREMOTEIO, which a rank would report as a crash of its own.
   # Turning the client's request off gives it no directory delegations, which is also what it has against a server that
   # grants none; the parameter is the host kernel's, so it is recorded here and put back on exit.
-  docker exec "$CLUSTER-control-plane" sh -c "modprobe nfsv4" >>"$LOG" 2>&1 || die "loading nfsv4"
+  # Loaded only when absent: modprobe needs the running kernel's module files inside the node even for a loaded module.
+  [ -d /sys/module/nfsv4 ] || docker exec "$CLUSTER-control-plane" sh -c "modprobe nfsv4" >>"$LOG" 2>&1 || die "loading nfsv4"
   # A kernel whose client never asks for directory delegations has no such parameter, and nothing to turn off.
   if [ -e "$DELEG" ]; then
     DELEG_WAS=$(cat "$DELEG" 2>>"$LOG") || die "reading $DELEG"
