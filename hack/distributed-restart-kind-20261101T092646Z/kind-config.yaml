@@ -1,0 +1,10 @@
+# Three workers and no shared host directory: in STORAGE=nfs runs of hack/distributed-restart-kind.sh the ranks share
+# the volume only through an NFS server Pod on the control plane, so each worker's kernel NFS client is the only path
+# between a rank and the files another rank wrote.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+  - role: worker
+  - role: worker
+  - role: worker

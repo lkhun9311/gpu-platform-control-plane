@@ -1,0 +1,4 @@
+{"pod": "rst-nfs-vis-long-093414-0-b69fg", "uid": "b9be5f89-436e-4e2c-8db2-6ccfeaf84c64", "node": "rstnfs-worker", "attempt": "1", "rank": "0"}
+{"pod": "rst-nfs-vis-long-093414-1-tp9gf", "uid": "da7411ab-e3cd-4c36-b5ea-e7b3f4fb79a0", "node": "rstnfs-worker2", "attempt": "1", "rank": "1"}
+{"pod": "rst-nfs-vis-long-093414-0-lqljn", "uid": "c3fb9257-8dae-417a-9b52-b21270d1681b", "node": "rstnfs-worker3", "attempt": "2", "rank": "0"}
+{"pod": "rst-nfs-vis-long-093414-1-qcjdk", "uid": "b911cc7d-8a13-4d51-9e4d-dd920120e75b", "node": "rstnfs-worker2", "attempt": "2", "rank": "1"}
