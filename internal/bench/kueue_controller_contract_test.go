@@ -364,3 +364,79 @@ func TestServerSideApplicationsDiffServerSide(t *testing.T) {
 		t.Errorf("found %d server-side Applications, want at least 3", checked)
 	}
 }
+
+// The quota alert reads series Kueue publishes only with metrics.enableClusterQueueResources, so the configuration
+// EKS deploys must turn it on, and must otherwise be the release's own, or an upgrade would leave a stale file behind.
+//
+// The file replaces the ConfigMap's whole data value, which keeps the release's name, so the Deployment would not
+// roll on an edit; the Pod-template annotation is what rolls it, and only while it carries the file's hash.
+//
+// Mutations that turn this red: comment the line out again, change any other line of the file, drop the generator,
+// or edit the file without updating the annotation.
+func TestTheKueueConfigurationPublishesClusterQueueResources(t *testing.T) {
+	const (
+		file     = "controller_manager_config.yaml"
+		released = "# enableClusterQueueResources: true\n"
+		enabled  = "  enableClusterQueueResources: true\n"
+	)
+	var release string
+	for _, obj := range objects(t, kueueDir+"/manifests.yaml") {
+		if obj["kind"] == "ConfigMap" && name(obj) == "kueue-manager-config" {
+			release, _ = get(obj, "data", file).(string)
+		}
+	}
+	if strings.Count(release, released) != 1 {
+		t.Fatalf("the release's %s carries %q %d times, want once; the release changed and this file must follow it",
+			file, released, strings.Count(release, released))
+	}
+	ours := readRepoFile(t, kueueDir+"/"+file)
+	if want := strings.Replace(release, released, enabled, 1); ours != want {
+		t.Errorf("%s/%s differs from the release's configuration by more than enabling enableClusterQueueResources",
+			kueueDir, file)
+	}
+	var cfg struct {
+		Metrics struct {
+			EnableClusterQueueResources bool `json:"enableClusterQueueResources"`
+		} `json:"metrics"`
+	}
+	if err := yaml.Unmarshal([]byte(ours), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Metrics.EnableClusterQueueResources {
+		t.Errorf("%s/%s does not set metrics.enableClusterQueueResources", kueueDir, file)
+	}
+
+	var kust struct {
+		ConfigMapGenerator []struct {
+			Name, Namespace, Behavior string
+			Files                     []string `json:"files"`
+		} `json:"configMapGenerator"`
+		Patches []struct {
+			Patch string `json:"patch"`
+		} `json:"patches"`
+	}
+	if err := yaml.Unmarshal([]byte(readRepoFile(t, kueueDir+"/kustomization.yaml")), &kust); err != nil {
+		t.Fatal(err)
+	}
+	gen := kust.ConfigMapGenerator
+	if len(gen) != 1 || gen[0].Name != "kueue-manager-config" || gen[0].Namespace != "kueue-system" ||
+		gen[0].Behavior != "replace" || !slices.Equal(gen[0].Files, []string{file}) {
+		t.Errorf("configMapGenerator is %+v, want kueue-manager-config in kueue-system replaced from %s", gen, file)
+	}
+	sum := sha256.Sum256([]byte(ours))
+	rolled := false
+	for _, p := range kust.Patches {
+		var ops []struct{ Op, Path, Value string }
+		if err := yaml.Unmarshal([]byte(p.Patch), &ops); err != nil {
+			continue
+		}
+		for _, op := range ops {
+			rolled = rolled || op.Op == "add" && op.Value == hex.EncodeToString(sum[:]) &&
+				op.Path == "/spec/template/metadata/annotations/platform.lkhun9311.github.io~1kueue-config-sha256"
+		}
+	}
+	if !rolled {
+		t.Errorf("no patch sets the Pod-template annotation to %s's sha256 %s, so a running Kueue keeps its old configuration",
+			file, hex.EncodeToString(sum[:]))
+	}
+}

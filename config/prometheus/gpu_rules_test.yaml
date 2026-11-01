@@ -1,0 +1,283 @@
+# promtool unit tests for gpu_rules.yaml, run by hack/check-gpu-monitoring.sh.
+#
+# promtool reads plain rule groups, not a PrometheusRule, so the script extracts spec.groups into gpu_rules.groups.yaml
+# beside a copy of this file before running it.
+#
+# Every alert has a case that must fire and a case beside it that must not, because a rule that never fires passes
+# every test that only asks it to stay quiet.
+rule_files:
+  - gpu_rules.groups.yaml
+
+evaluation_interval: 1m
+
+tests:
+  # Fault signals: the policy of internal/gpufault/classify.go, card by card.
+  - interval: 1m
+    input_series:
+      # A fatal Xid, reported twice for one card because the exporter's Kubernetes mapping adds a series per Pod.
+      - series: 'DCGM_FI_DEV_XID_ERRORS{Hostname="w1",gpu="0",UUID="GPU-0"}'
+        values: '79x20'
+      - series: 'DCGM_FI_DEV_XID_ERRORS{Hostname="w1",gpu="0",UUID="GPU-0",pod="train-0",namespace="t"}'
+        values: '79x20'
+      - series: 'DCGM_FI_DEV_ECC_DBE_VOL_TOTAL{Hostname="w1",gpu="0",UUID="GPU-0"}'
+        values: '0x20'
+      # An application Xid: the device plugin ignores 13, and so must this.
+      - series: 'DCGM_FI_DEV_XID_ERRORS{Hostname="w1",gpu="1",UUID="GPU-1"}'
+        values: '13x20'
+      - series: 'DCGM_FI_DEV_ECC_DBE_VOL_TOTAL{Hostname="w1",gpu="1",UUID="GPU-1"}'
+        values: '0x20'
+      # A double-bit ECC count with no Xid.
+      - series: 'DCGM_FI_DEV_XID_ERRORS{Hostname="w1",gpu="2",UUID="GPU-2"}'
+        values: '0x20'
+      - series: 'DCGM_FI_DEV_ECC_DBE_VOL_TOTAL{Hostname="w1",gpu="2",UUID="GPU-2"}'
+        values: '1x20'
+      # Single-bit errors are corrected by the card and are never a fault.
+      - series: 'DCGM_FI_DEV_XID_ERRORS{Hostname="w1",gpu="3",UUID="GPU-3"}'
+        values: '0x20'
+      - series: 'DCGM_FI_DEV_ECC_DBE_VOL_TOTAL{Hostname="w1",gpu="3",UUID="GPU-3"}'
+        values: '0x20'
+      - series: 'DCGM_FI_DEV_ECC_SBE_VOL_TOTAL{Hostname="w1",gpu="3",UUID="GPU-3"}'
+        values: '5x20'
+      # Utilisation for w1, which collects the fault fields, and for w2, which does not.
+      - series: 'DCGM_FI_DEV_GPU_UTIL{Hostname="w1",gpu="0",UUID="GPU-0"}'
+        values: '50x20'
+      - series: 'DCGM_FI_DEV_GPU_UTIL{Hostname="w2",gpu="0",UUID="GPU-9"}'
+        values: '50x20'
+    alert_rule_test:
+      # No "for": the first evaluation after the sample already fires.
+      - eval_time: 0m
+        alertname: GPUFaultSignalPresent
+        exp_alerts:
+          - exp_labels: {severity: critical, Hostname: w1, gpu: "0", UUID: GPU-0, field: xid}
+            exp_annotations:
+              summary: "GPU 0 on w1 reports a fault (xid = 79)"
+              description: >-
+                DCGM reports a fault the platform's own policy treats as a card fault: a non-application Xid, or a
+                double-bit ECC count above zero. With --gpu-fault-source=dcgm the operator has already tainted the node
+                platform.lkhun9311.github.io/gpu-fault; without it nothing has reacted, and this alert is the only notice.
+              runbook_url: https://github.com/lkhun9311/gpu-platform-control-plane/blob/main/docs/06_OBSERVABILITY_BENCHMARK_FAILURE.md#gpufaultsignalpresent
+          - exp_labels: {severity: critical, Hostname: w1, gpu: "2", UUID: GPU-2, field: ecc_dbe}
+            exp_annotations:
+              summary: "GPU 2 on w1 reports a fault (ecc_dbe = 1)"
+              description: >-
+                DCGM reports a fault the platform's own policy treats as a card fault: a non-application Xid, or a
+                double-bit ECC count above zero. With --gpu-fault-source=dcgm the operator has already tainted the node
+                platform.lkhun9311.github.io/gpu-fault; without it nothing has reacted, and this alert is the only notice.
+              runbook_url: https://github.com/lkhun9311/gpu-platform-control-plane/blob/main/docs/06_OBSERVABILITY_BENCHMARK_FAILURE.md#gpufaultsignalpresent
+      - eval_time: 9m
+        alertname: GPUFaultFieldsNotCollected
+        exp_alerts: []
+      - eval_time: 11m
+        alertname: GPUFaultFieldsNotCollected
+        exp_alerts:
+          - exp_labels: {severity: warning, Hostname: w2}
+            exp_annotations:
+              summary: "w2 exports GPU utilisation but not the Xid or double-bit ECC field"
+              description: >-
+                GPUFaultSignalPresent is blind on this node. Deploy the exporter from config/dcgm-exporter-ops, which collects
+                DCGM_FI_DEV_XID_ERRORS and DCGM_FI_DEV_ECC_DBE_VOL_TOTAL.
+              runbook_url: https://github.com/lkhun9311/gpu-platform-control-plane/blob/main/docs/06_OBSERVABILITY_BENCHMARK_FAILURE.md#gpufaultfieldsnotcollected
+
+  # An exporter that vanishes, one that never came, one that reports fault fields only, and a node with no GPU.
+  - interval: 1m
+    input_series:
+      # w1's exporter reports through minute 9 and is gone at minute 10; "stale" is the marker Prometheus writes when a target leaves.
+      - series: 'kube_node_status_capacity{node="w1",resource="nvidia_com_gpu",unit="integer"}'
+        values: '4x30'
+      - series: 'DCGM_FI_DEV_GPU_UTIL{Hostname="w1",gpu="0",UUID="GPU-0"}'
+        values: '50x9 stale'
+      - series: 'DCGM_FI_DEV_XID_ERRORS{Hostname="w1",gpu="0",UUID="GPU-0"}'
+        values: '0x9 stale'
+      # w2 reports the fault fields and no utilisation, as the gpu-simulator's fake exporter does: present, not absent.
+      - series: 'kube_node_status_capacity{node="w2",resource="nvidia_com_gpu",unit="integer"}'
+        values: '1x30'
+      - series: 'DCGM_FI_DEV_XID_ERRORS{Hostname="w2",gpu="0",UUID="GPU-9"}'
+        values: '0x30'
+      # w3 advertises GPUs and no exporter ever reported for it.
+      - series: 'kube_node_status_capacity{node="w3",resource="nvidia_com_gpu",unit="integer"}'
+        values: '1x30'
+      # c1 has no GPU: its capacity series is for cpu, and a GPU resource it lists at zero is no GPU either.
+      - series: 'kube_node_status_capacity{node="c1",resource="cpu",unit="core"}'
+        values: '8x30'
+      - series: 'kube_node_status_capacity{node="c1",resource="nvidia_com_gpu",unit="integer"}'
+        values: '0x30'
+    alert_rule_test:
+      - eval_time: 9m
+        alertname: GPUExporterNotReporting
+        exp_alerts: []
+      - eval_time: 10m
+        alertname: GPUExporterNotReporting
+        exp_alerts:
+          - exp_labels: {severity: warning, node: w3}
+            exp_annotations:
+              summary: "w3 advertises nvidia.com/gpu and no DCGM exporter reports for it"
+              description: >-
+                No DCGM series carries Hostname=w3, so GPUFaultSignalPresent and GPUFaultFieldsNotCollected
+                cannot fire for this node's cards. The exporter Pod is missing, not running, or not being scraped.
+              runbook_url: https://github.com/lkhun9311/gpu-platform-control-plane/blob/main/docs/06_OBSERVABILITY_BENCHMARK_FAILURE.md#gpuexporternotreporting
+      # w1's series went stale at minute 10, so its ten minutes end at 20.
+      - eval_time: 19m
+        alertname: GPUExporterNotReporting
+        exp_alerts:
+          - exp_labels: {severity: warning, node: w3}
+            exp_annotations:
+              summary: "w3 advertises nvidia.com/gpu and no DCGM exporter reports for it"
+              description: >-
+                No DCGM series carries Hostname=w3, so GPUFaultSignalPresent and GPUFaultFieldsNotCollected
+                cannot fire for this node's cards. The exporter Pod is missing, not running, or not being scraped.
+              runbook_url: https://github.com/lkhun9311/gpu-platform-control-plane/blob/main/docs/06_OBSERVABILITY_BENCHMARK_FAILURE.md#gpuexporternotreporting
+      - eval_time: 20m
+        alertname: GPUExporterNotReporting
+        exp_alerts:
+          - exp_labels: {severity: warning, node: w1}
+            exp_annotations:
+              summary: "w1 advertises nvidia.com/gpu and no DCGM exporter reports for it"
+              description: >-
+                No DCGM series carries Hostname=w1, so GPUFaultSignalPresent and GPUFaultFieldsNotCollected
+                cannot fire for this node's cards. The exporter Pod is missing, not running, or not being scraped.
+              runbook_url: https://github.com/lkhun9311/gpu-platform-control-plane/blob/main/docs/06_OBSERVABILITY_BENCHMARK_FAILURE.md#gpuexporternotreporting
+          - exp_labels: {severity: warning, node: w3}
+            exp_annotations:
+              summary: "w3 advertises nvidia.com/gpu and no DCGM exporter reports for it"
+              description: >-
+                No DCGM series carries Hostname=w3, so GPUFaultSignalPresent and GPUFaultFieldsNotCollected
+                cannot fire for this node's cards. The exporter Pod is missing, not running, or not being scraped.
+              runbook_url: https://github.com/lkhun9311/gpu-platform-control-plane/blob/main/docs/06_OBSERVABILITY_BENCHMARK_FAILURE.md#gpuexporternotreporting
+      # The vanished exporter's own fault alerts are silent at the same time, which is why this one exists.
+      - eval_time: 20m
+        alertname: GPUFaultFieldsNotCollected
+        exp_alerts: []
+
+  # GPU quota: exhausted with demand waiting, exhausted with nobody waiting, and room left.
+  - interval: 1m
+    input_series:
+      # cq-a reserves 1 + 1 across two flavours against 1 + 1 of nominal quota, and a GPU request is pending.
+      - series: 'kueue_cluster_queue_resource_reservation{cluster_queue="cq-a",cohort="c",flavor="f1",resource="nvidia.com/gpu"}'
+        values: '1x30'
+      - series: 'kueue_cluster_queue_resource_reservation{cluster_queue="cq-a",cohort="c",flavor="f2",resource="nvidia.com/gpu"}'
+        values: '1x30'
+      - series: 'kueue_cluster_queue_nominal_quota{cluster_queue="cq-a",cohort="c",flavor="f1",resource="nvidia.com/gpu"}'
+        values: '1x30'
+      - series: 'kueue_cluster_queue_nominal_quota{cluster_queue="cq-a",cohort="c",flavor="f2",resource="nvidia.com/gpu"}'
+        values: '1x30'
+      - series: 'kueue_cluster_queue_resource_pending{cluster_queue="cq-a",resource="nvidia.com/gpu"}'
+        values: '1x30'
+      # cq-b has room: 2 of 4.
+      - series: 'kueue_cluster_queue_resource_reservation{cluster_queue="cq-b",cohort="c",flavor="f1",resource="nvidia.com/gpu"}'
+        values: '2x30'
+      - series: 'kueue_cluster_queue_nominal_quota{cluster_queue="cq-b",cohort="c",flavor="f1",resource="nvidia.com/gpu"}'
+        values: '4x30'
+      - series: 'kueue_cluster_queue_resource_pending{cluster_queue="cq-b",resource="nvidia.com/gpu"}'
+        values: '1x30'
+      # cq-c is full and nobody is waiting: a queue in use, not an incident.
+      - series: 'kueue_cluster_queue_resource_reservation{cluster_queue="cq-c",cohort="c",flavor="f1",resource="nvidia.com/gpu"}'
+        values: '2x30'
+      - series: 'kueue_cluster_queue_nominal_quota{cluster_queue="cq-c",cohort="c",flavor="f1",resource="nvidia.com/gpu"}'
+        values: '2x30'
+      - series: 'kueue_cluster_queue_resource_pending{cluster_queue="cq-c",resource="nvidia.com/gpu"}'
+        values: '0x30'
+      # A CPU quota at its limit must not be read as a GPU one.
+      - series: 'kueue_cluster_queue_resource_reservation{cluster_queue="cq-b",cohort="c",flavor="f1",resource="cpu"}'
+        values: '8x30'
+      - series: 'kueue_cluster_queue_nominal_quota{cluster_queue="cq-b",cohort="c",flavor="f1",resource="cpu"}'
+        values: '8x30'
+      - series: 'kueue_cluster_queue_resource_pending{cluster_queue="cq-b",resource="cpu"}'
+        values: '4x30'
+      # Status for every queue, and cq-x is active with no quota series at all.
+      - series: 'kueue_cluster_queue_status{cluster_queue="cq-a",status="active"}'
+        values: '1x30'
+      - series: 'kueue_cluster_queue_status{cluster_queue="cq-x",status="active"}'
+        values: '1x30'
+    alert_rule_test:
+      - eval_time: 14m
+        alertname: KueueClusterQueueGPUQuotaExhausted
+        exp_alerts: []
+      - eval_time: 16m
+        alertname: KueueClusterQueueGPUQuotaExhausted
+        exp_alerts:
+          - exp_labels: {severity: warning, cluster_queue: cq-a}
+            exp_annotations:
+              summary: "ClusterQueue cq-a has reserved all its GPU quota and GPU work is waiting"
+              description: >-
+                Reserved nvidia.com/gpu has been at or above the nominal quota for fifteen minutes while workloads requesting
+                GPUs are pending. Nothing more will be admitted on this queue until a reservation is released or the cohort lends.
+              runbook_url: https://github.com/lkhun9311/gpu-platform-control-plane/blob/main/docs/06_OBSERVABILITY_BENCHMARK_FAILURE.md#kueueclusterqueuegpuquotaexhausted
+      - eval_time: 16m
+        alertname: KueueGPUQuotaMetricsNotReported
+        exp_alerts:
+          - exp_labels: {severity: warning, cluster_queue: cq-x, status: active}
+            exp_annotations:
+              summary: "ClusterQueue cq-x is active but Kueue reports no quota series for it"
+              description: >-
+                Kueue is running without metrics.enableClusterQueueResources, so KueueClusterQueueGPUQuotaExhausted cannot
+                fire for any queue.
+              runbook_url: https://github.com/lkhun9311/gpu-platform-control-plane/blob/main/docs/06_OBSERVABILITY_BENCHMARK_FAILURE.md#kueuegpuquotametricsnotreported
+
+  # Pending without progress: a stalled queue, a queue that admitted inside the window, and one whose backlog is new.
+  - interval: 1m
+    input_series:
+      # cq-p: three pending throughout, and the admission counter never moves.
+      - series: 'kueue_pending_workloads{cluster_queue="cq-p",status="active"}'
+        values: '3x60'
+      - series: 'kueue_admitted_workloads_total{cluster_queue="cq-p"}'
+        values: '5x60'
+      # cq-q: three pending throughout, and one admission at minute 20.
+      - series: 'kueue_pending_workloads{cluster_queue="cq-q",status="inadmissible"}'
+        values: '3x60'
+      - series: 'kueue_admitted_workloads_total{cluster_queue="cq-q"}'
+        values: '5x19 6x40'
+      # cq-s: three pending throughout, and its first admission at minute 20.
+      # Kueue creates a counter series on its first increment, so the series appears already at 1 and increase() reads 0.
+      - series: 'kueue_pending_workloads{cluster_queue="cq-s",status="active"}'
+        values: '3x60'
+      - series: 'kueue_admitted_workloads_total{cluster_queue="cq-s",priority_class="high"}'
+        values: '_x19 1x40'
+      # cq-r: nothing pending until minute 20; at minute 40 its backlog is twenty minutes old.
+      - series: 'kueue_pending_workloads{cluster_queue="cq-r",status="active"}'
+        values: '0x19 2x40'
+    alert_rule_test:
+      - eval_time: 29m
+        alertname: KueueWorkloadsPendingTooLong
+        exp_alerts: []
+      - eval_time: 40m
+        alertname: KueueWorkloadsPendingTooLong
+        exp_alerts:
+          - exp_labels: {severity: warning, cluster_queue: cq-p}
+            exp_annotations:
+              summary: "ClusterQueue cq-p has had pending workloads for 30 minutes and admitted none"
+              description: >-
+                3 workload(s) pending at the lowest point of the last 30 minutes, and no admission on this queue in
+                that time.
+              runbook_url: https://github.com/lkhun9311/gpu-platform-control-plane/blob/main/docs/06_OBSERVABILITY_BENCHMARK_FAILURE.md#kueueworkloadspendingtoolong
+      # Ten minutes after cq-q's admission left its 30-minute window it is stalled too, and cq-r's backlog has come of age.
+      - eval_time: 58m
+        alertname: KueueWorkloadsPendingTooLong
+        exp_alerts:
+          - exp_labels: {severity: warning, cluster_queue: cq-p}
+            exp_annotations:
+              summary: "ClusterQueue cq-p has had pending workloads for 30 minutes and admitted none"
+              description: >-
+                3 workload(s) pending at the lowest point of the last 30 minutes, and no admission on this queue in
+                that time.
+              runbook_url: https://github.com/lkhun9311/gpu-platform-control-plane/blob/main/docs/06_OBSERVABILITY_BENCHMARK_FAILURE.md#kueueworkloadspendingtoolong
+          - exp_labels: {severity: warning, cluster_queue: cq-q}
+            exp_annotations:
+              summary: "ClusterQueue cq-q has had pending workloads for 30 minutes and admitted none"
+              description: >-
+                3 workload(s) pending at the lowest point of the last 30 minutes, and no admission on this queue in
+                that time.
+              runbook_url: https://github.com/lkhun9311/gpu-platform-control-plane/blob/main/docs/06_OBSERVABILITY_BENCHMARK_FAILURE.md#kueueworkloadspendingtoolong
+          - exp_labels: {severity: warning, cluster_queue: cq-r}
+            exp_annotations:
+              summary: "ClusterQueue cq-r has had pending workloads for 30 minutes and admitted none"
+              description: >-
+                2 workload(s) pending at the lowest point of the last 30 minutes, and no admission on this queue in
+                that time.
+              runbook_url: https://github.com/lkhun9311/gpu-platform-control-plane/blob/main/docs/06_OBSERVABILITY_BENCHMARK_FAILURE.md#kueueworkloadspendingtoolong
+          - exp_labels: {severity: warning, cluster_queue: cq-s}
+            exp_annotations:
+              summary: "ClusterQueue cq-s has had pending workloads for 30 minutes and admitted none"
+              description: >-
+                3 workload(s) pending at the lowest point of the last 30 minutes, and no admission on this queue in
+                that time.
+              runbook_url: https://github.com/lkhun9311/gpu-platform-control-plane/blob/main/docs/06_OBSERVABILITY_BENCHMARK_FAILURE.md#kueueworkloadspendingtoolong

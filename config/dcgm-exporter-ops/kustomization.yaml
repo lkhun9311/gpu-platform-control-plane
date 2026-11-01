@@ -1,0 +1,48 @@
+# The DCGM exporter as GPU operations needs it: the fault fields and framebuffer memory, and a scrape path to Prometheus.
+#
+# config/dcgm-exporter collects utilisation alone, because that is what the queuelab verdict reads, and nothing scrapes
+# it except the queuelab runner and the operator's fault path.
+# So GPUFaultSignalPresent in config/prometheus/gpu_rules.yaml and the memory panel of gpu_dashboard.json would read
+# nothing from it, and a dashboard with nothing to read draws the empty graph that looks like an idle fleet.
+#
+# Built on config/dcgm-exporter rather than on config/dcgm-exporter-fault.
+# That overlay runs a separate host engine so the fault study can write into DCGM's cache, which operations has no use
+# for; the embedded engine reads the same driver, and real Xid and ECC values reach it without injection.
+#
+# Both readers of this exporter ignore the lines they do not need: internal/queuelab/dcgm.go keeps utilisation and
+# internal/gpufault/classify.go keeps the three fault fields, so adding framebuffer memory changes neither verdict.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# The base sets the namespace for its own objects only; the PodMonitor added here needs it said again.
+namespace: gpu-platform-control-plane-system
+
+resources:
+  - ../dcgm-exporter
+  - podmonitor.yaml
+
+patches:
+  - target:
+      kind: ConfigMap
+      name: dcgm-exporter-metrics
+    patch: |-
+      - op: replace
+        path: /data/queuelab-metrics.csv
+        value: |
+          # Format,          Prometheus metric type, help message
+          DCGM_FI_DEV_GPU_UTIL, gauge, GPU utilization (in %).
+          DCGM_FI_DEV_FB_USED, gauge, Framebuffer memory used (in MiB).
+          DCGM_FI_DEV_XID_ERRORS, gauge, Value of the last XID error encountered.
+          DCGM_FI_DEV_ECC_DBE_VOL_TOTAL, counter, Total number of double-bit volatile ECC errors.
+          DCGM_FI_DEV_ECC_SBE_VOL_TOTAL, counter, Total number of single-bit volatile ECC errors.
+  # The base mounts the CSV with subPath, which a running Pod never sees change, and the ConfigMap's name is fixed.
+  # So applying this over a running base would leave the exporters on the old field list; changing the Pod template
+  # is what rolls them, and the value names the field list so a later edit of the CSV must change it too.
+  - target:
+      kind: DaemonSet
+      name: dcgm-exporter
+    patch: |-
+      - op: add
+        path: /spec/template/metadata/annotations
+        value:
+          platform.lkhun9311.github.io/dcgm-fields: util-fb-xid-ecc
