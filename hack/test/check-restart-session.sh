@@ -497,6 +497,41 @@ EOF
 out="$(lib ended 'restart_fault_recheck rp0 job-t "$RESTART_OUT" rst-t; echo "rc=$?"')"
 if [[ "$out" == *"the job had already ended Succeeded"*"rc=1" ]]; then ok "a job that has ended refuses the fault"; else bad "the ended job: $out"; fi
 
+# Before the first case: both fault flags on the operator, the three fault fields on every exporter, and every
+# NodeHealth reading a fresh, healthy signal.
+# ready_rules NAME ARGS NODE_B_METRICS SIGNAL: two GPU nodes; the operator's args, node-b's scrape and both nodes'
+# GPUSignal as given.
+ready_rules() {
+  mkdir -p "$work/rules/$1"
+  cat >"$work/rules/$1/kubectl.sh" <<EOF
+case "\$*" in
+  *"control-plane=controller-manager"*) echo 'operator-0 $2' ;;
+  *"get nodes -l eks.amazonaws.com/nodegroup=gpu"*) printf 'node-a\nnode-b\n' ;;
+  *"spec.nodeName=node-a,status.phase=Running"*) echo "dcgm-a " ;;
+  *"spec.nodeName=node-b,status.phase=Running"*) echo "dcgm-b " ;;
+  *"get --raw"*"dcgm-a:9400/proxy/metrics"*) printf '%s{gpu="0"} 0\n' DCGM_FI_DEV_XID_ERRORS DCGM_FI_DEV_ECC_DBE_VOL_TOTAL DCGM_FI_DEV_ECC_SBE_VOL_TOTAL ;;
+  *"get --raw"*"dcgm-b:9400/proxy/metrics"*) printf '%s{gpu="0"} 0\n' $3 ;;
+  *"get nodehealths -o json"*)
+    echo '{"items": [{"metadata": {}, "spec": {"nodeName": "node-a"}, "status": {"conditions": [{"type": "GPUHealthy", "status": "True"}, {"type": "GPUSignal", "status": "$4"}]}},
+                     {"metadata": {}, "spec": {"nodeName": "node-b"}, "status": {"conditions": [{"type": "GPUHealthy", "status": "True"}, {"type": "GPUSignal", "status": "$4"}]}}]}' ;;
+esac
+EOF
+}
+both='["--leader-elect","--gpu-fault-source=dcgm","--gpu-fault-evict-workloads"]'
+fields="DCGM_FI_DEV_XID_ERRORS DCGM_FI_DEV_ECC_DBE_VOL_TOTAL DCGM_FI_DEV_ECC_SBE_VOL_TOTAL"
+ready_rules ready "$both" "$fields" True
+ready_rules one-flag '["--leader-elect","--gpu-fault-evict-workloads"]' "$fields" True
+ready_rules no-ecc "$both" DCGM_FI_DEV_XID_ERRORS True
+ready_rules no-signal "$both" "$fields" False
+for c in ready:"every GPU node's exporter serves the fault fields"*"rc=0" one-flag:"operator-0 runs without --gpu-fault-source=dcgm"*"rc=1" \
+  no-ecc:"the exporter on node-b serves no DCGM_FI_DEV_ECC_DBE_VOL_TOTAL DCGM_FI_DEV_ECC_SBE_VOL_TOTAL"*"rc=1" \
+  no-signal:"the NodeHealth of node-a did not read a fresh, healthy GPU signal"*"rc=1"; do
+  name="${c%%:*}" want="${c#*:}"
+  out="$(lib "$name" 'restart_fault_path_ready 1; echo "rc=$?"')"
+  # shellcheck disable=SC2053  # the right side is a pattern on purpose
+  if [[ "$out" == *$want ]]; then ok "fault path readiness, $name: $(head -1 <<<"$out" | cut -c1-120)"; else bad "fault path readiness, $name: $out"; fi
+done
+
 # --- 3. the scorer --------------------------------------------------------------------------------------------------
 # score DEFECT CASE WANT_KIND WANT_TEXT: a run generated with one defect in one case; that case's line must carry the
 # verdict and the text, and the run's exit must not be 0.

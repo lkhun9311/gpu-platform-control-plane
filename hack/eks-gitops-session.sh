@@ -999,11 +999,13 @@ train_run_restart() {
   # The three first nodes are warmed in parallel under one RESTART_WARM_BUDGET, the share restart_gpu_budget gives them.
   out="$(restart_prepare_nodes "$warmed" $((SECONDS + RESTART_WARM_BUDGET)))" || { bad "R5: $out"; return 1; }
   ok "R5: $out"
+  out="$(restart_fault_path_ready "$RESTART_SIGNAL_BUDGET")" || { bad "R6: $out"; return 1; }
+  ok "R6: $out"
   restart_run "$warmed" 2>&1 | tee -a "$RESTART_OUT/run.log" "$EXDIR/session.log"
   if python3 experiments/distributed-restart/score_eks.py "$RESTART_OUT" >"$RESTART_OUT/verdict.txt" 2>&1; then
-    ok "R6: every registered case ACCEPTED ($RESTART_OUT/verdict.txt)"
+    ok "R7: every registered case ACCEPTED ($RESTART_OUT/verdict.txt)"
   else
-    bad "R6: not every registered case was accepted: $(grep -cE '^(FAILED|VOID|NOTRUN|REFUSED)' "$RESTART_OUT/verdict.txt") line(s), see $RESTART_OUT/verdict.txt"
+    bad "R7: not every registered case was accepted: $(grep -cE '^(FAILED|VOID|NOTRUN|REFUSED)' "$RESTART_OUT/verdict.txt") line(s), see $RESTART_OUT/verdict.txt"
   fi
 }
 

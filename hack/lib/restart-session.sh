@@ -716,7 +716,7 @@ restart_dcgm_reset() {
 # The fault path is off unless the operator's flags say otherwise, and Argo self-heals the operator back to main's
 # flags, so both Applications that would do it lose their automated sync first; it is a recorded deviation from main.
 restart_enable_fault_path() {
-  local app phase dep args out
+  local app phase dep out
   for app in gpu-platform-root gpu-platform-operator; do
     phase="$(rk -n argocd get application "$app" -o jsonpath='{.status.operationState.phase}' 2>&1)" || {
       echo "could not read $app: ${phase:0:200}"
@@ -754,15 +754,83 @@ restart_enable_fault_path() {
     return 1
   }
   sleep 90
-  args="$(rk -n "$RESTART_SYS" get pods -l control-plane=controller-manager -o jsonpath='{range .items[*]}{.spec.containers[0].args}{"\n"}{end}' 2>&1)" || {
+  out="$(restart_operator_flags_ok)" || {
+    echo "90 s later: $out"
+    return 1
+  }
+  echo "the operator runs with ${RESTART_FAULT_FLAGS[*]} 90 s after the change, and Argo's automated sync is off"
+}
+
+# restart_operator_flags_ok: every operator Pod runs its manager with both RESTART_FAULT_FLAGS; prints why not.
+#
+# Each flag is checked on its own, as a whole argument: the check this replaced looked for the second flag only, so an
+# operator watching DCGM without evicting, or evicting with no source, passed it.
+restart_operator_flags_ok() {
+  local args line flag
+  args="$(rk -n "$RESTART_SYS" get pods -l control-plane=controller-manager -o jsonpath='{range .items[*]}{.metadata.name}{" "}{.spec.containers[0].args}{"\n"}{end}' 2>&1)" || {
     echo "could not read the operator Pods' args: ${args:0:200}"
     return 1
   }
-  if [[ -z "$args" ]] || grep -qv -- "${RESTART_FAULT_FLAGS[1]}" <<<"$args"; then
-    echo "90 s later not every operator Pod runs with the fault flags: $args"
+  [[ -n "$args" ]] || {
+    echo "no operator Pod to read the fault flags from"
     return 1
-  fi
-  echo "the operator runs with ${RESTART_FAULT_FLAGS[*]} 90 s after the change, and Argo's automated sync is off"
+  }
+  while read -r line; do
+    [[ -n "$line" ]] || continue
+    for flag in "${RESTART_FAULT_FLAGS[@]}"; do
+      [[ "$line" == *"\"$flag\""* ]] || {
+        echo "${line%% *} runs without $flag: ${line#* }"
+        return 1
+      }
+    done
+  done <<<"$args"
+}
+
+# restart_fault_path_ready WAIT: before the first case, the operator still runs with both fault flags, and on every GPU
+# node the exporter serves the three fields the fault path classifies and the node's NodeHealth reads a fresh, healthy,
+# untainted signal within WAIT seconds.
+#
+# GPUSignal True is the operator's own word that it scraped that node, so this shows the path end to end except the
+# fault itself.
+# What it cannot show without a fault: that an XID written into the host engine reaches the exporter, and that the
+# operator latches, taints and evicts on it; the first dcgm case shows that, and the scorer voids it when it does not.
+restart_fault_path_ready() {
+  local deadline=$((SECONDS + $1)) nodes node metrics f missing out left
+  out="$(restart_operator_flags_ok)" || {
+    echo "$out"
+    return 1
+  }
+  nodes="$(rk get nodes -l "eks.amazonaws.com/nodegroup=$RESTART_GROUP" -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>&1)" || {
+    echo "could not list the GPU nodes: ${nodes:0:200}"
+    return 1
+  }
+  [[ -n "$nodes" ]] || {
+    echo "no GPU node to check the fault path on"
+    return 1
+  }
+  while read -r node; do
+    [[ -n "$node" ]] || continue
+    restart_gf_env "$node" "$RESTART_OUT" || return 1
+    metrics="$(gf_metrics 2>&1)" || {
+      echo "the exporter on $node could not be scraped: ${metrics:0:200}"
+      return 1
+    }
+    missing=""
+    for f in 230 311 310; do
+      grep -q "^${GF_FIELD_NAME[$f]}{" <<<"$metrics" || missing="$missing ${GF_FIELD_NAME[$f]}"
+    done
+    [[ -z "$missing" ]] || {
+      echo "the exporter on $node serves no$missing"
+      return 1
+    }
+    left=$((deadline - SECONDS))
+    ((left >= 1)) || left=1
+    gf_wait_until "$left" gf_is_clear || {
+      echo "the NodeHealth of $node did not read a fresh, healthy GPU signal on an untainted node by the deadline"
+      return 1
+    }
+  done <<<"$nodes"
+  echo "the operator runs with ${RESTART_FAULT_FLAGS[*]}, and every GPU node's exporter serves the fault fields and its NodeHealth reads a fresh, healthy signal"
 }
 
 # restart_prepare_nodes WARMED_FILE DEADLINE: a NodeHealth and a warm-up for every GPU node not yet prepared, all
