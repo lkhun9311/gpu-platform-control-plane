@@ -36,10 +36,11 @@ resource "aws_efs_file_system" "shared" {
 }
 
 # The mount targets admit NFS from the nodes and nothing else.
+# EC2 refuses a security group description with an apostrophe, and the first paid restart session failed on one here.
 resource "aws_security_group" "efs" {
   count       = local.efs_count
   name        = "${var.cluster_name}-efs"
-  description = "NFS from the EKS nodes to the restart session's EFS mount targets"
+  description = "NFS from the EKS nodes to the EFS mount targets of the restart session"
   vpc_id      = module.vpc.vpc_id
   tags        = merge(var.tags, { Name = "${var.cluster_name}-efs" })
 }

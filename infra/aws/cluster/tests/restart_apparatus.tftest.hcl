@@ -159,6 +159,16 @@ run "efs_with_one_mount_target_in_the_pinned_zone" {
     error_message = "The mount targets must admit TCP 2049 from the node security group and from nothing broader."
   }
 
+  # EC2 accepts only these characters in a security group's or a rule's description, which a mocked plan never sends.
+  # The first paid restart session's apply failed on an apostrophe in the group's description, 2026-11-02.
+  assert {
+    condition = alltrue([for d in [
+      aws_security_group.efs[0].description,
+      aws_vpc_security_group_ingress_rule.efs_nfs_from_nodes[0].description,
+    ] : can(regex("^[a-zA-Z0-9. _:/()#,@+=&;{}!$*\\[\\]-]{0,255}$", d))])
+    error_message = "A security group or rule description holds a character EC2 refuses: ${aws_security_group.efs[0].description}"
+  }
+
   assert {
     condition     = tolist(aws_efs_mount_target.shared[0].security_groups) == tolist([aws_security_group.efs[0].id])
     error_message = "The mount target must carry the NFS security group and only it."
