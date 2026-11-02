@@ -36,6 +36,14 @@ cat >"$work/bin/stub" <<'EOF'
 #!/usr/bin/env bash
 tool=$(basename "$0")
 printf '%s %s\n' "$tool" "$*" >>"${STUB_CALLS:?the stub was given nowhere to record its calls}" || exit 98
+# The session's kubeconfig, which restart_probe_config reads before every round of clock probes: a case's own, or one
+# whose user holds a client certificate and no credential plugin, as kind's does.
+if [[ "$tool" == kubectl && " $* " == *" config view "* ]]; then
+  if [[ -n "${STUB_RULES:-}" && -f "$STUB_RULES/kubeconfig.json" ]]; then cat "$STUB_RULES/kubeconfig.json"; else
+    echo '{"apiVersion": "v1", "kind": "Config", "current-context": "stub", "contexts": [{"name": "stub", "context": {"cluster": "c", "user": "u"}}], "clusters": [{"name": "c", "cluster": {"server": "https://stub.invalid"}}], "users": [{"name": "u", "user": {"client-certificate-data": "Y2VydA=="}}]}'
+  fi
+  exit 0
+fi
 if [[ -n "${STUB_RULES:-}" && -f "$STUB_RULES/$tool.sh" ]]; then
   # shellcheck disable=SC1090
   . "$STUB_RULES/$tool.sh" "$@"
@@ -347,11 +355,31 @@ case "$*" in *"get nodes"*) printf 'node-a new-uid\nnode-b ub\n' ;; esac
 EOF
 printf 'node-a old-uid\nnode-b ub\n' >"$work/out/reused/warmed.txt"
 out="$(lib reused 'restart_prepare_nodes "$RESTART_OUT/warmed.txt" $((SECONDS + 30)); echo "rc=$?"')"
-if [[ "$out" == *"rc=0" && "$(grep -c 'apply -f -' "$work/reused.calls")" == 2 ]] && grep -qx 'node-a new-uid' "$work/out/reused/warmed.txt" &&
-  ! grep -q 'rst-warm-nodeb' "$work/reused.calls"; then
+if [[ "$out" == *"rc=0" && "$(grep -c 'apply -f -' "$work/reused.calls")" == 2 ]] && grep -qx 'node-a new-uid' "$work/out/reused/warmed.txt" && [[
+  "$(grep -c ' wait .*pod/rst-warm-' "$work/reused.calls")" == 1 ]]; then
   ok "a reused node name with a new UID is prepared again, and the unchanged node is not"
 else
   bad "the reused node name: $out; $(grep -c 'apply -f -' "$work/reused.calls") create(s); warmed $(paste -sd' ' "$work/out/reused/warmed.txt")"
+fi
+
+# EKS names every node ip-<address>.<region>.compute.internal, so a Pod name cut from the name's tail was the same
+# for all three: the first paid smoke session's second warm-up was refused as an update of the first's Pod.
+mkdir -p "$work/rules/eksnames" "$work/out/eksnames"
+cat >"$work/rules/eksnames/kubectl.sh" <<'EOF'
+case "$*" in
+  *"get nodes"*) printf '%s\n' 'ip-10-0-52-104.ap-northeast-2.compute.internal u1' 'ip-10-0-59-67.ap-northeast-2.compute.internal u2' \
+    'ip-10-0-63-183.ap-northeast-2.compute.internal u3' ;;
+esac
+EOF
+: >"$work/out/eksnames/warmed.txt"
+out="$(lib eksnames 'restart_prepare_nodes "$RESTART_OUT/warmed.txt" $((SECONDS + 30)); echo "rc=$?"')"
+# The stubs record arguments, not stdin, so the Pods are read from the waits that name them.
+names="$(grep -oE ' wait .*pod/rst-warm-[a-z0-9-]+' "$work/eksnames.calls" | grep -oE 'rst-warm-[a-z0-9-]+' | sort -u | wc -l)"
+long="$(grep -oE 'pod/rst-warm-[a-z0-9-]+' "$work/eksnames.calls" | awk 'length($0) - 4 > 63' | wc -l)"
+if [[ "$out" == *"rc=0" && "$names" == 3 && "$long" == 0 ]]; then
+  ok "three EKS node names that share their tail get three warm-up Pods"
+else
+  bad "EKS node names: $out; $names distinct warm-up Pod name(s), $long over 63 characters"
 fi
 
 # A failed read of the taints is not "no node tainted".
@@ -412,6 +440,79 @@ sys.exit(0 if r["before"] <= r["node_time"] <= r["after"] and r["node"] == "node
 else
   bad "the clock probe: $out"
 fi
+# The scorer voids a bracket wider than its CLOCK_BRACKET_S, so the runner retries against the same number.
+want="$(sed -n 's/^CLOCK_BRACKET_S = //p' experiments/distributed-restart/score_eks.py)"
+got="$(sed -n 's/^RESTART_CLOCK_BRACKET=//p' hack/lib/restart-session.sh)"
+if [[ -n "$want" && "$want" == "$got" ]]; then ok "the runner's widest probe is the scorer's, $got s"; else bad "the runner's widest probe '$got' is not the scorer's '$want'"; fi
+
+# A probe wider than that is taken again rather than kept: EKS's credential plugin alone took 0.3 s of each.
+mkdir -p "$work/rules/wide"
+cat >"$work/rules/wide/kubectl.sh" <<'EOF'
+case "$*" in *"exec dcgm-a -c exporter -- date"*)
+  n=$(($(cat "$STUB_RULES/n" 2>/dev/null || echo 0) + 1)); echo "$n" >"$STUB_RULES/n"
+  ((n <= 2)) && sleep 0.6
+  date +%s.%N ;;
+esac
+EOF
+out="$(lib wide 'restart_clock_probe dcgm-a node-a; echo "rc=$?"')"
+if [[ "$out" == "{"*"rc=0" && "$(grep -c 'exec dcgm-a' "$work/wide.calls")" == 3 ]] && python3 -c '
+import json, sys
+r = json.loads(sys.argv[1].splitlines()[0])
+sys.exit(0 if r["after"] - r["before"] <= 0.5 else 1)' "$out"; then
+  ok "two probes wider than 0.5 s are taken again and the third, narrow one is kept"
+else
+  bad "the wide probe: $out; $(grep -c 'exec dcgm-a' "$work/wide.calls") exec(s)"
+fi
+mkdir -p "$work/rules/allwide"
+cat >"$work/rules/allwide/kubectl.sh" <<'EOF'
+case "$*" in *"exec dcgm-a -c exporter -- date"*) sleep 0.6; date +%s.%N ;; esac
+EOF
+out="$(lib allwide 'restart_clock_probe dcgm-a node-a; echo "rc=$?"')"
+if [[ "$out" == *"every probe of the clock of node-a was wider than 0.5 s"*"rc=1" && "$(grep -c 'exec dcgm-a' "$work/allwide.calls")" == 3 ]]; then
+  ok "a clock whose every probe is wide is not read"
+else
+  bad "the always-wide probe: $out"
+fi
+
+# The credential plugin runs once a round, outside every bracket, and the token it gave is not left on disk.
+mkdir -p "$work/rules/plugin"
+cat >"$work/bin/token-plugin" <<'EOF'
+#!/usr/bin/env bash
+printf 'token-plugin %s\n' "$*" >>"$STUB_CALLS"
+echo '{"kind": "ExecCredential", "apiVersion": "client.authentication.k8s.io/v1beta1", "status": {"token": "k8s-aws-v1.stub"}}'
+EOF
+chmod +x "$work/bin/token-plugin"
+echo '{"apiVersion": "v1", "kind": "Config", "current-context": "stub", "contexts": [{"name": "stub", "context": {"cluster": "c", "user": "u"}}], "clusters": [{"name": "c", "cluster": {"server": "https://stub.invalid"}}], "users": [{"name": "u", "user": {"exec": {"apiVersion": "client.authentication.k8s.io/v1beta1", "command": "token-plugin", "args": ["eks", "get-token"]}}}]}' >"$work/rules/plugin/kubeconfig.json"
+cat >"$work/rules/plugin/kubectl.sh" <<'EOF'
+case "$*" in
+  *"get nodes -l eks.amazonaws.com/nodegroup=gpu"*) printf 'node-a\nnode-b\n' ;;
+  *"component=dcgm-exporter"*) printf 'node-a dcgm-a\nnode-b dcgm-b\n' ;;
+  *"--kubeconfig "*"exec dcgm-"*" -c exporter -- date"*)
+    f="$(sed -E 's/.*--kubeconfig ([^ ]+).*/\1/' <<<"$*")"
+    grep -q '"token": "k8s-aws-v1.stub"' "$f" && ! grep -q '"exec"' "$f" && echo "$f" >>"$STUB_RULES/configs" && date +%s.%N ;;
+esac
+EOF
+out="$(lib plugin 'restart_probe_all "$RESTART_OUT" before; echo "rc=$?"')"
+left="$(sort -u "$work/rules/plugin/configs" 2>&1 | while read -r f; do [[ -e "$f" ]] && echo "$f"; done)"
+if [[ "$out" == "rc=0" && "$(grep -c '^token-plugin' "$work/plugin.calls")" == 1 && "$(wc -l <"$work/rules/plugin/configs")" == 2 && -z "$left" ]]; then
+  ok "one token a round of probes, each probe on it, and its file removed after"
+else
+  bad "the probe kubeconfig: $out; $(grep -c '^token-plugin' "$work/plugin.calls") plugin run(s), configs left: $left"
+fi
+
+# A plugin that refuses is reported with its own reason, which is what a VOID before the fault would have to show.
+mkdir -p "$work/rules/plugin-refuses"
+printf '#!/usr/bin/env bash\necho "token denied: the SSO session has expired" >&2\nexit 1\n' >"$work/bin/refusing-plugin"
+chmod +x "$work/bin/refusing-plugin"
+sed 's/"command": "token-plugin"/"command": "refusing-plugin"/' "$work/rules/plugin/kubeconfig.json" >"$work/rules/plugin-refuses/kubeconfig.json"
+cp "$work/rules/plugin/kubectl.sh" "$work/rules/plugin-refuses/kubectl.sh"
+out="$(lib plugin-refuses 'restart_probe_all "$RESTART_OUT" before; echo "rc=$?"')"
+if [[ "$out" == *"refusing-plugin failed: token denied: the SSO session has expired"*"rc=1" ]]; then
+  ok "a credential plugin that refuses is reported with its own reason"
+else
+  bad "the refusing plugin: $out"
+fi
+
 # An empty exporter list reads no clock, which is not every clock read.
 out="$(lib noexporter 'restart_probe_all "$RESTART_OUT" before; echo "rc=$?"')"
 if [[ "$out" == *"no exporter Pod was Running"*"rc=1" ]]; then ok "a probe of no node fails"; else bad "the probe of no node: $out"; fi
@@ -715,6 +816,44 @@ for c in ready:"every GPU node's exporter serves the fault fields"*"rc=0" one-fl
   # shellcheck disable=SC2053  # the right side is a pattern on purpose
   if [[ "$out" == *$want ]]; then ok "fault path readiness, $name: $(head -1 <<<"$out" | cut -c1-120)"; else bad "fault path readiness, $name: $out"; fi
 done
+
+# An exporter still starting is waited for within the budget: node-b first has no Running exporter Pod, then one that
+# cannot be scraped, then one that serves; and one that never comes fails, rather than being read through node-a's Pod.
+late_rules() {
+  mkdir -p "$work/rules/$1"
+  cat >"$work/rules/$1/kubectl.sh" <<EOF
+case "\$*" in
+  *"control-plane=controller-manager"*) echo 'operator-0 $both' ;;
+  *"get nodes -l eks.amazonaws.com/nodegroup=gpu"*) printf 'node-a\nnode-b\n' ;;
+  *"spec.nodeName=node-a,status.phase=Running"*) echo "dcgm-a " ;;
+  *"spec.nodeName=node-b,status.phase=Running"*)
+    n=\$((\$(cat "\$STUB_RULES/pod-n" 2>/dev/null || echo 0) + 1)); echo "\$n" >"\$STUB_RULES/pod-n"
+    if [[ "$2" != never ]] && ((n > 1)); then echo "dcgm-b "; fi ;;
+  *"get --raw"*"dcgm-a:9400/proxy/metrics"*) printf '%s{gpu="0"} 0\n' $fields ;;
+  *"get --raw"*"dcgm-b:9400/proxy/metrics"*)
+    n=\$((\$(cat "\$STUB_RULES/scrape-n" 2>/dev/null || echo 0) + 1)); echo "\$n" >"\$STUB_RULES/scrape-n"
+    ((n > 1)) || { echo "Error from server (ServiceUnavailable): the server is currently unable to handle the request" >&2; exit 1; }
+    printf '%s{gpu="0"} 0\n' $fields ;;
+  *"get nodehealths -o json"*)
+    echo '{"items": [{"metadata": {}, "spec": {"nodeName": "node-a"}, "status": {"conditions": [{"type": "GPUHealthy", "status": "True"}, {"type": "GPUSignal", "status": "True"}]}},
+                     {"metadata": {}, "spec": {"nodeName": "node-b"}, "status": {"conditions": [{"type": "GPUHealthy", "status": "True"}, {"type": "GPUSignal", "status": "True"}]}}]}' ;;
+esac
+EOF
+}
+late_rules late-exporter late
+late_rules never-exporter never
+out="$(lib late-exporter 'RESTART_POLL=1; restart_fault_path_ready 4; echo "rc=$?"')"
+if [[ "$out" == *"every GPU node's exporter serves the fault fields"*"rc=0" && "$(grep -c 'dcgm-b:9400' "$work/late-exporter.calls")" == 2 ]]; then
+  ok "fault path readiness waits for an exporter that is still starting"
+else
+  bad "the late exporter: $out; $(grep -c 'dcgm-b:9400' "$work/late-exporter.calls") scrape(s) of node-b's"
+fi
+out="$(lib never-exporter 'RESTART_POLL=1; restart_fault_path_ready 2; echo "rc=$?"')"
+if [[ "$out" == *"no single exporter Pod on node-b"*"rc=1" ]] && ! grep -q 'dcgm-a:9400.*' <(grep -A0 'dcgm-a:9400' "$work/never-exporter.calls" | sed -n '2,$p'); then
+  ok "an exporter that never comes on node-b fails the gate"
+else
+  bad "the missing exporter: $out"
+fi
 
 # A node whose taints cannot be read is neither tainted nor clear, and its record says so rather than absent.
 mkdir -p "$work/rules/taint-unreadable"

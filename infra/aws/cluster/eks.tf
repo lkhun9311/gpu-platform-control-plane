@@ -25,21 +25,7 @@ module "eks" {
   cluster_endpoint_public_access       = length(var.api_public_access_cidrs) > 0
   cluster_endpoint_public_access_cidrs = var.api_public_access_cidrs
 
-  # Kueue's visibility API is an aggregated APIService the API server reaches on the controller's port 8082.
-  #
-  # The module's recommended node rules open 443, 4443, 6443, 8443, 9443 and 10250 from the control plane, and not
-  # this one, so without it both visibility APIServices stay unavailable. Argo would then hold the
-  # gpu-platform-kueue Application's wave 0 unhealthy and never apply the gpu flavor in its wave 1.
-  node_security_group_additional_rules = {
-    ingress_cluster_8082_kueue_visibility = {
-      description                   = "Cluster API to node 8082/tcp Kueue visibility API"
-      protocol                      = "tcp"
-      from_port                     = 8082
-      to_port                       = 8082
-      type                          = "ingress"
-      source_cluster_security_group = true
-    }
-  }
+  node_security_group_additional_rules = local.node_security_group_additional_rules
 
   # Terraform owns the cluster-lifecycle add-ons.
   #
@@ -422,4 +408,31 @@ module "eks" {
   }
 
   tags = var.tags
+}
+locals {
+  # The module's recommended node rules open 443, 4443, 6443, 8443, 9443 and 10250 from the control plane, and nothing
+  # else, so every port the API server itself must reach on a node is listed here.
+  node_security_group_additional_rules = {
+    # Kueue's visibility API is an aggregated APIService the API server reaches on the controller's port 8082.
+    # Without it both visibility APIServices stay unavailable, and Argo would hold the gpu-platform-kueue Application's
+    # wave 0 unhealthy and never apply the gpu flavor in its wave 1.
+    ingress_cluster_8082_kueue_visibility = {
+      description                   = "Cluster API to node 8082/tcp Kueue visibility API"
+      protocol                      = "tcp"
+      from_port                     = 8082
+      to_port                       = 8082
+      type                          = "ingress"
+      source_cluster_security_group = true
+    }
+    # The restart session reads each GPU node's dcgm-exporter through the API server's Pod proxy on 9400
+    # (hack/lib/gpu-fault.sh, gf_metrics), and its fault-path check aborts the session before the first case without it.
+    ingress_cluster_9400_dcgm_exporter = {
+      description                   = "Cluster API to node 9400/tcp dcgm-exporter through the Pod proxy"
+      protocol                      = "tcp"
+      from_port                     = 9400
+      to_port                       = 9400
+      type                          = "ingress"
+      source_cluster_security_group = true
+    }
+  }
 }

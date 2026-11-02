@@ -297,9 +297,10 @@ func TestTheNodesAdmitKueuesAggregatedAPI(t *testing.T) {
 		t.Fatal("found no port an APIService needs, so the read went wrong")
 	}
 	tf := readRepoFile(t, "infra/aws/cluster/eks.tf")
-	start := strings.Index(tf, "node_security_group_additional_rules")
+	// The map literal, wherever it is, and not the module's argument, which names it through a local.
+	start := strings.Index(tf, "node_security_group_additional_rules = {")
 	if start < 0 {
-		t.Fatal("eks.tf sets no node_security_group_additional_rules")
+		t.Fatal("eks.tf sets no node_security_group_additional_rules map")
 	}
 	// The block ends at the first line closing it at the module's indentation.
 	block, _, _ := strings.Cut(tf[start:], "\n  }\n")
