@@ -159,6 +159,19 @@ run "efs_with_one_mount_target_in_the_pinned_zone" {
     error_message = "The mount targets must admit TCP 2049 from the node security group and from nothing broader."
   }
 
+  # The API server reaches the exporter through its Pod proxy, which the module's recommended node rules do not allow.
+  assert {
+    condition = anytrue([for r in values(local.node_security_group_additional_rules) :
+    r.type == "ingress" && r.protocol == "tcp" && r.from_port <= 9400 && r.to_port >= 9400 && r.source_cluster_security_group])
+    error_message = "The node security group must admit 9400/tcp from the control plane for the exporter's Pod proxy."
+  }
+
+  assert {
+    condition = alltrue([for r in values(local.node_security_group_additional_rules) :
+    can(regex("^[a-zA-Z0-9. _:/()#,@+=&;{}!$*\\[\\]-]{0,255}$", r.description))])
+    error_message = "A node security group rule's description holds a character EC2 refuses."
+  }
+
   # EC2 accepts only these characters in a security group's or a rule's description, which a mocked plan never sends.
   # The first paid restart session's apply failed on an apostrophe in the group's description, 2026-11-02.
   assert {
