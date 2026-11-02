@@ -1,0 +1,108 @@
+[rank0]:[W1102 23:18:02.458144801 ProcessGroupNCCL.cpp:4115] [PG ID 0 PG GUID 0 Rank 0]  using GPU 0 to perform barrier as devices used by this process are currently unknown. This can potentially cause a hang if this rank to GPU mapping is incorrect.Specify device_ids in barrier() to force use of a particular device,or call init_process_group() with a device_id.
+NCCL version 2.21.5+cuda12.4
+{"ts": "2026-11-02T23:18:02.459709+00:00", "run_id": "rst-terminate-wait-1-231757", "attempt": 1, "rank": 0, "event": "candidates", "latest": null, "offered": []}
+{"ts": "2026-11-02T23:18:02.460316+00:00", "run_id": "rst-terminate-wait-1-231757", "attempt": 1, "rank": 0, "event": "restart_from_zero", "load_mode": "full"}
+{"ts": "2026-11-02T23:18:03.229842+00:00", "run_id": "rst-terminate-wait-1-231757", "attempt": 1, "rank": 0, "event": "start", "world_size": 2, "load_mode": "full", "resumed_from_step": 0, "steps": 30, "fault": "", "torch_version": "2.5.1+cu124", "epoch": 0, "position": 0, "lr": 0.05, "backend": "nccl", "device": "cuda:0", "ballast_mb": 16, "volume": {"point": "/state", "mount_options": "rw,relatime", "fstype": "nfs4", "source": "127.0.0.1:/", "super_options": "rw,vers=4.1,rsize=1048576,wsize=1048576,namlen=255,hard,noresvport,proto=tcp,port=20492,timeo=600,retrans=2,sec=sys,clientaddr=127.0.0.1,local_lock=none,addr=127.0.0.1", "dev": 52}, "visibility_retries": 5, "shard_delay": 0.0, "device_name": "NVIDIA A10G", "gpu_uuid": "aae70857-a438-e0e6-9bfa-6d569cef5049", "cuda_version": "12.4", "nccl_version": "2.21.5", "nccl_env": {"NCCL_DEBUG": "INFO", "NCCL_DEBUG_FILE": "/state/rst-terminate-wait-1-231757-44d01543/nccl/a1-r0-%h.%p.log", "NCCL_DEBUG_SUBSYS": "INIT,NET"}}
+{"ts": "2026-11-02T23:18:03.419953+00:00", "run_id": "rst-terminate-wait-1-231757", "attempt": 1, "rank": 0, "event": "step", "step": 1, "loss": 20.05967903137207, "digest": "1d6908914eaca67842f83d4c22720b51edc2e8711f49018f746a62b88f9d68e3", "params": null}
+{"ts": "2026-11-02T23:18:03.693052+00:00", "run_id": "rst-terminate-wait-1-231757", "attempt": 1, "rank": 0, "event": "checkpoint", "step": 1, "dir": "a1/00000001-c3962b4c30fe4655b09519a54f716e36", "save_s": 0.27283747899991795}
+{"ts": "2026-11-02T23:18:05.701443+00:00", "run_id": "rst-terminate-wait-1-231757", "attempt": 1, "rank": 0, "event": "step", "step": 2, "loss": 8.99077033996582, "digest": "04beb2433b2e242e0ac55c93f1635afda0d67993da97b5eb8a4d07d8ff7d124a", "params": null}
+{"ts": "2026-11-02T23:18:05.964238+00:00", "run_id": "rst-terminate-wait-1-231757", "attempt": 1, "rank": 0, "event": "checkpoint", "step": 2, "dir": "a1/00000002-c5211ee6dab946ebb4c2bae4e4cc2c1e", "save_s": 0.2625871370000823}
+{"ts": "2026-11-02T23:18:07.966997+00:00", "run_id": "rst-terminate-wait-1-231757", "attempt": 1, "rank": 0, "event": "step", "step": 3, "loss": 30.32838249206543, "digest": "a82e0d549c743230391a7dd3772ad36418a3c2bc18b3d4bf5bab4043c51eb62d", "params": null}
+{"ts": "2026-11-02T23:18:08.217304+00:00", "run_id": "rst-terminate-wait-1-231757", "attempt": 1, "rank": 0, "event": "checkpoint", "step": 3, "dir": "a1/00000003-c30d4c5d044042c09b6c48eb5d393288", "save_s": 0.25009885600002235}
+{"ts": "2026-11-02T23:18:10.220510+00:00", "run_id": "rst-terminate-wait-1-231757", "attempt": 1, "rank": 0, "event": "step", "step": 4, "loss": 15.333629608154297, "digest": "f37a08369abd8695700866ed6200fd7e90e19b2b1032dd5aed50da8e97aff074", "params": null}
+{"ts": "2026-11-02T23:18:10.486386+00:00", "run_id": "rst-terminate-wait-1-231757", "attempt": 1, "rank": 0, "event": "checkpoint", "step": 4, "dir": "a1/00000004-077eb9ca50f449498c192686aaef0d39", "save_s": 0.26569224499985467}
+{"ts": "2026-11-02T23:18:12.489483+00:00", "run_id": "rst-terminate-wait-1-231757", "attempt": 1, "rank": 0, "event": "step", "step": 5, "loss": 17.37277603149414, "digest": "7a7d0163e516b425da5ba30cf2061377b3d90a19cc7ae3183a46c69eed3bdcc7", "params": null}
+{"ts": "2026-11-02T23:18:12.751885+00:00", "run_id": "rst-terminate-wait-1-231757", "attempt": 1, "rank": 0, "event": "checkpoint", "step": 5, "dir": "a1/00000005-447263d36ae14677bb6ca17e6fe81ec8", "save_s": 0.26223239999990255}
+{"ts": "2026-11-02T23:18:14.754923+00:00", "run_id": "rst-terminate-wait-1-231757", "attempt": 1, "rank": 0, "event": "step", "step": 6, "loss": 13.771068572998047, "digest": "7f99e0d84f69b99309a6480d2a81d1edc4a99320268f4be905b3d3ef4e12a2ba", "params": null}
+{"ts": "2026-11-02T23:18:15.010646+00:00", "run_id": "rst-terminate-wait-1-231757", "attempt": 1, "rank": 0, "event": "checkpoint", "step": 6, "dir": "a1/00000006-9a24f27d8c48409aa80b5b84925e4bb3", "save_s": 0.255553467000027}
+{"ts": "2026-11-02T23:18:17.013365+00:00", "run_id": "rst-terminate-wait-1-231757", "attempt": 1, "rank": 0, "event": "step", "step": 7, "loss": 4.403158187866211, "digest": "cd6026d70e07273ab7e1aa345d915a2e19a017e2f51196fc5d09ccdb413aac2d", "params": null}
+{"ts": "2026-11-02T23:18:17.258356+00:00", "run_id": "rst-terminate-wait-1-231757", "attempt": 1, "rank": 0, "event": "checkpoint", "step": 7, "dir": "a1/00000007-d90138816ceb4f4a828d85906524f486", "save_s": 0.2448123060000853}
+{"ts": "2026-11-02T23:18:19.261121+00:00", "run_id": "rst-terminate-wait-1-231757", "attempt": 1, "rank": 0, "event": "step", "step": 8, "loss": 1.9601913690567017, "digest": "5dd1a7d10f2015f26e926eeb623c4c3e3663960d6ccbd33c50bd03c62cdb1a71", "params": null}
+{"ts": "2026-11-02T23:18:19.498038+00:00", "run_id": "rst-terminate-wait-1-231757", "attempt": 1, "rank": 0, "event": "checkpoint", "step": 8, "dir": "a1/00000008-eeee28fac19f4a3c8a72659d1d17fb2b", "save_s": 0.2367230859999836}
+{"ts": "2026-11-02T23:18:21.500859+00:00", "run_id": "rst-terminate-wait-1-231757", "attempt": 1, "rank": 0, "event": "step", "step": 9, "loss": 4.225297451019287, "digest": "295dd68b0c260a547d3e95aa87eb1d41ab46d1d28f650596ac6dac3e45454ba2", "params": null}
+{"ts": "2026-11-02T23:18:21.750909+00:00", "run_id": "rst-terminate-wait-1-231757", "attempt": 1, "rank": 0, "event": "checkpoint", "step": 9, "dir": "a1/00000009-b3d9fe1ac14b46f89b39fcb57e462f72", "save_s": 0.2498302290000538}
+{"ts": "2026-11-02T23:18:23.753670+00:00", "run_id": "rst-terminate-wait-1-231757", "attempt": 1, "rank": 0, "event": "step", "step": 10, "loss": 5.037708759307861, "digest": "17b758f51bb8504ebe3b43e86491179f3918bf87d28ad695c165c6be2e45572b", "params": null}
+{"ts": "2026-11-02T23:18:24.024567+00:00", "run_id": "rst-terminate-wait-1-231757", "attempt": 1, "rank": 0, "event": "checkpoint", "step": 10, "dir": "a1/00000010-6e1e27bd44d94aa69f24159896fde77c", "save_s": 0.27073060799989435}
+{"ts": "2026-11-02T23:18:26.027309+00:00", "run_id": "rst-terminate-wait-1-231757", "attempt": 1, "rank": 0, "event": "step", "step": 11, "loss": 2.985558271408081, "digest": "86157f497dee31b27b5481e7d09c344ad51898e09f4c75a632d398d12aa3ca65", "params": null}
+{"ts": "2026-11-02T23:18:26.283587+00:00", "run_id": "rst-terminate-wait-1-231757", "attempt": 1, "rank": 0, "event": "checkpoint", "step": 11, "dir": "a1/00000011-1d5ff3dfc72c409ea1074f85b8185a96", "save_s": 0.25611619799997243}
+{"ts": "2026-11-02T23:18:28.286490+00:00", "run_id": "rst-terminate-wait-1-231757", "attempt": 1, "rank": 0, "event": "step", "step": 12, "loss": 2.3755578994750977, "digest": "4c8aaf994e91ab5b511ae69ed0c0ab17fa0162876cf18196e36bf90f33a4e6dc", "params": null}
+{"ts": "2026-11-02T23:18:28.534462+00:00", "run_id": "rst-terminate-wait-1-231757", "attempt": 1, "rank": 0, "event": "checkpoint", "step": 12, "dir": "a1/00000012-93cab1850d0549adb740e61fc65429be", "save_s": 0.2478060410001035}
+{"ts": "2026-11-02T23:18:30.537545+00:00", "run_id": "rst-terminate-wait-1-231757", "attempt": 1, "rank": 0, "event": "step", "step": 13, "loss": 13.218040466308594, "digest": "9e7cb7757fd6bb6a3b601039baa9dfe3e12d1c526b4b7adbda2612d171ed7828", "params": null}
+{"ts": "2026-11-02T23:18:30.786727+00:00", "run_id": "rst-terminate-wait-1-231757", "attempt": 1, "rank": 0, "event": "checkpoint", "step": 13, "dir": "a1/00000013-ade83eea46e6412fa69103cedaf64b29", "save_s": 0.24900958400007767}
+{"ts": "2026-11-02T23:18:32.789622+00:00", "run_id": "rst-terminate-wait-1-231757", "attempt": 1, "rank": 0, "event": "step", "step": 14, "loss": 8.06334114074707, "digest": "9913a8f9a201a21068a7c8aab7724db4e4463b598312f23ccc5d109994e17352", "params": null}
+{"ts": "2026-11-02T23:18:33.052047+00:00", "run_id": "rst-terminate-wait-1-231757", "attempt": 1, "rank": 0, "event": "checkpoint", "step": 14, "dir": "a1/00000014-3cdb96790d944c39b83a8ee02cf1b3ac", "save_s": 0.2622624040000119}
+{"ts": "2026-11-02T23:18:35.054876+00:00", "run_id": "rst-terminate-wait-1-231757", "attempt": 1, "rank": 0, "event": "step", "step": 15, "loss": 3.730884313583374, "digest": "97c5fd29bbaefb58448c7d9847b54c3622a7a0e3fb54400e7fa673e8c4757215", "params": null}
+{"ts": "2026-11-02T23:18:35.301863+00:00", "run_id": "rst-terminate-wait-1-231757", "attempt": 1, "rank": 0, "event": "checkpoint", "step": 15, "dir": "a1/00000015-25eb62c9872e420b814791dafb486cea", "save_s": 0.2468066460000955}
+{"ts": "2026-11-02T23:18:37.304535+00:00", "run_id": "rst-terminate-wait-1-231757", "attempt": 1, "rank": 0, "event": "step", "step": 16, "loss": 4.5086989402771, "digest": "5726089823915be07bfaa42769709f7ced21160bfa6c1cf759905bf4db451c98", "params": null}
+{"ts": "2026-11-02T23:18:37.554353+00:00", "run_id": "rst-terminate-wait-1-231757", "attempt": 1, "rank": 0, "event": "checkpoint", "step": 16, "dir": "a1/00000016-eb52b4a941294c7e9496de12f6d7caf4", "save_s": 0.24965264999991632}
+{"ts": "2026-11-02T23:18:39.557410+00:00", "run_id": "rst-terminate-wait-1-231757", "attempt": 1, "rank": 0, "event": "step", "step": 17, "loss": 3.8461360931396484, "digest": "eab49996e52544d9eb25a4eff1a4908d39fe63c3b5ca743d6126eed1fb499189", "params": null}
+{"ts": "2026-11-02T23:18:39.811835+00:00", "run_id": "rst-terminate-wait-1-231757", "attempt": 1, "rank": 0, "event": "checkpoint", "step": 17, "dir": "a1/00000017-e0c62f5f99614db389732728961c9928", "save_s": 0.2542516340001839}
+{"ts": "2026-11-02T23:18:41.814502+00:00", "run_id": "rst-terminate-wait-1-231757", "attempt": 1, "rank": 0, "event": "step", "step": 18, "loss": 3.6335010528564453, "digest": "3ec09859aec5affa232b1e10e47c0ce3af7410daea74bc82448f6e5019dfd620", "params": null}
+{"ts": "2026-11-02T23:18:42.051973+00:00", "run_id": "rst-terminate-wait-1-231757", "attempt": 1, "rank": 0, "event": "checkpoint", "step": 18, "dir": "a1/00000018-160f4e3510fa4c6fa77760c34965aa86", "save_s": 0.2373022280000896}
+{"ts": "2026-11-02T23:18:44.054659+00:00", "run_id": "rst-terminate-wait-1-231757", "attempt": 1, "rank": 0, "event": "step", "step": 19, "loss": 8.460253715515137, "digest": "b95f685e224b20d1d9d5fc78827559675fe09687b1d7ada749e767864c03c221", "params": null}
+{"ts": "2026-11-02T23:18:44.301033+00:00", "run_id": "rst-terminate-wait-1-231757", "attempt": 1, "rank": 0, "event": "checkpoint", "step": 19, "dir": "a1/00000019-042f790d1a824a98931cd841176fcf6d", "save_s": 0.24618967399987923}
+{"ts": "2026-11-02T23:18:46.303659+00:00", "run_id": "rst-terminate-wait-1-231757", "attempt": 1, "rank": 0, "event": "step", "step": 20, "loss": 0.5313351154327393, "digest": "1e2ce2d97be88f6e81bc09a965127c3dc4b33d3a92e6cb4b107bc95ca7184657", "params": null}
+{"ts": "2026-11-02T23:18:46.550713+00:00", "run_id": "rst-terminate-wait-1-231757", "attempt": 1, "rank": 0, "event": "checkpoint", "step": 20, "dir": "a1/00000020-54a5ac8b764e4beaa5797112c0d14171", "save_s": 0.2468807249999827}
+{"ts": "2026-11-02T23:18:48.553332+00:00", "run_id": "rst-terminate-wait-1-231757", "attempt": 1, "rank": 0, "event": "step", "step": 21, "loss": 2.6269421577453613, "digest": "8186425f2523b3c9b90a1b021388ad9a3fd5bbab9a85979508fc9e9f8559a68b", "params": null}
+{"ts": "2026-11-02T23:18:48.803642+00:00", "run_id": "rst-terminate-wait-1-231757", "attempt": 1, "rank": 0, "event": "checkpoint", "step": 21, "dir": "a1/00000021-405fff5694cd4a8e97e49351d05834f8", "save_s": 0.2501375519998419}
+{"ts": "2026-11-02T23:18:50.806293+00:00", "run_id": "rst-terminate-wait-1-231757", "attempt": 1, "rank": 0, "event": "step", "step": 22, "loss": 4.7209672927856445, "digest": "1486016ad1f010e09a61fa5baab82005844605f4ea530bdc3cccdccc3e2055f3", "params": null}
+{"ts": "2026-11-02T23:18:51.060597+00:00", "run_id": "rst-terminate-wait-1-231757", "attempt": 1, "rank": 0, "event": "checkpoint", "step": 22, "dir": "a1/00000022-9673fdb7c85940bda3b8556909252e7a", "save_s": 0.2541310879998946}
+{"ts": "2026-11-02T23:18:53.063200+00:00", "run_id": "rst-terminate-wait-1-231757", "attempt": 1, "rank": 0, "event": "step", "step": 23, "loss": 13.004672050476074, "digest": "55653446fb77ca33ca08f4b5a811f5fcb3c385cfd2ec1faa6211d9d7b2e81a2a", "params": null}
+{"ts": "2026-11-02T23:18:53.349666+00:00", "run_id": "rst-terminate-wait-1-231757", "attempt": 1, "rank": 0, "event": "checkpoint", "step": 23, "dir": "a1/00000023-81e32147e78643d69bdc5adbc6ab0613", "save_s": 0.28629024500014566}
+{"ts": "2026-11-02T23:18:55.352310+00:00", "run_id": "rst-terminate-wait-1-231757", "attempt": 1, "rank": 0, "event": "step", "step": 24, "loss": 1.4746240377426147, "digest": "582267358f9569843a6596ea70ef9686ade20d048272617bb138f7a6a7eb7885", "params": null}
+{"ts": "2026-11-02T23:18:55.598409+00:00", "run_id": "rst-terminate-wait-1-231757", "attempt": 1, "rank": 0, "event": "checkpoint", "step": 24, "dir": "a1/00000024-b3097392618e4d3eb69faff88ef90f36", "save_s": 0.24592883400009669}
+{"ts": "2026-11-02T23:18:57.601071+00:00", "run_id": "rst-terminate-wait-1-231757", "attempt": 1, "rank": 0, "event": "step", "step": 25, "loss": 1.0676854848861694, "digest": "b78889283c96552cf7f5271b57065db0b2153f4842d10fba97e524687ba8640e", "params": null}
+{"ts": "2026-11-02T23:18:57.849887+00:00", "run_id": "rst-terminate-wait-1-231757", "attempt": 1, "rank": 0, "event": "checkpoint", "step": 25, "dir": "a1/00000025-b5a3254e561548c991c479dd326f45ed", "save_s": 0.24864987199998723}
+[rank0]:[E1102 23:18:59.218964171 ProcessGroupNCCL.cpp:542] [Rank 0] Collective WorkNCCL(SeqNum=159, OpType=ALLREDUCE, NumelIn=49, NumelOut=49, Timeout(ms)=60000) raised the following async exception: NCCL error: remote process exited or there was a network error, NCCL version 2.21.5
+ncclRemoteError: A call failed possibly due to a network error or a remote process exiting prematurely.
+Last error:
+socketProgress: Connection closed by remote peer ip-10-0-58-173.ap-northeast-2.compute.internal<35706>
+Exception raised from checkForNCCLErrorsInternal at ../torch/csrc/distributed/c10d/ProcessGroupNCCL.cpp:2027 (most recent call first):
+frame #0: c10::Error::Error(c10::SourceLocation, std::string) + 0x96 (0x7fbb7cf6c446 in /opt/conda/lib/python3.11/site-packages/torch/lib/libc10.so)
+frame #1: c10d::ProcessGroupNCCL::checkForNCCLErrorsInternal(std::shared_ptr<c10d::NCCLComm>&) + 0x220 (0x7fbb32e18f80 in /opt/conda/lib/python3.11/site-packages/torch/lib/libtorch_cuda.so)
+frame #2: c10d::ProcessGroupNCCL::WorkNCCL::checkAndSetException() + 0x7c (0x7fbb32e191cc in /opt/conda/lib/python3.11/site-packages/torch/lib/libtorch_cuda.so)
+frame #3: c10d::ProcessGroupNCCL::watchdogHandler() + 0x213 (0x7fbb32e20b93 in /opt/conda/lib/python3.11/site-packages/torch/lib/libtorch_cuda.so)
+frame #4: c10d::ProcessGroupNCCL::ncclCommWatchdog() + 0x14d (0x7fbb32e2261d in /opt/conda/lib/python3.11/site-packages/torch/lib/libtorch_cuda.so)
+frame #5: <unknown function> + 0x145c0 (0x7fbb7d3d55c0 in /opt/conda/lib/python3.11/site-packages/torch/lib/libtorch.so)
+frame #6: <unknown function> + 0x94ac3 (0x7fbb7e243ac3 in /lib/x86_64-linux-gnu/libc.so.6)
+frame #7: <unknown function> + 0x126850 (0x7fbb7e2d5850 in /lib/x86_64-linux-gnu/libc.so.6)
+
+[rank0]:[E1102 23:18:59.220508470 ProcessGroupNCCL.cpp:1785] [PG ID 0 PG GUID 0(default_pg) Rank 0] Exception (either an error or timeout) detected by watchdog at work: 159, last enqueued NCCL work: 159, last completed NCCL work: 158.
+[rank0]:[E1102 23:18:59.220519280 ProcessGroupNCCL.cpp:630] [Rank 0] Some NCCL operations have failed or timed out. Due to the asynchronous nature of CUDA kernels, subsequent GPU operations might run on corrupted/incomplete data.
+[rank0]:[E1102 23:18:59.220523710 ProcessGroupNCCL.cpp:636] [Rank 0] To avoid data inconsistency, we are taking the entire process down.
+[rank0]:[E1102 23:18:59.220550071 ProcessGroupNCCL.cpp:1595] [PG ID 0 PG GUID 0(default_pg) Rank 0] Process group watchdog thread terminated with exception: NCCL error: remote process exited or there was a network error, NCCL version 2.21.5
+ncclRemoteError: A call failed possibly due to a network error or a remote process exiting prematurely.
+Last error:
+socketProgress: Connection closed by remote peer ip-10-0-58-173.ap-northeast-2.compute.internal<35706>
+Exception raised from checkForNCCLErrorsInternal at ../torch/csrc/distributed/c10d/ProcessGroupNCCL.cpp:2027 (most recent call first):
+frame #0: c10::Error::Error(c10::SourceLocation, std::string) + 0x96 (0x7fbb7cf6c446 in /opt/conda/lib/python3.11/site-packages/torch/lib/libc10.so)
+frame #1: c10d::ProcessGroupNCCL::checkForNCCLErrorsInternal(std::shared_ptr<c10d::NCCLComm>&) + 0x220 (0x7fbb32e18f80 in /opt/conda/lib/python3.11/site-packages/torch/lib/libtorch_cuda.so)
+frame #2: c10d::ProcessGroupNCCL::WorkNCCL::checkAndSetException() + 0x7c (0x7fbb32e191cc in /opt/conda/lib/python3.11/site-packages/torch/lib/libtorch_cuda.so)
+frame #3: c10d::ProcessGroupNCCL::watchdogHandler() + 0x213 (0x7fbb32e20b93 in /opt/conda/lib/python3.11/site-packages/torch/lib/libtorch_cuda.so)
+frame #4: c10d::ProcessGroupNCCL::ncclCommWatchdog() + 0x14d (0x7fbb32e2261d in /opt/conda/lib/python3.11/site-packages/torch/lib/libtorch_cuda.so)
+frame #5: <unknown function> + 0x145c0 (0x7fbb7d3d55c0 in /opt/conda/lib/python3.11/site-packages/torch/lib/libtorch.so)
+frame #6: <unknown function> + 0x94ac3 (0x7fbb7e243ac3 in /lib/x86_64-linux-gnu/libc.so.6)
+frame #7: <unknown function> + 0x126850 (0x7fbb7e2d5850 in /lib/x86_64-linux-gnu/libc.so.6)
+
+terminate called after throwing an instance of 'c10::DistBackendError'
+  what():  [PG ID 0 PG GUID 0(default_pg) Rank 0] Process group watchdog thread terminated with exception: NCCL error: remote process exited or there was a network error, NCCL version 2.21.5
+ncclRemoteError: A call failed possibly due to a network error or a remote process exiting prematurely.
+Last error:
+socketProgress: Connection closed by remote peer ip-10-0-58-173.ap-northeast-2.compute.internal<35706>
+Exception raised from checkForNCCLErrorsInternal at ../torch/csrc/distributed/c10d/ProcessGroupNCCL.cpp:2027 (most recent call first):
+frame #0: c10::Error::Error(c10::SourceLocation, std::string) + 0x96 (0x7fbb7cf6c446 in /opt/conda/lib/python3.11/site-packages/torch/lib/libc10.so)
+frame #1: c10d::ProcessGroupNCCL::checkForNCCLErrorsInternal(std::shared_ptr<c10d::NCCLComm>&) + 0x220 (0x7fbb32e18f80 in /opt/conda/lib/python3.11/site-packages/torch/lib/libtorch_cuda.so)
+frame #2: c10d::ProcessGroupNCCL::WorkNCCL::checkAndSetException() + 0x7c (0x7fbb32e191cc in /opt/conda/lib/python3.11/site-packages/torch/lib/libtorch_cuda.so)
+frame #3: c10d::ProcessGroupNCCL::watchdogHandler() + 0x213 (0x7fbb32e20b93 in /opt/conda/lib/python3.11/site-packages/torch/lib/libtorch_cuda.so)
+frame #4: c10d::ProcessGroupNCCL::ncclCommWatchdog() + 0x14d (0x7fbb32e2261d in /opt/conda/lib/python3.11/site-packages/torch/lib/libtorch_cuda.so)
+frame #5: <unknown function> + 0x145c0 (0x7fbb7d3d55c0 in /opt/conda/lib/python3.11/site-packages/torch/lib/libtorch.so)
+frame #6: <unknown function> + 0x94ac3 (0x7fbb7e243ac3 in /lib/x86_64-linux-gnu/libc.so.6)
+frame #7: <unknown function> + 0x126850 (0x7fbb7e2d5850 in /lib/x86_64-linux-gnu/libc.so.6)
+
+Exception raised from ncclCommWatchdog at ../torch/csrc/distributed/c10d/ProcessGroupNCCL.cpp:1601 (most recent call first):
+frame #0: c10::Error::Error(c10::SourceLocation, std::string) + 0x96 (0x7fbb7cf6c446 in /opt/conda/lib/python3.11/site-packages/torch/lib/libc10.so)
+frame #1: <unknown function> + 0xe4271b (0x7fbb32a8f71b in /opt/conda/lib/python3.11/site-packages/torch/lib/libtorch_cuda.so)
+frame #2: <unknown function> + 0x145c0 (0x7fbb7d3d55c0 in /opt/conda/lib/python3.11/site-packages/torch/lib/libtorch.so)
+frame #3: <unknown function> + 0x94ac3 (0x7fbb7e243ac3 in /lib/x86_64-linux-gnu/libc.so.6)
+frame #4: <unknown function> + 0x126850 (0x7fbb7e2d5850 in /lib/x86_64-linux-gnu/libc.so.6)
+
