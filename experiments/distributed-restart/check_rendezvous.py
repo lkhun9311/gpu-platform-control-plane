@@ -35,11 +35,12 @@ RENDEZVOUS = 40
 LATE = 15
 FAILURES: list[str] = []
 
-# Every case runs this inside the container: LATE_RANK starts DELAY seconds after the other, and with FREEZE set rank 0
-# is stopped once rank 1 has recorded step 3, and the seconds until rank 1 exits are printed.
+# Every case runs this inside the container: LATE_RANK starts DELAY seconds after the other; with THIRD three ranks run
+# and rank 2 is the late one; with FREEZE set rank 0 is stopped once rank 1 has recorded step 3, and the time until rank
+# 1 exits is printed.
 SCRIPT = r"""
-export WORLD_SIZE=2 MASTER_ADDR=127.0.0.1 MASTER_PORT=29513 CKPT_DIR=/state CKPT_JOB_ID=uid-test TRAINING_ATTEMPT=1
-export CKPT_RUN_ID=rdzv HOME=/tmp
+export WORLD_SIZE=${THIRD:+3} MASTER_ADDR=127.0.0.1 MASTER_PORT=29513 CKPT_DIR=/state CKPT_JOB_ID=uid-test TRAINING_ATTEMPT=1
+export CKPT_RUN_ID=rdzv HOME=/tmp WORLD_SIZE=${WORLD_SIZE:-2}
 run() { RANK=$1 LOCAL_RANK=0 python /code/train.py >/tmp/r$1.out 2>/tmp/r$1.err; echo "rank $1 exit $?"; }
 if [ -n "$FREEZE" ]; then
   RANK=0 LOCAL_RANK=0 python /code/train.py >/tmp/r0.out 2>/tmp/r0.err & p0=$!
@@ -51,13 +52,19 @@ if [ -n "$FREEZE" ]; then
   echo "rank 1 exit $rc"
   echo "after freeze $(( ($(date +%s%N) - t0) / 1000000 )) ms"
   kill -KILL $p0
+elif [ -n "$THIRD" ]; then
+  run 0 & a=$!
+  run 1 & b=$!
+  sleep "$DELAY"
+  run 2 & c=$!
+  wait $a; wait $b; wait $c
 else
   run $((1 - LATE_RANK)) & a=$!
   sleep "$DELAY"
   run "$LATE_RANK" & b=$!
   wait $a; wait $b
 fi
-for r in 0 1; do echo "== rank $r stderr"; tail -3 /tmp/r$r.err; done
+for r in 0 1 2; do [ -f /tmp/r$r.err ] && { echo "== rank $r stderr"; tail -3 /tmp/r$r.err; }; done
 """
 
 
@@ -99,6 +106,10 @@ def main() -> int:
         out = run({**base, "LATE_RANK": str(late), "DELAY": str(LATE)})
         failed = exits(out).get(1 - late, 0) != 0 and re.search(r"clients joined|timed out after", out) is not None
         expect(f"rank {late} {LATE} s late without it fails the join, as the rehearsal did", failed, out)
+
+    # Only the store's server waits for every rank, so a third rank late would fail the second without a join of all.
+    out = run({**base, "CKPT_RENDEZVOUS_TIMEOUT": str(RENDEZVOUS), "THIRD": "1", "DELAY": str(LATE)})
+    expect(f"with three ranks, rank 2 {LATE} s late joins within the rendezvous timeout", exits(out) == {0: 0, 1: 0, 2: 0}, out)
 
     # A peer lost after the join is noticed at the collective timeout, not at the longer rendezvous one.
     out = run({**base, "CKPT_STEPS": "40", "CKPT_STEP_SLEEP": "1", "CKPT_RENDEZVOUS_TIMEOUT": str(RENDEZVOUS),

@@ -535,8 +535,13 @@ def train() -> int:
     else:
         # The store env:// would build, with its own wait for every rank to connect, from whichever side arrives first.
         # Every later store operation, which the process group's own exchanges wait on, is back at the collective timeout.
+        joining = datetime.timedelta(seconds=RENDEZVOUS_TIMEOUT)
         store = dist.TCPStore(os.environ["MASTER_ADDR"], int(os.environ["MASTER_PORT"]), world, rank == 0,
-                              timeout=datetime.timedelta(seconds=RENDEZVOUS_TIMEOUT), wait_for_workers=True)
+                              timeout=joining, wait_for_workers=True)
+        # Only the server waits for every rank to connect; a client returns once it alone has, so with three ranks the
+        # second could reach the process group's exchanges, at the collective timeout, while the third was still starting.
+        store.set(f"ckpt-rendezvous/{rank}", "1")
+        store.wait([f"ckpt-rendezvous/{r}" for r in range(world)], joining)
         store.set_timeout(collective)
         dist.init_process_group(backend=BACKEND, store=store, rank=rank, world_size=world, timeout=collective)
     # Rank 0 alone creates the job's and the attempt's directories, and the others wait for it, for the reason save gives.
