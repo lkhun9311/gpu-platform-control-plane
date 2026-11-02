@@ -437,7 +437,8 @@ if plugin:
     out = subprocess.run([plugin["command"], *(plugin.get("args") or [])], capture_output=True, text=True, env=env,
                          timeout=60)
     if out.returncode != 0:
-        sys.exit(f"the credential plugin {plugin["command"]} failed: {out.stderr.strip()[:200]}")
+        command = plugin["command"]
+        sys.exit(f"the credential plugin {command} failed: {out.stderr.strip()[:200]}")
     user["token"] = json.loads(out.stdout)["status"]["token"]
 with open(sys.argv[1], "w") as f:
     json.dump(c, f)
