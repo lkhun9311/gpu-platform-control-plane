@@ -920,7 +920,7 @@ EOF
       failed="could not create the NodeHealth of $node: ${out:0:200}"
       break
     }
-    pod="$(restart_warm_start "$node")" || {
+    pod="$(restart_warm_start "$node" "$uid")" || {
       failed="$pod"
       break
     }
@@ -948,11 +948,16 @@ EOF
   echo "every GPU node has a NodeHealth and has pulled the image and mounted the volume"
 }
 
-# restart_warm_start NODE: a Pod on NODE, with no GPU, that imports torch from the pinned image and writes and reads the
-# shared volume, so that node's first pull and first mount are not inside a measured recovery; prints the Pod's name.
+# restart_warm_start NODE UID: a Pod on NODE, with no GPU, that imports torch from the pinned image and writes and reads
+# the shared volume, so that node's first pull and first mount are not inside a measured recovery; prints the Pod's name.
+#
+# The name is a hash of the node's name and UID, not a piece of the name: EKS names every node
+# ip-<address>.<region>.compute.internal, and the last 20 characters were the same for all three nodes of the first paid
+# smoke session, whose second warm-up was then refused as an update of the first's Pod.
+# The UID makes a replacement that reuses a name a new Pod, not the old one still terminating.
 restart_warm_start() {
-  local node="$1" pod out
-  pod="rst-warm-$(tr -dc 'a-z0-9' <<<"$node" | tail -c 20)"
+  local node="$1" uid="$2" pod out
+  pod="rst-warm-$(printf '%s %s' "$node" "$uid" | sha256sum | cut -c1-16)"
   out="$(rk -n "$RESTART_NS" apply -f - 2>&1 <<EOF
 apiVersion: v1
 kind: Pod

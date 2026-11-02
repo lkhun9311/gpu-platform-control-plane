@@ -347,11 +347,31 @@ case "$*" in *"get nodes"*) printf 'node-a new-uid\nnode-b ub\n' ;; esac
 EOF
 printf 'node-a old-uid\nnode-b ub\n' >"$work/out/reused/warmed.txt"
 out="$(lib reused 'restart_prepare_nodes "$RESTART_OUT/warmed.txt" $((SECONDS + 30)); echo "rc=$?"')"
-if [[ "$out" == *"rc=0" && "$(grep -c 'apply -f -' "$work/reused.calls")" == 2 ]] && grep -qx 'node-a new-uid' "$work/out/reused/warmed.txt" &&
-  ! grep -q 'rst-warm-nodeb' "$work/reused.calls"; then
+if [[ "$out" == *"rc=0" && "$(grep -c 'apply -f -' "$work/reused.calls")" == 2 ]] && grep -qx 'node-a new-uid' "$work/out/reused/warmed.txt" && [[
+  "$(grep -c ' wait .*pod/rst-warm-' "$work/reused.calls")" == 1 ]]; then
   ok "a reused node name with a new UID is prepared again, and the unchanged node is not"
 else
   bad "the reused node name: $out; $(grep -c 'apply -f -' "$work/reused.calls") create(s); warmed $(paste -sd' ' "$work/out/reused/warmed.txt")"
+fi
+
+# EKS names every node ip-<address>.<region>.compute.internal, so a Pod name cut from the name's tail was the same
+# for all three: the first paid smoke session's second warm-up was refused as an update of the first's Pod.
+mkdir -p "$work/rules/eksnames" "$work/out/eksnames"
+cat >"$work/rules/eksnames/kubectl.sh" <<'EOF'
+case "$*" in
+  *"get nodes"*) printf '%s\n' 'ip-10-0-52-104.ap-northeast-2.compute.internal u1' 'ip-10-0-59-67.ap-northeast-2.compute.internal u2' \
+    'ip-10-0-63-183.ap-northeast-2.compute.internal u3' ;;
+esac
+EOF
+: >"$work/out/eksnames/warmed.txt"
+out="$(lib eksnames 'restart_prepare_nodes "$RESTART_OUT/warmed.txt" $((SECONDS + 30)); echo "rc=$?"')"
+# The stubs record arguments, not stdin, so the Pods are read from the waits that name them.
+names="$(grep -oE ' wait .*pod/rst-warm-[a-z0-9-]+' "$work/eksnames.calls" | grep -oE 'rst-warm-[a-z0-9-]+' | sort -u | wc -l)"
+long="$(grep -oE 'pod/rst-warm-[a-z0-9-]+' "$work/eksnames.calls" | awk 'length($0) - 4 > 63' | wc -l)"
+if [[ "$out" == *"rc=0" && "$names" == 3 && "$long" == 0 ]]; then
+  ok "three EKS node names that share their tail get three warm-up Pods"
+else
+  bad "EKS node names: $out; $names distinct warm-up Pod name(s), $long over 63 characters"
 fi
 
 # A failed read of the taints is not "no node tainted".
