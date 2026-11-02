@@ -249,10 +249,10 @@ def defect(out: pathlib.Path, name: str, case: str) -> None:
         edit_records(d, lambda r: {**r, "from_step": 0, "from_dir": "a1/00000000-" + "c" * 32} if r["event"] == "resume" else r)
     elif name == "split-resume":
         edit_records(d, lambda r: {**r, "from_dir": "a1/elsewhere"} if r["event"] == "resume" and r["rank"] == 1 else r)
-    elif name in ("ended-after-budget", "ended-at-budget", "failed-after-budget"):
+    elif name in ("ended-after-budget", "ended-at-budget", "ended-before-budget", "failed-after-budget"):
         # The job's end stamped this long after its creation, as when it ended while the runner probed clocks past the budget.
         def late(m):
-            took = CASE_BUDGET + (0 if name == "ended-at-budget" else 1)
+            took = CASE_BUDGET + {"ended-at-budget": 0, "ended-before-budget": -3}.get(name, 3)
             m["status"]["lastTransitionTime"] = api_time(epoch(m["metadata"]["creationTimestamp"]) + took)
             if name == "failed-after-budget":
                 m["status"]["phase"] = "Failed"

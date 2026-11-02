@@ -31,6 +31,11 @@ import sys
 
 # The registered conventions, each one named in the design's "The paid session: apparatus".
 CLOCK_BRACKET_S = 0.5
+# How near its budget a job's end may lie and still not be placed on either side of it.
+# Its creation and its end are whole seconds, truncated, which puts up to 1 s of error on their difference.
+# They also come from two clocks, the API server's and the controller's, which nothing here measures; 1 s more is allowed
+# for that on the assumption that both are synchronised, and a case inside the band is VOID rather than either verdict.
+BUDGET_BAND_S = 2
 CLOCK_OFFSET_S = 2.0
 PARAM_TOLERANCE = 1e-6
 WORLD = 2
@@ -284,6 +289,9 @@ class Case:
                 void(f"the job ended {phase!r} with no creation time or no end time, so whether it ended within its "
                      f"budget is unknown")
             took = epoch(ended) - epoch(created)
+            if abs(took - self.budget) <= BUDGET_BAND_S:
+                void(f"the job ended {phase!r} {took:.0f} s after its creation, within {BUDGET_BAND_S} s of its "
+                     f"{self.budget} s budget, which its stamps cannot place on either side")
             if took > self.budget:
                 failed(f"censored at its budget: the job ended {phase!r} {took:.0f} s after its creation, beyond its "
                        f"{self.budget} s budget", censored=True)
