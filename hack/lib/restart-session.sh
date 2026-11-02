@@ -24,6 +24,11 @@ RESTART_STEP_SLEEP=2
 RESTART_BALLAST_MB=16
 # The controller restarts when the Job fails, and a surviving rank blocked in a collective keeps it running until this.
 RESTART_COLLECTIVE_TIMEOUT=60
+# How long a rank waits for its peer to start, which train.py bounds apart from the collective timeout.
+# A terminate-wait restart starts one rank on the survivor while its peer waits for a replacement node, its pull and its
+# mount, and the 60 s join failed that case on kind (hack/restart-lifecycle-kind-20261101T143009Z, run-a).
+# Below RESTART_CASE_BUDGET, so a peer that never comes fails the attempt and is not only censored.
+RESTART_RENDEZVOUS_TIMEOUT=600
 # One case from submission to its verdict; a case that has not succeeded by then is FAILED, censored at this budget.
 RESTART_CASE_BUDGET=720
 # The other shares of one case's slot, each a limit the runner enforces, so restart_gpu_budget is the sum of what can
@@ -296,7 +301,7 @@ restart_render_job() {
     "nccl_dir=$RESTART_MOUNT/$job_id/nccl" \
     "mkdir -p \"\$nccl_dir\" && touch \"\$nccl_dir/.a\${TRAINING_ATTEMPT}-r\${RANK}\" || exit 87" \
     "export CKPT_BACKEND=nccl CKPT_RUN_ID=$name CKPT_DIR=$RESTART_MOUNT CKPT_JOB_ID=$job_id CKPT_STEPS=$RESTART_STEPS CKPT_STEP_SLEEP=$RESTART_STEP_SLEEP" \
-    "export CKPT_BALLAST_MB=$RESTART_BALLAST_MB CKPT_COLLECTIVE_TIMEOUT=$RESTART_COLLECTIVE_TIMEOUT OMP_NUM_THREADS=1" \
+    "export CKPT_BALLAST_MB=$RESTART_BALLAST_MB CKPT_COLLECTIVE_TIMEOUT=$RESTART_COLLECTIVE_TIMEOUT CKPT_RENDEZVOUS_TIMEOUT=$RESTART_RENDEZVOUS_TIMEOUT OMP_NUM_THREADS=1" \
     "export NCCL_DEBUG=INFO NCCL_DEBUG_SUBSYS=INIT,NET NCCL_DEBUG_FILE=\"\$nccl_dir/a\${TRAINING_ATTEMPT}-r\${RANK}-%h.%p.log\"" \
     "$extra" \
     "python /tmp/train.py")"

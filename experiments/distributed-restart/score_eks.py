@@ -31,6 +31,11 @@ import sys
 
 # The registered conventions, each one named in the design's "The paid session: apparatus".
 CLOCK_BRACKET_S = 0.5
+# How near its budget a job's end may lie and still not be placed on either side of it.
+# Its creation and its end are whole seconds, truncated, which puts up to 1 s of error on their difference.
+# They also come from two clocks, the API server's and the controller's, which nothing here measures; 1 s more is allowed
+# for that on the assumption that both are synchronised, and a case inside the band is VOID rather than either verdict.
+BUDGET_BAND_S = 2
 CLOCK_OFFSET_S = 2.0
 PARAM_TOLERANCE = 1e-6
 WORLD = 2
@@ -103,8 +108,8 @@ def provenance(run: pathlib.Path) -> dict[str, str]:
 
 
 class Case:
-    def __init__(self, run: pathlib.Path, name: str, reference: list[float] | None, steps: int) -> None:
-        self.name, self.dir, self.reference, self.steps = name, run / name, reference, steps
+    def __init__(self, run: pathlib.Path, name: str, reference: list[float] | None, steps: int, budget: int) -> None:
+        self.name, self.dir, self.reference, self.steps, self.budget = name, run / name, reference, steps, budget
         self.kind = re.sub(r"-\d+$", "", name)
         self.figures: dict = {}
 
@@ -273,6 +278,23 @@ class Case:
 
     def check_job(self, want_attempts: int) -> None:
         phase = self.status.get("phase")
+        # The runner reads the final status only after its last clock probe, which comes after the budget has run out, so
+        # a job that ended in those seconds would otherwise read as ended within it.
+        # Its end is placed by the cluster's own stamps instead: the API server's creation time and the controller's time
+        # of the last phase change, which for an ended job is when it ended.
+        if phase in ("Succeeded", "Failed"):
+            created = (self.final.get("metadata") or {}).get("creationTimestamp")
+            ended = self.status.get("lastTransitionTime")
+            if not created or not ended:
+                void(f"the job ended {phase!r} with no creation time or no end time, so whether it ended within its "
+                     f"budget is unknown")
+            took = epoch(ended) - epoch(created)
+            if abs(took - self.budget) <= BUDGET_BAND_S:
+                void(f"the job ended {phase!r} {took:.0f} s after its creation, within {BUDGET_BAND_S} s of its "
+                     f"{self.budget} s budget, which its stamps cannot place on either side")
+            if took > self.budget:
+                failed(f"censored at its budget: the job ended {phase!r} {took:.0f} s after its creation, beyond its "
+                       f"{self.budget} s budget", censored=True)
         if phase == "Failed":
             failed(f"not recovered: the job ended {phase!r}, not Succeeded, within its budget")
         # Anything short of an end is a recovery the budget cut off: censored, never a recovery that failed.
@@ -615,6 +637,8 @@ def main(argv: list[str]) -> int:
         refusals.append("no registered case list starting with the reference")
     if not prov.get("steps", "").isdigit():
         refusals.append("no registered step count")
+    if not prov.get("case_budget", "").isdigit():
+        refusals.append("no registered case budget")
     if refusals:
         for r in refusals:
             print(f"REFUSED: {r}")
@@ -627,7 +651,7 @@ def main(argv: list[str]) -> int:
     if partial:
         cases = [n for n in cases if (run / n).is_dir()]
     for name in cases:
-        case = Case(run, name, reference, steps)
+        case = Case(run, name, reference, steps, int(prov["case_budget"]))
         try:
             case.score()
             verdicts[name] = ("ACCEPTED", "", False)

@@ -119,6 +119,9 @@ fixture() {
   rm -rf "$work/out"
   mkdir -p "$work/out"
   cp -r "$rec"/run-a "$rec"/run-b "$rec"/run-c "$rec"/run-d "$rec"/quota-hold.txt "$rec"/stuck.txt "$rec"/clocks-broken.txt "$work/out/"
+  # That rehearsal's run a terminate-wait-1 FAILED, before the rendezvous timeout; the fixture's is the recovery the
+  # outcome check now requires, and "run a's terminate-wait-1 as first recorded" below is the real line.
+  sed -i 's/^FAILED   terminate-wait-1: not recovered.*/ACCEPTED terminate-wait-1 {"class": "replacement", "from_step": 10}/' "$work/out/run-a/verdict.txt"
 }
 outcomes() { python3 hack/test/restart-kind/check_outcomes.py "$work/out" a b c d; }
 fixture
@@ -135,6 +138,8 @@ defect() {
     bad "$1 failed, but not for '$3': $(grep '^FAIL' <<<"$out" | head -2)"
   fi
 }
+defect "run a's terminate-wait-1 as first recorded" "cp '$PWD/$rec/run-a/verdict.txt' run-a/verdict.txt" "run-a/terminate-wait-1: FAILED"
+defect "a terminate-wait that recovered on a spare" 'sed -i "s/\"class\": \"replacement\"/\"class\": \"spare\"/" run-b/verdict.txt' "run-b/terminate-wait-1: ACCEPTED"
 defect "a case never submitted" 'rm run-b/rank-kill-2/case.json' "run-b/rank-kill-2: no case.json"
 defect "a case with no directory" 'rm -r run-a/dcgm-1' "run-a/dcgm-1: no directory"
 defect "a scorer that refused the run" 'sed -i "s/^exit=1$/exit=2/" run-a/verdict.txt' "run-a: the scorer exited 2"

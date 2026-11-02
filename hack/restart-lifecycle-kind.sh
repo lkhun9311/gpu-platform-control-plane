@@ -516,6 +516,7 @@ run_stage() {
     echo "step_sleep=$RESTART_STEP_SLEEP"
     echo "ballast_mb=$RESTART_BALLAST_MB"
     echo "collective_timeout=$RESTART_COLLECTIVE_TIMEOUT"
+    echo "rendezvous_timeout=$RESTART_RENDEZVOUS_TIMEOUT"
     echo "case_budget=$RESTART_CASE_BUDGET"
     echo "stage=$RESTART_STAGE"
     echo "gpu_budget_s=$budget"

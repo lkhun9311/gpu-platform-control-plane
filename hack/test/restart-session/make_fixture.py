@@ -26,6 +26,8 @@ import sys
 
 STEPS = 30
 REPS = 5
+# RESTART_CASE_BUDGET, as provenance.txt records it.
+CASE_BUDGET = 720
 BASE = datetime.datetime(2026, 11, 2, 1, 0, 0, tzinfo=datetime.timezone.utc).timestamp()
 NODES = {"ip-10-0-64-11": ("i-0aaa0000000000001", 0.25), "ip-10-0-64-12": ("i-0aaa0000000000002", -0.4),
          "ip-10-0-64-13": ("i-0aaa0000000000003", 0.1), "ip-10-0-64-14": ("i-0aaa0000000000004", 0.6)}
@@ -202,7 +204,8 @@ def case_dir(out: pathlib.Path, name: str, kind: str, n: int) -> None:
     listing += [f"{root}/nccl/{f.name}" for f in sorted((d / "nccl").glob("*.log"))]
     (d / "shared-files.txt").write_text("".join(line + "\n" for line in listing))
     json.dump(case, open(d / "case.json", "w"))
-    json.dump({"metadata": {"name": job, "annotations": annotations}, "status": {"phase": "Succeeded", "attempts": attempts}},
+    json.dump({"metadata": {"name": job, "annotations": annotations, "creationTimestamp": api_time(t0 - 5)},
+               "status": {"phase": "Succeeded", "attempts": attempts, "lastTransitionTime": api_time(t_end + 1)}},
               open(d / "final-mltj.json", "w"))
     json.dump(node_list(before, name), open(d / "nodes-before.json", "w"))
     json.dump(node_list(after, name), open(d / "nodes-after.json", "w"))
@@ -246,6 +249,16 @@ def defect(out: pathlib.Path, name: str, case: str) -> None:
         edit_records(d, lambda r: {**r, "from_step": 0, "from_dir": "a1/00000000-" + "c" * 32} if r["event"] == "resume" else r)
     elif name == "split-resume":
         edit_records(d, lambda r: {**r, "from_dir": "a1/elsewhere"} if r["event"] == "resume" and r["rank"] == 1 else r)
+    elif name in ("ended-after-budget", "ended-at-budget", "ended-before-budget", "failed-after-budget"):
+        # The job's end stamped this long after its creation, as when it ended while the runner probed clocks past the budget.
+        def late(m):
+            took = CASE_BUDGET + {"ended-at-budget": 0, "ended-before-budget": -3}.get(name, 3)
+            m["status"]["lastTransitionTime"] = api_time(epoch(m["metadata"]["creationTimestamp"]) + took)
+            if name == "failed-after-budget":
+                m["status"]["phase"] = "Failed"
+        edit_json(d / "final-mltj.json", late)
+    elif name == "no-end-time":
+        edit_json(d / "final-mltj.json", lambda m: m["status"].pop("lastTransitionTime"))
     elif name == "no-fault-record":
         edit_records(d, lambda r: None if r["event"] == "fault" else r)
     elif name == "no-clock-probe":
@@ -435,6 +448,9 @@ def defect(out: pathlib.Path, name: str, case: str) -> None:
         (d / "VOID").write_text("the runner could not deliver the fault")
     elif name == "dirty":
         edit_provenance(out, "dirty_files", "3")
+    elif name == "no-budget":
+        path = out / "provenance.txt"
+        path.write_text("".join(line + "\n" for line in path.read_text().splitlines() if not line.startswith("case_budget=")))
     elif name == "unapproved":
         edit_provenance(out, "approved_train_py_sha256", "f" * 64)
     elif name == "interleaved":
@@ -468,7 +484,7 @@ def main(argv: list[str]) -> int:
     names = cases()
     (out / "provenance.txt").write_text(
         f"commit={'a' * 40}\ndirty_files=0\ntrain_py_sha256={'b' * 64}\napproved_train_py_sha256={'b' * 64}\n"
-        f"steps={STEPS}\ncases={' '.join(n for n, _ in names)}\n")
+        f"steps={STEPS}\ncase_budget={CASE_BUDGET}\ncases={' '.join(n for n, _ in names)}\n")
     for i, (name, kind) in enumerate(names):
         case_dir(out, name, kind, i)
     # The runner prepares the three nodes it bought before the first case; a replacement is prepared after its case.

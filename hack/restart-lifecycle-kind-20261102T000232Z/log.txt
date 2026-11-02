@@ -1,0 +1,728 @@
+00:02:33 provenance: commit=45c8779a98f765a89a4d870c8de52857841a8ee4 dirty_files=0 kind=kind v0.33.0 go1.25.7 linux/amd64 cert_manager=v1.21.1 nfs_server_image=registry.k8s.io/sig-storage/nfs-provisioner@sha256:c825f3d5e28bde099bd7a3daace28772d412c9157ad47fa752a9ad0baafc118d nfs_efs_options=nfsvers=4.1 rsize=1048576 wsize=1048576 hard timeo=600 retrans=2 noresvport host_kernel=7.0.0-31-generic runs=a b c d 
+00:02:33 == images
+DEPRECATED: The legacy builder is deprecated and will be removed in a future release.
+            Install the buildx component to build images with BuildKit:
+            https://docs.docker.com/go/buildx/
+
+sha256:04e9bb0f2df7b3f71f7f643f3f6bd3092a3e259c55ba13d853520b6d302e483a
+docker build -t controller:rstlife .
+DEPRECATED: The legacy builder is deprecated and will be removed in a future release.
+            Install the buildx component to build images with BuildKit:
+            https://docs.docker.com/go/buildx/
+
+Sending build context to Docker daemon  3.061MB
+Step 1/14 : FROM golang:1.27.3@sha256:957861185dbf29d93668ace41e011d091c6e779953d47f0316ef2cc58e28fe2b AS builder
+ ---> 957861185dbf
+Step 2/14 : ARG TARGETOS
+ ---> Using cache
+ ---> a38e89fd304b
+Step 3/14 : ARG TARGETARCH
+ ---> Using cache
+ ---> df7229e5f3ec
+Step 4/14 : WORKDIR /workspace
+ ---> Using cache
+ ---> e0f3b83f69f4
+Step 5/14 : COPY go.mod go.mod
+ ---> Using cache
+ ---> c2ed1be935e8
+Step 6/14 : COPY go.sum go.sum
+ ---> Using cache
+ ---> 3d64437e64c0
+Step 7/14 : RUN go mod download
+ ---> Using cache
+ ---> e5ea0e053d8e
+Step 8/14 : COPY . .
+ ---> Using cache
+ ---> 197cbfe9e3e4
+Step 9/14 : RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o manager cmd/main.go
+ ---> Using cache
+ ---> de7291c5b80e
+Step 10/14 : FROM gcr.io/distroless/static:nonroot@sha256:18f4cc26c9ffa7f20a359298be7deadac5c607c8e03a02b8119f1a5fc2f82c99
+ ---> 18f4cc26c9ff
+Step 11/14 : WORKDIR /
+ ---> Using cache
+ ---> cbe4ce95f554
+Step 12/14 : COPY --from=builder /workspace/manager .
+ ---> Using cache
+ ---> cd9c80d36db9
+Step 13/14 : USER 65532:65532
+ ---> Using cache
+ ---> f9b9010d9649
+Step 14/14 : ENTRYPOINT ["/manager"]
+ ---> Using cache
+ ---> c8c4ee139583
+Successfully built c8c4ee139583
+Successfully tagged controller:rstlife
+docker build -t gpu-simulator:rstlife -f Dockerfile.gpu-simulator .
+DEPRECATED: The legacy builder is deprecated and will be removed in a future release.
+            Install the buildx component to build images with BuildKit:
+            https://docs.docker.com/go/buildx/
+
+Sending build context to Docker daemon  3.061MB
+Step 1/14 : FROM golang:1.27.3@sha256:957861185dbf29d93668ace41e011d091c6e779953d47f0316ef2cc58e28fe2b AS builder
+ ---> 957861185dbf
+Step 2/14 : ARG TARGETOS
+ ---> Using cache
+ ---> a38e89fd304b
+Step 3/14 : ARG TARGETARCH
+ ---> Using cache
+ ---> df7229e5f3ec
+Step 4/14 : WORKDIR /workspace
+ ---> Using cache
+ ---> e0f3b83f69f4
+Step 5/14 : COPY go.mod go.mod
+ ---> Using cache
+ ---> c2ed1be935e8
+Step 6/14 : COPY go.sum go.sum
+ ---> Using cache
+ ---> 3d64437e64c0
+Step 7/14 : RUN go mod download
+ ---> Using cache
+ ---> e5ea0e053d8e
+Step 8/14 : COPY . .
+ ---> Using cache
+ ---> 197cbfe9e3e4
+Step 9/14 : RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o gpu-simulator ./cmd/gpu-simulator
+ ---> Using cache
+ ---> bfa57454c78f
+Step 10/14 : FROM gcr.io/distroless/static:nonroot@sha256:18f4cc26c9ffa7f20a359298be7deadac5c607c8e03a02b8119f1a5fc2f82c99
+ ---> 18f4cc26c9ff
+Step 11/14 : WORKDIR /
+ ---> Using cache
+ ---> cbe4ce95f554
+Step 12/14 : COPY --from=builder /workspace/gpu-simulator .
+ ---> Using cache
+ ---> 5f140892e5a2
+Step 13/14 : USER 65532:65532
+ ---> Using cache
+ ---> 3b6f93bd5651
+Step 14/14 : ENTRYPOINT ["/gpu-simulator"]
+ ---> Using cache
+ ---> d1681e50fc01
+Successfully built d1681e50fc01
+Successfully tagged gpu-simulator:rstlife
+docker.io/library/busybox@sha256:b7f3d86d6e84fc17718c48bcde1450807faa2d56704205c697b4bd5df7b9e29f
+00:02:35 == cluster rstlife
+Creating cluster "rstlife" ...
+ • Ensuring node image (kindest/node:v1.37.0) 🖼️  ...
+ ✓ Ensuring node image (kindest/node:v1.37.0) 🖼️
+ • Preparing nodes 📦 📦 📦 📦 📦   ...
+ ✓ Preparing nodes 📦 📦 📦 📦 📦 
+ • Writing configuration 📜  ...
+ ✓ Writing configuration 📜
+ • Starting control-plane 🕹️  ...
+ ✓ Starting control-plane 🕹️
+ • Installing CNI 🔌  ...
+ ✓ Installing CNI 🔌
+ • Installing StorageClass 💾  ...
+ ✓ Installing StorageClass 💾
+ • Joining worker nodes 🚜  ...
+ ✓ Joining worker nodes 🚜
+Set kubectl context to "kind-rstlife"
+You can now use your cluster with:
+
+kubectl cluster-info --context kind-rstlife
+
+Have a nice day! 👋
+Image: "controller:rstlife" with ID "sha256:c8c4ee139583d4a02a15bae954e673140d66bc89436286bae9165fde7da9d66b" not yet present on node "rstlife-worker3", loading...
+Image: "controller:rstlife" with ID "sha256:c8c4ee139583d4a02a15bae954e673140d66bc89436286bae9165fde7da9d66b" not yet present on node "rstlife-control-plane", loading...
+Image: "controller:rstlife" with ID "sha256:c8c4ee139583d4a02a15bae954e673140d66bc89436286bae9165fde7da9d66b" not yet present on node "rstlife-worker4", loading...
+Image: "controller:rstlife" with ID "sha256:c8c4ee139583d4a02a15bae954e673140d66bc89436286bae9165fde7da9d66b" not yet present on node "rstlife-worker", loading...
+Image: "controller:rstlife" with ID "sha256:c8c4ee139583d4a02a15bae954e673140d66bc89436286bae9165fde7da9d66b" not yet present on node "rstlife-worker2", loading...
+Image: "gpu-simulator:rstlife" with ID "sha256:d1681e50fc01e081fb59b8449af7a57aeab863c3991c7af7d56d4893776d07b5" not yet present on node "rstlife-worker3", loading...
+Image: "gpu-simulator:rstlife" with ID "sha256:d1681e50fc01e081fb59b8449af7a57aeab863c3991c7af7d56d4893776d07b5" not yet present on node "rstlife-control-plane", loading...
+Image: "gpu-simulator:rstlife" with ID "sha256:d1681e50fc01e081fb59b8449af7a57aeab863c3991c7af7d56d4893776d07b5" not yet present on node "rstlife-worker4", loading...
+Image: "gpu-simulator:rstlife" with ID "sha256:d1681e50fc01e081fb59b8449af7a57aeab863c3991c7af7d56d4893776d07b5" not yet present on node "rstlife-worker", loading...
+Image: "gpu-simulator:rstlife" with ID "sha256:d1681e50fc01e081fb59b8449af7a57aeab863c3991c7af7d56d4893776d07b5" not yet present on node "rstlife-worker2", loading...
+Image: "distributed-restart:torch251" with ID "sha256:04e9bb0f2df7b3f71f7f643f3f6bd3092a3e259c55ba13d853520b6d302e483a" not yet present on node "rstlife-worker3", loading...
+Image: "distributed-restart:torch251" with ID "sha256:04e9bb0f2df7b3f71f7f643f3f6bd3092a3e259c55ba13d853520b6d302e483a" not yet present on node "rstlife-control-plane", loading...
+Image: "distributed-restart:torch251" with ID "sha256:04e9bb0f2df7b3f71f7f643f3f6bd3092a3e259c55ba13d853520b6d302e483a" not yet present on node "rstlife-worker4", loading...
+Image: "distributed-restart:torch251" with ID "sha256:04e9bb0f2df7b3f71f7f643f3f6bd3092a3e259c55ba13d853520b6d302e483a" not yet present on node "rstlife-worker", loading...
+Image: "distributed-restart:torch251" with ID "sha256:04e9bb0f2df7b3f71f7f643f3f6bd3092a3e259c55ba13d853520b6d302e483a" not yet present on node "rstlife-worker2", loading...
+node/rstlife-control-plane labeled
+node/rstlife-control-plane untainted
+namespace/cert-manager created
+customresourcedefinition.apiextensions.k8s.io/challenges.acme.cert-manager.io created
+customresourcedefinition.apiextensions.k8s.io/orders.acme.cert-manager.io created
+customresourcedefinition.apiextensions.k8s.io/certificaterequests.cert-manager.io created
+customresourcedefinition.apiextensions.k8s.io/certificates.cert-manager.io created
+customresourcedefinition.apiextensions.k8s.io/clusterissuers.cert-manager.io created
+customresourcedefinition.apiextensions.k8s.io/issuers.cert-manager.io created
+serviceaccount/cert-manager-cainjector created
+serviceaccount/cert-manager created
+serviceaccount/cert-manager-webhook created
+clusterrole.rbac.authorization.k8s.io/cert-manager-cainjector created
+clusterrole.rbac.authorization.k8s.io/cert-manager-controller-issuers created
+clusterrole.rbac.authorization.k8s.io/cert-manager-controller-clusterissuers created
+clusterrole.rbac.authorization.k8s.io/cert-manager-controller-certificates created
+clusterrole.rbac.authorization.k8s.io/cert-manager-controller-orders created
+clusterrole.rbac.authorization.k8s.io/cert-manager-controller-challenges created
+clusterrole.rbac.authorization.k8s.io/cert-manager-controller-ingress-shim created
+clusterrole.rbac.authorization.k8s.io/cert-manager-cluster-view created
+clusterrole.rbac.authorization.k8s.io/cert-manager-view created
+clusterrole.rbac.authorization.k8s.io/cert-manager-edit created
+clusterrole.rbac.authorization.k8s.io/cert-manager-controller-approve:cert-manager-io created
+clusterrole.rbac.authorization.k8s.io/cert-manager-controller-certificatesigningrequests created
+clusterrole.rbac.authorization.k8s.io/cert-manager-webhook:subjectaccessreviews created
+clusterrolebinding.rbac.authorization.k8s.io/cert-manager-cainjector created
+clusterrolebinding.rbac.authorization.k8s.io/cert-manager-controller-issuers created
+clusterrolebinding.rbac.authorization.k8s.io/cert-manager-controller-clusterissuers created
+clusterrolebinding.rbac.authorization.k8s.io/cert-manager-controller-certificates created
+clusterrolebinding.rbac.authorization.k8s.io/cert-manager-controller-orders created
+clusterrolebinding.rbac.authorization.k8s.io/cert-manager-controller-challenges created
+clusterrolebinding.rbac.authorization.k8s.io/cert-manager-controller-ingress-shim created
+clusterrolebinding.rbac.authorization.k8s.io/cert-manager-controller-approve:cert-manager-io created
+clusterrolebinding.rbac.authorization.k8s.io/cert-manager-controller-certificatesigningrequests created
+clusterrolebinding.rbac.authorization.k8s.io/cert-manager-webhook:subjectaccessreviews created
+role.rbac.authorization.k8s.io/cert-manager-cainjector:leaderelection created
+role.rbac.authorization.k8s.io/cert-manager:leaderelection created
+role.rbac.authorization.k8s.io/cert-manager-webhook:dynamic-serving created
+rolebinding.rbac.authorization.k8s.io/cert-manager-cainjector:leaderelection created
+rolebinding.rbac.authorization.k8s.io/cert-manager:leaderelection created
+rolebinding.rbac.authorization.k8s.io/cert-manager-webhook:dynamic-serving created
+service/cert-manager-cainjector created
+service/cert-manager created
+service/cert-manager-webhook created
+deployment.apps/cert-manager-cainjector created
+deployment.apps/cert-manager created
+deployment.apps/cert-manager-webhook created
+mutatingwebhookconfiguration.admissionregistration.k8s.io/cert-manager-webhook created
+validatingwebhookconfiguration.admissionregistration.k8s.io/cert-manager-webhook created
+deployment.apps/cert-manager condition met
+deployment.apps/cert-manager-cainjector condition met
+deployment.apps/cert-manager-webhook condition met
+namespace/kueue-system serverside-applied
+customresourcedefinition.apiextensions.k8s.io/admissionchecks.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/clusterqueues.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/cohorts.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/localqueues.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/multikueueclusters.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/multikueueconfigs.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/provisioningrequestconfigs.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/resourceflavors.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/topologies.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/workloadpriorityclasses.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/workloads.kueue.x-k8s.io serverside-applied
+serviceaccount/kueue-controller-manager serverside-applied
+role.rbac.authorization.k8s.io/kueue-leader-election-role serverside-applied
+role.rbac.authorization.k8s.io/kueue-manager-clusterprofiles-role serverside-applied
+role.rbac.authorization.k8s.io/kueue-manager-secrets-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-batch-admin-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-batch-user-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-clusterqueue-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-clusterqueue-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-cohort-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-cohort-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-jaxjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-jaxjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-job-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-job-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-jobset-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-jobset-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-leaderworkerset-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-leaderworkerset-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-localqueue-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-localqueue-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-manager-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-metrics-auth-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-metrics-reader serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-mpijob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-mpijob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-paddlejob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-paddlejob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-pending-workloads-cq-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-pending-workloads-lq-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-pytorchjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-pytorchjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-raycluster-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-raycluster-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-rayjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-rayjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-rayservice-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-rayservice-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-resourceflavor-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-resourceflavor-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-sparkapplication-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-sparkapplication-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-tfjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-tfjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-topology-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-topology-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-trainjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-trainjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-workload-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-workload-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-xgboostjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-xgboostjob-viewer-role serverside-applied
+rolebinding.rbac.authorization.k8s.io/kueue-visibility-server-auth-reader serverside-applied
+rolebinding.rbac.authorization.k8s.io/kueue-leader-election-rolebinding serverside-applied
+rolebinding.rbac.authorization.k8s.io/kueue-manager-clusterprofiles-rolebinding serverside-applied
+rolebinding.rbac.authorization.k8s.io/kueue-manager-secrets-rolebinding serverside-applied
+clusterrolebinding.rbac.authorization.k8s.io/kueue-manager-rolebinding serverside-applied
+clusterrolebinding.rbac.authorization.k8s.io/kueue-metrics-auth-rolebinding serverside-applied
+configmap/kueue-manager-config serverside-applied
+secret/kueue-webhook-server-cert serverside-applied
+service/kueue-controller-manager-metrics-service serverside-applied
+service/kueue-visibility-server serverside-applied
+service/kueue-webhook-service serverside-applied
+deployment.apps/kueue-controller-manager serverside-applied
+apiservice.apiregistration.k8s.io/v1beta1.visibility.kueue.x-k8s.io serverside-applied
+apiservice.apiregistration.k8s.io/v1beta2.visibility.kueue.x-k8s.io serverside-applied
+mutatingwebhookconfiguration.admissionregistration.k8s.io/kueue-mutating-webhook-configuration serverside-applied
+validatingwebhookconfiguration.admissionregistration.k8s.io/kueue-validating-webhook-configuration serverside-applied
+deployment.apps/kueue-controller-manager condition met
+namespace/kueue-system serverside-applied
+customresourcedefinition.apiextensions.k8s.io/admissionchecks.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/clusterqueues.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/cohorts.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/localqueues.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/multikueueclusters.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/multikueueconfigs.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/provisioningrequestconfigs.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/resourceflavors.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/topologies.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/workloadpriorityclasses.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/workloads.kueue.x-k8s.io serverside-applied
+serviceaccount/kueue-controller-manager serverside-applied
+role.rbac.authorization.k8s.io/kueue-leader-election-role serverside-applied
+role.rbac.authorization.k8s.io/kueue-manager-clusterprofiles-role serverside-applied
+role.rbac.authorization.k8s.io/kueue-manager-secrets-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-batch-admin-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-batch-user-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-clusterqueue-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-clusterqueue-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-cohort-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-cohort-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-jaxjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-jaxjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-job-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-job-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-jobset-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-jobset-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-leaderworkerset-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-leaderworkerset-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-localqueue-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-localqueue-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-manager-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-metrics-auth-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-metrics-reader serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-mpijob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-mpijob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-paddlejob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-paddlejob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-pending-workloads-cq-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-pending-workloads-lq-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-pytorchjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-pytorchjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-raycluster-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-raycluster-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-rayjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-rayjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-rayservice-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-rayservice-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-resourceflavor-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-resourceflavor-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-sparkapplication-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-sparkapplication-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-tfjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-tfjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-topology-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-topology-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-trainjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-trainjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-workload-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-workload-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-xgboostjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-xgboostjob-viewer-role serverside-applied
+rolebinding.rbac.authorization.k8s.io/kueue-visibility-server-auth-reader serverside-applied
+rolebinding.rbac.authorization.k8s.io/kueue-leader-election-rolebinding serverside-applied
+rolebinding.rbac.authorization.k8s.io/kueue-manager-clusterprofiles-rolebinding serverside-applied
+rolebinding.rbac.authorization.k8s.io/kueue-manager-secrets-rolebinding serverside-applied
+clusterrolebinding.rbac.authorization.k8s.io/kueue-manager-rolebinding serverside-applied
+clusterrolebinding.rbac.authorization.k8s.io/kueue-metrics-auth-rolebinding serverside-applied
+configmap/kueue-manager-config serverside-applied
+secret/kueue-webhook-server-cert serverside-applied
+service/kueue-controller-manager-metrics-service serverside-applied
+service/kueue-visibility-server serverside-applied
+service/kueue-webhook-service serverside-applied
+deployment.apps/kueue-controller-manager serverside-applied
+apiservice.apiregistration.k8s.io/v1beta1.visibility.kueue.x-k8s.io serverside-applied
+apiservice.apiregistration.k8s.io/v1beta2.visibility.kueue.x-k8s.io serverside-applied
+Warning: This version is deprecated. Use v1beta2 instead.
+mutatingwebhookconfiguration.admissionregistration.k8s.io/kueue-mutating-webhook-configuration serverside-applied
+validatingwebhookconfiguration.admissionregistration.k8s.io/kueue-validating-webhook-configuration serverside-applied
+Error from server (InternalError): Internal error occurred: failed calling webhook "mresourceflavor.kb.io": failed to call webhook: Post "https://kueue-webhook-service.kueue-system.svc:443/mutate-kueue-x-k8s-io-v1beta2-resourceflavor?timeout=10s": dial tcp 10.96.74.22:443: connect: connection refused
+namespace/kueue-system serverside-applied
+customresourcedefinition.apiextensions.k8s.io/admissionchecks.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/clusterqueues.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/cohorts.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/localqueues.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/multikueueclusters.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/multikueueconfigs.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/provisioningrequestconfigs.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/resourceflavors.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/topologies.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/workloadpriorityclasses.kueue.x-k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/workloads.kueue.x-k8s.io serverside-applied
+serviceaccount/kueue-controller-manager serverside-applied
+role.rbac.authorization.k8s.io/kueue-leader-election-role serverside-applied
+role.rbac.authorization.k8s.io/kueue-manager-clusterprofiles-role serverside-applied
+role.rbac.authorization.k8s.io/kueue-manager-secrets-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-batch-admin-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-batch-user-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-clusterqueue-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-clusterqueue-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-cohort-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-cohort-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-jaxjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-jaxjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-job-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-job-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-jobset-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-jobset-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-leaderworkerset-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-leaderworkerset-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-localqueue-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-localqueue-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-manager-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-metrics-auth-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-metrics-reader serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-mpijob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-mpijob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-paddlejob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-paddlejob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-pending-workloads-cq-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-pending-workloads-lq-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-pytorchjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-pytorchjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-raycluster-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-raycluster-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-rayjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-rayjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-rayservice-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-rayservice-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-resourceflavor-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-resourceflavor-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-sparkapplication-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-sparkapplication-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-tfjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-tfjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-topology-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-topology-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-trainjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-trainjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-workload-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-workload-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-xgboostjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/kueue-xgboostjob-viewer-role serverside-applied
+rolebinding.rbac.authorization.k8s.io/kueue-visibility-server-auth-reader serverside-applied
+rolebinding.rbac.authorization.k8s.io/kueue-leader-election-rolebinding serverside-applied
+rolebinding.rbac.authorization.k8s.io/kueue-manager-clusterprofiles-rolebinding serverside-applied
+rolebinding.rbac.authorization.k8s.io/kueue-manager-secrets-rolebinding serverside-applied
+clusterrolebinding.rbac.authorization.k8s.io/kueue-manager-rolebinding serverside-applied
+clusterrolebinding.rbac.authorization.k8s.io/kueue-metrics-auth-rolebinding serverside-applied
+configmap/kueue-manager-config serverside-applied
+secret/kueue-webhook-server-cert serverside-applied
+service/kueue-controller-manager-metrics-service serverside-applied
+service/kueue-visibility-server serverside-applied
+service/kueue-webhook-service serverside-applied
+deployment.apps/kueue-controller-manager serverside-applied
+apiservice.apiregistration.k8s.io/v1beta1.visibility.kueue.x-k8s.io serverside-applied
+apiservice.apiregistration.k8s.io/v1beta2.visibility.kueue.x-k8s.io serverside-applied
+Warning: This version is deprecated. Use v1beta2 instead.
+resourceflavor.kueue.x-k8s.io/gpu serverside-applied
+mutatingwebhookconfiguration.admissionregistration.k8s.io/kueue-mutating-webhook-configuration serverside-applied
+validatingwebhookconfiguration.admissionregistration.k8s.io/kueue-validating-webhook-configuration serverside-applied
+customresourcedefinition.apiextensions.k8s.io/gpuquotapolicies.platform.lkhun9311.github.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/gpusharingbenchmarks.platform.lkhun9311.github.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/inferencedeployments.platform.lkhun9311.github.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/mltrainingjobs.platform.lkhun9311.github.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/nodehealths.platform.lkhun9311.github.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/workloadruns.platform.lkhun9311.github.io serverside-applied
+namespace/gpu-platform-control-plane-system serverside-applied
+serviceaccount/gpu-platform-control-plane-controller-manager serverside-applied
+role.rbac.authorization.k8s.io/gpu-platform-control-plane-leader-election-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-gpuquotapolicy-admin-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-gpuquotapolicy-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-gpuquotapolicy-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-inferencedeployment-admin-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-inferencedeployment-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-inferencedeployment-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-manager-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-metrics-auth-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-metrics-reader serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-mltrainingjob-admin-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-mltrainingjob-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-mltrainingjob-viewer-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-nodehealth-admin-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-nodehealth-editor-role serverside-applied
+clusterrole.rbac.authorization.k8s.io/gpu-platform-control-plane-nodehealth-viewer-role serverside-applied
+rolebinding.rbac.authorization.k8s.io/gpu-platform-control-plane-leader-election-rolebinding serverside-applied
+clusterrolebinding.rbac.authorization.k8s.io/gpu-platform-control-plane-manager-rolebinding serverside-applied
+clusterrolebinding.rbac.authorization.k8s.io/gpu-platform-control-plane-metrics-auth-rolebinding serverside-applied
+service/gpu-platform-control-plane-webhook-service serverside-applied
+deployment.apps/gpu-platform-control-plane-controller-manager serverside-applied
+certificate.cert-manager.io/gpu-platform-control-plane-serving-cert serverside-applied
+issuer.cert-manager.io/gpu-platform-control-plane-selfsigned-issuer serverside-applied
+validatingwebhookconfiguration.admissionregistration.k8s.io/gpu-platform-control-plane-validating-webhook-configuration serverside-applied
+deployment.apps/gpu-platform-control-plane-controller-manager image updated
+deployment.apps/gpu-platform-control-plane-controller-manager patched
+deployment.apps/gpu-platform-control-plane-controller-manager patched
+Waiting for deployment spec update to be observed...
+Waiting for deployment "gpu-platform-control-plane-controller-manager" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "gpu-platform-control-plane-controller-manager" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "gpu-platform-control-plane-controller-manager" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "gpu-platform-control-plane-controller-manager" rollout to finish: 2 old replicas are pending termination...
+Waiting for deployment "gpu-platform-control-plane-controller-manager" rollout to finish: 2 old replicas are pending termination...
+Waiting for deployment "gpu-platform-control-plane-controller-manager" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "gpu-platform-control-plane-controller-manager" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "gpu-platform-control-plane-controller-manager" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "gpu-platform-control-plane-controller-manager" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "gpu-platform-control-plane-controller-manager" rollout to finish: 1 old replicas are pending termination...
+deployment "gpu-platform-control-plane-controller-manager" successfully rolled out
+deployment.apps/kueue-controller-manager patched
+Waiting for deployment "kueue-controller-manager" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "kueue-controller-manager" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "kueue-controller-manager" rollout to finish: 1 old replicas are pending termination...
+deployment "kueue-controller-manager" successfully rolled out
+Error from server (InternalError): Internal error occurred: failed calling webhook "vdeployment.kb.io": failed to call webhook: Post "https://kueue-webhook-service.kueue-system.svc:443/validate-apps-v1-deployment?timeout=10s": dial tcp 10.96.74.22:443: connect: connection refused
+deployment.apps/cert-manager patched
+Waiting for deployment "cert-manager" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "cert-manager" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "cert-manager" rollout to finish: 1 old replicas are pending termination...
+deployment "cert-manager" successfully rolled out
+deployment.apps/cert-manager-webhook patched
+Waiting for deployment "cert-manager-webhook" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "cert-manager-webhook" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "cert-manager-webhook" rollout to finish: 1 old replicas are pending termination...
+deployment "cert-manager-webhook" successfully rolled out
+deployment.apps/cert-manager-cainjector patched
+Waiting for deployment "cert-manager-cainjector" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "cert-manager-cainjector" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "cert-manager-cainjector" rollout to finish: 1 old replicas are pending termination...
+deployment "cert-manager-cainjector" successfully rolled out
+deployment.apps/coredns patched
+Waiting for deployment spec update to be observed...
+Waiting for deployment "coredns" rollout to finish: 1 out of 2 new replicas have been updated...
+Waiting for deployment "coredns" rollout to finish: 1 out of 2 new replicas have been updated...
+Waiting for deployment "coredns" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "coredns" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "coredns" rollout to finish: 1 old replicas are pending termination...
+deployment "coredns" successfully rolled out
+00:04:34 == nfs server
+namespace/nfs created
+configmap/ganesha created
+deployment.apps/ganesha created
+service/ganesha created
+Waiting for deployment "ganesha" rollout to finish: 0 of 1 updated replicas are available...
+deployment "ganesha" successfully rolled out
+00:04:42 == training namespace, queue and volume
+namespace/train-a created
+gpuquotapolicy.platform.lkhun9311.github.io/train-a-quota created
+persistentvolume/restart-shared-train-a created
+persistentvolumeclaim/restart-shared created
+persistentvolumeclaim/restart-shared condition met
+00:04:42 == the GPU device and DCGM path
+configmap/rstk-dcgmi created
+daemonset.apps/gpu-simulator created
+00:04:43 == the GPU nodes
+00:04:44 run a: cases reference no-rng-control dcgm-1 terminate-wait-1, GPU budget 12480s, deadline 2026-11-02T04:32:44
+00:05:01 run a: 3 qualified node(s): rstlife-worker i-0c000000000000001;rstlife-worker2 i-0c000000000000002;rstlife-worker3 i-0c000000000000003
+00:05:04 run a: R3: the reader Pod mounts the volume on the CPU node
+00:05:07 run a: R5: every GPU node has a NodeHealth and has pulled the image and mounted the volume
+00:05:09 run a: R6: the operator runs with --gpu-fault-source=dcgm --gpu-fault-evict-workloads, and every GPU node's exporter serves the fault fields and its NodeHealth reads a fresh, healthy signal
+reference: ACCEPTED
+no-rng-control: ACCEPTED
+dcgm-1: ACCEPTED
+terminate-wait-1: ACCEPTED
+00:12:54 run a: verdict (kind shim scorer):
+ACCEPTED reference {"checkpoint": {"a1": {"max_s": 0.104, "median_s": 0.063, "saves": 60}}}
+ACCEPTED no-rng-control {"checkpoint": {"a1": {"max_s": 0.055, "median_s": 0.05, "saves": 22}, "a2": {"max_s": 0.062, "median_s": 0.052, "saves": 36}}, "from_dir": "a1/00000012-2391c1c5f0cb424886647b0c8674d2c5", "from_step": 12, "params_gap": 0.074}
+ACCEPTED dcgm-1 {"checkpoint": {"a1": {"max_s": 0.062, "median_s": 0.053, "saves": 50}, "a2": {"max_s": 0.056, "median_s": 0.05, "saves": 10}}, "class": "spare", "clock_uncertainty_s": 0.107, "from_dir": "a1/00000025-8af9afbc03554bb89afea2c588d5dc37", "from_step": 25, "lost_steps": 0, "params_gap": 0.0, "recovery_s": 32.898}
+ACCEPTED terminate-wait-1 {"checkpoint": {"a1": {"max_s": 0.055, "median_s": 0.054, "saves": 20}, "a2": {"max_s": 0.072, "median_s": 0.051, "saves": 40}}, "class": "replacement", "clock_uncertainty_s": 0.052, "from_dir": "a1/00000010-05aa241903a54bcc8dd271e864bdfa33", "from_step": 10, "lost_steps": 0, "params_gap": 0.0, "recovery_s": 165.088}
+summary
+  reference: 1 registered, 1 ACCEPTED, 0 FAILED (0 censored at their budget, 0 not recovered), 0 VOID, 0 NOTRUN
+  no-rng-control: 1 registered, 1 ACCEPTED, 0 FAILED (0 censored at their budget, 0 not recovered), 0 VOID, 0 NOTRUN
+  dcgm: 1 registered, 1 ACCEPTED, 0 FAILED (0 censored at their budget, 0 not recovered), 0 VOID, 0 NOTRUN
+    spare: recovery median 32.9 s, range 32.9 to 32.9 s, lost steps [0], over 1 accepted; the 0 FAILED censored at their budget, the 0 not recovered and the 0 VOID are not in these figures
+  terminate-wait: 1 registered, 1 ACCEPTED, 0 FAILED (0 censored at their budget, 0 not recovered), 0 VOID, 0 NOTRUN
+    replacement: recovery median 165.1 s, range 165.1 to 165.1 s, lost steps [0], over 1 accepted; the 0 FAILED censored at their budget, the 0 not recovered and the 0 VOID are not in these figures
+  checkpoint cost: median 0.054 s, max 0.104 s over 180 saves
+exit=0
+00:12:54 run a: verdict (score_eks.py unmodified):
+VOID     reference: attempt 1 rank 1 trained with 'gloo' on 'cpu', not nccl on cuda
+VOID     no-rng-control: attempt 1 rank 1 trained with 'gloo' on 'cpu', not nccl on cuda
+VOID     dcgm-1: attempt 1 rank 0 trained with 'gloo' on 'cpu', not nccl on cuda
+VOID     terminate-wait-1: attempt 1 rank 0 trained with 'gloo' on 'cpu', not nccl on cuda
+summary
+  reference: 1 registered, 0 ACCEPTED, 0 FAILED (0 censored at their budget, 0 not recovered), 1 VOID, 0 NOTRUN
+  no-rng-control: 1 registered, 0 ACCEPTED, 0 FAILED (0 censored at their budget, 0 not recovered), 1 VOID, 0 NOTRUN
+  dcgm: 1 registered, 0 ACCEPTED, 0 FAILED (0 censored at their budget, 0 not recovered), 1 VOID, 0 NOTRUN
+  terminate-wait: 1 registered, 0 ACCEPTED, 0 FAILED (0 censored at their budget, 0 not recovered), 1 VOID, 0 NOTRUN
+exit=1
+00:12:54 run b: cases reference rank-kill-1 rank-kill-2 terminate-wait-1, GPU budget 12300s, deadline 2026-11-02T04:37:54
+00:13:15 run b: 3 qualified node(s): rstlife-worker i-0c000000000000004;rstlife-worker2 i-0c000000000000002;rstlife-worker3 i-0c000000000000005
+00:13:15 run b: R3: the reader Pod mounts the volume on the CPU node
+00:13:19 run b: R5: every GPU node has a NodeHealth and has pulled the image and mounted the volume
+00:13:21 run b: R6: the operator runs with --gpu-fault-source=dcgm --gpu-fault-evict-workloads, and every GPU node's exporter serves the fault fields and its NodeHealth reads a fresh, healthy signal
+reference: ACCEPTED
+gpuquotapolicy.platform.lkhun9311.github.io/train-a-quota patched
+00:14:41 hold_quota: rst-rank-kill-1-001434 running on two GPUs, quota lowered to 1 at 00:14:41; clusterqueues: [('gpu-train-a', [{'coveredResources': ['nvidia.com/gpu'], 'flavors': [{'name': 'gpu', 'resources': [{'name': 'nvidia.com/gpu', 'nominalQuota': '1'}]}]}])]; resourcequotas: 
+gpuquotapolicy.platform.lkhun9311.github.io/train-a-quota patched
+rank-kill-1: FAILED
+00:26:41 hold_quota: rst-rank-kill-1-001434 gone, quota restored to 4 at 00:26:41
+rank-kill-2: ACCEPTED
+terminate-wait-1: ACCEPTED
+00:30:23 run b: verdict (kind shim scorer):
+ACCEPTED reference {"checkpoint": {"a1": {"max_s": 0.06, "median_s": 0.051, "saves": 60}}}
+FAILED   rank-kill-1: censored at its budget: the job ended 'Pending', not Succeeded, within its budget
+ACCEPTED rank-kill-2 {"checkpoint": {"a1": {"max_s": 0.059, "median_s": 0.05, "saves": 22}, "a2": {"max_s": 0.067, "median_s": 0.053, "saves": 38}}, "class": "spare", "clock_uncertainty_s": 0.105, "from_dir": "a1/00000011-178c8d31998746ee9134e49c8f792c74", "from_step": 11, "lost_steps": 1, "params_gap": 0.0, "recovery_s": 3.981}
+ACCEPTED terminate-wait-1 {"checkpoint": {"a1": {"max_s": 0.055, "median_s": 0.052, "saves": 20}, "a2": {"max_s": 0.056, "median_s": 0.05, "saves": 40}}, "class": "replacement", "clock_uncertainty_s": 0.055, "from_dir": "a1/00000010-4594cde5e93e4460bdc284007dc7e656", "from_step": 10, "lost_steps": 0, "params_gap": 0.0, "recovery_s": 71.841}
+summary
+  reference: 1 registered, 1 ACCEPTED, 0 FAILED (0 censored at their budget, 0 not recovered), 0 VOID, 0 NOTRUN
+  rank-kill: 2 registered, 1 ACCEPTED, 1 FAILED (1 censored at their budget, 0 not recovered), 0 VOID, 0 NOTRUN
+    spare: recovery median 4.0 s, range 4.0 to 4.0 s, lost steps [1], over 1 accepted; the 1 FAILED censored at their budget, the 0 not recovered and the 0 VOID are not in these figures
+  terminate-wait: 1 registered, 1 ACCEPTED, 0 FAILED (0 censored at their budget, 0 not recovered), 0 VOID, 0 NOTRUN
+    replacement: recovery median 71.8 s, range 71.8 to 71.8 s, lost steps [0], over 1 accepted; the 0 FAILED censored at their budget, the 0 not recovered and the 0 VOID are not in these figures
+  checkpoint cost: median 0.051 s, max 0.067 s over 180 saves
+exit=1
+00:30:23 run b: verdict (score_eks.py unmodified):
+VOID     reference: attempt 1 rank 1 trained with 'gloo' on 'cpu', not nccl on cuda
+FAILED   rank-kill-1: censored at its budget: the job ended 'Pending', not Succeeded, within its budget
+VOID     rank-kill-2: attempt 1 rank 0 trained with 'gloo' on 'cpu', not nccl on cuda
+VOID     terminate-wait-1: attempt 1 rank 0 trained with 'gloo' on 'cpu', not nccl on cuda
+summary
+  reference: 1 registered, 0 ACCEPTED, 0 FAILED (0 censored at their budget, 0 not recovered), 1 VOID, 0 NOTRUN
+  rank-kill: 2 registered, 0 ACCEPTED, 1 FAILED (1 censored at their budget, 0 not recovered), 1 VOID, 0 NOTRUN
+  terminate-wait: 1 registered, 0 ACCEPTED, 0 FAILED (0 censored at their budget, 0 not recovered), 1 VOID, 0 NOTRUN
+exit=1
+00:30:23 run c: cases reference rank-kill-1 rank-kill-2, GPU budget 10020s, deadline 2026-11-02T04:17:23
+00:30:46 run c: 3 qualified node(s): rstlife-worker i-0c000000000000007;rstlife-worker2 i-0c000000000000002;rstlife-worker3 i-0c000000000000006
+00:30:47 run c: R3: the reader Pod mounts the volume on the CPU node
+00:30:50 run c: R5: every GPU node has a NodeHealth and has pulled the image and mounted the volume
+00:30:52 run c: R6: the operator runs with --gpu-fault-source=dcgm --gpu-fault-evict-workloads, and every GPU node's exporter serves the fault fields and its NodeHealth reads a fresh, healthy signal
+reference: ACCEPTED
+pod/rst-rank-kill-1-003205-0-75dg4 patched
+00:32:33 stick_pod: rehearsal.lkhun9311.github.io/stuck on pod/rst-rank-kill-1-003205-0-75dg4 of rst-rank-kill-1-003205 at 00:32:33
+rank-kill-1: ACCEPTED
+stopped early: rank-kill-1 could not be retired or its DCGM fault reset; see hack/restart-lifecycle-kind-20261102T000232Z/run-c/rank-kill-1/case.log
+00:58:06 run c: verdict (kind shim scorer):
+ACCEPTED reference {"checkpoint": {"a1": {"max_s": 0.061, "median_s": 0.05, "saves": 60}}}
+ACCEPTED rank-kill-1 {"checkpoint": {"a1": {"max_s": 0.057, "median_s": 0.051, "saves": 22}, "a2": {"max_s": 0.067, "median_s": 0.053, "saves": 38}}, "class": "spare", "clock_uncertainty_s": 0.107, "from_dir": "a1/00000011-9d6e306e45a9480eb9fead85689aa70d", "from_step": 11, "lost_steps": 1, "params_gap": 0.0, "recovery_s": 4.174}
+NOTRUN   rank-kill-2: rank-kill-1 could not be retired or its DCGM fault reset; see hack/restart-lifecycle-kind-20261102T000232Z/run-c/rank-kill-1/case.log
+summary
+  reference: 1 registered, 1 ACCEPTED, 0 FAILED (0 censored at their budget, 0 not recovered), 0 VOID, 0 NOTRUN
+  rank-kill: 2 registered, 1 ACCEPTED, 0 FAILED (0 censored at their budget, 0 not recovered), 0 VOID, 1 NOTRUN
+    spare: recovery median 4.2 s, range 4.2 to 4.2 s, lost steps [1], over 1 accepted; the 0 FAILED censored at their budget, the 0 not recovered and the 0 VOID are not in these figures
+  checkpoint cost: median 0.051 s, max 0.067 s over 120 saves
+exit=1
+00:58:06 run c: verdict (score_eks.py unmodified):
+VOID     reference: attempt 1 rank 0 trained with 'gloo' on 'cpu', not nccl on cuda
+VOID     rank-kill-1: attempt 1 rank 0 trained with 'gloo' on 'cpu', not nccl on cuda
+NOTRUN   rank-kill-2: rank-kill-1 could not be retired or its DCGM fault reset; see hack/restart-lifecycle-kind-20261102T000232Z/run-c/rank-kill-1/case.log
+summary
+  reference: 1 registered, 0 ACCEPTED, 0 FAILED (0 censored at their budget, 0 not recovered), 1 VOID, 0 NOTRUN
+  rank-kill: 2 registered, 0 ACCEPTED, 0 FAILED (0 censored at their budget, 0 not recovered), 1 VOID, 1 NOTRUN
+exit=1
+pod/rst-rank-kill-1-003205-0-75dg4 patched
+00:58:06 removed rehearsal.lkhun9311.github.io/stuck from pod/rst-rank-kill-1-003205-0-75dg4, and it is gone
+00:58:06 run d: cases reference rank-kill-1 rank-kill-2 dcgm-1, GPU budget 11880s, deadline 2026-11-02T05:16:06
+00:58:06 run d: 3 qualified node(s): rstlife-worker i-0c000000000000007;rstlife-worker2 i-0c000000000000002;rstlife-worker3 i-0c000000000000006
+00:58:06 run d: R3: the reader Pod mounts the volume on the CPU node
+00:58:10 run d: R5: every GPU node has a NodeHealth and has pulled the image and mounted the volume
+00:58:12 run d: R6: the operator runs with --gpu-fault-source=dcgm --gpu-fault-evict-workloads, and every GPU node's exporter serves the fault fields and its NodeHealth reads a fresh, healthy signal
+reference: ACCEPTED
+00:59:27 break_clocks: every exporter's date fails from 00:59:27
+rank-kill-1: VOID
+rank-kill-2: VOID
+stopped early: two cases in a row were VOID
+01:00:20 run d: verdict (kind shim scorer):
+ACCEPTED reference {"checkpoint": {"a1": {"max_s": 0.07, "median_s": 0.052, "saves": 60}}}
+VOID     rank-kill-1: the runner voided it: VOID-before-fault: a clock probe before the fault failed, so nothing was injected: could not read the clock of rstlife-worker through gpu-simulator-59j92: rehearsal: this clock is made unreadable
+comm
+VOID     rank-kill-2: the runner voided it: VOID-before-fault: a clock probe before the fault failed, so nothing was injected: could not read the clock of rstlife-worker through gpu-simulator-59j92: rehearsal: this clock is made unreadable
+comm
+NOTRUN   dcgm-1: two cases in a row were VOID
+summary
+  reference: 1 registered, 1 ACCEPTED, 0 FAILED (0 censored at their budget, 0 not recovered), 0 VOID, 0 NOTRUN
+  rank-kill: 2 registered, 0 ACCEPTED, 0 FAILED (0 censored at their budget, 0 not recovered), 2 VOID, 0 NOTRUN
+  dcgm: 1 registered, 0 ACCEPTED, 0 FAILED (0 censored at their budget, 0 not recovered), 0 VOID, 1 NOTRUN
+  checkpoint cost: median 0.052 s, max 0.070 s over 60 saves
+exit=1
+01:00:20 run d: verdict (score_eks.py unmodified):
+VOID     reference: attempt 1 rank 1 trained with 'gloo' on 'cpu', not nccl on cuda
+VOID     rank-kill-1: the runner voided it: VOID-before-fault: a clock probe before the fault failed, so nothing was injected: could not read the clock of rstlife-worker through gpu-simulator-59j92: rehearsal: this clock is made unreadable
+comm
+VOID     rank-kill-2: the runner voided it: VOID-before-fault: a clock probe before the fault failed, so nothing was injected: could not read the clock of rstlife-worker through gpu-simulator-59j92: rehearsal: this clock is made unreadable
+comm
+NOTRUN   dcgm-1: two cases in a row were VOID
+summary
+  reference: 1 registered, 0 ACCEPTED, 0 FAILED (0 censored at their budget, 0 not recovered), 1 VOID, 0 NOTRUN
+  rank-kill: 2 registered, 0 ACCEPTED, 0 FAILED (0 censored at their budget, 0 not recovered), 2 VOID, 0 NOTRUN
+  dcgm: 1 registered, 0 ACCEPTED, 0 FAILED (0 censored at their budget, 0 not recovered), 0 VOID, 1 NOTRUN
+exit=1
+01:00:20 == what the runner's own files cannot show (check_lifecycle.py)
+OK   watch streams present: ['jobs', 'mltrainingjobs', 'pods', 'workloads'], missing []
+OK   run-a: nothing of reference existed when no-rng-control was submitted at resourceVersion 2473; its last object was deleted at 2469
+OK   run-a: nothing of no-rng-control existed when dcgm-1 was submitted at resourceVersion 2851; its last object was deleted at 2849
+OK   run-a: nothing of dcgm-1 existed when terminate-wait-1 was submitted at resourceVersion 3264; its last object was deleted at 3246
+OK   run-a/terminate-wait-1: fence requested 0.08 s after the stub's first terminated answer for i-0c000000000000001, which the stub killed: True
+OK   run-a/reference: ACCEPTED, last sampled 67.3 s after its creation was seen
+OK   run-a/no-rng-control: ACCEPTED, last sampled 68.3 s after its creation was seen
+OK   run-a/dcgm-1: ACCEPTED, last sampled 67.7 s after its creation was seen
+OK   run-a/terminate-wait-1: ACCEPTED, last sampled 230.8 s after its creation was seen
+OK   run-b: nothing of reference existed when rank-kill-1 was submitted at resourceVersion 4642; its last object was deleted at 4639
+OK   run-b: nothing of rank-kill-1 existed when rank-kill-2 was submitted at resourceVersion 6828; its last object was deleted at 6821
+OK   run-b: nothing of rank-kill-2 existed when terminate-wait-1 was submitted at resourceVersion 7224; its last object was deleted at 7214
+OK   run-b/terminate-wait-1: fence requested 0.08 s after the stub's first terminated answer for i-0c000000000000004, which the stub killed: True
+OK   run-b/reference: ACCEPTED, last sampled 66.1 s after its creation was seen
+OK   run-b/rank-kill-1: censored, last sampled 719.5 s after its creation was seen (budget 720 s); final phase 'Pending'
+OK   run-b/rank-kill-2: ACCEPTED, last sampled 70.5 s after its creation was seen
+OK   run-b/terminate-wait-1: ACCEPTED, last sampled 136.4 s after its creation was seen
+OK   run-c: nothing of reference existed when rank-kill-1 was submitted at resourceVersion 8338; its last object was deleted at 8334
+OK   run-c/reference: ACCEPTED, last sampled 66.1 s after its creation was seen
+OK   run-c/rank-kill-1: ACCEPTED, last sampled 70.5 s after its creation was seen
+OK   run-d: nothing of reference existed when rank-kill-1 was submitted at resourceVersion 13282; its last object was deleted at 13279
+OK   run-d: nothing of rank-kill-1 existed when rank-kill-2 was submitted at resourceVersion 13438; its last object was deleted at 13433
+OK   run-d/reference: ACCEPTED, last sampled 67.3 s after its creation was seen
+OK   run-d/rank-kill-1: VOID, last sampled 3.6 s after its creation was seen
+OK   run-d/rank-kill-2: VOID, last sampled 2.6 s after its creation was seen
+0 FAIL(s)
+exit=0
+01:00:21 unimplemented aws calls: 0
+OK   no injection failed
+OK   run-a: the scorer exited 0
+OK   run-a/reference: ACCEPTED, allowed ['ACCEPTED']
+OK   run-a/no-rng-control: ACCEPTED, allowed ['ACCEPTED']
+OK   run-a/dcgm-1: ACCEPTED, allowed ['ACCEPTED']
+OK   run-a/terminate-wait-1: ACCEPTED, allowed ['ACCEPTED'] with '"class": "replacement"'
+OK   run-a: no injection
+OK   run-b: the scorer exited 1
+OK   run-b/reference: ACCEPTED, allowed ['ACCEPTED']
+OK   run-b/rank-kill-1: FAILED, allowed ['FAILED'] with 'censored at its budget'
+OK   run-b/rank-kill-2: ACCEPTED, allowed ['ACCEPTED']
+OK   run-b/terminate-wait-1: ACCEPTED, allowed ['ACCEPTED'] with '"class": "replacement"'
+OK   run-b: the quota was lowered and restored
+OK   run-c: the scorer exited 1
+OK   run-c/reference: ACCEPTED, allowed ['ACCEPTED']
+OK   run-c/rank-kill-1: ACCEPTED, allowed ['ACCEPTED', 'FAILED']
+OK   run-c/rank-kill-2: NOTRUN, allowed ['NOTRUN'] with 'could not be retired'
+OK   run-c: the finalizer was put on pod/rst-rank-kill-1-003205-0-75dg4
+OK   run-d: the scorer exited 1
+OK   run-d/reference: ACCEPTED, allowed ['ACCEPTED']
+OK   run-d/rank-kill-1: VOID, allowed ['VOID'] with 'VOID-before-fault'
+OK   run-d/rank-kill-2: VOID, allowed ['VOID'] with 'VOID-before-fault'
+OK   run-d/dcgm-1: NOTRUN, allowed ['NOTRUN'] with 'two cases in a row were VOID'
+OK   run-d: every exporter's date was broken
+0 FAIL(s)
+exit=0
+01:00:22 cleanup: /sys/module/nfsv4/parameters/directory_delegations is now Y, was Y
+pod "rst-reader" deleted from train-a namespace
+rstlife-worker
+rstlife-worker2
+rstlife-worker3
+rstlife-worker4
+Deleting cluster "rstlife" ...
+Deleted nodes: ["rstlife-control-plane"]
+01:00:55 cleanup: deleted rstlife
+01:00:55 cleanup: kind clusters now: ckad m6clean platform 

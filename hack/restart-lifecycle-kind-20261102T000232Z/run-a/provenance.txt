@@ -1,0 +1,16 @@
+commit=45c8779a98f765a89a4d870c8de52857841a8ee4
+dirty_files=0
+train_py_sha256=2db31cbd3ea00e76ef91f7c8710af391db40089878a7b30c6df712f16686bec8
+approved_train_py_sha256=2db31cbd3ea00e76ef91f7c8710af391db40089878a7b30c6df712f16686bec8
+workload_image=distributed-restart:torch251
+steps=30
+step_sleep=2
+ballast_mb=16
+collective_timeout=60
+rendezvous_timeout=600
+case_budget=720
+stage=smoke
+gpu_budget_s=12480
+efs=none: NFS-Ganesha 10.96.193.41 with nfsvers=4.1 rsize=1048576 wsize=1048576 hard timeo=600 retrans=2 noresvport
+nodes=i-0c000000000000001 i-0c000000000000002 i-0c000000000000003
+cases=reference no-rng-control dcgm-1 terminate-wait-1

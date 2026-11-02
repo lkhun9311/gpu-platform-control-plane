@@ -1,0 +1,7 @@
+VOID     reference: attempt 1 rank 0 trained with 'gloo' on 'cpu', not nccl on cuda
+VOID     rank-kill-1: attempt 1 rank 0 trained with 'gloo' on 'cpu', not nccl on cuda
+NOTRUN   rank-kill-2: rank-kill-1 could not be retired or its DCGM fault reset; see hack/restart-lifecycle-kind-20261102T000232Z/run-c/rank-kill-1/case.log
+summary
+  reference: 1 registered, 0 ACCEPTED, 0 FAILED (0 censored at their budget, 0 not recovered), 1 VOID, 0 NOTRUN
+  rank-kill: 2 registered, 0 ACCEPTED, 0 FAILED (0 censored at their budget, 0 not recovered), 1 VOID, 1 NOTRUN
+exit=1

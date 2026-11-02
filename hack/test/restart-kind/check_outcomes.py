@@ -20,13 +20,15 @@ import re
 import sys
 
 # Per run: case -> (must it have started, the verdicts allowed, text its reason must hold or None).
-# run a's terminate-wait-1 may be FAILED as well as ACCEPTED: a replacement slower than the rendezvous timeout is the
-# registered apparatus's own outcome (the README of hack/restart-lifecycle-kind-20261101T143009Z), not the driver's.
+# Both terminate-wait-1 cases must recover on a replacement: run a's joins 150 s after the termination, past the 60 s
+# collective timeout that failed it in hack/restart-lifecycle-kind-20261101T143009Z, and CKPT_RENDEZVOUS_TIMEOUT is
+# what lets attempt 2 wait for it, so a FAILED there is the defect the rendezvous fix exists to remove.
+REPLACEMENT = '"class": "replacement"'
 EXPECTED = {
     "a": {"reference": (True, {"ACCEPTED"}, None), "no-rng-control": (True, {"ACCEPTED"}, None),
-          "dcgm-1": (True, {"ACCEPTED"}, None), "terminate-wait-1": (True, {"ACCEPTED", "FAILED"}, None)},
+          "dcgm-1": (True, {"ACCEPTED"}, None), "terminate-wait-1": (True, {"ACCEPTED"}, REPLACEMENT)},
     "b": {"reference": (True, {"ACCEPTED"}, None), "rank-kill-1": (True, {"FAILED"}, "censored at its budget"),
-          "rank-kill-2": (True, {"ACCEPTED"}, None), "terminate-wait-1": (True, {"ACCEPTED"}, None)},
+          "rank-kill-2": (True, {"ACCEPTED"}, None), "terminate-wait-1": (True, {"ACCEPTED"}, REPLACEMENT)},
     "c": {"reference": (True, {"ACCEPTED"}, None), "rank-kill-1": (True, {"ACCEPTED", "FAILED"}, None),
           "rank-kill-2": (False, {"NOTRUN"}, "could not be retired")},
     "d": {"reference": (True, {"ACCEPTED"}, None), "rank-kill-1": (True, {"VOID"}, "VOID-before-fault"),

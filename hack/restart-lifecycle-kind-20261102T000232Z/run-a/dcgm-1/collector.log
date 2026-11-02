@@ -1,0 +1,3 @@
+Error from server (NotFound): pods "rst-dcgm-1-000739-1-4l44l" not found
+Error from server (NotFound): pods "rst-dcgm-1-000739-0-lfls8" not found
+hack/lib/restart-session.sh: line 1: kill: (771315) - No such process

@@ -125,7 +125,8 @@ No automatic force deletion of an unreachable node's Pods, ever; that decision s
 
 ## The paid session: apparatus
 
-Written 2026-11-01. Status: **DRAFT, not approved.** Nothing here authorises a purchase; only the owner's explicit approval starts a paid session, and none has been given.
+Written 2026-11-01. Status: **`smoke` approved by the owner on 2026-11-02; `full` not approved.** Nothing else here authorises a purchase; only the owner's explicit approval starts a paid session.
+The approval came after the kind rehearsal found D1 and before it was fixed, so `smoke` starts only from a commit whose kind rehearsal recovers `terminate-wait-1` on a late replacement.
 This section is step 5 above, the GPU session, as an apparatus: what is built, what is scored, what stops it, and what it costs.
 It was attacked as a plan by codex `gpt-6-astra` (read-only, 2026-11-01) before it was written down; its twenty findings were each checked against the code at `863154a7`, and where one changed the plan the item says so (`A<n>`).
 The runner's plan was attacked the same way before the runner was written, and its eighteen findings, checked the same way, are marked `B<n>`; three of them corrected this section as first committed (the trigger's attempt, the deadline and the cost).
@@ -134,6 +135,8 @@ The finished apparatus at `f57e11a1` was attacked a third time before any purcha
 The worst was that the registered session could never start: 22 cases needed a 684-minute deadline and 724 minutes of credential, and the `gpu-lab` permission set issues credentials for at most 720 (`SessionDuration` PT12H) (C1).
 So the session is now two stages, a small `smoke` run inspected before anything else is bought and a `full` run that needs its own approval.
 The scorer accepted a rank 1 whose final parameters were NaN, records from another run, contradictory clock probes and a missing fence; each was reproduced as an ACCEPTED fixture before it was fixed (C4, C5, C6, C9).
+The runner then ran end to end on kind (`hack/restart-lifecycle-kind-20261101T143009Z`, #480), and what that rehearsal and the codex `gpt-6-astra` attack on its finding changed is marked `D<n>`.
+The worst was that `terminate-wait`, as registered, could not recover on EKS: attempt 2 starts one rank on the survivor at once, because Kueue admits on quota and not on node capacity, and that rank gave up on its peer after the 60 s collective timeout, long before a g5 replacement could pull its image (D1).
 
 ### What must be true before it can run
 
@@ -147,9 +150,10 @@ These are not built by this apparatus, and each one alone stops the session.
   Both are fixed, and `hack/distributed-restart-kind-20261101T092646Z` and `hack/distributed-restart-kind-20261101T093539Z` pass all their checks.
   The second fix is a mitigation measured on Linux 7.0 against ganesha; whether EFS and the EKS kernel need it, or more, is not shown, and the paid session's restarts are where that would be paid for.
   The API-cut case of step 4 has since run on kind as `cut-writer`, with an early-fence control (`experiments/distributed-restart/README.md`, `hack/distributed-restart-kind-20261101T055239Z`).
-- **The case procedure itself has not yet run end to end on kind.** The tests exercise the runner's helpers and a scorer fixture, not `restart_run` (C2).
-  Its rehearsal runs `smoke` through the real runner on kind, CPU ranks over the NFS server above, with only the EC2, Auto Scaling and DCGM calls replaced, plus a timeout, an unconfirmed retirement and consecutive cases; it is not yet recorded, and until it is this section cannot be approved.
-- **The owner's approval of this section, with the stage, the case list and the cost ceiling below.**
+- **The case procedure has run end to end on kind** (C2): `restart_run` in the `smoke` stage and three scenario runs (a censored case, a retirement that was never confirmed, two VOIDs in a row), CPU ranks over the NFS server above, with only the EC2, Auto Scaling, GPU and DCGM boundary replaced (`hack/restart-lifecycle-kind-20261101T143009Z/README.md`).
+  It found five defects in the runner, each fixed with a check that failed first: the log collector's request timeout cut every log stream at about 400 s, the log follows outlived the collector, clock probes went to an exporter on a node already scaled in, an unretired case's NCCL logs were not copied, and uutils `date` 0.8.0, the date of the machine the session runs from, printed `%6N` without its leading zeros, which could move a mark by up to 0.9 s.
+  Its `terminate-wait-1` came out FAILED, not recovered, which is D1; the kind rehearsal is run again on the commit that fixes it, and `smoke` starts only from a commit whose rehearsal recovers that case on a replacement that joins after the 60 s.
+- **The owner's approval of this section, with the stage, the case list and the cost ceiling below.** Given for `smoke` on 2026-11-02.
 
 The quota is not a blocker any more: `L-DB2E81BA` (Running On-Demand G and VT instances) in ap-northeast-2 reads **128 vCPU**, the increase request closed at 128 on 2026-11-01 (`aws service-quotas get-service-quota`, `list-requested-service-quota-change-history-by-quota`).
 Comments in `infra/aws/cluster` still say 52; they describe what was granted when they were written.
@@ -182,6 +186,11 @@ Every case has its own `CKPT_JOB_ID`, the job's name with a nonce, so no case re
 Every case runs 30 steps with `CKPT_STEP_SLEEP=2`, about a minute of training an attempt, and `CKPT_BALLAST_MB=16`, so each shard is a stated 16 MiB rather than a few kilobytes.
 `CKPT_COLLECTIVE_TIMEOUT=60`, because the controller does not watch Pods or Nodes: it restarts when the Job fails, is deleted, or carries the NodeHealth hand-off (`internal/controller/mltrainingjob_restart.go`, `runAttempt`), and a surviving rank blocked in a collective keeps the Job running until that timeout fails it (A6).
 The registered timeout is therefore part of every figure where the faulted rank cannot report its own failure, and the record says so.
+`CKPT_RENDEZVOUS_TIMEOUT=600` bounds only the ranks' join, before training: `train.py` builds the rendezvous store with that wait from whichever rank arrives first, then puts the store and every collective back at the 60 s (D1).
+Without it the join was bounded by the 60 s too, and a `terminate-wait` attempt 2, whose rank 1 waits for a replacement node, its image pull and its mount, failed at 61 s with "1/2 clients joined" on kind.
+600 s is below the 720 s case budget, so a peer that never comes fails the attempt rather than only censoring it.
+`experiments/distributed-restart/check_rendezvous.py` shows a rank 15 s late joining from either side, the same start failing without the setting, and a peer frozen after the join still failing the survivor at the collective timeout and not the rendezvous one; on gloo only, so NCCL's exchange through the store at its first collective, which the restored store timeout is for, is not exercised.
+Whether a g5 replacement joins, pulls 3.3 GB and mounts EFS within the 720 s case budget is not known before `smoke`; a case it does not fit is FAILED, censored, and the budget is not widened for it.
 `NCCL_DEBUG=INFO`, `NCCL_DEBUG_SUBSYS=INIT,NET` and `NCCL_DEBUG_FILE` on the shared volume, so NCCL's lines do not share stdout with the trainer's JSON records; on stdout they already interleaved mid-line in `hack/four-gpu/2026-10-29-run5` (A17).
 The file is named by attempt and rank, `a<attempt>-r<rank>-%h.%p.log`, because an Indexed Job's hostnames repeat across attempts and NCCL truncates a file it opens, and its directory is created and checked by the container's shell before Python starts, because NCCL creates no directory and falls back to stdout without one (B2).
 The scorer still reads trainer records wherever they start in a line, in case anything else shares stdout.
@@ -226,6 +235,8 @@ What releases the Pods on EKS is the Node object of a terminated instance being 
 
 `experiments/distributed-restart/score_eks.py` reads one run directory and gives every registered case one of ACCEPTED, FAILED, VOID or NOTRUN with a reason; the summary counts all of them, never dropping one (A18).
 FAILED is reported in two parts: censored at its budget, when the job never reached an end, and not recovered, when it ended Failed or recovered wrongly; VOID is the apparatus's part (C13).
+Whether a job ended within its budget is read from the job's own stamps, its `creationTimestamp` and its status's `lastTransitionTime`, and not from when the runner read it, because the runner reads the final status only after its last clock probe, past the budget; a job that ended later than 720 s after its creation is censored whatever its phase, and one without both stamps is VOID (D2).
+The stamps are whole seconds from two clocks, the API server's and the controller's, whose offset nothing measures, so an end within 2 s of the budget is VOID rather than placed on either side of it; the 2 s assumes both clocks are synchronised to within 1 s.
 NOTRUN is a case the runner chose not to start, after an abort or for want of deadline, and says why; a registered case with no directory at all is VOID (B17).
 The runner scores each case as it ends (`--partial`), because a bad reference, a bad control or two VOID cases in a row must stop the spending, not be found at the end (B14).
 The checks run in a fixed order, the fault's delivery, then the job's outcome, then the evidence, then what the recovery restored, so a recovery that timed out is FAILED for timing out and not VOID for lacking the records a timeout cannot produce (B17).
