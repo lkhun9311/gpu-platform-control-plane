@@ -500,6 +500,19 @@ else
   bad "the probe kubeconfig: $out; $(grep -c '^token-plugin' "$work/plugin.calls") plugin run(s), configs left: $left"
 fi
 
+# A plugin that refuses is reported with its own reason, which is what a VOID before the fault would have to show.
+mkdir -p "$work/rules/plugin-refuses"
+printf '#!/usr/bin/env bash\necho "token denied: the SSO session has expired" >&2\nexit 1\n' >"$work/bin/refusing-plugin"
+chmod +x "$work/bin/refusing-plugin"
+sed 's/"command": "token-plugin"/"command": "refusing-plugin"/' "$work/rules/plugin/kubeconfig.json" >"$work/rules/plugin-refuses/kubeconfig.json"
+cp "$work/rules/plugin/kubectl.sh" "$work/rules/plugin-refuses/kubectl.sh"
+out="$(lib plugin-refuses 'restart_probe_all "$RESTART_OUT" before; echo "rc=$?"')"
+if [[ "$out" == *"refusing-plugin failed: token denied: the SSO session has expired"*"rc=1" ]]; then
+  ok "a credential plugin that refuses is reported with its own reason"
+else
+  bad "the refusing plugin: $out"
+fi
+
 # An empty exporter list reads no clock, which is not every clock read.
 out="$(lib noexporter 'restart_probe_all "$RESTART_OUT" before; echo "rc=$?"')"
 if [[ "$out" == *"no exporter Pod was Running"*"rc=1" ]]; then ok "a probe of no node fails"; else bad "the probe of no node: $out"; fi
