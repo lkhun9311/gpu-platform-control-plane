@@ -410,23 +410,70 @@ sys.exit(0 if "maxRestarts" in d else 1)' "$crd" 2>&1 || {
   echo "operator at $rev runs $expected, the CRD has maxRestarts, and the webhook refuses a missing claim and accepts a case"
 }
 
+# The widest bracket a clock probe may have, score_eks.py's CLOCK_BRACKET_S: a probe wider than this is retried here,
+# because the scorer would void the case whose fault it was taken for.
+RESTART_CLOCK_BRACKET=0.5
+RESTART_CLOCK_TRIES=3
+
+# restart_probe_config FILE: the session's kubeconfig for RESTART_CONTEXT alone, written to FILE, with an exec
+# credential plugin replaced by the token it gives now.
+#
+# On EKS the plugin is `aws eks get-token`, which took 0.30 to 0.32 s on the session's machine (2026-11-02) and runs
+# again inside every kubectl process, so it sat inside every probe's bracket and left the 0.5 s little room.
+# A token lasts 15 minutes, so one is minted for each round of probes and the file is removed after it.
+restart_probe_config() {
+  local file="$1" view
+  view="$(rk config view --raw --minify -o json 2>&1)" || {
+    echo "could not read the kubeconfig of $RESTART_CONTEXT: ${view:0:200}" >&2
+    return 1
+  }
+  python3 -c '
+import json, os, subprocess, sys
+c = json.loads(sys.stdin.read())
+user = c["users"][0]["user"]
+plugin = user.pop("exec", None)
+if plugin:
+    env = dict(os.environ, **{e["name"]: e["value"] for e in plugin.get("env") or []})
+    out = subprocess.run([plugin["command"], *(plugin.get("args") or [])], capture_output=True, text=True, env=env,
+                         timeout=60)
+    if out.returncode != 0:
+        sys.exit(f"the credential plugin {plugin['command']} failed: {out.stderr[:200]}")
+    user["token"] = json.loads(out.stdout)["status"]["token"]
+with open(sys.argv[1], "w") as f:
+    json.dump(c, f)
+' "$file" <<<"$view"
+}
+
 # restart_clock_probe POD NODE: one JSON line of the node's clock against this machine's.
 #
 # The node's time is read inside a Pod on it, between two readings of this machine's clock, so the offset is known to
 # within the bracket; the scorer refuses a wide bracket or a large offset rather than subtract a clock it cannot trust.
+# A probe wider than RESTART_CLOCK_BRACKET is taken again, up to RESTART_CLOCK_TRIES times, and the probe fails rather
+# than return one the scorer would refuse after the fault it was taken for had been paid for.
+# RESTART_PROBE_KUBECONFIG, when restart_probe_all sets it, keeps the credential plugin out of the bracket.
 restart_clock_probe() {
-  local pod="$1" node="$2" before after t
-  before="$(date +%s.%N)"
-  t="$(timeout 10 kubectl --context "$RESTART_CONTEXT" --request-timeout=10s -n "$RESTART_SYS" exec "$pod" -c exporter -- date +%s.%N 2>&1)" || {
-    echo "could not read the clock of $node through $pod: ${t:0:200}" >&2
-    return 1
-  }
-  after="$(date +%s.%N)"
-  [[ "$t" =~ ^[0-9]+\.[0-9]+$ ]] || {
-    echo "the clock of $node read as '${t:0:80}', not seconds" >&2
-    return 1
-  }
-  printf '{"node": "%s", "pod": "%s", "before": %s, "node_time": %s, "after": %s}\n' "$node" "$pod" "$before" "$t" "$after"
+  local pod="$1" node="$2" before after t try wide=""
+  for ((try = 1; try <= RESTART_CLOCK_TRIES; try++)); do
+    before="$(date +%s.%N)"
+    t="$(timeout 10 kubectl ${RESTART_PROBE_KUBECONFIG:+--kubeconfig "$RESTART_PROBE_KUBECONFIG"} --context "$RESTART_CONTEXT" \
+      --request-timeout=10s -n "$RESTART_SYS" exec "$pod" -c exporter -- date +%s.%N 2>&1)" || {
+      echo "could not read the clock of $node through $pod: ${t:0:200}" >&2
+      return 1
+    }
+    after="$(date +%s.%N)"
+    [[ "$t" =~ ^[0-9]+\.[0-9]+$ ]] || {
+      echo "the clock of $node read as '${t:0:80}', not seconds" >&2
+      return 1
+    }
+    if python3 -c 'import sys; sys.exit(0 if float(sys.argv[2]) - float(sys.argv[1]) <= float(sys.argv[3]) else 1)' \
+      "$before" "$after" "$RESTART_CLOCK_BRACKET"; then
+      printf '{"node": "%s", "pod": "%s", "before": %s, "node_time": %s, "after": %s}\n' "$node" "$pod" "$before" "$t" "$after"
+      return 0
+    fi
+    wide+=" $(python3 -c 'import sys; print(f"{float(sys.argv[2]) - float(sys.argv[1]):.3f}")' "$before" "$after")"
+  done
+  echo "every probe of the clock of $node was wider than ${RESTART_CLOCK_BRACKET} s:${wide} s" >&2
+  return 1
 }
 
 # restart_exporters: "node pod" for every Running exporter Pod on a Node the GPU group has now, the clock and fault
@@ -450,11 +497,17 @@ restart_exporters() {
 
 # restart_probe_all DIR LABEL: a probe of every GPU node's clock, appended to DIR/clock.jsonl; fails if any cannot be read.
 restart_probe_all() {
-  local dir="$1" label="$2" rows node pod line fails=0 probed=0
+  local dir="$1" label="$2" rows node pod line fails=0 probed=0 config
   rows="$(restart_exporters 2>&1)" || {
     echo "could not list the exporters: ${rows:0:200}" >&2
     return 1
   }
+  config="$(mktemp)" || return 1
+  restart_probe_config "$config" || {
+    rm -f "$config"
+    return 1
+  }
+  local RESTART_PROBE_KUBECONFIG="$config"
   while read -r node pod; do
     [[ -n "$node" ]] || continue
     probed=$((probed + 1))
@@ -464,6 +517,7 @@ restart_probe_all() {
       fails=$((fails + 1))
     fi
   done <<<"$rows"
+  rm -f "$config"
   # No exporter listed is no clock read, not every clock read.
   if ((probed == 0)); then
     echo "no exporter Pod was Running, so no node's clock was read" >&2

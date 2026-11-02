@@ -36,6 +36,14 @@ cat >"$work/bin/stub" <<'EOF'
 #!/usr/bin/env bash
 tool=$(basename "$0")
 printf '%s %s\n' "$tool" "$*" >>"${STUB_CALLS:?the stub was given nowhere to record its calls}" || exit 98
+# The session's kubeconfig, which restart_probe_config reads before every round of clock probes: a case's own, or one
+# whose user holds a client certificate and no credential plugin, as kind's does.
+if [[ "$tool" == kubectl && " $* " == *" config view "* ]]; then
+  if [[ -n "${STUB_RULES:-}" && -f "$STUB_RULES/kubeconfig.json" ]]; then cat "$STUB_RULES/kubeconfig.json"; else
+    echo '{"apiVersion": "v1", "kind": "Config", "current-context": "stub", "contexts": [{"name": "stub", "context": {"cluster": "c", "user": "u"}}], "clusters": [{"name": "c", "cluster": {"server": "https://stub.invalid"}}], "users": [{"name": "u", "user": {"client-certificate-data": "Y2VydA=="}}]}'
+  fi
+  exit 0
+fi
 if [[ -n "${STUB_RULES:-}" && -f "$STUB_RULES/$tool.sh" ]]; then
   # shellcheck disable=SC1090
   . "$STUB_RULES/$tool.sh" "$@"
@@ -432,6 +440,66 @@ sys.exit(0 if r["before"] <= r["node_time"] <= r["after"] and r["node"] == "node
 else
   bad "the clock probe: $out"
 fi
+# The scorer voids a bracket wider than its CLOCK_BRACKET_S, so the runner retries against the same number.
+want="$(sed -n 's/^CLOCK_BRACKET_S = //p' experiments/distributed-restart/score_eks.py)"
+got="$(sed -n 's/^RESTART_CLOCK_BRACKET=//p' hack/lib/restart-session.sh)"
+if [[ -n "$want" && "$want" == "$got" ]]; then ok "the runner's widest probe is the scorer's, $got s"; else bad "the runner's widest probe '$got' is not the scorer's '$want'"; fi
+
+# A probe wider than that is taken again rather than kept: EKS's credential plugin alone took 0.3 s of each.
+mkdir -p "$work/rules/wide"
+cat >"$work/rules/wide/kubectl.sh" <<'EOF'
+case "$*" in *"exec dcgm-a -c exporter -- date"*)
+  n=$(($(cat "$STUB_RULES/n" 2>/dev/null || echo 0) + 1)); echo "$n" >"$STUB_RULES/n"
+  ((n <= 2)) && sleep 0.6
+  date +%s.%N ;;
+esac
+EOF
+out="$(lib wide 'restart_clock_probe dcgm-a node-a; echo "rc=$?"')"
+if [[ "$out" == "{"*"rc=0" && "$(grep -c 'exec dcgm-a' "$work/wide.calls")" == 3 ]] && python3 -c '
+import json, sys
+r = json.loads(sys.argv[1].splitlines()[0])
+sys.exit(0 if r["after"] - r["before"] <= 0.5 else 1)' "$out"; then
+  ok "two probes wider than 0.5 s are taken again and the third, narrow one is kept"
+else
+  bad "the wide probe: $out; $(grep -c 'exec dcgm-a' "$work/wide.calls") exec(s)"
+fi
+mkdir -p "$work/rules/allwide"
+cat >"$work/rules/allwide/kubectl.sh" <<'EOF'
+case "$*" in *"exec dcgm-a -c exporter -- date"*) sleep 0.6; date +%s.%N ;; esac
+EOF
+out="$(lib allwide 'restart_clock_probe dcgm-a node-a; echo "rc=$?"')"
+if [[ "$out" == *"every probe of the clock of node-a was wider than 0.5 s"*"rc=1" && "$(grep -c 'exec dcgm-a' "$work/allwide.calls")" == 3 ]]; then
+  ok "a clock whose every probe is wide is not read"
+else
+  bad "the always-wide probe: $out"
+fi
+
+# The credential plugin runs once a round, outside every bracket, and the token it gave is not left on disk.
+mkdir -p "$work/rules/plugin"
+cat >"$work/bin/token-plugin" <<'EOF'
+#!/usr/bin/env bash
+printf 'token-plugin %s\n' "$*" >>"$STUB_CALLS"
+echo '{"kind": "ExecCredential", "apiVersion": "client.authentication.k8s.io/v1beta1", "status": {"token": "k8s-aws-v1.stub"}}'
+EOF
+chmod +x "$work/bin/token-plugin"
+echo '{"apiVersion": "v1", "kind": "Config", "current-context": "stub", "contexts": [{"name": "stub", "context": {"cluster": "c", "user": "u"}}], "clusters": [{"name": "c", "cluster": {"server": "https://stub.invalid"}}], "users": [{"name": "u", "user": {"exec": {"apiVersion": "client.authentication.k8s.io/v1beta1", "command": "token-plugin", "args": ["eks", "get-token"]}}}]}' >"$work/rules/plugin/kubeconfig.json"
+cat >"$work/rules/plugin/kubectl.sh" <<'EOF'
+case "$*" in
+  *"get nodes -l eks.amazonaws.com/nodegroup=gpu"*) printf 'node-a\nnode-b\n' ;;
+  *"component=dcgm-exporter"*) printf 'node-a dcgm-a\nnode-b dcgm-b\n' ;;
+  *"--kubeconfig "*"exec dcgm-"*" -c exporter -- date"*)
+    f="$(sed -E 's/.*--kubeconfig ([^ ]+).*/\1/' <<<"$*")"
+    grep -q '"token": "k8s-aws-v1.stub"' "$f" && ! grep -q '"exec"' "$f" && echo "$f" >>"$STUB_RULES/configs" && date +%s.%N ;;
+esac
+EOF
+out="$(lib plugin 'restart_probe_all "$RESTART_OUT" before; echo "rc=$?"')"
+left="$(sort -u "$work/rules/plugin/configs" 2>&1 | while read -r f; do [[ -e "$f" ]] && echo "$f"; done)"
+if [[ "$out" == "rc=0" && "$(grep -c '^token-plugin' "$work/plugin.calls")" == 1 && "$(wc -l <"$work/rules/plugin/configs")" == 2 && -z "$left" ]]; then
+  ok "one token a round of probes, each probe on it, and its file removed after"
+else
+  bad "the probe kubeconfig: $out; $(grep -c '^token-plugin' "$work/plugin.calls") plugin run(s), configs left: $left"
+fi
+
 # An empty exporter list reads no clock, which is not every clock read.
 out="$(lib noexporter 'restart_probe_all "$RESTART_OUT" before; echo "rc=$?"')"
 if [[ "$out" == *"no exporter Pod was Running"*"rc=1" ]]; then ok "a probe of no node fails"; else bad "the probe of no node: $out"; fi
