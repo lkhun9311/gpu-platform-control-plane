@@ -899,7 +899,7 @@ restart_gfk_bounded() {
 
 # restart_fault_path_check WAIT: restart_fault_path_ready's checks, with gfk already bounded.
 restart_fault_path_check() {
-  local deadline=$((SECONDS + $1)) nodes node metrics f missing out left
+  local deadline=$((SECONDS + $1)) nodes node metrics f missing out left err last=""
   out="$(restart_operator_flags_ok)" || {
     echo "$out"
     return 1
@@ -914,19 +914,31 @@ restart_fault_path_check() {
   }
   while read -r node; do
     [[ -n "$node" ]] || continue
-    restart_gf_env "$node" "$RESTART_OUT" || return 1
-    metrics="$(gf_metrics 2>&1)" || {
-      echo "the exporter on $node could not be scraped: ${metrics:0:200}"
-      return 1
-    }
-    missing=""
-    for f in 230 311 310; do
-      grep -q "^${GF_FIELD_NAME[$f]}{" <<<"$metrics" || missing="$missing ${GF_FIELD_NAME[$f]}"
+    # An exporter is waited for within the budget, not read once: on a node that has just joined its Pod can still be
+    # starting, or its host engine not yet answering, and one read would end a session whose GPUs were already bought.
+    while :; do
+      err=""
+      # In this shell and not a command substitution, which would lose the GF_POD it exports and scrape the last node's.
+      if ! restart_gf_env "$node" "$RESTART_OUT" >>"$RESTART_OUT/fault-path.log"; then
+        err="no single exporter Pod on $node: $GF_POD"
+      elif ! metrics="$(gf_metrics 2>&1)"; then
+        err="the exporter on $node could not be scraped: ${metrics:0:200}"
+      else
+        missing=""
+        for f in 230 311 310; do
+          grep -q "^${GF_FIELD_NAME[$f]}{" <<<"$metrics" || missing="$missing ${GF_FIELD_NAME[$f]}"
+        done
+        [[ -z "$missing" ]] || err="the exporter on $node serves no$missing"
+      fi
+      [[ -n "$err" ]] || break
+      # The read that meets the deadline only says so, and the reason the exporter was not ready is the one before it.
+      [[ "$err" == *"deadline has passed"* ]] || last="$err"
+      ((deadline - SECONDS > RESTART_POLL)) || {
+        echo "${last:-$err}"
+        return 1
+      }
+      sleep "$RESTART_POLL"
     done
-    [[ -z "$missing" ]] || {
-      echo "the exporter on $node serves no$missing"
-      return 1
-    }
     left=$((deadline - SECONDS))
     # A floor of one second here once let a gate whose budget was gone still pass, a second at a time per node.
     ((left >= 1)) || {

@@ -804,6 +804,44 @@ for c in ready:"every GPU node's exporter serves the fault fields"*"rc=0" one-fl
   if [[ "$out" == *$want ]]; then ok "fault path readiness, $name: $(head -1 <<<"$out" | cut -c1-120)"; else bad "fault path readiness, $name: $out"; fi
 done
 
+# An exporter still starting is waited for within the budget: node-b first has no Running exporter Pod, then one that
+# cannot be scraped, then one that serves; and one that never comes fails, rather than being read through node-a's Pod.
+late_rules() {
+  mkdir -p "$work/rules/$1"
+  cat >"$work/rules/$1/kubectl.sh" <<EOF
+case "\$*" in
+  *"control-plane=controller-manager"*) echo 'operator-0 $both' ;;
+  *"get nodes -l eks.amazonaws.com/nodegroup=gpu"*) printf 'node-a\nnode-b\n' ;;
+  *"spec.nodeName=node-a,status.phase=Running"*) echo "dcgm-a " ;;
+  *"spec.nodeName=node-b,status.phase=Running"*)
+    n=\$((\$(cat "\$STUB_RULES/pod-n" 2>/dev/null || echo 0) + 1)); echo "\$n" >"\$STUB_RULES/pod-n"
+    if [[ "$2" != never ]] && ((n > 1)); then echo "dcgm-b "; fi ;;
+  *"get --raw"*"dcgm-a:9400/proxy/metrics"*) printf '%s{gpu="0"} 0\n' $fields ;;
+  *"get --raw"*"dcgm-b:9400/proxy/metrics"*)
+    n=\$((\$(cat "\$STUB_RULES/scrape-n" 2>/dev/null || echo 0) + 1)); echo "\$n" >"\$STUB_RULES/scrape-n"
+    ((n > 1)) || { echo "Error from server (ServiceUnavailable): the server is currently unable to handle the request" >&2; exit 1; }
+    printf '%s{gpu="0"} 0\n' $fields ;;
+  *"get nodehealths -o json"*)
+    echo '{"items": [{"metadata": {}, "spec": {"nodeName": "node-a"}, "status": {"conditions": [{"type": "GPUHealthy", "status": "True"}, {"type": "GPUSignal", "status": "True"}]}},
+                     {"metadata": {}, "spec": {"nodeName": "node-b"}, "status": {"conditions": [{"type": "GPUHealthy", "status": "True"}, {"type": "GPUSignal", "status": "True"}]}}]}' ;;
+esac
+EOF
+}
+late_rules late-exporter late
+late_rules never-exporter never
+out="$(lib late-exporter 'RESTART_POLL=1; restart_fault_path_ready 4; echo "rc=$?"')"
+if [[ "$out" == *"every GPU node's exporter serves the fault fields"*"rc=0" && "$(grep -c 'dcgm-b:9400' "$work/late-exporter.calls")" == 2 ]]; then
+  ok "fault path readiness waits for an exporter that is still starting"
+else
+  bad "the late exporter: $out; $(grep -c 'dcgm-b:9400' "$work/late-exporter.calls") scrape(s) of node-b's"
+fi
+out="$(lib never-exporter 'RESTART_POLL=1; restart_fault_path_ready 2; echo "rc=$?"')"
+if [[ "$out" == *"no single exporter Pod on node-b"*"rc=1" ]] && ! grep -q 'dcgm-a:9400.*' <(grep -A0 'dcgm-a:9400' "$work/never-exporter.calls" | sed -n '2,$p'); then
+  ok "an exporter that never comes on node-b fails the gate"
+else
+  bad "the missing exporter: $out"
+fi
+
 # A node whose taints cannot be read is neither tainted nor clear, and its record says so rather than absent.
 mkdir -p "$work/rules/taint-unreadable"
 cat >"$work/rules/taint-unreadable/kubectl.sh" <<'EOF'
