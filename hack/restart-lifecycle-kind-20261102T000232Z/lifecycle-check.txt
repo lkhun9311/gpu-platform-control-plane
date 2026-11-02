@@ -1,0 +1,27 @@
+OK   watch streams present: ['jobs', 'mltrainingjobs', 'pods', 'workloads'], missing []
+OK   run-a: nothing of reference existed when no-rng-control was submitted at resourceVersion 2473; its last object was deleted at 2469
+OK   run-a: nothing of no-rng-control existed when dcgm-1 was submitted at resourceVersion 2851; its last object was deleted at 2849
+OK   run-a: nothing of dcgm-1 existed when terminate-wait-1 was submitted at resourceVersion 3264; its last object was deleted at 3246
+OK   run-a/terminate-wait-1: fence requested 0.08 s after the stub's first terminated answer for i-0c000000000000001, which the stub killed: True
+OK   run-a/reference: ACCEPTED, last sampled 67.3 s after its creation was seen
+OK   run-a/no-rng-control: ACCEPTED, last sampled 68.3 s after its creation was seen
+OK   run-a/dcgm-1: ACCEPTED, last sampled 67.7 s after its creation was seen
+OK   run-a/terminate-wait-1: ACCEPTED, last sampled 230.8 s after its creation was seen
+OK   run-b: nothing of reference existed when rank-kill-1 was submitted at resourceVersion 4642; its last object was deleted at 4639
+OK   run-b: nothing of rank-kill-1 existed when rank-kill-2 was submitted at resourceVersion 6828; its last object was deleted at 6821
+OK   run-b: nothing of rank-kill-2 existed when terminate-wait-1 was submitted at resourceVersion 7224; its last object was deleted at 7214
+OK   run-b/terminate-wait-1: fence requested 0.08 s after the stub's first terminated answer for i-0c000000000000004, which the stub killed: True
+OK   run-b/reference: ACCEPTED, last sampled 66.1 s after its creation was seen
+OK   run-b/rank-kill-1: censored, last sampled 719.5 s after its creation was seen (budget 720 s); final phase 'Pending'
+OK   run-b/rank-kill-2: ACCEPTED, last sampled 70.5 s after its creation was seen
+OK   run-b/terminate-wait-1: ACCEPTED, last sampled 136.4 s after its creation was seen
+OK   run-c: nothing of reference existed when rank-kill-1 was submitted at resourceVersion 8338; its last object was deleted at 8334
+OK   run-c/reference: ACCEPTED, last sampled 66.1 s after its creation was seen
+OK   run-c/rank-kill-1: ACCEPTED, last sampled 70.5 s after its creation was seen
+OK   run-d: nothing of reference existed when rank-kill-1 was submitted at resourceVersion 13282; its last object was deleted at 13279
+OK   run-d: nothing of rank-kill-1 existed when rank-kill-2 was submitted at resourceVersion 13438; its last object was deleted at 13433
+OK   run-d/reference: ACCEPTED, last sampled 67.3 s after its creation was seen
+OK   run-d/rank-kill-1: VOID, last sampled 3.6 s after its creation was seen
+OK   run-d/rank-kill-2: VOID, last sampled 2.6 s after its creation was seen
+0 FAIL(s)
+exit=0

@@ -1,0 +1,2 @@
+{"uid": "731d9374-32cc-4931-925d-b3caf97ad0f4", "pod": "rst-rank-kill-1-001434-0-8b6sg", "node": "rstlife-worker3", "index": "0", "attempt_token": "1", "observed": "2026-11-02T00:14:35.596763772Z"}
+{"uid": "60b38e41-1fae-487d-91f5-54a885ee3c9a", "pod": "rst-rank-kill-1-001434-1-z4q6r", "node": "rstlife-worker2", "index": "1", "attempt_token": "1", "observed": "2026-11-02T00:14:35.598507962Z"}

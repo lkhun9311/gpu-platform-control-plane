@@ -1,0 +1,10 @@
+VOID     reference: attempt 1 rank 1 trained with 'gloo' on 'cpu', not nccl on cuda
+VOID     no-rng-control: attempt 1 rank 1 trained with 'gloo' on 'cpu', not nccl on cuda
+VOID     dcgm-1: attempt 1 rank 0 trained with 'gloo' on 'cpu', not nccl on cuda
+VOID     terminate-wait-1: attempt 1 rank 0 trained with 'gloo' on 'cpu', not nccl on cuda
+summary
+  reference: 1 registered, 0 ACCEPTED, 0 FAILED (0 censored at their budget, 0 not recovered), 1 VOID, 0 NOTRUN
+  no-rng-control: 1 registered, 0 ACCEPTED, 0 FAILED (0 censored at their budget, 0 not recovered), 1 VOID, 0 NOTRUN
+  dcgm: 1 registered, 0 ACCEPTED, 0 FAILED (0 censored at their budget, 0 not recovered), 1 VOID, 0 NOTRUN
+  terminate-wait: 1 registered, 0 ACCEPTED, 0 FAILED (0 censored at their budget, 0 not recovered), 1 VOID, 0 NOTRUN
+exit=1
