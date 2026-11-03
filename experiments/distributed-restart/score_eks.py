@@ -602,6 +602,9 @@ class Case:
         if sorted(firsts) != list(range(WORLD)):
             failed(f"attempt 2 has step records from ranks {sorted(firsts)}, want every rank of {WORLD}")
         lost_from = max(r["step"] for r in self.rec("step", 1))
+        # Attempt 1 recorded at least the step its resume came from, or its log is not all there.
+        if lost_from < resumed["from_step"]:
+            void(f"attempt 1's step records end at {lost_from}, before step {resumed['from_step']} it resumed from, so its log is incomplete")
         self.figures.update({
             "recovery_s": max(firsts.values()) - fault,
             # How far the recovery can be off for the clocks alone: the fault's clock and the worst of attempt 2's.
@@ -617,12 +620,23 @@ class Case:
             void(f"attempt 2's first step is {self.figures['recovery_s']:.3f} s after the fault, which no clock allows")
 
     def save_costs(self, attempt: int) -> list[float]:
-        return [r["save_s"] for r in self.rec("checkpoint", attempt) if isinstance(r.get("save_s"), (int, float))]
+        costs = [r["save_s"] for r in self.rec("checkpoint", attempt) if isinstance(r.get("save_s"), (int, float))]
+        bad = [c for c in costs if not math.isfinite(c) or c < 0]
+        if bad:
+            void(f"attempt {attempt} recorded save costs {bad[:3]}, which no save takes")
+        return costs
 
     def checkpoint_stats(self, attempts: int) -> dict:
-        """Every rank's save cost, as median and maximum per attempt, which the registration names as the figure."""
+        """Every rank's save cost, as median and maximum per attempt, which the registration names as the figure.
+
+        Each rank of each attempt must have saved, or the figure is one rank's and reads as both (codex review before the
+        full stage).
+        """
         out = {}
         for a in range(1, attempts + 1):
+            ranks = sorted({r.get("rank") for r in self.rec("checkpoint", a)})
+            if ranks != list(range(WORLD)):
+                void(f"attempt {a} has save records from ranks {ranks}, want every rank of {WORLD}")
             costs = self.save_costs(a)
             out[f"a{a}"] = ({"saves": len(costs), "median_s": round(statistics.median(costs), 3), "max_s": round(max(costs), 3)}
                             if costs else {"saves": 0})

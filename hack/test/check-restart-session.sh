@@ -618,7 +618,7 @@ case "$*" in
   *"logs -f rp0"*) exec -a rstk-follow-leak-probe sleep 300 ;;
 esac
 EOF
-out="$(lib follow-leak 'restart_collect "$RESTART_OUT" rst-x & c=$!; sleep 3; kill $c; wait $c; sleep 1; echo "rc=$?"')"
+out="$(lib follow-leak 'restart_collect "$RESTART_OUT" rst-x & c=$!; sleep 3; restart_stop_collector $c "$RESTART_OUT"; sleep 1; echo "rc=$?"')"
 started="$(grep -c 'logs -f rp0' "$work/follow-leak.calls")"
 leaked="$(pgrep -f '[r]stk-follow-leak-probe' | wc -l)"
 if [[ "$started" -ge 1 && "$leaked" == 0 ]]; then
@@ -626,6 +626,47 @@ if [[ "$started" -ge 1 && "$leaked" == 0 ]]; then
 else
   bad "$leaked of $started log follow(s) outlived the collector: $out"
   pgrep -f '[r]stk-follow-leak-probe' | xargs -r kill
+fi
+
+# A stream that ends at once is paused after, so its twenty tries are not spent in a moment.
+mkdir -p "$work/rules/fast-fail"
+cat >"$work/rules/fast-fail/kubectl.sh" <<'EOF'
+case "$*" in
+  *"get pods -l platform.lkhun9311.github.io/mltrainingjob="*"-o json"*)
+    echo '{"items": [{"metadata": {"uid": "u0", "name": "rp0", "annotations": {"batch.kubernetes.io/job-completion-index": "0"}}, "spec": {"nodeName": "node-a"}, "status": {"containerStatuses": [{"state": {"running": {"startedAt": "t"}}}]}}]}' ;;
+  *"logs -f rp0"*) echo "error: unexpected EOF" >&2; exit 1 ;;
+  *"get pod rp0"*) echo '{"startedAt": "t"}' ;;
+esac
+EOF
+out="$(lib fast-fail 'restart_collect "$RESTART_OUT" rst-x & c=$!; sleep 5; kill $c; wait $c; echo "rc=$?"')"
+streams="$(grep -c '"uid": "u0"' "$work/out/fast-fail/streams.jsonl" 2>&1)"
+if ((streams >= 2 && streams <= 4)); then ok "a log stream that fails at once is retried after a pause: $streams in 5 s"; else bad "the failing stream was tried $streams time(s) in 5 s"; fi
+
+# Both ranks have stepped only when two ranks have: two of one rank's records, as a re-read stream repeats them, are not.
+mkdir -p "$work/out/stepped"
+printf '%s\n' '{"ts": "t", "event": "step", "step": 1, "rank": 0, "attempt": 1}' '{"ts": "t", "event": "step", "step": 1, "rank": 0, "attempt": 1}' >"$work/out/stepped/log-u0.1.txt"
+printf '%s\n' '{"ts": "t", "event": "step", "step": 26, "rank": 1, "attempt": 2}' >"$work/out/stepped/log-u1.1.txt"
+out="$(lib stepped 'restart_ranks_stepped "$RESTART_OUT"; restart_ranks_stepped "$RESTART_OUT" 2; restart_ranks_stepped "$RESTART_OUT" 1')"
+if [[ "$out" == $'2\n1\n1' ]]; then ok "ranks that stepped are counted by rank, not by record"; else bad "the ranks that stepped: $(paste -sd' ' <<<"$out"), want 2 1 1"; fi
+
+# A collector that loses its first TERM is still stopped, and one that ignores TERM altogether is killed with what runs
+# below it, in bounded time: one TERM and a wait once held this suite for 94 minutes.
+# The child is found by the PID it recorded, never by a pattern, which would also match this suite's own command lines.
+mkdir -p "$work/out/stop"
+start=$SECONDS
+out="$(lib stop '
+( n=0; trap "n=\$((n + 1)); ((n >= 2)) && exit 0" TERM; while :; do sleep 0.2; done ) & c=$!
+sleep 0.5; restart_stop_collector $c "$RESTART_OUT"; restart_alive $c && echo "lost-term alive" || echo "lost-term stopped"
+( trap "" TERM; sleep 300 & echo $! >"$RESTART_OUT/child"; while :; do sleep 0.2; done ) & c=$!
+sleep 0.5; RESTART_STOP_TRIES=2 restart_stop_collector $c "$RESTART_OUT"; restart_alive $c && echo "immune alive" || echo "immune stopped"
+restart_alive "$(cat "$RESTART_OUT/child")" && echo "child alive" || echo "child stopped"')"
+took=$((SECONDS - start))
+if [[ "$out" == *"lost-term stopped"*"immune stopped"*"child stopped"* && "$took" -lt 15 ]] && grep -q 'outlived 2 TERMs and was killed' "$work/out/stop/case.log"; then
+  ok "a collector that loses a TERM is stopped, and one that ignores TERM is killed with its children, in $took s"
+else
+  bad "the collector stop after $took s: $out"
+  child="$(cat "$work/out/stop/child" 2>&1)"
+  [[ "$child" =~ ^[0-9]+$ ]] && kill -KILL "$child"
 fi
 
 # A status read that fails after a stream ends is not the container's end: the Pod's log is followed again, and only a
@@ -641,7 +682,7 @@ case "$*" in
     case "$n" in 1) echo "Unable to connect to the server: net/http: TLS handshake timeout" >&2; exit 1 ;; 2) echo '{"startedAt": "t"}' ;; esac ;;
 esac
 EOF
-out="$(lib status-blip 'restart_collect "$RESTART_OUT" rst-x & c=$!; sleep 6; kill $c; wait $c; echo "rc=$?"')"
+out="$(lib status-blip 'restart_collect "$RESTART_OUT" rst-x & c=$!; sleep 14; kill $c; wait $c; echo "rc=$?"')"
 streams="$(grep -c '"uid": "u0"' "$work/out/status-blip/streams.jsonl" 2>&1)"
 if [[ "$streams" == 3 ]]; then
   ok "a failed status read is followed by the log again, and the follows end when the container is read as ended"
@@ -1129,6 +1170,10 @@ score spare-new-machine dcgm-2 VOID "attempt 2 ran on ['ip-10-0-64-13'], up befo
 score prepared-no-uid dcgm-2 VOID "names no Node UID"
 # A round labelled before the fault that was taken after rank-kill's own kill shows no clock before it.
 score before-probe-late rank-kill-2 VOID "labelled before the fault ended after it"
+# A figure needs the records behind it: attempt 1's log through its resume point, and both ranks' finite save costs.
+score attempt1-log-cut rank-kill-2 VOID "so its log is incomplete"
+score save-nan dcgm-2 VOID "which no save takes"
+score rank1-no-saves terminate-spare-2 VOID "has save records from ranks [0], want every rank of 2"
 score no-nodes-after rank-kill-3 VOID "the nodes after the recovery were not recorded"
 score drop-node-before rank-kill-4 VOID "attempt 1's nodes ['ip-10-0-64-11'] are not among the nodes before the fault"
 score drop-node-after dcgm-4 VOID "attempt 2's nodes ['ip-10-0-64-13'] are not among the nodes after the recovery"

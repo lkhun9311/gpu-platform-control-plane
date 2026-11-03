@@ -602,6 +602,64 @@ restart_scale_group() {
   done
 }
 
+# restart_alive PID: the process exists and is not a zombie; a zombie has exited and only waits to be reaped.
+restart_alive() {
+  local stat
+  stat="$(ps -o stat= -p "$1")" && [[ -n "$stat" && "$stat" != Z* ]]
+}
+
+# restart_descendants PID: every process below PID, one a line.
+restart_descendants() {
+  local child
+  for child in $(ps -o pid= --ppid "$1"); do
+    echo "$child"
+    restart_descendants "$child"
+  done
+}
+
+# restart_stop_collector PID DIR: a case's collector stopped with its log follows, and waited for, in bounded time.
+#
+# One TERM, then a wait, was the whole stop, and a TERM can be lost: in the check suite a collector looping through its
+# command substitutions outlived its TERM for 94 minutes and exited at once on a second one, which in a paid run would
+# have held the session with its GPUs until the deadline (2026-11-03, bash 5.3.9).
+# So TERM is sent again each second, and after ten the collector and everything below it is killed outright.
+RESTART_STOP_TRIES=10
+restart_stop_collector() {
+  local pid="$1" log="$2/case.log" tree try p
+  tree="$(restart_descendants "$pid")"
+  for ((try = 1; try <= RESTART_STOP_TRIES; try++)); do
+    restart_alive "$pid" || break
+    kill -TERM "$pid" 2>>"$log"
+    sleep 1
+  done
+  if restart_alive "$pid"; then
+    echo "the collector $pid outlived $RESTART_STOP_TRIES TERMs and was killed" >>"$log"
+    tree="$tree $(restart_descendants "$pid")"
+    kill -KILL "$pid" 2>>"$log"
+  fi
+  wait "$pid" 2>>"$log"
+  for p in $tree; do
+    if restart_alive "$p"; then kill -KILL "$p" 2>>"$log"; fi
+  done
+  return 0
+}
+
+# restart_ranks_stepped DIR [ATTEMPT]: how many distinct ranks have recorded a step, in ATTEMPT when it is given.
+#
+# Ranks, not records: a log stream read again from its start repeats its records, and two of one rank's once read as
+# both ranks having stepped (codex review before the full stage).
+restart_ranks_stepped() {
+  restart_records "$1" | python3 -c '
+import json, sys
+want = sys.argv[1] if len(sys.argv) > 1 else None
+ranks = set()
+for line in sys.stdin:
+    r = json.loads(line)
+    if r.get("event") == "step" and (want is None or str(r.get("attempt")) == want):
+        ranks.add(r.get("rank"))
+print(len(ranks))' ${2:+"$2"}
+}
+
 # restart_read_latest POD JOB_ID: the step LATEST names on the volume, read through a rank's own mount.
 restart_read_latest() {
   local latest
@@ -1162,7 +1220,7 @@ for p in json.load(sys.stdin)["items"]:
       printf '{"uid": "%s", "pod": "%s", "node": "%s", "index": "%s", "attempt_token": "%s", "observed": "%s"}\n' \
         "$uid" "$pod" "$node" "$index" "$token" "$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)" >>"$dir/pods.jsonl"
       (
-        local n=0 follow="" rc running
+        local n=0 follow="" rc running began
         # The follow runs in the background and is waited for, so stopping this reader stops it too: with no request
         # timeout a follow of a Pod on a dead node would otherwise outlive the case (codex review of bf0ea420).
         trap 'kill $follow 2>>"$dir/collector.log"; exit 0' TERM
@@ -1170,11 +1228,15 @@ for p in json.load(sys.stdin)["items"]:
           n=$((n + 1))
           # No request timeout, unlike rk: kubectl's 20 s cut every follow, so each Pod's log was read again from its start
           # every 20 s and the 20 reads allowed below ended at about 400 s of the Pod's life (the kind rehearsal).
+          began=$SECONDS
           kubectl --context "$RESTART_CONTEXT" -n "$RESTART_NS" logs -f "$pod" >"$dir/log-$uid.$n.txt" 2>>"$dir/collector.log" &
           follow=$!
           wait "$follow"
           rc=$?
           printf '{"uid": "%s", "stream": %d, "exit": %d, "at": "%s"}\n' "$uid" "$n" "$rc" "$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)" >>"$dir/streams.jsonl"
+          # A stream that ended at once is paused after, so twenty that fail in a row span more than a second of the case
+          # (codex review before the full stage).
+          ((SECONDS - began >= 2)) || sleep 2
           ((n < 20)) || break
           # A stream that ended with its container is complete; one that ended while it runs is read again in full.
           # A read of the container that failed says neither, so the log is read again after a pause: taking it for the
@@ -1363,10 +1425,7 @@ restart_void_case() {
   restart_sample "$name" "$dir"
   rk -n "$RESTART_NS" get mltrainingjob "$name" -o json >"$dir/final-mltj.json" 2>>"$dir/case.log"
   rk get nodes -o json >"$dir/nodes-after.json" 2>>"$dir/case.log"
-  if [[ -n "$collector" ]]; then
-    kill "$collector" 2>>"$dir/case.log"
-    wait "$collector" 2>>"$dir/case.log"
-  fi
+  [[ -z "$collector" ]] || restart_stop_collector "$collector" "$dir"
   restart_retire "$name" $((retire_dl - SECONDS)) >>"$dir/case.log" || {
     echo "retirement of the VOID case $name was not confirmed; its files are left on the volume and nothing more may start" >>"$dir/case.log"
     restart_read_shared "$dir" "$job_id"
@@ -1454,7 +1513,7 @@ restart_run_case() {
   # Both ranks have recorded a step before any clock is probed or any fault is injected.
   while ((SECONDS < deadline)); do
     restart_sample "$name" "$dir"
-    [[ "$(restart_records "$dir" | grep -c '"event": "step"')" -ge 2 ]] && break
+    [[ "$(restart_ranks_stepped "$dir")" -ge 2 ]] && break
     sleep "$RESTART_POLL"
   done
   # A fault whose nodes' clocks were not read before it cannot be placed on the runner's clock, and the scorer would void
@@ -1490,7 +1549,7 @@ restart_run_case() {
   # Until the job ends or the budget does; the clocks are probed again once both ranks of attempt 2 have stepped.
   while ((SECONDS < deadline)); do
     restart_sample "$name" "$dir"
-    if [[ -z "$probed" ]] && [[ "$(restart_records "$dir" | grep '"attempt": 2' | grep -c '"event": "step"')" -ge 2 ]]; then
+    if [[ -z "$probed" ]] && [[ "$(restart_ranks_stepped "$dir" 2)" -ge 2 ]]; then
       restart_probe_all "$dir" after || echo "a clock probe after the recovery failed" >>"$dir/case.log"
       probed=1
     fi
@@ -1502,8 +1561,7 @@ restart_run_case() {
   rk get nodes -o json >"$dir/nodes-after.json" 2>>"$dir/case.log"
   restart_efs_credits "$dir" after
   sleep 5
-  kill "$collector" 2>>"$dir/case.log"
-  wait "$collector" 2>>"$dir/case.log"
+  restart_stop_collector "$collector" "$dir"
 
   # The writers are stopped before their files are copied and deleted.
   # A case whose retirement cannot be confirmed may still be writing and still hold GPUs and quota, so its files stay on

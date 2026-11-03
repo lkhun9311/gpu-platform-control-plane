@@ -433,6 +433,13 @@ def defect(out: pathlib.Path, name: str, case: str) -> None:
                            if json.loads(line)["event"] == "fault")["ts"])
         edit_json_lines(d / "clock.jsonl", lambda p: {**p, "before": fault + 1, "node_time": fault + 1.1, "after": fault + 1.2}
                         if p["when"] == "before" else p)
+    elif name == "attempt1-log-cut":
+        # Attempt 1's records end before the step attempt 2 resumed from, as a log stream cut short would leave them.
+        edit_records(d, lambda r: None if r["attempt"] == 1 and r["event"] in ("step", "checkpoint") and r["step"] >= 8 else r)
+    elif name == "save-nan":
+        edit_records(d, lambda r: {**r, "save_s": float("nan")} if r["event"] == "checkpoint" and r["attempt"] == 2 and r["rank"] == 1 else r)
+    elif name == "rank1-no-saves":
+        edit_records(d, lambda r: None if r["event"] == "checkpoint" and r["attempt"] == 2 and r["rank"] == 1 else r)
     elif name == "prepared-no-uid":
         edit_json_lines(out / "nodes-prepared.jsonl", lambda p: {k: v for k, v in p.items() if k != "uid"})
     elif name in ("drop-node-before", "drop-node-after"):
