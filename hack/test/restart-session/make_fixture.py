@@ -427,6 +427,12 @@ def defect(out: pathlib.Path, name: str, case: str) -> None:
                     i["metadata"]["uid"] = "uid-ip-10-0-64-13-new"
         edit_json(d / "nodes-before.json", swap)
         edit_json(d / "nodes-after.json", swap)
+    elif name == "before-probe-late":
+        # The round labelled before the fault was taken after the trainer's own kill.
+        fault = epoch(next(json.loads(line) for log in d.glob("log-*.txt") for line in log.read_text().splitlines()
+                           if json.loads(line)["event"] == "fault")["ts"])
+        edit_json_lines(d / "clock.jsonl", lambda p: {**p, "before": fault + 1, "node_time": fault + 1.1, "after": fault + 1.2}
+                        if p["when"] == "before" else p)
     elif name == "prepared-no-uid":
         edit_json_lines(out / "nodes-prepared.jsonl", lambda p: {k: v for k, v in p.items() if k != "uid"})
     elif name in ("drop-node-before", "drop-node-after"):

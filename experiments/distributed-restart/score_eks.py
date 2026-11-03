@@ -589,6 +589,12 @@ class Case:
             if g > PARAM_TOLERANCE:
                 failed(f"the resumed run's rank {rank} ended {g:.3g} from the reference, beyond {PARAM_TOLERANCE}")
         fault, fault_uncertainty = self.fault_time()
+        # A probe is "before" by when it was taken, not by its label: rank-kill's trainer kills itself at its own step,
+        # so a round of probes that ran long could end after that fault and still be labelled before it, and a clock
+        # that moved in between would go unseen (codex review before the full stage).
+        late = sorted({p["node"] for p in self.clocks if p.get("when") == "before" and p["after"] > fault})
+        if late:
+            void(f"the probe of {late} labelled before the fault ended after it, so the clock before the fault is not shown")
         firsts, nodes = {}, set()
         for r in self.rec("step", 2):
             firsts[r["rank"]] = min(firsts.get(r["rank"], float("inf")), self.runner_time(r))

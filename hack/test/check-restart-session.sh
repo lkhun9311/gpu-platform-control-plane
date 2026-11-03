@@ -1127,6 +1127,8 @@ score spare-unprepared dcgm-2 VOID "attempt 2 ran on ['ip-10-0-64-13'], up befor
 # Preparation belongs to a machine, so a new Node under a prepared name is not a prepared spare.
 score spare-new-machine dcgm-2 VOID "attempt 2 ran on ['ip-10-0-64-13'], up before the fault but not prepared before it"
 score prepared-no-uid dcgm-2 VOID "names no Node UID"
+# A round labelled before the fault that was taken after rank-kill's own kill shows no clock before it.
+score before-probe-late rank-kill-2 VOID "labelled before the fault ended after it"
 score no-nodes-after rank-kill-3 VOID "the nodes after the recovery were not recorded"
 score drop-node-before rank-kill-4 VOID "attempt 1's nodes ['ip-10-0-64-11'] are not among the nodes before the fault"
 score drop-node-after dcgm-4 VOID "attempt 2's nodes ['ip-10-0-64-13'] are not among the nodes after the recovery"
