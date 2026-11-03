@@ -1260,22 +1260,31 @@ EOF
 #
 # train_qualify_nodes refuses a group holding more nodes than asked for, which is right at purchase and wrong while a
 # scale-in is still removing one, so the count is waited for first.
+#
+# The count can move again between that read and the qualification: before terminate-wait-1 the scale-in to two starts
+# while terminate-spare-2's replacement may still be joining, and the qualification then saw three and ended the run with
+# most of its wait unspent (codex review before the full stage); a count above the one asked for is waited out again.
 restart_wait_group() {
   local want="$1" wait="$2" deadline=$((SECONDS + $2)) n="" ids tainted
-  while ((SECONDS < deadline)); do
-    n="$(rkd "$deadline" get nodes -l "eks.amazonaws.com/nodegroup=$RESTART_GROUP" -o name 2>&1 | grep -c '^node/')"
-    ((n == want)) && break
+  while :; do
+    while ((SECONDS < deadline)); do
+      n="$(rkd "$deadline" get nodes -l "eks.amazonaws.com/nodegroup=$RESTART_GROUP" -o name 2>&1 | grep -c '^node/')"
+      ((n == want)) && break
+      sleep "$RESTART_POLL"
+    done
+    ((n == want)) || {
+      echo "the group held $n node(s), not $want, within ${wait}s"
+      return 1
+    }
+    # What is left of the deadline and no more: a floor here would let the qualification run past the share it was given.
+    ids="$(train_qualify_nodes "$RESTART_CONTEXT" "$RESTART_GROUP" "$want" $((deadline - SECONDS > 1 ? deadline - SECONDS : 1)) 1)" && break
+    [[ "$ids" == *"nodes in the group, want $want"* ]] && ((deadline - SECONDS > RESTART_POLL)) || {
+      echo "$ids"
+      return 1
+    }
+    echo "the group moved past $want during its qualification ($ids); waiting for it again" >>"$RESTART_OUT/run.log"
     sleep "$RESTART_POLL"
   done
-  ((n == want)) || {
-    echo "the group held $n node(s), not $want, within ${wait}s"
-    return 1
-  }
-  # What is left of the deadline and no more: a floor here would let the qualification run past the share it was given.
-  ids="$(train_qualify_nodes "$RESTART_CONTEXT" "$RESTART_GROUP" "$want" $((deadline - SECONDS > 1 ? deadline - SECONDS : 1)) 1)" || {
-    echo "$ids"
-    return 1
-  }
   awk '{print $2}' <<<"$ids" >>"$RESTART_INSTANCES_FILE"
   # Read first and filtered after, because a failed read piped into the filter came out as "no node tainted".
   tainted="$(rkd $((SECONDS + 20)) get nodes -l "eks.amazonaws.com/nodegroup=$RESTART_GROUP" -o jsonpath='{range .items[*]}{.metadata.name}{" "}{.spec.taints[*].key}{"\n"}{end}' 2>&1)" || {

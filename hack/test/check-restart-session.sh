@@ -397,6 +397,27 @@ esac
 EOF
 out="$(lib taints 'RESTART_INSTANCES_FILE="$RESTART_OUT/instances"; TRAIN_POLL=0; restart_wait_group 2 5; echo "rc=$?"')"
 if [[ "$out" == *"could not read the GPU nodes' taints"*"rc=1" ]]; then ok "an unreadable taint list refuses the group"; else bad "the unreadable taints: $out"; fi
+# The group can move past the count between its read and the qualification, as terminate-spare-2's replacement joining
+# during the scale-in before terminate-wait-1 would; that is waited out, not the end of the run.
+mkdir -p "$work/rules/moving" "$work/out/moving"
+cat >"$work/rules/moving/kubectl.sh" <<'EOF'
+node() { echo "{\"metadata\": {\"name\": \"$1\"}, \"spec\": {\"providerID\": \"aws:///x/i-0$1\"}, \"status\": {\"conditions\": [{\"type\": \"Ready\", \"status\": \"True\"}], \"allocatable\": {\"nvidia.com/gpu\": \"1\"}}}"; }
+case "$*" in
+  *"jsonpath"*"taints"*) printf 'a \nb \n' ;;
+  *"get nodes"*"-o name"*) printf 'node/a\nnode/b\n' ;;
+  *"get nodes -l eks.amazonaws.com/nodegroup=gpu -o json"*)
+    n=$(($(cat "$STUB_RULES/n" 2>/dev/null || echo 0) + 1)); echo "$n" >"$STUB_RULES/n"
+    if ((n == 1)); then echo "{\"items\": [$(node a), $(node b), $(node c)]}"; else echo "{\"items\": [$(node a), $(node b)]}"; fi ;;
+  *"get pods -A -l app.kubernetes.io/component=nvidia-device-plugin"*)
+    echo '{"items": [{"spec": {"nodeName": "a"}, "status": {"conditions": [{"type": "Ready", "status": "True"}]}}, {"spec": {"nodeName": "b"}, "status": {"conditions": [{"type": "Ready", "status": "True"}]}}, {"spec": {"nodeName": "c"}, "status": {"conditions": [{"type": "Ready", "status": "True"}]}}]}' ;;
+esac
+EOF
+out="$(lib moving 'RESTART_INSTANCES_FILE="$RESTART_OUT/instances"; TRAIN_POLL=0; restart_wait_group 2 10; echo "rc=$?"')"
+if [[ "$out" == *"2 qualified node(s)"*"rc=0" ]] && grep -q 'moved past 2' "$work/out/moving/run.log"; then
+  ok "a group that moved past its count during the qualification is waited for again"
+else
+  bad "the moving group: $out"
+fi
 out="$(lib volume 'restart_render_volume "" train-a; echo "rc=$?"; restart_render_volume fs-0123456789abcdef0 train-a | grep -c "volumeHandle: fs-0123456789abcdef0\|ReadWriteMany"')"
 if [[ "$out" == *"is not one"*"rc=1"*"3" ]]; then ok "the volume refuses an empty file system ID and renders a RWX volume naming it"; else bad "the volume: $out"; fi
 
