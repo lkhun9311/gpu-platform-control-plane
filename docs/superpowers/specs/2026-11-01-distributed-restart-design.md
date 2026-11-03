@@ -127,6 +127,10 @@ No automatic force deletion of an unreachable node's Pods, ever; that decision s
 
 Written 2026-11-01. Status: **`smoke` approved by the owner on 2026-11-02; `full` not approved.** Nothing else here authorises a purchase; only the owner's explicit approval starts a paid session.
 The approval came after the kind rehearsal found D1 and before it was fixed, so `smoke` starts only from a commit whose kind rehearsal recovers `terminate-wait-1` on a late replacement.
+**`smoke` ran on 2026-11-02 from `5c78d4cf`: all four cases ACCEPTED** (`hack/distributed-restart-eks/2026-11-02-smoke/README.md`).
+`dcgm-1` recovered on the spare in 37.3 s and `terminate-wait-1` on the replacement in 409.4 s, 334 s of which was the old instance's shutdown before EC2 called it terminated; both resumed from step 25 with no step lost and parameters equal to the reference, and the control differed by 0.106.
+One case of each kind, so one observation each.
+It took three launches: EC2 refused an apostrophe in the EFS security group's description, then every warm-up Pod got the same name from EKS's node names; neither bought a case, and with two more defects found before the third launch (the exporter's port and the clock probe's credential plugin, #483) each is recorded in that README.
 This section is step 5 above, the GPU session, as an apparatus: what is built, what is scored, what stops it, and what it costs.
 It was attacked as a plan by codex `gpt-6-astra` (read-only, 2026-11-01) before it was written down; its twenty findings were each checked against the code at `863154a7`, and where one changed the plan the item says so (`A<n>`).
 The runner's plan was attacked the same way before the runner was written, and its eighteen findings, checked the same way, are marked `B<n>`; three of them corrected this section as first committed (the trigger's attempt, the deadline and the cost).

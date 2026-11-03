@@ -1,0 +1,1 @@
+03:53:54Z disarmed by hand after the cluster apply failed and the partial cluster was destroyed (manual-destroy.log); a relaunch would otherwise have been destroyed by it at 06:48Z

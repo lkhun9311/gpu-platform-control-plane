@@ -1,0 +1,9 @@
+╵
+╷
+│ Error: creating Security Group (gpu-platform-efs): operation error EC2: CreateSecurityGroup, https response error StatusCode: 400, RequestID: 047fea57-d3a4-426d-9b09-715aed7e987e, api error InvalidParameterValue: Invalid security group description. Valid descriptions are strings less than 256 characters from the following set:  a-zA-Z0-9. _-:/()#,@[]+=&;{}!$*
+│ 
+│   with aws_security_group.efs[0],
+│   on efs.tf line 39, in resource "aws_security_group" "efs":
+│   39: resource "aws_security_group" "efs" {
+│ 
+╵

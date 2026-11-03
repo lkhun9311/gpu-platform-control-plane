@@ -1,0 +1,12 @@
+ACCEPTED reference {"checkpoint": {"a1": {"max_s": 0.427, "median_s": 0.248, "saves": 60}}}
+ACCEPTED no-rng-control {"checkpoint": {"a1": {"max_s": 0.345, "median_s": 0.272, "saves": 22}, "a2": {"max_s": 0.297, "median_s": 0.256, "saves": 36}}, "from_dir": "a1/00000012-daa8e3d73bcd45db8b7f372c945554c8", "from_step": 12, "params_gap": 0.106}
+ACCEPTED dcgm-1 {"checkpoint": {"a1": {"max_s": 0.307, "median_s": 0.265, "saves": 50}, "a2": {"max_s": 0.28, "median_s": 0.258, "saves": 10}}, "class": "spare", "clock_uncertainty_s": 0.224, "from_dir": "a1/00000025-a85d5b05f6594f33a9b8b1019aec45aa", "from_step": 25, "lost_steps": 0, "params_gap": 0.0, "recovery_s": 37.328}
+ACCEPTED terminate-wait-1 {"checkpoint": {"a1": {"max_s": 0.286, "median_s": 0.25, "saves": 50}, "a2": {"max_s": 0.264, "median_s": 0.25, "saves": 10}}, "class": "replacement", "clock_uncertainty_s": 0.117, "from_dir": "a1/00000025-b5a3254e561548c991c479dd326f45ed", "from_step": 25, "lost_steps": 0, "params_gap": 0.0, "recovery_s": 409.37}
+summary
+  reference: 1 registered, 1 ACCEPTED, 0 FAILED (0 censored at their budget, 0 not recovered), 0 VOID, 0 NOTRUN
+  no-rng-control: 1 registered, 1 ACCEPTED, 0 FAILED (0 censored at their budget, 0 not recovered), 0 VOID, 0 NOTRUN
+  dcgm: 1 registered, 1 ACCEPTED, 0 FAILED (0 censored at their budget, 0 not recovered), 0 VOID, 0 NOTRUN
+    spare: recovery median 37.3 s, range 37.3 to 37.3 s, lost steps [0], over 1 accepted; the 0 FAILED censored at their budget, the 0 not recovered and the 0 VOID are not in these figures
+  terminate-wait: 1 registered, 1 ACCEPTED, 0 FAILED (0 censored at their budget, 0 not recovered), 0 VOID, 0 NOTRUN
+    replacement: recovery median 409.4 s, range 409.4 to 409.4 s, lost steps [0], over 1 accepted; the 0 FAILED censored at their budget, the 0 not recovered and the 0 VOID are not in these figures
+  checkpoint cost: median 0.254 s, max 0.427 s over 180 saves

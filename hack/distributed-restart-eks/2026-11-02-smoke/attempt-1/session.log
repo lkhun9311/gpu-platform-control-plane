@@ -1,0 +1,14 @@
+02:00:16Z  [session] API endpoint will admit 211.202.99.162/32 only
+02:00:17Z  [session] the working tree is clean at 4acb66b2
+02:00:17Z  [session] TRAIN_AZ: pinned to ap-northeast-2a
+02:00:17Z  [session] RESTART_STAGE=smoke: TTL_MINUTES 288 covers its 288, and with the destroy fits the 700-minute credential limit
+02:00:17Z  [session] the credential expires in 601 minutes, at least the 328 the session needs
+02:00:18Z  [session] cluster gpu-platform does not exist
+02:00:18Z  [session] G and VT On-Demand vCPU in use 0 (none) plus 12 fits the quota of 128.0
+02:00:19Z  [session] g5.xlarge On-Demand in ap-northeast-2 at $1.2370000000 an hour, ceiling $1.40
+02:00:19Z  [session] TRAIN=restart: 3 x g5.xlarge in ap-northeast-2a, price ceiling $1.40, GPU budget 12480s
+02:00:19Z  [session] terraform variables for every apply and destroy: -var=gpu_node_instance_type=g5.xlarge -var=gpu_max_nodes=3 -var=gpu_availability_zone=ap-northeast-2a -var=efs_enabled=true
+02:00:21Z  [session] TTL kill switch armed: PID 1311587, fires in 288m, log /home/lkhun9311/workspace/gpu-cp-smoke/ex/eks-session-20261102T020016Z/ttl-kill-switch.log
+02:00:21Z  [session] terraform init (cluster)
+02:00:42Z  [session] terraform apply (cluster) -- this is where the billing starts
+02:12:12Z  [session] FATAL: cluster apply failed; the kill switch still holds at PID 1311587
