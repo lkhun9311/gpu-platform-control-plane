@@ -553,6 +553,32 @@ for m in re.finditer(r"\{\"ts\": ", text):
     print(json.dumps(r))'
 }
 
+# restart_scale_group DESIRED DEADLINE: the GPU group's desired size set to DESIRED, asked again until EKS accepts it or
+# DEADLINE (in SECONDS) passes.
+#
+# EKS refuses an update while another of the group's is still in progress (ResourceInUseException), and one refusal once
+# ended the run before terminate-wait; the stubs that rehearsed it accepted every request (codex review before the full
+# stage).
+RESTART_SCALE_RETRY=15
+restart_scale_group() {
+  local desired="$1" deadline="$2" out left
+  while :; do
+    left=$((deadline - SECONDS))
+    ((left >= 1)) || {
+      echo "the group was not scaled to $desired before its deadline: ${out:-not asked}"
+      return 1
+    }
+    ((left <= 60)) || left=60
+    out="$(timeout "$left" aws eks update-nodegroup-config --region "$RESTART_REGION" --cluster-name "$RESTART_CLUSTER" \
+      --nodegroup-name "$RESTART_GROUP" --scaling-config "minSize=0,maxSize=3,desiredSize=$desired" 2>&1)" && return 0
+    ((deadline - SECONDS > RESTART_SCALE_RETRY)) || {
+      echo "the group was not scaled to $desired before its deadline: ${out:0:200}"
+      return 1
+    }
+    sleep "$RESTART_SCALE_RETRY"
+  done
+}
+
 # restart_read_latest POD JOB_ID: the step LATEST names on the volume, read through a rank's own mount.
 restart_read_latest() {
   local latest
@@ -1515,8 +1541,7 @@ restart_run() {
     # a purchase with no deadline behind it (codex review of 830f64af).
     if [[ "$kind" == terminate-wait && "$want" == 3 ]]; then
       want=2
-      out="$(timeout 60 aws eks update-nodegroup-config --region "$RESTART_REGION" --cluster-name "$RESTART_CLUSTER" --nodegroup-name "$RESTART_GROUP" \
-        --scaling-config minSize=0,maxSize=3,desiredSize=2 2>&1)" || {
+      out="$(restart_scale_group 2 "$pre_dl")" || {
         stop="the group could not be scaled to two for terminate-wait: ${out:0:200}"
         restart_notrun "$case" "$stop"
         continue

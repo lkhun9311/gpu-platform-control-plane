@@ -624,6 +624,39 @@ else
   bad "the stuck exec took $took s: $out"
 fi
 
+# A scale request EKS refuses while another update is in progress is asked again, and one never accepted runs out.
+mkdir -p "$work/rules/scale-busy"
+cat >"$work/rules/scale-busy/aws.sh" <<'EOF'
+case "$*" in "eks update-nodegroup-config"*)
+  n=$(($(cat "$STUB_RULES/n" 2>/dev/null || echo 0) + 1)); echo "$n" >"$STUB_RULES/n"
+  ((n > 2)) && { echo '{"update": {"status": "InProgress"}}'; exit 0; }
+  echo "An error occurred (ResourceInUseException) when calling the UpdateNodegroupConfig operation: update in progress" >&2; exit 254 ;;
+esac
+EOF
+out="$(lib scale-busy 'RESTART_SCALE_RETRY=1; restart_scale_group 2 $((SECONDS + 20)); echo "rc=$?"')"
+asks="$(grep -c 'update-nodegroup-config' "$work/scale-busy.calls")"
+if [[ "$out" == "rc=0" && "$asks" == 3 ]] && grep -q 'desiredSize=2' "$work/scale-busy.calls"; then
+  ok "a scale request refused twice for an update in progress is accepted on the third ask"
+else
+  bad "the busy scale request: $out after $asks ask(s)"
+fi
+mkdir -p "$work/rules/scale-never"
+cat >"$work/rules/scale-never/aws.sh" <<'EOF'
+case "$*" in "eks update-nodegroup-config"*) echo "An error occurred (ResourceInUseException)" >&2; exit 254 ;; esac
+EOF
+start=$SECONDS
+out="$(lib scale-never 'RESTART_SCALE_RETRY=1; restart_scale_group 2 $((SECONDS + 4)); echo "rc=$?"')"
+if [[ "$out" == *"was not scaled to 2 before its deadline"*"ResourceInUseException"*"rc=1" && $((SECONDS - start)) -lt 8 ]]; then
+  ok "a scale request never accepted runs out at its deadline"
+else
+  bad "the never-accepted scale request after $((SECONDS - start)) s: $out"
+fi
+
+# The run asks for the scale-in only through that helper: a direct call elsewhere would have its single attempt back.
+direct="$(grep -vE '^[[:space:]]*#' hack/lib/restart-session.sh | grep -c 'update-nodegroup-config')"
+through="$(grep -cE 'restart_scale_group 2 "\$pre_dl"' hack/lib/restart-session.sh)"
+if [[ "$direct" == 1 && "$through" == 1 ]]; then ok "the scale-in before terminate-wait goes through restart_scale_group"; else bad "update-nodegroup-config is called on $direct line(s), restart_scale_group for the scale-in on $through"; fi
+
 # A mark's fraction is the time's, whatever date prints for a width-limited %N: uutils date 0.8.0 prints %6N as the whole
 # nanosecond count without its leading zeros, which put a mark taken at .0784 s at .784 s in the kind rehearsal.
 out="$(lib uutils 'STUB_UUTILS_NS=001229623 restart_mark "$RESTART_OUT" probe; python3 -c "import json, sys; print(json.loads(open(sys.argv[1]).read())[\"at\"])" "$RESTART_OUT/marks.jsonl"')"
