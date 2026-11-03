@@ -419,6 +419,29 @@ def defect(out: pathlib.Path, name: str, case: str) -> None:
         (d / "clock.jsonl").write_text("".join(json.dumps(p) + "\n" for p in probes))
     elif name == "spare-unprepared":
         edit_json_lines(out / "nodes-prepared.jsonl", lambda p: None if p["node"] == "ip-10-0-64-13" else p)
+    elif name == "spare-new-machine":
+        # The spare's name was prepared, but the Node under it before and after the fault is another machine.
+        def swap(n):
+            for i in n["items"]:
+                if i["metadata"]["name"] == "ip-10-0-64-13":
+                    i["metadata"]["uid"] = "uid-ip-10-0-64-13-new"
+        edit_json(d / "nodes-before.json", swap)
+        edit_json(d / "nodes-after.json", swap)
+    elif name == "before-probe-late":
+        # The round labelled before the fault was taken after the trainer's own kill.
+        fault = epoch(next(json.loads(line) for log in d.glob("log-*.txt") for line in log.read_text().splitlines()
+                           if json.loads(line)["event"] == "fault")["ts"])
+        edit_json_lines(d / "clock.jsonl", lambda p: {**p, "before": fault + 1, "node_time": fault + 1.1, "after": fault + 1.2}
+                        if p["when"] == "before" else p)
+    elif name == "attempt1-log-cut":
+        # Attempt 1's records end before the step attempt 2 resumed from, as a log stream cut short would leave them.
+        edit_records(d, lambda r: None if r["attempt"] == 1 and r["event"] in ("step", "checkpoint") and r["step"] >= 8 else r)
+    elif name == "save-nan":
+        edit_records(d, lambda r: {**r, "save_s": float("nan")} if r["event"] == "checkpoint" and r["attempt"] == 2 and r["rank"] == 1 else r)
+    elif name == "rank1-no-saves":
+        edit_records(d, lambda r: None if r["event"] == "checkpoint" and r["attempt"] == 2 and r["rank"] == 1 else r)
+    elif name == "prepared-no-uid":
+        edit_json_lines(out / "nodes-prepared.jsonl", lambda p: {k: v for k, v in p.items() if k != "uid"})
     elif name in ("drop-node-before", "drop-node-after"):
         which, node = ("nodes-before.json", "ip-10-0-64-11") if name == "drop-node-before" else ("nodes-after.json", "ip-10-0-64-13")
         edit_json(d / which, lambda n: n.update(items=[i for i in n["items"] if i["metadata"]["name"] != node]))
@@ -490,7 +513,7 @@ def main(argv: list[str]) -> int:
     # The runner prepares the three nodes it bought before the first case; a replacement is prepared after its case.
     with open(out / "nodes-prepared.jsonl", "w") as f:
         for node in list(NODES)[:3]:
-            f.write(json.dumps({"node": node, "prepared_at": iso(BASE - 600)}) + "\n")
+            f.write(json.dumps({"node": node, "uid": node_uid(node, ""), "prepared_at": iso(BASE - 600)}) + "\n")
     if len(argv) == 4:
         defect(out, argv[2], argv[3])
     return 0

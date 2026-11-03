@@ -339,6 +339,17 @@ rkt() {
   timeout "$t" kubectl --context "$RESTART_CONTEXT" --request-timeout=20s "$@"
 }
 
+# Every gpu-fault.sh call the runner makes is cut at RESTART_GFK_CALL seconds, because --request-timeout does not bound an
+# exec stream, and an injection, readback or reset into a host engine that connects and never answers would otherwise
+# run past its case's slot (codex review before the full stage).
+# This file is sourced after gpu-fault.sh, so this gfk is the one its helpers call; restart_fault_path_ready narrows it
+# to its own deadline while it runs and puts this one back after.
+RESTART_GFK_CALL=60
+gfk() { timeout "$RESTART_GFK_CALL" kubectl ${GF_CONTEXT:+--context "$GF_CONTEXT"} "$@"; }
+
+# The longest a read of LATEST through a rank's mount may take, which is an exec stream too.
+RESTART_LATEST_CALL=20
+
 # restart_operator_gate: the operator running on the cluster is the restart controller, before any GPU is bought.
 #
 # Argo deploys the operator from main, whatever this checkout holds, so the deployed revision is read from Argo, its
@@ -482,25 +493,43 @@ restart_clock_probe() {
 #
 # A Pod stays listed Running for a while after its Node is deleted, so a node the group just scaled in or lost would
 # otherwise be probed, fail, and void the next case before its fault, as terminate-wait-1 was on the kind rehearsal.
+#
+# A Pod already being deleted is left out as well, because its probe can fail for that alone (codex review before the
+# full stage).
 restart_exporters() {
   local nodes pods
+  nodes="$(restart_gpu_nodes)" || return 1
+  pods="$(rk -n "$RESTART_SYS" get pods -l app.kubernetes.io/component=dcgm-exporter --field-selector status.phase=Running \
+    -o jsonpath='{range .items[*]}{.spec.nodeName}{" "}{.metadata.name}{" "}{.metadata.deletionTimestamp}{"\n"}{end}' 2>&1)" || {
+    echo "could not list the exporters: ${pods:0:200}" >&2
+    return 1
+  }
+  awk 'NR == FNR {if (NF) up[$1] = 1; next} NF == 2 && ($1 in up) {print}' <(printf '%s\n' "$nodes") <(printf '%s\n' "$pods")
+}
+
+# restart_gpu_nodes: the names of the Nodes the GPU group has now, one a line; fails when they cannot be read.
+restart_gpu_nodes() {
+  local nodes
   nodes="$(rk get nodes -l "eks.amazonaws.com/nodegroup=$RESTART_GROUP" -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>&1)" || {
     echo "could not list the GPU nodes: ${nodes:0:200}" >&2
     return 1
   }
-  pods="$(rk -n "$RESTART_SYS" get pods -l app.kubernetes.io/component=dcgm-exporter --field-selector status.phase=Running \
-    -o jsonpath='{range .items[*]}{.spec.nodeName}{" "}{.metadata.name}{"\n"}{end}' 2>&1)" || {
-    echo "could not list the exporters: ${pods:0:200}" >&2
-    return 1
-  }
-  awk 'NR == FNR {if (NF) up[$1] = 1; next} ($1 in up) {print}' <(printf '%s\n' "$nodes") <(printf '%s\n' "$pods")
+  printf '%s\n' "$nodes" | sed '/^$/d'
 }
 
-# restart_probe_all DIR LABEL: a probe of every GPU node's clock, appended to DIR/clock.jsonl; fails if any cannot be read.
+# restart_probe_all DIR LABEL: a probe of every GPU node's clock, appended to DIR/clock.jsonl; fails if any cannot be read,
+# or if a node the group has now has no exporter to read it through.
+#
+# A node with no exporter listed was once simply not probed and the round passed, and the scorer then voided the case
+# whose recovery used that node's clock, after its fault had been paid for (codex review before the full stage).
 restart_probe_all() {
-  local dir="$1" label="$2" rows node pod line fails=0 probed=0 config
+  local dir="$1" label="$2" rows node pod line fails=0 probed=0 config nodes missing
   rows="$(restart_exporters 2>&1)" || {
     echo "could not list the exporters: ${rows:0:200}" >&2
+    return 1
+  }
+  nodes="$(restart_gpu_nodes 2>&1)" || {
+    echo "could not list the GPU nodes: ${nodes:0:200}" >&2
     return 1
   }
   config="$(mktemp)" || return 1
@@ -524,6 +553,11 @@ restart_probe_all() {
     echo "no exporter Pod was Running, so no node's clock was read" >&2
     return 1
   fi
+  missing="$(awk 'NR == FNR {if (NF) seen[$1] = 1; next} NF && !($1 in seen) {print $1}' <(printf '%s\n' "$rows") <(printf '%s\n' "$nodes") | paste -sd' ')"
+  if [[ -n "$missing" ]]; then
+    echo "no exporter Pod to read the clock of $missing" >&2
+    return 1
+  fi
   ((fails == 0))
 }
 
@@ -542,10 +576,94 @@ for m in re.finditer(r"\{\"ts\": ", text):
     print(json.dumps(r))'
 }
 
+# restart_scale_group DESIRED DEADLINE: the GPU group's desired size set to DESIRED, asked again until EKS accepts it or
+# DEADLINE (in SECONDS) passes.
+#
+# EKS refuses an update while another of the group's is still in progress (ResourceInUseException), and one refusal once
+# ended the run before terminate-wait; the stubs that rehearsed it accepted every request (codex review before the full
+# stage).
+RESTART_SCALE_RETRY=15
+restart_scale_group() {
+  local desired="$1" deadline="$2" out left
+  while :; do
+    left=$((deadline - SECONDS))
+    ((left >= 1)) || {
+      echo "the group was not scaled to $desired before its deadline: ${out:-not asked}"
+      return 1
+    }
+    ((left <= 60)) || left=60
+    out="$(timeout "$left" aws eks update-nodegroup-config --region "$RESTART_REGION" --cluster-name "$RESTART_CLUSTER" \
+      --nodegroup-name "$RESTART_GROUP" --scaling-config "minSize=0,maxSize=3,desiredSize=$desired" 2>&1)" && return 0
+    ((deadline - SECONDS > RESTART_SCALE_RETRY)) || {
+      echo "the group was not scaled to $desired before its deadline: ${out:0:200}"
+      return 1
+    }
+    sleep "$RESTART_SCALE_RETRY"
+  done
+}
+
+# restart_alive PID: the process exists and is not a zombie; a zombie has exited and only waits to be reaped.
+restart_alive() {
+  local stat
+  stat="$(ps -o stat= -p "$1")" && [[ -n "$stat" && "$stat" != Z* ]]
+}
+
+# restart_descendants PID: every process below PID, one a line.
+restart_descendants() {
+  local child
+  for child in $(ps -o pid= --ppid "$1"); do
+    echo "$child"
+    restart_descendants "$child"
+  done
+}
+
+# restart_stop_collector PID DIR: a case's collector stopped with its log follows, and waited for, in bounded time.
+#
+# One TERM, then a wait, was the whole stop, and a TERM can be lost: in the check suite a collector looping through its
+# command substitutions outlived its TERM for 94 minutes and exited at once on a second one, which in a paid run would
+# have held the session with its GPUs until the deadline (2026-11-03, bash 5.3.9).
+# So TERM is sent again each second, and after ten the collector and everything below it is killed outright.
+RESTART_STOP_TRIES=10
+restart_stop_collector() {
+  local pid="$1" log="$2/case.log" tree try p
+  tree="$(restart_descendants "$pid")"
+  for ((try = 1; try <= RESTART_STOP_TRIES; try++)); do
+    restart_alive "$pid" || break
+    kill -TERM "$pid" 2>>"$log"
+    sleep 1
+  done
+  if restart_alive "$pid"; then
+    echo "the collector $pid outlived $RESTART_STOP_TRIES TERMs and was killed" >>"$log"
+    tree="$tree $(restart_descendants "$pid")"
+    kill -KILL "$pid" 2>>"$log"
+  fi
+  wait "$pid" 2>>"$log"
+  for p in $tree; do
+    if restart_alive "$p"; then kill -KILL "$p" 2>>"$log"; fi
+  done
+  return 0
+}
+
+# restart_ranks_stepped DIR [ATTEMPT]: how many distinct ranks have recorded a step, in ATTEMPT when it is given.
+#
+# Ranks, not records: a log stream read again from its start repeats its records, and two of one rank's once read as
+# both ranks having stepped (codex review before the full stage).
+restart_ranks_stepped() {
+  restart_records "$1" | python3 -c '
+import json, sys
+want = sys.argv[1] if len(sys.argv) > 1 else None
+ranks = set()
+for line in sys.stdin:
+    r = json.loads(line)
+    if r.get("event") == "step" and (want is None or str(r.get("attempt")) == want):
+        ranks.add(r.get("rank"))
+print(len(ranks))' ${2:+"$2"}
+}
+
 # restart_read_latest POD JOB_ID: the step LATEST names on the volume, read through a rank's own mount.
 restart_read_latest() {
   local latest
-  latest="$(rk -n "$RESTART_NS" exec "$1" -- cat "$RESTART_MOUNT/$2/LATEST" 2>&1)" || {
+  latest="$(rkt "$RESTART_LATEST_CALL" -n "$RESTART_NS" exec "$1" -- cat "$RESTART_MOUNT/$2/LATEST" 2>&1)" || {
     echo "could not read LATEST through $1: ${latest:0:200}" >&2
     return 1
   }
@@ -1102,7 +1220,7 @@ for p in json.load(sys.stdin)["items"]:
       printf '{"uid": "%s", "pod": "%s", "node": "%s", "index": "%s", "attempt_token": "%s", "observed": "%s"}\n' \
         "$uid" "$pod" "$node" "$index" "$token" "$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)" >>"$dir/pods.jsonl"
       (
-        local n=0 follow="" rc
+        local n=0 follow="" rc running began
         # The follow runs in the background and is waited for, so stopping this reader stops it too: with no request
         # timeout a follow of a Pod on a dead node would otherwise outlive the case (codex review of bf0ea420).
         trap 'kill $follow 2>>"$dir/collector.log"; exit 0' TERM
@@ -1110,14 +1228,25 @@ for p in json.load(sys.stdin)["items"]:
           n=$((n + 1))
           # No request timeout, unlike rk: kubectl's 20 s cut every follow, so each Pod's log was read again from its start
           # every 20 s and the 20 reads allowed below ended at about 400 s of the Pod's life (the kind rehearsal).
+          began=$SECONDS
           kubectl --context "$RESTART_CONTEXT" -n "$RESTART_NS" logs -f "$pod" >"$dir/log-$uid.$n.txt" 2>>"$dir/collector.log" &
           follow=$!
           wait "$follow"
           rc=$?
           printf '{"uid": "%s", "stream": %d, "exit": %d, "at": "%s"}\n' "$uid" "$n" "$rc" "$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)" >>"$dir/streams.jsonl"
-          # A stream that ended with its container is complete; one that ended while it runs is read again in full.
-          [[ "$(rk -n "$RESTART_NS" get pod "$pod" -o jsonpath='{.status.containerStatuses[0].state.running}' 2>>"$dir/collector.log")" != "" ]] || break
+          # A stream that ended at once is paused after, so twenty that fail in a row span more than a second of the case
+          # (codex review before the full stage).
+          ((SECONDS - began >= 2)) || sleep 2
           ((n < 20)) || break
+          # A stream that ended with its container is complete; one that ended while it runs is read again in full.
+          # A read of the container that failed says neither, so the log is read again after a pause: taking it for the
+          # end once stopped a Pod's records for good after one API error (codex review before the full stage).
+          # A Pod that is gone reads as empty, not as an error, and ends the follows.
+          if running="$(rk -n "$RESTART_NS" get pod "$pod" --ignore-not-found -o jsonpath='{.status.containerStatuses[0].state.running}' 2>>"$dir/collector.log")"; then
+            [[ -n "$running" ]] || break
+          else
+            sleep 2
+          fi
         done
       ) &
     done <<<"$rows"
@@ -1193,22 +1322,31 @@ EOF
 #
 # train_qualify_nodes refuses a group holding more nodes than asked for, which is right at purchase and wrong while a
 # scale-in is still removing one, so the count is waited for first.
+#
+# The count can move again between that read and the qualification: before terminate-wait-1 the scale-in to two starts
+# while terminate-spare-2's replacement may still be joining, and the qualification then saw three and ended the run with
+# most of its wait unspent (codex review before the full stage); a count above the one asked for is waited out again.
 restart_wait_group() {
   local want="$1" wait="$2" deadline=$((SECONDS + $2)) n="" ids tainted
-  while ((SECONDS < deadline)); do
-    n="$(rkd "$deadline" get nodes -l "eks.amazonaws.com/nodegroup=$RESTART_GROUP" -o name 2>&1 | grep -c '^node/')"
-    ((n == want)) && break
+  while :; do
+    while ((SECONDS < deadline)); do
+      n="$(rkd "$deadline" get nodes -l "eks.amazonaws.com/nodegroup=$RESTART_GROUP" -o name 2>&1 | grep -c '^node/')"
+      ((n == want)) && break
+      sleep "$RESTART_POLL"
+    done
+    ((n == want)) || {
+      echo "the group held $n node(s), not $want, within ${wait}s"
+      return 1
+    }
+    # What is left of the deadline and no more: a floor here would let the qualification run past the share it was given.
+    ids="$(train_qualify_nodes "$RESTART_CONTEXT" "$RESTART_GROUP" "$want" $((deadline - SECONDS > 1 ? deadline - SECONDS : 1)) 1)" && break
+    [[ "$ids" == *"nodes in the group, want $want"* ]] && ((deadline - SECONDS > RESTART_POLL)) || {
+      echo "$ids"
+      return 1
+    }
+    echo "the group moved past $want during its qualification ($ids); waiting for it again" >>"$RESTART_OUT/run.log"
     sleep "$RESTART_POLL"
   done
-  ((n == want)) || {
-    echo "the group held $n node(s), not $want, within ${wait}s"
-    return 1
-  }
-  # What is left of the deadline and no more: a floor here would let the qualification run past the share it was given.
-  ids="$(train_qualify_nodes "$RESTART_CONTEXT" "$RESTART_GROUP" "$want" $((deadline - SECONDS > 1 ? deadline - SECONDS : 1)) 1)" || {
-    echo "$ids"
-    return 1
-  }
   awk '{print $2}' <<<"$ids" >>"$RESTART_INSTANCES_FILE"
   # Read first and filtered after, because a failed read piped into the filter came out as "no node tainted".
   tainted="$(rkd $((SECONDS + 20)) get nodes -l "eks.amazonaws.com/nodegroup=$RESTART_GROUP" -o jsonpath='{range .items[*]}{.metadata.name}{" "}{.spec.taints[*].key}{"\n"}{end}' 2>&1)" || {
@@ -1287,10 +1425,7 @@ restart_void_case() {
   restart_sample "$name" "$dir"
   rk -n "$RESTART_NS" get mltrainingjob "$name" -o json >"$dir/final-mltj.json" 2>>"$dir/case.log"
   rk get nodes -o json >"$dir/nodes-after.json" 2>>"$dir/case.log"
-  if [[ -n "$collector" ]]; then
-    kill "$collector" 2>>"$dir/case.log"
-    wait "$collector" 2>>"$dir/case.log"
-  fi
+  [[ -z "$collector" ]] || restart_stop_collector "$collector" "$dir"
   restart_retire "$name" $((retire_dl - SECONDS)) >>"$dir/case.log" || {
     echo "retirement of the VOID case $name was not confirmed; its files are left on the volume and nothing more may start" >>"$dir/case.log"
     restart_read_shared "$dir" "$job_id"
@@ -1311,18 +1446,36 @@ restart_list_shared() {
 # An unretired case is read this way too: its logs were once left on the volume with it, and score_eks.py then voided a
 # case that had recovered for having no NCCL log, a reason that named the transport when only the copy was missing
 # (the kind rehearsal).
+#
+# Fails when either end of the copy or the listing failed, so the caller can tell a read from an attempt at one.
 restart_read_shared() {
-  local dir="$1" job_id="$2"
+  local dir="$1" job_id="$2" copied
   mkdir -p "$dir/nccl"
   rkt 30 -n "$RESTART_NS" exec rst-reader -- tar -C "$RESTART_MOUNT/$job_id" -cf - nccl 2>>"$dir/case.log" | tar -C "$dir" -xf - 2>>"$dir/case.log"
-  restart_list_shared "$dir" "$job_id"
+  copied=("${PIPESTATUS[@]}")
+  if [[ "${copied[0]}" != 0 || "${copied[1]}" != 0 ]]; then
+    echo "the NCCL logs of $job_id were not copied (exec ${copied[0]}, untar ${copied[1]})" >>"$dir/case.log"
+    restart_list_shared "$dir" "$job_id"
+    return 1
+  fi
+  restart_list_shared "$dir" "$job_id" || {
+    echo "the files of $job_id were not listed" >>"$dir/case.log"
+    return 1
+  }
 }
 
-# restart_case_files DIR JOB_ID: a retired case's NCCL logs copied, its files listed, and its directory deleted.
+# restart_case_files DIR JOB_ID: a retired case's NCCL logs copied, its files listed, and its directory deleted only
+# when both were read.
 #
+# A copy that failed and was followed by the delete left the scorer nothing to read and the volume nothing to read again
+# (codex review before the full stage), so a failed read leaves the files on the volume, which the next case never
+# touches, since every case has its own job ID.
 # Three calls of at most 30 s, and the verdict's 30 s after the reset, are RESTART_FILES_BUDGET.
 restart_case_files() {
-  restart_read_shared "$1" "$2"
+  restart_read_shared "$1" "$2" || {
+    echo "the files of $2 are left on the volume because they were not read" >>"$1/case.log"
+    return 1
+  }
   rkt 30 -n "$RESTART_NS" exec rst-reader -- rm -rf "$RESTART_MOUNT/$2" >>"$1/case.log" 2>&1
 }
 
@@ -1360,7 +1513,7 @@ restart_run_case() {
   # Both ranks have recorded a step before any clock is probed or any fault is injected.
   while ((SECONDS < deadline)); do
     restart_sample "$name" "$dir"
-    [[ "$(restart_records "$dir" | grep -c '"event": "step"')" -ge 2 ]] && break
+    [[ "$(restart_ranks_stepped "$dir")" -ge 2 ]] && break
     sleep "$RESTART_POLL"
   done
   # A fault whose nodes' clocks were not read before it cannot be placed on the runner's clock, and the scorer would void
@@ -1396,7 +1549,7 @@ restart_run_case() {
   # Until the job ends or the budget does; the clocks are probed again once both ranks of attempt 2 have stepped.
   while ((SECONDS < deadline)); do
     restart_sample "$name" "$dir"
-    if [[ -z "$probed" ]] && [[ "$(restart_records "$dir" | grep '"attempt": 2' | grep -c '"event": "step"')" -ge 2 ]]; then
+    if [[ -z "$probed" ]] && [[ "$(restart_ranks_stepped "$dir" 2)" -ge 2 ]]; then
       restart_probe_all "$dir" after || echo "a clock probe after the recovery failed" >>"$dir/case.log"
       probed=1
     fi
@@ -1408,8 +1561,7 @@ restart_run_case() {
   rk get nodes -o json >"$dir/nodes-after.json" 2>>"$dir/case.log"
   restart_efs_credits "$dir" after
   sleep 5
-  kill "$collector" 2>>"$dir/case.log"
-  wait "$collector" 2>>"$dir/case.log"
+  restart_stop_collector "$collector" "$dir"
 
   # The writers are stopped before their files are copied and deleted.
   # A case whose retirement cannot be confirmed may still be writing and still hold GPUs and quota, so its files stay on
@@ -1479,8 +1631,7 @@ restart_run() {
     # a purchase with no deadline behind it (codex review of 830f64af).
     if [[ "$kind" == terminate-wait && "$want" == 3 ]]; then
       want=2
-      out="$(timeout 60 aws eks update-nodegroup-config --region "$RESTART_REGION" --cluster-name "$RESTART_CLUSTER" --nodegroup-name "$RESTART_GROUP" \
-        --scaling-config minSize=0,maxSize=3,desiredSize=2 2>&1)" || {
+      out="$(restart_scale_group 2 "$pre_dl")" || {
         stop="the group could not be scaled to two for terminate-wait: ${out:0:200}"
         restart_notrun "$case" "$stop"
         continue

@@ -397,6 +397,27 @@ esac
 EOF
 out="$(lib taints 'RESTART_INSTANCES_FILE="$RESTART_OUT/instances"; TRAIN_POLL=0; restart_wait_group 2 5; echo "rc=$?"')"
 if [[ "$out" == *"could not read the GPU nodes' taints"*"rc=1" ]]; then ok "an unreadable taint list refuses the group"; else bad "the unreadable taints: $out"; fi
+# The group can move past the count between its read and the qualification, as terminate-spare-2's replacement joining
+# during the scale-in before terminate-wait-1 would; that is waited out, not the end of the run.
+mkdir -p "$work/rules/moving" "$work/out/moving"
+cat >"$work/rules/moving/kubectl.sh" <<'EOF'
+node() { echo "{\"metadata\": {\"name\": \"$1\"}, \"spec\": {\"providerID\": \"aws:///x/i-0$1\"}, \"status\": {\"conditions\": [{\"type\": \"Ready\", \"status\": \"True\"}], \"allocatable\": {\"nvidia.com/gpu\": \"1\"}}}"; }
+case "$*" in
+  *"jsonpath"*"taints"*) printf 'a \nb \n' ;;
+  *"get nodes"*"-o name"*) printf 'node/a\nnode/b\n' ;;
+  *"get nodes -l eks.amazonaws.com/nodegroup=gpu -o json"*)
+    n=$(($(cat "$STUB_RULES/n" 2>/dev/null || echo 0) + 1)); echo "$n" >"$STUB_RULES/n"
+    if ((n == 1)); then echo "{\"items\": [$(node a), $(node b), $(node c)]}"; else echo "{\"items\": [$(node a), $(node b)]}"; fi ;;
+  *"get pods -A -l app.kubernetes.io/component=nvidia-device-plugin"*)
+    echo '{"items": [{"spec": {"nodeName": "a"}, "status": {"conditions": [{"type": "Ready", "status": "True"}]}}, {"spec": {"nodeName": "b"}, "status": {"conditions": [{"type": "Ready", "status": "True"}]}}, {"spec": {"nodeName": "c"}, "status": {"conditions": [{"type": "Ready", "status": "True"}]}}]}' ;;
+esac
+EOF
+out="$(lib moving 'RESTART_INSTANCES_FILE="$RESTART_OUT/instances"; TRAIN_POLL=0; restart_wait_group 2 10; echo "rc=$?"')"
+if [[ "$out" == *"2 qualified node(s)"*"rc=0" ]] && grep -q 'moved past 2' "$work/out/moving/run.log"; then
+  ok "a group that moved past its count during the qualification is waited for again"
+else
+  bad "the moving group: $out"
+fi
 out="$(lib volume 'restart_render_volume "" train-a; echo "rc=$?"; restart_render_volume fs-0123456789abcdef0 train-a | grep -c "volumeHandle: fs-0123456789abcdef0\|ReadWriteMany"')"
 if [[ "$out" == *"is not one"*"rc=1"*"3" ]]; then ok "the volume refuses an empty file system ID and renders a RWX volume naming it"; else bad "the volume: $out"; fi
 
@@ -513,6 +534,47 @@ else
   bad "the refusing plugin: $out"
 fi
 
+# A case's files are deleted only after they were read: a failed copy followed by a listing that worked once deleted the
+# only NCCL logs there were.
+for c in copy-fails:1:0 list-fails:0:1 both-read:0:0; do
+  name="${c%%:*}" rest="${c#*:}"
+  mkdir -p "$work/rules/$name" "$work/out/$name/case"
+  cat >"$work/rules/$name/kubectl.sh" <<EOF
+case "\$*" in
+  *"exec rst-reader -- tar"*) tar -cf - -T /dev/null; exit ${rest%%:*} ;;
+  *"exec rst-reader -- find"*) echo /state/job-x/LATEST; exit ${rest#*:} ;;
+esac
+EOF
+  out="$(lib "$name" 'restart_case_files "$RESTART_OUT/case" job-x; echo "rc=$?"')"
+  deleted="$(grep -c 'exec rst-reader -- rm -rf' "$work/$name.calls")"
+  if [[ "$name" == both-read ]]; then
+    if [[ "$out" == "rc=0" && "$deleted" == 1 ]]; then ok "a case whose files were read is deleted"; else bad "$name: $out, $deleted delete(s)"; fi
+  elif [[ "$out" == "rc=1" && "$deleted" == 0 ]] && grep -q 'left on the volume because they were not read' "$work/out/$name/case/case.log"; then
+    ok "$name: the files stay on the volume and the case log says why"
+  else
+    bad "$name: $out, $deleted delete(s)"
+  fi
+done
+
+# A GPU node with no exporter to read it through fails the round, though the nodes that had one are still recorded; an
+# exporter already being deleted is not probed when a live one serves the same node.
+mkdir -p "$work/rules/uncovered"
+cat >"$work/rules/uncovered/kubectl.sh" <<'EOF'
+case "$*" in
+  *"get nodes -l eks.amazonaws.com/nodegroup=gpu"*) printf 'node-a\nnode-b\n' ;;
+  *"component=dcgm-exporter"*) printf 'node-a dcgm-old 2026-11-03T01:00:00Z\nnode-a dcgm-a \n' ;;
+  *"exec dcgm-a -c exporter -- date"*) date +%s.%N ;;
+  *"exec dcgm-old"*) echo "error: pod is terminating" >&2; exit 1 ;;
+esac
+EOF
+out="$(lib uncovered 'restart_probe_all "$RESTART_OUT" before; echo "rc=$?"')"
+probed="$(python3 -c 'import json, sys; print(" ".join(json.loads(l)["pod"] for l in open(sys.argv[1])))' "$work/out/uncovered/clock.jsonl" 2>&1)"
+if [[ "$out" == *"no exporter Pod to read the clock of node-b"*"rc=1" && "$probed" == dcgm-a ]] && ! grep -q 'exec dcgm-old' "$work/uncovered.calls"; then
+  ok "a GPU node with no exporter fails the round, and a terminating exporter is not probed"
+else
+  bad "the uncovered node: $out; probed '$probed'; $(grep -c 'exec dcgm-old' "$work/uncovered.calls") exec(s) into the terminating one"
+fi
+
 # An empty exporter list reads no clock, which is not every clock read.
 out="$(lib noexporter 'restart_probe_all "$RESTART_OUT" before; echo "rc=$?"')"
 if [[ "$out" == *"no exporter Pod was Running"*"rc=1" ]]; then ok "a probe of no node fails"; else bad "the probe of no node: $out"; fi
@@ -556,7 +618,7 @@ case "$*" in
   *"logs -f rp0"*) exec -a rstk-follow-leak-probe sleep 300 ;;
 esac
 EOF
-out="$(lib follow-leak 'restart_collect "$RESTART_OUT" rst-x & c=$!; sleep 3; kill $c; wait $c; sleep 1; echo "rc=$?"')"
+out="$(lib follow-leak 'restart_collect "$RESTART_OUT" rst-x & c=$!; sleep 3; restart_stop_collector $c "$RESTART_OUT"; sleep 1; echo "rc=$?"')"
 started="$(grep -c 'logs -f rp0' "$work/follow-leak.calls")"
 leaked="$(pgrep -f '[r]stk-follow-leak-probe' | wc -l)"
 if [[ "$started" -ge 1 && "$leaked" == 0 ]]; then
@@ -565,6 +627,116 @@ else
   bad "$leaked of $started log follow(s) outlived the collector: $out"
   pgrep -f '[r]stk-follow-leak-probe' | xargs -r kill
 fi
+
+# A stream that ends at once is paused after, so its twenty tries are not spent in a moment.
+mkdir -p "$work/rules/fast-fail"
+cat >"$work/rules/fast-fail/kubectl.sh" <<'EOF'
+case "$*" in
+  *"get pods -l platform.lkhun9311.github.io/mltrainingjob="*"-o json"*)
+    echo '{"items": [{"metadata": {"uid": "u0", "name": "rp0", "annotations": {"batch.kubernetes.io/job-completion-index": "0"}}, "spec": {"nodeName": "node-a"}, "status": {"containerStatuses": [{"state": {"running": {"startedAt": "t"}}}]}}]}' ;;
+  *"logs -f rp0"*) echo "error: unexpected EOF" >&2; exit 1 ;;
+  *"get pod rp0"*) echo '{"startedAt": "t"}' ;;
+esac
+EOF
+out="$(lib fast-fail 'restart_collect "$RESTART_OUT" rst-x & c=$!; sleep 5; kill $c; wait $c; echo "rc=$?"')"
+streams="$(grep -c '"uid": "u0"' "$work/out/fast-fail/streams.jsonl" 2>&1)"
+if ((streams >= 2 && streams <= 4)); then ok "a log stream that fails at once is retried after a pause: $streams in 5 s"; else bad "the failing stream was tried $streams time(s) in 5 s"; fi
+
+# Both ranks have stepped only when two ranks have: two of one rank's records, as a re-read stream repeats them, are not.
+mkdir -p "$work/out/stepped"
+printf '%s\n' '{"ts": "t", "event": "step", "step": 1, "rank": 0, "attempt": 1}' '{"ts": "t", "event": "step", "step": 1, "rank": 0, "attempt": 1}' >"$work/out/stepped/log-u0.1.txt"
+printf '%s\n' '{"ts": "t", "event": "step", "step": 26, "rank": 1, "attempt": 2}' >"$work/out/stepped/log-u1.1.txt"
+out="$(lib stepped 'restart_ranks_stepped "$RESTART_OUT"; restart_ranks_stepped "$RESTART_OUT" 2; restart_ranks_stepped "$RESTART_OUT" 1')"
+if [[ "$out" == $'2\n1\n1' ]]; then ok "ranks that stepped are counted by rank, not by record"; else bad "the ranks that stepped: $(paste -sd' ' <<<"$out"), want 2 1 1"; fi
+
+# A collector that loses its first TERM is still stopped, and one that ignores TERM altogether is killed with what runs
+# below it, in bounded time: one TERM and a wait once held this suite for 94 minutes.
+# The child is found by the PID it recorded, never by a pattern, which would also match this suite's own command lines.
+mkdir -p "$work/out/stop"
+start=$SECONDS
+out="$(lib stop '
+( n=0; trap "n=\$((n + 1)); ((n >= 2)) && exit 0" TERM; while :; do sleep 0.2; done ) & c=$!
+sleep 0.5; restart_stop_collector $c "$RESTART_OUT"; restart_alive $c && echo "lost-term alive" || echo "lost-term stopped"
+( trap "" TERM; sleep 300 & echo $! >"$RESTART_OUT/child"; while :; do sleep 0.2; done ) & c=$!
+sleep 0.5; RESTART_STOP_TRIES=2 restart_stop_collector $c "$RESTART_OUT"; restart_alive $c && echo "immune alive" || echo "immune stopped"
+restart_alive "$(cat "$RESTART_OUT/child")" && echo "child alive" || echo "child stopped"')"
+took=$((SECONDS - start))
+if [[ "$out" == *"lost-term stopped"*"immune stopped"*"child stopped"* && "$took" -lt 15 ]] && grep -q 'outlived 2 TERMs and was killed' "$work/out/stop/case.log"; then
+  ok "a collector that loses a TERM is stopped, and one that ignores TERM is killed with its children, in $took s"
+else
+  bad "the collector stop after $took s: $out"
+  child="$(cat "$work/out/stop/child" 2>&1)"
+  [[ "$child" =~ ^[0-9]+$ ]] && kill -KILL "$child"
+fi
+
+# A status read that fails after a stream ends is not the container's end: the Pod's log is followed again, and only a
+# container read as not running, or a Pod gone, ends the follows (codex review before the full stage).
+mkdir -p "$work/rules/status-blip"
+cat >"$work/rules/status-blip/kubectl.sh" <<'EOF'
+case "$*" in
+  *"get pods -l platform.lkhun9311.github.io/mltrainingjob="*"-o json"*)
+    echo '{"items": [{"metadata": {"uid": "u0", "name": "rp0", "annotations": {"batch.kubernetes.io/job-completion-index": "0"}}, "spec": {"nodeName": "node-a"}, "status": {"containerStatuses": [{"state": {"running": {"startedAt": "t"}}}]}}]}' ;;
+  *"logs -f rp0"*) echo '{"ts": "t", "event": "step"}' ;;
+  *"get pod rp0"*)
+    n=$(($(cat "$STUB_RULES/status-n" 2>/dev/null || echo 0) + 1)); echo "$n" >"$STUB_RULES/status-n"
+    case "$n" in 1) echo "Unable to connect to the server: net/http: TLS handshake timeout" >&2; exit 1 ;; 2) echo '{"startedAt": "t"}' ;; esac ;;
+esac
+EOF
+out="$(lib status-blip 'restart_collect "$RESTART_OUT" rst-x & c=$!; sleep 14; kill $c; wait $c; echo "rc=$?"')"
+streams="$(grep -c '"uid": "u0"' "$work/out/status-blip/streams.jsonl" 2>&1)"
+if [[ "$streams" == 3 ]]; then
+  ok "a failed status read is followed by the log again, and the follows end when the container is read as ended"
+else
+  bad "the status blip: $streams stream(s) of rp0, want 3 (one before the failed read, one while running, one at the end): $out"
+fi
+
+# An exec that connects and never answers is cut: gpu-fault.sh's calls at RESTART_GFK_CALL, a read of LATEST at
+# RESTART_LATEST_CALL, because kubectl's request timeout does not bound an exec stream.
+mkdir -p "$work/rules/stuck-exec"
+cat >"$work/rules/stuck-exec/kubectl.sh" <<'EOF'
+case "$*" in *" exec "*) sleep 30 ;; esac
+EOF
+start=$SECONDS
+out="$(lib stuck-exec 'RESTART_GFK_CALL=1; GF_SYS=x GF_POD=p; gfk -n x exec p -c hostengine -- dcgmi dmon -e 230 -i 0 -c 1; echo "gfk=$?"; RESTART_LATEST_CALL=1; restart_read_latest rp0 job-x; echo "latest=$?"')"
+took=$((SECONDS - start))
+if [[ "$out" == *"gfk=124"*"could not read LATEST"*"latest=1" && "$took" -lt 10 ]]; then
+  ok "a stuck exec into the host engine or a rank is cut, in $took s"
+else
+  bad "the stuck exec took $took s: $out"
+fi
+
+# A scale request EKS refuses while another update is in progress is asked again, and one never accepted runs out.
+mkdir -p "$work/rules/scale-busy"
+cat >"$work/rules/scale-busy/aws.sh" <<'EOF'
+case "$*" in "eks update-nodegroup-config"*)
+  n=$(($(cat "$STUB_RULES/n" 2>/dev/null || echo 0) + 1)); echo "$n" >"$STUB_RULES/n"
+  ((n > 2)) && { echo '{"update": {"status": "InProgress"}}'; exit 0; }
+  echo "An error occurred (ResourceInUseException) when calling the UpdateNodegroupConfig operation: update in progress" >&2; exit 254 ;;
+esac
+EOF
+out="$(lib scale-busy 'RESTART_SCALE_RETRY=1; restart_scale_group 2 $((SECONDS + 20)); echo "rc=$?"')"
+asks="$(grep -c 'update-nodegroup-config' "$work/scale-busy.calls")"
+if [[ "$out" == "rc=0" && "$asks" == 3 ]] && grep -q 'desiredSize=2' "$work/scale-busy.calls"; then
+  ok "a scale request refused twice for an update in progress is accepted on the third ask"
+else
+  bad "the busy scale request: $out after $asks ask(s)"
+fi
+mkdir -p "$work/rules/scale-never"
+cat >"$work/rules/scale-never/aws.sh" <<'EOF'
+case "$*" in "eks update-nodegroup-config"*) echo "An error occurred (ResourceInUseException)" >&2; exit 254 ;; esac
+EOF
+start=$SECONDS
+out="$(lib scale-never 'RESTART_SCALE_RETRY=1; restart_scale_group 2 $((SECONDS + 4)); echo "rc=$?"')"
+if [[ "$out" == *"was not scaled to 2 before its deadline"*"ResourceInUseException"*"rc=1" && $((SECONDS - start)) -lt 8 ]]; then
+  ok "a scale request never accepted runs out at its deadline"
+else
+  bad "the never-accepted scale request after $((SECONDS - start)) s: $out"
+fi
+
+# The run asks for the scale-in only through that helper: a direct call elsewhere would have its single attempt back.
+direct="$(grep -vE '^[[:space:]]*#' hack/lib/restart-session.sh | grep -c 'update-nodegroup-config')"
+through="$(grep -cE 'restart_scale_group 2 "\$pre_dl"' hack/lib/restart-session.sh)"
+if [[ "$direct" == 1 && "$through" == 1 ]]; then ok "the scale-in before terminate-wait goes through restart_scale_group"; else bad "update-nodegroup-config is called on $direct line(s), restart_scale_group for the scale-in on $through"; fi
 
 # A mark's fraction is the time's, whatever date prints for a width-limited %N: uutils date 0.8.0 prints %6N as the whole
 # nanosecond count without its leading zeros, which put a mark taken at .0784 s at .784 s in the kind rehearsal.
@@ -993,6 +1165,15 @@ score name-reused-other-clock terminate-spare-2 ACCEPTED '"class": "replacement"
 score name-reused-unprobed terminate-spare-2 VOID "no probe after the fault of the machine named ip-10-0-64-12 then"
 score on-terminated-node terminate-spare-3 VOID "attempt 2 ran on ip-10-0-64-12, the node that was terminated"
 score spare-unprepared dcgm-2 VOID "attempt 2 ran on ['ip-10-0-64-13'], up before the fault but not prepared before it"
+# Preparation belongs to a machine, so a new Node under a prepared name is not a prepared spare.
+score spare-new-machine dcgm-2 VOID "attempt 2 ran on ['ip-10-0-64-13'], up before the fault but not prepared before it"
+score prepared-no-uid dcgm-2 VOID "names no Node UID"
+# A round labelled before the fault that was taken after rank-kill's own kill shows no clock before it.
+score before-probe-late rank-kill-2 VOID "labelled before the fault ended after it"
+# A figure needs the records behind it: attempt 1's log through its resume point, and both ranks' finite save costs.
+score attempt1-log-cut rank-kill-2 VOID "so its log is incomplete"
+score save-nan dcgm-2 VOID "which no save takes"
+score rank1-no-saves terminate-spare-2 VOID "has save records from ranks [0], want every rank of 2"
 score no-nodes-after rank-kill-3 VOID "the nodes after the recovery were not recorded"
 score drop-node-before rank-kill-4 VOID "attempt 1's nodes ['ip-10-0-64-11'] are not among the nodes before the fault"
 score drop-node-after dcgm-4 VOID "attempt 2's nodes ['ip-10-0-64-13'] are not among the nodes after the recovery"
