@@ -1311,18 +1311,36 @@ restart_list_shared() {
 # An unretired case is read this way too: its logs were once left on the volume with it, and score_eks.py then voided a
 # case that had recovered for having no NCCL log, a reason that named the transport when only the copy was missing
 # (the kind rehearsal).
+#
+# Fails when either end of the copy or the listing failed, so the caller can tell a read from an attempt at one.
 restart_read_shared() {
-  local dir="$1" job_id="$2"
+  local dir="$1" job_id="$2" copied
   mkdir -p "$dir/nccl"
   rkt 30 -n "$RESTART_NS" exec rst-reader -- tar -C "$RESTART_MOUNT/$job_id" -cf - nccl 2>>"$dir/case.log" | tar -C "$dir" -xf - 2>>"$dir/case.log"
-  restart_list_shared "$dir" "$job_id"
+  copied=("${PIPESTATUS[@]}")
+  if [[ "${copied[0]}" != 0 || "${copied[1]}" != 0 ]]; then
+    echo "the NCCL logs of $job_id were not copied (exec ${copied[0]}, untar ${copied[1]})" >>"$dir/case.log"
+    restart_list_shared "$dir" "$job_id"
+    return 1
+  fi
+  restart_list_shared "$dir" "$job_id" || {
+    echo "the files of $job_id were not listed" >>"$dir/case.log"
+    return 1
+  }
 }
 
-# restart_case_files DIR JOB_ID: a retired case's NCCL logs copied, its files listed, and its directory deleted.
+# restart_case_files DIR JOB_ID: a retired case's NCCL logs copied, its files listed, and its directory deleted only
+# when both were read.
 #
+# A copy that failed and was followed by the delete left the scorer nothing to read and the volume nothing to read again
+# (codex review before the full stage), so a failed read leaves the files on the volume, which the next case never
+# touches, since every case has its own job ID.
 # Three calls of at most 30 s, and the verdict's 30 s after the reset, are RESTART_FILES_BUDGET.
 restart_case_files() {
-  restart_read_shared "$1" "$2"
+  restart_read_shared "$1" "$2" || {
+    echo "the files of $2 are left on the volume because they were not read" >>"$1/case.log"
+    return 1
+  }
   rkt 30 -n "$RESTART_NS" exec rst-reader -- rm -rf "$RESTART_MOUNT/$2" >>"$1/case.log" 2>&1
 }
 

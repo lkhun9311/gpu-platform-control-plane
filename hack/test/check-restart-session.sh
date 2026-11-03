@@ -513,6 +513,28 @@ else
   bad "the refusing plugin: $out"
 fi
 
+# A case's files are deleted only after they were read: a failed copy followed by a listing that worked once deleted the
+# only NCCL logs there were.
+for c in copy-fails:1:0 list-fails:0:1 both-read:0:0; do
+  name="${c%%:*}" rest="${c#*:}"
+  mkdir -p "$work/rules/$name" "$work/out/$name/case"
+  cat >"$work/rules/$name/kubectl.sh" <<EOF
+case "\$*" in
+  *"exec rst-reader -- tar"*) tar -cf - -T /dev/null; exit ${rest%%:*} ;;
+  *"exec rst-reader -- find"*) echo /state/job-x/LATEST; exit ${rest#*:} ;;
+esac
+EOF
+  out="$(lib "$name" 'restart_case_files "$RESTART_OUT/case" job-x; echo "rc=$?"')"
+  deleted="$(grep -c 'exec rst-reader -- rm -rf' "$work/$name.calls")"
+  if [[ "$name" == both-read ]]; then
+    if [[ "$out" == "rc=0" && "$deleted" == 1 ]]; then ok "a case whose files were read is deleted"; else bad "$name: $out, $deleted delete(s)"; fi
+  elif [[ "$out" == "rc=1" && "$deleted" == 0 ]] && grep -q 'left on the volume because they were not read' "$work/out/$name/case/case.log"; then
+    ok "$name: the files stay on the volume and the case log says why"
+  else
+    bad "$name: $out, $deleted delete(s)"
+  fi
+done
+
 # An empty exporter list reads no clock, which is not every clock read.
 out="$(lib noexporter 'restart_probe_all "$RESTART_OUT" before; echo "rc=$?"')"
 if [[ "$out" == *"no exporter Pod was Running"*"rc=1" ]]; then ok "a probe of no node fails"; else bad "the probe of no node: $out"; fi
