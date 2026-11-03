@@ -609,6 +609,21 @@ else
   bad "the status blip: $streams stream(s) of rp0, want 3 (one before the failed read, one while running, one at the end): $out"
 fi
 
+# An exec that connects and never answers is cut: gpu-fault.sh's calls at RESTART_GFK_CALL, a read of LATEST at
+# RESTART_LATEST_CALL, because kubectl's request timeout does not bound an exec stream.
+mkdir -p "$work/rules/stuck-exec"
+cat >"$work/rules/stuck-exec/kubectl.sh" <<'EOF'
+case "$*" in *" exec "*) sleep 30 ;; esac
+EOF
+start=$SECONDS
+out="$(lib stuck-exec 'RESTART_GFK_CALL=1; GF_SYS=x GF_POD=p; gfk -n x exec p -c hostengine -- dcgmi dmon -e 230 -i 0 -c 1; echo "gfk=$?"; RESTART_LATEST_CALL=1; restart_read_latest rp0 job-x; echo "latest=$?"')"
+took=$((SECONDS - start))
+if [[ "$out" == *"gfk=124"*"could not read LATEST"*"latest=1" && "$took" -lt 10 ]]; then
+  ok "a stuck exec into the host engine or a rank is cut, in $took s"
+else
+  bad "the stuck exec took $took s: $out"
+fi
+
 # A mark's fraction is the time's, whatever date prints for a width-limited %N: uutils date 0.8.0 prints %6N as the whole
 # nanosecond count without its leading zeros, which put a mark taken at .0784 s at .784 s in the kind rehearsal.
 out="$(lib uutils 'STUB_UUTILS_NS=001229623 restart_mark "$RESTART_OUT" probe; python3 -c "import json, sys; print(json.loads(open(sys.argv[1]).read())[\"at\"])" "$RESTART_OUT/marks.jsonl"')"

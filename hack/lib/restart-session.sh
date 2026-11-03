@@ -339,6 +339,17 @@ rkt() {
   timeout "$t" kubectl --context "$RESTART_CONTEXT" --request-timeout=20s "$@"
 }
 
+# Every gpu-fault.sh call the runner makes is cut at RESTART_GFK_CALL seconds, because --request-timeout does not bound an
+# exec stream, and an injection, readback or reset into a host engine that connects and never answers would otherwise
+# run past its case's slot (codex review before the full stage).
+# This file is sourced after gpu-fault.sh, so this gfk is the one its helpers call; restart_fault_path_ready narrows it
+# to its own deadline while it runs and puts this one back after.
+RESTART_GFK_CALL=60
+gfk() { timeout "$RESTART_GFK_CALL" kubectl ${GF_CONTEXT:+--context "$GF_CONTEXT"} "$@"; }
+
+# The longest a read of LATEST through a rank's mount may take, which is an exec stream too.
+RESTART_LATEST_CALL=20
+
 # restart_operator_gate: the operator running on the cluster is the restart controller, before any GPU is bought.
 #
 # Argo deploys the operator from main, whatever this checkout holds, so the deployed revision is read from Argo, its
@@ -545,7 +556,7 @@ for m in re.finditer(r"\{\"ts\": ", text):
 # restart_read_latest POD JOB_ID: the step LATEST names on the volume, read through a rank's own mount.
 restart_read_latest() {
   local latest
-  latest="$(rk -n "$RESTART_NS" exec "$1" -- cat "$RESTART_MOUNT/$2/LATEST" 2>&1)" || {
+  latest="$(rkt "$RESTART_LATEST_CALL" -n "$RESTART_NS" exec "$1" -- cat "$RESTART_MOUNT/$2/LATEST" 2>&1)" || {
     echo "could not read LATEST through $1: ${latest:0:200}" >&2
     return 1
   }
