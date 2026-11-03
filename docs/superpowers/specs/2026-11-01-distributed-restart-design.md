@@ -125,7 +125,27 @@ No automatic force deletion of an unreachable node's Pods, ever; that decision s
 
 ## The paid session: apparatus
 
-Written 2026-11-01. Status: **`smoke` approved by the owner on 2026-11-02; `full` not approved.** Nothing else here authorises a purchase; only the owner's explicit approval starts a paid session.
+Written 2026-11-01. Status: **`smoke` approved by the owner on 2026-11-02, and `full` on 2026-11-03.** Nothing else here authorises a purchase; only the owner's explicit approval starts a paid session.
+Before `full`, codex `gpt-6-astra` reviewed, read-only, what `full` runs that `smoke` did not (7 findings) and took a census of the whole apparatus (56 findings), and each fix was reviewed as its own commit.
+Fixed before `full` (marked `E<n>` where they change this section):
+- A case's files are deleted only after they are read.
+- A failed status read no longer ends a rank's log follows, and a stream that fails at once is paused.
+- Every DCGM exec and the `LATEST` read are bounded.
+- The scale-in before `terminate-wait` is asked for again while EKS reports another update in progress.
+- A clock round fails when a GPU node has no exporter, and skips exporters being deleted.
+- A group that moves past its count during qualification is waited for again.
+- "Both ranks stepped" counts ranks, not records.
+- The scorer matches a spare's preparation by Node UID.
+- The scorer voids a case whose "before" probe ended after the fault, whose attempt 1 log ends before its resume step, or whose save costs are not finite or not from both ranks.
+
+Known and not fixed for `full`, because each needs a new trainer hash or a new operator image:
+- `train.py`'s manifest schema and shard-read fallbacks.
+- The rendezvous constructor and barrier each take the whole 600 s, so the join's bound is up to twice that.
+- The controller judges a DCGM handoff after a failed Job, so a race can record `RankFailed` and fail a DCGM case.
+- The controller's fence and Ready checks are bound to node names, not node identity, so a replacement that takes the old name can satisfy them.
+
+Known and not fixed in the session's own teardown: the residue check does not query EFS, and the watchdog's destroy allowance is not enforced.
+These are checked by hand after the session.
 The approval came after the kind rehearsal found D1 and before it was fixed, so `smoke` starts only from a commit whose kind rehearsal recovers `terminate-wait-1` on a late replacement.
 **`smoke` ran on 2026-11-02 from `5c78d4cf`: all four cases ACCEPTED** (`hack/distributed-restart-eks/2026-11-02-smoke/README.md`).
 `dcgm-1` recovered on the spare in 37.3 s and `terminate-wait-1` on the replacement in 409.4 s, 334 s of which was the old instance's shutdown before EC2 called it terminated; both resumed from step 25 with no step lost and parameters equal to the reference, and the control differed by 0.106.
