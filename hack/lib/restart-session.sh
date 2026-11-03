@@ -1102,7 +1102,7 @@ for p in json.load(sys.stdin)["items"]:
       printf '{"uid": "%s", "pod": "%s", "node": "%s", "index": "%s", "attempt_token": "%s", "observed": "%s"}\n' \
         "$uid" "$pod" "$node" "$index" "$token" "$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)" >>"$dir/pods.jsonl"
       (
-        local n=0 follow="" rc
+        local n=0 follow="" rc running
         # The follow runs in the background and is waited for, so stopping this reader stops it too: with no request
         # timeout a follow of a Pod on a dead node would otherwise outlive the case (codex review of bf0ea420).
         trap 'kill $follow 2>>"$dir/collector.log"; exit 0' TERM
@@ -1115,9 +1115,16 @@ for p in json.load(sys.stdin)["items"]:
           wait "$follow"
           rc=$?
           printf '{"uid": "%s", "stream": %d, "exit": %d, "at": "%s"}\n' "$uid" "$n" "$rc" "$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)" >>"$dir/streams.jsonl"
-          # A stream that ended with its container is complete; one that ended while it runs is read again in full.
-          [[ "$(rk -n "$RESTART_NS" get pod "$pod" -o jsonpath='{.status.containerStatuses[0].state.running}' 2>>"$dir/collector.log")" != "" ]] || break
           ((n < 20)) || break
+          # A stream that ended with its container is complete; one that ended while it runs is read again in full.
+          # A read of the container that failed says neither, so the log is read again after a pause: taking it for the
+          # end once stopped a Pod's records for good after one API error (codex review before the full stage).
+          # A Pod that is gone reads as empty, not as an error, and ends the follows.
+          if running="$(rk -n "$RESTART_NS" get pod "$pod" --ignore-not-found -o jsonpath='{.status.containerStatuses[0].state.running}' 2>>"$dir/collector.log")"; then
+            [[ -n "$running" ]] || break
+          else
+            sleep 2
+          fi
         done
       ) &
     done <<<"$rows"

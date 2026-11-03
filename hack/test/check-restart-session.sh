@@ -588,6 +588,27 @@ else
   pgrep -f '[r]stk-follow-leak-probe' | xargs -r kill
 fi
 
+# A status read that fails after a stream ends is not the container's end: the Pod's log is followed again, and only a
+# container read as not running, or a Pod gone, ends the follows (codex review before the full stage).
+mkdir -p "$work/rules/status-blip"
+cat >"$work/rules/status-blip/kubectl.sh" <<'EOF'
+case "$*" in
+  *"get pods -l platform.lkhun9311.github.io/mltrainingjob="*"-o json"*)
+    echo '{"items": [{"metadata": {"uid": "u0", "name": "rp0", "annotations": {"batch.kubernetes.io/job-completion-index": "0"}}, "spec": {"nodeName": "node-a"}, "status": {"containerStatuses": [{"state": {"running": {"startedAt": "t"}}}]}}]}' ;;
+  *"logs -f rp0"*) echo '{"ts": "t", "event": "step"}' ;;
+  *"get pod rp0"*)
+    n=$(($(cat "$STUB_RULES/status-n" 2>/dev/null || echo 0) + 1)); echo "$n" >"$STUB_RULES/status-n"
+    case "$n" in 1) echo "Unable to connect to the server: net/http: TLS handshake timeout" >&2; exit 1 ;; 2) echo '{"startedAt": "t"}' ;; esac ;;
+esac
+EOF
+out="$(lib status-blip 'restart_collect "$RESTART_OUT" rst-x & c=$!; sleep 6; kill $c; wait $c; echo "rc=$?"')"
+streams="$(grep -c '"uid": "u0"' "$work/out/status-blip/streams.jsonl" 2>&1)"
+if [[ "$streams" == 3 ]]; then
+  ok "a failed status read is followed by the log again, and the follows end when the container is read as ended"
+else
+  bad "the status blip: $streams stream(s) of rp0, want 3 (one before the failed read, one while running, one at the end): $out"
+fi
+
 # A mark's fraction is the time's, whatever date prints for a width-limited %N: uutils date 0.8.0 prints %6N as the whole
 # nanosecond count without its leading zeros, which put a mark taken at .0784 s at .784 s in the kind rehearsal.
 out="$(lib uutils 'STUB_UUTILS_NS=001229623 restart_mark "$RESTART_OUT" probe; python3 -c "import json, sys; print(json.loads(open(sys.argv[1]).read())[\"at\"])" "$RESTART_OUT/marks.jsonl"')"
