@@ -419,6 +419,16 @@ def defect(out: pathlib.Path, name: str, case: str) -> None:
         (d / "clock.jsonl").write_text("".join(json.dumps(p) + "\n" for p in probes))
     elif name == "spare-unprepared":
         edit_json_lines(out / "nodes-prepared.jsonl", lambda p: None if p["node"] == "ip-10-0-64-13" else p)
+    elif name == "spare-new-machine":
+        # The spare's name was prepared, but the Node under it before and after the fault is another machine.
+        def swap(n):
+            for i in n["items"]:
+                if i["metadata"]["name"] == "ip-10-0-64-13":
+                    i["metadata"]["uid"] = "uid-ip-10-0-64-13-new"
+        edit_json(d / "nodes-before.json", swap)
+        edit_json(d / "nodes-after.json", swap)
+    elif name == "prepared-no-uid":
+        edit_json_lines(out / "nodes-prepared.jsonl", lambda p: {k: v for k, v in p.items() if k != "uid"})
     elif name in ("drop-node-before", "drop-node-after"):
         which, node = ("nodes-before.json", "ip-10-0-64-11") if name == "drop-node-before" else ("nodes-after.json", "ip-10-0-64-13")
         edit_json(d / which, lambda n: n.update(items=[i for i in n["items"] if i["metadata"]["name"] != node]))
@@ -490,7 +500,7 @@ def main(argv: list[str]) -> int:
     # The runner prepares the three nodes it bought before the first case; a replacement is prepared after its case.
     with open(out / "nodes-prepared.jsonl", "w") as f:
         for node in list(NODES)[:3]:
-            f.write(json.dumps({"node": node, "prepared_at": iso(BASE - 600)}) + "\n")
+            f.write(json.dumps({"node": node, "uid": node_uid(node, ""), "prepared_at": iso(BASE - 600)}) + "\n")
     if len(argv) == 4:
         defect(out, argv[2], argv[3])
     return 0

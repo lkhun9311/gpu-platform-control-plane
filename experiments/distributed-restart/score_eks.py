@@ -536,10 +536,14 @@ class Case:
             return "same-nodes"
         # A spare is a node up and prepared before the fault; one up but never prepared had its first pull and mount
         # inside the recovery, which is neither what a spare nor what a replacement registers.
+        # Preparation is matched by the Node's UID, as the runner records it, and not by its name: a machine that took a
+        # prepared one's name inherited its preparation and was scored a spare (codex review before the full stage).
         prepared: dict[str, float] = {}
         for row in jsonl(self.dir.parent / "nodes-prepared.jsonl"):
-            prepared[row["node"]] = min(prepared.get(row["node"], math.inf), epoch(row["prepared_at"]))
-        late = sorted(n for n in a2 - a1 if prepared.get(n, math.inf) > fault)
+            if not row.get("uid"):
+                void(f"a preparation of {row.get('node')} names no Node UID, so which machine was prepared is not shown")
+            prepared[row["uid"]] = min(prepared.get(row["uid"], math.inf), epoch(row["prepared_at"]))
+        late = sorted(n for n in a2 - a1 if prepared.get(after[n], math.inf) > fault)
         if late:
             void(f"attempt 2 ran on {late}, up before the fault but not prepared before it (nodes-prepared.jsonl)")
         return "spare"
