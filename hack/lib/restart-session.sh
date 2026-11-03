@@ -493,25 +493,43 @@ restart_clock_probe() {
 #
 # A Pod stays listed Running for a while after its Node is deleted, so a node the group just scaled in or lost would
 # otherwise be probed, fail, and void the next case before its fault, as terminate-wait-1 was on the kind rehearsal.
+#
+# A Pod already being deleted is left out as well, because its probe can fail for that alone (codex review before the
+# full stage).
 restart_exporters() {
   local nodes pods
+  nodes="$(restart_gpu_nodes)" || return 1
+  pods="$(rk -n "$RESTART_SYS" get pods -l app.kubernetes.io/component=dcgm-exporter --field-selector status.phase=Running \
+    -o jsonpath='{range .items[*]}{.spec.nodeName}{" "}{.metadata.name}{" "}{.metadata.deletionTimestamp}{"\n"}{end}' 2>&1)" || {
+    echo "could not list the exporters: ${pods:0:200}" >&2
+    return 1
+  }
+  awk 'NR == FNR {if (NF) up[$1] = 1; next} NF == 2 && ($1 in up) {print}' <(printf '%s\n' "$nodes") <(printf '%s\n' "$pods")
+}
+
+# restart_gpu_nodes: the names of the Nodes the GPU group has now, one a line; fails when they cannot be read.
+restart_gpu_nodes() {
+  local nodes
   nodes="$(rk get nodes -l "eks.amazonaws.com/nodegroup=$RESTART_GROUP" -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>&1)" || {
     echo "could not list the GPU nodes: ${nodes:0:200}" >&2
     return 1
   }
-  pods="$(rk -n "$RESTART_SYS" get pods -l app.kubernetes.io/component=dcgm-exporter --field-selector status.phase=Running \
-    -o jsonpath='{range .items[*]}{.spec.nodeName}{" "}{.metadata.name}{"\n"}{end}' 2>&1)" || {
-    echo "could not list the exporters: ${pods:0:200}" >&2
-    return 1
-  }
-  awk 'NR == FNR {if (NF) up[$1] = 1; next} ($1 in up) {print}' <(printf '%s\n' "$nodes") <(printf '%s\n' "$pods")
+  printf '%s\n' "$nodes" | sed '/^$/d'
 }
 
-# restart_probe_all DIR LABEL: a probe of every GPU node's clock, appended to DIR/clock.jsonl; fails if any cannot be read.
+# restart_probe_all DIR LABEL: a probe of every GPU node's clock, appended to DIR/clock.jsonl; fails if any cannot be read,
+# or if a node the group has now has no exporter to read it through.
+#
+# A node with no exporter listed was once simply not probed and the round passed, and the scorer then voided the case
+# whose recovery used that node's clock, after its fault had been paid for (codex review before the full stage).
 restart_probe_all() {
-  local dir="$1" label="$2" rows node pod line fails=0 probed=0 config
+  local dir="$1" label="$2" rows node pod line fails=0 probed=0 config nodes missing
   rows="$(restart_exporters 2>&1)" || {
     echo "could not list the exporters: ${rows:0:200}" >&2
+    return 1
+  }
+  nodes="$(restart_gpu_nodes 2>&1)" || {
+    echo "could not list the GPU nodes: ${nodes:0:200}" >&2
     return 1
   }
   config="$(mktemp)" || return 1
@@ -533,6 +551,11 @@ restart_probe_all() {
   # No exporter listed is no clock read, not every clock read.
   if ((probed == 0)); then
     echo "no exporter Pod was Running, so no node's clock was read" >&2
+    return 1
+  fi
+  missing="$(awk 'NR == FNR {if (NF) seen[$1] = 1; next} NF && !($1 in seen) {print $1}' <(printf '%s\n' "$rows") <(printf '%s\n' "$nodes") | paste -sd' ')"
+  if [[ -n "$missing" ]]; then
+    echo "no exporter Pod to read the clock of $missing" >&2
     return 1
   fi
   ((fails == 0))

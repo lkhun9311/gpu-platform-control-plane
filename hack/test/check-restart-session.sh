@@ -535,6 +535,25 @@ EOF
   fi
 done
 
+# A GPU node with no exporter to read it through fails the round, though the nodes that had one are still recorded; an
+# exporter already being deleted is not probed when a live one serves the same node.
+mkdir -p "$work/rules/uncovered"
+cat >"$work/rules/uncovered/kubectl.sh" <<'EOF'
+case "$*" in
+  *"get nodes -l eks.amazonaws.com/nodegroup=gpu"*) printf 'node-a\nnode-b\n' ;;
+  *"component=dcgm-exporter"*) printf 'node-a dcgm-old 2026-11-03T01:00:00Z\nnode-a dcgm-a \n' ;;
+  *"exec dcgm-a -c exporter -- date"*) date +%s.%N ;;
+  *"exec dcgm-old"*) echo "error: pod is terminating" >&2; exit 1 ;;
+esac
+EOF
+out="$(lib uncovered 'restart_probe_all "$RESTART_OUT" before; echo "rc=$?"')"
+probed="$(python3 -c 'import json, sys; print(" ".join(json.loads(l)["pod"] for l in open(sys.argv[1])))' "$work/out/uncovered/clock.jsonl" 2>&1)"
+if [[ "$out" == *"no exporter Pod to read the clock of node-b"*"rc=1" && "$probed" == dcgm-a ]] && ! grep -q 'exec dcgm-old' "$work/uncovered.calls"; then
+  ok "a GPU node with no exporter fails the round, and a terminating exporter is not probed"
+else
+  bad "the uncovered node: $out; probed '$probed'; $(grep -c 'exec dcgm-old' "$work/uncovered.calls") exec(s) into the terminating one"
+fi
+
 # An empty exporter list reads no clock, which is not every clock read.
 out="$(lib noexporter 'restart_probe_all "$RESTART_OUT" before; echo "rc=$?"')"
 if [[ "$out" == *"no exporter Pod was Running"*"rc=1" ]]; then ok "a probe of no node fails"; else bad "the probe of no node: $out"; fi
