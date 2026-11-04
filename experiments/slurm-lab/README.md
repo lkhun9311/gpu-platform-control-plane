@@ -64,7 +64,7 @@ The steps can also be run one at a time against a running cluster, in order: `st
 `steps/00-setup.sh` creates the accounts and QoS, so it runs once per fresh cluster.
 Steps 0 to 4 took about 15 minutes, most of it Slurm's requeue delay; step 5 took about 8 minutes on its own (`evidence/2026-11-01-train/`, 23:41:54 to 23:49:58 UTC).
 The whole of `evidence/2026-11-04/`, steps 0 to 7, took 31 minutes (12:05:46 to 12:37:01 UTC); step 6 took 4 minutes and step 7 5.
-The health check has a host-side test that needs no containers: `python3 check_gpuhc.py` runs `etc/gpuhc.py` against stub `scontrol` and `squeue` over 16 cases.
+The health check has a host-side test that needs no containers: `python3 check_gpuhc.py` runs `etc/gpuhc.py` against stub `scontrol` and `squeue` over 19 cases.
 Nothing is pulled except the two pinned base images and the pinned torch wheels, and nothing is pushed.
 
 The image is now tagged `slurmlab:24.11.5-torch251`, because step 5 added torch to it.
@@ -395,7 +395,7 @@ Its rules are the platform's (`internal/gpufault/classify.go`, `Assess`): an Xid
 - It does not overwrite a drain that is already there, so the first fault's reason, or an operator's maintenance reason, is the one `sinfo` keeps.
 - With `requeue` written in `/var/lib/labgpu/policy`, a fault also requeues every job running on the node, once per job.
 
-`check_gpuhc.py` pins each rule with stub `scontrol` and `squeue` (16 cases, all passing).
+`check_gpuhc.py` pins each rule with stub `scontrol` and `squeue` (19 cases, all passing; three of them, `NaN`, `+Inf` and an overflowing value, were added after a review found the check crashed on them without draining).
 Two mutations of `etc/gpuhc.py` show the test can fail: making `main` return 0 at once (a check that always passes) failed 11 of the 15 cases then present, and returning 0 when the signal cannot be judged (fail open) failed 7.
 
 **6a. An Xid drains the node; the running job finishes; new work goes elsewhere; the clean signal does not return the node.**

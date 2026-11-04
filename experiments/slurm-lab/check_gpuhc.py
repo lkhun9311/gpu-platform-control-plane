@@ -70,6 +70,12 @@ CASES = [
      ["scontrol show node c9", "DRAIN:GPU-c9-1 has no DCGM_FI_DEV_ECC_DBE_VOL_TOTAL"]),
     ("a fractional value drains", two(dbe1="0.5"), "IDLE", "", "", 2,
      ["scontrol show node c9", "DRAIN:not a whole non-negative number"]),
+    # float() accepts these and int() does not, so each once ended the check with a traceback and no drain
+    # (codex review of fb1d36b7); slurmd only logs a nonzero exit, so the node stayed schedulable.
+    ("NaN drains", two(xid0="NaN"), "IDLE", "", "", 2, ["scontrol show node c9", "DRAIN:not a whole non-negative number"]),
+    ("+Inf drains", two(dbe1="+Inf"), "IDLE", "", "", 2, ["scontrol show node c9", "DRAIN:not a whole non-negative number"]),
+    ("an overflowing value drains", two(xid1="1e999"), "IDLE", "", "", 2,
+     ["scontrol show node c9", "DRAIN:not a whole non-negative number"]),
     ("a malformed line drains", two() + "garbage line\n", "IDLE", "", "", 2, ["scontrol show node c9", "DRAIN:malformed"]),
     ("two values for one card drain", two() + sample("GPU-c9-0", xid="5"), "IDLE", "", "", 2,
      ["scontrol show node c9", "DRAIN:carries two"]),

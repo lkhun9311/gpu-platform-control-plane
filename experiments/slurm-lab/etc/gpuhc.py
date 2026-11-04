@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import datetime
 import glob
+import math
 import os
 import re
 import socket
@@ -93,7 +94,8 @@ def read_signal() -> dict[str, dict[str, int]]:
             value = float(raw)
         except ValueError:
             raise Unjudged(f"{uuid} {name}={raw} is not a number") from None
-        if value < 0 or value != int(value):
+        # NaN and the infinities pass float() and make int() raise, which would end the check with no drain.
+        if not math.isfinite(value) or value < 0 or value != int(value):
             raise Unjudged(f"{uuid} {name}={raw} is not a whole non-negative number")
         prev = cards.setdefault(uuid, {}).get(name)
         if prev is not None and prev != int(value):

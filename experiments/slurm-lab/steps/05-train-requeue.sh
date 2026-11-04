@@ -3,7 +3,8 @@
 # Three jobs run: an uninterrupted reference, a requeue with CKPT_LOAD=full, and the same requeue with CKPT_LOAD=none as a mutation.
 # score_requeue.py must pass the full case and fail the mutation; the step exits nonzero if either verdict is not the expected one.
 source "$(dirname "$0")/lib.sh"
-source "$(dirname "$0")/train-lib.sh"
+# lib.sh has changed to the lab directory, so a path relative to $0 no longer resolves; $LAB does.
+source "$LAB/steps/train-lib.sh"
 
 out 05a-train-reference.txt
 note "Placement: slurmctld runs in its own container and is never a compute node; c1..c3 are the only slurmd containers."

@@ -5,7 +5,8 @@
 # Step 5's load-none mutation is what shows the scorer fails a restart from zero; it is not repeated here.
 source "$(dirname "$0")/lib.sh"
 PREFIX=07
-source "$(dirname "$0")/train-lib.sh"
+# lib.sh has changed to the lab directory, so a path relative to $0 no longer resolves; $LAB does.
+source "$LAB/steps/train-lib.sh"
 
 out 07a-train-reference.txt
 host "docker compose ps --format '{{.Service}} {{.Name}} {{.State}}'"
