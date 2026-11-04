@@ -459,4 +459,19 @@ var _ = Describe("MLTrainingJob restart", func() {
 		Expect(last(key).State).To(Equal(attemptStopping))
 		Expect(last(key).Trigger).To(Equal(triggerNodeFault))
 	})
+
+	It("takes a failed Job whose Workload the fault path handed off as NodeFault, not RankFailed", func() {
+		key := create(1)
+		job := untilActive(key)
+
+		// The fault path's eviction can fail the Job before this controller next looks, and both are then true at once.
+		wl := workloadFor(job, nil)
+		wl.Annotations = map[string]string{AnnRestartHandoff: "fp-1"}
+		Expect(k8sClient.Update(ctx, wl)).To(Succeed())
+		awaitCachedWorkload(wl.Name, ns, func(w *kueuev1beta1.Workload) bool { return w.Annotations[AnnRestartHandoff] != "" })
+		failRank(job)
+		step(key)
+		Expect(last(key).State).To(Equal(attemptStopping))
+		Expect(last(key).Trigger).To(Equal(triggerNodeFault))
+	})
 })

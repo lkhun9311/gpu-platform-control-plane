@@ -200,11 +200,13 @@ func (r *MLTrainingJobReconciler) runAttempt(ctx context.Context, mltj *platform
 	if err := r.discover(ctx, mltj, wl); err != nil {
 		return ctrl.Result{}, err
 	}
-	if jobFailed(&job) {
-		return r.trigger(ctx, mltj, triggerRankFailed)
-	}
+	// The handoff is read before the Job's failure: the fault path's eviction can fail the Job before this pass, and a
+	// Job failed for that reason is a node fault, which RankFailed would misreport (codex census before the full stage).
 	if wl != nil && wl.Annotations[AnnRestartHandoff] != "" {
 		return r.trigger(ctx, mltj, triggerNodeFault)
+	}
+	if jobFailed(&job) {
+		return r.trigger(ctx, mltj, triggerRankFailed)
 	}
 
 	phase, cond := computeMLTJPhase(&job, wl, true)
