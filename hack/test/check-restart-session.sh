@@ -1067,6 +1067,39 @@ if [[ $rc == 0 && "$(grep -c '^ACCEPTED' <<<"$out")" == 22 ]]; then ok "a clean 
 for want in "replacement: recovery median 71.0 s" "spare: recovery median 71.0 s" "same-nodes: recovery median 71.0 s" "lost steps [1, 1, 1, 1, 1]"; do
   if grep -qF "$want" <<<"$out"; then ok "the clean run reports '$want'"; else bad "the clean run lacks '$want'"; fi
 done
+# phases_eks.py splits only what score_eks.py accepted, and its last moment is the scorer's own recovery figure.
+out="$(python3 experiments/distributed-restart/phases_eks.py "$work/run-clean" 2>&1)"
+rc=$?
+split="$(grep -cE '^(rank-kill|dcgm|terminate-spare|terminate-wait)-[0-9] \(' <<<"$out")"
+stepped="$(grep -cE '^(rank-kill|dcgm|terminate-spare|terminate-wait)-[0-9] \(.*created \+[0-9.]+\*.* stepped \+71\.0$' <<<"$out")"
+if [[ $rc == 0 && "$split" == 20 && "$stepped" == 20 ]] && grep -q '^no-rng-control: not split' <<<"$out"; then
+  ok "phases_eks.py splits the clean run's 20 recoveries, each ending at the scorer's 71.0 s"
+else
+  bad "phases_eks.py on the clean run: exit $rc, $split split, $stepped ending at 71.0 s: $(head -3 <<<"$out")"
+fi
+python3 hack/test/restart-session/make_fixture.py "$work/run-phases-void" no-fault-record rank-kill-2 || bad "the phases fixture was not built"
+out="$(python3 experiments/distributed-restart/phases_eks.py "$work/run-phases-void" 2>&1)"
+if grep -qE '^rank-kill-2: not split, (VOID|FAILED)' <<<"$out"; then ok "phases_eks.py does not split a case the scorer refused"; else bad "a refused case was split: $(grep '^rank-kill-2' <<<"$out")"; fi
+# The scorer's run-level refusals are its too, an unreadable case does not end the report, and a spare case that
+# recovered on a replacement is summarised with replacements, not pooled with spares.
+python3 hack/test/restart-session/make_fixture.py "$work/run-phases-dirty" dirty reference || bad "the dirty phases fixture was not built"
+out="$(python3 experiments/distributed-restart/phases_eks.py "$work/run-phases-dirty" 2>&1)"
+rc=$?
+if [[ $rc == 2 && "$out" == *"REFUSED"*"uncommitted change"* ]]; then ok "phases_eks.py refuses a run the scorer refuses"; else bad "phases_eks.py on a dirty run: exit $rc, $(head -2 <<<"$out")"; fi
+python3 hack/test/restart-session/make_fixture.py "$work/run-phases-empty" empty-final dcgm-4 || bad "the empty-final phases fixture was not built"
+out="$(python3 experiments/distributed-restart/phases_eks.py "$work/run-phases-empty" 2>&1)"
+if grep -q '^dcgm-4: not split' <<<"$out" && grep -q '^terminate-wait-5 (' <<<"$out" && grep -q '^medians' <<<"$out"; then
+  ok "an unreadable case is not split and the report goes on"
+else
+  bad "phases_eks.py on an unreadable case: $(grep -E '^dcgm-4|Traceback' <<<"$out" | head -2)"
+fi
+python3 hack/test/restart-session/make_fixture.py "$work/run-phases-mixed" spare-on-replacement terminate-spare-4 || bad "the mixed phases fixture was not built"
+out="$(python3 experiments/distributed-restart/phases_eks.py "$work/run-phases-mixed" 2>&1)"
+if grep -q '^  terminate-spare/replacement (n=1)' <<<"$out" && grep -q '^  terminate-spare/spare (n=4)' <<<"$out"; then
+  ok "a spare case that recovered on a replacement is summarised apart from the spares"
+else
+  bad "the class split: $(grep '^  terminate-spare' <<<"$out" | tr '\n' ' ')"
+fi
 
 score missing-rank rank-kill-2 FAILED "attempt 2 has start records from ranks [0]"
 # The runner reads the final status after its budget has run out, so the end is judged by the job's own stamps.

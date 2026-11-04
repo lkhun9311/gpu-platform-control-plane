@@ -643,14 +643,8 @@ class Case:
         return out
 
 
-def main(argv: list[str]) -> int:
-    # --partial scores a run still in progress: a registered case with no directory yet is left out instead of VOID.
-    partial = len(argv) == 3 and argv[1] == "--partial"
-    if len(argv) != 2 and not partial:
-        print(__doc__, file=sys.stderr)
-        return 2
-    run = pathlib.Path(argv[-1])
-    prov = provenance(run)
+def run_refusals(prov: dict[str, str]) -> list[str]:
+    """Why a run cannot be scored at all, from its provenance; empty when it can. phases_eks.py asks the same."""
     refusals = []
     if prov.get("dirty_files") != "0":
         refusals.append(f"the run was made from a tree with {prov.get('dirty_files', 'an unknown number of')} uncommitted change(s)")
@@ -663,12 +657,25 @@ def main(argv: list[str]) -> int:
         refusals.append("no registered step count")
     if not prov.get("case_budget", "").isdigit():
         refusals.append("no registered case budget")
+    return refusals
+
+
+def main(argv: list[str]) -> int:
+    # --partial scores a run still in progress: a registered case with no directory yet is left out instead of VOID.
+    partial = len(argv) == 3 and argv[1] == "--partial"
+    if len(argv) != 2 and not partial:
+        print(__doc__, file=sys.stderr)
+        return 2
+    run = pathlib.Path(argv[-1])
+    prov = provenance(run)
+    refusals = run_refusals(prov)
     if refusals:
         for r in refusals:
             print(f"REFUSED: {r}")
         return 2
 
     steps = int(prov["steps"])
+    cases = prov["cases"].split()
     verdicts: dict[str, tuple[str, str, bool]] = {}
     scored: dict[str, Case] = {}
     reference: list[float] | None = None
