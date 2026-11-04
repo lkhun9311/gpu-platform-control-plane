@@ -104,7 +104,7 @@ die() {
   exit 1
 }
 
-for r in $RUNS; do case "$r" in a | b | c | d) ;; *) die "run '$r' is not a, b, c or d" ;; esac; done
+for r in $RUNS; do case "$r" in a | b | c | d | e) ;; *) die "run '$r' is not a, b, c, d or e" ;; esac; done
 for tool in docker kind kubectl python3 make; do command -v "$tool" >/dev/null || die "missing tool $tool"; done
 rstk_cluster_listed "$CLUSTER" 2>>"$LOG"
 case $? in
