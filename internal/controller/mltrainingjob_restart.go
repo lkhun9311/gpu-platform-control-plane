@@ -52,7 +52,7 @@ const (
 
 // annFencedNodes is how an operator, or the experiment's runner after reading the instance as terminated, says that
 // nodes which stopped answering are really off: a comma-separated list on the MLTrainingJob of node names, each
-// optionally bound to the machine it means as name@uid, the UID the attempt recorded for that name.
+// optionally bound to the machine it means as name@id, with id the attempt's machineID for that name.
 //
 // It is never inferred. A Node object deleted, or a Pod gone from the API, does not stop a process on a machine the
 // control plane cannot reach, and that process may still be writing to the shared checkpoint volume.
