@@ -17,11 +17,16 @@ import re
 import sys
 
 FAILED: list[str] = []
+FALLBACK_CASES = ("nfs-fallback-malformed", "nfs-fallback-otherdir", "nfs-fallback-unreadable")
+# The peer of attempt 2's lone rank is let in late, or never, with the rendezvous setting; never-unset is without it.
+NEVER_CASES = ("nfs-rendezvous-never", "nfs-rendezvous-never-unset")
+RDZV_CASES = ("nfs-rendezvous-late",) + NEVER_CASES
 NFS_CASES = ("nfs-kill-before-fsync", "nfs-kill-before-manifest", "nfs-kill-before-latest", "nfs-kill-after-latest",
-             "nfs-corrupt-published", "nfs-vis-efs", "nfs-vis-long")
+             "nfs-corrupt-published", "nfs-vis-efs", "nfs-vis-long") + FALLBACK_CASES + RDZV_CASES
 CASES = ("reference", "rank-failed", "stale-workload", "deactivated", "node-lost", "cut-writer", "cut-writer-early") + NFS_CASES
-# Each NFS case's fault as (point, step, rank), and the step attempt 2 must resume from.
+# Each NFS case's fault as (point, step, rank), and the step attempt 2 must resume from, None where it must not resume.
 # The visibility cases must resume from the step LATEST names: a probed cache may delay a shard, never lose it.
+# The fallback cases spoil the step 6 LATEST names, so every rank must pass over it to step 5 together.
 NFS_FAULTS = {
     "nfs-kill-before-fsync": (("kill-before-fsync", 6, 1), 5),
     "nfs-kill-before-manifest": (("kill-before-manifest", 6, 0), 5),
@@ -30,7 +35,15 @@ NFS_FAULTS = {
     "nfs-corrupt-published": (("kill-after-latest", 6, 0), 5),
     "nfs-vis-efs": (("kill-after-latest", 8, 0), 8),
     "nfs-vis-long": (("kill-after-latest", 8, 0), 8),
+    "nfs-fallback-malformed": (("kill-after-latest", 6, 0), 5),
+    "nfs-fallback-otherdir": (("kill-after-latest", 6, 0), 5),
+    "nfs-fallback-unreadable": (("kill-after-latest", 6, 0), 5),
+    "nfs-rendezvous-late": (("kill-after-latest", 6, 0), 6),
+    "nfs-rendezvous-never": (("kill-after-latest", 6, 0), None),
+    "nfs-rendezvous-never-unset": (("kill-after-latest", 6, 0), None),
 }
+# What os.stat then open() of a directory gives on Linux: the unreadable shard is a directory under the shard's name.
+EISDIR = 21
 # The options AWS recommends for EFS, as the kernel reports them in a mount's super options.
 EFS_SUPER = ("vers=4.1", "rsize=1048576", "wsize=1048576", "hard", "timeo=600", "retrans=2", "noresvport")
 # The provocation's attribute cache, which the kernel spells out because it is not the default.
@@ -528,18 +541,131 @@ def torn_state(c: str, job: str, step: int, files: dict, latest: str, manifests:
     return ok, detail
 
 
+def spoiled(case: Case, job: str, rel: str, before: dict) -> None:
+    """Whether the harness changed step 6 on the storage in exactly the way the case is registered to, and no other."""
+    c = case.name
+    recs = {r.get("when"): r for r in lines(case.dir / "spoil.jsonl") if r.get("dir") == rel}
+    b, a = recs.get("before", {}), recs.get("after", {})
+    files, _, after, _ = snapshot(case, "held")
+    old, new = before.get(f"{job}/{rel}/MANIFEST") or {}, after.get(f"{job}/{rel}/MANIFEST") or {}
+    rest = lambda m, key: {k: v for k, v in m.items() if k != key}
+    if c == "nfs-fallback-malformed":
+        ok = (bool(old) and new.get("shards") == [{}, {}] and rest(new, "shards") == rest(old, "shards")
+              and b.get("manifest_sha256") != a.get("manifest_sha256"))
+        detail = f"step 6's manifest shards now {new.get('shards')}, the rest unchanged: {rest(new, 'shards') == rest(old, 'shards')}"
+    elif c == "nfs-fallback-otherdir":
+        ok = (bool(old) and new.get("uuid") == "0" * 32 and old.get("uuid") != new.get("uuid")
+              and rest(new, "uuid") == rest(old, "uuid"))
+        detail = f"step 6's manifest names uuid {new.get('uuid')} for {rel}, was {old.get('uuid')}"
+    else:
+        entry = next((s for s in old.get("shards", []) if s.get("rank") == 1), {})
+        moved = files.get(f"{job}/{rel}/rank-1.pt.published", (0, -1))[1]
+        ok = (b.get("rank1_type") == "regular file" and a.get("rank1_type") == "directory"
+              and b.get("manifest_sha256") == a.get("manifest_sha256") and moved == entry.get("size"))
+        detail = (f"rank-1.pt was a {b.get('rank1_type')}, is a {a.get('rank1_type')}; the published shard kept aside at "
+                  f"{moved} bytes, the manifest says {entry.get('size')}; manifest unchanged: "
+                  f"{b.get('manifest_sha256') == a.get('manifest_sha256')}")
+    check(f"{c} step 6 was spoiled as registered on the storage before attempt 2", ok and case.at("spoiled") is not None, detail)
+
+
+def passed_over(case: Case, rel: str) -> None:
+    """Every rank passed over the spoiled step 6 together, each for the reason the case registers."""
+    c = case.name
+    offered = [r.get("offered") for r in case.records if r.get("event") == "candidates" and r.get("attempt") == 2]
+    rejected = sorted((r.get("rank"), r.get("own_shard_ok")) for r in case.records
+                      if r.get("event") == "checkpoint_rejected" and r.get("attempt") == 2 and r.get("dir") == rel)
+    looks = [r for r in case.records if r.get("event") == "shard_check" and r.get("attempt") == 2 and r.get("dir") == rel]
+    if c == "nfs-fallback-unreadable":
+        # Rank 0's shard is whole; rank 1 finds a directory where its shard was, and the read, not the lookup, fails.
+        own = [r for r in looks if r.get("rank") == 1]
+        ok = (rejected == [(0, True), (1, False)] and len(own) == 1 and own[0].get("visible") is True
+              and own[0].get("read_error") == EISDIR)
+        detail = f"rejections {rejected}; rank 1's look {[(r.get('visible'), r.get('read_error')) for r in own]}"
+    else:
+        # A manifest the search refuses is refused by rank 0 for every rank, before any shard of it is read.
+        ok = rejected == [(0, False), (1, False)] and not looks
+        detail = f"rejections {rejected}; {len(looks)} shard looks at {rel}"
+    check(f"{c} every rank passed over step 6 together, for the registered reason",
+          ok and len(offered) == 1 and bool(offered[0]) and offered[0][0] == rel,
+          f"{detail}; offered first {offered[0][0] if offered and offered[0] else None}, LATEST {rel}")
+
+
+def a2_exits(case: Case) -> list[tuple[str, dict]]:
+    """Attempt 2's Pods, by rank, with how each container ended, in the order the collector saw them."""
+    pods = [p for p in lines(case.dir / "pods.jsonl") if p.get("attempt") == "2"]
+    exits = {e.get("uid"): e for e in lines(case.dir / "exits.jsonl")}
+    return [(p.get("rank"), exits.get(p.get("uid"), {})) for p in pods]
+
+
+def never_joined(case: Case, provenance: dict, created: float | None) -> None:
+    """Attempt 2's lone rank waited for its peer for as long as the case's settings bound the join, and then failed."""
+    c = case.name
+    a = case.attempts
+    check(f"{c} attempt 2 failed and the job with it", case.status.get("phase") == "Failed" and len(a) == 2,
+          f"phase {case.status.get('phase')}, attempts {len(a)}")
+    if a:
+        check(f"{c} attempt 1 stopped by a failed rank", a[0].get("state") == "Stopped" and a[0].get("trigger") == "RankFailed",
+              f"state {a[0].get('state')}, trigger {a[0].get('trigger')}")
+    # With the setting the join is bounded by the rendezvous timeout; without it, by the collective one.
+    bound = float(provenance.get("rendezvous_timeout" if c == "nfs-rendezvous-never" else "collective_timeout", "nan"))
+    ran = a2_exits(case)
+    took = [(ts(e.get("finished")) or math.nan) - (ts(e.get("started")) or math.nan) for _, e in ran]
+    # The bound counts from the store's construction, after the interpreter and torch have loaded, so the container
+    # lives somewhat longer than the bound and never shorter.
+    ok = (len(ran) == 1 and ran[0][1].get("exit") not in (None, 0) and bound == bound
+          and bound <= took[0] <= bound + 60)
+    check(f"{c} attempt 2's lone rank ended between {bound:.0f} and {bound + 60:.0f} s after it started",
+          ok, f"ranks {[r for r, _ in ran]}, exits {[(e.get('exit'), e.get('reason')) for _, e in ran]}, "
+              f"lived {[round(t, 1) for t in took]} s")
+    trained = [r for r in case.records if r.get("event") in ("start", "resume", "step") and r.get("attempt") == 2]
+    check(f"{c} attempt 2 never trained", not trained, f"{len(trained)} start, resume or step records in attempt 2")
+    born = ts(((case.final.get("metadata") or {}).get("creationTimestamp")))
+    ended = ts(ran[0][1].get("finished")) if ran else None
+    budget = float(provenance.get("paid_budget", "nan"))
+    check(f"{c} attempt 2 failed inside the paid session's {budget:.0f} s case budget from the job's creation",
+          born is not None and ended is not None and ended - born < budget,
+          f"the job created {iso(born)}, attempt 2's Job {iso(created)}, its rank ended {iso(ended)}: "
+          f"{(ended - born) if born is not None and ended is not None else None} s")
+    said = [line.strip() for f in sorted(case.dir.glob("log-*.txt")) for line in f.read_text(errors="replace").splitlines()
+            if "clients joined" in line or "did not all join" in line or "Timed out" in line]
+    info(f"{c} what the lone rank said", "; ".join(sorted(set(s[-160:] for s in said))) or "nothing matched")
+
+
+def joined_late(case: Case, provenance: dict) -> None:
+    """Attempt 2's peer was let in long after the first rank started, past the collective timeout, and both trained."""
+    c = case.name
+    starts_at = sorted(ts(e.get("started")) for _, e in a2_exits(case) if ts(e.get("started")) is not None)
+    late, rdzv, coll = (float(provenance.get(k, "nan")) for k in ("late_join", "rendezvous_timeout", "collective_timeout"))
+    gap = starts_at[-1] - starts_at[0] if len(starts_at) == 2 else None
+    let_in = case.at("uncordoned")
+    check(f"{c} the peer started {late:.0f} s or more after the first rank, inside the {rdzv:.0f} s join and past the "
+          f"{coll:.0f} s collective timeout",
+          gap is not None and late - 2 <= gap < rdzv and gap > coll and let_in is not None and starts_at[-1] >= math.floor(let_in),
+          f"attempt 2's containers started {[iso(t) for t in starts_at]}, {gap} s apart; uncordoned {iso(let_in)}")
+    born = ts(((case.final.get("metadata") or {}).get("creationTimestamp")))
+    last = max((ts(r.get("ts")) or 0 for r in case.records if r.get("event") == "step" and r.get("attempt") == 2), default=None)
+    budget = float(provenance.get("paid_budget", "nan"))
+    check(f"{c} the job finished inside the paid session's {budget:.0f} s case budget from its creation",
+          born is not None and last is not None and last - born < budget,
+          f"created {iso(born)}, last step of attempt 2 {iso(last)}: {(last - born) if born and last else None} s")
+
+
 def nfs_case(case: Case, reference: list[float] | None, provenance: dict) -> None:
     c = case.name
     (point, step, frank), want = NFS_FAULTS[c]
     claim = "shared-long" if c == "nfs-vis-long" else "shared"
     job = (case.final.get("metadata") or {}).get("name") or ""
-    through_nfs(case, provenance, claim, (1, 2))
+    # A rank whose peer never comes never trains, so it writes no start record, and attempt 2 is judged below instead.
+    through_nfs(case, provenance, claim, (1,) if c in NEVER_CASES else (1, 2))
 
     # Every record names the job it came from, and each attempt ran one Pod per rank, so no other run's lines are read.
+    # Where attempt 2's peer is never let in, attempt 2 ran exactly one Pod, of either rank.
     stray = [r for r in case.records if r.get("run_id") != job]
     per = {a: sorted(int(p["rank"]) for p in lines(case.dir / "pods.jsonl") if p.get("attempt") == str(a)) for a in (1, 2)}
-    check(f"{c} every record is this job's and each attempt ran one Pod per rank",
-          bool(case.records) and not stray and all(v == list(range(case.world())) for v in per.values()),
+    pods_ok = per[1] == list(range(case.world())) and (
+        len(per[2]) == 1 if c in NEVER_CASES else per[2] == list(range(case.world())))
+    check(f"{c} every record is this job's and each attempt ran the Pods it was let run",
+          bool(case.records) and not stray and pods_ok,
           f"{len(case.records)} records, {len(stray)} of another run; Pods by attempt {per}")
 
     faults = [r for r in case.records if r.get("event") == "fault"]
@@ -555,6 +681,10 @@ def nfs_case(case: Case, reference: list[float] | None, provenance: dict) -> Non
     held, detail = observed_window(case, "finalizer-added", "released")
     a2job = json.loads((case.dir / "final-job.json").read_text()) if (case.dir / "final-job.json").exists() else {}
     created = ts((a2job.get("metadata") or {}).get("creationTimestamp"))
+    if created is None:
+        # A job that failed on attempt 2 may have had its Job deleted by the end, so its creation is read from the samples.
+        seen = [ts(j.get("created")) for s in case.timeline for j in s.get("jobs", []) if j.get("attempt") == "2"]
+        created = min((t for t in seen if t is not None), default=None)
     t_rel, t_hold = case.at("released"), case.at("finalizer-added")
     t_fault = ts(faults[0].get("ts")) if faults else None
     check(f"{c} attempt 2 began only after the storage was read and the hold released",
@@ -562,10 +692,14 @@ def nfs_case(case: Case, reference: list[float] | None, provenance: dict) -> Non
           and created >= math.floor(t_rel) and t_hold is not None and t_fault is not None and t_hold < t_fault,
           f"{detail}; hold from {iso(t_hold)}, fault {iso(t_fault)}, released {iso(t_rel)}, attempt 2's Job {iso(created)}")
 
-    files, latest, manifests, shas = snapshot(case, "held")
+    # The fallback cases' own change comes after the fault's state is read, so that state is judged before the change.
+    files, latest, manifests, shas = snapshot(case, "prespoil" if c in FALLBACK_CASES else "held")
     corrupted = helper_records(case, "corrupt")
     ok, detail = torn_state(c, job, step, files, latest, manifests, shas, corrupted)
     check(f"{c} the storage held the registered state of step {step} before attempt 2", ok, detail)
+    if c in FALLBACK_CASES:
+        spoiled(case, job, latest, manifests)
+    files, latest, manifests, shas = snapshot(case, "held")
     if c == "nfs-kill-before-fsync":
         sizes = {p.rsplit("/", 1)[1]: v[1] for p, v in files.items() if p.startswith(f"{job}/a1/{step:08d}-") and "/rank-" in p}
         info(f"{c} step {step}'s files as the storage held them", f"{sizes}: the killed rank's temporary file is "
@@ -602,7 +736,14 @@ def nfs_case(case: Case, reference: list[float] | None, provenance: dict) -> Non
               and own[0].get("hash_ok") is False,
               f"rejections {rejected}; rank 1's check of it {[(r.get('visible'), r.get('hash_ok')) for r in own]}")
 
-    restarted(case, reference, want)
+    if c in FALLBACK_CASES:
+        passed_over(case, latest)
+    if c in NEVER_CASES:
+        never_joined(case, provenance, created)
+    else:
+        restarted(case, reference, want)
+    if c == "nfs-rendezvous-late":
+        joined_late(case, provenance)
 
     # A resume is trusted only if what it loaded was complete on the storage when attempt 2 started.
     resumes = [r for r in case.records if r.get("event") == "resume" and r.get("attempt") == 2]
@@ -705,6 +846,12 @@ def main() -> int:
     # A run of uncommitted code is a rehearsal: what it shows belongs to no commit anyone can check out.
     check("ran committed code", provenance.get("dirty_files") == "0",
           f"commit {provenance.get('commit', '?')[:8]}, {provenance.get('dirty_files')} uncommitted file(s) in what it runs")
+    # A run made with an older commit's trainer, to show what a case does without a fix, is a control and never evidence
+    # of the tree's trainer; runs before the field existed built the tree's.
+    if "tree_train_py_sha256" in provenance:
+        check("ran the tree's trainer", provenance.get("train_py_sha256") == provenance.get("tree_train_py_sha256"),
+              f"image train.py {provenance.get('train_py_sha256', '?')[:12]} from {provenance.get('trainer_rev')}, "
+              f"tree's {provenance.get('tree_train_py_sha256', '?')[:12]}")
     # The run's own list of cases decides what is scored, so a run of one destructive case on its own cluster is not
     # failed for the cases it never ran; a name the scorer does not know, or none at all, fails rather than shrinking it.
     scope = provenance["cases"].split() if "cases" in provenance else list(DEFAULT_CASES)
