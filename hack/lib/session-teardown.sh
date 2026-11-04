@@ -80,6 +80,9 @@ echo "[ttl] $(date -u +%H:%M:%SZ) TTL reached; force-destroying" >>"$KILL_LOG" 2
 cd "$WORKDIR" || { echo "[ttl] could not enter $WORKDIR" >>"$KILL_LOG"; exit 1; }
 until=$((SECONDS + DESTROY_SECONDS))
 read -ra tfvars <<<"$TF_VARS"
+# A disarm that stops this watchdog stops the destroy it started too: $! is set the moment the destroy is launched, so
+# no TERM can fall between the launch and the record of it, and wait returns to run this at once (codex review).
+trap 'if [ -n "$!" ]; then kill -TERM -- "-$!"; sleep 1; kill -KILL -- "-$!"; fi; exit 143' TERM
 ttl_rc=1
 # The cluster first, and only the cluster. It is what bills; the Helm release bills nothing and its destroy needs a
 # reachable API endpoint that, by the time this fires, may well be gone.
@@ -123,6 +126,18 @@ killswitch_alive() {
   stat="$(ps -o stat= -p "$1")" && [[ -n "$stat" && "$stat" != Z* ]]
 }
 
+# killswitch_group_alive PGID: some member of the process group runs. pgrep -g selects by process group, where ps -g
+# selects by session, and a destroy's group lives inside the watchdog's session.
+# The whole group, not its leader: a provider that outlived terraform kept a destroy running after timeout exited
+# (codex review).
+killswitch_group_alive() {
+  local p
+  for p in $(pgrep -g "$1"); do
+    killswitch_alive "$p" && return 0
+  done
+  return 1
+}
+
 # killswitch_gone PID: waits up to five seconds for PID to leave.
 killswitch_gone() {
   local i
@@ -133,20 +148,39 @@ killswitch_gone() {
   return 1
 }
 
+# killswitch_group_gone PGID: waits up to five seconds for every member of the process group to leave.
+killswitch_group_gone() {
+  local i
+  for i in 1 2 3 4 5 6 7 8 9 10; do
+    killswitch_group_alive "$1" || return 0
+    sleep 0.5
+  done
+  return 1
+}
+
 # killswitch_disarm PID PIDFILE: the watchdog and any destroy it has started stopped; fails if either survived.
 #
 # The watchdog leads its own session, so its group holds its sleep; a destroy it started leads another group, timeout's,
 # whose id it wrote to PIDFILE.destroy.
+#
+# The watchdog goes first, so it can launch no destroy after the record of one is read; its TERM trap stops a destroy it
+# started. Then whatever the record names is checked as a whole group, and killed if any member is left.
 killswitch_disarm() {
-  local pid="$1" pidfile="$2" destroy="" survived=""
-  [[ -s "$pidfile.destroy" ]] && destroy="$(cat "$pidfile.destroy")"
-  [[ "$destroy" =~ ^[0-9]+$ ]] || destroy=""
-  for group in "$pid" $destroy; do
-    kill -- "-$group" 2>&1 | grep -v 'No such process'
-    if ! killswitch_gone "$group"; then
-      kill -9 -- "-$group" 2>&1 | grep -v 'No such process'
-      killswitch_gone "$group" || survived="$survived $group"
+  local pid="$1" pidfile="$2" destroy="" survived="" group
+  _killswitch_stop() {
+    kill -- "-$1" 2>&1 | grep -v 'No such process'
+    if ! killswitch_group_gone "$1"; then
+      kill -9 -- "-$1" 2>&1 | grep -v 'No such process'
+      killswitch_group_gone "$1" || survived="$survived $1"
     fi
-  done
+  }
+  _killswitch_stop "$pid"
+  [[ -s "$pidfile.destroy" ]] && destroy="$(cat "$pidfile.destroy")"
+  if [[ "$destroy" =~ ^[0-9]+$ ]]; then
+    for group in $destroy; do
+      _killswitch_stop "$group"
+    done
+  fi
+  unset -f _killswitch_stop
   [[ -z "$survived" ]] || { echo "survived disarming:$survived"; return 1; }
 }

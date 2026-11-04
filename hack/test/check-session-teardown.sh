@@ -44,6 +44,8 @@ echo "terraform $*"
 [[ "${TF_HANGS:-}" == 1 ]] && exec sleep 300
 # Ignores TERM as a terraform busy shutting down gracefully would, so only the KILL after the grace ends it.
 [[ "${TF_HANGS:-}" == term ]] && { trap '' TERM; exec sleep 300; }
+# Exits on TERM but leaves a provider behind that ignores it, as a plugin can outlive the terraform that started it.
+[[ "${TF_HANGS:-}" == provider ]] && { (trap '' TERM; exec sleep 300) & exec sleep 300; }
 exit 0
 EOF
 chmod +x "$dir/bin/terraform"
@@ -77,20 +79,46 @@ else
   bad "the TERM-proof destroy took $took s: $(tail -2 "$dir/kill.log" | tr '\n' ' ')"
 fi
 
-# Disarming while a destroy runs stops the destroy too, though timeout put it in a process group of its own.
-: >"$dir/kill.log"
-: >"$dir/ttl.pid"
-TF_HANGS=1 PATH="$dir/bin:$PATH" setsid bash -c "$(program 600)" &
-for _ in $(seq 50); do [[ -s "$dir/ttl.pid.destroy" ]] && break; sleep 0.2; done
-watchdog="$(cat "$dir/ttl.pid")" destroy="$(cat "$dir/ttl.pid.destroy")"
-out="$(bash -c '. hack/lib/session-teardown.sh; killswitch_disarm "$1" "$2"; echo "rc=$?"' _ "$watchdog" "$dir/ttl.pid")"
-left="$(ps -o pid=,stat= -g "$watchdog,$destroy" | awk '$2 !~ /^Z/' | wc -l)"
-if [[ "$destroy" =~ ^[0-9]+$ && "$out" == *"rc=0" && "$left" == 0 ]]; then
-  ok "disarming stops the watchdog and the destroy it started"
+# Disarming while a destroy runs stops the destroy too, though timeout put it in a process group of its own, and a
+# provider in that group that ignores TERM is killed as well. Groups are read with pgrep -g; ps -g reads sessions, and
+# the destroy's group is inside the watchdog's session, which once let this check see nothing to find.
+for kind in 1 provider; do
+  : >"$dir/kill.log"
+  : >"$dir/ttl.pid"
+  : >"$dir/ttl.pid.destroy"
+  TF_HANGS=$kind PATH="$dir/bin:$PATH" setsid bash -c "$(program 600)" &
+  for _ in $(seq 50); do [[ -s "$dir/ttl.pid.destroy" ]] && break; sleep 0.2; done
+  sleep 0.5
+  watchdog="$(cat "$dir/ttl.pid")" destroy="$(cat "$dir/ttl.pid.destroy")"
+  before="$(pgrep -g "$destroy" | wc -l)"
+  out="$(bash -c '. hack/lib/session-teardown.sh; killswitch_disarm "$1" "$2"; echo "rc=$?"' _ "$watchdog" "$dir/ttl.pid")"
+  left=0
+  for p in $(pgrep -g "$watchdog,$destroy"); do [[ "$(ps -o stat= -p "$p")" == Z* ]] || left=$((left + 1)); done
+  if [[ "$destroy" =~ ^[0-9]+$ && "$before" -ge 2 && "$out" == *"rc=0" && "$left" == 0 ]]; then
+    ok "disarming stops the watchdog and the destroy it started ($kind: $before process(es) in the destroy's group)"
+  else
+    bad "disarming during a destroy ($kind): destroy '$destroy' with $before process(es), $out, $left left"
+    [[ "$destroy" =~ ^[0-9]+$ ]] && kill -9 -- "-$destroy"
+    [[ "$watchdog" =~ ^[0-9]+$ ]] && kill -9 -- "-$watchdog"
+  fi
+done
+
+# A destroy group whose leader exits on TERM while a member ignores it, with no watchdog left to clean up after it, as
+# when the watchdog was killed outright: disarming must read the group, not its leader, and kill what is left.
+: >"$dir/ttl.pid.destroy"
+setsid bash -c '(trap "" TERM; exec sleep 300) & exec sleep 300' &
+for _ in $(seq 25); do group="$(pgrep -f -n '^sleep 300$')" && [[ -n "$group" ]] && break; sleep 0.2; done
+group="$(ps -o pgid= -p "$group" | tr -d ' ')"
+echo "$group" >"$dir/ttl.pid.destroy"
+gone_watchdog=999999
+out="$(bash -c '. hack/lib/session-teardown.sh; killswitch_disarm "$1" "$2"; echo "rc=$?"' _ "$gone_watchdog" "$dir/ttl.pid")"
+left=0
+for p in $(pgrep -g "$group"); do [[ "$(ps -o stat= -p "$p")" == Z* ]] || left=$((left + 1)); done
+if [[ "$group" =~ ^[0-9]+$ && "$out" == *"rc=0" && "$left" == 0 ]]; then
+  ok "disarming kills a destroy group's member that outlived its leader"
 else
-  bad "disarming during a destroy: destroy '$destroy', $out, $left process(es) left"
-  [[ "$destroy" =~ ^[0-9]+$ ]] && kill -9 -- "-$destroy"
-  [[ "$watchdog" =~ ^[0-9]+$ ]] && kill -9 -- "-$watchdog"
+  bad "the orphaned destroy member: group '$group', $out, $left left"
+  [[ "$group" =~ ^[0-9]+$ ]] && kill -9 -- "-$group"
 fi
 
 : >"$dir/kill.log"
