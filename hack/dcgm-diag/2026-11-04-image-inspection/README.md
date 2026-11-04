@@ -6,8 +6,10 @@ Every command's stdout, stderr and exit status are separate files, `<name>.out`,
 
 | file | what it holds |
 |---|---|
-| `index.json`, `index.headers`, `index.sha256` | the image index exactly as `nvcr.io` served it for the tag, the response headers with `docker-content-digest`, and the sha256 of the raw bytes |
-| `image.txt` | the tag, the index digest Docker recorded, the platform, creation time, entrypoint and command |
+| `index.json`, `index.headers`, `index.sha256` | the image index exactly as `nvcr.io` served it for the tag, the response headers with `docker-content-digest`, and the sha256 of the raw bytes, which the script requires to equal the pinned digest before running anything |
+| `index-platforms.txt` | each platform manifest the index lists; the platform run must be one of them |
+| `image.txt`, `pull.*` | the image pulled **by the pinned digest**: the digest Docker recorded, the platform, `size_bytes`, creation time, entrypoint and command |
+| `nvidia-smi-in-image.*` | whether the image has its own `nvidia-smi` (it does not: exit 127) |
 | `version.*` | `dcgmi --version` |
 | `diag-help.*` | `dcgmi diag --help` |
 | `packages.*` | the DCGM packages `dpkg` lists |

@@ -21,7 +21,7 @@ The owner's reordering of the next three weeks (`storage/career/job/kor/42dot/ap
 
 On one rented A10G that has **no known fault** (its health is not independently established):
 1. What do `dcgmi diag -r 1`, `-r 2` and `-r 3`, on DCGM 4.4.2 against the explicit entity `gpu:0`, print, test by test, and how long does each take, in the order and on the card state this page registers?
-2. What evidence of the card's identity and history can be captured around them: driver version, the driver's supported CUDA version, the host's and the image's CUDA toolkits, GPU UUID, serial and PCI bus ID, ECC mode and counters (volatile and aggregate, single-bit and double-bit), retired or remapped rows if the card reports them, and the Xid lines the kernel journal still holds for the current boot?
+2. What evidence of the card's identity and history can be captured around them: driver version, the driver's supported CUDA version, the host's CUDA toolkit and the CUDA versions the image's DCGM packages target, GPU UUID, serial and PCI bus ID, ECC mode and counters (volatile and aggregate, single-bit and double-bit), retired or remapped rows if the card reports them, and the Xid lines the kernel journal still holds for the current boot?
 
 It is **not** a question about defect detection, and **nothing in the output is scored**.
 One card with no known fault cannot show that a diagnostic detects an unhealthy one, how often it misses, or how often it flags a good card.
@@ -48,11 +48,15 @@ Archived by `hack/dcgm-diag-inspect-image.sh`, with no GPU and every container r
   With `-i gpu:0` the error names `entities gpu:0` and "Detected driver major version 0 is not between the required versions 346 and 2000" (`diag-badhost-gpu0.out`); without it, the error names `entities *,cpu:*` (`diag-badhost.out`), so an unselected diagnostic would include CPU entities.
 - **The no-GPU failure shape**, from the producer: `{"DCGM Diagnostic" : {"runtime_error" : "...", "version" : "4.4.2"}}` (`diag-default.out`).
   It is the fixture for the error-envelope check below and nothing else; a fixture of external output must come from the producer, and this is the only output the producer has given without a card.
-- **What the JSON names a card by is not known.** The lower-case key strings in 4.4.2's `dcgmi` include `entity_id`, `entity_groups`, `serial`, `serial_num`, `device_id`, `results`, `tests`, `test_summary`, `warnings`, `info`, `error_id`, `error_category`, `metadata`, `runtime_error` and `driver_version`, and no `uuid` (`strings.txt`); strings found in a binary are not a schema.
+- **The JSON's structure, as NVIDIA's 4.4.2 source writes it** (read 2026-11-04 from `dcgmi/Diag.cpp` and `nvvs/include/NvvsJsonStrings.h` at the `v4.4.2` tag of github.com/NVIDIA/DCGM; source, not yet real output):
+  `"DCGM Diagnostic"."test_categories"[]` each hold a `"category"` and `"tests"[]`; each test holds a `"name"`, `"results"[]` and a `"test_summary"`; each result holds `"entity_group"`, `"entity_group_id"`, `"entity_id"`, `"status"`, and optionally `"warnings"[]` (`"warning"`, `"error_id"`, `"error_category"`, `"error_severity"`) and `"info"[]`.
+  The card's serial is **not** in a result: a separate `"entity_groups"[]` lists each group's `"entities"[]` with `"entity_id"`, `"serial_num"` (omitted when blank) and `"device_id"`, so a result is tied to a card only by joining its group and `entity_id` to that list.
+  The source writes the status words `Pass`, `Skip`, `Warn` and `Fail`, and **writes no result record for a test that did not run** (Diag.cpp's HelperJsonAddResult returns early on DCGM_DIAG_RESULT_NOT_RUN, upstream names, not this repository's), so a missing test or entity is silent unless something checks for it.
+  The 4.4.2 binary's key strings agree (`strings.txt`: `entity_id`, `entity_groups`, `serial_num`, `device_id`, `results`, `tests`, `test_summary`, `warnings`, `info`, `error_id`, `error_category`, `metadata`, `runtime_error`), and no `uuid` key appears in either.
 
 Not verified, and found out only from the session's first real output:
-- the `-j` output's nesting, its test names for each level, and its status words;
-- whether that output carries the card's serial, UUID, or only an entity index;
+- whether the real `-j` output has the structure the source writes, its test names for each level, and its status words;
+- whether that output carries the card's serial for `gpu:0`;
 - every duration, and whether `-r 3` completes on a g5.2xlarge inside its limit;
 - the exact `dcgmi discovery -l` text, and so how its GPU 0 entry names the card;
 - whether this card exposes ECC counters and retired or remapped rows, read from `nvidia-smi -q -d ECC,PAGE_RETIREMENT,ROW_REMAPPER` (the display names are confirmed by the session's first command, on the AMI's own `nvidia-smi`).
@@ -63,12 +67,25 @@ One g5.2xlarge Spot instance, the pinned Deep Learning Base OSS Nvidia Driver GP
 **No kind cluster, no operator, no exporter, no workload.**
 The host runs only the evidence commands and the diagnostic's two containers.
 
+### Host preparation: the container runtime and the GPU in a container
+
+What this AMI already has is read from run 3's archive, not assumed.
+On the host, run 3's bring-up script installs `nvidia-container-toolkit` only `if ! command -v nvidia-ctk` (`hack/gpu-fault/2026-11-01-run3/bringup.sh:2-9`), and its log goes straight from starting that script to `nvidia-ctk runtime configure`'s "Wrote updated config to /etc/docker/daemon.json" at 02:37:49 with no package installation between (`hack/gpu-fault/2026-11-01-run3/log.txt:63-67`): **the AMI ships `nvidia-ctk`, but Docker's NVIDIA runtime was configured by the run**, not found configured.
+The later installation of `nvidia-container-toolkit` 1.20.1 in that log (`:194-213`) is inside the kind node (`bringup.sh:97-102`), which this study does not build.
+So host preparation registers these steps, each with its timeout, and nothing else from the inherited bring-up:
+1. `command -v nvidia-ctk` must succeed and `nvidia-ctk --version` is recorded; if it fails, the instance is not this AMI as run 3 saw it, and the session aborts as `DCGM DIAG: REFUSED (host)` rather than installing anything.
+2. `nvidia-ctk runtime configure --runtime=docker --set-as-default`, then `systemctl restart docker`, both exit statuses recorded, exactly as `bringup.sh:10` and `:15` do, without the kind-only `accept-nvidia-visible-devices-as-volume-mounts` change, which is for the kind node's device list.
+3. **The GPU in a container**: `docker run --rm --gpus all -e NVIDIA_DRIVER_CAPABILITIES=compute,utility --network none --entrypoint nvidia-smi <pinned image> --query-gpu=index,uuid --format=csv,noheader` must exit 0 and print exactly one line whose UUID equals the host's `nvidia-smi` for index 0; otherwise `DCGM DIAG: REFUSED (host)`.
+   The image has no `nvidia-smi` of its own (`command -v nvidia-smi` in it exits 127 with empty stdout, `4.4.2/nvidia-smi-in-image.*`), so this also shows the runtime injecting the host driver's utilities, which the diagnostic's `utility` and `compute` needs depend on.
+
 ### The host engine and the diagnostic
 
 The diagnostic runs against an explicit host engine, so the engine it used is known and recorded rather than chosen by `dcgmi`:
-- the engine is one long-lived container, `dcgm-he`, from the pinned image, started with `--gpus all --network none` and its own entrypoint (`/usr/bin/nv-hostengine`, `image.txt`), with its log bind-mounted out;
-  its PID on the host is recorded at start;
-- each diagnostic is `timeout -k 30 <L> docker exec dcgm-he dcgmi diag --host localhost:5555 -i gpu:0 -r <N> -j --debugLogFile /out/<run>.log`, its stdout, stderr and exit status kept as separate files on the host, `/out` being a bind-mounted directory;
+- the engine is one long-lived container, `dcgm-he`, from the pinned image, started with `--gpus all -e NVIDIA_DRIVER_CAPABILITIES=compute,utility --network none -v $OUT/engine:/out` and the command `nv-hostengine -n -b 127.0.0.1 --log-level ERROR -f /out/engine-<k>.log` (the image's default command is `-n -b 0.0.0.0 --log-level NONE -f -`, `image.txt`, which keeps no log; `-b 127.0.0.1` because the container has only loopback; `<k>` counts engine starts, so a restarted engine never overwrites its predecessor's log);
+  its host PID (`docker inspect -f '{{.State.Pid}}' dcgm-he`) is recorded at each start;
+- each diagnostic is `timeout -k 30 <L> docker exec dcgm-he dcgmi diag --host localhost:5555 -i gpu:0 -r <N> -j --statspath /out/<run>/stats --debugLogFile /out/<run>/nvvs.log`, its stdout, stderr and exit status kept as separate files on the host;
+  each run has its own stats and debug-log directory, because the help says statistics otherwise go to the current directory (`diag-help.out`), where the next run would overwrite them;
+  the help calls the debug log "Encrypted", so it is archived and hashed but **not read** by this study;
 - immediately before each diagnostic, `docker exec dcgm-he dcgmi discovery --host localhost:5555 -l` must exit 0, and its output must contain the UUID `nvidia-smi` reports for index 0; otherwise the run is INVALID (engine or identity) and is not started.
 
 **Order and state.**
@@ -83,14 +100,17 @@ A `docker exec dcgm-he true`, three times before the first diagnostic, gives the
 
 **Limits, cancellation and the residual check.**
 Per-run limits `L`: `-r 1` 300 s, `-r 2` 600 s, `-r 3` 1,800 s (conventions: at least twice the help text's figure, and for `-r 1` a floor).
-Each run occupies a **slot** of `L` + 30 s (the kill wait) + 60 s (its before and after rows, the residual check, and an engine restart if one is needed), each part with its own timeout.
+Each run occupies a **slot** of `L` plus 295 s, every part with its own timeout, so a slot's worst case is its length:
+the client's kill-after 30 s (`timeout -k 30 L` may return only at `L` + 30); the engine kill wait 30 s; the after rows 30 s; the residual check 15 s; an engine restart and its discovery check 45 s; hashing the run's files 15 s; the upload, three attempts of 30 s with two 5 s pauses, 100 s; and the `MANIFEST` upload 30 s.
 A run starts only if its whole slot fits before Part 1's phase end; otherwise it is **NOT-RUN**, which is not a failure.
 When a run reaches `L`, killing the `docker exec` stops the client, not work the engine started for it, so the **engine container is killed**: `docker kill dcgm-he`, wait up to 30 s, then the host check below; if clean, a new `dcgm-he` is started for the next run, and that run is recorded as on a fresh engine.
 
-After **every** run, timed out or not, the host checks three states, never two:
-- **clean**: `pgrep -a nvvs` on the host exits 1 (no match); `docker top dcgm-he -eo pid,ppid,comm` (when the engine is up) lists only the engine process and no descendant of it; and `nvidia-smi --query-compute-apps=pid,process_name --format=csv,noheader` exits 0 and every line it prints, if any, is the engine's recorded PID;
-- **residual**: any of them shows a process other than the engine;
-- **unreadable**: any of the three exits with another status, or prints a line that is not a process row.
+After **every** run, timed out or not, the host checks three states, never two.
+The engine's state is read first, with `docker inspect -f '{{.State.Status}}' dcgm-he`, which must print `running` (no time-out) or `exited` (after a kill); anything else, or a failed `inspect`, is **unreadable**.
+- **clean**, engine `running`: `docker top dcgm-he -eo pid,ppid,comm` exits 0, its first line is the header `PID PPID COMMAND` (three columns, as `docker top` prints it, checked on 2026-11-04), and exactly one further line follows, three fields, the engine's recorded host PID with command `nv-hostengine`; `pgrep -a nvvs` on the host exits 1; and `nvidia-smi --query-compute-apps=pid,process_name --format=csv,noheader` exits 0 and every line it prints, if any, names the engine's recorded PID;
+- **clean**, engine `exited`: `docker top` is not used (it exits 1 on a stopped container, "is not running"); `pgrep -a nvvs` and `pgrep -x nv-hostengine` on the host both exit 1, and the compute-apps query exits 0 with no line;
+- **residual**: any of those reads succeeds and shows a process other than the engine (a second `docker top` row, an `nvvs`, another compute PID, or any engine process after a kill);
+- **unreadable**: any read exits with a status other than the ones above, the header is not the one expected, or a line does not parse as a process row.
 
 Residual or unreadable makes the card **contaminated**: every later diagnostic is NOT-RUN (contaminated), the evidence is uploaded, and the instance shuts itself down.
 A clean check lets the next run start.
@@ -113,7 +133,7 @@ Evidence commands run **on the host, not in a container**; each one's exit statu
 | card, driver, identity | `nvidia-smi --query-gpu=index,name,uuid,serial,pci.bus_id,driver_version,memory.total,ecc.mode.current,persistence_mode --format=csv`; `nvidia-smi -q` |
 | driver's supported CUDA | the "CUDA Version" line of `nvidia-smi` (driver capability, not a toolkit) |
 | host toolkit | `command -v nvcc` and `nvcc --version`; absent is recorded as absent |
-| image's CUDA | from the archived inspection (`packages.out`, `plugins.out`) |
+| image's CUDA targets | from the archived inspection: the CUDA-specific DCGM packages (`packages.out`) and plugin directories (`plugins.out`); this is what the image is built for, not an installed toolkit or its version |
 | ECC, retirement, remapping | `nvidia-smi -q -d ECC,PAGE_RETIREMENT,ROW_REMAPPER` |
 | card state | `nvidia-smi --query-gpu=temperature.gpu,clocks.sm,clocks.mem,power.draw,power.limit,clocks_throttle_reasons.active --format=csv` |
 | kernel Xid | `journalctl -k -b --no-pager -o short-monotonic`, filtered afterwards for NVRM and `Xid`, its exit status recorded apart from the filter's |
@@ -157,24 +177,28 @@ Each refusal is shown to fire on its own bent copy, one at a time on a clean tre
 ### Per diagnostic run
 
 Checked in this order; the first that holds decides:
-1. **NOT-RUN**: it was not started (its slot did not fit, the card was contaminated, or the session aborted). Not a failure.
-2. **INVALID (identity, engine or interference)**: the `nvidia-smi` read immediately before it does not show exactly one A10G with the session's UUID; the `discovery` check before it failed or did not contain that UUID; its stdout contains "unable to establish a connection"; or a foreign compute process appeared in a valid isolation sample.
-3. **TIMED-OUT**: it reached `L` and was cancelled; reported as "not complete inside L", never as a time, whatever its output holds; a clean cancellation and a contaminated one are kept apart.
-4. **INVALID (output)**: stdout, stderr and exit status were not all recorded; stdout is not exactly one JSON document; or that document is the error envelope, an object whose only member is `"DCGM Diagnostic"` holding a `runtime_error` (the shape of `diag-default.out`).
-5. **RESULT**: otherwise, **whatever the diagnostic itself reported**.
+1. **NOT-RUN**: it was not started because its slot did not fit, the card was contaminated, or the session aborted. Not a failure.
+2. **INVALID (identity or engine), not started**: the `nvidia-smi` read immediately before it does not show exactly one A10G with the session's UUID, or the `discovery` check before it failed or did not contain that UUID; the diagnostic is then not run, and the slot's remaining time is not reused.
+3. **INVALID (engine or interference)**, after it ran: its stdout contains "unable to establish a connection", or a foreign compute process appeared in a valid isolation sample.
+4. **TIMED-OUT**: it reached `L` and was cancelled; reported as "not complete inside L", never as a time, whatever its output holds; a clean cancellation and a contaminated one are kept apart.
+5. **INVALID (output)**: stdout, stderr and exit status were not all recorded; stdout is not exactly one JSON document whose top level is an **object**; that object has no member `"DCGM Diagnostic"` holding an object; that member holds a `"runtime_error"` (the error envelope, the shape of `diag-default.out`, whatever else beside it); or it holds no `"test_categories"` array containing at least one test with a `"name"`. So `{}`, `null`, an array, a bare string, or a document with no test are INVALID (output), never RESULT.
+6. **RESULT**: otherwise, **whatever the diagnostic itself reported**, including a non-zero exit with a failing test, which is a result.
 6. **NOT-RECOVERED** replaces any of these when the run's files did not come back intact (above).
 
 ### Transcription rule, frozen now
 
-The test list, the status vocabulary and the JSON's structure are **read from the first real output**, under this rule, frozen before launch; nothing is classified or scored before then, and nothing in this registration is scored after then either.
+The test list and the status vocabulary are **read from the first real output**, under this rule, frozen before launch; nothing is classified or scored before then, and nothing in this registration is scored after then either.
+The rule follows the structure NVIDIA's 4.4.2 source writes (above); where the real output departs from it, the departure is reported, never repaired.
 For each RESULT run:
-1. Every member path of the JSON whose value is a string, number or boolean is listed with its value, in document order, so the whole document is transcribed with no field chosen in advance.
-2. A **test record** is an object holding a member whose value is a string that also appears, as a test or plugin name, in the archived `diag-help.out` or as a plugin library name in `plugins.out`; each test record's name, every string member beside it, and its entity (any `entity_id`, `serial`, `serial_num` or `device_id` in it or its enclosing objects) are copied as printed.
-3. Status words are copied as printed and **not classed**: no pass, fail, warn or skip is assigned by this registration.
-4. Coverage is reported per level as the set of test-record names that appeared in each repetition, and the names present in one repetition and absent from another; a missing name is reported, never inferred to have passed.
-5. The card the output names, if it names one, is reported beside the identity row: whether the output carries the serial or UUID `nvidia-smi` printed for index 0, and if so whether they are equal.
+1. **The whole document**: every member path is listed with its value in document order, including `null`, empty strings, empty arrays and empty objects, so nothing is chosen in advance and nothing is dropped.
+2. **Every test, with every result**: for each element of `"DCGM Diagnostic"."test_categories"[]`, its `"category"`; for each element of its `"tests"[]`, the `"name"`, the `"test_summary"` as printed, and **each** element of `"results"[]` with its `"entity_group"`, `"entity_group_id"`, `"entity_id"`, `"status"`, every `"warnings"[]` entry and every `"info"[]` entry, copied as printed. A test whose `"results"` is absent or empty is listed as **no result record**, which in the source means it did not run on any entity.
+3. **The entity join**: each result's (`"entity_group_id"`, `"entity_id"`) is looked up in the top-level `"entity_groups"[]."entities"[]`, and its `"serial_num"` and `"device_id"` are copied beside the result; a result with no match, or more than one, is listed as **entity not joined**, and a result whose group is not the GPU group, or whose `entity_id` is not 0, is listed as **outside gpu:0**.
+4. **The card**: the `"serial_num"` joined to `gpu:0`'s results is compared with the serial `nvidia-smi` printed for index 0 in the same boot; equal, different, or absent on either side, as found.
+5. **Status words** are copied as printed and **not classed**: no pass, fail, warn or skip is assigned by this registration, even though the source writes `Pass`, `Skip`, `Warn` and `Fail`.
+6. **The expected list and what is missing from it.** The help text says "higher numbered tests include all beneath" (`diag-help.out`), so each level's expected list is the union of test names seen in that level's RESULT runs together with every name seen at a lower level. Each RESULT run reports the expected names it lacks, as **missing**, and each test with no result record; a missing test is never inferred to have passed. A name a run carries that is outside its level's expected list cannot occur by construction; one seen only at a higher level is reported as **only at level N**.
+7. **Structure not as the source writes it** (any of `test_categories`, `tests`, `results`, `entity_groups` absent or not an array where the source puts one): reported as **structure departed**, with step 1's whole-document listing as the only transcription of that run.
 
-This is a transcription rule, not a parser of known field names: it can be applied by hand to the archived bytes, and a later parser may only reproduce it.
+This is a transcription rule, not a scorer: it can be applied by hand to the archived bytes, and a later parser may only reproduce it.
 A later registration may class the statuses, using the vocabulary this output shows; it is not this one.
 
 ### Per level
@@ -189,7 +213,7 @@ No bar on any wall time is registered: NVIDIA's "~2 minutes" and "~15 minutes" a
 ### The session verdict, exhaustive and ordered
 
 1. `DCGM DIAG: NO-EVIDENCE` when no `MANIFEST` and no archive came back.
-2. `DCGM DIAG: REFUSED` when provenance was never recorded, the readings disagree on the image, the driver or its CUDA major version did not match, or the cancellation preflight was not clean.
+2. `DCGM DIAG: REFUSED` when provenance was never recorded, the readings disagree on the image, the driver or its CUDA major version did not match, host preparation failed (no `nvidia-ctk`, or the GPU-in-a-container check), or the cancellation preflight was not clean.
 3. `DCGM DIAG: INCOMPLETE` when evidence came back but all three levels are UNJUDGED; the evidence rows are still reported.
 4. `DCGM DIAG: RESULT` otherwise.
 
@@ -202,30 +226,33 @@ The runner reads `aws ec2 describe-spot-price-history` for g5.2xlarge `Linux/UNI
 The price is **to be read** on the day; on 2026-11-01 the zones read $0.6769 to $0.6887 an hour (`hack/gpu-fault/2026-11-01-run3/spot-prices.txt`), a value from another day.
 
 **Part 1's phase is sized to every run's worst case**, so no run can be starved by another's overrun:
-- slots: `-r 3` 1,800 + 30 + 60 = 1,890 s; `-r 1` 300 + 90 = 390 s, three of them 1,170 s; `-r 2` 600 + 90 = 690 s, three of them 2,070 s;
+- per-run overhead, every part bounded (Limits, above): 30 + 30 + 30 + 15 + 45 + 15 + 100 + 30 = 295 s;
+- slots: `-r 3` 1,800 + 295 = 2,095 s; `-r 1` 300 + 295 = 595 s, three of them 1,785 s; `-r 2` 600 + 295 = 895 s, three of them 2,685 s;
 - before the first run: the exec overhead 3 x 60 s, engine start and its discovery 60 s, and the first evidence rows 120 s, 360 s in all (each with its own timeout);
-- Part 1 worst case: 360 + 1,890 + 1,170 + 2,070 = **5,490 s**.
-`-r 3` runs first, so its slot ends by 360 + 1,890 = 2,250 s into the phase, **3,240 s before the phase ends**: the margin the fifth review found missing (its 1,803 s left against 1,830 s needed) is gone, because nothing runs before `-r 3` except the 360 s preamble.
+- Part 1 worst case: 360 + 2,095 + 1,785 + 2,685 = **6,925 s**.
+`-r 3` runs first, so its slot ends by 360 + 2,095 = 2,455 s into the phase, **4,470 s before the phase ends**: the margin the fifth review found missing (its 1,803 s left against 1,830 s needed) is gone, because nothing runs before `-r 3` except the 360 s preamble.
 
 **Phases, counted from EC2's `LaunchTime`** (conventions of this page; the new runner's constants supersede them, and the arithmetic is re-done from them before freezing):
 
 | phase | ends at | contents |
 |---|---:|---|
-| host preparation | 900 s | evidence rows, the driver contract 120 s; image pull, its limit 600 s; cancellation preflight 120 s; 60 s guard |
-| Part 1, diagnostics | 6,390 s | 5,490 s, above |
-| evidence | 6,510 s | final archive and `MANIFEST` upload, 120 s |
-| instance stop | 6,570 s | `shutdown -h now` from the instance's own backstop |
+| host preparation | 1,080 s | evidence rows and the driver contract 120 s; `nvidia-ctk` check, runtime configure and Docker restart 120 s; the GPU-in-a-container check 60 s; image pull, its limit 600 s; cancellation preflight 120 s; 60 s guard |
+| Part 1, diagnostics | 8,005 s | 6,925 s, above |
+| evidence | 8,155 s | final archive and `MANIFEST` upload, three attempts, 150 s |
+| instance stop | 8,215 s | `shutdown -h now` from the instance's own backstop |
 
-**Expected duration, by component** (estimates, not measurements): host preparation 163 s (the historical span's 2 min 43 s, `hack/m5c-gpu-session.sh:697`, a comment recording an older session's S3 timestamps; an over-estimate here, since no kind is built), image pull 120 s (assumed; the amd64 image is 1,838,673,451 bytes unpacked, `docker image inspect`, 2026-11-04), Part 1 2,220 s (the 360 s preamble, `-r 3` 900 s + 60 s, `-r 1` 3 x (60 + 60) s, `-r 2` 3 x (120 + 60) s, durations from the help text's "~ seconds", "~2 minutes" and "~15 minutes", the 60 s floor for `-r 1` assumed), evidence 120 s.
+The credentials must therefore outlast 8,215 s plus the termination wait (300 s) plus 30 minutes: 10,315 s, about 172 minutes.
+
+**Expected duration, by component** (estimates, not measurements, each named with its source): host preparation 163 s (the historical span's 2 min 43 s, `hack/m5c-gpu-session.sh:697`, a comment recording an older session's S3 timestamps for a span that also built kind, so taken as an over-estimate); image pull 120 s (assumed, not measured; the image is 1,838,675,060 bytes, `size_bytes` in `4.4.2/image.txt`, its local unpacked size); Part 1 2,220 s (the 360 s preamble at its full limits, then `-r 3` 900 s, `-r 1` 3 x 60 s and `-r 2` 3 x 120 s, durations from the help text's "~15 minutes", "~ seconds" with a 60 s floor assumed, and "~2 minutes", plus 60 s of per-run overhead assumed for each of the seven runs, against the 295 s each is allowed); evidence 120 s (assumed).
 Sum: 163 + 120 + 2,220 + 120 = **2,623 s**.
-At the 2026-11-01 zone prices plus the $0.0324 an hour of gp3 and IPv4: (0.6769 + 0.0324) x 2,623 / 3,600 = $0.5168, and (0.6887 + 0.0324) x 2,623 / 3,600 = $0.5254, so about **$0.52–0.53**, to be re-read at launch.
+At the 2026-11-01 zone prices plus the $0.0324 an hour of gp3 and IPv4: (0.6769 + 0.0324) x 2,623 / 3,600 = $0.5168, and (0.6887 + 0.0324) x 2,623 / 3,600 = $0.5254, so about **$0.52–0.53** under those assumptions; the price is re-read at launch, and none of the durations is a measurement.
 
-**Operating allowance, not a maximum:** (6,570 + 900) s = 2.075 h at the all-in $1.1324 = **$2.35**, conditional on the backstop, the sweeper or the laptop terminating the instance.
+**Operating allowance, not a maximum:** (8,215 + 900) s = 2.53 h at the all-in $1.1324 = **$2.87**, conditional on the backstop, the sweeper or the laptop terminating the instance.
 If all three fail, spending continues at up to $1.1324 an hour until a person notices.
-Two attempts at the allowance are **$4.70**.
+Two attempts at the allowance are **$5.73**.
 The owner's envelope for this item is $3 to $10 (`08-개발방향-재정렬.md`, section 6); a second attempt needs its own approval.
 
-**Termination chain, reused:** the instance's backstop armed first and re-armed from `LaunchTime`; `--instance-initiated-shutdown-behavior terminate`; the sweeper's `study-deadline` tag (`LaunchTime` + 6,540 s); the laptop's EXIT, INT and TERM traps calling `spot_terminate`, which waits for `terminated` (to `LaunchTime` + 6,870 s) and prints TERMINATION UNCONFIRMED otherwise.
+**Termination chain, reused:** the instance's backstop armed first and re-armed from `LaunchTime`; `--instance-initiated-shutdown-behavior terminate`; the sweeper's `study-deadline` tag, set to `LaunchTime` + 8,185 s by convention (30 s after the evidence phase); the laptop's EXIT, INT and TERM traps calling `spot_terminate`, which waits for `terminated` until `LaunchTime` + 8,515 s (the stop plus 300 s) and prints TERMINATION UNCONFIRMED otherwise; the sweeper acts only on its own schedule, so the tag bounds when it may terminate, not when it will.
 The in-session aborts (driver, cancellation, contaminated card) shut the instance down at once.
 
 **Account constraint.** The SCP `deny-instance-family` in this repository's configuration allows only `t3.*`, `g4dn.*`, `g5.*` and `g7e.*`; that is the committed policy, not a reading of what is attached live today.
@@ -245,17 +272,17 @@ The in-session aborts (driver, cancellation, contaminated card) shut the instanc
 ## Implementation work this page needs, none of which exists today
 
 1. A new runner, hack/dcgm-diag-session.sh, with host preparation and Part 1 as phases, reusing the gpu-fault runner's refusals, launch, termination chain and sweeper tag.
-2. The Part 1 procedure: the engine container and its PID, the discovery check, the diagnostic invocation, limits and slots, the engine-kill cancellation, the three-state residual check, the isolation monitor with sample validity, before and after rows, the driver contract and the cancellation preflight.
+2. Host preparation (the `nvidia-ctk` check, runtime configure, Docker restart, the GPU-in-a-container check) and the Part 1 procedure: the engine container, its log and its PID, the discovery check, the diagnostic invocation with its per-run stats path, limits and slots, the engine-kill cancellation, the three-state residual check with the engine's state read first, the isolation monitor with sample validity, before and after rows, the driver contract and the cancellation preflight.
 3. Per-run upload with retries and the `MANIFEST`, and the laptop's prefix sync and hash check.
 4. The new refusals above, each with a bent-copy test.
 5. The two price constants, and the sweeper check over every datapoint (the second is also a defect in the inherited gpu-fault runner, to be fixed there separately).
-6. A transcriber that reproduces the transcription rule on the archived bytes, tested on the no-GPU fixture (it must report the error envelope as INVALID (output)).
+6. A transcriber that reproduces the transcription rule on the archived bytes, tested on the no-GPU fixture (the error envelope must come out INVALID (output)), on `{}`, `null`, an array and a document with no test (each INVALID (output)), and on hand-built documents in the source's structure with a test lacking results, a result whose entity does not join, and a result outside `gpu:0`.
 
 ## Free rehearsal, before anything is bought
 
 Each item needs no GPU and no AWS spend, and none is a result of the study.
-1. **Read the diagnostic image, with an archived transcript.** Done on 2026-11-04 (`hack/dcgm-diag-inspect-image.sh`, `hack/dcgm-diag/2026-11-04-image-inspection`); re-run before registration if the tag's index digest has moved.
-2. **The engine and the residual check, on the laptop.** `dcgm-he` started without a GPU, a `sleep` started through `docker exec` and killed past a short limit with the engine container, the engine restarted; with `nvidia-smi` replaced on `PATH` by stubs: (a) no rows, exit 0, and the next run starts; (b) one foreign row, and the contaminated-card abort follows; (c) exit 9, and the same abort follows as **unreadable**.
+1. **Read the diagnostic image, with an archived transcript.** Done on 2026-11-04 (`hack/dcgm-diag-inspect-image.sh`, `hack/dcgm-diag/2026-11-04-image-inspection`). The script exits non-zero on any failed step, refuses an existing output directory, and checks the raw index's hash and the registry's digest header against the pinned digest before running the image by that digest; given a wrong pinned digest it printed `INSPECTION STEP FAILED` and `INSPECTION INCOMPLETE` and exited 1 (2026-11-04). It is re-run before registration if the tag's index digest has moved.
+2. **The engine and the residual check, on the laptop.** `dcgm-he` started without a GPU, a `sleep` started through `docker exec` and killed past a short limit with the engine container, the engine restarted; the `docker top` header and a second row, a stopped engine read through `docker inspect`, and with `nvidia-smi` replaced on `PATH` by stubs: (a) no rows, exit 0, and the next run starts; (b) one foreign row, and the contaminated-card abort follows; (c) exit 9, and the same abort follows as **unreadable**.
 3. **Isolation sample validity.** A stub that alternates valid and failing samples, and one that fails for 12 s: the first leaves the run verified, the second marks it isolation unverified.
 4. **Refusals on bent copies, one at a time on a clean tree.** Image digest absent, `nvvs` or CUDA 13 plugins absent from the committed inspection, wrong instance type, wrong AMI ID, expected driver absent, credentials too short at the late re-read, a sweeper answer with two out-of-order datapoints one of which has an error: each must print `SESSION REFUSED` and exit non-zero before any AWS call that spends. The driver contract, an in-session abort, is shown against a stubbed `nvidia-smi` printing another version and another CUDA major version.
 5. **Recovery.** A stubbed S3 that drops one run's upload and corrupts another's file: the laptop must report one NOT-RECOVERED for each, and the rest intact.
@@ -292,9 +319,24 @@ The fifth review's twelve findings, against this narrowed page:
 | 11 | the archive did not tie the index digest to the inspected image, or list `nvvs` directly | accepted and verified: the raw index, its sha256 and the registry's digest header are archived, its amd64 entry is the inspected image, and `executables.out` and `plugins.out` list `nvvs` and every plugin with hashes |
 | 12 | the execution gates had not been completed | accepted as status: the free rehearsal items above are not done, and the page is not registered until they are |
 
+The sixth review's findings, against this revision:
+
+| r6 # | finding | disposition |
+|---|---|---|
+| 1 | the inspection's stdout files were not committed (`*.out` is ignored) | fixed in `fc4f46b8` with a `.gitignore` negation; all files of the archive are tracked |
+| 2 | the transcription rule could miss tests and lose each result's entity | accepted and verified against NVIDIA's 4.4.2 source: the rule now walks the source's structure, keeps every result with its entity, joins it to `entity_groups` for the serial, and lists tests with no result record and expected tests that are missing |
+| 3 | the worst-case budget left out uploads, hashing and the second kill wait | accepted: the slot names every bounded part (295 s), and the phase, credentials, allowance and termination times are re-derived from it |
+| 4 | `docker top`'s header made the literal check unreadable, and a stopped engine had no affirmative check | accepted and verified on 2026-11-04: the header `PID PPID COMMAND` is checked as the first line, `docker top` exits 1 on a stopped container, and the engine's state is read first with `docker inspect` |
+| 5 | host preparation had no container-runtime setup or `--gpus all` check | accepted and verified from run 3's archive: the AMI has `nvidia-ctk`, the run configured Docker's runtime; both steps and a GPU-in-a-container check are registered |
+| 6 | the inspection script could pass with failed steps and did not check the digest | fixed: any failed step fails the script, and the digest is checked before anything runs; shown red with a wrong digest |
+| 7 | the engine kept no log and the stats path was the working directory | fixed: the engine logs at `ERROR` to a per-start file, and each run has its own stats path; the debug log is encrypted by the tool and archived unread |
+| 8 | the image size and the image's CUDA toolkit were not archived | the size is now archived (`size_bytes`); the image-CUDA row is narrowed to the DCGM packages and plugin directories, not a toolkit version |
+| 9 | outcome contradictions; `{}` or `null` could be RESULT | fixed: a failed discovery is INVALID and not started, and `{}`, `null`, arrays and documents with no test are INVALID (output) |
+| 10 | the expected cost and termination times read as more precise than their sources | narrowed: each estimate names its source or says assumed, and the sweeper's tag bounds when it may act, not when it will |
+
 ## Decisions for the owner before this is registered
 
 1. Approve the narrowed study: Part 1 only, DCGM 4.4.2, no platform objects.
-2. Approve $2.35 as the one-attempt operating allowance (expected about $0.52–0.53 at the 2026-11-01 prices), and say whether a second attempt is pre-approved on a void first one.
+2. Approve $2.87 as the one-attempt operating allowance (expected about $0.52–0.53 at the 2026-11-01 prices, under the assumptions named in Cost), and say whether a second attempt is pre-approved on a void first one.
 3. Approve the implementation work and the free rehearsal above as the scope before any purchase.
 4. Name another AMI if not `ami-097edab977037f65f`.
