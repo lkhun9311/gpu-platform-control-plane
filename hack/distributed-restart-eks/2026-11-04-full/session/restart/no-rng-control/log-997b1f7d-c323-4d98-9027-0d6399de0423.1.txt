@@ -1,0 +1,79 @@
+[rank1]:[W1104 00:42:49.466795618 ProcessGroupNCCL.cpp:4115] [PG ID 0 PG GUID 0 Rank 1]  using GPU 0 to perform barrier as devices used by this process are currently unknown. This can potentially cause a hang if this rank to GPU mapping is incorrect.Specify device_ids in barrier() to force use of a particular device,or call init_process_group() with a device_id.
+{"ts": "2026-11-04T00:42:50.143263+00:00", "run_id": "rst-no-rng-control-004244", "attempt": 1, "rank": 1, "event": "restart_from_zero", "load_mode": "no-rng"}
+{"ts": "2026-11-04T00:42:50.907330+00:00", "run_id": "rst-no-rng-control-004244", "attempt": 1, "rank": 1, "event": "start", "world_size": 2, "load_mode": "no-rng", "resumed_from_step": 0, "steps": 30, "fault": "kill-after-latest:12", "torch_version": "2.5.1+cu124", "epoch": 0, "position": 0, "lr": 0.05, "backend": "nccl", "device": "cuda:0", "ballast_mb": 16, "volume": {"point": "/state", "mount_options": "rw,relatime", "fstype": "nfs4", "source": "127.0.0.1:/", "super_options": "rw,vers=4.1,rsize=1048576,wsize=1048576,namlen=255,hard,noresvport,proto=tcp,port=20366,timeo=600,retrans=2,sec=sys,clientaddr=127.0.0.1,local_lock=none,addr=127.0.0.1", "dev": 52}, "visibility_retries": 5, "shard_delay": 0.0, "device_name": "NVIDIA A10G", "gpu_uuid": "bff478d9-b3f6-e387-980a-0ba4529d08bf", "cuda_version": "12.4", "nccl_version": "2.21.5", "nccl_env": {"NCCL_DEBUG": "INFO", "NCCL_DEBUG_FILE": "/state/rst-no-rng-control-004244-66cf6b2a/nccl/a1-r1-%h.%p.log", "NCCL_DEBUG_SUBSYS": "INIT,NET"}}
+{"ts": "2026-11-04T00:42:51.094069+00:00", "run_id": "rst-no-rng-control-004244", "attempt": 1, "rank": 1, "event": "step", "step": 1, "loss": 7.380154132843018, "digest": "1d6908914eaca67842f83d4c22720b51edc2e8711f49018f746a62b88f9d68e3", "params": null}
+{"ts": "2026-11-04T00:42:51.363680+00:00", "run_id": "rst-no-rng-control-004244", "attempt": 1, "rank": 1, "event": "checkpoint", "step": 1, "dir": "a1/00000001-34d6a247549a454096b5e6ff9bb8e0a6", "save_s": 0.26934581800003343}
+{"ts": "2026-11-04T00:42:53.372202+00:00", "run_id": "rst-no-rng-control-004244", "attempt": 1, "rank": 1, "event": "step", "step": 2, "loss": 8.891855239868164, "digest": "04beb2433b2e242e0ac55c93f1635afda0d67993da97b5eb8a4d07d8ff7d124a", "params": null}
+{"ts": "2026-11-04T00:42:53.646214+00:00", "run_id": "rst-no-rng-control-004244", "attempt": 1, "rank": 1, "event": "checkpoint", "step": 2, "dir": "a1/00000002-086a05d804b6428bbc51f3bb8dad7b64", "save_s": 0.27379421100005175}
+{"ts": "2026-11-04T00:42:55.649040+00:00", "run_id": "rst-no-rng-control-004244", "attempt": 1, "rank": 1, "event": "step", "step": 3, "loss": 6.561419486999512, "digest": "a82e0d549c743230391a7dd3772ad36418a3c2bc18b3d4bf5bab4043c51eb62d", "params": null}
+{"ts": "2026-11-04T00:42:55.915024+00:00", "run_id": "rst-no-rng-control-004244", "attempt": 1, "rank": 1, "event": "checkpoint", "step": 3, "dir": "a1/00000003-7cbb5e1cc82b4fc8a6fe36923f09d95b", "save_s": 0.2658027020000304}
+{"ts": "2026-11-04T00:42:57.918080+00:00", "run_id": "rst-no-rng-control-004244", "attempt": 1, "rank": 1, "event": "step", "step": 4, "loss": 23.694992065429688, "digest": "f37a08369abd8695700866ed6200fd7e90e19b2b1032dd5aed50da8e97aff074", "params": null}
+{"ts": "2026-11-04T00:42:58.170592+00:00", "run_id": "rst-no-rng-control-004244", "attempt": 1, "rank": 1, "event": "checkpoint", "step": 4, "dir": "a1/00000004-acb3ff64f4574ecb8f98b05027807aaa", "save_s": 0.2523313340000186}
+{"ts": "2026-11-04T00:43:00.173298+00:00", "run_id": "rst-no-rng-control-004244", "attempt": 1, "rank": 1, "event": "step", "step": 5, "loss": 17.739139556884766, "digest": "7a7d0163e516b425da5ba30cf2061377b3d90a19cc7ae3183a46c69eed3bdcc7", "params": null}
+{"ts": "2026-11-04T00:43:00.415569+00:00", "run_id": "rst-no-rng-control-004244", "attempt": 1, "rank": 1, "event": "checkpoint", "step": 5, "dir": "a1/00000005-aa0e66fd13c84aecbbd594f4c1c11736", "save_s": 0.2420836260000101}
+{"ts": "2026-11-04T00:43:02.418348+00:00", "run_id": "rst-no-rng-control-004244", "attempt": 1, "rank": 1, "event": "step", "step": 6, "loss": 11.068546295166016, "digest": "7f99e0d84f69b99309a6480d2a81d1edc4a99320268f4be905b3d3ef4e12a2ba", "params": null}
+{"ts": "2026-11-04T00:43:02.681097+00:00", "run_id": "rst-no-rng-control-004244", "attempt": 1, "rank": 1, "event": "checkpoint", "step": 6, "dir": "a1/00000006-8eaa0344be2343128855192d4962d3e8", "save_s": 0.2625698429999943}
+{"ts": "2026-11-04T00:43:04.683815+00:00", "run_id": "rst-no-rng-control-004244", "attempt": 1, "rank": 1, "event": "step", "step": 7, "loss": 6.538884162902832, "digest": "cd6026d70e07273ab7e1aa345d915a2e19a017e2f51196fc5d09ccdb413aac2d", "params": null}
+{"ts": "2026-11-04T00:43:04.949407+00:00", "run_id": "rst-no-rng-control-004244", "attempt": 1, "rank": 1, "event": "checkpoint", "step": 7, "dir": "a1/00000007-36f2ca5039724d4f9daaf40ac2fe23c4", "save_s": 0.26542109799999025}
+{"ts": "2026-11-04T00:43:06.952301+00:00", "run_id": "rst-no-rng-control-004244", "attempt": 1, "rank": 1, "event": "step", "step": 8, "loss": 0.47960197925567627, "digest": "5dd1a7d10f2015f26e926eeb623c4c3e3663960d6ccbd33c50bd03c62cdb1a71", "params": null}
+{"ts": "2026-11-04T00:43:07.207337+00:00", "run_id": "rst-no-rng-control-004244", "attempt": 1, "rank": 1, "event": "checkpoint", "step": 8, "dir": "a1/00000008-c3591eb4329a4f249bc4211e3d9b3e0a", "save_s": 0.2548402620000161}
+{"ts": "2026-11-04T00:43:09.210391+00:00", "run_id": "rst-no-rng-control-004244", "attempt": 1, "rank": 1, "event": "step", "step": 9, "loss": 18.976781845092773, "digest": "295dd68b0c260a547d3e95aa87eb1d41ab46d1d28f650596ac6dac3e45454ba2", "params": null}
+{"ts": "2026-11-04T00:43:09.451152+00:00", "run_id": "rst-no-rng-control-004244", "attempt": 1, "rank": 1, "event": "checkpoint", "step": 9, "dir": "a1/00000009-e90a31bf3b8e4719883cf8174ec14eb2", "save_s": 0.24057140600001503}
+{"ts": "2026-11-04T00:43:11.453834+00:00", "run_id": "rst-no-rng-control-004244", "attempt": 1, "rank": 1, "event": "step", "step": 10, "loss": 0.35774195194244385, "digest": "17b758f51bb8504ebe3b43e86491179f3918bf87d28ad695c165c6be2e45572b", "params": null}
+{"ts": "2026-11-04T00:43:11.692719+00:00", "run_id": "rst-no-rng-control-004244", "attempt": 1, "rank": 1, "event": "checkpoint", "step": 10, "dir": "a1/00000010-d3dc2f5ecffc4ea9a8278e7165f27513", "save_s": 0.23871246099997734}
+{"ts": "2026-11-04T00:43:13.695471+00:00", "run_id": "rst-no-rng-control-004244", "attempt": 1, "rank": 1, "event": "step", "step": 11, "loss": 2.230954170227051, "digest": "86157f497dee31b27b5481e7d09c344ad51898e09f4c75a632d398d12aa3ca65", "params": null}
+{"ts": "2026-11-04T00:43:13.939852+00:00", "run_id": "rst-no-rng-control-004244", "attempt": 1, "rank": 1, "event": "checkpoint", "step": 11, "dir": "a1/00000011-38b2ae27d83b406b83c7a733b1915a87", "save_s": 0.2441979829999923}
+{"ts": "2026-11-04T00:43:15.942724+00:00", "run_id": "rst-no-rng-control-004244", "attempt": 1, "rank": 1, "event": "step", "step": 12, "loss": 6.418362617492676, "digest": "4c8aaf994e91ab5b511ae69ed0c0ab17fa0162876cf18196e36bf90f33a4e6dc", "params": null}
+[rank1]:[E1104 00:43:16.012176843 ProcessGroupNCCL.cpp:542] [Rank 1] Collective WorkNCCL(SeqNum=80, OpType=ALLREDUCE, NumelIn=1, NumelOut=1, Timeout(ms)=60000) raised the following async exception: NCCL error: remote process exited or there was a network error, NCCL version 2.21.5
+ncclRemoteError: A call failed possibly due to a network error or a remote process exiting prematurely.
+Last error:
+socketProgress: Connection closed by remote peer rst-no-rng-control-004244-0.rst-no-rng-control-004244-ddp-a1.train-a.svc.cluster.local<38762>
+Exception raised from checkForNCCLErrorsInternal at ../torch/csrc/distributed/c10d/ProcessGroupNCCL.cpp:2027 (most recent call first):
+frame #0: c10::Error::Error(c10::SourceLocation, std::string) + 0x96 (0x7f49d74b9446 in /opt/conda/lib/python3.11/site-packages/torch/lib/libc10.so)
+frame #1: c10d::ProcessGroupNCCL::checkForNCCLErrorsInternal(std::shared_ptr<c10d::NCCLComm>&) + 0x220 (0x7f498d418f80 in /opt/conda/lib/python3.11/site-packages/torch/lib/libtorch_cuda.so)
+frame #2: c10d::ProcessGroupNCCL::WorkNCCL::checkAndSetException() + 0x7c (0x7f498d4191cc in /opt/conda/lib/python3.11/site-packages/torch/lib/libtorch_cuda.so)
+frame #3: c10d::ProcessGroupNCCL::watchdogHandler() + 0x213 (0x7f498d420b93 in /opt/conda/lib/python3.11/site-packages/torch/lib/libtorch_cuda.so)
+frame #4: c10d::ProcessGroupNCCL::ncclCommWatchdog() + 0x14d (0x7f498d42261d in /opt/conda/lib/python3.11/site-packages/torch/lib/libtorch_cuda.so)
+frame #5: <unknown function> + 0x145c0 (0x7f49d791f5c0 in /opt/conda/lib/python3.11/site-packages/torch/lib/libtorch.so)
+frame #6: <unknown function> + 0x94ac3 (0x7f49d878dac3 in /lib/x86_64-linux-gnu/libc.so.6)
+frame #7: <unknown function> + 0x126850 (0x7f49d881f850 in /lib/x86_64-linux-gnu/libc.so.6)
+
+[rank1]:[E1104 00:43:16.013665400 ProcessGroupNCCL.cpp:1785] [PG ID 0 PG GUID 0(default_pg) Rank 1] Exception (either an error or timeout) detected by watchdog at work: 80, last enqueued NCCL work: 80, last completed NCCL work: 79.
+[rank1]:[E1104 00:43:16.013675151 ProcessGroupNCCL.cpp:630] [Rank 1] Some NCCL operations have failed or timed out. Due to the asynchronous nature of CUDA kernels, subsequent GPU operations might run on corrupted/incomplete data.
+[rank1]:[E1104 00:43:16.013678761 ProcessGroupNCCL.cpp:636] [Rank 1] To avoid data inconsistency, we are taking the entire process down.
+[rank1]:[E1104 00:43:16.013701641 ProcessGroupNCCL.cpp:1595] [PG ID 0 PG GUID 0(default_pg) Rank 1] Process group watchdog thread terminated with exception: NCCL error: remote process exited or there was a network error, NCCL version 2.21.5
+ncclRemoteError: A call failed possibly due to a network error or a remote process exiting prematurely.
+Last error:
+socketProgress: Connection closed by remote peer rst-no-rng-control-004244-0.rst-no-rng-control-004244-ddp-a1.train-a.svc.cluster.local<38762>
+Exception raised from checkForNCCLErrorsInternal at ../torch/csrc/distributed/c10d/ProcessGroupNCCL.cpp:2027 (most recent call first):
+frame #0: c10::Error::Error(c10::SourceLocation, std::string) + 0x96 (0x7f49d74b9446 in /opt/conda/lib/python3.11/site-packages/torch/lib/libc10.so)
+frame #1: c10d::ProcessGroupNCCL::checkForNCCLErrorsInternal(std::shared_ptr<c10d::NCCLComm>&) + 0x220 (0x7f498d418f80 in /opt/conda/lib/python3.11/site-packages/torch/lib/libtorch_cuda.so)
+frame #2: c10d::ProcessGroupNCCL::WorkNCCL::checkAndSetException() + 0x7c (0x7f498d4191cc in /opt/conda/lib/python3.11/site-packages/torch/lib/libtorch_cuda.so)
+frame #3: c10d::ProcessGroupNCCL::watchdogHandler() + 0x213 (0x7f498d420b93 in /opt/conda/lib/python3.11/site-packages/torch/lib/libtorch_cuda.so)
+frame #4: c10d::ProcessGroupNCCL::ncclCommWatchdog() + 0x14d (0x7f498d42261d in /opt/conda/lib/python3.11/site-packages/torch/lib/libtorch_cuda.so)
+frame #5: <unknown function> + 0x145c0 (0x7f49d791f5c0 in /opt/conda/lib/python3.11/site-packages/torch/lib/libtorch.so)
+frame #6: <unknown function> + 0x94ac3 (0x7f49d878dac3 in /lib/x86_64-linux-gnu/libc.so.6)
+frame #7: <unknown function> + 0x126850 (0x7f49d881f850 in /lib/x86_64-linux-gnu/libc.so.6)
+
+terminate called after throwing an instance of 'c10::DistBackendError'
+  what():  [PG ID 0 PG GUID 0(default_pg) Rank 1] Process group watchdog thread terminated with exception: NCCL error: remote process exited or there was a network error, NCCL version 2.21.5
+ncclRemoteError: A call failed possibly due to a network error or a remote process exiting prematurely.
+Last error:
+socketProgress: Connection closed by remote peer rst-no-rng-control-004244-0.rst-no-rng-control-004244-ddp-a1.train-a.svc.cluster.local<38762>
+Exception raised from checkForNCCLErrorsInternal at ../torch/csrc/distributed/c10d/ProcessGroupNCCL.cpp:2027 (most recent call first):
+frame #0: c10::Error::Error(c10::SourceLocation, std::string) + 0x96 (0x7f49d74b9446 in /opt/conda/lib/python3.11/site-packages/torch/lib/libc10.so)
+frame #1: c10d::ProcessGroupNCCL::checkForNCCLErrorsInternal(std::shared_ptr<c10d::NCCLComm>&) + 0x220 (0x7f498d418f80 in /opt/conda/lib/python3.11/site-packages/torch/lib/libtorch_cuda.so)
+frame #2: c10d::ProcessGroupNCCL::WorkNCCL::checkAndSetException() + 0x7c (0x7f498d4191cc in /opt/conda/lib/python3.11/site-packages/torch/lib/libtorch_cuda.so)
+frame #3: c10d::ProcessGroupNCCL::watchdogHandler() + 0x213 (0x7f498d420b93 in /opt/conda/lib/python3.11/site-packages/torch/lib/libtorch_cuda.so)
+frame #4: c10d::ProcessGroupNCCL::ncclCommWatchdog() + 0x14d (0x7f498d42261d in /opt/conda/lib/python3.11/site-packages/torch/lib/libtorch_cuda.so)
+frame #5: <unknown function> + 0x145c0 (0x7f49d791f5c0 in /opt/conda/lib/python3.11/site-packages/torch/lib/libtorch.so)
+frame #6: <unknown function> + 0x94ac3 (0x7f49d878dac3 in /lib/x86_64-linux-gnu/libc.so.6)
+frame #7: <unknown function> + 0x126850 (0x7f49d881f850 in /lib/x86_64-linux-gnu/libc.so.6)
+
+Exception raised from ncclCommWatchdog at ../torch/csrc/distributed/c10d/ProcessGroupNCCL.cpp:1601 (most recent call first):
+frame #0: c10::Error::Error(c10::SourceLocation, std::string) + 0x96 (0x7f49d74b9446 in /opt/conda/lib/python3.11/site-packages/torch/lib/libc10.so)
+frame #1: <unknown function> + 0xe4271b (0x7f498d08f71b in /opt/conda/lib/python3.11/site-packages/torch/lib/libtorch_cuda.so)
+frame #2: <unknown function> + 0x145c0 (0x7f49d791f5c0 in /opt/conda/lib/python3.11/site-packages/torch/lib/libtorch.so)
+frame #3: <unknown function> + 0x94ac3 (0x7f49d878dac3 in /lib/x86_64-linux-gnu/libc.so.6)
+frame #4: <unknown function> + 0x126850 (0x7f49d881f850 in /lib/x86_64-linux-gnu/libc.so.6)
+
