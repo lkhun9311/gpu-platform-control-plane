@@ -1,0 +1,30 @@
+== diag, default host, no engine
+{
+	"DCGM GPU Diagnostic" : 
+	{
+		"runtime_error" : "Error: Unable to complete diagnostic for group 2147483647. Return: (-35) The specified group is empty, and this operation is incompatible with an empty group.",
+		"version" : "3.3.9"
+	}
+}
+
+rc=221
+== diag, --host a socket that does not exist
+Error: unable to establish a connection to the specified host: unix:///tmp/none.sock
+{
+	"DCGM GPU Diagnostic" : 
+	{
+		"runtime_error" : "Error: Unable to complete diagnostic for group 2147483647. Return: (-35) The specified group is empty, and this operation is incompatible with an empty group.",
+		"version" : "3.3.9"
+	}
+}
+
+rc=221
+== discovery, --host a socket that does not exist
+Error: unable to establish a connection to the specified host: unix:///tmp/none.sock
+Error: Unable to connect to host engine. Host engine connection invalid/disconnected.
+rc=235
+== discovery, default host, no engine
+Error: unable to establish a connection to the specified host: localhost
+Error: Unable to connect to host engine. Host engine connection invalid/disconnected.
+rc=235
+exit=0

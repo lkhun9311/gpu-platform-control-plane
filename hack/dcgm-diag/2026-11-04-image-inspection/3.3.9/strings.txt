@@ -1,0 +1,22 @@
+== nvvs: plugin directories and CUDA version messages
+/cuda10/
+/cuda11/
+/cuda12/
+/cudaless/
+Detected unsupported Cuda version: {}.{}
+== dcgmi: embedded host engine and connection messages
+dcgmStartEmbedded_v2
+Error: unable to establish a connection to the specified host: 
+Error: Unable to start an embedded host engine. 
+== dcgmi: lower-case key strings that name a device
+error_category
+error_id
+info
+results
+runtime_error
+tests
+warnings
+== dcgmi: any string containing UUID
+Device UUID
+. It may be impossible to specify GPU UUID as entity id. 
+UUID

@@ -3,7 +3,8 @@
 Written 2026-11-04, before any run.
 Revised three times the same day after adversarial reviews by codex `gpt-6-astra` (25 findings, then 23, then 24); each was re-checked against the code and archives before it changed this page.
 The per-finding dispositions lived in the working session and are not archived here; what is still open is listed under "Open".
-A fourth review of this text still answered "needs changes first", with five blockers listed first under "Open"; this page is committed as a draft so the work is not lost, not because it is ready.
+A fourth review of this text still answered "needs changes first", with five blockers; this page was committed as a draft so the work was not lost, not because it was ready.
+The same day, free rehearsal item 1 ran with its transcript archived (`hack/dcgm-diag/2026-11-04-image-inspection`, by `hack/dcgm-diag-inspect-image.sh`), and this revision closes or narrows those five; "Open" says which.
 **Draft. Not registered.** It becomes the registration only by the owner's approval, from the commit that records that approval, and no run before it counts.
 Nothing here has been bought, built or run on a card.
 Every number is either read from a file named beside it, derived on this page with its arithmetic shown, or marked "to be measured" or "to be read".
@@ -39,6 +40,22 @@ Observed on the laptop on 2026-11-04, with no GPU, against the image this reposi
 - Its `dcgmi diag --help` documents `-r 1` "Quick (System Validation ~ seconds)", `-r 2` "Medium (Extended System Validation ~ 2 minutes)", `-r 3` "Long (System HW Diagnostics ~ 15 minutes)", and `-r 4`; tests by name; and the flags `-j`, `-v`, `-i`, `-t`, `--fail-early`, `--iterations`, `--statsonfail`, `--debugLogFile`, `--statspath`, `--throttle-mask`.
   Those durations are NVIDIA's help text for 3.3.9, not measurements on an A10G.
 - That same image did not contain `/usr/share/nvidia-validation-suite`, where the package's file list places `nvvs` and its plugins, so the exporter's `hostengine` container cannot be assumed to run `dcgmi diag`, and the apparatus needs a different image.
+
+Archived on 2026-11-04 by `hack/dcgm-diag-inspect-image.sh`, with no GPU and `--network none`, in `hack/dcgm-diag/2026-11-04-image-inspection`, one directory per DCGM version:
+- Two full DCGM images, amd64, by digest: `nvcr.io/nvidia/cloud-native/dcgm@sha256:b40226d395a35f7db3a88ce1a143c6caafadba2315be2b7b7fa9a4f41fa5b41d` (tag `3.3.9-1-ubuntu22.04`, `dcgmi` 3.3.9) and `nvcr.io/nvidia/cloud-native/dcgm@sha256:30dd30b980ebf2f15a3fe7e629db9b8540f93bed794327dd34a0d4afd8a52c1b` (tag `4.4.2-1-ubuntu22.04`, `dcgmi` 4.4.2); both carry `nvvs` (`image.txt`, `version.txt`, `packages.txt`).
+- **3.3.9's plugins exist only for CUDA 10, 11 and 12; 4.4.2's for CUDA 12 and 13** (`plugins.txt`).
+  `nvvs` picks the directory by the CUDA version the driver reports; 3.3.9's binary carries "Detected unsupported Cuda version: {}.{}" and no fallback message, while 4.4.2's also carries "Detected unsupported CUDA version {}; defaulting to {}" (`strings.txt`).
+- The AMI's driver reports CUDA 13.2: `Driver Version: 595.91.07      CUDA Version: 13.2` in `hack/mps-capability/2026-10-24-run2/m5c-run/mpscap/diag/nvidia-smi.txt`, the same driver version run 3 recorded (`hack/gpu-fault/2026-11-01-run3/preflight-nvidia-smi.csv`).
+  So 3.3.9 has no plugin directory for this driver, and the image is 4.4.2 (below).
+  Whether 3.3.9 would refuse or run something on CUDA 13.2 needs a GPU; it is not bought to find out.
+- **A diagnostic that cannot reach its host engine does not stop.**
+  With `--host` naming a socket that does not exist, `dcgmi diag -r 1 -j` prints "Error: unable to establish a connection to the specified host" and then returns a diagnostic result anyway, the same `runtime_error` and the same exit code as with no `--host` and no engine running (226 on 4.4.2, 221 on 3.3.9); with no `--host` it prints no connection error at all (`engine-probe.txt`).
+  Both binaries link `dcgmStartEmbedded_v2` and carry "Unable to start an embedded host engine" (`strings.txt`), which is consistent with the review's claim that `dcgmi diag` falls back to an embedded engine; what that engine then tests on a real card needs a GPU.
+  `dcgmi discovery -l`, by contrast, refuses with exit 235 and "Unable to connect to host engine" in both cases.
+- **The diagnostic's JSON names a card by entity, serial and device ID, as far as the binary shows.**
+  The lower-case key strings in 4.4.2's `dcgmi` include `entity_id`, `entity_groups`, `serial`, `serial_num`, `device_id`, `results`, `tests`, `test_summary`, `warnings`, `info`, `error_id`, `error_category`, `metadata`, `runtime_error` and `driver_version`, and no `uuid`; the strings containing "UUID" are "Device UUID", "UUID" and an entity-parser message (`strings.txt`).
+  The exact nesting, and whether a UUID appears anywhere in `-j` output, need a GPU.
+- A dcgm-exporter built on DCGM 4.4.2 exists: `nvcr.io/nvidia/k8s/dcgm-exporter:4.4.2-4.7.1-ubuntu22.04`, amd64 `sha256:6b5975cdd430d05692c92137bb264938196ee9165e55205a0e31a5e89a9873ee` (`docker manifest inspect`, 2026-11-04); it was not pulled or inspected.
 
 Read from the code on 2026-11-04, at `59a894f5`:
 - `removeGPUFaultTaint` deletes only a taint with key `platform.lkhun9311.github.io/gpu-fault` and effect `NoSchedule` (`isGPUFaultTaint`, `internal/controller/nodehealth_gpufault.go:249-267`).
@@ -93,23 +110,26 @@ The historical "2 min 43 s" (`hack/m5c-gpu-session.sh:697`, a comment recording 
 
 ### The image
 
-A full DCGM image, not the exporter's, **preferably 3.3.9 to match the exporter's client**, so Part 2 does not mix a 3.3.9 client with another host engine.
-If no 3.3.9 image carrying `nvvs` can be pinned, the version pair is chosen from NVIDIA's documented compatibility before rehearsal, the selected version's `dcgmi diag --help` is archived, and Part 2 gains a paid preflight with its own outcome (rehearsal item 2).
-It must be compatible with the AMI's driver.
-It is pinned by index digest, as the recovery image of run 3 was, and pulled before the first diagnostic.
-If the rehearsal cannot pin an image whose file listing shows `nvvs` and its plugins, the session is not bought.
+**DCGM 4.4.2**, the full image `nvcr.io/nvidia/cloud-native/dcgm:4.4.2-1-ubuntu22.04`, pinned by its index digest `sha256:becae9b24707d2bdfce87cb72626e24b2fbfbca812329ca52540ad0e0d955717` (Docker's `RepoDigests` after a pull by tag, 2026-11-04), whose amd64 image is the `sha256:30dd30b9…52c1b` inspected above.
+3.3.9 was preferred because it matches the exporter's client, but its plugins stop at CUDA 12 and the AMI's driver reports CUDA 13.2, so it is not used.
+That makes Part 2 a version change of the platform's reading path, recorded as one: the overlay moves **both** the `hostengine` container and the exporter to DCGM 4.4.2, the exporter to `nvcr.io/nvidia/k8s/dcgm-exporter:4.4.2-4.7.1-ubuntu22.04`, so the client and the host engine are one version again, as they are today at 3.3.9.
+Rehearsal item 2 pulls that exporter, records its index digest and `dcgmi --version`, and checks on kind that it serves the three fault fields and utilisation from `/etc/dcgm-exporter/queuelab-metrics.csv` before anything is bought.
+Part 2's platform readings are therefore of a 4.4.2 exporter, not of the 3.3.9 one the platform otherwise runs, and nothing here says the 3.3.9 path behaves the same.
+In session, before Part 1, the host's `nvidia-smi` "CUDA Version" is read; if its major version has no directory under the image's `/usr/libexec/datacenter-gpu-manager-4/plugins/`, the session aborts as REFUSED (driver), since `nvvs` would otherwise pick a fallback directory (the 4.4.2 binary's "defaulting to" message) and test with plugins built for another CUDA.
+If the rehearsal cannot pin both images by digest, the session is not bought.
 
 ### Part 1 commands
 
 The exact `docker run` line is **frozen at registration from rehearsal item 1**, and must state: the entrypoint override (`--entrypoint`), the effective user, `--gpus all` and any capability the image documents as required, the diagnostic's own embedded mode (no separate host engine is started, on the host or in the container), a bind-mounted output directory for stdout, stderr and `--debugLogFile`, and a container name per run so it can be killed and inspected.
 Part 1 runs **no `dcgmi` command other than `dcgmi diag`**: `dcgmi discovery` queries a running host engine, which Part 1 deliberately does not have.
+Part 1's `dcgmi diag` is given no `--host`, so it runs on the embedded engine the inspection above shows `dcgmi` starting when none is reachable; that is the intended mode here, and the archived stderr must show no connection error, since none is attempted.
 The card's identity in Part 1 is read through NVML with `nvidia-smi` on the host.
 Evidence commands that read the host are run **on the host, not in a container**, because a container does not see the host's toolkit or, without extra privilege, the kernel log:
 
 | row | command | where |
 |---|---|---|
 | boot | `cat /proc/sys/kernel/random/boot_id`; `uptime -s` | host |
-| card, driver, identity | `nvidia-smi --query-gpu=index,name,uuid,driver_version,memory.total,ecc.mode.current,persistence_mode --format=csv`; `nvidia-smi -q` | host |
+| card, driver, identity | `nvidia-smi --query-gpu=index,name,uuid,serial,pci.bus_id,driver_version,memory.total,ecc.mode.current,persistence_mode --format=csv`; `nvidia-smi -q` | host |
 | driver's supported CUDA | the "CUDA Version" line of `nvidia-smi` (driver capability, not a toolkit) | host |
 | host toolkit | `command -v nvcc` and `nvcc --version`; absent is recorded as absent on the host | host |
 | image's CUDA | the image's package and library listing for CUDA (`dpkg -l` and `ls` of its CUDA library paths) | image, rehearsal and session |
@@ -163,10 +183,14 @@ The inherited runner uploads its archive only at the end (`hack/gpu-fault-sessio
 ### Part 2 commands
 
 After the kind bring-up and the platform phase as `hack/gpu-fault-instance.sh` runs them, through a new overlay config/dcgm-diag (new work):
-- the exporter's `hostengine` container uses the diagnostic image and mounts an `emptyDir` at `/diag-out` for diagnostic output and debug logs;
+- the exporter's `hostengine` container uses the diagnostic image (DCGM 4.4.2, above) and mounts an `emptyDir` at `/diag-out` for diagnostic output and debug logs, and the `exporter` container moves to the dcgm-exporter built on the same DCGM, so the client and the host engine stay one version;
 - the exporter and the device plugin each gain a toleration for `platform.lkhun9311.github.io/diag-hold` with effect `NoSchedule`, so a recreated infrastructure Pod can return to a held node; the device plugin also gains one for `gpu-fault`, since it has none today.
 
-The diagnostic is `kubectl -n gpu-platform-control-plane-system exec <exporter pod> -c hostengine -- timeout -k 30 600 dcgmi diag -r 2 -j --debugLogFile /diag-out/diag-r2.log`, with stdout and stderr kept on the laptop side.
+The diagnostic is `kubectl -n gpu-platform-control-plane-system exec <exporter pod> -c hostengine -- timeout -k 30 600 dcgmi diag --host localhost:5555 -r 2 -j --debugLogFile /diag-out/diag-r2.log`, with stdout and stderr kept on the laptop side; `localhost:5555` is the host engine the exporter itself reads (`config/dcgm-exporter-fault/kustomization.yaml:39-43`), reached from the same Pod.
+Because a `dcgmi diag` that cannot reach that engine carries on without it (the inspection above), the engine is bound to the run twice:
+immediately before, `dcgmi discovery --host localhost:5555 -l` must exit 0 and list exactly one GPU, which the same inspection shows `discovery` refusing to do without an engine (exit 235);
+and afterwards, the diagnostic's stderr must not contain "unable to establish a connection".
+Either failing makes the run INVALID (engine), because its result would be the embedded engine's and not the one the platform reads.
 **Level 2 is registered here**, not chosen from Part 1, because Part 1 is not a suitability study; that level 2 suits a node waiting to return is a convention, not evidence.
 After it returns or times out, the residual check has the same three states as Part 1's: **clean** when `kubectl exec <exporter pod> -c hostengine -- pgrep -a nvvs` exits 1 and the host's `nvidia-smi --query-compute-apps=pid,process_name --format=csv,noheader` lists no process outside the `hostengine` container; **residual** when either lists one; **unreadable** on any other exit status, a lost connection, or a missing `pgrep`.
 Residual or unreadable: the diagnostic is TIMED-OUT (residual), step 6 decides keep, and the rest of Part 2 is NOT-REACHED.
@@ -202,7 +226,7 @@ Each refusal is shown to fire on its own bent copy, one at a time on a clean tre
 
 Checked in this order; the first that holds decides:
 1. **NOT-RUN**: it was not started (its limit did not fit, the card was contaminated, or the session aborted). Not a failure.
-2. **INVALID (identity or interference)**: V1, the `nvidia-smi` read taken immediately before it does not show exactly one A10G with the session's UUID; V3, a foreign compute process was sampled during it; V5, the image digest or driver version is not the registered one.
+2. **INVALID (identity, interference or engine)**: V1, the `nvidia-smi` read taken immediately before it does not show exactly one A10G with the session's UUID; V3, a foreign compute process was sampled during it; V5, the image digest or driver version is not the registered one; V6 (Part 2 only), the `discovery` check before it failed or its stderr shows "unable to establish a connection".
 3. **TIMED-OUT**: it reached its limit and was cancelled; reported as "not complete inside L", never as a time, whatever its output holds. A clean cancellation and a residual one are kept apart.
 4. **INVALID (output)**: V2, stdout, stderr and exit status were not all recorded, or stdout is not parseable JSON; V2b, the JSON parses but contains no test name from the selected version's archived test list (an error envelope, not a diagnostic).
 5. **RESULT**: otherwise, **whatever the diagnostic itself reported**. A failure, warning or skip is a result, transcribed as printed.
@@ -270,16 +294,20 @@ What that leaves unshown: any recovery by reset or reboot, the stop-clients/rese
 | 4. repair | — | none in this runbook (see Scope) | — |
 | 5. diag | the operator | `dcgmi diag -r 2 -j`, the debug log copied out, and the evidence rows read again | the archive of this step, hashed |
 | 6. decide | the operator, by the rule below | **return** or **keep** | the decision and every value it read, in a file |
-| 7a. return | the operator | deletes **any** acknowledgement annotation, whoever wrote it; waits for a reading newer than the deletion (the `reading-at` annotation or the exporter's own sample time advanced) showing `GPUSignal=True`, `GPUHealthy=True` with a reason other than `Acknowledged`, no fingerprint and no `gpu-fault` taint; then removes `diag-hold` | the annotation gone, that reading, then the taint gone |
+| 7a. return | the operator | deletes **any** acknowledgement annotation, whoever wrote it; waits the operator's configured stale-after plus one scrape interval, both read from its arguments; then reads `GPUSignal=True` with reason `Fresh`, `GPUHealthy=True` with a reason other than `Acknowledged`, no fingerprint, no `gpu-fault` taint, and the readiness below; then removes `diag-hold` | the annotation gone, the wait's start and end, that read, then the taint gone |
+| 7a readiness | the operator | before removing the hold: the Node is `Ready`; the NVIDIA device-plugin Pod on the node and the exporter Pod on the node are each `Ready`; and the Node's `status.allocatable` for `nvidia.com/gpu` is 1 | the three reads, with their times |
 | 7b. keep | the operator | leaves `diag-hold` | the decision file; the platform's own health may independently read `True` |
 
-Deleting the acknowledgement **before** the hold is removed closes the window in which an identical later fault (same card, field and value) would match an old acknowledgement while work is already back; a reading that does not advance, or a signal that is not `True`, means keep.
+Deleting the acknowledgement **before** the hold is removed closes the window in which an identical later fault (same card, field and value) would match an old acknowledgement while work is already back.
+The wait is not for a newer reading: `reading-at` is the time the current reading **first** returned (`ReadingSince`, which moves only when a value changes, `internal/controller/gpufault_source.go:105-107`), so after a steady zero it never advances and could never be waited for.
+It relies instead on how freshness is kept: the `NodeHealth` reconciler watches its own objects with no event filter (`internal/controller/nodehealth_controller.go:241`), so deleting the annotation re-evaluates the conditions; and the source wakes the reconciler whenever a node's freshness changes, tick by tick (`internal/controller/gpufault_source.go:265-268`), so a `GPUSignal=True` read after stale-after plus one interval has passed since the deletion is one the source still held fresh, or it would have been rewritten `False`.
+A signal that is not `True` with reason `Fresh`, or any readiness read that fails, means keep.
 
 **The decision rule (new operator policy, stricter than the platform's).**
 Return only when all hold:
 - step 2's capture exists and its UUID, ECC, boot ID, cursor and saved journal are all readable; a missing baseline means keep;
 - the diagnostic is RESULT, exited 0, and **every test the selected version lists for level 2** appears in the output as a result record classed as passed (a warned, skipped, unclassified or missing test, a TIMED-OUT, an INVALID or an isolation-unverified run means keep);
-- the UUID equals step 2's, and equals the UUID in the exporter's `/metrics` and the one the diagnostic reports, so the controller's readings, the diagnostic and the node are bound to one card; any mismatch means keep and ends Part 2's same-card claims;
+- the UUID equals step 2's and the UUID in the exporter's `/metrics`, so the controller's readings and the node are bound to one card; and the diagnostic is bound to that card through the serial, because its JSON names a card by entity, serial and device ID and, as far as the binary shows, not by UUID (the inspection above): the diagnostic's result entity must carry a serial equal to the one `nvidia-smi` pairs with that UUID in the identity row read in the same boot, immediately before step 5; a missing serial on either side, more than one result entity, or any mismatch means keep and ends Part 2's same-card claims (whether `-j` carries the serial at all is read from the first real output; if it does not, this rule cannot be met and every decision is keep);
 - `nvidia-smi`'s volatile uncorrected (double-bit) ECC total is 0, and its aggregate uncorrected total has not risen since step 2; either counter ABSENT or UNREADABLE means keep;
 - the boot ID equals step 2's, and the kernel journal after step 2's cursor holds no `NVRM: Xid` line, **counting every Xid, including 13, 31, 43, 45 and 68**, which the platform's policy ignores; an UNREADABLE journal means keep;
 - if the card reports them: no pending page retirement, no pending row remap, and no row-remap failure; a supported field that cannot be read means keep.
@@ -402,23 +430,27 @@ The deadlines (study-deadline at `LaunchTime` + 5,370 s, the termination wait to
 ## Free rehearsal, before anything is bought
 
 Each item needs no GPU and no AWS spend, and none is a result of the study.
-1. **Pick and read the diagnostic image, with an archived transcript.** Pull it, record its digest, `dcgmi --version`, `dcgmi diag --help`, the level-2 test list and the status words, its entrypoint, user and CUDA libraries, and list `nvvs` and the plugins. Re-run the exporter image's inspection the same way and archive it. The session is not registered until a pinned image passes.
-2. **Version pairing.** Prefer 3.3.9; if another version is chosen, archive NVIDIA's compatibility statement for the pair and register the paid preflight: before Part 2, the 3.3.9 exporter must serve fields 230, 311 and 310 from the diagnostic image's host engine on the card, or Part 2 is **NOT-REACHED (incompatible)** and Part 1 stands.
+1. **Pick and read the diagnostic image, with an archived transcript.** Done on 2026-11-04 for DCGM 3.3.9 and 4.4.2 (`hack/dcgm-diag-inspect-image.sh`, `hack/dcgm-diag/2026-11-04-image-inspection`): digests, `dcgmi --version`, `dcgmi diag --help`, packages, plugin tree, the engine probe and the binaries' strings. Still to read before registration: the level-2 test list and status words as the help and the plugins name them, and whether the image carries `tar`, `timeout` and `pgrep`.
+2. **Version pairing.** 4.4.2 is chosen (above), so the exporter moves with it: pull `nvcr.io/nvidia/k8s/dcgm-exporter:4.4.2-4.7.1-ubuntu22.04`, record its index digest and `dcgmi --version`, and show on kind that, run with `-r localhost:5555` against a 4.4.2 `hostengine` container, it serves fields 230, 311 and 310 and utilisation from the repository's metrics file. On the card, the paid preflight before Part 2 is the same check against the real host engine; if it fails, Part 2 is **NOT-REACHED (incompatible)** and Part 1 stands.
 3. **The no-card failure shape.** `dcgmi diag -r 1 -j` with no GPU: keep its exit status, stdout and stderr as the fixture for V2 and V2b only. It is not a model of the successful output; a fixture of external output must come from the producer.
 4. **The runbook on kind.** `hack/gpu-fault-reaction.sh` builds cluster `gpufault` with a fake DCGM; exercise Z's steps and exercise A run there, labelled REHEARSAL, with the diagnostic replaced by recorded decision inputs: one set that returns, and one set for each keep condition of the rule. What this rehearsal **cannot** show is listed under "Open" below.
 5. **Refusals on bent copies, one at a time on a clean tree.** Image digest absent, `nvvs` listing absent, wrong instance type, wrong AMI ID, expected driver absent from the registration, credentials too short at the late re-read, a sweeper answer with two out-of-order datapoints one of which has an error: each must print `SESSION REFUSED` and exit non-zero before any AWS call that spends. The driver mismatch, which is an in-session abort, is shown by running the instance-side check against a stubbed `nvidia-smi` printing another version: it must upload, stop, and leave `REFUSED (driver)`.
 6. **The two splices.** Each span runs as its own child process against the stubbed instance tooling (`hack/test/spot-lifecycle`); the host span is shown not to create a cluster, and the kind span is shown to reach the cluster through `KUBECONFIG` it sets itself.
-7. **The cancellation path, two cases.** On the laptop: (a) a container that ignores TERM is run past a short limit, `docker kill` removes it, the check finds nothing, and the next run starts; (b) the process check is stubbed to report a remaining `nvvs`, and the contaminated-card abort must follow (later runs NOT-RUN, Part 2 not started, shutdown called).
+7. **The cancellation path, three stubbed cases and one real one.** The laptop has no GPU, so its `nvidia-smi` cannot read clean; the check is rehearsed with `nvidia-smi` and `pgrep` replaced on `PATH` by stubs, and a container that ignores TERM run past a short limit and killed: (a) both stubs print no row and exit as a clean host would (0 and 1), and the next run starts; (b) the `nvidia-smi` stub prints one compute-process row, and the contaminated-card abort must follow (later runs NOT-RUN, Part 2 not started, shutdown called); (c) the `nvidia-smi` stub exits 9, and the same abort must follow as **unreadable**, not as clean. The first **real** clean read happens on the card: the session's preflight, before Part 1, runs the same cancellation once on a `sleep` container from the diagnostic image and must read clean, or the session aborts before any diagnostic as REFUSED (cancellation check).
 8. **Cost and timing arithmetic, re-done from the new runner's constants** rather than from this page's.
 
 ## Open
 
-Blockers from the fourth review, not yet fixed; each stops a run until it is:
-- The freshness check before return can never pass after a steady zero, because `ReadingSince` moves only when the reading changes (checked by Claude at `internal/controller/gpufault_source.go:105`).
-- The decision rule keys on the card's UUID, which the review says DCGM 3.3.9's diagnostic JSON does not report (only index, device ID and serial); **not verified here**, and settled only by reading real output.
-- The return rule ignores the device plugin's own health; it needs Node and plugin readiness and allocatable GPU capacity before the hold is removed.
-- The laptop cancellation rehearsal cannot reach its "clean" state, because with no GPU the `nvidia-smi` query is unreadable.
-- Part 2's diagnostic names no `--host`, so a failed connection may fall back to an embedded engine and change the apparatus without a word (the review's claim; **not verified here**).
+The fourth review's five blockers, as this revision leaves them:
+- Freshness after a steady zero: **closed in the text.** Step 7a no longer waits for a newer reading; it waits stale-after plus one interval after deleting the acknowledgement and reads `GPUSignal=True` with reason `Fresh`, on the reconciler and source behaviour cited there.
+  Not yet rehearsed: rehearsal item 4 must show it on kind with a steady zero.
+- The card's identity in the diagnostic: **narrowed.** The inspection shows key strings for entity, serial and device ID and none for a UUID, so the rule binds the diagnostic to the card through the serial `nvidia-smi` pairs with the UUID.
+  Whether `-j` output really carries the serial for the tested entity needs a GPU; if it does not, every decision is keep, and the study reports that rather than repairing it.
+- Device-plugin health before return: **closed in the text** (step 7a's readiness row: Node `Ready`, device-plugin and exporter Pods `Ready`, allocatable `nvidia.com/gpu` 1). Not yet rehearsed.
+- The laptop cancellation rehearsal: **closed in the text** by stubbing `nvidia-smi` and `pgrep` for three cases and moving the first real clean read to the session's preflight (rehearsal item 7).
+- The diagnostic's host engine: **verified without a GPU and closed in the text.** `dcgmi diag` given an unreachable `--host` prints a connection error and returns a result anyway, while `dcgmi discovery` refuses; Part 2 now names `--host localhost:5555`, checks `discovery` first and treats the connection error as INVALID (engine). What the embedded engine would test on a real card is not needed and not bought.
+
+New from this revision, open until rehearsal item 2 is done: Part 2 runs a DCGM 4.4.2 exporter and host engine, not the platform's 3.3.9 pair, and the 4.4.2 exporter has not been pulled or shown to serve the fault fields.
 
 Known weaknesses from the second review that this draft does not fix, kept here so they are not mistaken for settled:
 - The kind rehearsal (item 4) uses `gpu-simulator`, one DaemonSet that stands in for both the exporter and the device plugin and tolerates every taint, so it would pass even if the overlay's new tolerations were missing; the infrastructure-recreation bar (Z.8 on keep) is therefore first tested on the paid card, and on a return it is not tested at all. A fix would render the production DaemonSets' scheduling fields onto two stand-ins.

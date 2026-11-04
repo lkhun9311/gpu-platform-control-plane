@@ -1,0 +1,1 @@
+digest=nvcr.io/nvidia/cloud-native/dcgm@sha256:30dd30b980ebf2f15a3fe7e629db9b8540f93bed794327dd34a0d4afd8a52c1b platform=linux/amd64 created=2025-11-17T19:27:20.530660185Z entrypoint=["/usr/bin/nv-hostengine"] cmd=["-n","-b","0.0.0.0","--log-level","NONE","-f","-"] user=""
