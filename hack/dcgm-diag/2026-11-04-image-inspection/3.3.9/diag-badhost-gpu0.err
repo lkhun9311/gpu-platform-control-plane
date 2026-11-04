@@ -1,0 +1,2 @@
+Error: Invalid gpu list 'gpu:0'. The list must be a comma-separated list of numbers only..
+An error occurred trying to parse the command line.

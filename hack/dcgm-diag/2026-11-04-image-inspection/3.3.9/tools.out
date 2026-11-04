@@ -1,0 +1,6 @@
+uid=0(root) gid=0(root) groups=0(root)
+tar /usr/bin/tar
+timeout /usr/bin/timeout
+pgrep /usr/bin/pgrep
+ps /usr/bin/ps
+sha256sum /usr/bin/sha256sum

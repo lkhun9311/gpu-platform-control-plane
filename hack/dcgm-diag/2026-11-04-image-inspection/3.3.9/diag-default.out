@@ -1,0 +1,8 @@
+{
+	"DCGM GPU Diagnostic" : 
+	{
+		"runtime_error" : "Error: Unable to complete diagnostic for group 2147483647. Return: (-35) The specified group is empty, and this operation is incompatible with an empty group.",
+		"version" : "3.3.9"
+	}
+}
+

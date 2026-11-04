@@ -1,0 +1,4 @@
+nvvs: plugin directories and CUDA version messages: exit=0 lines=6
+dcgmi: embedded host engine and connection messages: exit=0 lines=3
+dcgmi: lower-case key strings that name a device: exit=0 lines=15
+dcgmi: any string containing UUID: exit=0 lines=4

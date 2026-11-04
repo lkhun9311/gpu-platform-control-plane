@@ -1,0 +1,13 @@
+HTTP/1.1 200 OK
+Date: Wed, 04 Nov 2026 12:31:21 GMT
+Content-Type: application/vnd.oci.image.index.v1+json
+Content-Length: 1609
+Connection: keep-alive
+docker-content-digest: sha256:becae9b24707d2bdfce87cb72626e24b2fbfbca812329ca52540ad0e0d955717
+docker-distribution-api-version: registry/2.0
+etag: "sha256:becae9b24707d2bdfce87cb72626e24b2fbfbca812329ca52540ad0e0d955717"
+x-content-type-options: nosniff
+x-envoy-upstream-service-time: 87
+server: istio-envoy
+x-envoy-decorator-operation: container-registry.default.svc.cluster.local:5000/*
+

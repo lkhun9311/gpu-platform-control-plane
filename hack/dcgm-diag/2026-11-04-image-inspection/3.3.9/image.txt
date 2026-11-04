@@ -1,0 +1,1 @@
+ref=nvcr.io/nvidia/cloud-native/dcgm@sha256:9cce4b88361d634bfff830b68b4f24a0a39b3c7004447e917bf85fa01804b24f image_id=sha256:9cce4b88361d634bfff830b68b4f24a0a39b3c7004447e917bf85fa01804b24f platform=linux/amd64 size_bytes=1050473773 created=2024-11-18T22:13:22.20902259Z entrypoint=["/usr/bin/nv-hostengine"] cmd=["-n","-b","0.0.0.0","--log-level","NONE","-f","-"]

@@ -36,6 +36,8 @@ docs/superpowers/*
 !/hack/restart-lifecycle-kind-*/README.md
 # The paid restart sessions' records say what ran, what failed before it, and what each figure does not show.
 !/hack/distributed-restart-eks/*/README.md
+# The DCGM diagnostic's records, free and paid, say what was read and what only a card can show.
+!/hack/dcgm-diag/*/README.md
 !/hack/chaos-fr002b-backend-fallback.md
 !/hack/argocd-kind.md
 !/hack/kueue-deployment-integration.md
@@ -163,6 +165,8 @@ Thumbs.db
 # Go test artifacts
 *.out
 *.test
+# The DCGM image inspection keeps each command's stdout as <name>.out beside its .err and .exit; it is evidence.
+!/hack/dcgm-diag/*/*/*.out
 
 # Claude Code personal overrides
 .claude/settings.local.json
