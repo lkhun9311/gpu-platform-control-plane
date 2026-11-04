@@ -165,6 +165,8 @@ Thumbs.db
 # Go test artifacts
 *.out
 *.test
+# The DCGM image inspection keeps each command's stdout as <name>.out beside its .err and .exit; it is evidence.
+!/hack/dcgm-diag/*/*/*.out
 
 # Claude Code personal overrides
 .claude/settings.local.json

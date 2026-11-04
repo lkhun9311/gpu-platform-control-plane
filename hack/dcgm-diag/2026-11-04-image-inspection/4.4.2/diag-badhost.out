@@ -1,0 +1,9 @@
+Error: unable to establish a connection to the specified host: unix:///tmp/none.sock
+{
+	"DCGM Diagnostic" : 
+	{
+		"runtime_error" : "Error: Unable to complete diagnostic for entities *,cpu:*. Return: (-30) : DCGM GPU Diagnostic returned an error\nError: No available testing entities.",
+		"version" : "4.4.2"
+	}
+}
+
