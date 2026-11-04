@@ -273,6 +273,27 @@ The corruption was seen through caches that had read the shard before it changed
 Removing a worker after the server is gone left its exiting processes waiting on the NFS client's goodbye to the server, a DESTROY_CLIENTID call that their kernel stacks showed, for about three minutes in one interrupted rehearsal; the harness now removes the workers first.
 The heartbeat writer of the cut-writer cases still creates `a<attempt>/` on every rank, which over NFS is the race above; it runs only on hostPath.
 
+## Where the paid recoveries spent their time
+
+`phases_eks.py` splits each recovery that `score_eks.py` accepted into the moments it passed, from the same records and with the scorer's own clock correction.
+On the `full` stage (`hack/distributed-restart-eks/2026-11-04-full`), medians of two cases each, in seconds after the fault (\* a whole-second cluster stamp, good to about a second):
+
+| kind | the controller saw the fault | the stop barrier held until | attempt 2 created | every rank Ready | first step |
+|---|---:|---:|---:|---:|---:|
+| `rank-kill` | 2.8\* | 41.8\* | 41.8\* | 45.3\* | 47.2 |
+| `dcgm` | 1.3\* | 32.3\* | 32.3\* | 36.3\* | 37.7 |
+| `terminate-spare` | 32.1\* | 340.6\* | 341.1\* | 344.1\* | 346.3 |
+| `terminate-wait` | 32.7\* | 335.7\* | 336.2\* | 409.7\* | 411.2 |
+
+From the stop barrier to the first step took about 5 s wherever attempt 2 landed on a node already up, and about 75 s on a replacement, its join, image pull and mount, which these records do not separate.
+A termination's barrier held until EC2 reported the instance terminated, 336 to 345 s after the call, as the fence requires.
+
+In `rank-kill` and `dcgm` the controller saw the fault within 3 s, and then the barrier held for 30 to 39 s.
+The samples show what it waited on the whole time: `job … to be deleted`, the Job's foreground deletion waiting for attempt 1's Pods to end (rank-kill-1 from 00:45:39 to 00:46:18 UTC, dcgm-1 from 00:50:18 to 00:50:49).
+Each rank's container runs `sh -c` with the trainer as its child, because a trainer that is PID 1 cannot kill itself for a fault; so `sh` is PID 1, and the kernel drops a TERM sent to PID 1 with no handler.
+That would leave each Pod to the default 30 s grace period before its KILL, which matches the 30 to 39 s, but it is an explanation the records are consistent with, not one they show: the Pods' termination was not observed directly.
+If it holds, a shell that forwards TERM to the trainer, or a shorter grace period for ranks the barrier is waiting to retire, would take most of that wait out of every recovery whose node survived.
+
 ## What this does not show
 
 `cut-writer` shows the barrier holding for a deleted Node; a Node that is still Ready is trusted to have stopped its Pods, so a Ready condition that is stale, or a new machine registering under the old name, is not exercised.
