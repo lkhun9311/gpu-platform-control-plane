@@ -163,6 +163,18 @@ class Case:
         return got[0][1]
 
 
+def final_job(case: Case) -> dict:
+    """The Job as the harness last read it, or {} when it was gone by then.
+
+    The harness redirects a failed kubectl get into the file, so a Job the controller had already deleted, as it does
+    for a job that failed on its last attempt, leaves the file empty rather than absent (codex review of 697d6d1b).
+    """
+    path = case.dir / "final-job.json"
+    text = path.read_text() if path.exists() else ""
+    # Only empty means gone; a file that holds something unparseable is not read as no Job, and fails loudly.
+    return json.loads(text) if text.strip() else {}
+
+
 def present(case: Case) -> bool:
     check(f"{case.name} recorded", case.ok, "evidence present" if case.ok else f"missing or VOID under {case.dir}")
     return case.ok
@@ -193,7 +205,7 @@ def restarted(case: Case, reference: list[float] | None, want_from: int | None) 
     check(f"{case.name} same training as the reference on every rank", same,
           f"ranks {sorted(params)} of world size {case.world()} recorded final parameters; "
           + ("each equals the uninterrupted run's" if same else "some differ, are missing, or there is no reference"))
-    job = json.loads((case.dir / "final-job.json").read_text()) if (case.dir / "final-job.json").exists() else {}
+    job = final_job(case)
     env = {e["name"]: e.get("value") for e in (((job.get("spec") or {}).get("template") or {}).get("spec") or {}).get("containers", [{}])[0].get("env", [])}
     check(f"{case.name} attempt 2 rendezvous is a name attempt 1 never had", "-ddp-a2." in (env.get("MASTER_ADDR") or ""),
           f"MASTER_ADDR {env.get('MASTER_ADDR')}")
@@ -377,7 +389,7 @@ def cut_writer(case: Case, reference: list[float] | None) -> None:
 
     last, first, detail = overlap(case, job)
     t_fence = case.at("fence-start")
-    a2job = json.loads((case.dir / "final-job.json").read_text()) if (case.dir / "final-job.json").exists() else {}
+    a2job = final_job(case)
     created = ts((a2job.get("metadata") or {}).get("creationTimestamp"))
     ours = len(case.attempts) > 1 and (a2job.get("metadata") or {}).get("uid") == case.attempts[1].get("jobUID")
     # The API server keeps whole seconds, so the most this can show is that the Job's second is not before the fence's.
@@ -608,19 +620,25 @@ def never_joined(case: Case, provenance: dict, created: float | None) -> None:
               f"state {a[0].get('state')}, trigger {a[0].get('trigger')}")
     # With the setting the join is bounded by the rendezvous timeout; without it, by the collective one.
     bound = float(provenance.get("rendezvous_timeout" if c == "nfs-rendezvous-never" else "collective_timeout", "nan"))
-    ran = a2_exits(case)
-    took = [(ts(e.get("finished")) or math.nan) - (ts(e.get("started")) or math.nan) for _, e in ran]
+    # The lone rank is the one that started first; its peer may start later only on the GPU the lone rank's exit freed,
+    # once the attempt is already failed, which is no join (the first kind run: 2 s after, killed 30 s later).
+    ran = sorted(a2_exits(case), key=lambda re: ts(re[1].get("started")) or math.inf)
+    lone = ran[0][1] if ran else {}
+    started, ended = ts(lone.get("started")), ts(lone.get("finished"))
+    took = (ended - started) if started is not None and ended is not None else math.nan
+    peers = [ts(e.get("started")) for _, e in ran[1:]]
+    alone = all(p is None or (ended is not None and p >= ended) for p in peers)
     # The bound counts from the store's construction, after the interpreter and torch have loaded, so the container
     # lives somewhat longer than the bound and never shorter.
-    ok = (len(ran) == 1 and ran[0][1].get("exit") not in (None, 0) and bound == bound
-          and bound <= took[0] <= bound + 60)
-    check(f"{c} attempt 2's lone rank ended between {bound:.0f} and {bound + 60:.0f} s after it started",
-          ok, f"ranks {[r for r, _ in ran]}, exits {[(e.get('exit'), e.get('reason')) for _, e in ran]}, "
-              f"lived {[round(t, 1) for t in took]} s")
+    ok = (len(ran) in (1, 2) and alone and lone.get("exit") not in (None, 0) and bound == bound
+          and bound <= took <= bound + 60)
+    check(f"{c} attempt 2's lone rank ended between {bound:.0f} and {bound + 60:.0f} s after it started, its peer never with it",
+          ok, f"ranks {[r for r, _ in ran]}, exits {[(e.get('exit'), e.get('reason')) for _, e in ran]}; "
+              f"the lone rank lived {round(took, 1)} s; its peer started {[iso(p) for p in peers]}, "
+              f"the lone rank ended {iso(ended)}")
     trained = [r for r in case.records if r.get("event") in ("start", "resume", "step") and r.get("attempt") == 2]
     check(f"{c} attempt 2 never trained", not trained, f"{len(trained)} start, resume or step records in attempt 2")
     born = ts(((case.final.get("metadata") or {}).get("creationTimestamp")))
-    ended = ts(ran[0][1].get("finished")) if ran else None
     budget = float(provenance.get("paid_budget", "nan"))
     check(f"{c} attempt 2 failed inside the paid session's {budget:.0f} s case budget from the job's creation",
           born is not None and ended is not None and ended - born < budget,
@@ -659,11 +677,11 @@ def nfs_case(case: Case, reference: list[float] | None, provenance: dict) -> Non
     through_nfs(case, provenance, claim, (1,) if c in NEVER_CASES else (1, 2))
 
     # Every record names the job it came from, and each attempt ran one Pod per rank, so no other run's lines are read.
-    # Where attempt 2's peer is never let in, attempt 2 ran exactly one Pod, of either rank.
+    # Where attempt 2's peer is never let in, it may still run after the attempt has failed (never_joined judges when).
     stray = [r for r in case.records if r.get("run_id") != job]
     per = {a: sorted(int(p["rank"]) for p in lines(case.dir / "pods.jsonl") if p.get("attempt") == str(a)) for a in (1, 2)}
     pods_ok = per[1] == list(range(case.world())) and (
-        len(per[2]) == 1 if c in NEVER_CASES else per[2] == list(range(case.world())))
+        per[2] in ([0], [1], [0, 1]) if c in NEVER_CASES else per[2] == list(range(case.world())))
     check(f"{c} every record is this job's and each attempt ran the Pods it was let run",
           bool(case.records) and not stray and pods_ok,
           f"{len(case.records)} records, {len(stray)} of another run; Pods by attempt {per}")
@@ -679,7 +697,7 @@ def nfs_case(case: Case, reference: list[float] | None, provenance: dict) -> Non
           f"rank {frank}'s container exits {[(e.get('exit'), e.get('reason')) for e in exits]}")
 
     held, detail = observed_window(case, "finalizer-added", "released")
-    a2job = json.loads((case.dir / "final-job.json").read_text()) if (case.dir / "final-job.json").exists() else {}
+    a2job = final_job(case)
     created = ts((a2job.get("metadata") or {}).get("creationTimestamp"))
     if created is None:
         # A job that failed on attempt 2 may have had its Job deleted by the end, so its creation is read from the samples.

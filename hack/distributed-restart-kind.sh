@@ -1022,37 +1022,29 @@ nfs_restart() {
   esac
 }
 
-# spoil changes the published step 6, which LATEST names, on the server's own export, while no rank runs: the newest
-# manifest made malformed, or naming another directory, or rank 1's shard replaced by a directory of the same name.
+# spoil changes the published step 6, which LATEST names, while no rank runs: the newest manifest made malformed, or
+# naming another directory, or rank 1's shard replaced by a directory of the same name.
 # These are check_protocol.py's three fixtures, so what the trainer meets here is what its local check met.
+# The change goes through an NFS client on the worker attempt 1 left idle, where attempt 2's rank 1 then runs.
+# Made in the export directory behind the server, the first run of these cases left NFS-Ganesha's own cache naming
+# rank 1's shard as published, and attempt 2's rank 1 read it whole from a node that had never looked it up.
 spoil() {
-  local case=$1 name=$2 dir=$3 rel
+  local case=$1 name=$2 dir=$3 rel idle="" n
   rel=$(vol "cat '$name/LATEST'" 2>>"$LOG") || { void_case "$name" "$dir" "no LATEST to spoil"; return 2; }
   case "$rel" in a1/00000006-*) ;; *) void_case "$name" "$dir" "LATEST names '$rel', not step 6"; return 2 ;; esac
+  for n in "${WORKERS[@]}"; do
+    [ "$n" = "$(a1_node "$dir" 0)" ] || [ "$n" = "$(a1_node "$dir" 1)" ] || idle=$n
+  done
+  [ -n "$idle" ] || { void_case "$name" "$dir" "no worker idle in attempt 1"; return 2; }
+  helper_pod "spoil-${idle##*-}" "$idle" shared keep "$name" || { void_case "$name" "$dir" "spoil helper on $idle not created"; return 2; }
+  k -n "$NS" wait --for=condition=Ready "pod/spoil-${idle##*-}" --timeout=120s >>"$LOG" 2>&1 ||
+    { void_case "$name" "$dir" "spoil helper on $idle not Ready"; return 2; }
   snapshot "$name" "$dir" prespoil
   spoil_record "$name" "$rel" before >>"$dir/spoil.jsonl" || { void_case "$name" "$dir" "reading step 6 before spoiling failed"; return 2; }
-  case "$case" in
-    nfs-fallback-malformed | nfs-fallback-otherdir)
-      vol "cat '$name/$rel/MANIFEST'" 2>>"$LOG" | python3 -c '
-import json, sys
-m = json.load(sys.stdin)
-if sys.argv[1] == "nfs-fallback-malformed":
-    m["shards"] = [{}, {}]
-else:
-    m["uuid"] = "0" * 32
-sys.stdout.write(json.dumps(m, sort_keys=True))' "$case" >"$dir/spoiled-MANIFEST" 2>>"$LOG" ||
-        { void_case "$name" "$dir" "rewriting step 6's manifest failed"; return 2; }
-      docker exec -i "$CLUSTER-control-plane" sh -c "cat > '$EXPORT/$name/$rel/MANIFEST'" <"$dir/spoiled-MANIFEST" 2>>"$LOG" ||
-        { void_case "$name" "$dir" "writing step 6's manifest failed"; return 2; }
-      ;;
-    nfs-fallback-unreadable)
-      # Moved aside rather than removed, so the shard as published stays on the storage for the record.
-      vol "mv '$name/$rel/rank-1.pt' '$name/$rel/rank-1.pt.published' && mkdir '$name/$rel/rank-1.pt'" >>"$LOG" 2>&1 ||
-        { void_case "$name" "$dir" "replacing rank 1's shard failed"; return 2; }
-      ;;
-  esac
+  k -n "$NS" exec "spoil-${idle##*-}" -- python /probe/nfs_probe.py spoil "$name" "${case#nfs-fallback-}" >"$dir/helper-spoil.txt" 2>>"$LOG" ||
+    { void_case "$name" "$dir" "spoiling from $idle failed"; return 2; }
   spoil_record "$name" "$rel" after >>"$dir/spoil.jsonl" || { void_case "$name" "$dir" "reading step 6 after spoiling failed"; return 2; }
-  mark "$dir" "spoiled $rel"
+  mark "$dir" "spoiled $rel from $idle"
 }
 
 # spoil_record prints one JSON line of what step 6 holds on the storage: its manifest's sha256 and rank 1's file type.
