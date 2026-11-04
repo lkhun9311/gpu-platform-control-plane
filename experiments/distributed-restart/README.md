@@ -304,7 +304,7 @@ That supports the shell as a contributor to the deletion wait on kind; it does n
 
 `cut-writer` shows the barrier holding for a deleted Node; a Node that is still Ready is trusted to have stopped its Pods, so a Ready condition that is stale is not exercised.
 Since the paid stages the controller records each rank node's UID and refuses a different UID under the same name as Ready-node evidence; no CPU rehearsal or paid stage has run a machine registering under the old name.
-The fence still names a node and is never consumed, so an acknowledgement left from one loss would cover a later loss of a machine with the same name; one restart per job here never reaches that.
+The fence is never consumed; since the paid stages an entry may name the machine as `name@uid`, and a bare name no longer vouches once an earlier attempt of the job ran on another machine of that name, which envtest shows across two attempts and no cluster run has reached.
 A node is fenced only if the controller recorded it, from the attempt's Pods; a rank whose Pod vanishes before the controller first sees it is not exercised.
 The samples are not atomic: each reads four resources one after another, and an ordering finer than about a second is read from the volume's own times and the script's marks, not from the samples.
 One run of each case is evidence that the path works, not a rate.

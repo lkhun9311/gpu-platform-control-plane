@@ -51,10 +51,13 @@ const (
 )
 
 // annFencedNodes is how an operator, or the experiment's runner after reading the instance as terminated, says that
-// nodes which stopped answering are really off: a comma-separated list of node names on the MLTrainingJob.
+// nodes which stopped answering are really off: a comma-separated list on the MLTrainingJob of node names, each
+// optionally bound to the machine it means as name@uid, the UID the attempt recorded for that name.
 //
 // It is never inferred. A Node object deleted, or a Pod gone from the API, does not stop a process on a machine the
 // control plane cannot reach, and that process may still be writing to the shared checkpoint volume.
+// It is also never consumed, so a bare name written for one machine would still stand when another machine registers
+// under that name and is lost in a later attempt; fenceVouches refuses a bare name once that can have happened.
 const annFencedNodes = "platform.lkhun9311.github.io/fenced-nodes"
 
 // AnnRestartHandoff marks a Workload the GPU fault path deactivated and handed to the restart lifecycle, in the same
@@ -416,45 +419,77 @@ func (r *MLTrainingJobReconciler) stopBarrier(ctx context.Context, mltj *platfor
 		}
 	}
 
-	unfenced, err := r.unfencedNodes(ctx, mltj, cur.Nodes, cur.NodeUIDs)
+	unfenced, bound, err := r.unfencedNodes(ctx, mltj, cur)
 	if err != nil {
 		return "", err
 	}
 	if len(unfenced) > 0 {
-		return "node " + strings.Join(unfenced, ",") + " to be fenced (annotation " + annFencedNodes + ")", nil
+		waiting := "node " + strings.Join(unfenced, ",") + " to be fenced (annotation " + annFencedNodes + ")"
+		if len(bound) > 0 {
+			// Said in the condition, because the bare name an operator would write is the one this refuses.
+			waiting += "; an earlier attempt ran on another machine of the same name, so name it as " + strings.Join(bound, ",")
+		}
+		return waiting, nil
 	}
 	return "", nil
 }
 
-// unfencedNodes returns the nodes that held a rank, cannot be shown to have stopped it, and are not acknowledged as off.
+// unfencedNodes returns the nodes that held a rank of attempt cur, cannot be shown to have stopped it, and are not
+// acknowledged as off, and for those a bare name can no longer acknowledge, the name@uid entry that would.
 //
 // A node that is Ready answered for its own Pods, so their absence from the API is the kubelet's report that they
 // stopped. A node that is not Ready, or no longer exists, reported nothing; only the annotation can vouch for it.
-func (r *MLTrainingJobReconciler) unfencedNodes(ctx context.Context, mltj *platformv1.MLTrainingJob, nodes []string, uids map[string]string) ([]string, error) {
+func (r *MLTrainingJobReconciler) unfencedNodes(ctx context.Context, mltj *platformv1.MLTrainingJob, cur platformv1.TrainingAttempt) ([]string, []string, error) {
 	fenced := strings.Split(mltj.Annotations[annFencedNodes], ",")
-	var out []string
-	for _, n := range nodes {
-		if slices.Contains(fenced, n) {
+	var out, bound []string
+	for _, n := range cur.Nodes {
+		vouched, needsUID := fenceVouches(fenced, mltj.Status.Attempts, cur.Number, n, cur.NodeUIDs[n])
+		if vouched {
 			continue
 		}
 		var node corev1.Node
 		err := r.apiReader().Get(ctx, types.NamespacedName{Name: n}, &node)
 		switch {
 		case apierrors.IsNotFound(err):
-			out = append(out, n)
 		case err != nil:
-			return nil, fmt.Errorf("get node %s: %w", n, err)
+			return nil, nil, fmt.Errorf("get node %s: %w", n, err)
 		default:
 			// Another Node under the recorded name is another machine, whose readiness says nothing of the rank's.
 			// An attempt recorded before nodeUIDs existed has none to compare, and is judged by the name as it was.
-			if want, known := uids[n]; known && want != string(node.UID) {
-				out = append(out, n)
-			} else if c := nodeReady(&node); c == nil || c.Status != corev1.ConditionTrue {
-				out = append(out, n)
+			want, known := cur.NodeUIDs[n]
+			if c := nodeReady(&node); (!known || want == string(node.UID)) && c != nil && c.Status == corev1.ConditionTrue {
+				continue
 			}
 		}
+		out = append(out, n)
+		if needsUID {
+			bound = append(bound, n+"@"+cur.NodeUIDs[n])
+		}
 	}
-	return out, nil
+	return out, bound, nil
+}
+
+// fenceVouches reports whether the fenced-nodes entries acknowledge node n of attempt number cur as off, where uid is
+// what that attempt recorded for n ("" for an attempt recorded before UIDs were), and whether only n@uid could.
+//
+// An entry n@uid names one machine and always vouches for it.
+// A bare name says nothing of which machine it meant, and it is never consumed: written for a machine lost in one
+// attempt, it would still stand when another machine registered under the name is lost in a later one.
+// So a bare name vouches only while every attempt that ran on n recorded the same UID, meaning the job has seen one
+// machine of that name; a recorded "absent" counts as a machine of its own, since nothing showed it was the same one.
+func fenceVouches(fenced []string, attempts []platformv1.TrainingAttempt, cur int32, n, uid string) (bool, bool) {
+	if uid != "" && slices.Contains(fenced, n+"@"+uid) {
+		return true, false
+	}
+	if uid == "" {
+		return slices.Contains(fenced, n), false
+	}
+	for _, a := range attempts {
+		if a.Number != cur && slices.Contains(a.Nodes, n) && a.NodeUIDs[n] != uid {
+			return false, true
+		}
+	}
+	return slices.Contains(fenced, n), false
 }
 
 // nodeReady returns the node's Ready condition, or nil.

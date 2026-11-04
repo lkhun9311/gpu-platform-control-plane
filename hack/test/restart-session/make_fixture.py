@@ -377,6 +377,15 @@ def defect(out: pathlib.Path, name: str, case: str) -> None:
         edit_json_lines(d / "marks.jsonl", lambda m: {**m, "at": iso(start + 10)} if m["mark"] == "fenced" else m)
     elif name == "no-fence-annotation":
         edit_json(d / "final-mltj.json", lambda m: m["metadata"].update(annotations={}))
+    elif name in ("fence-bound", "fence-bound-other-machine"):
+        # The fence names the machine as name@uid; only the UID attempt 1 recorded for that name is the target's.
+        def bind(m):
+            first = m["status"]["attempts"][0]
+            target = first["nodes"][1]
+            first["nodeUIDs"] = {n: f"uid-{n}" for n in first["nodes"]}
+            uid = first["nodeUIDs"][target] if name == "fence-bound" else "uid-of-a-later-machine"
+            m["metadata"].update(annotations={"platform.lkhun9311.github.io/fenced-nodes": f"{target}@{uid}"})
+        edit_json(d / "final-mltj.json", bind)
     elif name == "created-before-fence":
         # The controller created attempt 2 26 s before the fence, and its status says so in whole seconds.
         fenced = next(epoch(m["at"]) for m in map(json.loads, (d / "marks.jsonl").read_text().splitlines()) if m["mark"] == "fenced")

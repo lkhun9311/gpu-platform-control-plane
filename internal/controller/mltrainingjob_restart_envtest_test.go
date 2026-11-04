@@ -506,6 +506,87 @@ var _ = Describe("MLTrainingJob restart", func() {
 		Expect(last(key).State).To(Equal(attemptStopped))
 	})
 
+	It("does not let a bare fenced name written for one machine stand for another machine of that name in a later attempt", func() {
+		key := create(1)
+		job := untilActive(key)
+		mltj := getMLTJ(key)
+		setReady := func(name string, status corev1.ConditionStatus) {
+			GinkgoHelper()
+			var n corev1.Node
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name}, &n)).To(Succeed())
+			n.Status.Conditions = []corev1.NodeCondition{{Type: corev1.NodeReady, Status: status, LastHeartbeatTime: metav1.Now()}}
+			Expect(k8sClient.Status().Update(ctx, &n)).To(Succeed())
+		}
+		retire := func(pod *corev1.Pod, wl *kueuev1beta1.Workload) {
+			GinkgoHelper()
+			collect(key)
+			Expect(k8sClient.Delete(ctx, pod, client.GracePeriodSeconds(0))).To(Succeed())
+			Eventually(func() bool {
+				return apierrors.IsNotFound(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), &corev1.Pod{}))
+			}, 10*time.Second, 50*time.Millisecond).Should(BeTrue())
+			Expect(k8sClient.Delete(ctx, wl)).To(Succeed())
+		}
+
+		By("attempt 1 loses the first machine of the name, and a bare name fences it")
+		name := node(corev1.ConditionTrue)
+		onIt := rankPod(mltj, 1, name)
+		wl := workloadFor(job, nil)
+		step(key)
+		first := last(key).NodeUIDs[name]
+		failRank(job)
+		step(key)
+		step(key)
+		setReady(name, corev1.ConditionFalse)
+		retire(onIt, wl)
+		step(key)
+		Expect(last(key).WaitingFor).To(Equal("node " + name + " to be fenced (annotation " + annFencedNodes + ")"))
+		mltj = getMLTJ(key)
+		mltj.Annotations = map[string]string{annFencedNodes: name}
+		Expect(k8sClient.Update(ctx, mltj)).To(Succeed())
+		step(key)
+		Expect(last(key).State).To(Equal(attemptStopped))
+
+		By("attempt 2 runs on another machine registered under the same name, which is then lost too")
+		job = untilActive(key)
+		Expect(last(key).Number).To(BeEquivalentTo(2))
+		Expect(k8sClient.Delete(ctx, &corev1.Node{Name: name})).To(Succeed())
+		Eventually(func() bool {
+			return apierrors.IsNotFound(k8sClient.Get(ctx, types.NamespacedName{Name: name}, &corev1.Node{}))
+		}, 10*time.Second, 50*time.Millisecond).Should(BeTrue())
+		Expect(k8sClient.Create(ctx, &corev1.Node{Name: name})).To(Succeed())
+		setReady(name, corev1.ConditionTrue)
+		mltj = getMLTJ(key)
+		onIt = rankPod(mltj, 2, name)
+		wl = workloadFor(job, nil)
+		step(key)
+		second := last(key).NodeUIDs[name]
+		Expect(second).NotTo(BeEmpty())
+		Expect(second).NotTo(Equal(first))
+		failRank(job)
+		step(key)
+		step(key)
+		setReady(name, corev1.ConditionFalse)
+		retire(onIt, wl)
+
+		step(key)
+		Expect(last(key).State).To(Equal(attemptStopping), "the bare name written for the first machine stopped the barrier for the second")
+		Expect(last(key).WaitingFor).To(Equal("node " + name + " to be fenced (annotation " + annFencedNodes +
+			"); an earlier attempt ran on another machine of the same name, so name it as " + name + "@" + second))
+
+		By("an entry bound to the first machine does not fence the second either")
+		mltj = getMLTJ(key)
+		mltj.Annotations = map[string]string{annFencedNodes: name + "," + name + "@" + first}
+		Expect(k8sClient.Update(ctx, mltj)).To(Succeed())
+		step(key)
+		Expect(last(key).State).To(Equal(attemptStopping))
+
+		mltj = getMLTJ(key)
+		mltj.Annotations = map[string]string{annFencedNodes: name + "," + name + "@" + second}
+		Expect(k8sClient.Update(ctx, mltj)).To(Succeed())
+		step(key)
+		Expect(last(key).State).To(Equal(attemptStopped))
+	})
+
 	It("takes a failed Job whose Workload the fault path handed off as NodeFault, not RankFailed", func() {
 		key := create(1)
 		job := untilActive(key)
