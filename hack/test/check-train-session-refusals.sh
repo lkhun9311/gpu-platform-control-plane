@@ -151,18 +151,25 @@ export STUB_CALLS="$work/$name.calls"
 out="$(env -i HOME="$work/home" PATH="$work/bin:/usr/bin:/bin" STUB_CALLS="$STUB_CALLS" SESSION_CONFIRM=yes AWS_PROFILE=stub \
   EGRESS_CIDR=192.0.2.1/32 EXDIR="$work/$name" TTL_MINUTES=300 timeout 60 bash "$repo/hack/eks-gitops-session.sh" 2>&1)"
 pid="$(cat "$work/$name/ttl.pid" 2>/dev/null)"
-stray="$(pgrep -f -- "$work/$name/" | paste -sd' ')"
-if [[ -n "$pid" && " $stray " == *" $pid "* && "$out" == *"TTL kill switch armed: PID $pid"* ]]; then
+# Found by the pid it wrote, never by its paths: the program quotes them with %q, so a path with a space is not on its
+# command line as written, and a search by path found nothing and left the watchdog running past the test.
+stray=""
+[[ "$pid" =~ ^[0-9]+$ ]] && ps -o pid= -p "$pid" | grep -q . && stray="$pid"
+if [[ -n "$pid" && "$stray" == "$pid" && "$out" == *"TTL kill switch armed: PID $pid"* ]]; then
   ok "$name: the watchdog reported pid $pid under an absolute EXDIR, and the session read it"
   grep -q '^terraform -chdir=infra/aws/cluster init' "$STUB_CALLS" && ok "$name: the cluster's init reached the stub, not a real terraform" ||
     bad "$name: the stub saw no init of the cluster root: $(grep '^terraform' "$STUB_CALLS" | head -3)"
 else
   bad "$name: pid file '${pid:-absent}', processes '${stray:-none}', session said: $(grep -o 'TTL[^,]*\|never reported its pid[^;]*' <<<"$out" | head -1)"
 fi
-# shellcheck disable=SC2086
-for p in $stray; do kill -- "-$p" 2>/dev/null || kill "$p" 2>/dev/null || true; done
+# The watchdog leads its own session (setsid), so its process group is its pid and holds its sleep too.
+[[ -n "$stray" ]] && kill -- "-$stray"
 sleep 1
-[[ -z "$(pgrep -f -- "$work/$name/")" ]] && ok "$name: the test stopped its watchdog" || bad "$name: a watchdog survived the test: $(pgrep -af -- "$work/$name/")"
+if [[ -n "$stray" ]] && ps -o pid= -g "$stray" | grep -q .; then
+  bad "$name: a watchdog survived the test: $(ps -o pid=,args= -g "$stray" | head -2)"
+else
+  ok "$name: the test stopped its watchdog"
+fi
 
 # Every call the session makes to the node gates passes the GPUs per node they require.
 # The refusals above stop before any node is bought, so none of them reaches these calls: STUDY=prefixroute kept a
