@@ -1,4 +1,0 @@
-
-dcgmi  version: 3.3.9
-
-exit=0
