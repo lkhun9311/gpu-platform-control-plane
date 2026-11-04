@@ -295,14 +295,15 @@ for want in 'CKPT_JOB_ID=rst-rank-kill-1-0a1b2c3d' 'CKPT_BACKEND=nccl' 'CKPT_FAU
   if grep -qF -- "$want" <<<"$body"; then ok "the job's command has $want"; else bad "the job's command lacks $want"; fi
 done
 if grep -qE '(^|[^a-z])exec ' <<<"$body"; then bad "the job's command execs, so the trainer would be PID 1"; else ok "the job's command never execs"; fi
-if [[ "$(tail -4 <<<"$body" | paste -sd'|')" == 'python /tmp/train.py &|child=$!|trap '"'"'kill -TERM $child'"'"' TERM|wait $child' ]]; then
-  ok "the trainer is started as a child of the shell, which hands TERM on to it"
+want_end='python /tmp/train.py &|child=$!|trap '"'"'kill -TERM $child'"'"' TERM|wait $child|rc=$?|while [ -d /proc/$child ]; do wait $child; rc=$?; done|exit $rc'
+if [[ "$(tail -7 <<<"$body" | paste -sd'|')" == "$want_end" ]]; then
+  ok "the trainer is started as a child of the shell, which hands TERM on to it and waits for it to end"
 else
-  bad "the command's end is '$(tail -4 <<<"$body" | paste -sd'|')'"
+  bad "the command's end is '$(tail -7 <<<"$body" | paste -sd'|')'"
 fi
 # What those lines do: the shell is stopped with TERM and the trainer, here a sleep, goes with it, where a shell that
 # only ran it would have left it to the grace period's KILL; and a trainer that fails still fails the shell.
-tail_cmd="$(tail -4 <<<"$body" | sed 's#^python /tmp/train.py &$#sleep 300 \&#')"
+tail_cmd="$(tail -7 <<<"$body" | sed 's#^python /tmp/train.py &$#sleep 300 \&#')"
 sh -c "$tail_cmd" & shpid=$!
 for _ in $(seq 25); do child="$(ps -o pid= --ppid "$shpid" | tr -d ' ')"; [[ -n "$child" ]] && break; sleep 0.2; done
 kill -TERM "$shpid"
@@ -314,7 +315,7 @@ else
   bad "the trainer ${child:-never started} outlived a TERM to its shell"
   [[ -n "$child" ]] && kill -KILL "$child"
 fi
-failing="$(tail -4 <<<"$body" | sed 's#^python /tmp/train.py &$#sh -c "exit 137" \&#')"
+failing="$(tail -7 <<<"$body" | sed 's#^python /tmp/train.py &$#sh -c "exit 137" \&#')"
 sh -c "$failing"
 rc=$?
 if [[ "$rc" == 137 ]]; then ok "a trainer that exits 137 for its fault exits the shell 137"; else bad "a trainer's 137 came out of the shell as $rc"; fi
@@ -403,6 +404,22 @@ if [[ "$out" == *"rc=0" && "$names" == 3 && "$long" == 0 ]]; then
 else
   bad "EKS node names: $out; $names distinct warm-up Pod name(s), $long over 63 characters"
 fi
+
+# The gate's CRD check reads the repository's own CRD as deployed, and refuses one without either field.
+crd_json="$(python3 -c 'import json, sys, yaml; print(json.dumps(yaml.safe_load(open(sys.argv[1]))))' config/crd/bases/platform.lkhun9311.github.io_mltrainingjobs.yaml 2>&1)"
+out="$(bash -c '. hack/lib/train-session.sh; . hack/lib/gpu-ttl.sh; . hack/lib/gpu-fault.sh; . hack/lib/restart-session.sh; restart_crd_check "$1"; echo "rc=$?"' _ "$crd_json")"
+if [[ "$out" == "rc=0" ]]; then ok "the repository's CRD has both fields the gate requires"; else bad "the gate refuses the repository's own CRD: $out"; fi
+for drop in nodeUIDs maxRestarts; do
+  bent="$(python3 -c '
+import json, sys
+c = json.loads(sys.argv[1]); drop = sys.argv[2]
+for v in c["spec"]["versions"]:
+    p = v["schema"]["openAPIV3Schema"]["properties"]
+    p["status"]["properties"]["attempts"]["items"]["properties"].pop("nodeUIDs", None) if drop == "nodeUIDs" else p["spec"]["properties"]["distributed"]["properties"].pop("maxRestarts", None)
+print(json.dumps(c))' "$crd_json" "$drop")"
+  out="$(bash -c '. hack/lib/train-session.sh; . hack/lib/gpu-ttl.sh; . hack/lib/gpu-fault.sh; . hack/lib/restart-session.sh; restart_crd_check "$1"; echo "rc=$?"' _ "$bent")"
+  if [[ "$out" == *"has no"*"$drop"*"rc=1" ]]; then ok "a CRD without $drop is refused"; else bad "a CRD without $drop: $out"; fi
+done
 
 # A failed read of the taints is not "no node tainted".
 mkdir -p "$work/rules/taints"
@@ -1089,6 +1106,36 @@ if [[ $rc == 0 && "$(grep -c '^ACCEPTED' <<<"$out")" == 22 ]]; then ok "a clean 
 for want in "replacement: recovery median 71.0 s" "spare: recovery median 71.0 s" "same-nodes: recovery median 71.0 s" "lost steps [1, 1, 1, 1, 1]"; do
   if grep -qF "$want" <<<"$out"; then ok "the clean run reports '$want'"; else bad "the clean run lacks '$want'"; fi
 done
+# The committed paid archives score as published from the repository alone.
+# Their status timelines are committed compressed, and reading only the plain file voided every termination case.
+for pub in "2026-11-02-smoke 4" "2026-11-04-full 10"; do
+  read -r stage n <<<"$pub"
+  out="$(python3 experiments/distributed-restart/score_eks.py "hack/distributed-restart-eks/$stage/session/restart" 2>&1)"
+  rc=$?
+  if [[ $rc == 0 && "$(grep -c '^ACCEPTED' <<<"$out")" == "$n" && "$(grep -cE '^(VOID|FAILED|NOTRUN|REFUSED)' <<<"$out")" == 0 ]]; then
+    ok "the committed $stage archive scores $n of $n ACCEPTED"
+  else
+    bad "the committed $stage archive: exit $rc, $(grep -cE '^(VOID|FAILED|NOTRUN|REFUSED)' <<<"$out") refused, $(grep -m1 -E '^(VOID|FAILED|REFUSED)' <<<"$out")"
+  fi
+done
+if grep -qF "checkpoint cost: median 0.255 s, max 0.412 s over 540 saves" <<<"$out"; then ok "the full archive's checkpoint cost is the published one"; else bad "the full archive's checkpoint cost: $(grep 'checkpoint cost' <<<"$out")"; fi
+# A damaged compressed timeline is that case's unreadable evidence, not the end of the report.
+cp -r hack/distributed-restart-eks/2026-11-02-smoke/session/restart "$work/smoke-damaged"
+packed="$work/smoke-damaged/terminate-wait-1/timeline.jsonl.xz"
+head -c 200 "$packed" >"$packed.cut" && mv "$packed.cut" "$packed"
+out="$(python3 experiments/distributed-restart/score_eks.py "$work/smoke-damaged" 2>&1)"
+if grep -q '^VOID *terminate-wait-1: its evidence could not be read: ValueError: timeline.jsonl.xz could not be decompressed' <<<"$out" &&
+  [[ "$(grep -c '^ACCEPTED' <<<"$out")" == 3 ]] && grep -q '^summary' <<<"$out"; then
+  ok "a damaged compressed timeline voids its case and the others are still scored"
+else
+  bad "a damaged compressed timeline: $(grep -m2 -E '^(VOID|Traceback|ValueError|_lzma)' <<<"$out")"
+fi
+out="$(python3 experiments/distributed-restart/phases_eks.py "$work/smoke-damaged" 2>&1)"
+if grep -q '^terminate-wait-1: not split' <<<"$out" && grep -q '^dcgm-1 (' <<<"$out"; then
+  ok "phases_eks.py reports past a damaged compressed timeline"
+else
+  bad "phases_eks.py with a damaged compressed timeline: $(tail -2 <<<"$out")"
+fi
 # phases_eks.py splits only what score_eks.py accepted, and its last moment is the scorer's own recovery figure.
 out="$(python3 experiments/distributed-restart/phases_eks.py "$work/run-clean" 2>&1)"
 rc=$?

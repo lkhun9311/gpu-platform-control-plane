@@ -101,6 +101,12 @@ for attempt in 1 2 3; do
   echo "$destroy" >"$KILL_PIDFILE.destroy"
   wait "$destroy"
   ttl_rc=$?
+  # timeout exits with its child and sends no KILL to a provider that ignored TERM, which stays in its group, so the
+  # group is emptied here and its record cleared only after (codex review before the re-verification).
+  if [ -n "$(pgrep -g "$destroy")" ]; then
+    kill -KILL -- "-$destroy"
+    echo "[ttl] killed what outlived attempt $attempt in its group $destroy" >>"$KILL_LOG"
+  fi
   : >"$KILL_PIDFILE.destroy"
   [ "$ttl_rc" = 0 ] && break
   echo "[ttl] attempt $attempt failed rc=$ttl_rc" >>"$KILL_LOG" 2>&1

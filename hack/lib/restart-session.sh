@@ -71,6 +71,9 @@ RESTART_FENCED_ANN=platform.lkhun9311.github.io/fenced-nodes
 RESTART_FAULT_FLAGS=(--gpu-fault-source=dcgm --gpu-fault-evict-workloads)
 # The commit whose fix the restart controller needs; a deployed revision without it is not the controller this tests.
 RESTART_CONTROLLER_COMMIT=65874ddb
+# The commit that records each rank node's UID (status.attempts[].nodeUIDs); a run that claims that protection needs it
+# deployed, and the gate requires it and the CRD field that keeps it (codex review before the re-verification).
+RESTART_NODE_UID_COMMIT=f7b8f9ca
 
 # restart_cases: the cases of RESTART_STAGE, in the registered order, one per line; fails for any other stage.
 #
@@ -300,7 +303,10 @@ restart_render_job() {
   # Without that every retired rank waited out the 30 s grace period: on kind the shell as rendered took 31.8 s to
   # delete and one that forwarded TERM 1.0 s, and the paid full stage's stop barrier held 30 to 39 s on the old Job's
   # deletion in every rank-kill and dcgm case (experiments/distributed-restart/README.md).
-  # wait returns the trainer's own status, so a rank that killed itself for a fault still fails its Job.
+  # A TERM interrupts wait, so the shell waits again until the trainer itself has exited and leaves with its status:
+  # leaving at the first wait ended the shell at 143 with the trainer still running, and the trainer then died only
+  # because PID 1 had (codex review before the re-verification). A rank that killed itself for a fault still fails its
+  # Job with 137.
   body="$(printf '%s\n' \
     "echo $(base64 -w0 "$RESTART_TRAIN_PY") | base64 -d >/tmp/train.py" \
     "echo \"$sha  /tmp/train.py\" | sha256sum -c - >/dev/null || exit 86" \
@@ -313,7 +319,10 @@ restart_render_job() {
     "python /tmp/train.py &" \
     "child=\$!" \
     "trap 'kill -TERM \$child' TERM" \
-    "wait \$child")"
+    "wait \$child" \
+    "rc=\$?" \
+    "while [ -d /proc/\$child ]; do wait \$child; rc=\$?; done" \
+    "exit \$rc")"
   python3 -c '
 import json, sys
 name, ns, queue, image, claim, mount, body = sys.argv[1:8]
@@ -382,6 +391,10 @@ restart_operator_gate() {
     echo "the deployed revision $rev does not contain the restart controller ($RESTART_CONTROLLER_COMMIT); promote it to main first"
     return 1
   fi
+  if ! git merge-base --is-ancestor "$RESTART_NODE_UID_COMMIT" "$rev" 2>&1; then
+    echo "the deployed revision $rev does not contain the node UID record ($RESTART_NODE_UID_COMMIT); promote it to main first"
+    return 1
+  fi
   expected="$(git show "$rev:config/manager/kustomization.yaml" 2>&1 | sed -n 's/^- digest: \(sha256:[0-9a-f]\{64\}\)$/\1/p' | head -1)"
   [[ -n "$expected" ]] || {
     echo "no operator digest in config/manager/kustomization.yaml at $rev"
@@ -409,12 +422,8 @@ for p in ready:
     echo "could not read the MLTrainingJob CRD: ${crd:0:200}"
     return 1
   }
-  python3 -c '
-import json, sys
-v = [v for v in json.loads(sys.argv[1])["spec"]["versions"] if v.get("storage")][0]
-d = v["schema"]["openAPIV3Schema"]["properties"]["spec"]["properties"]["distributed"]["properties"]
-sys.exit(0 if "maxRestarts" in d else 1)' "$crd" 2>&1 || {
-    echo "the deployed MLTrainingJob CRD has no spec.distributed.maxRestarts"
+  out="$(restart_crd_check "$crd")" || {
+    echo "$out"
     return 1
   }
   out="$(restart_render_job restart-gate-missing "$RESTART_NS" "$RESTART_QUEUE" restart-gate reference |
@@ -427,7 +436,29 @@ sys.exit(0 if "maxRestarts" in d else 1)' "$crd" 2>&1 || {
     echo "a registered case's job was refused by the API server: ${out:0:300}"
     return 1
   }
-  echo "operator at $rev runs $expected, the CRD has maxRestarts, and the webhook refuses a missing claim and accepts a case"
+  echo "operator at $rev runs $expected, the CRD has maxRestarts and nodeUIDs, and the webhook refuses a missing claim and accepts a case"
+}
+
+# restart_crd_check CRD_JSON: fails, naming the field, unless the deployed MLTrainingJob CRD's storage version declares
+# both spec.distributed.maxRestarts and status.attempts[].nodeUIDs.
+#
+# A field the schema lacks is pruned from what the operator writes, so a status without nodeUIDs would leave the barrier
+# on the name-only check while the run reported the UID protection as tested (codex review before the re-verification).
+restart_crd_check() {
+  python3 -c '
+import json, sys
+try:
+    v = [v for v in json.loads(sys.argv[1])["spec"]["versions"] if v.get("storage")][0]
+    props = v["schema"]["openAPIV3Schema"]["properties"]
+except (ValueError, KeyError, IndexError, TypeError) as exc:
+    sys.exit(f"the deployed MLTrainingJob CRD could not be read: {type(exc).__name__}")
+spec = props.get("spec", {}).get("properties", {}).get("distributed", {}).get("properties", {})
+attempt = props.get("status", {}).get("properties", {}).get("attempts", {}).get("items", {}).get("properties", {})
+if "maxRestarts" not in spec:
+    sys.exit("the deployed MLTrainingJob CRD has no spec.distributed.maxRestarts")
+if "nodeUIDs" not in attempt:
+    sys.exit("the deployed MLTrainingJob CRD has no status.attempts[].nodeUIDs, so the operator could not keep them")
+' "$1" 2>&1
 }
 
 # The widest bracket a clock probe may have, score_eks.py's CLOCK_BRACKET_S: a probe wider than this is retried here,

@@ -1,6 +1,6 @@
 # Distributed restart: a distributed MLTrainingJob survives the loss of a rank by restarting the whole job from a checkpoint
 
-Written 2026-11-01. Status: **built and run on kind; not yet run on GPUs.** The controller, webhook and trainer protocol were merged to `dev` in #465, and what ran is in `experiments/distributed-restart/README.md`: the kind cases, including a rank cut from the API server that kept writing until it was fenced, and the checkpoint protocol's local check. The paid GPU session's apparatus is the DRAFT section "The paid session: apparatus" below, not yet approved.
+Written 2026-11-01. Status: **run on kind, then on GPUs: `smoke` on 2026-11-02 with 4 of 4 cases ACCEPTED, and `full` on 2026-11-04 with 10 of 10 ACCEPTED.** Those results apply to their recorded revisions; the changes made after `full` have not been run on GPUs. The controller, webhook and trainer protocol were merged to `dev` in #465, and what ran is in `experiments/distributed-restart/README.md`: the kind cases, including a rank cut from the API server that kept writing until it was fenced, and the checkpoint protocol's local check. The paid GPU session's apparatus is the section "The paid session: apparatus" below.
 Until this line it said: "DRAFT v2 (revised after a cold attack, 2026-11-01; the findings and answers are at the end), design only; nothing below is built or measured yet". The text below is that draft, and every file:line in it is at `origin/dev` `6647d9bd`, before the merge.
 Engines: the contract was attacked and redesigned with codex `gpt-6-astra` (2026-10-31, read-only); the choice of a same-name Job below departs from its proposal and says why.
 
@@ -125,7 +125,7 @@ No automatic force deletion of an unreachable node's Pods, ever; that decision s
 
 ## The paid session: apparatus
 
-Written 2026-11-01. Status: **`smoke` approved by the owner on 2026-11-02, and `full` on 2026-11-03.** Nothing else here authorises a purchase; only the owner's explicit approval starts a paid session.
+Written 2026-11-01. Status: **`smoke` approved by the owner on 2026-11-02, and `full` on 2026-11-03; both have run.** A further paid run needs a registration naming its scope and revisions, and the owner's approval of it. Nothing else here authorises a purchase; only the owner's explicit approval starts a paid session.
 Before `full`, codex `gpt-6-astra` reviewed, read-only, what `full` runs that `smoke` did not (7 findings) and took a census of the whole apparatus (56 findings), and each fix was reviewed as its own commit.
 Fixed before `full` (marked `E<n>` where they change this section):
 - A case's files are deleted only after they are read.
@@ -144,22 +144,22 @@ Known and not fixed for `full`, because each needs a new trainer hash or a new o
 - The controller judges a DCGM handoff after a failed Job, so a race can record `RankFailed` and fail a DCGM case.
 - The controller's fence and Ready checks are bound to node names, not node identity, so a replacement that takes the old name can satisfy them.
 
-Fixed after `full`, so neither paid stage ran with these fixes, and a later paid run would be the first to:
-- The trainer passes over a checkpoint whose manifest parses but is malformed, or names another checkpoint's directory, or whose shard is there but cannot be read, and resumes from the one before. Each of the three raised out of the search before.
-- The rank join is bounded by one 600 s deadline. `check_protocol.py` and `check_rendezvous.py` show each case failing on the previous trainer. The trainer's sha256 is now `2c5cdbf0…572c`, which a later paid run must approve.
+Changed after `full`, so neither paid stage ran with these changes. A later paid run would exercise their normal paths, but would not verify a corrected failure mode unless it induced that mode:
+- The trainer passes over a checkpoint whose manifest parses but is malformed, or names another checkpoint's directory, or whose shard is there but cannot be read, and searches the older ones collectively. Before, the malformed manifest and the unreadable shard raised out of the search, and the other directory's manifest could be accepted.
+- After the rendezvous store is built, the key barrier gets only what is left of one 600 s deadline. `check_rendezvous.py` covers a late connection followed by a stalled barrier; that is not a hard bound on every start-up operation, since the store's construction and its later calls keep their own timeouts. The trainer's sha256 is now `2c5cdbf09fdb4c8149443a806396fdf73f7176ea1adb174f5fe8052cb53f572c`, which a later paid run's registration must name.
 - The controller reads the GPU fault handoff before a failed Job.
-- It records each rank node's UID and does not take a Ready Node with another UID under that name as proof that the rank stopped (#489). Both take effect in the operator image built from `main` after that merge.
+- It records each rank node's UID and does not take a Ready Node with another UID under that name as proof that the rank stopped (#489). The fence's acknowledgement is still bound to the node's name. The UID check needs both the operator image built from `main` after that merge and a deployed CRD that keeps `status.attempts[].nodeUIDs`, which the session's gate now requires.
 - The rendered command hands TERM on to the trainer.
 
-  Its shell is PID 1, which drops a TERM it has no handler for, so every retired rank used to wait out the 30 s grace period before its KILL. On kind, a Pod with the command as rendered took 31.8 s to delete, and one that forwarded TERM took 1.0 s.
+  Its shell is PID 1, which drops a TERM it has no handler for. On kind, a Pod with the old command took 31.8 s to delete, and one that forwarded TERM took 1.0 s; that probe did not measure the trainer's graceful clean-up or NCCL and EFS recovery.
 
-  In `full`, the stop barrier held 30 to 39 s on the old Job's deletion in every `rank-kill` and `dcgm` case (`phases_eks.py`). So a later run's recoveries of those kinds are expected to be about 30 s shorter, and are not comparable with `full`'s.
+  In `full`, the samples during the stop barrier read a wait on the old Job's deletion in all four `rank-kill` and `dcgm` cases (`phases_eks.py`). A faster retirement on EKS with the new command is a hypothesis, not an established 30 s improvement. A later run's figures may be set beside `full`'s, reported apart, but a difference cannot be put down to the TERM forwarding alone, because the trainer and operator changed too.
 
-Known and not fixed in the session's own teardown: the residue check does not query EFS, and the watchdog's destroy allowance is not enforced.
-These are checked by hand after the session.
+After `full`, the session's teardown added an EFS residue query and a time limit on each of the watchdog's destroy attempts, which kills whatever is left in the attempt's process group when the attempt ends.
+Teardown is still unverified, and checked by hand, whenever a residue query fails or a clean-up process survives.
 The approval came after the kind rehearsal found D1 and before it was fixed, so `smoke` starts only from a commit whose kind rehearsal recovers `terminate-wait-1` on a late replacement.
 **`smoke` ran on 2026-11-02 from `5c78d4cf`: all four cases ACCEPTED** (`hack/distributed-restart-eks/2026-11-02-smoke/README.md`).
-`dcgm-1` recovered on the spare in 37.3 s and `terminate-wait-1` on the replacement in 409.4 s, 334 s of which was the old instance's shutdown before EC2 called it terminated; both resumed from step 25 with no step lost and parameters equal to the reference, and the control differed by 0.106.
+`dcgm-1` recovered on the spare in 37.3 s and `terminate-wait-1` on the replacement in 409.4 s; in the latter, 334.3 s passed from the termination call to the runner's first read of EC2's state as `terminated`. Both resumed from step 25 with no recorded step lost and final parameters equal to the reference, and the control differed by 0.106.
 One case of each kind, so one observation each.
 It took three launches: EC2 refused an apostrophe in the EFS security group's description, then every warm-up Pod got the same name from EKS's node names; neither bought a case, and with two more defects found before the third launch (the exporter's port and the clock probe's credential plugin, #483) each is recorded in that README.
 **`full` ran on 2026-11-04 from `f8ae0f94`, in one launch: all ten cases ACCEPTED** (`hack/distributed-restart-eks/2026-11-04-full/README.md`).
@@ -169,9 +169,9 @@ Recovery medians over two cases each:
 - `terminate-spare`: 346.3 s on the spare, none lost.
 - `terminate-wait`: 411.2 s on a replacement, 0 and 1 lost.
 
-Every resumed case's parameters equal the reference.
-Of each termination's recovery, 336 to 345 s was EC2's own shutdown before it called the instance terminated; after the fence, a spare resumed in about 5 s and a replacement in about 75 s.
-Two cases of each kind, so the path worked twice; not a distribution.
+All eight fault cases ended with final parameters equal to the reference; the resumed no-rng-control differed, as it must.
+In the four termination cases, 335.7 to 345.4 s passed from the termination call to the runner's first read of EC2's state as `terminated`; from the fence to both ranks' first step took 4.7 to 4.9 s on a spare and 74.4 to 75.2 s on a replacement, intervals that do not identify the individual start-up costs.
+Each kind has two ACCEPTED observations under `full`'s recorded configuration; they establish neither a success probability nor coverage of failure modes not induced, nor of later revisions.
 This section is step 5 above, the GPU session, as an apparatus: what is built, what is scored, what stops it, and what it costs.
 It was attacked as a plan by codex `gpt-6-astra` (read-only, 2026-11-01) before it was written down; its twenty findings were each checked against the code at `863154a7`, and where one changed the plan the item says so (`A<n>`).
 The runner's plan was attacked the same way before the runner was written, and its eighteen findings, checked the same way, are marked `B<n>`; three of them corrected this section as first committed (the trigger's attempt, the deadline and the cost).
@@ -233,7 +233,7 @@ Every case runs 30 steps with `CKPT_STEP_SLEEP=2`, about a minute of training an
 The registered timeout is therefore part of every figure where the faulted rank cannot report its own failure, and the record says so.
 `CKPT_RENDEZVOUS_TIMEOUT=600` bounds only the ranks' join, before training: `train.py` builds the rendezvous store with that wait from whichever rank arrives first, then puts the store and every collective back at the 60 s (D1).
 Without it the join was bounded by the 60 s too, and a `terminate-wait` attempt 2, whose rank 1 waits for a replacement node, its image pull and its mount, failed at 61 s with "1/2 clients joined" on kind.
-600 s is below the 720 s case budget, so a peer that never comes fails the attempt rather than only censoring it.
+The 600 s applies within an attempt, while the 720 s case budget runs from the job's creation; attempt 2 starts after the failure and the stop barrier, so a missing peer can leave the case censored at its budget before the rendezvous timeout ends the attempt.
 `experiments/distributed-restart/check_rendezvous.py` shows a rank 15 s late joining from either side, the same start failing without the setting, and a peer frozen after the join still failing the survivor at the collective timeout and not the rendezvous one; on gloo only, so NCCL's exchange through the store at its first collective, which the restored store timeout is for, is not exercised.
 Whether a g5 replacement joins, pulls 3.3 GB and mounts EFS within the 720 s case budget is not known before `smoke`; a case it does not fit is FAILED, censored, and the budget is not widened for it.
 `NCCL_DEBUG=INFO`, `NCCL_DEBUG_SUBSYS=INIT,NET` and `NCCL_DEBUG_FILE` on the shared volume, so NCCL's lines do not share stdout with the trainer's JSON records; on stdout they already interleaved mid-line in `hack/four-gpu/2026-10-29-run5` (A17).
@@ -252,10 +252,10 @@ The scorer still reads trainer records wherever they start in a line, in case an
 `RESTART_STAGE` is required and names one of the two columns.
 `smoke` is four cases, one of every path the session depends on (NCCL save and resume, the DCGM fault path and its reset, a cold replacement on EFS, EC2 termination and fencing), and its evidence is read before `full` is asked for (C1).
 `full` was registered at five of every kind; at two it needs a 524-minute deadline, and at three 689, past what a fresh credential covers (below), so two is the most one session can hold.
-Two runs of a kind are evidence that the path works twice, not a distribution, and the record says so.
+Two ACCEPTED runs of a kind establish neither a success probability nor coverage of failure modes not induced, and the record says so.
 
 An external fault waits for a published checkpoint, read from `LATEST` through rank 0's own mount, and is refused, and the case VOID, if step 25 has already been recorded, checked last, immediately before the injection, so a fault cannot land after training ended or before anything could be resumed (A9, B11).
-The `reference` run's final parameters are what every resumed case is compared with, and the `no-rng-control` must differ from them: CPU equality cannot vouch for the CUDA RNG path, which has never run, and a control that drops it shows the comparison can see it (A11).
+The `reference` run's final parameters are what every resumed case is compared with, and the `no-rng-control` must differ from them: CPU equality cannot vouch for the CUDA RNG path, which no CPU rehearsal ran, and a control that drops it shows the comparison can see it (A11). The paid stages ran this path on their recorded trainer revisions; that does not validate every CUDA checkpoint failure mode.
 
 **Between cases**, the runner deletes the case's job and waits for its Jobs, Pods and Workloads to be gone before it copies the case's files off the volume and deletes them, so a case censored at its budget stops writing before its state goes and never shares the queue with the next (B5).
 It then waits until the group holds its registered count of qualified nodes (three, or two for `terminate-wait`), none tainted by the fault path, creates a NodeHealth for, and warms, any node it has not seen, which is how a replacement is prepared, after the case it arrived in and before it can be some later case's spare (A10, A14, B10).

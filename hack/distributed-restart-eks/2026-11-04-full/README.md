@@ -27,9 +27,9 @@ The per-kind figures, as the scorer's summary prints them:
 - dcgm: spare, median 37.7 s, range 37.4 to 37.9 s, lost steps [0, 0].
 - terminate-spare: spare, median 346.3 s, range 341.5 to 351.1 s, lost steps [0, 0].
 - terminate-wait: replacement, median 411.2 s, range 410.6 to 411.7 s, lost steps [0, 1].
-- Checkpoint cost: median 0.255 s, max 0.412 s, over 540 saves of two 16 MiB shards to EFS.
+- Checkpoint cost: median 0.255 s, max 0.412 s, over 540 per-rank save records to EFS, each shard 16 MiB of ballast plus the training state; no-rng-control is not in the aggregate.
 
-Two cases of each kind are evidence that the path worked twice, not a distribution.
+Each kind has two ACCEPTED observations under this run's recorded configuration; that is neither a reliability estimate nor coverage of other failure modes or later revisions.
 
 ## What the termination figures are made of
 
@@ -42,8 +42,9 @@ From each case's `marks.jsonl`:
 | terminate-wait-1 | 335.7 s | 336.2 s | 410.6 s |
 | terminate-wait-2 | 336.0 s | 336.5 s | 411.7 s |
 
-So 336 to 345 s of every termination recovery is the old instance's graceful shutdown before EC2 calls it terminated, which the fence waits for by registration.
-After the fence, a spare resumed training in about 5 s, and a replacement in about 75 s, its join, image pull and mount; the records do not separate those three.
+So 335.7 to 345.4 s passed from each termination call to the runner's first read of EC2's state as `terminated`, which the fence waits for by registration.
+Those records do not separate the guest's shutdown, EC2's state transition, API latency and the runner's polling.
+From the fence to both ranks' first step took 4.7 to 4.9 s on a spare and 74.4 to 75.2 s on a replacement; that includes the remaining controller, scheduling, node, image, mount, rendezvous, checkpoint-loading and start-up work, which these records do not separate.
 
 ## Cost
 
@@ -55,5 +56,5 @@ So about $5.5, an estimate, against the registered ceiling of $36.09.
 ## What this does not show
 
 - More than two cases of a kind.
-- How a replacement's 75 s divide between its join, its 3.3 GB pull and the EFS mount.
+- How a replacement's 75 s after the fence divide among the remaining replacement and trainer start-up work.
 - The limits the registration lists as not fixed for `full`: the trainer's manifest and shard-read fallbacks, the rendezvous bound being up to twice 600 s, the controller's ordering of a DCGM handoff after a failed Job, and fencing bound to node names.

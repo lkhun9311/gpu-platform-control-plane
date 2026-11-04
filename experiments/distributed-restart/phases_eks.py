@@ -2,10 +2,10 @@
 
     python3 experiments/distributed-restart/phases_eks.py <run directory>
 
-score_eks.py gives one figure per case, from the fault to the first step every rank of attempt 2 took. Most of a
-termination's figure was EC2's own shutdown (hack/distributed-restart-eks/2026-11-04-full/README.md), and the rest
-could not be told apart without reading the records again; this reads them again and prints, for each case, when each
-of these moments came after the fault:
+score_eks.py gives one figure per case, from the fault to the first step every rank of attempt 2 took. In full's
+termination cases most of it passed before the runner first read EC2's state as terminated
+(hack/distributed-restart-eks/2026-11-04-full/README.md), an interval that is not a measurement of the guest's shutdown;
+this reads the records again and prints, for each case, the stamp difference from the fault of each recorded milestone:
 
     trigger      the controller saw what ended attempt 1          status.attempts[0].failureObservedAt   cluster clock
     terminated   EC2 first described the instance as terminated   marks.jsonl terminated-read            runner clock
@@ -19,9 +19,10 @@ of these moments came after the fault:
 
 Only cases score_eks.py ACCEPTED are split, with its own clock correction and fault time, so a phase is never read
 from records the scorer refused.
-The cluster's stamps are whole seconds from the API server and the controller, which nothing here measures against
-the runner's clock, so a phase that ends or starts on one is known to about a second, and is marked so; a phase
-measured between two clocks is not a duration either clock saw, and is printed as the difference it is.
+The cluster's stamps are whole seconds from the API server and the controller, whose offset from the runner's clock
+nothing here measures, so a milestone on one is marked; the mark names that limitation and is not a one-second error
+bound. A difference between two clocks is not a duration either clock saw, and is printed as the difference it is.
+The milestones come from different components and need not fall in the order they are printed in.
 """
 
 from __future__ import annotations
@@ -44,7 +45,10 @@ CLUSTER_CLOCK = {"trigger", "stopped", "created", "ready"}
 
 
 def moments(case) -> dict[str, float]:
-    """Each moment of an accepted case as seconds after its fault, on the runner's clock."""
+    """Each milestone of an accepted case as its stamp's difference from the fault.
+
+    The nodes' stamps carry the scorer's correction to the runner's clock; the cluster's keep their unmeasured offset.
+    """
     fault, _ = case.fault_time()
     first, second = case.attempts[0], case.attempts[1]
     out: dict[str, float] = {}
@@ -102,7 +106,8 @@ def main(argv: list[str]) -> int:
         by_kind.setdefault((case.kind, str(case.figures.get("class"))), []).append(at)
         line = "  ".join(f"{m} +{at[m]:.1f}{'*' if m in CLUSTER_CLOCK else ''}" for m in MOMENTS if m in at)
         print(f"{name} ({case.figures.get('class')}): {line}")
-    print("medians, seconds after the fault (* a whole-second cluster stamp):")
+    print("medians of stamp differences from the fault, in seconds "
+          "(* a whole-second cluster stamp, its offset from the runner unmeasured):")
     for (kind, cls), rows in by_kind.items():
         line = "  ".join(f"{m} +{statistics.median(r[m] for r in rows):.1f}{'*' if m in CLUSTER_CLOCK else ''}"
                          for m in MOMENTS if all(m in r for r in rows))
