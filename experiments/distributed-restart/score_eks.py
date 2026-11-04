@@ -473,8 +473,11 @@ class Case:
                  f"fence-request {self.marks['fence-request']} and fenced {self.marks['fenced']}: the fence was asked "
                  f"for before EC2 reported the instance terminated, or EC2 before the call")
         ack = str(((self.final.get("metadata") or {}).get("annotations") or {}).get(FENCE_ANNOTATION, ""))
-        if target.get("node") not in ack.split(","):
-            void(f"the job's fenced-nodes annotation is {ack!r}, not naming the target {target.get('node')}")
+        # An entry may bind the name to one machine as name@uid, and then it must be the machine attempt 1 ran on.
+        node = target.get("node")
+        uid = ((self.attempts[0].get("nodeUIDs") or {}).get(node)) if self.attempts else None
+        if node not in ack.split(",") and not (uid and f"{node}@{uid}" in ack.split(",")):
+            void(f"the job's fenced-nodes annotation is {ack!r}, not naming the target {node}")
 
     def check_barrier(self) -> None:
         """Attempt 2 of a termination case was created only after the fence, on the runner's clock where it can be.
