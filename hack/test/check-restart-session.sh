@@ -405,6 +405,22 @@ else
   bad "EKS node names: $out; $names distinct warm-up Pod name(s), $long over 63 characters"
 fi
 
+# The gate's CRD check reads the repository's own CRD as deployed, and refuses one without either field.
+crd_json="$(python3 -c 'import json, sys, yaml; print(json.dumps(yaml.safe_load(open(sys.argv[1]))))' config/crd/bases/platform.lkhun9311.github.io_mltrainingjobs.yaml 2>&1)"
+out="$(bash -c '. hack/lib/train-session.sh; . hack/lib/gpu-ttl.sh; . hack/lib/gpu-fault.sh; . hack/lib/restart-session.sh; restart_crd_check "$1"; echo "rc=$?"' _ "$crd_json")"
+if [[ "$out" == "rc=0" ]]; then ok "the repository's CRD has both fields the gate requires"; else bad "the gate refuses the repository's own CRD: $out"; fi
+for drop in nodeUIDs maxRestarts; do
+  bent="$(python3 -c '
+import json, sys
+c = json.loads(sys.argv[1]); drop = sys.argv[2]
+for v in c["spec"]["versions"]:
+    p = v["schema"]["openAPIV3Schema"]["properties"]
+    p["status"]["properties"]["attempts"]["items"]["properties"].pop("nodeUIDs", None) if drop == "nodeUIDs" else p["spec"]["properties"]["distributed"]["properties"].pop("maxRestarts", None)
+print(json.dumps(c))' "$crd_json" "$drop")"
+  out="$(bash -c '. hack/lib/train-session.sh; . hack/lib/gpu-ttl.sh; . hack/lib/gpu-fault.sh; . hack/lib/restart-session.sh; restart_crd_check "$1"; echo "rc=$?"' _ "$bent")"
+  if [[ "$out" == *"has no"*"$drop"*"rc=1" ]]; then ok "a CRD without $drop is refused"; else bad "a CRD without $drop: $out"; fi
+done
+
 # A failed read of the taints is not "no node tainted".
 mkdir -p "$work/rules/taints"
 cat >"$work/rules/taints/kubectl.sh" <<'EOF'
