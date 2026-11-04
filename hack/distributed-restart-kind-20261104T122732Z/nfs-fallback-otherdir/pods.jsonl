@@ -1,0 +1,4 @@
+{"pod": "rst-nfs-fallback-otherdir-123756-0-gccjs", "uid": "97eec718-3927-4911-9a73-b97e5d5e2695", "node": "rstnfs-worker2", "attempt": "1", "rank": "0"}
+{"pod": "rst-nfs-fallback-otherdir-123756-1-csz26", "uid": "bd83ce53-b879-4589-94fc-85a67ade6d3d", "node": "rstnfs-worker", "attempt": "1", "rank": "1"}
+{"pod": "rst-nfs-fallback-otherdir-123756-0-zv9n5", "uid": "7fbfd1b2-2dc3-4113-aef7-b24794a8afec", "node": "rstnfs-worker2", "attempt": "2", "rank": "0"}
+{"pod": "rst-nfs-fallback-otherdir-123756-1-q427m", "uid": "096ab7b6-54db-409c-b281-0cb4372b1501", "node": "rstnfs-worker3", "attempt": "2", "rank": "1"}

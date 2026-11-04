@@ -1,0 +1,25 @@
+commit=e8b8410e12302f09de5daa5a4f896f3f176a92a3
+dirty_files=0
+kind=kind v0.33.0 go1.25.7 linux/amd64
+kueue=v0.18.3
+cert_manager=v1.21.1
+train_py_sha256=2db31cbd3ea00e76ef91f7c8710af391db40089878a7b30c6df712f16686bec8
+tree_train_py_sha256=2c5cdbf09fdb4c8149443a806396fdf73f7176ea1adb174f5fe8052cb53f572c
+trainer_rev=8d3c83c1
+rendezvous_timeout=600
+collective_timeout=60
+late_join=420
+paid_budget=720
+steps=20
+cases=reference nfs-fallback-malformed nfs-fallback-otherdir nfs-fallback-unreadable
+storage=nfs
+nfs_server_image=registry.k8s.io/sig-storage/nfs-provisioner@sha256:c825f3d5e28bde099bd7a3daace28772d412c9157ad47fa752a9ad0baafc118d
+nfs_efs_options=nfsvers=4.1 rsize=1048576 wsize=1048576 hard timeo=600 retrans=2 noresvport
+nfs_long_options=nfsvers=4.1 rsize=1048576 wsize=1048576 hard timeo=600 retrans=2 noresvport actimeo=600
+nfs_fresh_options=nfsvers=4.1 rsize=1048576 wsize=1048576 hard timeo=600 retrans=2 noresvport lookupcache=none actimeo=0
+host_kernel=7.0.0-31-generic
+workload_image=sha256:04e9bb0f2df7b3f71f7f643f3f6bd3092a3e259c55ba13d853520b6d302e483a
+node_image=kindest/node:v1.37.0@sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5
+directory_delegations_was=Y
+directory_delegations_run=N
+nfs_server=10.96.98.79

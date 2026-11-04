@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import datetime
 import json
+import lzma
 import math
 import pathlib
 import re
@@ -84,10 +85,21 @@ def check(name: str, ok: bool, detail: str) -> None:
 
 
 def lines(path: pathlib.Path) -> list[dict]:
-    if not path.exists():
+    # A committed archive may hold a large record xz-compressed beside where the plain one would be, as score_eks.py
+    # reads the paid archives'; reading only the plain name would score such a case on no samples.
+    packed = path.with_name(path.name + ".xz")
+    if path.exists():
+        text = path.read_text()
+    elif packed.exists():
+        # LZMAError is not a ValueError, so a damaged archive would otherwise end the report instead of failing a check.
+        try:
+            text = lzma.decompress(packed.read_bytes()).decode()
+        except lzma.LZMAError as exc:
+            raise ValueError(f"{packed} could not be decompressed: {exc}") from exc
+    else:
         return []
     out = []
-    for line in path.read_text().splitlines():
+    for line in text.splitlines():
         line = line.strip()
         if line.startswith("{"):
             try:
@@ -107,7 +119,10 @@ class Case:
         self.status = self.final.get("status") or {}
         self.attempts = self.status.get("attempts") or []
         # The foreground's samples and, in the cut cases, the background sampler's, in the order they were observed.
-        self.timeline = sorted((s for f in sorted(self.dir.glob("timeline*.jsonl")) for s in lines(f)
+        # Each sample file once, by its plain name, whether it is stored plain or compressed.
+        names = sorted({f.name.removesuffix(".xz") for f in self.dir.glob("timeline*.jsonl*")
+                        if f.name.endswith((".jsonl", ".jsonl.xz"))})
+        self.timeline = sorted((s for n in names for s in lines(self.dir / n)
                                 if ts(s.get("observed")) is not None), key=lambda s: ts(s["observed"]))
         self.marks = lines(self.dir / "marks.jsonl")
         self.records = [r for f in sorted(self.dir.glob("log-*.txt")) for r in lines(f)]

@@ -1,0 +1,2 @@
+{"when": "before", "dir": "a1/00000006-79b2a76ddb9743a5a377a817ca477774", "manifest_sha256": "1a32755cecc68bf34c7dbede2b35dc79579f29d708c5e1eec7f27439e1cf7049", "rank1_type": "regular file"}
+{"when": "after", "dir": "a1/00000006-79b2a76ddb9743a5a377a817ca477774", "manifest_sha256": "1a32755cecc68bf34c7dbede2b35dc79579f29d708c5e1eec7f27439e1cf7049", "rank1_type": "directory"}

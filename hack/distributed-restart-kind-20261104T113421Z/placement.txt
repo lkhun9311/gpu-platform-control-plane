@@ -1,0 +1,27 @@
+NAMESPACE                           NAME                                                             READY   STATUS        RESTARTS   AGE     IP            NODE                   NOMINATED NODE   READINESS GATES
+cert-manager                        cert-manager-6bdf656698-7hxsn                                    1/1     Running       0          24s     10.244.0.8    rstnfs-control-plane   <none>           <none>
+cert-manager                        cert-manager-cainjector-6c647cc946-9fb9n                         1/1     Running       0          7s      10.244.0.10   rstnfs-control-plane   <none>           <none>
+cert-manager                        cert-manager-webhook-597d685979-xsjhp                            1/1     Running       0          17s     10.244.0.9    rstnfs-control-plane   <none>           <none>
+gpu-platform-control-plane-system   gpu-platform-control-plane-controller-manager-5c9947948f-8hf7t   1/1     Running       0          55s     10.244.0.6    rstnfs-control-plane   <none>           <none>
+gpu-platform-control-plane-system   gpu-simulator-79t7r                                              1/1     Running       0          65s     10.244.1.4    rstnfs-worker3         <none>           <none>
+gpu-platform-control-plane-system   gpu-simulator-c96hw                                              1/1     Running       0          66s     10.244.0.5    rstnfs-control-plane   <none>           <none>
+gpu-platform-control-plane-system   gpu-simulator-fx8x5                                              1/1     Running       0          65s     10.244.3.4    rstnfs-worker          <none>           <none>
+gpu-platform-control-plane-system   gpu-simulator-ndjnx                                              1/1     Running       0          65s     10.244.2.4    rstnfs-worker2         <none>           <none>
+kube-system                         coredns-559f6c778d-cf46j                                         1/1     Terminating   0          2m13s   10.244.0.2    rstnfs-control-plane   <none>           <none>
+kube-system                         coredns-559f6c778d-jvc9x                                         1/1     Terminating   0          2m13s   10.244.0.4    rstnfs-control-plane   <none>           <none>
+kube-system                         coredns-84dc4f465b-557fh                                         1/1     Running       0          1s      10.244.0.12   rstnfs-control-plane   <none>           <none>
+kube-system                         coredns-84dc4f465b-9fq6v                                         1/1     Running       0          1s      10.244.0.11   rstnfs-control-plane   <none>           <none>
+kube-system                         etcd-rstnfs-control-plane                                        1/1     Running       0          2m21s   172.18.0.8    rstnfs-control-plane   <none>           <none>
+kube-system                         kindnet-jnhcx                                                    1/1     Running       0          2m8s    172.18.0.9    rstnfs-worker          <none>           <none>
+kube-system                         kindnet-pq7l8                                                    1/1     Running       0          2m8s    172.18.0.10   rstnfs-worker3         <none>           <none>
+kube-system                         kindnet-tb56c                                                    1/1     Running       0          2m13s   172.18.0.8    rstnfs-control-plane   <none>           <none>
+kube-system                         kindnet-ww7kg                                                    1/1     Running       0          2m8s    172.18.0.11   rstnfs-worker2         <none>           <none>
+kube-system                         kube-apiserver-rstnfs-control-plane                              1/1     Running       0          2m20s   172.18.0.8    rstnfs-control-plane   <none>           <none>
+kube-system                         kube-controller-manager-rstnfs-control-plane                     1/1     Running       0          2m20s   172.18.0.8    rstnfs-control-plane   <none>           <none>
+kube-system                         kube-proxy-clq7l                                                 1/1     Running       0          2m8s    172.18.0.10   rstnfs-worker3         <none>           <none>
+kube-system                         kube-proxy-gshvq                                                 1/1     Running       0          2m8s    172.18.0.9    rstnfs-worker          <none>           <none>
+kube-system                         kube-proxy-npg7g                                                 1/1     Running       0          2m8s    172.18.0.11   rstnfs-worker2         <none>           <none>
+kube-system                         kube-proxy-s66bv                                                 1/1     Running       0          2m13s   172.18.0.8    rstnfs-control-plane   <none>           <none>
+kube-system                         kube-scheduler-rstnfs-control-plane                              1/1     Running       0          2m20s   172.18.0.8    rstnfs-control-plane   <none>           <none>
+kueue-system                        kueue-controller-manager-5f87448ccd-f66k6                        1/1     Running       0          44s     10.244.0.7    rstnfs-control-plane   <none>           <none>
+local-path-storage                  local-path-provisioner-75f7fc7dc5-lx7vw                          1/1     Running       0          2m13s   10.244.0.3    rstnfs-control-plane   <none>           <none>

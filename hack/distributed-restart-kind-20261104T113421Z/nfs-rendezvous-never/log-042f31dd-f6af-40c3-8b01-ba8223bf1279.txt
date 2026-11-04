@@ -1,0 +1,32 @@
+/usr/local/lib/python3.12/site-packages/torch/_subclasses/functional_tensor.py:295: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at ../torch/csrc/utils/tensor_numpy.cpp:84.)
+  cpu = _conversion_method_template(device=torch.device("cpu"))
+{"ts": "2026-11-04T11:47:10.656625+00:00", "run_id": "rst-nfs-rendezvous-never-114708", "attempt": 1, "rank": 1, "event": "restart_from_zero", "load_mode": "full"}
+{"ts": "2026-11-04T11:47:10.983863+00:00", "run_id": "rst-nfs-rendezvous-never-114708", "attempt": 1, "rank": 1, "event": "start", "world_size": 2, "load_mode": "full", "resumed_from_step": 0, "steps": 20, "fault": "kill-after-latest:6", "torch_version": "2.5.1+cpu", "epoch": 0, "position": 0, "lr": 0.05, "backend": "gloo", "device": "cpu", "ballast_mb": 0, "volume": {"point": "/shared", "mount_options": "rw,relatime", "fstype": "nfs4", "source": "10.96.115.27:/", "super_options": "rw,vers=4.1,rsize=1048576,wsize=1048576,namlen=255,hard,noresvport,fatal_neterrors=ENETDOWN:ENETUNREACH,proto=tcp,timeo=600,retrans=2,sec=sys,clientaddr=172.18.0.9,local_lock=none,addr=10.96.115.27", "dev": 6291689}, "visibility_retries": 5, "shard_delay": 0.0}
+{"ts": "2026-11-04T11:47:11.078079+00:00", "run_id": "rst-nfs-rendezvous-never-114708", "attempt": 1, "rank": 1, "event": "step", "step": 1, "loss": 7.302649021148682, "digest": "281376d89323e8ca96cfd659d02825874e2ef3bfb7540e0cb2ccec5a1b6fe739", "params": null}
+{"ts": "2026-11-04T11:47:11.098200+00:00", "run_id": "rst-nfs-rendezvous-never-114708", "attempt": 1, "rank": 1, "event": "checkpoint", "step": 1, "dir": "a1/00000001-1603dfea3c4243f0adf4e3ef78a7d764", "save_s": 0.020014985464513302}
+{"ts": "2026-11-04T11:47:12.104285+00:00", "run_id": "rst-nfs-rendezvous-never-114708", "attempt": 1, "rank": 1, "event": "step", "step": 2, "loss": 9.627228736877441, "digest": "67bc721943eef12ca69d156e0b1180b703e06bfcc82376feb6abfee94bce4eeb", "params": null}
+{"ts": "2026-11-04T11:47:12.128923+00:00", "run_id": "rst-nfs-rendezvous-never-114708", "attempt": 1, "rank": 1, "event": "checkpoint", "step": 2, "dir": "a1/00000002-86af93c742c149f489db946ca65d85db", "save_s": 0.02455912809818983}
+{"ts": "2026-11-04T11:47:13.130152+00:00", "run_id": "rst-nfs-rendezvous-never-114708", "attempt": 1, "rank": 1, "event": "step", "step": 3, "loss": 7.872818470001221, "digest": "afdeeb5ec57634dce0e6b7bccf55587a85b0055391dab70eaaf6373148118081", "params": null}
+{"ts": "2026-11-04T11:47:13.149003+00:00", "run_id": "rst-nfs-rendezvous-never-114708", "attempt": 1, "rank": 1, "event": "checkpoint", "step": 3, "dir": "a1/00000003-401fbae0f62146e28811fe15b7086ee9", "save_s": 0.018776015378534794}
+{"ts": "2026-11-04T11:47:14.150353+00:00", "run_id": "rst-nfs-rendezvous-never-114708", "attempt": 1, "rank": 1, "event": "step", "step": 4, "loss": 26.825279235839844, "digest": "b07b1f3661c883767febd4ca14853328a5c882ae576c8c0d576dc3af7f9a908e", "params": null}
+{"ts": "2026-11-04T11:47:14.170281+00:00", "run_id": "rst-nfs-rendezvous-never-114708", "attempt": 1, "rank": 1, "event": "checkpoint", "step": 4, "dir": "a1/00000004-ac32d35064be4954a915f74758ebc7b3", "save_s": 0.019843545742332935}
+{"ts": "2026-11-04T11:47:15.171400+00:00", "run_id": "rst-nfs-rendezvous-never-114708", "attempt": 1, "rank": 1, "event": "step", "step": 5, "loss": 11.8800048828125, "digest": "bb8a93dc5f65c0d6d06c90e48ee8d5a815a74f7411caea001c1ca26335ea1433", "params": null}
+{"ts": "2026-11-04T11:47:15.189822+00:00", "run_id": "rst-nfs-rendezvous-never-114708", "attempt": 1, "rank": 1, "event": "checkpoint", "step": 5, "dir": "a1/00000005-2b6495a8594d4f9c847df5d4334b113c", "save_s": 0.018347025848925114}
+{"ts": "2026-11-04T11:47:16.191078+00:00", "run_id": "rst-nfs-rendezvous-never-114708", "attempt": 1, "rank": 1, "event": "step", "step": 6, "loss": 19.309452056884766, "digest": "506de6d02d3b2e1388d283125b41980fe4dd0c0a0e6c80ea5be96ffac971e3de", "params": null}
+[rank1]: Traceback (most recent call last):
+[rank1]:   File "/work/train.py", line 675, in <module>
+[rank1]:     sys.exit(main())
+[rank1]:              ^^^^^^
+[rank1]:   File "/work/train.py", line 504, in main
+[rank1]:     return train()
+[rank1]:            ^^^^^^^
+[rank1]:   File "/work/train.py", line 664, in train
+[rank1]:     save(rank, world, step, capture(step, model, optimiser, scheduler, epoch, position, ballast), fault)
+[rank1]:   File "/work/train.py", line 318, in save
+[rank1]:     dist.barrier()
+[rank1]:   File "/usr/local/lib/python3.12/site-packages/torch/distributed/c10d_logger.py", line 83, in wrapper
+[rank1]:     return func(*args, **kwargs)
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/usr/local/lib/python3.12/site-packages/torch/distributed/distributed_c10d.py", line 4164, in barrier
+[rank1]:     work.wait()
+[rank1]: RuntimeError: [../third_party/gloo/gloo/transport/tcp/pair.cc:534] Connection closed by peer [10.244.1.9]:59316
