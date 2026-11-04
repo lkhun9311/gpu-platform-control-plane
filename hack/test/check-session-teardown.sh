@@ -44,8 +44,13 @@ echo "terraform $*"
 [[ "${TF_HANGS:-}" == 1 ]] && exec sleep 300
 # Ignores TERM as a terraform busy shutting down gracefully would, so only the KILL after the grace ends it.
 [[ "${TF_HANGS:-}" == term ]] && { trap '' TERM; exec sleep 300; }
-# Exits on TERM but leaves a provider behind that ignores it, as a plugin can outlive the terraform that started it.
-[[ "${TF_HANGS:-}" == provider ]] && { (trap '' TERM; exec sleep 300) & exec sleep 300; }
+# Exits on TERM but leaves a provider behind that ignores it, as a plugin can outlive the terraform that started it;
+# it records the provider's pid so a check can find exactly that process.
+if [[ "${TF_HANGS:-}" == provider ]]; then
+  (trap '' TERM; exec sleep 300) &
+  [[ -n "${PROVIDER_PID_FILE:-}" ]] && echo $! >"$PROVIDER_PID_FILE"
+  exec sleep 300
+fi
 exit 0
 EOF
 chmod +x "$dir/bin/terraform"
@@ -77,6 +82,21 @@ if ((took < 10)) && grep -q 'force-destroy FAILED' "$dir/kill.log"; then
   ok "a destroy that ignores TERM is killed inside its allowance, in $took s"
 else
   bad "the TERM-proof destroy took $took s: $(tail -2 "$dir/kill.log" | tr '\n' ' ')"
+fi
+
+# A destroy cut at its allowance whose terraform exits on TERM leaves no provider behind: timeout exits with its child and
+# never sends the KILL, so whatever of the group outlives it must be killed by the watchdog (codex review before the
+# re-verification).
+: >"$dir/kill.log"
+: >"$dir/provider.pid"
+TF_HANGS=provider PROVIDER_PID_FILE="$dir/provider.pid" PATH="$dir/bin:$PATH" bash -c "$(program 3)"
+sleep 1
+provider="$(cat "$dir/provider.pid")"
+if [[ "$provider" =~ ^[0-9]+$ ]] && ! ps -o stat= -p "$provider" | grep -qv '^Z'; then
+  ok "a provider that outlives terraform at the allowance is killed with its group"
+else
+  bad "the provider ${provider:-never recorded} outlived its destroy's allowance"
+  [[ "$provider" =~ ^[0-9]+$ ]] && kill -9 "$provider"
 fi
 
 # Disarming while a destroy runs stops the destroy too, though timeout put it in a process group of its own, and a
