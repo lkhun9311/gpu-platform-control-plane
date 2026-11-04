@@ -1,0 +1,111 @@
+{
+    "apiVersion": "platform.lkhun9311.github.io/v1",
+    "kind": "MLTrainingJob",
+    "metadata": {
+        "annotations": {
+            "kubectl.kubernetes.io/last-applied-configuration": "{\"apiVersion\":\"platform.lkhun9311.github.io/v1\",\"kind\":\"MLTrainingJob\",\"metadata\":{\"annotations\":{},\"name\":\"rst-nfs-fallback-malformed-120502\",\"namespace\":\"rst\"},\"spec\":{\"command\":[\"sh\",\"-c\",\"export CKPT_RUN_ID=rst-nfs-fallback-malformed-120502 CKPT_DIR=/shared CKPT_JOB_ID=rst-nfs-fallback-malformed-120502 CKPT_STEPS=20 CKPT_STEP_SLEEP=1 OMP_NUM_THREADS=1 CKPT_FAULT=kill-after-latest:6\\npython /work/train.py\\n\"],\"distributed\":{\"maxRestarts\":1,\"worldSize\":2},\"gpuCount\":1,\"image\":\"distributed-restart:torch251\",\"queue\":\"gpu-rst\",\"stateVolume\":{\"claimName\":\"shared\",\"mountPath\":\"/shared\"}}}\n"
+        },
+        "creationTimestamp": "2026-11-04T12:05:02Z",
+        "finalizers": [
+            "mltrainingjob.platform.lkhun9311.github.io/finalizer"
+        ],
+        "generation": 1,
+        "name": "rst-nfs-fallback-malformed-120502",
+        "namespace": "rst",
+        "resourceVersion": "2443",
+        "uid": "d01a3f0d-199a-4dc2-ab0d-eb5825ae6074"
+    },
+    "spec": {
+        "command": [
+            "sh",
+            "-c",
+            "export CKPT_RUN_ID=rst-nfs-fallback-malformed-120502 CKPT_DIR=/shared CKPT_JOB_ID=rst-nfs-fallback-malformed-120502 CKPT_STEPS=20 CKPT_STEP_SLEEP=1 OMP_NUM_THREADS=1 CKPT_FAULT=kill-after-latest:6\npython /work/train.py\n"
+        ],
+        "completions": 1,
+        "distributed": {
+            "maxRestarts": 1,
+            "worldSize": 2
+        },
+        "gpuCount": 1,
+        "image": "distributed-restart:torch251",
+        "parallelism": 1,
+        "queue": "gpu-rst",
+        "stateVolume": {
+            "claimName": "shared",
+            "mountPath": "/shared"
+        }
+    },
+    "status": {
+        "admitToRunningSeconds": "1.723",
+        "admittedAt": "2026-11-04T12:05:02Z",
+        "attempts": [
+            {
+                "allRanksReadyAt": "2026-11-04T12:05:03Z",
+                "createdAt": "2026-11-04T12:05:02Z",
+                "failureObservedAt": "2026-11-04T12:05:11Z",
+                "jobUID": "f79fdc56-3b38-49ef-923a-4b98ac837ea2",
+                "nodeUIDs": {
+                    "rstnfs-worker": "f1c56fe0-e26f-4e59-a283-442b73b33c1c",
+                    "rstnfs-worker3": "4183b718-dacb-4595-841b-d582ca03565c"
+                },
+                "nodes": [
+                    "rstnfs-worker",
+                    "rstnfs-worker3"
+                ],
+                "number": 1,
+                "state": "Stopped",
+                "stopConfirmedAt": "2026-11-04T12:05:14Z",
+                "trigger": "RankFailed",
+                "workloadName": "job-rst-nfs-fallback-malformed-120502-3e59e",
+                "workloadUID": "252e4094-5597-436c-ab60-61677bf394b2"
+            },
+            {
+                "allRanksReadyAt": "2026-11-04T12:05:15Z",
+                "createdAt": "2026-11-04T12:05:14Z",
+                "jobUID": "39edc35d-faaa-44a4-9785-a05070687a03",
+                "nodeUIDs": {
+                    "rstnfs-worker": "f1c56fe0-e26f-4e59-a283-442b73b33c1c",
+                    "rstnfs-worker2": "98fabad4-91fe-4d1f-b187-ab5de0a8a2d3"
+                },
+                "nodes": [
+                    "rstnfs-worker",
+                    "rstnfs-worker2"
+                ],
+                "number": 2,
+                "state": "Active",
+                "workloadName": "job-rst-nfs-fallback-malformed-120502-7ff7a",
+                "workloadUID": "9e0e51cf-3038-41c5-bea0-0c654ba786d2"
+            }
+        ],
+        "conditions": [
+            {
+                "lastTransitionTime": "2026-11-04T12:05:14Z",
+                "message": "",
+                "observedGeneration": 1,
+                "reason": "JobComplete",
+                "status": "True",
+                "type": "Admitted"
+            },
+            {
+                "lastTransitionTime": "2026-11-04T12:05:02Z",
+                "message": "",
+                "observedGeneration": 1,
+                "reason": "ServiceOwned",
+                "status": "True",
+                "type": "RendezvousService"
+            },
+            {
+                "lastTransitionTime": "2026-11-04T12:05:03Z",
+                "message": "the tenant waited 1.723s between Kueue admitting this job and this controller seeing it run; the admission end is Kueue's own stamp and the running end is this controller's observation, so the interval carries one watch lag",
+                "reason": "Observed",
+                "status": "True",
+                "type": "AdmitToRunningObserved"
+            }
+        ],
+        "lastTransitionTime": "2026-11-04T12:05:34Z",
+        "observedGeneration": 1,
+        "phase": "Succeeded",
+        "readyRanks": 0,
+        "runningObservedAt": "2026-11-04T12:05:03Z"
+    }
+}

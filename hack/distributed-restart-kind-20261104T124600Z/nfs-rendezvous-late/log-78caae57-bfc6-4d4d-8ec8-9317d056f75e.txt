@@ -1,0 +1,11 @@
+/usr/local/lib/python3.12/site-packages/torch/_subclasses/functional_tensor.py:295: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at ../torch/csrc/utils/tensor_numpy.cpp:84.)
+  cpu = _conversion_method_template(device=torch.device("cpu"))
+[W1104 12:50:54.503514410 socket.cpp:752] [c10d] The IPv6 network addresses of (rst-nfs-rendezvous-late-124938-0.rst-nfs-rendezvous-late-124938-ddp-a2.rst.svc, 29500) cannot be retrieved (gai error: -2 - Name or service not known).
+[W1104 12:50:54.209345507 socket.cpp:752] [c10d] The IPv6 network addresses of (rst-nfs-rendezvous-late-124938-0.rst-nfs-rendezvous-late-124938-ddp-a2.rst.svc, 29500) cannot be retrieved (gai error: -2 - Name or service not known).
+[W1104 12:50:55.117180871 socket.cpp:752] [c10d] The IPv6 network addresses of (rst-nfs-rendezvous-late-124938-0.rst-nfs-rendezvous-late-124938-ddp-a2.rst.svc, 29500) cannot be retrieved (gai error: -2 - Name or service not known).
+[W1104 12:50:57.776255053 socket.cpp:752] [c10d] The IPv6 network addresses of (rst-nfs-rendezvous-late-124938-0.rst-nfs-rendezvous-late-124938-ddp-a2.rst.svc, 29500) cannot be retrieved (gai error: -2 - Name or service not known).
+[W1104 12:50:59.985966715 socket.cpp:752] [c10d] The IPv6 network addresses of (rst-nfs-rendezvous-late-124938-0.rst-nfs-rendezvous-late-124938-ddp-a2.rst.svc, 29500) cannot be retrieved (gai error: -2 - Name or service not known).
+[W1104 12:51:01.497904862 socket.cpp:752] [c10d] The IPv6 network addresses of (rst-nfs-rendezvous-late-124938-0.rst-nfs-rendezvous-late-124938-ddp-a2.rst.svc, 29500) cannot be retrieved (gai error: -2 - Name or service not known).
+[W1104 12:51:04.466983183 socket.cpp:752] [c10d] The IPv6 network addresses of (rst-nfs-rendezvous-late-124938-0.rst-nfs-rendezvous-late-124938-ddp-a2.rst.svc, 29500) cannot be retrieved (gai error: -2 - Name or service not known).
+[W1104 12:51:11.897731619 socket.cpp:752] [c10d] The IPv6 network addresses of (rst-nfs-rendezvous-late-124938-0.rst-nfs-rendezvous-late-124938-ddp-a2.rst.svc, 29500) cannot be retrieved (gai error: -2 - Name or service not known).
+[W1104 12:51:18.176670818 socket.cpp:752] [c10d] The IPv6 network addresses of (rst-nfs-rendezvous-late-124938-0.rst-nfs-rendezvous-late-124938-ddp-a2.rst.svc, 29500) cannot be retrieved (gai error: -2 - Name or service not known).

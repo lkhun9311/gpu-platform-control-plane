@@ -27,6 +27,18 @@ KUEUE_VERSION=v0.18.3
 CERT_MANAGER_VERSION=v1.21.1
 STEPS=20
 CASE_BUDGET=420
+# The rendezvous cases run with the paid session's settings: the join bounded by 600 s, everything after it by 60 s.
+RDZV_TIMEOUT=600
+COLL_TIMEOUT=60
+# How long after attempt 2's first rank started its peer is let in: most of the 600 s, and far past the 60 s.
+LATE_JOIN=420
+# The paid session's case budget, from the job's creation; each rendezvous case is built to end inside it.
+PAID_BUDGET=720
+# How long the harness waits for a rendezvous case to end, past the 600 s a peer that never comes takes.
+RDZV_WAIT=900
+# A commit whose train.py the workload image carries instead of the tree's, to show what a case does without a fix.
+# Built under a tag of its own, so the tree's image under IMG is never overwritten by an older trainer.
+TRAINER_REV=${TRAINER_REV:-}
 OUT=hack/distributed-restart-kind-$(date -u +%Y%m%dT%H%M%SZ)
 LOG=$OUT/log.txt
 mkdir -p "$OUT"
@@ -130,6 +142,8 @@ for c in "${CASES[@]}"; do
     hostpath:node-lost | hostpath:cut-writer | hostpath:cut-writer-early) removing=$((removing + 1)) ;;
     nfs:nfs-kill-before-fsync | nfs:nfs-kill-before-manifest | nfs:nfs-kill-before-latest | nfs:nfs-kill-after-latest) ;;
     nfs:nfs-corrupt-published | nfs:nfs-vis-efs | nfs:nfs-vis-long) ;;
+    nfs:nfs-fallback-malformed | nfs:nfs-fallback-otherdir | nfs:nfs-fallback-unreadable) ;;
+    nfs:nfs-rendezvous-late | nfs:nfs-rendezvous-never | nfs:nfs-rendezvous-never-unset) ;;
     *) die "case '$c' is unknown under STORAGE=$STORAGE" ;;
   esac
   case "$seen" in *" $c "*) die "case '$c' given twice" ;; esac
@@ -143,6 +157,15 @@ case "$seen" in *" reference "*) ;; *" rank-failed "* | *" stale-workload "* | *
 export PATH="$PWD/bin:$PATH"
 command -v kustomize >/dev/null || make kustomize >>"$LOG" 2>&1 || die "make kustomize"
 for tool in docker kind kubectl kustomize python3; do command -v "$tool" >/dev/null || die "missing tool $tool"; done
+TRAIN_CTX=experiments/distributed-restart
+if [ -n "$TRAINER_REV" ]; then
+  TRAIN_CTX=$OUT/trainer-context
+  mkdir -p "$TRAIN_CTX"
+  cp experiments/distributed-restart/Dockerfile "$TRAIN_CTX/" || die "copying the Dockerfile"
+  git show "$TRAINER_REV:experiments/distributed-restart/train.py" >"$TRAIN_CTX/train.py" 2>>"$LOG" ||
+    die "no train.py at $TRAINER_REV"
+  IMG=distributed-restart:rev-$(git rev-parse --short=8 "$TRAINER_REV")
+fi
 {
   echo "commit=$(git rev-parse HEAD)"
   # Every tracked file, since go.mod, the Dockerfiles and the Makefile feed the images as much as the sources do, and
@@ -151,7 +174,14 @@ for tool in docker kind kubectl kustomize python3; do command -v "$tool" >/dev/n
   echo "kind=$(kind version)"
   echo "kueue=$KUEUE_VERSION"
   echo "cert_manager=$CERT_MANAGER_VERSION"
-  echo "train_py_sha256=$(sha256sum experiments/distributed-restart/train.py | cut -d' ' -f1)"
+  # What the image carries, and what the tree holds; they differ only in a run made with TRAINER_REV.
+  echo "train_py_sha256=$(sha256sum "$TRAIN_CTX/train.py" | cut -d' ' -f1)"
+  echo "tree_train_py_sha256=$(sha256sum experiments/distributed-restart/train.py | cut -d' ' -f1)"
+  echo "trainer_rev=${TRAINER_REV:-tree}"
+  echo "rendezvous_timeout=$RDZV_TIMEOUT"
+  echo "collective_timeout=$COLL_TIMEOUT"
+  echo "late_join=$LATE_JOIN"
+  echo "paid_budget=$PAID_BUDGET"
   echo "steps=$STEPS"
   echo "cases=${CASES[*]}"
   echo "storage=$STORAGE"
@@ -166,7 +196,7 @@ for tool in docker kind kubectl kustomize python3; do command -v "$tool" >/dev/n
 log "provenance: $(tr '\n' ' ' <"$OUT/provenance.txt")"
 
 log "== images"
-docker build -q -t "$IMG" experiments/distributed-restart >>"$LOG" 2>&1 || die "image build"
+docker build -q -t "$IMG" "$TRAIN_CTX" >>"$LOG" 2>&1 || die "image build"
 echo "workload_image=$(docker image inspect "$IMG" --format '{{.Id}}')" >>"$OUT/provenance.txt"
 make docker-build IMG=controller:$TAG >>"$LOG" 2>&1 || die "operator image"
 make docker-build-gpu-simulator GPU_SIMULATOR_IMG=gpu-simulator:$TAG >>"$LOG" 2>&1 || die "simulator image"
@@ -631,7 +661,8 @@ with open(sys.argv[2], "a") as out:
         t = ((p.get("status", {}).get("containerStatuses") or [{}])[0].get("state") or {}).get("terminated")
         if t and p["metadata"]["uid"] not in seen:
             out.write(json.dumps({"uid": p["metadata"]["uid"], "pod": p["metadata"]["name"], "exit": t.get("exitCode"),
-                                  "reason": t.get("reason"), "finished": t.get("finishedAt")}) + "\n")
+                                  "reason": t.get("reason"), "started": t.get("startedAt"),
+                                  "finished": t.get("finishedAt")}) + "\n")
 PY
     sleep 1
   done
@@ -957,15 +988,116 @@ nfs_restart() {
     mark "$dir" "corrupted-from $idle"
     cordon=$idle
   fi
+  case "$case" in nfs-fallback-*) spoil "$case" "$name" "$dir" || return 2 ;; esac
   snapshot "$name" "$dir" held
   mark "$dir" "snapshot"
-  case "$cordon" in rank0) node=$(a1_node "$dir" 0) ;; rank1) node=$(a1_node "$dir" 1) ;; *) node=$cordon ;; esac
-  [ -n "$node" ] || { void_case "$name" "$dir" "no node to cordon for '$cordon'"; return 2; }
-  k cordon "$node" >>"$LOG" 2>&1 || { void_case "$name" "$dir" "cordoning $node failed"; return 2; }
-  mark "$dir" "cordoned $node"
+  if [ "$cordon" = one ]; then
+    # Every worker but one, so attempt 2 has a node for one rank and its peer waits Pending; one GPU per worker.
+    node=$(a1_node "$dir" 0)
+    [ -n "$node" ] || { void_case "$name" "$dir" "no node for attempt 1's rank 0"; return 2; }
+    for n in "${WORKERS[@]}"; do
+      [ "$n" = "$node" ] && continue
+      k cordon "$n" >>"$LOG" 2>&1 || { void_case "$name" "$dir" "cordoning $n failed"; return 2; }
+      mark "$dir" "cordoned $n"
+    done
+  else
+    case "$cordon" in rank0) node=$(a1_node "$dir" 0) ;; rank1) node=$(a1_node "$dir" 1) ;; *) node=$cordon ;; esac
+    [ -n "$node" ] || { void_case "$name" "$dir" "no node to cordon for '$cordon'"; return 2; }
+    k cordon "$node" >>"$LOG" 2>&1 || { void_case "$name" "$dir" "cordoning $node failed"; return 2; }
+    mark "$dir" "cordoned $node"
+  fi
   release_workload "$wl" || { void_case "$name" "$dir" "finalizer removal from $wl failed"; return 2; }
   mark "$dir" "released"
-  wait_for "$name" "$dir" "s.get('phase') == 'Succeeded' and len(a) == 2" "$CASE_BUDGET"
+  case "$case" in
+    nfs-rendezvous-*)
+      a2_first_started "$name" "$dir" || return 1
+      if [ "$case" = nfs-rendezvous-late ]; then
+        late_join "$name" "$dir" "$node" || return 2
+        wait_for "$name" "$dir" "s.get('phase') == 'Succeeded' and len(a) == 2" "$RDZV_WAIT"
+      else
+        wait_for "$name" "$dir" "s.get('phase') == 'Failed' and len(a) == 2" "$RDZV_WAIT"
+      fi
+      ;;
+    *) wait_for "$name" "$dir" "s.get('phase') == 'Succeeded' and len(a) == 2" "$CASE_BUDGET" ;;
+  esac
+}
+
+# spoil changes the published step 6, which LATEST names, while no rank runs: the newest manifest made malformed, or
+# naming another directory, or rank 1's shard replaced by a directory of the same name.
+# These are check_protocol.py's three fixtures, so what the trainer meets here is what its local check met.
+# The change goes through an NFS client on the worker attempt 1 left idle, where attempt 2's rank 1 then runs.
+# Made in the export directory behind the server, the first run of these cases left NFS-Ganesha's own cache naming
+# rank 1's shard as published, and attempt 2's rank 1 read it whole from a node that had never looked it up.
+spoil() {
+  local case=$1 name=$2 dir=$3 rel idle="" n
+  rel=$(vol "cat '$name/LATEST'" 2>>"$LOG") || { void_case "$name" "$dir" "no LATEST to spoil"; return 2; }
+  case "$rel" in a1/00000006-*) ;; *) void_case "$name" "$dir" "LATEST names '$rel', not step 6"; return 2 ;; esac
+  for n in "${WORKERS[@]}"; do
+    [ "$n" = "$(a1_node "$dir" 0)" ] || [ "$n" = "$(a1_node "$dir" 1)" ] || idle=$n
+  done
+  [ -n "$idle" ] || { void_case "$name" "$dir" "no worker idle in attempt 1"; return 2; }
+  helper_pod "spoil-${idle##*-}" "$idle" shared keep "$name" || { void_case "$name" "$dir" "spoil helper on $idle not created"; return 2; }
+  k -n "$NS" wait --for=condition=Ready "pod/spoil-${idle##*-}" --timeout=120s >>"$LOG" 2>&1 ||
+    { void_case "$name" "$dir" "spoil helper on $idle not Ready"; return 2; }
+  snapshot "$name" "$dir" prespoil
+  spoil_record "$name" "$rel" before >>"$dir/spoil.jsonl" || { void_case "$name" "$dir" "reading step 6 before spoiling failed"; return 2; }
+  k -n "$NS" exec "spoil-${idle##*-}" -- python /probe/nfs_probe.py spoil "$name" "${case#nfs-fallback-}" >"$dir/helper-spoil.txt" 2>>"$LOG" ||
+    { void_case "$name" "$dir" "spoiling from $idle failed"; return 2; }
+  spoil_record "$name" "$rel" after >>"$dir/spoil.jsonl" || { void_case "$name" "$dir" "reading step 6 after spoiling failed"; return 2; }
+  mark "$dir" "spoiled $rel from $idle"
+}
+
+# spoil_record prints one JSON line of what step 6 holds on the storage: its manifest's sha256 and rank 1's file type.
+spoil_record() {
+  local name=$1 rel=$2 when=$3 out
+  out=$(vol "sha256sum '$name/$rel/MANIFEST' | cut -d' ' -f1; stat -c %F '$name/$rel/rank-1.pt'" 2>>"$LOG") || return 1
+  python3 -c 'import json, sys
+lines = sys.argv[3].splitlines()
+print(json.dumps({"when": sys.argv[1], "dir": sys.argv[2], "manifest_sha256": lines[0], "rank1_type": lines[1]}))' \
+    "$when" "$rel" "$out"
+}
+
+# a2_first_started waits for attempt 2's first rank to run, and marks its Pod and its container's start.
+a2_first_started() {
+  local name=$1 dir=$2 t0=$SECONDS got
+  while ((SECONDS - t0 < 180)); do
+    sample "$name" "$dir"
+    got=$(k -n "$NS" get pods -l "platform.lkhun9311.github.io/mltrainingjob=$name,platform.lkhun9311.github.io/mltrainingjob-attempt=2" \
+      -o json 2>>"$LOG" | python3 -c 'import json, sys
+for p in json.load(sys.stdin)["items"]:
+    r = ((p.get("status", {}).get("containerStatuses") or [{}])[0].get("state") or {}).get("running")
+    if r:
+        print(p["metadata"]["name"], r["startedAt"]); break' 2>>"$LOG")
+    if [ -n "$got" ]; then
+      mark "$dir" "a2-first-started $got"
+      return 0
+    fi
+    sleep 1
+  done
+  log "  no rank of attempt 2 ran within 180 s of the release"
+  return 1
+}
+
+# late_join lets attempt 2's waiting rank in LATE_JOIN seconds after the first one started, by uncordoning one worker.
+late_join() {
+  local name=$1 dir=$2 kept=$3 started at n
+  started=$(python3 -c 'import json, sys
+for l in open(sys.argv[1]):
+    m = json.loads(l)["mark"].split()
+    if m[0] == "a2-first-started":
+        print(m[2])' "$dir/marks.jsonl")
+  at=$(python3 -c 'import datetime, sys
+print(int(datetime.datetime.fromisoformat(sys.argv[1].replace("Z", "+00:00")).timestamp()) + int(sys.argv[2]))' "$started" "$LATE_JOIN") ||
+    { void_case "$name" "$dir" "no start time for attempt 2's first rank"; return 2; }
+  while (($(date +%s) < at)); do sample "$name" "$dir"; sleep 1; done
+  for n in "${WORKERS[@]}"; do
+    [ "$n" = "$kept" ] && continue
+    k uncordon "$n" >>"$LOG" 2>&1 || { void_case "$name" "$dir" "uncordoning $n failed"; return 2; }
+    mark "$dir" "uncordoned $n"
+    return 0
+  done
+  void_case "$name" "$dir" "no cordoned worker to uncordon"
+  return 2
 }
 
 # drive runs one case: it returns 2 when the case is void (its job was refused, or its fault could not be injected),
@@ -1049,6 +1181,17 @@ drive() {
     # Step 6 is published and read into both writer nodes' caches; then bytes in the middle of rank 1's shard are changed,
     # its size kept, through the idle node's client, which is then cordoned, so attempt 2 reads on the warm nodes.
     nfs-corrupt-published) nfs_restart "$case" "$name" "$dir" shared "CKPT_FAULT=kill-after-latest:6" idle keep ;;
+    # Step 6 is published, then spoiled on the server before attempt 2 (spoil): every rank must pass over it together
+    # and resume from step 5, where the trainer before the fallbacks raised out of its search or took the wrong one.
+    nfs-fallback-malformed | nfs-fallback-otherdir | nfs-fallback-unreadable)
+      nfs_restart "$case" "$name" "$dir" shared "CKPT_FAULT=kill-after-latest:6" rank1 none ;;
+    # Attempt 2 gets one worker, so one rank starts and its peer waits Pending: let in LATE_JOIN s later, or never.
+    nfs-rendezvous-late | nfs-rendezvous-never)
+      nfs_restart "$case" "$name" "$dir" shared \
+        "CKPT_FAULT=kill-after-latest:6 CKPT_RENDEZVOUS_TIMEOUT=$RDZV_TIMEOUT CKPT_COLLECTIVE_TIMEOUT=$COLL_TIMEOUT" one none ;;
+    # The control: without the rendezvous setting the join is the collective timeout's, so the lone rank ends near 60 s.
+    nfs-rendezvous-never-unset)
+      nfs_restart "$case" "$name" "$dir" shared "CKPT_FAULT=kill-after-latest:6 CKPT_COLLECTIVE_TIMEOUT=$COLL_TIMEOUT" one none ;;
     # Probers on every worker look each shard name up before the shard exists; rank 0's node is cordoned, so attempt 2
     # runs on the node no rank wrote from and on rank 1's.
     nfs-vis-efs) nfs_restart "$case" "$name" "$dir" shared "CKPT_FAULT=kill-after-latest:8 CKPT_SHARD_DELAY=1" rank0 watch ;;

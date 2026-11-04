@@ -1,0 +1,13 @@
+/usr/local/lib/python3.12/site-packages/torch/_subclasses/functional_tensor.py:295: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at ../torch/csrc/utils/tensor_numpy.cpp:84.)
+  cpu = _conversion_method_template(device=torch.device("cpu"))
+Traceback (most recent call last):
+  File "/work/train.py", line 675, in <module>
+    sys.exit(main())
+             ^^^^^^
+  File "/work/train.py", line 504, in main
+    return train()
+           ^^^^^^^
+  File "/work/train.py", line 558, in train
+    store = dist.TCPStore(os.environ["MASTER_ADDR"], int(os.environ["MASTER_PORT"]), world, rank == 0,
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+torch.distributed.DistStoreError: Timed out after 601 seconds waiting for clients. 1/2 clients joined.

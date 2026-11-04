@@ -1,0 +1,22 @@
+/usr/local/lib/python3.12/site-packages/torch/_subclasses/functional_tensor.py:295: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at ../torch/csrc/utils/tensor_numpy.cpp:84.)
+  cpu = _conversion_method_template(device=torch.device("cpu"))
+{"ts": "2026-11-04T12:38:51.608863+00:00", "run_id": "rst-nfs-fallback-unreadable-123838", "attempt": 2, "rank": 0, "event": "candidates", "latest": "a1/00000006-539b3899e6d243a384348e67eb0c51a7", "offered": ["a1/00000006-539b3899e6d243a384348e67eb0c51a7", "a1/00000005-2b3ffa2cc36848fe8ebaf442ec6d0720", "a1/00000004-f567946dca66429597ef5a8d490b9a14", "a1/00000003-b7ff21eb0154490f9561e22746f978f2", "a1/00000002-211648b020574e69b083191a256cf4ff", "a1/00000001-55f6202c5a2f400781637308767916ff"]}
+{"ts": "2026-11-04T12:38:51.609586+00:00", "run_id": "rst-nfs-fallback-unreadable-123838", "attempt": 2, "rank": 0, "event": "shard_check", "dir": "a1/00000006-539b3899e6d243a384348e67eb0c51a7", "looks": 1, "visible": true, "hash_ok": true, "errors": [], "listed": []}
+[rank0]: Traceback (most recent call last):
+[rank0]:   File "/work/train.py", line 653, in <module>
+[rank0]:     sys.exit(main())
+[rank0]:              ^^^^^^
+[rank0]:   File "/work/train.py", line 487, in main
+[rank0]:     return train()
+[rank0]:            ^^^^^^^
+[rank0]:   File "/work/train.py", line 568, in train
+[rank0]:     chosen = choose(rank, world) if LOAD_MODE != "none" else None
+[rank0]:              ^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/work/train.py", line 432, in choose
+[rank0]:     dist.all_reduce(verdict, op=dist.ReduceOp.MIN)
+[rank0]:   File "/usr/local/lib/python3.12/site-packages/torch/distributed/c10d_logger.py", line 83, in wrapper
+[rank0]:     return func(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/usr/local/lib/python3.12/site-packages/torch/distributed/distributed_c10d.py", line 2506, in all_reduce
+[rank0]:     work.wait()
+[rank0]: RuntimeError: [../third_party/gloo/gloo/transport/tcp/pair.cc:534] Connection closed by peer [10.244.1.11]:57223

@@ -1,0 +1,7 @@
+{"at": "2026-11-04T12:06:25.159+00:00", "mark": "finalizer-added job-rst-nfs-fallback-unreadable-120624-27a02"}
+{"at": "2026-11-04T12:06:32.048+00:00", "mark": "fault-seen"}
+{"at": "2026-11-04T12:06:35.814+00:00", "mark": "a1-gone"}
+{"at": "2026-11-04T12:06:36.742+00:00", "mark": "spoiled a1/00000006-29adc1cf49da4f589e6228c7eac0df13 from rstnfs-worker3"}
+{"at": "2026-11-04T12:06:36.806+00:00", "mark": "snapshot"}
+{"at": "2026-11-04T12:06:36.855+00:00", "mark": "cordoned rstnfs-worker2"}
+{"at": "2026-11-04T12:06:36.923+00:00", "mark": "released"}

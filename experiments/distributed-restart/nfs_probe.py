@@ -5,6 +5,9 @@
     python nfs_probe.py keep <job>      records its mounts and then only holds them
     python nfs_probe.py warm <job>      reads both shards of the checkpoint LATEST names, so this node caches them
     python nfs_probe.py corrupt <job>   changes 64 bytes in the middle of rank 1's shard of that checkpoint, size kept
+    python nfs_probe.py spoil <job> <how>
+                                        makes that checkpoint's manifest malformed, or name another directory, or puts a
+                                        directory where rank 1's shard was: how is malformed, otherdir or unreadable
 
 Each prints one JSON record per line on stdout; the harness collects them with kubectl logs or kubectl exec.
 
@@ -118,5 +121,44 @@ def corrupt(job: str) -> None:
     emit("corrupt", when="after", file=f"{rel}/rank-1.pt", size=size, sha256=sha, watch=mount_of(WATCH))
 
 
+def spoil(job: str, how: str) -> None:
+    """Spoils the checkpoint LATEST names as check_protocol.py's fixture of that name does, through this NFS client.
+
+    Through a client and not below the server: a rename made in the export directory behind NFS-Ganesha's back left its
+    cache naming the shard as before, and a rank read the published bytes under a name the export no longer gave them
+    (the first kind run of these cases, 2026-11-04).
+    """
+    rel = latest(job)
+    ckpt = os.path.join(WATCH, job, rel)
+    size, sha = digest(os.path.join(ckpt, "MANIFEST"))
+    emit("spoil", when="before", how=how, dir=rel, manifest_sha256=sha, rank1_dir=os.path.isdir(os.path.join(ckpt, "rank-1.pt")))
+    if how in ("malformed", "otherdir"):
+        with open(os.path.join(ckpt, "MANIFEST")) as handle:
+            manifest = json.load(handle)
+        # A manifest that parses but is not one; and one naming a directory other than the one holding it.
+        if how == "malformed":
+            manifest["shards"] = [{}, {}]
+        else:
+            manifest["uuid"] = "0" * 32
+        tmp = os.path.join(ckpt, f"MANIFEST.spoil-{os.getpid()}")
+        with open(tmp, "w") as handle:
+            handle.write(json.dumps(manifest, sort_keys=True))
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp, os.path.join(ckpt, "MANIFEST"))
+    elif how == "unreadable":
+        # Kept beside it rather than removed, so the shard as published stays on the storage for the record.
+        os.rename(os.path.join(ckpt, "rank-1.pt"), os.path.join(ckpt, "rank-1.pt.published"))
+        os.mkdir(os.path.join(ckpt, "rank-1.pt"))
+    else:
+        raise SystemExit(f"spoil how={how!r} is not malformed, otherdir or unreadable")
+    size, sha = digest(os.path.join(ckpt, "MANIFEST"))
+    emit("spoil", when="after", how=how, dir=rel, manifest_sha256=sha, rank1_dir=os.path.isdir(os.path.join(ckpt, "rank-1.pt")),
+         watch=mount_of(WATCH))
+
+
 if __name__ == "__main__":
-    {"watch": watch, "keep": keep, "warm": warm, "corrupt": corrupt}[sys.argv[1]](sys.argv[2])
+    if sys.argv[1] == "spoil":
+        spoil(sys.argv[2], sys.argv[3])
+    else:
+        {"watch": watch, "keep": keep, "warm": warm, "corrupt": corrupt}[sys.argv[1]](sys.argv[2])

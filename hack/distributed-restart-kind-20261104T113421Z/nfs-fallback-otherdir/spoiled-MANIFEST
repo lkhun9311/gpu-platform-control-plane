@@ -1,0 +1,1 @@
+{"attempt": 1, "shards": [{"file": "rank-0.pt", "rank": 0, "sha256": "16d8f94e1bb34a217c8e4ca69d1f7bb6879444bd9525bd2d01ee97aaafaa942d", "size": 9084, "step": 6}, {"file": "rank-1.pt", "rank": 1, "sha256": "16d8f94e1bb34a217c8e4ca69d1f7bb6879444bd9525bd2d01ee97aaafaa942d", "size": 9084, "step": 6}], "step": 6, "uuid": "00000000000000000000000000000000", "world_size": 2}

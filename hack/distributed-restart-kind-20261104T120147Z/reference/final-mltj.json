@@ -1,0 +1,91 @@
+{
+    "apiVersion": "platform.lkhun9311.github.io/v1",
+    "kind": "MLTrainingJob",
+    "metadata": {
+        "annotations": {
+            "kubectl.kubernetes.io/last-applied-configuration": "{\"apiVersion\":\"platform.lkhun9311.github.io/v1\",\"kind\":\"MLTrainingJob\",\"metadata\":{\"annotations\":{},\"name\":\"rst-reference-120430\",\"namespace\":\"rst\"},\"spec\":{\"command\":[\"sh\",\"-c\",\"export CKPT_RUN_ID=rst-reference-120430 CKPT_DIR=/shared CKPT_JOB_ID=rst-reference-120430 CKPT_STEPS=20 CKPT_STEP_SLEEP=1 OMP_NUM_THREADS=1 \\npython /work/train.py\\n\"],\"distributed\":{\"maxRestarts\":1,\"worldSize\":2},\"gpuCount\":1,\"image\":\"distributed-restart:torch251\",\"queue\":\"gpu-rst\",\"stateVolume\":{\"claimName\":\"shared\",\"mountPath\":\"/shared\"}}}\n"
+        },
+        "creationTimestamp": "2026-11-04T12:04:30Z",
+        "finalizers": [
+            "mltrainingjob.platform.lkhun9311.github.io/finalizer"
+        ],
+        "generation": 1,
+        "name": "rst-reference-120430",
+        "namespace": "rst",
+        "resourceVersion": "2141",
+        "uid": "5b4b65bd-f927-4b60-adba-9416db4925f1"
+    },
+    "spec": {
+        "command": [
+            "sh",
+            "-c",
+            "export CKPT_RUN_ID=rst-reference-120430 CKPT_DIR=/shared CKPT_JOB_ID=rst-reference-120430 CKPT_STEPS=20 CKPT_STEP_SLEEP=1 OMP_NUM_THREADS=1 \npython /work/train.py\n"
+        ],
+        "completions": 1,
+        "distributed": {
+            "maxRestarts": 1,
+            "worldSize": 2
+        },
+        "gpuCount": 1,
+        "image": "distributed-restart:torch251",
+        "parallelism": 1,
+        "queue": "gpu-rst",
+        "stateVolume": {
+            "claimName": "shared",
+            "mountPath": "/shared"
+        }
+    },
+    "status": {
+        "admitToRunningSeconds": "1.372",
+        "admittedAt": "2026-11-04T12:04:30Z",
+        "attempts": [
+            {
+                "allRanksReadyAt": "2026-11-04T12:04:31Z",
+                "createdAt": "2026-11-04T12:04:30Z",
+                "jobUID": "474126ca-0d16-4708-9d87-07c515ec7199",
+                "nodeUIDs": {
+                    "rstnfs-worker": "f1c56fe0-e26f-4e59-a283-442b73b33c1c",
+                    "rstnfs-worker2": "98fabad4-91fe-4d1f-b187-ab5de0a8a2d3"
+                },
+                "nodes": [
+                    "rstnfs-worker",
+                    "rstnfs-worker2"
+                ],
+                "number": 1,
+                "state": "Active",
+                "workloadName": "job-rst-reference-120430-55bd7",
+                "workloadUID": "34d77043-8f25-4c64-bd62-ecb73fd38385"
+            }
+        ],
+        "conditions": [
+            {
+                "lastTransitionTime": "2026-11-04T12:04:30Z",
+                "message": "",
+                "observedGeneration": 1,
+                "reason": "JobComplete",
+                "status": "True",
+                "type": "Admitted"
+            },
+            {
+                "lastTransitionTime": "2026-11-04T12:04:30Z",
+                "message": "",
+                "observedGeneration": 1,
+                "reason": "ServiceOwned",
+                "status": "True",
+                "type": "RendezvousService"
+            },
+            {
+                "lastTransitionTime": "2026-11-04T12:04:31Z",
+                "message": "the tenant waited 1.372s between Kueue admitting this job and this controller seeing it run; the admission end is Kueue's own stamp and the running end is this controller's observation, so the interval carries one watch lag",
+                "reason": "Observed",
+                "status": "True",
+                "type": "AdmitToRunningObserved"
+            }
+        ],
+        "lastTransitionTime": "2026-11-04T12:04:55Z",
+        "observedGeneration": 1,
+        "phase": "Succeeded",
+        "readyRanks": 0,
+        "runningObservedAt": "2026-11-04T12:04:31Z"
+    }
+}

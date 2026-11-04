@@ -1,0 +1,4 @@
+{"uid": "eafb0d05-ae74-4def-a52c-ffe6d954faba", "pod": "rst-nfs-fallback-malformed-113737-0-bkcdv", "exit": 137, "reason": "Error", "started": "2026-11-04T11:37:38Z", "finished": "2026-11-04T11:37:44Z"}
+{"uid": "6facbbfc-9948-4f96-b967-9835c5fa3d76", "pod": "rst-nfs-fallback-malformed-113737-1-k8g8c", "exit": 1, "reason": "Error", "started": "2026-11-04T11:37:38Z", "finished": "2026-11-04T11:37:44Z"}
+{"uid": "7c733274-f5dd-40a2-9af3-5c144e8df2cc", "pod": "rst-nfs-fallback-malformed-113737-0-2tdnd", "exit": 0, "reason": "Completed", "started": "2026-11-04T11:37:49Z", "finished": "2026-11-04T11:38:06Z"}
+{"uid": "8109057b-b2d7-432c-8528-e5e50ae9e4cb", "pod": "rst-nfs-fallback-malformed-113737-1-tr2fm", "exit": 0, "reason": "Completed", "started": "2026-11-04T11:37:49Z", "finished": "2026-11-04T11:38:06Z"}

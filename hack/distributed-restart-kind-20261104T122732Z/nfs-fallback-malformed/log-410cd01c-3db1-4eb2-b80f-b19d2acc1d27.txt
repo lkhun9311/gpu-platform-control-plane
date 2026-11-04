@@ -1,0 +1,23 @@
+/usr/local/lib/python3.12/site-packages/torch/_subclasses/functional_tensor.py:295: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at ../torch/csrc/utils/tensor_numpy.cpp:84.)
+  cpu = _conversion_method_template(device=torch.device("cpu"))
+{"ts": "2026-11-04T12:30:48.554848+00:00", "run_id": "rst-nfs-fallback-malformed-123036", "attempt": 2, "rank": 0, "event": "candidates", "latest": "a1/00000006-15cf1183f27d48d09b8fdce9846a42ab", "offered": ["a1/00000006-15cf1183f27d48d09b8fdce9846a42ab", "a1/00000005-a79a8ad1b49140938a8e70514fcbb147", "a1/00000004-193cda6f0abb4b328b2b1e136797415b", "a1/00000003-0cd79c01ecb646028978e38c0dbf3927", "a1/00000002-8d2c6c0031b04d54a964ff76b9f56aa3", "a1/00000001-55c007c727654c0bbdccd00c5441ed45"]}
+[rank0]: Traceback (most recent call last):
+[rank0]:   File "/work/train.py", line 653, in <module>
+[rank0]:     sys.exit(main())
+[rank0]:              ^^^^^^
+[rank0]:   File "/work/train.py", line 487, in main
+[rank0]:     return train()
+[rank0]:            ^^^^^^^
+[rank0]:   File "/work/train.py", line 568, in train
+[rank0]:     chosen = choose(rank, world) if LOAD_MODE != "none" else None
+[rank0]:              ^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/work/train.py", line 429, in choose
+[rank0]:     rel, manifest = broadcast_json([offers[i], manifest_ok(offers[i], world)] if rank == 0 else None, rank)
+[rank0]:                                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/work/train.py", line 358, in manifest_ok
+[rank0]:     or sorted(s["rank"] for s in shards) != list(range(world))
+[rank0]:        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/work/train.py", line 358, in <genexpr>
+[rank0]:     or sorted(s["rank"] for s in shards) != list(range(world))
+[rank0]:               ~^^^^^^^^
+[rank0]: KeyError: 'rank'
