@@ -96,7 +96,7 @@ chmod +x "$work/bin/date"
 repo="$work/repo"
 mkdir -p "$repo/hack/lib" "$repo/experiments/distributed-restart" "$repo/experiments/cpu-ddp" "$repo/experiments/multi-gpu-throughput"
 cp hack/eks-gitops-session.sh "$repo/hack/"
-cp hack/lib/train-session.sh hack/lib/ddp-arms.sh hack/lib/gpu-ttl.sh hack/lib/gpu-fault.sh hack/lib/restart-session.sh \
+cp hack/lib/train-session.sh hack/lib/ddp-arms.sh hack/lib/gpu-ttl.sh hack/lib/gpu-fault.sh hack/lib/restart-session.sh hack/lib/session-teardown.sh \
   hack/lib/allreduce-arms.sh "$repo/hack/lib/"
 cp experiments/distributed-restart/train.py "$repo/experiments/distributed-restart/"
 cp experiments/cpu-ddp/train.py "$repo/experiments/cpu-ddp/"
