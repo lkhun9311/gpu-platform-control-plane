@@ -42,11 +42,13 @@ cat >"$dir/bin/terraform" <<'EOF'
 #!/usr/bin/env bash
 echo "terraform $*"
 [[ "${TF_HANGS:-}" == 1 ]] && exec sleep 300
+# Ignores TERM as a terraform busy shutting down gracefully would, so only the KILL after the grace ends it.
+[[ "${TF_HANGS:-}" == term ]] && { trap '' TERM; exec sleep 300; }
 exit 0
 EOF
 chmod +x "$dir/bin/terraform"
 program() {
-  bash -c '. hack/lib/session-teardown.sh; killswitch_program "$1/ttl.pid" "$1/kill.log" "$1" 0 "$2" gpu-lab ap-northeast-2 infra/aws/cluster gpu-platform "-var=gpu_max_nodes=3 -var=efs_enabled=true" "$1"' _ "$dir" "$1"
+  bash -c '. hack/lib/session-teardown.sh; killswitch_program "$1/ttl.pid" "$1/kill.log" "$1" "${3:-0}" "$2" gpu-lab ap-northeast-2 infra/aws/cluster gpu-platform "-var=gpu_max_nodes=3 -var=efs_enabled=true" "$1" 1' _ "$dir" "$1" "${2:-0}"
 }
 if program 3 | bash -n; then ok "the program parses with an apostrophe in its paths"; else bad "the program does not parse with an apostrophe in its paths"; fi
 
@@ -62,6 +64,33 @@ if grep -q -- '-var=cluster_name=gpu-platform -var=gpu_max_nodes=3 -var=efs_enab
   ok "the destroy is given the session's terraform variables one by one"
 else
   bad "the destroy's arguments: $(grep '^terraform' "$dir/kill.log" | head -1)"
+fi
+
+# A destroy that ignores TERM is still ended inside the allowance, by the KILL after the one-second grace.
+: >"$dir/kill.log"
+start=$SECONDS
+TF_HANGS=term PATH="$dir/bin:$PATH" bash -c "$(program 4)"
+took=$((SECONDS - start))
+if ((took < 10)) && grep -q 'force-destroy FAILED' "$dir/kill.log"; then
+  ok "a destroy that ignores TERM is killed inside its allowance, in $took s"
+else
+  bad "the TERM-proof destroy took $took s: $(tail -2 "$dir/kill.log" | tr '\n' ' ')"
+fi
+
+# Disarming while a destroy runs stops the destroy too, though timeout put it in a process group of its own.
+: >"$dir/kill.log"
+: >"$dir/ttl.pid"
+TF_HANGS=1 PATH="$dir/bin:$PATH" setsid bash -c "$(program 600)" &
+for _ in $(seq 50); do [[ -s "$dir/ttl.pid.destroy" ]] && break; sleep 0.2; done
+watchdog="$(cat "$dir/ttl.pid")" destroy="$(cat "$dir/ttl.pid.destroy")"
+out="$(bash -c '. hack/lib/session-teardown.sh; killswitch_disarm "$1" "$2"; echo "rc=$?"' _ "$watchdog" "$dir/ttl.pid")"
+left="$(ps -o pid=,stat= -g "$watchdog,$destroy" | awk '$2 !~ /^Z/' | wc -l)"
+if [[ "$destroy" =~ ^[0-9]+$ && "$out" == *"rc=0" && "$left" == 0 ]]; then
+  ok "disarming stops the watchdog and the destroy it started"
+else
+  bad "disarming during a destroy: destroy '$destroy', $out, $left process(es) left"
+  [[ "$destroy" =~ ^[0-9]+$ ]] && kill -9 -- "-$destroy"
+  [[ "$watchdog" =~ ^[0-9]+$ ]] && kill -9 -- "-$watchdog"
 fi
 
 : >"$dir/kill.log"

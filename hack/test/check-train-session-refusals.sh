@@ -165,7 +165,8 @@ fi
 # The watchdog leads its own session (setsid), so its process group is its pid and holds its sleep too.
 [[ -n "$stray" ]] && kill -- "-$stray"
 sleep 1
-if [[ -n "$stray" ]] && ps -o pid= -g "$stray" | grep -q .; then
+# A zombie is not a survivor: it has exited and only waits to be reaped (codex review of a7d10208).
+if [[ -n "$stray" ]] && ps -o stat= -g "$stray" | grep -qv '^Z'; then
   bad "$name: a watchdog survived the test: $(ps -o pid=,args= -g "$stray" | head -2)"
 else
   ok "$name: the test stopped its watchdog"

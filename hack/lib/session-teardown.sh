@@ -57,17 +57,22 @@ teardown_residue() {
   unset -f _residue_still
 }
 
-# killswitch_program PIDFILE LOG WORKDIR TTL_SECONDS DESTROY_SECONDS PROFILE REGION CLUSTER_DIR CLUSTER TF_VARS EXDIR:
-# the detached watchdog's program.
+# killswitch_program PIDFILE LOG WORKDIR TTL_SECONDS DESTROY_SECONDS PROFILE REGION CLUSTER_DIR CLUSTER TF_VARS EXDIR
+# [GRACE_SECONDS]: the detached watchdog's program.
 #
 # Every value is assigned with printf %q and the body is a quoted heredoc, so a path holding an apostrophe no longer
 # ends a single-quoted string inside the generated code and breaks the watchdog (codex census before the full stage).
 # Each destroy attempt is cut at what is left of DESTROY_SECONDS from when the TTL fired: three lock waits of ten
 # minutes and the retries' sleeps once made the 40 minutes the credential check allows for it a hope, not a bound.
+# The cut is TERM and then, GRACE_SECONDS later, KILL, both inside the allowance: terraform shuts down gracefully on
+# TERM and can take as long as it likes doing it (codex review of 73c3e3e1).
+# timeout leads a process group of its own, so the watchdog writes that group's id beside its own pid, and
+# killswitch_disarm stops it too: stopping the watchdog's group alone once left a running destroy behind
+# (codex review of 73c3e3e1).
 killswitch_program() {
   printf 'KILL_PIDFILE=%q\nKILL_LOG=%q\nWORKDIR=%q\nTTL_SECONDS=%q\nDESTROY_SECONDS=%q\nPROFILE=%q\nREGION=%q\n' \
     "$1" "$2" "$3" "$4" "$5" "$6" "$7"
-  printf 'CLUSTER_DIR=%q\nCLUSTER=%q\nTF_VARS=%q\nEXDIR=%q\n' "$8" "$9" "${10}" "${11}"
+  printf 'CLUSTER_DIR=%q\nCLUSTER=%q\nTF_VARS=%q\nEXDIR=%q\nGRACE_SECONDS=%q\n' "$8" "$9" "${10}" "${11}" "${12:-30}"
   cat <<'PROGRAM'
 echo $$ >"$KILL_PIDFILE"
 sleep "$TTL_SECONDS"
@@ -81,14 +86,19 @@ ttl_rc=1
 # Waits on the state lock and tries three times: its one attempt used to be spent on a lock the foreground destroy, or
 # the nightly one, still held.
 for attempt in 1 2 3; do
-  left=$((until - SECONDS))
+  left=$((until - SECONDS - GRACE_SECONDS))
   if ((left < 1)); then
     echo "[ttl] the ${DESTROY_SECONDS}s destroy allowance ran out before attempt $attempt" >>"$KILL_LOG"
     break
   fi
-  AWS_PROFILE="$PROFILE" AWS_REGION="$REGION" timeout "$left" terraform -chdir="$CLUSTER_DIR" destroy -auto-approve \
-    -lock-timeout=10m -var="region=$REGION" -var="cluster_name=$CLUSTER" "${tfvars[@]}" >>"$KILL_LOG" 2>&1
+  AWS_PROFILE="$PROFILE" AWS_REGION="$REGION" timeout -k "$GRACE_SECONDS" "$left" terraform -chdir="$CLUSTER_DIR" \
+    destroy -auto-approve -lock-timeout=10m -var="region=$REGION" -var="cluster_name=$CLUSTER" "${tfvars[@]}" \
+    >>"$KILL_LOG" 2>&1 &
+  destroy=$!
+  echo "$destroy" >"$KILL_PIDFILE.destroy"
+  wait "$destroy"
   ttl_rc=$?
+  : >"$KILL_PIDFILE.destroy"
   [ "$ttl_rc" = 0 ] && break
   echo "[ttl] attempt $attempt failed rc=$ttl_rc" >>"$KILL_LOG" 2>&1
   if ((until - SECONDS > 60)); then sleep 60; fi
@@ -104,4 +114,39 @@ else
   echo "[ttl] $(date -u +%H:%M:%SZ) force-destroy FAILED rc=$ttl_rc -- the cluster may still be billing" >>"$KILL_LOG" 2>&1
 fi
 PROGRAM
+}
+
+# killswitch_alive PID: the process runs; a zombie does not, though kill -0 succeeds on one that has exited and not been
+# reaped, and asking that right after the kill reported a gone watchdog as one that survived (2026-10-12).
+killswitch_alive() {
+  local stat
+  stat="$(ps -o stat= -p "$1")" && [[ -n "$stat" && "$stat" != Z* ]]
+}
+
+# killswitch_gone PID: waits up to five seconds for PID to leave.
+killswitch_gone() {
+  local i
+  for i in 1 2 3 4 5 6 7 8 9 10; do
+    killswitch_alive "$1" || return 0
+    sleep 0.5
+  done
+  return 1
+}
+
+# killswitch_disarm PID PIDFILE: the watchdog and any destroy it has started stopped; fails if either survived.
+#
+# The watchdog leads its own session, so its group holds its sleep; a destroy it started leads another group, timeout's,
+# whose id it wrote to PIDFILE.destroy.
+killswitch_disarm() {
+  local pid="$1" pidfile="$2" destroy="" survived=""
+  [[ -s "$pidfile.destroy" ]] && destroy="$(cat "$pidfile.destroy")"
+  [[ "$destroy" =~ ^[0-9]+$ ]] || destroy=""
+  for group in "$pid" $destroy; do
+    kill -- "-$group" 2>&1 | grep -v 'No such process'
+    if ! killswitch_gone "$group"; then
+      kill -9 -- "-$group" 2>&1 | grep -v 'No such process'
+      killswitch_gone "$group" || survived="$survived $group"
+    fi
+  done
+  [[ -z "$survived" ]] || { echo "survived disarming:$survived"; return 1; }
 }
