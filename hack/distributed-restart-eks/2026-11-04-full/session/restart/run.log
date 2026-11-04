@@ -1,0 +1,10 @@
+reference: ACCEPTED
+no-rng-control: ACCEPTED
+rank-kill-1: ACCEPTED
+rank-kill-2: ACCEPTED
+dcgm-1: ACCEPTED
+dcgm-2: ACCEPTED
+terminate-spare-1: ACCEPTED
+terminate-spare-2: ACCEPTED
+terminate-wait-1: ACCEPTED
+terminate-wait-2: ACCEPTED

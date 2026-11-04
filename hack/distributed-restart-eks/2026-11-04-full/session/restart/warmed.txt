@@ -1,0 +1,6 @@
+ip-10-0-52-54.ap-northeast-2.compute.internal 89ff3968-4986-42b7-abe7-03d349fcbb2c
+ip-10-0-60-53.ap-northeast-2.compute.internal 746e642d-ae09-45e9-9045-8a41a43b9987
+ip-10-0-61-17.ap-northeast-2.compute.internal bfa1e3c5-c44c-4099-a900-1c0f8afbab16
+ip-10-0-48-42.ap-northeast-2.compute.internal feb618a2-ad21-41a5-be69-962fa1b92e5b
+ip-10-0-63-124.ap-northeast-2.compute.internal 57d3dd6f-46f3-4a05-84cc-4a76902b7117
+ip-10-0-54-63.ap-northeast-2.compute.internal d59ed2c2-52fb-46cc-9e3d-d53b9e346c07

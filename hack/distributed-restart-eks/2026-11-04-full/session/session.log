@@ -1,0 +1,117 @@
+00:17:45Z  [session] API endpoint will admit 211.202.99.162/32 only
+00:17:46Z  [session] the working tree is clean at f8ae0f94
+00:17:46Z  [session] TRAIN_AZ: pinned to ap-northeast-2a
+00:17:46Z  [session] RESTART_STAGE=full: TTL_MINUTES 524 covers its 524, and with the destroy fits the 700-minute credential limit
+00:17:46Z  [session] the credential expires in 719 minutes, at least the 564 the session needs
+00:17:46Z  [session] cluster gpu-platform does not exist
+00:17:47Z  [session] G and VT On-Demand vCPU in use 0 (none) plus 12 fits the quota of 128.0
+00:17:48Z  [session] g5.xlarge On-Demand in ap-northeast-2 at $1.2370000000 an hour, ceiling $1.40
+00:17:48Z  [session] TRAIN=restart: 3 x g5.xlarge in ap-northeast-2a, price ceiling $1.40, GPU budget 26640s
+00:17:48Z  [session] terraform variables for every apply and destroy: -var=gpu_node_instance_type=g5.xlarge -var=gpu_max_nodes=3 -var=gpu_availability_zone=ap-northeast-2a -var=efs_enabled=true
+00:17:50Z  [session] TTL kill switch armed: PID 1339673, fires in 524m, log /home/lkhun9311/workspace/gpu-cp-full-run2/ex/eks-session-20261104T001744Z/ttl-kill-switch.log
+00:17:50Z  [session] terraform init (cluster)
+00:18:14Z  [session] terraform apply (cluster) -- this is where the billing starts
+00:30:19Z  [session] cluster up in 725s
+00:30:22Z  [session] terraform init + apply (argo-bootstrap): the pinned argo-cd chart, installed by its own root
+   ok   Argo CD installed by its own Terraform root
+00:31:37Z  [session] runbook: apply
+2026-11-04T00:31:37.264250641Z  context: gpu-platform
+2026-11-04T00:31:37.690313736Z  applying config/argocd/root.yaml -- the step that was missing
+   ok   all 13 Applications this repository declares exist, 13 of them created by this run
+2026-11-04T00:32:12.312819535Z  root resolved revision: 84736e232c2050267d8ab097e92c063f4616f2ab (targetRevision is the mutable branch main)
+2026-11-04T00:32:12.314502066Z  waiting for the automated Applications to reach Synced/Healthy
+   ok   every automated Application is Synced/Healthy, and every declared Application is still present
+2026-11-04T00:33:26.169296037Z  not waited on because they carry no automated syncPolicy, by design: gpu-platform-device-plugin gpu-platform-observability gpu-platform-samples gpu-platform-serving gpu-platform-training 
+   ok   runbook apply
+00:33:26Z  [session] runbook: seed-key
+2026-11-04T00:33:26.196279832Z  context: gpu-platform
+   ok   created gateway-api-keys with one key for tenant-a (recorded in seeded-key.txt)
+   ok   runbook seed-key
+00:33:26Z  [session] runbook: verify
+2026-11-04T00:33:26.975833790Z  context: gpu-platform
+2026-11-04T00:33:27.356082448Z  probing gateway-6f6dc8d98c-cd78p through a port-forward (the image is distroless, so exec cannot help)
+2026-11-04T00:33:27.882584051Z     forwarding 127.0.0.1:40427 -> 8080 and 127.0.0.1:39421 -> 8081
+2026-11-04T00:33:28.341683804Z     readyz=200  bad-key request=401  real-key request=403
+   ok   a bad key is refused with 401
+   ok   a key from the Secret is accepted and refused by tenant policy (403): authentication reached the key store. Not proof of serving
+   ok   runbook verify
+   ok   T1: gpu-platform-training synced at 84736e232c2050267d8ab097e92c063f4616f2ab
+   ok   T2: ClusterQueue gpu-train-a is Active and the only one
+   ok   R1: restart-shared is Bound to fs-0534b759b7494261a
+   ok   R2: operator at 84736e232c2050267d8ab097e92c063f4616f2ab runs sha256:103e488535570382e303573240c93dc6b21ef84282983a14e040255f8d07d485, the CRD has maxRestarts, and the webhook refuses a missing claim and accepts a case
+   ok   R3: the reader Pod mounts the volume on the CPU node
+   ok   R4: the operator runs with --gpu-fault-source=dcgm --gpu-fault-evict-workloads 90 s after the change, and Argo's automated sync is off
+   ok   T3: qualification job train-qualify admitted at 2026-11-04T00:35:53Z, both Pods unplaced
+   ok   T4: g5.xlarge On-Demand in ap-northeast-2 at $1.2370000000 an hour, ceiling $1.40
+   ok   T5: G and VT On-Demand vCPU in use 0 (none) plus 12 fits the quota of 128.0
+   ok   Z1: node group gpu has subnets in ap-northeast-2a
+[31m╷[0m[0m
+[31m│[0m [0m[1m[31mError: [0m[0m[1mBackend initialization required, please run "terraform init"[0m
+[31m│[0m [0m
+[31m│[0m [0m[0mReason: Initial configuration of the requested backend "s3"
+[31m│[0m [0m
+[31m│[0m [0mThe "backend" is the interface that Terraform uses to store state,
+[31m│[0m [0mperform operations, etc. If this message is showing up, it means that the
+[31m│[0m [0mTerraform configuration you're using is using a custom configuration for
+[31m│[0m [0mthe Terraform backend.
+[31m│[0m [0m
+[31m│[0m [0mChanges to backend configurations require reinitialization. This allows
+[31m│[0m [0mTerraform to set up the new configuration, copy existing state, etc. Please
+[31m│[0m [0mrun
+[31m│[0m [0m"terraform init" with either the "-reconfigure" or "-migrate-state" flags
+[31m│[0m [0mto
+[31m│[0m [0muse the current configuration.
+[31m│[0m [0m
+[31m│[0m [0mIf the change reason above is incorrect, please verify your configuration
+[31m│[0m [0mhasn't changed and try again. At this point, no changes to your existing
+[31m│[0m [0mconfiguration or state have been made.
+[31m╵[0m[0m
+TTL armed: gpu-platform/gpu goes to desiredSize=0 at 2026-11-04T08:50:58Z (in 495m), schedule gpu-ttl-gpu-platform-gpu-20261104003558
+   ok   GPU deadline armed for 495 min: gpu-ttl-gpu-platform-gpu-20261104003558
+00:35:58Z  [session] scaling gpu to 3 -- the nodes start billing here
+{
+    "update": {
+        "id": "419d7545-130c-3414-b886-61cd1b81a5cf",
+        "status": "InProgress",
+        "type": "ConfigUpdate",
+        "params": [
+            {
+                "type": "MinSize",
+                "value": "0"
+            },
+            {
+                "type": "MaxSize",
+                "value": "3"
+            },
+            {
+                "type": "DesiredSize",
+                "value": "3"
+            }
+        ],
+        "createdAt": "2026-11-04T09:35:59.401000+09:00",
+        "errors": []
+    }
+}
+   ok   T6: ip-10-0-52-54.ap-northeast-2.compute.internal i-065f8724eac128cdd;ip-10-0-60-53.ap-northeast-2.compute.internal i-07fdef78203829c70;ip-10-0-61-17.ap-northeast-2.compute.internal i-0cf1460a0cd9d09b2
+   ok   Z2: ip-10-0-52-54.ap-northeast-2.compute.internal ap-northeast-2a;ip-10-0-60-53.ap-northeast-2.compute.internal ap-northeast-2a;ip-10-0-61-17.ap-northeast-2.compute.internal ap-northeast-2a
+   ok   T7: qualification job train-qualify succeeded: admittedAt 2026-11-04T00:35:53Z, runningObservedAt 2026-11-04T00:38:12Z, admitToRunningSeconds 139.373
+   ok   R5: every GPU node has a NodeHealth and has pulled the image and mounted the volume
+   ok   R6: the operator runs with --gpu-fault-source=dcgm --gpu-fault-evict-workloads, and every GPU node's exporter serves the fault fields and its NodeHealth reads a fresh, healthy signal
+reference: ACCEPTED
+no-rng-control: ACCEPTED
+rank-kill-1: ACCEPTED
+rank-kill-2: ACCEPTED
+dcgm-1: ACCEPTED
+dcgm-2: ACCEPTED
+terminate-spare-1: ACCEPTED
+terminate-spare-2: ACCEPTED
+terminate-wait-1: ACCEPTED
+terminate-wait-2: ACCEPTED
+   ok   R7: every registered case ACCEPTED (/home/lkhun9311/workspace/gpu-cp-full-run2/ex/eks-session-20261104T001744Z/restart/verdict.txt)
+01:33:05Z  [session] scaling gpu to 0
+   ok   S6 (GPU half): gpu scaled to 0 and i-02b79536ead82ffdf i-04fc662b2bb54d095 i-065f8724eac128cdd i-07fdef78203829c70 i-0cb7be7cf50ca01b7 i-0cf1460a0cd9d09b2 i-0fef2388be494905e terminated
+TTL disarmed: gpu-ttl-gpu-platform-gpu-20261104003558
+01:39:44Z  [session] destroy: argo-bootstrap, then cluster
+   ok   nothing that charges remains: no EKS cluster, instance, NAT gateway, EIP, volume, ASG, load balancer cluster log group or GPU deadline schedule
+01:50:57Z  [session] kill switch disarmed: destroy returned zero, every residue query was answered, and all were empty
+01:50:57Z  [session] evidence in /home/lkhun9311/workspace/gpu-cp-full-run2/ex/eks-session-20261104T001744Z
