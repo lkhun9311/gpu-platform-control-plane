@@ -1,0 +1,3 @@
+# transcript 07-verdict.txt, slurm-lab, written by steps/07-batch-host-loss.sh
+# batch-host case scorer exit 0 (expected 0)
+# PASS: losing the batch host was requeued and resumed from the checkpoint

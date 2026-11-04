@@ -1,0 +1,29 @@
+JobId=35 JobName=tr-ref
+   UserId=alice(2001) GroupId=alice(2001) MCS_label=N/A
+   Priority=1 Nice=0 Account=teama QOS=normal
+   JobState=COMPLETED Reason=None Dependency=(null)
+   Requeue=1 Restarts=0 BatchFlag=1 Reboot=0 ExitCode=0:0
+   RunTime=00:00:42 TimeLimit=UNLIMITED TimeMin=N/A
+   SubmitTime=2026-11-04T12:19:44 EligibleTime=2026-11-04T12:19:44
+   AccrueTime=2026-11-04T12:19:44
+   StartTime=2026-11-04T12:19:45 EndTime=2026-11-04T12:20:27 Deadline=N/A
+   PreemptEligibleTime=2026-11-04T12:19:45 PreemptTime=None
+   SuspendTime=None SecsPreSuspend=0 LastSchedEval=2026-11-04T12:19:45 Scheduler=Main
+   Partition=gpu AllocNode:Sid=slurmctld:13217
+   ReqNodeList=(null) ExcNodeList=(null)
+   NodeList=c[1-2]
+   BatchHost=c1
+   NumNodes=2 NumCPUs=2 NumTasks=2 CPUs/Task=1 ReqB:S:C:T=0:0:*:*
+   ReqTRES=cpu=2,mem=4000M,node=2,billing=2
+   AllocTRES=cpu=2,node=2,billing=2
+   Socks/Node=* NtasksPerN:B:S:C=1:0:*:* CoreSpec=*
+   MinCPUsNode=1 MinMemoryNode=0 MinTmpDiskNode=0
+   Features=(null) DelayBoot=00:00:00
+   OverSubscribe=OK Contiguous=0 Licenses=(null) Network=(null)
+   Command=/opt/lab/train.sbatch
+   WorkDir=/home/alice
+   StdErr=/ckpt/slurm-tr-ref-35.out
+   StdIn=/dev/null
+   StdOut=/ckpt/slurm-tr-ref-35.out
+   
+

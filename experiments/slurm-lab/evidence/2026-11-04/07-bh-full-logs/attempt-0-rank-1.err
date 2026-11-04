@@ -1,0 +1,34 @@
+/opt/torch/lib/python3.13/site-packages/torch/_subclasses/functional_tensor.py:295: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at ../torch/csrc/utils/tensor_numpy.cpp:84.)
+  cpu = _conversion_method_template(device=torch.device("cpu"))
+[rank1]: Traceback (most recent call last):
+[rank1]:   File "/opt/lab/train.py", line 357, in <module>
+[rank1]:     sys.exit(main())
+[rank1]:              ~~~~^^
+[rank1]:   File "/opt/lab/train.py", line 342, in main
+[rank1]:     loss.backward()
+[rank1]:     ~~~~~~~~~~~~~^^
+[rank1]:   File "/opt/torch/lib/python3.13/site-packages/torch/_tensor.py", line 581, in backward
+[rank1]:     torch.autograd.backward(
+[rank1]:     ~~~~~~~~~~~~~~~~~~~~~~~^
+[rank1]:         self, gradient, retain_graph, create_graph, inputs=inputs
+[rank1]:         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:     )
+[rank1]:     ^
+[rank1]:   File "/opt/torch/lib/python3.13/site-packages/torch/autograd/__init__.py", line 347, in backward
+[rank1]:     _engine_run_backward(
+[rank1]:     ~~~~~~~~~~~~~~~~~~~~^
+[rank1]:         tensors,
+[rank1]:         ^^^^^^^^
+[rank1]:     ...<5 lines>...
+[rank1]:         accumulate_grad=True,
+[rank1]:         ^^^^^^^^^^^^^^^^^^^^^
+[rank1]:     )
+[rank1]:     ^
+[rank1]:   File "/opt/torch/lib/python3.13/site-packages/torch/autograd/graph.py", line 825, in _engine_run_backward
+[rank1]:     return Variable._execution_engine.run_backward(  # Calls into the C++ engine to run the backward pass
+[rank1]:            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:         t_outputs, *args, **kwargs
+[rank1]:         ^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:     )  # Calls into the C++ engine to run the backward pass
+[rank1]:     ^
+[rank1]: RuntimeError: [../third_party/gloo/gloo/transport/tcp/pair.cc:534] Connection closed by peer [172.20.0.7]:28323

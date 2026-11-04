@@ -44,9 +44,9 @@ RUN mkdir -p /var/spool/slurmctld /var/spool/slurmd /var/log/slurm /run/slurm \
  && chown -R slurm:slurm /var/spool/slurmctld /var/log/slurm /run/slurm
 
 # Modes are set in a RUN rather than with COPY --chmod, which the legacy builder on this host refuses.
-COPY etc/slurm.conf etc/gres.conf etc/cgroup.conf etc/slurmdbd.conf /etc/slurm/
+COPY etc/slurm.conf etc/gres.conf etc/cgroup.conf etc/slurmdbd.conf etc/gpuhc.py /etc/slurm/
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chown slurm:slurm /etc/slurm/slurmdbd.conf && chmod 600 /etc/slurm/slurmdbd.conf \
- && chmod 755 /usr/local/bin/entrypoint.sh
+ && chmod 755 /usr/local/bin/entrypoint.sh /etc/slurm/gpuhc.py
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

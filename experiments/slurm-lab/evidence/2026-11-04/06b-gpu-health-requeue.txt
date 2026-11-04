@@ -1,0 +1,168 @@
+# transcript 06b-gpu-health-requeue.txt, slurm-lab, written by steps/06-gpu-health.sh
+# With the requeue policy on c3, a fault also requeues c3's running jobs, as the platform's --gpu-fault-evict-workloads deactivates Kueue Workloads.
+
+root@c3$ echo requeue >/var/lib/labgpu/policy; cat /var/lib/labgpu/policy
+# at 2026-11-04T12:29:29.416Z
+requeue
+# exit 0
+# c1 and c2 are held briefly so both test jobs land on c3; then the holders end.
+
+bob@slurmctld$ sbatch -J hold-1 -w c1 --gres=gpu:2 --wrap 'sleep 900'
+# at 2026-11-04T12:29:29.466Z
+Submitted batch job 41
+# exit 0
+
+bob@slurmctld$ sbatch -J hold-2 -w c2 --gres=gpu:2 --wrap 'sleep 900'
+# at 2026-11-04T12:29:29.522Z
+Submitted batch job 42
+# exit 0
+# waited 1s for: [ $(squeue -h -u bob -t R | wc -l) -eq 2 ]
+
+alice@slurmctld$ sbatch -J hc-rq-yes --requeue --open-mode=append --gres=gpu:1 --wrap 'echo start $(date -u +%T) on $(hostname) gpus=$CUDA_VISIBLE_DEVICES restart=${SLURM_RESTART_COUNT:-0}; sleep 900'
+# at 2026-11-04T12:29:30.676Z
+Submitted batch job 43
+# exit 0
+
+alice@slurmctld$ sbatch -J hc-rq-no --no-requeue --gres=gpu:1 --wrap 'sleep 900'
+# at 2026-11-04T12:29:30.730Z
+Submitted batch job 44
+# exit 0
+# waited 2s for: [ $(squeue -h -u alice -t R | wc -l) -eq 2 ]
+
+bob@slurmctld$ scancel -n hold-1; scancel -n hold-2
+# at 2026-11-04T12:29:32.957Z
+# exit 0
+# waited 0s for: [ -z "$(squeue -h -u bob)" ]
+
+root@slurmctld$ squeue -o '%.6i %.12j %.8u %.3t %.10M %.12b %N %R'
+# at 2026-11-04T12:29:33.084Z
+ JOBID         NAME     USER  ST       TIME TRES_PER_NOD NODELIST NODELIST(REASON)
+    43    hc-rq-yes    alice   R       0:01   gres/gpu:1 c3 c3
+    44     hc-rq-no    alice   R       0:01   gres/gpu:1 c3 c3
+# exit 0
+# Fault: a double-bit ECC count of 2 on c3's card 0.
+
+root@c3$ printf '%s\n' 'DCGM_FI_DEV_XID_ERRORS{gpu="0",UUID="GPU-lab-c3-0"} 0' 'DCGM_FI_DEV_ECC_DBE_VOL_TOTAL{gpu="0",UUID="GPU-lab-c3-0"} 2' 'DCGM_FI_DEV_XID_ERRORS{gpu="1",UUID="GPU-lab-c3-1"} 0' 'DCGM_FI_DEV_ECC_DBE_VOL_TOTAL{gpu="1",UUID="GPU-lab-c3-1"} 0' >/var/lib/labgpu/metrics.prom.new && mv /var/lib/labgpu/metrics.prom.new /var/lib/labgpu/metrics.prom && cat /var/lib/labgpu/metrics.prom
+# at 2026-11-04T12:29:33.145Z
+DCGM_FI_DEV_XID_ERRORS{gpu="0",UUID="GPU-lab-c3-0"} 0
+DCGM_FI_DEV_ECC_DBE_VOL_TOTAL{gpu="0",UUID="GPU-lab-c3-0"} 2
+DCGM_FI_DEV_XID_ERRORS{gpu="1",UUID="GPU-lab-c3-1"} 0
+DCGM_FI_DEV_ECC_DBE_VOL_TOTAL{gpu="1",UUID="GPU-lab-c3-1"} 0
+# exit 0
+
+# trace: probe [sinfo -h -n c3 -o '%T|%E'; squeue -h -u alice -o '%i %j %T %r %N'; scontrol show job $(squeue -h -n hc-rq-yes -o %i) | grep -oE 'Restarts=[0-9]+'] until [squeue -h -n hc-rq-yes -t R -o %N | grep -qv c3], at most 300s
+## seen at 2026-11-04T12:29:33.251Z
+mixed|none
+43 hc-rq-yes RUNNING None c3
+44 hc-rq-no RUNNING None c3
+Restarts=0
+## seen at 2026-11-04T12:29:38.866Z
+draining|gpuhc: GPU-lab-c3-0 DCGM_FI_DEV_ECC_DBE_VOL_TOTAL=2
+43 hc-rq-yes PENDING BeginTime 
+44 hc-rq-no RUNNING None c3
+Restarts=1
+## seen at 2026-11-04T12:31:46.593Z
+draining|gpuhc: GPU-lab-c3-0 DCGM_FI_DEV_ECC_DBE_VOL_TOTAL=2
+43 hc-rq-yes RUNNING None c1
+44 hc-rq-no RUNNING None c3
+Restarts=1
+# trace ended: condition met after 120s
+
+root@c3$ cat /var/log/slurm/gpuhc.log
+# at 2026-11-04T12:31:46.648Z
+2026-11-04T12:29:38.022Z c3 drain (MIXED) rc=0 reason=gpuhc: GPU-lab-c3-0 DCGM_FI_DEV_ECC_DBE_VOL_TOTAL=2 
+2026-11-04T12:29:38.027Z c3 requeue 43 rc=0 
+2026-11-04T12:29:38.029Z c3 requeue 44 rc=1 Requested operation is presently disabled for job 44
+2026-11-04T12:29:43.019Z c3 already MIXED+DRAIN; reason left as it is: gpuhc: GPU-lab-c3-0 DCGM_FI_DEV_ECC_DBE_VOL_TOTAL=2
+2026-11-04T12:29:48.019Z c3 already MIXED+DRAIN; reason left as it is: gpuhc: GPU-lab-c3-0 DCGM_FI_DEV_ECC_DBE_VOL_TOTAL=2
+2026-11-04T12:29:53.017Z c3 already MIXED+DRAIN; reason left as it is: gpuhc: GPU-lab-c3-0 DCGM_FI_DEV_ECC_DBE_VOL_TOTAL=2
+2026-11-04T12:29:58.020Z c3 already MIXED+DRAIN; reason left as it is: gpuhc: GPU-lab-c3-0 DCGM_FI_DEV_ECC_DBE_VOL_TOTAL=2
+2026-11-04T12:30:03.019Z c3 already MIXED+DRAIN; reason left as it is: gpuhc: GPU-lab-c3-0 DCGM_FI_DEV_ECC_DBE_VOL_TOTAL=2
+2026-11-04T12:30:08.021Z c3 already MIXED+DRAIN; reason left as it is: gpuhc: GPU-lab-c3-0 DCGM_FI_DEV_ECC_DBE_VOL_TOTAL=2
+2026-11-04T12:30:13.022Z c3 already MIXED+DRAIN; reason left as it is: gpuhc: GPU-lab-c3-0 DCGM_FI_DEV_ECC_DBE_VOL_TOTAL=2
+2026-11-04T12:30:18.016Z c3 already MIXED+DRAIN; reason left as it is: gpuhc: GPU-lab-c3-0 DCGM_FI_DEV_ECC_DBE_VOL_TOTAL=2
+2026-11-04T12:30:23.021Z c3 already MIXED+DRAIN; reason left as it is: gpuhc: GPU-lab-c3-0 DCGM_FI_DEV_ECC_DBE_VOL_TOTAL=2
+2026-11-04T12:30:28.020Z c3 already MIXED+DRAIN; reason left as it is: gpuhc: GPU-lab-c3-0 DCGM_FI_DEV_ECC_DBE_VOL_TOTAL=2
+2026-11-04T12:30:33.020Z c3 already MIXED+DRAIN; reason left as it is: gpuhc: GPU-lab-c3-0 DCGM_FI_DEV_ECC_DBE_VOL_TOTAL=2
+2026-11-04T12:30:38.017Z c3 already MIXED+DRAIN; reason left as it is: gpuhc: GPU-lab-c3-0 DCGM_FI_DEV_ECC_DBE_VOL_TOTAL=2
+2026-11-04T12:30:43.018Z c3 already MIXED+DRAIN; reason left as it is: gpuhc: GPU-lab-c3-0 DCGM_FI_DEV_ECC_DBE_VOL_TOTAL=2
+2026-11-04T12:30:48.017Z c3 already MIXED+DRAIN; reason left as it is: gpuhc: GPU-lab-c3-0 DCGM_FI_DEV_ECC_DBE_VOL_TOTAL=2
+2026-11-04T12:30:53.016Z c3 already MIXED+DRAIN; reason left as it is: gpuhc: GPU-lab-c3-0 DCGM_FI_DEV_ECC_DBE_VOL_TOTAL=2
+2026-11-04T12:30:58.016Z c3 already MIXED+DRAIN; reason left as it is: gpuhc: GPU-lab-c3-0 DCGM_FI_DEV_ECC_DBE_VOL_TOTAL=2
+2026-11-04T12:31:03.018Z c3 already MIXED+DRAIN; reason left as it is: gpuhc: GPU-lab-c3-0 DCGM_FI_DEV_ECC_DBE_VOL_TOTAL=2
+2026-11-04T12:31:08.016Z c3 already MIXED+DRAIN; reason left as it is: gpuhc: GPU-lab-c3-0 DCGM_FI_DEV_ECC_DBE_VOL_TOTAL=2
+2026-11-04T12:31:13.017Z c3 already MIXED+DRAIN; reason left as it is: gpuhc: GPU-lab-c3-0 DCGM_FI_DEV_ECC_DBE_VOL_TOTAL=2
+2026-11-04T12:31:18.017Z c3 already MIXED+DRAIN; reason left as it is: gpuhc: GPU-lab-c3-0 DCGM_FI_DEV_ECC_DBE_VOL_TOTAL=2
+2026-11-04T12:31:24.016Z c3 already MIXED+DRAIN; reason left as it is: gpuhc: GPU-lab-c3-0 DCGM_FI_DEV_ECC_DBE_VOL_TOTAL=2
+2026-11-04T12:31:28.017Z c3 already MIXED+DRAIN; reason left as it is: gpuhc: GPU-lab-c3-0 DCGM_FI_DEV_ECC_DBE_VOL_TOTAL=2
+2026-11-04T12:31:33.016Z c3 already MIXED+DRAIN; reason left as it is: gpuhc: GPU-lab-c3-0 DCGM_FI_DEV_ECC_DBE_VOL_TOTAL=2
+2026-11-04T12:31:38.017Z c3 already MIXED+DRAIN; reason left as it is: gpuhc: GPU-lab-c3-0 DCGM_FI_DEV_ECC_DBE_VOL_TOTAL=2
+2026-11-04T12:31:43.020Z c3 already MIXED+DRAIN; reason left as it is: gpuhc: GPU-lab-c3-0 DCGM_FI_DEV_ECC_DBE_VOL_TOTAL=2
+# exit 0
+
+root@slurmctld$ scontrol show job $(squeue -h -n hc-rq-yes -o %i) | grep -E 'JobState|Requeue|Restarts|SubmitTime|EligibleTime|StartTime|NodeList='
+# at 2026-11-04T12:31:46.701Z
+   JobState=RUNNING Reason=None Dependency=(null)
+   Requeue=1 Restarts=1 BatchFlag=1 Reboot=0 ExitCode=0:0
+   SubmitTime=2026-11-04T12:29:38 EligibleTime=2026-11-04T12:31:39
+   StartTime=2026-11-04T12:31:46 EndTime=Unknown Deadline=N/A
+   PreemptEligibleTime=2026-11-04T12:31:46 PreemptTime=None
+   ReqNodeList=(null) ExcNodeList=(null)
+   NodeList=c1
+# exit 0
+
+root@slurmctld$ squeue -o '%.6i %.12j %.8u %.3t %.10M %.12b %N %R'
+# at 2026-11-04T12:31:46.758Z
+ JOBID         NAME     USER  ST       TIME TRES_PER_NOD NODELIST NODELIST(REASON)
+    43    hc-rq-yes    alice   R       0:00   gres/gpu:1 c1 c1
+    44     hc-rq-no    alice   R       2:14   gres/gpu:1 c3 c3
+# exit 0
+
+root@slurmctld$ sacct -D -n -u alice -S now-15minutes -o JobID,JobName,State,ExitCode,Restarts,Start,End,NodeList | grep -E 'hc-rq'
+# at 2026-11-04T12:31:46.810Z
+43            hc-rq-yes   REQUEUED      0:0        0 2026-11-04T12:29:32 2026-11-04T12:29:38              c3 
+44             hc-rq-no    RUNNING      0:0        0 2026-11-04T12:29:32             Unknown              c3 
+43            hc-rq-yes    RUNNING      0:0        1 2026-11-04T12:31:46             Unknown              c1 
+# exit 0
+# The requeued job's output on c1, and its first run's on c3; nothing is shared between their home directories.
+
+root@c1$ cat /home/alice/slurm-43.out
+# at 2026-11-04T12:31:46.963Z
+start 12:31:46 on c1 gpus=0 restart=1
+# exit 0
+
+root@c3$ cat /home/alice/slurm-43.out
+# at 2026-11-04T12:31:47.015Z
+start 12:29:32 on c3 gpus=0 restart=0
+slurmstepd-c3: error: *** JOB 43 ON c3 CANCELLED AT 2026-11-04T12:29:38 DUE TO JOB REQUEUE ***
+# exit 0
+
+root@c3$ echo >/var/lib/labgpu/policy; rm -f /var/lib/labgpu/requeued
+# at 2026-11-04T12:31:47.070Z
+# exit 0
+
+root@c3$ printf '%s\n' 'DCGM_FI_DEV_XID_ERRORS{gpu="0",UUID="GPU-lab-c3-0"} 0' 'DCGM_FI_DEV_ECC_DBE_VOL_TOTAL{gpu="0",UUID="GPU-lab-c3-0"} 0' 'DCGM_FI_DEV_XID_ERRORS{gpu="1",UUID="GPU-lab-c3-1"} 0' 'DCGM_FI_DEV_ECC_DBE_VOL_TOTAL{gpu="1",UUID="GPU-lab-c3-1"} 0' >/var/lib/labgpu/metrics.prom.new && mv /var/lib/labgpu/metrics.prom.new /var/lib/labgpu/metrics.prom && cat /var/lib/labgpu/metrics.prom
+# at 2026-11-04T12:31:47.125Z
+DCGM_FI_DEV_XID_ERRORS{gpu="0",UUID="GPU-lab-c3-0"} 0
+DCGM_FI_DEV_ECC_DBE_VOL_TOTAL{gpu="0",UUID="GPU-lab-c3-0"} 0
+DCGM_FI_DEV_XID_ERRORS{gpu="1",UUID="GPU-lab-c3-1"} 0
+DCGM_FI_DEV_ECC_DBE_VOL_TOTAL{gpu="1",UUID="GPU-lab-c3-1"} 0
+# exit 0
+
+root@slurmctld$ scancel -u alice
+# at 2026-11-04T12:31:47.179Z
+# exit 0
+# waited 0s for: [ -z "$(squeue -h)" ]
+
+root@slurmctld$ scontrol update nodename=c3 state=resume
+# at 2026-11-04T12:31:47.282Z
+# exit 0
+# waited 2s for: sinfo -h -n c3 -o %T | grep -qx idle
+
+root@slurmctld$ sinfo -N -o '%N %T %E'
+# at 2026-11-04T12:31:49.481Z
+NODELIST STATE REASON
+c1 idle none
+c2 idle none
+c3 idle none
+# exit 0
