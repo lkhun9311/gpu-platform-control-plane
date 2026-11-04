@@ -71,33 +71,42 @@ def main(argv: list[str]) -> int:
         return 2
     run = pathlib.Path(argv[1])
     prov = score_eks.provenance(run)
-    if not prov.get("steps", "").isdigit() or not prov.get("case_budget", "").isdigit():
-        print("REFUSED: the run's provenance names no step count or case budget", file=sys.stderr)
+    # The scorer's own refusals: a run it will not score at all has no accepted case to split (codex review of defd5006).
+    refusals = score_eks.run_refusals(prov)
+    if refusals:
+        for r in refusals:
+            print(f"REFUSED: {r}")
         return 2
-    by_kind: dict[str, list[dict[str, float]]] = {}
+    # By kind and by the class the scorer gave, because a terminate-spare that recovered on a replacement took the
+    # replacement's path, which the scorer summarises apart and a pooled median would hide (codex review of defd5006).
+    by_kind: dict[tuple[str, str], list[dict[str, float]]] = {}
     reference = None
     for name in prov.get("cases", "").split():
         case = score_eks.Case(run, name, reference, int(prov["steps"]), int(prov["case_budget"]))
+        # Evidence that cannot be read is that case's, as in the scorer, never the end of the report.
         try:
             case.score()
+            if name == "reference":
+                reference = case.final_params(1)[0]
+                continue
+            if len(case.attempts) < 2 or "recovery_s" not in case.figures:
+                print(f"{name}: not split, it has no recovery")
+                continue
+            at = moments(case)
         except score_eks.Verdict as v:
             print(f"{name}: not split, {v.kind}: {v.reason[:120]}")
             continue
-        if name == "reference":
-            reference = case.final_params(1)[0]
+        except (ValueError, KeyError, TypeError, IndexError, AttributeError, OSError) as exc:
+            print(f"{name}: not split, its evidence could not be read: {type(exc).__name__}: {str(exc)[:100]}")
             continue
-        if len(case.attempts) < 2 or "recovery_s" not in case.figures:
-            print(f"{name}: not split, it has no recovery")
-            continue
-        at = moments(case)
-        by_kind.setdefault(case.kind, []).append(at)
+        by_kind.setdefault((case.kind, str(case.figures.get("class"))), []).append(at)
         line = "  ".join(f"{m} +{at[m]:.1f}{'*' if m in CLUSTER_CLOCK else ''}" for m in MOMENTS if m in at)
         print(f"{name} ({case.figures.get('class')}): {line}")
     print("medians, seconds after the fault (* a whole-second cluster stamp):")
-    for kind, rows in by_kind.items():
+    for (kind, cls), rows in by_kind.items():
         line = "  ".join(f"{m} +{statistics.median(r[m] for r in rows):.1f}{'*' if m in CLUSTER_CLOCK else ''}"
                          for m in MOMENTS if all(m in r for r in rows))
-        print(f"  {kind} (n={len(rows)}): {line}")
+        print(f"  {kind}/{cls} (n={len(rows)}): {line}")
     return 0
 
 
