@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import functools
 import json
+import lzma
 import math
 import pathlib
 import re
@@ -88,9 +89,16 @@ def records_in(text: str) -> list[dict]:
 
 
 def jsonl(path: pathlib.Path) -> list[dict]:
-    if not path.exists():
+    # The paid archives commit their largest records, the status timelines, xz-compressed.
+    # Reading only the plain name voided every termination case of a committed archive the run itself had accepted.
+    packed = path.with_name(path.name + ".xz")
+    if path.exists():
+        text = path.read_text()
+    elif packed.exists():
+        text = lzma.decompress(packed.read_bytes()).decode()
+    else:
         return []
-    return [json.loads(line) for line in path.read_text().splitlines() if line.strip().startswith("{")]
+    return [json.loads(line) for line in text.splitlines() if line.strip().startswith("{")]
 
 
 def epoch(ts: str) -> float:

@@ -1106,6 +1106,19 @@ if [[ $rc == 0 && "$(grep -c '^ACCEPTED' <<<"$out")" == 22 ]]; then ok "a clean 
 for want in "replacement: recovery median 71.0 s" "spare: recovery median 71.0 s" "same-nodes: recovery median 71.0 s" "lost steps [1, 1, 1, 1, 1]"; do
   if grep -qF "$want" <<<"$out"; then ok "the clean run reports '$want'"; else bad "the clean run lacks '$want'"; fi
 done
+# The committed paid archives score as published from the repository alone.
+# Their status timelines are committed compressed, and reading only the plain file voided every termination case.
+for pub in "2026-11-02-smoke 4" "2026-11-04-full 10"; do
+  read -r stage n <<<"$pub"
+  out="$(python3 experiments/distributed-restart/score_eks.py "hack/distributed-restart-eks/$stage/session/restart" 2>&1)"
+  rc=$?
+  if [[ $rc == 0 && "$(grep -c '^ACCEPTED' <<<"$out")" == "$n" && "$(grep -cE '^(VOID|FAILED|NOTRUN|REFUSED)' <<<"$out")" == 0 ]]; then
+    ok "the committed $stage archive scores $n of $n ACCEPTED"
+  else
+    bad "the committed $stage archive: exit $rc, $(grep -cE '^(VOID|FAILED|NOTRUN|REFUSED)' <<<"$out") refused, $(grep -m1 -E '^(VOID|FAILED|REFUSED)' <<<"$out")"
+  fi
+done
+if grep -qF "checkpoint cost: median 0.255 s, max 0.412 s over 540 saves" <<<"$out"; then ok "the full archive's checkpoint cost is the published one"; else bad "the full archive's checkpoint cost: $(grep 'checkpoint cost' <<<"$out")"; fi
 # phases_eks.py splits only what score_eks.py accepted, and its last moment is the scorer's own recovery figure.
 out="$(python3 experiments/distributed-restart/phases_eks.py "$work/run-clean" 2>&1)"
 rc=$?
