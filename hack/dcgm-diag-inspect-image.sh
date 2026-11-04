@@ -76,18 +76,25 @@ for m in index["manifests"]:
     found = found or (p.get("os"), p.get("architecture")) == (want_os, want_arch)
 sys.exit(0 if found else 1)
 PY
+  echo "exit=$?" >"$d/index-platforms.exit"
 
-  # run NAME SCRIPT: one command in the image, its streams and exit status in three files; it must exit 0.
+  # run NAME SCRIPT: one command in the image, its streams and exit status in three files; it must exit 0 and print.
   run() {
     docker run --rm --network none --entrypoint sh "$ref" -c "$2" >"$d/$1.out" 2>"$d/$1.err"
     local rc=$?
     echo "exit=$rc" >"$d/$1.exit"
     [ "$rc" = 0 ] || fail "$ver: $1 exited $rc"
+    [ -s "$d/$1.out" ] || fail "$ver: $1 printed nothing"
   }
-  # probe NAME SCRIPT: the same, for a command that is expected to fail without a GPU; its exit status is the finding.
+  # probe NAME PATTERN SCRIPT: a command expected to fail without a GPU, whose exit status is the finding.
+  # It must still have run: 124 (timed out), 125 (docker could not run it) and 126 (not executable) fail the
+  # inspection, and its stdout and stderr together must match PATTERN, the shape of the failure this probe is for.
   probe() {
-    docker run --rm --network none --entrypoint sh "$ref" -c "$2" >"$d/$1.out" 2>"$d/$1.err"
-    echo "exit=$?" >"$d/$1.exit"
+    docker run --rm --network none --entrypoint sh "$ref" -c "$3" >"$d/$1.out" 2>"$d/$1.err"
+    local rc=$?
+    echo "exit=$rc" >"$d/$1.exit"
+    case "$rc" in 124 | 125 | 126) fail "$ver: $1 did not run (exit $rc)" ;; esac
+    cat "$d/$1.out" "$d/$1.err" | grep -qE "$2" || fail "$ver: $1's output does not match /$2/"
   }
   run version 'dcgmi --version'
   run diag-help 'dcgmi diag --help'
@@ -95,18 +102,21 @@ PY
   # The executables and the diagnostic's plugin libraries, each with its path and hash.
   # Each version keeps nvvs in one of two places; the step fails only if neither holds it.
   run executables 'n=0; for f in /usr/bin/dcgmi /usr/bin/nv-hostengine /usr/share/nvidia-validation-suite/nvvs /usr/libexec/datacenter-gpu-manager-4/nvvs; do if [ -e "$f" ]; then sha256sum "$f" || exit 1; n=$((n+1)); fi; done; [ "$n" = 3 ]'
-  run plugins 'n=0; for p in /usr/share/nvidia-validation-suite/plugins /usr/libexec/datacenter-gpu-manager-4/plugins; do if [ -d "$p" ]; then find "$p" -maxdepth 2 -name "lib*.so.[0-9]*.[0-9]*.[0-9]*" | sort | xargs sha256sum || exit 1; n=$((n+1)); fi; done; [ "$n" = 1 ]'
+  # An empty plugin list would hash empty input and exit 0, so the libraries are counted, not the directories.
+  run plugins 'n=0; for p in /usr/share/nvidia-validation-suite/plugins /usr/libexec/datacenter-gpu-manager-4/plugins; do if [ -d "$p" ]; then libs=$(find "$p" -maxdepth 2 -name "lib*.so.[0-9]*.[0-9]*.[0-9]*" | sort); [ -n "$libs" ] || exit 1; echo "$libs" | xargs sha256sum || exit 1; n=$((n+1)); fi; done; [ "$n" = 1 ]'
   # What a session's commands need from the image itself.
   run tools 'id; for t in tar timeout pgrep ps sha256sum; do printf "%s " "$t"; command -v "$t" || exit 1; done'
   # How dcgmi reaches a host engine with none running, by default and with --host naming a socket that does not
   # exist, with and without an explicit GPU entity; and discovery, which needs an engine.
-  probe diag-default 'timeout 60 dcgmi diag -r 1 -j'
-  probe diag-badhost 'timeout 60 dcgmi diag --host unix:///tmp/none.sock -r 1 -j'
-  probe diag-badhost-gpu0 'timeout 60 dcgmi diag --host unix:///tmp/none.sock -i gpu:0 -r 1 -j'
-  probe discovery-badhost 'timeout 30 dcgmi discovery --host unix:///tmp/none.sock -l'
-  probe discovery-default 'timeout 30 dcgmi discovery -l'
+  # A diagnostic answers with its JSON, whose top key is "DCGM Diagnostic" in 4.4.2 and "DCGM GPU Diagnostic" in 3.3.9;
+  # 3.3.9 rejects the gpu:0 entity syntax outright, which is its finding.
+  probe diag-default '"DCGM (GPU )?Diagnostic"' 'timeout 60 dcgmi diag -r 1 -j'
+  probe diag-badhost '"DCGM (GPU )?Diagnostic"' 'timeout 60 dcgmi diag --host unix:///tmp/none.sock -r 1 -j'
+  probe diag-badhost-gpu0 '"DCGM (GPU )?Diagnostic"|Invalid gpu list' 'timeout 60 dcgmi diag --host unix:///tmp/none.sock -i gpu:0 -r 1 -j'
+  probe discovery-badhost 'Unable to connect to host engine' 'timeout 30 dcgmi discovery --host unix:///tmp/none.sock -l'
+  probe discovery-default 'Unable to connect to host engine' 'timeout 30 dcgmi discovery -l'
   # The image's own nvidia-smi, if any: without one, the GPU check in a container depends on the runtime injecting it.
-  probe nvidia-smi-in-image 'command -v nvidia-smi'
+  probe nvidia-smi-in-image '^exit=127$|nvidia-smi' 'command -v nvidia-smi; echo "exit=$?"'
   # Strings of the binaries, for what their output can carry: the plugin directories nvvs knows, its message for a
   # CUDA version it has no plugins for, and the lower-case keys dcgmi's JSON writer is built from.
   c=$(docker create "$ref") || { fail "$ver: create for copying binaries"; continue; }
@@ -115,16 +125,25 @@ PY
   docker cp "$c:/usr/bin/dcgmi" "$work/dcgmi-$ver" >/dev/null || fail "$ver: copy dcgmi"
   docker cp "$c:$nvvs" "$work/nvvs-$ver" >/dev/null || fail "$ver: copy nvvs"
   docker rm "$c" >/dev/null || fail "$ver: remove the copy container"
-  {
-    echo "== nvvs: plugin directories and CUDA version messages"
-    strings "$work/nvvs-$ver" | grep -E '^/cuda[0-9]+/$|^/cudaless/$|[Uu]nsupported C[Uu][Dd][Aa] version' | sort -u
-    echo "== dcgmi: embedded host engine and connection messages"
-    strings "$work/dcgmi-$ver" | grep -E 'dcgmStartEmbedded|embedded host engine|unable to establish a connection' | sort -u
-    echo "== dcgmi: lower-case key strings that name a device"
-    strings "$work/dcgmi-$ver" | grep -E '^(entity_id|entity_groups|serial|serial_num|device_id|uuid|gpu_uuid|results|tests|test_summary|warnings|info|error_id|error_category|runtime_error|metadata|driver_version)$' | sort -u
-    echo "== dcgmi: any string containing UUID"
-    strings "$work/dcgmi-$ver" | grep -i 'uuid' | grep -v '^_Z' | cut -c1-160 | sort -u
-  } >"$d/strings.txt" 2>"$d/strings.err" || fail "$ver: strings"
+  # section TITLE BINARY PATTERN: one extraction, checked on its own, so a failed one cannot hide behind the next;
+  # each section must find something, since every pattern here matched in both images when this was written.
+  : >"$d/strings.txt"
+  : >"$d/strings.exit"
+  section() {
+    local found rc
+    echo "== $1" >>"$d/strings.txt"
+    # strings' own status is read inside the substitution; PIPESTATUS outside it would describe the assignment.
+    found=$(set -o pipefail; strings "$2" 2>>"$d/strings.err" | { grep -E "$3" || true; } | { grep -v '^_Z' || true; } | cut -c1-160 | sort -u)
+    rc=$?
+    echo "$1: exit=$rc lines=$(printf '%s' "$found" | grep -c . || true)" >>"$d/strings.exit"
+    [ "$rc" = 0 ] || fail "$ver: strings for section '$1' exited $rc"
+    [ -n "$found" ] || { fail "$ver: strings section '$1' found nothing"; return; }
+    echo "$found" >>"$d/strings.txt"
+  }
+  section "nvvs: plugin directories and CUDA version messages" "$work/nvvs-$ver" '^/cuda[0-9]+/$|^/cudaless/$|[Uu]nsupported C[Uu][Dd][Aa] version'
+  section "dcgmi: embedded host engine and connection messages" "$work/dcgmi-$ver" 'dcgmStartEmbedded|embedded host engine|unable to establish a connection'
+  section "dcgmi: lower-case key strings that name a device" "$work/dcgmi-$ver" '^(entity_id|entity_groups|serial|serial_num|device_id|uuid|gpu_uuid|results|tests|test_summary|warnings|info|error_id|error_category|runtime_error|metadata|driver_version)$'
+  section "dcgmi: any string containing UUID" "$work/dcgmi-$ver" '[Uu][Uu][Ii][Dd]'
 done
 if [ "$failed" = 1 ]; then
   echo "INSPECTION INCOMPLETE: see the failures above; $OUT is not a complete archive"

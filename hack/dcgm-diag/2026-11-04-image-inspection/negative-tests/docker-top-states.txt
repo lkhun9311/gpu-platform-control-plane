@@ -1,0 +1,22 @@
+== running: docker top dcgm-diag-top-probe-1393023 -eo pid,ppid,comm
+PID                 PPID                COMMAND
+1429075             1429024             sh
+1429101             1429075             sleep
+1429102             1429075             sleep
+exit=0
+== running: docker inspect -f {{.State.Status}}
+running
+exit=0
+== stopped: docker top
+Error response from daemon: container 08273131c8d98a9f388f3709b11b36843c32cdbb4f76570fb665e2e9c8da4a3c is not running
+exit=1
+== stopped: docker inspect -f {{.State.Status}}
+exited
+exit=0
+== removed: docker top
+Error response from daemon: No such container: dcgm-diag-top-probe-1393023
+exit=1
+== removed: docker inspect -f {{.State.Status}}
+
+error: no such object: dcgm-diag-top-probe-1393023
+exit=1
