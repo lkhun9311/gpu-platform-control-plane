@@ -443,7 +443,7 @@ func (r *MLTrainingJobReconciler) unfencedNodes(ctx context.Context, mltj *platf
 	fenced := strings.Split(mltj.Annotations[annFencedNodes], ",")
 	var out, bound []string
 	for _, n := range cur.Nodes {
-		vouched, needsUID := fenceVouches(fenced, mltj.Status.Attempts, cur.Number, n, cur.NodeUIDs[n])
+		vouched, needsUID := fenceVouches(fenced, mltj.Status.Attempts, cur.Number, n)
 		if vouched {
 			continue
 		}
@@ -463,29 +463,46 @@ func (r *MLTrainingJobReconciler) unfencedNodes(ctx context.Context, mltj *platf
 		}
 		out = append(out, n)
 		if needsUID {
-			bound = append(bound, n+"@"+cur.NodeUIDs[n])
+			bound = append(bound, n+"@"+machineID(cur, n))
 		}
 	}
 	return out, bound, nil
 }
 
-// fenceVouches reports whether the fenced-nodes entries acknowledge node n of attempt number cur as off, where uid is
-// what that attempt recorded for n ("" for an attempt recorded before UIDs were), and whether only n@uid could.
+// machineID is how attempt a's record names the machine its rank ran on as node n: the Node's UID, or "" for an
+// attempt recorded before UIDs were.
+// A node already gone when the rank was first seen has no UID, and the "absent" recorded for it is the same word for
+// every such machine, so it is pinned to the attempt: an acknowledgement for it can never carry over to a later one.
+func machineID(a platformv1.TrainingAttempt, n string) string {
+	if id := a.NodeUIDs[n]; id != nodeUIDAbsent {
+		return id
+	}
+	return nodeUIDAbsent + "-a" + strconv.Itoa(int(a.Number))
+}
+
+// fenceVouches reports whether the fenced-nodes entries acknowledge node n of attempt number cur as off, and whether
+// only n@id, with id that attempt's machineID, could.
 //
-// An entry n@uid names one machine and always vouches for it.
+// An entry n@id names one machine and always vouches for it.
 // A bare name says nothing of which machine it meant, and it is never consumed: written for a machine lost in one
 // attempt, it would still stand when another machine registered under the name is lost in a later one.
-// So a bare name vouches only while every attempt that ran on n recorded the same UID, meaning the job has seen one
-// machine of that name; a recorded "absent" counts as a machine of its own, since nothing showed it was the same one.
-func fenceVouches(fenced []string, attempts []platformv1.TrainingAttempt, cur int32, n, uid string) (bool, bool) {
-	if uid != "" && slices.Contains(fenced, n+"@"+uid) {
-		return true, false
+// So a bare name vouches only while every attempt that ran on n names the same machine, meaning the job has seen one
+// machine of that name; an attempt recorded before UIDs were is judged by the name alone, as it was.
+func fenceVouches(fenced []string, attempts []platformv1.TrainingAttempt, cur int32, n string) (bool, bool) {
+	var id string
+	for _, a := range attempts {
+		if a.Number == cur {
+			id = machineID(a, n)
+		}
 	}
-	if uid == "" {
+	if id == "" {
 		return slices.Contains(fenced, n), false
 	}
+	if slices.Contains(fenced, n+"@"+id) {
+		return true, false
+	}
 	for _, a := range attempts {
-		if a.Number != cur && slices.Contains(a.Nodes, n) && a.NodeUIDs[n] != uid {
+		if a.Number != cur && slices.Contains(a.Nodes, n) && machineID(a, n) != id {
 			return false, true
 		}
 	}
