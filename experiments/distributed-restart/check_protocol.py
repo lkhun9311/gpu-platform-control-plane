@@ -166,6 +166,28 @@ def main() -> int:
     finally:
         shutil.rmtree(state, ignore_errors=True)
 
+    # A newest checkpoint the search cannot use for a reason other than a wrong hash: a manifest that parses but is not a
+    # manifest, one naming another checkpoint's directory, and a shard that is there but cannot be read. Each is passed
+    # over for step 5 by every rank together, where each once raised out of the search instead.
+    for case, spoil in (
+            ("malformed manifest", lambda ckpt: (ckpt / "MANIFEST").write_text(
+                json.dumps({**json.loads((ckpt / "MANIFEST").read_text()), "shards": [{}, {}]}))),
+            ("manifest of another directory", lambda ckpt: (ckpt / "MANIFEST").write_text(
+                json.dumps({**json.loads((ckpt / "MANIFEST").read_text()), "uuid": "0" * 32}))),
+            ("unreadable shard", lambda ckpt: ((ckpt / "rank-1.pt").unlink(), (ckpt / "rank-1.pt").mkdir()))):
+        state = fresh()
+        try:
+            code, _ = attempt(state, 1, steps=6)
+            expect(case + " setup", code == 0, f"exit {code} of the attempt that publishes step 6")
+            spoil(state / "uid-test" / (state / "uid-test" / "LATEST").read_text().strip())
+            code, second = attempt(state, 2)
+            resume = events(second, "resume")
+            got_from = resume[0]["from_step"] if resume else None
+            expect(case + " passed over", code == 0 and got_from == 5, f"exit {code}, resumed from {got_from}, want 5")
+            expect(case + " same training", final(second) == reference, "final parameters compared with the reference")
+        finally:
+            shutil.rmtree(state, ignore_errors=True)
+
     # Nothing on the volume: a restart from step zero, recorded as one and not as a resume.
     state = fresh()
     try:

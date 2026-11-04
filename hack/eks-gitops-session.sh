@@ -93,6 +93,10 @@ EXDIR="$(cd "$EXDIR" && pwd)" || exit 1
 log() { printf '%s  [session] %s\n' "$(date -u +%H:%M:%SZ)" "$*" | tee -a "$EXDIR/session.log"; }
 die() { printf '%s  [session] FATAL: %s\n' "$(date -u +%H:%M:%SZ)" "$*" | tee -a "$EXDIR/session.log" >&2; exit 1; }
 
+# The teardown's checks and the kill switch's program, sourced before anything can need them.
+# shellcheck source=hack/lib/session-teardown.sh
+. hack/lib/session-teardown.sh || die "could not source hack/lib/session-teardown.sh"
+
 failures=0
 ok() { printf '   ok   %s\n' "$*" | tee -a "$EXDIR/session.log"; }
 bad() {
@@ -317,8 +321,9 @@ case "$TRAIN" in
     why="$(restart_ttl_refusal "$RESTART_STAGE" "$TTL_MINUTES" "$TRAIN_GPU_BUDGET" $((WAIT_TRAIN_SYNC + WAIT_TRAIN_QUEUE + WAIT_QUAL_HELD)))" ||
       die "$why"
     log "$why"
-    # The credential must outlive the watchdog's destroy too, which starts at TTL_MINUTES and is given 40 minutes.
-    why="$(restart_credential_refusal $((TTL_MINUTES + 40)))" || die "$why"
+    # The credential must outlive the watchdog's destroy too, which starts at TTL_MINUTES and is given
+    # KILL_DESTROY_MINUTES, a bound the watchdog itself enforces.
+    why="$(restart_credential_refusal $((TTL_MINUTES + KILL_DESTROY_MINUTES)))" || die "$why"
     log "$why"
     why="$(train_require_new_cluster "$CLUSTER" "$REGION" "${KEEP_UP:-}")" || die "$why"
     log "$why"
@@ -385,34 +390,8 @@ fi
 # whether this script finishes, hangs, or the terminal dies.
 KILL_LOG="$EXDIR/ttl-kill-switch.log"
 KILL_PIDFILE="$EXDIR/ttl.pid"
-setsid nohup bash -c "
-  echo \$\$ > '$KILL_PIDFILE'
-  sleep $((TTL_MINUTES * 60))
-  echo \"[ttl] \$(date -u +%H:%M:%SZ) TTL reached; force-destroying\" >> '$KILL_LOG' 2>&1
-  cd '$PWD'
-  # The cluster first, and only the cluster. It is what bills; the Helm release bills nothing and its destroy
-  # needs a reachable API endpoint that, by the time this fires, may well be gone -- so attempting it first
-  # would spend the watchdog's one chance on the cheap half.
-  # Waits on the state lock and tries three times: its one attempt used to be spent on a lock the foreground
-  # destroy, or the nightly one, still held.
-  for attempt in 1 2 3; do
-    AWS_PROFILE='$AWS_PROFILE' AWS_REGION='$REGION' terraform -chdir='$CLUSTER_DIR' destroy -auto-approve \
-      -lock-timeout=10m -var='region=$REGION' -var='cluster_name=$CLUSTER' $TF_TRAIN_VARS >> '$KILL_LOG' 2>&1
-    ttl_rc=\$?
-    [ \"\$ttl_rc\" = 0 ] && break
-    echo \"[ttl] attempt \$attempt failed rc=\$ttl_rc\" >> '$KILL_LOG' 2>&1
-    sleep 60
-  done
-  if [ \"\$ttl_rc\" = 0 ]; then
-    echo \"[ttl] \$(date -u +%H:%M:%SZ) force-destroy SUCCEEDED\" >> '$KILL_LOG' 2>&1
-    # The GPU deadline is removed only after a destroy that succeeded: with the cluster gone it can only fire
-    # against nothing, and left in place it makes the next session refuse to arm its own.
-    gpu_ttl=\$(cat '$EXDIR/gpu-ttl-schedule.txt' 2>/dev/null)
-    [ -n \"\$gpu_ttl\" ] && AWS_PROFILE='$AWS_PROFILE' AWS_REGION='$REGION' aws scheduler delete-schedule --name \"\$gpu_ttl\" >> '$KILL_LOG' 2>&1
-  else
-    echo \"[ttl] \$(date -u +%H:%M:%SZ) force-destroy FAILED rc=\$ttl_rc -- the cluster may still be billing\" >> '$KILL_LOG' 2>&1
-  fi
-" >/dev/null 2>&1 &
+setsid nohup bash -c "$(killswitch_program "$KILL_PIDFILE" "$KILL_LOG" "$PWD" $((TTL_MINUTES * 60)) \
+  $((KILL_DESTROY_MINUTES * 60)) "$AWS_PROFILE" "$REGION" "$CLUSTER_DIR" "$CLUSTER" "$TF_TRAIN_VARS" "$EXDIR")" >/dev/null 2>&1 &
 # The watchdog reports its own pid, because `$!` here is the setsid process and not the watchdog.
 #
 # setsid forks the new session leader and exits, so `$!` names something that is already dead by the time the
@@ -430,32 +409,16 @@ done
 log "TTL kill switch armed: PID $KILL_PID, fires in ${TTL_MINUTES}m, log $KILL_LOG"
 # When it fires, so the GPU deadline can be set to beat it rather than to a fresh TTL of its own.
 KILL_AT=$(($(date +%s) + TTL_MINUTES * 60))
-# watchdog_alive reports whether the watchdog still runs. A zombie does not: kill -0 succeeds on a process that
-# has exited and not yet been reaped, and asking that immediately after the kill reported a watchdog that was
-# already gone as one that survived (2026-10-12, hack/eks-serve/runs/20261012T095840Z).
-watchdog_alive() {
-  kill -0 "$KILL_PID" 2>/dev/null || return 1
-  [[ "$(awk '{print $3}' "/proc/$KILL_PID/stat" 2>/dev/null)" != Z ]]
-}
+# watchdog_gone is killswitch_gone of this session's watchdog (hack/lib/session-teardown.sh), which ignores a zombie.
+watchdog_gone() { killswitch_gone "$KILL_PID"; }
 
-# watchdog_gone waits up to five seconds for the watchdog to leave.
-watchdog_gone() {
-  local i
-  for i in 1 2 3 4 5 6 7 8 9 10; do
-    watchdog_alive || return 0
-    sleep 0.5
-  done
-  return 1
-}
-
+# disarm stops the watchdog and any destroy it has already started (killswitch_disarm).
 disarm() {
-  kill -- -"$KILL_PID" 2>/dev/null || kill "$KILL_PID" 2>/dev/null || true
-  if ! watchdog_gone; then
-    kill -9 -- -"$KILL_PID" 2>/dev/null || kill -9 "$KILL_PID" 2>/dev/null || true
-  fi
-  if ! watchdog_gone; then
-    bad "the TTL watchdog survived disarming; kill $KILL_PID by hand before the next session"
-  fi
+  local out
+  out="$(killswitch_disarm "$KILL_PID" "$KILL_PIDFILE")" || {
+    bad "the TTL watchdog or its destroy survived disarming ($out); kill them by hand before the next session"
+    return 1
+  }
 }
 
 # --- Build ---------------------------------------------------------------------------------------------
@@ -1309,47 +1272,7 @@ if [[ "$tag_now" != "UNKNOWN" ]] && ! grep -qx UNKNOWN "$EXDIR/tagged-before-des
   fi
 fi
 
-billing_left=""
-# Three answers, not two: none, some, and COULD NOT ASK.
-#
-# This discarded stderr and forced rc=0, so a query refused on expired credentials or a denied policy came
-# back empty and read as "nothing left" -- and the kill switch was disarmed on the strength of it. A teardown
-# nobody could verify is not a verified teardown, and it is the one mistake here that bills by the hour.
-unasked=""
-still() {
-  local label="$1"
-  shift
-  # The status has to be collected in the same list as the command that produced it.
-  #
-  # `rc=$?` on its own line never ran: under `set -e` a plain assignment whose command substitution fails
-  # takes that status and ends the shell right there. So the three answers below were unreachable for the one
-  # input they were written for -- an expired token -- and this function had never once classified a failure.
-  local out rc=0
-  out="$("$@" 2>"$EXDIR/aws-$label.err")" || rc=$?
-  out="$(printf '%s' "$out" | tr '\t' ' ')"
-  if ((rc != 0)); then
-    unasked="$unasked$label(rc=$rc: $(tr '\n' ' ' <"$EXDIR/aws-$label.err" 2>/dev/null | cut -c1-110)); "
-  elif [[ -n "${out// /}" ]]; then
-    billing_left="$billing_left$label=$out; "
-  fi
-  return 0
-}
-still eks aws eks list-clusters --region "$REGION" --query 'clusters' --output text
-still ec2 aws ec2 describe-instances --region "$REGION" \
-  --filters "Name=instance-state-name,Values=running,pending,stopping,shutting-down" \
-  --query 'Reservations[].Instances[].InstanceId' --output text
-still nat aws ec2 describe-nat-gateways --region "$REGION" \
-  --filter "Name=state,Values=available,pending" --query 'NatGateways[].NatGatewayId' --output text
-still eip aws ec2 describe-addresses --region "$REGION" --query 'Addresses[].PublicIp' --output text
-still ebs aws ec2 describe-volumes --region "$REGION" --query 'Volumes[].VolumeId' --output text
-still asg aws autoscaling describe-auto-scaling-groups --region "$REGION" \
-  --query 'AutoScalingGroups[].AutoScalingGroupName' --output text
-still elb aws elbv2 describe-load-balancers --region "$REGION" \
-  --query 'LoadBalancers[].LoadBalancerName' --output text
-still schedule aws scheduler list-schedules --region "$REGION" --name-prefix "gpu-ttl-$CLUSTER-" \
-  --query 'Schedules[].Name' --output text
-still logs aws logs describe-log-groups --region "$REGION" --log-group-name-prefix "/aws/eks/$CLUSTER/" \
-  --query 'logGroups[].logGroupName' --output text
+teardown_residue "$REGION" "$CLUSTER" "$EXDIR"
 printf '%s\n' "${billing_left:-none}" >"$EXDIR/billing-after-destroy.txt"
 printf '%s\n' "${unasked:-none}" >"$EXDIR/billing-unasked.txt"
 if [[ -n "${unasked// /}" ]]; then
@@ -1359,7 +1282,7 @@ if [[ -n "${billing_left// /}" ]]; then
   bad "something that charges is still alive: $billing_left"
 fi
 if [[ -z "${unasked// /}" && -z "${billing_left// /}" ]]; then
-  ok "nothing that charges remains: no EKS cluster, instance, NAT gateway, EIP, volume, ASG, load balancer cluster log group or GPU deadline schedule"
+  ok "nothing that charges remains: no EKS cluster, instance, NAT gateway, EIP, volume, ASG, load balancer, cluster log group, GPU deadline schedule or EFS file system"
 fi
 
 # Disarmed only on a VERIFIED teardown, never on an attempted one -- and "verified" is a fact about the
@@ -1374,8 +1297,12 @@ fi
 # The cluster destroy is already fatal above, so reaching this line means it returned zero. What is left to
 # decide is whether the residue check could ask, and what it found.
 if [[ -z "${unasked// /}" && -z "${billing_left// /}" ]]; then
-  disarm
-  log "kill switch disarmed: destroy returned zero, every residue query was answered, and all were empty"
+  # Logged only when it held: the line once said disarmed right after disarm had recorded a survivor (codex census).
+  if disarm; then
+    log "kill switch disarmed: destroy returned zero, every residue query was answered, and all were empty"
+  else
+    log "kill switch NOT disarmed: a watchdog process survived; see the failure above"
+  fi
 else
   log "kill switch LEFT ARMED (pid $KILL_PID, fires at TTL): the teardown could not be verified"
 fi

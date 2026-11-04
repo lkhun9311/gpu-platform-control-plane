@@ -352,11 +352,21 @@ def manifest_ok(rel: str, world: int) -> dict | None:
             manifest = json.load(handle)
     except (OSError, ValueError):
         return None
-    shards = manifest.get("shards", [])
-    # Each shard must be named as the loader names it, so the file a rank hashes is the file it then loads.
-    if (manifest.get("world_size") != world or len(shards) != world
-            or sorted(s["rank"] for s in shards) != list(range(world))
-            or any(s["step"] != manifest.get("step") or s["file"] != f"rank-{s['rank']}.pt" for s in shards)):
+    # A manifest that parses as JSON but not as a manifest is a rejected candidate, like one that does not parse: a shard
+    # missing a key once raised out of the checkpoint search instead of falling back (codex census before the full stage).
+    try:
+        shards = manifest.get("shards", [])
+        # Each shard must be named as the loader names it, so the file a rank hashes is the file it then loads.
+        if (manifest.get("world_size") != world or len(shards) != world
+                or sorted(s["rank"] for s in shards) != list(range(world))
+                or any(s["step"] != manifest.get("step") or s["file"] != f"rank-{s['rank']}.pt"
+                       or not isinstance(s.get("sha256"), str) or not isinstance(s.get("size"), int) for s in shards)):
+            return None
+        # The manifest names the attempt, step and name its directory was made with, so one copied or written into
+        # another checkpoint's directory is not taken for that checkpoint.
+        if rel != f"a{manifest['attempt']}/{manifest['step']:08d}-{manifest['uuid']}":
+            return None
+    except (AttributeError, KeyError, TypeError, ValueError):
         return None
     return manifest
 
@@ -384,7 +394,14 @@ def shard_ok(rel: str, manifest: dict, rank: int) -> bool:
             except OSError as list_exc:
                 listed.append(f"error {list_exc.errno}")
         else:
-            ok = sha256_file(path) == (entry["sha256"], entry["size"])
+            # A shard that can be looked up and not read is a rejected candidate too, not an error out of the search:
+            # a read error after the stat once ended the rank instead of falling back (codex census before the full stage).
+            try:
+                ok = sha256_file(path) == (entry["sha256"], entry["size"])
+            except OSError as exc:
+                emit(rank, "shard_check", dir=rel, looks=attempt + 1, visible=True, hash_ok=False, errors=errors,
+                     listed=listed, read_error=exc.errno)
+                return False
             # Every look is counted, so a retry that ran is recorded and one that never ran is not inferred.
             emit(rank, "shard_check", dir=rel, looks=attempt + 1, visible=True, hash_ok=ok, errors=errors, listed=listed)
             return ok
@@ -535,13 +552,18 @@ def train() -> int:
     else:
         # The store env:// would build, with its own wait for every rank to connect, from whichever side arrives first.
         # Every later store operation, which the process group's own exchanges wait on, is back at the collective timeout.
-        joining = datetime.timedelta(seconds=RENDEZVOUS_TIMEOUT)
+        # One deadline for the whole join: the connect and the barrier each took the full timeout once, which bounded the
+        # join at twice the registered one (codex census before the full stage).
+        until = time.monotonic() + RENDEZVOUS_TIMEOUT
         store = dist.TCPStore(os.environ["MASTER_ADDR"], int(os.environ["MASTER_PORT"]), world, rank == 0,
-                              timeout=joining, wait_for_workers=True)
+                              timeout=datetime.timedelta(seconds=RENDEZVOUS_TIMEOUT), wait_for_workers=True)
         # Only the server waits for every rank to connect; a client returns once it alone has, so with three ranks the
         # second could reach the process group's exchanges, at the collective timeout, while the third was still starting.
         store.set(f"ckpt-rendezvous/{rank}", "1")
-        store.wait([f"ckpt-rendezvous/{r}" for r in range(world)], joining)
+        left = until - time.monotonic()
+        if left <= 0:
+            raise TimeoutError(f"the ranks did not all join within CKPT_RENDEZVOUS_TIMEOUT={RENDEZVOUS_TIMEOUT} s")
+        store.wait([f"ckpt-rendezvous/{r}" for r in range(world)], datetime.timedelta(seconds=left))
         store.set_timeout(collective)
         dist.init_process_group(backend=BACKEND, store=store, rank=rank, world_size=world, timeout=collective)
     # Rank 0 alone creates the job's and the attempt's directories, and the others wait for it, for the reason save gives.
