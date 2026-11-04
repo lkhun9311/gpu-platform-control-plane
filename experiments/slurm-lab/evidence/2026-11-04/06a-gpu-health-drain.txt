@@ -1,0 +1,167 @@
+# transcript 06a-gpu-health-drain.txt, slurm-lab, written by steps/06-gpu-health.sh
+
+root@slurmctld$ scontrol show config | grep -i health
+# at 2026-11-04T12:28:00.010Z
+HealthCheckInterval     = 5 sec
+HealthCheckNodeState    = ANY
+HealthCheckProgram      = /etc/slurm/gpuhc.py
+# exit 0
+
+root@c2$ sha256sum /etc/slurm/gpuhc.py
+# at 2026-11-04T12:28:00.071Z
+17156e0f94f9ee6cac5f1e9217afc125e7adc65bd41bd2cfec7647bab2d51ae7  /etc/slurm/gpuhc.py
+# exit 0
+
+root@slurmctld$ sinfo -N -o '%N %T %E'
+# at 2026-11-04T12:28:00.129Z
+NODELIST STATE REASON
+c1 idle none
+c2 idle none
+c3 idle none
+# exit 0
+# A GPU job runs on c2 when one of c2's cards faults; which card Slurm gave it is in its output.
+
+bob@slurmctld$ sbatch -J gpu-on-c2 -w c2 --gres=gpu:1 --requeue --wrap 'echo start $(date -u +%T) on $(hostname) gpus=$CUDA_VISIBLE_DEVICES restart=${SLURM_RESTART_COUNT:-0}; sleep 60; echo end $(date -u +%T)'
+# at 2026-11-04T12:28:00.191Z
+Submitted batch job 38
+# exit 0
+# waited 1s for: squeue -h -n gpu-on-c2 -t R | grep -q .
+
+root@slurmctld$ squeue -o '%.6i %.12j %.8u %.3t %.10M %.12b %N %R'
+# at 2026-11-04T12:28:01.407Z
+ JOBID         NAME     USER  ST       TIME TRES_PER_NOD NODELIST NODELIST(REASON)
+    38    gpu-on-c2      bob   R       0:00   gres/gpu:1 c2 c2
+# exit 0
+# Fault: Xid 79 (fallen off the bus) on c2's card 1; the drain is per node, whichever card the job holds.
+
+root@c2$ printf '%s\n' 'DCGM_FI_DEV_XID_ERRORS{gpu="0",UUID="GPU-lab-c2-0"} 0' 'DCGM_FI_DEV_ECC_DBE_VOL_TOTAL{gpu="0",UUID="GPU-lab-c2-0"} 0' 'DCGM_FI_DEV_XID_ERRORS{gpu="1",UUID="GPU-lab-c2-1"} 79' 'DCGM_FI_DEV_ECC_DBE_VOL_TOTAL{gpu="1",UUID="GPU-lab-c2-1"} 0' >/var/lib/labgpu/metrics.prom.new && mv /var/lib/labgpu/metrics.prom.new /var/lib/labgpu/metrics.prom && cat /var/lib/labgpu/metrics.prom
+# at 2026-11-04T12:28:01.518Z
+DCGM_FI_DEV_XID_ERRORS{gpu="0",UUID="GPU-lab-c2-0"} 0
+DCGM_FI_DEV_ECC_DBE_VOL_TOTAL{gpu="0",UUID="GPU-lab-c2-0"} 0
+DCGM_FI_DEV_XID_ERRORS{gpu="1",UUID="GPU-lab-c2-1"} 79
+DCGM_FI_DEV_ECC_DBE_VOL_TOTAL{gpu="1",UUID="GPU-lab-c2-1"} 0
+# exit 0
+
+# trace: probe [sinfo -h -n c2 -o '%T|%E'; squeue -h -n gpu-on-c2 -o '%i %T %N'] until [sinfo -h -n c2 -o %T | grep -q drain], at most 60s
+## seen at 2026-11-04T12:28:01.719Z
+allocated|none
+38 RUNNING c2
+## seen at 2026-11-04T12:28:03.990Z
+draining|gpuhc: GPU-lab-c2-1 DCGM_FI_DEV_XID_ERRORS=79
+38 RUNNING c2
+# trace ended: condition met after 2s
+
+root@slurmctld$ scontrol show node c2 | grep -E 'State=|Reason='
+# at 2026-11-04T12:28:04.049Z
+   State=MIXED+DRAIN ThreadsPerCore=1 TmpDisk=0 Weight=1 Owner=N/A MCS_label=N/A
+   Reason=gpuhc: GPU-lab-c2-1 DCGM_FI_DEV_XID_ERRORS=79 [root@2026-11-04T12:28:03]
+# exit 0
+
+root@c2$ cat /var/log/slurm/gpuhc.log
+# at 2026-11-04T12:28:04.113Z
+2026-11-04T12:28:03.020Z c2 drain (MIXED) rc=0 reason=gpuhc: GPU-lab-c2-1 DCGM_FI_DEV_XID_ERRORS=79 
+# exit 0
+# New work: an unpinned 2-GPU job goes to another node, and one that names c2 waits.
+
+bob@slurmctld$ sbatch -J new-anywhere --gres=gpu:2 --wrap 'sleep 20'
+# at 2026-11-04T12:28:04.172Z
+Submitted batch job 39
+# exit 0
+
+bob@slurmctld$ sbatch -J new-on-c2 -w c2 --gres=gpu:1 --wrap 'echo ran on $(hostname); sleep 5'
+# at 2026-11-04T12:28:04.234Z
+Submitted batch job 40
+# exit 0
+# waited 3s for: squeue -h -n new-anywhere -t R | grep -q .
+
+root@slurmctld$ squeue -o '%.6i %.12j %.8u %.3t %.10M %.12b %N %R'
+# at 2026-11-04T12:28:07.515Z
+ JOBID         NAME     USER  ST       TIME TRES_PER_NOD NODELIST NODELIST(REASON)
+    40    new-on-c2      bob  PD       0:00   gres/gpu:1  (ReqNodeNotAvail, May be reserved for other job)
+    39 new-anywhere      bob   R       0:00   gres/gpu:2 c1 c1
+    38    gpu-on-c2      bob   R       0:06   gres/gpu:1 c2 c2
+# exit 0
+# The job already on c2 is not stopped by the drain; wait for it to end by itself.
+
+# trace: probe [sinfo -h -n c2 -o '%T'; squeue -h -n gpu-on-c2 -o '%i %T %N'] until [! squeue -h -n gpu-on-c2 | grep -q .], at most 120s
+## seen at 2026-11-04T12:28:07.618Z
+draining
+38 RUNNING c2
+## seen at 2026-11-04T12:29:01.177Z
+draining
+# trace ended: condition met after 48s
+
+root@slurmctld$ sacct -X -n -P -o JobID,JobName,State,ExitCode,Restarts,Start,End,NodeList | grep -E '\|gpu-on-c2\|'
+# at 2026-11-04T12:29:01.241Z
+38|gpu-on-c2|COMPLETED|0:0|0|2026-11-04T12:28:01|2026-11-04T12:29:01|c2
+# exit 0
+
+root@c2$ cat /home/bob/slurm-$(sacct -X -n -P -o JobID,JobName | grep '|gpu-on-c2$' | cut -d'|' -f1).out
+# at 2026-11-04T12:29:01.304Z
+start 12:28:01 on c2 gpus=0 restart=0
+end 12:29:01
+# exit 0
+# The signal reads clean again. With the trace file set, every check logs its verdict, so the transcript shows the check ran on the clean signal and left the node drained.
+
+root@c2$ touch /var/lib/labgpu/trace
+# at 2026-11-04T12:29:01.360Z
+# exit 0
+
+root@c2$ printf '%s\n' 'DCGM_FI_DEV_XID_ERRORS{gpu="0",UUID="GPU-lab-c2-0"} 0' 'DCGM_FI_DEV_ECC_DBE_VOL_TOTAL{gpu="0",UUID="GPU-lab-c2-0"} 0' 'DCGM_FI_DEV_XID_ERRORS{gpu="1",UUID="GPU-lab-c2-1"} 0' 'DCGM_FI_DEV_ECC_DBE_VOL_TOTAL{gpu="1",UUID="GPU-lab-c2-1"} 0' >/var/lib/labgpu/metrics.prom.new && mv /var/lib/labgpu/metrics.prom.new /var/lib/labgpu/metrics.prom && cat /var/lib/labgpu/metrics.prom
+# at 2026-11-04T12:29:01.411Z
+DCGM_FI_DEV_XID_ERRORS{gpu="0",UUID="GPU-lab-c2-0"} 0
+DCGM_FI_DEV_ECC_DBE_VOL_TOTAL{gpu="0",UUID="GPU-lab-c2-0"} 0
+DCGM_FI_DEV_XID_ERRORS{gpu="1",UUID="GPU-lab-c2-1"} 0
+DCGM_FI_DEV_ECC_DBE_VOL_TOTAL{gpu="1",UUID="GPU-lab-c2-1"} 0
+# exit 0
+
+host$ sleep 20
+# at 2026-11-04T12:29:01.464Z
+# exit 0
+
+root@c2$ rm /var/lib/labgpu/trace; tail -6 /var/log/slurm/gpuhc.log
+# at 2026-11-04T12:29:21.474Z
+2026-11-04T12:28:53.019Z c2 already MIXED+DRAIN; reason left as it is: gpuhc: GPU-lab-c2-1 DCGM_FI_DEV_XID_ERRORS=79
+2026-11-04T12:28:58.022Z c2 already MIXED+DRAIN; reason left as it is: gpuhc: GPU-lab-c2-1 DCGM_FI_DEV_XID_ERRORS=79
+2026-11-04T12:29:03.017Z c2 healthy: every card read, no fault field set
+2026-11-04T12:29:08.017Z c2 healthy: every card read, no fault field set
+2026-11-04T12:29:13.018Z c2 healthy: every card read, no fault field set
+2026-11-04T12:29:18.016Z c2 healthy: every card read, no fault field set
+# exit 0
+
+root@slurmctld$ scontrol show node c2 | grep -E 'State=|Reason='
+# at 2026-11-04T12:29:21.539Z
+   State=IDLE+DRAIN ThreadsPerCore=1 TmpDisk=0 Weight=1 Owner=N/A MCS_label=N/A
+   Reason=gpuhc: GPU-lab-c2-1 DCGM_FI_DEV_XID_ERRORS=79 [root@2026-11-04T12:28:03]
+# exit 0
+
+root@slurmctld$ squeue -o '%.6i %.12j %.8u %.3t %.10M %.12b %N %R'
+# at 2026-11-04T12:29:21.602Z
+ JOBID         NAME     USER  ST       TIME TRES_PER_NOD NODELIST NODELIST(REASON)
+    40    new-on-c2      bob  PD       0:00   gres/gpu:1  (ReqNodeNotAvail, May be reserved for other job)
+# exit 0
+# The operator returns the node.
+
+root@slurmctld$ scontrol update nodename=c2 state=resume
+# at 2026-11-04T12:29:21.665Z
+# exit 0
+# waited 7s for: sacct -X -n -P -o JobName,State | grep -q '^new-on-c2|COMPLETED'
+
+root@slurmctld$ sinfo -N -o '%N %T %E'
+# at 2026-11-04T12:29:29.181Z
+NODELIST STATE REASON
+c1 idle none
+c2 idle none
+c3 idle none
+# exit 0
+
+root@slurmctld$ sacct -X -n -P -o JobID,JobName,State,Start,End,NodeList | grep -E '\|new-'
+# at 2026-11-04T12:29:29.247Z
+39|new-anywhere|COMPLETED|2026-11-04T12:28:07|2026-11-04T12:28:27|c1
+40|new-on-c2|COMPLETED|2026-11-04T12:29:24|2026-11-04T12:29:29|c2
+# exit 0
+
+root@slurmctld$ scancel -u bob
+# at 2026-11-04T12:29:29.314Z
+# exit 0
+# waited 0s for: [ -z "$(squeue -h)" ]
