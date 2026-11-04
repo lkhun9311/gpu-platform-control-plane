@@ -627,7 +627,9 @@ def never_joined(case: Case, provenance: dict, created: float | None) -> None:
     started, ended = ts(lone.get("started")), ts(lone.get("finished"))
     took = (ended - started) if started is not None and ended is not None else math.nan
     peers = [ts(e.get("started")) for _, e in ran[1:]]
-    alone = all(p is None or (ended is not None and p >= ended) for p in peers)
+    # The collector records a Pod only once its container ran, so a recorded peer with no start time is missing evidence,
+    # never a peer that did not overlap (codex review of e8b8410e).
+    alone = all(p is not None and ended is not None and p >= ended for p in peers)
     # The bound counts from the store's construction, after the interpreter and torch have loaded, so the container
     # lives somewhat longer than the bound and never shorter.
     ok = (len(ran) in (1, 2) and alone and lone.get("exit") not in (None, 0) and bound == bound
