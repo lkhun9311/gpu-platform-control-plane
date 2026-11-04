@@ -460,6 +460,52 @@ var _ = Describe("MLTrainingJob restart", func() {
 		Expect(last(key).Trigger).To(Equal(triggerNodeFault))
 	})
 
+	It("does not take a new Node under a recorded node's name as that node having stopped its rank", func() {
+		key := create(1)
+		job := untilActive(key)
+		mltj := getMLTJ(key)
+
+		name := node(corev1.ConditionTrue)
+		var old corev1.Node
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name}, &old)).To(Succeed())
+		onIt := rankPod(mltj, 1, name)
+		wl := workloadFor(job, nil)
+		step(key)
+		Expect(last(key).Nodes).To(ConsistOf(name))
+		Expect(last(key).NodeUIDs).To(HaveKeyWithValue(name, string(old.UID)))
+
+		failRank(job)
+		step(key)
+		step(key)
+		collect(key)
+		Expect(k8sClient.Delete(ctx, onIt, client.GracePeriodSeconds(0))).To(Succeed())
+		Eventually(func() bool {
+			return apierrors.IsNotFound(k8sClient.Get(ctx, client.ObjectKeyFromObject(onIt), &corev1.Pod{}))
+		}, 10*time.Second, 50*time.Millisecond).Should(BeTrue())
+		Expect(k8sClient.Delete(ctx, wl)).To(Succeed())
+
+		By("a new machine registering under the old name, Ready")
+		Expect(k8sClient.Delete(ctx, &corev1.Node{Name: name})).To(Succeed())
+		Eventually(func() bool {
+			return apierrors.IsNotFound(k8sClient.Get(ctx, types.NamespacedName{Name: name}, &corev1.Node{}))
+		}, 10*time.Second, 50*time.Millisecond).Should(BeTrue())
+		reborn := &corev1.Node{Name: name}
+		Expect(k8sClient.Create(ctx, reborn)).To(Succeed())
+		reborn.Status.Conditions = []corev1.NodeCondition{{Type: corev1.NodeReady, Status: corev1.ConditionTrue, LastHeartbeatTime: metav1.Now()}}
+		Expect(k8sClient.Status().Update(ctx, reborn)).To(Succeed())
+		Expect(reborn.UID).NotTo(Equal(old.UID))
+
+		step(key)
+		Expect(last(key).WaitingFor).To(Equal("node " + name + " to be fenced (annotation " + annFencedNodes + ")"))
+		Expect(last(key).State).To(Equal(attemptStopping))
+
+		mltj = getMLTJ(key)
+		mltj.Annotations = map[string]string{annFencedNodes: name}
+		Expect(k8sClient.Update(ctx, mltj)).To(Succeed())
+		step(key)
+		Expect(last(key).State).To(Equal(attemptStopped))
+	})
+
 	It("takes a failed Job whose Workload the fault path handed off as NodeFault, not RankFailed", func() {
 		key := create(1)
 		job := untilActive(key)

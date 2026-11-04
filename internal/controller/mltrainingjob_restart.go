@@ -211,7 +211,7 @@ func (r *MLTrainingJobReconciler) runAttempt(ctx context.Context, mltj *platform
 
 	phase, cond := computeMLTJPhase(&job, wl, true)
 	if phase == mltjPhaseRunning {
-		if err := r.recordActive(ctx, mltj, nil, nil, true); err != nil {
+		if err := r.recordActive(ctx, mltj, nil, nil, nil, true); err != nil {
 			return ctrl.Result{}, err
 		}
 	}
@@ -236,16 +236,42 @@ func (r *MLTrainingJobReconciler) discover(ctx context.Context, mltj *platformv1
 	if err != nil {
 		return err
 	}
-	return r.recordActive(ctx, mltj, wl, nodes, false)
+	// Each node's UID is read once, when its rank is first seen there, so the barrier can tell that Node from a later one
+	// registered under the same name.
+	uids := map[string]string{}
+	for _, n := range nodes {
+		if _, known := cur.NodeUIDs[n]; known {
+			continue
+		}
+		var node corev1.Node
+		switch err := r.apiReader().Get(ctx, types.NamespacedName{Name: n}, &node); {
+		case apierrors.IsNotFound(err):
+			// Gone already: no Node under this name can vouch for it later.
+			uids[n] = nodeUIDAbsent
+		case err != nil:
+			return fmt.Errorf("get node %s: %w", n, err)
+		default:
+			uids[n] = string(node.UID)
+		}
+	}
+	return r.recordActive(ctx, mltj, wl, nodes, uids, false)
 }
+
+// nodeUIDAbsent records a rank's node that no longer existed when the rank was first seen on it.
+const nodeUIDAbsent = "absent"
 
 // recordActive writes what the attempt learned while running: its Workload, the nodes its ranks were on, and the
 // first time every rank was Ready.
-func (r *MLTrainingJobReconciler) recordActive(ctx context.Context, mltj *platformv1.MLTrainingJob, wl *kueuev1beta1.Workload, nodes []string, allReady bool) error {
+func (r *MLTrainingJobReconciler) recordActive(ctx context.Context, mltj *platformv1.MLTrainingJob, wl *kueuev1beta1.Workload, nodes []string, uids map[string]string, allReady bool) error {
 	cur := mltj.Status.Attempts[len(mltj.Status.Attempts)-1]
 	changed := wl != nil && cur.WorkloadUID == ""
 	for _, n := range nodes {
 		if !slices.Contains(cur.Nodes, n) {
+			changed = true
+		}
+	}
+	for n := range uids {
+		if _, known := cur.NodeUIDs[n]; !known {
 			changed = true
 		}
 	}
@@ -267,6 +293,15 @@ func (r *MLTrainingJobReconciler) recordActive(ctx context.Context, mltj *platfo
 			}
 		}
 		slices.Sort(last.Nodes)
+		for n, uid := range uids {
+			if _, known := last.NodeUIDs[n]; known || !slices.Contains(last.Nodes, n) {
+				continue
+			}
+			if last.NodeUIDs == nil {
+				last.NodeUIDs = map[string]string{}
+			}
+			last.NodeUIDs[n] = uid
+		}
 		if allReady && last.AllRanksReadyAt == nil {
 			last.AllRanksReadyAt = &now
 		}
@@ -381,7 +416,7 @@ func (r *MLTrainingJobReconciler) stopBarrier(ctx context.Context, mltj *platfor
 		}
 	}
 
-	unfenced, err := r.unfencedNodes(ctx, mltj, cur.Nodes)
+	unfenced, err := r.unfencedNodes(ctx, mltj, cur.Nodes, cur.NodeUIDs)
 	if err != nil {
 		return "", err
 	}
@@ -395,7 +430,7 @@ func (r *MLTrainingJobReconciler) stopBarrier(ctx context.Context, mltj *platfor
 //
 // A node that is Ready answered for its own Pods, so their absence from the API is the kubelet's report that they
 // stopped. A node that is not Ready, or no longer exists, reported nothing; only the annotation can vouch for it.
-func (r *MLTrainingJobReconciler) unfencedNodes(ctx context.Context, mltj *platformv1.MLTrainingJob, nodes []string) ([]string, error) {
+func (r *MLTrainingJobReconciler) unfencedNodes(ctx context.Context, mltj *platformv1.MLTrainingJob, nodes []string, uids map[string]string) ([]string, error) {
 	fenced := strings.Split(mltj.Annotations[annFencedNodes], ",")
 	var out []string
 	for _, n := range nodes {
@@ -410,7 +445,11 @@ func (r *MLTrainingJobReconciler) unfencedNodes(ctx context.Context, mltj *platf
 		case err != nil:
 			return nil, fmt.Errorf("get node %s: %w", n, err)
 		default:
-			if c := nodeReady(&node); c == nil || c.Status != corev1.ConditionTrue {
+			// Another Node under the recorded name is another machine, whose readiness says nothing of the rank's.
+			// An attempt recorded before nodeUIDs existed has none to compare, and is judged by the name as it was.
+			if want, known := uids[n]; known && want != string(node.UID) {
+				out = append(out, n)
+			} else if c := nodeReady(&node); c == nil || c.Status != corev1.ConditionTrue {
 				out = append(out, n)
 			}
 		}

@@ -809,6 +809,13 @@ func (in *TrainingAttempt) DeepCopyInto(out *TrainingAttempt) {
 		*out = make([]string, len(*in))
 		copy(*out, *in)
 	}
+	if in.NodeUIDs != nil {
+		in, out := &in.NodeUIDs, &out.NodeUIDs
+		*out = make(map[string]string, len(*in))
+		for key, val := range *in {
+			(*out)[key] = val
+		}
+	}
 	if in.CreatedAt != nil {
 		in, out := &in.CreatedAt, &out.CreatedAt
 		*out = (*in).DeepCopy()

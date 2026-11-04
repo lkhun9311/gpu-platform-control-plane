@@ -269,6 +269,14 @@ type TrainingAttempt struct {
 	// +optional
 	Nodes []string `json:"nodes,omitempty"`
 
+	// nodeUIDs maps each of nodes to the UID its Node had when this attempt's rank was seen on it.
+	//
+	// A Ready node vouches that its rank stopped only while it is still that Node: a new machine registered under the
+	// same name answers for itself, not for the one the rank ran on, so the attempt then waits for it to be fenced.
+	// +kubebuilder:validation:MaxProperties=8
+	// +optional
+	NodeUIDs map[string]string `json:"nodeUIDs,omitempty"`
+
 	// trigger is why the attempt ended: RankFailed (the Job failed), NodeFault (the platform's GPU fault path
 	// handed its Workload over), or JobDeleted (its Job went away while it was running).
 	// +kubebuilder:validation:Enum=RankFailed;NodeFault;JobDeleted
