@@ -1,0 +1,9 @@
+ACCEPTED reference {"checkpoint": {"a1": {"max_s": 0.059, "median_s": 0.051, "saves": 60}}}
+ACCEPTED rank-kill-1 {"checkpoint": {"a1": {"max_s": 0.059, "median_s": 0.052, "saves": 22}, "a2": {"max_s": 0.063, "median_s": 0.053, "saves": 38}}, "class": "spare", "clock_uncertainty_s": 0.105, "from_dir": "a1/00000011-3be2eb502cb34a4da2a4d488fc0c6922", "from_step": 11, "lost_steps": 1, "params_gap": 0.0, "recovery_s": 4.238}
+NOTRUN   rank-kill-2: rank-kill-1 could not be retired or its DCGM fault reset; see hack/restart-lifecycle-kind-20261103T033600Z/run-c/rank-kill-1/case.log
+summary
+  reference: 1 registered, 1 ACCEPTED, 0 FAILED (0 censored at their budget, 0 not recovered), 0 VOID, 0 NOTRUN
+  rank-kill: 2 registered, 1 ACCEPTED, 0 FAILED (0 censored at their budget, 0 not recovered), 0 VOID, 1 NOTRUN
+    spare: recovery median 4.2 s, range 4.2 to 4.2 s, lost steps [1], over 1 accepted; the 0 FAILED censored at their budget, the 0 not recovered and the 0 VOID are not in these figures
+  checkpoint cost: median 0.052 s, max 0.063 s over 120 saves
+exit=1

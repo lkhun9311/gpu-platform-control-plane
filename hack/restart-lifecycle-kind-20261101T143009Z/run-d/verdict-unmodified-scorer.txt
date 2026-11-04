@@ -1,0 +1,11 @@
+VOID     reference: attempt 1 rank 0 trained with 'gloo' on 'cpu', not nccl on cuda
+VOID     rank-kill-1: the runner voided it: VOID-before-fault: a clock probe before the fault failed, so nothing was injected: could not read the clock of rstlife-worker through gpu-simulator-pb4rc: rehearsal: this clock is made unreadable
+comm
+VOID     rank-kill-2: the runner voided it: VOID-before-fault: a clock probe before the fault failed, so nothing was injected: could not read the clock of rstlife-worker through gpu-simulator-pb4rc: rehearsal: this clock is made unreadable
+comm
+NOTRUN   dcgm-1: two cases in a row were VOID
+summary
+  reference: 1 registered, 0 ACCEPTED, 0 FAILED (0 censored at their budget, 0 not recovered), 1 VOID, 0 NOTRUN
+  rank-kill: 2 registered, 0 ACCEPTED, 0 FAILED (0 censored at their budget, 0 not recovered), 2 VOID, 0 NOTRUN
+  dcgm: 1 registered, 0 ACCEPTED, 0 FAILED (0 censored at their budget, 0 not recovered), 0 VOID, 1 NOTRUN
+exit=1

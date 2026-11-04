@@ -1,0 +1,14 @@
+commit=66757add14c6661c326d69c3bf1781e6fed28d1b
+dirty_files=0
+kind=kind v0.33.0 go1.25.7 linux/amd64
+cert_manager=v1.21.1
+nfs_server_image=registry.k8s.io/sig-storage/nfs-provisioner@sha256:c825f3d5e28bde099bd7a3daace28772d412c9157ad47fa752a9ad0baafc118d
+nfs_efs_options=nfsvers=4.1 rsize=1048576 wsize=1048576 hard timeo=600 retrans=2 noresvport
+host_kernel=7.0.0-31-generic
+runs=a b c d
+workload_image=sha256:3f7f67a07718a6fa5a4afe2fb894a518ad0cf2e24e9af85fe7eff231ceb9b380
+node_image=kindest/node:v1.37.0@sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5
+directory_delegations_was=Y
+nfs_server=10.96.135.239
+host_nfs_mounts_at_start=0
+host_nfs_mounts_at_end=0

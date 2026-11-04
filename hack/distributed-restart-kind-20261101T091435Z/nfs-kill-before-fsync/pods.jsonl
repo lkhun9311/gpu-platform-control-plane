@@ -1,0 +1,4 @@
+{"pod": "rst-nfs-kill-before-fsync-091748-0-fk6zh", "uid": "f5cda6de-0bb2-42bb-a37a-60c79f72299c", "node": "rstnfs-worker", "attempt": "1", "rank": "0"}
+{"pod": "rst-nfs-kill-before-fsync-091748-1-sk67h", "uid": "f2f8108f-a230-49c6-83a3-15869135e824", "node": "rstnfs-worker3", "attempt": "1", "rank": "1"}
+{"pod": "rst-nfs-kill-before-fsync-091748-0-s8trd", "uid": "595b4819-cb06-4044-98bf-cc647250fbfd", "node": "rstnfs-worker", "attempt": "2", "rank": "0"}
+{"pod": "rst-nfs-kill-before-fsync-091748-1-q9dvt", "uid": "41090bba-88ce-42fd-8b2c-e8aa29c47c7d", "node": "rstnfs-worker2", "attempt": "2", "rank": "1"}

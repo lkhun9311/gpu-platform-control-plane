@@ -1,0 +1,9 @@
+VOID     reference: attempt 1 rank 1 trained with 'gloo' on 'cpu', not nccl on cuda
+FAILED   rank-kill-1: censored at its budget: the job ended 'Pending', not Succeeded, within its budget
+VOID     rank-kill-2: attempt 1 rank 0 trained with 'gloo' on 'cpu', not nccl on cuda
+VOID     terminate-wait-1: attempt 1 rank 0 trained with 'gloo' on 'cpu', not nccl on cuda
+summary
+  reference: 1 registered, 0 ACCEPTED, 0 FAILED (0 censored at their budget, 0 not recovered), 1 VOID, 0 NOTRUN
+  rank-kill: 2 registered, 0 ACCEPTED, 1 FAILED (1 censored at their budget, 0 not recovered), 1 VOID, 0 NOTRUN
+  terminate-wait: 1 registered, 0 ACCEPTED, 0 FAILED (0 censored at their budget, 0 not recovered), 1 VOID, 0 NOTRUN
+exit=1

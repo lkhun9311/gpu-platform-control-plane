@@ -1,0 +1,11 @@
+/usr/local/lib/python3.12/site-packages/torch/_subclasses/functional_tensor.py:295: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at ../torch/csrc/utils/tensor_numpy.cpp:84.)
+  cpu = _conversion_method_template(device=torch.device("cpu"))
+[W1101 14:39:11.443590038 socket.cpp:752] [c10d] The IPv6 network addresses of (rst-terminate-wait-1-143636-0.rst-terminate-wait-1-143636-ddp-a2.train-a.svc, 29500) cannot be retrieved (gai error: -2 - Name or service not known).
+[W1101 14:39:11.086392155 socket.cpp:752] [c10d] The IPv6 network addresses of (rst-terminate-wait-1-143636-0.rst-terminate-wait-1-143636-ddp-a2.train-a.svc, 29500) cannot be retrieved (gai error: -2 - Name or service not known).
+[W1101 14:39:12.836259097 socket.cpp:752] [c10d] The IPv6 network addresses of (rst-terminate-wait-1-143636-0.rst-terminate-wait-1-143636-ddp-a2.train-a.svc, 29500) cannot be retrieved (gai error: -2 - Name or service not known).
+[W1101 14:39:14.436112574 socket.cpp:752] [c10d] The IPv6 network addresses of (rst-terminate-wait-1-143636-0.rst-terminate-wait-1-143636-ddp-a2.train-a.svc, 29500) cannot be retrieved (gai error: -2 - Name or service not known).
+[W1101 14:39:14.333864864 socket.cpp:752] [c10d] The IPv6 network addresses of (rst-terminate-wait-1-143636-0.rst-terminate-wait-1-143636-ddp-a2.train-a.svc, 29500) cannot be retrieved (gai error: -2 - Name or service not known).
+[W1101 14:39:17.489068149 socket.cpp:752] [c10d] The IPv6 network addresses of (rst-terminate-wait-1-143636-0.rst-terminate-wait-1-143636-ddp-a2.train-a.svc, 29500) cannot be retrieved (gai error: -2 - Name or service not known).
+[W1101 14:39:20.713874646 socket.cpp:752] [c10d] The IPv6 network addresses of (rst-terminate-wait-1-143636-0.rst-terminate-wait-1-143636-ddp-a2.train-a.svc, 29500) cannot be retrieved (gai error: -2 - Name or service not known).
+[W1101 14:39:26.230765625 socket.cpp:752] [c10d] The IPv6 network addresses of (rst-terminate-wait-1-143636-0.rst-terminate-wait-1-143636-ddp-a2.train-a.svc, 29500) cannot be retrieved (gai error: -2 - Name or service not known).
+[W1101 14:39:35.059970975 socket.cpp:752] [c10d] The IPv6 network addresses of (rst-terminate-wait-1-143636-0.rst-terminate-wait-1-143636-ddp-a2.train-a.svc, 29500) cannot be retrieved (gai error: -2 - Name or service not known).

@@ -1,0 +1,18 @@
+/usr/local/lib/python3.12/site-packages/torch/_subclasses/functional_tensor.py:295: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at ../torch/csrc/utils/tensor_numpy.cpp:84.)
+  cpu = _conversion_method_template(device=torch.device("cpu"))
+{"ts": "2026-11-01T09:05:52.492146+00:00", "run_id": "rst-reference-090546", "attempt": 2, "rank": 1, "event": "restart_from_zero", "load_mode": "full"}
+{"ts": "2026-11-01T09:05:52.835563+00:00", "run_id": "rst-reference-090546", "attempt": 2, "rank": 1, "event": "start", "world_size": 2, "load_mode": "full", "resumed_from_step": 0, "steps": 20, "fault": "", "torch_version": "2.5.1+cpu", "epoch": 0, "position": 0, "lr": 0.05, "backend": "gloo", "device": "cpu", "ballast_mb": 0, "volume": {"point": "/shared", "mount_options": "rw,relatime", "fstype": "nfs4", "source": "10.96.4.70:/", "super_options": "rw,vers=4.1,rsize=1048576,wsize=1048576,namlen=255,hard,noresvport,fatal_neterrors=ENETDOWN:ENETUNREACH,proto=tcp,timeo=600,retrans=2,sec=sys,clientaddr=172.18.0.9,local_lock=none,addr=10.96.4.70", "dev": 7340198}, "visibility_retries": 5, "shard_delay": 0.0}
+{"ts": "2026-11-01T09:05:52.841777+00:00", "run_id": "rst-reference-090546", "attempt": 2, "rank": 1, "event": "step", "step": 1, "loss": 7.302649021148682, "digest": "281376d89323e8ca96cfd659d02825874e2ef3bfb7540e0cb2ccec5a1b6fe739", "params": null}
+[rank1]: Traceback (most recent call last):
+[rank1]:   File "/work/train.py", line 613, in <module>
+[rank1]:     sys.exit(main())
+[rank1]:              ^^^^^^
+[rank1]:   File "/work/train.py", line 471, in main
+[rank1]:     return train()
+[rank1]:            ^^^^^^^
+[rank1]:   File "/work/train.py", line 602, in train
+[rank1]:     save(rank, world, step, capture(step, model, optimiser, scheduler, epoch, position, ballast), fault)
+[rank1]:   File "/work/train.py", line 266, in save
+[rank1]:     os.makedirs(ckpt, exist_ok=True)
+[rank1]:   File "<frozen os>", line 225, in makedirs
+[rank1]: FileNotFoundError: [Errno 2] No such file or directory: '/shared/rst-reference-090546/a2/00000001-869e83f6646f409eaad8c4b049ad4935'

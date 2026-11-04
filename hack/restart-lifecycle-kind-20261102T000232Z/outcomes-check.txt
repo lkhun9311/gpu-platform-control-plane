@@ -1,0 +1,26 @@
+OK   no injection failed
+OK   run-a: the scorer exited 0
+OK   run-a/reference: ACCEPTED, allowed ['ACCEPTED']
+OK   run-a/no-rng-control: ACCEPTED, allowed ['ACCEPTED']
+OK   run-a/dcgm-1: ACCEPTED, allowed ['ACCEPTED']
+OK   run-a/terminate-wait-1: ACCEPTED, allowed ['ACCEPTED'] with '"class": "replacement"'
+OK   run-a: no injection
+OK   run-b: the scorer exited 1
+OK   run-b/reference: ACCEPTED, allowed ['ACCEPTED']
+OK   run-b/rank-kill-1: FAILED, allowed ['FAILED'] with 'censored at its budget'
+OK   run-b/rank-kill-2: ACCEPTED, allowed ['ACCEPTED']
+OK   run-b/terminate-wait-1: ACCEPTED, allowed ['ACCEPTED'] with '"class": "replacement"'
+OK   run-b: the quota was lowered and restored
+OK   run-c: the scorer exited 1
+OK   run-c/reference: ACCEPTED, allowed ['ACCEPTED']
+OK   run-c/rank-kill-1: ACCEPTED, allowed ['ACCEPTED', 'FAILED']
+OK   run-c/rank-kill-2: NOTRUN, allowed ['NOTRUN'] with 'could not be retired'
+OK   run-c: the finalizer was put on pod/rst-rank-kill-1-003205-0-75dg4
+OK   run-d: the scorer exited 1
+OK   run-d/reference: ACCEPTED, allowed ['ACCEPTED']
+OK   run-d/rank-kill-1: VOID, allowed ['VOID'] with 'VOID-before-fault'
+OK   run-d/rank-kill-2: VOID, allowed ['VOID'] with 'VOID-before-fault'
+OK   run-d/dcgm-1: NOTRUN, allowed ['NOTRUN'] with 'two cases in a row were VOID'
+OK   run-d: every exporter's date was broken
+0 FAIL(s)
+exit=0

@@ -1,0 +1,27 @@
+/usr/local/lib/python3.12/site-packages/torch/_subclasses/functional_tensor.py:295: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at ../torch/csrc/utils/tensor_numpy.cpp:84.)
+  cpu = _conversion_method_template(device=torch.device("cpu"))
+Traceback (most recent call last):
+  File "/tmp/train.py", line 625, in <module>
+    sys.exit(main())
+             ^^^^^^
+  File "/tmp/train.py", line 480, in main
+    return train()
+           ^^^^^^^
+  File "/tmp/train.py", line 518, in train
+    dist.init_process_group(backend=BACKEND, timeout=datetime.timedelta(seconds=COLLECTIVE_TIMEOUT))
+  File "/usr/local/lib/python3.12/site-packages/torch/distributed/c10d_logger.py", line 83, in wrapper
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/torch/distributed/c10d_logger.py", line 97, in wrapper
+    func_return = func(*args, **kwargs)
+                  ^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/torch/distributed/distributed_c10d.py", line 1520, in init_process_group
+    store, rank, world_size = next(rendezvous_iterator)
+                              ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/torch/distributed/rendezvous.py", line 269, in _env_rendezvous_handler
+    store = _create_c10d_store(
+            ^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/torch/distributed/rendezvous.py", line 189, in _create_c10d_store
+    return TCPStore(
+           ^^^^^^^^^
+torch.distributed.DistStoreError: Timed out after 61 seconds waiting for clients. 1/2 clients joined.

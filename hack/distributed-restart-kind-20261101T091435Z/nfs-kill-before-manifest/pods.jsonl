@@ -1,0 +1,4 @@
+{"pod": "rst-nfs-kill-before-manifest-091824-0-kvp9d", "uid": "2392ac68-7a49-42e5-ad64-86f9af8c1ce7", "node": "rstnfs-worker", "attempt": "1", "rank": "0"}
+{"pod": "rst-nfs-kill-before-manifest-091824-1-kpg2j", "uid": "7f7de096-8a83-473f-8d2d-e2ec77a20935", "node": "rstnfs-worker3", "attempt": "1", "rank": "1"}
+{"pod": "rst-nfs-kill-before-manifest-091824-0-8g2pl", "uid": "352e2aa0-ffc3-49b3-b938-34a505d996d1", "node": "rstnfs-worker", "attempt": "2", "rank": "0"}
+{"pod": "rst-nfs-kill-before-manifest-091824-1-26kqm", "uid": "de21a1e9-a247-4b45-b2f0-3115bb5529b0", "node": "rstnfs-worker2", "attempt": "2", "rank": "1"}

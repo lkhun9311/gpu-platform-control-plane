@@ -1,0 +1,167 @@
+{
+    "apiVersion": "batch/v1",
+    "kind": "Job",
+    "metadata": {
+        "creationTimestamp": "2026-11-01T09:20:27Z",
+        "generation": 2,
+        "labels": {
+            "kueue.x-k8s.io/queue-name": "gpu-rst",
+            "platform.lkhun9311.github.io/mltrainingjob-attempt": "2",
+            "platform.lkhun9311.github.io/mltrainingjob-uid": "a251f64a-9e33-4606-91bd-5ef776b8548c"
+        },
+        "name": "rst-nfs-corrupt-published-092016",
+        "namespace": "rst",
+        "ownerReferences": [
+            {
+                "apiVersion": "platform.lkhun9311.github.io/v1",
+                "blockOwnerDeletion": true,
+                "controller": true,
+                "kind": "MLTrainingJob",
+                "name": "rst-nfs-corrupt-published-092016",
+                "uid": "a251f64a-9e33-4606-91bd-5ef776b8548c"
+            }
+        ],
+        "resourceVersion": "3564",
+        "uid": "e9e324dd-9bcd-469f-97fb-097abaf9fa24"
+    },
+    "spec": {
+        "backoffLimit": 0,
+        "completionMode": "Indexed",
+        "completions": 2,
+        "manualSelector": false,
+        "parallelism": 2,
+        "podReplacementPolicy": "TerminatingOrFailed",
+        "selector": {
+            "matchLabels": {
+                "batch.kubernetes.io/controller-uid": "e9e324dd-9bcd-469f-97fb-097abaf9fa24"
+            }
+        },
+        "suspend": false,
+        "template": {
+            "metadata": {
+                "annotations": {
+                    "kueue.x-k8s.io/workload": "job-rst-nfs-corrupt-published-092016-b53c1"
+                },
+                "labels": {
+                    "batch.kubernetes.io/controller-uid": "e9e324dd-9bcd-469f-97fb-097abaf9fa24",
+                    "batch.kubernetes.io/job-name": "rst-nfs-corrupt-published-092016",
+                    "controller-uid": "e9e324dd-9bcd-469f-97fb-097abaf9fa24",
+                    "job-name": "rst-nfs-corrupt-published-092016",
+                    "kueue.x-k8s.io/cluster-queue-name": "gpu-rst",
+                    "kueue.x-k8s.io/local-queue-name": "gpu-rst",
+                    "kueue.x-k8s.io/podset": "main",
+                    "platform.lkhun9311.github.io/mltrainingjob": "rst-nfs-corrupt-published-092016",
+                    "platform.lkhun9311.github.io/mltrainingjob-attempt": "2",
+                    "platform.lkhun9311.github.io/mltrainingjob-uid": "a251f64a-9e33-4606-91bd-5ef776b8548c"
+                }
+            },
+            "spec": {
+                "containers": [
+                    {
+                        "command": [
+                            "sh",
+                            "-c",
+                            "export CKPT_RUN_ID=rst-nfs-corrupt-published-092016 CKPT_DIR=/shared CKPT_JOB_ID=rst-nfs-corrupt-published-092016 CKPT_STEPS=20 CKPT_STEP_SLEEP=1 OMP_NUM_THREADS=1 CKPT_FAULT=kill-after-latest:6\npython /work/train.py\n"
+                        ],
+                        "env": [
+                            {
+                                "name": "NVIDIA_DRIVER_CAPABILITIES",
+                                "value": "compute,utility"
+                            },
+                            {
+                                "name": "WORLD_SIZE",
+                                "value": "2"
+                            },
+                            {
+                                "name": "MASTER_ADDR",
+                                "value": "rst-nfs-corrupt-published-092016-0.rst-nfs-corrupt-published-092016-ddp-a2.rst.svc"
+                            },
+                            {
+                                "name": "MASTER_PORT",
+                                "value": "29500"
+                            },
+                            {
+                                "name": "RANK",
+                                "valueFrom": {
+                                    "fieldRef": {
+                                        "apiVersion": "v1",
+                                        "fieldPath": "metadata.annotations['batch.kubernetes.io/job-completion-index']"
+                                    }
+                                }
+                            },
+                            {
+                                "name": "TRAINING_ATTEMPT",
+                                "value": "2"
+                            }
+                        ],
+                        "image": "distributed-restart:torch251",
+                        "imagePullPolicy": "IfNotPresent",
+                        "name": "trainer",
+                        "resources": {
+                            "limits": {
+                                "nvidia.com/gpu": "1"
+                            }
+                        },
+                        "terminationMessagePath": "/dev/termination-log",
+                        "terminationMessagePolicy": "File",
+                        "volumeMounts": [
+                            {
+                                "mountPath": "/shared",
+                                "name": "state"
+                            }
+                        ]
+                    }
+                ],
+                "dnsPolicy": "ClusterFirst",
+                "restartPolicy": "Never",
+                "schedulerName": "default-scheduler",
+                "securityContext": {},
+                "subdomain": "rst-nfs-corrupt-published-092016-ddp-a2",
+                "terminationGracePeriodSeconds": 30,
+                "volumes": [
+                    {
+                        "name": "state",
+                        "persistentVolumeClaim": {
+                            "claimName": "shared"
+                        }
+                    }
+                ]
+            }
+        }
+    },
+    "status": {
+        "completedIndexes": "0,1",
+        "completionTime": "2026-11-01T09:20:47Z",
+        "conditions": [
+            {
+                "lastProbeTime": "2026-11-01T09:20:27Z",
+                "lastTransitionTime": "2026-11-01T09:20:27Z",
+                "message": "Job resumed",
+                "reason": "JobResumed",
+                "status": "False",
+                "type": "Suspended"
+            },
+            {
+                "lastProbeTime": "2026-11-01T09:20:47Z",
+                "lastTransitionTime": "2026-11-01T09:20:47Z",
+                "message": "Reached expected number of succeeded pods",
+                "reason": "CompletionsReached",
+                "status": "True",
+                "type": "SuccessCriteriaMet"
+            },
+            {
+                "lastProbeTime": "2026-11-01T09:20:47Z",
+                "lastTransitionTime": "2026-11-01T09:20:47Z",
+                "message": "Reached expected number of succeeded pods",
+                "reason": "CompletionsReached",
+                "status": "True",
+                "type": "Complete"
+            }
+        ],
+        "ready": 0,
+        "startTime": "2026-11-01T09:20:27Z",
+        "succeeded": 2,
+        "terminating": 0,
+        "uncountedTerminatedPods": {}
+    }
+}

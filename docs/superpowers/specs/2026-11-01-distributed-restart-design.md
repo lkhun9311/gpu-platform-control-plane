@@ -125,22 +125,69 @@ No automatic force deletion of an unreachable node's Pods, ever; that decision s
 
 ## The paid session: apparatus
 
-Written 2026-11-01. Status: **DRAFT, not approved.** Nothing here authorises a purchase; only the owner's explicit approval starts a paid session, and none has been given.
+Written 2026-11-01. Status: **`smoke` approved by the owner on 2026-11-02, and `full` on 2026-11-03.** Nothing else here authorises a purchase; only the owner's explicit approval starts a paid session.
+Before `full`, codex `gpt-6-astra` reviewed, read-only, what `full` runs that `smoke` did not (7 findings) and took a census of the whole apparatus (56 findings), and each fix was reviewed as its own commit.
+Fixed before `full` (marked `E<n>` where they change this section):
+- A case's files are deleted only after they are read.
+- A failed status read no longer ends a rank's log follows, and a stream that fails at once is paused.
+- Every DCGM exec and the `LATEST` read are bounded.
+- The scale-in before `terminate-wait` is asked for again while EKS reports another update in progress.
+- A clock round fails when a GPU node has no exporter, and skips exporters being deleted.
+- A group that moves past its count during qualification is waited for again.
+- "Both ranks stepped" counts ranks, not records.
+- The scorer matches a spare's preparation by Node UID.
+- The scorer voids a case whose "before" probe ended after the fault, whose attempt 1 log ends before its resume step, or whose save costs are not finite or not from both ranks.
+
+Known and not fixed for `full`, because each needs a new trainer hash or a new operator image:
+- `train.py`'s manifest schema and shard-read fallbacks.
+- The rendezvous constructor and barrier each take the whole 600 s, so the join's bound is up to twice that.
+- The controller judges a DCGM handoff after a failed Job, so a race can record `RankFailed` and fail a DCGM case.
+- The controller's fence and Ready checks are bound to node names, not node identity, so a replacement that takes the old name can satisfy them.
+
+Known and not fixed in the session's own teardown: the residue check does not query EFS, and the watchdog's destroy allowance is not enforced.
+These are checked by hand after the session.
+The approval came after the kind rehearsal found D1 and before it was fixed, so `smoke` starts only from a commit whose kind rehearsal recovers `terminate-wait-1` on a late replacement.
+**`smoke` ran on 2026-11-02 from `5c78d4cf`: all four cases ACCEPTED** (`hack/distributed-restart-eks/2026-11-02-smoke/README.md`).
+`dcgm-1` recovered on the spare in 37.3 s and `terminate-wait-1` on the replacement in 409.4 s, 334 s of which was the old instance's shutdown before EC2 called it terminated; both resumed from step 25 with no step lost and parameters equal to the reference, and the control differed by 0.106.
+One case of each kind, so one observation each.
+It took three launches: EC2 refused an apostrophe in the EFS security group's description, then every warm-up Pod got the same name from EKS's node names; neither bought a case, and with two more defects found before the third launch (the exporter's port and the clock probe's credential plugin, #483) each is recorded in that README.
+**`full` ran on 2026-11-04 from `f8ae0f94`, in one launch: all ten cases ACCEPTED** (`hack/distributed-restart-eks/2026-11-04-full/README.md`).
+Recovery medians over two cases each:
+- `rank-kill`: 47.2 s on the same nodes, one step lost each.
+- `dcgm`: 37.7 s on the spare, none lost.
+- `terminate-spare`: 346.3 s on the spare, none lost.
+- `terminate-wait`: 411.2 s on a replacement, 0 and 1 lost.
+
+Every resumed case's parameters equal the reference.
+Of each termination's recovery, 336 to 345 s was EC2's own shutdown before it called the instance terminated; after the fence, a spare resumed in about 5 s and a replacement in about 75 s.
+Two cases of each kind, so the path worked twice; not a distribution.
 This section is step 5 above, the GPU session, as an apparatus: what is built, what is scored, what stops it, and what it costs.
 It was attacked as a plan by codex `gpt-6-astra` (read-only, 2026-11-01) before it was written down; its twenty findings were each checked against the code at `863154a7`, and where one changed the plan the item says so (`A<n>`).
 The runner's plan was attacked the same way before the runner was written, and its eighteen findings, checked the same way, are marked `B<n>`; three of them corrected this section as first committed (the trigger's attempt, the deadline and the cost).
 Prices and the quota are my own read-only reads in `gpu-lab` (account 007635145730) on 2026-11-01; no figure here comes from codex.
+The finished apparatus at `f57e11a1` was attacked a third time before any purchase, by codex `gpt-6-astra` (read-only) and, separately, by a bare `codex review` of its diff; their findings are marked `C<n>` where they changed this section.
+The worst was that the registered session could never start: 22 cases needed a 684-minute deadline and 724 minutes of credential, and the `gpu-lab` permission set issues credentials for at most 720 (`SessionDuration` PT12H) (C1).
+So the session is now two stages, a small `smoke` run inspected before anything else is bought and a `full` run that needs its own approval.
+The scorer accepted a rank 1 whose final parameters were NaN, records from another run, contradictory clock probes and a missing fence; each was reproduced as an ACCEPTED fixture before it was fixed (C4, C5, C6, C9).
+The runner then ran end to end on kind (`hack/restart-lifecycle-kind-20261101T143009Z`, #480), and what that rehearsal and the codex `gpt-6-astra` attack on its finding changed is marked `D<n>`.
+The worst was that `terminate-wait`, as registered, could not recover on EKS: attempt 2 starts one rank on the survivor at once, because Kueue admits on quota and not on node capacity, and that rank gave up on its peer after the 60 s collective timeout, long before a g5 replacement could pull its image (D1).
 
 ### What must be true before it can run
 
 These are not built by this apparatus, and each one alone stops the session.
 
-- **The restart controller is not on `main`.** Argo deploys the operator from `main` (`config/argocd/operator.yaml`), whose image pin is commit `0390a228`, built from `3963f2ac3346` on 2026-10-30; the restart controller is `7ddad46b` and `65874ddb`, 2026-10-31, on `dev` only, and `origin/main`'s API has no `maxRestarts` (A2).
-  Promotion to `main` and the CI image pin are the owner's step; the runner refuses before it buys anything when the deployed CRD lacks `distributed.maxRestarts` or the operator Pod's image digest is not the one `main` pins.
-- **Design step 3 is not finished.** The kind cases ran on a shared host directory, "without NFS's semantics" (`hack/kind-config-restart.yaml`) (A16).
-  The torn-checkpoint cases against an in-cluster NFS server are what this design ordered before a GPU; the GPU session does not replace them, and EFS is where their absence would be paid for.
+- **The restart controller is on `main` since 2026-11-01.** Argo deploys the operator from `main` (`config/argocd/operator.yaml`); `dev` was promoted in #477 (`d24645b1`), which contains `65874ddb`, and CI pinned the operator image built from it in `84736e23` (A2, C3).
+  The runner still refuses before it buys anything when the deployed CRD lacks `distributed.maxRestarts` or the operator Pod's image digest is not the one `main` pins, because what Argo deploys on the day is what counts.
+- **Design step 3 has run on kind over NFS, against ganesha and not EFS.** The kind cases first ran on a shared host directory, "without NFS's semantics" (`hack/kind-config-restart.yaml`) (A16).
+  The torn-checkpoint cases now run against an in-cluster NFS-Ganesha server with the mount options AWS recommends for EFS (`STORAGE=nfs`; `experiments/distributed-restart/README.md`, "Over NFS, on kind").
+  They found two defects in the trainer that the host directory could not: every rank creating the shared directories killed the reference at step 1 (`hack/distributed-restart-kind-20261101T090308Z`), and a rank whose node cached its shard's name as absent refused every checkpoint through the bounded retry and restarted from step zero (`hack/distributed-restart-kind-20261101T091435Z`).
+  Both are fixed, and `hack/distributed-restart-kind-20261101T092646Z` and `hack/distributed-restart-kind-20261101T093539Z` pass all their checks.
+  The second fix is a mitigation measured on Linux 7.0 against ganesha; whether EFS and the EKS kernel need it, or more, is not shown, and the paid session's restarts are where that would be paid for.
   The API-cut case of step 4 has since run on kind as `cut-writer`, with an early-fence control (`experiments/distributed-restart/README.md`, `hack/distributed-restart-kind-20261101T055239Z`).
-- **The owner's approval of this section, with the case list and the cost ceiling below.**
+- **The case procedure has run end to end on kind** (C2): `restart_run` in the `smoke` stage and three scenario runs (a censored case, a retirement that was never confirmed, two VOIDs in a row), CPU ranks over the NFS server above, with only the EC2, Auto Scaling, GPU and DCGM boundary replaced (`hack/restart-lifecycle-kind-20261101T143009Z/README.md`).
+  It found five defects in the runner, each fixed with a check that failed first: the log collector's request timeout cut every log stream at about 400 s, the log follows outlived the collector, clock probes went to an exporter on a node already scaled in, an unretired case's NCCL logs were not copied, and uutils `date` 0.8.0, the date of the machine the session runs from, printed `%6N` without its leading zeros, which could move a mark by up to 0.9 s.
+  Its `terminate-wait-1` came out FAILED, not recovered, which is D1; the kind rehearsal is run again on the commit that fixes it, and `smoke` starts only from a commit whose rehearsal recovers that case on a replacement that joins after the 60 s.
+- **The owner's approval of this section, with the stage, the case list and the cost ceiling below.** Given for `smoke` on 2026-11-02.
 
 The quota is not a blocker any more: `L-DB2E81BA` (Running On-Demand G and VT instances) in ap-northeast-2 reads **128 vCPU**, the increase request closed at 128 on 2026-11-01 (`aws service-quotas get-service-quota`, `list-requested-service-quota-change-history-by-quota`).
 Comments in `infra/aws/cluster` still say 52; they describe what was granted when they were written.
@@ -173,37 +220,57 @@ Every case has its own `CKPT_JOB_ID`, the job's name with a nonce, so no case re
 Every case runs 30 steps with `CKPT_STEP_SLEEP=2`, about a minute of training an attempt, and `CKPT_BALLAST_MB=16`, so each shard is a stated 16 MiB rather than a few kilobytes.
 `CKPT_COLLECTIVE_TIMEOUT=60`, because the controller does not watch Pods or Nodes: it restarts when the Job fails, is deleted, or carries the NodeHealth hand-off (`internal/controller/mltrainingjob_restart.go`, `runAttempt`), and a surviving rank blocked in a collective keeps the Job running until that timeout fails it (A6).
 The registered timeout is therefore part of every figure where the faulted rank cannot report its own failure, and the record says so.
+`CKPT_RENDEZVOUS_TIMEOUT=600` bounds only the ranks' join, before training: `train.py` builds the rendezvous store with that wait from whichever rank arrives first, then puts the store and every collective back at the 60 s (D1).
+Without it the join was bounded by the 60 s too, and a `terminate-wait` attempt 2, whose rank 1 waits for a replacement node, its image pull and its mount, failed at 61 s with "1/2 clients joined" on kind.
+600 s is below the 720 s case budget, so a peer that never comes fails the attempt rather than only censoring it.
+`experiments/distributed-restart/check_rendezvous.py` shows a rank 15 s late joining from either side, the same start failing without the setting, and a peer frozen after the join still failing the survivor at the collective timeout and not the rendezvous one; on gloo only, so NCCL's exchange through the store at its first collective, which the restored store timeout is for, is not exercised.
+Whether a g5 replacement joins, pulls 3.3 GB and mounts EFS within the 720 s case budget is not known before `smoke`; a case it does not fit is FAILED, censored, and the budget is not widened for it.
 `NCCL_DEBUG=INFO`, `NCCL_DEBUG_SUBSYS=INIT,NET` and `NCCL_DEBUG_FILE` on the shared volume, so NCCL's lines do not share stdout with the trainer's JSON records; on stdout they already interleaved mid-line in `hack/four-gpu/2026-10-29-run5` (A17).
 The file is named by attempt and rank, `a<attempt>-r<rank>-%h.%p.log`, because an Indexed Job's hostnames repeat across attempts and NCCL truncates a file it opens, and its directory is created and checked by the container's shell before Python starts, because NCCL creates no directory and falls back to stdout without one (B2).
 The scorer still reads trainer records wherever they start in a line, in case anything else shares stdout.
 
-| order | case | runs | fault | injected when |
-|---|---|---|---|---|
-| 1 | `reference` | 1 | none | — |
-| 2 | `no-rng-control` | 1 | rank 0 `kill-after-latest:12`, resumed with `CKPT_LOAD=no-rng` | by the trainer |
-| 3 | `rank-kill` | 5 | rank 1 `kill-before-fsync:12:1`, a `SIGKILL` mid-checkpoint | by the trainer |
-| 4 | `dcgm` | 5 | XID 79 written into the host engine of rank 1's node (`hack/lib/gpu-fault.sh`, `gf_inject 230 79`) | once `LATEST` names step 10 or later |
-| 5 | `terminate-spare` | 5 | `aws ec2 terminate-instances` on rank 1's instance, three nodes up | once `LATEST` names step 10 or later |
-| 6 | `terminate-wait` | 5 | the same with the group at two nodes, so attempt 2 can only start on the instance the Auto Scaling group launches | once `LATEST` names step 10 or later |
+| order | case | `smoke` | `full` | fault | injected when |
+|---|---|---|---|---|---|
+| 1 | `reference` | 1 | 1 | none | — |
+| 2 | `no-rng-control` | 1 | 1 | rank 0 `kill-after-latest:12`, resumed with `CKPT_LOAD=no-rng` | by the trainer |
+| 3 | `rank-kill` | — | 2 | rank 1 `kill-before-fsync:12:1`, a `SIGKILL` mid-checkpoint | by the trainer |
+| 4 | `dcgm` | 1 | 2 | XID 79 written into the host engine of rank 1's node (`hack/lib/gpu-fault.sh`, `gf_inject 230 79`) | once `LATEST` names step 10 or later |
+| 5 | `terminate-spare` | — | 2 | `aws ec2 terminate-instances` on rank 1's instance, three nodes up | once `LATEST` names step 10 or later |
+| 6 | `terminate-wait` | 1 | 2 | the same with the group at two nodes, so attempt 2 can only start on the instance the Auto Scaling group launches | once `LATEST` names step 10 or later |
+
+`RESTART_STAGE` is required and names one of the two columns.
+`smoke` is four cases, one of every path the session depends on (NCCL save and resume, the DCGM fault path and its reset, a cold replacement on EFS, EC2 termination and fencing), and its evidence is read before `full` is asked for (C1).
+`full` was registered at five of every kind; at two it needs a 524-minute deadline, and at three 689, past what a fresh credential covers (below), so two is the most one session can hold.
+Two runs of a kind are evidence that the path works twice, not a distribution, and the record says so.
 
 An external fault waits for a published checkpoint, read from `LATEST` through rank 0's own mount, and is refused, and the case VOID, if step 25 has already been recorded, checked last, immediately before the injection, so a fault cannot land after training ended or before anything could be resumed (A9, B11).
 The `reference` run's final parameters are what every resumed case is compared with, and the `no-rng-control` must differ from them: CPU equality cannot vouch for the CUDA RNG path, which has never run, and a control that drops it shows the comparison can see it (A11).
 
 **Between cases**, the runner deletes the case's job and waits for its Jobs, Pods and Workloads to be gone before it copies the case's files off the volume and deletes them, so a case censored at its budget stops writing before its state goes and never shares the queue with the next (B5).
 It then waits until the group holds its registered count of qualified nodes (three, or two for `terminate-wait`), none tainted by the fault path, creates a NodeHealth for, and warms, any node it has not seen, which is how a replacement is prepared, after the case it arrived in and before it can be some later case's spare (A10, A14, B10).
-No case starts, and no termination is made, when the GPU deadline leaves less than the case's budget, because a replacement the group launches on its own after that deadline has fired would run with none (A20, B7).
+No case starts, and no termination is made, when the GPU deadline leaves less than the case's whole slot, because a replacement the group launches on its own after that deadline has fired would run with none (A20, B7).
+**A slot** is one absolute deadline for everything a case does, so the session's budget is the sum of limits the runner enforces and not of waits it merely hopes for (C11): before the case, 300 s to requalify the group, or 900 s for the scale-in to two before `terminate-wait`, or 900 s for a lost node's replacement to join and 900 s to warm it; then 120 s to submit, the 720 s case budget, 120 s to collect evidence, 300 s to retire, 120 s to copy files and score, and 180 s more after a `dcgm` case for its reset.
+Retirement's deadline is counted back from the slot's end, so a slow case cannot take its own cleanup's time.
+A case voided before its fault (missing rank records, the fault window missed, a clock probe that failed, a create whose answer was lost) is retired like any other, and a retirement that is not confirmed stops the run, every later case NOTRUN, because a job still holding Pods, a Workload or a GPU would share the queue with the next (C7).
+An unretired case's files stay on the volume, and the runner still writes their listing, the job's final status, the nodes and the timeline, read-only, so the scorer can say why.
 After a `dcgm` case it injects the baseline, 0, into field 230 and waits for that node's NodeHealth to read clear and its taint to go, as `gf_reset` does.
 The fault path is opt-in, and it scrapes only nodes named by a NodeHealth object (`internal/controller/gpufault_source.go`, `Tick`), so the runner creates one per GPU node, including each replacement, and starts the operator with `--gpu-fault-source=dcgm --gpu-fault-evict-workloads` (A3).
 Both Argo Applications that would revert that, the root and the operator, sync automatically with self-heal, so the runner turns their automated sync off, patches the Deployment, and requires the flags still present 90 s later before the first `dcgm` case; it is recorded as a deviation from what `main` deploys.
+Flags are not a working fault path, so before the first case the runner also requires (R6, C10): both flags, each as a whole argument, on every operator Pod; every GPU node's exporter serving the XID (230) and ECC (310, 311) fields; and every NodeHealth reading `GPUSignal` and `GPUHealthy` True, with no fingerprint and no taint, within 180 s.
+That an injected XID reaches the exporter and the operator latches, taints and evicts on it cannot be checked without a GPU; `smoke`'s `dcgm-1` is where it is first shown.
 The exporter with a host engine is `config/dcgm-exporter-fault`, which no Argo Application manages, applied by hand.
 
-**Termination and fencing.** After `terminate-instances`, the runner writes `platform.lkhun9311.github.io/fenced-nodes` on the job only once EC2 describes the instance as `terminated`.
+**The fault window** is read last: the runner first resolves the instance, the exporter Pod and the GPU deadline, then reads the job's phase, the rank records and `LATEST` immediately before the destructive call, and records the step it saw there, because API calls in between could carry training past step 25 (C8).
+**Termination and fencing.** After `terminate-instances`, the runner writes `platform.lkhun9311.github.io/fenced-nodes` on the job only once EC2 describes the instance as `terminated`, marking `fence-request` before the annotate call and `fenced` after it returns, and samples the job's status right after.
 The stop barrier waits for the Job, then the Pods, then the Workloads, and only then for fencing (`stopBarrier`), so the annotation cannot release it early (A7).
 What releases the Pods on EKS is the Node object of a terminated instance being removed and PodGC following; that is expected, not shown, and a case it does not reach within its budget is a failed observation, not a VOID.
 
 ### What is scored
 
-`experiments/distributed-restart/score_eks.py` reads one run directory and gives every registered case one of ACCEPTED, FAILED, VOID or NOTRUN with a reason; the summary counts all of them, and a FAILED case is reported as censored at its budget, never dropped (A18).
+`experiments/distributed-restart/score_eks.py` reads one run directory and gives every registered case one of ACCEPTED, FAILED, VOID or NOTRUN with a reason; the summary counts all of them, never dropping one (A18).
+FAILED is reported in two parts: censored at its budget, when the job never reached an end, and not recovered, when it ended Failed or recovered wrongly; VOID is the apparatus's part (C13).
+Whether a job ended within its budget is read from the job's own stamps, its `creationTimestamp` and its status's `lastTransitionTime`, and not from when the runner read it, because the runner reads the final status only after its last clock probe, past the budget; a job that ended later than 720 s after its creation is censored whatever its phase, and one without both stamps is VOID (D2).
+The stamps are whole seconds from two clocks, the API server's and the controller's, whose offset nothing measures, so an end within 2 s of the budget is VOID rather than placed on either side of it; the 2 s assumes both clocks are synchronised to within 1 s.
 NOTRUN is a case the runner chose not to start, after an abort or for want of deadline, and says why; a registered case with no directory at all is VOID (B17).
 The runner scores each case as it ends (`--partial`), because a bad reference, a bad control or two VOID cases in a row must stop the spending, not be found at the end (B14).
 The checks run in a fixed order, the fault's delivery, then the job's outcome, then the evidence, then what the recovery restored, so a recovery that timed out is FAILED for timing out and not VOID for lacking the records a timeout cannot produce (B17).
@@ -212,24 +279,32 @@ The checks run in a fixed order, the fault's delivery, then the job's outcome, t
   The fault time is the trainer's own `fault` record for `rank-kill`; for `dcgm`, the node clock printed in the same `kubectl exec` as the injection, which `gf_inject` alone does not print (B13); for `terminate-*`, the runner's mark taken before the `terminate-instances` call, so the call's own latency is inside the recovery (B12).
 - **Clocks:** the runner probes every GPU node it can reach, by `date` inside that node's exporter Pod bracketed by its own clock, before the fault and again after attempt 2's first step; a terminated node has only the first and a replacement only the second (B12).
   Every node whose timestamp a figure uses must have a probe; offsets are applied, and the case is refused when any probe's bracket is wider than 0.5 s or when a node's offset is larger than 2 s, because the scorer would otherwise subtract a skewed clock from a precise one (A13).
+  A node up before the fault needs a probe before it, every node but the terminated one a probe after, and a node whose probes disagree by more than 0.5 s is a clock that moved and VOIDs the case; the median's distance to the far end of all its probes is reported as `clock_uncertainty_s` (C6).
+  A case other than the `reference` whose probe before the fault fails is VOID before its fault and is not injected.
+  Whether `kubectl exec` on EKS brackets inside 0.5 s is not known until `smoke`.
 - **Lost steps:** the highest step any rank of the faulted attempt recorded, minus the step the next attempt resumed from.
-- **Checkpoint cost:** each `checkpoint` record's `save_s`, the rank's monotonic time from agreeing on the checkpoint to the barrier after `LATEST`, as median and maximum per attempt; the EFS burst credit balance (CloudWatch, read-only) is recorded before and after, because bursting throughput depends on it.
+- **Checkpoint cost:** each `checkpoint` record's `save_s`, the rank's monotonic time from agreeing on the checkpoint to the barrier after `LATEST`, as median and maximum per attempt of every case; the EFS burst credit balance (CloudWatch, read-only) is recorded before and after, because bursting throughput depends on it.
 - **Recovery class**, read from evidence, never assumed: `same-nodes` when attempt 2 ran on the nodes attempt 1 had, `spare` when on a node that was up and qualified before the fault, `replacement` when on a node created after it.
-  A `terminate-spare` case that recovered on a replacement is reported as `replacement`, not refused and not counted as spare (A14).
+  Nodes are told apart by their Node UID, not their name, because a replacement can reuse a name; a spare must appear among the prepared nodes before the fault, a `terminate-wait` must recover on a node absent before it, and attempt 2 on the terminated Node itself is VOID (C12).
+  A `terminate-spare` case that recovered on a replacement is reported as `replacement`, on its own line, not refused and not counted as spare (A14).
 
 A case is ACCEPTED only when all of these hold, and FAILED or VOID naming the first that does not (A11, A12, A17):
 
-- the fault reached its target: the trainer's `fault` record, from rank 1 for rank-kill and rank 0 for the control; for `dcgm` a readback of 79 and the target node's NodeHealth latched and the node tainted, recorded before the reset; for `terminate-*` the terminated instance is rank 1's node by provider ID, and EC2 reported it terminated;
+- every record is bound to the case: its `run_id` is the job's name, it came from a Pod the collector listed, its rank is that Pod's index, a Pod prints one attempt and an (attempt, rank) comes from one Pod on a node the controller recorded for that attempt, and the world size is 2 (C5);
+- the fault reached its target: the trainer's `fault` record, from rank 1 for rank-kill and rank 0 for the control, at the registered point and step; for `dcgm` a readback of 79 and the target node's NodeHealth latched and the node tainted, recorded before the reset; for `terminate-*` the terminated instance is rank 1's node by provider ID, EC2 reported it terminated, and the marks run fault-start, terminated-read, fence-request, fenced in that order with the job's annotation naming the node, or the case is VOID;
+- for `terminate-*`, attempt 2 appeared only after the fence was asked for: a status sample before `fence-request` showing it, or a `createdAt` more than 1 s plus the 2 s unprobed-clock allowance before it, is the stop barrier failing and FAILED; it is judged from the request and not the response, because the controller can act on the annotation before the call returns (C9);
 - the job Succeeded with exactly two attempts, and attempt 1's trigger is the one the fault implies (`RankFailed` for `rank-kill` and `terminate-*`, `NodeFault` for `dcgm`); the controller writes the trigger on the attempt it stops, not on the one it starts (`trigger` in `internal/controller/mltrainingjob_restart.go`), which the first draft of this section had backwards (B1);
 - every rank of both attempts recorded `start` with `backend` nccl and a `cuda` device, and every rank of every attempt has its own NCCL log whose every transport line is `NET/Socket`, the transport registered for one GPU per node over the VPC network: a `P2P`, `SHM` or `NET/IB` channel, a network other than `Socket`, a missing log or no transport line refuses the case (B15);
 - every rank of attempt 2 recorded a `resume`, all from the same checkpoint, from a step above zero, and from the step the fault leaves for the in-trainer faults; a `restart_from_zero` is a FAILED recovery, not a resume;
-- final parameters finite and equal to the reference's within 1e-6 on every component, with the largest difference recorded; the `reference` itself needs one attempt and finite final parameters, and the `no-rng-control` needs a difference above 1e-6 (B3).
+  the checkpoint resumed from is an earlier attempt's, its directory agrees with the step, its `MANIFEST` is in the volume's listing, and each rank's steps of attempt 2 run exactly from that step plus one to 30 (C5);
+- every rank's final parameters finite and equal to the reference's within 1e-6 on every component, with the largest difference recorded; the `reference` itself needs one attempt and both ranks finite and agreeing, and the `no-rng-control` needs every rank to differ by more than 1e-6 (B3); the first scorer read rank 0 alone and accepted a rank 1 of NaN (C4).
 
 ### Abort conditions
 
-Before anything is built: a dirty tree, `APPROVED_TRAIN_SHA256` not the trainer's hash, no `TRAIN_AZ`, a credential that expires before the session's deadline plus teardown, running G and VT On-Demand vCPU plus 12 above the quota, or the g5.xlarge On-Demand price above `TRAIN_MAX_PRICE` ($1.40).
-After the cluster exists and before any GPU: T1 to T5 of `train_run`; the claim not Bound; the operator gate, which reads the revision Argo deployed, requires it to contain `65874ddb`, requires every Ready operator Pod to run the digest that revision's `config/manager/kustomization.yaml` pins, requires `distributed.maxRestarts` in the deployed CRD, and requires the webhook to refuse, on a server-side dry run, a job naming a claim that does not exist and to accept a registered case (B9); and the fault path not running 90 s after it is switched on.
-After the nodes exist: T6 and T7 on three nodes, a warm-up that runs the torch image with the EFS claim mounted on every one of the three, so the spare's first pull and first mount are not inside a measured recovery (A15); the `reference` or the `no-rng-control` not ACCEPTED; two consecutive VOID cases; a DCGM fault that cannot be reset; and the GPU deadline.
+Before anything is built: a dirty tree, `APPROVED_TRAIN_SHA256` not the trainer's hash, no `TRAIN_AZ`, no `RESTART_STAGE` or one other than `smoke` and `full`, a stage whose deadline plus the 40-minute destroy exceeds the 700 minutes a fresh 720-minute credential is allowed to cover, a `TTL_MINUTES` below the stage's minimum, a credential that expires before the session's deadline plus teardown, the nightly destroy workflow queued or running, or, unless it is disabled by hand, a start inside its window, running G and VT On-Demand vCPU plus 12 above the quota, or the g5.xlarge On-Demand price above `TRAIN_MAX_PRICE` ($1.40).
+After the cluster exists and before any GPU: T1 to T5 of `train_run`; the claim not Bound; the operator gate, which reads the revision Argo deployed, requires it to contain `65874ddb`, requires every Ready operator Pod to run the digest that revision's `config/manager/kustomization.yaml` pins, requires `distributed.maxRestarts` in the deployed CRD, and requires the webhook to refuse, on a server-side dry run, a job naming a claim that does not exist and to accept a registered case (B9); and the fault path not running 90 s after it is switched on, or failing R6 once the GPU nodes exist.
+After the nodes exist: T6 and T7 on three nodes, a warm-up that runs the torch image with the EFS claim mounted on every one of the three, so the spare's first pull and first mount are not inside a measured recovery (A15); the `reference` or the `no-rng-control` not ACCEPTED; two consecutive VOID cases; a case whose retirement is not confirmed; a DCGM fault that cannot be reset; and the GPU deadline.
+`full` does not check that `smoke` ran; reading `smoke`'s evidence first is the owner's step, and the approval for `full` is a separate one.
 Every case after an abort is recorded NOTRUN with the reason.
 
 ### Termination chain
@@ -243,7 +318,8 @@ Unchanged from `TRAIN=ddp`, with the restart session's variables in every apply 
 
 This is not a hard cap, and the record says so (A20).
 The watchdog runs on the operator's machine; if that machine is lost, only the EventBridge deadline acts, and it stops the GPUs, not the CPU node, the control plane, the NAT gateway or the file system, about $0.26 an hour (below), until someone destroys the cluster.
-The deadline fires once, so the runner starts no case and makes no termination once less time remains before it than that case's budget.
+The deadline fires once, so the runner starts no case and makes no termination once less time remains before it than that case's slot.
+A single kubectl or exec call can still overrun its phase by its own timeout, and the DCGM reset and the `gpu-fault.sh` helpers have no per-call timeout; those are covered only by the 3,600 s margin.
 
 ### Cost
 
@@ -258,11 +334,24 @@ Price List API, On-Demand, ap-northeast-2, read 2026-11-01:
 | t3.large CPU node | $0.104/h | $0.104 |
 | total with the GPUs up | | $4.011 |
 
-Data: 3 initial pulls of the 3.3 GB torch image and one per replacement, ten for the ten `terminate-*` cases, 13 × 3.3 = 42.9 GB through the NAT at $0.059/GB, $2.53.
-EFS: 22 cases × 2 ranks × 30 steps × 16 MiB is about 21 GiB, deleted after each case's evidence is copied; at $0.33/GB-month for the session's hours, under $0.10.
-**The deadline.** The first draft put the ceiling at `TTL_MINUTES=330`, and the waits the runner actually has do not fit in it (B6).
-`restart_gpu_budget` sums them: node 900 s, device plugin 600 s, qualification 1,500 s, warm-up 900 s, 22 cases × (720 s + 300 s between), 10 termination cases × 900 s for the replacement to join, scale-down 600 s and 300 s, 36,240 s; with the 1,200 s of syncs and the held qualification before any GPU and the session's 3,600 s margin, `TTL_MINUTES` must be at least 684, and the session refuses less.
-At that deadline the GPUs can be up for at most 674 minutes, 11.23 h × $3.749 (GPUs and their volumes) = $42.10; the rest bills until the destroy ends, 684 + 40 minutes, 12.07 h × $0.263 = $3.17; with $2.53 of data and under $0.20 of EFS, the ceiling is **about $48**.
-The expected session is far shorter, because each wait is a bound and not a duration: at about 4 minutes a rank-kill case, 6 a DCGM case with its reset, 8 a spare termination with its replacement and 12 a waited one, the GPUs are up about 2.9 h and the session costs **about $15**; that is an estimate from the budgets, not a measurement.
-A 684-minute deadline also collides with the nightly destroy workflow (18:00 UTC), which the session refuses to overlap within two hours: it can start only between 20:00 and 04:36 UTC, or after the schedule is disabled for the day.
-`hack/test/check-restart-session.sh` met this: its run that passed every refusal at 06:00 UTC stopped at that check.
+Data: 3 initial pulls of the 3.3 GB torch image and one per replacement, through the NAT at $0.059/GB: `smoke` has one termination, 4 × 3.3 = 13.2 GB, $0.78; `full` has four, 7 × 3.3 = 23.1 GB, $1.36.
+EFS: `full`'s 10 cases × 2 ranks × 30 steps × 16 MiB is under 10 GiB, deleted after each case's evidence is copied; at $0.33/GB-month for the session's hours, under $0.10.
+The NAT gateway's public IPv4 address is $0.005/h, under $0.10 either way.
+
+**The deadline.** The first draft put the ceiling at `TTL_MINUTES=330`, and the waits the runner actually had did not fit in it (B6); the second summed them to 684 minutes, which no credential this account issues outlives (C1); and that sum counted the three warm-ups, the replacement's warm-up and the work between cases as one wait each, which they were not (C11).
+`restart_gpu_budget` now sums what the runner enforces: preparation 4,080 s (node 900, device plugin 600, qualification 1,500, the three warm-ups in parallel under one 900, the fault-path check 180), each case's slot (above), and the scale-down 600 s and 300 s.
+`smoke`'s slots are 1,680 + 1,680 + 1,860 + 2,280 s, so its GPU budget is 12,480 s; with the 1,200 s of syncs and the held qualification and the 3,600 s margin, `TTL_MINUTES` must be at least **288**, and 328 minutes of credential.
+`full`'s GPU budget is 6,840 + 9,900 s per repetition, 26,640 s at two; `TTL_MINUTES` must be at least **524**, and 564 minutes of credential.
+Both figures are computed by `restart_gpu_budget` from the code and checked by hand against it on 2026-11-01.
+
+**The ceiling** assumes everything waits to its bound: the GPUs up until the EventBridge deadline, ten minutes before `TTL_MINUTES`, and the rest billing until the destroy ends, 40 minutes after it; the previous ceiling, $48, was a calculation at one price and not an enforced cap, and the third attack said so (C14).
+It is given at the price read, $1.237/h, and at `TRAIN_MAX_PRICE`, $1.40/h, the most the session accepts:
+
+| stage | `TTL_MINUTES` | GPUs and volumes | the rest ($0.263/h) | data, EFS, IPv4 | ceiling at $1.237 | ceiling at $1.40 |
+|---|---|---|---|---|---|---|
+| `smoke` | 288 | 4.63 h × $3.748 = $17.37 | 5.47 h, $1.44 | $0.91 | **$19.71** | **$21.98** |
+| `full` | 524 | 8.57 h × $3.748 = $32.11 | 9.40 h, $2.47 | $1.51 | **$36.09** | **$40.28** |
+
+The expected sessions are far shorter, because each wait is a bound and not a duration.
+At about 25 minutes of preparation, 4 minutes a rank-kill case, 6 a DCGM case with its reset, 8 a spare termination and 12 a waited one, `smoke`'s GPUs are up about 1 h and it costs **about $5**, and `full`'s about 1.6 h and **about $8**; these are estimates from the budgets, not measurements, and `smoke` is what measures them.
+The nightly destroy workflow runs at 18:00 UTC and the session refuses to overlap it within two hours, so a session must start at or after 20:00 UTC and end its deadline by 16:00: a 288-minute one between 20:00 and 11:12 UTC (05:00 to 20:12 KST) and a 524-minute one between 20:00 and 07:16 UTC (05:00 to 16:16 KST); with the workflow disabled by hand, the window is lifted, and a queued or running destroy is still refused.

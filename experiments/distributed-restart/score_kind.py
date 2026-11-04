@@ -17,7 +17,28 @@ import re
 import sys
 
 FAILED: list[str] = []
-CASES = ("reference", "rank-failed", "stale-workload", "deactivated", "node-lost", "cut-writer", "cut-writer-early")
+NFS_CASES = ("nfs-kill-before-fsync", "nfs-kill-before-manifest", "nfs-kill-before-latest", "nfs-kill-after-latest",
+             "nfs-corrupt-published", "nfs-vis-efs", "nfs-vis-long")
+CASES = ("reference", "rank-failed", "stale-workload", "deactivated", "node-lost", "cut-writer", "cut-writer-early") + NFS_CASES
+# Each NFS case's fault as (point, step, rank), and the step attempt 2 must resume from.
+# The visibility cases must resume from the step LATEST names: a probed cache may delay a shard, never lose it.
+NFS_FAULTS = {
+    "nfs-kill-before-fsync": (("kill-before-fsync", 6, 1), 5),
+    "nfs-kill-before-manifest": (("kill-before-manifest", 6, 0), 5),
+    "nfs-kill-before-latest": (("kill-before-latest", 6, 0), 5),
+    "nfs-kill-after-latest": (("kill-after-latest", 6, 0), 6),
+    "nfs-corrupt-published": (("kill-after-latest", 6, 0), 5),
+    "nfs-vis-efs": (("kill-after-latest", 8, 0), 8),
+    "nfs-vis-long": (("kill-after-latest", 8, 0), 8),
+}
+# The options AWS recommends for EFS, as the kernel reports them in a mount's super options.
+EFS_SUPER = ("vers=4.1", "rsize=1048576", "wsize=1048576", "hard", "timeo=600", "retrans=2", "noresvport")
+# The provocation's attribute cache, which the kernel spells out because it is not the default.
+LONG_SUPER = ("acregmin=600", "acregmax=600", "acdirmin=600", "acdirmax=600")
+# Words that change what a lookup returns; a claim must carry exactly the cache settings registered for it and no other.
+CACHE_WORDS = ("acregmin", "acregmax", "acdirmin", "acdirmax", "noac", "lookupcache", "nocto", "soft", "actimeo")
+# The exit status of sh when the rank it ran died of SIGKILL.
+SIGKILL_EXIT = 137
 # What a provenance without a cases= line ran: every recorded run before the field existed ran these five.
 DEFAULT_CASES = ("reference", "rank-failed", "stale-workload", "deactivated", "node-lost")
 FENCE_ANNOTATION = "platform.lkhun9311.github.io/fenced-nodes"
@@ -375,6 +396,306 @@ def cut_writer(case: Case, reference: list[float] | None) -> None:
           f"{(after[-1] - after[0]) if len(after) > 1 else 0:.1f} s after it; {detail}")
 
 
+def info(name: str, detail: str) -> None:
+    """A number the run recorded that no check judges, printed so a reader sees it beside the checks."""
+    print(f"info {name}: {detail}")
+
+
+def super_words(volume: dict) -> set[str]:
+    return set(filter(None, (volume.get("super_options") or "").split(",")))
+
+
+def clientaddr(volume: dict) -> str | None:
+    return next((w.split("=", 1)[1] for w in super_words(volume) if w.startswith("clientaddr=")), None)
+
+
+def mount_problems(volume: dict, provenance: dict, claim: str) -> list[str]:
+    """What is wrong with a rank's mount for the claim it was registered to use, or nothing."""
+    words = super_words(volume)
+    cache = LONG_SUPER if claim == "shared-long" else ()
+    problems = []
+    if volume.get("fstype") != "nfs4":
+        problems.append(f"fstype {volume.get('fstype')}")
+    if volume.get("source") != f"{provenance.get('nfs_server')}:/":
+        problems.append(f"source {volume.get('source')}, server {provenance.get('nfs_server')}")
+    missing = [w for w in EFS_SUPER + cache if w not in words]
+    # Required options alone would pass a mount that also turned the cache off; anything cache-related must be registered.
+    extra = sorted(w for w in words if w.split("=")[0] in CACHE_WORDS and w not in cache)
+    if missing:
+        problems.append(f"missing {missing}")
+    if extra:
+        problems.append(f"unregistered {extra}")
+    return problems
+
+
+def starts(case: Case, attempt: int) -> dict[int, list[dict]]:
+    out: dict[int, list[dict]] = {}
+    for r in case.records:
+        if r.get("event") == "start" and r.get("attempt") == attempt:
+            out.setdefault(r.get("rank"), []).append(r)
+    return out
+
+
+def through_nfs(case: Case, provenance: dict, claim: str, attempts: tuple[int, ...]) -> None:
+    """Every rank of every attempt reported, once, a mount of the NFS server with exactly the claim's options."""
+    bad, seen = [], []
+    for attempt in attempts:
+        got = starts(case, attempt)
+        if sorted(got) != list(range(case.world())) or any(len(v) != 1 for v in got.values()):
+            bad.append(f"attempt {attempt}: start records by rank {sorted((k, len(v)) for k, v in got.items())}")
+            continue
+        for rank, (rec,) in sorted(got.items()):
+            vol = rec.get("volume") or {}
+            seen.append(f"a{attempt}r{rank} {vol.get('fstype')} dev {vol.get('dev')} clientaddr {clientaddr(vol)}")
+            problems = mount_problems(vol, provenance, claim)
+            if problems:
+                bad.append(f"attempt {attempt} rank {rank}: {problems}")
+    check(f"{case.name} every rank wrote through NFS 4.1 with the {claim} claim's options", not bad,
+          "; ".join(bad) if bad else "; ".join(seen))
+
+
+def snapshot(case: Case, tag: str) -> tuple[dict, str, dict, dict]:
+    """The storage-side snapshot the harness took: listing, what LATEST named, every MANIFEST, every shard's sha256."""
+    files = listing(case, f"listing-{tag}.txt")
+    path = case.dir / f"latest-{tag}.txt"
+    latest = path.read_text().strip() if path.exists() else ""
+    manifests, current = {}, None
+    path = case.dir / f"manifests-{tag}.txt"
+    for line in (path.read_text().splitlines() if path.exists() else []):
+        if line.endswith("/MANIFEST"):
+            current = line
+        elif line.startswith("{") and current:
+            manifests[current] = json.loads(line)
+            current = None
+    shas = {}
+    path = case.dir / f"shards-{tag}.txt"
+    for line in (path.read_text().splitlines() if path.exists() else []):
+        parts = line.split(None, 1)
+        if len(parts) == 2:
+            shas[parts[1].strip()] = parts[0]
+    return files, latest, manifests, shas
+
+
+def nodes_of(case: Case, attempt: int) -> dict[int, str]:
+    out: dict[int, str] = {}
+    for p in lines(case.dir / "pods.jsonl"):
+        if p.get("attempt") == str(attempt) and p.get("rank", "").isdigit():
+            out.setdefault(int(p["rank"]), p.get("node"))
+    return out
+
+
+def helper_records(case: Case, prefix: str) -> list[dict]:
+    return [r for f in sorted(case.dir.glob(f"helper-{prefix}*.txt")) for r in lines(f)]
+
+
+def torn_state(c: str, job: str, step: int, files: dict, latest: str, manifests: dict, shas: dict,
+               corrupted: list[dict]) -> tuple[bool, str]:
+    """Whether the storage held, before attempt 2, the state the case's fault is registered to leave."""
+    dirs = sorted({p.split("/")[2] for p in files if p.startswith(f"{job}/a1/{step:08d}-") and p.count("/") >= 2})
+    if len(dirs) != 1:
+        return False, f"{len(dirs)} directories of step {step} under a1/"
+    rel = f"a1/{dirs[0]}"
+    under = {p[len(f"{job}/{rel}/"):] for p in files if p.startswith(f"{job}/{rel}/")}
+    has_manifest = f"{job}/{rel}/MANIFEST" in manifests
+    prev = latest.startswith(f"a1/{step - 1:08d}-")
+    tmp1 = any(n.startswith("rank-1.pt.tmp-") for n in under)
+    detail = f"step {step} at {rel} holds {sorted(under)}; LATEST names {latest}"
+    if c == "nfs-kill-before-fsync":
+        ok = "rank-0.pt" in under and "rank-1.pt" not in under and tmp1 and not has_manifest and prev
+    elif c == "nfs-kill-before-manifest":
+        ok = "rank-0.pt" in under and "rank-1.pt" in under and not has_manifest and prev
+    elif c == "nfs-kill-before-latest":
+        ok = has_manifest and prev
+    else:
+        ok = has_manifest and latest == rel
+    if has_manifest:
+        # A published step must be whole on the storage, every shard as its manifest says, except the one the corrupt
+        # case changed on purpose, which the lines below judge.
+        wrong = [s["file"] for s in manifests[f"{job}/{rel}/MANIFEST"]["shards"]
+                 if not (c == "nfs-corrupt-published" and s["rank"] == 1)
+                 and (shas.get(f"{job}/{rel}/{s['file']}") != s["sha256"] or files.get(f"{job}/{rel}/{s['file']}", (0, -1))[1] != s["size"])]
+        ok = ok and not wrong
+        detail += f"; shards differing from the manifest {wrong}"
+    if c == "nfs-corrupt-published" and has_manifest:
+        entry = next((s for s in manifests[f"{job}/{rel}/MANIFEST"]["shards"] if s["rank"] == 1), {})
+        stored = shas.get(f"{job}/{rel}/rank-1.pt")
+        before = next((r for r in corrupted if r.get("when") == "before"), {})
+        size = files.get(f"{job}/{rel}/rank-1.pt", (0, -1))[1]
+        # Changed bytes, the same size, and the shard as published before the change.
+        ok = ok and stored is not None and stored != entry.get("sha256") and size == entry.get("size") \
+            and before.get("sha256") == entry.get("sha256")
+        detail += f"; rank-1.pt stored sha {str(stored)[:12]}, size {size}, manifest sha {str(entry.get('sha256'))[:12]} size {entry.get('size')}"
+    return ok, detail
+
+
+def nfs_case(case: Case, reference: list[float] | None, provenance: dict) -> None:
+    c = case.name
+    (point, step, frank), want = NFS_FAULTS[c]
+    claim = "shared-long" if c == "nfs-vis-long" else "shared"
+    job = (case.final.get("metadata") or {}).get("name") or ""
+    through_nfs(case, provenance, claim, (1, 2))
+
+    # Every record names the job it came from, and each attempt ran one Pod per rank, so no other run's lines are read.
+    stray = [r for r in case.records if r.get("run_id") != job]
+    per = {a: sorted(int(p["rank"]) for p in lines(case.dir / "pods.jsonl") if p.get("attempt") == str(a)) for a in (1, 2)}
+    check(f"{c} every record is this job's and each attempt ran one Pod per rank",
+          bool(case.records) and not stray and all(v == list(range(case.world())) for v in per.values()),
+          f"{len(case.records)} records, {len(stray)} of another run; Pods by attempt {per}")
+
+    faults = [r for r in case.records if r.get("event") == "fault"]
+    pod = next((p for p in lines(case.dir / "pods.jsonl") if p.get("attempt") == "1" and p.get("rank") == str(frank)), {})
+    exits = [e for e in lines(case.dir / "exits.jsonl") if e.get("uid") == pod.get("uid")]
+    fired = (len(faults) == 1 and faults[0].get("attempt") == 1 and faults[0].get("rank") == frank
+             and faults[0].get("point") == point and faults[0].get("step") == step)
+    check(f"{c} {point} fired once at step {step} on rank {frank}, and SIGKILL ended that rank",
+          fired and [e.get("exit") for e in exits] == [SIGKILL_EXIT],
+          f"fault records {[(r.get('attempt'), r.get('rank'), r.get('point'), r.get('step')) for r in faults]}; "
+          f"rank {frank}'s container exits {[(e.get('exit'), e.get('reason')) for e in exits]}")
+
+    held, detail = observed_window(case, "finalizer-added", "released")
+    a2job = json.loads((case.dir / "final-job.json").read_text()) if (case.dir / "final-job.json").exists() else {}
+    created = ts((a2job.get("metadata") or {}).get("creationTimestamp"))
+    t_rel, t_hold = case.at("released"), case.at("finalizer-added")
+    t_fault = ts(faults[0].get("ts")) if faults else None
+    check(f"{c} attempt 2 began only after the storage was read and the hold released",
+          bool(held) and no_second_attempt(held) and created is not None and t_rel is not None
+          and created >= math.floor(t_rel) and t_hold is not None and t_fault is not None and t_hold < t_fault,
+          f"{detail}; hold from {iso(t_hold)}, fault {iso(t_fault)}, released {iso(t_rel)}, attempt 2's Job {iso(created)}")
+
+    files, latest, manifests, shas = snapshot(case, "held")
+    corrupted = helper_records(case, "corrupt")
+    ok, detail = torn_state(c, job, step, files, latest, manifests, shas, corrupted)
+    check(f"{c} the storage held the registered state of step {step} before attempt 2", ok, detail)
+    if c == "nfs-kill-before-fsync":
+        sizes = {p.rsplit("/", 1)[1]: v[1] for p, v in files.items() if p.startswith(f"{job}/a1/{step:08d}-") and "/rank-" in p}
+        info(f"{c} step {step}'s files as the storage held them", f"{sizes}: the killed rank's temporary file is "
+             "what its close flushed, not bytes a lost client failed to send")
+
+    n1, n2 = nodes_of(case, 1), nodes_of(case, 2)
+    s1 = {r: (v[0].get("volume") or {}) for r, v in starts(case, 1).items() if v}
+    s2 = {r: (v[0].get("volume") or {}) for r, v in starts(case, 2).items() if v}
+    cordoned = next((m["mark"].split()[1] for m in case.marks if m["mark"].split()[0] == "cordoned"), None)
+    if c.startswith("nfs-kill-"):
+        moved = (n2.get(1) not in (None, n1.get(1)) and cordoned == n1.get(1)
+                 and None not in (clientaddr(s1.get(1, {})), clientaddr(s2.get(1, {})))
+                 and clientaddr(s1.get(1, {})) != clientaddr(s2.get(1, {})))
+        check(f"{c} attempt 2's rank 1 read through another client than the one that wrote its shard", moved,
+              f"rank 1 on {n1.get(1)} (clientaddr {clientaddr(s1.get(1, {}))}) then {n2.get(1)} "
+              f"(clientaddr {clientaddr(s2.get(1, {}))}); cordoned {cordoned}")
+    warm = helper_records(case, "warm")
+    if c == "nfs-corrupt-published":
+        devs = {r["node"]: (r.get("watch") or {}).get("dev") for r in warm}
+        rel = latest
+        entry = next((s for s in manifests.get(f"{job}/{rel}/MANIFEST", {}).get("shards", []) if s["rank"] == 1), {})
+        good = [r for r in warm if r.get("file") == f"{rel}/rank-1.pt" and r.get("sha256") == entry.get("sha256")]
+        shared = all(n2.get(r) in devs and devs[n2[r]] == s2.get(r, {}).get("dev") for r in range(case.world()))
+        check(f"{c} attempt 2 read in the caches that held step {step} as published",
+              set(n2.values()) == set(n1.values()) and shared and len(good) == 2 and cordoned not in n2.values(),
+              f"attempt 1 on {sorted(n1.values())}, attempt 2 on {n2}; warm caches {devs}, attempt 2 devices "
+              f"{ {r: v.get('dev') for r, v in s2.items()} }; {len(good)} warm reads of rank 1's published shard")
+        rejected = sorted((r.get("rank"), r.get("own_shard_ok")) for r in case.records
+                          if r.get("event") == "checkpoint_rejected" and r.get("attempt") == 2 and r.get("dir") == rel)
+        own = [r for r in case.records if r.get("event") == "shard_check" and r.get("attempt") == 2
+               and r.get("rank") == 1 and r.get("dir") == rel]
+        check(f"{c} both ranks refused step {step} together, rank 1 for its changed bytes",
+              rejected == [(0, True), (1, False)] and len(own) == 1 and own[0].get("visible") is True
+              and own[0].get("hash_ok") is False,
+              f"rejections {rejected}; rank 1's check of it {[(r.get('visible'), r.get('hash_ok')) for r in own]}")
+
+    restarted(case, reference, want)
+
+    # A resume is trusted only if what it loaded was complete on the storage when attempt 2 started.
+    resumes = [r for r in case.records if r.get("event") == "resume" and r.get("attempt") == 2]
+    bad = []
+    for r in resumes:
+        m = manifests.get(f"{job}/{r.get('from_dir')}/MANIFEST")
+        if m is None:
+            bad.append(f"rank {r.get('rank')}: no MANIFEST for {r.get('from_dir')}")
+            continue
+        for s in m["shards"]:
+            p = f"{job}/{r.get('from_dir')}/{s['file']}"
+            if shas.get(p) != s["sha256"] or files.get(p, (0, -1))[1] != s["size"]:
+                bad.append(f"rank {r.get('rank')}: {s['file']} of {r.get('from_dir')} differs from its manifest")
+    accepted = all(any(x.get("event") == "shard_check" and x.get("attempt") == 2 and x.get("rank") == r.get("rank")
+                       and x.get("dir") == r.get("from_dir") and x.get("hash_ok") is True for x in case.records)
+                   for r in resumes)
+    by_rank = sorted(r.get("rank") for r in resumes)
+    check(f"{c} every rank loaded only a checkpoint complete on the storage, after its own check passed",
+          not bad and accepted and by_rank in ([], list(range(case.world()))),
+          f"resumes by rank {by_rank} from {sorted({r.get('from_dir') for r in resumes})}; {bad or 'every shard matches'}; "
+          f"each resume preceded by a passing shard_check: {accepted}")
+
+    checks = [r for r in case.records if r.get("event") == "shard_check" and r.get("attempt") == 2]
+    info(f"{c} shard checks in attempt 2", f"{len(checks)} records; looks {sorted(r.get('looks') for r in checks)}; "
+         f"invisible {[(r.get('rank'), r.get('dir'), r.get('errors'), r.get('listed')) for r in checks if not r.get('visible')]}")
+
+    if c.startswith("nfs-vis-"):
+        vis(case, job, n1, n2, s2, checks, provenance)
+
+
+def vis(case: Case, job: str, n1: dict[int, str], n2: dict[int, str], s2: dict[int, dict], checks: list[dict],
+        provenance: dict) -> None:
+    c = case.name
+    probes = helper_records(case, "watch")
+    started = {r["node"]: r for r in probes if r.get("event") == "probe_start"}
+    first_ckpt = min((ts(r.get("ts")) for r in case.records if r.get("event") == "checkpoint" and r.get("attempt") == 1),
+                     default=None)
+    ready = len(started) == 3 and first_ckpt is not None and all(ts(r["ts"]) < first_ckpt for r in started.values())
+    check(f"{c} a prober watched on every worker before the first checkpoint", ready,
+          f"probers started on {sorted(started)}; first checkpoint {iso(first_ckpt)}")
+    # The node no rank of attempt 1 wrote from, if attempt 2 put a rank there, and whether that rank's mount shares the
+    # prober's cache there.
+    fresh = [r for r, n in n2.items() if n not in n1.values()]
+    shared = [r for r in fresh if (started.get(n2[r], {}).get("watch") or {}).get("dev") == s2.get(r, {}).get("dev")]
+    # The provocation took only if that node's prober looked the rank's shard of the checkpoint attempt 2 was offered
+    # first up and found it absent, through a mount with the case's options, while discovering through an uncached one.
+    # The first offer, which is LATEST's checkpoint when rank 0 could read LATEST and the newest manifest otherwise.
+    first = next(((r.get("offered") or [None])[0] for r in case.records
+                  if r.get("event") == "candidates" and r.get("attempt") == 2), None)
+    claim = "shared-long" if c == "nfs-vis-long" else "shared"
+    poisoned = [r for r in shared
+                if any(p.get("event") == "probe" and p["node"] == n2[r] and p["dir"] == first and p["rank"] == r
+                       and p.get("exists") is False for p in probes)
+                and not mount_problems(started[n2[r]].get("watch") or {}, provenance, claim)
+                and "lookupcache=none" in super_words(started[n2[r]].get("list") or {})]
+    check(f"{c} attempt 2 ran a rank where no shard was written, in a cache the prober had told its shard was absent",
+          bool(poisoned),
+          f"attempt 1 {n1}, attempt 2 {n2}; ranks on such a node {fresh}, sharing the prober's cache {shared}; "
+          f"first offer {first}; with an absent lookup of their own shard there through the registered mounts {poisoned}")
+    # How long each prober saw a shard absent after the storage had it: from the shard's mtime to the prober's first
+    # record of it present, which is the cache's view, not the server's.
+    final = listing(case, "listing-final.txt")
+    delays, never = [], []
+    for node in sorted(started):
+        for (d, rank) in sorted({(r["dir"], r["rank"]) for r in probes if r.get("event") == "probe" and r["node"] == node}):
+            seq = [r for r in probes if r.get("event") == "probe" and r["node"] == node and r["dir"] == d and r["rank"] == rank]
+            if not seq or seq[0].get("exists"):
+                continue
+            mtime = final.get(f"{job}/{d}/rank-{rank}.pt", (None, 0))[0]
+            seen = next((ts(r["ts"]) for r in seq if r.get("exists")), None)
+            if seen is None:
+                never.append(f"{node} {d[-8:]} r{rank}")
+            elif mtime is not None:
+                delays.append(seen - mtime)
+    info(f"{c} probers' delays from a shard's mtime to first seeing it, after having looked it up absent",
+         f"{len(delays)} shards, min {min(delays, default=float('nan')):.1f} s, max {max(delays, default=float('nan')):.1f} s; "
+         f"never seen before the case ended: {len(never)} {never[:6]}")
+    # A shard the storage held as its manifest says, refused because the rank could not see it, is a checkpoint lost to
+    # the client's cache; the first recorded run over NFS lost every checkpoint of attempt 1 that way.
+    files, _, manifests, shas = snapshot(case, "held")
+    lost = []
+    for r in checks:
+        m = manifests.get(f"{job}/{r.get('dir')}/MANIFEST") or {}
+        entry = next((s for s in m.get("shards", []) if s["rank"] == r.get("rank")), None)
+        if r.get("visible") is False and entry and shas.get(f"{job}/{r['dir']}/{entry['file']}") == entry["sha256"]:
+            lost.append((r.get("rank"), r.get("dir"), r.get("looks"), r.get("listed")))
+    check(f"{c} no rank refused a shard the storage held as its manifest says", not lost,
+          f"{len(lost)} such refusals {lost[:4]}")
+    recovered = [(r.get("rank"), r.get("dir"), r.get("looks"), r.get("errors")) for r in checks
+                 if r.get("visible") is True and (r.get("looks") or 0) > 1]
+    info(f"{c} shard checks that found their shard on a later look", f"{len(recovered)}: {recovered}")
+
+
 def main() -> int:
     root = pathlib.Path(sys.argv[1])
     if (root / "VOID").exists():
@@ -390,8 +711,14 @@ def main() -> int:
     unknown = [n for n in scope if n not in CASES]
     check("the run's cases are known, each once", bool(scope) and not unknown and len(set(scope)) == len(scope),
           f"scoring {scope}; unknown {unknown}")
-    if any(n in scope for n in ("rank-failed", "stale-workload", "node-lost", "cut-writer", "cut-writer-early")):
+    if any(n in scope for n in ("rank-failed", "stale-workload", "node-lost", "cut-writer", "cut-writer-early") + NFS_CASES):
         check("the run has the reference its restarts are compared with", "reference" in scope, f"cases {scope}")
+    storage = provenance.get("storage", "hostpath")
+    if storage != "hostpath" or any(n in NFS_CASES for n in scope):
+        # A case of one storage scored as run on the other would read evidence its checks were not written for.
+        wrong = [n for n in scope if n != "reference" and (n in NFS_CASES) != (storage == "nfs")]
+        check("every case ran on the storage it is written for", storage == "nfs" and not wrong,
+              f"storage {storage}; out of place {wrong}")
     reference = None
 
     case = Case(root, "reference")
@@ -465,6 +792,15 @@ def main() -> int:
         case = Case(root, name)
         if name in scope and present(case):
             cut_writer(case, reference)
+
+    if storage == "nfs":
+        case = Case(root, "reference")
+        if "reference" in scope and case.ok:
+            through_nfs(case, provenance, "shared", (1,))
+    for name in NFS_CASES:
+        case = Case(root, name)
+        if name in scope and present(case):
+            nfs_case(case, reference, provenance)
 
     print(f"{len(FAILED)} failed" if FAILED else "all checks passed")
     return 1 if FAILED else 0

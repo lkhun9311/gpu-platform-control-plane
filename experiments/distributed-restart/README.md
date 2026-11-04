@@ -104,7 +104,7 @@ A timed-out attempt is a failed case, and its container is removed by name; the 
 `hack/distributed-restart-kind.sh` runs the same trainer as a restartable `MLTrainingJob` (`worldSize: 2`, `maxRestarts: 1`) on a throwaway cluster `rst`, and `score_kind.py` reads what it recorded.
 Kueue is v0.18.3, as on EKS, and the operator runs with its admission webhooks.
 Three workers each advertise one simulated GPU, so the two ranks run on two nodes and two are left when one is lost.
-Every worker mounts one host directory, offered as a `ReadWriteMany` hostPath volume: ranks on different nodes share a file system, without NFS's semantics.
+Every worker mounts one host directory, offered as a `ReadWriteMany` hostPath volume: ranks on different nodes share a file system, without NFS's semantics; the same protocol over an NFS server is the section "Over NFS, on kind" below.
 The operator, Kueue, cert-manager and CoreDNS are pinned to the control-plane node, so a frozen worker can take ranks with it and nothing else.
 
 | case | what happens | what must hold |
@@ -136,6 +136,9 @@ Five rehearsals on an uncommitted tree came before the recorded run, and two fou
 The trainer was started with `exec`, which made it the container's PID 1, and the kernel drops a `SIGKILL` that PID 1 sends itself: the killed ranks trained on and their jobs finished on attempt 1.
 `train.py` now refuses to fire a kill fault as PID 1.
 And one rehearsal froze the worker a controller was most likely running on, after which nothing reconciled the job; where the controllers ran was not recorded, which is why it is now.
+
+The `stale-workload` hold in both recorded runs replaced the Workload's finalizer list rather than adding to it, so for the hold Kueue's own `kueue.x-k8s.io/resource-in-use` was gone: every sample of the held Workload in `20261101T003147Z` shows `["rst.test/hold"]` alone (codex `gpt-6-astra`, read-only plan review, 2026-11-01; checked against the samples by me).
+The harness now appends its finalizer and removes only that one, by index, with a JSON-patch `test`; the hostPath runs were not repeated, so what they show about a held Workload is about one that had lost Kueue's finalizer.
 
 ## A rank cut off from the API server that keeps writing
 
@@ -198,9 +201,80 @@ The control shows what a promise made too early does: attempt 2 starts on it, th
 Here the overlap was harmless only because the old rank wrote a heartbeat of its own and no rank 0 was left to publish `LATEST`; a real trainer's lingering rank could write a checkpoint, and nothing in the platform would stop it.
 What the platform does guarantee is narrower: it does not start the next attempt, for a node it cannot hear from, before someone says that node is off.
 
+## Over NFS, on kind
+
+`STORAGE=nfs hack/distributed-restart-kind.sh` runs the restart on a cluster `rstnfs` whose workers share no host directory: the volume is an NFS-Ganesha 4.0.8 server Pod on the control-plane node (the userspace server in `registry.k8s.io/sig-storage/nfs-provisioner`, pinned by digest and run as a plain server, so the host needs no `nfsd`), and each worker's kernel client mounts it through a static `ReadWriteMany` PV.
+The PV carries the options AWS recommends for EFS on Linux, `nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2,noresvport` (docs.aws.amazon.com/efs/latest/ug/mounting-fs-nfs-mount-settings.html, read 2026-11-01), and leaves attribute caching at the kernel's defaults, as that page advises.
+A second claim adds `actimeo=600`, and a third, with `lookupcache=none,actimeo=0`, is only for the probers' discovery.
+Every rank records the mount its checkpoint directory is on, from `/proc/self/mountinfo`, and the scorer refuses a rank that did not write through NFS 4.1 from this server with exactly the claim's options, so a run that fell back to anything else fails rather than passes.
+Every listing, hash and snapshot the scorer reads is taken from the server's export directory, below the server and through no client's cache.
+
+What could not be matched: the server is one ganesha process on local ext4, not EFS's service, with ganesha's own metadata cache; the network is a docker bridge; there is no TLS or IAM (`efs-utils`); the client is the host's Linux 7.0, not the EKS AMI's kernel; and the client's directory delegations are turned off for the run.
+That last one is because Linux 7.0 asks for directory delegations, ganesha 4.0.8 answers `GET_DIR_DELEGATION` with `NFS4ERR_OP_ILLEGAL`, and the client then failed directory reads with `EREMOTEIO` in a prototype; the harness sets the host's `nfsv4` parameter `directory_delegations` to `N` from a throwaway privileged container, records it, and restores it on exit.
+EFS supports no client delegations or callbacks of any kind (docs.aws.amazon.com/efs/latest/ug/limits.html, "Unsupported NFSv4.0 and 4.1 features", read 2026-11-01), so the client gets none from EFS either; ganesha is also configured with `Delegations = false`.
+Throughput is not measured, and nothing here is a statement about EFS's own consistency: the options are EFS's, the server is not.
+
+Every restart case holds attempt 1's Workload with a finalizer from admission, waits until the fault has fired and every Pod of attempt 1 is gone, records the volume from the server side as attempt 2 will find it, does the case's own action, cordons one worker, and only then releases the Workload; a background sampler covers the whole hold, and the scorer requires that no Job of attempt 2 exists before the release.
+The kill faults are judged by the killed rank's container exit, 137, and not by the `fault` record, which the trainer writes before the signal.
+
+| case | fault, and what happens between attempts | what must hold |
+|---|---|---|
+| `nfs-kill-before-fsync` | rank 1 is killed with its shard of step 6 written and unrenamed; rank 1's node is cordoned | the server holds rank 0's shard and rank 1's temporary file, no `MANIFEST`, `LATEST` on step 5; resume from 5 |
+| `nfs-kill-before-manifest` | rank 0 is killed with both shards of step 6 in place; same cordon | both shards, no `MANIFEST`, `LATEST` on 5; resume from 5 |
+| `nfs-kill-before-latest` | rank 0 is killed with step 6's `MANIFEST` written; same cordon | a whole step 6 on the server, `LATEST` on 5; resume from 5 |
+| `nfs-kill-after-latest` | rank 0 is killed right after `LATEST` names step 6; same cordon | a whole step 6, named by `LATEST`; resume from 6 |
+| `nfs-corrupt-published` | as above, then both writer nodes read both shards of step 6 into their caches, and 64 bytes in the middle of rank 1's shard are inverted, its size kept, through the idle node's client, which is then cordoned | attempt 2 runs in the two warmed caches (same `st_dev`); rank 1 sees its shard and refuses its hash, rank 0 accepts its own, both refuse step 6 together and resume from 5 |
+| `nfs-vis-efs` | from before attempt 1, a prober on every worker looks up both shard names of each new checkpoint before the shards exist, through the job's claim; rank 0 is killed after `LATEST` names step 8, and rank 0's node is cordoned | attempt 2 puts a rank on the node no rank of attempt 1 wrote from, in the prober's cache there, whose prober recorded that rank's shard absent; resume from 8; no rank refuses a shard the server holds as its manifest says |
+| `nfs-vis-long` | the same on the `actimeo=600` claim | the same |
+
+In the kill cases attempt 2's rank 1 always reads through another node's client than the one that wrote its shard (the scorer compares `clientaddr`), and every rank's final parameters must equal those of an uninterrupted run on NFS.
+The first four are tests of publication order: a step without `MANIFEST`, or with one `LATEST` does not yet name, is never offered first, so they do not ask a reader to refuse anything (codex `gpt-6-astra`, plan review).
+The refusals are carried by `nfs-corrupt-published` and the visibility cases.
+`skew` is not run over NFS: its refusal is decided from the reports the ranks gather, before anything is read back.
+
+### What the runs found
+
+The first recorded run, `hack/distributed-restart-kind-20261101T090308Z` of commit `fcc3a676`, ran `reference` alone and failed: both attempts died at step 1, before any checkpoint, with `FileNotFoundError` from `os.makedirs` of the checkpoint directory on rank 1, and a rehearsal before it had died the same way.
+Every rank created the attempt's directory and each checkpoint's directory itself, and on hostPath that is harmless; over NFS one client lost the race to create a directory and then could not create the one inside it.
+That the losing client had cached the parent as absent is my reading of the trace, consistent with what follows but not shown by it.
+Since `9cfa4621`, rank 0 alone creates the attempt's directory, behind a barrier, and each checkpoint's directory before it broadcasts its name, and no run has failed that way again.
+
+The second, `hack/distributed-restart-kind-20261101T091435Z` of `e5022c48`, ran all eight cases, and every check of the four kill cases and of `nfs-corrupt-published` passed.
+In `nfs-vis-efs`, with EFS's options, the prober on `rstnfs-worker2` looked up rank 1's shard of step 8 at 09:21:13.349 and found it absent; the shard's mtime on the server is 09:21:14.341; attempt 2 put rank 1 on that node, and its check of that shard ended at 09:21:20.093 after six looks 0.2 s apart, every one `ENOENT`, while a listing of the same directory right after named the shard.
+It did the same for each of the eight checkpoints of attempt 1, so both ranks restarted from step zero and ended, by retraining, on the reference's parameters: equal parameters alone would have passed this case.
+The bounded retry ran on every one of those checks and found nothing on any later look.
+In `nfs-vis-long` the probed node got rank 0, which found its shard on the first look; the prober on that node flipped to present 5 ms after rank 0's `candidates` record, which fits rank 0's own reads in that directory (it opens `MANIFEST` there, and rank 1 does not) having refreshed the node's view, but does not show which operation did, and does not make rank 0 immune.
+
+Since `5e7bfe38`, `shard_ok` lists the shard's directory after every missed look and before the next.
+The third run, `hack/distributed-restart-kind-20261101T092646Z` of `4290f6f8`, ran all eight cases and all 104 checks pass; the fourth, `hack/distributed-restart-kind-20261101T093539Z` of `4edd480e`, ran `reference` and the two visibility cases again, and all 38 pass.
+Across those two runs the probed node got rank 1 three times, in `nfs-vis-efs` twice and in `nfs-vis-long` once, and each time rank 1's first look was `ENOENT` and its second, after the listing, found the shard; attempt 2 resumed from step 8 every time.
+The other `nfs-vis-long` (third run) put rank 0 on the probed node again and its first look found the shard.
+Under `actimeo=600` in the fourth run, the prober on `rstnfs-worker2`, where rank 1 of attempt 2 ran and listed only step 8's directory, still had both shard names of every step from 1 to 7, 14 in all, as absent when the case ended; under EFS's options the longest a prober went on seeing a shard absent after its mtime was 29.1 s in each of the last two runs, which is censored and not a bound.
+
+```
+python3 experiments/distributed-restart/score_kind.py hack/distributed-restart-kind-20261101T092646Z
+python3 experiments/distributed-restart/score_kind.py hack/distributed-restart-kind-20261101T093539Z
+```
+
+Under the current scorer the first run fails the two reference checks it failed when recorded, and the second fails 2 of 104: `nfs-vis-efs` did not resume from step 8 and refused 8 shards the server held; it was recorded with an earlier registration of the visibility checks, under which it failed 1, an expectation for `nfs-vis-long` that rank 1 would land on the probed node, which it did not.
+Each of 19 one-subject mutations of copies of the third run's evidence failed the check aimed at it, and the copy itself scored clean after: the run's storage, a rank's file system type, an unregistered `lookupcache=none`, a missing `acdirmin=600`, a record of another run, an exit code other than 137, a release after attempt 2's Job, a renamed shard where the temporary file was, `LATEST` on step 6 before `LATEST` was written, a published shard's hash, the corruption undone, the same client before and after, a warm cache on another device, the changed shard accepted, a resume from step 4, an incomplete resumed checkpoint, a prober started after the first checkpoint, a prober that never saw a shard absent, and a stored shard refused.
+They show the checks see the evidence they read; the two code defects the runs found are what show the cases can fail on the code.
+
+### What the NFS runs do not show
+
+The listing before a re-look is a mitigation measured on Linux 7.0 against ganesha in four instances, not an established mechanism: whether the directory's attributes, the entries the listing brings back, or the elapsed time made the next look succeed is not separated, and the same holds for the rank-0 observation (codex `gpt-6-astra`, adversarial reading of these results).
+Whether EFS's server, or the EKS AMI's kernel, gives the same cached absence, and for how long, is not shown; a traced reproduction on that stack would.
+The provocation is deliberate: the trainer never looks a shard's name up before the shard exists, so under its own traffic a cached absence of a shard needs another process on the node, such as a monitor, to look first; but its own directory creation hit the same kind of failure until rank 0 alone created them.
+Candidate discovery and the `MANIFEST` and `LATEST` reads have no retry, and nothing here hid them from a reader; a checkpoint skipped there is recorded in the `candidates` record but not recovered.
+The retry budget is not validated: six looks 0.2 s apart failed against a cached absence that lasts tens of seconds, and with the listing one re-look sufficed every time, which says nothing about the tail.
+A `hard` mount retries each request below Python for as long as the server does not answer, so a bounded number of looks is not a bounded time.
+The kill cases kill a process, not a machine: the client kernel and the server live on, a killed rank's close flushed its temporary file (9,084 bytes in both full runs, the size of the finished shard), and nothing here shows what survives the loss of a client's unsent pages, a server restart, or a broken connection.
+The corruption was seen through caches that had read the shard before it changed, which close-to-open revalidation on open would explain, though residency of those pages at the moment of the check is not recorded; a change between a rank's hash and its load is not exercised, and the shards are assumed immutable after publication.
+Removing a worker after the server is gone left its exiting processes waiting on the NFS client's goodbye to the server, a DESTROY_CLIENTID call that their kernel stacks showed, for about three minutes in one interrupted rehearsal; the harness now removes the workers first.
+The heartbeat writer of the cut-writer cases still creates `a<attempt>/` on every rank, which over NFS is the race above; it runs only on hostPath.
+
 ## What this does not show
 
-Visibility across NFS clients, where a file renamed on one node may not yet appear on another, is the reason for the bounded retry in `shard_ok`; neither the local check nor kind exercises it, and the shared volume on EFS is where it would.
 `cut-writer` shows the barrier holding for a deleted Node; a Node that is still Ready is trusted to have stopped its Pods, so a Ready condition that is stale, or a new machine registering under the old name, is not exercised.
 The fence names a node and is never consumed, so an acknowledgement left from one loss would cover a later loss of a machine with the same name; one restart per job here never reaches that.
 A node is fenced only if the controller recorded it, from the attempt's Pods; a rank whose Pod vanishes before the controller first sees it is not exercised.

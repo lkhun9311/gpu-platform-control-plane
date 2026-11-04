@@ -1,0 +1,9 @@
+2026-11-02T22:54:41.844994735Z  context: gpu-platform
+2026-11-02T22:54:42.294952095Z  applying config/argocd/root.yaml -- the step that was missing
+Warning: metadata.finalizers: "resources-finalizer.argocd.argoproj.io": prefer a domain-qualified finalizer name including a path (/) to avoid accidental conflicts with other finalizer writers
+application.argoproj.io/gpu-platform-root created
+   ok   all 13 Applications this repository declares exist, 13 of them created by this run
+2026-11-02T22:55:22.866832145Z  root resolved revision: 84736e232c2050267d8ab097e92c063f4616f2ab (targetRevision is the mutable branch main)
+2026-11-02T22:55:22.868723116Z  waiting for the automated Applications to reach Synced/Healthy
+   ok   every automated Application is Synced/Healthy, and every declared Application is still present
+2026-11-02T22:57:29.60577844Z  not waited on because they carry no automated syncPolicy, by design: gpu-platform-device-plugin gpu-platform-observability gpu-platform-samples gpu-platform-serving gpu-platform-training 

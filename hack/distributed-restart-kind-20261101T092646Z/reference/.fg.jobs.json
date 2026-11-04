@@ -1,0 +1,176 @@
+{
+    "apiVersion": "v1",
+    "items": [
+        {
+            "apiVersion": "batch/v1",
+            "kind": "Job",
+            "metadata": {
+                "creationTimestamp": "2026-11-01T09:29:29Z",
+                "generation": 2,
+                "labels": {
+                    "kueue.x-k8s.io/queue-name": "gpu-rst",
+                    "platform.lkhun9311.github.io/mltrainingjob-attempt": "1",
+                    "platform.lkhun9311.github.io/mltrainingjob-uid": "5417a7a1-605f-453b-aa4c-a99133a863bc"
+                },
+                "name": "rst-reference-092929",
+                "namespace": "rst",
+                "ownerReferences": [
+                    {
+                        "apiVersion": "platform.lkhun9311.github.io/v1",
+                        "blockOwnerDeletion": true,
+                        "controller": true,
+                        "kind": "MLTrainingJob",
+                        "name": "rst-reference-092929",
+                        "uid": "5417a7a1-605f-453b-aa4c-a99133a863bc"
+                    }
+                ],
+                "resourceVersion": "2096",
+                "uid": "7bb6c864-bd03-41ce-9426-bef236bb932f"
+            },
+            "spec": {
+                "backoffLimit": 0,
+                "completionMode": "Indexed",
+                "completions": 2,
+                "manualSelector": false,
+                "parallelism": 2,
+                "podReplacementPolicy": "TerminatingOrFailed",
+                "selector": {
+                    "matchLabels": {
+                        "batch.kubernetes.io/controller-uid": "7bb6c864-bd03-41ce-9426-bef236bb932f"
+                    }
+                },
+                "suspend": false,
+                "template": {
+                    "metadata": {
+                        "annotations": {
+                            "kueue.x-k8s.io/workload": "job-rst-reference-092929-736bb"
+                        },
+                        "labels": {
+                            "batch.kubernetes.io/controller-uid": "7bb6c864-bd03-41ce-9426-bef236bb932f",
+                            "batch.kubernetes.io/job-name": "rst-reference-092929",
+                            "controller-uid": "7bb6c864-bd03-41ce-9426-bef236bb932f",
+                            "job-name": "rst-reference-092929",
+                            "kueue.x-k8s.io/cluster-queue-name": "gpu-rst",
+                            "kueue.x-k8s.io/local-queue-name": "gpu-rst",
+                            "kueue.x-k8s.io/podset": "main",
+                            "platform.lkhun9311.github.io/mltrainingjob": "rst-reference-092929",
+                            "platform.lkhun9311.github.io/mltrainingjob-attempt": "1",
+                            "platform.lkhun9311.github.io/mltrainingjob-uid": "5417a7a1-605f-453b-aa4c-a99133a863bc"
+                        }
+                    },
+                    "spec": {
+                        "containers": [
+                            {
+                                "command": [
+                                    "sh",
+                                    "-c",
+                                    "export CKPT_RUN_ID=rst-reference-092929 CKPT_DIR=/shared CKPT_JOB_ID=rst-reference-092929 CKPT_STEPS=20 CKPT_STEP_SLEEP=1 OMP_NUM_THREADS=1 \npython /work/train.py\n"
+                                ],
+                                "env": [
+                                    {
+                                        "name": "NVIDIA_DRIVER_CAPABILITIES",
+                                        "value": "compute,utility"
+                                    },
+                                    {
+                                        "name": "WORLD_SIZE",
+                                        "value": "2"
+                                    },
+                                    {
+                                        "name": "MASTER_ADDR",
+                                        "value": "rst-reference-092929-0.rst-reference-092929-ddp-a1.rst.svc"
+                                    },
+                                    {
+                                        "name": "MASTER_PORT",
+                                        "value": "29500"
+                                    },
+                                    {
+                                        "name": "RANK",
+                                        "valueFrom": {
+                                            "fieldRef": {
+                                                "apiVersion": "v1",
+                                                "fieldPath": "metadata.annotations['batch.kubernetes.io/job-completion-index']"
+                                            }
+                                        }
+                                    },
+                                    {
+                                        "name": "TRAINING_ATTEMPT",
+                                        "value": "1"
+                                    }
+                                ],
+                                "image": "distributed-restart:torch251",
+                                "imagePullPolicy": "IfNotPresent",
+                                "name": "trainer",
+                                "resources": {
+                                    "limits": {
+                                        "nvidia.com/gpu": "1"
+                                    }
+                                },
+                                "terminationMessagePath": "/dev/termination-log",
+                                "terminationMessagePolicy": "File",
+                                "volumeMounts": [
+                                    {
+                                        "mountPath": "/shared",
+                                        "name": "state"
+                                    }
+                                ]
+                            }
+                        ],
+                        "dnsPolicy": "ClusterFirst",
+                        "restartPolicy": "Never",
+                        "schedulerName": "default-scheduler",
+                        "securityContext": {},
+                        "subdomain": "rst-reference-092929-ddp-a1",
+                        "terminationGracePeriodSeconds": 30,
+                        "volumes": [
+                            {
+                                "name": "state",
+                                "persistentVolumeClaim": {
+                                    "claimName": "shared"
+                                }
+                            }
+                        ]
+                    }
+                }
+            },
+            "status": {
+                "completedIndexes": "0,1",
+                "completionTime": "2026-11-01T09:29:54Z",
+                "conditions": [
+                    {
+                        "lastProbeTime": "2026-11-01T09:29:29Z",
+                        "lastTransitionTime": "2026-11-01T09:29:29Z",
+                        "message": "Job resumed",
+                        "reason": "JobResumed",
+                        "status": "False",
+                        "type": "Suspended"
+                    },
+                    {
+                        "lastProbeTime": "2026-11-01T09:29:54Z",
+                        "lastTransitionTime": "2026-11-01T09:29:54Z",
+                        "message": "Reached expected number of succeeded pods",
+                        "reason": "CompletionsReached",
+                        "status": "True",
+                        "type": "SuccessCriteriaMet"
+                    },
+                    {
+                        "lastProbeTime": "2026-11-01T09:29:54Z",
+                        "lastTransitionTime": "2026-11-01T09:29:54Z",
+                        "message": "Reached expected number of succeeded pods",
+                        "reason": "CompletionsReached",
+                        "status": "True",
+                        "type": "Complete"
+                    }
+                ],
+                "ready": 0,
+                "startTime": "2026-11-01T09:29:29Z",
+                "succeeded": 2,
+                "terminating": 0,
+                "uncountedTerminatedPods": {}
+            }
+        }
+    ],
+    "kind": "List",
+    "metadata": {
+        "resourceVersion": ""
+    }
+}

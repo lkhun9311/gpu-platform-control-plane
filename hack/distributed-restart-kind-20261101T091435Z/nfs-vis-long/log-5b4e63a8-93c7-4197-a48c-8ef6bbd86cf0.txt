@@ -1,0 +1,36 @@
+/usr/local/lib/python3.12/site-packages/torch/_subclasses/functional_tensor.py:295: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at ../torch/csrc/utils/tensor_numpy.cpp:84.)
+  cpu = _conversion_method_template(device=torch.device("cpu"))
+{"ts": "2026-11-01T09:22:21.843070+00:00", "run_id": "rst-nfs-vis-long-092219", "attempt": 1, "rank": 1, "event": "restart_from_zero", "load_mode": "full"}
+{"ts": "2026-11-01T09:22:22.187014+00:00", "run_id": "rst-nfs-vis-long-092219", "attempt": 1, "rank": 1, "event": "start", "world_size": 2, "load_mode": "full", "resumed_from_step": 0, "steps": 20, "fault": "kill-after-latest:8", "torch_version": "2.5.1+cpu", "epoch": 0, "position": 0, "lr": 0.05, "backend": "gloo", "device": "cpu", "ballast_mb": 0, "volume": {"point": "/shared", "mount_options": "rw,relatime", "fstype": "nfs4", "source": "10.96.82.108:/", "super_options": "rw,vers=4.1,rsize=1048576,wsize=1048576,namlen=255,acregmin=600,acregmax=600,acdirmin=600,acdirmax=600,hard,noresvport,fatal_neterrors=ENETDOWN:ENETUNREACH,proto=tcp,timeo=600,retrans=2,sec=sys,clientaddr=172.18.0.11,local_lock=none,addr=10.96.82.108", "dev": 7340200}, "visibility_retries": 5, "shard_delay": 1.0}
+{"ts": "2026-11-01T09:22:22.191021+00:00", "run_id": "rst-nfs-vis-long-092219", "attempt": 1, "rank": 1, "event": "step", "step": 1, "loss": 7.302649021148682, "digest": "281376d89323e8ca96cfd659d02825874e2ef3bfb7540e0cb2ccec5a1b6fe739", "params": null}
+{"ts": "2026-11-01T09:22:23.211588+00:00", "run_id": "rst-nfs-vis-long-092219", "attempt": 1, "rank": 1, "event": "checkpoint", "step": 1, "dir": "a1/00000001-88147ca6c92643ea923dead9b49f7522", "save_s": 1.0204823329113424}
+{"ts": "2026-11-01T09:22:24.213171+00:00", "run_id": "rst-nfs-vis-long-092219", "attempt": 1, "rank": 1, "event": "step", "step": 2, "loss": 9.627228736877441, "digest": "67bc721943eef12ca69d156e0b1180b703e06bfcc82376feb6abfee94bce4eeb", "params": null}
+{"ts": "2026-11-01T09:22:25.233779+00:00", "run_id": "rst-nfs-vis-long-092219", "attempt": 1, "rank": 1, "event": "checkpoint", "step": 2, "dir": "a1/00000002-6ecca8cf7e764dd291cb5d0399e9e0ff", "save_s": 1.020508673042059}
+{"ts": "2026-11-01T09:22:26.234994+00:00", "run_id": "rst-nfs-vis-long-092219", "attempt": 1, "rank": 1, "event": "step", "step": 3, "loss": 7.872818470001221, "digest": "afdeeb5ec57634dce0e6b7bccf55587a85b0055391dab70eaaf6373148118081", "params": null}
+{"ts": "2026-11-01T09:22:27.253046+00:00", "run_id": "rst-nfs-vis-long-092219", "attempt": 1, "rank": 1, "event": "checkpoint", "step": 3, "dir": "a1/00000003-5d938357f2e74939846b60d3a995200b", "save_s": 1.0179721941240132}
+{"ts": "2026-11-01T09:22:28.254164+00:00", "run_id": "rst-nfs-vis-long-092219", "attempt": 1, "rank": 1, "event": "step", "step": 4, "loss": 26.825279235839844, "digest": "b07b1f3661c883767febd4ca14853328a5c882ae576c8c0d576dc3af7f9a908e", "params": null}
+{"ts": "2026-11-01T09:22:29.277602+00:00", "run_id": "rst-nfs-vis-long-092219", "attempt": 1, "rank": 1, "event": "checkpoint", "step": 4, "dir": "a1/00000004-01670920f81e4c26b563377255f35a60", "save_s": 1.0233469819650054}
+{"ts": "2026-11-01T09:22:30.278720+00:00", "run_id": "rst-nfs-vis-long-092219", "attempt": 1, "rank": 1, "event": "step", "step": 5, "loss": 11.8800048828125, "digest": "bb8a93dc5f65c0d6d06c90e48ee8d5a815a74f7411caea001c1ca26335ea1433", "params": null}
+{"ts": "2026-11-01T09:22:31.297174+00:00", "run_id": "rst-nfs-vis-long-092219", "attempt": 1, "rank": 1, "event": "checkpoint", "step": 5, "dir": "a1/00000005-7970fddaacf243419c7138b890429c3a", "save_s": 1.0183754139579833}
+{"ts": "2026-11-01T09:22:32.298455+00:00", "run_id": "rst-nfs-vis-long-092219", "attempt": 1, "rank": 1, "event": "step", "step": 6, "loss": 19.309452056884766, "digest": "506de6d02d3b2e1388d283125b41980fe4dd0c0a0e6c80ea5be96ffac971e3de", "params": null}
+{"ts": "2026-11-01T09:22:33.316638+00:00", "run_id": "rst-nfs-vis-long-092219", "attempt": 1, "rank": 1, "event": "checkpoint", "step": 6, "dir": "a1/00000006-7e346d4f8a2345bc888fb2ea2f0b075f", "save_s": 1.0180891137570143}
+{"ts": "2026-11-01T09:22:34.317931+00:00", "run_id": "rst-nfs-vis-long-092219", "attempt": 1, "rank": 1, "event": "step", "step": 7, "loss": 8.605408668518066, "digest": "ad8e256a6fba22236080b62385db5ffb83dd5506b8f11edd8742f24322fadbd8", "params": null}
+{"ts": "2026-11-01T09:22:35.342051+00:00", "run_id": "rst-nfs-vis-long-092219", "attempt": 1, "rank": 1, "event": "checkpoint", "step": 7, "dir": "a1/00000007-0ffa33d1c0e848e2be96ae1977dd1a9a", "save_s": 1.0240154615603387}
+{"ts": "2026-11-01T09:22:36.343240+00:00", "run_id": "rst-nfs-vis-long-092219", "attempt": 1, "rank": 1, "event": "step", "step": 8, "loss": 0.9228511452674866, "digest": "f7d3a1e8b4d3ab880763b80cd0459baefe6f0b549e1666a5cbee3f8af30530ba", "params": null}
+[rank1]: Traceback (most recent call last):
+[rank1]:   File "/work/train.py", line 621, in <module>
+[rank1]:     sys.exit(main())
+[rank1]:              ^^^^^^
+[rank1]:   File "/work/train.py", line 476, in main
+[rank1]:     return train()
+[rank1]:            ^^^^^^^
+[rank1]:   File "/work/train.py", line 610, in train
+[rank1]:     save(rank, world, step, capture(step, model, optimiser, scheduler, epoch, position, ballast), fault)
+[rank1]:   File "/work/train.py", line 311, in save
+[rank1]:     dist.barrier()
+[rank1]:   File "/usr/local/lib/python3.12/site-packages/torch/distributed/c10d_logger.py", line 83, in wrapper
+[rank1]:     return func(*args, **kwargs)
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/usr/local/lib/python3.12/site-packages/torch/distributed/distributed_c10d.py", line 4164, in barrier
+[rank1]:     work.wait()
+[rank1]: RuntimeError: [../third_party/gloo/gloo/transport/tcp/pair.cc:534] Connection closed by peer [10.244.3.18]:56963

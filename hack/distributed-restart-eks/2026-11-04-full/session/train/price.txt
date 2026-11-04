@@ -1,0 +1,1 @@
+g5.xlarge On-Demand in ap-northeast-2 at $1.2370000000 an hour, ceiling $1.40
