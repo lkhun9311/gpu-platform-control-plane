@@ -42,7 +42,20 @@ SCRIPT = r"""
 export WORLD_SIZE=${THIRD:+3} MASTER_ADDR=127.0.0.1 MASTER_PORT=29513 CKPT_DIR=/state CKPT_JOB_ID=uid-test TRAINING_ATTEMPT=1
 export CKPT_RUN_ID=rdzv HOME=/tmp WORLD_SIZE=${WORLD_SIZE:-2}
 run() { RANK=$1 LOCAL_RANK=0 python /code/train.py >/tmp/r$1.out 2>/tmp/r$1.err; echo "rank $1 exit $?"; }
-if [ -n "$FREEZE" ]; then
+if [ -n "$STALL" ]; then
+  # A peer that connects to the store late and then never joins the barrier, so rank 0 is bounded by the join's deadline.
+  start=$(date +%s)
+  RANK=0 LOCAL_RANK=0 python /code/train.py >/tmp/r0.out 2>/tmp/r0.err & p0=$!
+  python -c "
+import datetime, time, torch.distributed as d
+time.sleep($STALL)
+s = d.TCPStore('127.0.0.1', 29513, 2, False, timeout=datetime.timedelta(seconds=120))
+time.sleep(120)" & stall=$!
+  wait $p0; rc=$?
+  echo "rank 0 exit $rc"
+  echo "rank 0 after $(( $(date +%s) - start )) s"
+  kill $stall
+elif [ -n "$FREEZE" ]; then
   RANK=0 LOCAL_RANK=0 python /code/train.py >/tmp/r0.out 2>/tmp/r0.err & p0=$!
   RANK=1 LOCAL_RANK=0 python /code/train.py >/tmp/r1.out 2>/tmp/r1.err & p1=$!
   until grep -q '"step": 3' /tmp/r1.out; do kill -0 $p1 || break; sleep 0.2; done
@@ -110,6 +123,13 @@ def main() -> int:
     # Only the store's server waits for every rank, so a third rank late would fail the second without a join of all.
     out = run({**base, "CKPT_RENDEZVOUS_TIMEOUT": str(RENDEZVOUS), "THIRD": "1", "DELAY": str(LATE)})
     expect(f"with three ranks, rank 2 {LATE} s late joins within the rendezvous timeout", exits(out) == {0: 0, 1: 0, 2: 0}, out)
+
+    # A peer that connects 15 s into a 20 s join and never joins its barrier ends rank 0 near the 20 s, not after the
+    # barrier's own full timeout on top, which once bounded the join at twice the registered one.
+    out = run({**base, "CKPT_RENDEZVOUS_TIMEOUT": "20", "STALL": "15"})
+    took = re.search(r"^rank 0 after (\d+) s$", out, re.M)
+    expect("a peer that connects late and never joins ends the join at its one deadline",
+           exits(out).get(0, 0) != 0 and took is not None and int(took.group(1)) < 28, out)
 
     # A peer lost after the join is noticed at the collective timeout, not at the longer rendezvous one.
     out = run({**base, "CKPT_STEPS": "40", "CKPT_STEP_SLEEP": "1", "CKPT_RENDEZVOUS_TIMEOUT": str(RENDEZVOUS),
