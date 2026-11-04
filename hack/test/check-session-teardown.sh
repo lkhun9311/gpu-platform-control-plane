@@ -106,9 +106,13 @@ done
 # A destroy group whose leader exits on TERM while a member ignores it, with no watchdog left to clean up after it, as
 # when the watchdog was killed outright: disarming must read the group, not its leader, and kill what is left.
 : >"$dir/ttl.pid.destroy"
-setsid bash -c '(trap "" TERM; exec sleep 300) & exec sleep 300' &
-for _ in $(seq 25); do group="$(pgrep -f -n '^sleep 300$')" && [[ -n "$group" ]] && break; sleep 0.2; done
-group="$(ps -o pgid= -p "$group" | tr -d ' ')"
+# The fixture reports its own pid, never found by a pattern, which could name another process group to kill (codex
+# review of 72761da6); as a session leader its pid is its process group.
+: >"$dir/fixture.pid"
+setsid bash -c 'echo $$ >"$1"; (trap "" TERM; exec sleep 300) & exec sleep 300' _ "$dir/fixture.pid" &
+for _ in $(seq 25); do [[ -s "$dir/fixture.pid" ]] && break; sleep 0.2; done
+group="$(cat "$dir/fixture.pid")"
+sleep 0.3
 echo "$group" >"$dir/ttl.pid.destroy"
 gone_watchdog=999999
 out="$(bash -c '. hack/lib/session-teardown.sh; killswitch_disarm "$1" "$2"; echo "rc=$?"' _ "$gone_watchdog" "$dir/ttl.pid")"
