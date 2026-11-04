@@ -1,0 +1,280 @@
+2026-11-04T08:30:21.280681219Z aws scheduler list-schedules --name-prefix gpu-ttl-rstlife-gpu- --query Schedules[].Name --output text
+2026-11-04T08:30:21.284628000Z aws scheduler get-schedule --name gpu-ttl-rstlife-gpu-kind --query ScheduleExpression --output text
+2026-11-04T08:30:21.497218099Z aws cloudwatch get-metric-statistics --region ap-northeast-2 --namespace AWS/EFS --metric-name BurstCreditBalance --dimensions Name=FileSystemId,Value=fs-0000000000kind --start-time 2026-11-04T08:15:21Z --end-time 2026-11-04T08:30:21Z --period 60 --statistics Minimum --query sort_by(Datapoints, &Timestamp)[-1].Minimum --output text
+2026-11-04T08:31:29.522348416Z aws cloudwatch get-metric-statistics --region ap-northeast-2 --namespace AWS/EFS --metric-name BurstCreditBalance --dimensions Name=FileSystemId,Value=fs-0000000000kind --start-time 2026-11-04T08:16:29Z --end-time 2026-11-04T08:31:29Z --period 60 --statistics Minimum --query sort_by(Datapoints, &Timestamp)[-1].Minimum --output text
+2026-11-04T08:31:36.292360663Z aws scheduler list-schedules --name-prefix gpu-ttl-rstlife-gpu- --query Schedules[].Name --output text
+2026-11-04T08:31:36.296764674Z aws scheduler get-schedule --name gpu-ttl-rstlife-gpu-kind --query ScheduleExpression --output text
+2026-11-04T08:31:36.508459163Z aws cloudwatch get-metric-statistics --region ap-northeast-2 --namespace AWS/EFS --metric-name BurstCreditBalance --dimensions Name=FileSystemId,Value=fs-0000000000kind --start-time 2026-11-04T08:16:36Z --end-time 2026-11-04T08:31:36Z --period 60 --statistics Minimum --query sort_by(Datapoints, &Timestamp)[-1].Minimum --output text
+2026-11-04T08:32:45.267831619Z aws cloudwatch get-metric-statistics --region ap-northeast-2 --namespace AWS/EFS --metric-name BurstCreditBalance --dimensions Name=FileSystemId,Value=fs-0000000000kind --start-time 2026-11-04T08:17:45Z --end-time 2026-11-04T08:32:45Z --period 60 --statistics Minimum --query sort_by(Datapoints, &Timestamp)[-1].Minimum --output text
+2026-11-04T08:32:52.043981547Z aws scheduler list-schedules --name-prefix gpu-ttl-rstlife-gpu- --query Schedules[].Name --output text
+2026-11-04T08:32:52.048328558Z aws scheduler get-schedule --name gpu-ttl-rstlife-gpu-kind --query ScheduleExpression --output text
+2026-11-04T08:32:52.260086067Z aws cloudwatch get-metric-statistics --region ap-northeast-2 --namespace AWS/EFS --metric-name BurstCreditBalance --dimensions Name=FileSystemId,Value=fs-0000000000kind --start-time 2026-11-04T08:17:52Z --end-time 2026-11-04T08:32:52Z --period 60 --statistics Minimum --query sort_by(Datapoints, &Timestamp)[-1].Minimum --output text
+2026-11-04T08:34:01.059093420Z aws cloudwatch get-metric-statistics --region ap-northeast-2 --namespace AWS/EFS --metric-name BurstCreditBalance --dimensions Name=FileSystemId,Value=fs-0000000000kind --start-time 2026-11-04T08:19:01Z --end-time 2026-11-04T08:34:01Z --period 60 --statistics Minimum --query sort_by(Datapoints, &Timestamp)[-1].Minimum --output text
+2026-11-04T08:34:10.282163107Z aws scheduler list-schedules --name-prefix gpu-ttl-rstlife-gpu- --query Schedules[].Name --output text
+2026-11-04T08:34:10.286080688Z aws scheduler get-schedule --name gpu-ttl-rstlife-gpu-kind --query ScheduleExpression --output text
+2026-11-04T08:34:10.294579501Z aws eks update-nodegroup-config --region ap-northeast-2 --cluster-name rstlife --nodegroup-name gpu --scaling-config minSize=0,maxSize=3,desiredSize=2
+2026-11-04T08:34:12.658976536Z aws cloudwatch get-metric-statistics --region ap-northeast-2 --namespace AWS/EFS --metric-name BurstCreditBalance --dimensions Name=FileSystemId,Value=fs-0000000000kind --start-time 2026-11-04T08:19:12Z --end-time 2026-11-04T08:34:12Z --period 60 --statistics Minimum --query sort_by(Datapoints, &Timestamp)[-1].Minimum --output text
+2026-11-04T08:34:34.311693349Z aws scheduler list-schedules --name-prefix gpu-ttl-rstlife-gpu- --query Schedules[].Name --output text
+2026-11-04T08:34:34.315601920Z aws scheduler get-schedule --name gpu-ttl-rstlife-gpu-kind --query ScheduleExpression --output text
+2026-11-04T08:34:34.467178752Z aws ec2 terminate-instances --region ap-northeast-2 --instance-ids i-0c000000000000001 --output text
+2026-11-04T08:34:34.871014944Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000001 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:34:34.885078898Z answer i-0c000000000000001 shutting-down
+2026-11-04T08:34:35.975511650Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000001 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:34:35.990181474Z answer i-0c000000000000001 shutting-down
+2026-11-04T08:34:37.080944156Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000001 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:34:37.097282071Z answer i-0c000000000000001 shutting-down
+2026-11-04T08:34:38.184804852Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000001 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:34:38.200157087Z answer i-0c000000000000001 shutting-down
+2026-11-04T08:34:39.289772309Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000001 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:34:39.305608913Z answer i-0c000000000000001 shutting-down
+2026-11-04T08:34:40.394960935Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000001 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:34:40.411032740Z answer i-0c000000000000001 shutting-down
+2026-11-04T08:34:41.497647061Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000001 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:34:41.510185624Z answer i-0c000000000000001 shutting-down
+2026-11-04T08:34:42.599963537Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000001 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:34:42.613131720Z answer i-0c000000000000001 shutting-down
+2026-11-04T08:34:43.703294362Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000001 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:34:43.716257506Z answer i-0c000000000000001 shutting-down
+2026-11-04T08:34:44.807210088Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000001 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:34:44.820656712Z answer i-0c000000000000001 shutting-down
+2026-11-04T08:34:45.909675634Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000001 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:34:45.922905068Z answer i-0c000000000000001 shutting-down
+2026-11-04T08:34:47.012617660Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000001 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:34:47.025027193Z answer i-0c000000000000001 shutting-down
+2026-11-04T08:34:48.116173726Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000001 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:34:48.130230150Z answer i-0c000000000000001 shutting-down
+2026-11-04T08:34:49.218804301Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000001 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:34:49.231691125Z answer i-0c000000000000001 shutting-down
+2026-11-04T08:34:50.322171067Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000001 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:34:50.335839571Z answer i-0c000000000000001 shutting-down
+2026-11-04T08:34:51.424828723Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000001 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:34:51.439535207Z answer i-0c000000000000001 shutting-down
+2026-11-04T08:34:52.528302119Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000001 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:34:52.542314503Z answer i-0c000000000000001 shutting-down
+2026-11-04T08:34:53.631572295Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000001 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:34:53.644508468Z answer i-0c000000000000001 shutting-down
+2026-11-04T08:34:54.734065830Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000001 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:34:54.748001194Z answer i-0c000000000000001 shutting-down
+2026-11-04T08:34:55.837464776Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000001 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:34:55.851885480Z answer i-0c000000000000001 shutting-down
+2026-11-04T08:34:56.942166882Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000001 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:34:56.959532367Z answer i-0c000000000000001 shutting-down
+2026-11-04T08:34:58.046669239Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000001 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:34:58.063370183Z answer i-0c000000000000001 shutting-down
+2026-11-04T08:34:59.152611615Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000001 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:34:59.170818520Z answer i-0c000000000000001 shutting-down
+2026-11-04T08:35:00.257495371Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000001 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:35:00.274495846Z answer i-0c000000000000001 shutting-down
+2026-11-04T08:35:01.361990018Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000001 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:35:01.378831002Z answer i-0c000000000000001 shutting-down
+2026-11-04T08:35:02.464684023Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000001 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:35:02.478651067Z answer i-0c000000000000001 shutting-down
+2026-11-04T08:35:03.567666989Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000001 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:35:03.581706983Z answer i-0c000000000000001 shutting-down
+2026-11-04T08:35:04.671189435Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000001 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:35:04.685160449Z answer i-0c000000000000001 shutting-down
+2026-11-04T08:35:05.774150111Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000001 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:35:05.787882995Z answer i-0c000000000000001 shutting-down
+2026-11-04T08:35:06.878250217Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000001 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:35:06.892725271Z answer i-0c000000000000001 shutting-down
+2026-11-04T08:35:07.981251003Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000001 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:35:07.995456307Z answer i-0c000000000000001 shutting-down
+2026-11-04T08:35:09.083955048Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000001 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:35:09.097884902Z answer i-0c000000000000001 shutting-down
+2026-11-04T08:35:10.187055254Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000001 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:35:10.201144818Z answer i-0c000000000000001 shutting-down
+2026-11-04T08:35:11.290257440Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000001 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:35:11.304154244Z answer i-0c000000000000001 shutting-down
+2026-11-04T08:35:12.393203566Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000001 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:35:12.408456460Z answer i-0c000000000000001 shutting-down
+2026-11-04T08:35:13.496467942Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000001 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:35:13.511156916Z answer i-0c000000000000001 shutting-down
+2026-11-04T08:35:14.599140007Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000001 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:35:14.613905671Z answer i-0c000000000000001 shutting-down
+2026-11-04T08:35:15.703461943Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000001 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:35:15.717516227Z answer i-0c000000000000001 shutting-down
+2026-11-04T08:35:16.806199949Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000001 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:35:16.820804653Z answer i-0c000000000000001 shutting-down
+2026-11-04T08:35:17.908792445Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000001 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:35:17.922396349Z answer i-0c000000000000001 shutting-down
+2026-11-04T08:35:19.013226571Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000001 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:35:19.027651845Z answer i-0c000000000000001 shutting-down
+2026-11-04T08:35:20.116629567Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000001 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:35:20.130988711Z answer i-0c000000000000001 shutting-down
+2026-11-04T08:35:21.220572763Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000001 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:35:21.237516648Z answer i-0c000000000000001 shutting-down
+2026-11-04T08:35:22.325321559Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000001 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:35:22.342463804Z answer i-0c000000000000001 shutting-down
+2026-11-04T08:35:23.429992156Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000001 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:35:23.447279650Z answer i-0c000000000000001 shutting-down
+2026-11-04T08:35:24.534780082Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000001 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:35:24.551909746Z answer i-0c000000000000001 shutting-down
+2026-11-04T08:35:25.639586388Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000001 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:35:25.656806613Z answer i-0c000000000000001 shutting-down
+2026-11-04T08:35:26.742784554Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000001 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:35:26.759471679Z answer i-0c000000000000001 shutting-down
+2026-11-04T08:35:27.847690420Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000001 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:35:27.865222315Z answer i-0c000000000000001 shutting-down
+2026-11-04T08:35:28.951200246Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000001 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:35:28.968121761Z answer i-0c000000000000001 shutting-down
+2026-11-04T08:35:30.055672422Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000001 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:35:30.072592227Z answer i-0c000000000000001 shutting-down
+2026-11-04T08:35:31.159482848Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000001 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:35:31.175943433Z answer i-0c000000000000001 shutting-down
+2026-11-04T08:35:32.263846515Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000001 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:35:32.281047949Z answer i-0c000000000000001 shutting-down
+2026-11-04T08:35:33.368467711Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000001 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:35:33.385174146Z answer i-0c000000000000001 shutting-down
+2026-11-04T08:35:34.472408627Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000001 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:35:34.489105822Z answer i-0c000000000000001 terminated
+2026-11-04T08:38:04.678215671Z aws cloudwatch get-metric-statistics --region ap-northeast-2 --namespace AWS/EFS --metric-name BurstCreditBalance --dimensions Name=FileSystemId,Value=fs-0000000000kind --start-time 2026-11-04T08:23:04Z --end-time 2026-11-04T08:38:04Z --period 60 --statistics Minimum --query sort_by(Datapoints, &Timestamp)[-1].Minimum --output text
+2026-11-04T08:38:41.894363598Z aws scheduler list-schedules --name-prefix gpu-ttl-rstlife-gpu- --query Schedules[].Name --output text
+2026-11-04T08:38:41.899122270Z aws scheduler get-schedule --name gpu-ttl-rstlife-gpu-kind --query ScheduleExpression --output text
+2026-11-04T08:38:42.176081087Z aws cloudwatch get-metric-statistics --region ap-northeast-2 --namespace AWS/EFS --metric-name BurstCreditBalance --dimensions Name=FileSystemId,Value=fs-0000000000kind --start-time 2026-11-04T08:23:42Z --end-time 2026-11-04T08:38:42Z --period 60 --statistics Minimum --query sort_by(Datapoints, &Timestamp)[-1].Minimum --output text
+2026-11-04T08:39:49.836342077Z aws cloudwatch get-metric-statistics --region ap-northeast-2 --namespace AWS/EFS --metric-name BurstCreditBalance --dimensions Name=FileSystemId,Value=fs-0000000000kind --start-time 2026-11-04T08:24:49Z --end-time 2026-11-04T08:39:49Z --period 60 --statistics Minimum --query sort_by(Datapoints, &Timestamp)[-1].Minimum --output text
+2026-11-04T08:39:56.586141858Z aws scheduler list-schedules --name-prefix gpu-ttl-rstlife-gpu- --query Schedules[].Name --output text
+2026-11-04T08:39:56.590085689Z aws scheduler get-schedule --name gpu-ttl-rstlife-gpu-kind --query ScheduleExpression --output text
+2026-11-04T08:39:56.804718779Z aws cloudwatch get-metric-statistics --region ap-northeast-2 --namespace AWS/EFS --metric-name BurstCreditBalance --dimensions Name=FileSystemId,Value=fs-0000000000kind --start-time 2026-11-04T08:24:56Z --end-time 2026-11-04T08:39:56Z --period 60 --statistics Minimum --query sort_by(Datapoints, &Timestamp)[-1].Minimum --output text
+2026-11-04T08:51:56.811644334Z aws cloudwatch get-metric-statistics --region ap-northeast-2 --namespace AWS/EFS --metric-name BurstCreditBalance --dimensions Name=FileSystemId,Value=fs-0000000000kind --start-time 2026-11-04T08:36:56Z --end-time 2026-11-04T08:51:56Z --period 60 --statistics Minimum --query sort_by(Datapoints, &Timestamp)[-1].Minimum --output text
+2026-11-04T08:52:03.592393574Z aws scheduler list-schedules --name-prefix gpu-ttl-rstlife-gpu- --query Schedules[].Name --output text
+2026-11-04T08:52:03.596570785Z aws scheduler get-schedule --name gpu-ttl-rstlife-gpu-kind --query ScheduleExpression --output text
+2026-11-04T08:52:03.806322613Z aws cloudwatch get-metric-statistics --region ap-northeast-2 --namespace AWS/EFS --metric-name BurstCreditBalance --dimensions Name=FileSystemId,Value=fs-0000000000kind --start-time 2026-11-04T08:37:03Z --end-time 2026-11-04T08:52:03Z --period 60 --statistics Minimum --query sort_by(Datapoints, &Timestamp)[-1].Minimum --output text
+2026-11-04T08:53:14.880449275Z aws cloudwatch get-metric-statistics --region ap-northeast-2 --namespace AWS/EFS --metric-name BurstCreditBalance --dimensions Name=FileSystemId,Value=fs-0000000000kind --start-time 2026-11-04T08:38:14Z --end-time 2026-11-04T08:53:14Z --period 60 --statistics Minimum --query sort_by(Datapoints, &Timestamp)[-1].Minimum --output text
+2026-11-04T08:53:21.651589496Z aws scheduler list-schedules --name-prefix gpu-ttl-rstlife-gpu- --query Schedules[].Name --output text
+2026-11-04T08:53:21.656223707Z aws scheduler get-schedule --name gpu-ttl-rstlife-gpu-kind --query ScheduleExpression --output text
+2026-11-04T08:53:21.666238030Z aws eks update-nodegroup-config --region ap-northeast-2 --cluster-name rstlife --nodegroup-name gpu --scaling-config minSize=0,maxSize=3,desiredSize=2
+2026-11-04T08:53:23.095958876Z aws cloudwatch get-metric-statistics --region ap-northeast-2 --namespace AWS/EFS --metric-name BurstCreditBalance --dimensions Name=FileSystemId,Value=fs-0000000000kind --start-time 2026-11-04T08:38:23Z --end-time 2026-11-04T08:53:23Z --period 60 --statistics Minimum --query sort_by(Datapoints, &Timestamp)[-1].Minimum --output text
+2026-11-04T08:53:44.768254055Z aws scheduler list-schedules --name-prefix gpu-ttl-rstlife-gpu- --query Schedules[].Name --output text
+2026-11-04T08:53:44.773123437Z aws scheduler get-schedule --name gpu-ttl-rstlife-gpu-kind --query ScheduleExpression --output text
+2026-11-04T08:53:44.935299721Z aws ec2 terminate-instances --region ap-northeast-2 --instance-ids i-0c000000000000002 --output text
+2026-11-04T08:53:45.238739676Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000002 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:53:45.252621339Z answer i-0c000000000000002 shutting-down
+2026-11-04T08:53:46.343164472Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000002 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:53:46.358993946Z answer i-0c000000000000002 shutting-down
+2026-11-04T08:53:47.447669308Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000002 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:53:47.464085702Z answer i-0c000000000000002 shutting-down
+2026-11-04T08:53:48.552338164Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000002 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:53:48.568486659Z answer i-0c000000000000002 shutting-down
+2026-11-04T08:53:49.657031031Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000002 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:53:49.672997195Z answer i-0c000000000000002 shutting-down
+2026-11-04T08:53:50.761603117Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000002 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:53:50.777997602Z answer i-0c000000000000002 shutting-down
+2026-11-04T08:53:51.866228303Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000002 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:53:51.882624738Z answer i-0c000000000000002 shutting-down
+2026-11-04T08:53:52.970039359Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000002 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:53:52.983878353Z answer i-0c000000000000002 shutting-down
+2026-11-04T08:53:54.074097465Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000002 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:53:54.087748779Z answer i-0c000000000000002 shutting-down
+2026-11-04T08:53:55.179377782Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000002 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:53:55.195602116Z answer i-0c000000000000002 shutting-down
+2026-11-04T08:53:56.284480518Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000002 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:53:56.300997793Z answer i-0c000000000000002 shutting-down
+2026-11-04T08:53:57.389359755Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000002 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:53:57.406519010Z answer i-0c000000000000002 shutting-down
+2026-11-04T08:53:58.492811441Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000002 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:53:58.508296275Z answer i-0c000000000000002 shutting-down
+2026-11-04T08:53:59.598589867Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000002 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:53:59.614861172Z answer i-0c000000000000002 shutting-down
+2026-11-04T08:54:00.702723673Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000002 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:54:00.719183138Z answer i-0c000000000000002 shutting-down
+2026-11-04T08:54:01.806771619Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000002 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:54:01.823149704Z answer i-0c000000000000002 shutting-down
+2026-11-04T08:54:02.911599436Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000002 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:54:02.927943260Z answer i-0c000000000000002 shutting-down
+2026-11-04T08:54:04.016175142Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000002 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:54:04.032157816Z answer i-0c000000000000002 shutting-down
+2026-11-04T08:54:05.120646458Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000002 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:54:05.137407693Z answer i-0c000000000000002 shutting-down
+2026-11-04T08:54:06.224980374Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000002 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:54:06.240797059Z answer i-0c000000000000002 shutting-down
+2026-11-04T08:54:07.329369430Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000002 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:54:07.346548475Z answer i-0c000000000000002 shutting-down
+2026-11-04T08:54:08.434050087Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000002 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:54:08.452128372Z answer i-0c000000000000002 shutting-down
+2026-11-04T08:54:09.538678403Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000002 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:54:09.556175948Z answer i-0c000000000000002 shutting-down
+2026-11-04T08:54:10.643028359Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000002 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:54:10.660475174Z answer i-0c000000000000002 shutting-down
+2026-11-04T08:54:11.747029835Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000002 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:54:11.764554980Z answer i-0c000000000000002 shutting-down
+2026-11-04T08:54:12.851516621Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000002 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:54:12.869004016Z answer i-0c000000000000002 shutting-down
+2026-11-04T08:54:13.956255808Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000002 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:54:13.973104362Z answer i-0c000000000000002 shutting-down
+2026-11-04T08:54:15.061684284Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000002 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:54:15.078660039Z answer i-0c000000000000002 shutting-down
+2026-11-04T08:54:16.165877190Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000002 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:54:16.183532495Z answer i-0c000000000000002 shutting-down
+2026-11-04T08:54:17.270637227Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000002 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:54:17.287588781Z answer i-0c000000000000002 shutting-down
+2026-11-04T08:54:18.374761783Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000002 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:54:18.392068568Z answer i-0c000000000000002 shutting-down
+2026-11-04T08:54:19.479332349Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000002 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:54:19.496649644Z answer i-0c000000000000002 shutting-down
+2026-11-04T08:54:20.584005755Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000002 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:54:20.600647030Z answer i-0c000000000000002 shutting-down
+2026-11-04T08:54:21.688746131Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000002 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:54:21.706188056Z answer i-0c000000000000002 shutting-down
+2026-11-04T08:54:22.792208067Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000002 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:54:22.809094752Z answer i-0c000000000000002 shutting-down
+2026-11-04T08:54:23.896738343Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000002 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:54:23.914533768Z answer i-0c000000000000002 shutting-down
+2026-11-04T08:54:25.001103940Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000002 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:54:25.018357864Z answer i-0c000000000000002 shutting-down
+2026-11-04T08:54:26.106385956Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000002 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:54:26.123433731Z answer i-0c000000000000002 shutting-down
+2026-11-04T08:54:27.211570462Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000002 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:54:27.229058157Z answer i-0c000000000000002 shutting-down
+2026-11-04T08:54:28.315479209Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000002 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:54:28.332985733Z answer i-0c000000000000002 shutting-down
+2026-11-04T08:54:29.419447325Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000002 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:54:29.436512569Z answer i-0c000000000000002 shutting-down
+2026-11-04T08:54:30.523917631Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000002 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:54:30.541235496Z answer i-0c000000000000002 shutting-down
+2026-11-04T08:54:31.628369057Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000002 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:54:31.645705922Z answer i-0c000000000000002 shutting-down
+2026-11-04T08:54:32.733263463Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000002 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:54:32.750216908Z answer i-0c000000000000002 shutting-down
+2026-11-04T08:54:33.837532560Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000002 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:54:33.854468004Z answer i-0c000000000000002 shutting-down
+2026-11-04T08:54:34.941730726Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000002 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:54:34.960017121Z answer i-0c000000000000002 shutting-down
+2026-11-04T08:54:36.046266042Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000002 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:54:36.063168727Z answer i-0c000000000000002 shutting-down
+2026-11-04T08:54:37.150882408Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000002 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:54:37.168550683Z answer i-0c000000000000002 shutting-down
+2026-11-04T08:54:38.254793874Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000002 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:54:38.270339139Z answer i-0c000000000000002 shutting-down
+2026-11-04T08:54:39.358572910Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000002 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:54:39.372897204Z answer i-0c000000000000002 shutting-down
+2026-11-04T08:54:40.463750727Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000002 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:54:40.481254102Z answer i-0c000000000000002 shutting-down
+2026-11-04T08:54:41.568301903Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000002 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:54:41.586388248Z answer i-0c000000000000002 shutting-down
+2026-11-04T08:54:42.673069859Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000002 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:54:42.690630614Z answer i-0c000000000000002 shutting-down
+2026-11-04T08:54:43.777424415Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000002 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:54:43.794613150Z answer i-0c000000000000002 shutting-down
+2026-11-04T08:54:44.882077881Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000002 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:54:44.899362346Z answer i-0c000000000000002 shutting-down
+2026-11-04T08:54:45.985871868Z aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0c000000000000002 --query Reservations[].Instances[].State.Name --output text
+2026-11-04T08:54:46.000050722Z answer i-0c000000000000002 terminated
+2026-11-04T08:55:44.265081504Z aws cloudwatch get-metric-statistics --region ap-northeast-2 --namespace AWS/EFS --metric-name BurstCreditBalance --dimensions Name=FileSystemId,Value=fs-0000000000kind --start-time 2026-11-04T08:40:44Z --end-time 2026-11-04T08:55:44Z --period 60 --statistics Minimum --query sort_by(Datapoints, &Timestamp)[-1].Minimum --output text
+2026-11-04T08:56:21.022868814Z aws scheduler list-schedules --name-prefix gpu-ttl-rstlife-gpu- --query Schedules[].Name --output text
+2026-11-04T08:56:21.027018865Z aws scheduler get-schedule --name gpu-ttl-rstlife-gpu-kind --query ScheduleExpression --output text
+2026-11-04T08:56:21.238555014Z aws cloudwatch get-metric-statistics --region ap-northeast-2 --namespace AWS/EFS --metric-name BurstCreditBalance --dimensions Name=FileSystemId,Value=fs-0000000000kind --start-time 2026-11-04T08:41:21Z --end-time 2026-11-04T08:56:21Z --period 60 --statistics Minimum --query sort_by(Datapoints, &Timestamp)[-1].Minimum --output text
+2026-11-04T08:57:28.333118230Z aws cloudwatch get-metric-statistics --region ap-northeast-2 --namespace AWS/EFS --metric-name BurstCreditBalance --dimensions Name=FileSystemId,Value=fs-0000000000kind --start-time 2026-11-04T08:42:28Z --end-time 2026-11-04T08:57:28Z --period 60 --statistics Minimum --query sort_by(Datapoints, &Timestamp)[-1].Minimum --output text
+2026-11-04T08:57:35.108036848Z aws scheduler list-schedules --name-prefix gpu-ttl-rstlife-gpu- --query Schedules[].Name --output text
+2026-11-04T08:57:35.112252409Z aws scheduler get-schedule --name gpu-ttl-rstlife-gpu-kind --query ScheduleExpression --output text
+2026-11-04T08:57:35.323181378Z aws cloudwatch get-metric-statistics --region ap-northeast-2 --namespace AWS/EFS --metric-name BurstCreditBalance --dimensions Name=FileSystemId,Value=fs-0000000000kind --start-time 2026-11-04T08:42:35Z --end-time 2026-11-04T08:57:35Z --period 60 --statistics Minimum --query sort_by(Datapoints, &Timestamp)[-1].Minimum --output text
+2026-11-04T08:58:46.314156739Z aws cloudwatch get-metric-statistics --region ap-northeast-2 --namespace AWS/EFS --metric-name BurstCreditBalance --dimensions Name=FileSystemId,Value=fs-0000000000kind --start-time 2026-11-04T08:43:46Z --end-time 2026-11-04T08:58:46Z --period 60 --statistics Minimum --query sort_by(Datapoints, &Timestamp)[-1].Minimum --output text
+2026-11-04T09:23:41.624754838Z aws scheduler list-schedules --name-prefix gpu-ttl-rstlife-gpu- --query Schedules[].Name --output text
+2026-11-04T09:23:41.630200649Z aws scheduler get-schedule --name gpu-ttl-rstlife-gpu-kind --query ScheduleExpression --output text
+2026-11-04T09:23:41.842153949Z aws cloudwatch get-metric-statistics --region ap-northeast-2 --namespace AWS/EFS --metric-name BurstCreditBalance --dimensions Name=FileSystemId,Value=fs-0000000000kind --start-time 2026-11-04T09:08:41Z --end-time 2026-11-04T09:23:41Z --period 60 --statistics Minimum --query sort_by(Datapoints, &Timestamp)[-1].Minimum --output text
+2026-11-04T09:24:50.078078509Z aws cloudwatch get-metric-statistics --region ap-northeast-2 --namespace AWS/EFS --metric-name BurstCreditBalance --dimensions Name=FileSystemId,Value=fs-0000000000kind --start-time 2026-11-04T09:09:50Z --end-time 2026-11-04T09:24:50Z --period 60 --statistics Minimum --query sort_by(Datapoints, &Timestamp)[-1].Minimum --output text
+2026-11-04T09:24:56.864791200Z aws scheduler list-schedules --name-prefix gpu-ttl-rstlife-gpu- --query Schedules[].Name --output text
+2026-11-04T09:24:56.869322011Z aws scheduler get-schedule --name gpu-ttl-rstlife-gpu-kind --query ScheduleExpression --output text
+2026-11-04T09:24:57.076762639Z aws cloudwatch get-metric-statistics --region ap-northeast-2 --namespace AWS/EFS --metric-name BurstCreditBalance --dimensions Name=FileSystemId,Value=fs-0000000000kind --start-time 2026-11-04T09:09:57Z --end-time 2026-11-04T09:24:57Z --period 60 --statistics Minimum --query sort_by(Datapoints, &Timestamp)[-1].Minimum --output text
+2026-11-04T09:25:02.823331797Z aws scheduler list-schedules --name-prefix gpu-ttl-rstlife-gpu- --query Schedules[].Name --output text
+2026-11-04T09:25:02.828739378Z aws scheduler get-schedule --name gpu-ttl-rstlife-gpu-kind --query ScheduleExpression --output text
+2026-11-04T09:25:03.047582070Z aws cloudwatch get-metric-statistics --region ap-northeast-2 --namespace AWS/EFS --metric-name BurstCreditBalance --dimensions Name=FileSystemId,Value=fs-0000000000kind --start-time 2026-11-04T09:10:03Z --end-time 2026-11-04T09:25:03Z --period 60 --statistics Minimum --query sort_by(Datapoints, &Timestamp)[-1].Minimum --output text

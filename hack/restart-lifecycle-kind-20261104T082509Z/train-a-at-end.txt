@@ -1,0 +1,2 @@
+NAME             READY   STATUS    RESTARTS   AGE   IP            NODE                    NOMINATED NODE   READINESS GATES
+pod/rst-reader   1/1     Running   0          54m   10.244.0.13   rstlife-control-plane   <none>           <none>

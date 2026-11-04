@@ -1,0 +1,42 @@
+/usr/local/lib/python3.12/site-packages/torch/_subclasses/functional_tensor.py:295: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at ../torch/csrc/utils/tensor_numpy.cpp:84.)
+  cpu = _conversion_method_template(device=torch.device("cpu"))
+{"ts": "2026-11-04T08:34:14.322114+00:00", "run_id": "rst-terminate-wait-1-083412", "attempt": 1, "rank": 0, "event": "candidates", "latest": null, "offered": []}
+{"ts": "2026-11-04T08:34:14.330751+00:00", "run_id": "rst-terminate-wait-1-083412", "attempt": 1, "rank": 0, "event": "restart_from_zero", "load_mode": "full"}
+{"ts": "2026-11-04T08:34:14.729997+00:00", "run_id": "rst-terminate-wait-1-083412", "attempt": 1, "rank": 0, "event": "start", "world_size": 2, "load_mode": "full", "resumed_from_step": 0, "steps": 30, "fault": "", "torch_version": "2.5.1+cpu", "epoch": 0, "position": 0, "lr": 0.05, "backend": "gloo", "device": "cpu", "ballast_mb": 16, "volume": {"point": "/state", "mount_options": "rw,relatime", "fstype": "nfs4", "source": "10.96.59.166:/", "super_options": "rw,vers=4.1,rsize=1048576,wsize=1048576,namlen=255,hard,noresvport,fatal_neterrors=ENETDOWN:ENETUNREACH,proto=tcp,timeo=600,retrans=2,sec=sys,clientaddr=172.18.0.11,local_lock=none,addr=10.96.59.166", "dev": 7340177}, "visibility_retries": 5, "shard_delay": 0.0}
+{"ts": "2026-11-04T08:34:14.734504+00:00", "run_id": "rst-terminate-wait-1-083412", "attempt": 1, "rank": 0, "event": "step", "step": 1, "loss": 20.675674438476562, "digest": "281376d89323e8ca96cfd659d02825874e2ef3bfb7540e0cb2ccec5a1b6fe739", "params": null}
+{"ts": "2026-11-04T08:34:14.780820+00:00", "run_id": "rst-terminate-wait-1-083412", "attempt": 1, "rank": 0, "event": "checkpoint", "step": 1, "dir": "a1/00000001-846c2c6e18674320b819722e6dca2f28", "save_s": 0.046238661743700504}
+{"ts": "2026-11-04T08:34:16.787900+00:00", "run_id": "rst-terminate-wait-1-083412", "attempt": 1, "rank": 0, "event": "step", "step": 2, "loss": 9.387578010559082, "digest": "67bc721943eef12ca69d156e0b1180b703e06bfcc82376feb6abfee94bce4eeb", "params": null}
+{"ts": "2026-11-04T08:34:16.839128+00:00", "run_id": "rst-terminate-wait-1-083412", "attempt": 1, "rank": 0, "event": "checkpoint", "step": 2, "dir": "a1/00000002-aaf7cb987fee4c0c855142cdbda0b629", "save_s": 0.05110662430524826}
+{"ts": "2026-11-04T08:34:18.840591+00:00", "run_id": "rst-terminate-wait-1-083412", "attempt": 1, "rank": 0, "event": "step", "step": 3, "loss": 31.876117706298828, "digest": "afdeeb5ec57634dce0e6b7bccf55587a85b0055391dab70eaaf6373148118081", "params": null}
+{"ts": "2026-11-04T08:34:18.892233+00:00", "run_id": "rst-terminate-wait-1-083412", "attempt": 1, "rank": 0, "event": "checkpoint", "step": 3, "dir": "a1/00000003-21970729529d431ea1f0a8c462a0f825", "save_s": 0.051542263478040695}
+{"ts": "2026-11-04T08:34:20.893554+00:00", "run_id": "rst-terminate-wait-1-083412", "attempt": 1, "rank": 0, "event": "step", "step": 4, "loss": 14.188834190368652, "digest": "b07b1f3661c883767febd4ca14853328a5c882ae576c8c0d576dc3af7f9a908e", "params": null}
+{"ts": "2026-11-04T08:34:20.945668+00:00", "run_id": "rst-terminate-wait-1-083412", "attempt": 1, "rank": 0, "event": "checkpoint", "step": 4, "dir": "a1/00000004-bf43eac5a0f64d0ea2480607aab22ef4", "save_s": 0.05202674400061369}
+{"ts": "2026-11-04T08:34:22.947036+00:00", "run_id": "rst-terminate-wait-1-083412", "attempt": 1, "rank": 0, "event": "step", "step": 5, "loss": 8.523945808410645, "digest": "bb8a93dc5f65c0d6d06c90e48ee8d5a815a74f7411caea001c1ca26335ea1433", "params": null}
+{"ts": "2026-11-04T08:34:22.996708+00:00", "run_id": "rst-terminate-wait-1-083412", "attempt": 1, "rank": 0, "event": "checkpoint", "step": 5, "dir": "a1/00000005-f3e6c93c84be412cb5fa0cc680f08da2", "save_s": 0.04958201386034489}
+{"ts": "2026-11-04T08:34:24.998058+00:00", "run_id": "rst-terminate-wait-1-083412", "attempt": 1, "rank": 0, "event": "step", "step": 6, "loss": 5.633176803588867, "digest": "506de6d02d3b2e1388d283125b41980fe4dd0c0a0e6c80ea5be96ffac971e3de", "params": null}
+{"ts": "2026-11-04T08:34:25.050260+00:00", "run_id": "rst-terminate-wait-1-083412", "attempt": 1, "rank": 0, "event": "checkpoint", "step": 6, "dir": "a1/00000006-c7cf29ae8840409c8e79fef227fdce90", "save_s": 0.05211809370666742}
+{"ts": "2026-11-04T08:34:27.051456+00:00", "run_id": "rst-terminate-wait-1-083412", "attempt": 1, "rank": 0, "event": "step", "step": 7, "loss": 2.907865524291992, "digest": "ad8e256a6fba22236080b62385db5ffb83dd5506b8f11edd8742f24322fadbd8", "params": null}
+{"ts": "2026-11-04T08:34:27.097283+00:00", "run_id": "rst-terminate-wait-1-083412", "attempt": 1, "rank": 0, "event": "checkpoint", "step": 7, "dir": "a1/00000007-e02d517584cd4e8ab321498874e0b1d7", "save_s": 0.04574662260711193}
+{"ts": "2026-11-04T08:34:29.098803+00:00", "run_id": "rst-terminate-wait-1-083412", "attempt": 1, "rank": 0, "event": "step", "step": 8, "loss": 1.3561654090881348, "digest": "f7d3a1e8b4d3ab880763b80cd0459baefe6f0b549e1666a5cbee3f8af30530ba", "params": null}
+{"ts": "2026-11-04T08:34:29.148471+00:00", "run_id": "rst-terminate-wait-1-083412", "attempt": 1, "rank": 0, "event": "checkpoint", "step": 8, "dir": "a1/00000008-b640cb142e8c4866b22306f74187488a", "save_s": 0.04958180245012045}
+{"ts": "2026-11-04T08:34:31.149752+00:00", "run_id": "rst-terminate-wait-1-083412", "attempt": 1, "rank": 0, "event": "step", "step": 9, "loss": 0.4112793207168579, "digest": "034feb04c83f05326c62e05fc2ba26791598863d593997ea102b49660bfa4e9b", "params": null}
+{"ts": "2026-11-04T08:34:31.198543+00:00", "run_id": "rst-terminate-wait-1-083412", "attempt": 1, "rank": 0, "event": "checkpoint", "step": 9, "dir": "a1/00000009-d745d3fb934841feb81301db767d0153", "save_s": 0.048711332492530346}
+{"ts": "2026-11-04T08:34:33.199873+00:00", "run_id": "rst-terminate-wait-1-083412", "attempt": 1, "rank": 0, "event": "step", "step": 10, "loss": 23.762598037719727, "digest": "b3049f668ceb6236647ab2e198a794c280848f8b11a87c2c19dec1e52441a5ed", "params": null}
+{"ts": "2026-11-04T08:34:33.253875+00:00", "run_id": "rst-terminate-wait-1-083412", "attempt": 1, "rank": 0, "event": "checkpoint", "step": 10, "dir": "a1/00000010-173a195fb09f45b2b5fe5b1656c1874d", "save_s": 0.05389338452368975}
+[rank0]: Traceback (most recent call last):
+[rank0]:   File "/tmp/train.py", line 675, in <module>
+[rank0]:     sys.exit(main())
+[rank0]:              ^^^^^^
+[rank0]:   File "/tmp/train.py", line 504, in main
+[rank0]:     return train()
+[rank0]:            ^^^^^^^
+[rank0]:   File "/tmp/train.py", line 658, in train
+[rank0]:     loss.backward()
+[rank0]:   File "/usr/local/lib/python3.12/site-packages/torch/_tensor.py", line 581, in backward
+[rank0]:     torch.autograd.backward(
+[rank0]:   File "/usr/local/lib/python3.12/site-packages/torch/autograd/__init__.py", line 347, in backward
+[rank0]:     _engine_run_backward(
+[rank0]:   File "/usr/local/lib/python3.12/site-packages/torch/autograd/graph.py", line 825, in _engine_run_backward
+[rank0]:     return Variable._execution_engine.run_backward(  # Calls into the C++ engine to run the backward pass
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]: RuntimeError: [../third_party/gloo/gloo/transport/tcp/pair.cc:534] Connection closed by peer [10.244.5.5]:37791
