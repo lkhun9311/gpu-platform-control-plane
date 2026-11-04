@@ -95,7 +95,11 @@ def jsonl(path: pathlib.Path) -> list[dict]:
     if path.exists():
         text = path.read_text()
     elif packed.exists():
-        text = lzma.decompress(packed.read_bytes()).decode()
+        # LZMAError is not a ValueError, so a damaged archive would escape the per-case handlers and end the report.
+        try:
+            text = lzma.decompress(packed.read_bytes()).decode()
+        except lzma.LZMAError as exc:
+            raise ValueError(f"{packed.name} could not be decompressed: {exc}") from exc
     else:
         return []
     return [json.loads(line) for line in text.splitlines() if line.strip().startswith("{")]

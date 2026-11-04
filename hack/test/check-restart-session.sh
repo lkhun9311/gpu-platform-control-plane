@@ -1119,6 +1119,23 @@ for pub in "2026-11-02-smoke 4" "2026-11-04-full 10"; do
   fi
 done
 if grep -qF "checkpoint cost: median 0.255 s, max 0.412 s over 540 saves" <<<"$out"; then ok "the full archive's checkpoint cost is the published one"; else bad "the full archive's checkpoint cost: $(grep 'checkpoint cost' <<<"$out")"; fi
+# A damaged compressed timeline is that case's unreadable evidence, not the end of the report.
+cp -r hack/distributed-restart-eks/2026-11-02-smoke/session/restart "$work/smoke-damaged"
+packed="$work/smoke-damaged/terminate-wait-1/timeline.jsonl.xz"
+head -c 200 "$packed" >"$packed.cut" && mv "$packed.cut" "$packed"
+out="$(python3 experiments/distributed-restart/score_eks.py "$work/smoke-damaged" 2>&1)"
+if grep -q '^VOID *terminate-wait-1: its evidence could not be read: ValueError: timeline.jsonl.xz could not be decompressed' <<<"$out" &&
+  [[ "$(grep -c '^ACCEPTED' <<<"$out")" == 3 ]] && grep -q '^summary' <<<"$out"; then
+  ok "a damaged compressed timeline voids its case and the others are still scored"
+else
+  bad "a damaged compressed timeline: $(grep -m2 -E '^(VOID|Traceback|ValueError|_lzma)' <<<"$out")"
+fi
+out="$(python3 experiments/distributed-restart/phases_eks.py "$work/smoke-damaged" 2>&1)"
+if grep -q '^terminate-wait-1: not split' <<<"$out" && grep -q '^dcgm-1 (' <<<"$out"; then
+  ok "phases_eks.py reports past a damaged compressed timeline"
+else
+  bad "phases_eks.py with a damaged compressed timeline: $(tail -2 <<<"$out")"
+fi
 # phases_eks.py splits only what score_eks.py accepted, and its last moment is the scorer's own recovery figure.
 out="$(python3 experiments/distributed-restart/phases_eks.py "$work/run-clean" 2>&1)"
 rc=$?
