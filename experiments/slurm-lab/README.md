@@ -72,7 +72,8 @@ Steps 0 to 4 in `evidence/2026-10-31*/` ran on the earlier `slurmlab:24.11.5`, w
 Step 5 ran on a fresh cluster after only `steps/00-setup.sh`, whose transcripts for that cluster are in `evidence/2026-11-01-train/`.
 The first recording of `00-cluster.txt` and `00-accounting.txt` there had a missing space in the `docker image inspect` line, so the image ID was never captured.
 Both were rewritten on 2026-11-01 at 05:21 UTC by rerunning `steps/00-setup.sh` on a second fresh cluster from the same image (`sha256:1691aad9bffb…`), so those two files are not from the cluster step 5 ran on.
-`evidence/2026-11-04/` ran on image `sha256:1542284e1f24…`, built at the start of that run with `etc/gpuhc.py` in it; `06a-gpu-health-drain.txt` records the file's sha256 inside a node, and it matches the committed file.
+`evidence/2026-11-04/` ran on image `sha256:1542284e1f24…`, built at the start of that run with `etc/gpuhc.py` in it; `06a-gpu-health-drain.txt` records the file's sha256 inside a node, `17156e0f…`, which is the file as committed in `fb1d36b7`.
+The check was changed after that run to drain on a non-finite value (`NaN`, `+Inf`) instead of crashing on it; no step writes such a value, so the change does not touch a path the evidence took, but the file in this tree is not the one that ran.
 An earlier run the same day, from a version of the check that retried a refused requeue every 5 s, was discarded rather than kept beside it; that defect is described under step 6.
 
 ## Step 1: GRES placement and the `Resources` reason
