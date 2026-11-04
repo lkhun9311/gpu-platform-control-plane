@@ -144,6 +144,12 @@ Known and not fixed for `full`, because each needs a new trainer hash or a new o
 - The controller judges a DCGM handoff after a failed Job, so a race can record `RankFailed` and fail a DCGM case.
 - The controller's fence and Ready checks are bound to node names, not node identity, so a replacement that takes the old name can satisfy them.
 
+Fixed after `full`, so neither paid stage ran with these fixes, and a later paid run would be the first to:
+- The trainer passes over a checkpoint whose manifest parses but is malformed, or names another checkpoint's directory, or whose shard is there but cannot be read, and resumes from the one before. Each of the three raised out of the search before.
+- The rank join is bounded by one 600 s deadline. `check_protocol.py` and `check_rendezvous.py` show each case failing on the previous trainer. The trainer's sha256 is now `2c5cdbf0…572c`, which a later paid run must approve.
+- The controller reads the GPU fault handoff before a failed Job.
+- It records each rank node's UID and does not take a Ready Node with another UID under that name as proof that the rank stopped (#489). Both take effect in the operator image built from `main` after that merge.
+
 Known and not fixed in the session's own teardown: the residue check does not query EFS, and the watchdog's destroy allowance is not enforced.
 These are checked by hand after the session.
 The approval came after the kind rehearsal found D1 and before it was fixed, so `smoke` starts only from a commit whose kind rehearsal recovers `terminate-wait-1` on a late replacement.
