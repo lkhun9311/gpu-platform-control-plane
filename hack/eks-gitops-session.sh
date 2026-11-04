@@ -67,7 +67,9 @@
 #                     TTL_MINUTES that cover its waits. The DRAFT registration is not approved, and nothing here is an approval
 #   RESTART_STAGE     with TRAIN=restart, `smoke` (reference, no-rng-control, dcgm-1, terminate-wait-1: the first paid
 #                     stage, inspected before anything else is bought) or `full` (every kind at hack/lib/restart-session.sh's
-#                     RESTART_REPS); a stage whose TTL_MINUTES and destroy outlive a 720-minute credential is refused
+#                     RESTART_REPS) or `retarget` (reference, no-rng-control, rank-kill and dcgm twice each: the changes made
+#                     after full, docs/superpowers/specs/2026-11-04-restart-retarget-design.md); a stage whose TTL_MINUTES
+#                     and destroy outlive a 720-minute credential is refused
 
 set -euo pipefail
 
@@ -316,7 +318,7 @@ case "$TRAIN" in
     # The stage is named, never defaulted, because which cases are bought is the owner's decision, not this script's.
     RESTART_STAGE="${RESTART_STAGE:-}"
     TRAIN_GPU_BUDGET="$(restart_gpu_budget 2>&1)" ||
-      die "TRAIN=restart needs RESTART_STAGE=smoke, run and inspected first, or RESTART_STAGE=full: $TRAIN_GPU_BUDGET"
+      die "TRAIN=restart needs RESTART_STAGE=smoke, run and inspected first, RESTART_STAGE=full or RESTART_STAGE=retarget: $TRAIN_GPU_BUDGET"
     TRAIN_BUDGET=$((WAIT_TRAIN_SYNC + WAIT_TRAIN_QUEUE + WAIT_QUAL_HELD + TRAIN_GPU_BUDGET))
     why="$(restart_ttl_refusal "$RESTART_STAGE" "$TTL_MINUTES" "$TRAIN_GPU_BUDGET" $((WAIT_TRAIN_SYNC + WAIT_TRAIN_QUEUE + WAIT_QUAL_HELD)))" ||
       die "$why"

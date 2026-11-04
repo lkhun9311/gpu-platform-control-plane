@@ -13,6 +13,8 @@
 #    replacement that joins at once, the replacement path when timing allows it.
 # c  reference; rank-kill-1 with a finalizer nothing removes on an attempt-2 Pod, so its retirement cannot complete
 #    though the MLTrainingJob goes; rank-kill-2, which must be recorded NOTRUN.
+# e  RESTART_STAGE=retarget as registered: reference, no-rng-control, rank-kill-1, rank-kill-2, dcgm-1, dcgm-2, every
+#    one expected ACCEPTED (docs/superpowers/specs/2026-11-04-restart-retarget-design.md).
 # d  reference; then every node's clock made unreadable, so rank-kill-1 and rank-kill-2 are VOID before their faults,
 #    two VOIDs in a row stop the run, and dcgm-1 must be recorded NOTRUN.
 # Evidence goes to hack/restart-lifecycle-kind-<UTC>/, one RESTART_OUT per run; KEEP=1 keeps the cluster.
@@ -488,8 +490,9 @@ run_stage() {
   export RESTART_INSTANCES_FILE="$RESTART_OUT/instances.txt"
   warmed="$RESTART_OUT/warmed.txt"
   : >"$warmed"
-  if [ "$cases" = smoke ]; then
-    export RESTART_STAGE=smoke
+  if [ "$cases" = smoke ] || [ "$cases" = retarget ]; then
+    # A registered stage as registered: the runner's own case list, not one chosen here.
+    export RESTART_STAGE="$cases"
     eval "restart_cases() $(declare -f rstk_registered_cases | tail -n +2)"
   else
     # A subset of full, in full's order; overriding restart_cases chooses the cases and changes nothing else.
@@ -659,6 +662,10 @@ print(json.dumps([f for f in json.load(sys.stdin)["metadata"].get("finalizers", 
         k -n "$RESTART_NS" patch "$stuck" --type=merge -p "{\"metadata\":{\"finalizers\":${fins:-[]}}}" >>"$LOG" 2>&1 || log "could not remove $STUCK from $stuck"
         if k -n "$RESTART_NS" wait --for=delete "$stuck" --timeout=120s >>"$LOG" 2>&1; then log "removed $STUCK from $stuck, and it is gone"; else log "removed $STUCK from $stuck, and it is STILL there"; fi
       fi
+      ;;
+    e)
+      echo 5 >"$RSTK_STATE/launch_delays"
+      run_stage e retarget
       ;;
     d)
       echo 5 >"$RSTK_STATE/launch_delays"

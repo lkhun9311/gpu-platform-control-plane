@@ -80,10 +80,14 @@ RESTART_NODE_UID_COMMIT=f7b8f9ca
 # smoke is the first paid stage, run and inspected before anything else is bought: the two cases every other one is
 # compared with, and one of each external fault, the DCGM path and a termination that can only recover on a replacement.
 # full is the registered kinds at RESTART_REPS each.
+# retarget re-runs, after the changes made since full, the two kinds whose retirement waited on the old Job's deletion,
+# so their stop barrier can be read against full's; it buys no termination, whose path did not change
+# (docs/superpowers/specs/2026-11-04-restart-retarget-design.md).
 restart_cases() {
   local kind i
   case "${RESTART_STAGE:-}" in
     smoke) printf '%s\n' reference no-rng-control dcgm-1 terminate-wait-1 ;;
+    retarget) printf '%s\n' reference no-rng-control rank-kill-1 rank-kill-2 dcgm-1 dcgm-2 ;;
     full)
       echo reference
       echo no-rng-control
@@ -92,7 +96,7 @@ restart_cases() {
       done
       ;;
     *)
-      echo "RESTART_STAGE is '${RESTART_STAGE:-}', not smoke or full" >&2
+      echo "RESTART_STAGE is '${RESTART_STAGE:-}', not smoke, full or retarget" >&2
       return 1
       ;;
   esac

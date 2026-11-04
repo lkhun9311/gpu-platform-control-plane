@@ -145,8 +145,8 @@ session "no zone" "TRAIN=restart is registered in ap-northeast-2a" TRAIN_AZ=
 session "another zone" "TRAIN=restart is registered in ap-northeast-2a, and TRAIN_AZ is 'ap-northeast-2c'" TRAIN_AZ=ap-northeast-2c
 session "no approved hash" "needs APPROVED_TRAIN_SHA256" APPROVED_TRAIN_SHA256=
 session "another train.py" "not the approved" APPROVED_TRAIN_SHA256="$(printf '%064d' 0)"
-session "no stage" "TRAIN=restart needs RESTART_STAGE=smoke, run and inspected first, or RESTART_STAGE=full" RESTART_STAGE=
-session "an unknown stage" "RESTART_STAGE is 'all', not smoke or full" RESTART_STAGE=all
+session "no stage" "TRAIN=restart needs RESTART_STAGE=smoke, run and inspected first, RESTART_STAGE=full or RESTART_STAGE=retarget" RESTART_STAGE=
+session "an unknown stage" "RESTART_STAGE is 'all', not smoke, full or retarget" RESTART_STAGE=all
 session "a deadline too short" "with RESTART_STAGE=smoke needs TTL_MINUTES of at least 288 for its waits; it is 280" TTL_MINUTES=280
 # A deadline the stage needs, and more than a fresh credential can cover with the destroy after it.
 session "a deadline past the credential limit" "TTL_MINUTES=670 and the 40-minute destroy need 710 min of credential, more than the 700" TTL_MINUTES=670
@@ -185,6 +185,7 @@ passes() {
   if grep -qF "$want" "$work/$name/session.log"; then ok "$name: logged '$want'"; else bad "$name: did not log '$want': $(grep -F 'RESTART_STAGE' "$work/$name/session.log" | tail -1)"; fi
 }
 passes "the full stage" "RESTART_STAGE=full: TTL_MINUTES 524 covers its 524" RESTART_STAGE=full TTL_MINUTES=524
+passes "the retarget stage" "RESTART_STAGE=retarget: TTL_MINUTES 340 covers its 337" RESTART_STAGE=retarget TTL_MINUTES=340
 passes "the longest deadline" "the credential expires in 719 minutes, at least the 700" TTL_MINUTES=660
 
 # The nightly destroy at 17:00 UTC, an hour before it: refused while the workflow is enabled, not enforced once it is
@@ -325,9 +326,9 @@ decoded="$(sed -n 's/^echo \([A-Za-z0-9+\/=]*\) | base64 -d >\/tmp\/train.py$/\1
 if [[ "$decoded" == "$sha" ]]; then ok "the carried trainer is the committed train.py"; else bad "the carried trainer hashes to $decoded"; fi
 out="$(lib render2 'restart_render_job x train-a gpu-train-a x-1 fsdp-1; echo "rc=$?"')"
 if [[ "$out" == *"not a registered case"*"rc=1" ]]; then ok "an unregistered case is refused"; else bad "an unregistered case: $out"; fi
-out="$(lib cases 'RESTART_STAGE=smoke restart_cases | paste -sd" "; RESTART_STAGE=full restart_cases | paste -sd" "; RESTART_STAGE= restart_cases; echo "rc=$?"')"
-want_cases="reference no-rng-control dcgm-1 terminate-wait-1"$'\n'"reference no-rng-control rank-kill-1 rank-kill-2 dcgm-1 dcgm-2 terminate-spare-1 terminate-spare-2 terminate-wait-1 terminate-wait-2"
-if [[ "$out" == "$want_cases"$'\n'*"not smoke or full"*"rc=1" ]]; then ok "smoke's four cases, full's ten in the registered order, and no stage refused"; else bad "the cases: $out"; fi
+out="$(lib cases 'RESTART_STAGE=smoke restart_cases | paste -sd" "; RESTART_STAGE=full restart_cases | paste -sd" "; RESTART_STAGE=retarget restart_cases | paste -sd" "; RESTART_STAGE= restart_cases; echo "rc=$?"')"
+want_cases="reference no-rng-control dcgm-1 terminate-wait-1"$'\n'"reference no-rng-control rank-kill-1 rank-kill-2 dcgm-1 dcgm-2 terminate-spare-1 terminate-spare-2 terminate-wait-1 terminate-wait-2"$'\n'"reference no-rng-control rank-kill-1 rank-kill-2 dcgm-1 dcgm-2"
+if [[ "$out" == "$want_cases"$'\n'*"not smoke, full or retarget"*"rc=1" ]]; then ok "smoke's four cases, full's ten and retarget's six in the registered order, and no stage refused"; else bad "the cases: $out"; fi
 
 # The budget is the sum of the enforced shares: preparation 4,080 s, each slot its pre share, 1,380 s of submission,
 # run, evidence, retirement and files, 180 s more for a DCGM reset, and 900 s of scale-down.
@@ -339,6 +340,12 @@ if [[ "$out" == "reference=1680 no-rng-control=1680 dcgm-1=1860 terminate-wait-1
   ok "smoke's slots and its GPU budget: $out"
 else
   bad "smoke's slots: $out"
+fi
+out="$(budget 'RESTART_STAGE=retarget; prev=; for c in $(restart_cases); do printf "%s=%s " $c $(restart_slot_seconds $c "$prev"); prev=$c; done; restart_gpu_budget; restart_ttl_refusal retarget 336 "$(restart_gpu_budget)" 1200; echo "rc=$?"; restart_ttl_refusal retarget 337 "$(restart_gpu_budget)" 1200; echo "rc=$?"')"
+if [[ "$out" == "reference=1680 no-rng-control=1680 rank-kill-1=1680 rank-kill-2=1680 dcgm-1=1860 dcgm-2=1860 15420"$'\n'*"needs TTL_MINUTES of at least 337"*"rc=1"$'\n'*"covers its 337"*"rc=0" ]]; then
+  ok "retarget's slots, its GPU budget of 15420 s, and its TTL_MINUTES of at least 337"
+else
+  bad "retarget's budget: $out"
 fi
 out="$(budget 'RESTART_STAGE=full; restart_gpu_budget; restart_ttl_refusal full 524 "$(restart_gpu_budget)" 1200; echo "rc=$?"')"
 if [[ "$out" == "26640"$'\n'*"covers its 524"*"rc=0" ]]; then ok "full at its two repetitions fits: $(tail -2 <<<"$out" | head -1)"; else bad "full at two: $out"; fi
