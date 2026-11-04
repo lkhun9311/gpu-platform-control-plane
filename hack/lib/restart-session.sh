@@ -300,7 +300,10 @@ restart_render_job() {
   # Without that every retired rank waited out the 30 s grace period: on kind the shell as rendered took 31.8 s to
   # delete and one that forwarded TERM 1.0 s, and the paid full stage's stop barrier held 30 to 39 s on the old Job's
   # deletion in every rank-kill and dcgm case (experiments/distributed-restart/README.md).
-  # wait returns the trainer's own status, so a rank that killed itself for a fault still fails its Job.
+  # A TERM interrupts wait, so the shell waits again until the trainer itself has exited and leaves with its status:
+  # leaving at the first wait ended the shell at 143 with the trainer still running, and the trainer then died only
+  # because PID 1 had (codex review before the re-verification). A rank that killed itself for a fault still fails its
+  # Job with 137.
   body="$(printf '%s\n' \
     "echo $(base64 -w0 "$RESTART_TRAIN_PY") | base64 -d >/tmp/train.py" \
     "echo \"$sha  /tmp/train.py\" | sha256sum -c - >/dev/null || exit 86" \
@@ -313,7 +316,10 @@ restart_render_job() {
     "python /tmp/train.py &" \
     "child=\$!" \
     "trap 'kill -TERM \$child' TERM" \
-    "wait \$child")"
+    "wait \$child" \
+    "rc=\$?" \
+    "while [ -d /proc/\$child ]; do wait \$child; rc=\$?; done" \
+    "exit \$rc")"
   python3 -c '
 import json, sys
 name, ns, queue, image, claim, mount, body = sys.argv[1:8]

@@ -295,14 +295,15 @@ for want in 'CKPT_JOB_ID=rst-rank-kill-1-0a1b2c3d' 'CKPT_BACKEND=nccl' 'CKPT_FAU
   if grep -qF -- "$want" <<<"$body"; then ok "the job's command has $want"; else bad "the job's command lacks $want"; fi
 done
 if grep -qE '(^|[^a-z])exec ' <<<"$body"; then bad "the job's command execs, so the trainer would be PID 1"; else ok "the job's command never execs"; fi
-if [[ "$(tail -4 <<<"$body" | paste -sd'|')" == 'python /tmp/train.py &|child=$!|trap '"'"'kill -TERM $child'"'"' TERM|wait $child' ]]; then
-  ok "the trainer is started as a child of the shell, which hands TERM on to it"
+want_end='python /tmp/train.py &|child=$!|trap '"'"'kill -TERM $child'"'"' TERM|wait $child|rc=$?|while [ -d /proc/$child ]; do wait $child; rc=$?; done|exit $rc'
+if [[ "$(tail -7 <<<"$body" | paste -sd'|')" == "$want_end" ]]; then
+  ok "the trainer is started as a child of the shell, which hands TERM on to it and waits for it to end"
 else
-  bad "the command's end is '$(tail -4 <<<"$body" | paste -sd'|')'"
+  bad "the command's end is '$(tail -7 <<<"$body" | paste -sd'|')'"
 fi
 # What those lines do: the shell is stopped with TERM and the trainer, here a sleep, goes with it, where a shell that
 # only ran it would have left it to the grace period's KILL; and a trainer that fails still fails the shell.
-tail_cmd="$(tail -4 <<<"$body" | sed 's#^python /tmp/train.py &$#sleep 300 \&#')"
+tail_cmd="$(tail -7 <<<"$body" | sed 's#^python /tmp/train.py &$#sleep 300 \&#')"
 sh -c "$tail_cmd" & shpid=$!
 for _ in $(seq 25); do child="$(ps -o pid= --ppid "$shpid" | tr -d ' ')"; [[ -n "$child" ]] && break; sleep 0.2; done
 kill -TERM "$shpid"
@@ -314,7 +315,7 @@ else
   bad "the trainer ${child:-never started} outlived a TERM to its shell"
   [[ -n "$child" ]] && kill -KILL "$child"
 fi
-failing="$(tail -4 <<<"$body" | sed 's#^python /tmp/train.py &$#sh -c "exit 137" \&#')"
+failing="$(tail -7 <<<"$body" | sed 's#^python /tmp/train.py &$#sh -c "exit 137" \&#')"
 sh -c "$failing"
 rc=$?
 if [[ "$rc" == 137 ]]; then ok "a trainer that exits 137 for its fault exits the shell 137"; else bad "a trainer's 137 came out of the shell as $rc"; fi
