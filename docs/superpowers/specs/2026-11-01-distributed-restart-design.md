@@ -149,6 +149,11 @@ Fixed after `full`, so neither paid stage ran with these fixes, and a later paid
 - The rank join is bounded by one 600 s deadline. `check_protocol.py` and `check_rendezvous.py` show each case failing on the previous trainer. The trainer's sha256 is now `2c5cdbf0…572c`, which a later paid run must approve.
 - The controller reads the GPU fault handoff before a failed Job.
 - It records each rank node's UID and does not take a Ready Node with another UID under that name as proof that the rank stopped (#489). Both take effect in the operator image built from `main` after that merge.
+- The rendered command hands TERM on to the trainer.
+
+  Its shell is PID 1, which drops a TERM it has no handler for, so every retired rank used to wait out the 30 s grace period before its KILL. On kind, a Pod with the command as rendered took 31.8 s to delete, and one that forwarded TERM took 1.0 s.
+
+  In `full`, the stop barrier held 30 to 39 s on the old Job's deletion in every `rank-kill` and `dcgm` case (`phases_eks.py`). So a later run's recoveries of those kinds are expected to be about 30 s shorter, and are not comparable with `full`'s.
 
 Known and not fixed in the session's own teardown: the residue check does not query EFS, and the watchdog's destroy allowance is not enforced.
 These are checked by hand after the session.

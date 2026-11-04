@@ -295,6 +295,12 @@ restart_render_job() {
     return 1
   }
   sha="$(sha256sum "$RESTART_TRAIN_PY" | cut -d' ' -f1)" || return 1
+  # The trainer is the shell's child, because as PID 1 it could not kill itself for a fault; and the shell, as PID 1,
+  # would drop a TERM it had no handler for, so it hands TERM on to the trainer.
+  # Without that every retired rank waited out the 30 s grace period: on kind the shell as rendered took 31.8 s to
+  # delete and one that forwarded TERM 1.0 s, and the paid full stage's stop barrier held 30 to 39 s on the old Job's
+  # deletion in every rank-kill and dcgm case (experiments/distributed-restart/README.md).
+  # wait returns the trainer's own status, so a rank that killed itself for a fault still fails its Job.
   body="$(printf '%s\n' \
     "echo $(base64 -w0 "$RESTART_TRAIN_PY") | base64 -d >/tmp/train.py" \
     "echo \"$sha  /tmp/train.py\" | sha256sum -c - >/dev/null || exit 86" \
@@ -304,7 +310,10 @@ restart_render_job() {
     "export CKPT_BALLAST_MB=$RESTART_BALLAST_MB CKPT_COLLECTIVE_TIMEOUT=$RESTART_COLLECTIVE_TIMEOUT CKPT_RENDEZVOUS_TIMEOUT=$RESTART_RENDEZVOUS_TIMEOUT OMP_NUM_THREADS=1" \
     "export NCCL_DEBUG=INFO NCCL_DEBUG_SUBSYS=INIT,NET NCCL_DEBUG_FILE=\"\$nccl_dir/a\${TRAINING_ATTEMPT}-r\${RANK}-%h.%p.log\"" \
     "$extra" \
-    "python /tmp/train.py")"
+    "python /tmp/train.py &" \
+    "child=\$!" \
+    "trap 'kill -TERM \$child' TERM" \
+    "wait \$child")"
   python3 -c '
 import json, sys
 name, ns, queue, image, claim, mount, body = sys.argv[1:8]
