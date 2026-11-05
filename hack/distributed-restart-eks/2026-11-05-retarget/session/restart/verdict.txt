@@ -1,0 +1,14 @@
+ACCEPTED reference {"checkpoint": {"a1": {"max_s": 0.383, "median_s": 0.268, "saves": 60}}}
+ACCEPTED no-rng-control {"checkpoint": {"a1": {"max_s": 0.287, "median_s": 0.259, "saves": 22}, "a2": {"max_s": 0.323, "median_s": 0.257, "saves": 36}}, "from_dir": "a1/00000012-a66a2c3d8e894867808145cb6d6d1a49", "from_step": 12, "params_gap": 0.106}
+ACCEPTED rank-kill-1 {"checkpoint": {"a1": {"max_s": 0.294, "median_s": 0.259, "saves": 22}, "a2": {"max_s": 0.374, "median_s": 0.266, "saves": 38}}, "class": "same-nodes", "clock_uncertainty_s": 0.233, "from_dir": "a1/00000011-0857d1ed3a914c5588be27325e1e5029", "from_step": 11, "lost_steps": 1, "params_gap": 0.0, "recovery_s": 46.503}
+ACCEPTED rank-kill-2 {"checkpoint": {"a1": {"max_s": 0.386, "median_s": 0.259, "saves": 22}, "a2": {"max_s": 0.303, "median_s": 0.262, "saves": 38}}, "class": "same-nodes", "clock_uncertainty_s": 0.218, "from_dir": "a1/00000011-27fae7e941e0400eb6121020f31df726", "from_step": 11, "lost_steps": 1, "params_gap": 0.0, "recovery_s": 47.46}
+ACCEPTED dcgm-1 {"checkpoint": {"a1": {"max_s": 0.312, "median_s": 0.263, "saves": 22}, "a2": {"max_s": 0.313, "median_s": 0.27, "saves": 38}}, "class": "spare", "clock_uncertainty_s": 0.226, "from_dir": "a1/00000011-a54ab0b5e8514bc8a4cfd74d3501291c", "from_step": 11, "lost_steps": 1, "params_gap": 0.0, "recovery_s": 8.799}
+ACCEPTED dcgm-2 {"checkpoint": {"a1": {"max_s": 0.291, "median_s": 0.27, "saves": 24}, "a2": {"max_s": 0.305, "median_s": 0.257, "saves": 36}}, "class": "spare", "clock_uncertainty_s": 0.218, "from_dir": "a1/00000012-697bba87f21847c0805110d973d3bd00", "from_step": 12, "lost_steps": 0, "params_gap": 0.0, "recovery_s": 7.842}
+summary
+  reference: 1 registered, 1 ACCEPTED, 0 FAILED (0 censored at their budget, 0 past their budget after a recovery, 0 not recovered), 0 VOID, 0 NOTRUN
+  no-rng-control: 1 registered, 1 ACCEPTED, 0 FAILED (0 censored at their budget, 0 past their budget after a recovery, 0 not recovered), 0 VOID, 0 NOTRUN
+  rank-kill: 2 registered, 2 ACCEPTED, 0 FAILED (0 censored at their budget, 0 past their budget after a recovery, 0 not recovered), 0 VOID, 0 NOTRUN
+    same-nodes: recovery median 47.0 s, range 46.5 to 47.5 s, lost steps [1, 1], over 2 accepted; the 0 FAILED censored at their budget, the 0 past their budget after a recovery, the 0 not recovered and the 0 VOID are not in these figures
+  dcgm: 2 registered, 2 ACCEPTED, 0 FAILED (0 censored at their budget, 0 past their budget after a recovery, 0 not recovered), 0 VOID, 0 NOTRUN
+    spare: recovery median 8.3 s, range 7.8 to 8.8 s, lost steps [0, 1], over 2 accepted; the 0 FAILED censored at their budget, the 0 past their budget after a recovery, the 0 not recovered and the 0 VOID are not in these figures
+  checkpoint cost: median 0.265 s, max 0.386 s over 300 saves

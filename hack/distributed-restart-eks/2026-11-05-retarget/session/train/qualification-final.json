@@ -1,0 +1,69 @@
+{
+    "apiVersion": "platform.lkhun9311.github.io/v1",
+    "kind": "MLTrainingJob",
+    "metadata": {
+        "annotations": {
+            "kubectl.kubernetes.io/last-applied-configuration": "{\"apiVersion\":\"platform.lkhun9311.github.io/v1\",\"kind\":\"MLTrainingJob\",\"metadata\":{\"annotations\":{},\"name\":\"train-qualify\",\"namespace\":\"train-a\"},\"spec\":{\"command\":[\"sh\",\"-c\",\"exec python -c 'import sys, time, torch; ok = torch.cuda.is_available(); ok and time.sleep(60); sys.exit(0 if ok else 3)'\"],\"distributed\":{\"worldSize\":2},\"gpuClass\":\"a10g\",\"gpuCount\":1,\"image\":\"docker.io/pytorch/pytorch@sha256:c8268a92a69bd500f8be0e665b2630ee006dadaf7bfbc24249141b15ff622755\",\"queue\":\"gpu-train-a\"}}\n"
+        },
+        "creationTimestamp": "2026-11-05T16:03:40Z",
+        "finalizers": [
+            "mltrainingjob.platform.lkhun9311.github.io/finalizer"
+        ],
+        "generation": 1,
+        "name": "train-qualify",
+        "namespace": "train-a",
+        "resourceVersion": "6331",
+        "uid": "515398ca-e210-4133-b94f-2e1b326b1a33"
+    },
+    "spec": {
+        "command": [
+            "sh",
+            "-c",
+            "exec python -c 'import sys, time, torch; ok = torch.cuda.is_available(); ok and time.sleep(60); sys.exit(0 if ok else 3)'"
+        ],
+        "completions": 1,
+        "distributed": {
+            "maxRestarts": 0,
+            "worldSize": 2
+        },
+        "gpuClass": "a10g",
+        "gpuCount": 1,
+        "image": "docker.io/pytorch/pytorch@sha256:c8268a92a69bd500f8be0e665b2630ee006dadaf7bfbc24249141b15ff622755",
+        "parallelism": 1,
+        "queue": "gpu-train-a"
+    },
+    "status": {
+        "admitToRunningSeconds": "145.895",
+        "admittedAt": "2026-11-05T16:03:40Z",
+        "conditions": [
+            {
+                "lastTransitionTime": "2026-11-05T16:03:40Z",
+                "message": "",
+                "observedGeneration": 1,
+                "reason": "JobComplete",
+                "status": "True",
+                "type": "Admitted"
+            },
+            {
+                "lastTransitionTime": "2026-11-05T16:03:40Z",
+                "message": "",
+                "observedGeneration": 1,
+                "reason": "ServiceOwned",
+                "status": "True",
+                "type": "RendezvousService"
+            },
+            {
+                "lastTransitionTime": "2026-11-05T16:06:05Z",
+                "message": "the tenant waited 145.895s between Kueue admitting this job and this controller seeing it run; the admission end is Kueue's own stamp and the running end is this controller's observation, so the interval carries one watch lag",
+                "reason": "Observed",
+                "status": "True",
+                "type": "AdmitToRunningObserved"
+            }
+        ],
+        "lastTransitionTime": "2026-11-05T16:07:09Z",
+        "observedGeneration": 1,
+        "phase": "Succeeded",
+        "readyRanks": 0,
+        "runningObservedAt": "2026-11-05T16:06:05Z"
+    }
+}
