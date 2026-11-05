@@ -1,7 +1,7 @@
 # Distributed restart, `retarget`: the rank-kill and DCGM recoveries after the changes made since `full`
 
 Written 2026-11-04, before any run of this stage; revised 2026-11-05 after codex `gpt-6-astra`'s attack, still before any paid run.
-Status: **registered for one paid session; not yet run.**
+Status: **run on 2026-11-05 from `ddf5ce5c`: all six cases ACCEPTED, H1 REFUTED** (`hack/distributed-restart-eks/2026-11-05-retarget/README.md`, and "Result" below).
 The owner approved the purchase on 2026-11-04 on the condition that codex `gpt-6-astra` attack it first ("codex astra로 결함 및 적대적 검토 후 진행 / 유료 승인"); that attack and its dispositions are under "Review".
 The apparatus, the scorer and every rule not restated here are those of `docs/superpowers/specs/2026-11-01-distributed-restart-design.md`, "The paid session: apparatus".
 
@@ -76,6 +76,19 @@ It does not say the ranks escaped the grace period: the controller can observe t
 It does not attribute the change to TERM forwarding alone, because the trainer and the operator also changed since `full`.
 The samples of `waitingFor` in each case's timeline are reported beside `d` as the record of what the barrier waited on.
 Two observations per kind are neither a rate nor a bound on other faults.
+
+## Result
+
+Everything above this section was written before the paid run; this section was added after it, from its archive (`hack/distributed-restart-eks/2026-11-05-retarget`), evaluated from a clean checkout of `76129fc6`.
+
+**H1 is REFUTED.** `d` = 38 and 39 s for `rank-kill-1` and `rank-kill-2`, 2 and 2 s for `dcgm-1` and `dcgm-2`, each inside its collector bracket, and the two `rank-kill` cases refute by the first rule.
+Every case is ACCEPTED: recovery 46.5 and 47.5 s for `rank-kill`, 8.8 and 7.8 s for `dcgm`, against `full`'s 46.9 to 47.5 s and 37.4 to 37.9 s.
+
+So the `rank-kill` stop was as slow as in `full`, and the `dcgm` stop was not.
+In every read between the two stamps of all four cases, the barrier's `waitingFor` named the old Job's deletion.
+The run met the conditions this page sets on it: a clean tree at the launch commit, the approved trainer, the registered operator revision and digest (R2), and the destroy workflow disabled by hand; that no promotion followed and that the workflow was re-enabled are read from `origin/main` and GitHub's API, not from the archive.
+codex `gpt-6-astra`, asked to break this reading, re-derived every verdict, recovery and `d` from the raw files without the evaluators, got the same, and found nothing that makes a case INVALID or the outcome other than REFUTED; its caveats were those two records outside the archive.
+As registered, the change in `dcgm` is not attributed to TERM forwarding or to any other one change, and nothing collected says why `rank-kill` still waits about 38 s; the run keeps no Pod deletion or container exit times.
 
 ## Descriptive figures
 
@@ -308,6 +321,7 @@ astra's third GO review, at `0318a7d3`, against the threat model and the four it
 It confirmed by its own read-only replay that the kind archive gives 6/6 ACCEPTED, both checks 0 FAIL and H1 SUPPORTED with `d` = 0, 0, 1, 1 s, and that `full` still gives REFUTED with 39, 39, 31, 31 s; the cgroup suites, the refusal suite and the mutations it took as reported, since a read-only review cannot run them.
 A first run of that review ended on the model's capacity before giving a verdict and is not counted.
 GO is not the purchase: the paid session still starts only on the owner's confirmation at launch.
+The owner confirmed it on 2026-11-05, and it ran from `ddf5ce5c`, the commit that recorded this review.
 
 ## What this does not show
 

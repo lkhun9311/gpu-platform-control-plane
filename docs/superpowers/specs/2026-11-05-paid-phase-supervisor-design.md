@@ -1,6 +1,6 @@
 # Paid-phase supervisor and evidence-bounded figures for the retarget run
 
-Status: design approved 2026-11-05; not implemented.
+Status: design approved 2026-11-05; implemented in `f29d698d`, `a1c84414`, `e2e0633f`, `78f5b4ba` and `f0a07fa5`, and run in the paid `retarget` session on 2026-11-05 (`hack/distributed-restart-eks/2026-11-05-retarget`), whose logs hold no phase that passed its deadline or could not start.
 It amends `docs/superpowers/specs/2026-11-04-restart-retarget-design.md` before its paid run, and does not replace it.
 
 ## Why
