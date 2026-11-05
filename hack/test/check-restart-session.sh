@@ -1179,8 +1179,14 @@ fi
 
 score missing-rank rank-kill-2 FAILED "attempt 2 has start records from ranks [0]"
 # The runner reads the final status after its budget has run out, so the end is judged by the job's own stamps.
-score ended-after-budget terminate-wait-1 FAILED "censored at its budget: the job ended 'Succeeded' 723 s after its creation"
-score failed-after-budget rank-kill-2 FAILED "censored at its budget: the job ended 'Failed' 723 s after its creation"
+# A late end after every rank of attempt 2 stepped is a late completion with its recovery time kept, not a censored
+# recovery: both of these recovered 71.0 s after the fault.
+score ended-after-budget terminate-wait-1 FAILED "past its budget after a recovery: the job ended 'Succeeded' 723 s after its creation, beyond its 720 s budget; every rank of attempt 2 had stepped 71.0 s after the fault"
+score failed-after-budget rank-kill-2 FAILED "past its budget after a recovery: the job ended 'Failed' 723 s after its creation, beyond its 720 s budget; every rank of attempt 2 had stepped 71.0 s after the fault"
+# Only a first step never observed is censored, and its bound runs from the fault, 30.95 s after the creation, to the
+# runner's last sample: 112.1 s here, where the creation would have given 148.1 s.
+score ended-after-budget-no-step terminate-wait-1 FAILED "censored at its budget: the job ended 'Succeeded' 723 s after its creation, beyond its 720 s budget; attempt 2's first step was never observed, so its recovery exceeds 112.1 s, from the fault"
+score ended-after-budget reference FAILED "past its budget: the job ended 'Succeeded' 723 s after its creation"
 score ended-before-budget terminate-wait-1 ACCEPTED "recovery"
 # The stamps are whole seconds from two clocks, so an end this near the budget is on neither side of it.
 score ended-at-budget terminate-wait-1 VOID "within 2 s of its 720 s budget"
@@ -1229,15 +1235,17 @@ score resume-dir-step-mismatch dcgm-5 FAILED "names step 12 and the ranks say 13
 score manifest-unlisted terminate-wait-3 VOID "the volume's listing has no /rst-terminate-wait-3-010000-0a1b2c3d/a1/00000013-"
 score no-volume-listing dcgm-4 VOID "no listing of the job's files on the volume"
 score resume-gap terminate-spare-5 FAILED "rank 0 of attempt 2 resumed from step 13, and its steps lack [14, 15]"
-score timed-out terminate-wait-4 FAILED "censored at its budget: the job ended 'Pending', not Succeeded"
+score timed-out terminate-wait-4 FAILED "censored at its budget: the job ended 'Pending', not Succeeded, within its budget; attempt 2's first step was never observed, so its recovery exceeds 112.1 s, from the fault"
 # A recovery censored at its budget stays FAILED when the nodes read afterwards are unreadable: the outcome is judged first.
 score timed-out-nodes-unread rank-kill-3 FAILED "censored at its budget: the job ended 'Pending', not Succeeded"
 score timed-out-nodes-before-unread rank-kill-2 FAILED "censored at its budget: the job ended 'Pending', not Succeeded"
 score job-failed rank-kill-2 FAILED "not recovered: the job ended 'Failed', not Succeeded"
-# The summary keeps a recovery cut off by its budget apart from one that ended wrong, and both apart from VOID.
-for want in "timed-out terminate-wait-4:terminate-wait: 5 registered, 4 ACCEPTED, 1 FAILED (1 censored at their budget, 0 not recovered), 0 VOID" \
-  "job-failed rank-kill-2:rank-kill: 5 registered, 4 ACCEPTED, 1 FAILED (0 censored at their budget, 1 not recovered), 0 VOID" \
-  "manifest-unlisted terminate-wait-3:terminate-wait: 5 registered, 4 ACCEPTED, 0 FAILED (0 censored at their budget, 0 not recovered), 1 VOID"; do
+# The summary keeps a recovery cut off by its budget apart from a late completion and from one that ended wrong, and all
+# three apart from VOID.
+for want in "timed-out terminate-wait-4:terminate-wait: 5 registered, 4 ACCEPTED, 1 FAILED (1 censored at their budget, 0 past their budget after a recovery, 0 not recovered), 0 VOID" \
+  "ended-after-budget terminate-wait-1:terminate-wait: 5 registered, 4 ACCEPTED, 1 FAILED (0 censored at their budget, 1 past their budget after a recovery, 0 not recovered), 0 VOID" \
+  "job-failed rank-kill-2:rank-kill: 5 registered, 4 ACCEPTED, 1 FAILED (0 censored at their budget, 0 past their budget after a recovery, 1 not recovered), 0 VOID" \
+  "manifest-unlisted terminate-wait-3:terminate-wait: 5 registered, 4 ACCEPTED, 0 FAILED (0 censored at their budget, 0 past their budget after a recovery, 0 not recovered), 1 VOID"; do
   run="$work/run-${want%%:*}"
   run="${run/ /-}"
   out="$(python3 experiments/distributed-restart/score_eks.py "$run" 2>&1)"
@@ -1285,6 +1293,15 @@ score before-probe-late rank-kill-2 VOID "labelled before the fault ended after 
 score attempt1-log-cut rank-kill-2 VOID "so its log is incomplete"
 score save-nan dcgm-2 VOID "which no save takes"
 score rank1-no-saves terminate-spare-2 VOID "has save records from ranks [0], want every rank of 2"
+# A checkpoint record without a usable cost is refused, not left out: dropping rank 1's costs, or every cost, was
+# ACCEPTED, the second with "saves": 0, because the ranks were counted among the records and not among the costs.
+score rank1-saves-uncosted terminate-spare-2 VOID "attempt 1 rank 1's checkpoint of step 1 records no save cost"
+score no-save-costs reference VOID "attempt 1 rank 0's checkpoint of step 1 records no save cost"
+score save-not-number dcgm-3 VOID "attempt 2 rank 0's checkpoint of step 14 records save cost '0.094', which no save takes"
+# A clock that is not a finite number is refused: NaN probes were ACCEPTED with a NaN recovery_s, because a NaN fails no
+# comparison, and a literal like 1e999 reads as infinity, whose differences are NaN.
+score clock-nan dcgm-1 VOID "its evidence could not be read: ValueError: clock.jsonl: the JSON constant NaN"
+score clock-overflow rank-kill-2 VOID "a clock probe of ip-10-0-64-11 holds {'before': inf, 'node_time': inf, 'after': inf}, not three finite times"
 score no-nodes-after rank-kill-3 VOID "the nodes after the recovery were not recorded"
 score drop-node-before rank-kill-4 VOID "attempt 1's nodes ['ip-10-0-64-11'] are not among the nodes before the fault"
 score drop-node-after dcgm-4 VOID "attempt 2's nodes ['ip-10-0-64-13'] are not among the nodes after the recovery"

@@ -249,7 +249,7 @@ def defect(out: pathlib.Path, name: str, case: str) -> None:
         edit_records(d, lambda r: {**r, "from_step": 0, "from_dir": "a1/00000000-" + "c" * 32} if r["event"] == "resume" else r)
     elif name == "split-resume":
         edit_records(d, lambda r: {**r, "from_dir": "a1/elsewhere"} if r["event"] == "resume" and r["rank"] == 1 else r)
-    elif name in ("ended-after-budget", "ended-at-budget", "ended-before-budget", "failed-after-budget"):
+    elif name in ("ended-after-budget", "ended-at-budget", "ended-before-budget", "failed-after-budget", "ended-after-budget-no-step"):
         # The job's end stamped this long after its creation, as when it ended while the runner probed clocks past the budget.
         def late(m):
             took = CASE_BUDGET + {"ended-at-budget": 0, "ended-before-budget": -3}.get(name, 3)
@@ -257,6 +257,9 @@ def defect(out: pathlib.Path, name: str, case: str) -> None:
             if name == "failed-after-budget":
                 m["status"]["phase"] = "Failed"
         edit_json(d / "final-mltj.json", late)
+        if name == "ended-after-budget-no-step":
+            # The job ended past its budget and no rank of attempt 2 was ever seen to step: a recovery that is censored.
+            edit_records(d, lambda r: None if r["attempt"] == 2 and r["event"] in ("step", "checkpoint") else r)
     elif name == "no-end-time":
         edit_json(d / "final-mltj.json", lambda m: m["status"].pop("lastTransitionTime"))
     elif name == "no-fault-record":
@@ -269,6 +272,15 @@ def defect(out: pathlib.Path, name: str, case: str) -> None:
         # Each probe alone is within the registered offset, and their median is zero, but the clock moved 3.8 s between them.
         edit_json_lines(d / "clock.jsonl", lambda p: {**p, "node_time": (p["before"] + p["after"]) / 2 + (-1.9 if p["when"] == "before" else 1.9)}
                         if p["node"] == "ip-10-0-64-11" else p)
+    elif name == "clock-nan":
+        # json.dumps writes a NaN as the bare constant NaN, which Python's json reads back without complaint.
+        edit_json_lines(d / "clock.jsonl", lambda p: {**p, "node_time": float("nan")})
+    elif name == "clock-overflow":
+        # A literal too large for a double reads as infinity, which is no constant, and infinity less infinity is NaN.
+        edit_json_lines(d / "clock.jsonl", lambda p: {**p, "before": "OVERFLOW", "node_time": "OVERFLOW", "after": "OVERFLOW"}
+                        if p["node"] == "ip-10-0-64-11" and p["when"] == "after" else p)
+        path = d / "clock.jsonl"
+        path.write_text(path.read_text().replace('"OVERFLOW"', "1e999"))
     elif name in ("clock-no-before", "clock-no-after"):
         gone = name.rsplit("-", 1)[1]
         edit_json_lines(d / "clock.jsonl", lambda p: None if p["node"] == "ip-10-0-64-11" and p["when"] == gone else p)
@@ -447,6 +459,12 @@ def defect(out: pathlib.Path, name: str, case: str) -> None:
         edit_records(d, lambda r: None if r["attempt"] == 1 and r["event"] in ("step", "checkpoint") and r["step"] >= 8 else r)
     elif name == "save-nan":
         edit_records(d, lambda r: {**r, "save_s": float("nan")} if r["event"] == "checkpoint" and r["attempt"] == 2 and r["rank"] == 1 else r)
+    elif name in ("rank1-saves-uncosted", "no-save-costs"):
+        # The checkpoint records are all there, and rank 1's, or everyone's, carry no cost.
+        edit_records(d, lambda r: {k: v for k, v in r.items() if k != "save_s"}
+                     if r["event"] == "checkpoint" and (name == "no-save-costs" or r["rank"] == 1) else r)
+    elif name == "save-not-number":
+        edit_records(d, lambda r: {**r, "save_s": str(r["save_s"])} if r["event"] == "checkpoint" and r["attempt"] == 2 and r["rank"] == 0 else r)
     elif name == "rank1-no-saves":
         edit_records(d, lambda r: None if r["event"] == "checkpoint" and r["attempt"] == 2 and r["rank"] == 1 else r)
     elif name == "prepared-no-uid":
