@@ -1103,7 +1103,8 @@ restart_enable_fault_path() {
     echo "could not add the fault flags: ${out:0:200}"
     return 1
   }
-  out="$(rk -n "$RESTART_SYS" rollout status "$dep" --timeout=300s 2>&1)" || {
+  # A wait that outlasts one request goes through rkt with its own duration; rk is cut at 20 s.
+  out="$(rkt 310 -n "$RESTART_SYS" rollout status "$dep" --timeout=300s 2>&1)" || {
     echo "the operator did not roll out with the fault flags: ${out:0:200}"
     return 1
   }
@@ -1259,7 +1260,7 @@ EOF
     if [[ -z "$failed" ]]; then
       left=$((deadline - SECONDS))
       ((left >= 1)) || left=1
-      if out="$(rk -n "$RESTART_NS" wait --for=jsonpath='{.status.phase}'=Succeeded "pod/$pod" --timeout="${left}s" 2>&1)"; then
+      if out="$(rkt $((left + 10)) -n "$RESTART_NS" wait --for=jsonpath='{.status.phase}'=Succeeded "pod/$pod" --timeout="${left}s" 2>&1)"; then
         echo "$node $uid" >>"$warmed"
         printf '{"node": "%s", "uid": "%s", "prepared_at": "%s"}\n' "$node" "$uid" "$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)" >>"$RESTART_OUT/nodes-prepared.jsonl"
       else
@@ -1454,7 +1455,7 @@ EOF
     echo "could not create the reader Pod: ${out:0:200}"
     return 1
   }
-  out="$(rk -n "$RESTART_NS" wait --for=condition=Ready pod/rst-reader --timeout=600s 2>&1)" || {
+  out="$(rkt 610 -n "$RESTART_NS" wait --for=condition=Ready pod/rst-reader --timeout=600s 2>&1)" || {
     echo "the reader Pod was not Ready within 600 s: ${out:0:200}"
     return 1
   }

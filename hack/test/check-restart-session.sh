@@ -244,31 +244,32 @@ lib() {
     bash -c ". hack/lib/train-session.sh; . hack/lib/gpu-ttl.sh; . hack/lib/gpu-fault.sh; . hack/lib/restart-session.sh; $script" 2>&1
 }
 
-# A credential helper that hangs is not bounded by kubectl's request timeout, so rk is cut by the wall clock; this runs
-# the real kubectl, whose behaviour is the point, against a kubeconfig whose exec plugin sleeps (codex gpt-6-astra
-# attack of the retarget registration).
-real_kubectl="$(PATH="${PATH//$work\/bin:/}" command -v kubectl)"
-if [[ -z "$real_kubectl" ]]; then
-  bad "no real kubectl to run the hanging credential helper against"
+# A credential helper that hangs is not bounded by kubectl's request timeout, so rk is cut by the wall clock (codex
+# gpt-6-astra attack of the retarget registration).
+# Measured by hand with the real kubectl on 2026-11-05: an exec plugin that sleeps 30 s held a GET with
+# --request-timeout=1s for 120 s.
+# The harness stays self-contained, so here the stub kubectl stands for that: it ignores its request timeout and sleeps.
+mkdir -p "$work/rules/cred"
+echo 'sleep 30' >"$work/rules/cred/kubectl.sh"
+out="$(lib cred 's=$SECONDS; restart_by $((SECONDS + 3)) rk get pods >/dev/null 2>&1; echo rc=$? took=$((SECONDS - s))')"
+took="$(grep -o 'took=[0-9]*' <<<"$out" | cut -d= -f2)"
+# At least 2 s, so a call that failed at once, before it could hang, does not pass as a cut one.
+if [[ "$out" == *"rc="[1-9]* && -n "$took" && "$took" -ge 2 && "$took" -le 7 ]]; then
+  ok "a kubectl that ignores its request timeout is cut at the phase deadline ($took s for a 3 s deadline)"
 else
-  mkdir -p "$work/cred"
-  printf '#!/usr/bin/env bash\nsleep 30\n' >"$work/cred/helper" && chmod +x "$work/cred/helper"
-  cat >"$work/cred/config" <<EOF
-apiVersion: v1
-kind: Config
-clusters: [{name: hang, cluster: {server: "https://127.0.0.1:1"}}]
-users: [{name: hang, user: {exec: {apiVersion: client.authentication.k8s.io/v1beta1, command: "$work/cred/helper", interactiveMode: Never}}}]
-contexts: [{name: hang, context: {cluster: hang, user: hang}}]
-current-context: hang
-EOF
-  out="$(lib cred "export PATH=\"$(dirname "$real_kubectl"):\$PATH\" KUBECONFIG=\"$work/cred/config\"; RESTART_CONTEXT=hang; s=\$SECONDS; restart_by \$((SECONDS + 3)) rk get pods >/dev/null 2>&1; echo rc=\$? took=\$((SECONDS - s))")"
-  took="$(grep -o 'took=[0-9]*' <<<"$out" | cut -d= -f2)"
-  # At least 2 s, so a kubectl that failed at once, before the helper ran, does not pass as a cut one.
-  if [[ "$out" == *"rc="[1-9]* && -n "$took" && "$took" -ge 2 && "$took" -le 7 ]]; then
-    ok "a hanging credential helper is cut at the phase deadline ($took s for a 3 s deadline)"
-  else
-    bad "a hanging credential helper: $out"
-  fi
+  bad "a kubectl that ignores its request timeout: $out"
+fi
+# The waits that are meant to outlast one request go through rkt with their own duration: rk's 20 s cut once ended the
+# reader's 600 s wait, the fault path's 300 s rollout and the warm-up's wait (codex review of 570b2423).
+mkdir -p "$work/rules/longwait"
+printf '%s\n' 'case "$*" in *" wait "*) sleep 22 ;; esac' >"$work/rules/longwait/kubectl.sh"
+out="$(lib longwait 'rkt 40 -n x wait --for=condition=Ready pod/p --timeout=30s; echo rc=$?')"
+if [[ "$out" == *"rc=0"* ]]; then ok "rkt lets a 22 s wait finish inside its 40 s"; else bad "rkt cut a wait inside its duration: $out"; fi
+waits="$(grep -nE '\brk(d)? [^|]*(--timeout=|rollout status| wait )' hack/lib/restart-session.sh)"
+if [[ -z "$waits" ]]; then
+  ok "no wait or rollout goes through rk or rkd, whose cut is one request's"
+else
+  bad "a wait goes through rk or rkd and is cut at 20 s: $waits"
 fi
 out="$(lib rkd-expired 'restart_by $((SECONDS - 1)) rkd $((SECONDS + 10)) get pods; echo rc=$?')"
 if [[ "$out" == *"the deadline has passed"*"rc=1"* ]] && ! grep -q '^kubectl ' "$work/rkd-expired.calls" 2>/dev/null; then
