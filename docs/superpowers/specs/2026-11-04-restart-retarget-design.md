@@ -32,13 +32,17 @@ The step read last before the injection is recorded in each case's `case.json` (
 For each of `rank-kill-1`, `rank-kill-2`, `dcgm-1`, `dcgm-2`, `d` is `status.attempts[0].stopConfirmedAt − status.attempts[0].failureObservedAt` in the final MLTrainingJob, for the attempt numbered 1.
 A case gives a `d` only when all of these hold; otherwise it is INVALID with its reason, and is reported, not dropped:
 
-- `score_eks.py` found the fault delivered: its verdict is ACCEPTED or FAILED, not VOID. A FAILED recovery still gives a `d`, because the stop is measured before the recovery.
+- `score_eks.py`'s delivery check (`Case.check_delivered`, after its `load` and `bind`) passes. Nothing the scorer checks after delivery is consulted, so a recovery that failed, or evidence only the recovery needs, never removes a `d`; the scorer's verdict is reported beside it.
+- The run passes the scorer's run-level refusals (`run_refusals`: a clean tree, the approved trainer).
 - Both stamps are present and `d ≥ 0`.
-- The case's `timeline.jsonl` brackets each stamp between two of the collector's reads, and `d` lies inside the interval those reads allow, widened by 2 s.
-  The two stamps are wall-clock times from separate `metav1.Now()` calls, possibly on two controller hosts; the collector's reads are on another clock, so a `d` outside its bracket means the controller's clock did not run continuously and `d` is not a measurement.
+- The case's `timeline.jsonl` brackets each stamp between two of the collector's successful reads, and `d` lies inside the interval those reads allow, widened by 2 s. A failed or malformed read is skipped, not read as an absent stamp.
+  The two stamps are wall-clock times from separate `metav1.Now()` calls, possibly on two controller hosts, and the collector's reads are on another clock.
+  This is a consistency check, not a proof of one continuous clock: a `d` outside the bracket cannot be one clock's interval and is INVALID, and a `d` inside it is consistent only to the bracket's width, which is reported beside it.
+  On `full` the brackets were 7.7 s wide for `rank-kill` and about 31 s for `dcgm`, whose injection holds the collector's loop; a discontinuity smaller than that would not be seen.
   Inside the bracket, `d` carries up to 1 s from the whole-second truncation of each stamp.
 
-A case whose trigger is stamped and whose stop never is gives a lower bound instead: the time from its trigger to the collector's last read.
+A case whose trigger is stamped and whose stop no successful read ever showed, with no later attempt in the final object or any read, gives a lower bound instead: the time from its trigger to the collector's last read.
+A final object that lacks a stop the timeline or a later attempt shows is contradictory evidence and INVALID, not a stop that never came.
 
 | outcome | rule, read in this order |
 |---|---|
@@ -53,7 +57,7 @@ A slow stop is evidence against H1 on its own, so a refutation does not wait on 
 On `full`'s archive the evaluator gives `d` = 39, 39, 31, 31 s, each inside its bracket: REFUTED, as the question's premise says.
 
 What was known when. The bars (15 s, 30 s) were written while the kind rehearsal ran and before its figures were read.
-The validity rules and the reading order were added on 2026-11-05, after the rehearsal had given `d` = 0 to 1 s on kind; they change which cases count, not the bars.
+The validity rules and the reading order were added on 2026-11-05, after the first rehearsal had given `d` = 0 to 1 s on kind; they change which cases count, not the bars.
 
 What H1 can and cannot say.
 SUPPORTED says that the controller's measured interval from its trigger to its stop confirmation was short on EKS under this stage's revisions.
@@ -66,13 +70,11 @@ Two observations per kind are neither a rate nor a bound on other faults.
 
 Reported beside `full`'s and never pooled with them: each case's verdict and class, recovery (`score_eks.py`'s `recovery_s`), lost steps, parameter gap, checkpoint cost, and `phases_eks.py`'s milestones.
 A difference in recovery is not attributed to any one change.
-The scorer's known limits, found in the same attack and not fixed before this run so that the run uses the rehearsed scorer, apply to these figures and are stated beside them:
-
-- A FAILED case "censored at its budget" may have recovered and then not completed within 720 s; the label does not say which.
-- A checkpoint cost aggregate does not check that every save record carries a numeric cost from both ranks.
-- A non-finite clock probe is not refused.
-
-Each figure that reaches the results is checked by hand against these before it is published.
+The scorer at the launch commit includes three fixes the first attack found (`9499dba5`):
+- A job past its budget after every rank of attempt 2 stepped is "past its budget after a recovery", with its recovery kept, not a censored recovery.
+- A censored recovery's lower bound runs from the fault, not from the job's creation.
+- A save record without a finite, non-negative cost, or an attempt without costs from both ranks, is VOID, and a NaN or infinite clock is refused.
+Both committed archives keep every published verdict and figure under it (`hack/test/check-restart-session.sh`).
 
 ## Revisions it runs
 
@@ -80,7 +82,8 @@ Each figure that reaches the results is checked by hand against these before it 
 - **Runner and scorer:** this repository at the launch commit, a clean tree.
 - **Operator:** the image GitOps deploys from `main`, which at registration is `44bd5e74`, pinning digest `sha256:12d60cfce8a5c0c0f9c3b9e8981059ee5de70c813585eec2d823887a6ac82d3c` built from `cb6cb9b2`.
   The gate checks that the deployed revision contains the UID record (`f7b8f9ca`) and that the running manager's image ID ends in that revision's pinned digest; it does not check what source the digest was built from.
-  So `main` must still be `44bd5e74` at launch; a promotion after this page is a different operator and needs this line revised first.
+  For this stage it also requires the deployed revision and its digest to equal the registered ones (`restart_operator_pin`, with `RESTART_OPERATOR_REV=44bd5e741559d45d573f1b7c8fc9020e09f999f6` and `RESTART_OPERATOR_DIGEST` as above), before any GPU is bought, and the session log keeps that line.
+  No promotion is made from registration to teardown; one made anyway refuses the launch, or, after the gate, is a different operator and voids the run's H1 by this page.
   It does not contain the fence binding (#499), which this stage never exercises, because no case fences.
 
 ## Budget and cost
@@ -91,7 +94,8 @@ Computed by `restart_gpu_budget` and pinned in `hack/test/check-restart-session.
 - **Deadline:** with the 1,200 s of syncs and the held qualification and the 3,600 s margin, `TTL_MINUTES` must be at least 337. The session uses **340**, so it needs 380 minutes of credential.
 
 These are the deadlines the runner sets, not billing limits.
-The budget charges each phase an allowance that some nested calls can overrun (evidence collection, the DCGM reset), and the DCGM injection's `kubectl exec` has no deadline of its own.
+Since `c817c612` the runner holds every call inside a phase to that phase's absolute deadline (`restart_by`): the DCGM injection is cut at the case's deadline and its case VOID as delivery unknown, the evidence collection ends within its 120 s, and the reset within its slot.
+A `kubectl get` is bounded by its request timeout rather than cut, and can overrun its deadline by the time a rediscovery of the API takes.
 What bounds the spend is the EventBridge schedule, which asks for the GPU node group's scale-down 10 minutes before `TTL_MINUTES`, and the watchdog's destroy after it.
 The scale-down request is asynchronous and the destroy can fail; if it does, resources keep billing until they are removed by hand.
 
@@ -113,18 +117,20 @@ These are estimates, not billing.
 
 The nightly destroy (`.github/workflows/destroy.yml`, 18:00 UTC) removes the cluster, and the launcher refuses a session that comes within two hours of it.
 With `TTL_MINUTES=340` that leaves a window from 20:00 UTC to 10:20 UTC the next day, and none from 10:20 to 20:00 UTC.
-Its cron has been seen to run hours late, so the window is not enough on its own: the launcher also refuses while a destroy run is queued or in progress.
-The window is not enforced only when the workflow is disabled by hand, which is then re-enabled after the session's teardown.
+Its cron has been seen to run hours late, and a run scheduled after the launcher's one look at the queue is not seen, so the window is not enough on its own.
+For this session the workflow is therefore disabled by hand (`gh workflow disable destroy.yml`, with the owner's approval at launch) whatever the hour, no destroy run may be queued or in progress then, and it is re-enabled once the teardown is confirmed.
 
 ## Gates before the launch
 
 - Every gate of the earlier registration, including the operator gate's CRD and UID-commit checks.
 - A clean tree at the launch commit and `APPROVED_TRAIN_SHA256` as above.
-- `origin/main` is `44bd5e74`.
+- `origin/main` is `44bd5e74`, and `RESTART_OPERATOR_REV` and `RESTART_OPERATOR_DIGEST` are given as above.
+- The nightly destroy workflow is `disabled_manually` and no destroy run is pending.
 - `aws sts get-caller-identity --profile gpu-lab` read in the same shell.
 - The kind rehearsal of this stage (`RUNS=e hack/restart-lifecycle-kind.sh`): every case ACCEPTED through `score_kind_shim.py` and its lifecycle and outcome checks 0 FAIL, from a commit whose runner, scorer and trainer equal the launch commit's.
   The unmodified `score_eks.py` voids every kind case, because kind's ranks train with gloo on the CPU; that is the boundary the shim moves.
-  Met by `hack/restart-lifecycle-kind-20261104T142003Z` at `5f83e8e2`.
+  The first rehearsal, `hack/restart-lifecycle-kind-20261104T142003Z` at `5f83e8e2`, ran the runner and scorer the second attack's fixes replaced; the gate is met only by `hack/restart-lifecycle-kind-20261105T020442Z` at `c817c612`.
+  Its runner and trainer are the launch commit's; the launch scorer differs by `bd795568`, and the rehearsal's output scored again with it gives the same line for every case, so the scorer half of the gate is met by that re-scoring, not by a run.
 
 ## Review
 
@@ -134,20 +140,43 @@ Each finding was checked against the code or the archive before it was accepted;
 
 | # | finding | disposition |
 |---|---|---|
-| 1 | the DCGM injection's `kubectl exec` has no deadline | accepted; not fixed before this run, so the run uses the rehearsed runner. The spend is bounded by the EventBridge scale-down and the destroy, as "Budget and cost" now says; the fix is on its own branch |
-| 2 | nested calls can overrun the evidence and reset allowances | accepted; same treatment as 1 |
+| 1 | the DCGM injection's `kubectl exec` has no deadline | first deferred; fixed after the second attack in `c817c612`, with a hanging-exec test |
+| 2 | nested calls can overrun the evidence and reset allowances | first deferred; fixed in `c817c612` (`restart_by`, `GF_DEADLINE`), with a hanging-cluster test |
 | 3 | an ACCEPTED case does not establish `d`: missing stamps, a negative `d`, a missing timeline all passed | fixed: `h1_retarget.py` with the validity rules above, each rule mutated to show its test fail |
 | 4 | the outcome was conditioned on recovery, so a failed recovery could erase a refutation | fixed: a delivered fault gives `d` whatever the recovery; REFUTED is read first |
 | 5 | SUPPORTED overstated what a short `d` shows | fixed: narrowed to the controller's interval |
 | 6 | ±1 s assumed one continuous clock | fixed: the collector cross-check; a `d` outside it is INVALID |
-| 7 | completion censoring is reported as recovery censoring | accepted; scorer fix on its own branch, stated as a limit under "Descriptive figures" |
-| 8 | checkpoint costs can omit a rank or every save | accepted; same as 7 |
-| 9 | non-finite clocks give ACCEPTED NaN | accepted; same as 7 |
+| 7 | completion censoring is reported as recovery censoring | first deferred; fixed in `9499dba5` |
+| 8 | checkpoint costs can omit a rank or every save | first deferred; fixed in `9499dba5` |
+| 9 | non-finite clocks give ACCEPTED NaN | first deferred; fixed in `9499dba5` |
 | 10 | the fault window was written as steps 12 to 25 | fixed: the code's 10 and 25, and what `step_before_fault` is |
 | 11 | the operator is a moving target | fixed: the digest and its source registered, `origin/main` a gate |
 | 12 | process timeouts presented as billing limits | fixed: "conditional ceiling", and what bills if teardown fails |
 | 13 | the launch evidence was not committed | fixed by the launch commit, which carries the rehearsal archive and this page |
 | 14 | EFS outage, the termination cost comparison, the window's end | fixed: each sentence corrected |
+
+The second attack (2026-11-05, at `f5bb6f61`) found the first round's fixes incomplete, verdict "NO-GO", and bare reviews of `f5bb6f61` found its findings 3 and 4 independently.
+Each was reproduced on the archives before it was fixed, and each fix has a test that was shown to fail with the fix reverted:
+
+| # | finding | disposition |
+|---|---|---|
+| 1 | a VOID after delivery (missing after-probes) turned REFUTED into NOT ASSESSED | fixed in `083a84cb`: delivery is the scorer's delivery check alone |
+| 2 | a failed read was read as an absent stamp; the bracket does not prove clock continuity | fixed: failed reads skipped; the check is described as consistency to the bracket's width, which is reported |
+| 3 | a final object missing its stop gave a 43.9 s lower bound and a false REFUTED | fixed: contradictory evidence is INVALID |
+| 4 | H1 skipped the scorer's run-level refusals | fixed: `run_refusals` first |
+| 5 | `attempts: [null]` aborted the report | fixed: shapes checked, the case isolated |
+| 6 | the lifecycle checker could not read the committed `.xz` timelines (6 FAIL) | fixed: it reads them, and the committed rehearsal's replay is a test |
+| 7 | the operator pin was a local check | fixed in `eb661f70`: `restart_operator_pin` in the gate |
+| 8 | the destroy check cannot exclude a late scheduled run | fixed: the workflow is disabled for the session |
+| 9 to 13 | the first round's deferred 1, 2, 7, 8, 9 | fixed before this run instead of deferred, as above, and rehearsed again |
+
+Bare `codex review` of the fixes (`083a84cb`, `9499dba5`, `eb661f70`, `c817c612`) found nothing in `eb661f70` and `c817c612` and three P2 defects in the others, each fixed in `bd795568` with a test shown to fail with the fix reverted:
+
+| commit | finding | disposition |
+|---|---|---|
+| `083a84cb` | a read whose attempts are `[null]` counted as a successful read and, alone after the trigger, set a 59 s lower bound | fixed: a malformed read is skipped |
+| `9499dba5` | a censored recovery's bound ran to the last row, failed reads included, and ignored log follows given up before it | fixed: the bound ends at the last successful read and is withheld when a follow was given up |
+| `9499dba5` | a late recovery's time skipped the check that the probes labelled before the fault ran before it | fixed: `placed_fault` applies it on every path |
 
 ## What this does not show
 

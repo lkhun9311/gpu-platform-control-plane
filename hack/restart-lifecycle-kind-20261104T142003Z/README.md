@@ -6,7 +6,8 @@ Run `e` is `restart_run` with `RESTART_STAGE=retarget`: `reference`, `no-rng-con
 
 The run is from commit `5f83e8e2` on `feat/restart-targeted-stage` with a clean tree (`provenance.txt`, `run-e/provenance.txt`).
 The trainer's sha256 is `2c5cdbf09fdb4c8149443a806396fdf73f7176ea1adb174f5fe8052cb53f572c`, the one the paid session approves.
-The launch commit adds `experiments/distributed-restart/h1_retarget.py` and its kind shim, and changes no runner, scorer or trainer line.
+It no longer meets the paid session's gate: the second attack's fixes changed the runner and the scorer after it, and `hack/restart-lifecycle-kind-20261105T020442Z` replaces it.
+It is kept as the record of what the first registration rehearsed.
 
 ## What it showed
 
