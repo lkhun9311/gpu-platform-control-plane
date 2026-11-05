@@ -59,7 +59,7 @@ Each test is mutated to show it fails: without the `cgroup.kill`, and with the o
 
 ## 2. H1 decides only from published stops
 
-The evaluator's unpublished-stop branch (`censored_at_least_s` in `experiments/distributed-restart/h1_retarget.py`) no longer contributes to REFUTED.
+The evaluator's unpublished-stop branch in `experiments/distributed-restart/h1_retarget.py`, whose span was reported as a lower bound, no longer contributes to REFUTED; the span is now `unpublished_stop_observed_s`.
 A case with no `stopConfirmedAt` for attempt 1 yields no `d`; it is reported as an unpublished stop, with the collector's wall-clock span of observation as a description and not as a bound.
 REFUTED and SUPPORTED are decided over the cases with a valid `d`, with the bars unchanged: any valid `d` of 30 s or more still refutes.
 This removes the false bound a collector clock jump produced (sixth attack, 4) and makes a missing timestamp beside a published `Stopped` irrelevant to the verdict (sixth attack, 3).

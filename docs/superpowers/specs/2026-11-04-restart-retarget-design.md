@@ -49,14 +49,15 @@ A case gives a `d` only when all of these hold; otherwise it is INVALID with its
   On `full` the brackets were 7.7 s wide for `rank-kill` and about 31 s for `dcgm`, whose injection holds the collector's loop; a discontinuity smaller than that would not be seen.
   Inside the bracket, `d` carries up to 1 s from the whole-second truncation of each stamp.
 
-A case whose trigger is stamped and whose stop no successful read ever showed, with no later attempt in the final object or any read, gives a lower bound instead: the time from its trigger to the collector's last read.
-That bounds when the stop was published, not when the controller stamped it, and the controller creates the next attempt only after that update succeeds, so a stop unpublished for 30 s held the restart for 30 s; it is counted against H1 as such.
-A final object that lacks a stop the timeline or a later attempt shows is contradictory evidence and INVALID, not a stop that never came.
+A case whose trigger is stamped and whose stop no successful read ever showed, with no later attempt in the final object, any read, its logs or its Pods, gives no `d`: it is reported as an unpublished stop, with the time from the read that first showed its trigger to the collector's last read (`unpublished_stop_observed_s`).
+That time is a description, not a bound, and it refutes nothing: it is two readings of the collector's wall clock, so a jump of that clock alone turned a 2 s observation into a 62 s refutation while the controller's evidence stayed the same (sixth attack, 4).
+A final object that lacks a stop the timeline or a later attempt shows is contradictory evidence and INVALID, not a stop that never came; so is an attempt 1 shown `Stopped` without its `stopConfirmedAt`, because the controller writes the two in one update (sixth attack, 3).
+`d` assumes the controller's clock ran continuously between the two stamps it wrote; nothing in the run can show that, and the collector's bracket only bounds how far it can be wrong.
 
 | outcome | rule, read in this order |
 |---|---|
-| REFUTED | any case's `d` ≥ 30 s, or any stop unpublished for ≥ 30 s after its trigger, whatever the other cases or the recoveries did; the evaluator names which of the two it was |
-| NOT ASSESSED | otherwise, any of the four cases has no `d` |
+| REFUTED | any case's `d` ≥ 30 s, whatever the other cases or the recoveries did |
+| NOT ASSESSED | otherwise, any of the four cases has no `d`, an unpublished stop among them; the evaluator names the unpublished ones |
 | SUPPORTED | otherwise, every `d` ≤ 15 s |
 | INCONCLUSIVE | otherwise |
 
@@ -67,6 +68,7 @@ On `full`'s archive the evaluator gives `d` = 39, 39, 31, 31 s, each inside its 
 
 What was known when. The bars (15 s, 30 s) were written while the kind rehearsal ran and before its figures were read.
 The validity rules and the reading order were added on 2026-11-05, after the first rehearsal had given `d` = 0 to 1 s on kind; they change which cases count, not the bars.
+The unpublished-stop refutation was removed the same day, after the sixth attack and before any paid run of this stage; no rehearsal or archive had an unpublished stop, so the change moved no outcome that had been read.
 
 What H1 can and cannot say.
 SUPPORTED says that the controller's measured interval from its trigger to its stop confirmation was short on EKS under this stage's revisions.
