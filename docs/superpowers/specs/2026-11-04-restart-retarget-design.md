@@ -304,6 +304,11 @@ Bare `codex review` of `78f5b4ba` found the other side of the same conversion: a
 | a forward-then-back step extended a phase by the step | fixed: every deadline on the paid path is computed on CLOCK_BOOTTIME where it is set, and nothing converts SECONDS |
 | after a backward step the scale-down's fresh budget was refused | fixed by the same change (`f0a07fa5`, whose bare review found nothing); the teardown's deadline is its budget from the moment it is set |
 
+astra's third GO review, at `0318a7d3`, against the threat model and the four items, found no qualifying finding and every item met, and gave "GO".
+It confirmed by its own read-only replay that the kind archive gives 6/6 ACCEPTED, both checks 0 FAIL and H1 SUPPORTED with `d` = 0, 0, 1, 1 s, and that `full` still gives REFUTED with 39, 39, 31, 31 s; the cgroup suites, the refusal suite and the mutations it took as reported, since a read-only review cannot run them.
+A first run of that review ended on the model's capacity before giving a verdict and is not counted.
+GO is not the purchase: the paid session still starts only on the owner's confirmation at launch.
+
 ## What this does not show
 
 - No termination, fence or replacement: those ran in `full` on their recorded revisions and are not re-measured here.
