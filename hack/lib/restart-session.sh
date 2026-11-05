@@ -1706,7 +1706,9 @@ restart_run_case() {
   # A fault whose nodes' clocks were not read before it cannot be placed on the runner's clock, and the scorer would void
   # the case after the fault had cost a node, so the case is VOID before its fault and retired instead.
   # The reference has no fault and no recovery to time, so for it a failed probe is only logged.
-  if ! out="$(restart_probe_all "$dir" before 2>&1)"; then
+  # Under the case's deadline, which the sampling above may already have spent: a probe started after it once got a
+  # fresh allowance of its own (codex gpt-6-astra attack of the retarget registration).
+  if ! out="$(restart_by "$deadline" restart_probe_all "$dir" before 2>&1)"; then
     if [[ "$kind" != reference ]]; then
       # Only an external fault is held back by this: a rank-kill's trainer kills itself at its own step, and may already
       # have, so the reason says which (codex gpt-6-astra attack of the retarget registration).

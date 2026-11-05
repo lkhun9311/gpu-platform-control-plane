@@ -385,18 +385,20 @@ if [[ "$SERVE" == yes || -n "$TRAIN" || "$STUDY" == prefixroute ]]; then
       die "the nightly destroy (.github/workflows/destroy.yml, 18:00 UTC, state '$destroy_state') falls within two hours of this session's ${TTL_MINUTES} min; disable the workflow (gh workflow disable destroy.yml) or start later"
     fi
   fi
-  # Every unfinished status is asked for by name, across the workflow's whole history: the five latest runs once hid an
-  # older one still waiting for its environment's approval (codex gpt-6-astra attack of the retarget registration).
-  # action_required is not among them: the same parameter takes conclusions, and that one belongs to a completed run,
-  # which would refuse every later session (codex review of 73444604).
+  # Every run of the workflow's whole history is listed and each not completed is counted: the five latest once hid an
+  # older one still waiting for its environment's approval, and asking status by status missed a run that moved from
+  # pending to in_progress between two of the questions (codex gpt-6-astra attacks of the retarget registration).
+  # --paginate applies the filter to each page, so the counts are added up here.
+  counts="$(gh api --paginate "repos/lkhun9311/gpu-platform-control-plane/actions/workflows/destroy.yml/runs?per_page=100" \
+    --jq '[.workflow_runs[] | select(.status != "completed")] | length' 2>&1)" ||
+    die "could not list the destroy workflow's runs ($counts)"
   destroy_runs=0
-  for st in queued in_progress waiting requested pending; do
-    n="$(gh api "repos/lkhun9311/gpu-platform-control-plane/actions/workflows/destroy.yml/runs?status=$st&per_page=1" --jq .total_count 2>&1)" ||
-      die "could not ask GitHub whether a destroy run is $st ($n)"
-    [[ "$n" =~ ^[0-9]+$ ]] || die "GitHub answered '$n' for the destroy runs that are $st, not a count"
+  for n in $counts; do
+    [[ "$n" =~ ^[0-9]+$ ]] || die "GitHub answered '$n' for the destroy runs not completed, not a count"
     destroy_runs=$((destroy_runs + n))
   done
-  [[ "$destroy_runs" == 0 ]] || die "$destroy_runs destroy workflow run(s) are queued, waiting or in progress; wait for them"
+  [[ -n "$counts" ]] || die "GitHub listed no page of destroy runs, so none is shown to be finished"
+  [[ "$destroy_runs" == 0 ]] || die "$destroy_runs destroy workflow run(s) are not completed; wait for them"
 fi
 
 # --- The kill switch, armed before anything is created ------------------------------------------------
@@ -495,6 +497,25 @@ GPU_INSTANCES_FILE="$EXDIR/gpu-instances.txt"
 SCALED_UP=""
 GPU_ARMED=""
 kc() { kubectl --context "$CLUSTER" --request-timeout=20s "$@"; }
+# session_kubectl_by DEADLINE ARGS...: the kubectl binary with ARGS, cut at 20 s or at DEADLINE (in SECONDS), refused once
+# DEADLINE has passed.
+# A shared library's own kubectl calls carry only a request timeout, which a hanging credential helper outlasts, so a
+# phase that buys time on GPUs runs them with `kubectl() { session_kubectl_by ...; }` in its substitution (codex
+# gpt-6-astra attack of the retarget registration, which held T6 past its budget with a sleeping kubectl).
+session_kubectl_by() {
+  local t=$(($1 - SECONDS)) bin
+  shift
+  ((t <= 20)) || t=20
+  ((t >= 1)) || {
+    echo "the phase's deadline has passed; kubectl $* was not run" >&2
+    return 1
+  }
+  bin="$(type -P kubectl)" || {
+    echo "no kubectl on PATH" >&2
+    return 127
+  }
+  timeout -k 2 "$t" "$bin" "$@"
+}
 
 # ready_names reads a list of objects as JSON on stdin and prints the names of those whose Ready condition is
 # True. kubectl's JSONPath cannot do this: a filter nested inside a filter is refused as "unterminated filter",
@@ -816,7 +837,11 @@ train_run() {
     bad "could not scale $TRAIN_GROUP up"
     return 1
   }
-  ids="$(train_qualify_nodes "$CLUSTER" "$TRAIN_GROUP" "$TRAIN_NODES" $((WAIT_GPU_NODE + WAIT_GPU_PLUGIN)) "$TRAIN_GPUS_PER_NODE")" || {
+  local qdl=$((SECONDS + WAIT_GPU_NODE + WAIT_GPU_PLUGIN))
+  ids="$(
+    kubectl() { session_kubectl_by "$qdl" "$@"; }
+    train_qualify_nodes "$CLUSTER" "$TRAIN_GROUP" "$TRAIN_NODES" $((WAIT_GPU_NODE + WAIT_GPU_PLUGIN)) "$TRAIN_GPUS_PER_NODE"
+  )" || {
     bad "T6: $ids"
     return 1
   }
@@ -828,7 +853,11 @@ train_run() {
   zones="$(train_node_zones "$CLUSTER" "$TRAIN_GROUP" "$TRAIN_AZ")" || { bad "Z2: $zones"; return 1; }
   printf '%s\n' "$zones" >"$TRAIN_DIR/node-zones.txt"
   ok "Z2: $(paste -sd';' <<<"$zones")"
-  why="$(train_qualification_released "$CLUSTER" "$TRAIN_NS" train-qualify "$WAIT_QUAL_RUN")" || { bad "T7: $why"; return 1; }
+  local rdl=$((SECONDS + WAIT_QUAL_RUN))
+  why="$(
+    kubectl() { session_kubectl_by "$rdl" "$@"; }
+    train_qualification_released "$CLUSTER" "$TRAIN_NS" train-qualify "$WAIT_QUAL_RUN"
+  )" || { bad "T7: $why"; return 1; }
   ok "T7: $why"
   kc -n "$TRAIN_NS" get mltrainingjob train-qualify -o json >"$TRAIN_DIR/qualification-final.json" 2>>"$EXDIR/session.log" || true
   if [[ "$TRAIN" == allreduce ]]; then
@@ -982,7 +1011,9 @@ train_run_restart() {
     echo "cases=$(restart_cases | paste -sd' ')"
   } >"$RESTART_OUT/provenance.txt"
   # The three first nodes are warmed in parallel under one RESTART_WARM_BUDGET, the share restart_gpu_budget gives them.
-  out="$(restart_prepare_nodes "$warmed" $((SECONDS + RESTART_WARM_BUDGET)))" || { bad "R5: $out"; return 1; }
+  # Under restart_by as a whole, as between cases, so its creates and deletes are refused past the share as well.
+  local wdl=$((SECONDS + RESTART_WARM_BUDGET))
+  out="$(restart_by "$wdl" restart_prepare_nodes "$warmed" "$wdl")" || { bad "R5: $out"; return 1; }
   ok "R5: $out"
   out="$(restart_fault_path_ready "$RESTART_SIGNAL_BUDGET")" || { bad "R6: $out"; return 1; }
   ok "R6: $out"

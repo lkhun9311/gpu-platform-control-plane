@@ -27,6 +27,11 @@ REFUTE_S = 30
 # allowed for the truncation and the request latency.
 # A d outside it cannot be one clock's interval; a d inside it is only consistent, to the width of the bracket.
 CROSS_CHECK_S = 2.0
+# How far the controller's observed failure may lie from the fault it is to be the trigger of, in raw seconds.
+# On both paid archives and the kind rehearsal it came 0.5 to 3.0 s after the fault; up to 2 s before allows a whole-second stamp and a node clock
+# the probes keep within that of the controller's, and 60 s after is a bound no stop barrier of this stage came near.
+CHRONOLOGY_AFTER_S = 2.0
+CHRONOLOGY_BEFORE_S = 60.0
 
 
 def attempt_one(status: object) -> dict | None:
@@ -82,8 +87,11 @@ def bracket(seen: list[tuple[float, dict, list]], field: str) -> tuple[float, fl
     return None
 
 
-def measure(case_dir: pathlib.Path) -> dict:
-    """d and its evidence for one delivered case, or an INVALID reason, or a never-confirmed stop with its lower bound."""
+def measure(case_dir: pathlib.Path, later_ran: bool = False) -> dict:
+    """d and its evidence for one delivered case, or an INVALID reason, or a never-confirmed stop with its lower bound.
+
+    later_ran says the case's own logs or Pods show an attempt after the first, which only a confirmed stop allows.
+    """
     final = json.loads((case_dir / "final-mltj.json").read_text())
     a = attempt_one(final.get("status") if isinstance(final, dict) else None)
     if not a:
@@ -94,11 +102,18 @@ def measure(case_dir: pathlib.Path) -> dict:
     failed, stopped = a.get("failureObservedAt"), a.get("stopConfirmedAt")
     if not failed:
         return {"invalid": "attempt 1 has no failureObservedAt"}
+    # The trigger is checked against the reads before either branch: the missing-stop branch once returned its bound
+    # first, so a trigger that changed value or vanished still gave a 60 s refutation (fifth attack).
+    why = contradicted(seen, a, "failureObservedAt")
+    if why:
+        return {"invalid": why}
     if not stopped:
         # Only a stop no read ever showed, with no later attempt anywhere, is one that did not happen while observed.
         later = (final.get("status") or {}).get("attempts") or []
         if len(later) > 1 or any(x.get("stopConfirmedAt") or len(all_) > 1 for _, x, all_ in seen):
             return {"invalid": "the final MLTrainingJob lacks a stop that the timeline or a later attempt shows"}
+        if later_ran:
+            return {"invalid": "the final MLTrainingJob lacks a stop, and the case's logs or Pods show a later attempt ran"}
         f = bracket(seen, "failureObservedAt")
         if f is None:
             return {"invalid": "attempt 1 has no stopConfirmedAt, and its trigger is not bracketed by the timeline"}
@@ -137,6 +152,20 @@ def outcome(results: dict[str, dict]) -> tuple[str, str]:
     return "INCONCLUSIVE", f"every d is below {REFUTE_S} s and some is above {SUPPORT_S} s"
 
 
+def fault_at(case: score_eks.Case) -> float:
+    """When the registered fault happened, raw: the trainer's own fault record, or the node time of the injection."""
+    if case.kind in score_eks.IN_TRAINER_FAULT:
+        return score_eks.epoch(case.rec("fault", 1)[0]["ts"])
+    return score_eks.epoch(score_eks.load_json(case.dir / "dcgm.json")["injected_at"])
+
+
+def later_ran(case: score_eks.Case) -> bool:
+    """The case's bound logs or the controller's Pod labels show an attempt after the first."""
+    in_logs = any(isinstance(r.get("attempt"), int) and r["attempt"] > 1 for r in case.records)
+    in_pods = any(str(p.get("attempt_token", "-")) not in ("1", "-") for p in case.pods.values())
+    return in_logs or in_pods
+
+
 def delivered(case: score_eks.Case) -> str:
     """'' when the registered fault is shown delivered and is what ended attempt 1, else why not.
 
@@ -151,9 +180,19 @@ def delivered(case: score_eks.Case) -> str:
         case.load(runner_void=False)
         case.bind()
         case.check_delivered()
-        trigger = (case.attempts[0] if case.attempts else {}).get("trigger")
+        first = case.attempts[0] if case.attempts else {}
+        trigger = first.get("trigger")
         if trigger != score_eks.TRIGGER[case.kind]:
             return f"attempt 1 ended on {trigger!r}, not {score_eks.TRIGGER[case.kind]}, so the stop measured is not this fault's"
+        # A matching trigger name is not a cause: the fault must come before the trigger it is to explain, and not long
+        # before it; an injection moved to after the job had ended still passed (fifth attack).
+        # Both times are raw, the fault's on its node's clock and the trigger on the controller's, whole seconds.
+        # A missing trigger stamp is left to measure, which names it; here there is nothing to place.
+        fault = fault_at(case)
+        seen_at = score_eks.epoch(first["failureObservedAt"]) if first.get("failureObservedAt") else None
+        if seen_at is not None and not (fault - CHRONOLOGY_AFTER_S <= seen_at <= fault + CHRONOLOGY_BEFORE_S):
+            return (f"attempt 1's failure was observed {seen_at - fault:+.1f} s from the fault, outside "
+                    f"-{CHRONOLOGY_AFTER_S} to +{CHRONOLOGY_BEFORE_S} s, so the stop measured is not shown to be this fault's")
     except score_eks.Verdict as v:
         return f"the fault is not shown delivered: {v.reason}"
     except (ValueError, KeyError, TypeError, IndexError, AttributeError, OSError) as exc:
@@ -201,12 +240,13 @@ def main(argv: list[str]) -> int:
         beside = {"verdict": verdict}
         if (run / name / "VOID").exists():
             beside["runner_void"] = (run / name / "VOID").read_text(errors="replace").strip()[:200]
-        why = delivered(score_eks.Case(run, name, reference, steps, budget))
+        evidence = score_eks.Case(run, name, reference, steps, budget)
+        why = delivered(evidence)
         if why:
             results[name] = {**beside, "invalid": why}
             continue
         try:
-            results[name] = {**beside, **measure(run / name)}
+            results[name] = {**beside, **measure(run / name, later_ran(evidence))}
         except (ValueError, KeyError, TypeError, IndexError, AttributeError, OSError) as exc:
             results[name] = {**beside, "invalid": f"its evidence could not be read: {type(exc).__name__}: {str(exc)[:120]}"}
     for name in H1_CASES:

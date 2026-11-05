@@ -752,6 +752,29 @@ class Case:
             void(f"attempt 2 ran on {late}, up before the fault but not prepared before it (nodes-prepared.jsonl)")
         return "spare"
 
+    def check_steps(self, attempt: int, last: int | None = None) -> None:
+        """Each rank's step records of the attempt run from 1 without a gap, to `last` when it is given.
+
+        The save check compares saves with steps, so a step and its save both missing passed it: the reference with only
+        its step 30 left was ACCEPTED on two saves, and attempt 1 with its step 12 removed moved lost steps from 1 to 0
+        (codex gpt-6-astra attack of the retarget registration).
+        An in-trainer fault's record names the step its rank reached, so that rank's steps must reach it.
+        """
+        for rank in range(WORLD):
+            steps = {r.get("step") for r in self.rec("step", attempt, rank)}
+            if not steps or not all(isinstance(s, int) and not isinstance(s, bool) for s in steps):
+                void(f"attempt {attempt} rank {rank} has no step records, or one that is not a whole number")
+            stepped = sorted(steps)
+            top = last if last is not None else max(stepped)
+            if stepped != list(range(1, top + 1)):
+                void(f"attempt {attempt} rank {rank} recorded steps {stepped[:3]}...{stepped[-3:]}, not every step from 1 to {top}")
+        if attempt == 1 and self.kind in IN_TRAINER_FAULT:
+            fired = self.rec("fault", 1)
+            _, step, rank = IN_TRAINER_FAULT[self.kind]
+            reached = max((r.get("step") for r in self.rec("step", 1, rank)), default=0)
+            if fired and reached < step:
+                void(f"attempt 1 rank {rank}'s steps end at {reached}, before step {step} its fault record says it reached")
+
     def score(self) -> None:
         self.load()
         self.bind()
@@ -761,6 +784,7 @@ class Case:
             self.check_job(1)
             self.check_starts(1)
             self.check_transport(1)
+            self.check_steps(1, self.steps)
             got = self.final_params(1)
             # DDP keeps every rank's parameters equal, so ranks that disagree did not train one model.
             if any(len(p) != len(got[0]) for p in got.values()):
@@ -779,6 +803,7 @@ class Case:
             self.check_barrier()
         self.check_starts(2)
         self.check_transport(2)
+        self.check_steps(1)
         resumed = self.check_resume()
         gaps = self.params_gap(2)
         gap = max(gaps.values())
