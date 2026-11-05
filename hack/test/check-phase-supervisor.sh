@@ -46,7 +46,7 @@ marks() { : >"$work/started"; }
 why="$(phase_supervisor_ready)" && ok "ready: $why" || fail "not ready: $why"
 
 start=$SECONDS
-out="$(paid_phase helper $((SECONDS + 20)) leaves_helper 2>&1)"
+out="$(paid_phase helper $(($(phase_mono) + 20)) leaves_helper 2>&1)"
 rc=$?
 took=$((SECONDS - start))
 [[ $rc == 0 && "$out" == "client done" && $took -le 3 ]] &&
@@ -56,7 +56,7 @@ s="$(survivors 3601)"
 [[ -z "$s" ]] && ok "the helper was killed with its phase" || fail "the helper outlived its phase: $s"
 
 start=$SECONDS
-out="$(paid_phase hang $((SECONDS + 2)) hangs_with_escapee 2>&1)"
+out="$(paid_phase hang $(($(phase_mono) + 2)) hangs_with_escapee 2>&1)"
 rc=$?
 took=$((SECONDS - start))
 [[ $rc == 124 && $took -le 4 && "$out" == *"passed its deadline"* ]] &&
@@ -65,20 +65,20 @@ took=$((SECONDS - start))
 s="$(survivors '360[23]')"
 [[ -z "$s" ]] && ok "the setsid descendant was killed with its phase" || fail "outlived the phase: $s"
 
-out="$(paid_phase spent "$SECONDS" marks 2>&1)"
+out="$(paid_phase spent "$(phase_mono)" marks 2>&1)"
 rc=$?
 [[ $rc == 124 && ! -e "$work/started" && "$out" == *"not started"* ]] &&
   ok "a phase whose deadline had passed was not started: rc=$rc" ||
   fail "a phase whose deadline had passed: rc=$rc started=$([[ -e "$work/started" ]] && echo yes || echo no) out=${out:0:200}"
 
-out="$(paid_phase status $((SECONDS + 10)) bash -c 'echo to-out; echo to-err >&2; exit 7' 2>"$work/err")"
+out="$(paid_phase status $(($(phase_mono) + 10)) bash -c 'echo to-out; echo to-err >&2; exit 7' 2>"$work/err")"
 rc=$?
 [[ $rc == 7 && "$out" == to-out && "$(cat "$work/err")" == to-err ]] &&
   ok "the phase's status, stdout and stderr reach the caller as they were" ||
   fail "status/streams: rc=$rc out=$out err=$(cat "$work/err")"
 
 # An exit that left a phase running: the poller is killed, as a signal to the session would, and phase_kill_all ends it.
-paid_phase orphan $((SECONDS + 60)) sleep 3604 >/dev/null 2>"$work/orphan.err" &
+paid_phase orphan $(($(phase_mono) + 60)) sleep 3604 >/dev/null 2>"$work/orphan.err" &
 poller=$!
 sleep 1
 kill "$poller"
@@ -95,7 +95,7 @@ gone="$(find "$parent" -maxdepth 1 -name 'phase-*' | wc -l)"
 # A backward step of the wall clock between a deadline's computation and its phase, simulated as gpt-6-astra did by
 # setting SECONDS back: the phase still ends at the deadline as computed, not 6 s after it.
 start=$SECONDS
-dl=$((SECONDS + 2))
+dl=$(($(phase_mono) + 2))
 SECONDS=$((SECONDS - 6))
 out="$(paid_phase stepped "$dl" sleep 3605 2>&1)"
 rc=$?
@@ -106,7 +106,7 @@ s="$(survivors 3605)"
   fail "a backward clock step: rc=$rc took=${took}s survivors=$s out=${out:0:200}"
 
 # Another session's phase in the same cgroup is not this session's to end.
-PHASE_SESSION=other paid_phase theirs $((SECONDS + 60)) sleep 3606 >/dev/null 2>"$work/theirs.err" &
+PHASE_SESSION=other paid_phase theirs $(($(phase_mono) + 60)) sleep 3606 >/dev/null 2>"$work/theirs.err" &
 theirs=$!
 sleep 1
 phase_kill_all

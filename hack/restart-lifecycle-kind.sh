@@ -535,7 +535,7 @@ run_stage() {
   } >"$RESTART_OUT/provenance.txt"
   out=$(restart_reader) || die "run $name: R3: $out"
   log "run $name: R3: $out"
-  out=$(restart_prepare_nodes "$warmed" $((SECONDS + RESTART_WARM_BUDGET))) || die "run $name: R5: $out"
+  out=$(restart_prepare_nodes "$warmed" $(($(phase_mono) + RESTART_WARM_BUDGET))) || die "run $name: R5: $out"
   log "run $name: R5: $out"
   out=$(restart_fault_path_ready "$RESTART_SIGNAL_BUDGET") || die "run $name: R6: $out"
   log "run $name: R6: $out"

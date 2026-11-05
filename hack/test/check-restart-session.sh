@@ -258,7 +258,7 @@ lib() {
 # The harness stays self-contained, so here the stub kubectl stands for that: it ignores its request timeout and sleeps.
 mkdir -p "$work/rules/cred"
 echo 'sleep 30' >"$work/rules/cred/kubectl.sh"
-out="$(lib cred 's=$SECONDS; restart_by $((SECONDS + 3)) rk get pods >/dev/null 2>&1; echo rc=$? took=$((SECONDS - s))')"
+out="$(lib cred 's=$SECONDS; restart_by $(($(phase_mono) + 3)) rk get pods >/dev/null 2>&1; echo rc=$? took=$((SECONDS - s))')"
 took="$(grep -o 'took=[0-9]*' <<<"$out" | cut -d= -f2)"
 # At least 2 s, so a call that failed at once, before it could hang, does not pass as a cut one.
 if [[ "$out" == *"rc="[1-9]* && -n "$took" && "$took" -ge 2 && "$took" -le 7 ]]; then
@@ -284,7 +284,7 @@ fi
 sk="$(sed -n '/^session_kubectl_by() {/,/^}/p' hack/eks-gitops-session.sh)"
 mkdir -p "$work/skbin"
 printf '#!/usr/bin/env bash\nsleep 30\n' >"$work/skbin/kubectl" && chmod +x "$work/skbin/kubectl"
-out="$(PATH="$work/skbin:$PATH" bash -c "$sk"$'\n''s=$SECONDS; session_kubectl_by $((SECONDS + 3)) get nodes; echo rc=$? took=$((SECONDS - s)); session_kubectl_by $((SECONDS - 1)) get nodes; echo rc=$?' 2>&1)"
+out="$(PATH="$work/skbin:$PATH" bash -c ". hack/lib/phase-supervisor.sh"$'\n'"$sk"$'\n''s=$SECONDS; session_kubectl_by $(($(phase_mono) + 3)) get nodes; echo rc=$? took=$((SECONDS - s)); session_kubectl_by $(($(phase_mono) - 1)) get nodes; echo rc=$?' 2>&1)"
 took="$(grep -o 'took=[0-9]*' <<<"$out" | cut -d= -f2)"
 if [[ -n "$sk" && "$out" == *"rc=124 took="* && -n "$took" && "$took" -ge 2 && "$took" -le 7 && "$out" == *"deadline has passed"*"rc=1"* ]]; then
   ok "session_kubectl_by cuts a hanging kubectl at its deadline ($took s for 3 s) and refuses one past it"
@@ -308,8 +308,8 @@ printf '#!/usr/bin/env bash
 sleep 30
 ' "${HELPER_SLEEP:-8}" >"$work/helperbin/kubectl" && chmod +x "$work/helperbin/kubectl"
 out="$(PATH="$work/helperbin:$PATH" bash -c "$sk"$'\n'"$wk"$'\n''. hack/lib/phase-supervisor.sh
-s=$SECONDS; x="$(session_kubectl_by $((SECONDS + 2)) get nodes 2>&1)"; echo bare took=$((SECONDS - s))
-s=$SECONDS; x="$(paid_phase helper $((SECONDS + 2)) with_kubectl_by $((SECONDS + 2)) kubectl get nodes 2>&1)"; echo rc=$? phase took=$((SECONDS - s))' 2>&1)"
+s=$SECONDS; x="$(session_kubectl_by $(($(phase_mono) + 2)) get nodes 2>&1)"; echo bare took=$((SECONDS - s))
+s=$SECONDS; x="$(paid_phase helper $(($(phase_mono) + 2)) with_kubectl_by $(($(phase_mono) + 2)) kubectl get nodes 2>&1)"; echo rc=$? phase took=$((SECONDS - s))' 2>&1)"
 bare="$(grep -o 'bare took=[0-9]*' <<<"$out" | cut -d= -f2)"
 phased="$(grep -o 'phase took=[0-9]*' <<<"$out" | cut -d= -f2)"
 left="$(pgrep -f "slee[p] ${HELPER_SLEEP:-8}\$" | paste -sd' ')"
@@ -334,7 +334,7 @@ case "$*" in
   *"get nodes"*"-o json"*) sleep 30 ;;
 esac
 EOF
-out="$(lib qualify 's=$SECONDS; restart_by $((SECONDS + 4)) restart_wait_group 3 4 >/dev/null 2>&1; echo rc=$? took=$((SECONDS - s))')"
+out="$(lib qualify 's=$SECONDS; restart_by $(($(phase_mono) + 4)) restart_wait_group 3 4 >/dev/null 2>&1; echo rc=$? took=$((SECONDS - s))')"
 took="$(grep -o 'took=[0-9]*' <<<"$out" | cut -d= -f2)"
 if [[ "$out" == *"rc="[1-9]* && -n "$took" && "$took" -ge 2 && "$took" -le 8 ]]; then
   ok "a hanging client in the node qualification ends with its deadline ($took s for 4 s)"
@@ -345,14 +345,14 @@ fi
 mkdir -p "$work/rules/probecfg"
 echo 4 >"$work/rules/probecfg/kubeconfig.delay"
 echo '{"users": [{"user": {"exec": {"command": "sleep", "args": ["30"]}}}], "clusters": [], "contexts": []}' >"$work/rules/probecfg/kubeconfig.json"
-out="$(lib probecfg 's=$SECONDS; restart_by $((SECONDS + 6)) restart_probe_config "$RESTART_OUT/cfg" >/dev/null 2>&1; echo rc=$? took=$((SECONDS - s))')"
+out="$(lib probecfg 's=$SECONDS; restart_by $(($(phase_mono) + 6)) restart_probe_config "$RESTART_OUT/cfg" >/dev/null 2>&1; echo rc=$? took=$((SECONDS - s))')"
 took="$(grep -o 'took=[0-9]*' <<<"$out" | cut -d= -f2)"
 if [[ "$out" == *"rc="[1-9]* && -n "$took" && "$took" -le 8 ]]; then
   ok "the credential plugin is given what is left after the kubeconfig read ($took s for 6 s)"
 else
   bad "the credential plugin's allowance: $out"
 fi
-out="$(lib rkd-expired 'restart_by $((SECONDS - 1)) rkd $((SECONDS + 10)) get pods; echo rc=$?')"
+out="$(lib rkd-expired 'restart_by $(($(phase_mono) - 1)) rkd $(($(phase_mono) + 10)) get pods; echo rc=$?')"
 if [[ "$out" == *"the deadline has passed"*"rc=1"* ]] && ! grep -q '^kubectl ' "$work/rkd-expired.calls" 2>/dev/null; then
   ok "rkd refuses a call once an enclosing deadline has passed, and makes none"
 else
@@ -522,7 +522,7 @@ case "$*" in
 esac
 EOF
 : >"$work/out/warm/warmed.txt"
-out="$(lib warm 'restart_prepare_nodes "$RESTART_OUT/warmed.txt" $((SECONDS + 30)); echo "rc=$?"')"
+out="$(lib warm 'restart_prepare_nodes "$RESTART_OUT/warmed.txt" $(($(phase_mono) + 30)); echo "rc=$?"')"
 last_create="$(grep -n 'apply -f -' "$work/warm.calls" | tail -1 | cut -d: -f1)"
 first_wait="$(grep -n ' wait ' "$work/warm.calls" | head -1 | cut -d: -f1)"
 timeouts="$(grep -oE -- '--timeout=[0-9]+s' "$work/warm.calls" | paste -sd' ')"
@@ -542,7 +542,7 @@ cat >"$work/rules/reused/kubectl.sh" <<'EOF'
 case "$*" in *"get nodes"*) printf 'node-a new-uid\nnode-b ub\n' ;; esac
 EOF
 printf 'node-a old-uid\nnode-b ub\n' >"$work/out/reused/warmed.txt"
-out="$(lib reused 'restart_prepare_nodes "$RESTART_OUT/warmed.txt" $((SECONDS + 30)); echo "rc=$?"')"
+out="$(lib reused 'restart_prepare_nodes "$RESTART_OUT/warmed.txt" $(($(phase_mono) + 30)); echo "rc=$?"')"
 if [[ "$out" == *"rc=0" && "$(grep -c 'apply -f -' "$work/reused.calls")" == 2 ]] && grep -qx 'node-a new-uid' "$work/out/reused/warmed.txt" && [[
   "$(grep -c ' wait .*pod/rst-warm-' "$work/reused.calls")" == 1 ]]; then
   ok "a reused node name with a new UID is prepared again, and the unchanged node is not"
@@ -560,7 +560,7 @@ case "$*" in
 esac
 EOF
 : >"$work/out/eksnames/warmed.txt"
-out="$(lib eksnames 'restart_prepare_nodes "$RESTART_OUT/warmed.txt" $((SECONDS + 30)); echo "rc=$?"')"
+out="$(lib eksnames 'restart_prepare_nodes "$RESTART_OUT/warmed.txt" $(($(phase_mono) + 30)); echo "rc=$?"')"
 # The stubs record arguments, not stdin, so the Pods are read from the waits that name them.
 names="$(grep -oE ' wait .*pod/rst-warm-[a-z0-9-]+' "$work/eksnames.calls" | grep -oE 'rst-warm-[a-z0-9-]+' | sort -u | wc -l)"
 long="$(grep -oE 'pod/rst-warm-[a-z0-9-]+' "$work/eksnames.calls" | awk 'length($0) - 4 > 63' | wc -l)"
@@ -937,9 +937,9 @@ out="$(timeout 150 bash -c "$(declare -f lib); work='$work'; lib phase-hang '
 RESTART_EVIDENCE_BUDGET=12 RESTART_PROBE_SHARE=4 RESTART_STOP_RESERVE=6 RESTART_EVIDENCE_PAUSE=1 RESTART_STOP_TRIES=2
 sleep 300 &
 collector=\$!
-restart_evidence \"\$RESTART_OUT\" rst-x \"\$collector\" \$SECONDS \"\"
+restart_evidence \"\$RESTART_OUT\" rst-x \"\$collector\" \$(phase_mono) \"\"
 echo \"evidence=\$? in \$SECONDS s\"
-restart_dcgm_reset node-b \"\$RESTART_OUT\" \$((SECONDS + 5))
+restart_dcgm_reset node-b \"\$RESTART_OUT\" \$((\$(phase_mono) + 5))
 echo \"reset=\$? at \$SECONDS s\"'")"
 took=$((SECONDS - start))
 ev="$(grep -o 'evidence=[0-9]* in [0-9]*' <<<"$out")"
@@ -961,7 +961,7 @@ case "$*" in "eks update-nodegroup-config"*)
   echo "An error occurred (ResourceInUseException) when calling the UpdateNodegroupConfig operation: update in progress" >&2; exit 254 ;;
 esac
 EOF
-out="$(lib scale-busy 'RESTART_SCALE_RETRY=1; restart_scale_group 2 $((SECONDS + 20)); echo "rc=$?"')"
+out="$(lib scale-busy 'RESTART_SCALE_RETRY=1; restart_scale_group 2 $(($(phase_mono) + 20)); echo "rc=$?"')"
 asks="$(grep -c 'update-nodegroup-config' "$work/scale-busy.calls")"
 if [[ "$out" == "rc=0" && "$asks" == 3 ]] && grep -q 'desiredSize=2' "$work/scale-busy.calls"; then
   ok "a scale request refused twice for an update in progress is accepted on the third ask"
@@ -973,7 +973,7 @@ cat >"$work/rules/scale-never/aws.sh" <<'EOF'
 case "$*" in "eks update-nodegroup-config"*) echo "An error occurred (ResourceInUseException)" >&2; exit 254 ;; esac
 EOF
 start=$SECONDS
-out="$(lib scale-never 'RESTART_SCALE_RETRY=1; restart_scale_group 2 $((SECONDS + 4)); echo "rc=$?"')"
+out="$(lib scale-never 'RESTART_SCALE_RETRY=1; restart_scale_group 2 $(($(phase_mono) + 4)); echo "rc=$?"')"
 if [[ "$out" == *"was not scaled to 2 before its deadline"*"ResourceInUseException"*"rc=1" && $((SECONDS - start)) -lt 8 ]]; then
   ok "a scale request never accepted runs out at its deadline"
 else
@@ -1020,7 +1020,7 @@ if [[ "$out" == *"nothing more starts"*"rc=1"*"min away"*"rc=0" ]]; then ok "a c
 # --- the case procedure under restart_run, with the group, deadline and scorer steps replaced by functions ---------
 # The shares are cut to seconds so a case's waits end at once; the real restart_run_case runs only for the case named.
 # The share before a submission is 3 s, not 1: each step in it is a paid phase, refused once its deadline has passed, and
-# SECONDS counts whole seconds, so three steps in a 1 s share were refused whenever it began late in a second.
+# The clock counts whole seconds, so three steps in a 1 s share were refused whenever it began late in a second.
 RUNNER_PRELUDE='RESTART_STAGE=smoke RESTART_REQUALIFY_BUDGET=3 RESTART_REPLENISH_BUDGET=3 RESTART_WARM_BUDGET=1 RESTART_SUBMIT_BUDGET=1
 RESTART_CASE_BUDGET=2 RESTART_EVIDENCE_BUDGET=1 RESTART_RETIRE_BUDGET=2 RESTART_FILES_BUDGET=5 RESTART_RESET_BUDGET=1
 eval "$(declare -f restart_deadline_ok | sed "1s/restart_deadline_ok/restart_deadline_ok_real/")"
@@ -1210,7 +1210,7 @@ EOF
   echo '{"kind": "terminate-wait", "name": "rst-t", "job_id": "job-t", "target": {}}' >"$work/out/$1/case.json"
 }
 external='window="$(restart_fault_window rp0 job-t "$RESTART_OUT" 5)" || { echo "window shut: $window"; exit 1; }
-restart_external_fault terminate-wait "$RESTART_OUT" rst-t job-t rp0 node-b "$window" $((SECONDS + 30)) $((SECONDS + 60)); echo "rc=$?"'
+restart_external_fault terminate-wait "$RESTART_OUT" rst-t job-t rp0 node-b "$window" $(($(phase_mono) + 30)) $(($(phase_mono) + 60)); echo "rc=$?"'
 window_rules late yes
 out="$(lib late "$external")"
 case_json="$(python3 -c 'import json, sys; c = json.load(open(sys.argv[1])); print(c.get("step_before_fault"), c.get("published_at_window", "")[:2], "published_at_fault" in c)' "$work/out/late/case.json")"
@@ -1309,7 +1309,9 @@ EOF
 }
 late_rules late-exporter late
 late_rules never-exporter never
-out="$(lib late-exporter 'RESTART_POLL=1; restart_fault_path_ready 4; echo "rc=$?"')"
+# 5 s and not 4: the deadline is set on whole seconds of a clock counted from boot, not from the shell's start as SECONDS
+# was, so a budget can come to up to a second less, and node-b's two polls and node-a's read needed about 3.5 s.
+out="$(lib late-exporter 'RESTART_POLL=1; restart_fault_path_ready 5; echo "rc=$?"')"
 if [[ "$out" == *"every GPU node's exporter serves the fault fields"*"rc=0" && "$(grep -c 'dcgm-b:9400' "$work/late-exporter.calls")" == 2 ]]; then
   ok "fault path readiness waits for an exporter that is still starting"
 else

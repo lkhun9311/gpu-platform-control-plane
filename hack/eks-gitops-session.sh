@@ -517,13 +517,13 @@ GPU_INSTANCES_FILE="$EXDIR/gpu-instances.txt"
 SCALED_UP=""
 GPU_ARMED=""
 kc() { kubectl --context "$CLUSTER" --request-timeout=20s "$@"; }
-# session_kubectl_by DEADLINE ARGS...: the kubectl binary with ARGS, cut at 20 s or at DEADLINE (in SECONDS), refused once
+# session_kubectl_by DEADLINE ARGS...: the kubectl binary with ARGS, cut at 20 s or at DEADLINE (on the phase_mono clock), refused once
 # DEADLINE has passed.
 # A shared library's own kubectl calls carry only a request timeout, which a hanging credential helper outlasts, so a
 # phase that buys time on GPUs runs them with `kubectl() { session_kubectl_by ...; }` in its substitution (codex
 # gpt-6-astra attack of the retarget registration, which held T6 past its budget with a sleeping kubectl).
 session_kubectl_by() {
-  local t=$(($1 - SECONDS)) bin
+  local t=$(($1 - $(phase_mono))) bin
   shift
   ((t <= 20)) || t=20
   ((t >= 1)) || {
@@ -867,12 +867,12 @@ train_run() {
   SCALED_UP=1
   # From here every call runs in a paid phase: a cgroup killed whole at its deadline, so no client, credential helper or
   # descendant of one can hold the session past it (docs/superpowers/specs/2026-11-05-paid-phase-supervisor-design.md).
-  paid_phase scale-up $((SECONDS + SESSION_CALL)) aws eks update-nodegroup-config --cluster-name "$CLUSTER" --nodegroup-name "$TRAIN_GROUP" \
+  paid_phase scale-up $(($(phase_mono) + SESSION_CALL)) aws eks update-nodegroup-config --cluster-name "$CLUSTER" --nodegroup-name "$TRAIN_GROUP" \
     --scaling-config "minSize=0,maxSize=$TRAIN_NODES,desiredSize=$TRAIN_NODES" >>"$EXDIR/session.log" 2>&1 || {
     bad "could not scale $TRAIN_GROUP up"
     return 1
   }
-  local qdl=$((SECONDS + WAIT_GPU_NODE + WAIT_GPU_PLUGIN))
+  local qdl=$(($(phase_mono) + WAIT_GPU_NODE + WAIT_GPU_PLUGIN))
   ids="$(paid_phase t6 "$qdl" with_kubectl_by "$qdl" \
     train_qualify_nodes "$CLUSTER" "$TRAIN_GROUP" "$TRAIN_NODES" $((WAIT_GPU_NODE + WAIT_GPU_PLUGIN)) "$TRAIN_GPUS_PER_NODE")" || {
     bad "T6: $ids"
@@ -880,18 +880,18 @@ train_run() {
   }
   awk '{print $2}' <<<"$ids" >>"$GPU_INSTANCES_FILE"
   ok "T6: $(paste -sd';' <<<"$ids")"
-  paid_phase node-dump $((SECONDS + SESSION_CALL)) kc get nodes -o json >"$TRAIN_DIR/nodes.json" 2>>"$EXDIR/session.log" || true
+  paid_phase node-dump $(($(phase_mono) + SESSION_CALL)) kc get nodes -o json >"$TRAIN_DIR/nodes.json" 2>>"$EXDIR/session.log" || true
   # Z2: the zone each qualified node runs in, which every rank's figure inherits; with TRAIN_AZ, all of them in it.
   local zones
-  local zdl=$((SECONDS + SESSION_CALL))
+  local zdl=$(($(phase_mono) + SESSION_CALL))
   zones="$(paid_phase z2 "$zdl" with_kubectl_by "$zdl" train_node_zones "$CLUSTER" "$TRAIN_GROUP" "$TRAIN_AZ")" || { bad "Z2: $zones"; return 1; }
   printf '%s\n' "$zones" >"$TRAIN_DIR/node-zones.txt"
   ok "Z2: $(paste -sd';' <<<"$zones")"
-  local rdl=$((SECONDS + WAIT_QUAL_RUN))
+  local rdl=$(($(phase_mono) + WAIT_QUAL_RUN))
   why="$(paid_phase t7 "$rdl" with_kubectl_by "$rdl" \
     train_qualification_released "$CLUSTER" "$TRAIN_NS" train-qualify "$WAIT_QUAL_RUN")" || { bad "T7: $why"; return 1; }
   ok "T7: $why"
-  paid_phase qualification-final $((SECONDS + SESSION_CALL)) kc -n "$TRAIN_NS" get mltrainingjob train-qualify -o json \
+  paid_phase qualification-final $(($(phase_mono) + SESSION_CALL)) kc -n "$TRAIN_NS" get mltrainingjob train-qualify -o json \
     >"$TRAIN_DIR/qualification-final.json" 2>>"$EXDIR/session.log" || true
   if [[ "$TRAIN" == allreduce ]]; then
     train_run_allreduce "$ids" "$zones"
@@ -1045,13 +1045,13 @@ train_run_restart() {
   } >"$RESTART_OUT/provenance.txt"
   # The three first nodes are warmed in parallel under one RESTART_WARM_BUDGET, the share restart_gpu_budget gives them.
   # Under restart_by as a whole, as between cases, so its creates and deletes are refused past the share as well.
-  local wdl=$((SECONDS + RESTART_WARM_BUDGET))
+  local wdl=$(($(phase_mono) + RESTART_WARM_BUDGET))
   out="$(paid_phase r5 "$wdl" restart_by "$wdl" restart_prepare_nodes "$warmed" "$wdl")" || { bad "R5: $out"; return 1; }
   ok "R5: $out"
-  out="$(paid_phase r6 $((SECONDS + RESTART_SIGNAL_BUDGET)) restart_fault_path_ready "$RESTART_SIGNAL_BUDGET")" || { bad "R6: $out"; return 1; }
+  out="$(paid_phase r6 $(($(phase_mono) + RESTART_SIGNAL_BUDGET)) restart_fault_path_ready "$RESTART_SIGNAL_BUDGET")" || { bad "R6: $out"; return 1; }
   ok "R6: $out"
   restart_run "$warmed" 2>&1 | tee -a "$RESTART_OUT/run.log" "$EXDIR/session.log"
-  if paid_phase r7 $((SECONDS + SESSION_SCORE_CALL)) python3 experiments/distributed-restart/score_eks.py "$RESTART_OUT" \
+  if paid_phase r7 $(($(phase_mono) + SESSION_SCORE_CALL)) python3 experiments/distributed-restart/score_eks.py "$RESTART_OUT" \
     >"$RESTART_OUT/verdict.txt" 2>&1; then
     ok "R7: every registered case ACCEPTED ($RESTART_OUT/verdict.txt)"
   else
@@ -1070,7 +1070,7 @@ train_down() {
   [[ -n "$SCALED_UP$GPU_ARMED" ]] || return 0
   if [[ -n "$SCALED_UP" ]]; then
     log "scaling $TRAIN_GROUP to 0"
-    if why="$(paid_phase scale-down $((SECONDS + WAIT_GPU_GONE + SESSION_SCALE_DOWN_EXTRA)) \
+    if why="$(paid_phase scale-down $(($(phase_mono) + WAIT_GPU_GONE + SESSION_SCALE_DOWN_EXTRA)) \
       train_scale_down "$CLUSTER" "$REGION" "$TRAIN_GROUP" "$GPU_INSTANCES_FILE" "$WAIT_GPU_GONE")"; then
       ok "S6 (GPU half): $why"
       SCALED_UP=""
@@ -1080,7 +1080,7 @@ train_down() {
     fi
   fi
   # Removed only once the nodes are verifiably gone; a leftover schedule makes the next session refuse to arm.
-  if paid_phase ttl-disarm $((SECONDS + SESSION_CALL)) ttl_disarm 2>>"$EXDIR/session.log"; then
+  if paid_phase ttl-disarm $(($(phase_mono) + SESSION_CALL)) ttl_disarm 2>>"$EXDIR/session.log"; then
     rm -f "$GPU_TTL_FILE"
     GPU_ARMED=""
   else
