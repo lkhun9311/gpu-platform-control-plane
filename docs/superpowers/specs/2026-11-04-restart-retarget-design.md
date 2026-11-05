@@ -87,6 +87,7 @@ The scorer at the launch commit includes three fixes the first attack found (`94
 - A save record without a finite, non-negative cost, or an attempt without costs from both ranks, is VOID, and a NaN or infinite clock is refused.
 - Each rank of each attempt must have a save record for every step it recorded but at most its last, which a fault can cut before its save; both paid archives meet that, and a thinner sample is VOID rather than a median over it (`7d7e7fb4`).
 - The steps themselves must be all there: the reference's from 1 to 30 on each rank, attempt 1's from 1 without a gap, and an in-trainer fault's rank up to the step its fault record names, since losing a step with its save passed the check above (`1729ad8a`).
+- After the sixth attack (`e2e0633f`): a late recovery keeps its time only when each rank's first step of attempt 2 is the one after its checkpoint, and otherwise says only later progress was observed; an attempt that completed must have every save, its last included; two different save records for one rank and step VOID the case; and each node of attempt 2 must have been probed after its first step, or an ACCEPTED case is VOID and a late one's time is withheld.
 Both committed archives keep every published verdict and figure under it (`hack/test/check-restart-session.sh`).
 
 ## Revisions it runs

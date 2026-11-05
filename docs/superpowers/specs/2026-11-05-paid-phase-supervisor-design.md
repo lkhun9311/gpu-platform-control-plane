@@ -73,8 +73,11 @@ In `experiments/distributed-restart/score_eks.py`:
 
 - A late recovery time is reported only when each rank's first resumed step is the step after its checkpoint; otherwise the figure is withheld and marked as later progress observed, while the FAILED or late verdict stands.
 - Checkpoint statistics require every save of an attempt that completed; the allowance for a missing last save applies only to an interrupted attempt.
-- Two records for one attempt, rank and step with different costs withhold the statistic; identical replayed records still count once.
-- A probe counts as after only if it is timed after the recovery or completion it brackets; with none, the recovery time is withheld.
+- Two records for one attempt, rank and step with different costs make the case VOID; identical replayed records still count once.
+- A probe counts as after only if each node of attempt 2 was probed after that node's first step, both read on the node's own clock; without one, an ACCEPTED case is VOID and a late case's recovery time is withheld.
+
+As implemented (`e2e0633f`), a missing save and a conflicting save VOID the case rather than withhold one statistic, as the save-completeness rule of `7d7e7fb4` already did; a reference VOID that way stops the run, which is the registered abort for a reference that is not ACCEPTED.
+Both paid archives score byte for byte as before under these rules.
 
 Tests are the sixth attack's three reproductions as fixtures, each mutated to show it fails.
 
