@@ -32,16 +32,20 @@ The step read last before the injection is recorded in each case's `case.json` (
 For each of `rank-kill-1`, `rank-kill-2`, `dcgm-1`, `dcgm-2`, `d` is `status.attempts[0].stopConfirmedAt − status.attempts[0].failureObservedAt` in the final MLTrainingJob, for the attempt numbered 1.
 A case gives a `d` only when all of these hold; otherwise it is INVALID with its reason, and is reported, not dropped:
 
-- `score_eks.py`'s delivery check (`Case.check_delivered`, after its `load` and `bind`) passes. Nothing the scorer checks after delivery is consulted, so a recovery that failed, or evidence only the recovery needs, never removes a `d`; the scorer's verdict is reported beside it.
+- `score_eks.py`'s delivery check (`Case.check_delivered`, after its `load` and `bind`) passes. Nothing the scorer checks after delivery is consulted, so a recovery that failed never removes a `d`; the scorer's verdict is reported beside it.
+  `load` and `bind` read the case's spec, final object, Pods, marks and rank logs, and `bind` refuses logs it cannot tie to the case, which can remove a `d`; the clock probes, which only the recovery uses, are read when first used, so an unreadable probe file does not.
 - The run passes the scorer's run-level refusals (`run_refusals`: a clean tree, the approved trainer).
 - Both stamps are present and `d ≥ 0`.
-- The case's `timeline.jsonl` brackets each stamp between two of the collector's successful reads, and `d` lies inside the interval those reads allow, widened by 2 s. A failed or malformed read is skipped, not read as an absent stamp.
+- The case's `timeline.jsonl` brackets each stamp between two of the collector's successful reads, and `d` lies inside the interval those reads allow, widened by 2 s. A failed or malformed read, one whose time cannot be read included, is skipped, not read as an absent stamp; both evaluators use one reader for this (`status_reads`).
   The two stamps are wall-clock times from separate `metav1.Now()` calls, possibly on two controller hosts, and the collector's reads are on another clock.
-  This is a consistency check, not a proof of one continuous clock: a `d` outside the bracket cannot be one clock's interval and is INVALID, and a `d` inside it is consistent only to the bracket's width, which is reported beside it.
+  What a read brackets is when the stamp was visible through the API, not when the controller made it: the controller stamps before its status update, and each read is timed when its response came back, not when it was asked.
+  Neither latency is measured; the 2 s allows for them, and a larger one makes a correct `d` fall outside the bracket.
+  So this is a consistency check, not a proof of one continuous clock: a `d` outside the bracket is INVALID, which can lose a correct measurement but cannot make one, and a `d` inside it is consistent only to the bracket's width, which is reported beside it.
   On `full` the brackets were 7.7 s wide for `rank-kill` and about 31 s for `dcgm`, whose injection holds the collector's loop; a discontinuity smaller than that would not be seen.
   Inside the bracket, `d` carries up to 1 s from the whole-second truncation of each stamp.
 
 A case whose trigger is stamped and whose stop no successful read ever showed, with no later attempt in the final object or any read, gives a lower bound instead: the time from its trigger to the collector's last read.
+That bounds when the stop was published, not when the controller stamped it, and the controller creates the next attempt only after that update succeeds, so a stop unpublished for 30 s held the restart for 30 s; it is counted against H1 as such.
 A final object that lacks a stop the timeline or a later attempt shows is contradictory evidence and INVALID, not a stop that never came.
 
 | outcome | rule, read in this order |
@@ -72,7 +76,7 @@ Reported beside `full`'s and never pooled with them: each case's verdict and cla
 A difference in recovery is not attributed to any one change.
 The scorer at the launch commit includes three fixes the first attack found (`9499dba5`):
 - A job past its budget after every rank of attempt 2 stepped is "past its budget after a recovery", with its recovery kept, not a censored recovery.
-- A censored recovery's lower bound runs from the fault, not from the job's creation.
+- A censored recovery is reported with when observation of it ended, from the fault to the last read of the job, and not as a bound on it, because nothing shows the logs were followed throughout (`307f3541`).
 - A save record without a finite, non-negative cost, or an attempt without costs from both ranks, is VOID, and a NaN or infinite clock is refused.
 Both committed archives keep every published verdict and figure under it (`hack/test/check-restart-session.sh`).
 
@@ -95,7 +99,7 @@ Computed by `restart_gpu_budget` and pinned in `hack/test/check-restart-session.
 
 These are the deadlines the runner sets, not billing limits.
 Since `c817c612` the runner holds every call inside a phase to that phase's absolute deadline (`restart_by`): the DCGM injection is cut at the case's deadline and its case VOID as delivery unknown, the evidence collection ends within its 120 s, and the reset within its slot.
-A `kubectl get` is bounded by its request timeout rather than cut, and can overrun its deadline by the time a rediscovery of the API takes.
+Since `570b2423` every kubectl call of the runner is also cut by the wall clock, because a request timeout does not bound a credential helper, and a call is refused once an enclosing deadline has passed; a cut call can outlast its deadline by the 2 s kill grace and a second of rounding.
 What bounds the spend is the EventBridge schedule, which asks for the GPU node group's scale-down 10 minutes before `TTL_MINUTES`, and the watchdog's destroy after it.
 The scale-down request is asynchronous and the destroy can fail; if it does, resources keep billing until they are removed by hand.
 
@@ -118,7 +122,8 @@ These are estimates, not billing.
 The nightly destroy (`.github/workflows/destroy.yml`, 18:00 UTC) removes the cluster, and the launcher refuses a session that comes within two hours of it.
 With `TTL_MINUTES=340` that leaves a window from 20:00 UTC to 10:20 UTC the next day, and none from 10:20 to 20:00 UTC.
 Its cron has been seen to run hours late, and a run scheduled after the launcher's one look at the queue is not seen, so the window is not enough on its own.
-For this session the workflow is therefore disabled by hand (`gh workflow disable destroy.yml`, with the owner's approval at launch) whatever the hour, no destroy run may be queued or in progress then, and it is re-enabled once the teardown is confirmed.
+For this session the workflow is therefore disabled by hand (`gh workflow disable destroy.yml`, with the owner's approval at launch) whatever the hour, and it is re-enabled once the teardown is confirmed.
+Since `73444604` the launcher refuses `RESTART_STAGE=retarget` unless the workflow is `disabled_manually`, and refuses any destroy run queued, in progress, waiting, requested or pending, counted across the workflow's whole history rather than its latest five runs (`action_required`, first counted too, is the conclusion of a finished run, and was dropped after the review of `73444604`).
 
 ## Gates before the launch
 
@@ -178,6 +183,19 @@ Bare `codex review` of the fixes (`083a84cb`, `9499dba5`, `eb661f70`, `c817c612`
 | `9499dba5` | a censored recovery's bound ran to the last row, failed reads included, and ignored log follows given up before it | fixed: the bound ends at the last successful read and is withheld when a follow was given up |
 | `9499dba5` | a late recovery's time skipped the check that the probes labelled before the fault ran before it | fixed: `placed_fault` applies it on every path |
 | `eca90990` | an attempt-1 Pod's given-up follows withheld the bound, though it cannot print attempt 2's step | fixed in `f483bfde`: only Pods not labelled attempt 1 count |
+
+The third attack (2026-11-05, at `60bee411`, the checkout advancing to `f483bfde` during it) gave "NO-GO" with seven findings, the seventh already fixed by `f483bfde`.
+Each was reproduced or read in the code first, and each fix has a test shown to fail with it reverted:
+
+| # | finding | disposition |
+|---|---|---|
+| 1 | a hanging credential helper held `rk` past its deadline; `rkd` called after an enclosing deadline | fixed in `570b2423`: the real kubectl held a call 150 s without the cut, 3 s with it |
+| 2 | a censored recovery's lower bound assumed log coverage nothing records | fixed in `307f3541`: reported as where observation ended, never as a bound |
+| 3 | an unreadable clock probe file removed `d` through the shared loader | fixed in `307f3541`: the probes are read when first used |
+| 4 | the collector brackets visibility, not stamping, and response time, not request time | narrowed: the limit is stated under H1, an outside `d` can only be lost, and a never-published stop is counted as the restart it held; the collector is not changed |
+| 5 | the two evaluators skipped different malformed rows, and an unreadable time ended a case | fixed in `307f3541`: one reader, `status_reads`, for both |
+| 6 | the pending-destroy check read the latest five runs only | fixed in `73444604`: every unfinished status counted, and the retarget launch refuses an enabled workflow |
+| 7 | attempt-1 follows withheld the bound | already fixed in `f483bfde` |
 
 ## What this does not show
 
