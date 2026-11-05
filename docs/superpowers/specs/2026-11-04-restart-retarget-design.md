@@ -125,8 +125,8 @@ The launcher's steps are the scale-up, T6, the node dump, Z2, T7, the qualificat
 The launcher refuses to buy unless it has shown the mechanism works there (K1), by killing a sleeper in a cgroup it made.
 A case its slot's end kills is VOID, never scored from what it left, and nothing more starts, because its job may still hold GPUs.
 The per-call cuts it replaced as the bound (`restart_by`, `rk`, `rkd`, `rkt`, `session_kubectl_by`) stay, because refusing a call once its deadline has passed is cheaper than killing it; until `1729ad8a` they were the only bound, and the sixth attack showed both a credential helper that outlived one (1 s deadline, 2 s grace, 6.03 s taken) and calls none covered.
-The supervisor decides on CLOCK_BOOTTIME (`/proc/uptime`), which no wall-clock step moves; the callers give their deadlines in bash's SECONDS, which follows the wall clock, so each is converted twice, from the phase's start and from when the supervisor was loaded, and the earlier kept.
-A step then makes a phase end early, never late, unless the clock steps forward before the deadline is computed and back between that and the phase's start (`78f5b4ba`; before it, a 6 s backward step delayed a kill by 6 s, gpt-6-astra's GO review of `7e9ac2a5`).
+Every deadline on the paid path, the launcher's, the runner's and the supervisor's, is computed and decided on CLOCK_BOOTTIME (`phase_mono`, read from `/proc/uptime`), at the call that sets it, so no step of the collector's wall clock moves one.
+Before that, deadlines were kept in bash's SECONDS, which follows the wall clock: a 6 s backward step delayed a kill by 6 s (gpt-6-astra's GO review of `7e9ac2a5`), and converting SECONDS deadlines to the monotonic clock later still let a forward-then-back step extend a phase, and a step before the teardown refuse its fresh budget (its second GO review and the bare review of `78f5b4ba`).
 A phase is checked every 0.5 s on whole seconds, so it ends within about 1.5 s after its deadline and can end up to 1 s before it.
 What bounds the spend is still the EventBridge schedule, which asks for the GPU node group's scale-down 10 minutes before `TTL_MINUTES`, and the watchdog's destroy after it; neither is part of any phase, and killing a local client cancels no request AWS has already accepted.
 The scale-down request is asynchronous and the destroy can fail; if it does, resources keep billing until they are removed by hand.
@@ -288,13 +288,21 @@ All are fixed in `78f5b4ba` except the last, which this page's gate now answers:
 
 | finding | disposition |
 |---|---|
-| a backward clock step of 6 s delayed a phase's kill by 6 s | fixed: deadlines decided on CLOCK_BOOTTIME, converted the earlier of two ways; a test steps SECONDS back 6 s and the phase still ends at its deadline |
+| a backward clock step of 6 s delayed a phase's kill by 6 s | fixed in `78f5b4ba` by converting SECONDS deadlines to CLOCK_BOOTTIME, which the second GO review showed still wrong (below) |
 | a deadline that passed before the phase's subshell entered its cgroup killed an empty cgroup, and the subshell ran on unwatched | fixed: the subshell is killed by its pid as well |
 | errexit could end the caller at the phase's `wait` before its cleanup | already fixed in `a1c84414`, after the reviewed commit |
 | `phase_kill_all` ended another session's phases sharing the cgroup | fixed: phase cgroups carry the session's pid, and a test leaves another session's phase running |
 | `STUDY=prefixroute` buys GPUs and tears down through a phase without entering a scope | fixed: it enters one like `TRAIN` |
 | the restart test re-ran itself directly though its mode is 644, and the kind driver did not enter a scope | fixed: both re-run through `bash`, and the driver enters a scope before building anything |
 | the gate's rehearsal predates the runner | answered by the rehearsal at `78f5b4ba` ("Gates before the launch") |
+
+astra's second GO review, at `3e9f6be2`, found items 2 and 3 still met and the stale-rehearsal finding closed, and gave "NO-GO" on one: a clock that stepped forward before a deadline's computation and back before its phase still extended the phase, through deadlines such as a case's `pre_dl` that several phases reuse.
+Bare `codex review` of `78f5b4ba` found the other side of the same conversion: after a backward step, the teardown's fresh budget converted to a deadline already past, and the scale-down was refused.
+
+| finding | disposition |
+|---|---|
+| a forward-then-back step extended a phase by the step | fixed: every deadline on the paid path is computed on CLOCK_BOOTTIME where it is set, and nothing converts SECONDS |
+| after a backward step the scale-down's fresh budget was refused | fixed by the same change; the teardown's deadline is its budget from the moment it is set |
 
 ## What this does not show
 
