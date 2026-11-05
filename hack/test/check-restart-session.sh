@@ -116,8 +116,11 @@ session() {
     EGRESS_CIDR=192.0.2.1/32 EXDIR="$work/$name" TRAIN=restart RESTART_STAGE=smoke TRAIN_AZ=ap-northeast-2a APPROVED_TRAIN_SHA256="$sha" TTL_MINUTES=300 "$@" \
     timeout 60 bash "$repo/hack/eks-gitops-session.sh" 2>&1)"
   rc=$?
-  # A watchdog would be a detached process naming this case's directory; one left alive would fire at its TTL.
-  stray="$(pgrep -f -- "$work/$name/" | paste -sd' ')"
+  # A watchdog would be a detached process naming its pid file under this run's directory; one left alive would fire at
+  # its TTL.
+  # The case's name is not matched: the watchdog's command quotes it, a space becoming '\ ', so two watchdogs of cases
+  # named with spaces outlived a mutation run unseen.
+  stray="$(pgrep -f -- "KILL_PIDFILE=$work/" | paste -sd' ')"
   if [[ -n "$stray" ]]; then
     # shellcheck disable=SC2086
     kill $stray

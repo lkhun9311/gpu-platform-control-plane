@@ -66,9 +66,12 @@ session() {
     EXDIR="$work/$name" TRAIN=ddp APPROVED_TRAIN_SHA256="$sha" TTL_MINUTES=300 "$@" \
     timeout 60 bash "$repo/hack/eks-gitops-session.sh" 2>&1)"
   rc=$?
-  # A watchdog is a detached process whose command names this case's directory; one left alive would fire at TTL.
+  # A watchdog is a detached process whose command names its pid file under this run's directory; one left alive would
+  # fire at TTL.
+  # The case's name is not matched: the watchdog's command quotes it, a space becoming '\ ', and a name with spaces was
+  # missed by the restart session's copy of this check.
   local stray
-  stray="$(pgrep -f -- "$work/$name/" | paste -sd' ')"
+  stray="$(pgrep -f -- "KILL_PIDFILE=$work/" | paste -sd' ')"
   if [[ -n "$stray" ]]; then
     # shellcheck disable=SC2086
     for p in $stray; do kill -- "-$p" 2>/dev/null || kill "$p" 2>/dev/null || true; done
