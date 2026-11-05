@@ -1317,6 +1317,13 @@ late_score ended-after-budget-no-step '
 uid = json.loads((d / "pods.jsonl").read_text().splitlines()[-1])["uid"]
 rows = [{"uid": uid, "stream": n, "exit": 1, "at": "2000-01-01T00:00:00+00:00"} for n in range(1, 21)]
 (d / "streams.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))' "has no lower bound: ValueError: the log follows of"
+# A Pod the controller labelled attempt 1 cannot print attempt 2's step, so its given-up follows keep the bound.
+late_score ended-after-budget-no-step '
+pods = [json.loads(l) for l in (d / "pods.jsonl").read_text().splitlines() if l.strip()]
+pods[0]["attempt_token"] = "1"
+(d / "pods.jsonl").write_text("".join(json.dumps(p) + "\n" for p in pods))
+rows = [{"uid": pods[0]["uid"], "stream": n, "exit": 1, "at": "2000-01-01T00:00:00+00:00"} for n in range(1, 21)]
+(d / "streams.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))' "so its recovery exceeds 112.1 s, from the fault"
 score ended-before-budget terminate-wait-1 ACCEPTED "recovery"
 # The stamps are whole seconds from two clocks, so an end this near the budget is on neither side of it.
 score ended-at-budget terminate-wait-1 VOID "within 2 s of its 720 s budget"

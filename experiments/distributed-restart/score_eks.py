@@ -393,6 +393,9 @@ class Case:
         Observation ends at the last sample that read the job: the sampler keeps writing rows for reads that failed.
         A Pod whose log follows were given up before that cutoff could have printed its first step unseen, so then
         there is no bound (codex review of 9499dba5).
+        Only a Pod that could have run attempt 2 counts: one the controller labelled attempt 1 cannot print attempt 2's
+        step, and its follows are often given up on a terminated node (codex review of eca90990).
+        A Pod with no attempt label could be either, so it counts.
         """
         try:
             fault, uncertainty = self.placed_fault()
@@ -401,9 +404,11 @@ class Case:
             if not samples:
                 raise ValueError("no sample read the job's status, so when observation ended is not shown")
             cutoff = max(samples)
+            first_attempt = {p["uid"] for p in jsonl(self.dir / "pods.jsonl") if str(p.get("attempt_token")) == "1"}
             ends: dict[str, list[dict]] = {}
             for s in jsonl(self.dir / "streams.jsonl"):
-                ends.setdefault(s["uid"], []).append(s)
+                if s["uid"] not in first_attempt:
+                    ends.setdefault(s["uid"], []).append(s)
             given_up = sorted(u for u, ss in ends.items()
                               if len(ss) >= LOG_FOLLOWS and max(epoch(s["at"]) for s in ss) < cutoff)
             if given_up:
