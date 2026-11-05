@@ -138,6 +138,31 @@ def epoch(ts: str) -> float:
     return datetime.datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp()
 
 
+def status_reads(rows: list[dict]) -> list[tuple[float, dict]]:
+    """The sampler's successful, well-formed reads of the job, in order: when it saw each, and the status it read.
+
+    The sampler writes a row for a read that failed as well, with a null status, and a row can be malformed; either
+    shows nothing about the job, so it is skipped rather than read as a status without a stamp.
+    Both evaluators read timelines through this, so they skip the same rows (codex gpt-6-astra attack of the retarget
+    registration: one of them counted a status whose attempts were [null] and extended a bound by an hour).
+    """
+    out = []
+    for r in rows:
+        status = r.get("status") if isinstance(r, dict) else None
+        if not isinstance(status, dict):
+            continue
+        attempts = status.get("attempts")
+        if attempts is not None and not (isinstance(attempts, list) and all(isinstance(a, dict) for a in attempts)):
+            continue
+        try:
+            seen = epoch(r["observed"])
+        except (KeyError, TypeError, ValueError, AttributeError):
+            continue
+        if finite(seen):
+            out.append((seen, status))
+    return out
+
+
 def provenance(run: pathlib.Path) -> dict[str, str]:
     path = run / "provenance.txt"
     if not path.exists():
@@ -151,6 +176,16 @@ class Case:
         self.name, self.dir, self.reference, self.steps, self.budget = name, run / name, reference, steps, budget
         self.kind = re.sub(r"-\d+$", "", name)
         self.figures: dict = {}
+        self._clocks: list[dict] | None = None
+
+    @property
+    def clocks(self) -> list[dict]:
+        """The clock probes, read when first used: delivery does not depend on them, so an unreadable probe file voids
+        what the clocks place, the recovery, and not the check that the fault was delivered (codex gpt-6-astra attack
+        of the retarget registration)."""
+        if self._clocks is None:
+            self._clocks = jsonl(self.dir / "clock.jsonl")
+        return self._clocks
 
     def load(self) -> None:
         if not self.dir.is_dir():
@@ -172,7 +207,7 @@ class Case:
         self.attempts = self.status.get("attempts") or []
         self.pods = {p["uid"]: p for p in jsonl(self.dir / "pods.jsonl")}
         self.marks = {m["mark"]: m["at"] for m in jsonl(self.dir / "marks.jsonl")}
-        self.clocks = jsonl(self.dir / "clock.jsonl")
+        self._clocks = None
         self.terminated = (self.spec.get("target") or {}).get("node") if self.kind.startswith("terminate") else None
         # Each record is tagged with the node its Pod ran on, which decides whose clock its timestamp is.
         # A Pod's log may be in several files, because a stream that broke while the Pod ran is read again from its
@@ -368,7 +403,7 @@ class Case:
             failed(f"past its budget: {what}", late=True)
         if sorted({r.get("rank") for r in self.rec("step", 2)}, key=str) == list(range(WORLD)):
             failed(f"past its budget after a recovery: {what}; {self.observed_recovery()}", late=True)
-        failed(f"censored at its budget: {what}; {self.recovery_bound()}", censored=True)
+        failed(f"censored at its budget: {what}; {self.observation_end()}", censored=True)
 
     def observed_recovery(self) -> str:
         """The recovery time of a case whose completion was late, kept as a figure though the case is not ACCEPTED."""
@@ -383,45 +418,39 @@ class Case:
         self.figures["recovery_s"] = recovery
         return f"every rank of attempt 2 had stepped {recovery:.1f} s after the fault, so the recovery came and the completion did not"
 
-    def recovery_bound(self) -> str:
-        """What a censored recovery is known to exceed: the time from the fault to the runner's last sample of the job.
+    def observation_end(self) -> str:
+        """When observation of a recovery that was never seen ended, reported as that and never as a bound on it.
 
-        The budget runs from the job's creation and the fault comes later, so the budget itself overstates the bound by
-        the time between them.
-        The collector follows the logs until after that sample, so a first step printed before it would have been seen.
-        The fault's clock uncertainty is taken off, so the bound holds wherever in it the fault was.
-        Observation ends at the last sample that read the job: the sampler keeps writing rows for reads that failed.
-        A Pod whose log follows were given up before that cutoff could have printed its first step unseen, so then
-        there is no bound (codex review of 9499dba5).
-        Only a Pod that could have run attempt 2 counts: one the controller labelled attempt 1 cannot print attempt 2's
-        step, and its follows are often given up on a terminated node (codex review of eca90990).
-        A Pod with no attempt label could be either, so it counts.
+        It was reported as a lower bound, the time from the fault to the last sample, and that claimed the logs had been
+        followed throughout: a follow that never connected, hung, or lost its output leaves no record that says so, and
+        with the attempt-2 logs removed from an archive whose recovery took 47.5 s the bound read 94.9 s (codex
+        gpt-6-astra attack of the retarget registration).
+        Observation ends at the last successful, well-formed read of the job; the fault's clock uncertainty is taken off.
+        Follows given up before it, of Pods not labelled attempt 1, are named, since they are the gap a reader would ask
+        about (codex reviews of 9499dba5 and eca90990).
         """
         try:
             fault, uncertainty = self.placed_fault()
-            samples = {epoch(s["observed"]): s["observed"] for s in jsonl(self.dir / "timeline.jsonl")
-                       if isinstance(s.get("status"), dict)}
-            if not samples:
-                raise ValueError("no sample read the job's status, so when observation ended is not shown")
-            cutoff = max(samples)
+            reads = status_reads(jsonl(self.dir / "timeline.jsonl"))
+            if not reads:
+                raise ValueError("no sample read the job's status")
+            cutoff = reads[-1][0]
+            window = cutoff - fault - uncertainty
+            if not finite(window) or window <= 0:
+                raise ValueError(f"the last read of the job comes {window} s after the fault")
             first_attempt = {p["uid"] for p in jsonl(self.dir / "pods.jsonl") if str(p.get("attempt_token")) == "1"}
-            ends: dict[str, list[dict]] = {}
+            ends: dict[str, list[float]] = {}
             for s in jsonl(self.dir / "streams.jsonl"):
                 if s["uid"] not in first_attempt:
-                    ends.setdefault(s["uid"], []).append(s)
-            given_up = sorted(u for u, ss in ends.items()
-                              if len(ss) >= LOG_FOLLOWS and max(epoch(s["at"]) for s in ss) < cutoff)
-            if given_up:
-                raise ValueError(f"the log follows of {given_up} were given up before the last sample, so a first "
-                                 f"step may have gone unseen")
-            bound = cutoff - fault - uncertainty
-            if not finite(bound) or bound <= 0:
-                raise ValueError(f"the last sample of the job comes {bound} s after the fault, which bounds nothing")
+                    ends.setdefault(s["uid"], []).append(epoch(s["at"]))
+            given_up = sorted(u for u, at in ends.items() if len(at) >= LOG_FOLLOWS and max(at) < cutoff)
         except (Verdict, ValueError, KeyError, TypeError, IndexError, AttributeError, OSError) as exc:
             why = exc.reason if isinstance(exc, Verdict) else f"{type(exc).__name__}: {str(exc)[:120]}"
-            return f"attempt 2's first step was never observed, and its recovery has no lower bound: {why}"
-        return (f"attempt 2's first step was never observed, so its recovery exceeds {bound:.1f} s, from the fault to "
-                f"the last sample of the job at {samples[cutoff]}")
+            return f"attempt 2's first step is not among the records collected, and when observation ended cannot be placed: {why}"
+        gap = f"; the log follows of {given_up} were given up before it" if given_up else ""
+        return (f"attempt 2's first step is not among the records collected; observation ended {window:.1f} s after the "
+                f"fault, at the last read of the job, which is not a bound on the recovery because the logs are not shown "
+                f"to cover that time{gap}")
 
     def placed_fault(self) -> tuple[float, float]:
         """fault_time, refused when a probe labelled before the fault ended after it, as score() refuses it."""

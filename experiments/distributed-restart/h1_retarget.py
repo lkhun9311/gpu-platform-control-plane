@@ -46,14 +46,17 @@ def attempt_one(status: object) -> dict | None:
 
 
 def reads(rows: list[dict]) -> list[tuple[float, dict, list]]:
-    """The collector's successful reads: its time, attempt 1, and every attempt; a failed read shows nothing either way."""
+    """The collector's successful reads: its time, attempt 1, and every attempt; a failed read shows nothing either way.
+
+    The rows are those score_eks.status_reads keeps, so this and the scorer skip the same failed and malformed reads,
+    a row whose time cannot be read among them.
+    """
     out = []
-    for r in rows:
-        status = r.get("status") if isinstance(r, dict) else None
+    for seen, status in score_eks.status_reads(rows):
         a = attempt_one(status)
         if a is None:
             continue
-        out.append((score_eks.epoch(r["observed"]), a, status.get("attempts") or []))
+        out.append((seen, a, status.get("attempts") or []))
     return out
 
 
