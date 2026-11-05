@@ -775,6 +775,49 @@ else
   bad "the stuck exec took $took s: $out"
 fi
 
+# A phase ends at its share however many calls it makes: every call bounded on its own let the evidence take three
+# nodes of three 10 s probes, a 60 s credential plugin and three 20 s reads, past twice its 120 s, and the reset's wait
+# run its four-call check once more after its 120 s (adversarial review).
+# Here every kubectl and aws call hangs, the evidence share is 12 s and the reset is given 5 s; the outer timeout only
+# keeps a regression from holding the suite, and is far past either bound.
+# A hung request ends at its --request-timeout, as kubectl's does, and an exec, which that does not bound, never ends.
+mkdir -p "$work/rules/phase-hang"
+cat >"$work/rules/phase-hang/kubectl.sh" <<'EOF'
+case "$*" in
+  *"spec.nodeName=node-b,status.phase=Running"*) echo "dcgm-b " ;;
+  *"-c hostengine -- dcgmi test --inject"*) echo "injected" ;;
+  *" exec "*) sleep 30 ;;
+  *"--request-timeout="*)
+    rt="${*#*--request-timeout=}"
+    sleep "${rt%%s*}"
+    echo "error: context deadline exceeded" >&2
+    exit 1 ;;
+  *) sleep 30 ;;
+esac
+EOF
+cat >"$work/rules/phase-hang/aws.sh" <<'EOF'
+sleep 30
+EOF
+start=$SECONDS
+out="$(timeout 150 bash -c "$(declare -f lib); work='$work'; lib phase-hang '
+RESTART_EVIDENCE_BUDGET=12 RESTART_PROBE_SHARE=4 RESTART_STOP_RESERVE=6 RESTART_EVIDENCE_PAUSE=1 RESTART_STOP_TRIES=2
+sleep 300 &
+collector=\$!
+restart_evidence \"\$RESTART_OUT\" rst-x \"\$collector\" \$SECONDS \"\"
+echo \"evidence=\$? in \$SECONDS s\"
+restart_dcgm_reset node-b \"\$RESTART_OUT\" \$((SECONDS + 5))
+echo \"reset=\$? at \$SECONDS s\"'")"
+took=$((SECONDS - start))
+ev="$(grep -o 'evidence=[0-9]* in [0-9]*' <<<"$out")"
+rs="$(grep -o 'reset=[0-9]* at [0-9]*' <<<"$out")"
+# Evidence: 12 s of share and the kill grace; the reset: 5 s past the evidence's end and the kill grace.
+if [[ -n "$ev" && -n "$rs" && "${ev##* }" -le 15 && "${rs#reset=}" == 1* && $((${rs##* } - ${ev##* })) -le 8 ]] &&
+  [[ "$out" == *"did not read clear"*"or by the reset's deadline"* ]]; then
+  ok "a hanging cluster ends the evidence within its share ($ev s) and the reset within its deadline ($rs s)"
+else
+  bad "the hanging phases took $took s: ${ev:-evidence never ended}, ${rs:-reset never ended}: $(tail -3 <<<"$out")"
+fi
+
 # A scale request EKS refuses while another update is in progress is asked again, and one never accepted runs out.
 mkdir -p "$work/rules/scale-busy"
 cat >"$work/rules/scale-busy/aws.sh" <<'EOF'
@@ -957,6 +1000,34 @@ if [[ "$tokens" == "1 1" ]]; then
   ok "each Pod's line carries the controller's attempt label: $tokens"
 else
   bad "the Pods' attempt tokens: $tokens"
+fi
+
+# An injection whose exec connects and never answers is cut at the case's deadline, not left to the session's TTL as
+# the plain rk exec was, and a cut injection is neither delivered nor refused: the case is VOID as unknown, carries no
+# dcgm.json, and the node is given the baseline at once.
+mkdir -p "$work/rules/stuck-inject"
+cat >"$work/rules/stuck-inject/kubectl.sh" <<EOF
+case "\$*" in
+  *"-c hostengine -- sh -c"*) sleep 60 ;;
+  *) . "$work/fullcase.sh" "\$@" ;;
+esac
+EOF
+# The call's own cap is 3 s and the case's budget 8 s, so the cut leaves the case time to give the baseline.
+out="$(lib stuck-inject "REAL_CASE=dcgm-1; $RUNNER_PRELUDE"$'\n''RESTART_CASE_BUDGET=8 RESTART_VERDICT_CALL=1 RESTART_GFK_CALL=3; restart_run "$RESTART_OUT/warmed.txt"; echo "rc=$?"')"
+marks="$work/out/stuck-inject/dcgm-1/marks.jsonl"
+cut="$(python3 -c '
+import datetime, json, sys
+m = {r["mark"]: datetime.datetime.fromisoformat(r["at"][:26]) for r in map(json.loads, open(sys.argv[1]))}
+print(round((m["fault-unknown"] - m["fault-start"]).total_seconds()) if "fault-unknown" in m and "fault-start" in m else "none")' "$marks" 2>&1)"
+baseline="$(grep -n 'hostengine -- dcgmi test --inject --gpuid 0 -f 230 -v 0' "$work/stuck-inject.calls" | head -1 | cut -d: -f1)"
+injection="$(grep -n 'hostengine -- sh -c' "$work/stuck-inject.calls" | head -1 | cut -d: -f1)"
+# An injection cut at its 3 s cap took at most that and the kill grace; the stub's exec would have taken 60.
+if [[ "$(cat "$work/out/stuck-inject/dcgm-1/VOID" 2>&1)" == "the fault's delivery is unknown: the injection on node-b was cut"* &&
+  "$cut" =~ ^[0-9]+$ && "$cut" -le 5 && ! -e "$work/out/stuck-inject/dcgm-1/dcgm.json" ]] &&
+  ! grep -q '"fault-end"' "$marks" && [[ -n "$baseline" && -n "$injection" && "$baseline" -gt "$injection" ]]; then
+  ok "a stuck DCGM injection is cut after $cut s, the case VOID as unknown, and the node given the baseline after it"
+else
+  bad "the stuck DCGM injection: VOID '$(cat "$work/out/stuck-inject/dcgm-1/VOID" 2>&1)', cut after '$cut', baseline at call ${baseline:-none} after the injection at ${injection:-none}: $(tail -2 <<<"$out")"
 fi
 
 # The window is read again as the last call before a termination: the node read sleeps two seconds, the trainer passes
