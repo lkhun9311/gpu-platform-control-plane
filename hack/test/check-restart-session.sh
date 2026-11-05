@@ -227,6 +227,30 @@ lib() {
     bash -c ". hack/lib/train-session.sh; . hack/lib/gpu-ttl.sh; . hack/lib/gpu-fault.sh; . hack/lib/restart-session.sh; $script" 2>&1
 }
 
+# The retarget stage runs only on the operator it registers, and a promotion after the registration refuses the launch.
+pin_rev=44bd5e74aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+pin_dig=sha256:12d60cfce8a5c0c0f9c3b9e8981059ee5de70c813585eec2d823887a6ac82d3c
+for c in "retarget|||$pin_rev|$pin_dig|1|must be given" \
+  "retarget|$pin_rev||$pin_rev|$pin_dig|1|must be given" \
+  "retarget|$pin_rev|$pin_dig|$pin_rev|$pin_dig|0|the registered operator" \
+  "retarget|$pin_rev|$pin_dig|bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb|$pin_dig|1|not the registered $pin_rev" \
+  "retarget|$pin_rev|$pin_dig|$pin_rev|sha256:0000|1|pins sha256:0000, not the registered" \
+  "full|||$pin_rev|$pin_dig|0|pins $pin_dig"; do
+  IFS='|' read -r st want_rev want_dig rev dig want_rc expect <<<"$c"
+  out="$(lib pin "RESTART_STAGE=$st RESTART_OPERATOR_REV=$want_rev RESTART_OPERATOR_DIGEST=$want_dig restart_operator_pin $rev $dig; echo rc=\$?")"
+  if [[ "$out" == *"$expect"* && "$out" == *"rc=$want_rc" ]]; then
+    ok "operator pin, stage $st, registered '${want_rev:0:8}' '${want_dig:7:8}', deployed '${rev:0:8}' '${dig:7:8}': rc $want_rc"
+  else
+    bad "operator pin, stage $st, deployed '${rev:0:8}' '${dig:7:8}': $out"
+  fi
+done
+# The gate calls the pin before it reads the Pods, so a refused pin buys nothing.
+if awk '/^restart_operator_gate\(\)/,/^}/' hack/lib/restart-session.sh | grep -q 'restart_operator_pin "\$rev" "\$expected"'; then
+  ok "the operator gate checks the registered pin"
+else
+  bad "the operator gate does not call restart_operator_pin"
+fi
+
 # The termination fences only on EC2's own `terminated`: shutting-down, then an unreadable answer, then terminated.
 mkdir -p "$work/rules/fence"
 cat >"$work/rules/fence/aws.sh" <<'EOF'

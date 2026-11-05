@@ -372,6 +372,27 @@ gfk() { timeout "$RESTART_GFK_CALL" kubectl ${GF_CONTEXT:+--context "$GF_CONTEXT
 # The longest a read of LATEST through a rank's mount may take, which is an exec stream too.
 RESTART_LATEST_CALL=20
 
+# restart_operator_pin <rev> <digest>: a stage that registers one operator runs only on it.
+# The gate below accepts any revision descended from the commits it needs, so a promotion between the registration and
+# the launch would otherwise run a different operator unseen (codex gpt-6-astra attack of the retarget registration).
+# The retarget stage requires RESTART_OPERATOR_REV and RESTART_OPERATOR_DIGEST; other stages check them when given.
+restart_operator_pin() {
+  local rev="$1" digest="$2"
+  if [[ "${RESTART_STAGE:-}" == retarget && (-z "${RESTART_OPERATOR_REV:-}" || -z "${RESTART_OPERATOR_DIGEST:-}") ]]; then
+    echo "the retarget stage registers its operator, so RESTART_OPERATOR_REV and RESTART_OPERATOR_DIGEST must be given"
+    return 1
+  fi
+  if [[ -n "${RESTART_OPERATOR_REV:-}" && "$rev" != "$RESTART_OPERATOR_REV" ]]; then
+    echo "the deployed revision is $rev, not the registered $RESTART_OPERATOR_REV"
+    return 1
+  fi
+  if [[ -n "${RESTART_OPERATOR_DIGEST:-}" && "$digest" != "$RESTART_OPERATOR_DIGEST" ]]; then
+    echo "the deployed revision pins $digest, not the registered $RESTART_OPERATOR_DIGEST"
+    return 1
+  fi
+  echo "the deployed revision $rev pins $digest${RESTART_OPERATOR_REV:+, the registered operator}"
+}
+
 # restart_operator_gate: the operator running on the cluster is the restart controller, before any GPU is bought.
 #
 # Argo deploys the operator from main, whatever this checkout holds, so the deployed revision is read from Argo, its
@@ -402,6 +423,10 @@ restart_operator_gate() {
   expected="$(git show "$rev:config/manager/kustomization.yaml" 2>&1 | sed -n 's/^- digest: \(sha256:[0-9a-f]\{64\}\)$/\1/p' | head -1)"
   [[ -n "$expected" ]] || {
     echo "no operator digest in config/manager/kustomization.yaml at $rev"
+    return 1
+  }
+  out="$(restart_operator_pin "$rev" "$expected")" || {
+    echo "$out"
     return 1
   }
   pods="$(rk -n "$RESTART_SYS" get pods -l control-plane=controller-manager -o json 2>&1)" || {
