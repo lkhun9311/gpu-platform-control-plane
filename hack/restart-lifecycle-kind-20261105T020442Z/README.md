@@ -8,7 +8,7 @@ The run is from commit `c817c612` on `feat/restart-targeted-stage` with a clean 
 It ran the runner with the absolute phase deadlines (`restart_by`), the bounded DCGM injection, and the hardened scorer.
 The trainer's sha256 is `2c5cdbf09fdb4c8149443a806396fdf73f7176ea1adb174f5fe8052cb53f572c`, the one the paid session approves.
 
-The launch commit's runner is this one; its scorer and `h1_retarget.py` differ by `bd795568`, which withholds figures from FAILED cases and skips malformed reads.
+The launch commit's runner is this one; its scorer and `h1_retarget.py` differ by `eca90990`, which withholds figures from FAILED cases and skips malformed reads.
 `run-e` was scored again with that scorer through the shim, and every per-case line is the same as in `run-e/verdict.txt`.
 
 ## What it showed

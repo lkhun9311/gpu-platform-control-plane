@@ -130,7 +130,7 @@ For this session the workflow is therefore disabled by hand (`gh workflow disabl
 - The kind rehearsal of this stage (`RUNS=e hack/restart-lifecycle-kind.sh`): every case ACCEPTED through `score_kind_shim.py` and its lifecycle and outcome checks 0 FAIL, from a commit whose runner, scorer and trainer equal the launch commit's.
   The unmodified `score_eks.py` voids every kind case, because kind's ranks train with gloo on the CPU; that is the boundary the shim moves.
   The first rehearsal, `hack/restart-lifecycle-kind-20261104T142003Z` at `5f83e8e2`, ran the runner and scorer the second attack's fixes replaced; the gate is met only by `hack/restart-lifecycle-kind-20261105T020442Z` at `c817c612`.
-  Its runner and trainer are the launch commit's; the launch scorer differs by `bd795568`, and the rehearsal's output scored again with it gives the same line for every case, so the scorer half of the gate is met by that re-scoring, not by a run.
+  Its runner and trainer are the launch commit's; the launch scorer differs by `eca90990`, and the rehearsal's output scored again with it gives the same line for every case, so the scorer half of the gate is met by that re-scoring, not by a run.
 
 ## Review
 
@@ -170,7 +170,7 @@ Each was reproduced on the archives before it was fixed, and each fix has a test
 | 8 | the destroy check cannot exclude a late scheduled run | fixed: the workflow is disabled for the session |
 | 9 to 13 | the first round's deferred 1, 2, 7, 8, 9 | fixed before this run instead of deferred, as above, and rehearsed again |
 
-Bare `codex review` of the fixes (`083a84cb`, `9499dba5`, `eb661f70`, `c817c612`) found nothing in `eb661f70` and `c817c612` and three P2 defects in the others, each fixed in `bd795568` with a test shown to fail with the fix reverted:
+Bare `codex review` of the fixes (`083a84cb`, `9499dba5`, `eb661f70`, `c817c612`) found nothing in `eb661f70` and `c817c612` and three P2 defects in the others, each fixed in `eca90990` with a test shown to fail with the fix reverted:
 
 | commit | finding | disposition |
 |---|---|---|
