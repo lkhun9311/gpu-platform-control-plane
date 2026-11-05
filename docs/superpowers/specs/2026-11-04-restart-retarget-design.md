@@ -36,6 +36,9 @@ A case gives a `d` only when all of these hold; otherwise it is INVALID with its
   `load` and `bind` read the case's spec, final object, Pods, marks and rank logs, and `bind` refuses logs it cannot tie to the case, which can remove a `d`; the clock probes, which only the recovery uses, are read when first used, so an unreadable probe file does not.
   A VOID the runner wrote is reported beside `d` and does not decide it: the runner voids a `rank-kill` whose probe before the fault failed, and its trainer's own fault may have fired by then.
 - Attempt 1's trigger is the one the kind registers (`RankFailed` for `rank-kill`, `NodeFault` for `dcgm`), so the stop measured is the fault's and not, say, a deletion's.
+- The controller observed that failure no earlier than 2 s before the fault and no later than 60 s after it, the fault's time being the trainer's own fault record or the node's time of the DCGM injection, raw; on both paid archives and the kind rehearsal the gap was 0.5 to 3.0 s.
+  A matching trigger name alone does not tie the stop to the fault.
+- When no stop was published, no log line and no Pod of the case shows a later attempt, since a later attempt runs only after a published stop.
 - The run passes the scorer's run-level refusals (`run_refusals`: a clean tree, the approved trainer).
 - Both stamps are present, `d ≥ 0`, and every successful read that shows a stamp shows the final object's value for it, with no read after the first that shows it without it.
 - The case's `timeline.jsonl` brackets each stamp between two of the collector's successful reads, and `d` lies inside the interval those reads allow, widened by 2 s. A failed or malformed read, a row that is not JSON, one whose time cannot be read and one whose first attempt is not attempt 1 included, is skipped, not read as an absent stamp; both evaluators use one reader for this (`timeline_reads`).
@@ -81,6 +84,7 @@ The scorer at the launch commit includes three fixes the first attack found (`94
 - A censored recovery is reported with when observation of it ended, from the fault to the last read of the job, and not as a bound on it, because nothing shows the logs were followed throughout (`307f3541`).
 - A save record without a finite, non-negative cost, or an attempt without costs from both ranks, is VOID, and a NaN or infinite clock is refused.
 - Each rank of each attempt must have a save record for every step it recorded but at most its last, which a fault can cut before its save; both paid archives meet that, and a thinner sample is VOID rather than a median over it (`7d7e7fb4`).
+- The steps themselves must be all there: the reference's from 1 to 30 on each rank, attempt 1's from 1 without a gap, and an in-trainer fault's rank up to the step its fault record names, since losing a step with its save passed the check above (`1729ad8a`).
 Both committed archives keep every published verdict and figure under it (`hack/test/check-restart-session.sh`).
 
 ## Revisions it runs
@@ -103,7 +107,7 @@ Computed by `restart_gpu_budget` and pinned in `hack/test/check-restart-session.
 These are the deadlines the runner sets, not billing limits.
 Since `c817c612` the runner holds every call inside a phase to that phase's absolute deadline (`restart_by`): the DCGM injection is cut at the case's deadline and its case VOID as delivery unknown, the evidence collection ends within its 120 s, and the reset within its slot.
 Since `570b2423` every kubectl call of the runner is also cut by the wall clock, because a request timeout does not bound a credential helper, and a call is refused once an enclosing deadline has passed; a cut call can outlast its deadline by the 2 s kill grace and a second of rounding.
-Since `7d7e7fb4` that holds for the node qualification too, which is `train-session.sh`'s and is run with the same cut kubectl, and the waits for the group and the warm-up run under their deadlines as a whole.
+Since `7d7e7fb4` that holds for the node qualification between cases, which is `train-session.sh`'s and is run with the same cut kubectl, and the waits for the group and the warm-up run under their deadlines as a whole; since `1729ad8a` it holds for the launcher's own first qualification (T6), its release of the qualification job (T7) and the first warm-up (R5) too, and the probe before a fault runs under the case's deadline.
 One gap is left as it is: a case's sampling before its fault checks its deadline between calls, so a call started just before it can run its own 20 s, plus the kill grace, past it.
 What bounds the spend is the EventBridge schedule, which asks for the GPU node group's scale-down 10 minutes before `TTL_MINUTES`, and the watchdog's destroy after it.
 The scale-down request is asynchronous and the destroy can fail; if it does, resources keep billing until they are removed by hand.
@@ -128,7 +132,9 @@ The nightly destroy (`.github/workflows/destroy.yml`, 18:00 UTC) removes the clu
 With `TTL_MINUTES=340` that leaves a window from 20:00 UTC to 10:20 UTC the next day, and none from 10:20 to 20:00 UTC.
 Its cron has been seen to run hours late, and a run scheduled after the launcher's one look at the queue is not seen, so the window is not enough on its own.
 For this session the workflow is therefore disabled by hand (`gh workflow disable destroy.yml`, with the owner's approval at launch) whatever the hour, and it is re-enabled once the teardown is confirmed.
-Since `73444604` the launcher refuses `RESTART_STAGE=retarget` unless the workflow is `disabled_manually`, and refuses any destroy run queued, in progress, waiting, requested or pending, counted across the workflow's whole history rather than its latest five runs (`action_required`, first counted too, is the conclusion of a finished run, and was dropped after the review of `73444604`).
+Since `73444604` the launcher refuses `RESTART_STAGE=retarget` unless the workflow is `disabled_manually`.
+Since `1729ad8a` it lists every run of the workflow's history, page by page, and refuses any not completed; asking status by status, as it did from `73444604`, missed a run that changed status between two of the questions.
+On 2026-11-05 that listing read 115 runs over two pages, none of them unfinished.
 
 ## Gates before the launch
 
@@ -139,9 +145,10 @@ Since `73444604` the launcher refuses `RESTART_STAGE=retarget` unless the workfl
 - `aws sts get-caller-identity --profile gpu-lab` read in the same shell.
 - The kind rehearsal of this stage (`RUNS=e hack/restart-lifecycle-kind.sh`): every case ACCEPTED through `score_kind_shim.py` and its lifecycle and outcome checks 0 FAIL, from a commit whose runner, scorer and trainer equal the launch commit's.
   The unmodified `score_eks.py` voids every kind case, because kind's ranks train with gloo on the CPU; that is the boundary the shim moves.
-  Three earlier rehearsals, `hack/restart-lifecycle-kind-20261104T142003Z` at `5f83e8e2`, `hack/restart-lifecycle-kind-20261105T020442Z` at `c817c612` and `hack/restart-lifecycle-kind-20261105T034118Z` at `a38089c4`, ran runners that later fixes replaced and are kept as records.
-  The gate is met by `hack/restart-lifecycle-kind-20261105T044327Z` at `7d7e7fb4`: every case ACCEPTED, both checks 0 FAIL, and H1 SUPPORTED on kind with `d` = 0, 0, 1, 1 s.
-  No runner, scorer, trainer or evaluator line changed between `7d7e7fb4` and the launch commit.
+  Four earlier rehearsals, `hack/restart-lifecycle-kind-20261104T142003Z` at `5f83e8e2`, `hack/restart-lifecycle-kind-20261105T020442Z` at `c817c612`, `hack/restart-lifecycle-kind-20261105T034118Z` at `a38089c4` and `hack/restart-lifecycle-kind-20261105T044327Z` at `7d7e7fb4`, ran runners that later fixes replaced and are kept as records.
+  The gate is met by `hack/restart-lifecycle-kind-20261105T054801Z` at `1729ad8a`: every case ACCEPTED, both checks 0 FAIL, and H1 SUPPORTED on kind with `d` = 0, 1, 1, 1 s.
+  No runner, scorer, trainer, launcher or evaluator line changed between `1729ad8a` and the launch commit.
+  The launcher's own path to the first case (T6, T7, R5) is not part of a kind run; the tests pin its deadlines.
   On kind every wait ends in seconds, so the rehearsal cannot show that a wait longer than 20 s survives; a test pins that every such wait goes through `rkt`.
 
 ## Review
@@ -228,6 +235,18 @@ Each was reproduced on the archives or read in the code first; the fixes are in 
 | 6 | one row that was not JSON ended the case, and the two readers kept different attempt shapes | fixed: `timeline_reads` parses row by row, and one rule for attempt shape serves both |
 | 7 | 2 of the reference's 60 saves gave an ACCEPTED median | fixed: a save for every step but at most the last |
 | 8 | the scorer's docstring still called censoring a bound, and H1 called an unpublished stop a `d` | fixed: both reworded |
+
+The fifth attack (2026-11-05, at `21613c02`) gave "NO-GO" with six findings, three on the paid launch's own path and three on evidence that contradicts itself.
+Each was reproduced first; the fixes are in `1729ad8a`, each with a test shown to fail with its fix reverted:
+
+| # | finding | disposition |
+|---|---|---|
+| 1 | the launcher's first qualification (T6), its release (T7) and the first warm-up (R5) ran without the deadline-cut kubectl or their deadlines | fixed: `session_kubectl_by` for T6 and T7, `restart_by` for R5; a hanging kubectl held a call 30 s without the cut, 3 s with it under a 3 s deadline |
+| 2 | the probe before a fault started after the case's deadline with an allowance of its own | fixed: it runs under the case's deadline, and a case whose deadline its sampling spent is VOID before its fault |
+| 3 | a trigger the reads contradicted, or a stop missing from every status while the logs showed attempt 2, gave an unpublished-stop refutation | fixed: the trigger is checked against the reads before either branch, and a later attempt in the logs or Pods makes a missing stop INVALID |
+| 4 | a step lost with its save hid from the save check, the reference kept ACCEPTED on 2 saves and `lost_steps` moved from 1 to 0 | fixed: the reference's steps must run 1 to 30, attempt 1's from 1 without a gap, and the fault rank's to its fault's step |
+| 5 | a matching trigger name was taken as the fault's cause, an injection moved past the job's end still passing | fixed: the observed failure must come within -2 to +60 s of the fault, raw |
+| 6 | asking the destroy runs status by status missed one that moved between two questions | fixed: one listing of every run, not completed counted |
 
 ## What this does not show
 
