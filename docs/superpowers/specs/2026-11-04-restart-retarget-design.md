@@ -130,7 +130,7 @@ For this session the workflow is therefore disabled by hand (`gh workflow disabl
 - The kind rehearsal of this stage (`RUNS=e hack/restart-lifecycle-kind.sh`): every case ACCEPTED through `score_kind_shim.py` and its lifecycle and outcome checks 0 FAIL, from a commit whose runner, scorer and trainer equal the launch commit's.
   The unmodified `score_eks.py` voids every kind case, because kind's ranks train with gloo on the CPU; that is the boundary the shim moves.
   The first rehearsal, `hack/restart-lifecycle-kind-20261104T142003Z` at `5f83e8e2`, ran the runner and scorer the second attack's fixes replaced; the gate is met only by `hack/restart-lifecycle-kind-20261105T020442Z` at `c817c612`.
-  Its runner and trainer are the launch commit's; the launch scorer differs by `eca90990`, and the rehearsal's output scored again with it gives the same line for every case, so the scorer half of the gate is met by that re-scoring, not by a run.
+  Its runner and trainer are the launch commit's; the launch scorer differs by `eca90990` and `f483bfde`, and the rehearsal's output scored again with it gives the same line for every case, so the scorer half of the gate is met by that re-scoring, not by a run.
 
 ## Review
 
@@ -177,6 +177,7 @@ Bare `codex review` of the fixes (`083a84cb`, `9499dba5`, `eb661f70`, `c817c612`
 | `083a84cb` | a read whose attempts are `[null]` counted as a successful read and, alone after the trigger, set a 59 s lower bound | fixed: a malformed read is skipped |
 | `9499dba5` | a censored recovery's bound ran to the last row, failed reads included, and ignored log follows given up before it | fixed: the bound ends at the last successful read and is withheld when a follow was given up |
 | `9499dba5` | a late recovery's time skipped the check that the probes labelled before the fault ran before it | fixed: `placed_fault` applies it on every path |
+| `eca90990` | an attempt-1 Pod's given-up follows withheld the bound, though it cannot print attempt 2's step | fixed in `f483bfde`: only Pods not labelled attempt 1 count |
 
 ## What this does not show
 
