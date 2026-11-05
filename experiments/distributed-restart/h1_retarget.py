@@ -30,12 +30,19 @@ CROSS_CHECK_S = 2.0
 
 
 def attempt_one(status: object) -> dict | None:
-    """Attempt 1 of a status, {} when the status has none, None when the status is not a read at all."""
+    """Attempt 1 of a status, {} when the status has no attempt yet, None when it is not a well-formed read.
+
+    A malformed read once counted as a successful one without either stamp, and a lone one after the trigger set a
+    lower bound on a stop no read could have shown (codex review of 083a84cb).
+    """
     if not isinstance(status, dict):
         return None
-    attempts = status.get("attempts") or []
-    first = attempts[0] if isinstance(attempts, list) and attempts else None
-    return first if isinstance(first, dict) and first.get("number") == 1 else {}
+    attempts = status.get("attempts")
+    if attempts in (None, []):
+        return {}
+    if not isinstance(attempts, list) or not all(isinstance(x, dict) for x in attempts):
+        return None
+    return attempts[0] if attempts[0].get("number") == 1 else None
 
 
 def reads(rows: list[dict]) -> list[tuple[float, dict, list]]:

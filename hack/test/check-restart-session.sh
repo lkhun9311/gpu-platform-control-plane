@@ -1282,6 +1282,41 @@ score failed-after-budget rank-kill-2 FAILED "past its budget after a recovery: 
 # runner's last sample: 112.1 s here, where the creation would have given 148.1 s.
 score ended-after-budget-no-step terminate-wait-1 FAILED "censored at its budget: the job ended 'Succeeded' 723 s after its creation, beyond its 720 s budget; attempt 2's first step was never observed, so its recovery exceeds 112.1 s, from the fault"
 score ended-after-budget reference FAILED "past its budget: the job ended 'Succeeded' 723 s after its creation"
+# late_score <defect> <python on d, the case directory> <want>: a late or censored fixture with its evidence changed.
+late_score() {
+  local run="$work/run-late-$RANDOM" out line
+  python3 hack/test/restart-session/make_fixture.py "$run" "$1" terminate-wait-1 || { bad "$1: the fixture was not built"; return; }
+  python3 - "$run/terminate-wait-1" "$2" <<'EOF'
+import json, pathlib, sys
+d, change = pathlib.Path(sys.argv[1]), sys.argv[2]
+exec(change)
+EOF
+  out="$(python3 experiments/distributed-restart/score_eks.py "$run" 2>&1)"
+  line="$(grep -E '^[A-Z]+ +terminate-wait-1: ' <<<"$out" | head -1)"
+  if [[ "$line" == *"$3"* ]]; then ok "$1, changed: $(cut -c1-170 <<<"$line")"; else bad "$1, changed: want '$3', got '$line'"; fi
+}
+# A late recovery's time is placed by the same clocks as an on-time one, so a probe labelled before the fault that ran
+# after it withholds the time (codex review of 9499dba5).
+late_score ended-after-budget '
+p = d / "clock.jsonl"
+rows = [json.loads(l) for l in p.read_text().splitlines() if l.strip()]
+for r in rows:
+    if r.get("when") == "before":
+        for k in ("before", "node_time", "after"):
+            r[k] += 10000
+p.write_text("".join(json.dumps(r) + "\n" for r in rows))' "at a time that cannot be placed: the probe of"
+# Rows the sampler wrote for reads that failed do not extend observation, and a Pod whose follows were given up before
+# the last sample leaves the recovery without a bound.
+late_score ended-after-budget-no-step '
+p = d / "timeline.jsonl"
+rows = [json.loads(l) for l in p.read_text().splitlines() if l.strip()]
+last = rows[-1]["observed"]
+rows.append({"observed": last[:11] + "%02d" % ((int(last[11:13]) + 1) % 24) + last[13:], "status": None})
+p.write_text("".join(json.dumps(r) + "\n" for r in rows))' "so its recovery exceeds 112.1 s, from the fault"
+late_score ended-after-budget-no-step '
+uid = json.loads((d / "pods.jsonl").read_text().splitlines()[-1])["uid"]
+rows = [{"uid": uid, "stream": n, "exit": 1, "at": "2000-01-01T00:00:00+00:00"} for n in range(1, 21)]
+(d / "streams.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))' "has no lower bound: ValueError: the log follows of"
 score ended-before-budget terminate-wait-1 ACCEPTED "recovery"
 # The stamps are whole seconds from two clocks, so an end this near the budget is on neither side of it.
 score ended-at-budget terminate-wait-1 VOID "within 2 s of its 720 s budget"
@@ -1543,6 +1578,28 @@ if grep -q '^rank-kill-2 .*"d_s": 0.0' <<<"$out" && grep -q '^H1 SUPPORTED' <<<"
   ok "failed and malformed reads are skipped, not read as a missing stamp"
 else
   bad "failed or malformed reads: $(grep -E '^(rank-kill-2|H1|Traceback)' <<<"$out")"
+fi
+# A malformed read 60 s after the trigger is no observation: it cannot set a lower bound on a stop (codex review of 083a84cb).
+h1_mutate "$rt" rank-kill-2 'del a["stopConfirmedAt"]; j["status"]["attempts"] = [a]' drop-timeline
+python3 - "$rt/rank-kill-2/timeline.jsonl.xz" "$work/h1/rank-kill-2/timeline.jsonl" <<'EOF'
+import datetime, json, lzma, sys
+rows = [json.loads(l) for l in lzma.decompress(open(sys.argv[1], "rb").read()).decode().splitlines() if l.strip()]
+first = next(i for i, r in enumerate(rows) if ((r.get("status") or {}).get("attempts") or [{}])[0].get("failureObservedAt"))
+kept = rows[:first + 1]
+# On kind the trigger's row already carries the stop, so the stop is taken out of what the timeline shows as well.
+for r in kept:
+    if isinstance(r.get("status"), dict) and r["status"].get("attempts"):
+        r["status"]["attempts"] = r["status"]["attempts"][:1]
+        r["status"]["attempts"][0].pop("stopConfirmedAt", None)
+later = datetime.datetime.fromisoformat(kept[-1]["observed"]) + datetime.timedelta(seconds=60)
+kept.append({"observed": later.isoformat(), "status": {"attempts": [None]}})
+open(sys.argv[2], "w").write("".join(json.dumps(r) + "\n" for r in kept))
+EOF
+out="$(h1_shim)"
+if grep -q '^rank-kill-2 .*"censored_at_least_s": 0' <<<"$out" && ! grep -q '^H1 REFUTED' <<<"$out"; then
+  ok "a malformed read after the trigger sets no lower bound on the stop"
+else
+  bad "a malformed read after the trigger: $(grep -E '^(rank-kill-2|H1|Traceback)' <<<"$out")"
 fi
 rm -rf "$work/h1" && cp -r "$rt" "$work/h1" && sed -i 's/^dirty_files=0$/dirty_files=1/' "$work/h1/provenance.txt"
 out="$(h1_shim)"

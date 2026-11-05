@@ -43,6 +43,8 @@ BUDGET_BAND_S = 2
 CLOCK_OFFSET_S = 2.0
 PARAM_TOLERANCE = 1e-6
 WORLD = 2
+# restart_collect follows a Pod's log at most this many times, then stops reading it (hack/lib/restart-session.sh).
+LOG_FOLLOWS = 20
 # One GPU per node over the VPC network: NCCL's socket transport, and nothing else, is what the figures describe.
 REGISTERED_TRANSPORT = re.compile(r"^NET/Socket(/\d+)?$")
 TRANSPORT_LINE = re.compile(r"NCCL INFO Channel \S+ : \d+\[\w+\] -> \d+\[\w+\](?: \[\w+\])? via (\S+)")
@@ -371,7 +373,7 @@ class Case:
     def observed_recovery(self) -> str:
         """The recovery time of a case whose completion was late, kept as a figure though the case is not ACCEPTED."""
         try:
-            fault, _ = self.fault_time()
+            fault, _ = self.placed_fault()
             recovery = max(self.first_steps()[0].values()) - fault
             if not finite(recovery) or recovery <= 0:
                 raise ValueError(f"it computes as {recovery} s after the fault, which no clock allows")
@@ -388,13 +390,25 @@ class Case:
         the time between them.
         The collector follows the logs until after that sample, so a first step printed before it would have been seen.
         The fault's clock uncertainty is taken off, so the bound holds wherever in it the fault was.
+        Observation ends at the last sample that read the job: the sampler keeps writing rows for reads that failed.
+        A Pod whose log follows were given up before that cutoff could have printed its first step unseen, so then
+        there is no bound (codex review of 9499dba5).
         """
         try:
-            fault, uncertainty = self.fault_time()
-            samples = {epoch(s["observed"]): s["observed"] for s in jsonl(self.dir / "timeline.jsonl")}
+            fault, uncertainty = self.placed_fault()
+            samples = {epoch(s["observed"]): s["observed"] for s in jsonl(self.dir / "timeline.jsonl")
+                       if isinstance(s.get("status"), dict)}
             if not samples:
-                raise ValueError("no sample of the job's status, so when observation ended is not shown")
+                raise ValueError("no sample read the job's status, so when observation ended is not shown")
             cutoff = max(samples)
+            ends: dict[str, list[dict]] = {}
+            for s in jsonl(self.dir / "streams.jsonl"):
+                ends.setdefault(s["uid"], []).append(s)
+            given_up = sorted(u for u, ss in ends.items()
+                              if len(ss) >= LOG_FOLLOWS and max(epoch(s["at"]) for s in ss) < cutoff)
+            if given_up:
+                raise ValueError(f"the log follows of {given_up} were given up before the last sample, so a first "
+                                 f"step may have gone unseen")
             bound = cutoff - fault - uncertainty
             if not finite(bound) or bound <= 0:
                 raise ValueError(f"the last sample of the job comes {bound} s after the fault, which bounds nothing")
@@ -403,6 +417,17 @@ class Case:
             return f"attempt 2's first step was never observed, and its recovery has no lower bound: {why}"
         return (f"attempt 2's first step was never observed, so its recovery exceeds {bound:.1f} s, from the fault to "
                 f"the last sample of the job at {samples[cutoff]}")
+
+    def placed_fault(self) -> tuple[float, float]:
+        """fault_time, refused when a probe labelled before the fault ended after it, as score() refuses it."""
+        fault, uncertainty = self.fault_time()
+        # A probe is "before" by when it was taken, not by its label: rank-kill's trainer kills itself at its own step,
+        # so a round of probes that ran long could end after that fault and still be labelled before it, and a clock
+        # that moved in between would go unseen (codex review before the full stage).
+        late = sorted({p["node"] for p in self.clocks if p.get("when") == "before" and p["after"] > fault})
+        if late:
+            void(f"the probe of {late} labelled before the fault ended after it, so the clock before the fault is not shown")
+        return fault, uncertainty
 
     def first_steps(self) -> tuple[dict, set]:
         """Each rank's first step of attempt 2 on the runner's clock, and the nodes those steps ran on."""
@@ -698,13 +723,7 @@ class Case:
         for rank, g in sorted(gaps.items()):
             if g > PARAM_TOLERANCE:
                 failed(f"the resumed run's rank {rank} ended {g:.3g} from the reference, beyond {PARAM_TOLERANCE}")
-        fault, fault_uncertainty = self.fault_time()
-        # A probe is "before" by when it was taken, not by its label: rank-kill's trainer kills itself at its own step,
-        # so a round of probes that ran long could end after that fault and still be labelled before it, and a clock
-        # that moved in between would go unseen (codex review before the full stage).
-        late = sorted({p["node"] for p in self.clocks if p.get("when") == "before" and p["after"] > fault})
-        if late:
-            void(f"the probe of {late} labelled before the fault ended after it, so the clock before the fault is not shown")
+        fault, fault_uncertainty = self.placed_fault()
         firsts, nodes = self.first_steps()
         if sorted(firsts) != list(range(WORLD)):
             failed(f"attempt 2 has step records from ranks {sorted(firsts)}, want every rank of {WORLD}")
