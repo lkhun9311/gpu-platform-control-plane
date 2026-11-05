@@ -370,6 +370,11 @@ if [[ "$SERVE" == yes || -n "$TRAIN" || "$STUDY" == prefixroute ]]; then
   command -v gh >/dev/null 2>&1 || die "gh is needed to check the nightly destroy workflow before buying a card"
   destroy_state="$(gh api repos/lkhun9311/gpu-platform-control-plane/actions/workflows/destroy.yml --jq .state 2>&1)" ||
     die "could not read the nightly destroy workflow's state ($destroy_state)"
+  # The retarget registration requires the workflow disabled whatever the hour, because a run scheduled after the one
+  # look below at the queue would not be seen (codex gpt-6-astra attack of the retarget registration).
+  if [[ "$TRAIN" == restart && "${RESTART_STAGE:-}" == retarget && "$destroy_state" != disabled_manually ]]; then
+    die "RESTART_STAGE=retarget registers the nightly destroy disabled for the session, and its state is '$destroy_state'; gh workflow disable destroy.yml first"
+  fi
   if [[ "$destroy_state" == disabled_manually ]]; then
     log "the nightly destroy workflow is disabled_manually, so its 18:00 UTC window is not enforced"
   else
@@ -380,9 +385,16 @@ if [[ "$SERVE" == yes || -n "$TRAIN" || "$STUDY" == prefixroute ]]; then
       die "the nightly destroy (.github/workflows/destroy.yml, 18:00 UTC, state '$destroy_state') falls within two hours of this session's ${TTL_MINUTES} min; disable the workflow (gh workflow disable destroy.yml) or start later"
     fi
   fi
-  destroy_runs="$(gh run list --workflow destroy.yml --limit 5 --json status --jq '[.[] | select(.status != "completed")] | length' 2>&1)" ||
-    die "could not ask GitHub whether a destroy run is pending ($destroy_runs)"
-  [[ "$destroy_runs" == 0 ]] || die "$destroy_runs destroy workflow run(s) are queued or in progress; wait for them"
+  # Every unfinished status is asked for by name, across the workflow's whole history: the five latest runs once hid an
+  # older one still waiting for its environment's approval (codex gpt-6-astra attack of the retarget registration).
+  destroy_runs=0
+  for st in queued in_progress waiting requested pending action_required; do
+    n="$(gh api "repos/lkhun9311/gpu-platform-control-plane/actions/workflows/destroy.yml/runs?status=$st&per_page=1" --jq .total_count 2>&1)" ||
+      die "could not ask GitHub whether a destroy run is $st ($n)"
+    [[ "$n" =~ ^[0-9]+$ ]] || die "GitHub answered '$n' for the destroy runs that are $st, not a count"
+    destroy_runs=$((destroy_runs + n))
+  done
+  [[ "$destroy_runs" == 0 ]] || die "$destroy_runs destroy workflow run(s) are queued, waiting or in progress; wait for them"
 fi
 
 # --- The kill switch, armed before anything is created ------------------------------------------------
