@@ -1762,18 +1762,26 @@ import datetime, json, lzma, sys
 rows = [json.loads(l) for l in lzma.decompress(open(sys.argv[1], "rb").read()).decode().splitlines() if l.strip()]
 first = next(i for i, r in enumerate(rows) if ((r.get("status") or {}).get("attempts") or [{}])[0].get("failureObservedAt"))
 kept = rows[:first + 1]
-# On kind the trigger's row already carries the stop, so the stop is taken out of what the timeline shows as well.
+# On kind the trigger's row already carries the stop, so the stop is taken out of what the timeline shows as well, with
+# the Stopped state the controller writes beside it.
 for r in kept:
     if isinstance(r.get("status"), dict) and r["status"].get("attempts"):
         r["status"]["attempts"] = r["status"]["attempts"][:1]
         r["status"]["attempts"][0].pop("stopConfirmedAt", None)
+        r["status"]["attempts"][0].pop("state", None)
 later = datetime.datetime.fromisoformat(kept[-1]["observed"]) + datetime.timedelta(seconds=60)
 kept.append({"observed": later.isoformat(), "status": {"attempts": [None]}})
 open(sys.argv[2], "w").write("".join(json.dumps(r) + "\n" for r in kept))
 EOF
+python3 - "$work/h1/rank-kill-2/final-mltj.json" <<'EOF'
+import json, sys
+j = json.load(open(sys.argv[1]))
+j["status"]["attempts"][0].pop("state", None)
+json.dump(j, open(sys.argv[1], "w"))
+EOF
 out="$(h1_shim)"
-if grep -q '^rank-kill-2 .*"censored_at_least_s": 0' <<<"$out" && ! grep -q '^H1 REFUTED' <<<"$out"; then
-  ok "a malformed read after the trigger sets no lower bound on the stop"
+if grep -q '^rank-kill-2 .*"unpublished_stop_observed_s": 0' <<<"$out" && ! grep -q '^H1 REFUTED' <<<"$out"; then
+  ok "a malformed read after the trigger lengthens no observation of an unpublished stop"
 else
   bad "a malformed read after the trigger: $(grep -E '^(rank-kill-2|H1|Traceback)' <<<"$out")"
 fi
@@ -1852,8 +1860,8 @@ fi
 out="$(cd experiments/distributed-restart && python3 -c '
 import score_eks as s, h1_retarget as h
 print(len(s.status_reads([{"observed": "2026-11-05T00:00:00Z", "status": {"attempts": [{"number": 2}]}}])))
-print(h.outcome({"rank-kill-1": {"censored_at_least_s": 31.0}})[1])' 2>&1)"
-if [[ "$out" == $'0\nno stop was published for at least 30 s after the trigger in rank-kill-1' ]]; then
+print(h.outcome({"rank-kill-1": {"unpublished_stop_observed_s": 31.0}})[1])' 2>&1)"
+if [[ "$out" == $'0\nno valid d in rank-kill-1, rank-kill-2, dcgm-1, dcgm-2; no stop was published while observed in rank-kill-1' ]]; then
   ok "a status whose first attempt is not attempt 1 is skipped, and an unpublished stop is not called a d"
 else
   bad "the shared read rule and the refutation wording: $(tr '\n' '|' <<<"$out")"
@@ -1957,18 +1965,147 @@ if grep -q "^dcgm-1 .*\"invalid\": \"attempt 1's failure was observed -.* s from
 else
   bad "a fault after its trigger: $(grep -E '^(dcgm-1|H1)' <<<"$out")"
 fi
+# The sixth attack (codex gpt-6-astra at decd7e45): a Stopped state without its stamp, a collector clock jump, a late
+# recovery's first steps lost, a completed attempt's last saves lost or doubled, and after-probes taken before recovery.
+# no_later_attempt <case>: attempt 2's records and Pods removed from the case in $work/h1, so no later attempt shows.
+no_later_attempt() {
+  python3 - "$work/h1/$1" <<'EOF'
+import json, pathlib, re, sys
+d = pathlib.Path(sys.argv[1])
+for log in d.glob("log-*.txt"):
+    keep = [l for l in log.read_text(errors="replace").splitlines(keepends=True)
+            if not (m := re.search(r'\{"ts": .*\}', l)) or json.loads(m.group(0)).get("attempt", 1) == 1]
+    log.write_text("".join(keep))
+pods = [json.loads(l) for l in (d / "pods.jsonl").read_text().splitlines() if l.strip()]
+(d / "pods.jsonl").write_text("".join(json.dumps(p) + "\n" for p in pods if str(p.get("attempt_token", "-")) in ("1", "-")))
+EOF
+}
+# stopless_timeline <archive> <case> <keep-state> [<seconds>]: the case's timeline in $work/h1 with attempt 1 alone and
+# no stop stamp, its Stopped state kept or not, cut after the trigger and given one more read <seconds> later.
+stopless_timeline() {
+  python3 - "$1/$2/timeline.jsonl.xz" "$work/h1/$2/timeline.jsonl" "$3" "${4:-}" <<'EOF'
+import datetime, json, lzma, sys
+rows = [json.loads(l) for l in lzma.decompress(open(sys.argv[1], "rb").read()).decode().splitlines() if l.strip()]
+for r in rows:
+    if isinstance(r.get("status"), dict) and r["status"].get("attempts"):
+        r["status"]["attempts"] = r["status"]["attempts"][:1]
+        r["status"]["attempts"][0].pop("stopConfirmedAt", None)
+        if sys.argv[3] != "keep-state":
+            r["status"]["attempts"][0].pop("state", None)
+if sys.argv[4]:
+    first = next(i for i, r in enumerate(rows) if ((r.get("status") or {}).get("attempts") or [{}])[0].get("failureObservedAt"))
+    rows = rows[:first + 1]
+    later = json.loads(json.dumps(rows[-1]))
+    later["observed"] = (datetime.datetime.fromisoformat(rows[-1]["observed"]) + datetime.timedelta(seconds=float(sys.argv[4]))).isoformat()
+    rows.append(later)
+open(sys.argv[2], "w").write("".join(json.dumps(r) + "\n" for r in rows))
+EOF
+}
+h1_mutate "$full_rs" rank-kill-1 'del a["stopConfirmedAt"]; j["status"]["attempts"] = [a]' drop-timeline
+no_later_attempt rank-kill-1
+stopless_timeline "$full_rs" rank-kill-1 keep-state
+out="$(python3 "$h1" "$work/h1" 2>&1)"
+if grep -q '^rank-kill-1 .*"invalid": "attempt 1 is shown Stopped without a stopConfirmedAt"' <<<"$out" &&
+  grep -q '^H1 REFUTED: d is at least 30 s in rank-kill-2, dcgm-1, dcgm-2$' <<<"$out"; then
+  ok "a Stopped attempt without its stamp is INVALID, not an unpublished stop"
+else
+  bad "a Stopped attempt without its stamp: $(grep -E '^(rank-kill-1|H1)' <<<"$out")"
+fi
+rt3=hack/restart-lifecycle-kind-20261105T054801Z/run-e
+for jump in 2 62; do
+  h1_mutate "$rt3" rank-kill-1 'del a["stopConfirmedAt"]; a.pop("state", None); j["status"]["attempts"] = [a]' drop-timeline
+  no_later_attempt rank-kill-1
+  stopless_timeline "$rt3" rank-kill-1 drop-state "$jump"
+  out="$(h1_shim)"
+  if grep -q "^rank-kill-1 .*\"unpublished_stop_observed_s\": $jump\\." <<<"$out" &&
+    grep -q '^H1 NOT ASSESSED: no valid d in rank-kill-1; no stop was published while observed in rank-kill-1$' <<<"$out"; then
+    ok "an unpublished stop observed for $jump s on the collector's clock is described and refutes nothing"
+  else
+    bad "an unpublished stop observed for $jump s: $(grep -E '^(rank-kill-1|H1|Traceback)' <<<"$out")"
+  fi
+done
+# A late recovery whose first resumed steps are gone gives no recovery time, only that later progress was seen.
+late_score ended-after-budget '
+import re
+first = json.loads(re.search(r"\{\"ts\": .*\"event\": \"resume\".*\}", "".join(l.read_text() for l in d.glob("log-*.txt"))).group(0))["from_step"] + 1
+for log in d.glob("log-*.txt"):
+    keep = []
+    for l in log.read_text().splitlines(keepends=True):
+        m = re.search(r"\{\"ts\": .*\}", l)
+        r = json.loads(m.group(0)) if m else {}
+        if r.get("attempt") == 2 and r.get("event") in ("step", "checkpoint") and first <= r.get("step", 0) < first + 6:
+            continue
+        keep.append(l)
+    log.write_text("".join(keep))' "the first after the checkpoint, so only later progress was observed and no recovery time is given" "had stepped"
+# A late recovery whose after-probes were taken before its first steps is not placed on the clocks after it.
+late_score ended-after-budget '
+p = d / "clock.jsonl"
+rows = [json.loads(l) for l in p.read_text().splitlines() if l.strip()]
+for r in rows:
+    if r.get("when") == "after":
+        for k in ("before", "node_time", "after"):
+            r[k] -= 10000
+p.write_text("".join(json.dumps(r) + "\n" for r in rows))' "at a time that cannot be placed: no probe of" "had stepped"
+rm -rf "$work/h1" && cp -r "$full_rs" "$work/h1"
+python3 - "$work/h1/rank-kill-1/clock.jsonl" <<'EOF'
+import json, sys
+p = sys.argv[1]
+rows = [json.loads(l) for l in open(p) if l.strip()]
+for r in rows:
+    if r.get("when") == "after":
+        for k in ("before", "node_time", "after"):
+            r[k] -= 180
+open(p, "w").write("".join(json.dumps(r) + "\n" for r in rows))
+EOF
+out="$(python3 experiments/distributed-restart/score_eks.py "$work/h1" 2>&1)"
+if grep -q "^VOID *rank-kill-1: no probe of .* was taken after attempt 2's step on it" <<<"$out"; then
+  ok "after-probes moved before the recovery leave no recovery time"
+else
+  bad "after-probes before the recovery: $(grep -E '^[A-Z]+ +rank-kill-1' <<<"$out" | cut -c1-200)"
+fi
+rm -rf "$work/h1" && cp -r "$full_rs" "$work/h1"
+drop_records reference 'r.get("event") == "checkpoint" and r.get("step") == 30'
+out="$(python3 experiments/distributed-restart/score_eks.py "$work/h1" 2>&1)"
+# A reference VOID leaves every other case without a comparison, so the recovered attempt is taken out on its own.
+rm -rf "$work/h1" && cp -r "$full_rs" "$work/h1"
+drop_records rank-kill-1 'r.get("event") == "checkpoint" and r.get("attempt") == 2 and r.get("step") == 30'
+out+=$'\n'"$(python3 experiments/distributed-restart/score_eks.py "$work/h1" 2>&1)"
+if grep -q '^VOID *reference: attempt 1 rank 0 completed with no save record of its last step 30' <<<"$out" &&
+  grep -q '^VOID *rank-kill-1: attempt 2 rank 0 completed with no save record of its last step 30' <<<"$out"; then
+  ok "an attempt that completed without its last save is VOID, not a median over the rest"
+else
+  bad "a completed attempt without its last save: $(grep -E '^[A-Z]+ +(reference|rank-kill-1)' <<<"$out" | cut -c1-200)"
+fi
+rm -rf "$work/h1" && cp -r "$full_rs" "$work/h1"
+python3 - "$work/h1/reference" <<'EOF'
+import json, pathlib, re, sys
+d = pathlib.Path(sys.argv[1])
+log = sorted(d.glob("log-*.txt"))[0]
+lines = log.read_text(errors="replace").splitlines(keepends=True)
+line = next(l for l in lines if '"event": "checkpoint"' in l)
+r = json.loads(re.search(r'\{"ts": .*\}', line).group(0))
+r["save_s"] = 10.0
+log.write_text("".join(lines) + line.replace(re.search(r'\{"ts": .*\}', line).group(0), json.dumps(r)))
+EOF
+out="$(python3 experiments/distributed-restart/score_eks.py "$work/h1" 2>&1)"
+if grep -q '^VOID *reference: attempt 1 rank [01] has differing save records of steps' <<<"$out"; then
+  ok "two differing save records of one step are VOID, not a maximum of 10 s"
+else
+  bad "differing save records: $(grep -E '^[A-Z]+ +reference' <<<"$out" | cut -c1-200)"
+fi
 # The committed rehearsal replays its gate from the repository alone, timelines compressed.
 out="$(python3 hack/test/restart-kind/check_lifecycle.py hack/restart-lifecycle-kind-20261104T142003Z 2>&1)"
 if [[ "$(tail -1 <<<"$out")" == "0 FAIL(s)" ]]; then ok "the committed retarget rehearsal passes its lifecycle check"; else bad "the committed rehearsal's lifecycle check: $(tail -1 <<<"$out")"; fi
 # A slow stop refutes whatever is missing elsewhere: the outcome does not wait on the other cases or the recoveries.
+# A stop never published gives no d, so however long it was watched it refutes nothing (sixth attack, 4).
 out="$(cd experiments/distributed-restart && python3 -c '
 import h1_retarget as h
 print(h.outcome({"rank-kill-1": {"d_s": 40.0}})[0])
-print(h.outcome({"rank-kill-1": {"censored_at_least_s": 31.0}, "dcgm-1": {"d_s": 1.0}})[0])
+print(h.outcome({"rank-kill-1": {"unpublished_stop_observed_s": 300.0}, **{n: {"d_s": 1.0} for n in h.H1_CASES[1:]}})[0])
 print(h.outcome({n: {"d_s": 15.0} for n in h.H1_CASES})[0])
 print(h.outcome({n: {"d_s": 29.0} for n in h.H1_CASES})[0])' 2>&1)"
-if [[ "$out" == $'REFUTED\nREFUTED\nSUPPORTED\nINCONCLUSIVE' ]]; then
-  ok "H1's outcome: a slow or never-confirmed stop refutes alone, and the bars are 15 s and 30 s"
+if [[ "$out" == $'REFUTED\nNOT ASSESSED\nSUPPORTED\nINCONCLUSIVE' ]]; then
+  ok "H1's outcome: a slow stop refutes alone, an unpublished one leaves H1 not assessed, and the bars are 15 s and 30 s"
 else
   bad "H1's outcome table: $(tr '\n' ' ' <<<"$out")"
 fi

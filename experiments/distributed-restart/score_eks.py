@@ -441,10 +441,28 @@ class Case:
         failed(f"censored at its budget: {what}; {self.observation_end()}", censored=True)
 
     def observed_recovery(self) -> str:
-        """The recovery time of a case whose completion was late, kept as a figure though the case is not ACCEPTED."""
+        """The recovery time of a case whose completion was late, kept as a figure though the case is not ACCEPTED.
+
+        A late case never reaches check_resume, so its earliest remaining step stood for its first: with attempt 2's
+        steps 12 to 17 removed, a 47.5 s recovery read 61.2 s (sixth attack, 5).
+        The time is kept only from each rank's own step after the checkpoint it resumed from, and only once a probe of
+        each node it ran on was taken after it (sixth attack, 7); otherwise later progress is all that is said.
+        """
         try:
             fault, _ = self.placed_fault()
-            recovery = max(self.first_steps()[0].values()) - fault
+            resumes = self.rec("resume", 2)
+            from_steps = {r.get("from_step") for r in resumes}
+            if sorted(r.get("rank") for r in resumes) != list(range(WORLD)) or len(from_steps) != 1:
+                raise ValueError(f"attempt 2's resume records are {[(r.get('rank'), r.get('from_step')) for r in resumes]}, "
+                                 f"not one checkpoint for every rank, so its first step is not known")
+            first = from_steps.pop() + 1
+            records = [r for r in self.rec("step", 2) if r.get("step") == first]
+            ranks = sorted(r.get("rank") for r in records)
+            if ranks != list(range(WORLD)):
+                return (f"every rank of attempt 2 stepped, but ranks {ranks} recorded step {first}, the first after the "
+                        f"checkpoint, so only later progress was observed and no recovery time is given")
+            self.check_probed_after(records)
+            recovery = max(self.runner_time(r) for r in records) - fault
             if not finite(recovery) or recovery <= 0:
                 raise ValueError(f"it computes as {recovery} s after the fault, which no clock allows")
         except (Verdict, ValueError, KeyError, TypeError, IndexError, AttributeError, OSError) as exc:
@@ -497,6 +515,21 @@ class Case:
         if late:
             void(f"the probe of {late} labelled before the fault ended after it, so the clock before the fault is not shown")
         return fault, uncertainty
+
+    def check_probed_after(self, records: list[dict]) -> None:
+        """Each node a timed record of attempt 2 ran on was probed after that record, by when the probe was taken.
+
+        clock() asks only that some probe be labelled after: probes moved 180 s earlier, before the recovery they were
+        to bracket, left a case ACCEPTED with the same uncertainty (sixth attack, 7).
+        The record's time and the probe's node_time are both read from the node's own clock, so they compare directly.
+        """
+        last: dict[str, float] = {}
+        for r in records:
+            last[r["_node"]] = max(last.get(r["_node"], -math.inf), epoch(r["ts"]))
+        for node, t in sorted(last.items()):
+            if not any(p.get("node") == node and p.get("when") == "after" and finite(p.get("node_time"))
+                       and p["node_time"] > t for p in self.clocks):
+                void(f"no probe of {node} was taken after attempt 2's step on it, so its clock after the recovery is not shown")
 
     def first_steps(self) -> tuple[dict, set]:
         """Each rank's first step of attempt 2 on the runner's clock, and the nodes those steps ran on."""
@@ -792,7 +825,7 @@ class Case:
             spread = max(abs(a - b) for p in got.values() for a, b in zip(p, got[0]))
             if spread > PARAM_TOLERANCE:
                 failed(f"the ranks ended {spread:.3g} apart, beyond {PARAM_TOLERANCE}")
-            self.figures["checkpoint_s"] = self.save_costs(1)
+            self.figures["checkpoint_s"] = self.save_costs(1, completed=True)
             self.figures["checkpoint"] = self.checkpoint_stats(1)
             return
         # Delivery, then the outcome, then the evidence the figures need, then what the recovery restored: a recovery
@@ -832,10 +865,13 @@ class Case:
             "lost_steps": lost_from - resumed["from_step"],
             "class": self.recovery_class(fault),
             "params_gap": gap,
-            "checkpoint_s": self.save_costs(1) + self.save_costs(2),
+            "checkpoint_s": self.save_costs(1, completed=False) + self.save_costs(2, completed=True),
             "checkpoint": self.checkpoint_stats(2),
             **resumed,
         })
+        # check_resume has shown every rank's steps run from the one after the checkpoint, so these are the first steps.
+        # After recovery_class, whose refusal of a recovery on the terminated node names the cause and not its probe.
+        self.check_probed_after([r for r in self.rec("step", 2) if r.get("step") == resumed["from_step"] + 1])
         # A NaN is not at most zero, so the positivity test alone passed a recovery_s of NaN.
         for figure in ("recovery_s", "clock_uncertainty_s"):
             if not finite(self.figures[figure]):
@@ -843,11 +879,12 @@ class Case:
         if self.figures["recovery_s"] <= 0:
             void(f"attempt 2's first step is {self.figures['recovery_s']:.3f} s after the fault, which no clock allows")
 
-    def save_costs(self, attempt: int) -> list[float]:
+    def save_costs(self, attempt: int, completed: bool) -> list[float]:
         """Every save cost of the attempt, each rank's included, refusing a checkpoint record without a cost.
 
         Records whose cost was missing or not a number were once left out of the figure, and the ranks were counted
         among the records, not the costs: a run with no rank-1 cost, or no cost at all, was ACCEPTED with "saves": 0.
+        completed says the attempt ran to the job's success, which train.py returns only after its last save.
         """
         records = self.rec("checkpoint", attempt)
         # Each rank of each attempt must have saved, or the figure is one rank's and reads as both (codex review before
@@ -859,15 +896,27 @@ class Case:
         # save, and not a sample of them that reads as all (codex gpt-6-astra attack of the retarget registration, where
         # 2 of the reference's 60 saves gave an ACCEPTED median of 0.286 s for 0.250 s).
         # Read from both paid archives: each attempt and rank saved every step it took, or all but its last.
+        # Only a fault can cut that last save, so an attempt that completed saved them all: with both of the reference's
+        # step-30 saves removed it was ACCEPTED on 58 (sixth attack, 6).
         for rank in range(WORLD):
             stepped = {r.get("step") for r in self.rec("step", attempt, rank)}
-            saved = {r.get("step") for r in records if r.get("rank") == rank}
+            saves = [r.get("step") for r in records if r.get("rank") == rank]
+            saved = set(saves)
             if not all(isinstance(s, int) and not isinstance(s, bool) for s in stepped | saved):
                 void(f"attempt {attempt} rank {rank} records a step that is not a whole number")
+            # Identical records were counted once when the logs were read, so two left for one step disagree, and a
+            # set of steps hid that: a second cost of 10 s became the reference's maximum (sixth attack, 6).
+            twice = sorted(s for s in saved if saves.count(s) > 1)
+            if twice:
+                void(f"attempt {attempt} rank {rank} has differing save records of steps {twice[:5]}, so which cost was "
+                     f"paid is not shown")
             unsaved, unstepped = stepped - saved, saved - stepped
             if unstepped or len(unsaved) > 1 or (unsaved and unsaved != {max(stepped)}):
                 void(f"attempt {attempt} rank {rank} has save records of steps {sorted(saved)} for steps "
                      f"{sorted(stepped)}, which is not every step but at most its last")
+            if completed and unsaved:
+                void(f"attempt {attempt} rank {rank} completed with no save record of its last step {max(unsaved)}, "
+                     f"and an attempt that completed saved every step")
         for r in records:
             cost = r.get("save_s")
             if not finite(cost) or cost < 0:
@@ -876,10 +925,13 @@ class Case:
         return [r["save_s"] for r in records]
 
     def checkpoint_stats(self, attempts: int) -> dict:
-        """Every rank's save cost, as median and maximum per attempt, which the registration names as the figure."""
+        """Every rank's save cost, as median and maximum per attempt, which the registration names as the figure.
+
+        Called once the job is shown Succeeded, so the last attempt is the one that completed.
+        """
         out = {}
         for a in range(1, attempts + 1):
-            costs = self.save_costs(a)
+            costs = self.save_costs(a, completed=a == attempts)
             out[f"a{a}"] = {"saves": len(costs), "median_s": round(statistics.median(costs), 3), "max_s": round(max(costs), 3)}
         return out
 

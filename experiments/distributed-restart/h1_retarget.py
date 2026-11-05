@@ -32,6 +32,8 @@ CROSS_CHECK_S = 2.0
 # the probes keep within that of the controller's, and 60 s after is a bound no stop barrier of this stage came near.
 CHRONOLOGY_AFTER_S = 2.0
 CHRONOLOGY_BEFORE_S = 60.0
+# The attempt state the controller writes with stopConfirmedAt, in internal/controller/mltrainingjob_restart.go.
+STOPPED = "Stopped"
 
 
 def attempt_one(status: object) -> dict | None:
@@ -88,7 +90,7 @@ def bracket(seen: list[tuple[float, dict, list]], field: str) -> tuple[float, fl
 
 
 def measure(case_dir: pathlib.Path, later_ran: bool = False) -> dict:
-    """d and its evidence for one delivered case, or an INVALID reason, or a never-confirmed stop with its lower bound.
+    """d and its evidence for one delivered case, or an INVALID reason, or a never-confirmed stop with its observed span.
 
     later_ran says the case's own logs or Pods show an attempt after the first, which only a confirmed stop allows.
     """
@@ -114,10 +116,16 @@ def measure(case_dir: pathlib.Path, later_ran: bool = False) -> dict:
             return {"invalid": "the final MLTrainingJob lacks a stop that the timeline or a later attempt shows"}
         if later_ran:
             return {"invalid": "the final MLTrainingJob lacks a stop, and the case's logs or Pods show a later attempt ran"}
+        # The controller writes the state and the stamp in one update, so a Stopped attempt without the stamp is a
+        # contradiction, not a stop that never came (sixth attack, 3).
+        if a.get("state") == STOPPED or any(x.get("state") == STOPPED for _, x, _ in seen):
+            return {"invalid": "attempt 1 is shown Stopped without a stopConfirmedAt"}
         f = bracket(seen, "failureObservedAt")
         if f is None:
             return {"invalid": "attempt 1 has no stopConfirmedAt, and its trigger is not bracketed by the timeline"}
-        return {"censored_at_least_s": seen[-1][0] - f[1]}
+        # Described, never a bound: the span is two readings of the collector's wall clock, which a jump moves while the
+        # controller's evidence stays the same (sixth attack, 4).
+        return {"unpublished_stop_observed_s": round(seen[-1][0] - f[1], 1)}
     d = score_eks.epoch(stopped) - score_eks.epoch(failed)
     if d < 0:
         return {"invalid": f"stopConfirmedAt is {-d:.0f} s before failureObservedAt"}
@@ -136,17 +144,20 @@ def measure(case_dir: pathlib.Path, later_ran: bool = False) -> dict:
 
 
 def outcome(results: dict[str, dict]) -> tuple[str, str]:
-    """The registered outcome; a refutation is read first, because a slow stop is evidence whatever else is missing."""
+    """The registered outcome, decided over valid d alone.
+
+    A refutation is read first, because a slow stop is evidence whatever else is missing.
+    A stop never published gives no d and so cannot refute: the span it was watched for is on the collector's wall
+    clock, and a jump of that clock alone once turned a 2 s observation into a 62 s refutation (sixth attack, 4).
+    """
     slow = [n for n, r in results.items() if r.get("d_s", -1) >= REFUTE_S]
-    unpublished = [n for n, r in results.items() if r.get("censored_at_least_s", -1) >= REFUTE_S]
-    if slow or unpublished:
-        # A stop never published is told apart from a measured d, since it bounds publication, not the stamps.
-        why = [f"d is at least {REFUTE_S} s in {', '.join(slow)}"] if slow else []
-        why += [f"no stop was published for at least {REFUTE_S} s after the trigger in {', '.join(unpublished)}"] if unpublished else []
-        return "REFUTED", "; ".join(why)
+    if slow:
+        return "REFUTED", f"d is at least {REFUTE_S} s in {', '.join(slow)}"
     missing = [n for n in H1_CASES if "d_s" not in results.get(n, {})]
     if missing:
-        return "NOT ASSESSED", f"no valid d in {', '.join(missing)}"
+        unpublished = [n for n in missing if "unpublished_stop_observed_s" in results.get(n, {})]
+        why = f"no valid d in {', '.join(missing)}"
+        return "NOT ASSESSED", why + (f"; no stop was published while observed in {', '.join(unpublished)}" if unpublished else "")
     if all(results[n]["d_s"] <= SUPPORT_S for n in H1_CASES):
         return "SUPPORTED", f"every d is at most {SUPPORT_S} s"
     return "INCONCLUSIVE", f"every d is below {REFUTE_S} s and some is above {SUPPORT_S} s"
