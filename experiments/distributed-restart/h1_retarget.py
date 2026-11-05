@@ -45,19 +45,31 @@ def attempt_one(status: object) -> dict | None:
     return attempts[0] if attempts[0].get("number") == 1 else None
 
 
-def reads(rows: list[dict]) -> list[tuple[float, dict, list]]:
+def reads(path: pathlib.Path) -> list[tuple[float, dict, list]]:
     """The collector's successful reads: its time, attempt 1, and every attempt; a failed read shows nothing either way.
 
-    The rows are those score_eks.status_reads keeps, so this and the scorer skip the same failed and malformed reads,
-    a row whose time cannot be read among them.
+    The rows are those score_eks.timeline_reads keeps, row by row, so this and the scorer skip the same failed and
+    malformed reads, a row that is not JSON and one whose time cannot be read among them.
     """
-    out = []
-    for seen, status in score_eks.status_reads(rows):
-        a = attempt_one(status)
-        if a is None:
-            continue
-        out.append((seen, a, status.get("attempts") or []))
-    return out
+    return [(seen, (status.get("attempts") or [{}])[0], status.get("attempts") or [])
+            for seen, status in score_eks.timeline_reads(path)]
+
+
+def contradicted(seen: list[tuple[float, dict, list]], final: dict, field: str) -> str:
+    """Why the reads contradict the final object's stamp, or ''.
+
+    A stamp is set once: every read that shows it shows the final object's value, and none after it shows it gone.
+    Only whether a read showed the stamp was compared, so a final stop moved to 20 s after the trigger, the reads
+    showing it at 1 s, gave d = 20 inside the bracket (codex gpt-6-astra attack of the retarget registration).
+    """
+    values = [(t, a.get(field)) for t, a, _ in seen]
+    shown = [v for _, v in values if v]
+    if any(v != final.get(field) for v in shown):
+        return f"the timeline shows {field} as {sorted(set(shown))}, the final object as {final.get(field)!r}"
+    first = next((i for i, (_, v) in enumerate(values) if v), None)
+    if first is not None and not all(v for _, v in values[first:]):
+        return f"the timeline shows {field} and then a read without it"
+    return ""
 
 
 def bracket(seen: list[tuple[float, dict, list]], field: str) -> tuple[float, float] | None:
@@ -76,7 +88,7 @@ def measure(case_dir: pathlib.Path) -> dict:
     a = attempt_one(final.get("status") if isinstance(final, dict) else None)
     if not a:
         return {"invalid": "the final MLTrainingJob has no attempt numbered 1 first"}
-    seen = reads(score_eks.jsonl(case_dir / "timeline.jsonl"))
+    seen = reads(case_dir / "timeline.jsonl")
     if not seen:
         return {"invalid": "no timeline read, so d cannot be checked against a second clock"}
     failed, stopped = a.get("failureObservedAt"), a.get("stopConfirmedAt")
@@ -94,6 +106,10 @@ def measure(case_dir: pathlib.Path) -> dict:
     d = score_eks.epoch(stopped) - score_eks.epoch(failed)
     if d < 0:
         return {"invalid": f"stopConfirmedAt is {-d:.0f} s before failureObservedAt"}
+    for field in ("failureObservedAt", "stopConfirmedAt"):
+        why = contradicted(seen, a, field)
+        if why:
+            return {"invalid": why}
     f, s = bracket(seen, "failureObservedAt"), bracket(seen, "stopConfirmedAt")
     if f is None or s is None:
         return {"invalid": "the timeline does not bracket both stamps between two of its reads"}
@@ -106,10 +122,13 @@ def measure(case_dir: pathlib.Path) -> dict:
 
 def outcome(results: dict[str, dict]) -> tuple[str, str]:
     """The registered outcome; a refutation is read first, because a slow stop is evidence whatever else is missing."""
-    slow = [n for n, r in results.items()
-            if r.get("d_s", -1) >= REFUTE_S or r.get("censored_at_least_s", -1) >= REFUTE_S]
-    if slow:
-        return "REFUTED", f"d is at least {REFUTE_S} s in {', '.join(slow)}"
+    slow = [n for n, r in results.items() if r.get("d_s", -1) >= REFUTE_S]
+    unpublished = [n for n, r in results.items() if r.get("censored_at_least_s", -1) >= REFUTE_S]
+    if slow or unpublished:
+        # A stop never published is told apart from a measured d, since it bounds publication, not the stamps.
+        why = [f"d is at least {REFUTE_S} s in {', '.join(slow)}"] if slow else []
+        why += [f"no stop was published for at least {REFUTE_S} s after the trigger in {', '.join(unpublished)}"] if unpublished else []
+        return "REFUTED", "; ".join(why)
     missing = [n for n in H1_CASES if "d_s" not in results.get(n, {})]
     if missing:
         return "NOT ASSESSED", f"no valid d in {', '.join(missing)}"
@@ -119,11 +138,22 @@ def outcome(results: dict[str, dict]) -> tuple[str, str]:
 
 
 def delivered(case: score_eks.Case) -> str:
-    """'' when score_eks.py's delivery check passes, else why not; nothing after delivery is consulted."""
+    """'' when the registered fault is shown delivered and is what ended attempt 1, else why not.
+
+    The delivery check is score_eks.py's, run on the evidence alone: a VOID the runner wrote is reported beside d and
+    does not decide it, because the runner voids a rank-kill whose probe failed after its trainer may have fired.
+    Delivery shows a fault happened, not that it ended the attempt measured, so attempt 1's trigger must be the one the
+    kind registers: a JobDeleted restart once gave a valid 31 s for a dcgm case (codex gpt-6-astra attack of the
+    retarget registration).
+    Nothing the scorer checks after these is consulted.
+    """
     try:
-        case.load()
+        case.load(runner_void=False)
         case.bind()
         case.check_delivered()
+        trigger = (case.attempts[0] if case.attempts else {}).get("trigger")
+        if trigger != score_eks.TRIGGER[case.kind]:
+            return f"attempt 1 ended on {trigger!r}, not {score_eks.TRIGGER[case.kind]}, so the stop measured is not this fault's"
     except score_eks.Verdict as v:
         return f"the fault is not shown delivered: {v.reason}"
     except (ValueError, KeyError, TypeError, IndexError, AttributeError, OSError) as exc:
@@ -168,14 +198,17 @@ def main(argv: list[str]) -> int:
             reference = case.final_params(1)[0] if verdict == "ACCEPTED" else None
         if name not in H1_CASES:
             continue
+        beside = {"verdict": verdict}
+        if (run / name / "VOID").exists():
+            beside["runner_void"] = (run / name / "VOID").read_text(errors="replace").strip()[:200]
         why = delivered(score_eks.Case(run, name, reference, steps, budget))
         if why:
-            results[name] = {"verdict": verdict, "invalid": why}
+            results[name] = {**beside, "invalid": why}
             continue
         try:
-            results[name] = {"verdict": verdict, **measure(run / name)}
+            results[name] = {**beside, **measure(run / name)}
         except (ValueError, KeyError, TypeError, IndexError, AttributeError, OSError) as exc:
-            results[name] = {"verdict": verdict, "invalid": f"its evidence could not be read: {type(exc).__name__}: {str(exc)[:120]}"}
+            results[name] = {**beside, "invalid": f"its evidence could not be read: {type(exc).__name__}: {str(exc)[:120]}"}
     for name in H1_CASES:
         print(f"{name:12} {json.dumps(results.get(name, {'invalid': 'not run'}), sort_keys=True)}")
     result, why = outcome(results)

@@ -39,6 +39,8 @@ printf '%s %s\n' "$tool" "$*" >>"${STUB_CALLS:?the stub was given nowhere to rec
 # The session's kubeconfig, which restart_probe_config reads before every round of clock probes: a case's own, or one
 # whose user holds a client certificate and no credential plugin, as kind's does.
 if [[ "$tool" == kubectl && " $* " == *" config view "* ]]; then
+  # A case can make the read slow, to show what is left of a deadline after it.
+  if [[ -n "${STUB_RULES:-}" && -f "$STUB_RULES/kubeconfig.delay" ]]; then sleep "$(cat "$STUB_RULES/kubeconfig.delay")"; fi
   if [[ -n "${STUB_RULES:-}" && -f "$STUB_RULES/kubeconfig.json" ]]; then cat "$STUB_RULES/kubeconfig.json"; else
     echo '{"apiVersion": "v1", "kind": "Config", "current-context": "stub", "contexts": [{"name": "stub", "context": {"cluster": "c", "user": "u"}}], "clusters": [{"name": "c", "cluster": {"server": "https://stub.invalid"}}], "users": [{"name": "u", "user": {"client-certificate-data": "Y2VydA=="}}]}'
   fi
@@ -270,6 +272,33 @@ if [[ -z "$waits" ]]; then
   ok "no wait or rollout goes through rk or rkd, whose cut is one request's"
 else
   bad "a wait goes through rk or rkd and is cut at 20 s: $waits"
+fi
+# The node qualification is train-session.sh's, whose kubectl carries only a request timeout; under restart_wait_group
+# it is the deadline-cut call, so a hanging client ends with the group's deadline (fourth attack).
+mkdir -p "$work/rules/qualify"
+cat >"$work/rules/qualify/kubectl.sh" <<'EOF'
+case "$*" in
+  *"get nodes"*"-o name"*) printf 'node/a\nnode/b\nnode/c\n' ;;
+  *"get nodes"*"-o json"*) sleep 30 ;;
+esac
+EOF
+out="$(lib qualify 's=$SECONDS; restart_by $((SECONDS + 4)) restart_wait_group 3 4 >/dev/null 2>&1; echo rc=$? took=$((SECONDS - s))')"
+took="$(grep -o 'took=[0-9]*' <<<"$out" | cut -d= -f2)"
+if [[ "$out" == *"rc="[1-9]* && -n "$took" && "$took" -ge 2 && "$took" -le 8 ]]; then
+  ok "a hanging client in the node qualification ends with its deadline ($took s for 4 s)"
+else
+  bad "a hanging client in the node qualification: $out"
+fi
+# The credential plugin's allowance is what is left after the kubeconfig was read, not before it (fourth attack).
+mkdir -p "$work/rules/probecfg"
+echo 4 >"$work/rules/probecfg/kubeconfig.delay"
+echo '{"users": [{"user": {"exec": {"command": "sleep", "args": ["30"]}}}], "clusters": [], "contexts": []}' >"$work/rules/probecfg/kubeconfig.json"
+out="$(lib probecfg 's=$SECONDS; restart_by $((SECONDS + 6)) restart_probe_config "$RESTART_OUT/cfg" >/dev/null 2>&1; echo rc=$? took=$((SECONDS - s))')"
+took="$(grep -o 'took=[0-9]*' <<<"$out" | cut -d= -f2)"
+if [[ "$out" == *"rc="[1-9]* && -n "$took" && "$took" -le 8 ]]; then
+  ok "the credential plugin is given what is left after the kubeconfig read ($took s for 6 s)"
+else
+  bad "the credential plugin's allowance: $out"
 fi
 out="$(lib rkd-expired 'restart_by $((SECONDS - 1)) rkd $((SECONDS + 10)) get pods; echo rc=$?')"
 if [[ "$out" == *"the deadline has passed"*"rc=1"* ]] && ! grep -q '^kubectl ' "$work/rkd-expired.calls" 2>/dev/null; then
@@ -1591,8 +1620,11 @@ if grep -q '^dcgm-2 .*"invalid": "no timeline' <<<"$out" && grep -q '^H1 NOT ASS
 else
   bad "a case without its timeline: $(grep -E '^(dcgm-2|H1)' <<<"$out")"
 fi
-# A short d the collector's clock contradicts is not a measurement: the stop moved 34 s earlier on the controller only.
-h1_mutate hack/distributed-restart-eks/2026-11-04-full/session/restart rank-kill-1 'a["stopConfirmedAt"] = "2026-11-04T00:45:43Z"'
+# A short d the collector's clock contradicts is not a measurement: the stop's value moved 34 s earlier everywhere, in
+# the final object and in every read that shows it, while the reads still first show it when they did.
+h1_mutate hack/distributed-restart-eks/2026-11-04-full/session/restart rank-kill-1 'a["stopConfirmedAt"] = "2026-11-04T00:45:43Z"' drop-timeline
+xz -dc hack/distributed-restart-eks/2026-11-04-full/session/restart/rank-kill-1/timeline.jsonl.xz |
+  sed 's/"stopConfirmedAt": "2026-11-04T00:46:17Z"/"stopConfirmedAt": "2026-11-04T00:45:43Z"/g' >"$work/h1/rank-kill-1/timeline.jsonl"
 out="$(python3 "$h1" "$work/h1" 2>&1)"
 if grep -q '^rank-kill-1 .*"invalid": "d 5 s is outside the collector' <<<"$out" && grep -q '^H1 REFUTED: d is at least 30 s in rank-kill-2, dcgm-1, dcgm-2$' <<<"$out"; then
   ok "a d the collector's clock contradicts is INVALID, and the other slow stops still refute"
@@ -1691,6 +1723,77 @@ if grep -q '^rank-kill-1 .*"d_s": 1.0' <<<"$out" && grep -q '^H1 SUPPORTED' <<<"
   ok "a read whose time cannot be parsed is skipped, not the end of its case"
 else
   bad "a read with an unreadable time: $(grep -E '^(rank-kill-1|H1|Traceback)' <<<"$out")"
+fi
+# The fourth attack: a runner VOID, a moved stamp, a foreign trigger, a cut-short row and a thin save sample.
+full_rs=hack/distributed-restart-eks/2026-11-04-full/session/restart
+rt2=hack/restart-lifecycle-kind-20261105T034118Z/run-e
+h1_mutate "$full_rs" rank-kill-1 'pass'
+echo "VOID-before-fault: a clock probe before the fault failed" >"$work/h1/rank-kill-1/VOID"
+out="$(python3 "$h1" "$work/h1" 2>&1)"
+if grep -q '^rank-kill-1 .*"d_s": 39.0.*"runner_void": "VOID-before-fault' <<<"$out" && grep -q '^H1 REFUTED' <<<"$out"; then
+  ok "a runner VOID is reported beside d and does not decide a delivered fault's stop"
+else
+  bad "a runner VOID: $(grep -E '^(rank-kill-1|H1)' <<<"$out")"
+fi
+rm -rf "$work/h1" && cp -r "$rt2" "$work/h1"
+python3 - "$work/h1/dcgm-1/final-mltj.json" <<'EOF'
+import datetime, json, sys
+j = json.load(open(sys.argv[1]))
+a = j["status"]["attempts"][0]
+t = datetime.datetime.fromisoformat(a["failureObservedAt"].replace("Z", "+00:00")) + datetime.timedelta(seconds=20)
+a["stopConfirmedAt"] = t.strftime("%Y-%m-%dT%H:%M:%SZ")
+json.dump(j, open(sys.argv[1], "w"))
+EOF
+out="$(h1_shim)"
+if grep -q '^dcgm-1 .*"invalid": "the timeline shows stopConfirmedAt as' <<<"$out" && grep -q '^H1 NOT ASSESSED' <<<"$out"; then
+  ok "a final stamp the reads contradict is INVALID, not a d inside a wide bracket"
+else
+  bad "a contradicted final stamp: $(grep -E '^(dcgm-1|H1)' <<<"$out")"
+fi
+h1_mutate "$full_rs" dcgm-1 'a["trigger"] = "JobDeleted"'
+out="$(python3 "$h1" "$work/h1" 2>&1)"
+if grep -q "^dcgm-1 .*\"invalid\": \"attempt 1 ended on 'JobDeleted', not NodeFault" <<<"$out"; then
+  ok "a stop the registered fault did not trigger gives no d"
+else
+  bad "a foreign trigger: $(grep -E '^(dcgm-1|H1)' <<<"$out")"
+fi
+rm -rf "$work/h1" && cp -r "$rt2" "$work/h1"
+xz -dc "$rt2/rank-kill-2/timeline.jsonl.xz" >"$work/h1/rank-kill-2/timeline.jsonl" && rm "$work/h1/rank-kill-2/timeline.jsonl.xz"
+echo '{"observed":' >>"$work/h1/rank-kill-2/timeline.jsonl"
+out="$(h1_shim)"
+if grep -q '^rank-kill-2 .*"d_s": 0.0' <<<"$out" && grep -q '^H1 SUPPORTED' <<<"$out"; then
+  ok "a timeline row cut short is skipped like any malformed read"
+else
+  bad "a row cut short: $(grep -E '^(rank-kill-2|H1|Traceback)' <<<"$out")"
+fi
+out="$(cd experiments/distributed-restart && python3 -c '
+import score_eks as s, h1_retarget as h
+print(len(s.status_reads([{"observed": "2026-11-05T00:00:00Z", "status": {"attempts": [{"number": 2}]}}])))
+print(h.outcome({"rank-kill-1": {"censored_at_least_s": 31.0}})[1])' 2>&1)"
+if [[ "$out" == $'0\nno stop was published for at least 30 s after the trigger in rank-kill-1' ]]; then
+  ok "a status whose first attempt is not attempt 1 is skipped, and an unpublished stop is not called a d"
+else
+  bad "the shared read rule and the refutation wording: $(tr '\n' '|' <<<"$out")"
+fi
+rm -rf "$work/h1" && cp -r "$full_rs" "$work/h1"
+python3 - "$work/h1/reference" <<'EOF'
+import pathlib, sys
+d = pathlib.Path(sys.argv[1])
+for log in sorted(d.glob("log-*.txt")):
+    out, kept = [], 0
+    for line in log.read_text(errors="replace").splitlines(keepends=True):
+        if '"event": "checkpoint"' in line:
+            kept += 1
+            if kept > 1:
+                continue
+        out.append(line)
+    log.write_text("".join(out))
+EOF
+out="$(python3 experiments/distributed-restart/score_eks.py "$work/h1" 2>&1)"
+if grep -q '^VOID *reference: .*has save records of steps .* which is not every step but at most its last' <<<"$out"; then
+  ok "a reference with 2 of its 60 saves recorded is VOID, not a median over 2"
+else
+  bad "a thin save sample: $(grep '^[A-Z]* *reference' <<<"$out")"
 fi
 # The committed rehearsal replays its gate from the repository alone, timelines compressed.
 out="$(python3 hack/test/restart-kind/check_lifecycle.py hack/restart-lifecycle-kind-20261104T142003Z 2>&1)"

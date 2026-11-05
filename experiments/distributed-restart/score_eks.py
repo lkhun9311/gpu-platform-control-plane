@@ -11,11 +11,12 @@ went well would report the fast half of the distribution as the whole.
 VOID means the apparatus did not deliver what the case registers (the fault did not reach its target, the evidence is
 missing, a clock cannot be trusted, NCCL ran over a transport nobody registered); FAILED means it did and the platform
 or the trainer did not recover as the case requires.
-A FAILED case is one of three: censored, when the job had not ended by its budget and attempt 2's first step was never
-observed, so its recovery time is known only to exceed the time from the fault to the last observation; past its budget,
-when that first step was observed and the job still did not end within its budget, so the recovery has a time and the
-completion does not; or not recovered, when the job ended, or recovered, other than as the case requires.
-The summary counts them apart, because a censored recovery is a slow one, a late completion is a slow run after a
+A FAILED case is one of three: censored, when the job had not ended by its budget and attempt 2's first step is not
+among the records collected, which is reported with when observation ended and not as a bound, because nothing shows the
+logs were followed throughout; past its budget, when that first step was observed and the job still did not end within
+its budget, so the recovery has a time and the completion does not; or not recovered, when the job ended, or recovered,
+other than as the case requires.
+The summary counts them apart, because a recovery not seen is not a wrong one, a late completion is a slow run after a
 recovery that came, and the other is a wrong one.
 
 Exit 0 when every registered case is ACCEPTED, 1 when the run is complete and some case is not, 2 when the run itself is
@@ -111,19 +112,25 @@ def records_in(text: str) -> list[dict]:
     return out
 
 
-def jsonl(path: pathlib.Path) -> list[dict]:
+def jsonl_text(path: pathlib.Path) -> str | None:
+    """The text of a JSON-lines file, or of its .xz when only that exists; None when neither does."""
     # The paid archives commit their largest records, the status timelines, xz-compressed.
     # Reading only the plain name voided every termination case of a committed archive the run itself had accepted.
     packed = path.with_name(path.name + ".xz")
     if path.exists():
-        text = path.read_text()
-    elif packed.exists():
+        return path.read_text()
+    if packed.exists():
         # LZMAError is not a ValueError, so a damaged archive would escape the per-case handlers and end the report.
         try:
-            text = lzma.decompress(packed.read_bytes()).decode()
+            return lzma.decompress(packed.read_bytes()).decode()
         except lzma.LZMAError as exc:
             raise ValueError(f"{packed.name} could not be decompressed: {exc}") from exc
-    else:
+    return None
+
+
+def jsonl(path: pathlib.Path) -> list[dict]:
+    text = jsonl_text(path)
+    if text is None:
         return []
     try:
         return [json.loads(line, parse_constant=no_constant) for line in text.splitlines() if line.strip().startswith("{")]
@@ -138,11 +145,31 @@ def epoch(ts: str) -> float:
     return datetime.datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp()
 
 
+def timeline_reads(path: pathlib.Path) -> list[tuple[float, dict]]:
+    """status_reads over a timeline file parsed row by row, so one row that is not JSON is skipped like any malformed read.
+
+    The whole file was parsed at once, and a row cut short ended the case instead of being skipped (codex gpt-6-astra
+    attack of the retarget registration).
+    Other evidence files stay strict: a timeline is a sampler's many reads, each standing alone.
+    """
+    text = jsonl_text(path)
+    rows = []
+    for line in (text or "").splitlines():
+        if not line.strip().startswith("{"):
+            continue
+        try:
+            rows.append(json.loads(line, parse_constant=no_constant))
+        except ValueError:
+            continue
+    return status_reads(rows)
+
+
 def status_reads(rows: list[dict]) -> list[tuple[float, dict]]:
     """The sampler's successful, well-formed reads of the job, in order: when it saw each, and the status it read.
 
     The sampler writes a row for a read that failed as well, with a null status, and a row can be malformed; either
     shows nothing about the job, so it is skipped rather than read as a status without a stamp.
+    A well-formed status lists its attempts from the first, so one whose first attempt is not numbered 1 is malformed.
     Both evaluators read timelines through this, so they skip the same rows (codex gpt-6-astra attack of the retarget
     registration: one of them counted a status whose attempts were [null] and extended a bound by an hour).
     """
@@ -153,6 +180,8 @@ def status_reads(rows: list[dict]) -> list[tuple[float, dict]]:
             continue
         attempts = status.get("attempts")
         if attempts is not None and not (isinstance(attempts, list) and all(isinstance(a, dict) for a in attempts)):
+            continue
+        if attempts and attempts[0].get("number") != 1:
             continue
         try:
             seen = epoch(r["observed"])
@@ -187,12 +216,18 @@ class Case:
             self._clocks = jsonl(self.dir / "clock.jsonl")
         return self._clocks
 
-    def load(self) -> None:
+    def load(self, runner_void: bool = True) -> None:
+        """The case's evidence; with runner_void False, a VOID the runner wrote does not stop it.
+
+        H1 reads delivery from the evidence itself: the runner voids a rank-kill whose probe before the fault failed,
+        and the trainer's own fault may have fired by then, so the marker alone once removed a delivered fault's valid
+        stop interval (codex gpt-6-astra attack of the retarget registration).
+        """
         if not self.dir.is_dir():
             void("its directory is missing")
         if (self.dir / "NOTRUN").exists():
             raise Verdict("NOTRUN", (self.dir / "NOTRUN").read_text().strip()[:200])
-        if (self.dir / "VOID").exists():
+        if runner_void and (self.dir / "VOID").exists():
             void("the runner voided it: " + (self.dir / "VOID").read_text().strip()[:200])
         if self.kind not in KINDS:
             void(f"{self.kind} is not a registered kind")
@@ -431,7 +466,7 @@ class Case:
         """
         try:
             fault, uncertainty = self.placed_fault()
-            reads = status_reads(jsonl(self.dir / "timeline.jsonl"))
+            reads = timeline_reads(self.dir / "timeline.jsonl")
             if not reads:
                 raise ValueError("no sample read the job's status")
             cutoff = reads[-1][0]
@@ -795,6 +830,19 @@ class Case:
         ranks = sorted({r.get("rank") for r in records}, key=str)
         if ranks != list(range(WORLD)):
             void(f"attempt {attempt} has save records from ranks {ranks}, want every rank of {WORLD}")
+        # Every step a rank took is saved, but for the last one a fault can cut before its save: the figure is then every
+        # save, and not a sample of them that reads as all (codex gpt-6-astra attack of the retarget registration, where
+        # 2 of the reference's 60 saves gave an ACCEPTED median of 0.286 s for 0.250 s).
+        # Read from both paid archives: each attempt and rank saved every step it took, or all but its last.
+        for rank in range(WORLD):
+            stepped = {r.get("step") for r in self.rec("step", attempt, rank)}
+            saved = {r.get("step") for r in records if r.get("rank") == rank}
+            if not all(isinstance(s, int) and not isinstance(s, bool) for s in stepped | saved):
+                void(f"attempt {attempt} rank {rank} records a step that is not a whole number")
+            unsaved, unstepped = stepped - saved, saved - stepped
+            if unstepped or len(unsaved) > 1 or (unsaved and unsaved != {max(stepped)}):
+                void(f"attempt {attempt} rank {rank} has save records of steps {sorted(saved)} for steps "
+                     f"{sorted(stepped)}, which is not every step but at most its last")
         for r in records:
             cost = r.get("save_s")
             if not finite(cost) or cost < 0:

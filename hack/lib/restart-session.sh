@@ -394,6 +394,18 @@ rk() {
   timeout -k "$RESTART_KILL_AFTER" "$t" kubectl --context "$RESTART_CONTEXT" --request-timeout="${t}s" "$@"
 }
 
+# restart_bounded_kubectl ARGS...: the kubectl binary, run with ARGS as given and cut at 20 s or at RESTART_DL, for the
+# shared libraries' calls that name their own context and request timeout; refused once RESTART_DL has passed.
+restart_bounded_kubectl() {
+  local t=20 bin
+  restart_cap t 20 || return 1
+  bin="$(type -P kubectl)" || {
+    echo "no kubectl on PATH" >&2
+    return 127
+  }
+  timeout -k "$RESTART_KILL_AFTER" "$t" "$bin" "$@"
+}
+
 # rkd DEADLINE ARGS...: rk that cannot outlive DEADLINE (in SECONDS), so a poll that starts just before its phase's
 # deadline does not carry the phase into the next one's share.
 # It is given a second when DEADLINE has just passed, so a poll's last look is still made, but never past an enclosing
@@ -562,12 +574,14 @@ RESTART_CLOCK_TRIES=3
 # A token lasts 15 minutes, so one is minted for each round of probes and the file is removed after it.
 restart_probe_config() {
   local file="$1" view t
-  # The plugin's own limit is cut to the deadline too, since it runs outside every kubectl the deadline bounds.
-  restart_cap t 60 || return 1
   view="$(rk config view --raw --minify -o json 2>&1)" || {
     echo "could not read the kubeconfig of $RESTART_CONTEXT: ${view:0:200}" >&2
     return 1
   }
+  # The plugin's own limit is cut to the deadline too, since it runs outside every kubectl the deadline bounds.
+  # It is taken after the read above, which once spent the whole allowance and left the plugin a stale one (codex
+  # gpt-6-astra attack of the retarget registration).
+  restart_cap t 60 || return 1
   python3 -c '
 import json, os, subprocess, sys
 c = json.loads(sys.stdin.read())
@@ -1483,7 +1497,13 @@ restart_wait_group() {
       return 1
     }
     # What is left of the deadline and no more: a floor here would let the qualification run past the share it was given.
-    ids="$(train_qualify_nodes "$RESTART_CONTEXT" "$RESTART_GROUP" "$want" $((deadline - SECONDS > 1 ? deadline - SECONDS : 1)) 1)" && break
+    # train-session.sh's own kubectl calls carry only a request timeout, which a hanging credential helper outlasts, so
+    # inside this substitution kubectl is the same deadline-cut call as rk (codex gpt-6-astra attack of the retarget
+    # registration, which held a qualification past its deadline with a sleeping kubectl).
+    ids="$(
+      kubectl() { restart_bounded_kubectl "$@"; }
+      restart_by "$deadline" train_qualify_nodes "$RESTART_CONTEXT" "$RESTART_GROUP" "$want" $((deadline - SECONDS > 1 ? deadline - SECONDS : 1)) 1
+    )" && break
     [[ "$ids" == *"nodes in the group, want $want"* ]] && ((deadline - SECONDS > RESTART_POLL)) || {
       echo "$ids"
       return 1
@@ -1653,7 +1673,7 @@ restart_evidence() {
 # The retirement's deadline is counted back from the slot's end, past the files and the reset, so a run or an evidence
 # read that ran long takes from the retirement's share and never pushes the files or the reset past the slot.
 restart_run_case() {
-  local case="$1" slot_dl="$2" kind="${1%-[0-9]*}" name dir job_id deadline collector rank0 rank1 node1 pod0 rc window out probed=""
+  local case="$1" slot_dl="$2" kind="${1%-[0-9]*}" name dir job_id deadline collector rank0 rank1 node1 pod0 rc window out probed="" held
   local retire_dl=$(($2 - RESTART_FILES_BUDGET))
   [[ "${1%-[0-9]*}" != dcgm ]] || retire_dl=$((retire_dl - RESTART_RESET_BUDGET))
   name="rst-$case-$(date -u +%H%M%S)"
@@ -1688,7 +1708,13 @@ restart_run_case() {
   # The reference has no fault and no recovery to time, so for it a failed probe is only logged.
   if ! out="$(restart_probe_all "$dir" before 2>&1)"; then
     if [[ "$kind" != reference ]]; then
-      restart_void_case "$dir" "$name" "$job_id" "$collector" "$retire_dl" "VOID-before-fault: a clock probe before the fault failed, so nothing was injected: ${out:0:200}"
+      # Only an external fault is held back by this: a rank-kill's trainer kills itself at its own step, and may already
+      # have, so the reason says which (codex gpt-6-astra attack of the retarget registration).
+      case "$kind" in
+        dcgm | terminate-*) held="so nothing was injected" ;;
+        *) held="and the trainer's own fault is not held back by that, so it may have fired" ;;
+      esac
+      restart_void_case "$dir" "$name" "$job_id" "$collector" "$retire_dl" "VOID-before-fault: a clock probe before the fault failed, $held: ${out:0:200}"
       return
     fi
     echo "a clock probe before the fault failed: $out" >>"$dir/case.log"
@@ -1806,8 +1832,10 @@ restart_run() {
         continue
       }
     fi
-    out="$(restart_wait_group "$want" $((pre_dl - reserve - SECONDS)))" &&
-      out="$(restart_prepare_nodes "$warmed" "$pre_dl")" || {
+    # Each under its deadline as a whole, so a create or delete inside it is refused once the deadline has passed and
+    # not only the waits that are given it (codex gpt-6-astra attack of the retarget registration).
+    out="$(restart_by $((pre_dl - reserve)) restart_wait_group "$want" $((pre_dl - reserve - SECONDS)))" &&
+      out="$(restart_by "$pre_dl" restart_prepare_nodes "$warmed" "$pre_dl")" || {
       stop="before $case: $out"
       restart_notrun "$case" "$stop"
       continue
