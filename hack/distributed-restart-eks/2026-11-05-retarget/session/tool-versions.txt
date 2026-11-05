@@ -1,0 +1,5 @@
+Client Version: v1.36.3
+Kustomize Version: v5.8.1
+v3.16.3+gcfd0749
+Terraform v1.16.0
+aws-cli/2.36.32 Python/3.14.6 Linux/7.0.0-31-generic exe/x86_64.ubuntu.26

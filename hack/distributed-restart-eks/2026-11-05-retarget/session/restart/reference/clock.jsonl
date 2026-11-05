@@ -1,0 +1,6 @@
+{"node": "ip-10-0-60-196.ap-northeast-2.compute.internal", "pod": "dcgm-exporter-8clr7", "before": 1793894952.4151154, "node_time": 1793894952.5612397, "after": 1793894952.619668, "when": "before"}
+{"node": "ip-10-0-54-241.ap-northeast-2.compute.internal", "pod": "dcgm-exporter-nw5wv", "before": 1793894952.6402662, "node_time": 1793894952.7808676, "after": 1793894952.844787, "when": "before"}
+{"node": "ip-10-0-57-135.ap-northeast-2.compute.internal", "pod": "dcgm-exporter-tf4wp", "before": 1793894952.863468, "node_time": 1793894953.0174117, "after": 1793894953.0680351, "when": "before"}
+{"node": "ip-10-0-60-196.ap-northeast-2.compute.internal", "pod": "dcgm-exporter-8clr7", "before": 1793895026.0019958, "node_time": 1793895026.148338, "after": 1793895026.2062688, "when": "after"}
+{"node": "ip-10-0-54-241.ap-northeast-2.compute.internal", "pod": "dcgm-exporter-nw5wv", "before": 1793895026.2246933, "node_time": 1793895026.4024973, "after": 1793895026.4285882, "when": "after"}
+{"node": "ip-10-0-57-135.ap-northeast-2.compute.internal", "pod": "dcgm-exporter-tf4wp", "before": 1793895026.4479187, "node_time": 1793895026.5876622, "after": 1793895026.6517782, "when": "after"}

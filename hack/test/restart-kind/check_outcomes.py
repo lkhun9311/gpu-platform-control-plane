@@ -31,6 +31,7 @@ EXPECTED = {
           "rank-kill-2": (True, {"ACCEPTED"}, None), "terminate-wait-1": (True, {"ACCEPTED"}, REPLACEMENT)},
     "c": {"reference": (True, {"ACCEPTED"}, None), "rank-kill-1": (True, {"ACCEPTED", "FAILED"}, None),
           "rank-kill-2": (False, {"NOTRUN"}, "could not be retired")},
+    "e": {c: (True, {"ACCEPTED"}, None) for c in ("reference", "no-rng-control", "rank-kill-1", "rank-kill-2", "dcgm-1", "dcgm-2")},
     "d": {"reference": (True, {"ACCEPTED"}, None), "rank-kill-1": (True, {"VOID"}, "VOID-before-fault"),
           "rank-kill-2": (True, {"VOID"}, "VOID-before-fault"), "dcgm-1": (False, {"NOTRUN"}, "two cases in a row were VOID")},
 }

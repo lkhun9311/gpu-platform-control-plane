@@ -13,6 +13,8 @@
 #    replacement that joins at once, the replacement path when timing allows it.
 # c  reference; rank-kill-1 with a finalizer nothing removes on an attempt-2 Pod, so its retirement cannot complete
 #    though the MLTrainingJob goes; rank-kill-2, which must be recorded NOTRUN.
+# e  RESTART_STAGE=retarget as registered: reference, no-rng-control, rank-kill-1, rank-kill-2, dcgm-1, dcgm-2, every
+#    one expected ACCEPTED (docs/superpowers/specs/2026-11-04-restart-retarget-design.md).
 # d  reference; then every node's clock made unreadable, so rank-kill-1 and rank-kill-2 are VOID before their faults,
 #    two VOIDs in a row stop the run, and dcgm-1 must be recorded NOTRUN.
 # Evidence goes to hack/restart-lifecycle-kind-<UTC>/, one RESTART_OUT per run; KEEP=1 keeps the cluster.
@@ -21,7 +23,13 @@
 # NFS-Ganesha server and its configuration, the EFS mount options, the controllers on the control plane), written out
 # here rather than shared, because that script is the recorded harness of committed evidence runs.
 set -uo pipefail
+self="$(readlink -f "$0")"
 cd "$(dirname "$0")/.." || exit 1
+# restart_run runs each step as a paid phase, a cgroup this script must be able to make, so it enters a delegated scope
+# before building anything (bare review of a1c84414).
+# shellcheck source=hack/lib/phase-supervisor.sh
+. hack/lib/phase-supervisor.sh
+phase_supervisor_enter bash "$self" "$@" || exit 1
 
 CLUSTER=rstlife
 CONTEXT=kind-$CLUSTER
@@ -102,7 +110,7 @@ die() {
   exit 1
 }
 
-for r in $RUNS; do case "$r" in a | b | c | d) ;; *) die "run '$r' is not a, b, c or d" ;; esac; done
+for r in $RUNS; do case "$r" in a | b | c | d | e) ;; *) die "run '$r' is not a, b, c, d or e" ;; esac; done
 for tool in docker kind kubectl python3 make; do command -v "$tool" >/dev/null || die "missing tool $tool"; done
 rstk_cluster_listed "$CLUSTER" 2>>"$LOG"
 case $? in
@@ -488,8 +496,9 @@ run_stage() {
   export RESTART_INSTANCES_FILE="$RESTART_OUT/instances.txt"
   warmed="$RESTART_OUT/warmed.txt"
   : >"$warmed"
-  if [ "$cases" = smoke ]; then
-    export RESTART_STAGE=smoke
+  if [ "$cases" = smoke ] || [ "$cases" = retarget ]; then
+    # A registered stage as registered: the runner's own case list, not one chosen here.
+    export RESTART_STAGE="$cases"
     eval "restart_cases() $(declare -f rstk_registered_cases | tail -n +2)"
   else
     # A subset of full, in full's order; overriding restart_cases chooses the cases and changes nothing else.
@@ -526,7 +535,7 @@ run_stage() {
   } >"$RESTART_OUT/provenance.txt"
   out=$(restart_reader) || die "run $name: R3: $out"
   log "run $name: R3: $out"
-  out=$(restart_prepare_nodes "$warmed" $((SECONDS + RESTART_WARM_BUDGET))) || die "run $name: R5: $out"
+  out=$(restart_prepare_nodes "$warmed" $(($(phase_mono) + RESTART_WARM_BUDGET))) || die "run $name: R5: $out"
   log "run $name: R5: $out"
   out=$(restart_fault_path_ready "$RESTART_SIGNAL_BUDGET") || die "run $name: R6: $out"
   log "run $name: R6: $out"
@@ -659,6 +668,10 @@ print(json.dumps([f for f in json.load(sys.stdin)["metadata"].get("finalizers", 
         k -n "$RESTART_NS" patch "$stuck" --type=merge -p "{\"metadata\":{\"finalizers\":${fins:-[]}}}" >>"$LOG" 2>&1 || log "could not remove $STUCK from $stuck"
         if k -n "$RESTART_NS" wait --for=delete "$stuck" --timeout=120s >>"$LOG" 2>&1; then log "removed $STUCK from $stuck, and it is gone"; else log "removed $STUCK from $stuck, and it is STILL there"; fi
       fi
+      ;;
+    e)
+      echo 5 >"$RSTK_STATE/launch_delays"
+      run_stage e retarget
       ;;
     d)
       echo 5 >"$RSTK_STATE/launch_delays"

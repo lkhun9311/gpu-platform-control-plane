@@ -171,10 +171,16 @@ gf_taint_word() {
   case $rc in 0) echo present ;; 1) echo absent ;; *) echo unreadable ;; esac
 }
 
-# gf_wait_until SECONDS CMD... polls CMD every half second until it succeeds or SECONDS pass.
+# gf_wait_until SECONDS CMD... polls CMD every half second until it succeeds or SECONDS pass, and never past GF_DEADLINE
+# (epoch seconds) when the caller sets one.
+# The last call after the wait is skipped once GF_DEADLINE has passed, because it can be several kubectl calls and the
+# deadline is a phase's whole share, not the gap between polls; an adversarial review found the restart runner's 180 s
+# reset could run past its share this way.
 gf_wait_until() {
   local until=$(( $(date +%s) + $1 )); shift
+  if [ -n "${GF_DEADLINE:-}" ] && [ "$GF_DEADLINE" -lt "$until" ]; then until=$GF_DEADLINE; fi
   while [ "$(date +%s)" -lt "$until" ]; do "$@" && return 0; sleep 0.5; done
+  if [ -n "${GF_DEADLINE:-}" ] && [ "$(date +%s)" -ge "$GF_DEADLINE" ]; then return 1; fi
   "$@"
 }
 

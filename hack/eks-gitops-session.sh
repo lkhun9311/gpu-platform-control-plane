@@ -67,12 +67,34 @@
 #                     TTL_MINUTES that cover its waits. The DRAFT registration is not approved, and nothing here is an approval
 #   RESTART_STAGE     with TRAIN=restart, `smoke` (reference, no-rng-control, dcgm-1, terminate-wait-1: the first paid
 #                     stage, inspected before anything else is bought) or `full` (every kind at hack/lib/restart-session.sh's
-#                     RESTART_REPS); a stage whose TTL_MINUTES and destroy outlive a 720-minute credential is refused
+#                     RESTART_REPS) or `retarget` (reference, no-rng-control, rank-kill and dcgm twice each: the changes made
+#                     after full, docs/superpowers/specs/2026-11-04-restart-retarget-design.md); a stage whose TTL_MINUTES
+#                     and destroy outlive a 720-minute credential is refused
 
 set -euo pipefail
 
+self="$(readlink -f "$0")"
 cd "$(dirname "$0")/.." || exit 1
 export PATH="$HOME/.local/bin:$PWD/bin:$PATH"
+
+# A session that buys GPUs bounds each paid phase by a cgroup of its own, so it must own its cgroup first; started
+# without one, it starts itself again under a delegated scope (docs/superpowers/specs/2026-11-05-paid-phase-supervisor-design.md).
+# shellcheck source=hack/lib/phase-supervisor.sh
+. hack/lib/phase-supervisor.sh || exit 1
+# STUDY=prefixroute buys GPUs too and ends them through train_down, whose scale-down is a paid phase (bare review of
+# a1c84414).
+if [[ -n "${TRAIN:-}" || "${STUDY:-}" == prefixroute ]]; then
+  phase_supervisor_enter bash "$self" "$@" || {
+    echo "FATAL: TRAIN=${TRAIN:-} STUDY=${STUDY:-} cannot bound its paid phases, so nothing is bought" >&2
+    exit 1
+  }
+fi
+# The 300 s restart_gpu_budget adds for the calls around the GPU waits, divided among them as each phase's deadline:
+# the scale-up, the node dump, Z2, the qualification's last read and the TTL's removal 30 s each, the scorer 60 s, and
+# the scale-down WAIT_GPU_GONE plus 90 s for its six requests.
+SESSION_CALL=30
+SESSION_SCORE_CALL=60
+SESSION_SCALE_DOWN_EXTRA=90
 
 REGION="${REGION:-ap-northeast-2}"
 CLUSTER="${CLUSTER:-gpu-platform}"
@@ -316,7 +338,7 @@ case "$TRAIN" in
     # The stage is named, never defaulted, because which cases are bought is the owner's decision, not this script's.
     RESTART_STAGE="${RESTART_STAGE:-}"
     TRAIN_GPU_BUDGET="$(restart_gpu_budget 2>&1)" ||
-      die "TRAIN=restart needs RESTART_STAGE=smoke, run and inspected first, or RESTART_STAGE=full: $TRAIN_GPU_BUDGET"
+      die "TRAIN=restart needs RESTART_STAGE=smoke, run and inspected first, RESTART_STAGE=full or RESTART_STAGE=retarget: $TRAIN_GPU_BUDGET"
     TRAIN_BUDGET=$((WAIT_TRAIN_SYNC + WAIT_TRAIN_QUEUE + WAIT_QUAL_HELD + TRAIN_GPU_BUDGET))
     why="$(restart_ttl_refusal "$RESTART_STAGE" "$TTL_MINUTES" "$TRAIN_GPU_BUDGET" $((WAIT_TRAIN_SYNC + WAIT_TRAIN_QUEUE + WAIT_QUAL_HELD)))" ||
       die "$why"
@@ -368,6 +390,11 @@ if [[ "$SERVE" == yes || -n "$TRAIN" || "$STUDY" == prefixroute ]]; then
   command -v gh >/dev/null 2>&1 || die "gh is needed to check the nightly destroy workflow before buying a card"
   destroy_state="$(gh api repos/lkhun9311/gpu-platform-control-plane/actions/workflows/destroy.yml --jq .state 2>&1)" ||
     die "could not read the nightly destroy workflow's state ($destroy_state)"
+  # The retarget registration requires the workflow disabled whatever the hour, because a run scheduled after the one
+  # look below at the queue would not be seen (codex gpt-6-astra attack of the retarget registration).
+  if [[ "$TRAIN" == restart && "${RESTART_STAGE:-}" == retarget && "$destroy_state" != disabled_manually ]]; then
+    die "RESTART_STAGE=retarget registers the nightly destroy disabled for the session, and its state is '$destroy_state'; gh workflow disable destroy.yml first"
+  fi
   if [[ "$destroy_state" == disabled_manually ]]; then
     log "the nightly destroy workflow is disabled_manually, so its 18:00 UTC window is not enforced"
   else
@@ -378,9 +405,20 @@ if [[ "$SERVE" == yes || -n "$TRAIN" || "$STUDY" == prefixroute ]]; then
       die "the nightly destroy (.github/workflows/destroy.yml, 18:00 UTC, state '$destroy_state') falls within two hours of this session's ${TTL_MINUTES} min; disable the workflow (gh workflow disable destroy.yml) or start later"
     fi
   fi
-  destroy_runs="$(gh run list --workflow destroy.yml --limit 5 --json status --jq '[.[] | select(.status != "completed")] | length' 2>&1)" ||
-    die "could not ask GitHub whether a destroy run is pending ($destroy_runs)"
-  [[ "$destroy_runs" == 0 ]] || die "$destroy_runs destroy workflow run(s) are queued or in progress; wait for them"
+  # Every run of the workflow's whole history is listed and each not completed is counted: the five latest once hid an
+  # older one still waiting for its environment's approval, and asking status by status missed a run that moved from
+  # pending to in_progress between two of the questions (codex gpt-6-astra attacks of the retarget registration).
+  # --paginate applies the filter to each page, so the counts are added up here.
+  counts="$(gh api --paginate "repos/lkhun9311/gpu-platform-control-plane/actions/workflows/destroy.yml/runs?per_page=100" \
+    --jq '[.workflow_runs[] | select(.status != "completed")] | length' 2>&1)" ||
+    die "could not list the destroy workflow's runs ($counts)"
+  destroy_runs=0
+  for n in $counts; do
+    [[ "$n" =~ ^[0-9]+$ ]] || die "GitHub answered '$n' for the destroy runs not completed, not a count"
+    destroy_runs=$((destroy_runs + n))
+  done
+  [[ -n "$counts" ]] || die "GitHub listed no page of destroy runs, so none is shown to be finished"
+  [[ "$destroy_runs" == 0 ]] || die "$destroy_runs destroy workflow run(s) are not completed; wait for them"
 fi
 
 # --- The kill switch, armed before anything is created ------------------------------------------------
@@ -479,6 +517,34 @@ GPU_INSTANCES_FILE="$EXDIR/gpu-instances.txt"
 SCALED_UP=""
 GPU_ARMED=""
 kc() { kubectl --context "$CLUSTER" --request-timeout=20s "$@"; }
+# session_kubectl_by DEADLINE ARGS...: the kubectl binary with ARGS, cut at 20 s or at DEADLINE (on the phase_mono clock), refused once
+# DEADLINE has passed.
+# A shared library's own kubectl calls carry only a request timeout, which a hanging credential helper outlasts, so a
+# phase that buys time on GPUs runs them with `kubectl() { session_kubectl_by ...; }` in its substitution (codex
+# gpt-6-astra attack of the retarget registration, which held T6 past its budget with a sleeping kubectl).
+session_kubectl_by() {
+  local t=$(($1 - $(phase_mono))) bin
+  shift
+  ((t <= 20)) || t=20
+  ((t >= 1)) || {
+    echo "the phase's deadline has passed; kubectl $* was not run" >&2
+    return 1
+  }
+  bin="$(type -P kubectl)" || {
+    echo "no kubectl on PATH" >&2
+    return 127
+  }
+  timeout -k 2 "$t" "$bin" "$@"
+}
+# with_kubectl_by DEADLINE FN ARGS...: FN with its kubectl calls through session_kubectl_by DEADLINE, for a paid phase;
+# the override is set inside the phase's subshell, so it ends with the phase.
+with_kubectl_by() {
+  local dl="$1"
+  shift
+  # shellcheck disable=SC2329  # called by FN
+  kubectl() { session_kubectl_by "$dl" "$@"; }
+  "$@"
+}
 
 # ready_names reads a list of objects as JSON on stdin and prints the names of those whose Ready condition is
 # True. kubectl's JSONPath cannot do this: a filter nested inside a filter is refused as "unterminated filter",
@@ -759,6 +825,10 @@ train_run() {
   # Z1: the zones of the subnets the group was created with, read from AWS before anything bills.
   why="$(train_group_subnet_zones "$CLUSTER" "$REGION" "$TRAIN_GROUP" "$TRAIN_AZ")" || { bad "Z1: $why"; return 1; }
   ok "Z1: $why"
+  # K1: every paid phase below runs under paid_phase, so the bound is shown to work, by killing a sleeper in a cgroup
+  # this session made, before anything is bought.
+  why="$(phase_supervisor_ready)" || { bad "K1: $why; no node is bought without it"; return 1; }
+  ok "K1: $why"
 
   # The AWS deadline fires before the laptop watchdog, so the nodes are the first thing to go whichever clock wins,
   # and it must leave the GPU steps their whole budget.
@@ -795,26 +865,34 @@ train_run() {
   # scale back down. The record exists before it too, because the scale-down refuses without one.
   : >>"$GPU_INSTANCES_FILE"
   SCALED_UP=1
-  aws eks update-nodegroup-config --cluster-name "$CLUSTER" --nodegroup-name "$TRAIN_GROUP" \
+  # From here every call runs in a paid phase: a cgroup killed whole at its deadline, so no client, credential helper or
+  # descendant of one can hold the session past it (docs/superpowers/specs/2026-11-05-paid-phase-supervisor-design.md).
+  paid_phase scale-up $(($(phase_mono) + SESSION_CALL)) aws eks update-nodegroup-config --cluster-name "$CLUSTER" --nodegroup-name "$TRAIN_GROUP" \
     --scaling-config "minSize=0,maxSize=$TRAIN_NODES,desiredSize=$TRAIN_NODES" >>"$EXDIR/session.log" 2>&1 || {
     bad "could not scale $TRAIN_GROUP up"
     return 1
   }
-  ids="$(train_qualify_nodes "$CLUSTER" "$TRAIN_GROUP" "$TRAIN_NODES" $((WAIT_GPU_NODE + WAIT_GPU_PLUGIN)) "$TRAIN_GPUS_PER_NODE")" || {
+  local qdl=$(($(phase_mono) + WAIT_GPU_NODE + WAIT_GPU_PLUGIN))
+  ids="$(paid_phase t6 "$qdl" with_kubectl_by "$qdl" \
+    train_qualify_nodes "$CLUSTER" "$TRAIN_GROUP" "$TRAIN_NODES" $((WAIT_GPU_NODE + WAIT_GPU_PLUGIN)) "$TRAIN_GPUS_PER_NODE")" || {
     bad "T6: $ids"
     return 1
   }
   awk '{print $2}' <<<"$ids" >>"$GPU_INSTANCES_FILE"
   ok "T6: $(paste -sd';' <<<"$ids")"
-  kc get nodes -o json >"$TRAIN_DIR/nodes.json" 2>>"$EXDIR/session.log" || true
+  paid_phase node-dump $(($(phase_mono) + SESSION_CALL)) kc get nodes -o json >"$TRAIN_DIR/nodes.json" 2>>"$EXDIR/session.log" || true
   # Z2: the zone each qualified node runs in, which every rank's figure inherits; with TRAIN_AZ, all of them in it.
   local zones
-  zones="$(train_node_zones "$CLUSTER" "$TRAIN_GROUP" "$TRAIN_AZ")" || { bad "Z2: $zones"; return 1; }
+  local zdl=$(($(phase_mono) + SESSION_CALL))
+  zones="$(paid_phase z2 "$zdl" with_kubectl_by "$zdl" train_node_zones "$CLUSTER" "$TRAIN_GROUP" "$TRAIN_AZ")" || { bad "Z2: $zones"; return 1; }
   printf '%s\n' "$zones" >"$TRAIN_DIR/node-zones.txt"
   ok "Z2: $(paste -sd';' <<<"$zones")"
-  why="$(train_qualification_released "$CLUSTER" "$TRAIN_NS" train-qualify "$WAIT_QUAL_RUN")" || { bad "T7: $why"; return 1; }
+  local rdl=$(($(phase_mono) + WAIT_QUAL_RUN))
+  why="$(paid_phase t7 "$rdl" with_kubectl_by "$rdl" \
+    train_qualification_released "$CLUSTER" "$TRAIN_NS" train-qualify "$WAIT_QUAL_RUN")" || { bad "T7: $why"; return 1; }
   ok "T7: $why"
-  kc -n "$TRAIN_NS" get mltrainingjob train-qualify -o json >"$TRAIN_DIR/qualification-final.json" 2>>"$EXDIR/session.log" || true
+  paid_phase qualification-final $(($(phase_mono) + SESSION_CALL)) kc -n "$TRAIN_NS" get mltrainingjob train-qualify -o json \
+    >"$TRAIN_DIR/qualification-final.json" 2>>"$EXDIR/session.log" || true
   if [[ "$TRAIN" == allreduce ]]; then
     train_run_allreduce "$ids" "$zones"
     return
@@ -966,12 +1044,15 @@ train_run_restart() {
     echo "cases=$(restart_cases | paste -sd' ')"
   } >"$RESTART_OUT/provenance.txt"
   # The three first nodes are warmed in parallel under one RESTART_WARM_BUDGET, the share restart_gpu_budget gives them.
-  out="$(restart_prepare_nodes "$warmed" $((SECONDS + RESTART_WARM_BUDGET)))" || { bad "R5: $out"; return 1; }
+  # Under restart_by as a whole, as between cases, so its creates and deletes are refused past the share as well.
+  local wdl=$(($(phase_mono) + RESTART_WARM_BUDGET))
+  out="$(paid_phase r5 "$wdl" restart_by "$wdl" restart_prepare_nodes "$warmed" "$wdl")" || { bad "R5: $out"; return 1; }
   ok "R5: $out"
-  out="$(restart_fault_path_ready "$RESTART_SIGNAL_BUDGET")" || { bad "R6: $out"; return 1; }
+  out="$(paid_phase r6 $(($(phase_mono) + RESTART_SIGNAL_BUDGET)) restart_fault_path_ready "$RESTART_SIGNAL_BUDGET")" || { bad "R6: $out"; return 1; }
   ok "R6: $out"
   restart_run "$warmed" 2>&1 | tee -a "$RESTART_OUT/run.log" "$EXDIR/session.log"
-  if python3 experiments/distributed-restart/score_eks.py "$RESTART_OUT" >"$RESTART_OUT/verdict.txt" 2>&1; then
+  if paid_phase r7 $(($(phase_mono) + SESSION_SCORE_CALL)) python3 experiments/distributed-restart/score_eks.py "$RESTART_OUT" \
+    >"$RESTART_OUT/verdict.txt" 2>&1; then
     ok "R7: every registered case ACCEPTED ($RESTART_OUT/verdict.txt)"
   else
     bad "R7: not every registered case was accepted: $(grep -cE '^(FAILED|VOID|NOTRUN|REFUSED)' "$RESTART_OUT/verdict.txt") line(s), see $RESTART_OUT/verdict.txt"
@@ -981,13 +1062,16 @@ train_run_restart() {
 train_down() {
   local - why p
   set +e
+  # A phase an exit or a signal left running is ended first, with everything it started.
+  phase_kill_all >>"$EXDIR/session.log" 2>&1
   for p in "${DDP_COLLECTORS[@]}" "${AR_COLLECTORS[@]}"; do kill "$p" 2>>"$EXDIR/session.log"; done
   DDP_COLLECTORS=()
   AR_COLLECTORS=()
   [[ -n "$SCALED_UP$GPU_ARMED" ]] || return 0
   if [[ -n "$SCALED_UP" ]]; then
     log "scaling $TRAIN_GROUP to 0"
-    if why="$(train_scale_down "$CLUSTER" "$REGION" "$TRAIN_GROUP" "$GPU_INSTANCES_FILE" "$WAIT_GPU_GONE")"; then
+    if why="$(paid_phase scale-down $(($(phase_mono) + WAIT_GPU_GONE + SESSION_SCALE_DOWN_EXTRA)) \
+      train_scale_down "$CLUSTER" "$REGION" "$TRAIN_GROUP" "$GPU_INSTANCES_FILE" "$WAIT_GPU_GONE")"; then
       ok "S6 (GPU half): $why"
       SCALED_UP=""
     else
@@ -996,7 +1080,7 @@ train_down() {
     fi
   fi
   # Removed only once the nodes are verifiably gone; a leftover schedule makes the next session refuse to arm.
-  if ttl_disarm 2>>"$EXDIR/session.log"; then
+  if paid_phase ttl-disarm $(($(phase_mono) + SESSION_CALL)) ttl_disarm 2>>"$EXDIR/session.log"; then
     rm -f "$GPU_TTL_FILE"
     GPU_ARMED=""
   else

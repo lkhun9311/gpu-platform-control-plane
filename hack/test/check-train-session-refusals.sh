@@ -9,7 +9,13 @@
 # passes every training refusal is stopped by the stub gh a few lines later, before the kill switch, and is told
 # from a refusal by the line train_require_new_cluster prints when it finds no cluster.
 set -uo pipefail
+self="$(readlink -f "$0")"
 cd "$(dirname "$0")/../.." || exit 1
+# The session bounds each paid phase by a cgroup it makes, so these run where it can: a delegated scope, entered here
+# when not started in one.
+# shellcheck source=hack/lib/phase-supervisor.sh
+. hack/lib/phase-supervisor.sh
+phase_supervisor_enter bash "$self" "$@" || exit 1
 
 fails=0
 ok() { echo "ok: $*"; }
@@ -43,7 +49,7 @@ sha="$(sha256sum experiments/cpu-ddp/train.py | cut -d' ' -f1)"
 repo="$work/repo"
 mkdir -p "$repo/hack/lib" "$repo/experiments/cpu-ddp"
 cp hack/eks-gitops-session.sh "$repo/hack/"
-cp hack/lib/train-session.sh hack/lib/ddp-arms.sh hack/lib/gpu-ttl.sh hack/lib/session-teardown.sh "$repo/hack/lib/"
+cp hack/lib/train-session.sh hack/lib/ddp-arms.sh hack/lib/gpu-ttl.sh hack/lib/phase-supervisor.sh hack/lib/session-teardown.sh "$repo/hack/lib/"
 cp experiments/cpu-ddp/train.py "$repo/experiments/cpu-ddp/"
 mkdir -p "$repo/experiments/multi-gpu-throughput"
 cp hack/lib/allreduce-arms.sh "$repo/hack/lib/"
@@ -66,9 +72,12 @@ session() {
     EXDIR="$work/$name" TRAIN=ddp APPROVED_TRAIN_SHA256="$sha" TTL_MINUTES=300 "$@" \
     timeout 60 bash "$repo/hack/eks-gitops-session.sh" 2>&1)"
   rc=$?
-  # A watchdog is a detached process whose command names this case's directory; one left alive would fire at TTL.
+  # A watchdog is a detached process whose command names its pid file under this run's directory; one left alive would
+  # fire at TTL.
+  # The case's name is not matched: the watchdog's command quotes it, a space becoming '\ ', and a name with spaces was
+  # missed by the restart session's copy of this check.
   local stray
-  stray="$(pgrep -f -- "$work/$name/" | paste -sd' ')"
+  stray="$(pgrep -f -- "KILL_PIDFILE=$work/" | paste -sd' ')"
   if [[ -n "$stray" ]]; then
     # shellcheck disable=SC2086
     for p in $stray; do kill -- "-$p" 2>/dev/null || kill "$p" 2>/dev/null || true; done
