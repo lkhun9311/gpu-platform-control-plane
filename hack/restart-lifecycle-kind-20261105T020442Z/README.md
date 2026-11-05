@@ -1,7 +1,7 @@
 # Kind rehearsal of the `retarget` restart stage, 2026-11-05 (commit c817c612)
 
-This is the rehearsal that meets the gate of `docs/superpowers/specs/2026-11-04-restart-retarget-design.md`.
-It replaces `hack/restart-lifecycle-kind-20261104T142003Z`, whose runner and scorer the second attack's fixes changed.
+This was the second rehearsal of `docs/superpowers/specs/2026-11-04-restart-retarget-design.md`, and no longer meets its gate: the third attack's fixes changed the runner after it, and `hack/restart-lifecycle-kind-20261105T034118Z` replaces it.
+It replaced `hack/restart-lifecycle-kind-20261104T142003Z`, whose runner and scorer the second attack's fixes changed.
 The driver, the substitutions and what ran unmodified are as in `hack/restart-lifecycle-kind-20261101T143009Z/README.md`; only run `e` ran here.
 
 The run is from commit `c817c612` on `feat/restart-targeted-stage` with a clean tree (`provenance.txt`, `run-e/provenance.txt`).

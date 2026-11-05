@@ -134,8 +134,10 @@ Since `73444604` the launcher refuses `RESTART_STAGE=retarget` unless the workfl
 - `aws sts get-caller-identity --profile gpu-lab` read in the same shell.
 - The kind rehearsal of this stage (`RUNS=e hack/restart-lifecycle-kind.sh`): every case ACCEPTED through `score_kind_shim.py` and its lifecycle and outcome checks 0 FAIL, from a commit whose runner, scorer and trainer equal the launch commit's.
   The unmodified `score_eks.py` voids every kind case, because kind's ranks train with gloo on the CPU; that is the boundary the shim moves.
-  The first rehearsal, `hack/restart-lifecycle-kind-20261104T142003Z` at `5f83e8e2`, ran the runner and scorer the second attack's fixes replaced; the gate is met only by `hack/restart-lifecycle-kind-20261105T020442Z` at `c817c612`.
-  Its runner and trainer are the launch commit's; the launch scorer differs by `eca90990` and `f483bfde`, and the rehearsal's output scored again with it gives the same line for every case, so the scorer half of the gate is met by that re-scoring, not by a run.
+  Two earlier rehearsals, `hack/restart-lifecycle-kind-20261104T142003Z` at `5f83e8e2` and `hack/restart-lifecycle-kind-20261105T020442Z` at `c817c612`, ran runners that later fixes replaced and are kept as records.
+  The gate is met by `hack/restart-lifecycle-kind-20261105T034118Z` at `a38089c4`: every case ACCEPTED, both checks 0 FAIL, and H1 SUPPORTED on kind with `d` = 0, 0, 1, 1 s.
+  No runner, scorer, trainer or evaluator line changed between `a38089c4` and the launch commit.
+  On kind every wait ends in seconds, so the rehearsal cannot show that a wait longer than 20 s survives; a test pins that every such wait goes through `rkt`.
 
 ## Review
 
@@ -196,6 +198,17 @@ Each was reproduced or read in the code first, and each fix has a test shown to 
 | 5 | the two evaluators skipped different malformed rows, and an unreadable time ended a case | fixed in `307f3541`: one reader, `status_reads`, for both |
 | 6 | the pending-destroy check read the latest five runs only | fixed in `73444604`: every unfinished status counted, and the retarget launch refuses an enabled workflow |
 | 7 | attempt-1 follows withheld the bound | already fixed in `f483bfde` |
+
+Bare `codex review` of those fixes found nothing in `307f3541`, `7a12ae1d`, `6e719510` and `804c6735`, and these in the others:
+
+| commit | finding | disposition |
+|---|---|---|
+| `570b2423` | P1: the new 20 s cut of `rk` also ended the reader's 600 s wait, the fault path's 300 s rollout and the warm-up's wait, which on EKS outlast 20 s | fixed in `804c6735`: those waits go through `rkt` with their own duration, and a test refuses any wait through `rk` or `rkd`; the kind rehearsal could not have shown it, because its waits end in seconds |
+| `570b2423` | P2: its tests ran ahead of the scorer and launcher commits that follow it, so the suite fails at that commit alone | accepted, not rewritten: the suite passes from `73444604` on |
+| `570b2423` | P2: the credential test needed a real kubectl, which the self-contained harness does not provision | fixed: the stub kubectl ignores its request timeout instead, and the real client's behaviour is recorded as measured by hand |
+| `73444604` | P2: `action_required` is a conclusion of a finished run, and counting it would refuse every later session | fixed in `6e719510` |
+
+Mutating the launcher's destroy refusal for the tests above armed two real TTL watchdogs that the tests' stray check did not see, because the watchdog's command quotes a case name with spaces; both were stopped by hand, the check now matches the pid file under the run directory (`7a12ae1d`), and a mutation showed it catching one.
 
 ## What this does not show
 
