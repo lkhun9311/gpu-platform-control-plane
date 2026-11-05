@@ -1335,6 +1335,75 @@ fi
 out="$(python3 experiments/distributed-restart/score_eks.py "$run" 2>&1)"
 if [[ "$out" == *"VOID     terminate-wait-2: its directory is missing"* ]]; then ok "without --partial a registered case with no directory is VOID"; else bad "the full score of a partial run: $(grep terminate-wait-2 <<<"$out")"; fi
 
+# H1 of the retarget stage is read from the controller's stamps, cross-checked against the collector's clock, and a
+# case whose d cannot be established is INVALID rather than a pass (codex gpt-6-astra attack of the registration).
+h1=experiments/distributed-restart/h1_retarget.py
+out="$(python3 "$h1" hack/distributed-restart-eks/2026-11-04-full/session/restart 2>&1)"
+if grep -q '^H1 REFUTED' <<<"$out" && [[ "$(grep -cE '"d_s": (39|31)\.0' <<<"$out")" == 4 ]]; then
+  ok "H1 on the full archive is REFUTED with d 39, 39, 31 and 31 s"
+else
+  bad "H1 on the full archive: $(tail -1 <<<"$out")"
+fi
+rt=hack/restart-lifecycle-kind-20261104T142003Z/run-e
+out="$(python3 hack/test/restart-kind/h1_kind_shim.py "$rt" 2>&1)"
+if grep -q '^H1 SUPPORTED' <<<"$out"; then ok "H1 on the retarget rehearsal is SUPPORTED"; else bad "H1 on the retarget rehearsal: $(tail -1 <<<"$out")"; fi
+# h1_mutate <archive> <case> <python on a, attempt 1 of the final MLTrainingJob> [drop-timeline]: a copy with one case changed.
+h1_mutate() {
+  rm -rf "$work/h1" && cp -r "$1" "$work/h1"
+  python3 - "$work/h1/$2/final-mltj.json" "$3" <<'EOF'
+import json, sys
+path, change = sys.argv[1], sys.argv[2]
+j = json.load(open(path))
+a = j["status"]["attempts"][0]
+exec(change)
+json.dump(j, open(path, "w"))
+EOF
+  [[ "${4:-}" == drop-timeline ]] && rm -f "$work/h1/$2"/timeline.jsonl*
+  return 0
+}
+h1_shim() { python3 hack/test/restart-kind/h1_kind_shim.py "$work/h1" 2>&1; }
+h1_mutate "$rt" rank-kill-1 'del a["failureObservedAt"]'
+out="$(h1_shim)"
+if grep -q '^rank-kill-1 .*"invalid": "attempt 1 has no failureObservedAt"' <<<"$out" && grep -q '^H1 NOT ASSESSED: no valid d in rank-kill-1$' <<<"$out"; then
+  ok "a missing trigger stamp is INVALID and leaves H1 NOT ASSESSED"
+else
+  bad "a missing trigger stamp: $(grep -E '^(rank-kill-1|H1)' <<<"$out")"
+fi
+h1_mutate "$rt" rank-kill-1 'a["stopConfirmedAt"] = "2000-01-01T00:00:00Z"'
+out="$(h1_shim)"
+if grep -q '^rank-kill-1 .*"invalid": "stopConfirmedAt is [0-9]* s before failureObservedAt"' <<<"$out" && grep -q '^H1 NOT ASSESSED' <<<"$out"; then
+  ok "a stop stamped before its trigger is INVALID, not a short d"
+else
+  bad "a stop before its trigger: $(grep -E '^(rank-kill-1|H1)' <<<"$out")"
+fi
+h1_mutate "$rt" dcgm-2 'pass' drop-timeline
+out="$(h1_shim)"
+if grep -q '^dcgm-2 .*"invalid": "no timeline' <<<"$out" && grep -q '^H1 NOT ASSESSED: no valid d in dcgm-2$' <<<"$out"; then
+  ok "a case without its timeline is INVALID"
+else
+  bad "a case without its timeline: $(grep -E '^(dcgm-2|H1)' <<<"$out")"
+fi
+# A short d the collector's clock contradicts is not a measurement: the stop moved 34 s earlier on the controller only.
+h1_mutate hack/distributed-restart-eks/2026-11-04-full/session/restart rank-kill-1 'a["stopConfirmedAt"] = "2026-11-04T00:45:43Z"'
+out="$(python3 "$h1" "$work/h1" 2>&1)"
+if grep -q '^rank-kill-1 .*"invalid": "d 5 s is outside the collector' <<<"$out" && grep -q '^H1 REFUTED: d is at least 30 s in rank-kill-2, dcgm-1, dcgm-2$' <<<"$out"; then
+  ok "a d the collector's clock contradicts is INVALID, and the other slow stops still refute"
+else
+  bad "a contradicted d: $(grep -E '^(rank-kill-1|H1)' <<<"$out")"
+fi
+# A slow stop refutes whatever is missing elsewhere: the outcome does not wait on the other cases or the recoveries.
+out="$(cd experiments/distributed-restart && python3 -c '
+import h1_retarget as h
+print(h.outcome({"rank-kill-1": {"d_s": 40.0}})[0])
+print(h.outcome({"rank-kill-1": {"censored_at_least_s": 31.0}, "dcgm-1": {"d_s": 1.0}})[0])
+print(h.outcome({n: {"d_s": 15.0} for n in h.H1_CASES})[0])
+print(h.outcome({n: {"d_s": 29.0} for n in h.H1_CASES})[0])' 2>&1)"
+if [[ "$out" == $'REFUTED\nREFUTED\nSUPPORTED\nINCONCLUSIVE' ]]; then
+  ok "H1's outcome: a slow or never-confirmed stop refutes alone, and the bars are 15 s and 30 s"
+else
+  bad "H1's outcome table: $(tr '\n' ' ' <<<"$out")"
+fi
+
 if ((fails > 0)); then
   echo "check-restart-session: $fails failure(s)"
   exit 1

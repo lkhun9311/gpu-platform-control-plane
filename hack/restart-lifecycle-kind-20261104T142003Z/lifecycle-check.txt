@@ -1,0 +1,14 @@
+OK   watch streams present: ['jobs', 'mltrainingjobs', 'pods', 'workloads'], missing []
+OK   run-e: nothing of reference existed when no-rng-control was submitted at resourceVersion 2477; its last object was deleted at 2473
+OK   run-e: nothing of no-rng-control existed when rank-kill-1 was submitted at resourceVersion 2866; its last object was deleted at 2862
+OK   run-e: nothing of rank-kill-1 existed when rank-kill-2 was submitted at resourceVersion 3257; its last object was deleted at 3253
+OK   run-e: nothing of rank-kill-2 existed when dcgm-1 was submitted at resourceVersion 3641; its last object was deleted at 3639
+OK   run-e: nothing of dcgm-1 existed when dcgm-2 was submitted at resourceVersion 4051; its last object was deleted at 4039
+OK   run-e/reference: ACCEPTED, last sampled 66.4 s after its creation was seen
+OK   run-e/no-rng-control: ACCEPTED, last sampled 69.5 s after its creation was seen
+OK   run-e/rank-kill-1: ACCEPTED, last sampled 71.8 s after its creation was seen
+OK   run-e/rank-kill-2: ACCEPTED, last sampled 70.8 s after its creation was seen
+OK   run-e/dcgm-1: ACCEPTED, last sampled 69.5 s after its creation was seen
+OK   run-e/dcgm-2: ACCEPTED, last sampled 66.9 s after its creation was seen
+0 FAIL(s)
+exit=0
