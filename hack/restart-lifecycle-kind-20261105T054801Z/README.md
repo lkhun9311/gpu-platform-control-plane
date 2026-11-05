@@ -1,6 +1,7 @@
 # Kind rehearsal of the `retarget` restart stage, 2026-11-05 (commit 1729ad8a)
 
-This is the rehearsal that meets the gate of `docs/superpowers/specs/2026-11-04-restart-retarget-design.md`.
+This was the fifth rehearsal of `docs/superpowers/specs/2026-11-04-restart-retarget-design.md`, and no longer meets its gate: the phase supervisor and the scorer's evidence gates changed the runner and scorer after it, and `hack/restart-lifecycle-kind-20261105T130526Z` replaces it.
+Its line below that nothing changed before the launch commit was true when written and is not now.
 It replaces `hack/restart-lifecycle-kind-20261105T044327Z`, whose runner the fifth attack's fixes changed.
 The driver, the substitutions and what ran unmodified are as in `hack/restart-lifecycle-kind-20261101T143009Z/README.md`; only run `e` ran here.
 

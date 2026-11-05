@@ -125,7 +125,9 @@ The launcher's steps are the scale-up, T6, the node dump, Z2, T7, the qualificat
 The launcher refuses to buy unless it has shown the mechanism works there (K1), by killing a sleeper in a cgroup it made.
 A case its slot's end kills is VOID, never scored from what it left, and nothing more starts, because its job may still hold GPUs.
 The per-call cuts it replaced as the bound (`restart_by`, `rk`, `rkd`, `rkt`, `session_kubectl_by`) stay, because refusing a call once its deadline has passed is cheaper than killing it; until `1729ad8a` they were the only bound, and the sixth attack showed both a credential helper that outlived one (1 s deadline, 2 s grace, 6.03 s taken) and calls none covered.
-A phase is checked against its deadline every 0.5 s, and SECONDS counts whole seconds, so a phase can outlast its deadline by up to about 1.5 s.
+The supervisor decides on CLOCK_BOOTTIME (`/proc/uptime`), which no wall-clock step moves; the callers give their deadlines in bash's SECONDS, which follows the wall clock, so each is converted twice, from the phase's start and from when the supervisor was loaded, and the earlier kept.
+A step then makes a phase end early, never late, unless the clock steps forward before the deadline is computed and back between that and the phase's start (`78f5b4ba`; before it, a 6 s backward step delayed a kill by 6 s, gpt-6-astra's GO review of `7e9ac2a5`).
+A phase is checked every 0.5 s on whole seconds, so it ends within about 1.5 s after its deadline and can end up to 1 s before it.
 What bounds the spend is still the EventBridge schedule, which asks for the GPU node group's scale-down 10 minutes before `TTL_MINUTES`, and the watchdog's destroy after it; neither is part of any phase, and killing a local client cancels no request AWS has already accepted.
 The scale-down request is asynchronous and the destroy can fail; if it does, resources keep billing until they are removed by hand.
 
@@ -164,10 +166,10 @@ On 2026-11-05 that listing read 115 runs over two pages, none of them unfinished
 - `aws sts get-caller-identity --profile gpu-lab` read in the same shell.
 - The kind rehearsal of this stage (`RUNS=e hack/restart-lifecycle-kind.sh`): every case ACCEPTED through `score_kind_shim.py` and its lifecycle and outcome checks 0 FAIL, from a commit whose runner, scorer and trainer equal the launch commit's.
   The unmodified `score_eks.py` voids every kind case, because kind's ranks train with gloo on the CPU; that is the boundary the shim moves.
-  Four earlier rehearsals, `hack/restart-lifecycle-kind-20261104T142003Z` at `5f83e8e2`, `hack/restart-lifecycle-kind-20261105T020442Z` at `c817c612`, `hack/restart-lifecycle-kind-20261105T034118Z` at `a38089c4` and `hack/restart-lifecycle-kind-20261105T044327Z` at `7d7e7fb4`, ran runners that later fixes replaced and are kept as records.
-  The gate is met by `hack/restart-lifecycle-kind-20261105T054801Z` at `1729ad8a`: every case ACCEPTED, both checks 0 FAIL, and H1 SUPPORTED on kind with `d` = 0, 1, 1, 1 s.
-  No runner, scorer, trainer, launcher or evaluator line changed between `1729ad8a` and the launch commit.
-  The launcher's own path to the first case (T6, T7, R5) is not part of a kind run; the tests pin its deadlines.
+  Five earlier rehearsals, `hack/restart-lifecycle-kind-20261104T142003Z` at `5f83e8e2`, `hack/restart-lifecycle-kind-20261105T020442Z` at `c817c612`, `hack/restart-lifecycle-kind-20261105T034118Z` at `a38089c4`, `hack/restart-lifecycle-kind-20261105T044327Z` at `7d7e7fb4` and `hack/restart-lifecycle-kind-20261105T054801Z` at `1729ad8a`, ran runners that later fixes replaced and are kept as records.
+  The gate is met by `hack/restart-lifecycle-kind-20261105T130526Z` at `78f5b4ba`, every step run as a paid phase: every case ACCEPTED, both checks 0 FAIL, and H1 SUPPORTED on kind with `d` = 1, 0, 1, 1 s.
+  No runner, scorer, trainer, launcher, supervisor or evaluator line changed between `78f5b4ba` and the launch commit; the launch commit must keep that true, and a change to any of them needs this rehearsal again.
+  The launcher's own path to the first case (T6, Z2, T7, R5, R6) and its teardown are not part of a kind run; `hack/test/check-restart-session.sh` and `hack/test/check-phase-supervisor.sh` pin their phases.
   On kind every wait ends in seconds, so the rehearsal cannot show that a wait longer than 20 s survives; a test pins that every such wait goes through `rkt`.
 
 ## Review
@@ -266,6 +268,33 @@ Each was reproduced first; the fixes are in `1729ad8a`, each with a test shown t
 | 4 | a step lost with its save hid from the save check, the reference kept ACCEPTED on 2 saves and `lost_steps` moved from 1 to 0 | fixed: the reference's steps must run 1 to 30, attempt 1's from 1 without a gap, and the fault rank's to its fault's step |
 | 5 | a matching trigger name was taken as the fault's cause, an injection moved past the job's end still passing | fixed: the observed failure must come within -2 to +60 s of the fault, raw |
 | 6 | asking the destroy runs status by status missed one that moved between two questions | fixed: one listing of every run, not completed counted |
+
+The sixth attack (2026-11-05, at `decd7e45`) gave "NO-GO" with seven findings, and the count had not fallen towards zero across six attacks (14, 13, 7, 8, 6, 7).
+gpt-6-astra then classified all 55 findings and named the smallest set after which it would return GO; that set is `docs/superpowers/specs/2026-11-05-paid-phase-supervisor-design.md`, and "Threat model" above is its scope.
+
+| # | finding | disposition |
+|---|---|---|
+| 1 | a credential helper outlived `timeout -k` holding the caller's pipe, 6.03 s for a 1 s deadline | fixed structurally: every paid step is a phase, a cgroup killed whole at its deadline (`f29d698d`, `a1c84414`) |
+| 2 | Z2, the node dump, the qualification's last read, the scheduler queries between cases and the teardown ran under no deadline | fixed by the same phases; a hanging scheduler query between cases ends with its 3 s share in the test |
+| 3 | a published `Stopped` without its timestamp gave a false REFUTED | fixed in `e2e0633f`: such a case is INVALID, and an unpublished stop refutes nothing |
+| 4 | the unpublished-stop bound moved with the collector's clock | fixed in `e2e0633f`: it is described and never counted against H1 |
+| 5 | a late case reported a recovery time from later steps after its first were lost | fixed in `e2e0633f`: the time needs each rank's step after its checkpoint |
+| 6 | completed attempts allowed a missing final save, and conflicting duplicate saves passed | fixed in `e2e0633f`: every save of a completed attempt, and a conflict VOIDs the case |
+| 7 | after-probes were trusted by label, not placement | fixed in `e2e0633f`: each node of attempt 2 must be probed after its first step |
+
+astra's GO review at `7e9ac2a5`, against the threat model and the four items only, found items 2 and 3 met and gave "NO-GO" on two: the supervisor's deadlines followed the wall clock, and this page still named the `1729ad8a` rehearsal as meeting the gate after the runner had changed.
+Bare `codex review` of `f29d698d` and `a1c84414` found the rest below; that of `e2e0633f` found nothing.
+All are fixed in `78f5b4ba` except the last, which this page's gate now answers:
+
+| finding | disposition |
+|---|---|
+| a backward clock step of 6 s delayed a phase's kill by 6 s | fixed: deadlines decided on CLOCK_BOOTTIME, converted the earlier of two ways; a test steps SECONDS back 6 s and the phase still ends at its deadline |
+| a deadline that passed before the phase's subshell entered its cgroup killed an empty cgroup, and the subshell ran on unwatched | fixed: the subshell is killed by its pid as well |
+| errexit could end the caller at the phase's `wait` before its cleanup | already fixed in `a1c84414`, after the reviewed commit |
+| `phase_kill_all` ended another session's phases sharing the cgroup | fixed: phase cgroups carry the session's pid, and a test leaves another session's phase running |
+| `STUDY=prefixroute` buys GPUs and tears down through a phase without entering a scope | fixed: it enters one like `TRAIN` |
+| the restart test re-ran itself directly though its mode is 644, and the kind driver did not enter a scope | fixed: both re-run through `bash`, and the driver enters a scope before building anything |
+| the gate's rehearsal predates the runner | answered by the rehearsal at `78f5b4ba` ("Gates before the launch") |
 
 ## What this does not show
 
