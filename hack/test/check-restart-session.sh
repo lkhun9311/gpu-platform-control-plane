@@ -1377,6 +1377,18 @@ for pub in "2026-11-02-smoke 4" "2026-11-04-full 10"; do
   fi
 done
 if grep -qF "checkpoint cost: median 0.255 s, max 0.412 s over 540 saves" <<<"$out"; then ok "the full archive's checkpoint cost is the published one"; else bad "the full archive's checkpoint cost: $(grep 'checkpoint cost' <<<"$out")"; fi
+# The retarget archive is pinned to the figures its record publishes as well as to its verdicts.
+out="$(python3 experiments/distributed-restart/score_eks.py hack/distributed-restart-eks/2026-11-05-retarget/session/restart 2>&1)"
+rc=$?
+if [[ $rc == 0 && "$(grep -c '^ACCEPTED' <<<"$out")" == 6 && "$(grep -cE '^(VOID|FAILED|NOTRUN|REFUSED)' <<<"$out")" == 0 ]]; then
+  ok "the committed 2026-11-05-retarget archive scores 6 of 6 ACCEPTED"
+else
+  bad "the committed 2026-11-05-retarget archive: exit $rc, $(grep -m1 -E '^(VOID|FAILED|REFUSED)' <<<"$out")"
+fi
+for want in "same-nodes: recovery median 47.0 s, range 46.5 to 47.5 s, lost steps [1, 1]" \
+  "spare: recovery median 8.3 s, range 7.8 to 8.8 s, lost steps [0, 1]" "checkpoint cost: median 0.265 s, max 0.386 s over 300 saves"; do
+  if grep -qF "$want" <<<"$out"; then ok "the retarget archive reports '$want'"; else bad "the retarget archive lacks '$want'"; fi
+done
 # A damaged compressed timeline is that case's unreadable evidence, not the end of the report.
 cp -r hack/distributed-restart-eks/2026-11-02-smoke/session/restart "$work/smoke-damaged"
 packed="$work/smoke-damaged/terminate-wait-1/timeline.jsonl.xz"
@@ -1654,6 +1666,14 @@ if grep -q '^H1 REFUTED' <<<"$out" && [[ "$(grep -cE '"d_s": (39|31)\.0' <<<"$ou
   ok "H1 on the full archive is REFUTED with d 39, 39, 31 and 31 s"
 else
   bad "H1 on the full archive: $(tail -1 <<<"$out")"
+fi
+out="$(python3 "$h1" hack/distributed-restart-eks/2026-11-05-retarget/session/restart 2>&1)"
+if grep -qx 'H1 REFUTED: d is at least 30 s in rank-kill-1, rank-kill-2' <<<"$out" &&
+  grep -q '^rank-kill-1 .*"d_s": 38\.0' <<<"$out" && grep -q '^rank-kill-2 .*"d_s": 39\.0' <<<"$out" &&
+  grep -q '^dcgm-1 .*"d_s": 2\.0' <<<"$out" && grep -q '^dcgm-2 .*"d_s": 2\.0' <<<"$out"; then
+  ok "H1 on the retarget archive is REFUTED by rank-kill alone, with d 38, 39, 2 and 2 s"
+else
+  bad "H1 on the retarget archive: $(tail -1 <<<"$out")"
 fi
 rt=hack/restart-lifecycle-kind-20261104T142003Z/run-e
 out="$(python3 hack/test/restart-kind/h1_kind_shim.py "$rt" 2>&1)"
