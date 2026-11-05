@@ -81,9 +81,11 @@ export PATH="$HOME/.local/bin:$PWD/bin:$PATH"
 # without one, it starts itself again under a delegated scope (docs/superpowers/specs/2026-11-05-paid-phase-supervisor-design.md).
 # shellcheck source=hack/lib/phase-supervisor.sh
 . hack/lib/phase-supervisor.sh || exit 1
-if [[ -n "${TRAIN:-}" ]]; then
-  phase_supervisor_enter "$self" "$@" || {
-    echo "FATAL: TRAIN=$TRAIN cannot bound its paid phases, so nothing is bought" >&2
+# STUDY=prefixroute buys GPUs too and ends them through train_down, whose scale-down is a paid phase (bare review of
+# a1c84414).
+if [[ -n "${TRAIN:-}" || "${STUDY:-}" == prefixroute ]]; then
+  phase_supervisor_enter bash "$self" "$@" || {
+    echo "FATAL: TRAIN=${TRAIN:-} STUDY=${STUDY:-} cannot bound its paid phases, so nothing is bought" >&2
     exit 1
   }
 fi

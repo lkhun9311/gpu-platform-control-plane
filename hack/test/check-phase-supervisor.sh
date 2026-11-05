@@ -9,7 +9,7 @@ set -uo pipefail
 cd "$(dirname "$0")/../.." || exit 1
 # shellcheck source=hack/lib/phase-supervisor.sh
 . hack/lib/phase-supervisor.sh
-phase_supervisor_enter "$(readlink -f "$0")" "$@" || exit 1
+phase_supervisor_enter bash "$(readlink -f "$0")" "$@" || exit 1
 
 fails=0
 oks=0
@@ -84,7 +84,7 @@ sleep 1
 kill "$poller"
 wait "$poller"
 parent="$(phase_cgroup)"
-left="$(find "$parent" -maxdepth 1 -name 'phase-orphan-*' | wc -l)"
+left="$(find "$parent" -maxdepth 1 -name "phase-$PHASE_SESSION-orphan-*" | wc -l)"
 phase_kill_all
 s="$(survivors 3604)"
 gone="$(find "$parent" -maxdepth 1 -name 'phase-*' | wc -l)"
@@ -92,5 +92,28 @@ gone="$(find "$parent" -maxdepth 1 -name 'phase-*' | wc -l)"
   ok "phase_kill_all ended a phase its poller left running and removed its cgroup" ||
   fail "phase_kill_all: cgroups before=$left after=$gone survivors=$s"
 
+# A backward step of the wall clock between a deadline's computation and its phase, simulated as gpt-6-astra did by
+# setting SECONDS back: the phase still ends at the deadline as computed, not 6 s after it.
+start=$SECONDS
+dl=$((SECONDS + 2))
+SECONDS=$((SECONDS - 6))
+out="$(paid_phase stepped "$dl" sleep 3605 2>&1)"
+rc=$?
+took=$((SECONDS - start + 6))
+s="$(survivors 3605)"
+[[ $rc == 124 && $took -le 4 && -z "$s" ]] &&
+  ok "a deadline computed before the clock stepped back 6 s still ended its phase in ${took} s for 2 s" ||
+  fail "a backward clock step: rc=$rc took=${took}s survivors=$s out=${out:0:200}"
+
+# Another session's phase in the same cgroup is not this session's to end.
+PHASE_SESSION=other paid_phase theirs $((SECONDS + 60)) sleep 3606 >/dev/null 2>"$work/theirs.err" &
+theirs=$!
+sleep 1
+phase_kill_all
+s="$(survivors 3606)"
+[[ -n "$s" ]] && ok "phase_kill_all left another session's phase running" || fail "phase_kill_all ended another session's phase"
+PHASE_SESSION=other phase_kill_all
+wait "$theirs"
+
 echo "phase supervisor: $oks ok, $fails failed"
-((fails == 0 && oks == 8))
+((fails == 0 && oks == 10))

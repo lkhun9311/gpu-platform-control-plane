@@ -23,7 +23,13 @@
 # NFS-Ganesha server and its configuration, the EFS mount options, the controllers on the control plane), written out
 # here rather than shared, because that script is the recorded harness of committed evidence runs.
 set -uo pipefail
+self="$(readlink -f "$0")"
 cd "$(dirname "$0")/.." || exit 1
+# restart_run runs each step as a paid phase, a cgroup this script must be able to make, so it enters a delegated scope
+# before building anything (bare review of a1c84414).
+# shellcheck source=hack/lib/phase-supervisor.sh
+. hack/lib/phase-supervisor.sh
+phase_supervisor_enter bash "$self" "$@" || exit 1
 
 CLUSTER=rstlife
 CONTEXT=kind-$CLUSTER

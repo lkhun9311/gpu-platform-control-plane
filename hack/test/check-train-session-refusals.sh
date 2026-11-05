@@ -15,7 +15,7 @@ cd "$(dirname "$0")/../.." || exit 1
 # when not started in one.
 # shellcheck source=hack/lib/phase-supervisor.sh
 . hack/lib/phase-supervisor.sh
-phase_supervisor_enter "$self" "$@" || exit 1
+phase_supervisor_enter bash "$self" "$@" || exit 1
 
 fails=0
 ok() { echo "ok: $*"; }
