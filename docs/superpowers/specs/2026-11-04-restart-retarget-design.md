@@ -32,11 +32,13 @@ The step read last before the injection is recorded in each case's `case.json` (
 For each of `rank-kill-1`, `rank-kill-2`, `dcgm-1`, `dcgm-2`, `d` is `status.attempts[0].stopConfirmedAt − status.attempts[0].failureObservedAt` in the final MLTrainingJob, for the attempt numbered 1.
 A case gives a `d` only when all of these hold; otherwise it is INVALID with its reason, and is reported, not dropped:
 
-- `score_eks.py`'s delivery check (`Case.check_delivered`, after its `load` and `bind`) passes. Nothing the scorer checks after delivery is consulted, so a recovery that failed never removes a `d`; the scorer's verdict is reported beside it.
+- `score_eks.py`'s delivery check (`Case.check_delivered`, after its `load` and `bind`) passes on the evidence. Nothing the scorer checks after delivery is consulted, so a recovery that failed never removes a `d`; the scorer's verdict is reported beside it.
   `load` and `bind` read the case's spec, final object, Pods, marks and rank logs, and `bind` refuses logs it cannot tie to the case, which can remove a `d`; the clock probes, which only the recovery uses, are read when first used, so an unreadable probe file does not.
+  A VOID the runner wrote is reported beside `d` and does not decide it: the runner voids a `rank-kill` whose probe before the fault failed, and its trainer's own fault may have fired by then.
+- Attempt 1's trigger is the one the kind registers (`RankFailed` for `rank-kill`, `NodeFault` for `dcgm`), so the stop measured is the fault's and not, say, a deletion's.
 - The run passes the scorer's run-level refusals (`run_refusals`: a clean tree, the approved trainer).
-- Both stamps are present and `d ≥ 0`.
-- The case's `timeline.jsonl` brackets each stamp between two of the collector's successful reads, and `d` lies inside the interval those reads allow, widened by 2 s. A failed or malformed read, one whose time cannot be read included, is skipped, not read as an absent stamp; both evaluators use one reader for this (`status_reads`).
+- Both stamps are present, `d ≥ 0`, and every successful read that shows a stamp shows the final object's value for it, with no read after the first that shows it without it.
+- The case's `timeline.jsonl` brackets each stamp between two of the collector's successful reads, and `d` lies inside the interval those reads allow, widened by 2 s. A failed or malformed read, a row that is not JSON, one whose time cannot be read and one whose first attempt is not attempt 1 included, is skipped, not read as an absent stamp; both evaluators use one reader for this (`timeline_reads`).
   The two stamps are wall-clock times from separate `metav1.Now()` calls, possibly on two controller hosts, and the collector's reads are on another clock.
   What a read brackets is when the stamp was visible through the API, not when the controller made it: the controller stamps before its status update, and each read is timed when its response came back, not when it was asked.
   Neither latency is measured; the 2 s allows for them, and a larger one makes a correct `d` fall outside the bracket.
@@ -50,7 +52,7 @@ A final object that lacks a stop the timeline or a later attempt shows is contra
 
 | outcome | rule, read in this order |
 |---|---|
-| REFUTED | any case's `d` ≥ 30 s, or any lower bound ≥ 30 s, whatever the other cases or the recoveries did |
+| REFUTED | any case's `d` ≥ 30 s, or any stop unpublished for ≥ 30 s after its trigger, whatever the other cases or the recoveries did; the evaluator names which of the two it was |
 | NOT ASSESSED | otherwise, any of the four cases has no `d` |
 | SUPPORTED | otherwise, every `d` ≤ 15 s |
 | INCONCLUSIVE | otherwise |
@@ -78,6 +80,7 @@ The scorer at the launch commit includes three fixes the first attack found (`94
 - A job past its budget after every rank of attempt 2 stepped is "past its budget after a recovery", with its recovery kept, not a censored recovery.
 - A censored recovery is reported with when observation of it ended, from the fault to the last read of the job, and not as a bound on it, because nothing shows the logs were followed throughout (`307f3541`).
 - A save record without a finite, non-negative cost, or an attempt without costs from both ranks, is VOID, and a NaN or infinite clock is refused.
+- Each rank of each attempt must have a save record for every step it recorded but at most its last, which a fault can cut before its save; both paid archives meet that, and a thinner sample is VOID rather than a median over it (`7d7e7fb4`).
 Both committed archives keep every published verdict and figure under it (`hack/test/check-restart-session.sh`).
 
 ## Revisions it runs
@@ -100,6 +103,8 @@ Computed by `restart_gpu_budget` and pinned in `hack/test/check-restart-session.
 These are the deadlines the runner sets, not billing limits.
 Since `c817c612` the runner holds every call inside a phase to that phase's absolute deadline (`restart_by`): the DCGM injection is cut at the case's deadline and its case VOID as delivery unknown, the evidence collection ends within its 120 s, and the reset within its slot.
 Since `570b2423` every kubectl call of the runner is also cut by the wall clock, because a request timeout does not bound a credential helper, and a call is refused once an enclosing deadline has passed; a cut call can outlast its deadline by the 2 s kill grace and a second of rounding.
+Since `7d7e7fb4` that holds for the node qualification too, which is `train-session.sh`'s and is run with the same cut kubectl, and the waits for the group and the warm-up run under their deadlines as a whole.
+One gap is left as it is: a case's sampling before its fault checks its deadline between calls, so a call started just before it can run its own 20 s, plus the kill grace, past it.
 What bounds the spend is the EventBridge schedule, which asks for the GPU node group's scale-down 10 minutes before `TTL_MINUTES`, and the watchdog's destroy after it.
 The scale-down request is asynchronous and the destroy can fail; if it does, resources keep billing until they are removed by hand.
 
@@ -134,9 +139,9 @@ Since `73444604` the launcher refuses `RESTART_STAGE=retarget` unless the workfl
 - `aws sts get-caller-identity --profile gpu-lab` read in the same shell.
 - The kind rehearsal of this stage (`RUNS=e hack/restart-lifecycle-kind.sh`): every case ACCEPTED through `score_kind_shim.py` and its lifecycle and outcome checks 0 FAIL, from a commit whose runner, scorer and trainer equal the launch commit's.
   The unmodified `score_eks.py` voids every kind case, because kind's ranks train with gloo on the CPU; that is the boundary the shim moves.
-  Two earlier rehearsals, `hack/restart-lifecycle-kind-20261104T142003Z` at `5f83e8e2` and `hack/restart-lifecycle-kind-20261105T020442Z` at `c817c612`, ran runners that later fixes replaced and are kept as records.
-  The gate is met by `hack/restart-lifecycle-kind-20261105T034118Z` at `a38089c4`: every case ACCEPTED, both checks 0 FAIL, and H1 SUPPORTED on kind with `d` = 0, 0, 1, 1 s.
-  No runner, scorer, trainer or evaluator line changed between `a38089c4` and the launch commit.
+  Three earlier rehearsals, `hack/restart-lifecycle-kind-20261104T142003Z` at `5f83e8e2`, `hack/restart-lifecycle-kind-20261105T020442Z` at `c817c612` and `hack/restart-lifecycle-kind-20261105T034118Z` at `a38089c4`, ran runners that later fixes replaced and are kept as records.
+  The gate is met by `hack/restart-lifecycle-kind-20261105T044327Z` at `7d7e7fb4`: every case ACCEPTED, both checks 0 FAIL, and H1 SUPPORTED on kind with `d` = 0, 0, 1, 1 s.
+  No runner, scorer, trainer or evaluator line changed between `7d7e7fb4` and the launch commit.
   On kind every wait ends in seconds, so the rehearsal cannot show that a wait longer than 20 s survives; a test pins that every such wait goes through `rkt`.
 
 ## Review
@@ -209,6 +214,20 @@ Bare `codex review` of those fixes found nothing in `307f3541`, `7a12ae1d`, `6e7
 | `73444604` | P2: `action_required` is a conclusion of a finished run, and counting it would refuse every later session | fixed in `6e719510` |
 
 Mutating the launcher's destroy refusal for the tests above armed two real TTL watchdogs that the tests' stray check did not see, because the watchdog's command quotes a case name with spaces; both were stopped by hand, the check now matches the pid file under the run directory (`7a12ae1d`), and a mutation showed it catching one.
+
+The fourth attack (2026-11-05, at `52c64df1`) gave "NO-GO" with eight findings.
+Each was reproduced on the archives or read in the code first; the fixes are in `7d7e7fb4`, each with a test shown to fail with its fix reverted:
+
+| # | finding | disposition |
+|---|---|---|
+| 1 | the node qualification's own kubectl calls carried only a request timeout | fixed: run with the deadline-cut kubectl; under a 4 s deadline a hanging client held it 30 s without the cut and 5 s with it |
+| 2 | a runner VOID removed a delivered `rank-kill`'s valid `d`, and its reason said nothing was injected | fixed: H1 reads delivery on the evidence and reports the runner's VOID beside `d`; the reason now says the trainer's own fault may have fired |
+| 3 | the plugin's allowance was taken before the kubeconfig read, and the group wait and warm-up were not under their deadlines as a whole | fixed, the plugin's taken after the read and both waits under `restart_by`; narrowed for the sampling before a fault, whose overrun is stated under "Budget and cost" |
+| 4 | a final stamp moved 20 s, the reads showing it at 1 s, gave `d` = 20 inside a 26 s bracket | fixed: every read that shows a stamp must show the final object's value |
+| 5 | a restart triggered by a deletion gave a valid `d` for a `dcgm` case | fixed: attempt 1's trigger must be the kind's |
+| 6 | one row that was not JSON ended the case, and the two readers kept different attempt shapes | fixed: `timeline_reads` parses row by row, and one rule for attempt shape serves both |
+| 7 | 2 of the reference's 60 saves gave an ACCEPTED median | fixed: a save for every step but at most the last |
+| 8 | the scorer's docstring still called censoring a bound, and H1 called an unpublished stop a `d` | fixed: both reworded |
 
 ## What this does not show
 
