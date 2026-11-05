@@ -97,6 +97,18 @@ Both committed archives keep every published verdict and figure under it (`hack/
   No promotion is made from registration to teardown; one made anyway refuses the launch, or, after the gate, is a different operator and voids the run's H1 by this page.
   It does not contain the fence binding (#499), which this stage never exercises, because no case fences.
 
+## Threat model
+
+Added on 2026-11-05 after six attacks, when gpt-6-astra classified their 55 findings and 10 of them needed someone to edit the evidence; this page is judged against it.
+
+- **Trusted:** the pinned trainer and operator above, and the collecting host with this repository's scripts at the launch commit.
+- **In scope:** hung clients and their descendants, failed or slow AWS and Kubernetes APIs, interrupted writes, lost log records, ordinary clock faults on the collector, and a teardown that fails or lags.
+- **Out of scope:** deliberate fabrication or editing of the evidence, compromised infrastructure, and a schema-valid value changed arbitrarily inside an otherwise intact record.
+
+A rule that only an edited record can defeat is therefore not a defect of this registration, and a review finding of that kind is recorded with this reason rather than fixed.
+That follows the scoping of SLSA, which names the threats it does not address and trusts its signer, and of MLPerf Training, which trusts its logger and bounds a reviewer's remedy to a rerun or a withdrawal.
+Sealing the evidence (a manifest of every file's hash, anchored by a commit before scoring) would make an edit detectable; it is deferred, because it repairs nothing in scope.
+
 ## Budget and cost
 
 Computed by `restart_gpu_budget` and pinned in `hack/test/check-restart-session.sh`:
@@ -105,11 +117,13 @@ Computed by `restart_gpu_budget` and pinned in `hack/test/check-restart-session.
 - **Deadline:** with the 1,200 s of syncs and the held qualification and the 3,600 s margin, `TTL_MINUTES` must be at least 337. The session uses **340**, so it needs 380 minutes of credential.
 
 These are the deadlines the runner sets, not billing limits.
-Since `c817c612` the runner holds every call inside a phase to that phase's absolute deadline (`restart_by`): the DCGM injection is cut at the case's deadline and its case VOID as delivery unknown, the evidence collection ends within its 120 s, and the reset within its slot.
-Since `570b2423` every kubectl call of the runner is also cut by the wall clock, because a request timeout does not bound a credential helper, and a call is refused once an enclosing deadline has passed; a cut call can outlast its deadline by the 2 s kill grace and a second of rounding.
-Since `7d7e7fb4` that holds for the node qualification between cases, which is `train-session.sh`'s and is run with the same cut kubectl, and the waits for the group and the warm-up run under their deadlines as a whole; since `1729ad8a` it holds for the launcher's own first qualification (T6), its release of the qualification job (T7) and the first warm-up (R5) too, and the probe before a fault runs under the case's deadline.
-One gap is left as it is: a case's sampling before its fault checks its deadline between calls, so a call started just before it can run its own 20 s, plus the kill grace, past it.
-What bounds the spend is the EventBridge schedule, which asks for the GPU node group's scale-down 10 minutes before `TTL_MINUTES`, and the watchdog's destroy after it.
+What enforces them is one mechanism, `hack/lib/phase-supervisor.sh` (`docs/superpowers/specs/2026-11-05-paid-phase-supervisor-design.md`): from the scale-up to the scale-down, every step runs as a paid phase, a cgroup of its own killed whole at the step's deadline, so no client, credential helper or descendant of one, setsid or not, can hold the session past it.
+The launcher's steps are the scale-up, T6, the node dump, Z2, T7, the qualification's last read, R5, R6, the final scorer, the scale-down and the GPU deadline's removal; the runner's, for each case, the GPU deadline's check, the group wait and warm-up, the case itself within its slot, and its verdict.
+The launcher refuses to buy unless it has shown the mechanism works there (K1), by killing a sleeper in a cgroup it made.
+A case its slot's end kills is VOID, never scored from what it left, and nothing more starts, because its job may still hold GPUs.
+The per-call cuts it replaced as the bound (`restart_by`, `rk`, `rkd`, `rkt`, `session_kubectl_by`) stay, because refusing a call once its deadline has passed is cheaper than killing it; until `1729ad8a` they were the only bound, and the sixth attack showed both a credential helper that outlived one (1 s deadline, 2 s grace, 6.03 s taken) and calls none covered.
+A phase is checked against its deadline every 0.5 s, and SECONDS counts whole seconds, so a phase can outlast its deadline by up to about 1.5 s.
+What bounds the spend is still the EventBridge schedule, which asks for the GPU node group's scale-down 10 minutes before `TTL_MINUTES`, and the watchdog's destroy after it; neither is part of any phase, and killing a local client cancels no request AWS has already accepted.
 The scale-down request is asynchronous and the destroy can fail; if it does, resources keep billing until they are removed by hand.
 
 The estimate below assumes both act on time: the GPUs bill until the scale-down request 10 minutes before `TTL_MINUTES`, and the rest until the destroy ends 40 minutes after it.
@@ -120,7 +134,9 @@ The minutes the scale-down takes after its request are not in it, and nothing he
 | 3 GPUs and their volumes, 5.50 h | 5.50 × $3.748 = $20.61 | 5.50 × $4.237 = $23.30 |
 | the rest, 6.33 h at $0.263/h | $1.67 | $1.67 |
 | data (3 × 3.3 GB through the NAT at $0.059/GB), EFS, IPv4 | $0.71 | $0.71 |
-| **conditional ceiling** | **$22.99** | **$25.68** |
+| **conditional estimate** | **$22.99** | **$25.68** |
+
+That total is an estimate conditional on both backstops acting on time, not a ceiling: a scale-down that lags or a destroy that fails bills past it, and nothing here can cap the spend in dollars.
 
 The expected session is far shorter, about 25 minutes of preparation and about 30 minutes of cases.
 That puts the GPUs up for about 1 h, at **about $3 to $5**; `full`, with ten cases, came to about $5.5 by the same kind of estimate.
