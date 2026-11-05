@@ -387,8 +387,10 @@ if [[ "$SERVE" == yes || -n "$TRAIN" || "$STUDY" == prefixroute ]]; then
   fi
   # Every unfinished status is asked for by name, across the workflow's whole history: the five latest runs once hid an
   # older one still waiting for its environment's approval (codex gpt-6-astra attack of the retarget registration).
+  # action_required is not among them: the same parameter takes conclusions, and that one belongs to a completed run,
+  # which would refuse every later session (codex review of 73444604).
   destroy_runs=0
-  for st in queued in_progress waiting requested pending action_required; do
+  for st in queued in_progress waiting requested pending; do
     n="$(gh api "repos/lkhun9311/gpu-platform-control-plane/actions/workflows/destroy.yml/runs?status=$st&per_page=1" --jq .total_count 2>&1)" ||
       die "could not ask GitHub whether a destroy run is $st ($n)"
     [[ "$n" =~ ^[0-9]+$ ]] || die "GitHub answered '$n' for the destroy runs that are $st, not a count"

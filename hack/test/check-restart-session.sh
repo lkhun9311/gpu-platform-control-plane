@@ -212,6 +212,14 @@ gh_rules destroy-active active 0
 gh_rules destroy-disabled disabled_manually 1
 gh_rules destroy-unreadable - 0
 gh_rules destroy-waiting disabled_manually 1 waiting
+# The statuses asked for are exactly the unfinished ones: action_required is a conclusion of a completed run, and asking
+# for it would refuse every session after one (codex review of 73444604).
+# Pinned by reading the loop, because a session whose destroy check passes goes on to arm a real watchdog.
+if grep -qx '  for st in queued in_progress waiting requested pending; do' hack/eks-gitops-session.sh; then
+  ok "the pending-destroy check asks for the five unfinished statuses and no conclusion"
+else
+  bad "the pending-destroy check's statuses: $(grep -n 'for st in' hack/eks-gitops-session.sh)"
+fi
 session "the destroy disabled by hand, an old run waiting for approval" "1 destroy workflow run(s) are queued, waiting or in progress" STUB_UTC_HM=09:00 STUB_RULES="$work/rules/destroy-waiting"
 # The retarget stage registers the workflow disabled, so an enabled one refuses it even at an hour the window allows.
 session "the retarget stage with the destroy enabled" "RESTART_STAGE=retarget registers the nightly destroy disabled for the session, and its state is 'active'" STUB_UTC_HM=02:00 STUB_RULES="$work/rules/destroy-active" RESTART_STAGE=retarget TTL_MINUTES=340
