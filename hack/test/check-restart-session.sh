@@ -190,7 +190,8 @@ passes "the longest deadline" "the credential expires in 719 minutes, at least t
 
 # The nightly destroy at 17:00 UTC, an hour before it: refused while the workflow is enabled, not enforced once it is
 # disabled by hand, and a destroy run already queued refuses either way.
-# gh_rules NAME STATE RUNS: a gh whose workflow read answers STATE (or fails for "-") and whose run list answers RUNS.
+# gh_rules NAME STATE RUNS [STATUS]: a gh whose workflow read answers STATE (or fails for "-") and that counts RUNS
+# destroy runs in STATUS (queued unless named) and none in any other status.
 gh_rules() {
   mkdir -p "$work/rules/$1"
   cat >"$work/rules/$1/gh.sh" <<EOF
@@ -198,7 +199,8 @@ case "\$*" in
   "api repos/lkhun9311/gpu-platform-control-plane/actions/workflows/destroy.yml --jq .state")
     if [[ "$2" == - ]]; then echo "HTTP 401: Bad credentials" >&2; exit 1; fi
     echo "$2" ;;
-  "run list --workflow destroy.yml"*) echo "$3" ;;
+  "api repos/lkhun9311/gpu-platform-control-plane/actions/workflows/destroy.yml/runs?status=${4:-queued}&per_page=1 --jq .total_count") echo "$3" ;;
+  "api repos/lkhun9311/gpu-platform-control-plane/actions/workflows/destroy.yml/runs?status="*) echo 0 ;;
   *) echo "unexpected gh \$*" >&2; exit 1 ;;
 esac
 EOF
@@ -206,8 +208,12 @@ EOF
 gh_rules destroy-active active 0
 gh_rules destroy-disabled disabled_manually 1
 gh_rules destroy-unreadable - 0
+gh_rules destroy-waiting disabled_manually 1 waiting
+session "the destroy disabled by hand, an old run waiting for approval" "1 destroy workflow run(s) are queued, waiting or in progress" STUB_UTC_HM=09:00 STUB_RULES="$work/rules/destroy-waiting"
+# The retarget stage registers the workflow disabled, so an enabled one refuses it even at an hour the window allows.
+session "the retarget stage with the destroy enabled" "RESTART_STAGE=retarget registers the nightly destroy disabled for the session, and its state is 'active'" STUB_UTC_HM=02:00 STUB_RULES="$work/rules/destroy-active" RESTART_STAGE=retarget TTL_MINUTES=340
 session "the destroy enabled, within its window" "falls within two hours of this session's 300 min" STUB_UTC_HM=17:00 STUB_RULES="$work/rules/destroy-active"
-session "the destroy disabled by hand, a run queued" "1 destroy workflow run(s) are queued or in progress" STUB_UTC_HM=17:00 STUB_RULES="$work/rules/destroy-disabled"
+session "the destroy disabled by hand, a run queued" "1 destroy workflow run(s) are queued, waiting or in progress" STUB_UTC_HM=17:00 STUB_RULES="$work/rules/destroy-disabled"
 if grep -qF "the nightly destroy workflow is disabled_manually, so its 18:00 UTC window is not enforced" "$work/the destroy disabled by hand, a run queued/session.log"; then
   ok "a destroy disabled by hand lifts the window and says so"
 else
@@ -226,6 +232,39 @@ lib() {
     RESTART_QUEUE=gpu-train-a RESTART_SYS=gpu-platform-control-plane-system RESTART_OUT="$work/out/$name" \
     bash -c ". hack/lib/train-session.sh; . hack/lib/gpu-ttl.sh; . hack/lib/gpu-fault.sh; . hack/lib/restart-session.sh; $script" 2>&1
 }
+
+# A credential helper that hangs is not bounded by kubectl's request timeout, so rk is cut by the wall clock; this runs
+# the real kubectl, whose behaviour is the point, against a kubeconfig whose exec plugin sleeps (codex gpt-6-astra
+# attack of the retarget registration).
+real_kubectl="$(PATH="${PATH//$work\/bin:/}" command -v kubectl)"
+if [[ -z "$real_kubectl" ]]; then
+  bad "no real kubectl to run the hanging credential helper against"
+else
+  mkdir -p "$work/cred"
+  printf '#!/usr/bin/env bash\nsleep 30\n' >"$work/cred/helper" && chmod +x "$work/cred/helper"
+  cat >"$work/cred/config" <<EOF
+apiVersion: v1
+kind: Config
+clusters: [{name: hang, cluster: {server: "https://127.0.0.1:1"}}]
+users: [{name: hang, user: {exec: {apiVersion: client.authentication.k8s.io/v1beta1, command: "$work/cred/helper", interactiveMode: Never}}}]
+contexts: [{name: hang, context: {cluster: hang, user: hang}}]
+current-context: hang
+EOF
+  out="$(lib cred "export PATH=\"$(dirname "$real_kubectl"):\$PATH\" KUBECONFIG=\"$work/cred/config\"; RESTART_CONTEXT=hang; s=\$SECONDS; restart_by \$((SECONDS + 3)) rk get pods >/dev/null 2>&1; echo rc=\$? took=\$((SECONDS - s))")"
+  took="$(grep -o 'took=[0-9]*' <<<"$out" | cut -d= -f2)"
+  # At least 2 s, so a kubectl that failed at once, before the helper ran, does not pass as a cut one.
+  if [[ "$out" == *"rc="[1-9]* && -n "$took" && "$took" -ge 2 && "$took" -le 7 ]]; then
+    ok "a hanging credential helper is cut at the phase deadline ($took s for a 3 s deadline)"
+  else
+    bad "a hanging credential helper: $out"
+  fi
+fi
+out="$(lib rkd-expired 'restart_by $((SECONDS - 1)) rkd $((SECONDS + 10)) get pods; echo rc=$?')"
+if [[ "$out" == *"the deadline has passed"*"rc=1"* ]] && ! grep -q '^kubectl ' "$work/rkd-expired.calls" 2>/dev/null; then
+  ok "rkd refuses a call once an enclosing deadline has passed, and makes none"
+else
+  bad "rkd past an enclosing deadline: $out; calls: $(cat "$work/rkd-expired.calls" 2>&1 | head -2)"
+fi
 
 # The retarget stage runs only on the operator it registers, and a promotion after the registration refuses the launch.
 pin_rev=44bd5e74aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
@@ -394,7 +433,9 @@ out="$(lib warm 'restart_prepare_nodes "$RESTART_OUT/warmed.txt" $((SECONDS + 30
 last_create="$(grep -n 'apply -f -' "$work/warm.calls" | tail -1 | cut -d: -f1)"
 first_wait="$(grep -n ' wait ' "$work/warm.calls" | head -1 | cut -d: -f1)"
 timeouts="$(grep -oE -- '--timeout=[0-9]+s' "$work/warm.calls" | paste -sd' ')"
-if [[ "$out" == *"rc=0" && "$last_create" -lt "$first_wait" && "$timeouts" =~ ^--timeout=(30|29)s\ --timeout=(29|28)s\ --timeout=(28|27)s$ &&
+# Each wait sleeps 1 s and every call is cut by timeout(1), about 0.1 s more, so the third wait gets 25 to 28 s; a wait
+# given a budget of its own would get 30 each time.
+if [[ "$out" == *"rc=0" && "$last_create" -lt "$first_wait" && "$timeouts" =~ ^--timeout=(30|29)s\ --timeout=(29|28|27)s\ --timeout=(28|27|26|25)s$ &&
   "$(paste -sd' ' "$work/out/warm/warmed.txt")" == "node-a ua node-b ub node-c uc" &&
   "$(python3 -c 'import json, sys; print(" ".join(json.loads(l)["uid"] for l in open(sys.argv[1])))' "$work/out/warm/nodes-prepared.jsonl")" == "ua ub uc" ]]; then
   ok "three warm-ups started before the first wait, each wait the rest of one deadline: $timeouts"
@@ -1280,9 +1321,10 @@ score ended-after-budget terminate-wait-1 FAILED "past its budget after a recove
 score failed-after-budget rank-kill-2 FAILED "past its budget after a recovery: the job ended 'Failed' 723 s after its creation, beyond its 720 s budget; every rank of attempt 2 had stepped 71.0 s after the fault"
 # Only a first step never observed is censored, and its bound runs from the fault, 30.95 s after the creation, to the
 # runner's last sample: 112.1 s here, where the creation would have given 148.1 s.
-score ended-after-budget-no-step terminate-wait-1 FAILED "censored at its budget: the job ended 'Succeeded' 723 s after its creation, beyond its 720 s budget; attempt 2's first step was never observed, so its recovery exceeds 112.1 s, from the fault"
+score ended-after-budget-no-step terminate-wait-1 FAILED "censored at its budget: the job ended 'Succeeded' 723 s after its creation, beyond its 720 s budget; attempt 2's first step is not among the records collected; observation ended 112.1 s after the fault, at the last read of the job, which is not a bound"
 score ended-after-budget reference FAILED "past its budget: the job ended 'Succeeded' 723 s after its creation"
-# late_score <defect> <python on d, the case directory> <want>: a late or censored fixture with its evidence changed.
+# late_score <defect> <python on d, the case directory> <want> [<not>]: a late or censored fixture with its evidence
+# changed, whose line has <want> and not <not>.
 late_score() {
   local run="$work/run-late-$RANDOM" out line
   python3 hack/test/restart-session/make_fixture.py "$run" "$1" terminate-wait-1 || { bad "$1: the fixture was not built"; return; }
@@ -1293,7 +1335,7 @@ exec(change)
 EOF
   out="$(python3 experiments/distributed-restart/score_eks.py "$run" 2>&1)"
   line="$(grep -E '^[A-Z]+ +terminate-wait-1: ' <<<"$out" | head -1)"
-  if [[ "$line" == *"$3"* ]]; then ok "$1, changed: $(cut -c1-170 <<<"$line")"; else bad "$1, changed: want '$3', got '$line'"; fi
+  if [[ "$line" == *"$3"* && ( -z "${4:-}" || "$line" != *"$4"* ) ]]; then ok "$1, changed: $(cut -c1-170 <<<"$line")"; else bad "$1, changed: want '$3'${4:+ without '$4'}, got '$line'"; fi
 }
 # A late recovery's time is placed by the same clocks as an on-time one, so a probe labelled before the fault that ran
 # after it withholds the time (codex review of 9499dba5).
@@ -1312,18 +1354,18 @@ p = d / "timeline.jsonl"
 rows = [json.loads(l) for l in p.read_text().splitlines() if l.strip()]
 last = rows[-1]["observed"]
 rows.append({"observed": last[:11] + "%02d" % ((int(last[11:13]) + 1) % 24) + last[13:], "status": None})
-p.write_text("".join(json.dumps(r) + "\n" for r in rows))' "so its recovery exceeds 112.1 s, from the fault"
+p.write_text("".join(json.dumps(r) + "\n" for r in rows))' "observation ended 112.1 s after the fault"
 late_score ended-after-budget-no-step '
 uid = json.loads((d / "pods.jsonl").read_text().splitlines()[-1])["uid"]
 rows = [{"uid": uid, "stream": n, "exit": 1, "at": "2000-01-01T00:00:00+00:00"} for n in range(1, 21)]
-(d / "streams.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))' "has no lower bound: ValueError: the log follows of"
+(d / "streams.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))' "which is not a bound on the recovery because the logs are not shown to cover that time; the log follows of"
 # A Pod the controller labelled attempt 1 cannot print attempt 2's step, so its given-up follows keep the bound.
 late_score ended-after-budget-no-step '
 pods = [json.loads(l) for l in (d / "pods.jsonl").read_text().splitlines() if l.strip()]
 pods[0]["attempt_token"] = "1"
 (d / "pods.jsonl").write_text("".join(json.dumps(p) + "\n" for p in pods))
 rows = [{"uid": pods[0]["uid"], "stream": n, "exit": 1, "at": "2000-01-01T00:00:00+00:00"} for n in range(1, 21)]
-(d / "streams.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))' "so its recovery exceeds 112.1 s, from the fault"
+(d / "streams.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))' "to cover that time" "given up"
 score ended-before-budget terminate-wait-1 ACCEPTED "recovery"
 # The stamps are whole seconds from two clocks, so an end this near the budget is on neither side of it.
 score ended-at-budget terminate-wait-1 VOID "within 2 s of its 720 s budget"
@@ -1372,7 +1414,7 @@ score resume-dir-step-mismatch dcgm-5 FAILED "names step 12 and the ranks say 13
 score manifest-unlisted terminate-wait-3 VOID "the volume's listing has no /rst-terminate-wait-3-010000-0a1b2c3d/a1/00000013-"
 score no-volume-listing dcgm-4 VOID "no listing of the job's files on the volume"
 score resume-gap terminate-spare-5 FAILED "rank 0 of attempt 2 resumed from step 13, and its steps lack [14, 15]"
-score timed-out terminate-wait-4 FAILED "censored at its budget: the job ended 'Pending', not Succeeded, within its budget; attempt 2's first step was never observed, so its recovery exceeds 112.1 s, from the fault"
+score timed-out terminate-wait-4 FAILED "censored at its budget: the job ended 'Pending', not Succeeded, within its budget; attempt 2's first step is not among the records collected; observation ended 112.1 s after the fault"
 # A recovery censored at its budget stays FAILED when the nodes read afterwards are unreadable: the outcome is judged first.
 score timed-out-nodes-unread rank-kill-3 FAILED "censored at its budget: the job ended 'Pending', not Succeeded"
 score timed-out-nodes-before-unread rank-kill-2 FAILED "censored at its budget: the job ended 'Pending', not Succeeded"
@@ -1614,6 +1656,29 @@ if grep -q '^REFUSED: ' <<<"$out" && ! grep -q '^H1 ' <<<"$out"; then
   ok "H1 refuses a run the scorer's run-level checks refuse"
 else
   bad "H1 on a dirty run: $(head -2 <<<"$out")"
+fi
+# Clock probes place the recovery, not the delivery, so an unreadable probe file leaves d standing (third attack).
+h1_mutate hack/distributed-restart-eks/2026-11-04-full/session/restart rank-kill-1 'pass'
+echo '{"node": NaN}' >>"$work/h1/rank-kill-1/clock.jsonl"
+out="$(python3 "$h1" "$work/h1" 2>&1)"
+if grep -q '^rank-kill-1 .*"d_s": 39.0.*"verdict": "VOID"' <<<"$out" && grep -q '^H1 REFUTED: d is at least 30 s in rank-kill-1, rank-kill-2, dcgm-1, dcgm-2$' <<<"$out"; then
+  ok "an unreadable clock probe file voids the recovery and leaves d"
+else
+  bad "an unreadable clock probe file: $(grep -E '^(rank-kill-1|H1)' <<<"$out")"
+fi
+# A row whose time cannot be read is skipped as a malformed read, not the end of its case.
+h1_mutate "$rt" rank-kill-1 'pass' drop-timeline
+python3 - "$rt/rank-kill-1/timeline.jsonl.xz" "$work/h1/rank-kill-1/timeline.jsonl" <<'EOF'
+import json, lzma, sys
+rows = [json.loads(l) for l in lzma.decompress(open(sys.argv[1], "rb").read()).decode().splitlines() if l.strip()]
+rows.insert(1, dict(rows[1], observed="not a time"))
+open(sys.argv[2], "w").write("".join(json.dumps(r) + "\n" for r in rows))
+EOF
+out="$(h1_shim)"
+if grep -q '^rank-kill-1 .*"d_s": 1.0' <<<"$out" && grep -q '^H1 SUPPORTED' <<<"$out"; then
+  ok "a read whose time cannot be parsed is skipped, not the end of its case"
+else
+  bad "a read with an unreadable time: $(grep -E '^(rank-kill-1|H1|Traceback)' <<<"$out")"
 fi
 # The committed rehearsal replays its gate from the repository alone, timelines compressed.
 out="$(python3 hack/test/restart-kind/check_lifecycle.py hack/restart-lifecycle-kind-20261104T142003Z 2>&1)"

@@ -383,25 +383,28 @@ restart_cap() {
 # after the deadline is refused.
 RESTART_KILL_AFTER=2
 
-# rk ARGS...: kubectl on the session's context, its request bounded at 20 s, or at what is left of RESTART_DL under
-# restart_by, and refused once that has passed.
-# Like rkd it relies on the request timeout and not on timeout(1), which on this machine (uutils) took 2.0 s for 20 calls
-# of `timeout 60 true` (2026-11-05); anything that streams goes through rkt.
-# A request timeout bounds each request, so a get that also has to rediscover the API can outlast it by its discovery.
+# rk ARGS...: kubectl on the session's context, ended after 20 s, or at what is left of RESTART_DL under restart_by,
+# and refused once that has passed.
+# Its request timeout bounds the request only: a credential helper that hangs held a GET with a 1 s request timeout for
+# 3 s, so the whole process is cut by timeout(1) as well (codex gpt-6-astra attack of the retarget registration).
+# That costs about 0.1 s a call here (uutils; 20 calls of `timeout 60 true` took 2.0 s, 2026-11-05).
 rk() {
   local t=20
   restart_cap t 20 || return 1
-  kubectl --context "$RESTART_CONTEXT" --request-timeout="${t}s" "$@"
+  timeout -k "$RESTART_KILL_AFTER" "$t" kubectl --context "$RESTART_CONTEXT" --request-timeout="${t}s" "$@"
 }
 
-# rkd DEADLINE ARGS...: rk whose request cannot outlive DEADLINE (in SECONDS) by more than a second, so a poll that
-# starts just before its phase's deadline does not carry the phase into the next one's share.
+# rkd DEADLINE ARGS...: rk that cannot outlive DEADLINE (in SECONDS), so a poll that starts just before its phase's
+# deadline does not carry the phase into the next one's share.
+# It is given a second when DEADLINE has just passed, so a poll's last look is still made, but never past an enclosing
+# RESTART_DL, which it once ignored and called after (codex gpt-6-astra attack of the retarget registration).
 rkd() {
   local t=$(($1 - SECONDS))
   shift
   ((t <= 20)) || t=20
   ((t >= 1)) || t=1
-  kubectl --context "$RESTART_CONTEXT" --request-timeout="${t}s" "$@"
+  restart_cap t "$t" || return 1
+  timeout -k "$RESTART_KILL_AFTER" "$t" kubectl --context "$RESTART_CONTEXT" --request-timeout="${t}s" "$@"
 }
 
 # rkt SECONDS ARGS...: rk ended after SECONDS, or at RESTART_DL if that comes first, whatever it is doing, for an exec or
