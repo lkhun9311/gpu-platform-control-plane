@@ -19,7 +19,13 @@
 # What this does not show: the case procedure (restart_run_case) against a cluster, controller, NFS or GPU; its paths
 # here run against stubs whose answers were written for them, not taken from a cluster.
 set -uo pipefail
+self="$(readlink -f "$0")"
 cd "$(dirname "$0")/../.." || exit 1
+# The session bounds each paid phase by a cgroup it makes, so these run where it can: a delegated scope, entered here
+# when not started in one.
+# shellcheck source=hack/lib/phase-supervisor.sh
+. hack/lib/phase-supervisor.sh
+phase_supervisor_enter "$self" "$@" || exit 1
 
 fails=0
 ok() { echo "ok: $*"; }
@@ -98,7 +104,7 @@ chmod +x "$work/bin/date"
 repo="$work/repo"
 mkdir -p "$repo/hack/lib" "$repo/experiments/distributed-restart" "$repo/experiments/cpu-ddp" "$repo/experiments/multi-gpu-throughput"
 cp hack/eks-gitops-session.sh "$repo/hack/"
-cp hack/lib/train-session.sh hack/lib/ddp-arms.sh hack/lib/gpu-ttl.sh hack/lib/gpu-fault.sh hack/lib/restart-session.sh hack/lib/session-teardown.sh \
+cp hack/lib/train-session.sh hack/lib/ddp-arms.sh hack/lib/gpu-ttl.sh hack/lib/gpu-fault.sh hack/lib/restart-session.sh hack/lib/phase-supervisor.sh hack/lib/session-teardown.sh \
   hack/lib/allreduce-arms.sh "$repo/hack/lib/"
 cp experiments/distributed-restart/train.py "$repo/experiments/distributed-restart/"
 cp experiments/cpu-ddp/train.py "$repo/experiments/cpu-ddp/"
@@ -285,16 +291,36 @@ if [[ -n "$sk" && "$out" == *"rc=124 took="* && -n "$took" && "$took" -ge 2 && "
 else
   bad "session_kubectl_by: $out"
 fi
-for f in train_qualify_nodes train_qualification_released; do
-  if grep -B3 "^    $f \"\$CLUSTER\"" hack/eks-gitops-session.sh | grep -q 'kubectl() { session_kubectl_by '; then
-    ok "the launcher runs $f with the deadline-cut kubectl"
+for f in train_qualify_nodes train_node_zones train_qualification_released; do
+  if grep -B1 "$f \"\$CLUSTER\"" hack/eks-gitops-session.sh | grep -q 'paid_phase [a-z0-9]* "\$[a-z]*" with_kubectl_by "\$[a-z]*"'; then
+    ok "the launcher runs $f in a paid phase with the deadline-cut kubectl"
   else
-    bad "the launcher runs $f with kubectl's request timeout only"
+    bad "the launcher runs $f outside a paid phase or with kubectl's request timeout only"
   fi
 done
+# The sixth attack's credential helper: a client that leaves a TERM-ignoring helper holding its stderr, then hangs.
+# Cut by session_kubectl_by alone, the helper held the caller's substitution until it ended on its own; in a paid phase
+# it is killed with the phase at the deadline.
+wk="$(sed -n '/^with_kubectl_by() {/,/^}/p' hack/eks-gitops-session.sh)"
+mkdir -p "$work/helperbin"
+printf '#!/usr/bin/env bash
+( trap "" TERM; exec sleep %s ) &
+sleep 30
+' "${HELPER_SLEEP:-8}" >"$work/helperbin/kubectl" && chmod +x "$work/helperbin/kubectl"
+out="$(PATH="$work/helperbin:$PATH" bash -c "$sk"$'\n'"$wk"$'\n''. hack/lib/phase-supervisor.sh
+s=$SECONDS; x="$(session_kubectl_by $((SECONDS + 2)) get nodes 2>&1)"; echo bare took=$((SECONDS - s))
+s=$SECONDS; x="$(paid_phase helper $((SECONDS + 2)) with_kubectl_by $((SECONDS + 2)) kubectl get nodes 2>&1)"; echo rc=$? phase took=$((SECONDS - s))' 2>&1)"
+bare="$(grep -o 'bare took=[0-9]*' <<<"$out" | cut -d= -f2)"
+phased="$(grep -o 'phase took=[0-9]*' <<<"$out" | cut -d= -f2)"
+left="$(pgrep -f "slee[p] ${HELPER_SLEEP:-8}\$" | paste -sd' ')"
+if [[ -n "$bare" && -n "$phased" && "$bare" -ge 7 && "$phased" -le 4 && "$out" == *"rc=124 phase"* && -z "$left" ]]; then
+  ok "a helper holding stderr held the bare cut ${bare} s for 2 s, and its paid phase ${phased} s with the helper killed"
+else
+  bad "the credential helper under a paid phase: $out; left: $left"
+fi
 # The pre-fault probe and the first warm-up run under their deadlines as a whole.
 if grep -q 'out="$(restart_by "$deadline" restart_probe_all "$dir" before 2>&1)"' hack/lib/restart-session.sh &&
-  grep -q 'out="$(restart_by "$wdl" restart_prepare_nodes "$warmed" "$wdl")"' hack/eks-gitops-session.sh; then
+  grep -q 'out="$(paid_phase r5 "$wdl" restart_by "$wdl" restart_prepare_nodes "$warmed" "$wdl")"' hack/eks-gitops-session.sh; then
   ok "the probe before a fault and the first warm-up run under their deadlines"
 else
   bad "the probe before a fault or the first warm-up runs without its deadline"
@@ -993,8 +1019,11 @@ if [[ "$out" == *"nothing more starts"*"rc=1"*"min away"*"rc=0" ]]; then ok "a c
 
 # --- the case procedure under restart_run, with the group, deadline and scorer steps replaced by functions ---------
 # The shares are cut to seconds so a case's waits end at once; the real restart_run_case runs only for the case named.
-RUNNER_PRELUDE='RESTART_STAGE=smoke RESTART_REQUALIFY_BUDGET=1 RESTART_REPLENISH_BUDGET=1 RESTART_WARM_BUDGET=1 RESTART_SUBMIT_BUDGET=1
-RESTART_CASE_BUDGET=2 RESTART_EVIDENCE_BUDGET=1 RESTART_RETIRE_BUDGET=2 RESTART_FILES_BUDGET=1 RESTART_RESET_BUDGET=1
+# The share before a submission is 3 s, not 1: each step in it is a paid phase, refused once its deadline has passed, and
+# SECONDS counts whole seconds, so three steps in a 1 s share were refused whenever it began late in a second.
+RUNNER_PRELUDE='RESTART_STAGE=smoke RESTART_REQUALIFY_BUDGET=3 RESTART_REPLENISH_BUDGET=3 RESTART_WARM_BUDGET=1 RESTART_SUBMIT_BUDGET=1
+RESTART_CASE_BUDGET=2 RESTART_EVIDENCE_BUDGET=1 RESTART_RETIRE_BUDGET=2 RESTART_FILES_BUDGET=5 RESTART_RESET_BUDGET=1
+eval "$(declare -f restart_deadline_ok | sed "1s/restart_deadline_ok/restart_deadline_ok_real/")"
 restart_deadline_ok() { echo "deadline stub"; }
 restart_wait_group() { echo "group stub"; }
 restart_prepare_nodes() { echo "prepare stub"; }
@@ -1005,6 +1034,22 @@ restart_run_case() { if [[ "$1" == "$REAL_CASE" ]]; then real_run_case "$@"; els
 runner() {
   lib "$1" "REAL_CASE=$2; $RUNNER_PRELUDE"$'\n''restart_run "$RESTART_OUT/warmed.txt"; echo "rc=$?"'
 }
+
+# A scheduler query that hangs between cases ends with the share before the submission, and nothing starts after it
+# (sixth attack, 2: restart_deadline_ok's queries ran under no deadline at all).
+mkdir -p "$work/rules/sched-hang"
+printf 'case "$*" in "scheduler "*) exec sleep 61 ;; esac\n' >"$work/rules/sched-hang/aws.sh"
+s0=$SECONDS
+out="$(lib sched-hang "REAL_CASE=none; $RUNNER_PRELUDE"$'\n''restart_deadline_ok() { restart_deadline_ok_real "$@"; }
+restart_run "$RESTART_OUT/warmed.txt"; echo "rc=$?"' 2>&1)"
+took=$((SECONDS - s0))
+left="$(pgrep -f 'slee[p] 61$' | paste -sd' ')"
+if [[ "$took" -le 8 && "$(cat "$work/out/sched-hang/reference/NOTRUN" 2>&1)" == *"deadline-ok: it passed its deadline"* &&
+  "$out" == *"stopped early"* && -z "$left" ]]; then
+  ok "a hanging scheduler query between cases ended with its share (${took} s for 3 s) and the case was not run"
+else
+  bad "a hanging scheduler query between cases: took ${took} s, reference: $(cat "$work/out/sched-hang/reference/NOTRUN" 2>&1); $(tail -3 <<<"$out"); left: $left"
+fi
 
 # A case VOID before its fault whose retirement cannot be confirmed stops every later submission.
 mkdir -p "$work/rules/void-retire"
@@ -1026,7 +1071,7 @@ if [[ "$(cat "$work/out/void-retire/dcgm-1/VOID")" == "VOID-before-fault: a cloc
   ! grep -q 'rm -rf' "$work/void-retire.calls"; then
   ok "an early VOID whose retirement failed leaves the next case NOTRUN, the group untouched, its files listed and kept"
 else
-  bad "the early VOID with a failed retirement: $(cat "$work/out/void-retire/dcgm-1/VOID" 2>&1 | head -c 200); $(tail -3 <<<"$out"); terminate-wait-1: $(cat "$work/out/void-retire/terminate-wait-1/NOTRUN" 2>&1)"
+  bad "the early VOID with a failed retirement: $(cat "$work/out/void-retire/dcgm-1/VOID" 2>&1 | head -c 200); $(tail -12 <<<"$out"); terminate-wait-1: $(cat "$work/out/void-retire/terminate-wait-1/NOTRUN" 2>&1)"
 fi
 
 # A case that ran whose retirement fails still leaves its evidence and its files' listing, and stops the run.
@@ -1093,7 +1138,7 @@ if [[ "$(cat "$work/out/probe-before/dcgm-1/VOID" 2>&1)" == "VOID-before-fault: 
   grep -q 'delete mltrainingjob rst-dcgm-1' "$work/probe-before.calls" && ! grep -q 'hostengine' "$work/probe-before.calls"; then
   ok "a case whose clocks were not read before its fault is VOID before it, retired, and never injected"
 else
-  bad "the failed probe before the fault: VOID '$(cat "$work/out/probe-before/dcgm-1/VOID" 2>&1)', $(grep -c hostengine "$work/probe-before.calls") injection call(s)"
+  bad "the failed probe before the fault: VOID '$(cat "$work/out/probe-before/dcgm-1/VOID" 2>&1)', $(grep -c hostengine "$work/probe-before.calls") injection call(s); $(tail -3 <<<"$out")"
 fi
 # A follow carries no request timeout: kubectl's 20 s one cut every stream on the kind rehearsal, each was read again from
 # the start, and the 20 restarts the collector allows then ended its coverage of any Pod that ran past about 400 s.

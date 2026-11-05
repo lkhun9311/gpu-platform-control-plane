@@ -14,6 +14,11 @@
 # WHAT THE CALLER PROVIDES for the case procedure: RESTART_CONTEXT, RESTART_REGION, RESTART_CLUSTER, RESTART_GROUP,
 # RESTART_NS, RESTART_QUEUE, RESTART_OUT (the run directory), RESTART_SYS (the operator's and exporter's namespace),
 # and hack/lib/train-session.sh, hack/lib/gpu-ttl.sh and hack/lib/gpu-fault.sh sourced.
+# hack/lib/phase-supervisor.sh it sources itself when the caller has not, because restart_run's steps run in its phases,
+# and a caller in a cgroup it does not own has every phase refused (status 125).
+
+# shellcheck source=hack/lib/phase-supervisor.sh
+declare -F paid_phase >/dev/null || . "$(dirname "${BASH_SOURCE[0]}")/phase-supervisor.sh"
 
 # The image every EKS training session pins: torch 2.5.1+cu124, CUDA 12.4, NCCL 2.21.5.
 RESTART_IMAGE=docker.io/pytorch/pytorch@sha256:c8268a92a69bd500f8be0e665b2630ee006dadaf7bfbc24249141b15ff622755
@@ -1818,7 +1823,9 @@ restart_run() {
     prev="$case"
     # No slot starts that the GPU deadline cannot cover whole: the deadline fires once, and a replacement the group
     # launches on its own after it would run with none (A20, B7).
-    out="$(restart_deadline_ok "$slot")" || {
+    # Each step of the loop runs in a paid phase, a cgroup killed whole at its deadline, so no call, credential helper or
+    # descendant inside it can hold the slot past it (docs/superpowers/specs/2026-11-05-paid-phase-supervisor-design.md).
+    out="$(paid_phase deadline-ok "$pre_dl" restart_deadline_ok "$slot")" || {
       stop="$out"
       restart_notrun "$case" "$stop"
       continue
@@ -1828,7 +1835,7 @@ restart_run() {
     # a purchase with no deadline behind it (codex review of 830f64af).
     if [[ "$kind" == terminate-wait && "$want" == 3 ]]; then
       want=2
-      out="$(restart_scale_group 2 "$pre_dl")" || {
+      out="$(paid_phase scale-two "$pre_dl" restart_scale_group 2 "$pre_dl")" || {
         stop="the group could not be scaled to two for terminate-wait: ${out:0:200}"
         restart_notrun "$case" "$stop"
         continue
@@ -1836,15 +1843,25 @@ restart_run() {
     fi
     # Each under its deadline as a whole, so a create or delete inside it is refused once the deadline has passed and
     # not only the waits that are given it (codex gpt-6-astra attack of the retarget registration).
-    out="$(restart_by $((pre_dl - reserve)) restart_wait_group "$want" $((pre_dl - reserve - SECONDS)))" &&
-      out="$(restart_by "$pre_dl" restart_prepare_nodes "$warmed" "$pre_dl")" || {
+    out="$(paid_phase wait-group $((pre_dl - reserve)) restart_by $((pre_dl - reserve)) restart_wait_group "$want" $((pre_dl - reserve - SECONDS)))" &&
+      out="$(paid_phase prepare "$pre_dl" restart_by "$pre_dl" restart_prepare_nodes "$warmed" "$pre_dl")" || {
       stop="before $case: $out"
       restart_notrun "$case" "$stop"
       continue
     }
-    restart_run_case "$case" "$slot_dl"
+    paid_phase "case-$case" "$slot_dl" restart_run_case "$case" "$slot_dl"
     rc=$?
-    verdict="$(restart_verdict "$case")"
+    if ((rc == 124 || rc == 125)); then
+      # Killed at its slot's end, or never started in its cgroup: what it wrote may be partial and its job may still run,
+      # so it is VOID, never scored from what it left, and nothing more starts.
+      mkdir -p "$RESTART_OUT/$case"
+      echo "the case's phase ended with status $rc before the case did; its evidence is incomplete and its retirement unconfirmed" >>"$RESTART_OUT/$case/VOID"
+      stop="$case did not finish inside its slot, so its job may still hold GPUs; see $RESTART_OUT/$case/case.log"
+      verdict=VOID
+    else
+      # Its own call's share, as before the phase: a case may end at its slot's end and still be scored.
+      verdict="$(paid_phase "verdict-$case" $((SECONDS + RESTART_VERDICT_CALL + 5)) restart_verdict "$case")" || verdict=""
+    fi
     echo "$case: ${verdict:-no verdict}"
     ((rc != 2)) || stop="$case could not be retired or its DCGM fault reset; see $RESTART_OUT/$case/case.log"
     if [[ "$verdict" == VOID || -z "$verdict" ]]; then void_run=$((void_run + 1)); else void_run=0; fi

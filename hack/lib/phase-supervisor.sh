@@ -11,8 +11,10 @@
 # It needs the session to own its cgroup: run it under `systemd-run --user --scope -p Delegate=yes`.
 # phase_supervisor_ready says whether it does, by tripping the mechanism rather than reading permissions.
 
-# How often a phase is checked against its deadline, so a phase outlives it by at most this.
+# How often a phase is checked against its deadline, so a phase outlives it by at most this; the first checks come
+# sooner, so a phase that ends at once costs its caller milliseconds and not a whole interval.
 PHASE_POLL=0.5
+PHASE_POLL_FIRST=(0.01 0.02 0.05 0.1 0.2)
 
 # phase_cgroup: the directory of this process's cgroup on the unified hierarchy.
 phase_cgroup() {
@@ -136,17 +138,19 @@ paid_phase() {
     "$@"
   ) </dev/null >"$out" 2>"$err" &
   pid=$!
+  local n=0
   while phase_alive "$pid"; do
     if ((SECONDS >= dl)); then
       echo 1 >"$cg/cgroup.kill"
       killed=1
       break
     fi
-    sleep "$PHASE_POLL"
+    sleep "${PHASE_POLL_FIRST[n]:-$PHASE_POLL}"
+    n=$((n + 1))
   done
-  wait "$pid"
-  rc=$?
-  phase_empty "$cg" >>"$err"
+  # Read so that errexit, which the launcher sets, cannot end the caller on the phase's own failure.
+  wait "$pid" && rc=0 || rc=$?
+  phase_empty "$cg" >>"$err" || :
   cat "$out"
   cat "$err" >&2
   rm -f "$out" "$err"

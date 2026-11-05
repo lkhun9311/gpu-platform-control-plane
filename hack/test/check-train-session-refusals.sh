@@ -9,7 +9,13 @@
 # passes every training refusal is stopped by the stub gh a few lines later, before the kill switch, and is told
 # from a refusal by the line train_require_new_cluster prints when it finds no cluster.
 set -uo pipefail
+self="$(readlink -f "$0")"
 cd "$(dirname "$0")/../.." || exit 1
+# The session bounds each paid phase by a cgroup it makes, so these run where it can: a delegated scope, entered here
+# when not started in one.
+# shellcheck source=hack/lib/phase-supervisor.sh
+. hack/lib/phase-supervisor.sh
+phase_supervisor_enter "$self" "$@" || exit 1
 
 fails=0
 ok() { echo "ok: $*"; }
@@ -43,7 +49,7 @@ sha="$(sha256sum experiments/cpu-ddp/train.py | cut -d' ' -f1)"
 repo="$work/repo"
 mkdir -p "$repo/hack/lib" "$repo/experiments/cpu-ddp"
 cp hack/eks-gitops-session.sh "$repo/hack/"
-cp hack/lib/train-session.sh hack/lib/ddp-arms.sh hack/lib/gpu-ttl.sh hack/lib/session-teardown.sh "$repo/hack/lib/"
+cp hack/lib/train-session.sh hack/lib/ddp-arms.sh hack/lib/gpu-ttl.sh hack/lib/phase-supervisor.sh hack/lib/session-teardown.sh "$repo/hack/lib/"
 cp experiments/cpu-ddp/train.py "$repo/experiments/cpu-ddp/"
 mkdir -p "$repo/experiments/multi-gpu-throughput"
 cp hack/lib/allreduce-arms.sh "$repo/hack/lib/"
