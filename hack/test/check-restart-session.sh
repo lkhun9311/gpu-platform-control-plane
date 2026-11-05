@@ -1391,6 +1391,57 @@ if grep -q '^rank-kill-1 .*"invalid": "d 5 s is outside the collector' <<<"$out"
 else
   bad "a contradicted d: $(grep -E '^(rank-kill-1|H1)' <<<"$out")"
 fi
+# The second attack of the registration (codex gpt-6-astra, at f5bb6f61): each of these changed the outcome before.
+# A final object missing a stop the timeline shows is contradictory evidence, not a stop that never came.
+h1_mutate "$rt" rank-kill-1 'del a["stopConfirmedAt"]'
+out="$(h1_shim)"
+if grep -q '^rank-kill-1 .*"invalid": "the final MLTrainingJob lacks a stop that the timeline or a later attempt shows"' <<<"$out" && grep -q '^H1 NOT ASSESSED' <<<"$out"; then
+  ok "a final object missing a stop the timeline shows is INVALID, not a refutation"
+else
+  bad "a final object missing its stop: $(grep -E '^(rank-kill-1|H1)' <<<"$out")"
+fi
+# Evidence the recovery needs, not the delivery, is gone: the stop is still measured and the refutation stands.
+h1_mutate hack/distributed-restart-eks/2026-11-04-full/session/restart rank-kill-1 'pass'
+python3 - "$work/h1/rank-kill-1/clock.jsonl" <<'EOF'
+import json, sys
+p = sys.argv[1]
+rows = [json.loads(l) for l in open(p) if l.strip()]
+open(p, "w").write("".join(json.dumps(r) + "\n" for r in rows if r.get("when") != "after"))
+EOF
+out="$(python3 "$h1" "$work/h1" 2>&1)"
+if grep -q '^rank-kill-1 .*"d_s": 39.0.*"verdict": "VOID"' <<<"$out" && grep -q '^H1 REFUTED: d is at least 30 s in rank-kill-1, rank-kill-2, dcgm-1, dcgm-2$' <<<"$out"; then
+  ok "a case the scorer voids after delivery still gives its d"
+else
+  bad "a case voided after delivery: $(grep -E '^(rank-kill-1|H1)' <<<"$out")"
+fi
+# A failed read is no evidence either way, and a malformed one ends nothing but its own case.
+h1_mutate "$rt" rank-kill-2 'pass' drop-timeline
+python3 - "$rt/rank-kill-2/timeline.jsonl.xz" "$work/h1/rank-kill-2/timeline.jsonl" <<'EOF'
+import json, lzma, sys
+rows = [json.loads(l) for l in lzma.decompress(open(sys.argv[1], "rb").read()).decode().splitlines() if l.strip()]
+out = []
+for r in rows:
+    out.append(r)
+    out.append({"observed": r["observed"], "status": None})
+out.insert(1, {"observed": rows[0]["observed"], "status": {"attempts": [None]}})
+open(sys.argv[2], "w").write("".join(json.dumps(r) + "\n" for r in out))
+EOF
+out="$(h1_shim)"
+if grep -q '^rank-kill-2 .*"d_s": 0.0' <<<"$out" && grep -q '^H1 SUPPORTED' <<<"$out"; then
+  ok "failed and malformed reads are skipped, not read as a missing stamp"
+else
+  bad "failed or malformed reads: $(grep -E '^(rank-kill-2|H1|Traceback)' <<<"$out")"
+fi
+rm -rf "$work/h1" && cp -r "$rt" "$work/h1" && sed -i 's/^dirty_files=0$/dirty_files=1/' "$work/h1/provenance.txt"
+out="$(h1_shim)"
+if grep -q '^REFUSED: ' <<<"$out" && ! grep -q '^H1 ' <<<"$out"; then
+  ok "H1 refuses a run the scorer's run-level checks refuse"
+else
+  bad "H1 on a dirty run: $(head -2 <<<"$out")"
+fi
+# The committed rehearsal replays its gate from the repository alone, timelines compressed.
+out="$(python3 hack/test/restart-kind/check_lifecycle.py hack/restart-lifecycle-kind-20261104T142003Z 2>&1)"
+if [[ "$(tail -1 <<<"$out")" == "0 FAIL(s)" ]]; then ok "the committed retarget rehearsal passes its lifecycle check"; else bad "the committed rehearsal's lifecycle check: $(tail -1 <<<"$out")"; fi
 # A slow stop refutes whatever is missing elsewhere: the outcome does not wait on the other cases or the recoveries.
 out="$(cd experiments/distributed-restart && python3 -c '
 import h1_retarget as h
