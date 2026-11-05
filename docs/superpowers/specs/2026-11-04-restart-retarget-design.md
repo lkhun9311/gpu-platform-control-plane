@@ -166,9 +166,9 @@ On 2026-11-05 that listing read 115 runs over two pages, none of them unfinished
 - `aws sts get-caller-identity --profile gpu-lab` read in the same shell.
 - The kind rehearsal of this stage (`RUNS=e hack/restart-lifecycle-kind.sh`): every case ACCEPTED through `score_kind_shim.py` and its lifecycle and outcome checks 0 FAIL, from a commit whose runner, scorer and trainer equal the launch commit's.
   The unmodified `score_eks.py` voids every kind case, because kind's ranks train with gloo on the CPU; that is the boundary the shim moves.
-  Five earlier rehearsals, `hack/restart-lifecycle-kind-20261104T142003Z` at `5f83e8e2`, `hack/restart-lifecycle-kind-20261105T020442Z` at `c817c612`, `hack/restart-lifecycle-kind-20261105T034118Z` at `a38089c4`, `hack/restart-lifecycle-kind-20261105T044327Z` at `7d7e7fb4` and `hack/restart-lifecycle-kind-20261105T054801Z` at `1729ad8a`, ran runners that later fixes replaced and are kept as records.
-  The gate is met by `hack/restart-lifecycle-kind-20261105T130526Z` at `78f5b4ba`, every step run as a paid phase: every case ACCEPTED, both checks 0 FAIL, and H1 SUPPORTED on kind with `d` = 1, 0, 1, 1 s.
-  No runner, scorer, trainer, launcher, supervisor or evaluator line changed between `78f5b4ba` and the launch commit; the launch commit must keep that true, and a change to any of them needs this rehearsal again.
+  Six earlier rehearsals, `hack/restart-lifecycle-kind-20261104T142003Z` at `5f83e8e2`, `hack/restart-lifecycle-kind-20261105T020442Z` at `c817c612`, `hack/restart-lifecycle-kind-20261105T034118Z` at `a38089c4`, `hack/restart-lifecycle-kind-20261105T044327Z` at `7d7e7fb4`, `hack/restart-lifecycle-kind-20261105T054801Z` at `1729ad8a` and `hack/restart-lifecycle-kind-20261105T130526Z` at `78f5b4ba`, ran runners that later fixes replaced and are kept as records.
+  The gate is met by `hack/restart-lifecycle-kind-20261105T141937Z` at `4a016c61`, every step run as a paid phase on the monotonic clock: every case ACCEPTED, both checks 0 FAIL, and H1 SUPPORTED on kind with `d` = 0, 0, 1, 1 s.
+  No runner, scorer, trainer, launcher, supervisor or evaluator line changed between `4a016c61` and the launch commit; the launch commit must keep that true, and a change to any of them needs this rehearsal again.
   The launcher's own path to the first case (T6, Z2, T7, R5, R6) and its teardown are not part of a kind run; `hack/test/check-restart-session.sh` and `hack/test/check-phase-supervisor.sh` pin their phases.
   On kind every wait ends in seconds, so the rehearsal cannot show that a wait longer than 20 s survives; a test pins that every such wait goes through `rkt`.
 
@@ -294,7 +294,7 @@ All are fixed in `78f5b4ba` except the last, which this page's gate now answers:
 | `phase_kill_all` ended another session's phases sharing the cgroup | fixed: phase cgroups carry the session's pid, and a test leaves another session's phase running |
 | `STUDY=prefixroute` buys GPUs and tears down through a phase without entering a scope | fixed: it enters one like `TRAIN` |
 | the restart test re-ran itself directly though its mode is 644, and the kind driver did not enter a scope | fixed: both re-run through `bash`, and the driver enters a scope before building anything |
-| the gate's rehearsal predates the runner | answered by the rehearsal at `78f5b4ba` ("Gates before the launch") |
+| the gate's rehearsal predates the runner | answered by a rehearsal at `78f5b4ba`, itself replaced after the change below by the one at `4a016c61` ("Gates before the launch") |
 
 astra's second GO review, at `3e9f6be2`, found items 2 and 3 still met and the stale-rehearsal finding closed, and gave "NO-GO" on one: a clock that stepped forward before a deadline's computation and back before its phase still extended the phase, through deadlines such as a case's `pre_dl` that several phases reuse.
 Bare `codex review` of `78f5b4ba` found the other side of the same conversion: after a backward step, the teardown's fresh budget converted to a deadline already past, and the scale-down was refused.
@@ -302,7 +302,7 @@ Bare `codex review` of `78f5b4ba` found the other side of the same conversion: a
 | finding | disposition |
 |---|---|
 | a forward-then-back step extended a phase by the step | fixed: every deadline on the paid path is computed on CLOCK_BOOTTIME where it is set, and nothing converts SECONDS |
-| after a backward step the scale-down's fresh budget was refused | fixed by the same change; the teardown's deadline is its budget from the moment it is set |
+| after a backward step the scale-down's fresh budget was refused | fixed by the same change (`f0a07fa5`, whose bare review found nothing); the teardown's deadline is its budget from the moment it is set |
 
 ## What this does not show
 

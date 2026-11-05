@@ -1,6 +1,6 @@
 # Kind rehearsal of the `retarget` restart stage, 2026-11-05 (commit 78f5b4ba)
 
-This is the rehearsal that meets the gate of `docs/superpowers/specs/2026-11-04-restart-retarget-design.md`.
+This was the sixth rehearsal of `docs/superpowers/specs/2026-11-04-restart-retarget-design.md`, and no longer meets its gate: moving every deadline to the monotonic clock (`f0a07fa5`) changed its runner, and `hack/restart-lifecycle-kind-20261105T141937Z` replaces it.
 It replaces `hack/restart-lifecycle-kind-20261105T054801Z`, whose runner the phase supervisor (`docs/superpowers/specs/2026-11-05-paid-phase-supervisor-design.md`) and the scorer's evidence gates changed.
 A rehearsal at `7e9ac2a5` between the two also gave every case ACCEPTED and both checks 0 FAIL; the supervisor's fixes after gpt-6-astra's GO review changed its runner, and it is not kept.
 The driver, the substitutions and what ran unmodified are as in `hack/restart-lifecycle-kind-20261101T143009Z/README.md`; only run `e` ran here.
