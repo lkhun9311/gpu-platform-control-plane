@@ -259,15 +259,15 @@ def held_window(case: Case, start: str, end: str, seconds: float) -> tuple[list[
     if legacy:
         # Runs before the sampler change of f43df078 (2026-11-01) recorded neither when a sample's reads began nor whether
         # they failed.
-        # Their samples are still held to the gap and the duration, and each must carry the job's attempts, which only a
-        # status read that succeeded has; what such a run cannot show is a failed read of the other objects.
+        # Their samples are still held to the gap and the duration.
+        # A read that failed there left an empty status or empty lists, which every predicate over a hold already refuses:
+        # no_second_attempt wants exactly one attempt, and the others want the held Workload or the barrier's words.
         inside = [s for s in case.timeline if a <= ts(s["observed"]) <= b]
         times = [a] + [ts(s["observed"]) for s in inside] + [b]
         gap = max(y - x for x, y in zip(times, times[1:]))
-        unread = [s for s in inside if not ((s.get("status") or {}).get("attempts"))]
-        detail = (f"{len(inside)} samples over {b - a:.1f} s, longest unobserved {gap:.1f} s, {len(unread)} without the "
-                  f"job's attempts; this run's sampler recorded no read errors")
-        held = inside if inside and not unread and gap <= MAX_SAMPLE_GAP else []
+        detail = (f"{len(inside)} samples over {b - a:.1f} s, longest unobserved {gap:.1f} s; "
+                  f"this run's sampler recorded no read errors")
+        held = inside if inside and gap <= MAX_SAMPLE_GAP else []
     else:
         held, detail = observed_window(case, start, end)
     if a is None or b is None or b - a < seconds - 1:

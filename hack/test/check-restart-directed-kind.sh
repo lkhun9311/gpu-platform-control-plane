@@ -141,7 +141,8 @@ else
   bad "the shortened hold: $(grep -m1 'stale-workload no second' <<<"$out")"
 fi
 
-# A legacy sample without the job's attempts is a status read that failed, and cannot vouch for "no second attempt".
+# A legacy sample with an empty status is a status read that failed, and no_second_attempt, which wants exactly one
+# attempt in every sample, refuses the hold for it.
 cp -r hack/distributed-restart-kind-20261101T003147Z "$tmp/unread"
 python3 - "$tmp/unread/stale-workload" <<'EOF'
 import datetime, json, pathlib, sys
@@ -154,7 +155,7 @@ hit["status"] = {}
 (d / "timeline.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
 EOF
 out=$(python3 experiments/distributed-restart/score_kind.py "$tmp/unread" 2>&1)
-if grep -qE "FAIL stale-workload no second attempt while the Workload was held: .* 1 without the job's attempts" <<<"$out"; then
+if grep -qF "FAIL stale-workload no second attempt while the Workload was held: 53 samples over 60.2 s" <<<"$out"; then
   ok "a legacy sample whose status read failed does not vouch for the hold"
 else
   bad "the unread sample: $(grep -m1 'stale-workload no second' <<<"$out")"
