@@ -156,8 +156,8 @@ session "no zone" "TRAIN=restart is registered in ap-northeast-2a" TRAIN_AZ=
 session "another zone" "TRAIN=restart is registered in ap-northeast-2a, and TRAIN_AZ is 'ap-northeast-2c'" TRAIN_AZ=ap-northeast-2c
 session "no approved hash" "needs APPROVED_TRAIN_SHA256" APPROVED_TRAIN_SHA256=
 session "another train.py" "not the approved" APPROVED_TRAIN_SHA256="$(printf '%064d' 0)"
-session "no stage" "TRAIN=restart needs RESTART_STAGE=smoke, run and inspected first, RESTART_STAGE=full or RESTART_STAGE=retarget" RESTART_STAGE=
-session "an unknown stage" "RESTART_STAGE is 'all', not smoke, full or retarget" RESTART_STAGE=all
+session "no stage" "TRAIN=restart needs RESTART_STAGE=smoke, run and inspected first, RESTART_STAGE=full, retarget or corelimit" RESTART_STAGE=
+session "an unknown stage" "RESTART_STAGE is 'all', not smoke, full, retarget or corelimit" RESTART_STAGE=all
 session "a deadline too short" "with RESTART_STAGE=smoke needs TTL_MINUTES of at least 288 for its waits; it is 280" TTL_MINUTES=280
 # A deadline the stage needs, and more than a fresh credential can cover with the destroy after it.
 session "a deadline past the credential limit" "TTL_MINUTES=670 and the 40-minute destroy need 710 min of credential, more than the 700" TTL_MINUTES=670
@@ -197,6 +197,7 @@ passes() {
 }
 passes "the full stage" "RESTART_STAGE=full: TTL_MINUTES 524 covers its 524" RESTART_STAGE=full TTL_MINUTES=524
 passes "the retarget stage" "RESTART_STAGE=retarget: TTL_MINUTES 340 covers its 337" RESTART_STAGE=retarget TTL_MINUTES=340
+passes "the corelimit stage" "RESTART_STAGE=corelimit: TTL_MINUTES 400 covers its 392" RESTART_STAGE=corelimit TTL_MINUTES=400
 passes "the longest deadline" "the credential expires in 719 minutes, at least the 700" TTL_MINUTES=660
 
 # The nightly destroy at 17:00 UTC, an hour before it: refused while the workflow is enabled, not enforced once it is
@@ -230,6 +231,7 @@ else
 fi
 # The retarget stage registers the workflow disabled, so an enabled one refuses it even at an hour the window allows.
 session "the retarget stage with the destroy enabled" "RESTART_STAGE=retarget registers the nightly destroy disabled for the session, and its state is 'active'" STUB_UTC_HM=02:00 STUB_RULES="$work/rules/destroy-active" RESTART_STAGE=retarget TTL_MINUTES=340
+session "the corelimit stage with the destroy enabled" "RESTART_STAGE=corelimit registers the nightly destroy disabled for the session, and its state is 'active'" STUB_UTC_HM=02:00 STUB_RULES="$work/rules/destroy-active" RESTART_STAGE=corelimit TTL_MINUTES=400
 session "the destroy enabled, within its window" "falls within two hours of this session's 300 min" STUB_UTC_HM=17:00 STUB_RULES="$work/rules/destroy-active"
 session "the destroy disabled by hand, a run queued" "1 destroy workflow run(s) are not completed" STUB_UTC_HM=17:00 STUB_RULES="$work/rules/destroy-disabled"
 if grep -qF "the nightly destroy workflow is disabled_manually, so its 18:00 UTC window is not enforced" "$work/the destroy disabled by hand, a run queued/session.log"; then
@@ -367,6 +369,9 @@ for c in "retarget|||$pin_rev|$pin_dig|1|must be given" \
   "retarget|$pin_rev|$pin_dig|$pin_rev|$pin_dig|0|the registered operator" \
   "retarget|$pin_rev|$pin_dig|bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb|$pin_dig|1|not the registered $pin_rev" \
   "retarget|$pin_rev|$pin_dig|$pin_rev|sha256:0000|1|pins sha256:0000, not the registered" \
+  "corelimit|||$pin_rev|$pin_dig|1|must be given" \
+  "corelimit|$pin_rev|$pin_dig|$pin_rev|$pin_dig|0|the registered operator" \
+  "corelimit|$pin_rev|$pin_dig|bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb|$pin_dig|1|not the registered $pin_rev" \
   "full|||$pin_rev|$pin_dig|0|pins $pin_dig"; do
   IFS='|' read -r st want_rev want_dig rev dig want_rc expect <<<"$c"
   out="$(lib pin "RESTART_STAGE=$st RESTART_OPERATOR_REV=$want_rev RESTART_OPERATOR_DIGEST=$want_dig restart_operator_pin $rev $dig; echo rc=\$?")"
@@ -508,9 +513,22 @@ decoded="$(sed -n 's/^echo \([A-Za-z0-9+\/=]*\) | base64 -d >\/tmp\/train.py$/\1
 if [[ "$decoded" == "$sha" ]]; then ok "the carried trainer is the committed train.py"; else bad "the carried trainer hashes to $decoded"; fi
 out="$(lib render2 'restart_render_job x train-a gpu-train-a x-1 fsdp-1; echo "rc=$?"')"
 if [[ "$out" == *"not a registered case"*"rc=1" ]]; then ok "an unregistered case is refused"; else bad "an unregistered case: $out"; fi
-out="$(lib cases 'RESTART_STAGE=smoke restart_cases | paste -sd" "; RESTART_STAGE=full restart_cases | paste -sd" "; RESTART_STAGE=retarget restart_cases | paste -sd" "; RESTART_STAGE= restart_cases; echo "rc=$?"')"
-want_cases="reference no-rng-control dcgm-1 terminate-wait-1"$'\n'"reference no-rng-control rank-kill-1 rank-kill-2 dcgm-1 dcgm-2 terminate-spare-1 terminate-spare-2 terminate-wait-1 terminate-wait-2"$'\n'"reference no-rng-control rank-kill-1 rank-kill-2 dcgm-1 dcgm-2"
-if [[ "$out" == "$want_cases"$'\n'*"not smoke, full or retarget"*"rc=1" ]]; then ok "smoke's four cases, full's ten and retarget's six in the registered order, and no stage refused"; else bad "the cases: $out"; fi
+out="$(lib cases 'RESTART_STAGE=smoke restart_cases | paste -sd" "; RESTART_STAGE=full restart_cases | paste -sd" "; RESTART_STAGE=retarget restart_cases | paste -sd" "; RESTART_STAGE=corelimit restart_cases | paste -sd" "; RESTART_STAGE= restart_cases; echo "rc=$?"')"
+want_cases="reference no-rng-control dcgm-1 terminate-wait-1"$'\n'"reference no-rng-control rank-kill-1 rank-kill-2 dcgm-1 dcgm-2 terminate-spare-1 terminate-spare-2 terminate-wait-1 terminate-wait-2"$'\n'"reference no-rng-control rank-kill-1 rank-kill-2 dcgm-1 dcgm-2"$'\n'"reference rank-kill-1 rank-kill-2 rank-kill-3 rank-kill-4 rank-kill-5 rank-kill-6 dcgm-1 dcgm-2 dcgm-3"
+if [[ "$out" == "$want_cases"$'\n'*"not smoke, full, retarget or corelimit"*"rc=1" ]]; then ok "smoke's four cases, full's ten, retarget's six and corelimit's ten in the registered order, and no stage refused"; else bad "the cases: $out"; fi
+# corelimit's arms: core dumps off for its even rank-kill cases only, set in the rank's own shell before the trainer, and
+# every rank records what it ran with (the corelimit registration).
+out="$(lib arms 'RESTART_STAGE=corelimit; for c in $(restart_cases); do printf "%s=%s " $c $(restart_core_limit $c); done; echo; RESTART_STAGE=retarget restart_core_limit rank-kill-2; RESTART_STAGE=corelimit RESTART_NOCORE_CASES= restart_core_limit rank-kill-2
+for c in rank-kill-1 rank-kill-2; do RESTART_STAGE=corelimit restart_render_job x train-a gpu-train-a x-1 $c | python3 -c "import json, sys; print(json.load(sys.stdin)[\"spec\"][\"command\"][-1])" | grep -c "^ulimit -c 0 || exit 88$"; done')"
+want_arms="reference=inherited rank-kill-1=inherited rank-kill-2=0 rank-kill-3=inherited rank-kill-4=0 rank-kill-5=inherited rank-kill-6=0 dcgm-1=inherited dcgm-2=inherited dcgm-3=inherited "$'\n'"inherited"$'\n'"inherited"$'\n'"0"$'\n'"1"
+if [[ "$out" == "$want_arms" ]]; then ok "corelimit runs its even rank-kill cases without core dumps, and no other stage or case"; else bad "the core-limit arms: $(tr '\n' '|' <<<"$out")"; fi
+out="$(lib arms2 'RESTART_STAGE=corelimit restart_render_job x train-a gpu-train-a x-1 rank-kill-1 | python3 -c "import json, sys; print(json.load(sys.stdin)[\"spec\"][\"command\"][-1])"')"
+if grep -qF 'echo "rank-env: core_limit=$(ulimit -c) core_pattern=$(cat /proc/sys/kernel/core_pattern) torch_nccl_async_error_handling=${TORCH_NCCL_ASYNC_ERROR_HANDLING:-unset}"' <<<"$out" &&
+  [[ "$(grep -n 'rank-env' <<<"$out" | cut -d: -f1)" -lt "$(grep -n '^python /tmp/train.py &$' <<<"$out" | cut -d: -f1)" ]]; then
+  ok "every rank records its core limit, the node's core_pattern and NCCL's error handling before the trainer starts"
+else
+  bad "the rank's environment line: $(grep -n 'rank-env\|train.py &' <<<"$out")"
+fi
 
 # The budget is the sum of the enforced shares: preparation 4,080 s, each slot its pre share, 1,380 s of submission,
 # run, evidence, retirement and files, 180 s more for a DCGM reset, and 900 s of scale-down.
@@ -528,6 +546,12 @@ if [[ "$out" == "reference=1680 no-rng-control=1680 rank-kill-1=1680 rank-kill-2
   ok "retarget's slots, its GPU budget of 15420 s, and its TTL_MINUTES of at least 337"
 else
   bad "retarget's budget: $out"
+fi
+out="$(budget 'RESTART_STAGE=corelimit; restart_gpu_budget; restart_ttl_refusal corelimit 391 "$(restart_gpu_budget)" 1200; echo "rc=$?"; restart_ttl_refusal corelimit 392 "$(restart_gpu_budget)" 1200; echo "rc=$?"')"
+if [[ "$out" == "18720"$'\n'*"needs TTL_MINUTES of at least 392"*"rc=1"$'\n'*"covers its 392"*"rc=0" ]]; then
+  ok "corelimit's GPU budget of 18720 s, and its TTL_MINUTES of at least 392"
+else
+  bad "corelimit's budget: $out"
 fi
 out="$(budget 'RESTART_STAGE=full; restart_gpu_budget; restart_ttl_refusal full 524 "$(restart_gpu_budget)" 1200; echo "rc=$?"')"
 if [[ "$out" == "26640"$'\n'*"covers its 524"*"rc=0" ]]; then ok "full at its two repetitions fits: $(tail -2 <<<"$out" | head -1)"; else bad "full at two: $out"; fi
@@ -1779,6 +1803,67 @@ fi
 rt=hack/restart-lifecycle-kind-20261104T142003Z/run-e
 out="$(python3 hack/test/restart-kind/h1_kind_shim.py "$rt" 2>&1)"
 if grep -q '^H1 SUPPORTED' <<<"$out"; then ok "H1 on the retarget rehearsal is SUPPORTED"; else bad "H1 on the retarget rehearsal: $(tail -1 <<<"$out")"; fi
+# H2 of the corelimit stage, read in its registered order (docs/superpowers/specs/2026-11-06-restart-corelimit-design.md).
+h2=experiments/distributed-restart/h2_corelimit.py
+out="$(python3 - <<'EOF' 2>&1
+import sys
+sys.path.insert(0, "experiments/distributed-restart")
+import h2_corelimit as h
+c = lambda *d: {f"rank-kill-{i}": ({"d_s": v} if v is not None else {"invalid": "x"}) for i, v in zip((1, 3, 5), d)}
+t = lambda *d: {f"rank-kill-{i}": ({"d_s": v} if v is not None else {"invalid": "x"}) for i, v in zip((2, 4, 6), d)}
+for name, ctl, trt in [("supported", c(38, 39, 38), t(2, 3, 15)), ("refuted", c(38, 39, 38), t(2, 31, 2)),
+                       ("refuted-first", c(None, 39, 38), t(2, 30, 2)), ("not-assessed", c(38, None, 38), t(2, 2, 2)),
+                       ("control-quick", c(38, 12, 38), t(2, 2, 2)), ("between", c(38, 39, 38), t(2, 16, 2))]:
+    print(name, h.outcome(ctl, trt)[0])
+EOF
+)"
+if [[ "$out" == $'supported SUPPORTED\nrefuted REFUTED\nrefuted-first REFUTED\nnot-assessed NOT ASSESSED\ncontrol-quick INCONCLUSIVE\nbetween INCONCLUSIVE' ]]; then
+  ok "H2's outcomes are read in the registered order"
+else
+  bad "H2's outcomes: $(tr '\n' '|' <<<"$out")"
+fi
+# A corelimit run built from the retarget archive's rank-kill-1, which has no rank-env line: every arm is unshown, so no
+# d counts; then with the lines, the six slow stops refute H2 in the treated arm.
+h2run="$work/h2run"
+rm -rf "$h2run" && mkdir -p "$h2run"
+src=hack/distributed-restart-eks/2026-11-05-retarget/session/restart
+cp -r "$src/reference" "$h2run/"
+cp "$src/nodes-prepared.jsonl" "$h2run/"
+sed -e 's/^stage=.*/stage=corelimit/' -e 's/^cases=.*/cases=reference rank-kill-1 rank-kill-2 rank-kill-3 rank-kill-4 rank-kill-5 rank-kill-6/' "$src/provenance.txt" >"$h2run/provenance.txt"
+for i in 1 2 3 4 5 6; do
+  cp -r "$src/rank-kill-1" "$h2run/rank-kill-$i"
+  arm=inherited; ((i % 2 == 0)) && arm=0
+  python3 -c 'import json, sys; p = sys.argv[1]; c = json.load(open(p)); c["core_limit"] = sys.argv[2]; json.dump(c, open(p, "w"))' "$h2run/rank-kill-$i/case.json" "$arm"
+done
+out="$(python3 "$h2" "$h2run" 2>&1)"
+if [[ "$(grep -c '"invalid": "the ranks logged core_limit nothing' <<<"$out")" == 6 ]] && grep -q '^H2 NOT ASSESSED' <<<"$out"; then
+  ok "a rank-kill case whose ranks logged no core limit gives no d, whichever its arm"
+else
+  bad "H2 without the ranks' lines: $(tail -3 <<<"$out")"
+fi
+for i in 1 2 3 4 5 6; do
+  lim=unlimited; ((i % 2 == 0)) && lim=0
+  for f in "$h2run/rank-kill-$i"/log-*.1.txt; do sed -i "1i rank-env: core_limit=$lim core_pattern=|/usr/lib/systemd/systemd-coredump %P torch_nccl_async_error_handling=unset" "$f"; done
+done
+out="$(python3 "$h2" "$h2run" 2>&1)"
+if grep -q '^H2 REFUTED: d is at least 30 s with core dumps off in rank-kill-2, rank-kill-4, rank-kill-6' <<<"$out" &&
+  [[ "$(grep -c '"d_s": 38.0' <<<"$out")" == 6 ]]; then
+  ok "six slow rank-kill stops, three of them logged with core dumps off, refute H2"
+else
+  bad "H2 with the ranks' lines: $(tail -3 <<<"$out")"
+fi
+# A case whose case.json names the other arm, or whose treated ranks logged the node's limit, is not counted.
+python3 -c 'import json, sys; p = sys.argv[1]; c = json.load(open(p)); c["core_limit"] = "inherited"; json.dump(c, open(p, "w"))' "$h2run/rank-kill-2/case.json"
+sed -i '1s/core_limit=0/core_limit=unlimited/' "$h2run/rank-kill-4"/log-*.1.txt
+out="$(python3 "$h2" "$h2run" 2>&1)"
+if grep -q "^rank-kill-2 .*case.json records core_limit 'inherited', the registration '0'" <<<"$out" &&
+  grep -q "^rank-kill-4 .*the ranks logged core_limit \['unlimited'\] for arm '0'" <<<"$out" && grep -q '^H2 REFUTED' <<<"$out"; then
+  ok "a case recorded in the other arm, or treated in name only, gives no d"
+else
+  bad "H2 with a mislabelled arm: $(grep -E '^rank-kill-(2|4)' <<<"$out" | cut -c1-200)"
+fi
+out="$(python3 "$h2" "$src" 2>&1)"
+if grep -q '^REFUSED: .* is not a corelimit run' <<<"$out"; then ok "H2 refuses a run of another stage"; else bad "H2 on the retarget archive: $(tail -1 <<<"$out")"; fi
 # h1_mutate <archive> <case> <python on a, attempt 1 of the final MLTrainingJob> [drop-timeline]: a copy with one case changed.
 h1_mutate() {
   rm -rf "$work/h1" && cp -r "$1" "$work/h1"

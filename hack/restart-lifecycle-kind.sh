@@ -15,6 +15,8 @@
 #    though the MLTrainingJob goes; rank-kill-2, which must be recorded NOTRUN.
 # e  RESTART_STAGE=retarget as registered: reference, no-rng-control, rank-kill-1, rank-kill-2, dcgm-1, dcgm-2, every
 #    one expected ACCEPTED (docs/superpowers/specs/2026-11-04-restart-retarget-design.md).
+# f  RESTART_STAGE=corelimit as registered: reference, rank-kill-1 to 6 with the even ones' core dumps off, dcgm-1 to 3,
+#    every one expected ACCEPTED and every rank's core limit logged (docs/superpowers/specs/2026-11-06-restart-corelimit-design.md).
 # d  reference; then every node's clock made unreadable, so rank-kill-1 and rank-kill-2 are VOID before their faults,
 #    two VOIDs in a row stop the run, and dcgm-1 must be recorded NOTRUN.
 # Evidence goes to hack/restart-lifecycle-kind-<UTC>/, one RESTART_OUT per run; KEEP=1 keeps the cluster.
@@ -496,7 +498,7 @@ run_stage() {
   export RESTART_INSTANCES_FILE="$RESTART_OUT/instances.txt"
   warmed="$RESTART_OUT/warmed.txt"
   : >"$warmed"
-  if [ "$cases" = smoke ] || [ "$cases" = retarget ]; then
+  if [ "$cases" = smoke ] || [ "$cases" = retarget ] || [ "$cases" = corelimit ]; then
     # A registered stage as registered: the runner's own case list, not one chosen here.
     export RESTART_STAGE="$cases"
     eval "restart_cases() $(declare -f rstk_registered_cases | tail -n +2)"
@@ -672,6 +674,12 @@ print(json.dumps([f for f in json.load(sys.stdin)["metadata"].get("finalizers", 
     e)
       echo 5 >"$RSTK_STATE/launch_delays"
       run_stage e retarget
+      ;;
+    f)
+      # The corelimit stage as registered, both arms: kind cannot show a core dump's cost, since its ranks run on CPU and
+      # this host writes no cores, so this shows only that the arms are applied, logged and scored.
+      echo 5 >"$RSTK_STATE/launch_delays"
+      run_stage f corelimit
       ;;
     d)
       echo 5 >"$RSTK_STATE/launch_delays"

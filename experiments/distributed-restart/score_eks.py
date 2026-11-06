@@ -1039,15 +1039,19 @@ def main(argv: list[str]) -> int:
               f"at their budget, {late} past their budget after a recovery, {wrong} not recovered), {counts['VOID']} VOID, "
               f"{counts['NOTRUN']} NOTRUN")
         # Per recovery class, because spare and replacement recoveries are different claims and are never pooled.
-        for cls in ("same-nodes", "spare", "replacement"):
-            rec = [scored[n].figures["recovery_s"] for n in names
-                   if verdicts[n][0] == "ACCEPTED" and scored[n].figures.get("class") == cls]
-            lost = [scored[n].figures["lost_steps"] for n in names
-                    if verdicts[n][0] == "ACCEPTED" and scored[n].figures.get("class") == cls]
+        # And per core-limit arm when the stage ran two (corelimit), since pooling them would describe neither.
+        arm = {n: (getattr(scored[n], "spec", None) or {}).get("core_limit") for n in names}
+        arms = sorted({a for a in arm.values() if a is not None})
+        for cls, a in [(c, a) for c in ("same-nodes", "spare", "replacement") for a in (arms if len(arms) > 1 else [None])]:
+            mine = [n for n in names if verdicts[n][0] == "ACCEPTED" and scored[n].figures.get("class") == cls
+                    and (a is None or arm[n] == a)]
+            rec = [scored[n].figures["recovery_s"] for n in mine]
+            lost = [scored[n].figures["lost_steps"] for n in mine]
             withheld = sum(1 for v in lost if v is None)
             shown = sorted(v for v in lost if v is not None)
             if rec:
-                print(f"    {cls}: recovery median {statistics.median(rec):.1f} s, range {min(rec):.1f} to {max(rec):.1f} s, "
+                label = cls if a is None else f"{cls}, core limit {a}"
+                print(f"    {label}: recovery median {statistics.median(rec):.1f} s, range {min(rec):.1f} to {max(rec):.1f} s, "
                       f"lost steps {shown}{f' ({withheld} withheld, their logs not shown read to the end)' if withheld else ''}, "
                       f"over {len(rec)} accepted; the {censored} FAILED censored at their budget, "
                       f"the {late} past their budget after a recovery, the {wrong} not recovered and the {counts['VOID']} VOID are not in these figures")
