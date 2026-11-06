@@ -407,7 +407,11 @@ fi
 # TestApiserverRefusesAMissingClaimInTheWordsTheRestartGateReads pins through a real apiserver; any other failure of the
 # request passed for it before (gpt-6-astra's defect review of #505).
 denied='Error from server (Forbidden): error when creating "STDIN": admission webhook "vmltrainingjob.kb.io" denied the request: MLTrainingJob.platform.lkhun9311.github.io "restart-gate-missing" is invalid: spec.stateVolume.claimName: Invalid value: "no-such-claim": claim not found: a distributed job'"'"'s state volume must exist before the job, because every rank mounts it'
-for row in "refused|0|$denied" \
+# kubectl's own rendering of the same refusal, as the paid corelimit session's first launch recorded it at R2: kubectl
+# rebuilds an Invalid status from its causes and prints no webhook name (ex/eks-session-20261106T084119Z/session.log).
+kubectl_invalid='The MLTrainingJob "restart-gate-missing" is invalid: spec.stateVolume.claimName: Invalid value: "no-such-claim": claim not found: a distributed job'"'"'s state volume must exist before the job, because every rank mounts it'
+for row in "refused|0|$denied" "refused, as kubectl prints it|0|$kubectl_invalid" \
+  "invalid on another field|1|The MLTrainingJob \"restart-gate-missing\" is invalid: spec.image: Required value" \
   "throttled|1|Error from server (TooManyRequests): the server has received too many requests and has asked us to try again later" \
   "unreachable|1|The connection to the server was refused - did you specify the right host or port?" \
   "another field|1|admission webhook \"vmltrainingjob.kb.io\" denied the request: spec.image: Required value"; do
