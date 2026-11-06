@@ -1983,6 +1983,42 @@ if grep -q '^rank-kill-5 .*"deletion_asked": "not shown: no one watch saw the Po
 else
   bad "the reopened watch: $(grep '^rank-kill-5 ' <<<"$out" | grep -o '"survivor_end": {[^}]*}')"
 fi
+# A watch cut mid-object leaves a fragment; the collector starts the next mark on a line of its own so the fragment cannot
+# swallow it, and text the reader skips as damaged ends a watch even with no mark after it, since what it held is
+# unknown (gpt-6-astra's third attack before the corelimit run).
+for shape in fragment-then-mark fragment-alone; do
+  python3 - "$h2run/rank-kill-5" "$shape" <<'EOF'
+import json, pathlib, sys
+case_dir, shape = pathlib.Path(sys.argv[1]), sys.argv[2]
+pods = [json.loads(l) for l in open(case_dir / "pods.jsonl")]
+uid = [p["uid"] for p in pods if p["attempt_token"] == "1" and p["index"] == "0"][0]
+running = {"type": "ADDED", "object": {"metadata": {"uid": uid}, "status": {"containerStatuses": [{"state": {"running": {}}}]}}}
+ended = {"terminated": {"exitCode": 134, "reason": "Error", "finishedAt": "2026-11-05T16:13:39Z"}}
+deleted = {"type": "DELETED", "object": {"metadata": {"uid": uid, "deletionTimestamp": "2026-11-05T16:13:40Z", "deletionGracePeriodSeconds": 0},
+                                         "status": {"containerStatuses": [{"state": ended}]}}}
+with open(case_dir / "pod-watch.json", "w") as f:
+    f.write('\n{"type": "WATCH-OPENED", "at": "t"}\n')
+    f.write(json.dumps(running, indent=4) + "\n")
+    f.write('{\n    "type": "MODIFIED",\n    "object": {"metad')
+    if shape == "fragment-then-mark":
+        f.write('\n{"type": "WATCH-OPENED", "at": "t"}\n')
+    else:
+        f.write("\n")
+    f.write(json.dumps(deleted, indent=4) + "\n")
+EOF
+  out="$(python3 "$h2" "$h2run" 2>&1)"
+  if grep -q '^rank-kill-5 .*"deletion_asked": "not shown: no one watch saw the Pod before and at its deletion"' <<<"$out" &&
+    grep -q '^rank-kill-5 .*"exit_code": 134' <<<"$out"; then
+    ok "a deletion after a damaged watch ($shape) gives no request time, and the end is still read"
+  else
+    bad "the damaged watch ($shape): $(grep '^rank-kill-5 ' <<<"$out" | grep -o '"survivor_end": {[^}]*}')"
+  fi
+done
+if grep -qF "printf '\\n{\"type\": \"WATCH-OPENED\"" hack/lib/restart-session.sh; then
+  ok "the collector starts each watch's mark on a line of its own"
+else
+  bad "the collector's watch mark does not begin with a newline: $(grep -n 'WATCH-OPENED' hack/lib/restart-session.sh | head -2)"
+fi
 # A case whose case.json names the other arm, or whose treated ranks logged the node's limit, is not counted.
 python3 -c 'import json, sys; p = sys.argv[1]; c = json.load(open(p)); c["core_limit"] = "inherited"; json.dump(c, open(p, "w"))' "$h2run/rank-kill-2/case.json"
 sed -i '1s/core_limit=0/core_limit=unlimited/' "$h2run/rank-kill-4"/log-*.1.txt

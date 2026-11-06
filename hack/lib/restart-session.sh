@@ -1435,7 +1435,8 @@ restart_collect() {
   (
     trap 'set -- $(jobs -pr); (($# == 0)) || kill "$@" 2>>"$dir/collector.log"; exit 0' TERM
     while :; do
-      printf '{"type": "WATCH-OPENED", "at": "%s"}\n' "$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)" >>"$dir/pod-watch.json"
+      # On a line of its own, so a watch cut mid-object cannot swallow the mark that ends it (gpt-6-astra's third attack).
+      printf '\n{"type": "WATCH-OPENED", "at": "%s"}\n' "$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)" >>"$dir/pod-watch.json"
       kubectl --context "$RESTART_CONTEXT" -n "$RESTART_NS" get pods -l "platform.lkhun9311.github.io/mltrainingjob=$name" \
         --watch --output-watch-events -o json >>"$dir/pod-watch.json" 2>>"$dir/collector.log" &
       wait $!

@@ -71,6 +71,8 @@ def watched_pods(case_dir: pathlib.Path) -> list[tuple[int, dict]]:
 
     Each watch lists afresh, so a change that fell between two watches is not in the file; only two objects of one
     watch are known to have no change between them unseen.
+    Damaged text skipped to the next object ends a watch too, since what it held is unknown: a fragment once hid the
+    mark after it, and two watches read as one (gpt-6-astra's third attack before the corelimit run).
 
     The file is kubectl's watch events as concatenated JSON objects; one cut short when the watch was stopped or reopened
     is skipped to the next object kubectl began on a line of its own.
@@ -80,7 +82,7 @@ def watched_pods(case_dir: pathlib.Path) -> list[tuple[int, dict]]:
     text = score_eks.jsonl_text(case_dir / "pod-watch.json")
     if text is None:
         return []
-    decoder, i, pods, watch = json.JSONDecoder(), 0, [], 0
+    decoder, i, pods, watch, marked = json.JSONDecoder(), 0, [], 0, False
     while True:
         while i < len(text) and text[i].isspace():
             i += 1
@@ -89,14 +91,15 @@ def watched_pods(case_dir: pathlib.Path) -> list[tuple[int, dict]]:
         try:
             event, i = decoder.raw_decode(text, i)
         except ValueError:
+            watch += 1
             i = text.find("\n{", i + 1)
             if i < 0:
                 return pods
             continue
         if isinstance(event, dict) and event.get("type") == "WATCH-OPENED":
-            watch += 1
+            watch, marked = watch + 1, True
         elif isinstance(event, dict) and isinstance(event.get("object"), dict):
-            pods.append((watch, event["object"]))
+            pods.append((watch if marked else 0, event["object"]))
 
 
 def survivor_end(case_dir: pathlib.Path, fault: float) -> dict:
