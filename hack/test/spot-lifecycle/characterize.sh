@@ -113,7 +113,7 @@ run_scenario() {
     # STUB_CACHE_EXPIRES_IN sets that expiry, so a scenario can make the guard refuse rather than pass.
     printf '{"Credentials":{"Expiration":"%s","AccountId":"%s"}}\n' \
       "$(date -u -d "+${STUB_CACHE_EXPIRES_IN:-12 hours}" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v+12H +%Y-%m-%dT%H:%M:%SZ)" \
-      "${STUB_ACCOUNT:-000000000000}" \
+      "${STUB_ACCOUNT:-007635145730}" \
       > "$AWS_CLI_CACHE_DIR/stub.json"
     "$@" >"$work/stdout.txt" 2>"$work/stderr.txt"
   ) || rc=$?

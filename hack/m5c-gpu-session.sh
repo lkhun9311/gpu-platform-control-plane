@@ -1673,7 +1673,7 @@ for z in $ZONES; do
     # Set BEFORE the call. Everything after this line, including a signal, can be reconciled.
     LAUNCH_UNCERTAIN="$LAUNCH_TOKEN"; LAUNCH_UNCERTAIN_SUBNET="$SUBNET"
     IID=$(spot_launch "$REGION" "$AMI" "$INSTANCE_TYPE" "$SUBNET" "$STACK" \
-          "$MAX_SPOT_PRICE" 200 "$UD" "$TAGS" "$LAUNCH_TOKEN" 2>"$attempt_err") || IID=""
+          "$MAX_SPOT_PRICE" 200 "$UD" "$(spot_tags_with_deadline "$TAGS" $((BACKSTOP_SECONDS + 1200)))" "$LAUNCH_TOKEN" 2>"$attempt_err") || IID=""
     # The shared error log keeps accumulating, because the refusal block after this loop reads it.
     cat "$attempt_err" >> "$OUT/launch-errors.txt"
 

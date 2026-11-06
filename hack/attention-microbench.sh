@@ -313,7 +313,7 @@ for z in $ZONES; do
     # Set BEFORE the call. Everything after this line, including a signal, can be reconciled.
     LAUNCH_UNCERTAIN="$LAUNCH_TOKEN"; LAUNCH_UNCERTAIN_SUBNET="$SUBNET"
     IID=$(spot_launch "$REGION" "$AMI" "$INSTANCE_TYPE" "$SUBNET" "$STACK" \
-          "$MAX_SPOT_PRICE" 150 "$UD" "$TAGS" "$LAUNCH_TOKEN" 2>"$attempt_err") || IID=""
+          "$MAX_SPOT_PRICE" 150 "$UD" "$(spot_tags_with_deadline "$TAGS" $((BACKSTOP_SECONDS + 1200)))" "$LAUNCH_TOKEN" 2>"$attempt_err") || IID=""
     cat "$attempt_err" >> "$OUT/launch-errors.txt"
 
     if [ -n "$IID" ] && [ "$IID" != "None" ]; then LAUNCH_UNCERTAIN=""; break; fi
