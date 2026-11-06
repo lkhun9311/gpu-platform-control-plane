@@ -68,6 +68,8 @@ It does not by itself say a core dump took the time; the mechanism is read besid
 - `h2_corelimit.py` prints, for each case, how the surviving rank's container ended: its exit code (134 for SIGABRT, 137 for SIGKILL), its reason, its finish time after the fault, and when its deletion was asked for.
   The stream records give the end, or the Pod watch's last terminated state when the Pod was deleted first; with neither, the end is printed as unread, never left out.
   The deletion request is the first `deletionTimestamp` less its `deletionGracePeriodSeconds`: the API server stamps the request plus the grace, so the stamp itself is the grace deadline, 30 s after the request.
+  These times are differences of stamps on different clocks, uncorrected: the fault on the faulted rank's node, the finish on the survivor's kubelet in whole seconds, the deletion on the API server's; the run's clock checks hold each node within 2 s of the runner and do not measure the API server.
+  They separate tens of seconds from a few, and nothing finer.
 - An untreated survivor ending 134 about 40 s after the fault, and a treated one ending 134 within seconds, is what a core dump predicts.
 - An untreated survivor ending 137 about 30 s after its deletion was asked for is consistent with a SIGKILL at the end of the grace period, not proof of it.
   137 is the status the container's PID-1 shell passes on from the trainer it waited for, and says only that the trainer died of SIGKILL, not who sent it: the kubelet at the grace's end, or anything else that kills it, such as the kernel under memory pressure.
@@ -163,6 +165,14 @@ A third round, of `377bd054`, found 8 and 9 sound and 7 incomplete, did not rais
 | 11 | the watchdog counted its 40-minute destroy allowance on bash's `SECONDS`, which follows the wall clock: a step back lets a destroy run past the 40 minutes the credential covers, a step forward ends it early | `until=$((SECONDS + DESTROY_SECONDS))` in `killswitch_program`, which the phase supervisor's own comment rules out for deadlines | the allowance, each attempt's cut and the retry pause are counted on `/proc/uptime`, CLOCK_BOOTTIME, as the phase supervisor's are |
 | 12 | a watch cut mid-object could leave a fragment that swallowed the next watch's mark, so two watches read as one and a later deletion as the request | the mark was appended with no newline before it, and the reader skipped to the next line-initial object | the mark begins on a line of its own, and any text the reader skips as damaged ends a watch |
 | 13 | the paragraph above credited the study sweeper with the GPUs, which it does not cover, and took the scheduled scale-down for done when it is only a request | `sweeper.py` selects `study-deadline`, which nothing here tags | the paragraph above now says so, and the operator checks the GPU instances too |
+
+A fourth round, of `17c56105`, found 11 to 13 sound and returned NO-GO with three more:
+
+| # | finding | checked | change |
+|---|---|---|---|
+| 14 | the suite's positive Pod-watch fixture had no event before the deletion, so fix 7 rightly refused it and the suite this page requires failed | the suite failed on that one check at `377bd054` and `17c56105` | fixed in `b77f5b7e` before this round's report, by an event of the running Pod first |
+| 15 | a failed read of `core_pattern` in the rank's shell logs it empty, and an empty pattern passed as one a limit of 0 stops | `limit_stops_dump("")` returned True, the empty string not starting with `|` | an empty pattern shows no handler, so a treated case under it gives no `d` |
+| 16 | the survivor's finish and deletion times are differences of uncorrected stamps from different clocks | the fault is the faulted node's, the finish the survivor's kubelet's whole second, the deletion the API server's | each case's `survivor_end` now names its clocks; the mechanism reading below allows for them |
 
 ## What this does not show
 
