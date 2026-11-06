@@ -18,22 +18,29 @@ HOST = re.compile(r"^(\[\s*[0-9.]+\]) \S+ kernel: ")
 def trim(lines):
     out = []
     in_report = False
+    # Whether the current report has printed a victim line; lines after one are held until another claims them.
+    closed = False
     pending = []
     for line in lines:
         line = HOST.sub(r"\1 host kernel: ", line)
         if START.search(line):
-            out.extend(pending)
+            # After a report's victims, unclaimed lines are noise; a report that never named a victim is kept whole,
+            # because dropping it would read as "no report" for a case that expects none.
+            if not closed:
+                out.extend(pending)
             pending = []
-            in_report = True
+            in_report, closed = True, False
         if not in_report:
             continue
         if "Hardware name:" in line:
             continue
         pending.append(line)
         if TAIL.search(line):
-            # Everything up to a victim line belongs to the report; what follows it may be another driver's noise.
             out.extend(pending)
             pending = []
+            closed = True
+    if in_report and not closed:
+        out.extend(pending)
     return out
 
 

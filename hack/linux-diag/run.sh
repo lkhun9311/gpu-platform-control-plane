@@ -13,6 +13,11 @@ OUT="${1:-$REPO/hack/linux-diag-$(date -u +%Y%m%dT%H%M%SZ)}"
 PREFIX=lddiag
 CASES=(c1 c2a c2b c3 c4)
 
+# A directory holding an earlier run would mix its polls, samples and repetitions into this one's verdict.
+if [ -e "$OUT" ] && [ -n "$(ls -A "$OUT")" ]; then
+  echo "refuse: $OUT is not empty; give a new directory" >&2
+  exit 1
+fi
 mkdir -p "$OUT"
 exec > >(tee -a "$OUT/run.log") 2>&1
 
@@ -39,13 +44,18 @@ EOF
     echo "refuse: cluster $name already exists; delete it first so its state is this run's" >&2
     exit 1
   fi
+  # Owned from the moment kind is asked, so a create that fails half-way is still cleaned up.
+  CREATED+=("$name")
   kind create cluster --name "$name" --image "$NODE_IMAGE" --config "$cfg" --wait 180s
 }
 
+# Only the clusters this invocation created: one that was already there when it refused belongs to someone else, or to
+# an earlier run kept on purpose with KEEP_CLUSTERS=1.
+CREATED=()
 delete_clusters() {
   [ "${KEEP_CLUSTERS:-0}" = 1 ] && return 0
   local c
-  for c in "$PREFIX-group" "$PREFIX-single"; do
+  for c in "${CREATED[@]}"; do
     if kind get clusters | grep -qx "$c"; then kind delete cluster --name "$c"; fi
   done
 }

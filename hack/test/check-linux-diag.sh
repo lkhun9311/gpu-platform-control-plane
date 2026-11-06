@@ -134,6 +134,49 @@ else
   bad "the trim kept: $(cat "$work/j.txt")"
 fi
 
+# Two reports: the noise between them goes, and a report that never named a victim stays whole.
+printf '%s\n' \
+  '[2.0] genesis kernel: x invoked oom-killer: gfp_mask=0' \
+  '[2.3] genesis kernel: Memory cgroup out of memory: Killed process 7 (x) total-vm:1kB, anon-rss:1kB, file-rss:1kB, shmem-rss:0kB, UID:0' \
+  '[2.5] genesis kernel: wifi noise between reports' \
+  '[4.0] genesis kernel: y invoked oom-killer: gfp_mask=0' \
+  '[4.1] genesis kernel: memory: usage 1kB, limit 1kB, failcnt 1' \
+  '[5.0] genesis kernel: z invoked oom-killer: gfp_mask=0' \
+  '[5.1] genesis kernel: Memory cgroup out of memory: Killed process 9 (z) total-vm:1kB, anon-rss:1kB, file-rss:1kB, shmem-rss:0kB, UID:0' \
+  > "$work/j2.raw"
+python3 hack/linux-diag/trim-journal.py "$work/j2.raw" "$work/j2.txt" > /dev/null
+if ! grep -q 'wifi' "$work/j2.txt" && grep -q 'y invoked oom-killer' "$work/j2.txt" && grep -q 'failcnt 1' "$work/j2.txt" &&
+  [ "$(wc -l < "$work/j2.txt")" -eq 6 ]; then
+  ok "the trim drops noise between reports and keeps a report with no victim"
+else
+  bad "the trim of two reports kept: $(cat "$work/j2.txt")"
+fi
+
+# The runner refuses before it creates or deletes anything: a directory with an earlier run in it, and a cluster that
+# is already there, whose deletion would take someone else's or a kept run's cluster.
+mkdir -p "$work/bin" "$work/used"
+cat > "$work/bin/kind" <<'EOF'
+#!/usr/bin/env bash
+echo "kind $*" >> "$KIND_CALLS"
+case "$1 $2" in
+  "get clusters") printf '%s\n' lddiag-group ;;
+esac
+EOF
+chmod +x "$work/bin/kind"
+touch "$work/used/old"
+out=$(PATH="$work/bin:$PATH" KIND_CALLS="$work/calls1" bash hack/linux-diag/run.sh "$work/used" 2>&1) && rc=0 || rc=$?
+if [ "$rc" -ne 0 ] && grep -q 'is not empty' <<<"$out" && [ ! -e "$work/calls1" ]; then
+  ok "a used output directory is refused before anything runs"
+else
+  bad "a used output directory: exit $rc, kind called: $(cat "$work/calls1" 2>&1), output: $out"
+fi
+out=$(PATH="$work/bin:$PATH" KIND_CALLS="$work/calls2" bash hack/linux-diag/run.sh "$work/fresh" 2>&1) && rc=0 || rc=$?
+if [ "$rc" -ne 0 ] && grep -q 'already exists' <<<"$out" && ! grep -q 'kind delete' "$work/calls2"; then
+  ok "a cluster already there is refused and left alone"
+else
+  bad "a cluster already there: exit $rc, kind calls: $(cat "$work/calls2")"
+fi
+
 if [ "$fails" -ne 0 ]; then
   echo "$fails check(s) failed"
   exit 1
