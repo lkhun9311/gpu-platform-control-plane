@@ -431,6 +431,10 @@ fi
 # whether this script finishes, hangs, or the terminal dies.
 KILL_LOG="$EXDIR/ttl-kill-switch.log"
 KILL_PIDFILE="$EXDIR/ttl.pid"
+# A watchdog still armed from an earlier session would destroy this one's cluster at its own TTL, because every session
+# builds into the same state (killswitch_others).
+others="$(killswitch_others | paste -sd' ')"
+[[ -z "$others" ]] || die "a kill switch watchdog from an earlier session is still armed (pid $others) and would destroy this session's cluster when it fires; disarm it (kill -- -PID) once its own cluster is confirmed gone, then start again"
 # A reused EXDIR holds the last session's pid, which the loop below read before the new watchdog wrote its own; the
 # session would then disarm a dead process and leave its live watchdog to destroy the cluster (gpt-6-astra's defect
 # review of #505).
