@@ -143,7 +143,13 @@ run_case() {
   done
   kubectl --context "$ctx" logs "$pod" > "$dir/log.txt" 2>&1 || echo "logs-exit=$?" >> "$dir/log.txt"
   local until=$(( ${t_end:-$(date +%s)} + 10 )) jrc=0
-  journalctl -k -o short-monotonic --no-pager --since "@$((t0 - 1))" --until "@$until" > "$dir/journal.txt" || jrc=$?
+  journalctl -k -o short-monotonic --no-pager --since "@$((t0 - 1))" --until "@$until" > "$dir/journal.raw" || jrc=$?
+  # Only the OOM reports are kept: the rest of the host's kernel log names the workstation and is no evidence here.
+  # A failed trim is a failed read, which the checker refuses, never an empty journal it would read as "no report".
+  if ! python3 "$HERE/trim-journal.py" "$dir/journal.raw" "$dir/journal.txt" > /dev/null; then
+    [ "$jrc" -eq 0 ] && jrc=97
+  fi
+  rm -f "$dir/journal.raw"
   jq -n --arg case "$case" --argjson rep "$rep" --arg cluster "$cluster" --arg want "$want" --arg have "$have" \
     --argjson t0 "$t0" --arg t_end "${t_end:-}" --argjson jrc "$jrc" --arg phase "$phase" \
     '{case: $case, rep: $rep, cluster: $cluster, single_process_oom_kill_wanted: $want, single_process_oom_kill_effective: $have, t_start: $t0, t_end: (if $t_end == "" then null else ($t_end | tonumber) end), journal_exit: $jrc, last_phase: $phase}' > "$dir/case.json"
