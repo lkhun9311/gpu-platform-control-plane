@@ -512,8 +512,18 @@ func managerWithSnapshot(key string, snap *backendSnapshot) *scraperManager {
 	m := newScraperManager(scraperConfig{clock: time.Now})
 	b := &backendScraper{}
 	b.snap.Store(snap)
+	m.mu.Lock()
 	m.scrapers[key] = b
+	m.mu.Unlock()
 	return m
+}
+
+// scraperCount reads the manager's map under its lock: the janitor that newScraperManager starts sweeps it from its
+// own goroutine, and the unlocked reads these specs made raced it under -race in about one run in three.
+func scraperCount(m *scraperManager) int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.scrapers)
 }
 
 var _ = Describe("kvAwareAdmitter.Admit", func() {
@@ -750,7 +760,7 @@ var _ = Describe("scraperManager lifecycle", func() {
 
 		m.Register(ref)
 		m.Register(ref)
-		Expect(m.scrapers).To(HaveLen(1))
+		Expect(scraperCount(m)).To(Equal(1))
 	})
 
 	It("Register moves the scraper to a backend's new URL rather than scraping the old one", func() {
@@ -773,7 +783,7 @@ var _ = Describe("scraperManager lifecycle", func() {
 		// Same namespace and name, so the same key: the serving port changed under a backend that kept its identity.
 		m.Register(newTestRef("kvguard-move-ns", "kvguard-move-backend", newUp.URL))
 		Eventually(newHits.Load).Should(BeNumerically(">", 0))
-		Expect(m.scrapers).To(HaveLen(1))
+		Expect(scraperCount(m)).To(Equal(1))
 		settled := oldHits.Load()
 		Consistently(oldHits.Load, 50*time.Millisecond).Should(Equal(settled))
 	})
@@ -819,7 +829,7 @@ var _ = Describe("scraperManager lifecycle", func() {
 		}).Should(BeTrue())
 
 		m.Stop()
-		Expect(m.scrapers).To(BeEmpty())
+		Expect(scraperCount(m)).To(Equal(0))
 	})
 })
 
