@@ -1930,7 +1930,10 @@ stamp = lambda s: datetime.datetime.fromtimestamp(int(fault) + s, datetime.timez
 def event(kind, deletion, grace, state):
     return {"type": kind, "object": {"metadata": {"uid": uid, "deletionTimestamp": deletion, "deletionGracePeriodSeconds": grace},
                                      "status": {"containerStatuses": [{"state": state}]}}}
-events = [event("MODIFIED", stamp(32), 30, {"running": {}}),
+# The watch sees the Pod running before its deletion, as one watch over the case does; without that, the request is not
+# shown (the reopened-watch check below).
+events = [event("ADDED", None, None, {"running": {}}),
+          event("MODIFIED", stamp(32), 30, {"running": {}}),
           event("MODIFIED", stamp(32), 30, {"terminated": {"exitCode": 134, "reason": "Error", "finishedAt": stamp(41)}}),
           event("DELETED", stamp(42), 0, {"terminated": {"exitCode": 134, "reason": "Error", "finishedAt": stamp(41)}})]
 with open(case_dir / "pod-watch.json", "w") as f:
