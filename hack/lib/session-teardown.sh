@@ -125,6 +125,10 @@ unlocked=""
 # This user's terraform processes still working on the cluster root, by -chdir or by their working directory: a lock
 # whose Who is this host's user is only shown stale when none is left, since another operation by the same user on the
 # same host carries the same Who (codex review of 3e3896cb).
+# A relative -chdir is matched whatever directory it is relative to, so a terraform in another checkout counts: every
+# checkout of this repository has the same backend and so the same state, and leaving a lock to a holder that turns out
+# unrelated costs a manual unlock, where releasing a live one could corrupt the state (codex review of 934150fc asked
+# for the narrower match; declined for that reason).
 live_holders() {
   local p
   for p in $(pgrep -u "$(id -u)" -x terraform); do
