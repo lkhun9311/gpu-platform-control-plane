@@ -1,7 +1,7 @@
 # Distributed restart, `corelimit`: what holds the rank-kill stop for 38 s
 
 Written 2026-11-06, before any run of this stage.
-Status: **registered for one paid session; not yet run.**
+Status: **run on 2026-11-06; H2 SUPPORTED** (see "Result", added after the run; everything above it was written before).
 The owner approved the purchase on 2026-11-06 ("유료 승인, 전부 병렬 수행"), after this design was proposed in the session; the session still starts only once the gates below are met.
 The apparatus, the scorer and every rule not restated here are those of `docs/superpowers/specs/2026-11-01-distributed-restart-design.md` and `docs/superpowers/specs/2026-11-04-restart-retarget-design.md`, whose threat model this page adopts unchanged.
 
@@ -181,3 +181,22 @@ A fourth round, of `17c56105`, found 11 to 13 sound and returned NO-GO with thre
 - Anything about a GPU's own core dump (`CUDA_ENABLE_COREDUMP_ON_EXCEPTION`), which is off by default and is not what aborted here.
 - A rate or tail: three cases per arm, three `dcgm` cases.
 - Turning core dumps off has a cost this stage does not weigh: a crash leaves no core to debug.
+
+## Result
+
+Everything above this section was written before the paid run; this section was added after it, from its archive (`hack/distributed-restart-eks/2026-11-06-corelimit`), evaluated from a clean checkout of `41c4fe54`.
+
+The first launch, from `96140a8c`, stopped at R2 before any GPU was bought: kubectl printed the webhook's refusal of the missing claim in its Invalid rendering, which the check did not accept (fixed in #509).
+The second, from `db5a2303`, ran every case: all ten ACCEPTED, the scorer's verdict identical from the clean checkout.
+
+**H2 SUPPORTED**: `d` 39, 38 and 38 s with the node's core limit, 1, 1 and 0 s with it at 0.
+Every attempt-1 rank of every case logged `core_pattern=|/usr/lib/systemd/systemd-coredump %P %u %g %s %t %c %h` and its arm's limit, so each treated case meets the treatment-validity rule above.
+
+Beside it, read as "What H2 can and cannot say" allows:
+- The untreated survivors ended with exit 137, 32 to 33 s after the fault and about 30 s after their deletion was asked for; the treated ones with exit 134 within a second of the fault.
+- That is what a dump still being written when the grace ran out predicts; 137 does not show the sender, and no host-side record of a dump was collected.
+- The treated survivors' shells printed `Aborted (core dumped)` with the limit at 0: the kernel sets that flag once it has begun a dump (`has_dumped = 1` in Linux 6.12 `fs/binfmt_elf.c`, before any write), so the treatment did not stop the kernel's dump from starting, as "What H2 can and cannot say" anticipated; it removed what came after.
+- The stop after the fault was shorter as well as `d`: the barrier was satisfied at a median of +3.3 s with the limit at 0 against +41.3 s without (`phases_eks.py`).
+- Recovery, not attributed to the arm beyond H2: median 8.7 s with the limit at 0, 46.9 s without, three cases each; the three `dcgm` cases 7.8 s.
+
+The estimated cost is $2.1 to $2.8 for both launches (the archive's README), not billing data.

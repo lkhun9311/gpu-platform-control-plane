@@ -1,0 +1,48 @@
+08:41:19Z  [session] API endpoint will admit 211.202.99.162/32 only
+08:41:20Z  [session] the working tree is clean at 96140a8c
+08:41:20Z  [session] TRAIN_AZ: pinned to ap-northeast-2a
+08:41:20Z  [session] the core-limit arms are the stage's own and /home/lkhun9311/workspace/gpu-cp-followups/ex/eks-session-20261106T084119Z/restart is new
+08:41:20Z  [session] RESTART_STAGE=corelimit: TTL_MINUTES 460 covers its 452, and with the destroy fits the 700-minute credential limit
+08:41:21Z  [session] the credential expires in 610 minutes, at least the 500 the session needs
+08:41:21Z  [session] cluster gpu-platform does not exist
+08:41:22Z  [session] G and VT On-Demand vCPU in use 0 (none) plus 12 fits the quota of 128.0
+08:41:23Z  [session] g5.xlarge On-Demand in ap-northeast-2 at $1.2370000000 an hour, ceiling $1.40
+08:41:23Z  [session] TRAIN=restart: 3 x g5.xlarge in ap-northeast-2a, price ceiling $1.40, GPU budget 22320s
+08:41:23Z  [session] terraform variables for every apply and destroy: -var=gpu_node_instance_type=g5.xlarge -var=gpu_max_nodes=3 -var=gpu_availability_zone=ap-northeast-2a -var=efs_enabled=true
+08:41:23Z  [session] the nightly destroy workflow is disabled_manually, so its 18:00 UTC window is not enforced
+08:41:27Z  [session] TTL kill switch armed: PID 1557710, fires in 460m, log /home/lkhun9311/workspace/gpu-cp-followups/ex/eks-session-20261106T084119Z/ttl-kill-switch.log
+08:41:27Z  [session] terraform init (cluster)
+08:41:50Z  [session] terraform apply (cluster) -- this is where the billing starts
+09:09:58Z  [session] cluster up in 1688s
+09:10:01Z  [session] terraform init + apply (argo-bootstrap): the pinned argo-cd chart, installed by its own root
+   ok   Argo CD installed by its own Terraform root
+09:11:12Z  [session] runbook: apply
+2026-11-06T09:11:12.954490747Z  context: gpu-platform
+2026-11-06T09:11:13.395330697Z  applying config/argocd/root.yaml -- the step that was missing
+   ok   all 13 Applications this repository declares exist, 13 of them created by this run
+2026-11-06T09:11:42.288278752Z  root resolved revision: 44bd5e741559d45d573f1b7c8fc9020e09f999f6 (targetRevision is the mutable branch main)
+2026-11-06T09:11:42.290146551Z  waiting for the automated Applications to reach Synced/Healthy
+   ok   every automated Application is Synced/Healthy, and every declared Application is still present
+2026-11-06T09:14:09.601048275Z  not waited on because they carry no automated syncPolicy, by design: gpu-platform-device-plugin gpu-platform-observability gpu-platform-samples gpu-platform-serving gpu-platform-training 
+   ok   runbook apply
+09:14:09Z  [session] runbook: seed-key
+2026-11-06T09:14:09.627217068Z  context: gpu-platform
+   ok   created gateway-api-keys with one key for tenant-a (recorded in seeded-key.txt)
+   ok   runbook seed-key
+09:14:10Z  [session] runbook: verify
+2026-11-06T09:14:10.400926618Z  context: gpu-platform
+2026-11-06T09:14:10.755854405Z  probing gateway-786997dc9b-lpmb2 through a port-forward (the image is distroless, so exec cannot help)
+2026-11-06T09:14:11.282943667Z     forwarding 127.0.0.1:33849 -> 8080 and 127.0.0.1:35871 -> 8081
+2026-11-06T09:14:11.803048745Z     readyz=200  bad-key request=401  real-key request=403
+   ok   a bad key is refused with 401
+   ok   a key from the Secret is accepted and refused by tenant policy (403): authentication reached the key store. Not proof of serving
+   ok   runbook verify
+   ok   T1: gpu-platform-training synced at 44bd5e741559d45d573f1b7c8fc9020e09f999f6
+   ok   T2: ClusterQueue gpu-train-a is Active and the only one
+   ok   R1: restart-shared is Bound to fs-022b26adcc2e6bf86
+   FAIL R2: a job naming a claim that does not exist failed, but not by the webhook's refusal of the claim: The MLTrainingJob "restart-gate-missing" is invalid: spec.stateVolume.claimName: Invalid value: "no-such-claim": claim not found: a distributed job's state volume must exist before the job, because every rank mounts it
+09:14:57Z  [session] destroy: argo-bootstrap, then cluster
+   ok   nothing that charges remains: no EKS cluster, instance, NAT gateway, EIP, volume, ASG, load balancer, cluster log group, GPU deadline schedule or EFS file system
+09:26:00Z  [session] kill switch disarmed: destroy returned zero, every residue query was answered, and all were empty
+09:26:00Z  [session] evidence in /home/lkhun9311/workspace/gpu-cp-followups/ex/eks-session-20261106T084119Z
+09:26:00Z  [session] 1 check(s) failed

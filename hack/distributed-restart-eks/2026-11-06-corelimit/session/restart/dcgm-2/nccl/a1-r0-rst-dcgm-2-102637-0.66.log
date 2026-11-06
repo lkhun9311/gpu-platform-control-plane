@@ -1,0 +1,35 @@
+rst-dcgm-2-102637-0:66:66 [0] NCCL INFO Bootstrap : Using eth0:10.0.60.225<0>
+rst-dcgm-2-102637-0:66:66 [0] NCCL INFO NET/Plugin: No plugin found (libnccl-net.so)
+rst-dcgm-2-102637-0:66:66 [0] NCCL INFO NET/Plugin: Using internal network plugin.
+rst-dcgm-2-102637-0:66:66 [0] NCCL INFO cudaDriverVersion 13000
+rst-dcgm-2-102637-0:66:66 [0] NCCL INFO NCCL version 2.21.5+cuda12.4
+rst-dcgm-2-102637-0:66:76 [0] NCCL INFO Failed to open libibverbs.so[.1]
+rst-dcgm-2-102637-0:66:76 [0] NCCL INFO NET/Socket : Using [0]eth0:10.0.60.225<0>
+rst-dcgm-2-102637-0:66:76 [0] NCCL INFO Using non-device net plugin version 0
+rst-dcgm-2-102637-0:66:76 [0] NCCL INFO Using network Socket
+rst-dcgm-2-102637-0:66:76 [0] NCCL INFO ncclCommInitRank comm 0x55e8e917c9d0 rank 0 nranks 2 cudaDev 0 nvmlDev 0 busId 1e0 commId 0x8ed6c7908b463381 - Init START
+rst-dcgm-2-102637-0:66:76 [0] NCCL INFO NET/Socket : GPU Direct RDMA Disabled for HCA 0 'eth0'
+rst-dcgm-2-102637-0:66:76 [0] NCCL INFO comm 0x55e8e917c9d0 rank 0 nRanks 2 nNodes 2 localRanks 1 localRank 0 MNNVL 0
+rst-dcgm-2-102637-0:66:76 [0] NCCL INFO Channel 00/02 :    0   1
+rst-dcgm-2-102637-0:66:76 [0] NCCL INFO Channel 01/02 :    0   1
+rst-dcgm-2-102637-0:66:76 [0] NCCL INFO Trees [0] 1/-1/-1->0->-1 [1] -1/-1/-1->0->1
+rst-dcgm-2-102637-0:66:76 [0] NCCL INFO P2P Chunksize set to 131072
+rst-dcgm-2-102637-0:66:77 [0] NCCL INFO New proxy recv connection 0 from local rank 0, transport 2
+rst-dcgm-2-102637-0:66:76 [0] NCCL INFO Connected to proxy localRank 0 -> connection 0x7f2af8004f50
+rst-dcgm-2-102637-0:66:76 [0] NCCL INFO Channel 00/0 : 1[0] -> 0[0] [receive] via NET/Socket/0
+rst-dcgm-2-102637-0:66:77 [0] NCCL INFO New proxy recv connection 1 from local rank 0, transport 2
+rst-dcgm-2-102637-0:66:76 [0] NCCL INFO Connected to proxy localRank 0 -> connection 0x7f2af8004fc8
+rst-dcgm-2-102637-0:66:76 [0] NCCL INFO Channel 01/0 : 1[0] -> 0[0] [receive] via NET/Socket/0
+rst-dcgm-2-102637-0:66:77 [0] NCCL INFO New proxy send connection 2 from local rank 0, transport 2
+rst-dcgm-2-102637-0:66:76 [0] NCCL INFO Connected to proxy localRank 0 -> connection 0x7f2af8005040
+rst-dcgm-2-102637-0:66:76 [0] NCCL INFO Channel 00/0 : 0[0] -> 1[0] [send] via NET/Socket/0
+rst-dcgm-2-102637-0:66:77 [0] NCCL INFO New proxy send connection 3 from local rank 0, transport 2
+rst-dcgm-2-102637-0:66:76 [0] NCCL INFO Connected to proxy localRank 0 -> connection 0x7f2af80050b8
+rst-dcgm-2-102637-0:66:76 [0] NCCL INFO Channel 01/0 : 0[0] -> 1[0] [send] via NET/Socket/0
+rst-dcgm-2-102637-0:66:76 [0] NCCL INFO Connected all rings
+rst-dcgm-2-102637-0:66:76 [0] NCCL INFO Connected all trees
+rst-dcgm-2-102637-0:66:76 [0] NCCL INFO threadThresholds 8/8/64 | 16/8/64 | 512 | 512
+rst-dcgm-2-102637-0:66:76 [0] NCCL INFO 2 coll channels, 2 collnet channels, 0 nvls channels, 2 p2p channels, 2 p2p channels per peer
+rst-dcgm-2-102637-0:66:77 [0] NCCL INFO New proxy send connection 4 from local rank 0, transport 2
+rst-dcgm-2-102637-0:66:76 [0] NCCL INFO Connected to proxy localRank 0 -> connection 0x7f2af8005130
+rst-dcgm-2-102637-0:66:76 [0] NCCL INFO ncclCommInitRank comm 0x55e8e917c9d0 rank 0 nranks 2 cudaDev 0 nvmlDev 0 busId 1e0 commId 0x8ed6c7908b463381 - Init COMPLETE
