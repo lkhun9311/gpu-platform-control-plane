@@ -1,0 +1,3 @@
+INSPECTION STEP FAILED: 4.4.2: the tag's index hashes to sha256:becae9b24707d2bdfce87cb72626e24b2fbfbca812329ca52540ad0e0d955717 and the registry says sha256:becae9b24707d2bdfce87cb72626e24b2fbfbca812329ca52540ad0e0d955717, not the pinned sha256:0000000000000000000000000000000000000000000000000000000000000000
+INSPECTION INCOMPLETE: see the failures above; /tmp/tmp.0PeUNUuzu3/wrong-digest is not a complete archive
+exit=1

@@ -1,0 +1,1 @@
+error: error from server (NotFound): pods "rst-rank-kill-4-080547-0-b6rf8" not found in namespace "train-a"

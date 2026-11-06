@@ -1,0 +1,11 @@
+OK   no injection failed
+OK   run-e: the scorer exited 0
+OK   run-e/reference: ACCEPTED, allowed ['ACCEPTED']
+OK   run-e/no-rng-control: ACCEPTED, allowed ['ACCEPTED']
+OK   run-e/rank-kill-1: ACCEPTED, allowed ['ACCEPTED']
+OK   run-e/rank-kill-2: ACCEPTED, allowed ['ACCEPTED']
+OK   run-e/dcgm-1: ACCEPTED, allowed ['ACCEPTED']
+OK   run-e/dcgm-2: ACCEPTED, allowed ['ACCEPTED']
+OK   run-e: no injection
+0 FAIL(s)
+exit=0

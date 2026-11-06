@@ -11,9 +11,13 @@ went well would report the fast half of the distribution as the whole.
 VOID means the apparatus did not deliver what the case registers (the fault did not reach its target, the evidence is
 missing, a clock cannot be trusted, NCCL ran over a transport nobody registered); FAILED means it did and the platform
 or the trainer did not recover as the case requires.
-A FAILED case is one of two: censored, when the job was still short of an end at its budget, so its recovery time is
-known only to exceed the budget; or not recovered, when the job ended, or recovered, other than as the case requires.
-The summary counts them apart, because a censored recovery is a slow one and the other is a wrong one.
+A FAILED case is one of three: censored, when the job had not ended by its budget and attempt 2's first step is not
+among the records collected, which is reported with when observation ended and not as a bound, because nothing shows the
+logs were followed throughout; past its budget, when that first step was observed and the job still did not end within
+its budget, so the recovery has a time and the completion does not; or not recovered, when the job ended, or recovered,
+other than as the case requires.
+The summary counts them apart, because a recovery not seen is not a wrong one, a late completion is a slow run after a
+recovery that came, and the other is a wrong one.
 
 Exit 0 when every registered case is ACCEPTED, 1 when the run is complete and some case is not, 2 when the run itself is
 refused (dirty tree, a trainer other than the approved one, no registration).
@@ -23,6 +27,7 @@ from __future__ import annotations
 
 import functools
 import json
+import lzma
 import math
 import pathlib
 import re
@@ -39,6 +44,8 @@ BUDGET_BAND_S = 2
 CLOCK_OFFSET_S = 2.0
 PARAM_TOLERANCE = 1e-6
 WORLD = 2
+# restart_collect follows a Pod's log at most this many times, then stops reading it (hack/lib/restart-session.sh).
+LOG_FOLLOWS = 20
 # One GPU per node over the VPC network: NCCL's socket transport, and nothing else, is what the figures describe.
 REGISTERED_TRANSPORT = re.compile(r"^NET/Socket(/\d+)?$")
 TRANSPORT_LINE = re.compile(r"NCCL INFO Channel \S+ : \d+\[\w+\] -> \d+\[\w+\](?: \[\w+\])? via (\S+)")
@@ -55,19 +62,35 @@ FENCE_ANNOTATION = "platform.lkhun9311.github.io/fenced-nodes"
 
 
 class Verdict(Exception):
-    """The first condition a case did not meet, as VOID or FAILED, and for FAILED whether it is censored at its budget."""
+    """The first condition a case did not meet, as VOID or FAILED, and for FAILED whether its recovery is censored at its
+    budget or its recovery came and its completion was late."""
 
-    def __init__(self, kind: str, reason: str, censored: bool = False) -> None:
+    def __init__(self, kind: str, reason: str, censored: bool = False, late: bool = False) -> None:
         super().__init__(reason)
-        self.kind, self.reason, self.censored = kind, reason, censored
+        self.kind, self.reason, self.censored, self.late = kind, reason, censored, late
 
 
 def void(reason: str) -> None:
     raise Verdict("VOID", reason)
 
 
-def failed(reason: str, censored: bool = False) -> None:
-    raise Verdict("FAILED", reason, censored)
+def failed(reason: str, censored: bool = False, late: bool = False) -> None:
+    raise Verdict("FAILED", reason, censored, late)
+
+
+def no_constant(name: str) -> float:
+    # Python's json reads NaN and Infinity, which no JSON producer of the runner writes, and a NaN compares false with
+    # every bound, so clock probes holding one passed every check and reached the figures as NaN.
+    raise ValueError(f"the JSON constant {name}, which is not a number the runner writes")
+
+
+def load_json(path: pathlib.Path):
+    return json.loads(path.read_text(), parse_constant=no_constant)
+
+
+def finite(value) -> bool:
+    """A real number that is not NaN or infinite; a bool is not one, though Python counts it an int."""
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
 
 
 def records_in(text: str) -> list[dict]:
@@ -76,6 +99,8 @@ def records_in(text: str) -> list[dict]:
     NCCL writes to the same stdout as the trainer and has been seen to leave a line unfinished with a record following
     it on the same line (hack/four-gpu/2026-10-29-run5), so a record is found by where it starts, not by the line.
     """
+    # Unlike the runner's files, a trainer's NaN is kept: json.dumps writes one for a run that diverged, which is the
+    # trainer's outcome, refused where each value is used, and a record dropped here would read as one never printed.
     out, decoder = [], json.JSONDecoder()
     for match in re.finditer(r'\{"ts": ', text):
         try:
@@ -87,16 +112,84 @@ def records_in(text: str) -> list[dict]:
     return out
 
 
+def jsonl_text(path: pathlib.Path) -> str | None:
+    """The text of a JSON-lines file, or of its .xz when only that exists; None when neither does."""
+    # The paid archives commit their largest records, the status timelines, xz-compressed.
+    # Reading only the plain name voided every termination case of a committed archive the run itself had accepted.
+    packed = path.with_name(path.name + ".xz")
+    if path.exists():
+        return path.read_text()
+    if packed.exists():
+        # LZMAError is not a ValueError, so a damaged archive would escape the per-case handlers and end the report.
+        try:
+            return lzma.decompress(packed.read_bytes()).decode()
+        except lzma.LZMAError as exc:
+            raise ValueError(f"{packed.name} could not be decompressed: {exc}") from exc
+    return None
+
+
 def jsonl(path: pathlib.Path) -> list[dict]:
-    if not path.exists():
+    text = jsonl_text(path)
+    if text is None:
         return []
-    return [json.loads(line) for line in path.read_text().splitlines() if line.strip().startswith("{")]
+    try:
+        return [json.loads(line, parse_constant=no_constant) for line in text.splitlines() if line.strip().startswith("{")]
+    except ValueError as exc:
+        # The file is named, because the per-case VOID that reports this is the only place a reader learns which one.
+        raise ValueError(f"{path.name}: {exc}") from exc
 
 
 def epoch(ts: str) -> float:
     import datetime
 
     return datetime.datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp()
+
+
+def timeline_reads(path: pathlib.Path) -> list[tuple[float, dict]]:
+    """status_reads over a timeline file parsed row by row, so one row that is not JSON is skipped like any malformed read.
+
+    The whole file was parsed at once, and a row cut short ended the case instead of being skipped (codex gpt-6-astra
+    attack of the retarget registration).
+    Other evidence files stay strict: a timeline is a sampler's many reads, each standing alone.
+    """
+    text = jsonl_text(path)
+    rows = []
+    for line in (text or "").splitlines():
+        if not line.strip().startswith("{"):
+            continue
+        try:
+            rows.append(json.loads(line, parse_constant=no_constant))
+        except ValueError:
+            continue
+    return status_reads(rows)
+
+
+def status_reads(rows: list[dict]) -> list[tuple[float, dict]]:
+    """The sampler's successful, well-formed reads of the job, in order: when it saw each, and the status it read.
+
+    The sampler writes a row for a read that failed as well, with a null status, and a row can be malformed; either
+    shows nothing about the job, so it is skipped rather than read as a status without a stamp.
+    A well-formed status lists its attempts from the first, so one whose first attempt is not numbered 1 is malformed.
+    Both evaluators read timelines through this, so they skip the same rows (codex gpt-6-astra attack of the retarget
+    registration: one of them counted a status whose attempts were [null] and extended a bound by an hour).
+    """
+    out = []
+    for r in rows:
+        status = r.get("status") if isinstance(r, dict) else None
+        if not isinstance(status, dict):
+            continue
+        attempts = status.get("attempts")
+        if attempts is not None and not (isinstance(attempts, list) and all(isinstance(a, dict) for a in attempts)):
+            continue
+        if attempts and attempts[0].get("number") != 1:
+            continue
+        try:
+            seen = epoch(r["observed"])
+        except (KeyError, TypeError, ValueError, AttributeError):
+            continue
+        if finite(seen):
+            out.append((seen, status))
+    return out
 
 
 def provenance(run: pathlib.Path) -> dict[str, str]:
@@ -112,28 +205,44 @@ class Case:
         self.name, self.dir, self.reference, self.steps, self.budget = name, run / name, reference, steps, budget
         self.kind = re.sub(r"-\d+$", "", name)
         self.figures: dict = {}
+        self._clocks: list[dict] | None = None
 
-    def load(self) -> None:
+    @property
+    def clocks(self) -> list[dict]:
+        """The clock probes, read when first used: delivery does not depend on them, so an unreadable probe file voids
+        what the clocks place, the recovery, and not the check that the fault was delivered (codex gpt-6-astra attack
+        of the retarget registration)."""
+        if self._clocks is None:
+            self._clocks = jsonl(self.dir / "clock.jsonl")
+        return self._clocks
+
+    def load(self, runner_void: bool = True) -> None:
+        """The case's evidence; with runner_void False, a VOID the runner wrote does not stop it.
+
+        H1 reads delivery from the evidence itself: the runner voids a rank-kill whose probe before the fault failed,
+        and the trainer's own fault may have fired by then, so the marker alone once removed a delivered fault's valid
+        stop interval (codex gpt-6-astra attack of the retarget registration).
+        """
         if not self.dir.is_dir():
             void("its directory is missing")
         if (self.dir / "NOTRUN").exists():
             raise Verdict("NOTRUN", (self.dir / "NOTRUN").read_text().strip()[:200])
-        if (self.dir / "VOID").exists():
+        if runner_void and (self.dir / "VOID").exists():
             void("the runner voided it: " + (self.dir / "VOID").read_text().strip()[:200])
         if self.kind not in KINDS:
             void(f"{self.kind} is not a registered kind")
         for need in ("case.json", "final-mltj.json", "pods.jsonl"):
             if not (self.dir / need).exists():
                 void(f"no {need}")
-        self.spec = json.loads((self.dir / "case.json").read_text())
+        self.spec = load_json(self.dir / "case.json")
         if self.spec.get("kind") != self.kind:
             void(f"case.json says {self.spec.get('kind')!r}, the registration {self.kind!r}")
-        self.final = json.loads((self.dir / "final-mltj.json").read_text())
+        self.final = load_json(self.dir / "final-mltj.json")
         self.status = self.final.get("status") or {}
         self.attempts = self.status.get("attempts") or []
         self.pods = {p["uid"]: p for p in jsonl(self.dir / "pods.jsonl")}
         self.marks = {m["mark"]: m["at"] for m in jsonl(self.dir / "marks.jsonl")}
-        self.clocks = jsonl(self.dir / "clock.jsonl")
+        self._clocks = None
         self.terminated = (self.spec.get("target") or {}).get("node") if self.kind.startswith("terminate") else None
         # Each record is tagged with the node its Pod ran on, which decides whose clock its timestamp is.
         # A Pod's log may be in several files, because a stream that broke while the Pod ran is read again from its
@@ -200,7 +309,7 @@ class Case:
         """The nodes up before the fault, read when a clock needs them and not when the case is loaded, for the same
         reason as name_reused (codex review of 35ba9c4a)."""
         before = self.dir / "nodes-before.json"
-        return {n["metadata"]["name"] for n in json.loads(before.read_text()).get("items", [])} if before.exists() else set()
+        return {n["metadata"]["name"] for n in load_json(before).get("items", [])} if before.exists() else set()
 
     @functools.cached_property
     def name_reused(self) -> bool:
@@ -213,7 +322,7 @@ class Case:
             return False
         uids = []
         for f in ("nodes-before.json", "nodes-after.json"):
-            items = json.loads((self.dir / f).read_text()).get("items", []) if (self.dir / f).exists() else []
+            items = load_json(self.dir / f).get("items", []) if (self.dir / f).exists() else []
             uids.append({n["metadata"]["name"]: n["metadata"].get("uid") for n in items})
         before, after = uids
         return self.terminated in before and self.terminated in after and before[self.terminated] != after[self.terminated]
@@ -240,10 +349,17 @@ class Case:
             void(f"no clock probe of {node}")
         offsets, low, high = [], math.inf, -math.inf
         for p in probes:
+            # A NaN fails no comparison below, and a literal like 1e999 reads as infinity, whose differences are NaN.
+            # Both were accepted: NaN probes with a NaN recovery_s, and probes of 1e999 with an infinite one.
+            times = {k: p.get(k) for k in ("before", "node_time", "after")}
+            if not all(finite(v) for v in times.values()):
+                void(f"a clock probe of {node} holds {times}, not three finite times")
             bracket = p["after"] - p["before"]
+            off = p["node_time"] - (p["before"] + p["after"]) / 2
+            if not (finite(bracket) and finite(off)):
+                void(f"a clock probe of {node} gives a bracket of {bracket} s and an offset of {off} s, not finite")
             if bracket < 0 or bracket > CLOCK_BRACKET_S:
                 void(f"the clock probe of {node} took {bracket:.3f} s, wider than {CLOCK_BRACKET_S} s")
-            off = p["node_time"] - (p["before"] + p["after"]) / 2
             if abs(off) > CLOCK_OFFSET_S:
                 void(f"{node}'s clock is {off:+.3f} s from the runner's, beyond {CLOCK_OFFSET_S} s")
             offsets.append(off)
@@ -266,7 +382,10 @@ class Case:
         # The true offset lies within some probe's bracket, so the median is off from it by at most its distance to the
         # far end of all of them.
         estimate = statistics.median(offsets)
-        return estimate, max(estimate - low, high - estimate)
+        uncertainty = max(estimate - low, high - estimate)
+        if not (finite(estimate) and finite(uncertainty)):
+            void(f"{node}'s clock correction is {estimate} s with an uncertainty of {uncertainty} s, not finite")
+        return estimate, uncertainty
 
     def offset(self, node: str | None, attempt: int | None = None) -> float:
         return self.clock(node, attempt)[0]
@@ -293,17 +412,159 @@ class Case:
                 void(f"the job ended {phase!r} {took:.0f} s after its creation, within {BUDGET_BAND_S} s of its "
                      f"{self.budget} s budget, which its stamps cannot place on either side")
             if took > self.budget:
-                failed(f"censored at its budget: the job ended {phase!r} {took:.0f} s after its creation, beyond its "
-                       f"{self.budget} s budget", censored=True)
+                self.past_budget(want_attempts, f"the job ended {phase!r} {took:.0f} s after its creation, beyond its "
+                                                f"{self.budget} s budget")
         if phase == "Failed":
             failed(f"not recovered: the job ended {phase!r}, not Succeeded, within its budget")
-        # Anything short of an end is a recovery the budget cut off: censored, never a recovery that failed.
+        # Anything short of an end is a run the budget cut off, never a recovery that failed.
         if phase != "Succeeded":
-            failed(f"censored at its budget: the job ended {phase!r}, not Succeeded, within its budget", censored=True)
+            self.past_budget(want_attempts, f"the job ended {phase!r}, not Succeeded, within its budget")
         if len(self.attempts) != want_attempts:
             failed(f"{len(self.attempts)} attempt(s), want {want_attempts}")
         if want_attempts == 2 and self.attempts[0].get("trigger") != TRIGGER[self.kind]:
             failed(f"attempt 1 ended on {self.attempts[0].get('trigger')!r}, not {TRIGGER[self.kind]}, so the restart was not this fault's")
+
+    def past_budget(self, want_attempts: int, what: str) -> None:
+        """FAILED for a job that had not ended within its budget: censored only when attempt 2's first step was never seen.
+
+        The job's completion was once read as its recovery: a case whose every rank of attempt 2 stepped 47.5 s after the
+        fault, and whose job ended after its 720 s budget, was reported censored at its budget, a recovery known only to
+        exceed the budget.
+        The outcome is still decided here, before the evidence the figures need: a recovery that cannot be timed, or a
+        bound that cannot be computed, is said so in the reason and leaves the verdict FAILED.
+        """
+        if want_attempts == 1:
+            # The reference has no fault and so no recovery; only its completion can be late.
+            failed(f"past its budget: {what}", late=True)
+        if sorted({r.get("rank") for r in self.rec("step", 2)}, key=str) == list(range(WORLD)):
+            failed(f"past its budget after a recovery: {what}; {self.observed_recovery()}", late=True)
+        failed(f"censored at its budget: {what}; {self.observation_end()}", censored=True)
+
+    def observed_recovery(self) -> str:
+        """The recovery time of a case whose completion was late, kept as a figure though the case is not ACCEPTED.
+
+        A late case never reaches check_resume, so its earliest remaining step stood for its first: with attempt 2's
+        steps 12 to 17 removed, a 47.5 s recovery read 61.2 s (sixth attack, 5).
+        The time is kept only from each rank's own step after the checkpoint it resumed from, and only once a probe of
+        each node it ran on was taken after it (sixth attack, 7); otherwise later progress is all that is said.
+        """
+        try:
+            fault, _ = self.placed_fault()
+            resumes = self.rec("resume", 2)
+            from_steps = {r.get("from_step") for r in resumes}
+            if sorted(r.get("rank") for r in resumes) != list(range(WORLD)) or len(from_steps) != 1:
+                raise ValueError(f"attempt 2's resume records are {[(r.get('rank'), r.get('from_step')) for r in resumes]}, "
+                                 f"not one checkpoint for every rank, so its first step is not known")
+            first = from_steps.pop() + 1
+            records = [r for r in self.rec("step", 2) if r.get("step") == first]
+            ranks = sorted(r.get("rank") for r in records)
+            if ranks != list(range(WORLD)):
+                return (f"every rank of attempt 2 stepped, but ranks {ranks} recorded step {first}, the first after the "
+                        f"checkpoint, so only later progress was observed and no recovery time is given")
+            self.check_probed_after(records)
+            recovery = max(self.runner_time(r) for r in records) - fault
+            if not finite(recovery) or recovery <= 0:
+                raise ValueError(f"it computes as {recovery} s after the fault, which no clock allows")
+        except (Verdict, ValueError, KeyError, TypeError, IndexError, AttributeError, OSError) as exc:
+            why = exc.reason if isinstance(exc, Verdict) else f"{type(exc).__name__}: {str(exc)[:120]}"
+            return f"every rank of attempt 2 stepped, at a time that cannot be placed: {why}"
+        self.figures["recovery_s"] = recovery
+        return f"every rank of attempt 2 had stepped {recovery:.1f} s after the fault, so the recovery came and the completion did not"
+
+    def observation_end(self) -> str:
+        """When observation of a recovery that was never seen ended, reported as that and never as a bound on it.
+
+        It was reported as a lower bound, the time from the fault to the last sample, and that claimed the logs had been
+        followed throughout: a follow that never connected, hung, or lost its output leaves no record that says so, and
+        with the attempt-2 logs removed from an archive whose recovery took 47.5 s the bound read 94.9 s (codex
+        gpt-6-astra attack of the retarget registration).
+        Observation ends at the last successful, well-formed read of the job; the fault's clock uncertainty is taken off.
+        Follows given up before it, of Pods not labelled attempt 1, are named, since they are the gap a reader would ask
+        about (codex reviews of 9499dba5 and eca90990).
+        """
+        try:
+            fault, uncertainty = self.placed_fault()
+            reads = timeline_reads(self.dir / "timeline.jsonl")
+            if not reads:
+                raise ValueError("no sample read the job's status")
+            cutoff = reads[-1][0]
+            window = cutoff - fault - uncertainty
+            if not finite(window) or window <= 0:
+                raise ValueError(f"the last read of the job comes {window} s after the fault")
+            first_attempt = {p["uid"] for p in jsonl(self.dir / "pods.jsonl") if str(p.get("attempt_token")) == "1"}
+            ends: dict[str, list[float]] = {}
+            for s in jsonl(self.dir / "streams.jsonl"):
+                if s["uid"] not in first_attempt:
+                    ends.setdefault(s["uid"], []).append(epoch(s["at"]))
+            given_up = sorted(u for u, at in ends.items() if len(at) >= LOG_FOLLOWS and max(at) < cutoff)
+        except (Verdict, ValueError, KeyError, TypeError, IndexError, AttributeError, OSError) as exc:
+            why = exc.reason if isinstance(exc, Verdict) else f"{type(exc).__name__}: {str(exc)[:120]}"
+            return f"attempt 2's first step is not among the records collected, and when observation ended cannot be placed: {why}"
+        gap = f"; the log follows of {given_up} were given up before it" if given_up else ""
+        return (f"attempt 2's first step is not among the records collected; observation ended {window:.1f} s after the "
+                f"fault, at the last read of the job, which is not a bound on the recovery because the logs are not shown "
+                f"to cover that time{gap}")
+
+    def attempt1_logs_cut(self) -> str:
+        """Which attempt-1 Pods' logs are not shown to have been read to their end, or "" when none.
+
+        Lost steps are counted from attempt 1's last recorded step, so a log whose end was lost understated them and the
+        case stayed ACCEPTED: a read-only simulation dropping dcgm-1's step 12 gave zero lost steps for one (gpt-6-astra's
+        defect review of #505).
+        A Pod's last stream must have exited cleanly, and, where the collector recorded it, not with its container
+        still running or unread; a Pod already gone when its stream ended is taken as ended with it, which a deletion
+        that outran the stream would defeat.
+        Archives written before the collector recorded the container's state are judged on the exit alone.
+        """
+        first = {p["uid"] for p in jsonl(self.dir / "pods.jsonl") if str(p.get("attempt_token")) == "1"}
+        last: dict[str, dict] = {}
+        for s in jsonl(self.dir / "streams.jsonl"):
+            if s.get("uid") in first and s.get("stream", 0) >= last.get(s["uid"], {}).get("stream", 0):
+                last[s["uid"]] = s
+        cut = []
+        for uid in sorted(first):
+            s = last.get(uid)
+            if s is None:
+                cut.append(f"{uid} has no ended stream")
+            elif s.get("exit") != 0:
+                cut.append(f"{uid}'s last stream exited {s.get('exit')}")
+            elif s.get("container", "terminated") not in ("terminated", "gone"):
+                cut.append(f"{uid}'s last stream ended with its container {s.get('container')}")
+        return "; ".join(cut)
+
+    def placed_fault(self) -> tuple[float, float]:
+        """fault_time, refused when a probe labelled before the fault ended after it, as score() refuses it."""
+        fault, uncertainty = self.fault_time()
+        # A probe is "before" by when it was taken, not by its label: rank-kill's trainer kills itself at its own step,
+        # so a round of probes that ran long could end after that fault and still be labelled before it, and a clock
+        # that moved in between would go unseen (codex review before the full stage).
+        late = sorted({p["node"] for p in self.clocks if p.get("when") == "before" and p["after"] > fault})
+        if late:
+            void(f"the probe of {late} labelled before the fault ended after it, so the clock before the fault is not shown")
+        return fault, uncertainty
+
+    def check_probed_after(self, records: list[dict]) -> None:
+        """Each node a timed record of attempt 2 ran on was probed after that record, by when the probe was taken.
+
+        clock() asks only that some probe be labelled after: probes moved 180 s earlier, before the recovery they were
+        to bracket, left a case ACCEPTED with the same uncertainty (sixth attack, 7).
+        The record's time and the probe's node_time are both read from the node's own clock, so they compare directly.
+        """
+        last: dict[str, float] = {}
+        for r in records:
+            last[r["_node"]] = max(last.get(r["_node"], -math.inf), epoch(r["ts"]))
+        for node, t in sorted(last.items()):
+            if not any(p.get("node") == node and p.get("when") == "after" and finite(p.get("node_time"))
+                       and p["node_time"] > t for p in self.clocks):
+                void(f"no probe of {node} was taken after attempt 2's step on it, so its clock after the recovery is not shown")
+
+    def first_steps(self) -> tuple[dict, set]:
+        """Each rank's first step of attempt 2 on the runner's clock, and the nodes those steps ran on."""
+        firsts, nodes = {}, set()
+        for r in self.rec("step", 2):
+            firsts[r["rank"]] = min(firsts.get(r["rank"], math.inf), self.runner_time(r))
+            nodes.add(r["_node"])
+        return firsts, nodes
 
     def check_starts(self, attempts: int) -> None:
         for a in range(1, attempts + 1):
@@ -435,7 +696,7 @@ class Case:
         if not rank1 or rank1[0].get("node") != target.get("node"):
             void(f"the target node {target.get('node')!r} is not where rank 1 of attempt 1 ran")
         if self.kind == "dcgm":
-            dcgm = json.loads((self.dir / "dcgm.json").read_text()) if (self.dir / "dcgm.json").exists() else {}
+            dcgm = load_json(self.dir / "dcgm.json") if (self.dir / "dcgm.json").exists() else {}
             if dcgm.get("node") != target.get("node"):
                 void(f"the fault was injected on {dcgm.get('node')!r}, not the target {target.get('node')!r}")
             if str(dcgm.get("readback")) != "79":
@@ -443,7 +704,7 @@ class Case:
             if not dcgm.get("latched") or not dcgm.get("tainted"):
                 void(f"the target's NodeHealth latched {dcgm.get('latched')!r} and its node was tainted {dcgm.get('tainted')!r}")
             return
-        nodes = json.loads((self.dir / "nodes-before.json").read_text()) if (self.dir / "nodes-before.json").exists() else {}
+        nodes = load_json(self.dir / "nodes-before.json") if (self.dir / "nodes-before.json").exists() else {}
         pid = {n["metadata"]["name"]: n["spec"].get("providerID", "") for n in nodes.get("items", [])}
         if not target.get("instance") or not pid.get(target["node"], "").endswith("/" + target["instance"]):
             void(f"the terminated instance {target.get('instance')!r} is not the target node's {pid.get(target.get('node'))!r}")
@@ -461,8 +722,11 @@ class Case:
                  f"fence-request {self.marks['fence-request']} and fenced {self.marks['fenced']}: the fence was asked "
                  f"for before EC2 reported the instance terminated, or EC2 before the call")
         ack = str(((self.final.get("metadata") or {}).get("annotations") or {}).get(FENCE_ANNOTATION, ""))
-        if target.get("node") not in ack.split(","):
-            void(f"the job's fenced-nodes annotation is {ack!r}, not naming the target {target.get('node')}")
+        # An entry may bind the name to one machine as name@uid, and then it must be the machine attempt 1 ran on.
+        node = target.get("node")
+        uid = ((self.attempts[0].get("nodeUIDs") or {}).get(node)) if self.attempts else None
+        if node not in ack.split(",") and not (uid and f"{node}@{uid}" in ack.split(",")):
+            void(f"the job's fenced-nodes annotation is {ack!r}, not naming the target {node}")
 
     def check_barrier(self) -> None:
         """Attempt 2 of a termination case was created only after the fence, on the runner's clock where it can be.
@@ -500,7 +764,7 @@ class Case:
             record = self.rec("fault", 1)[0]
             return self.runner_time(record), self.clock(record["_node"])[1]
         if self.kind == "dcgm":
-            dcgm = json.loads((self.dir / "dcgm.json").read_text())
+            dcgm = load_json(self.dir / "dcgm.json")
             return self.runner_time({"ts": dcgm["injected_at"], "_node": dcgm["node"]}), self.clock(dcgm["node"])[1]
         return epoch(self.marks["fault-start"]), 0.0
 
@@ -518,8 +782,8 @@ class Case:
         for name in ("nodes-before.json", "nodes-after.json"):
             if not (self.dir / name).exists():
                 void(f"the nodes {'before the fault' if 'before' in name else 'after the recovery'} were not recorded")
-        before = {n["metadata"]["name"]: n["metadata"]["uid"] for n in json.loads((self.dir / "nodes-before.json").read_text())["items"]}
-        after = {n["metadata"]["name"]: n["metadata"]["uid"] for n in json.loads((self.dir / "nodes-after.json").read_text())["items"]}
+        before = {n["metadata"]["name"]: n["metadata"]["uid"] for n in load_json(self.dir / "nodes-before.json")["items"]}
+        after = {n["metadata"]["name"]: n["metadata"]["uid"] for n in load_json(self.dir / "nodes-after.json")["items"]}
         if not a1 <= set(before):
             void(f"attempt 1's nodes {sorted(a1 - set(before))} are not among the nodes before the fault")
         if not a2 <= set(after):
@@ -548,6 +812,29 @@ class Case:
             void(f"attempt 2 ran on {late}, up before the fault but not prepared before it (nodes-prepared.jsonl)")
         return "spare"
 
+    def check_steps(self, attempt: int, last: int | None = None) -> None:
+        """Each rank's step records of the attempt run from 1 without a gap, to `last` when it is given.
+
+        The save check compares saves with steps, so a step and its save both missing passed it: the reference with only
+        its step 30 left was ACCEPTED on two saves, and attempt 1 with its step 12 removed moved lost steps from 1 to 0
+        (codex gpt-6-astra attack of the retarget registration).
+        An in-trainer fault's record names the step its rank reached, so that rank's steps must reach it.
+        """
+        for rank in range(WORLD):
+            steps = {r.get("step") for r in self.rec("step", attempt, rank)}
+            if not steps or not all(isinstance(s, int) and not isinstance(s, bool) for s in steps):
+                void(f"attempt {attempt} rank {rank} has no step records, or one that is not a whole number")
+            stepped = sorted(steps)
+            top = last if last is not None else max(stepped)
+            if stepped != list(range(1, top + 1)):
+                void(f"attempt {attempt} rank {rank} recorded steps {stepped[:3]}...{stepped[-3:]}, not every step from 1 to {top}")
+        if attempt == 1 and self.kind in IN_TRAINER_FAULT:
+            fired = self.rec("fault", 1)
+            _, step, rank = IN_TRAINER_FAULT[self.kind]
+            reached = max((r.get("step") for r in self.rec("step", 1, rank)), default=0)
+            if fired and reached < step:
+                void(f"attempt 1 rank {rank}'s steps end at {reached}, before step {step} its fault record says it reached")
+
     def score(self) -> None:
         self.load()
         self.bind()
@@ -557,6 +844,7 @@ class Case:
             self.check_job(1)
             self.check_starts(1)
             self.check_transport(1)
+            self.check_steps(1, self.steps)
             got = self.final_params(1)
             # DDP keeps every rank's parameters equal, so ranks that disagree did not train one model.
             if any(len(p) != len(got[0]) for p in got.values()):
@@ -564,7 +852,7 @@ class Case:
             spread = max(abs(a - b) for p in got.values() for a, b in zip(p, got[0]))
             if spread > PARAM_TOLERANCE:
                 failed(f"the ranks ended {spread:.3g} apart, beyond {PARAM_TOLERANCE}")
-            self.figures["checkpoint_s"] = self.save_costs(1)
+            self.figures["checkpoint_s"] = self.save_costs(1, completed=True)
             self.figures["checkpoint"] = self.checkpoint_stats(1)
             return
         # Delivery, then the outcome, then the evidence the figures need, then what the recovery restored: a recovery
@@ -575,6 +863,7 @@ class Case:
             self.check_barrier()
         self.check_starts(2)
         self.check_transport(2)
+        self.check_steps(1)
         resumed = self.check_resume()
         gaps = self.params_gap(2)
         gap = max(gaps.values())
@@ -588,69 +877,98 @@ class Case:
         for rank, g in sorted(gaps.items()):
             if g > PARAM_TOLERANCE:
                 failed(f"the resumed run's rank {rank} ended {g:.3g} from the reference, beyond {PARAM_TOLERANCE}")
-        fault, fault_uncertainty = self.fault_time()
-        # A probe is "before" by when it was taken, not by its label: rank-kill's trainer kills itself at its own step,
-        # so a round of probes that ran long could end after that fault and still be labelled before it, and a clock
-        # that moved in between would go unseen (codex review before the full stage).
-        late = sorted({p["node"] for p in self.clocks if p.get("when") == "before" and p["after"] > fault})
-        if late:
-            void(f"the probe of {late} labelled before the fault ended after it, so the clock before the fault is not shown")
-        firsts, nodes = {}, set()
-        for r in self.rec("step", 2):
-            firsts[r["rank"]] = min(firsts.get(r["rank"], float("inf")), self.runner_time(r))
-            nodes.add(r["_node"])
+        fault, fault_uncertainty = self.placed_fault()
+        firsts, nodes = self.first_steps()
         if sorted(firsts) != list(range(WORLD)):
             failed(f"attempt 2 has step records from ranks {sorted(firsts)}, want every rank of {WORLD}")
         lost_from = max(r["step"] for r in self.rec("step", 1))
         # Attempt 1 recorded at least the step its resume came from, or its log is not all there.
         if lost_from < resumed["from_step"]:
             void(f"attempt 1's step records end at {lost_from}, before step {resumed['from_step']} it resumed from, so its log is incomplete")
+        # A log whose end was not read can have lost its last steps, and lost steps counted from it are too few.
+        cut = self.attempt1_logs_cut()
+        if cut:
+            self.figures["lost_steps_withheld"] = f"attempt 1's logs may lack their end: {cut}"
         self.figures.update({
             "recovery_s": max(firsts.values()) - fault,
             # How far the recovery can be off for the clocks alone: the fault's clock and the worst of attempt 2's.
             "clock_uncertainty_s": fault_uncertainty + max(self.clock(n, 2)[1] for n in nodes),
-            "lost_steps": lost_from - resumed["from_step"],
+            "lost_steps": None if cut else lost_from - resumed["from_step"],
             "class": self.recovery_class(fault),
             "params_gap": gap,
-            "checkpoint_s": self.save_costs(1) + self.save_costs(2),
+            "checkpoint_s": self.save_costs(1, completed=False) + self.save_costs(2, completed=True),
             "checkpoint": self.checkpoint_stats(2),
             **resumed,
         })
+        # check_resume has shown every rank's steps run from the one after the checkpoint, so these are the first steps.
+        # After recovery_class, whose refusal of a recovery on the terminated node names the cause and not its probe.
+        self.check_probed_after([r for r in self.rec("step", 2) if r.get("step") == resumed["from_step"] + 1])
+        # A NaN is not at most zero, so the positivity test alone passed a recovery_s of NaN.
+        for figure in ("recovery_s", "clock_uncertainty_s"):
+            if not finite(self.figures[figure]):
+                void(f"{figure} computes as {self.figures[figure]}, not a finite duration")
         if self.figures["recovery_s"] <= 0:
             void(f"attempt 2's first step is {self.figures['recovery_s']:.3f} s after the fault, which no clock allows")
 
-    def save_costs(self, attempt: int) -> list[float]:
-        costs = [r["save_s"] for r in self.rec("checkpoint", attempt) if isinstance(r.get("save_s"), (int, float))]
-        bad = [c for c in costs if not math.isfinite(c) or c < 0]
-        if bad:
-            void(f"attempt {attempt} recorded save costs {bad[:3]}, which no save takes")
-        return costs
+    def save_costs(self, attempt: int, completed: bool) -> list[float]:
+        """Every save cost of the attempt, each rank's included, refusing a checkpoint record without a cost.
+
+        Records whose cost was missing or not a number were once left out of the figure, and the ranks were counted
+        among the records, not the costs: a run with no rank-1 cost, or no cost at all, was ACCEPTED with "saves": 0.
+        completed says the attempt ran to the job's success, which train.py returns only after its last save.
+        """
+        records = self.rec("checkpoint", attempt)
+        # Each rank of each attempt must have saved, or the figure is one rank's and reads as both (codex review before
+        # the full stage).
+        ranks = sorted({r.get("rank") for r in records}, key=str)
+        if ranks != list(range(WORLD)):
+            void(f"attempt {attempt} has save records from ranks {ranks}, want every rank of {WORLD}")
+        # Every step a rank took is saved, but for the last one a fault can cut before its save: the figure is then every
+        # save, and not a sample of them that reads as all (codex gpt-6-astra attack of the retarget registration, where
+        # 2 of the reference's 60 saves gave an ACCEPTED median of 0.286 s for 0.250 s).
+        # Read from both paid archives: each attempt and rank saved every step it took, or all but its last.
+        # Only a fault can cut that last save, so an attempt that completed saved them all: with both of the reference's
+        # step-30 saves removed it was ACCEPTED on 58 (sixth attack, 6).
+        for rank in range(WORLD):
+            stepped = {r.get("step") for r in self.rec("step", attempt, rank)}
+            saves = [r.get("step") for r in records if r.get("rank") == rank]
+            saved = set(saves)
+            if not all(isinstance(s, int) and not isinstance(s, bool) for s in stepped | saved):
+                void(f"attempt {attempt} rank {rank} records a step that is not a whole number")
+            # Identical records were counted once when the logs were read, so two left for one step disagree, and a
+            # set of steps hid that: a second cost of 10 s became the reference's maximum (sixth attack, 6).
+            twice = sorted(s for s in saved if saves.count(s) > 1)
+            if twice:
+                void(f"attempt {attempt} rank {rank} has differing save records of steps {twice[:5]}, so which cost was "
+                     f"paid is not shown")
+            unsaved, unstepped = stepped - saved, saved - stepped
+            if unstepped or len(unsaved) > 1 or (unsaved and unsaved != {max(stepped)}):
+                void(f"attempt {attempt} rank {rank} has save records of steps {sorted(saved)} for steps "
+                     f"{sorted(stepped)}, which is not every step but at most its last")
+            if completed and unsaved:
+                void(f"attempt {attempt} rank {rank} completed with no save record of its last step {max(unsaved)}, "
+                     f"and an attempt that completed saved every step")
+        for r in records:
+            cost = r.get("save_s")
+            if not finite(cost) or cost < 0:
+                what = "no save cost" if "save_s" not in r else f"save cost {cost!r}, which no save takes"
+                void(f"attempt {attempt} rank {r.get('rank')}'s checkpoint of step {r.get('step')} records {what}")
+        return [r["save_s"] for r in records]
 
     def checkpoint_stats(self, attempts: int) -> dict:
         """Every rank's save cost, as median and maximum per attempt, which the registration names as the figure.
 
-        Each rank of each attempt must have saved, or the figure is one rank's and reads as both (codex review before the
-        full stage).
+        Called once the job is shown Succeeded, so the last attempt is the one that completed.
         """
         out = {}
         for a in range(1, attempts + 1):
-            ranks = sorted({r.get("rank") for r in self.rec("checkpoint", a)})
-            if ranks != list(range(WORLD)):
-                void(f"attempt {a} has save records from ranks {ranks}, want every rank of {WORLD}")
-            costs = self.save_costs(a)
-            out[f"a{a}"] = ({"saves": len(costs), "median_s": round(statistics.median(costs), 3), "max_s": round(max(costs), 3)}
-                            if costs else {"saves": 0})
+            costs = self.save_costs(a, completed=a == attempts)
+            out[f"a{a}"] = {"saves": len(costs), "median_s": round(statistics.median(costs), 3), "max_s": round(max(costs), 3)}
         return out
 
 
-def main(argv: list[str]) -> int:
-    # --partial scores a run still in progress: a registered case with no directory yet is left out instead of VOID.
-    partial = len(argv) == 3 and argv[1] == "--partial"
-    if len(argv) != 2 and not partial:
-        print(__doc__, file=sys.stderr)
-        return 2
-    run = pathlib.Path(argv[-1])
-    prov = provenance(run)
+def run_refusals(prov: dict[str, str]) -> list[str]:
+    """Why a run cannot be scored at all, from its provenance; empty when it can. phases_eks.py asks the same."""
     refusals = []
     if prov.get("dirty_files") != "0":
         refusals.append(f"the run was made from a tree with {prov.get('dirty_files', 'an unknown number of')} uncommitted change(s)")
@@ -663,13 +981,26 @@ def main(argv: list[str]) -> int:
         refusals.append("no registered step count")
     if not prov.get("case_budget", "").isdigit():
         refusals.append("no registered case budget")
+    return refusals
+
+
+def main(argv: list[str]) -> int:
+    # --partial scores a run still in progress: a registered case with no directory yet is left out instead of VOID.
+    partial = len(argv) == 3 and argv[1] == "--partial"
+    if len(argv) != 2 and not partial:
+        print(__doc__, file=sys.stderr)
+        return 2
+    run = pathlib.Path(argv[-1])
+    prov = provenance(run)
+    refusals = run_refusals(prov)
     if refusals:
         for r in refusals:
             print(f"REFUSED: {r}")
         return 2
 
     steps = int(prov["steps"])
-    verdicts: dict[str, tuple[str, str, bool]] = {}
+    cases = prov["cases"].split()
+    verdicts: dict[str, tuple[str, str, bool, bool]] = {}
     scored: dict[str, Case] = {}
     reference: list[float] | None = None
     if partial:
@@ -678,19 +1009,19 @@ def main(argv: list[str]) -> int:
         case = Case(run, name, reference, steps, int(prov["case_budget"]))
         try:
             case.score()
-            verdicts[name] = ("ACCEPTED", "", False)
+            verdicts[name] = ("ACCEPTED", "", False, False)
         except Verdict as v:
-            verdicts[name] = (v.kind, v.reason, v.censored)
+            verdicts[name] = (v.kind, v.reason, v.censored, v.late)
         except (ValueError, KeyError, TypeError, IndexError, AttributeError, OSError) as exc:
             # Evidence that cannot be read is that case's VOID, never the end of the report: an empty file left by
             # one failed kubectl call would otherwise leave every other case without a verdict (codex review of 830f64af).
-            verdicts[name] = ("VOID", f"its evidence could not be read: {type(exc).__name__}: {str(exc)[:120]}", False)
+            verdicts[name] = ("VOID", f"its evidence could not be read: {type(exc).__name__}: {str(exc)[:120]}", False, False)
         scored[name] = case
         if name == "reference":
             reference = case.final_params(1)[0] if verdicts[name][0] == "ACCEPTED" else None
 
     for name in cases:
-        kind, reason, _ = verdicts[name]
+        kind, reason = verdicts[name][:2]
         fig = scored[name].figures
         shown = {k: (round(v, 3) if isinstance(v, float) else v) for k, v in fig.items() if k != "checkpoint_s"}
         print(f"{kind:8} {name}" + (f": {reason}" if reason else f" {json.dumps(shown, sort_keys=True)}"))
@@ -702,19 +1033,28 @@ def main(argv: list[str]) -> int:
             continue
         counts = {v: sum(1 for n in names if verdicts[n][0] == v) for v in ("ACCEPTED", "FAILED", "VOID", "NOTRUN")}
         censored = sum(1 for n in names if verdicts[n][0] == "FAILED" and verdicts[n][2])
-        wrong = counts["FAILED"] - censored
+        late = sum(1 for n in names if verdicts[n][0] == "FAILED" and verdicts[n][3])
+        wrong = counts["FAILED"] - censored - late
         print(f"  {kind}: {len(names)} registered, {counts['ACCEPTED']} ACCEPTED, {counts['FAILED']} FAILED ({censored} censored "
-              f"at their budget, {wrong} not recovered), {counts['VOID']} VOID, {counts['NOTRUN']} NOTRUN")
+              f"at their budget, {late} past their budget after a recovery, {wrong} not recovered), {counts['VOID']} VOID, "
+              f"{counts['NOTRUN']} NOTRUN")
         # Per recovery class, because spare and replacement recoveries are different claims and are never pooled.
-        for cls in ("same-nodes", "spare", "replacement"):
-            rec = [scored[n].figures["recovery_s"] for n in names
-                   if verdicts[n][0] == "ACCEPTED" and scored[n].figures.get("class") == cls]
-            lost = [scored[n].figures["lost_steps"] for n in names
-                    if verdicts[n][0] == "ACCEPTED" and scored[n].figures.get("class") == cls]
+        # And per core-limit arm when the stage ran two (corelimit), since pooling them would describe neither.
+        arm = {n: (getattr(scored[n], "spec", None) or {}).get("core_limit") for n in names}
+        arms = sorted({a for a in arm.values() if a is not None})
+        for cls, a in [(c, a) for c in ("same-nodes", "spare", "replacement") for a in (arms if len(arms) > 1 else [None])]:
+            mine = [n for n in names if verdicts[n][0] == "ACCEPTED" and scored[n].figures.get("class") == cls
+                    and (a is None or arm[n] == a)]
+            rec = [scored[n].figures["recovery_s"] for n in mine]
+            lost = [scored[n].figures["lost_steps"] for n in mine]
+            withheld = sum(1 for v in lost if v is None)
+            shown = sorted(v for v in lost if v is not None)
             if rec:
-                print(f"    {cls}: recovery median {statistics.median(rec):.1f} s, range {min(rec):.1f} to {max(rec):.1f} s, "
-                      f"lost steps {sorted(lost)}, over {len(rec)} accepted; the {censored} FAILED censored at their budget, "
-                      f"the {wrong} not recovered and the {counts['VOID']} VOID are not in these figures")
+                label = cls if a is None else f"{cls}, core limit {a}"
+                print(f"    {label}: recovery median {statistics.median(rec):.1f} s, range {min(rec):.1f} to {max(rec):.1f} s, "
+                      f"lost steps {shown}{f' ({withheld} withheld, their logs not shown read to the end)' if withheld else ''}, "
+                      f"over {len(rec)} accepted; the {censored} FAILED censored at their budget, "
+                      f"the {late} past their budget after a recovery, the {wrong} not recovered and the {counts['VOID']} VOID are not in these figures")
         # The registration counts a terminate-spare that recovered on a replacement as a replacement, never as a spare,
         # and says so here, so a spare figure over fewer cases than ran is not read as every spare recovery.
         if kind == "terminate-spare":

@@ -1,0 +1,13 @@
+HTTP/1.1 200 OK
+Date: Wed, 04 Nov 2026 12:30:56 GMT
+Content-Type: application/vnd.docker.distribution.manifest.list.v2+json
+Content-Length: 743
+Connection: keep-alive
+docker-content-digest: sha256:9cce4b88361d634bfff830b68b4f24a0a39b3c7004447e917bf85fa01804b24f
+docker-distribution-api-version: registry/2.0
+etag: "sha256:9cce4b88361d634bfff830b68b4f24a0a39b3c7004447e917bf85fa01804b24f"
+x-content-type-options: nosniff
+x-envoy-upstream-service-time: 83
+server: istio-envoy
+x-envoy-decorator-operation: container-registry.default.svc.cluster.local:5000/*
+

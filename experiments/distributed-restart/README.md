@@ -273,11 +273,39 @@ The corruption was seen through caches that had read the shard before it changed
 Removing a worker after the server is gone left its exiting processes waiting on the NFS client's goodbye to the server, a DESTROY_CLIENTID call that their kernel stacks showed, for about three minutes in one interrupted rehearsal; the harness now removes the workers first.
 The heartbeat writer of the cut-writer cases still creates `a<attempt>/` on every rank, which over NFS is the race above; it runs only on hostPath.
 
+## Where the paid recoveries spent their time
+
+`phases_eks.py` reports recorded milestones for the recoveries `score_eks.py` accepted.
+It applies the scorer's correction to the nodes' stamps; the controller's and API server's stamps are not calibrated against the runner.
+On the `full` stage (`hack/distributed-restart-eks/2026-11-04-full`), medians of two cases each, as stamp differences in seconds from the fault.
+\* marks a whole-second cluster stamp whose offset from the runner was not measured; it is not a one-second error bound.
+
+| kind | the controller saw the fault | the stop barrier held until | attempt 2 created | every rank Ready | first step |
+|---|---:|---:|---:|---:|---:|
+| `rank-kill` | 2.8\* | 41.8\* | 41.8\* | 45.3\* | 47.2 |
+| `dcgm` | 1.3\* | 32.3\* | 32.3\* | 36.3\* | 37.7 |
+| `terminate-spare` | 32.1\* | 340.6\* | 341.1\* | 344.1\* | 346.3 |
+| `terminate-wait` | 32.7\* | 335.7\* | 336.2\* | 409.7\* | 411.2 |
+
+In the four termination cases the runner first read EC2's state as `terminated` 335.7 to 345.4 s after the fault mark, and fenced after that.
+That interval includes EC2's API and the runner's polling; it is not a measurement of the guest's shutdown.
+From the fence to both ranks' first step took 4.7 to 4.9 s on spares and 74.4 to 75.2 s on replacements.
+Those intervals hold the remaining controller, scheduling, node, image, mount, rendezvous, checkpoint-loading and start-up work, which these records do not separate.
+
+In the four `rank-kill` and `dcgm` cases the controller's trigger stamp was 1.0 to 3.1 s after the fault, subject to its unmeasured clock offset.
+Its stop confirmation followed 39 s after the trigger for `rank-kill` and 31 s for `dcgm`.
+The samples taken during those waits read `job … to be deleted` (rank-kill-1 from 00:45:39 to 00:46:18 UTC, dcgm-1 from 00:50:18 to 00:50:49).
+That names the foreground-deletion check the controller was waiting on; the samples do not show how the wait divided among Pod termination, Job accounting, finalizers and garbage collection.
+The paid command ran the trainer under a PID-1 shell with no TERM trap, and the kernel drops a TERM sent to PID 1 with no handler.
+A later kind probe deleted a Pod running that command in 31.8 s, and one whose shell forwarded TERM in 1.0 s.
+That supports the shell as a contributor to the deletion wait on kind; it does not establish graceful trainer shutdown, the contribution on EKS, or a 30 s reduction in end-to-end recovery.
+
 ## What this does not show
 
-`cut-writer` shows the barrier holding for a deleted Node; a Node that is still Ready is trusted to have stopped its Pods, so a Ready condition that is stale, or a new machine registering under the old name, is not exercised.
-The fence names a node and is never consumed, so an acknowledgement left from one loss would cover a later loss of a machine with the same name; one restart per job here never reaches that.
+`cut-writer` shows the barrier holding for a deleted Node; a Node that is still Ready is trusted to have stopped its Pods, so a Ready condition that is stale is not exercised.
+Since the paid stages the controller records each rank node's UID and refuses a different UID under the same name as Ready-node evidence; no CPU rehearsal or paid stage has run a machine registering under the old name.
+The fence is never consumed; since the paid stages an entry may name the machine as `name@uid`, and a bare name no longer vouches once an earlier attempt of the job ran on another machine of that name, which envtest shows across two attempts and no cluster run has reached.
 A node is fenced only if the controller recorded it, from the attempt's Pods; a rank whose Pod vanishes before the controller first sees it is not exercised.
 The samples are not atomic: each reads four resources one after another, and an ordering finer than about a second is read from the volume's own times and the script's marks, not from the samples.
 One run of each case is evidence that the path works, not a rate.
-Saving and restoring the CUDA RNG is written but has never run, because every check here uses the CPU image.
+The CPU rehearsals never saved or restored the CUDA RNG; the paid stages did, on `cuda:0`, and their resumed parameters matched the reference only so far as the training step draws from that generator.

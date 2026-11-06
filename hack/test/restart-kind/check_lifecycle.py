@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import datetime
 import json
+import lzma
 import pathlib
 import re
 import sys
@@ -58,7 +59,15 @@ def replay(events: list[dict], res: str, prev: str, sub: int) -> list[str] | Non
 
 
 def jsonl(path: pathlib.Path) -> list[dict]:
-    return [json.loads(l) for l in path.read_text().splitlines() if l.strip().startswith("{")] if path.exists() else []
+    # A committed rehearsal keeps its timelines as .xz only, and reading the plain name alone failed every case of it.
+    packed = path.with_name(path.name + ".xz")
+    if path.exists():
+        text = path.read_text()
+    elif packed.exists():
+        text = lzma.decompress(packed.read_bytes()).decode()
+    else:
+        return []
+    return [json.loads(l) for l in text.splitlines() if l.strip().startswith("{")]
 
 
 def main(argv: list[str]) -> int:

@@ -1,0 +1,22 @@
+/usr/local/lib/python3.12/site-packages/torch/_subclasses/functional_tensor.py:295: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at ../torch/csrc/utils/tensor_numpy.cpp:84.)
+  cpu = _conversion_method_template(device=torch.device("cpu"))
+[rank1]: Traceback (most recent call last):
+[rank1]:   File "/work/train.py", line 653, in <module>
+[rank1]:     sys.exit(main())
+[rank1]:              ^^^^^^
+[rank1]:   File "/work/train.py", line 487, in main
+[rank1]:     return train()
+[rank1]:            ^^^^^^^
+[rank1]:   File "/work/train.py", line 568, in train
+[rank1]:     chosen = choose(rank, world) if LOAD_MODE != "none" else None
+[rank1]:              ^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/work/train.py", line 430, in choose
+[rank1]:     ok = manifest is not None and shard_ok(rel, manifest, rank)
+[rank1]:                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/work/train.py", line 387, in shard_ok
+[rank1]:     ok = sha256_file(path) == (entry["sha256"], entry["size"])
+[rank1]:          ^^^^^^^^^^^^^^^^^
+[rank1]:   File "/work/train.py", line 178, in sha256_file
+[rank1]:     with open(path, "rb") as handle:
+[rank1]:          ^^^^^^^^^^^^^^^^
+[rank1]: IsADirectoryError: [Errno 21] Is a directory: '/shared/rst-nfs-fallback-unreadable-123838/a1/00000006-539b3899e6d243a384348e67eb0c51a7/rank-1.pt'

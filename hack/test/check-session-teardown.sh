@@ -44,8 +44,13 @@ echo "terraform $*"
 [[ "${TF_HANGS:-}" == 1 ]] && exec sleep 300
 # Ignores TERM as a terraform busy shutting down gracefully would, so only the KILL after the grace ends it.
 [[ "${TF_HANGS:-}" == term ]] && { trap '' TERM; exec sleep 300; }
-# Exits on TERM but leaves a provider behind that ignores it, as a plugin can outlive the terraform that started it.
-[[ "${TF_HANGS:-}" == provider ]] && { (trap '' TERM; exec sleep 300) & exec sleep 300; }
+# Exits on TERM but leaves a provider behind that ignores it, as a plugin can outlive the terraform that started it;
+# it records the provider's pid so a check can find exactly that process.
+if [[ "${TF_HANGS:-}" == provider ]]; then
+  (trap '' TERM; exec sleep 300) &
+  [[ -n "${PROVIDER_PID_FILE:-}" ]] && echo $! >"$PROVIDER_PID_FILE"
+  exec sleep 300
+fi
 exit 0
 EOF
 chmod +x "$dir/bin/terraform"
@@ -53,6 +58,14 @@ program() {
   bash -c '. hack/lib/session-teardown.sh; killswitch_program "$1/ttl.pid" "$1/kill.log" "$1" "${3:-0}" "$2" gpu-lab ap-northeast-2 infra/aws/cluster gpu-platform "-var=gpu_max_nodes=3 -var=efs_enabled=true" "$1" 1' _ "$dir" "$1" "${2:-0}"
 }
 if program 3 | bash -n; then ok "the program parses with an apostrophe in its paths"; else bad "the program does not parse with an apostrophe in its paths"; fi
+# The allowance is counted on CLOCK_BOOTTIME, never on bash's SECONDS, which follows the wall clock: a step back once let
+# a destroy run 100 minutes against its 40 (gpt-6-astra's third attack before the corelimit run).
+wall="$(program 3 | grep -nP '(?<![A-Z_])SECONDS\b')"
+if [[ -z "$wall" ]] && program 3 | grep -q '^until=\$((\$(mono) + DESTROY_SECONDS))$' && program 3 | grep -q '</proc/uptime'; then
+  ok "the destroy allowance is counted on /proc/uptime, not the wall clock"
+else
+  bad "the destroy allowance's clock: ${wall:-no mono deadline}"
+fi
 
 start=$SECONDS
 TF_HANGS=1 PATH="$dir/bin:$PATH" bash -c "$(program 3)"
@@ -77,6 +90,21 @@ if ((took < 10)) && grep -q 'force-destroy FAILED' "$dir/kill.log"; then
   ok "a destroy that ignores TERM is killed inside its allowance, in $took s"
 else
   bad "the TERM-proof destroy took $took s: $(tail -2 "$dir/kill.log" | tr '\n' ' ')"
+fi
+
+# A destroy cut at its allowance whose terraform exits on TERM leaves no provider behind: timeout exits with its child and
+# never sends the KILL, so whatever of the group outlives it must be killed by the watchdog (codex review before the
+# re-verification).
+: >"$dir/kill.log"
+: >"$dir/provider.pid"
+TF_HANGS=provider PROVIDER_PID_FILE="$dir/provider.pid" PATH="$dir/bin:$PATH" bash -c "$(program 3)"
+sleep 1
+provider="$(cat "$dir/provider.pid")"
+if [[ "$provider" =~ ^[0-9]+$ ]] && ! ps -o stat= -p "$provider" | grep -qv '^Z'; then
+  ok "a provider that outlives terraform at the allowance is killed with its group"
+else
+  bad "the provider ${provider:-never recorded} outlived its destroy's allowance"
+  [[ "$provider" =~ ^[0-9]+$ ]] && kill -9 "$provider"
 fi
 
 # Disarming while a destroy runs stops the destroy too, though timeout put it in a process group of its own, and a

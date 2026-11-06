@@ -3,13 +3,16 @@
 This is a local Slurm cluster in containers on one machine, at zero cost.
 It asks Slurm the questions this repository already asks Kueue and Kubernetes: who gets GPUs when they are short, what a tenant's quota does, what preemption does to the job it takes from, and what a dead node does to a single-node and a two-node job.
 Step 5 then runs real two-rank CPU training (gloo DDP) under Slurm, kills a node mid-training, and checks that the requeued job resumed from its checkpoint and ended with the same parameters as an uninterrupted run.
+Step 6 adds a GPU health check to every node: Slurm's `HealthCheckProgram` reads a fault signal shaped like the platform's dcgm-exporter scrape and drains the node on an Xid, a double-bit ECC count or a signal it cannot read.
+Step 7 repeats step 5 but kills the batch host, which runs rank 0 and the rendezvous.
 It compares **policy meaning**, not speed.
 
 **The GPUs here are declared, not physical.**
 Each compute node advertises two GPUs that Slurm schedules, binds and accounts, and no GPU exists behind them.
 This is the same arrangement as the fake device plugin (`cmd/gpu-simulator`) this repository uses on kind.
 
-Every claim below cites a raw transcript under `evidence/2026-10-31/`, `evidence/2026-10-31-rerun04/` or, for step 5, `evidence/2026-11-01-train/`.
+Every claim below cites a raw transcript under `evidence/2026-10-31/`, `evidence/2026-10-31-rerun04/`, for step 5 `evidence/2026-11-01-train/`, or, for steps 6 and 7, `evidence/2026-11-04/`.
+`evidence/2026-11-04/` is one run of every step, 0 to 7, on one fresh cluster built from the image that carries the health check; its steps 0 to 5 repeat the earlier evidence on that image and are cited only where they are the source of a figure.
 Each transcript records the exact command, the UTC time it ran, its full output and its exit status.
 A prompt `alice@slurmctld$` means the command ran as user alice inside the slurmctld container (`docker compose exec -T -u alice slurmctld bash -c '…'`); `host$` means it ran on the host in this directory.
 
@@ -57,9 +60,11 @@ KEEP=1 ./run.sh     # the same, leaving the cluster up for inspection
 docker compose down -v   # when finished with KEEP=1
 ```
 
-The steps can also be run one at a time against a running cluster, in order: `steps/00-fileless-gres.sh`, `steps/00-setup.sh`, `steps/01-gres.sh`, `steps/02-quota-preempt.sh`, `steps/03-node-failure.sh`, `steps/04-multinode.sh`, `steps/05-train-requeue.sh`.
+The steps can also be run one at a time against a running cluster, in order: `steps/00-fileless-gres.sh`, `steps/00-setup.sh`, `steps/01-gres.sh`, `steps/02-quota-preempt.sh`, `steps/03-node-failure.sh`, `steps/04-multinode.sh`, `steps/05-train-requeue.sh`, `steps/06-gpu-health.sh`, `steps/07-batch-host-loss.sh`.
 `steps/00-setup.sh` creates the accounts and QoS, so it runs once per fresh cluster.
 Steps 0 to 4 took about 15 minutes, most of it Slurm's requeue delay; step 5 took about 8 minutes on its own (`evidence/2026-11-01-train/`, 23:41:54 to 23:49:58 UTC).
+The whole of `evidence/2026-11-04/`, steps 0 to 7, took 31 minutes (12:05:46 to 12:37:01 UTC); step 6 took 4 minutes and step 7 5.
+The health check has a host-side test that needs no containers: `python3 check_gpuhc.py` runs `etc/gpuhc.py` against stub `scontrol` and `squeue` over 19 cases.
 Nothing is pulled except the two pinned base images and the pinned torch wheels, and nothing is pushed.
 
 The image is now tagged `slurmlab:24.11.5-torch251`, because step 5 added torch to it.
@@ -67,6 +72,9 @@ Steps 0 to 4 in `evidence/2026-10-31*/` ran on the earlier `slurmlab:24.11.5`, w
 Step 5 ran on a fresh cluster after only `steps/00-setup.sh`, whose transcripts for that cluster are in `evidence/2026-11-01-train/`.
 The first recording of `00-cluster.txt` and `00-accounting.txt` there had a missing space in the `docker image inspect` line, so the image ID was never captured.
 Both were rewritten on 2026-11-01 at 05:21 UTC by rerunning `steps/00-setup.sh` on a second fresh cluster from the same image (`sha256:1691aad9bffb…`), so those two files are not from the cluster step 5 ran on.
+`evidence/2026-11-04/` ran on image `sha256:1542284e1f24…`, built at the start of that run with `etc/gpuhc.py` in it; `06a-gpu-health-drain.txt` records the file's sha256 inside a node, `17156e0f…`, which is the file as committed in `fb1d36b7`.
+The check was changed after that run to drain on a non-finite value (`NaN`, `+Inf`) instead of crashing on it; no step writes such a value, so the change does not touch a path the evidence took, but the file in this tree is not the one that ran.
+An earlier run the same day, from a version of the check that retried a refused requeue every 5 s, was discarded rather than kept beside it; that defect is described under step 6.
 
 ## Step 1: GRES placement and the `Resources` reason
 
@@ -370,6 +378,72 @@ The job variables are passed in sbatch's environment, not as `--export=ALL,VAR=�
 A job submitted the second way during development made slurmd on c1 log `_get_user_env: get env for user alice here` and then `fatal: clone: Operation not permitted`, after which compose restarted the container and slurmctld requeued the job (`Batch JobId=2 missing from batch node c1`).
 That run was a scratch smoke test whose transcript was not kept; the cause beyond those two log lines was not investigated.
 
+## Step 6: a GPU health check drains a faulted node, and only an operator returns it
+
+Transcripts: `evidence/2026-11-04/06a-gpu-health-drain.txt`, `06b-gpu-health-requeue.txt`, `06c-gpu-health-unreadable.txt`.
+
+**What runs.**
+`etc/slurm.conf` sets `HealthCheckProgram=/etc/slurm/gpuhc.py`, `HealthCheckInterval=5` and `HealthCheckNodeState=ANY`, so slurmd runs the check every 5 s on allocated nodes too (the transcript opens with `scontrol show config` printing all three).
+The check reads `/var/lib/labgpu/metrics.prom`, one `DCGM_FI_DEV_XID_ERRORS` and one `DCGM_FI_DEV_ECC_DBE_VOL_TOTAL` sample per card labelled with its UUID: the two fields the platform reads from dcgm-exporter, in the exposition format it scrapes.
+There is no exporter and no GPU here, so the entrypoint writes that file with zeros and the step rewrites it to inject a fault.
+Its rules are the platform's (`internal/gpufault/classify.go`, `Assess`): an Xid is a fault unless it is one of the application Xids 13, 31, 43, 45 and 68; a double-bit count above zero is a fault; single-bit counts are never one.
+
+**The rules for what it does, and why.**
+- A fault drains the node, with the card and field as the reason: `Reason=gpuhc: GPU-lab-c2-1 DCGM_FI_DEV_XID_ERRORS=79`.
+- A signal it cannot judge drains the node too, with what it could not read as the reason: a missing file, a declared card absent from it, a card without one of the two fields, a value that is not a whole non-negative number, a malformed line, or two values for one card.
+  A node this check leaves alone looks healthy in `sinfo`, so a check that cannot see its cards must not leave it alone; draining is the conservative choice, because it stops new work and kills nothing.
+- It never resumes a node. A clean signal after a fault is not a repair, so the node waits for `scontrol update state=resume`.
+- It does not overwrite a drain that is already there, so the first fault's reason, or an operator's maintenance reason, is the one `sinfo` keeps.
+- With `requeue` written in `/var/lib/labgpu/policy`, a fault also requeues every job running on the node, once per job.
+
+`check_gpuhc.py` pins each rule with stub `scontrol` and `squeue` (19 cases, all passing; three of them, `NaN`, `+Inf` and an overflowing value, were added after a review found the check crashed on them without draining).
+Two mutations of `etc/gpuhc.py` show the test can fail: making `main` return 0 at once (a check that always passes) failed 11 of the 15 cases then present, and returning 0 when the signal cannot be judged (fail open) failed 7.
+
+**6a. An Xid drains the node; the running job finishes; new work goes elsewhere; the clean signal does not return the node.**
+A one-GPU job ran on c2 (`CUDA_VISIBLE_DEVICES=0`), and Xid 79 was written for c2's card 1 at 12:28:01.518.
+The check drained c2 at 12:28:03.020, 1.5 s later by its own log, and `sinfo` showed `draining|gpuhc: GPU-lab-c2-1 DCGM_FI_DEV_XID_ERRORS=79` at the next poll.
+The drain is per node: the job held card 0, not the faulted card, and it was not stopped; it ended by itself at 12:29:01 as `COMPLETED`, after which c2 was `drained`.
+An unpinned two-GPU job submitted after the drain started on c1 within 3 s, and a job that named c2 waited with `ReqNodeNotAvail`.
+The signal was then written clean; the check logged `healthy: every card read, no fault field set` every 5 s from 12:29:03, and c2 stayed `IDLE+DRAIN` with the fault's reason.
+`scontrol update nodename=c2 state=resume` at 12:29:21 returned it, and the waiting job started there at 12:29:24.
+
+**Is "only the operator returns it" the right rule?** For this signal, yes.
+A volatile double-bit count can read zero again after a driver reload, and the Xid field holds only the last Xid, so a clean reading after a fault says the signal changed, not that the card was repaired.
+That is the platform's rule too (`decideGPUFault` in `internal/controller/nodehealth_gpufault.go` keeps the latch until the fields read zero, or an operator acknowledges); Slurm's drain makes it simpler, because `resume` is already the operator's act and needs no acknowledgement field.
+What it costs is a person in the loop for every fault, which a site with thousands of GPUs would want automated once a repair procedure, such as a diagnostic pass, exists; that is not built here.
+
+**6b. With the requeue policy, a fault also requeues the node's jobs; a job that refused requeue keeps running on the faulted node.**
+c3 ran `hc-rq-yes` (`--requeue`) and `hc-rq-no` (`--no-requeue`), each on one GPU, when a double-bit count of 2 was written for c3's card 0 (the write's transcript time is 12:29:33.145).
+At 12:29:38 the check drained c3, requeued job 43 (`rc=0`) and was refused for job 44 with `Requested operation is presently disabled for job 44`, each logged once.
+Job 43's first run was cancelled with `DUE TO JOB REQUEUE`; Slurm held it until `EligibleTime=12:31:39`, its usual two-minute requeue delay, and started it again on c1 at 12:31:46 with `restart=1`.
+`sacct` still showed job 44 `RUNNING` on c3 at 12:31:46, after which the step cancelled it: a job submitted `--no-requeue` stays on a node whose GPU has faulted until someone cancels it.
+The policy is opt-in per node, which only stands in for an operator's choice; the platform's equivalent is the cluster-wide `--gpu-fault-evict-workloads` flag.
+
+**A defect the first run found.**
+The first run of this step, from a version of the check that requeued on every pass while the fault lasted, retried job 44 every 5 s and logged its refusal 26 times between 11:56:40 and 11:58:45 UTC.
+The check now records each job it has tried in `/var/lib/labgpu/requeued` and tries each once; `check_gpuhc.py` has a case for it, which failed on the old version and passes on this one.
+That run's evidence was discarded rather than kept beside this one.
+
+**6c. A signal that disappears drains the node.**
+Deleting c1's signal file at 12:31:49.538 drained c1 at 12:31:53 with `Reason=gpuhc: signal not judged: signal /var/lib/labgpu/metrics.prom unreadable: No such file or directory`.
+The step then wrote the file back and ran `resume`, so this transcript does not show how long c1 would have stayed drained on a restored signal; 6a shows that for a fault.
+
+## Step 7: losing the batch host, which runs rank 0 and the rendezvous
+
+Transcripts: `evidence/2026-11-04/07a-train-reference.txt`, `07b-batch-host-loss.txt`, `07-verdict.txt`; logs in `07-bh-ref-logs/` and `07-bh-full-logs/`.
+
+The same two-node job as step 5 (`train.sbatch`, the same pinned `train.py`, `CKPT_LOAD=full`), but `requeue_case` in `steps/train-lib.sh` was told to kill the batch host.
+The batch host was c1, which ran the batch script, rank 0, and the rendezvous that `MASTER_ADDR` names; c2 ran rank 1.
+After rank 0 recorded 12 published checkpoints, `docker compose kill c1` ran at 12:32:53.893.
+slurmctld logged `Nodes c1 not responding` from 12:33:11 and `setting DOWN` at 12:34:00.015, 66 s after the kill; in the same run, step 5's kill of the non-batch node c2 was declared DOWN 35 s after its kill (12:20:42.785 to 12:21:18.001).
+`sacct` recorded the attempt as `NODE_FAIL`, its batch step `CANCELLED` and its srun step `FAILED`, and the job was requeued.
+The second attempt started at 12:36:30 on c2 and c3, with rank 0 now on c2, so the rendezvous moved with the batch host; both ranks resumed from `a0/00000012-…` (step 12) and the job ended `COMPLETED`.
+`score_requeue.py` passed it against an uninterrupted reference from the same run, 30 checks and none failed, including equal final parameters.
+Step 5's load-none mutation, run earlier in the same `evidence/2026-11-04/`, is what shows that scorer fails a restart from zero; it was not repeated here.
+
+The 66 s against 35 s is one observation of each, and why losing the batch host took longer to declare was not investigated; a `slurm_load_node: Socket timed out` from `sinfo` at 12:34:00 suggests slurmctld itself was slow then.
+Losing the batch host also loses the batch script's own output for that attempt with the node, unless it is on shared storage; `train.sbatch` writes it to `/ckpt`, which is why `slurm-bh-full-46.out` survived.
+
 ## Slurm behaviour mapped to this repository
 
 | observed in Slurm | evidence | this repository's counterpart | same / different / not comparable | why |
@@ -387,17 +461,26 @@ That run was a scratch smoke test whose transcript was not kept; the cause beyon
 | With `--requeue`, the two-node job is requeued as one unit and restarts on whichever two nodes are free | `evidence/2026-10-31-rerun04/04-multinode-requeue.txt` | none: `backoffLimit: 0` and no requeue path for a failed distributed MLTrainingJob | **different** | Slurm can retry the whole gang; the repository's code in this tree fails it and leaves the retry to the tenant. Slurm's retry restarts processes from the beginning of the script: whether training resumes is decided by the workload, which the next row tests |
 | With `--requeue`, a shared checkpoint volume and the trainer's checkpoint protocol, the requeued attempt resumed from attempt 0's last published checkpoint (step 12) and ended with parameters equal to an uninterrupted run's | `evidence/2026-11-01-train/05b-train-requeue.txt`, scored by `score_requeue.py` | the whole-job restart of a distributed MLTrainingJob (`distributed.maxRestarts`), run on kind with the same trainer protocol in `experiments/distributed-restart/README.md`: a killed rank, a held Workload and a lost node each resumed from the last complete checkpoint with equal parameters | **same** in outcome, **different** in trigger and barrier | both start every rank again from the last published checkpoint under a new attempt number; Slurm's `--requeue` covers node failure and preemption, not a rank's nonzero exit, while the Kubernetes restart is also triggered by a failed rank; and Slurm restarted on other nodes once it declared the dead node DOWN, while the Kubernetes restart waits for a lost node to be fenced. One run of each, on toy models |
 | With `--no-kill`, the allocation shrinks to the survivor but the spanning step is still killed | `evidence/2026-10-31-rerun04/04-multinode-nokill.txt` | none | **not comparable** | the repository has no notion of an allocation outliving its ranks |
+| A GPU fault (Xid 79, double-bit ECC) drains the node 1.5 s after the signal changed, with the card and field as the reason | `evidence/2026-11-04/06a-gpu-health-drain.txt` | the GPU fault taint `platform.lkhun9311.github.io/gpu-fault` with effect `NoSchedule`, set by `decideGPUFault` and `ensureGPUFaultTaint` (`internal/controller/nodehealth_gpufault.go`) from the same two DCGM fields judged by `Assess` (`internal/gpufault/classify.go`); on one rented A10G (g5.2xlarge) with injected faults, detection took a median 1.634 s and the taint 0.009 s more (`hack/gpu-fault/2026-11-01-run3/verdict.txt`, arm xid) | **same** rule, **different** mechanism | both stop new placement on any card fault, keep running work, and name the fault; Slurm runs a program on the node every 5 s, the platform scrapes the exporter from the controller. The two timings are from different machines and signals and are not a comparison |
+| The drain is per node: a job on the node's healthy card was not stopped | `06a-gpu-health-drain.txt` | the taint is per node too | **same** | neither tracks which card a job holds when it decides to stop placement |
+| With the requeue policy, the fault requeues the node's running jobs; Slurm restarts them after its two-minute requeue delay on another node; a `--no-requeue` job refuses and keeps running on the faulted node | `06b-gpu-health-requeue.txt` | `--gpu-fault-evict-workloads`: `displaceGPUWork` deactivates each GPU Pod's Kueue Workload on the node, and `reactivateDisplaced` reactivates it once Kueue has evicted it; a GPU Pod with no Workload is reported and left alone | **same** in intent, **different** in timing and in who may refuse | both move admitted work off a faulted node through the scheduler's own requeue; Slurm lets the job refuse it, the platform lets work it did not admit through Kueue stay. In run 3 the platform's eviction phases took about a second each (median `job_suspend` 1.064 s, `readmit` 1.000 s); Slurm's delay here was two minutes by its own rule |
+| A clean signal after a fault does not return the node; `scontrol update state=resume` does | `06a-gpu-health-drain.txt` | the fault stays latched, and the taint with it, until a fresh reading carries every card the fault named and reads every fault field on every card as zero, or an operator writes the fault's fingerprint into the `acknowledged` annotation (`decideGPUFault`) | **different** | the platform releases on an all-zero reading by itself; the lab's check never does. Neither runs a diagnostic before returning the card |
+| A signal the check cannot read drains the node | `06c-gpu-health-unreadable.txt` | a stale or incomplete reading keeps the latch and the taint as they are, and sets `GPUHealthy` to Unknown, but does not taint a node that had no fault (`keepLatch` in `decideGPUFault`) | **different** | the lab treats an unreadable signal as a fault; the platform treats it as unknown and stops placement only for a fault it has already seen |
+| Losing the batch host, with rank 0 and the rendezvous, is requeued and resumes from the checkpoint like losing any other node | `07b-batch-host-loss.txt` | the distributed restart's lost-node case on kind and the paid `terminate-*` cases (`experiments/distributed-restart/README.md`), in which the rank lost was not chosen by role | **same** in outcome | in both the next attempt rebuilt the rendezvous on the nodes it got; neither shows rank 0's node specifically on Kubernetes |
 
 ## What this does not show
 
-- **No real GPUs.** The GPUs are device nodes with no driver; nothing here says anything about CUDA, NCCL, GPU health checks or device faults.
+- **No real GPUs.** The GPUs are device nodes with no driver; nothing here says anything about CUDA or NCCL.
+  Step 6's health check reads a file in the exporter's format that the steps write; it shows what Slurm does with a fault signal, not that any real GPU fault produces that signal, or that dcgm-exporter would.
+- **No diagnostic before a node returns.** An operator's `resume` is the only way back, and nothing checks the card first; a repair procedure such as a `dcgmi diag` pass is not built.
+- **The health check's interval was not varied.** Detection here is bounded by `HealthCheckInterval=5`; a site that runs a heavier check less often would see longer gaps, and the cost of running the check on a busy node was not measured.
 - **No real network.** All containers share one Docker bridge on one host; there is no fabric, no MPI and no PMIx; step 4's ranks only print and sleep, and step 5's ranks talk gloo over TCP on that bridge.
 - **Toy training.** Step 5 trains a 5-parameter linear model on CPU for 40 steps; it shows that the checkpoint protocol carried over a Slurm requeue, not anything about the size, speed or storage cost of real checkpoints.
 - **A local volume, not a shared filesystem.** The checkpoint volume is one Docker volume on one disk, which every container sees immediately; NFS or Lustre visibility delays, which the trainer retries for, were not exercised.
-- **Only the non-master node was killed.** In both step-5 kills the dead node ran rank 1; losing the batch host, which also runs rank 0 and the rendezvous, was not tried.
+- **Losing the batch host was tried once.** Step 7 killed the batch host once and it resumed; why its loss took 66 s to declare against 35 s for the other node was not investigated, and a batch host that hangs rather than stopping was not tried.
 - **One host.** "Node failure" is a stopped container; a real node can fail partially, hang, or keep its processes running while its slurmd dies, and none of that was tried.
 - **No confinement.** With the cgroup plugin disabled, a job is not limited to its CPUs, memory or devices.
 - **No accounting at scale.** Two accounts, two users, two QoS levels and a few dozen jobs; nothing about scheduler throughput, backfill under load, or fair-share decay.
-- **Single runs.** Each behaviour was observed once in this evidence; timings such as the 22 to 36 s detection (30 and 31 s in step 5) and the two-minute requeue delay are single observations, not distributions.
+- **Single runs.** Each behaviour was observed once in this evidence; timings such as the 22 to 36 s detection (30 and 31 s in step 5, 35 and 66 s in `evidence/2026-11-04/` steps 5 and 7), step 6's 1.5 s drain and the two-minute requeue delay are single observations, not distributions.
   Step 5's resume was observed in one job, with the kill landing after step 12's checkpoint and before any step-13 record; a kill inside a checkpoint write was not aimed at.
 - **Shared lab secrets.** The MUNGE key is baked into the local image and the database password is in `etc/slurmdbd.conf`; both are for this lab only, and the image is never pushed.

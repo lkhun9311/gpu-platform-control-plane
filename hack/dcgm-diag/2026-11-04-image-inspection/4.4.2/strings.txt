@@ -1,0 +1,32 @@
+== nvvs: plugin directories and CUDA version messages
+/cuda11/
+/cuda12/
+/cuda13/
+/cudaless/
+Detected unsupported Cuda version: {}.{}
+Detected unsupported CUDA version {}; defaulting to {}
+== dcgmi: embedded host engine and connection messages
+dcgmStartEmbedded_v2
+Error: unable to establish a connection to the specified host: 
+Error: Unable to start an embedded host engine. 
+== dcgmi: lower-case key strings that name a device
+device_id
+driver_version
+entity_groups
+entity_id
+error_category
+error_id
+info
+metadata
+results
+runtime_error
+serial
+serial_num
+tests
+test_summary
+warnings
+== dcgmi: any string containing UUID
+Device UUID
+std::vector<dcgmGroupEntityPair_t> DcgmNs::EntityListWithMigAndUuidParser(const dcgmMigHierarchy_v2&, const std::vector<std::pair<unsigned int, std::__cxx11::ba
+Unable to collect GPU attributes for GpuId {}. It may be impossible to specify GPU UUID as entity id. Result: {}, {}
+UUID

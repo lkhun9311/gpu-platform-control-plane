@@ -1,0 +1,2 @@
+INSPECTION REFUSED: /tmp/tmp.0PeUNUuzu3/existing already exists; move it aside or set OUT
+exit=2

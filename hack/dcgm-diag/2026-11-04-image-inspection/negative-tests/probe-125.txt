@@ -1,0 +1,6 @@
+INSPECTION STEP FAILED: 3.3.9: discovery-default did not run (exit 125)
+INSPECTION STEP FAILED: 3.3.9: discovery-default's output does not match /Unable to connect to host engine/
+INSPECTION STEP FAILED: 4.4.2: discovery-default did not run (exit 125)
+INSPECTION STEP FAILED: 4.4.2: discovery-default's output does not match /Unable to connect to host engine/
+INSPECTION INCOMPLETE: see the failures above; /tmp/tmp.0PeUNUuzu3/probe-125 is not a complete archive
+exit=1

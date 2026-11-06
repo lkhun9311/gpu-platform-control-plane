@@ -1,0 +1,22 @@
+OK   watch streams present: ['jobs', 'mltrainingjobs', 'pods', 'workloads'], missing []
+OK   run-f: nothing of reference existed when rank-kill-1 was submitted at resourceVersion 2524; its last object was deleted at 2515
+OK   run-f: nothing of rank-kill-1 existed when rank-kill-2 was submitted at resourceVersion 2919; its last object was deleted at 2908
+OK   run-f: nothing of rank-kill-2 existed when rank-kill-3 was submitted at resourceVersion 3313; its last object was deleted at 3302
+OK   run-f: nothing of rank-kill-3 existed when rank-kill-4 was submitted at resourceVersion 3708; its last object was deleted at 3700
+OK   run-f: nothing of rank-kill-4 existed when rank-kill-5 was submitted at resourceVersion 4104; its last object was deleted at 4097
+OK   run-f: nothing of rank-kill-5 existed when rank-kill-6 was submitted at resourceVersion 4498; its last object was deleted at 4491
+OK   run-f: nothing of rank-kill-6 existed when dcgm-1 was submitted at resourceVersion 4893; its last object was deleted at 4884
+OK   run-f: nothing of dcgm-1 existed when dcgm-2 was submitted at resourceVersion 5303; its last object was deleted at 5281
+OK   run-f: nothing of dcgm-2 existed when dcgm-3 was submitted at resourceVersion 5711; its last object was deleted at 5691
+OK   run-f/reference: ACCEPTED, last sampled 66.8 s after its creation was seen
+OK   run-f/rank-kill-1: ACCEPTED, last sampled 70.9 s after its creation was seen
+OK   run-f/rank-kill-2: ACCEPTED, last sampled 70.9 s after its creation was seen
+OK   run-f/rank-kill-3: ACCEPTED, last sampled 72.1 s after its creation was seen
+OK   run-f/rank-kill-4: ACCEPTED, last sampled 70.9 s after its creation was seen
+OK   run-f/rank-kill-5: ACCEPTED, last sampled 70.9 s after its creation was seen
+OK   run-f/rank-kill-6: ACCEPTED, last sampled 70.9 s after its creation was seen
+OK   run-f/dcgm-1: ACCEPTED, last sampled 67.5 s after its creation was seen
+OK   run-f/dcgm-2: ACCEPTED, last sampled 67.4 s after its creation was seen
+OK   run-f/dcgm-3: ACCEPTED, last sampled 67.5 s after its creation was seen
+0 FAIL(s)
+exit=0

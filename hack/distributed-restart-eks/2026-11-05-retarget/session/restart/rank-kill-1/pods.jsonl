@@ -1,0 +1,4 @@
+{"uid": "16be8d91-cf9e-4275-9293-1ec76e31400a", "pod": "rst-rank-kill-1-161302-1-l92nm", "node": "ip-10-0-60-196.ap-northeast-2.compute.internal", "index": "1", "attempt_token": "1", "observed": "2026-11-05T16:13:05.769265950Z"}
+{"uid": "a5ecd19b-08c8-4cbd-b7df-bbdbe9e0b110", "pod": "rst-rank-kill-1-161302-0-tcwv8", "node": "ip-10-0-54-241.ap-northeast-2.compute.internal", "index": "0", "attempt_token": "1", "observed": "2026-11-05T16:13:07.278780874Z"}
+{"uid": "a045f71b-0d3f-4786-9080-f8e44eddfa3e", "pod": "rst-rank-kill-1-161302-0-9wlkb", "node": "ip-10-0-54-241.ap-northeast-2.compute.internal", "index": "0", "attempt_token": "2", "observed": "2026-11-05T16:14:18.034346112Z"}
+{"uid": "92906669-9140-4a04-9e60-91c1a46bfd37", "pod": "rst-rank-kill-1-161302-1-vc2rf", "node": "ip-10-0-60-196.ap-northeast-2.compute.internal", "index": "1", "attempt_token": "2", "observed": "2026-11-05T16:14:18.036227673Z"}

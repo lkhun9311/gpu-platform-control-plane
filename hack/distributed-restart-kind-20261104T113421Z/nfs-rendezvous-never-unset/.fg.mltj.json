@@ -1,0 +1,118 @@
+{
+    "apiVersion": "platform.lkhun9311.github.io/v1",
+    "kind": "MLTrainingJob",
+    "metadata": {
+        "annotations": {
+            "kubectl.kubernetes.io/last-applied-configuration": "{\"apiVersion\":\"platform.lkhun9311.github.io/v1\",\"kind\":\"MLTrainingJob\",\"metadata\":{\"annotations\":{},\"name\":\"rst-nfs-rendezvous-never-unset-115801\",\"namespace\":\"rst\"},\"spec\":{\"command\":[\"sh\",\"-c\",\"export CKPT_RUN_ID=rst-nfs-rendezvous-never-unset-115801 CKPT_DIR=/shared CKPT_JOB_ID=rst-nfs-rendezvous-never-unset-115801 CKPT_STEPS=20 CKPT_STEP_SLEEP=1 OMP_NUM_THREADS=1 CKPT_FAULT=kill-after-latest:6 CKPT_COLLECTIVE_TIMEOUT=60\\npython /work/train.py\\n\"],\"distributed\":{\"maxRestarts\":1,\"worldSize\":2},\"gpuCount\":1,\"image\":\"distributed-restart:torch251\",\"queue\":\"gpu-rst\",\"stateVolume\":{\"claimName\":\"shared\",\"mountPath\":\"/shared\"}}}\n"
+        },
+        "creationTimestamp": "2026-11-04T11:58:01Z",
+        "finalizers": [
+            "mltrainingjob.platform.lkhun9311.github.io/finalizer"
+        ],
+        "generation": 1,
+        "name": "rst-nfs-rendezvous-never-unset-115801",
+        "namespace": "rst",
+        "resourceVersion": "7051",
+        "uid": "59fb7254-0b86-46e4-9236-798176759b13"
+    },
+    "spec": {
+        "command": [
+            "sh",
+            "-c",
+            "export CKPT_RUN_ID=rst-nfs-rendezvous-never-unset-115801 CKPT_DIR=/shared CKPT_JOB_ID=rst-nfs-rendezvous-never-unset-115801 CKPT_STEPS=20 CKPT_STEP_SLEEP=1 OMP_NUM_THREADS=1 CKPT_FAULT=kill-after-latest:6 CKPT_COLLECTIVE_TIMEOUT=60\npython /work/train.py\n"
+        ],
+        "completions": 1,
+        "distributed": {
+            "maxRestarts": 1,
+            "worldSize": 2
+        },
+        "gpuCount": 1,
+        "image": "distributed-restart:torch251",
+        "parallelism": 1,
+        "queue": "gpu-rst",
+        "stateVolume": {
+            "claimName": "shared",
+            "mountPath": "/shared"
+        }
+    },
+    "status": {
+        "admitToRunningSeconds": "1.720",
+        "admittedAt": "2026-11-04T11:58:01Z",
+        "attempts": [
+            {
+                "allRanksReadyAt": "2026-11-04T11:58:02Z",
+                "createdAt": "2026-11-04T11:58:01Z",
+                "failureObservedAt": "2026-11-04T11:58:11Z",
+                "jobUID": "8934e45d-0245-4a79-b32e-eab353c56ca6",
+                "nodeUIDs": {
+                    "rstnfs-worker": "9bc2949c-7c74-49ac-9b4e-b784e1b6efc0",
+                    "rstnfs-worker3": "6bcc7abc-4673-4ff3-a3ba-0ca53b87a7a2"
+                },
+                "nodes": [
+                    "rstnfs-worker",
+                    "rstnfs-worker3"
+                ],
+                "number": 1,
+                "state": "Stopped",
+                "stopConfirmedAt": "2026-11-04T11:58:13Z",
+                "trigger": "RankFailed",
+                "workloadName": "job-rst-nfs-rendezvous-never-unset-115801-eb941",
+                "workloadUID": "ccc89874-bd32-4860-99e8-4e8c1f64efc0"
+            },
+            {
+                "createdAt": "2026-11-04T11:58:13Z",
+                "failureObservedAt": "2026-11-04T11:59:17Z",
+                "jobUID": "034b2d46-8ea7-4d89-b650-3163e24dd738",
+                "nodeUIDs": {
+                    "rstnfs-worker3": "6bcc7abc-4673-4ff3-a3ba-0ca53b87a7a2"
+                },
+                "nodes": [
+                    "rstnfs-worker3"
+                ],
+                "number": 2,
+                "state": "Stopped",
+                "stopConfirmedAt": "2026-11-04T11:59:48Z",
+                "trigger": "RankFailed",
+                "workloadName": "job-rst-nfs-rendezvous-never-unset-115801-0e2cf",
+                "workloadUID": "f3bb6d9b-09bb-476e-aee2-b764a9c2766b"
+            }
+        ],
+        "conditions": [
+            {
+                "lastTransitionTime": "2026-11-04T11:59:17Z",
+                "message": "",
+                "observedGeneration": 1,
+                "reason": "Restarting",
+                "status": "False",
+                "type": "Admitted"
+            },
+            {
+                "lastTransitionTime": "2026-11-04T11:58:01Z",
+                "message": "",
+                "observedGeneration": 1,
+                "reason": "ServiceOwned",
+                "status": "True",
+                "type": "RendezvousService"
+            },
+            {
+                "lastTransitionTime": "2026-11-04T11:58:02Z",
+                "message": "the tenant waited 1.720s between Kueue admitting this job and this controller seeing it run; the admission end is Kueue's own stamp and the running end is this controller's observation, so the interval carries one watch lag",
+                "reason": "Observed",
+                "status": "True",
+                "type": "AdmitToRunningObserved"
+            },
+            {
+                "lastTransitionTime": "2026-11-04T11:59:48Z",
+                "message": "attempt 2 ended (RankFailed) and maxRestarts 1 is spent",
+                "observedGeneration": 1,
+                "reason": "RestartsExhausted",
+                "status": "False",
+                "type": "JobSynced"
+            }
+        ],
+        "lastTransitionTime": "2026-11-04T11:59:48Z",
+        "observedGeneration": 1,
+        "phase": "Failed",
+        "runningObservedAt": "2026-11-04T11:58:02Z"
+    }
+}

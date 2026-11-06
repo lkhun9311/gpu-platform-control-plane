@@ -1,0 +1,4 @@
+{"uid": "4e02f0a1-955f-493f-ae8c-9f485390f983", "pod": "rst-rank-kill-6-072740-0-6kdjj", "node": "rstlife-worker3", "index": "0", "attempt_token": "1", "observed": "2026-11-06T07:27:42.526010649Z"}
+{"uid": "522e621d-6fc8-4b8e-b167-189cef6ccff7", "pod": "rst-rank-kill-6-072740-1-b7qsx", "node": "rstlife-worker", "index": "1", "attempt_token": "1", "observed": "2026-11-06T07:27:42.528047739Z"}
+{"uid": "9445ea76-6ffd-4ab2-b574-5a73e0c2539f", "pod": "rst-rank-kill-6-072740-0-ckqb5", "node": "rstlife-worker3", "index": "0", "attempt_token": "2", "observed": "2026-11-06T07:28:09.087033180Z"}
+{"uid": "6c3d73ea-c31e-409d-9e05-1ce4b5c7dd65", "pod": "rst-rank-kill-6-072740-1-rp4lt", "node": "rstlife-worker2", "index": "1", "attempt_token": "2", "observed": "2026-11-06T07:28:10.195378884Z"}

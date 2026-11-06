@@ -9,7 +9,13 @@
 # passes every training refusal is stopped by the stub gh a few lines later, before the kill switch, and is told
 # from a refusal by the line train_require_new_cluster prints when it finds no cluster.
 set -uo pipefail
+self="$(readlink -f "$0")"
 cd "$(dirname "$0")/../.." || exit 1
+# The session bounds each paid phase by a cgroup it makes, so these run where it can: a delegated scope, entered here
+# when not started in one.
+# shellcheck source=hack/lib/phase-supervisor.sh
+. hack/lib/phase-supervisor.sh
+phase_supervisor_enter bash "$self" "$@" || exit 1
 
 fails=0
 ok() { echo "ok: $*"; }
@@ -43,7 +49,7 @@ sha="$(sha256sum experiments/cpu-ddp/train.py | cut -d' ' -f1)"
 repo="$work/repo"
 mkdir -p "$repo/hack/lib" "$repo/experiments/cpu-ddp"
 cp hack/eks-gitops-session.sh "$repo/hack/"
-cp hack/lib/train-session.sh hack/lib/ddp-arms.sh hack/lib/gpu-ttl.sh hack/lib/session-teardown.sh "$repo/hack/lib/"
+cp hack/lib/train-session.sh hack/lib/ddp-arms.sh hack/lib/gpu-ttl.sh hack/lib/phase-supervisor.sh hack/lib/session-teardown.sh "$repo/hack/lib/"
 cp experiments/cpu-ddp/train.py "$repo/experiments/cpu-ddp/"
 mkdir -p "$repo/experiments/multi-gpu-throughput"
 cp hack/lib/allreduce-arms.sh "$repo/hack/lib/"
@@ -66,9 +72,12 @@ session() {
     EXDIR="$work/$name" TRAIN=ddp APPROVED_TRAIN_SHA256="$sha" TTL_MINUTES=300 "$@" \
     timeout 60 bash "$repo/hack/eks-gitops-session.sh" 2>&1)"
   rc=$?
-  # A watchdog is a detached process whose command names this case's directory; one left alive would fire at TTL.
+  # A watchdog is a detached process whose command names its pid file under this run's directory; one left alive would
+  # fire at TTL.
+  # The case's name is not matched: the watchdog's command quotes it, a space becoming '\ ', and a name with spaces was
+  # missed by the restart session's copy of this check.
   local stray
-  stray="$(pgrep -f -- "$work/$name/" | paste -sd' ')"
+  stray="$(pgrep -f -- "KILL_PIDFILE=$work/" | paste -sd' ')"
   if [[ -n "$stray" ]]; then
     # shellcheck disable=SC2086
     for p in $stray; do kill -- "-$p" 2>/dev/null || kill "$p" 2>/dev/null || true; done
@@ -168,6 +177,64 @@ sleep 1
 # A zombie is not a survivor: it has exited and only waits to be reaped (codex review of a7d10208).
 if [[ -n "$stray" ]] && ps -o stat= -g "$stray" | grep -qv '^Z'; then
   bad "$name: a watchdog survived the test: $(ps -o pid=,args= -g "$stray" | head -2)"
+else
+  ok "$name: the test stopped its watchdog"
+fi
+
+# The TTL role read from the bootstrap root's state: its failure is one line in the session log and its error goes to
+# terraform.log, where all three paid restart runs printed terraform's whole error block into the session log, and a
+# second copy of the read sent it to /dev/null; an ARN that was read is returned as it is.
+for row in "fails|1|" "reads|0|arn:aws:iam::007635145730:role/gpu-platform-ttl-scaledown"; do
+  IFS='|' read -r what rc arn <<<"$row"
+  d="$work/ttl-role-$what"
+  mkdir -p "$d/bin"
+  if [[ $rc == 1 ]]; then
+    printf '#!/bin/sh\necho "Error: Backend initialization required, please run \\"terraform init\\"" >&2\nexit 1\n' >"$d/bin/terraform"
+  else
+    printf '#!/bin/sh\nprintf %%s %s\n' "$arn" >"$d/bin/terraform"
+  fi
+  chmod +x "$d/bin/terraform"
+  got="$(PATH="$d/bin:/usr/bin:/bin" bash -c 'EXDIR="$1"; log() { printf "%s\n" "$*" | tee -a "$EXDIR/session.log"; }
+eval "$(awk "/^ttl_role_from_state\\(\\)/,/^}/" "$2")"
+ttl_role_from_state' _ "$d" "$repo/hack/eks-gitops-session.sh" 2>"$d/stderr")"
+  if [[ "$got" == "$arn" ]] && if [[ $rc == 1 ]]; then
+    [[ "$(grep -c . "$d/session.log")" == 1 ]] && grep -q 'reads the TTL role from IAM' "$d/session.log" &&
+      ! grep -q 'Backend initialization' "$d/session.log" && grep -q 'Backend initialization' "$d/terraform.log"
+  else
+    [[ ! -e "$d/session.log" ]]
+  fi; then
+    ok "the TTL role's read from state that $what returns '${arn:-nothing}'$([[ $rc == 1 ]] && echo ', and its error is in terraform.log, not the session log')"
+  else
+    bad "the TTL role's read from state that $what: got '$got', session.log: $(head -c 200 "$d/session.log" 2>&1)"
+  fi
+done
+
+# A reused EXDIR holds the last session's ttl.pid, and the session read that pid before its new watchdog wrote its own,
+# so it would have disarmed the dead one and left the live one to destroy the cluster at its TTL (gpt-6-astra's defect
+# review of #505).
+name="a reused EXDIR"
+export STUB_CALLS="$work/$name.calls"
+: >"$STUB_CALLS"
+# Read-only, so the new watchdog cannot overwrite it first and hide the read: the race decided whether the test saw
+# the defect, and a mutation removing the fix passed it.
+mkdir -p "$work/$name" && echo 999999999 >"$work/$name/ttl.pid" && chmod 444 "$work/$name/ttl.pid"
+out="$(env -i HOME="$work/home" PATH="$work/bin:/usr/bin:/bin" STUB_CALLS="$STUB_CALLS" SESSION_CONFIRM=yes AWS_PROFILE=stub \
+  EGRESS_CIDR=192.0.2.1/32 EXDIR="$work/$name" TTL_MINUTES=300 timeout 60 bash "$repo/hack/eks-gitops-session.sh" 2>&1)"
+pid="$(cat "$work/$name/ttl.pid" 2>/dev/null)"
+stray=""
+[[ "$pid" =~ ^[0-9]+$ && "$pid" != 999999999 ]] && ps -o pid= -p "$pid" | grep -q . && stray="$pid"
+if [[ -n "$stray" && "$out" == *"TTL kill switch armed: PID $pid,"* && "$out" != *"PID 999999999"* ]]; then
+  ok "$name: the session read its own watchdog's pid $pid, not the stale one left in the directory"
+else
+  bad "$name: pid file '${pid:-absent}', session said: $(grep -o 'TTL kill switch armed: PID [0-9]*\|never reported its pid' <<<"$out" | head -1)"
+fi
+# Found by its pid file's directory too: when the defect is back the pid file is the stale one, the watchdog's own pid is
+# nowhere, and a mutation run left it alive; the pattern skips the space the program quotes in the name.
+for p in $(printf "%s\n" $stray $(pgrep -f -- "KILL_PIDFILE=$work/a[^/]*reused") | sort -u); do kill -- "-$p"; done
+sleep 1
+left="$(pgrep -f -- "KILL_PIDFILE=$work/a[^/]*reused" | paste -sd' ')"
+if [[ -n "$left" ]] || { [[ -n "$stray" ]] && ps -o stat= -g "$stray" | grep -qv '^Z'; }; then
+  bad "$name: a watchdog survived the test: ${left:-$(ps -o pid=,args= -g "$stray" | head -2)}"
 else
   ok "$name: the test stopped its watchdog"
 fi

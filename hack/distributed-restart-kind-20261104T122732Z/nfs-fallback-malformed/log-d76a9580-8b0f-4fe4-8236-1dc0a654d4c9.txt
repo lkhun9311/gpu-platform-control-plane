@@ -1,0 +1,23 @@
+/usr/local/lib/python3.12/site-packages/torch/_subclasses/functional_tensor.py:295: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at ../torch/csrc/utils/tensor_numpy.cpp:84.)
+  cpu = _conversion_method_template(device=torch.device("cpu"))
+[rank1]: Traceback (most recent call last):
+[rank1]:   File "/work/train.py", line 653, in <module>
+[rank1]:     sys.exit(main())
+[rank1]:              ^^^^^^
+[rank1]:   File "/work/train.py", line 487, in main
+[rank1]:     return train()
+[rank1]:            ^^^^^^^
+[rank1]:   File "/work/train.py", line 568, in train
+[rank1]:     chosen = choose(rank, world) if LOAD_MODE != "none" else None
+[rank1]:              ^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/work/train.py", line 429, in choose
+[rank1]:     rel, manifest = broadcast_json([offers[i], manifest_ok(offers[i], world)] if rank == 0 else None, rank)
+[rank1]:                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/work/train.py", line 144, in broadcast_json
+[rank1]:     dist.broadcast(size, src=0)
+[rank1]:   File "/usr/local/lib/python3.12/site-packages/torch/distributed/c10d_logger.py", line 83, in wrapper
+[rank1]:     return func(*args, **kwargs)
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/usr/local/lib/python3.12/site-packages/torch/distributed/distributed_c10d.py", line 2425, in broadcast
+[rank1]:     work.wait()
+[rank1]: RuntimeError: [../third_party/gloo/gloo/transport/tcp/pair.cc:534] Connection closed by peer [10.244.2.6]:26299

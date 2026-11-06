@@ -19,7 +19,13 @@
 # What this does not show: the case procedure (restart_run_case) against a cluster, controller, NFS or GPU; its paths
 # here run against stubs whose answers were written for them, not taken from a cluster.
 set -uo pipefail
+self="$(readlink -f "$0")"
 cd "$(dirname "$0")/../.." || exit 1
+# The session bounds each paid phase by a cgroup it makes, so these run where it can: a delegated scope, entered here
+# when not started in one.
+# shellcheck source=hack/lib/phase-supervisor.sh
+. hack/lib/phase-supervisor.sh
+phase_supervisor_enter bash "$self" "$@" || exit 1
 
 fails=0
 ok() { echo "ok: $*"; }
@@ -39,6 +45,8 @@ printf '%s %s\n' "$tool" "$*" >>"${STUB_CALLS:?the stub was given nowhere to rec
 # The session's kubeconfig, which restart_probe_config reads before every round of clock probes: a case's own, or one
 # whose user holds a client certificate and no credential plugin, as kind's does.
 if [[ "$tool" == kubectl && " $* " == *" config view "* ]]; then
+  # A case can make the read slow, to show what is left of a deadline after it.
+  if [[ -n "${STUB_RULES:-}" && -f "$STUB_RULES/kubeconfig.delay" ]]; then sleep "$(cat "$STUB_RULES/kubeconfig.delay")"; fi
   if [[ -n "${STUB_RULES:-}" && -f "$STUB_RULES/kubeconfig.json" ]]; then cat "$STUB_RULES/kubeconfig.json"; else
     echo '{"apiVersion": "v1", "kind": "Config", "current-context": "stub", "contexts": [{"name": "stub", "context": {"cluster": "c", "user": "u"}}], "clusters": [{"name": "c", "cluster": {"server": "https://stub.invalid"}}], "users": [{"name": "u", "user": {"client-certificate-data": "Y2VydA=="}}]}'
   fi
@@ -96,7 +104,7 @@ chmod +x "$work/bin/date"
 repo="$work/repo"
 mkdir -p "$repo/hack/lib" "$repo/experiments/distributed-restart" "$repo/experiments/cpu-ddp" "$repo/experiments/multi-gpu-throughput"
 cp hack/eks-gitops-session.sh "$repo/hack/"
-cp hack/lib/train-session.sh hack/lib/ddp-arms.sh hack/lib/gpu-ttl.sh hack/lib/gpu-fault.sh hack/lib/restart-session.sh hack/lib/session-teardown.sh \
+cp hack/lib/train-session.sh hack/lib/ddp-arms.sh hack/lib/gpu-ttl.sh hack/lib/gpu-fault.sh hack/lib/restart-session.sh hack/lib/phase-supervisor.sh hack/lib/session-teardown.sh \
   hack/lib/allreduce-arms.sh "$repo/hack/lib/"
 cp experiments/distributed-restart/train.py "$repo/experiments/distributed-restart/"
 cp experiments/cpu-ddp/train.py "$repo/experiments/cpu-ddp/"
@@ -116,8 +124,11 @@ session() {
     EGRESS_CIDR=192.0.2.1/32 EXDIR="$work/$name" TRAIN=restart RESTART_STAGE=smoke TRAIN_AZ=ap-northeast-2a APPROVED_TRAIN_SHA256="$sha" TTL_MINUTES=300 "$@" \
     timeout 60 bash "$repo/hack/eks-gitops-session.sh" 2>&1)"
   rc=$?
-  # A watchdog would be a detached process naming this case's directory; one left alive would fire at its TTL.
-  stray="$(pgrep -f -- "$work/$name/" | paste -sd' ')"
+  # A watchdog would be a detached process naming its pid file under this run's directory; one left alive would fire at
+  # its TTL.
+  # The case's name is not matched: the watchdog's command quotes it, a space becoming '\ ', so two watchdogs of cases
+  # named with spaces outlived a mutation run unseen.
+  stray="$(pgrep -f -- "KILL_PIDFILE=$work/" | paste -sd' ')"
   if [[ -n "$stray" ]]; then
     # shellcheck disable=SC2086
     kill $stray
@@ -145,8 +156,8 @@ session "no zone" "TRAIN=restart is registered in ap-northeast-2a" TRAIN_AZ=
 session "another zone" "TRAIN=restart is registered in ap-northeast-2a, and TRAIN_AZ is 'ap-northeast-2c'" TRAIN_AZ=ap-northeast-2c
 session "no approved hash" "needs APPROVED_TRAIN_SHA256" APPROVED_TRAIN_SHA256=
 session "another train.py" "not the approved" APPROVED_TRAIN_SHA256="$(printf '%064d' 0)"
-session "no stage" "TRAIN=restart needs RESTART_STAGE=smoke, run and inspected first, or RESTART_STAGE=full" RESTART_STAGE=
-session "an unknown stage" "RESTART_STAGE is 'all', not smoke or full" RESTART_STAGE=all
+session "no stage" "TRAIN=restart needs RESTART_STAGE=smoke, run and inspected first, RESTART_STAGE=full, retarget or corelimit" RESTART_STAGE=
+session "an unknown stage" "RESTART_STAGE is 'all', not smoke, full, retarget or corelimit" RESTART_STAGE=all
 session "a deadline too short" "with RESTART_STAGE=smoke needs TTL_MINUTES of at least 288 for its waits; it is 280" TTL_MINUTES=280
 # A deadline the stage needs, and more than a fresh credential can cover with the destroy after it.
 session "a deadline past the credential limit" "TTL_MINUTES=670 and the 40-minute destroy need 710 min of credential, more than the 700" TTL_MINUTES=670
@@ -185,11 +196,30 @@ passes() {
   if grep -qF "$want" "$work/$name/session.log"; then ok "$name: logged '$want'"; else bad "$name: did not log '$want': $(grep -F 'RESTART_STAGE' "$work/$name/session.log" | tail -1)"; fi
 }
 passes "the full stage" "RESTART_STAGE=full: TTL_MINUTES 524 covers its 524" RESTART_STAGE=full TTL_MINUTES=524
+passes "the retarget stage" "RESTART_STAGE=retarget: TTL_MINUTES 340 covers its 337" RESTART_STAGE=retarget TTL_MINUTES=340
+passes "the corelimit stage" "RESTART_STAGE=corelimit: TTL_MINUTES 460 covers its 452" RESTART_STAGE=corelimit TTL_MINUTES=460
+if grep -qF "the core-limit arms are the stage's own and $work/the corelimit stage/restart is new" "$work/the corelimit stage/session.log"; then
+  ok "the corelimit stage logged its arms and its evidence directory as checked"
+else
+  bad "the corelimit stage did not log the launch check: $(grep -F 'core-limit' "$work/the corelimit stage/session.log")"
+fi
+# A registered stage's arms are its registration's: an empty override ran all six rank-kill cases untreated, and only H2,
+# after the purchase, said so (gpt-6-astra's attack before the corelimit run).
+session "the corelimit stage with its arms replaced" "RESTART_STAGE=corelimit registers its own core-limit arms, and RESTART_NOCORE_CASES='' would replace them; unset it" \
+  RESTART_STAGE=corelimit TTL_MINUTES=460 RESTART_NOCORE_CASES=
+session "the retarget stage with arms given" "RESTART_STAGE=retarget registers its own core-limit arms, and RESTART_NOCORE_CASES='rank-kill-1' would replace them" \
+  RESTART_STAGE=retarget TTL_MINUTES=340 RESTART_NOCORE_CASES=rank-kill-1
+# A reused evidence directory would hand the last session's VOID marker and logs to the scorer of this one.
+mkdir -p "$work/a reused evidence directory/restart/reference"
+echo "an earlier session's marker" >"$work/a reused evidence directory/restart/reference/VOID"
+session "a reused evidence directory" "$work/a reused evidence directory/restart already exists, so its earlier records would be scored with this run's; use a new EXDIR" \
+  RESTART_STAGE=corelimit TTL_MINUTES=460
 passes "the longest deadline" "the credential expires in 719 minutes, at least the 700" TTL_MINUTES=660
 
 # The nightly destroy at 17:00 UTC, an hour before it: refused while the workflow is enabled, not enforced once it is
 # disabled by hand, and a destroy run already queued refuses either way.
-# gh_rules NAME STATE RUNS: a gh whose workflow read answers STATE (or fails for "-") and whose run list answers RUNS.
+# gh_rules NAME STATE RUNS: a gh whose workflow read answers STATE (or fails for "-") and whose listing of every run
+# counts RUNS not completed, over two pages, the way --paginate answers.
 gh_rules() {
   mkdir -p "$work/rules/$1"
   cat >"$work/rules/$1/gh.sh" <<EOF
@@ -197,7 +227,7 @@ case "\$*" in
   "api repos/lkhun9311/gpu-platform-control-plane/actions/workflows/destroy.yml --jq .state")
     if [[ "$2" == - ]]; then echo "HTTP 401: Bad credentials" >&2; exit 1; fi
     echo "$2" ;;
-  "run list --workflow destroy.yml"*) echo "$3" ;;
+  "api --paginate repos/lkhun9311/gpu-platform-control-plane/actions/workflows/destroy.yml/runs?per_page=100 --jq"*) printf '0\n%s\n' "$3" ;;
   *) echo "unexpected gh \$*" >&2; exit 1 ;;
 esac
 EOF
@@ -205,8 +235,21 @@ EOF
 gh_rules destroy-active active 0
 gh_rules destroy-disabled disabled_manually 1
 gh_rules destroy-unreadable - 0
+gh_rules destroy-waiting disabled_manually 1
+# Every run is listed and each not completed counted, rather than asking status by status, so a run that changes status
+# between two questions is not missed (fifth attack); the second page's count is the one the stub sets.
+session "the destroy disabled by hand, a run not completed on the second page" "1 destroy workflow run(s) are not completed" STUB_UTC_HM=09:00 STUB_RULES="$work/rules/destroy-waiting"
+if grep -q 'gh api --paginate .*destroy.yml/runs?per_page=100' "$work/the destroy disabled by hand, a run not completed on the second page.calls" &&
+  ! grep -q 'runs?status=' "$work/the destroy disabled by hand, a run not completed on the second page.calls"; then
+  ok "the pending-destroy check lists every run and asks no status by name"
+else
+  bad "the pending-destroy check's query: $(grep 'gh api' "$work/the destroy disabled by hand, a run not completed on the second page.calls" | tail -2)"
+fi
+# The retarget stage registers the workflow disabled, so an enabled one refuses it even at an hour the window allows.
+session "the retarget stage with the destroy enabled" "RESTART_STAGE=retarget registers the nightly destroy disabled for the session, and its state is 'active'" STUB_UTC_HM=02:00 STUB_RULES="$work/rules/destroy-active" RESTART_STAGE=retarget TTL_MINUTES=340
+session "the corelimit stage with the destroy enabled" "RESTART_STAGE=corelimit registers the nightly destroy disabled for the session, and its state is 'active'" STUB_UTC_HM=02:00 STUB_RULES="$work/rules/destroy-active" RESTART_STAGE=corelimit TTL_MINUTES=460
 session "the destroy enabled, within its window" "falls within two hours of this session's 300 min" STUB_UTC_HM=17:00 STUB_RULES="$work/rules/destroy-active"
-session "the destroy disabled by hand, a run queued" "1 destroy workflow run(s) are queued or in progress" STUB_UTC_HM=17:00 STUB_RULES="$work/rules/destroy-disabled"
+session "the destroy disabled by hand, a run queued" "1 destroy workflow run(s) are not completed" STUB_UTC_HM=17:00 STUB_RULES="$work/rules/destroy-disabled"
 if grep -qF "the nightly destroy workflow is disabled_manually, so its 18:00 UTC window is not enforced" "$work/the destroy disabled by hand, a run queued/session.log"; then
   ok "a destroy disabled by hand lifts the window and says so"
 else
@@ -225,6 +268,171 @@ lib() {
     RESTART_QUEUE=gpu-train-a RESTART_SYS=gpu-platform-control-plane-system RESTART_OUT="$work/out/$name" \
     bash -c ". hack/lib/train-session.sh; . hack/lib/gpu-ttl.sh; . hack/lib/gpu-fault.sh; . hack/lib/restart-session.sh; $script" 2>&1
 }
+
+# A credential helper that hangs is not bounded by kubectl's request timeout, so rk is cut by the wall clock (codex
+# gpt-6-astra attack of the retarget registration).
+# Measured by hand with the real kubectl on 2026-11-05: an exec plugin that sleeps 30 s held a GET with
+# --request-timeout=1s for 120 s.
+# The harness stays self-contained, so here the stub kubectl stands for that: it ignores its request timeout and sleeps.
+mkdir -p "$work/rules/cred"
+echo 'sleep 30' >"$work/rules/cred/kubectl.sh"
+out="$(lib cred 's=$SECONDS; restart_by $(($(phase_mono) + 3)) rk get pods >/dev/null 2>&1; echo rc=$? took=$((SECONDS - s))')"
+took="$(grep -o 'took=[0-9]*' <<<"$out" | cut -d= -f2)"
+# At least 2 s, so a call that failed at once, before it could hang, does not pass as a cut one.
+if [[ "$out" == *"rc="[1-9]* && -n "$took" && "$took" -ge 2 && "$took" -le 7 ]]; then
+  ok "a kubectl that ignores its request timeout is cut at the phase deadline ($took s for a 3 s deadline)"
+else
+  bad "a kubectl that ignores its request timeout: $out"
+fi
+# The waits that are meant to outlast one request go through rkt with their own duration: rk's 20 s cut once ended the
+# reader's 600 s wait, the fault path's 300 s rollout and the warm-up's wait (codex review of 570b2423).
+mkdir -p "$work/rules/longwait"
+printf '%s\n' 'case "$*" in *" wait "*) sleep 22 ;; esac' >"$work/rules/longwait/kubectl.sh"
+out="$(lib longwait 'rkt 40 -n x wait --for=condition=Ready pod/p --timeout=30s; echo rc=$?')"
+if [[ "$out" == *"rc=0"* ]]; then ok "rkt lets a 22 s wait finish inside its 40 s"; else bad "rkt cut a wait inside its duration: $out"; fi
+waits="$(grep -nE '\brk(d)? [^|]*(--timeout=|rollout status| wait )' hack/lib/restart-session.sh)"
+if [[ -z "$waits" ]]; then
+  ok "no wait or rollout goes through rk or rkd, whose cut is one request's"
+else
+  bad "a wait goes through rk or rkd and is cut at 20 s: $waits"
+fi
+# The launcher's own T6 and T7 run train-session.sh's qualification too, before any case, so they get the same cut
+# kubectl: the wrapper is taken from the launcher and run against a kubectl that sleeps, and both call sites are read
+# for the override in their substitution (fifth attack).
+sk="$(sed -n '/^session_kubectl_by() {/,/^}/p' hack/eks-gitops-session.sh)"
+mkdir -p "$work/skbin"
+printf '#!/usr/bin/env bash\nsleep 30\n' >"$work/skbin/kubectl" && chmod +x "$work/skbin/kubectl"
+out="$(PATH="$work/skbin:$PATH" bash -c ". hack/lib/phase-supervisor.sh"$'\n'"$sk"$'\n''s=$SECONDS; session_kubectl_by $(($(phase_mono) + 3)) get nodes; echo rc=$? took=$((SECONDS - s)); session_kubectl_by $(($(phase_mono) - 1)) get nodes; echo rc=$?' 2>&1)"
+took="$(grep -o 'took=[0-9]*' <<<"$out" | cut -d= -f2)"
+if [[ -n "$sk" && "$out" == *"rc=124 took="* && -n "$took" && "$took" -ge 2 && "$took" -le 7 && "$out" == *"deadline has passed"*"rc=1"* ]]; then
+  ok "session_kubectl_by cuts a hanging kubectl at its deadline ($took s for 3 s) and refuses one past it"
+else
+  bad "session_kubectl_by: $out"
+fi
+for f in train_qualify_nodes train_node_zones train_qualification_released; do
+  if grep -B1 "$f \"\$CLUSTER\"" hack/eks-gitops-session.sh | grep -q 'paid_phase [a-z0-9]* "\$[a-z]*" with_kubectl_by "\$[a-z]*"'; then
+    ok "the launcher runs $f in a paid phase with the deadline-cut kubectl"
+  else
+    bad "the launcher runs $f outside a paid phase or with kubectl's request timeout only"
+  fi
+done
+# The sixth attack's credential helper: a client that leaves a TERM-ignoring helper holding its stderr, then hangs.
+# Cut by session_kubectl_by alone, the helper held the caller's substitution until it ended on its own; in a paid phase
+# it is killed with the phase at the deadline.
+wk="$(sed -n '/^with_kubectl_by() {/,/^}/p' hack/eks-gitops-session.sh)"
+mkdir -p "$work/helperbin"
+printf '#!/usr/bin/env bash
+( trap "" TERM; exec sleep %s ) &
+sleep 30
+' "${HELPER_SLEEP:-8}" >"$work/helperbin/kubectl" && chmod +x "$work/helperbin/kubectl"
+out="$(PATH="$work/helperbin:$PATH" bash -c "$sk"$'\n'"$wk"$'\n''. hack/lib/phase-supervisor.sh
+s=$SECONDS; x="$(session_kubectl_by $(($(phase_mono) + 2)) get nodes 2>&1)"; echo bare took=$((SECONDS - s))
+s=$SECONDS; x="$(paid_phase helper $(($(phase_mono) + 2)) with_kubectl_by $(($(phase_mono) + 2)) kubectl get nodes 2>&1)"; echo rc=$? phase took=$((SECONDS - s))' 2>&1)"
+bare="$(grep -o 'bare took=[0-9]*' <<<"$out" | cut -d= -f2)"
+phased="$(grep -o 'phase took=[0-9]*' <<<"$out" | cut -d= -f2)"
+left="$(pgrep -f "slee[p] ${HELPER_SLEEP:-8}\$" | paste -sd' ')"
+if [[ -n "$bare" && -n "$phased" && "$bare" -ge 7 && "$phased" -le 4 && "$out" == *"rc=124 phase"* && -z "$left" ]]; then
+  ok "a helper holding stderr held the bare cut ${bare} s for 2 s, and its paid phase ${phased} s with the helper killed"
+else
+  bad "the credential helper under a paid phase: $out; left: $left"
+fi
+# The pre-fault probe and the first warm-up run under their deadlines as a whole.
+if grep -q 'out="$(restart_by "$deadline" restart_probe_all "$dir" before 2>&1)"' hack/lib/restart-session.sh &&
+  grep -q 'out="$(paid_phase r5 "$wdl" restart_by "$wdl" restart_prepare_nodes "$warmed" "$wdl")"' hack/eks-gitops-session.sh; then
+  ok "the probe before a fault and the first warm-up run under their deadlines"
+else
+  bad "the probe before a fault or the first warm-up runs without its deadline"
+fi
+# The node qualification is train-session.sh's, whose kubectl carries only a request timeout; under restart_wait_group
+# it is the deadline-cut call, so a hanging client ends with the group's deadline (fourth attack).
+mkdir -p "$work/rules/qualify"
+cat >"$work/rules/qualify/kubectl.sh" <<'EOF'
+case "$*" in
+  *"get nodes"*"-o name"*) printf 'node/a\nnode/b\nnode/c\n' ;;
+  *"get nodes"*"-o json"*) sleep 30 ;;
+esac
+EOF
+out="$(lib qualify 's=$SECONDS; restart_by $(($(phase_mono) + 4)) restart_wait_group 3 4 >/dev/null 2>&1; echo rc=$? took=$((SECONDS - s))')"
+took="$(grep -o 'took=[0-9]*' <<<"$out" | cut -d= -f2)"
+if [[ "$out" == *"rc="[1-9]* && -n "$took" && "$took" -ge 2 && "$took" -le 8 ]]; then
+  ok "a hanging client in the node qualification ends with its deadline ($took s for 4 s)"
+else
+  bad "a hanging client in the node qualification: $out"
+fi
+# The credential plugin's allowance is what is left after the kubeconfig was read, not before it (fourth attack).
+mkdir -p "$work/rules/probecfg"
+echo 4 >"$work/rules/probecfg/kubeconfig.delay"
+echo '{"users": [{"user": {"exec": {"command": "sleep", "args": ["30"]}}}], "clusters": [], "contexts": []}' >"$work/rules/probecfg/kubeconfig.json"
+out="$(lib probecfg 's=$SECONDS; restart_by $(($(phase_mono) + 6)) restart_probe_config "$RESTART_OUT/cfg" >/dev/null 2>&1; echo rc=$? took=$((SECONDS - s))')"
+took="$(grep -o 'took=[0-9]*' <<<"$out" | cut -d= -f2)"
+if [[ "$out" == *"rc="[1-9]* && -n "$took" && "$took" -le 8 ]]; then
+  ok "the credential plugin is given what is left after the kubeconfig read ($took s for 6 s)"
+else
+  bad "the credential plugin's allowance: $out"
+fi
+out="$(lib rkd-expired 'restart_by $(($(phase_mono) - 1)) rkd $(($(phase_mono) + 10)) get pods; echo rc=$?')"
+if [[ "$out" == *"the deadline has passed"*"rc=1"* ]] && ! grep -q '^kubectl ' "$work/rkd-expired.calls" 2>/dev/null; then
+  ok "rkd refuses a call once an enclosing deadline has passed, and makes none"
+else
+  bad "rkd past an enclosing deadline: $out; calls: $(cat "$work/rkd-expired.calls" 2>&1 | head -2)"
+fi
+
+# The retarget stage runs only on the operator it registers, and a promotion after the registration refuses the launch.
+pin_rev=44bd5e74aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+pin_dig=sha256:12d60cfce8a5c0c0f9c3b9e8981059ee5de70c813585eec2d823887a6ac82d3c
+for c in "retarget|||$pin_rev|$pin_dig|1|must be given" \
+  "retarget|$pin_rev||$pin_rev|$pin_dig|1|must be given" \
+  "retarget|$pin_rev|$pin_dig|$pin_rev|$pin_dig|0|the registered operator" \
+  "retarget|$pin_rev|$pin_dig|bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb|$pin_dig|1|not the registered $pin_rev" \
+  "retarget|$pin_rev|$pin_dig|$pin_rev|sha256:0000|1|pins sha256:0000, not the registered" \
+  "corelimit|||$pin_rev|$pin_dig|1|must be given" \
+  "corelimit|$pin_rev|$pin_dig|$pin_rev|$pin_dig|0|the registered operator" \
+  "corelimit|$pin_rev|$pin_dig|bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb|$pin_dig|1|not the registered $pin_rev" \
+  "full|||$pin_rev|$pin_dig|0|pins $pin_dig"; do
+  IFS='|' read -r st want_rev want_dig rev dig want_rc expect <<<"$c"
+  out="$(lib pin "RESTART_STAGE=$st RESTART_OPERATOR_REV=$want_rev RESTART_OPERATOR_DIGEST=$want_dig restart_operator_pin $rev $dig; echo rc=\$?")"
+  if [[ "$out" == *"$expect"* && "$out" == *"rc=$want_rc" ]]; then
+    ok "operator pin, stage $st, registered '${want_rev:0:8}' '${want_dig:7:8}', deployed '${rev:0:8}' '${dig:7:8}': rc $want_rc"
+  else
+    bad "operator pin, stage $st, deployed '${rev:0:8}' '${dig:7:8}': $out"
+  fi
+done
+# The gate calls the pin before it reads the Pods, so a refused pin buys nothing.
+if awk '/^restart_operator_gate\(\)/,/^}/' hack/lib/restart-session.sh | grep -q 'restart_operator_pin "\$rev" "\$expected"'; then
+  ok "the operator gate checks the registered pin"
+else
+  bad "the operator gate does not call restart_operator_pin"
+fi
+# The webhook is credited only with its own refusal of the claim, in the words
+# TestApiserverRefusesAMissingClaimInTheWordsTheRestartGateReads pins through a real apiserver; any other failure of the
+# request passed for it before (gpt-6-astra's defect review of #505).
+denied='Error from server (Forbidden): error when creating "STDIN": admission webhook "vmltrainingjob.kb.io" denied the request: MLTrainingJob.platform.lkhun9311.github.io "restart-gate-missing" is invalid: spec.stateVolume.claimName: Invalid value: "no-such-claim": claim not found: a distributed job'"'"'s state volume must exist before the job, because every rank mounts it'
+# kubectl's own rendering of the same refusal, as the paid corelimit session's first launch recorded it at R2: kubectl
+# rebuilds an Invalid status from its causes and prints no webhook name (ex/eks-session-20261106T084119Z/session.log).
+kubectl_invalid='The MLTrainingJob "restart-gate-missing" is invalid: spec.stateVolume.claimName: Invalid value: "no-such-claim": claim not found: a distributed job'"'"'s state volume must exist before the job, because every rank mounts it'
+for row in "refused|0|$denied" "refused, as kubectl prints it|0|$kubectl_invalid" \
+  "invalid on another field|1|The MLTrainingJob \"restart-gate-missing\" is invalid: spec.image: Required value" \
+  "throttled|1|Error from server (TooManyRequests): the server has received too many requests and has asked us to try again later" \
+  "unreachable|1|The connection to the server was refused - did you specify the right host or port?" \
+  "another field|1|admission webhook \"vmltrainingjob.kb.io\" denied the request: spec.image: Required value"; do
+  IFS='|' read -r what want msg <<<"$row"
+  out="$(lib webhook-refusal "restart_webhook_refused_claim $(printf '%q' "$msg")")"
+  rc=$?
+  if [[ $rc == "$want" ]]; then ok "a dry run that failed as '$what' credits the webhook: $([[ $want == 0 ]] && echo yes || echo no)"; else bad "a dry run that failed as '$what': rc $rc, $out"; fi
+done
+if awk '/^restart_operator_gate\(\)/,/^}/' hack/lib/restart-session.sh | grep -q 'restart_webhook_refused_claim "\$out" || return 1'; then
+  ok "the operator gate judges the webhook's refusal by its words"
+else
+  bad "the operator gate does not call restart_webhook_refused_claim"
+fi
+# R2 runs again after R4, the last step at which a promotion could still sync, so the operator the cases run is the one
+# checked (gpt-6-astra's defect review of #505).
+if awk '/^restart_before_purchase\(\)/,/^}/' hack/eks-gitops-session.sh | grep -E 'restart_enable_fault_path|restart_operator_gate' |
+  tail -1 | grep -q 'restart_operator_gate'; then
+  ok "the operator gate runs again after the fault path is enabled"
+else
+  bad "the operator gate does not run after restart_enable_fault_path"
+fi
 
 # The termination fences only on EC2's own `terminated`: shutting-down, then an unreadable answer, then terminated.
 mkdir -p "$work/rules/fence"
@@ -295,16 +503,52 @@ for want in 'CKPT_JOB_ID=rst-rank-kill-1-0a1b2c3d' 'CKPT_BACKEND=nccl' 'CKPT_FAU
   if grep -qF -- "$want" <<<"$body"; then ok "the job's command has $want"; else bad "the job's command lacks $want"; fi
 done
 if grep -qE '(^|[^a-z])exec ' <<<"$body"; then bad "the job's command execs, so the trainer would be PID 1"; else ok "the job's command never execs"; fi
-if [[ "$(tail -1 <<<"$body")" == "python /tmp/train.py" ]]; then ok "the trainer is started as a child of the shell"; else bad "the last line is '$(tail -1 <<<"$body")'"; fi
+want_end='python /tmp/train.py &|child=$!|trap '"'"'kill -TERM $child'"'"' TERM|wait $child|rc=$?|while [ -d /proc/$child ]; do wait $child; rc=$?; done|exit $rc'
+if [[ "$(tail -7 <<<"$body" | paste -sd'|')" == "$want_end" ]]; then
+  ok "the trainer is started as a child of the shell, which hands TERM on to it and waits for it to end"
+else
+  bad "the command's end is '$(tail -7 <<<"$body" | paste -sd'|')'"
+fi
+# What those lines do: the shell is stopped with TERM and the trainer, here a sleep, goes with it, where a shell that
+# only ran it would have left it to the grace period's KILL; and a trainer that fails still fails the shell.
+tail_cmd="$(tail -7 <<<"$body" | sed 's#^python /tmp/train.py &$#sleep 300 \&#')"
+sh -c "$tail_cmd" & shpid=$!
+for _ in $(seq 25); do child="$(ps -o pid= --ppid "$shpid" | tr -d ' ')"; [[ -n "$child" ]] && break; sleep 0.2; done
+kill -TERM "$shpid"
+wait "$shpid"
+sleep 0.5
+if [[ -n "$child" ]] && ! ps -o pid= -p "$child" | grep -q .; then
+  ok "a TERM to the shell ends the trainer it started"
+else
+  bad "the trainer ${child:-never started} outlived a TERM to its shell"
+  [[ -n "$child" ]] && kill -KILL "$child"
+fi
+failing="$(tail -7 <<<"$body" | sed 's#^python /tmp/train.py &$#sh -c "exit 137" \&#')"
+sh -c "$failing"
+rc=$?
+if [[ "$rc" == 137 ]]; then ok "a trainer that exits 137 for its fault exits the shell 137"; else bad "a trainer's 137 came out of the shell as $rc"; fi
 want_spec="docker.io/pytorch/pytorch@sha256:c8268a92a69bd500f8be0e665b2630ee006dadaf7bfbc24249141b15ff622755 {'worldSize': 2, 'maxRestarts': 1} {'claimName': 'restart-shared', 'mountPath': '/state'} a10g"
 if [[ "$spec" == "$want_spec" ]]; then ok "the job's spec is the registered one"; else bad "the job's spec is '$spec'"; fi
 decoded="$(sed -n 's/^echo \([A-Za-z0-9+\/=]*\) | base64 -d >\/tmp\/train.py$/\1/p' <<<"$body" | base64 -d | sha256sum | cut -d' ' -f1)"
 if [[ "$decoded" == "$sha" ]]; then ok "the carried trainer is the committed train.py"; else bad "the carried trainer hashes to $decoded"; fi
 out="$(lib render2 'restart_render_job x train-a gpu-train-a x-1 fsdp-1; echo "rc=$?"')"
 if [[ "$out" == *"not a registered case"*"rc=1" ]]; then ok "an unregistered case is refused"; else bad "an unregistered case: $out"; fi
-out="$(lib cases 'RESTART_STAGE=smoke restart_cases | paste -sd" "; RESTART_STAGE=full restart_cases | paste -sd" "; RESTART_STAGE= restart_cases; echo "rc=$?"')"
-want_cases="reference no-rng-control dcgm-1 terminate-wait-1"$'\n'"reference no-rng-control rank-kill-1 rank-kill-2 dcgm-1 dcgm-2 terminate-spare-1 terminate-spare-2 terminate-wait-1 terminate-wait-2"
-if [[ "$out" == "$want_cases"$'\n'*"not smoke or full"*"rc=1" ]]; then ok "smoke's four cases, full's ten in the registered order, and no stage refused"; else bad "the cases: $out"; fi
+out="$(lib cases 'RESTART_STAGE=smoke restart_cases | paste -sd" "; RESTART_STAGE=full restart_cases | paste -sd" "; RESTART_STAGE=retarget restart_cases | paste -sd" "; RESTART_STAGE=corelimit restart_cases | paste -sd" "; RESTART_STAGE= restart_cases; echo "rc=$?"')"
+want_cases="reference no-rng-control dcgm-1 terminate-wait-1"$'\n'"reference no-rng-control rank-kill-1 rank-kill-2 dcgm-1 dcgm-2 terminate-spare-1 terminate-spare-2 terminate-wait-1 terminate-wait-2"$'\n'"reference no-rng-control rank-kill-1 rank-kill-2 dcgm-1 dcgm-2"$'\n'"reference rank-kill-1 rank-kill-2 rank-kill-3 rank-kill-4 rank-kill-5 rank-kill-6 dcgm-1 dcgm-2 dcgm-3"
+if [[ "$out" == "$want_cases"$'\n'*"not smoke, full, retarget or corelimit"*"rc=1" ]]; then ok "smoke's four cases, full's ten, retarget's six and corelimit's ten in the registered order, and no stage refused"; else bad "the cases: $out"; fi
+# corelimit's arms: core dumps off for its even rank-kill cases only, set in the rank's own shell before the trainer, and
+# every rank records what it ran with (the corelimit registration).
+out="$(lib arms 'RESTART_STAGE=corelimit; for c in $(restart_cases); do printf "%s=%s " $c $(restart_core_limit $c); done; echo; RESTART_STAGE=retarget restart_core_limit rank-kill-2; RESTART_STAGE=corelimit RESTART_NOCORE_CASES= restart_core_limit rank-kill-2
+for c in rank-kill-1 rank-kill-2; do RESTART_STAGE=corelimit restart_render_job x train-a gpu-train-a x-1 $c | python3 -c "import json, sys; print(json.load(sys.stdin)[\"spec\"][\"command\"][-1])" | grep -c "^ulimit -c 0 || exit 88$"; done')"
+want_arms="reference=inherited rank-kill-1=inherited rank-kill-2=0 rank-kill-3=inherited rank-kill-4=0 rank-kill-5=inherited rank-kill-6=0 dcgm-1=inherited dcgm-2=inherited dcgm-3=inherited "$'\n'"inherited"$'\n'"inherited"$'\n'"0"$'\n'"1"
+if [[ "$out" == "$want_arms" ]]; then ok "corelimit runs its even rank-kill cases without core dumps, and no other stage or case"; else bad "the core-limit arms: $(tr '\n' '|' <<<"$out")"; fi
+out="$(lib arms2 'RESTART_STAGE=corelimit restart_render_job x train-a gpu-train-a x-1 rank-kill-1 | python3 -c "import json, sys; print(json.load(sys.stdin)[\"spec\"][\"command\"][-1])"')"
+if grep -qF 'echo "rank-env: core_limit=$(ulimit -c) core_pattern=$(cat /proc/sys/kernel/core_pattern) torch_nccl_async_error_handling=${TORCH_NCCL_ASYNC_ERROR_HANDLING:-unset}"' <<<"$out" &&
+  [[ "$(grep -n 'rank-env' <<<"$out" | cut -d: -f1)" -lt "$(grep -n '^python /tmp/train.py &$' <<<"$out" | cut -d: -f1)" ]]; then
+  ok "every rank records its core limit, the node's core_pattern and NCCL's error handling before the trainer starts"
+else
+  bad "the rank's environment line: $(grep -n 'rank-env\|train.py &' <<<"$out")"
+fi
 
 # The budget is the sum of the enforced shares: preparation 4,080 s, each slot its pre share, 1,380 s of submission,
 # run, evidence, retirement and files, 180 s more for a DCGM reset, and 900 s of scale-down.
@@ -316,6 +560,18 @@ if [[ "$out" == "reference=1680 no-rng-control=1680 dcgm-1=1860 terminate-wait-1
   ok "smoke's slots and its GPU budget: $out"
 else
   bad "smoke's slots: $out"
+fi
+out="$(budget 'RESTART_STAGE=retarget; prev=; for c in $(restart_cases); do printf "%s=%s " $c $(restart_slot_seconds $c "$prev"); prev=$c; done; restart_gpu_budget; restart_ttl_refusal retarget 336 "$(restart_gpu_budget)" 1200; echo "rc=$?"; restart_ttl_refusal retarget 337 "$(restart_gpu_budget)" 1200; echo "rc=$?"')"
+if [[ "$out" == "reference=1680 no-rng-control=1680 rank-kill-1=1680 rank-kill-2=1680 dcgm-1=1860 dcgm-2=1860 15420"$'\n'*"needs TTL_MINUTES of at least 337"*"rc=1"$'\n'*"covers its 337"*"rc=0" ]]; then
+  ok "retarget's slots, its GPU budget of 15420 s, and its TTL_MINUTES of at least 337"
+else
+  bad "retarget's budget: $out"
+fi
+out="$(budget 'RESTART_STAGE=corelimit; restart_gpu_budget; restart_ttl_refusal corelimit 451 "$(restart_gpu_budget)" 1200; echo "rc=$?"; restart_ttl_refusal corelimit 452 "$(restart_gpu_budget)" 1200; echo "rc=$?"')"
+if [[ "$out" == "22320"$'\n'*"needs TTL_MINUTES of at least 452"*"rc=1"$'\n'*"covers its 452"*"rc=0" ]]; then
+  ok "corelimit's GPU budget of 22320 s, and its TTL_MINUTES of at least 452"
+else
+  bad "corelimit's budget: $out"
 fi
 out="$(budget 'RESTART_STAGE=full; restart_gpu_budget; restart_ttl_refusal full 524 "$(restart_gpu_budget)" 1200; echo "rc=$?"')"
 if [[ "$out" == "26640"$'\n'*"covers its 524"*"rc=0" ]]; then ok "full at its two repetitions fits: $(tail -2 <<<"$out" | head -1)"; else bad "full at two: $out"; fi
@@ -336,11 +592,13 @@ case "$*" in
 esac
 EOF
 : >"$work/out/warm/warmed.txt"
-out="$(lib warm 'restart_prepare_nodes "$RESTART_OUT/warmed.txt" $((SECONDS + 30)); echo "rc=$?"')"
+out="$(lib warm 'restart_prepare_nodes "$RESTART_OUT/warmed.txt" $(($(phase_mono) + 30)); echo "rc=$?"')"
 last_create="$(grep -n 'apply -f -' "$work/warm.calls" | tail -1 | cut -d: -f1)"
 first_wait="$(grep -n ' wait ' "$work/warm.calls" | head -1 | cut -d: -f1)"
 timeouts="$(grep -oE -- '--timeout=[0-9]+s' "$work/warm.calls" | paste -sd' ')"
-if [[ "$out" == *"rc=0" && "$last_create" -lt "$first_wait" && "$timeouts" =~ ^--timeout=(30|29)s\ --timeout=(29|28)s\ --timeout=(28|27)s$ &&
+# Each wait sleeps 1 s and every call is cut by timeout(1), about 0.1 s more, so the third wait gets 25 to 28 s; a wait
+# given a budget of its own would get 30 each time.
+if [[ "$out" == *"rc=0" && "$last_create" -lt "$first_wait" && "$timeouts" =~ ^--timeout=(30|29)s\ --timeout=(29|28|27)s\ --timeout=(28|27|26|25)s$ &&
   "$(paste -sd' ' "$work/out/warm/warmed.txt")" == "node-a ua node-b ub node-c uc" &&
   "$(python3 -c 'import json, sys; print(" ".join(json.loads(l)["uid"] for l in open(sys.argv[1])))' "$work/out/warm/nodes-prepared.jsonl")" == "ua ub uc" ]]; then
   ok "three warm-ups started before the first wait, each wait the rest of one deadline: $timeouts"
@@ -354,7 +612,7 @@ cat >"$work/rules/reused/kubectl.sh" <<'EOF'
 case "$*" in *"get nodes"*) printf 'node-a new-uid\nnode-b ub\n' ;; esac
 EOF
 printf 'node-a old-uid\nnode-b ub\n' >"$work/out/reused/warmed.txt"
-out="$(lib reused 'restart_prepare_nodes "$RESTART_OUT/warmed.txt" $((SECONDS + 30)); echo "rc=$?"')"
+out="$(lib reused 'restart_prepare_nodes "$RESTART_OUT/warmed.txt" $(($(phase_mono) + 30)); echo "rc=$?"')"
 if [[ "$out" == *"rc=0" && "$(grep -c 'apply -f -' "$work/reused.calls")" == 2 ]] && grep -qx 'node-a new-uid' "$work/out/reused/warmed.txt" && [[
   "$(grep -c ' wait .*pod/rst-warm-' "$work/reused.calls")" == 1 ]]; then
   ok "a reused node name with a new UID is prepared again, and the unchanged node is not"
@@ -372,7 +630,7 @@ case "$*" in
 esac
 EOF
 : >"$work/out/eksnames/warmed.txt"
-out="$(lib eksnames 'restart_prepare_nodes "$RESTART_OUT/warmed.txt" $((SECONDS + 30)); echo "rc=$?"')"
+out="$(lib eksnames 'restart_prepare_nodes "$RESTART_OUT/warmed.txt" $(($(phase_mono) + 30)); echo "rc=$?"')"
 # The stubs record arguments, not stdin, so the Pods are read from the waits that name them.
 names="$(grep -oE ' wait .*pod/rst-warm-[a-z0-9-]+' "$work/eksnames.calls" | grep -oE 'rst-warm-[a-z0-9-]+' | sort -u | wc -l)"
 long="$(grep -oE 'pod/rst-warm-[a-z0-9-]+' "$work/eksnames.calls" | awk 'length($0) - 4 > 63' | wc -l)"
@@ -381,6 +639,22 @@ if [[ "$out" == *"rc=0" && "$names" == 3 && "$long" == 0 ]]; then
 else
   bad "EKS node names: $out; $names distinct warm-up Pod name(s), $long over 63 characters"
 fi
+
+# The gate's CRD check reads the repository's own CRD as deployed, and refuses one without either field.
+crd_json="$(python3 -c 'import json, sys, yaml; print(json.dumps(yaml.safe_load(open(sys.argv[1]))))' config/crd/bases/platform.lkhun9311.github.io_mltrainingjobs.yaml 2>&1)"
+out="$(bash -c '. hack/lib/train-session.sh; . hack/lib/gpu-ttl.sh; . hack/lib/gpu-fault.sh; . hack/lib/restart-session.sh; restart_crd_check "$1"; echo "rc=$?"' _ "$crd_json")"
+if [[ "$out" == "rc=0" ]]; then ok "the repository's CRD has both fields the gate requires"; else bad "the gate refuses the repository's own CRD: $out"; fi
+for drop in nodeUIDs maxRestarts; do
+  bent="$(python3 -c '
+import json, sys
+c = json.loads(sys.argv[1]); drop = sys.argv[2]
+for v in c["spec"]["versions"]:
+    p = v["schema"]["openAPIV3Schema"]["properties"]
+    p["status"]["properties"]["attempts"]["items"]["properties"].pop("nodeUIDs", None) if drop == "nodeUIDs" else p["spec"]["properties"]["distributed"]["properties"].pop("maxRestarts", None)
+print(json.dumps(c))' "$crd_json" "$drop")"
+  out="$(bash -c '. hack/lib/train-session.sh; . hack/lib/gpu-ttl.sh; . hack/lib/gpu-fault.sh; . hack/lib/restart-session.sh; restart_crd_check "$1"; echo "rc=$?"' _ "$bent")"
+  if [[ "$out" == *"has no"*"$drop"*"rc=1" ]]; then ok "a CRD without $drop is refused"; else bad "a CRD without $drop: $out"; fi
+done
 
 # A failed read of the taints is not "no node tainted".
 mkdir -p "$work/rules/taints"
@@ -613,6 +887,7 @@ if [[ "$out" == *"rc=1" ]]; then ok "a group whose Nodes cannot be read is no cl
 mkdir -p "$work/rules/follow-leak"
 cat >"$work/rules/follow-leak/kubectl.sh" <<'EOF'
 case "$*" in
+  *"--watch --output-watch-events"*) exec -a rstk-watch-leak-probe sleep 300 ;;
   *"get pods -l platform.lkhun9311.github.io/mltrainingjob="*"-o json"*)
     echo '{"items": [{"metadata": {"uid": "u0", "name": "rp0", "annotations": {"batch.kubernetes.io/job-completion-index": "0"}}, "spec": {"nodeName": "node-a"}, "status": {"containerStatuses": [{"state": {"running": {"startedAt": "t"}}}]}}]}' ;;
   *"logs -f rp0"*) exec -a rstk-follow-leak-probe sleep 300 ;;
@@ -621,11 +896,14 @@ EOF
 out="$(lib follow-leak 'restart_collect "$RESTART_OUT" rst-x & c=$!; sleep 3; restart_stop_collector $c "$RESTART_OUT"; sleep 1; echo "rc=$?"')"
 started="$(grep -c 'logs -f rp0' "$work/follow-leak.calls")"
 leaked="$(pgrep -f '[r]stk-follow-leak-probe' | wc -l)"
-if [[ "$started" -ge 1 && "$leaked" == 0 ]]; then
-  ok "stopping the collector stops its $started log follow(s)"
+watches="$(grep -c -- '--watch --output-watch-events' "$work/follow-leak.calls")"
+wleaked="$(pgrep -f '[r]stk-watch-leak-probe' | wc -l)"
+if [[ "$started" -ge 1 && "$leaked" == 0 && "$watches" -ge 1 && "$wleaked" == 0 ]]; then
+  ok "stopping the collector stops its $started log follow(s) and its $watches Pod watch(es)"
 else
-  bad "$leaked of $started log follow(s) outlived the collector: $out"
+  bad "$leaked of $started log follow(s) and $wleaked of $watches Pod watch(es) outlived the collector: $out"
   pgrep -f '[r]stk-follow-leak-probe' | xargs -r kill
+  pgrep -f '[r]stk-watch-leak-probe' | xargs -r kill
 fi
 
 # A stream that ends at once is paused after, so its twenty tries are not spent in a moment.
@@ -635,7 +913,7 @@ case "$*" in
   *"get pods -l platform.lkhun9311.github.io/mltrainingjob="*"-o json"*)
     echo '{"items": [{"metadata": {"uid": "u0", "name": "rp0", "annotations": {"batch.kubernetes.io/job-completion-index": "0"}}, "spec": {"nodeName": "node-a"}, "status": {"containerStatuses": [{"state": {"running": {"startedAt": "t"}}}]}}]}' ;;
   *"logs -f rp0"*) echo "error: unexpected EOF" >&2; exit 1 ;;
-  *"get pod rp0"*) echo '{"startedAt": "t"}' ;;
+  *"get pod rp0"*) echo '{"metadata": {}, "status": {"containerStatuses": [{"state": {"running": {"startedAt": "t"}}}]}}' ;;
 esac
 EOF
 out="$(lib fast-fail 'restart_collect "$RESTART_OUT" rst-x & c=$!; sleep 5; kill $c; wait $c; echo "rc=$?"')"
@@ -679,15 +957,49 @@ case "$*" in
   *"logs -f rp0"*) echo '{"ts": "t", "event": "step"}' ;;
   *"get pod rp0"*)
     n=$(($(cat "$STUB_RULES/status-n" 2>/dev/null || echo 0) + 1)); echo "$n" >"$STUB_RULES/status-n"
-    case "$n" in 1) echo "Unable to connect to the server: net/http: TLS handshake timeout" >&2; exit 1 ;; 2) echo '{"startedAt": "t"}' ;; esac ;;
+    case "$n" in 1) echo "Unable to connect to the server: net/http: TLS handshake timeout" >&2; exit 1 ;; 2) echo '{"metadata": {}, "status": {"containerStatuses": [{"state": {"running": {"startedAt": "t"}}}]}}' ;; esac ;;
 esac
 EOF
 out="$(lib status-blip 'restart_collect "$RESTART_OUT" rst-x & c=$!; sleep 14; kill $c; wait $c; echo "rc=$?"')"
 streams="$(grep -c '"uid": "u0"' "$work/out/status-blip/streams.jsonl" 2>&1)"
-if [[ "$streams" == 3 ]]; then
+# Each stream's record carries the container as its stream ended, which score_eks.py reads (gpt-6-astra's defect review
+# of #505): the failed read, the running container, and the Pod gone.
+states="$(python3 -c 'import json, sys; print(" ".join(json.loads(l).get("container", "absent") for l in open(sys.argv[1])))' "$work/out/status-blip/streams.jsonl" 2>&1)"
+if [[ "$streams" == 3 && "$states" == "unread running gone" ]]; then
   ok "a failed status read is followed by the log again, and the follows end when the container is read as ended"
 else
-  bad "the status blip: $streams stream(s) of rp0, want 3 (one before the failed read, one while running, one at the end): $out"
+  bad "the status blip: $streams stream(s) of rp0, want 3 (one before the failed read, one while running, one at the end), containers '$states': $out"
+fi
+# A container that ended leaves its exit and times, and a Pod being deleted its deletion's, in its stream's record: the
+# paid run's 38 s rank-kill stop could not be divided without them (gpt-6-astra's defect review of #505).
+mkdir -p "$work/rules/pod-ended"
+cat >"$work/rules/pod-ended/kubectl.sh" <<'EOF'
+case "$*" in
+  *"--watch --output-watch-events"*) echo '{"type": "MODIFIED", "object": {"metadata": {"uid": "u0", "deletionTimestamp": "2026-11-05T16:13:40Z", "deletionGracePeriodSeconds": 30}}}'; exec -a rstk-pod-ended-watch sleep 300 ;;
+  *"get pods -l platform.lkhun9311.github.io/mltrainingjob="*"-o json"*)
+    echo '{"items": [{"metadata": {"uid": "u0", "name": "rp0", "annotations": {"batch.kubernetes.io/job-completion-index": "0"}}, "spec": {"nodeName": "node-a"}, "status": {"containerStatuses": [{"state": {"running": {"startedAt": "t"}}}]}}]}' ;;
+  *"logs -f rp0"*) echo '{"ts": "t", "event": "step"}' ;;
+  *"get pod rp0"*) echo '{"metadata": {"deletionTimestamp": "2026-11-05T16:13:40Z", "deletionGracePeriodSeconds": 30}, "status": {"containerStatuses": [{"state": {"terminated": {"exitCode": 143, "reason": "Error", "startedAt": "2026-11-05T16:13:02Z", "finishedAt": "2026-11-05T16:14:12Z"}}}]}}' ;;
+esac
+EOF
+out="$(lib pod-ended 'restart_collect "$RESTART_OUT" rst-x & c=$!; sleep 4; kill $c; wait $c; echo "rc=$?"')"
+row="$(head -1 "$work/out/pod-ended/streams.jsonl" 2>&1)"
+if [[ "$(grep -c . "$work/out/pod-ended/streams.jsonl")" == 1 && "$row" == *'"container": "terminated"'* && "$row" == *'"exit_code": 143'* &&
+  "$row" == *'"finished_at": "2026-11-05T16:14:12Z"'* && "$row" == *'"deletion": "2026-11-05T16:13:40Z", "deletion_grace_s": 30'* ]]; then
+  ok "a stream that ended with its container records the exit, its times and the Pod's deletion with its grace, and is not followed again"
+else
+  bad "the ended container's stream record: $row"
+fi
+# The Pod watch is recorded apart from the streams, so a Pod deleted before its stream's end still leaves its status
+# (gpt-6-astra's attack before the corelimit run).
+if grep -qF '"deletionGracePeriodSeconds": 30' "$work/out/pod-ended/pod-watch.json" && grep -q '^{"type": "WATCH-OPENED", "at": "' "$work/out/pod-ended/pod-watch.json"; then
+  ok "the collector records the Pods' watch events beside their streams"
+else
+  bad "the Pod watch was not recorded: $(head -c 200 "$work/out/pod-ended/pod-watch.json" 2>&1)"
+fi
+if pgrep -f '[r]stk-pod-ended-watch' >/dev/null; then
+  bad "a Pod watch outlived the collector killed by TERM"
+  pgrep -f '[r]stk-pod-ended-watch' | xargs -r kill
 fi
 
 # An exec that connects and never answers is cut: gpu-fault.sh's calls at RESTART_GFK_CALL, a read of LATEST at
@@ -705,6 +1017,49 @@ else
   bad "the stuck exec took $took s: $out"
 fi
 
+# A phase ends at its share however many calls it makes: every call bounded on its own let the evidence take three
+# nodes of three 10 s probes, a 60 s credential plugin and three 20 s reads, past twice its 120 s, and the reset's wait
+# run its four-call check once more after its 120 s (adversarial review).
+# Here every kubectl and aws call hangs, the evidence share is 12 s and the reset is given 5 s; the outer timeout only
+# keeps a regression from holding the suite, and is far past either bound.
+# A hung request ends at its --request-timeout, as kubectl's does, and an exec, which that does not bound, never ends.
+mkdir -p "$work/rules/phase-hang"
+cat >"$work/rules/phase-hang/kubectl.sh" <<'EOF'
+case "$*" in
+  *"spec.nodeName=node-b,status.phase=Running"*) echo "dcgm-b " ;;
+  *"-c hostengine -- dcgmi test --inject"*) echo "injected" ;;
+  *" exec "*) sleep 30 ;;
+  *"--request-timeout="*)
+    rt="${*#*--request-timeout=}"
+    sleep "${rt%%s*}"
+    echo "error: context deadline exceeded" >&2
+    exit 1 ;;
+  *) sleep 30 ;;
+esac
+EOF
+cat >"$work/rules/phase-hang/aws.sh" <<'EOF'
+sleep 30
+EOF
+start=$SECONDS
+out="$(timeout 150 bash -c "$(declare -f lib); work='$work'; lib phase-hang '
+RESTART_EVIDENCE_BUDGET=12 RESTART_PROBE_SHARE=4 RESTART_STOP_RESERVE=6 RESTART_EVIDENCE_PAUSE=1 RESTART_STOP_TRIES=2
+sleep 300 &
+collector=\$!
+restart_evidence \"\$RESTART_OUT\" rst-x \"\$collector\" \$(phase_mono) \"\"
+echo \"evidence=\$? in \$SECONDS s\"
+restart_dcgm_reset node-b \"\$RESTART_OUT\" \$((\$(phase_mono) + 5))
+echo \"reset=\$? at \$SECONDS s\"'")"
+took=$((SECONDS - start))
+ev="$(grep -o 'evidence=[0-9]* in [0-9]*' <<<"$out")"
+rs="$(grep -o 'reset=[0-9]* at [0-9]*' <<<"$out")"
+# Evidence: 12 s of share and the kill grace; the reset: 5 s past the evidence's end and the kill grace.
+if [[ -n "$ev" && -n "$rs" && "${ev##* }" -le 15 && "${rs#reset=}" == 1* && $((${rs##* } - ${ev##* })) -le 8 ]] &&
+  [[ "$out" == *"did not read clear"*"or by the reset's deadline"* ]]; then
+  ok "a hanging cluster ends the evidence within its share ($ev s) and the reset within its deadline ($rs s)"
+else
+  bad "the hanging phases took $took s: ${ev:-evidence never ended}, ${rs:-reset never ended}: $(tail -3 <<<"$out")"
+fi
+
 # A scale request EKS refuses while another update is in progress is asked again, and one never accepted runs out.
 mkdir -p "$work/rules/scale-busy"
 cat >"$work/rules/scale-busy/aws.sh" <<'EOF'
@@ -714,7 +1069,7 @@ case "$*" in "eks update-nodegroup-config"*)
   echo "An error occurred (ResourceInUseException) when calling the UpdateNodegroupConfig operation: update in progress" >&2; exit 254 ;;
 esac
 EOF
-out="$(lib scale-busy 'RESTART_SCALE_RETRY=1; restart_scale_group 2 $((SECONDS + 20)); echo "rc=$?"')"
+out="$(lib scale-busy 'RESTART_SCALE_RETRY=1; restart_scale_group 2 $(($(phase_mono) + 20)); echo "rc=$?"')"
 asks="$(grep -c 'update-nodegroup-config' "$work/scale-busy.calls")"
 if [[ "$out" == "rc=0" && "$asks" == 3 ]] && grep -q 'desiredSize=2' "$work/scale-busy.calls"; then
   ok "a scale request refused twice for an update in progress is accepted on the third ask"
@@ -726,7 +1081,7 @@ cat >"$work/rules/scale-never/aws.sh" <<'EOF'
 case "$*" in "eks update-nodegroup-config"*) echo "An error occurred (ResourceInUseException)" >&2; exit 254 ;; esac
 EOF
 start=$SECONDS
-out="$(lib scale-never 'RESTART_SCALE_RETRY=1; restart_scale_group 2 $((SECONDS + 4)); echo "rc=$?"')"
+out="$(lib scale-never 'RESTART_SCALE_RETRY=1; restart_scale_group 2 $(($(phase_mono) + 4)); echo "rc=$?"')"
 if [[ "$out" == *"was not scaled to 2 before its deadline"*"ResourceInUseException"*"rc=1" && $((SECONDS - start)) -lt 8 ]]; then
   ok "a scale request never accepted runs out at its deadline"
 else
@@ -770,10 +1125,24 @@ EOF
 out="$(lib deadline 'restart_deadline_ok 1020; echo "rc=$?"; restart_deadline_ok 300; echo "rc=$?"')"
 if [[ "$out" == *"nothing more starts"*"rc=1"*"min away"*"rc=0" ]]; then ok "a case longer than the deadline's remainder is not started"; else bad "the deadline: $out"; fi
 
+# The EFS credit balance keeps the datapoint's own minute beside when it was asked, so a stale datapoint read twice is
+# seen as one (gpt-6-astra's defect review of #505).
+mkdir -p "$work/rules/efs"
+printf 'case "$*" in "cloudwatch get-metric-statistics"*) printf "2026-11-05T16:08:00+00:00\\t2308974418330.0\\n" ;; esac\n' >"$work/rules/efs/aws.sh"
+out="$(lib efs 'RESTART_FS_ID=fs-0; restart_efs_credits "$RESTART_OUT" before; cat "$RESTART_OUT/efs-credits.txt"')"
+if [[ "$out" =~ ^before\ [0-9T:-]+Z\ 2026-11-05T16:08:00\+00:00\ 2308974418330\.0$ ]] && grep -q 'Timestamp, Minimum' "$work/efs.calls"; then
+  ok "the EFS credit balance is recorded with its datapoint's minute"
+else
+  bad "the EFS credit line: $out"
+fi
+
 # --- the case procedure under restart_run, with the group, deadline and scorer steps replaced by functions ---------
 # The shares are cut to seconds so a case's waits end at once; the real restart_run_case runs only for the case named.
-RUNNER_PRELUDE='RESTART_STAGE=smoke RESTART_REQUALIFY_BUDGET=1 RESTART_REPLENISH_BUDGET=1 RESTART_WARM_BUDGET=1 RESTART_SUBMIT_BUDGET=1
-RESTART_CASE_BUDGET=2 RESTART_EVIDENCE_BUDGET=1 RESTART_RETIRE_BUDGET=2 RESTART_FILES_BUDGET=1 RESTART_RESET_BUDGET=1
+# The share before a submission is 3 s, not 1: each step in it is a paid phase, refused once its deadline has passed, and
+# The clock counts whole seconds, so three steps in a 1 s share were refused whenever it began late in a second.
+RUNNER_PRELUDE='RESTART_STAGE=smoke RESTART_REQUALIFY_BUDGET=3 RESTART_REPLENISH_BUDGET=3 RESTART_WARM_BUDGET=1 RESTART_SUBMIT_BUDGET=1
+RESTART_CASE_BUDGET=2 RESTART_EVIDENCE_BUDGET=1 RESTART_RETIRE_BUDGET=2 RESTART_FILES_BUDGET=5 RESTART_RESET_BUDGET=1
+eval "$(declare -f restart_deadline_ok | sed "1s/restart_deadline_ok/restart_deadline_ok_real/")"
 restart_deadline_ok() { echo "deadline stub"; }
 restart_wait_group() { echo "group stub"; }
 restart_prepare_nodes() { echo "prepare stub"; }
@@ -784,6 +1153,22 @@ restart_run_case() { if [[ "$1" == "$REAL_CASE" ]]; then real_run_case "$@"; els
 runner() {
   lib "$1" "REAL_CASE=$2; $RUNNER_PRELUDE"$'\n''restart_run "$RESTART_OUT/warmed.txt"; echo "rc=$?"'
 }
+
+# A scheduler query that hangs between cases ends with the share before the submission, and nothing starts after it
+# (sixth attack, 2: restart_deadline_ok's queries ran under no deadline at all).
+mkdir -p "$work/rules/sched-hang"
+printf 'case "$*" in "scheduler "*) exec sleep 61 ;; esac\n' >"$work/rules/sched-hang/aws.sh"
+s0=$SECONDS
+out="$(lib sched-hang "REAL_CASE=none; $RUNNER_PRELUDE"$'\n''restart_deadline_ok() { restart_deadline_ok_real "$@"; }
+restart_run "$RESTART_OUT/warmed.txt"; echo "rc=$?"' 2>&1)"
+took=$((SECONDS - s0))
+left="$(pgrep -f 'slee[p] 61$' | paste -sd' ')"
+if [[ "$took" -le 8 && "$(cat "$work/out/sched-hang/reference/NOTRUN" 2>&1)" == *"deadline-ok: it passed its deadline"* &&
+  "$out" == *"stopped early"* && -z "$left" ]]; then
+  ok "a hanging scheduler query between cases ended with its share (${took} s for 3 s) and the case was not run"
+else
+  bad "a hanging scheduler query between cases: took ${took} s, reference: $(cat "$work/out/sched-hang/reference/NOTRUN" 2>&1); $(tail -3 <<<"$out"); left: $left"
+fi
 
 # A case VOID before its fault whose retirement cannot be confirmed stops every later submission.
 mkdir -p "$work/rules/void-retire"
@@ -796,7 +1181,8 @@ case "$*" in
 esac
 EOF
 out="$(runner void-retire dcgm-1)"
-if [[ "$(cat "$work/out/void-retire/dcgm-1/VOID")" == "the ranks' Pods were never seen" &&
+# Its sampling spends the case's deadline, so the probe before the fault is refused under it and the case is VOID there.
+if [[ "$(cat "$work/out/void-retire/dcgm-1/VOID")" == "VOID-before-fault: a clock probe before the fault failed, so nothing was injected"* &&
   "$(cat "$work/out/void-retire/terminate-wait-1/NOTRUN" 2>&1)" == "dcgm-1 could not be retired"* ]] &&
   ! grep -q 'update-nodegroup-config' "$work/void-retire.calls" &&
   [[ -e "$work/out/void-retire/dcgm-1/shared-files.txt" && -e "$work/out/void-retire/dcgm-1/final-mltj.json" &&
@@ -804,7 +1190,7 @@ if [[ "$(cat "$work/out/void-retire/dcgm-1/VOID")" == "the ranks' Pods were neve
   ! grep -q 'rm -rf' "$work/void-retire.calls"; then
   ok "an early VOID whose retirement failed leaves the next case NOTRUN, the group untouched, its files listed and kept"
 else
-  bad "the early VOID with a failed retirement: $(tail -3 <<<"$out"); terminate-wait-1: $(cat "$work/out/void-retire/terminate-wait-1/NOTRUN" 2>&1)"
+  bad "the early VOID with a failed retirement: $(cat "$work/out/void-retire/dcgm-1/VOID" 2>&1 | head -c 200); $(tail -12 <<<"$out"); terminate-wait-1: $(cat "$work/out/void-retire/terminate-wait-1/NOTRUN" 2>&1)"
 fi
 
 # A case that ran whose retirement fails still leaves its evidence and its files' listing, and stops the run.
@@ -871,7 +1257,7 @@ if [[ "$(cat "$work/out/probe-before/dcgm-1/VOID" 2>&1)" == "VOID-before-fault: 
   grep -q 'delete mltrainingjob rst-dcgm-1' "$work/probe-before.calls" && ! grep -q 'hostengine' "$work/probe-before.calls"; then
   ok "a case whose clocks were not read before its fault is VOID before it, retired, and never injected"
 else
-  bad "the failed probe before the fault: VOID '$(cat "$work/out/probe-before/dcgm-1/VOID" 2>&1)', $(grep -c hostengine "$work/probe-before.calls") injection call(s)"
+  bad "the failed probe before the fault: VOID '$(cat "$work/out/probe-before/dcgm-1/VOID" 2>&1)', $(grep -c hostengine "$work/probe-before.calls") injection call(s); $(tail -3 <<<"$out")"
 fi
 # A follow carries no request timeout: kubectl's 20 s one cut every stream on the kind rehearsal, each was read again from
 # the start, and the 20 restarts the collector allows then ended its coverage of any Pod that ran past about 400 s.
@@ -887,6 +1273,46 @@ if [[ "$tokens" == "1 1" ]]; then
   ok "each Pod's line carries the controller's attempt label: $tokens"
 else
   bad "the Pods' attempt tokens: $tokens"
+fi
+
+# An injection whose exec connects and never answers is cut at the case's deadline, not left to the session's TTL as
+# the plain rk exec was, and a cut injection is neither delivered nor refused: the case is VOID as unknown, carries no
+# dcgm.json, and the node is given the baseline at once.
+mkdir -p "$work/rules/stuck-inject"
+cat >"$work/rules/stuck-inject/kubectl.sh" <<EOF
+case "\$*" in
+  *"-c hostengine -- sh -c"*) sleep 60 ;;
+  *) . "$work/fullcase.sh" "\$@" ;;
+esac
+EOF
+# The call's own cap is 3 s and the case's budget 8 s, so the cut leaves the case time to give the baseline.
+out="$(lib stuck-inject "REAL_CASE=dcgm-1; $RUNNER_PRELUDE"$'\n''RESTART_CASE_BUDGET=8 RESTART_VERDICT_CALL=1 RESTART_GFK_CALL=3; restart_run "$RESTART_OUT/warmed.txt"; echo "rc=$?"')"
+marks="$work/out/stuck-inject/dcgm-1/marks.jsonl"
+cut="$(python3 -c '
+import datetime, json, sys
+m = {r["mark"]: datetime.datetime.fromisoformat(r["at"][:26]) for r in map(json.loads, open(sys.argv[1]))}
+print(round((m["fault-unknown"] - m["fault-start"]).total_seconds()) if "fault-unknown" in m and "fault-start" in m else "none")' "$marks" 2>&1)"
+baseline="$(grep -n 'hostengine -- dcgmi test --inject --gpuid 0 -f 230 -v 0' "$work/stuck-inject.calls" | head -1 | cut -d: -f1)"
+injection="$(grep -n 'hostengine -- sh -c' "$work/stuck-inject.calls" | head -1 | cut -d: -f1)"
+# An injection cut at its 3 s cap took at most that and the kill grace; the stub's exec would have taken 60.
+if [[ "$(cat "$work/out/stuck-inject/dcgm-1/VOID" 2>&1)" == "the fault's delivery is unknown: the injection on node-b was cut"* &&
+  "$cut" =~ ^[0-9]+$ && "$cut" -le 5 && ! -e "$work/out/stuck-inject/dcgm-1/dcgm.json" ]] &&
+  ! grep -q '"fault-end"' "$marks" && [[ -n "$baseline" && -n "$injection" && "$baseline" -gt "$injection" ]]; then
+  ok "a stuck DCGM injection is cut after $cut s, the case VOID as unknown, and the node given the baseline after it"
+else
+  bad "the stuck DCGM injection: VOID '$(cat "$work/out/stuck-inject/dcgm-1/VOID" 2>&1)', cut after '$cut', baseline at call ${baseline:-none} after the injection at ${injection:-none}: $(tail -2 <<<"$out")"
+fi
+# The job's status is sampled while the injection holds the case's loop: on the paid run the DCGM samples jumped 25 s
+# across their triggers (gpt-6-astra's defect review of #505).
+during="$(python3 -c '
+import datetime, json, sys
+m = {r["mark"]: datetime.datetime.fromisoformat(r["at"][:26]).replace(tzinfo=datetime.timezone.utc) for r in map(json.loads, open(sys.argv[1]))}
+rows = [datetime.datetime.fromisoformat(json.loads(l)["observed"]) for l in open(sys.argv[2])]
+print(sum(m["fault-start"] < t < m["fault-unknown"] for t in rows))' "$marks" "$work/out/stuck-inject/dcgm-1/timeline.jsonl" 2>&1)"
+if [[ "$during" =~ ^[0-9]+$ && "$during" -ge 2 ]] && [[ ! -e "$work/out/stuck-inject/dcgm-1/sampling.stop" ]]; then
+  ok "the status was sampled $during times while the injection held the case's loop, and the sampler was stopped"
+else
+  bad "samples during the stuck injection: $during; stop file left: $([[ -e "$work/out/stuck-inject/dcgm-1/sampling.stop" ]] && echo yes || echo no)"
 fi
 
 # The window is read again as the last call before a termination: the node read sleeps two seconds, the trainer passes
@@ -915,7 +1341,7 @@ EOF
   echo '{"kind": "terminate-wait", "name": "rst-t", "job_id": "job-t", "target": {}}' >"$work/out/$1/case.json"
 }
 external='window="$(restart_fault_window rp0 job-t "$RESTART_OUT" 5)" || { echo "window shut: $window"; exit 1; }
-restart_external_fault terminate-wait "$RESTART_OUT" rst-t job-t rp0 node-b "$window" $((SECONDS + 30)) $((SECONDS + 60)); echo "rc=$?"'
+restart_external_fault terminate-wait "$RESTART_OUT" rst-t job-t rp0 node-b "$window" $(($(phase_mono) + 30)) $(($(phase_mono) + 60)); echo "rc=$?"'
 window_rules late yes
 out="$(lib late "$external")"
 case_json="$(python3 -c 'import json, sys; c = json.load(open(sys.argv[1])); print(c.get("step_before_fault"), c.get("published_at_window", "")[:2], "published_at_fault" in c)' "$work/out/late/case.json")"
@@ -1014,7 +1440,9 @@ EOF
 }
 late_rules late-exporter late
 late_rules never-exporter never
-out="$(lib late-exporter 'RESTART_POLL=1; restart_fault_path_ready 4; echo "rc=$?"')"
+# 5 s and not 4: the deadline is set on whole seconds of a clock counted from boot, not from the shell's start as SECONDS
+# was, so a budget can come to up to a second less, and node-b's two polls and node-a's read needed about 3.5 s.
+out="$(lib late-exporter 'RESTART_POLL=1; restart_fault_path_ready 5; echo "rc=$?"')"
 if [[ "$out" == *"every GPU node's exporter serves the fault fields"*"rc=0" && "$(grep -c 'dcgm-b:9400' "$work/late-exporter.calls")" == 2 ]]; then
   ok "fault path readiness waits for an exporter that is still starting"
 else
@@ -1064,14 +1492,168 @@ python3 hack/test/restart-session/make_fixture.py "$work/run-clean" || bad "the 
 out="$(python3 experiments/distributed-restart/score_eks.py "$work/run-clean" 2>&1)"
 rc=$?
 if [[ $rc == 0 && "$(grep -c '^ACCEPTED' <<<"$out")" == 22 ]]; then ok "a clean run: all 22 cases ACCEPTED"; else bad "the clean run: exit $rc, $(grep -vc '^ACCEPTED' <<<"$out") other line(s)"; fi
+# The real restart_verdict, as restart_run calls it, which the runner tests above replace with a stub.
+# The scorer exits 1 once any case of the run is not ACCEPTED, and under pipefail that status discarded the verdict it
+# had printed, so one FAILED case made every later verdict empty and two of them stopped the run as VOID (bare codex
+# review of #505).
+python3 hack/test/restart-session/make_fixture.py "$work/run-verdict" job-failed rank-kill-2 || bad "the verdict fixture was not built"
+vout="$(lib verdict "set -o pipefail; RESTART_OUT='$work/run-verdict'
+for c in rank-kill-1 rank-kill-2 rank-kill-3; do
+  v=\"\$(paid_phase verdict-\$c \$((\$(phase_mono) + RESTART_VERDICT_CALL + 5)) restart_verdict \$c)\" || v=''
+  echo \"\$c=\$v\"
+done")"
+if [[ "$vout" == *"rank-kill-1=ACCEPTED"*"rank-kill-2=FAILED"*"rank-kill-3=ACCEPTED"* ]]; then
+  ok "each case's verdict survives the scorer's status 1 for a run with a FAILED case"
+else
+  bad "the verdicts of a run with a FAILED case: $(tr '\n' ' ' <<<"$vout" | head -c 300)"
+fi
+# Lost steps are counted from attempt 1's last record, so a log not read to its end gave too few and stayed ACCEPTED
+# (gpt-6-astra's defect review of #505); such a figure is withheld, and the case and its other figures stand.
+for row in "streams-complete|1|lost steps [1, 1, 1, 1, 1], over" "stream-cut|null|lost steps [1, 1, 1, 1] (1 withheld" \
+  "stream-exit|null|lost steps [1, 1, 1, 1] (1 withheld"; do
+  IFS='|' read -r fx want summary <<<"$row"
+  python3 hack/test/restart-session/make_fixture.py "$work/run-$fx" "$fx" rank-kill-1 || bad "the $fx fixture was not built"
+  sout="$(python3 experiments/distributed-restart/score_eks.py "$work/run-$fx" 2>&1)"
+  line="$(grep '^ACCEPTED rank-kill-1 ' <<<"$sout")"
+  if [[ "$line" == *"\"lost_steps\": $want"* ]] && grep -qF "$summary" <<<"$sout" &&
+    { [[ $want != null ]] || [[ "$line" == *'"lost_steps_withheld": "attempt 1'"'"'s logs may lack their end: rank-kill-1-a1-r0'* ]]; }; then
+    ok "$fx: rank-kill-1 stays ACCEPTED with lost steps $want"
+  else
+    bad "$fx: $(head -c 300 <<<"$line"); $(grep 'same-nodes:' <<<"$sout" | head -c 200)"
+  fi
+done
 for want in "replacement: recovery median 71.0 s" "spare: recovery median 71.0 s" "same-nodes: recovery median 71.0 s" "lost steps [1, 1, 1, 1, 1]"; do
   if grep -qF "$want" <<<"$out"; then ok "the clean run reports '$want'"; else bad "the clean run lacks '$want'"; fi
 done
+# The committed paid archives score as published from the repository alone.
+# Their status timelines are committed compressed, and reading only the plain file voided every termination case.
+for pub in "2026-11-02-smoke 4" "2026-11-04-full 10"; do
+  read -r stage n <<<"$pub"
+  out="$(python3 experiments/distributed-restart/score_eks.py "hack/distributed-restart-eks/$stage/session/restart" 2>&1)"
+  rc=$?
+  if [[ $rc == 0 && "$(grep -c '^ACCEPTED' <<<"$out")" == "$n" && "$(grep -cE '^(VOID|FAILED|NOTRUN|REFUSED)' <<<"$out")" == 0 ]]; then
+    ok "the committed $stage archive scores $n of $n ACCEPTED"
+  else
+    bad "the committed $stage archive: exit $rc, $(grep -cE '^(VOID|FAILED|NOTRUN|REFUSED)' <<<"$out") refused, $(grep -m1 -E '^(VOID|FAILED|REFUSED)' <<<"$out")"
+  fi
+done
+if grep -qF "checkpoint cost: median 0.255 s, max 0.412 s over 540 saves" <<<"$out"; then ok "the full archive's checkpoint cost is the published one"; else bad "the full archive's checkpoint cost: $(grep 'checkpoint cost' <<<"$out")"; fi
+# The retarget archive is pinned to the figures its record publishes as well as to its verdicts.
+out="$(python3 experiments/distributed-restart/score_eks.py hack/distributed-restart-eks/2026-11-05-retarget/session/restart 2>&1)"
+rc=$?
+if [[ $rc == 0 && "$(grep -c '^ACCEPTED' <<<"$out")" == 6 && "$(grep -cE '^(VOID|FAILED|NOTRUN|REFUSED)' <<<"$out")" == 0 ]]; then
+  ok "the committed 2026-11-05-retarget archive scores 6 of 6 ACCEPTED"
+else
+  bad "the committed 2026-11-05-retarget archive: exit $rc, $(grep -m1 -E '^(VOID|FAILED|REFUSED)' <<<"$out")"
+fi
+for want in "same-nodes: recovery median 47.0 s, range 46.5 to 47.5 s, lost steps [1, 1]" \
+  "spare: recovery median 8.3 s, range 7.8 to 8.8 s, lost steps [0, 1]" "checkpoint cost: median 0.265 s, max 0.386 s over 300 saves"; do
+  if grep -qF "$want" <<<"$out"; then ok "the retarget archive reports '$want'"; else bad "the retarget archive lacks '$want'"; fi
+done
+# A damaged compressed timeline is that case's unreadable evidence, not the end of the report.
+cp -r hack/distributed-restart-eks/2026-11-02-smoke/session/restart "$work/smoke-damaged"
+packed="$work/smoke-damaged/terminate-wait-1/timeline.jsonl.xz"
+head -c 200 "$packed" >"$packed.cut" && mv "$packed.cut" "$packed"
+out="$(python3 experiments/distributed-restart/score_eks.py "$work/smoke-damaged" 2>&1)"
+if grep -q '^VOID *terminate-wait-1: its evidence could not be read: ValueError: timeline.jsonl.xz could not be decompressed' <<<"$out" &&
+  [[ "$(grep -c '^ACCEPTED' <<<"$out")" == 3 ]] && grep -q '^summary' <<<"$out"; then
+  ok "a damaged compressed timeline voids its case and the others are still scored"
+else
+  bad "a damaged compressed timeline: $(grep -m2 -E '^(VOID|Traceback|ValueError|_lzma)' <<<"$out")"
+fi
+out="$(python3 experiments/distributed-restart/phases_eks.py "$work/smoke-damaged" 2>&1)"
+if grep -q '^terminate-wait-1: not split' <<<"$out" && grep -q '^dcgm-1 (' <<<"$out"; then
+  ok "phases_eks.py reports past a damaged compressed timeline"
+else
+  bad "phases_eks.py with a damaged compressed timeline: $(tail -2 <<<"$out")"
+fi
+# phases_eks.py splits only what score_eks.py accepted, and its last moment is the scorer's own recovery figure.
+out="$(python3 experiments/distributed-restart/phases_eks.py "$work/run-clean" 2>&1)"
+rc=$?
+split="$(grep -cE '^(rank-kill|dcgm|terminate-spare|terminate-wait)-[0-9] \(' <<<"$out")"
+stepped="$(grep -cE '^(rank-kill|dcgm|terminate-spare|terminate-wait)-[0-9] \(.*created \+[0-9.]+\*.* stepped \+71\.0$' <<<"$out")"
+if [[ $rc == 0 && "$split" == 20 && "$stepped" == 20 ]] && grep -q '^no-rng-control: not split' <<<"$out"; then
+  ok "phases_eks.py splits the clean run's 20 recoveries, each ending at the scorer's 71.0 s"
+else
+  bad "phases_eks.py on the clean run: exit $rc, $split split, $stepped ending at 71.0 s: $(head -3 <<<"$out")"
+fi
+python3 hack/test/restart-session/make_fixture.py "$work/run-phases-void" no-fault-record rank-kill-2 || bad "the phases fixture was not built"
+out="$(python3 experiments/distributed-restart/phases_eks.py "$work/run-phases-void" 2>&1)"
+if grep -qE '^rank-kill-2: not split, (VOID|FAILED)' <<<"$out"; then ok "phases_eks.py does not split a case the scorer refused"; else bad "a refused case was split: $(grep '^rank-kill-2' <<<"$out")"; fi
+# The scorer's run-level refusals are its too, an unreadable case does not end the report, and a spare case that
+# recovered on a replacement is summarised with replacements, not pooled with spares.
+python3 hack/test/restart-session/make_fixture.py "$work/run-phases-dirty" dirty reference || bad "the dirty phases fixture was not built"
+out="$(python3 experiments/distributed-restart/phases_eks.py "$work/run-phases-dirty" 2>&1)"
+rc=$?
+if [[ $rc == 2 && "$out" == *"REFUSED"*"uncommitted change"* ]]; then ok "phases_eks.py refuses a run the scorer refuses"; else bad "phases_eks.py on a dirty run: exit $rc, $(head -2 <<<"$out")"; fi
+python3 hack/test/restart-session/make_fixture.py "$work/run-phases-empty" empty-final dcgm-4 || bad "the empty-final phases fixture was not built"
+out="$(python3 experiments/distributed-restart/phases_eks.py "$work/run-phases-empty" 2>&1)"
+if grep -q '^dcgm-4: not split' <<<"$out" && grep -q '^terminate-wait-5 (' <<<"$out" && grep -q '^medians' <<<"$out"; then
+  ok "an unreadable case is not split and the report goes on"
+else
+  bad "phases_eks.py on an unreadable case: $(grep -E '^dcgm-4|Traceback' <<<"$out" | head -2)"
+fi
+python3 hack/test/restart-session/make_fixture.py "$work/run-phases-mixed" spare-on-replacement terminate-spare-4 || bad "the mixed phases fixture was not built"
+out="$(python3 experiments/distributed-restart/phases_eks.py "$work/run-phases-mixed" 2>&1)"
+if grep -q '^  terminate-spare/replacement (n=1)' <<<"$out" && grep -q '^  terminate-spare/spare (n=4)' <<<"$out"; then
+  ok "a spare case that recovered on a replacement is summarised apart from the spares"
+else
+  bad "the class split: $(grep '^  terminate-spare' <<<"$out" | tr '\n' ' ')"
+fi
 
 score missing-rank rank-kill-2 FAILED "attempt 2 has start records from ranks [0]"
 # The runner reads the final status after its budget has run out, so the end is judged by the job's own stamps.
-score ended-after-budget terminate-wait-1 FAILED "censored at its budget: the job ended 'Succeeded' 723 s after its creation"
-score failed-after-budget rank-kill-2 FAILED "censored at its budget: the job ended 'Failed' 723 s after its creation"
+# A late end after every rank of attempt 2 stepped is a late completion with its recovery time kept, not a censored
+# recovery: both of these recovered 71.0 s after the fault.
+score ended-after-budget terminate-wait-1 FAILED "past its budget after a recovery: the job ended 'Succeeded' 723 s after its creation, beyond its 720 s budget; every rank of attempt 2 had stepped 71.0 s after the fault"
+score failed-after-budget rank-kill-2 FAILED "past its budget after a recovery: the job ended 'Failed' 723 s after its creation, beyond its 720 s budget; every rank of attempt 2 had stepped 71.0 s after the fault"
+# Only a first step never observed is censored, and its bound runs from the fault, 30.95 s after the creation, to the
+# runner's last sample: 112.1 s here, where the creation would have given 148.1 s.
+score ended-after-budget-no-step terminate-wait-1 FAILED "censored at its budget: the job ended 'Succeeded' 723 s after its creation, beyond its 720 s budget; attempt 2's first step is not among the records collected; observation ended 112.1 s after the fault, at the last read of the job, which is not a bound"
+score ended-after-budget reference FAILED "past its budget: the job ended 'Succeeded' 723 s after its creation"
+# late_score <defect> <python on d, the case directory> <want> [<not>]: a late or censored fixture with its evidence
+# changed, whose line has <want> and not <not>.
+late_score() {
+  local run="$work/run-late-$RANDOM" out line
+  python3 hack/test/restart-session/make_fixture.py "$run" "$1" terminate-wait-1 || { bad "$1: the fixture was not built"; return; }
+  python3 - "$run/terminate-wait-1" "$2" <<'EOF'
+import json, pathlib, sys
+d, change = pathlib.Path(sys.argv[1]), sys.argv[2]
+exec(change)
+EOF
+  out="$(python3 experiments/distributed-restart/score_eks.py "$run" 2>&1)"
+  line="$(grep -E '^[A-Z]+ +terminate-wait-1: ' <<<"$out" | head -1)"
+  if [[ "$line" == *"$3"* && ( -z "${4:-}" || "$line" != *"$4"* ) ]]; then ok "$1, changed: $(cut -c1-170 <<<"$line")"; else bad "$1, changed: want '$3'${4:+ without '$4'}, got '$line'"; fi
+}
+# A late recovery's time is placed by the same clocks as an on-time one, so a probe labelled before the fault that ran
+# after it withholds the time (codex review of 9499dba5).
+late_score ended-after-budget '
+p = d / "clock.jsonl"
+rows = [json.loads(l) for l in p.read_text().splitlines() if l.strip()]
+for r in rows:
+    if r.get("when") == "before":
+        for k in ("before", "node_time", "after"):
+            r[k] += 10000
+p.write_text("".join(json.dumps(r) + "\n" for r in rows))' "at a time that cannot be placed: the probe of"
+# Rows the sampler wrote for reads that failed do not extend observation, and a Pod whose follows were given up before
+# the last sample leaves the recovery without a bound.
+late_score ended-after-budget-no-step '
+p = d / "timeline.jsonl"
+rows = [json.loads(l) for l in p.read_text().splitlines() if l.strip()]
+last = rows[-1]["observed"]
+rows.append({"observed": last[:11] + "%02d" % ((int(last[11:13]) + 1) % 24) + last[13:], "status": None})
+p.write_text("".join(json.dumps(r) + "\n" for r in rows))' "observation ended 112.1 s after the fault"
+late_score ended-after-budget-no-step '
+uid = json.loads((d / "pods.jsonl").read_text().splitlines()[-1])["uid"]
+rows = [{"uid": uid, "stream": n, "exit": 1, "at": "2000-01-01T00:00:00+00:00"} for n in range(1, 21)]
+(d / "streams.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))' "which is not a bound on the recovery because the logs are not shown to cover that time; the log follows of"
+# A Pod the controller labelled attempt 1 cannot print attempt 2's step, so its given-up follows keep the bound.
+late_score ended-after-budget-no-step '
+pods = [json.loads(l) for l in (d / "pods.jsonl").read_text().splitlines() if l.strip()]
+pods[0]["attempt_token"] = "1"
+(d / "pods.jsonl").write_text("".join(json.dumps(p) + "\n" for p in pods))
+rows = [{"uid": pods[0]["uid"], "stream": n, "exit": 1, "at": "2000-01-01T00:00:00+00:00"} for n in range(1, 21)]
+(d / "streams.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))' "to cover that time" "given up"
 score ended-before-budget terminate-wait-1 ACCEPTED "recovery"
 # The stamps are whole seconds from two clocks, so an end this near the budget is on neither side of it.
 score ended-at-budget terminate-wait-1 VOID "within 2 s of its 720 s budget"
@@ -1120,15 +1702,17 @@ score resume-dir-step-mismatch dcgm-5 FAILED "names step 12 and the ranks say 13
 score manifest-unlisted terminate-wait-3 VOID "the volume's listing has no /rst-terminate-wait-3-010000-0a1b2c3d/a1/00000013-"
 score no-volume-listing dcgm-4 VOID "no listing of the job's files on the volume"
 score resume-gap terminate-spare-5 FAILED "rank 0 of attempt 2 resumed from step 13, and its steps lack [14, 15]"
-score timed-out terminate-wait-4 FAILED "censored at its budget: the job ended 'Pending', not Succeeded"
+score timed-out terminate-wait-4 FAILED "censored at its budget: the job ended 'Pending', not Succeeded, within its budget; attempt 2's first step is not among the records collected; observation ended 112.1 s after the fault"
 # A recovery censored at its budget stays FAILED when the nodes read afterwards are unreadable: the outcome is judged first.
 score timed-out-nodes-unread rank-kill-3 FAILED "censored at its budget: the job ended 'Pending', not Succeeded"
 score timed-out-nodes-before-unread rank-kill-2 FAILED "censored at its budget: the job ended 'Pending', not Succeeded"
 score job-failed rank-kill-2 FAILED "not recovered: the job ended 'Failed', not Succeeded"
-# The summary keeps a recovery cut off by its budget apart from one that ended wrong, and both apart from VOID.
-for want in "timed-out terminate-wait-4:terminate-wait: 5 registered, 4 ACCEPTED, 1 FAILED (1 censored at their budget, 0 not recovered), 0 VOID" \
-  "job-failed rank-kill-2:rank-kill: 5 registered, 4 ACCEPTED, 1 FAILED (0 censored at their budget, 1 not recovered), 0 VOID" \
-  "manifest-unlisted terminate-wait-3:terminate-wait: 5 registered, 4 ACCEPTED, 0 FAILED (0 censored at their budget, 0 not recovered), 1 VOID"; do
+# The summary keeps a recovery cut off by its budget apart from a late completion and from one that ended wrong, and all
+# three apart from VOID.
+for want in "timed-out terminate-wait-4:terminate-wait: 5 registered, 4 ACCEPTED, 1 FAILED (1 censored at their budget, 0 past their budget after a recovery, 0 not recovered), 0 VOID" \
+  "ended-after-budget terminate-wait-1:terminate-wait: 5 registered, 4 ACCEPTED, 1 FAILED (0 censored at their budget, 1 past their budget after a recovery, 0 not recovered), 0 VOID" \
+  "job-failed rank-kill-2:rank-kill: 5 registered, 4 ACCEPTED, 1 FAILED (0 censored at their budget, 0 past their budget after a recovery, 1 not recovered), 0 VOID" \
+  "manifest-unlisted terminate-wait-3:terminate-wait: 5 registered, 4 ACCEPTED, 0 FAILED (0 censored at their budget, 0 past their budget after a recovery, 0 not recovered), 1 VOID"; do
   run="$work/run-${want%%:*}"
   run="${run/ /-}"
   out="$(python3 experiments/distributed-restart/score_eks.py "$run" 2>&1)"
@@ -1145,6 +1729,8 @@ score no-terminated-mark terminate-wait-5 VOID "no mark of the termination call 
 score no-fenced-mark terminate-wait-2 VOID "no fence-request or fenced mark"
 score fence-before-terminated terminate-spare-1 VOID "before EC2 reported the instance terminated"
 score no-fence-annotation terminate-spare-3 VOID "the job's fenced-nodes annotation is '', not naming the target ip-10-0-64-12"
+score fence-bound terminate-spare-3 ACCEPTED '"class": "spare"'
+score fence-bound-other-machine terminate-spare-3 VOID "the job's fenced-nodes annotation is 'ip-10-0-64-12@uid-of-a-later-machine', not naming the target ip-10-0-64-12"
 score created-before-fence terminate-wait-3 FAILED "attempt 2 was created at"
 score seen-before-fence terminate-spare-2 FAILED "attempt 2 was already in the job's status at"
 # The annotation can take effect before the call returns, so the barrier is judged from the request, not the response.
@@ -1171,9 +1757,18 @@ score prepared-no-uid dcgm-2 VOID "names no Node UID"
 # A round labelled before the fault that was taken after rank-kill's own kill shows no clock before it.
 score before-probe-late rank-kill-2 VOID "labelled before the fault ended after it"
 # A figure needs the records behind it: attempt 1's log through its resume point, and both ranks' finite save costs.
-score attempt1-log-cut rank-kill-2 VOID "so its log is incomplete"
+score attempt1-log-cut rank-kill-2 VOID "before step 12 its fault record says it reached"
 score save-nan dcgm-2 VOID "which no save takes"
 score rank1-no-saves terminate-spare-2 VOID "has save records from ranks [0], want every rank of 2"
+# A checkpoint record without a usable cost is refused, not left out: dropping rank 1's costs, or every cost, was
+# ACCEPTED, the second with "saves": 0, because the ranks were counted among the records and not among the costs.
+score rank1-saves-uncosted terminate-spare-2 VOID "attempt 1 rank 1's checkpoint of step 1 records no save cost"
+score no-save-costs reference VOID "attempt 1 rank 0's checkpoint of step 1 records no save cost"
+score save-not-number dcgm-3 VOID "attempt 2 rank 0's checkpoint of step 14 records save cost '0.094', which no save takes"
+# A clock that is not a finite number is refused: NaN probes were ACCEPTED with a NaN recovery_s, because a NaN fails no
+# comparison, and a literal like 1e999 reads as infinity, whose differences are NaN.
+score clock-nan dcgm-1 VOID "its evidence could not be read: ValueError: clock.jsonl: the JSON constant NaN"
+score clock-overflow rank-kill-2 VOID "a clock probe of ip-10-0-64-11 holds {'before': inf, 'node_time': inf, 'after': inf}, not three finite times"
 score no-nodes-after rank-kill-3 VOID "the nodes after the recovery were not recorded"
 score drop-node-before rank-kill-4 VOID "attempt 1's nodes ['ip-10-0-64-11'] are not among the nodes before the fault"
 score drop-node-after dcgm-4 VOID "attempt 2's nodes ['ip-10-0-64-13'] are not among the nodes after the recovery"
@@ -1223,6 +1818,719 @@ else
 fi
 out="$(python3 experiments/distributed-restart/score_eks.py "$run" 2>&1)"
 if [[ "$out" == *"VOID     terminate-wait-2: its directory is missing"* ]]; then ok "without --partial a registered case with no directory is VOID"; else bad "the full score of a partial run: $(grep terminate-wait-2 <<<"$out")"; fi
+
+# H1 of the retarget stage is read from the controller's stamps, cross-checked against the collector's clock, and a
+# case whose d cannot be established is INVALID rather than a pass (codex gpt-6-astra attack of the registration).
+h1=experiments/distributed-restart/h1_retarget.py
+out="$(python3 "$h1" hack/distributed-restart-eks/2026-11-04-full/session/restart 2>&1)"
+if grep -q '^H1 REFUTED' <<<"$out" && [[ "$(grep -cE '"d_s": (39|31)\.0' <<<"$out")" == 4 ]]; then
+  ok "H1 on the full archive is REFUTED with d 39, 39, 31 and 31 s"
+else
+  bad "H1 on the full archive: $(tail -1 <<<"$out")"
+fi
+out="$(python3 "$h1" hack/distributed-restart-eks/2026-11-05-retarget/session/restart 2>&1)"
+if grep -qx 'H1 REFUTED: d is at least 30 s in rank-kill-1, rank-kill-2' <<<"$out" &&
+  grep -q '^rank-kill-1 .*"d_s": 38\.0' <<<"$out" && grep -q '^rank-kill-2 .*"d_s": 39\.0' <<<"$out" &&
+  grep -q '^dcgm-1 .*"d_s": 2\.0' <<<"$out" && grep -q '^dcgm-2 .*"d_s": 2\.0' <<<"$out"; then
+  ok "H1 on the retarget archive is REFUTED by rank-kill alone, with d 38, 39, 2 and 2 s"
+else
+  bad "H1 on the retarget archive: $(tail -1 <<<"$out")"
+fi
+rt=hack/restart-lifecycle-kind-20261104T142003Z/run-e
+out="$(python3 hack/test/restart-kind/h1_kind_shim.py "$rt" 2>&1)"
+if grep -q '^H1 SUPPORTED' <<<"$out"; then ok "H1 on the retarget rehearsal is SUPPORTED"; else bad "H1 on the retarget rehearsal: $(tail -1 <<<"$out")"; fi
+# H2 of the corelimit stage, read in its registered order (docs/superpowers/specs/2026-11-06-restart-corelimit-design.md).
+h2=experiments/distributed-restart/h2_corelimit.py
+out="$(python3 - <<'EOF' 2>&1
+import sys
+sys.path.insert(0, "experiments/distributed-restart")
+import h2_corelimit as h
+c = lambda *d: {f"rank-kill-{i}": ({"d_s": v} if v is not None else {"invalid": "x"}) for i, v in zip((1, 3, 5), d)}
+t = lambda *d: {f"rank-kill-{i}": ({"d_s": v} if v is not None else {"invalid": "x"}) for i, v in zip((2, 4, 6), d)}
+for name, ctl, trt in [("supported", c(38, 39, 38), t(2, 3, 15)), ("refuted", c(38, 39, 38), t(2, 31, 2)),
+                       ("refuted-first", c(None, 39, 38), t(2, 30, 2)), ("not-assessed", c(38, None, 38), t(2, 2, 2)),
+                       ("control-quick", c(38, 12, 38), t(2, 2, 2)), ("between", c(38, 39, 38), t(2, 16, 2))]:
+    print(name, h.outcome(ctl, trt)[0])
+EOF
+)"
+if [[ "$out" == $'supported SUPPORTED\nrefuted REFUTED\nrefuted-first REFUTED\nnot-assessed NOT ASSESSED\ncontrol-quick INCONCLUSIVE\nbetween INCONCLUSIVE' ]]; then
+  ok "H2's outcomes are read in the registered order"
+else
+  bad "H2's outcomes: $(tr '\n' '|' <<<"$out")"
+fi
+# A corelimit run built from the retarget archive's rank-kill-1, which has no rank-env line: every arm is unshown, so no
+# d counts; then with the lines, the six slow stops refute H2 in the treated arm.
+h2run="$work/h2run"
+rm -rf "$h2run" && mkdir -p "$h2run"
+src=hack/distributed-restart-eks/2026-11-05-retarget/session/restart
+cp -r "$src/reference" "$h2run/"
+cp "$src/nodes-prepared.jsonl" "$h2run/"
+sed -e 's/^stage=.*/stage=corelimit/' -e 's/^cases=.*/cases=reference rank-kill-1 rank-kill-2 rank-kill-3 rank-kill-4 rank-kill-5 rank-kill-6/' "$src/provenance.txt" >"$h2run/provenance.txt"
+for i in 1 2 3 4 5 6; do
+  cp -r "$src/rank-kill-1" "$h2run/rank-kill-$i"
+  arm=inherited; ((i % 2 == 0)) && arm=0
+  python3 -c 'import json, sys; p = sys.argv[1]; c = json.load(open(p)); c["core_limit"] = sys.argv[2]; json.dump(c, open(p, "w"))' "$h2run/rank-kill-$i/case.json" "$arm"
+done
+out="$(python3 "$h2" "$h2run" 2>&1)"
+if [[ "$(grep -c '"invalid": "not every attempt-1 rank logged its core limit' <<<"$out")" == 6 ]] && grep -q '^H2 NOT ASSESSED' <<<"$out"; then
+  ok "a rank-kill case whose ranks logged no core limit gives no d, whichever its arm"
+else
+  bad "H2 without the ranks' lines: $(tail -3 <<<"$out")"
+fi
+for i in 1 2 3 4 5 6; do
+  lim=unlimited; ((i % 2 == 0)) && lim=0
+  for f in "$h2run/rank-kill-$i"/log-*.1.txt; do sed -i "1i rank-env: core_limit=$lim core_pattern=|/usr/lib/systemd/systemd-coredump %P %u %g %s %t %c %h torch_nccl_async_error_handling=unset" "$f"; done
+done
+out="$(python3 "$h2" "$h2run" 2>&1)"
+if grep -q '^H2 REFUTED: d is at least 30 s with core dumps off in rank-kill-2, rank-kill-4, rank-kill-6' <<<"$out" &&
+  [[ "$(grep -c '"d_s": 38.0' <<<"$out")" == 6 ]]; then
+  ok "six slow rank-kill stops, three of them logged with core dumps off, refute H2"
+else
+  bad "H2 with the ranks' lines: $(tail -3 <<<"$out")"
+fi
+# The scorer reports corelimit's two arms apart, since a median over both would describe neither.
+out="$(python3 experiments/distributed-restart/score_eks.py "$h2run" 2>&1)"
+if grep -q '^    same-nodes, core limit 0: recovery median 46.5 s, .* over 3 accepted' <<<"$out" &&
+  grep -q '^    same-nodes, core limit inherited: recovery median 46.5 s, .* over 3 accepted' <<<"$out" &&
+  ! grep -q '^    same-nodes: ' <<<"$out"; then
+  ok "the scorer's summary gives each core-limit arm its own figures"
+else
+  bad "the scorer's summary of two arms: $(grep 'same-nodes' <<<"$out" | head -3)"
+fi
+# The milestone report keeps the arms apart too: pooled, it gave rank-kill/same-nodes (n=4) of both arms on kind run f
+# (gpt-6-astra's attack before the corelimit run).
+out="$(python3 experiments/distributed-restart/phases_eks.py "$h2run" 2>&1)"
+if grep -q '^  rank-kill/same-nodes, core limit 0 (n=3): ' <<<"$out" && grep -q '^  rank-kill/same-nodes, core limit inherited (n=3): ' <<<"$out" &&
+  ! grep -q '^  rank-kill/same-nodes (n=' <<<"$out"; then
+  ok "the milestone medians give each core-limit arm its own"
+else
+  bad "the milestone medians of two arms: $(grep 'rank-kill/' <<<"$out" | head -3)"
+fi
+# The retarget archive's streams predate the container records, so how its survivor ended is said to be unread, not
+# left absent.
+out="$(python3 "$h2" "$h2run" 2>&1)"
+if [[ "$(grep -c '"unread": "no terminal state of the surviving rank was recorded' <<<"$out")" == 6 ]]; then
+  ok "a survivor whose end was not recorded is reported unread"
+else
+  bad "the unrecorded survivor: $(grep '^rank-kill-1 ' <<<"$out" | grep -o '"survivor_end": {[^}]*}')"
+fi
+# A survivor deleted before its stream's end is read from the Pod watch, and its deletion request is the first
+# deletionTimestamp less its grace, not the stamp itself (gpt-6-astra's attack before the corelimit run).
+python3 - "$h2run/rank-kill-5" <<'EOF'
+import datetime, json, pathlib, sys
+sys.path.insert(0, "experiments/distributed-restart")
+import h1_retarget, score_eks
+case_dir = pathlib.Path(sys.argv[1])
+run = case_dir.parent
+prov = score_eks.provenance(run)
+evidence = score_eks.Case(run, "rank-kill-5", None, int(prov["steps"]), int(prov["case_budget"]))
+# Read as h2_corelimit.py reads it: delivered() loads the records fault_at() takes the fault from.
+assert not h1_retarget.delivered(evidence)
+fault = h1_retarget.fault_at(evidence)
+uid = [p["uid"] for p in score_eks.jsonl(case_dir / "pods.jsonl") if str(p.get("attempt_token")) == "1" and p.get("index") == "0"][0]
+# Whole-second stamps, as the API server writes them, so what H2 should print is computed from the fault's fraction.
+stamp = lambda s: datetime.datetime.fromtimestamp(int(fault) + s, datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+(case_dir / "want").write_text(f"{round(int(fault) + 2 - fault, 1)} {round(int(fault) + 41 - fault, 1)}")
+def event(kind, deletion, grace, state):
+    return {"type": kind, "object": {"metadata": {"uid": uid, "deletionTimestamp": deletion, "deletionGracePeriodSeconds": grace},
+                                     "status": {"containerStatuses": [{"state": state}]}}}
+# The watch sees the Pod running before its deletion, as one watch over the case does; without that, the request is not
+# shown (the reopened-watch check below).
+events = [event("ADDED", None, None, {"running": {}}),
+          event("MODIFIED", stamp(32), 30, {"running": {}}),
+          event("MODIFIED", stamp(32), 30, {"terminated": {"exitCode": 134, "reason": "Error", "finishedAt": stamp(41)}}),
+          event("DELETED", stamp(42), 0, {"terminated": {"exitCode": 134, "reason": "Error", "finishedAt": stamp(41)}})]
+with open(case_dir / "pod-watch.json", "w") as f:
+    f.write('{"type": "WATCH-OPENED", "at": "t"}\n')
+    for e in events:
+        f.write(json.dumps(e, indent=4) + "\n")
+    f.write('{\n    "type": "MODIFIED",\n    "object": {\n        "metad')
+EOF
+out="$(python3 "$h2" "$h2run" 2>&1)"
+end="$(grep '^rank-kill-5 ' <<<"$out" | python3 -c 'import json, sys; l = sys.stdin.read(); print(json.dumps(json.loads(l[l.index("{"):])["survivor_end"], sort_keys=True))' 2>&1)"
+read -r want_asked want_finished <"$h2run/rank-kill-5/want"
+if [[ "$end" == *"\"deletion_asked_after_fault_s\": $want_asked,"* && "$end" == *'"deletion_grace_s": 30'* && "$end" == *'"exit_code": 134'* &&
+  "$end" == *'"read_from": "pod watch"'* && "$end" == *"\"finished_after_fault_s\": $want_finished,"* && "$end" != *unread* &&
+  "$end" == *'"clocks": "uncorrected stamp differences: '* ]]; then
+  ok "a survivor deleted before its stream ended is read from the Pod watch, with its deletion request and grace"
+else
+  bad "the survivor from the Pod watch: $end"
+fi
+# An archive commits the watch xz-compressed, and a reader of only the plain name would lose the survivor's end from the
+# committed copy, as the scorer once lost every termination case to its compressed timelines.
+xz "$h2run/rank-kill-5/pod-watch.json"
+packed_end="$(python3 "$h2" "$h2run" 2>&1 | grep '^rank-kill-5 ' | python3 -c 'import json, sys; l = sys.stdin.read(); print(json.dumps(json.loads(l[l.index("{"):])["survivor_end"], sort_keys=True))' 2>&1)"
+if [[ -n "$end" && "$packed_end" == "$end" ]]; then ok "the Pod watch is read the same from its .xz"; else bad "the Pod watch from its .xz: $packed_end"; fi
+printf 'not xz' >"$h2run/rank-kill-5/pod-watch.json.xz"
+out="$(python3 "$h2" "$h2run" 2>&1)"
+if grep -q '^rank-kill-5 .*"pod_watch": "unreadable: pod-watch.json.xz could not be decompressed' <<<"$out" && grep -q '^H2 ' <<<"$out"; then
+  ok "a damaged Pod watch is reported unreadable, and the evaluation goes on"
+else
+  bad "the damaged Pod watch: $(grep '^rank-kill-5 \|^H2\|Traceback' <<<"$out" | cut -c1-200)"
+fi
+# A watch reopened after the deletion lists the Pod with a grace already shortened, so its stamp is not the request's:
+# the request is read only where one watch saw the Pod before and at its deletion (gpt-6-astra's second attack).
+python3 - "$h2run/rank-kill-5" <<'EOF'
+import json, pathlib, sys
+case_dir = pathlib.Path(sys.argv[1])
+(case_dir / "pod-watch.json.xz").unlink()
+pods = [json.loads(l) for l in open(case_dir / "pods.jsonl")]
+uid = [p["uid"] for p in pods if p["attempt_token"] == "1" and p["index"] == "0"][0]
+running = {"type": "ADDED", "object": {"metadata": {"uid": uid}, "status": {"containerStatuses": [{"state": {"running": {}}}]}}}
+ended = {"terminated": {"exitCode": 134, "reason": "Error", "finishedAt": "2026-11-05T16:13:39Z"}}
+deleted = {"type": "DELETED", "object": {"metadata": {"uid": uid, "deletionTimestamp": "2026-11-05T16:13:40Z", "deletionGracePeriodSeconds": 0},
+                                         "status": {"containerStatuses": [{"state": ended}]}}}
+with open(case_dir / "pod-watch.json", "w") as f:
+    for e in ({"type": "WATCH-OPENED", "at": "t"}, running, {"type": "WATCH-OPENED", "at": "t"}, deleted):
+        f.write(json.dumps(e, indent=4) + "\n")
+EOF
+out="$(python3 "$h2" "$h2run" 2>&1)"
+if grep -q '^rank-kill-5 .*"deletion_asked": "not shown: no one watch saw the Pod before and at its deletion"' <<<"$out" &&
+  ! grep -q '^rank-kill-5 .*deletion_asked_after_fault_s' <<<"$out" && grep -q '^rank-kill-5 .*"exit_code": 134' <<<"$out"; then
+  ok "a deletion first seen by a reopened watch gives no request time, and the end is still read"
+else
+  bad "the reopened watch: $(grep '^rank-kill-5 ' <<<"$out" | grep -o '"survivor_end": {[^}]*}')"
+fi
+# A watch cut mid-object leaves a fragment; the collector starts the next mark on a line of its own so the fragment cannot
+# swallow it, and text the reader skips as damaged ends a watch even with no mark after it, since what it held is
+# unknown (gpt-6-astra's third attack before the corelimit run).
+for shape in fragment-then-mark fragment-alone; do
+  python3 - "$h2run/rank-kill-5" "$shape" <<'EOF'
+import json, pathlib, sys
+case_dir, shape = pathlib.Path(sys.argv[1]), sys.argv[2]
+pods = [json.loads(l) for l in open(case_dir / "pods.jsonl")]
+uid = [p["uid"] for p in pods if p["attempt_token"] == "1" and p["index"] == "0"][0]
+running = {"type": "ADDED", "object": {"metadata": {"uid": uid}, "status": {"containerStatuses": [{"state": {"running": {}}}]}}}
+ended = {"terminated": {"exitCode": 134, "reason": "Error", "finishedAt": "2026-11-05T16:13:39Z"}}
+deleted = {"type": "DELETED", "object": {"metadata": {"uid": uid, "deletionTimestamp": "2026-11-05T16:13:40Z", "deletionGracePeriodSeconds": 0},
+                                         "status": {"containerStatuses": [{"state": ended}]}}}
+with open(case_dir / "pod-watch.json", "w") as f:
+    f.write('\n{"type": "WATCH-OPENED", "at": "t"}\n')
+    f.write(json.dumps(running, indent=4) + "\n")
+    f.write('{\n    "type": "MODIFIED",\n    "object": {"metad')
+    if shape == "fragment-then-mark":
+        f.write('\n{"type": "WATCH-OPENED", "at": "t"}\n')
+    else:
+        f.write("\n")
+    f.write(json.dumps(deleted, indent=4) + "\n")
+EOF
+  out="$(python3 "$h2" "$h2run" 2>&1)"
+  if grep -q '^rank-kill-5 .*"deletion_asked": "not shown: no one watch saw the Pod before and at its deletion"' <<<"$out" &&
+    grep -q '^rank-kill-5 .*"exit_code": 134' <<<"$out"; then
+    ok "a deletion after a damaged watch ($shape) gives no request time, and the end is still read"
+  else
+    bad "the damaged watch ($shape): $(grep '^rank-kill-5 ' <<<"$out" | grep -o '"survivor_end": {[^}]*}')"
+  fi
+done
+if grep -qF "printf '\\n{\"type\": \"WATCH-OPENED\"" hack/lib/restart-session.sh; then
+  ok "the collector starts each watch's mark on a line of its own"
+else
+  bad "the collector's watch mark does not begin with a newline: $(grep -n 'WATCH-OPENED' hack/lib/restart-session.sh | head -2)"
+fi
+# A case whose case.json names the other arm, or whose treated ranks logged the node's limit, is not counted.
+python3 -c 'import json, sys; p = sys.argv[1]; c = json.load(open(p)); c["core_limit"] = "inherited"; json.dump(c, open(p, "w"))' "$h2run/rank-kill-2/case.json"
+sed -i '1s/core_limit=0/core_limit=unlimited/' "$h2run/rank-kill-4"/log-*.1.txt
+out="$(python3 "$h2" "$h2run" 2>&1)"
+if grep -q "^rank-kill-2 .*case.json records core_limit 'inherited', the registration '0'" <<<"$out" &&
+  grep -q "^rank-kill-4 .*the ranks logged core_limit \['unlimited'\] for arm '0'" <<<"$out" && grep -q '^H2 REFUTED' <<<"$out"; then
+  ok "a case recorded in the other arm, or treated in name only, gives no d"
+else
+  bad "H2 with a mislabelled arm: $(grep -E '^rank-kill-(2|4)' <<<"$out" | cut -c1-200)"
+fi
+# Each attempt-1 rank must log its own limit: one rank's line once stood for both, and the survivor is the one in question
+# (bare codex review of 8e2eb73f).
+first_log="$(ls "$h2run/rank-kill-3"/log-*.1.txt | head -1)"
+sed -i '/^rank-env: /d' "$first_log"
+out="$(python3 "$h2" "$h2run" 2>&1)"
+if grep -q "^rank-kill-3 .*not every attempt-1 rank logged its core limit: $(basename "$first_log" | sed 's/^log-//; s/\.1\.txt$//')" <<<"$out"; then
+  ok "a case one of whose ranks logged no core limit gives no d"
+else
+  bad "H2 with one rank's line missing: $(grep '^rank-kill-3' <<<"$out" | cut -c1-200)"
+fi
+# A limit of 0 stops a piped dump only through a handler that reads it (%c) and declines, as systemd-coredump does; the
+# kernel ignores RLIMIT_CORE for a pipe (core(5)), so a treated case under any other handler tested nothing.
+sed -i '1s/ %c %h / %h /' "$h2run/rank-kill-6"/log-*.1.txt
+out="$(python3 "$h2" "$h2run" 2>&1)"
+if grep -q "^rank-kill-6 .*a core limit of 0 is not shown to stop a dump under core_pattern" <<<"$out" &&
+  ! grep -q "^rank-kill-1 .*not shown to stop a dump" <<<"$out"; then
+  ok "a treated case whose node pipes cores to a handler not given the limit gives no d"
+else
+  bad "H2 under a pipe without %c: $(grep -E '^rank-kill-(1|6)' <<<"$out" | cut -c1-200)"
+fi
+# A read of core_pattern that failed in the rank's shell logs it empty, which shows no handler, so no dump shown stopped
+# (gpt-6-astra's fourth attack before the corelimit run).
+sed -i '1s/ core_pattern=.* torch_nccl_async_error_handling=/ core_pattern= torch_nccl_async_error_handling=/' "$h2run/rank-kill-6"/log-*.1.txt
+out="$(python3 "$h2" "$h2run" 2>&1)"
+if grep -q "^rank-kill-6 .*a core limit of 0 is not shown to stop a dump under core_pattern \[''\]" <<<"$out"; then
+  ok "a treated case whose ranks could not read core_pattern gives no d"
+else
+  bad "H2 with an empty core_pattern: $(grep '^rank-kill-6 ' <<<"$out" | cut -c1-200)"
+fi
+out="$(python3 "$h2" "$src" 2>&1)"
+if grep -q '^REFUSED: .* is not a corelimit run' <<<"$out"; then ok "H2 refuses a run of another stage"; else bad "H2 on the retarget archive: $(tail -1 <<<"$out")"; fi
+# h1_mutate <archive> <case> <python on a, attempt 1 of the final MLTrainingJob> [drop-timeline]: a copy with one case changed.
+h1_mutate() {
+  rm -rf "$work/h1" && cp -r "$1" "$work/h1"
+  python3 - "$work/h1/$2/final-mltj.json" "$3" <<'EOF'
+import json, sys
+path, change = sys.argv[1], sys.argv[2]
+j = json.load(open(path))
+a = j["status"]["attempts"][0]
+exec(change)
+json.dump(j, open(path, "w"))
+EOF
+  [[ "${4:-}" == drop-timeline ]] && rm -f "$work/h1/$2"/timeline.jsonl*
+  return 0
+}
+h1_shim() { python3 hack/test/restart-kind/h1_kind_shim.py "$work/h1" 2>&1; }
+h1_mutate "$rt" rank-kill-1 'del a["failureObservedAt"]'
+out="$(h1_shim)"
+if grep -q '^rank-kill-1 .*"invalid": "attempt 1 has no failureObservedAt"' <<<"$out" && grep -q '^H1 NOT ASSESSED: no valid d in rank-kill-1$' <<<"$out"; then
+  ok "a missing trigger stamp is INVALID and leaves H1 NOT ASSESSED"
+else
+  bad "a missing trigger stamp: $(grep -E '^(rank-kill-1|H1)' <<<"$out")"
+fi
+h1_mutate "$rt" rank-kill-1 'a["stopConfirmedAt"] = "2000-01-01T00:00:00Z"'
+out="$(h1_shim)"
+if grep -q '^rank-kill-1 .*"invalid": "stopConfirmedAt is [0-9]* s before failureObservedAt"' <<<"$out" && grep -q '^H1 NOT ASSESSED' <<<"$out"; then
+  ok "a stop stamped before its trigger is INVALID, not a short d"
+else
+  bad "a stop before its trigger: $(grep -E '^(rank-kill-1|H1)' <<<"$out")"
+fi
+h1_mutate "$rt" dcgm-2 'pass' drop-timeline
+out="$(h1_shim)"
+if grep -q '^dcgm-2 .*"invalid": "no timeline' <<<"$out" && grep -q '^H1 NOT ASSESSED: no valid d in dcgm-2$' <<<"$out"; then
+  ok "a case without its timeline is INVALID"
+else
+  bad "a case without its timeline: $(grep -E '^(dcgm-2|H1)' <<<"$out")"
+fi
+# A short d the collector's clock contradicts is not a measurement: the stop's value moved 34 s earlier everywhere, in
+# the final object and in every read that shows it, while the reads still first show it when they did.
+h1_mutate hack/distributed-restart-eks/2026-11-04-full/session/restart rank-kill-1 'a["stopConfirmedAt"] = "2026-11-04T00:45:43Z"' drop-timeline
+xz -dc hack/distributed-restart-eks/2026-11-04-full/session/restart/rank-kill-1/timeline.jsonl.xz |
+  sed 's/"stopConfirmedAt": "2026-11-04T00:46:17Z"/"stopConfirmedAt": "2026-11-04T00:45:43Z"/g' >"$work/h1/rank-kill-1/timeline.jsonl"
+out="$(python3 "$h1" "$work/h1" 2>&1)"
+if grep -q '^rank-kill-1 .*"invalid": "d 5 s is outside the collector' <<<"$out" && grep -q '^H1 REFUTED: d is at least 30 s in rank-kill-2, dcgm-1, dcgm-2$' <<<"$out"; then
+  ok "a d the collector's clock contradicts is INVALID, and the other slow stops still refute"
+else
+  bad "a contradicted d: $(grep -E '^(rank-kill-1|H1)' <<<"$out")"
+fi
+# The second attack of the registration (codex gpt-6-astra, at f5bb6f61): each of these changed the outcome before.
+# A final object missing a stop the timeline shows is contradictory evidence, not a stop that never came.
+h1_mutate "$rt" rank-kill-1 'del a["stopConfirmedAt"]'
+out="$(h1_shim)"
+if grep -q '^rank-kill-1 .*"invalid": "the final MLTrainingJob lacks a stop that the timeline or a later attempt shows"' <<<"$out" && grep -q '^H1 NOT ASSESSED' <<<"$out"; then
+  ok "a final object missing a stop the timeline shows is INVALID, not a refutation"
+else
+  bad "a final object missing its stop: $(grep -E '^(rank-kill-1|H1)' <<<"$out")"
+fi
+# Evidence the recovery needs, not the delivery, is gone: the stop is still measured and the refutation stands.
+h1_mutate hack/distributed-restart-eks/2026-11-04-full/session/restart rank-kill-1 'pass'
+python3 - "$work/h1/rank-kill-1/clock.jsonl" <<'EOF'
+import json, sys
+p = sys.argv[1]
+rows = [json.loads(l) for l in open(p) if l.strip()]
+open(p, "w").write("".join(json.dumps(r) + "\n" for r in rows if r.get("when") != "after"))
+EOF
+out="$(python3 "$h1" "$work/h1" 2>&1)"
+if grep -q '^rank-kill-1 .*"d_s": 39.0.*"verdict": "VOID"' <<<"$out" && grep -q '^H1 REFUTED: d is at least 30 s in rank-kill-1, rank-kill-2, dcgm-1, dcgm-2$' <<<"$out"; then
+  ok "a case the scorer voids after delivery still gives its d"
+else
+  bad "a case voided after delivery: $(grep -E '^(rank-kill-1|H1)' <<<"$out")"
+fi
+# A failed read is no evidence either way, and a malformed one ends nothing but its own case.
+h1_mutate "$rt" rank-kill-2 'pass' drop-timeline
+python3 - "$rt/rank-kill-2/timeline.jsonl.xz" "$work/h1/rank-kill-2/timeline.jsonl" <<'EOF'
+import json, lzma, sys
+rows = [json.loads(l) for l in lzma.decompress(open(sys.argv[1], "rb").read()).decode().splitlines() if l.strip()]
+out = []
+for r in rows:
+    out.append(r)
+    out.append({"observed": r["observed"], "status": None})
+out.insert(1, {"observed": rows[0]["observed"], "status": {"attempts": [None]}})
+open(sys.argv[2], "w").write("".join(json.dumps(r) + "\n" for r in out))
+EOF
+out="$(h1_shim)"
+if grep -q '^rank-kill-2 .*"d_s": 0.0' <<<"$out" && grep -q '^H1 SUPPORTED' <<<"$out"; then
+  ok "failed and malformed reads are skipped, not read as a missing stamp"
+else
+  bad "failed or malformed reads: $(grep -E '^(rank-kill-2|H1|Traceback)' <<<"$out")"
+fi
+# A malformed read 60 s after the trigger is no observation: it cannot set a lower bound on a stop (codex review of 083a84cb).
+h1_mutate "$rt" rank-kill-2 'del a["stopConfirmedAt"]; j["status"]["attempts"] = [a]' drop-timeline
+# Attempt 2's logs and Pods go too, since a later attempt they show is itself a contradiction of a stop never published.
+python3 - "$work/h1/rank-kill-2" <<'EOF'
+import json, pathlib, re, sys
+d = pathlib.Path(sys.argv[1])
+for log in d.glob("log-*.txt"):
+    keep = [l for l in log.read_text(errors="replace").splitlines(keepends=True)
+            if not (m := re.search(r'\{"ts": .*\}', l)) or json.loads(m.group(0)).get("attempt", 1) == 1]
+    log.write_text("".join(keep))
+pods = [json.loads(l) for l in (d / "pods.jsonl").read_text().splitlines() if l.strip()]
+(d / "pods.jsonl").write_text("".join(json.dumps(p) + "\n" for p in pods if str(p.get("attempt_token", "-")) in ("1", "-")))
+EOF
+python3 - "$rt/rank-kill-2/timeline.jsonl.xz" "$work/h1/rank-kill-2/timeline.jsonl" <<'EOF'
+import datetime, json, lzma, sys
+rows = [json.loads(l) for l in lzma.decompress(open(sys.argv[1], "rb").read()).decode().splitlines() if l.strip()]
+first = next(i for i, r in enumerate(rows) if ((r.get("status") or {}).get("attempts") or [{}])[0].get("failureObservedAt"))
+kept = rows[:first + 1]
+# On kind the trigger's row already carries the stop, so the stop is taken out of what the timeline shows as well, with
+# the Stopped state the controller writes beside it.
+for r in kept:
+    if isinstance(r.get("status"), dict) and r["status"].get("attempts"):
+        r["status"]["attempts"] = r["status"]["attempts"][:1]
+        r["status"]["attempts"][0].pop("stopConfirmedAt", None)
+        r["status"]["attempts"][0].pop("state", None)
+later = datetime.datetime.fromisoformat(kept[-1]["observed"]) + datetime.timedelta(seconds=60)
+kept.append({"observed": later.isoformat(), "status": {"attempts": [None]}})
+open(sys.argv[2], "w").write("".join(json.dumps(r) + "\n" for r in kept))
+EOF
+python3 - "$work/h1/rank-kill-2/final-mltj.json" <<'EOF'
+import json, sys
+j = json.load(open(sys.argv[1]))
+j["status"]["attempts"][0].pop("state", None)
+json.dump(j, open(sys.argv[1], "w"))
+EOF
+out="$(h1_shim)"
+if grep -q '^rank-kill-2 .*"unpublished_stop_observed_s": 0' <<<"$out" && ! grep -q '^H1 REFUTED' <<<"$out"; then
+  ok "a malformed read after the trigger lengthens no observation of an unpublished stop"
+else
+  bad "a malformed read after the trigger: $(grep -E '^(rank-kill-2|H1|Traceback)' <<<"$out")"
+fi
+rm -rf "$work/h1" && cp -r "$rt" "$work/h1" && sed -i 's/^dirty_files=0$/dirty_files=1/' "$work/h1/provenance.txt"
+out="$(h1_shim)"
+if grep -q '^REFUSED: ' <<<"$out" && ! grep -q '^H1 ' <<<"$out"; then
+  ok "H1 refuses a run the scorer's run-level checks refuse"
+else
+  bad "H1 on a dirty run: $(head -2 <<<"$out")"
+fi
+# Clock probes place the recovery, not the delivery, so an unreadable probe file leaves d standing (third attack).
+h1_mutate hack/distributed-restart-eks/2026-11-04-full/session/restart rank-kill-1 'pass'
+echo '{"node": NaN}' >>"$work/h1/rank-kill-1/clock.jsonl"
+out="$(python3 "$h1" "$work/h1" 2>&1)"
+if grep -q '^rank-kill-1 .*"d_s": 39.0.*"verdict": "VOID"' <<<"$out" && grep -q '^H1 REFUTED: d is at least 30 s in rank-kill-1, rank-kill-2, dcgm-1, dcgm-2$' <<<"$out"; then
+  ok "an unreadable clock probe file voids the recovery and leaves d"
+else
+  bad "an unreadable clock probe file: $(grep -E '^(rank-kill-1|H1)' <<<"$out")"
+fi
+# A row whose time cannot be read is skipped as a malformed read, not the end of its case.
+h1_mutate "$rt" rank-kill-1 'pass' drop-timeline
+python3 - "$rt/rank-kill-1/timeline.jsonl.xz" "$work/h1/rank-kill-1/timeline.jsonl" <<'EOF'
+import json, lzma, sys
+rows = [json.loads(l) for l in lzma.decompress(open(sys.argv[1], "rb").read()).decode().splitlines() if l.strip()]
+rows.insert(1, dict(rows[1], observed="not a time"))
+open(sys.argv[2], "w").write("".join(json.dumps(r) + "\n" for r in rows))
+EOF
+out="$(h1_shim)"
+if grep -q '^rank-kill-1 .*"d_s": 1.0' <<<"$out" && grep -q '^H1 SUPPORTED' <<<"$out"; then
+  ok "a read whose time cannot be parsed is skipped, not the end of its case"
+else
+  bad "a read with an unreadable time: $(grep -E '^(rank-kill-1|H1|Traceback)' <<<"$out")"
+fi
+# The fourth attack: a runner VOID, a moved stamp, a foreign trigger, a cut-short row and a thin save sample.
+full_rs=hack/distributed-restart-eks/2026-11-04-full/session/restart
+rt2=hack/restart-lifecycle-kind-20261105T034118Z/run-e
+h1_mutate "$full_rs" rank-kill-1 'pass'
+echo "VOID-before-fault: a clock probe before the fault failed" >"$work/h1/rank-kill-1/VOID"
+out="$(python3 "$h1" "$work/h1" 2>&1)"
+if grep -q '^rank-kill-1 .*"d_s": 39.0.*"runner_void": "VOID-before-fault' <<<"$out" && grep -q '^H1 REFUTED' <<<"$out"; then
+  ok "a runner VOID is reported beside d and does not decide a delivered fault's stop"
+else
+  bad "a runner VOID: $(grep -E '^(rank-kill-1|H1)' <<<"$out")"
+fi
+rm -rf "$work/h1" && cp -r "$rt2" "$work/h1"
+python3 - "$work/h1/dcgm-1/final-mltj.json" <<'EOF'
+import datetime, json, sys
+j = json.load(open(sys.argv[1]))
+a = j["status"]["attempts"][0]
+t = datetime.datetime.fromisoformat(a["failureObservedAt"].replace("Z", "+00:00")) + datetime.timedelta(seconds=20)
+a["stopConfirmedAt"] = t.strftime("%Y-%m-%dT%H:%M:%SZ")
+json.dump(j, open(sys.argv[1], "w"))
+EOF
+out="$(h1_shim)"
+if grep -q '^dcgm-1 .*"invalid": "the timeline shows stopConfirmedAt as' <<<"$out" && grep -q '^H1 NOT ASSESSED' <<<"$out"; then
+  ok "a final stamp the reads contradict is INVALID, not a d inside a wide bracket"
+else
+  bad "a contradicted final stamp: $(grep -E '^(dcgm-1|H1)' <<<"$out")"
+fi
+h1_mutate "$full_rs" dcgm-1 'a["trigger"] = "JobDeleted"'
+out="$(python3 "$h1" "$work/h1" 2>&1)"
+if grep -q "^dcgm-1 .*\"invalid\": \"attempt 1 ended on 'JobDeleted', not NodeFault" <<<"$out"; then
+  ok "a stop the registered fault did not trigger gives no d"
+else
+  bad "a foreign trigger: $(grep -E '^(dcgm-1|H1)' <<<"$out")"
+fi
+rm -rf "$work/h1" && cp -r "$rt2" "$work/h1"
+xz -dc "$rt2/rank-kill-2/timeline.jsonl.xz" >"$work/h1/rank-kill-2/timeline.jsonl" && rm "$work/h1/rank-kill-2/timeline.jsonl.xz"
+echo '{"observed":' >>"$work/h1/rank-kill-2/timeline.jsonl"
+out="$(h1_shim)"
+if grep -q '^rank-kill-2 .*"d_s": 0.0' <<<"$out" && grep -q '^H1 SUPPORTED' <<<"$out"; then
+  ok "a timeline row cut short is skipped like any malformed read"
+else
+  bad "a row cut short: $(grep -E '^(rank-kill-2|H1|Traceback)' <<<"$out")"
+fi
+out="$(cd experiments/distributed-restart && python3 -c '
+import score_eks as s, h1_retarget as h
+print(len(s.status_reads([{"observed": "2026-11-05T00:00:00Z", "status": {"attempts": [{"number": 2}]}}])))
+print(h.outcome({"rank-kill-1": {"unpublished_stop_observed_s": 31.0}})[1])' 2>&1)"
+if [[ "$out" == $'0\nno valid d in rank-kill-1, rank-kill-2, dcgm-1, dcgm-2; no stop was published while observed in rank-kill-1' ]]; then
+  ok "a status whose first attempt is not attempt 1 is skipped, and an unpublished stop is not called a d"
+else
+  bad "the shared read rule and the refutation wording: $(tr '\n' '|' <<<"$out")"
+fi
+rm -rf "$work/h1" && cp -r "$full_rs" "$work/h1"
+python3 - "$work/h1/reference" <<'EOF'
+import pathlib, sys
+d = pathlib.Path(sys.argv[1])
+for log in sorted(d.glob("log-*.txt")):
+    out, kept = [], 0
+    for line in log.read_text(errors="replace").splitlines(keepends=True):
+        if '"event": "checkpoint"' in line:
+            kept += 1
+            if kept > 1:
+                continue
+        out.append(line)
+    log.write_text("".join(out))
+EOF
+out="$(python3 experiments/distributed-restart/score_eks.py "$work/h1" 2>&1)"
+if grep -q '^VOID *reference: .*has save records of steps .* which is not every step but at most its last' <<<"$out"; then
+  ok "a reference with 2 of its 60 saves recorded is VOID, not a median over 2"
+else
+  bad "a thin save sample: $(grep '^[A-Z]* *reference' <<<"$out")"
+fi
+# The fifth attack: steps lost with their saves, a trigger the reads contradict, a later attempt the final object
+# omits, and a fault that came after the trigger it is to explain.
+# drop_records <case> <python predicate on r, a record>: removes the matching records from the case's logs in $work/h1.
+drop_records() {
+  python3 - "$work/h1/$1" "$2" <<'EOF'
+import json, pathlib, re, sys
+d, pred = pathlib.Path(sys.argv[1]), sys.argv[2]
+for log in sorted(d.glob("log-*.txt")):
+    out = []
+    for line in log.read_text(errors="replace").splitlines(keepends=True):
+        m = re.search(r'\{"ts": .*\}', line)
+        r = json.loads(m.group(0)) if m else None
+        if r is not None and eval(pred):
+            continue
+        out.append(line)
+    log.write_text("".join(out))
+EOF
+}
+rm -rf "$work/h1" && cp -r "$full_rs" "$work/h1"
+drop_records reference 'r.get("event") in ("step", "checkpoint") and r.get("step") != 30'
+drop_records rank-kill-1 'r.get("event") in ("step", "checkpoint") and r.get("attempt") == 1 and r.get("step") == 12'
+out="$(python3 experiments/distributed-restart/score_eks.py "$work/h1" 2>&1)"
+if grep -q '^VOID *reference: attempt 1 rank 0 recorded steps \[30\]' <<<"$out" &&
+  grep -q '^VOID *rank-kill-1: attempt 1 rank 1.s steps end at 11, before step 12 its fault record says it reached' <<<"$out"; then
+  ok "steps lost with their saves are VOID: the reference's run, and a fault rank short of its fault's step"
+else
+  bad "steps lost with their saves: $(grep -E '^[A-Z]+ +(reference|rank-kill-1)' <<<"$out")"
+fi
+h1_mutate "$rt2" rank-kill-1 'del a["stopConfirmedAt"]; j["status"]["attempts"] = [a]' drop-timeline
+python3 - "$rt2/rank-kill-1/timeline.jsonl.xz" "$work/h1/rank-kill-1/timeline.jsonl" <<'EOF'
+import datetime, json, lzma, sys
+rows = [json.loads(l) for l in lzma.decompress(open(sys.argv[1], "rb").read()).decode().splitlines() if l.strip()]
+first = next(i for i, r in enumerate(rows) if ((r.get("status") or {}).get("attempts") or [{}])[0].get("failureObservedAt"))
+kept = rows[:first + 1]
+for r in kept:
+    if isinstance(r.get("status"), dict) and r["status"].get("attempts"):
+        r["status"]["attempts"] = r["status"]["attempts"][:1]
+        r["status"]["attempts"][0].pop("stopConfirmedAt", None)
+later = json.loads(json.dumps(kept[-1]))
+later["observed"] = (datetime.datetime.fromisoformat(kept[-1]["observed"]) + datetime.timedelta(seconds=60)).isoformat()
+later["status"]["attempts"][0]["failureObservedAt"] = "2000-01-01T00:00:00Z"
+kept.append(later)
+open(sys.argv[2], "w").write("".join(json.dumps(r) + "\n" for r in kept))
+EOF
+out="$(h1_shim)"
+if grep -q '^rank-kill-1 .*"invalid": "the timeline shows failureObservedAt as' <<<"$out" && ! grep -q '^H1 REFUTED' <<<"$out"; then
+  ok "a trigger the reads contradict is INVALID before any unpublished-stop bound"
+else
+  bad "a contradicted trigger: $(grep -E '^(rank-kill-1|H1)' <<<"$out")"
+fi
+h1_mutate "$full_rs" rank-kill-1 'del a["stopConfirmedAt"]; j["status"]["attempts"] = [a]' drop-timeline
+xz -dc "$full_rs/rank-kill-1/timeline.jsonl.xz" | python3 -c '
+import json, sys
+for l in sys.stdin:
+    r = json.loads(l)
+    s = r.get("status")
+    if isinstance(s, dict) and s.get("attempts"):
+        s["attempts"] = s["attempts"][:1]
+        s["attempts"][0].pop("stopConfirmedAt", None)
+    print(json.dumps(r))' >"$work/h1/rank-kill-1/timeline.jsonl"
+out="$(python3 "$h1" "$work/h1" 2>&1)"
+if grep -q '^rank-kill-1 .*"invalid": "the final MLTrainingJob lacks a stop, and the case.s logs or Pods show a later attempt ran"' <<<"$out"; then
+  ok "a stop missing from every status while the logs show attempt 2 is INVALID, not an unpublished stop"
+else
+  bad "a later attempt only the logs show: $(grep -E '^(rank-kill-1|H1)' <<<"$out")"
+fi
+h1_mutate "$full_rs" dcgm-1 'pass'
+python3 - "$work/h1/dcgm-1/dcgm.json" <<'EOF'
+import json, sys
+d = json.load(open(sys.argv[1]))
+d["injected_at"] = "2026-11-04T00:59:00+00:00"
+json.dump(d, open(sys.argv[1], "w"))
+EOF
+out="$(python3 "$h1" "$work/h1" 2>&1)"
+if grep -q "^dcgm-1 .*\"invalid\": \"attempt 1's failure was observed -.* s from the fault, outside" <<<"$out"; then
+  ok "a fault placed after the failure it is to explain gives no d"
+else
+  bad "a fault after its trigger: $(grep -E '^(dcgm-1|H1)' <<<"$out")"
+fi
+# The sixth attack (codex gpt-6-astra at decd7e45): a Stopped state without its stamp, a collector clock jump, a late
+# recovery's first steps lost, a completed attempt's last saves lost or doubled, and after-probes taken before recovery.
+# no_later_attempt <case>: attempt 2's records and Pods removed from the case in $work/h1, so no later attempt shows.
+no_later_attempt() {
+  python3 - "$work/h1/$1" <<'EOF'
+import json, pathlib, re, sys
+d = pathlib.Path(sys.argv[1])
+for log in d.glob("log-*.txt"):
+    keep = [l for l in log.read_text(errors="replace").splitlines(keepends=True)
+            if not (m := re.search(r'\{"ts": .*\}', l)) or json.loads(m.group(0)).get("attempt", 1) == 1]
+    log.write_text("".join(keep))
+pods = [json.loads(l) for l in (d / "pods.jsonl").read_text().splitlines() if l.strip()]
+(d / "pods.jsonl").write_text("".join(json.dumps(p) + "\n" for p in pods if str(p.get("attempt_token", "-")) in ("1", "-")))
+EOF
+}
+# stopless_timeline <archive> <case> <keep-state> [<seconds>]: the case's timeline in $work/h1 with attempt 1 alone and
+# no stop stamp, its Stopped state kept or not, cut after the trigger and given one more read <seconds> later.
+stopless_timeline() {
+  python3 - "$1/$2/timeline.jsonl.xz" "$work/h1/$2/timeline.jsonl" "$3" "${4:-}" <<'EOF'
+import datetime, json, lzma, sys
+rows = [json.loads(l) for l in lzma.decompress(open(sys.argv[1], "rb").read()).decode().splitlines() if l.strip()]
+for r in rows:
+    if isinstance(r.get("status"), dict) and r["status"].get("attempts"):
+        r["status"]["attempts"] = r["status"]["attempts"][:1]
+        r["status"]["attempts"][0].pop("stopConfirmedAt", None)
+        if sys.argv[3] != "keep-state":
+            r["status"]["attempts"][0].pop("state", None)
+if sys.argv[4]:
+    first = next(i for i, r in enumerate(rows) if ((r.get("status") or {}).get("attempts") or [{}])[0].get("failureObservedAt"))
+    rows = rows[:first + 1]
+    later = json.loads(json.dumps(rows[-1]))
+    later["observed"] = (datetime.datetime.fromisoformat(rows[-1]["observed"]) + datetime.timedelta(seconds=float(sys.argv[4]))).isoformat()
+    rows.append(later)
+open(sys.argv[2], "w").write("".join(json.dumps(r) + "\n" for r in rows))
+EOF
+}
+h1_mutate "$full_rs" rank-kill-1 'del a["stopConfirmedAt"]; j["status"]["attempts"] = [a]' drop-timeline
+no_later_attempt rank-kill-1
+stopless_timeline "$full_rs" rank-kill-1 keep-state
+out="$(python3 "$h1" "$work/h1" 2>&1)"
+if grep -q '^rank-kill-1 .*"invalid": "attempt 1 is shown Stopped without a stopConfirmedAt"' <<<"$out" &&
+  grep -q '^H1 REFUTED: d is at least 30 s in rank-kill-2, dcgm-1, dcgm-2$' <<<"$out"; then
+  ok "a Stopped attempt without its stamp is INVALID, not an unpublished stop"
+else
+  bad "a Stopped attempt without its stamp: $(grep -E '^(rank-kill-1|H1)' <<<"$out")"
+fi
+rt3=hack/restart-lifecycle-kind-20261105T054801Z/run-e
+for jump in 2 62; do
+  h1_mutate "$rt3" rank-kill-1 'del a["stopConfirmedAt"]; a.pop("state", None); j["status"]["attempts"] = [a]' drop-timeline
+  no_later_attempt rank-kill-1
+  stopless_timeline "$rt3" rank-kill-1 drop-state "$jump"
+  out="$(h1_shim)"
+  if grep -q "^rank-kill-1 .*\"unpublished_stop_observed_s\": $jump\\." <<<"$out" &&
+    grep -q '^H1 NOT ASSESSED: no valid d in rank-kill-1; no stop was published while observed in rank-kill-1$' <<<"$out"; then
+    ok "an unpublished stop observed for $jump s on the collector's clock is described and refutes nothing"
+  else
+    bad "an unpublished stop observed for $jump s: $(grep -E '^(rank-kill-1|H1|Traceback)' <<<"$out")"
+  fi
+done
+# A late recovery whose first resumed steps are gone gives no recovery time, only that later progress was seen.
+late_score ended-after-budget '
+import re
+first = json.loads(re.search(r"\{\"ts\": .*\"event\": \"resume\".*\}", "".join(l.read_text() for l in d.glob("log-*.txt"))).group(0))["from_step"] + 1
+for log in d.glob("log-*.txt"):
+    keep = []
+    for l in log.read_text().splitlines(keepends=True):
+        m = re.search(r"\{\"ts\": .*\}", l)
+        r = json.loads(m.group(0)) if m else {}
+        if r.get("attempt") == 2 and r.get("event") in ("step", "checkpoint") and first <= r.get("step", 0) < first + 6:
+            continue
+        keep.append(l)
+    log.write_text("".join(keep))' "the first after the checkpoint, so only later progress was observed and no recovery time is given" "had stepped"
+# A late recovery whose after-probes were taken before its first steps is not placed on the clocks after it.
+late_score ended-after-budget '
+p = d / "clock.jsonl"
+rows = [json.loads(l) for l in p.read_text().splitlines() if l.strip()]
+for r in rows:
+    if r.get("when") == "after":
+        for k in ("before", "node_time", "after"):
+            r[k] -= 10000
+p.write_text("".join(json.dumps(r) + "\n" for r in rows))' "at a time that cannot be placed: no probe of" "had stepped"
+rm -rf "$work/h1" && cp -r "$full_rs" "$work/h1"
+python3 - "$work/h1/rank-kill-1/clock.jsonl" <<'EOF'
+import json, sys
+p = sys.argv[1]
+rows = [json.loads(l) for l in open(p) if l.strip()]
+for r in rows:
+    if r.get("when") == "after":
+        for k in ("before", "node_time", "after"):
+            r[k] -= 180
+open(p, "w").write("".join(json.dumps(r) + "\n" for r in rows))
+EOF
+out="$(python3 experiments/distributed-restart/score_eks.py "$work/h1" 2>&1)"
+if grep -q "^VOID *rank-kill-1: no probe of .* was taken after attempt 2's step on it" <<<"$out"; then
+  ok "after-probes moved before the recovery leave no recovery time"
+else
+  bad "after-probes before the recovery: $(grep -E '^[A-Z]+ +rank-kill-1' <<<"$out" | cut -c1-200)"
+fi
+rm -rf "$work/h1" && cp -r "$full_rs" "$work/h1"
+drop_records reference 'r.get("event") == "checkpoint" and r.get("step") == 30'
+out="$(python3 experiments/distributed-restart/score_eks.py "$work/h1" 2>&1)"
+# A reference VOID leaves every other case without a comparison, so the recovered attempt is taken out on its own.
+rm -rf "$work/h1" && cp -r "$full_rs" "$work/h1"
+drop_records rank-kill-1 'r.get("event") == "checkpoint" and r.get("attempt") == 2 and r.get("step") == 30'
+out+=$'\n'"$(python3 experiments/distributed-restart/score_eks.py "$work/h1" 2>&1)"
+if grep -q '^VOID *reference: attempt 1 rank 0 completed with no save record of its last step 30' <<<"$out" &&
+  grep -q '^VOID *rank-kill-1: attempt 2 rank 0 completed with no save record of its last step 30' <<<"$out"; then
+  ok "an attempt that completed without its last save is VOID, not a median over the rest"
+else
+  bad "a completed attempt without its last save: $(grep -E '^[A-Z]+ +(reference|rank-kill-1)' <<<"$out" | cut -c1-200)"
+fi
+rm -rf "$work/h1" && cp -r "$full_rs" "$work/h1"
+python3 - "$work/h1/reference" <<'EOF'
+import json, pathlib, re, sys
+d = pathlib.Path(sys.argv[1])
+log = sorted(d.glob("log-*.txt"))[0]
+lines = log.read_text(errors="replace").splitlines(keepends=True)
+line = next(l for l in lines if '"event": "checkpoint"' in l)
+r = json.loads(re.search(r'\{"ts": .*\}', line).group(0))
+r["save_s"] = 10.0
+log.write_text("".join(lines) + line.replace(re.search(r'\{"ts": .*\}', line).group(0), json.dumps(r)))
+EOF
+out="$(python3 experiments/distributed-restart/score_eks.py "$work/h1" 2>&1)"
+if grep -q '^VOID *reference: attempt 1 rank [01] has differing save records of steps' <<<"$out"; then
+  ok "two differing save records of one step are VOID, not a maximum of 10 s"
+else
+  bad "differing save records: $(grep -E '^[A-Z]+ +reference' <<<"$out" | cut -c1-200)"
+fi
+# The committed rehearsal replays its gate from the repository alone, timelines compressed.
+out="$(python3 hack/test/restart-kind/check_lifecycle.py hack/restart-lifecycle-kind-20261104T142003Z 2>&1)"
+if [[ "$(tail -1 <<<"$out")" == "0 FAIL(s)" ]]; then ok "the committed retarget rehearsal passes its lifecycle check"; else bad "the committed rehearsal's lifecycle check: $(tail -1 <<<"$out")"; fi
+# The corelimit rehearsal replays its gate too: the lifecycle and outcome checks, and each arm read by H2 on kind.
+cl=hack/restart-lifecycle-kind-20261106T013822Z
+out="$(python3 hack/test/restart-kind/check_lifecycle.py "$cl" 2>&1; python3 hack/test/restart-kind/check_outcomes.py "$cl" f 2>&1)"
+h2k="$(python3 hack/test/restart-kind/h2_kind_shim.py "$cl/run-f" 2>&1)"
+if [[ "$(grep -c '^0 FAIL(s)$' <<<"$out")" == 2 ]] && grep -q '^H2 INCONCLUSIVE: the slow stop did not recur' <<<"$h2k" &&
+  [[ "$(grep -c '"d_s": ' <<<"$h2k")" == 6 && "$(grep -c '"logged_core_limit": \["0"\]' <<<"$h2k")" == 3 ]]; then
+  ok "the committed corelimit rehearsal passes its checks, and H2 reads every arm on kind"
+else
+  bad "the committed corelimit rehearsal: $(grep -c '^0 FAIL(s)$' <<<"$out") clean check(s); $(tail -1 <<<"$h2k")"
+fi
+# A slow stop refutes whatever is missing elsewhere: the outcome does not wait on the other cases or the recoveries.
+# A stop never published gives no d, so however long it was watched it refutes nothing (sixth attack, 4).
+out="$(cd experiments/distributed-restart && python3 -c '
+import h1_retarget as h
+print(h.outcome({"rank-kill-1": {"d_s": 40.0}})[0])
+print(h.outcome({"rank-kill-1": {"unpublished_stop_observed_s": 300.0}, **{n: {"d_s": 1.0} for n in h.H1_CASES[1:]}})[0])
+print(h.outcome({n: {"d_s": 15.0} for n in h.H1_CASES})[0])
+print(h.outcome({n: {"d_s": 29.0} for n in h.H1_CASES})[0])' 2>&1)"
+if [[ "$out" == $'REFUTED\nNOT ASSESSED\nSUPPORTED\nINCONCLUSIVE' ]]; then
+  ok "H1's outcome: a slow stop refutes alone, an unpublished one leaves H1 not assessed, and the bars are 15 s and 30 s"
+else
+  bad "H1's outcome table: $(tr '\n' ' ' <<<"$out")"
+fi
 
 if ((fails > 0)); then
   echo "check-restart-session: $fails failure(s)"

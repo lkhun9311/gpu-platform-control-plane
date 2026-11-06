@@ -1,0 +1,9 @@
+Error: unable to establish a connection to the specified host: unix:///tmp/none.sock
+{
+	"DCGM Diagnostic" : 
+	{
+		"runtime_error" : "Error: Unable to complete diagnostic for entities gpu:0. Return: (-30) : DCGM GPU Diagnostic returned an error\nDetected driver major version 0 is not between the required versions 346 and 2000.",
+		"version" : "4.4.2"
+	}
+}
+

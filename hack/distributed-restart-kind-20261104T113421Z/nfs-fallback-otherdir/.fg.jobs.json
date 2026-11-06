@@ -1,0 +1,176 @@
+{
+    "apiVersion": "v1",
+    "items": [
+        {
+            "apiVersion": "batch/v1",
+            "kind": "Job",
+            "metadata": {
+                "creationTimestamp": "2026-11-04T11:38:27Z",
+                "generation": 2,
+                "labels": {
+                    "kueue.x-k8s.io/queue-name": "gpu-rst",
+                    "platform.lkhun9311.github.io/mltrainingjob-attempt": "2",
+                    "platform.lkhun9311.github.io/mltrainingjob-uid": "0cc0efaf-bb46-4108-bf56-19d56ea090ee"
+                },
+                "name": "rst-nfs-fallback-otherdir-113816",
+                "namespace": "rst",
+                "ownerReferences": [
+                    {
+                        "apiVersion": "platform.lkhun9311.github.io/v1",
+                        "blockOwnerDeletion": true,
+                        "controller": true,
+                        "kind": "MLTrainingJob",
+                        "name": "rst-nfs-fallback-otherdir-113816",
+                        "uid": "0cc0efaf-bb46-4108-bf56-19d56ea090ee"
+                    }
+                ],
+                "resourceVersion": "2683",
+                "uid": "5689e206-3b14-4570-aef9-05e3da5ad8c1"
+            },
+            "spec": {
+                "backoffLimit": 0,
+                "completionMode": "Indexed",
+                "completions": 2,
+                "manualSelector": false,
+                "parallelism": 2,
+                "podReplacementPolicy": "TerminatingOrFailed",
+                "selector": {
+                    "matchLabels": {
+                        "batch.kubernetes.io/controller-uid": "5689e206-3b14-4570-aef9-05e3da5ad8c1"
+                    }
+                },
+                "suspend": false,
+                "template": {
+                    "metadata": {
+                        "annotations": {
+                            "kueue.x-k8s.io/workload": "job-rst-nfs-fallback-otherdir-113816-9361a"
+                        },
+                        "labels": {
+                            "batch.kubernetes.io/controller-uid": "5689e206-3b14-4570-aef9-05e3da5ad8c1",
+                            "batch.kubernetes.io/job-name": "rst-nfs-fallback-otherdir-113816",
+                            "controller-uid": "5689e206-3b14-4570-aef9-05e3da5ad8c1",
+                            "job-name": "rst-nfs-fallback-otherdir-113816",
+                            "kueue.x-k8s.io/cluster-queue-name": "gpu-rst",
+                            "kueue.x-k8s.io/local-queue-name": "gpu-rst",
+                            "kueue.x-k8s.io/podset": "main",
+                            "platform.lkhun9311.github.io/mltrainingjob": "rst-nfs-fallback-otherdir-113816",
+                            "platform.lkhun9311.github.io/mltrainingjob-attempt": "2",
+                            "platform.lkhun9311.github.io/mltrainingjob-uid": "0cc0efaf-bb46-4108-bf56-19d56ea090ee"
+                        }
+                    },
+                    "spec": {
+                        "containers": [
+                            {
+                                "command": [
+                                    "sh",
+                                    "-c",
+                                    "export CKPT_RUN_ID=rst-nfs-fallback-otherdir-113816 CKPT_DIR=/shared CKPT_JOB_ID=rst-nfs-fallback-otherdir-113816 CKPT_STEPS=20 CKPT_STEP_SLEEP=1 OMP_NUM_THREADS=1 CKPT_FAULT=kill-after-latest:6\npython /work/train.py\n"
+                                ],
+                                "env": [
+                                    {
+                                        "name": "NVIDIA_DRIVER_CAPABILITIES",
+                                        "value": "compute,utility"
+                                    },
+                                    {
+                                        "name": "WORLD_SIZE",
+                                        "value": "2"
+                                    },
+                                    {
+                                        "name": "MASTER_ADDR",
+                                        "value": "rst-nfs-fallback-otherdir-113816-0.rst-nfs-fallback-otherdir-113816-ddp-a2.rst.svc"
+                                    },
+                                    {
+                                        "name": "MASTER_PORT",
+                                        "value": "29500"
+                                    },
+                                    {
+                                        "name": "RANK",
+                                        "valueFrom": {
+                                            "fieldRef": {
+                                                "apiVersion": "v1",
+                                                "fieldPath": "metadata.annotations['batch.kubernetes.io/job-completion-index']"
+                                            }
+                                        }
+                                    },
+                                    {
+                                        "name": "TRAINING_ATTEMPT",
+                                        "value": "2"
+                                    }
+                                ],
+                                "image": "distributed-restart:torch251",
+                                "imagePullPolicy": "IfNotPresent",
+                                "name": "trainer",
+                                "resources": {
+                                    "limits": {
+                                        "nvidia.com/gpu": "1"
+                                    }
+                                },
+                                "terminationMessagePath": "/dev/termination-log",
+                                "terminationMessagePolicy": "File",
+                                "volumeMounts": [
+                                    {
+                                        "mountPath": "/shared",
+                                        "name": "state"
+                                    }
+                                ]
+                            }
+                        ],
+                        "dnsPolicy": "ClusterFirst",
+                        "restartPolicy": "Never",
+                        "schedulerName": "default-scheduler",
+                        "securityContext": {},
+                        "subdomain": "rst-nfs-fallback-otherdir-113816-ddp-a2",
+                        "terminationGracePeriodSeconds": 30,
+                        "volumes": [
+                            {
+                                "name": "state",
+                                "persistentVolumeClaim": {
+                                    "claimName": "shared"
+                                }
+                            }
+                        ]
+                    }
+                }
+            },
+            "status": {
+                "completedIndexes": "0,1",
+                "completionTime": "2026-11-04T11:38:47Z",
+                "conditions": [
+                    {
+                        "lastProbeTime": "2026-11-04T11:38:27Z",
+                        "lastTransitionTime": "2026-11-04T11:38:27Z",
+                        "message": "Job resumed",
+                        "reason": "JobResumed",
+                        "status": "False",
+                        "type": "Suspended"
+                    },
+                    {
+                        "lastProbeTime": "2026-11-04T11:38:47Z",
+                        "lastTransitionTime": "2026-11-04T11:38:47Z",
+                        "message": "Reached expected number of succeeded pods",
+                        "reason": "CompletionsReached",
+                        "status": "True",
+                        "type": "SuccessCriteriaMet"
+                    },
+                    {
+                        "lastProbeTime": "2026-11-04T11:38:47Z",
+                        "lastTransitionTime": "2026-11-04T11:38:47Z",
+                        "message": "Reached expected number of succeeded pods",
+                        "reason": "CompletionsReached",
+                        "status": "True",
+                        "type": "Complete"
+                    }
+                ],
+                "ready": 0,
+                "startTime": "2026-11-04T11:38:27Z",
+                "succeeded": 2,
+                "terminating": 0,
+                "uncountedTerminatedPods": {}
+            }
+        }
+    ],
+    "kind": "List",
+    "metadata": {
+        "resourceVersion": ""
+    }
+}

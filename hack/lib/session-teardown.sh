@@ -69,6 +69,9 @@ teardown_residue() {
 # timeout leads a process group of its own, so the watchdog writes that group's id beside its own pid, and
 # killswitch_disarm stops it too: stopping the watchdog's group alone once left a running destroy behind
 # (codex review of 73c3e3e1).
+# The allowance is counted on /proc/uptime, CLOCK_BOOTTIME, as the phase supervisor counts its deadlines: bash's SECONDS
+# follows the wall clock, so a step forward ended the destroys early and a step back let one run past the 40 minutes
+# (gpt-6-astra's third attack before the corelimit run).
 killswitch_program() {
   printf 'KILL_PIDFILE=%q\nKILL_LOG=%q\nWORKDIR=%q\nTTL_SECONDS=%q\nDESTROY_SECONDS=%q\nPROFILE=%q\nREGION=%q\n' \
     "$1" "$2" "$3" "$4" "$5" "$6" "$7"
@@ -78,7 +81,8 @@ echo $$ >"$KILL_PIDFILE"
 sleep "$TTL_SECONDS"
 echo "[ttl] $(date -u +%H:%M:%SZ) TTL reached; force-destroying" >>"$KILL_LOG" 2>&1
 cd "$WORKDIR" || { echo "[ttl] could not enter $WORKDIR" >>"$KILL_LOG"; exit 1; }
-until=$((SECONDS + DESTROY_SECONDS))
+mono() { local up rest; read -r up rest </proc/uptime; echo "${up%.*}"; }
+until=$(($(mono) + DESTROY_SECONDS))
 read -ra tfvars <<<"$TF_VARS"
 # A disarm that stops this watchdog stops the destroy it started too: $! is set the moment the destroy is launched, so
 # no TERM can fall between the launch and the record of it, and wait returns to run this at once (codex review).
@@ -89,7 +93,7 @@ ttl_rc=1
 # Waits on the state lock and tries three times: its one attempt used to be spent on a lock the foreground destroy, or
 # the nightly one, still held.
 for attempt in 1 2 3; do
-  left=$((until - SECONDS - GRACE_SECONDS))
+  left=$((until - $(mono) - GRACE_SECONDS))
   if ((left < 1)); then
     echo "[ttl] the ${DESTROY_SECONDS}s destroy allowance ran out before attempt $attempt" >>"$KILL_LOG"
     break
@@ -101,10 +105,16 @@ for attempt in 1 2 3; do
   echo "$destroy" >"$KILL_PIDFILE.destroy"
   wait "$destroy"
   ttl_rc=$?
+  # timeout exits with its child and sends no KILL to a provider that ignored TERM, which stays in its group, so the
+  # group is emptied here and its record cleared only after (codex review before the re-verification).
+  if [ -n "$(pgrep -g "$destroy")" ]; then
+    kill -KILL -- "-$destroy"
+    echo "[ttl] killed what outlived attempt $attempt in its group $destroy" >>"$KILL_LOG"
+  fi
   : >"$KILL_PIDFILE.destroy"
   [ "$ttl_rc" = 0 ] && break
   echo "[ttl] attempt $attempt failed rc=$ttl_rc" >>"$KILL_LOG" 2>&1
-  if ((until - SECONDS > 60)); then sleep 60; fi
+  if ((until - $(mono) > 60)); then sleep 60; fi
 done
 if [ "$ttl_rc" = 0 ]; then
   echo "[ttl] $(date -u +%H:%M:%SZ) force-destroy SUCCEEDED" >>"$KILL_LOG" 2>&1
