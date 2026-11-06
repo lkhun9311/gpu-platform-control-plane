@@ -505,6 +505,33 @@ class Case:
                 f"fault, at the last read of the job, which is not a bound on the recovery because the logs are not shown "
                 f"to cover that time{gap}")
 
+    def attempt1_logs_cut(self) -> str:
+        """Which attempt-1 Pods' logs are not shown to have been read to their end, or "" when none.
+
+        Lost steps are counted from attempt 1's last recorded step, so a log whose end was lost understated them and the
+        case stayed ACCEPTED: a read-only simulation dropping dcgm-1's step 12 gave zero lost steps for one (gpt-6-astra's
+        defect review of #505).
+        A Pod's last stream must have exited cleanly, and, where the collector recorded it, not with its container
+        still running or unread; a Pod already gone when its stream ended is taken as ended with it, which a deletion
+        that outran the stream would defeat.
+        Archives written before the collector recorded the container's state are judged on the exit alone.
+        """
+        first = {p["uid"] for p in jsonl(self.dir / "pods.jsonl") if str(p.get("attempt_token")) == "1"}
+        last: dict[str, dict] = {}
+        for s in jsonl(self.dir / "streams.jsonl"):
+            if s.get("uid") in first and s.get("stream", 0) >= last.get(s["uid"], {}).get("stream", 0):
+                last[s["uid"]] = s
+        cut = []
+        for uid in sorted(first):
+            s = last.get(uid)
+            if s is None:
+                cut.append(f"{uid} has no ended stream")
+            elif s.get("exit") != 0:
+                cut.append(f"{uid}'s last stream exited {s.get('exit')}")
+            elif s.get("container", "terminated") not in ("terminated", "gone"):
+                cut.append(f"{uid}'s last stream ended with its container {s.get('container')}")
+        return "; ".join(cut)
+
     def placed_fault(self) -> tuple[float, float]:
         """fault_time, refused when a probe labelled before the fault ended after it, as score() refuses it."""
         fault, uncertainty = self.fault_time()
@@ -858,11 +885,15 @@ class Case:
         # Attempt 1 recorded at least the step its resume came from, or its log is not all there.
         if lost_from < resumed["from_step"]:
             void(f"attempt 1's step records end at {lost_from}, before step {resumed['from_step']} it resumed from, so its log is incomplete")
+        # A log whose end was not read can have lost its last steps, and lost steps counted from it are too few.
+        cut = self.attempt1_logs_cut()
+        if cut:
+            self.figures["lost_steps_withheld"] = f"attempt 1's logs may lack their end: {cut}"
         self.figures.update({
             "recovery_s": max(firsts.values()) - fault,
             # How far the recovery can be off for the clocks alone: the fault's clock and the worst of attempt 2's.
             "clock_uncertainty_s": fault_uncertainty + max(self.clock(n, 2)[1] for n in nodes),
-            "lost_steps": lost_from - resumed["from_step"],
+            "lost_steps": None if cut else lost_from - resumed["from_step"],
             "class": self.recovery_class(fault),
             "params_gap": gap,
             "checkpoint_s": self.save_costs(1, completed=False) + self.save_costs(2, completed=True),
@@ -1013,9 +1044,12 @@ def main(argv: list[str]) -> int:
                    if verdicts[n][0] == "ACCEPTED" and scored[n].figures.get("class") == cls]
             lost = [scored[n].figures["lost_steps"] for n in names
                     if verdicts[n][0] == "ACCEPTED" and scored[n].figures.get("class") == cls]
+            withheld = sum(1 for v in lost if v is None)
+            shown = sorted(v for v in lost if v is not None)
             if rec:
                 print(f"    {cls}: recovery median {statistics.median(rec):.1f} s, range {min(rec):.1f} to {max(rec):.1f} s, "
-                      f"lost steps {sorted(lost)}, over {len(rec)} accepted; the {censored} FAILED censored at their budget, "
+                      f"lost steps {shown}{f' ({withheld} withheld, their logs not shown read to the end)' if withheld else ''}, "
+                      f"over {len(rec)} accepted; the {censored} FAILED censored at their budget, "
                       f"the {late} past their budget after a recovery, the {wrong} not recovered and the {counts['VOID']} VOID are not in these figures")
         # The registration counts a terminate-spare that recovered on a replacement as a replacement, never as a spare,
         # and says so here, so a spare figure over fewer cases than ran is not read as every spare recovery.

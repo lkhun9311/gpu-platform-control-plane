@@ -538,11 +538,22 @@ for p in ready:
     echo "a job naming a claim that does not exist was accepted, so the webhook that checks the claim did not run"
     return 1
   }
+  restart_webhook_refused_claim "$out" || return 1
   out="$(restart_render_job restart-gate "$RESTART_NS" "$RESTART_QUEUE" restart-gate reference | rk apply --dry-run=server -f - 2>&1)" || {
     echo "a registered case's job was refused by the API server: ${out:0:300}"
     return 1
   }
   echo "operator at $rev runs $expected, the CRD has maxRestarts and nodeUIDs, and the webhook refuses a missing claim and accepts a case"
+}
+
+# restart_webhook_refused_claim OUT: OUT, a refused dry run of a job naming a missing claim, is the webhook's refusal of
+# that claim; prints why not.
+# Any failure of the request passed for one before, so a throttled or dropped call credited the webhook with a refusal
+# it never made (gpt-6-astra's defect review of #505); the words are internal/webhook/v1/mltrainingjob_webhook.go's.
+restart_webhook_refused_claim() {
+  [[ "$1" == *"denied the request"* && "$1" == *"spec.stateVolume.claimName"* && "$1" == *"claim not found"* ]] && return 0
+  echo "a job naming a claim that does not exist failed, but not by the webhook's refusal of the claim: ${1:0:300}"
+  return 1
 }
 
 # restart_crd_check CRD_JSON: fails, naming the field, unless the deployed MLTrainingJob CRD's storage version declares
@@ -1363,8 +1374,10 @@ restart_deadline_ok() {
 # stream ends while the Pod still runs; duplicates are removed by the scorer, and every stream's end is recorded.
 restart_collect() {
   local dir="$1" name="$2" started=" " rows uid pod node index
+  # Running jobs only: every case's collector.log held one "No such process" from a follow already ended, an error line
+  # nothing was wrong behind (gpt-6-astra's defect review of #505).
   # shellcheck disable=SC2046  # word splitting of the pid list is intended
-  trap 'kill $(jobs -p) 2>>"$dir/collector.log"; exit 0' TERM
+  trap 'set -- $(jobs -pr); (($# == 0)) || kill "$@" 2>>"$dir/collector.log"; exit 0' TERM
   while :; do
     rows="$(rk -n "$RESTART_NS" get pods -l "platform.lkhun9311.github.io/mltrainingjob=$name" -o json 2>>"$dir/collector.log" | python3 -c '
 import json, sys
@@ -1384,10 +1397,10 @@ for p in json.load(sys.stdin)["items"]:
       printf '{"uid": "%s", "pod": "%s", "node": "%s", "index": "%s", "attempt_token": "%s", "observed": "%s"}\n' \
         "$uid" "$pod" "$node" "$index" "$token" "$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)" >>"$dir/pods.jsonl"
       (
-        local n=0 follow="" rc running began
+        local n=0 follow="" rc began ended podj row
         # The follow runs in the background and is waited for, so stopping this reader stops it too: with no request
         # timeout a follow of a Pod on a dead node would otherwise outlive the case (codex review of bf0ea420).
-        trap 'kill $follow 2>>"$dir/collector.log"; exit 0' TERM
+        trap 'set -- $(jobs -pr); (($# == 0)) || kill "$@" 2>>"$dir/collector.log"; exit 0' TERM
         while :; do
           n=$((n + 1))
           # No request timeout, unlike rk: kubectl's 20 s cut every follow, so each Pod's log was read again from its start
@@ -1397,7 +1410,32 @@ for p in json.load(sys.stdin)["items"]:
           follow=$!
           wait "$follow"
           rc=$?
-          printf '{"uid": "%s", "stream": %d, "exit": %d, "at": "%s"}\n' "$uid" "$n" "$rc" "$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)" >>"$dir/streams.jsonl"
+          ended="$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)"
+          # The container as the stream ended, recorded with it: one still running can have outlived its stream's end, so
+          # score_eks.py counts no lost steps from that log; one that ended keeps its exit and its times, and a Pod being
+          # deleted its deletion's, which nothing else collected (gpt-6-astra's defect review of #505).
+          # A Pod that is gone reads as empty, not as an error; a read that failed is recorded as unread.
+          podj="$(rk -n "$RESTART_NS" get pod "$pod" --ignore-not-found -o json 2>>"$dir/collector.log")" || podj=unread
+          row="$(python3 -c '
+import json, sys
+uid, n, rc, at, raw = sys.argv[1:6]
+row = {"uid": uid, "stream": int(n), "exit": int(rc), "at": at}
+if raw == "unread":
+    row["container"] = "unread"
+elif not raw.strip():
+    row["container"] = "gone"
+else:
+    p = json.loads(raw)
+    st = ((p.get("status") or {}).get("containerStatuses") or [{}])[0].get("state") or {}
+    t = st.get("terminated")
+    row["container"] = "running" if "running" in st else "terminated" if t else "waiting" if "waiting" in st else "unknown"
+    if t:
+        row.update(exit_code=t.get("exitCode"), reason=t.get("reason"), started_at=t.get("startedAt"), finished_at=t.get("finishedAt"))
+    if (p.get("metadata") or {}).get("deletionTimestamp"):
+        row["deletion"] = p["metadata"]["deletionTimestamp"]
+print(row["container"], json.dumps(row))' "$uid" "$n" "$rc" "$ended" "$podj" 2>>"$dir/collector.log")" ||
+            row="unread {\"uid\": \"$uid\", \"stream\": $n, \"exit\": $rc, \"at\": \"$ended\", \"container\": \"unread\"}"
+          printf '%s\n' "${row#* }" >>"$dir/streams.jsonl"
           # A stream that ended at once is paused after, so twenty that fail in a row span more than a second of the case
           # (codex review before the full stage).
           (($(phase_mono) - began >= 2)) || sleep 2
@@ -1405,12 +1443,11 @@ for p in json.load(sys.stdin)["items"]:
           # A stream that ended with its container is complete; one that ended while it runs is read again in full.
           # A read of the container that failed says neither, so the log is read again after a pause: taking it for the
           # end once stopped a Pod's records for good after one API error (codex review before the full stage).
-          # A Pod that is gone reads as empty, not as an error, and ends the follows.
-          if running="$(rk -n "$RESTART_NS" get pod "$pod" --ignore-not-found -o jsonpath='{.status.containerStatuses[0].state.running}' 2>>"$dir/collector.log")"; then
-            [[ -n "$running" ]] || break
-          else
-            sleep 2
-          fi
+          case "${row%% *}" in
+            running) ;;
+            unread) sleep 2 ;;
+            *) break ;;
+          esac
         done
       ) &
     done <<<"$rows"
@@ -1546,6 +1583,29 @@ print(json.dumps({"observed": datetime.datetime.now(datetime.timezone.utc).isofo
 ' "$mltj" >>"$dir/timeline.jsonl"
 }
 
+# restart_sampling NAME DIR DEADLINE: restart_sample every RESTART_POLL, in the background, until DIR/sampling.stop
+# exists or DEADLINE (on the phase_mono clock) passes.
+#
+# The probes before a fault, the wait for its window and the injection each hold the case's own loop for seconds, and
+# the DCGM cases' samples jumped 25 s across their triggers, so the collector's bracket of a 2 s stop was 31 s wide
+# (gpt-6-astra's defect review of #505).
+restart_sampling() {
+  while [[ ! -e "$2/sampling.stop" ]] && (($(phase_mono) < $3)); do
+    restart_by "$3" restart_sample "$1" "$2"
+    sleep "$RESTART_POLL"
+  done
+}
+
+# restart_sampling_stop DIR: the sampler restart_run_case started, if one runs, asked to stop and waited for; it ends
+# after its current sample, which restart_by bounds by the case's deadline.
+restart_sampling_stop() {
+  [[ -n "${RESTART_SAMPLER:-}" ]] || return 0
+  : >"$1/sampling.stop"
+  wait "$RESTART_SAMPLER" || :
+  RESTART_SAMPLER=""
+  rm -f "$1/sampling.stop"
+}
+
 # restart_status NAME EXPR: one value of the job's status, from a Python expression over `s` and `a` (its attempts).
 restart_status() {
   rk -n "$RESTART_NS" get mltrainingjob "$1" -o json 2>>"$RESTART_OUT/status.log" | python3 -c "
@@ -1573,13 +1633,17 @@ print(r["uid"], r["pod"], r["node"])' "$1/pods.jsonl" "$2"
 }
 
 # restart_efs_credits DIR LABEL: the file system's burst credit balance, read-only, since bursting throughput depends on it.
+# Each line is LABEL, when it was asked, then the datapoint's own minute and its value: CloudWatch publishes late, and
+# with the minute dropped, two reads of one stale datapoint passed for a balance before and after a case (gpt-6-astra's
+# defect review of #505).
 restart_efs_credits() {
   local v t
   if restart_cap t 20; then
     v="$(timeout -k "$RESTART_KILL_AFTER" "$t" aws cloudwatch get-metric-statistics --region "$RESTART_REGION" --namespace AWS/EFS --metric-name BurstCreditBalance \
       --dimensions "Name=FileSystemId,Value=$RESTART_FS_ID" --start-time "$(date -u -d '-15 min' +%Y-%m-%dT%H:%M:%SZ)" \
-      --end-time "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --period 60 --statistics Minimum --query 'sort_by(Datapoints, &Timestamp)[-1].Minimum' \
-      --output text 2>&1)" || v="unread: ${v:0:120}"
+      --end-time "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --period 60 --statistics Minimum \
+      --query 'sort_by(Datapoints, &Timestamp)[-1].[Timestamp, Minimum]' --output text 2>&1)" && v="$(tr '\t' ' ' <<<"$v")" ||
+      v="unread: ${v:0:120}"
   else
     v="unread: the deadline had passed"
   fi
@@ -1595,6 +1659,7 @@ restart_efs_credits() {
 # same evidence files as one that ran.
 restart_void_case() {
   local dir="$1" name="$2" job_id="$3" collector="$4" retire_dl="$5"
+  restart_sampling_stop "$dir"
   echo "$6" >"$dir/VOID"
   restart_sample "$name" "$dir"
   rk -n "$RESTART_NS" get mltrainingjob "$name" -o json >"$dir/final-mltj.json" 2>>"$dir/case.log"
@@ -1709,6 +1774,9 @@ restart_run_case() {
     [[ "$(restart_ranks_stepped "$dir")" -ge 2 ]] && break
     sleep "$RESTART_POLL"
   done
+  # From here to the loop after the fault, the status is sampled in the background, since nothing between samples here.
+  restart_sampling "$name" "$dir" "$deadline" &
+  RESTART_SAMPLER=$!
   # A fault whose nodes' clocks were not read before it cannot be placed on the runner's clock, and the scorer would void
   # the case after the fault had cost a node, so the case is VOID before its fault and retired instead.
   # The reference has no fault and no recovery to time, so for it a failed probe is only logged.
@@ -1749,6 +1817,7 @@ restart_run_case() {
       echo "the fault was not delivered: $out" >"$dir/VOID"
     fi
   fi
+  restart_sampling_stop "$dir"
 
   # Until the job ends or the budget does; the clocks are probed again once both ranks of attempt 2 have stepped.
   # Each read here is bounded by the run's deadline, and the probe by the probes' share past it, so a read that starts
@@ -1787,9 +1856,15 @@ restart_run_case() {
 }
 
 # restart_verdict CASE: the scorer's verdict on one case of the run so far: ACCEPTED, FAILED, VOID or NOTRUN.
+# It succeeds when the scorer named the case, whatever the scorer's status: the scorer exits 1 once any case of the run
+# is not ACCEPTED, and under pipefail that status discarded a verdict already printed (bare codex review of #505).
+# A scorer cut by its timeout or refusing the run names no case, and that is still a failure.
 restart_verdict() {
-  timeout "$RESTART_VERDICT_CALL" python3 experiments/distributed-restart/score_eks.py --partial "$RESTART_OUT" 2>>"$RESTART_OUT/score.log" |
-    awk -v c="$1" '$2 == c || $2 == c ":" {print $1; exit}'
+  local v
+  v="$(timeout "$RESTART_VERDICT_CALL" python3 experiments/distributed-restart/score_eks.py --partial "$RESTART_OUT" 2>>"$RESTART_OUT/score.log" |
+    awk -v c="$1" '$2 == c || $2 == c ":" {print $1; exit}')" || :
+  [[ -n "$v" ]] || return 1
+  echo "$v"
 }
 
 # restart_notrun CASE REASON: the case recorded as not started, with why.

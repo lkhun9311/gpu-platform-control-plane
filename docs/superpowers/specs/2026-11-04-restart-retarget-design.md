@@ -323,6 +323,28 @@ A first run of that review ended on the model's capacity before giving a verdict
 GO is not the purchase: the paid session still starts only on the owner's confirmation at launch.
 The owner confirmed it on 2026-11-05, and it ran from `ddf5ce5c`, the commit that recorded this review.
 
+### After the run
+
+On 2026-11-06, after the result was recorded, a bare `codex review` of the merged #505 and a gpt-6-astra review asked to find defects from the paid run's own evidence found ten, nine from astra with the bare review's one among them, and one more from the run's session log.
+Each was reproduced or read in the code before it was fixed, and each fix but one has a test that a mutation reverting it turns red; the exception is the collector's stop, whose noise the test stubs do not reproduce.
+The ten mutations were run on a separate worktree at `63f0e566`, so the committed tree was never the one mutated.
+None moves a verdict, a recovery or a `d` of this run; the column says what each meant for it.
+
+| finding | for this run | disposition |
+|---|---|---|
+| the scorer's status 1, which it gives once any case is not ACCEPTED, discarded the verdict it had printed, so one FAILED case made the next ones empty and two stopped the run | every case was ACCEPTED, so no verdict was discarded | fixed: a verdict the scorer printed is kept whatever its status |
+| a reused `EXDIR` let the session read the last session's `ttl.pid` and disarm a dead watchdog | the directory was new | fixed: the pid file is removed before the watchdog starts |
+| a promotion synced between R2 and R4 would have been rolled out with the fault flags unchecked | `origin/main` did not move | fixed: R2 runs again after R4 |
+| lost steps were counted from a log not shown read to its end, and a truncated one gave too few | every attempt-1 Pod's last stream exited 0; whether its container had ended was not recorded | fixed: the collector records the container as each stream ends, and a figure from a log not shown complete is withheld |
+| the DCGM injection held the status loop, so the samples jumped 25 s across the triggers | the `dcgm` brackets are the 31 s reported above | fixed: the status is sampled in the background from the probes before the fault to the loop after it |
+| the collector kept no container exit or Pod deletion times | why `rank-kill` waits 38 s is not answerable from this archive, as "Result" says | fixed: each stream's record carries the container's exit, its times and the Pod's deletion |
+| the EFS balance was recorded with the query's time, not its datapoint's | the balance is in no figure | fixed: the datapoint's minute is recorded |
+| any failure of the missing-claim dry run counted as the webhook's refusal | the refusal's words are not in the archive, so R2's claim rests on a failed request only | fixed: the refusal must be the webhook's, in the words an envtest pins through a real apiserver |
+| every case's `collector.log` held a "No such process" from stopping an ended follow | noise only | fixed: only running jobs are stopped; no test reproduces the noise, so none pins this |
+| the bootstrap root's `terraform output` printed its whole error into the session log, and one copy of the read discarded it | the IAM fallback armed the GPU deadline, as in `smoke` and `full` | fixed: the error goes to `terraform.log`, and the session log says the role came from IAM |
+
+The collector and sampling changes have not run against a real cluster; a kind rehearsal comes before any further paid run.
+
 ## What this does not show
 
 - No termination, fence or replacement: those ran in `full` on their recorded revisions and are not re-measured here.

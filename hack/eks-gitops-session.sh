@@ -428,6 +428,10 @@ fi
 # whether this script finishes, hangs, or the terminal dies.
 KILL_LOG="$EXDIR/ttl-kill-switch.log"
 KILL_PIDFILE="$EXDIR/ttl.pid"
+# A reused EXDIR holds the last session's pid, which the loop below read before the new watchdog wrote its own; the
+# session would then disarm a dead process and leave its live watchdog to destroy the cluster (gpt-6-astra's defect
+# review of #505).
+rm -f "$KILL_PIDFILE" && [[ ! -e "$KILL_PIDFILE" ]] || die "could not remove the stale $KILL_PIDFILE before arming the kill switch"
 setsid nohup bash -c "$(killswitch_program "$KILL_PIDFILE" "$KILL_LOG" "$PWD" $((TTL_MINUTES * 60)) \
   $((KILL_DESTROY_MINUTES * 60)) "$AWS_PROFILE" "$REGION" "$CLUSTER_DIR" "$CLUSTER" "$TF_TRAIN_VARS" "$EXDIR")" >/dev/null 2>&1 &
 # The watchdog reports its own pid, because `$!` here is the setsid process and not the watchdog.
@@ -449,6 +453,19 @@ log "TTL kill switch armed: PID $KILL_PID, fires in ${TTL_MINUTES}m, log $KILL_L
 KILL_AT=$(($(date +%s) + TTL_MINUTES * 60))
 # watchdog_gone is killswitch_gone of this session's watchdog (hack/lib/session-teardown.sh), which ignores a zombie.
 watchdog_gone() { killswitch_gone "$KILL_PID"; }
+
+# ttl_role_from_state: the TTL role's ARN from the bootstrap root's state, or nothing, with one line saying why.
+# The bootstrap root is not initialised in a worktree, so its "Backend initialization required" block filled the session
+# log of all three paid restart runs while ttl_arm read the role from IAM as designed, and one copy of the read sent the
+# error to /dev/null; the error goes to terraform.log, and the session log says what was done instead.
+ttl_role_from_state() {
+  local arn
+  if arn="$(terraform -chdir=infra/aws/bootstrap output -raw ttl_scaledown_role_arn 2>>"$EXDIR/terraform.log")"; then
+    printf '%s' "$arn"
+  else
+    log "the bootstrap root's state was not read (its error is in terraform.log), so ttl_arm reads the TTL role from IAM" >&2
+  fi
+}
 
 # disarm stops the watchdog and any destroy it has already started (killswitch_disarm).
 disarm() {
@@ -623,7 +640,7 @@ gpu_up() {
     bad "the watchdog fires in ${left_min} min, leaving the card ${gpu_min} min against the ${SERVE_BUDGET}s its steps may take; raise TTL_MINUTES"
     return 1
   fi
-  TTL_ROLE_ARN="${TTL_ROLE_ARN:-$(terraform -chdir=infra/aws/bootstrap output -raw ttl_scaledown_role_arn 2>/dev/null)}"
+  TTL_ROLE_ARN="${TTL_ROLE_ARN:-$(ttl_role_from_state)}"
   export TTL_ROLE_ARN
   # shellcheck source=hack/lib/gpu-ttl.sh
   . hack/lib/gpu-ttl.sh
@@ -845,7 +862,7 @@ train_run() {
   if [[ "$TRAIN" == allreduce ]]; then
     gpu_min=$(((TRAIN_GPU_BUDGET + 59) / 60))
   fi
-  TTL_ROLE_ARN="${TTL_ROLE_ARN:-$(terraform -chdir=infra/aws/bootstrap output -raw ttl_scaledown_role_arn 2>>"$EXDIR/session.log")}"
+  TTL_ROLE_ARN="${TTL_ROLE_ARN:-$(ttl_role_from_state)}"
   export TTL_ROLE_ARN
   # shellcheck source=hack/lib/gpu-ttl.sh
   . hack/lib/gpu-ttl.sh
@@ -1017,6 +1034,10 @@ restart_before_purchase() {
   ok "R3: $why"
   why="$(restart_enable_fault_path)" || { bad "R4: $why"; return 1; }
   ok "R4: $why"
+  # R2 again: until R4 turned automated sync off, a promotion could sync a different operator after R2 read it, and R4
+  # would roll that one out with the fault flags (gpt-6-astra's defect review of #505).
+  why="$(restart_operator_gate)" || { bad "R2 after R4: $why"; return 1; }
+  ok "R2 after R4: $why"
 }
 
 # train_run_restart IDS ZONES: the registered cases on the three qualified nodes, scored as they end and at the end.
@@ -1163,7 +1184,7 @@ print(f"the collector requests {need}m: {report}")
     bad "the watchdog fires in ${left_min} min, leaving the nodes ${gpu_min} min against the ${PREFIX_GPU_BUDGET}s the study may take; raise TTL_MINUTES"
     return 1
   fi
-  TTL_ROLE_ARN="${TTL_ROLE_ARN:-$(terraform -chdir=infra/aws/bootstrap output -raw ttl_scaledown_role_arn 2>>"$EXDIR/session.log")}"
+  TTL_ROLE_ARN="${TTL_ROLE_ARN:-$(ttl_role_from_state)}"
   export TTL_ROLE_ARN
   # shellcheck source=hack/lib/gpu-ttl.sh
   . hack/lib/gpu-ttl.sh
