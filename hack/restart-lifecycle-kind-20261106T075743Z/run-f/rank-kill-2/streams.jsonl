@@ -1,0 +1,6 @@
+{"uid": "130e56e8-8479-4ff1-bc54-6f96eb89b71c", "stream": 1, "exit": 0, "at": "2026-11-06T08:03:32.874961607Z", "container": "terminated", "exit_code": 137, "reason": "Error", "started_at": "2026-11-06T08:03:08Z", "finished_at": "2026-11-06T08:03:31Z"}
+{"uid": "16282f89-67c6-46c8-be34-a12b5f5eaafe", "stream": 1, "exit": 0, "at": "2026-11-06T08:03:32.877426297Z", "container": "running"}
+{"uid": "16282f89-67c6-46c8-be34-a12b5f5eaafe", "stream": 2, "exit": 0, "at": "2026-11-06T08:03:33.023461643Z", "container": "terminated", "exit_code": 1, "reason": "Error", "started_at": "2026-11-06T08:03:08Z", "finished_at": "2026-11-06T08:03:32Z"}
+{"uid": "67d15ab4-1066-4ea1-a776-49cd691adc96", "stream": 1, "exit": 0, "at": "2026-11-06T08:04:16.049553318Z", "container": "terminated", "exit_code": 0, "reason": "Completed", "started_at": "2026-11-06T08:03:34Z", "finished_at": "2026-11-06T08:04:15Z"}
+{"uid": "bcf7553d-bdcb-468e-97ce-b267d018b4c2", "stream": 1, "exit": 0, "at": "2026-11-06T08:04:16.053838288Z", "container": "running"}
+{"uid": "bcf7553d-bdcb-468e-97ce-b267d018b4c2", "stream": 2, "exit": 0, "at": "2026-11-06T08:04:16.205720254Z", "container": "terminated", "exit_code": 0, "reason": "Completed", "started_at": "2026-11-06T08:03:35Z", "finished_at": "2026-11-06T08:04:15Z"}

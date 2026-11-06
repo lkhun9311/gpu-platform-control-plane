@@ -198,6 +198,22 @@ passes() {
 passes "the full stage" "RESTART_STAGE=full: TTL_MINUTES 524 covers its 524" RESTART_STAGE=full TTL_MINUTES=524
 passes "the retarget stage" "RESTART_STAGE=retarget: TTL_MINUTES 340 covers its 337" RESTART_STAGE=retarget TTL_MINUTES=340
 passes "the corelimit stage" "RESTART_STAGE=corelimit: TTL_MINUTES 460 covers its 452" RESTART_STAGE=corelimit TTL_MINUTES=460
+if grep -qF "the core-limit arms are the stage's own and $work/the corelimit stage/restart is new" "$work/the corelimit stage/session.log"; then
+  ok "the corelimit stage logged its arms and its evidence directory as checked"
+else
+  bad "the corelimit stage did not log the launch check: $(grep -F 'core-limit' "$work/the corelimit stage/session.log")"
+fi
+# A registered stage's arms are its registration's: an empty override ran all six rank-kill cases untreated, and only H2,
+# after the purchase, said so (gpt-6-astra's attack before the corelimit run).
+session "the corelimit stage with its arms replaced" "RESTART_STAGE=corelimit registers its own core-limit arms, and RESTART_NOCORE_CASES='' would replace them; unset it" \
+  RESTART_STAGE=corelimit TTL_MINUTES=460 RESTART_NOCORE_CASES=
+session "the retarget stage with arms given" "RESTART_STAGE=retarget registers its own core-limit arms, and RESTART_NOCORE_CASES='rank-kill-1' would replace them" \
+  RESTART_STAGE=retarget TTL_MINUTES=340 RESTART_NOCORE_CASES=rank-kill-1
+# A reused evidence directory would hand the last session's VOID marker and logs to the scorer of this one.
+mkdir -p "$work/a reused evidence directory/restart/reference"
+echo "an earlier session's marker" >"$work/a reused evidence directory/restart/reference/VOID"
+session "a reused evidence directory" "$work/a reused evidence directory/restart already exists, so its earlier records would be scored with this run's; use a new EXDIR" \
+  RESTART_STAGE=corelimit TTL_MINUTES=460
 passes "the longest deadline" "the credential expires in 719 minutes, at least the 700" TTL_MINUTES=660
 
 # The nightly destroy at 17:00 UTC, an hour before it: refused while the workflow is enabled, not enforced once it is
@@ -867,6 +883,7 @@ if [[ "$out" == *"rc=1" ]]; then ok "a group whose Nodes cannot be read is no cl
 mkdir -p "$work/rules/follow-leak"
 cat >"$work/rules/follow-leak/kubectl.sh" <<'EOF'
 case "$*" in
+  *"--watch --output-watch-events"*) exec -a rstk-watch-leak-probe sleep 300 ;;
   *"get pods -l platform.lkhun9311.github.io/mltrainingjob="*"-o json"*)
     echo '{"items": [{"metadata": {"uid": "u0", "name": "rp0", "annotations": {"batch.kubernetes.io/job-completion-index": "0"}}, "spec": {"nodeName": "node-a"}, "status": {"containerStatuses": [{"state": {"running": {"startedAt": "t"}}}]}}]}' ;;
   *"logs -f rp0"*) exec -a rstk-follow-leak-probe sleep 300 ;;
@@ -875,11 +892,14 @@ EOF
 out="$(lib follow-leak 'restart_collect "$RESTART_OUT" rst-x & c=$!; sleep 3; restart_stop_collector $c "$RESTART_OUT"; sleep 1; echo "rc=$?"')"
 started="$(grep -c 'logs -f rp0' "$work/follow-leak.calls")"
 leaked="$(pgrep -f '[r]stk-follow-leak-probe' | wc -l)"
-if [[ "$started" -ge 1 && "$leaked" == 0 ]]; then
-  ok "stopping the collector stops its $started log follow(s)"
+watches="$(grep -c -- '--watch --output-watch-events' "$work/follow-leak.calls")"
+wleaked="$(pgrep -f '[r]stk-watch-leak-probe' | wc -l)"
+if [[ "$started" -ge 1 && "$leaked" == 0 && "$watches" -ge 1 && "$wleaked" == 0 ]]; then
+  ok "stopping the collector stops its $started log follow(s) and its $watches Pod watch(es)"
 else
-  bad "$leaked of $started log follow(s) outlived the collector: $out"
+  bad "$leaked of $started log follow(s) and $wleaked of $watches Pod watch(es) outlived the collector: $out"
   pgrep -f '[r]stk-follow-leak-probe' | xargs -r kill
+  pgrep -f '[r]stk-watch-leak-probe' | xargs -r kill
 fi
 
 # A stream that ends at once is paused after, so its twenty tries are not spent in a moment.
@@ -951,19 +971,31 @@ fi
 mkdir -p "$work/rules/pod-ended"
 cat >"$work/rules/pod-ended/kubectl.sh" <<'EOF'
 case "$*" in
+  *"--watch --output-watch-events"*) echo '{"type": "MODIFIED", "object": {"metadata": {"uid": "u0", "deletionTimestamp": "2026-11-05T16:13:40Z", "deletionGracePeriodSeconds": 30}}}'; exec -a rstk-pod-ended-watch sleep 300 ;;
   *"get pods -l platform.lkhun9311.github.io/mltrainingjob="*"-o json"*)
     echo '{"items": [{"metadata": {"uid": "u0", "name": "rp0", "annotations": {"batch.kubernetes.io/job-completion-index": "0"}}, "spec": {"nodeName": "node-a"}, "status": {"containerStatuses": [{"state": {"running": {"startedAt": "t"}}}]}}]}' ;;
   *"logs -f rp0"*) echo '{"ts": "t", "event": "step"}' ;;
-  *"get pod rp0"*) echo '{"metadata": {"deletionTimestamp": "2026-11-05T16:13:40Z"}, "status": {"containerStatuses": [{"state": {"terminated": {"exitCode": 143, "reason": "Error", "startedAt": "2026-11-05T16:13:02Z", "finishedAt": "2026-11-05T16:14:12Z"}}}]}}' ;;
+  *"get pod rp0"*) echo '{"metadata": {"deletionTimestamp": "2026-11-05T16:13:40Z", "deletionGracePeriodSeconds": 30}, "status": {"containerStatuses": [{"state": {"terminated": {"exitCode": 143, "reason": "Error", "startedAt": "2026-11-05T16:13:02Z", "finishedAt": "2026-11-05T16:14:12Z"}}}]}}' ;;
 esac
 EOF
 out="$(lib pod-ended 'restart_collect "$RESTART_OUT" rst-x & c=$!; sleep 4; kill $c; wait $c; echo "rc=$?"')"
 row="$(head -1 "$work/out/pod-ended/streams.jsonl" 2>&1)"
 if [[ "$(grep -c . "$work/out/pod-ended/streams.jsonl")" == 1 && "$row" == *'"container": "terminated"'* && "$row" == *'"exit_code": 143'* &&
-  "$row" == *'"finished_at": "2026-11-05T16:14:12Z"'* && "$row" == *'"deletion": "2026-11-05T16:13:40Z"'* ]]; then
-  ok "a stream that ended with its container records the exit, its times and the Pod's deletion, and is not followed again"
+  "$row" == *'"finished_at": "2026-11-05T16:14:12Z"'* && "$row" == *'"deletion": "2026-11-05T16:13:40Z", "deletion_grace_s": 30'* ]]; then
+  ok "a stream that ended with its container records the exit, its times and the Pod's deletion with its grace, and is not followed again"
 else
   bad "the ended container's stream record: $row"
+fi
+# The Pod watch is recorded apart from the streams, so a Pod deleted before its stream's end still leaves its status
+# (gpt-6-astra's attack before the corelimit run).
+if grep -qF '"deletionGracePeriodSeconds": 30' "$work/out/pod-ended/pod-watch.json" && grep -q '^{"type": "WATCH-OPENED", "at": "' "$work/out/pod-ended/pod-watch.json"; then
+  ok "the collector records the Pods' watch events beside their streams"
+else
+  bad "the Pod watch was not recorded: $(head -c 200 "$work/out/pod-ended/pod-watch.json" 2>&1)"
+fi
+if pgrep -f '[r]stk-pod-ended-watch' >/dev/null; then
+  bad "a Pod watch outlived the collector killed by TERM"
+  pgrep -f '[r]stk-pod-ended-watch' | xargs -r kill
 fi
 
 # An exec that connects and never answers is cut: gpu-fault.sh's calls at RESTART_GFK_CALL, a read of LATEST at
@@ -1861,6 +1893,136 @@ if grep -q '^    same-nodes, core limit 0: recovery median 46.5 s, .* over 3 acc
 else
   bad "the scorer's summary of two arms: $(grep 'same-nodes' <<<"$out" | head -3)"
 fi
+# The milestone report keeps the arms apart too: pooled, it gave rank-kill/same-nodes (n=4) of both arms on kind run f
+# (gpt-6-astra's attack before the corelimit run).
+out="$(python3 experiments/distributed-restart/phases_eks.py "$h2run" 2>&1)"
+if grep -q '^  rank-kill/same-nodes, core limit 0 (n=3): ' <<<"$out" && grep -q '^  rank-kill/same-nodes, core limit inherited (n=3): ' <<<"$out" &&
+  ! grep -q '^  rank-kill/same-nodes (n=' <<<"$out"; then
+  ok "the milestone medians give each core-limit arm its own"
+else
+  bad "the milestone medians of two arms: $(grep 'rank-kill/' <<<"$out" | head -3)"
+fi
+# The retarget archive's streams predate the container records, so how its survivor ended is said to be unread, not
+# left absent.
+out="$(python3 "$h2" "$h2run" 2>&1)"
+if [[ "$(grep -c '"unread": "no terminal state of the surviving rank was recorded' <<<"$out")" == 6 ]]; then
+  ok "a survivor whose end was not recorded is reported unread"
+else
+  bad "the unrecorded survivor: $(grep '^rank-kill-1 ' <<<"$out" | grep -o '"survivor_end": {[^}]*}')"
+fi
+# A survivor deleted before its stream's end is read from the Pod watch, and its deletion request is the first
+# deletionTimestamp less its grace, not the stamp itself (gpt-6-astra's attack before the corelimit run).
+python3 - "$h2run/rank-kill-5" <<'EOF'
+import datetime, json, pathlib, sys
+sys.path.insert(0, "experiments/distributed-restart")
+import h1_retarget, score_eks
+case_dir = pathlib.Path(sys.argv[1])
+run = case_dir.parent
+prov = score_eks.provenance(run)
+evidence = score_eks.Case(run, "rank-kill-5", None, int(prov["steps"]), int(prov["case_budget"]))
+# Read as h2_corelimit.py reads it: delivered() loads the records fault_at() takes the fault from.
+assert not h1_retarget.delivered(evidence)
+fault = h1_retarget.fault_at(evidence)
+uid = [p["uid"] for p in score_eks.jsonl(case_dir / "pods.jsonl") if str(p.get("attempt_token")) == "1" and p.get("index") == "0"][0]
+# Whole-second stamps, as the API server writes them, so what H2 should print is computed from the fault's fraction.
+stamp = lambda s: datetime.datetime.fromtimestamp(int(fault) + s, datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+(case_dir / "want").write_text(f"{round(int(fault) + 2 - fault, 1)} {round(int(fault) + 41 - fault, 1)}")
+def event(kind, deletion, grace, state):
+    return {"type": kind, "object": {"metadata": {"uid": uid, "deletionTimestamp": deletion, "deletionGracePeriodSeconds": grace},
+                                     "status": {"containerStatuses": [{"state": state}]}}}
+# The watch sees the Pod running before its deletion, as one watch over the case does; without that, the request is not
+# shown (the reopened-watch check below).
+events = [event("ADDED", None, None, {"running": {}}),
+          event("MODIFIED", stamp(32), 30, {"running": {}}),
+          event("MODIFIED", stamp(32), 30, {"terminated": {"exitCode": 134, "reason": "Error", "finishedAt": stamp(41)}}),
+          event("DELETED", stamp(42), 0, {"terminated": {"exitCode": 134, "reason": "Error", "finishedAt": stamp(41)}})]
+with open(case_dir / "pod-watch.json", "w") as f:
+    f.write('{"type": "WATCH-OPENED", "at": "t"}\n')
+    for e in events:
+        f.write(json.dumps(e, indent=4) + "\n")
+    f.write('{\n    "type": "MODIFIED",\n    "object": {\n        "metad')
+EOF
+out="$(python3 "$h2" "$h2run" 2>&1)"
+end="$(grep '^rank-kill-5 ' <<<"$out" | python3 -c 'import json, sys; l = sys.stdin.read(); print(json.dumps(json.loads(l[l.index("{"):])["survivor_end"], sort_keys=True))' 2>&1)"
+read -r want_asked want_finished <"$h2run/rank-kill-5/want"
+if [[ "$end" == *"\"deletion_asked_after_fault_s\": $want_asked,"* && "$end" == *'"deletion_grace_s": 30'* && "$end" == *'"exit_code": 134'* &&
+  "$end" == *'"read_from": "pod watch"'* && "$end" == *"\"finished_after_fault_s\": $want_finished,"* && "$end" != *unread* &&
+  "$end" == *'"clocks": "uncorrected stamp differences: '* ]]; then
+  ok "a survivor deleted before its stream ended is read from the Pod watch, with its deletion request and grace"
+else
+  bad "the survivor from the Pod watch: $end"
+fi
+# An archive commits the watch xz-compressed, and a reader of only the plain name would lose the survivor's end from the
+# committed copy, as the scorer once lost every termination case to its compressed timelines.
+xz "$h2run/rank-kill-5/pod-watch.json"
+packed_end="$(python3 "$h2" "$h2run" 2>&1 | grep '^rank-kill-5 ' | python3 -c 'import json, sys; l = sys.stdin.read(); print(json.dumps(json.loads(l[l.index("{"):])["survivor_end"], sort_keys=True))' 2>&1)"
+if [[ -n "$end" && "$packed_end" == "$end" ]]; then ok "the Pod watch is read the same from its .xz"; else bad "the Pod watch from its .xz: $packed_end"; fi
+printf 'not xz' >"$h2run/rank-kill-5/pod-watch.json.xz"
+out="$(python3 "$h2" "$h2run" 2>&1)"
+if grep -q '^rank-kill-5 .*"pod_watch": "unreadable: pod-watch.json.xz could not be decompressed' <<<"$out" && grep -q '^H2 ' <<<"$out"; then
+  ok "a damaged Pod watch is reported unreadable, and the evaluation goes on"
+else
+  bad "the damaged Pod watch: $(grep '^rank-kill-5 \|^H2\|Traceback' <<<"$out" | cut -c1-200)"
+fi
+# A watch reopened after the deletion lists the Pod with a grace already shortened, so its stamp is not the request's:
+# the request is read only where one watch saw the Pod before and at its deletion (gpt-6-astra's second attack).
+python3 - "$h2run/rank-kill-5" <<'EOF'
+import json, pathlib, sys
+case_dir = pathlib.Path(sys.argv[1])
+(case_dir / "pod-watch.json.xz").unlink()
+pods = [json.loads(l) for l in open(case_dir / "pods.jsonl")]
+uid = [p["uid"] for p in pods if p["attempt_token"] == "1" and p["index"] == "0"][0]
+running = {"type": "ADDED", "object": {"metadata": {"uid": uid}, "status": {"containerStatuses": [{"state": {"running": {}}}]}}}
+ended = {"terminated": {"exitCode": 134, "reason": "Error", "finishedAt": "2026-11-05T16:13:39Z"}}
+deleted = {"type": "DELETED", "object": {"metadata": {"uid": uid, "deletionTimestamp": "2026-11-05T16:13:40Z", "deletionGracePeriodSeconds": 0},
+                                         "status": {"containerStatuses": [{"state": ended}]}}}
+with open(case_dir / "pod-watch.json", "w") as f:
+    for e in ({"type": "WATCH-OPENED", "at": "t"}, running, {"type": "WATCH-OPENED", "at": "t"}, deleted):
+        f.write(json.dumps(e, indent=4) + "\n")
+EOF
+out="$(python3 "$h2" "$h2run" 2>&1)"
+if grep -q '^rank-kill-5 .*"deletion_asked": "not shown: no one watch saw the Pod before and at its deletion"' <<<"$out" &&
+  ! grep -q '^rank-kill-5 .*deletion_asked_after_fault_s' <<<"$out" && grep -q '^rank-kill-5 .*"exit_code": 134' <<<"$out"; then
+  ok "a deletion first seen by a reopened watch gives no request time, and the end is still read"
+else
+  bad "the reopened watch: $(grep '^rank-kill-5 ' <<<"$out" | grep -o '"survivor_end": {[^}]*}')"
+fi
+# A watch cut mid-object leaves a fragment; the collector starts the next mark on a line of its own so the fragment cannot
+# swallow it, and text the reader skips as damaged ends a watch even with no mark after it, since what it held is
+# unknown (gpt-6-astra's third attack before the corelimit run).
+for shape in fragment-then-mark fragment-alone; do
+  python3 - "$h2run/rank-kill-5" "$shape" <<'EOF'
+import json, pathlib, sys
+case_dir, shape = pathlib.Path(sys.argv[1]), sys.argv[2]
+pods = [json.loads(l) for l in open(case_dir / "pods.jsonl")]
+uid = [p["uid"] for p in pods if p["attempt_token"] == "1" and p["index"] == "0"][0]
+running = {"type": "ADDED", "object": {"metadata": {"uid": uid}, "status": {"containerStatuses": [{"state": {"running": {}}}]}}}
+ended = {"terminated": {"exitCode": 134, "reason": "Error", "finishedAt": "2026-11-05T16:13:39Z"}}
+deleted = {"type": "DELETED", "object": {"metadata": {"uid": uid, "deletionTimestamp": "2026-11-05T16:13:40Z", "deletionGracePeriodSeconds": 0},
+                                         "status": {"containerStatuses": [{"state": ended}]}}}
+with open(case_dir / "pod-watch.json", "w") as f:
+    f.write('\n{"type": "WATCH-OPENED", "at": "t"}\n')
+    f.write(json.dumps(running, indent=4) + "\n")
+    f.write('{\n    "type": "MODIFIED",\n    "object": {"metad')
+    if shape == "fragment-then-mark":
+        f.write('\n{"type": "WATCH-OPENED", "at": "t"}\n')
+    else:
+        f.write("\n")
+    f.write(json.dumps(deleted, indent=4) + "\n")
+EOF
+  out="$(python3 "$h2" "$h2run" 2>&1)"
+  if grep -q '^rank-kill-5 .*"deletion_asked": "not shown: no one watch saw the Pod before and at its deletion"' <<<"$out" &&
+    grep -q '^rank-kill-5 .*"exit_code": 134' <<<"$out"; then
+    ok "a deletion after a damaged watch ($shape) gives no request time, and the end is still read"
+  else
+    bad "the damaged watch ($shape): $(grep '^rank-kill-5 ' <<<"$out" | grep -o '"survivor_end": {[^}]*}')"
+  fi
+done
+if grep -qF "printf '\\n{\"type\": \"WATCH-OPENED\"" hack/lib/restart-session.sh; then
+  ok "the collector starts each watch's mark on a line of its own"
+else
+  bad "the collector's watch mark does not begin with a newline: $(grep -n 'WATCH-OPENED' hack/lib/restart-session.sh | head -2)"
+fi
 # A case whose case.json names the other arm, or whose treated ranks logged the node's limit, is not counted.
 python3 -c 'import json, sys; p = sys.argv[1]; c = json.load(open(p)); c["core_limit"] = "inherited"; json.dump(c, open(p, "w"))' "$h2run/rank-kill-2/case.json"
 sed -i '1s/core_limit=0/core_limit=unlimited/' "$h2run/rank-kill-4"/log-*.1.txt
@@ -1890,6 +2052,15 @@ if grep -q "^rank-kill-6 .*a core limit of 0 is not shown to stop a dump under c
   ok "a treated case whose node pipes cores to a handler not given the limit gives no d"
 else
   bad "H2 under a pipe without %c: $(grep -E '^rank-kill-(1|6)' <<<"$out" | cut -c1-200)"
+fi
+# A read of core_pattern that failed in the rank's shell logs it empty, which shows no handler, so no dump shown stopped
+# (gpt-6-astra's fourth attack before the corelimit run).
+sed -i '1s/ core_pattern=.* torch_nccl_async_error_handling=/ core_pattern= torch_nccl_async_error_handling=/' "$h2run/rank-kill-6"/log-*.1.txt
+out="$(python3 "$h2" "$h2run" 2>&1)"
+if grep -q "^rank-kill-6 .*a core limit of 0 is not shown to stop a dump under core_pattern \[''\]" <<<"$out"; then
+  ok "a treated case whose ranks could not read core_pattern gives no d"
+else
+  bad "H2 with an empty core_pattern: $(grep '^rank-kill-6 ' <<<"$out" | cut -c1-200)"
 fi
 out="$(python3 "$h2" "$src" 2>&1)"
 if grep -q '^REFUSED: .* is not a corelimit run' <<<"$out"; then ok "H2 refuses a run of another stage"; else bad "H2 on the retarget archive: $(tail -1 <<<"$out")"; fi

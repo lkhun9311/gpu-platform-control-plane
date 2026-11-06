@@ -58,6 +58,14 @@ program() {
   bash -c '. hack/lib/session-teardown.sh; killswitch_program "$1/ttl.pid" "$1/kill.log" "$1" "${3:-0}" "$2" gpu-lab ap-northeast-2 infra/aws/cluster gpu-platform "-var=gpu_max_nodes=3 -var=efs_enabled=true" "$1" 1' _ "$dir" "$1" "${2:-0}"
 }
 if program 3 | bash -n; then ok "the program parses with an apostrophe in its paths"; else bad "the program does not parse with an apostrophe in its paths"; fi
+# The allowance is counted on CLOCK_BOOTTIME, never on bash's SECONDS, which follows the wall clock: a step back once let
+# a destroy run 100 minutes against its 40 (gpt-6-astra's third attack before the corelimit run).
+wall="$(program 3 | grep -nP '(?<![A-Z_])SECONDS\b')"
+if [[ -z "$wall" ]] && program 3 | grep -q '^until=\$((\$(mono) + DESTROY_SECONDS))$' && program 3 | grep -q '</proc/uptime'; then
+  ok "the destroy allowance is counted on /proc/uptime, not the wall clock"
+else
+  bad "the destroy allowance's clock: ${wall:-no mono deadline}"
+fi
 
 start=$SECONDS
 TF_HANGS=1 PATH="$dir/bin:$PATH" bash -c "$(program 3)"

@@ -114,3 +114,6 @@ ReqNodeNotAvail	a Slurm pending reason, quoted from experiments/slurm-lab/eviden
 PREEMPTED	a Slurm job state, quoted from experiments/slurm-lab/evidence/2026-10-31/02d-preempt-cancel.txt, which the scan does not read
 RequeueExit	a slurm.conf parameter named in experiments/slurm-lab/README.md because this lab does not set it
 CANCELLED	a Slurm job state, quoted from experiments/slurm-lab/evidence/2026-11-04/07b-batch-host-loss.txt, which the scan does not read
+dump_vma_snapshot	a Linux 6.12 fs/coredump.c function, cited from the kernel source by the corelimit registration
+save_external_coredump	a systemd src/coredump/coredump.c function, cited from systemd v256 and v252 by the corelimit registration
+pod-watch.json	a file restart_collect in hack/lib/restart-session.sh writes into each case's directory during a run, not a tracked file
