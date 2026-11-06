@@ -84,7 +84,8 @@ reset
 VPCS="vpc-2" ENIS="eni-1"
 if sweep_leaked_cni_enis || [ "$(deleted)" != 0 ]; then bad "another cluster's VPC was swept"; else ok "a VPC other than the session's is not swept"; fi
 reset
-unset SESSION_VPC
+# Empty, as the session leaves it when its cluster's VPC could not be read.
+SESSION_VPC=""
 ENIS="eni-1"
 if sweep_leaked_cni_enis || [ "$(deleted)" != 0 ] || grep -q describe-vpcs "$work/calls"; then
   bad "a session with no recorded VPC still swept"
