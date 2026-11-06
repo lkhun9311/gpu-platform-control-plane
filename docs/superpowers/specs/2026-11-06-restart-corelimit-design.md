@@ -195,6 +195,7 @@ Every attempt-1 rank of every case logged `core_pattern=|/usr/lib/systemd/system
 Beside it, read as "What H2 can and cannot say" allows:
 - The untreated survivors ended with exit 137, 32 to 33 s after the fault and about 30 s after their deletion was asked for; the treated ones with exit 134 within a second of the fault.
 - That is what a dump still being written when the grace ran out predicts; 137 does not show the sender, and no host-side record of a dump was collected.
+- The treated survivors' shells printed `Aborted (core dumped)` with the limit at 0: the kernel sets that flag once it has begun a dump (`has_dumped = 1` in Linux 6.12 `fs/binfmt_elf.c`, before any write), so the treatment did not stop the kernel's dump from starting, as "What H2 can and cannot say" anticipated; it removed what came after.
 - The stop after the fault was shorter as well as `d`: the barrier was satisfied at a median of +3.3 s with the limit at 0 against +41.3 s without (`phases_eks.py`).
 - Recovery, not attributed to the arm beyond H2: median 8.7 s with the limit at 0, 46.9 s without, three cases each; the three `dcgm` cases 7.8 s.
 

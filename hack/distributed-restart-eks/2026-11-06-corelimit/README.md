@@ -57,8 +57,18 @@ Read as the registration says it may be read:
 - The stop after the fault was shorter too, not only `d`: the treated survivors finished within a second of the fault, the untreated ones 32 to 33 s after it (`phases_eks.py`: stop barrier satisfied at a median of +3.3 s against +41.3 s).
 - With the limit at 0 the survivor ended by its own abort, exit 134, within a second; with the node's limit it did not end by itself, and exit 137 came about 30 s after its deletion was asked for, the Pod's grace.
   That is what a core dump still being written when the grace ran out predicts; 137 alone does not say who sent the SIGKILL or that a dump was in progress, and this run collected no host-side record of one.
+- The treated survivors' logs end `Aborted (core dumped)`, though every one logged `core_limit=0`: the shell reports the kernel's core-dump flag from the wait status.
+  Linux 6.12's `elf_core_dump` returns that flag as soon as it has filled in the notes, before it writes anything (`has_dumped = 1` in `fs/binfmt_elf.c`), so the flag says the kernel started a dump, not that one was stored; under the pipe the limit acts through `systemd-coredump`, as the registration says.
+  So the treatment did not keep the kernel from starting a dump; what it removed is what followed, which is where the untreated survivors spent the grace.
+  The untreated survivors' logs carry no such line: their shells were killed with them.
 - In this run's untreated cases the 38 to 39 s are mostly the Pod's 30 s grace: the deletion was asked about 2 s after the fault, the survivor ended about 30 s after that, and the stop barrier was satisfied 7 to 9 s later still (`phases_eks.py`: stopped at +40.1 to +42.2 s); in the treated cases the barrier followed the survivor's end by about 3 s.
   `full`'s and `retarget`'s rank-kill stops were the same size, 38 and 39 s, which suggests the same composition; neither run recorded the survivor's end, so it is not shown for them.
+
+## Who established what
+
+- The figures above are the committed scorer's and `h2_corelimit.py`'s, run from the clean checkout of `41c4fe54`; the tables are copied from their output.
+- gpt-6-astra, asked to re-derive them from the raw files without running either script, reached every `d`, survivor end, deletion request, recovery and arm summary above, and H2 SUPPORTED; it found no number in the archive to disagree with.
+- It pointed out the treated survivors' `Aborted (core dumped)` lines; the reading of them above is from the kernel source, checked in this session, not from it.
 
 ## Cost
 
