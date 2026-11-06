@@ -65,16 +65,22 @@ def limit_stops_dump(pattern: str) -> bool:
     return "systemd-coredump" in pattern and "%c" in pattern.split()
 
 
-def watched_pods(case_dir: pathlib.Path) -> list[dict]:
-    """Every Pod object the collector's watch recorded, in the order it arrived.
+def watched_pods(case_dir: pathlib.Path) -> list[tuple[int, dict]]:
+    """Every Pod object the collector's watch recorded, in the order it arrived, each with the number of the watch that
+    delivered it: 1 for the first, counted by the collector's WATCH-OPENED marks, and 0 in a file that has none.
+
+    Each watch lists afresh, so a change that fell between two watches is not in the file; only two objects of one
+    watch are known to have no change between them unseen.
 
     The file is kubectl's watch events as concatenated JSON objects; one cut short when the watch was stopped or reopened
     is skipped to the next object kubectl began on a line of its own.
+    An archive commits it xz-compressed, as it does the timelines, so its .xz is read when the plain file is absent; a
+    damaged one raises ValueError.
     """
-    path = case_dir / "pod-watch.json"
-    if not path.exists():
+    text = score_eks.jsonl_text(case_dir / "pod-watch.json")
+    if text is None:
         return []
-    text, decoder, i, pods = path.read_text(errors="replace"), json.JSONDecoder(), 0, []
+    decoder, i, pods, watch = json.JSONDecoder(), 0, [], 0
     while True:
         while i < len(text) and text[i].isspace():
             i += 1
@@ -87,8 +93,10 @@ def watched_pods(case_dir: pathlib.Path) -> list[dict]:
             if i < 0:
                 return pods
             continue
-        if isinstance(event, dict) and isinstance(event.get("object"), dict):
-            pods.append(event["object"])
+        if isinstance(event, dict) and event.get("type") == "WATCH-OPENED":
+            watch += 1
+        elif isinstance(event, dict) and isinstance(event.get("object"), dict):
+            pods.append((watch, event["object"]))
 
 
 def survivor_end(case_dir: pathlib.Path, fault: float) -> dict:
@@ -98,7 +106,7 @@ def survivor_end(case_dir: pathlib.Path, fault: float) -> dict:
     The stream records read the container only when a log stream ended, and a Pod deleted before that read left none
     (kind run f's rank-kill-1), so the Pod watch's last terminated state stands in for it.
     deletionTimestamp is the request plus the grace the API server gave; the first object carrying it is the request's,
-    because a later deletion with a shorter grace moves it.
+    because a later deletion with a shorter grace moves it, and only if the same watch delivered the Pod before it.
     With no terminal state recorded the mechanism is said to be unread rather than left to an absent field
     (gpt-6-astra's attack before the corelimit run).
     """
@@ -113,9 +121,14 @@ def survivor_end(case_dir: pathlib.Path, fault: float) -> dict:
             last = s
     end = {k: last.get(k) for k in ("container", "exit_code", "reason")}
     finished = last.get("finished_at") if last.get("container") == "terminated" else None
-    watched = [p for p in watched_pods(case_dir) if (p.get("metadata") or {}).get("uid") == survivors[0]]
+    # A watch that cannot be read is said so, beside an end the streams may still give; it is not the case's evidence.
+    try:
+        watched = [(w, p) for w, p in watched_pods(case_dir) if (p.get("metadata") or {}).get("uid") == survivors[0]]
+    except ValueError as exc:
+        watched = []
+        end["pod_watch"] = f"unreadable: {str(exc)[:120]}"
     if finished is None:
-        for pod in reversed(watched):
+        for _, pod in reversed(watched):
             state = (((pod.get("status") or {}).get("containerStatuses") or [{}])[0].get("state") or {}).get("terminated")
             if state:
                 end.update(container="terminated", exit_code=state.get("exitCode"), reason=state.get("reason"), read_from="pod watch")
@@ -125,13 +138,19 @@ def survivor_end(case_dir: pathlib.Path, fault: float) -> dict:
         end["finished_after_fault_s"] = round(score_eks.epoch(finished) - fault, 1)
     else:
         end["unread"] = "no terminal state of the surviving rank was recorded, so how it ended is not shown"
-    for pod in watched:
-        meta = pod.get("metadata") or {}
-        if meta.get("deletionTimestamp") and meta.get("deletionGracePeriodSeconds") is not None:
+    # The request is read only where one watch saw the Pod both before its deletion and at it: the first deletion a later
+    # watch lists may carry a grace already shortened, a stamp that is not the request's (gpt-6-astra's second attack).
+    first = next(((k, w, p) for k, (w, p) in enumerate(watched) if (p.get("metadata") or {}).get("deletionTimestamp")), None)
+    if first is not None:
+        k, w, pod = first
+        meta = pod["metadata"]
+        seen_before = any(ow == w for ow, _ in watched[:k])
+        if w > 0 and seen_before and meta.get("deletionGracePeriodSeconds") is not None:
             asked = score_eks.epoch(meta["deletionTimestamp"]) - meta["deletionGracePeriodSeconds"]
             end["deletion_asked_after_fault_s"] = round(asked - fault, 1)
             end["deletion_grace_s"] = meta["deletionGracePeriodSeconds"]
-            break
+        else:
+            end["deletion_asked"] = "not shown: no one watch saw the Pod before and at its deletion"
     return end
 
 

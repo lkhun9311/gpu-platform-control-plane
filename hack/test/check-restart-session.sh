@@ -988,7 +988,7 @@ else
 fi
 # The Pod watch is recorded apart from the streams, so a Pod deleted before its stream's end still leaves its status
 # (gpt-6-astra's attack before the corelimit run).
-if grep -qF '"deletionGracePeriodSeconds": 30' "$work/out/pod-ended/pod-watch.json"; then
+if grep -qF '"deletionGracePeriodSeconds": 30' "$work/out/pod-ended/pod-watch.json" && grep -q '^{"type": "WATCH-OPENED", "at": "' "$work/out/pod-ended/pod-watch.json"; then
   ok "the collector records the Pods' watch events beside their streams"
 else
   bad "the Pod watch was not recorded: $(head -c 200 "$work/out/pod-ended/pod-watch.json" 2>&1)"
@@ -1934,6 +1934,7 @@ events = [event("MODIFIED", stamp(32), 30, {"running": {}}),
           event("MODIFIED", stamp(32), 30, {"terminated": {"exitCode": 134, "reason": "Error", "finishedAt": stamp(41)}}),
           event("DELETED", stamp(42), 0, {"terminated": {"exitCode": 134, "reason": "Error", "finishedAt": stamp(41)}})]
 with open(case_dir / "pod-watch.json", "w") as f:
+    f.write('{"type": "WATCH-OPENED", "at": "t"}\n')
     for e in events:
         f.write(json.dumps(e, indent=4) + "\n")
     f.write('{\n    "type": "MODIFIED",\n    "object": {\n        "metad')
@@ -1946,6 +1947,41 @@ if [[ "$end" == *"\"deletion_asked_after_fault_s\": $want_asked,"* && "$end" == 
   ok "a survivor deleted before its stream ended is read from the Pod watch, with its deletion request and grace"
 else
   bad "the survivor from the Pod watch: $end"
+fi
+# An archive commits the watch xz-compressed, and a reader of only the plain name would lose the survivor's end from the
+# committed copy, as the scorer once lost every termination case to its compressed timelines.
+xz "$h2run/rank-kill-5/pod-watch.json"
+packed_end="$(python3 "$h2" "$h2run" 2>&1 | grep '^rank-kill-5 ' | python3 -c 'import json, sys; l = sys.stdin.read(); print(json.dumps(json.loads(l[l.index("{"):])["survivor_end"], sort_keys=True))' 2>&1)"
+if [[ -n "$end" && "$packed_end" == "$end" ]]; then ok "the Pod watch is read the same from its .xz"; else bad "the Pod watch from its .xz: $packed_end"; fi
+printf 'not xz' >"$h2run/rank-kill-5/pod-watch.json.xz"
+out="$(python3 "$h2" "$h2run" 2>&1)"
+if grep -q '^rank-kill-5 .*"pod_watch": "unreadable: pod-watch.json.xz could not be decompressed' <<<"$out" && grep -q '^H2 ' <<<"$out"; then
+  ok "a damaged Pod watch is reported unreadable, and the evaluation goes on"
+else
+  bad "the damaged Pod watch: $(grep '^rank-kill-5 \|^H2\|Traceback' <<<"$out" | cut -c1-200)"
+fi
+# A watch reopened after the deletion lists the Pod with a grace already shortened, so its stamp is not the request's:
+# the request is read only where one watch saw the Pod before and at its deletion (gpt-6-astra's second attack).
+python3 - "$h2run/rank-kill-5" <<'EOF'
+import json, pathlib, sys
+case_dir = pathlib.Path(sys.argv[1])
+(case_dir / "pod-watch.json.xz").unlink()
+pods = [json.loads(l) for l in open(case_dir / "pods.jsonl")]
+uid = [p["uid"] for p in pods if p["attempt_token"] == "1" and p["index"] == "0"][0]
+running = {"type": "ADDED", "object": {"metadata": {"uid": uid}, "status": {"containerStatuses": [{"state": {"running": {}}}]}}}
+ended = {"terminated": {"exitCode": 134, "reason": "Error", "finishedAt": "2026-11-05T16:13:39Z"}}
+deleted = {"type": "DELETED", "object": {"metadata": {"uid": uid, "deletionTimestamp": "2026-11-05T16:13:40Z", "deletionGracePeriodSeconds": 0},
+                                         "status": {"containerStatuses": [{"state": ended}]}}}
+with open(case_dir / "pod-watch.json", "w") as f:
+    for e in ({"type": "WATCH-OPENED", "at": "t"}, running, {"type": "WATCH-OPENED", "at": "t"}, deleted):
+        f.write(json.dumps(e, indent=4) + "\n")
+EOF
+out="$(python3 "$h2" "$h2run" 2>&1)"
+if grep -q '^rank-kill-5 .*"deletion_asked": "not shown: no one watch saw the Pod before and at its deletion"' <<<"$out" &&
+  ! grep -q '^rank-kill-5 .*deletion_asked_after_fault_s' <<<"$out" && grep -q '^rank-kill-5 .*"exit_code": 134' <<<"$out"; then
+  ok "a deletion first seen by a reopened watch gives no request time, and the end is still read"
+else
+  bad "the reopened watch: $(grep '^rank-kill-5 ' <<<"$out" | grep -o '"survivor_end": {[^}]*}')"
 fi
 # A case whose case.json names the other arm, or whose treated ranks logged the node's limit, is not counted.
 python3 -c 'import json, sys; p = sys.argv[1]; c = json.load(open(p)); c["core_limit"] = "inherited"; json.dump(c, open(p, "w"))' "$h2run/rank-kill-2/case.json"

@@ -1429,9 +1429,13 @@ restart_collect() {
   # A watch also carries deletionGracePeriodSeconds, without which deletionTimestamp, the request plus the grace, reads
   # as the request.
   # The watch is opened again when the API server ends it, with no request timeout, as the follows are.
+  # A new watch lists afresh and nothing carries over, so each one is marked where it begins: a change between two
+  # watches is lost, and h2_corelimit.py reads a deletion request only where one watch saw the Pod before and after it
+  # (gpt-6-astra's second attack before the corelimit run).
   (
     trap 'set -- $(jobs -pr); (($# == 0)) || kill "$@" 2>>"$dir/collector.log"; exit 0' TERM
     while :; do
+      printf '{"type": "WATCH-OPENED", "at": "%s"}\n' "$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)" >>"$dir/pod-watch.json"
       kubectl --context "$RESTART_CONTEXT" -n "$RESTART_NS" get pods -l "platform.lkhun9311.github.io/mltrainingjob=$name" \
         --watch --output-watch-events -o json >>"$dir/pod-watch.json" 2>>"$dir/collector.log" &
       wait $!
