@@ -420,6 +420,9 @@ answer kubectl-get-mltrainingjob "$(mltj Running 2026-10-22T01:00:00Z 2026-10-22
 expect "still running at the deadline" 1 "did not succeed: phase Running" -- train_qualification_released ctx train-a q 0
 
 # --- the scale-down, followed by instance --------------------------------------------------------------------------
+# UpdateNodegroupConfig's answer to an accepted request, in the shape of the API's documented response (not captured
+# from AWS); the scale-down follows its update.id with describe-update.
+UPDATE_ACCEPTED='{"update": {"id": "0b1c2d3e-4f50-6172-8394-a5b6c7d8e9f0", "status": "InProgress", "type": "ConfigUpdate"}}'
 # group_holds IDS: the gpu group's Auto Scaling group, holding IDS (none when empty).
 group_holds() {
   answer aws-eks-describe-nodegroup "eks-gpu-asg"
@@ -427,7 +430,8 @@ group_holds() {
 }
 scenario
 printf 'i-0aaa\ni-0bbb\n' >"$STUB/ids"
-answer aws-eks-update-nodegroup-config "{}"
+answer aws-eks-update-nodegroup-config "$UPDATE_ACCEPTED"
+answer aws-eks-describe-update Successful
 group_holds ""
 answer aws-ec2-describe-instances.1 "$(printf 'i-0aaa\tshutting-down\ni-0bbb\trunning')"
 answer aws-ec2-describe-instances "$(printf 'i-0aaa\tterminated\ni-0bbb\tterminated')"
@@ -442,7 +446,8 @@ grep -q -- "--instance-ids i-0aaa i-0bbb" "$STUB/calls.log" && ok "both recorded
 grep -q -- "describe-nodegroup .*--nodegroup-name gpu --query nodegroup.resources.autoScalingGroups" "$STUB/calls.log" && ok "the gpu group's Auto Scaling group is read" || bad "the group's Auto Scaling group was not read: $(grep describe-nodegroup "$STUB/calls.log")"
 scenario
 printf 'i-0aaa\ni-0bbb\n' >"$STUB/ids"
-answer aws-eks-update-nodegroup-config "{}"
+answer aws-eks-update-nodegroup-config "$UPDATE_ACCEPTED"
+answer aws-eks-describe-update Successful
 group_holds ""
 answer aws-ec2-describe-instances "$(printf 'i-0aaa\tterminated\ni-0bbb\trunning')"
 expect "one instance still running at the deadline" 1 "i-0bbb(running)" -- train_scale_down gpu-platform ap-northeast-2 gpu "$STUB/ids" 0
@@ -455,7 +460,8 @@ expect "a scale-down refused six times" 1 "refused six times" -- train_scale_dow
 [[ "$(grep -c update-nodegroup-config "$STUB/calls.log")" == 6 ]] && ok "the scale-down is tried six times" || bad "the scale-down was not tried six times"
 scenario
 printf 'i-0aaa\ni-0bbb\n' >"$STUB/ids"
-answer aws-eks-update-nodegroup-config "{}"
+answer aws-eks-update-nodegroup-config "$UPDATE_ACCEPTED"
+answer aws-eks-describe-update Successful
 group_holds ""
 # A terminated instance ages out of the API, and asking for it by ID then fails the whole batch.
 answer aws-ec2-describe-instances.1 "An error occurred (InvalidInstanceID.NotFound) when calling the DescribeInstances operation: The instance ID 'i-0aaa' does not exist" 254
@@ -464,14 +470,48 @@ expect "an instance that aged out is gone, and the other is still followed" 0 "t
 [[ "$(grep describe-instances "$STUB/calls.log" | tail -1)" == *"--instance-ids i-0bbb --"* ]] && ok "the aged-out ID is dropped and the other asked again" || bad "the retry did not ask for i-0bbb alone: $(grep describe-instances "$STUB/calls.log" | tail -1)"
 scenario
 printf 'i-0aaa\n' >"$STUB/ids"
-answer aws-eks-update-nodegroup-config "{}"
+answer aws-eks-update-nodegroup-config "$UPDATE_ACCEPTED"
+answer aws-eks-describe-update Successful
 group_holds ""
 answer aws-ec2-describe-instances ""
 expect "an empty answer is not an instance without a state" 0 "terminated" -- train_scale_down gpu-platform ap-northeast-2 gpu "$STUB/ids" 0
+# Instances gone and a group listing none do not end the scale-down while its update has not succeeded: EKS applies it
+# asynchronously, and one that fails leaves the group launching (gpt-6-astra's review of 116092ef, r5 finding 5).
+scenario
+printf 'i-0aaa\n' >"$STUB/ids"
+answer aws-eks-update-nodegroup-config "$UPDATE_ACCEPTED"
+answer aws-eks-describe-update InProgress
+group_holds ""
+answer aws-ec2-describe-instances "$(printf 'i-0aaa\tterminated')"
+expect "an update still in progress at the deadline" 1 "update 0b1c2d3e-4f50-6172-8394-a5b6c7d8e9f0 is InProgress, not Successful" -- train_scale_down gpu-platform ap-northeast-2 gpu "$STUB/ids" 0
+grep -q -- "describe-update --region ap-northeast-2 --name gpu-platform --nodegroup-name gpu --update-id 0b1c2d3e-4f50-6172-8394-a5b6c7d8e9f0" "$STUB/calls.log" &&
+  ok "the update is followed by its own id" || bad "the update was not followed by its id: $(grep describe-update "$STUB/calls.log" | head -1)"
+scenario
+printf 'i-0aaa\n' >"$STUB/ids"
+answer aws-eks-update-nodegroup-config "$UPDATE_ACCEPTED"
+answer aws-eks-describe-update.1 InProgress
+answer aws-eks-describe-update Successful
+group_holds ""
+answer aws-ec2-describe-instances "$(printf 'i-0aaa\tterminated')"
+expect "an update that succeeds on a later poll" 0 "i-0aaa terminated" -- train_scale_down gpu-platform ap-northeast-2 gpu "$STUB/ids" 5
+scenario
+printf 'i-0aaa\n' >"$STUB/ids"
+answer aws-eks-update-nodegroup-config "$UPDATE_ACCEPTED"
+answer aws-eks-describe-update Failed
+group_holds ""
+answer aws-ec2-describe-instances "$(printf 'i-0aaa\tterminated')"
+expect "an update that failed" 1 "ended Failed, so the group may still launch nodes" -- train_scale_down gpu-platform ap-northeast-2 gpu "$STUB/ids" 5
+scenario
+printf 'i-0aaa\n' >"$STUB/ids"
+answer aws-eks-update-nodegroup-config "{}"
+group_holds ""
+answer aws-ec2-describe-instances "$(printf 'i-0aaa\tterminated')"
+expect "an accepted request whose update id cannot be read" 1 "(its id unreadable in: {}) is not followed, not Successful" -- train_scale_down gpu-platform ap-northeast-2 gpu "$STUB/ids" 0
 scenario
 # A launch that never became a qualified node is in no record but the group's.
 printf 'i-0aaa\n' >"$STUB/ids"
-answer aws-eks-update-nodegroup-config "{}"
+answer aws-eks-update-nodegroup-config "$UPDATE_ACCEPTED"
+answer aws-eks-describe-update Successful
 answer aws-eks-describe-nodegroup "eks-gpu-asg"
 answer aws-autoscaling-describe-auto-scaling-groups.1 "$(printf 'i-0aaa\ti-0ccc')"
 answer aws-autoscaling-describe-auto-scaling-groups ""
@@ -482,7 +522,8 @@ grep -qx i-0ccc "$STUB/ids" && ok "the group's instance is added to the record" 
 scenario
 # The scale-down can take an instance out of the group's listing before the first poll reads it.
 printf 'i-0aaa\n' >"$STUB/ids"
-answer aws-eks-update-nodegroup-config "{}"
+answer aws-eks-update-nodegroup-config "$UPDATE_ACCEPTED"
+answer aws-eks-describe-update Successful
 answer aws-eks-describe-nodegroup "eks-gpu-asg"
 answer aws-autoscaling-describe-auto-scaling-groups.1 "i-0ccc"
 answer aws-autoscaling-describe-auto-scaling-groups ""
@@ -493,30 +534,35 @@ first_two="$(grep -E 'describe-auto-scaling-groups|update-nodegroup-config' "$ST
 [[ "$first_two" == "describe-auto-scaling-groups update-nodegroup-config" ]] && ok "the group is read before the scale-down is asked for" || bad "the order was: $first_two"
 scenario
 printf 'i-0aaa\n' >"$STUB/ids"
-answer aws-eks-update-nodegroup-config "{}"
+answer aws-eks-update-nodegroup-config "$UPDATE_ACCEPTED"
+answer aws-eks-describe-update Successful
 group_holds "i-0ddd"
 answer aws-ec2-describe-instances "$(printf 'i-0aaa\tterminated\ni-0ddd\tterminated')"
 expect "the group still lists an instance at the deadline" 1 "the group still holds i-0ddd" -- train_scale_down gpu-platform ap-northeast-2 gpu "$STUB/ids" 0
 scenario
 printf 'i-0aaa\n' >"$STUB/ids"
-answer aws-eks-update-nodegroup-config "{}"
+answer aws-eks-update-nodegroup-config "$UPDATE_ACCEPTED"
+answer aws-eks-describe-update Successful
 answer aws-eks-describe-nodegroup "An error occurred (ExpiredTokenException)" 254
 answer aws-ec2-describe-instances "$(printf 'i-0aaa\tterminated')"
 expect "an unreadable group is not an empty one" 1 "could not read the node group" -- train_scale_down gpu-platform ap-northeast-2 gpu "$STUB/ids" 0
 scenario
 printf 'i-0aaa\n' >"$STUB/ids"
-answer aws-eks-update-nodegroup-config "{}"
+answer aws-eks-update-nodegroup-config "$UPDATE_ACCEPTED"
+answer aws-eks-describe-update Successful
 answer aws-eks-describe-nodegroup "eks-gpu-asg"
 answer aws-autoscaling-describe-auto-scaling-groups "An error occurred (Throttling)" 254
 answer aws-ec2-describe-instances "$(printf 'i-0aaa\tterminated')"
 expect "an unreadable Auto Scaling group" 1 "could not read the Auto Scaling group" -- train_scale_down gpu-platform ap-northeast-2 gpu "$STUB/ids" 0
 scenario
 : >"$STUB/ids"
-answer aws-eks-update-nodegroup-config "{}"
+answer aws-eks-update-nodegroup-config "$UPDATE_ACCEPTED"
+answer aws-eks-describe-update Successful
 group_holds ""
 expect "no instance recorded and none in the group" 1 "no instance IDs recorded" -- train_scale_down gpu-platform ap-northeast-2 gpu "$STUB/ids" 0
 scenario
-answer aws-eks-update-nodegroup-config "{}"
+answer aws-eks-update-nodegroup-config "$UPDATE_ACCEPTED"
+answer aws-eks-describe-update Successful
 expect "a missing instance record" 1 "is missing" -- train_scale_down gpu-platform ap-northeast-2 gpu "$STUB/nope" 0
 
 if [[ $fails -ne 0 ]]; then
