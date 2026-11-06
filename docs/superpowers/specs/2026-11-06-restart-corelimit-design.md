@@ -150,9 +150,18 @@ A second round of the same review, of `cb98ae98`, found 1 to 6 fixed except that
 | 10 | a hung foreground `terraform` holding the state lock would make the watchdog's three ten-minute lock waits fail, leaving the cluster's non-GPU resources billing | the foreground destroy has no overall bound; the state lock is `use_lockfile`; the watchdog does not take over a held lock | not changed before this run (below) |
 
 Finding 10 was in every paid session of this apparatus, `retarget`'s included; this stage does not add to it.
-What it leaves billing is bounded apart from it: the GPU group's scale-down is a one-shot EventBridge Scheduler schedule created by `hack/lib/gpu-ttl.sh`, not by Terraform, and the bootstrap's study sweeper terminates instances past their deadline tag every five minutes, so a stuck lock leaves the control plane, the CPU node, the NAT and EFS, about $0.26 an hour (the cost table's "the rest").
-For this run it is covered by the operator, who watches the teardown, confirms nothing is left in the region, and on a stuck lock stops the foreground `terraform` and releases the lock by hand before the watchdog's destroy.
+The GPU group's scale-down is a one-shot EventBridge Scheduler schedule created by `hack/lib/gpu-ttl.sh`, not by Terraform, so a stuck lock does not stop that request; but the schedule only asks EKS to scale the group to zero and does not check that it did, and the study sweeper does not cover these instances, which carry no `study-deadline` tag.
+So with the request completed, a stuck lock leaves the control plane, the CPU node, the NAT and EFS, about $0.26 an hour (the cost table's "the rest"); with it failed, the GPUs as well.
+For this run it is covered by the operator, who watches the teardown, confirms that no instance, GPU or other, is left in the region, and on a stuck lock stops the foreground `terraform`, releases the lock by hand, scales the GPU group to zero itself if any GPU instance remains, and lets the destroy finish.
 Bounding the foreground operations and handing a held lock to the watchdog safely is a change to the kill switch, left to its own review.
+
+A third round, of `377bd054`, found 8 and 9 sound and 7 incomplete, did not raise 10 again, and returned NO-GO with three more:
+
+| # | finding | checked | change |
+|---|---|---|---|
+| 11 | the watchdog counted its 40-minute destroy allowance on bash's `SECONDS`, which follows the wall clock: a step back lets a destroy run past the 40 minutes the credential covers, a step forward ends it early | `until=$((SECONDS + DESTROY_SECONDS))` in `killswitch_program`, which the phase supervisor's own comment rules out for deadlines | the allowance, each attempt's cut and the retry pause are counted on `/proc/uptime`, CLOCK_BOOTTIME, as the phase supervisor's are |
+| 12 | a watch cut mid-object could leave a fragment that swallowed the next watch's mark, so two watches read as one and a later deletion as the request | the mark was appended with no newline before it, and the reader skipped to the next line-initial object | the mark begins on a line of its own, and any text the reader skips as damaged ends a watch |
+| 13 | the paragraph above credited the study sweeper with the GPUs, which it does not cover, and took the scheduled scale-down for done when it is only a request | `sweeper.py` selects `study-deadline`, which nothing here tags | the paragraph above now says so, and the operator checks the GPU instances too |
 
 ## What this does not show
 
