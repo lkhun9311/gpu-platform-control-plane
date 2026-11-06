@@ -434,6 +434,37 @@ func TestJudgeRefusals(t *testing.T) {
 	}
 }
 
+// P5 is "held" only when some valid repetition injected and read allocatable on both sides (astra review r3, finding 7).
+func TestP5NeedsAnObservation(t *testing.T) {
+	// No repetition at all, as in run 1: nothing was observed, so nothing held.
+	if r := Judge(nil, nil); !strings.HasPrefix(r.P5, "NOT-OBSERVED") {
+		t.Fatalf("no repetitions: p5 %q", r.P5)
+	}
+	r, err := ScoreSession(session(t, allRun, nil))
+	if err != nil || r.P5 != "held" {
+		t.Fatalf("all read: p5 %q err %v", r.P5, err)
+	}
+	// Every injecting repetition lost both readings: two empty strings are equal, and that is not an unchanged allocatable.
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "smoke.env"), []byte(allRun), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for i, arm := range Arms {
+		for rep := 1; rep <= 5; rep++ {
+			f := faultFixture(arm)
+			f.env["rep"] = fmt.Sprint(rep)
+			if arm != "none" {
+				f.env["alloc_before"], f.env["alloc_after"] = "", ""
+			}
+			f.write(t, filepath.Join(dir, "reps", fmt.Sprintf("%02d-%s", i*5+rep, arm)))
+		}
+	}
+	r, err = ScoreSession(dir)
+	if err != nil || !strings.HasPrefix(r.P5, "NOT-OBSERVED") {
+		t.Fatalf("injecting repetitions unread, only the control read: p5 %q err %v", r.P5, err)
+	}
+}
+
 func TestStaleChecks(t *testing.T) {
 	write := func(t *testing.T, dir, name, body string) {
 		t.Helper()
