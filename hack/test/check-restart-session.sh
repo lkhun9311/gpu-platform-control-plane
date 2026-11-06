@@ -1213,6 +1213,21 @@ else
   bad "the unretired case: missing${missing:- nothing}; no-rng-control: $(cat "$work/out/run-retire/no-rng-control/NOTRUN" 2>&1)"
 fi
 
+# A case worker killed by a signal never reached its retirement, so it is VOID and nothing more starts, whatever the
+# scorer would have said (gpt-6-astra review of 116092ef: a 137 or 143 used to be scored, and one VOID let the next case run).
+for sig in KILL TERM; do
+  mkdir -p "$work/rules/killed-$sig"
+  out="$(lib "killed-$sig" "REAL_CASE=none; $RUNNER_PRELUDE"$'\n'"restart_run_case() { [[ \"\$1\" != no-rng-control ]] || kill -$sig \$BASHPID; return 0; }
+restart_run \"\$RESTART_OUT/warmed.txt\"; echo \"rc=\$?\"" 2>&1)"
+  if [[ "$(cat "$work/out/killed-$sig/no-rng-control/VOID" 2>&1)" == *"worker ended with status"*"retirement unconfirmed"* &&
+    "$(cat "$work/out/killed-$sig/dcgm-1/NOTRUN" 2>&1)" == "no-rng-control's worker ended with status"* &&
+    "$out" == *"no-rng-control: VOID"* ]]; then
+    ok "a case worker killed by SIG$sig is VOID and stops every later case"
+  else
+    bad "the case worker killed by SIG$sig: VOID '$(cat "$work/out/killed-$sig/no-rng-control/VOID" 2>&1)', dcgm-1 '$(cat "$work/out/killed-$sig/dcgm-1/NOTRUN" 2>&1)'; $(tail -6 <<<"$out")"
+  fi
+done
+
 # An unretired case's NCCL logs are still copied, read-only, as its listing is: on the kind rehearsal they were not, and
 # score_eks.py voided a case that had recovered for "no NCCL log", which said the transport was unknown when it was
 # only left on the volume.

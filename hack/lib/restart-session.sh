@@ -2009,6 +2009,14 @@ restart_run() {
       echo "the case's phase ended with status $rc before the case did; its evidence is incomplete and its retirement unconfirmed" >>"$RESTART_OUT/$case/VOID"
       stop="$case did not finish inside its slot, so its job may still hold GPUs; see $RESTART_OUT/$case/case.log"
       verdict=VOID
+    elif ((rc != 0 && rc != 1 && rc != 2)); then
+      # restart_run_case returns only 0, 1 and 2; any other status is a worker killed by a signal or ended by something
+      # it did not choose, which never reached its retirement, so its job may still run and hold GPUs and nothing more
+      # starts (gpt-6-astra review of 116092ef: 137 and 143 used to reach the scorer like a finished case).
+      mkdir -p "$RESTART_OUT/$case"
+      echo "the case's worker ended with status $rc, which it never returns itself; its evidence is incomplete and its retirement unconfirmed" >>"$RESTART_OUT/$case/VOID"
+      stop="$case's worker ended with status $rc before retiring its job, so its job may still hold GPUs; see $RESTART_OUT/$case/case.log"
+      verdict=VOID
     else
       # Its own call's share, as before the phase: a case may end at its slot's end and still be scored.
       verdict="$(paid_phase "verdict-$case" $(($(phase_mono) + RESTART_VERDICT_CALL + 5)) restart_verdict "$case")" || verdict=""
