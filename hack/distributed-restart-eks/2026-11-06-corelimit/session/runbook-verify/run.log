@@ -1,0 +1,6 @@
+2026-11-06T10:03:03.649681911Z  context: gpu-platform
+2026-11-06T10:03:04.58275052Z  probing gateway-786997dc9b-mjkvm through a port-forward (the image is distroless, so exec cannot help)
+2026-11-06T10:03:04.584726615Z     forwarding 127.0.0.1:43481 -> 8080 and 127.0.0.1:33109 -> 8081
+2026-11-06T10:03:05.50409779Z     readyz=200  bad-key request=401  real-key request=403
+   ok   a bad key is refused with 401
+   ok   a key from the Secret is accepted and refused by tenant policy (403): authentication reached the key store. Not proof of serving

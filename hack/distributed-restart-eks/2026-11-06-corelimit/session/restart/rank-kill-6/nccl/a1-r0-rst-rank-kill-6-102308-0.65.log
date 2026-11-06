@@ -1,0 +1,903 @@
+rst-rank-kill-6-102308-0:65:65 [0] NCCL INFO Bootstrap : Using eth0:10.0.63.136<0>
+rst-rank-kill-6-102308-0:65:65 [0] NCCL INFO NET/Plugin: No plugin found (libnccl-net.so)
+rst-rank-kill-6-102308-0:65:65 [0] NCCL INFO NET/Plugin: Using internal network plugin.
+rst-rank-kill-6-102308-0:65:65 [0] NCCL INFO cudaDriverVersion 13000
+rst-rank-kill-6-102308-0:65:65 [0] NCCL INFO NCCL version 2.21.5+cuda12.4
+rst-rank-kill-6-102308-0:65:75 [0] NCCL INFO Failed to open libibverbs.so[.1]
+rst-rank-kill-6-102308-0:65:75 [0] NCCL INFO NET/Socket : Using [0]eth0:10.0.63.136<0>
+rst-rank-kill-6-102308-0:65:75 [0] NCCL INFO Using non-device net plugin version 0
+rst-rank-kill-6-102308-0:65:75 [0] NCCL INFO Using network Socket
+rst-rank-kill-6-102308-0:65:75 [0] NCCL INFO ncclCommInitRank comm 0x55effce2e6d0 rank 0 nranks 2 cudaDev 0 nvmlDev 0 busId 1e0 commId 0xb8ab53aca4887a02 - Init START
+rst-rank-kill-6-102308-0:65:75 [0] NCCL INFO NET/Socket : GPU Direct RDMA Disabled for HCA 0 'eth0'
+rst-rank-kill-6-102308-0:65:75 [0] NCCL INFO comm 0x55effce2e6d0 rank 0 nRanks 2 nNodes 2 localRanks 1 localRank 0 MNNVL 0
+rst-rank-kill-6-102308-0:65:75 [0] NCCL INFO Channel 00/02 :    0   1
+rst-rank-kill-6-102308-0:65:75 [0] NCCL INFO Channel 01/02 :    0   1
+rst-rank-kill-6-102308-0:65:75 [0] NCCL INFO Trees [0] 1/-1/-1->0->-1 [1] -1/-1/-1->0->1
+rst-rank-kill-6-102308-0:65:75 [0] NCCL INFO P2P Chunksize set to 131072
+rst-rank-kill-6-102308-0:65:76 [0] NCCL INFO New proxy recv connection 0 from local rank 0, transport 2
+rst-rank-kill-6-102308-0:65:75 [0] NCCL INFO Connected to proxy localRank 0 -> connection 0x7f129c004f50
+rst-rank-kill-6-102308-0:65:75 [0] NCCL INFO Channel 00/0 : 1[0] -> 0[0] [receive] via NET/Socket/0
+rst-rank-kill-6-102308-0:65:76 [0] NCCL INFO New proxy recv connection 1 from local rank 0, transport 2
+rst-rank-kill-6-102308-0:65:75 [0] NCCL INFO Connected to proxy localRank 0 -> connection 0x7f129c004fc8
+rst-rank-kill-6-102308-0:65:75 [0] NCCL INFO Channel 01/0 : 1[0] -> 0[0] [receive] via NET/Socket/0
+rst-rank-kill-6-102308-0:65:76 [0] NCCL INFO New proxy send connection 2 from local rank 0, transport 2
+rst-rank-kill-6-102308-0:65:75 [0] NCCL INFO Connected to proxy localRank 0 -> connection 0x7f129c005040
+rst-rank-kill-6-102308-0:65:75 [0] NCCL INFO Channel 00/0 : 0[0] -> 1[0] [send] via NET/Socket/0
+rst-rank-kill-6-102308-0:65:76 [0] NCCL INFO New proxy send connection 3 from local rank 0, transport 2
+rst-rank-kill-6-102308-0:65:75 [0] NCCL INFO Connected to proxy localRank 0 -> connection 0x7f129c0050b8
+rst-rank-kill-6-102308-0:65:75 [0] NCCL INFO Channel 01/0 : 0[0] -> 1[0] [send] via NET/Socket/0
+rst-rank-kill-6-102308-0:65:75 [0] NCCL INFO Connected all rings
+rst-rank-kill-6-102308-0:65:75 [0] NCCL INFO Connected all trees
+rst-rank-kill-6-102308-0:65:75 [0] NCCL INFO threadThresholds 8/8/64 | 16/8/64 | 512 | 512
+rst-rank-kill-6-102308-0:65:75 [0] NCCL INFO 2 coll channels, 2 collnet channels, 0 nvls channels, 2 p2p channels, 2 p2p channels per peer
+rst-rank-kill-6-102308-0:65:76 [0] NCCL INFO New proxy send connection 4 from local rank 0, transport 2
+rst-rank-kill-6-102308-0:65:75 [0] NCCL INFO Connected to proxy localRank 0 -> connection 0x7f129c005130
+rst-rank-kill-6-102308-0:65:75 [0] NCCL INFO ncclCommInitRank comm 0x55effce2e6d0 rank 0 nranks 2 cudaDev 0 nvmlDev 0 busId 1e0 commId 0xb8ab53aca4887a02 - Init COMPLETE
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]
+
+rst-rank-kill-6-102308-0:65:78 [0] misc/socket.cc:50 NCCL WARN socketProgress: Connection closed by remote peer rst-rank-kill-6-102308-1.rst-rank-kill-6-102308-ddp-a1.train-a.svc.cluster.local<57950>
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO misc/socket.cc:752 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net_socket.cc:474 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO transport/net.cc:1302 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:698 -> 6
+rst-rank-kill-6-102308-0:65:78 [0] NCCL INFO proxy.cc:878 -> 6 [Progress Thread]

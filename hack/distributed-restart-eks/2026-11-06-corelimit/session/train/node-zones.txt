@@ -1,0 +1,3 @@
+ip-10-0-48-40.ap-northeast-2.compute.internal ap-northeast-2a
+ip-10-0-61-188.ap-northeast-2.compute.internal ap-northeast-2a
+ip-10-0-63-61.ap-northeast-2.compute.internal ap-northeast-2a
