@@ -5,7 +5,8 @@ The driver, the substitutions and what ran unmodified are as in `hack/restart-li
 The earlier rehearsals of this stage are `hack/restart-lifecycle-kind-20261106T013822Z` (`8aa8f43d`) and `hack/restart-lifecycle-kind-20261106T071657Z` (`cb98ae98`); one more, at `377bd054`, passed every check and was not kept, its runner having changed again before it could be the launch runner.
 
 The run is from commit `17c56105` on `fix/corelimit-prelaunch` with a clean tree (`provenance.txt`).
-The commits after it to the launch commit change tests and records, not the runner, `hack/eks-gitops-session.sh` or the evaluators.
+The commits after it to the launch commit change tests, records and, in `093e3f20`, the H2 evaluator, not the runner or `hack/eks-gitops-session.sh`.
+`h2-kind-shim.txt` is that evaluator's; it differs from the one at `17c56105` only by each survivor's `clocks` note.
 The trainer's sha256 is `2c5cdbf09fdb4c8149443a806396fdf73f7176ea1adb174f5fe8052cb53f572c`, the one the paid session approves.
 
 ## What it showed
