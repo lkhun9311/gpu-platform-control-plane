@@ -595,8 +595,16 @@ for p in ready:
 # that claim; prints why not.
 # Any failure of the request passed for one before, so a throttled or dropped call credited the webhook with a refusal
 # it never made (gpt-6-astra's defect review of #505); the words are internal/webhook/v1/mltrainingjob_webhook.go's.
+# The refusal arrives in either of two renderings: the API server's message, "admission webhook ... denied the request",
+# which a Go client prints, and kubectl's, which rebuilds an Invalid status from its causes as "The MLTrainingJob ... is
+# invalid: spec.stateVolume.claimName: ..." and drops the webhook's name.
+# Only the first was accepted, from an envtest's Go client, and the paid corelimit session's first launch stopped at R2 on
+# the second, the refusal it was looking for (2026-11-06).
+# "claim not found" is the webhook's own words, which no schema check or transport failure prints.
 restart_webhook_refused_claim() {
-  [[ "$1" == *"denied the request"* && "$1" == *"spec.stateVolume.claimName"* && "$1" == *"claim not found"* ]] && return 0
+  [[ "$1" == *"spec.stateVolume.claimName"* && "$1" == *"claim not found"* ]] &&
+    [[ "$1" == *"denied the request"* || "$1" == *'The MLTrainingJob "restart-gate-missing" is invalid: spec.stateVolume.claimName: Invalid value: "no-such-claim": claim not found'* ]] &&
+    return 0
   echo "a job naming a claim that does not exist failed, but not by the webhook's refusal of the claim: ${1:0:300}"
   return 1
 }
