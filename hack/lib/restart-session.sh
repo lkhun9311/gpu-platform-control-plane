@@ -1518,10 +1518,14 @@ print(row["container"], json.dumps(row))' "$uid" "$n" "$rc" "$ended" "$podj" 2>>
           # A stream that ended with its container is complete; one that ended while it runs is read again in full.
           # A read of the container that failed says neither, so the log is read again after a pause: taking it for the
           # end once stopped a Pod's records for good after one API error (codex review before the full stage).
+          # A stream that failed is not a complete log even when its container has ended: the ended container's log is
+          # still there to read, so only a stream that ended cleanly, or a Pod that is gone, ends the reading
+          # (gpt-6-astra review of 116092ef: a failed read then a terminated status once ended it for good).
           case "${row%% *}" in
             running) ;;
             unread) sleep 2 ;;
-            *) break ;;
+            gone) break ;;
+            *) ((rc != 0)) || break ;;
           esac
         done
       ) &

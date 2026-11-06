@@ -970,6 +970,28 @@ if [[ "$streams" == 3 && "$states" == "unread running gone" ]]; then
 else
   bad "the status blip: $streams stream(s) of rp0, want 3 (one before the failed read, one while running, one at the end), containers '$states': $out"
 fi
+# A stream that failed is read again even when the container has ended by then, since an ended container's log is still
+# there; one failed read once ended a terminated rank's records for good (gpt-6-astra review of 116092ef).
+mkdir -p "$work/rules/term-blip"
+cat >"$work/rules/term-blip/kubectl.sh" <<'EOF'
+case "$*" in
+  *"get pods -l platform.lkhun9311.github.io/mltrainingjob="*"-o json"*)
+    echo '{"items": [{"metadata": {"uid": "u0", "name": "rp0", "annotations": {"batch.kubernetes.io/job-completion-index": "0"}}, "spec": {"nodeName": "node-a"}, "status": {"containerStatuses": [{"state": {"terminated": {"exitCode": 1}}}]}}]}' ;;
+  *"logs -f rp0"*)
+    n=1; [ -f "$STUB_RULES/logs-n" ] && n=$(($(cat "$STUB_RULES/logs-n") + 1)); echo "$n" >"$STUB_RULES/logs-n"
+    if [ "$n" = 1 ]; then echo "error: unexpected EOF" >&2; exit 1; fi
+    echo '{"ts": "t", "event": "step", "step": 30}' ;;
+  *"get pod rp0"*) echo '{"metadata": {}, "status": {"containerStatuses": [{"state": {"terminated": {"exitCode": 1, "reason": "Error"}}}]}}' ;;
+esac
+EOF
+out="$(lib term-blip 'restart_collect "$RESTART_OUT" rst-x & c=$!; sleep 8; kill $c; wait $c; echo "rc=$?"')"
+exits="$(python3 -c 'import json, sys; print(" ".join("%s/%s" % (r["exit"], r["container"]) for r in map(json.loads, open(sys.argv[1]))))' "$work/out/term-blip/streams.jsonl" 2>&1)"
+if [[ "$exits" == "1/terminated 0/terminated" ]] && grep -q '"step": 30' "$work/out/term-blip/log-u0.2.txt"; then
+  ok "a failed stream of an ended container is read again, and a clean read of it ends the follows"
+else
+  bad "the failed stream of an ended container: streams '$exits', second log: $(cat "$work/out/term-blip/log-u0.2.txt" 2>&1 | head -c 200)"
+fi
+
 # A container that ended leaves its exit and times, and a Pod being deleted its deletion's, in its stream's record: the
 # paid run's 38 s rank-kill stop could not be divided without them (gpt-6-astra's defect review of #505).
 mkdir -p "$work/rules/pod-ended"
