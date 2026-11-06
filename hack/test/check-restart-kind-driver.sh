@@ -107,6 +107,30 @@ rstk_kill_tree "$pid"
 if [[ -s "$work/waited" ]]; then ok "rstk_kill_tree waits for the helper to finish"; else bad "rstk_kill_tree returned before the helper finished"; fi
 if kill -0 "$pid" 2>>"$work/kill0.err"; then bad "the helper still runs after rstk_kill_tree"; else ok "the helper is gone after rstk_kill_tree"; fi
 rstk_kill_tree "$dog"
+# A helper that ignores TERM and waits on a child that ignores it too: TERM gets its grace, then both are killed and the
+# helper reaped, where an unbounded wait held the cleanup forever (gpt-6-astra review of 116092ef).
+helper3() {
+  trap '' TERM
+  bash -c 'trap "" TERM; while :; do sleep 0.1; done'
+}
+helper3 &
+pid=$!
+(
+  sleep 15
+  kill -KILL "$pid" 2>>"$work/watchdog.err"
+) &
+dog=$!
+sleep 0.5
+child="$(rstk_descendants "$pid" | head -1)"
+t0=$SECONDS
+RSTK_TERM_GRACE=1 rstk_kill_tree "$pid"
+took=$((SECONDS - t0))
+if [[ -n "$child" && "$took" -le 5 ]] && ! rstk_running "$pid" && ! rstk_running "$child"; then
+  ok "a TERM-resistant helper and its TERM-resistant child are killed after the grace ($took s)"
+else
+  bad "the TERM-resistant helper: returned after $took s; helper running: $(rstk_running "$pid" && echo yes || echo no), child $child running: $(rstk_running "$child" && echo yes || echo no)"
+fi
+rstk_kill_tree "$dog"
 if grep -qE 'kill "\$p" 2>>' hack/restart-lifecycle-kind.sh || ! grep -q 'rstk_kill_tree "\$p"' hack/restart-lifecycle-kind.sh; then
   bad "the driver's cleanup stops its helpers some other way than rstk_kill_tree"
 else
