@@ -121,6 +121,26 @@ for want in \
   "FAIL node-lost no second attempt until the node was fenced"; do
   if grep -qF "$want" <<<"$out"; then ok "a hold seen once is not a hold watched: '${want#FAIL }'"; else bad "the thinned run lacks '$want'"; fi
 done
+# A hold shorter than the one the harness keeps says nothing of the rest of it: the same run with stale-workload's
+# hold-end mark moved to 30 s after its hold-start.
+cp -r hack/distributed-restart-kind-20261101T003147Z "$tmp/short"
+python3 - "$tmp/short/stale-workload/marks.jsonl" <<'EOF'
+import datetime, json, sys
+ts = lambda s: datetime.datetime.fromisoformat(s.replace("Z", "+00:00"))
+rows = [json.loads(l) for l in open(sys.argv[1]) if l.strip()]
+start = next(ts(r["at"]) for r in rows if r["mark"] == "hold-start")
+for r in rows:
+    if r["mark"] == "hold-end":
+        r["at"] = (start + datetime.timedelta(seconds=30)).isoformat().replace("+00:00", "Z")
+open(sys.argv[1], "w").write("".join(json.dumps(r) + "\n" for r in rows))
+EOF
+out=$(python3 experiments/distributed-restart/score_kind.py "$tmp/short" 2>&1)
+if grep -qE "FAIL stale-workload no second attempt while the Workload was held: .*the hold lasted 30.0 s of 60 s" <<<"$out"; then
+  ok "a hold kept for half its time is not the registered hold"
+else
+  bad "the shortened hold: $(grep -m1 'stale-workload no second' <<<"$out")"
+fi
+
 # And the run as recorded still passes them, with the gap and the duration it was held to.
 out=$(score 20261101T003147Z)
 if grep -qF "ok   stale-workload no second attempt while the Workload was held: 53 samples over 60.2 s, longest unobserved 1.1 s" <<<"$out" &&
