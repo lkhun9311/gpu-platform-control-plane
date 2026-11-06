@@ -181,6 +181,59 @@ else
   ok "$name: the test stopped its watchdog"
 fi
 
+# The TTL role read from the bootstrap root's state: its failure is one line in the session log and its error goes to
+# terraform.log, where all three paid restart runs printed terraform's whole error block into the session log, and a
+# second copy of the read sent it to /dev/null; an ARN that was read is returned as it is.
+for row in "fails|1|" "reads|0|arn:aws:iam::007635145730:role/gpu-platform-ttl-scaledown"; do
+  IFS='|' read -r what rc arn <<<"$row"
+  d="$work/ttl-role-$what"
+  mkdir -p "$d/bin"
+  if [[ $rc == 1 ]]; then
+    printf '#!/bin/sh\necho "Error: Backend initialization required, please run \\"terraform init\\"" >&2\nexit 1\n' >"$d/bin/terraform"
+  else
+    printf '#!/bin/sh\nprintf %%s %s\n' "$arn" >"$d/bin/terraform"
+  fi
+  chmod +x "$d/bin/terraform"
+  got="$(PATH="$d/bin:/usr/bin:/bin" bash -c 'EXDIR="$1"; log() { printf "%s\n" "$*" | tee -a "$EXDIR/session.log"; }
+eval "$(awk "/^ttl_role_from_state\\(\\)/,/^}/" "$2")"
+ttl_role_from_state' _ "$d" "$repo/hack/eks-gitops-session.sh" 2>"$d/stderr")"
+  if [[ "$got" == "$arn" ]] && if [[ $rc == 1 ]]; then
+    [[ "$(grep -c . "$d/session.log")" == 1 ]] && grep -q 'reads the TTL role from IAM' "$d/session.log" &&
+      ! grep -q 'Backend initialization' "$d/session.log" && grep -q 'Backend initialization' "$d/terraform.log"
+  else
+    [[ ! -e "$d/session.log" ]]
+  fi; then
+    ok "the TTL role's read from state that $what returns '${arn:-nothing}'$([[ $rc == 1 ]] && echo ', and its error is in terraform.log, not the session log')"
+  else
+    bad "the TTL role's read from state that $what: got '$got', session.log: $(head -c 200 "$d/session.log" 2>&1)"
+  fi
+done
+
+# A reused EXDIR holds the last session's ttl.pid, and the session read that pid before its new watchdog wrote its own,
+# so it would have disarmed the dead one and left the live one to destroy the cluster at its TTL (gpt-6-astra's defect
+# review of #505).
+name="a reused EXDIR"
+export STUB_CALLS="$work/$name.calls"
+: >"$STUB_CALLS"
+mkdir -p "$work/$name" && echo 999999999 >"$work/$name/ttl.pid"
+out="$(env -i HOME="$work/home" PATH="$work/bin:/usr/bin:/bin" STUB_CALLS="$STUB_CALLS" SESSION_CONFIRM=yes AWS_PROFILE=stub \
+  EGRESS_CIDR=192.0.2.1/32 EXDIR="$work/$name" TTL_MINUTES=300 timeout 60 bash "$repo/hack/eks-gitops-session.sh" 2>&1)"
+pid="$(cat "$work/$name/ttl.pid" 2>/dev/null)"
+stray=""
+[[ "$pid" =~ ^[0-9]+$ && "$pid" != 999999999 ]] && ps -o pid= -p "$pid" | grep -q . && stray="$pid"
+if [[ -n "$stray" && "$out" == *"TTL kill switch armed: PID $pid,"* && "$out" != *"PID 999999999"* ]]; then
+  ok "$name: the session read its own watchdog's pid $pid, not the stale one left in the directory"
+else
+  bad "$name: pid file '${pid:-absent}', session said: $(grep -o 'TTL kill switch armed: PID [0-9]*\|never reported its pid' <<<"$out" | head -1)"
+fi
+[[ -n "$stray" ]] && kill -- "-$stray"
+sleep 1
+if [[ -n "$stray" ]] && ps -o stat= -g "$stray" | grep -qv '^Z'; then
+  bad "$name: a watchdog survived the test: $(ps -o pid=,args= -g "$stray" | head -2)"
+else
+  ok "$name: the test stopped its watchdog"
+fi
+
 # Every call the session makes to the node gates passes the GPUs per node they require.
 # The refusals above stop before any node is bought, so none of them reaches these calls: STUDY=prefixroute kept a
 # four-argument train_qualify_nodes after #406 made the fifth required, and only a review found it (codex, c9ddbb42).

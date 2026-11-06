@@ -237,7 +237,19 @@ def edit_records(d: pathlib.Path, keep) -> None:
 
 def defect(out: pathlib.Path, name: str, case: str) -> None:
     d = out / case
-    if name == "missing-rank":
+    if name in ("streams-complete", "stream-cut", "stream-exit"):
+        # The collector's attempt label on each Pod and one record per log stream, in restart_collect's shape; the
+        # control ends every stream with its container, and each defect leaves attempt 1's rank 0 log not read to its end.
+        edit_json_lines(d / "pods.jsonl", lambda p: {**p, "attempt_token": p["uid"].rsplit("-", 2)[1][1:]})
+        with open(d / "streams.jsonl", "w") as f:
+            for p in map(json.loads, (d / "pods.jsonl").read_text().splitlines()):
+                row = {"uid": p["uid"], "stream": 1, "exit": 0, "at": p["observed"], "container": "terminated"}
+                if p["uid"].endswith("a1-r0") and name == "stream-cut":
+                    row["container"] = "running"
+                if p["uid"].endswith("a1-r0") and name == "stream-exit":
+                    row["exit"] = 1
+                f.write(json.dumps(row) + "\n")
+    elif name == "missing-rank":
         edit_records(d, lambda r: None if r["attempt"] == 2 and r["rank"] == 1 else r)
     elif name == "restart-from-zero":
         def zero(r):

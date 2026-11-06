@@ -382,6 +382,32 @@ if awk '/^restart_operator_gate\(\)/,/^}/' hack/lib/restart-session.sh | grep -q
 else
   bad "the operator gate does not call restart_operator_pin"
 fi
+# The webhook is credited only with its own refusal of the claim, in the words
+# TestApiserverRefusesAMissingClaimInTheWordsTheRestartGateReads pins through a real apiserver; any other failure of the
+# request passed for it before (gpt-6-astra's defect review of #505).
+denied='Error from server (Forbidden): error when creating "STDIN": admission webhook "vmltrainingjob.kb.io" denied the request: MLTrainingJob.platform.lkhun9311.github.io "restart-gate-missing" is invalid: spec.stateVolume.claimName: Invalid value: "no-such-claim": claim not found: a distributed job'"'"'s state volume must exist before the job, because every rank mounts it'
+for row in "refused|0|$denied" \
+  "throttled|1|Error from server (TooManyRequests): the server has received too many requests and has asked us to try again later" \
+  "unreachable|1|The connection to the server was refused - did you specify the right host or port?" \
+  "another field|1|admission webhook \"vmltrainingjob.kb.io\" denied the request: spec.image: Required value"; do
+  IFS='|' read -r what want msg <<<"$row"
+  out="$(lib webhook-refusal "restart_webhook_refused_claim $(printf '%q' "$msg")")"
+  rc=$?
+  if [[ $rc == "$want" ]]; then ok "a dry run that failed as '$what' credits the webhook: $([[ $want == 0 ]] && echo yes || echo no)"; else bad "a dry run that failed as '$what': rc $rc, $out"; fi
+done
+if awk '/^restart_operator_gate\(\)/,/^}/' hack/lib/restart-session.sh | grep -q 'restart_webhook_refused_claim "\$out" || return 1'; then
+  ok "the operator gate judges the webhook's refusal by its words"
+else
+  bad "the operator gate does not call restart_webhook_refused_claim"
+fi
+# R2 runs again after R4, the last step at which a promotion could still sync, so the operator the cases run is the one
+# checked (gpt-6-astra's defect review of #505).
+if awk '/^restart_before_purchase\(\)/,/^}/' hack/eks-gitops-session.sh | grep -E 'restart_enable_fault_path|restart_operator_gate' |
+  tail -1 | grep -q 'restart_operator_gate'; then
+  ok "the operator gate runs again after the fault path is enabled"
+else
+  bad "the operator gate does not run after restart_enable_fault_path"
+fi
 
 # The termination fences only on EC2's own `terminated`: shutting-down, then an unreadable answer, then terminated.
 mkdir -p "$work/rules/fence"
@@ -839,7 +865,7 @@ case "$*" in
   *"get pods -l platform.lkhun9311.github.io/mltrainingjob="*"-o json"*)
     echo '{"items": [{"metadata": {"uid": "u0", "name": "rp0", "annotations": {"batch.kubernetes.io/job-completion-index": "0"}}, "spec": {"nodeName": "node-a"}, "status": {"containerStatuses": [{"state": {"running": {"startedAt": "t"}}}]}}]}' ;;
   *"logs -f rp0"*) echo "error: unexpected EOF" >&2; exit 1 ;;
-  *"get pod rp0"*) echo '{"startedAt": "t"}' ;;
+  *"get pod rp0"*) echo '{"metadata": {}, "status": {"containerStatuses": [{"state": {"running": {"startedAt": "t"}}}]}}' ;;
 esac
 EOF
 out="$(lib fast-fail 'restart_collect "$RESTART_OUT" rst-x & c=$!; sleep 5; kill $c; wait $c; echo "rc=$?"')"
@@ -883,15 +909,44 @@ case "$*" in
   *"logs -f rp0"*) echo '{"ts": "t", "event": "step"}' ;;
   *"get pod rp0"*)
     n=$(($(cat "$STUB_RULES/status-n" 2>/dev/null || echo 0) + 1)); echo "$n" >"$STUB_RULES/status-n"
-    case "$n" in 1) echo "Unable to connect to the server: net/http: TLS handshake timeout" >&2; exit 1 ;; 2) echo '{"startedAt": "t"}' ;; esac ;;
+    case "$n" in 1) echo "Unable to connect to the server: net/http: TLS handshake timeout" >&2; exit 1 ;; 2) echo '{"metadata": {}, "status": {"containerStatuses": [{"state": {"running": {"startedAt": "t"}}}]}}' ;; esac ;;
 esac
 EOF
 out="$(lib status-blip 'restart_collect "$RESTART_OUT" rst-x & c=$!; sleep 14; kill $c; wait $c; echo "rc=$?"')"
 streams="$(grep -c '"uid": "u0"' "$work/out/status-blip/streams.jsonl" 2>&1)"
-if [[ "$streams" == 3 ]]; then
+# Each stream's record carries the container as its stream ended, which score_eks.py reads (gpt-6-astra's defect review
+# of #505): the failed read, the running container, and the Pod gone.
+states="$(python3 -c 'import json, sys; print(" ".join(json.loads(l).get("container", "absent") for l in open(sys.argv[1])))' "$work/out/status-blip/streams.jsonl" 2>&1)"
+if [[ "$streams" == 3 && "$states" == "unread running gone" ]]; then
   ok "a failed status read is followed by the log again, and the follows end when the container is read as ended"
 else
-  bad "the status blip: $streams stream(s) of rp0, want 3 (one before the failed read, one while running, one at the end): $out"
+  bad "the status blip: $streams stream(s) of rp0, want 3 (one before the failed read, one while running, one at the end), containers '$states': $out"
+fi
+# A container that ended leaves its exit and times, and a Pod being deleted its deletion's, in its stream's record: the
+# paid run's 38 s rank-kill stop could not be divided without them (gpt-6-astra's defect review of #505).
+mkdir -p "$work/rules/pod-ended"
+cat >"$work/rules/pod-ended/kubectl.sh" <<'EOF'
+case "$*" in
+  *"get pods -l platform.lkhun9311.github.io/mltrainingjob="*"-o json"*)
+    echo '{"items": [{"metadata": {"uid": "u0", "name": "rp0", "annotations": {"batch.kubernetes.io/job-completion-index": "0"}}, "spec": {"nodeName": "node-a"}, "status": {"containerStatuses": [{"state": {"running": {"startedAt": "t"}}}]}}]}' ;;
+  *"logs -f rp0"*) echo '{"ts": "t", "event": "step"}' ;;
+  *"get pod rp0"*) echo '{"metadata": {"deletionTimestamp": "2026-11-05T16:13:40Z"}, "status": {"containerStatuses": [{"state": {"terminated": {"exitCode": 143, "reason": "Error", "startedAt": "2026-11-05T16:13:02Z", "finishedAt": "2026-11-05T16:14:12Z"}}}]}}' ;;
+esac
+EOF
+out="$(lib pod-ended 'restart_collect "$RESTART_OUT" rst-x & c=$!; sleep 4; kill $c; wait $c; echo "rc=$?"')"
+row="$(head -1 "$work/out/pod-ended/streams.jsonl" 2>&1)"
+if [[ "$(grep -c . "$work/out/pod-ended/streams.jsonl")" == 1 && "$row" == *'"container": "terminated"'* && "$row" == *'"exit_code": 143'* &&
+  "$row" == *'"finished_at": "2026-11-05T16:14:12Z"'* && "$row" == *'"deletion": "2026-11-05T16:13:40Z"'* ]]; then
+  ok "a stream that ended with its container records the exit, its times and the Pod's deletion, and is not followed again"
+else
+  bad "the ended container's stream record: $row"
+fi
+# Stopping a collector whose follows have ended writes no error: every paid case's collector.log held one "No such process"
+# (gpt-6-astra's defect review of #505).
+if [[ -e "$work/out/pod-ended/collector.log" ]] && grep -q 'No such process' "$work/out/pod-ended/collector.log"; then
+  bad "stopping the collector logged a kill of an ended job: $(head -2 "$work/out/pod-ended/collector.log")"
+else
+  ok "stopping a collector whose follows have ended logs no error"
 fi
 
 # An exec that connects and never answers is cut: gpu-fault.sh's calls at RESTART_GFK_CALL, a read of LATEST at
@@ -1016,6 +1071,17 @@ esac
 EOF
 out="$(lib deadline 'restart_deadline_ok 1020; echo "rc=$?"; restart_deadline_ok 300; echo "rc=$?"')"
 if [[ "$out" == *"nothing more starts"*"rc=1"*"min away"*"rc=0" ]]; then ok "a case longer than the deadline's remainder is not started"; else bad "the deadline: $out"; fi
+
+# The EFS credit balance keeps the datapoint's own minute beside when it was asked, so a stale datapoint read twice is
+# seen as one (gpt-6-astra's defect review of #505).
+mkdir -p "$work/rules/efs"
+printf 'case "$*" in "cloudwatch get-metric-statistics"*) printf "2026-11-05T16:08:00+00:00\\t2308974418330.0\\n" ;; esac\n' >"$work/rules/efs/aws.sh"
+out="$(lib efs 'RESTART_FS_ID=fs-0; restart_efs_credits "$RESTART_OUT" before; cat "$RESTART_OUT/efs-credits.txt"')"
+if [[ "$out" =~ ^before\ [0-9T:-]+Z\ 2026-11-05T16:08:00\+00:00\ 2308974418330\.0$ ]] && grep -q 'Timestamp, Minimum' "$work/efs.calls"; then
+  ok "the EFS credit balance is recorded with its datapoint's minute"
+else
+  bad "the EFS credit line: $out"
+fi
 
 # --- the case procedure under restart_run, with the group, deadline and scorer steps replaced by functions ---------
 # The shares are cut to seconds so a case's waits end at once; the real restart_run_case runs only for the case named.
@@ -1182,6 +1248,18 @@ if [[ "$(cat "$work/out/stuck-inject/dcgm-1/VOID" 2>&1)" == "the fault's deliver
   ok "a stuck DCGM injection is cut after $cut s, the case VOID as unknown, and the node given the baseline after it"
 else
   bad "the stuck DCGM injection: VOID '$(cat "$work/out/stuck-inject/dcgm-1/VOID" 2>&1)', cut after '$cut', baseline at call ${baseline:-none} after the injection at ${injection:-none}: $(tail -2 <<<"$out")"
+fi
+# The job's status is sampled while the injection holds the case's loop: on the paid run the DCGM samples jumped 25 s
+# across their triggers (gpt-6-astra's defect review of #505).
+during="$(python3 -c '
+import datetime, json, sys
+m = {r["mark"]: datetime.datetime.fromisoformat(r["at"][:26]).replace(tzinfo=datetime.timezone.utc) for r in map(json.loads, open(sys.argv[1]))}
+rows = [datetime.datetime.fromisoformat(json.loads(l)["observed"]) for l in open(sys.argv[2])]
+print(sum(m["fault-start"] < t < m["fault-unknown"] for t in rows))' "$marks" "$work/out/stuck-inject/dcgm-1/timeline.jsonl" 2>&1)"
+if [[ "$during" =~ ^[0-9]+$ && "$during" -ge 2 ]] && [[ ! -e "$work/out/stuck-inject/dcgm-1/sampling.stop" ]]; then
+  ok "the status was sampled $during times while the injection held the case's loop, and the sampler was stopped"
+else
+  bad "samples during the stuck injection: $during; stop file left: $([[ -e "$work/out/stuck-inject/dcgm-1/sampling.stop" ]] && echo yes || echo no)"
 fi
 
 # The window is read again as the last call before a termination: the node read sleeps two seconds, the trainer passes
@@ -1361,6 +1439,36 @@ python3 hack/test/restart-session/make_fixture.py "$work/run-clean" || bad "the 
 out="$(python3 experiments/distributed-restart/score_eks.py "$work/run-clean" 2>&1)"
 rc=$?
 if [[ $rc == 0 && "$(grep -c '^ACCEPTED' <<<"$out")" == 22 ]]; then ok "a clean run: all 22 cases ACCEPTED"; else bad "the clean run: exit $rc, $(grep -vc '^ACCEPTED' <<<"$out") other line(s)"; fi
+# The real restart_verdict, as restart_run calls it, which the runner tests above replace with a stub.
+# The scorer exits 1 once any case of the run is not ACCEPTED, and under pipefail that status discarded the verdict it
+# had printed, so one FAILED case made every later verdict empty and two of them stopped the run as VOID (bare codex
+# review of #505).
+python3 hack/test/restart-session/make_fixture.py "$work/run-verdict" job-failed rank-kill-2 || bad "the verdict fixture was not built"
+vout="$(lib verdict "set -o pipefail; RESTART_OUT='$work/run-verdict'
+for c in rank-kill-1 rank-kill-2 rank-kill-3; do
+  v=\"\$(paid_phase verdict-\$c \$((\$(phase_mono) + RESTART_VERDICT_CALL + 5)) restart_verdict \$c)\" || v=''
+  echo \"\$c=\$v\"
+done")"
+if [[ "$vout" == *"rank-kill-1=ACCEPTED"*"rank-kill-2=FAILED"*"rank-kill-3=ACCEPTED"* ]]; then
+  ok "each case's verdict survives the scorer's status 1 for a run with a FAILED case"
+else
+  bad "the verdicts of a run with a FAILED case: $(tr '\n' ' ' <<<"$vout" | head -c 300)"
+fi
+# Lost steps are counted from attempt 1's last record, so a log not read to its end gave too few and stayed ACCEPTED
+# (gpt-6-astra's defect review of #505); such a figure is withheld, and the case and its other figures stand.
+for row in "streams-complete|1|lost steps [1, 1, 1, 1, 1], over" "stream-cut|null|lost steps [1, 1, 1, 1] (1 withheld" \
+  "stream-exit|null|lost steps [1, 1, 1, 1] (1 withheld"; do
+  IFS='|' read -r fx want summary <<<"$row"
+  python3 hack/test/restart-session/make_fixture.py "$work/run-$fx" "$fx" rank-kill-1 || bad "the $fx fixture was not built"
+  sout="$(python3 experiments/distributed-restart/score_eks.py "$work/run-$fx" 2>&1)"
+  line="$(grep '^ACCEPTED rank-kill-1 ' <<<"$sout")"
+  if [[ "$line" == *"\"lost_steps\": $want"* ]] && grep -qF "$summary" <<<"$sout" &&
+    { [[ $want != null ]] || [[ "$line" == *'"lost_steps_withheld": "attempt 1'"'"'s logs may lack their end: rank-kill-1-a1-r0'* ]]; }; then
+    ok "$fx: rank-kill-1 stays ACCEPTED with lost steps $want"
+  else
+    bad "$fx: $(head -c 300 <<<"$line"); $(grep 'same-nodes:' <<<"$sout" | head -c 200)"
+  fi
+done
 for want in "replacement: recovery median 71.0 s" "spare: recovery median 71.0 s" "same-nodes: recovery median 71.0 s" "lost steps [1, 1, 1, 1, 1]"; do
   if grep -qF "$want" <<<"$out"; then ok "the clean run reports '$want'"; else bad "the clean run lacks '$want'"; fi
 done
