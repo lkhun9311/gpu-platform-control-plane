@@ -474,6 +474,25 @@ restart_core_limit() {
   case "$nocore" in *" $1 "*) echo 0 ;; *) echo inherited ;; esac
 }
 
+# restart_launch_refusal OUT: why a session must not buy anything for this stage and evidence directory, or the reason it
+# may on stdout.
+# A registered stage's arms are its registration's, so an override is refused: an empty RESTART_NOCORE_CASES ran all six
+# rank-kill cases untreated, the scorer accepted every one, and only H2 found it NOT ASSESSED, after the purchase
+# (gpt-6-astra's attack before the corelimit run).
+# The evidence directory must be new: a case's directory is made with mkdir -p and its records appended, so a reused one
+# carries the last session's VOID marker and logs into the scorer, which would reject the new run after it was bought.
+restart_launch_refusal() {
+  if restart_registered_stage && [[ -n "${RESTART_NOCORE_CASES+set}" ]]; then
+    echo "RESTART_STAGE=$RESTART_STAGE registers its own core-limit arms, and RESTART_NOCORE_CASES='$RESTART_NOCORE_CASES' would replace them; unset it"
+    return 1
+  fi
+  if [[ -e "$1" ]]; then
+    echo "$1 already exists, so its earlier records would be scored with this run's; use a new EXDIR"
+    return 1
+  fi
+  echo "the core-limit arms are the stage's own and $1 is new"
+}
+
 # restart_operator_pin <rev> <digest>: a stage that registers one operator runs only on it.
 # The gate below accepts any revision descended from the commits it needs, so a promotion between the registration and
 # the launch would otherwise run a different operator unseen (codex gpt-6-astra attack of the retarget registration).
@@ -1404,6 +1423,21 @@ restart_collect() {
   # nothing was wrong behind (gpt-6-astra's defect review of #505).
   # shellcheck disable=SC2046  # word splitting of the pid list is intended
   trap 'set -- $(jobs -pr); (($# == 0)) || kill "$@" 2>>"$dir/collector.log"; exit 0' TERM
+  # Every change to the case's Pods as the API server sent it, apart from the log streams: a container's status was read
+  # only when its stream ended, and a Pod deleted before that read left no exit code or finish time, which is the
+  # surviving rank's end H2 reads beside its verdict (gpt-6-astra's attack before the corelimit run, kind run f).
+  # A watch also carries deletionGracePeriodSeconds, without which deletionTimestamp, the request plus the grace, reads
+  # as the request.
+  # The watch is opened again when the API server ends it, with no request timeout, as the follows are.
+  (
+    trap 'set -- $(jobs -pr); (($# == 0)) || kill "$@" 2>>"$dir/collector.log"; exit 0' TERM
+    while :; do
+      kubectl --context "$RESTART_CONTEXT" -n "$RESTART_NS" get pods -l "platform.lkhun9311.github.io/mltrainingjob=$name" \
+        --watch --output-watch-events -o json >>"$dir/pod-watch.json" 2>>"$dir/collector.log" &
+      wait $!
+      sleep 1
+    done
+  ) &
   while :; do
     rows="$(rk -n "$RESTART_NS" get pods -l "platform.lkhun9311.github.io/mltrainingjob=$name" -o json 2>>"$dir/collector.log" | python3 -c '
 import json, sys
@@ -1457,8 +1491,10 @@ else:
     row["container"] = "running" if "running" in st else "terminated" if t else "waiting" if "waiting" in st else "unknown"
     if t:
         row.update(exit_code=t.get("exitCode"), reason=t.get("reason"), started_at=t.get("startedAt"), finished_at=t.get("finishedAt"))
+    # deletionTimestamp is the request plus the grace the API server gave it, so the grace is kept beside it.
     if (p.get("metadata") or {}).get("deletionTimestamp"):
         row["deletion"] = p["metadata"]["deletionTimestamp"]
+        row["deletion_grace_s"] = p["metadata"].get("deletionGracePeriodSeconds")
 print(row["container"], json.dumps(row))' "$uid" "$n" "$rc" "$ended" "$podj" 2>>"$dir/collector.log")" ||
             row="unread {\"uid\": \"$uid\", \"stream\": $n, \"exit\": $rc, \"at\": \"$ended\", \"container\": \"unread\"}"
           printf '%s\n' "${row#* }" >>"$dir/streams.jsonl"

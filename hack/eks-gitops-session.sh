@@ -339,6 +339,9 @@ case "$TRAIN" in
     RESTART_STAGE="${RESTART_STAGE:-}"
     TRAIN_GPU_BUDGET="$(restart_gpu_budget 2>&1)" ||
       die "TRAIN=restart needs RESTART_STAGE=smoke, run and inspected first, RESTART_STAGE=full, retarget or corelimit: $TRAIN_GPU_BUDGET"
+    # RESTART_OUT is set to this when the cases start, long after the purchase this refusal is for.
+    why="$(restart_launch_refusal "$EXDIR/restart")" || die "$why"
+    log "$why"
     TRAIN_BUDGET=$((WAIT_TRAIN_SYNC + WAIT_TRAIN_QUEUE + WAIT_QUAL_HELD + TRAIN_GPU_BUDGET))
     why="$(restart_ttl_refusal "$RESTART_STAGE" "$TTL_MINUTES" "$TRAIN_GPU_BUDGET" $((WAIT_TRAIN_SYNC + WAIT_TRAIN_QUEUE + WAIT_QUAL_HELD)))" ||
       die "$why"

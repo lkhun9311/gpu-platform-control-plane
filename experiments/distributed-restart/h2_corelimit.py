@@ -65,8 +65,43 @@ def limit_stops_dump(pattern: str) -> bool:
     return "systemd-coredump" in pattern and "%c" in pattern.split()
 
 
+def watched_pods(case_dir: pathlib.Path) -> list[dict]:
+    """Every Pod object the collector's watch recorded, in the order it arrived.
+
+    The file is kubectl's watch events as concatenated JSON objects; one cut short when the watch was stopped or reopened
+    is skipped to the next object kubectl began on a line of its own.
+    """
+    path = case_dir / "pod-watch.json"
+    if not path.exists():
+        return []
+    text, decoder, i, pods = path.read_text(errors="replace"), json.JSONDecoder(), 0, []
+    while True:
+        while i < len(text) and text[i].isspace():
+            i += 1
+        if i >= len(text):
+            return pods
+        try:
+            event, i = decoder.raw_decode(text, i)
+        except ValueError:
+            i = text.find("\n{", i + 1)
+            if i < 0:
+                return pods
+            continue
+        if isinstance(event, dict) and isinstance(event.get("object"), dict):
+            pods.append(event["object"])
+
+
 def survivor_end(case_dir: pathlib.Path, fault: float) -> dict:
-    """How the attempt-1 rank that did not fault ended: its container's exit code and reason, and when it finished."""
+    """How the attempt-1 rank that did not fault ended: its container's exit code and reason, when it finished, and when
+    its deletion was asked for.
+
+    The stream records read the container only when a log stream ended, and a Pod deleted before that read left none
+    (kind run f's rank-kill-1), so the Pod watch's last terminated state stands in for it.
+    deletionTimestamp is the request plus the grace the API server gave; the first object carrying it is the request's,
+    because a later deletion with a shorter grace moves it.
+    With no terminal state recorded the mechanism is said to be unread rather than left to an absent field
+    (gpt-6-astra's attack before the corelimit run).
+    """
     first = {p["uid"]: p for p in score_eks.jsonl(case_dir / "pods.jsonl") if str(p.get("attempt_token")) == "1"}
     _, _, faulted = score_eks.IN_TRAINER_FAULT["rank-kill"]
     survivors = [u for u, p in first.items() if p.get("index") != str(faulted)]
@@ -77,8 +112,26 @@ def survivor_end(case_dir: pathlib.Path, fault: float) -> dict:
         if s.get("uid") == survivors[0] and s.get("stream", 0) >= last.get("stream", 0):
             last = s
     end = {k: last.get(k) for k in ("container", "exit_code", "reason")}
-    if last.get("finished_at"):
-        end["finished_after_fault_s"] = round(score_eks.epoch(last["finished_at"]) - fault, 1)
+    finished = last.get("finished_at") if last.get("container") == "terminated" else None
+    watched = [p for p in watched_pods(case_dir) if (p.get("metadata") or {}).get("uid") == survivors[0]]
+    if finished is None:
+        for pod in reversed(watched):
+            state = (((pod.get("status") or {}).get("containerStatuses") or [{}])[0].get("state") or {}).get("terminated")
+            if state:
+                end.update(container="terminated", exit_code=state.get("exitCode"), reason=state.get("reason"), read_from="pod watch")
+                finished = state.get("finishedAt")
+                break
+    if finished:
+        end["finished_after_fault_s"] = round(score_eks.epoch(finished) - fault, 1)
+    else:
+        end["unread"] = "no terminal state of the surviving rank was recorded, so how it ended is not shown"
+    for pod in watched:
+        meta = pod.get("metadata") or {}
+        if meta.get("deletionTimestamp") and meta.get("deletionGracePeriodSeconds") is not None:
+            asked = score_eks.epoch(meta["deletionTimestamp"]) - meta["deletionGracePeriodSeconds"]
+            end["deletion_asked_after_fault_s"] = round(asked - fault, 1)
+            end["deletion_grace_s"] = meta["deletionGracePeriodSeconds"]
+            break
     return end
 
 

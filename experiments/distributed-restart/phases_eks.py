@@ -83,7 +83,9 @@ def main(argv: list[str]) -> int:
         return 2
     # By kind and by the class the scorer gave, because a terminate-spare that recovered on a replacement took the
     # replacement's path, which the scorer summarises apart and a pooled median would hide (codex review of defd5006).
-    by_kind: dict[tuple[str, str], list[dict[str, float]]] = {}
+    # And by core-limit arm, as the scorer's summary is, since corelimit's treated and untreated rank-kill cases pooled
+    # gave a median of neither arm (gpt-6-astra's attack before the corelimit run).
+    by_kind: dict[tuple[str, str, str | None], list[dict[str, float]]] = {}
     reference = None
     for name in prov.get("cases", "").split():
         case = score_eks.Case(run, name, reference, int(prov["steps"]), int(prov["case_budget"]))
@@ -103,15 +105,18 @@ def main(argv: list[str]) -> int:
         except (ValueError, KeyError, TypeError, IndexError, AttributeError, OSError) as exc:
             print(f"{name}: not split, its evidence could not be read: {type(exc).__name__}: {str(exc)[:100]}")
             continue
-        by_kind.setdefault((case.kind, str(case.figures.get("class"))), []).append(at)
+        by_kind.setdefault((case.kind, str(case.figures.get("class")), case.spec.get("core_limit")), []).append(at)
         line = "  ".join(f"{m} +{at[m]:.1f}{'*' if m in CLUSTER_CLOCK else ''}" for m in MOMENTS if m in at)
         print(f"{name} ({case.figures.get('class')}): {line}")
     print("medians of stamp differences from the fault, in seconds "
           "(* a whole-second cluster stamp, its offset from the runner unmeasured):")
-    for (kind, cls), rows in by_kind.items():
+    for (kind, cls, arm), rows in by_kind.items():
         line = "  ".join(f"{m} +{statistics.median(r[m] for r in rows):.1f}{'*' if m in CLUSTER_CLOCK else ''}"
                          for m in MOMENTS if all(m in r for r in rows))
-        print(f"  {kind}/{cls} (n={len(rows)}): {line}")
+        # The arm is named where the kind ran two, so a run of one arm reads as it did before corelimit.
+        arms = {a for k, _, a in by_kind if k == kind}
+        label = f"{cls}, core limit {arm}" if len(arms) > 1 else cls
+        print(f"  {kind}/{label} (n={len(rows)}): {line}")
     return 0
 
 
