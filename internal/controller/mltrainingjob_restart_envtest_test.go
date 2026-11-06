@@ -189,6 +189,13 @@ var _ = Describe("MLTrainingJob restart", func() {
 		return n.Name
 	}
 
+	// bind writes what the scheduler publishes when it binds a Pod, which the controller reads as the binding time.
+	bind := func(p *corev1.Pod) {
+		GinkgoHelper()
+		p.Status.Conditions = []corev1.PodCondition{{Type: corev1.PodScheduled, Status: corev1.ConditionTrue, LastTransitionTime: metav1.Now()}}
+		Expect(k8sClient.Status().Update(ctx, p)).To(Succeed())
+	}
+
 	rankPod := func(mltj *platformv1.MLTrainingJob, attempt int, onNode string) *corev1.Pod {
 		GinkgoHelper()
 		p := &corev1.Pod{
@@ -201,6 +208,7 @@ var _ = Describe("MLTrainingJob restart", func() {
 		}
 		Expect(k8sClient.Create(ctx, p)).To(Succeed())
 		DeferCleanup(func() { _ = k8sClient.Delete(ctx, p, client.GracePeriodSeconds(0)) })
+		bind(p)
 		return p
 	}
 
@@ -625,6 +633,7 @@ var _ = Describe("MLTrainingJob restart", func() {
 			}
 			_ = k8sClient.Delete(ctx, p, client.GracePeriodSeconds(0))
 		})
+		bind(p)
 		return p
 	}
 	gone := func(p *corev1.Pod) bool {
@@ -799,11 +808,15 @@ var _ = Describe("MLTrainingJob restart", func() {
 	})
 
 	It("takes a Kueue eviction as Evicted, and an operator's deactivation as no trigger", func() {
-		evict := func(reason string) types.NamespacedName {
+		evict := func(reason string, active bool) types.NamespacedName {
 			GinkgoHelper()
 			key := create(1)
 			job := untilActive(key)
 			wl := workloadFor(job, nil)
+			if !active {
+				wl.Spec.Active = new(false)
+				Expect(k8sClient.Update(ctx, wl)).To(Succeed())
+			}
 			meta.SetStatusCondition(&wl.Status.Conditions, metav1.Condition{
 				Type: kueuev1beta1.WorkloadEvicted, Status: metav1.ConditionTrue, Reason: reason, Message: "test",
 			})
@@ -814,12 +827,76 @@ var _ = Describe("MLTrainingJob restart", func() {
 			step(key)
 			return key
 		}
-		key := evict(kueuev1beta1.WorkloadEvictedByPreemption)
+		key := evict(kueuev1beta1.WorkloadEvictedByPreemption, true)
 		Expect(last(key).State).To(Equal(attemptStopping))
 		Expect(last(key).Trigger).To(Equal(triggerEvicted))
 
-		key = evict(kueuev1beta1.WorkloadDeactivated)
+		key = evict(kueuev1beta1.WorkloadDeactivated, false)
 		Expect(last(key).State).To(Equal(attemptActive))
+
+		By("Kueue's derived deactivation reasons are deactivations too")
+		key = evict(kueuev1beta1.WorkloadDeactivated+"DueToRequeuingLimitExceeded", true)
+		Expect(last(key).State).To(Equal(attemptActive))
+
+		By("an operator's stop after an earlier preemption, with Kueue still showing the preemption")
+		key = evict(kueuev1beta1.WorkloadEvictedByPreemption, false)
+		Expect(last(key).State).To(Equal(attemptActive), "a deactivated Workload's old eviction restarted the job")
+	})
+
+	It("releases the ranks of a deleted job whose Job the stop barrier is already deleting in the foreground", func() {
+		key := create(1)
+		job := untilActive(key)
+		mltj := getMLTJ(key)
+		name := node(corev1.ConditionTrue)
+		p := heldRankPod(mltj, 1, name)
+		workloadFor(job, nil)
+		step(key)
+		failRank(job)
+		step(key)
+		step(key)
+		Expect(last(key).WaitingFor).To(HavePrefix("job "), "the barrier was not deleting the Job")
+		Expect(k8sClient.Delete(ctx, getMLTJ(key))).To(Succeed())
+		var cur corev1.Pod
+		Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(p), &cur)).To(Succeed())
+		cur.Status.Phase = corev1.PodFailed
+		Expect(k8sClient.Status().Update(ctx, &cur)).To(Succeed())
+		Expect(k8sClient.Delete(ctx, &cur, client.GracePeriodSeconds(0))).To(Succeed())
+		step(key)
+		Eventually(func() bool { return gone(p) }, 10*time.Second, 50*time.Millisecond).Should(BeTrue(),
+			"a stopped rank stayed held behind the Job that waits for it")
+	})
+
+	It("decides a node's identity only once the rank's binding is published", func() {
+		key := create(1)
+		untilActive(key)
+		mltj := getMLTJ(key)
+		p := &corev1.Pod{
+			Name: mltj.Name + "-" + rand.String(5), Namespace: ns,
+			Labels: map[string]string{mltjUIDLabel: string(mltj.UID), mltjAttemptLabel: "1"},
+			Spec:   corev1.PodSpec{Containers: []corev1.Container{{Name: "trainer", Image: "trainer:v1"}}},
+		}
+		Expect(k8sClient.Create(ctx, p)).To(Succeed())
+		DeferCleanup(func() { _ = k8sClient.Delete(ctx, p, client.GracePeriodSeconds(0)) })
+		// Pending for a while, then an autoscaler's new node, and the Pod bound to it before the binding is published.
+		time.Sleep(1100 * time.Millisecond)
+		name := node(corev1.ConditionTrue)
+		Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(p), p)).To(Succeed())
+		Expect(k8sClient.SubResource("binding").Create(ctx, p, &corev1.Binding{
+			Name: p.Name, Namespace: ns,
+			Target: corev1.ObjectReference{Kind: "Node", Name: name},
+		})).To(Succeed())
+		Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(p), p)).To(Succeed())
+		p.Status.Conditions = nil
+		Expect(k8sClient.Status().Update(ctx, p)).To(Succeed())
+		step(key)
+		Expect(last(key).Nodes).To(ContainElement(name))
+		Expect(last(key).NodeUIDs).NotTo(HaveKey(name), "an identity was decided with no binding time")
+
+		bind(p)
+		step(key)
+		var n corev1.Node
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name}, &n)).To(Succeed())
+		Expect(last(key).NodeUIDs).To(HaveKeyWithValue(name, string(n.UID)), "the autoscaler's node was taken for a replacement")
 	})
 
 	It("reads the handoff past a cache that has not seen it before calling a failed Job RankFailed", func() {

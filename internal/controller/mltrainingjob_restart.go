@@ -277,7 +277,7 @@ func (r *MLTrainingJobReconciler) discover(ctx context.Context, mltj *platformv1
 		if !slices.Contains(nodes, n) {
 			nodes = append(nodes, n)
 		}
-		if t := podBoundAt(&pods[i]); boundAt[n].IsZero() || t.Before(boundAt[n]) {
+		if t, ok := podBoundAt(&pods[i]); ok && (boundAt[n].IsZero() || t.Before(boundAt[n])) {
 			boundAt[n] = t
 		}
 	}
@@ -286,6 +286,11 @@ func (r *MLTrainingJobReconciler) discover(ctx context.Context, mltj *platformv1
 	uids := map[string]string{}
 	for _, n := range nodes {
 		if _, known := cur.NodeUIDs[n]; known {
+			continue
+		}
+		if boundAt[n].IsZero() {
+			// The binding is not published yet; deciding now would compare the Node with nothing, so a node an autoscaler
+			// created for a Pending rank would read as a replacement for good. A later pass decides.
 			continue
 		}
 		var node corev1.Node
@@ -310,14 +315,15 @@ func (r *MLTrainingJobReconciler) discover(ctx context.Context, mltj *platformv1
 	return r.releaseRanks(ctx, mltj, pods)
 }
 
-// podBoundAt is when the scheduler bound the Pod, or its creation when no binding was recorded, which is earlier.
-func podBoundAt(p *corev1.Pod) time.Time {
+// podBoundAt is when the scheduler bound the Pod, and false while no binding is published.
+// The Pod's creation is not a stand-in: a Pod Pending until an autoscaler made a node was created before that node.
+func podBoundAt(p *corev1.Pod) (time.Time, bool) {
 	for _, c := range p.Status.Conditions {
 		if c.Type == corev1.PodScheduled && c.Status == corev1.ConditionTrue && !c.LastTransitionTime.IsZero() {
-			return c.LastTransitionTime.Time
+			return c.LastTransitionTime.Time, true
 		}
 	}
-	return p.CreationTimestamp.Time
+	return time.Time{}, false
 }
 
 // releaseRanks removes finRankStopped from each Pod whose rank is known to have stopped and whose node, if it had
@@ -382,9 +388,16 @@ func rankStopped(mltj *platformv1.MLTrainingJob, p *corev1.Pod, recorded bool) b
 
 // evictedForRestart reports whether Kueue evicted the Workload for a reason the restart lifecycle answers: anything but
 // a deactivation, which is an operator's stop or the fault path's, and the fault path's carries its own handoff.
+//
+// A Workload that is inactive now is never one: an operator who deactivated it after an earlier eviction stopped the
+// job, and Kueue may still show the earlier reason.
+// Kueue writes a deactivation as "Deactivated" or "DeactivatedDueTo<cause>" and matches both by the prefix, as here.
 func evictedForRestart(wl *kueuev1beta1.Workload) bool {
+	if wl.Spec.Active != nil && !*wl.Spec.Active {
+		return false
+	}
 	c := meta.FindStatusCondition(wl.Status.Conditions, kueuev1beta1.WorkloadEvicted)
-	return c != nil && c.Status == metav1.ConditionTrue && c.Reason != kueuev1beta1.WorkloadDeactivated
+	return c != nil && c.Status == metav1.ConditionTrue && !strings.HasPrefix(c.Reason, kueuev1beta1.WorkloadDeactivated)
 }
 
 // handoffUncached reports whether any Workload of the Job carries the fault path's handoff, read past the cache.
@@ -793,19 +806,8 @@ func (r *MLTrainingJobReconciler) attemptPods(ctx context.Context, mltj *platfor
 // when no rank of it can still be writing to the state volume.
 // It returns true once nothing of the job is left.
 func (r *MLTrainingJobReconciler) retireOnDelete(ctx context.Context, mltj *platformv1.MLTrainingJob) (bool, error) {
-	var job batchv1.Job
-	switch err := r.apiReader().Get(ctx, client.ObjectKeyFromObject(mltj), &job); {
-	case err == nil && metav1.IsControlledBy(&job, mltj):
-		if job.DeletionTimestamp.IsZero() {
-			uid := job.UID
-			if err := r.Delete(ctx, &job, client.Preconditions{UID: &uid}, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil && !apierrors.IsNotFound(err) && !apierrors.IsConflict(err) {
-				return false, fmt.Errorf("delete job of deleted mltrainingjob %s/%s: %w", mltj.Namespace, mltj.Name, err)
-			}
-		}
-		return false, nil
-	case err != nil && !apierrors.IsNotFound(err):
-		return false, fmt.Errorf("get job of deleted mltrainingjob %s/%s: %w", mltj.Namespace, mltj.Name, err)
-	}
+	// The Pods first, whatever the Job is doing: a Job the stop barrier already deletes in the foreground waits for its
+	// Pods, and Pods this controller holds would then hold the Job, and the job, for good.
 	var pods corev1.PodList
 	if err := r.apiReader().List(ctx, &pods, client.InNamespace(mltj.Namespace),
 		client.MatchingLabels{mltjUIDLabel: string(mltj.UID)}); err != nil {
@@ -819,6 +821,19 @@ func (r *MLTrainingJobReconciler) retireOnDelete(ctx context.Context, mltj *plat
 				return false, err
 			}
 		}
+	}
+	var job batchv1.Job
+	switch err := r.apiReader().Get(ctx, client.ObjectKeyFromObject(mltj), &job); {
+	case err == nil && metav1.IsControlledBy(&job, mltj):
+		if job.DeletionTimestamp.IsZero() {
+			uid := job.UID
+			if err := r.Delete(ctx, &job, client.Preconditions{UID: &uid}, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil && !apierrors.IsNotFound(err) && !apierrors.IsConflict(err) {
+				return false, fmt.Errorf("delete job of deleted mltrainingjob %s/%s: %w", mltj.Namespace, mltj.Name, err)
+			}
+		}
+		return false, nil
+	case err != nil && !apierrors.IsNotFound(err):
+		return false, fmt.Errorf("get job of deleted mltrainingjob %s/%s: %w", mltj.Namespace, mltj.Name, err)
 	}
 	return len(pods.Items) == 0, nil
 }
