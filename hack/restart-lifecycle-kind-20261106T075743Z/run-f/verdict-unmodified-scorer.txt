@@ -1,0 +1,15 @@
+VOID     reference: attempt 1 rank 1 trained with 'gloo' on 'cpu', not nccl on cuda
+VOID     rank-kill-1: attempt 1 rank 0 trained with 'gloo' on 'cpu', not nccl on cuda
+VOID     rank-kill-2: attempt 1 rank 1 trained with 'gloo' on 'cpu', not nccl on cuda
+VOID     rank-kill-3: attempt 1 rank 1 trained with 'gloo' on 'cpu', not nccl on cuda
+VOID     rank-kill-4: attempt 1 rank 0 trained with 'gloo' on 'cpu', not nccl on cuda
+VOID     rank-kill-5: attempt 1 rank 1 trained with 'gloo' on 'cpu', not nccl on cuda
+VOID     rank-kill-6: attempt 1 rank 1 trained with 'gloo' on 'cpu', not nccl on cuda
+VOID     dcgm-1: attempt 1 rank 0 trained with 'gloo' on 'cpu', not nccl on cuda
+VOID     dcgm-2: attempt 1 rank 0 trained with 'gloo' on 'cpu', not nccl on cuda
+VOID     dcgm-3: attempt 1 rank 1 trained with 'gloo' on 'cpu', not nccl on cuda
+summary
+  reference: 1 registered, 0 ACCEPTED, 0 FAILED (0 censored at their budget, 0 past their budget after a recovery, 0 not recovered), 1 VOID, 0 NOTRUN
+  rank-kill: 6 registered, 0 ACCEPTED, 0 FAILED (0 censored at their budget, 0 past their budget after a recovery, 0 not recovered), 6 VOID, 0 NOTRUN
+  dcgm: 3 registered, 0 ACCEPTED, 0 FAILED (0 censored at their budget, 0 past their budget after a recovery, 0 not recovered), 3 VOID, 0 NOTRUN
+exit=1

@@ -122,7 +122,8 @@ As `retarget`: the nightly destroy workflow is disabled by hand for the session 
   Kind cannot show a core dump's cost: its ranks run on CPU and this host writes no cores (`ulimit -c` is 0), so the rehearsal shows the arms applied, logged and scored, not H2.
   `hack/restart-lifecycle-kind-20261106T013822Z` at `8aa8f43d` met it for that runner: every case ACCEPTED, the lifecycle check 0 FAIL, the outcome check 0 FAIL once run `f` was registered in it, each rank's limit logged in its arm, and H2 through the kind shim INCONCLUSIVE because the slow stop does not recur on kind, as expected.
   The collector changed after it (below), so the gate is met again only by a rehearsal of the changed runner, which must also show the Pod watch recorded and every survivor's end read from it or from its streams.
-  `hack/restart-lifecycle-kind-20261106T071657Z` at `cb98ae98` meets it: every case ACCEPTED, both checks 0 FAIL, each attempt-1 rank's limit logged in its arm, a Pod watch recorded in every case, every `rank-kill` survivor's end and deletion request read, and H2 through the kind shim INCONCLUSIVE.
+  `hack/restart-lifecycle-kind-20261106T071657Z` at `cb98ae98` met it for that runner, and the runner changed twice more after the second and third rounds below.
+  `hack/restart-lifecycle-kind-20261106T075743Z` at `17c56105`, the launch runner, meets it: every case ACCEPTED, both checks 0 FAIL, each attempt-1 rank's limit logged in its arm, one marked Pod watch in every case, every `rank-kill` survivor's end and deletion request read, `rank-kill-4`'s from the watch after its streams ended `gone`, and H2 through the kind shim INCONCLUSIVE.
 - A bare `codex review` of the changes since `3ca2ed0e`, its findings fixed or recorded.
 - The launch checks of `retarget`: operator pin, destroy workflow disabled by hand, deadlines armed, a fresh SSO login.
 
