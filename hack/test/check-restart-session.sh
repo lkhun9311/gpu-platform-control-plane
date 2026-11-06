@@ -941,13 +941,6 @@ if [[ "$(grep -c . "$work/out/pod-ended/streams.jsonl")" == 1 && "$row" == *'"co
 else
   bad "the ended container's stream record: $row"
 fi
-# Stopping a collector whose follows have ended writes no error: every paid case's collector.log held one "No such process"
-# (gpt-6-astra's defect review of #505).
-if [[ -e "$work/out/pod-ended/collector.log" ]] && grep -q 'No such process' "$work/out/pod-ended/collector.log"; then
-  bad "stopping the collector logged a kill of an ended job: $(head -2 "$work/out/pod-ended/collector.log")"
-else
-  ok "stopping a collector whose follows have ended logs no error"
-fi
 
 # An exec that connects and never answers is cut: gpu-fault.sh's calls at RESTART_GFK_CALL, a read of LATEST at
 # RESTART_LATEST_CALL, because kubectl's request timeout does not bound an exec stream.

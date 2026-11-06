@@ -215,7 +215,9 @@ done
 name="a reused EXDIR"
 export STUB_CALLS="$work/$name.calls"
 : >"$STUB_CALLS"
-mkdir -p "$work/$name" && echo 999999999 >"$work/$name/ttl.pid"
+# Read-only, so the new watchdog cannot overwrite it first and hide the read: the race decided whether the test saw
+# the defect, and a mutation removing the fix passed it.
+mkdir -p "$work/$name" && echo 999999999 >"$work/$name/ttl.pid" && chmod 444 "$work/$name/ttl.pid"
 out="$(env -i HOME="$work/home" PATH="$work/bin:/usr/bin:/bin" STUB_CALLS="$STUB_CALLS" SESSION_CONFIRM=yes AWS_PROFILE=stub \
   EGRESS_CIDR=192.0.2.1/32 EXDIR="$work/$name" TTL_MINUTES=300 timeout 60 bash "$repo/hack/eks-gitops-session.sh" 2>&1)"
 pid="$(cat "$work/$name/ttl.pid" 2>/dev/null)"
@@ -226,10 +228,13 @@ if [[ -n "$stray" && "$out" == *"TTL kill switch armed: PID $pid,"* && "$out" !=
 else
   bad "$name: pid file '${pid:-absent}', session said: $(grep -o 'TTL kill switch armed: PID [0-9]*\|never reported its pid' <<<"$out" | head -1)"
 fi
-[[ -n "$stray" ]] && kill -- "-$stray"
+# Found by its pid file's directory too: when the defect is back the pid file is the stale one, the watchdog's own pid is
+# nowhere, and a mutation run left it alive; the pattern skips the space the program quotes in the name.
+for p in $(printf "%s\n" $stray $(pgrep -f -- "KILL_PIDFILE=$work/a[^/]*reused") | sort -u); do kill -- "-$p"; done
 sleep 1
-if [[ -n "$stray" ]] && ps -o stat= -g "$stray" | grep -qv '^Z'; then
-  bad "$name: a watchdog survived the test: $(ps -o pid=,args= -g "$stray" | head -2)"
+left="$(pgrep -f -- "KILL_PIDFILE=$work/a[^/]*reused" | paste -sd' ')"
+if [[ -n "$left" ]] || { [[ -n "$stray" ]] && ps -o stat= -g "$stray" | grep -qv '^Z'; }; then
+  bad "$name: a watchdog survived the test: ${left:-$(ps -o pid=,args= -g "$stray" | head -2)}"
 else
   ok "$name: the test stopped its watchdog"
 fi
