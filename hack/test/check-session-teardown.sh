@@ -378,4 +378,15 @@ for f in 'teardown_residue "$REGION" "$CLUSTER" "$EXDIR"' 'killswitch_program "$
   if grep -qF -- "$f" hack/eks-gitops-session.sh; then ok "the session calls $f"; else bad "the session does not call $f"; fi
 done
 
+# Argo's root authenticates for var.cluster_name, so its apply and its destroy are both given the session's name and
+# region; with the default name a session under another CLUSTER installed nothing (gpt-6-astra's review of 116092ef, r5
+# finding 10).
+argo_named="$(grep -F -A1 -e 'terraform -chdir="$ARGO_DIR" apply' -e 'terraform -chdir="$ARGO_DIR" destroy' hack/eks-gitops-session.sh |
+  grep -cF -- '-var="cluster_name=$CLUSTER" -var="region=$REGION"')"
+if [[ "$argo_named" == 2 ]]; then
+  ok "the Argo root's apply and destroy are both given the session's cluster name and region"
+else
+  bad "the Argo root is given the session's cluster name and region in $argo_named of its apply and destroy"
+fi
+
 if ((fails == 0)); then echo "check-session-teardown: all checks passed"; else echo "check-session-teardown: $fails check(s) failed"; exit 1; fi

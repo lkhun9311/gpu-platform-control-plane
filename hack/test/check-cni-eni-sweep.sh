@@ -44,6 +44,7 @@ reset() {
   : >"$work/calls"
   : >"$work/log"
   unset VPCS VPCS_RC ENIS ENIS_RC DELETE_RC
+  SESSION_VPC=vpc-1
 }
 deleted() { grep -c "delete-network-interface" "$work/calls"; }
 
@@ -70,6 +71,28 @@ if sweep_leaked_cni_enis || [ "$(deleted)" != 0 ]; then bad "an unreadable VPC l
 reset
 VPCS="vpc-1	vpc-2" ENIS="eni-1"
 if sweep_leaked_cni_enis || [ "$(deleted)" != 0 ]; then bad "two project VPCs and the sweep still deleted"; else ok "two project VPCs: nothing is deleted"; fi
+
+# The sweep is bound to the VPC this session recorded from its own cluster: the only project VPC left can be another
+# cluster's (gpt-6-astra's review of 116092ef, r5 finding 7).
+reset
+if grep -q -- "describe-vpcs.*Name=vpc-id,Values=vpc-1" <(sweep_leaked_cni_enis; cat "$work/calls"); then
+  ok "the VPC listing is narrowed to the session's own VPC"
+else
+  bad "the VPC listing is not narrowed to the session's VPC: $(grep describe-vpcs "$work/calls")"
+fi
+reset
+VPCS="vpc-2" ENIS="eni-1"
+if sweep_leaked_cni_enis || [ "$(deleted)" != 0 ]; then bad "another cluster's VPC was swept"; else ok "a VPC other than the session's is not swept"; fi
+reset
+unset SESSION_VPC
+ENIS="eni-1"
+if sweep_leaked_cni_enis || [ "$(deleted)" != 0 ] || grep -q describe-vpcs "$work/calls"; then
+  bad "a session with no recorded VPC still swept"
+else
+  ok "a session with no recorded VPC sweeps nothing and asks nothing"
+fi
+grep -q 'SESSION_VPC="$(aws eks describe-cluster --region "$REGION" --name "$CLUSTER"' "$SRC" &&
+  ok "the session reads its VPC from its own cluster" || bad "the session does not read SESSION_VPC from its cluster"
 
 reset
 ENIS="AccessDenied" ENIS_RC=254
