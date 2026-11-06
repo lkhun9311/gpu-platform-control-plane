@@ -97,13 +97,18 @@ running() { local s; s="$(ps -o stat= -p "$1")" && [ -n "$s" ] && [ "${s#Z}" = "
 # The session and its descendants, never this watchdog, which the session started and so is one of its children.
 tree() { local c; for c in $(ps -o pid= --ppid "$1"); do [ "$c" = "$$" ] || tree "$c"; done; echo "$1"; }
 if [ -n "$SESSION_PID" ] && running "$SESSION_PID"; then
-  pids="$(tree "$SESSION_PID" | paste -sd' ')"
-  echo "[ttl] stopping the overdue session $SESSION_PID and what it runs: $pids" >>"$KILL_LOG"
+  pids=" $(tree "$SESSION_PID" | paste -sd' ') "
+  echo "[ttl] stopping the overdue session $SESSION_PID and what it runs:$pids" >>"$KILL_LOG"
   # shellcheck disable=SC2086  # the pid list is split on purpose
   kill -TERM $pids >>"$KILL_LOG" 2>&1
   stop=$(($(mono) + GRACE_SECONDS))
   alive="$pids"
   while (($(mono) < stop)); do
+    # What the session's own TERM and EXIT handlers start while it shuts down is gathered too, while it can still be
+    # found as the session's descendant, and killed with the rest if it outlives the grace (codex review of 3e3896cb).
+    if running "$SESSION_PID"; then
+      for p in $(tree "$SESSION_PID"); do case "$pids" in *" $p "*) ;; *) pids="$pids$p " ;; esac; done
+    fi
     alive=""
     for p in $pids; do running "$p" && alive="$alive $p"; done
     [ -z "$alive" ] && break
@@ -117,6 +122,18 @@ if [ -n "$SESSION_PID" ] && running "$SESSION_PID"; then
 fi
 me="$(id -un)@$(uname -n)"
 unlocked=""
+# This user's terraform processes still working on the cluster root, by -chdir or by their working directory: a lock
+# whose Who is this host's user is only shown stale when none is left, since another operation by the same user on the
+# same host carries the same Who (codex review of 3e3896cb).
+live_holders() {
+  local p
+  for p in $(pgrep -u "$(id -u)" -x terraform); do
+    if [ "$(readlink "/proc/$p/cwd")" = "$WORKDIR/$CLUSTER_DIR" ] ||
+      tr '\0' ' ' <"/proc/$p/cmdline" | grep -qE -- "-chdir=($WORKDIR/)?$CLUSTER_DIR( |$)"; then
+      echo "$p"
+    fi
+  done
+}
 # A disarm that stops this watchdog stops the destroy it started too: $! is set the moment the destroy is launched, so
 # no TERM can fall between the launch and the record of it, and wait returns to run this at once (codex review).
 trap 'if [ -n "$!" ]; then kill -TERM -- "-$!"; sleep 1; kill -KILL -- "-$!"; fi; exit 143' TERM
@@ -142,12 +159,26 @@ for attempt in 1 2 3; do
   if [ "$ttl_rc" != 0 ] && [ -z "$unlocked" ] && grep -q 'Error acquiring the state lock' "$KILL_LOG.attempt"; then
     lock_id="$(sed -n 's/.*ID:[[:space:]]*\([0-9a-f-]\{36\}\).*/\1/p' "$KILL_LOG.attempt" | tail -n 1)"
     lock_who="$(sed -n 's/.*Who:[[:space:]]*\([^[:space:]]*\).*/\1/p' "$KILL_LOG.attempt" | tail -n 1)"
-    if [ -n "$lock_id" ] && [ "$lock_who" = "$me" ] && ! { [ -n "$SESSION_PID" ] && running "$SESSION_PID"; }; then
-      echo "[ttl] the state lock $lock_id is held by $lock_who, this host's user, and the session is stopped; releasing it" >>"$KILL_LOG"
-      AWS_PROFILE="$PROFILE" AWS_REGION="$REGION" timeout -k "$GRACE_SECONDS" 120 terraform -chdir="$CLUSTER_DIR" \
-        force-unlock -force "$lock_id" >>"$KILL_LOG" 2>&1 && unlocked=1
-    else
+    holders="$(live_holders | paste -sd' ')"
+    left=$((until - $(mono) - GRACE_SECONDS))
+    ((left > 120)) && left=120
+    if [ -z "$lock_id" ] || [ "$lock_who" != "$me" ] || { [ -n "$SESSION_PID" ] && running "$SESSION_PID"; }; then
       echo "[ttl] the state lock ${lock_id:-unread} is held by ${lock_who:-unread}, not this host's stopped session; left to its holder" >>"$KILL_LOG"
+    elif [ -n "$holders" ]; then
+      echo "[ttl] the state lock $lock_id is this host's user's, and terraform $holders of that user still works on $CLUSTER_DIR; left to it" >>"$KILL_LOG"
+    elif ((left < 1)); then
+      echo "[ttl] the state lock $lock_id is stale, but the ${DESTROY_SECONDS}s allowance has no time left to release it" >>"$KILL_LOG"
+    else
+      echo "[ttl] the state lock $lock_id is held by $lock_who, this host's user, with the session stopped and no terraform of that user left on $CLUSTER_DIR; releasing it" >>"$KILL_LOG"
+      # Inside what is left of the allowance, and recorded as the destroy is, so a disarm stops it too (codex review of
+      # 3e3896cb).
+      AWS_PROFILE="$PROFILE" AWS_REGION="$REGION" timeout -k "$GRACE_SECONDS" "$left" terraform -chdir="$CLUSTER_DIR" \
+        force-unlock -force "$lock_id" >>"$KILL_LOG" 2>&1 &
+      unlock=$!
+      echo "$unlock" >"$KILL_PIDFILE.destroy"
+      wait "$unlock" && unlocked=1
+      [ -n "$(pgrep -g "$unlock")" ] && kill -KILL -- "-$unlock"
+      : >"$KILL_PIDFILE.destroy"
     fi
   fi
   # timeout exits with its child and sends no KILL to a provider that ignored TERM, which stays in its group, so the
