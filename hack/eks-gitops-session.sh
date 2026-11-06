@@ -435,8 +435,10 @@ KILL_PIDFILE="$EXDIR/ttl.pid"
 # session would then disarm a dead process and leave its live watchdog to destroy the cluster (gpt-6-astra's defect
 # review of #505).
 rm -f "$KILL_PIDFILE" && [[ ! -e "$KILL_PIDFILE" ]] || die "could not remove the stale $KILL_PIDFILE before arming the kill switch"
+# This session's pid goes with it, so a session still running at the TTL is stopped before the destroy, rather than left
+# holding the state lock the destroy needs.
 setsid nohup bash -c "$(killswitch_program "$KILL_PIDFILE" "$KILL_LOG" "$PWD" $((TTL_MINUTES * 60)) \
-  $((KILL_DESTROY_MINUTES * 60)) "$AWS_PROFILE" "$REGION" "$CLUSTER_DIR" "$CLUSTER" "$TF_TRAIN_VARS" "$EXDIR")" >/dev/null 2>&1 &
+  $((KILL_DESTROY_MINUTES * 60)) "$AWS_PROFILE" "$REGION" "$CLUSTER_DIR" "$CLUSTER" "$TF_TRAIN_VARS" "$EXDIR" "" $$)" >/dev/null 2>&1 &
 # The watchdog reports its own pid, because `$!` here is the setsid process and not the watchdog.
 #
 # setsid forks the new session leader and exits, so `$!` names something that is already dead by the time the
