@@ -1862,6 +1862,16 @@ if grep -q "^rank-kill-2 .*case.json records core_limit 'inherited', the registr
 else
   bad "H2 with a mislabelled arm: $(grep -E '^rank-kill-(2|4)' <<<"$out" | cut -c1-200)"
 fi
+# Each attempt-1 rank must log its own limit: one rank's line once stood for both, and the survivor is the one in question
+# (bare codex review of 8e2eb73f).
+first_log="$(ls "$h2run/rank-kill-3"/log-*.1.txt | head -1)"
+sed -i '/^rank-env: /d' "$first_log"
+out="$(python3 "$h2" "$h2run" 2>&1)"
+if grep -q "^rank-kill-3 .*not every attempt-1 rank logged its core limit: $(basename "$first_log" | sed 's/^log-//; s/\.1\.txt$//')" <<<"$out"; then
+  ok "a case one of whose ranks logged no core limit gives no d"
+else
+  bad "H2 with one rank's line missing: $(grep '^rank-kill-3' <<<"$out" | cut -c1-200)"
+fi
 # A limit of 0 stops a piped dump only through a handler that reads it (%c) and declines, as systemd-coredump does; the
 # kernel ignores RLIMIT_CORE for a pipe (core(5)), so a treated case under any other handler tested nothing.
 sed -i '1s/ %c %h / %h /' "$h2run/rank-kill-6"/log-*.1.txt

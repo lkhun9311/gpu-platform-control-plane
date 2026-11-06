@@ -28,17 +28,27 @@ SUPPORT_S = h1_retarget.SUPPORT_S
 REFUTE_S = h1_retarget.REFUTE_S
 
 
-def logged_env(case_dir: pathlib.Path) -> tuple[set[str], set[str]]:
-    """Every core limit and core_pattern the case's attempt-1 ranks logged, as the shell read them before the trainer."""
-    first = {p["uid"] for p in score_eks.jsonl(case_dir / "pods.jsonl") if str(p.get("attempt_token")) == "1"}
-    limits, patterns = set(), set()
+def logged_env(case_dir: pathlib.Path) -> tuple[set[str], set[str], list[str]]:
+    """Every core limit and core_pattern the case's attempt-1 ranks logged, as the shell read them before the trainer,
+    and the attempt-1 Pods that logged none.
+
+    Each rank must show its own: the union of both let the faulted rank's line stand for a survivor that logged nothing,
+    and the survivor is the process whose dump is in question (bare codex review of 8e2eb73f).
+    """
+    first = sorted(p["uid"] for p in score_eks.jsonl(case_dir / "pods.jsonl") if str(p.get("attempt_token")) == "1")
+    limits, patterns, silent = set(), set(), []
     for uid in first:
-        for log in sorted(case_dir.glob(f"log-{uid}.*.txt")):
-            for limit, pattern in re.findall(r"^rank-env: core_limit=(\S+) core_pattern=(.*?) torch_nccl_async_error_handling=",
-                                             log.read_text(errors="replace"), re.M):
-                limits.add(limit)
-                patterns.add(pattern)
-    return limits, patterns
+        found = [m for log in sorted(case_dir.glob(f"log-{uid}.*.txt"))
+                 for m in re.findall(r"^rank-env: core_limit=(\S+) core_pattern=(.*?) torch_nccl_async_error_handling=",
+                                     log.read_text(errors="replace"), re.M)]
+        if not found:
+            silent.append(uid)
+        for limit, pattern in found:
+            limits.add(limit)
+            patterns.add(pattern)
+    if len(first) != score_eks.WORLD:
+        silent.append(f"{len(first)} attempt-1 Pods, not {score_eks.WORLD}")
+    return limits, patterns, silent
 
 
 def limit_stops_dump(pattern: str) -> bool:
@@ -127,7 +137,7 @@ def main(argv: list[str]) -> int:
         row: dict = {"verdict": verdict, "arm": want}
         try:
             spec = score_eks.load_json(run / name / "case.json")
-            logged, patterns = logged_env(run / name)
+            logged, patterns, silent = logged_env(run / name)
         except (ValueError, KeyError, TypeError, OSError) as exc:
             results[name] = {**row, "invalid": f"its arm could not be read: {type(exc).__name__}: {str(exc)[:120]}"}
             continue
@@ -135,6 +145,9 @@ def main(argv: list[str]) -> int:
         row["logged_core_pattern"] = sorted(patterns)
         if spec.get("core_limit") != want:
             results[name] = {**row, "invalid": f"case.json records core_limit {spec.get('core_limit')!r}, the registration {want!r}"}
+            continue
+        if silent:
+            results[name] = {**row, "invalid": f"not every attempt-1 rank logged its core limit: {', '.join(silent)}"}
             continue
         # The treatment is shown applied by the ranks' own reading; the control's limit is whatever the node gave, but
         # it must have been read, and must not be 0, or the control ran treated.
