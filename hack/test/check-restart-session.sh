@@ -1836,7 +1836,7 @@ for i in 1 2 3 4 5 6; do
   python3 -c 'import json, sys; p = sys.argv[1]; c = json.load(open(p)); c["core_limit"] = sys.argv[2]; json.dump(c, open(p, "w"))' "$h2run/rank-kill-$i/case.json" "$arm"
 done
 out="$(python3 "$h2" "$h2run" 2>&1)"
-if [[ "$(grep -c '"invalid": "the ranks logged core_limit nothing' <<<"$out")" == 6 ]] && grep -q '^H2 NOT ASSESSED' <<<"$out"; then
+if [[ "$(grep -c '"invalid": "not every attempt-1 rank logged its core limit' <<<"$out")" == 6 ]] && grep -q '^H2 NOT ASSESSED' <<<"$out"; then
   ok "a rank-kill case whose ranks logged no core limit gives no d, whichever its arm"
 else
   bad "H2 without the ranks' lines: $(tail -3 <<<"$out")"
