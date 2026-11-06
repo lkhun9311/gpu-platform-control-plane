@@ -61,14 +61,18 @@ A limit of 1 would make the kernel refuse a piped dump on its own ("RLIMIT_CORE 
 The bars are H1's, chosen then from the mechanism and kept so the two read alike: 30 s is just under every slow stop seen (38 to 39 s), and 15 s leaves the barrier's 2 s poll and a TERM'd rank's second well inside it.
 
 What H2 can and cannot say.
-SUPPORTED says that, on these nodes, turning core dumps off for the ranks shortened the stop after a rank's death, three cases against three.
+SUPPORTED says that, on these nodes, turning core dumps off for the ranks shortened `d`, three cases against three.
+`d` is the controller's interval, from its observation of attempt 1's failure to its confirmation that attempt 1 stopped, not the time from the fault: the observation can itself come late, so a later observation alone could shorten `d` with no shorter stop.
+That the stop after the fault was shorter is read from the survivors' `finished_after_fault_s`, printed beside each `d`, not from H2's outcome.
 It does not by itself say a core dump took the time; the mechanism is read beside it, not decided by it:
 - `h2_corelimit.py` prints, for each case, how the surviving rank's container ended: its exit code (134 for SIGABRT, 137 for SIGKILL), its reason, its finish time after the fault, and when its deletion was asked for.
   The stream records give the end, or the Pod watch's last terminated state when the Pod was deleted first; with neither, the end is printed as unread, never left out.
   The deletion request is the first `deletionTimestamp` less its `deletionGracePeriodSeconds`: the API server stamps the request plus the grace, so the stamp itself is the grace deadline, 30 s after the request.
 - An untreated survivor ending 134 about 40 s after the fault, and a treated one ending 134 within seconds, is what a core dump predicts.
-- An untreated survivor ending 137 about 30 s after its deletion was asked for is what a SIGKILL at the end of the grace period predicts.
-  It does not say no dump was being written: a dump still in progress at the grace's end is killed the same way, so 137 separates "ended by its own abort" from "ended by the kubelet", not "dumped" from "did not".
+- An untreated survivor ending 137 about 30 s after its deletion was asked for is consistent with a SIGKILL at the end of the grace period, not proof of it.
+  137 is the status the container's PID-1 shell passes on from the trainer it waited for, and says only that the trainer died of SIGKILL, not who sent it: the kubelet at the grace's end, or anything else that kills it, such as the kernel under memory pressure.
+  Nor does it say no dump was being written: a dump still in progress when the SIGKILL comes ends the same way.
+- The deletion request is printed only where one watch saw the survivor's Pod both before and at its deletion; a watch reopened after it lists the Pod afresh, possibly with a grace already shortened, and the request is then printed as not shown.
 - `rank-env` shows the node's `core_pattern` as the rank saw it, which is the only record of it this run makes.
 
 REFUTED says that setting the ranks' core limit to 0 did not make the stop short.
@@ -118,6 +122,7 @@ As `retarget`: the nightly destroy workflow is disabled by hand for the session 
   Kind cannot show a core dump's cost: its ranks run on CPU and this host writes no cores (`ulimit -c` is 0), so the rehearsal shows the arms applied, logged and scored, not H2.
   `hack/restart-lifecycle-kind-20261106T013822Z` at `8aa8f43d` met it for that runner: every case ACCEPTED, the lifecycle check 0 FAIL, the outcome check 0 FAIL once run `f` was registered in it, each rank's limit logged in its arm, and H2 through the kind shim INCONCLUSIVE because the slow stop does not recur on kind, as expected.
   The collector changed after it (below), so the gate is met again only by a rehearsal of the changed runner, which must also show the Pod watch recorded and every survivor's end read from it or from its streams.
+  `hack/restart-lifecycle-kind-20261106T071657Z` at `cb98ae98` meets it: every case ACCEPTED, both checks 0 FAIL, each attempt-1 rank's limit logged in its arm, a Pod watch recorded in every case, every `rank-kill` survivor's end and deletion request read, and H2 through the kind shim INCONCLUSIVE.
 - A bare `codex review` of the changes since `3ca2ed0e`, its findings fixed or recorded.
 - The launch checks of `retarget`: operator pin, destroy workflow disabled by hand, deadlines armed, a fresh SSO login.
 
@@ -134,6 +139,20 @@ Each was checked against the code and the kind rehearsal before it was fixed; no
 | 4 | the survivor's exit code is read only when its stream ends, and a Pod deleted first leaves none | kind run `f`, `rank-kill-1/streams.jsonl`: the survivor runs, runs, then is `gone` | a Pod watch apart from the streams (`pod-watch.json`); `h2_corelimit.py` reads the end from it when the streams have none, and prints it as unread when neither has it |
 | 5 | `deletion` was the Pod's `deletionTimestamp`, which is the request plus the grace | kind run `f`, `dcgm-1/streams.jsonl`: finished `01:52:29`, `deletion` `01:52:59` | the grace is recorded beside it, and the request is the first stamp less its grace |
 | 6 | `phases_eks.py` pooled the arms in its medians | its key was `(kind, class)` | the key and label carry the arm when a kind ran two |
+
+A second round of the same review, of `cb98ae98`, found 1 to 6 fixed except that 4 and 5 were incomplete, and returned NO-GO with four more:
+
+| # | finding | checked | change |
+|---|---|---|---|
+| 7 | each reopened Pod watch lists afresh, so a change between two watches is lost, and a later watch's first deletion, its grace already shortened, was read as the request | `kubectl get --watch` keeps no resourceVersion across invocations; the reconnect was reproduced in the fixture | the collector marks each watch it opens; the request is printed only where one watch saw the Pod before and at its deletion, and otherwise as not shown |
+| 8 | SUPPORTED was said to shorten the stop after the fault, but `d` starts at the controller's observation, which `h1_retarget.py` accepts up to 60 s after the fault | `CHRONOLOGY_BEFORE_S = 60.0` | SUPPORTED is read as a shorter `d`; a shorter stop after the fault is read from the survivors' finish times beside it |
+| 9 | 137 was said to mean "ended by the kubelet", but the status is the shell's report of the trainer's SIGKILL from any sender | the PID-1 shell passes on its child's status | 137 is read as consistent with the grace's end, not as proof |
+| 10 | a hung foreground `terraform` holding the state lock would make the watchdog's three ten-minute lock waits fail, leaving the cluster's non-GPU resources billing | the foreground destroy has no overall bound; the state lock is `use_lockfile`; the watchdog does not take over a held lock | not changed before this run (below) |
+
+Finding 10 was in every paid session of this apparatus, `retarget`'s included; this stage does not add to it.
+What it leaves billing is bounded apart from it: the GPU group's scale-down is a one-shot EventBridge Scheduler schedule created by `hack/lib/gpu-ttl.sh`, not by Terraform, and the bootstrap's study sweeper terminates instances past their deadline tag every five minutes, so a stuck lock leaves the control plane, the CPU node, the NAT and EFS, about $0.26 an hour (the cost table's "the rest").
+For this run it is covered by the operator, who watches the teardown, confirms nothing is left in the region, and on a stuck lock stops the foreground `terraform` and releases the lock by hand before the watchdog's destroy.
+Bounding the foreground operations and handing a held lock to the watchdog safely is a change to the kill switch, left to its own review.
 
 ## What this does not show
 
