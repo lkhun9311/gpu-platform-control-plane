@@ -236,6 +236,27 @@ func TestApiserverRefusesABlankImage(t *testing.T) {
 	}
 }
 
+func TestApiserverRefusesAMissingClaimInTheWordsTheRestartGateReads(t *testing.T) {
+	// The paid restart session's gate (restart_webhook_refused_claim in hack/lib/restart-session.sh) credits the
+	// webhook only with a refusal carrying these three phrases, because any failed request passed for one before.
+	// So the phrases are pinned here, through a real apiserver, where a reworded message or a different error path
+	// would show, instead of failing the gate on a cluster that costs money.
+	ctx, c := startAdmissionEnv(t)
+
+	err := c.Create(ctx, mltj("missing-claim", func(j *platformv1.MLTrainingJob) {
+		distributedWithClaim(j)
+		j.Spec.StateVolume.ClaimName = "no-such-claim"
+	}))
+	if err == nil {
+		t.Fatal("apiserver accepted a distributed job whose claim does not exist; the webhook was not consulted")
+	}
+	for _, want := range []string{"denied the request", "spec.stateVolume.claimName", "claim not found"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("the refusal lacks %q, which the restart gate requires: %v", want, err)
+		}
+	}
+}
+
 func TestApiserverAcceptsARunnableSpec(t *testing.T) {
 	// The control. Without it, a webhook that rejected everything — or a manifest whose rules matched the
 	// wrong resource and errored on every write — would pass the rejection test above.
