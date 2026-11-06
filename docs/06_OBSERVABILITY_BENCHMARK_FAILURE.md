@@ -154,7 +154,9 @@ A card's DCGM fields carry a fault under the operator's own policy (`internal/gp
 
 ### GPUFaultFieldsNotCollected
 
-A node exports `DCGM_FI_DEV_GPU_UTIL` but not the Xid and double-bit ECC fields, so `GPUFaultSignalPresent` cannot fire there.
+A card exports `DCGM_FI_DEV_GPU_UTIL` but lacks the Xid field, the double-bit ECC field, or both, so `GPUFaultSignalPresent` cannot fire for that field on that card.
+It is judged card by card: other cards on the same node reporting both fields do not cover it.
+A card whose ECC is turned off is one way to get here, since DCGM then has no ECC value to export.
 Deploy the exporter from `config/dcgm-exporter-ops` (or `config/dcgm-exporter-fault`), which collect them.
 The operator's fault path on the same node reports `FieldMissing` for the same reason.
 

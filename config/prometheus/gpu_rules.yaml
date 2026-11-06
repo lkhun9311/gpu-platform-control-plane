@@ -58,19 +58,27 @@ spec:
 
         # GPUFaultSignalPresent cannot fire for a card whose exporter does not collect the fault fields.
         # config/dcgm-exporter collects utilisation alone, on purpose, so a fleet deployed from it reads as fault-free forever.
-        # This says so for each node that reports utilisation and no Xid field: the exporter is there, the fault fields are not.
+        # This says so for each card that reports utilisation and lacks either fault field: the exporter is there, the fault fields are not.
+        #
+        # Card by card, not node by node: a node whose card 0 reports both fields while card 1 reports no ECC field (DCGM
+        # leaves the field blank when a card's ECC is off) would otherwise count as covered, and card 1's faults would be unseen.
+        # The card is (Hostname, gpu, UUID), the same labels GPUFaultSignalPresent keeps.
         - alert: GPUFaultFieldsNotCollected
           expr: |
-            count by (Hostname) (DCGM_FI_DEV_GPU_UTIL)
-              unless on (Hostname)
-            (count by (Hostname) (DCGM_FI_DEV_XID_ERRORS) and on (Hostname) count by (Hostname) (DCGM_FI_DEV_ECC_DBE_VOL_TOTAL))
+            count by (Hostname, gpu, UUID) (DCGM_FI_DEV_GPU_UTIL)
+              unless on (Hostname, gpu, UUID)
+            (
+              count by (Hostname, gpu, UUID) (DCGM_FI_DEV_XID_ERRORS)
+                and on (Hostname, gpu, UUID)
+              count by (Hostname, gpu, UUID) (DCGM_FI_DEV_ECC_DBE_VOL_TOTAL)
+            )
           for: 10m
           labels:
             severity: warning
           annotations:
-            summary: "{{ $labels.Hostname }} exports GPU utilisation but not the Xid or double-bit ECC field"
+            summary: "GPU {{ $labels.gpu }} on {{ $labels.Hostname }} exports utilisation but not the Xid or double-bit ECC field"
             description: >-
-              GPUFaultSignalPresent is blind on this node. Deploy the exporter from config/dcgm-exporter-ops, which collects
+              GPUFaultSignalPresent is blind on this card. Deploy the exporter from config/dcgm-exporter-ops, which collects
               DCGM_FI_DEV_XID_ERRORS and DCGM_FI_DEV_ECC_DBE_VOL_TOTAL.
             runbook_url: https://github.com/lkhun9311/gpu-platform-control-plane/blob/main/docs/06_OBSERVABILITY_BENCHMARK_FAILURE.md#gpufaultfieldsnotcollected
 
