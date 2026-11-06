@@ -32,6 +32,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -602,9 +603,7 @@ var _ = Describe("metric names", func() {
 		limited.Handler().ServeHTTP(httptest.NewRecorder(), authedRequest(`{"model":"llama-3"}`))
 
 		// (3) A 502 -> upstream_errors_total
-		dead := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
-		addr := dead.URL
-		dead.Close()
+		addr := refusedURL().String()
 		broken := newProxyServer(addr, 600)
 		broken.Handler().ServeHTTP(httptest.NewRecorder(), authedRequest(`{"model":"llama-3"}`))
 
@@ -1170,11 +1169,8 @@ var _ = Describe("backend fallback", func() {
 		}))
 		defer up.Close()
 
-		// A listener that is closed, so dialling it fails at once rather than hanging.
-		dead := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
-		deadURL, err := url.Parse(dead.URL)
-		Expect(err).NotTo(HaveOccurred())
-		dead.Close()
+		// An address that refuses at once rather than hanging.
+		deadURL := refusedURL()
 		liveURL, err := url.Parse(up.URL)
 		Expect(err).NotTo(HaveOccurred())
 
@@ -1318,9 +1314,7 @@ var _ = Describe("fallback and the client's own cancellation", func() {
 	// Mutation that turns this red: return false unconditionally.
 	It("reports that it advanced when a spare really served the request", func() {
 		var hits int
-		dead := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
-		deadURL, _ := url.Parse(dead.URL)
-		dead.Close()
+		deadURL := refusedURL()
 		spare := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			hits++
 			w.WriteHeader(http.StatusOK)
@@ -1466,9 +1460,7 @@ var _ = Describe("fallback and the client's own cancellation", func() {
 	//
 	// Mutation that turns this red: report every failure as the upstream status, defaulting to 200.
 	It("still reports an unreachable backend as a proxy failure", func() {
-		dead := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
-		deadURL, _ := url.Parse(dead.URL)
-		dead.Close()
+		deadURL := refusedURL()
 		spare := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 		}))
@@ -1497,9 +1489,7 @@ var _ = Describe("fallback and the client's own cancellation", func() {
 	//
 	// Mutation that turns this red: pass err.Error() to writeJSONError instead of publicUpstreamMessage.
 	It("tells the client nothing about where the backend lives", func() {
-		dead := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
-		deadURL, _ := url.Parse(dead.URL)
-		dead.Close()
+		deadURL := refusedURL()
 
 		req, err := http.NewRequest(http.MethodPost, "http://gw/v1/chat/completions", nil)
 		Expect(err).NotTo(HaveOccurred())
@@ -1519,9 +1509,7 @@ var _ = Describe("fallback and the client's own cancellation", func() {
 	// Mutation that turns this red: remove the maxBackendAttempts truncation.
 	It("stops after the cap however many stale backends a model has", func() {
 		var dialled int
-		dead := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
-		deadURL, _ := url.Parse(dead.URL)
-		dead.Close()
+		deadURL := refusedURL()
 		urls := []*url.URL{deadURL, deadURL, deadURL, deadURL}
 
 		req, err := http.NewRequest(http.MethodPost, "http://gw/v1/chat/completions", nil)
@@ -1735,3 +1723,19 @@ var _ = Describe("fallback on a retryable upstream status", func() {
 		Expect(rec.Code).To(Equal(http.StatusInternalServerError))
 	})
 })
+
+// refusedURL is an address that refuses every connection for the rest of the spec: its port is bound and never
+// listened on, so it is held and no other listener, in this process or another, can be handed it.
+// A closed httptest server's port was free again at once, and once the next listener the spec opened got it, so the
+// backend meant to be unreachable answered 200 (CI run 42206459825 on PR #510, proxy_test.go's 502 check).
+func refusedURL() *url.URL {
+	fd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_STREAM, 0)
+	Expect(err).NotTo(HaveOccurred())
+	DeferCleanup(func() { _ = syscall.Close(fd) })
+	Expect(syscall.Bind(fd, &syscall.SockaddrInet4{Addr: [4]byte{127, 0, 0, 1}})).To(Succeed())
+	sa, err := syscall.Getsockname(fd)
+	Expect(err).NotTo(HaveOccurred())
+	u, err := url.Parse(fmt.Sprintf("http://127.0.0.1:%d", sa.(*syscall.SockaddrInet4).Port))
+	Expect(err).NotTo(HaveOccurred())
+	return u
+}
