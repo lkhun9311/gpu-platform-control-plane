@@ -4,6 +4,8 @@ import (
 	"slices"
 	"testing"
 
+	corev1 "k8s.io/api/core/v1"
+
 	platformv1 "github.com/lkhun9311/gpu-mlops-platform-control-plane/api/v1"
 )
 
@@ -96,5 +98,25 @@ func TestAReplacedNodeIsPinnedToItsAttempt(t *testing.T) {
 	}
 	if got := machineID(a, "m"); got != "u" {
 		t.Fatalf("machineID of a recorded node: %q", got)
+	}
+}
+
+// A terminal rank Pod is released only once its node is in its attempt's record, unless the job is being deleted and
+// no next attempt needs the node; discover writes the record first, so only this test reaches the rule.
+//
+// Mutation that turns this red: drop the recorded check in rankStopped.
+func TestARankIsReleasedOnlyOnceItsNodeIsRecorded(t *testing.T) {
+	mltj := &platformv1.MLTrainingJob{Status: platformv1.MLTrainingJobStatus{Attempts: []platformv1.TrainingAttempt{{Number: 1}}}}
+	p := &corev1.Pod{Labels: map[string]string{mltjAttemptLabel: "1"}, Spec: corev1.PodSpec{NodeName: "n"},
+		Status: corev1.PodStatus{Phase: corev1.PodFailed}}
+	if rankStopped(mltj, p, true) {
+		t.Fatal("released a terminal rank whose node is not recorded")
+	}
+	if !rankStopped(mltj, p, false) {
+		t.Fatal("held a terminal rank when no record is needed")
+	}
+	mltj.Status.Attempts[0].Nodes = []string{"n"}
+	if !rankStopped(mltj, p, true) {
+		t.Fatal("held a terminal rank whose node is recorded")
 	}
 }
