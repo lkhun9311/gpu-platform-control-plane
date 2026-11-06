@@ -1,0 +1,19 @@
+[31m╷[0m[0m
+[31m│[0m [0m[1m[31mError: [0m[0m[1mError acquiring the state lock[0m
+[31m│[0m [0m
+[31m│[0m [0m[0mError message: resource temporarily unavailable
+[31m│[0m [0mLock Info:
+[31m│[0m [0m  ID:        0449cea0-ffd7-fbe2-19a7-a323ada5c4ec
+[31m│[0m [0m  Path:      terraform.tfstate
+[31m│[0m [0m  Operation: OperationTypeApply
+[31m│[0m [0m  Who:       lkhun9311@genesis
+[31m│[0m [0m  Version:   1.16.0
+[31m│[0m [0m  Created:   2026-11-06 12:07:52.489588947 +0000 UTC
+[31m│[0m [0m  Info:      
+[31m│[0m [0m
+[31m│[0m [0m
+[31m│[0m [0mTerraform acquires a state lock to protect the state from being written
+[31m│[0m [0mby multiple users at the same time. Please resolve the issue above and try
+[31m│[0m [0magain. For most commands, you can disable locking with the "-lock=false"
+[31m│[0m [0mflag, but this is not recommended.
+[31m╵[0m[0m

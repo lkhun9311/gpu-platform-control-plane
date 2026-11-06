@@ -51,6 +51,21 @@ if [[ "${TF_HANGS:-}" == provider ]]; then
   [[ -n "${PROVIDER_PID_FILE:-}" ]] && echo $! >"$PROVIDER_PID_FILE"
   exec sleep 300
 fi
+# A destroy refused by a held state lock, in terraform's own words (captured from 1.16.0 with the holder's Who replaced),
+# until a force-unlock is recorded; force-unlock records its arguments.
+if [[ "${TF_HANGS:-}" == lock ]]; then
+  case "$*" in
+    *force-unlock*)
+      echo "$*" >>"$TF_LOCK_DIR/unlocks"
+      [[ -n "${TF_UNLOCK_HANGS:-}" ]] && exec sleep 300
+      exit 0 ;;
+    *destroy*)
+      [[ -e "$TF_LOCK_DIR/unlocks" ]] && exit 0
+      sed "s/lkhun9311@genesis/$TF_LOCK_WHO/" "$TF_LOCK_ERROR" >&2
+      [[ -n "${TF_LOCK_SLOW:-}" ]] && sleep "$TF_LOCK_SLOW"
+      exit 1 ;;
+  esac
+fi
 exit 0
 EOF
 chmod +x "$dir/bin/terraform"
@@ -161,8 +176,109 @@ else
   bad "the succeeding destroy: $(tail -3 "$dir/kill.log" | tr '\n' ' ')"
 fi
 
+# A session still running when the TTL fires is stopped with everything it runs before the destroy, and the watchdog,
+# which the session started and so is one of its children, survives that to destroy: a hung foreground terraform holding
+# the state lock once defeated every destroy attempt (gpt-6-astra's second attack before the corelimit run).
+: >"$dir/kill.log"
+: >"$dir/session.pid"
+# Its TERM handler starts a cleanup process while it shuts down, as train_down does; that is stopped with the rest.
+PATH="$dir/bin:$PATH" setsid bash -c '. hack/lib/session-teardown.sh; echo $$ >"$1/session.pid"
+  trap "sleep 300 & echo \$! >\"$1/cleanup.pid\"; sleep 10; exit 143" TERM
+  sleep 300 & echo $! >"$1/session-child.pid"
+  bash -c "$(killswitch_program "$1/ttl.pid" "$1/kill.log" "$1" 1 30 gpu-lab ap-northeast-2 infra/aws/cluster gpu-platform "" "$1" 4 $$)" &
+  wait' _ "$dir" &
+# The verdict line, not the TTL line, which says force-destroying too and once ended this wait at once.
+for _ in $(seq 50); do grep -qE 'force-destroy (SUCCEEDED|FAILED)' "$dir/kill.log" && break; sleep 0.2; done
+session="$(cat "$dir/session.pid")" child="$(cat "$dir/session-child.pid")" cleanup="$(cat "$dir/cleanup.pid" 2>&1)"
+if grep -q "stopping the overdue session $session and what it runs:" "$dir/kill.log" && grep -q 'force-destroy SUCCEEDED' "$dir/kill.log" &&
+  [[ "$cleanup" =~ ^[0-9]+$ ]] && ! ps -o stat= -p "$session" | grep -qv '^Z' && ! ps -o stat= -p "$child" | grep -qv '^Z' &&
+  ! ps -o stat= -p "$cleanup" | grep -qv '^Z'; then
+  ok "an overdue session, its children and what its TERM handler starts are stopped, and the watchdog it started still destroys"
+else
+  bad "the overdue session: $(tr '\n' ' ' <"$dir/kill.log" | cut -c1-300)"
+  for p in "$session" "$child" "$cleanup"; do [[ "$p" =~ ^[0-9]+$ ]] && kill -9 "$p"; done
+fi
+
+# A destroy refused by a lock this host's user holds, with its session stopped, releases that lock once and destroys;
+# a lock anyone else holds is left to its holder. The holder is read through terraform's ANSI colour and border.
+me="$(id -un)@$(uname -n)"
+for who in "$me" "runner@fv-az123-456"; do
+  : >"$dir/kill.log"
+  rm -rf "$dir/lock" && mkdir -p "$dir/lock"
+  TF_HANGS=lock TF_LOCK_DIR="$dir/lock" TF_LOCK_WHO="$who" TF_LOCK_ERROR="$PWD/hack/test/session-teardown/terraform-lock-error.txt" \
+    PATH="$dir/bin:$PATH" bash -c "$(program 30)"
+  unlocks="$(cat "$dir/lock/unlocks" 2>&1)"
+  if [[ "$who" == "$me" ]]; then
+    if [[ "$unlocks" == *"force-unlock -force 0449cea0-ffd7-fbe2-19a7-a323ada5c4ec" ]] && grep -q 'force-destroy SUCCEEDED' "$dir/kill.log" &&
+      grep -q "held by $me, this host's user" "$dir/kill.log"; then
+      ok "a lock held by this host's stopped session is released once and the destroy succeeds"
+    else
+      bad "the lock held by this host: unlocks '$unlocks', $(grep '\[ttl\]' "$dir/kill.log" | tr '\n' ' ' | cut -c1-300)"
+    fi
+  elif [[ ! -e "$dir/lock/unlocks" ]] && grep -q 'force-destroy FAILED' "$dir/kill.log" &&
+    grep -q "held by $who, not this host's stopped session; left to its holder" "$dir/kill.log"; then
+    ok "a lock another holder has is left to it, and the destroy is reported FAILED"
+  else
+    bad "the lock held by another: unlocks '$unlocks', $(grep '\[ttl\]' "$dir/kill.log" | tr '\n' ' ' | cut -c1-300)"
+  fi
+done
+
+# A terraform of this user still working on the cluster root carries the same Who, so its lock is not released while it
+# runs (codex review of 3e3896cb). The stand-in is a script named terraform, so it is found by name as the real one is.
+mkdir -p "$dir/holder"
+printf '#!/bin/bash\nwhile :; do sleep 1; done\n' >"$dir/holder/terraform"
+chmod +x "$dir/holder/terraform"
+(cd "$PWD" && exec "$dir/holder/terraform" -chdir=infra/aws/cluster plan) &
+holder=$!
+sleep 0.5
+: >"$dir/kill.log"
+rm -rf "$dir/lock" && mkdir -p "$dir/lock"
+TF_HANGS=lock TF_LOCK_DIR="$dir/lock" TF_LOCK_WHO="$me" TF_LOCK_ERROR="$PWD/hack/test/session-teardown/terraform-lock-error.txt" \
+  PATH="$dir/bin:$PATH" bash -c "$(program 30)"
+kill "$holder"
+if [[ ! -e "$dir/lock/unlocks" ]] && grep -q "terraform $holder of that user still works on infra/aws/cluster; left to it" "$dir/kill.log"; then
+  ok "a lock whose holder, this host's user, still runs terraform on the cluster root is left to it"
+else
+  bad "the live holder: $(grep '\[ttl\]' "$dir/kill.log" | tr '\n' ' ' | cut -c1-300)"
+fi
+
+# The release is cut to what is left of the allowance: a refusal reported at its end is not followed by a force-unlock
+# that would run past the deadline the credential covers (codex review of 3e3896cb).
+: >"$dir/kill.log"
+rm -rf "$dir/lock" && mkdir -p "$dir/lock"
+TF_HANGS=lock TF_LOCK_SLOW=5 TF_LOCK_DIR="$dir/lock" TF_LOCK_WHO="$me" TF_LOCK_ERROR="$PWD/hack/test/session-teardown/terraform-lock-error.txt" \
+  PATH="$dir/bin:$PATH" bash -c "$(program 3)"
+if [[ ! -e "$dir/lock/unlocks" ]] && grep -q 'is stale, but the 3s allowance has no time left to release it' "$dir/kill.log"; then
+  ok "a stale lock found with no allowance left is not released past the deadline"
+else
+  bad "the late release: $(grep '\[ttl\]' "$dir/kill.log" | tr '\n' ' ' | cut -c1-300)"
+fi
+
+# A disarm during the release stops it too: it is recorded as the destroy is (codex review of 3e3896cb).
+: >"$dir/kill.log"
+: >"$dir/ttl.pid"
+: >"$dir/ttl.pid.destroy"
+rm -rf "$dir/lock" && mkdir -p "$dir/lock"
+TF_HANGS=lock TF_UNLOCK_HANGS=1 TF_LOCK_DIR="$dir/lock" TF_LOCK_WHO="$me" TF_LOCK_ERROR="$PWD/hack/test/session-teardown/terraform-lock-error.txt" \
+  PATH="$dir/bin:$PATH" setsid bash -c "$(program 600)" &
+for _ in $(seq 50); do [[ -s "$dir/lock/unlocks" && -s "$dir/ttl.pid.destroy" ]] && break; sleep 0.2; done
+sleep 0.3
+watchdog="$(cat "$dir/ttl.pid")" unlock="$(cat "$dir/ttl.pid.destroy")"
+before="$(pgrep -g "$unlock" | wc -l)"
+out="$(bash -c '. hack/lib/session-teardown.sh; killswitch_disarm "$1" "$2"; echo "rc=$?"' _ "$watchdog" "$dir/ttl.pid")"
+left=0
+for p in $(pgrep -g "$watchdog,$unlock"); do [[ "$(ps -o stat= -p "$p")" == Z* ]] || left=$((left + 1)); done
+if [[ "$unlock" =~ ^[0-9]+$ && "$before" -ge 1 && "$out" == *"rc=0" && "$left" == 0 ]] && grep -q 'releasing it' "$dir/kill.log"; then
+  ok "disarming during the release stops the force-unlock it started ($before process(es) in its group)"
+else
+  bad "disarming during the release: unlock '$unlock' with $before process(es), $out, $left left"
+  [[ "$unlock" =~ ^[0-9]+$ ]] && kill -9 -- "-$unlock"
+  [[ "$watchdog" =~ ^[0-9]+$ ]] && kill -9 -- "-$watchdog"
+fi
+
 # The session uses both, so a check of the library is a check of what the session runs.
-for f in 'teardown_residue "$REGION" "$CLUSTER" "$EXDIR"' 'killswitch_program "$KILL_PIDFILE"' '$((TTL_MINUTES + KILL_DESTROY_MINUTES))'; do
+for f in 'teardown_residue "$REGION" "$CLUSTER" "$EXDIR"' 'killswitch_program "$KILL_PIDFILE"' '$((TTL_MINUTES + KILL_DESTROY_MINUTES))' \
+  '"$TF_TRAIN_VARS" "$EXDIR" "" $$)'; do
   if grep -qF -- "$f" hack/eks-gitops-session.sh; then ok "the session calls $f"; else bad "the session does not call $f"; fi
 done
 
