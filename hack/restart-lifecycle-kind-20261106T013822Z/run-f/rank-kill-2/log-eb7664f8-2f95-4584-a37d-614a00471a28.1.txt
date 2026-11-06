@@ -1,0 +1,49 @@
+rank-env: core_limit=0 core_pattern=core torch_nccl_async_error_handling=unset
+/usr/local/lib/python3.12/site-packages/torch/_subclasses/functional_tensor.py:295: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at ../torch/csrc/utils/tensor_numpy.cpp:84.)
+  cpu = _conversion_method_template(device=torch.device("cpu"))
+{"ts": "2026-11-06T01:45:24.711526+00:00", "run_id": "rst-rank-kill-2-014523", "attempt": 1, "rank": 0, "event": "candidates", "latest": null, "offered": []}
+{"ts": "2026-11-06T01:45:24.711816+00:00", "run_id": "rst-rank-kill-2-014523", "attempt": 1, "rank": 0, "event": "restart_from_zero", "load_mode": "full"}
+{"ts": "2026-11-06T01:45:25.116862+00:00", "run_id": "rst-rank-kill-2-014523", "attempt": 1, "rank": 0, "event": "start", "world_size": 2, "load_mode": "full", "resumed_from_step": 0, "steps": 30, "fault": "kill-before-fsync:12:1", "torch_version": "2.5.1+cpu", "epoch": 0, "position": 0, "lr": 0.05, "backend": "gloo", "device": "cpu", "ballast_mb": 16, "volume": {"point": "/state", "mount_options": "rw,relatime", "fstype": "nfs4", "source": "10.96.57.108:/", "super_options": "rw,vers=4.1,rsize=1048576,wsize=1048576,namlen=255,hard,noresvport,fatal_neterrors=ENETDOWN:ENETUNREACH,proto=tcp,timeo=600,retrans=2,sec=sys,clientaddr=172.18.0.11,local_lock=none,addr=10.96.57.108", "dev": 9437425}, "visibility_retries": 5, "shard_delay": 0.0}
+{"ts": "2026-11-06T01:45:25.118228+00:00", "run_id": "rst-rank-kill-2-014523", "attempt": 1, "rank": 0, "event": "step", "step": 1, "loss": 20.675674438476562, "digest": "281376d89323e8ca96cfd659d02825874e2ef3bfb7540e0cb2ccec5a1b6fe739", "params": null}
+{"ts": "2026-11-06T01:45:25.163991+00:00", "run_id": "rst-rank-kill-2-014523", "attempt": 1, "rank": 0, "event": "checkpoint", "step": 1, "dir": "a1/00000001-2314095ad3d948499ad37564b6499ff1", "save_s": 0.04568231478333473}
+{"ts": "2026-11-06T01:45:27.165404+00:00", "run_id": "rst-rank-kill-2-014523", "attempt": 1, "rank": 0, "event": "step", "step": 2, "loss": 9.387578010559082, "digest": "67bc721943eef12ca69d156e0b1180b703e06bfcc82376feb6abfee94bce4eeb", "params": null}
+{"ts": "2026-11-06T01:45:27.215992+00:00", "run_id": "rst-rank-kill-2-014523", "attempt": 1, "rank": 0, "event": "checkpoint", "step": 2, "dir": "a1/00000002-832b9d8e2bf1413e8ceb6d7291407178", "save_s": 0.05050735641270876}
+{"ts": "2026-11-06T01:45:29.217248+00:00", "run_id": "rst-rank-kill-2-014523", "attempt": 1, "rank": 0, "event": "step", "step": 3, "loss": 31.876117706298828, "digest": "afdeeb5ec57634dce0e6b7bccf55587a85b0055391dab70eaaf6373148118081", "params": null}
+{"ts": "2026-11-06T01:45:29.268935+00:00", "run_id": "rst-rank-kill-2-014523", "attempt": 1, "rank": 0, "event": "checkpoint", "step": 3, "dir": "a1/00000003-c4e784fb0a3643bc955e28bbff4aed3e", "save_s": 0.05160027649253607}
+{"ts": "2026-11-06T01:45:31.270481+00:00", "run_id": "rst-rank-kill-2-014523", "attempt": 1, "rank": 0, "event": "step", "step": 4, "loss": 14.188834190368652, "digest": "b07b1f3661c883767febd4ca14853328a5c882ae576c8c0d576dc3af7f9a908e", "params": null}
+{"ts": "2026-11-06T01:45:31.320194+00:00", "run_id": "rst-rank-kill-2-014523", "attempt": 1, "rank": 0, "event": "checkpoint", "step": 4, "dir": "a1/00000004-6b47ccd4f3ed4ea39c66758d0fc612d6", "save_s": 0.04963023588061333}
+{"ts": "2026-11-06T01:45:33.321451+00:00", "run_id": "rst-rank-kill-2-014523", "attempt": 1, "rank": 0, "event": "step", "step": 5, "loss": 8.523945808410645, "digest": "bb8a93dc5f65c0d6d06c90e48ee8d5a815a74f7411caea001c1ca26335ea1433", "params": null}
+{"ts": "2026-11-06T01:45:33.372843+00:00", "run_id": "rst-rank-kill-2-014523", "attempt": 1, "rank": 0, "event": "checkpoint", "step": 5, "dir": "a1/00000005-b53751220306419582c7e506924605f9", "save_s": 0.0513002872467041}
+{"ts": "2026-11-06T01:45:35.374502+00:00", "run_id": "rst-rank-kill-2-014523", "attempt": 1, "rank": 0, "event": "step", "step": 6, "loss": 5.633176803588867, "digest": "506de6d02d3b2e1388d283125b41980fe4dd0c0a0e6c80ea5be96ffac971e3de", "params": null}
+{"ts": "2026-11-06T01:45:35.424541+00:00", "run_id": "rst-rank-kill-2-014523", "attempt": 1, "rank": 0, "event": "checkpoint", "step": 6, "dir": "a1/00000006-66c2f7ddca674a9887002537ce86c575", "save_s": 0.04995123576372862}
+{"ts": "2026-11-06T01:45:37.426152+00:00", "run_id": "rst-rank-kill-2-014523", "attempt": 1, "rank": 0, "event": "step", "step": 7, "loss": 2.907865524291992, "digest": "ad8e256a6fba22236080b62385db5ffb83dd5506b8f11edd8742f24322fadbd8", "params": null}
+{"ts": "2026-11-06T01:45:37.475651+00:00", "run_id": "rst-rank-kill-2-014523", "attempt": 1, "rank": 0, "event": "checkpoint", "step": 7, "dir": "a1/00000007-d84217f90a754ecb98fbf60f7954a40c", "save_s": 0.04941443633288145}
+{"ts": "2026-11-06T01:45:39.476891+00:00", "run_id": "rst-rank-kill-2-014523", "attempt": 1, "rank": 0, "event": "step", "step": 8, "loss": 1.3561654090881348, "digest": "f7d3a1e8b4d3ab880763b80cd0459baefe6f0b549e1666a5cbee3f8af30530ba", "params": null}
+{"ts": "2026-11-06T01:45:39.531033+00:00", "run_id": "rst-rank-kill-2-014523", "attempt": 1, "rank": 0, "event": "checkpoint", "step": 8, "dir": "a1/00000008-87e66ef07ea647e19c20d44647974041", "save_s": 0.05405240785330534}
+{"ts": "2026-11-06T01:45:41.532500+00:00", "run_id": "rst-rank-kill-2-014523", "attempt": 1, "rank": 0, "event": "step", "step": 9, "loss": 0.4112793207168579, "digest": "034feb04c83f05326c62e05fc2ba26791598863d593997ea102b49660bfa4e9b", "params": null}
+{"ts": "2026-11-06T01:45:41.583697+00:00", "run_id": "rst-rank-kill-2-014523", "attempt": 1, "rank": 0, "event": "checkpoint", "step": 9, "dir": "a1/00000009-50ca9fe35d944d21af96560c6ca562f2", "save_s": 0.051103987731039524}
+{"ts": "2026-11-06T01:45:43.585187+00:00", "run_id": "rst-rank-kill-2-014523", "attempt": 1, "rank": 0, "event": "step", "step": 10, "loss": 23.762598037719727, "digest": "b3049f668ceb6236647ab2e198a794c280848f8b11a87c2c19dec1e52441a5ed", "params": null}
+{"ts": "2026-11-06T01:45:43.639515+00:00", "run_id": "rst-rank-kill-2-014523", "attempt": 1, "rank": 0, "event": "checkpoint", "step": 10, "dir": "a1/00000010-c34a37b32b1d446883b32d2403ccfaf8", "save_s": 0.0542395981028676}
+{"ts": "2026-11-06T01:45:45.640804+00:00", "run_id": "rst-rank-kill-2-014523", "attempt": 1, "rank": 0, "event": "step", "step": 11, "loss": 7.59370756149292, "digest": "cd253973d69b3c16e6af3a17dac3aee6f129e861ea406aa753cfaa1c8b803c80", "params": null}
+{"ts": "2026-11-06T01:45:45.691018+00:00", "run_id": "rst-rank-kill-2-014523", "attempt": 1, "rank": 0, "event": "checkpoint", "step": 11, "dir": "a1/00000011-5224f9931632417db434f128603460e5", "save_s": 0.050126115791499615}
+{"ts": "2026-11-06T01:45:47.692325+00:00", "run_id": "rst-rank-kill-2-014523", "attempt": 1, "rank": 0, "event": "step", "step": 12, "loss": 9.155670166015625, "digest": "17bd942bf66a02ce4bc6199280eb07ef2e6b02f14f2d6edaf5aefcfa7b225e44", "params": null}
+[rank0]: Traceback (most recent call last):
+[rank0]:   File "/tmp/train.py", line 675, in <module>
+[rank0]:     sys.exit(main())
+[rank0]:              ^^^^^^
+[rank0]:   File "/tmp/train.py", line 504, in main
+[rank0]:     return train()
+[rank0]:            ^^^^^^^
+[rank0]:   File "/tmp/train.py", line 664, in train
+[rank0]:     save(rank, world, step, capture(step, model, optimiser, scheduler, epoch, position, ballast), fault)
+[rank0]:   File "/tmp/train.py", line 298, in save
+[rank0]:     reports = gather_json({"rank": rank, "step": labelled["step"], "file": os.path.basename(shard),
+[rank0]:               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/tmp/train.py", line 155, in gather_json
+[rank0]:     dist.all_gather(sizes, torch.tensor([len(data)], device=COMM_DEVICE))
+[rank0]:   File "/usr/local/lib/python3.12/site-packages/torch/distributed/c10d_logger.py", line 83, in wrapper
+[rank0]:     return func(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/usr/local/lib/python3.12/site-packages/torch/distributed/distributed_c10d.py", line 3346, in all_gather
+[rank0]:     work.wait()
+[rank0]: RuntimeError: [../third_party/gloo/gloo/transport/tcp/pair.cc:525] Read error [10.244.7.4]:5271: Connection reset by peer

@@ -1,0 +1,8 @@
+{"uid": "89370faa-e03d-4535-9cd3-f22dc16cbea8", "stream": 1, "exit": 0, "at": "2026-11-06T01:44:28.027364467Z", "container": "running"}
+{"uid": "075893ce-99d7-4e14-9d85-ea8e41436639", "stream": 1, "exit": 0, "at": "2026-11-06T01:44:28.029549258Z", "container": "running"}
+{"uid": "075893ce-99d7-4e14-9d85-ea8e41436639", "stream": 2, "exit": 0, "at": "2026-11-06T01:44:28.180332786Z", "container": "running"}
+{"uid": "89370faa-e03d-4535-9cd3-f22dc16cbea8", "stream": 2, "exit": 0, "at": "2026-11-06T01:44:28.180572537Z", "container": "terminated", "exit_code": 137, "reason": "Error", "started_at": "2026-11-06T01:44:03Z", "finished_at": "2026-11-06T01:44:27Z"}
+{"uid": "075893ce-99d7-4e14-9d85-ea8e41436639", "stream": 3, "exit": 1, "at": "2026-11-06T01:44:30.327491031Z", "container": "gone"}
+{"uid": "c8f98134-5825-4726-a279-b48d4686aa3d", "stream": 1, "exit": 0, "at": "2026-11-06T01:45:12.198475650Z", "container": "running"}
+{"uid": "50c718e4-013b-4a5c-8728-3370f2f996e4", "stream": 1, "exit": 0, "at": "2026-11-06T01:45:12.198686990Z", "container": "terminated", "exit_code": 0, "reason": "Completed", "started_at": "2026-11-06T01:44:31Z", "finished_at": "2026-11-06T01:45:11Z"}
+{"uid": "c8f98134-5825-4726-a279-b48d4686aa3d", "stream": 2, "exit": 0, "at": "2026-11-06T01:45:12.372081400Z", "container": "terminated", "exit_code": 0, "reason": "Completed", "started_at": "2026-11-06T01:44:30Z", "finished_at": "2026-11-06T01:45:11Z"}

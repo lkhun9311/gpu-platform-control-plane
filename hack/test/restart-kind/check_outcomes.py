@@ -32,6 +32,8 @@ EXPECTED = {
     "c": {"reference": (True, {"ACCEPTED"}, None), "rank-kill-1": (True, {"ACCEPTED", "FAILED"}, None),
           "rank-kill-2": (False, {"NOTRUN"}, "could not be retired")},
     "e": {c: (True, {"ACCEPTED"}, None) for c in ("reference", "no-rng-control", "rank-kill-1", "rank-kill-2", "dcgm-1", "dcgm-2")},
+    # corelimit as registered; its arms change nothing kind can show, so every case is expected ACCEPTED.
+    "f": {c: (True, {"ACCEPTED"}, None) for c in ("reference", *(f"rank-kill-{i}" for i in range(1, 7)), "dcgm-1", "dcgm-2", "dcgm-3")},
     "d": {"reference": (True, {"ACCEPTED"}, None), "rank-kill-1": (True, {"VOID"}, "VOID-before-fault"),
           "rank-kill-2": (True, {"VOID"}, "VOID-before-fault"), "dcgm-1": (False, {"NOTRUN"}, "two cases in a row were VOID")},
 }

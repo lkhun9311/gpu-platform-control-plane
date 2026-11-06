@@ -109,6 +109,7 @@ As `retarget`: the nightly destroy workflow is disabled by hand for the session 
 - `hack/test/check-restart-session.sh`, `hack/test/check-train-session-refusals.sh` and `hack/test/check-phase-supervisor.sh` pass at the launch commit.
 - A kind rehearsal of this stage (`RUNS=f bash hack/restart-lifecycle-kind.sh`) at a commit whose runner is the launch commit's: every case ACCEPTED, both checks 0 FAIL, every rank's `rank-env` line present with the arm's limit, and the collector's stream records carrying the container's state.
   Kind cannot show a core dump's cost: its ranks run on CPU and this host writes no cores (`ulimit -c` is 0), so the rehearsal shows the arms applied, logged and scored, not H2.
+  The gate is met by `hack/restart-lifecycle-kind-20261106T013822Z` at `8aa8f43d`, whose runner the launch commit keeps: every case ACCEPTED, the lifecycle check 0 FAIL, the outcome check 0 FAIL once run `f` was registered in it, each rank's limit logged in its arm, and H2 through the kind shim INCONCLUSIVE because the slow stop does not recur on kind, as expected.
 - A bare `codex review` of the changes since `3ca2ed0e`, its findings fixed or recorded.
 - The launch checks of `retarget`: operator pin, destroy workflow disabled by hand, deadlines armed, a fresh SSO login.
 

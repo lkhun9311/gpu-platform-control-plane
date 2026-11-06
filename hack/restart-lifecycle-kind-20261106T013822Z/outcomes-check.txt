@@ -1,0 +1,4 @@
+OK   no injection failed
+FAIL run 'f' has no expected outcome
+1 FAIL(s)
+exit=1

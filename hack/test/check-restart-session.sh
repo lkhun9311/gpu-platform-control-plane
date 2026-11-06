@@ -2333,6 +2333,16 @@ fi
 # The committed rehearsal replays its gate from the repository alone, timelines compressed.
 out="$(python3 hack/test/restart-kind/check_lifecycle.py hack/restart-lifecycle-kind-20261104T142003Z 2>&1)"
 if [[ "$(tail -1 <<<"$out")" == "0 FAIL(s)" ]]; then ok "the committed retarget rehearsal passes its lifecycle check"; else bad "the committed rehearsal's lifecycle check: $(tail -1 <<<"$out")"; fi
+# The corelimit rehearsal replays its gate too: the lifecycle and outcome checks, and each arm read by H2 on kind.
+cl=hack/restart-lifecycle-kind-20261106T013822Z
+out="$(python3 hack/test/restart-kind/check_lifecycle.py "$cl" 2>&1; python3 hack/test/restart-kind/check_outcomes.py "$cl" f 2>&1)"
+h2k="$(python3 hack/test/restart-kind/h2_kind_shim.py "$cl/run-f" 2>&1)"
+if [[ "$(grep -c '^0 FAIL(s)$' <<<"$out")" == 2 ]] && grep -q '^H2 INCONCLUSIVE: the slow stop did not recur' <<<"$h2k" &&
+  [[ "$(grep -c '"d_s": ' <<<"$h2k")" == 6 && "$(grep -c '"logged_core_limit": \["0"\]' <<<"$h2k")" == 3 ]]; then
+  ok "the committed corelimit rehearsal passes its checks, and H2 reads every arm on kind"
+else
+  bad "the committed corelimit rehearsal: $(grep -c '^0 FAIL(s)$' <<<"$out") clean check(s); $(tail -1 <<<"$h2k")"
+fi
 # A slow stop refutes whatever is missing elsewhere: the outcome does not wait on the other cases or the recoveries.
 # A stop never published gives no d, so however long it was watched it refutes nothing (sixth attack, 4).
 out="$(cd experiments/distributed-restart && python3 -c '
