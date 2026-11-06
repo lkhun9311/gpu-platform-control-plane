@@ -1946,7 +1946,8 @@ out="$(python3 "$h2" "$h2run" 2>&1)"
 end="$(grep '^rank-kill-5 ' <<<"$out" | python3 -c 'import json, sys; l = sys.stdin.read(); print(json.dumps(json.loads(l[l.index("{"):])["survivor_end"], sort_keys=True))' 2>&1)"
 read -r want_asked want_finished <"$h2run/rank-kill-5/want"
 if [[ "$end" == *"\"deletion_asked_after_fault_s\": $want_asked,"* && "$end" == *'"deletion_grace_s": 30'* && "$end" == *'"exit_code": 134'* &&
-  "$end" == *'"read_from": "pod watch"'* && "$end" == *"\"finished_after_fault_s\": $want_finished,"* && "$end" != *unread* ]]; then
+  "$end" == *'"read_from": "pod watch"'* && "$end" == *"\"finished_after_fault_s\": $want_finished,"* && "$end" != *unread* &&
+  "$end" == *'"clocks": "uncorrected stamp differences: '* ]]; then
   ok "a survivor deleted before its stream ended is read from the Pod watch, with its deletion request and grace"
 else
   bad "the survivor from the Pod watch: $end"
@@ -2051,6 +2052,15 @@ if grep -q "^rank-kill-6 .*a core limit of 0 is not shown to stop a dump under c
   ok "a treated case whose node pipes cores to a handler not given the limit gives no d"
 else
   bad "H2 under a pipe without %c: $(grep -E '^rank-kill-(1|6)' <<<"$out" | cut -c1-200)"
+fi
+# A read of core_pattern that failed in the rank's shell logs it empty, which shows no handler, so no dump shown stopped
+# (gpt-6-astra's fourth attack before the corelimit run).
+sed -i '1s/ core_pattern=.* torch_nccl_async_error_handling=/ core_pattern= torch_nccl_async_error_handling=/' "$h2run/rank-kill-6"/log-*.1.txt
+out="$(python3 "$h2" "$h2run" 2>&1)"
+if grep -q "^rank-kill-6 .*a core limit of 0 is not shown to stop a dump under core_pattern \[''\]" <<<"$out"; then
+  ok "a treated case whose ranks could not read core_pattern gives no d"
+else
+  bad "H2 with an empty core_pattern: $(grep '^rank-kill-6 ' <<<"$out" | cut -c1-200)"
 fi
 out="$(python3 "$h2" "$src" 2>&1)"
 if grep -q '^REFUSED: .* is not a corelimit run' <<<"$out"; then ok "H2 refuses a run of another stage"; else bad "H2 on the retarget archive: $(tail -1 <<<"$out")"; fi

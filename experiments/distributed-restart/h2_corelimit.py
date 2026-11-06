@@ -59,7 +59,11 @@ def limit_stops_dump(pattern: str) -> bool:
     under a page (src/coredump/coredump.c, "Resource limits disable core dumping").
     A dump to a file the kernel itself limits.
     Any other program might read the whole core regardless, and a treated arm under it would test nothing.
+    An empty pattern is a read of /proc/sys/kernel/core_pattern that failed in the rank's shell, which shows no handler at
+    all, so it shows nothing stopped (gpt-6-astra's fourth attack before the corelimit run).
     """
+    if not pattern.strip():
+        return False
     if not pattern.startswith("|"):
         return True
     return "systemd-coredump" in pattern and "%c" in pattern.split()
@@ -154,6 +158,14 @@ def survivor_end(case_dir: pathlib.Path, fault: float) -> dict:
             end["deletion_grace_s"] = meta["deletionGracePeriodSeconds"]
         else:
             end["deletion_asked"] = "not shown: no one watch saw the Pod before and at its deletion"
+    # Each figure is a difference between two clocks, uncorrected: the fault is the faulted rank's node, the finish the
+    # survivor's kubelet in whole seconds, the deletion the API server's, the nodes held within score_eks.CLOCK_OFFSET_S of
+    # the runner by the run's clock checks and the API server not measured (gpt-6-astra's fourth attack before the
+    # corelimit run).
+    if "finished_after_fault_s" in end or "deletion_asked_after_fault_s" in end:
+        end["clocks"] = (f"uncorrected stamp differences: fault on the faulted rank's node, finish on the survivor's kubelet "
+                         f"in whole seconds, deletion on the API server; node clocks within {score_eks.CLOCK_OFFSET_S} s "
+                         f"of the runner's, the API server's unmeasured")
     return end
 
 
