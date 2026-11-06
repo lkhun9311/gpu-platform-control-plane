@@ -358,6 +358,12 @@ On job 3 it printed `30 passed, 0 failed` and exited 0: 30 checks of one job, on
 On job 4 it printed `18 passed, 5 failed` and exited 1, failing on the `restart_from_zero` records and the missing `resume` records.
 `05-verdict.txt` records both exit statuses, and the step exits nonzero unless they are 0 and 1.
 
+**Changed 2026-11-07, after an adversarial review (astra, area r4).**
+The scorer checked each record's attempt but not its rank or its job, and did not require a log for every rank, so a set assembled from two jobs, or one rank's records filed under the other's name, would have passed; and step 5 counted the control caught when its four expected lines were present, whatever else failed.
+It now also requires every record to carry its file's rank and the case's `JobId`, a log for every rank of every attempt, the resume directory to be the one attempt 0 published for that step, and for the control, failures exactly the five that say no rank resumed while each rank still trained from zero to the end and matched the reference (`--load-none-control`).
+Re-scored from the archives with the new scorer, every verdict is unchanged: jobs 3, 36 and 46 pass with `44 passed, 0 failed`, and the controls of jobs 4 and 37 print `35 passed, 5 failed` and are caught for the expected reason only.
+The counts above (30 and 18) are what the scorer of the day printed; `check_score_requeue.py` re-runs these and five doctored copies, which `hack/test/check-slurm-lab-host.sh` runs in `make harness-check`.
+
 **Why equal parameters are not enough.**
 Job 4's final parameters were also equal to the reference's on both ranks, because this trainer is deterministic and a restart from step 0 replays the same data.
 A check on the final parameters alone would have passed the mutation; only the resume record tells a resume from a rerun.
