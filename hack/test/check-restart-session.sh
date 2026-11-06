@@ -1852,6 +1852,15 @@ if grep -q '^H2 REFUTED: d is at least 30 s with core dumps off in rank-kill-2, 
 else
   bad "H2 with the ranks' lines: $(tail -3 <<<"$out")"
 fi
+# The scorer reports corelimit's two arms apart, since a median over both would describe neither.
+out="$(python3 experiments/distributed-restart/score_eks.py "$h2run" 2>&1)"
+if grep -q '^    same-nodes, core limit 0: recovery median 46.5 s, .* over 3 accepted' <<<"$out" &&
+  grep -q '^    same-nodes, core limit inherited: recovery median 46.5 s, .* over 3 accepted' <<<"$out" &&
+  ! grep -q '^    same-nodes: ' <<<"$out"; then
+  ok "the scorer's summary gives each core-limit arm its own figures"
+else
+  bad "the scorer's summary of two arms: $(grep 'same-nodes' <<<"$out" | head -3)"
+fi
 # A case whose case.json names the other arm, or whose treated ranks logged the node's limit, is not counted.
 python3 -c 'import json, sys; p = sys.argv[1]; c = json.load(open(p)); c["core_limit"] = "inherited"; json.dump(c, open(p, "w"))' "$h2run/rank-kill-2/case.json"
 sed -i '1s/core_limit=0/core_limit=unlimited/' "$h2run/rank-kill-4"/log-*.1.txt
