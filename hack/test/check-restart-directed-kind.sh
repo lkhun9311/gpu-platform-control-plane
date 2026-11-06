@@ -141,6 +141,25 @@ else
   bad "the shortened hold: $(grep -m1 'stale-workload no second' <<<"$out")"
 fi
 
+# A legacy sample without the job's attempts is a status read that failed, and cannot vouch for "no second attempt".
+cp -r hack/distributed-restart-kind-20261101T003147Z "$tmp/unread"
+python3 - "$tmp/unread/stale-workload" <<'EOF'
+import datetime, json, pathlib, sys
+ts = lambda s: datetime.datetime.fromisoformat(s.replace("Z", "+00:00")).timestamp()
+d = pathlib.Path(sys.argv[1])
+marks = {json.loads(l)["mark"].split()[0]: ts(json.loads(l)["at"]) for l in open(d / "marks.jsonl")}
+rows = [json.loads(l) for l in open(d / "timeline.jsonl") if l.strip()]
+hit = next(r for r in rows if marks["hold-start"] < ts(r["observed"]) < marks["hold-end"])
+hit["status"] = {}
+(d / "timeline.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
+EOF
+out=$(python3 experiments/distributed-restart/score_kind.py "$tmp/unread" 2>&1)
+if grep -qE "FAIL stale-workload no second attempt while the Workload was held: .* 1 without the job's attempts" <<<"$out"; then
+  ok "a legacy sample whose status read failed does not vouch for the hold"
+else
+  bad "the unread sample: $(grep -m1 'stale-workload no second' <<<"$out")"
+fi
+
 # And the run as recorded still passes them, with the gap and the duration it was held to.
 out=$(score 20261101T003147Z)
 if grep -qF "ok   stale-workload no second attempt while the Workload was held: 53 samples over 60.2 s, longest unobserved 1.1 s" <<<"$out" &&
