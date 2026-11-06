@@ -96,11 +96,15 @@ RESTART_NODE_UID_COMMIT=f7b8f9ca
 # retarget re-runs, after the changes made since full, the two kinds whose retirement waited on the old Job's deletion,
 # so their stop barrier can be read against full's; it buys no termination, whose path did not change
 # (docs/superpowers/specs/2026-11-04-restart-retarget-design.md).
+# corelimit asks why retarget's rank-kill stop still took 38 s: the surviving rank aborts on its peer's death, and three
+# of six rank-kill cases run with core dumps off (RESTART_NOCORE_CASES), so the two arms can be read against each other
+# (docs/superpowers/specs/2026-11-06-restart-corelimit-design.md).
 restart_cases() {
   local kind i
   case "${RESTART_STAGE:-}" in
     smoke) printf '%s\n' reference no-rng-control dcgm-1 terminate-wait-1 ;;
     retarget) printf '%s\n' reference no-rng-control rank-kill-1 rank-kill-2 dcgm-1 dcgm-2 ;;
+    corelimit) printf '%s\n' reference rank-kill-1 rank-kill-2 rank-kill-3 rank-kill-4 rank-kill-5 rank-kill-6 dcgm-1 dcgm-2 dcgm-3 ;;
     full)
       echo reference
       echo no-rng-control
@@ -109,7 +113,7 @@ restart_cases() {
       done
       ;;
     *)
-      echo "RESTART_STAGE is '${RESTART_STAGE:-}', not smoke, full or retarget" >&2
+      echo "RESTART_STAGE is '${RESTART_STAGE:-}', not smoke, full, retarget or corelimit" >&2
       return 1
       ;;
   esac
@@ -305,7 +309,7 @@ restart_case_env() {
 # by attempt and rank, because an Indexed Job's hostnames repeat across attempts and NCCL truncates a file it opens.
 # NCCL does not create the directory and falls back to stdout without one, so the shell creates and checks it first.
 restart_render_job() {
-  local name="$1" ns="$2" queue="$3" job_id="$4" case="$5" extra sha body
+  local name="$1" ns="$2" queue="$3" job_id="$4" case="$5" extra sha body limit
   extra="$(restart_case_env "$case")" || {
     echo "$case is not a registered case" >&2
     return 1
@@ -315,6 +319,11 @@ restart_render_job() {
     return 1
   }
   sha="$(sha256sum "$RESTART_TRAIN_PY" | cut -d' ' -f1)" || return 1
+  # The limit is set by the shell before the trainer starts, so the trainer and nothing else inherits it; the line after
+  # records what the rank ran with, read inside its container, because a node's core_pattern and containerd's LimitCORE
+  # are nowhere else in the evidence (the corelimit registration).
+  limit=""
+  [[ "$(restart_core_limit "$case")" == 0 ]] && limit="ulimit -c 0 || exit 88"
   # The trainer is the shell's child, because as PID 1 it could not kill itself for a fault; and the shell, as PID 1,
   # would drop a TERM it had no handler for, so it hands TERM on to the trainer.
   # Without that every retired rank waited out the 30 s grace period: on kind the shell as rendered took 31.8 s to
@@ -333,6 +342,8 @@ restart_render_job() {
     "export CKPT_BALLAST_MB=$RESTART_BALLAST_MB CKPT_COLLECTIVE_TIMEOUT=$RESTART_COLLECTIVE_TIMEOUT CKPT_RENDEZVOUS_TIMEOUT=$RESTART_RENDEZVOUS_TIMEOUT OMP_NUM_THREADS=1" \
     "export NCCL_DEBUG=INFO NCCL_DEBUG_SUBSYS=INIT,NET NCCL_DEBUG_FILE=\"\$nccl_dir/a\${TRAINING_ATTEMPT}-r\${RANK}-%h.%p.log\"" \
     "$extra" \
+    "$limit" \
+    "echo \"rank-env: core_limit=\$(ulimit -c) core_pattern=\$(cat /proc/sys/kernel/core_pattern) torch_nccl_async_error_handling=\${TORCH_NCCL_ASYNC_ERROR_HANDLING:-unset}\"" \
     "python /tmp/train.py &" \
     "child=\$!" \
     "trap 'kill -TERM \$child' TERM" \
@@ -449,14 +460,29 @@ gfk() {
 # The longest a read of LATEST through a rank's mount may take, which is an exec stream too.
 RESTART_LATEST_CALL=20
 
+# restart_registered_stage: RESTART_STAGE is one whose registration names its operator and has the nightly destroy
+# disabled for the session.
+restart_registered_stage() {
+  case "${RESTART_STAGE:-}" in retarget | corelimit) return 0 ;; esac
+  return 1
+}
+
+# restart_core_limit CASE: 0 when CASE runs with core dumps off, inherited when it keeps the node's limit.
+# The default list is corelimit's even rank-kill cases, interleaved with the odd ones so neither arm runs all early.
+restart_core_limit() {
+  local nocore=" ${RESTART_NOCORE_CASES-$([[ "${RESTART_STAGE:-}" == corelimit ]] && echo rank-kill-2 rank-kill-4 rank-kill-6)} "
+  case "$nocore" in *" $1 "*) echo 0 ;; *) echo inherited ;; esac
+}
+
 # restart_operator_pin <rev> <digest>: a stage that registers one operator runs only on it.
 # The gate below accepts any revision descended from the commits it needs, so a promotion between the registration and
 # the launch would otherwise run a different operator unseen (codex gpt-6-astra attack of the retarget registration).
-# The retarget stage requires RESTART_OPERATOR_REV and RESTART_OPERATOR_DIGEST; other stages check them when given.
+# A registered stage (restart_registered_stage) requires RESTART_OPERATOR_REV and RESTART_OPERATOR_DIGEST; other stages
+# check them when given.
 restart_operator_pin() {
   local rev="$1" digest="$2"
-  if [[ "${RESTART_STAGE:-}" == retarget && (-z "${RESTART_OPERATOR_REV:-}" || -z "${RESTART_OPERATOR_DIGEST:-}") ]]; then
-    echo "the retarget stage registers its operator, so RESTART_OPERATOR_REV and RESTART_OPERATOR_DIGEST must be given"
+  if restart_registered_stage && [[ -z "${RESTART_OPERATOR_REV:-}" || -z "${RESTART_OPERATOR_DIGEST:-}" ]]; then
+    echo "the $RESTART_STAGE stage registers its operator, so RESTART_OPERATOR_REV and RESTART_OPERATOR_DIGEST must be given"
     return 1
   fi
   if [[ -n "${RESTART_OPERATOR_REV:-}" && "$rev" != "$RESTART_OPERATOR_REV" ]]; then
@@ -1766,7 +1792,7 @@ restart_run_case() {
   deadline=$(($(phase_mono) + RESTART_CASE_BUDGET))
   restart_collect "$dir" "$name" &
   collector=$!
-  printf '{"kind": "%s", "name": "%s", "job_id": "%s", "target": {}}\n' "$kind" "$name" "$job_id" >"$dir/case.json"
+  printf '{"kind": "%s", "name": "%s", "job_id": "%s", "core_limit": "%s", "target": {}}\n' "$kind" "$name" "$job_id" "$(restart_core_limit "$case")" >"$dir/case.json"
 
   # Both ranks have recorded a step before any clock is probed or any fault is injected.
   while (($(phase_mono) < deadline)); do

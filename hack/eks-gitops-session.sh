@@ -338,7 +338,7 @@ case "$TRAIN" in
     # The stage is named, never defaulted, because which cases are bought is the owner's decision, not this script's.
     RESTART_STAGE="${RESTART_STAGE:-}"
     TRAIN_GPU_BUDGET="$(restart_gpu_budget 2>&1)" ||
-      die "TRAIN=restart needs RESTART_STAGE=smoke, run and inspected first, RESTART_STAGE=full or RESTART_STAGE=retarget: $TRAIN_GPU_BUDGET"
+      die "TRAIN=restart needs RESTART_STAGE=smoke, run and inspected first, RESTART_STAGE=full, retarget or corelimit: $TRAIN_GPU_BUDGET"
     TRAIN_BUDGET=$((WAIT_TRAIN_SYNC + WAIT_TRAIN_QUEUE + WAIT_QUAL_HELD + TRAIN_GPU_BUDGET))
     why="$(restart_ttl_refusal "$RESTART_STAGE" "$TTL_MINUTES" "$TRAIN_GPU_BUDGET" $((WAIT_TRAIN_SYNC + WAIT_TRAIN_QUEUE + WAIT_QUAL_HELD)))" ||
       die "$why"
@@ -392,8 +392,8 @@ if [[ "$SERVE" == yes || -n "$TRAIN" || "$STUDY" == prefixroute ]]; then
     die "could not read the nightly destroy workflow's state ($destroy_state)"
   # The retarget registration requires the workflow disabled whatever the hour, because a run scheduled after the one
   # look below at the queue would not be seen (codex gpt-6-astra attack of the retarget registration).
-  if [[ "$TRAIN" == restart && "${RESTART_STAGE:-}" == retarget && "$destroy_state" != disabled_manually ]]; then
-    die "RESTART_STAGE=retarget registers the nightly destroy disabled for the session, and its state is '$destroy_state'; gh workflow disable destroy.yml first"
+  if [[ "$TRAIN" == restart && ("${RESTART_STAGE:-}" == retarget || "${RESTART_STAGE:-}" == corelimit) && "$destroy_state" != disabled_manually ]]; then
+    die "RESTART_STAGE=${RESTART_STAGE} registers the nightly destroy disabled for the session, and its state is '$destroy_state'; gh workflow disable destroy.yml first"
   fi
   if [[ "$destroy_state" == disabled_manually ]]; then
     log "the nightly destroy workflow is disabled_manually, so its 18:00 UTC window is not enforced"
