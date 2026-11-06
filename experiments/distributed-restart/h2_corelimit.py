@@ -28,14 +28,31 @@ SUPPORT_S = h1_retarget.SUPPORT_S
 REFUTE_S = h1_retarget.REFUTE_S
 
 
-def logged_limit(case_dir: pathlib.Path) -> set[str]:
-    """Every core limit the case's attempt-1 ranks logged, as the shell read it before the trainer started."""
+def logged_env(case_dir: pathlib.Path) -> tuple[set[str], set[str]]:
+    """Every core limit and core_pattern the case's attempt-1 ranks logged, as the shell read them before the trainer."""
     first = {p["uid"] for p in score_eks.jsonl(case_dir / "pods.jsonl") if str(p.get("attempt_token")) == "1"}
-    seen = set()
+    limits, patterns = set(), set()
     for uid in first:
         for log in sorted(case_dir.glob(f"log-{uid}.*.txt")):
-            seen.update(re.findall(r"^rank-env: core_limit=(\S+)", log.read_text(errors="replace"), re.M))
-    return seen
+            for limit, pattern in re.findall(r"^rank-env: core_limit=(\S+) core_pattern=(.*?) torch_nccl_async_error_handling=",
+                                             log.read_text(errors="replace"), re.M):
+                limits.add(limit)
+                patterns.add(pattern)
+    return limits, patterns
+
+
+def limit_stops_dump(pattern: str) -> bool:
+    """Whether a core limit of 0 stops a dump under this core_pattern.
+
+    The kernel ignores RLIMIT_CORE when it pipes a core to a program (core(5)), so a 0 stops a piped dump only if the
+    program reads the limit and declines: systemd-coredump takes it as %c and returns before reading the core when it is
+    under a page (src/coredump/coredump.c, "Resource limits disable core dumping").
+    A dump to a file the kernel itself limits.
+    Any other program might read the whole core regardless, and a treated arm under it would test nothing.
+    """
+    if not pattern.startswith("|"):
+        return True
+    return "systemd-coredump" in pattern and "%c" in pattern.split()
 
 
 def survivor_end(case_dir: pathlib.Path, fault: float) -> dict:
@@ -110,11 +127,12 @@ def main(argv: list[str]) -> int:
         row: dict = {"verdict": verdict, "arm": want}
         try:
             spec = score_eks.load_json(run / name / "case.json")
-            logged = logged_limit(run / name)
+            logged, patterns = logged_env(run / name)
         except (ValueError, KeyError, TypeError, OSError) as exc:
             results[name] = {**row, "invalid": f"its arm could not be read: {type(exc).__name__}: {str(exc)[:120]}"}
             continue
         row["logged_core_limit"] = sorted(logged)
+        row["logged_core_pattern"] = sorted(patterns)
         if spec.get("core_limit") != want:
             results[name] = {**row, "invalid": f"case.json records core_limit {spec.get('core_limit')!r}, the registration {want!r}"}
             continue
@@ -122,6 +140,9 @@ def main(argv: list[str]) -> int:
         # it must have been read, and must not be 0, or the control ran treated.
         if not logged or (want == "0" and logged != {"0"}) or (want == "inherited" and "0" in logged):
             results[name] = {**row, "invalid": f"the ranks logged core_limit {sorted(logged) or 'nothing'} for arm {want!r}"}
+            continue
+        if want == "0" and not all(limit_stops_dump(pt) for pt in patterns):
+            results[name] = {**row, "invalid": f"a core limit of 0 is not shown to stop a dump under core_pattern {sorted(patterns)}"}
             continue
         evidence = score_eks.Case(run, name, reference, steps, budget)
         why = h1_retarget.delivered(evidence)

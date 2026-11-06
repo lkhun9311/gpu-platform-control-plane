@@ -197,7 +197,7 @@ passes() {
 }
 passes "the full stage" "RESTART_STAGE=full: TTL_MINUTES 524 covers its 524" RESTART_STAGE=full TTL_MINUTES=524
 passes "the retarget stage" "RESTART_STAGE=retarget: TTL_MINUTES 340 covers its 337" RESTART_STAGE=retarget TTL_MINUTES=340
-passes "the corelimit stage" "RESTART_STAGE=corelimit: TTL_MINUTES 400 covers its 392" RESTART_STAGE=corelimit TTL_MINUTES=400
+passes "the corelimit stage" "RESTART_STAGE=corelimit: TTL_MINUTES 460 covers its 452" RESTART_STAGE=corelimit TTL_MINUTES=460
 passes "the longest deadline" "the credential expires in 719 minutes, at least the 700" TTL_MINUTES=660
 
 # The nightly destroy at 17:00 UTC, an hour before it: refused while the workflow is enabled, not enforced once it is
@@ -231,7 +231,7 @@ else
 fi
 # The retarget stage registers the workflow disabled, so an enabled one refuses it even at an hour the window allows.
 session "the retarget stage with the destroy enabled" "RESTART_STAGE=retarget registers the nightly destroy disabled for the session, and its state is 'active'" STUB_UTC_HM=02:00 STUB_RULES="$work/rules/destroy-active" RESTART_STAGE=retarget TTL_MINUTES=340
-session "the corelimit stage with the destroy enabled" "RESTART_STAGE=corelimit registers the nightly destroy disabled for the session, and its state is 'active'" STUB_UTC_HM=02:00 STUB_RULES="$work/rules/destroy-active" RESTART_STAGE=corelimit TTL_MINUTES=400
+session "the corelimit stage with the destroy enabled" "RESTART_STAGE=corelimit registers the nightly destroy disabled for the session, and its state is 'active'" STUB_UTC_HM=02:00 STUB_RULES="$work/rules/destroy-active" RESTART_STAGE=corelimit TTL_MINUTES=460
 session "the destroy enabled, within its window" "falls within two hours of this session's 300 min" STUB_UTC_HM=17:00 STUB_RULES="$work/rules/destroy-active"
 session "the destroy disabled by hand, a run queued" "1 destroy workflow run(s) are not completed" STUB_UTC_HM=17:00 STUB_RULES="$work/rules/destroy-disabled"
 if grep -qF "the nightly destroy workflow is disabled_manually, so its 18:00 UTC window is not enforced" "$work/the destroy disabled by hand, a run queued/session.log"; then
@@ -547,9 +547,9 @@ if [[ "$out" == "reference=1680 no-rng-control=1680 rank-kill-1=1680 rank-kill-2
 else
   bad "retarget's budget: $out"
 fi
-out="$(budget 'RESTART_STAGE=corelimit; restart_gpu_budget; restart_ttl_refusal corelimit 391 "$(restart_gpu_budget)" 1200; echo "rc=$?"; restart_ttl_refusal corelimit 392 "$(restart_gpu_budget)" 1200; echo "rc=$?"')"
-if [[ "$out" == "18720"$'\n'*"needs TTL_MINUTES of at least 392"*"rc=1"$'\n'*"covers its 392"*"rc=0" ]]; then
-  ok "corelimit's GPU budget of 18720 s, and its TTL_MINUTES of at least 392"
+out="$(budget 'RESTART_STAGE=corelimit; restart_gpu_budget; restart_ttl_refusal corelimit 451 "$(restart_gpu_budget)" 1200; echo "rc=$?"; restart_ttl_refusal corelimit 452 "$(restart_gpu_budget)" 1200; echo "rc=$?"')"
+if [[ "$out" == "22320"$'\n'*"needs TTL_MINUTES of at least 452"*"rc=1"$'\n'*"covers its 452"*"rc=0" ]]; then
+  ok "corelimit's GPU budget of 22320 s, and its TTL_MINUTES of at least 452"
 else
   bad "corelimit's budget: $out"
 fi
@@ -1843,7 +1843,7 @@ else
 fi
 for i in 1 2 3 4 5 6; do
   lim=unlimited; ((i % 2 == 0)) && lim=0
-  for f in "$h2run/rank-kill-$i"/log-*.1.txt; do sed -i "1i rank-env: core_limit=$lim core_pattern=|/usr/lib/systemd/systemd-coredump %P torch_nccl_async_error_handling=unset" "$f"; done
+  for f in "$h2run/rank-kill-$i"/log-*.1.txt; do sed -i "1i rank-env: core_limit=$lim core_pattern=|/usr/lib/systemd/systemd-coredump %P %u %g %s %t %c %h torch_nccl_async_error_handling=unset" "$f"; done
 done
 out="$(python3 "$h2" "$h2run" 2>&1)"
 if grep -q '^H2 REFUTED: d is at least 30 s with core dumps off in rank-kill-2, rank-kill-4, rank-kill-6' <<<"$out" &&
@@ -1861,6 +1861,16 @@ if grep -q "^rank-kill-2 .*case.json records core_limit 'inherited', the registr
   ok "a case recorded in the other arm, or treated in name only, gives no d"
 else
   bad "H2 with a mislabelled arm: $(grep -E '^rank-kill-(2|4)' <<<"$out" | cut -c1-200)"
+fi
+# A limit of 0 stops a piped dump only through a handler that reads it (%c) and declines, as systemd-coredump does; the
+# kernel ignores RLIMIT_CORE for a pipe (core(5)), so a treated case under any other handler tested nothing.
+sed -i '1s/ %c %h / %h /' "$h2run/rank-kill-6"/log-*.1.txt
+out="$(python3 "$h2" "$h2run" 2>&1)"
+if grep -q "^rank-kill-6 .*a core limit of 0 is not shown to stop a dump under core_pattern" <<<"$out" &&
+  ! grep -q "^rank-kill-1 .*not shown to stop a dump" <<<"$out"; then
+  ok "a treated case whose node pipes cores to a handler not given the limit gives no d"
+else
+  bad "H2 under a pipe without %c: $(grep -E '^rank-kill-(1|6)' <<<"$out" | cut -c1-200)"
 fi
 out="$(python3 "$h2" "$src" 2>&1)"
 if grep -q '^REFUSED: .* is not a corelimit run' <<<"$out"; then ok "H2 refuses a run of another stage"; else bad "H2 on the retarget archive: $(tail -1 <<<"$out")"; fi
