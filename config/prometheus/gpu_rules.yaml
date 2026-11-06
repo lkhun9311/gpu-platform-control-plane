@@ -52,8 +52,9 @@ spec:
             summary: "GPU {{ $labels.gpu }} on {{ $labels.Hostname }} reports a fault ({{ $labels.field }} = {{ $value }})"
             description: >-
               DCGM reports a fault the platform's own policy treats as a card fault: a non-application Xid, or a
-              double-bit ECC count above zero. With --gpu-fault-source=dcgm the operator has already tainted the node
-              platform.lkhun9311.github.io/gpu-fault; without it nothing has reacted, and this alert is the only notice.
+              double-bit ECC count above zero. With --gpu-fault-source=dcgm the operator is expected to have tainted the node
+              platform.lkhun9311.github.io/gpu-fault, but only if a NodeHealth names the node, since it scrapes no other;
+              check the taint itself. Without the flag nothing has reacted, and this alert is the only notice.
             runbook_url: https://github.com/lkhun9311/gpu-platform-control-plane/blob/main/docs/06_OBSERVABILITY_BENCHMARK_FAILURE.md#gpufaultsignalpresent
 
         # GPUFaultSignalPresent cannot fire for a card whose exporter does not collect the fault fields.

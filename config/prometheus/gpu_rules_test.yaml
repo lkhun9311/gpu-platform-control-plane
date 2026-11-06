@@ -59,16 +59,18 @@ tests:
               summary: "GPU 0 on w1 reports a fault (xid = 79)"
               description: >-
                 DCGM reports a fault the platform's own policy treats as a card fault: a non-application Xid, or a
-                double-bit ECC count above zero. With --gpu-fault-source=dcgm the operator has already tainted the node
-                platform.lkhun9311.github.io/gpu-fault; without it nothing has reacted, and this alert is the only notice.
+                double-bit ECC count above zero. With --gpu-fault-source=dcgm the operator is expected to have tainted the node
+                platform.lkhun9311.github.io/gpu-fault, but only if a NodeHealth names the node, since it scrapes no other;
+                check the taint itself. Without the flag nothing has reacted, and this alert is the only notice.
               runbook_url: https://github.com/lkhun9311/gpu-platform-control-plane/blob/main/docs/06_OBSERVABILITY_BENCHMARK_FAILURE.md#gpufaultsignalpresent
           - exp_labels: {severity: critical, Hostname: w1, gpu: "2", UUID: GPU-2, field: ecc_dbe}
             exp_annotations:
               summary: "GPU 2 on w1 reports a fault (ecc_dbe = 1)"
               description: >-
                 DCGM reports a fault the platform's own policy treats as a card fault: a non-application Xid, or a
-                double-bit ECC count above zero. With --gpu-fault-source=dcgm the operator has already tainted the node
-                platform.lkhun9311.github.io/gpu-fault; without it nothing has reacted, and this alert is the only notice.
+                double-bit ECC count above zero. With --gpu-fault-source=dcgm the operator is expected to have tainted the node
+                platform.lkhun9311.github.io/gpu-fault, but only if a NodeHealth names the node, since it scrapes no other;
+                check the taint itself. Without the flag nothing has reacted, and this alert is the only notice.
               runbook_url: https://github.com/lkhun9311/gpu-platform-control-plane/blob/main/docs/06_OBSERVABILITY_BENCHMARK_FAILURE.md#gpufaultsignalpresent
       - eval_time: 9m
         alertname: GPUFaultFieldsNotCollected
