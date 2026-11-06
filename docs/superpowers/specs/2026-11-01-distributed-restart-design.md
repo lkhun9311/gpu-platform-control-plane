@@ -371,7 +371,7 @@ The nightly destroy workflow runs at 18:00 UTC and the session refuses to overla
 ## Where the implementation fell short of this contract, found on 2026-11-07
 
 gpt-6-astra read the controller without direction on 2026-11-07 and returned eight findings; each was checked against the code here, and `docs/superpowers/specs/2026-11-07-review-r1-restart-controller.md` keeps the ledger.
-Five were places where the code had not done what step 3 and the trigger list above already said:
+Six were places where the code had not done what step 3 and the trigger list above already said (the first bullet answers two of them):
 
 - **A Pod's absence was taken as its stop.** Step 3 asks for a node that "still answers and its rank's container is reported terminated"; the code accepted a Ready node with the Pod gone, which an operator's force delete can produce with nothing reported. And a Pod gone before the controller first saw it (a controller away while a machine is lost and the Pod garbage-collected) left no node to fence at all.
   Now every rank Pod of an attempt carries the finalizer `platform.lkhun9311.github.io/rank-stopped` from the Job's template, and the controller removes it only after recording the Pod's node and seeing the rank stopped: reported terminal by its kubelet, never bound, or deleted from a node fenced for the attempt. Deleting the MLTrainingJob is held the same way, so it is not a way around the barrier.
@@ -380,7 +380,9 @@ Five were places where the code had not done what step 3 and the trigger list ab
 - **Kueue eviction was not a trigger**, though the list above names it. An evicted Workload (preemption, readiness timeout, anything but a deactivation) is now the trigger `Evicted`.
 - **The webhook did not check "bound"**; see the correction under API.
 
-Three were races or reads behind the cache: the fault path's deactivation patch now carries the Workload's resource version, so it cannot add a handoff over an operator's deactivation; a failed Job's handoff is read again past the cache before the attempt is called `RankFailed`.
+Two were races or reads behind the cache: the fault path's deactivation patch now carries the Workload's resource version, so it cannot add a handoff over an operator's deactivation; a failed Job's handoff is read again past the cache before the attempt is called `RankFailed`.
+
+A bare review of those fixes found three defects in them, all fixed: deleting the job while the barrier deleted its Job in the foreground deadlocked (the deletion path now releases stopped ranks first); an inactive Workload still showing an earlier preemption restarted the job (an inactive Workload is never an eviction trigger, and Kueue's `Deactivated…` reasons are matched by prefix); and a Pod with no published binding was dated by its creation, so an autoscaler's new node read as a replacement (no binding time, no decision yet).
 
 What this changes for the published runs: none of them exercised these paths (no controller restart, no force delete, no preemption), so no recorded result changes.
 The recovery a future run measures can be up to one stop poll (2 s) longer, because a rank Pod now leaves the API only after the controller has seen its kubelet's terminal report.
