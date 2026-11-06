@@ -191,9 +191,10 @@ scene; put split "[3.0, 3.0]"; rule "cloudwatch get-metric-statistics*Invocation
 t0=$(date +%s)
 session "a whole session"
 [ "$rc" = 0 ] && ok "a whole session exited 0" || bad "a whole session exited $rc: $(tail -4 "$STUB/session.out")"
-# The smoke cell's own stop reason in the verdict is what shows the archive was unpacked and read; a bare
-# NO-EVIDENCE prefix is also what a session prints when nothing came back.
-grep -q "S4: field 311" "$STUB/out/verdict.txt" && [ -s "$STUB/out/verdict.json" ] &&
+# The arms read NOT-RUN only from the returned smoke.env's skipped arms, so that line shows the archive was unpacked
+# and read; a bare NO-EVIDENCE prefix is also what a session prints when nothing came back.
+grep -q "^arm xid  *NOT-RUN" "$STUB/out/verdict.txt" && ! grep -q "no smoke.env" "$STUB/out/verdict.txt" &&
+  [ -s "$STUB/out/verdict.json" ] &&
   grep -qx "evidence=returned" "$STUB/out/verdict.txt" && grep -qx "scoring=ok" "$STUB/out/verdict.txt" &&
   grep -qx "termination=confirmed" "$STUB/out/verdict.txt" &&
   ok "the real scorer read the returned evidence, and evidence, scoring and termination are recorded" ||
@@ -243,6 +244,11 @@ scene; put running "running"; rule "ec2 describe-instances*State.Name*" running;
 session "termination not confirmed"
 [ "$rc" != 0 ] && grep -qx "termination=unconfirmed" "$STUB/out/verdict.txt" && ok "an unconfirmed termination fails the session and is recorded" ||
   bad "an unconfirmed termination: exit $rc, $(tail -1 "$STUB/out/verdict.txt" 2>/dev/null)"
+scene; put stale "$(date -u -d '-8000 sec' +%Y-%m-%dT%H:%M:%S+00:00)	$AMI"; rule "ec2 describe-instances*LaunchTime*" stale; base_rules
+smoke_stopped_evidence
+session "the termination deadline already passed"
+grep -q "waiting up to 0s for EC2" "$STUB/session.out" && ok "a wait past LaunchTime + 7,480 s is not stretched to 300 s" ||
+  bad "the late wait: $(grep 'waiting up to' "$STUB/session.out")"
 scene; base_rules; echo nonce >"$STUB/fixtures/DONE"
 session "no evidence came back"
 grep -q "NO-EVIDENCE (the evidence archive did not come back)" "$STUB/out/verdict.txt" && grep -qx "evidence=missing" "$STUB/out/verdict.txt" &&
