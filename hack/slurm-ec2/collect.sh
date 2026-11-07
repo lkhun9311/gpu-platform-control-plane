@@ -27,12 +27,17 @@ done
 sacct -a -n -P -D -S "$(date -u -d "@${T0:-0}" +%Y-%m-%dT%H:%M:%S)" \
   -o JobID,User,Account,QOS,State,ExitCode,NodeList,Submit,Start,End,Reason,AllocTRES >"$EVID/sacct-all.txt" 2>>"$errs"
 sinfo -N -l >"$EVID/sinfo-end.txt" 2>>"$errs"
-ship && shipped=yes
+final=no
+ship && final=yes
 
 touch "$SHARED/control/END"
+# The digest of the archive S3 holds as verified, which the runner checks its download against: the final one, or the
+# earlier one when only that upload was verified.
 {
   if [ -s "$EVID/VOID" ]; then echo "VOID: $(cat "$EVID/VOID")"; else echo "ok"; fi
   echo "evidence_verified=$shipped"
+  echo "evidence_final=$final"
+  [ ! -s /tmp/evidence.sha ] || echo "evidence_sha256=$(cat /tmp/evidence.sha)"
 } >/tmp/DONE
 s3put /var/log/slurmec2.log log-head.txt
 s3put /tmp/DONE DONE

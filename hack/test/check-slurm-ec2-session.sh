@@ -8,7 +8,7 @@
 # - every pre-purchase refusal stops before run-instances;
 # - the purchase is the three registered instances, in one zone, each at its cap, terminating on shutdown, tagged for
 #   the sweeper; a zone that cannot hold all three is left with nothing running before the next is tried;
-# - cluster.env carries T0, the latest LaunchTime, and the three addresses; the tags move to T0 + 4,470 s;
+# - cluster.env carries T0, the latest LaunchTime, and the three addresses; the tags move to T0 + 5,670 s;
 # - the end: all three are terminated, the munge key is removed from S3 and never written into the run directory,
 #   the real scorer reads what came back, and an unconfirmed termination fails the session.
 #
@@ -102,8 +102,10 @@ scene() {
   put d1 "$LT_H	$GAMI	172.31.0.11"
   put d2 "$LT_G	$GAMI	172.31.0.12"
   put terminated "terminated"
-  put maps '[{"DeviceName":"/dev/sda1","Ebs":{"DeleteOnTermination":true}},{"DeviceName":"/dev/sdb","VirtualName":"ephemeral0"}]'
-  put lifecycle '{"Rules":[{"ID":"expire","Status":"Enabled","Filter":{"Prefix":""},"Expiration":{"Days":30}}]}'
+  put maps '[{"DeviceName":"/dev/sda1","Ebs":{"DeleteOnTermination":true,"VolumeSize":8}},{"DeviceName":"/dev/sdb","VirtualName":"ephemeral0"}]'
+  put lifecycle '{"Rules":[{"ID":"expire","Status":"Enabled","Filter":{"Prefix":""},"Expiration":{"Days":30},"AbortIncompleteMultipartUpload":{"DaysAfterInitiation":1}}]}'
+  put role "slurmec2"
+  put trust "ec2.amazonaws.com"
   put versioning "None"
   put vpc "vpc-0default"
   put sg "sg-0session"
@@ -126,6 +128,10 @@ base_rules() {
   rule "s3api get-bucket-lifecycle-configuration*" lifecycle
   rule "s3api get-bucket-versioning*" versioning
   rule "ec2 describe-vpcs*" vpc
+  rule "iam get-instance-profile*" role
+  rule "iam get-role*" trust
+  rule "iam list-attached-role-policies*" none
+  rule "s3api list-multipart-uploads*" none
   rule "ec2 create-security-group*" sg
   rule "ec2 run-instances*" "ih|i1|i2"
   rule "ec2 describe-instances*--instance-ids i-0head*LaunchTime*" dh
@@ -179,18 +185,28 @@ scene; put q4 "4.0"; rule "service-quotas get-service-quota*" q4; base_rules; re
 scene; put inactive "Pending"; rule "lambda get-function*" inactive; base_rules; refused "a sweeper not Active" "is Pending, not Active"
 scene; put few $'1.0\t1.0'; rule "cloudwatch get-metric-statistics*Invocations*" few; base_rules; refused "a sweeper seen running twice" "at least 4 clean runs"
 scene; put errs $'0.0\t1.0'; rule "cloudwatch get-metric-statistics*Errors*" errs; base_rules; refused "an error in a later datapoint" "at least 4 clean runs"
-scene; put soon "{\"Expiration\": \"$(date -u -d '+100 min' +%Y-%m-%dT%H:%M:%SZ)\"}"; rule "configure export-credentials*" soon; base_rules
-refused "credentials that expire before 120 minutes" "the session needs 120"
+scene; put soon "{\"Expiration\": \"$(date -u -d '+120 min' +%Y-%m-%dT%H:%M:%SZ)\"}"; rule "configure export-credentials*" soon; base_rules
+refused "credentials that expire before 135 minutes" "the session needs 135"
 scene; put earlier "i-0earlier"; rule "ec2 describe-instances*tag:purpose*" earlier; base_rules; refused "an earlier instance still live" "still live (i-0earlier)"
 scene; base_rules; mkdir -p "$STUB/out"; refused "an output directory that already exists" "already exists; each session writes a new directory"
 scene; put ebs '[{"DeviceName":"/dev/sda1","Ebs":{}},{"DeviceName":"/dev/sdf","Ebs":{"DeleteOnTermination":false}}]'
 rule "ec2 describe-images*BlockDeviceMappings*" ebs; base_rules; refused "an AMI carrying a second EBS volume" "maps an EBS volume other than /dev/sda1"
 scene; put gami3 $'Deep Learning Base OSS Nvidia Driver GPU AMI (Ubuntu 24.04) 20261106\tavailable\t111111111111'
 rule "ec2 describe-images*--image-ids $GAMI*" gami3; base_rules; refused "a worker AMI from another owner" "owned by 111111111111"
-scene; put nolc '{"Rules":[{"ID":"x","Status":"Disabled","Filter":{"Prefix":""},"Expiration":{"Days":30}}]}'
-rule "s3api get-bucket-lifecycle-configuration*" nolc; base_rules; refused "a bucket without an enabled expiry" "no enabled whole-bucket expiry"
+scene; put nolc '{"Rules":[{"ID":"x","Status":"Disabled","Filter":{"Prefix":""},"Expiration":{"Days":30},"AbortIncompleteMultipartUpload":{"DaysAfterInitiation":1}}]}'
+rule "s3api get-bucket-lifecycle-configuration*" nolc; base_rules; refused "a lifecycle rule that is disabled" "no unfiltered rule"
+scene; put tagged '{"Rules":[{"ID":"x","Status":"Enabled","Filter":{"Tag":{"Key":"k","Value":"v"}},"Expiration":{"Days":30},"AbortIncompleteMultipartUpload":{"DaysAfterInitiation":1}}]}'
+rule "s3api get-bucket-lifecycle-configuration*" tagged; base_rules; refused "a lifecycle rule filtered by a tag" "no unfiltered rule"
+scene; put noabort '{"Rules":[{"ID":"x","Status":"Enabled","Filter":{"Prefix":""},"Expiration":{"Days":30}}]}'
+rule "s3api get-bucket-lifecycle-configuration*" noabort; base_rules; refused "a lifecycle rule that leaves uploads unaborted" "no unfiltered rule"
+scene; put big '[{"DeviceName":"/dev/sda1","Ebs":{"DeleteOnTermination":true,"VolumeSize":120}}]'
+rule "ec2 describe-images*BlockDeviceMappings*" big; base_rules; refused "an AMI whose root snapshot is larger than the launch" "root snapshot is larger"
+scene; put other_role "someone-else"; rule "iam get-instance-profile*" other_role; base_rules; refused "a profile carrying another role" "carries role(s) 'someone-else'"
+scene; put other_trust "lambda.amazonaws.com"; rule "iam get-role*" other_trust; base_rules; refused "a role trusting another service" "trusts 'lambda.amazonaws.com'"
+scene; put attached "arn:aws:iam::aws:policy/AdministratorAccess"; rule "iam list-attached-role-policies*" attached; base_rules
+refused "a role with an attached policy" "has attached policies"
 scene; put versioned "Enabled"; rule "s3api get-bucket-versioning*" versioned; base_rules; refused "a versioned bucket" "has versioning Enabled"
-scene; put later "{\"Expiration\": \"$(date -u -d '+60 min' +%Y-%m-%dT%H:%M:%SZ)\"}"; rule "configure export-credentials*" "creds|later"; base_rules
+scene; put later "{\"Expiration\": \"$(date -u -d '+100 min' +%Y-%m-%dT%H:%M:%SZ)\"}"; rule "configure export-credentials*" "creds|later"; base_rules
 refused "credentials that ran short during the uploads" "too few for the session and its teardown"
 
 # --- the whole session -------------------------------------------------------------------------------------------
@@ -209,14 +225,14 @@ grep -q -- "--image-id $HAMI --instance-type t3.medium .*--instance-initiated-sh
 [ "$(grep -o -- '--subnet-id [^ ]*' <<<"$runs" | sort -u | wc -l)" = 1 ] && ok "all three in one subnet" || bad "the launches span subnets"
 tag=$(grep -o 'Key=study-deadline,Value=[0-9TZ:-]*' <<<"$runs" | head -1 | sed 's/.*Value=//')
 got=$(date -u -d "$tag" +%s 2>/dev/null || echo 0)
-(( got >= t0 + 4470 && got <= t0 + 4470 + 120 )) && ok "the launches carry the sweeper's tag at the request plus 4,470 s" || bad "the launch tag is '$tag'"
+(( got >= t0 + 5670 && got <= t0 + 5670 + 120 )) && ok "the launches carry the sweeper's tag at the request plus 5,670 s" || bad "the launch tag is '$tag'"
 want_t0=$(date -u -d "$LT_G" +%s)
 cl="$STUB/uploaded/cluster.env"
 [ -s "$cl" ] && grep -qx "T0=$want_t0" "$cl" && grep -qx "HEAD_IP=172.31.0.10" "$cl" && grep -qx "GPU1_IP=172.31.0.11" "$cl" && grep -qx "GPU2_IP=172.31.0.12" "$cl" &&
   ok "cluster.env carries T0, the latest LaunchTime, and the three addresses" || bad "cluster.env: $(paste -sd' ' "$cl" 2>&1)"
-want_tag=$(date -u -d "@$(( want_t0 + 4470 ))" +%Y-%m-%dT%H:%M:%SZ)
+want_tag=$(date -u -d "@$(( want_t0 + 5670 ))" +%Y-%m-%dT%H:%M:%SZ)
 grep -q "^ec2 create-tags .*--resources i-0head i-0gpu1 i-0gpu2 --tags Key=study-deadline,Value=$want_tag" "$STUB/calls.log" &&
-  ok "the tags move to T0 + 4,470 s ($want_tag)" || bad "the tag rewrite was: $(grep create-tags "$STUB/calls.log")"
+  ok "the tags move to T0 + 5,670 s ($want_tag)" || bad "the tag rewrite was: $(grep create-tags "$STUB/calls.log")"
 for i in i-0head i-0gpu1 i-0gpu2; do
   grep -q "^ec2 terminate-instances .*$i" "$STUB/calls.log" || bad "$i was not terminated"
 done
@@ -230,10 +246,10 @@ grep -q "^ec2 delete-security-group .*sg-0session" "$STUB/calls.log" && ok "the 
 ! find "$STUB/out" -name 'munge.key' | grep -q . && ok "the munge key is not in the run directory" || bad "the munge key is in the run directory"
 for r in head gpu1 gpu2; do
   ud="$STUB/out/user-data-$r.sh"
-  bash -n "$ud" && grep -q "export ROLE=$r " "$ud" && grep -q '( sleep 4500; ' "$ud" && (( $(wc -c <"$ud") < 16384 )) ||
+  bash -n "$ud" && grep -q "export ROLE=$r " "$ud" && grep -q '( sleep 5700; ' "$ud" && (( $(wc -c <"$ud") < 16384 )) ||
     bad "the $r user-data: role, backstop, parse or size"
 done
-ok "each user-data names its role, arms the 4,500 s backstop, parses and fits 16 KB"
+ok "each user-data names its role, arms the 5,700 s backstop, parses and fits 16 KB"
 
 # A head whose termination is not confirmed: the workers are still terminated, by the loop or by the trap.
 scene; put slow "running"; rule "ec2 describe-instances*--instance-ids i-0head*State.Name*" slow; base_rules; void_evidence

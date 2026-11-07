@@ -19,10 +19,10 @@ OUT="${OUT:-hack/slurm-ec2-rehearsal-$(date -u +%Y%m%dT%H%M%SZ)}"
 IMAGE=slurmec2-rehearsal:1
 NET=slurmec2-rh
 VOL=slurmec2-rh-shared
-STOP_S=4500
+STOP_S=5700
 PREFIX=rehearsal
 # The rehearsal waits for DONE until T0 plus the evidence deadline and a margin.
-WAIT_S=4440
+WAIT_S=5640
 
 say() { echo "== $(date -u +%H:%M:%S) $*" | tee -a "$OUT/rehearsal.log"; }
 fail() { echo "REHEARSAL FAILED: $*" | tee -a "$OUT/rehearsal.log" >&2; exit 1; }

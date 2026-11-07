@@ -254,10 +254,15 @@ def b4(ev):
     events = env(os.path.join(d, "events.env"))
     if not ref or not run or "fault_written" not in events:
         return result("INVALID", ["the reference, the run's log or the fault time is missing"])
+    broken = failed_instruments(d, ["run-job-after.txt", "run-sacct.txt"])
+    if broken:
+        return result("INVALID", broken)
     fault = float(events["fault_written"])
     drained = None
     for line in (read(os.path.join(d, "gpu1-state.txt")) or "").splitlines():
         f = line.split(" ", 1)
+        if len(f) == 2 and f[1] == "READ-FAILED" and drained is None:
+            return result("INVALID", ["gpu1's state could not be read before a drain was seen"])
         if len(f) == 2 and re.search(r"State=\S*DRAIN", f[1]) and "DCGM_FI_DEV_XID_ERRORS=79" in f[1]:
             drained = float(f[0])
             break
@@ -306,6 +311,11 @@ def main(argv):
         verdict.update({"b1": [], "b2": [], "b3": {}, "b4": result("VOID", void)})
     else:
         verdict.update({"b1": b1(ev), "b2": b2(ev), "b3": b3(ev), "b4": b4(ev)})
+    # Complete when every registered repetition was observed; a rule that did not hold is still a complete measurement.
+    verdict["complete"] = not void and len(verdict["b1"]) == 4 and all(
+        r["status"] == "observed" and r.get("b1b", {"status": "observed"})["status"] == "observed" for r in verdict["b1"]
+    ) and len(verdict["b2"]) == 3 and all(r["status"] == "observed" for r in verdict["b2"]) and sorted(verdict["b3"]) == ["a", "b"] and all(
+        r["status"] == "observed" for r in verdict["b3"].values()) and verdict["b4"]["status"] == "observed"
     with open(path, "w") as fh:
         json.dump(verdict, fh, indent=2, sort_keys=True)
 

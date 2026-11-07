@@ -10,8 +10,8 @@
 #
 # THE CLOCK. T0 is the latest of the three instances' EC2 LaunchTime. The runner writes it, with the three private
 # addresses, to the run's S3 prefix as cluster.env; the instances read it and count every deadline from it.
-# Each instance stops itself at T0 + 4,500 s, carries the sweeper's tag at T0 + 4,470 s, and the runner's wait for
-# termination ends at T0 + 4,900 s.
+# Each instance stops itself at T0 + 5,700 s, carries the sweeper's tag at T0 + 5,670 s, and the runner's wait for
+# termination ends at T0 + 6,100 s.
 #
 # NOTHING HERE IS A DEFAULT A CALLER CAN MOVE: the registration fixes the instances, the caps and the deadlines, so
 # each is a constant, and a caller who sets one is refused rather than ignored.
@@ -34,14 +34,14 @@ GPU_AMI_OWNER=898082745236
 STUDY_ID=slurm-ec2-2026-11-07
 STACK=slurmec2
 PURPOSE=slurm-ec2
-TAG_AT_REQUEST_S=4470
-TAG_FROM_T0_S=4470
-STOP_S=4500
-TERMINATION_S=4900
+TAG_AT_REQUEST_S=5670
+TAG_FROM_T0_S=5670
+STOP_S=5700
+TERMINATION_S=6100
 DESCRIBE_TRIES=24
 SWEEPER_MIN_RUNS=4
 # The termination wait's end plus 30 minutes of headroom, and the build, in minutes.
-CRED_MIN_MINUTES=120
+CRED_MIN_MINUTES=135
 
 OUT="${OUT:-hack/slurm-ec2-$(date -u +%Y%m%dT%H%M%SZ)}"
 say() { echo "== $*" | { if [ -d "$OUT" ]; then tee -a "$OUT/session.log"; else cat; fi; }; }
@@ -87,10 +87,17 @@ gpu_ami=$(ami_check "$SLURMEC2_GPU_AMI_ID" "$GPU_AMI_NAME" "$GPU_AMI_OWNER") || 
 for id in "$SLURMEC2_HEAD_AMI_ID" "$SLURMEC2_GPU_AMI_ID"; do
   maps=$(aws ec2 describe-images --region "$REGION" --image-ids "$id" --query 'Images[0].BlockDeviceMappings' --output json 2>&1) ||
     fail "could not read $id's block devices: $maps"
+    want_gb=$GPU_VOLUME_GB; [ "$id" = "$SLURMEC2_HEAD_AMI_ID" ] && want_gb=$HEAD_VOLUME_GB
   python3 - "$maps" <<'PY' || fail "$id maps an EBS volume other than /dev/sda1: $maps"
 import json, sys
 m = json.loads(sys.argv[1])
 sys.exit(0 if all(d.get("DeviceName") == "/dev/sda1" or "Ebs" not in d for d in m) else 1)
+PY
+  # EC2 refuses a root volume smaller than the image's snapshot, which would only show after the head is bought.
+  python3 - "$maps" "$want_gb" <<'PY' || fail "$id's root snapshot is larger than the $want_gb GB the launch asks for: $maps"
+import json, sys
+root = [d for d in json.loads(sys.argv[1]) if d.get("DeviceName") == "/dev/sda1"]
+sys.exit(0 if len(root) == 1 and 0 < root[0].get("Ebs", {}).get("VolumeSize", 10**9) <= int(sys.argv[2]) else 1)
 PY
 done
 say "AMIs: head $SLURMEC2_HEAD_AMI_ID ($head_ami), workers $SLURMEC2_GPU_AMI_ID ($gpu_ami)"
@@ -208,6 +215,13 @@ cleanup() {
   local bad=0 u iid i
   rm -rf "$SECRETS"
   aws s3 rm --only-show-errors "s3://$BUCKET/$RUN_ID/munge.key" >>"$OUT/cleanup.txt" 2>&1 || echo "the munge key could not be removed from S3" >>"$OUT/cleanup.txt"
+  # Uploads this session started and never finished bill until aborted; the lifecycle aborts them after a day anyway.
+  local up
+  for up in $(aws s3api list-multipart-uploads --bucket "$BUCKET" --prefix "$RUN_ID/" --query 'Uploads[].[Key,UploadId]' --output text 2>>"$OUT/cleanup.txt" | tr '\t' '|'); do
+    [ "$up" != None ] || continue
+    aws s3api abort-multipart-upload --bucket "$BUCKET" --key "${up%%|*}" --upload-id "${up##*|}" >>"$OUT/cleanup.txt" 2>&1 ||
+      echo "an upload of ${up%%|*} could not be aborted; the bucket's lifecycle aborts it within a day" >>"$OUT/cleanup.txt"
+  done
   for u in ${UNCERTAIN[@]+"${UNCERTAIN[@]}"}; do
     spot_reconcile_token "$REGION" "${u%% *}" "${u##* }" 6 || { echo "TERMINATION UNCONFIRMED for the launch under token ${u%% *}" | tee -a "$OUT/termination.txt" >&2; bad=1; }
   done
@@ -232,13 +246,24 @@ trap 'cleanup; exit 130' INT
 trap 'cleanup; exit 143' TERM
 
 spot_ensure_bucket "$BUCKET" "$REGION" 30 || fail "could not prepare the results bucket $BUCKET"
-# A bucket made by an earlier run whose lifecycle call failed would keep this run's objects forever, so the rule is read
-# back on every run: an enabled whole-bucket expiry within 30 days, and no versioning to keep old versions past it.
+# The bucket is this session's own (named for it), so its lifecycle is written on every run rather than trusted:
+# objects expire after 30 days and an interrupted multipart upload is aborted after 1, which expiry alone does not do.
+# It is then read back, and only an unfiltered rule carrying both counts.
+aws s3api put-bucket-lifecycle-configuration --bucket "$BUCKET" --lifecycle-configuration \
+  '{"Rules":[{"ID":"expire","Status":"Enabled","Filter":{"Prefix":""},"Expiration":{"Days":30},"AbortIncompleteMultipartUpload":{"DaysAfterInitiation":1}}]}' \
+  >>"$OUT/launch-errors.txt" 2>&1 || fail "could not write the bucket's lifecycle"
 lc=$(aws s3api get-bucket-lifecycle-configuration --bucket "$BUCKET" --output json 2>&1) || fail "the bucket's lifecycle could not be read: $lc"
-python3 - "$lc" <<'PY' || fail "the bucket $BUCKET has no enabled whole-bucket expiry within 30 days: $lc"
+python3 - "$lc" <<'PY' || fail "the bucket $BUCKET has no unfiltered rule expiring objects within 30 days and aborting uploads: $lc"
 import json, sys
 rules = json.loads(sys.argv[1]).get("Rules", [])
-ok = any(r.get("Status") == "Enabled" and r.get("Filter", {}).get("Prefix", "") == "" and 0 < r.get("Expiration", {}).get("Days", 0) <= 30 for r in rules)
+def unfiltered(r):
+    f = r.get("Filter")
+    if f is None:
+        return r.get("Prefix", None) == ""
+    return f in ({}, {"Prefix": ""})
+ok = any(r.get("Status") == "Enabled" and unfiltered(r)
+         and 0 < r.get("Expiration", {}).get("Days", 0) <= 30
+         and 0 < r.get("AbortIncompleteMultipartUpload", {}).get("DaysAfterInitiation", 0) <= 7 for r in rules)
 sys.exit(0 if ok else 1)
 PY
 ver=$(aws s3api get-bucket-versioning --bucket "$BUCKET" --query Status --output text 2>&1) || fail "the bucket's versioning could not be read: $ver"
@@ -246,6 +271,19 @@ case "$ver" in None|"") ;; *) fail "the bucket $BUCKET has versioning $ver, so i
 spot_ensure_profile "$STACK" \
   "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":[\"s3:PutObject\",\"s3:GetObject\"],\"Resource\":\"arn:aws:s3:::$BUCKET/*\"},{\"Effect\":\"Allow\",\"Action\":\"s3:ListBucket\",\"Resource\":\"arn:aws:s3:::$BUCKET\"}]}" \
   20 || fail "could not prepare the instance profile $STACK"
+# An existing profile is not trusted: its role must be this one, trust EC2, and carry this run's policy, written again.
+prof_role=$(aws iam get-instance-profile --instance-profile-name "$STACK" --query 'InstanceProfile.Roles[].RoleName' --output text 2>&1) ||
+  fail "the instance profile $STACK could not be read: $prof_role"
+[ "$prof_role" = "$STACK" ] || fail "the instance profile $STACK carries role(s) '$prof_role', not $STACK"
+trust=$(aws iam get-role --role-name "$STACK" --query 'Role.AssumeRolePolicyDocument.Statement[].Principal.Service' --output text 2>&1) ||
+  fail "the role $STACK could not be read: $trust"
+[ "$trust" = ec2.amazonaws.com ] || fail "the role $STACK trusts '$trust', not ec2.amazonaws.com alone"
+aws iam put-role-policy --role-name "$STACK" --policy-name write-results --policy-document \
+  "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":[\"s3:PutObject\",\"s3:GetObject\"],\"Resource\":\"arn:aws:s3:::$BUCKET/*\"},{\"Effect\":\"Allow\",\"Action\":\"s3:ListBucket\",\"Resource\":\"arn:aws:s3:::$BUCKET\"}]}" \
+  >>"$OUT/launch-errors.txt" 2>&1 || fail "could not write the role's policy"
+extra=$(aws iam list-attached-role-policies --role-name "$STACK" --query 'AttachedPolicies[].PolicyArn' --output text 2>&1) ||
+  fail "the role's attached policies could not be read: $extra"
+[ -z "$extra" ] || fail "the role $STACK has attached policies ($extra) this session did not grant"
 # The session's own security group: the three instances reach each other and nothing reaches them from outside.
 # The default group in gpu-lab admits all TCP from anywhere, which would put slurmctld and the NFS export on the internet.
 VPC=$(aws ec2 describe-vpcs --region "$REGION" --filters Name=is-default,Values=true --query 'Vpcs[0].VpcId' --output text 2>&1)
@@ -370,21 +408,30 @@ for k in evidence.tgz DONE log-head.txt log-gpu1.txt log-gpu2.txt stopped-gpu1 s
   aws s3 cp --only-show-errors "s3://$BUCKET/$RUN_ID/$k" "$OUT/$k" 2>>"$OUT/download-errors.txt" || echo "not downloaded: $k" >>"$OUT/download-errors.txt"
 done
 [ ! -s "$OUT/evidence.tgz" ] || tar -xzf "$OUT/evidence.tgz" -C "$OUT" || echo "the evidence archive did not unpack" >>"$OUT/download-errors.txt"
-# The measurement's status apart from the teardown's: 0 scored, 3 VOID, no evidence or a failed scorer.
+# The measurement's status apart from the teardown's: 0 every check observed (rules may still not have held),
+# 4 scored but some check INVALID or NOTRUN, or an archive that is not the last one head verified, 3 VOID, no evidence
+# or a failed scorer.
 MEASURED=3
 if [ -d "$OUT/evidence" ]; then
   python3 hack/slurm-ec2/score.py "$OUT/evidence" "$OUT/verdict.json" | tee "$OUT/verdict.txt"
   score_rc=${PIPESTATUS[0]}
   if [ "$score_rc" != 0 ]; then echo "SCORER FAILED with status $score_rc" | tee -a "$OUT/verdict.txt"
-  elif ! grep -q '^SLURM ON EC2: VOID' "$OUT/verdict.txt"; then MEASURED=0; fi
-  grep -qx 'evidence_verified=yes' "$OUT/DONE" || echo "the last evidence upload was not verified on head; this archive may be an earlier one" | tee -a "$OUT/verdict.txt"
+  elif grep -q '^SLURM ON EC2: VOID' "$OUT/verdict.txt"; then MEASURED=3
+  elif python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1]))["complete"] else 1)' "$OUT/verdict.json"; then MEASURED=0
+  else MEASURED=4; fi
+  # DONE names the digest of the archive head last verified in S3; anything else is an earlier or a broken one.
+  want=$(sed -n 's/^evidence_sha256=//p' "$OUT/DONE" 2>>"$OUT/download-errors.txt")
+  if [ -z "$want" ] || [ "$want" != "$(sha256sum "$OUT/evidence.tgz" | cut -d' ' -f1)" ]; then
+    echo "the downloaded archive is not the one head last verified (DONE names '${want:-none}'); it may be an earlier one" | tee -a "$OUT/verdict.txt"
+    [ "$MEASURED" = 0 ] && MEASURED=4
+  fi
   # Downloaded and unpacked, so the run's prefix is no longer the only copy; it would otherwise wait 30 days to expire.
   aws s3 rm --only-show-errors --recursive "s3://$BUCKET/$RUN_ID/" >>"$OUT/cleanup.txt" 2>&1 || echo "the run's S3 prefix could not be removed; it expires in 30 days" >>"$OUT/cleanup.txt"
 else
   echo "SLURM ON EC2: NO-EVIDENCE (the evidence archive did not come back)" | tee "$OUT/verdict.txt"
 fi
 echo "termination=$TERMINATION" >>"$OUT/verdict.txt"
-echo "measured=$([ "$MEASURED" = 0 ] && echo yes || echo no)" >>"$OUT/verdict.txt"
+echo "measured=$(case "$MEASURED" in 0) echo complete ;; 4) echo incomplete ;; *) echo no ;; esac)" >>"$OUT/verdict.txt"
 say "the verdict is in $OUT/verdict.txt"
 [ "$TERMINATION" = confirmed ] || exit 1
 exit "$MEASURED"

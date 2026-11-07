@@ -14,8 +14,8 @@ TORCH_VERSION=2.5.1
 
 # Offsets from T0, in seconds, as the registration's clock table gives them.
 BRINGUP_END_S=1500
-CHECKS_END_S=4200
-EVIDENCE_S=4380
+CHECKS_END_S=5400
+EVIDENCE_S=5580
 
 SHARED=/shared
 EVID=$SHARED/evidence
@@ -52,7 +52,7 @@ ship() {
   for i in 1 2 3 4 5; do
     if s3put /tmp/evidence.tgz evidence.tgz; then
       got=$(aws s3api head-object --bucket "$BUCKET" --key "$PREFIX/evidence.tgz" --query ContentLength --output text) &&
-        [ "$got" = "$size" ] && return 0
+        [ "$got" = "$size" ] && { sha256sum /tmp/evidence.tgz | cut -d' ' -f1 >/tmp/evidence.sha; return 0; }
     fi
     sleep $(( i * 2 ))
   done

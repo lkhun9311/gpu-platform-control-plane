@@ -42,12 +42,12 @@ Every deadline counts from `T0`, the latest of the three instances' EC2 `LaunchT
 | from T0 | what |
 |---|---|
 | 1,500 s | bring-up ends: packages, MariaDB, munge, NFS, `slurmctld`, both `slurmd` registered `IDLE`, the venv |
-| 4,200 s | the checks end |
-| 4,230 s | the procedure is stopped if still running; `collect.sh` ships what exists, then the diagnostics |
-| 4,380 s | the evidence deadline: `collect.sh` is stopped at 4,440 s at the latest |
-| 4,470 s | the sweeper's `study-deadline` tag |
-| 4,500 s | every instance shuts itself down (`instance-initiated-shutdown-behavior=terminate`) |
-| 4,900 s | the runner's termination wait ends |
+| 5,400 s | the checks end; each check is admitted only with its own worst case left (B1 480 s a repetition, B2 300 s, B3 540 s, B4 1,700 s), otherwise NOTRUN |
+| 5,430 s | the procedure is stopped if still running; `collect.sh` ships what exists, then the diagnostics |
+| 5,580 s | the evidence deadline: `collect.sh` is stopped at 5,640 s at the latest |
+| 5,670 s | the sweeper's `study-deadline` tag |
+| 5,700 s | every instance shuts itself down (`instance-initiated-shutdown-behavior=terminate`) |
+| 6,100 s | the runner's termination wait ends |
 
 ## Checks, registered
 
@@ -84,27 +84,28 @@ Holds when all of: `sacct` reports the step `<id>.0` `OUT_OF_MEMORY`; the job's 
 
 ## Cost, read by the price gate before anything is bought
 
-| item | cap | hours (to the 4,900 s wait) | upper bound |
+| item | cap | hours (to the 6,100 s wait) | upper bound |
 |---|---|---|---|
-| 2 × `g5.xlarge` Spot | max price $0.80/h each (On-Demand on record $1.237/h) | 1.36 | $2.18 |
-| 1 × `t3.medium` Spot | max price $0.06/h | 1.36 | $0.08 |
-| EBS gp3, 120 + 120 + 30 GB at $0.0912/GB-month | — | 1.36 | $0.05 |
-| 3 public IPv4 at $0.005/h | — | 1.36 | $0.02 |
-| **total** | | | **$2.33** |
+| 2 × `g5.xlarge` Spot | max price $0.80/h each (On-Demand on record $1.237/h) | 1.69 | $2.71 |
+| 1 × `t3.medium` Spot | max price $0.06/h | 1.69 | $0.10 |
+| EBS gp3, 100 + 100 + 30 GB at $0.0912/GB-month | — | 1.69 | $0.05 |
+| 3 public IPv4 at $0.005/h | — | 1.69 | $0.03 |
+| S3: the source (about 52 MB) and the evidence, removed at the end, otherwise expired in 30 days | — | — | under $0.01 |
+| **total** | | | **$2.89** |
 
-Expected at the Spot prices of 2026-11-07 ($0.574–0.593/h for `g5.xlarge`, $0.015–0.018/h for `t3.medium`) and about 1.1 h: **about $1.3**.
+Expected at the Spot prices of 2026-11-07 ($0.574–0.593/h for `g5.xlarge`, $0.015–0.018/h for `t3.medium`) and about 1.2 h: **about $1.5**.
 This is far under the $25–40 the plan estimated for a four-day Slurm-on-EC2 effort; the plan priced longer sessions and more nodes, and this design keeps only what the four questions need.
 The runner refuses a launch when no zone offers both types under their caps, and when the G and VT Spot quota is below 8 vCPU.
 
 ## Before anything is bought (refusals)
 
-A dirty tree; `SESSION_CONFIRM` not `yes`; `SLURMEC2_REHEARSAL` set; either AMI ID not pinned or not the named image; credentials not for `gpu-lab`, or expiring within 120 minutes (read again after the uploads, when at least 91 minutes must remain); the termination sweeper not `Active` with its rule `ENABLED rate(5 minutes)` and at least 4 runs and no error summed over every 5-minute datapoint of the last 30 minutes; an earlier instance of this purpose still live; a caller-set override of any registered constant.
+A dirty tree; `SESSION_CONFIRM` not `yes`; `SLURMEC2_REHEARSAL` set; either AMI ID not pinned or not the named image; credentials not for `gpu-lab`, or expiring within 135 minutes (read again after the uploads, when at least 111 minutes must remain); the termination sweeper not `Active` with its rule `ENABLED rate(5 minutes)` and at least 4 runs and no error summed over every 5-minute datapoint of the last 30 minutes; an earlier instance of this purpose still live; a caller-set override of any registered constant.
 The nightly EKS destroy workflow does not touch these instances (they are not in any Terraform state), so its window does not apply.
 
 ## Termination chain
 
 1. The runner's EXIT, INT and TERM traps terminate every instance it launched and reconcile any launch whose answer was lost by its client token (`hack/lib/spot-run.sh`), and say `TERMINATION UNCONFIRMED` per instance otherwise.
-2. Each instance shuts itself down at T0 + 4,500 s, and, before T0 is known, at its own boot + 4,500 s; shutdown terminates (one-time Spot, `instance-initiated-shutdown-behavior=terminate`).
+2. Each instance shuts itself down at T0 + 5,700 s, and, before T0 is known, at its own boot + 5,700 s; shutdown terminates (one-time Spot, `instance-initiated-shutdown-behavior=terminate`).
 3. The termination sweeper terminates any instance past its `study-deadline` tag.
 
 ## What it licenses, and what it does not
@@ -139,5 +140,17 @@ Each finding was checked against the code by Claude before it was fixed.
 | 9 P2 | B3 passed a second job that started before the first ended | the gap must be between 0 and 60 s, and both jobs COMPLETED |
 | 10 P2 | VOID, missing evidence and a failed scorer exited 0 | the runner exits 3 for those, 1 for an unconfirmed termination, 0 only for a scored measurement |
 
-Found by Claude in the same round: the default security group of `gpu-lab`'s default VPC admits all TCP from `0.0.0.0/0` (read on 2026-11-07), which would have put `slurmctld` and the NFS export on the internet.
+**Round 2 (commit `3a648120`): NO-GO, seven findings, all confirmed and fixed.**
+
+| # | finding | fix |
+|---|---|---|
+| 1 P1 | an interrupted multipart upload (the source is about 52 MB) is not removed by object expiry and bills indefinitely | the session writes its own bucket's lifecycle on every run with `AbortIncompleteMultipartUpload` after 1 day, and its cleanup aborts the run's open uploads |
+| 2 P1 | the lifecycle check accepted a rule filtered by tag, size or `And` | only an unfiltered rule (`Filter` `{}` or `{"Prefix": ""}`, or a legacy empty `Prefix`) with both expiry and abort counts |
+| 3 P1 | the registration said 120 GB per worker and the runner asked 100; a snapshot larger than the launch's volume would fail only after the head was bought | 100 GB in both places, and each image's root snapshot size is checked against its launch before anything is bought (75 GB and 8 GB on 2026-11-07) |
+| 4 P1 | an existing instance profile was trusted | its role must be `slurmec2`, trust `ec2.amazonaws.com` alone and carry no attached policy, and the inline policy is written again on every run |
+| 5 P2 | an earlier archive could be reported as the final one, and a run with every check INVALID exited 0 | `DONE` names the SHA-256 of the archive last verified in S3 and the runner checks its download against it; the verdict records `complete`, and the runner exits 0 only when every registered repetition was observed, 4 when some were not |
+| 6 P2 | B4's `sacct`, `scontrol show job` and node polls could fail and read as rules that did not hold | their exit statuses are recorded, and a failed one makes B4 INVALID |
+| 7 P2 | B4 was admitted with 1,200 s while its own waits add to about 1,570 s, and the checks could be cut by the procedure's timeout | each check is admitted only with its own worst case left, and the checks' window is 3,900 s (the self-shutdown moved from 4,500 to 5,700 s, about $0.6 more at the caps) |
+
+Found by Claude in round 1: the default security group of `gpu-lab`'s default VPC admits all TCP from `0.0.0.0/0` (read on 2026-11-07), which would have put `slurmctld` and the NFS export on the internet.
 The session now creates its own group, admitting only its own members, launches all three into it (a new optional argument of `spot_launch`, `a39c955f`), and deletes it after the instances are gone.

@@ -65,7 +65,8 @@ b1() {
   job_done "$u" $(( $(date +%s) + 240 )) || echo "unalloc job $u did not end in 240 s" >"$d/unalloc.timeout"
 }
 for spec in 1:gpu1 2:gpu1 3:gpu1 4:gpu2; do
-  if [ "$(left "$CHECKS_END")" -lt 2400 ]; then notrun "b1/rep-${spec%%:*}" "fewer than 2,400 s left for the checks"; continue; fi
+  # Each check is admitted only with its own worst case left, so none is cut short; one that is not is NOTRUN.
+  if [ "$(left "$CHECKS_END")" -lt 480 ]; then notrun "b1/rep-${spec%%:*}" "fewer than 480 s left for the checks"; continue; fi
   b1 "${spec%%:*}" "${spec##*:}"
 done
 echo "b1_done=$(now)" >>"$EVID/timeline.env"
@@ -87,7 +88,7 @@ chmod 755 "$SHARED/jobs/b2.sh"
 root_on gpu2 "$EVID/b2-slurmd-pid-before.txt" systemctl show -p MainPID --value slurmd
 for rep in 1 2 3; do
   d=$EVID/b2/rep-$rep
-  if [ "$(left "$CHECKS_END")" -lt 1800 ]; then notrun "b2/rep-$rep" "fewer than 1,800 s left for the checks"; continue; fi
+  if [ "$(left "$CHECKS_END")" -lt 300 ]; then notrun "b2/rep-$rep" "fewer than 300 s left for the checks"; continue; fi
   mkdir -p "$d" && chmod 777 "$d"
   t_start=$(date +%s)
   id=$(as_tenant sbatch --parsable -w gpu2 --mem=512M -t 5 -o "$d/job.out" -e "$d/job.err" "$SHARED/jobs/b2.sh") ||
@@ -130,11 +131,11 @@ b3() {
   printf 'first=%s\nsecond=%s\n' "$i1" "$i2" >"$d/jobs.env"
   poll_pair "$d" "$i1" "$i2" 200
 }
-if [ "$(left "$CHECKS_END")" -ge 1500 ]; then
+if [ "$(left "$CHECKS_END")" -ge 540 ]; then
   b3 a -A acct-a --gres=gpu:1 --mem=1G
   b3 b -q qone --mem=500M
 else
-  notrun b3 "fewer than 1,500 s left for the checks"
+  notrun b3 "fewer than 540 s left for the checks"
 fi
 echo "b3_done=$(now)" >>"$EVID/timeline.env"
 ship || log "the evidence after b3 could not be shipped"
@@ -165,12 +166,16 @@ b4() {
   t_fault=$(now)
   echo "fault_written=$t_fault" >>"$d/events.env"
   for _ in $(seq 1 60); do
-    echo "$(now) $(scontrol show node gpu1 | grep -oE 'State=\S+|Reason=.*' | paste -sd' ')" >>"$d/gpu1-state.txt"
+    # A failed read is written as such, so the scorer can tell it from a node that was not drained.
+    line=$(scontrol show node gpu1) && echo "$(now) $(grep -oE 'State=\S+|Reason=.*' <<<"$line" | paste -sd' ')" >>"$d/gpu1-state.txt" ||
+      echo "$(now) READ-FAILED" >>"$d/gpu1-state.txt"
     sleep 1
   done
   job_done "$run" $(( $(date +%s) + 600 )) || echo "the run did not end in 600 s after the fault" >"$d/run.timeout"
   scontrol show job "$run" >"$d/run-job-after.txt" 2>&1
+  echo $? >"$d/run-job-after.txt.rc"
   sacct -j "$run" -n -P -D -o JobID,State,NodeList,Start,End,ExitCode >"$d/run-sacct.txt" 2>&1
+  echo $? >"$d/run-sacct.txt.rc"
   "$PY" - "$SHARED/ckpt/reference/final.pt" "$SHARED/ckpt/run/final.pt" >"$d/param-diff.txt" 2>&1 <<'EOF'
 import sys, torch
 a, b = torch.load(sys.argv[1]), torch.load(sys.argv[2])
@@ -185,6 +190,7 @@ EOF
   scontrol update nodename=gpu1 state=resume
   echo "gpu1_resumed=$(now)" >>"$d/events.env"
 }
-if [ "$(left "$CHECKS_END")" -ge 1200 ]; then b4; else notrun b4 "fewer than 1,200 s left for the checks"; fi
+# B4 waits at most 600 + 300 + 60 + 600 + 10 s, and the margin is collection's.
+if [ "$(left "$CHECKS_END")" -ge 1700 ]; then b4; else notrun b4 "fewer than 1,700 s left for the checks"; fi
 echo "b4_done=$(now)" >>"$EVID/timeline.env"
 ship || log "the evidence after b4 could not be shipped"
