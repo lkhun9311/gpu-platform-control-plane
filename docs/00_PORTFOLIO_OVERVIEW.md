@@ -1,5 +1,27 @@
 # Kubernetes-native GPUaaS Control Plane
 
+## Current state (2026-11-07)
+
+This is the one current summary; the other entry documents link here instead of restating it, and every older
+status banner below and elsewhere is historical unless it says otherwise. Each row names its latest evidence.
+
+| area | state | latest evidence |
+|---|---|---|
+| GPU fault path (`--gpu-fault-source=dcgm`) | built; scored on a real A10G with values injected into DCGM's cache (not induced hardware faults). Run 2 (2026-10-27): Xid 79 and double-bit ECC each reacted 5 of 5, the stale-latched check failed. Run 3 (2026-11-01): both arms 5 of 5, stale-latched and recovery PASS, one CUDA job on the card after recovery. Ran on kind on one EC2 instance, not EKS | `hack/gpu-fault/2026-11-01-run3/verdict.txt` |
+| NodeHealth objects | hand-created or written by the session runners; nothing in this tree creates them by default | `docs/06_OBSERVABILITY_BENCHMARK_FAILURE.md`, "GPU alerts" |
+| Distributed training restart (`distributed.maxRestarts`) | built; whole-job restart with a stop barrier and fencing. EKS, three `g5.xlarge`, two ranks: `full` (2026-11-04), `retarget` (2026-11-05, H1 REFUTED), `corelimit` (2026-11-06, H2 SUPPORTED). The full-stage medians are that revision's; later stages changed the recovery | `hack/distributed-restart-eks/2026-11-06-corelimit/README.md` |
+| Multi-Pod distributed jobs (`distributed.worldSize`) | built; ranks as Pods of an Indexed Job with a headless Service, two nodes on EKS | `experiments/multi-pod-ddp/README.md` |
+| Gateway | built; on EKS since 2026-10-12, serving one tenant through HoldCap to a controller-rendered vLLM engine; the HoldCap product path ran three registered times | `hack/eks-serve/holdcap-study/runs/20261021T021149Z/README.md` |
+| Slurm | a container lab on one host (declared GPUs, cgroups off); no real-GPU Slurm | `experiments/slurm-lab/README.md` |
+| Alerts | six rules; four delivered firing and resolved to a test webhook on kind with a fake exporter | `docs/06_OBSERVABILITY_BENCHMARK_FAILURE.md` |
+| Operations ledger | 2 of 6 tables, projected from a cluster once | `docs/07_OPERATIONS_LEDGER_AND_EVIDENCE.md` |
+| AWS `cluster` state | applied and destroyed by each paid session, not held between them | the session archives under `hack/` |
+| Spending controls | detection and per-session bounds, not a cumulative cap: a monthly AWS Budget of $30 that emails at 10, 80 and 100 percent; each paid session's price gate, TTL watchdog and GPU deadline schedule; the nightly destroy workflow; the On-Demand G and VT quota, 128 vCPU in `ap-northeast-2` since 2026-11-01; an SCP limiting instance families to `t3`, `g4dn`, `g5` and `g7e`, and one limiting regions to `ap-northeast-2` and `us-east-1` | `infra/aws/bootstrap/budget.tf`, `infra/aws/org/scp/` |
+| Network | nodes have no public addresses; outbound traffic leaves through one NAT gateway, so workloads can reach the internet | `infra/aws/cluster/vpc.tf` |
+
+Raw records of several earlier kind experiments (Argo CD self-heal, simulated MIG, fragmentation, CPU DDP) were
+kept in the gitignored `ex/` directory and are not in this repository; their pages say so beside the numbers.
+
 > **Status (written 2026-08-07, revised to 2026-10-22).** The date used to read 2026-08-07 alone while the
 > banner below carried facts from September and October; the 2026-10-22 revision changed the gateway's EKS
 > line and the number of cluster cycles, and left the rest as it was. This document surveys the whole project; the areas it covers are at different
@@ -7,7 +29,7 @@
 > **Built:** `NodeHealth` (node readiness — but the CR is hand-created, and by default no GPU fault signal
 > reaches it; since 2026-10-27 an opt-in path, `--gpu-fault-source=dcgm`, reads Xid and double-bit ECC from
 > the DCGM exporter into it and can displace Kueue work from the node, built, unit-tested and rehearsed on a
-> fake exporter, its paid run registered in `docs/superpowers/specs/2026-10-27-gpu-fault-reaction-design.md` and not yet scored on a card), `GPUQuotaPolicy` (quota), `InferenceDeployment` (serving), `MLTrainingJob` +
+> fake exporter, its paid run registered in `docs/superpowers/specs/2026-10-27-gpu-fault-reaction-design.md` and not yet scored on a card *(historical: scored on a card on 2026-10-27 and 2026-11-01, see "Current state" above)*), `GPUQuotaPolicy` (quota), `InferenceDeployment` (serving), `MLTrainingJob` +
 > Kueue (training admission). **Built, unit-tested, deployed on kind, and on EKS served once:** the gateway — the 2026-09-25 GitOps cycle reached it on a real cluster and the request ended at `403 no_policy`, which was as far as it got until 2026-10-12, when one tenant's streaming request was routed through it under HoldCap admission to a controller-rendered vLLM engine on an A10G and answered (`hack/eks-serve/runs/20261012T095840Z/README.md`). That is one request at a time on an idle backend, so it shows routing and serving, not that the gateway held anything; three later sessions put a replayed two-tenant load through the same path (Finding 9 of `docs/11_WHAT_THIS_MEASURED.md`, product-path row). **Built and MEASURED
 > on a paid GPU:** the M5-b admission guard and benchmark harness — four repetitions on 2026-09-03 and an
 > engine-level scheduler microtest on 2026-09-04. The guard failed: 83.7x against a pre-registered 1.25x
@@ -85,7 +107,7 @@ A multi-tenant GPUaaS control plane that:
 |-----------------------|----------------------------------------------|----------------------------------------------------------------------------------------------------------------------|
 | `InferenceDeployment` | declare a model-serving intent               | type + serving reconciler (Deployment/Service, phase ladder) — M4-a merged                                           |
 | `GPUQuotaPolicy`      | per-tenant GPU quota / rate limit            | type + reconciler (ResourceQuota sync, drift recovery) — M3 merged; `rateLimit` feeds the M4-b gateway — **M4-b merged, gateway built, unit-tested, deployed on kind, and reached on EKS only to the point of authentication** (2026-09-25, `403 no_policy`); since 2026-10-12 it has served one request on EKS (`hack/eks-serve/runs/20261012T095840Z/README.md`) |
-| `NodeHealth`          | GPU node intake and operational state        | type + reconciler (observe + taint, finalizer, drift recovery) — M2/M3 merged; **by default no GPU fault signal reaches it**; the opt-in DCGM path (`internal/controller/nodehealth_gpufault.go`, 2026-10-27) reads Xid and double-bit ECC from the exporter, is unit-tested, and has not been scored on a card |
+| `NodeHealth`          | GPU node intake and operational state        | type + reconciler (observe + taint, finalizer, drift recovery) — M2/M3 merged; **by default no GPU fault signal reaches it**; the opt-in DCGM path (`internal/controller/nodehealth_gpufault.go`, 2026-10-27) reads Xid and double-bit ECC from the exporter, is unit-tested, and has not been scored on a card *(2026-11-07: it has, twice; see "Current state")* |
 | `GpuSharingBenchmark` | declare a noisy-neighbor / sharing benchmark | type + CRD + 33 envtest specs, per spec `2026-07-04-gpusharingbenchmark-crd-design.md` and its 2026-09-30 amendment; the spec is immutable once created. `CompilePlan` (`internal/bench/plan.go`) compiles a spec into the harness invocation or refuses it with a reason per unsupported value — called from `cmd/benchharness` since 2026-10-01, and two paid runs that day took their load from a CR. The committed sample is one of the specs it refuses. No status writer, so no result is recorded through this path (M5) |
 | `WorkloadRun`         | record a workload execution                  | type + reconciler + driver — `internal/controller/workloadrun_controller.go` (320 lines). A Pod kill was recorded automatically as `Ready → Pending → Ready` with Ready again at 20 s on the run's elapsed clock on kind (`hack/m7-evidence-trail.log`); that clock starts about 8 s before the kill, and the target was a GPU-less stub told to delay its readiness by 8 s, so 20 s is neither an outage duration nor a serving recovery time. It is not a general-purpose ledger |
 | `MLTrainingJob`       | Kueue-admitted training job                  | type + full reconciler — translates to a `batch/v1` Job admitted through Kueue, two-tenant cohort borrowing/reclaim preemption, run end-to-end on kind (`hack/m6-kind-e2e.md`) — **M6 merged and built**. It is not the only milestone with a live run record: M7 (`hack/m7-evidence-trail.log`), the gateway chain and the three chaos scenarios have theirs |

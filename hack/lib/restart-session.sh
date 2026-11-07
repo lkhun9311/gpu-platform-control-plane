@@ -1518,10 +1518,14 @@ print(row["container"], json.dumps(row))' "$uid" "$n" "$rc" "$ended" "$podj" 2>>
           # A stream that ended with its container is complete; one that ended while it runs is read again in full.
           # A read of the container that failed says neither, so the log is read again after a pause: taking it for the
           # end once stopped a Pod's records for good after one API error (codex review before the full stage).
+          # A stream that failed is not a complete log even when its container has ended: the ended container's log is
+          # still there to read, so only a stream that ended cleanly, or a Pod that is gone, ends the reading
+          # (gpt-6-astra review of 116092ef: a failed read then a terminated status once ended it for good).
           case "${row%% *}" in
             running) ;;
             unread) sleep 2 ;;
-            *) break ;;
+            gone) break ;;
+            *) ((rc != 0)) || break ;;
           esac
         done
       ) &
@@ -2008,6 +2012,14 @@ restart_run() {
       mkdir -p "$RESTART_OUT/$case"
       echo "the case's phase ended with status $rc before the case did; its evidence is incomplete and its retirement unconfirmed" >>"$RESTART_OUT/$case/VOID"
       stop="$case did not finish inside its slot, so its job may still hold GPUs; see $RESTART_OUT/$case/case.log"
+      verdict=VOID
+    elif ((rc != 0 && rc != 1 && rc != 2)); then
+      # restart_run_case returns only 0, 1 and 2; any other status is a worker killed by a signal or ended by something
+      # it did not choose, which never reached its retirement, so its job may still run and hold GPUs and nothing more
+      # starts (gpt-6-astra review of 116092ef: 137 and 143 used to reach the scorer like a finished case).
+      mkdir -p "$RESTART_OUT/$case"
+      echo "the case's worker ended with status $rc, which it never returns itself; its evidence is incomplete and its retirement unconfirmed" >>"$RESTART_OUT/$case/VOID"
+      stop="$case's worker ended with status $rc before retiring its job, so its job may still hold GPUs; see $RESTART_OUT/$case/case.log"
       verdict=VOID
     else
       # Its own call's share, as before the phase: a case may end at its slot's end and still be scored.

@@ -2,7 +2,7 @@
 
 The pre-registration is `docs/superpowers/specs/2026-09-24-node-level-gpu-fragmentation.md`, written before
 any trial ran. This page reports what happened against the bars it fixed. Raw evidence is under `ex/`
-(gitignored); the curated figures are here.
+(gitignored); the curated figures are here — raw records not in this repository: they were kept in the author's gitignored `ex/` directory and are not published, so the figures below cannot be checked against their observations from this repository (noted 2026-11-07).
 
 ## The headline
 
