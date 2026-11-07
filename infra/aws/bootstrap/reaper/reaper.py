@@ -8,9 +8,10 @@ A lease whose session deadline has passed has its session's billing resources de
 order, and the lease removed once nothing is left (proposal P1).
 
 It deletes only what the lease names and what carries the project tag: the cluster of the lease's name, that cluster's
-node groups, the EFS file system named after it, and the NAT gateways and addresses of its VPC.
-The VPC, subnets, route tables and security groups are left: they cost nothing, and the next session's terraform owns
-them.
+node groups, the session's EFS file system, the NAT gateways of its VPC, the addresses the VPC module named after it, the
+cluster's log group, and the encryption key aliased to the cluster.
+The VPC, subnets, route tables, security groups and IAM roles are left: they cost nothing, and the next session's
+terraform owns them.
 """
 
 import datetime
@@ -20,6 +21,7 @@ import os
 LEASE_PATH = os.environ.get("LEASE_PATH", "/gpu-platform/session-lease/")
 PROJECT_KEY = "project"
 PROJECT_VALUE = os.environ.get("PROJECT_TAG", "gpu-platform-control-plane")
+HEARTBEAT = os.environ.get("HEARTBEAT", "/gpu-platform/session-reaper/last-ok")
 
 
 class LeaseError(Exception):
@@ -86,7 +88,23 @@ def _code(err):
     return getattr(err, "response", {}).get("Error", {}).get("Code", "")
 
 
-def hold_gpu_at_zero(eks, asg, cluster, groups, log):
+def still_gpu_phase(ssm, lease_name, group, now):
+    """Whether the lease, read again now, still puts GROUP past its GPU deadline.
+
+    The run read every lease at its start; a session that renewed the GPU deadline since, to buy the group again, must
+    not have it scaled down on the run's old copy (r1 of the adversarial review). The session waits out a run's timeout
+    after renewing an expired deadline, which closes the window this read narrows.
+    """
+    try:
+        cur = parse_lease(lease_name, ssm.get_parameter(Name=lease_name)["Parameter"]["Value"])
+    except Exception as e:  # noqa: BLE001
+        if _code(e) == "ParameterNotFound":
+            return False
+        raise
+    return phase(cur, now) == "gpu" and group in cur.get("gpu_nodegroups", [])
+
+
+def hold_gpu_at_zero(eks, asg, ssm, lease_name, cluster, groups, now, log):
     """P2: each named group at minSize 0, desiredSize 0, and with no instance left; returns the groups not yet there."""
     pending = []
     for name in groups:
@@ -101,6 +119,9 @@ def hold_gpu_at_zero(eks, asg, cluster, groups, log):
             continue
         sc = ng.get("scalingConfig", {})
         if sc.get("desiredSize", 0) > 0 or sc.get("minSize", 0) > 0:
+            if not still_gpu_phase(ssm, lease_name, name, now):
+                log(f"{cluster}/{name}: the lease was renewed since this run read it; left alone")
+                continue
             try:
                 eks.update_nodegroup_config(clusterName=cluster, nodegroupName=name, scalingConfig={
                     "minSize": 0, "maxSize": max(sc.get("maxSize", 1), 1), "desiredSize": 0})
@@ -140,12 +161,38 @@ def vpc_of(lease, cluster_desc, ec2, log):
     if len(vpcs) > 1:
         raise LeaseError(f"{lease['cluster']}: {len(vpcs)} project VPCs are named {lease['cluster']}-vpc; refusing to choose")
     if not vpcs:
-        log(f"{lease['cluster']}: no VPC recorded or found; NAT gateways and addresses are not looked for")
+        log(f"{lease['cluster']}: no VPC recorded or found; NAT gateways are not looked for")
         return None
     return vpcs[0]["VpcId"]
 
 
-def reap(lease, eks, ec2, efs, log):
+def session_file_systems(lease, efs):
+    """The session's EFS: exactly the recorded id when there is one, else the one project file system named
+    <cluster>-restart, which infra/aws/cluster/efs.tf gives it; two of that name is a refusal."""
+    cluster = lease["cluster"]
+    if lease.get("efs_id"):
+        try:
+            found = efs.describe_file_systems(FileSystemId=lease["efs_id"]).get("FileSystems", [])
+        except Exception as e:  # noqa: BLE001
+            if _code(e) == "FileSystemNotFound":
+                return []
+            raise
+        for fs in found:
+            if not owned(fs.get("Tags")):
+                raise LeaseError(f"{cluster}: the recorded file system {lease['efs_id']} carries no project tag")
+        return found
+    matches = []
+    for page in efs.get_paginator("describe_file_systems").paginate():
+        for fs in page.get("FileSystems", []):
+            tags = {t["Key"]: t["Value"] for t in fs.get("Tags", [])}
+            if owned(tags) and tags.get("Name") == f"{cluster}-restart":
+                matches.append(fs)
+    if len(matches) > 1:
+        raise LeaseError(f"{cluster}: {len(matches)} project file systems are named {cluster}-restart and none is recorded")
+    return matches
+
+
+def reap(lease, eks, ec2, efs, logs, kms, log):
     """P1: one step of deleting the session's billing resources; returns what is still left, empty when done."""
     cluster = lease["cluster"]
     left = []
@@ -175,12 +222,7 @@ def reap(lease, eks, ec2, efs, log):
     if not groups_gone:
         return left
 
-    for fs in efs.describe_file_systems().get("FileSystems", []):
-        tags = {t["Key"]: t["Value"] for t in fs.get("Tags", [])}
-        if not owned(tags):
-            continue
-        if fs["FileSystemId"] != lease.get("efs_id") and tags.get("Name") != f"{cluster}-restart":
-            continue
+    for fs in session_file_systems(lease, efs):
         mts = efs.describe_mount_targets(FileSystemId=fs["FileSystemId"]).get("MountTargets", [])
         for mt in mts:
             if mt.get("LifeCycleState") not in ("deleting", "deleted"):
@@ -192,50 +234,73 @@ def reap(lease, eks, ec2, efs, log):
         if fs.get("LifeCycleState") != "deleted":
             left.append(f"efs/{fs['FileSystemId']}")
 
+    nats_busy = False
     vpc = vpc_of(lease, desc, ec2, log)
-    if vpc is None:
-        return left
-    allocations = set()
-    nats = ec2.describe_nat_gateways(Filters=[{"Name": "vpc-id", "Values": [vpc]},
-                                              {"Name": f"tag:{PROJECT_KEY}", "Values": [PROJECT_VALUE]}]).get("NatGateways", [])
-    for nat in nats:
-        state = nat.get("State")
-        # Only a deleted gateway's addresses: an address is never released from under a gateway still using it, whatever
-        # its association reads at that moment.
-        if state == "deleted":
-            for a in nat.get("NatGatewayAddresses", []):
-                if a.get("AllocationId"):
-                    allocations.add(a["AllocationId"])
-        if state in ("pending", "available", "failed"):
-            ec2.delete_nat_gateway(NatGatewayId=nat["NatGatewayId"])
-            log(f"{cluster}: NAT gateway {nat['NatGatewayId']} deletion asked")
-        if state != "deleted":
-            left.append(f"nat/{nat['NatGatewayId']}")
-    # One at a time: a deleted NAT gateway goes on listing its address for about an hour after the address is released,
-    # and asking for a released allocation fails the whole call.
-    for alloc in sorted(allocations):
-        try:
-            addrs = ec2.describe_addresses(AllocationIds=[alloc]).get("Addresses", [])
-        except Exception as e:  # noqa: BLE001
-            if _code(e) != "InvalidAllocationID.NotFound":
-                raise
+    if vpc is not None:
+        nats = ec2.describe_nat_gateways(Filters=[{"Name": "vpc-id", "Values": [vpc]},
+                                                  {"Name": f"tag:{PROJECT_KEY}", "Values": [PROJECT_VALUE]}]).get("NatGateways", [])
+        for nat in nats:
+            state = nat.get("State")
+            if state in ("pending", "available", "failed"):
+                ec2.delete_nat_gateway(NatGatewayId=nat["NatGatewayId"])
+                log(f"{cluster}: NAT gateway {nat['NatGatewayId']} deletion asked")
+            if state != "deleted":
+                nats_busy = True
+                left.append(f"nat/{nat['NatGatewayId']}")
+
+    # The addresses by their own tags, named <cluster>-vpc-<zone> by the VPC module, not through the gateways: an address
+    # allocated by an apply that died before its gateway, or one whose deleted gateway has aged out of the API, is found
+    # the same way. None is released while a gateway of the session is still being deleted.
+    addrs = ec2.describe_addresses(Filters=[{"Name": f"tag:{PROJECT_KEY}", "Values": [PROJECT_VALUE]},
+                                            {"Name": "tag:Name", "Values": [f"{cluster}-vpc-*"]}]).get("Addresses", [])
+    for addr in addrs:
+        if addr.get("AssociationId") or nats_busy:
+            left.append(f"eip/{addr['AllocationId']} (waiting for its gateway)")
             continue
-        for addr in addrs:
-            if not owned(addr.get("Tags")):
-                continue
-            if addr.get("AssociationId"):
-                left.append(f"eip/{addr['AllocationId']} (still associated)")
-                continue
-            ec2.release_address(AllocationId=addr["AllocationId"])
-            log(f"{cluster}: address {addr['AllocationId']} released")
+        ec2.release_address(AllocationId=addr["AllocationId"])
+        log(f"{cluster}: address {addr['AllocationId']} released")
+        left.append(f"eip/{addr['AllocationId']} (released, confirmed next run)")
+
+    # The cluster's log group and encryption key go only once the cluster is gone, which writes to one and decrypts with
+    # the other while it is deleted.
+    if desc is not None:
+        return left
+    group = f"/aws/eks/{cluster}/cluster"
+    for lg in logs.describe_log_groups(logGroupNamePrefix=group).get("logGroups", []):
+        if lg.get("logGroupName") != group:
+            continue
+        arn = lg["arn"][:-2] if lg["arn"].endswith(":*") else lg["arn"]
+        if not owned(logs.list_tags_for_resource(resourceArn=arn).get("tags", {})):
+            continue
+        logs.delete_log_group(logGroupName=group)
+        log(f"{cluster}: log group {group} deleted")
+    # Only the key the EKS module aliases to this cluster, and only with the project tag: the state bucket's key and every
+    # other key in the account have other aliases.
+    try:
+        key = kms.describe_key(KeyId=f"alias/eks/{cluster}")["KeyMetadata"]
+    except Exception as e:  # noqa: BLE001
+        if _code(e) != "NotFoundException":
+            raise
+        key = None
+    if key is not None and key.get("KeyState") not in ("PendingDeletion", "PendingReplicaDeletion"):
+        tags = {t["TagKey"]: t["TagValue"] for t in kms.list_resource_tags(KeyId=key["KeyId"]).get("Tags", [])}
+        if owned(tags):
+            kms.schedule_key_deletion(KeyId=key["KeyId"], PendingWindowInDays=7)
+            log(f"{cluster}: key {key['KeyId']} scheduled for deletion in 7 days")
+        else:
+            log(f"{cluster}: key alias/eks/{cluster} carries no project tag; left alone")
     return left
 
 
-def run(ssm, eks, ec2, efs, asg, now, log):
-    """One pass over every lease; returns a list of failures, each a string, after trying every lease."""
+def run(ssm, eks, ec2, efs, asg, logs, kms, now, log):
+    """One pass over every lease; returns a list of failures, each a string, after trying every lease.
+
+    A pass with no failure writes HEARTBEAT, which a session reads before it arms a lease: a reaper that is Active and
+    has never completed a pass (a role that cannot read the leases, say) must not be trusted to clean up.
+    """
     failures = []
     params = []
-    for page in ssm.get_paginator("get_parameters_by_path").paginate(Path=LEASE_PATH, Recursive=False):
+    for page in ssm.get_paginator("get_parameters_by_path").paginate(Path=LEASE_PATH.rstrip("/"), Recursive=False):
         params.extend(page.get("Parameters", []))
     for p in params:
         name = p["Name"]
@@ -243,10 +308,10 @@ def run(ssm, eks, ec2, efs, asg, now, log):
             lease = parse_lease(name, p["Value"])
             ph = phase(lease, now)
             if ph == "gpu":
-                pending = hold_gpu_at_zero(eks, asg, lease["cluster"], lease["gpu_nodegroups"], log)
+                pending = hold_gpu_at_zero(eks, asg, ssm, name, lease["cluster"], lease["gpu_nodegroups"], now, log)
                 log(f"{name}: GPU deadline passed; {'held at zero' if not pending else 'not yet: ' + ', '.join(pending)}")
             elif ph == "reap":
-                left = reap(lease, eks, ec2, efs, log)
+                left = reap(lease, eks, ec2, efs, logs, kms, log)
                 if left:
                     log(f"{name}: session deadline passed; still left: {', '.join(left)}")
                 else:
@@ -255,6 +320,8 @@ def run(ssm, eks, ec2, efs, asg, now, log):
         except Exception as e:  # noqa: BLE001 -- one lease's failure must not stop the others
             failures.append(f"{name}: {type(e).__name__}: {e}")
             log(f"FAILED {name}: {type(e).__name__}: {e}")
+    if not failures:
+        ssm.put_parameter(Name=HEARTBEAT, Value=now.strftime("%Y-%m-%dT%H:%M:%SZ"), Type="String", Overwrite=True)
     return failures
 
 
@@ -262,8 +329,8 @@ def handler(event, context):  # pragma: no cover -- the AWS wiring; run() is wha
     import boto3
 
     region = os.environ.get("AWS_REGION", "ap-northeast-2")
-    clients = {s: boto3.client(s, region_name=region) for s in ("ssm", "eks", "ec2", "efs", "autoscaling")}
-    failures = run(clients["ssm"], clients["eks"], clients["ec2"], clients["efs"], clients["autoscaling"],
+    c = {s: boto3.client(s, region_name=region) for s in ("ssm", "eks", "ec2", "efs", "autoscaling", "logs", "kms")}
+    failures = run(c["ssm"], c["eks"], c["ec2"], c["efs"], c["autoscaling"], c["logs"], c["kms"],
                    datetime.datetime.now(datetime.timezone.utc), print)
     if failures:
         # Raised, so Lambda's Errors metric counts the run and the next session's gate can see it.

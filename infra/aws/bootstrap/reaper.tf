@@ -19,6 +19,7 @@ data "archive_file" "reaper" {
 locals {
   reaper_lease_path = "/gpu-platform/session-lease/"
   reaper_project    = var.tags["project"]
+  reaper_heartbeat  = "/gpu-platform/session-reaper/last-ok"
 }
 
 data "aws_iam_policy_document" "reaper_assume" {
@@ -35,16 +36,27 @@ data "aws_iam_policy_document" "reaper_assume" {
 }
 
 data "aws_iam_policy_document" "reaper" {
-  # The leases: read every one, and remove one once its session is gone. Nothing writes them but the session runner.
+  # The leases: list them, read one again before acting on it, and remove one once its session is gone. Nothing writes
+  # them but the session runner. GetParametersByPath is authorised on the path as requested; the reaper asks for it
+  # without the trailing slash, and both spellings are granted so a later change of spelling cannot lock it out.
   statement {
-    effect    = "Allow"
-    actions   = ["ssm:GetParametersByPath"]
-    resources = ["arn:aws:ssm:${var.region}:${data.aws_caller_identity.current.account_id}:parameter${trimsuffix(local.reaper_lease_path, "/")}"]
+    effect  = "Allow"
+    actions = ["ssm:GetParametersByPath"]
+    resources = [
+      "arn:aws:ssm:${var.region}:${data.aws_caller_identity.current.account_id}:parameter${trimsuffix(local.reaper_lease_path, "/")}",
+      "arn:aws:ssm:${var.region}:${data.aws_caller_identity.current.account_id}:parameter${local.reaper_lease_path}",
+    ]
   }
   statement {
     effect    = "Allow"
-    actions   = ["ssm:DeleteParameter"]
+    actions   = ["ssm:GetParameter", "ssm:DeleteParameter"]
     resources = ["arn:aws:ssm:${var.region}:${data.aws_caller_identity.current.account_id}:parameter${local.reaper_lease_path}*"]
+  }
+  # The heartbeat a clean pass writes, which a session reads before it arms a lease.
+  statement {
+    effect    = "Allow"
+    actions   = ["ssm:PutParameter"]
+    resources = ["arn:aws:ssm:${var.region}:${data.aws_caller_identity.current.account_id}:parameter${local.reaper_heartbeat}"]
   }
 
   # Reads, which cannot be scoped by tag.
@@ -55,8 +67,19 @@ data "aws_iam_policy_document" "reaper" {
       "autoscaling:DescribeAutoScalingGroups",
       "ec2:DescribeVpcs", "ec2:DescribeNatGateways", "ec2:DescribeAddresses",
       "elasticfilesystem:DescribeFileSystems", "elasticfilesystem:DescribeMountTargets",
+      "logs:DescribeLogGroups",
     ]
     resources = ["*"]
+  }
+  statement {
+    effect    = "Allow"
+    actions   = ["kms:DescribeKey", "kms:ListResourceTags"]
+    resources = ["arn:aws:kms:${var.region}:${data.aws_caller_identity.current.account_id}:key/*"]
+  }
+  statement {
+    effect    = "Allow"
+    actions   = ["logs:ListTagsForResource"]
+    resources = ["arn:aws:logs:${var.region}:${data.aws_caller_identity.current.account_id}:log-group:/aws/eks/*"]
   }
 
   # Every change only on a resource carrying the project tag; the code checks it too, and this is the check the code
@@ -112,6 +135,36 @@ data "aws_iam_policy_document" "reaper" {
     }
   }
 
+  # The cluster's log group and its encryption key, after the cluster is gone; the code takes only the ones named after
+  # the lease's cluster.
+  statement {
+    effect    = "Allow"
+    actions   = ["logs:DeleteLogGroup"]
+    resources = ["arn:aws:logs:${var.region}:${data.aws_caller_identity.current.account_id}:log-group:/aws/eks/*"]
+    condition {
+      test     = "StringEquals"
+      variable = "aws:ResourceTag/project"
+      values   = [local.reaper_project]
+    }
+  }
+  # The state bucket's key carries the project tag too, and losing it loses every root's state; it is denied by ARN
+  # whatever the code asks for (the adversarial review of this design, round 2's question).
+  statement {
+    effect    = "Deny"
+    actions   = ["kms:ScheduleKeyDeletion", "kms:DisableKey"]
+    resources = [aws_kms_key.state.arn]
+  }
+  statement {
+    effect    = "Allow"
+    actions   = ["kms:ScheduleKeyDeletion"]
+    resources = ["arn:aws:kms:${var.region}:${data.aws_caller_identity.current.account_id}:key/*"]
+    condition {
+      test     = "StringEquals"
+      variable = "aws:ResourceTag/project"
+      values   = [local.reaper_project]
+    }
+  }
+
   statement {
     effect    = "Allow"
     actions   = ["logs:CreateLogStream", "logs:PutLogEvents"]
@@ -154,6 +207,7 @@ resource "aws_lambda_function" "reaper" {
     variables = {
       LEASE_PATH  = local.reaper_lease_path
       PROJECT_TAG = local.reaper_project
+      HEARTBEAT   = local.reaper_heartbeat
     }
   }
   tags = var.tags
