@@ -1,0 +1,94 @@
+begin
+512+0 records in
+512+0 records out
+536870912 bytes (537 MB, 512 MiB) copied, 1.94094 s, 277 MB/s
+write-exit=0
+512+0 records in
+512+0 records out
+536870912 bytes (537 MB, 512 MiB) copied, 0.171399 s, 3.1 GB/s
+read-exit=0
+read-done 1794006505
+--- cgroup begin
+memory.max 134217728
+memory.current 133210112
+memory.peak 134217728
+memory.oom.group 1
+memory.events low 0
+memory.events high 0
+memory.events max 222
+memory.events oom 0
+memory.events oom_kill 0
+memory.events oom_group_kill 0
+memory.events sock_throttled 0
+memory.stat anon 286720
+memory.stat file 130158592
+memory.stat kernel 2547712
+memory.stat kernel_stack 32768
+memory.stat pagetables 790528
+memory.stat sec_pagetables 0
+memory.stat percpu 2720
+memory.stat sock 0
+memory.stat vmalloc 0
+memory.stat shmem 0
+memory.stat zswap 0
+memory.stat zswapped 0
+memory.stat file_mapped 0
+memory.stat file_dirty 0
+memory.stat file_writeback 0
+memory.stat swapcached 0
+memory.stat anon_thp 0
+memory.stat file_thp 0
+memory.stat shmem_thp 0
+memory.stat inactive_anon 98304
+memory.stat active_anon 118784
+memory.stat inactive_file 130154496
+memory.stat active_file 4096
+memory.stat unevictable 0
+memory.stat slab_reclaimable 1482784
+memory.stat slab_unreclaimable 208128
+memory.stat slab 1690912
+memory.stat hugetlb 0
+memory.stat workingset_refault_anon 0
+memory.stat workingset_refault_file 128001
+memory.stat workingset_activate_anon 0
+memory.stat workingset_activate_file 0
+memory.stat workingset_restore_anon 0
+memory.stat workingset_restore_file 0
+memory.stat workingset_nodereclaim 0
+memory.stat pgdemote_kswapd 0
+memory.stat pgdemote_direct 0
+memory.stat pgdemote_khugepaged 0
+memory.stat pgdemote_proactive 0
+memory.stat pgpromote_success 0
+memory.stat pgscan 232171
+memory.stat pgsteal 227304
+memory.stat pswpin 0
+memory.stat pswpout 0
+memory.stat pgscan_kswapd 0
+memory.stat pgscan_direct 232171
+memory.stat pgscan_khugepaged 0
+memory.stat pgscan_proactive 0
+memory.stat pgsteal_kswapd 0
+memory.stat pgsteal_direct 227304
+memory.stat pgsteal_khugepaged 0
+memory.stat pgsteal_proactive 0
+memory.stat pgfault 3405
+memory.stat pgmajfault 0
+memory.stat pgrefill 30157828
+memory.stat pgactivate 3
+memory.stat pgdeactivate 0
+memory.stat pglazyfree 0
+memory.stat pglazyfreed 0
+memory.stat swpin_zero 0
+memory.stat swpout_zero 0
+memory.stat zswpin 0
+memory.stat zswpout 0
+memory.stat zswpwb 0
+memory.stat thp_fault_alloc 0
+memory.stat thp_collapse_alloc 0
+memory.stat thp_swpout 0
+memory.stat thp_swpout_fallback 0
+memory.stat numa_pages_migrated 0
+memory.stat numa_pte_updates 0
+memory.stat numa_hint_faults 0
+--- cgroup end
