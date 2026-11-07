@@ -169,6 +169,9 @@ Thumbs.db
 *.test
 # The DCGM image inspection keeps each command's stdout as <name>.out beside its .err and .exit; it is evidence.
 !/hack/dcgm-diag/*/*/*.out
+# The Slurm on EC2 session's B2 job output is evidence the scorer reads, in its fixture and in each run's archive.
+!/hack/test/slurm-ec2/rehearsal-evidence/**/*.out
+!/hack/slurm-ec2-20*/**/*.out
 
 # Claude Code personal overrides
 .claude/settings.local.json
