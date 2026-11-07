@@ -164,6 +164,16 @@ Each finding was checked against the code by Claude before it was fixed.
 | 6 P2 | a failed `squeue` ended B3's poll as if both jobs had left, and B2's node read had no status | failed reads are recorded as such and make the check INVALID |
 | 7 P2 | B2's journal window was head's clock applied to gpu2's journal | the window is gpu2's own journal cursor before and after the job |
 
+**Round 7 (commit `dc1c3d23`): NO-GO, two P1 and three P2, all confirmed and fixed in `5d07c00b`.**
+
+| # | finding | fix |
+|---|---|---|
+| 1 P1 | the route check fell back to the main table whenever the associated table had no internet route, so an associated local-only table passed | the table that applies is resolved first (the associated one, the main one only when there is none), then its routes are read |
+| 2 P1 | the boot backstop's 900 s allowance was also exported as `STOP_S`, so the precise T0 shutdown moved to T0 + 6,600 s | the renderer takes the precise end and the boot backstop separately and exports only the precise one; the test reads both from the rendered user-data |
+| 3 P2 | B4's first attempt was not checked to be on gpu1, and the drain of gpu2 was unchecked | a failed drain, or a first attempt that did not start on gpu1, is a setup failure and makes B4 INVALID |
+| 4 P2 | an allocated probe that could not import PyTorch, or a B4 with no node polls, read as observed failures | both are INVALID |
+| 5 P2 | a package install that ran out of the bring-up time died VOID, on head or on a worker | a timeout (status 124) goes through `late`; a worker reports `LATE:` and head makes the session NOTRUN |
+
 **Round 6 (commit `67452380`): NO-GO, five findings, all confirmed and fixed.**
 
 | # | finding | fix |
