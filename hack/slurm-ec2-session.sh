@@ -157,6 +157,16 @@ runs, n = total(sys.argv[1])
 errors, _ = total(sys.argv[2])
 sys.exit(0 if n > 0 and runs >= int(sys.argv[3]) and errors == 0 else 1)
 PY
+# The sweeper's invocations succeed with nothing to sweep, which says nothing about whether it may terminate; its role is
+# asked directly whether it may.
+sw_role=$(aws lambda get-function-configuration --region "$REGION" --function-name gpu-platform-study-sweeper --query Role --output text 2>&1) ||
+  fail "the sweeper's role could not be read: $sw_role"
+# Its policy allows termination only of instances carrying a study-deadline tag, which is what this session's carry.
+sw_can=$(aws iam simulate-principal-policy --policy-source-arn "$sw_role" --action-names ec2:TerminateInstances \
+  --resource-arns "arn:aws:ec2:$REGION:$ACCOUNT_WANT:instance/i-0123456789abcdef0" \
+  --context-entries "ContextKeyName=aws:ResourceTag/study-deadline,ContextKeyValues=2026-01-01T00:00:00Z,ContextKeyType=string" \
+  --query 'EvaluationResults[0].EvalDecision' --output text 2>&1) || fail "the sweeper's permission could not be simulated: $sw_can"
+[ "$sw_can" = allowed ] || fail "the sweeper's role $sw_role may not terminate instances ($sw_can)"
 say "the termination sweeper: Active, ENABLED rate(5 minutes), runs [$sw_runs], errors [${sw_errors:-none}] in the last 30 minutes"
 
 cred_left() {
@@ -180,6 +190,7 @@ git archive --format=tar.gz -o "$OUT/source.tgz" HEAD || fail "git archive"
 SOURCE_SHA=$(sha256sum "$OUT/source.tgz" | cut -d' ' -f1)
 RUN_NONCE=$(python3 -c 'import secrets; print(secrets.token_hex(4))')
 RUN_ID="$(basename "$OUT")-$RUN_NONCE"
+[[ "$RUN_ID" =~ ^[A-Za-z0-9._-]+$ ]] || fail "the run id '$RUN_ID', made from OUT, is not one S3 key segment of letters, digits, '.', '_' and '-'"
 BUCKET="$STACK-$ACCOUNT"
 # The munge key is the cluster's shared secret: made here, kept outside the run directory, which is committed.
 SECRETS=$(mktemp -d)
@@ -460,7 +471,8 @@ if [ -d "$OUT/evidence" ] && [ "$UNPACKED" = yes ]; then
   grep -qx 'evidence_final=yes' "$OUT/DONE" 2>>"$OUT/download-errors.txt" ||
     { echo "head did not report its final archive verified (or never wrote DONE); this may be an earlier one" | tee -a "$OUT/verdict.txt"; [ "$MEASURED" = 0 ] && MEASURED=4; }
   # Downloaded and unpacked, so the run's prefix is no longer the only copy; it would otherwise wait 30 days to expire.
-  aws s3 rm --only-show-errors --recursive "s3://$BUCKET/$RUN_ID/" >>"$OUT/cleanup.txt" 2>&1 || echo "the run's S3 prefix could not be removed; it expires in 30 days" >>"$OUT/cleanup.txt"
+  # Only when head reported its final archive verified: otherwise a newer archive may sit there unreferenced.
+  grep -qx 'evidence_final=yes' "$OUT/DONE" 2>>"$OUT/download-errors.txt" && aws s3 rm --only-show-errors --recursive "s3://$BUCKET/$RUN_ID/" >>"$OUT/cleanup.txt" 2>&1 || echo "the run's S3 prefix could not be removed; it expires in 30 days" >>"$OUT/cleanup.txt"
 else
   echo "SLURM ON EC2: NO-EVIDENCE (the evidence archive did not come back whole; the run's S3 prefix is kept, and expires in 30 days)" | tee "$OUT/verdict.txt"
 fi

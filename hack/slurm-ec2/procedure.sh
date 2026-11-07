@@ -24,7 +24,8 @@ notrun() { mkdir -p "$EVID/$1" && echo "$2" >"$EVID/$1/NOTRUN"; log "$1 NOTRUN: 
 # job_done ID END: waits until the job has left the queue, or END; returns 1 on END.
 job_done() {
   local id=$1 end=$2
-  until_true "$end" 2 bash -c "[ -z \"\$(squeue -h -j $id -o %i)\" ]"
+  # A failed squeue is not an empty queue.
+  until_true "$end" 2 bash -c "q=\$(squeue -h -j $id -o %i) && [ -z \"\$q\" ]"
 }
 
 # root_on NODE FILE CMD...: runs CMD as root on NODE through Slurm and writes its output to FILE.
@@ -102,7 +103,8 @@ for rep in 1 2 3; do
   t_end=$(( $(date +%s) + 2 ))
   echo "t_start=$t_start" >>"$d/job.env"
   echo "t_end=$t_end" >>"$d/job.env"
-  sacct -j "$id" -n -P -o JobID,State,ExitCode,MaxRSS >"$d/sacct.txt" 2>&1
+  # Accounting can lag the queue, so the step's record is waited for, up to 60 s.
+  until_true $(( $(date +%s) + 60 )) 3 bash -c "sacct -j $id -n -P -o JobID,State,ExitCode,MaxRSS >'$d/sacct.txt' 2>&1 && grep -qE '^$id\.0\|[A-Z_]+' '$d/sacct.txt' && ! grep -qE '^$id\.0\|(RUNNING|PENDING)' '$d/sacct.txt'"
   echo $? >"$d/sacct.txt.rc"
   if [ -n "$cursor" ]; then
     root_on gpu2 "$d/kernel.txt" journalctl -k -o short-iso --no-pager --after-cursor "$cursor"
@@ -130,7 +132,7 @@ poll_pair() {
     fi
     sleep 1
   done
-  sacct -j "$i1,$i2" -n -P -X -o JobID,State,Submit,Start,End,Reason >"$d/sacct.txt" 2>&1
+  until_true $(( $(date +%s) + 60 )) 3 bash -c "sacct -j $i1,$i2 -n -P -X -o JobID,State,Submit,Start,End,Reason >'$d/sacct.txt' 2>&1 && [ \"\$(grep -cE '\|COMPLETED\||\|FAILED\||\|CANCELLED' '$d/sacct.txt')\" = 2 ]"
   echo $? >"$d/sacct.txt.rc"
 }
 b3() {
@@ -188,7 +190,7 @@ b4() {
   job_done "$run" $(( $(date +%s) + 600 )) || echo "the run did not end in 600 s after the fault" >"$d/run.timeout"
   scontrol show job "$run" >"$d/run-job-after.txt" 2>&1
   echo $? >"$d/run-job-after.txt.rc"
-  sacct -j "$run" -n -P -D -o JobID,State,NodeList,Start,End,ExitCode >"$d/run-sacct.txt" 2>&1
+  until_true $(( $(date +%s) + 60 )) 3 bash -c "sacct -j $run -n -P -D -o JobID,State,NodeList,Start,End,ExitCode >'$d/run-sacct.txt' 2>&1 && grep -qE '^$run\|COMPLETED\|' '$d/run-sacct.txt'"
   echo $? >"$d/run-sacct.txt.rc"
   "$PY" - "$SHARED/ckpt/reference/final.pt" "$SHARED/ckpt/run/final.pt" >"$d/param-diff.txt" 2>&1 <<'EOF'
 import sys, torch

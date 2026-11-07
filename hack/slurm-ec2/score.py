@@ -79,6 +79,9 @@ def preconditions(ev):
             reasons.append(f"{n} runs slurmd {e.get('slurmd')!r}")
         if e.get("slurm_uid") != "1601":
             reasons.append(f"{n}'s slurm user is uid {e.get('slurm_uid')!r}, not 1601")
+    b = env(os.path.join(ev, "bringup.env"))
+    if not (b.get("T0", "").isdigit() and b.get("bringup_done", "").isdigit() and int(b["bringup_done"]) - int(b["T0"]) <= 1500):
+        reasons.append(f"the bring-up did not finish by T0 + 1,500 s ({b})")
     pk = read(os.path.join(ev, "config", "head-packages.txt")) or ""
     for p in ("slurmctld", "slurmdbd"):
         if not re.search(rf"^{p}\s+{re.escape(SLURM_VERSION)}$", pk, re.M):
@@ -174,6 +177,9 @@ def b2(ev):
             f = line.split("|")
             if len(f) >= 2 and f[0] == f"{job}.0":
                 step_state = f[1]
+        if step_state is None:
+            out.append({"rep": rep, **result("INVALID", [f"accounting has no record of step {job}.0"])})
+            continue
         m = re.search(r"^job_memory_events oom_kill (\d+)$", jobout, re.M)
         oom_kill = int(m.group(1)) if m else None
         memcg_line = any("task_memcg=" in l and f"job_{job}/" in l for l in kernel.splitlines())
@@ -232,6 +238,9 @@ def b3(ev):
             if len(f) >= 6:
                 rows[f[0]] = {"state": f[1], "start": ts(f[3]), "end": ts(f[4])}
         r1, r2 = rows.get(first, {}), rows.get(second, {})
+        if not r1 or not r2:
+            out[name] = result("INVALID", ["accounting has no record of one of the two jobs"])
+            continue
         gap = (r2["start"] - r1["end"]) if r1.get("end") and r2.get("start") else None
         rules = [
             (f"B3{name}: the second job is PENDING with reason {reason} within 30 s of submission",
@@ -286,6 +295,8 @@ def b4(ev):
         f = line.split("|")
         if len(f) >= 2 and "." not in f[0]:
             final_state = f[1]
+    if final_state is None:
+        return result("INVALID", ["accounting has no record of the run"])
     diff = re.search(r"max_abs_diff=(\S+)", read(os.path.join(d, "param-diff.txt")) or "")
     rules = [
         ("B4a: gpu1 is DRAIN with the Xid 79 reason within 30 s of the write", drained is not None and drained - fault <= 30),

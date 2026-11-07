@@ -157,7 +157,9 @@ head_bringup() {
   timeout "$venv_left" tail --pid="$venv_pid" -f /dev/null || die "the venv was not ready by the bring-up deadline"
   wait "$venv_pid" || die "the venv install failed; see /var/log/slurmec2-venv.log"
   log "bring-up complete"
-  echo "bringup_done=$(date +%s)" >"$EVID/bringup.env"
+  printf 'T0=%s\nbringup_done=%s\n' "$T0" "$(date +%s)" >"$EVID/bringup.env"
+  # Finished, but late: the registration admits no check after the bring-up deadline.
+  [ "$(date +%s)" -le "$BRINGUP_END" ] || die "the bring-up finished after its deadline"
 }
 
 worker_bringup() {

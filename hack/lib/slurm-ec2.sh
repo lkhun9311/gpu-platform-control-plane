@@ -14,7 +14,9 @@
 slurmec2_render_userdata() {
   local role="$1" file="$2" bucket="$3" prefix="$4" source_sha="$5" stop_s="$6"
   case "$role" in head|gpu1|gpu2) ;; *) printf 'slurmec2_render_userdata: role %s\n' "$role" >&2; return 1 ;; esac
-  [[ "$stop_s" =~ ^[0-9]+$ ]] && [[ "$source_sha" =~ ^[0-9a-f]{64}$ ]] && [ -n "$bucket" ] && [ -n "$prefix" ] || {
+  # Every value is written into the script unquoted, so each must be one shell word with no metacharacter.
+  [[ "$stop_s" =~ ^[0-9]+$ ]] && [[ "$source_sha" =~ ^[0-9a-f]{64}$ ]] && [[ "$bucket" =~ ^[a-z0-9.-]+$ ]] &&
+    [[ "$prefix" =~ ^[A-Za-z0-9._-]+$ ]] || {
     printf 'slurmec2_render_userdata: bad arguments\n' >&2
     return 1
   }

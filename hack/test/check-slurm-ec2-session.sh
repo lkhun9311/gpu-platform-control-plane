@@ -108,6 +108,8 @@ scene() {
   put role "slurmec2"
   put trust '{"Role":{"RoleName":"slurmec2","AssumeRolePolicyDocument":{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"ec2.amazonaws.com"},"Action":"sts:AssumeRole"}]}}}'
   put inline "write-results"
+  put swrole "arn:aws:iam::007635145730:role/gpu-platform-study-sweeper"
+  put allowed "allowed"
   put versioning "None"
   put vpc "vpc-0default"
   put sg "sg-0session"
@@ -119,7 +121,9 @@ base_rules() {
   rule "ec2 describe-images*--image-ids $GAMI*" gami
   rule "ec2 describe-spot-price-history*" prices
   rule "service-quotas get-service-quota*" quota
+  rule "lambda get-function-configuration*" swrole
   rule "lambda get-function*" active
+  rule "iam simulate-principal-policy*" allowed
   rule "events describe-rule*" enabled
   rule "events list-targets-by-rule*" target
   rule "cloudwatch get-metric-statistics*Invocations*" runs
@@ -188,6 +192,9 @@ rule "ec2 describe-spot-price-history*" split; base_rules; refused "no zone with
 scene; put q4 "4.0"; rule "service-quotas get-service-quota*" q4; base_rules; refused "too little Spot quota" "two g5.xlarge need 8"
 scene; put inactive "Pending"; rule "lambda get-function*" inactive; base_rules; refused "a sweeper not Active" "is Pending, not Active"
 scene; put few $'1.0\t1.0'; rule "cloudwatch get-metric-statistics*Invocations*" few; base_rules; refused "a sweeper seen running twice" "at least 4 clean runs"
+scene; put denied_sw "implicitDeny"; rule "iam simulate-principal-policy*" denied_sw; base_rules; refused "a sweeper that may not terminate" "may not terminate instances (implicitDeny)"
+scene; base_rules; session "an output directory with a space" OUT="$STUB/paid run"
+[ "$rc" != 0 ] && ! launched && [[ "$out" == *"is not one S3 key segment"* ]] && ok "an output directory with a space: refused before any launch" || bad "OUT with a space: exit $rc, $(tail -2 <<<"$out")"
 scene; put errs $'0.0\t1.0'; rule "cloudwatch get-metric-statistics*Errors*" errs; base_rules; refused "an error in a later datapoint" "at least 4 clean runs"
 scene; put soon "{\"Expiration\": \"$(date -u -d '+120 min' +%Y-%m-%dT%H:%M:%SZ)\"}"; rule "configure export-credentials*" soon; base_rules
 refused "credentials that expire before 135 minutes" "the session needs 135"
@@ -273,6 +280,12 @@ scene; base_rules; void_evidence; sed -i 's/sha256=.*/sha256=0000/' "$STUB/fixtu
 session "an archive that is not the verified one"
 [ "$rc" = 3 ] && grep -q "NO-EVIDENCE" "$STUB/out/verdict.txt" && ! grep -q "^s3 rm --only-show-errors --recursive" "$STUB/calls.log" &&
   ok "an archive whose digest differs is not scored and the run's prefix is kept" || bad "a digest mismatch: exit $rc, $(head -1 "$STUB/out/verdict.txt")"
+
+# Head's final archive not verified: the earlier one is scored, flagged, and the prefix kept for what may lie there.
+scene; base_rules; void_evidence; sed -i 's/^evidence_final=yes/evidence_final=no/' "$STUB/fixtures/DONE"
+session "a final archive head could not verify"
+! grep -q "^s3 rm --only-show-errors --recursive" "$STUB/calls.log" && grep -q "may be an earlier one" "$STUB/out/verdict.txt" &&
+  ok "an unverified final archive keeps the run's prefix" || bad "unverified final: $(paste -sd';' "$STUB/out/verdict.txt")"
 
 # Head died before DONE: the last verified archive is still found through evidence.latest, and reported as possibly early.
 scene; base_rules; void_evidence; rm "$STUB/fixtures/DONE"
