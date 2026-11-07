@@ -8,7 +8,7 @@ It read that as an omission from the multi-tenancy contract rather than a docume
 ## What changes and what does not
 
 The quota model does not change: `GPUQuotaPolicy` still owns the GPU ledger (a ResourceQuota, or a Kueue ClusterQueue in training mode).
-What is added is everything around it, as one bundle per tenant rendered from `config/tenant/` and committed under `config/tenants/<tenant>/`, plus two code changes.
+What is added is everything around it, as one bundle per tenant rendered from `config/tenant/` and committed under `config/tenants/` (a directory per tenant), plus two code changes.
 It is a GitOps bundle, not a Tenant operator: the review judged a new controller not worth adding while tenants are few and onboarding is a reviewed change.
 
 ## What a tenant gets
@@ -53,7 +53,7 @@ The premium tier (`platform.lkhun9311.github.io/tier` on a GPUQuotaPolicy) and n
 
 ## Onboarding rules
 
-1. Render the tenant with `hack/tenant/render.sh <tenant> <namespace>` and commit `config/tenants/<tenant>/`; an Argo CD Application names that directory.
+1. Render the tenant with `hack/tenant/render.sh <tenant> <namespace>` and commit `config/tenants/` (a directory per tenant); an Argo CD Application names that directory.
 2. Map the tenant's people to the group `tenant:<tenant>` and nothing else; never put an operator, a runner or a break-glass identity in a `tenant:` group.
 3. Label the namespace Prometheus runs in `platform.lkhun9311.github.io/role: monitoring`.
 4. Offer a tenant storage only through a StorageClass that provisions per claim; never stage a PersistentVolume of a shared filesystem's root for a tenant, and reserve any static volume with a `claimRef`.

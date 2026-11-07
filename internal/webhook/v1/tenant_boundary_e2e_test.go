@@ -43,7 +43,7 @@ func applyManifestFile(t *testing.T, ctx context.Context, c client.Client, rel .
 	if err != nil {
 		t.Fatalf("read %s: %v", path, err)
 	}
-	for _, doc := range strings.Split(string(b), "\n---\n") {
+	for doc := range strings.SplitSeq(string(b), "\n---\n") {
 		var obj unstructured.Unstructured
 		if err := yaml.Unmarshal([]byte(doc), &obj.Object); err != nil {
 			t.Fatalf("decode a document of %s: %v", path, err)
@@ -116,7 +116,7 @@ func waitUntilRefused(t *testing.T, words string, try func() (client.Object, err
 
 func boundaryClaim(name string, mutate func(*corev1.PersistentVolumeClaim)) *corev1.PersistentVolumeClaim {
 	c := &corev1.PersistentVolumeClaim{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: boundaryTenant},
+		Name: name, Namespace: boundaryTenant,
 		Spec: corev1.PersistentVolumeClaimSpec{
 			AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteMany},
 			Resources: corev1.VolumeResourceRequirements{
@@ -198,12 +198,12 @@ func TestTheTenantCannotWriteWhatThePlatformGenerates(t *testing.T) {
 	ctx, _, tenant := startTenantBoundaryEnv(t)
 	objs := map[string]client.Object{
 		"Pod": &corev1.Pod{
-			ObjectMeta: metav1.ObjectMeta{Name: "direct", Namespace: boundaryTenant},
-			Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: "c", Image: "busybox:1.36"}}},
+			Name: "direct", Namespace: boundaryTenant,
+			Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "c", Image: "busybox:1.36"}}},
 		},
-		"ResourceQuota": &corev1.ResourceQuota{ObjectMeta: metav1.ObjectMeta{Name: "mine", Namespace: boundaryTenant}},
+		"ResourceQuota": &corev1.ResourceQuota{Name: "mine", Namespace: boundaryTenant},
 		"ServiceAccount": &corev1.ServiceAccount{
-			ObjectMeta: metav1.ObjectMeta{Name: "mine", Namespace: boundaryTenant},
+			Name: "mine", Namespace: boundaryTenant,
 		},
 	}
 	for kind, obj := range objs {
@@ -233,7 +233,7 @@ func TestTheTenantCannotRelabelItsNamespace(t *testing.T) {
 	if err := tenant.Get(ctx, client.ObjectKey{Name: boundaryTenant}, &ns); !apierrors.IsForbidden(err) {
 		t.Fatalf("a tenant reading its Namespace object: want Forbidden, got %v", err)
 	}
-	ns = corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: boundaryTenant}}
+	ns = corev1.Namespace{Name: boundaryTenant}
 	patch := client.RawPatch("application/merge-patch+json",
 		[]byte(`{"metadata":{"labels":{"pod-security.kubernetes.io/enforce":"privileged"}}}`))
 	if err := tenant.Patch(ctx, &ns, patch); !apierrors.IsForbidden(err) {
@@ -244,7 +244,7 @@ func TestTheTenantCannotRelabelItsNamespace(t *testing.T) {
 func TestTheTenantCannotRaiseItsTier(t *testing.T) {
 	ctx, admin, tenant := startTenantBoundaryEnv(t)
 	policy := &platformv1.GPUQuotaPolicy{
-		ObjectMeta: metav1.ObjectMeta{Name: boundaryTenant},
+		Name: boundaryTenant,
 		Spec: platformv1.GPUQuotaPolicySpec{
 			Tenant: boundaryTenant, TargetNamespace: boundaryTenant, GPUClass: "a10g",
 			Limits: platformv1.GPUQuotaLimits{GPUCount: 1},
