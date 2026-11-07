@@ -28,6 +28,19 @@ out="$(judge region deny-region.json "$(ev ec2 RunInstances us-west-2)")"
 [[ "$out" == *"WOULD HAVE DENIED"*"rc=1" ]] && ok "a launch outside the Regions is denied" || bad "the launch in us-west-2: $out"
 out="$(judge region deny-region.json "$(ev ec2 RunInstances ap-northeast-2)")"
 [[ "$out" == *"0 would have been denied"*"rc=0" ]] && ok "a launch in the workload Region passes" || bad "the launch in Seoul: $out"
+# us-east-1 is no longer a workload Region (proposal P4): a launch or a key there is denied, and every call this
+# repository makes there is still exempt by action. Mutation that turns these red: put us-east-1 back in the list, or
+# drop the exemption of pricing, ce or cloudtrail:LookupEvents.
+for denied in "ec2 RunInstances" "kms Decrypt" "eks CreateCluster" "lambda CreateFunction"; do
+  out="$(judge region deny-region.json "$(ev ${denied% *} ${denied#* } us-east-1)")"
+  [[ "$out" == *"WOULD HAVE DENIED"*"rc=1" ]] && ok "${denied/ /:} in us-east-1 is denied" || bad "${denied/ /:} in us-east-1: $out"
+done
+for allowed in "pricing GetProducts" "ce GetCostAndUsage" "freetier GetFreeTierUsage" "organizations DescribeOrganization" "cloudtrail LookupEvents" "sts GetCallerIdentity" "iam GetRole" "budgets ViewBudget"; do
+  out="$(judge region deny-region.json "$(ev ${allowed% *} ${allowed#* } us-east-1)")"
+  [[ "$out" == *"0 would have been denied"*"rc=0" ]] && ok "${allowed/ /:} in us-east-1 is still exempt" || bad "${allowed/ /:} in us-east-1: $out"
+done
+out="$(judge region deny-region.json "$(ev cloudtrail StopLogging us-east-1)")"
+[[ "$out" == *"WOULD HAVE DENIED"*"rc=1" ]] && ok "the cloudtrail exemption is LookupEvents alone" || bad "cloudtrail:StopLogging in us-east-1: $out"
 out="$(judge region deny-region.json "$(ev iam CreateRole us-west-2)")"
 [[ "$out" == *"0 would have been denied"*"rc=0" ]] && ok "a wildcard exemption (iam:*) still exempts its service" || bad "iam:CreateRole: $out"
 
