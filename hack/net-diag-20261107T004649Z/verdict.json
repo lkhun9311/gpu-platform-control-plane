@@ -1,0 +1,905 @@
+{
+  "cases": {
+    "b": {
+      "all_held": 3,
+      "invalid": 0,
+      "scheduled": 3
+    },
+    "n1a": {
+      "all_held": 3,
+      "invalid": 0,
+      "scheduled": 3
+    },
+    "n1b": {
+      "all_held": 3,
+      "invalid": 0,
+      "scheduled": 3
+    },
+    "n2a": {
+      "all_held": 3,
+      "invalid": 0,
+      "scheduled": 3
+    },
+    "n2b": {
+      "all_held": 3,
+      "invalid": 0,
+      "scheduled": 3
+    },
+    "n3a": {
+      "all_held": 3,
+      "invalid": 0,
+      "scheduled": 3
+    },
+    "n3b": {
+      "all_held": 3,
+      "invalid": 0,
+      "scheduled": 3
+    }
+  },
+  "repetitions": [
+    {
+      "all_held": true,
+      "case": "b",
+      "expectations": [
+        {
+          "expected": "exit 0, 200",
+          "held": true
+        },
+        {
+          "expected": "a SYN and a SYN-ACK",
+          "held": true
+        },
+        {
+          "expected": "the no-loss batch: 40 of 40 completed, none at 0.5 s or more",
+          "held": true
+        }
+      ],
+      "invalid_reasons": [],
+      "readings": {
+        "burst_max_t": 0.000887,
+        "burst_ok_of_40": 40,
+        "burst_retrans": 0,
+        "curl_error": "",
+        "curl_exit": 0,
+        "dns_answers": 2,
+        "dns_queries": 2,
+        "http": "200",
+        "icmp_any": 0,
+        "icmp_dns": 0,
+        "icmp_http": 0,
+        "retrans": 0,
+        "rst": 0,
+        "syn_80": 1,
+        "synack": 1,
+        "t_total": 0.001241
+      },
+      "rep": 1,
+      "validity": "observed"
+    },
+    {
+      "all_held": true,
+      "case": "b",
+      "expectations": [
+        {
+          "expected": "exit 0, 200",
+          "held": true
+        },
+        {
+          "expected": "a SYN and a SYN-ACK",
+          "held": true
+        },
+        {
+          "expected": "the no-loss batch: 40 of 40 completed, none at 0.5 s or more",
+          "held": true
+        }
+      ],
+      "invalid_reasons": [],
+      "readings": {
+        "burst_max_t": 0.001089,
+        "burst_ok_of_40": 40,
+        "burst_retrans": 0,
+        "curl_error": "",
+        "curl_exit": 0,
+        "dns_answers": 2,
+        "dns_queries": 2,
+        "http": "200",
+        "icmp_any": 0,
+        "icmp_dns": 0,
+        "icmp_http": 0,
+        "retrans": 0,
+        "rst": 0,
+        "syn_80": 1,
+        "synack": 1,
+        "t_total": 0.001093
+      },
+      "rep": 2,
+      "validity": "observed"
+    },
+    {
+      "all_held": true,
+      "case": "b",
+      "expectations": [
+        {
+          "expected": "exit 0, 200",
+          "held": true
+        },
+        {
+          "expected": "a SYN and a SYN-ACK",
+          "held": true
+        },
+        {
+          "expected": "the no-loss batch: 40 of 40 completed, none at 0.5 s or more",
+          "held": true
+        }
+      ],
+      "invalid_reasons": [],
+      "readings": {
+        "burst_max_t": 0.001089,
+        "burst_ok_of_40": 40,
+        "burst_retrans": 0,
+        "curl_error": "",
+        "curl_exit": 0,
+        "dns_answers": 2,
+        "dns_queries": 2,
+        "http": "200",
+        "icmp_any": 0,
+        "icmp_dns": 0,
+        "icmp_http": 0,
+        "retrans": 0,
+        "rst": 0,
+        "syn_80": 1,
+        "synack": 1,
+        "t_total": 0.000982
+      },
+      "rep": 3,
+      "validity": "observed"
+    },
+    {
+      "all_held": true,
+      "case": "n1a",
+      "expectations": [
+        {
+          "expected": "recovery 200",
+          "held": true
+        },
+        {
+          "expected": "exit 6",
+          "held": true
+        },
+        {
+          "expected": "failed in under 1 s",
+          "held": true
+        },
+        {
+          "expected": "a query and a udp port 53 unreachable",
+          "held": true
+        },
+        {
+          "expected": "no SYN to port 80",
+          "held": true
+        }
+      ],
+      "invalid_reasons": [],
+      "readings": {
+        "curl_error": "curl: (6) Could not resolve host: server",
+        "curl_exit": 6,
+        "dns_answers": 0,
+        "dns_queries": 3,
+        "http": "000",
+        "icmp_any": 3,
+        "icmp_dns": 3,
+        "icmp_http": 0,
+        "recovery_http": "200",
+        "retrans": 0,
+        "rst": 0,
+        "syn_80": 0,
+        "synack": 0,
+        "t_total": 0.000225
+      },
+      "rep": 1,
+      "validity": "observed"
+    },
+    {
+      "all_held": true,
+      "case": "n1a",
+      "expectations": [
+        {
+          "expected": "recovery 200",
+          "held": true
+        },
+        {
+          "expected": "exit 6",
+          "held": true
+        },
+        {
+          "expected": "failed in under 1 s",
+          "held": true
+        },
+        {
+          "expected": "a query and a udp port 53 unreachable",
+          "held": true
+        },
+        {
+          "expected": "no SYN to port 80",
+          "held": true
+        }
+      ],
+      "invalid_reasons": [],
+      "readings": {
+        "curl_error": "curl: (6) Could not resolve host: server",
+        "curl_exit": 6,
+        "dns_answers": 0,
+        "dns_queries": 3,
+        "http": "000",
+        "icmp_any": 3,
+        "icmp_dns": 3,
+        "icmp_http": 0,
+        "recovery_http": "200",
+        "retrans": 0,
+        "rst": 0,
+        "syn_80": 0,
+        "synack": 0,
+        "t_total": 0.000228
+      },
+      "rep": 2,
+      "validity": "observed"
+    },
+    {
+      "all_held": true,
+      "case": "n1a",
+      "expectations": [
+        {
+          "expected": "recovery 200",
+          "held": true
+        },
+        {
+          "expected": "exit 6",
+          "held": true
+        },
+        {
+          "expected": "failed in under 1 s",
+          "held": true
+        },
+        {
+          "expected": "a query and a udp port 53 unreachable",
+          "held": true
+        },
+        {
+          "expected": "no SYN to port 80",
+          "held": true
+        }
+      ],
+      "invalid_reasons": [],
+      "readings": {
+        "curl_error": "curl: (6) Could not resolve host: server",
+        "curl_exit": 6,
+        "dns_answers": 0,
+        "dns_queries": 3,
+        "http": "000",
+        "icmp_any": 3,
+        "icmp_dns": 3,
+        "icmp_http": 0,
+        "recovery_http": "200",
+        "retrans": 0,
+        "rst": 0,
+        "syn_80": 0,
+        "synack": 0,
+        "t_total": 0.000238
+      },
+      "rep": 3,
+      "validity": "observed"
+    },
+    {
+      "all_held": true,
+      "case": "n1b",
+      "expectations": [
+        {
+          "expected": "recovery 200",
+          "held": true
+        },
+        {
+          "expected": "exit 6",
+          "held": true
+        },
+        {
+          "expected": "failed after at least 5 s",
+          "held": true
+        },
+        {
+          "expected": "two or more queries, no answer, no ICMP",
+          "held": true
+        },
+        {
+          "expected": "no SYN to port 80",
+          "held": true
+        }
+      ],
+      "invalid_reasons": [],
+      "readings": {
+        "curl_error": "curl: (6) Could not resolve host: server",
+        "curl_exit": 6,
+        "dns_answers": 0,
+        "dns_queries": 6,
+        "http": "000",
+        "icmp_any": 0,
+        "icmp_dns": 0,
+        "icmp_http": 0,
+        "recovery_http": "200",
+        "retrans": 0,
+        "rst": 0,
+        "syn_80": 0,
+        "synack": 0,
+        "t_total": 11.469069
+      },
+      "rep": 1,
+      "validity": "observed"
+    },
+    {
+      "all_held": true,
+      "case": "n1b",
+      "expectations": [
+        {
+          "expected": "recovery 200",
+          "held": true
+        },
+        {
+          "expected": "exit 6",
+          "held": true
+        },
+        {
+          "expected": "failed after at least 5 s",
+          "held": true
+        },
+        {
+          "expected": "two or more queries, no answer, no ICMP",
+          "held": true
+        },
+        {
+          "expected": "no SYN to port 80",
+          "held": true
+        }
+      ],
+      "invalid_reasons": [],
+      "readings": {
+        "curl_error": "curl: (6) Could not resolve host: server",
+        "curl_exit": 6,
+        "dns_answers": 0,
+        "dns_queries": 6,
+        "http": "000",
+        "icmp_any": 0,
+        "icmp_dns": 0,
+        "icmp_http": 0,
+        "recovery_http": "200",
+        "retrans": 0,
+        "rst": 0,
+        "syn_80": 0,
+        "synack": 0,
+        "t_total": 11.172877
+      },
+      "rep": 2,
+      "validity": "observed"
+    },
+    {
+      "all_held": true,
+      "case": "n1b",
+      "expectations": [
+        {
+          "expected": "recovery 200",
+          "held": true
+        },
+        {
+          "expected": "exit 6",
+          "held": true
+        },
+        {
+          "expected": "failed after at least 5 s",
+          "held": true
+        },
+        {
+          "expected": "two or more queries, no answer, no ICMP",
+          "held": true
+        },
+        {
+          "expected": "no SYN to port 80",
+          "held": true
+        }
+      ],
+      "invalid_reasons": [],
+      "readings": {
+        "curl_error": "curl: (6) Could not resolve host: server",
+        "curl_exit": 6,
+        "dns_answers": 0,
+        "dns_queries": 6,
+        "http": "000",
+        "icmp_any": 0,
+        "icmp_dns": 0,
+        "icmp_http": 0,
+        "recovery_http": "200",
+        "retrans": 0,
+        "rst": 0,
+        "syn_80": 0,
+        "synack": 0,
+        "t_total": 12.600617
+      },
+      "rep": 3,
+      "validity": "observed"
+    },
+    {
+      "all_held": true,
+      "case": "n2a",
+      "expectations": [
+        {
+          "expected": "recovery 200",
+          "held": true
+        },
+        {
+          "expected": "exit 28",
+          "held": true
+        },
+        {
+          "expected": "three or more SYNs from one client port, no SYN-ACK, no RST",
+          "held": true
+        },
+        {
+          "expected": "retransmit delta at least 2",
+          "held": true
+        }
+      ],
+      "invalid_reasons": [],
+      "readings": {
+        "curl_error": "curl: (28) Connection timed out after 8002 milliseconds",
+        "curl_exit": 28,
+        "dns_answers": 2,
+        "dns_queries": 2,
+        "http": "000",
+        "icmp_any": 0,
+        "icmp_dns": 0,
+        "icmp_http": 0,
+        "max_syns_one_port": 7,
+        "recovery_http": "200",
+        "retrans": 6,
+        "rst": 0,
+        "syn_80": 7,
+        "synack": 0,
+        "t_total": 8.002733
+      },
+      "rep": 1,
+      "validity": "observed"
+    },
+    {
+      "all_held": true,
+      "case": "n2a",
+      "expectations": [
+        {
+          "expected": "recovery 200",
+          "held": true
+        },
+        {
+          "expected": "exit 28",
+          "held": true
+        },
+        {
+          "expected": "three or more SYNs from one client port, no SYN-ACK, no RST",
+          "held": true
+        },
+        {
+          "expected": "retransmit delta at least 2",
+          "held": true
+        }
+      ],
+      "invalid_reasons": [],
+      "readings": {
+        "curl_error": "curl: (28) Connection timed out after 8002 milliseconds",
+        "curl_exit": 28,
+        "dns_answers": 2,
+        "dns_queries": 2,
+        "http": "000",
+        "icmp_any": 0,
+        "icmp_dns": 0,
+        "icmp_http": 0,
+        "max_syns_one_port": 7,
+        "recovery_http": "200",
+        "retrans": 6,
+        "rst": 0,
+        "syn_80": 7,
+        "synack": 0,
+        "t_total": 8.002281
+      },
+      "rep": 2,
+      "validity": "observed"
+    },
+    {
+      "all_held": true,
+      "case": "n2a",
+      "expectations": [
+        {
+          "expected": "recovery 200",
+          "held": true
+        },
+        {
+          "expected": "exit 28",
+          "held": true
+        },
+        {
+          "expected": "three or more SYNs from one client port, no SYN-ACK, no RST",
+          "held": true
+        },
+        {
+          "expected": "retransmit delta at least 2",
+          "held": true
+        }
+      ],
+      "invalid_reasons": [],
+      "readings": {
+        "curl_error": "curl: (28) Connection timed out after 8002 milliseconds",
+        "curl_exit": 28,
+        "dns_answers": 2,
+        "dns_queries": 2,
+        "http": "000",
+        "icmp_any": 0,
+        "icmp_dns": 0,
+        "icmp_http": 0,
+        "max_syns_one_port": 7,
+        "recovery_http": "200",
+        "retrans": 6,
+        "rst": 0,
+        "syn_80": 7,
+        "synack": 0,
+        "t_total": 8.002178
+      },
+      "rep": 3,
+      "validity": "observed"
+    },
+    {
+      "all_held": true,
+      "case": "n2b",
+      "expectations": [
+        {
+          "expected": "recovery 200",
+          "held": true
+        },
+        {
+          "expected": "at least 36 of 40 completed",
+          "held": true
+        },
+        {
+          "expected": "retransmit delta at least 5",
+          "held": true
+        },
+        {
+          "expected": "completed requests: median under 0.5 s, maximum at least 0.9 s, the baseline's maximum under 0.5 s",
+          "held": true
+        },
+        {
+          "expected": "after removal: 20 of 20 completed, none at 0.5 s or more",
+          "held": true
+        }
+      ],
+      "invalid_reasons": [],
+      "readings": {
+        "baseline_max_t": 0.000887,
+        "failed": [],
+        "max_t_ok": 2.685809,
+        "median_t_ok": 0.20798,
+        "ok_of_40": 40,
+        "recovery_burst_ok_of_20": 20,
+        "recovery_http": "200",
+        "retrans": 39
+      },
+      "rep": 1,
+      "validity": "observed"
+    },
+    {
+      "all_held": true,
+      "case": "n2b",
+      "expectations": [
+        {
+          "expected": "recovery 200",
+          "held": true
+        },
+        {
+          "expected": "at least 36 of 40 completed",
+          "held": true
+        },
+        {
+          "expected": "retransmit delta at least 5",
+          "held": true
+        },
+        {
+          "expected": "completed requests: median under 0.5 s, maximum at least 0.9 s, the baseline's maximum under 0.5 s",
+          "held": true
+        },
+        {
+          "expected": "after removal: 20 of 20 completed, none at 0.5 s or more",
+          "held": true
+        }
+      ],
+      "invalid_reasons": [],
+      "readings": {
+        "baseline_max_t": 0.001089,
+        "failed": [],
+        "max_t_ok": 3.124582,
+        "median_t_ok": 0.0012245,
+        "ok_of_40": 40,
+        "recovery_burst_ok_of_20": 20,
+        "recovery_http": "200",
+        "retrans": 21
+      },
+      "rep": 2,
+      "validity": "observed"
+    },
+    {
+      "all_held": true,
+      "case": "n2b",
+      "expectations": [
+        {
+          "expected": "recovery 200",
+          "held": true
+        },
+        {
+          "expected": "at least 36 of 40 completed",
+          "held": true
+        },
+        {
+          "expected": "retransmit delta at least 5",
+          "held": true
+        },
+        {
+          "expected": "completed requests: median under 0.5 s, maximum at least 0.9 s, the baseline's maximum under 0.5 s",
+          "held": true
+        },
+        {
+          "expected": "after removal: 20 of 20 completed, none at 0.5 s or more",
+          "held": true
+        }
+      ],
+      "invalid_reasons": [],
+      "readings": {
+        "baseline_max_t": 0.001089,
+        "failed": [],
+        "max_t_ok": 4.729464,
+        "median_t_ok": 0.10424950000000001,
+        "ok_of_40": 40,
+        "recovery_burst_ok_of_20": 20,
+        "recovery_http": "200",
+        "retrans": 32
+      },
+      "rep": 3,
+      "validity": "observed"
+    },
+    {
+      "all_held": true,
+      "case": "n3a",
+      "expectations": [
+        {
+          "expected": "recovery 200",
+          "held": true
+        },
+        {
+          "expected": "exit 7",
+          "held": true
+        },
+        {
+          "expected": "failed in under 1 s",
+          "held": true
+        },
+        {
+          "expected": "a tcp port 80 unreachable and no RST",
+          "held": true
+        }
+      ],
+      "invalid_reasons": [],
+      "readings": {
+        "curl_error": "curl: (7) Failed to connect to server port 80 after 0 ms: Could not connect to server",
+        "curl_exit": 7,
+        "dns_answers": 2,
+        "dns_queries": 2,
+        "http": "000",
+        "icmp_any": 1,
+        "icmp_dns": 0,
+        "icmp_http": 1,
+        "recovery_http": "200",
+        "retrans": 0,
+        "rst": 0,
+        "syn_80": 1,
+        "synack": 0,
+        "t_total": 0.000423
+      },
+      "rep": 1,
+      "validity": "observed"
+    },
+    {
+      "all_held": true,
+      "case": "n3a",
+      "expectations": [
+        {
+          "expected": "recovery 200",
+          "held": true
+        },
+        {
+          "expected": "exit 7",
+          "held": true
+        },
+        {
+          "expected": "failed in under 1 s",
+          "held": true
+        },
+        {
+          "expected": "a tcp port 80 unreachable and no RST",
+          "held": true
+        }
+      ],
+      "invalid_reasons": [],
+      "readings": {
+        "curl_error": "curl: (7) Failed to connect to server port 80 after 0 ms: Could not connect to server",
+        "curl_exit": 7,
+        "dns_answers": 2,
+        "dns_queries": 2,
+        "http": "000",
+        "icmp_any": 1,
+        "icmp_dns": 0,
+        "icmp_http": 1,
+        "recovery_http": "200",
+        "retrans": 0,
+        "rst": 0,
+        "syn_80": 1,
+        "synack": 0,
+        "t_total": 0.00044
+      },
+      "rep": 2,
+      "validity": "observed"
+    },
+    {
+      "all_held": true,
+      "case": "n3a",
+      "expectations": [
+        {
+          "expected": "recovery 200",
+          "held": true
+        },
+        {
+          "expected": "exit 7",
+          "held": true
+        },
+        {
+          "expected": "failed in under 1 s",
+          "held": true
+        },
+        {
+          "expected": "a tcp port 80 unreachable and no RST",
+          "held": true
+        }
+      ],
+      "invalid_reasons": [],
+      "readings": {
+        "curl_error": "curl: (7) Failed to connect to server port 80 after 0 ms: Could not connect to server",
+        "curl_exit": 7,
+        "dns_answers": 2,
+        "dns_queries": 2,
+        "http": "000",
+        "icmp_any": 1,
+        "icmp_dns": 0,
+        "icmp_http": 1,
+        "recovery_http": "200",
+        "retrans": 0,
+        "rst": 0,
+        "syn_80": 1,
+        "synack": 0,
+        "t_total": 0.000412
+      },
+      "rep": 3,
+      "validity": "observed"
+    },
+    {
+      "all_held": true,
+      "case": "n3b",
+      "expectations": [
+        {
+          "expected": "positive control 200",
+          "held": true
+        },
+        {
+          "expected": "exit 7",
+          "held": true
+        },
+        {
+          "expected": "a RST from the server Pod to the port that sent the SYN, and no ICMP",
+          "held": true
+        }
+      ],
+      "invalid_reasons": [],
+      "readings": {
+        "curl_error": "curl: (7) Failed to connect to 10.244.0.5 port 8081 after 0 ms: Could not connect to server",
+        "curl_exit": 7,
+        "dns_answers": 0,
+        "dns_queries": 0,
+        "http": "000",
+        "icmp_any": 0,
+        "icmp_dns": 0,
+        "icmp_http": 0,
+        "recovery_http": "200",
+        "retrans": 0,
+        "rst": 1,
+        "syn_80": 0,
+        "synack": 0,
+        "t_total": 0.000102
+      },
+      "rep": 1,
+      "validity": "observed"
+    },
+    {
+      "all_held": true,
+      "case": "n3b",
+      "expectations": [
+        {
+          "expected": "positive control 200",
+          "held": true
+        },
+        {
+          "expected": "exit 7",
+          "held": true
+        },
+        {
+          "expected": "a RST from the server Pod to the port that sent the SYN, and no ICMP",
+          "held": true
+        }
+      ],
+      "invalid_reasons": [],
+      "readings": {
+        "curl_error": "curl: (7) Failed to connect to 10.244.0.5 port 8081 after 0 ms: Could not connect to server",
+        "curl_exit": 7,
+        "dns_answers": 0,
+        "dns_queries": 0,
+        "http": "000",
+        "icmp_any": 0,
+        "icmp_dns": 0,
+        "icmp_http": 0,
+        "recovery_http": "200",
+        "retrans": 0,
+        "rst": 1,
+        "syn_80": 0,
+        "synack": 0,
+        "t_total": 9e-05
+      },
+      "rep": 2,
+      "validity": "observed"
+    },
+    {
+      "all_held": true,
+      "case": "n3b",
+      "expectations": [
+        {
+          "expected": "positive control 200",
+          "held": true
+        },
+        {
+          "expected": "exit 7",
+          "held": true
+        },
+        {
+          "expected": "a RST from the server Pod to the port that sent the SYN, and no ICMP",
+          "held": true
+        }
+      ],
+      "invalid_reasons": [],
+      "readings": {
+        "curl_error": "curl: (7) Failed to connect to 10.244.0.5 port 8081 after 0 ms: Could not connect to server",
+        "curl_exit": 7,
+        "dns_answers": 0,
+        "dns_queries": 0,
+        "http": "000",
+        "icmp_any": 0,
+        "icmp_dns": 0,
+        "icmp_http": 0,
+        "recovery_http": "200",
+        "retrans": 0,
+        "rst": 1,
+        "syn_80": 0,
+        "synack": 0,
+        "t_total": 9.3e-05
+      },
+      "rep": 3,
+      "validity": "observed"
+    }
+  ]
+}

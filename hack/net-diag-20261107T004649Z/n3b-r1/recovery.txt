@@ -1,0 +1,21 @@
+capture_ready=1
+curl_exit=0
+http=200 t_total=0.000758 t_dns=0.000013 t_connect=0.000092 local_port=59832
+curl_error=
+retrans_before=46 retrans_after=46
+kernel_dropped=0
+tcpdump_read_exit=0
+--- capture
+00:49:10.860903 IP 10.244.0.6.59832 > 10.244.0.5.8080: Flags [S], seq 3515013081, win 64240, options [mss 1460,sackOK,TS val 3764572187 ecr 0,nop,wscale 10], length 0
+00:49:10.860937 IP 10.244.0.5.8080 > 10.244.0.6.59832: Flags [S.], seq 270511362, ack 3515013082, win 65160, options [mss 1460,sackOK,TS val 3773130174 ecr 3764572187,nop,wscale 10], length 0
+00:49:10.860942 IP 10.244.0.6.59832 > 10.244.0.5.8080: Flags [.], ack 1, win 63, options [nop,nop,TS val 3764572187 ecr 3773130174], length 0
+00:49:10.860983 IP 10.244.0.6.59832 > 10.244.0.5.8080: Flags [P.], seq 1:80, ack 1, win 63, options [nop,nop,TS val 3764572188 ecr 3773130174], length 79: HTTP: GET / HTTP/1.1
+00:49:10.860996 IP 10.244.0.5.8080 > 10.244.0.6.59832: Flags [.], ack 80, win 64, options [nop,nop,TS val 3773130175 ecr 3764572188], length 0
+00:49:10.861567 IP 10.244.0.5.8080 > 10.244.0.6.59832: Flags [P.], seq 1:157, ack 80, win 64, options [nop,nop,TS val 3773130175 ecr 3764572188], length 156: HTTP: HTTP/1.0 200 OK
+00:49:10.861576 IP 10.244.0.6.59832 > 10.244.0.5.8080: Flags [.], ack 157, win 63, options [nop,nop,TS val 3764572188 ecr 3773130175], length 0
+00:49:10.861592 IP 10.244.0.5.8080 > 10.244.0.6.59832: Flags [P.], seq 157:461, ack 80, win 64, options [nop,nop,TS val 3773130175 ecr 3764572188], length 304: HTTP
+00:49:10.861593 IP 10.244.0.6.59832 > 10.244.0.5.8080: Flags [.], ack 461, win 63, options [nop,nop,TS val 3764572188 ecr 3773130175], length 0
+00:49:10.861612 IP 10.244.0.5.8080 > 10.244.0.6.59832: Flags [F.], seq 461, ack 80, win 64, options [nop,nop,TS val 3773130175 ecr 3764572188], length 0
+00:49:10.861636 IP 10.244.0.6.59832 > 10.244.0.5.8080: Flags [F.], seq 80, ack 462, win 63, options [nop,nop,TS val 3764572188 ecr 3773130175], length 0
+00:49:10.861657 IP 10.244.0.5.8080 > 10.244.0.6.59832: Flags [.], ack 81, win 64, options [nop,nop,TS val 3773130175 ecr 3764572188], length 0
+--- end

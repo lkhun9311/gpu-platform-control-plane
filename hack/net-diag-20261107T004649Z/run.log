@@ -1,0 +1,55 @@
+Creating cluster "netdiag" ...
+ • Ensuring node image (kindest/node:v1.37.0) 🖼️  ...
+ ✓ Ensuring node image (kindest/node:v1.37.0) 🖼️
+ • Preparing nodes 📦   ...
+ ✓ Preparing nodes 📦 
+ • Writing configuration 📜  ...
+ ✓ Writing configuration 📜
+ • Starting control-plane 🕹️  ...
+ ✓ Starting control-plane 🕹️
+ • Installing CNI 🔌  ...
+ ✓ Installing CNI 🔌
+ • Installing StorageClass 💾  ...
+ ✓ Installing StorageClass 💾
+ • Waiting ≤ 3m0s for control-plane = Ready ⏳  ...
+ ✓ Waiting ≤ 3m0s for control-plane = Ready ⏳
+ • Ready after 17s 💚
+Set kubectl context to "kind-netdiag"
+You can now use your cluster with:
+
+kubectl cluster-info --context kind-netdiag
+
+Not sure what to do next? 😅  Check out https://kind.sigs.k8s.io/docs/user/quick-start/
+case b-r1 done
+case n1a-r1 done
+command terminated with exit code 9
+case n1b-r1 done
+case n2a-r1 done
+case n2b-r1 done
+case n3a-r1 done
+case n3b-r1 done
+case b-r2 done
+case n1a-r2 done
+command terminated with exit code 9
+case n1b-r2 done
+case n2a-r2 done
+case n2b-r2 done
+case n3a-r2 done
+case n3b-r2 done
+case b-r3 done
+case n1a-r3 done
+command terminated with exit code 9
+case n1b-r3 done
+case n2a-r3 done
+case n2b-r3 done
+case n3a-r3 done
+case n3b-r3 done
+b: held in 3 of 3 (0 invalid)
+n1a: held in 3 of 3 (0 invalid)
+n1b: held in 3 of 3 (0 invalid)
+n2a: held in 3 of 3 (0 invalid)
+n2b: held in 3 of 3 (0 invalid)
+n3a: held in 3 of 3 (0 invalid)
+n3b: held in 3 of 3 (0 invalid)
+Deleting cluster "netdiag" ...
+Deleted nodes: ["netdiag-control-plane"]
