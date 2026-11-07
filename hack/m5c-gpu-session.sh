@@ -1644,6 +1644,9 @@ for z in $ZONES; do
   # EC2 caps a client token at 64 ASCII characters, and this is 52 -- "m5c-" plus 32 hex plus "-" plus a zone
   # name of 15 -- so a longer region name still fits.
   LAUNCH_TOKEN="m5c-$LAUNCH_IDENTITY-$z"
+  # The tags, deadline included, are fixed with the token: a retry under the same token with a later deadline is a
+  # different request, which EC2 answers IdempotentParameterMismatch instead of returning the instance it made.
+  LAUNCH_TAGS="$(spot_tags_with_deadline "$TAGS" $((BACKSTOP_SECONDS + 1200)))"
   # Only a refusal that names a ZONE's shortage may move to another zone.
   #
   # The classification is a whitelist, not a denylist, and the direction matters: an unrecognised error read
@@ -1673,7 +1676,7 @@ for z in $ZONES; do
     # Set BEFORE the call. Everything after this line, including a signal, can be reconciled.
     LAUNCH_UNCERTAIN="$LAUNCH_TOKEN"; LAUNCH_UNCERTAIN_SUBNET="$SUBNET"
     IID=$(spot_launch "$REGION" "$AMI" "$INSTANCE_TYPE" "$SUBNET" "$STACK" \
-          "$MAX_SPOT_PRICE" 200 "$UD" "$TAGS" "$LAUNCH_TOKEN" 2>"$attempt_err") || IID=""
+          "$MAX_SPOT_PRICE" 200 "$UD" "$LAUNCH_TAGS" "$LAUNCH_TOKEN" 2>"$attempt_err") || IID=""
     # The shared error log keeps accumulating, because the refusal block after this loop reads it.
     cat "$attempt_err" >> "$OUT/launch-errors.txt"
 
