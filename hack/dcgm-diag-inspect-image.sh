@@ -65,7 +65,8 @@ for entry in "${IMAGES[@]}"; do
   grep -qx 'exit=0' "$d/image.exit" || fail "$ver: image inspect"
   # The platform this machine resolved must be one the index lists, so the archive ties the pin to the bytes run.
   platform=$(sed -n 's/.* platform=\([^ ]*\) .*/\1/p' "$d/image.txt")
-  python3 - "$d/index.json" "$platform" >"$d/index-platforms.txt" 2>&1 <<'PY' || fail "$ver: the index does not list the platform run"
+  # The status is taken before anything else runs: `|| fail` here once wrote fail's own status, 0, into the archive.
+  python3 - "$d/index.json" "$platform" >"$d/index-platforms.txt" 2>&1 <<'PY'
 import json, sys
 index = json.load(open(sys.argv[1]))
 want_os, want_arch = sys.argv[2].split("/")
@@ -76,7 +77,9 @@ for m in index["manifests"]:
     found = found or (p.get("os"), p.get("architecture")) == (want_os, want_arch)
 sys.exit(0 if found else 1)
 PY
-  echo "exit=$?" >"$d/index-platforms.exit"
+  platforms_rc=$?
+  echo "exit=$platforms_rc" >"$d/index-platforms.exit"
+  [ "$platforms_rc" = 0 ] || fail "$ver: the index does not list the platform run"
 
   # run NAME SCRIPT: one command in the image, its streams and exit status in three files; it must exit 0 and print.
   run() {

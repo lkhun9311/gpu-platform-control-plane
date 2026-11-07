@@ -37,6 +37,13 @@ The late peer is let in at 420 s, inside the 600 s join and far past the 60 s, s
 The never case fails at 614 s, so it ends as a failed attempt and not as a case censored at its budget.
 The harness waits up to 900 s for them, so its own wait decides neither.
 
+**Corrected 2026-11-07.** The 448 s and 614 s above are attempt 2's last step (447.760 s) and the lone rank's exit, not
+the jobs' ends: the MLTrainingJob reached `Succeeded` at 451 s and `Failed` at 647 s after its creation
+(`status.lastTransitionTime` in each `final-mltj.json`, to the second), after the final save and peer shutdown, and in
+the never case the controller's stop barrier.
+Both are still inside 720 s; the scorer now checks the budget against the job's terminal phase and prints the step and
+the exit beside it (gpt-6-astra review of 116092ef, recomputed from the archive).
+
 In the never cases the lone rank's exit frees its GPU, and the waiting peer is then scheduled on it: it starts 2 s later
 into an attempt already failing, and is killed 30 s after that.
 The scorer counts that as never joining only because it started after the lone rank ended, and fails a recorded peer

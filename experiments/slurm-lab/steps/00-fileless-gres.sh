@@ -5,7 +5,8 @@ source "$(dirname "$0")/lib.sh"
 
 out 00-fileless-gres.txt
 fixture=$(mktemp)
-trap 'rm -f "$fixture"' EXIT
+# Keeps lib.sh's step_end, which this trap would otherwise replace, and hands it the step's own status.
+trap 'rc=$?; rm -f "$fixture"; (exit "$rc"); step_end' EXIT
 echo 'NodeName=c[1-3] Name=gpu Count=2' >"$fixture"
 note "gres.conf replaced by one line with no File=:"
 host "cat $fixture"

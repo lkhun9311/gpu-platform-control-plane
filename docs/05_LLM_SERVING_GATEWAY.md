@@ -113,7 +113,7 @@ The rendering itself was checked on a real engine on 2026-10-11 (`hack/holdcap-c
 The engine the controller started reported the measured arguments with the cap, status turned HoldCap only once that engine was ready and Off 0.1 s after HoldCap was turned off, and Recreate rolled to an engine without the cap.
 That session ran no gateway and measured no latency.
 
-Known gaps, none of which holds requests for an engine without the cap:
+Known gaps *(corrected 2026-11-07: this line said none of them holds requests for an engine without the cap; the second one does, for up to the cache lag plus `maxHold`)*:
 
 - Editing the object, `maxHold` included, moves its generation, so the backend gets the process-wide mode until the controller reports HoldCap again.
 - When HoldCap is turned off and the gateway's cache lags the new engine becoming ready, requests can be held briefly for the uncapped engine: no protection, and holds bounded by `maxHold`. The window is the cache lag plus up to `maxHold`, not the cache lag alone, because a request keeps the admission it was routed with while it waits. It has not been measured.
