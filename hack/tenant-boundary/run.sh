@@ -194,9 +194,16 @@ k -n train-a patch mltrainingjob job-a --type=merge -p '{"metadata":{"finalizers
 rec tenant-binds-staged-volume sh -c "printf '%s\n' 'apiVersion: v1' 'kind: PersistentVolumeClaim' 'metadata: {name: staged, namespace: train-a}' 'spec: {accessModes: [ReadWriteOnce], volumeName: staged-for-serve-a, resources: {requests: {storage: 1Gi}}}' | kubectl --context $CTX --as=user-train-a --as-group=tenant:train-a create -f -"
 printf '%s\n' 'apiVersion: platform.lkhun9311.github.io/v1' 'kind: GPUQuotaPolicy' 'metadata: {name: train-a}' \
   'spec: {tenant: train-a, targetNamespace: train-a, gpuClass: a10g, limits: {gpuCount: 1}}' | k create -f - >>"$LOG" 2>&1 || die "GPUQuotaPolicy"
-# patch, not annotate or label: those read the object first, and a refused read is not the refused write under test.
-rec tenant-raises-tier as_tenant train-a patch gpuquotapolicy train-a --type=merge -p '{"metadata":{"annotations":{"platform.lkhun9311.github.io/tier":"premium"}}}'
-rec tenant-labels-namespace as_tenant train-a patch namespace train-a --type=merge -p '{"metadata":{"labels":{"pod-security.kubernetes.io/enforce":"privileged"}}}'
+# A PUT of the edited object, because kubectl's annotate, label and patch all read the object first, and a refused read
+# is not the refused write under test.
+put_edited() { # put_edited <api path> <python statement over o>
+  k get --raw "$1" | python3 -c "import json,sys; o=json.load(sys.stdin); $2; print(json.dumps(o))" >"$WORK/put.json" &&
+    kubectl --context "$CTX" --as=user-train-a --as-group=tenant:train-a replace --raw "$1" -f "$WORK/put.json"
+}
+rec tenant-raises-tier put_edited /apis/platform.lkhun9311.github.io/v1/gpuquotapolicies/train-a \
+  "o['metadata'].setdefault('annotations', {})['platform.lkhun9311.github.io/tier'] = 'premium'"
+rec tenant-labels-namespace put_edited /api/v1/namespaces/train-a \
+  "o['metadata']['labels']['pod-security.kubernetes.io/enforce'] = 'privileged'"
 rec privileged-pod sh -c "printf '%s\n' 'apiVersion: v1' 'kind: Pod' 'metadata: {name: priv, namespace: train-a}' 'spec: {containers: [{name: c, image: $PROBE_REF, securityContext: {privileged: true}}]}' | kubectl --context $CTX create -f -"
 
 echo "== network checks" | tee -a "$LOG"
