@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: c3-r2
+  labels: {app: lddiag, case: c3}
+spec:
+  restartPolicy: Never
+  terminationGracePeriodSeconds: 1
+  volumes: [{name: v, emptyDir: {medium: Memory}}]
+  containers:
+  - name: w
+    image: python@sha256:2f17fc044b579bab302c2e8054d3a686e2cb9a83de48e70534b94cd8ebbe06a9
+    imagePullPolicy: IfNotPresent
+    resources: {limits: {memory: 128Mi, cpu: 500m}}
+    volumeMounts: [{name: v, mountPath: /shm}]
+    command: ["sh", "-c"]
+    args: ["dump() { echo \"--- cgroup begin\"; for f in memory.max memory.current memory.peak memory.oom.group; do echo \"$f $(cat /sys/fs/cgroup/$f)\"; done; sed \"s/^/memory.events /\" /sys/fs/cgroup/memory.events; sed \"s/^/memory.stat /\" /sys/fs/cgroup/memory.stat; echo \"--- cgroup end\"; }; echo begin; df -k /shm; dd if=/dev/zero of=/shm/f bs=1M count=192; echo dd-exit=$?; dump"]
