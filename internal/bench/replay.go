@@ -94,15 +94,19 @@ type RawRow struct {
 	ErrorKind string `json:"errorKind,omitempty"`
 	// StreamTerminated says this response's stream sent its own end marker.
 	//
-	// On the ROW because the distinction cannot be recovered afterwards: a truncated stream and a complete
-	// one produce the same errorKind (none), the same httpStatus (200) and the same stamped times, so a
-	// row without this field cannot say whether the response it records actually finished.
+	// On the ROW because the distinction cannot be recovered afterwards: until 2026-11-07 a truncated stream and
+	// a complete one produced the same errorKind (none), the same httpStatus (200) and the same stamped times,
+	// so in rows of that time only this field says whether the response actually finished.
 	//
-	// `omitempty` means false is indistinguishable from absent in the JSON, and that is deliberate for the
-	// same reason PromptLenChars treats 0 as "predates this field": every row written before today lacks
-	// it, and a reader must not take their silence for "truncated". The report counts what it can see and
-	// names the rows it cannot classify, rather than assuming either way.
+	// `omitempty` makes false and absent the same key in one row, so the record is read per file: rows written
+	// before 2026-10-04 never carry it, and in a file where any row carries it an absent key means false.
+	// ReadRawRows turns that into TerminationRecorded, and the report counts a completed row whose file never
+	// recorded termination as unknown rather than as finished (review r7, 2026-11-07).
+	// Since 2026-11-07 the sender also names a truncated stream in ErrorKind, so new rows do not rest on this.
 	StreamTerminated bool `json:"streamTerminated,omitempty"`
+	// TerminationRecorded says the file this row came from recorded StreamTerminated, so false means truncated.
+	// It is derived by ReadRawRows from the file, never stored, so a row round-trips through a file unchanged.
+	TerminationRecorded bool `json:"-"`
 	// StreamError is the engine's in-band failure text, verbatim, empty when it sent none.
 	StreamError string `json:"streamError,omitempty"`
 	// Study is the pre-registered experiment this row belongs to, copied from the manifest.
@@ -471,6 +475,7 @@ func ReadRawRows(r io.Reader) ([]RawRow, error) {
 	var rows []RawRow
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
+	recorded := false
 	for sc.Scan() {
 		line := sc.Bytes()
 		if len(line) == 0 {
@@ -480,10 +485,22 @@ func ReadRawRows(r io.Reader) ([]RawRow, error) {
 		if err := json.Unmarshal(line, &row); err != nil {
 			return nil, fmt.Errorf("parse raw row: %w", err)
 		}
+		var key struct {
+			StreamTerminated *bool `json:"streamTerminated"`
+		}
+		if err := json.Unmarshal(line, &key); err != nil {
+			return nil, fmt.Errorf("parse raw row: %w", err)
+		}
+		recorded = recorded || key.StreamTerminated != nil
 		rows = append(rows, row)
 	}
 	if err := sc.Err(); err != nil {
 		return nil, fmt.Errorf("read raw rows: %w", err)
+	}
+	// One row carrying the key shows the harness recorded termination for the whole file, so on the rows of a
+	// file written with omitempty an absent key is false; a file with no such row predates the field.
+	for i := range rows {
+		rows[i].TerminationRecorded = recorded
 	}
 	sort.SliceStable(rows, func(i, j int) bool { return rows[i].Index < rows[j].Index })
 	return rows, nil

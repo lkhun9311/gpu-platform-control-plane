@@ -22,7 +22,7 @@ Five repetitions give a median and a range, not a rate [GF:102-103].
 
 | # | failure mode | injected or found | where | headline | recovered automatically |
 |---|---|---|---|---|---|
-| 1 | Xid 79 reported by DCGM [GF:96] | injected into DCGM's cache | one g5.2xlarge, real A10G, kind on the instance | end to end median 2.502 s [V:5] | job re-admitted on a simulated device; work lost |
+| 1 | Xid 79 reported by DCGM [GF:96] | injected into DCGM's cache | one g5.2xlarge, real A10G, kind on the instance | end to end median 2.502 s [V:5]; 3.405 s counting only placements that started a container (noted 2026-11-07, see the gpu-fault registration's run 2 result) | job re-admitted on a simulated device; work lost |
 | 2 | double-bit ECC reported by DCGM | injected into DCGM's cache | same session | end to end median 2.324 s [V:18] | as row 1 |
 | 3 | corrected (single-bit) ECC, and no change | injected / nothing (controls) | same session | QUIET in 5 of 5 each [V:29] [V:31] | nothing to recover |
 | 4 | the GPU exporter disappears, nothing latched | injected (DaemonSet selector) | same session | PASS [V:33] | yes |

@@ -1,0 +1,31 @@
+{
+  "scenario": "S3",
+  "ground_truth": {
+    "scenario": "S3",
+    "node": "drill-worker2",
+    "survivor": "drill-worker",
+    "steps_before_freeze": 32,
+    "frozen_at": "2026-11-07T02:19:10Z",
+    "job_uid": "b189025b-e43b-4570-81f8-50ab4f85179d"
+  },
+  "end_state": {
+    "the job kept, not recreated": true,
+    "the lost machine was powered off out of band": true,
+    "attempt 1 stopped only after the machine was off": true,
+    "attempt 1 stopped on a fence entry for the lost node": true,
+    "the surviving node was not fenced": true,
+    "a second attempt ran": true,
+    "attempt 2 resumed from a checkpoint, not step 0": true,
+    "the job succeeded": true
+  },
+  "end_state_ok": true,
+  "resumed_from": [
+    32,
+    32
+  ],
+  "fence_annotation": "drill-worker2",
+  "poweroffs": [
+    "2026-11-07 02:20:10+00:00"
+  ],
+  "attempt1_stop_confirmed": "2026-11-07 02:21:08+00:00"
+}

@@ -328,6 +328,30 @@ def check_torch_job(job: Job, pods: dict, logs: dict, approved: str) -> None:
         check_step_records(job, starts, by_rank)
 
 
+def slowest_samples(job: Job, where: str, matrix, samples: int) -> list[float] | None:
+    """The slowest rank's time per sample from the raw times the bench wrote, or None after recording a fault.
+
+    The summaries beside these lists are what the verdict reads, and nothing compared them with the samples they
+    claim to summarise: a recorder that wrote a stale or invented median beside its raw times, or beside none,
+    passed (review r7, 2026-11-07). The bench takes the slowest rank per sample, then the median; so does this.
+    """
+    if (not isinstance(matrix, list) or len(matrix) != RANKS
+            or any(not isinstance(row, list) or len(row) != samples for row in matrix)):
+        job.fault(f"{where}: the raw times are not {RANKS} ranks by {samples} samples")
+        return None
+    if any(isinstance(t, bool) or not isinstance(t, (int, float)) or not math.isfinite(t) or t <= 0
+           for row in matrix for t in row):
+        job.fault(f"{where}: a raw time is not a positive finite number")
+        return None
+    return [max(column) for column in zip(*matrix)]
+
+
+def agrees(recorded, recomputed: float) -> bool:
+    """Whether a recorded summary is the value recomputed from its samples, to floating-point rounding."""
+    return (isinstance(recorded, (int, float)) and not isinstance(recorded, bool) and math.isfinite(recorded)
+            and abs(recorded - recomputed) <= 1e-9 * max(1.0, abs(recomputed)))
+
+
 def check_allreduce_records(job: Job, starts: dict, by_rank: dict) -> None:
     for rank, start in starts.items():
         if start.get("warmup") != WARMUP or start.get("iterations") != ITERS or tuple(start.get("sizes") or ()) != SIZES:
@@ -345,6 +369,14 @@ def check_allreduce_records(job: Job, starts: dict, by_rank: dict) -> None:
         for size, record in sizes.items():
             if record.get("verified") is not True or record.get("iterations") != ITERS:
                 job.fault(f"rank {rank} size {size}: verified {record.get('verified')}, {record.get('iterations')} iterations")
+            if record.get("local_mismatched_iterations", 0) != 0:
+                job.fault(f"rank {rank} size {size}: {record.get('local_mismatched_iterations')} iteration(s) reduced to the wrong sum")
+            slowest = slowest_samples(job, f"rank {rank} size {size}", record.get("times_s_by_rank"), ITERS)
+            if slowest is not None:
+                busbw = size / statistics.median(slowest) / 1e9 * 2 * (RANKS - 1) / RANKS
+                if not agrees(record.get("busbw_gigabytes_per_s_median"), busbw):
+                    job.fault(f"rank {rank} size {size}: busbw {record.get('busbw_gigabytes_per_s_median')} is not the "
+                              f"{busbw} its raw times give")
             if rank == 0:
                 figures[size] = record.get("busbw_gigabytes_per_s_median")
     for size, busbw in figures.items():
@@ -373,6 +405,14 @@ def check_step_records(job: Job, starts: dict, by_rank: dict) -> None:
                       f"and {s.get('local_steps')} local steps")
         if s.get("device") != "cuda":
             job.fault(f"rank {rank}'s steps ran on {s.get('device')!r}")
+        for counter in ("synced_checksum_mismatches", "local_checksum_collisions", "reduction_mismatched_parameters"):
+            if s.get(counter, 0) != 0:
+                job.fault(f"rank {rank}: {counter} is {s.get(counter)}")
+        for phase in ("synced", "local"):
+            slowest = slowest_samples(job, f"rank {rank} {phase} steps", s.get(f"{phase}_s_by_rank"), STEP_PAIRS)
+            if slowest is not None and not agrees(s.get(f"{phase}_ms_median"), statistics.median(slowest) * 1000.0):
+                job.fault(f"rank {rank}: {phase}_ms_median {s.get(f'{phase}_ms_median')} is not the "
+                          f"{statistics.median(slowest) * 1000.0} its raw times give")
         if rank == 0:
             record0 = s
     if record0 and record0.get("verified") is True:
