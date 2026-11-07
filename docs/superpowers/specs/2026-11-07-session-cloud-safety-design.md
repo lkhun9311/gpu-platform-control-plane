@@ -24,7 +24,7 @@ So a laptop lost during a restart stage leaves about $0.25/h billing until someb
 
 ### The lease
 
-Before the session creates anything (directly after its watchdog is armed, before the first `terraform apply`), it writes a Parameter Store String `/gpu-platform/session-lease/<cluster>` holding JSON:
+Before the session creates anything, and before its watchdog is armed (so that a refusal here leaves no watchdog to destroy the shared state's cluster), it refuses a cluster that already exists under its name, then writes a Parameter Store String `/gpu-platform/session-lease/<cluster>` holding JSON:
 
 ```json
 {"cluster": "gpu-platform", "session": "<EXDIR basename>", "deadline": "2026-11-07T15:55:00Z",
@@ -34,7 +34,8 @@ Before the session creates anything (directly after its watchdog is armed, befor
 - `deadline`: the watchdog's TTL **plus** its 40-minute destroy allowance **plus** 15 minutes. The laptop's own destroy always has its turn first; the reaper acts only when that turn never came.
 - `gpu_deadline` and `gpu_nodegroups`: written before each GPU scale-up, beside the existing schedule, with the same deadline; a later GPU phase replaces the deadline (or the reaper would scale down a group the session just bought) and adds its group.
 - `vpc_id`, `efs_id`: recorded once known, so the reaper does not have to find them.
-- `hack/lib/session-lease.sh` writes every field, reads it back and compares, and refuses to arm when a lease for the cluster already exists (a session still running, or one the reaper is still clearing) or when the reaper function is not `Active`.
+- `hack/lib/session-lease.sh` writes every field, reads it back and compares, and refuses to arm when a lease for the cluster already exists (a session still running, or one the reaper is still clearing), when the reaper function is not `Active`, or when the reaper has recorded no clean pass in the last 15 minutes (`/gpu-platform/session-reaper/last-ok`, written by a run that processed every lease without error): `Active` says the function exists, not that its role can read the leases.
+- A session that dies after arming its lease and before building anything leaves the lease; the next session is refused until it is removed by hand (after confirming nothing of the cluster exists) or the reaper clears it at its deadline.
 - The lease is removed by the session only in the branch where its teardown is **verified** (destroy returned zero and every residue query answered empty), beside the watchdog's disarm. An unverified teardown leaves both armed.
 
 ### The reaper
@@ -46,10 +47,12 @@ Before the session creates anything (directly after its watchdog is armed, befor
 - **after `deadline` (P1):** a step per run, in dependency order, asking and never waiting:
   1. every node group of the cluster is deleted; nothing else is touched while one exists, because the NAT carries the nodes' traffic and EFS their checkpoints;
   2. then the cluster;
-  3. then the session's EFS (by recorded id, or by `Name = <cluster>-restart` and the project tag): its mount targets, then the file system;
+  3. then the session's EFS: exactly the recorded id when there is one; otherwise the one project file system named `<cluster>-restart`, searched over every page, two of that name being a refusal. Its mount targets, then the file system;
   4. then the NAT gateways of the session's VPC that carry the project tag;
-  5. then the addresses of NAT gateways that are already `deleted`, only when they carry the project tag and are no longer associated.
-  The lease is removed when a run finds nothing left.
+  5. then the addresses, found by their own tags (project, and `Name = <cluster>-vpc-*`, the VPC module's naming), so one allocated by an apply that died before its gateway, or one whose deleted gateway has aged out of the API, is found too; none is released while a gateway of the session is still deleting or the address is associated;
+  6. once the cluster is gone (it writes to the one and decrypts with the other while being deleted): the log group `/aws/eks/<cluster>/cluster`, and the key aliased `alias/eks/<cluster>` (the EKS module creates one per cluster, at $1 a month), scheduled for deletion in 7 days. The state bucket's key also carries the project tag; the role denies scheduling it by ARN, whatever the code asks.
+  A released address is counted as left until a later run no longer lists it; the lease is removed when a run finds nothing left.
+- **A renewal during a run.** The GPU phase reads the lease again immediately before each scale-down and skips a group whose lease has been renewed; and a session that renews a GPU deadline that has already passed waits 130 s, longer than a reaper run's 120 s timeout, before it scales the group up, so no run that read the expired copy is still going.
 
 **Why API deletion and not `terraform destroy`.** A Lambda running terraform would need the state bucket, its KMS key, the provider plugins in a layer, and a role able to destroy everything the cluster root creates (IAM roles and policies included); it would race the laptop's own destroy for the state lock; and a failure halfway leaves a state that no longer matches the account. Deleting the five billing resources by API needs a role scoped to delete only resources carrying the project tag, and leaves the free ones (VPC, subnets, route tables, security groups, IAM roles, the KMS key of the cluster) for the next `terraform apply` or `destroy` to reconcile; terraform reads a deleted resource as gone and plans to recreate it.
 
@@ -82,15 +85,17 @@ One invocation every five minutes of about a second (8,640 a month, inside Lambd
 
 ### What it does not protect
 
-- Anything not in the five classes above: an ELB a Service created, an instance launched outside a node group (the sweeper covers tagged Spot instances), a volume left by a deleted node (EKS deletes the root volumes it created).
+- Anything not in the classes above: an ELB a Service created, an instance launched outside a node group (the sweeper covers tagged Spot instances), a volume left by a deleted node (EKS deletes the root volumes it created).
+- Whether a KMS key pending deletion is still charged during its 7-day window was not checked against AWS's price list here.
 - A session that writes no lease: only `hack/eks-gitops-session.sh` writes one. The Spot runners are covered by the sweeper.
 - A deadline the session itself sets too late: the lease's deadline is derived from `TTL_MINUTES`, which the runner bounds by its credential lifetime.
-- The free resources: the VPC and IAM stay until the next terraform run.
+- The free resources: the VPC, security groups and IAM stay until the next terraform run.
 
 ## P3: every root refuses another account
 
 `allowed_account_ids = ["007635145730"]` in the AWS provider of `infra/aws/cluster`, `infra/aws/argo-bootstrap` and `infra/aws/bootstrap`, as a variable with a validation that refuses an empty list.
 A plan or apply with credentials for any other account then fails before it reads or changes anything.
+The Argo root's only resource is a Helm release, and terraform does not configure a provider nothing uses, so it gains a `data "aws_caller_identity"` read whose only job is to make the pinned provider configured; the Helm provider's own token comes from the AWS CLI with the same profile.
 The nightly destroy and the CI plan/apply workflows assume roles created by `infra/aws/bootstrap` in that same account (`oidc.tf`), so they are inside the pin; the main session confirms this at the first plan, which fails at once if not.
 
 ## P4: the region SCP allows one Region
@@ -103,10 +108,10 @@ SCPs never apply to the management account, which stays the recovery path: a pol
 
 All in `ap-northeast-2`, profile `gpu-lab` unless noted, each step only after its plan is read.
 
-1. **P3 and P1/P2 in `infra/aws/bootstrap`** (one plan). Expected: 8 to add (reaper role, role policy, log group, Lambda function, event rule, event target, Lambda permission; the archive is a data source), 0 to change, 0 to destroy; the provider pin adds no resource. Rollback: `git revert` and apply, which removes the eight; no lease can exist yet.
-2. **P3 in `infra/aws/cluster` and `infra/aws/argo-bootstrap`**: a plan only, with the cluster not built. Expected: no changes (the pin is provider configuration); the plan's success with `gpu-lab` and its failure with `gpu-lab-ro` reaching another account, if any, is the check. Rollback: revert the variable.
-3. **Exercise the reaper without money**: write a lease by hand for a cluster name that does not exist with a deadline in the past (`aws ssm put-parameter --name /gpu-platform/session-lease/reaper-exercise --type String --value '{"cluster":"reaper-exercise","deadline":"2026-01-01T00:00:00Z"}'`), invoke the function once (`aws lambda invoke --function-name gpu-platform-session-reaper out.json`), and read that it reported the lease REAPED and removed it, with no other call. Then a lease with an unreadable deadline must fail the invocation and be left.
-4. **P4 in the organization** (profile `gpu-mgmt`): first `bash infra/aws/org/scp/simulate.sh` against the last week of recorded calls from `gpu-lab`, which must report no denial; then `aws organizations update-policy` of the region policy with the new document, read back; then from `gpu-lab` a dry run (`aws ec2 run-instances --dry-run --region us-east-1 …`) must answer an SCP denial and the same in `ap-northeast-2` `DryRunOperation`, and `aws pricing get-products --region us-east-1` must still answer. Rollback: `update-policy` with the previous document (kept in git) from `gpu-mgmt`.
+1. **P3 and P1/P2 in `infra/aws/bootstrap`** (one plan). Expected: 7 to add (reaper role, role policy, log group, Lambda function, event rule, event target, Lambda permission; the archive is a data source), 0 to change, 0 to destroy; the provider pin adds no resource. Rollback: `git revert` and apply, which removes the eight; no lease can exist yet.
+2. **P3 in `infra/aws/cluster` and `infra/aws/argo-bootstrap`**: a plan only, with the cluster not built. Expected: the cluster root's usual plan of a full build (it is applied only by a session), nothing destroyed; the Argo root cannot plan without a cluster and is checked by the first session that builds one; the plan's success with `gpu-lab` and its failure with `gpu-lab-ro` reaching another account, if any, is the check. Rollback: revert the variable.
+3. **Exercise the reaper without money**: wait for one scheduled run and read `/gpu-platform/session-reaper/last-ok` (it proves the role can read the lease path); then write a lease by hand for a cluster name that does not exist with a deadline in the past (`aws ssm put-parameter --name /gpu-platform/session-lease/reaper-exercise --type String --value '{"cluster":"reaper-exercise","deadline":"2026-01-01T00:00:00Z"}'`), invoke the function once (`aws lambda invoke --function-name gpu-platform-session-reaper out.json`), and read that it reported the lease REAPED and removed it, with no other call. Then a lease with an unreadable deadline must fail the invocation and be left.
+4. **P4 in the organization** (profile `gpu-mgmt`): first an inventory of `us-east-1` in `gpu-lab`, because once attached the member account can no longer delete what is there: `aws resourcegroupstaggingapi get-resources --region us-east-1`, `aws ec2 describe-instances`, `describe-volumes`, `describe-addresses`, `describe-nat-gateways`, `aws kms list-keys` (customer keys only), `aws eks list-clusters`, `aws lambda list-functions`, `aws logs describe-log-groups`, each with `--region us-east-1`, every one empty or cleaned up first; then `bash infra/aws/org/scp/simulate.sh` against the last week of recorded calls from `gpu-lab`, which must report no denial; then `aws organizations update-policy` of the region policy with the new document, read back; then from `gpu-lab` a dry run (`aws ec2 run-instances --dry-run --region us-east-1 …`) must answer an SCP denial and the same in `ap-northeast-2` `DryRunOperation`, and `aws pricing get-products --region us-east-1` must still answer. Rollback: `update-policy` with the previous document (kept in git) from `gpu-mgmt`.
 5. The next paid session is the first to write a lease; its session log carries `session lease armed` and, after a verified teardown, `session lease removed`.
 
 ## What was tested here, and by which engine
@@ -120,4 +125,20 @@ All in `ap-northeast-2`, profile `gpu-lab` unless noted, each step only after it
 
 ## Revisions
 
-*(filled after the adversarial review)*
+### Round 1 (gpt-6-astra, high, read-only, asked only "can these changes destroy something they should not, fail to clean up what they should, or lock the owner out of the account?")
+
+Nine findings; each was checked against the code by Claude, eight confirmed and fixed, one fixed by an added step.
+
+| # | finding | verdict | change |
+|---|---|---|---|
+| 1 | a refused lease left the watchdog armed, which would destroy the shared state's cluster | confirmed | the lease is armed before the watchdog, after the existing-watchdog refusal and a new existing-cluster refusal |
+| 2 | a recorded EFS id did not restrict deletion: a copy with the same Name went too | confirmed (reproduced by astra with the fakes) | the recorded id is used alone; without one, two of the name is a refusal |
+| 3 | a run's old copy of the lease could scale down a group the session had just renewed and bought | confirmed | the lease is read again before each scale-down, and renewing a passed GPU deadline waits 130 s |
+| 4 | addresses were found only through deleted NAT records, which age out after about an hour or never existed | confirmed | addresses are found by their own tags and name |
+| 5 | EFS discovery read one page | confirmed | the recorded id is described directly; discovery is paginated |
+| 6 | the SSM path requested and the path granted differed; and `Active` did not show the role could read | partly: the exact authorisation rule was not checked against AWS | the request drops the trailing slash and both spellings are granted; a clean pass writes a heartbeat, and a session requires one from the last 15 minutes |
+| 7 | the EKS module's per-cluster KMS key (and log group) were left billing | confirmed (`create_kms_key` defaults to true in v20.24.0) | both are removed once the cluster is gone; the state key is denied by ARN |
+| 8 | the Argo root's account pin was never evaluated, since no AWS resource there uses the provider | confirmed | a `data "aws_caller_identity"` read configures it |
+| 9 | the SCP rollout did not show that what already exists in `us-east-1` can still be deleted | confirmed as a step | apply step 4 now inventories `us-east-1` first |
+
+astra could not verify live IAM evaluation, EventBridge delivery or the effective SCP attachments; neither could this branch.

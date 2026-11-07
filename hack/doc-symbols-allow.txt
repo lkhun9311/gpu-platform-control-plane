@@ -123,3 +123,4 @@ oom_score_adj	a Linux per-process OOM setting named by the linux diagnosis desig
 NVRM	the NVIDIA kernel driver's log prefix, named by the linux diagnosis design as what a journal filter would match
 TaskOOM	a containerd event named by the linux diagnosis design as the source of the OOMKilled reason
 DryRunOperation	the EC2 error code a --dry-run call returns when it would have been allowed, named by the session cloud safety design's apply check
+create_kms_key	an input of the pinned terraform-aws-modules/eks v20.24.0 module, named by the session cloud safety design as defaulting to true
