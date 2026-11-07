@@ -35,7 +35,7 @@ A row marked ASSUMPTION is a value I chose for the design; changing it changes t
 | restart cost R | 10 min, from fault to the job stepping again | ASSUMPTION; its parts are in "Recovery time" |
 | training-data read per node | 0.5 GB/s, multi-camera video and lidar | ASSUMPTION |
 | fault detect, Xid 79 injected into DCGM's cache, one node | median 1.627 s (1.051 to 1.758), upper ends of truncation intervals over five injections, not point times | measured, `hack/gpu-fault/2026-10-27-run2/verdict.txt:4` |
-| fault value to job bound elsewhere, Xid 79 injected | median 2.502 s (1.926 to 2.634), upper ends of truncation intervals over five injections, not point times | measured, `hack/gpu-fault/2026-10-27-run2/verdict.txt:5` |
+| fault value to job bound elsewhere, Xid 79 injected | median 2.502 s (1.926 to 2.634), upper ends of truncation intervals over five injections, not point times; 3.405 s counting only placements that started a container, because three of the five first placements were undone by a re-admission loop since fixed (noted 2026-11-07) | measured, `hack/gpu-fault/2026-10-27-run2/verdict.txt:5` |
 | DDP synced step, 4 × A10G, one Pod (SHM) vs four Pods (NET), synthetic model, forward and backward only, no optimizer step | 133.87 ms vs 249.00 ms | measured, `docs/superpowers/specs/2026-10-27-four-gpu-nccl-design.md:565` |
 
 ## Shape
