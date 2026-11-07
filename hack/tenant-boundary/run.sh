@@ -125,8 +125,17 @@ for t in train-a serve-a; do
   k apply -k "$REPO/config/tenants/$t" >>"$LOG" 2>&1 || die "tenant $t"
   # Until the quota controller has computed the quota's usage, the apiserver refuses every create the quota covers
   # ("status unknown for quota"), so a tenant onboarded a moment ago is refused for a reason that is not the boundary.
-  k -n "$t" wait --for=jsonpath='{.status.used.pods}' resourcequota/tenant-baseline --timeout=120s >>"$LOG" 2>&1 ||
-    die "quota status in $t"
+  # Usage of a custom resource's count arrives later than the built-in ones, once the quota controller has discovered
+  # the CRD, so it waits for every hard key to have a used value.
+  quota_ready=0
+  for _ in $(seq 120); do
+    if k -n "$t" get resourcequota tenant-baseline -o json 2>>"$LOG" |
+      python3 -c 'import json,sys; s=json.load(sys.stdin).get("status",{}); sys.exit(0 if s.get("hard") and set(s["hard"])<=set(s.get("used",{})) else 1)'; then
+      quota_ready=1; break
+    fi
+    sleep 2
+  done
+  [ "$quota_ready" = 1 ] || die "quota status in $t never covered every resource"
 done
 
 # Every stand-in serves its own name over HTTP, so a success also says which Pod answered.
