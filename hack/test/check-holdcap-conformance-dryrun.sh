@@ -23,7 +23,7 @@ cat > "$work/bin/aws" <<'EOF'
 #!/usr/bin/env bash
 echo "aws $*" >> "$CALLS"
 case "$1 $2" in
-  "sts get-caller-identity") echo 000000000000 ;;
+  "sts get-caller-identity") echo 007635145730 ;;
   "ssm get-parameter") echo ami-00000000000000000 ;;
   "ec2 describe-instance-type-offerings") echo ap-northeast-2a ;;
   "s3api head-bucket"|"iam get-instance-profile") exit 254 ;;
@@ -51,7 +51,9 @@ chmod +x "$work/bin/aws" "$work/bin/git" "$work/bin/go"
 
 export CALLS="$work/calls"
 : > "$CALLS"
-out=$(PATH="$work/bin:$PATH" AWS_PROFILE=gpu-lab DRY_RUN=1 OUT="$work/out" bash hack/holdcap-conformance/session.sh 2>&1) && rc=0 || rc=$?
+# The stub answers as the lab account, and environment credentials are dropped, because spot_account refuses any other
+# account and any key in the environment; a CI runner with OIDC credentials exported would otherwise fail this for that.
+out=$(env -u AWS_ACCESS_KEY_ID -u AWS_SECRET_ACCESS_KEY -u AWS_SESSION_TOKEN PATH="$work/bin:$PATH" AWS_PROFILE=gpu-lab DRY_RUN=1 OUT="$work/out" bash hack/holdcap-conformance/session.sh 2>&1) && rc=0 || rc=$?
 if [ "$rc" -eq 0 ] && grep -q 'DRY_RUN: nothing created' <<<"$out"; then
   ok "the dry run reaches its stop"
 else
