@@ -13,7 +13,7 @@ What the drill measures is the runbook and the platform as an engineer meets the
    2. Launch the engineer with the prompt below and the scenario's page; let it work to its own end.
    3. `hack/drill/scenarios/<s>.sh score > $DRILL_STATE/score-<s>.json`, then read the engineer's report against `$DRILL_STATE/truth/<s>.json`.
    4. S1 and S2: `... reset` before the next scenario. S3 is last: it takes a worker away.
-3. `bash hack/drill/setup.sh teardown`.
+3. Copy the scores and transcripts into the repository if they are to be kept, then `bash hack/drill/setup.sh teardown` (keeps `DRILL_STATE`; `teardown --purge` deletes it).
 
 `DRILL_STATE` defaults to `~/.cache/gpuaas-drill`; the ground truth and the console's log live there, outside the repository.
 Each scenario's ground truth is decided at injection (S1 picks fragmentation or quota at random), so reading the scripts does not give the answer.

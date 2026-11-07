@@ -4,7 +4,7 @@
 # four-GPU training quota, a shared ReadWriteMany volume, and one NodeHealth per worker.
 #
 #   bash hack/drill/setup.sh            # build and leave the cluster up for the drill
-#   bash hack/drill/setup.sh teardown   # delete the cluster and the drill's state
+#   bash hack/drill/setup.sh teardown   # delete the cluster; keeps the drill state unless --purge
 #
 # The pieces are those of hack/restart-lifecycle-kind.sh and hack/distributed-restart-kind.sh (pins, the vendored
 # Kueue, the hostPath RWX volume, the controllers on the control plane), cut down to three nodes: the host's inotify
@@ -46,7 +46,14 @@ if [ "${1:-}" = teardown ]; then
   if [ -d "$DRILL_STATE/shared" ]; then
     docker run --rm -v "$DRILL_STATE/shared:/s" busybox:1.37.0 sh -c 'rm -rf /s/*' || echo "could not empty $DRILL_STATE/shared"
   fi
-  rm -rf "$DRILL_STATE"
+  # The scores, transcripts and ground truth stay unless --purge is given: they are the drill's evidence, and the
+  # 2026-11-07 run lost its score files to an unconditional rm here.
+  if [ "${2:-}" = --purge ]; then
+    rm -rf "$DRILL_STATE"
+  else
+    rm -rf "$DRILL_STATE/shared"
+    echo "kept $DRILL_STATE (scores, transcripts, truth); pass --purge to delete it"
+  fi
   exit 0
 fi
 
