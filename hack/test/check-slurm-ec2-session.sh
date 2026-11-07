@@ -360,6 +360,8 @@ session "the t3 real-NFS rehearsal" SLURMEC2_MODE=nfs-rehearsal
 runs=$(grep '^ec2 run-instances' "$STUB/calls.log")
 [ "$(grep -c -- "--image-id $HAMI --instance-type t3.medium" <<<"$runs")" = 1 ] && [ "$(grep -c -- "--image-id $GAMI --instance-type t3.medium .*\"VolumeSize\":100" <<<"$runs")" = 2 ] && ! grep -q g5.xlarge <<<"$runs" &&
   ok "the rehearsal buys three t3.medium, the workers on the Deep Learning image with its 100 GB" || bad "the rehearsal launches: $(cut -c1-300 <<<"$runs")"
+[ "$(grep -c -- "--instance-type t3.medium .*credit-specification" <<<"$runs")" = 3 ] &&
+  ok "every rehearsal t3 runs with standard credits, inside the Spot cap" || bad "the rehearsal's t3 credit specifications: $(grep -c credit-specification <<<"$runs") of 3"
 grep -q "service-quotas get-service-quota" "$STUB/calls.log" && bad "the rehearsal read the G and VT quota" || ok "the rehearsal does not read the G and VT quota"
 ud="$STUB/out/user-data-gpu1.sh"
 grep -q " STOP_S=1950 SLURMEC2_FAKE_GPU=1 SLURMEC2_NFS_PROBE=1$" "$ud" && grep -q '( sleep 2250; ' "$ud" &&
