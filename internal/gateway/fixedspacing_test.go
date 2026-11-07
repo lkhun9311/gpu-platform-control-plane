@@ -160,7 +160,7 @@ func TestFixedSpacingPinsTheChargedBackend(t *testing.T) {
 		t.Fatalf("an admitted standard request: ok %v, reservation %v", ok, res)
 	}
 	b2 := &BackendRef{URL: serialBackend().URL}
-	if got := forwardTargets(res, []*BackendRef{serialBackend(), b2}); len(got) != 1 {
+	if got := forwardTargets(pinnedToHead(res, ""), []*BackendRef{serialBackend(), b2}); len(got) != 1 {
 		t.Fatalf("the request may still go to %d backends", len(got))
 	}
 }

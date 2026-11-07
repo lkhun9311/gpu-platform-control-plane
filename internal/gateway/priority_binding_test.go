@@ -96,6 +96,42 @@ var _ = Describe("priority binding on rendered engines", func() {
 		Expect(rr.Header().Get(HeaderEnginePriority)).To(BeEmpty())
 	})
 
+	// A spec update makes the controller's EngineInForce condition stale while the rendered engine keeps serving, so
+	// PriorityScheduled is false and nothing is bound; the caller's own priority must still not reach that engine.
+	// Mutation that must turn this red: ignore MayPrioritySchedule in anyPriorityScheduled.
+	It("removes a caller's priority while a rendered engine's condition is stale", func() {
+		var got atomic.Value
+		up := recording(&got)
+		defer up.Close()
+		s := newAdmissionServer("", tierStandard, AdmissionOff, offAdmitter{})
+		s.refsOverride = func(string) []*BackendRef {
+			u, err := url.Parse(up.URL)
+			Expect(err).NotTo(HaveOccurred())
+			return []*BackendRef{{Namespace: "ns", Name: "rolling", URL: u, Model: testModel, MayPrioritySchedule: true}}
+		}
+		hostile := `{"model":"` + testModel + `","messages":[{"role":"user","content":"hello"}],"stream":true,"priority":-100}`
+		rr := httptest.NewRecorder()
+		s.Handler().ServeHTTP(rr, authedRequest(hostile))
+		Expect(rr.Code).To(Equal(http.StatusOK))
+		seen, _ := got.Load().([]any)
+		Expect(seen).To(Equal([]any{nil}), "a standard caller's -100 reached an engine that may schedule by it")
+		Expect(rr.Header().Get(HeaderEnginePriority)).To(BeEmpty(), "a stale condition was trusted to bind")
+	})
+
+	// Mutations that must turn this red: drop the spec branch, or the condition branch, of engineMayPrioritySchedule.
+	It("takes a rendered engine as possibly serving from the spec or from a condition of any generation", func() {
+		d := &platformv1.InferenceDeployment{}
+		d.Generation = 5
+		Expect(engineMayPrioritySchedule(d)).To(BeFalse(), "a backend never rendered")
+		d.Status.Conditions = []metav1.Condition{{Type: platformv1.ConditionEngineInForce, Status: metav1.ConditionTrue, ObservedGeneration: 4}}
+		Expect(engineMayPrioritySchedule(d)).To(BeTrue(), "spec.engine removed while the old rendered Pods still serve")
+		Expect(enginePriorityScheduled(d)).To(BeFalse())
+		d.Status.Conditions = nil
+		d.Spec.Engine = &platformv1.InferenceEngine{VLLM: &platformv1.VLLMEngine{Profile: platformv1.VLLMProfileV0271A10G}}
+		Expect(engineMayPrioritySchedule(d)).To(BeTrue(), "spec.engine added before the controller reported it")
+		Expect(enginePriorityScheduled(d)).To(BeFalse())
+	})
+
 	// A reservation pins a request to the head backend, so a fallback it can no longer reach must not keep it unbound.
 	// Mutation that must turn this red: judge bindsPriority on targets rather than forwardTargets(res, targets).
 	It("binds when a reservation leaves only the rendered head reachable", func() {
