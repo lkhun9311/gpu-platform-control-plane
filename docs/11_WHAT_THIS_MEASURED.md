@@ -183,14 +183,16 @@ repetition 3, with no trace in the instance log — "no timeouts" is not a succe
 27.2x and 23.0x is not evidence about the calibration: the prompt length and the repetition count both
 differ. The timeout differs too, and for the reason given above it is a weaker candidate, not an eliminated one.
 
-The improvement is real: **884.6 ms**, against a control whose two repetitions differed by **1.375 ms**.
+*(The paragraphs from here to "What it does not say" are about the ninth pilot of 2026-09 — the Finding 3 table, 200-character prompts — not about the 3b run above, which bought no `timeSlicing` arm. They sat after 3b without saying so until 2026-11-07, when an external review caught a reader attributing them to 3b.)*
+
+In the ninth pilot the improvement is real: **884.6 ms**, against a control whose two repetitions differed by **1.375 ms**.
 That is a range check and nothing more. An earlier draft of the source spec expressed the same comparison as
 a multiple and **dropped the multiple rather than correcting it**, because the registered rule asks whether
 the improvement clears the range, not by how many times — and because the multiple invites a precision the
 two numbers do not carry. This page reintroduced it anyway, as "632 times the noise", until a review caught
 it.
 
-It misses the pre-registered 2x bar by sevenfold **at this load**, and a successor study that took the same
+It (the ninth pilot's `timeSlicing` arm) misses the pre-registered 2x bar by sevenfold **at this load**, and a successor study that took the same
 question to the engine's own scheduler — eight configurations, three repetitions — reached **20.7x** at best.
 **Below that load the same arm passes.** On a ladder whose contender was held byte-identical across rungs,
 `timeSlicing` met the 139 ms premium target at 1.16 req/s (123.7 ms) and at 2.31 req/s (130.3 ms, repeated
@@ -221,7 +223,7 @@ revision and the engine digest. It then stopped itself on a cell boundary: a cel
 the runner's assumed 10, and its log projects the nine cells left at about 167 minutes against 142 before the
 deadline (the run's own log, archive m5c-20261001-002751). One cell is not a comparison, and that run bought the
 provenance chain rather than a result. The ten-cell run that completed that afternoon (Finding 3b) bought no
-split arm either. **The table above remains the ninth pilot's**, and nothing in the 2026-10-01 runs
+split arm either. **The Finding 3 table (the ninth pilot's) remains the only split-card table at that load**, and nothing in the 2026-10-01 runs
 retroactively confirms it.
 
 *(`docs/superpowers/specs/2026-09-10-does-splitting-the-card-buy-protection.md:529`, `:561`;
@@ -558,4 +560,4 @@ None of the verdicts above changes.
 | 5 — preemption that did not | already closed: the termination contract is now an arm of the protocol |
 | 8 — configuration removes stranding | the second layout, the mix where packing loses and the counterbalanced order were measured on 2026-10-23, and the sign reversed with the mix; what remains is real devices, an arrival process rather than a fixed sequence, and more than three workers |
 | 9 — hold-cap protects, a tuned clock ties | C3 has run the robustness study v27 stopped, at a load with headroom for the contender, and observed the frozen spacing losing the pooled premium tail at the long length, a separation that rests on two of its three sessions. What remains: the frozen load itself; a test registering as its factor the contender schedule's burst structure, which the exploratory account of the third session is consistent with but does not establish; and a second card model |
-| 10 — a half-placed distributed job | more than two ranks, other jobs in the cohort, `blockAdmission: true`, and real devices; the phase fix it pointed at and the trainer's signal fix were measured together under a second registration, two runs per scenario plus two with a second tenant, all on simulated devices |
+| 10 — a half-placed distributed job | more than two ranks, other jobs in the cohort, `blockAdmission: true`, and real devices; the phase fix it pointed at and the trainer's signal fix were measured together under a second registration, two runs per scenario plus two with a second workload in the same queue (not a second tenant; corrected 2026-11-07), all on simulated devices |

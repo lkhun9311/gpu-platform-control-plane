@@ -109,7 +109,7 @@ timestamp; sub-second digits in the log are not a precision claim.
 
 `REPS=3`, single runner, Argo CD v2.13.2 at its default settings, Application pinned to commit `416c394`.
 **Six injections, six repairs, no manual sync.** Raw evidence in `ex/selfheal-final/` (gitignored; the
-curated figures are here).
+curated figures are here) — raw records not in this repository: they were kept in the author's gitignored `ex/` directory and are not published, so the figures below cannot be checked against their observations from this repository (noted 2026-11-07).
 
 | injection | rep 1 | rep 2 | rep 3 |
 |---|---:|---:|---:|
@@ -119,7 +119,7 @@ curated figures are here).
 Every deletion came back under a **new UID** — `e467fdb1` → `a8d3d597` → `543fc0e1` → `fc2a3f35` — so what
 was observed is recreation of the object, not a ReplicaSet replacing pods beneath a surviving Deployment.
 
-**The recovery time is the backoff, and the controller says so to within a second.** Each repetition's
+**The recovery time is the backoff, and the controller says so to within three seconds.** *(Corrected 2026-11-07: this read "within a second"; the deletions repaired at 156.7–156.8 s against a reported 159.5 s retry, 2.8 s apart, while the modifications came within 0.5 s.)* Each repetition's
 captured log carries the interval the controller had chosen at that moment, and it matches the measurement:
 
 | repetition | controller's reported retry | observed repair |

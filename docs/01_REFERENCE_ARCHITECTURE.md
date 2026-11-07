@@ -5,7 +5,7 @@
 > for `InferenceDeployment`, `GPUQuotaPolicy`, and `NodeHealth` are **built**; `MLTrainingJob` + Kueue is
 > **built** (M6, run end-to-end on kind — and not the only milestone with a live run record: M7, the gateway
 > chain and the chaos scenarios have theirs under `hack/`); the gateway (routing, auth, rate limit,
-> proxy, metrics) is **built, unit-tested and deployed on kind but never on EKS**; the M5-b admission guard and benchmark
+> proxy, metrics) is **built, unit-tested and deployed on kind but never on EKS** *(historical: on EKS since 2026-10-12; current state in `docs/00_PORTFOLIO_OVERVIEW.md`, "Current state")*; the M5-b admission guard and benchmark
 > harness are **built, and MEASURED on a paid GPU**: four repetitions on 2026-09-03 and an engine-level scheduler microtest on 2026-09-04. The guard failed — 83.7x against a pre-registered 1.25x premium-tail target — and the harness declared the run invalid rather than reporting a protection claim; `GpuSharingBenchmark` has a **type and a generated CRD** (2026-09-30) with 33
 > envtest specs and a spec that is immutable once created, and only its **thin status writer** is outstanding —
 > nothing has ever written `status.result`, so the type has never produced a number. This sentence read
@@ -76,7 +76,7 @@ Each CRD encodes an operator intent. A controller reconciles it toward the desir
 |---------------------------------------------|------------------------------------------------------------------|---------------------------|
 | CRDs + controllers                          | yes (envtest, kind)                                              | —                         |
 | Admission / quota / status                  | yes                                                              | —                         |
-| Gateway routing + rate limit                | **built** — M4-b merged, unit-tested (envtest/httptest); binary and manifests exist but the gateway has **been deployed on kind, never on EKS** | —                         |
+| Gateway routing + rate limit                | **built** — M4-b merged, unit-tested (envtest/httptest); binary and manifests exist but the gateway has **been deployed on kind, never on EKS** *(historical; on EKS since 2026-10-12)* | —                         |
 | Gateway admission guard (M5)                | **built and measured on a paid GPU.** Four repetitions 2026-09-03. The guard missed its 1.25x target at 83.7x and the run was declared invalid rather than reported. Its engage/release thresholds were the failure — but not because the gateway cannot observe pressure. It did: all 274 refusals came from the waiting-queue condition. The KV-occupancy condition was **unreachable by construction** (0.85 of a 386,912-token cache needs ~43 concurrent long requests; the trace peaked at 13) | yes (real latency effect) |
 | vLLM serving                                | smoke only (no real inference throughput)                        | yes (real serving)        |
 | DCGM / GPU metrics                          | **partly implemented, and run on rented cards by the queuelab.** A `DCGM_FI_DEV_GPU_UTIL` reader, a Pod-attribution resolver, an exporter deployment and a pre-spend gate exist (14 Go files, `config/dcgm-exporter/`). No Xid or ECC. No GPU fault detection feeds NodeHealth | yes (real metrics)        |
