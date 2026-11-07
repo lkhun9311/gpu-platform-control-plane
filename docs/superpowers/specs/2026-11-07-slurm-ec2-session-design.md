@@ -17,7 +17,7 @@ This session asks four things of plain Slurm, as Ubuntu 24.04 packages it, on EC
 
 ## Apparatus
 
-Three EC2 Spot instances in one zone of `ap-northeast-2`, account `gpu-lab` (007635145730), in the default VPC's default subnet and default security group (which admits all traffic between its own members and nothing else inbound):
+Three EC2 Spot instances in one zone of `ap-northeast-2`, account `gpu-lab` (007635145730), in the default VPC's default subnet and a security group the session creates, which admits all traffic between its own members and nothing else inbound:
 
 | role | type | AMI | Slurm role |
 |---|---|---|---|
@@ -43,7 +43,8 @@ Every deadline counts from `T0`, the latest of the three instances' EC2 `LaunchT
 |---|---|
 | 1,500 s | bring-up ends: packages, MariaDB, munge, NFS, `slurmctld`, both `slurmd` registered `IDLE`, the venv |
 | 4,200 s | the checks end |
-| 4,380 s | evidence uploaded |
+| 4,230 s | the procedure is stopped if still running; `collect.sh` ships what exists, then the diagnostics |
+| 4,380 s | the evidence deadline: `collect.sh` is stopped at 4,440 s at the latest |
 | 4,470 s | the sweeper's `study-deadline` tag |
 | 4,500 s | every instance shuts itself down (`instance-initiated-shutdown-behavior=terminate`) |
 | 4,900 s | the runner's termination wait ends |
@@ -120,4 +121,23 @@ So the rehearsal shows the packages, the configuration, accounting, configless `
 
 ## Revisions before the run
 
-(Each round of the pre-purchase review is recorded here.)
+gpt-6-astra (high, read-only) was asked only "can money be spent and the result be void, or can resources outlive the session?", without being told where to look.
+Each finding was checked against the code by Claude before it was fixed.
+
+**Round 1 (commit `8066bf99`): NO-GO, ten findings, all confirmed and fixed in `18889ed6`.**
+
+| # | finding | fix |
+|---|---|---|
+| 1 P1 | `T0` sourced but not exported, so `procedure.sh`, a child process, stopped at once: every paid check VOID | `instance.sh` exports `T0` and the addresses |
+| 2 P1 | workers mounted `/shared` onto a directory the Deep Learning AMI does not have | `mkdir -p` before the mount |
+| 3 P1 | a failed evidence upload still wrote `DONE`, and the runner then terminated the only copy | `ship` retries and verifies the object's size with `head-object`; `DONE` records `evidence_verified`; the evidence is shipped after every check |
+| 4 P1 | collection could hang past the self-shutdown, 120 s per worker, and gpu1 stayed drained after B4 | the procedure ends at T0 + 4,230 s, `collect.sh` ships what exists before any job, each worker job is bounded at 30 s, and B4 returns gpu1 to service |
+| 5 P1 | `TERMINATION` set before the final loop made the trap skip instances not yet terminated | the trap terminates every launched instance not confirmed gone, per instance |
+| 6 P1 | an accepted AMI could carry a second EBS volume with `DeleteOnTermination=false` | both AMIs' owners are pinned (099720109477, 898082745236) and any EBS mapping other than `/dev/sda1` is refused (both AMIs checked: root plus two instance-store entries) |
+| 7 P1 | an existing bucket was trusted to expire its objects | the lifecycle rule (enabled, whole bucket, at most 30 days) and versioning (off) are read on every run, and the run's prefix is removed once the evidence is unpacked locally |
+| 8 P2 | a failed `sacct`, journal or PID read was scored as a rule that did not hold | each instrument's exit status is recorded and a failed one makes the repetition INVALID |
+| 9 P2 | B3 passed a second job that started before the first ended | the gap must be between 0 and 60 s, and both jobs COMPLETED |
+| 10 P2 | VOID, missing evidence and a failed scorer exited 0 | the runner exits 3 for those, 1 for an unconfirmed termination, 0 only for a scored measurement |
+
+Found by Claude in the same round: the default security group of `gpu-lab`'s default VPC admits all TCP from `0.0.0.0/0` (read on 2026-11-07), which would have put `slurmctld` and the NFS export on the internet.
+The session now creates its own group, admitting only its own members, launches all three into it (a new optional argument of `spot_launch`, `a39c955f`), and deletes it after the instances are gone.
