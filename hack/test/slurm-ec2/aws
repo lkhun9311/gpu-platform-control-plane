@@ -1,0 +1,44 @@
+#!/usr/bin/env python3
+"""The rehearsal's AWS CLI: the S3 calls the instance side makes, against /fakes3; anything else fails loudly."""
+import os
+import shutil
+import sys
+
+ROOT = "/fakes3"
+args = [a for a in sys.argv[1:] if a != "--only-show-errors"]
+
+
+def path(url):
+    # s3://BUCKET/KEY -> /fakes3/KEY; one bucket per rehearsal, so the bucket name is not part of the path.
+    return os.path.join(ROOT, url[len("s3://"):].split("/", 1)[1])
+
+
+if args[:2] == ["s3", "cp"] and len(args) == 4:
+    src, dst = args[2], args[3]
+    if src.startswith("s3://"):
+        p = path(src)
+        if not os.path.isfile(p):
+            sys.stderr.write(f"fatal error: An error occurred (404) when calling the HeadObject operation: {src}\n")
+            sys.exit(1)
+        if dst == "-":
+            sys.stdout.buffer.write(open(p, "rb").read())
+        else:
+            shutil.copyfile(p, dst)
+        sys.exit(0)
+    if dst.startswith("s3://"):
+        p = path(dst)
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        shutil.copyfile(src, p + ".tmp")
+        os.rename(p + ".tmp", p)
+        sys.exit(0)
+if args[:2] == ["s3api", "head-object"]:
+    bucket = args[args.index("--bucket") + 1]
+    key = args[args.index("--key") + 1]
+    p = path(f"s3://{bucket}/{key}")
+    if not os.path.isfile(p):
+        sys.exit(255)
+    if "--query" in args and args[args.index("--query") + 1] == "ContentLength":
+        print(os.path.getsize(p))
+    sys.exit(0)
+sys.stderr.write("rehearsal aws stub: unsupported call: " + " ".join(sys.argv[1:]) + "\n")
+sys.exit(2)

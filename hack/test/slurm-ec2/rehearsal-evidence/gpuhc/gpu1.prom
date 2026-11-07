@@ -1,0 +1,2 @@
+DCGM_FI_DEV_XID_ERRORS{gpu="0",UUID="GPU-rehearsal-gpu1"} 0
+DCGM_FI_DEV_ECC_DBE_VOL_TOTAL{gpu="0",UUID="GPU-rehearsal-gpu1"} 0

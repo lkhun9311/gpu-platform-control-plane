@@ -1,0 +1,18 @@
+NodeName=gpu2 Arch=x86_64 CoresPerSocket=16 
+   CPUAlloc=0 CPUEfctv=32 CPUTot=32 CPULoad=2.47
+   AvailableFeatures=(null)
+   ActiveFeatures=(null)
+   Gres=gpu:1
+   NodeAddr=gpu2 NodeHostName=gpu2 Version=23.11.4
+   OS=Linux 7.0.0-31-generic #31-Ubuntu SMP PREEMPT_DYNAMIC Sat Aug  1 04:26:38 UTC 2026 
+   RealMemory=59897 AllocMem=0 FreeMem=1248 Sockets=1 Boards=1
+   State=IDLE ThreadsPerCore=2 TmpDisk=0 Weight=1 Owner=N/A MCS_label=N/A
+   Partitions=gpu 
+   BootTime=2026-09-15T11:28:38 SlurmdStartTime=2026-11-07T07:27:12
+   LastBusyTime=2026-11-07T07:35:20 ResumeAfterTime=None
+   CfgTRES=cpu=32,mem=59897M,billing=32,gres/gpu=1
+   AllocTRES=
+   CapWatts=n/a
+   CurrentWatts=0 AveWatts=0
+   ExtSensorsJoules=n/a ExtSensorsWatts=0 ExtSensorsTemp=n/a
+

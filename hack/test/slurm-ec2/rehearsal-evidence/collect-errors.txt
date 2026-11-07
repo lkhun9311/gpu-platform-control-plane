@@ -1,0 +1,3 @@
+srun: Required node not available (down, drained or reserved)
+srun: job 30 queued and waiting for resources
+srun: job 30 has been allocated resources

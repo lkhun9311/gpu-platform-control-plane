@@ -1,0 +1,4 @@
+slurmstepd-gpu2: error: Detected 1 oom_kill event in StepId=17.0. Some of the step tasks have been OOM Killed.
+srun: error: gpu2: task 0: Out Of Memory
+slurmstepd-gpu2: error: common_file_write_uints: write value '1622' to '/sys/fs/cgroup/cgroup.procs' failed: Device or resource busy
+slurmstepd-gpu2: error: Unable to move pid 1622 to init root cgroup /sys/fs/cgroup

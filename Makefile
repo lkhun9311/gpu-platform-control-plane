@@ -426,14 +426,14 @@ shell-check: ## Parse every shell script under hack/ and .githooks/.
 		hack/test/spot-lifecycle/bin/aws hack/test/spot-lifecycle/bin/git hack/test/spot-lifecycle/bin/sleep \
 		hack/test/spot-lifecycle/golden/*/user-data*.sh \
 		hack/test/teardown-replay/*.sh hack/test/teardown-replay/bin/aws \
-		hack/eks-serve/holdcap-study/*.sh hack/eks-serve/prefix-route-study/*.sh \
+		hack/eks-serve/holdcap-study/*.sh hack/eks-serve/prefix-route-study/*.sh hack/slurm-ec2/*.sh hack/slurm-ec2/gpuhc-ec2.sh hack/slurm-ec2/rehearsal-nvidia-smi \
 		.githooks/*.sh .githooks/commit-msg .githooks/pre-push; do \
 		[ -f "$$f" ] || continue; \
 		bash -n "$$f" || { echo "shell-check: $$f does not parse" >&2; fail=1; }; \
 	done; \
 	for f in hack/test/spot-lifecycle/*.py hack/serving-stub/*.py hack/eks-serve/holdcap-study/*.py hack/eks-serve/prefix-route-study/*.py \
 		experiments/distributed-partial-placement/*.py experiments/cpu-ddp/*.py \
-		experiments/multi-pod-ddp/*.py experiments/gateway-replica-limit/*.py experiments/mlops-lineage/*.py; do \
+		experiments/multi-pod-ddp/*.py experiments/gateway-replica-limit/*.py experiments/mlops-lineage/*.py hack/slurm-ec2/*.py hack/test/slurm-ec2/aws; do \
 		[ -f "$$f" ] || continue; \
 		python3 -m py_compile "$$f" || { echo "shell-check: $$f does not compile" >&2; fail=1; }; \
 	done; \
@@ -531,7 +531,7 @@ harness-check: terraform kustomize ## Run the self-contained test harnesses unde
 	@# library against stubs, and its scorer over generated runs, in about ten seconds.
 	@# check-tenant-boundary.sh re-scores the archived kind run of the tenant boundary and turns each of its checks into the
 	@# opposite outcome once; the run itself needs a cluster and is hack/tenant-boundary/run.sh, outside any gate.
-	@fail=0; for t in hack/test/check-phase-supervisor.sh hack/test/check-restart-session.sh hack/test/check-restart-kind-driver.sh hack/test/check-restart-directed-kind.sh hack/test/capture-evidence-test.sh hack/test/plot-device-observation-test.sh hack/test/check-matrix-plan-refusals.sh hack/test/check-token-unit-labels.sh hack/test/check-published-spreads.sh hack/test/check-cell-timing-record.sh hack/test/check-engine-metrics-scrape.sh hack/test/check-instrument-validation-harness.sh hack/test/check-tail-crossing-self-tests.sh hack/test/check-gpu-max-nodes-validation.sh hack/test/check-train-session-lib.sh hack/test/check-ddp-arms-lib.sh hack/test/check-allreduce-arms-lib.sh hack/test/check-train-session-refusals.sh hack/test/check-serve-sync.sh hack/test/check-fragmentation-collector.sh hack/test/check-stranded-v2-order.sh hack/test/check-mps-journal.sh hack/test/check-mps-capability-lib.sh hack/test/check-mps-capability-session.sh hack/test/check-mps-overlay.sh hack/test/check-gpu-fault-session.sh hack/test/check-holdcap-conformance-dryrun.sh hack/test/check-gpu-ttl.sh hack/test/check-cni-eni-sweep.sh hack/test/check-session-teardown.sh hack/test/check-rank-command-pid1.sh hack/test/check-webhook-live-logs.sh hack/test/check-slurm-lab-host.sh hack/test/check-linux-diag.sh hack/test/check-alert-receipts.sh hack/test/check-dcgm-diag-inspect-image.sh hack/test/check-spot-run-guards.sh hack/test/check-scp-eval.sh hack/test/teardown-replay/replay.sh hack/test/teardown-replay/tagcheck-replay.sh hack/test/check-net-diag.sh hack/test/check-tenant-boundary.sh; do \
+	@fail=0; for t in hack/test/check-phase-supervisor.sh hack/test/check-restart-session.sh hack/test/check-restart-kind-driver.sh hack/test/check-restart-directed-kind.sh hack/test/capture-evidence-test.sh hack/test/plot-device-observation-test.sh hack/test/check-matrix-plan-refusals.sh hack/test/check-token-unit-labels.sh hack/test/check-published-spreads.sh hack/test/check-cell-timing-record.sh hack/test/check-engine-metrics-scrape.sh hack/test/check-instrument-validation-harness.sh hack/test/check-tail-crossing-self-tests.sh hack/test/check-gpu-max-nodes-validation.sh hack/test/check-train-session-lib.sh hack/test/check-ddp-arms-lib.sh hack/test/check-allreduce-arms-lib.sh hack/test/check-train-session-refusals.sh hack/test/check-serve-sync.sh hack/test/check-fragmentation-collector.sh hack/test/check-stranded-v2-order.sh hack/test/check-mps-journal.sh hack/test/check-mps-capability-lib.sh hack/test/check-mps-capability-session.sh hack/test/check-mps-overlay.sh hack/test/check-gpu-fault-session.sh hack/test/check-holdcap-conformance-dryrun.sh hack/test/check-gpu-ttl.sh hack/test/check-cni-eni-sweep.sh hack/test/check-session-teardown.sh hack/test/check-rank-command-pid1.sh hack/test/check-webhook-live-logs.sh hack/test/check-slurm-lab-host.sh hack/test/check-linux-diag.sh hack/test/check-alert-receipts.sh hack/test/check-dcgm-diag-inspect-image.sh hack/test/check-spot-run-guards.sh hack/test/check-scp-eval.sh hack/test/teardown-replay/replay.sh hack/test/teardown-replay/tagcheck-replay.sh hack/test/check-net-diag.sh hack/test/check-tenant-boundary.sh hack/test/check-slurm-ec2-session.sh hack/test/check-slurm-ec2-score.sh; do \
 		TERRAFORM="$(TERRAFORM)" KUSTOMIZE="$(KUSTOMIZE)" bash "$$t" || { echo "harness-check: $$t failed" >&2; fail=1; }; \
 	done; \
 	if [ "$$fail" != "0" ]; then exit 1; fi
