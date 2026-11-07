@@ -92,6 +92,10 @@ plant '{}'; start=$(date +%s)
 got=$(FAKE_AWS_DELAY=6 rc_of sig_wait $((start + 2)) CONF_READY head ready); took=$(( $(date +%s) - start ))
 [ "$got" = 1 ] && [ "$took" -le 5 ] && ok "a signal read past the deadline is not counted, and the read stops at it (${took} s)" || bad "a slow read past the deadline returned $got after ${took} s"
 
+# The same read with the cut disabled, so it succeeds after the deadline: sig_wait must still not count it.
+got=$( (bound() { echo 20; }; FAKE_AWS_DELAY=3 rc_of sig_wait $(( $(date +%s) + 2 )) CONF_READY head ready) )
+[ "$got" = 1 ] && ok "a signal that arrives after the deadline is not counted even when the read is not cut" || bad "an uncut late read returned $got"
+
 # until_true: a success that lands after the deadline does not count, and nothing runs once the deadline has passed.
 slow_ok() { sleep 3; return 0; }
 got=$(rc_of until_true $(( $(date +%s) + 2 )) 1 slow_ok)

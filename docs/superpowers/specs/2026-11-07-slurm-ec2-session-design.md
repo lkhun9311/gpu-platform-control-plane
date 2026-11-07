@@ -133,9 +133,11 @@ It stays the fast gate: a change to the instance side is rehearsed here first.
 
 The first paid attempt failed on the one path the free rehearsal never takes, NFS between separate kernels.
 `SLURMEC2_MODE=nfs-rehearsal hack/slurm-ec2-session.sh` buys three `t3.medium` Spot instances with the session's own purchase, guards and teardown: `head` on its Ubuntu image, the workers on the session's pinned Deep Learning image (it launches on `t3`; a dry run was accepted on 2026-11-08), so the NFS client is the one that failed.
-The mode changes only what the runner sets in one place: no G and VT quota is read, the instances stop at T0 + 2,400 s (boot + 2,700 s at the latest), the termination wait ends at T0 + 2,550 s, the bring-up ends at T0 + 1,200 s, and only B4 runs, with 1,024 MiB jobs on the CPU.
-The workers carry the GPU stand-in, and every instance runs `hack/slurm-ec2/nfs-probe.sh` first: the first run's barrier, on its own export with the first run's mount options (`hard,timeo=600`, version negotiated), polled before `head` creates the marker, as an attempt to reproduce the failure.
-Its cap is $1: three `t3.medium` at the $0.06 cap and two 100 GB and one 30 GB gp3 volume (at $0.0912 a GB-month) for at most 50 minutes is $0.17; at the Spot prices read on 2026-11-08 ($0.015 to $0.018 an hour) it is about $0.07.
+The mode changes only what the runner sets in one place: no G and VT quota is read, every `t3` runs with standard credits, the bring-up ends at T0 + 1,200 s, the checks at T0 + 1,650 s, the evidence at T0 + 1,830 s, the instances stop at T0 + 1,950 s (2,250 s after their user-data starts at the latest), the termination wait ends at T0 + 2,100 s, and only B4 runs, with 1,024 MiB jobs on the CPU.
+Its hard TTL is 45 minutes from the purchase request: T0 is at most 300 s after it, the sweeper's tag is at most request + 2,280 s, and a five-minute sweep plus the termination ends inside 2,700 s.
+B4 is admitted with 600 s left, below its 1,630 s of permitted waits; the rehearsal's B4 is an exercise of the signal replacement, the requeue and the checkpoint handoff, not a registered result, and a B4 the procedure's end cuts short says only that.
+The workers carry the GPU stand-in, and every instance runs `hack/slurm-ec2/nfs-probe.sh` after fetching its munge key: the first run's barrier, on its own export with the first run's mount options (`hard,timeo=600`, version negotiated), polled before `head` creates the marker, as an attempt to reproduce the failure, under the bring-up's NFS capture.
+Its cap is $1: three `t3.medium` at the $0.06 cap and two 100 GB and one 30 GB gp3 volume (at $0.0912 a GB-month) for at most 40 minutes is $0.14; at the Spot prices read on 2026-11-08 ($0.015 to $0.018 an hour) it is about $0.05.
 It must show the NFS token head to worker and worker to head, the S3 signals, B4's signal replacement as each worker observed it, the `LATEST` handoff from `gpu1` to `gpu2`, and the shared venv imported on both workers.
 
 ## The first paid attempt, and what it changed
@@ -204,6 +206,22 @@ Each finding was checked against the code by Claude before it was fixed.
 | 5 P2 | B2 admitted with 300 s while its waits add to 480 s, and `left` returned 0, which `timeout` reads as no limit | B2 admitted with 720 s; `left` never returns below 1 |
 | 6 P2 | a failed `squeue` ended B3's poll as if both jobs had left, and B2's node read had no status | failed reads are recorded as such and make the check INVALID |
 | 7 P2 | B2's journal window was head's clock applied to gpu2's journal | the window is gpu2's own journal cursor before and after the job |
+
+**Round 10 (commit `1b77ed38`, after the first paid attempt), under the narrowed gate: NO-GO for both the t3 rehearsal and the session, three blocking findings; each finding checked against the code by Claude, fixed in `8486fc90` and `ec3b521c` unless marked recorded.**
+
+| # | finding | class | fix |
+|---|---|---|---|
+| 1 P1 | the bucket and role ownership checks treated any failed lookup as absence, so a transient error let the runner rewrite an existing resource's tags, lifecycle or policy | blocking | only a 404 for the bucket and `NoSuchEntity` for the role mean absent; any other failure refuses the run before anything is created |
+| 2 P1 | the NFS token from `CONF_READY` went into a `bash -c` string unvalidated, and the instance role could read and write the whole bucket | blocking | the reader refuses a token that is not lowercase hex, the worker requires 24 hex digits and passes it as an argument, `cluster.env` must be `NAME=word` lines before it is sourced, and the role may read and write only the run's own prefix; **recorded:** within the run the producer field is a label, not authentication, since all three instances share the role |
+| 3 P1 | the rehearsal's sweeper tag at request + 2,670 s plus a five-minute sweep could end at 49.5 minutes, past the 45-minute TTL | blocking | the stop moved to T0 + 1,950 s and the tag to request + 2,280 s at the latest, which ends inside 2,700 s |
+| 4 P1 | the munge key's deadline stayed boot + 900 s, so a slow install or the probe could make a run VOID with the key already in S3 | validity | the key is fetched before the probe, against the bring-up deadline, and missing it is NOTRUN |
+| 5 P2 | `sig_wait` accepted a signal read after its deadline and slept past it, and a function under `until_true` was bounded only by its own limit | validity | a late read is not counted, the sleep is cut to the time left, `until_true` passes the time left to `awsb`, `s3get` and `s3put` (`CALL_BOUND`), and `head_wait` bounds each probe |
+| 6 P2 | hard-mounted NFS operations could block past their stated bounds | validity | the token read, its write-back, the stat diagnostics and every probe operation run under `timeout`; **recorded:** the procedure's own reads of `/shared` are not bounded one by one, and the self-shutdown, the runner's termination and the sweeper do not depend on them |
+| 7 P2 | five failed `END` reads ended a worker as a valid `END` would, shutting a healthy node down mid-check | validity | read errors are logged and the worker keeps serving until a valid `END` or its stop deadline |
+| 8 P2 | the rehearsal admits B4 with 600 s while its waits permit 1,630 s | validity | **recorded:** the rehearsal's B4 is an exercise, not a registered result; the session keeps 1,700 s |
+| 9 P2 | B4a's origin was stamped after the rename and a grep, so a pause there shortened the interval B4a judges | validity | the time is read just before the rename that publishes the fault, so a pause can only lengthen the interval; B4a's definition, 30 s from the write, is unchanged, and the rename's own end is logged as `fault_renamed` |
+| 10 P2 | the diagnostics omitted the apt, setup and Slurm logs and the journal | validity | each shipment copies them in, and a bounded journal and unit status |
+| 11 P2 | the rehearsal's t3 workers could run Unlimited, billed outside the Spot cap | validity | every `t3` launches with standard credits |
 
 **Round 9 (commit `91ba8fda`), under the narrowed gate: NO-GO, three blocking findings, all confirmed and fixed; one validity finding recorded.**
 
