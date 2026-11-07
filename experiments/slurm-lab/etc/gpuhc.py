@@ -19,7 +19,8 @@ What it does about them is Slurm's own vocabulary, not the platform's:
   stays the one sinfo shows.
 - With the word `requeue` in the policy file, a fault also requeues every running job on the node, which is what
   the platform's --gpu-fault-evict-workloads does with Kueue; a job submitted --no-requeue refuses that and keeps
-  running, and the refusal is logged once, because each job is tried only once.
+  running, and the refusal is logged once, because a job is not tried again during the same fault once its requeue
+  took or was refused; a failure of any other kind is tried again on the next run.
 
 Exit status: 0 healthy, 1 a fault, 2 a signal that could not be judged; slurmd only logs it.
 Every environment variable below exists so the host-side test can run this file without Slurm.
@@ -42,7 +43,8 @@ DEVICES = os.environ.get("LABGPU_DEVICES", "/dev/labgpu*")
 LOG = os.environ.get("LABGPU_LOG", "/var/log/slurm/gpuhc.log")
 # While this file exists every verdict is logged, healthy ones too, so a step can show the check ran on a clean signal.
 TRACE = os.environ.get("LABGPU_TRACE", "/var/lib/labgpu/trace")
-# The jobs the requeue policy has already tried on this node, one id per line.
+# The jobs the requeue policy has settled on this node during the current fault, one id per line: requeued, or refused
+# for good. A healthy reading empties it, so the next fault tries every job again.
 REQUEUED = os.environ.get("LABGPU_REQUEUED", "/var/lib/labgpu/requeued")
 NODE = os.environ.get("LABGPU_NODE") or socket.gethostname().split(".")[0]
 
@@ -51,6 +53,8 @@ FIELD_DBE = "DCGM_FI_DEV_ECC_DBE_VOL_TOTAL"
 FIELDS = (FIELD_XID, FIELD_DBE)
 # The same set as internal/gpufault/classify.go applicationXids.
 APPLICATION_XIDS = {13, 31, 43, 45, 68}
+# What scontrol says for a job submitted --no-requeue (evidence/2026-11-04/06b-gpu-health-requeue.txt), which no retry changes.
+REFUSED = "Requested operation is presently disabled"
 SAMPLE = re.compile(r'^([A-Z_]+)\{([^}]*)\}\s+(\S+)$')
 LABEL = re.compile(r'(\w+)="([^"]*)"')
 
@@ -72,10 +76,13 @@ def log(msg: str) -> None:
 def read_signal() -> dict[str, dict[str, int]]:
     """Every card's fault fields, by UUID; raises Unjudged for anything that would not be honest to call healthy."""
     try:
-        with open(SIGNAL) as fh:
+        with open(SIGNAL, encoding="utf-8") as fh:
             text = fh.read()
     except OSError as exc:
         raise Unjudged(f"signal {SIGNAL} unreadable: {exc.strerror}") from exc
+    except UnicodeDecodeError as exc:
+        # A ValueError, not an OSError: uncaught, it ended the check with a traceback and no drain.
+        raise Unjudged(f"signal {SIGNAL} is not UTF-8 at byte {exc.start}") from None
     cards: dict[str, dict[str, int]] = {}
     for line in text.splitlines():
         line = line.strip()
@@ -163,8 +170,11 @@ def requeue_running() -> None:
             continue
         q = slurm("scontrol", "requeue", job)
         log(f"requeue {job} rc={q.returncode} {q.stderr.strip()}")
-        with open(REQUEUED, "a") as fh:
-            fh.write(job + "\n")
+        # Only an outcome that will not change is recorded: a requeue that took, or a --no-requeue job's refusal.
+        # Any other failure, a slurmctld that timed out say, is tried again on the next run rather than never.
+        if q.returncode == 0 or REFUSED in q.stderr:
+            with open(REQUEUED, "a") as fh:
+                fh.write(job + "\n")
 
 
 def main() -> int:
@@ -176,6 +186,13 @@ def main() -> int:
     if not found:
         if os.path.exists(TRACE):
             log("healthy: every card read, no fault field set")
+        # The fault is over as far as the signal says, so a later fault is a new incident for every job.
+        try:
+            os.remove(REQUEUED)
+        except FileNotFoundError:
+            pass
+        except OSError as exc:
+            log(f"could not clear {REQUEUED}: {exc.strerror}")
         return 0
     drain(("gpuhc: " + "; ".join(found))[:200])
     requeue_running()

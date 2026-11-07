@@ -1,0 +1,115 @@
+[4534754.695043] host kernel: python3 invoked oom-killer: gfp_mask=0xcc0(GFP_KERNEL), order=0, oom_score_adj=-997
+[4534754.695154] host kernel: CPU: 2 UID: 0 PID: 3049328 Comm: python3 Kdump: loaded Not tainted 7.0.0-31-generic #31-Ubuntu PREEMPT(lazy) 
+[4534754.695180] host kernel: Call Trace:
+[4534754.695194] host kernel:  <TASK>
+[4534754.695203] host kernel:  show_stack+0x49/0x60
+[4534754.695215] host kernel:  dump_stack_lvl+0x5f/0x90
+[4534754.695224] host kernel:  dump_stack+0x10/0x18
+[4534754.695234] host kernel:  dump_header+0x48/0x1c7
+[4534754.695246] host kernel:  oom_kill_process.cold+0x8/0xac
+[4534754.695258] host kernel:  out_of_memory+0xff/0x2b0
+[4534754.695270] host kernel:  mem_cgroup_out_of_memory+0xc8/0xe0
+[4534754.695280] host kernel:  try_charge_memcg+0x3c3/0x620
+[4534754.695290] host kernel:  charge_memcg+0x34/0x80
+[4534754.695302] host kernel:  __mem_cgroup_charge+0x2f/0xa0
+[4534754.695313] host kernel:  alloc_anon_folio+0x20c/0x4b0
+[4534754.695322] host kernel:  do_anonymous_page+0x14a/0x4d0
+[4534754.695331] host kernel:  ? __pte_offset_map+0x1c/0x130
+[4534754.695336] host kernel:  handle_pte_fault+0x1cb/0x1f0
+[4534754.695345] host kernel:  ? set_next_entity+0xeb/0x290
+[4534754.695353] host kernel:  __handle_mm_fault+0x493/0x720
+[4534754.695362] host kernel:  handle_mm_fault+0xee/0x2e0
+[4534754.695371] host kernel:  do_user_addr_fault+0x2ee/0x830
+[4534754.695379] host kernel:  exc_page_fault+0x83/0x1e0
+[4534754.695386] host kernel:  asm_exc_page_fault+0x27/0x30
+[4534754.695391] host kernel: RIP: 0033:0x77013e903100
+[4534754.695399] host kernel: Code: 48 81 fa 00 01 00 00 76 c8 48 8d 8c 17 00 fe ff ff 62 e1 fe 48 7f 40 02 62 e1 fe 48 7f 40 03 48 39 f9 76 2e 48 83 e7 c0 66 90 <62> e1 fd 48 7f 47 04 62 e1 fd 48 7f 47 05 62 e1 fd 48 7f 47 06 62
+[4534754.695406] host kernel: RSP: 002b:00007ffc83733658 EFLAGS: 00010287
+[4534754.695415] host kernel: RAX: 000077012e3cd010 RBX: 0000000010000000 RCX: 000077013e3cce10
+[4534754.695425] host kernel: RDX: 0000000010000000 RSI: 0000000000000000 RDI: 0000770135c68f00
+[4534754.695438] host kernel: RBP: 00007ffc83733730 R08: 00000000ffffffff R09: 0000000000000000
+[4534754.695447] host kernel: R10: 0000000000000022 R11: 0000000000000246 R12: 0000000000000001
+[4534754.695451] host kernel: R13: 000077013e5cadb8 R14: 0000000000000000 R15: 000077013e3e2f70
+[4534754.695456] host kernel:  </TASK>
+[4534754.695468] host kernel: memory: usage 131072kB, limit 131072kB, failcnt 21
+[4534754.695478] host kernel: swap: usage 40kB, limit 9007199254740988kB, failcnt 0
+[4534754.695485] host kernel: Memory cgroup stats for /system.slice/docker-9b02f895d25cdcf1f844d93d3043eabf2d16046848d725611513695b08ceb551.scope/kubelet.slice/kubelet-kubepods.slice/kubelet-kubepods-podcc143c2e_167b_467c_b9ed_166811afd4d7.slice:
+[4534754.695495] host kernel: anon 132730880
+[4534754.695508] host kernel: file 12288
+[4534754.695516] host kernel: kernel 1277952
+[4534754.695523] host kernel: kernel_stack 49152
+[4534754.695529] host kernel: pagetables 614400
+[4534754.695535] host kernel: sec_pagetables 0
+[4534754.695543] host kernel: percpu 117640
+[4534754.695549] host kernel: sock 0
+[4534754.695553] host kernel: vmalloc 16384
+[4534754.695561] host kernel: shmem 0
+[4534754.695565] host kernel: zswap 0
+[4534754.695570] host kernel: zswapped 0
+[4534754.695577] host kernel: file_mapped 0
+[4534754.695581] host kernel: file_dirty 0
+[4534754.695586] host kernel: file_writeback 0
+[4534754.695593] host kernel: swapcached 40960
+[4534754.695598] host kernel: anon_thp 0
+[4534754.695603] host kernel: file_thp 0
+[4534754.695609] host kernel: shmem_thp 0
+[4534754.695613] host kernel: inactive_anon 286720
+[4534754.695618] host kernel: active_anon 132288512
+[4534754.695630] host kernel: inactive_file 0
+[4534754.695636] host kernel: active_file 12288
+[4534754.695640] host kernel: unevictable 0
+[4534754.695647] host kernel: slab_reclaimable 206400
+[4534754.695653] host kernel: slab_unreclaimable 262064
+[4534754.695658] host kernel: slab 468464
+[4534754.695665] host kernel: hugetlb 0
+[4534754.695671] host kernel: workingset_refault_anon 0
+[4534754.695675] host kernel: workingset_refault_file 0
+[4534754.695681] host kernel: workingset_activate_anon 0
+[4534754.695685] host kernel: workingset_activate_file 0
+[4534754.695689] host kernel: workingset_restore_anon 0
+[4534754.695695] host kernel: workingset_restore_file 0
+[4534754.695699] host kernel: workingset_nodereclaim 0
+[4534754.695704] host kernel: pgdemote_kswapd 0
+[4534754.695708] host kernel: pgdemote_direct 0
+[4534754.695715] host kernel: pgdemote_khugepaged 0
+[4534754.695719] host kernel: pgdemote_proactive 0
+[4534754.695723] host kernel: pgpromote_success 0
+[4534754.695729] host kernel: pgscan 499
+[4534754.695733] host kernel: pgsteal 6
+[4534754.695738] host kernel: pswpin 0
+[4534754.695746] host kernel: pswpout 10
+[4534754.695750] host kernel: pgscan_kswapd 0
+[4534754.695753] host kernel: pgscan_direct 499
+[4534754.695766] host kernel: pgscan_khugepaged 0
+[4534754.695771] host kernel: pgscan_proactive 0
+[4534754.695775] host kernel: pgsteal_kswapd 0
+[4534754.695783] host kernel: pgsteal_direct 6
+[4534754.695788] host kernel: pgsteal_khugepaged 0
+[4534754.695792] host kernel: pgsteal_proactive 0
+[4534754.695796] host kernel: pgfault 35075
+[4534754.695803] host kernel: pgmajfault 0
+[4534754.695807] host kernel: pgrefill 66
+[4534754.695813] host kernel: pgactivate 1
+[4534754.695821] host kernel: pgdeactivate 0
+[4534754.695826] host kernel: pglazyfree 0
+[4534754.695830] host kernel: pglazyfreed 0
+[4534754.695837] host kernel: swpin_zero 0
+[4534754.695841] host kernel: swpout_zero 0
+[4534754.695845] host kernel: zswpin 0
+[4534754.695849] host kernel: zswpout 0
+[4534754.695857] host kernel: zswpwb 0
+[4534754.695861] host kernel: thp_fault_alloc 0
+[4534754.695865] host kernel: thp_collapse_alloc 0
+[4534754.695873] host kernel: thp_swpout 0
+[4534754.695877] host kernel: thp_swpout_fallback 0
+[4534754.695881] host kernel: numa_pages_migrated 0
+[4534754.695889] host kernel: numa_pte_updates 0
+[4534754.695893] host kernel: numa_hint_faults 0
+[4534754.695897] host kernel: Memory cgroup min protection 0kB -- low protection 0kB
+[4534754.695905] host kernel: Tasks state (memory values in pages):
+[4534754.695910] host kernel: [  pid  ]   uid  tgid total_vm      rss rss_anon rss_file rss_shmem pgtables_bytes swapents oom_score_adj name
+[4534754.695919] host kernel: [3049281] 65535 3049281      257      146        0      146         0    40960       10          -998 pause
+[4534754.695925] host kernel: [3049309]     0 3049309      670      461       29      432         0    53248        0          -997 sh
+[4534754.695932] host kernel: [3049328]     0 3049328    69084    33285    31869     1416         0   327680        0          -997 python3
+[4534754.695938] host kernel: oom-kill:constraint=CONSTRAINT_MEMCG,nodemask=(null),cpuset=cri-containerd-300ec431fee2fa3bce59ab53c83a6f22800619645faa6ca25528d3d821754dc0.scope,mems_allowed=0,oom_memcg=/system.slice/docker-9b02f895d25cdcf1f844d93d3043eabf2d16046848d725611513695b08ceb551.scope/kubelet.slice/kubelet-kubepods.slice/kubelet-kubepods-podcc143c2e_167b_467c_b9ed_166811afd4d7.slice,task_memcg=/system.slice/docker-9b02f895d25cdcf1f844d93d3043eabf2d16046848d725611513695b08ceb551.scope/kubelet.slice/kubelet-kubepods.slice/kubelet-kubepods-podcc143c2e_167b_467c_b9ed_166811afd4d7.slice/cri-containerd-300ec431fee2fa3bce59ab53c83a6f22800619645faa6ca25528d3d821754dc0.scope,task=python3,pid=3049328,uid=0
+[4534754.695968] host kernel: Memory cgroup out of memory: Killed process 3049328 (python3) total-vm:276336kB, anon-rss:127476kB, file-rss:5664kB, shmem-rss:0kB, UID:0 pgtables:320kB oom_score_adj:-997

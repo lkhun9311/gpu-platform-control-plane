@@ -17,6 +17,7 @@ The operations question an AI infrastructure team asks is not whether a fault is
 ### API
 
 - `stateVolume` is allowed with `distributed` when the claim is ReadWriteMany; the rule at `api/v1/mltrainingjob_types.go:36` is replaced by a validating-webhook check that reads the claim (CEL cannot inspect another object) and refuses one that is not bound or not RWX.
+  **Corrected 2026-11-07:** the webhook never checked "bound", and it cannot require it: under a WaitForFirstConsumer class (`config/storage/storageclass.yaml`) a claim binds only when a rank mounts it. It now refuses a claim that is not RWX, is `Lost`, or is being deleted, and accepts a `Pending` one.
   RWX is necessary, not sufficient: a claim that is RWX on paper but node-local in practice is caught by the restart test below, not by validation.
 - `distributed.maxRestarts`, an integer 0 to 10, default 0, fixed at creation like the rest of `distributed`.
   0 keeps today's behaviour exactly: any rank failing fails the job.
@@ -366,3 +367,22 @@ It is given at the price read, $1.237/h, and at `TRAIN_MAX_PRICE`, $1.40/h, the 
 The expected sessions are far shorter, because each wait is a bound and not a duration.
 At about 25 minutes of preparation, 4 minutes a rank-kill case, 6 a DCGM case with its reset, 8 a spare termination and 12 a waited one, `smoke`'s GPUs are up about 1 h and it costs **about $5**, and `full`'s about 1.6 h and **about $8**; these are estimates from the budgets, not measurements, and `smoke` is what measures them.
 The nightly destroy workflow runs at 18:00 UTC and the session refuses to overlap it within two hours, so a session must start at or after 20:00 UTC and end its deadline by 16:00: a 288-minute one between 20:00 and 11:12 UTC (05:00 to 20:12 KST) and a 524-minute one between 20:00 and 07:16 UTC (05:00 to 16:16 KST); with the workflow disabled by hand, the window is lifted, and a queued or running destroy is still refused.
+
+## Where the implementation fell short of this contract, found on 2026-11-07
+
+gpt-6-astra read the controller without direction on 2026-11-07 and returned eight findings; each was checked against the code here, and `docs/superpowers/specs/2026-11-07-review-r1-restart-controller.md` keeps the ledger.
+Six were places where the code had not done what step 3 and the trigger list above already said (the first bullet answers two of them):
+
+- **A Pod's absence was taken as its stop.** Step 3 asks for a node that "still answers and its rank's container is reported terminated"; the code accepted a Ready node with the Pod gone, which an operator's force delete can produce with nothing reported. And a Pod gone before the controller first saw it (a controller away while a machine is lost and the Pod garbage-collected) left no node to fence at all.
+  Now every rank Pod of an attempt carries the finalizer `platform.lkhun9311.github.io/rank-stopped` from the Job's template, and the controller removes it only after recording the Pod's node and seeing the rank stopped: reported terminal by its kubelet, never bound, or deleted from a node fenced for the attempt. Deleting the MLTrainingJob is held the same way, so it is not a way around the barrier.
+- **A Node registered after the rank was bound was taken as the rank's machine** when the controller first saw the rank late. A Node created after the Pod's binding is now recorded as `replaced` and needs fencing, as an absent one does.
+- **A fence acknowledgement outlived the shutdown it described.** A machine fenced in one attempt can boot under the same Node object, run a later attempt and be lost again. An entry is now spent by the attempt that stopped on it (`fencedBy` in the attempt's status); a later attempt needs an entry scoped to it, `name#N` or `name@id#N`.
+- **Kueue eviction was not a trigger**, though the list above names it. An evicted Workload (preemption, readiness timeout, anything but a deactivation) is now the trigger `Evicted`.
+- **The webhook did not check "bound"**; see the correction under API.
+
+Two were races or reads behind the cache: the fault path's deactivation patch now carries the Workload's resource version, so it cannot add a handoff over an operator's deactivation; a failed Job's handoff is read again past the cache before the attempt is called `RankFailed`.
+
+A bare review of those fixes found three defects in them, all fixed: deleting the job while the barrier deleted its Job in the foreground deadlocked (the deletion path now releases stopped ranks first); an inactive Workload still showing an earlier preemption restarted the job (an inactive Workload is never an eviction trigger, and Kueue's `Deactivated…` reasons are matched by prefix); and a Pod with no published binding was dated by its creation, so an autoscaler's new node read as a replacement (no binding time, no decision yet).
+
+What this changes for the published runs: none of them exercised these paths (no controller restart, no force delete, no preemption), so no recorded result changes.
+The recovery a future run measures can be up to one stop poll (2 s) longer, because a rank Pod now leaves the API only after the controller has seen its kubelet's terminal report.

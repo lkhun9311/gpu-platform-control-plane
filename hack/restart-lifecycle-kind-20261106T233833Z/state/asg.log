@@ -1,0 +1,49 @@
+Stopped sandbox a5300819035eadc192d4b93413b417a374fa4f65c3f449384eb76853ea285bae
+Stopped sandbox 54d84aa10defc78f8da688ca6b2e8b427ea994181313e12623f9c5485c69a3a8
+Removed sandbox a5300819035eadc192d4b93413b417a374fa4f65c3f449384eb76853ea285bae
+Removed sandbox 54d84aa10defc78f8da688ca6b2e8b427ea994181313e12623f9c5485c69a3a8
+node "rstlife-worker" deleted
+Stopped sandbox 5313ceeae531ae1061f727f2dc494261a9117a4d00275c58cc95d55c599a30c1
+Stopped sandbox 6447dcd709896e37dea1b51b10f19a018be2b7c60ef91cfc6a1d970cc940587c
+Removed sandbox 6447dcd709896e37dea1b51b10f19a018be2b7c60ef91cfc6a1d970cc940587c
+Removed sandbox 5313ceeae531ae1061f727f2dc494261a9117a4d00275c58cc95d55c599a30c1
+node "rstlife-worker2" deleted
+Stopped sandbox 159a81ae6bd0029cdfff88e9c1c5a32b249d50244636a92e31ab5e2a67385b8e
+Stopped sandbox a009b271cd0b5b47dc7dbc74f42e3c563abebfd17aa3f3aedb01e4d281f0da14
+Removed sandbox a009b271cd0b5b47dc7dbc74f42e3c563abebfd17aa3f3aedb01e4d281f0da14
+Removed sandbox 159a81ae6bd0029cdfff88e9c1c5a32b249d50244636a92e31ab5e2a67385b8e
+node "rstlife-worker3" deleted
+Stopped sandbox 593046d8565f858ad77bd5f7bc4d7351a7e50ad53ad82ad71b1c853b6b166583
+Stopped sandbox cdf71907fb0529128722f8f209b9caefce5a1d902a96ca6d754562574f2e64b0
+Removed sandbox 593046d8565f858ad77bd5f7bc4d7351a7e50ad53ad82ad71b1c853b6b166583
+Removed sandbox cdf71907fb0529128722f8f209b9caefce5a1d902a96ca6d754562574f2e64b0
+node "rstlife-worker4" deleted
+time="2026-11-06T23:42:19Z" level=info msg="No pods to remove"
+2026-11-06T23:42:19Z launched i-0c000000000000001 on rstlife-worker
+time="2026-11-06T23:42:19Z" level=info msg="No pods to remove"
+2026-11-06T23:42:19Z launched i-0c000000000000002 on rstlife-worker2
+time="2026-11-06T23:42:19Z" level=info msg="No pods to remove"
+2026-11-06T23:42:19Z launched i-0c000000000000003 on rstlife-worker3
+2026-11-06T23:46:44Z 3 of 2 alive: taking back i-0c000000000000003 (rstlife-worker3)
+Removed sandbox 98ada788a9920d839da6bfb72b8825420672cd87009914b9c07c12b360283259
+Stopped sandbox 84eaedf2456ad2366e03a895dc7085ff6fcd2c7297fecd8521d6cc91aac44525
+Stopped sandbox c42aab286ad06a0288dba39d21fff06acfb24cf7a302c7f022b062fa9bb5a82f
+Removed sandbox c42aab286ad06a0288dba39d21fff06acfb24cf7a302c7f022b062fa9bb5a82f
+Removed sandbox 84eaedf2456ad2366e03a895dc7085ff6fcd2c7297fecd8521d6cc91aac44525
+Stopped sandbox 0f64217333ec61bdac2577bcdd7cca0ade28d56ab2baf6318d6e5a92ecdfd53a
+Removed sandbox 0f64217333ec61bdac2577bcdd7cca0ade28d56ab2baf6318d6e5a92ecdfd53a
+node "rstlife-worker3" deleted
+2026-11-06T23:47:09Z 1 of 2 alive: launching one in 150 s
+node "rstlife-worker" deleted
+2026-11-06T23:47:29Z deleted the Node of terminated i-0c000000000000001 (rstlife-worker)
+rstlife-worker
+2026-11-06T23:47:29Z recycled rstlife-worker into the pool
+Removed sandbox 6dcabdc67ac0a019bf502b5ea8beb87692841bf559f79846f146757d086129ea
+Removed sandbox 116c953c6417fc4c06e93163498f1b2a9b4f5432b6be56eb54ca1d757cc1ffaa
+Removed sandbox 4e28a50fb4dbdca46b56851a8372896dd958e6200139df6a478ef9af47981ab9
+Removed sandbox e2de9386b91e9c0335ed767b7f191bbb6a69a07557ed210fbe70e4576c4b400c
+Removed sandbox 4f5892cd0949b722c4dd0acce6fbef8768de32afdcb03f892e46fde09228f37d
+2026-11-06T23:49:40Z launched i-0c000000000000004 on rstlife-worker
+2026-11-06T23:50:48Z 2 of 3 alive: launching one in 5 s
+time="2026-11-06T23:50:54Z" level=info msg="No pods to remove"
+2026-11-06T23:50:54Z launched i-0c000000000000005 on rstlife-worker3
