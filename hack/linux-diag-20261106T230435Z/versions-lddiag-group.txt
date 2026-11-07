@@ -1,0 +1,4 @@
+kernel 7.0.0-31-generic
+containerd containerd github.com/containerd/containerd/v2 v2.3.4 db8809540e1a7a9da5d518876894933ff55692ab
+kubelet Kubernetes v1.37.0
+single_process_oom_kill false
