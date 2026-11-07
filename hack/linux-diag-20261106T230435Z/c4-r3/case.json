@@ -1,0 +1,11 @@
+{
+  "case": "c4",
+  "rep": 3,
+  "cluster": "lddiag-group",
+  "single_process_oom_kill_wanted": "false",
+  "single_process_oom_kill_effective": "false",
+  "t_start": 1794006608,
+  "t_end": 1794006651,
+  "journal_exit": 0,
+  "last_phase": "Succeeded"
+}
