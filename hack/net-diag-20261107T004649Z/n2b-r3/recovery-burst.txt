@@ -1,0 +1,21 @@
+req=1 http=200 t_total=0.001089 t_connect=0.000441 exit=0
+req=2 http=200 t_total=0.000773 t_connect=0.000314 exit=0
+req=3 http=200 t_total=0.000685 t_connect=0.000289 exit=0
+req=4 http=200 t_total=0.000623 t_connect=0.000274 exit=0
+req=5 http=200 t_total=0.000641 t_connect=0.000282 exit=0
+req=6 http=200 t_total=0.000692 t_connect=0.000266 exit=0
+req=7 http=200 t_total=0.000896 t_connect=0.000455 exit=0
+req=8 http=200 t_total=0.000756 t_connect=0.000342 exit=0
+req=9 http=200 t_total=0.000700 t_connect=0.000271 exit=0
+req=10 http=200 t_total=0.000663 t_connect=0.000280 exit=0
+req=11 http=200 t_total=0.000780 t_connect=0.000342 exit=0
+req=12 http=200 t_total=0.000655 t_connect=0.000273 exit=0
+req=13 http=200 t_total=0.000663 t_connect=0.000322 exit=0
+req=14 http=200 t_total=0.000804 t_connect=0.000325 exit=0
+req=15 http=200 t_total=0.000647 t_connect=0.000285 exit=0
+req=16 http=200 t_total=0.000700 t_connect=0.000277 exit=0
+req=17 http=200 t_total=0.000744 t_connect=0.000340 exit=0
+req=18 http=200 t_total=0.000699 t_connect=0.000281 exit=0
+req=19 http=200 t_total=0.000676 t_connect=0.000282 exit=0
+req=20 http=200 t_total=0.000748 t_connect=0.000358 exit=0
+retrans_before=112 retrans_after=112

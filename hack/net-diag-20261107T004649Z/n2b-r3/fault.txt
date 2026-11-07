@@ -1,0 +1,3 @@
+qdisc netem 8010: root refcnt 33 limit 1000 loss 30% seed 10533627083036555545
+server_retrans_before=174
+server_retrans_after=260

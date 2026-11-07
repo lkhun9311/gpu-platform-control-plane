@@ -441,3 +441,69 @@ func TestALabelledPodWithAnOrdinaryGracePeriodStillPasses(t *testing.T) {
 		t.Fatalf("refused a checkpointing workload Kueue would charge: %s", res.Result.Message)
 	}
 }
+
+// askUpdate puts an update of a Pod through the handler as `user` would.
+func askUpdate(t *testing.T, v *GPUPodValidator, user string, oldPod, newPod *corev1.Pod) admission.Response {
+	t.Helper()
+	oldRaw, err := json.Marshal(oldPod)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newRaw, err := json.Marshal(newPod)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return v.Handle(context.Background(), admission.Request{
+		Operation: admissionv1.Update,
+		UserInfo:  authenticationv1.UserInfo{Username: user},
+		Object:    runtime.RawExtension{Raw: newRaw},
+		OldObject: runtime.RawExtension{Raw: oldRaw},
+	})
+}
+
+// A queued GPU Pod as Kueue leaves it before admission: the queue label, the managed label and the gate.
+func queuedGPUPod(gated bool) *corev1.Pod {
+	return gpuPod(1, func(p *corev1.Pod) {
+		p.Labels = map[string]string{kueueQueueLabel: "q", kueueManagedLabel: "true"}
+		if gated {
+			p.Spec.SchedulingGates = []corev1.PodSchedulingGate{{Name: kueueAdmissionGate}}
+		}
+	})
+}
+
+// Kueue v0.18.3 lets a Pod's writer strip its gate and managed label, and then ignores the Pod; this guard does not.
+//
+// Mutations that turn this red: drop UPDATE handling, the label check, or the gate check, or let any user ungate.
+func TestAGPUPodCannotBeTakenOutOfKueueByAnUpdate(t *testing.T) {
+	v := gpuValidator(t)
+	gated := queuedGPUPod(true)
+
+	ungated := queuedGPUPod(false)
+	if res := askUpdate(t, v, tenantUser, gated, ungated); res.Allowed {
+		t.Fatal("a tenant removed Kueue's admission gate from a GPU Pod")
+	}
+	if res := askUpdate(t, v, kueueControllerUser, gated, ungated); !res.Allowed {
+		t.Fatalf("Kueue was refused its own ungating: %s", res.Result.Message)
+	}
+
+	unmanaged := queuedGPUPod(true)
+	delete(unmanaged.Labels, kueueManagedLabel)
+	if res := askUpdate(t, v, tenantUser, gated, unmanaged); res.Allowed {
+		t.Fatal("a tenant removed the managed label from a GPU Pod")
+	}
+	relabelled := queuedGPUPod(true)
+	relabelled.Labels[kueueManagedLabel] = "false"
+	if res := askUpdate(t, v, kueueControllerUser, gated, relabelled); res.Allowed {
+		t.Fatal("the managed label was changed")
+	}
+
+	annotated := queuedGPUPod(true)
+	annotated.Annotations = map[string]string{"note": "x"}
+	if res := askUpdate(t, v, tenantUser, gated, annotated); !res.Allowed {
+		t.Fatalf("an unrelated update was refused: %s", res.Result.Message)
+	}
+	cpu := gpuPod(0, nil)
+	if res := askUpdate(t, v, tenantUser, cpu, cpu); !res.Allowed {
+		t.Fatal("a Pod with no device was judged on update")
+	}
+}

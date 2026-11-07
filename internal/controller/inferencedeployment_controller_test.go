@@ -28,8 +28,10 @@ import (
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -147,9 +149,9 @@ var _ = Describe("which policy charges this namespace", func() {
 // An "explicit zero" case is not written here because the TYPED client cannot express it: all three fields
 // carry omitempty, so a Go zero is absent from the request body and is indistinguishable from not setting the
 // field. Raw JSON or an unstructured object can express it, and doing so would test a different contract
-// worth its own change -- port: 0 must be REJECTED (Minimum=1) while parallelism: 0 must be STORED
-// (Minimum=0). That second half exposes a disagreement this commit does not settle: the schema admits zero
-// and defaultOne silently runs 1.
+// worth its own change -- port: 0 must be REJECTED (Minimum=1), and so, since 2026-11-07, must parallelism: 0
+// and completions: 0. The schema used to admit zero while defaultOne silently ran 1, so a 0 written to pause a
+// job started a GPU Pod (codex review r8); the spec below this Describe pins the refusal.
 //
 // An "explicit non-zero survives" case is not written because a CRD default never overwrites a present
 // value, so nothing in this tree today can redden it. A mutating or conversion webhook would change that;
@@ -193,6 +195,22 @@ var _ = Describe("the defaults the CRDs promise", func() {
 		Expect(got.Spec.Parallelism).To(Equal(int32(1)),
 			"parallelism was not defaulted; the stored object would read 0 while defaultOne still runs the Job with 1")
 		Expect(got.Spec.Completions).To(Equal(int32(1)), "completions was not defaulted")
+	})
+
+	// Mutation that turns this red: put Minimum=0 back on parallelism or completions and regenerate the CRD.
+	It("refuses an explicit zero for parallelism and completions, which the controller would run as one", func() {
+		for _, field := range []string{"parallelism", "completions"} {
+			u := &unstructured.Unstructured{Object: map[string]any{
+				"apiVersion": platformv1.GroupVersion.String(), "kind": "MLTrainingJob",
+				"metadata": map[string]any{"name": "zero-" + field, "namespace": "default"},
+				"spec": map[string]any{
+					"queue": "team-a", "image": "busybox", "command": []any{"true"}, "gpuCount": int64(1),
+					field: int64(0),
+				},
+			}}
+			err := k8sClient.Create(ctx, u)
+			Expect(apierrors.IsInvalid(err)).To(BeTrue(), "an explicit %s: 0 was not refused: %v", field, err)
+		}
 	})
 })
 

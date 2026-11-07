@@ -3,8 +3,11 @@ package controller
 import (
 	"slices"
 	"testing"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 
 	platformv1 "github.com/lkhun9311/gpu-mlops-platform-control-plane/api/v1"
 )
@@ -108,15 +111,57 @@ func TestAReplacedNodeIsPinnedToItsAttempt(t *testing.T) {
 func TestARankIsReleasedOnlyOnceItsNodeIsRecorded(t *testing.T) {
 	mltj := &platformv1.MLTrainingJob{Status: platformv1.MLTrainingJobStatus{Attempts: []platformv1.TrainingAttempt{{Number: 1}}}}
 	p := &corev1.Pod{Labels: map[string]string{mltjAttemptLabel: "1"}, Spec: corev1.PodSpec{NodeName: "n"},
-		Status: corev1.PodStatus{Phase: corev1.PodFailed}}
-	if rankStopped(mltj, p, true) {
+		Status: corev1.PodStatus{Phase: corev1.PodFailed, Conditions: []corev1.PodCondition{
+			{Type: corev1.PodScheduled, Status: corev1.ConditionTrue, LastTransitionTime: metav1.NewTime(time.Unix(2000, 0))}}}}
+	node := readyNode("n", "u", time.Unix(1000, 0), corev1.ConditionTrue)
+	if rankStopped(mltj, p, true, node) {
 		t.Fatal("released a terminal rank whose node is not recorded")
 	}
-	if !rankStopped(mltj, p, false) {
+	if !rankStopped(mltj, p, false, node) {
 		t.Fatal("held a terminal rank when no record is needed")
 	}
 	mltj.Status.Attempts[0].Nodes = []string{"n"}
-	if !rankStopped(mltj, p, true) {
+	if !rankStopped(mltj, p, true, node) {
 		t.Fatal("held a terminal rank whose node is recorded")
+	}
+}
+
+func readyNode(name, uid string, created time.Time, ready corev1.ConditionStatus) *corev1.Node {
+	return &corev1.Node{Name: name, UID: types.UID(uid), CreationTimestamp: metav1.NewTime(created),
+		Status: corev1.NodeStatus{Conditions: []corev1.NodeCondition{{Type: corev1.NodeReady, Status: ready}}}}
+}
+
+// A terminal phase is the kubelet's report only from a Ready Node that is the machine the rank ran on, and never when
+// PodGC wrote it.
+//
+// Mutations that turn this red: drop any one of the four refusals in kubeletReported.
+func TestATerminalPhaseCountsOnlyFromTheRanksOwnReadyNode(t *testing.T) {
+	bound := time.Unix(2000, 0)
+	pod := func(conds ...corev1.PodCondition) *corev1.Pod {
+		return &corev1.Pod{Spec: corev1.PodSpec{NodeName: "n"}, Status: corev1.PodStatus{Phase: corev1.PodFailed,
+			Conditions: append([]corev1.PodCondition{{Type: corev1.PodScheduled, Status: corev1.ConditionTrue,
+				LastTransitionTime: metav1.NewTime(bound)}}, conds...)}}
+	}
+	podGC := corev1.PodCondition{Type: corev1.DisruptionTarget, Status: corev1.ConditionTrue, Reason: podGCReason}
+	rec := &platformv1.TrainingAttempt{Number: 1, Nodes: []string{"n"}, NodeUIDs: map[string]string{"n": "u"}}
+	cases := []struct {
+		name string
+		rec  *platformv1.TrainingAttempt
+		p    *corev1.Pod
+		node *corev1.Node
+		want bool
+	}{
+		{"the recorded machine, Ready", rec, pod(), readyNode("n", "u", time.Unix(1000, 0), corev1.ConditionTrue), true},
+		{"PodGC wrote it", rec, pod(podGC), readyNode("n", "u", time.Unix(1000, 0), corev1.ConditionTrue), false},
+		{"the Node is gone", rec, pod(), nil, false},
+		{"the Node is NotReady", rec, pod(), readyNode("n", "u", time.Unix(1000, 0), corev1.ConditionFalse), false},
+		{"another machine under the name", rec, pod(), readyNode("n", "u2", time.Unix(1000, 0), corev1.ConditionTrue), false},
+		{"no record, Node older than the binding", nil, pod(), readyNode("n", "u", time.Unix(1000, 0), corev1.ConditionTrue), true},
+		{"no record, Node newer than the binding", nil, pod(), readyNode("n", "u", time.Unix(3000, 0), corev1.ConditionTrue), false},
+	}
+	for _, c := range cases {
+		if got := kubeletReported(c.rec, c.p, c.node); got != c.want {
+			t.Errorf("%s: got %v, want %v", c.name, got, c.want)
+		}
 	}
 }

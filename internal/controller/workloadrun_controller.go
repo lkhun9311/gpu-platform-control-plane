@@ -333,6 +333,15 @@ func isServing(kind, phase string, u *unstructured.Unstructured) (bool, error) {
 			return false, fmt.Errorf("read %s status.readyReplicas: %w", kind, err)
 		}
 		// Absent reads as zero, which is what an InferenceDeployment that has not reported replicas yet means.
+		// A target asked for zero replicas is not serving whatever its counts say: a scale-down still draining
+		// carries ready replicas, and reading them as recovery would award Recovered to a shutdown (codex review r8).
+		desired, desiredFound, err := unstructured.NestedInt64(u.Object, "spec", "replicas")
+		if err != nil {
+			return false, fmt.Errorf("read %s spec.replicas: %w", kind, err)
+		}
+		if desiredFound && desired == 0 {
+			return false, nil
+		}
 		return found && ready > 0, nil
 	case "NodeHealth":
 		return true, nil

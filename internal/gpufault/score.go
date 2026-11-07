@@ -48,6 +48,8 @@ const (
 	DetectBoundSeconds = 1.0 + 1.0 + 0.8
 	// WindowSeconds is W, the observation window from the end of the injection call.
 	WindowSeconds = 120.0
+	// windowSlackSeconds is how far short of W a stated window may fall before it is not the registered one.
+	windowSlackSeconds = 0.001
 	// MinValidReps is the least number of valid repetitions an arm is judged on.
 	MinValidReps = 3
 	// truncationSlack is how far below zero a hop may read before the single clock is contradicted: whole-second
@@ -337,6 +339,13 @@ func ScoreCell(dir string) (CellResult, error) {
 		invalid("V3: injection or window stamps unreadable or out of order (%v)", err)
 		return res, nil
 	}
+	// The window is registered at W from the end of the injection call; every coverage check below is bounded by
+	// the window end the cell states, so a shorter one would be judged "fully observed" over less than W.
+	// The runner writes the end as the injection end plus W to nine decimals, so the slack only absorbs that rounding.
+	if w := tEnd.Sub(tInj1).Seconds(); w < WindowSeconds-windowSlackSeconds {
+		invalid("V3: the window is %.3f s, shorter than the registered %.0f s", w, WindowSeconds)
+		return res, nil
+	}
 	// V1: the value read back is the value written, and the field is the arm's.
 	wantRB := inj.value
 	if res.Arm == armNone {
@@ -407,6 +416,11 @@ func scoreControl(res *CellResult, env map[string]string, ev cellEvidence, field
 		t, err := epoch(env["t_sentinel_start"])
 		if err != nil || env["sentinel_value"] == "" {
 			invalid("V7: no sentinel recorded, so nothing shows the observer was reading (%v)", err)
+			return
+		}
+		// The sentinel shows the observer was reading at the window's end only if it came after that end.
+		if t.Before(tEnd) {
+			invalid("V7: the sentinel was injected at %s, before the window ended at %s", t.Format(time.RFC3339Nano), tEnd.Format(time.RFC3339Nano))
 			return
 		}
 		want, from = env["uuid"]+"/"+FieldECCSingleBit+"="+env["sentinel_value"], t
