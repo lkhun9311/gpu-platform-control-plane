@@ -1,0 +1,5 @@
+[2026-11-07T19:10:50.279] error: Unable to open pidfile `/run/slurmdbd.pid': Permission denied
+[2026-11-07T19:10:50.279] Not running as root. Can't drop supplementary groups
+[2026-11-07T19:10:50.354] accounting_storage/as_mysql: _check_mysql_concat_is_sane: MySQL server version is: 5.5.5-10.11.14-MariaDB-0ubuntu0.24.04.1
+[2026-11-07T19:10:50.354] error: Database settings not recommended values: innodb_buffer_pool_size innodb_lock_wait_timeout
+[2026-11-07T19:10:51.414] slurmdbd version 23.11.4 started

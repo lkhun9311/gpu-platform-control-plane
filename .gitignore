@@ -172,6 +172,9 @@ Thumbs.db
 # The Slurm on EC2 session's B2 job output is evidence the scorer reads, in its fixture and in each run's archive.
 !/hack/test/slurm-ec2/rehearsal-evidence/**/*.out
 !/hack/slurm-ec2-20*/**/*.out
+# A published run's README states what it shows; its source.tgz is the commit named in session-provenance.txt, 51 MB.
+!/hack/slurm-ec2-20*/README.md
+/hack/slurm-ec2-20*/source.tgz
 
 # Claude Code personal overrides
 .claude/settings.local.json

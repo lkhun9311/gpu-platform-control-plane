@@ -1,0 +1,10 @@
+fatal error: An error occurred (404) when calling the HeadObject operation: Key "slurm-ec2-20261107T190644Z-5c9cec57/nfsprobe-gpu1" does not exist
+not downloaded: nfsprobe-gpu1
+fatal error: An error occurred (404) when calling the HeadObject operation: Key "slurm-ec2-20261107T190644Z-5c9cec57/nfsprobe-gpu2" does not exist
+not downloaded: nfsprobe-gpu2
+fatal error: An error occurred (404) when calling the HeadObject operation: Key "slurm-ec2-20261107T190644Z-5c9cec57/nfsprobe-head" does not exist
+not downloaded: nfsprobe-head
+fatal error: An error occurred (404) when calling the HeadObject operation: Key "slurm-ec2-20261107T190644Z-5c9cec57/stopped-gpu1" does not exist
+not downloaded: stopped-gpu1
+fatal error: An error occurred (404) when calling the HeadObject operation: Key "slurm-ec2-20261107T190644Z-5c9cec57/stopped-gpu2" does not exist
+not downloaded: stopped-gpu2
