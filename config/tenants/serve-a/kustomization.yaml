@@ -1,0 +1,3 @@
+# Rendered by hack/tenant/render.sh; edit config/tenant/bundle.yaml.tmpl and re-render.
+resources:
+- bundle.yaml

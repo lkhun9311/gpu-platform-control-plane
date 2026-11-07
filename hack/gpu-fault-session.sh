@@ -24,9 +24,12 @@ cd "$(dirname "$0")/.." || exit 1
 REGION=ap-northeast-2
 ACCOUNT_WANT=007635145730
 INSTANCE_TYPE_FIXED=g5.2xlarge
-# The repository's worst-case rate for this instance: Spot cap $1.10, 200 GB gp3, a public IPv4
-# (docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md).
-MAX_PRICE_FIXED=1.1324
+# The Spot cap, which is a compute price: zones are chosen by it and EC2 is given it as MaxPrice.
+# The repository's worst-case rate, $1.1324, adds 200 GB gp3 and a public IPv4 to it
+# (docs/superpowers/specs/2026-10-08-measuring-prospective-admission-design.md) and is a cost figure, not a price to offer:
+# offering it let a compute price up to $1.1324 through, which with storage and the address is above the registered rate.
+MAX_PRICE_FIXED=1.10
+ALL_IN_RATE=1.1324
 STUDY_ID=gpu-fault-2026-10-27
 STACK=gpufault-gpu
 PURPOSE=gpu-fault
@@ -108,23 +111,35 @@ sw_metric() {
   aws cloudwatch get-metric-statistics --region "$REGION" --namespace AWS/Lambda --metric-name "$1" \
     --dimensions Name=FunctionName,Value=gpu-platform-study-sweeper \
     --start-time "$(date -u -d '-30 min' +%Y-%m-%dT%H:%M:%SZ)" --end-time "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-    --period 1800 --statistics Sum --query 'Datapoints[0].Sum' --output text
+    --period 1800 --statistics Sum --query 'Datapoints[].Sum' --output json
 }
-sw_runs=$(sw_metric Invocations 2>&1) || fail "the sweeper's invocations could not be read: $sw_runs"
-sw_errors=$(sw_metric Errors 2>&1) || fail "the sweeper's errors could not be read: $sw_errors"
-python3 -c 'import sys; r, e, least = sys.argv[1:4]; sys.exit(0 if r != "None" and float(r) >= int(least) and e in ("None", "0.0", "0") else 1)' \
-  "$sw_runs" "$sw_errors" "$SWEEPER_MIN_RUNS" ||
+# Every datapoint is summed: a 30-minute window need not fall in one 1,800 s bucket, and reading only the first
+# bucket would let errors in a second one through.
+sw_sum() {
+  python3 -c 'import json,sys; v=json.loads(sys.argv[1]); assert isinstance(v, list) and all(isinstance(x, (int, float)) for x in v); print(int(sum(v)))' "$1"
+}
+sw_runs_json=$(sw_metric Invocations 2>&1) || fail "the sweeper's invocations could not be read: $sw_runs_json"
+sw_errors_json=$(sw_metric Errors 2>&1) || fail "the sweeper's errors could not be read: $sw_errors_json"
+sw_runs=$(sw_sum "$sw_runs_json") || fail "the sweeper's invocations are not a list of sums: $sw_runs_json"
+sw_errors=$(sw_sum "$sw_errors_json") || fail "the sweeper's errors are not a list of sums: $sw_errors_json"
+[ "$sw_runs" -ge "$SWEEPER_MIN_RUNS" ] && [ "$sw_errors" = 0 ] ||
   fail "the sweeper ran $sw_runs time(s) with $sw_errors error(s) in the last 30 minutes; at least $SWEEPER_MIN_RUNS clean runs are required"
-say "the termination sweeper: Active, ENABLED rate(5 minutes), $sw_runs run(s) and ${sw_errors/None/0} error(s) in the last 30 minutes"
+say "the termination sweeper: Active, ENABLED rate(5 minutes), $sw_runs run(s) and $sw_errors error(s) in the last 30 minutes"
 
-cred_json=$(aws configure export-credentials --format process 2>&1) || fail "the CLI could not export the active credential: $cred_json"
-cred_exp=$(python3 -c 'import json,sys; print(json.loads(sys.argv[1]).get("Expiration",""))' "$cred_json") ||
-  fail "the exported credential is not JSON"
-[ -n "$cred_exp" ] || fail "the exported credential carries no expiry, so it cannot be shown to outlast the session"
-cred_left=$(python3 -c 'import datetime,sys; e=datetime.datetime.fromisoformat(sys.argv[1].replace("Z","+00:00")); print(int((e-datetime.datetime.now(datetime.timezone.utc)).total_seconds()//60))' "$cred_exp")
-[ "$cred_left" -ge "$CRED_MIN_MINUTES" ] ||
-  fail "the credentials expire in $cred_left minutes; the session needs $CRED_MIN_MINUTES. Re-authenticate first"
-say "credentials expire in $cred_left minutes"
+# Run twice: here, and again just before the purchase, because the image builds and uploads between the two can take
+# long enough that a credential which passed here expires before the termination this session owes.
+cred_check() {
+  local cred_json cred_exp cred_left
+  cred_json=$(aws configure export-credentials --format process 2>&1) || fail "the CLI could not export the active credential: $cred_json"
+  cred_exp=$(python3 -c 'import json,sys; print(json.loads(sys.argv[1]).get("Expiration",""))' "$cred_json") ||
+    fail "the exported credential is not JSON"
+  [ -n "$cred_exp" ] || fail "the exported credential carries no expiry, so it cannot be shown to outlast the session"
+  cred_left=$(python3 -c 'import datetime,sys; e=datetime.datetime.fromisoformat(sys.argv[1].replace("Z","+00:00")); print(int((e-datetime.datetime.now(datetime.timezone.utc)).total_seconds()//60))' "$cred_exp")
+  [ "$cred_left" -ge "$CRED_MIN_MINUTES" ] ||
+    fail "$1: the credentials expire in $cred_left minutes; the session needs $CRED_MIN_MINUTES. Re-authenticate first"
+  say "$1: credentials expire in $cred_left minutes"
+}
+cred_check "before the build"
 
 live=$(aws ec2 describe-instances --region "$REGION" --filters "Name=tag:purpose,Values=$PURPOSE" \
   "Name=instance-state-name,Values=pending,running,shutting-down,stopping,stopped" \
@@ -162,6 +177,7 @@ BUCKET="$STACK-$ACCOUNT"
   echo "ami_name=$ami_name"
   echo "instance_type=$INSTANCE_TYPE_FIXED"
   echo "max_spot_price=$MAX_PRICE_FIXED"
+  echo "all_in_rate=$ALL_IN_RATE"
   echo "source_sha256=$SOURCE_SHA"
   echo "images_sha256=$IMAGES_SHA"
   for name in controller gpu-simulator job; do echo "image_$name=$(sha256sum "$OUT/images/$name.tar.gz" | cut -d' ' -f1)"; done
@@ -299,10 +315,11 @@ trap cleanup EXIT
 trap 'cleanup; exit 130' INT
 trap 'cleanup; exit 143' TERM
 
+cred_check "before the purchase"
 request_epoch=$(date +%s)
 TAG_DEADLINE=$(date -u -d "@$(( request_epoch + TAG_AT_LAUNCH_S ))" +%Y-%m-%dT%H:%M:%SZ)
 TAGS="ResourceType=instance,Tags=[{Key=Name,Value=$STACK},{Key=purpose,Value=$PURPOSE},{Key=run,Value=$RUN_NONCE},{Key=study-deadline,Value=$TAG_DEADLINE}]"
-say "launching $INSTANCE_TYPE_FIXED Spot (max \$$MAX_PRICE_FIXED/h), study-deadline $TAG_DEADLINE -- the instance bills from here"
+say "launching $INSTANCE_TYPE_FIXED Spot (max \$$MAX_PRICE_FIXED/h compute, \$$ALL_IN_RATE/h all in), study-deadline $TAG_DEADLINE -- the instance bills from here"
 for z in $ZONES; do
   SUBNET=$(spot_subnet_in_zone "$REGION" "$z") || continue
   token="gpufault-$RUN_NONCE-$z"
@@ -343,8 +360,12 @@ fi
 spot_wait_for_marker_until "$REGION" "$BUCKET" "$RUN_ID/DONE" "$IID" $(( L + STOP_FROM_LAUNCH_S )) 20 400 >"$OUT/wait.txt"
 wait_rc=$?
 say "the wait ended with status $wait_rc ($(cat "$OUT/wait.txt"))"
+# The registration lets the termination wait run to LaunchTime + 7,480 s and no further.
+# It used to be raised to 300 s whenever less was left, which carried the wait past that deadline; now a late wait is
+# a short one, and a termination not yet confirmed by the deadline is reported unconfirmed, the loud direction.
+# Each AWS call inside it is still bounded only by the CLI's own timeouts.
 SPOT_TERMINATE_WAIT=$(( L + TERMINATION_S - $(date +%s) ))
-[ "$SPOT_TERMINATE_WAIT" -ge 300 ] || SPOT_TERMINATE_WAIT=300
+[ "$SPOT_TERMINATE_WAIT" -ge 0 ] || SPOT_TERMINATE_WAIT=0
 SPOT_TERMINATE_TRIES=$(( SPOT_TERMINATE_WAIT / 5 + 1 ))
 say "waiting up to ${SPOT_TERMINATE_WAIT}s for EC2 to report the instance terminated"
 if spot_terminate "$REGION" "$IID"; then
@@ -358,11 +379,30 @@ for k in evidence.tgz log.txt preflight-nvidia-smi.csv DONE; do
   aws s3 cp --only-show-errors "s3://$BUCKET/$RUN_ID/$k" "$OUT/$k" 2>>"$OUT/download-errors.txt" || echo "not downloaded: $k" >>"$OUT/download-errors.txt"
 done
 [ ! -s "$OUT/evidence.tgz" ] || tar -xzf "$OUT/evidence.tgz" -C "$OUT" || echo "the evidence archive did not unpack" >>"$OUT/download-errors.txt"
+# Three outcomes are kept apart, because each needs a different reader: the experiment's verdict, whether the
+# evidence came back, and whether the scorer could read it.
+# The scorer exits non-zero for its own REFUSED and NO-EVIDENCE verdicts too, so its status alone cannot tell a
+# verdict from a failure; its first line can, and a scorer that printed no verdict line failed.
+EVIDENCE=returned
+SCORING=ok
 if [ -d "$OUT/gf-run" ]; then
-  "$OUT/benchharness-local" gpu-fault-verdict --dir "$OUT/gf-run" --json "$OUT/verdict.json" | tee "$OUT/verdict.txt"
+  "$OUT/benchharness-local" gpu-fault-verdict --dir "$OUT/gf-run" --json "$OUT/verdict.json" >"$OUT/verdict.txt" 2>"$OUT/scorer-errors.txt"
+  scorer_rc=$?
+  cat "$OUT/verdict.txt"
+  case "$(head -1 "$OUT/verdict.txt")" in
+    "GPU FAULT REACTION: RESULT" | "GPU FAULT REACTION: REHEARSAL" | "GPU FAULT REACTION: REFUSED" | "GPU FAULT REACTION: NO-EVIDENCE") ;;
+    *) SCORING="failed (exit $scorer_rc; see scorer-errors.txt)" ;;
+  esac
 else
+  EVIDENCE=missing
   echo "GPU FAULT REACTION: NO-EVIDENCE (the evidence archive did not come back)" | tee "$OUT/verdict.txt"
 fi
-echo "termination=$TERMINATION" >>"$OUT/verdict.txt"
+{
+  echo "evidence=$EVIDENCE"
+  echo "scoring=$SCORING"
+  echo "termination=$TERMINATION"
+} >>"$OUT/verdict.txt"
 say "the verdict is in $OUT/verdict.txt and the evidence in $OUT/gf-run"
 [ "$TERMINATION" = confirmed ] || exit 1
+# A paid session whose evidence never came back, or could not be scored, has not delivered what it bought.
+[ "$EVIDENCE" = returned ] && [ "$SCORING" = ok ] || exit 1

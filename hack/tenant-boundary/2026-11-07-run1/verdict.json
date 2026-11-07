@@ -1,0 +1,145 @@
+{
+  "verdict": "PASS",
+  "git_head": "bfbf59e5336c9f2326d33f36b495baa61ff1439a",
+  "problems": [],
+  "checks": [
+    {
+      "id": "own-namespace-job",
+      "expected": "allowed",
+      "pass": true,
+      "observed": "exit 0"
+    },
+    {
+      "id": "other-namespace-job",
+      "expected": "rbac-forbidden",
+      "pass": true,
+      "observed": "RBAC refused it"
+    },
+    {
+      "id": "create-pod",
+      "expected": "rbac-forbidden",
+      "pass": true,
+      "observed": "RBAC refused it"
+    },
+    {
+      "id": "create-job",
+      "expected": "rbac-forbidden",
+      "pass": true,
+      "observed": "RBAC refused it"
+    },
+    {
+      "id": "create-resourcequota",
+      "expected": "rbac-forbidden",
+      "pass": true,
+      "observed": "RBAC refused it"
+    },
+    {
+      "id": "create-localqueue",
+      "expected": "rbac-forbidden",
+      "pass": true,
+      "observed": "RBAC refused it"
+    },
+    {
+      "id": "create-networkpolicy",
+      "expected": "rbac-forbidden",
+      "pass": true,
+      "observed": "RBAC refused it"
+    },
+    {
+      "id": "tenant-fences",
+      "expected": "policy-denied",
+      "pass": true,
+      "observed": "tenant-reserved-metadata refused it"
+    },
+    {
+      "id": "admin-fences",
+      "expected": "allowed",
+      "pass": true,
+      "observed": "exit 0"
+    },
+    {
+      "id": "tenant-strips-finalizer",
+      "expected": "policy-denied",
+      "pass": true,
+      "observed": "tenant-reserved-metadata refused it"
+    },
+    {
+      "id": "tenant-binds-staged-volume",
+      "expected": "policy-denied",
+      "pass": true,
+      "observed": "tenant-claim-binding refused it"
+    },
+    {
+      "id": "tenant-raises-tier",
+      "expected": "rbac-forbidden",
+      "pass": true,
+      "observed": "RBAC refused it"
+    },
+    {
+      "id": "tenant-labels-namespace",
+      "expected": "rbac-forbidden",
+      "pass": true,
+      "observed": "RBAC refused it"
+    },
+    {
+      "id": "privileged-pod",
+      "expected": "pod-security",
+      "pass": true,
+      "observed": "Pod Security refused it"
+    },
+    {
+      "id": "rank-to-rank",
+      "expected": "reached",
+      "pass": true,
+      "observed": "rank-1 answered"
+    },
+    {
+      "id": "dns",
+      "expected": "resolved",
+      "pass": true,
+      "observed": "resolved to 10.96.0.1"
+    },
+    {
+      "id": "gateway-to-own-engine",
+      "expected": "reached",
+      "pass": true,
+      "observed": "engine-a answered"
+    },
+    {
+      "id": "gateway-to-other-engine",
+      "expected": "reached",
+      "pass": true,
+      "observed": "engine-b answered"
+    },
+    {
+      "id": "monitoring-to-gateway",
+      "expected": "reached",
+      "pass": true,
+      "observed": "gateway answered"
+    },
+    {
+      "id": "monitoring-to-rank",
+      "expected": "reached",
+      "pass": true,
+      "observed": "rank-0 answered"
+    },
+    {
+      "id": "tenant-to-other-engine",
+      "expected": "blocked",
+      "pass": true,
+      "observed": "timed out"
+    },
+    {
+      "id": "tenant-to-gateway-metrics",
+      "expected": "blocked",
+      "pass": true,
+      "observed": "timed out"
+    },
+    {
+      "id": "trainer-to-own-engine",
+      "expected": "blocked",
+      "pass": true,
+      "observed": "timed out"
+    }
+  ]
+}

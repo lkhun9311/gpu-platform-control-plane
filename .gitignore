@@ -278,3 +278,7 @@ infra/aws/bootstrap/.build/
 # The kind restart rehearsal's aws stub and autoscaler state is evidence: check_lifecycle.py reads the stub's answers
 # from state/calls.log, so it is re-included after the state/ rule above, which would otherwise win.
 !/hack/restart-lifecycle-kind-*/state/
+# The operator runbook and the drill that exercises it with only that runbook (2026-11-07).
+!docs/runbook/
+!/docs/runbook/*.md
+!/hack/drill/README.md

@@ -642,7 +642,7 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	// attempt on every backend carries the same priority.
 	// Judged on the backends the request may still be sent to: a reservation pins it to the head, and a fallback it can
 	// no longer reach must not keep it unbound.
-	if err := s.settlePriority(w, r, tr, meta, tier, holdCap, forwardTargets(res, targets)); err != nil {
+	if err := s.settlePriority(w, r, tr, meta, tier, holdCap, forwardTargets(pinnedToHead(res, reason), targets)); err != nil {
 		s.fail(w, tenant, meta.Model, http.StatusInternalServerError)
 		return
 	}
@@ -677,7 +677,7 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	// on a final attempt, the guards inside tryBackends stopped the loop before any final attempt ran, and a
 	// request nobody served went into requests_total as a success.
 	lastFailure := 0
-	targets = forwardTargets(res, targets)
+	targets = forwardTargets(pinnedToHead(res, reason), targets)
 	urls := make([]*url.URL, 0, len(targets))
 	for _, t := range targets {
 		urls = append(urls, t.URL)
@@ -964,14 +964,20 @@ func NewCache(ctx context.Context, cfg *rest.Config, scheme *runtime.Scheme, nam
 // would stop measuring offered load. One request, one charge, decided up front.
 // forwardTargets is the candidate list a request may be forwarded to.
 //
-// A request holding a reservation goes only to the backend it reserved on. Falling back to another would put its
-// work on a backend whose holds never counted it, and both caps could be exceeded there (found by review); a
-// request with nothing reserved keeps the fallback path.
-func forwardTargets(res *reservation, targets []*BackendRef) []*BackendRef {
-	if res != nil {
+// A request admission charged to the head goes only to the head. Falling back to another would put its work on a
+// backend whose holds or bucket never counted it, and that backend's cap could be exceeded there (found by review
+// for reservations, and again on 2026-11-07 for static-cap's bucket); any other request keeps the fallback path.
+func forwardTargets(pinned bool, targets []*BackendRef) []*BackendRef {
+	if pinned {
 		return targets[:1]
 	}
 	return targets
+}
+
+// pinnedToHead reports whether admission charged this request to the head backend: a reservation holds on it, or
+// static-cap spent the head's tokens on it.
+func pinnedToHead(res *reservation, reason string) bool {
+	return res != nil || reason == reasonWithinBudget
 }
 
 // decideAdmission asks a reserving admitter through Reserve, never Admit, so an admission always carries its
@@ -997,10 +1003,22 @@ func admitCandidates(ctx context.Context, admitter Admitter, meta RequestMeta,
 	if _, stateless := admitter.(statelessAdmitter); !stateless {
 		return admitter.Admit(ctx, meta, targets[0], tenant, tier)
 	}
-	for _, t := range targets {
-		if ok, reason := admitter.Admit(ctx, meta, t, tenant, tier); !ok {
+	// An admit keeps a reason too: the head's, unless some candidate was admitted only because the guard could not
+	// read it, which is reported instead, since a bypass anywhere means the request was not judged everywhere it may go.
+	admitReason := ""
+	for i, t := range targets {
+		ok, reason := admitter.Admit(ctx, meta, t, tenant, tier)
+		if !ok {
 			return false, reason
 		}
+		if i == 0 || (guardBypassed(reason) && !guardBypassed(admitReason)) {
+			admitReason = reason
+		}
 	}
-	return true, ""
+	return true, admitReason
+}
+
+// guardBypassed reports whether an admit reason means the guard did not judge the backend at all.
+func guardBypassed(reason string) bool {
+	return reason == reasonBackendUnregistered || reason == reasonTelemetryStale
 }

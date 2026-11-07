@@ -69,7 +69,15 @@ func applyClusterQueueSpec(cq *kueuev1beta1.ClusterQueue, policy *platformv1.GPU
 	quota := resource.NewQuantity(int64(policy.Spec.Limits.GPUCount), resource.DecimalSI)
 
 	cq.Spec.Cohort = kueuev1beta1.CohortReference(kueueCohort)
-	cq.Spec.NamespaceSelector = &metav1.LabelSelector{}
+	// Only the tenant's own namespace may admit into its queue: an empty selector let a LocalQueue in any namespace
+	// spend this tenant's quota.
+	// The API server sets kubernetes.io/metadata.name to the namespace's name and refuses changes to it, so no one can
+	// relabel another namespace into this selector.
+	cq.Spec.NamespaceSelector = &metav1.LabelSelector{MatchExpressions: []metav1.LabelSelectorRequirement{{
+		Key:      corev1.LabelMetadataName,
+		Operator: metav1.LabelSelectorOpIn,
+		Values:   []string{policy.Spec.TargetNamespace},
+	}}}
 	cq.Spec.ResourceGroups = []kueuev1beta1.ResourceGroup{{
 		CoveredResources: []corev1.ResourceName{kueueGPUResource},
 		Flavors: []kueuev1beta1.FlavorQuotas{{

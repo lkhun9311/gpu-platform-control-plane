@@ -82,10 +82,12 @@ func allPriorityScheduled(targets []*BackendRef) bool {
 	return len(targets) > 0
 }
 
-// anyPriorityScheduled reports whether some backend a request may reach schedules by priority.
+// anyPriorityScheduled reports whether some backend a request may reach schedules, or may schedule, by priority.
+// It reads MayPrioritySchedule as well, because a spec update makes the controller's condition stale while the
+// engine already serving keeps scheduling by priority, and a caller's own priority must not reach it then either.
 func anyPriorityScheduled(targets []*BackendRef) bool {
 	for _, t := range targets {
-		if t.PriorityScheduled {
+		if t.PriorityScheduled || t.MayPrioritySchedule {
 			return true
 		}
 	}

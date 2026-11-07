@@ -550,8 +550,12 @@ train_group_instances() {
 # The IDs are those the session recorded at join together with whatever the group's Auto Scaling group holds, which
 # also covers a launch that never became a qualified node; each is added to the record once seen, because the group
 # stops listing an instance as it goes, before it has terminated. A group that cannot be read is not an empty one.
+#
+# The update itself is followed too, by its id, to Successful: EKS applies it asynchronously, so instances gone and a
+# group listing none can be the gap between a replacement's termination and its successor, with the desired size
+# still above zero and an update that may yet fail (gpt-6-astra's review of 116092ef, r5 finding 5).
 train_scale_down() {
-  local cluster="$1" region="$2" group="$3" file="$4" wait="$5" i out accepted="" ids states left held
+  local cluster="$1" region="$2" group="$3" file="$4" wait="$5" i out accepted="" ids states left held update_id="" update=""
   # Read before the request as well as after it: an instance the scale-down removes from the group's listing before
   # the first poll would otherwise never be recorded, and so never be followed. An unreadable answer here is not
   # fatal, because the polls below read the group again and refuse on an unreadable one.
@@ -561,7 +565,7 @@ train_scale_down() {
   fi
   for i in 1 2 3 4 5 6; do
     if out="$(aws eks update-nodegroup-config --region "$region" --cluster-name "$cluster" --nodegroup-name "$group" \
-      --scaling-config minSize=0,maxSize=2,desiredSize=0 2>&1)"; then
+      --scaling-config minSize=0,maxSize=2,desiredSize=0 --output json 2>&1)"; then
       accepted=1
       break
     fi
@@ -571,6 +575,13 @@ train_scale_down() {
   if [[ ! -w "$file" ]]; then
     echo "the instance record $file is missing, so nothing shows the nodes this session bought have gone"
     return 1
+  fi
+  # The accepted request's answer is UpdateNodegroupConfig's JSON, whose update.id names the change to follow; JSON is
+  # asked for, since a profile set to text output would answer in a form this cannot read (bare codex review of the r5
+  # fixes).
+  if [[ -n "$accepted" ]]; then
+    update_id="$(python3 -c 'import json, sys; print(json.loads(sys.argv[1])["update"]["id"])' "$out" 2>&1)" || update_id=""
+    [[ "$update_id" =~ ^[A-Za-z0-9-]+$ ]] || update_id=""
   fi
   local deadline=$((SECONDS + wait)) gone="" named asg_ids unreadable asking
   while :; do
@@ -607,11 +618,22 @@ train_scale_down() {
       echo "no instance IDs recorded in $file and none in the group, so nothing shows the nodes this session bought have gone"
       return 1
     fi
-    [[ -z "$left" && -z "$asg_ids" && -z "$unreadable" ]] && break
+    if [[ -n "$update_id" && "$update" != Successful ]]; then
+      update="$(aws eks describe-update --region "$region" --name "$cluster" --nodegroup-name "$group" \
+        --update-id "$update_id" --query 'update.status' --output text 2>&1)" || update="unreadable: ${update:0:200}"
+      case "$update" in
+        Failed | Cancelled)
+          echo "the scale-down of $group, update $update_id, ended $update, so the group may still launch nodes"
+          return 1 ;;
+      esac
+    fi
+    [[ -z "$left" && -z "$asg_ids" && -z "$unreadable" && ( -z "$accepted" || "$update" == Successful ) ]] && break
     if ((SECONDS >= deadline)); then
       local also=""
       [[ -n "$accepted" ]] || also="; and the scale-down was refused six times: ${out:0:200}"
-      echo "within ${wait}s not every instance terminated:${left:+ $left}${asg_ids:+ the group still holds $asg_ids}${unreadable:+ could not read $unreadable}$also"
+      [[ -z "$accepted" || "$update" == Successful ]] ||
+        also="$also; the scale-down's update ${update_id:-(its id unreadable in: ${out:0:120})} is ${update:-not followed}, not Successful"
+      echo "within ${wait}s the scale-down was not confirmed:${left:+ not every instance terminated: $left}${asg_ids:+ the group still holds $asg_ids}${unreadable:+ could not read $unreadable}$also"
       return 1
     fi
     sleep "$TRAIN_POLL"

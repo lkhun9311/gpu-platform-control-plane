@@ -68,8 +68,9 @@ def tracked(*patterns):
     out = subprocess.run(['git', 'ls-files', '--'] + list(patterns), capture_output=True, text=True).stdout
     return [p for p in out.split('\n') if p]
 
+# The operator runbook since 2026-11-07: an engineer copies its names and commands literally.
 docs = [d for d in tracked('docs/0*.md', 'docs/1*.md', 'README.md', 'experiments/*/README.md',
-                           'docs/superpowers/specs/*.md')
+                           'docs/superpowers/specs/*.md', 'docs/runbook/*.md')
         if '/captures/' not in d]
 if not docs:
     sys.exit("no documents matched; refusing to report success on an empty scan")

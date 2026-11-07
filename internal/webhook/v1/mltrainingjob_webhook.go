@@ -145,6 +145,24 @@ func (v *MLTrainingJobValidator) distributedClaim(ctx context.Context, mltj *pla
 			"a distributed job's state volume must be ReadWriteMany, because its ranks run on different nodes; this claim is %v",
 			pvc.Spec.AccessModes))}, nil
 	}
+	// A Pending claim is accepted: under a WaitForFirstConsumer class (config/storage/storageclass.yaml) a claim binds
+	// only when a rank mounts it, so requiring Bound would refuse every job on that class.
+	// A Lost claim and one being deleted will never serve a rank, and a job admitted on one would hold its quota with
+	// every rank unable to start.
+	if pvc.Status.Phase == corev1.ClaimLost {
+		return field.ErrorList{field.Invalid(path, name,
+			"the claim is Lost: its volume is gone, so no rank of a distributed job could mount it")}, nil
+	}
+	if !pvc.DeletionTimestamp.IsZero() {
+		return field.ErrorList{field.Invalid(path, name,
+			"the claim is being deleted, so no rank of a distributed job could rely on it")}, nil
+	}
+	// The renderer mounts the claim as a filesystem (volumeMounts at mountPath); a raw block device cannot be
+	// mounted that way, so every rank would fail to start (codex review r10).
+	if pvc.Spec.VolumeMode != nil && *pvc.Spec.VolumeMode == corev1.PersistentVolumeBlock {
+		return field.ErrorList{field.Invalid(path, name,
+			"the claim is volumeMode Block; a state volume is mounted as a filesystem at mountPath, so it must be Filesystem")}, nil
+	}
 	return nil, nil
 }
 

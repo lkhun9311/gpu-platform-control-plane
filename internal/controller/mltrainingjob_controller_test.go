@@ -21,12 +21,14 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -192,6 +194,48 @@ var _ = Describe("MLTrainingJob Controller", func() {
 
 			after := testutil.ToFloat64(mlTrainingJobFailedTotal.WithLabelValues(mltjReasonConflict))
 			Expect(after - before).To(Equal(1.0))
+		})
+
+		// Mutation that turns this red: drop the mltjFinished guard in Reconcile.
+		It("does not run a finished job again when its Job is cleaned up", func() {
+			reconcileUntilSteady()
+			job := &batchv1.Job{}
+			Expect(k8sClient.Get(ctx, key, job)).To(Succeed())
+			job.Spec.Suspend = new(false)
+			Expect(k8sClient.Update(ctx, job)).To(Succeed())
+			now := metav1.Now()
+			job.Status.StartTime = &now
+			job.Status.CompletionTime = &now
+			job.Status.Succeeded = 1
+			job.Status.Conditions = []batchv1.JobCondition{
+				{Type: batchv1.JobSuccessCriteriaMet, Status: corev1.ConditionTrue, LastTransitionTime: now},
+				{Type: batchv1.JobComplete, Status: corev1.ConditionTrue, LastTransitionTime: now},
+			}
+			Expect(k8sClient.Status().Update(ctx, job)).To(Succeed())
+			Eventually(func() string {
+				_, err := reconciler().Reconcile(ctx, reconcile.Request{NamespacedName: key})
+				Expect(err).NotTo(HaveOccurred())
+				got := &platformv1.MLTrainingJob{}
+				Expect(k8sClient.Get(ctx, key, got)).To(Succeed())
+				return got.Status.Phase
+			}, 10*time.Second, 50*time.Millisecond).Should(Equal(mltjPhaseSucceeded))
+
+			By("cleaning up the finished Job, as a TTL or an operator would")
+			Expect(k8sClient.Delete(ctx, job, client.PropagationPolicy(metav1.DeletePropagationBackground))).To(Succeed())
+			if err := k8sClient.Get(ctx, key, job); err == nil {
+				job.Finalizers = nil
+				Expect(client.IgnoreNotFound(k8sClient.Update(ctx, job))).To(Succeed())
+			}
+			Eventually(func() bool {
+				return apierrors.IsNotFound(k8sClient.Get(ctx, key, &batchv1.Job{})) &&
+					apierrors.IsNotFound(cachedClient.Get(ctx, key, &batchv1.Job{}))
+			}, 10*time.Second, 50*time.Millisecond).Should(BeTrue())
+
+			reconcileUntilSteady()
+			Expect(apierrors.IsNotFound(k8sClient.Get(ctx, key, &batchv1.Job{}))).To(BeTrue(), "the finished job was run again")
+			got := &platformv1.MLTrainingJob{}
+			Expect(k8sClient.Get(ctx, key, got)).To(Succeed())
+			Expect(got.Status.Phase).To(Equal(mltjPhaseSucceeded))
 		})
 
 		It("persists a status phase via the status subresource", func() {

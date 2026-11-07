@@ -119,6 +119,10 @@ var _ = Describe("GPUQuotaPolicy Kueue sync", func() {
 			Expect(cq.Spec.Preemption).NotTo(BeNil())
 			Expect(cq.Spec.Preemption.ReclaimWithinCohort).To(Equal(kueuev1beta1.PreemptionPolicyAny))
 			Expect(cq.Spec.Preemption.WithinClusterQueue).To(Equal(kueuev1beta1.PreemptionPolicyLowerPriority))
+			// Only the policy's own namespace may admit into the queue; an empty selector admitted every namespace.
+			Expect(cq.Spec.NamespaceSelector).To(Equal(&metav1.LabelSelector{MatchExpressions: []metav1.LabelSelectorRequirement{{
+				Key: corev1.LabelMetadataName, Operator: metav1.LabelSelectorOpIn, Values: []string{targetNS},
+			}}}))
 
 			got := &platformv1.GPUQuotaPolicy{}
 			Expect(k8sClient.Get(ctx, key, got)).To(Succeed())

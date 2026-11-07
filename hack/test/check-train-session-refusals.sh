@@ -33,6 +33,7 @@ case "$tool $*" in
     if [[ -n "${STUB_CLUSTER_EXISTS:-}" ]]; then echo ACTIVE; exit 0; fi
     echo "An error occurred (ResourceNotFoundException) when calling the DescribeCluster operation: No cluster found" >&2
     exit 254 ;;
+  "aws sts get-caller-identity"*) echo "${STUB_ACCOUNT:-111111111111}" ;;
   "gh "*) echo "stub gh refuses, so a case that passes every refusal stops here" >&2; exit 1 ;;
   "kubectl version"* | "helm version"* | "terraform version"* | "aws --version"*) echo "stub" ;;
   "terraform "*) echo "terraform reached" >&2; exit 1 ;;
@@ -109,6 +110,10 @@ session "with SERVE" "would buy GPUs in two groups" SERVE=yes
 session "with STUDY" "would buy GPUs in two groups" STUDY=holdcap
 session "with KEEP_UP" "refuses KEEP_UP=yes" KEEP_UP=yes
 session "an existing cluster" "cluster gpu-platform already exists (ACTIVE)" STUB_CLUSTER_EXISTS=1
+# Without TRAIN, SERVE or STUDY the nightly-destroy check, where the stub gh stops the cases above, is skipped, so these
+# reach the account check that stands before the kill switch (gpt-6-astra's review of 116092ef, r5 finding 8).
+session "another account" "paid sessions run only in gpu-lab (007635145730)" TRAIN= STUB_ACCOUNT=123456789012
+session "keys in the environment" "AWS_ACCESS_KEY_ID is set in the environment" TRAIN= STUB_ACCOUNT=007635145730 AWS_ACCESS_KEY_ID=AKIASTUB
 session "an unknown training mode" "not a training mode" TRAIN=fsdp
 session "a zone letter for TRAIN_AZ" "TRAIN_AZ '2a' is not a zone name" TRAIN_AZ=2a
 # A pin passes the refusals too, and says so; the line is how it is told from a session that never read TRAIN_AZ.
@@ -157,7 +162,7 @@ session "prefixroute: every refusal passed" "does not exist" TRAIN= STUDY=prefix
 name="an armed kill switch"
 export STUB_CALLS="$work/$name.calls"
 : >"$STUB_CALLS"
-out="$(env -i HOME="$work/home" PATH="$work/bin:/usr/bin:/bin" STUB_CALLS="$STUB_CALLS" SESSION_CONFIRM=yes AWS_PROFILE=stub \
+out="$(env -i HOME="$work/home" PATH="$work/bin:/usr/bin:/bin" STUB_CALLS="$STUB_CALLS" SESSION_CONFIRM=yes AWS_PROFILE=stub STUB_ACCOUNT=007635145730 \
   EGRESS_CIDR=192.0.2.1/32 EXDIR="$work/$name" TTL_MINUTES=300 timeout 60 bash "$repo/hack/eks-gitops-session.sh" 2>&1)"
 pid="$(cat "$work/$name/ttl.pid" 2>/dev/null)"
 # Found by the pid it wrote, never by its paths: the program quotes them with %q, so a path with a space is not on its
@@ -218,7 +223,7 @@ export STUB_CALLS="$work/$name.calls"
 # Read-only, so the new watchdog cannot overwrite it first and hide the read: the race decided whether the test saw
 # the defect, and a mutation removing the fix passed it.
 mkdir -p "$work/$name" && echo 999999999 >"$work/$name/ttl.pid" && chmod 444 "$work/$name/ttl.pid"
-out="$(env -i HOME="$work/home" PATH="$work/bin:/usr/bin:/bin" STUB_CALLS="$STUB_CALLS" SESSION_CONFIRM=yes AWS_PROFILE=stub \
+out="$(env -i HOME="$work/home" PATH="$work/bin:/usr/bin:/bin" STUB_CALLS="$STUB_CALLS" SESSION_CONFIRM=yes AWS_PROFILE=stub STUB_ACCOUNT=007635145730 \
   EGRESS_CIDR=192.0.2.1/32 EXDIR="$work/$name" TTL_MINUTES=300 timeout 60 bash "$repo/hack/eks-gitops-session.sh" 2>&1)"
 pid="$(cat "$work/$name/ttl.pid" 2>/dev/null)"
 stray=""

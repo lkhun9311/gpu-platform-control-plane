@@ -1,0 +1,11 @@
+capture_ready=1
+curl_exit=7
+http=000 t_total=0.000093 t_dns=0.000012 t_connect=0.000000 local_port=-1
+curl_error=curl: (7) Failed to connect to 10.244.0.5 port 8081 after 0 ms: Could not connect to server 
+retrans_before=113 retrans_after=113
+kernel_dropped=0
+tcpdump_read_exit=0
+--- capture
+00:51:28.285306 IP 10.244.0.6.38318 > 10.244.0.5.8081: Flags [S], seq 2145487544, win 64240, options [mss 1460,sackOK,TS val 3790331981 ecr 0,nop,wscale 10], length 0
+00:51:28.285339 IP 10.244.0.5.8081 > 10.244.0.6.38318: Flags [R.], seq 0, ack 2145487545, win 0, length 0
+--- end

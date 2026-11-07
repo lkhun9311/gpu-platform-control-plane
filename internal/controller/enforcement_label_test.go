@@ -1,10 +1,14 @@
 package controller
 
 import (
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
+	"sigs.k8s.io/yaml"
 
 	platformv1 "github.com/lkhun9311/gpu-mlops-platform-control-plane/api/v1"
 )
@@ -41,21 +45,35 @@ func TestTheEnforcementLabelMatchesTheWebhookSelector(t *testing.T) {
 	// version of this loop delimited on the wrong key, so Index returned -1, the slice ran to end-of-file,
 	// and every hook was checked against every OTHER hook's selector. It passed while one guard had no
 	// selector at all -- caught by mutating the manifest, which is the only reason this comment exists.
-	entries := strings.Split(manifest, entryDelimiter)
+	// Each guard's selector is parsed and compared whole. Containment alone passed when one guard selected the
+	// right key with a wrong value, because the right pair appeared on the other guard (codex review r8).
+	docs := strings.Split(manifest, "\n---")
+	var cfg admissionregistrationv1.ValidatingWebhookConfiguration
+	found := false
+	for _, d := range docs {
+		var probe admissionregistrationv1.ValidatingWebhookConfiguration
+		if err := yaml.Unmarshal([]byte(d), &probe); err == nil && probe.Kind == "ValidatingWebhookConfiguration" {
+			cfg, found = probe, true
+		}
+	}
+	if !found {
+		t.Fatalf("%s holds no ValidatingWebhookConfiguration", path)
+	}
+	wantSelector := map[string]string{platformv1.QuotaEnforcedLabel: platformv1.QuotaEnforcedValue}
 	for _, hook := range []string{"vgpupod.kb.io", "vgpujob.kb.io"} {
-		var entry string
-		for _, e := range entries {
-			if strings.HasPrefix(e, hook) {
-				entry = e
-				break
+		var w *admissionregistrationv1.ValidatingWebhook
+		for i := range cfg.Webhooks {
+			if cfg.Webhooks[i].Name == hook {
+				w = &cfg.Webhooks[i]
 			}
 		}
-		if entry == "" {
+		if w == nil {
 			t.Fatalf("the manifest defines no webhook named %s", hook)
 		}
-		if !strings.Contains(entry, platformv1.QuotaEnforcedLabel) {
-			t.Fatalf("%s does not scope on %s, so it applies to every namespace including kube-system",
-				hook, platformv1.QuotaEnforcedLabel)
+		sel := w.NamespaceSelector
+		if sel == nil || len(sel.MatchExpressions) != 0 || !maps.Equal(sel.MatchLabels, wantSelector) {
+			t.Fatalf("%s selects namespaces by %+v, want exactly matchLabels %v: anything else leaves governed "+
+				"namespaces unguarded or reaches kube-system", hook, sel, wantSelector)
 		}
 	}
 }
@@ -63,6 +81,3 @@ func TestTheEnforcementLabelMatchesTheWebhookSelector(t *testing.T) {
 // quoted quotes the value the way the manifest writes it, so the containment check above cannot pass on a
 // prefix -- "true" must not match a hypothetical "truent".
 func quoted(v string) string { return "\"" + v + "\"" }
-
-// entryDelimiter is where one webhook entry ends and the next begins in the rendered manifest.
-const entryDelimiter = "  - name: "

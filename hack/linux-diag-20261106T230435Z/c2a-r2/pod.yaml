@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: c2a-r2
+  labels: {app: lddiag, case: c2a}
+spec:
+  restartPolicy: Never
+  terminationGracePeriodSeconds: 1
+
+  containers:
+  - name: w
+    image: python@sha256:2f17fc044b579bab302c2e8054d3a686e2cb9a83de48e70534b94cd8ebbe06a9
+    imagePullPolicy: IfNotPresent
+    resources: {limits: {memory: 128Mi, cpu: 500m}}
+
+    command: ["sh", "-c"]
+    args: ["dump() { echo \"--- cgroup begin\"; for f in memory.max memory.current memory.peak memory.oom.group; do echo \"$f $(cat /sys/fs/cgroup/$f)\"; done; sed \"s/^/memory.events /\" /sys/fs/cgroup/memory.events; sed \"s/^/memory.stat /\" /sys/fs/cgroup/memory.stat; echo \"--- cgroup end\"; }; echo begin; python3 -c \"b = bytearray(256 << 20); print(\\\"survived\\\")\"; echo child-exit=$?; dump; echo parent-done; sleep 5"]

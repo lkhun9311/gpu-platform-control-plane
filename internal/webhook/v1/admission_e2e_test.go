@@ -15,6 +15,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -37,6 +38,14 @@ import (
 
 // startAdmissionEnv brings up an apiserver with the real webhook manifest installed and the validator serving.
 func startAdmissionEnv(t *testing.T) (context.Context, client.Client) {
+	t.Helper()
+	ctx, c, _ := startAdmissionEnvWithConfig(t)
+	return ctx, c
+}
+
+// startAdmissionEnvWithConfig also returns the administrator's rest config, so a test can impersonate another
+// identity against the same apiserver.
+func startAdmissionEnvWithConfig(t *testing.T) (context.Context, client.Client, *rest.Config) {
 	t.Helper()
 
 	env := &envtest.Environment{
@@ -116,7 +125,7 @@ func startAdmissionEnv(t *testing.T) (context.Context, client.Client) {
 	if err != nil {
 		t.Fatalf("build client: %v", err)
 	}
-	return ctx, c
+	return ctx, c, cfg
 }
 
 // registerEveryWebhookTheManifestDeclares registers a handler for every path in the configuration envtest

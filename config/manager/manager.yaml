@@ -5,6 +5,8 @@ metadata:
     control-plane: controller-manager
     app.kubernetes.io/name: gpu-platform-control-plane
     app.kubernetes.io/managed-by: kustomize
+    # Tenant NetworkPolicies (config/tenant/) admit the gateway to engines only from a namespace with this label.
+    platform.lkhun9311.github.io/role: platform
   name: system
 ---
 apiVersion: apps/v1

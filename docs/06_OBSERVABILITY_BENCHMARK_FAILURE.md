@@ -32,13 +32,13 @@
 > `NodeHealth` (`--gpu-fault-source=dcgm`, `internal/gpufault/`, 2026-10-27), rehearsed on kind against a fake
 > exporter, and taken through a real card by run 2 of its registered session on 2026-10-27, with values injected
 > into DCGM's cache rather than induced hardware faults: both fault arms reacted in 5 of 5 repetitions and the
-> stale-latched check failed (`docs/superpowers/specs/2026-10-27-gpu-fault-reaction-design.md`). Until 2026-10-27 this
+> stale-latched check failed (`docs/superpowers/specs/2026-10-27-gpu-fault-reaction-design.md`); run 3 on 2026-11-01 passed it and the recovery check (`hack/gpu-fault/2026-11-01-run3/verdict.txt`). Until 2026-10-27 this
 > line said nothing Xid or ECC was in the Go tree, which was true then. The DCGM exporter layer is NOT in this
 > category and the claim that it was is corrected here: `config/dcgm-exporter/` deploys it and
 > `internal/queuelab/dcgm.go` reads `DCGM_FI_DEV_GPU_UTIL` from it. It has now been pointed at real cards:
 > session `qlgpu-20260906-032038` ran eight runs on four A10Gs and every one carries
 > `deviceEvidence: device-work-observed`. Also designed only:
-> eBPF layer, Nsight profiling, the SQLite/Postgres operations ledger, FR-001, FR-003, FR-005, and the
+> eBPF layer, Nsight profiling, the SQLite/Postgres operations ledger *(historical: 2 of its 6 tables were built and projected from a cluster on 2026-09-30, `docs/07_OPERATIONS_LEDGER_AND_EVIDENCE.md`)*, FR-001, FR-003, FR-005, and the
 > `evidence/` report tree shown below.
 >
 > **Which GPUs were real, and which were not.** Every kind cluster here advertises simulated
@@ -82,6 +82,11 @@ What they need deployed:
 | `kueue_*` | `config/prometheus/kueue_monitor.yaml` | nothing in this repository scraped Kueue before it |
 | `kueue_cluster_queue_nominal_quota` and the other quota series | Kueue's `metrics.enableClusterQueueResources: true`, set by `config/kueue-controller/controller_manager_config.yaml` | the release file applied alone, as the kind harnesses do, leaves it off; `KueueGPUQuotaMetricsNotReported` fires |
 | `kube_node_status_capacity` | kube-state-metrics, from kube-prometheus-stack; not deployed by this repository | `GPUExporterNotReporting` has no node list and is silent, and nothing says so |
+
+The operator acts only on nodes a `NodeHealth` names: the fault path scrapes those and the readiness quarantine taints those.
+Until 2026-11-07 nothing created them, so a GPU node joining a cluster was watched by nothing until someone wrote one by hand (review r3, finding 8).
+`--provision-nodehealth` now gives every node that advertises `nvidia.com/gpu` a `NodeHealth` of its own name, labelled `platform.lkhun9311.github.io/provisioned-by=nodehealth-provisioner`, and deletes only those labelled ones when their node is gone (`internal/controller/nodehealth_provision.go`).
+It is off by default, because the session runners and kind harnesses write their own and a second `NodeHealth` for one node would manage its taint twice; a node labelled `platform.lkhun9311.github.io/nodehealth=skip` is left out.
 
 There is no metric of which nodes are quarantined now.
 The operator exports counters of transitions (`gpuplatform_gpufault_transitions_total`, `gpuplatform_nodehealth_taint_total`), which a restart zeroes while the taints stay, so the dashboard shows them as transitions and the current state is read from the NodeHealth objects.
@@ -144,7 +149,9 @@ What this does not show:
 A card's DCGM fields carry a fault under the operator's own policy (`internal/gpufault/classify.go`): a non-zero Xid other than the application Xids 13, 31, 43, 45 and 68, or a double-bit ECC count above zero.
 
 1. Read the NodeHealth for the node: `kubectl get nodehealths -o wide`, then its `GPUHealthy` and `GPUSignal` conditions.
-   With `--gpu-fault-source=dcgm` the operator has already tainted the node `platform.lkhun9311.github.io/gpu-fault`, and with `--gpu-fault-evict-workloads` it has deactivated the Kueue Workloads of GPU Pods there.
+   With `--gpu-fault-source=dcgm` the operator is expected to have tainted the node `platform.lkhun9311.github.io/gpu-fault`, and with `--gpu-fault-evict-workloads` to have deactivated the Kueue Workloads of GPU Pods there.
+   Expected, not established: the operator scrapes only the nodes a NodeHealth names, and it creates none itself, so a node with no NodeHealth fires this alert and is never tainted; a failed reconcile is the other way the taint can be missing.
+   Confirm the taint (`kubectl get node <node> -o jsonpath='{.spec.taints}'`) and the Workloads' `spec.active` before relying on either.
    Without the flag nothing has reacted, and the node still takes GPU work until someone taints or cordons it.
 2. Decide whether the card is to be repaired or the fault accepted.
    A GPU reset or driver reload that leaves every fault field at zero releases the latch on the next fresh scrape.
@@ -154,7 +161,9 @@ A card's DCGM fields carry a fault under the operator's own policy (`internal/gp
 
 ### GPUFaultFieldsNotCollected
 
-A node exports `DCGM_FI_DEV_GPU_UTIL` but not the Xid and double-bit ECC fields, so `GPUFaultSignalPresent` cannot fire there.
+A card exports `DCGM_FI_DEV_GPU_UTIL` but lacks the Xid field, the double-bit ECC field, or both, so `GPUFaultSignalPresent` cannot fire for that field on that card.
+It is judged card by card: other cards on the same node reporting both fields do not cover it.
+A card whose ECC is turned off is one way to get here, since DCGM then has no ECC value to export.
 Deploy the exporter from `config/dcgm-exporter-ops` (or `config/dcgm-exporter-fault`), which collect them.
 The operator's fault path on the same node reports `FieldMissing` for the same reason.
 

@@ -48,7 +48,7 @@ Without CUDA it refuses on every rank before any process group exists, with a `r
 Every `checkpoint` record carries `save_s`, the rank's monotonic time from agreeing on the checkpoint to the barrier after `LATEST`.
 
 `Dockerfile.cuda` puts `train.py` on the pinned CUDA torch image the EKS training sessions use; it is built locally and pushed nowhere.
-None of this has run on a GPU.
+None of this has run on a GPU. *(Historical: the CUDA mode has since run on EKS A10Gs in the paid stages under `hack/distributed-restart-eks/`, tabulated further down this page. Noted 2026-11-07.)*
 `check_cuda_mode.py` shows on CPU what can be shown there: the NCCL mode refuses without CUDA and writes nothing, an unknown backend and a negative ballast are refused, the default records `gloo` on `cpu`, every checkpoint carries its cost, and a resume with one MiB of ballast ends on the reference's parameters.
 
 ```

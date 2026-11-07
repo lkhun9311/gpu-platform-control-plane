@@ -59,10 +59,12 @@ spec:
                 type: array
               completions:
                 default: 1
-                description: completions is the batch/v1 Job completions (successful
-                  pods required).
+                description: |-
+                  completions is the batch/v1 Job completions (successful pods required).
+
+                  At least 1, for the reason parallelism is.
                 format: int32
-                minimum: 0
+                minimum: 1
                 type: integer
               distributed:
                 description: |-
@@ -124,10 +126,13 @@ spec:
                 type: string
               parallelism:
                 default: 1
-                description: parallelism is the batch/v1 Job parallelism (concurrent
-                  pods).
+                description: |-
+                  parallelism is the batch/v1 Job parallelism (concurrent pods).
+
+                  At least 1: the field omits a zero and the controller renders at least one Pod, so a 0 written to pause the
+                  job would start one instead; it is refused rather than misread.
                 format: int32
-                minimum: 0
+                minimum: 1
                 type: integer
               queue:
                 description: queue is the Kueue LocalQueue name (same namespace) this
@@ -230,6 +235,18 @@ spec:
                         trigger.
                       format: date-time
                       type: string
+                    fencedBy:
+                      description: |-
+                        fencedBy lists the fenced-nodes entries this attempt's stop relied on.
+
+                        An entry is spent once an attempt has stopped on it: a machine acknowledged as off for one attempt may boot,
+                        run a later attempt and be lost again, and the old acknowledgement says nothing of that.
+                        Acknowledging the same machine for a later attempt takes an entry scoped to it, name#N or name@id#N.
+                      items:
+                        type: string
+                      maxItems: 16
+                      type: array
+                      x-kubernetes-list-type: set
                     jobUID:
                       description: jobUID is the UID of this attempt's Job, recorded
                         once the controller sees it; deletes are conditioned on it.
@@ -281,10 +298,12 @@ spec:
                     trigger:
                       description: |-
                         trigger is why the attempt ended: RankFailed (the Job failed), NodeFault (the platform's GPU fault path
-                        handed its Workload over), or JobDeleted (its Job went away while it was running).
+                        handed its Workload over), Evicted (Kueue evicted its Workload for a reason other than an operator's
+                        deactivation, such as preemption), or JobDeleted (its Job went away while it was running).
                       enum:
                       - RankFailed
                       - NodeFault
+                      - Evicted
                       - JobDeleted
                       type: string
                     waitingFor:

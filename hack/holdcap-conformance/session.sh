@@ -53,10 +53,6 @@ echo "$COMMIT" > "$OUT/commit.txt"
 
 ACCOUNT=$(spot_account) || fail "not authenticated; aws sso login --profile gpu-lab"
 BUCKET="$STACK-$ACCOUNT"
-spot_ensure_bucket "$BUCKET" "$REGION" 30 || fail "could not prepare the results bucket $BUCKET"
-spot_ensure_profile "$STACK" \
-  "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":[\"s3:PutObject\",\"s3:GetObject\"],\"Resource\":\"arn:aws:s3:::$BUCKET/*\"}]}" \
-  20 || fail "could not prepare the instance profile $STACK"
 
 UD="$OUT/user-data.sh"
 sed -e "s|BACKSTOP_SECONDS_PLACEHOLDER|$BACKSTOP_SECONDS|" -e "s|BUCKET_PLACEHOLDER|$BUCKET|" \
@@ -78,10 +74,17 @@ STUDY_DEADLINE=$(date -u -d "@$(( T0 + HARD_STOP_SECONDS + 1200 ))" +%Y-%m-%dT%H
 TAGS="ResourceType=instance,Tags=[{Key=Name,Value=$STACK},{Key=purpose,Value=holdcap-conformance},{Key=run,Value=$STAMP-$NONCE},{Key=study-deadline,Value=$STUDY_DEADLINE}]"
 say "AMI $AMI, zones $ZONES, sweeper deadline $STUDY_DEADLINE"
 
+# The dry run stops before the first call that changes the account: the bucket and the instance profile are created
+# when missing, so ensuring them before this point made a dry run create an S3 bucket and an IAM role (review r6).
 if [ -n "${DRY_RUN:-}" ]; then
-  say "DRY_RUN: nothing uploaded or launched; user-data at $UD"
+  say "DRY_RUN: nothing created, uploaded or launched; would ensure bucket $BUCKET and instance profile $STACK; user-data at $UD"
   exit 0
 fi
+
+spot_ensure_bucket "$BUCKET" "$REGION" 30 || fail "could not prepare the results bucket $BUCKET"
+spot_ensure_profile "$STACK" \
+  "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":[\"s3:PutObject\",\"s3:GetObject\"],\"Resource\":\"arn:aws:s3:::$BUCKET/*\"}]}" \
+  20 || fail "could not prepare the instance profile $STACK"
 
 aws s3 cp "$OUT/source.tgz" "s3://$BUCKET/$RUN_ID/src/source.tgz" >/dev/null || fail "upload the source"
 aws s3 cp "$OUT/manager" "s3://$BUCKET/$RUN_ID/bin/manager" >/dev/null || fail "upload the manager"

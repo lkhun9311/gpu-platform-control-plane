@@ -17,6 +17,8 @@ limitations under the License.
 package controller
 
 import (
+	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -31,6 +33,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -188,6 +191,13 @@ var _ = Describe("MLTrainingJob restart", func() {
 		return n.Name
 	}
 
+	// bind writes what the scheduler publishes when it binds a Pod, which the controller reads as the binding time.
+	bind := func(p *corev1.Pod) {
+		GinkgoHelper()
+		p.Status.Conditions = []corev1.PodCondition{{Type: corev1.PodScheduled, Status: corev1.ConditionTrue, LastTransitionTime: metav1.Now()}}
+		Expect(k8sClient.Status().Update(ctx, p)).To(Succeed())
+	}
+
 	rankPod := func(mltj *platformv1.MLTrainingJob, attempt int, onNode string) *corev1.Pod {
 		GinkgoHelper()
 		p := &corev1.Pod{
@@ -200,6 +210,7 @@ var _ = Describe("MLTrainingJob restart", func() {
 		}
 		Expect(k8sClient.Create(ctx, p)).To(Succeed())
 		DeferCleanup(func() { _ = k8sClient.Delete(ctx, p, client.GracePeriodSeconds(0)) })
+		bind(p)
 		return p
 	}
 
@@ -571,7 +582,9 @@ var _ = Describe("MLTrainingJob restart", func() {
 		step(key)
 		Expect(last(key).State).To(Equal(attemptStopping), "the bare name written for the first machine stopped the barrier for the second")
 		Expect(last(key).WaitingFor).To(Equal("node " + name + " to be fenced (annotation " + annFencedNodes +
-			"); an earlier attempt ran on another machine of the same name, so name it as " + name + "@" + second))
+			"); an earlier attempt ran on another machine of the same name, so name it as " + name + "@" + second +
+			"; an entry an earlier attempt stopped on is spent, so scope one to this attempt as name#2"))
+		Expect(attempts(key)[0].FencedBy).To(Equal([]string{name}), "attempt 1 did not record the entry it stopped on")
 
 		By("an entry bound to the first machine does not fence the second either")
 		mltj = getMLTJ(key)
@@ -601,4 +614,624 @@ var _ = Describe("MLTrainingJob restart", func() {
 		Expect(last(key).State).To(Equal(attemptStopping))
 		Expect(last(key).Trigger).To(Equal(triggerNodeFault))
 	})
+
+	// The Pods below carry finRankStopped from the start, as the Job controller copies it from the template.
+	heldRankPod := func(mltj *platformv1.MLTrainingJob, attempt int, onNode string) *corev1.Pod {
+		GinkgoHelper()
+		p := &corev1.Pod{
+			Name: mltj.Name + "-" + rand.String(5), Namespace: ns, Finalizers: []string{finRankStopped},
+			Labels: map[string]string{mltjUIDLabel: string(mltj.UID), mltjAttemptLabel: strconv.Itoa(attempt)},
+			Spec: corev1.PodSpec{
+				NodeName:   onNode,
+				Containers: []corev1.Container{{Name: "trainer", Image: "trainer:v1"}},
+			},
+		}
+		Expect(k8sClient.Create(ctx, p)).To(Succeed())
+		DeferCleanup(func() {
+			var cur corev1.Pod
+			if k8sClient.Get(ctx, client.ObjectKeyFromObject(p), &cur) == nil {
+				cur.Finalizers = nil
+				_ = k8sClient.Update(ctx, &cur)
+			}
+			_ = k8sClient.Delete(ctx, p, client.GracePeriodSeconds(0))
+		})
+		bind(p)
+		return p
+	}
+	gone := func(p *corev1.Pod) bool {
+		return apierrors.IsNotFound(k8sClient.Get(ctx, client.ObjectKeyFromObject(p), &corev1.Pod{}))
+	}
+
+	It("renders the rank Pods of an attempt with finRankStopped, and the ordinary Job without it", func() {
+		mltj := &platformv1.MLTrainingJob{Name: "t", Namespace: ns, Spec: platformv1.MLTrainingJobSpec{
+			Queue: "q", Image: "i", GPUCount: 1, Distributed: &platformv1.Distributed{WorldSize: 2, MaxRestarts: 1},
+			StateVolume: &platformv1.StateVolume{ClaimName: "c", MountPath: "/c"},
+		}}
+		Expect(buildJob(mltj, 1).Spec.Template.Finalizers).To(Equal([]string{finRankStopped}))
+		Expect(buildJob(mltj, 0).Spec.Template.Finalizers).To(BeEmpty())
+	})
+
+	It("keeps a rank Pod it never saw until it has recorded the Pod's node and the node is fenced", func() {
+		key := create(1)
+		job := untilActive(key)
+		mltj := getMLTJ(key)
+
+		By("the controller is away while a rank is bound, its machine is lost and its Pod deleted")
+		name := node(corev1.ConditionTrue)
+		p := heldRankPod(mltj, 1, name)
+		wl := workloadFor(job, nil)
+		Expect(k8sClient.Delete(ctx, p, client.GracePeriodSeconds(0))).To(Succeed())
+		Expect(k8sClient.Delete(ctx, &corev1.Node{Name: name})).To(Succeed())
+		Eventually(func() bool {
+			return apierrors.IsNotFound(k8sClient.Get(ctx, types.NamespacedName{Name: name}, &corev1.Node{}))
+		}, 10*time.Second, 50*time.Millisecond).Should(BeTrue())
+		Expect(gone(p)).To(BeFalse(), "the finalizer did not keep the Pod")
+
+		By("on its return it records the node and does not let the Pod go")
+		failRank(job)
+		step(key)
+		step(key)
+		collect(key)
+		step(key)
+		Expect(last(key).NodeUIDs).To(HaveKeyWithValue(name, nodeUIDAbsent))
+		Expect(last(key).State).To(Equal(attemptStopping))
+		Expect(last(key).WaitingFor).To(ContainSubstring("held until their kubelet reports them stopped or their node is fenced: " + p.Name + "@" + name))
+		Expect(gone(p)).To(BeFalse())
+
+		By("fenced, the Pod is released and the attempt stops")
+		mltj = getMLTJ(key)
+		mltj.Annotations = map[string]string{annFencedNodes: name}
+		Expect(k8sClient.Update(ctx, mltj)).To(Succeed())
+		step(key)
+		Eventually(func() bool { return gone(p) }, 10*time.Second, 50*time.Millisecond).Should(BeTrue())
+		Expect(k8sClient.Delete(ctx, wl)).To(Succeed())
+		step(key)
+		Expect(last(key).State).To(Equal(attemptStopped))
+	})
+
+	It("keeps a Pod force-deleted from a Ready node until its kubelet reports it stopped", func() {
+		key := create(1)
+		job := untilActive(key)
+		mltj := getMLTJ(key)
+		name := node(corev1.ConditionTrue)
+		p := heldRankPod(mltj, 1, name)
+		wl := workloadFor(job, nil)
+		step(key)
+		failRank(job)
+		step(key)
+		step(key)
+		collect(key)
+		Expect(k8sClient.Delete(ctx, p, client.GracePeriodSeconds(0))).To(Succeed())
+		step(key)
+		Expect(last(key).State).To(Equal(attemptStopping))
+		Expect(last(key).WaitingFor).To(ContainSubstring(p.Name + "@" + name))
+		Expect(gone(p)).To(BeFalse(), "a Ready node's force-deleted Pod was released with no stop reported")
+
+		By("its kubelet reports the Pod terminal")
+		var cur corev1.Pod
+		Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(p), &cur)).To(Succeed())
+		cur.Status.Phase = corev1.PodFailed
+		Expect(k8sClient.Status().Update(ctx, &cur)).To(Succeed())
+		step(key)
+		Eventually(func() bool { return gone(p) }, 10*time.Second, 50*time.Millisecond).Should(BeTrue())
+		Expect(k8sClient.Delete(ctx, wl)).To(Succeed())
+		step(key)
+		Expect(last(key).State).To(Equal(attemptStopped), "a Ready node whose Pod reported its stop still needed fencing")
+	})
+
+	It("does not take a Node registered after the rank was bound for the machine the rank ran on", func() {
+		key := create(1)
+		job := untilActive(key)
+		mltj := getMLTJ(key)
+		name := node(corev1.ConditionTrue)
+		p := heldRankPod(mltj, 1, name)
+		// Bound an hour before the Node that now carries the name was registered.
+		p.Status.Conditions = []corev1.PodCondition{{Type: corev1.PodScheduled, Status: corev1.ConditionTrue,
+			LastTransitionTime: metav1.NewTime(time.Now().Add(-time.Hour))}}
+		Expect(k8sClient.Status().Update(ctx, p)).To(Succeed())
+		wl := workloadFor(job, nil)
+		step(key)
+		Expect(last(key).NodeUIDs).To(HaveKeyWithValue(name, nodeUIDReplaced))
+
+		failRank(job)
+		step(key)
+		step(key)
+		collect(key)
+		var cur corev1.Pod
+		Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(p), &cur)).To(Succeed())
+		cur.Status.Phase = corev1.PodFailed
+		Expect(k8sClient.Status().Update(ctx, &cur)).To(Succeed())
+		// Grace 0 stands for the kubelet's own final delete, which no kubelet here issues.
+		Expect(k8sClient.Delete(ctx, &cur, client.GracePeriodSeconds(0))).To(Succeed())
+		step(key)
+		step(key)
+		// A Failed reported under the name by the replacement's kubelet says nothing of the machine the rank ran on.
+		Expect(gone(p)).To(BeFalse(), "a terminal phase under a replaced Node released the rank")
+		Expect(last(key).State).To(Equal(attemptStopping), "the replacement Node's readiness vouched for the machine the rank ran on")
+
+		mltj = getMLTJ(key)
+		mltj.Annotations = map[string]string{annFencedNodes: name}
+		Expect(k8sClient.Update(ctx, mltj)).To(Succeed())
+		step(key)
+		Eventually(func() bool { return gone(p) }, 10*time.Second, 50*time.Millisecond).Should(BeTrue())
+		Expect(k8sClient.Delete(ctx, wl)).To(Succeed())
+		step(key)
+		Expect(last(key).State).To(Equal(attemptStopped))
+	})
+
+	It("spends a fence entry, so the same machine lost again in a later attempt needs one scoped to that attempt", func() {
+		key := create(2)
+		job := untilActive(key)
+		mltj := getMLTJ(key)
+		name := node(corev1.ConditionTrue)
+		setReady := func(status corev1.ConditionStatus) {
+			GinkgoHelper()
+			var n corev1.Node
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name}, &n)).To(Succeed())
+			n.Status.Conditions = []corev1.NodeCondition{{Type: corev1.NodeReady, Status: status, LastHeartbeatTime: metav1.Now()}}
+			Expect(k8sClient.Status().Update(ctx, &n)).To(Succeed())
+		}
+		lose := func(attempt int) {
+			GinkgoHelper()
+			onIt := rankPod(mltj, attempt, name)
+			wl := workloadFor(job, nil)
+			step(key)
+			failRank(job)
+			step(key)
+			step(key)
+			setReady(corev1.ConditionFalse)
+			collect(key)
+			Expect(k8sClient.Delete(ctx, onIt, client.GracePeriodSeconds(0))).To(Succeed())
+			Eventually(func() bool { return gone(onIt) }, 10*time.Second, 50*time.Millisecond).Should(BeTrue())
+			Expect(k8sClient.Delete(ctx, wl)).To(Succeed())
+			step(key)
+		}
+
+		By("attempt 1 stops on a bare name")
+		lose(1)
+		mltj = getMLTJ(key)
+		mltj.Annotations = map[string]string{annFencedNodes: name}
+		Expect(k8sClient.Update(ctx, mltj)).To(Succeed())
+		step(key)
+		Expect(last(key).State).To(Equal(attemptStopped))
+		Expect(last(key).FencedBy).To(Equal([]string{name}))
+
+		By("the same machine comes back, runs attempt 2 and is lost again")
+		job = untilActive(key)
+		setReady(corev1.ConditionTrue)
+		mltj = getMLTJ(key)
+		lose(2)
+		Expect(last(key).State).To(Equal(attemptStopping), "attempt 1's acknowledgement stood for attempt 2")
+		Expect(last(key).WaitingFor).To(ContainSubstring("scope one to this attempt as name#2"))
+
+		mltj = getMLTJ(key)
+		mltj.Annotations = map[string]string{annFencedNodes: name + "," + name + "#1"}
+		Expect(k8sClient.Update(ctx, mltj)).To(Succeed())
+		step(key)
+		Expect(last(key).State).To(Equal(attemptStopping), "an entry scoped to attempt 1 stood for attempt 2")
+
+		mltj = getMLTJ(key)
+		mltj.Annotations = map[string]string{annFencedNodes: name + "," + name + "#2"}
+		Expect(k8sClient.Update(ctx, mltj)).To(Succeed())
+		step(key)
+		Expect(last(key).State).To(Equal(attemptStopped))
+	})
+
+	It("takes a Kueue eviction as Evicted, and an operator's deactivation as no trigger", func() {
+		evict := func(reason string, active bool) types.NamespacedName {
+			GinkgoHelper()
+			key := create(1)
+			job := untilActive(key)
+			wl := workloadFor(job, nil)
+			if !active {
+				wl.Spec.Active = new(false)
+				Expect(k8sClient.Update(ctx, wl)).To(Succeed())
+			}
+			meta.SetStatusCondition(&wl.Status.Conditions, metav1.Condition{
+				Type: kueuev1beta1.WorkloadEvicted, Status: metav1.ConditionTrue, Reason: reason, Message: "test",
+			})
+			Expect(k8sClient.Status().Update(ctx, wl)).To(Succeed())
+			awaitCachedWorkload(wl.Name, ns, func(w *kueuev1beta1.Workload) bool {
+				return meta.IsStatusConditionTrue(w.Status.Conditions, kueuev1beta1.WorkloadEvicted)
+			})
+			step(key)
+			return key
+		}
+		key := evict(kueuev1beta1.WorkloadEvictedByPreemption, true)
+		Expect(last(key).State).To(Equal(attemptStopping))
+		Expect(last(key).Trigger).To(Equal(triggerEvicted))
+
+		key = evict(kueuev1beta1.WorkloadDeactivated, false)
+		Expect(last(key).State).To(Equal(attemptActive))
+
+		By("Kueue's derived deactivation reasons are deactivations too")
+		key = evict(kueuev1beta1.WorkloadDeactivated+"DueToRequeuingLimitExceeded", true)
+		Expect(last(key).State).To(Equal(attemptActive))
+
+		By("an operator's stop after an earlier preemption, with Kueue still showing the preemption")
+		key = evict(kueuev1beta1.WorkloadEvictedByPreemption, false)
+		Expect(last(key).State).To(Equal(attemptActive), "a deactivated Workload's old eviction restarted the job")
+	})
+
+	It("releases the ranks of a deleted job whose Job the stop barrier is already deleting in the foreground", func() {
+		key := create(1)
+		job := untilActive(key)
+		mltj := getMLTJ(key)
+		name := node(corev1.ConditionTrue)
+		p := heldRankPod(mltj, 1, name)
+		workloadFor(job, nil)
+		step(key)
+		failRank(job)
+		step(key)
+		step(key)
+		Expect(last(key).WaitingFor).To(HavePrefix("job "), "the barrier was not deleting the Job")
+		Expect(k8sClient.Delete(ctx, getMLTJ(key))).To(Succeed())
+		var cur corev1.Pod
+		Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(p), &cur)).To(Succeed())
+		cur.Status.Phase = corev1.PodFailed
+		Expect(k8sClient.Status().Update(ctx, &cur)).To(Succeed())
+		Expect(k8sClient.Delete(ctx, &cur, client.GracePeriodSeconds(0))).To(Succeed())
+		step(key)
+		Eventually(func() bool { return gone(p) }, 10*time.Second, 50*time.Millisecond).Should(BeTrue(),
+			"a stopped rank stayed held behind the Job that waits for it")
+	})
+
+	It("decides a node's identity only once the rank's binding is published", func() {
+		key := create(1)
+		untilActive(key)
+		mltj := getMLTJ(key)
+		p := &corev1.Pod{
+			Name: mltj.Name + "-" + rand.String(5), Namespace: ns,
+			Labels: map[string]string{mltjUIDLabel: string(mltj.UID), mltjAttemptLabel: "1"},
+			Spec:   corev1.PodSpec{Containers: []corev1.Container{{Name: "trainer", Image: "trainer:v1"}}},
+		}
+		Expect(k8sClient.Create(ctx, p)).To(Succeed())
+		DeferCleanup(func() { _ = k8sClient.Delete(ctx, p, client.GracePeriodSeconds(0)) })
+		// Pending for a while, then an autoscaler's new node, and the Pod bound to it before the binding is published.
+		time.Sleep(1100 * time.Millisecond)
+		name := node(corev1.ConditionTrue)
+		Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(p), p)).To(Succeed())
+		Expect(k8sClient.SubResource("binding").Create(ctx, p, &corev1.Binding{
+			Name: p.Name, Namespace: ns,
+			Target: corev1.ObjectReference{Kind: "Node", Name: name},
+		})).To(Succeed())
+		Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(p), p)).To(Succeed())
+		p.Status.Conditions = nil
+		Expect(k8sClient.Status().Update(ctx, p)).To(Succeed())
+		step(key)
+		Expect(last(key).Nodes).To(ContainElement(name))
+		Expect(last(key).NodeUIDs).NotTo(HaveKey(name), "an identity was decided with no binding time")
+
+		bind(p)
+		step(key)
+		var n corev1.Node
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name}, &n)).To(Succeed())
+		Expect(last(key).NodeUIDs).To(HaveKeyWithValue(name, string(n.UID)), "the autoscaler's node was taken for a replacement")
+	})
+
+	It("reads the handoff past a cache that has not seen it before calling a failed Job RankFailed", func() {
+		key := create(1)
+		job := untilActive(key)
+		wl := workloadFor(job, nil)
+		wl.Annotations = map[string]string{AnnRestartHandoff: "fp-1"}
+		Expect(k8sClient.Update(ctx, wl)).To(Succeed())
+		awaitCachedWorkload(wl.Name, ns, func(w *kueuev1beta1.Workload) bool { return w.Annotations[AnnRestartHandoff] != "" })
+		failRank(job)
+		// A reconciler whose cached reads still show the Workload as it was before the handoff.
+		r := reconciler()
+		r.Client = staleHandoff{Client: r.Client}
+		_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(last(key).Trigger).To(Equal(triggerNodeFault))
+	})
+
+	It("holds a deleted job until every rank Pod is known stopped", func() {
+		key := create(1)
+		job := untilActive(key)
+		mltj := getMLTJ(key)
+		name := node(corev1.ConditionTrue)
+		p := heldRankPod(mltj, 1, name)
+		step(key)
+		Expect(k8sClient.Delete(ctx, mltj)).To(Succeed())
+		step(key)
+		collect(key)
+		step(key)
+		Expect(getMLTJ(key).Finalizers).To(ContainElement(mlTrainingJobFinalizer), "the job went while its rank had not stopped")
+		Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), &batchv1.Job{})).NotTo(Succeed())
+
+		var cur corev1.Pod
+		Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(p), &cur)).To(Succeed())
+		Expect(k8sClient.Delete(ctx, &cur, client.GracePeriodSeconds(0))).To(Succeed())
+		Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(p), &cur)).To(Succeed())
+		cur.Status.Phase = corev1.PodFailed
+		Expect(k8sClient.Status().Update(ctx, &cur)).To(Succeed())
+		step(key)
+		Eventually(func() bool { return gone(p) }, 10*time.Second, 50*time.Millisecond).Should(BeTrue())
+		step(key)
+		Eventually(func() bool {
+			return apierrors.IsNotFound(k8sClient.Get(ctx, key, &platformv1.MLTrainingJob{}))
+		}, 10*time.Second, 50*time.Millisecond).Should(BeTrue())
+	})
+
+	// PodGC, not a kubelet, writes Failed for a Pod whose Node is gone (with DisruptionTarget DeletionByPodGC) and for
+	// one terminating on an out-of-service NotReady node (with no condition), then force-deletes it; the process on the
+	// machine may still run, so neither is a stop until the node is fenced.
+	// Mutations that turn this red: take any terminal phase as the kubelet's report, or drop the node-state check.
+	podGCFails := func(p *corev1.Pod, withCondition bool) {
+		GinkgoHelper()
+		var cur corev1.Pod
+		Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(p), &cur)).To(Succeed())
+		cur.Status.Phase = corev1.PodFailed
+		if withCondition {
+			cur.Status.Conditions = append(cur.Status.Conditions, corev1.PodCondition{Type: corev1.DisruptionTarget,
+				Status: corev1.ConditionTrue, Reason: "DeletionByPodGC", Message: "PodGC: node no longer exists"})
+		}
+		Expect(k8sClient.Status().Update(ctx, &cur)).To(Succeed())
+		Expect(k8sClient.Delete(ctx, &cur, client.GracePeriodSeconds(0))).To(Succeed())
+	}
+
+	It("does not take PodGC's Failed on a lost node for a stop when the job is deleted", func() {
+		key := create(1)
+		untilActive(key)
+		mltj := getMLTJ(key)
+		name := node(corev1.ConditionTrue)
+		p := heldRankPod(mltj, 1, name)
+		step(key)
+		Expect(last(key).NodeUIDs).To(HaveKey(name))
+		Expect(k8sClient.Delete(ctx, getMLTJ(key))).To(Succeed())
+		step(key)
+		collect(key)
+
+		By("the machine is lost: its Node goes and PodGC fails and force-deletes the Pod")
+		Expect(k8sClient.Delete(ctx, &corev1.Node{Name: name})).To(Succeed())
+		Eventually(func() bool {
+			return apierrors.IsNotFound(k8sClient.Get(ctx, types.NamespacedName{Name: name}, &corev1.Node{}))
+		}, 10*time.Second, 50*time.Millisecond).Should(BeTrue())
+		podGCFails(p, true)
+		step(key)
+		step(key)
+		Expect(gone(p)).To(BeFalse(), "PodGC's Failed released a rank whose machine may still run")
+		Expect(getMLTJ(key).Finalizers).To(ContainElement(mlTrainingJobFinalizer))
+
+		By("fenced, the rank is released and the job goes")
+		mltj = getMLTJ(key)
+		mltj.Annotations = map[string]string{annFencedNodes: name}
+		Expect(k8sClient.Update(ctx, mltj)).To(Succeed())
+		step(key)
+		Eventually(func() bool { return gone(p) }, 10*time.Second, 50*time.Millisecond).Should(BeTrue())
+		step(key)
+		Eventually(func() bool {
+			return apierrors.IsNotFound(k8sClient.Get(ctx, key, &platformv1.MLTrainingJob{}))
+		}, 10*time.Second, 50*time.Millisecond).Should(BeTrue())
+	})
+
+	// Mutation that turns this red: return from a Succeeded job without the release pass.
+	It("keeps releasing a finished job's held ranks once their node is back", func() {
+		key := create(1)
+		untilActive(key)
+		mltj := getMLTJ(key)
+		name := node(corev1.ConditionFalse)
+		p := heldRankPod(mltj, 1, name)
+		var cur corev1.Pod
+		Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(p), &cur)).To(Succeed())
+		cur.Status.Phase = corev1.PodSucceeded
+		Expect(k8sClient.Status().Update(ctx, &cur)).To(Succeed())
+		mltj = getMLTJ(key)
+		mltj.Status.Phase = mltjPhaseSucceeded
+		Expect(k8sClient.Status().Update(ctx, mltj)).To(Succeed())
+
+		res, err := reconciler().Reconcile(ctx, reconcile.Request{NamespacedName: key})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(res.RequeueAfter).To(Equal(stopPoll), "a finished job with a held rank stopped polling")
+		Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(p), &cur)).To(Succeed())
+		Expect(cur.Finalizers).To(ContainElement(finRankStopped), "a rank on a NotReady node was released")
+
+		By("the node answers again")
+		var n corev1.Node
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name}, &n)).To(Succeed())
+		n.Status.Conditions = []corev1.NodeCondition{{Type: corev1.NodeReady, Status: corev1.ConditionTrue, LastHeartbeatTime: metav1.Now()}}
+		Expect(k8sClient.Status().Update(ctx, &n)).To(Succeed())
+		step(key)
+		Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(p), &cur)).To(Succeed())
+		Expect(cur.Finalizers).NotTo(ContainElement(finRankStopped), "the finished job never released its rank")
+	})
+
+	It("does not take a Failed phase on a NotReady node for a stop before the node is fenced", func() {
+		key := create(1)
+		job := untilActive(key)
+		mltj := getMLTJ(key)
+		name := node(corev1.ConditionTrue)
+		p := heldRankPod(mltj, 1, name)
+		wl := workloadFor(job, nil)
+		step(key)
+		failRank(job)
+		step(key)
+		step(key)
+		collect(key)
+
+		By("the node goes NotReady and PodGC (out-of-service) fails the Pod without a condition")
+		var n corev1.Node
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name}, &n)).To(Succeed())
+		n.Status.Conditions = []corev1.NodeCondition{{Type: corev1.NodeReady, Status: corev1.ConditionFalse, LastHeartbeatTime: metav1.Now()}}
+		Expect(k8sClient.Status().Update(ctx, &n)).To(Succeed())
+		podGCFails(p, false)
+		step(key)
+		step(key)
+		Expect(gone(p)).To(BeFalse(), "a Failed phase on a NotReady node released the rank")
+		Expect(last(key).State).To(Equal(attemptStopping))
+
+		mltj = getMLTJ(key)
+		mltj.Annotations = map[string]string{annFencedNodes: name}
+		Expect(k8sClient.Update(ctx, mltj)).To(Succeed())
+		step(key)
+		Eventually(func() bool { return gone(p) }, 10*time.Second, 50*time.Millisecond).Should(BeTrue())
+		Expect(k8sClient.Delete(ctx, wl)).To(Succeed())
+		step(key)
+		Expect(last(key).State).To(Equal(attemptStopped))
+	})
+
+	// Mutation that turns this red: drop the AdmittedAt reset in trigger.
+	It("does not carry an attempt's admission stamp into the next attempt's admission-to-running window", func() {
+		key := create(1)
+		job := untilActive(key)
+		wl := workloadFor(job, nil)
+		wl.Status.Conditions = []metav1.Condition{{
+			Type: kueuev1beta1.WorkloadAdmitted, Status: metav1.ConditionTrue, Reason: "Admitted",
+			LastTransitionTime: metav1.NewTime(time.Now().Add(-time.Minute)),
+		}}
+		Expect(k8sClient.Status().Update(ctx, wl)).To(Succeed())
+		awaitCachedWorkload(wl.Name, ns, hasAdmittedCondition)
+		Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).To(Succeed())
+		job.Spec.Suspend = new(false)
+		Expect(k8sClient.Update(ctx, job)).To(Succeed())
+		Eventually(func() *metav1.Time {
+			step(key)
+			return getMLTJ(key).Status.AdmittedAt
+		}, 10*time.Second, 50*time.Millisecond).ShouldNot(BeNil(), "attempt 1's admission was never recorded")
+		Expect(getMLTJ(key).Status.RunningObservedAt).To(BeNil())
+
+		failRank(job)
+		step(key)
+		Expect(last(key).State).To(Equal(attemptStopping))
+		Expect(getMLTJ(key).Status.AdmittedAt).To(BeNil(), "attempt 1's admission stamp survived its failure")
+	})
+
+	// The design's first failure row: two attempts at once after a conflict or a crash between steps. Every second
+	// status write here fails, half of them as a conflict and half as a write the server never answered, and the
+	// first create of each attempt's Job lands but loses its response. Exactly one Job per attempt must exist,
+	// adopted by its token, and the budget spent once (codex review r10, finding 7).
+	//
+	// Mutations that turn this red: adopt a Job without checking its attempt token, or let trigger append an
+	// attempt instead of moving the current one to Stopping.
+	It("keeps one attempt per step through failed status writes, conflicts and a create whose response was lost", func() {
+		key := create(1)
+		f := &flakyWrites{Client: asManager}
+		r := reconciler()
+		r.Client = f
+		flaky := func() {
+			GinkgoHelper()
+			_, _ = r.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+		}
+		jobsOf := func() []batchv1.Job {
+			GinkgoHelper()
+			var jobs batchv1.JobList
+			Expect(k8sClient.List(ctx, &jobs, client.InNamespace(ns))).To(Succeed())
+			var out []batchv1.Job
+			for _, j := range jobs.Items {
+				if j.Name == key.Name && j.DeletionTimestamp.IsZero() {
+					out = append(out, j)
+				}
+			}
+			return out
+		}
+
+		Eventually(func() string {
+			flaky()
+			a := attempts(key)
+			if len(a) == 0 {
+				return ""
+			}
+			return a[len(a)-1].State
+		}, 20*time.Second, 50*time.Millisecond).Should(Equal(attemptActive))
+		Expect(f.lostCreates).To(BeNumerically(">=", 1), "no create lost its response, so adoption was not exercised")
+		Expect(f.failedStatus).To(BeNumerically(">=", 1), "no status write failed")
+		Expect(attempts(key)).To(HaveLen(1))
+		jobs := jobsOf()
+		Expect(jobs).To(HaveLen(1))
+		Expect(last(key).JobUID).To(Equal(string(jobs[0].UID)), "the attempt did not adopt the Job its lost create made")
+
+		By("a rank fails, and the trigger, the stop and the next attempt all go through the same failing writes")
+		job := jobs[0]
+		failRank(&job)
+		// The trigger first: collect deletes the Job, and a Job deleted before the trigger is recorded is JobDeleted.
+		Eventually(func() string {
+			flaky()
+			return attempts(key)[0].State
+		}, 20*time.Second, 50*time.Millisecond).Should(Equal(attemptStopping))
+		Expect(attempts(key)[0].Trigger).To(Equal(triggerRankFailed))
+		Eventually(func() string {
+			flaky()
+			// The garbage collector's part, for attempt 1's Job only; attempt 2's Job is the one being checked.
+			a := attempts(key)
+			if len(a) == 1 {
+				collect(key)
+				return ""
+			}
+			return a[len(a)-1].State
+		}, 30*time.Second, 50*time.Millisecond).Should(Equal(attemptActive))
+		a := attempts(key)
+		Expect(a).To(HaveLen(2), "the budget was spent more than once")
+		Expect(a[0].State).To(Equal(attemptStopped))
+		Expect(a[0].Trigger).To(Equal(triggerRankFailed))
+		jobs = jobsOf()
+		Expect(jobs).To(HaveLen(1))
+		Expect(jobs[0].Labels[mltjAttemptLabel]).To(Equal("2"))
+		Expect(a[1].JobUID).To(Equal(string(jobs[0].UID)))
+		Expect(f.failedStatus).To(BeNumerically(">=", 2), "the conflict was never injected")
+		Expect(f.lostCreates).To(Equal(2), "attempt 2's create did not lose its response")
+	})
 })
+
+// flakyWrites fails every second MLTrainingJob status write, alternating a conflict with an error the server sent
+// no answer for, and lets each Job create land on the server while reporting it failed.
+type flakyWrites struct {
+	client.Client
+	statusCalls, failedStatus, lostCreates int
+	createdFor                             map[string]bool
+}
+
+func (f *flakyWrites) Create(ctx context.Context, obj client.Object, opts ...client.CreateOption) error {
+	err := f.Client.Create(ctx, obj, opts...)
+	job, ok := obj.(*batchv1.Job)
+	if err != nil || !ok {
+		return err
+	}
+	if f.createdFor == nil {
+		f.createdFor = map[string]bool{}
+	}
+	if attempt := job.Labels[mltjAttemptLabel]; !f.createdFor[attempt] {
+		f.createdFor[attempt] = true
+		f.lostCreates++
+		return fmt.Errorf("the create's response was lost")
+	}
+	return nil
+}
+
+func (f *flakyWrites) Status() client.SubResourceWriter {
+	return flakyStatus{SubResourceWriter: f.Client.Status(), f: f}
+}
+
+type flakyStatus struct {
+	client.SubResourceWriter
+	f *flakyWrites
+}
+
+func (s flakyStatus) Update(ctx context.Context, obj client.Object, opts ...client.SubResourceUpdateOption) error {
+	if _, ok := obj.(*platformv1.MLTrainingJob); ok {
+		s.f.statusCalls++
+		if s.f.statusCalls%2 == 0 {
+			s.f.failedStatus++
+			if s.f.failedStatus%2 == 0 {
+				return apierrors.NewConflict(schema.GroupResource{Group: platformv1.GroupVersion.Group, Resource: "mltrainingjobs"},
+					obj.GetName(), fmt.Errorf("injected"))
+			}
+			return fmt.Errorf("injected: the status write was not answered")
+		}
+	}
+	return s.SubResourceWriter.Update(ctx, obj, opts...)
+}
+
+// staleHandoff is a client whose Workload reads have not yet seen the fault path's handoff.
+type staleHandoff struct{ client.Client }
+
+func (s staleHandoff) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
+	if err := s.Client.List(ctx, list, opts...); err != nil {
+		return err
+	}
+	if wls, ok := list.(*kueuev1beta1.WorkloadList); ok {
+		for i := range wls.Items {
+			delete(wls.Items[i].Annotations, AnnRestartHandoff)
+		}
+	}
+	return nil
+}
