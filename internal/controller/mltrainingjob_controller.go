@@ -121,6 +121,13 @@ func (r *MLTrainingJobReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return r.reconcileRestartable(ctx, &mltj)
 	}
 
+	// A job whose Job finished stays finished when that Job is cleaned up: recreating it here would run the training
+	// again, on paid devices and over its own outputs, after status already said it ended (codex review r8).
+	// A Failed from a name conflict is not this; it recovers once the name is free.
+	if !jobExists && mltjFinished(&mltj) {
+		return ctrl.Result{}, nil
+	}
+
 	// A distributed job's ranks resolve rank 0 through its Service as soon as they start, so the Service comes first.
 	//
 	// What it blocks is creating the Job, and only that.
@@ -481,6 +488,16 @@ func isJobConditionTrue(job *batchv1.Job, condType batchv1.JobConditionType) boo
 // admittedCondition builds the MLTrainingJob Admitted condition for a phase transition.
 //
 // The message is left empty; the reason and the phase it is paired with already say what happened.
+// mltjFinished reports whether the job's own Job completed or failed, as computeMLTJPhase recorded it.
+func mltjFinished(mltj *platformv1.MLTrainingJob) bool {
+	c := meta.FindStatusCondition(mltj.Status.Conditions, mltjCondAdmitted)
+	if c == nil {
+		return false
+	}
+	return (mltj.Status.Phase == mltjPhaseSucceeded && c.Reason == "JobComplete") ||
+		(mltj.Status.Phase == mltjPhaseFailed && c.Reason == "JobFailed")
+}
+
 func admittedCondition(status metav1.ConditionStatus, reason string) metav1.Condition {
 	return metav1.Condition{Type: mltjCondAdmitted, Status: status, Reason: reason}
 }
