@@ -48,3 +48,9 @@ No published verdict or number changes.
 
 - Rows written by the old sender between 2026-10-04 and 2026-11-07 outside the committed archives are classified by the per-file rule; a file in which every row was truncated would read as never recorded and be counted as unknown, not as failures.
 - The analyzer does not recompute the nccl-tests arm's figures, which are read from nccl-tests' own table.
+
+## The bare review of the branch
+
+A bare `codex review --base origin/dev` (astra, high) found one defect in the fix for 6, confirmed and fixed in `355444e7`: a truncation the updated sender had already named was a failure but was not counted in `TruncatedStreams`, so the report's termination line was silent for new runs.
+It is now counted; `TestATruncationTheSenderNamedIsCountedByTheReport` drives sender, file and report, and dropping the branch turns it red.
+astra ran the focused, GPU-fault and analyzer tests itself; its sandbox blocked the broader Go suites, which Claude ran.
