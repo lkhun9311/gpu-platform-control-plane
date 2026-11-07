@@ -29,7 +29,8 @@ fail() { echo "REHEARSAL FAILED: $*" | tee -a "$OUT/rehearsal.log" >&2; exit 1; 
 
 [ -z "$(git status --porcelain -- hack docs experiments)" ] || { echo "the tree under hack, docs or experiments is dirty; the rehearsal runs a commit"; exit 1; }
 [ ! -e "$OUT" ] || { echo "$OUT exists"; exit 1; }
-mkdir -p "$OUT/fakes3/$PREFIX/src"
+# The containers write as root; directories they would create themselves could not be removed afterwards.
+mkdir -p "$OUT/fakes3/$PREFIX/src" "$OUT/fakes3/$PREFIX/control"
 FAKES3=$(cd "$OUT/fakes3" && pwd)
 PIPCACHE=${SLURMEC2_PIP_CACHE:-$HOME/.cache/slurmec2-rehearsal-pip}
 mkdir -p "$PIPCACHE"
