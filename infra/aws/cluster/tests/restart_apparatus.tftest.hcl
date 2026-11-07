@@ -263,3 +263,29 @@ run "four_workers_are_refused" {
 
   expect_failures = [var.gpu_max_nodes]
 }
+
+# The tenant bundle's NetworkPolicies are inert unless the VPC CNI enforces them, and the default must change nothing.
+run "network_policy_is_off_unless_asked_for" {
+  command = plan
+
+  assert {
+    condition     = !contains(keys(local.vpc_cni_addon), "configuration_values")
+    error_message = "The VPC CNI add-on gained configuration with network_policy_enabled unset."
+  }
+}
+
+run "network_policy_on_is_enforced_in_strict_mode" {
+  command = plan
+
+  variables {
+    network_policy_enabled = true
+  }
+
+  assert {
+    condition = (
+      jsondecode(local.vpc_cni_addon.configuration_values).enableNetworkPolicy == "true" &&
+      jsondecode(local.vpc_cni_addon.configuration_values).env.NETWORK_POLICY_ENFORCING_MODE == "strict"
+    )
+    error_message = "network_policy_enabled must turn on enforcement and strict mode in the VPC CNI add-on."
+  }
+}

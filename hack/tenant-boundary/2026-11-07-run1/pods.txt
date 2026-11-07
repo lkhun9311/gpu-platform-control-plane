@@ -1,0 +1,21 @@
+NAMESPACE                           NAME                                              READY   STATUS    RESTARTS   AGE     IP               NODE                      NOMINATED NODE   READINESS GATES
+gpu-platform-control-plane-system   gateway                                           1/1     Running   0          10s     192.168.206.6    tenantlab-worker2         <none>           <none>
+kube-system                         calico-kube-controllers-846669895c-lsdnt          1/1     Running   0          5m7s    192.168.206.4    tenantlab-worker2         <none>           <none>
+kube-system                         calico-node-7ml9r                                 1/1     Running   0          5m7s    172.18.0.9       tenantlab-worker          <none>           <none>
+kube-system                         calico-node-fqrzw                                 1/1     Running   0          5m7s    172.18.0.8       tenantlab-worker2         <none>           <none>
+kube-system                         calico-node-wzx7b                                 1/1     Running   0          5m7s    172.18.0.10      tenantlab-control-plane   <none>           <none>
+kube-system                         coredns-559f6c778d-4pwbs                          1/1     Running   0          5m11s   192.168.206.3    tenantlab-worker2         <none>           <none>
+kube-system                         coredns-559f6c778d-hvcz6                          1/1     Running   0          5m11s   192.168.206.2    tenantlab-worker2         <none>           <none>
+kube-system                         etcd-tenantlab-control-plane                      1/1     Running   0          5m20s   172.18.0.10      tenantlab-control-plane   <none>           <none>
+kube-system                         kube-apiserver-tenantlab-control-plane            1/1     Running   0          5m20s   172.18.0.10      tenantlab-control-plane   <none>           <none>
+kube-system                         kube-controller-manager-tenantlab-control-plane   1/1     Running   0          5m20s   172.18.0.10      tenantlab-control-plane   <none>           <none>
+kube-system                         kube-proxy-2sb9l                                  1/1     Running   0          5m8s    172.18.0.9       tenantlab-worker          <none>           <none>
+kube-system                         kube-proxy-9t8n6                                  1/1     Running   0          5m11s   172.18.0.10      tenantlab-control-plane   <none>           <none>
+kube-system                         kube-proxy-vmk8v                                  1/1     Running   0          5m8s    172.18.0.8       tenantlab-worker2         <none>           <none>
+kube-system                         kube-scheduler-tenantlab-control-plane            1/1     Running   0          5m20s   172.18.0.10      tenantlab-control-plane   <none>           <none>
+local-path-storage                  local-path-provisioner-75f7fc7dc5-grc97           1/1     Running   0          5m11s   192.168.206.1    tenantlab-worker2         <none>           <none>
+monitoring                          prometheus                                        1/1     Running   0          10s     192.168.90.195   tenantlab-worker          <none>           <none>
+serve-a                             engine-b                                          1/1     Running   0          10s     192.168.206.7    tenantlab-worker2         <none>           <none>
+train-a                             engine-a                                          1/1     Running   0          10s     192.168.90.193   tenantlab-worker          <none>           <none>
+train-a                             rank-0                                            1/1     Running   0          10s     192.168.90.194   tenantlab-worker          <none>           <none>
+train-a                             rank-1                                            1/1     Running   0          10s     192.168.206.5    tenantlab-worker2         <none>           <none>
