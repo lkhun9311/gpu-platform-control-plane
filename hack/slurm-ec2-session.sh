@@ -275,9 +275,17 @@ spot_ensure_profile "$STACK" \
 prof_role=$(aws iam get-instance-profile --instance-profile-name "$STACK" --query 'InstanceProfile.Roles[].RoleName' --output text 2>&1) ||
   fail "the instance profile $STACK could not be read: $prof_role"
 [ "$prof_role" = "$STACK" ] || fail "the instance profile $STACK carries role(s) '$prof_role', not $STACK"
-trust=$(aws iam get-role --role-name "$STACK" --query 'Role.AssumeRolePolicyDocument.Statement[].Principal.Service' --output text 2>&1) ||
-  fail "the role $STACK could not be read: $trust"
-[ "$trust" = ec2.amazonaws.com ] || fail "the role $STACK trusts '$trust', not ec2.amazonaws.com alone"
+role_json=$(aws iam get-role --role-name "$STACK" --output json 2>&1) || fail "the role $STACK could not be read: $role_json"
+# The whole trust document and no permissions boundary: a condition or a boundary could deny what the policy allows.
+python3 - "$role_json" <<'PY' || fail "the role $STACK's trust or boundary is not this session's: $role_json"
+import json, sys
+role = json.loads(sys.argv[1])["Role"]
+doc = role["AssumeRolePolicyDocument"]
+want = [{"Effect": "Allow", "Principal": {"Service": "ec2.amazonaws.com"}, "Action": "sts:AssumeRole"}]
+sys.exit(0 if doc.get("Statement") == want and "PermissionsBoundary" not in role else 1)
+PY
+inline=$(aws iam list-role-policies --role-name "$STACK" --query 'PolicyNames' --output text 2>&1) || fail "the role's inline policies could not be read: $inline"
+[ "$inline" = write-results ] || [ "$inline" = "" ] || fail "the role $STACK carries inline policies '$inline' besides this session's"
 aws iam put-role-policy --role-name "$STACK" --policy-name write-results --policy-document \
   "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":[\"s3:PutObject\",\"s3:GetObject\"],\"Resource\":\"arn:aws:s3:::$BUCKET/*\"},{\"Effect\":\"Allow\",\"Action\":\"s3:ListBucket\",\"Resource\":\"arn:aws:s3:::$BUCKET\"}]}" \
   >>"$OUT/launch-errors.txt" 2>&1 || fail "could not write the role's policy"
@@ -407,28 +415,37 @@ done
 for k in evidence.tgz DONE log-head.txt log-gpu1.txt log-gpu2.txt stopped-gpu1 stopped-gpu2; do
   aws s3 cp --only-show-errors "s3://$BUCKET/$RUN_ID/$k" "$OUT/$k" 2>>"$OUT/download-errors.txt" || echo "not downloaded: $k" >>"$OUT/download-errors.txt"
 done
-[ ! -s "$OUT/evidence.tgz" ] || tar -xzf "$OUT/evidence.tgz" -C "$OUT" || echo "the evidence archive did not unpack" >>"$OUT/download-errors.txt"
+# The archive is checked against the digest DONE names before anything relies on it, unpacked into a staging directory,
+# and moved into place only whole; the S3 copy is removed only after that.
+UNPACKED=no
+want=$(sed -n 's/^evidence_sha256=//p' "$OUT/DONE" 2>>"$OUT/download-errors.txt")
+if [ -s "$OUT/evidence.tgz" ]; then
+  if [ -z "$want" ] || [ "$want" != "$(sha256sum "$OUT/evidence.tgz" | cut -d' ' -f1)" ]; then
+    echo "the downloaded archive is not the one head last verified (DONE names '${want:-none}')" | tee -a "$OUT/download-errors.txt"
+  elif mkdir "$OUT/.staging" && tar -xzf "$OUT/evidence.tgz" -C "$OUT/.staging" && [ -d "$OUT/.staging/evidence" ] && mv "$OUT/.staging/evidence" "$OUT/evidence"; then
+    UNPACKED=yes
+  else
+    echo "the evidence archive did not unpack" >>"$OUT/download-errors.txt"
+  fi
+  rm -rf "$OUT/.staging"
+fi
 # The measurement's status apart from the teardown's: 0 every check observed (rules may still not have held),
 # 4 scored but some check INVALID or NOTRUN, or an archive that is not the last one head verified, 3 VOID, no evidence
 # or a failed scorer.
 MEASURED=3
-if [ -d "$OUT/evidence" ]; then
+if [ -d "$OUT/evidence" ] && [ "$UNPACKED" = yes ]; then
   python3 hack/slurm-ec2/score.py "$OUT/evidence" "$OUT/verdict.json" | tee "$OUT/verdict.txt"
   score_rc=${PIPESTATUS[0]}
   if [ "$score_rc" != 0 ]; then echo "SCORER FAILED with status $score_rc" | tee -a "$OUT/verdict.txt"
   elif grep -q '^SLURM ON EC2: VOID' "$OUT/verdict.txt"; then MEASURED=3
   elif python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1]))["complete"] else 1)' "$OUT/verdict.json"; then MEASURED=0
   else MEASURED=4; fi
-  # DONE names the digest of the archive head last verified in S3; anything else is an earlier or a broken one.
-  want=$(sed -n 's/^evidence_sha256=//p' "$OUT/DONE" 2>>"$OUT/download-errors.txt")
-  if [ -z "$want" ] || [ "$want" != "$(sha256sum "$OUT/evidence.tgz" | cut -d' ' -f1)" ]; then
-    echo "the downloaded archive is not the one head last verified (DONE names '${want:-none}'); it may be an earlier one" | tee -a "$OUT/verdict.txt"
-    [ "$MEASURED" = 0 ] && MEASURED=4
-  fi
+  # An earlier archive than the final one is verified but lacks the later checks or diagnostics.
+  grep -qx 'evidence_final=yes' "$OUT/DONE" || { echo "head could not verify its final archive; this is an earlier one" | tee -a "$OUT/verdict.txt"; [ "$MEASURED" = 0 ] && MEASURED=4; }
   # Downloaded and unpacked, so the run's prefix is no longer the only copy; it would otherwise wait 30 days to expire.
   aws s3 rm --only-show-errors --recursive "s3://$BUCKET/$RUN_ID/" >>"$OUT/cleanup.txt" 2>&1 || echo "the run's S3 prefix could not be removed; it expires in 30 days" >>"$OUT/cleanup.txt"
 else
-  echo "SLURM ON EC2: NO-EVIDENCE (the evidence archive did not come back)" | tee "$OUT/verdict.txt"
+  echo "SLURM ON EC2: NO-EVIDENCE (the evidence archive did not come back whole; the run's S3 prefix is kept, and expires in 30 days)" | tee "$OUT/verdict.txt"
 fi
 echo "termination=$TERMINATION" >>"$OUT/verdict.txt"
 echo "measured=$(case "$MEASURED" in 0) echo complete ;; 4) echo incomplete ;; *) echo no ;; esac)" >>"$OUT/verdict.txt"

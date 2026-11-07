@@ -105,7 +105,8 @@ scene() {
   put maps '[{"DeviceName":"/dev/sda1","Ebs":{"DeleteOnTermination":true,"VolumeSize":8}},{"DeviceName":"/dev/sdb","VirtualName":"ephemeral0"}]'
   put lifecycle '{"Rules":[{"ID":"expire","Status":"Enabled","Filter":{"Prefix":""},"Expiration":{"Days":30},"AbortIncompleteMultipartUpload":{"DaysAfterInitiation":1}}]}'
   put role "slurmec2"
-  put trust "ec2.amazonaws.com"
+  put trust '{"Role":{"RoleName":"slurmec2","AssumeRolePolicyDocument":{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"ec2.amazonaws.com"},"Action":"sts:AssumeRole"}]}}}'
+  put inline "write-results"
   put versioning "None"
   put vpc "vpc-0default"
   put sg "sg-0session"
@@ -131,6 +132,7 @@ base_rules() {
   rule "iam get-instance-profile*" role
   rule "iam get-role*" trust
   rule "iam list-attached-role-policies*" none
+  rule "iam list-role-policies*" inline
   rule "s3api list-multipart-uploads*" none
   rule "ec2 create-security-group*" sg
   rule "ec2 run-instances*" "ih|i1|i2"
@@ -144,7 +146,8 @@ void_evidence() {
   mkdir -p "$STUB/ev/evidence"
   echo "a worker stopped: not one A10G" >"$STUB/ev/evidence/VOID"
   tar -czf "$STUB/fixtures/evidence.tgz" -C "$STUB/ev" evidence
-  echo "VOID: a worker stopped" >"$STUB/fixtures/DONE"
+  printf 'VOID: a worker stopped\nevidence_verified=yes\nevidence_final=yes\nevidence_sha256=%s\n' \
+    "$(sha256sum "$STUB/fixtures/evidence.tgz" | cut -d' ' -f1)" >"$STUB/fixtures/DONE"
 }
 session() {
   shift
@@ -202,7 +205,11 @@ rule "s3api get-bucket-lifecycle-configuration*" noabort; base_rules; refused "a
 scene; put big '[{"DeviceName":"/dev/sda1","Ebs":{"DeleteOnTermination":true,"VolumeSize":120}}]'
 rule "ec2 describe-images*BlockDeviceMappings*" big; base_rules; refused "an AMI whose root snapshot is larger than the launch" "root snapshot is larger"
 scene; put other_role "someone-else"; rule "iam get-instance-profile*" other_role; base_rules; refused "a profile carrying another role" "carries role(s) 'someone-else'"
-scene; put other_trust "lambda.amazonaws.com"; rule "iam get-role*" other_trust; base_rules; refused "a role trusting another service" "trusts 'lambda.amazonaws.com'"
+scene; put other_trust '{"Role":{"AssumeRolePolicyDocument":{"Statement":[{"Effect":"Allow","Principal":{"Service":"lambda.amazonaws.com"},"Action":"sts:AssumeRole"}]}}}'
+rule "iam get-role*" other_trust; base_rules; refused "a role trusting another service" "trust or boundary is not this session's"
+scene; put bounded '{"Role":{"PermissionsBoundary":{"PermissionsBoundaryArn":"arn:x"},"AssumeRolePolicyDocument":{"Statement":[{"Effect":"Allow","Principal":{"Service":"ec2.amazonaws.com"},"Action":"sts:AssumeRole"}]}}}'
+rule "iam get-role*" bounded; base_rules; refused "a role with a permissions boundary" "trust or boundary is not this session's"
+scene; put inline2 $'deny-s3\twrite-results'; rule "iam list-role-policies*" inline2; base_rules; refused "a role with another inline policy" "carries inline policies"
 scene; put attached "arn:aws:iam::aws:policy/AdministratorAccess"; rule "iam list-attached-role-policies*" attached; base_rules
 refused "a role with an attached policy" "has attached policies"
 scene; put versioned "Enabled"; rule "s3api get-bucket-versioning*" versioned; base_rules; refused "a versioned bucket" "has versioning Enabled"
@@ -238,6 +245,7 @@ for i in i-0head i-0gpu1 i-0gpu2; do
 done
 grep -q "^s3 rm .*munge.key" "$STUB/calls.log" && ok "the munge key is removed from S3 at the end" || bad "the munge key was left in S3"
 grep -q "^s3 rm --only-show-errors --recursive s3://slurmec2-007635145730/.*/$" "$STUB/calls.log" && ok "the run's prefix is removed once the evidence is unpacked" || bad "the run's prefix was left"
+[ -d "$STUB/out/evidence" ] && [ ! -e "$STUB/out/.staging" ] && ok "the evidence is unpacked through a staging directory" || bad "the evidence directory"
 [ "$(grep -c -- '--security-group-ids sg-0session' <<<"$runs")" = 3 ] && ok "all three launch into the session's own security group" || bad "the launches' security group"
 grep -q "^ec2 authorize-security-group-ingress .*--group-id sg-0session --ip-permissions IpProtocol=-1,UserIdGroupPairs=\[{GroupId=sg-0session}\]" "$STUB/calls.log" &&
   ! grep -q "0.0.0.0/0" "$STUB/calls.log" && ok "the group admits only its own members" || bad "the group's ingress: $(grep authorize "$STUB/calls.log")"
@@ -256,6 +264,12 @@ scene; put slow "running"; rule "ec2 describe-instances*--instance-ids i-0head*S
 session "a head whose termination is not confirmed" SPOT_TERMINATE_TRIES=1
 [ "$rc" != 0 ] && for i in i-0gpu1 i-0gpu2; do grep -q "^ec2 terminate-instances .*$i" "$STUB/calls.log" || bad "$i was never terminated after the head's stalled"; done
 ok "the workers are terminated though the head's termination is unconfirmed"
+
+# An archive that is not the one head verified: not scored, and the S3 copy kept.
+scene; base_rules; void_evidence; sed -i 's/^evidence_sha256=.*/evidence_sha256=0000/' "$STUB/fixtures/DONE"
+session "an archive that is not the verified one"
+[ "$rc" = 3 ] && grep -q "NO-EVIDENCE" "$STUB/out/verdict.txt" && ! grep -q "^s3 rm --only-show-errors --recursive" "$STUB/calls.log" &&
+  ok "an archive whose digest differs is not scored and the run's prefix is kept" || bad "a digest mismatch: exit $rc, $(head -1 "$STUB/out/verdict.txt")"
 
 # --- the ways the purchase and the end can go wrong ---------------------------------------------------------------
 # A scene's own rule goes before base_rules, because the first matching rule answers.
@@ -280,7 +294,7 @@ session "termination not confirmed"
   bad "an unconfirmed termination: exit $rc, $(tail -1 "$STUB/out/verdict.txt" 2>&1)"
 scene; base_rules; echo "ok" >"$STUB/fixtures/DONE"
 session "no evidence came back"
-[ "$rc" = 3 ] && grep -q "NO-EVIDENCE (the evidence archive did not come back)" "$STUB/out/verdict.txt" && ok "a session whose evidence never came back says so and exits 3" ||
+[ "$rc" = 3 ] && grep -q "NO-EVIDENCE (the evidence archive did not come back whole" "$STUB/out/verdict.txt" && ok "a session whose evidence never came back says so and exits 3" ||
   bad "no evidence gave: $(head -1 "$STUB/out/verdict.txt" 2>&1)"
 
 if [[ $fails -ne 0 ]]; then

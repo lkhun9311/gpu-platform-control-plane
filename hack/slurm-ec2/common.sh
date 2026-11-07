@@ -21,6 +21,10 @@ SHARED=/shared
 EVID=$SHARED/evidence
 TENANT=tenant
 TENANT_UID=2001
+# The packages create their service users with whatever ids are free, which differ between the Canonical and the
+# Deep Learning images; Slurm needs the same SlurmUser everywhere, so the user is made first, with fixed ids.
+SLURM_UID=1601
+MUNGE_UID=1602
 
 log() { printf '%s %s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)" "${ROLE:-?}" "$*"; }
 
@@ -28,8 +32,8 @@ log() { printf '%s %s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)" "${ROLE:-?}" "$
 s3get() { aws s3 cp --only-show-errors "s3://$BUCKET/$PREFIX/$1" "$2"; }
 s3put() { aws s3 cp --only-show-errors "$1" "s3://$BUCKET/$PREFIX/$2"; }
 
-# left END: seconds from now until the epoch END, never below 0.
-left() { local l=$(( $1 - $(date +%s) )); [ "$l" -gt 0 ] && echo "$l" || echo 0; }
+# left END: seconds from now until the epoch END, never below 1: GNU timeout reads 0 as no limit at all.
+left() { local l=$(( $1 - $(date +%s) )); [ "$l" -gt 1 ] && echo "$l" || echo 1; }
 
 # until_true END INTERVAL CMD...: runs CMD until it succeeds or END passes; returns CMD's last status.
 until_true() {

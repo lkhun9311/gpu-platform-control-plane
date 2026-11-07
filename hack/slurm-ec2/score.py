@@ -77,6 +77,8 @@ def preconditions(ev):
             reasons.append(f"{n} is not one A10G: {e.get('cards')!r}")
         if e.get("slurmd") != SLURM_VERSION:
             reasons.append(f"{n} runs slurmd {e.get('slurmd')!r}")
+        if e.get("slurm_uid") != "1601":
+            reasons.append(f"{n}'s slurm user is uid {e.get('slurm_uid')!r}, not 1601")
     pk = read(os.path.join(ev, "config", "head-packages.txt")) or ""
     for p in ("slurmctld", "slurmdbd"):
         if not re.search(rf"^{p}\s+{re.escape(SLURM_VERSION)}$", pk, re.M):
@@ -159,7 +161,7 @@ def b2(ev):
             out.append({"rep": rep, **result("INVALID", ["the job, its accounting, its output or the node's journal is missing"])})
             continue
         # A failed sacct, journal or PID read is a failed instrument, not slurmd or the cgroup misbehaving.
-        broken = failed_instruments(d, ["sacct.txt", "kernel.txt", "slurmd-pid-after.txt"])
+        broken = failed_instruments(d, ["sacct.txt", "kernel.txt", "slurmd-pid-after.txt", "node-after.txt", "cursor-before.txt"])
         if not before.isdigit() or before == "0":
             broken.append(f"slurmd's MainPID before B2 was not read ({before!r})")
         if "job_memory_events oom_kill" not in jobout:
@@ -211,6 +213,8 @@ def b3(ev):
             out[name] = result("INVALID", ["the jobs, the poll or the accounting is missing"])
             continue
         broken = failed_instruments(d, ["sacct.txt"])
+        if any(l.split()[1:2] == ["READ-FAILED"] for l in poll.splitlines()):
+            broken.append("squeue failed during the poll")
         if broken:
             out[name] = result("INVALID", broken)
             continue

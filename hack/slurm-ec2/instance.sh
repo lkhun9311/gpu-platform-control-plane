@@ -69,6 +69,14 @@ case "$ROLE" in
   head) pkgs="slurmctld=$SLURM_PKG_VERSION slurmdbd=$SLURM_PKG_VERSION slurm-client=$SLURM_PKG_VERSION munge=$MUNGE_PKG_VERSION mariadb-server=$MARIADB_PKG_VERSION nfs-kernel-server python3-venv" ;;
   *) pkgs="slurmd=$SLURM_PKG_VERSION slurm-client=$SLURM_PKG_VERSION munge=$MUNGE_PKG_VERSION nfs-common" ;;
 esac
+for svc in slurm:$SLURM_UID munge:$MUNGE_UID; do
+  u=${svc%%:*} want=${svc##*:}
+  if id "$u" >/dev/null 2>>/var/log/slurmec2-setup.log; then
+    [ "$(id -u "$u")" = "$want" ] || die "$u already exists with uid $(id -u "$u"), not $want"
+  else
+    groupadd -g "$want" "$u" && useradd -r -u "$want" -g "$want" -d /nonexistent -s /usr/sbin/nologin "$u" || die "create $u ($want)"
+  fi
+done
 export DEBIAN_FRONTEND=noninteractive
 # shellcheck disable=SC2086
 # A fresh Ubuntu instance's own apt runs (cloud-init, unattended-upgrades) hold the dpkg lock for minutes after boot;
@@ -167,6 +175,7 @@ worker_bringup() {
     echo "driver=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader)"
     echo "slurmd=$(dpkg-query -W -f '${Version}' slurmd)"
     echo "kernel=$(uname -r)"
+    echo "slurm_uid=$(id -u slurm)"
     echo "nvml_plugin=$(test -e /usr/lib/x86_64-linux-gnu/slurm-wlm/gpu_nvml.so && echo present || echo absent)"
   } >"$SHARED/nodeinfo/$ROLE.env"
   slurmd -C >"$SHARED/nodeinfo/$ROLE.conf.tmp" && mv "$SHARED/nodeinfo/$ROLE.conf.tmp" "$SHARED/nodeinfo/$ROLE.conf" || die "slurmd -C"

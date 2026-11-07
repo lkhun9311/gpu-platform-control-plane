@@ -29,12 +29,18 @@ sacct -a -n -P -D -S "$(date -u -d "@${T0:-0}" +%Y-%m-%dT%H:%M:%S)" \
 sinfo -N -l >"$EVID/sinfo-end.txt" 2>>"$errs"
 final=no
 ship && final=yes
+# Nothing verified yet: keep trying until the evidence deadline, because DONE lets the runner terminate the only copy.
+while [ ! -s /tmp/evidence.sha ] && [ "$(date +%s)" -lt $(( ${T0:-0} + EVIDENCE_S + 30 )) ]; do
+  sleep 15
+  ship && final=yes
+done
 
 touch "$SHARED/control/END"
 # The digest of the archive S3 holds as verified, which the runner checks its download against: the final one, or the
 # earlier one when only that upload was verified.
 {
-  if [ -s "$EVID/VOID" ]; then echo "VOID: $(cat "$EVID/VOID")"; else echo "ok"; fi
+  if [ ! -s /tmp/evidence.sha ]; then echo "NO-EVIDENCE: no archive was verified in S3 by the evidence deadline"
+  elif [ -s "$EVID/VOID" ]; then echo "VOID: $(cat "$EVID/VOID")"; else echo "ok"; fi
   echo "evidence_verified=$shipped"
   echo "evidence_final=$final"
   [ ! -s /tmp/evidence.sha ] || echo "evidence_sha256=$(cat /tmp/evidence.sha)"

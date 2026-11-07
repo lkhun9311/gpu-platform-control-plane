@@ -88,8 +88,12 @@ chmod 755 "$SHARED/jobs/b2.sh"
 root_on gpu2 "$EVID/b2-slurmd-pid-before.txt" systemctl show -p MainPID --value slurmd
 for rep in 1 2 3; do
   d=$EVID/b2/rep-$rep
-  if [ "$(left "$CHECKS_END")" -lt 300 ]; then notrun "b2/rep-$rep" "fewer than 300 s left for the checks"; continue; fi
+  # 240 s for the job and up to 120 s for each of four node reads.
+  if [ "$(left "$CHECKS_END")" -lt 720 ]; then notrun "b2/rep-$rep" "fewer than 720 s left for the checks"; continue; fi
   mkdir -p "$d" && chmod 777 "$d"
+  # The node's own journal cursor, so the window is the node's records between the two reads, whatever its clock.
+  root_on gpu2 "$d/cursor-before.txt" journalctl -k -n 0 --show-cursor --no-pager
+  cursor=$(sed -n 's/^-- cursor: //p' "$d/cursor-before.txt")
   t_start=$(date +%s)
   id=$(as_tenant sbatch --parsable -w gpu2 --mem=512M -t 5 -o "$d/job.out" -e "$d/job.err" "$SHARED/jobs/b2.sh") ||
     { echo "sbatch failed" >"$d/sbatch-error"; continue; }
@@ -100,9 +104,14 @@ for rep in 1 2 3; do
   echo "t_end=$t_end" >>"$d/job.env"
   sacct -j "$id" -n -P -o JobID,State,ExitCode,MaxRSS >"$d/sacct.txt" 2>&1
   echo $? >"$d/sacct.txt.rc"
-  root_on gpu2 "$d/kernel.txt" journalctl -k -o short-iso --no-pager --since "@$(( t_start - 1 ))" --until "@$t_end"
+  if [ -n "$cursor" ]; then
+    root_on gpu2 "$d/kernel.txt" journalctl -k -o short-iso --no-pager --after-cursor "$cursor"
+  else
+    echo "no cursor" >"$d/kernel.txt"; echo 1 >"$d/kernel.txt.rc"
+  fi
   root_on gpu2 "$d/slurmd-pid-after.txt" systemctl show -p MainPID --value slurmd
   scontrol show node gpu2 >"$d/node-after.txt" 2>&1
+  echo $? >"$d/node-after.txt.rc"
 done
 echo "b2_done=$(now)" >>"$EVID/timeline.env"
 ship || log "the evidence after b2 could not be shipped"
@@ -112,8 +121,13 @@ ship || log "the evidence after b2 could not be shipped"
 poll_pair() {
   local d=$1 i1=$2 i2=$3 until_t=$(( $(date +%s) + $4 ))
   while [ "$(date +%s)" -lt "$until_t" ]; do
-    squeue -h -j "$i1,$i2" -o "%i %T %r" | sed "s/^/$(now) /" >>"$d/poll.txt"
-    [ -n "$(squeue -h -j "$i1,$i2" -o %i)" ] || break
+    # A failed read is written as such: an empty answer would otherwise end the poll as if both jobs had left.
+    if q=$(squeue -h -j "$i1,$i2" -o "%i %T %r"); then
+      [ -z "$q" ] && break
+      sed "s/^/$(now) /" <<<"$q" >>"$d/poll.txt"
+    else
+      echo "$(now) READ-FAILED" >>"$d/poll.txt"
+    fi
     sleep 1
   done
   sacct -j "$i1,$i2" -n -P -X -o JobID,State,Submit,Start,End,Reason >"$d/sacct.txt" 2>&1
