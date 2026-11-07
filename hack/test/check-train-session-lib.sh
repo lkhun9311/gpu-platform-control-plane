@@ -436,9 +436,10 @@ group_holds ""
 answer aws-ec2-describe-instances.1 "$(printf 'i-0aaa\tshutting-down\ni-0bbb\trunning')"
 answer aws-ec2-describe-instances "$(printf 'i-0aaa\tterminated\ni-0bbb\tterminated')"
 expect "both instances followed to terminated" 0 "i-0aaa i-0bbb terminated" -- train_scale_down gpu-platform ap-northeast-2 gpu "$STUB/ids" 5
-if grep -q -- "update-nodegroup-config .*--nodegroup-name gpu .*desiredSize=0" "$STUB/calls.log" &&
+# --output json too: the update's id is read from its answer as JSON, and a profile set to text would answer otherwise.
+if grep -q -- "update-nodegroup-config .*--nodegroup-name gpu .*desiredSize=0 --output json" "$STUB/calls.log" &&
   ! grep -q -- "--nodegroup-name gpu_single" "$STUB/calls.log"; then
-  ok "the scale-down is update-nodegroup-config on gpu to desired 0"
+  ok "the scale-down is update-nodegroup-config on gpu to desired 0, answered as JSON"
 else
   bad "the scale-down did not target gpu at desired 0: $(grep update-nodegroup "$STUB/calls.log")"
 fi
