@@ -77,8 +77,19 @@ func (r *MLTrainingJobReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	// Handle deletion: the owned Job carries a controller owner reference, so garbage collection removes it.
 	//
 	// The reconciler only needs to drop the finalizer once that has had a chance to happen.
+	// A restartable job first retires its ranks, whose Pods hold finRankStopped until they are known to have stopped,
+	// so its deletion is not a way around the stop barrier.
 	if !mltj.DeletionTimestamp.IsZero() {
 		if controllerutil.ContainsFinalizer(&mltj, mlTrainingJobFinalizer) {
+			if restartable(&mltj) {
+				done, err := r.retireOnDelete(ctx, &mltj)
+				if err != nil {
+					return ctrl.Result{}, err
+				}
+				if !done {
+					return ctrl.Result{RequeueAfter: stopPoll}, nil
+				}
+			}
 			controllerutil.RemoveFinalizer(&mltj, mlTrainingJobFinalizer)
 			if err := r.Update(ctx, &mltj); err != nil {
 				return ctrl.Result{}, fmt.Errorf("remove finalizer from mltrainingjob %s: %w", mltj.Name, err)
@@ -316,6 +327,11 @@ func buildJob(mltj *platformv1.MLTrainingJob, attempt int32) *batchv1.Job {
 	}
 	if mltj.Spec.Distributed != nil {
 		applyDistributed(job, mltj, attempt)
+	}
+	if attempt > 0 {
+		// The Job controller copies a template's finalizers onto every Pod it creates (checked on kind v1.31), so no
+		// rank Pod exists without it, even one the controller never sees before it is lost; attempt 0 is untouched.
+		job.Spec.Template.Finalizers = []string{finRankStopped}
 	}
 	return job
 }

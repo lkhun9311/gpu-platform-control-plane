@@ -278,8 +278,9 @@ type TrainingAttempt struct {
 	NodeUIDs map[string]string `json:"nodeUIDs,omitempty"`
 
 	// trigger is why the attempt ended: RankFailed (the Job failed), NodeFault (the platform's GPU fault path
-	// handed its Workload over), or JobDeleted (its Job went away while it was running).
-	// +kubebuilder:validation:Enum=RankFailed;NodeFault;JobDeleted
+	// handed its Workload over), Evicted (Kueue evicted its Workload for a reason other than an operator's
+	// deactivation, such as preemption), or JobDeleted (its Job went away while it was running).
+	// +kubebuilder:validation:Enum=RankFailed;NodeFault;Evicted;JobDeleted
 	// +optional
 	Trigger string `json:"trigger,omitempty"`
 
@@ -302,6 +303,16 @@ type TrainingAttempt struct {
 	// stopConfirmedAt is when every condition for starting the next attempt was confirmed.
 	// +optional
 	StopConfirmedAt *metav1.Time `json:"stopConfirmedAt,omitempty"`
+
+	// fencedBy lists the fenced-nodes entries this attempt's stop relied on.
+	//
+	// An entry is spent once an attempt has stopped on it: a machine acknowledged as off for one attempt may boot,
+	// run a later attempt and be lost again, and the old acknowledgement says nothing of that.
+	// Acknowledging the same machine for a later attempt takes an entry scoped to it, name#N or name@id#N.
+	// +listType=set
+	// +kubebuilder:validation:MaxItems=16
+	// +optional
+	FencedBy []string `json:"fencedBy,omitempty"`
 }
 
 // +kubebuilder:object:root=true
