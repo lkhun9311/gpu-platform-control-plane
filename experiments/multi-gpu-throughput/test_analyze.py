@@ -64,14 +64,25 @@ def channel(rank: int, via: str) -> str:
 def rank_lines(name: str, rank: int, pid: int, host: str, ddp: bool, busbw_scale: float, transport: str) -> list[str]:
     lines = [json.dumps(start(name, rank, pid, host, STEP if ddp else BENCH, ddp))]
     lines.append(nccl(host, pid, rank, channel(rank, transport)))
+    # The raw times are written as the benches write them, every rank's samples in every rank's record, and the
+    # summaries are what those samples give, so a fixture that edits one without the other is a broken record.
     if ddp:
+        synced, local = 0.06 * busbw_scale, 0.01
         lines.append(json.dumps({"run_id": name, "rank": rank, "event": "steps", "verified": True, "synced_steps": 50,
-                                 "local_steps": 50, "device": "cuda", "synced_ms_median": 60.0 * busbw_scale,
-                                 "local_ms_median": 10.0, "sync_cost_ms": 60.0 * busbw_scale - 10.0}))
+                                 "local_steps": 50, "device": "cuda", "synced_ms_median": synced * 1000.0,
+                                 "local_ms_median": local * 1000.0, "sync_cost_ms": synced * 1000.0 - local * 1000.0,
+                                 "synced_s_by_rank": [[synced] * 50 for _ in range(4)],
+                                 "local_s_by_rank": [[local] * 50 for _ in range(4)],
+                                 "synced_checksum_mismatches": 0, "local_checksum_collisions": 0,
+                                 "reduction_mismatched_parameters": 0}))
     else:
         for size in analyze.SIZES:
+            busbw = 10.0 * busbw_scale
+            seconds = size / 1e9 * 1.5 / busbw
             lines.append(json.dumps({"run_id": name, "rank": rank, "event": "size", "size_bytes": size, "verified": True,
-                                     "iterations": 100, "busbw_gigabytes_per_s_median": 10.0 * busbw_scale}))
+                                     "iterations": 100, "busbw_gigabytes_per_s_median": size / seconds / 1e9 * 1.5,
+                                     "times_s_by_rank": [[seconds] * 100 for _ in range(4)],
+                                     "local_mismatched_iterations": 0}))
     lines.append(json.dumps({"run_id": name, "rank": rank, "event": "done", "exit_code": 0}))
     return lines
 
@@ -392,6 +403,57 @@ class Correctness(Base):
         path = write_job(self.root, "a", "ddp-4pod1gpu")
         edit_records(path, "pod-uid-0", lambda r: {**r, "local_ms_median": -1.0} if r["event"] == "steps" else r)
         self.assertFault(path, "local_ms_median is -1.0, not a positive time")
+
+    # The summaries are checked against the raw samples they claim to summarise (review r7, 2026-11-07).
+    # Mutations that turn these red: drop the busbw recomputation, the step-median recomputation, the shape and
+    # value checks of slowest_samples, or the correctness counters.
+    def test_a_bandwidth_its_raw_times_do_not_give(self):
+        path = write_job(self.root, "a", "allreduce-1pod4gpu")
+        edit_records(path, "pod-uid-0", lambda r: {**r, "busbw_gigabytes_per_s_median": 12.0}
+                     if r.get("size_bytes") == 1 << 24 and r["rank"] == 0 else r)
+        self.assertFault(path, "rank 0 size 16777216: busbw 12.0 is not the")
+
+    def test_a_bandwidth_with_no_raw_times(self):
+        path = write_job(self.root, "a", "allreduce-4pod1gpu")
+        edit_records(path, "pod-uid-0", lambda r: {k: v for k, v in r.items() if k != "times_s_by_rank"}
+                     if r.get("event") == "size" else r)
+        self.assertFault(path, "the raw times are not 4 ranks by 100 samples")
+
+    def test_a_raw_time_of_zero(self):
+        path = write_job(self.root, "a", "allreduce-1pod4gpu")
+
+        def zero(r):
+            if r.get("size_bytes") == 1 << 20 and r["rank"] == 2:
+                times = [list(row) for row in r["times_s_by_rank"]]
+                times[1][7] = 0.0
+                return {**r, "times_s_by_rank": times}
+            return r
+        edit_records(path, "pod-uid-0", zero)
+        self.assertFault(path, "a raw time is not a positive finite number")
+
+    def test_mismatched_iterations(self):
+        path = write_job(self.root, "a", "allreduce-1pod4gpu")
+        edit_records(path, "pod-uid-0", lambda r: {**r, "local_mismatched_iterations": 2}
+                     if r.get("size_bytes") == 1 << 22 and r["rank"] == 3 else r)
+        self.assertFault(path, "2 iteration(s) reduced to the wrong sum")
+
+    def test_ddp_step_time_its_raw_times_do_not_give(self):
+        path = write_job(self.root, "a", "ddp-4pod1gpu")
+        edit_records(path, "pod-uid-0", lambda r: {**r, "synced_ms_median": 61.0, "sync_cost_ms": 51.0}
+                     if r["event"] == "steps" else r)
+        self.assertFault(path, "synced_ms_median 61.0 is not the")
+
+    def test_ddp_raw_times_of_the_wrong_shape(self):
+        path = write_job(self.root, "a", "ddp-1pod4gpu")
+        edit_records(path, "pod-uid-0", lambda r: {**r, "local_s_by_rank": r["local_s_by_rank"][:3]}
+                     if r["event"] == "steps" and r["rank"] == 1 else r)
+        self.assertFault(path, "rank 1 local steps: the raw times are not 4 ranks by 50 samples")
+
+    def test_ddp_checksum_mismatch(self):
+        path = write_job(self.root, "a", "ddp-1pod4gpu")
+        edit_records(path, "pod-uid-0", lambda r: {**r, "synced_checksum_mismatches": 1}
+                     if r["event"] == "steps" and r["rank"] == 2 else r)
+        self.assertFault(path, "rank 2: synced_checksum_mismatches is 1")
 
     def test_a_rank_refused(self):
         path = write_job(self.root, "a", "ddp-4pod1gpu")
