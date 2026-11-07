@@ -13,8 +13,6 @@ cd "$(dirname "$0")"
 
 DAYS="${DAYS:-7}"
 REGIONS="${REGIONS:-ap-northeast-2 us-east-1}"
-ALLOWED_REGIONS="ap-northeast-2 us-east-1"
-ALLOWED_TYPES="t3. g4dn. g5. g7e."
 
 say() { printf '\n== %s\n' "$*"; }
 fail=0
@@ -49,74 +47,30 @@ done
 
 say "collecting CloudTrail events (last ${DAYS} days)"
 : > /tmp/scp-events.jsonl
+# A lookup that fails is a collection that is incomplete, and a simulation over part of the record proves less than it
+# says; its error is kept and the run fails (gpt-6-astra's review of 116092ef, r5 finding 11).
 for r in $REGIONS; do
-  n=$(aws cloudtrail lookup-events --region "$r" \
+  if ! got=$(aws cloudtrail lookup-events --region "$r" \
         --start-time "$(date -u -d "-${DAYS} days" +%Y-%m-%dT%H:%M:%SZ)" \
-        --max-results 200 --query 'Events[].CloudTrailEvent' --output text 2>/dev/null \
-      | tr '\t' '\n' | grep -c . || true)
-  aws cloudtrail lookup-events --region "$r" \
-      --start-time "$(date -u -d "-${DAYS} days" +%Y-%m-%dT%H:%M:%SZ)" \
-      --max-results 200 --query 'Events[].CloudTrailEvent' --output text 2>/dev/null \
-    | tr '\t' '\n' | grep . >> /tmp/scp-events.jsonl || true
+        --max-results 200 --query 'Events[].CloudTrailEvent' --output text 2>/tmp/scp-lookup-$r.err); then
+    echo "   $r: the lookup failed: $(tr '\n' ' ' </tmp/scp-lookup-$r.err | cut -c1-200)"
+    fail=1
+    continue
+  fi
+  n=$(printf '%s' "$got" | tr '\t' '\n' | grep -c .)
+  printf '%s' "$got" | tr '\t' '\n' | grep . >> /tmp/scp-events.jsonl
   echo "   $r: $n events"
 done
 total=$(wc -l < /tmp/scp-events.jsonl)
 echo "   total: $total"
 [ "$total" -eq 0 ] && { echo "   no events -- the simulation proves nothing. Widen DAYS or run a session first."; exit 1; }
 
+# Both policies are evaluated by scp_eval.py from their own action patterns and conditions.
 say "deny-region: any recorded call outside the allowed Regions?"
-python3 - "$ALLOWED_REGIONS" <<'PY'
-import sys, json
-allowed = set(sys.argv[1].split())
-# The exemption list in deny-region.json, as service prefixes.
-exempt = set(json.load(open('deny-region.json'))['Statement'][0]['NotAction'])
-exempt_prefixes = {a.split(':')[0] for a in exempt}
-bad = []
-for line in open('/tmp/scp-events.jsonl'):
-    try: e = json.loads(line)
-    except Exception: continue
-    region = e.get('awsRegion')
-    svc = e.get('eventSource', '').split('.')[0]
-    if region in allowed or svc in exempt_prefixes:
-        continue
-    bad.append((region, svc, e.get('eventName')))
-if bad:
-    print(f"   WOULD HAVE DENIED {len(bad)}:")
-    for r, s, n in bad[:10]:
-        print(f"     {r} {s}:{n}")
-    sys.exit(1)
-print("   clean -- every recorded call is in an allowed Region or an exempt service")
-PY
-[ $? -ne 0 ] && fail=1
+python3 scp_eval.py region deny-region.json /tmp/scp-events.jsonl || fail=1
 
 say "deny-instance-family: any recorded launch of an unapproved type?"
-python3 - "$ALLOWED_TYPES" <<'PY'
-import sys, json
-allowed = tuple(sys.argv[1].split())
-# Read the watched actions out of the policy rather than restating them. A hardcoded copy drifts from the
-# file it is supposed to be checking, which is how the first version of this script kept warning about
-# UpdateNodegroupConfig after the policy had stopped denying it.
-watched = set()
-for s in json.load(open('deny-instance-family.json'))['Statement']:
-    a = s['Action']
-    watched.update(x.split(':')[1] for x in (a if isinstance(a, list) else [a]))
-seen = bad = 0
-for line in open('/tmp/scp-events.jsonl'):
-    try: e = json.loads(line)
-    except Exception: continue
-    if e.get('eventName') not in watched:
-        continue
-    seen += 1
-    blob = json.dumps(e.get('requestParameters') or {})
-    types = [t for t in ('t3.', 'g4dn.', 'g5.', 'g7e.', 'p3.', 'p4d.', 'p5.', 'inf', 'trn', 'm5.', 'c5.') if t in blob]
-    unapproved = [t for t in types if not t.startswith(allowed)]
-    if unapproved:
-        bad += 1
-        print(f"   WOULD HAVE DENIED {e.get('eventName')}: {unapproved}")
-print(f"   {seen} launch-shaped calls recorded, {bad} would have been denied")
-sys.exit(1 if bad else 0)
-PY
-[ $? -ne 0 ] && fail=1
+python3 scp_eval.py family deny-instance-family.json /tmp/scp-events.jsonl || fail=1
 
 say "deny-escape: any recorded call this policy forbids?"
 python3 <<'PY'

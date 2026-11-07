@@ -69,6 +69,19 @@ fi
 exit 0
 EOF
 chmod +x "$dir/bin/terraform"
+# A stub aws for the watchdog's residue census after a destroy that succeeds: without it that census would ask the real
+# account. Every service answers empty unless TTL_RESIDUE_* says otherwise; every call is recorded.
+cat >"$dir/bin/aws" <<'EOF'
+#!/usr/bin/env bash
+echo "aws $*" >>"$(dirname "$0")/../aws.calls"
+case "$1 $2" in
+  "ec2 describe-instances") printf '%s' "${TTL_RESIDUE_EC2:-}" ;;
+  "scheduler list-schedules") printf '%s' "${TTL_RESIDUE_SCHEDULE:-}" ;;
+  "eks list-clusters") [[ -n "${TTL_RESIDUE_EKS_RC:-}" ]] && { echo "ExpiredTokenException" >&2; exit "$TTL_RESIDUE_EKS_RC"; } ;;
+esac
+exit 0
+EOF
+chmod +x "$dir/bin/aws"
 program() {
   bash -c '. hack/lib/session-teardown.sh; killswitch_program "$1/ttl.pid" "$1/kill.log" "$1" "${3:-0}" "$2" gpu-lab ap-northeast-2 infra/aws/cluster gpu-platform "-var=gpu_max_nodes=3 -var=efs_enabled=true" "$1" 1' _ "$dir" "$1" "${2:-0}"
 }
@@ -176,6 +189,57 @@ else
   bad "the succeeding destroy: $(tail -3 "$dir/kill.log" | tr '\n' ' ')"
 fi
 
+# A destroy that returns zero is SUCCEEDED only once the residue census is clean, as the foreground teardown requires; the
+# GPU deadline is removed only then, and the session's own deadline is not counted as residue (gpt-6-astra's review of
+# 116092ef, r5 finding 6).
+echo "gpu-ttl-gpu-platform-gpu-20261107000000" >"$dir/gpu-ttl-schedule.txt"
+for residue in left unasked clean; do
+  : >"$dir/kill.log"
+  : >"$dir/aws.calls"
+  case "$residue" in
+    left) TTL_RESIDUE_EC2="i-0abc" PATH="$dir/bin:$PATH" bash -c "$(program 30)" ;;
+    unasked) TTL_RESIDUE_EKS_RC=254 PATH="$dir/bin:$PATH" bash -c "$(program 30)" ;;
+    clean) TTL_RESIDUE_SCHEDULE="gpu-ttl-gpu-platform-gpu-20261107000000" PATH="$dir/bin:$PATH" bash -c "$(program 30)" ;;
+  esac
+  deleted="$(grep -c 'scheduler delete-schedule --name gpu-ttl-gpu-platform-gpu-20261107000000' "$dir/aws.calls")"
+  if [[ "$residue" == clean ]]; then
+    if grep -q 'force-destroy SUCCEEDED' "$dir/kill.log" && [[ "$deleted" == 1 ]] && grep -q 'eks list-clusters' "$dir/aws.calls"; then
+      ok "a destroy followed by a clean census is SUCCEEDED and removes the GPU deadline"
+    else
+      bad "the clean census: deleted=$deleted, $(grep '\[ttl\]' "$dir/kill.log" | tail -1)"
+    fi
+  elif grep -q 'force-destroy INCOMPLETE' "$dir/kill.log" && ! grep -q 'force-destroy SUCCEEDED' "$dir/kill.log" && [[ "$deleted" == 0 ]]; then
+    ok "a destroy that returned zero with the census $residue is INCOMPLETE and keeps the GPU deadline"
+  else
+    bad "the census $residue: deleted=$deleted, $(grep '\[ttl\]' "$dir/kill.log" | tail -1)"
+  fi
+done
+rm -f "$dir/gpu-ttl-schedule.txt"
+
+# A watchdog armed by an earlier session is found, so the next session refuses to build into the state it would destroy,
+# and a disarmed one is no longer found (gpt-6-astra's review of 116092ef, r5 finding 1).
+: >"$dir/ttl.pid"
+PATH="$dir/bin:$PATH" setsid bash -c "$(program 600 600)" &
+for _ in $(seq 25); do [[ -s "$dir/ttl.pid" ]] && break; sleep 0.2; done
+armed="$(cat "$dir/ttl.pid")"
+found="$(bash -c '. hack/lib/session-teardown.sh; killswitch_others')"
+bash -c '. hack/lib/session-teardown.sh; killswitch_disarm "$1" "$2"' _ "$armed" "$dir/ttl.pid" >/dev/null
+after="$(bash -c '. hack/lib/session-teardown.sh; killswitch_others')"
+if [[ "$armed" =~ ^[0-9]+$ ]] && grep -qx "$armed" <<<"$found" && ! grep -qx "$armed" <<<"$after"; then
+  ok "an armed watchdog is found by killswitch_others, and is gone from it once disarmed"
+else
+  bad "killswitch_others: armed '$armed', found [$found], after disarming [$after]"
+  [[ "$armed" =~ ^[0-9]+$ ]] && kill -9 -- "-$armed"
+fi
+first_others="$(grep -n 'killswitch_others' hack/eks-gitops-session.sh | head -1 | cut -d: -f1)"
+first_arm="$(grep -n 'setsid nohup bash -c "$(killswitch_program' hack/eks-gitops-session.sh | head -1 | cut -d: -f1)"
+if [[ -n "$first_others" && -n "$first_arm" ]] && ((first_others < first_arm)) &&
+  grep -q 'die "a kill switch watchdog from an earlier session is still armed' hack/eks-gitops-session.sh; then
+  ok "the session refuses to arm while another watchdog is armed, before it arms its own"
+else
+  bad "the session's refusal of another armed watchdog: killswitch_others at line ${first_others:-none}, arming at ${first_arm:-none}"
+fi
+
 # A session still running when the TTL fires is stopped with everything it runs before the destroy, and the watchdog,
 # which the session started and so is one of its children, survives that to destroy: a hung foreground terraform holding
 # the state lock once defeated every destroy attempt (gpt-6-astra's second attack before the corelimit run).
@@ -226,7 +290,13 @@ done
 # A terraform of this user still working on the cluster root carries the same Who, so its lock is not released while it
 # runs (codex review of 3e3896cb). The stand-in is a script named terraform, so it is found by name as the real one is.
 mkdir -p "$dir/holder"
-printf '#!/bin/bash\nwhile :; do sleep 1; done\n' >"$dir/holder/terraform"
+# Like terraform, it changes into its -chdir before anything else (terraform's own process was seen to: started from
+# infra/aws with -chdir=cluster, its cwd is infra/aws/cluster), so the holder is found where terraform would be.
+cat >"$dir/holder/terraform" <<'EOF'
+#!/bin/bash
+for a in "$@"; do case "$a" in -chdir=*) cd "${a#-chdir=}" || exit 1 ;; esac; done
+while :; do sleep 1; done
+EOF
 chmod +x "$dir/holder/terraform"
 (cd "$PWD" && exec "$dir/holder/terraform" -chdir=infra/aws/cluster plan) &
 holder=$!
@@ -241,6 +311,39 @@ if [[ ! -e "$dir/lock/unlocks" ]] && grep -q "terraform $holder of that user sti
 else
   bad "the live holder: $(grep '\[ttl\]' "$dir/kill.log" | tr '\n' ' ' | cut -c1-300)"
 fi
+
+# A terraform in another checkout's cluster root holds the same state, however it was pointed there: started from inside
+# it, given an absolute -chdir, or a -chdir relative to somewhere else (gpt-6-astra's review of 116092ef, r5 finding 2).
+# A terraform on another root is not a holder, and the stale lock is still released.
+other="$work/other checkout"
+mkdir -p "$other/infra/aws/cluster" "$other/infra/aws/bootstrap"
+for how in inside absolute relative parent unrelated; do
+  case "$how" in
+    parent) (cd "$other/infra/aws" && exec "$dir/holder/terraform" -chdir=cluster plan) & ;;
+    inside) (cd "$other/infra/aws/cluster" && exec "$dir/holder/terraform" plan) & ;;
+    absolute) (cd / && exec "$dir/holder/terraform" "-chdir=$other/infra/aws/cluster" plan) & ;;
+    relative) (cd "$other/infra/aws/bootstrap" && exec "$dir/holder/terraform" -chdir=../cluster plan) & ;;
+    unrelated) (cd "$other/infra/aws/bootstrap" && exec "$dir/holder/terraform" plan) & ;;
+  esac
+  holder=$!
+  sleep 0.5
+  : >"$dir/kill.log"
+  rm -rf "$dir/lock" && mkdir -p "$dir/lock"
+  TF_HANGS=lock TF_LOCK_DIR="$dir/lock" TF_LOCK_WHO="$me" TF_LOCK_ERROR="$PWD/hack/test/session-teardown/terraform-lock-error.txt" \
+    PATH="$dir/bin:$PATH" bash -c "$(program 30)"
+  kill "$holder"
+  if [[ "$how" == unrelated ]]; then
+    if [[ -e "$dir/lock/unlocks" ]] && grep -q 'force-destroy SUCCEEDED' "$dir/kill.log"; then
+      ok "a terraform on another root is not taken for the lock's holder, and the stale lock is released"
+    else
+      bad "the unrelated terraform: $(grep '\[ttl\]' "$dir/kill.log" | tr '\n' ' ' | cut -c1-300)"
+    fi
+  elif [[ ! -e "$dir/lock/unlocks" ]] && grep -q "terraform $holder of that user still works on infra/aws/cluster; left to it" "$dir/kill.log"; then
+    ok "a terraform on another checkout's cluster root ($how) holds the lock, which is left to it"
+  else
+    bad "the holder in another checkout ($how): $(grep '\[ttl\]' "$dir/kill.log" | tr '\n' ' ' | cut -c1-300)"
+  fi
+done
 
 # The release is cut to what is left of the allowance: a refusal reported at its end is not followed by a force-unlock
 # that would run past the deadline the credential covers (codex review of 3e3896cb).
@@ -281,5 +384,16 @@ for f in 'teardown_residue "$REGION" "$CLUSTER" "$EXDIR"' 'killswitch_program "$
   '"$TF_TRAIN_VARS" "$EXDIR" "" $$)'; do
   if grep -qF -- "$f" hack/eks-gitops-session.sh; then ok "the session calls $f"; else bad "the session does not call $f"; fi
 done
+
+# Argo's root authenticates for var.cluster_name, so its apply and its destroy are both given the session's name and
+# region; with the default name a session under another CLUSTER installed nothing (gpt-6-astra's review of 116092ef, r5
+# finding 10).
+argo_named="$(grep -F -A1 -e 'terraform -chdir="$ARGO_DIR" apply' -e 'terraform -chdir="$ARGO_DIR" destroy' hack/eks-gitops-session.sh |
+  grep -cF -- '-var="cluster_name=$CLUSTER" -var="region=$REGION"')"
+if [[ "$argo_named" == 2 ]]; then
+  ok "the Argo root's apply and destroy are both given the session's cluster name and region"
+else
+  bad "the Argo root is given the session's cluster name and region in $argo_named of its apply and destroy"
+fi
 
 if ((fails == 0)); then echo "check-session-teardown: all checks passed"; else echo "check-session-teardown: $fails check(s) failed"; exit 1; fi

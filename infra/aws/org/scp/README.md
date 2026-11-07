@@ -43,17 +43,22 @@ So the workload Region is exactly one, and `us-east-1` carries only global billi
 
 ## The policies
 
-### `deny-region.json` — pin the workload to one Region
+### `deny-region.json` — keep the workload out of all but two Regions
 
 Denies everything outside `ap-northeast-2` and `us-east-1`, with an exemption list for the global services
 whose endpoints live in `us-east-1` or nowhere.
 
-`us-east-1` is not exempted as a workload Region by accident: `aws pricing`, Cost Explorer, `freetier` and
-Organizations are only reachable there, and this repository calls all four. The exemption list is what keeps
-the deny from breaking them, and it is the part to review when a new global service is adopted.
+**It does not pin the workload to one Region.** `us-east-1` is allowed for every action, EC2 launches included, so
+an administrator can launch an allowed GPU family there, where the termination sweeper (which runs only in
+`ap-northeast-2`) never looks. The services this repository calls in `us-east-1` -- `aws pricing`, Cost Explorer,
+`freetier`, Organizations -- are already in the policy's `NotAction` exemption list, which applies in any Region, so
+they do not need `us-east-1` in the Region list (gpt-6-astra's review of 116092ef, r5 finding 9).
+Narrowing the list to `ap-northeast-2` is proposed in
+`docs/superpowers/specs/2026-11-07-review-r5-paid-session-safety.md` and needs the owner to apply it to the
+organization, so the file is left as it is until then rather than made to differ from whatever is attached.
 
 **What this stops:** an administrator session launching accelerators in `us-west-2`, where no budget filter,
-no quota request and no operator attention is pointed.
+no quota request and no operator attention is pointed. It does not stop the same launch in `us-east-1`.
 
 ### `deny-instance-family.json` — pin the accelerator families
 
