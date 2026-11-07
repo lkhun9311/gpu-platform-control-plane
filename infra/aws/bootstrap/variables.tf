@@ -92,3 +92,14 @@ variable "mirrored_images" {
     "mirror/dcgm-exporter"     = "nvcr.io/nvidia/k8s/dcgm-exporter"
   }
 }
+
+variable "allowed_account_ids" {
+  description = "The only AWS accounts this root may plan or apply in: gpu-lab."
+  type        = list(string)
+  default     = ["007635145730"]
+
+  validation {
+    condition     = length(var.allowed_account_ids) > 0 && alltrue([for a in var.allowed_account_ids : can(regex("^[0-9]{12}$", a))])
+    error_message = "allowed_account_ids must name at least one twelve-digit account; an empty list would allow every account."
+  }
+}
