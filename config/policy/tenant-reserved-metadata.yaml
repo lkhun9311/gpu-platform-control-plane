@@ -1,18 +1,20 @@
-# Annotations on a tenant's own objects that only the platform may write.
+# Metadata on a tenant's own MLTrainingJobs that only the platform may change.
 #
 # RBAC decides which objects a tenant may edit, not which keys inside them, and the tenant role
 # (config/tenant/) lets a tenant patch its MLTrainingJobs.
 # The restart barrier trusts platform.lkhun9311.github.io/fenced-nodes as an operator's statement that a machine is
 # off; a tenant who could write it could start a new attempt beside a rank still writing the shared checkpoint.
+# The controller's finalizer is what holds a deleted job until its rank Pods are retired; a tenant who removed it
+# would leave those Pods held by their own finalizers with no parent to release them.
 #
 # It is a deny on tenant identities (any group starting with "tenant:"), not an allow-list of operators: the
 # platform's own identities differ by cluster (system:masters on kind, an access entry on EKS, the session runners),
 # and an allow-list that missed one would lock the platform out of fencing during an incident.
-# RBAC already limits who may write MLTrainingJobs to tenants and platform administrators.
+# The price is that an operator identity must never also carry a tenant: group, or it is refused here.
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
 metadata:
-  name: tenant-reserved-annotations
+  name: tenant-reserved-metadata
 spec:
   failurePolicy: Fail
   matchConstraints:
@@ -31,15 +33,20 @@ spec:
       expression: "oldObject != null && has(oldObject.metadata.annotations) && variables.key in oldObject.metadata.annotations ? oldObject.metadata.annotations[variables.key] : ''"
     - name: after
       expression: "has(object.metadata.annotations) && variables.key in object.metadata.annotations ? object.metadata.annotations[variables.key] : ''"
+    - name: finalizer
+      expression: "'mltrainingjob.platform.lkhun9311.github.io/finalizer'"
   validations:
     - expression: "variables.before == variables.after"
       message: "platform.lkhun9311.github.io/fenced-nodes is written by platform operators only: it declares a machine powered off, and the restart barrier acts on it"
+      reason: Forbidden
+    - expression: "oldObject == null || !has(oldObject.metadata.finalizers) || !(variables.finalizer in oldObject.metadata.finalizers) || (has(object.metadata.finalizers) && variables.finalizer in object.metadata.finalizers)"
+      message: "mltrainingjob.platform.lkhun9311.github.io/finalizer is removed by the controller only: it holds a deleted job until its rank Pods are retired"
       reason: Forbidden
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding
 metadata:
-  name: tenant-reserved-annotations
+  name: tenant-reserved-metadata
 spec:
-  policyName: tenant-reserved-annotations
+  policyName: tenant-reserved-metadata
   validationActions: ["Deny"]
