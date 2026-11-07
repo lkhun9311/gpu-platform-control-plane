@@ -414,6 +414,8 @@ func TestADistributedStateVolumeMustBeReadWriteMany(t *testing.T) {
 		{"ReadWriteOnce", []runtime.Object{claim(corev1.ReadWriteOnce)}, "ReadWriteMany"},
 		{"ReadWriteOncePod", []runtime.Object{claim(corev1.ReadWriteOncePod)}, "ReadWriteMany"},
 		{"no claim", nil, "not found"},
+		// Mutation that turns this red: drop the volumeMode check.
+		{"Block mode", []runtime.Object{blockClaim()}, "volumeMode Block"},
 		{"ReadWriteMany", []runtime.Object{claim(corev1.ReadWriteMany)}, ""},
 		{"ReadWriteMany among others", []runtime.Object{claim(corev1.ReadWriteOnce, corev1.ReadWriteMany)}, ""},
 		// Mutations that turn these red: drop the Lost check, or the deletion check, or require Bound.
@@ -547,4 +549,12 @@ func TestAnOrdinaryStateVolumeIsNotLookedUp(t *testing.T) {
 	})); err != nil {
 		t.Fatalf("an ordinary job's claim was read: %v", err)
 	}
+}
+
+// blockClaim is a ReadWriteMany claim "ckpt" asking for a raw block device.
+func blockClaim() *corev1.PersistentVolumeClaim {
+	c := claim(corev1.ReadWriteMany)
+	block := corev1.PersistentVolumeBlock
+	c.Spec.VolumeMode = &block
+	return c
 }
