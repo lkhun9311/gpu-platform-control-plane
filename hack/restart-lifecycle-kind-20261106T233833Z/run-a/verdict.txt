@@ -1,0 +1,13 @@
+ACCEPTED reference {"checkpoint": {"a1": {"max_s": 0.101, "median_s": 0.072, "saves": 60}}}
+ACCEPTED no-rng-control {"checkpoint": {"a1": {"max_s": 0.073, "median_s": 0.054, "saves": 22}, "a2": {"max_s": 0.091, "median_s": 0.055, "saves": 36}}, "from_dir": "a1/00000012-5842a97d601c4f64b311521605db190c", "from_step": 12, "params_gap": 0.074}
+ACCEPTED dcgm-1 {"checkpoint": {"a1": {"max_s": 0.069, "median_s": 0.05, "saves": 22}, "a2": {"max_s": 0.061, "median_s": 0.054, "saves": 38}}, "class": "spare", "clock_uncertainty_s": 0.107, "from_dir": "a1/00000011-47a54b158da24a4f957d77b76e547d46", "from_step": 11, "lost_steps": 0, "params_gap": 0.0, "recovery_s": 4.179}
+ACCEPTED terminate-wait-1 {"checkpoint": {"a1": {"max_s": 0.056, "median_s": 0.05, "saves": 20}, "a2": {"max_s": 0.066, "median_s": 0.055, "saves": 40}}, "class": "replacement", "clock_uncertainty_s": 0.052, "from_dir": "a1/00000010-ed38a38578024c30bf7b8c65cfe531d5", "from_step": 10, "lost_steps": null, "lost_steps_withheld": "attempt 1's logs may lack their end: aba0751f-8937-44a6-b2ac-6942e9c67255's last stream exited 1", "params_gap": 0.0, "recovery_s": 166.12}
+summary
+  reference: 1 registered, 1 ACCEPTED, 0 FAILED (0 censored at their budget, 0 past their budget after a recovery, 0 not recovered), 0 VOID, 0 NOTRUN
+  no-rng-control: 1 registered, 1 ACCEPTED, 0 FAILED (0 censored at their budget, 0 past their budget after a recovery, 0 not recovered), 0 VOID, 0 NOTRUN
+  dcgm: 1 registered, 1 ACCEPTED, 0 FAILED (0 censored at their budget, 0 past their budget after a recovery, 0 not recovered), 0 VOID, 0 NOTRUN
+    spare: recovery median 4.2 s, range 4.2 to 4.2 s, lost steps [0], over 1 accepted; the 0 FAILED censored at their budget, the 0 past their budget after a recovery, the 0 not recovered and the 0 VOID are not in these figures
+  terminate-wait: 1 registered, 1 ACCEPTED, 0 FAILED (0 censored at their budget, 0 past their budget after a recovery, 0 not recovered), 0 VOID, 0 NOTRUN
+    replacement: recovery median 166.1 s, range 166.1 to 166.1 s, lost steps [] (1 withheld, their logs not shown read to the end), over 1 accepted; the 0 FAILED censored at their budget, the 0 past their budget after a recovery, the 0 not recovered and the 0 VOID are not in these figures
+  checkpoint cost: median 0.056 s, max 0.101 s over 180 saves
+exit=0

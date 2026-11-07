@@ -1,0 +1,802 @@
+{
+  "cases": {
+    "c1": {
+      "all_held": 3,
+      "invalid": 0,
+      "scheduled": 3
+    },
+    "c2a": {
+      "all_held": 3,
+      "invalid": 0,
+      "scheduled": 3
+    },
+    "c2b": {
+      "all_held": 3,
+      "invalid": 0,
+      "scheduled": 3
+    },
+    "c3": {
+      "all_held": 3,
+      "invalid": 0,
+      "scheduled": 3
+    },
+    "c4": {
+      "all_held": 3,
+      "invalid": 0,
+      "scheduled": 3
+    }
+  },
+  "repetitions": [
+    {
+      "all_held": true,
+      "case": "c1",
+      "expectations": [
+        {
+          "expected": "phase Failed",
+          "held": true
+        },
+        {
+          "expected": "exit 137",
+          "held": true
+        },
+        {
+          "expected": "reason OOMKilled",
+          "held": true
+        },
+        {
+          "expected": "one OOM record with task=python3",
+          "held": true
+        }
+      ],
+      "invalid_reasons": [],
+      "readings": {
+        "exit": 137,
+        "group_kill": true,
+        "killed": [
+          "python3"
+        ],
+        "oom_memcg": "/system.slice/docker-a52e3e480b2a245dea65b2a0207262f3dc725e5b1419df11edca54afcc88dae2.scope/kubelet.slice/kubelet-kubepods.slice/kubelet-kubepods-pod4c1408c1_2c13_4aae_8ff0_b968b5751b4f.slice",
+        "oom_reports": 1,
+        "phase": "Failed",
+        "reason": "OOMKilled",
+        "reason_first_polled_at": 1,
+        "stats_shmem": 0,
+        "task_memcg": "/system.slice/docker-a52e3e480b2a245dea65b2a0207262f3dc725e5b1419df11edca54afcc88dae2.scope/kubelet.slice/kubelet-kubepods.slice/kubelet-kubepods-pod4c1408c1_2c13_4aae_8ff0_b968b5751b4f.slice/cri-containerd-1ee6ace97649331943bae73f4712de39f590a4d915a7ac7186aaeeea248a6720.scope"
+      },
+      "rep": 1,
+      "validity": "observed"
+    },
+    {
+      "all_held": true,
+      "case": "c1",
+      "expectations": [
+        {
+          "expected": "phase Failed",
+          "held": true
+        },
+        {
+          "expected": "exit 137",
+          "held": true
+        },
+        {
+          "expected": "reason OOMKilled",
+          "held": true
+        },
+        {
+          "expected": "one OOM record with task=python3",
+          "held": true
+        }
+      ],
+      "invalid_reasons": [],
+      "readings": {
+        "exit": 137,
+        "group_kill": true,
+        "killed": [
+          "python3"
+        ],
+        "oom_memcg": "/system.slice/docker-a52e3e480b2a245dea65b2a0207262f3dc725e5b1419df11edca54afcc88dae2.scope/kubelet.slice/kubelet-kubepods.slice/kubelet-kubepods-pod3d4ea05a_234f_4d97_bc9e_77729c55802c.slice",
+        "oom_reports": 1,
+        "phase": "Failed",
+        "reason": "OOMKilled",
+        "reason_first_polled_at": 2,
+        "stats_shmem": 0,
+        "task_memcg": "/system.slice/docker-a52e3e480b2a245dea65b2a0207262f3dc725e5b1419df11edca54afcc88dae2.scope/kubelet.slice/kubelet-kubepods.slice/kubelet-kubepods-pod3d4ea05a_234f_4d97_bc9e_77729c55802c.slice/cri-containerd-eaaf2377ad6417a3e0908d0938cce98511774308219b0204b94fe318ec01f381.scope"
+      },
+      "rep": 2,
+      "validity": "observed"
+    },
+    {
+      "all_held": true,
+      "case": "c1",
+      "expectations": [
+        {
+          "expected": "phase Failed",
+          "held": true
+        },
+        {
+          "expected": "exit 137",
+          "held": true
+        },
+        {
+          "expected": "reason OOMKilled",
+          "held": true
+        },
+        {
+          "expected": "one OOM record with task=python3",
+          "held": true
+        }
+      ],
+      "invalid_reasons": [],
+      "readings": {
+        "exit": 137,
+        "group_kill": true,
+        "killed": [
+          "python3"
+        ],
+        "oom_memcg": "/system.slice/docker-a52e3e480b2a245dea65b2a0207262f3dc725e5b1419df11edca54afcc88dae2.scope/kubelet.slice/kubelet-kubepods.slice/kubelet-kubepods-pod0596e812_91ba_492c_984b_e4ee89e7b6a7.slice",
+        "oom_reports": 1,
+        "phase": "Failed",
+        "reason": "OOMKilled",
+        "reason_first_polled_at": 2,
+        "stats_shmem": 0,
+        "task_memcg": "/system.slice/docker-a52e3e480b2a245dea65b2a0207262f3dc725e5b1419df11edca54afcc88dae2.scope/kubelet.slice/kubelet-kubepods.slice/kubelet-kubepods-pod0596e812_91ba_492c_984b_e4ee89e7b6a7.slice/cri-containerd-b935ced11a0d68245db699d52be08054c5d1c1717e7354d88ed48246f9ea7beb.scope"
+      },
+      "rep": 3,
+      "validity": "observed"
+    },
+    {
+      "all_held": true,
+      "case": "c2a",
+      "expectations": [
+        {
+          "expected": "phase Failed",
+          "held": true
+        },
+        {
+          "expected": "exit 137",
+          "held": true
+        },
+        {
+          "expected": "reason OOMKilled",
+          "held": true
+        },
+        {
+          "expected": "the record has the memory.oom.group line",
+          "held": true
+        },
+        {
+          "expected": "python3 and sh killed",
+          "held": true
+        },
+        {
+          "expected": "log has no parent-done",
+          "held": true
+        }
+      ],
+      "invalid_reasons": [],
+      "readings": {
+        "exit": 137,
+        "group_kill": true,
+        "killed": [
+          "python3",
+          "sh"
+        ],
+        "oom_memcg": "/system.slice/docker-a52e3e480b2a245dea65b2a0207262f3dc725e5b1419df11edca54afcc88dae2.scope/kubelet.slice/kubelet-kubepods.slice/kubelet-kubepods-poddb5c7541_4c6b_4c51_8858_e2cf078604d6.slice",
+        "oom_reports": 1,
+        "phase": "Failed",
+        "reason": "OOMKilled",
+        "reason_first_polled_at": 2,
+        "stats_shmem": 0,
+        "task_memcg": "/system.slice/docker-a52e3e480b2a245dea65b2a0207262f3dc725e5b1419df11edca54afcc88dae2.scope/kubelet.slice/kubelet-kubepods.slice/kubelet-kubepods-poddb5c7541_4c6b_4c51_8858_e2cf078604d6.slice/cri-containerd-e21df5200306a70f92ddf8f46c12a2e669b37d2f1d962359e63d4e32a88dac68.scope"
+      },
+      "rep": 1,
+      "validity": "observed"
+    },
+    {
+      "all_held": true,
+      "case": "c2a",
+      "expectations": [
+        {
+          "expected": "phase Failed",
+          "held": true
+        },
+        {
+          "expected": "exit 137",
+          "held": true
+        },
+        {
+          "expected": "reason OOMKilled",
+          "held": true
+        },
+        {
+          "expected": "the record has the memory.oom.group line",
+          "held": true
+        },
+        {
+          "expected": "python3 and sh killed",
+          "held": true
+        },
+        {
+          "expected": "log has no parent-done",
+          "held": true
+        }
+      ],
+      "invalid_reasons": [],
+      "readings": {
+        "exit": 137,
+        "group_kill": true,
+        "killed": [
+          "python3",
+          "sh"
+        ],
+        "oom_memcg": "/system.slice/docker-a52e3e480b2a245dea65b2a0207262f3dc725e5b1419df11edca54afcc88dae2.scope/kubelet.slice/kubelet-kubepods.slice/kubelet-kubepods-podd55eb8b1_b145_4aea_99ec_febb5efa9bfc.slice",
+        "oom_reports": 1,
+        "phase": "Failed",
+        "reason": "OOMKilled",
+        "reason_first_polled_at": 1,
+        "stats_shmem": 0,
+        "task_memcg": "/system.slice/docker-a52e3e480b2a245dea65b2a0207262f3dc725e5b1419df11edca54afcc88dae2.scope/kubelet.slice/kubelet-kubepods.slice/kubelet-kubepods-podd55eb8b1_b145_4aea_99ec_febb5efa9bfc.slice/cri-containerd-f7452235cc7c8629eda504f1b8ed72af29927b7214366688136f88574fbb1a04.scope"
+      },
+      "rep": 2,
+      "validity": "observed"
+    },
+    {
+      "all_held": true,
+      "case": "c2a",
+      "expectations": [
+        {
+          "expected": "phase Failed",
+          "held": true
+        },
+        {
+          "expected": "exit 137",
+          "held": true
+        },
+        {
+          "expected": "reason OOMKilled",
+          "held": true
+        },
+        {
+          "expected": "the record has the memory.oom.group line",
+          "held": true
+        },
+        {
+          "expected": "python3 and sh killed",
+          "held": true
+        },
+        {
+          "expected": "log has no parent-done",
+          "held": true
+        }
+      ],
+      "invalid_reasons": [],
+      "readings": {
+        "exit": 137,
+        "group_kill": true,
+        "killed": [
+          "python3",
+          "sh"
+        ],
+        "oom_memcg": "/system.slice/docker-a52e3e480b2a245dea65b2a0207262f3dc725e5b1419df11edca54afcc88dae2.scope/kubelet.slice/kubelet-kubepods.slice/kubelet-kubepods-podd2ab15a6_e168_40af_8707_67f03d0a5df3.slice",
+        "oom_reports": 1,
+        "phase": "Failed",
+        "reason": "OOMKilled",
+        "reason_first_polled_at": 1,
+        "stats_shmem": 0,
+        "task_memcg": "/system.slice/docker-a52e3e480b2a245dea65b2a0207262f3dc725e5b1419df11edca54afcc88dae2.scope/kubelet.slice/kubelet-kubepods.slice/kubelet-kubepods-podd2ab15a6_e168_40af_8707_67f03d0a5df3.slice/cri-containerd-3dc70e3596d0ead365b8b277b27ceaba92e319732b640c56afbf106b4b859502.scope"
+      },
+      "rep": 3,
+      "validity": "observed"
+    },
+    {
+      "all_held": true,
+      "case": "c2b",
+      "expectations": [
+        {
+          "expected": "phase Succeeded",
+          "held": true
+        },
+        {
+          "expected": "exit 0",
+          "held": true
+        },
+        {
+          "expected": "reason OOMKilled",
+          "held": true
+        },
+        {
+          "expected": "log has child-exit=137 and parent-done",
+          "held": true
+        },
+        {
+          "expected": "memory.oom.group 0 in the container",
+          "held": true
+        },
+        {
+          "expected": "oom_kill 1 in the container",
+          "held": true
+        },
+        {
+          "expected": "one record, no group line, only python3 killed",
+          "held": true
+        }
+      ],
+      "invalid_reasons": [],
+      "readings": {
+        "cg_current": "1908736",
+        "cg_events": {
+          "high": 0,
+          "low": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_group_kill": 0,
+          "oom_kill": 1,
+          "sock_throttled": 0
+        },
+        "cg_max": "134217728",
+        "cg_oom_group": "0",
+        "exit": 0,
+        "group_kill": false,
+        "killed": [
+          "python3"
+        ],
+        "oom_memcg": "/system.slice/docker-9b02f895d25cdcf1f844d93d3043eabf2d16046848d725611513695b08ceb551.scope/kubelet.slice/kubelet-kubepods.slice/kubelet-kubepods-pod6b70fc50_64c5_4b59_96ea_378d1105bbd7.slice",
+        "oom_reports": 1,
+        "phase": "Succeeded",
+        "reason": "OOMKilled",
+        "reason_first_polled_at": 6,
+        "stats_shmem": 0,
+        "task_memcg": "/system.slice/docker-9b02f895d25cdcf1f844d93d3043eabf2d16046848d725611513695b08ceb551.scope/kubelet.slice/kubelet-kubepods.slice/kubelet-kubepods-pod6b70fc50_64c5_4b59_96ea_378d1105bbd7.slice/cri-containerd-76a65c3c5591e52358a8a1d6e2f586150ff2787044ce1252af4127e994101820.scope"
+      },
+      "rep": 1,
+      "validity": "observed"
+    },
+    {
+      "all_held": true,
+      "case": "c2b",
+      "expectations": [
+        {
+          "expected": "phase Succeeded",
+          "held": true
+        },
+        {
+          "expected": "exit 0",
+          "held": true
+        },
+        {
+          "expected": "reason OOMKilled",
+          "held": true
+        },
+        {
+          "expected": "log has child-exit=137 and parent-done",
+          "held": true
+        },
+        {
+          "expected": "memory.oom.group 0 in the container",
+          "held": true
+        },
+        {
+          "expected": "oom_kill 1 in the container",
+          "held": true
+        },
+        {
+          "expected": "one record, no group line, only python3 killed",
+          "held": true
+        }
+      ],
+      "invalid_reasons": [],
+      "readings": {
+        "cg_current": "2048000",
+        "cg_events": {
+          "high": 0,
+          "low": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_group_kill": 0,
+          "oom_kill": 1,
+          "sock_throttled": 0
+        },
+        "cg_max": "134217728",
+        "cg_oom_group": "0",
+        "exit": 0,
+        "group_kill": false,
+        "killed": [
+          "python3"
+        ],
+        "oom_memcg": "/system.slice/docker-9b02f895d25cdcf1f844d93d3043eabf2d16046848d725611513695b08ceb551.scope/kubelet.slice/kubelet-kubepods.slice/kubelet-kubepods-podcc143c2e_167b_467c_b9ed_166811afd4d7.slice",
+        "oom_reports": 1,
+        "phase": "Succeeded",
+        "reason": "OOMKilled",
+        "reason_first_polled_at": 7,
+        "stats_shmem": 0,
+        "task_memcg": "/system.slice/docker-9b02f895d25cdcf1f844d93d3043eabf2d16046848d725611513695b08ceb551.scope/kubelet.slice/kubelet-kubepods.slice/kubelet-kubepods-podcc143c2e_167b_467c_b9ed_166811afd4d7.slice/cri-containerd-300ec431fee2fa3bce59ab53c83a6f22800619645faa6ca25528d3d821754dc0.scope"
+      },
+      "rep": 2,
+      "validity": "observed"
+    },
+    {
+      "all_held": true,
+      "case": "c2b",
+      "expectations": [
+        {
+          "expected": "phase Succeeded",
+          "held": true
+        },
+        {
+          "expected": "exit 0",
+          "held": true
+        },
+        {
+          "expected": "reason OOMKilled",
+          "held": true
+        },
+        {
+          "expected": "log has child-exit=137 and parent-done",
+          "held": true
+        },
+        {
+          "expected": "memory.oom.group 0 in the container",
+          "held": true
+        },
+        {
+          "expected": "oom_kill 1 in the container",
+          "held": true
+        },
+        {
+          "expected": "one record, no group line, only python3 killed",
+          "held": true
+        }
+      ],
+      "invalid_reasons": [],
+      "readings": {
+        "cg_current": "2093056",
+        "cg_events": {
+          "high": 0,
+          "low": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_group_kill": 0,
+          "oom_kill": 1,
+          "sock_throttled": 0
+        },
+        "cg_max": "134217728",
+        "cg_oom_group": "0",
+        "exit": 0,
+        "group_kill": false,
+        "killed": [
+          "python3"
+        ],
+        "oom_memcg": "/system.slice/docker-9b02f895d25cdcf1f844d93d3043eabf2d16046848d725611513695b08ceb551.scope/kubelet.slice/kubelet-kubepods.slice/kubelet-kubepods-pod280f182a_824c_42a2_806a_15124d85375d.slice",
+        "oom_reports": 1,
+        "phase": "Succeeded",
+        "reason": "OOMKilled",
+        "reason_first_polled_at": 6,
+        "stats_shmem": 0,
+        "task_memcg": "/system.slice/docker-9b02f895d25cdcf1f844d93d3043eabf2d16046848d725611513695b08ceb551.scope/kubelet.slice/kubelet-kubepods.slice/kubelet-kubepods-pod280f182a_824c_42a2_806a_15124d85375d.slice/cri-containerd-3bb43b254e7f3c5f7569840c779b9393b75b61e43326e5fd6a6d183cd1074225.scope"
+      },
+      "rep": 3,
+      "validity": "observed"
+    },
+    {
+      "all_held": true,
+      "case": "c3",
+      "expectations": [
+        {
+          "expected": "phase Failed",
+          "held": true
+        },
+        {
+          "expected": "exit 137",
+          "held": true
+        },
+        {
+          "expected": "reason OOMKilled",
+          "held": true
+        },
+        {
+          "expected": "every victim's anon-rss + shmem-rss under 16 MiB",
+          "held": true
+        },
+        {
+          "expected": "statistics block shmem at least 96 MiB",
+          "held": true
+        }
+      ],
+      "invalid_reasons": [],
+      "readings": {
+        "exit": 137,
+        "group_kill": true,
+        "killed": [
+          "dd",
+          "sh"
+        ],
+        "oom_memcg": "/system.slice/docker-a52e3e480b2a245dea65b2a0207262f3dc725e5b1419df11edca54afcc88dae2.scope/kubelet.slice/kubelet-kubepods.slice/kubelet-kubepods-pod2068e954_ae69_4292_a543_5f019716f706.slice",
+        "oom_reports": 1,
+        "phase": "Failed",
+        "reason": "OOMKilled",
+        "reason_first_polled_at": 2,
+        "stats_shmem": 131272704,
+        "task_memcg": "/system.slice/docker-a52e3e480b2a245dea65b2a0207262f3dc725e5b1419df11edca54afcc88dae2.scope/kubelet.slice/kubelet-kubepods.slice/kubelet-kubepods-pod2068e954_ae69_4292_a543_5f019716f706.slice/cri-containerd-242008b385522000b9376f2c699c2fad6d45e0e1ceb2c69e0f77b8d834c2034c.scope"
+      },
+      "rep": 1,
+      "validity": "observed"
+    },
+    {
+      "all_held": true,
+      "case": "c3",
+      "expectations": [
+        {
+          "expected": "phase Failed",
+          "held": true
+        },
+        {
+          "expected": "exit 137",
+          "held": true
+        },
+        {
+          "expected": "reason OOMKilled",
+          "held": true
+        },
+        {
+          "expected": "every victim's anon-rss + shmem-rss under 16 MiB",
+          "held": true
+        },
+        {
+          "expected": "statistics block shmem at least 96 MiB",
+          "held": true
+        }
+      ],
+      "invalid_reasons": [],
+      "readings": {
+        "exit": 137,
+        "group_kill": true,
+        "killed": [
+          "dd",
+          "sh"
+        ],
+        "oom_memcg": "/system.slice/docker-a52e3e480b2a245dea65b2a0207262f3dc725e5b1419df11edca54afcc88dae2.scope/kubelet.slice/kubelet-kubepods.slice/kubelet-kubepods-pod39ec1929_cc77_4388_b0fd_72650ff97ffa.slice",
+        "oom_reports": 1,
+        "phase": "Failed",
+        "reason": "OOMKilled",
+        "reason_first_polled_at": 2,
+        "stats_shmem": 129163264,
+        "task_memcg": "/system.slice/docker-a52e3e480b2a245dea65b2a0207262f3dc725e5b1419df11edca54afcc88dae2.scope/kubelet.slice/kubelet-kubepods.slice/kubelet-kubepods-pod39ec1929_cc77_4388_b0fd_72650ff97ffa.slice/cri-containerd-89d80df9fb18bfad794d7a7814ca3a8e387dcef40085fc54f6580624fa9974a7.scope"
+      },
+      "rep": 2,
+      "validity": "observed"
+    },
+    {
+      "all_held": true,
+      "case": "c3",
+      "expectations": [
+        {
+          "expected": "phase Failed",
+          "held": true
+        },
+        {
+          "expected": "exit 137",
+          "held": true
+        },
+        {
+          "expected": "reason OOMKilled",
+          "held": true
+        },
+        {
+          "expected": "every victim's anon-rss + shmem-rss under 16 MiB",
+          "held": true
+        },
+        {
+          "expected": "statistics block shmem at least 96 MiB",
+          "held": true
+        }
+      ],
+      "invalid_reasons": [],
+      "readings": {
+        "exit": 137,
+        "group_kill": true,
+        "killed": [
+          "dd",
+          "sh"
+        ],
+        "oom_memcg": "/system.slice/docker-a52e3e480b2a245dea65b2a0207262f3dc725e5b1419df11edca54afcc88dae2.scope/kubelet.slice/kubelet-kubepods.slice/kubelet-kubepods-pod323c7538_8c98_4447_b852_5980d78d1c2e.slice",
+        "oom_reports": 1,
+        "phase": "Failed",
+        "reason": "OOMKilled",
+        "reason_first_polled_at": 1,
+        "stats_shmem": 129376256,
+        "task_memcg": "/system.slice/docker-a52e3e480b2a245dea65b2a0207262f3dc725e5b1419df11edca54afcc88dae2.scope/kubelet.slice/kubelet-kubepods.slice/kubelet-kubepods-pod323c7538_8c98_4447_b852_5980d78d1c2e.slice/cri-containerd-861c86e95bca722570c34a06a167c517281d6699d061d33272198b9b08682e8c.scope"
+      },
+      "rep": 3,
+      "validity": "observed"
+    },
+    {
+      "all_held": true,
+      "case": "c4",
+      "expectations": [
+        {
+          "expected": "phase Succeeded",
+          "held": true
+        },
+        {
+          "expected": "exit 0",
+          "held": true
+        },
+        {
+          "expected": "reason Completed",
+          "held": true
+        },
+        {
+          "expected": "oom_kill 0 in the container",
+          "held": true
+        },
+        {
+          "expected": "memory.events max at least 1",
+          "held": true
+        },
+        {
+          "expected": "no matching journal record",
+          "held": true
+        },
+        {
+          "expected": "memory.current at least 90% of memory.max",
+          "held": true
+        },
+        {
+          "expected": "median workingSetBytes at most 50% of median usageBytes",
+          "held": true
+        }
+      ],
+      "invalid_reasons": [],
+      "readings": {
+        "cg_current": "133865472",
+        "cg_events": {
+          "high": 0,
+          "low": 0,
+          "max": 425,
+          "oom": 0,
+          "oom_group_kill": 0,
+          "oom_kill": 0,
+          "sock_throttled": 0
+        },
+        "cg_max": "134217728",
+        "cg_oom_group": "1",
+        "exit": 0,
+        "median_usage": 131510272,
+        "median_working_set": 1863680,
+        "oom_reports": 0,
+        "phase": "Succeeded",
+        "reason": "Completed",
+        "reason_first_polled_at": 40,
+        "summary_samples_after_read": 7
+      },
+      "rep": 1,
+      "validity": "observed"
+    },
+    {
+      "all_held": true,
+      "case": "c4",
+      "expectations": [
+        {
+          "expected": "phase Succeeded",
+          "held": true
+        },
+        {
+          "expected": "exit 0",
+          "held": true
+        },
+        {
+          "expected": "reason Completed",
+          "held": true
+        },
+        {
+          "expected": "oom_kill 0 in the container",
+          "held": true
+        },
+        {
+          "expected": "memory.events max at least 1",
+          "held": true
+        },
+        {
+          "expected": "no matching journal record",
+          "held": true
+        },
+        {
+          "expected": "memory.current at least 90% of memory.max",
+          "held": true
+        },
+        {
+          "expected": "median workingSetBytes at most 50% of median usageBytes",
+          "held": true
+        }
+      ],
+      "invalid_reasons": [],
+      "readings": {
+        "cg_current": "133210112",
+        "cg_events": {
+          "high": 0,
+          "low": 0,
+          "max": 222,
+          "oom": 0,
+          "oom_group_kill": 0,
+          "oom_kill": 0,
+          "sock_throttled": 0
+        },
+        "cg_max": "134217728",
+        "cg_oom_group": "1",
+        "exit": 0,
+        "median_usage": 131780608.0,
+        "median_working_set": 1626112.0,
+        "oom_reports": 0,
+        "phase": "Succeeded",
+        "reason": "Completed",
+        "reason_first_polled_at": 41,
+        "summary_samples_after_read": 10
+      },
+      "rep": 2,
+      "validity": "observed"
+    },
+    {
+      "all_held": true,
+      "case": "c4",
+      "expectations": [
+        {
+          "expected": "phase Succeeded",
+          "held": true
+        },
+        {
+          "expected": "exit 0",
+          "held": true
+        },
+        {
+          "expected": "reason Completed",
+          "held": true
+        },
+        {
+          "expected": "oom_kill 0 in the container",
+          "held": true
+        },
+        {
+          "expected": "memory.events max at least 1",
+          "held": true
+        },
+        {
+          "expected": "no matching journal record",
+          "held": true
+        },
+        {
+          "expected": "memory.current at least 90% of memory.max",
+          "held": true
+        },
+        {
+          "expected": "median workingSetBytes at most 50% of median usageBytes",
+          "held": true
+        }
+      ],
+      "invalid_reasons": [],
+      "readings": {
+        "cg_current": "133775360",
+        "cg_events": {
+          "high": 0,
+          "low": 0,
+          "max": 283,
+          "oom": 0,
+          "oom_group_kill": 0,
+          "oom_kill": 0,
+          "sock_throttled": 0
+        },
+        "cg_max": "134217728",
+        "cg_oom_group": "1",
+        "exit": 0,
+        "median_usage": 130998272,
+        "median_working_set": 1892352,
+        "oom_reports": 0,
+        "phase": "Succeeded",
+        "reason": "Completed",
+        "reason_first_polled_at": 40,
+        "summary_samples_after_read": 7
+      },
+      "rep": 3,
+      "validity": "observed"
+    }
+  ]
+}

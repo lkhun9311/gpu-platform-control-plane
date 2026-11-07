@@ -7,6 +7,21 @@ cd "$LAB"
 EVID=${EVID:-$LAB/evidence/$(date -u +%F)}
 mkdir -p "$EVID"
 
+# A wait that timed out means the step never reached a state it relied on, so it fails the step at exit, whatever the
+# step's own last command returned; before 2026-11-07 a timeout was only written down, and a step that never saw its
+# drain could clean up and exit 0 (astra review r4). A wait whose timeout is itself the observation passes -o.
+TIMEOUTS=0
+step_end() {
+	local rc=$?
+	if [ "$TIMEOUTS" -gt 0 ] && [ "$rc" = 0 ]; then
+		[ -n "${OUT:-}" ] && note "FAIL: $TIMEOUTS wait(s) timed out in this step"
+		echo "$(basename "$0"): $TIMEOUTS wait(s) timed out" >&2
+		exit 1
+	fi
+	exit "$rc"
+}
+trap step_end EXIT
+
 # out NAME starts a new transcript; every later call appends to it.
 out() {
 	OUT=$EVID/$1
@@ -59,9 +74,11 @@ jobid_of() {
 	docker compose exec -T slurmctld squeue -h -n "$1" -o %i | tail -1
 }
 
-# trace SECONDS COND PROBE runs PROBE inside slurmctld about once a second and records its output each time it changes, until COND succeeds.
+# trace [-o] SECONDS COND PROBE runs PROBE inside slurmctld about once a second and records its output each time it changes, until COND succeeds.
 # Only changes are kept, so the transcript shows when each transition was first seen, to within one poll; SECONDS counts polls, each a little over a second.
 trace() {
+	local observe=0
+	[ "$1" = -o ] && { observe=1; shift; }
 	local limit=$1 cond=$2 probe=$3 t=0 last="" cur
 	echo >>"$OUT"
 	echo "# trace: probe [$probe] until [$cond], at most ${limit}s" >>"$OUT"
@@ -79,15 +96,18 @@ trace() {
 		t=$((t + 1))
 		if [ "$t" -ge "$limit" ]; then
 			note "TIMEOUT after ${limit}s; condition never met: $cond"
+			[ "$observe" = 1 ] || TIMEOUTS=$((TIMEOUTS + 1))
 			return 1
 		fi
 		sleep 1
 	done
 }
 
-# wait_until SECONDS CMD... polls CMD inside slurmctld once a second until it succeeds or the time runs out.
+# wait_until [-o] SECONDS CMD... polls CMD inside slurmctld once a second until it succeeds or the time runs out.
 # A timeout is written into the transcript, so a step that did not reach its state cannot read as one that did.
 wait_until() {
+	local observe=0
+	[ "$1" = -o ] && { observe=1; shift; }
 	local limit=$1
 	shift
 	local t=0
@@ -95,6 +115,7 @@ wait_until() {
 		t=$((t + 1))
 		if [ "$t" -ge "$limit" ]; then
 			note "TIMEOUT after ${limit}s waiting for: $*"
+			[ "$observe" = 1 ] || TIMEOUTS=$((TIMEOUTS + 1))
 			return 1
 		fi
 		sleep 1

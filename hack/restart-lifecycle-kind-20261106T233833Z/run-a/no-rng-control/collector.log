@@ -1,0 +1,1 @@
+error: error from server (NotFound): pods "rst-no-rng-control-234404-1-6xgdx" not found in namespace "train-a"
