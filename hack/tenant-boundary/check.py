@@ -14,6 +14,7 @@ another check, so a Pod that never started cannot pass for an isolated one.
 """
 import json
 import os
+import re
 import sys
 
 TENANT_USER = 'User "user-train-a"'
@@ -79,7 +80,10 @@ def judge_success(kind, arg, rec, run):
         return ok, (f"{arg} answered" if ok else f"something other than {arg} answered: {out.strip()[:80]!r}")
     if kind == "resolved":
         ip = run.get("kubernetes_service_ip", "")
-        ok = bool(ip) and ip in out
+        # The answer line itself, not a substring: the resolver's own address 10.96.0.10 contains 10.96.0.1.
+        ok = bool(ip) and re.search(
+            r"^Name:\s*kubernetes\.default\.svc\.cluster\.local\nAddress:\s*" + re.escape(ip) + r"$", out, re.M
+        ) is not None
         return ok, (f"resolved to {ip}" if ok else f"did not resolve to the kubernetes Service {ip!r}: {out[:200]!r}")
     raise ValueError(kind)
 
