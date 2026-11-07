@@ -1,0 +1,14 @@
+OK   watch streams present: ['jobs', 'mltrainingjobs', 'pods', 'workloads'], missing []
+OK   run-a: nothing of reference existed when no-rng-control was submitted at resourceVersion 2523; its last object was deleted at 2514
+OK   run-a: nothing of no-rng-control existed when dcgm-1 was submitted at resourceVersion 2922; its last object was deleted at 2910
+OK   run-a: nothing of dcgm-1 existed when terminate-wait-1 was submitted at resourceVersion 3355; its last object was deleted at 3324
+OK   run-a/terminate-wait-1: fence requested 0.08 s after the stub's first terminated answer for i-0c000000000000001, which the stub killed: True
+OK   run-a/reference: ACCEPTED, last sampled 66.9 s after its creation was seen
+OK   run-a/no-rng-control: ACCEPTED, last sampled 70.8 s after its creation was seen
+OK   run-a/dcgm-1: ACCEPTED, last sampled 68.8 s after its creation was seen
+OK   run-a/terminate-wait-1: ACCEPTED, last sampled 232.3 s after its creation was seen
+OK   run-c: nothing of reference existed when rank-kill-1 was submitted at resourceVersion 4789; its last object was deleted at 4777
+OK   run-c/reference: ACCEPTED, last sampled 66.8 s after its creation was seen
+OK   run-c/rank-kill-1: ACCEPTED, last sampled 72.1 s after its creation was seen
+0 FAIL(s)
+exit=0

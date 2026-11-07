@@ -1,0 +1,5 @@
+NAME                                                                QUEUE         PHASE       READY RANKS   AGE
+mltrainingjob.platform.lkhun9311.github.io/rst-rank-kill-1-235239   gpu-train-a   Succeeded   0             26m
+
+NAME             READY   STATUS    RESTARTS   AGE   IP            NODE                    NOMINATED NODE   READINESS GATES
+pod/rst-reader   1/1     Running   0          36m   10.244.0.13   rstlife-control-plane   <none>           <none>
