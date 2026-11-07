@@ -1,4 +1,4 @@
-Sat Nov 07 02:56:39 2026
+Sat Nov 07 07:34:52 2026
 NODELIST   NODES PARTITION       STATE CPUS    S:C:T MEMORY TMP_DISK WEIGHT AVAIL_FE REASON              
 gpu1           1      gpu*        idle 32     1:16:2  59897        0      1   (null) none                
 gpu2           1      gpu*        idle 32     1:16:2  59897        0      1   (null) none                

@@ -79,14 +79,24 @@ def preconditions(ev):
             reasons.append(f"{n} runs slurmd {e.get('slurmd')!r}")
         if e.get("slurm_uid") != "1601":
             reasons.append(f"{n}'s slurm user is uid {e.get('slurm_uid')!r}, not 1601")
-    b = env(os.path.join(ev, "bringup.env"))
-    if not (b.get("T0", "").isdigit() and b.get("bringup_done", "").isdigit() and int(b["bringup_done"]) - int(b["T0"]) <= 1500):
-        reasons.append(f"the bring-up did not finish by T0 + 1,500 s ({b})")
     pk = read(os.path.join(ev, "config", "head-packages.txt")) or ""
     for p in ("slurmctld", "slurmdbd"):
         if not re.search(rf"^{p}\s+{re.escape(SLURM_VERSION)}$", pk, re.M):
             reasons.append(f"head's {p} is not {SLURM_VERSION}")
     return reasons
+
+
+def bringup_late(ev):
+    """The reason the bring-up missed its deadline, or None."""
+    text = read(os.path.join(ev, "NOTRUN_ALL"))
+    if text:
+        return text.strip()
+    b = env(os.path.join(ev, "bringup.env"))
+    if not (b.get("T0", "").isdigit() and b.get("bringup_done", "").isdigit()):
+        return f"no bring-up completion was recorded ({b})"
+    if int(b["bringup_done"]) - int(b["T0"]) > 1500:
+        return f"the bring-up finished {int(b['bringup_done']) - int(b['T0'])} s after T0, past 1,500 s"
+    return None
 
 
 def failed_instruments(d, names):
@@ -322,7 +332,13 @@ def main(argv):
     ev, path = argv[1], argv[2]
     void = preconditions(ev)
     verdict = {"void": void}
-    if void:
+    late = bringup_late(ev)
+    if late and not void:
+        # The registration: a bring-up past its deadline leaves every check NOTRUN, which is not a VOID session.
+        nr = result("NOTRUN", [late])
+        verdict.update({"b1": [{"rep": i, **nr} for i in range(1, 5)], "b2": [{"rep": i, **nr} for i in range(1, 4)],
+                        "b3": {"a": nr, "b": nr}, "b4": nr})
+    elif void:
         verdict.update({"b1": [], "b2": [], "b3": {}, "b4": result("VOID", void)})
     else:
         verdict.update({"b1": b1(ev), "b2": b2(ev), "b3": b3(ev), "b4": b4(ev)})

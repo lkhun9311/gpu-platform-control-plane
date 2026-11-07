@@ -98,10 +98,10 @@ scene() {
   put denied "An error occurred (UnauthorizedOperation) when calling the RunInstances operation"
   LT_H=$(date -u -d '-20 sec' +%Y-%m-%dT%H:%M:%S+00:00)
   LT_G=$(date -u -d '-10 sec' +%Y-%m-%dT%H:%M:%S+00:00)
-  put dh "$LT_H	$HAMI	172.31.0.10"
+  put dh "$LT_H	$HAMI	172.31.0.10	vol-0h"
   # gpu1 launched last, so T0 is not simply the last instance read.
-  put d1 "$LT_G	$GAMI	172.31.0.11"
-  put d2 "$LT_H	$GAMI	172.31.0.12"
+  put d1 "$LT_G	$GAMI	172.31.0.11	vol-01"
+  put d2 "$LT_H	$GAMI	172.31.0.12	vol-02"
   put terminated "terminated"
   put maps '[{"DeviceName":"/dev/sda1","Ebs":{"DeleteOnTermination":true,"VolumeSize":8}},{"DeviceName":"/dev/sdb","VirtualName":"ephemeral0"}]'
   put lifecycle '{"Rules":[{"ID":"expire","Status":"Enabled","Filter":{"Prefix":""},"Expiration":{"Days":30},"AbortIncompleteMultipartUpload":{"DaysAfterInitiation":1}}]}'
@@ -110,6 +110,9 @@ scene() {
   put inline "write-results"
   put swrole "arn:aws:iam::007635145730:role/gpu-platform-study-sweeper"
   put allowed "allowed"
+  put aes "AES256"
+  put nopolicy "An error occurred (NoSuchBucketPolicy) when calling the GetBucketPolicy operation: The bucket policy does not exist"
+  put zero "0"
   put versioning "None"
   put vpc "vpc-0default"
   put sg "sg-0session"
@@ -133,6 +136,10 @@ base_rules() {
   rule "ec2 describe-subnets*" subnet
   rule "s3api get-bucket-lifecycle-configuration*" lifecycle
   rule "s3api get-bucket-versioning*" versioning
+  rule "s3api get-bucket-encryption*" aes
+  rule "s3api get-bucket-policy*" nopolicy 254
+  rule "rbin list-rules*" zero
+  rule "ec2 describe-volumes*" none
   rule "ec2 describe-vpcs*" vpc
   rule "iam get-instance-profile*" role
   rule "iam get-role*" trust
@@ -220,6 +227,9 @@ rule "iam get-role*" bounded; base_rules; refused "a role with a permissions bou
 scene; put inline2 $'deny-s3\twrite-results'; rule "iam list-role-policies*" inline2; base_rules; refused "a role with another inline policy" "carries inline policies"
 scene; put attached "arn:aws:iam::aws:policy/AdministratorAccess"; rule "iam list-attached-role-policies*" attached; base_rules
 refused "a role with an attached policy" "has attached policies"
+scene; put kms "aws:kms"; rule "s3api get-bucket-encryption*" kms; base_rules; refused "a bucket encrypted with KMS" "encrypts with 'aws:kms'"
+scene; put pol '{"Statement":[{"Effect":"Deny"}]}'; rule "s3api get-bucket-policy*" pol; base_rules; refused "a bucket with a policy" "has a bucket policy"
+scene; put two "2"; rule "rbin list-rules*" two; base_rules; refused "a Recycle Bin rule for volumes" "Recycle Bin rule(s) retain EBS volumes"
 scene; put versioned "Enabled"; rule "s3api get-bucket-versioning*" versioned; base_rules; refused "a versioned bucket" "has versioning Enabled"
 scene; put later "{\"Expiration\": \"$(date -u -d '+100 min' +%Y-%m-%dT%H:%M:%SZ)\"}"; rule "configure export-credentials*" "creds|later"; base_rules
 refused "credentials that ran short during the uploads" "too few for the session and its teardown"
@@ -293,6 +303,13 @@ session "head gone before DONE"
 grep -q "^SLURM ON EC2: VOID" "$STUB/out/verdict.txt" && grep -q "never wrote DONE" "$STUB/out/verdict.txt" &&
   ok "an archive verified before head died is still scored, and flagged as possibly early" || bad "no DONE: $(paste -sd';' "$STUB/out/verdict.txt")"
 
+# A volume still there after its instance terminated: the session is not cleanly torn down.
+scene; put leftvol "vol-02"; rule "ec2 describe-volumes*" leftvol; base_rules; void_evidence
+session "a root volume left after termination"
+[ "$rc" = 1 ] && grep -q "VOLUMES STILL PRESENT after termination: vol-02" "$STUB/out/termination.txt" && grep -qx "termination=unconfirmed" "$STUB/out/verdict.txt" &&
+  grep -q "^ec2 describe-volumes .*Values=vol-0h,vol-01,vol-02" "$STUB/calls.log" &&
+  ok "a volume left after termination fails the teardown, and all three root volumes are asked about" || bad "a left volume: exit $rc, $(paste -sd';' "$STUB/out/termination.txt")"
+
 # --- the ways the purchase and the end can go wrong ---------------------------------------------------------------
 # A scene's own rule goes before base_rules, because the first matching rule answers.
 scene; rule "ec2 run-instances*" "ih|capacity|ih|i1|i2" "0|1|0|0|0"; base_rules; void_evidence
@@ -307,7 +324,7 @@ session "a launch refused for another reason"
 [ "$rc" != 0 ] && [[ "$out" == *"refused for a reason that is not capacity"* ]] && grep -q "^ec2 terminate-instances .*i-0head" "$STUB/calls.log" &&
   [ "$(grep -c '^ec2 run-instances' "$STUB/calls.log")" = 2 ] &&
   ok "a refusal that is not capacity stops the session and terminates what was launched" || bad "a non-capacity refusal: exit $rc, $(tail -2 <<<"$out")"
-scene; put other "$LT_G	ami-0other	172.31.0.12"; rule "ec2 describe-instances*--instance-ids i-0gpu2*LaunchTime*" other; base_rules; void_evidence
+scene; put other "$LT_G	ami-0other	172.31.0.12	vol-02"; rule "ec2 describe-instances*--instance-ids i-0gpu2*LaunchTime*" other; base_rules; void_evidence
 session "an instance running another image"
 [ "$rc" != 0 ] && [[ "$out" == *"gpu2 runs ami-0other, not the pinned"* ]] &&
   [ "$(grep -c '^ec2 terminate-instances' "$STUB/calls.log")" -ge 3 ] && ok "an instance on another image ends the session and all three are terminated" ||

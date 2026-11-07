@@ -25,6 +25,15 @@ die() {
   exit 1
 }
 
+# late REASON: the bring-up missed its deadline. The registration makes every check NOTRUN then, not the session VOID:
+# nothing about the system under test was shown to be wrong, only slow.
+late() {
+  mkdir -p "$EVID" && echo "$*" >"$EVID/NOTRUN_ALL"
+  log "NOTRUN: $*"
+  bash hack/slurm-ec2/collect.sh
+  exit 1
+}
+
 # worker_stopped: whether either worker reported a stop.
 worker_stopped() {
   local n
@@ -123,7 +132,7 @@ head_bringup() {
 
   # Each worker's own slurmd -C, so a declared node never exceeds its machine.
   head_wait "$BRINGUP_END" test -s "$SHARED/nodeinfo/gpu1.conf" -a -s "$SHARED/nodeinfo/gpu2.conf" ||
-    die "a worker never reported its hardware"
+    late "a worker never reported its hardware by the bring-up deadline"
   local nodes="" n line mem
   for n in gpu1 gpu2; do
     line=$(grep -m1 "^NodeName=$n " "$SHARED/nodeinfo/$n.conf") || die "$n's slurmd -C has no NodeName line"
@@ -151,15 +160,15 @@ head_bringup() {
   sacctmgr -n -P show assoc format=account,user,grptres,qos >"$EVID/associations.txt"
   touch "$SHARED/control/CONF_READY"
   head_wait "$BRINGUP_END" bash -c '[ "$(sinfo -h -N -o "%N %t" | grep -cE "^gpu[12] (idle|mix)")" = 2 ]' ||
-    die "both workers did not register idle: $(sinfo -h -N -o '%N %t %E' | paste -sd';')"
+    late "both workers did not register idle by the bring-up deadline: $(sinfo -h -N -o '%N %t %E' | paste -sd';')"
   local venv_left
   venv_left=$(left "$BRINGUP_END")
-  timeout "$venv_left" tail --pid="$venv_pid" -f /dev/null || die "the venv was not ready by the bring-up deadline"
+  timeout "$venv_left" tail --pid="$venv_pid" -f /dev/null || late "the venv was not ready by the bring-up deadline"
   wait "$venv_pid" || die "the venv install failed; see /var/log/slurmec2-venv.log"
   log "bring-up complete"
   printf 'T0=%s\nbringup_done=%s\n' "$T0" "$(date +%s)" >"$EVID/bringup.env"
   # Finished, but late: the registration admits no check after the bring-up deadline.
-  [ "$(date +%s)" -le "$BRINGUP_END" ] || die "the bring-up finished after its deadline"
+  [ "$(date +%s)" -le "$BRINGUP_END" ] || late "the bring-up finished after its deadline"
 }
 
 worker_bringup() {

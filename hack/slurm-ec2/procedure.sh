@@ -147,12 +147,9 @@ b3() {
   printf 'first=%s\nsecond=%s\n' "$i1" "$i2" >"$d/jobs.env"
   poll_pair "$d" "$i1" "$i2" 200
 }
-if [ "$(left "$CHECKS_END")" -ge 540 ]; then
-  b3 a -A acct-a --gres=gpu:1 --mem=1G
-  b3 b -q qone --mem=500M
-else
-  notrun b3 "fewer than 540 s left for the checks"
-fi
+# Each pair waits up to 60 s for its first job, 200 s polling and 60 s for accounting, and is admitted on its own.
+if [ "$(left "$CHECKS_END")" -ge 340 ]; then b3 a -A acct-a --gres=gpu:1 --mem=1G; else notrun b3/a "fewer than 340 s left for the checks"; fi
+if [ "$(left "$CHECKS_END")" -ge 340 ]; then b3 b -q qone --mem=500M; else notrun b3/b "fewer than 340 s left for the checks"; fi
 echo "b3_done=$(now)" >>"$EVID/timeline.env"
 ship || log "the evidence after b3 could not be shipped"
 
@@ -190,7 +187,7 @@ b4() {
   job_done "$run" $(( $(date +%s) + 600 )) || echo "the run did not end in 600 s after the fault" >"$d/run.timeout"
   scontrol show job "$run" >"$d/run-job-after.txt" 2>&1
   echo $? >"$d/run-job-after.txt.rc"
-  until_true $(( $(date +%s) + 60 )) 3 bash -c "sacct -j $run -n -P -D -o JobID,State,NodeList,Start,End,ExitCode >'$d/run-sacct.txt' 2>&1 && grep -qE '^$run\|COMPLETED\|' '$d/run-sacct.txt'"
+  until_true $(( $(date +%s) + 60 )) 3 bash -c "sacct -j $run -n -P -D -o JobID,State,NodeList,Start,End,ExitCode >'$d/run-sacct.txt' 2>&1 && grep -qE '^$run\|(COMPLETED|FAILED|CANCELLED|TIMEOUT|NODE_FAIL|OUT_OF_MEMORY|PREEMPTED)' '$d/run-sacct.txt'"
   echo $? >"$d/run-sacct.txt.rc"
   "$PY" - "$SHARED/ckpt/reference/final.pt" "$SHARED/ckpt/run/final.pt" >"$d/param-diff.txt" 2>&1 <<'EOF'
 import sys, torch

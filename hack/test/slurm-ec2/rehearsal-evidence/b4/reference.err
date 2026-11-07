@@ -1,4 +1,4 @@
 /shared/venv/lib/python3.12/site-packages/torch/_subclasses/functional_tensor.py:295: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at ../torch/csrc/utils/tensor_numpy.cpp:84.)
   cpu = _conversion_method_template(device=torch.device("cpu"))
-slurmstepd-gpu2: error: common_file_write_uints: write value '2759' to '/sys/fs/cgroup/cgroup.procs' failed: Device or resource busy
-slurmstepd-gpu2: error: Unable to move pid 2759 to init root cgroup /sys/fs/cgroup
+slurmstepd-gpu2: error: common_file_write_uints: write value '1895' to '/sys/fs/cgroup/cgroup.procs' failed: Device or resource busy
+slurmstepd-gpu2: error: Unable to move pid 1895 to init root cgroup /sys/fs/cgroup

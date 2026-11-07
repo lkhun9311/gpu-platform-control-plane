@@ -284,6 +284,20 @@ sys.exit(0 if ok else 1)
 PY
 ver=$(aws s3api get-bucket-versioning --bucket "$BUCKET" --query Status --output text 2>&1) || fail "the bucket's versioning could not be read: $ver"
 case "$ver" in None|"") ;; *) fail "the bucket $BUCKET has versioning $ver, so its objects can outlive the expiry" ;; esac
+# The instance role has S3 permissions and no KMS ones, so only S3-managed encryption lets the instances read their
+# inputs, and a bucket policy could deny what the role allows; either would show only after the purchase.
+enc=$(aws s3api get-bucket-encryption --bucket "$BUCKET" \
+  --query 'ServerSideEncryptionConfiguration.Rules[].ApplyServerSideEncryptionByDefault.SSEAlgorithm' --output text 2>&1) ||
+  fail "the bucket's encryption could not be read: $enc"
+[ "$enc" = AES256 ] || fail "the bucket $BUCKET encrypts with '$enc', not S3-managed AES256, which the instance role cannot decrypt"
+if bp=$(aws s3api get-bucket-policy --bucket "$BUCKET" --output text 2>&1); then
+  fail "the bucket $BUCKET has a bucket policy this session did not write: $bp"
+fi
+grep -q NoSuchBucketPolicy <<<"$bp" || fail "the bucket's policy could not be read: $bp"
+# A Recycle Bin rule for EBS volumes would keep the three root volumes billed after their instances terminate.
+rb=$(aws rbin list-rules --region "$REGION" --resource-type EBS_VOLUME --query 'length(Rules)' --output text 2>&1) ||
+  fail "the Recycle Bin rules for EBS volumes could not be read: $rb"
+[ "$rb" = 0 ] || fail "$rb Recycle Bin rule(s) retain EBS volumes in $REGION, so the root volumes would outlive the instances"
 spot_ensure_profile "$STACK" \
   "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":[\"s3:PutObject\",\"s3:GetObject\"],\"Resource\":\"arn:aws:s3:::$BUCKET/*\"},{\"Effect\":\"Allow\",\"Action\":\"s3:ListBucket\",\"Resource\":\"arn:aws:s3:::$BUCKET\"}]}" \
   20 || fail "could not prepare the instance profile $STACK"
@@ -386,13 +400,14 @@ for role in head gpu1 gpu2; do
   desc=""
   for _ in $(seq 1 "$DESCRIBE_TRIES"); do
     desc=$(aws ec2 describe-instances --region "$REGION" --instance-ids "${IID_OF[$role]}" \
-      --query 'Reservations[0].Instances[0].[LaunchTime,ImageId,PrivateIpAddress]' --output text 2>&1) &&
-      [ "$(wc -w <<<"$desc")" = 3 ] && [ "$(awk '{print $3}' <<<"$desc")" != None ] && break
+      --query 'Reservations[0].Instances[0].[LaunchTime,ImageId,PrivateIpAddress,BlockDeviceMappings[0].Ebs.VolumeId]' --output text 2>&1) &&
+      [ "$(wc -w <<<"$desc")" = 4 ] && [ "$(awk '{print $3}' <<<"$desc")" != None ] && [ "$(awk '{print $4}' <<<"$desc")" != None ] && break
     desc=""
     sleep 5
   done
   [ -n "$desc" ] || fail "could not read $role's LaunchTime, image and address"
-  read -r lt img ip <<<"$desc"
+  read -r lt img ip vol <<<"$desc"
+  echo "$vol" >>"$OUT/volumes.txt"
   want=$SLURMEC2_GPU_AMI_ID; [ "$role" = head ] && want=$SLURMEC2_HEAD_AMI_ID
   [ "$img" = "$want" ] || fail "$role runs $img, not the pinned $want"
   e=$(date -u -d "$lt" +%s) || fail "$role's LaunchTime '$lt'"
@@ -433,6 +448,15 @@ for role in head gpu1 gpu2; do
     echo "TERMINATION UNCONFIRMED for ${IID_OF[$role]} ($role) -- terminate it by hand now" | tee -a "$OUT/termination.txt" >&2
   fi
 done
+# Terminated instances should leave no volume: any left (detached, or kept by a rule made since the check) still bills.
+if [ "$TERMINATION" = confirmed ] && [ -s "$OUT/volumes.txt" ]; then
+  left_vols=$(aws ec2 describe-volumes --region "$REGION" --filters "Name=volume-id,Values=$(paste -sd, "$OUT/volumes.txt")" \
+    --query 'Volumes[].VolumeId' --output text 2>&1) || left_vols="unreadable: $left_vols"
+  if [ -n "$left_vols" ]; then
+    TERMINATION=unconfirmed
+    echo "VOLUMES STILL PRESENT after termination: $left_vols -- delete them by hand" | tee -a "$OUT/termination.txt" >&2
+  fi
+fi
 for k in evidence.latest DONE log-head.txt log-gpu1.txt log-gpu2.txt stopped-gpu1 stopped-gpu2; do
   aws s3 cp --only-show-errors "s3://$BUCKET/$RUN_ID/$k" "$OUT/$k" 2>>"$OUT/download-errors.txt" || echo "not downloaded: $k" >>"$OUT/download-errors.txt"
 done

@@ -1,4 +1,4 @@
-Configuration data as of 2026-11-07T02:56:39
+Configuration data as of 2026-11-07T07:34:52
 AccountingStorageBackupHost = (null)
 AccountingStorageEnforce = associations,limits,qos
 AccountingStorageHost   = head
@@ -22,7 +22,7 @@ AuthType                = auth/munge
 BatchStartTimeout       = 10 sec
 BcastExclude            = /lib,/usr/lib,/lib64,/usr/lib64
 BcastParameters         = (null)
-BOOT_TIME               = 2026-11-07T02:41:16
+BOOT_TIME               = 2026-11-07T07:27:07
 BurstBufferType         = (null)
 CliFilterPlugins        = (null)
 ClusterName             = ec2lab

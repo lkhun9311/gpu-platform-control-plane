@@ -9,7 +9,7 @@ srun_rc=1
 job_cgroup=/system.slice/gpu2_slurmstepd.scope/job_17
 job_memory_events low 0
 job_memory_events high 0
-job_memory_events max 40
+job_memory_events max 37
 job_memory_events oom 1
 job_memory_events oom_kill 1
 job_memory_events oom_group_kill 0

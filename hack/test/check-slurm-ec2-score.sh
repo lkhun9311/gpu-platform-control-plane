@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Checks hack/slurm-ec2/score.py against the evidence of a local rehearsal (hack/test/slurm-ec2/rehearsal-evidence,
-# rehearsal of 921bb39b on 2026-11-07, host names replaced and the per-node journals left out) and against copies of it
+# rehearsal of a1a48f43 on 2026-11-07, host names replaced and the per-node journals left out) and against copies of it
 # with one thing changed.
 #
 #   bash hack/test/check-slurm-ec2-score.sh
@@ -96,6 +96,13 @@ copy; sed -i 's/^slurm_uid=.*/slurm_uid=998/' "$work"/ev/config/gpu2.env; score
 expect "a worker whose slurm uid differs makes the session VOID" "$(q 'any("uid" in r for r in v["void"])')" True
 copy; sed -i 's|^CgroupPlugin *=.*|CgroupPlugin            = cgroup/v1|' "$work"/ev/config/scontrol-config.txt; score
 expect "a cgroup plugin other than v2 makes the session VOID" "$(q 'any("cgroup/v2" in r for r in v["void"])')" True
+
+copy; sed -i 's/|COMPLETED|/|FAILED|/' "$work"/ev/b4/run-sacct.txt; score
+expect "a resumed run that FAILED is observed, its completion rule did not hold, the others still read" "$(q 'v["b4"]["status"] + " " + str([x["held"] for x in v["b4"]["rules"] if "COMPLETED" in x["rule"]]) + " " + str([x["held"] for x in v["b4"]["rules"] if x["rule"].startswith("B4a")])')" "observed [False] [True]"
+copy; echo "the bring-up finished after its deadline" >"$work/ev/NOTRUN_ALL"; score
+expect "a late bring-up leaves every check NOTRUN and the session not VOID" "$(q 'str(v["void"]) + " " + str(sorted({r["status"] for r in v["b1"] + v["b2"] + list(v["b3"].values()) + [v["b4"]]}))')" "[] ['NOTRUN']"
+copy; sed -i 's/^bringup_done=.*/bringup_done=9999999999/' "$work/ev/bringup.env"; score
+expect "a bring-up recorded after T0 + 1,500 s is NOTRUN, not VOID" "$(q 'str(v["void"]) + " " + v["b4"]["status"]')" "[] NOTRUN"
 
 if [ "$fails" -ne 0 ]; then
   echo "check-slurm-ec2-score: $fails failure(s)"

@@ -40,7 +40,8 @@ touch "$SHARED/control/END"
 # earlier one when only that upload was verified.
 {
   if [ ! -s /tmp/evidence.sha ]; then echo "NO-EVIDENCE: no archive was verified in S3 by the evidence deadline"
-  elif [ -s "$EVID/VOID" ]; then echo "VOID: $(cat "$EVID/VOID")"; else echo "ok"; fi
+  elif [ -s "$EVID/VOID" ]; then echo "VOID: $(cat "$EVID/VOID")"
+  elif [ -s "$EVID/NOTRUN_ALL" ]; then echo "NOTRUN: $(cat "$EVID/NOTRUN_ALL")"; else echo "ok"; fi
   echo "evidence_verified=$shipped"
   echo "evidence_final=$final"
   [ ! -s /tmp/evidence.latest ] || cat /tmp/evidence.latest
