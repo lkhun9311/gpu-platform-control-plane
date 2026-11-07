@@ -229,6 +229,21 @@ EOF
   echo "case $case-r$rep done"
 }
 
+# A Ready server Pod is not yet a Service that answers: the third rehearsal's baseline met kube-proxy's REJECT rule for the
+# new Service. The cases start only once the rule is gone and a request succeeds, both recorded.
+for _ in $(seq 1 60); do [ "$(reject_rules 'default/server has no endpoints')" = 0 ] && break; sleep 1; done
+warm=000
+for _ in $(seq 1 30); do
+  warm="$(k exec client -- curl -q -s --noproxy '*' -m 5 -o /dev/null -w '%{http_code}' http://server/ || true)"
+  [ "$warm" = 200 ] && break
+  sleep 1
+done
+echo "warm_up reject_rules=$(reject_rules 'default/server has no endpoints') http=$warm" >> "$OUT/versions.txt"
+if [ "$warm" != 200 ]; then
+  echo "refuse: the server Service never answered before the cases" >&2
+  exit 1
+fi
+
 for rep in $(seq 1 "$REPS"); do
   for case in "${CASES[@]}"; do
     run_case "$case" "$rep"

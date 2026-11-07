@@ -82,6 +82,7 @@ Every rule is pinned by a test in `hack/test/check-net-diag.sh` against copies o
 
 Rules added after the first rehearsals and the design review (below):
 - **Each fault is read back from the dataplane, not only from the API**: for N1a and N3a the Service has no endpoint at all (a terminating Pod that still serves stays in the slice and kube-proxy routes to it once nothing is ready; the first rehearsal's N1a still got DNS answers while CoreDNS's ready endpoints were 0) and kube-proxy's REJECT rule for it is in the node's iptables; for N1b the cluster DNS has stopped answering a `dig` and the server Pod is still reachable directly; for N2 the qdisc shows the loss.
+- **The run starts from a Service that answers**: no REJECT rule for it and one request returning 200, recorded; the third rehearsal's baseline, taken just after the server Pod became Ready, met the REJECT rule of a Service kube-proxy had not yet given its endpoint.
 - **Each removal is read back too** before the recovery request: the REJECT rule gone (the second rehearsal's N1a recovery ran while the rule was still there), DNS answering again, the qdisc without netem.
 - **The capture must be complete**: tcpdump says it is listening before the request starts, and its kernel drop count is 0, or the case is INVALID; it captures whole packets (`-s 0`).
 - **Packets are bound to flows**: N2a's SYNs are counted per client port, N3b's RST must answer the client port that sent the SYN.
