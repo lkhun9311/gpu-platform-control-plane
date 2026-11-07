@@ -97,20 +97,27 @@ spec:
         - {protocol: TCP, port: 53}
 ---
 # Ranks rendezvous and talk to each other; what a tenant does inside its own namespace is its own.
+# Engines are left out on both ends, so a tenant's own trainer cannot call an engine around the gateway either.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: allow-same-namespace
   namespace: __NAMESPACE__
 spec:
-  podSelector: {}
+  podSelector:
+    matchExpressions:
+      - {key: app.kubernetes.io/name, operator: NotIn, values: [inferencedeployment]}
   policyTypes: ["Ingress", "Egress"]
   ingress:
     - from:
-        - podSelector: {}
+        - podSelector:
+            matchExpressions:
+              - {key: app.kubernetes.io/name, operator: NotIn, values: [inferencedeployment]}
   egress:
     - to:
-        - podSelector: {}
+        - podSelector:
+            matchExpressions:
+              - {key: app.kubernetes.io/name, operator: NotIn, values: [inferencedeployment]}
 ---
 # The gateway is the only way in to an engine, so its authentication, limits and priority binding cannot be skipped.
 apiVersion: networking.k8s.io/v1
@@ -165,7 +172,9 @@ spec:
       ports:
         - {protocol: TCP, port: 443}
 ---
-# The generated Pods carry no CPU or memory requests, and the baseline quota refuses Pods without them.
+# The generated Pods carry no CPU, memory or ephemeral-storage requests, and the baseline quota refuses Pods without them.
+# The ephemeral-storage limit is what stops one container's writable layer or emptyDir cache from filling the node's
+# disk and evicting every other tenant's Pods there; a model larger than it needs a claim, not a bigger default.
 apiVersion: v1
 kind: LimitRange
 metadata:
@@ -174,11 +183,13 @@ metadata:
 spec:
   limits:
     - type: Container
-      defaultRequest: {cpu: 100m, memory: 256Mi}
-      default: {memory: 4Gi}
-      max: {cpu: "32", memory: 128Gi}
+      defaultRequest: {cpu: 100m, memory: 256Mi, ephemeral-storage: 1Gi}
+      default: {memory: 4Gi, ephemeral-storage: 64Gi}
+      max: {cpu: "32", memory: 128Gi, ephemeral-storage: 200Gi}
 ---
 # Separate from the GPUQuotaPolicy's GPU ledger, so switching training mode cannot remove it.
+# The generated objects are counted as well as the tenant's own: a tenant may delete its resource with
+# --cascade=orphan, which frees the count of the parent and keeps its Service, Deployment or Job.
 apiVersion: v1
 kind: ResourceQuota
 metadata:
@@ -194,3 +205,10 @@ spec:
     requests.storage: 1Ti
     count/mltrainingjobs.platform.lkhun9311.github.io: "50"
     count/inferencedeployments.platform.lkhun9311.github.io: "20"
+    requests.ephemeral-storage: 400Gi
+    limits.ephemeral-storage: 800Gi
+    count/services: "40"
+    count/deployments.apps: "20"
+    count/replicasets.apps: "300"
+    count/jobs.batch: "100"
+    count/workloads.kueue.x-k8s.io: "100"
