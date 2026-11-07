@@ -118,6 +118,9 @@ die() { printf '%s  [session] FATAL: %s\n' "$(date -u +%H:%M:%SZ)" "$*" | tee -a
 # The teardown's checks and the kill switch's program, sourced before anything can need them.
 # shellcheck source=hack/lib/session-teardown.sh
 . hack/lib/session-teardown.sh || die "could not source hack/lib/session-teardown.sh"
+# The session lease the cloud-side reaper acts on if this laptop cannot finish (session-cloud-safety design).
+# shellcheck source=hack/lib/session-lease.sh
+. hack/lib/session-lease.sh || die "could not source hack/lib/session-lease.sh"
 
 failures=0
 ok() { printf '   ok   %s\n' "$*" | tee -a "$EXDIR/session.log"; }
@@ -499,6 +502,17 @@ disarm() {
   }
 }
 
+# --- The session lease, armed before anything is created ---------------------------------------------
+#
+# The watchdog above runs on this machine and dies with it. The lease is read every five minutes by the session reaper
+# in the account (infra/aws/bootstrap/reaper.tf), which deletes this session's billing resources once the lease's
+# deadline passes: the watchdog's TTL plus its destroy allowance plus fifteen minutes, so the laptop's own destroy always
+# has its turn first and the reaper acts only when that never came (r5 finding 3, proposal P1).
+LEASE_REAP_AT=$((KILL_AT + KILL_DESTROY_MINUTES * 60 + 15 * 60))
+lease_arm "$CLUSTER" "$REGION" "$LEASE_REAP_AT" "$(basename "$EXDIR")" 2>>"$EXDIR/session.log" ||
+  die "could not arm the session lease (see session.log); refusing to create anything the cloud side could not clean up"
+log "session lease armed: $(lease_name "$CLUSTER"), reaped from $(lease_iso "$LEASE_REAP_AT") if nothing tears down first"
+
 # --- Build ---------------------------------------------------------------------------------------------
 
 log "terraform init (cluster)"
@@ -531,6 +545,9 @@ SESSION_VPC="$(aws eks describe-cluster --region "$REGION" --name "$CLUSTER" \
   --query 'cluster.resourcesVpcConfig.vpcId' --output text 2>>"$EXDIR/terraform.log")" || SESSION_VPC=""
 if [[ "$SESSION_VPC" =~ ^vpc-[0-9a-f]+$ ]]; then
   printf '%s\n' "$SESSION_VPC" >"$EXDIR/vpc-id.txt"
+  # The reaper finds the VPC by the cluster while the cluster exists and by its name after; the record is the third way.
+  lease_update "$CLUSTER" "$REGION" vpc_id "$SESSION_VPC" 2>>"$EXDIR/session.log" ||
+    log "warning: could not record the VPC in the session lease; the reaper falls back to the cluster and the VPC's name"
 else
   log "warning: could not read this cluster's VPC ('${SESSION_VPC:0:80}'); a CNI sweep at teardown will delete nothing"
   SESSION_VPC=""
@@ -682,6 +699,12 @@ gpu_up() {
   . hack/lib/gpu-ttl.sh
   if ! ttl_arm "$CLUSTER" "$NODEGROUP" "$gpu_min" 2>>"$EXDIR/session.log"; then
     bad "could not register the GPU deadline; no card is bought without one"
+    return 1
+  fi
+  # The cloud-side copy of the same deadline, which holds the group at zero until no instance is left; the schedule
+  # above asks once.
+  if ! lease_set_gpu "$CLUSTER" "$REGION" $(($(date +%s) + gpu_min * 60)) "$NODEGROUP" 2>>"$EXDIR/session.log"; then
+    bad "could not add the GPU deadline to the session lease; no node is bought without it"
     return 1
   fi
   GPU_ARMED=1
@@ -906,6 +929,12 @@ train_run() {
     bad "could not register the GPU deadline; no node is bought without one"
     return 1
   fi
+  # The cloud-side copy of the same deadline, which holds the group at zero until no instance is left; the schedule
+  # above asks once.
+  if ! lease_set_gpu "$CLUSTER" "$REGION" $(($(date +%s) + gpu_min * 60)) "$TRAIN_GROUP" 2>>"$EXDIR/session.log"; then
+    bad "could not add the GPU deadline to the session lease; no node is bought without it"
+    return 1
+  fi
   GPU_ARMED=1
   if ! printf '%s\n' "$TTL_SCHEDULE_NAME" >"$GPU_TTL_FILE"; then
     bad "could not record the GPU deadline's name; the watchdog could not remove it later"
@@ -1059,6 +1088,9 @@ restart_before_purchase() {
   mkdir -p "$RESTART_OUT"
   fs="$(terraform -chdir="$CLUSTER_DIR" output -raw efs_file_system_id 2>>"$EXDIR/session.log")"
   RESTART_FS_ID="$fs"
+  # The reaper also matches the file system by its Name tag; the recorded id is the one it cannot mistake.
+  [[ -z "$fs" ]] || lease_update "$CLUSTER" "$REGION" efs_id "$fs" 2>>"$EXDIR/session.log" ||
+    log "warning: could not record the EFS id in the session lease; the reaper falls back to its Name tag"
   why="$(restart_render_volume "$fs" "$TRAIN_NS" 2>&1 >"$RESTART_OUT/volume.yaml")" || { bad "R1: $why"; return 1; }
   why="$(kc apply -f "$RESTART_OUT/volume.yaml" 2>&1)" || { bad "R1: the volume was refused: ${why:0:300}"; return 1; }
   why="$(kc -n "$TRAIN_NS" wait --for=jsonpath='{.status.phase}'=Bound "pvc/$RESTART_CLAIM" --timeout=120s 2>&1)" ||
@@ -1226,6 +1258,12 @@ print(f"the collector requests {need}m: {report}")
   . hack/lib/gpu-ttl.sh
   if ! ttl_arm "$CLUSTER" "$TRAIN_GROUP" "$gpu_min" 2>>"$EXDIR/session.log"; then
     bad "could not register the GPU deadline; no node is bought without one"
+    return 1
+  fi
+  # The cloud-side copy of the same deadline, which holds the group at zero until no instance is left; the schedule
+  # above asks once.
+  if ! lease_set_gpu "$CLUSTER" "$REGION" $(($(date +%s) + gpu_min * 60)) "$TRAIN_GROUP" 2>>"$EXDIR/session.log"; then
+    bad "could not add the GPU deadline to the session lease; no node is bought without it"
     return 1
   fi
   GPU_ARMED=1
@@ -1448,6 +1486,13 @@ fi
 # decide is whether the residue check could ask, and what it found.
 if [[ -z "${unasked// /}" && -z "${billing_left// /}" ]]; then
   # Logged only when it held: the line once said disarmed right after disarm had recorded a survivor (codex census).
+  # The lease goes with the watchdog and on the same verified teardown; left behind, it would have the reaper look for
+  # resources that are gone, and the next session refuse to start until someone removes it.
+  if lease_disarm "$CLUSTER" "$REGION" 2>>"$EXDIR/session.log"; then
+    log "session lease removed"
+  else
+    bad "could not remove the session lease $(lease_name "$CLUSTER"); the next session refuses until it is gone"
+  fi
   if disarm; then
     log "kill switch disarmed: destroy returned zero, every residue query was answered, and all were empty"
   else
