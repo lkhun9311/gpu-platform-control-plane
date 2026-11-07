@@ -453,13 +453,15 @@ caller_account="$(aws sts get-caller-identity --query Account --output text 2>&1
 # builds into the same state (killswitch_others).
 others="$(killswitch_others | paste -sd' ')"
 [[ -z "$others" ]] || die "a kill switch watchdog from an earlier session is still armed (pid $others) and would destroy this session's cluster when it fires; disarm it (kill -- -PID) once its own cluster is confirmed gone, then start again"
-# A lease covers only a cluster this session creates: one already there under the name belongs to another session or
-# to nobody known, and the reaper would delete it at this lease's deadline.
-if existing="$(aws eks describe-cluster --region "$REGION" --name "$CLUSTER" --query cluster.status --output text 2>&1)"; then
-  die "cluster $CLUSTER already exists ($existing); a session builds its own, so tear that one down or name another"
-elif ! grep -q ResourceNotFoundException <<<"$existing"; then
-  die "could not tell whether cluster $CLUSTER exists: ${existing:0:200}"
+# A lease covers only a cluster this session creates, and every session of every name builds into the one
+# cluster/terraform.tfstate, so any cluster already in the Region, of this name or another, belongs to a session this
+# one would replace or the reaper would delete (round 3 of the adversarial review). It is torn down first.
+if ! existing="$(aws eks list-clusters --region "$REGION" --query clusters --output text 2>&1)"; then
+  die "could not list the Region's EKS clusters: ${existing:0:200}"
 fi
+existing="$(tr -s ' \t\n' ' ' <<<"$existing" | sed 's/^ //; s/ $//; s/^None$//')"
+[[ -z "$existing" ]] ||
+  die "an EKS cluster already exists in $REGION ($existing); every session shares one terraform state, so tear it down first"
 LEASE_REAP_AT=$(($(date +%s) + TTL_MINUTES * 60 + KILL_DESTROY_MINUTES * 60 + 15 * 60))
 lease_arm "$CLUSTER" "$REGION" "$LEASE_REAP_AT" "$(basename "$EXDIR")" 2>>"$EXDIR/session.log" ||
   die "could not arm the session lease (see session.log); refusing to create anything the cloud side could not clean up"

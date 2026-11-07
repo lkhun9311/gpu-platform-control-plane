@@ -29,6 +29,8 @@ cat >"$work/bin/stub" <<'EOF'
 tool=$(basename "$0")
 printf '%s %s\n' "$tool" "$*" >>"${STUB_CALLS:?the stub was given nowhere to record its calls}" || exit 98
 case "$tool $*" in
+  "aws eks list-clusters"*)
+    if [[ -n "${STUB_OTHER_CLUSTER:-}" ]]; then printf '%s\n' "$STUB_OTHER_CLUSTER"; else echo None; fi ;;
   "aws eks describe-cluster"*)
     if [[ -n "${STUB_CLUSTER_EXISTS:-}" ]]; then echo ACTIVE; exit 0; fi
     echo "An error occurred (ResourceNotFoundException) when calling the DescribeCluster operation: No cluster found" >&2
@@ -167,6 +169,10 @@ session "prefixroute: with KEEP_UP" "refuses KEEP_UP=yes" TRAIN= STUDY=prefixrou
 session "prefixroute: an existing cluster" "cluster gpu-platform already exists (ACTIVE)" \
   TRAIN= STUDY=prefixroute STUB_CLUSTER_EXISTS=1 TTL_MINUTES=440
 session "prefixroute: every refusal passed" "does not exist" TRAIN= STUDY=prefixroute TTL_MINUTES=440
+# Any cluster in the Region refuses the session before its lease or watchdog: they all share one terraform state.
+# Mutation that turns it red: check only a cluster of this session's name.
+session "another cluster in the Region" "an EKS cluster already exists in ap-northeast-2 (gpu-other)" \
+  STUB_ACCOUNT=007635145730 STUB_OTHER_CLUSTER=gpu-other TRAIN= TTL_MINUTES=300
 
 # --- the kill switch, armed under an absolute EXDIR --------------------------------------------------------------
 # Without TRAIN nothing stops the session before its kill switch, so it arms one and then dies at the stub's terraform

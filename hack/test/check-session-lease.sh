@@ -163,7 +163,7 @@ fi
 # Before the watchdog, so a refused lease leaves no watchdog armed; and after the checks that refuse an existing cluster.
 # Mutation that turns it red: arm the lease after the watchdog, or before the existing-cluster refusal.
 kill_line=$(grep -n 'killswitch_program "\$KILL_PIDFILE"' hack/eks-gitops-session.sh | head -1 | cut -d: -f1)
-exists_line=$(grep -n 'already exists (\$existing)' hack/eks-gitops-session.sh | head -1 | cut -d: -f1)
+exists_line=$(grep -n 'an EKS cluster already exists in' hack/eks-gitops-session.sh | head -1 | cut -d: -f1)
 if [[ -n "$kill_line" && -n "$exists_line" ]] && ((exists_line < arm_line && arm_line < kill_line)); then
   ok "the existing-cluster refusal (line $exists_line), then the lease (line $arm_line), then the watchdog (line $kill_line)"
 else
