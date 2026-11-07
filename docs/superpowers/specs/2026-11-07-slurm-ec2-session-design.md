@@ -164,5 +164,23 @@ Each finding was checked against the code by Claude before it was fixed.
 | 6 P2 | a failed `squeue` ended B3's poll as if both jobs had left, and B2's node read had no status | failed reads are recorded as such and make the check INVALID |
 | 7 P2 | B2's journal window was head's clock applied to gpu2's journal | the window is gpu2's own journal cursor before and after the job |
 
+**A bare `codex review --base origin/dev` (astra, high) of `921bb39b`: three findings, all confirmed and fixed in `ff8a248e`.**
+
+| finding | fix |
+|---|---|
+| P2: an archive verified before head died could not be recovered, because its digest lived only on head | each upload goes to its own key, `evidence-N.tgz`, and once S3 reports it at its size, `evidence.latest` (`n=N sha256=...`) is published; the runner downloads what that names, with or without `DONE` |
+| P2: an upload whose verification failed had already replaced the last verified archive | the per-upload key means a failed one never replaces a verified one |
+| P2: each termination wait restarted the remaining budget, so the waits could add up past T0 + 6,100 s | all three are asked to terminate in one call, then waited for against one absolute deadline; the trap's waits share a 600 s deadline |
+
+**Defects the local rehearsal found** (each a VOID that would have cost a purchase):
+
+| rehearsal | defect | fix |
+|---|---|---|
+| `rh2` | `sacctmgr` reads `slurm.conf` to find `slurmdbd`, and there was none yet: "Could not establish a configuration source" | the cluster-wide `slurm.conf` is put in place before the accounts are made (`5214b235`) |
+| `rh3` | `GrpTRES=gres/gpu=1` was refused, "no TRES known by type gres/gpu": the TRES exists only once `slurmctld` has registered with `slurmdbd` | the GPU limit is set after `slurmctld` starts, retried for 60 s (`b1cf275d`) |
+| `rh4` | a worker wrote its GPU signal before head had made the directory, the write failed unnoticed, and `gpuhc.py` drained the node at `slurmd`'s start | the worker makes the directory and stops on a failed write (`921bb39b`) |
+
+`rh2` and `rh3` also exercised the early-stop path end to end: head stopped, shipped its evidence, wrote `DONE` within about three minutes of T0, and the scorer read the session as VOID with the reason.
+
 Found by Claude in round 1: the default security group of `gpu-lab`'s default VPC admits all TCP from `0.0.0.0/0` (read on 2026-11-07), which would have put `slurmctld` and the NFS export on the internet.
 The session now creates its own group, admitting only its own members, launches all three into it (a new optional argument of `spot_launch`, `a39c955f`), and deletes it after the instances are gone.
