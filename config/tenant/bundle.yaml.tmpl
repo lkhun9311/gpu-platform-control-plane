@@ -1,0 +1,196 @@
+# One tenant's boundary, rendered by hack/tenant/render.sh <tenant> <namespace> into config/tenants/<tenant>/.
+# The design and the reason for every object: docs/superpowers/specs/2026-11-07-tenant-boundary-design.md.
+# __TENANT__ and __NAMESPACE__ are replaced by the renderer; nothing else is a placeholder.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: __NAMESPACE__
+  labels:
+    platform.lkhun9311.github.io/tenant: __TENANT__
+    # baseline refuses privileged, hostPath, host-network and host-PID Pods now; the platform's generated Pods do not
+    # yet meet restricted, so restricted is audited and warned rather than enforced.
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/enforce-version: v1.31
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/audit-version: v1.31
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/warn-version: v1.31
+---
+# Trainers and engines do not call the API, so the namespace's default identity carries no token.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: default
+  namespace: __NAMESPACE__
+automountServiceAccountToken: false
+---
+# The tenant submits work only through the platform's resources; it never writes the Jobs, Pods, Workloads,
+# LocalQueues, quotas or network policies those resources produce, so it cannot bypass admission or its queue.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: tenant
+  namespace: __NAMESPACE__
+rules:
+  - apiGroups: ["platform.lkhun9311.github.io"]
+    resources: ["mltrainingjobs", "inferencedeployments"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["platform.lkhun9311.github.io"]
+    resources: ["mltrainingjobs/status", "inferencedeployments/status"]
+    verbs: ["get", "list", "watch"]
+  # A distributed job's state volume is the tenant's claim; its size is bounded by the baseline quota.
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["get", "list", "watch", "create", "delete"]
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "services", "events"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["kueue.x-k8s.io"]
+    resources: ["workloads", "localqueues"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: tenant
+  namespace: __NAMESPACE__
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: tenant
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: Group
+    name: tenant:__TENANT__
+---
+# Every exception below is to this.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: __NAMESPACE__
+spec:
+  podSelector: {}
+  policyTypes: ["Ingress", "Egress"]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+  namespace: __NAMESPACE__
+spec:
+  podSelector: {}
+  policyTypes: ["Egress"]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+---
+# Ranks rendezvous and talk to each other; what a tenant does inside its own namespace is its own.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-same-namespace
+  namespace: __NAMESPACE__
+spec:
+  podSelector: {}
+  policyTypes: ["Ingress", "Egress"]
+  ingress:
+    - from:
+        - podSelector: {}
+  egress:
+    - to:
+        - podSelector: {}
+---
+# The gateway is the only way in to an engine, so its authentication, limits and priority binding cannot be skipped.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-gateway-to-engines
+  namespace: __NAMESPACE__
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: inferencedeployment
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              platform.lkhun9311.github.io/role: platform
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/component: gateway
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-monitoring
+  namespace: __NAMESPACE__
+spec:
+  podSelector: {}
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              platform.lkhun9311.github.io/role: monitoring
+---
+# Model downloads; in production this narrows to a model mirror or an egress proxy.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-engine-egress
+  namespace: __NAMESPACE__
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: inferencedeployment
+  policyTypes: ["Egress"]
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16", "100.64.0.0/10"]
+      ports:
+        - {protocol: TCP, port: 443}
+---
+# The generated Pods carry no CPU or memory requests, and the baseline quota refuses Pods without them.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: tenant-defaults
+  namespace: __NAMESPACE__
+spec:
+  limits:
+    - type: Container
+      defaultRequest: {cpu: 100m, memory: 256Mi}
+      default: {memory: 4Gi}
+      max: {cpu: "32", memory: 128Gi}
+---
+# Separate from the GPUQuotaPolicy's GPU ledger, so switching training mode cannot remove it.
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: tenant-baseline
+  namespace: __NAMESPACE__
+spec:
+  hard:
+    requests.cpu: "64"
+    requests.memory: 256Gi
+    limits.memory: 512Gi
+    pods: "100"
+    persistentvolumeclaims: "10"
+    requests.storage: 1Ti
+    count/mltrainingjobs.platform.lkhun9311.github.io: "50"
+    count/inferencedeployments.platform.lkhun9311.github.io: "20"
