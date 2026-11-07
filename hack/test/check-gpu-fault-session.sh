@@ -6,12 +6,15 @@
 #
 # Modelled on hack/test/check-mps-capability-session.sh, whose stub it reuses in shape. What it pins:
 # - every pre-purchase refusal stops before run-instances;
-# - the launch is the pinned AMI on a g5.2xlarge at the $1.1324 cap, terminating on shutdown, carrying the sweeper's
+# - the launch is the pinned AMI on a g5.2xlarge offered at the $1.10 Spot cap (the $1.1324 all-in rate is a cost,
+#   not a price), terminating on shutdown, carrying the sweeper's
 #   tag at the request plus 7,120 s, rewritten to LaunchTime plus 7,150 s (run 3's amendment); LaunchTime is handed to the instance;
 # - the rendered user-data has no placeholder, parses, carries the spliced bring-up, runs the instance procedure
 #   under the registered phase arithmetic, and fits EC2's 16 KB;
-# - the end: the instance is terminated, the evidence is scored by the real scorer, and an unconfirmed termination
-#   or an instance on another image fails the session.
+# - the sweeper's invocations and errors are summed over every datapoint, and the credential is read again before
+#   the purchase;
+# - the end: the instance is terminated, the evidence is scored by the real scorer, and an unconfirmed termination,
+#   an instance on another image, evidence that never came back, or a scorer that could not read it fails the session.
 #
 # The session runs from a throwaway commit of the working tree, because it refuses a dirty tree.
 set -uo pipefail
@@ -106,7 +109,7 @@ scene() {
   put quota "48.0"
   put active "Active"; put enabled $'ENABLED\trate(5 minutes)'
   put target "arn:aws:lambda:ap-northeast-2:007635145730:function:gpu-platform-study-sweeper"
-  put runs "6.0"; put errors "0.0"
+  put runs "[6.0]"; put errors "[0.0]"
   put creds "{\"Expiration\": \"$(date -u -d '+4 hours' +%Y-%m-%dT%H:%M:%SZ)\"}"
   put none ""
   put subnet "subnet-0a"
@@ -166,11 +169,17 @@ scene; base_rules; refused "a caller's block count" "GF_BLOCKS is set" GF_BLOCKS
 scene; base_rules; refused "a caller's instance type" "INSTANCE_TYPE is set" INSTANCE_TYPE=g5.xlarge
 scene; put acct2 "123456789012"; rule "sts get-caller-identity*" acct2; base_rules; refused "another account" "paid sessions run only in gpu-lab"
 scene; put ami2 "Ubuntu Server 22.04	available"; rule "ec2 describe-images*" ami2; base_rules; refused "an AMI that is not the GPU base image" "not an available Deep Learning Base"
-scene; put dear $'ap-northeast-2a\t1.500000'; rule "ec2 describe-spot-price-history*" dear; base_rules; refused "a price over the ceiling" "at or under \$1.1324/h"
+scene; put dear $'ap-northeast-2a\t1.500000'; rule "ec2 describe-spot-price-history*" dear; base_rules; refused "a price over the ceiling" "at or under \$1.10/h"
+scene; put between $'ap-northeast-2a\t1.120000'; rule "ec2 describe-spot-price-history*" between; base_rules
+refused "a compute price between the Spot cap and the all-in rate" "at or under \$1.10/h"
 scene; put q4 "4.0"; rule "service-quotas get-service-quota*" q4; base_rules; refused "too little Spot quota" "needs 8"
 scene; put inactive "Pending"; rule "lambda get-function*" inactive; base_rules; refused "a sweeper not Active" "is Pending, not Active"
-scene; put few "2.0"; rule "cloudwatch get-metric-statistics*Invocations*" few; base_rules; refused "a sweeper seen running twice" "at least 4 clean runs"
-scene; put errs "1.0"; rule "cloudwatch get-metric-statistics*Errors*" errs; base_rules; refused "a sweeper with an error" "1.0 error(s)"
+scene; put few "[2.0]"; rule "cloudwatch get-metric-statistics*Invocations*" few; base_rules; refused "a sweeper seen running twice" "at least 4 clean runs"
+scene; put errs "[1.0]"; rule "cloudwatch get-metric-statistics*Errors*" errs; base_rules; refused "a sweeper with an error" "1 error(s)"
+scene; put errs2 "[0.0, 1.0]"; rule "cloudwatch get-metric-statistics*Errors*" errs2; base_rules
+refused "a sweeper error in the second datapoint" "1 error(s)"
+scene; put late "{\"Expiration\": \"$(date -u -d '+120 min' +%Y-%m-%dT%H:%M:%SZ)\"}"; rule "configure export-credentials*" "creds|late"; base_rules
+refused "credentials that pass before the build and not before the purchase" "before the purchase: the credentials expire in"
 scene; put soon "{\"Expiration\": \"$(date -u -d '+120 min' +%Y-%m-%dT%H:%M:%SZ)\"}"; rule "configure export-credentials*" soon; base_rules
 refused "credentials that expire before 155 minutes" "the session needs 155"
 scene; put earlier "i-0earlier"; rule "ec2 describe-instances*tag:purpose*" earlier; base_rules; refused "an earlier instance still live" "still live (i-0earlier)"
@@ -178,12 +187,19 @@ scene; base_rules; mkdir -p "$STUB/out"; refused "an output directory that alrea
 scene; base_rules; touch "$STUB/attested"; refused "an image archive carrying an attestation" "an image archive the kind node would refuse to import"
 
 # --- the whole session -------------------------------------------------------------------------------------------
-scene; base_rules; smoke_stopped_evidence
+scene; put split "[3.0, 3.0]"; rule "cloudwatch get-metric-statistics*Invocations*" split; base_rules; smoke_stopped_evidence
 t0=$(date +%s)
 session "a whole session"
 [ "$rc" = 0 ] && ok "a whole session exited 0" || bad "a whole session exited $rc: $(tail -4 "$STUB/session.out")"
-grep -q "^GPU FAULT REACTION: NO-EVIDENCE" "$STUB/out/verdict.txt" 2>/dev/null && grep -qx "termination=confirmed" "$STUB/out/verdict.txt" &&
-  ok "the real scorer read the returned evidence, and the termination is recorded" || bad "the verdict: $(head -3 "$STUB/out/verdict.txt" 2>/dev/null | paste -sd';')"
+# The arms read NOT-RUN only from the returned smoke.env's skipped arms, so that line shows the archive was unpacked
+# and read; a bare NO-EVIDENCE prefix is also what a session prints when nothing came back.
+grep -q "^arm xid  *NOT-RUN" "$STUB/out/verdict.txt" && ! grep -q "no smoke.env" "$STUB/out/verdict.txt" &&
+  [ -s "$STUB/out/verdict.json" ] &&
+  grep -qx "evidence=returned" "$STUB/out/verdict.txt" && grep -qx "scoring=ok" "$STUB/out/verdict.txt" &&
+  grep -qx "termination=confirmed" "$STUB/out/verdict.txt" &&
+  ok "the real scorer read the returned evidence, and evidence, scoring and termination are recorded" ||
+  bad "the verdict: $(head -4 "$STUB/out/verdict.txt" | paste -sd';')"
+grep -q "6 run(s) and 0 error(s)" "$STUB/session.out" && ok "the sweeper's runs are summed over both datapoints" || bad "the sweeper's runs were not summed"
 tag_at_launch=$(grep '^ec2 run-instances' "$STUB/calls.log" | grep -o 'Key=study-deadline,Value=[0-9TZ:-]*' | head -1 | sed 's/.*Value=//')
 want_lo=$(( t0 + 7120 )); got=$(date -u -d "$tag_at_launch" +%s 2>/dev/null || echo 0)
 (( got >= want_lo && got <= want_lo + 120 )) && ok "the launch carries the sweeper's tag at the request plus 7,120 s ($tag_at_launch)" || bad "the launch's tag is '$tag_at_launch'"
@@ -194,8 +210,8 @@ grep -q "^ec2 create-tags .*--resources i-0gpufault --tags Key=study-deadline,Va
 grep -q '^s3 cp --only-show-errors .*launch-time.txt s3://gpufault-gpu-007635145730/.*/launch-time.txt' "$STUB/calls.log" &&
   ok "LaunchTime is handed to the instance through the run's prefix" || bad "LaunchTime was not uploaded"
 grep -q '^ec2 run-instances .*--image-id ami-097edab977037f65f --instance-type g5.2xlarge .*--instance-initiated-shutdown-behavior terminate' "$STUB/calls.log" &&
-  grep -q 'MaxPrice\\\?":\\\?"1.1324' "$STUB/calls.log" &&
-  ok "the launch is the pinned AMI on a g5.2xlarge at the \$1.1324 cap, terminating on shutdown" || bad "the launch was: $(grep '^ec2 run-instances' "$STUB/calls.log" | cut -c1-300)"
+  grep -q 'MaxPrice\\\?":\\\?"1.10\\\?"' "$STUB/calls.log" &&
+  ok "the launch is the pinned AMI on a g5.2xlarge at the \$1.10 Spot cap, terminating on shutdown" || bad "the launch was: $(grep '^ec2 run-instances' "$STUB/calls.log" | cut -c1-300)"
 for n in controller gpu-simulator job; do
   grep -q "^s3 cp --only-show-errors .*/images/$n.tar.gz s3://gpufault-gpu-007635145730/.*/images/$n.tar.gz" "$STUB/calls.log" ||
     bad "the $n image was not uploaded"
@@ -228,10 +244,23 @@ scene; put running "running"; rule "ec2 describe-instances*State.Name*" running;
 session "termination not confirmed"
 [ "$rc" != 0 ] && grep -qx "termination=unconfirmed" "$STUB/out/verdict.txt" && ok "an unconfirmed termination fails the session and is recorded" ||
   bad "an unconfirmed termination: exit $rc, $(tail -1 "$STUB/out/verdict.txt" 2>/dev/null)"
+scene; put stale "$(date -u -d '-8000 sec' +%Y-%m-%dT%H:%M:%S+00:00)	$AMI"; rule "ec2 describe-instances*LaunchTime*" stale; base_rules
+smoke_stopped_evidence
+session "the termination deadline already passed"
+grep -q "waiting up to 0s for EC2" "$STUB/session.out" && ok "a wait past LaunchTime + 7,480 s is not stretched to 300 s" ||
+  bad "the late wait: $(grep 'waiting up to' "$STUB/session.out")"
 scene; base_rules; echo nonce >"$STUB/fixtures/DONE"
 session "no evidence came back"
-grep -q "NO-EVIDENCE (the evidence archive did not come back)" "$STUB/out/verdict.txt" 2>/dev/null && ok "a session whose evidence never came back says so" ||
-  bad "no evidence gave: $(head -1 "$STUB/out/verdict.txt" 2>/dev/null)"
+grep -q "NO-EVIDENCE (the evidence archive did not come back)" "$STUB/out/verdict.txt" && grep -qx "evidence=missing" "$STUB/out/verdict.txt" &&
+  [ "$rc" != 0 ] && ok "a session whose evidence never came back says so and fails" ||
+  bad "no evidence gave exit $rc: $(paste -sd';' "$STUB/out/verdict.txt")"
+scene; base_rules; smoke_stopped_evidence
+# A smoke record the scorer cannot parse: the evidence came back, and the scorer could not read it.
+mkdir -p "$STUB/ev2/gf-run/reps" && printf 'not a key value line\n' >"$STUB/ev2/gf-run/smoke.env"
+tar -czf "$STUB/fixtures/evidence.tgz" -C "$STUB/ev2" gf-run
+session "the scorer cannot read the evidence"
+grep -q "^scoring=failed" "$STUB/out/verdict.txt" && [ "$rc" != 0 ] && ok "a scorer that could not read the evidence fails the session" ||
+  bad "an unreadable archive gave exit $rc: $(paste -sd';' "$STUB/out/verdict.txt")"
 
 if [[ $fails -ne 0 ]]; then
   echo "check-gpu-fault-session: $fails failure(s)"
