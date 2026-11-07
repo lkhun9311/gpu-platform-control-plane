@@ -1,9 +1,9 @@
 # Network diagnosis cases: DNS, packet loss and refused connections (M-42A-5, network)
 
 Written 2026-11-07, before any scored run.
-Status: **design; not yet run.**
+Status: **run on 2026-11-07; every case held in 3 of 3** (`experiments/network-diagnosis/README.md`); everything below was written before the scored run.
 This extends item M-42A-5 of the operations track (`docs/superpowers/specs/2026-10-31-inference-portfolio-roadmap.md`) with the network incident the 2026-11-07 JD review asked for: telling a DNS failure, packet loss and a refused connection apart from evidence, and showing recovery once the cause is removed.
-The memory and OOM cases of the same item are `docs/superpowers/specs/2026-11-07-linux-diagnosis-cases-design.md`.
+The memory and OOM cases of the same item are a separate change (pull request 519).
 
 ## What it is for
 
