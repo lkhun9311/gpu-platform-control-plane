@@ -1,0 +1,30 @@
+JobId=29 JobName=wrap
+   UserId=tenant(2001) GroupId=tenant(2001) MCS_label=N/A
+   Priority=1 Nice=0 Account=acct-b QOS=normal
+   JobState=RUNNING Reason=None Dependency=(null)
+   Requeue=1 Restarts=0 BatchFlag=1 Reboot=0 ExitCode=0:0
+   RunTime=00:00:21 TimeLimit=00:15:00 TimeMin=N/A
+   SubmitTime=2026-11-07T03:01:15 EligibleTime=2026-11-07T03:01:15
+   AccrueTime=2026-11-07T03:01:15
+   StartTime=2026-11-07T03:01:16 EndTime=2026-11-07T03:16:16 Deadline=N/A
+   SuspendTime=None SecsPreSuspend=0 LastSchedEval=2026-11-07T03:01:16 Scheduler=Main
+   Partition=gpu AllocNode:Sid=head:90
+   ReqNodeList=(null) ExcNodeList=(null)
+   NodeList=gpu1
+   BatchHost=gpu1
+   NumNodes=1 NumCPUs=2 NumTasks=1 CPUs/Task=1 ReqB:S:C:T=0:0:*:*
+   ReqTRES=cpu=1,mem=4G,node=1,billing=1,gres/gpu=1
+   AllocTRES=cpu=2,mem=4G,node=1,billing=2,gres/gpu=1
+   Socks/Node=* NtasksPerN:B:S:C=0:0:*:* CoreSpec=*
+   MinCPUsNode=1 MinMemoryNode=4G MinTmpDiskNode=0
+   Features=(null) DelayBoot=00:00:00
+   OverSubscribe=OK Contiguous=0 Licenses=(null) Network=(null)
+   Command=(null)
+   WorkDir=/src
+   StdErr=/shared/evidence/b4/run.err
+   StdIn=/dev/null
+   StdOut=/shared/evidence/b4/run.jsonl
+   Power=
+   TresPerNode=gres/gpu:1
+   
+
