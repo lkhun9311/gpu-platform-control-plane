@@ -63,9 +63,12 @@ run_logged() {
   return "$rc"
 }
 
+# bound S: S, or less when until_true has set CALL_BOUND to the time its deadline leaves.
+bound() { local b=$1; [[ "${CALL_BOUND:-}" =~ ^[0-9]+$ ]] && [ "$CALL_BOUND" -lt "$b" ] && b=$CALL_BOUND; [ "$b" -ge 1 ] || b=1; echo "$b"; }
+
 # awsb ARGS...: one AWS CLI call, bounded as a whole and per connection, with no retries of its own; callers retry.
 awsb() {
-  timeout --kill-after=2 20 env AWS_MAX_ATTEMPTS=1 AWS_RETRY_MODE=standard AWS_PAGER= \
+  timeout --kill-after=2 "$(bound 20)" env AWS_MAX_ATTEMPTS=1 AWS_RETRY_MODE=standard AWS_PAGER= \
     aws --cli-connect-timeout 3 --cli-read-timeout 10 "$@"
 }
 
@@ -101,8 +104,11 @@ try:
     d = json.load(open(sys.argv[1]))
 except ValueError:
     sys.exit(1)
+# The token is lowercase hex or empty, so a reader can never be handed anything a shell would interpret.
+tok = d.get("token")
 ok = d.get("schema") == 1 and d.get("run") == sys.argv[2] and d.get("t0") == int(sys.argv[3]) \
-    and d.get("producer") == sys.argv[4] and d.get("phase") == sys.argv[5]
+    and d.get("producer") == sys.argv[4] and d.get("phase") == sys.argv[5] \
+    and isinstance(tok, str) and all(c in "0123456789abcdef" for c in tok)
 sys.exit(0 if ok else 1)
 PY
     echo "$(date -u +%FT%TZ) $name: payload is not this run's or this phase's: $(head -c 300 "$out")" >>"$DIAG/s3.log"
@@ -119,18 +125,22 @@ PY
 sig_wait() {
   local end=$1 name=$2 producer=$3 ph=$4 rc errs=0
   while [ "$(date +%s)" -lt "$end" ]; do
-    sig_get "$name" "$producer" "$ph"
+    CALL_BOUND=$(( end - $(date +%s) )) sig_get "$name" "$producer" "$ph"
     rc=$?
-    [ "$rc" = 0 ] && { phase "signal got $name $ph"; return 0; }
+    # A signal read after the deadline is not counted, as until_true does not count a late success.
+    [ "$rc" = 0 ] && [ "$(date +%s)" -le "$end" ] && { phase "signal got $name $ph"; return 0; }
+    [ "$rc" = 0 ] && return 1
     if [ "$rc" = 2 ]; then errs=$((errs + 1)); [ "$errs" -lt 5 ] || return 2; else errs=0; fi
-    sleep 5
+    # Never sleeps past the deadline.
+    [ "$(date +%s)" -lt "$end" ] || return 1
+    sleep "$(CALL_BOUND=$(( end - $(date +%s) )) bound 5)"
   done
   return 1
 }
 
 # s3get KEY FILE and s3put FILE KEY move one object within the run's prefix; neither retries, the callers do.
-s3get() { timeout --kill-after=2 120 aws s3 cp --only-show-errors --cli-connect-timeout 3 --cli-read-timeout 30 "s3://$BUCKET/$PREFIX/$1" "$2"; }
-s3put() { timeout --kill-after=2 300 aws s3 cp --only-show-errors --cli-connect-timeout 3 --cli-read-timeout 30 "$1" "s3://$BUCKET/$PREFIX/$2"; }
+s3get() { timeout --kill-after=2 "$(bound 120)" aws s3 cp --only-show-errors --cli-connect-timeout 3 --cli-read-timeout 30 "s3://$BUCKET/$PREFIX/$1" "$2"; }
+s3put() { timeout --kill-after=2 "$(bound 300)" aws s3 cp --only-show-errors --cli-connect-timeout 3 --cli-read-timeout 30 "$1" "s3://$BUCKET/$PREFIX/$2"; }
 
 # left END: seconds from now until the epoch END, never below 1: GNU timeout reads 0 as no limit at all.
 left() { local l=$(( $1 - $(date +%s) )); [ "$l" -gt 1 ] && echo "$l" || echo 1; }
@@ -143,17 +153,22 @@ until_true() {
   while :; do
     l=$(( end - $(date +%s) ))
     [ "$l" -gt 0 ] || return 1
-    # A shell function cannot run under timeout; the functions given here bound their own calls (awsb).
-    if declare -F "$1" >/dev/null; then "$@"; else timeout --kill-after=2 "$l" "$@"; fi && [ "$(date +%s)" -le "$end" ] && return 0
+    # A shell function cannot run under timeout; the functions given here bound their calls by CALL_BOUND (bound).
+    if declare -F "$1" >/dev/null; then CALL_BOUND=$l "$@"; else timeout --kill-after=2 "$l" "$@"; fi && [ "$(date +%s)" -le "$end" ] && return 0
     [ "$(date +%s)" -lt "$end" ] || return 1
     sleep "$interval"
   done
 }
 
 # diag_ship TAG: archives this host's diagnostics and PUTs them as diag-ROLE-TAG.tgz, independent of Slurm and NFS.
+# The setup, apt and Slurm logs and a bounded journal are copied in first, so an apt or systemd failure is explained too.
 diag_ship() {
   local tag=$1
-  mkdir -p "$DIAG"
+  mkdir -p "$DIAG/logs"
+  cp /var/log/slurmec2.log /var/log/slurmec2-*.log "$DIAG/logs/" 2>>"$DIAG/ship.err"
+  cp -r /var/log/slurm "$DIAG/logs/" 2>>"$DIAG/ship.err"
+  timeout 20 journalctl -b --no-pager -n 3000 >"$DIAG/logs/journal.txt" 2>>"$DIAG/ship.err"
+  timeout 20 systemctl status --no-pager munge slurmd slurmctld slurmdbd nfs-kernel-server >"$DIAG/logs/units.txt" 2>&1
   tar -czf "/tmp/diag-$ROLE-$tag.tgz" -C /var/log slurmec2 2>>"$DIAG/ship.err" || return 1
   awsb s3api put-object --bucket "$BUCKET" --key "$PREFIX/diag-$ROLE-$tag.tgz" --body "/tmp/diag-$ROLE-$tag.tgz" >>"$DIAG/s3.log" 2>&1
 }

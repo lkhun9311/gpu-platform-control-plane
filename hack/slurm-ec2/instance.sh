@@ -48,7 +48,7 @@ late() {
 worker_stopped() {
   local n
   for n in gpu1 gpu2; do
-    aws s3api head-object --bucket "$BUCKET" --key "$PREFIX/stopped-$n" >/dev/null 2>>/var/log/slurmec2-probe.log && return 0
+    awsb s3api head-object --bucket "$BUCKET" --key "$PREFIX/stopped-$n" >/dev/null 2>>/var/log/slurmec2-probe.log && return 0
   done
   return 1
 }
@@ -58,7 +58,8 @@ head_wait() {
   local end=$1
   shift
   while :; do
-    "$@" && return 0
+    # Each probe gets at most the time left, so a hung sinfo cannot carry the wait past its deadline.
+    timeout --kill-after=2 "$(left "$end")" "$@" && [ "$(date +%s)" -le "$end" ] && return 0
     if worker_stopped; then
       local why
       why=$(for n in gpu1 gpu2; do s3get "stopped-$n" - 2>>/var/log/slurmec2-probe.log; done | paste -sd';')
@@ -71,6 +72,8 @@ head_wait() {
 
 # ------------------------------------------------------------- the cluster's addresses and T0, from the runner
 until_true $(( BOOT + 600 )) 5 s3get cluster.env /tmp/cluster.env || die "cluster.env never arrived"
+# It is sourced, so it must be assignments of single words and nothing else: any instance may write under the prefix.
+grep -vqE '^[A-Z][A-Z0-9_]*=[0-9a-z.,]*$' /tmp/cluster.env && die "cluster.env holds a line that is not NAME=word: $(grep -vE '^[A-Z][A-Z0-9_]*=[0-9a-z.,]*$' /tmp/cluster.env | head -3)"
 # shellcheck disable=SC1091
 . /tmp/cluster.env
 : "${T0:?}" "${HEAD_IP:?}" "${GPU1_IP:?}" "${GPU2_IP:?}"
@@ -82,7 +85,7 @@ for v in BRINGUP_END_S CHECKS_END_S EVIDENCE_S; do [[ "${!v}" =~ ^[0-9]+$ ]] || 
   die "the clock is out of order: bring-up $BRINGUP_END_S, checks $CHECKS_END_S, evidence $EVIDENCE_S, stop $STOP_S"
 export BRINGUP_END_S CHECKS_END_S EVIDENCE_S
 # Only the t3 rehearsal narrows the checks and B4's admission; anything else is refused rather than read.
-[[ "${SLURMEC2_CHECKS:-}" =~ ^(b[1-4]( b[1-4])*)?$ ]] && [[ "${B4_ADMIT_S:-1700}" =~ ^[0-9]+$ ]] && [[ "${B4_MEM_MB:-4096}" =~ ^[0-9]+$ ]] ||
+[[ "${SLURMEC2_CHECKS:-}" =~ ^(b[1-4](,b[1-4])*)?$ ]] && [[ "${B4_ADMIT_S:-1700}" =~ ^[0-9]+$ ]] && [[ "${B4_MEM_MB:-4096}" =~ ^[0-9]+$ ]] ||
   die "SLURMEC2_CHECKS, B4_ADMIT_S or B4_MEM_MB is malformed"
 export SLURMEC2_CHECKS="${SLURMEC2_CHECKS:-}" B4_ADMIT_S="${B4_ADMIT_S:-1700}" B4_MEM_MB="${B4_MEM_MB:-4096}"
 phase "T0 read"
@@ -126,17 +129,21 @@ apt_rc=$?
 if [ "$apt_rc" = 124 ]; then late "the package install ran out of the bring-up time"
 elif [ "$apt_rc" != 0 ]; then die "apt install failed ($apt_rc); see /var/log/slurmec2-apt.log"; fi
 phase "packages installed"
-# The old barrier, on its own, as a reproduction attempt; only the t3 rehearsal sets this.
-if [ "${SLURMEC2_NFS_PROBE:-0}" = 1 ]; then
-  timeout 900 bash hack/slurm-ec2/nfs-probe.sh
-  phase "nfs probe exited $?"
-fi
-# NFS traffic during the bring-up, in two rotating 8 MB files: what a client asked and what the server answered.
+# NFS traffic during the bring-up, the probe's included, in two rotating 8 MB files: what a client asked and what the
+# server answered.
 if [ "$SLURMEC2_SHARED_VOLUME" != 1 ]; then
   ( timeout "$(left "$BRINGUP_END")" tcpdump -ni any -s 256 -C 8 -W 2 -w "$DIAG/nfs.pcap" 'tcp port 2049' >>"$DIAG/tcpdump.log" 2>&1 ) &
 fi
+# The munge key is in S3 before any instance is bought, so it is fetched before the probe can spend the bring-up time;
+# running out of that time is a missed deadline, NOTRUN.
+until_true "$BRINGUP_END" 5 s3get munge.key /etc/munge/munge.key || late "munge.key was not fetched by the bring-up deadline"
+# The old barrier, on its own, as a reproduction attempt; only the t3 rehearsal sets this.
+if [ "${SLURMEC2_NFS_PROBE:-0}" = 1 ]; then
+  probe_left=$(left "$BRINGUP_END"); [ "$probe_left" -le 600 ] || probe_left=600
+  timeout --kill-after=5 "$probe_left" bash hack/slurm-ec2/nfs-probe.sh
+  phase "nfs probe exited $?"
+fi
 
-until_true $(( BOOT + 900 )) 5 s3get munge.key /etc/munge/munge.key || die "munge.key"
 chown munge:munge /etc/munge/munge.key && chmod 400 /etc/munge/munge.key
 systemctl restart munge || die "munge"
 id "$TENANT" >>/var/log/slurmec2-setup.log 2>&1 || useradd -u "$TENANT_UID" -m -s /bin/bash "$TENANT" || die "useradd $TENANT"
@@ -305,10 +312,12 @@ worker_bringup() {
   local token seen
   token=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["token"])' "$CTRL/CONF_READY.download") ||
     die "CONF_READY carries no NFS token"
+  [[ "$token" =~ ^[0-9a-f]{24}$ ]] || die "CONF_READY's NFS token is '$token', not 24 hex digits"
   if [ "$SLURMEC2_SHARED_VOLUME" != 1 ]; then
-    until_true $(( $(date +%s) + 60 )) 2 bash -c "[ \"\$(cat '$SHARED/nfscheck/head')\" = '$token' ]"
+    # The read runs under until_true's timeout, because a hard mount blocks a read on an unreachable server forever.
+    until_true $(( $(date +%s) + 60 )) 2 grep -qx "$token" "$SHARED/nfscheck/head"
     seen=$?
-    run_logged nfscheck-stat python3 -c 'import os,sys
+    run_logged nfscheck-stat timeout 20 python3 -c 'import os,sys
 for p in sys.argv[1:]:
     try:
         s = os.stat(p); print(p, "OK", s.st_ino, s.st_size, s.st_mtime_ns)
@@ -317,7 +326,7 @@ for p in sys.argv[1:]:
     [ "$seen" = 0 ] || die "head's NFS token is not visible here through the mount after 60 s"
   fi
   # Worker-to-head visibility: head reads this back before admitting jobs (it already reads nodeinfo the same way).
-  echo "$token" >"$SHARED/nfscheck/$ROLE.tmp" && mv "$SHARED/nfscheck/$ROLE.tmp" "$SHARED/nfscheck/$ROLE" || die "write the NFS token back"
+  timeout 30 bash -c 'echo "$1" >"$2.tmp" && mv "$2.tmp" "$2"' _ "$token" "$SHARED/nfscheck/$ROLE" || die "write the NFS token back"
   sig_put "CONF_ACK-$ROLE" acked "$token" || die "CONF_ACK could not be put to S3"
   systemctl enable slurmd >>/var/log/slurmec2-setup.log 2>&1
   systemctl restart slurmd || die "slurmd"
@@ -337,8 +346,16 @@ case "$ROLE" in
   gpu1|gpu2)
     worker_bringup
     # Workers serve jobs until head says the evidence is in, or the session's end; then their own diagnostics go out.
-    sig_wait $(( T0 + STOP_S - 120 )) END head end
-    phase "END seen ($?)"
+    # Read errors are reported and the worker keeps serving: only a valid END or the deadline ends it, so an S3 outage
+    # cannot take a node out of a running check.
+    while :; do
+      sig_wait $(( T0 + STOP_S - 120 )) END head end
+      rc=$?
+      phase "END wait returned $rc"
+      [ "$rc" = 2 ] || break
+      diag_ship periodic
+      sleep 10
+    done
     diag_ship final
     ;;
   *) die "unknown role $ROLE" ;;

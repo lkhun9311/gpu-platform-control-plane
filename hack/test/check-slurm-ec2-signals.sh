@@ -20,6 +20,8 @@ mkdir -p "$work/bin" "$work/s3"
 cat >"$work/bin/aws" <<'EOF'
 #!/usr/bin/env bash
 printf 'AWS_MAX_ATTEMPTS=%s %s\n' "${AWS_MAX_ATTEMPTS:-}" "$*" >>"$S3/../calls.log"
+# The sleep holds no output pipe, so a timeout that kills this script ends the caller's read too, as with the real CLI.
+[ -z "${FAKE_AWS_DELAY:-}" ] || sleep "$FAKE_AWS_DELAY" </dev/null >/dev/null 2>&1
 if [ "${FAKE_AWS:-}" = 403 ]; then
   echo "An error occurred (AccessDenied) when calling the GetObject operation: Access Denied" >&2
   exit 254
@@ -49,7 +51,7 @@ ROLE=gpu1 BUCKET=b PREFIX=run-1 T0=1000; : >"$work/stdout"
 DIAG=$work/diag CTRL=$work/ctrl
 # A payload as head would write it, with one field replaced.
 plant() {
-  python3 -c 'import json,sys; d={"schema":1,"run":"run-1","t0":1000,"producer":"head","phase":"ready","token":"tok"}; d.update(json.loads(sys.argv[1])); print(json.dumps(d))' "$1" \
+  python3 -c 'import json,sys; d={"schema":1,"run":"run-1","t0":1000,"producer":"head","phase":"ready","token":"ab12"}; d.update(json.loads(sys.argv[1])); print(json.dumps(d))' "$1" \
     >"$S3/run-1_control_CONF_READY"
 }
 rc_of() { "$@" >>"$work/stdout"; echo $?; }
@@ -58,7 +60,7 @@ rm -f "$S3"/*; expect_missing=$(rc_of sig_get CONF_READY head ready)
 [ "$expect_missing" = 1 ] && ok "an absent signal is not ready yet (1)" || bad "an absent signal returned $expect_missing"
 plant '{}'
 [ "$(rc_of sig_get CONF_READY head ready)" = 0 ] && ok "this run's signal from head at its phase is accepted" || bad "a valid signal was refused"
-for f in '{"run":"run-0"}' '{"t0":999}' '{"producer":"gpu2"}' '{"phase":"end"}' '{"schema":2}'; do
+for f in '{"run":"run-0"}' '{"t0":999}' '{"producer":"gpu2"}' '{"phase":"end"}' '{"schema":2}' '{"token":"ab'"'"'; touch x"}' '{"token":7}'; do
   plant "$f"
   got=$(rc_of sig_get CONF_READY head ready)
   [ "$got" = 2 ] && ok "a signal with $f is refused as an error (2)" || bad "a signal with $f returned $got"
@@ -76,14 +78,19 @@ got=$(rc_of sig_get CONF_READY head ready)
 [ "$got" = 1 ] && ok "a missing key with a valid file left from before is still not ready" || bad "a missing key with a leftover file returned $got"
 
 : >"$work/calls.log"
-sig_put CONF_ACK-gpu1 acked tok
-python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); sys.exit(0 if d=={"schema":1,"run":"run-1","t0":1000,"producer":"gpu1","phase":"acked","token":"tok"} else 1)' "$S3/run-1_control_CONF_ACK-gpu1" &&
+sig_put CONF_ACK-gpu1 acked ab12
+python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); sys.exit(0 if d=={"schema":1,"run":"run-1","t0":1000,"producer":"gpu1","phase":"acked","token":"ab12"} else 1)' "$S3/run-1_control_CONF_ACK-gpu1" &&
   ok "sig_put writes schema, run, T0, producer, phase and token" || bad "sig_put wrote $(cat "$S3/run-1_control_CONF_ACK-gpu1")"
 grep -q "^AWS_MAX_ATTEMPTS=1 .*--cli-connect-timeout 3 --cli-read-timeout 10 s3api put-object" "$work/calls.log" &&
   ok "every signal call runs with one attempt and connect and read timeouts" || bad "the signal call was: $(cat "$work/calls.log")"
 
 start=$(date +%s); got=$(FAKE_AWS=403 rc_of sig_wait $((start + 60)) CONF_READY head ready); took=$(( $(date +%s) - start ))
 [ "$got" = 2 ] && [ "$took" -lt 40 ] && ok "five refusals in a row end the wait as an error, in ${took} s, before its deadline" || bad "repeated refusals returned $got after ${took} s"
+
+# A valid signal whose read ends after the deadline is not counted, and the read itself is cut to the time left.
+plant '{}'; start=$(date +%s)
+got=$(FAKE_AWS_DELAY=6 rc_of sig_wait $((start + 2)) CONF_READY head ready); took=$(( $(date +%s) - start ))
+[ "$got" = 1 ] && [ "$took" -le 5 ] && ok "a signal read past the deadline is not counted, and the read stops at it (${took} s)" || bad "a slow read past the deadline returned $got after ${took} s"
 
 # until_true: a success that lands after the deadline does not count, and nothing runs once the deadline has passed.
 slow_ok() { sleep 3; return 0; }

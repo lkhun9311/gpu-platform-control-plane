@@ -92,6 +92,9 @@ scene() {
   put runs $'1.0\t1.0\t1.0\t1.0\t1.0\t1.0'; put errors $'0.0\t0.0\t0.0\t0.0\t0.0\t0.0'
   put creds "{\"Expiration\": \"$(date -u -d '+4 hours' +%Y-%m-%dT%H:%M:%SZ)\"}"
   put none ""
+  put nobucket "An error occurred (404) when calling the HeadBucket operation: Not Found"
+  put norole "An error occurred (NoSuchEntity) when calling the GetRole operation: The role with name slurmec2 cannot be found."
+  put throttled "An error occurred (Throttling) when calling the operation: Rate exceeded"
   put subnet "subnet-0a"
   put ih "i-0head"; put i1 "i-0gpu1"; put i2 "i-0gpu2"
   put capacity "An error occurred (InsufficientInstanceCapacity) when calling the RunInstances operation"
@@ -126,8 +129,8 @@ scene() {
 }
 base_rules() {
   # Neither the bucket nor the role exists yet, as on the first run; a scene's own rule, written first, overrides.
-  rule "s3api head-bucket*" none 1
-  rule "iam get-role --role-name slurmec2" none 1
+  rule "s3api head-bucket*" nobucket 254
+  rule "iam get-role --role-name slurmec2" norole 254
   rule "sts get-caller-identity*" account
   rule "ec2 describe-images*BlockDeviceMappings*" maps
   rule "ec2 describe-images*--image-ids $HAMI*" hami
@@ -222,6 +225,9 @@ scene; rule "iam get-role --role-name slurmec2" none 0; rule "iam list-role-tags
 grep -q "put-role-policy" "$STUB/calls.log" && bad "the foreign role's policy was written" || ok "a foreign role's policy is never written"
 scene; rule "s3api head-bucket*" none 0; rule "s3api get-bucket-tagging*" owned; base_rules; void_evidence; session "an existing bucket tagged as this session's"
 launched && ok "an existing bucket tagged as this session's is reused" || bad "owned bucket: exit $rc, $(tail -2 <<<"$out")"
+# A lookup that fails for any reason but absence leaves the owner unknown, and nothing is created or rewritten.
+scene; rule "s3api head-bucket*" throttled 254; base_rules; refused "a bucket lookup that fails without saying absent" "could not be looked up"
+scene; rule "iam get-role --role-name slurmec2" throttled 254; base_rules; refused "a role lookup that fails without saying absent" "could not be looked up"
 scene; put inactive "Pending"; rule "lambda get-function*" inactive; base_rules; refused "a sweeper not Active" "is Pending, not Active"
 scene; put few $'1.0\t1.0'; rule "cloudwatch get-metric-statistics*Invocations*" few; base_rules; refused "a sweeper seen running twice" "at least 4 clean runs"
 scene; put denied_sw "implicitDeny"; rule "iam simulate-principal-policy*" denied_sw; base_rules; refused "a sweeper that may not terminate" "may not terminate instances (implicitDeny)"
@@ -286,6 +292,9 @@ tag=$(grep -o 'Key=study-deadline,Value=[0-9TZ:-]*' <<<"$runs" | head -1 | sed '
 got=$(date -u -d "$tag" +%s 2>/dev/null || echo 0)
 (( got >= t0 + 6570 && got <= t0 + 6570 + 120 )) && ok "the launches carry the sweeper's tag at the request plus 5,670 s and the 900 s launch skew" || bad "the launch tag is '$tag'"
 want_t0=$(date -u -d "$LT_G" +%s)
+pol=$(grep '^iam put-role-policy' "$STUB/calls.log")
+grep -qE 'arn:aws:s3:::slurmec2-007635145730/out-[0-9a-f]+/\*' <<<"$pol" && ! grep -q 'slurmec2-007635145730/\*' <<<"$pol" &&
+  ok "the instances may read and write only this run's prefix" || bad "the role policy: $(cut -c1-300 <<<"$pol")"
 cl="$STUB/uploaded/cluster.env"
 [ -s "$cl" ] && grep -qx "T0=$want_t0" "$cl" && grep -qx "HEAD_IP=172.31.0.10" "$cl" && grep -qx "GPU1_IP=172.31.0.11" "$cl" && grep -qx "GPU2_IP=172.31.0.12" "$cl" &&
   ok "cluster.env carries T0, the latest LaunchTime, and the three addresses" || bad "cluster.env: $(paste -sd' ' "$cl" 2>&1)"
@@ -345,7 +354,7 @@ session "a root volume left after termination"
   ok "a volume left after termination fails the teardown, and all three root volumes are asked about" || bad "a left volume: exit $rc, $(paste -sd';' "$STUB/out/termination.txt")"
 
 # The t3 real-NFS rehearsal: three t3.medium, the workers on the session's Deep Learning image, the GPU stand-in, the
-# old barrier probe, a 40-minute clock and only B4, set by the mode and nowhere else; the G and VT quota is not read.
+# old barrier probe, a clock that ends at T0 + 1,950 s and only B4, set by the mode and nowhere else; the G and VT quota is not read.
 scene; rule "ec2 run-instances*" "ih|i1|i2"; base_rules; void_evidence
 session "the t3 real-NFS rehearsal" SLURMEC2_MODE=nfs-rehearsal
 runs=$(grep '^ec2 run-instances' "$STUB/calls.log")
@@ -353,9 +362,9 @@ runs=$(grep '^ec2 run-instances' "$STUB/calls.log")
   ok "the rehearsal buys three t3.medium, the workers on the Deep Learning image with its 100 GB" || bad "the rehearsal launches: $(cut -c1-300 <<<"$runs")"
 grep -q "service-quotas get-service-quota" "$STUB/calls.log" && bad "the rehearsal read the G and VT quota" || ok "the rehearsal does not read the G and VT quota"
 ud="$STUB/out/user-data-gpu1.sh"
-grep -q " STOP_S=2400 SLURMEC2_FAKE_GPU=1 SLURMEC2_NFS_PROBE=1$" "$ud" && grep -q '( sleep 2700; ' "$ud" &&
-  ok "the rehearsal's instances stop at T0 + 2,400 s, boot + 2,700 s at the latest, and carry the stand-in and the probe" || bad "the rehearsal user-data: $(grep -E 'STOP_S|sleep' "$ud")"
-grep -qx "CHECKS_END_S=2100" "$STUB/uploaded/cluster.env" && grep -qx "SLURMEC2_CHECKS=b4" "$STUB/uploaded/cluster.env" && grep -qx "B4_MEM_MB=1024" "$STUB/uploaded/cluster.env" &&
+grep -q " STOP_S=1950 SLURMEC2_FAKE_GPU=1 SLURMEC2_NFS_PROBE=1$" "$ud" && grep -q '( sleep 2250; ' "$ud" &&
+  ok "the rehearsal's instances stop at T0 + 1,950 s, boot + 2,250 s at the latest, and carry the stand-in and the probe" || bad "the rehearsal user-data: $(grep -E 'STOP_S|sleep' "$ud")"
+grep -qx "CHECKS_END_S=1650" "$STUB/uploaded/cluster.env" && grep -qx "SLURMEC2_CHECKS=b4" "$STUB/uploaded/cluster.env" && grep -qx "B4_MEM_MB=1024" "$STUB/uploaded/cluster.env" &&
   ok "cluster.env carries the rehearsal's clock and its one check" || bad "the rehearsal cluster.env: $(paste -sd' ' "$STUB/uploaded/cluster.env")"
 scene; base_rules; refused "an unknown mode" "SLURMEC2_MODE is 'other'" SLURMEC2_MODE=other
 

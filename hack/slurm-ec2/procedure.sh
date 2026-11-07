@@ -20,7 +20,7 @@ mkdir -p "$BIN" && cp hack/slurm-ec2/probe_cuda.py hack/slurm-ec2/alloc.py hack/
 as_tenant() { runuser -u "$TENANT" -- "$@"; }
 now() { date +%s.%N | cut -c1-14; }
 # wanted CHECK: whether CHECK runs; only the t3 rehearsal narrows the set (SLURMEC2_CHECKS), the session runs all four.
-wanted() { [ -z "${SLURMEC2_CHECKS:-}" ] || [[ " $SLURMEC2_CHECKS " == *" $1 "* ]]; }
+wanted() { [ -z "${SLURMEC2_CHECKS:-}" ] || [[ ",$SLURMEC2_CHECKS," == *",$1,"* ]]; }
 notrun() { mkdir -p "$EVID/$1" && echo "$2" >"$EVID/$1/NOTRUN"; log "$1 NOTRUN: $2"; }
 
 # job_done ID END: waits until the job has left the queue, or END; returns 1 on END.
@@ -187,10 +187,13 @@ b4() {
   echo "gpu2_resumed=$(now)" >>"$d/events.env"
   uuid=$(grep -oE 'UUID="[^"]+"' "$SHARED/gpuhc/gpu1.prom" | head -1)
   printf '# generation 1\nDCGM_FI_DEV_XID_ERRORS{gpu="0",%s} 79\nDCGM_FI_DEV_ECC_DBE_VOL_TOTAL{gpu="0",%s} 0\n' "$uuid" "$uuid" >"$SHARED/gpuhc/gpu1.prom.tmp"
-  mv "$SHARED/gpuhc/gpu1.prom.tmp" "$SHARED/gpuhc/gpu1.prom" || echo "the fault signal could not be written" >>"$d/setup-failed"
-  grep -q '^DCGM_FI_DEV_XID_ERRORS{.*UUID=.*} 79$' "$SHARED/gpuhc/gpu1.prom" || echo "gpu1's signal does not carry Xid 79" >>"$d/setup-failed"
+  # B4a counts from the write; the time is read just before the rename that publishes it, so a pause between the
+  # rename and this line can only lengthen the interval B4a judges, never shorten it.
   t_fault=$(now)
+  mv "$SHARED/gpuhc/gpu1.prom.tmp" "$SHARED/gpuhc/gpu1.prom" || echo "the fault signal could not be written" >>"$d/setup-failed"
   echo "fault_written=$t_fault" >>"$d/events.env"
+  echo "fault_renamed=$(now)" >>"$d/events.env"
+  grep -q '^DCGM_FI_DEV_XID_ERRORS{.*UUID=.*} 79$' "$SHARED/gpuhc/gpu1.prom" || echo "gpu1's signal does not carry Xid 79" >>"$d/setup-failed"
   for _ in $(seq 1 60); do
     # A failed read is written as such, so the scorer can tell it from a node that was not drained.
     line=$(scontrol show node gpu1) && echo "$(now) $(grep -oE 'State=\S+|Reason=.*' <<<"$line" | paste -sd' ')" >>"$d/gpu1-state.txt" ||

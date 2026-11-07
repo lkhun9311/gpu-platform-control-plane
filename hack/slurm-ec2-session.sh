@@ -47,8 +47,10 @@ CRED_MIN_MINUTES=135
 
 # SLURMEC2_MODE=nfs-rehearsal is the t3 real-NFS rehearsal (registration, "The t3 real-NFS rehearsal"): three
 # t3.medium, head on its Ubuntu image and the workers on the session's Deep Learning image, whose NFS client is the one
-# that failed, a stand-in for the GPU, a 40-minute clock and only B4 among the checks, with the old NFS barrier probed
-# first. Every value it changes is set here and nowhere else.
+# that failed, a stand-in for the GPU, a clock that ends at T0 + 1,950 s and only B4 among the checks, with the old NFS
+# barrier probed first. Every value it changes is set here and nowhere else.
+# Its hard TTL is 45 minutes from the request: the sweeper's tag is at most request + 2,280 s, and a sweep every five
+# minutes plus the termination still ends inside 2,700 s.
 MODE=${SLURMEC2_MODE:-session}
 EXTRA_ENV=""
 CLUSTER_EXTRA=""
@@ -57,9 +59,9 @@ case "$MODE" in
   nfs-rehearsal)
     GPU_TYPE=t3.medium GPU_CAP=0.06
     STUDY_ID=slurm-ec2-nfs-rehearsal-2026-11-08
-    TAG_AT_REQUEST_S=2370 TAG_FROM_T0_S=2370 STOP_S=2400 TERMINATION_S=2550 LAUNCH_SKEW_S=300 CRED_MIN_MINUTES=75
+    TAG_AT_REQUEST_S=1980 TAG_FROM_T0_S=1980 STOP_S=1950 TERMINATION_S=2100 LAUNCH_SKEW_S=300 CRED_MIN_MINUTES=75
     EXTRA_ENV="SLURMEC2_FAKE_GPU=1 SLURMEC2_NFS_PROBE=1"
-    CLUSTER_EXTRA=$'BRINGUP_END_S=1200\nCHECKS_END_S=2100\nEVIDENCE_S=2250\nSLURMEC2_CHECKS=b4\nB4_ADMIT_S=600\nB4_MEM_MB=1024\n' ;;
+    CLUSTER_EXTRA=$'BRINGUP_END_S=1200\nCHECKS_END_S=1650\nEVIDENCE_S=1830\nSLURMEC2_CHECKS=b4\nB4_ADMIT_S=600\nB4_MEM_MB=1024\n' ;;
   *) echo "SESSION REFUSED: SLURMEC2_MODE is '$MODE', not session or nfs-rehearsal" >&2; exit 1 ;;
 esac
 OUT="${OUT:-hack/slurm-ec2-$([ "$MODE" = session ] || echo "$MODE-")$(date -u +%Y%m%dT%H%M%SZ)}"
@@ -329,13 +331,21 @@ trap 'cleanup; exit 143' TERM
 # The bucket and the role carry fixed names, so one that already exists is changed (its lifecycle, its policy) only
 # if it carries this session's purpose tag, which only this runner writes; otherwise it is someone else's and refused.
 owned_or_absent() {
-  local kind=$1 name=$2 tags
+  local kind=$1 name=$2 tags err
   case "$kind" in
+    # Only a confirmed absence lets the runner create; any other failure of the lookup is refused, because an
+    # existing resource behind a transient error would otherwise have its tags, lifecycle or policy rewritten.
     bucket)
-      aws s3api head-bucket --bucket "$name" >>"$OUT/launch-errors.txt" 2>&1 || return 0
+      if ! err=$(aws s3api head-bucket --bucket "$name" 2>&1); then
+        case "$err" in *"(404)"*|*"Not Found"*|*NoSuchBucket*) return 0 ;; esac
+        fail "the bucket $name could not be looked up, so whose it is is unknown: $err"
+      fi
       tags=$(aws s3api get-bucket-tagging --bucket "$name" --query "TagSet[?Key=='purpose'].Value" --output text 2>&1) ;;
     role)
-      aws iam get-role --role-name "$name" >>"$OUT/launch-errors.txt" 2>&1 || return 0
+      if ! err=$(aws iam get-role --role-name "$name" 2>&1); then
+        case "$err" in *NoSuchEntity*) return 0 ;; esac
+        fail "the role $name could not be looked up, so whose it is is unknown: $err"
+      fi
       tags=$(aws iam list-role-tags --role-name "$name" --query "Tags[?Key=='purpose'].Value" --output text 2>&1) ;;
   esac
   [ "$tags" = "$PURPOSE" ] || fail "the $kind $name exists and is not tagged purpose=$PURPOSE, so it is not this session's to change ($tags)"
@@ -382,7 +392,7 @@ rb=$(aws rbin list-rules --region "$REGION" --resource-type EBS_VOLUME --query '
   fail "the Recycle Bin rules for EBS volumes could not be read: $rb"
 [ "$rb" = 0 ] || fail "$rb Recycle Bin rule(s) retain EBS volumes in $REGION, so the root volumes would outlive the instances"
 spot_ensure_profile "$STACK" \
-  "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":[\"s3:PutObject\",\"s3:GetObject\"],\"Resource\":\"arn:aws:s3:::$BUCKET/*\"},{\"Effect\":\"Allow\",\"Action\":\"s3:ListBucket\",\"Resource\":\"arn:aws:s3:::$BUCKET\"}]}" \
+  "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":[\"s3:PutObject\",\"s3:GetObject\"],\"Resource\":\"arn:aws:s3:::$BUCKET/$RUN_ID/*\"},{\"Effect\":\"Allow\",\"Action\":\"s3:ListBucket\",\"Resource\":\"arn:aws:s3:::$BUCKET\"}]}" \
   20 || fail "could not prepare the instance profile $STACK"
 aws iam tag-role --role-name "$STACK" --tags "Key=purpose,Value=$PURPOSE" >>"$OUT/launch-errors.txt" 2>&1 ||
   fail "could not tag the role $STACK as this session's"
@@ -402,7 +412,7 @@ PY
 inline=$(aws iam list-role-policies --role-name "$STACK" --query 'PolicyNames' --output text 2>&1) || fail "the role's inline policies could not be read: $inline"
 [ "$inline" = write-results ] || [ "$inline" = "" ] || fail "the role $STACK carries inline policies '$inline' besides this session's"
 aws iam put-role-policy --role-name "$STACK" --policy-name write-results --policy-document \
-  "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":[\"s3:PutObject\",\"s3:GetObject\"],\"Resource\":\"arn:aws:s3:::$BUCKET/*\"},{\"Effect\":\"Allow\",\"Action\":\"s3:ListBucket\",\"Resource\":\"arn:aws:s3:::$BUCKET\"}]}" \
+  "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":[\"s3:PutObject\",\"s3:GetObject\"],\"Resource\":\"arn:aws:s3:::$BUCKET/$RUN_ID/*\"},{\"Effect\":\"Allow\",\"Action\":\"s3:ListBucket\",\"Resource\":\"arn:aws:s3:::$BUCKET\"}]}" \
   >>"$OUT/launch-errors.txt" 2>&1 || fail "could not write the role's policy"
 extra=$(aws iam list-attached-role-policies --role-name "$STACK" --query 'AttachedPolicies[].PolicyArn' --output text 2>&1) ||
   fail "the role's attached policies could not be read: $extra"
@@ -439,6 +449,8 @@ launch_one() {
   local credits=""
   if [ "$role" = head ]; then type=$HEAD_TYPE ami=$SLURMEC2_HEAD_AMI_ID cap=$HEAD_CAP vol=$HEAD_VOLUME_GB credits=standard
   else type=$GPU_TYPE ami=$SLURMEC2_GPU_AMI_ID cap=$GPU_CAP vol=$GPU_VOLUME_GB; fi
+  # A burstable instance left at its account default may run Unlimited, billed outside the Spot cap.
+  [[ "$type" == t3.* ]] && credits=standard
   token="slurmec2-$RUN_NONCE-$role-$z"
   tags="ResourceType=instance,Tags=[{Key=Name,Value=$STACK-$role},{Key=purpose,Value=$PURPOSE},{Key=role,Value=$role},{Key=run,Value=$RUN_NONCE},{Key=study-deadline,Value=$TAG_DEADLINE}]"
   UNCERTAIN+=("$token $subnet")
