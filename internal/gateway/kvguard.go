@@ -294,6 +294,17 @@ type backendSnapshot struct {
 	// unchanged"): retaining engaged=true across a stale gap and still rejecting on it would be
 	// fail-CLOSED, which is exactly the v1 bug this snapshot exists to avoid.
 	fresh bool
+	// freshUntil is when this snapshot's telemetry passes maxStaleness, zero when no scrape ever succeeded.
+	// fresh is only the verdict at publication, and a snapshot is next replaced only by the next scrape, so a scrape
+	// interval longer than maxStaleness, or a scrape blocked to its timeout, left the guard deciding on telemetry
+	// older than its own limit (review r6, 2026-11-07); freshAt reads the limit at decision time instead.
+	freshUntil time.Time
+}
+
+// freshAt reports whether the snapshot's telemetry is within maxStaleness at now.
+// A snapshot published after a success always carries freshUntil; one without it is fresh only as published.
+func (s *backendSnapshot) freshAt(now time.Time) bool {
+	return s.fresh && (s.freshUntil.IsZero() || !now.After(s.freshUntil))
 }
 
 // --- Scraper -----------------------------------------------------------------
@@ -461,6 +472,9 @@ func (b *backendScraper) publish(now time.Time) {
 		cacheUsage: b.lastSample.CacheUsage,
 		waiting:    b.lastSample.Waiting,
 		fresh:      fresh,
+	}
+	if b.everSucceeded {
+		snap.freshUntil = b.lastSuccessAt.Add(b.cfg.maxStaleness)
 	}
 	b.snap.Store(snap)
 
@@ -822,7 +836,7 @@ func (a *kvAwareAdmitter) Admit(_ context.Context, meta RequestMeta, backend *Ba
 	if !ok {
 		return true, reasonBackendUnregistered
 	}
-	if !snap.fresh {
+	if !snap.freshAt(a.manager.cfg.clock()) {
 		return true, reasonTelemetryStale
 	}
 	if !snap.engaged {
@@ -850,7 +864,7 @@ func (a *kvAwareAdmitter) Observed(backend *BackendRef) (BackendState, bool) {
 		CacheUsage: snap.cacheUsage,
 		Waiting:    snap.waiting,
 		Engaged:    snap.engaged,
-		Fresh:      snap.fresh,
+		Fresh:      snap.freshAt(a.manager.cfg.clock()),
 	}, true
 }
 
