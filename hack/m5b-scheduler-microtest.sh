@@ -382,6 +382,9 @@ for z in $ZONES; do
   # One token per (run, zone). EC2's idempotency is zonal because the subnet pins the zone, so retrying the
   # same zone under the same token returns the instance already created rather than making a second one.
   LAUNCH_TOKEN="microtest-$LAUNCH_IDENTITY-$z"
+  # The tags, deadline included, are fixed with the token: a retry under the same token with a later deadline is a
+  # different request, which EC2 answers IdempotentParameterMismatch instead of returning the instance it made.
+  LAUNCH_TAGS="$(spot_tags_with_deadline "$TAGS" $((BACKSTOP_SECONDS + 1200)))"
   # Only a refusal that names a ZONE's shortage may move to another zone.
   #
   # A whitelist, not a denylist: an unrecognised error read as "definitive" sends the loop on to buy a second
@@ -398,7 +401,7 @@ for z in $ZONES; do
     # Set BEFORE the call. Everything after this line, including a signal, can be reconciled.
     LAUNCH_UNCERTAIN="$LAUNCH_TOKEN"; LAUNCH_UNCERTAIN_SUBNET="$SUBNET"
     IID=$(spot_launch "$REGION" "$AMI" "$INSTANCE_TYPE" "$SUBNET" "$STACK" \
-          "$MAX_SPOT_PRICE" 150 "$UD" "$(spot_tags_with_deadline "$TAGS" $((BACKSTOP_SECONDS + 1200)))" "$LAUNCH_TOKEN" 2>"$attempt_err") || IID=""
+          "$MAX_SPOT_PRICE" 150 "$UD" "$LAUNCH_TAGS" "$LAUNCH_TOKEN" 2>"$attempt_err") || IID=""
     cat "$attempt_err" >> "$OUT/launch-errors.txt"
 
     if [ -n "$IID" ] && [ "$IID" != "None" ]; then LAUNCH_UNCERTAIN=""; break; fi

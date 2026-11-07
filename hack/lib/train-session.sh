@@ -565,7 +565,7 @@ train_scale_down() {
   fi
   for i in 1 2 3 4 5 6; do
     if out="$(aws eks update-nodegroup-config --region "$region" --cluster-name "$cluster" --nodegroup-name "$group" \
-      --scaling-config minSize=0,maxSize=2,desiredSize=0 2>&1)"; then
+      --scaling-config minSize=0,maxSize=2,desiredSize=0 --output json 2>&1)"; then
       accepted=1
       break
     fi
@@ -576,7 +576,9 @@ train_scale_down() {
     echo "the instance record $file is missing, so nothing shows the nodes this session bought have gone"
     return 1
   fi
-  # The accepted request's answer is UpdateNodegroupConfig's JSON, whose update.id names the change to follow.
+  # The accepted request's answer is UpdateNodegroupConfig's JSON, whose update.id names the change to follow; JSON is
+  # asked for, since a profile set to text output would answer in a form this cannot read (bare codex review of the r5
+  # fixes).
   if [[ -n "$accepted" ]]; then
     update_id="$(python3 -c 'import json, sys; print(json.loads(sys.argv[1])["update"]["id"])' "$out" 2>&1)" || update_id=""
     [[ "$update_id" =~ ^[A-Za-z0-9-]+$ ]] || update_id=""

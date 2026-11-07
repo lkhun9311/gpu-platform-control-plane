@@ -290,7 +290,13 @@ done
 # A terraform of this user still working on the cluster root carries the same Who, so its lock is not released while it
 # runs (codex review of 3e3896cb). The stand-in is a script named terraform, so it is found by name as the real one is.
 mkdir -p "$dir/holder"
-printf '#!/bin/bash\nwhile :; do sleep 1; done\n' >"$dir/holder/terraform"
+# Like terraform, it changes into its -chdir before anything else (terraform's own process was seen to: started from
+# infra/aws with -chdir=cluster, its cwd is infra/aws/cluster), so the holder is found where terraform would be.
+cat >"$dir/holder/terraform" <<'EOF'
+#!/bin/bash
+for a in "$@"; do case "$a" in -chdir=*) cd "${a#-chdir=}" || exit 1 ;; esac; done
+while :; do sleep 1; done
+EOF
 chmod +x "$dir/holder/terraform"
 (cd "$PWD" && exec "$dir/holder/terraform" -chdir=infra/aws/cluster plan) &
 holder=$!
@@ -311,8 +317,9 @@ fi
 # A terraform on another root is not a holder, and the stale lock is still released.
 other="$work/other checkout"
 mkdir -p "$other/infra/aws/cluster" "$other/infra/aws/bootstrap"
-for how in inside absolute relative unrelated; do
+for how in inside absolute relative parent unrelated; do
   case "$how" in
+    parent) (cd "$other/infra/aws" && exec "$dir/holder/terraform" -chdir=cluster plan) & ;;
     inside) (cd "$other/infra/aws/cluster" && exec "$dir/holder/terraform" plan) & ;;
     absolute) (cd / && exec "$dir/holder/terraform" "-chdir=$other/infra/aws/cluster" plan) & ;;
     relative) (cd "$other/infra/aws/bootstrap" && exec "$dir/holder/terraform" -chdir=../cluster plan) & ;;

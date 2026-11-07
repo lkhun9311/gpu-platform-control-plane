@@ -260,6 +260,14 @@ run_scenario() {
     sed -e "s#run-[0-9a-f]\{8\}#run-<NONCE>#g" \
         -e "s#Key=study-deadline,Value=[0-9T:-]*Z#Key=study-deadline,Value=<DEADLINE>#g" "$STUB_TRANSCRIPT" \
       | python3 "$ROOT/$HERE/collapse.py"
+    # A retry under one client token must repeat its request exactly, deadline included, or EC2 answers
+    # IdempotentParameterMismatch instead of returning the instance it made. The deadline is normalised away above, so
+    # the comparison is made here on the raw transcript, and a line is printed only when it fails (bare codex review of
+    # the r5 fixes).
+    awk '/ run-instances / { tok = ""; tags = ""
+        for (i = 1; i < NF; i++) { if ($i == "--client-token") tok = $(i + 1); if ($i == "--tag-specifications") tags = $(i + 1) }
+        if (tok != "") { if ((tok in seen) && seen[tok] != tags) print "idempotency: MISMATCH, tags changed under one client token"; seen[tok] = tags } }' \
+      "$STUB_TRANSCRIPT"
     printf -- '--- exit %s\n' "$rc"
     printf -- '--- messages\n'
     cat "$work/messages.txt"

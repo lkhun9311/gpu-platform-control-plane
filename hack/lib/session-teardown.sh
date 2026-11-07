@@ -132,26 +132,31 @@ unlocked=""
 # This user's terraform processes still working on a cluster root: a lock whose Who is this host's user is only shown
 # stale when none is left, since another operation by the same user on the same host carries the same Who (codex review
 # of 3e3896cb).
-# Each process's directory is resolved as terraform resolves it, its -chdir taken against its own working directory, and
-# any directory ending in CLUSTER_DIR counts, in whatever checkout: every checkout of this repository has the same
-# backend and so the same state. Matching this checkout's path, or a -chdir spelled relative to it, missed a terraform
-# started from inside another checkout's cluster root or given an absolute -chdir into one (gpt-6-astra's review of
-# 116092ef, r5 finding 2). Leaving a lock to a holder that turns out unrelated costs a manual unlock, where releasing a
-# live one could corrupt the state.
+# A process counts when its working directory ends in CLUSTER_DIR, in whatever checkout: every checkout of this
+# repository has the same backend and so the same state. terraform changes into its -chdir before it takes the lock
+# (seen on terraform's own process: started from infra/aws with -chdir=cluster, its cwd is infra/aws/cluster), so the
+# working directory is the one to read; resolving -chdir against it again missed exactly that holder (bare codex review
+# of the r5 fixes). The -chdir, resolved against the working directory, is also read, for a process caught before it
+# has changed directory.
+# Matching this checkout's path, or a -chdir spelled relative to it, missed a terraform started from inside another
+# checkout's cluster root or given an absolute -chdir into one (gpt-6-astra's review of 116092ef, r5 finding 2).
+# Leaving a lock to a holder that turns out unrelated costs a manual unlock, where releasing a live one could corrupt
+# the state.
 # A copy of the root under another name, or one run on another host as the same user@host, is still not seen.
 live_holders() {
   local p cwd dir arg
   for p in $(pgrep -u "$(id -u)" -x terraform); do
     # A process that exited since pgrep listed it holds nothing.
     cwd="$(readlink "/proc/$p/cwd")" || continue
-    dir="$cwd"
+    dir=""
     while IFS= read -r -d '' arg; do
       case "$arg" in
         -chdir=/*) dir="${arg#-chdir=}" ;;
         -chdir=*) dir="$cwd/${arg#-chdir=}" ;;
       esac
     done <"/proc/$p/cmdline"
-    case "$(realpath -m "$dir")/" in */"$CLUSTER_DIR"/) echo "$p" ;; esac
+    case "$cwd/" in */"$CLUSTER_DIR"/) echo "$p"; continue ;; esac
+    [ -n "$dir" ] && case "$(realpath -m "$dir")/" in */"$CLUSTER_DIR"/) echo "$p" ;; esac
   done
 }
 # A disarm that stops this watchdog stops the destroy it started too: $! is set the moment the destroy is launched, so

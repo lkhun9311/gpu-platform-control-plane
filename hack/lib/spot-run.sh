@@ -84,9 +84,11 @@ spot_account() {
 # spot_tags_with_deadline TAGS SECONDS: TAGS with a study-deadline SECONDS from now added to its instance tags, or TAGS
 # unchanged when it carries one already.
 #
-# Called at each launch attempt rather than once, so the deadline is counted from the launch and not from whatever the
-# runner did before it. Runners pass their in-instance backstop plus twenty minutes, so the sweeper is the second line,
-# as it is for the runners that set the tag themselves.
+# Called once per launch token, beside the token, so the deadline is counted from the launch and not from whatever the
+# runner did before it, and every retry under that token sends the same request: a deadline recomputed per retry made
+# the retry a different request, which EC2 refuses as IdempotentParameterMismatch (bare codex review of the r5 fixes).
+# Runners pass their in-instance backstop plus twenty minutes, so the sweeper is the second line, as it is for the
+# runners that set the tag themselves.
 spot_tags_with_deadline() {
   local tags="$1" seconds="$2"
   case "$tags" in
