@@ -336,6 +336,9 @@ func equalStringMaps(a, b map[string]string) bool {
 	return true
 }
 
+// ownerKindJob is the controller kind of a Pod whose Kueue Workload the fault path can displace and requeue.
+const ownerKindJob = "Job"
+
 // displaceGPUWork deactivates the Kueue Workload of every GPU Pod still on the faulted node.
 //
 // Deactivation is Kueue's own eviction: it suspends the Job, which stops its Pods and releases the quota, and
@@ -355,7 +358,7 @@ func (r *NodeHealthReconciler) displaceGPUWork(ctx context.Context, nh *platform
 			continue
 		}
 		owner := metav1.GetControllerOf(p)
-		if owner == nil || owner.Kind != "Job" {
+		if owner == nil || owner.Kind != ownerKindJob {
 			cfg.event(nh, corev1.EventTypeWarning, "GPUFaultPodNotDisplaced", "Displace",
 				"pod %s/%s uses a GPU on the faulted node and has no Job owner, so no Kueue Workload to evict", p.Namespace, p.Name)
 			continue
@@ -452,11 +455,34 @@ func requestsGPU(p *corev1.Pod) bool {
 // Waiting for Evicted and for the quota to be gone is what makes the requeue a new admission: reactivating
 // while the old one is still being torn down would race Kueue's own eviction.
 // Only Workloads carrying deactivated-node are touched, so a Workload a person deactivated stays deactivated.
+//
+// It also waits for the Job's Pods to leave the faulted node: Kueue releases the quota before the old Pod finishes
+// terminating, and a Workload reactivated then is admitted while that Pod still holds the faulted card, after which
+// the next pass finds the Pod on the faulted node and deactivates the Workload again (the 2026-11-07 drill counted
+// about 18 such rounds).
+// Waiting here rather than skipping terminating Pods in displaceGPUWork is what also keeps the quota from being
+// handed out while the device is still held.
 func (r *NodeHealthReconciler) reactivateDisplaced(ctx context.Context, nh *platformv1.NodeHealth) error {
 	cfg := r.GPUFault
 	var wls kueuev1beta1.WorkloadList
 	if err := r.List(ctx, &wls); err != nil {
 		return fmt.Errorf("list workloads to reactivate: %w", err)
+	}
+	// The Job UIDs that still have a Pod running or terminating on the faulted node, read past the cache.
+	// A Pod its kubelet reported Succeeded or Failed holds no device, and a Job may keep such Pods for good.
+	var onNode corev1.PodList
+	if err := cfg.APIReader.List(ctx, &onNode, client.MatchingFields{"spec.nodeName": nh.Spec.NodeName}); err != nil {
+		return fmt.Errorf("list pods on faulted node %s: %w", nh.Spec.NodeName, err)
+	}
+	stillThere := map[string]bool{}
+	for i := range onNode.Items {
+		p := &onNode.Items[i]
+		if p.Status.Phase == corev1.PodSucceeded || p.Status.Phase == corev1.PodFailed {
+			continue
+		}
+		if owner := metav1.GetControllerOf(p); owner != nil && owner.Kind == ownerKindJob {
+			stillThere[string(owner.UID)] = true
+		}
 	}
 	for i := range wls.Items {
 		wl := &wls.Items[i]
@@ -465,7 +491,8 @@ func (r *NodeHealthReconciler) reactivateDisplaced(ctx context.Context, nh *plat
 			wl.Annotations[AnnRestartHandoff] != "" ||
 			ptr.Deref(wl.Spec.Active, true) ||
 			!meta.IsStatusConditionTrue(wl.Status.Conditions, kueuev1beta1.WorkloadEvicted) ||
-			meta.IsStatusConditionTrue(wl.Status.Conditions, kueuev1beta1.WorkloadQuotaReserved) {
+			meta.IsStatusConditionTrue(wl.Status.Conditions, kueuev1beta1.WorkloadQuotaReserved) ||
+			stillThere[wl.Labels[kueueJobUIDLabel]] {
 			continue
 		}
 		base := wl.DeepCopy()
