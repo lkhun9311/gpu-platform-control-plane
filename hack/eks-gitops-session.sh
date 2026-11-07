@@ -424,6 +424,20 @@ if [[ "$SERVE" == yes || -n "$TRAIN" || "$STUDY" == prefixroute ]]; then
   [[ "$destroy_runs" == 0 ]] || die "$destroy_runs destroy workflow run(s) are not completed; wait for them"
 fi
 
+# --- The account, read before anything is created -----------------------------------------------------
+#
+# A profile name is not an account: credentials in the environment take precedence over AWS_PROFILE, so a shell left
+# holding another account's keys would build there, and the state bucket's account would only refuse at init
+# (gpt-6-astra's review of 116092ef, r5 finding 8).
+for v in AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN; do
+  [[ -z "${!v:-}" ]] || die "$v is set in the environment, and environment credentials take precedence over AWS_PROFILE=$AWS_PROFILE; unset it"
+done
+LAB_ACCOUNT=007635145730
+caller_account="$(aws sts get-caller-identity --query Account --output text 2>&1)" ||
+  die "could not read the caller's account: $caller_account"
+[[ "$caller_account" == "$LAB_ACCOUNT" ]] ||
+  die "the credentials are for account $caller_account; paid sessions run only in gpu-lab ($LAB_ACCOUNT)"
+
 # --- The kill switch, armed before anything is created ------------------------------------------------
 #
 # Budgets are not a kill switch: their data updates a few times a day, and this month's thresholds have all
@@ -431,6 +445,10 @@ fi
 # whether this script finishes, hangs, or the terminal dies.
 KILL_LOG="$EXDIR/ttl-kill-switch.log"
 KILL_PIDFILE="$EXDIR/ttl.pid"
+# A watchdog still armed from an earlier session would destroy this one's cluster at its own TTL, because every session
+# builds into the same state (killswitch_others).
+others="$(killswitch_others | paste -sd' ')"
+[[ -z "$others" ]] || die "a kill switch watchdog from an earlier session is still armed (pid $others) and would destroy this session's cluster when it fires; disarm it (kill -- -PID) once its own cluster is confirmed gone, then start again"
 # A reused EXDIR holds the last session's pid, which the loop below read before the new watchdog wrote its own; the
 # session would then disarm a dead process and leave its live watchdog to destroy the cluster (gpt-6-astra's defect
 # review of #505).
@@ -507,13 +525,26 @@ ca="$(terraform -chdir="$CLUSTER_DIR" output -raw cluster_ca)"
 
 aws eks update-kubeconfig --name "$CLUSTER" --region "$REGION" --alias "$CLUSTER" \
   >>"$EXDIR/terraform.log" 2>&1 || die "update-kubeconfig"
+# This cluster's VPC, read while the cluster exists, so the teardown's CNI sweep can be bound to it rather than to
+# whichever project-tagged VPC happens to be the only one left (sweep_leaked_cni_enis).
+SESSION_VPC="$(aws eks describe-cluster --region "$REGION" --name "$CLUSTER" \
+  --query 'cluster.resourcesVpcConfig.vpcId' --output text 2>>"$EXDIR/terraform.log")" || SESSION_VPC=""
+if [[ "$SESSION_VPC" =~ ^vpc-[0-9a-f]+$ ]]; then
+  printf '%s\n' "$SESSION_VPC" >"$EXDIR/vpc-id.txt"
+else
+  log "warning: could not read this cluster's VPC ('${SESSION_VPC:0:80}'); a CNI sweep at teardown will delete nothing"
+  SESSION_VPC=""
+fi
 
 log "terraform init + apply (argo-bootstrap): the pinned argo-cd chart, installed by its own root"
 terraform -chdir="$ARGO_DIR" init -input=false -reconfigure \
   -backend-config="bucket=$STATE_BUCKET" -backend-config="kms_key_id=$STATE_KMS" \
   >>"$EXDIR/terraform.log" 2>&1 || die "argo init"
+# The cluster's name and region too: the providers' token helper authenticates for var.cluster_name, whose default is
+# gpu-platform, so a session with another CLUSTER installed nothing and paid for the cluster meanwhile (gpt-6-astra's
+# review of 116092ef, r5 finding 10).
 terraform -chdir="$ARGO_DIR" apply -auto-approve -input=false \
-  -var="cluster_endpoint=$endpoint" -var="cluster_ca=$ca" \
+  -var="cluster_endpoint=$endpoint" -var="cluster_ca=$ca" -var="cluster_name=$CLUSTER" -var="region=$REGION" \
   >>"$EXDIR/terraform.log" 2>&1 || die "argo apply"
 ok "Argo CD installed by its own Terraform root"
 
@@ -1300,7 +1331,8 @@ fi
 
 log "destroy: argo-bootstrap, then cluster"
 terraform -chdir="$ARGO_DIR" destroy -auto-approve -input=false \
-  -var="cluster_endpoint=$endpoint" -var="cluster_ca=$ca" >>"$EXDIR/terraform.log" 2>&1 ||
+  -var="cluster_endpoint=$endpoint" -var="cluster_ca=$ca" -var="cluster_name=$CLUSTER" -var="region=$REGION" \
+  >>"$EXDIR/terraform.log" 2>&1 ||
   log "warning: argo destroy returned non-zero; the cluster destroy below removes it anyway"
 destroy_cluster() {
   terraform -chdir="$CLUSTER_DIR" destroy -auto-approve -input=false -lock-timeout=10m \
@@ -1315,9 +1347,17 @@ destroy_cluster() {
 # They appear only after the node group is gone, which is inside the destroy, so the sweep runs after a failed
 # destroy and before its one retry. It returns non-zero when it deleted nothing, so a retry is made only when
 # something changed; an interface it cannot delete is named and stops the sweep.
+# It sweeps only SESSION_VPC, the VPC this session read from its own cluster: the only project-tagged VPC left is not
+# necessarily this session's, and deleting another cluster's interfaces breaks that cluster (gpt-6-astra's review of
+# 116092ef, r5 finding 7).
 sweep_leaked_cni_enis() {
   local vpc enis eni err
-  if ! vpc=$(aws ec2 describe-vpcs --region "$REGION" --filters "Name=tag:project,Values=gpu-platform-control-plane" \
+  if [[ ! "${SESSION_VPC:-}" =~ ^vpc-[0-9a-f]+$ ]]; then
+    log "the CNI sweep has no VPC recorded for this session, and deletes nothing it cannot attribute"
+    return 1
+  fi
+  if ! vpc=$(aws ec2 describe-vpcs --region "$REGION" \
+    --filters "Name=vpc-id,Values=$SESSION_VPC" "Name=tag:project,Values=gpu-platform-control-plane" \
     --query 'Vpcs[].VpcId' --output text 2>&1); then
     log "the CNI sweep could not list the cluster's VPC: $vpc"
     return 1
@@ -1326,8 +1366,8 @@ sweep_leaked_cni_enis() {
     log "the CNI sweep found no VPC left, so no interface can be holding it"
     return 1
   fi
-  if [[ "$vpc" == *[[:space:]]* ]]; then
-    log "the CNI sweep found more than one project VPC ($vpc) and deletes nothing it cannot attribute"
+  if [[ "$vpc" != "$SESSION_VPC" ]]; then
+    log "the CNI sweep asked for $SESSION_VPC and was answered '$vpc'; it deletes nothing it cannot attribute"
     return 1
   fi
   if ! enis=$(aws ec2 describe-network-interfaces --region "$REGION" --filters "Name=vpc-id,Values=$vpc" \
