@@ -1,6 +1,11 @@
 # The two demo tenants each get their own namespace.
 #
-# tenant-a and tenant-b hold their LocalQueues and MLTrainingJobs, so the two-tenant fair-sharing demo has isolated namespaces to submit into.
+# tenant-a and tenant-b hold their LocalQueues and MLTrainingJobs, so the two-tenant fair-sharing demo has a namespace per tenant to submit into.
+#
+# Separate is not isolated: these two carry no tenant bundle (config/tenant/), so no tenant RBAC, NetworkPolicy, Pod
+# Security level or CPU and memory quota applies to them.
+# A tenant onboarded for real is rendered with hack/tenant/render.sh, and its GPUQuotaPolicy's ClusterQueue admits only
+# from its own namespace (docs/superpowers/specs/2026-11-07-tenant-boundary-design.md).
 apiVersion: v1
 kind: Namespace
 metadata:
