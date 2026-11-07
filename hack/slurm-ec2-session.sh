@@ -46,16 +46,16 @@ SWEEPER_MIN_RUNS=4
 CRED_MIN_MINUTES=135
 
 # SLURMEC2_MODE=nfs-rehearsal is the t3 real-NFS rehearsal (registration, "The t3 real-NFS rehearsal"): three
-# t3.medium on the head's Ubuntu image, a stand-in for the GPU, a 40-minute clock and only B4 among the checks, with
-# the old NFS barrier probed first. Every value it changes is set here and nowhere else.
+# t3.medium, head on its Ubuntu image and the workers on the session's Deep Learning image, whose NFS client is the one
+# that failed, a stand-in for the GPU, a 40-minute clock and only B4 among the checks, with the old NFS barrier probed
+# first. Every value it changes is set here and nowhere else.
 MODE=${SLURMEC2_MODE:-session}
 EXTRA_ENV=""
 CLUSTER_EXTRA=""
 case "$MODE" in
   session) ;;
   nfs-rehearsal)
-    GPU_TYPE=t3.medium GPU_CAP=0.06 GPU_VOLUME_GB=30
-    GPU_AMI_NAME=$HEAD_AMI_NAME GPU_AMI_OWNER=$HEAD_AMI_OWNER
+    GPU_TYPE=t3.medium GPU_CAP=0.06
     STUDY_ID=slurm-ec2-nfs-rehearsal-2026-11-08
     TAG_AT_REQUEST_S=2370 TAG_FROM_T0_S=2370 STOP_S=2400 TERMINATION_S=2550 LAUNCH_SKEW_S=300 CRED_MIN_MINUTES=75
     EXTRA_ENV="SLURMEC2_FAKE_GPU=1 SLURMEC2_NFS_PROBE=1"

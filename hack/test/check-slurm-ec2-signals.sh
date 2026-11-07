@@ -91,9 +91,14 @@ got=$(rc_of until_true $(( $(date +%s) + 2 )) 1 slow_ok)
 [ "$got" = 1 ] && ok "a function that succeeds after the deadline does not count" || bad "a late success returned $got"
 start=$(date +%s); got=$(rc_of until_true $(( start + 2 )) 1 sleep 30); took=$(( $(date +%s) - start ))
 [ "$got" = 1 ] && [ "$took" -le 5 ] && ok "a command is bounded by the time left (${took} s)" || bad "a hung command returned $got after ${took} s"
-rm -f "$work/ran"
-got=$(rc_of until_true $(( $(date +%s) - 1 )) 1 touch "$work/ran")
-[ "$got" = 1 ] && [ ! -e "$work/ran" ] && ok "nothing runs once the deadline has passed" || bad "after the deadline: $got, ran=$([ -e "$work/ran" ] && echo yes || echo no)"
+# Both a command and a function: timeout refuses a non-positive limit on its own, so only a function shows the check.
+mark() { touch "$work/ran"; }
+for c in "touch $work/ran" mark; do
+  rm -f "$work/ran"
+  # shellcheck disable=SC2086
+  got=$(rc_of until_true $(( $(date +%s) - 1 )) 1 $c)
+  [ "$got" = 1 ] && [ ! -e "$work/ran" ] && ok "nothing runs once the deadline has passed (${c%% *})" || bad "after the deadline (${c%% *}): $got, ran=$([ -e "$work/ran" ] && echo yes || echo no)"
+done
 
 # The mount the workers make; the options are what the registration names.
 for o in vers=4.1 lookupcache=positive hard; do
