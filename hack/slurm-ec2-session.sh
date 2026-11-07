@@ -29,6 +29,8 @@ GPU_VOLUME_GB=100
 HEAD_AMI_NAME='ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-amd64-server-*'
 HEAD_AMI_OWNER=099720109477
 GPU_AMI_NAME='Deep Learning Base OSS Nvidia Driver GPU AMI (Ubuntu 24.04) *'
+# Amazon's own account for the Deep Learning AMIs in ap-northeast-2.
+GPU_AMI_OWNER=898082745236
 STUDY_ID=slurm-ec2-2026-11-07
 STACK=slurmec2
 PURPOSE=slurm-ec2
@@ -75,11 +77,22 @@ ami_check() {
   # shellcheck disable=SC2254
   case "$(cut -f1 <<<"$got")" in $want) ;; *) fail "$id is '$got', not '$want'" ;; esac
   [ "$(cut -f2 <<<"$got")" = available ] || fail "$id is not available: $got"
-  [ -z "$owner" ] || [ "$(cut -f3 <<<"$got")" = "$owner" ] || fail "$id is owned by $(cut -f3 <<<"$got"), not $owner"
+  [ "$(cut -f3 <<<"$got")" = "$owner" ] || fail "$id is owned by $(cut -f3 <<<"$got"), not $owner"
   printf '%s' "$(cut -f1 <<<"$got")"
 }
 head_ami=$(ami_check "$SLURMEC2_HEAD_AMI_ID" "$HEAD_AMI_NAME" "$HEAD_AMI_OWNER") || exit 1
-gpu_ami=$(ami_check "$SLURMEC2_GPU_AMI_ID" "$GPU_AMI_NAME" "") || exit 1
+gpu_ami=$(ami_check "$SLURMEC2_GPU_AMI_ID" "$GPU_AMI_NAME" "$GPU_AMI_OWNER") || exit 1
+# The launch replaces only /dev/sda1's mapping; any other EBS volume an image carries would be created with the image's
+# own DeleteOnTermination and could outlive every instance. Only instance-store entries may sit beside the root.
+for id in "$SLURMEC2_HEAD_AMI_ID" "$SLURMEC2_GPU_AMI_ID"; do
+  maps=$(aws ec2 describe-images --region "$REGION" --image-ids "$id" --query 'Images[0].BlockDeviceMappings' --output json 2>&1) ||
+    fail "could not read $id's block devices: $maps"
+  python3 - "$maps" <<'PY' || fail "$id maps an EBS volume other than /dev/sda1: $maps"
+import json, sys
+m = json.loads(sys.argv[1])
+sys.exit(0 if all(d.get("DeviceName") == "/dev/sda1" or "Ebs" not in d for d in m) else 1)
+PY
+done
 say "AMIs: head $SLURMEC2_HEAD_AMI_ID ($head_ami), workers $SLURMEC2_GPU_AMI_ID ($gpu_ami)"
 
 prices=$(aws ec2 describe-spot-price-history --region "$REGION" --instance-types "$GPU_TYPE" "$HEAD_TYPE" \
@@ -185,23 +198,33 @@ done
 # ---------------------------------------------------------------- the purchase
 IIDS=()
 UNCERTAIN=()
-TERMINATION=""
+SG=""
+# Instances whose termination EC2 confirmed; the cleanup acts on every launched one not in it, whatever ran before.
+declare -A GONE=()
 cleanup_ran=0
 cleanup() {
   [ "$cleanup_ran" = 1 ] && return 0
   cleanup_ran=1
-  local bad=0 u iid
+  local bad=0 u iid i
   rm -rf "$SECRETS"
   aws s3 rm --only-show-errors "s3://$BUCKET/$RUN_ID/munge.key" >>"$OUT/cleanup.txt" 2>&1 || echo "the munge key could not be removed from S3" >>"$OUT/cleanup.txt"
   for u in ${UNCERTAIN[@]+"${UNCERTAIN[@]}"}; do
     spot_reconcile_token "$REGION" "${u%% *}" "${u##* }" 6 || { echo "TERMINATION UNCONFIRMED for the launch under token ${u%% *}" | tee -a "$OUT/termination.txt" >&2; bad=1; }
   done
-  [ -z "$TERMINATION" ] || { [ "$bad" = 0 ] || exit 1; return 0; }
   [ ${#IIDS[@]} -gt 0 ] || echo "no instance was launched by this session" >>"$OUT/termination.txt"
   for iid in ${IIDS[@]+"${IIDS[@]}"}; do
-    if spot_terminate "$REGION" "$iid"; then echo "terminated $iid" >>"$OUT/termination.txt"
+    [ -z "${GONE[$iid]:-}" ] || continue
+    if spot_terminate "$REGION" "$iid"; then GONE[$iid]=1; echo "terminated $iid" >>"$OUT/termination.txt"
     else echo "TERMINATION UNCONFIRMED for $iid -- check the console now" | tee -a "$OUT/termination.txt" >&2; bad=1; fi
   done
+  # The group goes once nothing uses it; an instance still shutting down holds it for a while.
+  if [ -n "$SG" ]; then
+    for i in 1 2 3 4 5 6; do
+      aws ec2 delete-security-group --region "$REGION" --group-id "$SG" >>"$OUT/cleanup.txt" 2>&1 && { SG=""; break; }
+      sleep 10
+    done
+    [ -z "$SG" ] || { echo "the security group $SG could not be deleted (it costs nothing; delete it by hand)" | tee -a "$OUT/termination.txt" >&2; }
+  fi
   [ "$bad" = 0 ] || exit 1
 }
 trap cleanup EXIT
@@ -209,9 +232,33 @@ trap 'cleanup; exit 130' INT
 trap 'cleanup; exit 143' TERM
 
 spot_ensure_bucket "$BUCKET" "$REGION" 30 || fail "could not prepare the results bucket $BUCKET"
+# A bucket made by an earlier run whose lifecycle call failed would keep this run's objects forever, so the rule is read
+# back on every run: an enabled whole-bucket expiry within 30 days, and no versioning to keep old versions past it.
+lc=$(aws s3api get-bucket-lifecycle-configuration --bucket "$BUCKET" --output json 2>&1) || fail "the bucket's lifecycle could not be read: $lc"
+python3 - "$lc" <<'PY' || fail "the bucket $BUCKET has no enabled whole-bucket expiry within 30 days: $lc"
+import json, sys
+rules = json.loads(sys.argv[1]).get("Rules", [])
+ok = any(r.get("Status") == "Enabled" and r.get("Filter", {}).get("Prefix", "") == "" and 0 < r.get("Expiration", {}).get("Days", 0) <= 30 for r in rules)
+sys.exit(0 if ok else 1)
+PY
+ver=$(aws s3api get-bucket-versioning --bucket "$BUCKET" --query Status --output text 2>&1) || fail "the bucket's versioning could not be read: $ver"
+case "$ver" in None|"") ;; *) fail "the bucket $BUCKET has versioning $ver, so its objects can outlive the expiry" ;; esac
 spot_ensure_profile "$STACK" \
   "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":[\"s3:PutObject\",\"s3:GetObject\"],\"Resource\":\"arn:aws:s3:::$BUCKET/*\"},{\"Effect\":\"Allow\",\"Action\":\"s3:ListBucket\",\"Resource\":\"arn:aws:s3:::$BUCKET\"}]}" \
   20 || fail "could not prepare the instance profile $STACK"
+# The session's own security group: the three instances reach each other and nothing reaches them from outside.
+# The default group in gpu-lab admits all TCP from anywhere, which would put slurmctld and the NFS export on the internet.
+VPC=$(aws ec2 describe-vpcs --region "$REGION" --filters Name=is-default,Values=true --query 'Vpcs[0].VpcId' --output text 2>&1)
+[[ "$VPC" =~ ^vpc- ]] || fail "could not find the default VPC: $VPC"
+SG=$(aws ec2 create-security-group --region "$REGION" --vpc-id "$VPC" --group-name "$STACK-$RUN_NONCE" \
+  --description "slurm on ec2 session $RUN_NONCE" \
+  --tag-specifications "ResourceType=security-group,Tags=[{Key=purpose,Value=$PURPOSE},{Key=run,Value=$RUN_NONCE}]" \
+  --query GroupId --output text 2>&1) || { SG=""; fail "could not create the session's security group"; }
+[[ "$SG" =~ ^sg- ]] || { SG=""; fail "the security group's id is '$SG'"; }
+echo "$SG" >"$OUT/security-group.txt"
+aws ec2 authorize-security-group-ingress --region "$REGION" --group-id "$SG" \
+  --ip-permissions "IpProtocol=-1,UserIdGroupPairs=[{GroupId=$SG}]" >>"$OUT/launch-errors.txt" 2>&1 ||
+  fail "could not let the session's instances reach each other"
 aws s3 cp --only-show-errors "$OUT/source.tgz" "s3://$BUCKET/$RUN_ID/src/source.tgz" || fail "upload source"
 aws s3 cp --only-show-errors "$SECRETS/munge.key" "s3://$BUCKET/$RUN_ID/munge.key" || fail "upload the munge key"
 
@@ -231,7 +278,7 @@ launch_one() {
   token="slurmec2-$RUN_NONCE-$role-$z"
   tags="ResourceType=instance,Tags=[{Key=Name,Value=$STACK-$role},{Key=purpose,Value=$PURPOSE},{Key=role,Value=$role},{Key=run,Value=$RUN_NONCE},{Key=study-deadline,Value=$TAG_DEADLINE}]"
   UNCERTAIN+=("$token $subnet")
-  iid=$(spot_launch "$REGION" "$ami" "$type" "$subnet" "$STACK" "$cap" "$vol" "$OUT/user-data-$role.sh" "$tags" "$token" \
+  iid=$(spot_launch "$REGION" "$ami" "$type" "$subnet" "$STACK" "$cap" "$vol" "$OUT/user-data-$role.sh" "$tags" "$token" "$SG" \
     2>"$OUT/launch-error-$role-$z.txt") || iid=""
   cat "$OUT/launch-error-$role-$z.txt" >>"$OUT/launch-errors.txt"
   if [ -n "$iid" ] && [ "$iid" != None ]; then
@@ -261,10 +308,8 @@ for z in $ZONES; do
   for role in head gpu1 gpu2; do
     [ -n "${IID_OF[$role]:-}" ] || continue
     spot_terminate "$REGION" "${IID_OF[$role]}" || fail "could not confirm terminating ${IID_OF[$role]} in $z before trying another zone"
+    GONE[${IID_OF[$role]}]=1
     echo "terminated ${IID_OF[$role]} ($role, $z: the trio did not fit)" >>"$OUT/termination.txt"
-    kept=()
-    for i in "${IIDS[@]}"; do [ "$i" = "${IID_OF[$role]}" ] || kept+=("$i"); done
-    IIDS=(${kept[@]+"${kept[@]}"})
     unset "IID_OF[$role]"
   done
 done
@@ -314,6 +359,7 @@ SPOT_TERMINATE_TRIES=$(( SPOT_TERMINATE_WAIT / 5 + 1 ))
 TERMINATION=confirmed
 for role in head gpu1 gpu2; do
   if spot_terminate "$REGION" "${IID_OF[$role]}"; then
+    GONE[${IID_OF[$role]}]=1
     echo "terminated ${IID_OF[$role]} ($role)" >>"$OUT/termination.txt"
   else
     TERMINATION=unconfirmed
@@ -324,13 +370,21 @@ for k in evidence.tgz DONE log-head.txt log-gpu1.txt log-gpu2.txt stopped-gpu1 s
   aws s3 cp --only-show-errors "s3://$BUCKET/$RUN_ID/$k" "$OUT/$k" 2>>"$OUT/download-errors.txt" || echo "not downloaded: $k" >>"$OUT/download-errors.txt"
 done
 [ ! -s "$OUT/evidence.tgz" ] || tar -xzf "$OUT/evidence.tgz" -C "$OUT" || echo "the evidence archive did not unpack" >>"$OUT/download-errors.txt"
+# The measurement's status apart from the teardown's: 0 scored, 3 VOID, no evidence or a failed scorer.
+MEASURED=3
 if [ -d "$OUT/evidence" ]; then
   python3 hack/slurm-ec2/score.py "$OUT/evidence" "$OUT/verdict.json" | tee "$OUT/verdict.txt"
   score_rc=${PIPESTATUS[0]}
-  [ "$score_rc" = 0 ] || echo "SCORER FAILED with status $score_rc" | tee -a "$OUT/verdict.txt"
+  if [ "$score_rc" != 0 ]; then echo "SCORER FAILED with status $score_rc" | tee -a "$OUT/verdict.txt"
+  elif ! grep -q '^SLURM ON EC2: VOID' "$OUT/verdict.txt"; then MEASURED=0; fi
+  grep -qx 'evidence_verified=yes' "$OUT/DONE" || echo "the last evidence upload was not verified on head; this archive may be an earlier one" | tee -a "$OUT/verdict.txt"
+  # Downloaded and unpacked, so the run's prefix is no longer the only copy; it would otherwise wait 30 days to expire.
+  aws s3 rm --only-show-errors --recursive "s3://$BUCKET/$RUN_ID/" >>"$OUT/cleanup.txt" 2>&1 || echo "the run's S3 prefix could not be removed; it expires in 30 days" >>"$OUT/cleanup.txt"
 else
   echo "SLURM ON EC2: NO-EVIDENCE (the evidence archive did not come back)" | tee "$OUT/verdict.txt"
 fi
 echo "termination=$TERMINATION" >>"$OUT/verdict.txt"
+echo "measured=$([ "$MEASURED" = 0 ] && echo yes || echo no)" >>"$OUT/verdict.txt"
 say "the verdict is in $OUT/verdict.txt"
 [ "$TERMINATION" = confirmed ] || exit 1
+exit "$MEASURED"

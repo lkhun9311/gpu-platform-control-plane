@@ -51,6 +51,8 @@ until_true $(( BOOT + 600 )) 5 s3get cluster.env /tmp/cluster.env || die "cluste
 # shellcheck disable=SC1091
 . /tmp/cluster.env
 : "${T0:?}" "${HEAD_IP:?}" "${GPU1_IP:?}" "${GPU2_IP:?}"
+# Exported, because procedure.sh and collect.sh are child processes and read T0 from their environment.
+export T0 HEAD_IP GPU1_IP GPU2_IP
 now=$(date +%s)
 { [[ "$T0" =~ ^[0-9]+$ ]] && [ "$T0" -le "$now" ] && [ $(( now - T0 )) -le 900 ]; } || die "T0 is '$T0' at $now"
 # The precise backstop: T0 is no later than this instance's LaunchTime plus a few seconds, so this always fires
@@ -69,7 +71,9 @@ case "$ROLE" in
 esac
 export DEBIAN_FRONTEND=noninteractive
 # shellcheck disable=SC2086
-timeout "$(left "$BRINGUP_END")" bash -c "apt-get update -q && apt-get install -y -q --no-install-recommends $pkgs" \
+# A fresh Ubuntu instance's own apt runs (cloud-init, unattended-upgrades) hold the dpkg lock for minutes after boot;
+# waiting for it inside the bring-up budget is cheaper than failing on it.
+timeout "$(left "$BRINGUP_END")" bash -c "apt-get -o DPkg::Lock::Timeout=900 update -q && apt-get -o DPkg::Lock::Timeout=900 install -y -q --no-install-recommends $pkgs" \
   >/var/log/slurmec2-apt.log 2>&1 || die "apt install failed or ran out of time; see /var/log/slurmec2-apt.log"
 
 until_true $(( BOOT + 900 )) 5 s3get munge.key /etc/munge/munge.key || die "munge.key"
@@ -148,6 +152,8 @@ worker_bringup() {
     [ -e /dev/nvidia0 ] || mknod -m 666 /dev/nvidia0 c 195 0
     install -m 755 hack/slurm-ec2/rehearsal-nvidia-smi /usr/local/bin/nvidia-smi
   else
+    # The Deep Learning AMI has no /shared; a mount onto a missing directory fails every time.
+    mkdir -p "$SHARED" || die "mkdir $SHARED"
     until_true "$BRINGUP_END" 5 mount -t nfs4 -o hard,timeo=600 head:"$SHARED" "$SHARED" || die "/shared did not mount"
   fi
   local cards
@@ -186,9 +192,11 @@ worker_bringup() {
 case "$ROLE" in
   head)
     head_bringup
-    timeout "$(left $(( T0 + EVIDENCE_S )))" bash hack/slurm-ec2/procedure.sh
+    # The procedure gets the checks' deadline and a little; collect.sh gets what is left before the evidence deadline.
+    timeout "$(left $(( T0 + CHECKS_END_S + 30 )))" bash hack/slurm-ec2/procedure.sh
     log "the procedure exited $?"
-    bash hack/slurm-ec2/collect.sh
+    # collect.sh ships the evidence first and the diagnostics after, and must end before the self-shutdown.
+    timeout "$(left $(( T0 + EVIDENCE_S + 60 )))" bash hack/slurm-ec2/collect.sh
     ;;
   gpu1|gpu2)
     worker_bringup

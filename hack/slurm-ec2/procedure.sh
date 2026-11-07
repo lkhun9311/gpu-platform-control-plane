@@ -32,6 +32,8 @@ root_on() {
   local node=$1 file=$2
   shift 2
   timeout 120 srun -w "$node" -N1 -n1 --mem=100M -t 2 "$@" >"$file" 2>&1
+  # The status beside the output, so the scorer can tell a failed instrument from a reading.
+  echo $? >"$file.rc"
 }
 
 # --------------------------------------------------------------- configuration as it is, before any check
@@ -67,6 +69,7 @@ for spec in 1:gpu1 2:gpu1 3:gpu1 4:gpu2; do
   b1 "${spec%%:*}" "${spec##*:}"
 done
 echo "b1_done=$(now)" >>"$EVID/timeline.env"
+ship || log "the evidence after b1 could not be shipped"
 
 # --------------------------------------------------------------- B2: memory confinement
 cat >"$SHARED/jobs/b2.sh" <<'EOF'
@@ -95,11 +98,13 @@ for rep in 1 2 3; do
   echo "t_start=$t_start" >>"$d/job.env"
   echo "t_end=$t_end" >>"$d/job.env"
   sacct -j "$id" -n -P -o JobID,State,ExitCode,MaxRSS >"$d/sacct.txt" 2>&1
+  echo $? >"$d/sacct.txt.rc"
   root_on gpu2 "$d/kernel.txt" journalctl -k -o short-iso --no-pager --since "@$(( t_start - 1 ))" --until "@$t_end"
   root_on gpu2 "$d/slurmd-pid-after.txt" systemctl show -p MainPID --value slurmd
   scontrol show node gpu2 >"$d/node-after.txt" 2>&1
 done
 echo "b2_done=$(now)" >>"$EVID/timeline.env"
+ship || log "the evidence after b2 could not be shipped"
 
 # --------------------------------------------------------------- B3: limits and the pending reason
 # poll_pair DIR ID1 ID2 SECONDS: one squeue line per second for both jobs, timestamped, until both are gone or SECONDS.
@@ -111,6 +116,7 @@ poll_pair() {
     sleep 1
   done
   sacct -j "$i1,$i2" -n -P -X -o JobID,State,Submit,Start,End,Reason >"$d/sacct.txt" 2>&1
+  echo $? >"$d/sacct.txt.rc"
 }
 b3() {
   local name=$1 d=$EVID/b3/$1 i1 i2
@@ -131,6 +137,7 @@ else
   notrun b3 "fewer than 1,500 s left for the checks"
 fi
 echo "b3_done=$(now)" >>"$EVID/timeline.env"
+ship || log "the evidence after b3 could not be shipped"
 
 # --------------------------------------------------------------- B4: drain, requeue, resume
 b4() {
@@ -170,6 +177,14 @@ a, b = torch.load(sys.argv[1]), torch.load(sys.argv[2])
 print("max_abs_diff=%r" % max(float((a[k] - b[k]).abs().max()) for k in a))
 EOF
   cp "$SHARED/gpuhc/gpu1.log" "$SHARED/gpuhc/gpu2.log" "$d/" 2>>"$d/copy-errors.txt"
+  # gpu1 back in service, because collect.sh reads its journal through a job: the healthy signal first, or gpuhc would
+  # drain it again on its next run.
+  printf 'DCGM_FI_DEV_XID_ERRORS{gpu="0",%s} 0\nDCGM_FI_DEV_ECC_DBE_VOL_TOTAL{gpu="0",%s} 0\n' "$uuid" "$uuid" >"$SHARED/gpuhc/gpu1.prom.tmp"
+  mv "$SHARED/gpuhc/gpu1.prom.tmp" "$SHARED/gpuhc/gpu1.prom"
+  sleep 10
+  scontrol update nodename=gpu1 state=resume
+  echo "gpu1_resumed=$(now)" >>"$d/events.env"
 }
 if [ "$(left "$CHECKS_END")" -ge 1200 ]; then b4; else notrun b4 "fewer than 1,200 s left for the checks"; fi
 echo "b4_done=$(now)" >>"$EVID/timeline.env"
+ship || log "the evidence after b4 could not be shipped"

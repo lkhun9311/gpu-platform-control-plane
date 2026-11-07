@@ -27,7 +27,11 @@ export BOOT=\$(date +%s)
 trap 'aws s3 cp --only-show-errors /var/log/slurmec2.log "s3://\$BUCKET/\$PREFIX/log-\$ROLE.txt"; [ "\${SLURMEC2_REHEARSAL:-0}" = 1 ] || shutdown -h now' EXIT
 # The Canonical AMI head runs on has no AWS CLI; the Deep Learning AMI the workers run on has one.
 if ! command -v aws >/dev/null; then
+  # snapd refuses installs until its first-boot seeding is done.
+  snap wait system seed.loaded
   for i in 1 2 3; do snap install aws-cli --classic && break; sleep 10; done
+  # cloud-init's PATH does not carry snap's bin directory, and every later aws call, instance.sh's included, needs it.
+  export PATH=\$PATH:/snap/bin
 fi
 command -v aws >/dev/null || { echo "no aws cli"; exit 1; }
 for i in \$(seq 1 30); do aws s3 cp --only-show-errors "s3://\$BUCKET/\$PREFIX/src/source.tgz" /tmp/source.tgz && break; sleep 5; done

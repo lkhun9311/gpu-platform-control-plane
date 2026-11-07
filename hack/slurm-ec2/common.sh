@@ -41,3 +41,20 @@ until_true() {
     sleep "$interval"
   done
 }
+
+# ship: archives /shared/evidence and uploads it as evidence.tgz, retrying, and returns 0 only when S3 reports the
+# uploaded object at the archive's exact size. Called after every check, so a later failure loses at most one check.
+ship() {
+  local i size got
+  tar -czf /tmp/evidence.tgz.new -C "$SHARED" evidence || return 1
+  mv /tmp/evidence.tgz.new /tmp/evidence.tgz
+  size=$(stat -c %s /tmp/evidence.tgz)
+  for i in 1 2 3 4 5; do
+    if s3put /tmp/evidence.tgz evidence.tgz; then
+      got=$(aws s3api head-object --bucket "$BUCKET" --key "$PREFIX/evidence.tgz" --query ContentLength --output text) &&
+        [ "$got" = "$size" ] && return 0
+    fi
+    sleep $(( i * 2 ))
+  done
+  return 1
+}

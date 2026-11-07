@@ -84,6 +84,16 @@ def preconditions(ev):
     return reasons
 
 
+def failed_instruments(d, names):
+    """The instruments in d whose recorded exit status is missing or not 0."""
+    out = []
+    for n in names:
+        rc = (read(os.path.join(d, n + ".rc")) or "").strip()
+        if rc != "0":
+            out.append(f"{n} exited {rc or 'with no status recorded'}")
+    return out
+
+
 def notrun(d):
     text = read(os.path.join(d, "NOTRUN"))
     return text.strip() if text else None
@@ -148,6 +158,15 @@ def b2(ev):
         if not job or sacct is None or jobout is None or kernel is None:
             out.append({"rep": rep, **result("INVALID", ["the job, its accounting, its output or the node's journal is missing"])})
             continue
+        # A failed sacct, journal or PID read is a failed instrument, not slurmd or the cgroup misbehaving.
+        broken = failed_instruments(d, ["sacct.txt", "kernel.txt", "slurmd-pid-after.txt"])
+        if not before.isdigit() or before == "0":
+            broken.append(f"slurmd's MainPID before B2 was not read ({before!r})")
+        if "job_memory_events oom_kill" not in jobout:
+            broken.append("the job never printed its memory.events")
+        if broken:
+            out.append({"rep": rep, **result("INVALID", broken)})
+            continue
         step_state = None
         for line in sacct.splitlines():
             f = line.split("|")
@@ -191,6 +210,10 @@ def b3(ev):
         if not first or not second or poll is None or sacct is None:
             out[name] = result("INVALID", ["the jobs, the poll or the accounting is missing"])
             continue
+        broken = failed_instruments(d, ["sacct.txt"])
+        if broken:
+            out[name] = result("INVALID", broken)
+            continue
         submitted = None
         seen = None
         for line in poll.splitlines():
@@ -209,7 +232,9 @@ def b3(ev):
         rules = [
             (f"B3{name}: the second job is PENDING with reason {reason} within 30 s of submission",
              submitted is not None and seen is not None and seen - submitted <= 30),
-            (f"B3{name}: the second job starts within 60 s of the first ending", gap is not None and gap <= 60),
+            (f"B3{name}: the second job starts within 60 s of the first ending, and not before it",
+             gap is not None and 0 <= gap <= 60),
+            (f"B3{name}: both jobs COMPLETED", r1.get("state") == "COMPLETED" and r2.get("state") == "COMPLETED"),
         ]
         out[name] = observed(rules, reason_seen_after_s=None if seen is None or submitted is None else round(seen - submitted, 1),
                              start_gap_s=gap, first=r1, second=r2)

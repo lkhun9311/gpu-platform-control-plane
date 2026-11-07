@@ -102,9 +102,15 @@ scene() {
   put d1 "$LT_H	$GAMI	172.31.0.11"
   put d2 "$LT_G	$GAMI	172.31.0.12"
   put terminated "terminated"
+  put maps '[{"DeviceName":"/dev/sda1","Ebs":{"DeleteOnTermination":true}},{"DeviceName":"/dev/sdb","VirtualName":"ephemeral0"}]'
+  put lifecycle '{"Rules":[{"ID":"expire","Status":"Enabled","Filter":{"Prefix":""},"Expiration":{"Days":30}}]}'
+  put versioning "None"
+  put vpc "vpc-0default"
+  put sg "sg-0session"
 }
 base_rules() {
   rule "sts get-caller-identity*" account
+  rule "ec2 describe-images*BlockDeviceMappings*" maps
   rule "ec2 describe-images*--image-ids $HAMI*" hami
   rule "ec2 describe-images*--image-ids $GAMI*" gami
   rule "ec2 describe-spot-price-history*" prices
@@ -117,6 +123,10 @@ base_rules() {
   rule "configure export-credentials*" creds
   rule "ec2 describe-instances*tag:purpose*" none
   rule "ec2 describe-subnets*" subnet
+  rule "s3api get-bucket-lifecycle-configuration*" lifecycle
+  rule "s3api get-bucket-versioning*" versioning
+  rule "ec2 describe-vpcs*" vpc
+  rule "ec2 create-security-group*" sg
   rule "ec2 run-instances*" "ih|i1|i2"
   rule "ec2 describe-instances*--instance-ids i-0head*LaunchTime*" dh
   rule "ec2 describe-instances*--instance-ids i-0gpu1*LaunchTime*" d1
@@ -173,6 +183,13 @@ scene; put soon "{\"Expiration\": \"$(date -u -d '+100 min' +%Y-%m-%dT%H:%M:%SZ)
 refused "credentials that expire before 120 minutes" "the session needs 120"
 scene; put earlier "i-0earlier"; rule "ec2 describe-instances*tag:purpose*" earlier; base_rules; refused "an earlier instance still live" "still live (i-0earlier)"
 scene; base_rules; mkdir -p "$STUB/out"; refused "an output directory that already exists" "already exists; each session writes a new directory"
+scene; put ebs '[{"DeviceName":"/dev/sda1","Ebs":{}},{"DeviceName":"/dev/sdf","Ebs":{"DeleteOnTermination":false}}]'
+rule "ec2 describe-images*BlockDeviceMappings*" ebs; base_rules; refused "an AMI carrying a second EBS volume" "maps an EBS volume other than /dev/sda1"
+scene; put gami3 $'Deep Learning Base OSS Nvidia Driver GPU AMI (Ubuntu 24.04) 20261106\tavailable\t111111111111'
+rule "ec2 describe-images*--image-ids $GAMI*" gami3; base_rules; refused "a worker AMI from another owner" "owned by 111111111111"
+scene; put nolc '{"Rules":[{"ID":"x","Status":"Disabled","Filter":{"Prefix":""},"Expiration":{"Days":30}}]}'
+rule "s3api get-bucket-lifecycle-configuration*" nolc; base_rules; refused "a bucket without an enabled expiry" "no enabled whole-bucket expiry"
+scene; put versioned "Enabled"; rule "s3api get-bucket-versioning*" versioned; base_rules; refused "a versioned bucket" "has versioning Enabled"
 scene; put later "{\"Expiration\": \"$(date -u -d '+60 min' +%Y-%m-%dT%H:%M:%SZ)\"}"; rule "configure export-credentials*" "creds|later"; base_rules
 refused "credentials that ran short during the uploads" "too few for the session and its teardown"
 
@@ -180,7 +197,7 @@ refused "credentials that ran short during the uploads" "too few for the session
 scene; base_rules; void_evidence
 t0=$(date +%s)
 session "a whole session"
-[ "$rc" = 0 ] && ok "a whole session exited 0" || bad "a whole session exited $rc: $(tail -4 "$STUB/session.out")"
+[ "$rc" = 3 ] && ok "a whole session whose evidence is VOID exits 3, apart from the teardown's status" || bad "a VOID session exited $rc: $(tail -4 "$STUB/session.out")"
 grep -q "^SLURM ON EC2: VOID: head stopped: a worker stopped" "$STUB/out/verdict.txt" && grep -qx "termination=confirmed" "$STUB/out/verdict.txt" &&
   ok "the real scorer read the returned evidence, and the termination is recorded" || bad "the verdict: $(paste -sd';' "$STUB/out/verdict.txt")"
 runs=$(grep '^ec2 run-instances' "$STUB/calls.log")
@@ -204,6 +221,11 @@ for i in i-0head i-0gpu1 i-0gpu2; do
   grep -q "^ec2 terminate-instances .*$i" "$STUB/calls.log" || bad "$i was not terminated"
 done
 grep -q "^s3 rm .*munge.key" "$STUB/calls.log" && ok "the munge key is removed from S3 at the end" || bad "the munge key was left in S3"
+grep -q "^s3 rm --only-show-errors --recursive s3://slurmec2-007635145730/.*/$" "$STUB/calls.log" && ok "the run's prefix is removed once the evidence is unpacked" || bad "the run's prefix was left"
+[ "$(grep -c -- '--security-group-ids sg-0session' <<<"$runs")" = 3 ] && ok "all three launch into the session's own security group" || bad "the launches' security group"
+grep -q "^ec2 authorize-security-group-ingress .*--group-id sg-0session --ip-permissions IpProtocol=-1,UserIdGroupPairs=\[{GroupId=sg-0session}\]" "$STUB/calls.log" &&
+  ! grep -q "0.0.0.0/0" "$STUB/calls.log" && ok "the group admits only its own members" || bad "the group's ingress: $(grep authorize "$STUB/calls.log")"
+grep -q "^ec2 delete-security-group .*sg-0session" "$STUB/calls.log" && ok "the group is deleted at the end" || bad "the group was not deleted"
 [ -s "$STUB/uploaded/munge.key" ] && [ "$(wc -c <"$STUB/uploaded/munge.key")" = 1024 ] && ok "a 1,024-byte munge key was uploaded" || bad "no munge key uploaded"
 ! find "$STUB/out" -name 'munge.key' | grep -q . && ok "the munge key is not in the run directory" || bad "the munge key is in the run directory"
 for r in head gpu1 gpu2; do
@@ -213,11 +235,17 @@ for r in head gpu1 gpu2; do
 done
 ok "each user-data names its role, arms the 4,500 s backstop, parses and fits 16 KB"
 
+# A head whose termination is not confirmed: the workers are still terminated, by the loop or by the trap.
+scene; put slow "running"; rule "ec2 describe-instances*--instance-ids i-0head*State.Name*" slow; base_rules; void_evidence
+session "a head whose termination is not confirmed" SPOT_TERMINATE_TRIES=1
+[ "$rc" != 0 ] && for i in i-0gpu1 i-0gpu2; do grep -q "^ec2 terminate-instances .*$i" "$STUB/calls.log" || bad "$i was never terminated after the head's stalled"; done
+ok "the workers are terminated though the head's termination is unconfirmed"
+
 # --- the ways the purchase and the end can go wrong ---------------------------------------------------------------
 # A scene's own rule goes before base_rules, because the first matching rule answers.
 scene; rule "ec2 run-instances*" "ih|capacity|ih|i1|i2" "0|1|0|0|0"; base_rules; void_evidence
 session "a zone that cannot hold all three"
-[ "$rc" = 0 ] && grep -q "terminated i-0head (head, ap-northeast-2a: the trio did not fit)" "$STUB/out/termination.txt" &&
+[ "$rc" = 3 ] && grep -q "terminated i-0head (head, ap-northeast-2a: the trio did not fit)" "$STUB/out/termination.txt" &&
   [ "$(grep -c '^ec2 run-instances' "$STUB/calls.log")" = 5 ] &&
   ok "the head launched in a zone short of a GPU is terminated before the next zone takes all three" ||
   bad "a short zone: exit $rc, $(paste -sd';' "$STUB/out/termination.txt" 2>&1), $(grep -c '^ec2 run-instances' "$STUB/calls.log") launches"
@@ -236,7 +264,7 @@ session "termination not confirmed"
   bad "an unconfirmed termination: exit $rc, $(tail -1 "$STUB/out/verdict.txt" 2>&1)"
 scene; base_rules; echo "ok" >"$STUB/fixtures/DONE"
 session "no evidence came back"
-grep -q "NO-EVIDENCE (the evidence archive did not come back)" "$STUB/out/verdict.txt" && ok "a session whose evidence never came back says so" ||
+[ "$rc" = 3 ] && grep -q "NO-EVIDENCE (the evidence archive did not come back)" "$STUB/out/verdict.txt" && ok "a session whose evidence never came back says so and exits 3" ||
   bad "no evidence gave: $(head -1 "$STUB/out/verdict.txt" 2>&1)"
 
 if [[ $fails -ne 0 ]]; then

@@ -34,6 +34,11 @@ if args[:2] == ["s3", "cp"] and len(args) == 4:
 if args[:2] == ["s3api", "head-object"]:
     bucket = args[args.index("--bucket") + 1]
     key = args[args.index("--key") + 1]
-    sys.exit(0 if os.path.isfile(path(f"s3://{bucket}/{key}")) else 255)
+    p = path(f"s3://{bucket}/{key}")
+    if not os.path.isfile(p):
+        sys.exit(255)
+    if "--query" in args and args[args.index("--query") + 1] == "ContentLength":
+        print(os.path.getsize(p))
+    sys.exit(0)
 sys.stderr.write("rehearsal aws stub: unsupported call: " + " ".join(sys.argv[1:]) + "\n")
 sys.exit(2)
