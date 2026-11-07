@@ -22,6 +22,7 @@ import (
 	"net/http"
 	"strings"
 
+	admissionv1 "k8s.io/api/admission/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -67,6 +68,17 @@ const kubeSystemServiceAccounts = "system:serviceaccount:kube-system:"
 // Nothing in this repository needed it: both device plugins request no device and run outside the namespaces
 // this webhook selects. The annotation is now an ordinary annotation and grants nothing.
 
+// kueueAdmissionGate is the scheduling gate Kueue's Pod webhook puts on a queued Pod and its controller removes
+// on admission, and kueueManagedLabel the label without which Kueue's Pod controller ignores the Pod (v0.18.3,
+// pkg/controller/jobs/pod: constants.SchedulingGateName, pod_controller.go "Skipping pod, not managed by Kueue").
+const (
+	kueueAdmissionGate = "kueue.x-k8s.io/admission"
+	kueueManagedLabel  = "kueue.x-k8s.io/managed"
+)
+
+// kueueControllerUser is the identity Kueue's controller ungates admitted Pods as (config/kueue-controller).
+const kueueControllerUser = "system:serviceaccount:kueue-system:kueue-controller-manager"
+
 // maxGraceSeconds caps how long a device-holding Pod may take to shut down.
 //
 // A quota is only worth what its RECLAIM is worth, and reclaim waits for termination. Measured on this
@@ -85,7 +97,7 @@ const kubeSystemServiceAccounts = "system:serviceaccount:kube-system:"
 // it from until real workloads say how long their checkpoints take.
 const maxGraceSeconds int64 = 120
 
-// +kubebuilder:webhook:path=/validate--v1-pod,mutating=false,failurePolicy=fail,sideEffects=None,groups="",resources=pods,verbs=create,versions=v1,name=vgpupod.kb.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/validate--v1-pod,mutating=false,failurePolicy=fail,sideEffects=None,groups="",resources=pods,verbs=create;update,versions=v1,name=vgpupod.kb.io,admissionReviewVersions=v1
 
 // GPUPodValidator refuses a Pod that would take a GPU without passing through the tenant's quota.
 //
@@ -137,6 +149,9 @@ func (v *GPUPodValidator) Handle(ctx context.Context, req admission.Request) adm
 	devices := gpuRequest(&pod)
 	if devices == 0 {
 		return admission.Allowed("")
+	}
+	if req.Operation == admissionv1.Update {
+		return v.handleUpdate(req, &pod)
 	}
 	// Checked FIRST, above every branch that admits, because grace is a property of the Pod alone: it needs
 	// no reads, no owner, and no queue, and it costs the reclaiming owner the same whichever of those decided
@@ -310,4 +325,39 @@ func gpuRequestOf(spec *corev1.PodSpec) int64 {
 		}
 	}
 	return total
+}
+
+// handleUpdate refuses an update that takes a GPU Pod out of Kueue's hands.
+//
+// CREATE admits a queue-labelled Pod because Kueue gates it and bills it. Kueue v0.18.3 does not stop the Pod's
+// writer from then removing the admission gate or the managed label, and its controller skips a Pod without the
+// label, so a tenant could create the Pod, strip both and run it with no Workload in a namespace that relies on
+// Kueue for its GPU budget (codex review r8, 2026-11-07).
+// Only Kueue's controller may remove its gate, as it does when it admits the Pod; nobody may remove the label.
+// Every other update is left to the API server: a Pod's resource requests are immutable, so an update cannot
+// add a device CREATE did not see.
+func (v *GPUPodValidator) handleUpdate(req admission.Request, pod *corev1.Pod) admission.Response {
+	var old corev1.Pod
+	if err := v.decoder.DecodeRaw(req.OldObject, &old); err != nil {
+		return admission.Errored(http.StatusBadRequest, err)
+	}
+	if old.Labels[kueueManagedLabel] != "" && pod.Labels[kueueManagedLabel] != old.Labels[kueueManagedLabel] {
+		return admission.Denied("the " + kueueManagedLabel + " label of a GPU Pod cannot be changed or removed: " +
+			"without it Kueue stops accounting for the Pod and its devices run outside the queue's quota")
+	}
+	if hasGate(&old, kueueAdmissionGate) && !hasGate(pod, kueueAdmissionGate) && req.UserInfo.Username != kueueControllerUser {
+		return admission.Denied("only Kueue may remove the " + kueueAdmissionGate + " scheduling gate from a GPU Pod; " +
+			"it does so when the Pod's Workload is admitted")
+	}
+	return admission.Allowed("")
+}
+
+// hasGate reports whether the Pod carries the named scheduling gate.
+func hasGate(pod *corev1.Pod, name string) bool {
+	for _, g := range pod.Spec.SchedulingGates {
+		if g.Name == name {
+			return true
+		}
+	}
+	return false
 }
