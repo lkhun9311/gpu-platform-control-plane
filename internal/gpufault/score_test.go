@@ -249,8 +249,15 @@ func TestScoreCellValidityRulesEachFire(t *testing.T) {
 		"V5: probe never saw it": {"xid", func(f *cellFixture) { f.probe = f.probe[:1] }},
 		"V6: mode":               {"xid", func(f *cellFixture) { f.env["mode"] = "" }},
 		"V7: benign value never read by the operator": {"benign", func(f *cellFixture) { f.nhs = f.nhs[:1] }},
-		"V7: no sentinel":         {"none", func(f *cellFixture) { delete(f.env, "sentinel_value") }},
-		"V7: sentinel never read": {"none", func(f *cellFixture) { f.nhs = f.nhs[:1] }},
+		"V7: no sentinel": {"none", func(f *cellFixture) { delete(f.env, "sentinel_value") }},
+		// A control watched for one second and called QUIET says nothing of the 120 the registration fixed (review
+		// r7, 2026-11-07). Mutation that turns these red: drop the window-length check, or the sentinel order check.
+		"V3: window shorter than registered": {"benign", func(f *cellFixture) { f.env["t_window_end"] = ep(at(time.Second)) }},
+		"V3: no-injection window shorter than registered": {"none", func(f *cellFixture) {
+			f.env["t_window_end"] = ep(at(119 * time.Second))
+		}},
+		"V7: sentinel injected inside the window": {"none", func(f *cellFixture) { f.env["t_sentinel_start"] = ep(at(60 * time.Second)) }},
+		"V7: sentinel never read":                 {"none", func(f *cellFixture) { f.nhs = f.nhs[:1] }},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
