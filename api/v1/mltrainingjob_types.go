@@ -61,13 +61,18 @@ type MLTrainingJobSpec struct {
 	GPUCount int32 `json:"gpuCount"`
 
 	// parallelism is the batch/v1 Job parallelism (concurrent pods).
-	// +kubebuilder:validation:Minimum=0
+	//
+	// At least 1: the field omits a zero and the controller renders at least one Pod, so a 0 written to pause the
+	// job would start one instead; it is refused rather than misread.
+	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:default=1
 	// +optional
 	Parallelism int32 `json:"parallelism,omitempty"`
 
 	// completions is the batch/v1 Job completions (successful pods required).
-	// +kubebuilder:validation:Minimum=0
+	//
+	// At least 1, for the reason parallelism is.
+	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:default=1
 	// +optional
 	Completions int32 `json:"completions,omitempty"`
