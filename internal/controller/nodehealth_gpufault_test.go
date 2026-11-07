@@ -35,6 +35,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 
 	platformv1 "github.com/lkhun9311/gpu-mlops-platform-control-plane/api/v1"
@@ -451,6 +452,49 @@ func TestGPUFaultHandsARestartableJobsWorkloadToItsLifecycle(t *testing.T) {
 	get()
 	if ptr.Deref(wl.Spec.Active, true) {
 		t.Fatal("reactivated a Workload handed to the restart lifecycle")
+	}
+}
+
+// An operator who deactivates a restartable job's Workload between the fault path's read and its patch has stopped
+// the job; the fault path must not then add the handoff, which the restart lifecycle would take as a reason to start
+// the job again.
+//
+// Mutation that turns this red: patch the deactivation with a plain MergeFrom.
+func TestGPUFaultDoesNotHandOverAWorkloadAnOperatorDeactivatedMeanwhile(t *testing.T) {
+	mltj := &platformv1.MLTrainingJob{Name: "train", Namespace: "t", UID: "mltj-uid",
+		Spec: platformv1.MLTrainingJobSpec{Queue: "q", Image: "i", GPUCount: 1,
+			Distributed: &platformv1.Distributed{WorldSize: 2, MaxRestarts: 1},
+			StateVolume: &platformv1.StateVolume{ClaimName: "c", MountPath: "/c"}}}
+	job := &batchv1.Job{Name: "j", Namespace: "t", UID: "uid-r", OwnerReferences: []metav1.OwnerReference{{
+		APIVersion: platformv1.GroupVersion.String(), Kind: "MLTrainingJob", Name: "train", UID: "mltj-uid", Controller: new(true)}}}
+	g := newGFRig(t, true, mltj, job, gpuPod("rank-0", "gpu-1", "uid-r", "1"), workload("wl-r", "uid-r"))
+	operatorStopped := false
+	g.r.Client = interceptor.NewClient(g.c.(client.WithWatch), interceptor.Funcs{
+		Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+			if _, ok := obj.(*kueuev1beta1.Workload); ok && !operatorStopped {
+				operatorStopped = true
+				var wl kueuev1beta1.Workload
+				if err := c.Get(ctx, client.ObjectKeyFromObject(obj), &wl); err != nil {
+					return err
+				}
+				wl.Spec.Active = new(false)
+				if err := c.Update(ctx, &wl); err != nil {
+					return err
+				}
+			}
+			return c.Patch(ctx, obj, patch, opts...)
+		},
+	})
+	g.scrape(faultAssessment(0, 1))
+	if _, err := g.r.Reconcile(context.Background(), ctrl.Request{Name: "nh-1"}); err == nil {
+		t.Fatal("a patch over the operator's deactivation did not fail")
+	}
+	var wl kueuev1beta1.Workload
+	if err := g.c.Get(context.Background(), types.NamespacedName{Namespace: "t", Name: "wl-r"}, &wl); err != nil {
+		t.Fatal(err)
+	}
+	if wl.Annotations[AnnRestartHandoff] != "" {
+		t.Fatalf("handed over a Workload the operator had stopped: %v", wl.Annotations)
 	}
 }
 

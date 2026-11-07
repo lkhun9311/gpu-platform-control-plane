@@ -4,6 +4,19 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
+# Armed before anything starts, so a failed step, a startup timeout or an interrupt also removes the containers and
+# volumes; until 2026-11-07 only a run that passed every step cleaned up (astra review r4). The run's status is kept.
+cleanup() {
+	local rc=$?
+	if [ "${KEEP:-0}" != 1 ]; then
+		docker compose down -v --remove-orphans || echo "cleanup: docker compose down failed" >&2
+	fi
+	exit "$rc"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
 docker compose down -v --remove-orphans
 docker compose build slurmctld
 docker compose up -d --no-build
@@ -24,7 +37,3 @@ for s in steps/00-fileless-gres.sh steps/00-setup.sh steps/01-gres.sh steps/02-q
 	echo "== $s"
 	bash "$s"
 done
-
-if [ "${KEEP:-0}" != 1 ]; then
-	docker compose down -v --remove-orphans
-fi

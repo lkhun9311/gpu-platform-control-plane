@@ -9,3 +9,8 @@
 5a23d99bb902aebb7c89126511fe36e64921306e:hack/mps-capability/2026-10-24-run2/log.txt:generic-api-key:254
 5e8670e62df2486bc37ad45dcec290d8240e72b3:hack/mps-capability/2026-10-24-run1/log.txt:generic-api-key:249
 5e8670e62df2486bc37ad45dcec290d8240e72b3:hack/mps-capability/2026-10-24-run1/log.txt:generic-api-key:252
+
+# The python:3.12-slim image's own ENV GPG_KEY, recorded by crictl inspecti in the linux diagnosis run (2026-11-07):
+# the public fingerprint of the key that signs CPython releases, which the official image sets to verify its download.
+8a4e543a69316af6ae3fab237cc6313f0653c0a6:hack/linux-diag-20261106T230435Z/image-inspect.json:generic-api-key:13
+8a4e543a69316af6ae3fab237cc6313f0653c0a6:hack/linux-diag-20261106T230435Z/image-inspect.json:generic-api-key:45

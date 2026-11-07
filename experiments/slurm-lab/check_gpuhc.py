@@ -26,7 +26,9 @@ echo "$(basename "$0") $*" >>"$STUB_CALLS"
 case "$(basename "$0") $1" in
 "scontrol show") echo "NodeName=c9 Arch=x86_64 State=${STUB_STATE:-IDLE} ThreadsPerCore=1" ;;
 "squeue -h") printf '%s\\n' $STUB_RUNNING ;;
-"scontrol requeue") [ "$2" = 77 ] && { echo "scontrol: error: Requested operation is presently disabled for job 77" >&2; exit 1; } ;;
+"scontrol requeue")
+  [ "$2" = 77 ] && { echo "scontrol: error: Requested operation is presently disabled for job 77" >&2; exit 1; }
+  [ "$2" = 88 ] && [ ! -e "$STUB_CALLS.recovered" ] && { echo "scontrol: error: Socket timed out on send/recv operation" >&2; exit 1; } ;;
 esac
 exit 0
 """
@@ -79,6 +81,10 @@ CASES = [
     ("a malformed line drains", two() + "garbage line\n", "IDLE", "", "", 2, ["scontrol show node c9", "DRAIN:malformed"]),
     ("two values for one card drain", two() + sample("GPU-c9-0", xid="5"), "IDLE", "", "", 2,
      ["scontrol show node c9", "DRAIN:carries two"]),
+    # open() decodes as text, and a byte that is not UTF-8 raised UnicodeDecodeError, which is not an OSError,
+    # so the check ended with a traceback and no drain (astra review r4, 2026-11-07).
+    ("a signal that is not UTF-8 drains", two().encode() + b"\xff\xfe\n", "IDLE", "", "", 2,
+     ["scontrol show node c9", "DRAIN:is not UTF-8"]),
 ]
 
 
@@ -96,7 +102,9 @@ def run(tmp: pathlib.Path, signal, state, running, policy):
     sig = tmp / "metrics.prom"
     if sig.exists():
         sig.unlink()
-    if signal is not None:
+    if isinstance(signal, bytes):
+        sig.write_bytes(signal)
+    elif signal is not None:
         sig.write_text(signal)
     (tmp / "policy").write_text(policy)
     calls = tmp / "calls"
@@ -117,6 +125,14 @@ def matches(want: list[str], got: list[str]) -> bool:
                 and got[-1].startswith("scontrol update nodename=c9 state=drain reason=gpuhc: signal not judged: ")
                 and needle in got[-1])
     return got == want
+
+
+def report(name: str, ok: bool, rc, calls, err) -> int:
+    if ok:
+        print(f"ok   {name}")
+        return 0
+    print(f"FAIL {name}: exit {rc}; calls {calls}; stderr {err.strip()[:200]}")
+    return 1
 
 
 def main() -> int:
@@ -143,8 +159,28 @@ def main() -> int:
         else:
             bad += 1
             print(f"FAIL a second run requeues only the job it has not tried: exit {rc}; calls {calls}; stderr {err.strip()[:200]}")
+        # A requeue that failed for a reason other than --no-requeue is tried again on the next run; recording it as
+        # tried left a still-running job on the faulted node for good (astra review r4, 2026-11-07).
+        tmp = pathlib.Path(d) / "transient"
+        tmp.mkdir()
+        run(tmp, two(xid0="79"), "MIXED", "88", "requeue")
+        (tmp / "calls.recovered").touch()
+        rc, calls, err = run(tmp, two(xid0="79"), "MIXED+DRAIN", "88", "requeue")
+        want = ["scontrol show node c9", "squeue -h -w c9 -t R -o %i", "scontrol requeue 88"]
+        bad += report("a requeue that timed out is tried again", rc == 1 and calls == want and not err, rc, calls, err)
+        # A healthy reading ends the incident, so a later fault tries a job again that the first fault had requeued.
+        tmp = pathlib.Path(d) / "incident"
+        tmp.mkdir()
+        run(tmp, two(xid0="79"), "MIXED", "41", "requeue")
+        rc0, _, err0 = run(tmp, two(), "IDLE", "", "requeue")
+        rc, calls, err = run(tmp, two(dbe1="1"), "MIXED", "41", "requeue")
+        want = ["scontrol show node c9",
+                "scontrol update nodename=c9 state=drain reason=gpuhc: GPU-c9-1 DCGM_FI_DEV_ECC_DBE_VOL_TOTAL=1",
+                "squeue -h -w c9 -t R -o %i", "scontrol requeue 41"]
+        bad += report("a new fault after a healthy reading requeues the job again",
+                      rc0 == 0 and not err0 and rc == 1 and calls == want and not err, rc, calls, err)
     # Every case compares the whole list of calls, so a check that ever asked for state=resume would fail one.
-    print(f"{len(CASES) + 1 - bad} passed, {bad} failed")
+    print(f"{len(CASES) + 3 - bad} passed, {bad} failed")
     return 1 if bad else 0
 
 

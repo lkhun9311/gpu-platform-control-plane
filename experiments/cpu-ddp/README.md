@@ -11,6 +11,8 @@ copies this one into it. The sample still cannot run.
 This directory runs a real one — two ranks, real gradients, real synchronisation — and says exactly how far
 that gets, which is not as far as the refused claim.
 
+*(The run's raw records — they were kept in the author's gitignored `ex/` directory and are not published, so the figures below cannot be checked against their observations from this repository (noted 2026-11-07).)*
+
 ## The arithmetic is the evidence
 
 A falling loss proves nothing here. A single rank's loss falls too, and two ranks that never communicate
@@ -87,7 +89,7 @@ and compared against an uninterrupted run.
 ## Two ranks in one Pod, and why not two Pods
 
 `torchrun --standalone --nnodes=1 --nproc-per-node=2` starts both ranks as processes inside a single Pod.
-That is a deliberate limit of the platform, not of the experiment.
+That is a deliberate limit of the platform, not of the experiment. *(Historical: since the multi-Pod work registered on 2026-10-15, `spec.distributed` runs ranks as Pods of an Indexed Job with a headless Service, `experiments/multi-pod-ddp/README.md`; the paragraphs below describe the platform as it was. Noted 2026-11-07.)*
 
 `parallelism: 2` would **not** make this distributed. The operator's `BuildJob` sets no `completionMode`, no
 `subdomain`, and creates no headless Service — searched for and absent — so two Pods would start, neither

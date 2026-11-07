@@ -183,14 +183,16 @@ repetition 3, with no trace in the instance log — "no timeouts" is not a succe
 27.2x and 23.0x is not evidence about the calibration: the prompt length and the repetition count both
 differ. The timeout differs too, and for the reason given above it is a weaker candidate, not an eliminated one.
 
-The improvement is real: **884.6 ms**, against a control whose two repetitions differed by **1.375 ms**.
+*(The paragraphs from here to "What it does not say" are about the ninth pilot of 2026-09 — the Finding 3 table, 200-character prompts — not about the 3b run above, which bought no `timeSlicing` arm. They sat after 3b without saying so until 2026-11-07, when an external review caught a reader attributing them to 3b.)*
+
+In the ninth pilot the improvement is real: **884.6 ms**, against a control whose two repetitions differed by **1.375 ms**.
 That is a range check and nothing more. An earlier draft of the source spec expressed the same comparison as
 a multiple and **dropped the multiple rather than correcting it**, because the registered rule asks whether
 the improvement clears the range, not by how many times — and because the multiple invites a precision the
 two numbers do not carry. This page reintroduced it anyway, as "632 times the noise", until a review caught
 it.
 
-It misses the pre-registered 2x bar by sevenfold **at this load**, and a successor study that took the same
+It (the ninth pilot's `timeSlicing` arm) misses the pre-registered 2x bar by sevenfold **at this load**, and a successor study that took the same
 question to the engine's own scheduler — eight configurations, three repetitions — reached **20.7x** at best.
 **Below that load the same arm passes.** On a ladder whose contender was held byte-identical across rungs,
 `timeSlicing` met the 139 ms premium target at 1.16 req/s (123.7 ms) and at 2.31 req/s (130.3 ms, repeated
@@ -200,7 +202,7 @@ mechanism at every load.
 **The mechanism, which is the actual finding.** A contending prompt occupies the engine for about **1.03 s**.
 The premium tail budget is a tenth of that. When the latency target is shorter than one contending request's
 service time, **neither of the two sharing modes measured here reaches it at the loads measured here**,
-because the unit that must be divided is not the card — it is a request already in flight.
+because the unit that must be divided is not the card — it is a request already in flight. *(2026-11-07: "the loads measured here" means the loads where it was missed, the frozen load and 4.61 req/s; the paragraph above shows time-slicing meeting it below that.)*
 
 The bound matters and this sentence did not carry it. It read "no sharing mode reaches it", which is a
 statement about every sharing mode at every load, and the paragraphs above it say the opposite: the same
@@ -221,7 +223,7 @@ revision and the engine digest. It then stopped itself on a cell boundary: a cel
 the runner's assumed 10, and its log projects the nine cells left at about 167 minutes against 142 before the
 deadline (the run's own log, archive m5c-20261001-002751). One cell is not a comparison, and that run bought the
 provenance chain rather than a result. The ten-cell run that completed that afternoon (Finding 3b) bought no
-split arm either. **The table above remains the ninth pilot's**, and nothing in the 2026-10-01 runs
+split arm either. **The Finding 3 table (the ninth pilot's) remains the only split-card table at that load**, and nothing in the 2026-10-01 runs
 retroactively confirms it.
 
 *(`docs/superpowers/specs/2026-09-10-does-splitting-the-card-buy-protection.md:529`, `:561`;
@@ -474,7 +476,7 @@ Each discarded attempt also cost 149 to 150 s of the placed rank's container tim
 
 - **Not `Running` while stranded, in either setting.** The CR was never `Running` with a rank unplaced, read after every single watch event and not only from polls: `Admitted` for the whole 600 s in `off-never`, and no entry into `Running` across the three admissions of `ready-timeout-never`. Where the squatter left, `Running` came once, 0.4 to 0.5 s after the second rank was Ready, and `admitToRunningSeconds` read 301.5 and 301.8 s, where the old rule had recorded 0.9 to 1.9 s. The hold did not change: 599 s to the window's end without the timeout, and Finding 10's admissions at 0, 150 and 330 s with it.
 - **The device now comes back with the quota.** In all sixteen evictions the placed rank ended with exit 143, not 137, with its container's `finishedAt` 1.1 s before the recorded release, against 28.9 s after it before the trainer's fix. (`finishedAt` is whole seconds, so this says the rank stopped within the same second, not before it was asked to.)
-- **A second tenant met no gap.** In both witness runs the witness was admitted 1.0 s after the first release and its Pod was scheduled 0.03 s after that, 2 s after the evicted rank had stopped.
+- **A second tenant met no gap.** In both witness runs the witness was admitted 1.0 s after the first release and its Pod was scheduled 0.03 s after that, 2 s after the evicted rank had stopped. *(2026-11-07: the witness ran in the same namespace and queue, `partial` and `gpu-partial`, as the job, so "tenant" here means a second workload; it shows quota reused in one queue, not across tenants.)*
 
 Two observations no prediction covered: the witness, holding one of the two devices for its 60 s, pushed the job's second admission from 150 to 186 s; and every finishing run read `Admitted` for 1.0 to 2.0 s before `Succeeded`, while its ranks were still running but no longer Ready, which is the cautious side of the error this finding measured.
 
@@ -558,4 +560,4 @@ None of the verdicts above changes.
 | 5 — preemption that did not | already closed: the termination contract is now an arm of the protocol |
 | 8 — configuration removes stranding | the second layout, the mix where packing loses and the counterbalanced order were measured on 2026-10-23, and the sign reversed with the mix; what remains is real devices, an arrival process rather than a fixed sequence, and more than three workers |
 | 9 — hold-cap protects, a tuned clock ties | C3 has run the robustness study v27 stopped, at a load with headroom for the contender, and observed the frozen spacing losing the pooled premium tail at the long length, a separation that rests on two of its three sessions. What remains: the frozen load itself; a test registering as its factor the contender schedule's burst structure, which the exploratory account of the third session is consistent with but does not establish; and a second card model |
-| 10 — a half-placed distributed job | more than two ranks, other jobs in the cohort, `blockAdmission: true`, and real devices; the phase fix it pointed at and the trainer's signal fix were measured together under a second registration, two runs per scenario plus two with a second tenant, all on simulated devices |
+| 10 — a half-placed distributed job | more than two ranks, other jobs in the cohort, `blockAdmission: true`, and real devices; the phase fix it pointed at and the trainer's signal fix were measured together under a second registration, two runs per scenario plus two with a second workload in the same queue (not a second tenant; corrected 2026-11-07), all on simulated devices |
