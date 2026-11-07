@@ -43,7 +43,7 @@ touch "$SHARED/control/END"
   elif [ -s "$EVID/VOID" ]; then echo "VOID: $(cat "$EVID/VOID")"; else echo "ok"; fi
   echo "evidence_verified=$shipped"
   echo "evidence_final=$final"
-  [ ! -s /tmp/evidence.sha ] || echo "evidence_sha256=$(cat /tmp/evidence.sha)"
+  [ ! -s /tmp/evidence.latest ] || cat /tmp/evidence.latest
 } >/tmp/DONE
 s3put /var/log/slurmec2.log log-head.txt
 s3put /tmp/DONE DONE

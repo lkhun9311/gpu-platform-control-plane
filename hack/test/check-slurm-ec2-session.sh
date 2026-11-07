@@ -145,9 +145,9 @@ base_rules() {
 void_evidence() {
   mkdir -p "$STUB/ev/evidence"
   echo "a worker stopped: not one A10G" >"$STUB/ev/evidence/VOID"
-  tar -czf "$STUB/fixtures/evidence.tgz" -C "$STUB/ev" evidence
-  printf 'VOID: a worker stopped\nevidence_verified=yes\nevidence_final=yes\nevidence_sha256=%s\n' \
-    "$(sha256sum "$STUB/fixtures/evidence.tgz" | cut -d' ' -f1)" >"$STUB/fixtures/DONE"
+  tar -czf "$STUB/fixtures/evidence-2.tgz" -C "$STUB/ev" evidence
+  printf 'n=2 sha256=%s\n' "$(sha256sum "$STUB/fixtures/evidence-2.tgz" | cut -d' ' -f1)" >"$STUB/fixtures/evidence.latest"
+  printf 'VOID: a worker stopped\nevidence_verified=yes\nevidence_final=yes\n' >"$STUB/fixtures/DONE"
 }
 session() {
   shift
@@ -243,6 +243,8 @@ grep -q "^ec2 create-tags .*--resources i-0head i-0gpu1 i-0gpu2 --tags Key=study
 for i in i-0head i-0gpu1 i-0gpu2; do
   grep -q "^ec2 terminate-instances .*$i" "$STUB/calls.log" || bad "$i was not terminated"
 done
+grep -q "^ec2 terminate-instances --region ap-northeast-2 --instance-ids i-0head i-0gpu1 i-0gpu2" "$STUB/calls.log" &&
+  ok "all three are asked to terminate in one call before any wait" || bad "no joint terminate call"
 grep -q "^s3 rm .*munge.key" "$STUB/calls.log" && ok "the munge key is removed from S3 at the end" || bad "the munge key was left in S3"
 grep -q "^s3 rm --only-show-errors --recursive s3://slurmec2-007635145730/.*/$" "$STUB/calls.log" && ok "the run's prefix is removed once the evidence is unpacked" || bad "the run's prefix was left"
 [ -d "$STUB/out/evidence" ] && [ ! -e "$STUB/out/.staging" ] && ok "the evidence is unpacked through a staging directory" || bad "the evidence directory"
@@ -266,10 +268,16 @@ session "a head whose termination is not confirmed" SPOT_TERMINATE_TRIES=1
 ok "the workers are terminated though the head's termination is unconfirmed"
 
 # An archive that is not the one head verified: not scored, and the S3 copy kept.
-scene; base_rules; void_evidence; sed -i 's/^evidence_sha256=.*/evidence_sha256=0000/' "$STUB/fixtures/DONE"
+scene; base_rules; void_evidence; sed -i 's/sha256=.*/sha256=0000/' "$STUB/fixtures/evidence.latest"
 session "an archive that is not the verified one"
 [ "$rc" = 3 ] && grep -q "NO-EVIDENCE" "$STUB/out/verdict.txt" && ! grep -q "^s3 rm --only-show-errors --recursive" "$STUB/calls.log" &&
   ok "an archive whose digest differs is not scored and the run's prefix is kept" || bad "a digest mismatch: exit $rc, $(head -1 "$STUB/out/verdict.txt")"
+
+# Head died before DONE: the last verified archive is still found through evidence.latest, and reported as possibly early.
+scene; base_rules; void_evidence; rm "$STUB/fixtures/DONE"
+session "head gone before DONE"
+grep -q "^SLURM ON EC2: VOID" "$STUB/out/verdict.txt" && grep -q "never wrote DONE" "$STUB/out/verdict.txt" &&
+  ok "an archive verified before head died is still scored, and flagged as possibly early" || bad "no DONE: $(paste -sd';' "$STUB/out/verdict.txt")"
 
 # --- the ways the purchase and the end can go wrong ---------------------------------------------------------------
 # A scene's own rule goes before base_rules, because the first matching rule answers.

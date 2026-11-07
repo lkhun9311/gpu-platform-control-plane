@@ -46,17 +46,27 @@ until_true() {
   done
 }
 
-# ship: archives /shared/evidence and uploads it as evidence.tgz, retrying, and returns 0 only when S3 reports the
-# uploaded object at the archive's exact size. Called after every check, so a later failure loses at most one check.
+# ship: archives /shared/evidence and uploads it under a key of its own, evidence-N.tgz, retrying; once S3 reports that
+# object at the archive's exact size, it publishes evidence.latest, "n=N sha256=...", and returns 0.
+# Called after every check. A key per upload means an upload whose verification fails never replaces the last verified
+# archive, and evidence.latest, written only after verification, lets the runner recover the last one even when head
+# dies before DONE.
 ship() {
-  local i size got
-  tar -czf /tmp/evidence.tgz.new -C "$SHARED" evidence || return 1
-  mv /tmp/evidence.tgz.new /tmp/evidence.tgz
-  size=$(stat -c %s /tmp/evidence.tgz)
+  local i size got n sha
+  n=$(( $(cat /tmp/evidence.n 2>>/var/log/slurmec2-probe.log || echo 0) + 1 ))
+  echo "$n" >/tmp/evidence.n
+  tar -czf "/tmp/evidence-$n.tgz" -C "$SHARED" evidence || return 1
+  size=$(stat -c %s "/tmp/evidence-$n.tgz")
+  sha=$(sha256sum "/tmp/evidence-$n.tgz" | cut -d' ' -f1)
   for i in 1 2 3 4 5; do
-    if s3put /tmp/evidence.tgz evidence.tgz; then
-      got=$(aws s3api head-object --bucket "$BUCKET" --key "$PREFIX/evidence.tgz" --query ContentLength --output text) &&
-        [ "$got" = "$size" ] && { sha256sum /tmp/evidence.tgz | cut -d' ' -f1 >/tmp/evidence.sha; return 0; }
+    if s3put "/tmp/evidence-$n.tgz" "evidence-$n.tgz"; then
+      got=$(aws s3api head-object --bucket "$BUCKET" --key "$PREFIX/evidence-$n.tgz" --query ContentLength --output text) &&
+        [ "$got" = "$size" ] && {
+          echo "n=$n sha256=$sha" >/tmp/evidence.latest
+          s3put /tmp/evidence.latest evidence.latest || return 1
+          echo "$sha" >/tmp/evidence.sha
+          return 0
+        }
     fi
     sleep $(( i * 2 ))
   done

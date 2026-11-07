@@ -226,8 +226,13 @@ cleanup() {
     spot_reconcile_token "$REGION" "${u%% *}" "${u##* }" 6 || { echo "TERMINATION UNCONFIRMED for the launch under token ${u%% *}" | tee -a "$OUT/termination.txt" >&2; bad=1; }
   done
   [ ${#IIDS[@]} -gt 0 ] || echo "no instance was launched by this session" >>"$OUT/termination.txt"
+  # One deadline for all the waits below, so an interrupted session's teardown is bounded however many are left.
+  local cleanup_deadline=$(( $(date +%s) + 600 ))
   for iid in ${IIDS[@]+"${IIDS[@]}"}; do
     [ -z "${GONE[$iid]:-}" ] || continue
+    SPOT_TERMINATE_WAIT=$(( cleanup_deadline - $(date +%s) ))
+    [ "$SPOT_TERMINATE_WAIT" -ge 5 ] || SPOT_TERMINATE_WAIT=5
+    SPOT_TERMINATE_TRIES=$(( SPOT_TERMINATE_WAIT / 5 + 1 ))
     if spot_terminate "$REGION" "$iid"; then GONE[$iid]=1; echo "terminated $iid" >>"$OUT/termination.txt"
     else echo "TERMINATION UNCONFIRMED for $iid -- check the console now" | tee -a "$OUT/termination.txt" >&2; bad=1; fi
   done
@@ -399,11 +404,16 @@ fi
 spot_wait_for_marker_until "$REGION" "$BUCKET" "$RUN_ID/DONE" "${IID_OF[head]}" $(( T0 + STOP_S )) 20 400 >"$OUT/wait.txt"
 wait_rc=$?
 say "the wait ended with status $wait_rc ($(cat "$OUT/wait.txt"))"
-SPOT_TERMINATE_WAIT=$(( T0 + TERMINATION_S - $(date +%s) ))
-[ "$SPOT_TERMINATE_WAIT" -ge 60 ] || SPOT_TERMINATE_WAIT=60
-SPOT_TERMINATE_TRIES=$(( SPOT_TERMINATE_WAIT / 5 + 1 ))
+# All three asked at once, then each waited for against one absolute deadline, so the waits do not add up.
+aws ec2 terminate-instances --region "$REGION" --instance-ids "${IID_OF[head]}" "${IID_OF[gpu1]}" "${IID_OF[gpu2]}" \
+  >>"$OUT/termination.txt" 2>&1 || echo "the joint terminate call failed; each is asked again below" >>"$OUT/termination.txt"
+TERM_DEADLINE=$(( T0 + TERMINATION_S ))
+[ "$TERM_DEADLINE" -ge $(( $(date +%s) + 60 )) ] || TERM_DEADLINE=$(( $(date +%s) + 60 ))
 TERMINATION=confirmed
 for role in head gpu1 gpu2; do
+  SPOT_TERMINATE_WAIT=$(( TERM_DEADLINE - $(date +%s) ))
+  [ "$SPOT_TERMINATE_WAIT" -ge 5 ] || SPOT_TERMINATE_WAIT=5
+  SPOT_TERMINATE_TRIES=$(( SPOT_TERMINATE_WAIT / 5 + 1 ))
   if spot_terminate "$REGION" "${IID_OF[$role]}"; then
     GONE[${IID_OF[$role]}]=1
     echo "terminated ${IID_OF[$role]} ($role)" >>"$OUT/termination.txt"
@@ -412,16 +422,22 @@ for role in head gpu1 gpu2; do
     echo "TERMINATION UNCONFIRMED for ${IID_OF[$role]} ($role) -- terminate it by hand now" | tee -a "$OUT/termination.txt" >&2
   fi
 done
-for k in evidence.tgz DONE log-head.txt log-gpu1.txt log-gpu2.txt stopped-gpu1 stopped-gpu2; do
+for k in evidence.latest DONE log-head.txt log-gpu1.txt log-gpu2.txt stopped-gpu1 stopped-gpu2; do
   aws s3 cp --only-show-errors "s3://$BUCKET/$RUN_ID/$k" "$OUT/$k" 2>>"$OUT/download-errors.txt" || echo "not downloaded: $k" >>"$OUT/download-errors.txt"
 done
+# evidence.latest names the last archive head verified in S3, and is there even when head died before DONE.
+n=$(sed -n 's/^n=\([0-9]*\) .*/\1/p' "$OUT/evidence.latest" 2>>"$OUT/download-errors.txt")
+want=$(sed -n 's/.*sha256=\([0-9a-f]*\).*/\1/p' "$OUT/evidence.latest" 2>>"$OUT/download-errors.txt")
+if [ -n "$n" ]; then
+  aws s3 cp --only-show-errors "s3://$BUCKET/$RUN_ID/evidence-$n.tgz" "$OUT/evidence.tgz" 2>>"$OUT/download-errors.txt" ||
+    echo "not downloaded: evidence-$n.tgz" >>"$OUT/download-errors.txt"
+fi
 # The archive is checked against the digest DONE names before anything relies on it, unpacked into a staging directory,
 # and moved into place only whole; the S3 copy is removed only after that.
 UNPACKED=no
-want=$(sed -n 's/^evidence_sha256=//p' "$OUT/DONE" 2>>"$OUT/download-errors.txt")
 if [ -s "$OUT/evidence.tgz" ]; then
   if [ -z "$want" ] || [ "$want" != "$(sha256sum "$OUT/evidence.tgz" | cut -d' ' -f1)" ]; then
-    echo "the downloaded archive is not the one head last verified (DONE names '${want:-none}')" | tee -a "$OUT/download-errors.txt"
+    echo "the downloaded archive is not the one head last verified (evidence.latest names '${want:-none}')" | tee -a "$OUT/download-errors.txt"
   elif mkdir "$OUT/.staging" && tar -xzf "$OUT/evidence.tgz" -C "$OUT/.staging" && [ -d "$OUT/.staging/evidence" ] && mv "$OUT/.staging/evidence" "$OUT/evidence"; then
     UNPACKED=yes
   else
@@ -441,7 +457,8 @@ if [ -d "$OUT/evidence" ] && [ "$UNPACKED" = yes ]; then
   elif python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1]))["complete"] else 1)' "$OUT/verdict.json"; then MEASURED=0
   else MEASURED=4; fi
   # An earlier archive than the final one is verified but lacks the later checks or diagnostics.
-  grep -qx 'evidence_final=yes' "$OUT/DONE" || { echo "head could not verify its final archive; this is an earlier one" | tee -a "$OUT/verdict.txt"; [ "$MEASURED" = 0 ] && MEASURED=4; }
+  grep -qx 'evidence_final=yes' "$OUT/DONE" 2>>"$OUT/download-errors.txt" ||
+    { echo "head did not report its final archive verified (or never wrote DONE); this may be an earlier one" | tee -a "$OUT/verdict.txt"; [ "$MEASURED" = 0 ] && MEASURED=4; }
   # Downloaded and unpacked, so the run's prefix is no longer the only copy; it would otherwise wait 30 days to expire.
   aws s3 rm --only-show-errors --recursive "s3://$BUCKET/$RUN_ID/" >>"$OUT/cleanup.txt" 2>&1 || echo "the run's S3 prefix could not be removed; it expires in 30 days" >>"$OUT/cleanup.txt"
 else
