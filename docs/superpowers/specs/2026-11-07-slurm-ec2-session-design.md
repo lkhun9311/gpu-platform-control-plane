@@ -152,5 +152,17 @@ Each finding was checked against the code by Claude before it was fixed.
 | 6 P2 | B4's `sacct`, `scontrol show job` and node polls could fail and read as rules that did not hold | their exit statuses are recorded, and a failed one makes B4 INVALID |
 | 7 P2 | B4 was admitted with 1,200 s while its own waits add to about 1,570 s, and the checks could be cut by the procedure's timeout | each check is admitted only with its own worst case left, and the checks' window is 3,900 s (the self-shutdown moved from 4,500 to 5,700 s, about $0.6 more at the caps) |
 
+**Round 3 (commit `e81f09a2`): NO-GO, seven findings, all confirmed and fixed in `4c3a4bd6`.**
+
+| # | finding | fix |
+|---|---|---|
+| 1 P1 | `DONE` was written though no archive was verified, and the runner terminated the only copy | `collect.sh` keeps shipping until the evidence deadline while nothing is verified, and `DONE` says `NO-EVIDENCE` if it never was |
+| 2 P1 | the packages create `slurm` with whatever uid is free, which can differ between the two images | `slurm` (1601) and `munge` (1602) are created with fixed ids before any package; an existing one with another id stops the instance; each worker records its uid and the scorer requires 1601 |
+| 3 P1 | another inline policy, a condition in the trust document or a permissions boundary could deny what the session's policy allows | the trust document must equal the one-statement EC2 trust, no boundary, and `write-results` must be the only inline policy |
+| 4 P2 | a truncated download or a digest mismatch still led to scoring and to the S3 copy being removed | the digest is checked first, the archive unpacked into a staging directory and moved whole, and the prefix removed only after that; otherwise it is kept and expires |
+| 5 P2 | B2 admitted with 300 s while its waits add to 480 s, and `left` returned 0, which `timeout` reads as no limit | B2 admitted with 720 s; `left` never returns below 1 |
+| 6 P2 | a failed `squeue` ended B3's poll as if both jobs had left, and B2's node read had no status | failed reads are recorded as such and make the check INVALID |
+| 7 P2 | B2's journal window was head's clock applied to gpu2's journal | the window is gpu2's own journal cursor before and after the job |
+
 Found by Claude in round 1: the default security group of `gpu-lab`'s default VPC admits all TCP from `0.0.0.0/0` (read on 2026-11-07), which would have put `slurmctld` and the NFS export on the internet.
 The session now creates its own group, admitting only its own members, launches all three into it (a new optional argument of `spot_launch`, `a39c955f`), and deletes it after the instances are gone.
