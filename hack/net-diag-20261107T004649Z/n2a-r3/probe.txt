@@ -1,0 +1,20 @@
+capture_ready=1
+curl_exit=28
+http=000 t_total=8.002178 t_dns=0.000366 t_connect=0.000000 local_port=-1
+curl_error=curl: (28) Connection timed out after 8002 milliseconds 
+retrans_before=74 retrans_after=80
+kernel_dropped=0
+tcpdump_read_exit=0
+--- capture
+00:50:46.758909 IP 10.244.0.6.55759 > 10.96.0.10.53: 34406+ [1au] A? server.default.svc.cluster.local. (73)
+00:50:46.758949 IP 10.244.0.6.55759 > 10.96.0.10.53: 26610+ [1au] AAAA? server.default.svc.cluster.local. (73)
+00:50:46.759099 IP 10.96.0.10.53 > 10.244.0.6.55759: 26610*- 0/1/1 (166)
+00:50:46.759121 IP 10.96.0.10.53 > 10.244.0.6.55759: 34406*- 1/0/1 A 10.96.22.86 (121)
+00:50:46.759158 IP 10.244.0.6.59440 > 10.96.22.86.80: Flags [S], seq 3960000656, win 64240, options [mss 1460,sackOK,TS val 2477568704 ecr 0,nop,wscale 10], length 0
+00:50:47.767994 IP 10.244.0.6.59440 > 10.96.22.86.80: Flags [S], seq 3960000656, win 64240, options [mss 1460,sackOK,TS val 2477569713 ecr 0,nop,wscale 10], length 0
+00:50:48.791979 IP 10.244.0.6.59440 > 10.96.22.86.80: Flags [S], seq 3960000656, win 64240, options [mss 1460,sackOK,TS val 2477570737 ecr 0,nop,wscale 10], length 0
+00:50:49.815982 IP 10.244.0.6.59440 > 10.96.22.86.80: Flags [S], seq 3960000656, win 64240, options [mss 1460,sackOK,TS val 2477571761 ecr 0,nop,wscale 10], length 0
+00:50:50.840977 IP 10.244.0.6.59440 > 10.96.22.86.80: Flags [S], seq 3960000656, win 64240, options [mss 1460,sackOK,TS val 2477572786 ecr 0,nop,wscale 10], length 0
+00:50:51.864981 IP 10.244.0.6.59440 > 10.96.22.86.80: Flags [S], seq 3960000656, win 64240, options [mss 1460,sackOK,TS val 2477573810 ecr 0,nop,wscale 10], length 0
+00:50:53.912977 IP 10.244.0.6.59440 > 10.96.22.86.80: Flags [S], seq 3960000656, win 64240, options [mss 1460,sackOK,TS val 2477575858 ecr 0,nop,wscale 10], length 0
+--- end

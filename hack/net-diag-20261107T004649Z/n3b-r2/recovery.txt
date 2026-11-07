@@ -1,0 +1,21 @@
+capture_ready=1
+curl_exit=0
+http=200 t_total=0.000668 t_dns=0.000012 t_connect=0.000090 local_port=33308
+curl_error=
+retrans_before=74 retrans_after=74
+kernel_dropped=0
+tcpdump_read_exit=0
+--- capture
+00:50:16.871578 IP 10.244.0.6.33308 > 10.244.0.5.8080: Flags [S], seq 1370969588, win 64240, options [mss 1460,sackOK,TS val 4087269759 ecr 0,nop,wscale 10], length 0
+00:50:16.871609 IP 10.244.0.5.8080 > 10.244.0.6.33308: Flags [S.], seq 1239335066, ack 1370969589, win 65160, options [mss 1460,sackOK,TS val 1507893795 ecr 4087269759,nop,wscale 10], length 0
+00:50:16.871615 IP 10.244.0.6.33308 > 10.244.0.5.8080: Flags [.], ack 1, win 63, options [nop,nop,TS val 4087269759 ecr 1507893795], length 0
+00:50:16.871642 IP 10.244.0.6.33308 > 10.244.0.5.8080: Flags [P.], seq 1:80, ack 1, win 63, options [nop,nop,TS val 4087269759 ecr 1507893795], length 79: HTTP: GET / HTTP/1.1
+00:50:16.871647 IP 10.244.0.5.8080 > 10.244.0.6.33308: Flags [.], ack 80, win 64, options [nop,nop,TS val 1507893795 ecr 4087269759], length 0
+00:50:16.872165 IP 10.244.0.5.8080 > 10.244.0.6.33308: Flags [P.], seq 1:157, ack 80, win 64, options [nop,nop,TS val 1507893796 ecr 4087269759], length 156: HTTP: HTTP/1.0 200 OK
+00:50:16.872171 IP 10.244.0.6.33308 > 10.244.0.5.8080: Flags [.], ack 157, win 63, options [nop,nop,TS val 4087269760 ecr 1507893796], length 0
+00:50:16.872187 IP 10.244.0.5.8080 > 10.244.0.6.33308: Flags [P.], seq 157:461, ack 80, win 64, options [nop,nop,TS val 1507893796 ecr 4087269760], length 304: HTTP
+00:50:16.872188 IP 10.244.0.6.33308 > 10.244.0.5.8080: Flags [.], ack 461, win 63, options [nop,nop,TS val 4087269760 ecr 1507893796], length 0
+00:50:16.872207 IP 10.244.0.5.8080 > 10.244.0.6.33308: Flags [F.], seq 461, ack 80, win 64, options [nop,nop,TS val 1507893796 ecr 4087269760], length 0
+00:50:16.872219 IP 10.244.0.6.33308 > 10.244.0.5.8080: Flags [F.], seq 80, ack 462, win 63, options [nop,nop,TS val 4087269760 ecr 1507893796], length 0
+00:50:16.872240 IP 10.244.0.5.8080 > 10.244.0.6.33308: Flags [.], ack 81, win 64, options [nop,nop,TS val 1507893796 ecr 4087269760], length 0
+--- end

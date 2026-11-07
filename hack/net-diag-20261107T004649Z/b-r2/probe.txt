@@ -1,0 +1,25 @@
+capture_ready=1
+curl_exit=0
+http=200 t_total=0.001093 t_dns=0.000377 t_connect=0.000431 local_port=35616
+curl_error=
+retrans_before=46 retrans_after=46
+kernel_dropped=0
+tcpdump_read_exit=0
+--- capture
+00:49:12.053452 IP 10.244.0.6.53125 > 10.96.0.10.53: 3506+ [1au] A? server.default.svc.cluster.local. (73)
+00:49:12.053499 IP 10.244.0.6.53125 > 10.96.0.10.53: 29370+ [1au] AAAA? server.default.svc.cluster.local. (73)
+00:49:12.053631 IP 10.96.0.10.53 > 10.244.0.6.53125: 29370*- 0/1/1 (166)
+00:49:12.053654 IP 10.96.0.10.53 > 10.244.0.6.53125: 3506*- 1/0/1 A 10.96.22.86 (121)
+00:49:12.053697 IP 10.244.0.6.35616 > 10.96.22.86.80: Flags [S], seq 3678811649, win 64240, options [mss 1460,sackOK,TS val 2380663361 ecr 0,nop,wscale 10], length 0
+00:49:12.053718 IP 10.96.22.86.80 > 10.244.0.6.35616: Flags [S.], seq 2805503358, ack 3678811650, win 65160, options [mss 1460,sackOK,TS val 992351044 ecr 2380663361,nop,wscale 10], length 0
+00:49:12.053723 IP 10.244.0.6.35616 > 10.96.22.86.80: Flags [.], ack 1, win 63, options [nop,nop,TS val 2380663361 ecr 992351044], length 0
+00:49:12.053747 IP 10.244.0.6.35616 > 10.96.22.86.80: Flags [P.], seq 1:71, ack 1, win 63, options [nop,nop,TS val 2380663361 ecr 992351044], length 70: HTTP: GET / HTTP/1.1
+00:49:12.053752 IP 10.96.22.86.80 > 10.244.0.6.35616: Flags [.], ack 71, win 64, options [nop,nop,TS val 992351044 ecr 2380663361], length 0
+00:49:12.054329 IP 10.96.22.86.80 > 10.244.0.6.35616: Flags [P.], seq 1:157, ack 71, win 64, options [nop,nop,TS val 992351045 ecr 2380663361], length 156: HTTP: HTTP/1.0 200 OK
+00:49:12.054337 IP 10.244.0.6.35616 > 10.96.22.86.80: Flags [.], ack 157, win 63, options [nop,nop,TS val 2380663362 ecr 992351045], length 0
+00:49:12.054354 IP 10.96.22.86.80 > 10.244.0.6.35616: Flags [P.], seq 157:461, ack 71, win 64, options [nop,nop,TS val 992351045 ecr 2380663362], length 304: HTTP
+00:49:12.054355 IP 10.244.0.6.35616 > 10.96.22.86.80: Flags [.], ack 461, win 63, options [nop,nop,TS val 2380663362 ecr 992351045], length 0
+00:49:12.054376 IP 10.96.22.86.80 > 10.244.0.6.35616: Flags [F.], seq 461, ack 71, win 64, options [nop,nop,TS val 992351045 ecr 2380663362], length 0
+00:49:12.054409 IP 10.244.0.6.35616 > 10.96.22.86.80: Flags [F.], seq 71, ack 462, win 63, options [nop,nop,TS val 2380663362 ecr 992351045], length 0
+00:49:12.054432 IP 10.96.22.86.80 > 10.244.0.6.35616: Flags [.], ack 72, win 64, options [nop,nop,TS val 992351045 ecr 2380663362], length 0
+--- end

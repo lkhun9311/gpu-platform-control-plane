@@ -119,15 +119,20 @@ type WorkloadRunSpec struct {
 	//
 	// The window bounds the CLAIM as much as the work: a verdict says what happened inside it and nothing
 	// about after, and a run that recovers one second late is a fail rather than a slow pass.
+	//
+	// Immutable, with the deadline: both are the registration a verdict is judged against, and one edited after
+	// the verdict would leave status contradicting its own spec (codex review r8).
 	// +required
 	// +kubebuilder:validation:Minimum=5
 	// +kubebuilder:validation:Maximum=3600
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="observationWindowSeconds is immutable"
 	ObservationWindowSeconds int32 `json:"observationWindowSeconds"`
 	// recoversWithinSeconds is the deadline the target must be observed healthy by, measured from the run's
 	// start. It must not exceed observationWindowSeconds, or the run would be asked to judge a deadline it
 	// stopped watching before.
 	// +required
 	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="recoversWithinSeconds is immutable"
 	RecoversWithinSeconds int32 `json:"recoversWithinSeconds"`
 }
 

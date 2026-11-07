@@ -121,6 +121,7 @@ rules:
   - platform.lkhun9311.github.io
   resources:
   - gpuquotapolicies/finalizers
+  - inferencedeployments/finalizers
   - mltrainingjobs/finalizers
   - nodehealths/finalizers
   verbs:
