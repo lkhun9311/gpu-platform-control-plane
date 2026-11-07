@@ -164,6 +164,17 @@ Each finding was checked against the code by Claude before it was fixed.
 | 6 P2 | a failed `squeue` ended B3's poll as if both jobs had left, and B2's node read had no status | failed reads are recorded as such and make the check INVALID |
 | 7 P2 | B2's journal window was head's clock applied to gpu2's journal | the window is gpu2's own journal cursor before and after the job |
 
+**Round 5 (commit `a1a48f43`): NO-GO, five findings, all confirmed and fixed in `9da5c32b`.**
+Both P1s were latent on 2026-11-07 (the bucket does not exist yet, so it will be created with S3's default AES256, and `gpu-lab` has no Recycle Bin rule for EBS volumes), and both are now refused rather than assumed.
+
+| # | finding | fix |
+|---|---|---|
+| 1 P1 | a bucket encrypted with a KMS key, or carrying a bucket policy, would let the operator upload and leave the instances unable to read | the bucket must encrypt with AES256 and have no bucket policy, read before any purchase |
+| 2 P1 | a Recycle Bin rule would keep the root volumes billed after the instances report terminated | any Recycle Bin rule for EBS volumes refuses the session; each instance's root volume id is recorded at launch, and a volume still present after termination makes the teardown unconfirmed (exit 1) |
+| 3 P2 | a resumed run that ended FAILED made B4 INVALID instead of an observed failure | the accounting wait accepts any terminal state, and the B4 rules are scored on it |
+| 4 P2 | B3's two pairs were admitted together with less time than both need | each pair is admitted alone with 340 s |
+| 5 P2 | a missed bring-up deadline made the session VOID, not every check NOTRUN as registered | head writes `NOTRUN_ALL` for a deadline miss, and the scorer reports every check NOTRUN for it or for a `bringup.env` past T0 + 1,500 s |
+
 **Round 4 (commit `b325dcb2`): NO-GO, five findings, all confirmed and fixed in `a1a48f43`.**
 
 | # | finding | fix |
