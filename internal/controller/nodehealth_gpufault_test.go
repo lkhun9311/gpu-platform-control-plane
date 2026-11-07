@@ -474,6 +474,14 @@ func TestGPUFaultDoesNotCycleAWorkloadWhileItsPodStillTerminatesOnTheFaultedNode
 		t.Fatalf("while the old Pod still terminated on the faulted node: %d deactivations and %d reactivations, want 1 and 0",
 			deactivations, reactivations)
 	}
+	// Nothing watched announces the Pod's departure, so a waiting pass must ask to be run again.
+	res, err := g.r.Reconcile(ctx, ctrl.Request{Name: "nh-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.RequeueAfter != displacedPodPoll {
+		t.Fatalf("a pass waiting for the old Pod requeued after %v, want %v", res.RequeueAfter, displacedPodPoll)
+	}
 
 	// The Pod is gone once its kubelet finishes; only then is the Workload requeued, once.
 	var p corev1.Pod
@@ -484,9 +492,15 @@ func TestGPUFaultDoesNotCycleAWorkloadWhileItsPodStillTerminatesOnTheFaultedNode
 	if err := g.c.Update(ctx, &p); err != nil {
 		t.Fatal(err)
 	}
-	g.reconcile()
+	res, err = g.r.Reconcile(ctx, ctrl.Request{Name: "nh-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if wl := get(); !ptr.Deref(wl.Spec.Active, true) || wl.Annotations[annWorkloadReactivatedAt] == "" {
 		t.Fatalf("not reactivated after the old Pod left the faulted node: active=%v %v", wl.Spec.Active, wl.Annotations)
+	}
+	if res.RequeueAfter != 0 {
+		t.Fatalf("a pass with nothing left to wait for still requeued after %v", res.RequeueAfter)
 	}
 }
 
