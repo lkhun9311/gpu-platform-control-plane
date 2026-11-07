@@ -130,9 +130,10 @@ if [ "$apt_rc" = 124 ]; then late "the package install ran out of the bring-up t
 elif [ "$apt_rc" != 0 ]; then die "apt install failed ($apt_rc); see /var/log/slurmec2-apt.log"; fi
 phase "packages installed"
 # NFS traffic during the bring-up, the probe's included, in two rotating 8 MB files: what a client asked and what the
-# server answered.
+# server answered. Ubuntu's tcpdump drops to its own user before opening the file, which cannot write the root-owned
+# diagnostics directory (the t3 rehearsal of 2026-11-08 recorded only "Permission denied"), so it stays root.
 if [ "$SLURMEC2_SHARED_VOLUME" != 1 ]; then
-  ( timeout "$(left "$BRINGUP_END")" tcpdump -ni any -s 256 -C 8 -W 2 -w "$DIAG/nfs.pcap" 'tcp port 2049' >>"$DIAG/tcpdump.log" 2>&1 ) &
+  ( timeout "$(left "$BRINGUP_END")" tcpdump -Z root -ni any -s 256 -C 8 -W 2 -w "$DIAG/nfs.pcap" 'tcp port 2049' >>"$DIAG/tcpdump.log" 2>&1 ) &
 fi
 # The munge key is in S3 before any instance is bought, so it is fetched before the probe can spend the bring-up time;
 # running out of that time is a missed deadline, NOTRUN.
