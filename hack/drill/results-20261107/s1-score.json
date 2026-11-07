@@ -1,0 +1,12 @@
+{
+  "scenario": "S1",
+  "variant": "quota",
+  "ground_truth_reason": "quota: the tenant's ClusterQueue allows 3 GPUs, the two holders use 2, and the job asks for 2 more, though drill-worker2 has 2 free",
+  "end_state": {
+    "holders untouched": true,
+    "the job kept, not recreated": true,
+    "the tenant's quota unchanged": true
+  },
+  "end_state_ok": true,
+  "note": "the diagnosis itself is scored from the engineer's report against ground_truth_reason"
+}
