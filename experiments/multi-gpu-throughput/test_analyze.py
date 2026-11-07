@@ -431,6 +431,13 @@ class Correctness(Base):
         edit_records(path, "pod-uid-0", zero)
         self.assertFault(path, "a raw time is not a positive finite number")
 
+    def test_a_rank_with_one_sample_missing(self):
+        # zip() stops at the shortest list, so without a per-rank length check the median reads 99 samples as 100.
+        path = write_job(self.root, "a", "allreduce-1pod4gpu")
+        edit_records(path, "pod-uid-0", lambda r: {**r, "times_s_by_rank": [r["times_s_by_rank"][0][:99]] + r["times_s_by_rank"][1:]}
+                     if r.get("size_bytes") == 1 << 26 and r["rank"] == 0 else r)
+        self.assertFault(path, "rank 0 size 67108864: the raw times are not 4 ranks by 100 samples")
+
     def test_mismatched_iterations(self):
         path = write_job(self.root, "a", "allreduce-1pod4gpu")
         edit_records(path, "pod-uid-0", lambda r: {**r, "local_mismatched_iterations": 2}
