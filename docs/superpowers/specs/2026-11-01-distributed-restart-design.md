@@ -384,5 +384,8 @@ Two were races or reads behind the cache: the fault path's deactivation patch no
 
 A bare review of those fixes found three defects in them, all fixed: deleting the job while the barrier deleted its Job in the foreground deadlocked (the deletion path now releases stopped ranks first); an inactive Workload still showing an earlier preemption restarted the job (an inactive Workload is never an eviction trigger, and Kueue's `Deactivated…` reasons are matched by prefix); and a Pod with no published binding was dated by its creation, so an autoscaler's new node read as a replacement (no binding time, no decision yet).
 
+**Also 2026-11-07, from the operator drill's runbook review:** a terminal phase was taken as the kubelet's report that a rank stopped, but PodGC writes `Failed` too — with `DisruptionTarget`/`DeletionByPodGC` for a Pod whose Node is gone, and with no condition for one terminating on an out-of-service NotReady node — so deleting the MLTrainingJob could finish while a lost machine still ran its rank.
+A terminal phase now counts only when PodGC did not write it and the Pod's Node is Ready and is the machine the rank ran on (its recorded UID, or, unrecorded, a Node not registered after the binding); otherwise the rank waits for its node's fence, in the deletion path and the restart path alike.
+
 What this changes for the published runs: none of them exercised these paths (no controller restart, no force delete, no preemption), so no recorded result changes.
 The recovery a future run measures can be up to one stop poll (2 s) longer, because a rank Pod now leaves the API only after the controller has seen its kubelet's terminal report.
