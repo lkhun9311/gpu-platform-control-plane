@@ -177,10 +177,13 @@ func (r *NodeHealthReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		}
 	}
 	// After the Node patch, so that tainted-at is a time the taint existed.
+	var result ctrl.Result
 	if gpuDecision != nil {
-		if err := r.recordGPUFault(ctx, &nh, *gpuDecision, &node); err != nil {
+		requeue, err := r.recordGPUFault(ctx, &nh, *gpuDecision, &node)
+		if err != nil {
 			return ctrl.Result{}, err
 		}
+		result.RequeueAfter = requeue
 	}
 
 	// Idempotent: write status only when it actually changed.
@@ -192,7 +195,7 @@ func (r *NodeHealthReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		log.Info("Updated NodeHealth status", "name", nh.Name, "phase", desired.Phase)
 	}
 
-	return ctrl.Result{}, nil
+	return result, nil
 }
 
 // NodeNameIndex is the cache field-index key over NodeHealth.spec.nodeName.

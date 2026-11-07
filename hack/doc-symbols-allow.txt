@@ -117,6 +117,7 @@ CANCELLED	a Slurm job state, quoted from experiments/slurm-lab/evidence/2026-11-
 dump_vma_snapshot	a Linux 6.12 fs/coredump.c function, cited from the kernel source by the corelimit registration
 save_external_coredump	a systemd src/coredump/coredump.c function, cited from systemd v256 and v252 by the corelimit registration
 pod-watch.json	a file restart_collect in hack/lib/restart-session.sh writes into each case's directory during a run, not a tracked file
+allowed_account_ids	a Terraform AWS provider argument proposed by the r5 review ledger (P3), not yet set in any root
 container_memory_usage_bytes	a cAdvisor metric named in experiments/linux-diagnosis/README.md as what a usage graph reads, not exported by this repository
 oom_score_adj	a Linux per-process OOM setting named by the linux diagnosis design and write-up as not covered
 NVRM	the NVIDIA kernel driver's log prefix, named by the linux diagnosis design as what a journal filter would match
