@@ -369,6 +369,12 @@ grep -q " STOP_S=1950 SLURMEC2_FAKE_GPU=1 SLURMEC2_NFS_PROBE=1$" "$ud" && grep -
 grep -qx "CHECKS_END_S=1650" "$STUB/uploaded/cluster.env" && grep -qx "SLURMEC2_CHECKS=b4" "$STUB/uploaded/cluster.env" && grep -qx "B4_MEM_MB=1024" "$STUB/uploaded/cluster.env" &&
   ok "cluster.env carries the rehearsal's clock and its one check" || bad "the rehearsal cluster.env: $(paste -sd' ' "$STUB/uploaded/cluster.env")"
 scene; base_rules; refused "an unknown mode" "SLURMEC2_MODE is 'other'" SLURMEC2_MODE=other
+# A T0 later than the launch skew allows would outlast every tag and backstop counted from the request: the three
+# are terminated before cluster.env is handed over.
+scene; put d1 "$(date -u -d '+1000 sec' +%Y-%m-%dT%H:%M:%S+00:00)	$GAMI	172.31.0.11	vol-01"; rule "ec2 run-instances*" "ih|i1|i2"; base_rules
+session "a T0 past the launch skew"
+[ "$rc" != 0 ] && grep -q "past the 900 s every deadline allows for" <<<"$out" && [ ! -e "$STUB/uploaded/cluster.env" ] && grep -q "^ec2 terminate-instances" "$STUB/calls.log" &&
+  ok "a T0 past the launch skew ends the session before cluster.env, and what was bought is terminated" || bad "a late T0: exit $rc, $(grep -m1 REFUSED <<<"$out")"
 
 # --- the ways the purchase and the end can go wrong ---------------------------------------------------------------
 # A scene's own rule goes before base_rules, because the first matching rule answers.

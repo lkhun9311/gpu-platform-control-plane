@@ -19,7 +19,7 @@ OUTF=/tmp/nfsprobe-$ROLE
 : >"$OUTF"
 note() { printf '%s %s\n' "$(date +%s.%N | cut -c1-14)" "$*" >>"$OUTF"; }
 stats() {
-  timeout 20 python3 - "$P" "$P/control" "$P/control/CONF_READY" <<'PY' >>"$OUTF" 2>&1
+  timeout --kill-after=5 20 python3 - "$P" "$P/control" "$P/control/CONF_READY" <<'PY' >>"$OUTF" 2>&1
 import os, sys
 for p in sys.argv[1:]:
     try:
@@ -56,19 +56,19 @@ case "$ROLE" in
     if ! until_true $(( $(date +%s) + 240 )) 5 mount -t nfs4 -o hard,timeo=600 head:"$P" "$P"; then
       note "mount failed"; s3put "$OUTF" "nfsprobe-$ROLE"; exit 0
     fi
-    timeout 10 findmnt -T "$P" -o OPTIONS -n >>"$OUTF" 2>&1
-    timeout 10 test -e "$P/control/CONF_READY"; note "first test -e rc=$?"
+    timeout --kill-after=5 10 findmnt -T "$P" -o OPTIONS -n >>"$OUTF" 2>&1
+    timeout --kill-after=5 10 test -e "$P/control/CONF_READY"; note "first test -e rc=$?"
     stats
     echo polling >/tmp/polling && s3put /tmp/polling "nfsprobe-polling-$ROLE"
     start=$(date +%s); seen=""
     while [ $(( $(date +%s) - start )) -lt 180 ]; do
-      if timeout 10 test -e "$P/control/CONF_READY"; then seen=$(date +%s.%N | cut -c1-14); break; fi
+      if timeout --kill-after=5 10 test -e "$P/control/CONF_READY"; then seen=$(date +%s.%N | cut -c1-14); break; fi
       sleep 1
     done
     if [ -n "$seen" ]; then note "SEEN at $seen"; else note "NOT SEEN within 180 s"; fi
     stats
-    timeout 30 umount "$P"; note "umount rc=$?"
-    timeout 10 mountpoint -q "$P" && { umount -l "$P"; note "lazy umount rc=$?"; }
+    timeout --kill-after=5 30 umount "$P"; note "umount rc=$?"
+    timeout --kill-after=5 10 mountpoint -q "$P" && { umount -l "$P"; note "lazy umount rc=$?"; }
     s3put "$OUTF" "nfsprobe-$ROLE"
     ;;
 esac

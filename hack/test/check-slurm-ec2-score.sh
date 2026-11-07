@@ -83,6 +83,12 @@ expect "a pending reason other than AssocGrpGRES: B3a's reason rule did not hold
 
 copy; sed -i 's/DCGM_FI_DEV_XID_ERRORS=79/something-else/' "$work"/ev/b4/gpu1-state.txt; score
 expect "no drain naming Xid 79: B4a did not hold" "$(q '[x["held"] for x in v["b4"]["rules"] if x["rule"].startswith("B4a")]')" "[False]"
+# The drain is at 1794037195.715: a write bracketed from 31 s to 29 s before it cannot be judged against 30 s, while
+# one bracketed wholly inside 30 s still holds.
+copy; sed -i 's/^fault_written=.*/fault_written=1794037164.715/' "$work"/ev/b4/events.env; echo "fault_renamed=1794037166.715" >>"$work"/ev/b4/events.env; score
+expect "a drain 29 to 31 s after a bracketed write makes B4 INVALID" "$(q 'v["b4"]["status"]')" INVALID
+copy; echo "fault_renamed=1794037194.000" >>"$work"/ev/b4/events.env; score
+expect "a drain inside 30 s of both ends of the bracket: B4a held" "$(q '[x["held"] for x in v["b4"]["rules"] if x["rule"].startswith("B4a")]')" "[True]"
 copy; sed -i '0,/State=/s/^\([0-9.]*\) .*/\1 READ-FAILED/' "$work"/ev/b4/gpu1-state.txt; score
 expect "a failed node read before the drain makes B4 INVALID" "$(q 'v["b4"]["status"]')" INVALID
 copy; sed -i 's/"params_sha256": "[0-9a-f]*"/"params_sha256": "0000"/' "$work"/ev/b4/reference.jsonl; score

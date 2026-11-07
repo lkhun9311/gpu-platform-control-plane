@@ -39,7 +39,10 @@ TAG_FROM_T0_S=5670
 STOP_S=5700
 TERMINATION_S=6100
 # The longest T0 can follow an instance's own boot: the three launches, the read-back and handing cluster.env over.
+# It is enforced: T0 later than the request by more than this ends the session before cluster.env is handed over.
 LAUNCH_SKEW_S=900
+# No purchase starts later than this after the request, so failed zones cannot keep instances billed past it.
+LAUNCH_WINDOW_S=600
 DESCRIBE_TRIES=24
 SWEEPER_MIN_RUNS=4
 # The termination wait's end plus 30 minutes of headroom, and the build, in minutes.
@@ -59,7 +62,7 @@ case "$MODE" in
   nfs-rehearsal)
     GPU_TYPE=t3.medium GPU_CAP=0.06
     STUDY_ID=slurm-ec2-nfs-rehearsal-2026-11-08
-    TAG_AT_REQUEST_S=1980 TAG_FROM_T0_S=1980 STOP_S=1950 TERMINATION_S=2100 LAUNCH_SKEW_S=300 CRED_MIN_MINUTES=75
+    TAG_AT_REQUEST_S=1980 TAG_FROM_T0_S=1980 STOP_S=1950 TERMINATION_S=2100 LAUNCH_SKEW_S=300 LAUNCH_WINDOW_S=240 CRED_MIN_MINUTES=75
     EXTRA_ENV="SLURMEC2_FAKE_GPU=1 SLURMEC2_NFS_PROBE=1"
     CLUSTER_EXTRA=$'BRINGUP_END_S=1200\nCHECKS_END_S=1650\nEVIDENCE_S=1830\nSLURMEC2_CHECKS=b4\nB4_ADMIT_S=600\nB4_MEM_MB=1024\n' ;;
   *) echo "SESSION REFUSED: SLURMEC2_MODE is '$MODE', not session or nfs-rehearsal" >&2; exit 1 ;;
@@ -392,7 +395,7 @@ rb=$(aws rbin list-rules --region "$REGION" --resource-type EBS_VOLUME --query '
   fail "the Recycle Bin rules for EBS volumes could not be read: $rb"
 [ "$rb" = 0 ] || fail "$rb Recycle Bin rule(s) retain EBS volumes in $REGION, so the root volumes would outlive the instances"
 spot_ensure_profile "$STACK" \
-  "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":[\"s3:PutObject\",\"s3:GetObject\"],\"Resource\":\"arn:aws:s3:::$BUCKET/$RUN_ID/*\"},{\"Effect\":\"Allow\",\"Action\":\"s3:ListBucket\",\"Resource\":\"arn:aws:s3:::$BUCKET\"}]}" \
+  "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":[\"s3:PutObject\",\"s3:GetObject\"],\"Resource\":\"arn:aws:s3:::$BUCKET/$RUN_ID/*\"},{\"Effect\":\"Allow\",\"Action\":\"s3:ListBucket\",\"Resource\":\"arn:aws:s3:::$BUCKET\"},{\"Effect\":\"Deny\",\"Action\":[\"s3:PutObject\",\"s3:DeleteObject\"],\"Resource\":[\"arn:aws:s3:::$BUCKET/$RUN_ID/cluster.env\",\"arn:aws:s3:::$BUCKET/$RUN_ID/munge.key\",\"arn:aws:s3:::$BUCKET/$RUN_ID/src/*\"]}]}" \
   20 || fail "could not prepare the instance profile $STACK"
 aws iam tag-role --role-name "$STACK" --tags "Key=purpose,Value=$PURPOSE" >>"$OUT/launch-errors.txt" 2>&1 ||
   fail "could not tag the role $STACK as this session's"
@@ -412,7 +415,7 @@ PY
 inline=$(aws iam list-role-policies --role-name "$STACK" --query 'PolicyNames' --output text 2>&1) || fail "the role's inline policies could not be read: $inline"
 [ "$inline" = write-results ] || [ "$inline" = "" ] || fail "the role $STACK carries inline policies '$inline' besides this session's"
 aws iam put-role-policy --role-name "$STACK" --policy-name write-results --policy-document \
-  "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":[\"s3:PutObject\",\"s3:GetObject\"],\"Resource\":\"arn:aws:s3:::$BUCKET/$RUN_ID/*\"},{\"Effect\":\"Allow\",\"Action\":\"s3:ListBucket\",\"Resource\":\"arn:aws:s3:::$BUCKET\"}]}" \
+  "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":[\"s3:PutObject\",\"s3:GetObject\"],\"Resource\":\"arn:aws:s3:::$BUCKET/$RUN_ID/*\"},{\"Effect\":\"Allow\",\"Action\":\"s3:ListBucket\",\"Resource\":\"arn:aws:s3:::$BUCKET\"},{\"Effect\":\"Deny\",\"Action\":[\"s3:PutObject\",\"s3:DeleteObject\"],\"Resource\":[\"arn:aws:s3:::$BUCKET/$RUN_ID/cluster.env\",\"arn:aws:s3:::$BUCKET/$RUN_ID/munge.key\",\"arn:aws:s3:::$BUCKET/$RUN_ID/src/*\"]}]}" \
   >>"$OUT/launch-errors.txt" 2>&1 || fail "could not write the role's policy"
 extra=$(aws iam list-attached-role-policies --role-name "$STACK" --query 'AttachedPolicies[].PolicyArn' --output text 2>&1) ||
   fail "the role's attached policies could not be read: $extra"
@@ -446,6 +449,8 @@ TAG_DEADLINE=$(date -u -d "@$(( request_epoch + TAG_AT_REQUEST_S + LAUNCH_SKEW_S
 launch_one() {
   local z=$1 subnet=$2 role=$3 type ami cap vol token tags iid
   LAUNCHED=""
+  [ $(( $(date +%s) - request_epoch )) -le "$LAUNCH_WINDOW_S" ] ||
+    fail "the $role launch in $z would start more than $LAUNCH_WINDOW_S s after the request; what was bought is terminated"
   local credits=""
   if [ "$role" = head ]; then type=$HEAD_TYPE ami=$SLURMEC2_HEAD_AMI_ID cap=$HEAD_CAP vol=$HEAD_VOLUME_GB credits=standard
   else type=$GPU_TYPE ami=$SLURMEC2_GPU_AMI_ID cap=$GPU_CAP vol=$GPU_VOLUME_GB; fi
@@ -515,6 +520,9 @@ for role in head gpu1 gpu2; do
   IP_OF[$role]=$ip
   echo "$role ${IID_OF[$role]} $lt $img $ip" >>"$OUT/instances.txt"
 done
+# The tags, the backstops and the cost bound all assume T0 within the launch skew of the request; a later T0 ends it.
+[ $(( T0 - request_epoch )) -le "$LAUNCH_SKEW_S" ] ||
+  fail "T0 is $(( T0 - request_epoch )) s after the request, past the $LAUNCH_SKEW_S s every deadline allows for"
 { printf 'T0=%s\nHEAD_IP=%s\nGPU1_IP=%s\nGPU2_IP=%s\n' "$T0" "${IP_OF[head]}" "${IP_OF[gpu1]}" "${IP_OF[gpu2]}"; printf '%s' "$CLUSTER_EXTRA"; } >"$OUT/cluster.env"
 aws s3 cp --only-show-errors "$OUT/cluster.env" "s3://$BUCKET/$RUN_ID/cluster.env" ||
   fail "could not hand cluster.env to the instances; they will stop themselves, and this session terminates them"

@@ -288,6 +288,9 @@ def b4(ev):
     if broken:
         return result("INVALID", broken)
     fault = float(events["fault_written"])
+    # fault_written is read just before the rename that publishes the fault and fault_renamed just after it, so the
+    # write lies between them; a drain whose 30 s verdict differs between the two is undecided, not a result.
+    renamed = float(events["fault_renamed"]) if "fault_renamed" in events else fault
     drained = None
     for line in (read(os.path.join(d, "gpu1-state.txt")) or "").splitlines():
         f = line.split(" ", 1)
@@ -315,6 +318,9 @@ def b4(ev):
     if final_state is None:
         return result("INVALID", ["accounting has no record of the run"])
     diff = re.search(r"max_abs_diff=(\S+)", read(os.path.join(d, "param-diff.txt")) or "")
+    if drained is not None and (drained - fault <= 30) != (drained - renamed <= 30):
+        return result("INVALID", [f"the drain came {drained - renamed:.1f} to {drained - fault:.1f} s after the write, "
+                                  "and the write's time is not known closely enough to judge 30 s"])
     rules = [
         ("B4a: gpu1 is DRAIN with the Xid 79 reason within 30 s of the write", drained is not None and drained - fault <= 30),
         ("B4b: RestartCnt is 1", restarts == 1),

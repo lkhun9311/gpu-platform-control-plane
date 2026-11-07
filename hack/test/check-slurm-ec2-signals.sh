@@ -60,7 +60,7 @@ rm -f "$S3"/*; expect_missing=$(rc_of sig_get CONF_READY head ready)
 [ "$expect_missing" = 1 ] && ok "an absent signal is not ready yet (1)" || bad "an absent signal returned $expect_missing"
 plant '{}'
 [ "$(rc_of sig_get CONF_READY head ready)" = 0 ] && ok "this run's signal from head at its phase is accepted" || bad "a valid signal was refused"
-for f in '{"run":"run-0"}' '{"t0":999}' '{"producer":"gpu2"}' '{"phase":"end"}' '{"schema":2}' '{"token":"ab'"'"'; touch x"}' '{"token":7}'; do
+for f in '{"run":"run-0"}' '{"t0":999}' '{"producer":"gpu2"}' '{"phase":"end"}' '{"schema":2}' '{"token":"ab'"'"'; touch x"}' '{"token":7}' '{"schema":true}' '{"t0":1000.0}'; do
   plant "$f"
   got=$(rc_of sig_get CONF_READY head ready)
   [ "$got" = 2 ] && ok "a signal with $f is refused as an error (2)" || bad "a signal with $f returned $got"
@@ -109,6 +109,16 @@ for c in "touch $work/ran" mark; do
   # shellcheck disable=SC2086
   got=$(rc_of until_true $(( $(date +%s) - 1 )) 1 $c)
   [ "$got" = 1 ] && [ ! -e "$work/ran" ] && ok "nothing runs once the deadline has passed (${c%% *})" || bad "after the deadline (${c%% *}): $got, ran=$([ -e "$work/ran" ] && echo yes || echo no)"
+done
+
+# cluster.env: the session accepts the addresses and T0 only, the t3 rehearsal its clock and checks too, each once.
+base=$'T0=1000\nHEAD_IP=172.31.0.10\nGPU1_IP=172.31.0.11\nGPU2_IP=172.31.0.12'
+cen() { printf '%s\n' "$1" >"$work/cluster.env"; shift; ( export "$@"; cenv_check "$work/cluster.env" >/dev/null ); echo $?; }
+[ "$(cen "$base" X=0)" = 0 ] && ok "the session's own cluster.env is accepted" || bad "the session's cluster.env was refused"
+[ "$(cen "$base"$'\nB4_ADMIT_S=1' X=0)" = 1 ] && ok "the session refuses a clock or check setting in cluster.env" || bad "the session accepted B4_ADMIT_S"
+[ "$(cen "$base"$'\nB4_ADMIT_S=600' SLURMEC2_NFS_PROBE=1)" = 0 ] && ok "the t3 rehearsal accepts its clock settings" || bad "the rehearsal refused B4_ADMIT_S"
+for l in 'SLURMEC2_FAKE_GPU=1' 'TENANT=root' 'T0=1;touch' 'T0=$(id)' 'T0=2'; do
+  [ "$(cen "$base"$'\n'"$l" SLURMEC2_NFS_PROBE=1)" = 1 ] && ok "cluster.env with '$l' is refused" || bad "cluster.env with '$l' was accepted"
 done
 
 # The mount the workers make; the options are what the registration names.

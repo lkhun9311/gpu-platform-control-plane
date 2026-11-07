@@ -60,20 +60,20 @@ head_wait() {
   while :; do
     # Each probe gets at most the time left, so a hung sinfo cannot carry the wait past its deadline.
     timeout --kill-after=2 "$(left "$end")" "$@" && [ "$(date +%s)" -le "$end" ] && return 0
-    if worker_stopped; then
+    [ "$(date +%s)" -lt "$end" ] || return 1
+    if CALL_BOUND=$(( end - $(date +%s) )) worker_stopped; then
       local why
-      why=$(for n in gpu1 gpu2; do s3get "stopped-$n" - 2>>/var/log/slurmec2-probe.log; done | paste -sd';')
+      why=$(for n in gpu1 gpu2; do CALL_BOUND=30 s3get "stopped-$n" - 2>>/var/log/slurmec2-probe.log; done | paste -sd';')
       case "$why" in LATE:*) late "a worker missed the bring-up deadline: $why" ;; *) die "a worker stopped: $why" ;; esac
     fi
     [ "$(date +%s)" -lt "$end" ] || return 1
-    sleep 5
+    sleep "$(CALL_BOUND=$(( end - $(date +%s) )) bound 5)"
   done
 }
 
 # ------------------------------------------------------------- the cluster's addresses and T0, from the runner
 until_true $(( BOOT + 600 )) 5 s3get cluster.env /tmp/cluster.env || die "cluster.env never arrived"
-# It is sourced, so it must be assignments of single words and nothing else: any instance may write under the prefix.
-grep -vqE '^[A-Z][A-Z0-9_]*=[0-9a-z.,]*$' /tmp/cluster.env && die "cluster.env holds a line that is not NAME=word: $(grep -vE '^[A-Z][A-Z0-9_]*=[0-9a-z.,]*$' /tmp/cluster.env | head -3)"
+why=$(cenv_check /tmp/cluster.env) || die "$why"
 # shellcheck disable=SC1091
 . /tmp/cluster.env
 : "${T0:?}" "${HEAD_IP:?}" "${GPU1_IP:?}" "${GPU2_IP:?}"
@@ -223,7 +223,7 @@ head_bringup() {
   until_true $(( $(date +%s) + 60 )) 2 scontrol ping >>/var/log/slurmec2-setup.log 2>&1 || die "slurmctld does not answer scontrol ping"
   sig_put CONF_READY ready "$NFS_TOKEN" || die "CONF_READY could not be put to S3"
   head_wait "$BRINGUP_END" bash -c '[ "$(sinfo -h -N -o "%N %t" | grep -cE "^gpu[12] (idle|mix)")" = 2 ]' ||
-    late "both workers did not register idle by the bring-up deadline: $(sinfo -h -N -o '%N %t %E' | paste -sd';')"
+    late "both workers did not register idle by the bring-up deadline: $(timeout -k 2 10 sinfo -h -N -o '%N %t %E' | paste -sd';')"
   local venv_left
   venv_left=$(left "$BRINGUP_END")
   timeout "$venv_left" tail --pid="$venv_pid" -f /dev/null || late "the venv was not ready by the bring-up deadline"
@@ -261,9 +261,12 @@ worker_bringup() {
   local cards
   cards=$(nvidia-smi -L) || die "nvidia-smi failed"
   [ "$(grep -c 'A10G' <<<"$cards")" = 1 ] && [ "$(wc -l <<<"$cards")" = 1 ] || die "not one A10G: $cards"
-  mkdir -p "$SHARED/nodeinfo"
+  # Every write to /shared from here is made locally and copied under timeout with a forced kill: a hard mount blocks a
+  # write to an unreachable server until the process is killed.
+  nfs_do() { timeout --kill-after=5 30 "$@"; }
+  nfs_do mkdir -p "$SHARED/nodeinfo" || die "mkdir $SHARED/nodeinfo"
   # The worker's own write, read back, is the shared-volume check the registration asks for before any job.
-  echo "$ROLE $(date +%s)" >"$SHARED/nodeinfo/$ROLE.rw" && grep -q "^$ROLE " "$SHARED/nodeinfo/$ROLE.rw" || die "/shared write"
+  nfs_do bash -c 'echo "$1 $(date +%s)" >"$2" && grep -q "^$1 " "$2"' _ "$ROLE" "$SHARED/nodeinfo/$ROLE.rw" || die "/shared write"
   {
     echo "cards=$cards"
     echo "driver=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader)"
@@ -271,17 +274,19 @@ worker_bringup() {
     echo "kernel=$(uname -r)"
     echo "slurm_uid=$(id -u slurm)"
     echo "nvml_plugin=$(test -e /usr/lib/x86_64-linux-gnu/slurm-wlm/gpu_nvml.so && echo present || echo absent)"
-  } >"$SHARED/nodeinfo/$ROLE.env"
-  slurmd -C >"$SHARED/nodeinfo/$ROLE.conf.tmp" && mv "$SHARED/nodeinfo/$ROLE.conf.tmp" "$SHARED/nodeinfo/$ROLE.conf" || die "slurmd -C"
+  } >"/tmp/nodeinfo-$ROLE.env"
+  nfs_do cp "/tmp/nodeinfo-$ROLE.env" "$SHARED/nodeinfo/$ROLE.env" || die "copy the node info to $SHARED"
+  slurmd -C >"/tmp/nodeinfo-$ROLE.conf" || die "slurmd -C"
+  nfs_do bash -c 'cp "$1" "$2.tmp" && mv "$2.tmp" "$2"' _ "/tmp/nodeinfo-$ROLE.conf" "$SHARED/nodeinfo/$ROLE.conf" || die "copy slurmd -C to $SHARED"
 
   # The GPU fault signal gpuhc.py reads: this card's UUID, healthy, until the procedure writes a fault into it.
   local uuid
   uuid=$(nvidia-smi --query-gpu=uuid --format=csv,noheader | head -1)
   [ -n "$uuid" ] || die "no GPU UUID"
   # Made here too: head may not have made it yet, and a missing signal makes gpuhc drain the node at slurmd's start.
-  mkdir -p "$SHARED/gpuhc" || die "mkdir $SHARED/gpuhc"
+  nfs_do mkdir -p "$SHARED/gpuhc" || die "mkdir $SHARED/gpuhc"
   printf '# generation 0\nDCGM_FI_DEV_XID_ERRORS{gpu="0",UUID="%s"} 0\nDCGM_FI_DEV_ECC_DBE_VOL_TOTAL{gpu="0",UUID="%s"} 0\n' "$uuid" "$uuid" \
-    >"$SHARED/gpuhc/$ROLE.prom" || die "write the GPU signal"
+    >"/tmp/gpuhc-$ROLE.prom" && nfs_do cp "/tmp/gpuhc-$ROLE.prom" "$SHARED/gpuhc/$ROLE.prom" || die "write the GPU signal"
   mkdir -p /opt/slurm-ec2 /var/lib/gpuhc
   cp experiments/slurm-lab/etc/gpuhc.py /opt/slurm-ec2/gpuhc.py
   sed "s|@ROLE@|$ROLE|g" hack/slurm-ec2/gpuhc-ec2.sh >/etc/slurm/gpuhc-ec2.sh
@@ -317,16 +322,17 @@ worker_bringup() {
     # The read runs under until_true's timeout, because a hard mount blocks a read on an unreachable server forever.
     until_true $(( $(date +%s) + 60 )) 2 grep -qx "$token" "$SHARED/nfscheck/head"
     seen=$?
-    run_logged nfscheck-stat timeout 20 python3 -c 'import os,sys
+    run_logged nfscheck-stat timeout --kill-after=5 20 python3 -c 'import os,sys
 for p in sys.argv[1:]:
     try:
         s = os.stat(p); print(p, "OK", s.st_ino, s.st_size, s.st_mtime_ns)
     except OSError as e:
         print(p, "ERROR", e.errno, e.strerror)' "$SHARED" "$SHARED/nfscheck" "$SHARED/nfscheck/head"
-    [ "$seen" = 0 ] || die "head's NFS token is not visible here through the mount after 60 s"
+    # NOTRUN, as the registration says: the bring-up did not complete, and the stat above says how far it got.
+    [ "$seen" = 0 ] || late "head's NFS token is not visible here through the mount after 60 s"
   fi
   # Worker-to-head visibility: head reads this back before admitting jobs (it already reads nodeinfo the same way).
-  timeout 30 bash -c 'echo "$1" >"$2.tmp" && mv "$2.tmp" "$2"' _ "$token" "$SHARED/nfscheck/$ROLE" || die "write the NFS token back"
+  nfs_do bash -c 'echo "$1" >"$2.tmp" && mv "$2.tmp" "$2"' _ "$token" "$SHARED/nfscheck/$ROLE" || die "write the NFS token back"
   sig_put "CONF_ACK-$ROLE" acked "$token" || die "CONF_ACK could not be put to S3"
   systemctl enable slurmd >>/var/log/slurmec2-setup.log 2>&1
   systemctl restart slurmd || die "slurmd"

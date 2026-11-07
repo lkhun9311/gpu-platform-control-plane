@@ -106,7 +106,9 @@ except ValueError:
     sys.exit(1)
 # The token is lowercase hex or empty, so a reader can never be handed anything a shell would interpret.
 tok = d.get("token")
-ok = d.get("schema") == 1 and d.get("run") == sys.argv[2] and d.get("t0") == int(sys.argv[3]) \
+# Exact types: in Python true == 1 and 1.0 == 1, so equality alone would accept a schema of true or a float T0.
+ok = isinstance(d, dict) and type(d.get("schema")) is int and d["schema"] == 1 and d.get("run") == sys.argv[2] \
+    and type(d.get("t0")) is int and d["t0"] == int(sys.argv[3]) \
     and d.get("producer") == sys.argv[4] and d.get("phase") == sys.argv[5] \
     and isinstance(tok, str) and all(c in "0123456789abcdef" for c in tok)
 sys.exit(0 if ok else 1)
@@ -142,6 +144,20 @@ sig_wait() {
 s3get() { timeout --kill-after=2 "$(bound 120)" aws s3 cp --only-show-errors --cli-connect-timeout 3 --cli-read-timeout 30 "s3://$BUCKET/$PREFIX/$1" "$2"; }
 s3put() { timeout --kill-after=2 "$(bound 300)" aws s3 cp --only-show-errors --cli-connect-timeout 3 --cli-read-timeout 30 "$1" "s3://$BUCKET/$PREFIX/$2"; }
 
+# cenv_check FILE: whether cluster.env may be sourced, printing why not.
+# It must be assignments of single words to known names, each once; the clock and the checks may be set only in the t3
+# rehearsal, whose user-data alone carries SLURMEC2_NFS_PROBE=1. The instances cannot write it (the role denies it), so
+# this guards against the runner's own mistakes.
+cenv_check() {
+  local keys='T0|HEAD_IP|GPU1_IP|GPU2_IP' bad dups
+  [ "${SLURMEC2_NFS_PROBE:-0}" = 1 ] && keys="$keys|BRINGUP_END_S|CHECKS_END_S|EVIDENCE_S|SLURMEC2_CHECKS|B4_ADMIT_S|B4_MEM_MB"
+  bad=$(grep -vE "^($keys)=[0-9a-z.,]*\$" "$1")
+  dups=$(cut -d= -f1 "$1" | sort | uniq -d)
+  [ -z "$bad" ] && [ -z "$dups" ] && return 0
+  echo "cluster.env holds lines this session does not accept: $(head -3 <<<"$bad" | paste -sd';') duplicates: $dups"
+  return 1
+}
+
 # left END: seconds from now until the epoch END, never below 1: GNU timeout reads 0 as no limit at all.
 left() { local l=$(( $1 - $(date +%s) )); [ "$l" -gt 1 ] && echo "$l" || echo 1; }
 
@@ -156,21 +172,31 @@ until_true() {
     # A shell function cannot run under timeout; the functions given here bound their calls by CALL_BOUND (bound).
     if declare -F "$1" >/dev/null; then CALL_BOUND=$l "$@"; else timeout --kill-after=2 "$l" "$@"; fi && [ "$(date +%s)" -le "$end" ] && return 0
     [ "$(date +%s)" -lt "$end" ] || return 1
-    sleep "$interval"
+    sleep "$(CALL_BOUND=$(( end - $(date +%s) )) bound "$interval")"
   done
 }
 
 # diag_ship TAG: archives this host's diagnostics and PUTs them as diag-ROLE-TAG.tgz, independent of Slurm and NFS.
 # The setup, apt and Slurm logs and a bounded journal are copied in first, so an apt or systemd failure is explained too.
 diag_ship() {
-  local tag=$1
+  local tag=$1 rc lk
+  # One shipment at a time (the periodic one and a final one can overlap), and tar's status 1, a file that changed
+  # while it was read (the live capture), still leaves a usable archive, so only a worse status drops the shipment.
+  exec {lk}>>/tmp/diag-ship.lock
+  flock -w 60 "$lk" || echo "$(date -u +%FT%TZ) $tag: shipped without the lock" >>"$DIAG/ship.err"
   mkdir -p "$DIAG/logs"
   cp /var/log/slurmec2.log /var/log/slurmec2-*.log "$DIAG/logs/" 2>>"$DIAG/ship.err"
   cp -r /var/log/slurm "$DIAG/logs/" 2>>"$DIAG/ship.err"
   timeout 20 journalctl -b --no-pager -n 3000 >"$DIAG/logs/journal.txt" 2>>"$DIAG/ship.err"
   timeout 20 systemctl status --no-pager munge slurmd slurmctld slurmdbd nfs-kernel-server >"$DIAG/logs/units.txt" 2>&1
-  tar -czf "/tmp/diag-$ROLE-$tag.tgz" -C /var/log slurmec2 2>>"$DIAG/ship.err" || return 1
-  awsb s3api put-object --bucket "$BUCKET" --key "$PREFIX/diag-$ROLE-$tag.tgz" --body "/tmp/diag-$ROLE-$tag.tgz" >>"$DIAG/s3.log" 2>&1
+  tar -czf "/tmp/diag-$ROLE-$tag.tgz" -C /var/log slurmec2 2>>"$DIAG/ship.err"
+  rc=$?
+  if [ "$rc" -le 1 ]; then
+    awsb s3api put-object --bucket "$BUCKET" --key "$PREFIX/diag-$ROLE-$tag.tgz" --body "/tmp/diag-$ROLE-$tag.tgz" >>"$DIAG/s3.log" 2>&1
+    rc=$?
+  fi
+  exec {lk}>&-
+  return "$rc"
 }
 
 # ship: archives /shared/evidence and uploads it under a key of its own, evidence-N.tgz, retrying; once S3 reports that
