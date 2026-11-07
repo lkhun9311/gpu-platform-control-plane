@@ -117,12 +117,17 @@ scene() {
   put rtb "rtb-0assoc"
   put spots $'t3.medium\t1\t2\ng5.2xlarge\t4\t2'
   put spotsmall $'t3.medium\t1\t2'
+  put owned "slurm-ec2"
+  put foreign "someone"
   put nospot ""
   put versioning "None"
   put vpc "vpc-0default"
   put sg "sg-0session"
 }
 base_rules() {
+  # Neither the bucket nor the role exists yet, as on the first run; a scene's own rule, written first, overrides.
+  rule "s3api head-bucket*" none 1
+  rule "iam get-role --role-name slurmec2" none 1
   rule "sts get-caller-identity*" account
   rule "ec2 describe-images*BlockDeviceMappings*" maps
   rule "ec2 describe-images*--image-ids $HAMI*" hami
@@ -211,6 +216,12 @@ refused "a quota mostly used by another purpose's GPU instance" "two g5.xlarge n
 scene; put q16 "16.0"; rule "service-quotas get-service-quota*" q16; rule "ec2 describe-instances*instance-lifecycle*" spots; base_rules; void_evidence
 session "a quota with room for both beside another purpose's"
 launched && ok "8 free vCPUs beside another purpose's 8 are enough" || bad "free quota 8: exit $rc, $(tail -2 <<<"$out")"
+scene; rule "s3api head-bucket*" none 0; rule "s3api get-bucket-tagging*" foreign; base_rules; refused "an existing bucket not tagged as this session's" "is not tagged purpose=slurm-ec2"
+grep -q "put-bucket-lifecycle" "$STUB/calls.log" && bad "the foreign bucket's lifecycle was written" || ok "a foreign bucket's lifecycle is never written"
+scene; rule "iam get-role --role-name slurmec2" none 0; rule "iam list-role-tags*" foreign; base_rules; refused "an existing role not tagged as this session's" "role slurmec2 exists and is not tagged"
+grep -q "put-role-policy" "$STUB/calls.log" && bad "the foreign role's policy was written" || ok "a foreign role's policy is never written"
+scene; rule "s3api head-bucket*" none 0; rule "s3api get-bucket-tagging*" owned; base_rules; void_evidence; session "an existing bucket tagged as this session's"
+launched && ok "an existing bucket tagged as this session's is reused" || bad "owned bucket: exit $rc, $(tail -2 <<<"$out")"
 scene; put inactive "Pending"; rule "lambda get-function*" inactive; base_rules; refused "a sweeper not Active" "is Pending, not Active"
 scene; put few $'1.0\t1.0'; rule "cloudwatch get-metric-statistics*Invocations*" few; base_rules; refused "a sweeper seen running twice" "at least 4 clean runs"
 scene; put denied_sw "implicitDeny"; rule "iam simulate-principal-policy*" denied_sw; base_rules; refused "a sweeper that may not terminate" "may not terminate instances (implicitDeny)"
@@ -235,9 +246,9 @@ scene; put big '[{"DeviceName":"/dev/sda1","Ebs":{"DeleteOnTermination":true,"Vo
 rule "ec2 describe-images*BlockDeviceMappings*" big; base_rules; refused "an AMI whose root snapshot is larger than the launch" "root snapshot is larger"
 scene; put other_role "someone-else"; rule "iam get-instance-profile*" other_role; base_rules; refused "a profile carrying another role" "carries role(s) 'someone-else'"
 scene; put other_trust '{"Role":{"AssumeRolePolicyDocument":{"Statement":[{"Effect":"Allow","Principal":{"Service":"lambda.amazonaws.com"},"Action":"sts:AssumeRole"}]}}}'
-rule "iam get-role*" other_trust; base_rules; refused "a role trusting another service" "trust or boundary is not this session's"
+rule "iam get-role*--output json*" other_trust; base_rules; refused "a role trusting another service" "trust or boundary is not this session's"
 scene; put bounded '{"Role":{"PermissionsBoundary":{"PermissionsBoundaryArn":"arn:x"},"AssumeRolePolicyDocument":{"Statement":[{"Effect":"Allow","Principal":{"Service":"ec2.amazonaws.com"},"Action":"sts:AssumeRole"}]}}}'
-rule "iam get-role*" bounded; base_rules; refused "a role with a permissions boundary" "trust or boundary is not this session's"
+rule "iam get-role*--output json*" bounded; base_rules; refused "a role with a permissions boundary" "trust or boundary is not this session's"
 scene; put inline2 $'deny-s3\twrite-results'; rule "iam list-role-policies*" inline2; base_rules; refused "a role with another inline policy" "carries inline policies"
 scene; put attached "arn:aws:iam::aws:policy/AdministratorAccess"; rule "iam list-attached-role-policies*" attached; base_rules
 refused "a role with an attached policy" "has attached policies"
@@ -265,7 +276,8 @@ grep -q "^SLURM ON EC2: VOID: head stopped: a worker stopped" "$STUB/out/verdict
   ok "the real scorer read the returned evidence, and the termination is recorded" || bad "the verdict: $(paste -sd';' "$STUB/out/verdict.txt")"
 runs=$(grep '^ec2 run-instances' "$STUB/calls.log")
 [ "$(wc -l <<<"$runs")" = 3 ] && ok "three launches" || bad "$(wc -l <<<"$runs") launches"
-grep -q -- "--image-id $HAMI --instance-type t3.medium .*--instance-initiated-shutdown-behavior terminate .*\"VolumeSize\":30.*MaxPrice\":\"0.06\".*Key=role,Value=head" <<<"$runs" &&
+grep -q -- "--image-id $HAMI --instance-type t3.medium .*--instance-initiated-shutdown-behavior terminate .*\"VolumeSize\":30.*MaxPrice\":\"0.06\".*Key=role,Value=head.*--credit-specification CpuCredits=standard" <<<"$runs" &&
+  ! grep -- "--instance-type g5.xlarge" <<<"$runs" | grep -q credit-specification &&
   ok "head: the pinned Ubuntu AMI on a t3.medium at \$0.06, 30 GB, terminating on shutdown" || bad "the head launch: $(sed -n 1p <<<"$runs" | cut -c1-400)"
 [ "$(grep -c -- "--image-id $GAMI --instance-type g5.xlarge .*--instance-initiated-shutdown-behavior terminate .*\"VolumeSize\":100.*MaxPrice\":\"0.80\"" <<<"$runs")" = 2 ] &&
   ok "two workers: the pinned base AMI on g5.xlarge at \$0.80, 100 GB, terminating on shutdown" || bad "the worker launches: $(sed -n 2,3p <<<"$runs" | cut -c1-300)"

@@ -91,7 +91,11 @@ Holds when all of: `sacct` reports the step `<id>.0` `OUT_OF_MEMORY`; the job's 
 | EBS gp3, 100 + 100 + 30 GB at $0.0912/GB-month | — | 1.69 | $0.05 |
 | 3 public IPv4 at $0.005/h | — | 1.69 | $0.03 |
 | S3: the source (about 52 MB) and the evidence, removed at the end, otherwise expired in 30 days | — | — | under $0.01 |
-| **total** | | | **$2.89** |
+| **total, normal path** | | | **$2.89** |
+
+The worst path is longer: if the runner dies before T0 is handed over and an instance never arms its precise shutdown, the boot backstop (6,600 s) and the sweeper (the launch tag, request + 6,570 s, plus up to one 5-minute sweep) end it, about 6,870 s after the request; and in a zone that cannot hold all three, up to two instances (head and one GPU) are bought and terminated, waited for up to 300 s each, in at most two such zones.
+That is $3.25 for the trio over 1.91 h at the caps, plus $0.15 for the failed zones: **the registered cap is $3.50.**
+`head` is launched with `CpuCredits=standard`, so a T3 cannot add surplus-credit charges beyond its instance price.
 
 Expected at the Spot prices of 2026-11-07 ($0.574–0.593/h for `g5.xlarge`, $0.015–0.018/h for `t3.medium`) and about 1.2 h: **about $1.5**.
 This is far under the $25–40 the plan estimated for a four-day Slurm-on-EC2 effort; the plan priced longer sessions and more nodes, and this design keeps only what the four questions need.
@@ -163,6 +167,17 @@ Each finding was checked against the code by Claude before it was fixed.
 | 5 P2 | B2 admitted with 300 s while its waits add to 480 s, and `left` returned 0, which `timeout` reads as no limit | B2 admitted with 720 s; `left` never returns below 1 |
 | 6 P2 | a failed `squeue` ended B3's poll as if both jobs had left, and B2's node read had no status | failed reads are recorded as such and make the check INVALID |
 | 7 P2 | B2's journal window was head's clock applied to gpu2's journal | the window is gpu2's own journal cursor before and after the job |
+
+**Round 9 (commit `91ba8fda`), under the narrowed gate: NO-GO, three blocking findings, all confirmed and fixed; one validity finding recorded.**
+
+| # | finding | class | resolution |
+|---|---|---|---|
+| 1 P1 | the bucket `slurmec2-<account>` and the role `slurmec2` carry fixed names; an existing one owned by another workload would have its lifecycle and policy replaced | blocking | an existing bucket or role is changed only if it carries the tag `purpose=slurm-ec2`, which only this runner writes (on creation); otherwise the session refuses before changing anything |
+| 2 P1 | the registered $2.89 did not cover the worst path (runner dead before T0, sweeper after the launch tag) or failed-zone purchases | blocking | the cap is revised to $3.50 from the first purchase, with the arithmetic above |
+| 3 P2 | a T3 in Unlimited mode, its default, can bill surplus credits beyond its Spot price | blocking | `head` is launched with `CpuCredits=standard` (a new optional argument of `spot_launch`) |
+| 4 P3 | a `gpu1-state.txt` that exists but holds no parseable state would score B4a as did-not-hold rather than INVALID | validity | **known limitation**, not fixed: the poll writes a state or `READ-FAILED` every second for 60 s, so an empty file means the procedure itself was cut, which `run.timeout` or the missing completion records also show; the reader of a B4a failure checks that the file holds 60 polls |
+
+The round-8 fixes to the bring-up path (T0 admission, the worker's `late` paths) are exercised by the rehearsal only as a regression: no local harness slows a bootstrap past its deadline, so their `late` branches have not run.
 
 **Round 8 (commit `4539aa63`): NO-GO, two P1 and two P2, all confirmed and fixed in `b9d860e4`.**
 

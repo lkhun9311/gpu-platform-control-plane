@@ -307,7 +307,25 @@ trap cleanup EXIT
 trap 'cleanup; exit 130' INT
 trap 'cleanup; exit 143' TERM
 
+# The bucket and the role carry fixed names, so one that already exists is changed (its lifecycle, its policy) only
+# if it carries this session's purpose tag, which only this runner writes; otherwise it is someone else's and refused.
+owned_or_absent() {
+  local kind=$1 name=$2 tags
+  case "$kind" in
+    bucket)
+      aws s3api head-bucket --bucket "$name" >>"$OUT/launch-errors.txt" 2>&1 || return 0
+      tags=$(aws s3api get-bucket-tagging --bucket "$name" --query "TagSet[?Key=='purpose'].Value" --output text 2>&1) ;;
+    role)
+      aws iam get-role --role-name "$name" >>"$OUT/launch-errors.txt" 2>&1 || return 0
+      tags=$(aws iam list-role-tags --role-name "$name" --query "Tags[?Key=='purpose'].Value" --output text 2>&1) ;;
+  esac
+  [ "$tags" = "$PURPOSE" ] || fail "the $kind $name exists and is not tagged purpose=$PURPOSE, so it is not this session's to change ($tags)"
+}
+owned_or_absent bucket "$BUCKET"
+owned_or_absent role "$STACK"
 spot_ensure_bucket "$BUCKET" "$REGION" 30 || fail "could not prepare the results bucket $BUCKET"
+aws s3api put-bucket-tagging --bucket "$BUCKET" --tagging "TagSet=[{Key=purpose,Value=$PURPOSE}]" >>"$OUT/launch-errors.txt" 2>&1 ||
+  fail "could not tag the bucket $BUCKET as this session's"
 # The bucket is this session's own (named for it), so its lifecycle is written on every run rather than trusted:
 # objects expire after 30 days and an interrupted multipart upload is aborted after 1, which expiry alone does not do.
 # It is then read back, and only an unfiltered rule carrying both counts.
@@ -347,6 +365,8 @@ rb=$(aws rbin list-rules --region "$REGION" --resource-type EBS_VOLUME --query '
 spot_ensure_profile "$STACK" \
   "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":[\"s3:PutObject\",\"s3:GetObject\"],\"Resource\":\"arn:aws:s3:::$BUCKET/*\"},{\"Effect\":\"Allow\",\"Action\":\"s3:ListBucket\",\"Resource\":\"arn:aws:s3:::$BUCKET\"}]}" \
   20 || fail "could not prepare the instance profile $STACK"
+aws iam tag-role --role-name "$STACK" --tags "Key=purpose,Value=$PURPOSE" >>"$OUT/launch-errors.txt" 2>&1 ||
+  fail "could not tag the role $STACK as this session's"
 # An existing profile is not trusted: its role must be this one, trust EC2, and carry this run's policy, written again.
 prof_role=$(aws iam get-instance-profile --instance-profile-name "$STACK" --query 'InstanceProfile.Roles[].RoleName' --output text 2>&1) ||
   fail "the instance profile $STACK could not be read: $prof_role"
@@ -397,12 +417,13 @@ TAG_DEADLINE=$(date -u -d "@$(( request_epoch + TAG_AT_REQUEST_S + LAUNCH_SKEW_S
 launch_one() {
   local z=$1 subnet=$2 role=$3 type ami cap vol token tags iid
   LAUNCHED=""
-  if [ "$role" = head ]; then type=$HEAD_TYPE ami=$SLURMEC2_HEAD_AMI_ID cap=$HEAD_CAP vol=$HEAD_VOLUME_GB
+  local credits=""
+  if [ "$role" = head ]; then type=$HEAD_TYPE ami=$SLURMEC2_HEAD_AMI_ID cap=$HEAD_CAP vol=$HEAD_VOLUME_GB credits=standard
   else type=$GPU_TYPE ami=$SLURMEC2_GPU_AMI_ID cap=$GPU_CAP vol=$GPU_VOLUME_GB; fi
   token="slurmec2-$RUN_NONCE-$role-$z"
   tags="ResourceType=instance,Tags=[{Key=Name,Value=$STACK-$role},{Key=purpose,Value=$PURPOSE},{Key=role,Value=$role},{Key=run,Value=$RUN_NONCE},{Key=study-deadline,Value=$TAG_DEADLINE}]"
   UNCERTAIN+=("$token $subnet")
-  iid=$(spot_launch "$REGION" "$ami" "$type" "$subnet" "$STACK" "$cap" "$vol" "$OUT/user-data-$role.sh" "$tags" "$token" "$SG" \
+  iid=$(spot_launch "$REGION" "$ami" "$type" "$subnet" "$STACK" "$cap" "$vol" "$OUT/user-data-$role.sh" "$tags" "$token" "$SG" "$credits" \
     2>"$OUT/launch-error-$role-$z.txt") || iid=""
   cat "$OUT/launch-error-$role-$z.txt" >>"$OUT/launch-errors.txt"
   if [ -n "$iid" ] && [ "$iid" != None ]; then
