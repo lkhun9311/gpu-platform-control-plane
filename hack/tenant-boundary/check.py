@@ -54,7 +54,9 @@ def judge(kind, arg, rec, run):
     if rc == 0:
         return False, "the request succeeded"
     if kind == "rbac-forbidden":
-        ok = "(Forbidden)" in err and TENANT_USER in err and arg in err
+        # kubectl create job and create quota print the refusal without the "(Forbidden)" prefix, so the words are the
+        # apiserver's own.
+        ok = "is forbidden: " + TENANT_USER in err and arg in err
         return ok, ("RBAC refused it" if ok else f"refused, but not by RBAC as {arg}: {err.strip()[:200]}")
     if kind == "policy-denied":
         ok = f"ValidatingAdmissionPolicy '{arg}'" in err and "denied request" in err

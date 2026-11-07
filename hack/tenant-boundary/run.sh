@@ -123,6 +123,10 @@ k create namespace monitoring >>"$LOG" 2>&1 || die "monitoring namespace"
 k label namespace monitoring platform.lkhun9311.github.io/role=monitoring >>"$LOG" 2>&1 || die "label monitoring"
 for t in train-a serve-a; do
   k apply -k "$REPO/config/tenants/$t" >>"$LOG" 2>&1 || die "tenant $t"
+  # Until the quota controller has computed the quota's usage, the apiserver refuses every create the quota covers
+  # ("status unknown for quota"), so a tenant onboarded a moment ago is refused for a reason that is not the boundary.
+  k -n "$t" wait --for=jsonpath='{.status.used.pods}' resourcequota/tenant-baseline --timeout=120s >>"$LOG" 2>&1 ||
+    die "quota status in $t"
 done
 
 # Every stand-in serves its own name over HTTP, so a success also says which Pod answered.
