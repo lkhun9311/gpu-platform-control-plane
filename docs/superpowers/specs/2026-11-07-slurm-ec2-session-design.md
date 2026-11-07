@@ -164,6 +164,16 @@ Each finding was checked against the code by Claude before it was fixed.
 | 6 P2 | a failed `squeue` ended B3's poll as if both jobs had left, and B2's node read had no status | failed reads are recorded as such and make the check INVALID |
 | 7 P2 | B2's journal window was head's clock applied to gpu2's journal | the window is gpu2's own journal cursor before and after the job |
 
+**Round 4 (commit `b325dcb2`): NO-GO, five findings, all confirmed and fixed in `a1a48f43`.**
+
+| # | finding | fix |
+|---|---|---|
+| 1 P1 | an `OUT` with a space made a run id the user-data split into two words, so every instance fetched from the wrong prefix | the run id must be one S3 key segment of `[A-Za-z0-9._-]`, refused before purchase, and the user-data renderer refuses any value that is not one shell word |
+| 2 P1 | clean sweeper invocations say nothing about whether it may terminate | the sweeper's role is simulated for `ec2:TerminateInstances` on an instance carrying a `study-deadline` tag, as this session's do, and must be `allowed` (it is, read 2026-11-07; without the tag it is `implicitDeny`, as its policy intends) |
+| 3 P2 | the S3 prefix was removed even when head had not verified its final archive, which may lie there unreferenced | the prefix is removed only when `DONE` says `evidence_final=yes` |
+| 4 P2 | a failed `squeue` read as an empty queue, and accounting read at once could lack the record | a failed `squeue` is not completion; `sacct` is polled up to 60 s for the terminal record, and a missing record makes the check INVALID |
+| 5 P2 | a bring-up finished after its deadline still admitted the checks | head stops if it finishes late, and the scorer reads `bringup.env` and makes the session VOID past T0 + 1,500 s |
+
 **A bare `codex review --base origin/dev` (astra, high) of `921bb39b`: three findings, all confirmed and fixed in `ff8a248e`.**
 
 | finding | fix |
