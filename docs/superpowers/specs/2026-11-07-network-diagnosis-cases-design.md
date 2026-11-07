@@ -8,10 +8,10 @@ The memory and OOM cases of the same item are `docs/superpowers/specs/2026-11-07
 ## What it is for
 
 A training rank that cannot reach its rendezvous, or a client that cannot reach an inference Service, reports one of a handful of curl or socket errors.
-The same error text can come from different causes, and different causes can look alike from the application: this design picks cases where the error alone misleads and a capture on the client settles it.
+The same error text can come from different causes, and different causes can look alike from the application: this design picks cases where the error alone misleads and a capture on the client shows the stage at which the request failed (no DNS answer, no SYN-ACK, a RST, an ICMP from the node); which fault caused it is established by the fault's own read-back, not by the capture.
 Each case is a fault injected on kind, a request from a client Pod with a packet capture and the kernel's retransmit counter around it, the fault removed, and a request that must succeed again.
 
-It licenses statements about kind v1.37 with its default CNI (kindnet) and kube-proxy, at the versions recorded with the run.
+It licenses statements about Kubernetes v1.37.0 on a kind node image, with kind's default CNI (kindnet), kube-proxy in iptables mode and the client's curl, whose resolver is c-ares (`curl -V`), at the versions recorded with the run.
 It does not license statements about other CNIs, cloud load balancers, MTU or TLS, which are under "Not covered".
 
 ## What spikes already showed (2026-11-07, one run each, not scored)
@@ -30,10 +30,10 @@ The client ran tcpdump on its `eth0`, one curl, and read `TcpRetransSegs` from `
 | the server Pod's IP on a port nothing listens on | exit 7, "Could not connect to server" | 0 ms | one SYN and one RST from the Pod's IP |
 
 Two things in that table are the reason for the cases below:
-- **"DNS is down" has two signatures.** With no CoreDNS endpoint, kube-proxy rejects the query and the failure is instant, with ICMP; with DNS dropped on the way, every query goes unanswered and the failure takes the resolver's timeouts (about 12 s here, with `ndots:5` and the search list).
+- **"DNS is down" has two signatures.** With no CoreDNS endpoint, kube-proxy rejects the query and the failure is instant, with ICMP; with DNS dropped on the way, every query goes unanswered and the failure takes the resolver's timeouts (11.86 s here; the run records the resolver and its configuration rather than explaining the figure).
 - **"Could not connect" has two causes the error text does not separate.** A Service with no endpoints is answered by the node with ICMP port unreachable; a Pod with nothing listening answers with a RST.
   The first is a selector, readiness or scale problem in the cluster; the second is the process.
-- **Partial loss does not fail; it is slow**: all 40 requests succeeded, and the tail sits at the 1 s retransmission timeout, with the retransmit counter as the witness.
+- **Partial loss mostly does not fail; it is slow**: in the spike all 40 requests succeeded, the slowest at 1.06 s (p90) and 2.25 s, with the retransmit counter as the witness; the scored run reports the success fraction it saw.
 
 ## Cases
 
@@ -69,19 +69,35 @@ Every scheduled repetition is reported, three per case, with no re-run.
 
 | case | expected |
 |---|---|
-| B | exit 0, 200; at least one SYN and one SYN-ACK in the capture; recovery not applicable |
+| B | exit 0, 200; at least one SYN and one SYN-ACK in the capture; the no-loss batch 40 of 40 completed, each under 0.5 s |
 | N1a | exit 6; `time_total` under 1 s; at least one query to port 53 and at least one `udp port 53 unreachable`; no SYN to port 80; recovery 200 |
 | N1b | exit 6; `time_total` at least 5 s; at least two queries, no DNS answer, no ICMP; no SYN to port 80; recovery 200 |
-| N2a | exit 28; at least three SYNs to the Service, no SYN-ACK, no RST; retransmit delta at least 2; recovery 200 |
-| N2b | at least 36 of 40 requests 200; retransmit delta at least 5; median `time_total` under 0.5 s and maximum at least 0.9 s; recovery 200 |
-| N3a | exit 7; `time_total` under 1 s; at least one `tcp port 80 unreachable`; no RST; the server's EndpointSlice had no ready endpoint; recovery 200 |
-| N3b | exit 7; at least one RST from the server Pod's IP; no ICMP; recovery 200 |
+| N2a | exit 28; at least three SYNs from one client port, no SYN-ACK, no RST; retransmit delta at least 2; recovery 200 |
+| N2b | at least 36 of 40 completed (exit 0 and 200); retransmit delta at least 5; over completed requests the median under 0.5 s and the maximum at least 0.9 s, with B's maximum under 0.5 s; recovery 200, and a batch of 20 after removal all completed under 0.5 s |
+| N3a | exit 7; `time_total` under 1 s; at least one `tcp port 80 unreachable`; no RST; recovery 200 |
+| N3b | exit 7; a RST from the server Pod's IP to the client port that sent the SYN; no ICMP; positive control 200 |
 
 N2b's thresholds are wide on purpose: loss is random, and the spike's 40 of 40, +33 and 1.06 s p90 are one draw.
 Every rule is pinned by a test in `hack/test/check-net-diag.sh` against copies of the scored run with one thing changed, and each rule is broken once to show its test goes red.
+
+Rules added after the first rehearsals and the design review (below):
+- **Each fault is read back from the dataplane, not only from the API**: for N1a and N3a the Service has no endpoint at all (a terminating Pod that still serves stays in the slice and kube-proxy routes to it once nothing is ready; the first rehearsal's N1a still got DNS answers while CoreDNS's ready endpoints were 0) and kube-proxy's REJECT rule for it is in the node's iptables; for N1b the cluster DNS has stopped answering a `dig` and the server Pod is still reachable directly; for N2 the qdisc shows the loss.
+- **Each removal is read back too** before the recovery request: the REJECT rule gone (the second rehearsal's N1a recovery ran while the rule was still there), DNS answering again, the qdisc without netem.
+- **The capture must be complete**: tcpdump says it is listening before the request starts, and its kernel drop count is 0, or the case is INVALID; it captures whole packets (`-s 0`).
+- **Packets are bound to flows**: N2a's SYNs are counted per client port, N3b's RST must answer the client port that sent the SYN.
+- **Deadlines**: curl gets 10 s for B and the recoveries, 20 s for N1a, 30 s for N1b (longer than the resolver's own failure, so exit 6 is the resolver's and not curl's deadline), 8 s for N2a, N3a and N3b, and 5 s per burst request; curl runs with `-q` and `--noproxy '*'`.
+- **Retransmit counters** are read absolute (`nstat -asz`) on the client, and on the server around N2; the client's counter counts only its own retransmissions.
+- **N2b's latency is read over completed requests only** (exit 0 and 200), failures are listed apart, and B carries a no-loss batch of 40 whose maximum must stay under 0.5 s; N2b's recovery is a batch of 20 that must all complete under 0.5 s.
+- **N3b's second request is a positive control**, the same Pod on the port it listens on, not a recovery of the closed port.
 
 ## Not covered
 
 - MTU black holes, TLS failures, and conntrack table exhaustion.
 - Other CNIs, kube-proxy in IPVS or nftables mode, and cloud load balancers; the ICMP-versus-RST distinction for a Service without endpoints is kube-proxy's iptables rule here and may differ elsewhere.
-- Loss on the client's side or asymmetric loss: the netem is on the server's egress only.
+- Loss on the client's side: the netem is on the server's egress only, so the loss covered is one direction, server to client.
+
+## Review before the run
+
+gpt-6-astra read the first draft on 2026-11-07, without direction, and returned twelve findings.
+Taken: NetworkPolicy enforcement shown, not assumed (1); capture readiness and drop count (2); SYNs and the RST bound to the probe's flow (3), though DNS transaction ids and ICMP's quoted packet are matched by port only, since the client sends nothing else; "no endpoint at all" and the REJECT rule (4); the capture shows a failure stage and the read-back the cause (5, as wording); the resolver recorded (6: it is c-ares in curl, not glibc as the draft implied); per-case deadlines and `-q`/`--noproxy` (7); absolute counters and the server's counter (8); completed-only latency and listed failures (9); a no-loss batch to read the tail against (10; the packet-level gap analysis it also asked for is not done); removal read back and N2b's recovery a batch, N3b's second request named a positive control (11); the version and direction wording (12).
+Not taken: none outright; the partial takes are said above.
