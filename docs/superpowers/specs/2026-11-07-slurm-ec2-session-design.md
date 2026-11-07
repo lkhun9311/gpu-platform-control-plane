@@ -142,7 +142,7 @@ The workers carry the GPU stand-in, and every instance runs `hack/slurm-ec2/nfs-
 Its cap is $1: three `t3.medium` at the $0.06 cap and two 100 GB and one 30 GB gp3 volume (at $0.0912 a GB-month) for at most 40 minutes is $0.14; at the Spot prices read on 2026-11-08 ($0.015 to $0.018 an hour) it is about $0.05.
 It must show the NFS token head to worker and worker to head, the S3 signals, B4's signal replacement as each worker observed it, the `LATEST` handoff from `gpu1` to `gpu2`, and the shared venv imported on both workers.
 
-**Run of 2026-11-07, `d29e328c`** (`hack/slurm-ec2-nfs-rehearsal-20261107T182344Z`, kept outside the repository): three `t3.medium` Spot in `ap-northeast-2a` at $0.0176/h, launched 18:26:07–18:26:11Z, all three terminated by the runner by 18:37:15Z (CloudTrail), their three root volumes `InvalidVolume.NotFound` and the security group `InvalidGroup.NotFound` afterwards; about $0.02 from the price read at launch, not a billed figure.
+**Run of 2026-11-07, `d29e328c`** (run directory `slurm-ec2-nfs-rehearsal-20261107T182344Z`, kept outside the repository): three `t3.medium` Spot in `ap-northeast-2a` at $0.0176/h, launched 18:26:07–18:26:11Z, all three terminated by the runner by 18:37:15Z (CloudTrail), their three root volumes `InvalidVolume.NotFound` and the security group `InvalidGroup.NotFound` afterwards; about $0.02 from the price read at launch, not a billed figure.
 - **The old barrier did not reproduce the first run.** Both workers mounted the probe export (negotiated `vers=4.2`), looked the marker up and got `ENOENT` for `control`, then `head`'s `mkdir` and `touch` returned 0 at 18:30:42.49Z; both workers first saw the file at 18:31:42.51Z and 18:31:42.54Z, 60.0 s later, which is the negative entry living until the directory's attribute cache (`acdirmax=60`) expired. The first run's 21 minutes is not that, and its cause remains unestablished.
 - **Head to worker and back:** each worker read head's token through the mount (`vers=4.1`, `lookupcache=pos` in `findmnt` and `nfsstat -m`) at once, wrote its own back, and head read both on its disk; `CONF_READY` and both `CONF_ACK`s went over S3, and the bring-up completed at T0 + 375 s.
 - **B4 held all six rules** on the CPU: `gpu1` drained 5.1 s after the write, the job resumed on `gpu2` from the checkpoint at step 40 (`LATEST` written on `gpu1`, read on `gpu2`), with the final parameters equal to the reference's; both workers imported the shared venv's PyTorch.
@@ -151,7 +151,7 @@ It must show the NFS token head to worker and worker to head, the S3 signals, B4
 
 ## The first paid attempt, and what it changed
 
-`hack/slurm-ec2-20261107T135822Z`, PR #534 at `a7714d2c`, T0 2026-11-07 14:02:16Z: every check NOTRUN, because the bring-up missed its deadline.
+Run directory `slurm-ec2-20261107T135822Z` (kept outside the repository), PR #534 at `a7714d2c`, T0 2026-11-07 14:02:16Z: every check NOTRUN, because the bring-up missed its deadline.
 `head` reached the line that touched `/shared/control/CONF_READY` about 21 minutes before the deadline, `slurmctld` came up and reported both nodes not responding, and both workers ended at 14:27:16Z with "head did not write CONF_READY", `slurmd` never started.
 Worker-to-head NFS worked: `head` read both workers' node lines and GPU signal files.
 The cause is not established: the `touch` was not checked, and no errno, effective mount option or stat was recorded on either side.

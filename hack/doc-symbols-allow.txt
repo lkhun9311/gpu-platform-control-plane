@@ -126,3 +126,5 @@ ConstrainCores	a Slurm cgroup.conf parameter, set in hack/slurm-ec2/cgroup.conf 
 ConstrainDevices	a Slurm cgroup.conf parameter, set in hack/slurm-ec2/cgroup.conf and named by the slurm on ec2 registration
 ConstrainRAMSpace	a Slurm cgroup.conf parameter, set in hack/slurm-ec2/cgroup.conf and named by the slurm on ec2 registration
 ConstrainSwapSpace	a Slurm cgroup.conf parameter, set in hack/slurm-ec2/cgroup.conf and named by the slurm on ec2 registration
+InvalidGroup.NotFound	an EC2 error code the slurm on ec2 registration quotes as the read-back that the t3 rehearsal's security group was gone
+InvalidVolume.NotFound	an EC2 error code the slurm on ec2 registration quotes as the read-back that the t3 rehearsal's root volumes were gone
