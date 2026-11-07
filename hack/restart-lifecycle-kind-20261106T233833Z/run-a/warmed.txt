@@ -1,0 +1,3 @@
+rstlife-worker dcd3c234-fa6c-46bf-b466-a75709cdee7f
+rstlife-worker2 5ab87283-4c38-464d-8d1e-5bc51a163e0b
+rstlife-worker3 22242ecb-5d08-48d1-8c40-2e402143de18
