@@ -63,6 +63,7 @@ type InferenceDeploymentReconciler struct {
 
 // +kubebuilder:rbac:groups=platform.lkhun9311.github.io,resources=inferencedeployments,verbs=get;list;watch
 // +kubebuilder:rbac:groups=platform.lkhun9311.github.io,resources=inferencedeployments/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=platform.lkhun9311.github.io,resources=inferencedeployments/finalizers,verbs=update
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;update;patch
 
@@ -316,7 +317,12 @@ func computeInfDPhase(infd *platformv1.InferenceDeployment, dep *appsv1.Deployme
 		return infdPhaseProgressing, avail(metav1.ConditionFalse, infdReasonRollout, "deployment not yet observed")
 	}
 	// 2. ScaledToZero: intentional zero-replica state is Ready once the status shows no running replicas.
+	// Until then it is a drain in progress: an observed scale-down still counting replicas, ready ones included,
+	// is not yet the state this phase names (codex review r8).
 	if infd.Spec.Replicas == 0 {
+		if dep.Status.Replicas > 0 || dep.Status.ReadyReplicas > 0 {
+			return infdPhaseProgressing, avail(metav1.ConditionFalse, infdReasonRollout, "scaling down to zero replicas")
+		}
 		return infdPhaseReady, avail(metav1.ConditionTrue, infdReasonScaledZero, "scaled to zero replicas")
 	}
 	// 3. Degraded: a ProgressDeadlineExceeded condition means the rollout will never complete on its own.
