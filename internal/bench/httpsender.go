@@ -550,7 +550,16 @@ func (h *HTTPSender) readStream(ctx context.Context, resp *http.Response) SendRe
 		} else {
 			res.ErrorKind = errorKindStream
 		}
+	} else if !res.StreamTerminated {
+		// A clean EOF before [DONE] is a response that stopped arriving, not one that finished.
+		// Recording only StreamTerminated left the decision to every reader, and the report never made it, so a
+		// truncated response counted as completed and its latency entered the tail (review r7, 2026-11-07).
+		res.ErrorKind = errorKindStream
+		res.StreamError = streamErrorNoEndMarker
 	}
 	res.EndUnixNanos = h.now().UnixNano()
 	return res
 }
+
+// streamErrorNoEndMarker is the StreamError of a stream that ended without its [DONE] marker.
+const streamErrorNoEndMarker = "the stream ended without data: [DONE]"
