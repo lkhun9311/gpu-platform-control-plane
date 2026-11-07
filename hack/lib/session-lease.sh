@@ -10,6 +10,12 @@
 
 LEASE_PATH=/gpu-platform/session-lease/
 REAPER_FUNCTION=gpu-platform-session-reaper
+REAPER_HEARTBEAT=/gpu-platform/session-reaper/last-ok
+# How recent the reaper's last clean pass must be: two of its five-minute runs and a margin.
+REAPER_FRESH_SECONDS=${REAPER_FRESH_SECONDS:-900}
+# How long to wait after renewing an expired GPU deadline before the group may be bought again: longer than one reaper
+# run (timeout 120 s), so a run that read the expired copy has finished before anything is scaled up.
+LEASE_RENEW_WAIT=${LEASE_RENEW_WAIT:-130}
 
 lease_name() { printf '%s%s' "$LEASE_PATH" "$1"; }
 
@@ -65,6 +71,21 @@ lease_arm() {
     echo "lease: the session reaper $REAPER_FUNCTION is $out, not Active" >&2
     return 1
   }
+  # Active says the function exists, not that its role can read the leases; only a recent clean pass shows that.
+  local beat at now
+  beat="$(aws ssm get-parameter --region "$region" --name "$REAPER_HEARTBEAT" --query Parameter.Value --output text 2>&1)" || {
+    echo "lease: the session reaper has recorded no clean pass ($beat); it has not run, or cannot read the leases" >&2
+    return 1
+  }
+  at="$(date -u -d "$beat" +%s 2>&1)" || {
+    echo "lease: the reaper's heartbeat '${beat:0:80}' is not a time" >&2
+    return 1
+  }
+  now="$(date -u +%s)"
+  if ((now - at > REAPER_FRESH_SECONDS)); then
+    echo "lease: the session reaper's last clean pass was $(((now - at) / 60)) min ago ($beat), more than $((REAPER_FRESH_SECONDS / 60)); read its log before starting" >&2
+    return 1
+  fi
   lease_get "$cluster" "$region" >/dev/null || rc=$?
   case "$rc" in
     0)
@@ -95,12 +116,16 @@ lease_update() {
 #
 # Set before the group is scaled up, and again at each later GPU phase: a deadline left from an earlier phase would have
 # the reaper scale down a group the session just bought.
+# When the deadline it replaces has already passed, a reaper run may be acting on that old copy at this moment; the
+# reaper reads the lease again before each scale-down, and this waits out a run's timeout so none that read the old copy
+# is still going when the group is bought.
 lease_set_gpu() {
-  local cluster="$1" region="$2" deadline="$3" group="$4" cur body
+  local cluster="$1" region="$2" deadline="$3" group="$4" cur body old
   cur="$(lease_get "$cluster" "$region")" || {
     echo "lease: no lease to add the GPU deadline to for $cluster" >&2
     return 1
   }
+  old="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1]).get("gpu_deadline", ""))' "$cur")" || return 1
   body="$(python3 -c '
 import json, sys
 d = json.loads(sys.argv[1])
@@ -110,7 +135,11 @@ if sys.argv[3] not in groups:
     groups.append(sys.argv[3])
 d["gpu_nodegroups"] = groups
 print(json.dumps(d, sort_keys=True))' "$cur" "$(lease_iso "$deadline")" "$group")" || return 1
-  lease_put "$cluster" "$region" "$body" overwrite
+  lease_put "$cluster" "$region" "$body" overwrite || return 1
+  if [[ -n "$old" ]] && (($(date -u -d "$old" +%s) <= $(date -u +%s))); then
+    echo "lease: the GPU deadline renewed had passed ($old); waiting ${LEASE_RENEW_WAIT}s for any reaper run on it to end" >&2
+    sleep "$LEASE_RENEW_WAIT"
+  fi
 }
 
 # lease_disarm CLUSTER REGION: remove the lease, and show it is gone. Called only after a verified teardown.

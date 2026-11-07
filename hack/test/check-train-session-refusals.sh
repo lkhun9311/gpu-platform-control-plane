@@ -36,6 +36,7 @@ case "$tool $*" in
   "aws sts get-caller-identity"*) echo "${STUB_ACCOUNT:-111111111111}" ;;
   # The session lease (hack/lib/session-lease.sh): an Active reaper, and a store kept in one file beside the call log.
   "aws lambda get-function"*) echo Active ;;
+  "aws ssm get-parameter --region"*"--name /gpu-platform/session-reaper/last-ok"*) date -u +%Y-%m-%dT%H:%M:%SZ ;;
   "aws ssm get-parameter"*)
     if [[ -f "$STUB_CALLS.lease" ]]; then cat "$STUB_CALLS.lease"; exit 0; fi
     echo "An error occurred (ParameterNotFound) when calling the GetParameter operation" >&2

@@ -18,6 +18,7 @@ trap 'rm -rf "$work"' EXIT
 
 # shellcheck source=hack/lib/session-lease.sh
 source hack/lib/session-lease.sh
+LEASE_RENEW_WAIT=0
 
 # The store: one file per parameter under $work/ssm. REAPER_STATE: what get-function answers (Active, or "missing").
 # PUT_CORRUPT=1 makes put-parameter store something other than what it was given.
@@ -25,6 +26,7 @@ REAPER_STATE=Active
 PUT_CORRUPT=0
 GET_FAIL=0
 DELETE_NOOP=0
+HEARTBEAT=""
 aws() {
   echo "$*" >>"$work/calls"
   local name="" value="" over=0 a
@@ -43,6 +45,10 @@ aws() {
       echo "$REAPER_STATE"
       ;;
     "ssm get-parameter")
+      if [[ "$name" == "$REAPER_HEARTBEAT" ]]; then
+        if [[ -n "$HEARTBEAT" ]]; then echo "$HEARTBEAT"; return 0; fi
+        echo "An error occurred (ParameterNotFound)" >&2; return 254
+      fi
       if ((GET_FAIL)); then echo "An error occurred (AccessDeniedException)" >&2; return 254; fi
       if [[ -f "$f" ]]; then cat "$f"; else echo "An error occurred (ParameterNotFound)" >&2; return 254; fi
       ;;
@@ -63,6 +69,7 @@ aws() {
 reset() {
   rm -rf "$work/ssm" "$work/calls"
   REAPER_STATE=Active PUT_CORRUPT=0 GET_FAIL=0 DELETE_NOOP=0
+  HEARTBEAT="$(date -u -d '-2 min' +%Y-%m-%dT%H:%M:%SZ)"
 }
 field() { python3 -c 'import json,sys; print(json.loads(sys.argv[1]).get(sys.argv[2], ""))' "$1" "$2"; }
 
@@ -73,6 +80,25 @@ if lease_arm c1 ap-northeast-2 1800000000 s1 2>"$work/err"; then bad "armed with
 reset
 REAPER_STATE=Pending
 if lease_arm c1 ap-northeast-2 1800000000 s1 2>"$work/err"; then bad "armed with a reaper that is not Active"; else ok "a reaper that is not Active is refused"; fi
+
+# An Active function that has never completed a clean pass, or not recently, is not trusted.
+# Mutation that turns it red: drop the heartbeat read, or its freshness bound.
+reset
+HEARTBEAT=""
+if lease_arm c1 ap-northeast-2 1800000000 s1 2>"$work/err"; then bad "armed with no reaper heartbeat"; elif [[ -e "$work/ssm" ]]; then bad "refused, yet wrote a lease"; else ok "no clean reaper pass, no lease"; fi
+reset
+HEARTBEAT="$(date -u -d '-40 min' +%Y-%m-%dT%H:%M:%SZ)"
+if lease_arm c1 ap-northeast-2 1800000000 s1 2>"$work/err"; then bad "armed with a 40-minute-old heartbeat"; else ok "a stale reaper heartbeat refuses the arm: $(cut -c1-90 "$work/err")"; fi
+
+# A renewal of a GPU deadline that has passed waits out a reaper run; one that has not passed does not.
+# Mutation that turns it red: never wait, or always wait.
+reset
+lease_arm c1 ap-northeast-2 1800000000 s1 2>/dev/null
+lease_set_gpu c1 ap-northeast-2 "$(($(date +%s) + 600))" gpu 2>"$work/err"
+grep -q waiting "$work/err" && bad "waited when the deadline replaced had not passed" || ok "a live GPU deadline is replaced without waiting"
+lease_set_gpu c1 ap-northeast-2 "$(($(date +%s) - 5))" gpu 2>/dev/null
+lease_set_gpu c1 ap-northeast-2 "$(($(date +%s) + 600))" gpu 2>"$work/err"
+grep -q "waiting 0s" "$work/err" && ok "renewing a passed GPU deadline waits out a reaper run" || bad "renewing a passed deadline did not wait: $(cat "$work/err")"
 
 # Mutation that turns it red: overwrite an existing lease.
 reset
@@ -133,6 +159,15 @@ arm_line=$(grep -n '^lease_arm "\$CLUSTER"' hack/eks-gitops-session.sh | cut -d:
 apply_line=$(grep -n 'terraform -chdir="\$CLUSTER_DIR" apply' hack/eks-gitops-session.sh | head -1 | cut -d: -f1)
 if [[ -n "$arm_line" && -n "$apply_line" ]] && ((arm_line < apply_line)); then ok "the lease is armed (line $arm_line) before the first cluster apply (line $apply_line)"; else
   bad "lease_arm at '${arm_line}', first cluster apply at '${apply_line}'"
+fi
+# Before the watchdog, so a refused lease leaves no watchdog armed; and after the checks that refuse an existing cluster.
+# Mutation that turns it red: arm the lease after the watchdog, or before the existing-cluster refusal.
+kill_line=$(grep -n 'killswitch_program "\$KILL_PIDFILE"' hack/eks-gitops-session.sh | head -1 | cut -d: -f1)
+exists_line=$(grep -n 'already exists (\$existing)' hack/eks-gitops-session.sh | head -1 | cut -d: -f1)
+if [[ -n "$kill_line" && -n "$exists_line" ]] && ((exists_line < arm_line && arm_line < kill_line)); then
+  ok "the existing-cluster refusal (line $exists_line), then the lease (line $arm_line), then the watchdog (line $kill_line)"
+else
+  bad "existing-cluster refusal at '${exists_line}', lease at '${arm_line}', watchdog at '${kill_line}'"
 fi
 disarm_block="$(awk '/^if \[\[ -z "\$\{unasked\/\/ \/\}" && -z "\$\{billing_left\/\/ \/\}" \]\]; then$/{n++} n==2{print} /^fi$/{if(n==2) exit}' hack/eks-gitops-session.sh)"
 if grep -q 'lease_disarm "\$CLUSTER"' <<<"$disarm_block" && [[ "$(grep -c 'lease_disarm "\$CLUSTER"' hack/eks-gitops-session.sh)" == 1 ]]; then

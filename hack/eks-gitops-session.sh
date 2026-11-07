@@ -441,6 +441,30 @@ caller_account="$(aws sts get-caller-identity --query Account --output text 2>&1
 [[ "$caller_account" == "$LAB_ACCOUNT" ]] ||
   die "the credentials are for account $caller_account; paid sessions run only in gpu-lab ($LAB_ACCOUNT)"
 
+# --- The session lease, armed before the kill switch and before anything is created --------------------
+#
+# Before the watchdog, because a refusal here must leave nothing armed: a watchdog armed and then left by this refusal
+# would destroy the shared state's cluster at its TTL (the adversarial review of this design, round 1).
+# The watchdog below runs on this machine and dies with it. The lease is read every five minutes by the session reaper
+# in the account (infra/aws/bootstrap/reaper.tf), which deletes this session's billing resources once the lease's
+# deadline passes: the watchdog's TTL plus its destroy allowance plus fifteen minutes, so the laptop's own destroy always
+# has its turn first and the reaper acts only when that never came (r5 finding 3, proposal P1).
+# A watchdog still armed from an earlier session would destroy this one's cluster at its own TTL, because every session
+# builds into the same state (killswitch_others).
+others="$(killswitch_others | paste -sd' ')"
+[[ -z "$others" ]] || die "a kill switch watchdog from an earlier session is still armed (pid $others) and would destroy this session's cluster when it fires; disarm it (kill -- -PID) once its own cluster is confirmed gone, then start again"
+# A lease covers only a cluster this session creates: one already there under the name belongs to another session or
+# to nobody known, and the reaper would delete it at this lease's deadline.
+if existing="$(aws eks describe-cluster --region "$REGION" --name "$CLUSTER" --query cluster.status --output text 2>&1)"; then
+  die "cluster $CLUSTER already exists ($existing); a session builds its own, so tear that one down or name another"
+elif ! grep -q ResourceNotFoundException <<<"$existing"; then
+  die "could not tell whether cluster $CLUSTER exists: ${existing:0:200}"
+fi
+LEASE_REAP_AT=$(($(date +%s) + TTL_MINUTES * 60 + KILL_DESTROY_MINUTES * 60 + 15 * 60))
+lease_arm "$CLUSTER" "$REGION" "$LEASE_REAP_AT" "$(basename "$EXDIR")" 2>>"$EXDIR/session.log" ||
+  die "could not arm the session lease (see session.log); refusing to create anything the cloud side could not clean up"
+log "session lease armed: $(lease_name "$CLUSTER"), reaped from $(lease_iso "$LEASE_REAP_AT") if nothing tears down first"
+
 # --- The kill switch, armed before anything is created ------------------------------------------------
 #
 # Budgets are not a kill switch: their data updates a few times a day, and this month's thresholds have all
@@ -448,10 +472,6 @@ caller_account="$(aws sts get-caller-identity --query Account --output text 2>&1
 # whether this script finishes, hangs, or the terminal dies.
 KILL_LOG="$EXDIR/ttl-kill-switch.log"
 KILL_PIDFILE="$EXDIR/ttl.pid"
-# A watchdog still armed from an earlier session would destroy this one's cluster at its own TTL, because every session
-# builds into the same state (killswitch_others).
-others="$(killswitch_others | paste -sd' ')"
-[[ -z "$others" ]] || die "a kill switch watchdog from an earlier session is still armed (pid $others) and would destroy this session's cluster when it fires; disarm it (kill -- -PID) once its own cluster is confirmed gone, then start again"
 # A reused EXDIR holds the last session's pid, which the loop below read before the new watchdog wrote its own; the
 # session would then disarm a dead process and leave its live watchdog to destroy the cluster (gpt-6-astra's defect
 # review of #505).
@@ -501,17 +521,6 @@ disarm() {
     return 1
   }
 }
-
-# --- The session lease, armed before anything is created ---------------------------------------------
-#
-# The watchdog above runs on this machine and dies with it. The lease is read every five minutes by the session reaper
-# in the account (infra/aws/bootstrap/reaper.tf), which deletes this session's billing resources once the lease's
-# deadline passes: the watchdog's TTL plus its destroy allowance plus fifteen minutes, so the laptop's own destroy always
-# has its turn first and the reaper acts only when that never came (r5 finding 3, proposal P1).
-LEASE_REAP_AT=$((KILL_AT + KILL_DESTROY_MINUTES * 60 + 15 * 60))
-lease_arm "$CLUSTER" "$REGION" "$LEASE_REAP_AT" "$(basename "$EXDIR")" 2>>"$EXDIR/session.log" ||
-  die "could not arm the session lease (see session.log); refusing to create anything the cloud side could not clean up"
-log "session lease armed: $(lease_name "$CLUSTER"), reaped from $(lease_iso "$LEASE_REAP_AT") if nothing tears down first"
 
 # --- Build ---------------------------------------------------------------------------------------------
 
