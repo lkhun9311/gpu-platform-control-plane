@@ -141,7 +141,8 @@ b3() {
   mkdir -p "$d" && chmod 777 "$d"
   i1=$(as_tenant sbatch --parsable "$@" -t 5 -o /dev/null --wrap "sleep 60") || { echo "sbatch 1 failed" >"$d/sbatch-error"; return; }
   echo "$(now) submitted $i1" >>"$d/poll.txt"
-  until_true $(( $(date +%s) + 60 )) 1 bash -c "[ \"\$(squeue -h -j $i1 -o %T)\" = RUNNING ]" || echo "first job never RUNNING" >"$d/first-not-running"
+  until_true $(( $(date +%s) + 60 )) 1 bash -c "[ \"\$(squeue -h -j $i1 -o %T)\" = RUNNING ]" ||
+    { echo "the first job was never seen RUNNING within 60 s, so the second was not submitted" >"$d/first-not-running"; return; }
   i2=$(as_tenant sbatch --parsable "$@" -t 5 -o /dev/null --wrap "sleep 60") || { echo "sbatch 2 failed" >"$d/sbatch-error"; return; }
   echo "$(now) submitted $i2" >>"$d/poll.txt"
   printf 'first=%s\nsecond=%s\n' "$i1" "$i2" >"$d/jobs.env"

@@ -115,6 +115,9 @@ scene() {
   put zero "0"
   put igw "igw-0abc"
   put rtb "rtb-0assoc"
+  put spots $'t3.medium\t1\t2\ng5.2xlarge\t4\t2'
+  put spotsmall $'t3.medium\t1\t2'
+  put nospot ""
   put versioning "None"
   put vpc "vpc-0default"
   put sg "sg-0session"
@@ -135,6 +138,7 @@ base_rules() {
   rule "cloudwatch get-metric-statistics*Errors*" errors
   rule "configure export-credentials*" creds
   rule "ec2 describe-instances*tag:purpose*" none
+  rule "ec2 describe-instances*instance-lifecycle*" spotsmall
   rule "ec2 describe-route-tables*RouteTableId*" rtb
   rule "ec2 describe-route-tables*" igw
   rule "ec2 describe-subnets*--subnet-ids*" vpc
@@ -202,6 +206,11 @@ rule "ec2 describe-spot-price-history*" dear; base_rules; refused "a GPU price o
 scene; put split $'g5.xlarge\tap-northeast-2a\t0.580000\nt3.medium\tap-northeast-2c\t0.017500'
 rule "ec2 describe-spot-price-history*" split; base_rules; refused "no zone with both types" "no zone offers"
 scene; put q4 "4.0"; rule "service-quotas get-service-quota*" q4; base_rules; refused "too little Spot quota" "two g5.xlarge need 8"
+scene; put q12 "12.0"; rule "service-quotas get-service-quota*" q12; rule "ec2 describe-instances*instance-lifecycle*" spots; base_rules
+refused "a quota mostly used by another purpose's GPU instance" "two g5.xlarge need 8 and 4 are free"
+scene; put q16 "16.0"; rule "service-quotas get-service-quota*" q16; rule "ec2 describe-instances*instance-lifecycle*" spots; base_rules; void_evidence
+session "a quota with room for both beside another purpose's"
+launched && ok "8 free vCPUs beside another purpose's 8 are enough" || bad "free quota 8: exit $rc, $(tail -2 <<<"$out")"
 scene; put inactive "Pending"; rule "lambda get-function*" inactive; base_rules; refused "a sweeper not Active" "is Pending, not Active"
 scene; put few $'1.0\t1.0'; rule "cloudwatch get-metric-statistics*Invocations*" few; base_rules; refused "a sweeper seen running twice" "at least 4 clean runs"
 scene; put denied_sw "implicitDeny"; rule "iam simulate-principal-policy*" denied_sw; base_rules; refused "a sweeper that may not terminate" "may not terminate instances (implicitDeny)"

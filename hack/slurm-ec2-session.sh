@@ -153,8 +153,25 @@ say "zones whose subnet reaches the internet: $ZONES"
 
 quota=$(aws service-quotas get-service-quota --region "$REGION" --service-code ec2 --quota-code L-3819A6DF \
   --query 'Quota.Value' --output text 2>&1) || fail "could not read the G and VT Spot quota: $quota"
-python3 -c 'import sys; sys.exit(0 if float(sys.argv[1]) >= 8 else 1)' "$quota" ||
-  fail "the G and VT Spot quota is $quota vCPU and two $GPU_TYPE need 8"
+# The limit is shared with every G and VT Spot instance in the Region, running or pending, whatever its purpose;
+# two g5.xlarge need 8 of what is left, or the second would be refused after the head and the first were bought.
+used=$(aws ec2 describe-instances --region "$REGION" \
+  --filters Name=instance-lifecycle,Values=spot Name=instance-state-name,Values=pending,running \
+  --query 'Reservations[].Instances[].[InstanceType,CpuOptions.CoreCount,CpuOptions.ThreadsPerCore]' --output text 2>&1) ||
+  fail "the running Spot instances could not be listed: $used"
+free=$(python3 - "$quota" "$used" <<'PY'
+import sys
+limit, used = float(sys.argv[1]), 0
+for line in sys.argv[2].splitlines():
+    f = line.split()
+    # The G and VT quota covers the families named g* and vt*.
+    if len(f) == 3 and f[0].startswith(("g", "vt")):
+        used += int(f[1]) * int(f[2])
+print(int(limit - used))
+PY
+) || fail "could not compute the free G and VT Spot vCPUs"
+[ "$free" -ge 8 ] || fail "the G and VT Spot quota is $quota vCPU with $(( ${quota%.*} - free )) in use; two $GPU_TYPE need 8 and $free are free"
+say "G and VT Spot vCPUs: $quota, $free free"
 
 sw_state=$(aws lambda get-function --region "$REGION" --function-name gpu-platform-study-sweeper \
   --query 'Configuration.State' --output text 2>&1) || fail "the termination sweeper could not be read: $sw_state"

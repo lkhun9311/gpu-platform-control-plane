@@ -224,6 +224,10 @@ def b3(ev):
         if why:
             out[name] = result("NOTRUN", [why])
             continue
+        never = read(os.path.join(d, "first-not-running"))
+        if never:
+            out[name] = result("INVALID", [never.strip()])
+            continue
         jobs = env(os.path.join(d, "jobs.env"))
         first, second = jobs.get("first"), jobs.get("second")
         poll = read(os.path.join(d, "poll.txt"))

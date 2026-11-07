@@ -119,6 +119,9 @@ expect "an allocated probe that could not import PyTorch is INVALID, not a CUDA 
 copy; rm "$work/ev/b4/gpu1-state.txt"; score
 expect "a B4 with no node polls is INVALID" "$(q 'v["b4"]["status"]')" INVALID
 
+copy; echo "the first job was never seen RUNNING within 60 s, so the second was not submitted" >"$work/ev/b3/b/first-not-running"; score
+expect "a B3 pair whose first job was never seen running is INVALID" "$(q 'v["b3"]["b"]["status"]')" INVALID
+
 if [ "$fails" -ne 0 ]; then
   echo "check-slurm-ec2-score: $fails failure(s)"
   exit 1

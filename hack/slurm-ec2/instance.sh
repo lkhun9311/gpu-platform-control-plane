@@ -73,7 +73,10 @@ until_true $(( BOOT + 600 )) 5 s3get cluster.env /tmp/cluster.env || die "cluste
 # Exported, because procedure.sh and collect.sh are child processes and read T0 from their environment.
 export T0 HEAD_IP GPU1_IP GPU2_IP
 now=$(date +%s)
-{ [[ "$T0" =~ ^[0-9]+$ ]] && [ "$T0" -le "$now" ] && [ $(( now - T0 )) -le 900 ]; } || die "T0 is '$T0' at $now"
+{ [[ "$T0" =~ ^[0-9]+$ ]] && [ "$T0" -le $(( now + 60 )) ]; } || die "T0 is '$T0' at $now"
+# A slow bootstrap (snap seeding, the CLI, the source) is only late once the registered bring-up window has passed,
+# and late is NOTRUN, not VOID.
+[ $(( now - T0 )) -le "$BRINGUP_END_S" ] || late "the bootstrap reached T0 only $(( now - T0 )) s after it, past the bring-up window"
 # The precise backstop: T0 is no later than this instance's LaunchTime plus a few seconds, so this always fires
 # before the boot-relative one the user-data armed.
 ( sleep "$(left $(( T0 + STOP_S )))"; [ "${SLURMEC2_REHEARSAL:-0}" = 1 ] || shutdown -h now ) &
@@ -193,7 +196,7 @@ worker_bringup() {
   else
     # The Deep Learning AMI has no /shared; a mount onto a missing directory fails every time.
     mkdir -p "$SHARED" || die "mkdir $SHARED"
-    until_true "$BRINGUP_END" 5 mount -t nfs4 -o hard,timeo=600 head:"$SHARED" "$SHARED" || die "/shared did not mount"
+    until_true "$BRINGUP_END" 5 mount -t nfs4 -o hard,timeo=600 head:"$SHARED" "$SHARED" || late "/shared did not mount by the bring-up deadline"
   fi
   local cards
   cards=$(nvidia-smi -L) || die "nvidia-smi failed"
@@ -225,7 +228,7 @@ worker_bringup() {
   chmod 755 /etc/slurm/gpuhc-ec2.sh /opt/slurm-ec2/gpuhc.py
   echo 'SLURMD_OPTIONS="--conf-server head:6817"' >/etc/default/slurmd
 
-  until_true "$BRINGUP_END" 5 test -e "$SHARED/control/CONF_READY" || die "head never wrote CONF_READY"
+  until_true "$BRINGUP_END" 5 test -e "$SHARED/control/CONF_READY" || late "head did not write CONF_READY by the bring-up deadline"
   systemctl enable slurmd >>/var/log/slurmec2-setup.log 2>&1
   systemctl restart slurmd || die "slurmd"
   log "slurmd started"
