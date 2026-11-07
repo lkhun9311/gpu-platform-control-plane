@@ -113,6 +113,7 @@ scene() {
   put aes "AES256"
   put nopolicy "An error occurred (NoSuchBucketPolicy) when calling the GetBucketPolicy operation: The bucket policy does not exist"
   put zero "0"
+  put igw "igw-0abc"
   put versioning "None"
   put vpc "vpc-0default"
   put sg "sg-0session"
@@ -133,6 +134,8 @@ base_rules() {
   rule "cloudwatch get-metric-statistics*Errors*" errors
   rule "configure export-credentials*" creds
   rule "ec2 describe-instances*tag:purpose*" none
+  rule "ec2 describe-route-tables*" igw
+  rule "ec2 describe-subnets*--subnet-ids*" vpc
   rule "ec2 describe-subnets*" subnet
   rule "s3api get-bucket-lifecycle-configuration*" lifecycle
   rule "s3api get-bucket-versioning*" versioning
@@ -227,6 +230,10 @@ rule "iam get-role*" bounded; base_rules; refused "a role with a permissions bou
 scene; put inline2 $'deny-s3\twrite-results'; rule "iam list-role-policies*" inline2; base_rules; refused "a role with another inline policy" "carries inline policies"
 scene; put attached "arn:aws:iam::aws:policy/AdministratorAccess"; rule "iam list-attached-role-policies*" attached; base_rules
 refused "a role with an attached policy" "has attached policies"
+scene; put nat "nat-0abc"; rule "ec2 describe-route-tables*" "none|nat"; base_rules; refused "a subnet whose main route table goes to a NAT gateway" "routing 0.0.0.0/0 to an internet gateway"
+scene; rule "ec2 describe-route-tables*" "none|igw"; base_rules; void_evidence; session "a subnet on the VPC's main route table"
+[ "$rc" = 3 ] && grep -q "^ec2 describe-route-tables .*association.main,Values=true" "$STUB/calls.log" && launched &&
+  ok "a subnet with no table of its own is judged by the VPC's main table and accepted" || bad "main-table fallback: exit $rc, $(tail -2 <<<"$out")"
 scene; put kms "aws:kms"; rule "s3api get-bucket-encryption*" kms; base_rules; refused "a bucket encrypted with KMS" "encrypts with 'aws:kms'"
 scene; put pol '{"Statement":[{"Effect":"Deny"}]}'; rule "s3api get-bucket-policy*" pol; base_rules; refused "a bucket with a policy" "has a bucket policy"
 scene; put two "2"; rule "rbin list-rules*" two; base_rules; refused "a Recycle Bin rule for volumes" "Recycle Bin rule(s) retain EBS volumes"
@@ -250,7 +257,7 @@ grep -q -- "--image-id $HAMI --instance-type t3.medium .*--instance-initiated-sh
 [ "$(grep -o -- '--subnet-id [^ ]*' <<<"$runs" | sort -u | wc -l)" = 1 ] && ok "all three in one subnet" || bad "the launches span subnets"
 tag=$(grep -o 'Key=study-deadline,Value=[0-9TZ:-]*' <<<"$runs" | head -1 | sed 's/.*Value=//')
 got=$(date -u -d "$tag" +%s 2>/dev/null || echo 0)
-(( got >= t0 + 5670 && got <= t0 + 5670 + 120 )) && ok "the launches carry the sweeper's tag at the request plus 5,670 s" || bad "the launch tag is '$tag'"
+(( got >= t0 + 6570 && got <= t0 + 6570 + 120 )) && ok "the launches carry the sweeper's tag at the request plus 5,670 s and the 900 s launch skew" || bad "the launch tag is '$tag'"
 want_t0=$(date -u -d "$LT_G" +%s)
 cl="$STUB/uploaded/cluster.env"
 [ -s "$cl" ] && grep -qx "T0=$want_t0" "$cl" && grep -qx "HEAD_IP=172.31.0.10" "$cl" && grep -qx "GPU1_IP=172.31.0.11" "$cl" && grep -qx "GPU2_IP=172.31.0.12" "$cl" &&
@@ -268,16 +275,16 @@ grep -q "^s3 rm --only-show-errors --recursive s3://slurmec2-007635145730/.*/$" 
 [ -d "$STUB/out/evidence" ] && [ ! -e "$STUB/out/.staging" ] && ok "the evidence is unpacked through a staging directory" || bad "the evidence directory"
 [ "$(grep -c -- '--security-group-ids sg-0session' <<<"$runs")" = 3 ] && ok "all three launch into the session's own security group" || bad "the launches' security group"
 grep -q "^ec2 authorize-security-group-ingress .*--group-id sg-0session --ip-permissions IpProtocol=-1,UserIdGroupPairs=\[{GroupId=sg-0session}\]" "$STUB/calls.log" &&
-  ! grep -q "0.0.0.0/0" "$STUB/calls.log" && ok "the group admits only its own members" || bad "the group's ingress: $(grep authorize "$STUB/calls.log")"
+  ! grep "^ec2 authorize-security-group-ingress" "$STUB/calls.log" | grep -q "0.0.0.0/0" && ok "the group admits only its own members" || bad "the group's ingress: $(grep authorize "$STUB/calls.log")"
 grep -q "^ec2 delete-security-group .*sg-0session" "$STUB/calls.log" && ok "the group is deleted at the end" || bad "the group was not deleted"
 [ -s "$STUB/uploaded/munge.key" ] && [ "$(wc -c <"$STUB/uploaded/munge.key")" = 1024 ] && ok "a 1,024-byte munge key was uploaded" || bad "no munge key uploaded"
 ! find "$STUB/out" -name 'munge.key' | grep -q . && ok "the munge key is not in the run directory" || bad "the munge key is in the run directory"
 for r in head gpu1 gpu2; do
   ud="$STUB/out/user-data-$r.sh"
-  bash -n "$ud" && grep -q "export ROLE=$r " "$ud" && grep -q '( sleep 5700; ' "$ud" && (( $(wc -c <"$ud") < 16384 )) ||
+  bash -n "$ud" && grep -q "export ROLE=$r " "$ud" && grep -q '( sleep 6600; ' "$ud" && (( $(wc -c <"$ud") < 16384 )) ||
     bad "the $r user-data: role, backstop, parse or size"
 done
-ok "each user-data names its role, arms the 5,700 s backstop, parses and fits 16 KB"
+ok "each user-data names its role, arms the 6,600 s boot backstop (5,700 + the 900 s launch skew), parses and fits 16 KB"
 
 # A head whose termination is not confirmed: the workers are still terminated, by the loop or by the trap.
 scene; put slow "running"; rule "ec2 describe-instances*--instance-ids i-0head*State.Name*" slow; base_rules; void_evidence

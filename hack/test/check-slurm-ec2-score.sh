@@ -104,6 +104,11 @@ expect "a late bring-up leaves every check NOTRUN and the session not VOID" "$(q
 copy; sed -i 's/^bringup_done=.*/bringup_done=9999999999/' "$work/ev/bringup.env"; score
 expect "a bring-up recorded after T0 + 1,500 s is NOTRUN, not VOID" "$(q 'str(v["void"]) + " " + v["b4"]["status"]')" "[] NOTRUN"
 
+copy; rm -rf "$work/ev/config" "$work/ev/bringup.env" "$work"/ev/b?; echo "both workers did not register idle by the bring-up deadline" >"$work/ev/NOTRUN_ALL"; score
+expect "a deadline miss that never recorded the configuration is NOTRUN, not VOID" "$(q 'str(v["void"]) + " " + v["b4"]["status"]')" "[] NOTRUN"
+copy; echo "gpu2 still drained after the resume" >"$work/ev/b4/setup-failed"; score
+expect "a B4 whose stimulus failed is INVALID" "$(q 'v["b4"]["status"]')" INVALID
+
 if [ "$fails" -ne 0 ]; then
   echo "check-slurm-ec2-score: $fails failure(s)"
   exit 1

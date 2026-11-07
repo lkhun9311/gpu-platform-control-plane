@@ -38,6 +38,8 @@ TAG_AT_REQUEST_S=5670
 TAG_FROM_T0_S=5670
 STOP_S=5700
 TERMINATION_S=6100
+# The longest T0 can follow an instance's own boot: the three launches, the read-back and handing cluster.env over.
+LAUNCH_SKEW_S=900
 DESCRIBE_TRIES=24
 SWEEPER_MIN_RUNS=4
 # The termination wait's end plus 30 minutes of headroom, and the build, in minutes.
@@ -123,6 +125,27 @@ PY
 ) || fail "could not read the price table"
 [ -n "$ZONES" ] || fail "no zone offers $GPU_TYPE at or under \$$GPU_CAP/h and $HEAD_TYPE at or under \$$HEAD_CAP/h: $(paste -sd' ' "$OUT/spot-prices.txt")"
 say "zones with both types under their caps: $ZONES"
+# A default subnet maps public addresses, which says nothing of whether its route table reaches the internet; the
+# instances fetch packages, PyTorch and their inputs, so a zone whose subnet has no active 0.0.0.0/0 route to an
+# internet gateway would buy three instances that can do nothing. Its own route table, or the VPC's main one.
+routed=""
+for z in $ZONES; do
+  sn=$(spot_subnet_in_zone "$REGION" "$z") || { say "no default subnet in $z"; continue; }
+  rt=$(aws ec2 describe-route-tables --region "$REGION" --filters "Name=association.subnet-id,Values=$sn" \
+    --query 'RouteTables[0].Routes[?DestinationCidrBlock==`0.0.0.0/0` && State==`active`].GatewayId' --output text 2>&1) ||
+    fail "the route table of $sn could not be read: $rt"
+  if [ -z "$rt" ] || [ "$rt" = None ]; then
+    vpc_of=$(aws ec2 describe-subnets --region "$REGION" --subnet-ids "$sn" --query 'Subnets[0].VpcId' --output text 2>&1) ||
+      fail "the VPC of $sn could not be read: $vpc_of"
+    rt=$(aws ec2 describe-route-tables --region "$REGION" --filters "Name=vpc-id,Values=$vpc_of" Name=association.main,Values=true \
+      --query 'RouteTables[0].Routes[?DestinationCidrBlock==`0.0.0.0/0` && State==`active`].GatewayId' --output text 2>&1) ||
+      fail "the main route table of $vpc_of could not be read: $rt"
+  fi
+  if [[ "$rt" =~ ^igw-[0-9a-f]+$ ]]; then routed="$routed $z"; else say "$z's subnet $sn does not route 0.0.0.0/0 to an internet gateway ('$rt')"; fi
+done
+ZONES=${routed# }
+[ -n "$ZONES" ] || fail "no zone with both types under their caps has a default subnet routing 0.0.0.0/0 to an internet gateway"
+say "zones whose subnet reaches the internet: $ZONES"
 
 quota=$(aws service-quotas get-service-quota --region "$REGION" --service-code ec2 --quota-code L-3819A6DF \
   --query 'Quota.Value' --output text 2>&1) || fail "could not read the G and VT Spot quota: $quota"
@@ -207,7 +230,9 @@ dd if=/dev/urandom of="$SECRETS/munge.key" bs=1024 count=1 status=none || fail "
 } >"$OUT/session-provenance.txt"
 
 for role in head gpu1 gpu2; do
-  slurmec2_render_userdata "$role" "$OUT/user-data-$role.sh" "$BUCKET" "$RUN_ID" "$SOURCE_SHA" "$STOP_S" || fail "render $role"
+  # The boot-relative backstop is the precise T0 one plus the launch skew, so it never fires first on an instance that
+  # booted before T0; an instance that never learns T0 stops itself within 900 s of boot anyway (instance.sh).
+  slurmec2_render_userdata "$role" "$OUT/user-data-$role.sh" "$BUCKET" "$RUN_ID" "$SOURCE_SHA" $(( STOP_S + LAUNCH_SKEW_S )) || fail "render $role"
   bash -n "$OUT/user-data-$role.sh" || fail "the $role user-data does not parse"
   [ "$(head -c 2 "$OUT/user-data-$role.sh")" = '#!' ] || fail "the $role user-data has no shebang"
   [ "$(wc -c <"$OUT/user-data-$role.sh")" -lt 16384 ] || fail "the $role user-data is over EC2's 16 KB"
@@ -343,7 +368,9 @@ left_min=$(cred_left) || fail "the credential's expiry could not be read before 
 [ "$left_min" -ge $(( TERMINATION_S / 60 + 10 )) ] || fail "the credentials now expire in $left_min minutes, too few for the session and its teardown"
 
 request_epoch=$(date +%s)
-TAG_DEADLINE=$(date -u -d "@$(( request_epoch + TAG_AT_REQUEST_S ))" +%Y-%m-%dT%H:%M:%SZ)
+# The launch tag allows for the skew between this request and T0, the last LaunchTime; a tag counted from the request
+# alone would let the sweeper cut the session short if the rewrite to T0 failed. Later means bounded extra cost, not loss.
+TAG_DEADLINE=$(date -u -d "@$(( request_epoch + TAG_AT_REQUEST_S + LAUNCH_SKEW_S ))" +%Y-%m-%dT%H:%M:%SZ)
 # launch_one ZONE SUBNET ROLE: sets LAUNCHED to the instance id and returns 0, or returns 1 with the error in
 # $OUT/launch-error-ROLE-ZONE.txt. Called directly, never in $(...): IIDS and UNCERTAIN must change in this shell.
 launch_one() {

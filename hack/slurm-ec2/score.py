@@ -269,7 +269,7 @@ def b4(ev):
     why = notrun(d)
     if why:
         return result("NOTRUN", [why])
-    for f in ("sbatch-error", "reference.timeout", "run.no-ckpt"):
+    for f in ("sbatch-error", "reference.timeout", "run.no-ckpt", "setup-failed"):
         if read(os.path.join(d, f)):
             return result("INVALID", [f"{f}: {read(os.path.join(d, f)).strip()}"])
     ref = [r for r in jsonl(os.path.join(d, "reference.jsonl")) if r.get("event") == "done"]
@@ -330,7 +330,9 @@ def main(argv):
         print(__doc__.strip().splitlines()[2], file=sys.stderr)
         return 2
     ev, path = argv[1], argv[2]
-    void = preconditions(ev)
+    # A bring-up that missed its deadline never recorded the configuration, so its absence is not a failed precondition;
+    # only what head positively recorded can VOID such a session.
+    void = preconditions(ev) if not read(os.path.join(ev, "NOTRUN_ALL")) else ([("head stopped: " + read(os.path.join(ev, "VOID")).strip())] if read(os.path.join(ev, "VOID")) else [])
     verdict = {"void": void}
     late = bringup_late(ev)
     if late and not void:

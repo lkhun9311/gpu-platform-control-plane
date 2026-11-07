@@ -46,7 +46,7 @@ Every deadline counts from `T0`, the latest of the three instances' EC2 `LaunchT
 | 5,430 s | the procedure is stopped if still running; `collect.sh` ships what exists, then the diagnostics |
 | 5,580 s | the evidence deadline: `collect.sh` is stopped at 5,640 s at the latest |
 | 5,670 s | the sweeper's `study-deadline` tag |
-| 5,700 s | every instance shuts itself down (`instance-initiated-shutdown-behavior=terminate`) |
+| 5,700 s | every instance shuts itself down (`instance-initiated-shutdown-behavior=terminate`); the boot-relative backstop, for an instance that never learns T0, is boot + 6,600 s |
 | 6,100 s | the runner's termination wait ends |
 
 ## Checks, registered
@@ -163,6 +163,16 @@ Each finding was checked against the code by Claude before it was fixed.
 | 5 P2 | B2 admitted with 300 s while its waits add to 480 s, and `left` returned 0, which `timeout` reads as no limit | B2 admitted with 720 s; `left` never returns below 1 |
 | 6 P2 | a failed `squeue` ended B3's poll as if both jobs had left, and B2's node read had no status | failed reads are recorded as such and make the check INVALID |
 | 7 P2 | B2's journal window was head's clock applied to gpu2's journal | the window is gpu2's own journal cursor before and after the job |
+
+**Round 6 (commit `67452380`): NO-GO, five findings, all confirmed and fixed.**
+
+| # | finding | fix |
+|---|---|---|
+| 1 P1 | a default subnet maps public addresses whatever its route table says; one with no internet route would buy three instances that cannot fetch anything | before any launch, each candidate zone's subnet must have an active `0.0.0.0/0` route to an `igw-` gateway, in its own route table or the VPC's main one; a zone without one is dropped and no zone left refuses the session (`gpu-lab`'s main table routes to `igw-070a20ca9f2b24dad`, read 2026-11-07) |
+| 2 P2 | the boot-relative shutdown could fire on head before the checks ended when the workers launched later, and a failed retag left a deadline counted from the request | the boot backstop is 5,700 s plus a 900 s launch-skew allowance, and the launch tag carries the same allowance; the precise T0 backstop and the rewritten tag are unchanged |
+| 3 P2 | an earlier verified upload ended collection's retry loop, so a later archive could be lost in an S3 outage | collection retries until the final archive is verified or the evidence deadline passes |
+| 4 P2 | a bring-up that missed its deadline never recorded the configuration, and the scorer read that absence as a failed precondition | with `NOTRUN_ALL`, only head's own `VOID` can void the session |
+| 5 P2 | B4 counted as observed when gpu2's resume or the fault write had failed | both are checked and written to `setup-failed`, which makes B4 INVALID |
 
 **Round 5 (commit `a1a48f43`): NO-GO, five findings, all confirmed and fixed in `9da5c32b`.**
 Both P1s were latent on 2026-11-07 (the bucket does not exist yet, so it will be created with S3's default AES256, and `gpu-lab` has no Recycle Bin rule for EBS volumes), and both are now refused rather than assumed.

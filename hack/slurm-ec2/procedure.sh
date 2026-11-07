@@ -171,11 +171,14 @@ b4() {
   until_true $(( $(date +%s) + 300 )) 1 grep -q '"event": "ckpt", .*"step": 20,' "$d/run.jsonl" ||
     { echo "the run never checkpointed step 20 in 300 s" >"$d/run.no-ckpt"; scontrol update nodename=gpu2 state=resume; return; }
   scontrol show job "$run" >"$d/run-job-before.txt" 2>&1
-  scontrol update nodename=gpu2 state=resume
+  # The stimulus is checked, not assumed: a gpu2 still drained, or a fault that was not written, is a setup failure.
+  scontrol update nodename=gpu2 state=resume || echo "resume of gpu2 exited $?" >>"$d/setup-failed"
+  scontrol show node gpu2 | grep -qE 'State=\S*DRAIN' && echo "gpu2 still drained after the resume" >>"$d/setup-failed"
   echo "gpu2_resumed=$(now)" >>"$d/events.env"
   uuid=$(grep -oE 'UUID="[^"]+"' "$SHARED/gpuhc/gpu1.prom" | head -1)
   printf 'DCGM_FI_DEV_XID_ERRORS{gpu="0",%s} 79\nDCGM_FI_DEV_ECC_DBE_VOL_TOTAL{gpu="0",%s} 0\n' "$uuid" "$uuid" >"$SHARED/gpuhc/gpu1.prom.tmp"
-  mv "$SHARED/gpuhc/gpu1.prom.tmp" "$SHARED/gpuhc/gpu1.prom"
+  mv "$SHARED/gpuhc/gpu1.prom.tmp" "$SHARED/gpuhc/gpu1.prom" || echo "the fault signal could not be written" >>"$d/setup-failed"
+  grep -q '^DCGM_FI_DEV_XID_ERRORS{.*UUID=.*} 79$' "$SHARED/gpuhc/gpu1.prom" || echo "gpu1's signal does not carry Xid 79" >>"$d/setup-failed"
   t_fault=$(now)
   echo "fault_written=$t_fault" >>"$d/events.env"
   for _ in $(seq 1 60); do

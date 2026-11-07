@@ -30,7 +30,8 @@ sinfo -N -l >"$EVID/sinfo-end.txt" 2>>"$errs"
 final=no
 ship && final=yes
 # Nothing verified yet: keep trying until the evidence deadline, because DONE lets the runner terminate the only copy.
-while [ ! -s /tmp/evidence.sha ] && [ "$(date +%s)" -lt $(( ${T0:-0} + EVIDENCE_S + 30 )) ]; do
+# The final archive is what is retried for: an earlier verified one is the fallback, not a reason to stop trying.
+while [ "$final" != yes ] && [ "$(date +%s)" -lt $(( ${T0:-0} + EVIDENCE_S + 30 )) ]; do
   sleep 15
   ship && final=yes
 done
