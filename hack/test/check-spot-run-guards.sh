@@ -78,8 +78,8 @@ kept="$(guard "spot_tags_with_deadline '${tags%]},{Key=study-deadline,Value=$fut
 
 # Every runner that launches through spot_launch passes a deadline, its own or one added at the launch.
 for f in $(grep -l 'IID=$(spot_launch' hack/*.sh hack/holdcap-conformance/*.sh); do
-  if grep -A1 'IID=$(spot_launch' "$f" | grep -q 'spot_tags_with_deadline\|study-deadline' ||
-    grep -q 'Key=study-deadline,Value=\$' "$f"; then
+  if { grep -A1 'IID=$(spot_launch' "$f" | grep -q '"$LAUNCH_TAGS" "$LAUNCH_TOKEN"' &&
+    grep -q '^  LAUNCH_TAGS="$(spot_tags_with_deadline "$TAGS" ' "$f"; } || grep -q 'Key=study-deadline,Value=\$' "$f"; then
     ok "$f passes a study-deadline"
   else
     bad "$f launches without a study-deadline"
