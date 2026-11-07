@@ -99,6 +99,8 @@ Holds when all of: `sacct` reports the step `<id>.0` `OUT_OF_MEMORY`; the job's 
 
 The worst path is longer: if the runner dies before T0 is handed over and an instance never arms its precise shutdown, the boot backstop (6,600 s) and the sweeper (the launch tag, request + 6,570 s, plus up to one 5-minute sweep) end it, about 6,870 s after the request; and in a zone that cannot hold all three, up to two instances (head and one GPU) are bought and terminated, waited for up to 300 s each, in at most two such zones.
 That is $3.25 for the trio over 1.91 h at the caps, plus $0.15 for the failed zones: **the registered cap is $3.50.**
+Both bounds are enforced, not assumed: no purchase starts later than 600 s after the request, so instances in failed zones are bought within it and gone within its end plus the 300 s termination wait, $0.22 at most for a head and a GPU node together, and a T0 more than 900 s after the request ends the session before `cluster.env` is handed over, with everything bought terminated.
+A launch call that hangs past the window buys nothing more after it returns; the instances it held are ended by their own backstops and the sweeper, $3.17 at the caps for a head and two GPU nodes over 1.91 h each.
 `head` is launched with `CpuCredits=standard`, so a T3 cannot add surplus-credit charges beyond its instance price.
 
 Expected at the Spot prices of 2026-11-07 ($0.574–0.593/h for `g5.xlarge`, $0.015–0.018/h for `t3.medium`) and about 1.2 h: **about $1.5**.
@@ -206,6 +208,23 @@ Each finding was checked against the code by Claude before it was fixed.
 | 5 P2 | B2 admitted with 300 s while its waits add to 480 s, and `left` returned 0, which `timeout` reads as no limit | B2 admitted with 720 s; `left` never returns below 1 |
 | 6 P2 | a failed `squeue` ended B3's poll as if both jobs had left, and B2's node read had no status | failed reads are recorded as such and make the check INVALID |
 | 7 P2 | B2's journal window was head's clock applied to gpu2's journal | the window is gpu2's own journal cursor before and after the job |
+
+**Round 11 (commit `381fe002`), the second and last round on this change, under the narrowed gate: NO-GO for both runs, one blocking finding each; checked against the code by Claude and fixed in `91ae63b0` unless marked recorded.**
+
+| # | finding | class | fix |
+|---|---|---|---|
+| 1 P1 | the 300 s launch skew of the t3 rehearsal was assumed, not enforced: a slow zone fallback could put T0 at request + 900 s and every deadline past 45 minutes | blocking | no purchase starts later than the launch window after the request (240 s in the rehearsal, 600 s in the session), and a T0 past the launch skew ends the run before `cluster.env`, with everything bought terminated |
+| 2 P1 | in the session a launch call that hung for an hour, then a trio in another zone, could pass the $3.50 cap | blocking | the same two refusals; the cost section now states both bounds |
+| 3 P2 | `cluster.env` was checked for its form, not its names, so it could set the stand-in GPU or the tenant | validity | an exact list of names, each once: the four addresses and T0 in the session, the clock and checks as well only in the t3 rehearsal; the role may not write `cluster.env`, the munge key or the source |
+| 4 P2 | the worker's node-info and signal writes to `/shared` were unbounded, and `timeout` sent only TERM | validity | each is written locally and copied under `timeout --kill-after`; the probe's timeouts force a kill too |
+| 5 P2 | `until_true` and `head_wait` slept their full interval past the deadline, and `head_wait`'s worker check was not bounded by it | validity | every sleep and the worker check are cut to the time left |
+| 6 P2 | a worker that could not see head's token died, which head turned into VOID where the registration says NOTRUN | validity | it goes through `late`, so the session is NOTRUN |
+| 7 P2 | with the time read before the rename, a pause before it could make a 2 s drain fail B4a | validity | the scorer reads both ends, `fault_written` before the rename and `fault_renamed` after it; a drain on different sides of 30 s from the two ends makes B4 INVALID, so B4a still means 30 s from the write |
+| 8 P3 | a signal with `schema: true` or a float T0 compared equal and was accepted | validity | the reader checks the types exactly |
+| 9 P2 | `tar`'s status 1 for a file changing under it dropped a whole diagnostic shipment, and shipments could overlap | validity | shipments take a lock, and status 1 still uploads the archive |
+
+**Recorded after round 11:** the launch window has no stub test (the runner's clock cannot be advanced in the stub), so its refusal is pinned only by reading; the skew refusal behind it is tested.
+The worker's token refusal going through `late` and its bounded `/shared` writes run only on an instance, so the free rehearsal shows their passing path, not their refusals.
 
 **Round 10 (commit `1b77ed38`, after the first paid attempt), under the narrowed gate: NO-GO for both the t3 rehearsal and the session, three blocking findings; each finding checked against the code by Claude, fixed in `8486fc90` and `ec3b521c` unless marked recorded.**
 
