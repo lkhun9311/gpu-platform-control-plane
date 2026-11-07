@@ -43,6 +43,12 @@ tests:
         values: '50x20'
       - series: 'DCGM_FI_DEV_GPU_UTIL{Hostname="w2",gpu="0",UUID="GPU-9"}'
         values: '50x20'
+      # w1's card 4 reports utilisation and an Xid field but no ECC field, while card 0 on the same node reports both.
+      # A rule that judged the node would call w1 covered and leave card 4's double-bit ECC unwatched.
+      - series: 'DCGM_FI_DEV_GPU_UTIL{Hostname="w1",gpu="4",UUID="GPU-4"}'
+        values: '50x20'
+      - series: 'DCGM_FI_DEV_XID_ERRORS{Hostname="w1",gpu="4",UUID="GPU-4"}'
+        values: '0x20'
     alert_rule_test:
       # No "for": the first evaluation after the sample already fires.
       - eval_time: 0m
@@ -53,16 +59,18 @@ tests:
               summary: "GPU 0 on w1 reports a fault (xid = 79)"
               description: >-
                 DCGM reports a fault the platform's own policy treats as a card fault: a non-application Xid, or a
-                double-bit ECC count above zero. With --gpu-fault-source=dcgm the operator has already tainted the node
-                platform.lkhun9311.github.io/gpu-fault; without it nothing has reacted, and this alert is the only notice.
+                double-bit ECC count above zero. With --gpu-fault-source=dcgm the operator is expected to have tainted the node
+                platform.lkhun9311.github.io/gpu-fault, but only if a NodeHealth names the node, since it scrapes no other;
+                check the taint itself. Without the flag nothing has reacted, and this alert is the only notice.
               runbook_url: https://github.com/lkhun9311/gpu-platform-control-plane/blob/main/docs/06_OBSERVABILITY_BENCHMARK_FAILURE.md#gpufaultsignalpresent
           - exp_labels: {severity: critical, Hostname: w1, gpu: "2", UUID: GPU-2, field: ecc_dbe}
             exp_annotations:
               summary: "GPU 2 on w1 reports a fault (ecc_dbe = 1)"
               description: >-
                 DCGM reports a fault the platform's own policy treats as a card fault: a non-application Xid, or a
-                double-bit ECC count above zero. With --gpu-fault-source=dcgm the operator has already tainted the node
-                platform.lkhun9311.github.io/gpu-fault; without it nothing has reacted, and this alert is the only notice.
+                double-bit ECC count above zero. With --gpu-fault-source=dcgm the operator is expected to have tainted the node
+                platform.lkhun9311.github.io/gpu-fault, but only if a NodeHealth names the node, since it scrapes no other;
+                check the taint itself. Without the flag nothing has reacted, and this alert is the only notice.
               runbook_url: https://github.com/lkhun9311/gpu-platform-control-plane/blob/main/docs/06_OBSERVABILITY_BENCHMARK_FAILURE.md#gpufaultsignalpresent
       - eval_time: 9m
         alertname: GPUFaultFieldsNotCollected
@@ -70,11 +78,18 @@ tests:
       - eval_time: 11m
         alertname: GPUFaultFieldsNotCollected
         exp_alerts:
-          - exp_labels: {severity: warning, Hostname: w2}
+          - exp_labels: {severity: warning, Hostname: w1, gpu: "4", UUID: GPU-4}
             exp_annotations:
-              summary: "w2 exports GPU utilisation but not the Xid or double-bit ECC field"
+              summary: "GPU 4 on w1 exports utilisation but not the Xid or double-bit ECC field"
               description: >-
-                GPUFaultSignalPresent is blind on this node. Deploy the exporter from config/dcgm-exporter-ops, which collects
+                GPUFaultSignalPresent is blind on this card. Deploy the exporter from config/dcgm-exporter-ops, which collects
+                DCGM_FI_DEV_XID_ERRORS and DCGM_FI_DEV_ECC_DBE_VOL_TOTAL.
+              runbook_url: https://github.com/lkhun9311/gpu-platform-control-plane/blob/main/docs/06_OBSERVABILITY_BENCHMARK_FAILURE.md#gpufaultfieldsnotcollected
+          - exp_labels: {severity: warning, Hostname: w2, gpu: "0", UUID: GPU-9}
+            exp_annotations:
+              summary: "GPU 0 on w2 exports utilisation but not the Xid or double-bit ECC field"
+              description: >-
+                GPUFaultSignalPresent is blind on this card. Deploy the exporter from config/dcgm-exporter-ops, which collects
                 DCGM_FI_DEV_XID_ERRORS and DCGM_FI_DEV_ECC_DBE_VOL_TOTAL.
               runbook_url: https://github.com/lkhun9311/gpu-platform-control-plane/blob/main/docs/06_OBSERVABILITY_BENCHMARK_FAILURE.md#gpufaultfieldsnotcollected
 

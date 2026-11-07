@@ -121,19 +121,11 @@ a = [x for x in json.load(sys.stdin)["data"]["alerts"] if x["labels"]["alertname
 print(a[0]["state"] if a else "inactive")' "$1"
 }
 
-# received counts webhook bodies at the sink that carry the named alert with the given status.
+# received counts the alerts at the sink with the given name and status, and with every LABEL=VALUE given after them.
+# The counting is hack/alert-receipts.py, which hack/test/check-alert-receipts.sh pins.
 received() {
   k -n monitoring logs deploy/alert-sink >"$WORK/sink.jsonl" || return 1
-  python3 -c '
-import json, sys
-n = 0
-for line in open(sys.argv[3]):
-    line = line.strip()
-    if not line.startswith("{"):
-        continue
-    body = json.loads(line)["payload"]
-    n += sum(1 for a in body.get("alerts", []) if a["labels"].get("alertname") == sys.argv[1] and a["status"] == sys.argv[2])
-print(n)' "$1" "$2" "$WORK/sink.jsonl"
+  python3 hack/alert-receipts.py "$WORK/sink.jsonl" "$@"
 }
 
 # wait_for polls a condition every 5 s until it holds or the deadline passes.
@@ -148,8 +140,9 @@ wait_for() {
   return 1
 }
 is_state() { [ "$(alert_state "$1")" = "$2" ]; }
-got() { local n; n=$(received "$1" "$2") && [ "${n:-0}" -gt 0 ]; }
-got_more() { local n; n=$(received "$1" "$2") && [ "${n:-0}" -gt "$3" ]; }
+# got NAME STATUS [LABEL=VALUE ...]; got_more NAME STATUS BEFORE [LABEL=VALUE ...].
+got() { local n; n=$(received "$@") && [ "${n:-0}" -gt 0 ]; }
+got_more() { local name=$1 status=$2 before=$3 n; shift 3; n=$(received "$name" "$status" "$@") && [ "${n:-0}" -gt "$before" ]; }
 
 # poll_alerts appends Prometheus's active alerts to the transitions file whenever their set or states change.
 poll_alerts() {
@@ -494,22 +487,22 @@ inject 230 79
 event "injected Xid 79"
 wait_for "GPUFaultSignalPresent firing" 180 is_state GPUFaultSignalPresent firing || die "Xid 79 did not fire"
 event "observed GPUFaultSignalPresent firing (xid)"
-wait_for "the xid notification" 180 got GPUFaultSignalPresent firing || die "no firing notification for Xid 79"
+wait_for "the xid notification" 180 got GPUFaultSignalPresent firing field=xid || die "no firing notification for Xid 79"
 event "sink holds a firing GPUFaultSignalPresent"
 inject 230 0
 event "injected Xid 0"
-wait_for "the xid resolution" 300 got GPUFaultSignalPresent resolved || die "no resolved notification for Xid"
+wait_for "the xid resolution" 300 got GPUFaultSignalPresent resolved field=xid || die "no resolved notification for Xid"
 event "sink holds a resolved GPUFaultSignalPresent"
 
-firing_before=$(received GPUFaultSignalPresent firing)
+firing_before=$(received GPUFaultSignalPresent firing field=ecc_dbe)
 inject 311 1
 event "injected double-bit ECC 1"
-wait_for "the ecc notification" 240 got_more GPUFaultSignalPresent firing "$firing_before" || die "no firing notification for ECC"
+wait_for "the ecc notification" 240 got_more GPUFaultSignalPresent firing "$firing_before" field=ecc_dbe || die "no firing notification for ECC"
 event "sink holds a second firing GPUFaultSignalPresent"
-resolved_before=$(received GPUFaultSignalPresent resolved)
+resolved_before=$(received GPUFaultSignalPresent resolved field=ecc_dbe)
 inject 311 0
 event "injected double-bit ECC 0"
-wait_for "the ecc resolution" 300 got_more GPUFaultSignalPresent resolved "$resolved_before" || die "no resolved notification for ECC"
+wait_for "the ecc resolution" 300 got_more GPUFaultSignalPresent resolved "$resolved_before" field=ecc_dbe || die "no resolved notification for ECC"
 event "sink holds a second resolved GPUFaultSignalPresent"
 
 # ---------------------------------------------------------------- the exporter goes away
