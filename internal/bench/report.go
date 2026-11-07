@@ -693,7 +693,13 @@ func Summarize(arm string, rows []RawRow) ArmSummary {
 func classifyTermination(rows []RawRow) ([]RawRow, int, int) {
 	var truncated, unknown int
 	out := rows
+	cloned := false
 	for i, r := range rows {
+		// The sender has named a truncation itself since 2026-11-07: already a failure, so only counted here.
+		if r.ErrorKind == errorKindStream && r.StreamError == streamErrorNoEndMarker {
+			truncated++
+			continue
+		}
 		if r.ErrorKind != "" || r.HTTPStatus != httpStatusOK || r.StreamTerminated {
 			continue
 		}
@@ -703,8 +709,8 @@ func classifyTermination(rows []RawRow) ([]RawRow, int, int) {
 			}
 			continue
 		}
-		if truncated == 0 {
-			out = slices.Clone(rows)
+		if !cloned {
+			out, cloned = slices.Clone(rows), true
 		}
 		truncated++
 		out[i].ErrorKind = errorKindStream

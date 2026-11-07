@@ -249,3 +249,37 @@ func TestTheReportNamesCompletionsWhoseTerminationWasNeverRecorded(t *testing.T)
 		t.Error("the report does not name the completions whose termination is unknown")
 	}
 }
+
+// A truncation the sender itself names reaches the report's count, not only its failures (bare review of r7).
+//
+// Mutation that turns this red: drop the first branch of classifyTermination.
+func TestATruncationTheSenderNamedIsCountedByTheReport(t *testing.T) {
+	ok := readOneStream(t, streamChunk+streamChunk+"data: [DONE]\n\n")
+	cut := readOneStream(t, streamChunk+streamChunk)
+	rows := Replay(context.Background(), sequenceSender{results: []SendResult{ok, cut}}, evenTrace(2, 1), ReplayOptions{Arm: ArmShared})
+	var buf bytes.Buffer
+	if err := WriteRawRows(&buf, rows); err != nil {
+		t.Fatal(err)
+	}
+	back, err := ReadRawRows(&buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := Summarize(ArmShared, back)
+	if s.TruncatedStreams != 1 || s.Failed != 1 {
+		t.Errorf("truncated %d, failed %d; want 1, 1", s.TruncatedStreams, s.Failed)
+	}
+	if !strings.Contains(FormatReport([]ArmSummary{s}, nil, 0), "1 stream(s) ended without [DONE]") {
+		t.Error("the report does not name the truncation the sender recorded")
+	}
+}
+
+// sequenceSender returns its results in order, stamped on the scheduler's clock.
+type sequenceSender struct{ results []SendResult }
+
+func (s sequenceSender) Send(_ context.Context, row TraceRow, sendUnixNanos int64) SendResult {
+	out := s.results[row.Index%len(s.results)]
+	out.FirstTokenUnixNanos = sendUnixNanos + 1
+	out.EndUnixNanos = sendUnixNanos + 2
+	return out
+}
