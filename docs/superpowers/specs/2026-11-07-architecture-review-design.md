@@ -53,7 +53,7 @@ A paid run is reserved for a demonstration with clear interview value, short and
 | A9 enforced default (12) | `config/default` includes the webhooks, or `make deploy` refuses without them | rendered-manifest test |
 | A10 metrics cardinality (13) | Retire series of deleted backends/tenants; keep tenant labels off histograms or behind a bounded class label | unit test on the registry after deletions |
 
-### B. The production profile (`config/overlays/production`), proven on kind
+### B. The production profile (a kustomize overlay to be added beside `config/default`), proven on kind
 
 | Component | lab | production | Free proof on kind |
 |---|---|---|---|
