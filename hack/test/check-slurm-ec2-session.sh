@@ -99,8 +99,9 @@ scene() {
   LT_H=$(date -u -d '-20 sec' +%Y-%m-%dT%H:%M:%S+00:00)
   LT_G=$(date -u -d '-10 sec' +%Y-%m-%dT%H:%M:%S+00:00)
   put dh "$LT_H	$HAMI	172.31.0.10"
-  put d1 "$LT_H	$GAMI	172.31.0.11"
-  put d2 "$LT_G	$GAMI	172.31.0.12"
+  # gpu1 launched last, so T0 is not simply the last instance read.
+  put d1 "$LT_G	$GAMI	172.31.0.11"
+  put d2 "$LT_H	$GAMI	172.31.0.12"
   put terminated "terminated"
   put maps '[{"DeviceName":"/dev/sda1","Ebs":{"DeleteOnTermination":true,"VolumeSize":8}},{"DeviceName":"/dev/sdb","VirtualName":"ephemeral0"}]'
   put lifecycle '{"Rules":[{"ID":"expire","Status":"Enabled","Filter":{"Prefix":""},"Expiration":{"Days":30},"AbortIncompleteMultipartUpload":{"DaysAfterInitiation":1}}]}'
@@ -285,11 +286,13 @@ scene; rule "ec2 run-instances*" "ih|capacity|ih|i1|i2" "0|1|0|0|0"; base_rules;
 session "a zone that cannot hold all three"
 [ "$rc" = 3 ] && grep -q "terminated i-0head (head, ap-northeast-2a: the trio did not fit)" "$STUB/out/termination.txt" &&
   [ "$(grep -c '^ec2 run-instances' "$STUB/calls.log")" = 5 ] &&
+  awk '/^ec2 run-instances/{n++} /^ec2 terminate-instances .*i-0head/ && n==2 {ok=1} END{exit !ok}' "$STUB/calls.log" &&
   ok "the head launched in a zone short of a GPU is terminated before the next zone takes all three" ||
   bad "a short zone: exit $rc, $(paste -sd';' "$STUB/out/termination.txt" 2>&1), $(grep -c '^ec2 run-instances' "$STUB/calls.log") launches"
 scene; rule "ec2 run-instances*" "ih|denied" "0|1"; base_rules
 session "a launch refused for another reason"
 [ "$rc" != 0 ] && [[ "$out" == *"refused for a reason that is not capacity"* ]] && grep -q "^ec2 terminate-instances .*i-0head" "$STUB/calls.log" &&
+  [ "$(grep -c '^ec2 run-instances' "$STUB/calls.log")" = 2 ] &&
   ok "a refusal that is not capacity stops the session and terminates what was launched" || bad "a non-capacity refusal: exit $rc, $(tail -2 <<<"$out")"
 scene; put other "$LT_G	ami-0other	172.31.0.12"; rule "ec2 describe-instances*--instance-ids i-0gpu2*LaunchTime*" other; base_rules; void_evidence
 session "an instance running another image"
@@ -298,7 +301,7 @@ session "an instance running another image"
   bad "another image: exit $rc, $(grep -c '^ec2 terminate-instances' "$STUB/calls.log") terminations"
 scene; put running "running"; rule "ec2 describe-instances*State.Name*" running; base_rules; void_evidence
 session "termination not confirmed"
-[ "$rc" != 0 ] && grep -qx "termination=unconfirmed" "$STUB/out/verdict.txt" && ok "an unconfirmed termination fails the session and is recorded" ||
+[ "$rc" = 1 ] && grep -qx "termination=unconfirmed" "$STUB/out/verdict.txt" && ok "an unconfirmed termination fails the session with status 1 and is recorded" ||
   bad "an unconfirmed termination: exit $rc, $(tail -1 "$STUB/out/verdict.txt" 2>&1)"
 scene; base_rules; echo "ok" >"$STUB/fixtures/DONE"
 session "no evidence came back"

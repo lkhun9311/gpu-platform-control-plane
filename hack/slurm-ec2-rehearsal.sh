@@ -87,7 +87,12 @@ done
 say "DONE: $(cat "$FAKES3/$PREFIX/DONE")"
 cp "$FAKES3/$PREFIX/DONE" "$OUT/DONE"
 for k in log-head.txt log-gpu1.txt log-gpu2.txt; do cp "$FAKES3/$PREFIX/$k" "$OUT/" 2>>"$OUT/copy-errors.txt"; done
-tar -xzf "$FAKES3/$PREFIX/evidence.tgz" -C "$OUT" || fail "the evidence archive did not unpack"
+# The archive evidence.latest names, checked against its digest, as the paid runner does.
+n=$(sed -n 's/^n=\([0-9]*\) .*/\1/p' "$FAKES3/$PREFIX/evidence.latest")
+want=$(sed -n 's/.*sha256=\([0-9a-f]*\).*/\1/p' "$FAKES3/$PREFIX/evidence.latest")
+[ -n "$n" ] && [ "$want" = "$(sha256sum "$FAKES3/$PREFIX/evidence-$n.tgz" | cut -d' ' -f1)" ] || fail "evidence.latest does not name a verified archive"
+cp "$FAKES3/$PREFIX/evidence.latest" "$OUT/"
+tar -xzf "$FAKES3/$PREFIX/evidence-$n.tgz" -C "$OUT" || fail "the evidence archive did not unpack"
 python3 hack/slurm-ec2/score.py "$OUT/evidence" "$OUT/verdict.json" | tee "$OUT/verdict.txt"
 [ "${PIPESTATUS[0]}" = 0 ] || fail "the scorer failed"
 rm -rf "$FAKES3"
