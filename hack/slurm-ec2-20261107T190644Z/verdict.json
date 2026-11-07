@@ -1,0 +1,438 @@
+{
+  "b1": [
+    {
+      "readings": {
+        "alloc": {
+          "cuda_sum": 523776.0,
+          "cvd_after": "0",
+          "cvd_before": "0",
+          "device_count": 1,
+          "host": "gpu1",
+          "job": "3",
+          "nvidia_smi_err": "",
+          "nvidia_smi_lines": [
+            "GPU 0: NVIDIA A10G (UUID: GPU-8e6b17ee-9719-afde-4b41-932e34fb4301)"
+          ],
+          "nvidia_smi_rc": 0,
+          "open_nvidia0": "ok"
+        },
+        "node": "gpu1",
+        "unalloc": {
+          "cuda_error": "RuntimeError: No CUDA GPUs are available",
+          "cvd_after": null,
+          "cvd_before": null,
+          "device_count": 0,
+          "host": "gpu1",
+          "job": "4",
+          "nvidia_smi_err": "",
+          "nvidia_smi_lines": [
+            "No devices found."
+          ],
+          "nvidia_smi_rc": 0,
+          "open_nvidia0": "EPERM"
+        }
+      },
+      "reasons": [],
+      "rep": 1,
+      "rules": [
+        {
+          "held": true,
+          "rule": "B1a: nvidia-smi lists exactly one A10G"
+        },
+        {
+          "held": true,
+          "rule": "B1a: a CUDA op returns the expected sum"
+        },
+        {
+          "held": true,
+          "rule": "B1b: CUDA sees no device"
+        },
+        {
+          "held": true,
+          "rule": "B1b: opening /dev/nvidia0 fails with EPERM"
+        }
+      ],
+      "status": "observed"
+    },
+    {
+      "readings": {
+        "alloc": {
+          "cuda_sum": 523776.0,
+          "cvd_after": "0",
+          "cvd_before": "0",
+          "device_count": 1,
+          "host": "gpu1",
+          "job": "5",
+          "nvidia_smi_err": "",
+          "nvidia_smi_lines": [
+            "GPU 0: NVIDIA A10G (UUID: GPU-8e6b17ee-9719-afde-4b41-932e34fb4301)"
+          ],
+          "nvidia_smi_rc": 0,
+          "open_nvidia0": "ok"
+        },
+        "node": "gpu1",
+        "unalloc": {
+          "cuda_error": "RuntimeError: No CUDA GPUs are available",
+          "cvd_after": null,
+          "cvd_before": null,
+          "device_count": 0,
+          "host": "gpu1",
+          "job": "6",
+          "nvidia_smi_err": "",
+          "nvidia_smi_lines": [
+            "No devices found."
+          ],
+          "nvidia_smi_rc": 0,
+          "open_nvidia0": "EPERM"
+        }
+      },
+      "reasons": [],
+      "rep": 2,
+      "rules": [
+        {
+          "held": true,
+          "rule": "B1a: nvidia-smi lists exactly one A10G"
+        },
+        {
+          "held": true,
+          "rule": "B1a: a CUDA op returns the expected sum"
+        },
+        {
+          "held": true,
+          "rule": "B1b: CUDA sees no device"
+        },
+        {
+          "held": true,
+          "rule": "B1b: opening /dev/nvidia0 fails with EPERM"
+        }
+      ],
+      "status": "observed"
+    },
+    {
+      "readings": {
+        "alloc": {
+          "cuda_sum": 523776.0,
+          "cvd_after": "0",
+          "cvd_before": "0",
+          "device_count": 1,
+          "host": "gpu1",
+          "job": "7",
+          "nvidia_smi_err": "",
+          "nvidia_smi_lines": [
+            "GPU 0: NVIDIA A10G (UUID: GPU-8e6b17ee-9719-afde-4b41-932e34fb4301)"
+          ],
+          "nvidia_smi_rc": 0,
+          "open_nvidia0": "ok"
+        },
+        "node": "gpu1",
+        "unalloc": {
+          "cuda_error": "RuntimeError: No CUDA GPUs are available",
+          "cvd_after": null,
+          "cvd_before": null,
+          "device_count": 0,
+          "host": "gpu1",
+          "job": "8",
+          "nvidia_smi_err": "",
+          "nvidia_smi_lines": [
+            "No devices found."
+          ],
+          "nvidia_smi_rc": 0,
+          "open_nvidia0": "EPERM"
+        }
+      },
+      "reasons": [],
+      "rep": 3,
+      "rules": [
+        {
+          "held": true,
+          "rule": "B1a: nvidia-smi lists exactly one A10G"
+        },
+        {
+          "held": true,
+          "rule": "B1a: a CUDA op returns the expected sum"
+        },
+        {
+          "held": true,
+          "rule": "B1b: CUDA sees no device"
+        },
+        {
+          "held": true,
+          "rule": "B1b: opening /dev/nvidia0 fails with EPERM"
+        }
+      ],
+      "status": "observed"
+    },
+    {
+      "readings": {
+        "alloc": {
+          "cuda_sum": 523776.0,
+          "cvd_after": "0",
+          "cvd_before": "0",
+          "device_count": 1,
+          "host": "gpu2",
+          "job": "9",
+          "nvidia_smi_err": "",
+          "nvidia_smi_lines": [
+            "GPU 0: NVIDIA A10G (UUID: GPU-7d024ea6-b317-1f1f-d7ac-4d985540f4c1)"
+          ],
+          "nvidia_smi_rc": 0,
+          "open_nvidia0": "ok"
+        },
+        "node": "gpu2",
+        "unalloc": {
+          "cuda_error": "RuntimeError: No CUDA GPUs are available",
+          "cvd_after": null,
+          "cvd_before": null,
+          "device_count": 0,
+          "host": "gpu2",
+          "job": "10",
+          "nvidia_smi_err": "",
+          "nvidia_smi_lines": [
+            "No devices found."
+          ],
+          "nvidia_smi_rc": 0,
+          "open_nvidia0": "EPERM"
+        }
+      },
+      "reasons": [],
+      "rep": 4,
+      "rules": [
+        {
+          "held": true,
+          "rule": "B1a: nvidia-smi lists exactly one A10G"
+        },
+        {
+          "held": true,
+          "rule": "B1a: a CUDA op returns the expected sum"
+        },
+        {
+          "held": true,
+          "rule": "B1b: CUDA sees no device"
+        },
+        {
+          "held": true,
+          "rule": "B1b: opening /dev/nvidia0 fails with EPERM"
+        }
+      ],
+      "status": "observed"
+    }
+  ],
+  "b2": [
+    {
+      "readings": {
+        "job": "13",
+        "oom_kill": 1,
+        "slurmd_pid_after": "4229",
+        "slurmd_pid_before": "4229",
+        "step_state": "OUT_OF_MEMORY"
+      },
+      "reasons": [],
+      "rep": 1,
+      "rules": [
+        {
+          "held": true,
+          "rule": "B2: sacct reports the step OUT_OF_MEMORY"
+        },
+        {
+          "held": true,
+          "rule": "B2: the job's memory.events oom_kill is at least 1"
+        },
+        {
+          "held": true,
+          "rule": "B2: the kernel's OOM report names this job's cgroup"
+        },
+        {
+          "held": true,
+          "rule": "B2: slurmd's MainPID is the one before B2"
+        },
+        {
+          "held": true,
+          "rule": "B2: the node is not DOWN"
+        }
+      ],
+      "status": "observed"
+    },
+    {
+      "readings": {
+        "job": "17",
+        "oom_kill": 1,
+        "slurmd_pid_after": "4229",
+        "slurmd_pid_before": "4229",
+        "step_state": "OUT_OF_MEMORY"
+      },
+      "reasons": [],
+      "rep": 2,
+      "rules": [
+        {
+          "held": true,
+          "rule": "B2: sacct reports the step OUT_OF_MEMORY"
+        },
+        {
+          "held": true,
+          "rule": "B2: the job's memory.events oom_kill is at least 1"
+        },
+        {
+          "held": true,
+          "rule": "B2: the kernel's OOM report names this job's cgroup"
+        },
+        {
+          "held": true,
+          "rule": "B2: slurmd's MainPID is the one before B2"
+        },
+        {
+          "held": true,
+          "rule": "B2: the node is not DOWN"
+        }
+      ],
+      "status": "observed"
+    },
+    {
+      "readings": {
+        "job": "21",
+        "oom_kill": 1,
+        "slurmd_pid_after": "4229",
+        "slurmd_pid_before": "4229",
+        "step_state": "OUT_OF_MEMORY"
+      },
+      "reasons": [],
+      "rep": 3,
+      "rules": [
+        {
+          "held": true,
+          "rule": "B2: sacct reports the step OUT_OF_MEMORY"
+        },
+        {
+          "held": true,
+          "rule": "B2: the job's memory.events oom_kill is at least 1"
+        },
+        {
+          "held": true,
+          "rule": "B2: the kernel's OOM report names this job's cgroup"
+        },
+        {
+          "held": true,
+          "rule": "B2: slurmd's MainPID is the one before B2"
+        },
+        {
+          "held": true,
+          "rule": "B2: the node is not DOWN"
+        }
+      ],
+      "status": "observed"
+    }
+  ],
+  "b3": {
+    "a": {
+      "readings": {
+        "first": {
+          "end": 1794046700.0,
+          "start": 1794046640.0,
+          "state": "COMPLETED"
+        },
+        "reason_seen_after_s": 3.0,
+        "second": {
+          "end": 1794046761.0,
+          "start": 1794046700.0,
+          "state": "COMPLETED"
+        },
+        "start_gap_s": 0.0
+      },
+      "reasons": [],
+      "rules": [
+        {
+          "held": true,
+          "rule": "B3a: the second job is PENDING with reason AssocGrpGRES within 30 s of submission"
+        },
+        {
+          "held": true,
+          "rule": "B3a: the second job starts within 60 s of the first ending, and not before it"
+        },
+        {
+          "held": true,
+          "rule": "B3a: both jobs COMPLETED"
+        }
+      ],
+      "status": "observed"
+    },
+    "b": {
+      "readings": {
+        "first": {
+          "end": 1794046822.0,
+          "start": 1794046761.0,
+          "state": "COMPLETED"
+        },
+        "reason_seen_after_s": 0.0,
+        "second": {
+          "end": 1794046882.0,
+          "start": 1794046822.0,
+          "state": "COMPLETED"
+        },
+        "start_gap_s": 0.0
+      },
+      "reasons": [],
+      "rules": [
+        {
+          "held": true,
+          "rule": "B3b: the second job is PENDING with reason QOSMaxJobsPerUserLimit within 30 s of submission"
+        },
+        {
+          "held": true,
+          "rule": "B3b: the second job starts within 60 s of the first ending, and not before it"
+        },
+        {
+          "held": true,
+          "rule": "B3b: both jobs COMPLETED"
+        }
+      ],
+      "status": "observed"
+    }
+  },
+  "b4": {
+    "readings": {
+      "drain_after_s": 4.1,
+      "final_state": "COMPLETED",
+      "last_ckpt_attempt0": 35,
+      "max_abs_diff": "0.0",
+      "restarts": 1,
+      "resumed": {
+        "attempt": 1,
+        "device": "cuda",
+        "event": "start",
+        "first_step": 36,
+        "host": "gpu2",
+        "resumed_from": 35,
+        "t": 1794079469.81
+      }
+    },
+    "reasons": [],
+    "rules": [
+      {
+        "held": true,
+        "rule": "B4a: gpu1 is DRAIN with the Xid 79 reason within 30 s of the write"
+      },
+      {
+        "held": true,
+        "rule": "B4b: RestartCnt is 1"
+      },
+      {
+        "held": true,
+        "rule": "B4b: the second attempt ran on gpu2"
+      },
+      {
+        "held": true,
+        "rule": "B4c: the second attempt starts one step after the first attempt's last logged checkpoint"
+      },
+      {
+        "held": true,
+        "rule": "B4c: the job COMPLETED with step 60 logged once in the second attempt"
+      },
+      {
+        "held": true,
+        "rule": "B4d: the final parameters equal the reference run's"
+      }
+    ],
+    "status": "observed"
+  },
+  "complete": true,
+  "void": []
+}

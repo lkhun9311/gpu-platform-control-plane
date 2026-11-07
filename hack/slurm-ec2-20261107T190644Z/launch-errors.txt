@@ -1,0 +1,22 @@
+{
+    "TransitionDefaultMinimumObjectSize": "all_storage_classes_128K"
+}
+{
+    "Return": true,
+    "SecurityGroupRules": [
+        {
+            "SecurityGroupRuleId": "sgr-044cb3bcf33a1f0f4",
+            "GroupId": "sg-0a5dea0dcf25ad495",
+            "GroupOwnerId": "007635145730",
+            "IsEgress": false,
+            "IpProtocol": "-1",
+            "FromPort": -1,
+            "ToPort": -1,
+            "ReferencedGroupInfo": {
+                "GroupId": "sg-0a5dea0dcf25ad495",
+                "UserId": "007635145730"
+            },
+            "SecurityGroupRuleArn": "arn:aws:ec2:ap-northeast-2:007635145730:security-group-rule/sgr-044cb3bcf33a1f0f4"
+        }
+    ]
+}

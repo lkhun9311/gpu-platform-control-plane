@@ -1,0 +1,73 @@
+#!/usr/bin/env python3
+"""The rehearsal's AWS CLI: the S3 calls the instance side makes, against /fakes3; anything else fails loudly."""
+import os
+import shutil
+import sys
+
+ROOT = "/fakes3"
+args = []
+skip = False
+for a in sys.argv[1:]:
+    if skip:
+        skip = False
+        continue
+    if a in ("--cli-connect-timeout", "--cli-read-timeout"):
+        skip = True
+        continue
+    if a != "--only-show-errors":
+        args.append(a)
+
+
+def path(url):
+    # s3://BUCKET/KEY -> /fakes3/KEY; one bucket per rehearsal, so the bucket name is not part of the path.
+    return os.path.join(ROOT, url[len("s3://"):].split("/", 1)[1])
+
+
+if args[:2] == ["s3", "cp"] and len(args) == 4:
+    src, dst = args[2], args[3]
+    if src.startswith("s3://"):
+        p = path(src)
+        if not os.path.isfile(p):
+            sys.stderr.write(f"fatal error: An error occurred (404) when calling the HeadObject operation: {src}\n")
+            sys.exit(1)
+        if dst == "-":
+            sys.stdout.buffer.write(open(p, "rb").read())
+        else:
+            shutil.copyfile(p, dst)
+        sys.exit(0)
+    if dst.startswith("s3://"):
+        p = path(dst)
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        shutil.copyfile(src, p + ".tmp")
+        os.rename(p + ".tmp", p)
+        sys.exit(0)
+def opt(name):
+    return args[args.index(name) + 1] if name in args else None
+
+
+if args[:2] == ["s3api", "put-object"]:
+    p = path(f"s3://{opt('--bucket')}/{opt('--key')}")
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    shutil.copyfile(opt("--body"), p + ".tmp")
+    os.rename(p + ".tmp", p)
+    print('{"ETag": "stub"}')
+    sys.exit(0)
+if args[:2] == ["s3api", "get-object"]:
+    p = path(f"s3://{opt('--bucket')}/{opt('--key')}")
+    if not os.path.isfile(p):
+        sys.stderr.write("An error occurred (NoSuchKey) when calling the GetObject operation: The specified key does not exist.\n")
+        sys.exit(254)
+    shutil.copyfile(p, [a for a in args[2:] if not a.startswith("--") and a not in (opt("--bucket"), opt("--key"))][-1])
+    print('{"ContentLength": %d}' % os.path.getsize(p))
+    sys.exit(0)
+if args[:2] == ["s3api", "head-object"]:
+    bucket = args[args.index("--bucket") + 1]
+    key = args[args.index("--key") + 1]
+    p = path(f"s3://{bucket}/{key}")
+    if not os.path.isfile(p):
+        sys.exit(255)
+    if "--query" in args and args[args.index("--query") + 1] == "ContentLength":
+        print(os.path.getsize(p))
+    sys.exit(0)
+sys.stderr.write("rehearsal aws stub: unsupported call: " + " ".join(sys.argv[1:]) + "\n")
+sys.exit(2)

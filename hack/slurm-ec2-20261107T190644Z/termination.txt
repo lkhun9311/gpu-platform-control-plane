@@ -1,0 +1,40 @@
+{
+    "TerminatingInstances": [
+        {
+            "InstanceId": "i-0c18d4dc0885e9ac1",
+            "CurrentState": {
+                "Code": 32,
+                "Name": "shutting-down"
+            },
+            "PreviousState": {
+                "Code": 32,
+                "Name": "shutting-down"
+            }
+        },
+        {
+            "InstanceId": "i-0a42e619a551a1cd5",
+            "CurrentState": {
+                "Code": 32,
+                "Name": "shutting-down"
+            },
+            "PreviousState": {
+                "Code": 32,
+                "Name": "shutting-down"
+            }
+        },
+        {
+            "InstanceId": "i-04f78c68d8d0dc89d",
+            "CurrentState": {
+                "Code": 32,
+                "Name": "shutting-down"
+            },
+            "PreviousState": {
+                "Code": 32,
+                "Name": "shutting-down"
+            }
+        }
+    ]
+}
+terminated i-0c18d4dc0885e9ac1 (head)
+terminated i-0a42e619a551a1cd5 (gpu1)
+terminated i-04f78c68d8d0dc89d (gpu2)
