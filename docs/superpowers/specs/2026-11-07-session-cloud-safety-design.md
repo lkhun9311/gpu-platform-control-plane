@@ -24,7 +24,7 @@ So a laptop lost during a restart stage leaves about $0.25/h billing until someb
 
 ### The lease
 
-Before the session creates anything, and before its watchdog is armed (so that a refusal here leaves no watchdog to destroy the shared state's cluster), it refuses a cluster that already exists under its name, then writes a Parameter Store String `/gpu-platform/session-lease/<cluster>` holding JSON:
+Before the session creates anything, and before its watchdog is armed (so that a refusal here leaves no watchdog to destroy the shared state's cluster), it refuses when **any** EKS cluster exists in the Region (every session of every cluster name builds into the one `cluster/terraform.tfstate`, so another cluster is one this session would replace or the reaper would delete), then writes a Parameter Store String `/gpu-platform/session-lease/<cluster>` holding JSON:
 
 ```json
 {"cluster": "gpu-platform", "session": "<EXDIR basename>", "deadline": "2026-11-07T15:55:00Z",
@@ -43,7 +43,7 @@ Before the session creates anything, and before its watchdog is armed (so that a
 `infra/aws/bootstrap/reaper/reaper.py`, run every five minutes by an EventBridge rule, with its own role (so it needs none of the laptop's credentials), one concurrent execution, and a 120 s timeout. Each run reads every lease, then:
 
 - **before both deadlines:** nothing.
-- **after `gpu_deadline` (P2):** each named node group carrying the project tag is set to `minSize 0, desiredSize 0` (an update already in progress is retried next run), and counted as done only when its Auto Scaling groups hold no instance. "Accepted" is not "done": the run that sees desired 0 with an instance left reports it pending and looks again five minutes later. The lease stays; nothing is deleted.
+- **after `gpu_deadline` (P2):** each named node group carrying the project tag is set to `minSize 0, desiredSize 0` (an update already in progress is retried next run), and counted as done only when its Auto Scaling groups hold no instance. "Accepted" is not "done": the run that sees desired 0 with an instance left reports it pending and looks again five minutes later; an instance still there 15 minutes after the deadline (scale-in protection, a stuck termination) is terminated through its Auto Scaling group without changing the group's size. The lease stays; nothing is deleted.
 - **after `deadline` (P1):** a step per run, in dependency order, asking and never waiting:
   1. every node group of the cluster is deleted; nothing else is touched while one exists, because the NAT carries the nodes' traffic and EFS their checkpoints;
   2. then the cluster;
@@ -51,9 +51,10 @@ Before the session creates anything, and before its watchdog is armed (so that a
   4. then the NAT gateways of the session's VPC that carry the project tag;
   5. then the addresses, found by their own tags (project, and `Name` exactly `<cluster>-vpc-<zone>` for each zone of the Region, the VPC module's naming; never a prefix, which would match a cluster named `<cluster>-vpc-…`), so one allocated by an apply that died before its gateway, or one whose deleted gateway has aged out of the API, is found too; none is released while a gateway of the session is still deleting or the address is associated;
   6. once the cluster is gone (it writes to the one and decrypts with the other while being deleted): the log group `/aws/eks/<cluster>/cluster`, and the cluster's key (the EKS module creates one per cluster, at $1 a month), scheduled for deletion in 7 days. The key is found by its alias `alias/eks/<cluster>`, or, when an interrupted apply or destroy left it without one, by the module's exact description `<cluster> cluster encryption key` among the account's customer keys; both require the project tag.
-  A refused EFS step does not stop steps 4 and 5: the network is asked for, then the EFS failure fails the run. The state bucket's key also carries the project tag; the role denies scheduling it by ARN, whatever the code asks.
+  Every deletion is preceded by a read of the lease, and a lease that is no longer the one the run read stops the run's work on it there. A deletion that is refused (one node group, the EFS step, the network step, the log group or key) does not stop the others; the refusals fail the run together, the lease stays, and the next run tries again. A key whose description cannot be read (another application's key policy) is skipped, not allowed to end the search.
+- **Bounded calls.** Each client call times out after 5 s to connect and 15 s to read, with two attempts; a lease is not started with less than 30 s left of the invocation's 120 s, and is reported as a failure so the heartbeat is not written over unfinished work; the leases are taken in a different order each run so one slow lease cannot starve the same others every time. The state bucket's key also carries the project tag; the role denies scheduling it by ARN, whatever the code asks.
   A released address is counted as left until a later run no longer lists it; the lease is removed when a run finds nothing left.
-- **A lease replaced during a run.** Before reaping, and again immediately before removing the lease, the run reads the lease and acts only if its `session` and deadline are still the ones it read: a session whose verified teardown removed its lease may be followed by another of the same cluster name, and a run still holding the old copy must not reap for it or remove the new lease. Parameter Store has no conditional delete, so the window left is the duration of the call itself.
+- **A lease replaced during a run.** Before reaping, before every deletion, and again immediately before removing the lease, the run reads the lease and acts only if its `session` and deadline are still the ones it read: a session whose verified teardown removed its lease may be followed by another of the same cluster name, and a run still holding the old copy must not reap for it or remove the new lease. Parameter Store has no conditional delete, so the window left is the duration of the call itself.
 - **A renewal during a run.** The GPU phase reads the lease again immediately before each scale-down and skips a group whose lease has been renewed; and a session that renews a GPU deadline that has already passed waits 130 s, longer than a reaper run's 120 s timeout, before it scales the group up, so no run that read the expired copy is still going.
 
 **Why API deletion and not `terraform destroy`.** A Lambda running terraform would need the state bucket, its KMS key, the provider plugins in a layer, and a role able to destroy everything the cluster root creates (IAM roles and policies included); it would race the laptop's own destroy for the state lock; and a failure halfway leaves a state that no longer matches the account. Deleting the five billing resources by API needs a role scoped to delete only resources carrying the project tag, and leaves the free ones (VPC, subnets, route tables, security groups, IAM roles, the KMS key of the cluster) for the next `terraform apply` or `destroy` to reconcile; terraform reads a deleted resource as gone and plans to recreate it.
@@ -158,3 +159,18 @@ Five findings; all confirmed by Claude against the code.
 | 5 | deleting a mount target needs `ec2:DeleteNetworkInterface`, which the role lacked, and a refused EFS step stopped the NAT and address steps | the permission is granted (the interface carries no tag to scope it by; the reaper never calls it directly) and a refused EFS step no longer stops the network steps |
 
 Accepted residual: whether EFS's service-linked role makes the interface permission unnecessary, and whether IAM evaluates every grant as written, are shown only by the apply-time exercise, not here.
+
+### Round 3 (the same question, after round 2's fixes)
+
+Six findings; all confirmed by Claude against the code, all fixed.
+
+| # | finding | change |
+|---|---|---|
+| 1 | the lease was checked before a step but not before each deletion within it, so a run outliving its session could delete what a new session of the name had begun (reproduced) | the lease is read before every deletion; a change stops the run's work on that lease |
+| 2 | every cluster name shares `cluster/terraform.tfstate`, so "name another" after the existing-cluster refusal would replace the existing cluster from another workstation | a session refuses while any EKS cluster exists in the Region |
+| 3 | one refused node-group deletion ended the step before the others (reproduced) | each group's deletion is isolated; the refusals fail the run after all were asked |
+| 4 | GPU instances held by scale-in protection stayed billing at desired 0 indefinitely | terminated through their group 15 minutes after the GPU deadline |
+| 5 | one undescribable key in the account stopped the search for the session's key (reproduced) | the alias is used alone when it resolves; in the fallback a key that cannot be described is skipped |
+| 6 | default client timeouts (60 s) could spend the whole invocation on one stalled call | bounded call timeouts, a per-lease time floor reported as failure, and a varying lease order |
+
+Accepted residuals, each bounded: the window between a lease read and the deletion that follows it (Parameter Store has no conditional write, so a session that rebuilds the same name within that one call's duration is not excluded); the straggler termination is matched by the `eks:cluster-name` tag EKS puts on its Auto Scaling groups, since node-group tags are not propagated there, and the code names only the leased cluster's leased groups; `ec2:DeleteNetworkInterface` is not scoped by tag (round 2).
