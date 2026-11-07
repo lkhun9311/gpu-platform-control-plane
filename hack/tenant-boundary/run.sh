@@ -19,7 +19,6 @@ NODE_IMAGE=kindest/node:v1.37.0@sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e
 # a pinned manifest; the hash is of the file as fetched on 2026-11-07.
 CALICO_VERSION=v3.33.0
 CALICO_SHA256=2de8f47595fb9c41b3f47d7b767a1f8e72ecf84057af834738ff12689a234da5
-PROBE_IMAGE=busybox:1.37.0
 PROBE_DIGEST=sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e
 PLATFORM_NS=gpu-platform-control-plane-system
 KUSTOMIZE=${KUSTOMIZE:-$REPO/bin/kustomize}
@@ -72,7 +71,7 @@ json.dump({
   "cni": "calico",
   "calico_version": "$CALICO_VERSION",
   "calico_manifest_sha256": "$CALICO_SHA256",
-  "probe_image": "$PROBE_IMAGE",
+  "probe_image": "busybox:1.37.0",
   "probe_digest": "$PROBE_DIGEST",
   "kind": "$(kind version)",
   "kubectl": "$(kubectl version --client | head -1)",
@@ -100,9 +99,9 @@ k -n kube-system rollout status ds/calico-node --timeout=600s >>"$LOG" 2>&1 || d
 k -n kube-system rollout status deploy/calico-kube-controllers --timeout=300s >>"$LOG" 2>&1 || die "calico-kube-controllers"
 k wait --for=condition=Ready node --all --timeout=300s >>"$LOG" 2>&1 || die "nodes Ready"
 k -n kube-system rollout status deploy/coredns --timeout=300s >>"$LOG" 2>&1 || die "coredns"
-[ "$(docker image inspect "$PROBE_IMAGE" --format '{{index .RepoDigests 0}}')" = "busybox@$PROBE_DIGEST" ] ||
-  die "local $PROBE_IMAGE is not $PROBE_DIGEST"
-kind load docker-image "$PROBE_IMAGE" --name "$CLUSTER" >>"$LOG" 2>&1 || die "load probe image"
+# The nodes pull the probe by digest: `kind load` of a multi-platform image fails on the attestation manifests a
+# local save carries, and a digest is the pin either way.
+PROBE_REF=busybox@$PROBE_DIGEST
 
 echo "== platform" | tee -a "$LOG"
 k apply --server-side -f "$REPO/config/crd/bases" >>"$LOG" 2>&1 || die "platform CRDs"
@@ -140,7 +139,7 @@ spec:
   automountServiceAccountToken: false
   containers:
     - name: c
-      image: $PROBE_IMAGE
+      image: $PROBE_REF
       command: ["sh", "-c", "mkdir -p /www && echo $name > /www/index.html && exec httpd -f -p $port -h /www"]
 EOF
 }
@@ -178,8 +177,8 @@ EOF
 FIN=mltrainingjob.platform.lkhun9311.github.io/finalizer
 rec own-namespace-job sh -c "$(declare -f job); job train-a job-a | kubectl --context $CTX --as=user-train-a --as-group=tenant:train-a create -f -"
 rec other-namespace-job sh -c "$(declare -f job); job serve-a job-x | kubectl --context $CTX --as=user-train-a --as-group=tenant:train-a create -f -"
-rec create-pod as_tenant train-a -n train-a run direct --image="$PROBE_IMAGE" --restart=Never
-rec create-job as_tenant train-a -n train-a create job direct --image="$PROBE_IMAGE"
+rec create-pod as_tenant train-a -n train-a run direct --image="$PROBE_REF" --restart=Never
+rec create-job as_tenant train-a -n train-a create job direct --image="$PROBE_REF"
 rec create-resourcequota as_tenant train-a -n train-a create quota mine --hard=pods=1000
 rec create-localqueue sh -c "printf '%s\n' 'apiVersion: kueue.x-k8s.io/v1beta1' 'kind: LocalQueue' 'metadata: {name: mine, namespace: train-a}' 'spec: {clusterQueue: gpu-serve-a}' | kubectl --context $CTX --as=user-train-a --as-group=tenant:train-a create -f -"
 rec create-networkpolicy sh -c "printf '%s\n' 'apiVersion: networking.k8s.io/v1' 'kind: NetworkPolicy' 'metadata: {name: open, namespace: train-a}' 'spec: {podSelector: {}, ingress: [{}], egress: [{}]}' | kubectl --context $CTX --as=user-train-a --as-group=tenant:train-a create -f -"
@@ -194,7 +193,7 @@ printf '%s\n' 'apiVersion: platform.lkhun9311.github.io/v1' 'kind: GPUQuotaPolic
 # patch, not annotate or label: those read the object first, and a refused read is not the refused write under test.
 rec tenant-raises-tier as_tenant train-a patch gpuquotapolicy train-a --type=merge -p '{"metadata":{"annotations":{"platform.lkhun9311.github.io/tier":"premium"}}}'
 rec tenant-labels-namespace as_tenant train-a patch namespace train-a --type=merge -p '{"metadata":{"labels":{"pod-security.kubernetes.io/enforce":"privileged"}}}'
-rec privileged-pod sh -c "printf '%s\n' 'apiVersion: v1' 'kind: Pod' 'metadata: {name: priv, namespace: train-a}' 'spec: {containers: [{name: c, image: $PROBE_IMAGE, securityContext: {privileged: true}}]}' | kubectl --context $CTX create -f -"
+rec privileged-pod sh -c "printf '%s\n' 'apiVersion: v1' 'kind: Pod' 'metadata: {name: priv, namespace: train-a}' 'spec: {containers: [{name: c, image: $PROBE_REF, securityContext: {privileged: true}}]}' | kubectl --context $CTX create -f -"
 
 echo "== network checks" | tee -a "$LOG"
 get() { local ns=$1 p=$2 url=$3; k -n "$ns" exec "$p" -- wget -T 3 -q -O- "$url"; }
