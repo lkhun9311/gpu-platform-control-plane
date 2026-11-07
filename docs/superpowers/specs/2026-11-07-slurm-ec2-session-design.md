@@ -22,7 +22,10 @@ Three EC2 Spot instances in one zone of `ap-northeast-2`, account `gpu-lab` (007
 | role | type | AMI | Slurm role |
 |---|---|---|---|
 | `head` | `t3.medium` | Canonical Ubuntu 24.04 (`ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-amd64-server-*`, owner 099720109477), pinned by ID | `slurmctld` (configless server), `slurmdbd` with MariaDB, NFS server of `/shared`, the procedure |
-| `gpu1`, `gpu2` | `g5.xlarge` (1 A10G each) | AWS Deep Learning Base OSS Nvidia Driver GPU AMI (Ubuntu 24.04), pinned by ID | `slurmd`, configless from `head`, `/shared` over NFS |
+| `gpu1`, `gpu2` | `g5.xlarge` (1 A10G each) | AWS Deep Learning Base OSS Nvidia Driver GPU AMI (Ubuntu 24.04), pinned by ID | `slurmd` under systemd with `Restart=on-failure`, configless from `head`; `/shared` over NFS, mounted `vers=4.1,proto=tcp,hard,timeo=600,retrans=2,lookupcache=positive` |
+
+`/shared` carries data only: the venv, the GPU signal files, the checkpoints and the evidence.
+The bring-up and end signals go over the run's S3 prefix (see "The first paid attempt, and what it changed").
 
 The Deep Learning AMI lists only GPU instance families as supported, which is why `head` runs Canonical's image; that image has no AWS CLI, so its user-data installs it from snap.
 Every Slurm package is installed from the Ubuntu 24.04 archive at its exact version (`slurmctld`, `slurmd`, `slurmdbd`, `slurm-client` `23.11.4-1.2ubuntu5`, `munge` `0.5.15-4ubuntu0.1`, `mariadb-server` `1:10.11.14-0ubuntu0.24.04.1`), so a rebuild either reproduces this or fails at install.
@@ -78,6 +81,7 @@ Holds when all of: `sacct` reports the step `<id>.0` `OUT_OF_MEMORY`; the job's 
 
 - A worker whose `nvidia-smi` does not list exactly one A10G, or Slurm versions that differ between nodes, or `scontrol show config` not showing `CgroupPlugin = cgroup/v2`: every check VOID.
 - `/shared` not written and read back from each worker before the checks: every check VOID.
+- A worker that cannot read `head`'s NFS token through its mount within 60 s stops before `slurmd` starts, so the bring-up misses its deadline and every check is NOTRUN; a worker token `head` cannot read on its own disk once both nodes are idle makes every check VOID.
 - Bring-up not complete by its deadline: every check NOTRUN, and the session records why.
 - A check that cannot reach its deadline is NOTRUN, never shortened.
 - Every time a rule compares is read on `head`: its own polls and `slurmctld`'s accounting. No worker clock enters a rule, so no clock offset is checked.
@@ -121,8 +125,41 @@ Not: Slurm 24.x or a source build, scale, fair-share or backfill under load, `sl
 
 `hack/slurm-ec2-rehearsal.sh` runs the same user-data, rendered by the same function (`hack/lib/slurm-ec2.sh`), in three local systemd containers named `head`, `gpu1` and `gpu2`, against an S3 stub, and scores what comes back with the same scorer; `hack/slurm-ec2/check_rehearsal.py` states what it must show.
 What differs is set only by `SLURMEC2_REHEARSAL=1` in the instance side's environment: no GPU (a device node with no driver and an `nvidia-smi` stand-in, so B1a cannot hold and B1b is INVALID, and the trainer runs on the CPU), no NFS (`/shared` is one Docker volume, because the workstation has no `nfsd` module), no shutdown, and S3 is a directory.
-So the rehearsal shows the packages, the configuration, accounting, configless `slurmd`, cgroup v2 memory and device confinement, the health check, the drain and the requeue; it does not show the NFS export, the GPU, or EC2.
-`hack/test/check-slurm-ec2-session.sh` runs the paid runner against a stub `aws` for every refusal, the purchase, the zone fallback and the end.
+So the rehearsal shows the packages, the configuration, accounting, configless `slurmd`, cgroup v2 memory and device confinement, the health check, the drain and the requeue, and the S3 signal protocol against the stub; it does not show the NFS export, the GPU, or EC2.
+It stays the fast gate: a change to the instance side is rehearsed here first.
+`hack/test/check-slurm-ec2-session.sh` runs the paid runner against a stub `aws` for every refusal, the purchase, the zone fallback and the end; `hack/test/check-slurm-ec2-signals.sh` runs the signal protocol, the bounded retry and the mount options against a fake CLI.
+
+## The t3 real-NFS rehearsal
+
+The first paid attempt failed on the one path the free rehearsal never takes, NFS between separate kernels.
+`SLURMEC2_MODE=nfs-rehearsal hack/slurm-ec2-session.sh` buys three `t3.medium` Spot instances with the session's own purchase, guards and teardown: `head` on its Ubuntu image, the workers on the session's pinned Deep Learning image (it launches on `t3`; a dry run was accepted on 2026-11-08), so the NFS client is the one that failed.
+The mode changes only what the runner sets in one place: no G and VT quota is read, the instances stop at T0 + 2,400 s (boot + 2,700 s at the latest), the termination wait ends at T0 + 2,550 s, the bring-up ends at T0 + 1,200 s, and only B4 runs, with 1,024 MiB jobs on the CPU.
+The workers carry the GPU stand-in, and every instance runs `hack/slurm-ec2/nfs-probe.sh` first: the first run's barrier, on its own export with the first run's mount options (`hard,timeo=600`, version negotiated), polled before `head` creates the marker, as an attempt to reproduce the failure.
+Its cap is $1: three `t3.medium` at the $0.06 cap and two 100 GB and one 30 GB gp3 volume (at $0.0912 a GB-month) for at most 50 minutes is $0.17; at the Spot prices read on 2026-11-08 ($0.015 to $0.018 an hour) it is about $0.07.
+It must show the NFS token head to worker and worker to head, the S3 signals, B4's signal replacement as each worker observed it, the `LATEST` handoff from `gpu1` to `gpu2`, and the shared venv imported on both workers.
+
+## The first paid attempt, and what it changed
+
+`hack/slurm-ec2-20261107T135822Z`, PR #534 at `a7714d2c`, T0 2026-11-07 14:02:16Z: every check NOTRUN, because the bring-up missed its deadline.
+`head` reached the line that touched `/shared/control/CONF_READY` about 21 minutes before the deadline, `slurmctld` came up and reported both nodes not responding, and both workers ended at 14:27:16Z with "head did not write CONF_READY", `slurmd` never started.
+Worker-to-head NFS worked: `head` read both workers' node lines and GPU signal files.
+The cause is not established: the `touch` was not checked, and no errno, effective mount option or stat was recorded on either side.
+The default negative-lookup cache (`acdirmax=60`) does not explain 21 minutes, so plain NFS caching is not the leading explanation either.
+The analysis, with gpt-6-astra's and gpt-5.6-sol's readings, is in the storage repository under `engineering/2026-11-08-slurm-ec2-nfs-barrier/`.
+
+What changed, so the session no longer depends on that cause:
+
+- **The bring-up and end signals go over S3**, under the run's prefix: `control/CONF_READY` (head, `ready`), `control/CONF_ACK-gpuN` (each worker, `acked`) and `control/END` (head, `end`).
+  Each is a JSON payload of schema 1, the run id, T0, the producer and the phase, and the reader refuses one whose any field differs.
+  `CONF_READY` also carries a random token head wrote on NFS; each worker must read it through its mount within 60 s and writes it back, and head reads both back on its own disk.
+  Every AWS call is bounded (`timeout`, connect 3 s, read 10 s, `AWS_MAX_ATTEMPTS=1`); a missing key is "not yet", any other error, a 403 among them, is an error, and five in a row stop the wait; a file left by an earlier download is never read after a failed one.
+- **`slurmd` runs under a systemd drop-in, `Restart=on-failure`**, still configless; `head` still waits for both nodes `IDLE`, so an ACK is a diagnostic, not the bring-up's evidence.
+- **Every write is checked:** the shared directories are made, and checked, before the export; `exportfs` is checked; a bounded retry reads its deadline before and after each attempt and bounds each attempt by the time left.
+- **The mount** pins `vers=4.1` and adds `lookupcache=positive`, so a cached absence is revalidated on every lookup; the effective options (`findmnt`, `nfsstat -m`, `/proc/self/mountinfo`, `/etc/nfsmount.conf`) are recorded on each worker.
+- **B4 is measured as registered:** B4a's 30 s still counts from `head`'s write.
+  Each worker now also logs, by its own clock, when it saw its own signal file's generation (`# generation 0` at bring-up, 1 the fault, 2 the healthy value, comment lines `gpuhc.py` skips) and its SHA-256 change; no rule reads that log, as no worker clock enters a rule.
+- **Each host ships its own diagnostics to S3**, every 60 s and at its end, without Slurm or NFS: phase times in UTC and monotonic seconds, each command's status and stderr, the mount, export and stat state with errno per path component, and a bounded rotating `tcpdump port 2049` capture during the bring-up.
+  The runner downloads them per host; `collect.sh` no longer uses `srun` for them.
 
 ## Revisions before the run
 
