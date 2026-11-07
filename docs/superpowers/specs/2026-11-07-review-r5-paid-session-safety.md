@@ -4,7 +4,7 @@ Written 2026-11-07.
 gpt-6-astra (high effort, read-only sandbox, no tests run) reviewed `116092ef` on `dev` for whether a paid session can leave billed resources running, destroy what it should not, act on the wrong account or Region, or report a teardown done when it is not.
 It returned twelve findings.
 Each was re-read against the code by Claude before anything was changed; codex is not the source of any verdict below.
-Every fix has a test, and every new check was mutated once on the committed fix to show its test goes red (23 mutations, all red; one first survived and its test was corrected, see 7).
+Every fix has a test, and every new check was mutated once on the committed fix to show its test goes red (27 mutations, all red on their final tests; two first survived and their tests were corrected, see 7 and the review of these fixes).
 Nothing was run against AWS: every test uses stub `aws` and `terraform`.
 
 | # | finding (astra) | verdict (Claude) | fix | test | mutation |
@@ -109,4 +109,14 @@ Fixed: it sources the library's census, extracts the session's current disarm de
 
 - gpt-6-astra: the twelve findings, from static reading of `116092ef`; it ran no test.
 - Claude: each verdict, by reading the cited code and the code around it (finding 4 widened from three runners to five; finding 5 narrowed to PARTLY); every fix and test; the stub runs and the 23 mutations; the golden diff check.
-- A bare `codex review` of the branch's diff follows the PR; its result is in the PR, not here.
+- A bare `codex review --base origin/dev` (gpt-6-astra, high) of the branch, below.
+
+## The review of these fixes
+
+A bare `codex review` of the branch, given only the diff, returned three findings; all three were confirmed and fixed in `c14cb35e`, `b6aaffd1` and `2583ccf1`.
+
+- **P1, the fix for finding 2 regressed.** terraform changes into its `-chdir` before it takes the lock, so a holder started from `infra/aws` with `-chdir=cluster` already has `infra/aws/cluster` as its working directory, and resolving `-chdir` against that again gave `.../cluster/cluster` and missed it. Confirmed on terraform's own process (`/proc/PID/cwd` of `terraform -chdir=cluster console` started from `infra/aws` is `infra/aws/cluster`). The test's stand-in had not changed directory, which is why the suite passed: a fixture imagined instead of taken from the producer. `live_holders` now reads the working directory first; the stand-in changes into its `-chdir` as terraform does, and a case started from the parent with `-chdir=cluster` was added (m26 red).
+- **P2, a deadline recomputed per retry broke the launch's idempotency.** A retry under one client token with a deadline a second later is a different request, which EC2 answers `IdempotentParameterMismatch`. The tags are now fixed once per token, beside it; the spot characterisation compares, on the raw transcript, the tags of every retry under one token and prints a line only when they differ. The goldens normalise the deadline away and a stub retry falls within the same second, so the mutation (m24) needed a real 1.1 s pause between attempts to go red; m25 removes the tags from a runner's call and is red.
+- **P2, the update id was read as JSON from a call that did not ask for JSON.** `--output json` is now on the request, and the test pins it; the first version of the test did not, and the mutation removing it survived (m27) until it did.
+
+27 mutations in all, every one red on its final test; two (m8, m27) first survived and their tests were corrected.
