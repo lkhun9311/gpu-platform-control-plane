@@ -144,7 +144,9 @@ What this does not show:
 A card's DCGM fields carry a fault under the operator's own policy (`internal/gpufault/classify.go`): a non-zero Xid other than the application Xids 13, 31, 43, 45 and 68, or a double-bit ECC count above zero.
 
 1. Read the NodeHealth for the node: `kubectl get nodehealths -o wide`, then its `GPUHealthy` and `GPUSignal` conditions.
-   With `--gpu-fault-source=dcgm` the operator has already tainted the node `platform.lkhun9311.github.io/gpu-fault`, and with `--gpu-fault-evict-workloads` it has deactivated the Kueue Workloads of GPU Pods there.
+   With `--gpu-fault-source=dcgm` the operator is expected to have tainted the node `platform.lkhun9311.github.io/gpu-fault`, and with `--gpu-fault-evict-workloads` to have deactivated the Kueue Workloads of GPU Pods there.
+   Expected, not established: the operator scrapes only the nodes a NodeHealth names, and it creates none itself, so a node with no NodeHealth fires this alert and is never tainted; a failed reconcile is the other way the taint can be missing.
+   Confirm the taint (`kubectl get node <node> -o jsonpath='{.spec.taints}'`) and the Workloads' `spec.active` before relying on either.
    Without the flag nothing has reacted, and the node still takes GPU work until someone taints or cordons it.
 2. Decide whether the card is to be repaired or the fault accepted.
    A GPU reset or driver reload that leaves every fault field at zero releases the latch on the next fresh scrape.
@@ -154,7 +156,9 @@ A card's DCGM fields carry a fault under the operator's own policy (`internal/gp
 
 ### GPUFaultFieldsNotCollected
 
-A node exports `DCGM_FI_DEV_GPU_UTIL` but not the Xid and double-bit ECC fields, so `GPUFaultSignalPresent` cannot fire there.
+A card exports `DCGM_FI_DEV_GPU_UTIL` but lacks the Xid field, the double-bit ECC field, or both, so `GPUFaultSignalPresent` cannot fire for that field on that card.
+It is judged card by card: other cards on the same node reporting both fields do not cover it.
+A card whose ECC is turned off is one way to get here, since DCGM then has no ECC value to export.
 Deploy the exporter from `config/dcgm-exporter-ops` (or `config/dcgm-exporter-fault`), which collect them.
 The operator's fault path on the same node reports `FieldMissing` for the same reason.
 
