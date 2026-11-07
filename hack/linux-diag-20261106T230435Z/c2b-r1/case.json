@@ -1,0 +1,11 @@
+{
+  "case": "c2b",
+  "rep": 1,
+  "cluster": "lddiag-single",
+  "single_process_oom_kill_wanted": "true",
+  "single_process_oom_kill_effective": "true",
+  "t_start": 1794006366,
+  "t_end": 1794006374,
+  "journal_exit": 0,
+  "last_phase": "Succeeded"
+}
