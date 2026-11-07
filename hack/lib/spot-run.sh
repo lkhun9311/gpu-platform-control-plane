@@ -157,8 +157,12 @@ spot_subnet_in_zone() {
 # the default group in gpu-lab admits all TCP from anywhere.
 spot_launch() {
   local region="$1" ami="$2" instance_type="$3" subnet="$4" profile="$5" \
-        max_price="$6" volume_gb="$7" user_data_file="$8" tags="$9" client_token="${10:-}" security_group="${11:-}"
-  local token_arg=() sg_arg=()
+        max_price="$6" volume_gb="$7" user_data_file="$8" tags="$9" client_token="${10:-}" security_group="${11:-}" \
+        cpu_credits="${12:-}"
+  local token_arg=() sg_arg=() credit_arg=()
+  # The optional twelfth argument sets a burstable instance's credit mode; "standard" keeps a T3 from billing surplus
+  # credits beyond its instance price, which Unlimited, T3's default, does.
+  [ -n "$cpu_credits" ] && credit_arg=(--credit-specification "CpuCredits=$cpu_credits")
   [ -n "$client_token" ] && token_arg=(--client-token "$client_token")
   [ -n "$security_group" ] && sg_arg=(--security-group-ids "$security_group")
   # ${arr[@]+"${arr[@]}"} rather than "${arr[@]}": callers run under `set -u`, where an empty array is an
@@ -174,6 +178,7 @@ spot_launch() {
     --tag-specifications "$tags" \
     ${token_arg[@]+"${token_arg[@]}"} \
     ${sg_arg[@]+"${sg_arg[@]}"} \
+    ${credit_arg[@]+"${credit_arg[@]}"} \
     --query 'Instances[0].InstanceId' --output text
 }
 
