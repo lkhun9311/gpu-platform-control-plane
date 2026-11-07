@@ -253,8 +253,15 @@ class KMS:
 
 
 def lease(a, cluster="gpu-platform", **fields):
-    body = {"cluster": cluster, "deadline": FUTURE, **fields}
-    a.leases[reaper.LEASE_PATH + cluster] = json.dumps(body)
+    """A lease named for its session, which defaults to the cluster's name so most tests read as before."""
+    body = {"cluster": cluster, "deadline": FUTURE, "session": cluster, **fields}
+    a.leases[reaper.LEASE_PATH + body["session"]] = json.dumps(body)
+
+
+def hand_over(a, old="A", new="B", **fields):
+    """Session OLD's teardown removes its lease, and session NEW takes the account's lock with its own."""
+    a.leases.pop(reaper.LEASE_PATH + old, None)
+    lease(a, session=new, **{"deadline": FUTURE, **fields})
 
 
 def run(a):
@@ -282,11 +289,12 @@ class LeaseTest(unittest.TestCase):
         self.assertEqual(len(failures), 1)
         self.assertEqual(a.calls, [])
 
-    # A lease stored under another cluster's name could make the reaper delete a cluster nobody leased.
-    def test_a_lease_naming_another_cluster_than_its_own_is_refused(self):
+    # A lease stored under one session's name and naming another session is refused.
+    # Mutation that turns it red: drop the session-name check.
+    def test_a_lease_naming_another_session_than_its_own_is_refused(self):
         a = Account()
         a.clusters["other"] = {"status": "ACTIVE", "tags": TAGS, "nodegroups": {}}
-        a.leases[reaper.LEASE_PATH + "gpu-platform"] = json.dumps({"cluster": "other", "deadline": PAST})
+        a.leases[reaper.LEASE_PATH + "s-1"] = json.dumps({"cluster": "other", "session": "s-2", "deadline": PAST})
         failures, _ = run(a)
         self.assertEqual(len(failures), 1)
         self.assertEqual(a.calls, [])
@@ -332,12 +340,12 @@ class GPUPhaseTest(unittest.TestCase):
     def test_desired_zero_with_instances_left_is_pending(self):
         a = self.account(desired=0, instances=1)
         a.leases[reaper.LEASE_PATH + "gpu-platform"] = json.dumps(
-            {"cluster": "gpu-platform", "deadline": FUTURE, "gpu_deadline": "2026-11-07T11:50:00Z", "gpu_nodegroups": ["gpu"]})
+            {"cluster": "gpu-platform", "session": "gpu-platform", "deadline": FUTURE, "gpu_deadline": "2026-11-07T11:50:00Z", "gpu_nodegroups": ["gpu"]})
         failures, logs = run(a)
         self.assertEqual((failures, a.calls), ([], []))
         self.assertTrue(any("not yet: gpu" in line for line in logs), logs)
         a.leases[reaper.LEASE_PATH + "gpu-platform"] = json.dumps(
-            {"cluster": "gpu-platform", "deadline": FUTURE, "gpu_deadline": "2026-11-07T11:40:00Z", "gpu_nodegroups": ["gpu"]})
+            {"cluster": "gpu-platform", "session": "gpu-platform", "deadline": FUTURE, "gpu_deadline": "2026-11-07T11:40:00Z", "gpu_nodegroups": ["gpu"]})
         failures, logs = run(a)
         self.assertEqual(failures, [])
         self.assertEqual(a.calls, [("terminate", "i-asg-gpu-0")], "only the GPU group's straggler is terminated")
@@ -557,7 +565,7 @@ class ReapTest(unittest.TestCase):
         a = Account()
         lease(a, deadline=PAST, session="A", vpc_id="vpc-1")
         stale = [{"Name": n, "Value": v} for n, v in a.leases.items()]
-        lease(a, deadline=PAST, session="B", vpc_id="vpc-1")
+        hand_over(a, vpc_id="vpc-1")
 
         class Stale(SSM):
             def get_paginator(self, _):
@@ -567,7 +575,7 @@ class ReapTest(unittest.TestCase):
                 return P()
         failures = reaper.run(Stale(a), EKS(a), EC2(a), EFS(a), ASG(a), Logs(a), KMS(a), NOW, lambda _: None)
         self.assertEqual(failures, [])
-        self.assertIn(reaper.LEASE_PATH + "gpu-platform", a.leases)
+        self.assertIn(reaper.LEASE_PATH + "B", a.leases)
         self.assertEqual(a.calls, [])
 
     # Before reaping: a lease replaced since the run's listing stops the reaping of the old session's copy.
@@ -577,7 +585,7 @@ class ReapTest(unittest.TestCase):
         a.clusters["gpu-platform"] = {"status": "ACTIVE", "tags": TAGS, "nodegroups": {"gpu": nodegroup(1)}}
         lease(a, deadline=PAST, session="A")
         stale = [{"Name": n, "Value": v} for n, v in a.leases.items()]
-        lease(a, deadline=FUTURE, session="B")
+        hand_over(a)
 
         class Stale(SSM):
             def get_paginator(self, _):
@@ -597,13 +605,13 @@ class ReapTest(unittest.TestCase):
         eks = EKS(a)
 
         def gone_and_replaced(name):
-            lease(a, deadline=FUTURE, session="B", vpc_id="vpc-1")
+            hand_over(a, vpc_id="vpc-1")
             raise AWSError("ResourceNotFoundException")
         eks.describe_cluster = gone_and_replaced
         failures = reaper.run(SSM(a), eks, EC2(a), EFS(a), ASG(a), Logs(a), KMS(a), NOW, lambda _: None)
         self.assertEqual(failures, [])
-        self.assertIn(reaper.LEASE_PATH + "gpu-platform", a.leases)
-        self.assertNotIn(("delete_parameter", reaper.LEASE_PATH + "gpu-platform"), a.calls)
+        self.assertIn(reaper.LEASE_PATH + "B", a.leases)
+        self.assertNotIn(("delete_parameter", reaper.LEASE_PATH + "B"), a.calls)
 
     # A lease removed and replaced in the middle of a step stops the step before its next deletion.
     # Mutation that turns it red: drop the guard before a deletion.
@@ -612,12 +620,13 @@ class ReapTest(unittest.TestCase):
         a.clusters.pop("gpu-platform")
         a.efs.pop("fs-1")
         a.nats[0]["State"] = "deleted"
+        a.leases.clear()
         lease(a, deadline=PAST, session="A", vpc_id="vpc-1")
         ec2 = EC2(a)
         real = ec2.describe_addresses
 
         def replaced(Filters):
-            lease(a, deadline=FUTURE, session="B", vpc_id="vpc-1")
+            hand_over(a, vpc_id="vpc-1")
             return real(Filters)
         ec2.describe_addresses = replaced
         failures = reaper.run(SSM(a), EKS(a), ec2, EFS(a), ASG(a), Logs(a), KMS(a), NOW, lambda _: None)

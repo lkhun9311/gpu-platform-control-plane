@@ -2,9 +2,14 @@
 # The session lease: the record the session reaper (infra/aws/bootstrap/reaper) acts on when the laptop that started a
 # paid session cannot clean up after it (docs/superpowers/specs/2026-11-07-session-cloud-safety-design.md).
 #
-# One Parameter Store String per cluster, /gpu-platform/session-lease/<cluster>, holding JSON: the cluster, the session,
+# One Parameter Store String per session, /gpu-platform/session-lease/<session>, holding JSON: the cluster, the session,
 # the session deadline after which the reaper deletes the session's billing resources, and, once a GPU group is bought,
 # the GPU deadline after which it holds the named groups at zero.
+# The name is the session's, never the cluster's, and only one lease may exist at a time: every session builds into the
+# one cluster/terraform.tfstate, so the lease is also the account's lock on it, held from before anything is created until
+# the teardown is verified or the reaper has removed everything (round 4 of the adversarial review). A name per session
+# means a delayed removal of an old lease can never remove a newer one, which Parameter Store, with no conditional
+# delete, could not otherwise promise.
 # Like hack/lib/gpu-ttl.sh it never calls `set` and installs no traps. Every function returns non-zero with a line on
 # stderr when it cannot show that what it wrote is what AWS holds.
 
@@ -19,10 +24,23 @@ LEASE_RENEW_WAIT=${LEASE_RENEW_WAIT:-130}
 
 lease_name() { printf '%s%s' "$LEASE_PATH" "$1"; }
 
+# lease_key TEXT: a session's lease key, the characters a parameter name allows, and short enough to stay one.
+lease_key() { printf '%s' "$1" | tr -c 'A-Za-z0-9_.-' '-' | cut -c1-120; }
+
+# lease_list REGION: the names of every lease, one per line; 2 when they cannot be listed.
+lease_list() {
+  local out
+  out="$(aws ssm get-parameters-by-path --region "$1" --path "${LEASE_PATH%/}" --query 'Parameters[].Name' --output text 2>&1)" || {
+    echo "lease: could not list the leases under $LEASE_PATH: $out" >&2
+    return 2
+  }
+  tr -s ' \t' '\n' <<<"$out" | sed '/^$/d; /^None$/d'
+}
+
 # lease_iso EPOCH: the time as UTC ISO 8601 with its zone, the only form the reaper reads.
 lease_iso() { date -u -d "@$1" +%Y-%m-%dT%H:%M:%SZ; }
 
-# lease_get CLUSTER REGION: the lease's JSON on stdout; 1 when there is none, 2 when it cannot be read.
+# lease_get KEY REGION: the lease's JSON on stdout; 1 when there is none, 2 when it cannot be read.
 lease_get() {
   local out rc=0
   out="$(aws ssm get-parameter --region "$2" --name "$(lease_name "$1")" --query Parameter.Value --output text 2>&1)" || rc=$?
@@ -37,7 +55,7 @@ lease_get() {
   return 2
 }
 
-# lease_put CLUSTER REGION JSON [overwrite]: write it, then read it back and compare.
+# lease_put KEY REGION JSON [overwrite]: write it, then read it back and compare.
 lease_put() {
   local cluster="$1" region="$2" body="$3" over="${4:-}" out got
   local args=(--region "$region" --name "$(lease_name "$cluster")" --type String --value "$body")
@@ -56,13 +74,13 @@ lease_put() {
   fi
 }
 
-# lease_arm CLUSTER REGION DEADLINE_EPOCH SESSION: create the lease, refusing when one is already there.
+# lease_arm KEY REGION DEADLINE_EPOCH CLUSTER: create this session's lease, refusing when any lease is already there.
 #
-# A lease already there belongs to a session that is still running, or to one the reaper is still clearing; writing over
-# it would move that session's deadline, so the new session stops instead. The reaper must exist, because a lease
-# nothing reads protects nothing.
+# A lease already there, of any session, belongs to a session that is still running or to one the reaper is still
+# clearing, and both share this session's terraform state; the new session stops instead. The reaper must exist and have
+# completed a recent clean pass, because a lease nothing reads protects nothing.
 lease_arm() {
-  local cluster="$1" region="$2" deadline="$3" session="$4" out body rc=0
+  local key="$1" region="$2" deadline="$3" cluster="$4" out body rc=0 others
   out="$(aws lambda get-function --region "$region" --function-name "$REAPER_FUNCTION" --query Configuration.State --output text 2>&1)" || {
     echo "lease: the session reaper $REAPER_FUNCTION is not readable ($out); apply infra/aws/bootstrap first" >&2
     return 1
@@ -86,21 +104,22 @@ lease_arm() {
     echo "lease: the session reaper's last clean pass was $(((now - at) / 60)) min ago ($beat), more than $((REAPER_FRESH_SECONDS / 60)); read its log before starting" >&2
     return 1
   fi
-  lease_get "$cluster" "$region" >/dev/null || rc=$?
-  case "$rc" in
-    0)
-      echo "lease: $(lease_name "$cluster") already exists, from a session still running or one the reaper is clearing; read it, confirm its resources are gone, delete it by hand, then start again" >&2
-      return 1
-      ;;
-    1) ;;
-    *) return 1 ;;
-  esac
+  others="$(lease_list "$region")" || return 1
+  if [[ -n "$others" ]]; then
+    echo "lease: a lease already exists ($(paste -sd' ' <<<"$others")), from a session still running or one the reaper is clearing; read it, confirm its resources are gone, delete it by hand, then start again" >&2
+    return 1
+  fi
+  lease_get "$key" "$region" >/dev/null || rc=$?
+  ((rc == 1)) || {
+    ((rc == 0)) && echo "lease: $(lease_name "$key") already exists" >&2
+    return 1
+  }
   body="$(python3 -c 'import json,sys; print(json.dumps({"cluster": sys.argv[1], "session": sys.argv[2], "deadline": sys.argv[3]}, sort_keys=True))' \
-    "$cluster" "$session" "$(lease_iso "$deadline")")"
-  lease_put "$cluster" "$region" "$body"
+    "$cluster" "$key" "$(lease_iso "$deadline")")"
+  lease_put "$key" "$region" "$body"
 }
 
-# lease_update CLUSTER REGION KEY VALUE: set one string field.
+# lease_update KEY REGION FIELD VALUE: set one string field.
 lease_update() {
   local cluster="$1" region="$2" key="$3" value="$4" cur body
   cur="$(lease_get "$cluster" "$region")" || {
@@ -112,7 +131,7 @@ lease_update() {
   lease_put "$cluster" "$region" "$body" overwrite
 }
 
-# lease_set_gpu CLUSTER REGION GPU_DEADLINE_EPOCH NODEGROUP: the GPU deadline, and the group added to those it covers.
+# lease_set_gpu KEY REGION GPU_DEADLINE_EPOCH NODEGROUP: the GPU deadline, and the group added to those it covers.
 #
 # Set before the group is scaled up, and again at each later GPU phase: a deadline left from an earlier phase would have
 # the reaper scale down a group the session just bought.
@@ -142,7 +161,7 @@ print(json.dumps(d, sort_keys=True))' "$cur" "$(lease_iso "$deadline")" "$group"
   fi
 }
 
-# lease_disarm CLUSTER REGION: remove the lease, and show it is gone. Called only after a verified teardown.
+# lease_disarm KEY REGION: remove the lease, and show it is gone. Called only after a verified teardown.
 lease_disarm() {
   local cluster="$1" region="$2" out rc=0
   out="$(aws ssm delete-parameter --region "$region" --name "$(lease_name "$cluster")" 2>&1)" || rc=$?

@@ -70,8 +70,11 @@ def parse_lease(name, text):
     if not isinstance(lease, dict):
         raise LeaseError(f"{name}: not an object")
     cluster = lease.get("cluster")
-    if not isinstance(cluster, str) or not cluster or name.rsplit("/", 1)[-1] != cluster:
-        raise LeaseError(f"{name}: names cluster {cluster!r}, which is not the parameter's own name")
+    if not isinstance(cluster, str) or not cluster:
+        raise LeaseError(f"{name}: names no cluster")
+    # A lease is named for its session (hack/lib/session-lease.sh), so a removal of one can never remove another's.
+    if lease.get("session") != name.rsplit("/", 1)[-1]:
+        raise LeaseError(f"{name}: names session {lease.get('session')!r}, which is not the parameter's own name")
     if parse_time(lease.get("deadline")) is None:
         raise LeaseError(f"{name}: session deadline {lease.get('deadline')!r} is not a time with a zone")
     if "gpu_deadline" in lease and parse_time(lease["gpu_deadline"]) is None:
@@ -122,10 +125,9 @@ def still_gpu_phase(ssm, lease_name, group, now):
 def same_lease(ssm, lease_name, lease):
     """Whether the lease stored now is the one this run read: same session, same session deadline.
 
-    A session's verified teardown removes its lease, and a new session of the same cluster name may write its own while a
-    run that read the old one is still going; that run must not act on, or remove, the new session's lease (round 2 of
-    the adversarial review). Parameter Store has no conditional delete, so this read immediately before each step
-    narrows the window to the call itself.
+    A session's verified teardown removes its lease, and a new session may then take the account's lock while a run that
+    read the old lease is still going; that run must not go on deleting (round 2 and 3 of the adversarial review). Leases
+    are named per session, so the removal itself can only ever remove the lease the run read (round 4).
     """
     try:
         cur = parse_lease(lease_name, ssm.get_parameter(Name=lease_name)["Parameter"]["Value"])
@@ -416,7 +418,12 @@ def cluster_keys(kms, cluster, log):
             try:
                 meta = kms.describe_key(KeyId=k["KeyId"])["KeyMetadata"]
             except Exception as e:  # noqa: BLE001
-                log(f"{cluster}: key {k['KeyId']} could not be described ({_code(e) or type(e).__name__}); skipped")
+                # Refused by the key's own policy: the EKS module's key gives the account its default policy, so a key
+                # this account cannot describe is not one of its. Anything else may be the session's key and fails the
+                # step, so the lease stays and the next run looks again (round 4 of the adversarial review).
+                if _code(e) not in ("AccessDeniedException", "KMSInvalidStateException"):
+                    raise
+                log(f"{cluster}: key {k['KeyId']} could not be described ({_code(e)}); not this session's")
                 continue
             if meta.get("KeyManager") == "CUSTOMER" and meta.get("Description") == want:
                 found.append(k["KeyId"])

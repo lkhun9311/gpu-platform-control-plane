@@ -463,9 +463,12 @@ existing="$(tr -s ' \t\n' ' ' <<<"$existing" | sed 's/^ //; s/ $//; s/^None$//')
 [[ -z "$existing" ]] ||
   die "an EKS cluster already exists in $REGION ($existing); every session shares one terraform state, so tear it down first"
 LEASE_REAP_AT=$(($(date +%s) + TTL_MINUTES * 60 + KILL_DESTROY_MINUTES * 60 + 15 * 60))
-lease_arm "$CLUSTER" "$REGION" "$LEASE_REAP_AT" "$(basename "$EXDIR")" 2>>"$EXDIR/session.log" ||
+# The lease is named for this session, not the cluster: a delayed removal of an earlier session's lease then cannot
+# remove this one, and the watchdog, the reaper and the teardown all name exactly this session's.
+LEASE_KEY="$(lease_key "$(basename "$EXDIR")-$(date -u +%Y%m%dT%H%M%SZ)")"
+lease_arm "$LEASE_KEY" "$REGION" "$LEASE_REAP_AT" "$CLUSTER" 2>>"$EXDIR/session.log" ||
   die "could not arm the session lease (see session.log); refusing to create anything the cloud side could not clean up"
-log "session lease armed: $(lease_name "$CLUSTER"), reaped from $(lease_iso "$LEASE_REAP_AT") if nothing tears down first"
+log "session lease armed: $(lease_name "$LEASE_KEY"), reaped from $(lease_iso "$LEASE_REAP_AT") if nothing tears down first"
 
 # --- The kill switch, armed before anything is created ------------------------------------------------
 #
@@ -481,7 +484,8 @@ rm -f "$KILL_PIDFILE" && [[ ! -e "$KILL_PIDFILE" ]] || die "could not remove the
 # This session's pid goes with it, so a session still running at the TTL is stopped before the destroy, rather than left
 # holding the state lock the destroy needs.
 setsid nohup bash -c "$(killswitch_program "$KILL_PIDFILE" "$KILL_LOG" "$PWD" $((TTL_MINUTES * 60)) \
-  $((KILL_DESTROY_MINUTES * 60)) "$AWS_PROFILE" "$REGION" "$CLUSTER_DIR" "$CLUSTER" "$TF_TRAIN_VARS" "$EXDIR" "" $$)" >/dev/null 2>&1 &
+  $((KILL_DESTROY_MINUTES * 60)) "$AWS_PROFILE" "$REGION" "$CLUSTER_DIR" "$CLUSTER" "$TF_TRAIN_VARS" "$EXDIR" "" $$ \
+  "$(lease_name "$LEASE_KEY")")" >/dev/null 2>&1 &
 # The watchdog reports its own pid, because `$!` here is the setsid process and not the watchdog.
 #
 # setsid forks the new session leader and exits, so `$!` names something that is already dead by the time the
@@ -557,7 +561,7 @@ SESSION_VPC="$(aws eks describe-cluster --region "$REGION" --name "$CLUSTER" \
 if [[ "$SESSION_VPC" =~ ^vpc-[0-9a-f]+$ ]]; then
   printf '%s\n' "$SESSION_VPC" >"$EXDIR/vpc-id.txt"
   # The reaper finds the VPC by the cluster while the cluster exists and by its name after; the record is the third way.
-  lease_update "$CLUSTER" "$REGION" vpc_id "$SESSION_VPC" 2>>"$EXDIR/session.log" ||
+  lease_update "$LEASE_KEY" "$REGION" vpc_id "$SESSION_VPC" 2>>"$EXDIR/session.log" ||
     log "warning: could not record the VPC in the session lease; the reaper falls back to the cluster and the VPC's name"
 else
   log "warning: could not read this cluster's VPC ('${SESSION_VPC:0:80}'); a CNI sweep at teardown will delete nothing"
@@ -714,7 +718,7 @@ gpu_up() {
   fi
   # The cloud-side copy of the same deadline, which holds the group at zero until no instance is left; the schedule
   # above asks once.
-  if ! lease_set_gpu "$CLUSTER" "$REGION" $(($(date +%s) + gpu_min * 60)) "$NODEGROUP" 2>>"$EXDIR/session.log"; then
+  if ! lease_set_gpu "$LEASE_KEY" "$REGION" $(($(date +%s) + gpu_min * 60)) "$NODEGROUP" 2>>"$EXDIR/session.log"; then
     bad "could not add the GPU deadline to the session lease; no node is bought without it"
     return 1
   fi
@@ -942,7 +946,7 @@ train_run() {
   fi
   # The cloud-side copy of the same deadline, which holds the group at zero until no instance is left; the schedule
   # above asks once.
-  if ! lease_set_gpu "$CLUSTER" "$REGION" $(($(date +%s) + gpu_min * 60)) "$TRAIN_GROUP" 2>>"$EXDIR/session.log"; then
+  if ! lease_set_gpu "$LEASE_KEY" "$REGION" $(($(date +%s) + gpu_min * 60)) "$TRAIN_GROUP" 2>>"$EXDIR/session.log"; then
     bad "could not add the GPU deadline to the session lease; no node is bought without it"
     return 1
   fi
@@ -1100,7 +1104,7 @@ restart_before_purchase() {
   fs="$(terraform -chdir="$CLUSTER_DIR" output -raw efs_file_system_id 2>>"$EXDIR/session.log")"
   RESTART_FS_ID="$fs"
   # The reaper also matches the file system by its Name tag; the recorded id is the one it cannot mistake.
-  [[ -z "$fs" ]] || lease_update "$CLUSTER" "$REGION" efs_id "$fs" 2>>"$EXDIR/session.log" ||
+  [[ -z "$fs" ]] || lease_update "$LEASE_KEY" "$REGION" efs_id "$fs" 2>>"$EXDIR/session.log" ||
     log "warning: could not record the EFS id in the session lease; the reaper falls back to its Name tag"
   why="$(restart_render_volume "$fs" "$TRAIN_NS" 2>&1 >"$RESTART_OUT/volume.yaml")" || { bad "R1: $why"; return 1; }
   why="$(kc apply -f "$RESTART_OUT/volume.yaml" 2>&1)" || { bad "R1: the volume was refused: ${why:0:300}"; return 1; }
@@ -1273,7 +1277,7 @@ print(f"the collector requests {need}m: {report}")
   fi
   # The cloud-side copy of the same deadline, which holds the group at zero until no instance is left; the schedule
   # above asks once.
-  if ! lease_set_gpu "$CLUSTER" "$REGION" $(($(date +%s) + gpu_min * 60)) "$TRAIN_GROUP" 2>>"$EXDIR/session.log"; then
+  if ! lease_set_gpu "$LEASE_KEY" "$REGION" $(($(date +%s) + gpu_min * 60)) "$TRAIN_GROUP" 2>>"$EXDIR/session.log"; then
     bad "could not add the GPU deadline to the session lease; no node is bought without it"
     return 1
   fi
@@ -1499,10 +1503,10 @@ if [[ -z "${unasked// /}" && -z "${billing_left// /}" ]]; then
   # Logged only when it held: the line once said disarmed right after disarm had recorded a survivor (codex census).
   # The lease goes with the watchdog and on the same verified teardown; left behind, it would have the reaper look for
   # resources that are gone, and the next session refuse to start until someone removes it.
-  if lease_disarm "$CLUSTER" "$REGION" 2>>"$EXDIR/session.log"; then
+  if lease_disarm "$LEASE_KEY" "$REGION" 2>>"$EXDIR/session.log"; then
     log "session lease removed"
   else
-    bad "could not remove the session lease $(lease_name "$CLUSTER"); the next session refuses until it is gone"
+    bad "could not remove the session lease $(lease_name "$LEASE_KEY"); the next session refuses until it is gone"
   fi
   if disarm; then
     log "kill switch disarmed: destroy returned zero, every residue query was answered, and all were empty"
