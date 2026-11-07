@@ -190,8 +190,10 @@ worker_bringup() {
   local uuid
   uuid=$(nvidia-smi --query-gpu=uuid --format=csv,noheader | head -1)
   [ -n "$uuid" ] || die "no GPU UUID"
+  # Made here too: head may not have made it yet, and a missing signal makes gpuhc drain the node at slurmd's start.
+  mkdir -p "$SHARED/gpuhc" || die "mkdir $SHARED/gpuhc"
   printf 'DCGM_FI_DEV_XID_ERRORS{gpu="0",UUID="%s"} 0\nDCGM_FI_DEV_ECC_DBE_VOL_TOTAL{gpu="0",UUID="%s"} 0\n' "$uuid" "$uuid" \
-    >"$SHARED/gpuhc/$ROLE.prom"
+    >"$SHARED/gpuhc/$ROLE.prom" || die "write the GPU signal"
   mkdir -p /opt/slurm-ec2 /var/lib/gpuhc
   cp experiments/slurm-lab/etc/gpuhc.py /opt/slurm-ec2/gpuhc.py
   sed "s|@ROLE@|$ROLE|g" hack/slurm-ec2/gpuhc-ec2.sh >/etc/slurm/gpuhc-ec2.sh
