@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: c1-r1
+  labels: {app: lddiag, case: c1}
+spec:
+  restartPolicy: Never
+  terminationGracePeriodSeconds: 1
+
+  containers:
+  - name: w
+    image: python@sha256:2f17fc044b579bab302c2e8054d3a686e2cb9a83de48e70534b94cd8ebbe06a9
+    imagePullPolicy: IfNotPresent
+    resources: {limits: {memory: 128Mi, cpu: 500m}}
+
+    command: ["sh", "-c"]
+    args: ["echo begin; exec python3 -c \"b = bytearray(256 << 20); print(\\\"survived\\\")\""]
