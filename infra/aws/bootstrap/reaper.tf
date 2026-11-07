@@ -65,7 +65,8 @@ data "aws_iam_policy_document" "reaper" {
     actions = [
       "eks:DescribeCluster", "eks:ListNodegroups", "eks:DescribeNodegroup",
       "autoscaling:DescribeAutoScalingGroups",
-      "ec2:DescribeVpcs", "ec2:DescribeNatGateways", "ec2:DescribeAddresses",
+      "ec2:DescribeVpcs", "ec2:DescribeNatGateways", "ec2:DescribeAddresses", "ec2:DescribeAvailabilityZones",
+      "kms:ListKeys",
       "elasticfilesystem:DescribeFileSystems", "elasticfilesystem:DescribeMountTargets",
       "logs:DescribeLogGroups",
     ]
@@ -123,6 +124,15 @@ data "aws_iam_policy_document" "reaper" {
       variable = "aws:ResourceTag/project"
       values   = [local.reaper_project]
     }
+  }
+  # DeleteMountTarget is documented as needing ec2:DeleteNetworkInterface on the mount target's interface, which carries
+  # no project tag, so it cannot be scoped by one. Deleting an interface that is attached fails, so what this can reach
+  # is an unattached interface in the Region (round 2 of the adversarial review; whether EFS's service-linked role makes
+  # it unnecessary is not established here, and the exercise in the design's apply steps is what shows it).
+  statement {
+    effect    = "Allow"
+    actions   = ["ec2:DeleteNetworkInterface"]
+    resources = ["arn:aws:ec2:${var.region}:${data.aws_caller_identity.current.account_id}:network-interface/*"]
   }
   statement {
     effect    = "Allow"

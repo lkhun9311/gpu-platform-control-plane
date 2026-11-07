@@ -104,6 +104,23 @@ def still_gpu_phase(ssm, lease_name, group, now):
     return phase(cur, now) == "gpu" and group in cur.get("gpu_nodegroups", [])
 
 
+def same_lease(ssm, lease_name, lease):
+    """Whether the lease stored now is the one this run read: same session, same session deadline.
+
+    A session's verified teardown removes its lease, and a new session of the same cluster name may write its own while a
+    run that read the old one is still going; that run must not act on, or remove, the new session's lease (round 2 of
+    the adversarial review). Parameter Store has no conditional delete, so this read immediately before each step
+    narrows the window to the call itself.
+    """
+    try:
+        cur = parse_lease(lease_name, ssm.get_parameter(Name=lease_name)["Parameter"]["Value"])
+    except Exception as e:  # noqa: BLE001
+        if _code(e) == "ParameterNotFound":
+            return False
+        raise
+    return cur.get("session") == lease.get("session") and cur["deadline"] == lease["deadline"]
+
+
 def hold_gpu_at_zero(eks, asg, ssm, lease_name, cluster, groups, now, log):
     """P2: each named group at minSize 0, desiredSize 0, and with no instance left; returns the groups not yet there."""
     pending = []
@@ -222,6 +239,27 @@ def reap(lease, eks, ec2, efs, logs, kms, log):
     if not groups_gone:
         return left
 
+    # A failed EFS step (its mount targets need an ENI deletion the reaper may be refused) must not keep the NAT and the
+    # addresses billing: it is raised after the rest has been asked for.
+    efs_error = None
+    try:
+        efs_left = reap_efs(lease, efs, log)
+    except Exception as e:  # noqa: BLE001
+        efs_error, efs_left = e, ["efs (failed)"]
+    left.extend(efs_left)
+    nats_busy = reap_network(lease, desc, ec2, left, log)
+    if efs_error is not None:
+        raise efs_error
+    if desc is not None:
+        return left
+    reap_cluster_leftovers(cluster, logs, kms, log)
+    return left
+
+
+def reap_efs(lease, efs, log):
+    """The session's EFS: mount targets, then the file system; returns what is left."""
+    cluster = lease["cluster"]
+    left = []
     for fs in session_file_systems(lease, efs):
         mts = efs.describe_mount_targets(FileSystemId=fs["FileSystemId"]).get("MountTargets", [])
         for mt in mts:
@@ -233,7 +271,13 @@ def reap(lease, eks, ec2, efs, logs, kms, log):
             log(f"{cluster}: EFS {fs['FileSystemId']} deletion asked")
         if fs.get("LifeCycleState") != "deleted":
             left.append(f"efs/{fs['FileSystemId']}")
+    return left
 
+
+def reap_network(lease, desc, ec2, left, log):
+    """The NAT gateways of the session's VPC, then its addresses; appends what is left to LEFT and returns whether a
+    gateway is still being deleted."""
+    cluster = lease["cluster"]
     nats_busy = False
     vpc = vpc_of(lease, desc, ec2, log)
     if vpc is not None:
@@ -251,8 +295,13 @@ def reap(lease, eks, ec2, efs, logs, kms, log):
     # The addresses by their own tags, named <cluster>-vpc-<zone> by the VPC module, not through the gateways: an address
     # allocated by an apply that died before its gateway, or one whose deleted gateway has aged out of the API, is found
     # the same way. None is released while a gateway of the session is still being deleted.
+    # Exact names, one per zone of the Region, never a prefix: `gpu-platform-vpc-*` would also match the addresses of a
+    # cluster named `gpu-platform-vpc-test` (round 2 of the adversarial review).
+    zones = [z["ZoneName"] for z in ec2.describe_availability_zones(AllAvailabilityZones=False).get("AvailabilityZones", [])]
+    if not zones:
+        raise LeaseError(f"{cluster}: the Region listed no availability zones; addresses cannot be named")
     addrs = ec2.describe_addresses(Filters=[{"Name": f"tag:{PROJECT_KEY}", "Values": [PROJECT_VALUE]},
-                                            {"Name": "tag:Name", "Values": [f"{cluster}-vpc-*"]}]).get("Addresses", [])
+                                            {"Name": "tag:Name", "Values": [f"{cluster}-vpc-{z}" for z in zones]}]).get("Addresses", [])
     for addr in addrs:
         if addr.get("AssociationId") or nats_busy:
             left.append(f"eip/{addr['AllocationId']} (waiting for its gateway)")
@@ -260,11 +309,12 @@ def reap(lease, eks, ec2, efs, logs, kms, log):
         ec2.release_address(AllocationId=addr["AllocationId"])
         log(f"{cluster}: address {addr['AllocationId']} released")
         left.append(f"eip/{addr['AllocationId']} (released, confirmed next run)")
+    return nats_busy
 
-    # The cluster's log group and encryption key go only once the cluster is gone, which writes to one and decrypts with
-    # the other while it is deleted.
-    if desc is not None:
-        return left
+
+def reap_cluster_leftovers(cluster, logs, kms, log):
+    """The cluster's log group and encryption key, only once the cluster is gone: it writes to the one and decrypts with
+    the other while it is deleted."""
     group = f"/aws/eks/{cluster}/cluster"
     for lg in logs.describe_log_groups(logGroupNamePrefix=group).get("logGroups", []):
         if lg.get("logGroupName") != group:
@@ -274,22 +324,39 @@ def reap(lease, eks, ec2, efs, logs, kms, log):
             continue
         logs.delete_log_group(logGroupName=group)
         log(f"{cluster}: log group {group} deleted")
-    # Only the key the EKS module aliases to this cluster, and only with the project tag: the state bucket's key and every
-    # other key in the account have other aliases.
+    # The key the EKS module makes for this cluster: by its alias, or, when the alias is gone (an apply that died before
+    # it, or a destroy that removed it first), by the module's exact description among the account's customer keys.
+    # Only with the project tag; the state bucket's key has another description, and the role denies it by ARN as well.
+    for key_id in cluster_keys(kms, cluster):
+        meta = kms.describe_key(KeyId=key_id)["KeyMetadata"]
+        if meta.get("KeyState") in ("PendingDeletion", "PendingReplicaDeletion"):
+            continue
+        tags = {t["TagKey"]: t["TagValue"] for t in kms.list_resource_tags(KeyId=key_id).get("Tags", [])}
+        if not owned(tags):
+            log(f"{cluster}: key {key_id} carries no project tag; left alone")
+            continue
+        kms.schedule_key_deletion(KeyId=key_id, PendingWindowInDays=7)
+        log(f"{cluster}: key {key_id} scheduled for deletion in 7 days")
+
+
+def cluster_keys(kms, cluster):
+    """The ids of the customer keys made for this cluster: the one aliased alias/eks/<cluster>, and any whose description
+    is exactly the EKS module's "<cluster> cluster encryption key"."""
+    found = []
     try:
-        key = kms.describe_key(KeyId=f"alias/eks/{cluster}")["KeyMetadata"]
+        found.append(kms.describe_key(KeyId=f"alias/eks/{cluster}")["KeyMetadata"]["KeyId"])
     except Exception as e:  # noqa: BLE001
         if _code(e) != "NotFoundException":
             raise
-        key = None
-    if key is not None and key.get("KeyState") not in ("PendingDeletion", "PendingReplicaDeletion"):
-        tags = {t["TagKey"]: t["TagValue"] for t in kms.list_resource_tags(KeyId=key["KeyId"]).get("Tags", [])}
-        if owned(tags):
-            kms.schedule_key_deletion(KeyId=key["KeyId"], PendingWindowInDays=7)
-            log(f"{cluster}: key {key['KeyId']} scheduled for deletion in 7 days")
-        else:
-            log(f"{cluster}: key alias/eks/{cluster} carries no project tag; left alone")
-    return left
+    want = f"{cluster} cluster encryption key"
+    for page in kms.get_paginator("list_keys").paginate():
+        for k in page.get("Keys", []):
+            if k["KeyId"] in found:
+                continue
+            meta = kms.describe_key(KeyId=k["KeyId"])["KeyMetadata"]
+            if meta.get("KeyManager") == "CUSTOMER" and meta.get("Description") == want:
+                found.append(k["KeyId"])
+    return found
 
 
 def run(ssm, eks, ec2, efs, asg, logs, kms, now, log):
@@ -311,12 +378,17 @@ def run(ssm, eks, ec2, efs, asg, logs, kms, now, log):
                 pending = hold_gpu_at_zero(eks, asg, ssm, name, lease["cluster"], lease["gpu_nodegroups"], now, log)
                 log(f"{name}: GPU deadline passed; {'held at zero' if not pending else 'not yet: ' + ', '.join(pending)}")
             elif ph == "reap":
+                if not same_lease(ssm, name, lease):
+                    log(f"{name}: replaced or removed since this run read it; left to the next run")
+                    continue
                 left = reap(lease, eks, ec2, efs, logs, kms, log)
                 if left:
                     log(f"{name}: session deadline passed; still left: {', '.join(left)}")
-                else:
+                elif same_lease(ssm, name, lease):
                     ssm.delete_parameter(Name=name)
                     log(f"{name}: REAPED, nothing billing is left; lease removed")
+                else:
+                    log(f"{name}: nothing left, but the lease was replaced meanwhile; the new one is kept")
         except Exception as e:  # noqa: BLE001 -- one lease's failure must not stop the others
             failures.append(f"{name}: {type(e).__name__}: {e}")
             log(f"FAILED {name}: {type(e).__name__}: {e}")

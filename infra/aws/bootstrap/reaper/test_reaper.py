@@ -141,6 +141,8 @@ class EFS:
         return P()
 
     def describe_mount_targets(self, FileSystemId):
+        if self.a.efs[FileSystemId].get("denied"):
+            raise AWSError("AccessDeniedException")
         return {"MountTargets": [{"MountTargetId": m, "LifeCycleState": "available"} for m in self.a.efs[FileSystemId]["mounts"]]}
 
     def delete_mount_target(self, MountTargetId):
@@ -158,6 +160,9 @@ class EC2:
         name = [f["Values"][0] for f in Filters if f["Name"] == "tag:Name"][0]
         return {"Vpcs": [v for v in self.a.vpcs if v["Name"] == name and v["project"]]}
 
+    def describe_availability_zones(self, AllAvailabilityZones):
+        return {"AvailabilityZones": [{"ZoneName": z} for z in ("ap-northeast-2a", "ap-northeast-2b", "ap-northeast-2c", "ap-northeast-2d")]}
+
     def describe_nat_gateways(self, Filters):
         vpc = [f["Values"][0] for f in Filters if f["Name"] == "vpc-id"][0]
         assert any(f["Name"] == "tag:project" for f in Filters), "NAT gateways listed without the project filter"
@@ -167,14 +172,14 @@ class EC2:
         self.a.calls.append(("delete_nat_gateway", NatGatewayId))
 
     def describe_addresses(self, Filters):
-        name = [f["Values"][0] for f in Filters if f["Name"] == "tag:Name"][0]
         assert any(f["Name"] == "tag:project" for f in Filters), "addresses listed without the project filter"
         out = []
         for alloc, a in sorted(self.a.addresses.items()):
             if a["tags"].get("project") != "gpu-platform-control-plane":
                 continue
-            import fnmatch
-            if not fnmatch.fnmatchcase(a["tags"].get("Name", ""), name):
+            names = [f["Values"] for f in Filters if f["Name"] == "tag:Name"][0]
+            assert not any("*" in n or "?" in n for n in names), "addresses matched by a pattern, not exact names"
+            if a["tags"].get("Name", "") not in names:
                 continue
             d = {"AllocationId": alloc, "Tags": [{"Key": k, "Value": v} for k, v in a["tags"].items()]}
             if a.get("associated"):
@@ -208,11 +213,28 @@ class KMS:
     def __init__(self, a):
         self.a = a
 
+    def _by(self, KeyId):
+        if KeyId in self.a.keys:
+            return self.a.keys[KeyId]
+        for k in self.a.keys.values():
+            if k["id"] == KeyId:
+                return k
+        raise AWSError("NotFoundException")
+
     def describe_key(self, KeyId):
-        if KeyId not in self.a.keys:
+        k = self._by(KeyId)
+        if KeyId.startswith("alias/") and k.get("unaliased"):
             raise AWSError("NotFoundException")
-        k = self.a.keys[KeyId]
-        return {"KeyMetadata": {"KeyId": k["id"], "KeyState": k["state"]}}
+        return {"KeyMetadata": {"KeyId": k["id"], "KeyState": k["state"], "KeyManager": k.get("manager", "CUSTOMER"),
+                                "Description": k.get("description", "")}}
+
+    def get_paginator(self, _):
+        ids = [{"KeyId": k["id"]} for k in self.a.keys.values()]
+
+        class P:
+            def paginate(self, **_):
+                return [{"Keys": ids}]
+        return P()
 
     def list_resource_tags(self, KeyId):
         k = [k for k in self.a.keys.values() if k["id"] == KeyId][0]
@@ -334,10 +356,13 @@ class ReapTest(unittest.TestCase):
                   {"NatGatewayId": "nat-other", "VpcId": "vpc-2", "State": "available",
                    "NatGatewayAddresses": [{"AllocationId": "eipalloc-2"}]}]
         a.addresses = {"eipalloc-1": {"tags": {**TAGS, "Name": "gpu-platform-vpc-ap-northeast-2a"}},
-                       "eipalloc-2": {"tags": {**TAGS, "Name": "other-vpc-ap-northeast-2a"}}}
+                       "eipalloc-2": {"tags": {**TAGS, "Name": "other-vpc-ap-northeast-2a"}},
+                       "eipalloc-3": {"tags": {**TAGS, "Name": "gpu-platform-vpc-test-vpc-ap-northeast-2a"}}}
         a.log_groups = {"/aws/eks/gpu-platform/cluster": dict(TAGS), "/aws/eks/gpu-platform/cluster-old": dict(TAGS)}
-        a.keys = {"alias/eks/gpu-platform": {"id": "k-eks", "state": "Enabled", "tags": dict(TAGS)},
-                  "alias/gpu-platform-state": {"id": "k-state", "state": "Enabled", "tags": dict(TAGS)}}
+        a.keys = {"alias/eks/gpu-platform": {"id": "k-eks", "state": "Enabled", "tags": dict(TAGS),
+                                             "description": "gpu-platform cluster encryption key"},
+                  "alias/gpu-platform-state": {"id": "k-state", "state": "Enabled", "tags": dict(TAGS),
+                                               "description": "terraform state"}}
         lease(a, deadline=PAST)
         return a
 
@@ -403,6 +428,7 @@ class ReapTest(unittest.TestCase):
         run(a)
         self.assertIn(("release_address", "eipalloc-1"), a.calls)
         self.assertNotIn(("release_address", "eipalloc-2"), a.calls)
+        self.assertNotIn(("release_address", "eipalloc-3"), a.calls, "another cluster's address matched by prefix")
 
     # Done means nothing left, and only then is the lease removed.
     # Mutation that turns it red: remove the lease while something is left.
@@ -499,6 +525,48 @@ class ReapTest(unittest.TestCase):
         a.leases[reaper.LEASE_PATH + "broken"] = "not json"
         run(a)
         self.assertIsNone(a.heartbeat)
+
+    # A key whose alias is gone is found by the module's exact description; one with another description is not.
+    # Mutation that turns it red: look only by alias.
+    def test_a_key_without_its_alias_is_still_found(self):
+        a = self.account()
+        a.clusters.pop("gpu-platform")
+        a.keys["alias/eks/gpu-platform"]["unaliased"] = True
+        a.keys["k-other"] = {"id": "k-other", "state": "Enabled", "tags": dict(TAGS), "description": "gpu-platform-old cluster encryption key"}
+        run(a)
+        self.assertIn(("schedule_key_deletion", "k-eks"), a.calls)
+        self.assertNotIn(("schedule_key_deletion", "k-other"), a.calls)
+        self.assertNotIn(("schedule_key_deletion", "k-state"), a.calls)
+
+    # A run that read session A must neither reap for, nor remove, the lease session B wrote meanwhile.
+    # Mutation that turns it red: skip the lease's identity check before reaping or before removing it.
+    def test_a_lease_replaced_during_the_run_is_left_alone(self):
+        a = Account()
+        lease(a, deadline=PAST, session="A", vpc_id="vpc-1")
+        stale = [{"Name": n, "Value": v} for n, v in a.leases.items()]
+        lease(a, deadline=PAST, session="B", vpc_id="vpc-1")
+
+        class Stale(SSM):
+            def get_paginator(self, _):
+                class P:
+                    def paginate(self, **_):
+                        return [{"Parameters": stale}]
+                return P()
+        failures = reaper.run(Stale(a), EKS(a), EC2(a), EFS(a), ASG(a), Logs(a), KMS(a), NOW, lambda _: None)
+        self.assertEqual(failures, [])
+        self.assertIn(reaper.LEASE_PATH + "gpu-platform", a.leases)
+        self.assertEqual(a.calls, [])
+
+    # An EFS step that is refused does not keep the NAT gateway billing; the run still fails so it is seen.
+    # Mutation that turns it red: let the EFS failure end the step before the network.
+    def test_a_refused_efs_step_does_not_stop_the_network_step(self):
+        a = self.account()
+        a.clusters["gpu-platform"]["nodegroups"] = {}
+        a.efs["fs-1"]["denied"] = True
+        lease(a, deadline=PAST, vpc_id="vpc-1", efs_id="fs-1")
+        failures, _ = run(a)
+        self.assertEqual(len(failures), 1)
+        self.assertIn(("delete_nat_gateway", "nat-1"), a.calls)
 
     # A cluster of the lease's name without the project tag is someone else's.
     # Mutation that turns it red: drop the cluster's project-tag check.
