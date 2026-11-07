@@ -360,6 +360,11 @@ The scorer the session ran and a scorer rebuilt from that commit print the same 
 | `none` | QUIET | 5 of 5 | — | — | — |
 
 Every figure is an upper end of a truncation interval, as "Endpoints, with units" defines them; the other hops are in `verdict.txt`.
+
+**Noted 2026-11-07, after the operator drill found a re-admission loop:** in five of run 2's ten fault repetitions (`02-ecc`, `08-xid`, `11-xid`, `15-ecc`, `17-xid`) the Workload was deactivated twice, because it was reactivated while the displaced Pod still terminated on the faulted node; the first Pod placed on the healthy node was deleted before any container started, and a second was placed one to two seconds later and ran.
+"End to end" is the first placement on the healthy node, so in those repetitions it times a placement that was undone.
+Counting only placements whose Pod started a container (a counterfactual scorer, not the registered one), the medians are 3.405 s (2.502–4.634) for `xid` and 2.664 s (2.189–4.221) for `ecc`; every verdict and the `running` hop are unchanged, and run 3 shows no repeated deactivation and scores the same either way.
+The table above is left as measured. The loop is fixed in the change that adds this note (a displaced Workload is reactivated only after its Job's Pods have left the faulted node).
 - **P1** held: no detect interval lies wholly above 2.8 s; the largest upper end is 1.789 s.
 - **P2 and P3** held in all ten fault repetitions: every hop present, the injected fingerprint latched, the order kept, and the job placed on H inside W = 120 s, at most 2.664 s after the value was in DCGM.
 - **P4** held: no control repetition produced a platform action.

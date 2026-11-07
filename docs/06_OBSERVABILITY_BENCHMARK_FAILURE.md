@@ -83,6 +83,11 @@ What they need deployed:
 | `kueue_cluster_queue_nominal_quota` and the other quota series | Kueue's `metrics.enableClusterQueueResources: true`, set by `config/kueue-controller/controller_manager_config.yaml` | the release file applied alone, as the kind harnesses do, leaves it off; `KueueGPUQuotaMetricsNotReported` fires |
 | `kube_node_status_capacity` | kube-state-metrics, from kube-prometheus-stack; not deployed by this repository | `GPUExporterNotReporting` has no node list and is silent, and nothing says so |
 
+The operator acts only on nodes a `NodeHealth` names: the fault path scrapes those and the readiness quarantine taints those.
+Until 2026-11-07 nothing created them, so a GPU node joining a cluster was watched by nothing until someone wrote one by hand (review r3, finding 8).
+`--provision-nodehealth` now gives every node that advertises `nvidia.com/gpu` a `NodeHealth` of its own name, labelled `platform.lkhun9311.github.io/provisioned-by=nodehealth-provisioner`, and deletes only those labelled ones when their node is gone (`internal/controller/nodehealth_provision.go`).
+It is off by default, because the session runners and kind harnesses write their own and a second `NodeHealth` for one node would manage its taint twice; a node labelled `platform.lkhun9311.github.io/nodehealth=skip` is left out.
+
 There is no metric of which nodes are quarantined now.
 The operator exports counters of transitions (`gpuplatform_gpufault_transitions_total`, `gpuplatform_nodehealth_taint_total`), which a restart zeroes while the taints stay, so the dashboard shows them as transitions and the current state is read from the NodeHealth objects.
 

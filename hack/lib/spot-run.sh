@@ -51,12 +51,77 @@ if ! declare -F spot_fail >/dev/null 2>&1; then
   spot_fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 fi
 
-# spot_account echoes the account id of the current credentials.
+# The one account every paid runner launches in, and the one Region its termination sweeper watches.
+#
+# Constants, not parameters: a value a caller could pass is a value a caller could pass wrong, and both exist to refuse
+# exactly that (gpt-6-astra's review of 116092ef, r5 findings 4 and 8).
+SPOT_LAB_ACCOUNT=007635145730
+SPOT_SWEEPER_REGION=ap-northeast-2
+
+# spot_account echoes the account id of the current credentials, and fails unless it is the lab account.
 #
 # No --region: the call is global, and adding one would be a change to what the runner does dressed up as
 # a refactor. The characterization goldens record the exact argv, which is how that would have been caught.
+#
+# A profile name is not an account: credentials in the environment take precedence over AWS_PROFILE, so a shell left
+# holding another account's keys would launch there, outside the sweeper's reach; those are refused outright.
 spot_account() {
-  aws sts get-caller-identity --query Account --output text
+  local v acct
+  for v in AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN; do
+    if [ -n "${!v:-}" ]; then
+      printf '%s is set in the environment, and environment credentials take precedence over AWS_PROFILE\n' "$v" >&2
+      return 1
+    fi
+  done
+  acct=$(aws sts get-caller-identity --query Account --output text) || return 1
+  if [ "$acct" != "$SPOT_LAB_ACCOUNT" ]; then
+    printf 'the credentials are for account %s; paid runs launch only in gpu-lab (%s)\n' "$acct" "$SPOT_LAB_ACCOUNT" >&2
+    return 1
+  fi
+  printf '%s' "$acct"
+}
+
+# spot_tags_with_deadline TAGS SECONDS: TAGS with a study-deadline SECONDS from now added to its instance tags, or TAGS
+# unchanged when it carries one already.
+#
+# Called once per launch token, beside the token, so the deadline is counted from the launch and not from whatever the
+# runner did before it, and every retry under that token sends the same request: a deadline recomputed per retry made
+# the retry a different request, which EC2 refuses as IdempotentParameterMismatch (bare codex review of the r5 fixes).
+# Runners pass their in-instance backstop plus twenty minutes, so the sweeper is the second line, as it is for the
+# runners that set the tag themselves.
+spot_tags_with_deadline() {
+  local tags="$1" seconds="$2"
+  case "$tags" in
+    *Key=study-deadline,*) printf '%s' "$tags" ;;
+    *']') printf '%s,{Key=study-deadline,Value=%s}]' "${tags%]}" "$(date -u -d "@$(( $(date +%s) + seconds ))" +%Y-%m-%dT%H:%M:%SZ)" ;;
+    *) printf '%s' "$tags" ;;
+  esac
+}
+
+# spot_deadline_refusal REGION TAGS: prints why a launch with these tag specifications would escape the termination
+# sweeper and returns 1, or prints nothing.
+#
+# The sweeper terminates any instance in its Region whose study-deadline tag has passed, and only those; an instance
+# launched without the tag, or elsewhere, is reached by nothing once the launcher is gone and its user-data failed
+# before arming its own shutdown (gpt-6-astra's review of 116092ef, r5 finding 4).
+spot_deadline_refusal() {
+  local region="$1" tags="$2" value at
+  if [ "$region" != "$SPOT_SWEEPER_REGION" ]; then
+    echo "the launch is in $region, and the termination sweeper watches only $SPOT_SWEEPER_REGION"
+    return 1
+  fi
+  value=$(printf '%s' "$tags" | sed -n 's/.*Key=study-deadline,Value=\([^,}]*\).*/\1/p')
+  if [ -z "$value" ]; then
+    echo "the launch carries no study-deadline tag, so the termination sweeper would never end it"
+    return 1
+  fi
+  # The sweeper reads only a time with a zone, and terminates at once anything else; a deadline already past would
+  # end the instance at its first sweep.
+  if ! printf '%s' "$value" | grep -qE '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(Z|[+-][0-9]{2}:[0-9]{2})$' ||
+    ! at=$(date -u -d "$value" +%s) || [ "$at" -le "$(date +%s)" ]; then
+    echo "the launch's study-deadline '$value' is not a zoned ISO-8601 time in the future"
+    return 1
+  fi
 }
 
 # spot_ensure_bucket creates a private, expiring results bucket if it does not exist.
@@ -154,7 +219,11 @@ spot_subnet_in_zone() {
 spot_launch() {
   local region="$1" ami="$2" instance_type="$3" subnet="$4" profile="$5" \
         max_price="$6" volume_gb="$7" user_data_file="$8" tags="$9" client_token="${10:-}"
-  local token_arg=()
+  local token_arg=() why
+  if ! why=$(spot_deadline_refusal "$region" "$tags"); then
+    printf 'refusing the launch: %s\n' "$why" >&2
+    return 1
+  fi
   [ -n "$client_token" ] && token_arg=(--client-token "$client_token")
   # ${arr[@]+"${arr[@]}"} rather than "${arr[@]}": callers run under `set -u`, where an empty array is an
   # unbound variable on bash before 4.4. The command stays in one piece rather than being duplicated into a

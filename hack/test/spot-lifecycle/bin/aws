@@ -79,7 +79,7 @@ arg_after() {
 
 case "$svc $op" in
   "sts get-caller-identity")
-    printf '%s\n' "${STUB_ACCOUNT:-000000000000}"
+    printf '%s\n' "${STUB_ACCOUNT:-007635145730}"
     ;;
 
   "s3api head-bucket")
