@@ -115,9 +115,18 @@ SYNACK = r"Flags \[S\.\]"
 RST = r"Flags \[R"
 
 
+CASES = ["b", "n1a", "n1b", "n2a", "n2b", "n3a", "n3b"]
+
+
 def read(path):
     with open(path) as f:
         return f.read()
+
+
+def rule_count(text):
+    """kube-proxy's REJECT rule count as read back, or None when the read-back has no number."""
+    m = re.search(r"reject_rules=(\d+)\b", text)
+    return int(m.group(1)) if m else None
 
 
 def judge(d):
@@ -135,7 +144,7 @@ def judge(d):
     fault = read(os.path.join(d, "fault.txt")) if case != "b" else ""
     # The fault as read back: a case whose fault did not take is not a case at all.
     if case == "n1a" and not ("kube_dns_endpoints=0 " in fault and "kube_dns_pods=0" in fault
-                              and not re.search(r"reject_rules=0\b", fault)):
+                              and (rule_count(fault) or 0) > 0):
         invalid.append("CoreDNS still had endpoints or Pods, or kube-proxy had no REJECT rule for it: " + fault.strip())
     if case == "n1b" and not ("policy=client-only-to-server" in fault and "policy_enforced=1" in fault
                               and "direct_server_http=200" in fault):
@@ -144,13 +153,13 @@ def judge(d):
         invalid.append("the server's qdisc does not show loss 100%: " + fault.strip())
     if case == "n2b" and "loss 30%" not in fault:
         invalid.append("the server's qdisc does not show loss 30%: " + fault.strip())
-    if case == "n3a" and not ("server_endpoints=0 " in fault and not re.search(r"reject_rules=0\b", fault)):
+    if case == "n3a" and not ("server_endpoints=0 " in fault and (rule_count(fault) or 0) > 0):
         invalid.append("the server Service still had endpoints, or kube-proxy had no REJECT rule for it: " + fault.strip())
     if case in ("n2a", "n2b"):
         removal = read(os.path.join(d, "removal.txt"))
         if "netem" in removal:
             invalid.append("the loss was still on the server's interface after its removal: " + removal.strip())
-    if case in ("n1a", "n3a") and not re.search(r"reject_rules=0\b", read(os.path.join(d, "removal.txt"))):
+    if case in ("n1a", "n3a") and rule_count(read(os.path.join(d, "removal.txt"))) != 0:
         invalid.append("kube-proxy's REJECT rule was still there when the recovery was probed")
     if case == "n1b" and "dns_restored=1" not in read(os.path.join(d, "removal.txt")):
         invalid.append("DNS did not answer again after the policy was deleted")
@@ -255,17 +264,40 @@ def judge(d):
     return "observed", [], readings, exp
 
 
+def schedule(run_dir):
+    """The (case, repetition) pairs the run was meant to make.
+
+    run.sh writes schedule.json before the first case; a run made before it did is read as every case of the design
+    for each repetition any case reached, so a repetition missing from one case still counts as scheduled.
+    """
+    path = os.path.join(run_dir, "schedule.json")
+    if os.path.exists(path):
+        sched = json.loads(read(path))
+        return [(c, r) for r in range(1, sched["reps"] + 1) for c in sched["cases"]]
+    reps = 0
+    for name in os.listdir(run_dir):
+        m = re.fullmatch(r"([a-z0-9]+)-r(\d+)", name)
+        if m and os.path.isdir(os.path.join(run_dir, name)):
+            reps = max(reps, int(m.group(2)))
+    return [(c, r) for r in range(1, reps + 1) for c in CASES]
+
+
 def main(run_dir):
     results = []
-    for name in sorted(os.listdir(run_dir)):
-        d = os.path.join(run_dir, name)
-        if not (os.path.isdir(d) and os.path.exists(os.path.join(d, "case.json"))):
-            continue
-        meta = json.loads(read(os.path.join(d, "case.json")))
-        validity, reasons, readings, exp = judge(d)
-        results.append({"case": meta["case"], "rep": meta["rep"], "validity": validity, "invalid_reasons": reasons,
+    for case, rep in schedule(run_dir):
+        d = os.path.join(run_dir, f"{case}-r{rep}")
+        if not os.path.exists(os.path.join(d, "case.json")):
+            validity, reasons, readings, exp = "INVALID", ["scheduled, but the case left no case.json"], {}, []
+        else:
+            # Evidence that cannot be read or parsed makes this repetition INVALID, never the whole verdict unwritten.
+            try:
+                validity, reasons, readings, exp = judge(d)
+            except (OSError, ValueError, KeyError, IndexError) as e:
+                validity, reasons, readings, exp = "INVALID", [f"its evidence could not be read: {type(e).__name__}: {e}"], {}, []
+        results.append({"case": case, "rep": rep, "validity": validity, "invalid_reasons": reasons,
                         "readings": readings, "expectations": exp,
                         "all_held": validity == "observed" and all(e["held"] for e in exp)})
+    results.sort(key=lambda r: (r["case"], r["rep"]))
     by_case = {}
     for r in results:
         s = by_case.setdefault(r["case"], {"scheduled": 0, "invalid": 0, "all_held": 0})

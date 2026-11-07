@@ -195,6 +195,39 @@ score
 expect "loss still felt after its removal" "  n2b r3: did not hold: after removal: 20 of 20 completed, none at 0.5 s or more"
 unchanged_except n2b
 
+# A repetition that left nothing is still scheduled, and counts as INVALID rather than vanishing.
+copy
+rm "$work/run/n1a-r2/case.json"
+score
+expect "a scheduled repetition with no case.json" "n1a: held in 2 of 3 (1 invalid)"
+unchanged_except n1a
+
+# Unreadable evidence makes one repetition INVALID and the rest are still scored.
+copy
+rm "$work/run/n3b-r1/probe.txt"
+edit "$work/run/n2a-r3/probe.txt" 's.replace("retrans_before=", "retrans_before= x=", 1)'
+score
+if grep -q '^  n3b r1: INVALID: its evidence could not be read: FileNotFoundError' "$work/summary" &&
+  grep -q '^  n2a r3: INVALID: its evidence could not be read: ValueError' "$work/summary"; then
+  ok "unreadable evidence invalidates its repetition only"
+else
+  bad "unreadable evidence: $(cat "$work/summary")"
+fi
+for c in b n1a n1b n2b n3a; do
+  grep -qxF "$c: held in 3 of 3 (0 invalid)" "$work/summary" || bad "unreadable evidence elsewhere moved $c"
+done
+
+# A fault read-back with no rule count is no confirmation.
+copy
+edit "$work/run/n3a-r2/fault.txt" 's.replace("reject_rules=1", "reject_rules=")'
+score
+if grep -q '^  n3a r2: INVALID: the server Service still had endpoints, or kube-proxy had no REJECT rule' "$work/summary"; then
+  ok "a REJECT read-back with no number invalidates"
+else
+  bad "an empty REJECT read-back was accepted: $(grep 'n3a r2' "$work/summary")"
+fi
+unchanged_except n3a
+
 if [ "$fails" -ne 0 ]; then
   echo "$fails check(s) failed"
   exit 1

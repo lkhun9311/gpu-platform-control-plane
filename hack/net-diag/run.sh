@@ -244,6 +244,9 @@ if [ "$warm" != 200 ]; then
   exit 1
 fi
 
+# Written before the first case, so a run that stops early is scored against what it meant to do.
+printf '{"cases": [%s], "reps": %s}\n' "$(printf '"%s",' "${CASES[@]}" | sed 's/,$//')" "$REPS" > "$OUT/schedule.json"
+
 for rep in $(seq 1 "$REPS"); do
   for case in "${CASES[@]}"; do
     run_case "$case" "$rep"
