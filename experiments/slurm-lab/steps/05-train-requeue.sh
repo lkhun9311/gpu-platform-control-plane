@@ -29,12 +29,11 @@ none_rc=$?
 
 none_out=$OUT
 # Exit 1 alone is not the mutation caught: a scorer that crashed on missing logs, or a requeued attempt that never
-# ran, exits 1 too. The control counts only when the scorer finished, and failed because both ranks restarted from
-# zero and neither resumed.
+# ran, exits 1 too. The control counts only when the scorer finished and failed for the restart from zero alone: its
+# failures are exactly the five that say no rank resumed, and every rank still trained to the end. Counting only those
+# five lines once let a control whose restarted attempt also crashed pass as caught (astra review r4, 2026-11-07).
 none_caught=0
-if ! grep -q '^Traceback' "$none_out" && grep -qE '^[0-9]+ passed, [1-9][0-9]* failed$' "$none_out" &&
-	[ "$(grep -cE '^FAIL: attempt [1-9][0-9]* rank [01] did not restart from zero' "$none_out")" = 2 ] &&
-	[ "$(grep -cE '^FAIL: attempt [1-9][0-9]* rank [01] has one resume record with from_step > 0' "$none_out")" = 2 ]; then
+if ! grep -q '^Traceback' "$none_out" && grep -qx 'load-none control caught for the expected reason only: yes' "$none_out"; then
 	none_caught=1
 fi
 

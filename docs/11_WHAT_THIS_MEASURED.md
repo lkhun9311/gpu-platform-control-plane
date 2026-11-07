@@ -200,7 +200,7 @@ mechanism at every load.
 **The mechanism, which is the actual finding.** A contending prompt occupies the engine for about **1.03 s**.
 The premium tail budget is a tenth of that. When the latency target is shorter than one contending request's
 service time, **neither of the two sharing modes measured here reaches it at the loads measured here**,
-because the unit that must be divided is not the card — it is a request already in flight.
+because the unit that must be divided is not the card — it is a request already in flight. *(2026-11-07: "the loads measured here" means the loads where it was missed, the frozen load and 4.61 req/s; the paragraph above shows time-slicing meeting it below that.)*
 
 The bound matters and this sentence did not carry it. It read "no sharing mode reaches it", which is a
 statement about every sharing mode at every load, and the paragraphs above it say the opposite: the same
@@ -474,7 +474,7 @@ Each discarded attempt also cost 149 to 150 s of the placed rank's container tim
 
 - **Not `Running` while stranded, in either setting.** The CR was never `Running` with a rank unplaced, read after every single watch event and not only from polls: `Admitted` for the whole 600 s in `off-never`, and no entry into `Running` across the three admissions of `ready-timeout-never`. Where the squatter left, `Running` came once, 0.4 to 0.5 s after the second rank was Ready, and `admitToRunningSeconds` read 301.5 and 301.8 s, where the old rule had recorded 0.9 to 1.9 s. The hold did not change: 599 s to the window's end without the timeout, and Finding 10's admissions at 0, 150 and 330 s with it.
 - **The device now comes back with the quota.** In all sixteen evictions the placed rank ended with exit 143, not 137, with its container's `finishedAt` 1.1 s before the recorded release, against 28.9 s after it before the trainer's fix. (`finishedAt` is whole seconds, so this says the rank stopped within the same second, not before it was asked to.)
-- **A second tenant met no gap.** In both witness runs the witness was admitted 1.0 s after the first release and its Pod was scheduled 0.03 s after that, 2 s after the evicted rank had stopped.
+- **A second tenant met no gap.** In both witness runs the witness was admitted 1.0 s after the first release and its Pod was scheduled 0.03 s after that, 2 s after the evicted rank had stopped. *(2026-11-07: the witness ran in the same namespace and queue, `partial` and `gpu-partial`, as the job, so "tenant" here means a second workload; it shows quota reused in one queue, not across tenants.)*
 
 Two observations no prediction covered: the witness, holding one of the two devices for its 60 s, pushed the job's second admission from 150 to 186 s; and every finishing run read `Admitted` for 1.0 to 2.0 s before `Succeeded`, while its ranks were still running but no longer Ready, which is the cautious side of the error this finding measured.
 
