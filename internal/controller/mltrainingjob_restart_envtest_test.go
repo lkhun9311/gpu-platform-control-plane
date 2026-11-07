@@ -1003,6 +1003,37 @@ var _ = Describe("MLTrainingJob restart", func() {
 		}, 10*time.Second, 50*time.Millisecond).Should(BeTrue())
 	})
 
+	// Mutation that turns this red: return from a Succeeded job without the release pass.
+	It("keeps releasing a finished job's held ranks once their node is back", func() {
+		key := create(1)
+		untilActive(key)
+		mltj := getMLTJ(key)
+		name := node(corev1.ConditionFalse)
+		p := heldRankPod(mltj, 1, name)
+		var cur corev1.Pod
+		Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(p), &cur)).To(Succeed())
+		cur.Status.Phase = corev1.PodSucceeded
+		Expect(k8sClient.Status().Update(ctx, &cur)).To(Succeed())
+		mltj = getMLTJ(key)
+		mltj.Status.Phase = mltjPhaseSucceeded
+		Expect(k8sClient.Status().Update(ctx, mltj)).To(Succeed())
+
+		res, err := reconciler().Reconcile(ctx, reconcile.Request{NamespacedName: key})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(res.RequeueAfter).To(Equal(stopPoll), "a finished job with a held rank stopped polling")
+		Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(p), &cur)).To(Succeed())
+		Expect(cur.Finalizers).To(ContainElement(finRankStopped), "a rank on a NotReady node was released")
+
+		By("the node answers again")
+		var n corev1.Node
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name}, &n)).To(Succeed())
+		n.Status.Conditions = []corev1.NodeCondition{{Type: corev1.NodeReady, Status: corev1.ConditionTrue, LastHeartbeatTime: metav1.Now()}}
+		Expect(k8sClient.Status().Update(ctx, &n)).To(Succeed())
+		step(key)
+		Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(p), &cur)).To(Succeed())
+		Expect(cur.Finalizers).NotTo(ContainElement(finRankStopped), "the finished job never released its rank")
+	})
+
 	It("does not take a Failed phase on a NotReady node for a stop before the node is fenced", func() {
 		key := create(1)
 		job := untilActive(key)

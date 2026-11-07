@@ -103,12 +103,14 @@ func restartable(mltj *platformv1.MLTrainingJob) bool {
 func (r *MLTrainingJobReconciler) reconcileRestartable(ctx context.Context, mltj *platformv1.MLTrainingJob) (ctrl.Result, error) {
 	// Terminal only when the work finished or the budget is spent; a Failed written by markFailed for a conflict is
 	// meant to recover once the conflict clears, as it does on the ordinary path.
+	// A terminal job still releases its held ranks: a rank whose node went NotReady before its terminal phase was read is
+	// held until the node is back or fenced, and nothing but this pass would ever release it.
 	if mltj.Status.Phase == mltjPhaseSucceeded {
-		return ctrl.Result{}, nil
+		return r.releaseFinished(ctx, mltj)
 	}
 	if c := meta.FindStatusCondition(mltj.Status.Conditions, mltjCondSynced); mltj.Status.Phase == mltjPhaseFailed &&
 		c != nil && c.Reason == mltjReasonRestartsExhausted {
-		return ctrl.Result{}, nil
+		return r.releaseFinished(ctx, mltj)
 	}
 	if len(mltj.Status.Attempts) == 0 {
 		// The first attempt is recorded before its Job exists; that record is what freezes the template fields.
@@ -355,6 +357,38 @@ func (r *MLTrainingJobReconciler) releaseRank(ctx context.Context, p *corev1.Pod
 		return fmt.Errorf("release rank pod %s/%s: %w", p.Namespace, p.Name, err)
 	}
 	return nil
+}
+
+// releaseFinished releases the held ranks of a job that will start no further attempt, and polls while any stay held.
+// No next attempt needs a node recorded, so only the stop itself is asked for.
+func (r *MLTrainingJobReconciler) releaseFinished(ctx context.Context, mltj *platformv1.MLTrainingJob) (ctrl.Result, error) {
+	var pods corev1.PodList
+	if err := r.apiReader().List(ctx, &pods, client.InNamespace(mltj.Namespace),
+		client.MatchingLabels{mltjUIDLabel: string(mltj.UID)}); err != nil {
+		return ctrl.Result{}, fmt.Errorf("list pods of finished mltrainingjob %s/%s: %w", mltj.Namespace, mltj.Name, err)
+	}
+	nodes, err := r.nodesOf(ctx, pods.Items)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	held := false
+	for i := range pods.Items {
+		p := &pods.Items[i]
+		if !controllerutil.ContainsFinalizer(p, finRankStopped) {
+			continue
+		}
+		if !rankStopped(mltj, p, false, nodes[p.Spec.NodeName]) {
+			held = true
+			continue
+		}
+		if err := r.releaseRank(ctx, p); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+	if held {
+		return ctrl.Result{RequeueAfter: stopPoll}, nil
+	}
+	return ctrl.Result{}, nil
 }
 
 // nodesOf reads, past the cache, the Node each of pods is bound to; a name that is gone maps to nil.
