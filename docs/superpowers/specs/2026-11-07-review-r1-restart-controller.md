@@ -36,7 +36,7 @@ Deleting a restartable MLTrainingJob is held the same way (finding 1 of area r2 
   One mutation of the first set (dropping the "node recorded" condition on release) stayed green until a unit test reached it; `discover` always records before it releases, so only `TestARankIsReleasedOnlyOnceItsNodeIsRecorded` can see the rule.
   One mutation first read red because it did not compile; it was rewritten to keep the build and then went red on two specs.
 - The Job controller copying a template's finalizers onto its Pods, the kubelet reporting a deleted Pod `Failed` while the finalizer holds it, and a foreground-deleted Job waiting for it were each checked on a throwaway kind v1.31 cluster before the design relied on them.
-- `hack/restart-lifecycle-kind.sh` runs `a` and `c` at commit `f9939cc6` (before the second table's fixes): run `a` (reference, no-rng-control, dcgm-1, terminate-wait-1) ACCEPTED all four through the kind shim, with the unmodified EKS scorer voiding them for gloo on CPU as in every earlier rehearsal; run `c` is recorded below when it ends.
+- `hack/restart-lifecycle-kind.sh` runs `a` and `c` at commit `f9939cc6` (before the second table's fixes): run `a` (reference, no-rng-control, dcgm-1, terminate-wait-1) ACCEPTED all four through the kind shim, with the unmodified EKS scorer voiding them for gloo on CPU as in every earlier rehearsal; run `c` ACCEPTED reference and rank-kill-1 and recorded rank-kill-2 NOTRUN behind the rehearsal's own stuck finalizer, as it is meant to; `check_lifecycle.py` and the outcome check found 0 FAIL each (`hack/restart-lifecycle-kind-20261106T233833Z/README.md`).
 
 ## What it changes for published results
 
