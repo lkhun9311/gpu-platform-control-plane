@@ -1,0 +1,17 @@
+allocated 64 MiB
+allocated 128 MiB
+allocated 192 MiB
+allocated 256 MiB
+allocated 320 MiB
+allocated 384 MiB
+allocated 448 MiB
+srun_rc=1
+job_cgroup=/system.slice/gpu2_slurmstepd.scope/job_21
+job_memory_events low 0
+job_memory_events high 0
+job_memory_events max 38
+job_memory_events oom 1
+job_memory_events oom_kill 1
+job_memory_events oom_group_kill 0
+job_memory_events sock_throttled 0
+job_memory_max=536870912

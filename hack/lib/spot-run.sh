@@ -216,15 +216,24 @@ spot_subnet_in_zone() {
 # Omitted rather than defaulted when absent, because a token this function invented would be a different
 # token on every call and would therefore protect nothing, while looking like it did. The three runners that
 # do not pass one keep exactly their present behaviour, and their goldens say so.
+#
+# The optional eleventh argument is a security group id. Omitted, the instance takes the VPC's default group, as every
+# runner before hack/slurm-ec2-session.sh did; that session passes its own because its instances talk to each other and
+# the default group in gpu-lab admits all TCP from anywhere.
 spot_launch() {
   local region="$1" ami="$2" instance_type="$3" subnet="$4" profile="$5" \
-        max_price="$6" volume_gb="$7" user_data_file="$8" tags="$9" client_token="${10:-}"
-  local token_arg=() why
+        max_price="$6" volume_gb="$7" user_data_file="$8" tags="$9" client_token="${10:-}" security_group="${11:-}" \
+        cpu_credits="${12:-}"
+  local token_arg=() sg_arg=() credit_arg=() why
   if ! why=$(spot_deadline_refusal "$region" "$tags"); then
     printf 'refusing the launch: %s\n' "$why" >&2
     return 1
   fi
+  # The optional twelfth argument sets a burstable instance's credit mode; "standard" keeps a T3 from billing surplus
+  # credits beyond its instance price, which Unlimited, T3's default, does.
+  [ -n "$cpu_credits" ] && credit_arg=(--credit-specification "CpuCredits=$cpu_credits")
   [ -n "$client_token" ] && token_arg=(--client-token "$client_token")
+  [ -n "$security_group" ] && sg_arg=(--security-group-ids "$security_group")
   # ${arr[@]+"${arr[@]}"} rather than "${arr[@]}": callers run under `set -u`, where an empty array is an
   # unbound variable on bash before 4.4. The command stays in one piece rather than being duplicated into a
   # with-token and without-token copy, because a second copy is a second place to forget to fix.
@@ -237,6 +246,8 @@ spot_launch() {
     --user-data "file://$user_data_file" \
     --tag-specifications "$tags" \
     ${token_arg[@]+"${token_arg[@]}"} \
+    ${sg_arg[@]+"${sg_arg[@]}"} \
+    ${credit_arg[@]+"${credit_arg[@]}"} \
     --query 'Instances[0].InstanceId' --output text
 }
 

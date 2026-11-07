@@ -1,0 +1,40 @@
+id: ‘slurm’: no such user
+id: ‘munge’: no such user
+id: ‘tenant’: no such user
+Synchronizing state of mariadb.service with SysV service script with /usr/lib/systemd/systemd-sysv-install.
+Executing: /usr/lib/systemd/systemd-sysv-install enable mariadb
+sacctmgr: error: slurm_persist_conn_open_without_init: failed to open persistent connection to host:head:6819: Connection refused
+sacctmgr: error: Sending PersistInit msg: Connection refused
+ Adding Cluster(s)
+  Name           = ec2lab
+ Adding Account(s)
+  acct-a
+  acct-b
+ Settings
+  Description     = Account Name
+  Organization    = Parent/Account Name
+ Associations =
+  C = ec2lab     A = acct-a              
+  C = ec2lab     A = acct-b              
+ Adding User(s)
+  tenant
+ Settings
+  Default Account = acct-b
+ Associations =
+  C = ec2lab     A = acct-b               U = tenant   
+ Associations =
+  C = ec2lab     A = acct-a               U = tenant   
+ Adding QOS(s)
+  qone
+ Settings
+  Description    = qone
+  MaxJobsPerUser = 1
+ Modified user associations...
+  C = ec2lab     A = acct-a               U = tenant   
+  C = ec2lab     A = acct-b               U = tenant   
+sacctmgr: error: slurmdb_format_tres_str: no TRES known by type gres/gpu
+ Unknown option: GrpTRES=gres/gpu=1
+ Use keyword 'where' to modify condition
+ Modified account associations...
+  C = ec2lab     A = acct-a of root
+Slurmctld(primary) at head is UP

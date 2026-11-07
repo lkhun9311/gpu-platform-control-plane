@@ -1,0 +1,7 @@
+t3.medium	ap-northeast-2c	0.017400
+t3.medium	ap-northeast-2b	0.016700
+g5.xlarge	ap-northeast-2d	0.574100
+g5.xlarge	ap-northeast-2c	0.592200
+g5.xlarge	ap-northeast-2a	0.580400
+t3.medium	ap-northeast-2a	0.017600
+t3.medium	ap-northeast-2d	0.015000

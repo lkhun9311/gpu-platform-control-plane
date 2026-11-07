@@ -122,3 +122,9 @@ container_memory_usage_bytes	a cAdvisor metric named in experiments/linux-diagno
 oom_score_adj	a Linux per-process OOM setting named by the linux diagnosis design and write-up as not covered
 NVRM	the NVIDIA kernel driver's log prefix, named by the linux diagnosis design as what a journal filter would match
 TaskOOM	a containerd event named by the linux diagnosis design as the source of the OOMKilled reason
+ConstrainCores	a Slurm cgroup.conf parameter, set in hack/slurm-ec2/cgroup.conf and named by the slurm on ec2 registration
+ConstrainDevices	a Slurm cgroup.conf parameter, set in hack/slurm-ec2/cgroup.conf and named by the slurm on ec2 registration
+ConstrainRAMSpace	a Slurm cgroup.conf parameter, set in hack/slurm-ec2/cgroup.conf and named by the slurm on ec2 registration
+ConstrainSwapSpace	a Slurm cgroup.conf parameter, set in hack/slurm-ec2/cgroup.conf and named by the slurm on ec2 registration
+InvalidGroup.NotFound	an EC2 error code the slurm on ec2 registration quotes as the read-back that the t3 rehearsal's security group was gone
+InvalidVolume.NotFound	an EC2 error code the slurm on ec2 registration quotes as the read-back that the t3 rehearsal's root volumes were gone

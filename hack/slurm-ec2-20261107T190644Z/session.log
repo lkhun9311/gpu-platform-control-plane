@@ -1,0 +1,68 @@
+== the Slurm on EC2 session, slurm-ec2-2026-11-07, from 236779da7dd923dd22456951c7b82f2a0277e077, into hack/slurm-ec2-20261107T190644Z
+== AMIs: head ami-05b2d28c4a1614552 (ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-amd64-server-20261023), workers ami-040ebe879ae70cc30 (Deep Learning Base OSS Nvidia Driver GPU AMI (Ubuntu 24.04) 20261106)
+== zones with both types under their caps: ap-northeast-2a ap-northeast-2c ap-northeast-2d
+== zones whose subnet reaches the internet: ap-northeast-2a ap-northeast-2c ap-northeast-2d
+== G and VT Spot vCPUs: 48.0, 48 free
+== the termination sweeper: Active, ENABLED rate(5 minutes), runs [1.0	1.0	1.0	1.0	1.0	1.0], errors [0.0	0.0	0.0	0.0	0.0	0.0] in the last 30 minutes
+== credentials expire in 363 minutes
+== launching t3.medium (max $0.06/h) and two g5.xlarge (max $0.80/h) Spot, study-deadline 2026-11-07T20:58:27Z -- they bill from here
+== launched head i-0c18d4dc0885e9ac1, gpu1 i-0a42e619a551a1cd5, gpu2 i-04f78c68d8d0dc89d in ap-northeast-2a
+== T0 2026-11-07T19:09:03Z; the sweeper's deadline moved to 2026-11-07T20:43:33Z
+== the wait ended with status 0 ()
+== terminating i-0c18d4dc0885e9ac1
+== i-0c18d4dc0885e9ac1 is shutting-down
+== i-0c18d4dc0885e9ac1 is terminated
+== terminating i-0a42e619a551a1cd5
+== i-0a42e619a551a1cd5 is shutting-down
+== i-0a42e619a551a1cd5 is shutting-down
+== i-0a42e619a551a1cd5 is shutting-down
+== i-0a42e619a551a1cd5 is shutting-down
+== i-0a42e619a551a1cd5 is shutting-down
+== i-0a42e619a551a1cd5 is shutting-down
+== i-0a42e619a551a1cd5 is shutting-down
+== i-0a42e619a551a1cd5 is shutting-down
+== i-0a42e619a551a1cd5 is shutting-down
+== i-0a42e619a551a1cd5 is shutting-down
+== i-0a42e619a551a1cd5 is shutting-down
+== i-0a42e619a551a1cd5 is shutting-down
+== i-0a42e619a551a1cd5 is shutting-down
+== i-0a42e619a551a1cd5 is shutting-down
+== i-0a42e619a551a1cd5 is shutting-down
+== i-0a42e619a551a1cd5 is shutting-down
+== i-0a42e619a551a1cd5 is shutting-down
+== i-0a42e619a551a1cd5 is shutting-down
+== i-0a42e619a551a1cd5 is shutting-down
+== i-0a42e619a551a1cd5 is shutting-down
+== i-0a42e619a551a1cd5 is shutting-down
+== i-0a42e619a551a1cd5 is shutting-down
+== i-0a42e619a551a1cd5 is shutting-down
+== i-0a42e619a551a1cd5 is shutting-down
+== i-0a42e619a551a1cd5 is shutting-down
+== i-0a42e619a551a1cd5 is shutting-down
+== i-0a42e619a551a1cd5 is shutting-down
+== i-0a42e619a551a1cd5 is shutting-down
+== i-0a42e619a551a1cd5 is shutting-down
+== i-0a42e619a551a1cd5 is shutting-down
+== i-0a42e619a551a1cd5 is shutting-down
+== i-0a42e619a551a1cd5 is shutting-down
+== i-0a42e619a551a1cd5 is shutting-down
+== i-0a42e619a551a1cd5 is shutting-down
+== i-0a42e619a551a1cd5 is shutting-down
+== i-0a42e619a551a1cd5 is shutting-down
+== i-0a42e619a551a1cd5 is shutting-down
+== i-0a42e619a551a1cd5 is shutting-down
+== i-0a42e619a551a1cd5 is shutting-down
+== i-0a42e619a551a1cd5 is shutting-down
+== i-0a42e619a551a1cd5 is shutting-down
+== i-0a42e619a551a1cd5 is shutting-down
+== i-0a42e619a551a1cd5 is shutting-down
+== i-0a42e619a551a1cd5 is shutting-down
+== i-0a42e619a551a1cd5 is shutting-down
+== i-0a42e619a551a1cd5 is shutting-down
+== i-0a42e619a551a1cd5 is shutting-down
+== i-0a42e619a551a1cd5 is shutting-down
+== i-0a42e619a551a1cd5 is terminated
+== terminating i-04f78c68d8d0dc89d
+== i-04f78c68d8d0dc89d is shutting-down
+== i-04f78c68d8d0dc89d is terminated
+== the verdict is in hack/slurm-ec2-20261107T190644Z/verdict.txt

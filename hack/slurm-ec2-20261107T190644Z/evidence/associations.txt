@@ -1,0 +1,6 @@
+root|||normal
+root|root||normal
+acct-a||gres/gpu=1|normal
+acct-a|tenant||normal,qone
+acct-b|||normal
+acct-b|tenant||normal,qone
